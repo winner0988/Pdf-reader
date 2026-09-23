@@ -2304,8 +2304,11 @@ dependencies = [
 name = "pdf_worker"
 version = "0.1.0"
 dependencies = [
+ "ipc_contract",
  "mupdf",
  "thiserror 2.0.20",
+ "windows-sys 0.61.2",
+ "worker_host",
 ]
 
 [[package]]
@@ -2694,6 +2697,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "sandbox"
+version = "0.1.0"
+dependencies = [
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4527,6 +4537,15 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
+
+[[package]]
+name = "worker_host"
+version = "0.1.0"
+dependencies = [
+ "ipc_contract",
+ "sandbox",
+ "thiserror 2.0.20",
+]
 
 [[package]]
 name = "writeable"
