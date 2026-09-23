@@ -8,7 +8,7 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Duration;
 
-use sandbox::{SandboxConfig, Sandboxed};
+use sandbox::{SandboxConfig, Sandboxed, delete_app_container_profile};
 
 fn probe() -> &'static Path {
     Path::new(env!("CARGO_BIN_EXE_sandbox_probe"))
@@ -77,12 +77,23 @@ fn win32k_is_unavailable() {
 
 #[test]
 fn environment_is_minimal() {
+    // In the AppContainer, Windows adds LOCALAPPDATA, TEMP and TMP pointing into the
+    // container's own folder.
     let output = run_default(&["env"]);
     let names: Vec<&str> = output.trim_start_matches("env:").split(',').collect();
     assert!(
-        names.iter().all(|name| *name == "SYSTEMROOT"),
+        names
+            .iter()
+            .all(|name| ["SYSTEMROOT", "LOCALAPPDATA", "TEMP", "TMP"].contains(name)),
         "unexpected environment: {output}"
     );
+    let temp = run_default(&["var", "TEMP"]).to_ascii_lowercase();
+    assert!(
+        temp.contains(r"\packages\pdfreader.worker\"),
+        "TEMP is not the container's folder: {temp}"
+    );
+    let (output, _) = run(&["env"], &without_app_container(), None);
+    assert_eq!(output, "env:SYSTEMROOT");
     assert!(
         std::env::vars_os().count() > 1,
         "the test process itself has more variables"
@@ -138,11 +149,83 @@ fn read_handle_in_child(file: &std::fs::File) -> String {
 fn memory_limit_is_enforced() {
     let config = SandboxConfig {
         memory_limit_bytes: 64 * 1024 * 1024,
+        ..SandboxConfig::default()
     };
     let (output, _) = run(&["alloc", "256"], &config, None);
     assert_eq!(output, "alloc-failed");
     let (output, _) = run(&["alloc", "16"], &config, None);
     assert_eq!(output, "allocated:16");
+}
+
+/// The same probe without the AppContainer, to show the AppContainer tests are meaningful.
+fn without_app_container() -> SandboxConfig {
+    SandboxConfig {
+        app_container: None,
+        ..SandboxConfig::default()
+    }
+}
+
+#[test]
+fn network_is_blocked_even_to_localhost() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port().to_string();
+
+    assert_eq!(run_default(&["connect", &port]), "blocked");
+    // Control: Low integrity alone does not stop networking; the AppContainer does.
+    assert_eq!(
+        run(&["connect", &port], &without_app_container(), None).0,
+        "connected"
+    );
+}
+
+#[test]
+fn cannot_read_user_files() {
+    let path = std::env::temp_dir().join(format!("sandbox-secret-{}.txt", std::process::id()));
+    std::fs::write(&path, "private").unwrap();
+    let target = path.to_str().unwrap();
+
+    assert_eq!(run_default(&["read", target]), "denied");
+    // Control: Low integrity alone can still read the user's files.
+    assert_eq!(
+        run(&["read", target], &without_app_container(), None).0,
+        "read:7"
+    );
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn system_fonts_are_readable() {
+    // MuPDF will need them for non-embedded fonts (#31); they grant app packages read access.
+    let font = Path::new(&std::env::var_os("SystemRoot").unwrap()).join(r"Fonts\arial.ttf");
+    let size = std::fs::metadata(&font).expect("arial.ttf exists").len();
+    assert_eq!(
+        run_default(&["read", font.to_str().unwrap()]),
+        format!("read:{size}")
+    );
+}
+
+#[test]
+fn app_container_profile_can_be_deleted() {
+    const NAME: &str = "PdfReader.SandboxTest";
+    let config = SandboxConfig {
+        app_container: Some(NAME.to_owned()),
+        ..SandboxConfig::default()
+    };
+    let folder = run(&["var", "LOCALAPPDATA"], &config, None).0;
+    let folder = Path::new(&folder);
+    assert!(
+        folder
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .contains("pdfreader.sandboxtest"),
+        "{folder:?}"
+    );
+    assert!(folder.exists());
+
+    delete_app_container_profile(NAME).unwrap();
+    assert!(!folder.exists());
+    // Deleting a profile that no longer exists is not an error.
+    delete_app_container_profile(NAME).unwrap();
 }
 
 #[test]

@@ -104,6 +104,22 @@ mod probe {
                 names.sort();
                 format!("env:{}", names.join(","))
             }
+            Some("var") => std::env::var_os(&args[1])
+                .map_or("unset".into(), |value| value.to_string_lossy().into_owned()),
+            Some("connect") => {
+                let address = format!("127.0.0.1:{}", args[1]);
+                match std::net::TcpStream::connect_timeout(
+                    &address.parse().unwrap(),
+                    std::time::Duration::from_secs(3),
+                ) {
+                    Ok(_) => "connected".into(),
+                    Err(_) => "blocked".into(),
+                }
+            }
+            Some("read") => match std::fs::read(&args[1]) {
+                Ok(content) => format!("read:{}", content.len()),
+                Err(_) => "denied".into(),
+            },
             Some("sleep") => {
                 std::thread::sleep(std::time::Duration::from_secs(60));
                 "woke".into()

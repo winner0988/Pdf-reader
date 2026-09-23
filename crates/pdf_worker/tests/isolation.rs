@@ -93,11 +93,11 @@ fn worker_errors_are_reported_not_fatal() {
 }
 
 #[test]
-fn worker_runs_at_low_integrity() {
+fn worker_runs_at_low_integrity_in_an_app_container() {
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::Security::{
         GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, TOKEN_MANDATORY_LABEL,
-        TOKEN_QUERY, TokenIntegrityLevel,
+        TOKEN_QUERY, TokenIntegrityLevel, TokenIsAppContainer,
     };
     use windows_sys::Win32::System::Threading::{
         OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -109,7 +109,7 @@ fn worker_runs_at_low_integrity() {
     let pid = host.worker_id().unwrap();
 
     // SAFETY: plain Win32 queries; every handle is closed and the buffer outlives its use.
-    let rid = unsafe {
+    let (rid, is_app_container) = unsafe {
         let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
         assert!(!process.is_null());
         let mut token = std::ptr::null_mut();
@@ -129,11 +129,23 @@ fn worker_runs_at_low_integrity() {
         let label = &*(buffer.as_ptr() as *const TOKEN_MANDATORY_LABEL);
         let count = *GetSidSubAuthorityCount(label.Label.Sid);
         let rid = *GetSidSubAuthority(label.Label.Sid, u32::from(count) - 1);
+        let mut is_app_container = 0u32;
+        assert_ne!(
+            GetTokenInformation(
+                token,
+                TokenIsAppContainer,
+                (&raw mut is_app_container).cast(),
+                size_of::<u32>() as u32,
+                &mut length
+            ),
+            0
+        );
         CloseHandle(token);
         CloseHandle(process);
-        rid
+        (rid, is_app_container)
     };
     assert_eq!(rid, 0x1000, "SECURITY_MANDATORY_LOW_RID");
+    assert_eq!(is_app_container, 1, "worker must run in an AppContainer");
     std::fs::remove_file(path).ok();
 }
 

@@ -7,10 +7,9 @@
 //!   check is removed, and it cannot write to anything the user owns;
 //! - has exploit mitigations on: win32k system calls disabled, child processes blocked, no
 //!   dynamic code, no images from remote shares or low-integrity locations, strict handle checks;
+//! - runs in an AppContainer with no capabilities: no network (not even localhost) and no
+//!   access to files that do not explicitly grant it, which includes all of the user's files;
 //! - inherits only its three pipe handles and a minimal environment.
-//!
-//! Network access is not blocked at the OS level yet (that needs an AppContainer, see the
-//! sandbox document); the worker simply links no networking code.
 
 #![cfg(windows)]
 // Win32 FFI. Every unsafe block states why it is sound.
@@ -24,19 +23,28 @@ use std::os::windows::ffi::OsStrExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::Path;
 use std::ptr::{null, null_mut};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{
     DuplicateHandle, HANDLE, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, LocalFree,
     SetHandleInformation, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
-use windows_sys::Win32::Security::Authorization::ConvertStringSidToSidW;
-use windows_sys::Win32::Security::{
-    CreateRestrictedToken, DISABLE_MAX_PRIVILEGE, GetLengthSid, SID_AND_ATTRIBUTES,
-    SetTokenInformation, TOKEN_ADJUST_DEFAULT, TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE,
-    TOKEN_MANDATORY_LABEL, TOKEN_QUERY, TokenIntegrityLevel,
+use windows_sys::Win32::Security::Authorization::{
+    ConvertStringSidToSidW, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW,
+    NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, SetEntriesInAclW, SetNamedSecurityInfoW, TRUSTEE_IS_SID,
+    TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
 };
-use windows_sys::Win32::Storage::FileSystem::FILE_GENERIC_READ;
+use windows_sys::Win32::Security::Isolation::{
+    CreateAppContainerProfile, DeleteAppContainerProfile, DeriveAppContainerSidFromAppContainerName,
+};
+use windows_sys::Win32::Security::{
+    CreateRestrictedToken, DACL_SECURITY_INFORMATION, DISABLE_MAX_PRIVILEGE, FreeSid, GetLengthSid,
+    NO_INHERITANCE, PSID, SECURITY_CAPABILITIES, SID_AND_ATTRIBUTES, SetTokenInformation,
+    TOKEN_ADJUST_DEFAULT, TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_MANDATORY_LABEL,
+    TOKEN_QUERY, TokenIntegrityLevel,
+};
+use windows_sys::Win32::Storage::FileSystem::{FILE_GENERIC_EXECUTE, FILE_GENERIC_READ};
 use windows_sys::Win32::System::JobObjects::{
     CreateJobObjectW, JOB_OBJECT_LIMIT_ACTIVE_PROCESS, JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_LIMIT_PROCESS_MEMORY,
@@ -54,8 +62,9 @@ use windows_sys::Win32::System::Threading::{
     DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess,
     GetExitCodeProcess, InitializeProcThreadAttributeList, OpenProcessToken,
     PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-    PROC_THREAD_ATTRIBUTE_JOB_LIST, PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY, PROCESS_INFORMATION,
-    STARTF_USESTDHANDLES, STARTUPINFOEXW, UpdateProcThreadAttribute, WaitForSingleObject,
+    PROC_THREAD_ATTRIBUTE_JOB_LIST, PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY,
+    PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, PROCESS_INFORMATION, STARTF_USESTDHANDLES,
+    STARTUPINFOEXW, UpdateProcThreadAttribute, WaitForSingleObject,
 };
 
 /// `PROCESS_CREATION_CHILD_PROCESS_RESTRICTED` (winbase.h).
@@ -77,18 +86,50 @@ const MITIGATIONS: u64 = (1 << 8) // force relocate images (mandatory ASLR)
 /// Low mandatory integrity level.
 const LOW_INTEGRITY_SID: &str = "S-1-16-4096";
 
+/// AppContainer profile the worker runs in.
+pub const WORKER_APP_CONTAINER: &str = "PdfReader.Worker";
+
+/// `HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)`.
+const HRESULT_ALREADY_EXISTS: i32 = 0x8007_00B7_u32 as i32;
+
+/// `ERROR_ACCESS_DENIED`.
+const ERROR_ACCESS_DENIED: u32 = 5;
+
+/// Serializes AppContainer profile creation and ACL updates (concurrent profile creation for
+/// the same name fails).
+static APP_CONTAINER_SETUP: Mutex<()> = Mutex::new(());
+
 #[derive(Debug, Clone)]
 pub struct SandboxConfig {
     /// Memory the process may commit; allocations beyond it fail.
     pub memory_limit_bytes: usize,
+    /// AppContainer profile to run in, with no capabilities: no network at all and no access
+    /// to the user's files. The profile is created on first use and reused afterwards.
+    pub app_container: Option<String>,
 }
 
 impl Default for SandboxConfig {
     fn default() -> Self {
         Self {
             memory_limit_bytes: 2 * 1024 * 1024 * 1024,
+            app_container: Some(WORKER_APP_CONTAINER.to_owned()),
         }
     }
+}
+
+/// Removes an AppContainer profile: its registry entries and its folder under
+/// `%LOCALAPPDATA%\Packages`. For the uninstaller; succeeds if the profile does not exist.
+pub fn delete_app_container_profile(name: &str) -> io::Result<()> {
+    let _guard = APP_CONTAINER_SETUP
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let name = wide(OsStr::new(name));
+    // SAFETY: NUL-terminated name.
+    let result = unsafe { DeleteAppContainerProfile(name.as_ptr()) };
+    if result < 0 {
+        return Err(io::Error::from_raw_os_error(result));
+    }
+    Ok(())
 }
 
 /// A running sandboxed process. Dropping it kills the process (the job closes).
@@ -131,12 +172,32 @@ impl Sandboxed {
         let jobs: [HANDLE; 1] = [job.as_raw_handle()];
         let mitigations: u64 = MITIGATIONS;
         let child_policy: u32 = CHILD_PROCESS_RESTRICTED;
+        let container = match config.app_container.as_deref() {
+            Some(name) => {
+                let _guard = APP_CONTAINER_SETUP
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner());
+                let container = AppContainerSid::obtain(name)?;
+                container.grant_read_execute(program)?;
+                Some(container)
+            }
+            None => None,
+        };
+        let capabilities = container.as_ref().map(|container| SECURITY_CAPABILITIES {
+            AppContainerSid: container.0,
+            Capabilities: null_mut(),
+            CapabilityCount: 0, // none: in particular no internetClient / privateNetwork
+            Reserved: 0,
+        });
 
-        let mut attributes = AttributeList::new(4)?;
+        let mut attributes = AttributeList::new(if capabilities.is_some() { 5 } else { 4 })?;
         attributes.set(PROC_THREAD_ATTRIBUTE_HANDLE_LIST, &inherited)?;
         attributes.set(PROC_THREAD_ATTRIBUTE_JOB_LIST, &jobs)?;
         attributes.set(PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY, &mitigations)?;
         attributes.set(PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY, &child_policy)?;
+        if let Some(capabilities) = &capabilities {
+            attributes.set(PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, capabilities)?;
+        }
 
         // SAFETY: STARTUPINFOEXW is plain data; all-zero is a valid initial value.
         let mut startup: STARTUPINFOEXW = unsafe { zeroed() };
@@ -149,8 +210,10 @@ impl Sandboxed {
 
         let application = wide(program.as_os_str());
         let mut command_line = command_line(program.as_os_str(), args);
-        let environment = minimal_environment();
-        let current_dir = program.parent().map(|dir| wide(dir.as_os_str()));
+        let environment = minimal_environment(container.is_some());
+        // System32: always readable, also from an AppContainer; the worker uses no relative paths.
+        let current_dir = std::env::var_os("SystemRoot")
+            .map(|root| wide(Path::new(&root).join("System32").as_os_str()));
 
         // SAFETY: PROCESS_INFORMATION is plain data; all-zero is a valid initial value.
         let mut info: PROCESS_INFORMATION = unsafe { zeroed() };
@@ -354,6 +417,114 @@ fn restricted_low_integrity_token() -> io::Result<OwnedHandle> {
     Ok(restricted)
 }
 
+/// The SID of an AppContainer profile; the profile is created if it does not exist yet.
+struct AppContainerSid(PSID);
+
+impl AppContainerSid {
+    fn obtain(name: &str) -> io::Result<Self> {
+        let name = wide(OsStr::new(name));
+        let mut sid: PSID = null_mut();
+        // SAFETY: NUL-terminated strings; no capabilities are requested.
+        let created = unsafe {
+            CreateAppContainerProfile(
+                name.as_ptr(),
+                name.as_ptr(),
+                name.as_ptr(),
+                null(),
+                0,
+                &mut sid,
+            )
+        };
+        if created == HRESULT_ALREADY_EXISTS {
+            // SAFETY: NUL-terminated name and a valid out-pointer.
+            let derived =
+                unsafe { DeriveAppContainerSidFromAppContainerName(name.as_ptr(), &mut sid) };
+            if derived < 0 {
+                return Err(io::Error::from_raw_os_error(derived));
+            }
+        } else if created < 0 {
+            return Err(io::Error::from_raw_os_error(created));
+        }
+        Ok(Self(sid))
+    }
+}
+
+impl AppContainerSid {
+    /// Lets the container read and execute `program`. AppContainers cannot open files that do
+    /// not grant them access, and user-owned folders (a checkout, a per-user install) do not.
+    /// Only the executable itself is opened up, never its folder. If the ACL cannot be changed
+    /// (e.g. under Program Files, which already grants app packages access), this is a no-op.
+    fn grant_read_execute(&self, program: &Path) -> io::Result<()> {
+        let path = wide(program.as_os_str());
+        let mut dacl = null_mut();
+        let mut descriptor = null_mut();
+        // SAFETY: NUL-terminated path; on success `descriptor` owns the memory `dacl` points into
+        // and is released with LocalFree below.
+        let status = unsafe {
+            GetNamedSecurityInfoW(
+                path.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                null_mut(),
+                null_mut(),
+                &mut dacl,
+                null_mut(),
+                &mut descriptor,
+            )
+        };
+        if status != 0 {
+            return Err(io::Error::from_raw_os_error(status as i32));
+        }
+        let entry = EXPLICIT_ACCESS_W {
+            grfAccessPermissions: FILE_GENERIC_READ | FILE_GENERIC_EXECUTE,
+            grfAccessMode: GRANT_ACCESS,
+            grfInheritance: NO_INHERITANCE,
+            Trustee: TRUSTEE_W {
+                pMultipleTrustee: null_mut(),
+                MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
+                TrusteeForm: TRUSTEE_IS_SID,
+                TrusteeType: TRUSTEE_IS_UNKNOWN,
+                ptstrName: self.0.cast(),
+            },
+        };
+        let mut updated = null_mut();
+        // SAFETY: `dacl` is valid while `descriptor` is alive; GRANT_ACCESS merges with an
+        // existing entry for the same SID instead of duplicating it.
+        let status = unsafe { SetEntriesInAclW(1, &entry, dacl, &mut updated) };
+        // SAFETY: `descriptor` came from GetNamedSecurityInfoW and is not used after this.
+        unsafe { LocalFree(descriptor) };
+        if status != 0 {
+            return Err(io::Error::from_raw_os_error(status as i32));
+        }
+        // SAFETY: NUL-terminated path and a valid ACL from SetEntriesInAclW.
+        let status = unsafe {
+            SetNamedSecurityInfoW(
+                path.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                null_mut(),
+                null_mut(),
+                updated,
+                null(),
+            )
+        };
+        // SAFETY: `updated` came from SetEntriesInAclW and is not used after this.
+        unsafe { LocalFree(updated.cast()) };
+        match status {
+            0 | ERROR_ACCESS_DENIED => Ok(()),
+            other => Err(io::Error::from_raw_os_error(other as i32)),
+        }
+    }
+}
+
+impl Drop for AppContainerSid {
+    fn drop(&mut self) {
+        // SAFETY: the SID came from CreateAppContainerProfile or
+        // DeriveAppContainerSidFromAppContainerName, both documented to be released by FreeSid.
+        unsafe { FreeSid(self.0) };
+    }
+}
+
 /// PROC_THREAD_ATTRIBUTE_LIST storage (pointer-aligned).
 struct AttributeList {
     buffer: Vec<usize>,
@@ -405,13 +576,24 @@ fn wide(value: &OsStr) -> Vec<u16> {
     value.encode_wide().chain(Some(0)).collect()
 }
 
-/// Only what Windows itself needs to load system DLLs; nothing from the user's environment.
-fn minimal_environment() -> Vec<u16> {
+/// Only what Windows itself needs to start the process and load system DLLs; nothing else
+/// from the user's environment.
+fn minimal_environment(app_container: bool) -> Vec<u16> {
     let mut block = Vec::new();
-    if let Some(root) = std::env::var_os("SystemRoot") {
-        block.extend(OsStr::new("SystemRoot=").encode_wide());
-        block.extend(root.encode_wide());
-        block.push(0);
+    // CreateProcess needs LOCALAPPDATA for an AppContainer (it fails with ERROR_ENVVAR_NOT_FOUND
+    // otherwise) and rewrites it, adding TEMP and TMP, to the container's private folder.
+    let names: &[&str] = if app_container {
+        &["SystemRoot", "LOCALAPPDATA"]
+    } else {
+        &["SystemRoot"]
+    };
+    for name in names {
+        if let Some(value) = std::env::var_os(name) {
+            block.extend(OsStr::new(name).encode_wide());
+            block.push(u16::from(b'='));
+            block.extend(value.encode_wide());
+            block.push(0);
+        }
     }
     block.push(0);
     if block.len() == 1 {
@@ -491,13 +673,21 @@ mod tests {
     }
 
     #[test]
-    fn environment_contains_only_system_root() {
-        let block = String::from_utf16(&minimal_environment()).unwrap();
-        let entries: Vec<&str> = block
-            .split('\0')
-            .filter(|entry| !entry.is_empty())
-            .collect();
-        assert!(entries.iter().all(|entry| entry.starts_with("SystemRoot=")));
-        assert!(block.ends_with("\0\0"));
+    fn environment_contains_only_what_windows_needs() {
+        let names = |app_container| {
+            let block = String::from_utf16(&minimal_environment(app_container)).unwrap();
+            assert!(block.ends_with("\0\0"));
+            block
+                .split('\0')
+                .filter(|entry| !entry.is_empty())
+                .map(|entry| entry.split('=').next().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert!(names(false).iter().all(|name| name == "SystemRoot"));
+        assert!(
+            names(true)
+                .iter()
+                .all(|name| name == "SystemRoot" || name == "LOCALAPPDATA")
+        );
     }
 }
