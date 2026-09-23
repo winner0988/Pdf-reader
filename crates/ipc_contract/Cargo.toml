@@ -1,0 +1,10 @@
+[package]
+name = "ipc_contract"
+description = "Message types shared by the frontend, main process and pdf_worker (single source of truth)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

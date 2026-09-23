@@ -1,5 +1,5 @@
-# Cargo and npm entries are added by MVP-01 once manifests exist
-# (Dependabot reports errors for ecosystems without a manifest).
+# Every dependency PR needs the needs-security-review label (AGENTS.md).
+# Minor/patch bumps are grouped per ecosystem to keep review load manageable.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -11,3 +11,33 @@ updates:
     labels:
       - dependencies
       - needs-security-review
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build(deps)"
+    labels:
+      - dependencies
+      - needs-security-review
+    groups:
+      cargo-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build(deps)"
+    labels:
+      - dependencies
+      - needs-security-review
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      # typescript-eslint 8.x supports TypeScript < 6.1; revisit when it supports TypeScript 7.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]

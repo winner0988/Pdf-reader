@@ -1,0 +1,4 @@
+# Single-package repo; this file only holds pnpm settings.
+
+# Supply-chain hardening: never install a version published less than 24 hours ago.
+minimumReleaseAge: 1440
