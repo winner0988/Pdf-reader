@@ -52,8 +52,8 @@ use windows_sys::Win32::System::JobObjects::{
     JOB_OBJECT_UILIMIT_GLOBALATOMS, JOB_OBJECT_UILIMIT_HANDLES, JOB_OBJECT_UILIMIT_READCLIPBOARD,
     JOB_OBJECT_UILIMIT_SYSTEMPARAMETERS, JOB_OBJECT_UILIMIT_WRITECLIPBOARD,
     JOBOBJECT_BASIC_UI_RESTRICTIONS, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-    JobObjectBasicUIRestrictions, JobObjectExtendedLimitInformation, SetInformationJobObject,
-    TerminateJobObject,
+    JobObjectBasicUIRestrictions, JobObjectExtendedLimitInformation, QueryInformationJobObject,
+    SetInformationJobObject, TerminateJobObject,
 };
 use windows_sys::Win32::System::Pipes::CreatePipe;
 use windows_sys::Win32::System::SystemServices::SE_GROUP_INTEGRITY;
@@ -253,6 +253,23 @@ impl Sandboxed {
 
     pub fn id(&self) -> u32 {
         self.pid
+    }
+
+    /// The most memory the process has committed so far, as tracked by its job.
+    pub fn peak_memory_bytes(&self) -> io::Result<usize> {
+        // SAFETY: plain data; all-zero is valid.
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { zeroed() };
+        // SAFETY: the job handle is valid; the pointer and size describe `info`.
+        check(unsafe {
+            QueryInformationJobObject(
+                self.job.as_raw_handle(),
+                JobObjectExtendedLimitInformation,
+                (&raw mut info).cast(),
+                size_of_val(&info) as u32,
+                null_mut(),
+            )
+        })?;
+        Ok(info.PeakProcessMemoryUsed)
     }
 
     /// Duplicates `file` into the child with read-only access and returns the handle value as

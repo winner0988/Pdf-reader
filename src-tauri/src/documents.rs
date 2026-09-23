@@ -5,8 +5,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use ipc_contract::limits::MAX_DISPLAY_NAME_BYTES;
-use ipc_contract::types::{DocumentId, DocumentInfo, ErrorCode, IpcError, OpenEvent};
-use ipc_contract::validate::Validate;
+use ipc_contract::raster::{encode_raster, fit_scale};
+use ipc_contract::types::{
+    DocumentId, DocumentInfo, ErrorCode, IpcError, OpenEvent, RenderPageArgs,
+};
+use ipc_contract::validate::{Validate, check_page_index};
 use ipc_contract::worker::{WorkerRequest, WorkerResponse};
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
@@ -20,9 +23,21 @@ pub struct Documents {
 struct Inner {
     host: WorkerHost,
     /// The window shows at most one document.
-    current: Option<DocumentInfo>,
+    current: Option<OpenDocument>,
     /// Most recent open attempt, for "retry". Never leaves the main process.
     last_path: Option<PathBuf>,
+}
+
+struct OpenDocument {
+    /// What the frontend knows; `info.doc` stays the same for the document's lifetime.
+    info: DocumentInfo,
+    path: PathBuf,
+    /// The document's id in the current worker process. Differs from `info.doc` after the
+    /// worker was restarted and the file reopened.
+    worker_doc: DocumentId,
+    /// The worker that had the document open crashed, timed out or misbehaved; the file is
+    /// reopened in a fresh worker before the next render.
+    lost: bool,
 }
 
 impl Documents {
@@ -48,9 +63,9 @@ impl Documents {
         inner.last_path = Some(path.to_owned());
         if let Some(previous) = inner.current.take() {
             // Best effort: if the worker is gone, so is the document.
-            let _ = inner
-                .host
-                .notify(&WorkerRequest::Close { doc: previous.doc });
+            let _ = inner.host.notify(&WorkerRequest::Close {
+                doc: previous.worker_doc,
+            });
         }
 
         let result = check_file(path).and_then(|()| {
@@ -59,7 +74,12 @@ impl Documents {
         });
         match result {
             Ok(info) => {
-                inner.current = Some(info.clone());
+                inner.current = Some(OpenDocument {
+                    info: info.clone(),
+                    path: path.to_owned(),
+                    worker_doc: info.doc,
+                    lost: false,
+                });
                 report(OpenEvent::Opened {
                     info,
                     ignored_files,
@@ -85,30 +105,118 @@ impl Documents {
     /// Closes `doc` and releases it in the worker.
     pub fn close(&self, doc: DocumentId) -> Result<(), IpcError> {
         let mut inner = self.lock();
-        match &inner.current {
-            Some(current) if current.doc == doc => {
-                inner.current = None;
-                inner
-                    .host
-                    .notify(&WorkerRequest::Close { doc })
-                    .map_err(|error| ipc_error(&error))
-            }
-            _ => Err(IpcError {
-                code: ErrorCode::UnknownDocument,
-                message: "no such open document".to_owned(),
-            }),
+        match inner.current.take_if(|current| current.info.doc == doc) {
+            Some(current) => inner
+                .host
+                .notify(&WorkerRequest::Close {
+                    doc: current.worker_doc,
+                })
+                .map_err(|error| ipc_error(&error)),
+            None => Err(unknown_document()),
         }
     }
 
     /// The open document, if any (sent again when the frontend reloads).
     pub fn current(&self) -> Option<DocumentInfo> {
-        self.lock().current.clone()
+        self.lock()
+            .current
+            .as_ref()
+            .map(|current| current.info.clone())
+    }
+
+    /// Renders a page and returns it in the `render_page` wire format (ipc_contract::raster).
+    /// Pages too large for the raster limits come back at a lower resolution. If the worker
+    /// dies while rendering, this page fails; the next render reopens the file in a new worker.
+    pub fn render(&self, args: &RenderPageArgs) -> Result<Vec<u8>, IpcError> {
+        args.validate().map_err(invalid_argument)?;
+        let mut inner = self.lock();
+        let Inner { host, current, .. } = &mut *inner;
+        let current = current
+            .as_mut()
+            .filter(|current| current.info.doc == args.doc)
+            .ok_or_else(unknown_document)?;
+        let page_count = u32::try_from(current.info.pages.len()).unwrap_or(u32::MAX);
+        check_page_index(args.page_index, page_count).map_err(invalid_argument)?;
+        let page = current.info.pages[args.page_index as usize];
+        let scale = fit_scale(page, args.scale).map_err(|error| IpcError {
+            code: ErrorCode::LimitExceeded,
+            message: format!("page too large to render: {error}"),
+        })?;
+
+        if current.lost {
+            current.worker_doc = reopen(host, current)?;
+            current.lost = false;
+        }
+        let rendered = host.request(|request| WorkerRequest::Render {
+            request,
+            doc: current.worker_doc,
+            page_index: args.page_index,
+            scale,
+            rotation: args.rotation,
+        });
+        match rendered {
+            Ok(WorkerResponse::Rendered { raster, .. }) => {
+                encode_raster(&raster).map_err(|error| IpcError {
+                    code: ErrorCode::ProtocolViolation,
+                    message: format!("invalid raster: {error}"),
+                })
+            }
+            Ok(_) => Err(IpcError {
+                code: ErrorCode::ProtocolViolation,
+                message: "unexpected response to Render".to_owned(),
+            }),
+            Err(error) => {
+                if matches!(
+                    error,
+                    HostError::Crashed | HostError::Timeout | HostError::ProtocolViolation(_)
+                ) {
+                    current.lost = true;
+                }
+                Err(ipc_error(&error))
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn worker_id(&self) -> Option<u32> {
+        self.lock().host.worker_id()
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.inner
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
+    }
+}
+
+/// Opens the current document's file again in a fresh worker; it must still have the same pages.
+fn reopen(host: &mut WorkerHost, current: &OpenDocument) -> Result<DocumentId, IpcError> {
+    check_file(&current.path)?;
+    let (doc, response) = host
+        .open(&current.path)
+        .map_err(|error| ipc_error(&error))?;
+    let reopened = document_info(doc, current.info.display_name.clone(), response)?;
+    if reopened.pages != current.info.pages {
+        let _ = host.notify(&WorkerRequest::Close { doc });
+        return Err(IpcError {
+            code: ErrorCode::Corrupted,
+            message: "the file changed on disk after it was opened".to_owned(),
+        });
+    }
+    Ok(doc)
+}
+
+fn unknown_document() -> IpcError {
+    IpcError {
+        code: ErrorCode::UnknownDocument,
+        message: "no such open document".to_owned(),
+    }
+}
+
+fn invalid_argument(error: impl std::fmt::Display) -> IpcError {
+    IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
     }
 }
 
@@ -316,5 +424,245 @@ mod tests {
                 ..
             }
         ));
+    }
+}
+
+/// Rendering through the real sandboxed worker. `cargo test --workspace` builds
+/// `pdf_worker.exe` into the same target directory before running these.
+#[cfg(test)]
+mod with_worker {
+    use ipc_contract::limits::MAX_RASTER_PIXELS;
+    use ipc_contract::types::{RequestId, Rotation};
+
+    use super::*;
+
+    fn worker() -> PathBuf {
+        let target = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .and_then(Path::parent)
+            .unwrap()
+            .to_owned();
+        let worker = target.join(worker_host::WORKER_FILE_NAME);
+        assert!(
+            worker.is_file(),
+            "build the worker first: cargo build -p pdf_worker (cargo test --workspace does)"
+        );
+        worker
+    }
+
+    /// A PDF with `pages` Letter pages and a correct xref table.
+    fn letter_pdf(pages: usize) -> Vec<u8> {
+        let kids: Vec<String> = (0..pages)
+            .map(|index| format!("{} 0 R", 3 + index))
+            .collect();
+        let mut objects = vec![
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            format!(
+                "<< /Type /Pages /Kids [{}] /Count {pages} >>",
+                kids.join(" ")
+            ),
+        ];
+        objects.extend(
+            (0..pages)
+                .map(|_| "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_owned()),
+        );
+        let mut out = b"%PDF-1.7
+"
+        .to_vec();
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(
+                format!(
+                    "{} 0 obj
+{body}
+endobj
+",
+                    index + 1
+                )
+                .as_bytes(),
+            );
+        }
+        let xref = out.len();
+        out.extend_from_slice(
+            format!(
+                "xref
+0 {}
+0000000000 65535 f 
+",
+                objects.len() + 1
+            )
+            .as_bytes(),
+        );
+        for offset in offsets {
+            out.extend_from_slice(
+                format!(
+                    "{offset:010} 00000 n 
+"
+                )
+                .as_bytes(),
+            );
+        }
+        out.extend_from_slice(
+            format!(
+                "trailer
+<< /Size {} /Root 1 0 R >>
+startxref
+{xref}
+%%EOF
+",
+                objects.len() + 1
+            )
+            .as_bytes(),
+        );
+        out
+    }
+
+    fn open(name: &str, pages: usize) -> (Documents, DocumentInfo, PathBuf) {
+        let path = std::env::temp_dir().join(format!("mvp07-{}-{name}.pdf", std::process::id()));
+        std::fs::write(&path, letter_pdf(pages)).unwrap();
+        let documents = Documents::new(worker());
+        let opened = std::cell::RefCell::new(None);
+        documents.open(&path, 0, &|event| {
+            if let OpenEvent::Opened { info, .. } = event {
+                *opened.borrow_mut() = Some(info);
+            }
+        });
+        let info = opened.into_inner().expect("opened");
+        (documents, info, path)
+    }
+
+    fn args(doc: DocumentId, page_index: u32, scale: f32, rotation: Rotation) -> RenderPageArgs {
+        RenderPageArgs {
+            request: RequestId(1),
+            doc,
+            page_index,
+            scale,
+            rotation,
+        }
+    }
+
+    /// Width and height from the 16-byte raster header.
+    fn size(bytes: &[u8]) -> (u32, u32) {
+        assert_eq!(&bytes[..4], b"PDFR");
+        let read = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+        let (width, height) = (read(8), read(12));
+        assert_eq!(bytes.len(), 16 + width as usize * height as usize * 4);
+        (width, height)
+    }
+
+    #[test]
+    fn renders_pages_at_the_requested_scale_and_rotation() {
+        let (documents, info, path) = open("render", 3);
+        assert_eq!(info.pages.len(), 3);
+
+        let page = documents
+            .render(&args(info.doc, 2, 1.0, Rotation::None))
+            .unwrap();
+        assert_eq!(size(&page), (612, 792));
+        let rotated = documents
+            .render(&args(info.doc, 0, 0.5, Rotation::Cw90))
+            .unwrap();
+        assert_eq!(size(&rotated), (396, 306));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn oversized_renders_come_back_at_a_lower_resolution() {
+        let (documents, info, path) = open("huge", 1);
+        let (width, height) = size(
+            &documents
+                .render(&args(info.doc, 0, 8.0, Rotation::None))
+                .unwrap(),
+        );
+        assert!(u64::from(width) * u64::from(height) <= u64::from(MAX_RASTER_PIXELS));
+        assert!(
+            width > 612 * 5,
+            "still as sharp as the limit allows: {width}"
+        );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn bad_requests_are_rejected_before_reaching_the_worker() {
+        let (documents, info, path) = open("bad", 2);
+        let code = |args| documents.render(&args).unwrap_err().code;
+        assert_eq!(
+            code(args(info.doc, 2, 1.0, Rotation::None)),
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(
+            code(args(info.doc, 0, 0.0, Rotation::None)),
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(
+            code(args(info.doc, 0, f32::NAN, Rotation::None)),
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(
+            code(args(DocumentId(info.doc.0 + 1), 0, 1.0, Rotation::None)),
+            ErrorCode::UnknownDocument
+        );
+        documents.close(info.doc).unwrap();
+        assert_eq!(
+            code(args(info.doc, 0, 1.0, Rotation::None)),
+            ErrorCode::UnknownDocument
+        );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_crashed_worker_fails_one_render_then_the_document_is_reopened() {
+        let (documents, info, path) = open("crash", 2);
+        documents
+            .render(&args(info.doc, 0, 0.5, Rotation::None))
+            .unwrap();
+
+        let pid = documents.worker_id().expect("worker running");
+        let killed = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output()
+            .unwrap();
+        assert!(killed.status.success());
+
+        let error = documents
+            .render(&args(info.doc, 1, 0.5, Rotation::None))
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::WorkerCrashed);
+        // Same document id for the frontend; a new worker behind it.
+        let page = documents
+            .render(&args(info.doc, 1, 0.5, Rotation::None))
+            .unwrap();
+        assert_eq!(size(&page), (306, 396));
+        assert_ne!(documents.worker_id(), Some(pid));
+        assert_eq!(documents.current().unwrap().doc, info.doc);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_file_changed_on_disk_is_not_silently_swapped_in() {
+        let (documents, info, path) = open("changed", 2);
+        let pid = documents.worker_id().expect("worker running");
+        std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            documents
+                .render(&args(info.doc, 0, 0.5, Rotation::None))
+                .unwrap_err()
+                .code,
+            ErrorCode::WorkerCrashed
+        );
+        std::fs::write(&path, letter_pdf(5)).unwrap();
+        assert_eq!(
+            documents
+                .render(&args(info.doc, 0, 0.5, Rotation::None))
+                .unwrap_err()
+                .code,
+            ErrorCode::Corrupted
+        );
+        std::fs::remove_file(path).ok();
     }
 }

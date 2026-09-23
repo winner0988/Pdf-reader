@@ -18,6 +18,8 @@ ipc_contract = { path = "../crates/ipc_contract" }
 worker_host = { path = "../crates/worker_host" }
 # Native open dialog, called from Rust only (no dialog plugin is exposed to the WebView).
 rfd = { version = "0.17.2", default-features = false }
+# Already used by Tauri; only the oneshot channel of the render queue is needed here.
+tokio = { version = "1", default-features = false, features = ["sync"] }
 
 [dev-dependencies]
 serde_json = "1"

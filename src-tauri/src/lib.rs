@@ -9,12 +9,14 @@ mod cli;
 mod commands;
 mod documents;
 mod events;
+mod render;
 mod strings;
 
 use tauri::Manager;
 
 use crate::documents::Documents;
 use crate::events::OpenEvents;
+use crate::render::{DEFAULT_CACHE_BYTES, Renderer};
 
 pub fn run() {
     let worker =
@@ -36,9 +38,15 @@ pub fn run() {
             commands::open_document_dialog,
             commands::retry_open,
             commands::close_document,
+            commands::render_page,
+            commands::cancel,
         ])
         .on_window_event(commands::on_window_event)
         .setup(move |app| {
+            let handle = app.app_handle().clone();
+            app.manage(Renderer::start(DEFAULT_CACHE_BYTES, move |args| {
+                handle.state::<Documents>().render(args)
+            }));
             if let Some(path) = launch_document {
                 commands::open_in_background(app.app_handle().clone(), path, 0);
             }

@@ -91,8 +91,8 @@ Job Object、restricted token 與 Low 完整性本身**不會**阻止連網；�
 |---|---|---|
 | AppContainer 仍可讀取授權給「所有應用程式套件」的位置（System32、Program Files、字型等） | worker 被攻破時可讀取系統檔與已安裝的程式，但讀不到使用者資料 | 評估 LPAC（需確認 MuPDF 與系統 DLL 在 LPAC 下可用）|
 | 啟動時會修改 worker 執行檔的 ACL（僅新增容器 SID 的讀取＋執行） | 只發生在使用者擁有的位置（開發時的 `target\`）；安裝版在 Program Files，一般權限改不了也不需要改 | — |
-| 整份文件讀入記憶體 | 大檔需要兩倍記憶體（worker 與 MuPDF 各一份） | MVP-07 評估串流讀取 |
-| 請求逐一處理，`Cancel` 目前不會中斷進行中的渲染 | 取消只能等當前請求結束或逾時 | MVP-07 |
+| 整份文件讀入記憶體 | 大檔需要較多記憶體：197 MB 的檔案，worker 峰值約 490 MB（[rendering.md](rendering.md#量測)），仍在預算內 | 需要時再評估串流讀取 |
+| 請求逐一處理，`Cancel` 目前不會中斷進行中的渲染 | 主行程已能取消佇列中的請求（[rendering.md](rendering.md#取消)）；進行中的一頁仍會渲染完（通常 < 100 ms） | 之後以 MuPDF cookie 中斷 |
 
 ## 在本機執行測試
 

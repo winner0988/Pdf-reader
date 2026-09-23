@@ -47,7 +47,7 @@ flowchart LR
 | `get_outline` | `{ doc: DocumentId }` | `OutlineResult` | 否 | MVP-09 |
 | `get_page_links` | `{ doc: DocumentId, pageIndex: number }` | `PageLink[]` | 否 | MVP-12 |
 | `search` | `{ args: SearchArgs, onEvent: Channel<SearchEvent> }` | 無（結果走頻道） | 是 | MVP-10 |
-| `cancel` | `{ request: RequestId }` | 無 | — | MVP-07 |
+| `cancel` | `{ request: RequestId }` | 無（只取消還在佇列中的請求，見 [rendering.md](rendering.md#取消)） | — | MVP-07 |
 
 ### 開檔頻道（主行程 → 前端）
 
@@ -88,6 +88,8 @@ flowchart LR
 | 8 | 4 | 寬（u32 LE，像素） |
 | 12 | 4 | 高（u32 LE，像素） |
 | 16 | 寬 × 高 × 4 | 像素，由上到下逐列，無 padding |
+
+主行程會把縮放比例降到點陣圖上限以內（`fit_scale`），所以回傳的寬高可能小於「頁面尺寸 × 縮放」；前端一律以回傳的寬高解碼，再縮放到頁面的顯示尺寸。排程、取消與快取見 [rendering.md](rendering.md)。
 
 選擇理由：
 

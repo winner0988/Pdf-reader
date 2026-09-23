@@ -134,6 +134,13 @@ impl WorkerHost {
             .map(|connection| connection.process.id())
     }
 
+    /// Peak committed memory of the running worker, if any (for measurements).
+    pub fn worker_peak_memory(&self) -> Option<usize> {
+        self.connection
+            .as_ref()
+            .and_then(|connection| connection.process.peak_memory_bytes().ok())
+    }
+
     /// Stops the worker. The next request starts a new one; open documents are lost.
     pub fn stop(&mut self) {
         self.connection = None;

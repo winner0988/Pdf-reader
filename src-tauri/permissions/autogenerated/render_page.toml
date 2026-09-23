@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-render-page"
+description = "Enables the render_page command without any pre-configured scope."
+commands.allow = ["render_page"]
+
+[[permission]]
+identifier = "deny-render-page"
+description = "Denies the render_page command without any pre-configured scope."
+commands.deny = ["render_page"]

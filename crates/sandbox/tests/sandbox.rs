@@ -194,6 +194,19 @@ fn cannot_read_user_files() {
 }
 
 #[test]
+fn peak_memory_is_reported() {
+    let child = Sandboxed::spawn(
+        probe(),
+        &[OsStr::new("alloc"), OsStr::new("64")],
+        &SandboxConfig::default(),
+    )
+    .unwrap();
+    child.wait_timeout(Duration::from_secs(10)).unwrap();
+    let peak = child.peak_memory_bytes().unwrap();
+    assert!(peak >= 64 * 1024 * 1024, "{peak}");
+}
+
+#[test]
 fn system_fonts_are_readable() {
     // MuPDF will need them for non-embedded fonts (#31); they grant app packages read access.
     let font = Path::new(&std::env::var_os("SystemRoot").unwrap()).join(r"Fonts\arial.ttf");

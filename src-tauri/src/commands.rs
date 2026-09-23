@@ -5,12 +5,13 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use ipc_contract::types::{DocumentId, ErrorCode, IpcError, OpenEvent};
-use tauri::ipc::Channel;
+use ipc_contract::types::{DocumentId, ErrorCode, IpcError, OpenEvent, RenderPageArgs, RequestId};
+use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
 
 use crate::documents::Documents;
 use crate::events::OpenEvents;
+use crate::render::Renderer;
 use crate::strings;
 
 /// Registers the frontend's channel for [`OpenEvent`]s.
@@ -66,6 +67,7 @@ pub async fn retry_open(app: AppHandle) -> Result<(), IpcError> {
     blocking(move || {
         let events = app.state::<OpenEvents>();
         app.state::<Documents>().retry(&|event| events.send(event));
+        forget_other_documents(&app);
         Ok(())
     })
     .await
@@ -73,7 +75,27 @@ pub async fn retry_open(app: AppHandle) -> Result<(), IpcError> {
 
 #[tauri::command]
 pub async fn close_document(app: AppHandle, doc: DocumentId) -> Result<(), IpcError> {
-    blocking(move || app.state::<Documents>().close(doc)).await
+    blocking(move || {
+        let result = app.state::<Documents>().close(doc);
+        forget_other_documents(&app);
+        result
+    })
+    .await
+}
+
+/// Renders a page. The answer is raw bytes (an `ArrayBuffer` in the page) in the layout of
+/// `ipc_contract::raster`; see docs/architecture/ipc-contract.md.
+#[tauri::command]
+pub async fn render_page(app: AppHandle, args: RenderPageArgs) -> Result<Response, IpcError> {
+    let bytes = app.state::<Renderer>().render(args).await?;
+    Ok(Response::new(Vec::clone(&bytes)))
+}
+
+/// Cancels a queued `render_page` request; it then fails with `cancelled`.
+#[tauri::command]
+pub async fn cancel(app: AppHandle, request: RequestId) -> Result<(), IpcError> {
+    app.state::<Renderer>().cancel(request);
+    Ok(())
 }
 
 /// Drag and drop onto the window: only the first file is opened.
@@ -103,7 +125,14 @@ pub fn open_in_background(app: AppHandle, path: PathBuf, ignored_files: u32) {
         let events = app.state::<OpenEvents>();
         app.state::<Documents>()
             .open(&path, ignored_files, &|event| events.send(event));
+        forget_other_documents(&app);
     });
+}
+
+/// Frees cached pages and queued renders of documents that are no longer open.
+fn forget_other_documents(app: &AppHandle) {
+    let current = app.state::<Documents>().current().map(|info| info.doc);
+    app.state::<Renderer>().retain_document(current);
 }
 
 /// Runs `work` on the blocking pool: worker requests can take seconds.

@@ -21,7 +21,7 @@ pub struct PageSize {
 }
 
 /// Clockwise view rotation. Only affects rendering; the file is never modified.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum Rotation {
     #[default]

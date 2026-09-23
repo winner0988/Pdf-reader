@@ -14,6 +14,7 @@
 //! The frontend decoder lives in `src/ipc/raster.ts` and reads these constants from the
 //! generated bindings.
 
+use crate::limits::{MAX_RASTER_PIXELS, MAX_RASTER_SIDE_PX, MIN_RENDER_SCALE};
 use crate::types::{PageSize, Rotation};
 use crate::validate::{Validate, ValidationError, check_raster_size, check_scale};
 use crate::worker::Raster;
@@ -61,10 +62,32 @@ pub fn raster_dimensions(
     Ok((width, height))
 }
 
+/// The largest scale not above `scale` at which `page` fits the raster limits
+/// (`MAX_RASTER_SIDE_PX`, `MAX_RASTER_PIXELS`). Pages too large to render at the requested
+/// resolution are rendered at a lower one instead; the frontend stretches the result to the
+/// page's display size. Fails only if even `MIN_RENDER_SCALE` does not fit.
+pub fn fit_scale(page: PageSize, scale: f32) -> Result<f32, ValidationError> {
+    page.validate()?;
+    check_scale(scale)?;
+    let (width, height) = (f64::from(page.width_pt), f64::from(page.height_pt));
+    let by_side = f64::from(MAX_RASTER_SIDE_PX) / width.max(height);
+    let by_area = (f64::from(MAX_RASTER_PIXELS) / (width * height)).sqrt();
+    let mut fitted = f64::from(scale).min(by_side).min(by_area) as f32;
+    // Pixel sizes are rounded up, so the analytic bound can still be a pixel too large.
+    while raster_dimensions(page, fitted, Rotation::None).is_err() {
+        fitted *= 0.999;
+        if fitted < MIN_RENDER_SCALE {
+            return Err(ValidationError::OutOfRange {
+                what: "raster size",
+            });
+        }
+    }
+    Ok(fitted)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::limits::MAX_RASTER_SIDE_PX;
 
     /// Shared test vector: `src/ipc/raster.test.ts` decodes exactly these bytes.
     const TEST_VECTOR: [u8; 24] = [
@@ -136,5 +159,56 @@ mod tests {
         // 612 * 8 x 792 * 8 = 4896 x 6336 > 4096 x 4096 pixels.
         assert!(raster_dimensions(letter, 8.0, Rotation::None).is_err());
         assert!(raster_dimensions(letter, f32::NAN, Rotation::None).is_err());
+    }
+
+    #[test]
+    fn fit_scale_keeps_scales_that_fit() {
+        let letter = PageSize {
+            width_pt: 612.0,
+            height_pt: 792.0,
+        };
+        assert_eq!(fit_scale(letter, 1.5).unwrap(), 1.5);
+        assert_eq!(
+            fit_scale(letter, MIN_RENDER_SCALE).unwrap(),
+            MIN_RENDER_SCALE
+        );
+    }
+
+    #[test]
+    fn fit_scale_lowers_the_resolution_of_large_renders() {
+        let letter = PageSize {
+            width_pt: 612.0,
+            height_pt: 792.0,
+        };
+        // 8x would be 4896 x 6336 = 31 M pixels; the area limit is 16.7 M.
+        let fitted = fit_scale(letter, 8.0).unwrap();
+        assert!(fitted < 8.0 && fitted > 5.5, "{fitted}");
+        for rotation in [Rotation::None, Rotation::Cw90] {
+            let (width, height) = raster_dimensions(letter, fitted, rotation).unwrap();
+            assert!(u64::from(width) * u64::from(height) <= u64::from(MAX_RASTER_PIXELS));
+        }
+
+        // A long strip is limited by its longest side instead.
+        let strip = PageSize {
+            width_pt: 20_000.0,
+            height_pt: 100.0,
+        };
+        let fitted = fit_scale(strip, 2.0).unwrap();
+        let (width, _) = raster_dimensions(strip, fitted, Rotation::None).unwrap();
+        assert!(width <= MAX_RASTER_SIDE_PX && width > MAX_RASTER_SIDE_PX - 16);
+    }
+
+    #[test]
+    fn fit_scale_rejects_pages_that_cannot_fit_at_all() {
+        let enormous = PageSize {
+            width_pt: 1_000_000.0,
+            height_pt: 1_000_000.0,
+        };
+        assert!(fit_scale(enormous, 1.0).is_err());
+        let letter = PageSize {
+            width_pt: 612.0,
+            height_pt: 792.0,
+        };
+        assert!(fit_scale(letter, f32::INFINITY).is_err());
     }
 }
