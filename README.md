@@ -12,6 +12,7 @@
 - [pnpm](https://pnpm.io/) 12：`npm install -g pnpm@12`
 - [Rust](https://rustup.rs/)（rustup；實際版本由 `rust-toolchain.toml` 自動安裝）
 - Visual Studio Build Tools，勾選「使用 C++ 的桌面開發」
+- [LLVM](https://llvm.org/)：`winget install LLVM.LLVM`（建置 MuPDF 需要，安裝在預設位置即可；見 [docs/architecture/mupdf-binding.md](docs/architecture/mupdf-binding.md)）
 - Microsoft Edge WebView2（Windows 11 已內建）
 
 ```bash
