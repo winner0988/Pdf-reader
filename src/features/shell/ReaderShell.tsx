@@ -20,6 +20,8 @@ type ReaderShellProps = {
   onOpen: () => void;
   onClose?: () => void;
   onRetry?: () => void;
+  /** Files are being dragged over the window: the canvas shows it is a drop target. */
+  dropActive?: boolean;
   version?: string;
   /** Delay before the loading state appears; tests pass 0. */
   loadingDelayMs?: number;
@@ -51,6 +53,7 @@ export function ReaderShell({
   onOpen,
   onClose,
   onRetry,
+  dropActive = false,
   version = "0.1.0",
   loadingDelayMs,
 }: ReaderShellProps) {
@@ -144,8 +147,9 @@ export function ReaderShell({
             <main
               aria-label={strings.canvas.label}
               data-region="canvas"
+              data-drop-active={dropActive || undefined}
               tabIndex={-1}
-              className="relative min-h-0 flex-1 overflow-auto bg-muted outline-none"
+              className="relative min-h-0 flex-1 overflow-auto bg-muted outline-none data-drop-active:outline-2 data-drop-active:-outline-offset-4 data-drop-active:outline-primary data-drop-active:outline-dashed"
               onPointerDown={() => {
                 // A floating sidebar closes when the user goes back to the page.
                 if (sidebarOpen && isNarrowWindow()) setSidebarOpen(false);

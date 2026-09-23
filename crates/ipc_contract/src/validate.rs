@@ -10,8 +10,8 @@ use thiserror::Error;
 
 use crate::limits::*;
 use crate::types::{
-    DocumentInfo, FindingKind, IpcError, LinkTarget, OutlineItem, OutlineResult, PageLink,
-    PageSize, Point, Quad, Rect, RenderPageArgs, SearchArgs, SearchHit, SecurityReport,
+    DocumentInfo, FindingKind, IpcError, LinkTarget, OpenEvent, OutlineItem, OutlineResult,
+    PageLink, PageSize, Point, Quad, Rect, RenderPageArgs, SearchArgs, SearchHit, SecurityReport,
 };
 use crate::worker::{OpenedDocument, Raster, WorkerError, WorkerResponse};
 
@@ -349,16 +349,21 @@ impl Validate for SearchArgs {
     }
 }
 
+/// A display name is a bare file name; anything that looks like a path is a bug.
+fn check_display_name(name: &str) -> Result<(), ValidationError> {
+    check_text("display name", name, MAX_DISPLAY_NAME_BYTES)?;
+    if name.contains(['/', '\\', ':']) {
+        return Err(ValidationError::Invalid {
+            what: "display name",
+            reason: "contains path separators",
+        });
+    }
+    Ok(())
+}
+
 impl Validate for DocumentInfo {
     fn validate(&self) -> Result<(), ValidationError> {
-        check_text("display name", &self.display_name, MAX_DISPLAY_NAME_BYTES)?;
-        // A display name is a bare file name; anything that looks like a path is a bug.
-        if self.display_name.contains(['/', '\\', ':']) {
-            return Err(ValidationError::Invalid {
-                what: "display name",
-                reason: "contains path separators",
-            });
-        }
+        check_display_name(&self.display_name)?;
         check_count("pages", self.pages.len(), MAX_PAGE_COUNT)?;
         self.pages.iter().try_for_each(PageSize::validate)?;
         self.security.validate()
@@ -368,6 +373,24 @@ impl Validate for DocumentInfo {
 impl Validate for IpcError {
     fn validate(&self) -> Result<(), ValidationError> {
         check_text("error message", &self.message, MAX_ERROR_MESSAGE_BYTES)
+    }
+}
+
+impl Validate for OpenEvent {
+    fn validate(&self) -> Result<(), ValidationError> {
+        match self {
+            OpenEvent::DragHover { .. } => Ok(()),
+            OpenEvent::Opening { display_name } => check_display_name(display_name),
+            OpenEvent::Opened { info, .. } => info.validate(),
+            OpenEvent::Failed {
+                display_name,
+                error,
+                ..
+            } => {
+                check_display_name(display_name)?;
+                error.validate()
+            }
+        }
     }
 }
 
@@ -649,6 +672,25 @@ mod tests {
         assert!(info("報告.pdf").validate().is_ok());
         assert!(info(r"C:\Users\someone\報告.pdf").validate().is_err());
         assert!(info("docs/報告.pdf").validate().is_err());
+    }
+
+    #[test]
+    fn open_events_carry_no_paths() {
+        let opening = |display_name: &str| OpenEvent::Opening {
+            display_name: display_name.to_owned(),
+        };
+        assert!(opening("報告.pdf").validate().is_ok());
+        assert!(opening(r"C:\Users\someone\報告.pdf").validate().is_err());
+        let failed = OpenEvent::Failed {
+            display_name: r"\\server\share\報告.pdf".to_owned(),
+            error: IpcError {
+                code: ErrorCode::Unreadable,
+                message: String::new(),
+            },
+            ignored_files: 0,
+        };
+        assert!(failed.validate().is_err());
+        assert!(OpenEvent::DragHover { active: true }.validate().is_ok());
     }
 
     #[test]

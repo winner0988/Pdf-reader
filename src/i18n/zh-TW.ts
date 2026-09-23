@@ -15,6 +15,10 @@ export const strings = {
     privacyNote: "所有處理都在這台電腦上完成：不連網、不收集任何資料。",
   },
   loading: (displayName: string) => `正在開啟 ${displayName}…`,
+  open: {
+    dropMultiple: (displayName: string) => `一次只能開啟一個檔案，已開啟第一個：${displayName}`,
+    dismissNotice: "關閉提示",
+  },
   error: {
     title: "無法開啟這個檔案",
     retry: "重試",

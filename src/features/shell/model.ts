@@ -1,22 +1,9 @@
-// View model of the reader shell.
-//
-// ErrorCode, FindingKind and PageSize mirror crates/ipc_contract (MVP-02). Once MVP-06 wires the
-// shell to real IPC, replace these with the generated types in src/ipc/generated/contract.ts.
+// View model of the reader shell. Contract types come from crates/ipc_contract through the
+// generated src/ipc/generated/contract.ts.
 
-export type ErrorCode =
-  | "unknownDocument"
-  | "invalidArgument"
-  | "cancelled"
-  | "notPdf"
-  | "corrupted"
-  | "encrypted"
-  | "unreadable"
-  | "tooLarge"
-  | "limitExceeded"
-  | "workerCrashed"
-  | "workerTimeout"
-  | "protocolViolation"
-  | "internal";
+import type { ErrorCode, FindingKind, PageSize, SecurityFinding } from "@/ipc/generated/contract";
+
+export type { ErrorCode, FindingKind, PageSize, SecurityFinding };
 
 /** Display order of blocked-content kinds (docs/ux/screen-map.md, section 8). */
 export const FINDING_KINDS = [
@@ -33,13 +20,13 @@ export const FINDING_KINDS = [
   "xfa",
   "richMedia",
   "embeddedFile",
-] as const;
+] as const satisfies readonly FindingKind[];
 
-export type FindingKind = (typeof FINDING_KINDS)[number];
-
-export type SecurityFinding = { kind: FindingKind; count: number };
-
-export type PageSize = { widthPt: number; heightPt: number };
+// Compile-time check: every kind the contract knows has a place in the display order.
+type Assert<T extends true> = T;
+export type AllFindingKindsListed = Assert<
+  [Exclude<FindingKind, (typeof FINDING_KINDS)[number]>] extends [never] ? true : false
+>;
 
 export type OutlineEntry = { title: string; depth: number; pageIndex: number };
 
