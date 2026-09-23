@@ -2,7 +2,24 @@
 
 注重隱私、完全離線的桌面 PDF 閱讀器（之後擴充為編輯器）。不連網、無遙測、PDF 主動內容預設封鎖，PDF 引擎隔離在低權限子行程中執行。
 
-> **狀態：尚未開始實作。** 目前 repo 只有規格、架構決策與第一批工作卡；程式碼從 [MVP-01](docs/backlog/mvp-batch-1/MVP-01-project-scaffold.md) 開始。
+> **狀態：開發初期。** 目前只有專案骨架（空白視窗），還不能開啟 PDF；進度見 [工作卡](docs/backlog/README.md)。
+
+## 本機開發（Windows）
+
+需要先安裝：
+
+- [Node.js](https://nodejs.org/) 22 LTS（版本見 `.nvmrc`）
+- [pnpm](https://pnpm.io/) 12：`npm install -g pnpm@12`
+- [Rust](https://rustup.rs/)（rustup；實際版本由 `rust-toolchain.toml` 自動安裝）
+- Visual Studio Build Tools，勾選「使用 C++ 的桌面開發」
+- Microsoft Edge WebView2（Windows 11 已內建）
+
+```bash
+pnpm install
+pnpm tauri dev
+```
+
+`pnpm tauri build` 會在 `target/release/bundle/nsis/` 產出安裝檔（尚未簽章）。其他檢查指令見 [AGENTS.md](AGENTS.md#指令)。
 
 ## 技術棧
 

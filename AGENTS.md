@@ -60,7 +60,7 @@
 
 ## 目標目錄結構
 
-MVP-01 建立後應為（在那之前 repo 只有文件）：
+`tests/` 由 QA-01、QA-02 建立：
 
 ```
 .
@@ -79,7 +79,7 @@ MVP-01 建立後應為（在那之前 repo 只有文件）：
 
 ## 指令
 
-MVP-01 完成後必須提供以下指令，CI 也使用同一組（MVP-01 負責把實際指令補進這裡）：
+CI 使用同一組指令。工具版本由 `package.json`（`packageManager`）、`.nvmrc`、`rust-toolchain.toml` 固定。
 
 | 目的 | 指令 |
 |---|---|
@@ -93,8 +93,13 @@ MVP-01 完成後必須提供以下指令，CI 也使用同一組（MVP-01 負責
 | Rust 測試 | `cargo test --workspace --locked` |
 | 禁用依賴檢查 | `bash scripts/ci/check-forbidden.sh` |
 | ADR 檢查 | `bash scripts/ci/check-adr.sh` |
+| 開發模式執行 | `pnpm tauri dev` |
+| 建置安裝檔 | `pnpm tauri build`（產出 `target/release/bundle/nsis/*.exe`） |
 
-提交 PR 前，在本機把上表全部跑過一次。
+提交 PR 前，在本機把表中「開發模式執行」以上的指令全部跑過一次。
+
+- pnpm 12 不支援 `-s` 等舊旗標；腳本一律用 `pnpm <script>` 執行。
+- 新增 shadcn/ui 元件用 `pnpm dlx shadcn@<版本> add <元件>`，產生後檢查：`cn` 必須從 `@/lib/utils` 匯入，不得新增網路字型或 CDN。
 
 ## 語言慣例
 

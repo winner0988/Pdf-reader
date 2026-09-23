@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Source for `pnpm tauri icon src-tauri/icons/app-icon.svg`. -->
+  <rect x="48" y="48" width="928" height="928" rx="208" fill="#1f2937"/>
+  <path d="M296 176h296l176 176v472a32 32 0 0 1-32 32H296a32 32 0 0 1-32-32V208a32 32 0 0 1 32-32z" fill="#f9fafb"/>
+  <path d="M592 176v144a32 32 0 0 0 32 32h144z" fill="#cbd5e1"/>
+  <rect x="336" y="420" width="264" height="32" rx="16" fill="#94a3b8"/>
+  <rect x="336" y="500" width="336" height="32" rx="16" fill="#94a3b8"/>
+  <rect x="336" y="580" width="216" height="32" rx="16" fill="#94a3b8"/>
+  <path d="M704 560l152 56v120c0 96-64 160-152 196-88-36-152-100-152-196V616z" fill="#059669" stroke="#1f2937" stroke-width="24" stroke-linejoin="round"/>
+  <path d="M640 736l48 48 96-104" fill="none" stroke="#f9fafb" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
