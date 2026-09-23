@@ -25,6 +25,15 @@ use thiserror::Error;
 /// Largest document the worker is asked to open.
 pub const MAX_DOCUMENT_BYTES: u64 = 512 * 1024 * 1024;
 
+/// File name of the worker executable. The installer puts it next to the app
+/// (`bundle.externalBin`); in development cargo builds it into the same `target/<profile>/`.
+pub const WORKER_FILE_NAME: &str = "pdf_worker.exe";
+
+/// The worker executable next to the running program (see [`WORKER_FILE_NAME`]).
+pub fn bundled_worker_path() -> io::Result<PathBuf> {
+    Ok(std::env::current_exe()?.with_file_name(WORKER_FILE_NAME))
+}
+
 #[derive(Debug, Clone)]
 pub struct HostConfig {
     pub sandbox: SandboxConfig,

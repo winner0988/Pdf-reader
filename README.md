@@ -20,7 +20,7 @@ pnpm install
 pnpm tauri dev
 ```
 
-`pnpm tauri build` 會在 `target/release/bundle/nsis/` 產出安裝檔（尚未簽章）。其他檢查指令見 [AGENTS.md](AGENTS.md#指令)。
+`pnpm bundle` 會在 `target/release/bundle/nsis/` 產出包含 `pdf_worker.exe` 的安裝檔（尚未簽章），見 [docs/architecture/packaging.md](docs/architecture/packaging.md)。其他檢查指令見 [AGENTS.md](AGENTS.md#指令)。
 
 ## 技術棧
 

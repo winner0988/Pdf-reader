@@ -15,6 +15,7 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "tauri": "tauri",
+    "bundle": "tauri build --config src-tauri/tauri.bundle.conf.json",
     "ipc:generate": "cargo run -q --locked -p ipc_contract --bin generate_ts"
   },
   "dependencies": {
