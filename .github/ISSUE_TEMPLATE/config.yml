@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全弱點回報
+    url: https://github.com/winner0988/Pdf-reader/blob/main/SECURITY.md
+    about: 可被利用的問題請勿開公開 Issue，請依 SECURITY.md 私下回報。

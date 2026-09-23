@@ -1,0 +1,88 @@
+name: 工作卡
+description: 一張可以交給單一 agent、在單一 PR 內完成的工作
+title: "[MVP-XX] "
+labels: ["task"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        一張卡 = 一個 branch = 一個 PR。寫不進一個 PR 的，請拆成多張卡。
+        先讀 AGENTS.md 與相關 ADR；已接受的 ADR 不可違反。
+  - type: input
+    id: req-id
+    attributes:
+      label: 需求 ID
+      description: 對應的規格章節、MVP 項目或 ADR，例如「MVP-R3 虛擬滾動（規格 §2）」
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目標
+      description: 完成後使用者或系統多了什麼能力？一到三句話。
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 範圍
+      description: 這張卡要做的事，條列。
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: 不做什麼
+      description: 明確排除的事項，避免 agent 順手擴大範圍。
+    validations:
+      required: true
+  - type: textarea
+    id: modules
+    attributes:
+      label: 可動的模組
+      description: 允許修改的目錄或檔案；清單外的檔案不應出現在 PR 中。
+      placeholder: |
+        - src/features/viewer/
+        - crates/pdf_worker/src/render.rs
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 驗收情境
+      description: 可以實際操作或自動化驗證的情境，建議用「假設／當／則」。
+      placeholder: |
+        - 假設開啟 1000 頁的 PDF，當快速捲到最後一頁，則記憶體不超過 X MB，且畫面不空白超過 Y 秒。
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: 必跑測試
+      description: PR 必須新增或通過的測試。
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: 資安限制
+      description: 這張卡必須遵守的安全條件（網路、檔案範圍、主動內容、IPC、權限）。
+    validations:
+      required: true
+  - type: textarea
+    id: deps
+    attributes:
+      label: 相依工作卡
+      description: 必須先完成的卡，例如「#3 MVP-02」。
+  - type: dropdown
+    id: role
+    attributes:
+      label: 負責角色
+      options:
+        - 負責人（決策／驗收）
+        - 核心 agent（Rust／MuPDF／worker）
+        - 前端 agent（UI／無障礙）
+        - QA／安全 agent
+        - Review／Release agent
+    validations:
+      required: true

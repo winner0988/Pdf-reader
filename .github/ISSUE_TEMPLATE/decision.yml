@@ -1,0 +1,37 @@
+name: 決策請求
+description: 需要專案負責人拍板的問題（範圍、UX、安全例外、架構），結果會寫成 ADR
+title: "[DEC] "
+labels: ["decision"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: 要決定什麼
+      description: 一句話描述問題。
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: 背景
+      description: 為什麼現在需要決定？牽涉哪些規格章節、ADR、工作卡？
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: 選項與代價
+      placeholder: |
+        - A：……（換來／付出）
+        - B：……（換來／付出）
+    validations:
+      required: true
+  - type: textarea
+    id: recommendation
+    attributes:
+      label: 建議
+  - type: textarea
+    id: blocking
+    attributes:
+      label: 卡住哪些工作
+      description: 不決定的話，哪些工作卡無法開始或必須採保守預設？

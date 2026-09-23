@@ -1,0 +1,43 @@
+# --- 隱私：預設不追蹤任何 PDF，避免私人文件被誤提交 ---
+*.pdf
+!tests/corpus/**/*.pdf
+
+# --- Node / 前端 ---
+node_modules/
+dist/
+.vite/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+pnpm-debug.log*
+
+# --- Rust / Tauri ---
+target/
+src-tauri/gen/schemas/
+
+# --- 測試輸出 ---
+test-results/
+playwright-report/
+tests/**/output/
+*.profraw
+fuzz/artifacts/
+fuzz/corpus/
+
+# --- 環境與秘密 ---
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.pem
+*.key
+
+# --- 編輯器與作業系統 ---
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

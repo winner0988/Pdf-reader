@@ -1,0 +1,12 @@
+# 所有變更預設由專案負責人審查。
+* @winner0988
+
+# 安全敏感路徑（見 AGENTS.md「需要人工安全審查的變更」）：必須由負責人親自核准。
+/.github/                     @winner0988
+/scripts/ci/                  @winner0988
+/docs/adr/                    @winner0988
+/crates/pdf_worker/           @winner0988
+/crates/ipc_contract/         @winner0988
+/src-tauri/capabilities/      @winner0988
+/src-tauri/tauri.conf.json    @winner0988
+/deny.toml                    @winner0988

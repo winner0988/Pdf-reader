@@ -1,0 +1,49 @@
+name: 缺陷回報
+description: 程式行為與規格或預期不符
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **請勿附上私人 PDF。** 請用 `tests/corpus/` 的檔案，或自行產生能重現問題的最小檔案。
+        若問題可能被利用（開檔就連網、執行程式、讀寫檔案、繞過封鎖），請不要開公開 Issue，改依 SECURITY.md 私下回報。
+  - type: textarea
+    id: steps
+    attributes:
+      label: 重現步驟
+      placeholder: |
+        1. 開啟 tests/corpus/xxx.pdf
+        2. 捲動到第 3 頁
+        3. ……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 預期結果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 實際結果
+      description: 錯誤訊息、截圖（請確認截圖中沒有私人內容）。
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本／commit
+      placeholder: 例如 main@abc1234
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: 作業系統
+      placeholder: 例如 Windows 11 24H2
+  - type: input
+    id: req-id
+    attributes:
+      label: 相關需求 ID 或 ADR

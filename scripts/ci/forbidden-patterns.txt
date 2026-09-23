@@ -1,0 +1,47 @@
+# Forbidden patterns (extended regex, case-insensitive).
+# Any match in tracked files outside docs/ and *.md fails CI.
+# Rationale: AGENTS.md "不可違反的原則" 1 and 2, ADR 0009.
+# Changing this file requires the needs-security-review label.
+
+# --- Telemetry / analytics / crash reporting SDKs ---
+@sentry/
+sentry-(core|types|backtrace|panic|contexts|rust|tauri)
+name = "sentry
+^[[:space:]]*sentry[[:space:]]*=
+posthog
+mixpanel
+@amplitude/
+amplitude-js
+@segment/
+analytics-node
+google-analytics\.com
+googletagmanager\.com
+gtag\(
+@datadog/
+dd-trace
+bugsnag
+rollbar
+logrocket
+newrelic
+@vercel/analytics
+applicationinsights
+opentelemetry-otlp
+@opentelemetry/exporter
+
+# --- Remote fonts and CDNs (everything must be bundled locally) ---
+fonts\.googleapis\.com
+fonts\.gstatic\.com
+use\.typekit\.net
+cdn\.jsdelivr\.net
+unpkg\.com
+cdnjs\.cloudflare\.com
+
+# --- Tauri plugins with network capability (blocked until ADR 0009 is decided) ---
+tauri-plugin-http
+tauri-plugin-websocket
+tauri-plugin-upload
+tauri-plugin-updater
+@tauri-apps/plugin-http
+@tauri-apps/plugin-websocket
+@tauri-apps/plugin-upload
+@tauri-apps/plugin-updater
