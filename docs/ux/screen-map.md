@@ -201,7 +201,12 @@
 | outlineTab | 目錄 |
 | thumbnailsTab | 縮圖（之後） |
 | outlineEmpty | 這份文件沒有目錄 |
-| outlineTruncated | 目錄項目過多，只顯示前 <上限> 項 |
+| outlineLoading | 正在讀取目錄… |
+| outlineFailed | 無法讀取這份文件的目錄 |
+| outlineTruncated | 目錄項目過多或層級過深，只顯示部分內容 |
+| outlineExpand／outlineCollapse | 展開／收合（展開鈕的可讀名稱） |
+| outlineExternalLink | 外部連結（指向網址的目錄項目上的圖示） |
+| outlineBlockedAction | 已封鎖的動作（指向其他檔案、程式或腳本的目錄項目上的圖示） |
 
 ### 連結
 

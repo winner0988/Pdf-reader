@@ -19,6 +19,7 @@
 pub mod frame;
 pub mod limits;
 pub mod raster;
+pub mod text;
 pub mod types;
 pub mod typescript;
 pub mod validate;

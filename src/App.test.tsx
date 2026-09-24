@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
 import type { OpenApi } from "@/features/open/api";
+import type { OutlineApi } from "@/features/outline/useOutline";
 import type { RenderApi } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
 import type { DocumentInfo, ErrorCode, OpenEvent } from "@/ipc/generated/contract";
@@ -46,8 +47,16 @@ const idleRenderApi: RenderApi = {
 
 function renderApp() {
   const main = fakeMainProcess();
-  render(<App api={main.api} renderApi={idleRenderApi} />);
-  return { ...main, user: userEvent.setup() };
+  const outlineApi = {
+    getOutline: vi.fn(() =>
+      Promise.resolve({
+        items: [{ title: "第 1 章", depth: 0, target: { kind: "page" as const, pageIndex: 2, x: null, y: null } }],
+        truncated: false,
+      }),
+    ),
+  } satisfies OutlineApi;
+  render(<App api={main.api} renderApi={idleRenderApi} outlineApi={outlineApi} />);
+  return { ...main, outlineApi, user: userEvent.setup() };
 }
 
 describe("App", () => {
@@ -137,5 +146,19 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: strings.empty.openButton }));
     expect(await screen.findByRole("alert")).toHaveTextContent(strings.error.messages.internal);
+  });
+
+  it("loads the outline of a document that has one", async () => {
+    const { outlineApi, push } = renderApp();
+    push({ kind: "opened", info: { ...info, hasOutline: true }, ignoredFiles: 0 });
+    expect(await screen.findByRole("treeitem", { name: "第 1 章" })).toBeInTheDocument();
+    expect(outlineApi.getOutline).toHaveBeenCalledWith(9);
+  });
+
+  it("does not ask for an outline the document does not have", () => {
+    const { outlineApi, push } = renderApp();
+    push({ kind: "opened", info, ignoredFiles: 0 });
+    expect(screen.getByText(strings.sidebar.outlineEmpty)).toBeInTheDocument();
+    expect(outlineApi.getOutline).not.toHaveBeenCalled();
   });
 });

@@ -13,6 +13,7 @@ import { useShortcuts } from "@/features/shortcuts/useShortcuts";
 import { useTheme } from "@/features/theme/useTheme";
 import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
 import type { PageRenderer } from "@/features/viewer/renderer";
+import type { OutlineView } from "@/features/outline/tree";
 import { strings } from "@/i18n/zh-TW";
 
 type ReaderShellProps = {
@@ -24,6 +25,8 @@ type ReaderShellProps = {
   dropActive?: boolean;
   /** Renders pages; without it (demo data, tests) pages are placeholders. */
   renderer?: PageRenderer;
+  /** The open document's outline (loaded separately so loading it does not reset the view). */
+  outline?: OutlineView;
   version?: string;
   /** Delay before the loading state appears; tests pass 0. */
   loadingDelayMs?: number;
@@ -57,6 +60,7 @@ export function ReaderShell({
   onRetry,
   dropActive = false,
   renderer,
+  outline,
   version = "0.1.0",
   loadingDelayMs,
 }: ReaderShellProps) {
@@ -150,7 +154,12 @@ export function ReaderShell({
         />
         <div className="relative flex min-h-0 flex-1">
           {sidebarOpen && document_ && (
-            <Sidebar outline={document_.outline} currentPage={currentPage} onJumpToPage={goToPage} />
+            <Sidebar
+              key={document_.doc ?? document_.displayName}
+              outline={outline ?? document_.outline ?? { status: "none" }}
+              currentPage={currentPage}
+              onJumpToPage={goToPage}
+            />
           )}
           <div className="flex min-w-0 flex-1 flex-col">
             {document_ && findings.length > 0 && !bannerDismissed && (

@@ -82,6 +82,10 @@ export type BlockedAction = "launch" | "remoteGoTo" | "embeddedGoTo" | "javaScri
 
 /**
  * Where a link or outline item points.
+ *
+ * Serialized with a `kind` tag in JSON (for the frontend), but externally tagged in binary
+ * formats: postcard, used between the main process and the worker, cannot decode internally
+ * tagged enums. See [`link_target_serde`].
  */
 export type LinkTarget = { "kind": "page", pageIndex: number, x: number | null, y: number | null, } | { "kind": "uri", uri: string, } | { "kind": "blocked", action: BlockedAction, target: string | null, };
 

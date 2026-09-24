@@ -7,7 +7,8 @@ use std::sync::Mutex;
 use ipc_contract::limits::MAX_DISPLAY_NAME_BYTES;
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::types::{
-    DocumentId, DocumentInfo, ErrorCode, IpcError, OpenEvent, RenderPageArgs,
+    DocumentId, DocumentInfo, ErrorCode, IpcError, LinkTarget, OpenEvent, OutlineResult,
+    RenderPageArgs,
 };
 use ipc_contract::validate::{Validate, check_page_index};
 use ipc_contract::worker::{WorkerRequest, WorkerResponse};
@@ -143,38 +144,51 @@ impl Documents {
             message: format!("page too large to render: {error}"),
         })?;
 
-        if current.lost {
-            current.worker_doc = reopen(host, current)?;
-            current.lost = false;
-        }
-        let rendered = host.request(|request| WorkerRequest::Render {
+        let rendered = request(host, current, |request, doc| WorkerRequest::Render {
             request,
-            doc: current.worker_doc,
+            doc,
             page_index: args.page_index,
             scale,
             rotation: args.rotation,
-        });
+        })?;
         match rendered {
-            Ok(WorkerResponse::Rendered { raster, .. }) => {
+            WorkerResponse::Rendered { raster, .. } => {
                 encode_raster(&raster).map_err(|error| IpcError {
                     code: ErrorCode::ProtocolViolation,
                     message: format!("invalid raster: {error}"),
                 })
             }
-            Ok(_) => Err(IpcError {
-                code: ErrorCode::ProtocolViolation,
-                message: "unexpected response to Render".to_owned(),
-            }),
-            Err(error) => {
-                if matches!(
-                    error,
-                    HostError::Crashed | HostError::Timeout | HostError::ProtocolViolation(_)
-                ) {
-                    current.lost = true;
-                }
-                Err(ipc_error(&error))
-            }
+            _ => Err(unexpected("Render")),
         }
+    }
+
+    /// The document's outline (MVP-09). Every page target is checked against the page count.
+    pub fn outline(&self, doc: DocumentId) -> Result<OutlineResult, IpcError> {
+        let mut inner = self.lock();
+        let Inner { host, current, .. } = &mut *inner;
+        let current = current
+            .as_mut()
+            .filter(|current| current.info.doc == doc)
+            .ok_or_else(unknown_document)?;
+        let response = request(host, current, |request, doc| WorkerRequest::GetOutline {
+            request,
+            doc,
+        })?;
+        let WorkerResponse::Outline { outline, .. } = response else {
+            return Err(unexpected("GetOutline"));
+        };
+        let page_count = current.info.pages.len();
+        let in_range = outline.items.iter().all(|item| match &item.target {
+            Some(LinkTarget::Page { page_index, .. }) => (*page_index as usize) < page_count,
+            _ => true,
+        });
+        if !in_range {
+            return Err(IpcError {
+                code: ErrorCode::ProtocolViolation,
+                message: "outline points past the last page".to_owned(),
+            });
+        }
+        Ok(outline)
     }
 
     #[cfg(test)]
@@ -186,6 +200,37 @@ impl Documents {
         self.inner
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
+    }
+}
+
+/// Sends a request about `current` to the worker (made by `make` from a request id and the
+/// worker's document id). If the worker that had the document died, the file is reopened in a
+/// new one first; if the worker dies now, the document is marked lost for the next request.
+fn request(
+    host: &mut WorkerHost,
+    current: &mut OpenDocument,
+    make: impl FnOnce(ipc_contract::types::RequestId, DocumentId) -> WorkerRequest,
+) -> Result<WorkerResponse, IpcError> {
+    if current.lost {
+        current.worker_doc = reopen(host, current)?;
+        current.lost = false;
+    }
+    let doc = current.worker_doc;
+    host.request(|request| make(request, doc)).map_err(|error| {
+        if matches!(
+            error,
+            HostError::Crashed | HostError::Timeout | HostError::ProtocolViolation(_)
+        ) {
+            current.lost = true;
+        }
+        ipc_error(&error)
+    })
+}
+
+fn unexpected(request: &str) -> IpcError {
+    IpcError {
+        code: ErrorCode::ProtocolViolation,
+        message: format!("unexpected response to {request}"),
     }
 }
 
@@ -453,11 +498,17 @@ mod with_worker {
 
     /// A PDF with `pages` Letter pages and a correct xref table.
     fn letter_pdf(pages: usize) -> Vec<u8> {
+        pdf_with(pages, "", &[])
+    }
+
+    /// `pages` Letter pages; `catalog` is added to the catalog dictionary and `extra` objects are
+    /// numbered after the pages (the first one is `3 + pages`).
+    fn pdf_with(pages: usize, catalog: &str, extra: &[String]) -> Vec<u8> {
         let kids: Vec<String> = (0..pages)
             .map(|index| format!("{} 0 R", 3 + index))
             .collect();
         let mut objects = vec![
-            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            format!("<< /Type /Catalog /Pages 2 0 R {catalog} >>"),
             format!(
                 "<< /Type /Pages /Kids [{}] /Count {pages} >>",
                 kids.join(" ")
@@ -467,51 +518,23 @@ mod with_worker {
             (0..pages)
                 .map(|_| "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_owned()),
         );
-        let mut out = b"%PDF-1.7
-"
-        .to_vec();
+        objects.extend(extra.iter().cloned());
+        let mut out = b"%PDF-1.7\n".to_vec();
         let mut offsets = Vec::new();
         for (index, body) in objects.iter().enumerate() {
             offsets.push(out.len());
-            out.extend_from_slice(
-                format!(
-                    "{} 0 obj
-{body}
-endobj
-",
-                    index + 1
-                )
-                .as_bytes(),
-            );
+            out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", index + 1).as_bytes());
         }
         let xref = out.len();
         out.extend_from_slice(
-            format!(
-                "xref
-0 {}
-0000000000 65535 f 
-",
-                objects.len() + 1
-            )
-            .as_bytes(),
+            format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes(),
         );
         for offset in offsets {
-            out.extend_from_slice(
-                format!(
-                    "{offset:010} 00000 n 
-"
-                )
-                .as_bytes(),
-            );
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
         }
         out.extend_from_slice(
             format!(
-                "trailer
-<< /Size {} /Root 1 0 R >>
-startxref
-{xref}
-%%EOF
-",
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
                 objects.len() + 1
             )
             .as_bytes(),
@@ -519,9 +542,9 @@ startxref
         out
     }
 
-    fn open(name: &str, pages: usize) -> (Documents, DocumentInfo, PathBuf) {
+    fn open_bytes(name: &str, bytes: &[u8]) -> (Documents, DocumentInfo, PathBuf) {
         let path = std::env::temp_dir().join(format!("mvp07-{}-{name}.pdf", std::process::id()));
-        std::fs::write(&path, letter_pdf(pages)).unwrap();
+        std::fs::write(&path, bytes).unwrap();
         let documents = Documents::new(worker());
         let opened = std::cell::RefCell::new(None);
         documents.open(&path, 0, &|event| {
@@ -531,6 +554,10 @@ startxref
         });
         let info = opened.into_inner().expect("opened");
         (documents, info, path)
+    }
+
+    fn open(name: &str, pages: usize) -> (Documents, DocumentInfo, PathBuf) {
+        open_bytes(name, &letter_pdf(pages))
     }
 
     fn args(doc: DocumentId, page_index: u32, scale: f32, rotation: Rotation) -> RenderPageArgs {
@@ -662,6 +689,56 @@ startxref
                 .unwrap_err()
                 .code,
             ErrorCode::Corrupted
+        );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn the_outline_comes_from_the_worker_and_survives_a_crash() {
+        // Two pages; outline items are objects 5 and 6 under the root (object 7).
+        let pdf = pdf_with(
+            2,
+            "/Outlines 7 0 R",
+            &[
+                "<< /Title (One) /Parent 7 0 R /Next 6 0 R /Dest [3 0 R /Fit] >>".to_owned(),
+                "<< /Title (Two) /Parent 7 0 R /Prev 5 0 R /Dest [4 0 R /Fit] >>".to_owned(),
+                "<< /Type /Outlines /First 5 0 R /Last 6 0 R /Count 2 >>".to_owned(),
+            ],
+        );
+        let (documents, info, path) = open_bytes("outline", &pdf);
+        assert!(info.has_outline);
+        let pages = |outline: OutlineResult| -> Vec<(String, Option<u32>)> {
+            outline
+                .items
+                .into_iter()
+                .map(|item| {
+                    let page = match item.target {
+                        Some(LinkTarget::Page { page_index, .. }) => Some(page_index),
+                        _ => None,
+                    };
+                    (item.title, page)
+                })
+                .collect()
+        };
+        let expected = vec![("One".to_owned(), Some(0)), ("Two".to_owned(), Some(1))];
+        assert_eq!(pages(documents.outline(info.doc).unwrap()), expected);
+
+        let pid = documents.worker_id().expect("worker running");
+        std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            documents.outline(info.doc).unwrap_err().code,
+            ErrorCode::WorkerCrashed
+        );
+        assert_eq!(pages(documents.outline(info.doc).unwrap()), expected);
+        assert_eq!(
+            documents
+                .outline(DocumentId(info.doc.0 + 1))
+                .unwrap_err()
+                .code,
+            ErrorCode::UnknownDocument
         );
         std::fs::remove_file(path).ok();
     }

@@ -168,3 +168,73 @@ impl From<WorkerErrorCode> for ErrorCode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{BlockedAction, LinkTarget, OutlineItem};
+
+    fn targets() -> Vec<LinkTarget> {
+        vec![
+            LinkTarget::Page {
+                page_index: 3,
+                x: Some(10.0),
+                y: None,
+            },
+            LinkTarget::Uri {
+                uri: "https://example.invalid/".to_owned(),
+            },
+            LinkTarget::Blocked {
+                action: BlockedAction::Launch,
+                target: Some("calc.exe".to_owned()),
+            },
+        ]
+    }
+
+    #[test]
+    fn outlines_and_links_cross_the_worker_boundary() {
+        // postcard cannot decode internally tagged enums; LinkTarget must still get through.
+        let response = WorkerResponse::Outline {
+            request: RequestId(1),
+            outline: OutlineResult {
+                items: targets()
+                    .into_iter()
+                    .map(|target| OutlineItem {
+                        title: "t".to_owned(),
+                        depth: 0,
+                        target: Some(target),
+                    })
+                    .collect(),
+                truncated: true,
+            },
+        };
+        let bytes = postcard::to_allocvec(&response).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerResponse>(&bytes).unwrap(),
+            response
+        );
+    }
+
+    #[test]
+    fn the_frontend_sees_link_targets_tagged_by_kind() {
+        let json: Vec<serde_json::Value> = targets()
+            .iter()
+            .map(|target| serde_json::to_value(target).unwrap())
+            .collect();
+        assert_eq!(
+            json[0],
+            serde_json::json!({ "kind": "page", "pageIndex": 3, "x": 10.0, "y": null })
+        );
+        assert_eq!(
+            json[1],
+            serde_json::json!({ "kind": "uri", "uri": "https://example.invalid/" })
+        );
+        assert_eq!(
+            json[2],
+            serde_json::json!({ "kind": "blocked", "action": "launch", "target": "calc.exe" })
+        );
+        for (value, target) in json.into_iter().zip(targets()) {
+            assert_eq!(serde_json::from_value::<LinkTarget>(value).unwrap(), target);
+        }
+    }
+}

@@ -40,6 +40,7 @@ pub fn run() {
             commands::close_document,
             commands::render_page,
             commands::cancel,
+            commands::get_outline,
         ])
         .on_window_event(commands::on_window_event)
         .setup(move |app| {

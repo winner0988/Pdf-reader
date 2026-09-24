@@ -8,13 +8,18 @@ use std::fs::File;
 use std::io::{Read, Write};
 
 use ipc_contract::frame::{self, FrameError};
-use ipc_contract::limits::{MAX_ERROR_MESSAGE_BYTES, MAX_PAGE_COUNT};
-use ipc_contract::types::{DocumentId, PageSize, RequestId, SecurityReport};
+use ipc_contract::limits::{
+    MAX_ERROR_MESSAGE_BYTES, MAX_OUTLINE_DEPTH, MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_TEXT_BYTES,
+};
+use ipc_contract::text::{classify_uri, clean_display_text};
+use ipc_contract::types::{
+    DocumentId, LinkTarget, OutlineItem, OutlineResult, PageSize, RequestId, SecurityReport,
+};
 use ipc_contract::worker::{
     FileHandle, OpenedDocument, Raster, WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
 };
 
-use crate::engine::{EngineError, PdfDocument};
+use crate::engine::{EngineError, OutlineTarget, PdfDocument};
 use crate::handle;
 
 /// Largest document the worker reads (mirrors `worker_host::MAX_DOCUMENT_BYTES`).
@@ -54,13 +59,24 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
                 },
             }),
-            WorkerRequest::GetOutline { request, .. }
-            | WorkerRequest::GetPageLinks { request, .. }
-            | WorkerRequest::Search { request, .. } => Some(error(
-                request,
-                WorkerErrorCode::InvalidRequest,
-                "not implemented yet (MVP-09, MVP-10, MVP-12)",
-            )),
+            WorkerRequest::GetOutline { request, doc } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => match outline(document) {
+                    Ok(outline) => WorkerResponse::Outline { request, outline },
+                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                },
+            }),
+            WorkerRequest::GetPageLinks { request, .. } | WorkerRequest::Search { request, .. } => {
+                Some(error(
+                    request,
+                    WorkerErrorCode::InvalidRequest,
+                    "not implemented yet (MVP-09, MVP-10, MVP-12)",
+                ))
+            }
             // Requests are handled one at a time, so there is nothing in flight to cancel.
             WorkerRequest::Cancel { .. } => None,
             WorkerRequest::Close { doc } => {
@@ -108,12 +124,13 @@ fn open(
             Err(engine) => return engine_error(request, &engine, WorkerErrorCode::Corrupted),
         }
     }
+    let has_outline = document.has_outline();
     documents.insert(doc, document);
     WorkerResponse::Opened {
         request,
         document: OpenedDocument {
             pages,
-            has_outline: false,
+            has_outline,
             // The active-content scan arrives with MVP-11; until then nothing has been scanned.
             security: SecurityReport {
                 findings: Vec::new(),
@@ -153,6 +170,42 @@ fn read_limited(file: Option<File>) -> Result<Vec<u8>, ErrorFor> {
         return Err(|request| error(request, WorkerErrorCode::LimitExceeded, "file too large"));
     }
     Ok(bytes)
+}
+
+/// The document's outline as the contract carries it: titles cleaned for display, page targets
+/// checked against the page count, everything else classified as a web link or a blocked action.
+fn outline(document: &PdfDocument) -> Result<OutlineResult, EngineError> {
+    let page_count = document.page_count()?;
+    let outline = document.outline(MAX_OUTLINE_ITEMS as usize, MAX_OUTLINE_DEPTH)?;
+    let items = outline
+        .entries
+        .into_iter()
+        .map(|entry| OutlineItem {
+            title: clean_display_text(&entry.title, MAX_TEXT_BYTES as usize),
+            depth: entry.depth,
+            target: match entry.target {
+                OutlineTarget::Page(page_index) if page_index < page_count => {
+                    Some(LinkTarget::Page {
+                        page_index,
+                        x: None,
+                        y: None,
+                    })
+                }
+                OutlineTarget::Page(_) | OutlineTarget::None => None,
+                OutlineTarget::Uri(uri) => Some(classify_uri(&uri)),
+                OutlineTarget::Blocked { action, target } => Some(LinkTarget::Blocked {
+                    action,
+                    target: target
+                        .map(|text| clean_display_text(&text, MAX_TEXT_BYTES as usize))
+                        .filter(|text| !text.is_empty()),
+                }),
+            },
+        })
+        .collect();
+    Ok(OutlineResult {
+        items,
+        truncated: outline.truncated,
+    })
 }
 
 fn engine_error(
