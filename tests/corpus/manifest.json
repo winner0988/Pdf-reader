@@ -122,6 +122,43 @@
       "sha256": "e7dcb4050cdbcc57de25883dc00335e6bd3adeb5cd020700ae017d10280cbc56"
     },
     {
+      "path": "benign/encrypted-aes256.pdf",
+      "category": "benign",
+      "purpose": "AES-256 encryption (standard security handler, revision 6); user password 'user', owner 'owner'.",
+      "expected": "MVP: reported as encrypted and not supported; no crash. With the password MuPDF decrypts it and the text is readable.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 1391,
+      "sha256": "b8e8c890280dd2a3babc2de6623043bfd3342ac4586efd2f31119caee0a68555"
+    },
+    {
+      "path": "benign/signed.pdf",
+      "category": "benign",
+      "purpose": "Signed (adbe.pkcs7.detached, SHA-256, RSA-2048) with the corpus's self-signed test certificate. The key is derived from a fixed seed in generate.py, so anyone can re-create it: never trust it.",
+      "expected": "Opens like an ordinary document; the signature field is readable. The MVP neither verifies nor shows signatures.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Signed sample (test certificate: never trust it)"
+      ],
+      "bytes": 9432,
+      "sha256": "114ae9c4a9d7d82f9cb5d65000ddec7193ceb2042b30eb2e7fd671d7f3dc131c"
+    },
+    {
+      "path": "benign/signed-docmdp-p1.pdf",
+      "category": "benign",
+      "purpose": "Certification signature with DocMDP P=1 (no changes allowed), same test certificate.",
+      "expected": "Opens; the app must never write to it: a document identifier would break the certification (ADR 0010).",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Certified sample: no changes allowed (DocMDP P=1)"
+      ],
+      "bytes": 9577,
+      "sha256": "ed14d6c030f828ebc8d7a4fcc11748e56a5956f6e9a046929c983e9d4784be9f"
+    },
+    {
       "path": "malicious/js-document-level.pdf",
       "category": "malicious",
       "purpose": "Document-level JavaScript in the names tree.",
