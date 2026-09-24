@@ -122,6 +122,16 @@ jobs:
       # The WebView2 runtime is part of the runner image; no browser or driver is downloaded.
       - name: Build the app
         run: pnpm e2e:build
+      - name: WebView2 runtime
+        shell: pwsh
+        run: |
+          $runtime = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $keys = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\$runtime",
+                  "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\$runtime",
+                  "HKCU:\Software\Microsoft\EdgeUpdate\Clients\$runtime"
+          $found = $keys | Where-Object { Test-Path $_ } | ForEach-Object { (Get-ItemProperty $_).pv }
+          if ($found) { "WebView2 runtime: $($found -join ', ')" } else { "::warning::No WebView2 runtime is registered" }
+          "Session: $([System.Diagnostics.Process]::GetCurrentProcess().SessionId), interactive: $([Environment]::UserInteractive)"
       - name: E2E tests
         run: pnpm e2e
       # Only screenshots of tests/corpus files and the app's logs (docs/architecture/e2e.md).
