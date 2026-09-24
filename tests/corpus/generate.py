@@ -360,8 +360,8 @@ def benign_image_only() -> bytes:
     return doc.build()
 
 
-# RC4 and the standard security handler, revision 2 (PDF 1.7, 7.6.3). Enough to produce an
-# encrypted sample without third-party tools; AES-256 needs MuPDF tooling (see README).
+# RC4 and the standard security handler, revision 2 (PDF 1.7, 7.6.3). The AES-256 handler
+# (revision 6) and signatures follow below, also with the standard library only (QA-04).
 PASSWORD_PADDING = bytes.fromhex(
     "28BF4E5E4E758A4164004E56FFFA01082E2E00B6D0683E802F0CA9FE6453697A"
 )
@@ -414,6 +414,391 @@ def benign_encrypted() -> bytes:
         f" /U {hex_string(u_value)} /P {permissions} >>"
     )
     return doc.build(encrypt=encrypt)
+
+
+class DeterministicBytes:
+    """A reproducible byte stream for keys, salts and IVs (SHAKE-256 of a seed): never random."""
+
+    def __init__(self, seed: bytes) -> None:
+        self._seed = seed
+        self._count = 0
+
+    def take(self, n: int) -> bytes:
+        self._count += 1
+        return hashlib.shake_256(self._seed + self._count.to_bytes(4, "big")).digest(n)
+
+
+# AES (FIPS-197), encryption only: enough for the AES-256 security handler (revision 6,
+# ISO 32000-2, 7.6.4). Table-driven on 32-bit words; checked against FIPS-197 in main().
+
+
+def _aes_tables() -> tuple[list[int], list[int], list[int], list[int], list[int]]:
+    def xtime(a: int) -> int:
+        return ((a << 1) ^ 0x1B) & 0xFF if a & 0x80 else a << 1
+
+    sbox = [0] * 256
+    p = q = 1
+    while True:
+        p ^= xtime(p)  # p * 3
+        q ^= q << 1  # q / 3
+        q ^= q << 2
+        q ^= q << 4
+        q &= 0xFF
+        if q & 0x80:
+            q ^= 0x09
+        affine = q ^ (q << 1 | q >> 7) ^ (q << 2 | q >> 6) ^ (q << 3 | q >> 5) ^ (q << 4 | q >> 4)
+        sbox[p] = (affine ^ 0x63) & 0xFF
+        if p == 1:
+            break
+    sbox[0] = 0x63
+    t0 = [(xtime(s) << 24) | (s << 16) | (s << 8) | (xtime(s) ^ s) for s in sbox]
+
+    def ror(word: int, bits: int) -> int:
+        return ((word >> bits) | (word << (32 - bits))) & 0xFFFFFFFF
+
+    return sbox, t0, [ror(w, 8) for w in t0], [ror(w, 16) for w in t0], [ror(w, 24) for w in t0]
+
+
+AES_SBOX, AES_T0, AES_T1, AES_T2, AES_T3 = _aes_tables()
+
+
+def _aes_key_schedule(key: bytes) -> tuple[list[int], int]:
+    nk = len(key) // 4
+    rounds = nk + 6
+    sbox = AES_SBOX
+    words = [int.from_bytes(key[4 * i:4 * i + 4], "big") for i in range(nk)]
+    rcon = 1
+    for i in range(nk, 4 * (rounds + 1)):
+        temp = words[i - 1]
+        if i % nk == 0:
+            temp = ((temp << 8) | (temp >> 24)) & 0xFFFFFFFF
+            temp = (sbox[temp >> 24] << 24 | sbox[temp >> 16 & 255] << 16
+                    | sbox[temp >> 8 & 255] << 8 | sbox[temp & 255]) ^ (rcon << 24)
+            rcon = ((rcon << 1) ^ 0x11B) if rcon & 0x80 else rcon << 1
+        elif nk > 6 and i % nk == 4:
+            temp = (sbox[temp >> 24] << 24 | sbox[temp >> 16 & 255] << 16
+                    | sbox[temp >> 8 & 255] << 8 | sbox[temp & 255])
+        words.append(words[i - nk] ^ temp)
+    return words, rounds
+
+
+def aes_cbc_encrypt(key: bytes, iv: bytes, data: bytes) -> bytes:
+    """AES-128/256 in CBC mode without padding; `data` must be a multiple of 16 bytes."""
+    if len(data) % 16:
+        raise ValueError("AES-CBC input must be a multiple of 16 bytes")
+    rk, rounds = _aes_key_schedule(key)
+    t0, t1, t2, t3, sbox = AES_T0, AES_T1, AES_T2, AES_T3, AES_SBOX
+    c0, c1, c2, c3 = (int.from_bytes(iv[i:i + 4], "big") for i in range(0, 16, 4))
+    out = bytearray()
+    for offset in range(0, len(data), 16):
+        block = data[offset:offset + 16]
+        s0 = int.from_bytes(block[0:4], "big") ^ c0 ^ rk[0]
+        s1 = int.from_bytes(block[4:8], "big") ^ c1 ^ rk[1]
+        s2 = int.from_bytes(block[8:12], "big") ^ c2 ^ rk[2]
+        s3 = int.from_bytes(block[12:16], "big") ^ c3 ^ rk[3]
+        for r in range(4, 4 * rounds, 4):
+            s0, s1, s2, s3 = (
+                t0[s0 >> 24] ^ t1[s1 >> 16 & 255] ^ t2[s2 >> 8 & 255] ^ t3[s3 & 255] ^ rk[r],
+                t0[s1 >> 24] ^ t1[s2 >> 16 & 255] ^ t2[s3 >> 8 & 255] ^ t3[s0 & 255] ^ rk[r + 1],
+                t0[s2 >> 24] ^ t1[s3 >> 16 & 255] ^ t2[s0 >> 8 & 255] ^ t3[s1 & 255] ^ rk[r + 2],
+                t0[s3 >> 24] ^ t1[s0 >> 16 & 255] ^ t2[s1 >> 8 & 255] ^ t3[s2 & 255] ^ rk[r + 3],
+            )
+        r = 4 * rounds
+        c0 = (sbox[s0 >> 24] << 24 | sbox[s1 >> 16 & 255] << 16 | sbox[s2 >> 8 & 255] << 8 | sbox[s3 & 255]) ^ rk[r]
+        c1 = (sbox[s1 >> 24] << 24 | sbox[s2 >> 16 & 255] << 16 | sbox[s3 >> 8 & 255] << 8 | sbox[s0 & 255]) ^ rk[r + 1]
+        c2 = (sbox[s2 >> 24] << 24 | sbox[s3 >> 16 & 255] << 16 | sbox[s0 >> 8 & 255] << 8 | sbox[s1 & 255]) ^ rk[r + 2]
+        c3 = (sbox[s3 >> 24] << 24 | sbox[s0 >> 16 & 255] << 16 | sbox[s1 >> 8 & 255] << 8 | sbox[s2 & 255]) ^ rk[r + 3]
+        out += c0.to_bytes(4, "big") + c1.to_bytes(4, "big") + c2.to_bytes(4, "big") + c3.to_bytes(4, "big")
+    return bytes(out)
+
+
+def check_aes() -> None:
+    """FIPS-197 appendix C: AES-128 and AES-256 of the same block."""
+    block = bytes.fromhex("00112233445566778899aabbccddeeff")
+    for key, expected in [
+        (bytes(range(16)), "69c4e0d86a7b0430d8cdb78070b4c55a"),
+        (bytes(range(32)), "8ea2b7ca516745bfeafc49904b496089"),
+    ]:
+        if aes_cbc_encrypt(key, bytes(16), block).hex() != expected:
+            raise AssertionError(f"AES-{len(key) * 8} does not match FIPS-197")
+
+
+def pkcs7_pad(data: bytes) -> bytes:
+    pad = 16 - len(data) % 16
+    return data + bytes([pad]) * pad
+
+
+def r6_hash(password: bytes, salt: bytes, udata: bytes) -> bytes:
+    """Algorithm 2.B of ISO 32000-2 (the hash of the AES-256 security handler, revision 6)."""
+    k = hashlib.sha256(password + salt + udata).digest()
+    rounds = 0
+    e = b""
+    while rounds < 64 or e[-1] > rounds - 32:
+        e = aes_cbc_encrypt(k[:16], k[16:32], (password + k + udata) * 64)
+        # The first 16 bytes of E as a big-endian number, modulo 3: 256 = 1 (mod 3), so their sum.
+        k = (hashlib.sha256, hashlib.sha384, hashlib.sha512)[sum(e[:16]) % 3](e).digest()
+        rounds += 1
+    return k[:32]
+
+
+AES_TEXT = "Encrypted sample, AES-256 (user password: user)"
+
+
+def benign_encrypted_aes256() -> bytes:
+    name = "encrypted-aes256"
+    user_password, owner_password, permissions = b"user", b"owner", -4
+    stream = DeterministicBytes(f"Pdf-reader corpus {name}".encode("ascii"))
+    file_key = stream.take(32)
+    user_validation, user_key_salt = stream.take(8), stream.take(8)
+    owner_validation, owner_key_salt = stream.take(8), stream.take(8)
+    # Algorithms 8, 9 and 10 of ISO 32000-2, 7.6.4.4.
+    u_value = r6_hash(user_password, user_validation, b"") + user_validation + user_key_salt
+    ue_value = aes_cbc_encrypt(r6_hash(user_password, user_key_salt, b""), bytes(16), file_key)
+    o_value = r6_hash(owner_password, owner_validation, u_value) + owner_validation + owner_key_salt
+    oe_value = aes_cbc_encrypt(r6_hash(owner_password, owner_key_salt, u_value), bytes(16), file_key)
+    perms_block = permissions.to_bytes(4, "little", signed=True) + b"\xff" * 4 + b"Tadb" + stream.take(4)
+    perms_value = aes_cbc_encrypt(file_key, bytes(16), perms_block)
+
+    doc = Document(name)
+    doc.reserve_pages(1)
+    iv = stream.take(16)
+    plain = text_ops([(72, 720, 20, AES_TEXT)])
+    content = doc.pdf.add(Pdf.stream("", iv + aes_cbc_encrypt(file_key, iv, pkcs7_pad(plain))))
+    doc.pdf.set(
+        doc.page_nums[0],
+        f"<< /Type /Page /Parent {doc.pages_root} 0 R /MediaBox [0 0 612 792]"
+        f" /Resources << /Font << /F1 {doc.font} 0 R >> >> /Contents {content} 0 R >>",
+    )
+    encrypt = doc.pdf.add(
+        "<< /Filter /Standard /V 5 /R 6 /Length 256"
+        " /CF << /StdCF << /Type /CryptFilter /CFM /AESV3 /AuthEvent /DocOpen /Length 32 >> >>"
+        " /StmF /StdCF /StrF /StdCF"
+        f" /O {hex_string(o_value)} /U {hex_string(u_value)}"
+        f" /OE {hex_string(oe_value)} /UE {hex_string(ue_value)}"
+        f" /P {permissions} /Perms {hex_string(perms_value)} /EncryptMetadata true >>"
+    )
+    return doc.build(encrypt=encrypt)
+
+
+# Digital signatures: a detached CMS (PKCS #7) signature, SHA-256 with RSA-2048, from a
+# self-signed test certificate. The key is derived from a fixed seed each time the corpus is
+# generated, so no key material is stored anywhere; anyone can re-derive it, so never trust it.
+
+SIGNER_NAME = "PDF Reader test corpus signer (NOT TRUSTED)"
+SIGNER_ORGANIZATION = "Pdf-reader test corpus"
+SIGNER_SERIAL = 0x51A7E
+OID_RSA = "1.2.840.113549.1.1.1"
+OID_SHA256_RSA = "1.2.840.113549.1.1.11"
+OID_SHA256 = "2.16.840.1.101.3.4.2.1"
+OID_DATA = "1.2.840.113549.1.7.1"
+OID_SIGNED_DATA = "1.2.840.113549.1.7.2"
+OID_CONTENT_TYPE = "1.2.840.113549.1.9.3"
+OID_MESSAGE_DIGEST = "1.2.840.113549.1.9.4"
+SHA256_DIGEST_INFO = bytes.fromhex("3031300d060960864801650304020105000420")
+
+
+def der(tag: int, content: bytes) -> bytes:
+    size = len(content)
+    if size < 0x80:
+        length = bytes([size])
+    else:
+        encoded = size.to_bytes((size.bit_length() + 7) // 8, "big")
+        length = bytes([0x80 | len(encoded)]) + encoded
+    return bytes([tag]) + length + content
+
+
+def der_seq(*items: bytes) -> bytes:
+    return der(0x30, b"".join(items))
+
+
+def der_set(*items: bytes) -> bytes:
+    return der(0x31, b"".join(sorted(items)))
+
+
+def der_int(value: int) -> bytes:
+    return der(0x02, value.to_bytes(value.bit_length() // 8 + 1, "big"))
+
+
+def der_oid(dotted: str) -> bytes:
+    parts = [int(part) for part in dotted.split(".")]
+    body = bytearray([40 * parts[0] + parts[1]])
+    for value in parts[2:]:
+        chunk = [value & 0x7F]
+        value >>= 7
+        while value:
+            chunk.append(0x80 | (value & 0x7F))
+            value >>= 7
+        body += bytes(reversed(chunk))
+    return der(0x06, bytes(body))
+
+
+def der_algorithm(oid: str) -> bytes:
+    return der_seq(der_oid(oid), der(0x05, b""))
+
+
+SMALL_PRIMES = [n for n in range(3, 2000, 2) if all(n % d for d in range(3, int(n ** 0.5) + 1, 2))]
+
+
+def is_probable_prime(n: int) -> bool:
+    """Trial division, then Miller-Rabin with fixed bases (so the result is reproducible)."""
+    for p in SMALL_PRIMES:
+        if n % p == 0:
+            return n == p
+    d, s = n - 1, 0
+    while d % 2 == 0:
+        d //= 2
+        s += 1
+    for a in SMALL_PRIMES[:40]:
+        x = pow(a, d, n)
+        if x in (1, n - 1):
+            continue
+        for _ in range(s - 1):
+            x = pow(x, 2, n)
+            if x == n - 1:
+                break
+        else:
+            return False
+    return True
+
+
+_SIGNING_KEY: tuple[int, int, int] | None = None
+
+
+def test_signing_key() -> tuple[int, int, int]:
+    """(n, e, d) of the corpus's RSA-2048 test key, derived from a fixed seed."""
+    global _SIGNING_KEY
+    if _SIGNING_KEY is None:
+        stream = DeterministicBytes(b"Pdf-reader corpus test signing key (never trust it)")
+        e = 65537
+        primes = []
+        while len(primes) < 2:
+            # The top two bits set make the modulus exactly 2048 bits.
+            candidate = int.from_bytes(stream.take(128), "big") | (3 << 1022) | 1
+            if (candidate - 1) % e and is_probable_prime(candidate):
+                primes.append(candidate)
+        p, q = primes
+        phi = (p - 1) * (q - 1)
+        _SIGNING_KEY = (p * q, e, pow(e, -1, phi))
+    return _SIGNING_KEY
+
+
+def rsa_sign(key: tuple[int, int, int], message: bytes) -> bytes:
+    """RSASSA-PKCS1-v1_5 with SHA-256."""
+    n, e, d = key
+    size = (n.bit_length() + 7) // 8
+    digest_info = SHA256_DIGEST_INFO + hashlib.sha256(message).digest()
+    encoded = b"\x00\x01" + b"\xff" * (size - len(digest_info) - 3) + b"\x00" + digest_info
+    signature = pow(int.from_bytes(encoded, "big"), d, n)
+    if pow(signature, e, n) != int.from_bytes(encoded, "big"):
+        raise AssertionError("RSA signature does not verify")
+    return signature.to_bytes(size, "big")
+
+
+def test_certificate(key: tuple[int, int, int]) -> tuple[bytes, bytes]:
+    """A self-signed X.509 v3 certificate for the test key, and its subject (= issuer) name."""
+    n, e, _ = key
+
+    def rdn(oid: str, value: str) -> bytes:
+        return der_set(der_seq(der_oid(oid), der(0x0C, value.encode("utf-8"))))
+
+    name = der_seq(rdn("2.5.4.10", SIGNER_ORGANIZATION), rdn("2.5.4.3", SIGNER_NAME))
+    public_key = der_seq(der_algorithm(OID_RSA), der(0x03, b"\x00" + der_seq(der_int(n), der_int(e))))
+    # keyUsage (critical): digitalSignature and nonRepudiation.
+    key_usage = der_seq(der_oid("2.5.29.15"), der(0x01, b"\xff"), der(0x04, der(0x03, b"\x06\xc0")))
+    tbs = der_seq(
+        der(0xA0, der_int(2)),
+        der_int(SIGNER_SERIAL),
+        der_algorithm(OID_SHA256_RSA),
+        name,
+        der_seq(der(0x17, b"260101000000Z"), der(0x17, b"360101000000Z")),
+        name,
+        public_key,
+        der(0xA3, der_seq(key_usage)),
+    )
+    certificate = der_seq(tbs, der_algorithm(OID_SHA256_RSA), der(0x03, b"\x00" + rsa_sign(key, tbs)))
+    return certificate, name
+
+
+def cms_detached_signature(data: bytes) -> bytes:
+    """A CMS SignedData (RFC 5652) over `data`, without the data itself (adbe.pkcs7.detached)."""
+    key = test_signing_key()
+    certificate, issuer = test_certificate(key)
+    signed_attributes = der_set(
+        der_seq(der_oid(OID_CONTENT_TYPE), der_set(der_oid(OID_DATA))),
+        der_seq(der_oid(OID_MESSAGE_DIGEST), der_set(der(0x04, hashlib.sha256(data).digest()))),
+    )
+    signer_info = der_seq(
+        der_int(1),
+        der_seq(issuer, der_int(SIGNER_SERIAL)),
+        der_algorithm(OID_SHA256),
+        b"\xa0" + signed_attributes[1:],  # the same SET, as [0] IMPLICIT
+        der_algorithm(OID_RSA),
+        der(0x04, rsa_sign(key, signed_attributes)),
+    )
+    signed_data = der_seq(
+        der_int(1),
+        der_set(der_algorithm(OID_SHA256)),
+        der_seq(der_oid(OID_DATA)),
+        der(0xA0, certificate),
+        der_set(signer_info),
+    )
+    return der_seq(der_oid(OID_SIGNED_DATA), der(0xA0, signed_data))
+
+
+SIGNATURE_HEX_DIGITS = 8192
+BYTE_RANGE_PLACEHOLDER = "[0 0000000000 0000000000 0000000000]"
+
+
+def signed_sample(name: str, text: str, certify: bool) -> bytes:
+    """One page with an invisible signature field; `certify` adds DocMDP P=1 (no changes)."""
+    doc = Document(name)
+    doc.reserve_pages(1)
+    field = doc.pdf.reserve()
+    signature = doc.pdf.reserve()
+    reference = ""
+    if certify:
+        reference = (" /Reference [<< /Type /SigRef /TransformMethod /DocMDP"
+                     " /TransformParams << /Type /TransformParams /P 1 /V /1.2 >> >>]")
+        doc.catalog_extra += f" /Perms << /DocMDP {signature} 0 R >>"
+    doc.pdf.set(
+        signature,
+        "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached"
+        f" /Name {pdf_string(SIGNER_NAME)} /Reason (Test corpus sample; the certificate is not trusted)"
+        f" /M (D:20260101000000Z){reference}"
+        f" /ByteRange {BYTE_RANGE_PLACEHOLDER} /Contents <{'0' * SIGNATURE_HEX_DIGITS}> >>",
+    )
+    doc.pdf.set(
+        field,
+        f"<< /Type /Annot /Subtype /Widget /FT /Sig /T (Signature1) /V {signature} 0 R"
+        f" /Rect [0 0 0 0] /F 132 /P {doc.page_nums[0]} 0 R >>",
+    )
+    doc.catalog_extra += f" /AcroForm << /Fields [{field} 0 R] /SigFlags 3 >>"
+    doc.set_page(0, Page(lines=[(72, 720, 20, text)], annots=[field]))
+    data = bytearray(doc.build())
+
+    # /ByteRange covers everything but the /Contents hex string, which then receives the CMS.
+    start = data.index(b"<" + b"0" * SIGNATURE_HEX_DIGITS + b">")
+    end = start + SIGNATURE_HEX_DIGITS + 2
+    byte_range = f"[0 {start} {end} {len(data) - end}]".ljust(len(BYTE_RANGE_PLACEHOLDER)).encode("ascii")
+    at = data.index(BYTE_RANGE_PLACEHOLDER.encode("ascii"))
+    data[at:at + len(byte_range)] = byte_range
+    cms = cms_detached_signature(bytes(data[:start] + data[end:])).hex().upper()
+    if len(cms) > SIGNATURE_HEX_DIGITS:
+        raise AssertionError("the CMS signature does not fit in /Contents")
+    data[start + 1:end - 1] = cms.ljust(SIGNATURE_HEX_DIGITS, "0").encode("ascii")
+    return bytes(data)
+
+
+SIGNED_TEXT = "Signed sample (test certificate: never trust it)"
+CERTIFIED_TEXT = "Certified sample: no changes allowed (DocMDP P=1)"
+
+
+def benign_signed() -> bytes:
+    return signed_sample("signed", SIGNED_TEXT, certify=False)
+
+
+def benign_signed_docmdp() -> bytes:
+    return signed_sample("signed-docmdp-p1", CERTIFIED_TEXT, certify=True)
 
 
 # --------------------------------------------------------------------------- malicious
@@ -679,6 +1064,19 @@ SAMPLES = [
     Sample("benign/encrypted-rc4-40.pdf", benign_encrypted,
            "Encrypted with the standard handler (RC4 40-bit, R2); user password 'user', owner password 'owner'.",
            "MVP: reported as encrypted and not supported; no crash.", 1),
+    Sample("benign/encrypted-aes256.pdf", benign_encrypted_aes256,
+           "AES-256 encryption (standard security handler, revision 6); user password 'user', owner 'owner'.",
+           "MVP: reported as encrypted and not supported; no crash. With the password MuPDF decrypts it and "
+           "the text is readable.", 1),
+    Sample("benign/signed.pdf", benign_signed,
+           "Signed (adbe.pkcs7.detached, SHA-256, RSA-2048) with the corpus's self-signed test certificate. The "
+           "key is derived from a fixed seed in generate.py, so anyone can re-create it: never trust it.",
+           "Opens like an ordinary document; the signature field is readable. The MVP neither verifies nor "
+           "shows signatures.", 1, text=[SIGNED_TEXT]),
+    Sample("benign/signed-docmdp-p1.pdf", benign_signed_docmdp,
+           "Certification signature with DocMDP P=1 (no changes allowed), same test certificate.",
+           "Opens; the app must never write to it: a document identifier would break the certification "
+           "(ADR 0010).", 1, text=[CERTIFIED_TEXT]),
     # malicious
     Sample("malicious/js-document-level.pdf", malicious_js_document, "Document-level JavaScript in the names tree.",
            "No script runs; finding reported.", 1, ["javaScript"]),
@@ -782,6 +1180,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--large", action="store_true", help="also generate the on-demand files")
     args = parser.parse_args()
+    check_aes()
 
     manifest = {
         "version": 1,
