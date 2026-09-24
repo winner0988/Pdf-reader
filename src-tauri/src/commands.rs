@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use ipc_contract::types::{
-    DocumentId, ErrorCode, IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineResult, PageLink,
-    RenderPageArgs, RequestId, SearchArgs, SearchEvent,
+    DocumentId, ErrorCode, IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs,
+    OutlineResult, PageLink, RenderPageArgs, RequestId, SearchArgs, SearchEvent,
 };
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
@@ -127,6 +127,27 @@ pub async fn open_link(app: AppHandle, args: LinkArgs) -> Result<(), IpcError> {
     let preview = {
         let app = app.clone();
         blocking(move || app.state::<Documents>().link_preview(args)).await?
+    };
+    crate::opener::open(&app, preview.opens).await
+}
+
+/// What the confirmation shows about the web link of an outline item (#49), named by its
+/// position in the outline.
+#[tauri::command]
+pub async fn describe_outline_link(
+    app: AppHandle,
+    args: OutlineLinkArgs,
+) -> Result<LinkPreview, IpcError> {
+    blocking(move || app.state::<Documents>().outline_link_preview(args)).await
+}
+
+/// Opens the web link of an outline item after the user confirmed it (#49), with the same
+/// checks as `open_link`.
+#[tauri::command]
+pub async fn open_outline_link(app: AppHandle, args: OutlineLinkArgs) -> Result<(), IpcError> {
+    let preview = {
+        let app = app.clone();
+        blocking(move || app.state::<Documents>().outline_link_preview(args)).await?
     };
     crate::opener::open(&app, preview.opens).await
 }
