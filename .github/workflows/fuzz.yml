@@ -77,11 +77,11 @@ jobs:
             echo
             echo '| | |'
             echo '|---|---|'
-            grep -Eo 'stat::number_of_executed_units: [0-9]+' fuzz.log | tail -1 | sed 's/.*: /| Runs | /; s/$/ |/'
-            grep -Eo 'stat::average_exec_per_sec: [0-9]+' fuzz.log | tail -1 | sed 's/.*: /| Runs per second | /; s/$/ |/'
+            grep -Eo 'stat::number_of_executed_units: *[0-9]+' fuzz.log | tail -1 | sed 's/.*: */| Runs | /; s/$/ |/'
+            grep -Eo 'stat::average_exec_per_sec: *[0-9]+' fuzz.log | tail -1 | sed 's/.*: */| Runs per second | /; s/$/ |/'
             grep -Eo 'cov: [0-9]+ ft: [0-9]+' fuzz.log | tail -1 | sed 's/cov: \([0-9]*\) ft: \([0-9]*\)/| Coverage (edges) | \1 |\n| Features | \2 |/'
             grep -Eo 'corp: [0-9]+/[0-9]+[a-zA-Z]*' fuzz.log | tail -1 | sed 's/corp: /| Corpus (inputs\/size) | /; s/$/ |/'
-            grep -Eo 'stat::peak_rss_mb: [0-9]+' fuzz.log | tail -1 | sed 's/.*: /| Peak memory (MB) | /; s/$/ |/'
+            grep -Eo 'stat::peak_rss_mb: *[0-9]+' fuzz.log | tail -1 | sed 's/.*: */| Peak memory (MB) | /; s/$/ |/'
             if ls fuzz/artifacts/${{ matrix.target }}/* >/dev/null 2>&1; then
               echo
               echo "**Crash samples found; see the fuzz-artifacts-${{ matrix.target }} artifact.**"
