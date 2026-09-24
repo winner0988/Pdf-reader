@@ -21,9 +21,16 @@
   - workflow 以 `CC=clang`、`CFLAGS=-fsanitize=fuzzer-no-link,address` 建置，MuPDF 與它的 C 函式庫也有覆蓋率回饋與 AddressSanitizer，不只 Rust 程式碼。
   - 只設 C 的旗標，因為 libFuzzer 本身是 C++，不能對自己插樁。
 - **摘要**：每個目標在 job 摘要列出執行次數、每秒次數、覆蓋率（edges）、features、語料數量與大小、記憶體高峰。
-- **崩潰時**：job 失敗，並把 `fuzz/artifacts/` 與完整日誌上傳為 `fuzz-artifacts-<目標>` artifact，**保留 7 天**。
+- **崩潰時**：job 失敗，並把 `fuzz/artifacts/` 與完整日誌上傳為 `fuzz-artifacts-<目標>` artifact，**保留 7 天**。repo 公開後這些都是公開的，見下方「公開 repo 的限制」。
 - **權限**：只有 `contents: read`。
 - **一般 CI**：`Rust (Windows)` 以 `cargo check` 確認 fuzz 目標可以編譯；實際的 libFuzzer 建置需要 nightly，只在這個 workflow 中進行。
+
+### 公開 repo 的限制
+
+repo 公開後，Actions 的日誌任何人都能看，artifact 只要登入 GitHub 就能下載。上面的 workflow 會把 libFuzzer 的完整輸出（包含 AddressSanitizer 報告）印在日誌中，崩潰時也會上傳樣本，**所以 CI 找到的崩潰就等於公開揭露**。
+
+- 做法由負責人決定（[#57](https://github.com/winner0988/Pdf-reader/issues/57)）。
+- 決定之前，公開 repo 的 `Fuzz` workflow 應該停用（Actions → Fuzz → ⋯ → Disable workflow），改在本機執行。
 
 ## 在本機執行
 

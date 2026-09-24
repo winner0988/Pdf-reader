@@ -4,6 +4,7 @@ description = "Low-privilege child process that is the only code linked against 
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [lints]

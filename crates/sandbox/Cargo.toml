@@ -4,6 +4,7 @@ description = "Starts pdf_worker in a restricted Windows process: Job Object, Lo
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [lints]
