@@ -41,6 +41,7 @@ pub fn bindings() -> String {
 
     declare!(
         DocumentId,
+        TabId,
         RequestId,
         PageSize,
         Rotation,
@@ -69,7 +70,7 @@ pub fn bindings() -> String {
         OpenEvent,
     );
 
-    let limits: [(&str, String); 17] = [
+    let limits: [(&str, String); 18] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -86,6 +87,7 @@ pub fn bindings() -> String {
         ("maxQuadsPerHit", MAX_QUADS_PER_HIT.to_string()),
         ("maxErrorMessageBytes", MAX_ERROR_MESSAGE_BYTES.to_string()),
         ("maxDisplayNameBytes", MAX_DISPLAY_NAME_BYTES.to_string()),
+        ("maxTabs", MAX_TABS.to_string()),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];
     out.push_str(

@@ -18,6 +18,16 @@ const plain = (event: KeyboardEvent) => !event.ctrlKey && !event.altKey && !even
 export const SHORTCUTS: Shortcut[] = [
   { id: "open", keys: ["Ctrl+O"], matches: (e) => ctrl(e) && e.key.toLowerCase() === "o" },
   { id: "close", keys: ["Ctrl+W"], matches: (e) => ctrl(e) && e.key.toLowerCase() === "w" },
+  {
+    id: "nextTab",
+    keys: ["Ctrl+Tab", "Ctrl+PageDown"],
+    matches: (e) => ctrl(e) && ((e.key === "Tab" && !e.shiftKey) || e.key === "PageDown"),
+  },
+  {
+    id: "previousTab",
+    keys: ["Ctrl+Shift+Tab", "Ctrl+PageUp"],
+    matches: (e) => ctrl(e) && ((e.key === "Tab" && e.shiftKey) || e.key === "PageUp"),
+  },
   { id: "search", keys: ["Ctrl+F"], matches: (e) => ctrl(e) && e.key.toLowerCase() === "f" },
   { id: "findNext", keys: ["F3"], matches: (e) => plain(e) && !e.shiftKey && e.key === "F3" },
   { id: "findPrevious", keys: ["Shift+F3"], matches: (e) => plain(e) && e.shiftKey && e.key === "F3" },

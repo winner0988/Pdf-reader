@@ -40,9 +40,10 @@ flowchart LR
 | 命令 | 參數 | 回傳 | 可取消 | 實作卡 |
 |---|---|---|---|---|
 | `subscribe_open_events` | `{ onEvent: Channel<OpenEvent> }` | 無（事件走頻道，見下節） | 否 | MVP-06 |
-| `open_document_dialog` | 無 | `boolean`：`false` 表示使用者取消（或已有對話框開著）；結果走開檔頻道 | 否 | MVP-06 |
-| `retry_open` | 無 | 無（重新開啟最近一次嘗試的檔案，結果走開檔頻道） | 否 | MVP-06 |
-| `close_document` | `{ doc: DocumentId }` | 無 | 否 | MVP-06 |
+| `open_document_dialog` | 無 | `boolean`：`false` 表示使用者取消（或已有對話框開著）；可以選多個檔案，每個一個分頁，結果走開檔頻道 | 否 | MVP-06、14 |
+| `retry_open` | `{ tab: TabId }` | 無（在同一個分頁重新開啟開檔失敗的檔案，結果走開檔頻道） | 否 | MVP-06、14 |
+| `close_tab` | `{ tab: TabId }` | 無；分頁的 worker 結束，主行程忘記它的路徑 | 否 | MVP-14 |
+| `set_active_tab` | `{ tab: TabId \| null }` | 無；主行程以它記錄的檔名設定視窗標題 | 否 | MVP-14 |
 | `render_page` | `{ args: RenderPageArgs }` | `ArrayBuffer`（見「頁面影像」） | 是 | MVP-07 |
 | `get_outline` | `{ doc: DocumentId }` | `OutlineResult` | 否 | MVP-09 |
 | `get_page_links` | `{ doc: DocumentId, pageIndex: number }` | `PageLink[]` | 否 | MVP-12 |
@@ -55,18 +56,21 @@ flowchart LR
 
 ### 開檔頻道（主行程 → 前端）
 
-所有開檔結果（對話框、拖放、命令列參數）都經由前端呼叫 `subscribe_open_events` 時傳入的 Tauri `Channel` 送出，內容是 `OpenEvent`：
+所有開檔結果（對話框、拖放、命令列參數、第二次啟動）都經由前端呼叫 `subscribe_open_events` 時傳入的 Tauri `Channel` 送出，內容是 `OpenEvent`。每個檔案一個分頁（MVP-14，ADR 0012），`TabId` 由主行程配發、不重複使用：
 
 | `kind` | 欄位 | 意義 |
 |---|---|---|
 | `dragHover` | `active` | 檔案拖曳進入（`true`）或離開（`false`）視窗，畫布顯示拖放目標 |
-| `opening` | `displayName` | 開始開檔，前端 300 ms 後顯示載入中 |
-| `opened` | `info: DocumentInfo`、`ignoredFiles` | 開檔成功；`ignoredFiles > 0` 表示拖放了多個檔案，只開了第一個 |
-| `failed` | `displayName`、`error: IpcError`、`ignoredFiles` | 開檔失敗 |
+| `opening` | `tab`、`displayName` | 新增分頁並開始開檔（或重試失敗的分頁）；前端 300 ms 後顯示載入中 |
+| `opened` | `tab`、`info: DocumentInfo` | 開檔成功 |
+| `failed` | `tab`、`displayName`、`error: IpcError` | 開檔失敗，分頁顯示錯誤 |
+| `tabLimit` | `ignoredFiles` | 已有 `LIMITS.maxTabs`（20）個分頁，這幾個檔案沒有開啟 |
 
 - **為什麼用 Channel 而不是 Tauri 事件**：前端要監聽事件就必須有 `core:event` 權限，而 Tauri 內建的拖放事件（`tauri://drag-drop`）會帶**完整路徑**，拿到權限的頁面也能收到。不授予任何 `core:event` 權限，路徑就不可能進入 WebView。
-- 主行程只保留最新的頻道（頁面重新載入時取代舊的）。訂閱前的事件（例如啟動時由命令列開檔）會排隊，最多 16 個，訂閱時依序送出；沒有排隊事件但已有開啟的文件時，送出一次 `opened`，讓重新載入的頁面恢復顯示。
-- 一個視窗一次只開一份文件：開新文件前，主行程先關閉目前的文件（worker `Close`）。開檔依序處理，兩次開檔的事件不會交錯。
+- 主行程只保留最新的頻道（頁面重新載入時取代舊的）。訂閱時送出**所有分頁目前的狀態**（`Documents::snapshot`，每個分頁一個 `opening`、`opened` 或 `failed`），讓重新載入的頁面恢復全部分頁；快照在事件佇列的鎖內取得，所以不會漏掉任何事件。訂閱前排隊的 `tabLimit` 提示也會送出。
+- **每份文件有自己的 worker**（ADR 0012）：一份惡意 PDF 就算攻陷它的 worker，也碰不到其他分頁的文件。各分頁的開檔、渲染與搜尋互不等待；關閉分頁就結束它的 worker。
+- **`DocumentId` 由主行程配發**，在所有分頁中不重複；它與 worker 內部的文件代號無關，worker 重新啟動後前端看到的 `DocumentId` 不變。
+- **單一執行個體**：app 已開啟時再次啟動（例如從檔案總管開啟 PDF），新的執行個體把命令列上的檔案交給第一個，然後結束；路徑只在兩個主行程之間傳遞。
 - 驗證：MVP-06 以開發者工具在頁面重新載入時記錄所有 IPC 請求／回應、主行程注入的腳本（頻道訊息）、DOM、console 與 JS heap snapshot。從路徑含有特殊標記的資料夾開檔後，這些地方都找不到該標記，但都找得到檔名。
 
 ### 權限

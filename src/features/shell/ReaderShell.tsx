@@ -48,6 +48,8 @@ type ReaderShellProps = {
   linksApi?: LinksApi;
   /** Opens Windows Settings for "set as default"; without it (demo data, tests) nothing happens. */
   systemApi?: SystemApi;
+  /** Whether this shell is the one shown (MVP-14): a hidden tab's shell handles no keys. */
+  active?: boolean;
   version?: string;
   /** Delay before the loading state appears; tests pass 0. */
   loadingDelayMs?: number;
@@ -85,6 +87,7 @@ export function ReaderShell({
   searchApi,
   linksApi,
   systemApi,
+  active = true,
   version = "0.1.0",
   loadingDelayMs,
 }: ReaderShellProps) {
@@ -190,7 +193,7 @@ export function ReaderShell({
     nextRegion: () => focusRegion(1),
     previousRegion: () => focusRegion(-1),
     help: () => setDialog("shortcuts"),
-  });
+  }, active);
 
   /**
    * Links inside the document jump right away. A web link is described by the main process
@@ -247,7 +250,7 @@ export function ReaderShell({
 
   return (
     <TooltipProvider>
-      <div className="flex h-screen flex-col bg-background text-foreground">
+      <div className="flex h-full flex-col bg-background text-foreground">
         <Toolbar
           document={document_ ? { pageCount, currentPage, zoom } : null}
           sidebarOpen={sidebarOpen && document_ !== null}

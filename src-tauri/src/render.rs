@@ -92,12 +92,12 @@ impl RasterCache {
         );
     }
 
-    /// Drops every page that does not belong to `doc`.
-    pub fn retain_document(&mut self, doc: Option<DocumentId>) {
+    /// Drops every page that does not belong to one of `docs`.
+    pub fn retain_documents(&mut self, docs: &[DocumentId]) {
         let stale: Vec<CacheKey> = self
             .entries
             .keys()
-            .filter(|key| Some(key.doc) != doc)
+            .filter(|key| !docs.contains(&key.doc))
             .copied()
             .collect();
         for key in stale {
@@ -226,15 +226,15 @@ impl Renderer {
         }
     }
 
-    /// Forgets everything about documents other than `doc` (the one now open, if any):
-    /// cached pages are freed and queued requests fail with `unknownDocument`.
-    pub fn retain_document(&self, doc: Option<DocumentId>) {
+    /// Forgets everything about documents other than `docs` (the open ones): cached pages are
+    /// freed and queued requests fail with `unknownDocument`.
+    pub fn retain_documents(&self, docs: &[DocumentId]) {
         let dropped: VecDeque<Job> = {
             let mut state = self.shared.lock();
-            state.cache.retain_document(doc);
+            state.cache.retain_documents(docs);
             let (kept, dropped) = std::mem::take(&mut state.queue)
                 .into_iter()
-                .partition(|job| Some(job.args.doc) == doc);
+                .partition(|job| docs.contains(&job.args.doc));
             state.queue = kept;
             dropped
         };
@@ -375,9 +375,10 @@ mod tests {
         let mut cache = RasterCache::new(1000);
         cache.insert(key(1, 0), Arc::new(vec![0; 10]));
         cache.insert(key(2, 0), Arc::new(vec![0; 20]));
-        cache.retain_document(Some(DocumentId(2)));
-        assert_eq!(cache.used_bytes(), 20);
-        cache.retain_document(None);
+        cache.insert(key(3, 0), Arc::new(vec![0; 30]));
+        cache.retain_documents(&[DocumentId(2), DocumentId(3)]);
+        assert_eq!(cache.used_bytes(), 50);
+        cache.retain_documents(&[]);
         assert_eq!(cache.used_bytes(), 0);
     }
 
@@ -474,7 +475,7 @@ mod tests {
             std::thread::yield_now();
         }
 
-        renderer.retain_document(Some(DocumentId(2)));
+        renderer.retain_documents(&[DocumentId(2)]);
         assert_eq!(
             old.join().unwrap().unwrap_err().code,
             ErrorCode::UnknownDocument

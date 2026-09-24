@@ -1,41 +1,42 @@
-//! Command-line handling: `pdf-reader.exe <file.pdf>` opens the file at start-up (and prepares
-//! for file associations later).
+//! Command-line handling: `pdf-reader.exe <file.pdf>...` opens the files at start-up, and a
+//! second launch hands its files to the running window (file associations, MVP-14).
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-/// The document named on the command line: the first argument after the program name that is
-/// not an option. Further documents are ignored (one document per window).
-pub fn document_argument(args: impl IntoIterator<Item = OsString>) -> Option<PathBuf> {
+/// The documents named on the command line: every argument after the program name that is not
+/// an option. Each one gets a tab.
+pub fn document_arguments(args: impl IntoIterator<Item = OsString>) -> Vec<PathBuf> {
     args.into_iter()
         .skip(1)
-        .find(|arg| !arg.to_string_lossy().starts_with('-'))
+        .filter(|arg| !arg.to_string_lossy().starts_with('-'))
         .map(PathBuf::from)
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn parse(args: &[&str]) -> Option<PathBuf> {
-        document_argument(args.iter().map(OsString::from))
+    fn parse(args: &[&str]) -> Vec<PathBuf> {
+        document_arguments(args.iter().map(OsString::from))
     }
 
     #[test]
     fn no_argument_opens_nothing() {
-        assert_eq!(parse(&["pdf-reader.exe"]), None);
-        assert_eq!(parse(&[]), None);
+        assert_eq!(parse(&["pdf-reader.exe"]), Vec::<PathBuf>::new());
+        assert_eq!(parse(&[]), Vec::<PathBuf>::new());
     }
 
     #[test]
-    fn the_first_file_is_opened() {
+    fn every_file_is_opened() {
         assert_eq!(
             parse(&["pdf-reader.exe", r"C:\Docs\報告 2026.pdf"]),
-            Some(PathBuf::from(r"C:\Docs\報告 2026.pdf"))
+            [PathBuf::from(r"C:\Docs\報告 2026.pdf")]
         );
         assert_eq!(
             parse(&["pdf-reader.exe", "a.pdf", "b.pdf"]),
-            Some(PathBuf::from("a.pdf"))
+            [PathBuf::from("a.pdf"), PathBuf::from("b.pdf")]
         );
     }
 
@@ -43,8 +44,8 @@ mod tests {
     fn options_are_skipped() {
         assert_eq!(
             parse(&["pdf-reader.exe", "--flag", "a.pdf"]),
-            Some(PathBuf::from("a.pdf"))
+            [PathBuf::from("a.pdf")]
         );
-        assert_eq!(parse(&["pdf-reader.exe", "-x"]), None);
+        assert_eq!(parse(&["pdf-reader.exe", "-x"]), Vec::<PathBuf>::new());
     }
 }

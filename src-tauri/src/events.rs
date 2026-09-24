@@ -7,7 +7,7 @@
 
 use std::sync::Mutex;
 
-use ipc_contract::types::{DocumentInfo, OpenEvent};
+use ipc_contract::types::OpenEvent;
 use tauri::ipc::Channel;
 
 /// Events kept while no frontend is subscribed (e.g. a command-line open during start-up).
@@ -45,22 +45,20 @@ impl OpenEvents {
     }
 
     /// Makes `channel` the receiver (a reloaded page replaces the previous one) and delivers what
-    /// it missed: queued events, or else the document that is already open.
-    pub fn subscribe(&self, channel: Channel<OpenEvent>, current: Option<DocumentInfo>) {
+    /// it missed: every tab as it is now (`snapshot`, e.g. `Documents::snapshot`), then any
+    /// queued tab-limit notices. The snapshot is taken under this lock, so no event slips in
+    /// between. Tab events are recorded before they are sent, so the queued ones are already in
+    /// the snapshot; one sent right after it only repeats the same state, which is harmless.
+    pub fn subscribe(
+        &self,
+        channel: Channel<OpenEvent>,
+        snapshot: impl FnOnce() -> Vec<OpenEvent>,
+    ) {
         let mut sink = self.lock();
-        let queued = std::mem::take(&mut sink.queued);
-        let missed = if queued.is_empty() {
-            current
-                .map(|info| OpenEvent::Opened {
-                    info,
-                    ignored_files: 0,
-                })
-                .into_iter()
-                .collect()
-        } else {
-            queued
-        };
-        for event in missed {
+        let notices = std::mem::take(&mut sink.queued)
+            .into_iter()
+            .filter(|event| matches!(event, OpenEvent::TabLimit { .. }));
+        for event in snapshot().into_iter().chain(notices) {
             // A failure here surfaces on the next send.
             let _ = channel.send(event);
         }
@@ -78,7 +76,7 @@ impl OpenEvents {
 mod tests {
     use std::sync::Arc;
 
-    use ipc_contract::types::{DocumentId, PageSize, SecurityReport};
+    use ipc_contract::types::{DocumentId, DocumentInfo, PageSize, SecurityReport, TabId};
     use tauri::ipc::InvokeResponseBody;
 
     use super::*;
@@ -98,47 +96,55 @@ mod tests {
         (channel, received)
     }
 
-    fn opening(name: &str) -> OpenEvent {
+    fn opening(tab: u32, name: &str) -> OpenEvent {
         OpenEvent::Opening {
+            tab: TabId(tab),
             display_name: name.to_owned(),
         }
     }
 
     #[test]
-    fn events_before_subscribing_are_delivered_in_order() {
+    fn a_new_page_gets_every_tab_from_the_snapshot_then_the_queued_notices() {
         let events = OpenEvents::default();
         events.send(OpenEvent::DragHover { active: true });
-        events.send(opening("a.pdf"));
-        events.send(opening("b.pdf"));
+        // Already in the snapshot: not delivered twice.
+        events.send(opening(1, "a.pdf"));
+        events.send(OpenEvent::TabLimit { ignored_files: 3 });
 
         let (channel, received) = recording_channel();
-        events.subscribe(channel, None);
-        events.send(opening("c.pdf"));
+        events.subscribe(channel, || vec![opening(1, "a.pdf"), opening(2, "b.pdf")]);
+        events.send(opening(3, "c.pdf"));
 
-        let names: Vec<_> = received
-            .lock()
-            .unwrap()
+        let received = received.lock().unwrap();
+        let kinds: Vec<_> = received
             .iter()
-            .map(|event| event["displayName"].as_str().unwrap().to_owned())
+            .map(|event| {
+                event["displayName"]
+                    .as_str()
+                    .map_or_else(|| event["kind"].to_string(), str::to_owned)
+            })
             .collect();
-        assert_eq!(names, ["a.pdf", "b.pdf", "c.pdf"]);
+        assert_eq!(kinds, ["a.pdf", "b.pdf", "\"tabLimit\"", "c.pdf"]);
+        assert_eq!(received[2]["ignoredFiles"], 3);
     }
 
     #[test]
     fn the_queue_is_bounded() {
         let events = OpenEvents::default();
         for index in 0..MAX_QUEUED + 5 {
-            events.send(opening(&format!("{index}.pdf")));
+            events.send(OpenEvent::TabLimit {
+                ignored_files: u32::try_from(index).unwrap(),
+            });
         }
         let (channel, received) = recording_channel();
-        events.subscribe(channel, None);
+        events.subscribe(channel, Vec::new);
         let received = received.lock().unwrap();
         assert_eq!(received.len(), MAX_QUEUED);
-        assert_eq!(received[0]["displayName"], "5.pdf");
+        assert_eq!(received[0]["ignoredFiles"], 5);
     }
 
     #[test]
-    fn a_reloaded_page_gets_the_open_document() {
+    fn a_reloaded_page_gets_the_open_documents() {
         let events = OpenEvents::default();
         let info = DocumentInfo {
             doc: DocumentId(3),
@@ -151,11 +157,16 @@ mod tests {
             security: SecurityReport::default(),
         };
         let (channel, received) = recording_channel();
-        events.subscribe(channel, Some(info));
+        events.subscribe(channel, || {
+            vec![OpenEvent::Opened {
+                tab: TabId(4),
+                info,
+            }]
+        });
         let received = received.lock().unwrap();
         assert_eq!(received.len(), 1);
         assert_eq!(received[0]["kind"], "opened");
+        assert_eq!(received[0]["tab"], 4);
         assert_eq!(received[0]["info"]["doc"], 3);
-        assert_eq!(received[0]["ignoredFiles"], 0);
     }
 }

@@ -134,6 +134,14 @@ function stop(running: Running) {
   rmSync(running.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }
 
+/**
+ * Starts the app a second time with `file` (as Explorer does for a PDF, MVP-14). That launch hands
+ * the file to the running window, which opens it in a new tab, and exits; this waits until it has.
+ */
+export function launchAgain(file: string): void {
+  execFileSync(APP, [file], { stdio: "ignore", timeout: STARTUP_TIMEOUT_MS });
+}
+
 export const test = base.extend<{
   /** Starts the app, optionally with a file to open (as a command-line argument), and returns its window's page. */
   launch: (file?: string) => Promise<Page>;

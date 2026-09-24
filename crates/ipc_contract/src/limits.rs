@@ -52,3 +52,7 @@ pub const MAX_ERROR_MESSAGE_BYTES: u32 = 1_024;
 
 /// Maximum length of a document display name (file name only, never a path).
 pub const MAX_DISPLAY_NAME_BYTES: u32 = 1_024;
+
+/// Maximum number of tabs in the window (MVP-14, ADR 0012). Each open document has its own
+/// worker process, so this also bounds the number of workers.
+pub const MAX_TABS: u32 = 20;

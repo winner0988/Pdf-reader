@@ -399,8 +399,8 @@ impl Validate for IpcError {
 impl Validate for OpenEvent {
     fn validate(&self) -> Result<(), ValidationError> {
         match self {
-            OpenEvent::DragHover { .. } => Ok(()),
-            OpenEvent::Opening { display_name } => check_display_name(display_name),
+            OpenEvent::DragHover { .. } | OpenEvent::TabLimit { .. } => Ok(()),
+            OpenEvent::Opening { display_name, .. } => check_display_name(display_name),
             OpenEvent::Opened { info, .. } => info.validate(),
             OpenEvent::Failed {
                 display_name,
@@ -418,7 +418,7 @@ impl Validate for OpenEvent {
 mod tests {
     use super::*;
     use crate::types::{
-        BlockedAction, DocumentId, ErrorCode, LinkId, RequestId, Rotation, SecurityFinding,
+        BlockedAction, DocumentId, ErrorCode, LinkId, RequestId, Rotation, SecurityFinding, TabId,
     };
     use crate::worker::WorkerErrorCode;
 
@@ -709,17 +709,18 @@ mod tests {
     #[test]
     fn open_events_carry_no_paths() {
         let opening = |display_name: &str| OpenEvent::Opening {
+            tab: TabId(1),
             display_name: display_name.to_owned(),
         };
         assert!(opening("報告.pdf").validate().is_ok());
         assert!(opening(r"C:\Users\someone\報告.pdf").validate().is_err());
         let failed = OpenEvent::Failed {
+            tab: TabId(1),
             display_name: r"\\server\share\報告.pdf".to_owned(),
             error: IpcError {
                 code: ErrorCode::Unreadable,
                 message: String::new(),
             },
-            ignored_files: 0,
         };
         assert!(failed.validate().is_err());
         assert!(OpenEvent::DragHover { active: true }.validate().is_ok());

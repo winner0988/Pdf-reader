@@ -1,13 +1,13 @@
 //! Tauri commands for opening and closing documents (docs/architecture/ipc-contract.md).
 //! Paths never cross into the WebView: the dialog runs here, and results arrive as
-//! [`OpenEvent`]s carrying only a `DocumentId` and a file name.
+//! [`OpenEvent`]s carrying only a `TabId`, a `DocumentId` and a file name.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use ipc_contract::types::{
     DocumentId, ErrorCode, IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs,
-    OutlineResult, PageLink, RenderPageArgs, RequestId, SearchArgs, SearchEvent,
+    OutlineResult, PageLink, RenderPageArgs, RequestId, SearchArgs, SearchEvent, TabId,
 };
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
@@ -25,8 +25,9 @@ pub async fn subscribe_open_events(
     on_event: Channel<OpenEvent>,
 ) -> Result<(), IpcError> {
     blocking(move || {
-        let current = app.state::<Documents>().current();
-        app.state::<OpenEvents>().subscribe(on_event, current);
+        let documents = app.state::<Documents>();
+        app.state::<OpenEvents>()
+            .subscribe(on_event, || documents.snapshot());
         Ok(())
     })
     .await
@@ -35,8 +36,9 @@ pub async fn subscribe_open_events(
 /// Set while the open dialog is showing.
 static DIALOG_SHOWING: AtomicBool = AtomicBool::new(false);
 
-/// Shows the native open dialog (PDF files only). Returns false if the user cancelled, or if a
-/// dialog is already showing; otherwise the outcome arrives on the open-events channel.
+/// Shows the native open dialog (PDF files only; several can be picked). Returns false if the
+/// user cancelled, or if a dialog is already showing; otherwise every file gets a tab and the
+/// outcomes arrive on the open-events channel.
 #[tauri::command]
 pub async fn open_document_dialog(app: AppHandle, window: WebviewWindow) -> Result<bool, IpcError> {
     // The dialog is modal to the window, but the page could still ask twice.
@@ -55,35 +57,52 @@ pub async fn open_document_dialog(app: AppHandle, window: WebviewWindow) -> Resu
         .set_title(strings::OPEN_DIALOG_TITLE)
         .add_filter(strings::PDF_FILTER_NAME, &["pdf"])
         .set_parent(&window)
-        .pick_file()
+        .pick_files()
         .await;
-    let Some(file) = picked else {
+    let Some(files) = picked else {
         return Ok(false);
     };
-    open_in_background(app, file.path().to_owned(), 0);
+    open_paths(
+        &app,
+        files.iter().map(|file| file.path().to_owned()).collect(),
+    );
     Ok(true)
 }
 
-/// Opens the most recently attempted file again (after `workerCrashed`, `workerTimeout` or
-/// `unreadable`). The outcome arrives on the open-events channel.
+/// Opens the file of a tab that failed to open again (after `workerCrashed`, `workerTimeout` or
+/// `unreadable`), in the same tab. The outcome arrives on the open-events channel.
 #[tauri::command]
-pub async fn retry_open(app: AppHandle) -> Result<(), IpcError> {
+pub async fn retry_open(app: AppHandle, tab: TabId) -> Result<(), IpcError> {
     blocking(move || {
         let events = app.state::<OpenEvents>();
-        app.state::<Documents>().retry(&|event| events.send(event));
-        forget_other_documents(&app);
-        Ok(())
+        let result = app
+            .state::<Documents>()
+            .retry(tab, &|event| events.send(event));
+        after_tabs_changed(&app);
+        result
     })
     .await
 }
 
+/// Closes a tab (MVP-14): its document's worker ends and its path is forgotten.
 #[tauri::command]
-pub async fn close_document(app: AppHandle, doc: DocumentId) -> Result<(), IpcError> {
+pub async fn close_tab(app: AppHandle, tab: TabId) -> Result<(), IpcError> {
     blocking(move || {
-        let result = app.state::<Documents>().close(doc);
-        forget_other_documents(&app);
-        show_document_in_title(&app);
+        let result = app.state::<Documents>().close(tab);
+        after_tabs_changed(&app);
         result
+    })
+    .await
+}
+
+/// The tab the window shows (`None` when there is none), for the window title (MVP-14). The
+/// title uses the file name the main process has for that tab.
+#[tauri::command]
+pub async fn set_active_tab(app: AppHandle, tab: Option<TabId>) -> Result<(), IpcError> {
+    blocking(move || {
+        app.state::<Documents>().set_active(tab);
+        show_active_in_title(&app);
+        Ok(())
     })
     .await
 }
@@ -190,42 +209,48 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
         DragDropEvent::Leave => events.send(OpenEvent::DragHover { active: false }),
         DragDropEvent::Drop { paths, .. } => {
             events.send(OpenEvent::DragHover { active: false });
-            if let Some(first) = paths.first() {
-                let ignored = u32::try_from(paths.len() - 1).unwrap_or(u32::MAX);
-                open_in_background(app.clone(), first.clone(), ignored);
-            }
+            open_paths(app, paths.clone());
         }
         _ => {}
     }
 }
 
-/// Opens `path` off the main thread and reports on the open-events channel.
-pub fn open_in_background(app: AppHandle, path: PathBuf, ignored_files: u32) {
-    tauri::async_runtime::spawn_blocking(move || {
-        let events = app.state::<OpenEvents>();
-        app.state::<Documents>()
-            .open(&path, ignored_files, &|event| events.send(event));
-        forget_other_documents(&app);
-        show_document_in_title(&app);
-    });
+/// Gives each of `paths` a tab and opens them off the main thread, each in a worker of its own
+/// (MVP-14, ADR 0012). The outcomes arrive on the open-events channel.
+pub fn open_paths(app: &AppHandle, paths: Vec<PathBuf>) {
+    if paths.is_empty() {
+        return;
+    }
+    let events = app.state::<OpenEvents>();
+    let tabs = app
+        .state::<Documents>()
+        .add(&paths, &|event| events.send(event));
+    for tab in tabs {
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let events = app.state::<OpenEvents>();
+            app.state::<Documents>()
+                .load(tab, &|event| events.send(event));
+            after_tabs_changed(&app);
+        });
+    }
 }
 
-/// Puts the open document's file name in the window title (REL-03). The name has no directory
-/// components (`DocumentInfo::display_name`).
-fn show_document_in_title(app: &AppHandle) {
-    let name = app
-        .state::<Documents>()
-        .current()
-        .map(|info| info.display_name);
+/// Puts the file name of the tab the window shows in the window title (REL-03, MVP-14). The name
+/// has no directory components (`DocumentInfo::display_name`).
+fn show_active_in_title(app: &AppHandle) {
+    let name = app.state::<Documents>().active_name();
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_title(&strings::window_title(name.as_deref()));
     }
 }
 
-/// Frees cached pages and queued renders of documents that are no longer open.
-fn forget_other_documents(app: &AppHandle) {
-    let current = app.state::<Documents>().current().map(|info| info.doc);
-    app.state::<Renderer>().retain_document(current);
+/// After a tab opened, failed or closed: frees cached pages and queued renders of documents
+/// that are no longer open, and keeps the window title in step.
+fn after_tabs_changed(app: &AppHandle) {
+    let open = app.state::<Documents>().open_documents();
+    app.state::<Renderer>().retain_documents(&open);
+    show_active_in_title(app);
 }
 
 /// Runs `work` on the blocking pool: worker requests can take seconds.

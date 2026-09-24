@@ -8,6 +8,11 @@ use ts_rs::TS;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 pub struct DocumentId(pub u32);
 
+/// One tab of the window (MVP-14, ADR 0012): a file from the moment it starts opening until the
+/// tab is closed, whether it opened or failed. Assigned by the main process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
+pub struct TabId(pub u32);
+
 /// Caller-chosen id used to correlate and cancel a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 pub struct RequestId(pub u32);
@@ -403,26 +408,26 @@ pub struct IpcError {
 }
 
 /// Pushed by the main process on the channel passed to `subscribe_open_events`, for documents
-/// opened from the dialog, by drag and drop, or from the command line. A window shows one
-/// document at a time, so the latest event always describes what the window should show.
+/// opened from the dialog, by drag and drop, from the command line or from a second launch of
+/// the app. Every file gets its own tab (MVP-14): `Opening` adds it, then `Opened` or `Failed`
+/// says how it went.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum OpenEvent {
     /// Files are being dragged over the window (`true`), or the drag left without a drop.
     DragHover { active: bool },
-    /// Opening has started.
+    /// A tab was added (or a failed one is being retried) and its file is opening.
     #[serde(rename_all = "camelCase")]
-    Opening { display_name: String },
-    /// `ignored_files`: other files in the same drop that were not opened.
+    Opening { tab: TabId, display_name: String },
     #[serde(rename_all = "camelCase")]
-    Opened {
-        info: DocumentInfo,
-        ignored_files: u32,
-    },
+    Opened { tab: TabId, info: DocumentInfo },
     #[serde(rename_all = "camelCase")]
     Failed {
+        tab: TabId,
         display_name: String,
         error: IpcError,
-        ignored_files: u32,
     },
+    /// `ignored_files` files were not opened: the window already has `MAX_TABS` tabs.
+    #[serde(rename_all = "camelCase")]
+    TabLimit { ignored_files: u32 },
 }
