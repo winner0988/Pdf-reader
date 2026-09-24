@@ -60,7 +60,12 @@ describe("states", () => {
 
     expect(screen.getByRole("toolbar")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: strings.sidebar.label })).toBeInTheDocument();
-    expect(screen.getAllByRole("img", { name: /^第 \d+ 頁$/ })).toHaveLength(12);
+    // Virtual scrolling: only the pages near the viewport are mounted (MVP-07).
+    const mounted = screen.getAllByRole("img", { name: /^第 \d+ 頁$/ });
+    expect(mounted.length).toBeGreaterThan(0);
+    expect(mounted.length).toBeLessThan(12);
+    expect(mounted[0]).toHaveAccessibleName("第 1 頁");
+    expect(screen.queryByRole("img", { name: "第 12 頁" })).not.toBeInTheDocument();
     expect(statusText()).toContain("報告.pdf");
     expect(statusText()).toContain("第 1 / 12 頁 · 符合寬度");
   });

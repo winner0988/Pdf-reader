@@ -30,6 +30,7 @@ export const initialSession: OpenSession = {
 
 export function toShellDocument(info: DocumentInfo): ShellDocument {
   return {
+    doc: info.doc,
     displayName: info.displayName,
     pages: info.pages,
     outline: [], // MVP-09

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
 import type { OpenApi } from "@/features/open/api";
+import type { RenderApi } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
 import type { DocumentInfo, ErrorCode, OpenEvent } from "@/ipc/generated/contract";
 
@@ -37,9 +38,15 @@ const failed = (code: ErrorCode, displayName = "file.pdf"): OpenEvent => ({
   ignoredFiles: 0,
 });
 
+/** Page renders never finish: these tests are about opening, not drawing. */
+const idleRenderApi: RenderApi = {
+  renderPage: () => new Promise<ArrayBuffer>(() => {}),
+  cancel: () => Promise.resolve(),
+};
+
 function renderApp() {
   const main = fakeMainProcess();
-  render(<App api={main.api} />);
+  render(<App api={main.api} renderApi={idleRenderApi} />);
   return { ...main, user: userEvent.setup() };
 }
 
