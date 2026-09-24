@@ -9,7 +9,8 @@ use std::io::{Read, Write};
 
 use ipc_contract::frame::{self, FrameError};
 use ipc_contract::limits::{
-    MAX_ERROR_MESSAGE_BYTES, MAX_OUTLINE_DEPTH, MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_TEXT_BYTES,
+    MAX_ERROR_MESSAGE_BYTES, MAX_OUTLINE_DEPTH, MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_SEARCH_HITS,
+    MAX_TEXT_BYTES,
 };
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
@@ -70,13 +71,37 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
                 },
             }),
-            WorkerRequest::GetPageLinks { request, .. } | WorkerRequest::Search { request, .. } => {
-                Some(error(
+            WorkerRequest::GetPageLinks { request, .. } => Some(error(
+                request,
+                WorkerErrorCode::InvalidRequest,
+                "not implemented yet (MVP-12)",
+            )),
+            WorkerRequest::SearchPage {
+                request,
+                doc,
+                page_index,
+                query,
+                case_sensitive,
+                max_hits,
+            } => Some(match documents.get(&doc) {
+                None => error(
                     request,
-                    WorkerErrorCode::InvalidRequest,
-                    "not implemented yet (MVP-09, MVP-10, MVP-12)",
-                ))
-            }
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => {
+                    let max_hits = max_hits.min(MAX_SEARCH_HITS) as usize;
+                    match document.search_page(page_index, &query, case_sensitive, max_hits) {
+                        Ok(found) => WorkerResponse::PageSearched {
+                            request,
+                            page_index,
+                            hits: found.hits,
+                            has_text: found.has_text,
+                        },
+                        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                    }
+                }
+            }),
             // Requests are handled one at a time, so there is nothing in flight to cancel.
             WorkerRequest::Cancel { .. } => None,
             WorkerRequest::Close { doc } => {

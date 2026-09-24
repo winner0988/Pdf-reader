@@ -8,7 +8,7 @@ use ipc_contract::limits::MAX_DISPLAY_NAME_BYTES;
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::types::{
     DocumentId, DocumentInfo, ErrorCode, IpcError, LinkTarget, OpenEvent, OutlineResult,
-    RenderPageArgs,
+    RenderPageArgs, SearchHit,
 };
 use ipc_contract::validate::{Validate, check_page_index};
 use ipc_contract::worker::{WorkerRequest, WorkerResponse};
@@ -27,6 +27,13 @@ struct Inner {
     current: Option<OpenDocument>,
     /// Most recent open attempt, for "retry". Never leaves the main process.
     last_path: Option<PathBuf>,
+}
+
+/// Hits on one page, and whether the page has any text at all.
+#[derive(Debug)]
+pub struct PageFound {
+    pub hits: Vec<SearchHit>,
+    pub has_text: bool,
 }
 
 struct OpenDocument {
@@ -159,6 +166,53 @@ impl Documents {
                 })
             }
             _ => Err(unexpected("Render")),
+        }
+    }
+
+    /// Number of pages of `doc`, if it is the open document.
+    pub fn page_count(&self, doc: DocumentId) -> Option<u32> {
+        self.lock()
+            .current
+            .as_ref()
+            .filter(|current| current.info.doc == doc)
+            .map(|current| u32::try_from(current.info.pages.len()).unwrap_or(u32::MAX))
+    }
+
+    /// Searches one page of `doc` (MVP-10); at most `max_hits` hits.
+    pub fn search_page(
+        &self,
+        doc: DocumentId,
+        page_index: u32,
+        query: &str,
+        case_sensitive: bool,
+        max_hits: u32,
+    ) -> Result<PageFound, IpcError> {
+        let mut inner = self.lock();
+        let Inner { host, current, .. } = &mut *inner;
+        let current = current
+            .as_mut()
+            .filter(|current| current.info.doc == doc)
+            .ok_or_else(unknown_document)?;
+        let page_count = u32::try_from(current.info.pages.len()).unwrap_or(u32::MAX);
+        check_page_index(page_index, page_count).map_err(invalid_argument)?;
+        let response = request(host, current, |request, doc| WorkerRequest::SearchPage {
+            request,
+            doc,
+            page_index,
+            query: query.to_owned(),
+            case_sensitive,
+            max_hits,
+        })?;
+        match response {
+            WorkerResponse::PageSearched {
+                page_index: answered,
+                hits,
+                has_text,
+                ..
+            } if answered == page_index && hits.len() <= max_hits as usize => {
+                Ok(PageFound { hits, has_text })
+            }
+            _ => Err(unexpected("SearchPage")),
         }
     }
 
@@ -519,6 +573,11 @@ mod with_worker {
                 .map(|_| "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_owned()),
         );
         objects.extend(extra.iter().cloned());
+        pdf_objects(&objects)
+    }
+
+    /// A PDF from object bodies (object n = body n-1; object 1 is the catalog).
+    fn pdf_objects(objects: &[String]) -> Vec<u8> {
         let mut out = b"%PDF-1.7\n".to_vec();
         let mut offsets = Vec::new();
         for (index, body) in objects.iter().enumerate() {
@@ -740,6 +799,49 @@ mod with_worker {
                 .code,
             ErrorCode::UnknownDocument
         );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn searches_a_page_through_the_worker() {
+        let text = "BT /F1 24 Tf 72 700 Td (Find the Needle here, then another needle.) Tj ET";
+        let pdf = pdf_objects(&[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 5 0 R /Resources << /Font << /F1 6 0 R >> >> >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_owned(),
+            format!("<< /Length {} >>\nstream\n{text}\nendstream", text.len()),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+        ]);
+        let (documents, info, path) = open_bytes("search", &pdf);
+
+        let found = documents
+            .search_page(info.doc, 0, "needle", false, 100)
+            .unwrap();
+        assert!(found.has_text);
+        assert_eq!(found.hits.len(), 2);
+        let found = documents
+            .search_page(info.doc, 0, "needle", true, 100)
+            .unwrap();
+        assert_eq!(found.hits.len(), 1);
+        let limited = documents
+            .search_page(info.doc, 0, "needle", false, 1)
+            .unwrap();
+        assert_eq!(limited.hits.len(), 1);
+        let blank = documents
+            .search_page(info.doc, 1, "needle", false, 100)
+            .unwrap();
+        assert!(!blank.has_text && blank.hits.is_empty());
+
+        assert_eq!(
+            documents
+                .search_page(info.doc, 2, "needle", false, 100)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(documents.page_count(info.doc), Some(2));
+        assert_eq!(documents.page_count(DocumentId(info.doc.0 + 1)), None);
         std::fs::remove_file(path).ok();
     }
 }

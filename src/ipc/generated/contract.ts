@@ -115,7 +115,7 @@ export type SearchArgs = { request: RequestId, doc: DocumentId, query: string, c
 
 export type SearchHit = { quads: Array<Quad>, };
 
-export type SearchEvent = { "kind": "hits", pageIndex: number, hits: Array<SearchHit>, } | { "kind": "progress", pagesSearched: number, } | { "kind": "done", totalHits: number, truncated: boolean, };
+export type SearchEvent = { "kind": "hits", pageIndex: number, hits: Array<SearchHit>, } | { "kind": "progress", pagesSearched: number, } | { "kind": "done", totalHits: number, truncated: boolean, noTextLayer: boolean, };
 
 /**
  * Error codes the frontend maps to localized messages.

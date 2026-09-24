@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use ipc_contract::types::{
     DocumentId, ErrorCode, IpcError, OpenEvent, OutlineResult, RenderPageArgs, RequestId,
+    SearchArgs, SearchEvent,
 };
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
@@ -14,6 +15,7 @@ use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEven
 use crate::documents::Documents;
 use crate::events::OpenEvents;
 use crate::render::Renderer;
+use crate::search::{self, Searches};
 use crate::strings;
 
 /// Registers the frontend's channel for [`OpenEvent`]s.
@@ -99,10 +101,21 @@ pub async fn get_outline(app: AppHandle, doc: DocumentId) -> Result<OutlineResul
     blocking(move || app.state::<Documents>().outline(doc)).await
 }
 
-/// Cancels a queued `render_page` request; it then fails with `cancelled`.
+/// Searches the document (MVP-10); hits, progress and a final `done` arrive on `on_event`.
+#[tauri::command]
+pub async fn search(
+    app: AppHandle,
+    args: SearchArgs,
+    on_event: Channel<SearchEvent>,
+) -> Result<(), IpcError> {
+    blocking(move || search::run(&app, args, on_event)).await
+}
+
+/// Cancels a queued `render_page` request (it then fails with `cancelled`) or a running search.
 #[tauri::command]
 pub async fn cancel(app: AppHandle, request: RequestId) -> Result<(), IpcError> {
     app.state::<Renderer>().cancel(request);
+    app.state::<Searches>().cancel(request);
     Ok(())
 }
 

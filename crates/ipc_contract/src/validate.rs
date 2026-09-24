@@ -327,13 +327,9 @@ impl Validate for WorkerResponse {
                 }
                 Ok(())
             }
-            WorkerResponse::SearchHits { hits, .. } => {
+            WorkerResponse::PageSearched { hits, .. } => {
                 check_count("search hits", hits.len(), MAX_SEARCH_HITS)?;
                 hits.iter().try_for_each(SearchHit::validate)
-            }
-            WorkerResponse::SearchProgress { .. } => Ok(()),
-            WorkerResponse::SearchDone { total_hits, .. } => {
-                check_count("search hits", *total_hits as usize, MAX_SEARCH_HITS)
             }
             WorkerResponse::Error { error, .. } => error.validate(),
         }
@@ -623,7 +619,7 @@ mod tests {
 
     #[test]
     fn search_hits_are_bounded() {
-        let hits = |count: usize| WorkerResponse::SearchHits {
+        let hits = |count: usize| WorkerResponse::PageSearched {
             request: RequestId(1),
             page_index: 0,
             hits: vec![
@@ -632,6 +628,7 @@ mod tests {
                 };
                 count
             ],
+            has_text: true,
         };
         assert!(hits(3).validate().is_ok());
         assert!(hits(MAX_SEARCH_HITS as usize + 1).validate().is_err());

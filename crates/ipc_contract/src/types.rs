@@ -324,8 +324,13 @@ pub enum SearchEvent {
     },
     #[serde(rename_all = "camelCase")]
     Progress { pages_searched: u32 },
+    /// `no_text_layer`: no page had any text, so the document needs OCR to be searchable.
     #[serde(rename_all = "camelCase")]
-    Done { total_hits: u32, truncated: bool },
+    Done {
+        total_hits: u32,
+        truncated: bool,
+        no_text_layer: bool,
+    },
 }
 
 /// Error codes the frontend maps to localized messages.

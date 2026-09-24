@@ -10,6 +10,7 @@ mod commands;
 mod documents;
 mod events;
 mod render;
+mod search;
 mod strings;
 
 use tauri::Manager;
@@ -17,6 +18,7 @@ use tauri::Manager;
 use crate::documents::Documents;
 use crate::events::OpenEvents;
 use crate::render::{DEFAULT_CACHE_BYTES, Renderer};
+use crate::search::Searches;
 
 pub fn run() {
     let worker =
@@ -33,6 +35,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(Documents::new(worker))
         .manage(OpenEvents::default())
+        .manage(Searches::default())
         .invoke_handler(tauri::generate_handler![
             commands::subscribe_open_events,
             commands::open_document_dialog,
@@ -41,6 +44,7 @@ pub fn run() {
             commands::render_page,
             commands::cancel,
             commands::get_outline,
+            commands::search,
         ])
         .on_window_event(commands::on_window_event)
         .setup(move |app| {

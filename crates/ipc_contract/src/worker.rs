@@ -42,11 +42,16 @@ pub enum WorkerRequest {
         doc: DocumentId,
         page_index: u32,
     },
-    Search {
+    /// Searches one page. The main process walks the pages itself, so renders can run between
+    /// pages and a search is cancelled by simply not asking for the next page.
+    SearchPage {
         request: RequestId,
         doc: DocumentId,
+        page_index: u32,
         query: String,
         case_sensitive: bool,
+        /// Stop after this many hits on the page.
+        max_hits: u32,
     },
     /// Best effort: the worker drops the target request if it has not finished yet.
     Cancel {
@@ -83,20 +88,12 @@ pub enum WorkerResponse {
         page_index: u32,
         links: Vec<PageLink>,
     },
-    /// Zero or more per search, followed by exactly one `SearchDone` or `Error`.
-    SearchHits {
+    PageSearched {
         request: RequestId,
         page_index: u32,
         hits: Vec<SearchHit>,
-    },
-    SearchProgress {
-        request: RequestId,
-        pages_searched: u32,
-    },
-    SearchDone {
-        request: RequestId,
-        total_hits: u32,
-        truncated: bool,
+        /// Whether the page has any text at all (none on every page means no text layer).
+        has_text: bool,
     },
     Error {
         request: Option<RequestId>,

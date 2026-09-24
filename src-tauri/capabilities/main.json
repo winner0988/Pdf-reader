@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "Permissions for the main window: only the app's own document commands (MVP-06, MVP-07, MVP-09). No core:event, dialog or fs permissions: paths must never reach the WebView. Any addition needs the needs-security-review label.",
+  "description": "Permissions for the main window: only the app's own document commands (MVP-06, MVP-07, MVP-09, MVP-10). No core:event, dialog or fs permissions: paths must never reach the WebView. Any addition needs the needs-security-review label.",
   "windows": ["main"],
   "permissions": [
     "allow-subscribe-open-events",
@@ -10,6 +10,7 @@
     "allow-close-document",
     "allow-render-page",
     "allow-cancel",
-    "allow-get-outline"
+    "allow-get-outline",
+    "allow-search"
   ]
 }

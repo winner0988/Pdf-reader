@@ -6,9 +6,11 @@
 
 use std::collections::HashSet;
 
-use ipc_contract::types::BlockedAction;
+use ipc_contract::types::{BlockedAction, Point, Quad};
 use mupdf::pdf::{PdfDocument as MuPdfDocument, PdfObject};
-use mupdf::{Colorspace, Document, Matrix, Page};
+use mupdf::{Colorspace, Document, Matrix, Page, TextPageFlags};
+
+use crate::search::{PageSearch, PageText};
 use thiserror::Error;
 
 /// PDF files must start with this header within the first 1024 bytes (PDF 1.7, 7.5.2).
@@ -301,11 +303,45 @@ impl PdfDocument {
         })
     }
 
+    /// Searches one page's text layer for `query` (MVP-10); coordinates are page points with
+    /// the origin at the top left, like the page size.
+    pub fn search_page(
+        &self,
+        index: u32,
+        query: &str,
+        case_sensitive: bool,
+        max_hits: usize,
+    ) -> Result<PageSearch, EngineError> {
+        let text_page = self
+            .load_page(index)?
+            .to_text_page(TextPageFlags::empty())?;
+        let mut text = PageText::new(case_sensitive);
+        for block in text_page.blocks() {
+            for line in block.lines() {
+                text.push_line(
+                    line.chars()
+                        .filter_map(|ch| ch.char().map(|c| (c, contract_quad(ch.quad())))),
+                );
+            }
+        }
+        Ok(text.search(query, max_hits))
+    }
+
     fn load_page(&self, index: u32) -> Result<Page, EngineError> {
         if index >= self.page_count()? {
             return Err(EngineError::PageOutOfRange(index));
         }
         Ok(self.doc.load_page(index as i32)?)
+    }
+}
+
+fn contract_quad(quad: mupdf::Quad) -> Quad {
+    let point = |p: mupdf::Point| Point { x: p.x, y: p.y };
+    Quad {
+        ul: point(quad.ul),
+        ur: point(quad.ur),
+        ll: point(quad.ll),
+        lr: point(quad.lr),
     }
 }
 
@@ -493,6 +529,56 @@ mod tests {
             ]
         );
         assert!(!outline.truncated);
+    }
+
+    #[test]
+    fn searches_the_text_layer() {
+        let doc = PdfDocument::from_bytes(&two_page_pdf()).unwrap();
+        let found = doc.search_page(0, "mupdf", false, 10).unwrap();
+        assert!(found.has_text);
+        assert_eq!(found.hits.len(), 1);
+        // "Hello MuPDF" is drawn at y = 700 from the bottom: near the top of the page.
+        let quad = found.hits[0].quads[0];
+        assert!(quad.ul.y > 40.0 && quad.ll.y < 120.0, "{quad:?}");
+        assert!(quad.ul.x > 150.0 && quad.ur.x < 400.0, "{quad:?}");
+
+        assert!(
+            doc.search_page(0, "mupdf", true, 10)
+                .unwrap()
+                .hits
+                .is_empty()
+        );
+        assert_eq!(doc.search_page(0, "MuPDF", true, 10).unwrap().hits.len(), 1);
+        let empty_page = doc.search_page(1, "mupdf", false, 10).unwrap();
+        assert!(!empty_page.has_text && empty_page.hits.is_empty());
+        assert!(matches!(
+            doc.search_page(2, "x", false, 10),
+            Err(EngineError::PageOutOfRange(2))
+        ));
+    }
+
+    #[test]
+    fn searches_chinese_text_from_the_to_unicode_map() {
+        // Helvetica draws "AB", but the ToUnicode map says the text is 隱私 (U+96B1 U+79C1):
+        // search reads the text layer, not the glyphs, and needs no CJK font.
+        let cmap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap
+                    /CMapName /Test-UCS def /CMapType 2 def
+                    1 begincodespacerange <00> <FF> endcodespacerange
+                    2 beginbfchar <41> <96B1> <42> <79C1> endbfchar
+                    endcmap CMapName currentdict /CMap defineresource pop end end";
+        let content = "BT /F1 24 Tf 72 700 Td (AB) Tj ET";
+        let pdf = build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+            &stream(content),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 6 0 R >>",
+            &stream(cmap),
+        ]);
+        let doc = PdfDocument::from_bytes(&pdf).unwrap();
+        assert_eq!(doc.search_page(0, "隱私", false, 10).unwrap().hits.len(), 1);
+        assert_eq!(doc.search_page(0, "私", false, 10).unwrap().hits.len(), 1);
+        assert!(doc.search_page(0, "AB", false, 10).unwrap().hits.is_empty());
     }
 
     #[test]

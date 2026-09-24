@@ -1,7 +1,8 @@
 //! Scheduling and caching for `render_page` (MVP-07).
 //!
 //! Requests wait in a first-in, first-out queue served by one thread (the worker renders one
-//! page at a time). The frontend cancels requests for pages that scrolled out of view; a
+//! page at a time). The same thread also runs background work, such as searching a page
+//! (MVP-10), but only while no render is waiting, so scrolling stays responsive during a search. The frontend cancels requests for pages that scrolled out of view; a
 //! cancelled request that has not started is dropped and answered with `cancelled`. Finished
 //! pages go into an LRU cache bounded by bytes, so scrolling back does not render again.
 
@@ -123,8 +124,11 @@ struct Job {
     reply: Reply,
 }
 
+type BackgroundJob = Box<dyn FnOnce() + Send>;
+
 struct State {
     queue: VecDeque<Job>,
+    background: VecDeque<BackgroundJob>,
     cache: RasterCache,
     stopped: bool,
 }
@@ -155,6 +159,7 @@ impl Renderer {
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
                 queue: VecDeque::new(),
+                background: VecDeque::new(),
                 cache: RasterCache::new(cache_bytes),
                 stopped: false,
             }),
@@ -186,6 +191,20 @@ impl Renderer {
                 message: "the renderer stopped".to_owned(),
             })
         })
+    }
+
+    /// Runs `work` on the render thread when no render is waiting, and returns its result
+    /// (`None` if the renderer stopped first).
+    pub async fn in_background<T: Send + 'static>(
+        &self,
+        work: impl FnOnce() -> T + Send + 'static,
+    ) -> Option<T> {
+        let (reply, receiver) = oneshot::channel();
+        self.shared.lock().background.push_back(Box::new(move || {
+            let _ = reply.send(work());
+        }));
+        self.shared.wake.notify_one();
+        receiver.await.ok()
     }
 
     /// Drops the queued request `request`, which then fails with `cancelled`. A request that is
@@ -240,21 +259,36 @@ impl Drop for Renderer {
     }
 }
 
+enum Work {
+    Render(Job),
+    Background(BackgroundJob),
+}
+
 fn serve(shared: &Shared, render: &dyn Fn(&RenderPageArgs) -> Result<Vec<u8>, IpcError>) {
     loop {
-        let job = {
+        let work = {
             let mut state = shared.lock();
             loop {
                 if state.stopped {
                     return;
                 }
                 if let Some(job) = state.queue.pop_front() {
-                    break job;
+                    break Work::Render(job);
+                }
+                if let Some(job) = state.background.pop_front() {
+                    break Work::Background(job);
                 }
                 state = shared
                     .wake
                     .wait(state)
                     .unwrap_or_else(|poison| poison.into_inner());
+            }
+        };
+        let job = match work {
+            Work::Render(job) => job,
+            Work::Background(job) => {
+                job();
+                continue;
             }
         };
         let key = CacheKey::of(&job.args);
@@ -449,6 +483,44 @@ mod tests {
         gate.release();
         assert!(running.join().unwrap().is_ok());
         assert!(new.join().unwrap().is_ok());
+    }
+
+    #[test]
+    fn background_work_waits_for_renders() {
+        let (renderer, gate) = gated_renderer();
+        let spawn_render = |request, page| {
+            let renderer = renderer.clone();
+            std::thread::spawn(move || block_on(renderer.render(args(request, 1, page))))
+        };
+        // A render is running; a background job and then a second render are queued.
+        let first = spawn_render(1, 0);
+        while gate.calls() == 0 {
+            std::thread::yield_now();
+        }
+        let background = {
+            let renderer = renderer.clone();
+            let calls = gate.calls.clone();
+            // Runs on the render thread: reports how many renders had started by then.
+            std::thread::spawn(move || {
+                block_on(renderer.in_background(move || calls.load(Ordering::SeqCst)))
+            })
+        };
+        while renderer.shared.lock().background.is_empty() {
+            std::thread::yield_now();
+        }
+        let second = spawn_render(2, 1);
+        while renderer.shared.lock().queue.is_empty() {
+            std::thread::yield_now();
+        }
+        gate.release();
+        gate.release();
+        assert!(first.join().unwrap().is_ok());
+        assert!(second.join().unwrap().is_ok());
+        assert_eq!(
+            background.join().unwrap(),
+            Some(2),
+            "the queued render went first"
+        );
     }
 
     #[test]

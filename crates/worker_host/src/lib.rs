@@ -304,9 +304,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::Rendered { request, .. }
         | WorkerResponse::Outline { request, .. }
         | WorkerResponse::PageLinks { request, .. }
-        | WorkerResponse::SearchHits { request, .. }
-        | WorkerResponse::SearchProgress { request, .. }
-        | WorkerResponse::SearchDone { request, .. } => Some(*request),
+        | WorkerResponse::PageSearched { request, .. } => Some(*request),
         WorkerResponse::Error { request, .. } => *request,
     }
 }

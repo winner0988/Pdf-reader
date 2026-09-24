@@ -5,4 +5,5 @@
 
 pub mod engine;
 mod handle;
+pub mod search;
 pub mod serve;
