@@ -29,6 +29,7 @@ import {
   type Viewport,
   type ViewportPoint,
 } from "@/features/viewer/layout";
+import { pageOverlay, revealScroll, type Highlight, type Highlights, type PageOverlay } from "@/features/viewer/highlights";
 import { errorCodeOf, type PageRenderer, type RenderJob } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
 import type { DocumentId, Rotation as ContractRotation } from "@/ipc/generated/contract";
@@ -37,6 +38,8 @@ import type { RasterImage } from "@/ipc/raster";
 export type DocumentViewHandle = {
   /** Scrolls so that the 1-based `page` is at the top. */
   scrollToPage(page: number): void;
+  /** Scrolls so that a search hit is a third of the way down the view. */
+  revealHit(hit: Highlight): void;
 };
 
 type DocumentViewProps = {
@@ -53,6 +56,8 @@ type DocumentViewProps = {
   onEffectiveZoomChange?: (percent: number) => void;
   /** Ctrl+wheel asks for one zoom step in (1) or out (-1), anchored at the cursor. */
   onZoomStep?: (direction: 1 | -1) => void;
+  /** Search hits drawn over the pages. */
+  highlights?: Highlights;
   /** Delay before a newly mounted page asks for a render; tests pass 0. */
   requestDelayMs?: number;
   ref?: Ref<DocumentViewHandle>;
@@ -112,6 +117,7 @@ export function DocumentView({
   onCurrentPageChange,
   onEffectiveZoomChange,
   onZoomStep,
+  highlights,
   requestDelayMs = REQUEST_DELAY_MS,
   ref,
 }: DocumentViewProps) {
@@ -218,8 +224,13 @@ export function DocumentView({
         const element = scrollContainer.current;
         if (element) scrollElement(element, { top: scrollTopFor(layout, page) });
       },
+      revealHit(hit) {
+        const element = scrollContainer.current;
+        const position = element && revealScroll(hit, pages, rotation, layout, width, measure(element));
+        if (element && position) scrollElement(element, position);
+      },
     }),
-    [layout, scrollContainer],
+    [layout, scrollContainer, pages, rotation, width],
   );
 
   // The first renders use the measured scale right away. After that, a new resolution is
@@ -244,6 +255,7 @@ export function DocumentView({
         index={index}
         box={box}
         left={pageLeft(box, width)}
+        overlay={highlights ? pageOverlay(highlights, index, pages[index]!, rotation, box) : null}
         doc={doc}
         renderer={renderer}
         scale={renderAt}
@@ -278,6 +290,7 @@ type PageSlotProps = {
   paused: boolean;
   rotation: ContractRotation;
   requestDelayMs: number;
+  overlay: PageOverlay | null;
 };
 
 /** Draws a raster into the canvas at its native resolution; CSS scales it to the page box. */
@@ -289,7 +302,7 @@ function draw(canvas: HTMLCanvasElement | null, raster: RasterImage) {
   context.putImageData(new ImageData(raster.pixels, raster.width, raster.height), 0, 0);
 }
 
-function PageSlot({ index, box, left, doc, renderer, scale, paused, rotation, requestDelayMs }: PageSlotProps) {
+function PageSlot({ index, box, left, doc, renderer, scale, paused, rotation, requestDelayMs, overlay }: PageSlotProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [state, setState] = useState<SlotState>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -331,6 +344,30 @@ function PageSlot({ index, box, left, doc, renderer, scale, paused, rotation, re
       style={{ top: box.top, left, width: box.width, height: box.height }}
     >
       <canvas ref={canvasRef} aria-hidden className="absolute inset-0 size-full" />
+      {overlay && (
+        // Multiplied like a highlighter pen: the text under a hit stays readable.
+        <svg
+          aria-hidden
+          data-highlights
+          className="pointer-events-none absolute inset-0 size-full mix-blend-multiply"
+          viewBox={`0 0 ${box.width} ${box.height}`}
+          preserveAspectRatio="none"
+        >
+          {overlay.all.map((points, i) => (
+            <polygon key={i} points={points} className="fill-yellow-300" />
+          ))}
+          {overlay.current.map((points, i) => (
+            <polygon
+              key={`current-${i}`}
+              data-current
+              points={points}
+              className="fill-none stroke-orange-500"
+              strokeWidth={2}
+              strokeLinejoin="round"
+            />
+          ))}
+        </svg>
+      )}
       {state.kind === "loading" && <span aria-hidden>{index + 1}</span>}
       {state.kind === "failed" && (
         <div role="alert" className="relative flex flex-col items-center gap-2 bg-white/90 p-4 text-neutral-700">

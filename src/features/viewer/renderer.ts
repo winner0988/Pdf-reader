@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type { ErrorCode, IpcError, RenderPageArgs, RequestId } from "@/ipc/generated/contract";
 import { decodeRaster, type RasterImage } from "@/ipc/raster";
+import { nextRequestId } from "@/ipc/requests";
 
 /** The main-process commands the viewer needs. */
 export type RenderApi = {
@@ -34,12 +35,10 @@ export function errorCodeOf(error: unknown): ErrorCode {
   return typeof code === "string" ? code : "internal";
 }
 
-export function createPageRenderer(api: RenderApi): PageRenderer {
-  let nextRequest = 1;
+export function createPageRenderer(api: RenderApi, nextId: () => RequestId = nextRequestId): PageRenderer {
   return {
     render(args) {
-      const request = nextRequest;
-      nextRequest = nextRequest >= 0xffff_ffff ? 1 : nextRequest + 1;
+      const request = nextId();
       let settled = false;
       let rejectEarly: (reason: IpcError) => void = () => {};
 

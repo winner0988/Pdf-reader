@@ -33,8 +33,14 @@ describe("findShortcut", () => {
   it("keeps plain keys for editing inside text fields but still honours Ctrl shortcuts", () => {
     const input = document.createElement("input");
     expect(findShortcut(keydown({ key: "Home" }, input))).toBeUndefined();
-    expect(findShortcut(keydown({ key: "F4" }, input))).toBeUndefined();
     expect(findShortcut(keydown({ key: "f", ctrlKey: true }, input))?.id).toBe("search");
+  });
+
+  it("honours function keys inside text fields: they do not edit text", () => {
+    const input = document.createElement("input");
+    expect(findShortcut(keydown({ key: "F3" }, input))?.id).toBe("findNext");
+    expect(findShortcut(keydown({ key: "F3", shiftKey: true }, input))?.id).toBe("findPrevious");
+    expect(findShortcut(keydown({ key: "F4" }, input))?.id).toBe("toggleSidebar");
   });
 
   it("describes every shortcut in the string table", () => {

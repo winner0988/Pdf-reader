@@ -156,6 +156,27 @@ export function rotateAnchor(anchor: Anchor, from: Rotation, to: Rotation): Anch
   return { pageIndex: anchor.pageIndex, fx, fy };
 }
 
+/**
+ * Maps a point in page space (PDF points of the unrotated page, origin top left, y down: how
+ * the worker reports text positions) to CSS pixels inside the page's box as displayed. A
+ * clockwise quarter turn moves (x, y) to (H - y, x).
+ */
+export function pageToBox(
+  point: { x: number; y: number },
+  page: PageSize,
+  rotation: Rotation,
+  box: Pick<PageBox, "width" | "height">,
+): { x: number; y: number } {
+  const { widthPt: w, heightPt: h } = page;
+  let x = point.x;
+  let y = point.y;
+  if (rotation === 90) [x, y] = [h - point.y, point.x];
+  else if (rotation === 180) [x, y] = [w - point.x, h - point.y];
+  else if (rotation === 270) [x, y] = [point.y, w - point.x];
+  const shown = displayedSize(page, rotation);
+  return { x: (x / shown.widthPt) * box.width, y: (y / shown.heightPt) * box.height };
+}
+
 /** The 1-based page being read: the one at 30% of the viewport height, or the last page at the end. */
 export function currentPageAt(layout: Layout, viewport: Pick<Viewport, "top" | "height">): number {
   const count = layout.boxes.length;

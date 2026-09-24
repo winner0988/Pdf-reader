@@ -1,6 +1,7 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useSearch, type SearchApi } from "@/features/search/useSearch";
 import { AboutDialog, ShortcutsDialog } from "@/features/shell/dialogs";
 import { rotate, stepZoom, type Rotation, type ShellState, type Zoom } from "@/features/shell/model";
 import { SearchBar } from "@/features/shell/SearchBar";
@@ -27,6 +28,8 @@ type ReaderShellProps = {
   renderer?: PageRenderer;
   /** The open document's outline (loaded separately so loading it does not reset the view). */
   outline?: OutlineView;
+  /** Searches the open document; without it (demo data, tests) the search bar finds nothing. */
+  searchApi?: SearchApi;
   version?: string;
   /** Delay before the loading state appears; tests pass 0. */
   loadingDelayMs?: number;
@@ -61,6 +64,7 @@ export function ReaderShell({
   dropActive = false,
   renderer,
   outline,
+  searchApi,
   version = "0.1.0",
   loadingDelayMs,
 }: ReaderShellProps) {
@@ -77,9 +81,11 @@ export function ReaderShell({
   const pageInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLElement>(null);
   const viewRef = useRef<DocumentViewHandle>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const document_ = state.kind === "open" ? state.document : null;
   const pageCount = document_?.pages.length ?? 0;
+  const search = useSearch({ api: searchApi, doc: document_?.doc, active: searchOpen });
 
   // Per-document view state starts fresh for every newly opened document (nothing is remembered).
   const [viewedDocument, setViewedDocument] = useState(document_);
@@ -102,10 +108,38 @@ export function ReaderShell({
     if (document_) action();
   };
 
+  const closeSearch = () => {
+    search.clear();
+    setSearchOpen(false);
+    // Focus would otherwise fall back to the page body, outside every region.
+    canvasRef.current?.focus();
+  };
+  // F3 works whether or not the bar is open: it opens the bar and searches right away.
+  const findAgain = (direction: 1 | -1) => {
+    if (!document_) return;
+    setSearchOpen(true);
+    search.submit(direction);
+  };
+
+  // Every newly selected hit is scrolled to a third of the way down the view.
+  const { hits, current } = search.state;
+  const currentHit = searchOpen ? hits[current] : undefined;
+  useEffect(() => {
+    if (currentHit) viewRef.current?.revealHit(currentHit);
+  }, [currentHit]);
+
   useShortcuts({
     open: onOpen,
     close: onClose,
-    search: whenOpen(() => setSearchOpen(true)),
+    // Inline: focusing the field uses a ref, which must not be touched during render.
+    search: () => {
+      if (!document_) return;
+      setSearchOpen(true);
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    },
+    findNext: () => findAgain(1),
+    findPrevious: () => findAgain(-1),
     zoomIn: whenOpen(() => setZoom((z) => stepZoom(z, 1, fitPercent))),
     zoomOut: whenOpen(() => setZoom((z) => stepZoom(z, -1, fitPercent))),
     fitPage: whenOpen(() => setZoom("fitPage")),
@@ -147,7 +181,7 @@ export function ReaderShell({
           onZoomOut={() => setZoom((z) => stepZoom(z, -1, fitPercent))}
           onZoomChange={setZoom}
           onRotate={(direction) => setRotation((r) => rotate(r, direction))}
-          onSearch={() => setSearchOpen((open) => !open)}
+          onSearch={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
           onThemeChange={setTheme}
           onShowShortcuts={() => setDialog("shortcuts")}
           onShowAbout={() => setDialog("about")}
@@ -196,12 +230,13 @@ export function ReaderShell({
                   onCurrentPageChange={setCurrentPage}
                   onEffectiveZoomChange={setFitPercent}
                   onZoomStep={(direction) => setZoom((z) => stepZoom(z, direction, fitPercent))}
+                  highlights={searchOpen && hits.length > 0 ? { hits, current } : undefined}
                 />
               )}
             </main>
             {document_ && searchOpen && (
               <div className="pointer-events-none absolute inset-x-0 top-0 *:pointer-events-auto">
-                <SearchBar onClose={() => setSearchOpen(false)} />
+                <SearchBar search={search} pageCount={pageCount} inputRef={searchInputRef} onClose={closeSearch} />
               </div>
             )}
           </div>

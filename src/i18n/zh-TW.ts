@@ -86,6 +86,11 @@ export const strings = {
     next: "下一筆",
     caseSensitive: "區分大小寫",
     close: "關閉搜尋",
+    progress: (searched: number, total: number) => `搜尋中… 已完成 ${searched}／${total} 頁`,
+    noResults: (query: string) => `找不到「${query}」`,
+    noTextLayer: "此文件沒有文字層，目前版本尚不支援 OCR",
+    truncated: (limit: number) => `結果超過 ${limit.toLocaleString("en-US")} 筆，只顯示前 ${limit.toLocaleString("en-US")} 筆`,
+    failed: "搜尋失敗，請再試一次。",
   },
   banner: {
     label: "已封鎖內容警示",

@@ -5,7 +5,9 @@ import { describe, expect, it, vi } from "vitest";
 import { demoDocument } from "@/features/shell/demo";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
+import type { SearchApi } from "@/features/search/useSearch";
 import { strings } from "@/i18n/zh-TW";
+import type { SearchEvent } from "@/ipc/generated/contract";
 import { mediaQuery } from "@/test/setup";
 
 const openState: ShellState = { kind: "open", document: demoDocument };
@@ -158,6 +160,46 @@ describe("shortcuts", () => {
     expect(field).toHaveFocus();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("search")).not.toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveFocus();
+  });
+
+  it("Enter searches, hits are marked on the pages, F3 steps through them, closing clears the marks", async () => {
+    let emit: (event: SearchEvent) => void = () => {};
+    const searchApi = {
+      search: vi.fn((_args, onEvent: (event: SearchEvent) => void) => {
+        emit = (event) => act(() => onEvent(event));
+        return new Promise<void>(() => {});
+      }),
+      cancel: vi.fn(() => Promise.resolve()),
+    } satisfies SearchApi;
+    const { user } = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { searchApi });
+    const line = { ul: { x: 72, y: 72 }, ur: { x: 144, y: 72 }, ll: { x: 72, y: 84 }, lr: { x: 144, y: 84 } };
+    const marks = (selector = "polygon") => document.querySelectorAll(`[data-highlights] ${selector}`);
+
+    await user.keyboard("{Control>}f{/Control}needle{Enter}");
+    expect(searchApi.search).toHaveBeenCalledWith(
+      expect.objectContaining({ doc: 5, query: "needle", caseSensitive: false }),
+      expect.any(Function),
+    );
+    emit({ kind: "hits", pageIndex: 0, hits: [{ quads: [line] }, { quads: [line] }] });
+    emit({ kind: "done", totalHits: 2, truncated: false, noTextLayer: false });
+    const search = screen.getByRole("search");
+    expect(within(search).getByRole("status")).toHaveTextContent(strings.search.count(1, 2));
+    expect(marks()).toHaveLength(3); // two hits, one of them outlined
+    expect(marks("[data-current]")).toHaveLength(1);
+
+    // F3 works from the search field too.
+    await user.keyboard("{F3}");
+    expect(within(search).getByRole("status")).toHaveTextContent(strings.search.count(2, 2));
+    await user.keyboard("{Shift>}{F3}{/Shift}");
+    expect(within(search).getByRole("status")).toHaveTextContent(strings.search.count(1, 2));
+
+    await user.keyboard("{Escape}");
+    expect(marks()).toHaveLength(0);
+    // F3 reopens the bar and searches again.
+    await user.keyboard("{F3}");
+    expect(screen.getByRole("search")).toBeInTheDocument();
+    expect(searchApi.search).toHaveBeenCalledTimes(2);
   });
 
   it("on narrow windows the sidebar starts closed, floats, and closes when the page is used", async () => {

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PageSize, Rotation, Zoom } from "@/features/shell/model";
 import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
+import type { Highlights } from "@/features/viewer/highlights";
 import { CSS_PX_PER_PT, PAGE_GAP_PX, PAGE_PADDING_PX } from "@/features/viewer/layout";
 import type { PageRenderer, RenderJob } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
@@ -50,10 +51,11 @@ type HarnessProps = {
   renderer?: PageRenderer;
   onPage?: (page: number) => void;
   onZoomStep?: (direction: 1 | -1) => void;
+  highlights?: Highlights;
   view?: Ref<DocumentViewHandle>;
 };
 
-function Harness({ pages, zoom = 100, rotation = 0, renderer, onPage, onZoomStep, view }: HarnessProps) {
+function Harness({ pages, zoom = 100, rotation = 0, renderer, onPage, onZoomStep, highlights, view }: HarnessProps) {
   const scroller = useRef<HTMLElement>(null);
   return (
     <main ref={scroller} data-testid="scroller" style={{ overflow: "auto" }}>
@@ -67,6 +69,7 @@ function Harness({ pages, zoom = 100, rotation = 0, renderer, onPage, onZoomStep
         renderer={renderer}
         onCurrentPageChange={onPage}
         onZoomStep={onZoomStep}
+        highlights={highlights}
         requestDelayMs={0}
       />
     </main>
@@ -353,6 +356,67 @@ describe("DocumentView", () => {
       // The scroll range follows: 100 landscape pages are shorter than 100 portrait ones.
       const content = scroller.firstElementChild as HTMLElement;
       expect(parseFloat(content.style.height)).toBeLessThan(PITCH * 100);
+    });
+  });
+
+  describe("search highlights (MVP-10)", () => {
+    const pages = Array(20).fill(LETTER);
+    const line = (x: number, y: number) => ({
+      ul: { x, y },
+      ur: { x: x + 72, y },
+      ll: { x, y: y + 12 },
+      lr: { x: x + 72, y: y + 12 },
+    });
+    const highlights: Highlights = {
+      hits: [
+        { pageIndex: 0, quads: [line(72, 72)] },
+        // Two lines: one hit, one outline around each line.
+        { pageIndex: 1, quads: [line(72, 144), line(72, 156)] },
+        { pageIndex: 12, quads: [line(300, 600)] },
+      ],
+      current: 1,
+    };
+    const polygons = (page: number, selector = "polygon") =>
+      Array.from(screen.getByRole("img", { name: `第 ${page} 頁` }).querySelectorAll(selector));
+
+    it("marks every hit and outlines the current one", () => {
+      render(<Harness pages={pages} highlights={highlights} />);
+      sizeScroller(800);
+      scrollTo(screen.getByTestId("scroller"), 0);
+
+      expect(polygons(1)).toHaveLength(1);
+      expect(polygons(1, "[data-current]")).toHaveLength(0);
+      expect(polygons(2, "polygon:not([data-current])")).toHaveLength(2);
+      expect(polygons(2, "[data-current]").map((polygon) => polygon.getAttribute("points"))).toEqual([
+        "96,192 192,192 192,208 96,208",
+        "96,208 192,208 192,224 96,224",
+      ]);
+      expect(polygons(3)).toHaveLength(0);
+    });
+
+    it("keeps the marks on the text when zoomed and rotated", () => {
+      const { rerender } = render(<Harness pages={pages} highlights={highlights} />);
+      sizeScroller(800, 1200);
+      scrollTo(screen.getByTestId("scroller"), 0);
+
+      rerender(<Harness pages={pages} zoom={200} highlights={highlights} />);
+      expect(polygons(1)[0]!.getAttribute("points")).toBe("192,192 384,192 384,224 192,224");
+      rerender(<Harness pages={pages} zoom={200} rotation={90} highlights={highlights} />);
+      const page = screen.getByRole("img", { name: "第 1 頁" });
+      expect(page.querySelector("svg")!.getAttribute("viewBox")).toBe(`0 0 ${page.style.width.replace("px", "")} ${page.style.height.replace("px", "")}`);
+      expect(polygons(1)[0]!.getAttribute("points")).toBe("1920,192 1920,384 1888,384 1888,192");
+    });
+
+    it("scrolls a hit to a third of the way down the view", () => {
+      const view = createRef<DocumentViewHandle>();
+      render(<Harness pages={pages} highlights={highlights} view={view} />);
+      const scroller = sizeScroller(900);
+      scrollTo(scroller, 0);
+
+      act(() => view.current!.revealHit(highlights.hits[2]!));
+      expect(scroller.scrollTop).toBeCloseTo(PAGE_PADDING_PX + PITCH * 12 + 600 * CSS_PX_PER_PT - 300);
+      act(() => scroller.dispatchEvent(new Event("scroll")));
+      expect(polygons(13)).toHaveLength(1);
     });
   });
 });
