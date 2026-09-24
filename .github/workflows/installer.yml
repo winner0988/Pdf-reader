@@ -57,14 +57,15 @@ jobs:
 
       # REL-02: the installer never downloads WebView2. Tauri's template keeps the code of every
       # install mode behind compile-time !if checks, so check the mode this installer was built
-      # with (tauri.conf.json; check-security-config.mjs enforces the setting too).
+      # with (tauri.conf.json; check-security-config.mjs enforces the setting too). For "skip"
+      # Tauri leaves the define empty; the two bootstrapper modes download the runtime.
       - name: Installer never downloads WebView2
         run: |
           $define = Select-String -Path target/release/nsis/x64/installer.nsi -Pattern '^!define INSTALLWEBVIEW2MODE "(.*)"' | Select-Object -First 1
           if (-not $define) { throw "INSTALLWEBVIEW2MODE is missing from the generated installer script" }
           $mode = $define.Matches[0].Groups[1].Value
-          if ($mode -ne 'skip') { throw "the installer handles WebView2 as '$mode', not 'skip' (REL-02)" }
-          "WebView2 install mode: $mode"
+          if ($mode -in 'downloadBootstrapper', 'embedBootstrapper') { throw "the installer downloads WebView2 ('$mode'; REL-02)" }
+          "WebView2 install mode: '$mode' (empty means skip)"
 
       - name: Installer contains the worker
         run: |
