@@ -70,6 +70,36 @@ async function mainPage(browser: Browser): Promise<Page> {
   return page;
 }
 
+/** The whole screen, to show dialogs the app may be waiting on when its WebView never came up. */
+function desktopScreenshot(file: string) {
+  const script = [
+    "Add-Type -AssemblyName System.Windows.Forms, System.Drawing",
+    "$area = [System.Windows.Forms.SystemInformation]::VirtualScreen",
+    "$bitmap = New-Object System.Drawing.Bitmap $area.Width, $area.Height",
+    "[System.Drawing.Graphics]::FromImage($bitmap).CopyFromScreen($area.Location, [System.Drawing.Point]::Empty, $area.Size)",
+    `$bitmap.Save('${file.replaceAll("'", "''")}')`,
+  ].join("; ");
+  execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", script], { stdio: "ignore", timeout: 30_000 });
+}
+
+/** The app's process tree with command lines (is its WebView2 running, with which arguments?). */
+function processTree(pid: number): string {
+  const script = [
+    "$all = Get-CimInstance Win32_Process",
+    `$tree = @(${pid})`,
+    "do { $more = $all | Where-Object { $tree -contains $_.ParentProcessId -and $tree -notcontains $_.ProcessId }; $tree += $more.ProcessId } while ($more)",
+    "$all | Where-Object { $tree -contains $_.ProcessId } | ForEach-Object { \"$($_.ProcessId) $($_.Name) $($_.CommandLine)\" }",
+  ].join("; ");
+  try {
+    return execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", script], {
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+  } catch (error) {
+    return `(process list failed: ${String(error)})`;
+  }
+}
+
 function stop(running: Running) {
   try {
     // The whole tree: the app, its worker and its WebView2 processes.
@@ -118,6 +148,18 @@ export const test = base.extend<{
         const screenshot = testInfo.outputPath(`screenshot-${index}.png`);
         if (await page?.screenshot({ path: screenshot }).then(() => true, () => false)) {
           await testInfo.attach(`screenshot-${index}`, { path: screenshot, contentType: "image/png" });
+        } else if (process.env.CI) {
+          // No page to show: the WebView did not start. Show the whole screen instead, only on
+          // CI runners: on a developer's computer it would capture their own screen.
+          try {
+            desktopScreenshot(screenshot);
+            await testInfo.attach(`desktop-${index}`, { path: screenshot, contentType: "image/png" });
+          } catch {
+            // No desktop to capture.
+          }
+        }
+        if (running.child.pid !== undefined && running.child.exitCode === null) {
+          running.log.push(`\n--- process tree ---\n${processTree(running.child.pid)}`);
         }
         const log = testInfo.outputPath(`app-${index}.log`);
         writeFileSync(log, running.log.join(""));
