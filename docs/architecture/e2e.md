@@ -28,7 +28,15 @@
      - 在開發者電腦上不截，因為那會截到你自己的螢幕。
    - 日誌另外附上 app 的行程樹與各行程的命令列。
 
-app 本身完全沒有為測試做任何修改：沒有測試專用的建置選項，也沒有開放遠端偵錯。遠端偵錯只在測試程式設定環境變數時才會開啟。
+app 本身完全沒有為測試做任何修改：沒有測試專用的建置選項，也沒有開放遠端偵錯。遠端偵錯只在測試程式設定環境變數（或 CI 上的機器原則，見下）時才會開啟。
+
+### CI 上的機器原則
+
+- **原因**：WebView2 Runtime 150 起，**以系統管理員權限（elevated）執行的 app** 會忽略 `WEBVIEW2_*` 環境變數與目前使用者（HKCU）的原則所加的瀏覽器參數，只接受機器原則（HKLM）與 app 本身透過 API 傳入的參數。GitHub 的 Windows runner 以系統管理員執行，所以只設環境變數時，遠端偵錯埠不會開啟。
+  - QA-02 初次在 CI 執行時就是這樣：app 正常顯示，但 WebView2 瀏覽器行程的命令列沒有 `--remote-debugging-port`。
+  - runner 上是 WebView2 152；本機（一般權限，153）不受影響。
+- **做法**：只在 CI（`CI` 環境變數）上，每次啟動 app 前，在 `HKLM\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments` 寫入以執行檔名稱（`pdf-reader.exe`）為名的值 `--remote-debugging-port=<埠>`，app 結束後刪除。
+- **本機**：不會修改登錄檔，因為那是整台電腦的設定；只用環境變數。
 
 ### 關於 WebView2 的環境變數
 
@@ -67,7 +75,8 @@ pnpm e2e
 - 建置 release app，執行 `pnpm e2e`。
 - 失敗時上傳 `e2e-results` artifact（截圖、日誌、HTML 報告），**保留 7 天**。內容只會是 `tests/corpus/` 檔案的畫面。
 - `retries: 0`：不穩定的 E2E 是要修的錯誤，不用重試掩蓋。
-- 一次只跑一個 app（`workers: 1`）。
+- 一次只跑一個 app（`workers: 1`），所以同一時間只有一個機器原則值。
+- Rust 快取在測試失敗時也保存（`cache-on-failure`），修正測試時不必每次重新建置 MuPDF。
 
 ## 依賴
 
