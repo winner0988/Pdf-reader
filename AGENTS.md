@@ -68,7 +68,9 @@
 ├─ src-tauri/           # Tauri 主行程（Rust）
 ├─ crates/
 │  ├─ pdf_worker/       # 連結 MuPDF 的低權限子行程
-│  └─ ipc_contract/     # 前端 ↔ 主行程 ↔ worker 的訊息型別（唯一定義處）
+│  ├─ ipc_contract/     # 前端 ↔ 主行程 ↔ worker 的訊息型別（唯一定義處）
+│  ├─ sandbox/          # 以受限權限啟動 worker（所有行程隔離用的 unsafe 集中在此）
+│  └─ worker_host/      # 主行程端：啟動、握手、驗證、逾時、重啟 worker
 ├─ tests/
 │  ├─ corpus/           # 由腳本產生的測試 PDF
 │  └─ e2e/              # 端對端測試

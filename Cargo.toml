@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["src-tauri", "crates/pdf_worker", "crates/ipc_contract"]
+members = ["src-tauri", "crates/pdf_worker", "crates/ipc_contract", "crates/sandbox", "crates/worker_host"]
 
 [workspace.package]
 version = "0.1.0"
