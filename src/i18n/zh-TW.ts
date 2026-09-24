@@ -2,6 +2,7 @@
 // Source of truth for wording: docs/ux/screen-map.md, section 8.
 
 import type { ErrorCode, FindingKind } from "@/features/shell/model";
+import type { BlockedAction } from "@/ipc/generated/contract";
 
 export const strings = {
   appName: "PDF Reader",
@@ -77,6 +78,31 @@ export const strings = {
     label: "頁面",
     page: (page: number) => `第 ${page} 頁`,
     pageRenderFailed: "這一頁無法顯示",
+  },
+  links: {
+    hoverPage: (page: number) => `前往第 ${page} 頁`,
+    hoverBlocked: (reason: string) => `已封鎖：${reason}`,
+    /** Why a link is blocked: a short label (status bar) and an explanation (dialog). */
+    blocked: {
+      javaScript: { label: "腳本連結", description: "這個連結會執行程式碼，因此不允許開啟。" },
+      localFile: {
+        label: "本機檔案連結",
+        description: "這個連結使用 file: 通訊協定，可能開啟你電腦上的程式或檔案，因此不允許開啟。",
+      },
+      networkShare: {
+        label: "網路共用路徑",
+        description: "這個連結指向網路共用資料夾，Windows 可能因此自動傳送你的帳號資訊，因此不允許開啟。",
+      },
+      other: {
+        label: "不支援的連結類型",
+        description: "這個連結會交給其他程式處理，可能被用來啟動程式，因此不允許開啟。",
+      },
+      launch: { label: "啟動外部程式", description: "這個連結會啟動電腦上的程式，因此不允許開啟。" },
+      remoteGoTo: { label: "開啟其他文件", description: "這個連結會開啟其他檔案或網路位置，因此不允許開啟。" },
+      embeddedGoTo: { label: "開啟內嵌文件", description: "這個連結會開啟文件內嵌的其他文件，目前版本不支援。" },
+      submitForm: { label: "表單傳送", description: "這個連結會把表單內容送到網路或其他位置，因此不允許開啟。" },
+      importData: { label: "匯入外部資料", description: "這個連結會從其他檔案讀取資料，因此不允許開啟。" },
+    } satisfies Record<BlockedAction, { label: string; description: string }>,
   },
   search: {
     label: "搜尋文件",

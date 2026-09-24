@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-page-links"
+description = "Enables the get_page_links command without any pre-configured scope."
+commands.allow = ["get_page_links"]
+
+[[permission]]
+identifier = "deny-get-page-links"
+description = "Denies the get_page_links command without any pre-configured scope."
+commands.deny = ["get_page_links"]

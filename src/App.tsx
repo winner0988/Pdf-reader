@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { tauriOpenApi, type OpenApi } from "@/features/open/api";
 import { OpenNotice } from "@/features/open/OpenNotice";
 import { useOpenSession } from "@/features/open/useOpenSession";
+import { tauriLinksApi, type LinksApi } from "@/features/links/source";
 import { tauriSearchApi, type SearchApi } from "@/features/search/useSearch";
 import { tauriOutlineApi, useOutline, type OutlineApi } from "@/features/outline/useOutline";
 import { DevDemoSwitcher } from "@/features/shell/DevDemoSwitcher";
@@ -10,13 +11,20 @@ import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import { createPageRenderer, tauriRenderApi, type RenderApi } from "@/features/viewer/renderer";
 
-type AppProps = { api?: OpenApi; renderApi?: RenderApi; outlineApi?: OutlineApi; searchApi?: SearchApi };
+type AppProps = {
+  api?: OpenApi;
+  renderApi?: RenderApi;
+  outlineApi?: OutlineApi;
+  searchApi?: SearchApi;
+  linksApi?: LinksApi;
+};
 
 export default function App({
   api = tauriOpenApi,
   renderApi = tauriRenderApi,
   outlineApi = tauriOutlineApi,
   searchApi = tauriSearchApi,
+  linksApi = tauriLinksApi,
 }: AppProps) {
   const { session, open, retry, close, dismissNotice } = useOpenSession(api);
   const renderer = useMemo(() => createPageRenderer(renderApi), [renderApi]);
@@ -32,6 +40,7 @@ export default function App({
         renderer={renderer}
         outline={demo ? undefined : outline}
         searchApi={demo ? undefined : searchApi}
+        linksApi={demo ? undefined : linksApi}
         onOpen={() => {
           setDemo(null);
           open();

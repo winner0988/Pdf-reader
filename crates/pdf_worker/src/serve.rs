@@ -9,12 +9,12 @@ use std::io::{Read, Write};
 
 use ipc_contract::frame::{self, FrameError};
 use ipc_contract::limits::{
-    MAX_ERROR_MESSAGE_BYTES, MAX_OUTLINE_DEPTH, MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_SEARCH_HITS,
-    MAX_TEXT_BYTES,
+    MAX_ERROR_MESSAGE_BYTES, MAX_LINKS_PER_PAGE, MAX_OUTLINE_DEPTH, MAX_OUTLINE_ITEMS,
+    MAX_PAGE_COUNT, MAX_SEARCH_HITS, MAX_TEXT_BYTES,
 };
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
-    DocumentId, LinkTarget, OutlineItem, OutlineResult, PageSize, RequestId,
+    DocumentId, LinkId, LinkTarget, OutlineItem, OutlineResult, PageLink, PageSize, Rect, RequestId,
 };
 use ipc_contract::worker::{
     FileHandle, OpenedDocument, Raster, WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
@@ -72,11 +72,25 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
                 },
             }),
-            WorkerRequest::GetPageLinks { request, .. } => Some(error(
+            WorkerRequest::GetPageLinks {
                 request,
-                WorkerErrorCode::InvalidRequest,
-                "not implemented yet (MVP-12)",
-            )),
+                doc,
+                page_index,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => match page_links(document, page_index) {
+                    Ok(links) => WorkerResponse::PageLinks {
+                        request,
+                        page_index,
+                        links,
+                    },
+                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                },
+            }),
             WorkerRequest::SearchPage {
                 request,
                 doc,
@@ -206,29 +220,58 @@ fn outline(document: &PdfDocument) -> Result<OutlineResult, EngineError> {
         .map(|entry| OutlineItem {
             title: clean_display_text(&entry.title, MAX_TEXT_BYTES as usize),
             depth: entry.depth,
-            target: match entry.target {
-                OutlineTarget::Page(page_index) if page_index < page_count => {
-                    Some(LinkTarget::Page {
-                        page_index,
-                        x: None,
-                        y: None,
-                    })
-                }
-                OutlineTarget::Page(_) | OutlineTarget::None => None,
-                OutlineTarget::Uri(uri) => Some(classify_uri(&uri)),
-                OutlineTarget::Blocked { action, target } => Some(LinkTarget::Blocked {
-                    action,
-                    target: target
-                        .map(|text| clean_display_text(&text, MAX_TEXT_BYTES as usize))
-                        .filter(|text| !text.is_empty()),
-                }),
-            },
+            target: contract_target(entry.target, page_count),
         })
         .collect();
     Ok(OutlineResult {
         items,
         truncated: outline.truncated,
     })
+}
+
+/// The links of a page. A link that points nowhere (a missing page, for example) is left out:
+/// there is nothing to click.
+fn page_links(document: &PdfDocument, page_index: u32) -> Result<Vec<PageLink>, EngineError> {
+    let page_count = document.page_count()?;
+    let entries = document.page_links(page_index, MAX_LINKS_PER_PAGE as usize)?;
+    let links = entries
+        .into_iter()
+        .filter_map(|entry| {
+            let [x0, y0, x1, y1] = entry.rect;
+            let target = contract_target(entry.target, page_count)?;
+            Some((Rect { x0, y0, x1, y1 }, target))
+        })
+        .enumerate()
+        .map(|(index, (rect, target))| PageLink {
+            id: LinkId {
+                page_index,
+                index: u32::try_from(index).unwrap_or(u32::MAX),
+            },
+            rect,
+            target,
+        })
+        .collect();
+    Ok(links)
+}
+
+/// An outline or link target as the frontend sees it: pages within the document, URIs sorted
+/// into openable and blocked ones, and PDF-provided text cleaned for display.
+fn contract_target(target: OutlineTarget, page_count: u32) -> Option<LinkTarget> {
+    match target {
+        OutlineTarget::Page(page_index) if page_index < page_count => Some(LinkTarget::Page {
+            page_index,
+            x: None,
+            y: None,
+        }),
+        OutlineTarget::Page(_) | OutlineTarget::None => None,
+        OutlineTarget::Uri(uri) => Some(classify_uri(&uri)),
+        OutlineTarget::Blocked { action, target } => Some(LinkTarget::Blocked {
+            action,
+            target: target
+                .map(|text| clean_display_text(&text, MAX_TEXT_BYTES as usize))
+                .filter(|text| !text.is_empty()),
+        }),
+    }
 }
 
 fn engine_error(

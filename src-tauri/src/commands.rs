@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use ipc_contract::types::{
-    DocumentId, ErrorCode, IpcError, OpenEvent, OutlineResult, RenderPageArgs, RequestId,
+    DocumentId, ErrorCode, IpcError, OpenEvent, OutlineResult, PageLink, RenderPageArgs, RequestId,
     SearchArgs, SearchEvent,
 };
 use tauri::ipc::{Channel, Response};
@@ -99,6 +99,17 @@ pub async fn render_page(app: AppHandle, args: RenderPageArgs) -> Result<Respons
 #[tauri::command]
 pub async fn get_outline(app: AppHandle, doc: DocumentId) -> Result<OutlineResult, IpcError> {
     blocking(move || app.state::<Documents>().outline(doc)).await
+}
+
+/// The links of one page (MVP-12): where they are and where they point. Opening a web link
+/// takes the link's id, never a URI from the frontend.
+#[tauri::command]
+pub async fn get_page_links(
+    app: AppHandle,
+    doc: DocumentId,
+    page_index: u32,
+) -> Result<Vec<PageLink>, IpcError> {
+    blocking(move || app.state::<Documents>().page_links(doc, page_index)).await
 }
 
 /// Searches the document (MVP-10); hits, progress and a final `done` arrive on `on_event`.

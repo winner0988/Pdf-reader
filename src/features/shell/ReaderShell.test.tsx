@@ -249,6 +249,44 @@ describe("shortcuts", () => {
     expect(searchApi.search).toHaveBeenCalledTimes(2);
   });
 
+  it("an internal link jumps to its page; the status bar says what a link does", async () => {
+    const linksApi = {
+      getPageLinks: vi.fn((_doc: number, pageIndex: number) =>
+        Promise.resolve(
+          pageIndex === 0
+            ? [
+                {
+                  id: { pageIndex: 0, index: 0 },
+                  rect: { x0: 72, y0: 80, x1: 300, y1: 102 },
+                  target: { kind: "page" as const, pageIndex: 7, x: null, y: null },
+                },
+                {
+                  id: { pageIndex: 0, index: 1 },
+                  rect: { x0: 72, y0: 120, x1: 300, y1: 142 },
+                  target: { kind: "uri" as const, uri: "https://example.invalid/docs" },
+                },
+              ]
+            : [],
+        ),
+      ),
+    };
+    const { user } = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { linksApi });
+
+    const toPage = await screen.findByRole("button", { name: "前往第 8 頁" });
+    await user.hover(toPage);
+    expect(statusText()).toContain("前往第 8 頁");
+    await user.click(toPage);
+    expect(statusText()).toContain("第 8 / 12 頁");
+
+    // A web link is only described for now; opening it needs a confirmation (MVP-12b).
+    const web = screen.getByRole("button", { name: "https://example.invalid/docs" });
+    await user.hover(web);
+    expect(statusText()).toContain("https://example.invalid/docs");
+    await user.unhover(web);
+    expect(statusText()).not.toContain("https://example.invalid/docs");
+    expect(linksApi.getPageLinks).toHaveBeenCalledWith(5, 0);
+  });
+
   it("on narrow windows the sidebar starts closed, floats, and closes when the page is used", async () => {
     const original = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
