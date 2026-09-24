@@ -10,10 +10,6 @@ use ipc_contract::worker::{WorkerRequest, WorkerResponse};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    // TEMPORARY (#57 verification): must never reach main.
-    if data.starts_with(b"QA57") {
-        panic!("QA57-SECRET-MARKER deliberate crash; this text must not appear in the public log");
-    }
     // Main process side: decode a payload, then validate it the way the host does.
     if let Ok(response) = decode::<WorkerResponse>(data) {
         let _ = check_hello(&response);
