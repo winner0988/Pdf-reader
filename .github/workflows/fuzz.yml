@@ -3,8 +3,13 @@ name: Fuzz
 # libFuzzer on the two entry points hostile input reaches first (QA-03, docs/security/fuzzing.md):
 # the IPC decoding on both sides of the worker boundary, and opening a PDF with MuPDF. Weekly for
 # 20 minutes per target; pull requests that touch the targets or the code they test run a short
-# smoke run. Crash samples are kept for 7 days and must be handled as SECURITY.md says: never
-# attach them anywhere public.
+# smoke run.
+#
+# This repository is public, and so are its Actions logs and artifacts (#57). A crash sample may
+# be a working exploit, so the fuzzer's output never reaches the log: it goes to fuzz.log, the
+# log and the job summary only show statistics, and crash samples are uploaded only encrypted to
+# the owner's age recipient in .github/fuzz-recipient.txt. Without a recipient nothing is
+# uploaded.
 on:
   schedule:
     - cron: "23 3 * * 1"
@@ -63,12 +68,16 @@ jobs:
           env -u CC -u CXX -u CFLAGS cargo run --locked -q -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/worker_messages
           # The generated test corpus (QA-01); the 200 MB files are only made on demand.
           find tests/corpus -name '*.pdf' -not -path '*/large/*' -exec cp {} fuzz/corpus/open_document/ \;
+      # Built separately so that compiler errors stay visible; the run step below prints nothing.
+      - name: Build the fuzz target
+        run: cargo +nightly fuzz build ${{ matrix.target }}
+      # AddressSanitizer reports, panic messages and crashing inputs (libFuzzer prints small ones
+      # in Base64) go to fuzz.log only.
       - name: Fuzz
         run: |
-          set -o pipefail
           cargo +nightly fuzz run ${{ matrix.target }} fuzz/corpus/${{ matrix.target }} -- \
             -max_total_time="$FUZZ_SECONDS" -max_len=1048576 -rss_limit_mb=4096 \
-            -print_final_stats=1 2>&1 | tee fuzz.log
+            -print_final_stats=1 > fuzz.log 2>&1
       - name: Summary
         if: always()
         run: |
@@ -84,16 +93,36 @@ jobs:
             grep -Eo 'stat::peak_rss_mb: *[0-9]+' fuzz.log | tail -1 | sed 's/.*: */| Peak memory (MB) | /; s/$/ |/'
             if ls fuzz/artifacts/${{ matrix.target }}/* >/dev/null 2>&1; then
               echo
-              echo "**Crash samples found; see the fuzz-artifacts-${{ matrix.target }} artifact.**"
+              echo "**The fuzzer found a crash.** Details are not shown here: they are only uploaded encrypted, as fuzz-crash-${{ matrix.target }} (docs/security/fuzzing.md)."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload crash samples
+      # Only the holder of the private key can read the samples. The recipient file is public;
+      # the private key never leaves the owner's machine.
+      - name: Encrypt crash samples
+        id: encrypt
         if: failure()
+        run: |
+          recipient=$(grep -Eo '^age1[0-9a-z]+$' .github/fuzz-recipient.txt | head -1 || true)
+          if [ -z "$recipient" ]; then
+            echo "::warning::The fuzzer failed, but .github/fuzz-recipient.txt has no age recipient, so nothing is uploaded. Reproduce locally (docs/security/fuzzing.md)."
+            exit 0
+          fi
+          # Nothing to keep if an earlier step (the build) failed before fuzzing started.
+          files=$(ls -d fuzz/artifacts fuzz.log 2>/dev/null || true)
+          if [ -z "$files" ]; then
+            exit 0
+          fi
+          # age from the Ubuntu archive (signed by Ubuntu), installed only when something failed.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends age > /dev/null
+          # shellcheck disable=SC2086 # $files is a list of paths without spaces
+          tar -czf - $files | age -r "$recipient" -o fuzz-crash.tar.gz.age
+          echo "file=fuzz-crash.tar.gz.age" >> "$GITHUB_OUTPUT"
+      - name: Upload encrypted crash samples
+        if: failure() && steps.encrypt.outputs.file != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: fuzz-artifacts-${{ matrix.target }}
-          path: |
-            fuzz/artifacts/
-            fuzz.log
+          name: fuzz-crash-${{ matrix.target }}
+          path: fuzz-crash.tar.gz.age
           retention-days: 7
-          if-no-files-found: ignore
+          if-no-files-found: error
