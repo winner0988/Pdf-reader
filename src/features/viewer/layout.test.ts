@@ -9,6 +9,7 @@ import {
   currentPageAt,
   layoutPages,
   pageLeft,
+  pageToBox,
   renderScale,
   rotateAnchor,
   scrollForAnchor,
@@ -200,5 +201,29 @@ describe("rotateAnchor", () => {
     for (const [from, to] of [[0, 90], [90, 180], [180, 270], [270, 0]] as const) turned = rotateAnchor(turned, from, to);
     expect(turned.fx).toBeCloseTo(anchor.fx);
     expect(turned.fy).toBeCloseTo(anchor.fy);
+  });
+});
+
+describe("pageToBox", () => {
+  const page = { widthPt: 600, heightPt: 800 };
+  const at = (rotation: 0 | 90 | 180 | 270, x: number, y: number, scale = 1) => {
+    const shown = rotation === 90 || rotation === 270 ? { width: 800 * scale, height: 600 * scale } : { width: 600 * scale, height: 800 * scale };
+    return pageToBox({ x, y }, page, rotation, shown);
+  };
+
+  it("scales page points to the box", () => {
+    expect(at(0, 100, 200)).toEqual({ x: 100, y: 200 });
+    expect(at(0, 100, 200, 2)).toEqual({ x: 200, y: 400 });
+  });
+
+  it("turns with the view", () => {
+    // The page's top-left corner goes to the top right after a clockwise quarter turn...
+    expect(at(90, 0, 0)).toEqual({ x: 800, y: 0 });
+    // ...to the bottom right after half a turn, and to the bottom left after three quarters.
+    expect(at(180, 0, 0)).toEqual({ x: 600, y: 800 });
+    expect(at(270, 0, 0)).toEqual({ x: 0, y: 600 });
+    // A point near the top of the page stays near the new top edge's side it turned to.
+    expect(at(90, 100, 50)).toEqual({ x: 750, y: 100 });
+    expect(at(270, 100, 50, 0.5)).toEqual({ x: 25, y: 250 });
   });
 });

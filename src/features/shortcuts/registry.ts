@@ -46,13 +46,17 @@ function isTextInput(target: EventTarget | null): boolean {
   );
 }
 
+/** F1–F12: they never edit text. */
+const isFunctionKey = (event: KeyboardEvent) => /^F\d{1,2}$/.test(event.key);
+
 /**
  * Returns the shortcut for a key event, or undefined. While typing in a text field only
- * Ctrl combinations apply, so plain keys such as Home/End keep their editing meaning.
+ * Ctrl combinations and function keys apply, so plain keys such as Home/End keep their
+ * editing meaning (and F3 still finds the next hit from the search field).
  */
 export function findShortcut(event: KeyboardEvent): Shortcut | undefined {
   const shortcut = SHORTCUTS.find((candidate) => candidate.matches(event));
-  if (shortcut && isTextInput(event.target) && !event.ctrlKey) {
+  if (shortcut && isTextInput(event.target) && !event.ctrlKey && !isFunctionKey(event)) {
     return undefined;
   }
   return shortcut;

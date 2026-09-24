@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createPageRenderer, errorCodeOf, type RenderApi } from "@/features/viewer/renderer";
 import type { RenderPageArgs } from "@/ipc/generated/contract";
+import { createRequestIds } from "@/ipc/requests";
 
 /** A 1 x 1 opaque white raster in the `render_page` wire format. */
 function rasterBytes(): ArrayBuffer {
@@ -27,7 +28,7 @@ const page = { doc: 1, pageIndex: 0, scale: 1.5, rotation: "none" as const };
 describe("createPageRenderer", () => {
   it("gives every request its own id and decodes the raster", async () => {
     const { api, pending } = deferredApi();
-    const renderer = createPageRenderer(api);
+    const renderer = createPageRenderer(api, createRequestIds());
 
     const first = renderer.render(page);
     renderer.render({ ...page, pageIndex: 1 });
