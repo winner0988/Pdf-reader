@@ -95,6 +95,10 @@ CI 使用同一組指令。工具版本由 `package.json`（`packageManager`）�
 | Rust 測試 | `cargo test --workspace --locked` |
 | 禁用依賴檢查 | `bash scripts/ci/check-forbidden.sh` |
 | ADR 檢查 | `bash scripts/ci/check-adr.sh` |
+| CSP／capability 政策 | `node scripts/ci/check-security-config.mjs` |
+| 守門腳本測試 | `node --test scripts/ci/*.test.mjs` |
+| 建置產物不得引用外部資源（先 `pnpm build`） | `node scripts/ci/check-dist.mjs` |
+| Rust 依賴稽核 | `cargo deny check`（需 `cargo install cargo-deny --locked`） |
 | 開發模式執行 | `pnpm tauri dev` |
 | 發行腳本測試 | `node --test scripts/release/pe-imports.test.mjs` |
 | 建置安裝檔 | `pnpm bundle`（產出 `target/release/bundle/nsis/*.exe`，含 `pdf_worker.exe`；不要用 `pnpm tauri build`，見 `docs/architecture/packaging.md`） |

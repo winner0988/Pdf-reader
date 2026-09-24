@@ -1,0 +1,85 @@
+# cargo-deny configuration (MVP-13): advisories, banned crates, licenses, sources.
+# Run locally: cargo deny check        CI: .github/workflows/security.yml ("Dependency audit")
+# Rules only get stricter; loosening one needs the needs-security-review label (AGENTS.md).
+
+[graph]
+# Windows-first (ADR 0007): check what ends up in Windows builds.
+targets = ["x86_64-pc-windows-msvc"]
+all-features = true
+
+[advisories]
+# Known vulnerabilities always fail. Unmaintained crates fail when we depend on them directly;
+# transitive ones (mostly inside Tauri) are reported by the weekly schedule instead.
+unmaintained = "workspace"
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Permissive licenses only. The one copyleft exception is MuPDF below (ADR 0011).
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.9
+# MuPDF is AGPL-3.0 (ADR 0003, ADR 0011). Only its own crates may use it; any other
+# AGPL/GPL dependency still fails. The crates declare the deprecated SPDX id "AGPL-3.0".
+exceptions = [
+    { crate = "mupdf", allow = ["AGPL-3.0"] },
+    { crate = "mupdf-sys", allow = ["AGPL-3.0"] },
+]
+
+[licenses.private]
+# Workspace crates are unpublished (publish = false) and licensed AGPL-3.0-or-later (ADR 0011).
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+    # Network access of any kind (AGENTS.md principle 1, ADR 0009).
+    { crate = "reqwest", reason = "HTTP client: the app never connects to the network (ADR 0009)" },
+    { crate = "ureq", reason = "HTTP client: the app never connects to the network (ADR 0009)" },
+    { crate = "isahc", reason = "HTTP client: the app never connects to the network (ADR 0009)" },
+    { crate = "curl", reason = "HTTP client: the app never connects to the network (ADR 0009)" },
+    { crate = "curl-sys", reason = "HTTP client: the app never connects to the network (ADR 0009)" },
+    { crate = "surf", reason = "HTTP client: the app never connects to the network (ADR 0009)" },
+    { crate = "attohttpc", reason = "HTTP client: the app never connects to the network (ADR 0009)" },
+    { crate = "minreq", reason = "HTTP client: the app never connects to the network (ADR 0009)" },
+    { crate = "hyper", reason = "HTTP client/server: the app never connects to the network (ADR 0009)" },
+    { crate = "h2", reason = "HTTP/2: the app never connects to the network (ADR 0009)" },
+    { crate = "h3", reason = "HTTP/3: the app never connects to the network (ADR 0009)" },
+    { crate = "quinn", reason = "QUIC: the app never connects to the network (ADR 0009)" },
+    { crate = "tungstenite", reason = "WebSocket: the app never connects to the network (ADR 0009)" },
+    { crate = "tokio-tungstenite", reason = "WebSocket: the app never connects to the network (ADR 0009)" },
+    { crate = "async-tungstenite", reason = "WebSocket: the app never connects to the network (ADR 0009)" },
+    { crate = "websocket", reason = "WebSocket: the app never connects to the network (ADR 0009)" },
+    { crate = "rustls", reason = "TLS is only needed for network access (ADR 0009)" },
+    { crate = "native-tls", reason = "TLS is only needed for network access (ADR 0009)" },
+    { crate = "openssl", reason = "TLS is only needed for network access (ADR 0009)" },
+    { crate = "tauri-plugin-http", reason = "network plugin (ADR 0009)" },
+    { crate = "tauri-plugin-websocket", reason = "network plugin (ADR 0009)" },
+    { crate = "tauri-plugin-upload", reason = "network plugin (ADR 0009)" },
+    { crate = "tauri-plugin-updater", reason = "update checks are undecided (DEC-01, ADR 0009)" },
+    # Telemetry and crash reporting (AGENTS.md principle 2).
+    { crate = "sentry", reason = "crash reporting: zero telemetry (AGENTS.md)" },
+    { crate = "sentry-core", reason = "crash reporting: zero telemetry (AGENTS.md)" },
+    { crate = "opentelemetry-otlp", reason = "telemetry exporter: zero telemetry (AGENTS.md)" },
+    { crate = "opentelemetry-http", reason = "telemetry exporter: zero telemetry (AGENTS.md)" },
+    { crate = "posthog-rs", reason = "analytics: zero telemetry (AGENTS.md)" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

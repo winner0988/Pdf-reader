@@ -6,9 +6,10 @@
 
 ## 回報弱點
 
-- **不要**在 Issue、PR 或任何公開位置附上可利用的惡意 PDF、PoC 或崩潰樣本。
-- 請直接聯絡專案負責人（GitHub：[@winner0988](https://github.com/winner0988)），說明影響範圍與重現方式；樣本檔以私下管道傳送。
-- 若 repo 日後改為公開，將改用 GitHub 的 Private vulnerability reporting。
+- **不要**在 Issue、PR、討論或任何公開位置附上可利用的惡意 PDF、PoC 或崩潰樣本。
+- 請使用 GitHub 的 **Private vulnerability reporting**：到本 repo 的 [Security](https://github.com/winner0988/Pdf-reader/security) 分頁，選 **Report a vulnerability**。回報內容只有你與維護者看得到，樣本檔可以直接附在私下的回報中。
+- 請說明影響範圍、重現步驟與使用的版本（commit）。
+- 無法使用上述管道時，請聯絡專案負責人（GitHub：[@winner0988](https://github.com/winner0988)），先不要附上樣本，我們會提供私下傳送的方式。
 
 ## 範圍內
 

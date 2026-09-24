@@ -33,17 +33,18 @@ flowchart LR
 
 ## CI 檢查
 
-| Workflow | Job（檢查名稱） | 內容 | 何時生效 |
-|---|---|---|---|
-| CI | `Guardrails` | 禁用遙測／網路依賴、ADR 編號與索引 | 現在 |
-| CI | `PR hygiene` | PR 標題符合 Conventional Commits、內文連結 Issue | 現在（僅 PR） |
-| CI | `Rust (Windows)` | `cargo fmt`、`clippy -D warnings`、`cargo test` | 出現 `Cargo.toml` 後 |
-| CI | `Frontend` | `pnpm lint`、`typecheck`、`test`、`build` | 出現 `package.json` 後 |
-| CI | `E2E (Windows)` | 建置 release app 與 worker，以 Playwright 操作真正的 app（`pnpm e2e`，見 [e2e.md](architecture/e2e.md)）；失敗時上傳截圖與日誌（保留 7 天） | 兩者都存在後 |
-| Security | `Secret scan` | gitleaks 掃描所有 commit | 現在 |
-| Security | `Dependency audit` | `cargo deny`、`pnpm audit` | 出現 `deny.toml`／`package.json` 後；每週一排程 |
+| Workflow | Job（檢查名稱） | 內容 |
+|---|---|---|
+| CI | `Guardrails` | 禁用遙測／網路依賴、ADR 編號與索引、CSP／開發模式 CSP／capability 政策、守門腳本自身的測試 |
+| CI | `PR hygiene` | PR 標題符合 Conventional Commits、內文連結 Issue（僅 PR） |
+| CI | `Rust (Windows)` | `cargo fmt`、`clippy -D warnings`、`cargo test` |
+| CI | `Frontend` | `pnpm lint`、`typecheck`、`test`、`build`、建置產物不得引用外部資源 |
+| CI | `E2E (Windows)` | 建置 release app 與 worker，以 Playwright 操作真正的 app（`pnpm e2e`，見 [e2e.md](architecture/e2e.md)）；失敗時上傳截圖與日誌（保留 7 天） |
+| Security | `Secret scan` | gitleaks 掃描所有 commit |
+| Security | `Dependency audit` | `cargo deny check`（弱點、禁用 crate、授權、來源）、`pnpm audit`；每週一排程 |
+| Fuzz | `Fuzz (worker_messages)`、`Fuzz (open_document)` | cargo-fuzz：IPC 解碼與以 MuPDF 開啟 PDF（見 [fuzzing.md](security/fuzzing.md)）；每週一排程，修改相關檔案的 PR 跑 2 分鐘 |
 
-fuzzing 由 QA-03 加入。
+「不連網、零遙測」的完整驗證方式（含發布前的手動檢查）見 [docs/security/offline-verification.md](security/offline-verification.md)。
 
 ## GitHub 設定（需在網頁上手動完成）
 
