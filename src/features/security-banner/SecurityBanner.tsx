@@ -12,6 +12,8 @@ type SecurityBannerProps = {
   findings: SecurityFinding[];
   scanComplete: boolean;
   detailsOpen: boolean;
+  /** The details panel's id: every tab has its own (MVP-14). */
+  detailsId: string;
   onToggleDetails: () => void;
   onDismiss: () => void;
   /** The details button, so focus can return to it when the panel closes. */
@@ -26,6 +28,7 @@ export function SecurityBanner({
   findings,
   scanComplete,
   detailsOpen,
+  detailsId,
   onToggleDetails,
   onDismiss,
   detailsButtonRef,
@@ -44,7 +47,7 @@ export function SecurityBanner({
         variant="outline"
         size="sm"
         aria-expanded={detailsOpen}
-        aria-controls="security-details"
+        aria-controls={detailsId}
         onClick={onToggleDetails}
       >
         {t.details}

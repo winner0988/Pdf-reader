@@ -6,6 +6,7 @@ import App from "@/App";
 import type { OpenApi } from "@/features/open/api";
 import type { OutlineApi } from "@/features/outline/useOutline";
 import type { RenderApi } from "@/features/viewer/renderer";
+import { tabPanelId } from "@/features/tabs/model";
 import { strings } from "@/i18n/zh-TW";
 import { LIMITS, type DocumentInfo, type ErrorCode, type OpenEvent } from "@/ipc/generated/contract";
 
@@ -133,6 +134,40 @@ describe("App", () => {
     expect(statusBar()).toHaveTextContent(strings.toolbar.fitWidth);
     await user.click(tab("a.pdf"));
     expect(statusBar()).toHaveTextContent("110%");
+  });
+
+  it("gives the elements of different tabs different ids", async () => {
+    const { push, user } = renderApp();
+    const risky = (doc: number, name: string): DocumentInfo => ({
+      ...info(doc, name),
+      security: { findings: [{ kind: "javaScript", count: 1 }], scanComplete: true },
+    });
+    push(opening(1, "a.pdf"));
+    push(opened(1, risky(9, "a.pdf")));
+    push(opening(2, "b.pdf"));
+    push(opened(2, risky(10, "b.pdf")));
+    // The blocked content details, open in both tabs.
+    await user.click(screen.getByRole("button", { name: strings.banner.details }));
+    await user.click(within(tabList()).getByRole("tab", { name: "a.pdf" }));
+    await user.click(screen.getByRole("button", { name: strings.banner.details }));
+
+    const ids = Array.from(document.querySelectorAll("[id]"), (element) => element.id);
+    expect(ids.length).toBeGreaterThan(4);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("moves between the regions of the shown tab with F6, whichever tab it is", async () => {
+    const { push, user } = renderApp();
+    push(opening(1, "a.pdf"));
+    push(opened(1, info(9, "a.pdf")));
+    push(opening(2, "b.pdf"));
+    push(opened(2, info(10, "b.pdf")));
+
+    await user.keyboard("{F6}");
+    const focused = document.activeElement as HTMLElement;
+    expect(focused.closest("[data-region]")?.getAttribute("data-region")).toBe("toolbar");
+    // In the second tab's own toolbar, not the hidden first tab's.
+    expect(focused.closest("[role=tabpanel]")).toHaveAttribute("id", tabPanelId(2));
   });
 
   it.each([

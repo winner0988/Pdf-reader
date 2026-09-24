@@ -9,7 +9,7 @@ import {
   RotateCw,
   Search,
 } from "lucide-react";
-import { useState, type Ref } from "react";
+import { useId, useState, type Ref } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -138,6 +138,8 @@ function PageInput({
   // Remounted (via key) whenever the current page changes, so the draft starts fresh.
   const [draft, setDraft] = useState(String(currentPage));
   const [invalid, setInvalid] = useState(false);
+  // Unique per tab (MVP-14): every tab has a toolbar.
+  const errorId = useId();
 
   return (
     <div className="relative flex items-center gap-1 text-sm">
@@ -145,7 +147,7 @@ function PageInput({
         ref={inputRef}
         aria-label={t.pageNumber}
         aria-invalid={invalid}
-        aria-describedby={invalid ? "page-input-error" : undefined}
+        aria-describedby={invalid ? errorId : undefined}
         inputMode="numeric"
         className="h-8 w-12 rounded-md border bg-background px-1 text-center aria-invalid:border-destructive"
         value={draft}
@@ -167,7 +169,7 @@ function PageInput({
       <span className="text-muted-foreground">{t.pageCount(pageCount)}</span>
       {invalid && (
         <span
-          id="page-input-error"
+          id={errorId}
           role="alert"
           className="absolute top-9 left-0 z-10 rounded-md border bg-popover px-2 py-1 whitespace-nowrap text-destructive shadow"
         >

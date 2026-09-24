@@ -1,5 +1,5 @@
 import { TriangleAlert, X } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { LEAKY_KINDS, orderedFindings } from "@/features/security-banner/summary";
@@ -9,6 +9,8 @@ import type { SecurityFinding } from "@/ipc/generated/contract";
 const t = strings.banner;
 
 type SecurityDetailsProps = {
+  /** What the banner's details button controls: every tab has its own (MVP-14). */
+  id: string;
   findings: SecurityFinding[];
   scanComplete: boolean;
   onClose: () => void;
@@ -18,8 +20,9 @@ type SecurityDetailsProps = {
  * The blocked-content details panel (docs/ux/screen-map.md, section 5): one row per kind with
  * its name, what it is and how many were found. Nothing here can allow or run any of it.
  */
-export function SecurityDetails({ findings, scanComplete, onClose }: SecurityDetailsProps) {
+export function SecurityDetails({ id, findings, scanComplete, onClose }: SecurityDetailsProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
   // Opening the panel moves focus into it.
   useEffect(() => {
     closeRef.current?.focus();
@@ -27,8 +30,8 @@ export function SecurityDetails({ findings, scanComplete, onClose }: SecurityDet
 
   return (
     <aside
-      id="security-details"
-      aria-labelledby="security-details-title"
+      id={id}
+      aria-labelledby={titleId}
       className="flex w-[380px] max-w-full shrink-0 flex-col border-l bg-background max-[959px]:absolute max-[959px]:inset-y-0 max-[959px]:right-0 max-[959px]:z-20 max-[959px]:shadow-lg"
       onKeyDown={(event) => {
         if (event.key === "Escape") {
@@ -38,7 +41,7 @@ export function SecurityDetails({ findings, scanComplete, onClose }: SecurityDet
       }}
     >
       <div className="flex items-center gap-2 border-b px-4 py-2">
-        <h2 id="security-details-title" className="flex-1 text-sm font-semibold">
+        <h2 id={titleId} className="flex-1 text-sm font-semibold">
           {t.detailsTitle}
         </h2>
         <Button ref={closeRef} variant="ghost" size="icon-sm" aria-label={t.detailsClose} onClick={onClose}>
