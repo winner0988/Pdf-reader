@@ -659,7 +659,9 @@ SAMPLES = [
            text=["Page 1 of 10", "needle"]),
     Sample("benign/mixed-text-zh-en.pdf", benign_mixed_text,
            "English and Traditional Chinese text (Type0 font, non-embedded, with ToUnicode).",
-           "Opens; both strings are searchable. CJK glyphs may render as fallback boxes if no CJK font is available.",
+           "Opens; both strings are drawn and searchable. The worker substitutes its bundled Droid CJK font for the "
+           "non-embedded CNS1 font (DEC-03); without a CJK font MuPDF cannot load the font and the Chinese line is "
+           "neither drawn nor searchable.",
            1, text=["Privacy-first PDF Reader", CJK_TEXT]),
     Sample("benign/outline-3-levels.pdf", benign_outline, "Three-level outline over six pages.",
            "Outline shows Chapter 1 > Section 1.1 > Subsection 1.1.1, Chapter 2 > Section 2.1, Appendix; each jumps to its page.",
