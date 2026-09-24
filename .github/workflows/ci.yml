@@ -96,6 +96,10 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
         run: cargo test --workspace --locked
+      # The fuzz targets (fuzz/, QA-03) are built by cargo-fuzz with nightly Rust in the Fuzz
+      # workflow; here they only have to compile. Same target dir: MuPDF is not built twice.
+      - name: Fuzz targets compile
+        run: cargo check --manifest-path fuzz/Cargo.toml --locked --target-dir target
 
   e2e:
     name: E2E (Windows)
