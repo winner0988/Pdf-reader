@@ -23,6 +23,10 @@
 3. **連線**：等偵錯埠回應後，以 `chromium.connectOverCDP` 連上，取得 app 視窗的頁面。
 4. **結束**：中斷連線，以 `taskkill /T` 結束 app 與它的 worker、WebView2 行程，刪除暫存設定。
 5. **失敗時**：保存截圖（`screenshot-N.png`）與 app 的日誌（stdout／stderr 與 WebView 主控台，`app-N.log`）到 `tests/e2e/test-results/`，也附在 HTML 報告中。
+   - WebView 根本沒有啟動時沒有頁面可截：
+     - 在 CI 上改截 runner 的整個桌面，看得到 app 可能在等待的對話框；
+     - 在開發者電腦上不截，因為那會截到你自己的螢幕。
+   - 日誌另外附上 app 的行程樹與各行程的命令列。
 
 app 本身完全沒有為測試做任何修改：沒有測試專用的建置選項，也沒有開放遠端偵錯。遠端偵錯只在測試程式設定環境變數時才會開啟。
 
