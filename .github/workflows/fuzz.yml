@@ -35,9 +35,11 @@ jobs:
         target: [worker_messages, open_document]
     env:
       FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '120' || '1200' }}
-      # MuPDF and its C libraries get coverage and AddressSanitizer like the Rust code. Only C:
-      # libFuzzer itself (C++) must not instrument itself.
+      # MuPDF and its C libraries get coverage and AddressSanitizer like the Rust code. Only
+      # CFLAGS: libFuzzer itself (C++, built with CXXFLAGS) must not instrument itself. MuPDF's
+      # Makefile passes its C flags to its few C++ files too, so they need clang++ as well.
       CC: clang
+      CXX: clang++
       CFLAGS: -fsanitize=fuzzer-no-link,address
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -58,7 +60,7 @@ jobs:
       - name: Seed corpus
         run: |
           mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document
-          env -u CC -u CFLAGS cargo run --locked -q -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/worker_messages
+          env -u CC -u CXX -u CFLAGS cargo run --locked -q -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/worker_messages
           # The generated test corpus (QA-01); the 200 MB files are only made on demand.
           find tests/corpus -name '*.pdf' -not -path '*/large/*' -exec cp {} fuzz/corpus/open_document/ \;
       - name: Fuzz
