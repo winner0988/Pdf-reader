@@ -20,7 +20,8 @@ gtag\(
 @datadog/
 dd-trace
 bugsnag
-rollbar
+# Not "scrollbar" (CSS), which contains the same letters.
+(^|[^c])rollbar
 logrocket
 newrelic
 @vercel/analytics
