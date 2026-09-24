@@ -98,6 +98,7 @@ CI 使用同一組指令。工具版本由 `package.json`（`packageManager`）�
 | 開發模式執行 | `pnpm tauri dev` |
 | 發行腳本測試 | `node --test scripts/release/pe-imports.test.mjs` |
 | 建置安裝檔 | `pnpm bundle`（產出 `target/release/bundle/nsis/*.exe`，含 `pdf_worker.exe`；不要用 `pnpm tauri build`，見 `docs/architecture/packaging.md`） |
+| E2E 測試 | `pnpm e2e:build` 後 `pnpm e2e`（操作真正的 app，見 `docs/architecture/e2e.md`） |
 
 提交 PR 前，在本機把表中「開發模式執行」以上的指令全部跑過一次。
 

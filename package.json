@@ -16,7 +16,9 @@
     "test": "vitest run",
     "tauri": "tauri",
     "bundle": "tauri build --config src-tauri/tauri.bundle.conf.json",
-    "ipc:generate": "cargo run -q --locked -p ipc_contract --bin generate_ts"
+    "ipc:generate": "cargo run -q --locked -p ipc_contract --bin generate_ts",
+    "e2e:build": "cargo build --release --locked -p pdf_worker && tauri build --no-bundle",
+    "e2e": "playwright test --config tests/e2e/playwright.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
@@ -31,6 +33,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.63.0",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2.11.5",
     "@testing-library/dom": "^10.4.2",
