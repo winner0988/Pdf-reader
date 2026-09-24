@@ -68,6 +68,8 @@ jobs:
           env -u CC -u CXX -u CFLAGS cargo run --locked -q -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/worker_messages
           # The generated test corpus (QA-01); the 200 MB files are only made on demand.
           find tests/corpus -name '*.pdf' -not -path '*/large/*' -exec cp {} fuzz/corpus/open_document/ \;
+          # TEMPORARY (#57 verification): a seed that makes worker_messages crash at once.
+          printf 'QA57 deliberate crash' > fuzz/corpus/worker_messages/qa57-deliberate
       # Built separately so that compiler errors stay visible; the run step below prints nothing.
       - name: Build the fuzz target
         run: cargo +nightly fuzz build ${{ matrix.target }}
