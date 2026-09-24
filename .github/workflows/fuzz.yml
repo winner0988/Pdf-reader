@@ -98,6 +98,14 @@ jobs:
               echo "**The fuzzer found a crash.** Details are not shown here: they are only uploaded encrypted, as fuzz-crash-${{ matrix.target }} (docs/security/fuzzing.md)."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+      # TEMPORARY (#57 verification): a throwaway key made inside this job; never uploaded.
+      - name: TEMPORARY throwaway recipient
+        if: failure()
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends age > /dev/null
+          age-keygen -o "$RUNNER_TEMP/throwaway.txt" 2> /dev/null
+          age-keygen -y "$RUNNER_TEMP/throwaway.txt" >> .github/fuzz-recipient.txt
       # Only the holder of the private key can read the samples. The recipient file is public;
       # the private key never leaves the owner's machine.
       - name: Encrypt crash samples
@@ -128,3 +136,7 @@ jobs:
           path: fuzz-crash.tar.gz.age
           retention-days: 7
           if-no-files-found: error
+      # TEMPORARY (#57 verification): the upload decrypts with the throwaway key; names only.
+      - name: TEMPORARY decrypt round trip
+        if: failure() && steps.encrypt.outputs.file != ''
+        run: age -d -i "$RUNNER_TEMP/throwaway.txt" fuzz-crash.tar.gz.age | tar -tzf -
