@@ -50,7 +50,7 @@ flowchart LR
 
 ### 1. 分支保護
 
-> ⚠️ **私有 repo 在 GitHub Free 方案無法使用分支保護與 Rulesets**，需要 GitHub Pro（個人）或改為公開 repo。沒有分支保護時，上述規則只能靠紀律與 agent 遵守 AGENTS.md。
+> 公開 repo 在 GitHub Free 方案就能使用 Rulesets。repo 改為公開後請盡快設定；設定前，上述規則只能靠紀律與 agent 遵守 AGENTS.md。
 
 Settings → Rules → Rulesets → New branch ruleset：
 
@@ -60,6 +60,7 @@ Settings → Rules → Rulesets → New branch ruleset：
   - Allowed merge methods：只留 **Squash**
 - 勾選 **Require status checks to pass**，加入：`Guardrails`、`PR hygiene`、`Rust (Windows)`、`Frontend`、`E2E (Windows)`、`Secret scan`
   - `Dependency audit` 建議先不設為必要（新公告的弱點會讓無關 PR 突然失敗），改看每週排程結果
+  - `Fuzz` 不能設為必要：它只在修改相關檔案時執行，沒執行的必要檢查會讓 PR 一直等待
 - 若你是唯一維護者，**不要**勾「Require approvals」，否則你無法合併 AI 以你帳號開的 PR；改用 CODEOWNERS + `needs-security-review` 標籤當人工關卡
 
 ### 2. 合併設定
@@ -68,9 +69,12 @@ Settings → General → Pull Requests：只啟用 **Allow squash merging**（�
 
 ### 3. Actions
 
-Settings → Actions → General：Workflow permissions 選 **Read repository contents**。
+Settings → Actions → General：
 
-> 私有 repo 的 Actions 每月有免費分鐘數上限，Windows runner 以 2 倍計算。`Rust (Windows)` 與 `E2E (Windows)` 是最耗分鐘的 job（E2E 要建置 release 版的 MuPDF；有快取時較快）。
+- Workflow permissions 選 **Read repository contents**。
+- Approval for running fork pull request workflows from contributors 選 **Require approval for all external contributors**：外部貢獻者的 PR 要你看過程式碼、按下核准後才會執行 CI。
+
+> 公開 repo 使用 GitHub 提供的標準 runner 不計分鐘數。但 Actions 的**日誌與 artifact 也是公開的**：任何人都能看日誌，登入 GitHub 的人都能下載 artifact。fuzzing 的崩潰樣本與 AddressSanitizer 報告因此也會公開，做法待決定，見 [fuzzing.md](security/fuzzing.md#公開-repo-的限制) 與 [#57](https://github.com/winner0988/Pdf-reader/issues/57)。
 
 ### 4. 標籤與工作卡
 
@@ -82,3 +86,11 @@ bash scripts/backlog-to-issues.sh             # 建立標籤與第一批 Issue
 ```
 
 之後建立一個 GitHub Project（Board），欄位建議：`Backlog → Ready → In progress → In review → Done`，把 Issue 全部加進去。
+
+### 5. 安全設定（公開 repo）
+
+Settings → Advanced Security（舊版介面叫 Code security）：
+
+- **Private vulnerability reporting**：啟用。[SECURITY.md](../SECURITY.md) 的回報方式需要它。
+- **Dependabot alerts**：啟用。版本更新的 PR 由 [dependabot.yml](../.github/dependabot.yml) 設定。
+- **Secret scanning** 與 **Push protection**：公開 repo 免費，啟用後含有憑證的 push 會直接被擋下。CI 的 `Secret scan`（gitleaks）照樣保留。
