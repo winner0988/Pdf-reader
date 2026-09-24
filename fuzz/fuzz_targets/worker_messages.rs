@@ -10,11 +10,6 @@ use ipc_contract::worker::{WorkerRequest, WorkerResponse};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    // TEMPORARY (QA-03 acceptance): proves the workflow detects a crash and keeps the sample.
-    // Removed in the next commit.
-    if data.starts_with(b"QA03") {
-        panic!("deliberate crash to check crash detection");
-    }
     // Main process side: decode a payload, then validate it the way the host does.
     if let Ok(response) = decode::<WorkerResponse>(data) {
         let _ = check_hello(&response);
