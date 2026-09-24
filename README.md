@@ -23,7 +23,7 @@ OCR、Word 轉檔、完整編輯、簽章、加密、批次背景服務、表單
 
 ## 安全設計
 
-- **不連網、零遙測**：程式本身沒有任何網路功能，也不收集任何資料；CI 會擋下網路與遙測相關的依賴。
+- **不連網、零遙測**：程式本身沒有任何網路功能，也不收集任何資料。CI 會擋下網路與遙測相關的依賴，並檢查 CSP、capability 與建置產物；完整的驗證方式見 [offline-verification.md](docs/security/offline-verification.md)。
 - **引擎隔離**（[ADR 0008](docs/adr/0008-pdf-worker-isolation.md)、[worker-sandbox.md](docs/architecture/worker-sandbox.md)）：
   - MuPDF 只在 `pdf_worker` 子行程中執行：沒有任何 capability 的 AppContainer（連 localhost 都不能連、讀不到使用者的檔案）、Job Object、Low integrity，並關閉 win32k 系統呼叫等。
   - 前端只拿得到不透明的文件代號，拿不到檔案路徑。
@@ -73,7 +73,7 @@ Windows-first · Tauri 2 + Rust · React + TypeScript + Vite · Tailwind + shadc
 | [CONTEXT.md](CONTEXT.md) | 專案詞彙表 |
 | [docs/adr/](docs/adr/README.md) | 架構決策紀錄 |
 | [docs/architecture/](docs/architecture/) | 各元件的設計：IPC 合約、worker 沙盒、渲染、搜尋、連結、主動內容、打包、E2E |
-| [docs/security/](docs/security/) | fuzzing 與人工安全檢查 |
+| [docs/security/](docs/security/) | 離線驗證、fuzzing 與人工安全檢查 |
 | [docs/ux/](docs/ux/screen-map.md) | 畫面地圖、wireframe 與各功能的截圖 |
 | [docs/backlog/](docs/backlog/README.md) | MVP 第一批工作卡 |
 | [docs/workflow.md](docs/workflow.md) | 開發流程、分支與 CI 規則、GitHub 設定步驟 |
