@@ -98,6 +98,11 @@ export const strings = {
       `已封鎖此文件中的 ${total} 項內容：${kinds.join("、")}${more ? "等" : ""}。這些內容不會執行。`,
     details: "詳細資訊",
     dismiss: "關閉警示",
+    detailsTitle: "已封鎖的內容",
+    detailsNote: "這些內容在本程式中永遠不會執行，也沒有「允許」選項。",
+    detailsCount: (count: number) => `${count.toLocaleString("en-US")} 項`,
+    detailsClose: "關閉已封鎖的內容",
+    scanIncomplete: "文件太大，掃描未完成；可能還有未列出的項目。",
   },
   findings: {
     javaScript: { name: "JavaScript 腳本", description: "文件內嵌的程式碼" },

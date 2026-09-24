@@ -78,7 +78,7 @@ describe("open document", () => {
     const { user } = renderShell(openState);
 
     const banner = screen.getByRole("region", { name: strings.banner.label });
-    expect(banner).toHaveTextContent("已封鎖此文件中的 4 項內容");
+    expect(banner).toHaveTextContent("已封鎖此文件中的 3 項內容：JavaScript 腳本、開檔自動動作、遠端資源引用。");
     await user.click(within(banner).getByRole("button", { name: strings.banner.dismiss }));
     expect(screen.queryByRole("region", { name: strings.banner.label })).not.toBeInTheDocument();
   });
@@ -86,6 +86,53 @@ describe("open document", () => {
   it("has no banner when nothing was blocked", () => {
     renderShell({ kind: "open", document: { ...demoDocument, findings: [] } });
     expect(screen.queryByRole("region", { name: strings.banner.label })).not.toBeInTheDocument();
+  });
+
+  it("the details list every blocked kind with its count, and offer no way to run any of it", async () => {
+    const { user } = renderShell({
+      kind: "open",
+      document: {
+        ...demoDocument,
+        findings: [
+          { kind: "uncReference", count: 1 },
+          { kind: "javaScript", count: 2 },
+          { kind: "openAction", count: 1 },
+        ],
+      },
+    });
+
+    const detailsButton = screen.getByRole("button", { name: strings.banner.details });
+    expect(detailsButton).toHaveAttribute("aria-expanded", "false");
+    await user.click(detailsButton);
+    const panel = screen.getByRole("complementary", { name: strings.banner.detailsTitle });
+    expect(detailsButton).toHaveAttribute("aria-expanded", "true");
+    expect(within(panel).getByRole("button", { name: strings.banner.detailsClose })).toHaveFocus();
+    expect(within(panel).getByText(strings.banner.detailsNote)).toBeInTheDocument();
+
+    const rows = within(panel).getAllByRole("listitem");
+    expect(rows.map((row) => row.getAttribute("data-kind"))).toEqual(["javaScript", "openAction", "uncReference"]);
+    expect(rows[0]).toHaveTextContent(`${strings.findings.javaScript.name}2 項${strings.findings.javaScript.description}`);
+    // The UNC row stands out: following it can send the user's account hash to a server.
+    expect(within(rows[2]!).getByText(strings.findings.uncReference.name)).toHaveClass("text-destructive");
+    // Closing is the only thing the panel can do.
+    expect(within(panel).getAllByRole("button")).toHaveLength(1);
+    expect(within(panel).queryByRole("note")).not.toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("complementary", { name: strings.banner.detailsTitle })).not.toBeInTheDocument();
+    expect(detailsButton).toHaveFocus();
+  });
+
+  it("an unfinished scan is shown even when nothing was found", async () => {
+    const { user } = renderShell({ kind: "open", document: { ...demoDocument, findings: [], scanComplete: false } });
+
+    const banner = screen.getByRole("region", { name: strings.banner.label });
+    expect(banner).toHaveTextContent(strings.banner.scanIncomplete);
+    await user.click(within(banner).getByRole("button", { name: strings.banner.details }));
+    const panel = screen.getByRole("complementary", { name: strings.banner.detailsTitle });
+    expect(within(panel).getByRole("note")).toHaveTextContent(strings.banner.scanIncomplete);
+    await user.click(within(panel).getByRole("button", { name: strings.banner.detailsClose }));
+    expect(screen.queryByRole("complementary", { name: strings.banner.detailsTitle })).not.toBeInTheDocument();
   });
 
   it("jumps to a page from the outline and from the page field", async () => {

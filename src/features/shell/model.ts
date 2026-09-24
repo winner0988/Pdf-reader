@@ -6,30 +6,6 @@ import type { DocumentId, ErrorCode, FindingKind, PageSize, SecurityFinding } fr
 
 export type { ErrorCode, FindingKind, PageSize, SecurityFinding };
 
-/** Display order of blocked-content kinds (docs/ux/screen-map.md, section 8). */
-export const FINDING_KINDS = [
-  "javaScript",
-  "openAction",
-  "additionalActions",
-  "launch",
-  "submitForm",
-  "importData",
-  "remoteGoTo",
-  "embeddedGoTo",
-  "remoteFileSpec",
-  "uncReference",
-  "xfa",
-  "richMedia",
-  "embeddedFile",
-] as const satisfies readonly FindingKind[];
-
-// Compile-time check: every kind the contract knows has a place in the display order.
-type Assert<T extends true> = T;
-export type AllFindingKindsListed = Assert<
-  [Exclude<FindingKind, (typeof FINDING_KINDS)[number]>] extends [never] ? true : false
->;
-
-
 export type ShellDocument = {
   /** Main-process id for rendering; absent for demo data. */
   doc?: DocumentId;
@@ -39,6 +15,8 @@ export type ShellDocument = {
   /** Demo data only; real documents load their outline separately (ReaderShell's `outline`). */
   outline?: OutlineView;
   findings: SecurityFinding[];
+  /** False when the worker's scan stopped at its budget: there may be more than `findings`. */
+  scanComplete: boolean;
 };
 
 export type ShellState =

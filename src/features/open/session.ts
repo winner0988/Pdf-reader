@@ -37,6 +37,7 @@ export function toShellDocument(info: DocumentInfo): ShellDocument {
     displayName: info.displayName,
     pages: info.pages,
     findings: info.security.findings,
+    scanComplete: info.security.scanComplete,
   };
 }
 

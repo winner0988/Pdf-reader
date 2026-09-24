@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from "react";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useSearch, type SearchApi } from "@/features/search/useSearch";
+import { SecurityBanner } from "@/features/security-banner/SecurityBanner";
+import { SecurityDetails } from "@/features/security-banner/SecurityDetails";
+import { hasBannerContent } from "@/features/security-banner/summary";
 import { AboutDialog, ShortcutsDialog } from "@/features/shell/dialogs";
 import { rotate, stepZoom, type Rotation, type ShellState, type Zoom } from "@/features/shell/model";
 import { SearchBar } from "@/features/shell/SearchBar";
-import { SecurityBanner } from "@/features/shell/SecurityBanner";
 import { Sidebar } from "@/features/shell/Sidebar";
 import { EmptyState, ErrorState, LoadingState } from "@/features/shell/states";
 import { StatusBar } from "@/features/shell/StatusBar";
@@ -72,6 +74,7 @@ export function ReaderShell({
   const [sidebarOpen, setSidebarOpen] = useState(() => !isNarrowWindow());
   const [searchOpen, setSearchOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [zoom, setZoom] = useState<Zoom>("fitWidth");
   /** What a fit mode currently shows, so zoom steps continue from there. */
   const [fitPercent, setFitPercent] = useState(100);
@@ -82,6 +85,7 @@ export function ReaderShell({
   const canvasRef = useRef<HTMLElement>(null);
   const viewRef = useRef<DocumentViewHandle>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const detailsButtonRef = useRef<HTMLButtonElement>(null);
 
   const document_ = state.kind === "open" ? state.document : null;
   const pageCount = document_?.pages.length ?? 0;
@@ -95,6 +99,7 @@ export function ReaderShell({
     setRotation(0);
     setCurrentPage(1);
     setBannerDismissed(false);
+    setDetailsOpen(false);
     setSearchOpen(false);
   }
 
@@ -164,6 +169,12 @@ export function ReaderShell({
   });
 
   const findings = document_?.findings ?? [];
+  const scanComplete = document_?.scanComplete ?? true;
+  const bannerShown = document_ !== null && hasBannerContent(findings, scanComplete) && !bannerDismissed;
+  const closeDetails = () => {
+    setDetailsOpen(false);
+    detailsButtonRef.current?.focus();
+  };
 
   return (
     <TooltipProvider>
@@ -196,8 +207,19 @@ export function ReaderShell({
             />
           )}
           <div className="flex min-w-0 flex-1 flex-col">
-            {document_ && findings.length > 0 && !bannerDismissed && (
-              <SecurityBanner findings={findings} onDismiss={() => setBannerDismissed(true)} />
+            {bannerShown && (
+              <SecurityBanner
+                findings={findings}
+                scanComplete={scanComplete}
+                detailsOpen={detailsOpen}
+                detailsButtonRef={detailsButtonRef}
+                onToggleDetails={() => setDetailsOpen((open) => !open)}
+                onDismiss={() => {
+                  setBannerDismissed(true);
+                  setDetailsOpen(false);
+                  canvasRef.current?.focus();
+                }}
+              />
             )}
             <main
               ref={canvasRef}
@@ -240,6 +262,9 @@ export function ReaderShell({
               </div>
             )}
           </div>
+          {bannerShown && detailsOpen && (
+            <SecurityDetails findings={findings} scanComplete={scanComplete} onClose={closeDetails} />
+          )}
         </div>
         <StatusBar
           document={document_ ? { displayName: document_.displayName, currentPage, pageCount, zoom } : null}

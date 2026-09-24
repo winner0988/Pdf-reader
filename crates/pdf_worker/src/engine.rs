@@ -6,10 +6,11 @@
 
 use std::collections::HashSet;
 
-use ipc_contract::types::{BlockedAction, Point, Quad};
+use ipc_contract::types::{BlockedAction, Point, Quad, SecurityReport};
 use mupdf::pdf::{PdfDocument as MuPdfDocument, PdfObject};
 use mupdf::{Colorspace, Document, Matrix, Page, TextPageFlags};
 
+use crate::scan::{self, ScanBudget};
 use crate::search::{PageSearch, PageText};
 use thiserror::Error;
 
@@ -114,6 +115,17 @@ impl PdfDocument {
     pub fn page_size(&self, index: u32) -> Result<(f32, f32), EngineError> {
         let bounds = self.load_page(index)?.bounds()?;
         Ok((bounds.x1 - bounds.x0, bounds.y1 - bounds.y0))
+    }
+
+    /// Active content and remote references in the document (see [`scan`]). Nothing is run.
+    pub fn active_content(&self, budget: ScanBudget) -> SecurityReport {
+        match self.doc.catalog() {
+            Ok(catalog) => scan::scan(catalog, budget),
+            Err(_) => SecurityReport {
+                findings: Vec::new(),
+                scan_complete: false,
+            },
+        }
     }
 
     /// Whether the document has an outline with at least one entry (cheap: nothing is walked).

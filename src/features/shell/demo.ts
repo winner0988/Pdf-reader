@@ -28,6 +28,7 @@ export const demoDocument: ShellDocument = {
     { kind: "openAction", count: 1 },
     { kind: "remoteFileSpec", count: 1 },
   ],
+  scanComplete: true,
 };
 
 export const DEMO_STATES: Record<string, ShellState> = {
@@ -41,5 +42,17 @@ export const DEMO_STATES: Record<string, ShellState> = {
   "open: no findings, no outline": {
     kind: "open",
     document: { ...demoDocument, displayName: "乾淨.pdf", outline: { status: "none" }, findings: [] },
+  },
+  "open: scan incomplete": {
+    kind: "open",
+    document: {
+      ...demoDocument,
+      displayName: "大型.pdf",
+      findings: [
+        { kind: "javaScript", count: 12 },
+        { kind: "uncReference", count: 1 },
+      ],
+      scanComplete: false,
+    },
   },
 };

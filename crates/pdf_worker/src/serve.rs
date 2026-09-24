@@ -14,7 +14,7 @@ use ipc_contract::limits::{
 };
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
-    DocumentId, LinkTarget, OutlineItem, OutlineResult, PageSize, RequestId, SecurityReport,
+    DocumentId, LinkTarget, OutlineItem, OutlineResult, PageSize, RequestId,
 };
 use ipc_contract::worker::{
     FileHandle, OpenedDocument, Raster, WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
@@ -22,6 +22,7 @@ use ipc_contract::worker::{
 
 use crate::engine::{EngineError, OutlineTarget, PdfDocument};
 use crate::handle;
+use crate::scan::ScanBudget;
 
 /// Largest document the worker reads (mirrors `worker_host::MAX_DOCUMENT_BYTES`).
 const MAX_DOCUMENT_BYTES: u64 = 512 * 1024 * 1024;
@@ -150,17 +151,14 @@ fn open(
         }
     }
     let has_outline = document.has_outline();
+    let security = document.active_content(ScanBudget::default());
     documents.insert(doc, document);
     WorkerResponse::Opened {
         request,
         document: OpenedDocument {
             pages,
             has_outline,
-            // The active-content scan arrives with MVP-11; until then nothing has been scanned.
-            security: SecurityReport {
-                findings: Vec::new(),
-                scan_complete: false,
-            },
+            security,
         },
     }
 }

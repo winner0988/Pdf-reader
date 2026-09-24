@@ -35,6 +35,7 @@ describe("reduceSession", () => {
         displayName: "報告.pdf",
         pages: info.pages,
         findings: [{ kind: "javaScript", count: 2 }],
+        scanComplete: true,
       },
     });
   });
