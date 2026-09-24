@@ -289,6 +289,9 @@
 | settingsSystem | 跟隨系統 |
 | settingsLight | 淺色 |
 | settingsDark | 深色 |
+| menu.setDefault | 設為預設 PDF 閱讀器 |
+| defaultApp.failedTitle | 無法開啟 Windows 設定 |
+| defaultApp.failedHelp | 請手動開啟：設定 → 應用程式 → 預設應用程式，搜尋「PDF Reader」，再把 .pdf 設為用它開啟。 |
 
 ### 主行程的原生對話框
 
@@ -298,6 +301,7 @@
 |---|---|
 | OPEN_DIALOG_TITLE | 開啟 PDF 檔案 |
 | PDF_FILTER_NAME | PDF 檔案 |
+| window_title | `<檔名> - PDF Reader`；沒有開啟文件時為 `PDF Reader` |
 | WEBVIEW2_MISSING_TITLE | 無法開啟 PDF Reader |
 | WEBVIEW2_MISSING_MESSAGE | 這台電腦缺少 Microsoft Edge WebView2 Runtime，PDF Reader 需要它才能顯示畫面。（空一行）Windows 11 已內建 WebView2。如果它被移除了，請到 Microsoft 官方網站下載並安裝「WebView2 Runtime」，然後再開啟 PDF Reader：https://developer.microsoft.com/microsoft-edge/webview2/（空一行）PDF Reader 不會自行下載任何東西。 |
 

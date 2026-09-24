@@ -15,6 +15,7 @@ fn main() {
         "describe_outline_link",
         "open_outline_link",
         "search",
+        "open_default_apps_settings",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("failed to run tauri-build");

@@ -54,6 +54,7 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-open-link", "MVP-12: open a confirmed http/https/mailto link by its id"],
   ["allow-describe-outline-link", "#49: the same confirmation for an outline item"],
   ["allow-open-outline-link", "#49: open a confirmed outline link by its position"],
+  ["allow-open-default-apps-settings", "REL-03: open the fixed default-apps page of Windows Settings"],
 ]);
 
 /** Plugin permission prefixes that are never granted to the frontend, allowlist or not. */

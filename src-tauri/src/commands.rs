@@ -82,9 +82,17 @@ pub async fn close_document(app: AppHandle, doc: DocumentId) -> Result<(), IpcEr
     blocking(move || {
         let result = app.state::<Documents>().close(doc);
         forget_other_documents(&app);
+        show_document_in_title(&app);
         result
     })
     .await
+}
+
+/// Opens the page of Windows Settings where PDF Reader can be made the default PDF app
+/// (REL-03). The address is fixed; this command takes no arguments.
+#[tauri::command]
+pub async fn open_default_apps_settings(app: AppHandle) -> Result<(), IpcError> {
+    crate::opener::open(&app, crate::opener::DEFAULT_APPS_SETTINGS.to_owned()).await
 }
 
 /// Renders a page. The answer is raw bytes (an `ArrayBuffer` in the page) in the layout of
@@ -198,7 +206,20 @@ pub fn open_in_background(app: AppHandle, path: PathBuf, ignored_files: u32) {
         app.state::<Documents>()
             .open(&path, ignored_files, &|event| events.send(event));
         forget_other_documents(&app);
+        show_document_in_title(&app);
     });
+}
+
+/// Puts the open document's file name in the window title (REL-03). The name has no directory
+/// components (`DocumentInfo::display_name`).
+fn show_document_in_title(app: &AppHandle) {
+    let name = app
+        .state::<Documents>()
+        .current()
+        .map(|info| info.display_name);
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_title(&strings::window_title(name.as_deref()));
+    }
 }
 
 /// Frees cached pages and queued renders of documents that are no longer open.

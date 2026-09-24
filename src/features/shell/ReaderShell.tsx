@@ -7,7 +7,7 @@ import { useSearch, type SearchApi } from "@/features/search/useSearch";
 import { SecurityBanner } from "@/features/security-banner/SecurityBanner";
 import { SecurityDetails } from "@/features/security-banner/SecurityDetails";
 import { hasBannerContent } from "@/features/security-banner/summary";
-import { AboutDialog, ShortcutsDialog } from "@/features/shell/dialogs";
+import { AboutDialog, SetDefaultFailedDialog, ShortcutsDialog } from "@/features/shell/dialogs";
 import { rotate, stepZoom, type Rotation, type ShellState, type Zoom } from "@/features/shell/model";
 import { SearchBar } from "@/features/shell/SearchBar";
 import { Sidebar } from "@/features/shell/Sidebar";
@@ -15,6 +15,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/features/shell/states";
 import { StatusBar } from "@/features/shell/StatusBar";
 import { Toolbar } from "@/features/shell/Toolbar";
 import { useShortcuts } from "@/features/shortcuts/useShortcuts";
+import type { SystemApi } from "@/features/system/defaultApp";
 import { useTheme } from "@/features/theme/useTheme";
 import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
 import type { PageRenderer } from "@/features/viewer/renderer";
@@ -45,6 +46,8 @@ type ReaderShellProps = {
   searchApi?: SearchApi;
   /** The pages' links; without it (demo data, tests) pages have none. */
   linksApi?: LinksApi;
+  /** Opens Windows Settings for "set as default"; without it (demo data, tests) nothing happens. */
+  systemApi?: SystemApi;
   version?: string;
   /** Delay before the loading state appears; tests pass 0. */
   loadingDelayMs?: number;
@@ -81,6 +84,7 @@ export function ReaderShell({
   outline,
   searchApi,
   linksApi,
+  systemApi,
   version = "0.1.0",
   loadingDelayMs,
 }: ReaderShellProps) {
@@ -97,7 +101,7 @@ export function ReaderShell({
   const [fitPercent, setFitPercent] = useState(100);
   const [rotation, setRotation] = useState<Rotation>(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [dialog, setDialog] = useState<"shortcuts" | "about" | null>(null);
+  const [dialog, setDialog] = useState<"shortcuts" | "about" | "setDefaultFailed" | null>(null);
   const pageInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLElement>(null);
   const viewRef = useRef<DocumentViewHandle>(null);
@@ -261,6 +265,9 @@ export function ReaderShell({
           onThemeChange={setTheme}
           onShowShortcuts={() => setDialog("shortcuts")}
           onShowAbout={() => setDialog("about")}
+          onSetDefault={() => {
+            systemApi?.openDefaultAppsSettings().catch(() => setDialog("setDefaultFailed"));
+          }}
         />
         <div className="relative flex min-h-0 flex-1">
           {sidebarOpen && document_ && (
@@ -359,6 +366,10 @@ export function ReaderShell({
         />
       )}
       <ShortcutsDialog open={dialog === "shortcuts"} onOpenChange={(open) => setDialog(open ? "shortcuts" : null)} />
+      <SetDefaultFailedDialog
+        open={dialog === "setDefaultFailed"}
+        onOpenChange={(open) => setDialog(open ? "setDefaultFailed" : null)}
+      />
       <AboutDialog
         open={dialog === "about"}
         onOpenChange={(open) => setDialog(open ? "about" : null)}

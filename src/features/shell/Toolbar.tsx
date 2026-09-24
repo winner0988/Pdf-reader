@@ -48,6 +48,7 @@ export type ToolbarProps = {
   onThemeChange: (theme: ThemePreference) => void;
   onShowShortcuts: () => void;
   onShowAbout: () => void;
+  onSetDefault: () => void;
 };
 
 export function Toolbar(props: ToolbarProps) {
@@ -202,6 +203,8 @@ function MoreMenu(props: ToolbarProps) {
           <DropdownMenuShortcut>Ctrl+/</DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={props.onShowAbout}>{menu.about}</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={props.onSetDefault}>{menu.setDefault}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

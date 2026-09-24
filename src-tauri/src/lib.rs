@@ -64,6 +64,7 @@ pub fn run() {
             commands::describe_outline_link,
             commands::open_outline_link,
             commands::search,
+            commands::open_default_apps_settings,
         ])
         .on_window_event(commands::on_window_event)
         .setup(move |app| {

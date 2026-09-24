@@ -1,9 +1,11 @@
-//! Hands a checked web link to the system's default browser or mail program (MVP-12).
+//! Hands a checked web link to the system's default browser or mail program (MVP-12), and
+//! opens the one fixed page of Windows Settings this app needs (REL-03).
 //!
 //! `ShellExecuteW` receives the URL as its one file argument; no command line is put together
-//! here. The URL has already been through [`crate::links::preview`], so it is plain ASCII
-//! with a scheme of `http`, `https` or `mailto` and nothing a command line could misread.
-//! It runs on the main thread, where COM is initialised as the shell expects.
+//! here. A web link has already been through [`crate::links::preview`], so it is plain ASCII
+//! with a scheme of `http`, `https` or `mailto` and nothing a command line could misread; the
+//! settings address is a constant. It runs on the main thread, where COM is initialised as the
+//! shell expects.
 
 // The one Win32 call of the main process; see the SAFETY comment below.
 #![allow(unsafe_code)]
@@ -18,7 +20,14 @@ fn failed(message: &str) -> IpcError {
     }
 }
 
-/// Opens `url` (from [`crate::links::preview`]) with the program the user chose for its scheme.
+/// The page of Windows Settings where the user can make PDF Reader the default PDF app. The
+/// name is the value the installer registers under `RegisteredApplications`
+/// (src-tauri/windows/installer-hooks.nsh); Windows versions without this page show the list
+/// of default apps instead.
+pub const DEFAULT_APPS_SETTINGS: &str = "ms-settings:defaultapps?registeredAppMachine=PDF%20Reader";
+
+/// Opens `url` (from [`crate::links::preview`], or [`DEFAULT_APPS_SETTINGS`]) with the program
+/// the system associates with its scheme.
 pub async fn open(app: &AppHandle, url: String) -> Result<(), IpcError> {
     let (sender, receiver) = tokio::sync::oneshot::channel();
     app.run_on_main_thread(move || {

@@ -4,6 +4,8 @@
 
 > **狀態：MVP 開發中，尚未發布安裝檔。** 下面列出的功能都已完成並有測試；目前要自行從原始碼建置。進度見 [工作卡](docs/backlog/README.md) 與 [Issues](https://github.com/winner0988/Pdf-reader/issues)。
 >
+> **設為預設 PDF 閱讀器**：安裝後在「⋯」選單選「設為預設 PDF 閱讀器」，或在檔案總管對 PDF 按右鍵 →「開啟檔案」→ PDF Reader。
+>
 > **系統需求**：Windows 11（x64）。畫面使用 Windows 11 內建的 Microsoft Edge WebView2；安裝檔不會下載任何東西（[packaging.md](docs/architecture/packaging.md#webview2)）。
 
 | 全文搜尋 | 外部連結要先確認 |

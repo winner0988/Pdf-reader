@@ -57,6 +57,29 @@ pnpm bundle    # 產出 target/release/bundle/nsis/PDF Reader_<版本>_x64-setup
   - `installer.yml` 確認產生的安裝腳本以 `skip` 建置。Tauri 的範本把每種模式的程式碼都留在腳本中，以編譯期的 `!if` 排除，所以要檢查模式，而不是搜尋下載網址。
 - `installer-hooks.nsh` 必須以 UTF-8（含 BOM）儲存，否則 NSIS 會以系統字碼頁讀取，中文會變成亂碼。
 
+## PDF 關聯與預設程式
+
+REL-03（[#68](https://github.com/winner0988/Pdf-reader/issues/68)），規格 §1「作業系統關聯」。
+
+- **安裝後**（`installer-hooks.nsh` 的 `NSIS_HOOK_POSTINSTALL`，64 位元登錄檔視圖）：
+  - ProgID `PdfReader.Document`：圖示與開啟指令 `"…\pdf-reader.exe" "%1"`；
+  - `.pdf` 的 `OpenWithProgids` 與 `Applications\pdf-reader.exe`：出現在檔案總管的「開啟檔案」；
+  - `Software\PDF Reader\Capabilities` 與 `RegisteredApplications`：出現在 Windows「預設應用程式」。
+- **不搶預設**：
+  - 安裝檔不改 `.pdf` 本身的預設值；
+  - Windows 10／11 只能由使用者在設定中指定預設程式。
+  - 所以沒有使用 Tauri 的 `bundle.fileAssociations`：它會直接改寫 `.pdf` 的預設值。
+- **設為預設**：
+  - app 的「⋯」選單中的「設為預設 PDF 閱讀器」，由主行程以固定網址開啟 `ms-settings:defaultapps?registeredAppMachine=PDF%20Reader`，也就是 Windows 設定中 PDF Reader 的頁面；
+  - 沒有這個頁面的 Windows 版本會顯示預設應用程式清單；
+  - 開不了時，對話框說明手動的路徑。
+- **視窗標題**：
+  - 顯示開啟中的檔名（`檔名 - PDF Reader`），由主行程在開啟與關閉文件後設定；
+  - 檔名不含資料夾。
+- **解除安裝**（`NSIS_HOOK_POSTUNINSTALL`）：移除以上所有項目。
+  - 使用者若把 PDF Reader 設為預設，Windows 會在 ProgID 消失後自行改回；
+  - 更新時先解除安裝再安裝，ProgID 名稱不變，使用者的選擇會保留。
+
 ## CI
 
 `.github/workflows/installer.yml`（push 到 `main`、手動觸發，以及變更會進入安裝檔的 PR）：
@@ -64,10 +87,10 @@ pnpm bundle    # 產出 target/release/bundle/nsis/PDF Reader_<版本>_x64-setup
 1. `pnpm bundle` 建置安裝檔。
 2. 確認安裝腳本的 WebView2 模式是 `skip`（見上方「WebView2」）。
 3. 以 7-Zip 列出安裝檔內容，確認包含 `pdf_worker.exe`。
-4. `/S` 靜默安裝（per machine）。
+4. `/S` 靜默安裝（per machine），並確認 PDF 關聯已註冊、`.pdf` 的預設值沒有被改成 PDF Reader。
 5. 對安裝後的所有 `.exe` 執行 `check-imports.mjs`。
 6. `worker_smoke`（`crates/worker_host/src/bin/worker_smoke.rs`）以沙盒啟動**安裝後的** worker，完成握手、開啟並渲染一頁 PDF。
-7. 靜默解除安裝，確認 AppContainer profile 的資料夾已刪除。
+7. 靜默解除安裝，確認 AppContainer profile 的資料夾與 PDF 關聯都已移除。
 
 CI runner 裝有 VC++ 執行階段，所以「在乾淨的 Windows 11 上能執行」是靠第 5 步的匯入表檢查來保證，不是實際在乾淨環境上執行。
 
