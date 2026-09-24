@@ -15,13 +15,13 @@ yanked = "deny"
 ignore = []
 
 [licenses]
-# Permissive licenses present in the dependency tree today.
-# MuPDF is AGPL-3.0: MVP-03 has to add it here, and whether that is acceptable is DEC-02 (#2).
+# Permissive licenses only. The one copyleft exception is MuPDF below (ADR 0011).
 allow = [
     "0BSD",
     "Apache-2.0",
     "BSD-3-Clause",
     "CC0-1.0",
+    "ISC",
     "MIT",
     "MIT-0",
     "MPL-2.0",
@@ -30,9 +30,15 @@ allow = [
     "Zlib",
 ]
 confidence-threshold = 0.9
+# MuPDF is AGPL-3.0 (ADR 0003, ADR 0011). Only its own crates may use it; any other
+# AGPL/GPL dependency still fails. The crates declare the deprecated SPDX id "AGPL-3.0".
+exceptions = [
+    { crate = "mupdf", allow = ["AGPL-3.0"] },
+    { crate = "mupdf-sys", allow = ["AGPL-3.0"] },
+]
 
 [licenses.private]
-# Workspace crates are unpublished (publish = false); their license is decided by DEC-02.
+# Workspace crates are unpublished (publish = false) and licensed AGPL-3.0-or-later (ADR 0011).
 ignore = true
 
 [bans]
