@@ -290,6 +290,17 @@
 | settingsLight | 淺色 |
 | settingsDark | 深色 |
 
+### 主行程的原生對話框
+
+這些文字由主行程自己顯示，放在 `src-tauri/src/strings.rs`。
+
+| 鍵 | 文字 |
+|---|---|
+| OPEN_DIALOG_TITLE | 開啟 PDF 檔案 |
+| PDF_FILTER_NAME | PDF 檔案 |
+| WEBVIEW2_MISSING_TITLE | 無法開啟 PDF Reader |
+| WEBVIEW2_MISSING_MESSAGE | 這台電腦缺少 Microsoft Edge WebView2 Runtime，PDF Reader 需要它才能顯示畫面。（空一行）Windows 11 已內建 WebView2。如果它被移除了，請到 Microsoft 官方網站下載並安裝「WebView2 Runtime」，然後再開啟 PDF Reader：https://developer.microsoft.com/microsoft-edge/webview2/（空一行）PDF Reader 不會自行下載任何東西。 |
+
 ## 9. 驗收截圖清單
 
 各卡片的 PR 必須附上下列截圖（淺色與深色各一張，除非另外註明；截圖中不得有私人內容，一律使用 `tests/corpus/`）。

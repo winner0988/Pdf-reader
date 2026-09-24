@@ -40,18 +40,36 @@ pnpm bundle    # 產出 target/release/bundle/nsis/PDF Reader_<版本>_x64-setup
 - Program Files 允許所有 app package 讀取與執行，所以 AppContainer 可以直接啟動 worker，不需要修改檔案 ACL（見 [worker-sandbox.md](worker-sandbox.md#appcontainer)）。
 - 解除安裝時，`src-tauri/windows/installer-hooks.nsh` 呼叫 `DeleteAppContainerProfile("PdfReader.Worker")`，刪除 worker 的 AppContainer profile。它只能刪除執行解除安裝程式的那位使用者的 profile；同一台電腦上其他使用者的 profile（空資料夾與登錄機碼對應）會留下。`crates/sandbox/tests/installer_hooks.rs` 確認腳本中的名稱與 `sandbox::WORKER_APP_CONTAINER` 一致。
 
+## WebView2
+
+安裝檔**永遠不下載** WebView2 Runtime（REL-02，[#37](https://github.com/winner0988/Pdf-reader/issues/37)，負責人 2026-09-24 決定）。
+
+- **支援範圍**：只支援 Windows 11，它內建 WebView2。
+- **設定**：`tauri.conf.json` 的 `bundle.windows.webviewInstallMode` 是 `skip`。
+  - Tauri 的預設 `downloadBootstrapper` 會在電腦缺少 WebView2 時，於安裝過程向 Microsoft 下載，違反「不連網」原則。
+  - `embedBootstrapper` 也會在安裝時下載。
+- **缺少 WebView2 時**（被移除，或在 Windows 10 上安裝）：
+  - 安裝檔：`installer-hooks.nsh` 的 `NSIS_HOOK_PREINSTALL` 以與 Tauri 相同的登錄檔檢查偵測，顯示說明後繼續安裝；靜默安裝（`/S`）不會停下來。
+  - app：啟動時以 `tauri::webview_version()` 檢查，失敗就以原生對話框說明缺少什麼、到哪裡下載，然後結束，不會無聲無息地關閉。文字在 `src-tauri/src/strings.rs`。
+  - 兩處都只顯示 Microsoft 官方網址，不代為下載。
+- **守門**：
+  - `check-security-config.mjs`（`Guardrails`）只接受不連網的模式：`skip`、`offlineInstaller`、`fixedRuntime`；
+  - `installer.yml` 確認產生的安裝腳本以 `skip` 建置。Tauri 的範本把每種模式的程式碼都留在腳本中，以編譯期的 `!if` 排除，所以要檢查模式，而不是搜尋下載網址。
+- `installer-hooks.nsh` 必須以 UTF-8（含 BOM）儲存，否則 NSIS 會以系統字碼頁讀取，中文會變成亂碼。
+
 ## CI
 
 `.github/workflows/installer.yml`（push 到 `main`、手動觸發，以及變更會進入安裝檔的 PR）：
 
 1. `pnpm bundle` 建置安裝檔。
-2. 以 7-Zip 列出安裝檔內容，確認包含 `pdf_worker.exe`。
-3. `/S` 靜默安裝（per machine）。
-4. 對安裝後的所有 `.exe` 執行 `check-imports.mjs`。
-5. `worker_smoke`（`crates/worker_host/src/bin/worker_smoke.rs`）以沙盒啟動**安裝後的** worker，完成握手、開啟並渲染一頁 PDF。
-6. 靜默解除安裝，確認 AppContainer profile 的資料夾已刪除。
+2. 確認安裝腳本的 WebView2 模式是 `skip`（見上方「WebView2」）。
+3. 以 7-Zip 列出安裝檔內容，確認包含 `pdf_worker.exe`。
+4. `/S` 靜默安裝（per machine）。
+5. 對安裝後的所有 `.exe` 執行 `check-imports.mjs`。
+6. `worker_smoke`（`crates/worker_host/src/bin/worker_smoke.rs`）以沙盒啟動**安裝後的** worker，完成握手、開啟並渲染一頁 PDF。
+7. 靜默解除安裝，確認 AppContainer profile 的資料夾已刪除。
 
-CI runner 裝有 VC++ 執行階段，所以「在乾淨的 Windows 11 上能執行」是靠第 4 步的匯入表檢查來保證，不是實際在乾淨環境上執行。
+CI runner 裝有 VC++ 執行階段，所以「在乾淨的 Windows 11 上能執行」是靠第 5 步的匯入表檢查來保證，不是實際在乾淨環境上執行。
 
 ## 剩餘風險
 
@@ -60,3 +78,4 @@ CI runner 裝有 VC++ 執行階段，所以「在乾淨的 Windows 11 上能執�
 | 安裝檔尚未簽章，SmartScreen 會警告 | 程式碼簽章另開卡 |
 | 沒有在真正乾淨的 Windows 11 VM 上實測安裝 | 發佈前的手動驗收清單 |
 | 其他使用者的 AppContainer profile 在解除安裝後留下 | 內容為空，影響很小；如需處理，可在主程式啟動時清理 |
+| 缺少 WebView2 的電腦（被移除，或 Windows 10）無法使用 | 安裝檔與 app 都會說明，由使用者自行安裝；CI runner 裝有 WebView2，所以這兩段說明沒有在 CI 上實際顯示過 |
