@@ -8,6 +8,7 @@ import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { SearchApi } from "@/features/search/useSearch";
 import { strings } from "@/i18n/zh-TW";
 import type { LinksApi } from "@/features/links/source";
+import type { OutlineView } from "@/features/outline/tree";
 import type { LinkPreview, PageLink, SearchEvent } from "@/ipc/generated/contract";
 import { mediaQuery } from "@/test/setup";
 
@@ -279,8 +280,19 @@ describe("shortcuts", () => {
         getPageLinks: vi.fn((_doc: number, pageIndex: number) => Promise.resolve(pageIndex === 0 ? pageLinks : [])),
         describeLink: vi.fn(() => Promise.resolve(preview)),
         openLink: vi.fn(() => Promise.resolve()),
+        describeOutlineLink: vi.fn(() => Promise.resolve(preview)),
+        openOutlineLink: vi.fn(() => Promise.resolve()),
       } satisfies LinksApi;
-      const utils = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { linksApi });
+      const outline: OutlineView = {
+        status: "ready",
+        truncated: false,
+        items: [
+          { title: "第 1 章", depth: 0, target: { kind: "page", pageIndex: 0, x: null, y: null } },
+          { title: "官方網站", depth: 0, target: { kind: "uri", uri: "https://example.invalid/docs" } },
+          { title: "執行程式", depth: 0, target: { kind: "blocked", action: "launch", target: "calc.exe" } },
+        ],
+      };
+      const utils = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { linksApi, outline });
       return { ...utils, linksApi };
     };
 
@@ -323,6 +335,24 @@ describe("shortcuts", () => {
       await user.click(await screen.findByRole("button", { name: strings.links.open }));
       expect(await screen.findByRole("alert")).toHaveTextContent(strings.links.openFailed);
       expect(screen.getByRole("dialog", { name: strings.links.confirmTitle })).toBeInTheDocument();
+    });
+
+    it("an outline item with a web link is confirmed and opened by its position (#49)", async () => {
+      const { user, linksApi } = setup();
+
+      await user.click(screen.getByRole("treeitem", { name: /官方網站/ }));
+      const dialog = await screen.findByRole("dialog", { name: strings.links.confirmTitle });
+      expect(linksApi.describeOutlineLink).toHaveBeenCalledWith(5, 1);
+      await user.click(within(dialog).getByRole("button", { name: strings.links.open }));
+      expect(linksApi.openOutlineLink).toHaveBeenCalledWith(5, 1);
+      expect(linksApi.openLink).not.toHaveBeenCalled();
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+      // A blocked outline item explains itself, like a blocked link on a page.
+      await user.click(screen.getByRole("treeitem", { name: /執行程式/ }));
+      const blocked = await screen.findByRole("dialog", { name: strings.links.blockedTitle });
+      expect(blocked).toHaveTextContent(strings.links.blocked.launch.description);
+      expect(linksApi.describeOutlineLink).toHaveBeenCalledTimes(1);
     });
 
     it("a blocked link only explains why, with nothing to open it", async () => {

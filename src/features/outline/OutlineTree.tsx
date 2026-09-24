@@ -11,7 +11,7 @@ import {
   visibleItems,
 } from "@/features/outline/tree";
 import { strings } from "@/i18n/zh-TW";
-import type { OutlineItem } from "@/ipc/generated/contract";
+import type { LinkTarget, OutlineItem } from "@/ipc/generated/contract";
 
 const t = strings.sidebar;
 
@@ -21,15 +21,17 @@ type OutlineTreeProps = {
   currentPage: number;
   /** 1-based page to jump to. */
   onJumpToPage: (page: number) => void;
+  /** An item pointing outside the document (a web link or a blocked action) was activated. */
+  onOpenLink?: (item: number, target: Exclude<LinkTarget, { kind: "page" }>) => void;
 };
 
 /**
  * The outline as a keyboard tree (docs/ux/screen-map.md, section 7): ↑/↓ move, → expands or
  * enters, ← collapses or goes to the parent, Enter jumps. Titles are plain text (React escapes
  * them; the worker already removed control and bidi characters). Items pointing outside the
- * document never do anything here; MVP-12 adds the confirmation for web links.
+ * document are handed to `onOpenLink`, which confirms or explains (#49); nothing opens here.
  */
-export function OutlineTree({ items, currentPage, onJumpToPage }: OutlineTreeProps) {
+export function OutlineTree({ items, currentPage, onJumpToPage, onOpenLink }: OutlineTreeProps) {
   const [expanded, setExpanded] = useState(() => initiallyExpanded(items));
   const [focused, setFocused] = useState(0);
   const refs = useRef(new Map<number, HTMLLIElement>());
@@ -51,8 +53,10 @@ export function OutlineTree({ items, currentPage, onJumpToPage }: OutlineTreePro
       return after;
     });
   const activate = (index: number) => {
+    const target = items[index]!.target;
     const page = pageOf(items[index]!);
     if (page !== null) onJumpToPage(page + 1);
+    else if (target && target.kind !== "page") onOpenLink?.(index, target);
   };
 
   const onKeyDown = (event: KeyboardEvent, index: number) => {

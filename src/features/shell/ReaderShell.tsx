@@ -20,11 +20,14 @@ import { DocumentView, type DocumentViewHandle } from "@/features/viewer/Documen
 import type { PageRenderer } from "@/features/viewer/renderer";
 import type { OutlineView } from "@/features/outline/tree";
 import { strings } from "@/i18n/zh-TW";
-import type { BlockedAction, DocumentId, LinkId, LinkPreview, PageLink } from "@/ipc/generated/contract";
+import type { BlockedAction, LinkPreview, LinkTarget, PageLink } from "@/ipc/generated/contract";
 
-/** A link dialog that is open: the confirmation of a web link, or why a link is blocked. */
+/**
+ * A link dialog that is open: the confirmation of a web link (with how to open it: by the
+ * page link's or outline item's id, never by URI), or why a link is blocked.
+ */
 type LinkDialog =
-  | { kind: "confirm"; doc: DocumentId; link: LinkId; preview: LinkPreview }
+  | { kind: "confirm"; key: string; preview: LinkPreview; open: () => Promise<void> }
   | { kind: "blocked"; action: BlockedAction; content: string | null };
 
 type ReaderShellProps = {
@@ -198,8 +201,33 @@ export function ReaderShell({
     } else if (linksApi && document_?.doc !== undefined) {
       const doc = document_.doc;
       linksApi.describeLink(doc, link.id).then(
-        (preview) => setLinkDialog({ kind: "confirm", doc, link: link.id, preview }),
+        (preview) =>
+          setLinkDialog({
+            kind: "confirm",
+            key: `page:${link.id.pageIndex}:${link.id.index}`,
+            preview,
+            open: () => linksApi.openLink(doc, link.id),
+          }),
         // The document closed or the worker failed: there is nothing to confirm.
+        () => {},
+      );
+    }
+  };
+
+  /** The same for outline items that point outside the document (#49). */
+  const openOutlineLink = (item: number, target: Exclude<LinkTarget, { kind: "page" }>) => {
+    if (target.kind === "blocked") {
+      setLinkDialog({ kind: "blocked", action: target.action, content: target.target });
+    } else if (linksApi && document_?.doc !== undefined) {
+      const doc = document_.doc;
+      linksApi.describeOutlineLink(doc, item).then(
+        (preview) =>
+          setLinkDialog({
+            kind: "confirm",
+            key: `outline:${item}`,
+            preview,
+            open: () => linksApi.openOutlineLink(doc, item),
+          }),
         () => {},
       );
     }
@@ -241,6 +269,7 @@ export function ReaderShell({
               outline={outline ?? document_.outline ?? { status: "none" }}
               currentPage={currentPage}
               onJumpToPage={goToPage}
+              onOpenLink={openOutlineLink}
             />
           )}
           <div className="flex min-w-0 flex-1 flex-col">
@@ -264,7 +293,10 @@ export function ReaderShell({
               data-region="canvas"
               data-drop-active={dropActive || undefined}
               tabIndex={-1}
-              className="relative min-h-0 flex-1 overflow-auto bg-muted outline-none data-drop-active:outline-2 data-drop-active:-outline-offset-4 data-drop-active:outline-primary data-drop-active:outline-dashed"
+              // The scroll bar's space is always kept: otherwise a fitted page just taller than the
+              // canvas makes the scroll bar appear, which narrows the canvas, which shrinks the page,
+              // which hides the scroll bar again, forever (#46).
+              className="relative min-h-0 flex-1 overflow-auto bg-muted outline-none [scrollbar-gutter:stable] data-drop-active:outline-2 data-drop-active:-outline-offset-4 data-drop-active:outline-primary data-drop-active:outline-dashed"
               onPointerDown={() => {
                 // A floating sidebar closes when the user goes back to the page.
                 if (sidebarOpen && isNarrowWindow()) setSidebarOpen(false);
@@ -311,11 +343,11 @@ export function ReaderShell({
           hoverTarget={linkHover ?? undefined}
         />
       </div>
-      {linkDialog?.kind === "confirm" && linksApi && (
+      {linkDialog?.kind === "confirm" && (
         <LinkConfirmDialog
-          key={`${linkDialog.link.pageIndex}:${linkDialog.link.index}`}
+          key={linkDialog.key}
           preview={linkDialog.preview}
-          onOpen={() => linksApi.openLink(linkDialog.doc, linkDialog.link)}
+          onOpen={linkDialog.open}
           onClose={() => setLinkDialog(null)}
         />
       )}

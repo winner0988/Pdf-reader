@@ -28,6 +28,30 @@ function renderTree(props: Partial<Parameters<typeof OutlineTree>[0]> = {}) {
 const item = (name: string) => screen.getByRole("treeitem", { name });
 const shown = () => screen.getAllByRole("treeitem").map((element) => element.textContent);
 
+describe("links outside the document (#49)", () => {
+  it("hands web links and blocked actions to onOpenLink, and jumps for pages", async () => {
+    const onJumpToPage = vi.fn();
+    const onOpenLink = vi.fn();
+    const items = [
+      { title: "Page", depth: 0, target: { kind: "page" as const, pageIndex: 2, x: null, y: null } },
+      { title: "Web", depth: 0, target: { kind: "uri" as const, uri: "https://example.invalid/" } },
+      { title: "Run", depth: 0, target: { kind: "blocked" as const, action: "launch" as const, target: "calc.exe" } },
+      { title: "Nowhere", depth: 0, target: null },
+    ];
+    render(<OutlineTree items={items} currentPage={1} onJumpToPage={onJumpToPage} onOpenLink={onOpenLink} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("treeitem", { name: /Web/ }));
+    expect(onOpenLink).toHaveBeenLastCalledWith(1, items[1]!.target);
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(onOpenLink).toHaveBeenLastCalledWith(2, items[2]!.target);
+    await user.click(screen.getByRole("treeitem", { name: "Nowhere" }));
+    await user.click(screen.getByRole("treeitem", { name: "Page" }));
+    expect(onOpenLink).toHaveBeenCalledTimes(2);
+    expect(onJumpToPage).toHaveBeenCalledWith(3);
+  });
+});
+
 describe("OutlineTree", () => {
   it("shows the first two levels as a tree", () => {
     renderTree();

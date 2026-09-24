@@ -104,6 +104,12 @@ export type PageLink = { id: LinkId, rect: Rect, target: LinkTarget, };
 export type LinkArgs = { doc: DocumentId, link: LinkId, };
 
 /**
+ * Arguments of `describe_outline_link` and `open_outline_link` (#49): an outline item by its
+ * position in the outline the worker reported (`OutlineResult::items`), never a URI.
+ */
+export type OutlineLinkArgs = { doc: DocumentId, item: number, };
+
+/**
  * What the confirmation shows about a web link before it is opened (MVP-12).
  */
 export type LinkPreview = { 
