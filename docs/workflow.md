@@ -74,7 +74,7 @@ Settings → Actions → General：
 - Workflow permissions 選 **Read repository contents**。
 - Approval for running fork pull request workflows from contributors 選 **Require approval for all external contributors**：外部貢獻者的 PR 要你看過程式碼、按下核准後才會執行 CI。
 
-> 公開 repo 使用 GitHub 提供的標準 runner 不計分鐘數。但 Actions 的**日誌與 artifact 也是公開的**：任何人都能看日誌，登入 GitHub 的人都能下載 artifact。fuzzing 的崩潰樣本與 AddressSanitizer 報告因此也會公開，做法待決定，見 [fuzzing.md](security/fuzzing.md#公開-repo-的限制) 與 [#57](https://github.com/winner0988/Pdf-reader/issues/57)。
+> 公開 repo 使用 GitHub 提供的標準 runner 不計分鐘數。但 Actions 的**日誌與 artifact 也是公開的**：任何人都能看日誌，登入 GitHub 的人都能下載 artifact。所以 fuzzing 的日誌只顯示統計，崩潰樣本加密後才上傳，見 [fuzzing.md](security/fuzzing.md#公開-repo-的保護)。
 
 ### 4. 標籤與工作卡
 
