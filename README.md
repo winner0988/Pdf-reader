@@ -17,6 +17,7 @@
 
 ```bash
 pnpm install
+cargo build -p pdf_worker   # 第一次，或 worker 有變更時；開發模式的主程式在 target/debug/ 旁邊找 pdf_worker.exe
 pnpm tauri dev
 ```
 

@@ -272,3 +272,28 @@ pub struct IpcError {
     pub code: ErrorCode,
     pub message: String,
 }
+
+/// Pushed by the main process on the channel passed to `subscribe_open_events`, for documents
+/// opened from the dialog, by drag and drop, or from the command line. A window shows one
+/// document at a time, so the latest event always describes what the window should show.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum OpenEvent {
+    /// Files are being dragged over the window (`true`), or the drag left without a drop.
+    DragHover { active: bool },
+    /// Opening has started.
+    #[serde(rename_all = "camelCase")]
+    Opening { display_name: String },
+    /// `ignored_files`: other files in the same drop that were not opened.
+    #[serde(rename_all = "camelCase")]
+    Opened {
+        info: DocumentInfo,
+        ignored_files: u32,
+    },
+    #[serde(rename_all = "camelCase")]
+    Failed {
+        display_name: String,
+        error: IpcError,
+        ignored_files: u32,
+    },
+}

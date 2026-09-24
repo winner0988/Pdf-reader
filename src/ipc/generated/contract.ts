@@ -124,6 +124,13 @@ export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "n
  */
 export type IpcError = { code: ErrorCode, message: string, };
 
+/**
+ * Pushed by the main process on the channel passed to `subscribe_open_events`, for documents
+ * opened from the dialog, by drag and drop, or from the command line. A window shows one
+ * document at a time, so the latest event always describes what the window should show.
+ */
+export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", displayName: string, } | { "kind": "opened", info: DocumentInfo, ignoredFiles: number, } | { "kind": "failed", displayName: string, error: IpcError, ignoredFiles: number, };
+
 /** Limits enforced by the main process (crates/ipc_contract/src/limits.rs). */
 export const LIMITS = {
   maxPageCount: 100000,

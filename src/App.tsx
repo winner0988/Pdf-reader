@@ -1,10 +1,34 @@
-import { strings } from "@/i18n/zh-TW";
+import { useState } from "react";
 
-export default function App() {
+import { tauriOpenApi, type OpenApi } from "@/features/open/api";
+import { OpenNotice } from "@/features/open/OpenNotice";
+import { useOpenSession } from "@/features/open/useOpenSession";
+import { DevDemoSwitcher } from "@/features/shell/DevDemoSwitcher";
+import type { ShellState } from "@/features/shell/model";
+import { ReaderShell } from "@/features/shell/ReaderShell";
+
+export default function App({ api = tauriOpenApi }: { api?: OpenApi }) {
+  const { session, open, retry, close, dismissNotice } = useOpenSession(api);
+  // Development only: fake states for working on the UI without the main process.
+  const [demo, setDemo] = useState<ShellState | null>(null);
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-2 bg-background text-foreground">
-      <h1 className="text-2xl font-semibold">{strings.appName}</h1>
-      <p className="text-sm text-muted-foreground">{strings.tagline}</p>
-    </main>
+    <>
+      <ReaderShell
+        state={demo ?? session.shell}
+        dropActive={session.dragActive}
+        onOpen={() => {
+          setDemo(null);
+          open();
+        }}
+        onClose={() => {
+          setDemo(null);
+          close();
+        }}
+        onRetry={retry}
+      />
+      {session.notice && <OpenNotice notice={session.notice} onDismiss={dismissNotice} />}
+      {import.meta.env.DEV && <DevDemoSwitcher onChange={setDemo} />}
+    </>
   );
 }

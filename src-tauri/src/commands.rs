@@ -1,0 +1,121 @@
+//! Tauri commands for opening and closing documents (docs/architecture/ipc-contract.md).
+//! Paths never cross into the WebView: the dialog runs here, and results arrive as
+//! [`OpenEvent`]s carrying only a `DocumentId` and a file name.
+
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use ipc_contract::types::{DocumentId, ErrorCode, IpcError, OpenEvent};
+use tauri::ipc::Channel;
+use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
+
+use crate::documents::Documents;
+use crate::events::OpenEvents;
+use crate::strings;
+
+/// Registers the frontend's channel for [`OpenEvent`]s.
+#[tauri::command]
+pub async fn subscribe_open_events(
+    app: AppHandle,
+    on_event: Channel<OpenEvent>,
+) -> Result<(), IpcError> {
+    blocking(move || {
+        let current = app.state::<Documents>().current();
+        app.state::<OpenEvents>().subscribe(on_event, current);
+        Ok(())
+    })
+    .await
+}
+
+/// Set while the open dialog is showing.
+static DIALOG_SHOWING: AtomicBool = AtomicBool::new(false);
+
+/// Shows the native open dialog (PDF files only). Returns false if the user cancelled, or if a
+/// dialog is already showing; otherwise the outcome arrives on the open-events channel.
+#[tauri::command]
+pub async fn open_document_dialog(app: AppHandle, window: WebviewWindow) -> Result<bool, IpcError> {
+    // The dialog is modal to the window, but the page could still ask twice.
+    if DIALOG_SHOWING.swap(true, Ordering::SeqCst) {
+        return Ok(false);
+    }
+    struct Showing;
+    impl Drop for Showing {
+        fn drop(&mut self) {
+            DIALOG_SHOWING.store(false, Ordering::SeqCst);
+        }
+    }
+    let _showing = Showing;
+
+    let picked = rfd::AsyncFileDialog::new()
+        .set_title(strings::OPEN_DIALOG_TITLE)
+        .add_filter(strings::PDF_FILTER_NAME, &["pdf"])
+        .set_parent(&window)
+        .pick_file()
+        .await;
+    let Some(file) = picked else {
+        return Ok(false);
+    };
+    open_in_background(app, file.path().to_owned(), 0);
+    Ok(true)
+}
+
+/// Opens the most recently attempted file again (after `workerCrashed`, `workerTimeout` or
+/// `unreadable`). The outcome arrives on the open-events channel.
+#[tauri::command]
+pub async fn retry_open(app: AppHandle) -> Result<(), IpcError> {
+    blocking(move || {
+        let events = app.state::<OpenEvents>();
+        app.state::<Documents>().retry(&|event| events.send(event));
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn close_document(app: AppHandle, doc: DocumentId) -> Result<(), IpcError> {
+    blocking(move || app.state::<Documents>().close(doc)).await
+}
+
+/// Drag and drop onto the window: only the first file is opened.
+pub fn on_window_event(window: &Window, event: &WindowEvent) {
+    let WindowEvent::DragDrop(drag) = event else {
+        return;
+    };
+    let app = window.app_handle();
+    let events = app.state::<OpenEvents>();
+    match drag {
+        DragDropEvent::Enter { .. } => events.send(OpenEvent::DragHover { active: true }),
+        DragDropEvent::Leave => events.send(OpenEvent::DragHover { active: false }),
+        DragDropEvent::Drop { paths, .. } => {
+            events.send(OpenEvent::DragHover { active: false });
+            if let Some(first) = paths.first() {
+                let ignored = u32::try_from(paths.len() - 1).unwrap_or(u32::MAX);
+                open_in_background(app.clone(), first.clone(), ignored);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Opens `path` off the main thread and reports on the open-events channel.
+pub fn open_in_background(app: AppHandle, path: PathBuf, ignored_files: u32) {
+    tauri::async_runtime::spawn_blocking(move || {
+        let events = app.state::<OpenEvents>();
+        app.state::<Documents>()
+            .open(&path, ignored_files, &|event| events.send(event));
+    });
+}
+
+/// Runs `work` on the blocking pool: worker requests can take seconds.
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, IpcError> + Send + 'static,
+) -> Result<T, IpcError> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .unwrap_or_else(|_| {
+            Err(IpcError {
+                code: ErrorCode::Internal,
+                message: "background task failed".to_owned(),
+            })
+        })
+}

@@ -63,6 +63,7 @@ pub fn bindings() -> String {
         SearchEvent,
         ErrorCode,
         IpcError,
+        OpenEvent,
     );
 
     let limits: [(&str, String); 17] = [
