@@ -489,4 +489,26 @@ describe("theme", () => {
     // Screen-reader text comes from the string table too.
     expect(within(dialog).getByRole("button", { name: strings.close })).toBeInTheDocument();
   });
+
+  it("set as default opens Windows Settings through the main process", async () => {
+    const systemApi = { openDefaultAppsSettings: vi.fn(() => Promise.resolve()) };
+    const { user } = renderShell({ kind: "empty" }, { systemApi });
+
+    await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    await user.click(await screen.findByRole("menuitem", { name: strings.menu.setDefault }));
+
+    expect(systemApi.openDefaultAppsSettings).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog", { name: strings.defaultApp.failedTitle })).not.toBeInTheDocument();
+  });
+
+  it("explains how to set the default by hand when Settings cannot be opened", async () => {
+    const systemApi = { openDefaultAppsSettings: vi.fn(() => Promise.reject(new Error("no settings"))) };
+    const { user } = renderShell({ kind: "empty" }, { systemApi });
+
+    await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    await user.click(await screen.findByRole("menuitem", { name: strings.menu.setDefault }));
+
+    const dialog = await screen.findByRole("dialog", { name: strings.defaultApp.failedTitle });
+    expect(within(dialog).getByText(strings.defaultApp.failedHelp)).toBeInTheDocument();
+  });
 });

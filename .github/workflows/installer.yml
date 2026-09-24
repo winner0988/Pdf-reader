@@ -81,6 +81,21 @@ jobs:
           if ($process.ExitCode -ne 0) { throw "installer exited with $($process.ExitCode)" }
           Get-ChildItem (Join-Path $env:ProgramFiles 'PDF Reader')
 
+      # REL-03: offered for .pdf ("Open with", Default apps), without taking over the default.
+      - name: Registered as a PDF app
+        run: |
+          $classes = 'HKLM:\SOFTWARE\Classes'
+          $command = (Get-ItemProperty "$classes\PdfReader.Document\shell\open\command").'(default)'
+          if ($command -notmatch '\\pdf-reader\.exe" "%1"$') { throw "unexpected open command: $command" }
+          if ($null -eq (Get-ItemProperty "$classes\.pdf\OpenWithProgids").'PdfReader.Document') { throw 'not in Open with' }
+          $registered = (Get-ItemProperty 'HKLM:\SOFTWARE\RegisteredApplications').'PDF Reader'
+          if ($registered -ne 'Software\PDF Reader\Capabilities') { throw "RegisteredApplications: $registered" }
+          $association = (Get-ItemProperty 'HKLM:\SOFTWARE\PDF Reader\Capabilities\FileAssociations').'.pdf'
+          if ($association -ne 'PdfReader.Document') { throw "Capabilities .pdf: $association" }
+          $default = (Get-ItemProperty "$classes\.pdf" -ErrorAction SilentlyContinue).'(default)'
+          if ($default -eq 'PdfReader.Document') { throw 'the installer took over the .pdf default' }
+          "open command: $command; .pdf default left as: '$default'"
+
       - name: Installed programs need no VC++ redistributable
         run: |
           $exes = Get-ChildItem (Join-Path $env:ProgramFiles 'PDF Reader') -Filter *.exe |
@@ -103,3 +118,12 @@ jobs:
           $process = Start-Process (Join-Path $dir 'uninstall.exe') -ArgumentList '/S', "_?=$dir" -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "uninstaller exited with $($process.ExitCode)" }
           if (Test-Path $profileDir) { throw "$profileDir still exists after uninstalling" }
+          # REL-03: nothing of the PDF app registration is left behind.
+          $left = @(
+            'HKLM:\SOFTWARE\Classes\PdfReader.Document',
+            'HKLM:\SOFTWARE\Classes\Applications\pdf-reader.exe',
+            'HKLM:\SOFTWARE\PDF Reader'
+          ) | Where-Object { Test-Path $_ }
+          if ($left) { throw "left after uninstalling: $($left -join ', ')" }
+          if ($null -ne (Get-ItemProperty 'HKLM:\SOFTWARE\RegisteredApplications').'PDF Reader') { throw 'still in RegisteredApplications' }
+          if ($null -ne (Get-ItemProperty 'HKLM:\SOFTWARE\Classes\.pdf\OpenWithProgids' -ErrorAction SilentlyContinue).'PdfReader.Document') { throw 'still in Open with' }

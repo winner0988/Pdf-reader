@@ -168,6 +168,11 @@ export const strings = {
     themeDark: "深色",
     shortcuts: "快捷鍵",
     about: "關於",
+    setDefault: "設為預設 PDF 閱讀器",
+  },
+  defaultApp: {
+    failedTitle: "無法開啟 Windows 設定",
+    failedHelp: "請手動開啟：設定 → 應用程式 → 預設應用程式，搜尋「PDF Reader」，再把 .pdf 設為用它開啟。",
   },
   shortcuts: {
     title: "快捷鍵",

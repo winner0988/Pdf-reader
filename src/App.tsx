@@ -9,6 +9,7 @@ import { tauriOutlineApi, useOutline, type OutlineApi } from "@/features/outline
 import { DevDemoSwitcher } from "@/features/shell/DevDemoSwitcher";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
+import { tauriSystemApi, type SystemApi } from "@/features/system/defaultApp";
 import { createPageRenderer, tauriRenderApi, type RenderApi } from "@/features/viewer/renderer";
 
 type AppProps = {
@@ -17,6 +18,7 @@ type AppProps = {
   outlineApi?: OutlineApi;
   searchApi?: SearchApi;
   linksApi?: LinksApi;
+  systemApi?: SystemApi;
 };
 
 export default function App({
@@ -25,6 +27,7 @@ export default function App({
   outlineApi = tauriOutlineApi,
   searchApi = tauriSearchApi,
   linksApi = tauriLinksApi,
+  systemApi = tauriSystemApi,
 }: AppProps) {
   const { session, open, retry, close, dismissNotice } = useOpenSession(api);
   const renderer = useMemo(() => createPageRenderer(renderApi), [renderApi]);
@@ -41,6 +44,7 @@ export default function App({
         outline={demo ? undefined : outline}
         searchApi={demo ? undefined : searchApi}
         linksApi={demo ? undefined : linksApi}
+        systemApi={systemApi}
         onOpen={() => {
           setDemo(null);
           open();

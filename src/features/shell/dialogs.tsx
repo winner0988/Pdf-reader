@@ -45,6 +45,21 @@ export function ShortcutsDialog({ open, onOpenChange }: DialogProps) {
   );
 }
 
+/** Windows Settings could not be opened for "set as default" (REL-03): how to get there by hand. */
+export function SetDefaultFailedDialog({ open, onOpenChange }: DialogProps) {
+  const t = strings.defaultApp;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t.failedTitle}</DialogTitle>
+          <DialogDescription>{t.failedHelp}</DialogDescription>
+        </DialogHeader>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function AboutDialog({ open, onOpenChange, version }: DialogProps & { version: string }) {
   const t = strings.about;
   return (
