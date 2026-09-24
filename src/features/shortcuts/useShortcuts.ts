@@ -2,7 +2,8 @@ import { useEffect, useRef } from "react";
 
 import { findShortcut, type ShortcutId } from "@/features/shortcuts/registry";
 
-export type ShortcutHandlers = Partial<Record<ShortcutId, () => void>>;
+/** A handler that returns `false` did not use the key: the browser's default happens. */
+export type ShortcutHandlers = Partial<Record<ShortcutId, () => void | boolean>>;
 
 /**
  * Calls the handler registered for a shortcut and suppresses the browser default. While not
@@ -23,10 +24,7 @@ export function useShortcuts(handlers: ShortcutHandlers, enabled = true): void {
       if (event.defaultPrevented || !latest.current.enabled) return;
       const shortcut = findShortcut(event);
       const handler = shortcut && latest.current.handlers[shortcut.id];
-      if (handler) {
-        event.preventDefault();
-        handler();
-      }
+      if (handler && handler() !== false) event.preventDefault();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

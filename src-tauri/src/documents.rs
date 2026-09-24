@@ -11,8 +11,8 @@ use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
     BlockedAction, DocumentId, DocumentInfo, ErrorCode, IpcError, LinkArgs, LinkPreview,
-    LinkTarget, OpenEvent, OutlineLinkArgs, OutlineResult, PageLink, RenderPageArgs, SearchHit,
-    TabId,
+    LinkTarget, OpenEvent, OutlineLinkArgs, OutlineResult, PageLink, PageText, RenderPageArgs,
+    SearchHit, TabId,
 };
 use ipc_contract::validate::{Validate, check_page_index};
 use ipc_contract::worker::{WorkerRequest, WorkerResponse};
@@ -381,6 +381,28 @@ impl Documents {
 
     /// The links of one page (MVP-12). The worker's answer must be about that page, with one id
     /// per link and page targets inside the document.
+    /// One page's text for selecting and copying (MVP-15): its lines and where their
+    /// characters are, as the worker reported them (validated by the worker host).
+    pub fn page_text(&self, doc: DocumentId, page_index: u32) -> Result<PageText, IpcError> {
+        self.with_document(doc, |document| {
+            let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+            check_page_index(page_index, page_count).map_err(invalid_argument)?;
+            let response = request(document, |request, doc| WorkerRequest::GetPageText {
+                request,
+                doc,
+                page_index,
+            })?;
+            match response {
+                WorkerResponse::PageText {
+                    page_index: answered,
+                    text,
+                    ..
+                } if answered == page_index => Ok(text),
+                _ => Err(unexpected("GetPageText")),
+            }
+        })
+    }
+
     pub fn page_links(&self, doc: DocumentId, page_index: u32) -> Result<Vec<PageLink>, IpcError> {
         self.with_document(doc, |document| {
             let page_count = document.info.pages.len();
@@ -1334,6 +1356,39 @@ mod with_worker {
         );
         assert_eq!(documents.page_count(info.doc), Some(2));
         assert_eq!(documents.page_count(DocumentId(info.doc.0 + 1)), None);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn page_text_comes_from_the_worker() {
+        let text = "BT /F1 24 Tf 72 700 Td (Copy me) Tj 0 -30 Td (and me) Tj ET";
+        let pdf = pdf_objects(&[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 5 0 R /Resources << /Font << /F1 6 0 R >> >> >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_owned(),
+            format!("<< /Length {} >>\nstream\n{text}\nendstream", text.len()),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+        ]);
+        let (documents, info, path) = open_bytes("page-text", &pdf);
+
+        let page = documents.page_text(info.doc, 0).unwrap();
+        let lines: Vec<&str> = page.lines.iter().map(|line| line.text.as_str()).collect();
+        assert_eq!(lines, ["Copy me", "and me"]);
+        // The first line is above the second: y grows down the page.
+        assert!(page.lines[0].quad.ul.y < page.lines[1].quad.ul.y);
+        assert!(documents.page_text(info.doc, 1).unwrap().lines.is_empty());
+        assert_eq!(
+            documents.page_text(info.doc, 2).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(
+            documents
+                .page_text(DocumentId(info.doc.0 + 1), 0)
+                .unwrap_err()
+                .code,
+            ErrorCode::UnknownDocument
+        );
         std::fs::remove_file(path).ok();
     }
 }

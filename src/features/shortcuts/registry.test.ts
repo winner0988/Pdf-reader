@@ -36,6 +36,12 @@ describe("findShortcut", () => {
     expect(findShortcut(keydown({ key: "f", ctrlKey: true }, input))?.id).toBe("search");
   });
 
+  it("leaves Ctrl+C to text fields, which copy their own text", () => {
+    expect(findShortcut(keydown({ key: "c", ctrlKey: true }))?.id).toBe("copy");
+    expect(findShortcut(keydown({ key: "c", ctrlKey: true }, document.createElement("input")))).toBeUndefined();
+    expect(findShortcut(keydown({ key: "c", ctrlKey: true }, document.createElement("textarea")))).toBeUndefined();
+  });
+
   it("honours function keys inside text fields: they do not edit text", () => {
     const input = document.createElement("input");
     expect(findShortcut(keydown({ key: "F3" }, input))?.id).toBe("findNext");

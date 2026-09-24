@@ -47,6 +47,7 @@ flowchart LR
 | `render_page` | `{ args: RenderPageArgs }` | `ArrayBuffer`（見「頁面影像」） | 是 | MVP-07 |
 | `get_outline` | `{ doc: DocumentId }` | `OutlineResult` | 否 | MVP-09 |
 | `get_page_links` | `{ doc: DocumentId, pageIndex: number }` | `PageLink[]` | 否 | MVP-12 |
+| `get_page_text` | `{ doc: DocumentId, pageIndex: number }` | `PageText`：每一行的文字、四邊形與字元位置（見 [text-selection.md](text-selection.md)） | 否 | MVP-15 |
 | `describe_link` | `{ args: LinkArgs }`（`{ doc, link: LinkId }`，其他欄位一律拒絕） | `LinkPreview`：原始 URI、實際開啟的 ASCII 形式、主機（Unicode）與 punycode | 否 | MVP-12 |
 | `open_link` | `{ args: LinkArgs }` | 無；主行程從 worker 重新取得該連結、再次檢查後交給系統 | 否 | MVP-12 |
 | `describe_outline_link` | `{ args: OutlineLinkArgs }`（`{ doc, item }`：目錄中的位置，其他欄位一律拒絕） | `LinkPreview` | 否 | #49 |
@@ -109,6 +110,7 @@ flowchart LR
   - `/Launch`、`/GoToR`、`/GoToE`、`/JavaScript`、`/SubmitForm`、`/ImportData` 都是 `blocked`，並記下動作種類。`target` 最多只帶檔名，不帶腳本內容。
   - 前端點擊 `uri` 項目時，以它在目錄中的位置確認並開啟（`describe_outline_link`／`open_outline_link`，#49）；點擊 `blocked` 項目時說明封鎖原因。
 - **頁面連結**（`get_page_links`，MVP-12a）：見 [links.md](links.md)。
+- **頁面文字**（`get_page_text`，MVP-15）：見 [text-selection.md](text-selection.md)。要複製的文字以 `copy_text_char` 處理：控制字元與空白改成空白，移除雙向文字控制與零寬字元，但不合併空白（每個字元都要保持在頁面上的位置）；主行程以 `is_clean_copy_text` 拒絕不符合的行。
 - **PDF 提供的文字**（目錄標題、`blocked` 的 `target`）在 worker 內以 `clean_display_text` 處理：
   - 控制字元與換行改成空白；
   - 移除雙向文字控制（U+202A–U+202E、U+2066–U+2069 等）、零寬字元與 BOM，避免「exe.pdf」這類偽裝；
@@ -167,6 +169,7 @@ flowchart LR
 | `Render` | `request`, `doc`, `page_index`, `scale`, `rotation` | `Rendered` 或 `Error` |
 | `GetOutline` | `request`, `doc` | `Outline` 或 `Error` |
 | `GetPageLinks` | `request`, `doc`, `page_index` | `PageLinks` 或 `Error` |
+| `GetPageText` | `request`, `doc`, `page_index` | `PageText`（`lines`、`truncated`）或 `Error` |
 | `SearchPage` | `request`, `doc`, `page_index`, `query`, `case_sensitive`, `max_hits` | `PageSearched`（`hits`、`has_text`）或 `Error`；整份文件的搜尋由主行程逐頁驅動，見 [search.md](search.md) |
 | `Cancel` | `target` | 無（被取消的請求回 `Error { code: Cancelled }`，或已完成則照常回應） |
 | `Close` | `doc` | 無 |
@@ -222,7 +225,9 @@ worker 端的 `WorkerErrorCode` 以 `From` 轉換對應到上表。
 | 搜尋字串 | 1,024 bytes | |
 | 搜尋結果 | 10,000 筆 | 超過時 `truncated` |
 | 每筆結果的 quad | 64 | |
+| 每頁文字（選取與複製） | 100,000 字元 | 超過時 worker 截斷並設 `truncated`（MVP-15） |
 | 錯誤訊息／顯示名稱 | 1,024 bytes | |
+| 分頁 | 20 | 每個分頁一個 worker（MVP-14，ADR 0012） |
 
 ## 座標系統
 

@@ -10,7 +10,7 @@ use std::io::{Read, Write};
 use ipc_contract::frame::{self, FrameError};
 use ipc_contract::limits::{
     MAX_ERROR_MESSAGE_BYTES, MAX_LINKS_PER_PAGE, MAX_OUTLINE_DEPTH, MAX_OUTLINE_ITEMS,
-    MAX_PAGE_COUNT, MAX_SEARCH_HITS, MAX_TEXT_BYTES,
+    MAX_PAGE_COUNT, MAX_PAGE_TEXT_CHARS, MAX_SEARCH_HITS, MAX_TEXT_BYTES,
 };
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
@@ -90,6 +90,27 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     },
                     Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
                 },
+            }),
+            WorkerRequest::GetPageText {
+                request,
+                doc,
+                page_index,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => {
+                    match document.page_text(page_index, MAX_PAGE_TEXT_CHARS as usize) {
+                        Ok(text) => WorkerResponse::PageText {
+                            request,
+                            page_index,
+                            text,
+                        },
+                        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                    }
+                }
             }),
             WorkerRequest::SearchPage {
                 request,

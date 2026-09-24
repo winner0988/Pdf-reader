@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::PROTOCOL_VERSION;
 use crate::types::{
-    DocumentId, ErrorCode, OutlineResult, PageLink, PageSize, RequestId, Rotation, SearchHit,
-    SecurityReport,
+    DocumentId, ErrorCode, OutlineResult, PageLink, PageSize, PageText, RequestId, Rotation,
+    SearchHit, SecurityReport,
 };
 
 /// A read-only file handle that the main process duplicated into the worker process.
@@ -38,6 +38,12 @@ pub enum WorkerRequest {
         doc: DocumentId,
     },
     GetPageLinks {
+        request: RequestId,
+        doc: DocumentId,
+        page_index: u32,
+    },
+    /// One page's text for selecting and copying (MVP-15).
+    GetPageText {
         request: RequestId,
         doc: DocumentId,
         page_index: u32,
@@ -87,6 +93,11 @@ pub enum WorkerResponse {
         request: RequestId,
         page_index: u32,
         links: Vec<PageLink>,
+    },
+    PageText {
+        request: RequestId,
+        page_index: u32,
+        text: PageText,
     },
     PageSearched {
         request: RequestId,

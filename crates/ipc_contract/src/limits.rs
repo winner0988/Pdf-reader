@@ -47,6 +47,10 @@ pub const MAX_SEARCH_HITS: u32 = 10_000;
 /// Maximum quads for one hit (a hit spanning several lines has one quad per line).
 pub const MAX_QUADS_PER_HIT: u32 = 64;
 
+/// Most characters of one page's text sent for selecting and copying (MVP-15). A normal page
+/// has a few thousand; a page with more is cut off and flagged.
+pub const MAX_PAGE_TEXT_CHARS: u32 = 100_000;
+
 /// Maximum length of an error message or detail string (UTF-8 bytes).
 pub const MAX_ERROR_MESSAGE_BYTES: u32 = 1_024;
 

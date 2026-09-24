@@ -5,10 +5,12 @@ import {
   PAGE_GAP_PX,
   PAGE_PADDING_PX,
   anchorAt,
+  boxToPage,
   contentWidth,
   currentPageAt,
   layoutPages,
   pageLeft,
+  pageNear,
   pageToBox,
   rectToBox,
   renderScale,
@@ -18,6 +20,7 @@ import {
   visibleRange,
   zoomFactor,
 } from "@/features/viewer/layout";
+import type { PageBox } from "@/features/viewer/layout";
 import { LIMITS } from "@/ipc/generated/contract";
 
 const LETTER = { widthPt: 612, heightPt: 792 };
@@ -226,6 +229,46 @@ describe("pageToBox", () => {
     // A point near the top of the page stays near the new top edge's side it turned to.
     expect(at(90, 100, 50)).toEqual({ x: 750, y: 100 });
     expect(at(270, 100, 50, 0.5)).toEqual({ x: 25, y: 250 });
+  });
+});
+
+describe("boxToPage", () => {
+  const page = { widthPt: 600, heightPt: 800 };
+
+  it("undoes pageToBox at every rotation and scale", () => {
+    for (const rotation of [0, 90, 180, 270] as const) {
+      const turned = rotation === 90 || rotation === 270;
+      const box = turned ? { width: 1600, height: 1200 } : { width: 1200, height: 1600 };
+      for (const point of [{ x: 0, y: 0 }, { x: 100, y: 50 }, { x: 600, y: 800 }, { x: 321.5, y: 17.25 }]) {
+        const back = boxToPage(pageToBox(point, page, rotation, box), page, rotation, box);
+        expect(back.x).toBeCloseTo(point.x);
+        expect(back.y).toBeCloseTo(point.y);
+      }
+    }
+  });
+
+  it("finds the page's top left corner wherever the view turned it", () => {
+    expect(boxToPage({ x: 800, y: 0 }, page, 90, { width: 800, height: 600 })).toEqual({ x: 0, y: 0 });
+    expect(boxToPage({ x: 0, y: 600 }, page, 270, { width: 800, height: 600 })).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe("pageNear", () => {
+  const layout = layoutPages(letters(3), 0, 1);
+  const [first, second] = layout.boxes as [PageBox, PageBox, PageBox];
+
+  it("finds the page at a height, and the nearer page in a gap", () => {
+    expect(pageNear(layout, first.top + 10)).toBe(0);
+    expect(pageNear(layout, second.top + 10)).toBe(1);
+    const gapStart = first.top + first.height;
+    expect(pageNear(layout, gapStart + 1)).toBe(0);
+    expect(pageNear(layout, second.top - 1)).toBe(1);
+  });
+
+  it("clamps above the first page and below the last", () => {
+    expect(pageNear(layout, -100)).toBe(0);
+    expect(pageNear(layout, layout.totalHeight + 100)).toBe(2);
+    expect(pageNear(layoutPages([], 0, 1), 0)).toBeNull();
   });
 });
 

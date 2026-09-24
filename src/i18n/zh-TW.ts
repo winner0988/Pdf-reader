@@ -86,6 +86,10 @@ export const strings = {
     page: (page: number) => `第 ${page} 頁`,
     pageRenderFailed: "這一頁無法顯示",
   },
+  text: {
+    copy: "複製",
+    noTextLayer: "這一頁沒有文字層，無法選取文字（目前版本尚不支援 OCR）",
+  },
   links: {
     hoverPage: (page: number) => `前往第 ${page} 頁`,
     hoverBlocked: (reason: string) => `已封鎖：${reason}`,
@@ -188,6 +192,7 @@ export const strings = {
     descriptions: {
       open: "開啟檔案",
       close: "關閉分頁",
+      copy: "複製選取的文字",
       nextTab: "下一個分頁",
       previousTab: "上一個分頁",
       search: "搜尋",

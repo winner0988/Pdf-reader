@@ -378,6 +378,30 @@ pub enum SearchEvent {
     },
 }
 
+/// One page's text for selecting and copying (MVP-15): its lines in reading order, from the
+/// same text layer that search looks at.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+pub struct PageText {
+    pub lines: Vec<TextLine>,
+    /// The page had more than `LIMITS.maxPageTextChars` characters; the rest was left out.
+    pub truncated: bool,
+}
+
+/// A line of text in page space. Its characters sit side by side from the quad's `ul` towards
+/// `ur` (the writing direction, which need not be horizontal), and the line reaches from `ul`
+/// to `ll` across.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct TextLine {
+    /// Plain text: every kind of whitespace is a space, and there are no control or invisible
+    /// formatting characters (they could hide or reorder what is pasted).
+    pub text: String,
+    pub quad: Quad,
+    /// Where each character of `text` (a Unicode scalar value) starts, in points from `ul`
+    /// towards `ur`, then where the last one ends: one more value than characters, never
+    /// decreasing.
+    pub edges: Vec<f32>,
+}
+
 /// Error codes the frontend maps to localized messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

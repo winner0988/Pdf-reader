@@ -1,5 +1,12 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
@@ -16,6 +23,7 @@ import { StatusBar } from "@/features/shell/StatusBar";
 import { Toolbar } from "@/features/shell/Toolbar";
 import { useShortcuts } from "@/features/shortcuts/useShortcuts";
 import type { SystemApi } from "@/features/system/defaultApp";
+import { createTextSource, type TextApi } from "@/features/text/source";
 import { useTheme } from "@/features/theme/useTheme";
 import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
 import type { PageRenderer } from "@/features/viewer/renderer";
@@ -46,6 +54,8 @@ type ReaderShellProps = {
   searchApi?: SearchApi;
   /** The pages' links; without it (demo data, tests) pages have none. */
   linksApi?: LinksApi;
+  /** The pages' text for selecting and copying; without it (demo data, tests) none can be selected. */
+  textApi?: TextApi;
   /** Opens Windows Settings for "set as default"; without it (demo data, tests) nothing happens. */
   systemApi?: SystemApi;
   /** Whether this shell is the one shown (MVP-14): a hidden tab's shell handles no keys. */
@@ -59,6 +69,12 @@ type ReaderShellProps = {
 const OVERLAY_SIDEBAR_BELOW_PX = 960;
 
 const isNarrowWindow = () => window.innerWidth < OVERLAY_SIDEBAR_BELOW_PX;
+
+/** How long the status bar says that a page has no text to select. */
+const NO_TEXT_HINT_MS = 4000;
+
+/** Text the WebView itself has selected (in a dialog, say): Ctrl+C copies that, not the PDF's. */
+const hasPageSelection = () => (window.getSelection()?.toString() ?? "") !== "";
 
 /** Region order for F6 / Shift+F6 (docs/ux/screen-map.md, section 7). */
 const REGION_ORDER = ["toolbar", "banner", "sidebar", "canvas"];
@@ -88,6 +104,7 @@ export function ReaderShell({
   outline,
   searchApi,
   linksApi,
+  textApi,
   systemApi,
   active = true,
   version = "0.1.0",
@@ -101,6 +118,10 @@ export function ReaderShell({
   /** What the link under the pointer does (status bar). */
   const [linkHover, setLinkHover] = useState<string | null>(null);
   const [linkDialog, setLinkDialog] = useState<LinkDialog | null>(null);
+  /** Whether any of the document's text is selected (MVP-15). */
+  const [textSelected, setTextSelected] = useState(false);
+  /** The user tried to select on a page without text: counts the tries, so each one shows it anew. */
+  const [noTextHint, setNoTextHint] = useState<number | null>(null);
   const [zoom, setZoom] = useState<Zoom>("fitWidth");
   /** What a fit mode currently shows, so zoom steps continue from there. */
   const [fitPercent, setFitPercent] = useState(100);
@@ -119,6 +140,7 @@ export function ReaderShell({
   const pageCount = document_?.pages.length ?? 0;
   const search = useSearch({ api: searchApi, doc: document_?.doc, active: searchOpen });
   const linkSource = useMemo(() => (linksApi ? createLinkSource(linksApi) : undefined), [linksApi]);
+  const textSource = useMemo(() => (textApi ? createTextSource(textApi) : undefined), [textApi]);
 
   // Per-document view state starts fresh for every newly opened document (nothing is remembered).
   const [viewedDocument, setViewedDocument] = useState(document_);
@@ -132,7 +154,25 @@ export function ReaderShell({
     setSearchOpen(false);
     setLinkHover(null);
     setLinkDialog(null);
+    setTextSelected(false);
+    setNoTextHint(null);
   }
+
+  useEffect(() => {
+    if (noTextHint === null) return;
+    const timer = window.setTimeout(() => setNoTextHint(null), NO_TEXT_HINT_MS);
+    return () => window.clearTimeout(timer);
+  }, [noTextHint]);
+
+  /** Copies the selected text (MVP-15). False when none is selected: the key does what it usually does. */
+  const copySelection = () => {
+    const view = viewRef.current;
+    if (!view?.hasSelection()) return false;
+    void view.selectedText().then((text) => {
+      if (text) navigator.clipboard?.writeText(text).catch(() => {});
+    });
+    return true;
+  };
 
   const goToPage = (page: number) => {
     const clamped = Math.min(Math.max(page, 1), pageCount);
@@ -167,6 +207,7 @@ export function ReaderShell({
   useShortcuts({
     open: onOpen,
     close: onClose,
+    copy: () => !hasPageSelection() && copySelection(),
     // Inline: focusing the field uses a ref, which must not be touched during render.
     search: () => {
       if (!document_) return;
@@ -325,22 +366,36 @@ export function ReaderShell({
                 <ErrorState code={state.code} displayName={state.displayName} onOpen={onOpen} onRetry={onRetry} />
               )}
               {document_ && (
-                <DocumentView
-                  ref={viewRef}
-                  pages={document_.pages}
-                  zoom={zoom}
-                  rotation={rotation}
-                  scrollContainer={canvasRef}
-                  doc={document_.doc}
-                  renderer={renderer}
-                  onCurrentPageChange={setCurrentPage}
-                  onEffectiveZoomChange={setFitPercent}
-                  onZoomStep={(direction) => setZoom((z) => stepZoom(z, direction, fitPercent))}
-                  highlights={searchOpen && hits.length > 0 ? { hits, current } : undefined}
-                  links={linkSource}
-                  onLinkHover={setLinkHover}
-                  onLinkActivate={(link) => activateLink(link)}
-                />
+                // Right-clicking the document shows the app's own menu, not the WebView's.
+                <ContextMenu>
+                  <ContextMenuTrigger className="min-h-full">
+                    <DocumentView
+                      ref={viewRef}
+                      pages={document_.pages}
+                      zoom={zoom}
+                      rotation={rotation}
+                      scrollContainer={canvasRef}
+                      doc={document_.doc}
+                      renderer={renderer}
+                      onCurrentPageChange={setCurrentPage}
+                      onEffectiveZoomChange={setFitPercent}
+                      onZoomStep={(direction) => setZoom((z) => stepZoom(z, direction, fitPercent))}
+                      highlights={searchOpen && hits.length > 0 ? { hits, current } : undefined}
+                      links={linkSource}
+                      onLinkHover={setLinkHover}
+                      onLinkActivate={(link) => activateLink(link)}
+                      text={textSource}
+                      onSelectionChange={setTextSelected}
+                      onNoText={() => setNoTextHint((tries) => (tries ?? 0) + 1)}
+                    />
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem disabled={!textSelected} onClick={() => copySelection()}>
+                      {strings.text.copy}
+                      <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
               )}
             </main>
             {document_ && searchOpen && (
@@ -355,7 +410,7 @@ export function ReaderShell({
         </div>
         <StatusBar
           document={document_ ? { displayName: document_.displayName, currentPage, pageCount, zoom } : null}
-          hoverTarget={linkHover ?? undefined}
+          hoverTarget={linkHover ?? (noTextHint === null ? undefined : strings.text.noTextLayer)}
         />
       </div>
       {linkDialog?.kind === "confirm" && (

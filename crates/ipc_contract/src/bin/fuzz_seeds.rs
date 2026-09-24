@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use ipc_contract::frame::encode;
 use ipc_contract::types::{
     BlockedAction, DocumentId, FindingKind, LinkId, LinkTarget, OutlineItem, OutlineResult,
-    PageLink, PageSize, Point, Quad, Rect, RequestId, Rotation, SearchHit, SecurityFinding,
-    SecurityReport,
+    PageLink, PageSize, PageText, Point, Quad, Rect, RequestId, Rotation, SearchHit,
+    SecurityFinding, SecurityReport, TextLine,
 };
 use ipc_contract::worker::{
     FileHandle, OpenedDocument, Raster, WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
@@ -103,6 +103,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .collect(),
         },
+        WorkerResponse::PageText {
+            request,
+            page_index: 0,
+            text: PageText {
+                lines: vec![TextLine {
+                    text: "Hello 中文".to_owned(),
+                    quad: Quad {
+                        ul: point(72.0, 80.0),
+                        ur: point(129.0, 80.0),
+                        ll: point(72.0, 94.0),
+                        lr: point(129.0, 94.0),
+                    },
+                    edges: vec![0.0, 7.0, 13.0, 16.0, 19.0, 26.0, 29.0, 43.0, 57.0],
+                }],
+                truncated: false,
+            },
+        },
         WorkerResponse::PageSearched {
             request,
             page_index: 0,
@@ -142,6 +159,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             doc,
             page_index: 2,
+        },
+        WorkerRequest::GetPageText {
+            request,
+            doc,
+            page_index: 1,
         },
         WorkerRequest::SearchPage {
             request,
