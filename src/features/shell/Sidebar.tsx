@@ -1,3 +1,5 @@
+import type { ComponentProps } from "react";
+
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OutlineTree } from "@/features/outline/OutlineTree";
 import type { OutlineView } from "@/features/outline/tree";
@@ -9,6 +11,7 @@ type SidebarProps = {
   outline: OutlineView;
   currentPage: number;
   onJumpToPage: (page: number) => void;
+  onOpenLink?: ComponentProps<typeof OutlineTree>["onOpenLink"];
 };
 
 function Message({ children }: { children: string }) {
@@ -16,7 +19,7 @@ function Message({ children }: { children: string }) {
 }
 
 /** Side panel: the outline tree (MVP-09); thumbnails come later. */
-export function Sidebar({ outline, currentPage, onJumpToPage }: SidebarProps) {
+export function Sidebar({ outline, currentPage, onJumpToPage, onOpenLink }: SidebarProps) {
   return (
     <aside
       aria-label={t.label}
@@ -43,7 +46,12 @@ export function Sidebar({ outline, currentPage, onJumpToPage }: SidebarProps) {
                   {t.outlineTruncated}
                 </p>
               )}
-              <OutlineTree items={outline.items} currentPage={currentPage} onJumpToPage={onJumpToPage} />
+              <OutlineTree
+                items={outline.items}
+                currentPage={currentPage}
+                onJumpToPage={onJumpToPage}
+                onOpenLink={onOpenLink}
+              />
             </>
           )}
         </TabsContent>

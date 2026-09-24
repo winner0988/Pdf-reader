@@ -108,7 +108,7 @@ fn plain_ascii(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ipc_contract::types::LinkArgs;
+    use ipc_contract::types::{LinkArgs, OutlineLinkArgs};
 
     fn opens(uri: &str) -> String {
         preview(uri).unwrap().opens
@@ -220,5 +220,16 @@ mod tests {
         ] {
             assert!(serde_json::from_value::<LinkArgs>(extra).is_err());
         }
+        // The same for outline items (#49): a position, nothing else.
+        assert!(
+            serde_json::from_value::<OutlineLinkArgs>(serde_json::json!({ "doc": 1, "item": 0 }))
+                .is_ok()
+        );
+        assert!(
+            serde_json::from_value::<OutlineLinkArgs>(
+                serde_json::json!({ "doc": 1, "item": 0, "uri": "file:///C:/x.exe" })
+            )
+            .is_err()
+        );
     }
 }

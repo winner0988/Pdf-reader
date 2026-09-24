@@ -299,6 +299,15 @@ pub struct LinkArgs {
     pub link: LinkId,
 }
 
+/// Arguments of `describe_outline_link` and `open_outline_link` (#49): an outline item by its
+/// position in the outline the worker reported (`OutlineResult::items`), never a URI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OutlineLinkArgs {
+    pub doc: DocumentId,
+    pub item: u32,
+}
+
 /// What the confirmation shows about a web link before it is opened (MVP-12).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

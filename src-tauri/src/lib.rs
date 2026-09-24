@@ -49,6 +49,8 @@ pub fn run() {
             commands::get_page_links,
             commands::describe_link,
             commands::open_link,
+            commands::describe_outline_link,
+            commands::open_outline_link,
             commands::search,
         ])
         .on_window_event(commands::on_window_event)
