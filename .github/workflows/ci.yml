@@ -44,6 +44,14 @@ jobs:
         run: bash scripts/ci/check-forbidden.sh
       - name: ADR numbering and index
         run: bash scripts/ci/check-adr.sh
+      - name: Test corpus is reproducible
+        run: |
+          python3 tests/corpus/generate.py
+          if [ -n "$(git status --porcelain -- tests/corpus)" ]; then
+            echo "::error::tests/corpus differs from generate.py output; run python tests/corpus/generate.py and commit"
+            git status --short -- tests/corpus
+            exit 1
+          fi
 
   pr-hygiene:
     name: PR hygiene
