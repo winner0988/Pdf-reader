@@ -1,0 +1,93 @@
+name: Installer
+
+# Builds the NSIS installer, installs it, and checks the installed pdf_worker (REL-01,
+# docs/architecture/packaging.md). Slow (a second MuPDF build with the static runtime), so pull
+# requests run it only when something that ends up in the installer changes.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "src-tauri/**"
+      - "crates/**"
+      - "scripts/release/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - "rust-toolchain.toml"
+      - ".github/workflows/installer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  installer:
+    name: Installer (Windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: installer
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Release script tests
+        run: node --test scripts/release/pe-imports.test.mjs
+
+      - name: Build installer
+        run: pnpm bundle
+
+      - name: Installer contains the worker
+        run: |
+          $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          $listing = 7z l $installer.FullName
+          $listing
+          if (-not ($listing -match '\bpdf_worker\.exe$')) { throw "pdf_worker.exe is not in $($installer.Name)" }
+
+      - name: Install silently (per machine)
+        run: |
+          $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          $process = Start-Process $installer.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "installer exited with $($process.ExitCode)" }
+          Get-ChildItem (Join-Path $env:ProgramFiles 'PDF Reader')
+
+      - name: Installed programs need no VC++ redistributable
+        run: |
+          $exes = Get-ChildItem (Join-Path $env:ProgramFiles 'PDF Reader') -Filter *.exe |
+            Where-Object Name -ne 'uninstall.exe' | ForEach-Object FullName
+          node scripts/release/check-imports.mjs @exes
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Installed worker starts in the sandbox, opens and renders a PDF
+        run: |
+          $worker = Join-Path $env:ProgramFiles 'PDF Reader\pdf_worker.exe'
+          cargo run --locked -p worker_host --bin worker_smoke -- $worker
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Uninstall removes the AppContainer profile
+        run: |
+          $dir = Join-Path $env:ProgramFiles 'PDF Reader'
+          $profileDir = Join-Path $env:LOCALAPPDATA 'Packages\pdfreader.worker'
+          if (-not (Test-Path $profileDir)) { throw "the smoke test did not create $profileDir" }
+          # _?= runs the uninstaller in place so -Wait covers the whole uninstall.
+          $process = Start-Process (Join-Path $dir 'uninstall.exe') -ArgumentList '/S', "_?=$dir" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "uninstaller exited with $($process.ExitCode)" }
+          if (Test-Path $profileDir) { throw "$profileDir still exists after uninstalling" }

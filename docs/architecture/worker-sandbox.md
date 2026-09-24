@@ -60,7 +60,7 @@ AppContainer 不影響這個流程：handle 在複製時就已帶著存取權限
 
 - `Sandboxed::spawn` 第一次執行時以 `CreateAppContainerProfile` 建立 profile（不要求任何 capability），之後改用 `DeriveAppContainerSidFromAppContainerName` 取得同一個 SID。建立 profile 與修改 ACL 都以行程內的鎖序列化，避免並行建立失敗。
 - profile 會寫入使用者設定檔：`HKCU\Software\Classes\Local Settings\...\AppContainer\Mappings\<SID>` 與 `%LOCALAPPDATA%\Packages\pdfreader.worker\`。這是容器自己的資料夾（`TEMP`、`TMP` 指向這裡），不含使用者資料。
-- 解除安裝時要呼叫 `sandbox::delete_app_container_profile`，清掉上述兩處（`app_container_profile_can_be_deleted`）。接到安裝檔是 REL-01（#34）的工作。
+- 解除安裝時清掉上述兩處：安裝檔的解除安裝程式呼叫 `DeleteAppContainerProfile`（`src-tauri/windows/installer-hooks.nsh`，見 [packaging.md](packaging.md)）；程式內可用 `sandbox::delete_app_container_profile`（`app_container_profile_can_be_deleted`）。
 - AppContainer 只能開啟有明確授權給它的檔案。worker 執行檔若放在使用者擁有的位置（開發時的 `target\`、每位使用者各自安裝的目錄），啟動前會把**該執行檔本身**（不含所在資料夾）的讀取＋執行權限授予容器 SID；若沒有權限修改 ACL（例如裝在 Program Files，那裡本來就允許所有 app package 讀取），就略過。
 - 工作目錄設為 `System32`：容器讀不到執行檔所在的資料夾，worker 也不使用相對路徑。
 - `CreateProcess` 在 AppContainer 模式下需要 `LOCALAPPDATA`，否則以 `ERROR_ENVVAR_NOT_FOUND` 失敗；Windows 會把它改寫成容器的資料夾，所以不會把使用者的真實路徑交給 worker。
@@ -90,8 +90,7 @@ Job Object、restricted token 與 Low 完整性本身**不會**阻止連網；�
 | 風險 | 影響 | 後續 |
 |---|---|---|
 | AppContainer 仍可讀取授權給「所有應用程式套件」的位置（System32、Program Files、字型等） | worker 被攻破時可讀取系統檔與已安裝的程式，但讀不到使用者資料 | 評估 LPAC（需確認 MuPDF 與系統 DLL 在 LPAC 下可用）|
-| 安裝檔尚未包含 `pdf_worker.exe`；worker 依賴 VC++ 執行階段（MuPDF 含 C++ 程式碼）；解除安裝尚未刪除 AppContainer profile | MVP-06 接上 UI 前需要處理 | 打包、靜態 CRT、解除安裝清理（#34） |
-| 啟動時會修改 worker 執行檔的 ACL（僅新增容器 SID 的讀取＋執行） | 若安裝位置由使用者擁有，ACL 會多一筆項目 | #34 決定安裝位置時一併確認 |
+| 啟動時會修改 worker 執行檔的 ACL（僅新增容器 SID 的讀取＋執行） | 只發生在使用者擁有的位置（開發時的 `target\`）；安裝版在 Program Files，一般權限改不了也不需要改 | — |
 | 整份文件讀入記憶體 | 大檔需要兩倍記憶體（worker 與 MuPDF 各一份） | MVP-07 評估串流讀取 |
 | 請求逐一處理，`Cancel` 目前不會中斷進行中的渲染 | 取消只能等當前請求結束或逾時 | MVP-07 |
 

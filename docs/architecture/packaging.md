@@ -1,0 +1,62 @@
+# 打包與安裝
+
+對應工作卡 REL-01、ADR 0008。說明安裝檔怎麼帶上 `pdf_worker.exe`、worker 為什麼不需要 VC++ 執行階段，以及 CI 怎麼驗證。
+
+## 指令
+
+```bash
+pnpm bundle    # 產出 target/release/bundle/nsis/PDF Reader_<版本>_x64-setup.exe
+```
+
+`pnpm bundle` 等於 `tauri build --config src-tauri/tauri.bundle.conf.json`。直接執行 `pnpm tauri build` 產出的安裝檔**不含 worker**，不要拿來發佈。
+
+## 流程
+
+1. `beforeBuildCommand`（`src-tauri/tauri.bundle.conf.json`）先建置前端，再執行 `scripts/release/build-worker.mjs`：
+   - 以 release profile、`--target x86_64-pc-windows-msvc` 建置 `pdf_worker`，C／C++ 執行階段全部靜態連結（見下節）；
+   - 檢查匯入表，只要還依賴 VC++ 可轉散發套件的 DLL 就失敗；
+   - 複製到 `src-tauri/binaries/pdf_worker-x86_64-pc-windows-msvc.exe`（已列入 `.gitignore`）。
+2. Tauri 以 `bundle.externalBin` 把它打包，安裝時放在主程式旁邊，檔名 `pdf_worker.exe`。
+3. 主行程以 `worker_host::bundled_worker_path()`（目前執行檔所在目錄下的 `pdf_worker.exe`）找到 worker。開發模式下主程式在 `target/debug/`，`cargo build -p pdf_worker`（或 `cargo build --workspace`）會把 worker 建置到同一個目錄。
+
+為什麼 `externalBin` 放在獨立的設定檔：`tauri-build` 在**每次**編譯主程式時都會檢查 `externalBin` 指到的檔案存在。如果寫在 `tauri.conf.json`，`cargo clippy --workspace`、`cargo test --workspace` 都得先建置一次 release worker。
+
+## 不依賴 VC++ 執行階段
+
+乾淨的 Windows 11 不保證裝有 VC++ 可轉散發套件。
+
+| 程式 | 做法 | 匯入的執行階段 |
+|---|---|---|
+| `pdf_worker.exe` | Rust 以 `+crt-static` 建置；MuPDF 的 MSBuild 專案寫死 `/MD`，由 `scripts/release/static-crt.props` 透過 MSBuild 的 `ForceImportBeforeCppTargets` 改成 `/MT`；mupdf-sys 的 C wrapper 由 `cc` 依 `crt-static` 自動使用 `/MT` | 無（C、C++ 執行階段都靜態連結；MuPDF 內的 harfbuzz 是 C++） |
+| 主程式 | `tauri build` 設定 `STATIC_VCRUNTIME=true`，`tauri-build` 靜態連結 vcruntime | 只有 Windows 內建的 UCRT（`ucrtbase.dll`／`api-ms-win-crt-*`） |
+
+`scripts/release/check-imports.mjs <exe>` 會列出匯入的 DLL，並在出現 `MSVCP*`、`VCRUNTIME*`、`ucrtbased` 等 DLL 時失敗。
+
+注意：`_CL_=/MT` 行不通，因為 clang-cl 也會讀 `_CL_`，把 `/MT` 當成檔名。mupdf-sys 的 wrapper 在本機是用 clang-cl 編譯的（見 [mupdf-binding.md](mupdf-binding.md)）。
+
+## 安裝位置與權限
+
+- `installMode: perMachine`：安裝到 `C:\Program Files\PDF Reader\`，只有系統管理員可寫入，所以一般使用者權限的程式無法替換 `pdf_worker.exe`。代價是安裝時需要 UAC 提權。
+- Program Files 允許所有 app package 讀取與執行，所以 AppContainer 可以直接啟動 worker，不需要修改檔案 ACL（見 [worker-sandbox.md](worker-sandbox.md#appcontainer)）。
+- 解除安裝時，`src-tauri/windows/installer-hooks.nsh` 呼叫 `DeleteAppContainerProfile("PdfReader.Worker")`，刪除 worker 的 AppContainer profile。它只能刪除執行解除安裝程式的那位使用者的 profile；同一台電腦上其他使用者的 profile（空資料夾與登錄機碼對應）會留下。`crates/sandbox/tests/installer_hooks.rs` 確認腳本中的名稱與 `sandbox::WORKER_APP_CONTAINER` 一致。
+
+## CI
+
+`.github/workflows/installer.yml`（push 到 `main`、手動觸發，以及變更會進入安裝檔的 PR）：
+
+1. `pnpm bundle` 建置安裝檔。
+2. 以 7-Zip 列出安裝檔內容，確認包含 `pdf_worker.exe`。
+3. `/S` 靜默安裝（per machine）。
+4. 對安裝後的所有 `.exe` 執行 `check-imports.mjs`。
+5. `worker_smoke`（`crates/worker_host/src/bin/worker_smoke.rs`）以沙盒啟動**安裝後的** worker，完成握手、開啟並渲染一頁 PDF。
+6. 靜默解除安裝，確認 AppContainer profile 的資料夾已刪除。
+
+CI runner 裝有 VC++ 執行階段，所以「在乾淨的 Windows 11 上能執行」是靠第 4 步的匯入表檢查來保證，不是實際在乾淨環境上執行。
+
+## 剩餘風險
+
+| 風險 | 後續 |
+|---|---|
+| 安裝檔尚未簽章，SmartScreen 會警告 | 程式碼簽章另開卡 |
+| 沒有在真正乾淨的 Windows 11 VM 上實測安裝 | 發佈前的手動驗收清單 |
+| 其他使用者的 AppContainer profile 在解除安裝後留下 | 內容為空，影響很小；如需處理，可在主程式啟動時清理 |

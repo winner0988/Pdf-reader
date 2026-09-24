@@ -12,4 +12,7 @@
 /crates/ipc_contract/         @winner0988
 /src-tauri/capabilities/      @winner0988
 /src-tauri/tauri.conf.json    @winner0988
+/src-tauri/tauri.bundle.conf.json @winner0988
+/src-tauri/windows/           @winner0988
+/scripts/release/             @winner0988
 /deny.toml                    @winner0988
