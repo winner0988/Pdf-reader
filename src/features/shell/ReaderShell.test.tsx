@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { demoDocument } from "@/features/shell/demo";
 import type { ShellState } from "@/features/shell/model";
@@ -8,7 +8,9 @@ import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { SearchApi } from "@/features/search/useSearch";
 import { strings } from "@/i18n/zh-TW";
 import type { LinksApi } from "@/features/links/source";
+import { PRINT_SCALE } from "@/features/print/render";
 import type { TextApi } from "@/features/text/source";
+import type { PageRenderer } from "@/features/viewer/renderer";
 import { contentWidth, layoutPages, pageLeft } from "@/features/viewer/layout";
 import type { OutlineView } from "@/features/outline/tree";
 import type { LinkPreview, PageLink, PageText, SearchEvent } from "@/ipc/generated/contract";
@@ -541,6 +543,87 @@ describe("selecting and copying text (MVP-15)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("printing (MVP-17)", () => {
+  const originals = { toBlob: HTMLCanvasElement.prototype.toBlob, create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+  afterEach(() => {
+    HTMLCanvasElement.prototype.toBlob = originals.toBlob;
+    URL.createObjectURL = originals.create;
+    URL.revokeObjectURL = originals.revoke;
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function setup() {
+    // jsdom has no canvas, ImageData or blob URLs, and cannot print.
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      putImageData: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    HTMLCanvasElement.prototype.toBlob = function (callback: BlobCallback) {
+      callback(new Blob(["png"], { type: "image/png" }));
+    };
+    vi.stubGlobal("ImageData", class {});
+    let made = 0;
+    URL.createObjectURL = vi.fn(() => `blob:page-${++made}`);
+    const revoke = vi.fn();
+    URL.revokeObjectURL = revoke;
+    const print = vi.spyOn(window, "print").mockImplementation(() => {});
+    const renderer = {
+      render: vi.fn<PageRenderer["render"]>(() => ({
+        result: Promise.resolve({ width: 1, height: 1, pixels: new Uint8ClampedArray(4) }),
+        cancel: vi.fn(),
+      })),
+    } satisfies PageRenderer;
+    const utils = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { renderer });
+    const printed = () =>
+      renderer.render.mock.calls
+        .map(([args]) => args)
+        .filter((args) => args.scale === PRINT_SCALE)
+        .map((args) => [args.pageIndex, args.rotation]);
+    return { ...utils, print, revoke, printed };
+  }
+
+  it("Ctrl+P asks which pages, renders them unturned and opens the system's print dialog", async () => {
+    const { user, print, revoke, printed } = setup();
+    // The view's rotation does not reach the paper.
+    await user.keyboard("{Control>}]{/Control}");
+    await user.keyboard("{Control>}p{/Control}");
+    const dialog = await screen.findByRole("dialog", { name: strings.print.title });
+    await user.type(within(dialog).getByRole("textbox", { name: strings.print.pages }), "3, 2");
+    await user.click(within(dialog).getByRole("button", { name: strings.print.next }));
+
+    await waitFor(() => expect(print).toHaveBeenCalledTimes(1));
+    expect(printed()).toEqual([
+      [1, "none"],
+      [2, "none"],
+    ]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    const images = document.querySelectorAll("[data-print-pages] img");
+    expect(Array.from(images, (image) => image.getAttribute("data-page"))).toEqual(["2", "3"]);
+
+    // The system's dialog closed: the pages go away and their memory is freed.
+    act(() => window.dispatchEvent(new Event("afterprint")));
+    expect(document.querySelector("[data-print-pages]")).toBeNull();
+    expect(revoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("explains a page range that is not in the document", async () => {
+    const { user, print } = setup();
+    await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    await user.click(await screen.findByRole("menuitem", { name: /列印/ }));
+    const dialog = await screen.findByRole("dialog", { name: strings.print.title });
+    await user.type(within(dialog).getByRole("textbox", { name: strings.print.pages }), "13");
+    await user.click(within(dialog).getByRole("button", { name: strings.print.next }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(strings.print.invalid(12));
+    expect(print).not.toHaveBeenCalled();
+  });
+
+  it("demo data cannot be printed, and Ctrl+P never prints the app itself", () => {
+    renderShell(openState);
+    expect(fireEvent.keyDown(window, { key: "p", ctrlKey: true })).toBe(false);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
 
