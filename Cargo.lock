@@ -2303,6 +2303,8 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tokio",
+ "url",
+ "windows-sys 0.61.2",
  "worker_host",
 ]
 

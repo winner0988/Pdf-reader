@@ -9,6 +9,8 @@ mod cli;
 mod commands;
 mod documents;
 mod events;
+mod links;
+mod opener;
 mod render;
 mod search;
 mod strings;
@@ -45,6 +47,8 @@ pub fn run() {
             commands::cancel,
             commands::get_outline,
             commands::get_page_links,
+            commands::describe_link,
+            commands::open_link,
             commands::search,
         ])
         .on_window_event(commands::on_window_event)

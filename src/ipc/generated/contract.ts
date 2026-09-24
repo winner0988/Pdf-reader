@@ -98,6 +98,35 @@ export type LinkId = { pageIndex: number, index: number, };
 export type PageLink = { id: LinkId, rect: Rect, target: LinkTarget, };
 
 /**
+ * Arguments of `describe_link` and `open_link` (MVP-12): a link the worker reported, by id.
+ * There is deliberately no field for a URI; any other field is rejected.
+ */
+export type LinkArgs = { doc: DocumentId, link: LinkId, };
+
+/**
+ * What the confirmation shows about a web link before it is opened (MVP-12).
+ */
+export type LinkPreview = { 
+/**
+ * The URI exactly as the PDF has it; the frontend writes out its hidden characters.
+ */
+uri: string, 
+/**
+ * What the system is given when the user opens it: ASCII only, the host in punycode and
+ * everything else percent-encoded. Also what "copy link" copies.
+ */
+opens: string, 
+/**
+ * The site the browser will contact (for `mailto`, the mail domain), as it reads.
+ */
+host: string | null, 
+/**
+ * The host's ASCII (punycode) form when it differs from `host`: an internationalised
+ * name, which may imitate another one.
+ */
+asciiHost: string | null, };
+
+/**
  * One outline entry, in pre-order; `depth` 0 is the top level.
  */
 export type OutlineItem = { title: string, depth: number, target: LinkTarget | null, };

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
 import { useSearch, type SearchApi } from "@/features/search/useSearch";
 import { SecurityBanner } from "@/features/security-banner/SecurityBanner";
@@ -19,6 +20,12 @@ import { DocumentView, type DocumentViewHandle } from "@/features/viewer/Documen
 import type { PageRenderer } from "@/features/viewer/renderer";
 import type { OutlineView } from "@/features/outline/tree";
 import { strings } from "@/i18n/zh-TW";
+import type { BlockedAction, DocumentId, LinkId, LinkPreview, PageLink } from "@/ipc/generated/contract";
+
+/** A link dialog that is open: the confirmation of a web link, or why a link is blocked. */
+type LinkDialog =
+  | { kind: "confirm"; doc: DocumentId; link: LinkId; preview: LinkPreview }
+  | { kind: "blocked"; action: BlockedAction; content: string | null };
 
 type ReaderShellProps = {
   state: ShellState;
@@ -81,6 +88,7 @@ export function ReaderShell({
   const [detailsOpen, setDetailsOpen] = useState(false);
   /** What the link under the pointer does (status bar). */
   const [linkHover, setLinkHover] = useState<string | null>(null);
+  const [linkDialog, setLinkDialog] = useState<LinkDialog | null>(null);
   const [zoom, setZoom] = useState<Zoom>("fitWidth");
   /** What a fit mode currently shows, so zoom steps continue from there. */
   const [fitPercent, setFitPercent] = useState(100);
@@ -109,6 +117,7 @@ export function ReaderShell({
     setDetailsOpen(false);
     setSearchOpen(false);
     setLinkHover(null);
+    setLinkDialog(null);
   }
 
   const goToPage = (page: number) => {
@@ -175,6 +184,26 @@ export function ReaderShell({
     previousRegion: () => focusRegion(-1),
     help: () => setDialog("shortcuts"),
   });
+
+  /**
+   * Links inside the document jump right away. A web link is described by the main process
+   * first (from its id) and opened only after the user confirms; a blocked one only says why.
+   */
+  const activateLink = (link: PageLink) => {
+    const target = link.target;
+    if (target.kind === "page") {
+      goToPage(target.pageIndex + 1);
+    } else if (target.kind === "blocked") {
+      setLinkDialog({ kind: "blocked", action: target.action, content: target.target });
+    } else if (linksApi && document_?.doc !== undefined) {
+      const doc = document_.doc;
+      linksApi.describeLink(doc, link.id).then(
+        (preview) => setLinkDialog({ kind: "confirm", doc, link: link.id, preview }),
+        // The document closed or the worker failed: there is nothing to confirm.
+        () => {},
+      );
+    }
+  };
 
   const findings = document_?.findings ?? [];
   const scanComplete = document_?.scanComplete ?? true;
@@ -263,11 +292,7 @@ export function ReaderShell({
                   highlights={searchOpen && hits.length > 0 ? { hits, current } : undefined}
                   links={linkSource}
                   onLinkHover={setLinkHover}
-                  onLinkActivate={(link) => {
-                    // Links inside the document jump right away. Web and blocked links get their
-                    // dialogs in MVP-12b; until then nothing happens.
-                    if (link.target.kind === "page") goToPage(link.target.pageIndex + 1);
-                  }}
+                  onLinkActivate={(link) => activateLink(link)}
                 />
               )}
             </main>
@@ -286,6 +311,21 @@ export function ReaderShell({
           hoverTarget={linkHover ?? undefined}
         />
       </div>
+      {linkDialog?.kind === "confirm" && linksApi && (
+        <LinkConfirmDialog
+          key={`${linkDialog.link.pageIndex}:${linkDialog.link.index}`}
+          preview={linkDialog.preview}
+          onOpen={() => linksApi.openLink(linkDialog.doc, linkDialog.link)}
+          onClose={() => setLinkDialog(null)}
+        />
+      )}
+      {linkDialog?.kind === "blocked" && (
+        <BlockedLinkDialog
+          action={linkDialog.action}
+          content={linkDialog.content}
+          onClose={() => setLinkDialog(null)}
+        />
+      )}
       <ShortcutsDialog open={dialog === "shortcuts"} onOpenChange={(open) => setDialog(open ? "shortcuts" : null)} />
       <AboutDialog
         open={dialog === "about"}

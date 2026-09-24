@@ -20,6 +20,16 @@ worker_host = { path = "../crates/worker_host" }
 rfd = { version = "0.17.2", default-features = false }
 # Already used by Tauri; only the oneshot channel of the render queue is needed here.
 tokio = { version = "1", default-features = false, features = ["sync"] }
+# Already used by Tauri: parses web links the way browsers do before one is opened (MVP-12).
+url = "2"
+
+[target.'cfg(windows)'.dependencies]
+# ShellExecuteW, to hand a checked link to the default browser (src/opener.rs).
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [dev-dependencies]
 serde_json = "1"

@@ -3,21 +3,30 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import type { DocumentId, PageLink } from "@/ipc/generated/contract";
+import type { DocumentId, LinkArgs, LinkId, LinkPreview, PageLink } from "@/ipc/generated/contract";
 
 export type LinksApi = {
   getPageLinks(doc: DocumentId, pageIndex: number): Promise<PageLink[]>;
+  /** What the confirmation shows about a web link. */
+  describeLink(doc: DocumentId, link: LinkId): Promise<LinkPreview>;
+  /**
+   * Opens a web link the user confirmed. It is named by id only: the main process gets the URI
+   * from the worker again and checks it; no URI ever goes from here to the system.
+   */
+  openLink(doc: DocumentId, link: LinkId): Promise<void>;
 };
 
 export const tauriLinksApi: LinksApi = {
   getPageLinks: (doc, pageIndex) => invoke<PageLink[]>("get_page_links", { doc, pageIndex }),
+  describeLink: (doc, link) => invoke<LinkPreview>("describe_link", { args: { doc, link } satisfies LinkArgs }),
+  openLink: (doc, link) => invoke<void>("open_link", { args: { doc, link } satisfies LinkArgs }),
 };
 
 export type LinkSource = {
   links(doc: DocumentId, pageIndex: number): Promise<PageLink[]>;
 };
 
-export function createLinkSource(api: LinksApi): LinkSource {
+export function createLinkSource(api: Pick<LinksApi, "getPageLinks">): LinkSource {
   let cachedDoc: DocumentId | null = null;
   const pages = new Map<number, Promise<PageLink[]>>();
   return {

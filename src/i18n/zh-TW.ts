@@ -82,6 +82,21 @@ export const strings = {
   links: {
     hoverPage: (page: number) => `前往第 ${page} 頁`,
     hoverBlocked: (reason: string) => `已封鎖：${reason}`,
+    confirmTitle: "要開啟外部連結嗎？",
+    confirmBody: "這個連結會在預設瀏覽器中開啟。瀏覽器會連上網路，對方可能因此得知你的 IP 位址。",
+    confirmHost: "網站",
+    confirmFullUrl: "完整網址",
+    warnIdn: (asciiHost: string) => `網址包含非拉丁字母，可能是假冒的網站。實際網址：${asciiHost}`,
+    warnControl: "網址包含會改變文字顯示方向的隱藏字元，已以 [U+XXXX] 標示。",
+    copy: "複製連結",
+    cancel: "取消",
+    open: "開啟",
+    openFailed: "無法開啟這個連結：系統沒有可以開啟它的程式。",
+    blockedTitle: "已封鎖這個連結",
+    blockedContent: "連結內容（僅供檢視）",
+    blockedCopy: "複製內容",
+    blockedNoContent: "（沒有內容）",
+    close: "關閉",
     /** Why a link is blocked: a short label (status bar) and an explanation (dialog). */
     blocked: {
       javaScript: { label: "腳本連結", description: "這個連結會執行程式碼，因此不允許開啟。" },

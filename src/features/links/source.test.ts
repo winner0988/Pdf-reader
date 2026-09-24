@@ -11,7 +11,7 @@ const link = (pageIndex: number): PageLink => ({
 
 describe("createLinkSource", () => {
   it("asks for each page once per document", async () => {
-    const api = { getPageLinks: vi.fn((_doc: number, page: number) => Promise.resolve([link(page)])) } satisfies LinksApi;
+    const api = { getPageLinks: vi.fn((_doc: number, page: number) => Promise.resolve([link(page)])) } satisfies Pick<LinksApi, "getPageLinks">;
     const source = createLinkSource(api);
 
     expect(await source.links(1, 0)).toEqual([link(0)]);
@@ -34,7 +34,7 @@ describe("createLinkSource", () => {
         .fn<LinksApi["getPageLinks"]>()
         .mockRejectedValueOnce({ code: "workerCrashed", message: "" })
         .mockResolvedValue([link(0)]),
-    } satisfies LinksApi;
+    } satisfies Pick<LinksApi, "getPageLinks">;
     const source = createLinkSource(api);
 
     await expect(source.links(1, 0)).rejects.toMatchObject({ code: "workerCrashed" });

@@ -46,6 +46,8 @@ flowchart LR
 | `render_page` | `{ args: RenderPageArgs }` | `ArrayBuffer`（見「頁面影像」） | 是 | MVP-07 |
 | `get_outline` | `{ doc: DocumentId }` | `OutlineResult` | 否 | MVP-09 |
 | `get_page_links` | `{ doc: DocumentId, pageIndex: number }` | `PageLink[]` | 否 | MVP-12 |
+| `describe_link` | `{ args: LinkArgs }`（`{ doc, link: LinkId }`，其他欄位一律拒絕） | `LinkPreview`：原始 URI、實際開啟的 ASCII 形式、主機（Unicode）與 punycode | 否 | MVP-12 |
+| `open_link` | `{ args: LinkArgs }` | 無；主行程從 worker 重新取得該連結、再次檢查後交給系統 | 否 | MVP-12 |
 | `search` | `{ args: SearchArgs, onEvent: Channel<SearchEvent> }` | 無（結果走頻道：`hits`、`progress`，最後一個 `done`，含 `noTextLayer`）；以 `cancel(args.request)` 取消 | 是 | MVP-10 |
 | `cancel` | `{ request: RequestId }` | 無（只取消還在佇列中的請求，見 [rendering.md](rendering.md#取消)） | — | MVP-07 |
 
@@ -226,7 +228,7 @@ worker 端的 `WorkerErrorCode` 以 `From` 轉換對應到上表。
 
 - 以路徑開啟或讀取檔案（前端與 worker 都拿不到路徑）
 - 執行指令或啟動程式
-- 開啟任意 URL：外部連結由 MVP-12 以 `LinkId` 開啟，主行程從 worker 先前回報的連結表查出 URI、再次檢查 scheme，並經使用者確認；前端送來的 URI 字串一律不採信
+- 開啟任意 URL：外部連結以 `LinkId` 開啟（`open_link`），主行程向 worker 重新取得該頁的連結、找出這個 id、再次檢查 scheme 並正規化，再交給系統；`LinkArgs` 沒有任何 URI 欄位，多出的欄位會被拒絕。前端送來的 URI 字串一律不採信
 - 任何連網請求
 
 ## 修改合約的流程

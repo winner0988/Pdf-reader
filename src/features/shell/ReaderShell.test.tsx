@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -7,7 +7,8 @@ import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { SearchApi } from "@/features/search/useSearch";
 import { strings } from "@/i18n/zh-TW";
-import type { SearchEvent } from "@/ipc/generated/contract";
+import type { LinksApi } from "@/features/links/source";
+import type { LinkPreview, PageLink, SearchEvent } from "@/ipc/generated/contract";
 import { mediaQuery } from "@/test/setup";
 
 const openState: ShellState = { kind: "open", document: demoDocument };
@@ -249,42 +250,98 @@ describe("shortcuts", () => {
     expect(searchApi.search).toHaveBeenCalledTimes(2);
   });
 
-  it("an internal link jumps to its page; the status bar says what a link does", async () => {
-    const linksApi = {
-      getPageLinks: vi.fn((_doc: number, pageIndex: number) =>
-        Promise.resolve(
-          pageIndex === 0
-            ? [
-                {
-                  id: { pageIndex: 0, index: 0 },
-                  rect: { x0: 72, y0: 80, x1: 300, y1: 102 },
-                  target: { kind: "page" as const, pageIndex: 7, x: null, y: null },
-                },
-                {
-                  id: { pageIndex: 0, index: 1 },
-                  rect: { x0: 72, y0: 120, x1: 300, y1: 142 },
-                  target: { kind: "uri" as const, uri: "https://example.invalid/docs" },
-                },
-              ]
-            : [],
-        ),
-      ),
+  describe("links", () => {
+    const pageLinks: PageLink[] = [
+      {
+        id: { pageIndex: 0, index: 0 },
+        rect: { x0: 72, y0: 80, x1: 300, y1: 102 },
+        target: { kind: "page", pageIndex: 7, x: null, y: null },
+      },
+      {
+        id: { pageIndex: 0, index: 1 },
+        rect: { x0: 72, y0: 120, x1: 300, y1: 142 },
+        target: { kind: "uri", uri: "https://example.invalid/docs" },
+      },
+      {
+        id: { pageIndex: 0, index: 2 },
+        rect: { x0: 72, y0: 160, x1: 300, y1: 182 },
+        target: { kind: "blocked", action: "launch", target: "calc.exe" },
+      },
+    ];
+    const preview: LinkPreview = {
+      uri: "https://example.invalid/docs",
+      opens: "https://example.invalid/docs",
+      host: "example.invalid",
+      asciiHost: null,
     };
-    const { user } = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { linksApi });
+    const setup = () => {
+      const linksApi = {
+        getPageLinks: vi.fn((_doc: number, pageIndex: number) => Promise.resolve(pageIndex === 0 ? pageLinks : [])),
+        describeLink: vi.fn(() => Promise.resolve(preview)),
+        openLink: vi.fn(() => Promise.resolve()),
+      } satisfies LinksApi;
+      const utils = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { linksApi });
+      return { ...utils, linksApi };
+    };
 
-    const toPage = await screen.findByRole("button", { name: "前往第 8 頁" });
-    await user.hover(toPage);
-    expect(statusText()).toContain("前往第 8 頁");
-    await user.click(toPage);
-    expect(statusText()).toContain("第 8 / 12 頁");
+    it("an internal link jumps to its page; the status bar says what a link does", async () => {
+      const { user, linksApi } = setup();
 
-    // A web link is only described for now; opening it needs a confirmation (MVP-12b).
-    const web = screen.getByRole("button", { name: "https://example.invalid/docs" });
-    await user.hover(web);
-    expect(statusText()).toContain("https://example.invalid/docs");
-    await user.unhover(web);
-    expect(statusText()).not.toContain("https://example.invalid/docs");
-    expect(linksApi.getPageLinks).toHaveBeenCalledWith(5, 0);
+      const toPage = await screen.findByRole("button", { name: "前往第 8 頁" });
+      await user.hover(toPage);
+      expect(statusText()).toContain("前往第 8 頁");
+      await user.click(toPage);
+      expect(statusText()).toContain("第 8 / 12 頁");
+      expect(linksApi.getPageLinks).toHaveBeenCalledWith(5, 0);
+    });
+
+    it("a web link opens only after confirmation, named by its id", async () => {
+      const { user, linksApi } = setup();
+
+      await user.click(await screen.findByRole("button", { name: "https://example.invalid/docs" }));
+      const dialog = await screen.findByRole("dialog", { name: strings.links.confirmTitle });
+      expect(linksApi.describeLink).toHaveBeenCalledWith(5, { pageIndex: 0, index: 1 });
+      expect(within(dialog).getByText("example.invalid")).toHaveAttribute("data-host");
+      expect(within(dialog).getByLabelText(strings.links.confirmFullUrl)).toHaveTextContent("https://example.invalid/docs");
+      // Cancel is where the focus starts; Escape cancels.
+      await waitFor(() => expect(within(dialog).getByRole("button", { name: strings.links.cancel })).toHaveFocus());
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(linksApi.openLink).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole("button", { name: "https://example.invalid/docs" }));
+      await user.click(await screen.findByRole("button", { name: strings.links.open }));
+      expect(linksApi.openLink).toHaveBeenCalledWith(5, { pageIndex: 0, index: 1 });
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    });
+
+    it("says so when the system cannot open it, and stays open", async () => {
+      const { user, linksApi } = setup();
+      linksApi.openLink.mockRejectedValueOnce({ code: "internal", message: "" });
+
+      await user.click(await screen.findByRole("button", { name: "https://example.invalid/docs" }));
+      await user.click(await screen.findByRole("button", { name: strings.links.open }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(strings.links.openFailed);
+      expect(screen.getByRole("dialog", { name: strings.links.confirmTitle })).toBeInTheDocument();
+    });
+
+    it("a blocked link only explains why, with nothing to open it", async () => {
+      const { user, linksApi } = setup();
+
+      await user.click(await screen.findByRole("button", { name: "已封鎖：啟動外部程式" }));
+      const dialog = await screen.findByRole("dialog", { name: strings.links.blockedTitle });
+      expect(dialog).toHaveTextContent(strings.links.blocked.launch.description);
+      expect(within(dialog).getByLabelText(strings.links.blockedContent)).toHaveTextContent("calc.exe");
+      expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toEqual([
+        strings.links.blockedCopy,
+        strings.links.close,
+      ]);
+      await waitFor(() => expect(within(dialog).getByRole("button", { name: strings.links.close })).toHaveFocus());
+      await user.click(within(dialog).getByRole("button", { name: strings.links.close }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(linksApi.describeLink).not.toHaveBeenCalled();
+      expect(linksApi.openLink).not.toHaveBeenCalled();
+    });
   });
 
   it("on narrow windows the sidebar starts closed, floats, and closes when the page is used", async () => {

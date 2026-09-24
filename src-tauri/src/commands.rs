@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use ipc_contract::types::{
-    DocumentId, ErrorCode, IpcError, OpenEvent, OutlineResult, PageLink, RenderPageArgs, RequestId,
-    SearchArgs, SearchEvent,
+    DocumentId, ErrorCode, IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineResult, PageLink,
+    RenderPageArgs, RequestId, SearchArgs, SearchEvent,
 };
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
@@ -110,6 +110,25 @@ pub async fn get_page_links(
     page_index: u32,
 ) -> Result<Vec<PageLink>, IpcError> {
     blocking(move || app.state::<Documents>().page_links(doc, page_index)).await
+}
+
+/// What the confirmation shows about a web link (MVP-12). `args` names the link; the URI
+/// comes from the worker and is checked here.
+#[tauri::command]
+pub async fn describe_link(app: AppHandle, args: LinkArgs) -> Result<LinkPreview, IpcError> {
+    blocking(move || app.state::<Documents>().link_preview(args)).await
+}
+
+/// Opens a web link after the user confirmed it (MVP-12): only a link the worker reports, only
+/// `http`, `https` or `mailto`, and only as the checked ASCII form, never a string from the
+/// frontend.
+#[tauri::command]
+pub async fn open_link(app: AppHandle, args: LinkArgs) -> Result<(), IpcError> {
+    let preview = {
+        let app = app.clone();
+        blocking(move || app.state::<Documents>().link_preview(args)).await?
+    };
+    crate::opener::open(&app, preview.opens).await
 }
 
 /// Searches the document (MVP-10); hits, progress and a final `done` arrive on `on_event`.

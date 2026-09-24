@@ -10,6 +10,8 @@ fn main() {
         "cancel",
         "get_outline",
         "get_page_links",
+        "describe_link",
+        "open_link",
         "search",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))

@@ -290,6 +290,31 @@ pub struct PageLink {
     pub target: LinkTarget,
 }
 
+/// Arguments of `describe_link` and `open_link` (MVP-12): a link the worker reported, by id.
+/// There is deliberately no field for a URI; any other field is rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LinkArgs {
+    pub doc: DocumentId,
+    pub link: LinkId,
+}
+
+/// What the confirmation shows about a web link before it is opened (MVP-12).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkPreview {
+    /// The URI exactly as the PDF has it; the frontend writes out its hidden characters.
+    pub uri: String,
+    /// What the system is given when the user opens it: ASCII only, the host in punycode and
+    /// everything else percent-encoded. Also what "copy link" copies.
+    pub opens: String,
+    /// The site the browser will contact (for `mailto`, the mail domain), as it reads.
+    pub host: Option<String>,
+    /// The host's ASCII (punycode) form when it differs from `host`: an internationalised
+    /// name, which may imitate another one.
+    pub ascii_host: Option<String>,
+}
+
 /// One outline entry, in pre-order; `depth` 0 is the top level.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct OutlineItem {

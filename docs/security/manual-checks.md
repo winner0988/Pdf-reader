@@ -57,6 +57,17 @@
   - SMB 連線數維持 0；
   - DNS 快取中沒有樣本主機（`*.example.invalid`）的查詢紀錄。
 
+## 2. 外部連結只在確認後、以系統預設程式開啟（MVP-12）
+
+**目的**：確認「開啟」真的交給預設瀏覽器，而且只交出檢查過的網址。
+
+1. 開啟 `tests/corpus/benign/external-https-link.pdf`，點頁面上的連結。
+2. 對話框出現時按「取消」→ 什麼都不會發生。
+3. 再點一次，按「開啟」→ 預設瀏覽器開啟 `https://example.invalid/docs`（`.invalid` 是保留網域，瀏覽器會顯示無法連線）。
+4. 依序點 `link-javascript-scheme.pdf`、`link-file-scheme.pdf`、`link-unc-uri.pdf`、`link-smb-scheme.pdf`、`link-ms-protocol.pdf`、`launch.pdf` 的連結 → 都只出現「已封鎖這個連結」，沒有任何程式啟動（可搭配第 1 節的 Process Monitor 設定，確認沒有 `Process Create`）。
+
+開發時（MVP-12b，2026-09-24，release 建置）第 3 步已經以 CDP 點擊實際執行過一次：`ShellExecuteW` 回報成功，對話框隨之關閉。當時沒有確認瀏覽器畫面，仍需人工檢查一次。
+
 ## 紀錄
 
 | 日期 | 版本（commit） | 執行者 | 結果 | 備註 |

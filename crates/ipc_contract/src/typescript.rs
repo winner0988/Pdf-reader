@@ -56,6 +56,8 @@ pub fn bindings() -> String {
         LinkTarget,
         LinkId,
         PageLink,
+        LinkArgs,
+        LinkPreview,
         OutlineItem,
         OutlineResult,
         SearchArgs,

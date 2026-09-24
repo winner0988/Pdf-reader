@@ -12,6 +12,8 @@
     "allow-cancel",
     "allow-get-outline",
     "allow-get-page-links",
+    "allow-describe-link",
+    "allow-open-link",
     "allow-search"
   ]
 }

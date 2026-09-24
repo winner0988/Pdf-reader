@@ -4,11 +4,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use ipc_contract::limits::MAX_DISPLAY_NAME_BYTES;
+use ipc_contract::limits::{MAX_DISPLAY_NAME_BYTES, MAX_TEXT_BYTES};
 use ipc_contract::raster::{encode_raster, fit_scale};
+use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
-    DocumentId, DocumentInfo, ErrorCode, IpcError, LinkTarget, OpenEvent, OutlineResult, PageLink,
-    RenderPageArgs, SearchHit,
+    BlockedAction, DocumentId, DocumentInfo, ErrorCode, IpcError, LinkArgs, LinkPreview,
+    LinkTarget, OpenEvent, OutlineResult, PageLink, RenderPageArgs, SearchHit,
 };
 use ipc_contract::validate::{Validate, check_page_index};
 use ipc_contract::worker::{WorkerRequest, WorkerResponse};
@@ -285,7 +286,40 @@ impl Documents {
                 message: "page links do not match the document".to_owned(),
             });
         }
-        Ok(links)
+        // A web link that could never be opened (a browser could not parse it) is shown as
+        // blocked, so that what the status bar says matches what a click does.
+        Ok(links
+            .into_iter()
+            .map(|mut link| {
+                if let LinkTarget::Uri { uri } = &link.target
+                    && crate::links::preview(uri).is_err()
+                {
+                    link.target = LinkTarget::Blocked {
+                        action: BlockedAction::Other,
+                        target: Some(clean_display_text(uri, MAX_TEXT_BYTES as usize))
+                            .filter(|text| !text.is_empty()),
+                    };
+                }
+                link
+            })
+            .collect())
+    }
+
+    /// The web link `args` names, checked for opening (MVP-12). The link is asked from the
+    /// worker again: the frontend only names it, it never supplies the URI.
+    pub fn link_preview(&self, args: LinkArgs) -> Result<LinkPreview, IpcError> {
+        let links = self.page_links(args.doc, args.link.page_index)?;
+        let not_a_web_link = || IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "no web link with that id".to_owned(),
+        };
+        match links.into_iter().find(|link| link.id == args.link) {
+            Some(PageLink {
+                target: LinkTarget::Uri { uri },
+                ..
+            }) => crate::links::preview(&uri),
+            _ => Err(not_a_web_link()),
+        }
     }
 
     #[cfg(test)]
@@ -853,12 +887,14 @@ mod with_worker {
         let pdf = pdf_objects(&[
             "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
             "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_owned(),
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [5 0 R 6 0 R 7 0 R] >>"
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [5 0 R 6 0 R 7 0 R 8 0 R] >>"
                 .to_owned(),
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_owned(),
             link("72 700 200 720", "/S /GoTo /D [4 0 R /Fit]"),
             link("72 600 200 620", "/S /URI /URI (https://example.invalid/)"),
             link("72 500 200 520", "/S /Launch /F (calc.exe)"),
+            // A browser could not parse this one (a space in the host).
+            link("72 400 200 420", "/S /URI /URI (https://exa mple.invalid/)"),
         ]);
         let (documents, info, path) = open_bytes("links", &pdf);
 
@@ -876,11 +912,34 @@ mod with_worker {
                     uri: "https://example.invalid/".to_owned()
                 },
                 LinkTarget::Blocked {
-                    action: ipc_contract::types::BlockedAction::Launch,
+                    action: BlockedAction::Launch,
                     target: Some("calc.exe".to_owned())
+                },
+                LinkTarget::Blocked {
+                    action: BlockedAction::Other,
+                    target: Some("https://exa mple.invalid/".to_owned())
                 },
             ]
         );
+
+        // Opening names a link; only the web link can be described (and opened).
+        let args = |index| LinkArgs {
+            doc: info.doc,
+            link: ipc_contract::types::LinkId {
+                page_index: 0,
+                index,
+            },
+        };
+        let preview = documents.link_preview(args(1)).unwrap();
+        assert_eq!(preview.opens, "https://example.invalid/");
+        assert_eq!(preview.host.as_deref(), Some("example.invalid"));
+        for not_web in [0, 2, 3, 99] {
+            assert_eq!(
+                documents.link_preview(args(not_web)).unwrap_err().code,
+                ErrorCode::InvalidArgument,
+                "link {not_web}"
+            );
+        }
         assert_eq!(links[0].rect.y0, 72.0);
         assert!(documents.page_links(info.doc, 1).unwrap().is_empty());
         assert_eq!(
