@@ -1,10 +1,21 @@
-import { strings } from "@/i18n/zh-TW";
+import { useState } from "react";
+
+import { DevDemoSwitcher } from "@/features/shell/DevDemoSwitcher";
+import type { ShellState } from "@/features/shell/model";
+import { ReaderShell } from "@/features/shell/ReaderShell";
 
 export default function App() {
+  const [state, setState] = useState<ShellState>({ kind: "empty" });
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-2 bg-background text-foreground">
-      <h1 className="text-2xl font-semibold">{strings.appName}</h1>
-      <p className="text-sm text-muted-foreground">{strings.tagline}</p>
-    </main>
+    <>
+      <ReaderShell
+        state={state}
+        // Opening, closing and retrying need the main process; MVP-06 wires them to IPC.
+        onOpen={() => {}}
+        onClose={() => setState({ kind: "empty" })}
+      />
+      {import.meta.env.DEV && <DevDemoSwitcher onChange={setState} />}
+    </>
   );
 }

@@ -5,9 +5,10 @@ import App from "@/App";
 import { strings } from "@/i18n/zh-TW";
 
 describe("App", () => {
-  it("shows the application name", () => {
+  it("starts in the empty state", () => {
     render(<App />);
 
-    expect(screen.getByRole("heading", { level: 1, name: strings.appName })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: strings.empty.title })).toBeInTheDocument();
+    expect(screen.getByText(strings.empty.privacyNote)).toBeInTheDocument();
   });
 });
