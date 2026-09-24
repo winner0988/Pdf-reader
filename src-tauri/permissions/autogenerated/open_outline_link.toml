@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-outline-link"
+description = "Enables the open_outline_link command without any pre-configured scope."
+commands.allow = ["open_outline_link"]
+
+[[permission]]
+identifier = "deny-open-outline-link"
+description = "Denies the open_outline_link command without any pre-configured scope."
+commands.deny = ["open_outline_link"]

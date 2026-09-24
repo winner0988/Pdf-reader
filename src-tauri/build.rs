@@ -12,6 +12,8 @@ fn main() {
         "get_page_links",
         "describe_link",
         "open_link",
+        "describe_outline_link",
+        "open_outline_link",
         "search",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))

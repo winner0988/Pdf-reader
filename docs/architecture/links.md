@@ -79,6 +79,9 @@ sequenceDiagram
   - 內容：原因說明，以及 PDF 提供的內容（worker 已整理成純文字，僅供檢視）。
   - 只有「複製內容」與「關閉」兩個按鈕。
 
-### 已知限制
+## 目錄中的外部連結（#49）
 
-- 目錄（側欄）裡的外部連結與封鎖項目仍然不能點：目錄項目沒有 `LinkId`（#49）。
+- 目錄項目不屬於任何頁面，沒有 `LinkId`，改以它在目錄中的位置指名：`OutlineLinkArgs { doc, item }`，同樣拒絕其他欄位。
+- `describe_outline_link`／`open_outline_link`：主行程向 worker 重新取得目錄、取出第 `item` 項，再走與頁面連結相同的檢查（`links::preview`）與開啟方式。
+- 目錄中解析不了的網址，同樣在 `get_outline` 時改成封鎖。
+- 封鎖的目錄項目不需要主行程：前端直接開啟「已封鎖的連結」對話框。

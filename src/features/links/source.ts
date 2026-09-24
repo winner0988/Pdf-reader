@@ -3,7 +3,14 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import type { DocumentId, LinkArgs, LinkId, LinkPreview, PageLink } from "@/ipc/generated/contract";
+import type {
+  DocumentId,
+  LinkArgs,
+  LinkId,
+  LinkPreview,
+  OutlineLinkArgs,
+  PageLink,
+} from "@/ipc/generated/contract";
 
 export type LinksApi = {
   getPageLinks(doc: DocumentId, pageIndex: number): Promise<PageLink[]>;
@@ -14,12 +21,18 @@ export type LinksApi = {
    * from the worker again and checks it; no URI ever goes from here to the system.
    */
   openLink(doc: DocumentId, link: LinkId): Promise<void>;
+  /** The same for the web link of an outline item, named by its position in the outline (#49). */
+  describeOutlineLink(doc: DocumentId, item: number): Promise<LinkPreview>;
+  openOutlineLink(doc: DocumentId, item: number): Promise<void>;
 };
 
 export const tauriLinksApi: LinksApi = {
   getPageLinks: (doc, pageIndex) => invoke<PageLink[]>("get_page_links", { doc, pageIndex }),
   describeLink: (doc, link) => invoke<LinkPreview>("describe_link", { args: { doc, link } satisfies LinkArgs }),
   openLink: (doc, link) => invoke<void>("open_link", { args: { doc, link } satisfies LinkArgs }),
+  describeOutlineLink: (doc, item) =>
+    invoke<LinkPreview>("describe_outline_link", { args: { doc, item } satisfies OutlineLinkArgs }),
+  openOutlineLink: (doc, item) => invoke<void>("open_outline_link", { args: { doc, item } satisfies OutlineLinkArgs }),
 };
 
 export type LinkSource = {

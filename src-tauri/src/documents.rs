@@ -9,7 +9,7 @@ use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
     BlockedAction, DocumentId, DocumentInfo, ErrorCode, IpcError, LinkArgs, LinkPreview,
-    LinkTarget, OpenEvent, OutlineResult, PageLink, RenderPageArgs, SearchHit,
+    LinkTarget, OpenEvent, OutlineLinkArgs, OutlineResult, PageLink, RenderPageArgs, SearchHit,
 };
 use ipc_contract::validate::{Validate, check_page_index};
 use ipc_contract::worker::{WorkerRequest, WorkerResponse};
@@ -243,7 +243,31 @@ impl Documents {
                 message: "outline points past the last page".to_owned(),
             });
         }
+        // As for page links: a web link no browser could parse is shown as blocked.
+        let mut outline = outline;
+        for item in &mut outline.items {
+            if let Some(target) = &mut item.target {
+                block_unopenable(target);
+            }
+        }
         Ok(outline)
+    }
+
+    /// The web link of outline item `args.item`, checked for opening (#49). Like page links, the
+    /// outline is asked from the worker again: the frontend only names the item.
+    pub fn outline_link_preview(&self, args: OutlineLinkArgs) -> Result<LinkPreview, IpcError> {
+        let outline = self.outline(args.doc)?;
+        match outline
+            .items
+            .get(args.item as usize)
+            .and_then(|item| item.target.as_ref())
+        {
+            Some(LinkTarget::Uri { uri }) => crate::links::preview(uri),
+            _ => Err(IpcError {
+                code: ErrorCode::InvalidArgument,
+                message: "no outline item with a web link there".to_owned(),
+            }),
+        }
     }
 
     /// The links of one page (MVP-12). The worker's answer must be about that page, with one id
@@ -291,15 +315,7 @@ impl Documents {
         Ok(links
             .into_iter()
             .map(|mut link| {
-                if let LinkTarget::Uri { uri } = &link.target
-                    && crate::links::preview(uri).is_err()
-                {
-                    link.target = LinkTarget::Blocked {
-                        action: BlockedAction::Other,
-                        target: Some(clean_display_text(uri, MAX_TEXT_BYTES as usize))
-                            .filter(|text| !text.is_empty()),
-                    };
-                }
+                block_unopenable(&mut link.target);
                 link
             })
             .collect())
@@ -331,6 +347,19 @@ impl Documents {
         self.inner
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
+    }
+}
+
+/// Turns a web link no browser could parse into a blocked one (it could never be opened).
+fn block_unopenable(target: &mut LinkTarget) {
+    if let LinkTarget::Uri { uri } = target
+        && crate::links::preview(uri).is_err()
+    {
+        *target = LinkTarget::Blocked {
+            action: BlockedAction::Other,
+            target: Some(clean_display_text(uri, MAX_TEXT_BYTES as usize))
+                .filter(|text| !text.is_empty()),
+        };
     }
 }
 
@@ -953,6 +982,73 @@ mod with_worker {
                 .code,
             ErrorCode::UnknownDocument
         );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn outline_web_links_are_opened_only_by_position() {
+        // Two pages; outline items are objects 5 to 8 under the root (object 9).
+        let item = |title: &str, links: &str, target: &str| {
+            format!("<< /Title ({title}) /Parent 9 0 R {links} {target} >>")
+        };
+        let pdf = pdf_with(
+            2,
+            "/Outlines 9 0 R",
+            &[
+                item(
+                    "Web",
+                    "/Next 6 0 R",
+                    "/A << /S /URI /URI (https://example.invalid/) >>",
+                ),
+                item(
+                    "Run",
+                    "/Prev 5 0 R /Next 7 0 R",
+                    "/A << /S /Launch /F (calc.exe) >>",
+                ),
+                item("Page", "/Prev 6 0 R /Next 8 0 R", "/Dest [4 0 R /Fit]"),
+                item(
+                    "Broken",
+                    "/Prev 7 0 R",
+                    "/A << /S /URI /URI (https://exa mple.invalid/) >>",
+                ),
+                "<< /Type /Outlines /First 5 0 R /Last 8 0 R /Count 4 >>".to_owned(),
+            ],
+        );
+        let (documents, info, path) = open_bytes("outline-links", &pdf);
+
+        let targets: Vec<_> = documents
+            .outline(info.doc)
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|item| item.target)
+            .collect();
+        assert!(matches!(targets[0], Some(LinkTarget::Uri { .. })));
+        // A web link no browser could parse is shown as blocked, like on a page.
+        assert!(matches!(
+            targets[3],
+            Some(LinkTarget::Blocked {
+                action: BlockedAction::Other,
+                ..
+            })
+        ));
+
+        let args = |item| OutlineLinkArgs {
+            doc: info.doc,
+            item,
+        };
+        let preview = documents.outline_link_preview(args(0)).unwrap();
+        assert_eq!(preview.opens, "https://example.invalid/");
+        for not_web in [1, 2, 3, 99] {
+            assert_eq!(
+                documents
+                    .outline_link_preview(args(not_web))
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidArgument,
+                "item {not_web}"
+            );
+        }
         std::fs::remove_file(path).ok();
     }
 

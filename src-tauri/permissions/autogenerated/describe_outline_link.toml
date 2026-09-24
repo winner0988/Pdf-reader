@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-describe-outline-link"
+description = "Enables the describe_outline_link command without any pre-configured scope."
+commands.allow = ["describe_outline_link"]
+
+[[permission]]
+identifier = "deny-describe-outline-link"
+description = "Denies the describe_outline_link command without any pre-configured scope."
+commands.deny = ["describe_outline_link"]
