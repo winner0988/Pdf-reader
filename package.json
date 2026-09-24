@@ -14,7 +14,8 @@
     "lint": "eslint .",
     "typecheck": "tsc -b",
     "test": "vitest run",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "ipc:generate": "cargo run -q --locked -p ipc_contract --bin generate_ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
