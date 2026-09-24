@@ -1,6 +1,7 @@
 // View model of the reader shell. Contract types come from crates/ipc_contract through the
 // generated src/ipc/generated/contract.ts.
 
+import type { OutlineView } from "@/features/outline/tree";
 import type { DocumentId, ErrorCode, FindingKind, PageSize, SecurityFinding } from "@/ipc/generated/contract";
 
 export type { ErrorCode, FindingKind, PageSize, SecurityFinding };
@@ -28,7 +29,6 @@ export type AllFindingKindsListed = Assert<
   [Exclude<FindingKind, (typeof FINDING_KINDS)[number]>] extends [never] ? true : false
 >;
 
-export type OutlineEntry = { title: string; depth: number; pageIndex: number };
 
 export type ShellDocument = {
   /** Main-process id for rendering; absent for demo data. */
@@ -36,7 +36,8 @@ export type ShellDocument = {
   /** File name only, never a path. */
   displayName: string;
   pages: PageSize[];
-  outline: OutlineEntry[];
+  /** Demo data only; real documents load their outline separately (ReaderShell's `outline`). */
+  outline?: OutlineView;
   findings: SecurityFinding[];
 };
 

@@ -5,7 +5,9 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use ipc_contract::types::{DocumentId, ErrorCode, IpcError, OpenEvent, RenderPageArgs, RequestId};
+use ipc_contract::types::{
+    DocumentId, ErrorCode, IpcError, OpenEvent, OutlineResult, RenderPageArgs, RequestId,
+};
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
 
@@ -89,6 +91,12 @@ pub async fn close_document(app: AppHandle, doc: DocumentId) -> Result<(), IpcEr
 pub async fn render_page(app: AppHandle, args: RenderPageArgs) -> Result<Response, IpcError> {
     let bytes = app.state::<Renderer>().render(args).await?;
     Ok(Response::new(Vec::clone(&bytes)))
+}
+
+/// The document's outline (MVP-09): cleaned titles, targets checked against the page count.
+#[tauri::command]
+pub async fn get_outline(app: AppHandle, doc: DocumentId) -> Result<OutlineResult, IpcError> {
+    blocking(move || app.state::<Documents>().outline(doc)).await
 }
 
 /// Cancels a queued `render_page` request; it then fails with `cancelled`.

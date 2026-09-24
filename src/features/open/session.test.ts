@@ -34,7 +34,6 @@ describe("reduceSession", () => {
         doc: 4,
         displayName: "報告.pdf",
         pages: info.pages,
-        outline: [],
         findings: [{ kind: "javaScript", count: 2 }],
       },
     });

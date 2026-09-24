@@ -76,6 +76,31 @@ flowchart LR
 - 主行程收到命令後先以 `validate` 模組檢查參數（縮放範圍、查詢長度、頁碼是否在範圍內），不合格回傳 `invalidArgument`。
 - `DocumentInfo.displayName` 只能是檔名；`validate` 會拒絕含有 `/`、`\`、`:` 的值。
 
+### 目錄與 PDF 提供的文字（MVP-09）
+
+`get_outline` 回傳 `OutlineResult`：依閱讀順序（父項在子項之前）排列的扁平清單，每項有 `depth`（0 為最上層）與 `target`，前端自行組成樹。
+
+- **worker 自己走訪目錄物件**，不使用 MuPDF 的目錄載入器，原因有兩個：
+  - MuPDF 的載入器每一層巢狀都遞迴一次，深層巢狀的惡意檔案可以耗盡堆疊。實測 20,000 層會讓 worker 崩潰。
+  - 只要有一個目的地錯誤（例如指向不存在的頁面），MuPDF 就拒絕整份目錄。
+- **走訪方式**：
+  - 使用明確的堆疊，不遞迴。
+  - 同一個物件第二次出現（循環）時截斷該分支。
+  - 項目數與深度的上限分別是 `MAX_OUTLINE_ITEMS`、`MAX_OUTLINE_DEPTH`，超過時 `truncated = true`。
+  - 單一項目的錯誤只讓該項目沒有 `target`。
+- **目標**：
+  - `/Dest` 與 `/GoTo` 解析成頁碼；主行程再檢查頁碼小於頁數，超出範圍視為協定違規。
+  - `/URI` 由 `ipc_contract::text::classify_uri` 分類：只有 `http`、`https`、`mailto`，且不含控制字元、空白、隱形格式字元時，才是 `uri`，其餘一律是 `blocked`。
+  - `/Launch`、`/GoToR`、`/GoToE`、`/JavaScript`、`/SubmitForm`、`/ImportData` 都是 `blocked`，並記下動作種類。`target` 最多只帶檔名，不帶腳本內容。
+  - 前端點擊 `uri` 或 `blocked` 項目不會有任何動作；連結確認流程在 MVP-12。
+- **PDF 提供的文字**（目錄標題、`blocked` 的 `target`）在 worker 內以 `clean_display_text` 處理：
+  - 控制字元與換行改成空白；
+  - 移除雙向文字控制（U+202A–U+202E、U+2066–U+2069 等）、零寬字元與 BOM，避免「exe.pdf」這類偽裝；
+  - 合併連續空白，並截斷到 `MAX_TEXT_BYTES`。
+
+  主行程的 `Validate` 會拒絕任何仍含這些字元的文字（`is_clean_display_text`）。前端一律以純文字顯示。
+- **`LinkTarget` 的序列化**：JSON（給前端）用 `kind` 標籤；主行程與 worker 之間的 postcard 無法解碼 internally tagged enum，所以在非 human-readable 的格式改用 externally tagged。兩種格式都有 round-trip 測試（`ipc_contract::worker::tests`）。
+
 ### 頁面影像
 
 `render_page` 的回傳值不是 JSON，而是 Tauri 的 raw binary response，前端拿到 `ArrayBuffer`，以 `src/ipc/raster.ts` 的 `decodeRaster` 解析：

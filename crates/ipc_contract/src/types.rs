@@ -164,11 +164,15 @@ pub enum BlockedAction {
 }
 
 /// Where a link or outline item points.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+///
+/// Serialized with a `kind` tag in JSON (for the frontend), but externally tagged in binary
+/// formats: postcard, used between the main process and the worker, cannot decode internally
+/// tagged enums. See [`link_target_serde`].
+#[derive(Debug, Clone, PartialEq, TS)]
+#[ts(tag = "kind", rename_all = "camelCase")]
 pub enum LinkTarget {
     /// A page in the same document; `x`/`y` are page-space coordinates when specified.
-    #[serde(rename_all = "camelCase")]
+    #[ts(rename_all = "camelCase")]
     Page {
         page_index: u32,
         x: Option<f32>,
@@ -182,6 +186,86 @@ pub enum LinkTarget {
         action: BlockedAction,
         target: Option<String>,
     },
+}
+
+/// Chooses the representation of [`LinkTarget`] by format: tagged for human-readable formats
+/// (JSON to the frontend), externally tagged otherwise (postcard to and from the worker).
+mod link_target_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use super::{BlockedAction, LinkTarget};
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(tag = "kind", rename_all = "camelCase")]
+    enum Tagged {
+        #[serde(rename_all = "camelCase")]
+        Page {
+            page_index: u32,
+            x: Option<f32>,
+            y: Option<f32>,
+        },
+        Uri {
+            uri: String,
+        },
+        Blocked {
+            action: BlockedAction,
+            target: Option<String>,
+        },
+    }
+
+    #[derive(Serialize, Deserialize)]
+    enum Compact {
+        Page {
+            page_index: u32,
+            x: Option<f32>,
+            y: Option<f32>,
+        },
+        Uri {
+            uri: String,
+        },
+        Blocked {
+            action: BlockedAction,
+            target: Option<String>,
+        },
+    }
+
+    macro_rules! convert {
+        ($from:ident => $to:ident) => {
+            impl From<$from> for $to {
+                fn from(target: $from) -> Self {
+                    match target {
+                        $from::Page { page_index, x, y } => $to::Page { page_index, x, y },
+                        $from::Uri { uri } => $to::Uri { uri },
+                        $from::Blocked { action, target } => $to::Blocked { action, target },
+                    }
+                }
+            }
+        };
+    }
+    convert!(LinkTarget => Tagged);
+    convert!(LinkTarget => Compact);
+    convert!(Tagged => LinkTarget);
+    convert!(Compact => LinkTarget);
+
+    impl Serialize for LinkTarget {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            if serializer.is_human_readable() {
+                Tagged::from(self.clone()).serialize(serializer)
+            } else {
+                Compact::from(self.clone()).serialize(serializer)
+            }
+        }
+    }
+
+    impl<'de> Deserialize<'de> for LinkTarget {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            if deserializer.is_human_readable() {
+                Tagged::deserialize(deserializer).map(Into::into)
+            } else {
+                Compact::deserialize(deserializer).map(Into::into)
+            }
+        }
+    }
 }
 
 /// Identifies a link reported by the worker, so the main process can look it up later

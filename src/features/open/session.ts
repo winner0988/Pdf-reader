@@ -10,6 +10,8 @@ export type OpenSession = {
   shell: ShellState;
   /** The open document's id, needed to close it. */
   doc: DocumentId | null;
+  /** Whether the open document has an outline to load. */
+  hasOutline: boolean;
   /** Files are being dragged over the window. */
   dragActive: boolean;
   notice: OpenNotice | null;
@@ -24,6 +26,7 @@ export type SessionAction =
 export const initialSession: OpenSession = {
   shell: { kind: "empty" },
   doc: null,
+  hasOutline: false,
   dragActive: false,
   notice: null,
 };
@@ -33,7 +36,6 @@ export function toShellDocument(info: DocumentInfo): ShellDocument {
     doc: info.doc,
     displayName: info.displayName,
     pages: info.pages,
-    outline: [], // MVP-09
     findings: info.security.findings,
   };
 }
@@ -70,6 +72,7 @@ export function reduceSession(session: OpenSession, action: SessionAction): Open
         ...session,
         shell: { kind: "open", document: toShellDocument(event.info) },
         doc: event.info.doc,
+        hasOutline: event.info.hasOutline,
         notice: dropNotice(event.ignoredFiles, event.info.displayName),
       };
     case "failed":

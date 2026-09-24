@@ -89,7 +89,7 @@ describe("open document", () => {
   it("jumps to a page from the outline and from the page field", async () => {
     const { user } = renderShell(openState);
 
-    await user.click(screen.getByRole("button", { name: "第 2 章 方法" }));
+    await user.click(screen.getByRole("treeitem", { name: "第 2 章 方法" }));
     expect(statusText()).toContain("第 5 / 12 頁");
 
     const pageField = screen.getByRole("textbox", { name: strings.toolbar.pageNumber });
