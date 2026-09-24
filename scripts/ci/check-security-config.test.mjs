@@ -88,15 +88,32 @@ test("the dev CSP is extracted from vite.config.ts", () => {
   assert.equal(extractDevCsp("export default {}"), null);
 });
 
+const offlineBundle = { windows: { webviewInstallMode: { type: "skip" } } };
+
 test("dangerous Tauri settings are rejected", () => {
-  const config = (security, app = {}) => ({ app: { security: { csp: productionCsp, ...security }, ...app } });
+  const config = (security, app = {}) => ({
+    app: { security: { csp: productionCsp, ...security }, ...app },
+    bundle: offlineBundle,
+  });
   assert.deepEqual(checkTauriConfig(config({})), []);
   assert.notDeepEqual(checkTauriConfig(config({ devCsp: productionCsp })), []);
   assert.notDeepEqual(checkTauriConfig(config({ dangerousDisableAssetCspModification: true })), []);
   assert.notDeepEqual(checkTauriConfig(config({ assetProtocol: { enable: true } })), []);
   assert.notDeepEqual(checkTauriConfig(config({}, { withGlobalTauri: true })), []);
   assert.notDeepEqual(checkTauriConfig({ ...config({}), plugins: { updater: {} } }), []);
-  assert.notDeepEqual(checkTauriConfig({ app: {} }), [], "a missing CSP is rejected");
+  assert.notDeepEqual(checkTauriConfig({ app: {}, bundle: offlineBundle }), [], "a missing CSP is rejected");
+});
+
+test("the installer never downloads WebView2", () => {
+  const config = (bundle) => ({ app: { security: { csp: productionCsp } }, bundle });
+  for (const type of ["skip", "offlineInstaller", "fixedRuntime"]) {
+    assert.deepEqual(checkTauriConfig(config({ windows: { webviewInstallMode: { type } } })), [], type);
+  }
+  for (const type of ["downloadBootstrapper", "embedBootstrapper"]) {
+    assert.notDeepEqual(checkTauriConfig(config({ windows: { webviewInstallMode: { type } } })), [], type);
+  }
+  assert.notDeepEqual(checkTauriConfig(config({ windows: {} })), [], "the default downloads");
+  assert.notDeepEqual(checkTauriConfig(config(undefined)), [], "no bundle section downloads too");
 });
 
 test("capabilities only grant allowlisted, non-network permissions", () => {

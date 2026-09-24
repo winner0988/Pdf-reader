@@ -23,6 +23,18 @@ use crate::render::{DEFAULT_CACHE_BYTES, Renderer};
 use crate::search::Searches;
 
 pub fn run() {
+    // The installer does not install WebView2 (REL-02: webviewInstallMode is "skip"). Without it
+    // Tauri cannot create the window and the app would end without a word, so say what is missing.
+    if tauri::webview_version().is_err() {
+        rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Error)
+            .set_title(strings::WEBVIEW2_MISSING_TITLE)
+            .set_description(strings::WEBVIEW2_MISSING_MESSAGE)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .show();
+        return;
+    }
+
     let worker =
         worker_host::bundled_worker_path().unwrap_or_else(|_| worker_host::WORKER_FILE_NAME.into());
     #[cfg(debug_assertions)]

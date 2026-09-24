@@ -55,6 +55,17 @@ jobs:
       - name: Build installer
         run: pnpm bundle
 
+      # REL-02: the installer never downloads WebView2. Tauri's template keeps the code of every
+      # install mode behind compile-time !if checks, so check the mode this installer was built
+      # with (tauri.conf.json; check-security-config.mjs enforces the setting too).
+      - name: Installer never downloads WebView2
+        run: |
+          $define = Select-String -Path target/release/nsis/x64/installer.nsi -Pattern '^!define INSTALLWEBVIEW2MODE "(.*)"' | Select-Object -First 1
+          if (-not $define) { throw "INSTALLWEBVIEW2MODE is missing from the generated installer script" }
+          $mode = $define.Matches[0].Groups[1].Value
+          if ($mode -ne 'skip') { throw "the installer handles WebView2 as '$mode', not 'skip' (REL-02)" }
+          "WebView2 install mode: $mode"
+
       - name: Installer contains the worker
         run: |
           $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1

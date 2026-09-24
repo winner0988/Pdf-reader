@@ -68,6 +68,12 @@ const FORBIDDEN_PERMISSION_PREFIXES = [
   "process:",
 ];
 
+/**
+ * WebView2 install modes that never touch the network (REL-02). Tauri's default,
+ * downloadBootstrapper, and embedBootstrapper fetch the runtime from Microsoft during setup.
+ */
+const OFFLINE_WEBVIEW2_MODES = ["skip", "offlineInstaller", "fixedRuntime"];
+
 /** Plugins with network or broad system access; they must not be configured at all. */
 const FORBIDDEN_PLUGINS = ["http", "websocket", "upload", "updater", "shell", "opener", "fs"];
 
@@ -149,6 +155,13 @@ export function checkTauriConfig(config) {
     if (FORBIDDEN_PLUGINS.includes(plugin)) {
       problems.push(`tauri.conf.json: plugin "${plugin}" is not allowed`);
     }
+  }
+  const webviewMode = config?.bundle?.windows?.webviewInstallMode?.type;
+  if (!OFFLINE_WEBVIEW2_MODES.includes(webviewMode)) {
+    problems.push(
+      `tauri.conf.json: bundle.windows.webviewInstallMode must be one of ${OFFLINE_WEBVIEW2_MODES.join(", ")}; ` +
+        `"${webviewMode ?? "downloadBootstrapper (the default)"}" makes the installer download WebView2`,
+    );
   }
   return problems;
 }
