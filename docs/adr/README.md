@@ -16,6 +16,7 @@
 | [0008](0008-pdf-worker-isolation.md) | PDF 引擎隔離在 pdf_worker 子行程，前端不直接接觸引擎 | 已接受 |
 | [0009](0009-default-network-policy.md) | 預設網路政策 | 提議中 |
 | [0010](0010-document-id-write-safety.md) | 文件識別碼寫入 PDF 的安全限制 | 提議中 |
+| [0011](0011-license-and-distribution.md) | 專案以 AGPL-3.0-or-later 授權並公開原始碼 | 提議中 |
 
 ## 規則
 
