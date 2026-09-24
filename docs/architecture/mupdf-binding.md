@@ -23,15 +23,37 @@
 
 ## 編譯期功能
 
-`crates/pdf_worker/Cargo.toml`：`default-features = false, features = ["base14-fonts"]`。
+`crates/pdf_worker/Cargo.toml`：`default-features = false, features = ["base14-fonts", "bundled-fonts-droid"]`。
 
 | 功能 | 狀態 | 說明 |
 |---|---|---|
 | JavaScript（`js`） | **關閉** | 以 `FZ_ENABLE_JS=0` 編譯，MuPDF 的腳本支援只剩空殼。測試 `javascript_is_compiled_out` 在測試碼中刻意呼叫 `enable_js()`，確認 `is_js_supported()` 仍為 false。正式程式碼不得呼叫 `enable_js`（ADR 0001 的表單腳本沙盒日後另行評估） |
 | 標準 14 字型（`base14-fonts`） | 開啟 | 沒有它，使用未嵌入標準字型（Helvetica 等）的 PDF 會顯示成空白 |
+| Droid CJK 備援字型（`bundled-fonts-droid`） | 開啟 | 見下方「CJK 字型」 |
 | XPS、SVG、CBZ、圖片、HTML、EPUB | 關閉 | 只處理 PDF |
 | Tesseract OCR、DOCX 輸出、Brotli | 關閉 | 不在 MVP；之後的 OCR 另立 ADR |
-| 系統字型（`system-fonts`） | 關閉 | 見下方「CJK 字型」 |
+| 系統字型（`system-fonts`） | 關閉 | worker 在沙盒中不讀取系統的字型檔 |
+| Noto、SIL 字型（`bundled-fonts-noto`、`bundled-fonts-sil`） | 關閉 | 非 CJK 文字系統的備援字型，目前不需要 |
+
+## CJK 字型
+
+PDF 可以使用中日韓字型而不嵌入它（例如只寫 `/BaseFont /MingLiU` 與 CNS1 字元集）。這時 MuPDF 需要一個替代字型；**找不到就無法載入這個字型**：那段文字既畫不出來，也抽取不到，所以搜尋也找不到。
+
+- **決定**：打包 Droid CJK 備援字型（DEC-03，[#31](https://github.com/winner0988/Pdf-reader/issues/31)，負責人 2026-09-24 決定）。
+- **來源與授權**：
+  - `mupdf-fonts-droid` crate，與 `mupdf` 同一個 repo、同一版本；
+  - 字型本身是 Droid Sans Fallback，Apache-2.0。
+  - 發布安裝檔時，第三方授權聲明要包含它（ADR 0011）。
+- **運作方式**：
+  - `mupdf` crate 建立 context 時就向 MuPDF 註冊字型回呼；
+  - 需要 CJK 字型時，從編進 `pdf_worker.exe` 的資料提供，**不讀取任何檔案**，所以 worker 的沙盒不需要任何例外。
+- **代價**：
+  - crate 內含 DroidSansFallback（3.6 MB）與 DroidSansFallbackFull（5.1 MB）兩個字型，`pdf_worker.exe` 因此從 7.2 MB 增加到 15.9 MB；
+  - 安裝檔以 LZMA 壓縮，兩個字型壓縮後約 1.8 MB。
+- **沒有選擇**：
+  - 系統字型：worker 要讀取 `C:\Windows\Fonts`，不同電腦的顯示也會不同；
+  - 先不處理：中文使用者常見這類 PDF。
+- **測試**：`crates/pdf_worker/tests/fonts.rs` 以 `benign/mixed-text-zh-en.pdf` 確認中文可以搜尋，且字形區域確實有筆畫。
 
 注意：Windows 上 `mupdf-sys` 用 MSBuild 建置 MuPDF 的 Visual Studio 方案，會編譯方案內所有第三方函式庫（包含 Tesseract 等）的原始碼；Cargo feature 以 `FZ_ENABLE_*` 決定 MuPDF 是否使用它們，未被參照的程式碼不會連結進執行檔。這主要影響建置時間。
 
@@ -68,6 +90,5 @@ CI 由 `Swatinem/rust-cache` 快取 `target/`（含 MuPDF 建置結果），`Car
 
 ## 尚未解決
 
-- **CJK 備援字型**：未嵌入字型的中文 PDF（例如 `tests/corpus/benign/mixed-text-zh-en.pdf`）目前沒有字形可畫，文字抽取與搜尋不受影響。選項：打包 Noto CJK（體積大）或開啟 `system-fonts`（worker 需要讀取 `C:\Windows\Fonts`，影響 MVP-04 的沙盒設計；規格 §4 也偏好使用本機字型）。需要決策，已另開 Issue。
 - **AES-256 與簽章樣本**：MuPDF 可用後補（#27）。
 - **worker 隔離**：本文件只涵蓋引擎本身；行程隔離、handle 交付與沙盒見 MVP-04。

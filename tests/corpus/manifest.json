@@ -34,7 +34,7 @@
       "path": "benign/mixed-text-zh-en.pdf",
       "category": "benign",
       "purpose": "English and Traditional Chinese text (Type0 font, non-embedded, with ToUnicode).",
-      "expected": "Opens; both strings are searchable. CJK glyphs may render as fallback boxes if no CJK font is available.",
+      "expected": "Opens; both strings are drawn and searchable. The worker substitutes its bundled Droid CJK font for the non-embedded CNS1 font (DEC-03); without a CJK font MuPDF cannot load the font and the Chinese line is neither drawn nor searchable.",
       "pages": 1,
       "findings": [],
       "text": [
