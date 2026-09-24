@@ -177,6 +177,23 @@ export function pageToBox(
   return { x: (x / shown.widthPt) * box.width, y: (y / shown.heightPt) * box.height };
 }
 
+/** A page-space rectangle (a link's area) as a CSS pixel rectangle inside the page's box. */
+export function rectToBox(
+  rect: { x0: number; y0: number; x1: number; y1: number },
+  page: PageSize,
+  rotation: Rotation,
+  box: Pick<PageBox, "width" | "height">,
+): { left: number; top: number; width: number; height: number } {
+  const a = pageToBox({ x: rect.x0, y: rect.y0 }, page, rotation, box);
+  const b = pageToBox({ x: rect.x1, y: rect.y1 }, page, rotation, box);
+  return {
+    left: Math.min(a.x, b.x),
+    top: Math.min(a.y, b.y),
+    width: Math.abs(b.x - a.x),
+    height: Math.abs(b.y - a.y),
+  };
+}
+
 /** The 1-based page being read: the one at 30% of the viewport height, or the last page at the end. */
 export function currentPageAt(layout: Layout, viewport: Pick<Viewport, "top" | "height">): number {
   const count = layout.boxes.length;

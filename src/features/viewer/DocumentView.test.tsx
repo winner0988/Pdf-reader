@@ -5,11 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PageSize, Rotation, Zoom } from "@/features/shell/model";
 import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
+import type { LinkSource } from "@/features/links/source";
 import type { Highlights } from "@/features/viewer/highlights";
 import { CSS_PX_PER_PT, PAGE_GAP_PX, PAGE_PADDING_PX } from "@/features/viewer/layout";
 import type { PageRenderer, RenderJob } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
-import type { IpcError, RenderPageArgs } from "@/ipc/generated/contract";
+import type { IpcError, PageLink, RenderPageArgs } from "@/ipc/generated/contract";
 import type { RasterImage } from "@/ipc/raster";
 
 const LETTER = { widthPt: 612, heightPt: 792 };
@@ -52,10 +53,25 @@ type HarnessProps = {
   onPage?: (page: number) => void;
   onZoomStep?: (direction: 1 | -1) => void;
   highlights?: Highlights;
+  links?: LinkSource;
+  onLinkHover?: (text: string | null) => void;
+  onLinkActivate?: (link: PageLink) => void;
   view?: Ref<DocumentViewHandle>;
 };
 
-function Harness({ pages, zoom = 100, rotation = 0, renderer, onPage, onZoomStep, highlights, view }: HarnessProps) {
+function Harness({
+  pages,
+  zoom = 100,
+  rotation = 0,
+  renderer,
+  onPage,
+  onZoomStep,
+  highlights,
+  links,
+  onLinkHover,
+  onLinkActivate,
+  view,
+}: HarnessProps) {
   const scroller = useRef<HTMLElement>(null);
   return (
     <main ref={scroller} data-testid="scroller" style={{ overflow: "auto" }}>
@@ -70,6 +86,9 @@ function Harness({ pages, zoom = 100, rotation = 0, renderer, onPage, onZoomStep
         onCurrentPageChange={onPage}
         onZoomStep={onZoomStep}
         highlights={highlights}
+        links={links}
+        onLinkHover={onLinkHover}
+        onLinkActivate={onLinkActivate}
         requestDelayMs={0}
       />
     </main>
@@ -417,6 +436,84 @@ describe("DocumentView", () => {
       expect(scroller.scrollTop).toBeCloseTo(PAGE_PADDING_PX + PITCH * 12 + 600 * CSS_PX_PER_PT - 300);
       act(() => scroller.dispatchEvent(new Event("scroll")));
       expect(polygons(13)).toHaveLength(1);
+    });
+  });
+
+  describe("links (MVP-12)", () => {
+    const pages = Array(20).fill(LETTER);
+    const pageLink = (index: number, target: PageLink["target"]): PageLink => ({
+      id: { pageIndex: 0, index },
+      // 72 pt from the left, 80 pt from the top, 228 x 22 pt.
+      rect: { x0: 72, y0: 80, x1: 300, y1: 102 },
+      target,
+    });
+    const onFirstPage = [
+      pageLink(0, { kind: "page", pageIndex: 2, x: null, y: null }),
+      pageLink(1, { kind: "uri", uri: "https://example.invalid/‮fdp.exe" }),
+      pageLink(2, { kind: "blocked", action: "launch", target: "calc.exe" }),
+    ];
+    const source = () => {
+      const links = vi.fn((_doc: number, page: number) => Promise.resolve(page === 0 ? onFirstPage : []));
+      return { source: { links } satisfies LinkSource, links };
+    };
+
+    it("puts a button over each link, where the PDF puts it, named after what it does", async () => {
+      const { source: links, links: asked } = source();
+      render(<Harness pages={pages} links={links} />);
+      sizeScroller(800);
+      scrollTo(screen.getByTestId("scroller"), 0);
+
+      const toPage = await screen.findByRole("button", { name: "前往第 3 頁" });
+      expect(toPage.style.left).toBe(`${72 * CSS_PX_PER_PT}px`);
+      expect(parseFloat(toPage.style.top)).toBeCloseTo(80 * CSS_PX_PER_PT);
+      expect(parseFloat(toPage.style.width)).toBeCloseTo(228 * CSS_PX_PER_PT);
+      // Hidden characters are written out, never applied.
+      expect(screen.getByRole("button", { name: "https://example.invalid/[U+202E]fdp.exe" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "已封鎖：啟動外部程式" })).toBeInTheDocument();
+      // Only the mounted pages are asked.
+      expect(asked.mock.calls.map(([, page]) => page)).toEqual([0, 1, 2]);
+    });
+
+    it("follows zoom and rotation", async () => {
+      const { source: links } = source();
+      const { rerender } = render(<Harness pages={pages} links={links} />);
+      sizeScroller(800, 1600);
+      scrollTo(screen.getByTestId("scroller"), 0);
+      await screen.findByRole("button", { name: "前往第 3 頁" });
+
+      rerender(<Harness pages={pages} links={links} zoom={200} rotation={90} />);
+      const turned = await screen.findByRole("button", { name: "前往第 3 頁" });
+      // A wide area near the top becomes a tall one near the right edge.
+      expect(parseFloat(turned.style.left)).toBeCloseTo((792 - 102) * CSS_PX_PER_PT * 2);
+      expect(parseFloat(turned.style.top)).toBeCloseTo(72 * CSS_PX_PER_PT * 2);
+      expect(parseFloat(turned.style.height)).toBeGreaterThan(parseFloat(turned.style.width));
+    });
+
+    it("reports hovering and activation, and does nothing else by itself", async () => {
+      const { source: links } = source();
+      const onLinkHover = vi.fn();
+      const onLinkActivate = vi.fn();
+      render(<Harness pages={pages} links={links} onLinkHover={onLinkHover} onLinkActivate={onLinkActivate} />);
+      sizeScroller(800);
+      scrollTo(screen.getByTestId("scroller"), 0);
+      const user = userEvent.setup();
+
+      const blocked = await screen.findByRole("button", { name: "已封鎖：啟動外部程式" });
+      await user.hover(blocked);
+      expect(onLinkHover).toHaveBeenLastCalledWith("已封鎖：啟動外部程式");
+      await user.click(blocked);
+      expect(onLinkActivate).toHaveBeenCalledWith(onFirstPage[2]);
+      await user.unhover(blocked);
+      expect(onLinkHover).toHaveBeenLastCalledWith(null);
+    });
+
+    it("has no links without a source or when asking fails", async () => {
+      const failing = { links: vi.fn(() => Promise.reject({ code: "workerCrashed", message: "" })) } satisfies LinkSource;
+      render(<Harness pages={pages} links={failing} />);
+      sizeScroller(800);
+      scrollTo(screen.getByTestId("scroller"), 0);
+      await act(async () => {});
+      expect(screen.queryAllByRole("button")).toEqual([]);
     });
   });
 });

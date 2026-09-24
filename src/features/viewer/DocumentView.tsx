@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -18,6 +19,7 @@ import {
   currentPageAt,
   layoutPages,
   pageLeft,
+  rectToBox,
   renderScale,
   rotateAnchor,
   scrollForAnchor,
@@ -29,10 +31,12 @@ import {
   type Viewport,
   type ViewportPoint,
 } from "@/features/viewer/layout";
+import { linkHoverText } from "@/features/links/text";
+import type { LinkSource } from "@/features/links/source";
 import { pageOverlay, revealScroll, type Highlight, type Highlights, type PageOverlay } from "@/features/viewer/highlights";
 import { errorCodeOf, type PageRenderer, type RenderJob } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
-import type { DocumentId, Rotation as ContractRotation } from "@/ipc/generated/contract";
+import type { DocumentId, PageLink, Rotation as ContractRotation } from "@/ipc/generated/contract";
 import type { RasterImage } from "@/ipc/raster";
 
 export type DocumentViewHandle = {
@@ -58,6 +62,11 @@ type DocumentViewProps = {
   onZoomStep?: (direction: 1 | -1) => void;
   /** Search hits drawn over the pages. */
   highlights?: Highlights;
+  /** Where the pages' links come from; without it (demo data) pages have no links. */
+  links?: LinkSource;
+  /** The pointer or focus is on a link (its description), or left it (null). */
+  onLinkHover?: (text: string | null) => void;
+  onLinkActivate?: (link: PageLink) => void;
   /** Delay before a newly mounted page asks for a render; tests pass 0. */
   requestDelayMs?: number;
   ref?: Ref<DocumentViewHandle>;
@@ -118,6 +127,9 @@ export function DocumentView({
   onEffectiveZoomChange,
   onZoomStep,
   highlights,
+  links,
+  onLinkHover,
+  onLinkActivate,
   requestDelayMs = REQUEST_DELAY_MS,
   ref,
 }: DocumentViewProps) {
@@ -206,10 +218,17 @@ export function DocumentView({
 
   const onPageChange = useRef(onCurrentPageChange);
   const onZoomChange = useRef(onEffectiveZoomChange);
+  const onHover = useRef(onLinkHover);
+  const onActivate = useRef(onLinkActivate);
   useEffect(() => {
     onPageChange.current = onCurrentPageChange;
     onZoomChange.current = onEffectiveZoomChange;
+    onHover.current = onLinkHover;
+    onActivate.current = onLinkActivate;
   });
+  // Stable, so that a page's links do not take a new render for a new callback.
+  const hoverLink = useCallback((text: string | null) => onHover.current?.(text), []);
+  const activateLink = useCallback((link: PageLink) => onActivate.current?.(link), []);
   useEffect(() => {
     onPageChange.current?.(currentPage);
   }, [currentPage]);
@@ -249,12 +268,17 @@ export function DocumentView({
   const slots = [];
   for (let index = range.first; index <= range.last; index++) {
     const box = layout.boxes[index]!;
+    const left = pageLeft(box, width);
+    const delay =
+      requestDelayMs > 0 && (index < onScreen.first || index > onScreen.last)
+        ? requestDelayMs + NEARBY_EXTRA_DELAY_MS
+        : requestDelayMs;
     slots.push(
       <PageSlot
         key={index}
         index={index}
         box={box}
-        left={pageLeft(box, width)}
+        left={left}
         overlay={highlights ? pageOverlay(highlights, index, pages[index]!, rotation, box) : null}
         doc={doc}
         renderer={renderer}
@@ -262,13 +286,26 @@ export function DocumentView({
         // While zooming, nothing new is requested: the scale is about to change again.
         paused={scale !== renderAt}
         rotation={CONTRACT_ROTATION[rotation]}
-        requestDelayMs={
-          requestDelayMs > 0 && (index < onScreen.first || index > onScreen.last)
-            ? requestDelayMs + NEARBY_EXTRA_DELAY_MS
-            : requestDelayMs
-        }
+        requestDelayMs={delay}
       />,
     );
+    if (links && doc !== undefined) {
+      slots.push(
+        <PageLinks
+          key={`links-${index}`}
+          source={links}
+          doc={doc}
+          index={index}
+          page={pages[index]!}
+          rotation={rotation}
+          box={box}
+          left={left}
+          delayMs={delay}
+          onHover={hoverLink}
+          onActivate={activateLink}
+        />,
+      );
+    }
   }
 
   return (
@@ -386,6 +423,94 @@ function PageSlot({ index, box, left, doc, renderer, scale, paused, rotation, re
           </Button>
         </div>
       )}
+    </div>
+  );
+}
+
+type PageLinksProps = {
+  source: LinkSource;
+  doc: DocumentId;
+  index: number;
+  page: PageSize;
+  rotation: Rotation;
+  box: PageBox;
+  left: number;
+  delayMs: number;
+  onHover: (text: string | null) => void;
+  onActivate: (link: PageLink) => void;
+};
+
+/**
+ * A page's links as transparent buttons over it (MVP-12). They sit next to the page, not inside
+ * it: the page is an image to assistive technology, which would hide them. What a link does
+ * when activated is up to the shell; nothing here opens anything.
+ */
+function PageLinks({ source, doc, index, page, rotation, box, left, delayMs, onHover, onActivate }: PageLinksProps) {
+  const [loaded, setLoaded] = useState<{ doc: DocumentId; links: PageLink[] } | null>(null);
+  const hovered = useRef(false);
+
+  useEffect(() => {
+    let current = true;
+    const load = () =>
+      source.links(doc, index).then(
+        (links) => {
+          if (current) setLoaded({ doc, links });
+        },
+        // No links is better than an error for something that is only an aid.
+        () => {},
+      );
+    // Like renders: pages that only flash by during a fast scroll are not asked.
+    const timer = delayMs > 0 ? window.setTimeout(load, delayMs) : undefined;
+    if (timer === undefined) void load();
+    return () => {
+      current = false;
+      window.clearTimeout(timer);
+    };
+  }, [source, doc, index, delayMs]);
+
+  // A link that scrolls away under the pointer takes its status bar text with it.
+  useEffect(() => {
+    const state = hovered;
+    return () => {
+      if (state.current) onHover(null);
+    };
+  }, [onHover]);
+
+  const links = loaded?.doc === doc ? loaded.links : [];
+  if (links.length === 0) return null;
+  const enter = (text: string) => {
+    hovered.current = true;
+    onHover(text);
+  };
+  const leave = () => {
+    hovered.current = false;
+    onHover(null);
+  };
+  return (
+    <div
+      data-page-links={index + 1}
+      className="pointer-events-none absolute"
+      style={{ top: box.top, left, width: box.width, height: box.height }}
+    >
+      {links.map((link) => {
+        const area = rectToBox(link.rect, page, rotation, box);
+        const text = linkHoverText(link.target);
+        return (
+          <button
+            key={link.id.index}
+            type="button"
+            aria-label={text}
+            data-link={link.target.kind}
+            className="pointer-events-auto absolute cursor-pointer rounded-[2px] outline-offset-1 focus-visible:outline-2 focus-visible:outline-primary"
+            style={{ left: area.left, top: area.top, width: area.width, height: area.height }}
+            onPointerEnter={() => enter(text)}
+            onPointerLeave={leave}
+            onFocus={() => enter(text)}
+            onBlur={leave}
+            onClick={() => onActivate(link)}
+          />
+        );
+      })}
     </div>
   );
 }

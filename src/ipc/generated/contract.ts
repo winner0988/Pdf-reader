@@ -78,7 +78,7 @@ scale: number, rotation: Rotation, };
 /**
  * Actions that are recognised but never performed.
  */
-export type BlockedAction = "launch" | "remoteGoTo" | "embeddedGoTo" | "javaScript" | "submitForm" | "importData" | "other";
+export type BlockedAction = "launch" | "remoteGoTo" | "embeddedGoTo" | "javaScript" | "submitForm" | "importData" | "localFile" | "networkShare" | "other";
 
 /**
  * Where a link or outline item points.

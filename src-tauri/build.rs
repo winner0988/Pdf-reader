@@ -9,6 +9,7 @@ fn main() {
         "render_page",
         "cancel",
         "get_outline",
+        "get_page_links",
         "search",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))

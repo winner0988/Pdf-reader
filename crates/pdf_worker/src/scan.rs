@@ -12,6 +12,7 @@
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
+use ipc_contract::text::is_network_path;
 use ipc_contract::types::{FindingKind, SecurityFinding, SecurityReport};
 use mupdf::pdf::PdfObject;
 
@@ -239,75 +240,5 @@ fn name(object: Option<&PdfObject>) -> Result<Option<Vec<u8>>, mupdf::Error> {
     match object {
         Some(object) if object.is_name()? => Ok(Some(object.as_name()?)),
         _ => Ok(None),
-    }
-}
-
-/// A file name that reaches another computer: a UNC path (`\\server\share`, also written with
-/// forward slashes), `file://server/...` or `smb:`. On Windows, opening one can send the user's
-/// account hash to that server (SMB/NTLM).
-pub fn is_network_path(raw: &[u8]) -> bool {
-    let text = decode(raw).to_ascii_lowercase();
-    let text = text.trim_start();
-    let mut chars = text.chars();
-    let slash = |c: Option<char>| matches!(c, Some('\\' | '/'));
-    if slash(chars.next()) && slash(chars.next()) {
-        return true;
-    }
-    if let Some(rest) = text.strip_prefix("file:") {
-        // file://server/share and file:////server/share; file:/// and file://localhost/ are local.
-        let rest = rest.trim_start_matches(['/', '\\']);
-        let slashes = text.len() - "file:".len() - rest.len();
-        return (slashes == 2 && !rest.starts_with("localhost")) || slashes >= 4;
-    }
-    text.starts_with("smb:") || text.starts_with("cifs:")
-}
-
-/// PDF text strings are UTF-16BE with a byte order mark, or single bytes (PDFDocEncoding, which
-/// agrees with ASCII for everything this module looks at).
-fn decode(raw: &[u8]) -> String {
-    match raw {
-        [0xfe, 0xff, rest @ ..] => {
-            let units: Vec<u16> = rest
-                .as_chunks::<2>()
-                .0
-                .iter()
-                .map(|pair| u16::from_be_bytes(*pair))
-                .collect();
-            String::from_utf16_lossy(&units)
-        }
-        _ => raw.iter().map(|&byte| char::from(byte)).collect(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn recognises_network_paths() {
-        for path in [
-            &b"\\\\server\\share\\doc.pdf"[..],
-            b"//server/share/doc.pdf",
-            b"\\/server/share",
-            b"  \\\\server",
-            b"file://server/share/doc.pdf",
-            b"FILE://Server/x",
-            b"smb://server/share",
-            b"file:////server/share",
-            b"\xfe\xff\x00\\\x00\\\x00s",
-        ] {
-            assert!(is_network_path(path), "{}", String::from_utf8_lossy(path));
-        }
-        for path in [
-            &b"doc.pdf"[..],
-            b"C:\\Users\\doc.pdf",
-            b"/C/Users/doc.pdf",
-            b"file:///C:/doc.pdf",
-            b"file://localhost/C:/doc.pdf",
-            b"https://example.com/doc.pdf",
-            b"",
-        ] {
-            assert!(!is_network_path(path), "{}", String::from_utf8_lossy(path));
-        }
     }
 }

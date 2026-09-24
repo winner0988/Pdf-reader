@@ -58,30 +58,72 @@ pub fn is_clean_display_text(text: &str) -> bool {
 
 /// Classifies a URI from a PDF. Only `http`, `https` and `mailto` may ever be offered to the
 /// user (AGENTS.md principle 5); everything else is a blocked action shown as text.
+///
+/// An openable URI is kept exactly as written, hidden characters included: the confirmation
+/// shows them marked and warns (docs/ux/screen-map.md, section 4) instead of silently removing
+/// what the PDF put there.
 pub fn classify_uri(uri: &str) -> LinkTarget {
     let scheme = uri
         .split_once(':')
         .map(|(scheme, _)| scheme.to_ascii_lowercase())
         .unwrap_or_default();
     let openable = matches!(scheme.as_str(), "http" | "https" | "mailto");
-    let clean = uri.len() <= MAX_URI_BYTES as usize
-        && !uri
-            .chars()
-            .any(|c| c.is_control() || c.is_whitespace() || is_invisible_format(c));
-    if openable && clean {
+    if openable && uri.len() <= MAX_URI_BYTES as usize {
         return LinkTarget::Uri {
             uri: uri.to_owned(),
         };
     }
-    let action = match scheme.as_str() {
-        "javascript" => BlockedAction::JavaScript,
-        "file" => BlockedAction::RemoteGoTo,
-        _ => BlockedAction::Other,
+    let action = if is_network_path(uri.as_bytes()) {
+        BlockedAction::NetworkShare
+    } else {
+        match scheme.as_str() {
+            "javascript" => BlockedAction::JavaScript,
+            "file" => BlockedAction::LocalFile,
+            _ => BlockedAction::Other,
+        }
     };
     let target = clean_display_text(uri, MAX_TEXT_BYTES as usize);
     LinkTarget::Blocked {
         action,
         target: (!target.is_empty()).then_some(target),
+    }
+}
+
+/// A file name or URI that reaches another computer: a UNC path (`\\server\share`, also written
+/// with forward slashes), `file://server/...` or `smb:`. On Windows, opening one can send the
+/// user's account hash to that server (SMB/NTLM).
+///
+/// `raw` is a PDF string: UTF-16BE with a byte order mark, or single bytes (PDFDocEncoding,
+/// which agrees with ASCII for everything looked at here).
+pub fn is_network_path(raw: &[u8]) -> bool {
+    let text = decode_pdf_string(raw).to_ascii_lowercase();
+    let text = text.trim_start();
+    let mut chars = text.chars();
+    let slash = |c: Option<char>| matches!(c, Some('\\' | '/'));
+    if slash(chars.next()) && slash(chars.next()) {
+        return true;
+    }
+    if let Some(rest) = text.strip_prefix("file:") {
+        // file://server/share and file:////server/share; file:/// and file://localhost/ are local.
+        let rest = rest.trim_start_matches(['/', '\\']);
+        let slashes = text.len() - "file:".len() - rest.len();
+        return (slashes == 2 && !rest.starts_with("localhost")) || slashes >= 4;
+    }
+    text.starts_with("smb:") || text.starts_with("cifs:")
+}
+
+fn decode_pdf_string(raw: &[u8]) -> String {
+    match raw {
+        [0xfe, 0xff, rest @ ..] => {
+            let units: Vec<u16> = rest
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|pair| u16::from_be_bytes(*pair))
+                .collect();
+            String::from_utf16_lossy(&units)
+        }
+        _ => raw.iter().map(|&byte| char::from(byte)).collect(),
     }
 }
 
@@ -146,14 +188,31 @@ mod tests {
         assert!(matches!(
             classify_uri("file:///C:/Windows/System32/calc.exe"),
             LinkTarget::Blocked {
-                action: BlockedAction::RemoteGoTo,
+                action: BlockedAction::LocalFile,
                 ..
             }
         ));
         for uri in [
             "smb://server/share",
             "\\\\server\\share",
+            "\\\\share.example.invalid\\x",
+            "file://server/share/doc.pdf",
+        ] {
+            assert!(
+                matches!(
+                    classify_uri(uri),
+                    LinkTarget::Blocked {
+                        action: BlockedAction::NetworkShare,
+                        ..
+                    }
+                ),
+                "{uri}"
+            );
+        }
+        for uri in [
             "ms-settings:",
+            "ms-msdt:/id",
+            "search-ms:query=x",
             "data:text/html,x",
         ] {
             assert!(
@@ -170,12 +229,49 @@ mod tests {
     }
 
     #[test]
-    fn a_web_uri_with_hidden_characters_is_not_openable() {
+    fn a_web_uri_keeps_its_hidden_characters_for_the_confirmation_to_show() {
         let hidden = "https://example.com/\u{202E}gpj.exe";
-        assert!(matches!(classify_uri(hidden), LinkTarget::Blocked { .. }));
+        assert_eq!(
+            classify_uri(hidden),
+            LinkTarget::Uri {
+                uri: hidden.to_owned()
+            }
+        );
+        let too_long = format!("https://example.com/{}", "a".repeat(MAX_URI_BYTES as usize));
         assert!(matches!(
-            classify_uri("https://exa mple.com"),
-            LinkTarget::Blocked { .. }
+            classify_uri(&too_long),
+            LinkTarget::Blocked {
+                action: BlockedAction::Other,
+                ..
+            }
         ));
+    }
+
+    #[test]
+    fn recognises_network_paths() {
+        for path in [
+            &b"\\\\server\\share\\doc.pdf"[..],
+            b"//server/share/doc.pdf",
+            b"\\/server/share",
+            b"  \\\\server",
+            b"file://server/share/doc.pdf",
+            b"FILE://Server/x",
+            b"file:////server/share",
+            b"smb://server/share",
+            b"\xfe\xff\x00\\\x00\\\x00s",
+        ] {
+            assert!(is_network_path(path), "{}", String::from_utf8_lossy(path));
+        }
+        for path in [
+            &b"doc.pdf"[..],
+            b"C:\\Users\\doc.pdf",
+            b"/C/Users/doc.pdf",
+            b"file:///C:/doc.pdf",
+            b"file://localhost/C:/doc.pdf",
+            b"https://example.com/doc.pdf",
+            b"",
+        ] {
+            assert!(!is_network_path(path), "{}", String::from_utf8_lossy(path));
+        }
     }
 }

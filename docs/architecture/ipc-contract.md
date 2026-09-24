@@ -90,9 +90,17 @@ flowchart LR
   - 單一項目的錯誤只讓該項目沒有 `target`。
 - **目標**：
   - `/Dest` 與 `/GoTo` 解析成頁碼；主行程再檢查頁碼小於頁數，超出範圍視為協定違規。
-  - `/URI` 由 `ipc_contract::text::classify_uri` 分類：只有 `http`、`https`、`mailto`，且不含控制字元、空白、隱形格式字元時，才是 `uri`，其餘一律是 `blocked`。
+  - `/URI` 由 `ipc_contract::text::classify_uri` 分類：
+    - 只有 `http`、`https`、`mailto`（最長 `MAX_URI_BYTES`）是 `uri`，其餘一律是 `blocked`：
+      - `javascript:` → `javaScript`；
+      - 網路路徑（`\伺服器`、`smb:`、有主機的 `file://`）→ `networkShare`；
+      - 其他 `file:` → `localFile`；
+      - 其他 scheme → `other`。
+    - `uri` **保留 PDF 原本的字元**，包括雙向控制與其他隱藏字元：確認對話框要把它們以 `[U+XXXX]` 標示並警示（MVP-12），不能悄悄移除。前端顯示任何 URI 時都先經過 `revealHidden`（`src/features/links/text.ts`）。
+    - URI 字串的位元組：有 BOM 時是 UTF-16，合法的 UTF-8 就當 UTF-8，其他逐位元組對應。這樣以 UTF-8 寫入的 IDN 不會變成亂碼，偽裝的網域才看得出來。
   - `/Launch`、`/GoToR`、`/GoToE`、`/JavaScript`、`/SubmitForm`、`/ImportData` 都是 `blocked`，並記下動作種類。`target` 最多只帶檔名，不帶腳本內容。
-  - 前端點擊 `uri` 或 `blocked` 項目不會有任何動作；連結確認流程在 MVP-12。
+  - 前端點擊 `uri` 或 `blocked` 項目不會有任何動作；連結確認流程在 MVP-12b。
+- **頁面連結**（`get_page_links`，MVP-12a）：見 [links.md](links.md)。
 - **PDF 提供的文字**（目錄標題、`blocked` 的 `target`）在 worker 內以 `clean_display_text` 處理：
   - 控制字元與換行改成空白；
   - 移除雙向文字控制（U+202A–U+202E、U+2066–U+2069 等）、零寬字元與 BOM，避免「exe.pdf」這類偽裝；

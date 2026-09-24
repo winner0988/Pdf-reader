@@ -178,7 +178,7 @@ impl Validate for LinkTarget {
                     });
                 }
                 check_text("link URI", uri, MAX_URI_BYTES)?;
-                // Only http, https and mailto without hidden characters may be offered at all.
+                // Only http, https and mailto may be offered at all.
                 if !matches!(classify_uri(uri), LinkTarget::Uri { .. }) {
                     return Err(ValidationError::Invalid {
                         what: "link URI",
@@ -556,13 +556,14 @@ mod tests {
         let long = |len: usize| format!("https://example.invalid/{}", "a".repeat(len - 24));
         assert!(uri(long(10_000)).validate().is_ok());
         assert!(uri(long(MAX_URI_BYTES as usize + 1)).validate().is_err());
-        // Only http, https and mailto, and nothing hidden in them.
+        // Only http, https and mailto.
         assert!(uri("file:///C:/x.exe".to_owned()).validate().is_err());
         assert!(uri("javascript:alert(1)".to_owned()).validate().is_err());
+        // Hidden characters stay, so that the confirmation can show them (MVP-12).
         assert!(
             uri("https://a.invalid/\u{202E}exe.pdf".to_owned())
                 .validate()
-                .is_err()
+                .is_ok()
         );
 
         let blocked = LinkTarget::Blocked {

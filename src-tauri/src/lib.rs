@@ -44,6 +44,7 @@ pub fn run() {
             commands::render_page,
             commands::cancel,
             commands::get_outline,
+            commands::get_page_links,
             commands::search,
         ])
         .on_window_event(commands::on_window_event)

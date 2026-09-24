@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { createLinkSource, type LinksApi } from "@/features/links/source";
 import { useSearch, type SearchApi } from "@/features/search/useSearch";
 import { SecurityBanner } from "@/features/security-banner/SecurityBanner";
 import { SecurityDetails } from "@/features/security-banner/SecurityDetails";
@@ -32,6 +33,8 @@ type ReaderShellProps = {
   outline?: OutlineView;
   /** Searches the open document; without it (demo data, tests) the search bar finds nothing. */
   searchApi?: SearchApi;
+  /** The pages' links; without it (demo data, tests) pages have none. */
+  linksApi?: LinksApi;
   version?: string;
   /** Delay before the loading state appears; tests pass 0. */
   loadingDelayMs?: number;
@@ -67,6 +70,7 @@ export function ReaderShell({
   renderer,
   outline,
   searchApi,
+  linksApi,
   version = "0.1.0",
   loadingDelayMs,
 }: ReaderShellProps) {
@@ -75,6 +79,8 @@ export function ReaderShell({
   const [searchOpen, setSearchOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  /** What the link under the pointer does (status bar). */
+  const [linkHover, setLinkHover] = useState<string | null>(null);
   const [zoom, setZoom] = useState<Zoom>("fitWidth");
   /** What a fit mode currently shows, so zoom steps continue from there. */
   const [fitPercent, setFitPercent] = useState(100);
@@ -90,6 +96,7 @@ export function ReaderShell({
   const document_ = state.kind === "open" ? state.document : null;
   const pageCount = document_?.pages.length ?? 0;
   const search = useSearch({ api: searchApi, doc: document_?.doc, active: searchOpen });
+  const linkSource = useMemo(() => (linksApi ? createLinkSource(linksApi) : undefined), [linksApi]);
 
   // Per-document view state starts fresh for every newly opened document (nothing is remembered).
   const [viewedDocument, setViewedDocument] = useState(document_);
@@ -101,6 +108,7 @@ export function ReaderShell({
     setBannerDismissed(false);
     setDetailsOpen(false);
     setSearchOpen(false);
+    setLinkHover(null);
   }
 
   const goToPage = (page: number) => {
@@ -253,6 +261,13 @@ export function ReaderShell({
                   onEffectiveZoomChange={setFitPercent}
                   onZoomStep={(direction) => setZoom((z) => stepZoom(z, direction, fitPercent))}
                   highlights={searchOpen && hits.length > 0 ? { hits, current } : undefined}
+                  links={linkSource}
+                  onLinkHover={setLinkHover}
+                  onLinkActivate={(link) => {
+                    // Links inside the document jump right away. Web and blocked links get their
+                    // dialogs in MVP-12b; until then nothing happens.
+                    if (link.target.kind === "page") goToPage(link.target.pageIndex + 1);
+                  }}
                 />
               )}
             </main>
@@ -268,6 +283,7 @@ export function ReaderShell({
         </div>
         <StatusBar
           document={document_ ? { displayName: document_.displayName, currentPage, pageCount, zoom } : null}
+          hoverTarget={linkHover ?? undefined}
         />
       </div>
       <ShortcutsDialog open={dialog === "shortcuts"} onOpenChange={(open) => setDialog(open ? "shortcuts" : null)} />

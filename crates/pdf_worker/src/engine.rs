@@ -83,6 +83,14 @@ pub struct DocumentOutline {
     pub truncated: bool,
 }
 
+/// A link annotation: where it is on the page and where it points.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PageLinkEntry {
+    /// Page space (points, origin top left of the page as displayed at 0°), x0 <= x1, y0 <= y1.
+    pub rect: [f32; 4],
+    pub target: OutlineTarget,
+}
+
 /// An open PDF document.
 pub struct PdfDocument {
     doc: MuPdfDocument,
@@ -173,7 +181,7 @@ impl PdfDocument {
                 break;
             }
             let title = text(node.get_dict("Title")).unwrap_or_default();
-            let target = self.outline_target(&node);
+            let target = self.action_target(&node);
             outline.entries.push(OutlineEntry {
                 title,
                 depth,
@@ -194,8 +202,8 @@ impl PdfDocument {
         Ok(outline)
     }
 
-    /// The target of an outline item: its /Dest, or else its /A action.
-    fn outline_target(&self, node: &PdfObject) -> OutlineTarget {
+    /// Where an outline item or a link annotation points: its /Dest, or else its /A action.
+    fn action_target(&self, node: &PdfObject) -> OutlineTarget {
         if let Ok(Some(dest)) = node.get_dict("Dest") {
             return self.destination(&dest);
         }
@@ -217,7 +225,9 @@ impl PdfDocument {
                 Ok(Some(dest)) => self.destination(&dest),
                 _ => OutlineTarget::None,
             },
-            b"URI" => text(action.get_dict("URI")).map_or(OutlineTarget::None, OutlineTarget::Uri),
+            b"URI" => {
+                uri_text(action.get_dict("URI")).map_or(OutlineTarget::None, OutlineTarget::Uri)
+            }
             b"Launch" => blocked(BlockedAction::Launch, file_name(&action)),
             b"GoToR" => blocked(BlockedAction::RemoteGoTo, file_name(&action)),
             b"GoToE" => blocked(BlockedAction::EmbeddedGoTo, None),
@@ -264,6 +274,77 @@ impl PdfDocument {
             Ok(Some(number)) => OutlineTarget::Page(number),
             _ => OutlineTarget::None,
         }
+    }
+
+    /// The link annotations of page `index`, in the order of its /Annots, at most `max`.
+    ///
+    /// Reads the annotations itself rather than using MuPDF's link list, which turns actions
+    /// into URIs (a Launch becomes a `file:` link) and so loses what kind of action it was.
+    /// An annotation that cannot be read is skipped.
+    pub fn page_links(&self, index: u32, max: usize) -> Result<Vec<PageLinkEntry>, EngineError> {
+        if index >= self.page_count()? {
+            return Err(EngineError::PageOutOfRange(index));
+        }
+        let page = self
+            .doc
+            .find_page(i32::try_from(index).unwrap_or(i32::MAX))?;
+        let ctm = page.page_ctm()?;
+        let Some(annots) = page.get_dict("Annots")? else {
+            return Ok(Vec::new());
+        };
+        if !annots.is_array()? {
+            return Ok(Vec::new());
+        }
+        let mut links = Vec::new();
+        for annot in annots.array_iter()? {
+            if links.len() == max {
+                break;
+            }
+            let Ok(annot) = annot else { continue };
+            if let Ok(Some(link)) = self.link_entry(&annot, &ctm) {
+                links.push(link);
+            }
+        }
+        Ok(links)
+    }
+
+    fn link_entry(
+        &self,
+        annot: &PdfObject,
+        ctm: &Matrix,
+    ) -> Result<Option<PageLinkEntry>, mupdf::Error> {
+        let subtype = annot.get_dict("Subtype")?;
+        if !annot.is_dict()?
+            || subtype.map(|name| name.as_name()).transpose()?.as_deref() != Some(b"Link")
+        {
+            return Ok(None);
+        }
+        let Some(rect) = annot.get_dict("Rect")? else {
+            return Ok(None);
+        };
+        let mut numbers = [0.0f32; 4];
+        for (slot, value) in numbers.iter_mut().zip(rect.array_iter()?) {
+            let value = value?;
+            if !value.is_number()? {
+                return Ok(None);
+            }
+            *slot = value.as_float()?;
+        }
+        if rect.len()? != 4 || numbers.iter().any(|value| !value.is_finite()) {
+            return Ok(None);
+        }
+        // The rectangle is in PDF user space (origin bottom left); map its corners to page space,
+        // which also applies the page's /Rotate and crop box.
+        let [x0, y0, x1, y1] = numbers;
+        let corners = [(x0, y0), (x1, y0), (x0, y1), (x1, y1)].map(|(x, y)| ctm.transform_xy(x, y));
+        let xs = corners.map(|(x, _)| x);
+        let ys = corners.map(|(_, y)| y);
+        let min = |values: [f32; 4]| values.into_iter().fold(f32::INFINITY, f32::min);
+        let max = |values: [f32; 4]| values.into_iter().fold(f32::NEG_INFINITY, f32::max);
+        Ok(Some(PageLinkEntry {
+            rect: [min(xs), min(ys), max(xs), max(ys)],
+            target: self.action_target(annot),
+        }))
     }
 
     /// Renders a page at `scale` (1.0 = 72 dpi) rotated clockwise by `rotation` degrees.
@@ -367,6 +448,32 @@ fn text(value: Result<Option<PdfObject>, mupdf::Error>) -> Option<String> {
 }
 
 /// The file an action refers to (/F as a string, or a file specification with /UF or /F).
+/// A URI string. PDF says it is ASCII, but IRIs are commonly stored as raw UTF-8, which the
+/// PDFDocEncoding of ordinary text strings would garble (and so hide a look-alike host name).
+/// UTF-16 with a byte order mark and valid UTF-8 are decoded as such; other bytes one to one.
+fn uri_text(value: Result<Option<PdfObject>, mupdf::Error>) -> Option<String> {
+    let value = value.ok()??;
+    if !value.is_string().ok()? {
+        return None;
+    }
+    let bytes = value.as_bytes().ok()?;
+    Some(match bytes.as_slice() {
+        [0xfe, 0xff, rest @ ..] => {
+            let units: Vec<u16> = rest
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|pair| u16::from_be_bytes(*pair))
+                .collect();
+            String::from_utf16_lossy(&units)
+        }
+        raw => match std::str::from_utf8(raw) {
+            Ok(utf8) => utf8.to_owned(),
+            Err(_) => raw.iter().map(|&byte| char::from(byte)).collect(),
+        },
+    })
+}
+
 fn file_name(action: &PdfObject) -> Option<String> {
     let spec = action.get_dict("F").ok()??;
     if spec.is_dict().ok()? {

@@ -10,6 +10,7 @@ import {
   layoutPages,
   pageLeft,
   pageToBox,
+  rectToBox,
   renderScale,
   rotateAnchor,
   scrollForAnchor,
@@ -225,5 +226,20 @@ describe("pageToBox", () => {
     // A point near the top of the page stays near the new top edge's side it turned to.
     expect(at(90, 100, 50)).toEqual({ x: 750, y: 100 });
     expect(at(270, 100, 50, 0.5)).toEqual({ x: 25, y: 250 });
+  });
+});
+
+describe("rectToBox", () => {
+  const page = { widthPt: 600, heightPt: 800 };
+  const rect = { x0: 100, y0: 50, x1: 300, y1: 70 };
+
+  it("places a link's area in the page box", () => {
+    expect(rectToBox(rect, page, 0, { width: 1200, height: 1600 })).toEqual({ left: 200, top: 100, width: 400, height: 40 });
+  });
+
+  it("turns with the page: a wide area near the top becomes a tall one near the right edge", () => {
+    expect(rectToBox(rect, page, 90, { width: 800, height: 600 })).toEqual({ left: 730, top: 100, width: 20, height: 200 });
+    expect(rectToBox(rect, page, 180, { width: 600, height: 800 })).toEqual({ left: 300, top: 730, width: 200, height: 20 });
+    expect(rectToBox(rect, page, 270, { width: 800, height: 600 })).toEqual({ left: 50, top: 300, width: 20, height: 200 });
   });
 });

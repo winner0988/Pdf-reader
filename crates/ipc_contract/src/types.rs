@@ -160,6 +160,11 @@ pub enum BlockedAction {
     JavaScript,
     SubmitForm,
     ImportData,
+    /// A `file:` URI on this computer.
+    LocalFile,
+    /// A UNC path (`\\server\share`), `smb:` or `file://server`: on Windows, following it can
+    /// send the user's account hash to that server.
+    NetworkShare,
     Other,
 }
 
@@ -178,8 +183,9 @@ pub enum LinkTarget {
         x: Option<f32>,
         y: Option<f32>,
     },
-    /// An external URI, shown to the user as-is. Opening it requires confirmation and goes
-    /// through the main process by link id (MVP-12); the frontend never opens URIs itself.
+    /// An external `http`, `https` or `mailto` URI, exactly as the PDF has it (hidden characters
+    /// included, so that the confirmation can show them). Opening it requires confirmation and
+    /// goes through the main process by link id (MVP-12); the frontend never opens URIs itself.
     Uri { uri: String },
     /// A recognised action that is blocked. `target` is PDF-provided text for display only.
     Blocked {

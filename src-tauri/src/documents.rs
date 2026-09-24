@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use ipc_contract::limits::MAX_DISPLAY_NAME_BYTES;
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::types::{
-    DocumentId, DocumentInfo, ErrorCode, IpcError, LinkTarget, OpenEvent, OutlineResult,
+    DocumentId, DocumentInfo, ErrorCode, IpcError, LinkTarget, OpenEvent, OutlineResult, PageLink,
     RenderPageArgs, SearchHit,
 };
 use ipc_contract::validate::{Validate, check_page_index};
@@ -243,6 +243,49 @@ impl Documents {
             });
         }
         Ok(outline)
+    }
+
+    /// The links of one page (MVP-12). The worker's answer must be about that page, with one id
+    /// per link and page targets inside the document.
+    pub fn page_links(&self, doc: DocumentId, page_index: u32) -> Result<Vec<PageLink>, IpcError> {
+        let mut inner = self.lock();
+        let Inner { host, current, .. } = &mut *inner;
+        let current = current
+            .as_mut()
+            .filter(|current| current.info.doc == doc)
+            .ok_or_else(unknown_document)?;
+        let page_count = current.info.pages.len();
+        check_page_index(page_index, u32::try_from(page_count).unwrap_or(u32::MAX))
+            .map_err(invalid_argument)?;
+        let response = request(host, current, |request, doc| WorkerRequest::GetPageLinks {
+            request,
+            doc,
+            page_index,
+        })?;
+        let WorkerResponse::PageLinks {
+            page_index: answered,
+            links,
+            ..
+        } = response
+        else {
+            return Err(unexpected("GetPageLinks"));
+        };
+        let mut ids = std::collections::HashSet::new();
+        let consistent = answered == page_index
+            && links.iter().all(|link| {
+                ids.insert(link.id)
+                    && match link.target {
+                        LinkTarget::Page { page_index, .. } => (page_index as usize) < page_count,
+                        _ => true,
+                    }
+            });
+        if !consistent {
+            return Err(IpcError {
+                code: ErrorCode::ProtocolViolation,
+                message: "page links do not match the document".to_owned(),
+            });
+        }
+        Ok(links)
     }
 
     #[cfg(test)]
@@ -795,6 +838,58 @@ mod with_worker {
         assert_eq!(
             documents
                 .outline(DocumentId(info.doc.0 + 1))
+                .unwrap_err()
+                .code,
+            ErrorCode::UnknownDocument
+        );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn page_links_come_from_the_worker() {
+        let link = |rect: &str, action: &str| {
+            format!("<< /Type /Annot /Subtype /Link /Rect [{rect}] /A << {action} >> >>")
+        };
+        let pdf = pdf_objects(&[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [5 0 R 6 0 R 7 0 R] >>"
+                .to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_owned(),
+            link("72 700 200 720", "/S /GoTo /D [4 0 R /Fit]"),
+            link("72 600 200 620", "/S /URI /URI (https://example.invalid/)"),
+            link("72 500 200 520", "/S /Launch /F (calc.exe)"),
+        ]);
+        let (documents, info, path) = open_bytes("links", &pdf);
+
+        let links = documents.page_links(info.doc, 0).unwrap();
+        let targets: Vec<_> = links.iter().map(|link| link.target.clone()).collect();
+        assert_eq!(
+            targets,
+            [
+                LinkTarget::Page {
+                    page_index: 1,
+                    x: None,
+                    y: None
+                },
+                LinkTarget::Uri {
+                    uri: "https://example.invalid/".to_owned()
+                },
+                LinkTarget::Blocked {
+                    action: ipc_contract::types::BlockedAction::Launch,
+                    target: Some("calc.exe".to_owned())
+                },
+            ]
+        );
+        assert_eq!(links[0].rect.y0, 72.0);
+        assert!(documents.page_links(info.doc, 1).unwrap().is_empty());
+        assert_eq!(
+            documents.page_links(info.doc, 2).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(
+            documents
+                .page_links(DocumentId(info.doc.0 + 1), 0)
                 .unwrap_err()
                 .code,
             ErrorCode::UnknownDocument
