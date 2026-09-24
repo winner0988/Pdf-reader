@@ -54,7 +54,7 @@ pnpm bundle    # 產出 target/release/bundle/nsis/PDF Reader_<版本>_x64-setup
   - 兩處都只顯示 Microsoft 官方網址，不代為下載。
 - **守門**：
   - `check-security-config.mjs`（`Guardrails`）只接受不連網的模式：`skip`、`offlineInstaller`、`fixedRuntime`；
-  - `installer.yml` 確認產生的安裝腳本以 `skip` 建置。Tauri 的範本把每種模式的程式碼都留在腳本中，以編譯期的 `!if` 排除，所以要檢查模式，而不是搜尋下載網址。
+  - `installer.yml` 確認產生的安裝腳本不是會下載的模式（`downloadBootstrapper`、`embedBootstrapper`）。Tauri 的範本把每種模式的程式碼都留在腳本中，以編譯期的 `!if` 排除，所以要檢查模式，而不是搜尋下載網址。`skip` 時 Tauri 讓 `INSTALLWEBVIEW2MODE` 留空。
 - `installer-hooks.nsh` 必須以 UTF-8（含 BOM）儲存，否則 NSIS 會以系統字碼頁讀取，中文會變成亂碼。
 
 ## CI
@@ -62,7 +62,7 @@ pnpm bundle    # 產出 target/release/bundle/nsis/PDF Reader_<版本>_x64-setup
 `.github/workflows/installer.yml`（push 到 `main`、手動觸發，以及變更會進入安裝檔的 PR）：
 
 1. `pnpm bundle` 建置安裝檔。
-2. 確認安裝腳本的 WebView2 模式是 `skip`（見上方「WebView2」）。
+2. 確認安裝腳本不會下載 WebView2（見上方「WebView2」）。
 3. 以 7-Zip 列出安裝檔內容，確認包含 `pdf_worker.exe`。
 4. `/S` 靜默安裝（per machine）。
 5. 對安裝後的所有 `.exe` 執行 `check-imports.mjs`。
