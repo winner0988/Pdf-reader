@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     ];
 
-    let responses = vec![
+    let responses = [
         WorkerResponse::hello(),
         WorkerResponse::Opened {
             request,
@@ -124,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         },
     ];
-    let requests = vec![
+    let requests = [
         WorkerRequest::Open {
             request,
             doc,
