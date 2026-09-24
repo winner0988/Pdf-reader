@@ -340,6 +340,9 @@ export function ReaderShell({
             <Sidebar
               key={document_.doc ?? document_.displayName}
               outline={outline ?? document_.outline ?? { status: "none" }}
+              pages={document_.pages}
+              doc={document_.doc}
+              renderer={renderer}
               currentPage={currentPage}
               onJumpToPage={goToPage}
               onOpenLink={openOutlineLink}

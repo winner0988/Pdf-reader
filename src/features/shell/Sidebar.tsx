@@ -3,12 +3,20 @@ import type { ComponentProps } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OutlineTree } from "@/features/outline/OutlineTree";
 import type { OutlineView } from "@/features/outline/tree";
+import type { PageSize } from "@/features/shell/model";
+import { Thumbnails } from "@/features/thumbnails/Thumbnails";
+import type { PageRenderer } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
+import type { DocumentId } from "@/ipc/generated/contract";
 
 const t = strings.sidebar;
 
 type SidebarProps = {
   outline: OutlineView;
+  pages: PageSize[];
+  /** For the thumbnails; without them (demo data) the thumbnails stay blank. */
+  doc?: DocumentId;
+  renderer?: PageRenderer;
   currentPage: number;
   onJumpToPage: (page: number) => void;
   onOpenLink?: ComponentProps<typeof OutlineTree>["onOpenLink"];
@@ -18,8 +26,8 @@ function Message({ children }: { children: string }) {
   return <p className="px-2 py-4 text-sm text-muted-foreground">{children}</p>;
 }
 
-/** Side panel: the outline tree (MVP-09); thumbnails come later. */
-export function Sidebar({ outline, currentPage, onJumpToPage, onOpenLink }: SidebarProps) {
+/** Side panel: the outline tree (MVP-09) and the page thumbnails (MVP-18). */
+export function Sidebar({ outline, pages, doc, renderer, currentPage, onJumpToPage, onOpenLink }: SidebarProps) {
   return (
     <aside
       aria-label={t.label}
@@ -29,9 +37,7 @@ export function Sidebar({ outline, currentPage, onJumpToPage, onOpenLink }: Side
       <Tabs defaultValue="outline" className="flex min-h-0 flex-1 flex-col gap-0">
         <TabsList className="m-2 w-[calc(100%-1rem)]">
           <TabsTrigger value="outline">{t.outlineTab}</TabsTrigger>
-          <TabsTrigger value="thumbnails" disabled>
-            {t.thumbnailsTab}
-          </TabsTrigger>
+          <TabsTrigger value="thumbnails">{t.thumbnailsTab}</TabsTrigger>
         </TabsList>
         <TabsContent value="outline" className="min-h-0 flex-1 overflow-auto px-2 pb-2">
           {outline.status === "loading" && <Message>{t.outlineLoading}</Message>}
@@ -54,6 +60,9 @@ export function Sidebar({ outline, currentPage, onJumpToPage, onOpenLink }: Side
               />
             </>
           )}
+        </TabsContent>
+        <TabsContent value="thumbnails" className="min-h-0 flex-1">
+          <Thumbnails pages={pages} doc={doc} renderer={renderer} currentPage={currentPage} onJumpToPage={onJumpToPage} />
         </TabsContent>
       </Tabs>
     </aside>

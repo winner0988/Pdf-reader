@@ -45,10 +45,9 @@ import {
   type Highlights,
   type PageOverlay,
 } from "@/features/viewer/highlights";
-import { errorCodeOf, type PageRenderer, type RenderJob } from "@/features/viewer/renderer";
+import { drawRaster, errorCodeOf, type PageRenderer, type RenderJob } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
 import type { DocumentId, PageLink, PageText, Rotation as ContractRotation } from "@/ipc/generated/contract";
-import type { RasterImage } from "@/ipc/raster";
 
 export type DocumentViewHandle = {
   /** Scrolls so that the 1-based `page` is at the top. */
@@ -408,15 +407,6 @@ type PageSlotProps = {
   overlay: PageOverlay | null;
 };
 
-/** Draws a raster into the canvas at its native resolution; CSS scales it to the page box. */
-function draw(canvas: HTMLCanvasElement | null, raster: RasterImage) {
-  const context = canvas?.getContext("2d");
-  if (!canvas || !context) return;
-  canvas.width = raster.width;
-  canvas.height = raster.height;
-  context.putImageData(new ImageData(raster.pixels, raster.width, raster.height), 0, 0);
-}
-
 function PageSlot({ index, box, left, doc, renderer, scale, paused, rotation, requestDelayMs, overlay }: PageSlotProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [state, setState] = useState<SlotState>({ kind: "loading" });
@@ -429,7 +419,7 @@ function PageSlot({ index, box, left, doc, renderer, scale, paused, rotation, re
       job = renderer.render({ doc, pageIndex: index, scale, rotation });
       job.result.then(
         (raster) => {
-          draw(canvasRef.current, raster);
+          drawRaster(canvasRef.current, raster);
           setState({ kind: "ready" });
         },
         (error: unknown) => {
