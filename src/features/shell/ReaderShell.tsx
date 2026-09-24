@@ -264,7 +264,10 @@ export function ReaderShell({
               data-region="canvas"
               data-drop-active={dropActive || undefined}
               tabIndex={-1}
-              className="relative min-h-0 flex-1 overflow-auto bg-muted outline-none data-drop-active:outline-2 data-drop-active:-outline-offset-4 data-drop-active:outline-primary data-drop-active:outline-dashed"
+              // The scroll bar's space is always kept: otherwise a fitted page just taller than the
+              // canvas makes the scroll bar appear, which narrows the canvas, which shrinks the page,
+              // which hides the scroll bar again, forever (#46).
+              className="relative min-h-0 flex-1 overflow-auto bg-muted outline-none [scrollbar-gutter:stable] data-drop-active:outline-2 data-drop-active:-outline-offset-4 data-drop-active:outline-primary data-drop-active:outline-dashed"
               onPointerDown={() => {
                 // A floating sidebar closes when the user goes back to the page.
                 if (sidebarOpen && isNarrowWindow()) setSidebarOpen(false);
