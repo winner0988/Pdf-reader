@@ -7,6 +7,9 @@ describe("stepZoom", () => {
     expect(stepZoom(100, 1)).toBe(110);
     expect(stepZoom(100, -1)).toBe(90);
     expect(stepZoom(125, 1)).toBe(150);
+    // Fit modes continue from what they show, not from 100%.
+    expect(stepZoom("fitWidth", 1, 137)).toBe(150);
+    expect(stepZoom("fitPage", -1, 137)).toBe(125);
   });
 
   it("steps from 100% when a fit mode is active", () => {

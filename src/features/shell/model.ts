@@ -60,9 +60,9 @@ export type Zoom = number | "fitWidth" | "fitPage";
 
 export const ZOOM_LEVELS = [25, 33, 50, 67, 75, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500, 800];
 
-/** Next zoom level in the given direction; fit modes step from 100%. */
-export function stepZoom(zoom: Zoom, direction: 1 | -1): number {
-  const current = typeof zoom === "number" ? zoom : 100;
+/** Next zoom level in the given direction; fit modes step from the percentage they show. */
+export function stepZoom(zoom: Zoom, direction: 1 | -1, fitPercent = 100): number {
+  const current = typeof zoom === "number" ? zoom : fitPercent;
   if (direction === 1) {
     return ZOOM_LEVELS.find((level) => level > current) ?? ZOOM_LEVELS[ZOOM_LEVELS.length - 1]!;
   }

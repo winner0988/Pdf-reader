@@ -65,6 +65,8 @@ export function ReaderShell({
   const [searchOpen, setSearchOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [zoom, setZoom] = useState<Zoom>("fitWidth");
+  /** What a fit mode currently shows, so zoom steps continue from there. */
+  const [fitPercent, setFitPercent] = useState(100);
   const [rotation, setRotation] = useState<Rotation>(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [dialog, setDialog] = useState<"shortcuts" | "about" | null>(null);
@@ -100,8 +102,8 @@ export function ReaderShell({
     open: onOpen,
     close: onClose,
     search: whenOpen(() => setSearchOpen(true)),
-    zoomIn: whenOpen(() => setZoom((z) => stepZoom(z, 1))),
-    zoomOut: whenOpen(() => setZoom((z) => stepZoom(z, -1))),
+    zoomIn: whenOpen(() => setZoom((z) => stepZoom(z, 1, fitPercent))),
+    zoomOut: whenOpen(() => setZoom((z) => stepZoom(z, -1, fitPercent))),
     fitPage: whenOpen(() => setZoom("fitPage")),
     actualSize: whenOpen(() => setZoom(100)),
     fitWidth: whenOpen(() => setZoom("fitWidth")),
@@ -137,8 +139,8 @@ export function ReaderShell({
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
           onOpen={onOpen}
           onGoToPage={goToPage}
-          onZoomIn={() => setZoom((z) => stepZoom(z, 1))}
-          onZoomOut={() => setZoom((z) => stepZoom(z, -1))}
+          onZoomIn={() => setZoom((z) => stepZoom(z, 1, fitPercent))}
+          onZoomOut={() => setZoom((z) => stepZoom(z, -1, fitPercent))}
           onZoomChange={setZoom}
           onRotate={(direction) => setRotation((r) => rotate(r, direction))}
           onSearch={() => setSearchOpen((open) => !open)}
@@ -183,6 +185,8 @@ export function ReaderShell({
                   doc={document_.doc}
                   renderer={renderer}
                   onCurrentPageChange={setCurrentPage}
+                  onEffectiveZoomChange={setFitPercent}
+                  onZoomStep={(direction) => setZoom((z) => stepZoom(z, direction, fitPercent))}
                 />
               )}
             </main>

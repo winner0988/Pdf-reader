@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { createRef, useRef, type Ref } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PageSize, Zoom } from "@/features/shell/model";
+import type { PageSize, Rotation, Zoom } from "@/features/shell/model";
 import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
 import { CSS_PX_PER_PT, PAGE_GAP_PX, PAGE_PADDING_PX } from "@/features/viewer/layout";
 import type { PageRenderer, RenderJob } from "@/features/viewer/renderer";
@@ -46,12 +46,14 @@ const raster = (): RasterImage => ({ width: 2, height: 2, pixels: new Uint8Clamp
 type HarnessProps = {
   pages: PageSize[];
   zoom?: Zoom;
+  rotation?: Rotation;
   renderer?: PageRenderer;
   onPage?: (page: number) => void;
+  onZoomStep?: (direction: 1 | -1) => void;
   view?: Ref<DocumentViewHandle>;
 };
 
-function Harness({ pages, zoom = 100, renderer, onPage, view }: HarnessProps) {
+function Harness({ pages, zoom = 100, rotation = 0, renderer, onPage, onZoomStep, view }: HarnessProps) {
   const scroller = useRef<HTMLElement>(null);
   return (
     <main ref={scroller} data-testid="scroller" style={{ overflow: "auto" }}>
@@ -59,11 +61,12 @@ function Harness({ pages, zoom = 100, renderer, onPage, view }: HarnessProps) {
         ref={view}
         pages={pages}
         zoom={zoom}
-        rotation={0}
+        rotation={rotation}
         scrollContainer={scroller}
         doc={7}
         renderer={renderer}
         onCurrentPageChange={onPage}
+        onZoomStep={onZoomStep}
         requestDelayMs={0}
       />
     </main>
@@ -185,10 +188,16 @@ describe("DocumentView", () => {
       const { rerender } = render(<Harness pages={[LETTER]} renderer={renderer} />);
       act(() => vi.advanceTimersByTime(1)); // the first scale is kept from here on
       rerender(<Harness pages={[LETTER]} zoom={200} renderer={renderer} />);
+      // While the zoom is changing, the old request is dropped and nothing new is asked for.
       expect(calls).toHaveLength(1);
-      act(() => vi.advanceTimersByTime(200));
-      expect(calls).toHaveLength(2);
       expect(calls[0]!.cancel).toHaveBeenCalled();
+      rerender(<Harness pages={[LETTER]} zoom={300} renderer={renderer} />);
+      act(() => vi.advanceTimersByTime(100));
+      rerender(<Harness pages={[LETTER]} zoom={200} renderer={renderer} />);
+      act(() => vi.advanceTimersByTime(100));
+      expect(calls).toHaveLength(1);
+      act(() => vi.advanceTimersByTime(100));
+      expect(calls).toHaveLength(2);
       expect(calls[1]!.args.scale).toBe(2.667);
     } finally {
       vi.useRealTimers();
@@ -241,10 +250,109 @@ describe("DocumentView", () => {
       for (let page = 20; page <= 40; page += 5) scrollTo(element, PAGE_PADDING_PX + PITCH * page);
       expect(calls).toHaveLength(0);
       act(() => vi.advanceTimersByTime(100)); // REQUEST_DELAY_MS
-      // Only the pages where the scroll stopped are rendered.
+      // Only the pages where the scroll stopped are rendered, the one on screen first.
+      expect(calls.map((call) => call.args.pageIndex)).toEqual([40]);
+      act(() => vi.advanceTimersByTime(150)); // NEARBY_EXTRA_DELAY_MS
       expect(calls.map((call) => call.args.pageIndex).sort((a, b) => a - b)).toEqual([38, 39, 40, 41, 42]);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe("zoom and rotation (MVP-08)", () => {
+    const pages: PageSize[] = Array(100).fill(LETTER);
+
+    it("Ctrl+wheel zooms in and out instead of the WebView, plain wheel scrolls", () => {
+      const onZoomStep = vi.fn();
+      render(<Harness pages={pages} onZoomStep={onZoomStep} />);
+      const scroller = sizeScroller(800);
+      const wheel = (init: WheelEventInit) => {
+        const event = new WheelEvent("wheel", { cancelable: true, ...init });
+        scroller.dispatchEvent(event);
+        return event;
+      };
+
+      expect(wheel({ ctrlKey: true, deltaY: -100 }).defaultPrevented).toBe(true);
+      expect(onZoomStep).toHaveBeenLastCalledWith(1);
+      wheel({ ctrlKey: true, deltaY: 100 });
+      expect(onZoomStep).toHaveBeenLastCalledWith(-1);
+      // Small (touchpad) deltas add up to one step.
+      wheel({ ctrlKey: true, deltaY: -30 });
+      expect(onZoomStep).toHaveBeenCalledTimes(2);
+      wheel({ ctrlKey: true, deltaY: -30 });
+      expect(onZoomStep).toHaveBeenCalledTimes(3);
+
+      expect(wheel({ deltaY: 100 }).defaultPrevented).toBe(false);
+      expect(onZoomStep).toHaveBeenCalledTimes(3);
+    });
+
+    it("stays on page 50 when zooming to 400% and back", () => {
+      const onPage = vi.fn();
+      const { rerender } = render(<Harness pages={pages} onPage={onPage} />);
+      const scroller = sizeScroller(800, 1000);
+      const start = PAGE_PADDING_PX + PITCH * 49 + 200; // 200 px into page 50
+      scrollTo(scroller, start);
+      expect(onPage).toHaveBeenLastCalledWith(50);
+
+      rerender(<Harness pages={pages} zoom={400} onPage={onPage} />);
+      act(() => scroller.dispatchEvent(new Event("scroll")));
+      expect(onPage).toHaveBeenLastCalledWith(50);
+      expect(scroller.scrollLeft).toBeGreaterThan(0); // the page is wider than the window now
+      const page = screen.getByRole("img", { name: "第 50 頁" });
+      expect(parseFloat(page.style.left)).toBe(PAGE_PADDING_PX);
+
+      rerender(<Harness pages={pages} zoom={100} onPage={onPage} />);
+      act(() => scroller.dispatchEvent(new Event("scroll")));
+      expect(onPage).toHaveBeenLastCalledWith(50);
+      expect(scroller.scrollTop).toBeCloseTo(start, 0);
+      expect(scroller.scrollLeft).toBe(0);
+    });
+
+    it("the page being read keeps its bitmap while zooming (it never unmounts)", async () => {
+      const { renderer, calls } = fakeRenderer();
+      const { rerender } = render(<Harness pages={pages} renderer={renderer} />);
+      const scroller = sizeScroller(800, 1000);
+      scrollTo(scroller, PAGE_PADDING_PX + PITCH * 49 + 200);
+      const page50 = screen.getByRole("img", { name: "第 50 頁" });
+      const request = calls.find((call) => call.args.pageIndex === 49)!;
+      await act(async () => request.resolve(raster()));
+      expect(page50).toHaveAttribute("data-state", "ready");
+
+      for (const zoom of [110, 125, 150, 200, 400]) {
+        rerender(<Harness pages={pages} zoom={zoom} renderer={renderer} />);
+        expect(screen.getByRole("img", { name: "第 50 頁" })).toBe(page50);
+      }
+      expect(page50).toHaveAttribute("data-state", "ready");
+    });
+
+    it("two zoom steps before the scroll event arrives still keep the page", () => {
+      const onPage = vi.fn();
+      const { rerender } = render(<Harness pages={pages} onPage={onPage} />);
+      const scroller = sizeScroller(800, 1000);
+      scrollTo(scroller, PAGE_PADDING_PX + PITCH * 49 + 200);
+
+      rerender(<Harness pages={pages} zoom={200} onPage={onPage} />);
+      rerender(<Harness pages={pages} zoom={400} onPage={onPage} />);
+      act(() => scroller.dispatchEvent(new Event("scroll")));
+      expect(onPage).toHaveBeenLastCalledWith(50);
+    });
+
+    it("keeps the page when rotating, with swapped page sizes", () => {
+      const onPage = vi.fn();
+      const { rerender } = render(<Harness pages={pages} onPage={onPage} />);
+      const scroller = sizeScroller(800, 1200);
+      scrollTo(scroller, PAGE_PADDING_PX + PITCH * 29 + 100);
+      expect(onPage).toHaveBeenLastCalledWith(30);
+
+      rerender(<Harness pages={pages} rotation={90} onPage={onPage} />);
+      act(() => scroller.dispatchEvent(new Event("scroll")));
+      expect(onPage).toHaveBeenLastCalledWith(30);
+      const page = screen.getByRole("img", { name: "第 30 頁" });
+      expect(parseFloat(page.style.width)).toBeCloseTo(792 * CSS_PX_PER_PT);
+      expect(parseFloat(page.style.height)).toBeCloseTo(612 * CSS_PX_PER_PT);
+      // The scroll range follows: 100 landscape pages are shorter than 100 portrait ones.
+      const content = scroller.firstElementChild as HTMLElement;
+      expect(parseFloat(content.style.height)).toBeLessThan(PITCH * 100);
+    });
   });
 });

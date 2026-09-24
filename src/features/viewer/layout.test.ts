@@ -4,9 +4,14 @@ import {
   CSS_PX_PER_PT,
   PAGE_GAP_PX,
   PAGE_PADDING_PX,
+  anchorAt,
+  contentWidth,
   currentPageAt,
   layoutPages,
+  pageLeft,
   renderScale,
+  rotateAnchor,
+  scrollForAnchor,
   scrollTopFor,
   visibleRange,
   zoomFactor,
@@ -22,6 +27,7 @@ describe("layoutPages", () => {
     const layout = layoutPages([LETTER, LANDSCAPE], 0, 1);
     const letterHeight = 792 * CSS_PX_PER_PT; // 1056 px
     expect(layout.boxes[0]).toEqual({ top: PAGE_PADDING_PX, width: 816, height: letterHeight });
+    expect(layout.maxWidth).toBeCloseTo(842 * CSS_PX_PER_PT);
     expect(layout.boxes[1]!.top).toBe(PAGE_PADDING_PX + letterHeight + PAGE_GAP_PX);
     expect(layout.totalHeight).toBeCloseTo(2 * PAGE_PADDING_PX + letterHeight + PAGE_GAP_PX + 595 * CSS_PX_PER_PT);
   });
@@ -33,12 +39,12 @@ describe("layoutPages", () => {
   });
 
   it("an empty document has no height", () => {
-    expect(layoutPages([], 0, 1)).toEqual({ boxes: [], totalHeight: 0 });
+    expect(layoutPages([], 0, 1)).toEqual({ boxes: [], totalHeight: 0, maxWidth: 0 });
   });
 });
 
 describe("zoomFactor", () => {
-  const viewport = { top: 0, width: 1000, height: 800 };
+  const viewport = { top: 0, left: 0, width: 1000, height: 800 };
 
   it("uses percentages directly", () => {
     expect(zoomFactor(150, [LETTER], 0, viewport)).toBe(1.5);
@@ -54,10 +60,10 @@ describe("zoomFactor", () => {
     expect(792 * CSS_PX_PER_PT * factor).toBeCloseTo(800 - 2 * PAGE_PADDING_PX);
   });
 
-  it("falls back to 100% before the viewport is measured, and stays within 25%–800%", () => {
-    expect(zoomFactor("fitWidth", [LETTER], 0, { top: 0, width: 0, height: 0 })).toBe(1);
+  it("falls back to 100% before the viewport is measured, and fits within 25%–200%", () => {
+    expect(zoomFactor("fitWidth", [LETTER], 0, { top: 0, left: 0, width: 0, height: 0 })).toBe(1);
     expect(zoomFactor("fitWidth", [{ widthPt: 100_000, heightPt: 10 }], 0, viewport)).toBe(0.25);
-    expect(zoomFactor("fitWidth", [{ widthPt: 1, heightPt: 1 }], 0, viewport)).toBe(8);
+    expect(zoomFactor("fitWidth", [{ widthPt: 100, heightPt: 100 }], 0, viewport)).toBe(2);
   });
 });
 
@@ -115,5 +121,84 @@ describe("renderScale", () => {
   it("stays within the contract limits", () => {
     expect(renderScale(100, 3)).toBe(LIMITS.maxRenderScale);
     expect(renderScale(0.0001, 1)).toBe(LIMITS.minRenderScale);
+  });
+});
+
+describe("horizontal layout", () => {
+  it("scrolls sideways only when a page is wider than the viewport", () => {
+    const layout = layoutPages([LETTER], 0, 1); // 816 px wide
+    expect(contentWidth(layout, 1000)).toBe(1000);
+    expect(pageLeft(layout.boxes[0]!, 1000)).toBe(92);
+    const zoomed = layoutPages([LETTER], 0, 4); // 3264 px wide
+    expect(contentWidth(zoomed, 1000)).toBe(3264 + 2 * PAGE_PADDING_PX);
+    expect(pageLeft(zoomed.boxes[0]!, contentWidth(zoomed, 1000))).toBe(PAGE_PADDING_PX);
+  });
+});
+
+describe("zoom anchoring", () => {
+  const pages = letters(100);
+  const viewport = { width: 1000, height: 800 };
+  const center = { x: 500, y: 400 };
+
+  it("keeps the point under the anchor when zooming from 100% to 400% and back", () => {
+    const at100 = layoutPages(pages, 0, 1);
+    const scroll100 = { top: scrollTopFor(at100, 50) + 300, left: 0 };
+    const anchor = anchorAt(at100, contentWidth(at100, 1000), scroll100, center)!;
+    expect(anchor.pageIndex).toBe(49);
+
+    const at400 = layoutPages(pages, 0, 4);
+    const width400 = contentWidth(at400, 1000);
+    const scroll400 = scrollForAnchor(at400, width400, anchor, center, viewport);
+    const again = anchorAt(at400, width400, scroll400, center)!;
+    expect(again.pageIndex).toBe(49);
+    expect(again.fx).toBeCloseTo(anchor.fx);
+    expect(again.fy).toBeCloseTo(anchor.fy);
+    expect(scroll400.left).toBeGreaterThan(0); // the wide page scrolls to keep the anchor
+
+    const back = scrollForAnchor(at100, contentWidth(at100, 1000), again, center, viewport);
+    expect(back.top).toBeCloseTo(scroll100.top);
+    expect(currentPageAt(at100, { top: back.top, height: 800 })).toBe(50);
+  });
+
+  it("anchors at the cursor, not only at the center", () => {
+    const at100 = layoutPages(pages, 0, 1);
+    const cursor = { x: 200, y: 100 };
+    const anchor = anchorAt(at100, 1000, { top: 5000, left: 0 }, cursor)!;
+    const at200 = layoutPages(pages, 0, 2);
+    const width = contentWidth(at200, 1000);
+    const scroll = scrollForAnchor(at200, width, anchor, cursor, viewport);
+    const again = anchorAt(at200, width, scroll, cursor)!;
+    expect([again.pageIndex, again.fx, again.fy].map((v) => Math.round(v * 1000))).toEqual(
+      [anchor.pageIndex, anchor.fx, anchor.fy].map((v) => Math.round(v * 1000)),
+    );
+  });
+
+  it("stays within the scrollable range", () => {
+    const layout = layoutPages(letters(2), 0, 1);
+    const anchor = { pageIndex: 0, fx: 0, fy: 0 };
+    expect(scrollForAnchor(layout, 1000, anchor, { x: 900, y: 700 }, viewport)).toEqual({ top: 0, left: 0 });
+    const last = { pageIndex: 1, fx: 1, fy: 1 };
+    const scroll = scrollForAnchor(layout, 1000, last, { x: 0, y: 0 }, viewport);
+    expect(scroll.top).toBeCloseTo(layout.totalHeight - 800);
+  });
+});
+
+describe("rotateAnchor", () => {
+  const anchor = { pageIndex: 3, fx: 0.2, fy: 0.1 };
+
+  it("turns points on the page with the view", () => {
+    // Clockwise: the top-left area moves to the top-right.
+    expect(rotateAnchor(anchor, 0, 90)).toEqual({ pageIndex: 3, fx: 0.9, fy: 0.2 });
+    const half = rotateAnchor(anchor, 0, 180);
+    expect([half.fx, half.fy].map((v) => Math.round(v * 10) / 10)).toEqual([0.8, 0.9]);
+    const counter = rotateAnchor(anchor, 90, 0); // 270 clockwise
+    expect([counter.fx, counter.fy].map((v) => Math.round(v * 10) / 10)).toEqual([0.1, 0.8]);
+  });
+
+  it("four quarter turns change nothing", () => {
+    let turned = anchor;
+    for (const [from, to] of [[0, 90], [90, 180], [180, 270], [270, 0]] as const) turned = rotateAnchor(turned, from, to);
+    expect(turned.fx).toBeCloseTo(anchor.fx);
+    expect(turned.fy).toBeCloseTo(anchor.fy);
   });
 });
