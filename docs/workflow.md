@@ -39,10 +39,11 @@ flowchart LR
 | CI | `PR hygiene` | PR 標題符合 Conventional Commits、內文連結 Issue | 現在（僅 PR） |
 | CI | `Rust (Windows)` | `cargo fmt`、`clippy -D warnings`、`cargo test` | 出現 `Cargo.toml` 後 |
 | CI | `Frontend` | `pnpm lint`、`typecheck`、`test`、`build` | 出現 `package.json` 後 |
+| CI | `E2E (Windows)` | 建置 release app 與 worker，以 Playwright 操作真正的 app（`pnpm e2e`，見 [e2e.md](architecture/e2e.md)）；失敗時上傳截圖與日誌（保留 7 天） | 兩者都存在後 |
 | Security | `Secret scan` | gitleaks 掃描所有 commit | 現在 |
 | Security | `Dependency audit` | `cargo deny`、`pnpm audit` | 出現 `deny.toml`／`package.json` 後；每週一排程 |
 
-E2E 測試由 QA-02 加入，fuzzing 由 QA-03 加入。
+fuzzing 由 QA-03 加入。
 
 ## GitHub 設定（需在網頁上手動完成）
 
@@ -56,7 +57,7 @@ Settings → Rules → Rulesets → New branch ruleset：
 - 勾選 **Restrict deletions**、**Block force pushes**、**Require linear history**
 - 勾選 **Require a pull request before merging**
   - Allowed merge methods：只留 **Squash**
-- 勾選 **Require status checks to pass**，加入：`Guardrails`、`PR hygiene`、`Rust (Windows)`、`Frontend`、`Secret scan`
+- 勾選 **Require status checks to pass**，加入：`Guardrails`、`PR hygiene`、`Rust (Windows)`、`Frontend`、`E2E (Windows)`、`Secret scan`
   - `Dependency audit` 建議先不設為必要（新公告的弱點會讓無關 PR 突然失敗），改看每週排程結果
 - 若你是唯一維護者，**不要**勾「Require approvals」，否則你無法合併 AI 以你帳號開的 PR；改用 CODEOWNERS + `needs-security-review` 標籤當人工關卡
 
@@ -68,7 +69,7 @@ Settings → General → Pull Requests：只啟用 **Allow squash merging**（�
 
 Settings → Actions → General：Workflow permissions 選 **Read repository contents**。
 
-> 私有 repo 的 Actions 每月有免費分鐘數上限，Windows runner 以 2 倍計算。`Rust (Windows)` 是最耗分鐘的 job。
+> 私有 repo 的 Actions 每月有免費分鐘數上限，Windows runner 以 2 倍計算。`Rust (Windows)` 與 `E2E (Windows)` 是最耗分鐘的 job（E2E 要建置 release 版的 MuPDF；有快取時較快）。
 
 ### 4. 標籤與工作卡
 
