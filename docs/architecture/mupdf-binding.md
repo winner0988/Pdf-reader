@@ -90,5 +90,4 @@ CI 由 `Swatinem/rust-cache` 快取 `target/`（含 MuPDF 建置結果），`Car
 
 ## 尚未解決
 
-- **AES-256 與簽章樣本**：MuPDF 可用後補（#27）。
 - **worker 隔離**：本文件只涵蓋引擎本身；行程隔離、handle 交付與沙盒見 MVP-04。
