@@ -22,6 +22,24 @@ export const corpus = (file: string) => path.join(ROOT, "tests", "corpus", file)
 
 const STARTUP_TIMEOUT_MS = 30_000;
 
+/**
+ * WebView2 Runtime 150 and later ignore WEBVIEW2_* environment variables and per-user policy in
+ * elevated processes; only machine policy still adds browser arguments there. GitHub's Windows
+ * runners run elevated, so on CI (only: it changes machine-wide settings) the debugging port is
+ * also set as that policy, for this executable, while the app starts.
+ */
+const MACHINE_POLICY = "HKLM\\Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments";
+
+function setDebuggingPolicy(port: number | null) {
+  if (!process.env.CI) return;
+  const name = path.basename(APP);
+  const args =
+    port === null
+      ? ["delete", MACHINE_POLICY, "/v", name, "/f"]
+      : ["add", MACHINE_POLICY, "/v", name, "/t", "REG_SZ", "/d", `--remote-debugging-port=${port}`, "/f"];
+  execFileSync("reg", args, { stdio: "ignore" });
+}
+
 async function freePort(): Promise<number> {
   const server = createServer();
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -107,6 +125,11 @@ function stop(running: Running) {
   } catch {
     // Already gone.
   }
+  try {
+    setDebuggingPolicy(null);
+  } catch {
+    // Not set (or already removed).
+  }
   // WebView2 can hold its profile for a moment after exiting.
   rmSync(running.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }
@@ -121,6 +144,7 @@ export const test = base.extend<{
     await provide(async (file) => {
       const port = await freePort();
       const profile = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-"));
+      setDebuggingPolicy(port);
       const child = spawn(APP, file ? [file] : [], {
         env: {
           ...process.env,
