@@ -3,8 +3,6 @@ import { useRef, useState } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AboutDialog, ShortcutsDialog } from "@/features/shell/dialogs";
 import { rotate, stepZoom, type Rotation, type ShellState, type Zoom } from "@/features/shell/model";
-import { pageElementId } from "@/features/shell/format";
-import { PageCanvas } from "@/features/shell/PageCanvas";
 import { SearchBar } from "@/features/shell/SearchBar";
 import { SecurityBanner } from "@/features/shell/SecurityBanner";
 import { Sidebar } from "@/features/shell/Sidebar";
@@ -13,6 +11,8 @@ import { StatusBar } from "@/features/shell/StatusBar";
 import { Toolbar } from "@/features/shell/Toolbar";
 import { useShortcuts } from "@/features/shortcuts/useShortcuts";
 import { useTheme } from "@/features/theme/useTheme";
+import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
+import type { PageRenderer } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
 
 type ReaderShellProps = {
@@ -22,6 +22,8 @@ type ReaderShellProps = {
   onRetry?: () => void;
   /** Files are being dragged over the window: the canvas shows it is a drop target. */
   dropActive?: boolean;
+  /** Renders pages; without it (demo data, tests) pages are placeholders. */
+  renderer?: PageRenderer;
   version?: string;
   /** Delay before the loading state appears; tests pass 0. */
   loadingDelayMs?: number;
@@ -54,6 +56,7 @@ export function ReaderShell({
   onClose,
   onRetry,
   dropActive = false,
+  renderer,
   version = "0.1.0",
   loadingDelayMs,
 }: ReaderShellProps) {
@@ -66,6 +69,8 @@ export function ReaderShell({
   const [currentPage, setCurrentPage] = useState(1);
   const [dialog, setDialog] = useState<"shortcuts" | "about" | null>(null);
   const pageInputRef = useRef<HTMLInputElement>(null);
+  const canvasRef = useRef<HTMLElement>(null);
+  const viewRef = useRef<DocumentViewHandle>(null);
 
   const document_ = state.kind === "open" ? state.document : null;
   const pageCount = document_?.pages.length ?? 0;
@@ -84,7 +89,7 @@ export function ReaderShell({
   const goToPage = (page: number) => {
     const clamped = Math.min(Math.max(page, 1), pageCount);
     setCurrentPage(clamped);
-    window.document.getElementById(pageElementId(clamped))?.scrollIntoView?.({ block: "start" });
+    viewRef.current?.scrollToPage(clamped);
   };
 
   const whenOpen = (action: () => void) => () => {
@@ -105,8 +110,13 @@ export function ReaderShell({
     goToPage: () => {
       if (document_) pageInputRef.current?.focus();
     },
-    firstPage: whenOpen(() => goToPage(1)),
-    lastPage: whenOpen(() => goToPage(pageCount)),
+    // Inline rather than through whenOpen: goToPage uses a ref, which must not be touched during render.
+    firstPage: () => {
+      if (document_) goToPage(1);
+    },
+    lastPage: () => {
+      if (document_) goToPage(pageCount);
+    },
     toggleSidebar: () => setSidebarOpen((open) => !open),
     nextRegion: () => focusRegion(1),
     previousRegion: () => focusRegion(-1),
@@ -145,6 +155,7 @@ export function ReaderShell({
               <SecurityBanner findings={findings} onDismiss={() => setBannerDismissed(true)} />
             )}
             <main
+              ref={canvasRef}
               aria-label={strings.canvas.label}
               data-region="canvas"
               data-drop-active={dropActive || undefined}
@@ -162,7 +173,18 @@ export function ReaderShell({
               {state.kind === "error" && (
                 <ErrorState code={state.code} displayName={state.displayName} onOpen={onOpen} onRetry={onRetry} />
               )}
-              {document_ && <PageCanvas pages={document_.pages} zoom={zoom} rotation={rotation} />}
+              {document_ && (
+                <DocumentView
+                  ref={viewRef}
+                  pages={document_.pages}
+                  zoom={zoom}
+                  rotation={rotation}
+                  scrollContainer={canvasRef}
+                  doc={document_.doc}
+                  renderer={renderer}
+                  onCurrentPageChange={setCurrentPage}
+                />
+              )}
             </main>
             {document_ && searchOpen && (
               <div className="pointer-events-none absolute inset-x-0 top-0 *:pointer-events-auto">

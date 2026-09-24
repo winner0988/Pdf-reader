@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { tauriOpenApi, type OpenApi } from "@/features/open/api";
 import { OpenNotice } from "@/features/open/OpenNotice";
@@ -6,9 +6,13 @@ import { useOpenSession } from "@/features/open/useOpenSession";
 import { DevDemoSwitcher } from "@/features/shell/DevDemoSwitcher";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
+import { createPageRenderer, tauriRenderApi, type RenderApi } from "@/features/viewer/renderer";
 
-export default function App({ api = tauriOpenApi }: { api?: OpenApi }) {
+type AppProps = { api?: OpenApi; renderApi?: RenderApi };
+
+export default function App({ api = tauriOpenApi, renderApi = tauriRenderApi }: AppProps) {
   const { session, open, retry, close, dismissNotice } = useOpenSession(api);
+  const renderer = useMemo(() => createPageRenderer(renderApi), [renderApi]);
   // Development only: fake states for working on the UI without the main process.
   const [demo, setDemo] = useState<ShellState | null>(null);
 
@@ -17,6 +21,7 @@ export default function App({ api = tauriOpenApi }: { api?: OpenApi }) {
       <ReaderShell
         state={demo ?? session.shell}
         dropActive={session.dragActive}
+        renderer={renderer}
         onOpen={() => {
           setDemo(null);
           open();

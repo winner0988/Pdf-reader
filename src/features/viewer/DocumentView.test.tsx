@@ -1,0 +1,250 @@
+import { act, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { createRef, useRef, type Ref } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { PageSize, Zoom } from "@/features/shell/model";
+import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
+import { CSS_PX_PER_PT, PAGE_GAP_PX, PAGE_PADDING_PX } from "@/features/viewer/layout";
+import type { PageRenderer, RenderJob } from "@/features/viewer/renderer";
+import { strings } from "@/i18n/zh-TW";
+import type { IpcError, RenderPageArgs } from "@/ipc/generated/contract";
+import type { RasterImage } from "@/ipc/raster";
+
+const LETTER = { widthPt: 612, heightPt: 792 };
+const PITCH = 792 * CSS_PX_PER_PT + PAGE_GAP_PX; // one Letter page at 100% plus the gap
+
+type Call = {
+  args: Omit<RenderPageArgs, "request">;
+  resolve: (raster: RasterImage) => void;
+  reject: (error: IpcError) => void;
+  cancel: ReturnType<typeof vi.fn>;
+};
+
+/** Records every render request; the test settles them. */
+function fakeRenderer() {
+  const calls: Call[] = [];
+  const renderer: PageRenderer = {
+    render(args) {
+      let resolve: Call["resolve"] = () => {};
+      let reject: Call["reject"] = () => {};
+      const result = new Promise<RasterImage>((ok, fail) => {
+        resolve = ok;
+        reject = fail;
+      });
+      const cancel = vi.fn(() => reject({ code: "cancelled", message: "" }));
+      calls.push({ args, resolve, reject, cancel });
+      return { result, cancel } satisfies RenderJob;
+    },
+  };
+  const active = () => calls.filter((call) => call.cancel.mock.calls.length === 0);
+  return { renderer, calls, active };
+}
+
+const raster = (): RasterImage => ({ width: 2, height: 2, pixels: new Uint8ClampedArray(16) });
+
+type HarnessProps = {
+  pages: PageSize[];
+  zoom?: Zoom;
+  renderer?: PageRenderer;
+  onPage?: (page: number) => void;
+  view?: Ref<DocumentViewHandle>;
+};
+
+function Harness({ pages, zoom = 100, renderer, onPage, view }: HarnessProps) {
+  const scroller = useRef<HTMLElement>(null);
+  return (
+    <main ref={scroller} data-testid="scroller" style={{ overflow: "auto" }}>
+      <DocumentView
+        ref={view}
+        pages={pages}
+        zoom={zoom}
+        rotation={0}
+        scrollContainer={scroller}
+        doc={7}
+        renderer={renderer}
+        onCurrentPageChange={onPage}
+        requestDelayMs={0}
+      />
+    </main>
+  );
+}
+
+/** jsdom has no layout: give the scroller a size, and scroll it. */
+function sizeScroller(height: number, width = 1000) {
+  const element = screen.getByTestId("scroller");
+  Object.defineProperty(element, "clientHeight", { configurable: true, value: height });
+  Object.defineProperty(element, "clientWidth", { configurable: true, value: width });
+  return element;
+}
+
+function scrollTo(element: HTMLElement, top: number) {
+  act(() => {
+    element.scrollTop = top;
+    element.dispatchEvent(new Event("scroll"));
+  });
+}
+
+const mountedPages = () =>
+  screen.getAllByRole("img").map((page) => Number(page.getAttribute("aria-label")!.match(/\d+/)![0]));
+
+let putImageData: ReturnType<typeof vi.fn>;
+
+beforeEach(() => {
+  // jsdom implements neither 2D canvas nor ImageData.
+  putImageData = vi.fn();
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    putImageData,
+  } as unknown as CanvasRenderingContext2D);
+  vi.stubGlobal(
+    "ImageData",
+    class {
+      data: Uint8ClampedArray;
+      width: number;
+      height: number;
+      constructor(data: Uint8ClampedArray, width: number, height: number) {
+        this.data = data;
+        this.width = width;
+        this.height = height;
+      }
+    },
+  );
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+describe("DocumentView", () => {
+  it("mounts and renders only the pages near the viewport", () => {
+    const { renderer, calls } = fakeRenderer();
+    const { rerender } = render(<Harness pages={Array(1000).fill(LETTER)} renderer={renderer} />);
+    sizeScroller(800);
+    rerender(<Harness pages={Array(1000).fill(LETTER)} renderer={renderer} />);
+    scrollTo(screen.getByTestId("scroller"), 0);
+
+    expect(mountedPages()).toEqual([1, 2, 3]);
+    expect(calls.map((call) => call.args.pageIndex)).toEqual([0, 1, 2]);
+    expect(calls[0]!.args).toEqual({ doc: 7, pageIndex: 0, scale: 1.333, rotation: "none" });
+    // The scroll content still has the height of all 1000 pages.
+    const content = screen.getByTestId("scroller").firstElementChild as HTMLElement;
+    expect(parseFloat(content.style.height)).toBeGreaterThan(PITCH * 999);
+  });
+
+  it("cancels pages that scroll out of range and requests the new ones", () => {
+    const { renderer, calls, active } = fakeRenderer();
+    render(<Harness pages={Array(100).fill(LETTER)} renderer={renderer} />);
+    const scroller = sizeScroller(800);
+    scrollTo(scroller, 0);
+    const first = calls.slice(0, 3);
+
+    // Page 51 (index 50) fills the viewport; two pages on each side stay mounted.
+    scrollTo(scroller, PAGE_PADDING_PX + PITCH * 50);
+    expect(mountedPages()).toEqual([49, 50, 51, 52, 53]);
+    for (const call of first) expect(call.cancel).toHaveBeenCalled();
+    expect(active().map((call) => call.args.pageIndex).sort((a, b) => a - b)).toEqual([48, 49, 50, 51, 52]);
+  });
+
+  it("draws rendered pages at their native resolution", async () => {
+    const { renderer, calls } = fakeRenderer();
+    render(<Harness pages={[LETTER]} renderer={renderer} />);
+    await act(async () => calls[0]!.resolve(raster()));
+
+    const page = screen.getByRole("img", { name: "第 1 頁" });
+    expect(page).toHaveAttribute("data-state", "ready");
+    const canvas = page.querySelector("canvas")!;
+    expect([canvas.width, canvas.height]).toEqual([2, 2]);
+    expect(putImageData).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a failed page with a retry button, without affecting the others", async () => {
+    const { renderer, calls } = fakeRenderer();
+    const user = userEvent.setup();
+    render(<Harness pages={[LETTER, LETTER]} renderer={renderer} />);
+    await act(async () => {
+      calls[0]!.reject({ code: "workerCrashed", message: "" });
+      calls[1]!.resolve(raster());
+    });
+
+    const failed = screen.getByRole("img", { name: "第 1 頁" });
+    expect(failed).toHaveTextContent(strings.canvas.pageRenderFailed);
+    expect(screen.getByRole("img", { name: "第 2 頁" })).toHaveAttribute("data-state", "ready");
+
+    await user.click(screen.getByRole("button", { name: strings.error.retry }));
+    expect(calls).toHaveLength(3);
+    expect(calls[2]!.args.pageIndex).toBe(0);
+    await act(async () => calls[2]!.resolve(raster()));
+    expect(failed).toHaveAttribute("data-state", "ready");
+  });
+
+  it("re-renders at the new resolution once the zoom settles", () => {
+    vi.useFakeTimers();
+    try {
+      const { renderer, calls } = fakeRenderer();
+      const { rerender } = render(<Harness pages={[LETTER]} renderer={renderer} />);
+      act(() => vi.advanceTimersByTime(1)); // the first scale is kept from here on
+      rerender(<Harness pages={[LETTER]} zoom={200} renderer={renderer} />);
+      expect(calls).toHaveLength(1);
+      act(() => vi.advanceTimersByTime(200));
+      expect(calls).toHaveLength(2);
+      expect(calls[0]!.cancel).toHaveBeenCalled();
+      expect(calls[1]!.args.scale).toBe(2.667);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports the page being read and scrolls to a page on request", () => {
+    const onPage = vi.fn();
+    const view = createRef<DocumentViewHandle>();
+    render(<Harness pages={Array(20).fill(LETTER)} onPage={onPage} view={view} />);
+    const scroller = sizeScroller(800);
+
+    // Browsers fire `scroll` after scrollTop changes; jsdom does not.
+    act(() => {
+      view.current!.scrollToPage(10);
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    expect(onPage).toHaveBeenLastCalledWith(10);
+    expect(mountedPages()).toContain(10);
+  });
+
+  it("without a renderer (demo data) pages stay placeholders", () => {
+    render(<Harness pages={[LETTER]} />);
+    expect(screen.getByRole("img", { name: "第 1 頁" })).toHaveAttribute("data-state", "loading");
+  });
+
+  it("does not render pages that only flash by", () => {
+    vi.useFakeTimers();
+    try {
+      const { renderer, calls } = fakeRenderer();
+      function Delayed() {
+        const scroller = useRef<HTMLElement>(null);
+        return (
+          <main ref={scroller} data-testid="scroller">
+            <DocumentView
+              pages={Array(100).fill(LETTER)}
+              zoom={100}
+              rotation={0}
+              scrollContainer={scroller}
+              doc={7}
+              renderer={renderer}
+            />
+          </main>
+        );
+      }
+      render(<Delayed />);
+      const element = sizeScroller(800);
+      scrollTo(element, 0);
+      // Fly past pages 20-40 faster than the request delay.
+      for (let page = 20; page <= 40; page += 5) scrollTo(element, PAGE_PADDING_PX + PITCH * page);
+      expect(calls).toHaveLength(0);
+      act(() => vi.advanceTimersByTime(100)); // REQUEST_DELAY_MS
+      // Only the pages where the scroll stopped are rendered.
+      expect(calls.map((call) => call.args.pageIndex).sort((a, b) => a - b)).toEqual([38, 39, 40, 41, 42]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

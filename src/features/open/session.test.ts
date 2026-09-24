@@ -31,6 +31,7 @@ describe("reduceSession", () => {
     expect(opened.shell).toEqual({
       kind: "open",
       document: {
+        doc: 4,
         displayName: "報告.pdf",
         pages: info.pages,
         outline: [],
