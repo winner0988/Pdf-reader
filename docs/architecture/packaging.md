@@ -74,7 +74,7 @@ REL-03（[#68](https://github.com/winner0988/Pdf-reader/issues/68)），規格 �
   - 沒有這個頁面的 Windows 版本會顯示預設應用程式清單；
   - 開不了時，對話框說明手動的路徑。
 - **視窗標題**：
-  - 顯示開啟中的檔名（`檔名 - PDF Reader`），由主行程在開啟與關閉文件後設定；
+  - 顯示開啟中的檔名（`檔名 — PDF Reader`），由主行程在開啟與關閉文件後設定；
   - 檔名不含資料夾。
 - **解除安裝**（`NSIS_HOOK_POSTUNINSTALL`）：移除以上所有項目。
   - 使用者若把 PDF Reader 設為預設，Windows 會在 ProgID 消失後自行改回；

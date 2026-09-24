@@ -7,7 +7,6 @@ import type { BlockedAction } from "@/ipc/generated/contract";
 export const strings = {
   appName: "PDF Reader",
   tagline: "離線運作 · 無遙測 · 開發中",
-  windowTitle: (displayName: string) => `${displayName} — PDF Reader`,
 
   empty: {
     title: "開啟 PDF 檔案",

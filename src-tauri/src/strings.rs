@@ -7,7 +7,7 @@ pub const OPEN_DIALOG_TITLE: &str = "開啟 PDF 檔案";
 /// apart (REL-03), then the app's name.
 pub fn window_title(file_name: Option<&str>) -> String {
     match file_name {
-        Some(name) => format!("{name} - PDF Reader"),
+        Some(name) => format!("{name} — PDF Reader"),
         None => "PDF Reader".to_owned(),
     }
 }
@@ -27,7 +27,7 @@ mod tests {
 
     #[test]
     fn the_window_title_names_the_open_file() {
-        assert_eq!(window_title(Some("report.pdf")), "report.pdf - PDF Reader");
+        assert_eq!(window_title(Some("report.pdf")), "report.pdf — PDF Reader");
         assert_eq!(window_title(None), "PDF Reader");
     }
 }

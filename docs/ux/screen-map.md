@@ -301,7 +301,7 @@
 |---|---|
 | OPEN_DIALOG_TITLE | 開啟 PDF 檔案 |
 | PDF_FILTER_NAME | PDF 檔案 |
-| window_title | `<檔名> - PDF Reader`；沒有開啟文件時為 `PDF Reader` |
+| window_title | `<檔名> — PDF Reader`；沒有開啟文件時為 `PDF Reader` |
 | WEBVIEW2_MISSING_TITLE | 無法開啟 PDF Reader |
 | WEBVIEW2_MISSING_MESSAGE | 這台電腦缺少 Microsoft Edge WebView2 Runtime，PDF Reader 需要它才能顯示畫面。（空一行）Windows 11 已內建 WebView2。如果它被移除了，請到 Microsoft 官方網站下載並安裝「WebView2 Runtime」，然後再開啟 PDF Reader：https://developer.microsoft.com/microsoft-edge/webview2/（空一行）PDF Reader 不會自行下載任何東西。 |
 
