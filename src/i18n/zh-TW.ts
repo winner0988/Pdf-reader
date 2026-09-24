@@ -24,6 +24,7 @@ export const strings = {
     close: (displayName: string) => `關閉「${displayName}」`,
     loading: "（正在開啟）",
     failed: "（無法開啟）",
+    locked: "（需要密碼）",
     tabLimit: (limit: number, ignored: number) =>
       `最多同時開啟 ${limit} 份文件，有 ${ignored} 個檔案沒有開啟。`,
   },
@@ -37,7 +38,8 @@ export const strings = {
       cancelled: "",
       notPdf: "這不是 PDF 檔案。",
       corrupted: "這個 PDF 檔案已損毀，無法開啟。",
-      encrypted: "這份文件有密碼保護，目前版本尚不支援開啟加密文件。",
+      encrypted: "這份文件需要密碼才能開啟。",
+      unsupportedEncryption: "這份文件使用本程式不支援的加密方式（例如以憑證加密），無法開啟。",
       unreadable: "無法讀取這個檔案，請確認檔案存在且你有存取權限。",
       tooLarge: "檔案太大，無法開啟。",
       limitExceeded: "內容超過可處理的上限，部分內容可能無法顯示。",
@@ -46,6 +48,15 @@ export const strings = {
       protocolViolation: "PDF 引擎回傳了無效的資料，已停止處理這份文件。",
       internal: "發生未預期的錯誤。",
     } satisfies Record<ErrorCode, string>,
+  },
+
+  password: {
+    title: "這份文件受密碼保護",
+    description: (displayName: string) => `輸入密碼以開啟「${displayName}」。密碼只用來開啟這份文件，不會被儲存。`,
+    label: "密碼",
+    submit: "解鎖",
+    cancel: "取消",
+    wrong: "密碼不正確，請再試一次。",
   },
 
   toolbar: {

@@ -22,6 +22,8 @@ export type ShellDocument = {
 export type ShellState =
   | { kind: "empty" }
   | { kind: "loading"; displayName: string }
+  /** An encrypted document waits for its password (MVP-16). */
+  | { kind: "password"; displayName: string; wrong: boolean }
   | { kind: "error"; code: ErrorCode; displayName?: string }
   | { kind: "open"; document: ShellDocument };
 

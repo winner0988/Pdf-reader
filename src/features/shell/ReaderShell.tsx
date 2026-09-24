@@ -18,7 +18,7 @@ import { AboutDialog, SetDefaultFailedDialog, ShortcutsDialog } from "@/features
 import { rotate, stepZoom, type Rotation, type ShellState, type Zoom } from "@/features/shell/model";
 import { SearchBar } from "@/features/shell/SearchBar";
 import { Sidebar } from "@/features/shell/Sidebar";
-import { EmptyState, ErrorState, LoadingState } from "@/features/shell/states";
+import { EmptyState, ErrorState, LoadingState, PasswordState } from "@/features/shell/states";
 import { StatusBar } from "@/features/shell/StatusBar";
 import { Toolbar } from "@/features/shell/Toolbar";
 import { useShortcuts } from "@/features/shortcuts/useShortcuts";
@@ -44,6 +44,8 @@ type ReaderShellProps = {
   onOpen: () => void;
   onClose?: () => void;
   onRetry?: () => void;
+  /** The password the user typed for an encrypted document (MVP-16). */
+  onUnlock?: (password: string) => void;
   /** Files are being dragged over the window: the canvas shows it is a drop target. */
   dropActive?: boolean;
   /** Renders pages; without it (demo data, tests) pages are placeholders. */
@@ -99,6 +101,7 @@ export function ReaderShell({
   onOpen,
   onClose,
   onRetry,
+  onUnlock,
   dropActive = false,
   renderer,
   outline,
@@ -361,6 +364,14 @@ export function ReaderShell({
               {state.kind === "empty" && <EmptyState onOpen={onOpen} />}
               {state.kind === "loading" && (
                 <LoadingState displayName={state.displayName} delayMs={loadingDelayMs} />
+              )}
+              {state.kind === "password" && (
+                <PasswordState
+                  displayName={state.displayName}
+                  wrong={state.wrong}
+                  onUnlock={(password) => onUnlock?.(password)}
+                  onCancel={() => onClose?.()}
+                />
               )}
               {state.kind === "error" && (
                 <ErrorState code={state.code} displayName={state.displayName} onOpen={onOpen} onRetry={onRetry} />

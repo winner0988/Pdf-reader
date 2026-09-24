@@ -7,6 +7,8 @@ import type { DocumentId, DocumentInfo, ErrorCode, OpenEvent, TabId } from "@/ip
 export type TabContent =
   | { kind: "loading" }
   | { kind: "open"; document: ShellDocument; hasOutline: boolean }
+  /** An encrypted file waits for its password (MVP-16); `wrong` after one that did not open it. */
+  | { kind: "password"; wrong: boolean }
   | { kind: "error"; code: ErrorCode };
 
 export type Tab = { tab: TabId; displayName: string; content: TabContent };
@@ -59,6 +61,8 @@ export function shellState(tab: Tab): ShellState {
       return { kind: "loading", displayName: tab.displayName };
     case "open":
       return { kind: "open", document: tab.content.document };
+    case "password":
+      return { kind: "password", displayName: tab.displayName, wrong: tab.content.wrong };
     case "error":
       return { kind: "error", code: tab.content.code, displayName: tab.displayName };
   }
@@ -123,6 +127,12 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsState {
           displayName: event.info.displayName,
           content: { kind: "open", document: toShellDocument(event.info), hasOutline: event.info.hasOutline },
         },
+        false,
+      );
+    case "passwordNeeded":
+      return upsert(
+        state,
+        { tab: event.tab, displayName: event.displayName, content: { kind: "password", wrong: event.wrong } },
         false,
       );
     case "failed":

@@ -1,8 +1,9 @@
 //! Values visible to the frontend. Serialized as camelCase JSON over Tauri IPC and mirrored in
 //! TypeScript by [`crate::typescript`]. Nothing in this module may carry a file path.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use ts_rs::TS;
+use zeroize::Zeroize;
 
 /// Opaque handle for an open document, assigned by the main process. Never a path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
@@ -12,6 +13,56 @@ pub struct DocumentId(pub u32);
 /// tab is closed, whether it opened or failed. Assigned by the main process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
 pub struct TabId(pub u32);
+
+/// A password the user typed to open an encrypted document (MVP-16, docs/architecture/encryption.md).
+/// It lives only while the document is being opened: it is never stored or logged (`Debug` does
+/// not show it), and its memory is wiped when it is dropped.
+#[derive(Clone, PartialEq, Eq, TS)]
+pub struct Password(String);
+
+impl Password {
+    pub fn new(password: String) -> Self {
+        Self(password)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Password {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Password(..)")
+    }
+}
+
+impl Drop for Password {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+/// A plain string on the wire.
+impl Serialize for Password {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for Password {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(Password)
+    }
+}
+
+/// Arguments of `unlock_tab`: the password for a tab that asked for one. Any other field is
+/// rejected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UnlockArgs {
+    pub tab: TabId,
+    pub password: Password,
+}
 
 /// Caller-chosen id used to correlate and cancel a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
@@ -411,8 +462,11 @@ pub enum ErrorCode {
     Cancelled,
     NotPdf,
     Corrupted,
-    /// Encrypted documents are not supported in the MVP.
+    /// The document needs a password (the tab asks for it, MVP-16).
     Encrypted,
+    /// Encrypted in a way the app cannot open (not the standard password security handler, for
+    /// example with a certificate).
+    UnsupportedEncryption,
     Unreadable,
     TooLarge,
     LimitExceeded,
@@ -445,6 +499,13 @@ pub enum OpenEvent {
     Opening { tab: TabId, display_name: String },
     #[serde(rename_all = "camelCase")]
     Opened { tab: TabId, info: DocumentInfo },
+    /// The tab's file is encrypted and needs a password; `wrong` after one that did not open it.
+    #[serde(rename_all = "camelCase")]
+    PasswordNeeded {
+        tab: TabId,
+        display_name: String,
+        wrong: bool,
+    },
     #[serde(rename_all = "camelCase")]
     Failed {
         tab: TabId,

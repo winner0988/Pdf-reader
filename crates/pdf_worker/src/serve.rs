@@ -14,7 +14,8 @@ use ipc_contract::limits::{
 };
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
-    DocumentId, LinkId, LinkTarget, OutlineItem, OutlineResult, PageLink, PageSize, Rect, RequestId,
+    DocumentId, LinkId, LinkTarget, OutlineItem, OutlineResult, PageLink, PageSize, Password, Rect,
+    RequestId,
 };
 use ipc_contract::worker::{
     FileHandle, OpenedDocument, Raster, WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
@@ -32,11 +33,15 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
     frame::send(&mut output, &WorkerResponse::hello())?;
     let mut documents: HashMap<DocumentId, PdfDocument> = HashMap::new();
 
-    while let Some(request) = frame::receive::<_, WorkerRequest>(&mut input)? {
+    // Wiped after decoding: an Open request may carry a password (MVP-16).
+    while let Some(request) = frame::receive_wiped::<_, WorkerRequest>(&mut input)? {
         let response = match request {
-            WorkerRequest::Open { request, doc, file } => {
-                Some(open(&mut documents, request, doc, file))
-            }
+            WorkerRequest::Open {
+                request,
+                doc,
+                file,
+                password,
+            } => Some(open(&mut documents, request, doc, file, password)),
             WorkerRequest::Render {
                 request,
                 doc,
@@ -153,17 +158,19 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
     Ok(())
 }
 
+/// Opens a document; `password` (MVP-16) is wiped when this returns, whatever happened.
 fn open(
     documents: &mut HashMap<DocumentId, PdfDocument>,
     request: RequestId,
     doc: DocumentId,
     file: FileHandle,
+    password: Option<Password>,
 ) -> WorkerResponse {
     let bytes = match read_limited(handle::take_file(file)) {
         Ok(bytes) => bytes,
         Err(response) => return response(request),
     };
-    let document = match PdfDocument::from_bytes(&bytes) {
+    let document = match PdfDocument::open(&bytes, password.as_ref().map(Password::as_str)) {
         Ok(document) => document,
         Err(engine) => return engine_error(request, &engine, WorkerErrorCode::Corrupted),
     };
@@ -303,6 +310,8 @@ fn engine_error(
     let code = match engine {
         EngineError::NotPdf => WorkerErrorCode::NotPdf,
         EngineError::Encrypted => WorkerErrorCode::Encrypted,
+        EngineError::WrongPassword => WorkerErrorCode::WrongPassword,
+        EngineError::UnsupportedEncryption => WorkerErrorCode::UnsupportedEncryption,
         EngineError::PageOutOfRange(_) => WorkerErrorCode::PageOutOfRange,
         EngineError::InvalidScale | EngineError::InvalidRotation => WorkerErrorCode::InvalidRequest,
         EngineError::TooLarge { .. } => WorkerErrorCode::LimitExceeded,

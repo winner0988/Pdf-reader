@@ -38,6 +38,9 @@ pub const MAX_URI_BYTES: u32 = 32_768;
 /// Maximum length of short text taken from a PDF: outline titles, blocked action targets.
 pub const MAX_TEXT_BYTES: u32 = 1_024;
 
+/// Maximum length of a document password (UTF-8 bytes, MVP-16). PDF itself uses at most 127.
+pub const MAX_PASSWORD_BYTES: u32 = 1_024;
+
 /// Maximum length of a search query (UTF-8 bytes).
 pub const MAX_QUERY_BYTES: u32 = 1_024;
 

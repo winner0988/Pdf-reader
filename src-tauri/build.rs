@@ -5,6 +5,7 @@ fn main() {
         "subscribe_open_events",
         "open_document_dialog",
         "retry_open",
+        "unlock_tab",
         "close_tab",
         "set_active_tab",
         "render_page",

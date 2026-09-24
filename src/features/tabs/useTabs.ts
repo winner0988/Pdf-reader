@@ -35,6 +35,13 @@ export function useTabs(api: OpenApi) {
     [api],
   );
 
+  const unlock = useCallback(
+    (tab: TabId, password: string) => {
+      api.unlock(tab, password).catch((error: unknown) => dispatch({ type: "failed", code: errorCode(error) }));
+    },
+    [api],
+  );
+
   const close = useCallback(
     (tab: TabId) => {
       // The tab goes away either way; a document the worker already lost needs no release.
@@ -48,5 +55,5 @@ export function useTabs(api: OpenApi) {
   const step = useCallback((by: 1 | -1) => dispatch({ type: "step", by }), []);
   const dismissNotice = useCallback(() => dispatch({ type: "dismissNotice" }), []);
 
-  return { state, open, retry, close, activate, step, dismissNotice };
+  return { state, open, retry, unlock, close, activate, step, dismissNotice };
 }

@@ -10,6 +10,7 @@ use std::io::{self, Read, Write};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use thiserror::Error;
+use zeroize::Zeroize;
 
 use crate::PROTOCOL_VERSION;
 use crate::limits::MAX_FRAME_BYTES;
@@ -73,6 +74,28 @@ pub fn receive<R: Read, T: DeserializeOwned>(reader: &mut R) -> Result<Option<T>
     read_frame(reader)?
         .map(|payload| decode(&payload))
         .transpose()
+}
+
+/// Like [`send`], then wipes the encoded bytes. For requests, which may carry a password
+/// (MVP-16); they are small, so wiping costs nothing measurable.
+pub fn send_wiped<W: Write, T: Serialize>(writer: &mut W, message: &T) -> Result<(), FrameError> {
+    let mut payload = encode(message)?;
+    let written = write_frame(writer, &payload);
+    payload.zeroize();
+    written
+}
+
+/// Like [`receive`], then wipes the received bytes: the decoded message has its own copy (a
+/// password in it wipes itself when dropped).
+pub fn receive_wiped<R: Read, T: DeserializeOwned>(
+    reader: &mut R,
+) -> Result<Option<T>, FrameError> {
+    let Some(mut payload) = read_frame(reader)? else {
+        return Ok(None);
+    };
+    let message = decode(&payload);
+    payload.zeroize();
+    message.map(Some)
 }
 
 /// Checks the worker's first message: it must be `Hello` with our protocol version.
@@ -174,6 +197,28 @@ mod tests {
         assert_eq!(first, render_request());
         assert_eq!(second, WorkerRequest::Shutdown);
         assert_eq!(end, None);
+    }
+
+    #[test]
+    fn wiped_frames_carry_the_same_messages() {
+        let request = WorkerRequest::Open {
+            request: RequestId(3),
+            doc: DocumentId(1),
+            file: crate::worker::FileHandle(8),
+            password: Some(crate::types::Password::new("secret".to_owned())),
+        };
+        let mut wire = Vec::new();
+        send_wiped(&mut wire, &request).unwrap();
+        let mut plain = Vec::new();
+        send(&mut plain, &request).unwrap();
+        assert_eq!(wire, plain);
+        let received: Option<WorkerRequest> = receive_wiped(&mut wire.as_slice()).unwrap();
+        assert_eq!(received, Some(request));
+        assert!(
+            receive_wiped::<_, WorkerRequest>(&mut [].as_slice())
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

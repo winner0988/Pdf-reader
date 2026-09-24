@@ -40,11 +40,27 @@ fn encrypted_samples_open_only_with_their_passwords() {
         ),
     ] {
         let bytes = corpus(name);
-        // The worker refuses them: encrypted documents are not supported in the MVP.
+        // The worker asks for a password (MVP-16), rejects a wrong one, and opens with either.
         assert!(
             matches!(PdfDocument::from_bytes(&bytes), Err(EngineError::Encrypted)),
             "{name}"
         );
+        assert!(
+            matches!(
+                PdfDocument::open(&bytes, Some("wrong")),
+                Err(EngineError::WrongPassword)
+            ),
+            "{name}"
+        );
+        for password in ["user", "owner"] {
+            let doc = PdfDocument::open(&bytes, Some(password))
+                .unwrap_or_else(|e| panic!("{name} with {password:?}: {e}"));
+            let lines = doc.page_text(0, 1000).expect("page text").lines;
+            assert!(
+                lines.iter().any(|line| line.text.contains(text)),
+                "{name} with {password:?}: {lines:?}"
+            );
+        }
         assert_eq!(text_with_password(&bytes, "wrong"), None, "{name}");
         for password in ["user", "owner"] {
             let found = text_with_password(&bytes, password)

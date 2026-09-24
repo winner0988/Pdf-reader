@@ -61,6 +61,37 @@ describe("states", () => {
     expect(screen.getByRole("button", { name: strings.error.retry })).toBeInTheDocument();
   });
 
+  it("password: asks for it, hands it over once and clears the field", async () => {
+    const onUnlock = vi.fn();
+    const onClose = vi.fn();
+    const { user } = renderShell({ kind: "password", displayName: "機密.pdf", wrong: false }, { onUnlock, onClose });
+
+    const form = screen.getByRole("form", { name: strings.password.title });
+    expect(within(form).getByText(strings.password.description("機密.pdf"))).toBeInTheDocument();
+    const field = screen.getByLabelText(strings.password.label);
+    expect(field).toHaveAttribute("type", "password");
+    expect(field).toHaveFocus();
+    expect(screen.getByRole("button", { name: strings.password.submit })).toBeDisabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await user.type(field, "s3cret{Enter}");
+    expect(onUnlock).toHaveBeenCalledExactlyOnceWith("s3cret");
+    expect(field).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: strings.password.cancel }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("password: says when the last one was wrong", () => {
+    renderShell({ kind: "password", displayName: "機密.pdf", wrong: true });
+    expect(screen.getByRole("alert")).toHaveTextContent(strings.password.wrong);
+    expect(screen.getByLabelText(strings.password.label)).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("error: explains encryption the app cannot open", () => {
+    renderShell({ kind: "error", code: "unsupportedEncryption", displayName: "憑證.pdf" });
+    expect(screen.getByRole("alert")).toHaveTextContent(strings.error.messages.unsupportedEncryption);
+  });
+
   it("open: shows toolbar, outline, pages and status", () => {
     renderShell(openState);
 

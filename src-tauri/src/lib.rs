@@ -68,6 +68,7 @@ pub fn run() {
             commands::subscribe_open_events,
             commands::open_document_dialog,
             commands::retry_open,
+            commands::unlock_tab,
             commands::close_tab,
             commands::set_active_tab,
             commands::render_page,
@@ -84,6 +85,9 @@ pub fn run() {
         ])
         .on_window_event(commands::on_window_event)
         .setup(move |app| {
+            let reporter = app.app_handle().clone();
+            app.state::<Documents>()
+                .set_reporter(move |event| reporter.state::<OpenEvents>().send(event));
             let handle = app.app_handle().clone();
             app.manage(Renderer::start(DEFAULT_CACHE_BYTES, move |args| {
                 handle.state::<Documents>().render(args)

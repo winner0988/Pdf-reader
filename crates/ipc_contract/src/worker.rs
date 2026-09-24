@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::PROTOCOL_VERSION;
 use crate::types::{
-    DocumentId, ErrorCode, OutlineResult, PageLink, PageSize, PageText, RequestId, Rotation,
-    SearchHit, SecurityReport,
+    DocumentId, ErrorCode, OutlineResult, PageLink, PageSize, PageText, Password, RequestId,
+    Rotation, SearchHit, SecurityReport,
 };
 
 /// A read-only file handle that the main process duplicated into the worker process.
@@ -25,6 +25,8 @@ pub enum WorkerRequest {
         request: RequestId,
         doc: DocumentId,
         file: FileHandle,
+        /// For an encrypted document (MVP-16): tried if the document needs a password.
+        password: Option<Password>,
     },
     Render {
         request: RequestId,
@@ -152,7 +154,11 @@ pub enum WorkerErrorCode {
     PageOutOfRange,
     NotPdf,
     Corrupted,
+    /// A password is needed, and none was given.
     Encrypted,
+    /// The given password does not open the document.
+    WrongPassword,
+    UnsupportedEncryption,
     Unreadable,
     LimitExceeded,
     Cancelled,
@@ -168,7 +174,8 @@ impl From<WorkerErrorCode> for ErrorCode {
             WorkerErrorCode::UnknownDocument => ErrorCode::UnknownDocument,
             WorkerErrorCode::NotPdf => ErrorCode::NotPdf,
             WorkerErrorCode::Corrupted => ErrorCode::Corrupted,
-            WorkerErrorCode::Encrypted => ErrorCode::Encrypted,
+            WorkerErrorCode::Encrypted | WorkerErrorCode::WrongPassword => ErrorCode::Encrypted,
+            WorkerErrorCode::UnsupportedEncryption => ErrorCode::UnsupportedEncryption,
             WorkerErrorCode::Unreadable => ErrorCode::Unreadable,
             WorkerErrorCode::LimitExceeded => ErrorCode::LimitExceeded,
             WorkerErrorCode::Cancelled => ErrorCode::Cancelled,
@@ -197,6 +204,34 @@ mod tests {
                 target: Some("calc.exe".to_owned()),
             },
         ]
+    }
+
+    #[test]
+    fn password_errors_reach_the_frontend_as_encryption_codes() {
+        assert_eq!(
+            ErrorCode::from(WorkerErrorCode::WrongPassword),
+            ErrorCode::Encrypted
+        );
+        assert_eq!(
+            ErrorCode::from(WorkerErrorCode::UnsupportedEncryption),
+            ErrorCode::UnsupportedEncryption
+        );
+    }
+
+    #[test]
+    fn an_open_request_carries_its_password_and_hides_it() {
+        let request = WorkerRequest::Open {
+            request: RequestId(1),
+            doc: DocumentId(2),
+            file: FileHandle(3),
+            password: Some(Password::new("s3cret".to_owned())),
+        };
+        assert!(!format!("{request:?}").contains("s3cret"));
+        let bytes = postcard::to_stdvec(&request).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerRequest>(&bytes).unwrap(),
+            request
+        );
     }
 
     #[test]

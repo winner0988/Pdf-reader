@@ -8,7 +8,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use ipc_contract::types::{
     DocumentId, ErrorCode, IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs,
     OutlineResult, PageLink, PageText, RenderPageArgs, RequestId, SearchArgs, SearchEvent, TabId,
+    UnlockArgs,
 };
+use ipc_contract::validate::Validate;
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
 
@@ -78,6 +80,26 @@ pub async fn retry_open(app: AppHandle, tab: TabId) -> Result<(), IpcError> {
         let result = app
             .state::<Documents>()
             .retry(tab, &|event| events.send(event));
+        after_tabs_changed(&app);
+        result
+    })
+    .await
+}
+
+/// Tries a password on a tab whose file is encrypted (MVP-16). It goes to that tab's worker
+/// only and is wiped afterwards; whether it opened the file arrives on the open channel.
+#[tauri::command]
+pub async fn unlock_tab(app: AppHandle, args: UnlockArgs) -> Result<(), IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let UnlockArgs { tab, password } = args;
+    blocking(move || {
+        let events = app.state::<OpenEvents>();
+        let result = app
+            .state::<Documents>()
+            .unlock(tab, password, &|event| events.send(event));
         after_tabs_changed(&app);
         result
     })

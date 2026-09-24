@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-unlock-tab"
+description = "Enables the unlock_tab command without any pre-configured scope."
+commands.allow = ["unlock_tab"]
+
+[[permission]]
+identifier = "deny-unlock-tab"
+description = "Denies the unlock_tab command without any pre-configured scope."
+commands.deny = ["unlock_tab"]

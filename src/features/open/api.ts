@@ -4,7 +4,7 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 
-import type { OpenEvent, TabId } from "@/ipc/generated/contract";
+import type { OpenEvent, TabId, UnlockArgs } from "@/ipc/generated/contract";
 
 export type OpenApi = {
   /** Registers `onEvent` for every open event of this page. Safe to call more than once. */
@@ -13,6 +13,11 @@ export type OpenApi = {
   openDialog(): Promise<boolean>;
   /** Opens the file of a tab that failed to open again, in the same tab. */
   retry(tab: TabId): Promise<void>;
+  /**
+   * Tries a password on a tab whose file is encrypted (MVP-16); the outcome arrives as an open
+   * event. The main process hands it to that tab's worker only and keeps nothing.
+   */
+  unlock(tab: TabId, password: string): Promise<void>;
   /** Closes a tab; its worker ends. */
   close(tab: TabId): Promise<void>;
   /** The tab the window shows, for the window title. */
@@ -46,6 +51,7 @@ export const tauriOpenApi: OpenApi = {
   }),
   openDialog: () => invoke<boolean>("open_document_dialog"),
   retry: (tab) => invoke<void>("retry_open", { tab }),
+  unlock: (tab, password) => invoke<void>("unlock_tab", { args: { tab, password } satisfies UnlockArgs }),
   close: (tab) => invoke<void>("close_tab", { tab }),
   setActive: (tab) => invoke<void>("set_active_tab", { tab }),
 };

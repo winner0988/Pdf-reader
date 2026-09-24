@@ -31,6 +31,12 @@
 - **空狀態**：①「選擇檔案…（Ctrl+O）」是主要按鈕，啟動後焦點預設在它上面。② 隱私說明固定顯示。整個畫布都是拖放目標；拖曳進入時畫布邊框以強調色虛線標示。
 - **載入中**：開檔超過 300 ms 才顯示，避免快速開檔時閃爍。顯示頁面骨架與「正在開啟 <檔名>…」。
 - **錯誤**：① 標題固定為「無法開啟這個檔案」，說明依錯誤碼（見文字表）。② 「開啟其他檔案」一律顯示；「重試」只在 `workerCrashed`、`workerTimeout`、`unreadable` 時顯示。
+- **需要密碼**（MVP-16）：加密的檔案在它的分頁中顯示鎖頭圖示、「這份文件受密碼保護」、說明與密碼欄位（遮蔽輸入，焦點預設在欄位上），以及「解鎖」（欄位空白時停用）與「取消」。
+  - `Enter` 或「解鎖」送出；送出後欄位立刻清空，分頁改為載入中。
+  - 密碼不對時回到這個畫面，欄位下方以紅字顯示 password.wrong。
+  - 「取消」關閉這個分頁。
+  - 分頁列上這個分頁顯示鎖頭圖示。
+  - 以憑證加密等不支援的方式時，顯示錯誤畫面與 unsupportedEncryption 的說明。
 - **單頁渲染失敗**（MVP-07）：該頁占位框內顯示「這一頁無法顯示」與「重試」，其他頁面不受影響。
 
 ## 3. 搜尋
@@ -191,7 +197,8 @@
 | cancelled | （不顯示） |
 | notPdf | 這不是 PDF 檔案。 |
 | corrupted | 這個 PDF 檔案已損毀，無法開啟。 |
-| encrypted | 這份文件有密碼保護，目前版本尚不支援開啟加密文件。 |
+| encrypted | 這份文件需要密碼才能開啟。 |
+| unsupportedEncryption | 這份文件使用本程式不支援的加密方式（例如以憑證加密），無法開啟。 |
 | unreadable | 無法讀取這個檔案，請確認檔案存在且你有存取權限。 |
 | tooLarge | 檔案太大，無法開啟。 |
 | limitExceeded | 內容超過可處理的上限，部分內容可能無法顯示。 |
@@ -319,6 +326,7 @@
 | tabs.close | 關閉「<檔名>」 |
 | tabs.loading | （正在開啟） |
 | tabs.failed | （無法開啟） |
+| tabs.locked | （需要密碼） |
 | tabs.tabLimit | 最多同時開啟 <上限> 份文件，有 <數量> 個檔案沒有開啟。 |
 
 ### 選取與複製文字
@@ -328,6 +336,17 @@
 | text.copy | 複製 |
 | text.noTextLayer | 這一頁沒有文字層，無法選取文字（目前版本尚不支援 OCR） |
 | shortcuts.descriptions.copy | 複製選取的文字 |
+
+### 需要密碼（MVP-16）
+
+| 鍵 | 文字 |
+|---|---|
+| password.title | 這份文件受密碼保護 |
+| password.description | 輸入密碼以開啟「<檔名>」。密碼只用來開啟這份文件，不會被儲存。 |
+| password.label | 密碼 |
+| password.submit | 解鎖 |
+| password.cancel | 取消 |
+| password.wrong | 密碼不正確，請再試一次。 |
 
 ### 主行程的原生對話框
 
@@ -357,3 +376,4 @@
 | MVP-12 | `benign/external-https-link.pdf` 確認對話框；`link-idn-homograph.pdf`、`link-rtl-override.pdf` 的警示；`link-long-url.pdf`；`link-file-scheme.pdf` 與 `launch.pdf` 的封鎖對話框 |
 | MVP-14 | 三個分頁（一個已開啟、一個在背景、一個開檔失敗）的淺色與深色 |
 | MVP-15 | `benign/mixed-text-zh-en.pdf` 跨中英文兩行的選取與右鍵功能表；順時針旋轉 90° 並放大到 400% 時的選取 |
+| MVP-16 | `benign/encrypted-aes256.pdf` 詢問密碼；密碼錯誤的提示（淺色與深色） |

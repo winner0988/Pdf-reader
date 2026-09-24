@@ -16,7 +16,7 @@ use std::thread;
 use std::time::Duration;
 
 use ipc_contract::frame::{self, FrameError};
-use ipc_contract::types::{DocumentId, ErrorCode, RequestId};
+use ipc_contract::types::{DocumentId, ErrorCode, Password, RequestId};
 use ipc_contract::validate::Validate;
 use ipc_contract::worker::{FileHandle, WorkerError, WorkerRequest, WorkerResponse};
 use sandbox::{SandboxConfig, Sandboxed};
@@ -149,6 +149,24 @@ impl WorkerHost {
     /// Opens `path` read-only here, hands the worker a duplicated read-only handle (never the
     /// path) and returns the worker's `Opened` response.
     pub fn open(&mut self, path: &Path) -> Result<(DocumentId, WorkerResponse), HostError> {
+        self.open_file(path, None)
+    }
+
+    /// Opens an encrypted document with the password the user gave (MVP-16). The password goes
+    /// to the worker in the Open request only, and is wiped once the request has been sent.
+    pub fn open_with_password(
+        &mut self,
+        path: &Path,
+        password: Password,
+    ) -> Result<(DocumentId, WorkerResponse), HostError> {
+        self.open_file(path, Some(password))
+    }
+
+    fn open_file(
+        &mut self,
+        path: &Path,
+        password: Option<Password>,
+    ) -> Result<(DocumentId, WorkerResponse), HostError> {
         let file = File::open(path).map_err(HostError::Unreadable)?;
         let size = file.metadata().map_err(HostError::Unreadable)?.len();
         if size > MAX_DOCUMENT_BYTES {
@@ -168,6 +186,7 @@ impl WorkerHost {
             request,
             doc,
             file: FileHandle(handle),
+            password,
         })?;
         Ok((doc, response))
     }
@@ -199,7 +218,7 @@ impl WorkerHost {
         let Some(connection) = self.connection.as_mut() else {
             return Ok(());
         };
-        if frame::send(&mut connection.stdin, request).is_err() {
+        if frame::send_wiped(&mut connection.stdin, request).is_err() {
             self.connection = None;
             return Err(HostError::Crashed);
         }
@@ -213,7 +232,8 @@ impl WorkerHost {
     ) -> Result<WorkerResponse, HostError> {
         let timeout = self.config.request_timeout;
         let connection = self.connection.as_mut().expect("running");
-        frame::send(&mut connection.stdin, request).map_err(|_| HostError::Crashed)?;
+        // Wiped after writing: an Open request may carry a password (MVP-16).
+        frame::send_wiped(&mut connection.stdin, request).map_err(|_| HostError::Crashed)?;
         loop {
             let response = receive(&connection.responses, timeout)?;
             match response_request(&response) {
