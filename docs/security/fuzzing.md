@@ -21,16 +21,36 @@
   - workflow 以 `CC=clang`、`CFLAGS=-fsanitize=fuzzer-no-link,address` 建置，MuPDF 與它的 C 函式庫也有覆蓋率回饋與 AddressSanitizer，不只 Rust 程式碼。
   - 只設 C 的旗標，因為 libFuzzer 本身是 C++，不能對自己插樁。
 - **摘要**：每個目標在 job 摘要列出執行次數、每秒次數、覆蓋率（edges）、features、語料數量與大小、記憶體高峰。
-- **崩潰時**：job 失敗，並把 `fuzz/artifacts/` 與完整日誌上傳為 `fuzz-artifacts-<目標>` artifact，**保留 7 天**。repo 公開後這些都是公開的，見下方「公開 repo 的限制」。
+- **崩潰時**：job 失敗。樣本與完整日誌**加密後**才上傳為 `fuzz-crash-<目標>` artifact，保留 7 天；見下方「公開 repo 的保護」。
 - **權限**：只有 `contents: read`。
 - **一般 CI**：`Rust (Windows)` 以 `cargo check` 確認 fuzz 目標可以編譯；實際的 libFuzzer 建置需要 nightly，只在這個 workflow 中進行。
 
-### 公開 repo 的限制
+### 公開 repo 的保護
 
-repo 公開後，Actions 的日誌任何人都能看，artifact 只要登入 GitHub 就能下載。上面的 workflow 會把 libFuzzer 的完整輸出（包含 AddressSanitizer 報告）印在日誌中，崩潰時也會上傳樣本，**所以 CI 找到的崩潰就等於公開揭露**。
+repo 是公開的：Actions 的日誌任何人都能看，artifact 只要登入 GitHub 就能下載。崩潰樣本可能就是可利用的攻擊檔案，所以 workflow 做了以下保護（負責人決定，[#57](https://github.com/winner0988/Pdf-reader/issues/57)）：
 
-- 做法由負責人決定（[#57](https://github.com/winner0988/Pdf-reader/issues/57)）。
-- 決定之前，公開 repo 的 `Fuzz` workflow 應該停用（Actions → Fuzz → ⋯ → Disable workflow），改在本機執行。
+- **日誌只有統計**：
+  - libFuzzer 的輸出（AddressSanitizer 報告、panic 訊息，以及它以 Base64 印出的小型輸入）只寫進 runner 上的 `fuzz.log`，不會出現在日誌中。
+  - 日誌與 job 摘要只顯示執行次數、覆蓋率等統計，以及「找到崩潰」這件事本身。
+  - fuzz 目標另外建置，所以編譯錯誤仍然看得到。
+- **樣本加密**：
+  - 崩潰時，`fuzz/artifacts/` 與 `fuzz.log` 以 [age](https://age-encryption.org/) 加密給 `.github/fuzz-recipient.txt` 中的公鑰，只有持有私鑰的負責人能解開。
+  - age 從 Ubuntu 的套件庫安裝，而且只在失敗時安裝。
+- **沒有公鑰就不上傳**：
+  - `.github/fuzz-recipient.txt` 還沒有 `age1…` 公鑰時，workflow 只發出警告，不上傳任何東西。
+  - 這時要在本機重現（見「在本機執行」）。
+
+#### 負責人的金鑰（只需做一次）
+
+1. 安裝 age：`winget install FiloSottile.age`。
+2. 在 repo 以外的位置產生金鑰（PowerShell）：
+
+   ```powershell
+   New-Item -ItemType Directory -Force "$env:USERPROFILE\.age" | Out-Null
+   age-keygen -o "$env:USERPROFILE\.age\pdf-reader-fuzz.txt"
+   ```
+
+3. 把它印出的 `Public key: age1…` 中的 `age1…` 放進 `.github/fuzz-recipient.txt`，以 PR 提交。公鑰可以公開。**私鑰檔不得提交或傳給任何人**，請另外備份。
 
 ## 在本機執行
 
@@ -86,7 +106,14 @@ cargo +nightly fuzz run worker_messages fuzz/corpus/worker_messages -- -max_tota
 
 ## 崩潰的處理
 
-1. **下載**：從失敗的 workflow 下載 `fuzz-artifacts-<目標>`（崩潰樣本是 `crash-*`、`oom-*`、`timeout-*` 檔案）。
+1. **下載並解密**：從失敗的 workflow 下載 `fuzz-crash-<目標>`，在 repo 以外的資料夾解開（PowerShell；先解密成檔案再解壓縮，因為 PowerShell 5.1 的管線會破壞二進位資料）：
+
+   ```powershell
+   age -d -i "$env:USERPROFILE\.age\pdf-reader-fuzz.txt" -o fuzz-crash.tar.gz fuzz-crash.tar.gz.age
+   tar -xzf fuzz-crash.tar.gz
+   ```
+
+   崩潰樣本是 `fuzz/artifacts/<目標>/` 中的 `crash-*`、`oom-*`、`timeout-*` 檔案；`fuzz.log` 是完整輸出。
 2. **重現**：
 
    ```bash
