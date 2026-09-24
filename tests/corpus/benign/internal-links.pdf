@@ -1,0 +1,68 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 5 0 R 6 0 R] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 9 0 R /Annots [7 0 R 8 0 R] >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 10 0 R >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 11 0 R >>
+endobj
+7 0 obj
+<< /Type /Annot /Subtype /Link /Rect [72 690 300 712] /Border [0 0 0] /Dest [6 0 R /XYZ 72 720 0] >>
+endobj
+8 0 obj
+<< /Type /Annot /Subtype /Link /Rect [72 650 300 672] /Border [0 0 0] /A << /S /GoTo /D [5 0 R /Fit] >> >>
+endobj
+9 0 obj
+<<  /Length 159 >>
+stream
+BT /F1 14 Tf 72 740 Td (internal-links) Tj ET
+BT /F1 12 Tf 72 696 Td (Go to page 3 \(Dest\)) Tj ET
+BT /F1 12 Tf 72 656 Td (Go to page 2 \(GoTo action\)) Tj ET
+
+endstream
+endobj
+10 0 obj
+<<  /Length 38 >>
+stream
+BT /F1 24 Tf 72 720 Td (Page 2) Tj ET
+
+endstream
+endobj
+11 0 obj
+<<  /Length 38 >>
+stream
+BT /F1 24 Tf 72 720 Td (Page 3) Tj ET
+
+endstream
+endobj
+xref
+0 12
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000133 00000 n 
+0000000230 00000 n 
+0000000378 00000 n 
+0000000505 00000 n 
+0000000632 00000 n 
+0000000748 00000 n 
+0000000870 00000 n 
+0000001081 00000 n 
+0000001171 00000 n 
+trailer
+<< /Size 12 /Root 1 0 R /ID [<C0DCBF954B42DBA3488D4BDCF64F19DC> <C0DCBF954B42DBA3488D4BDCF64F19DC>] >>
+startxref
+1261
+%%EOF

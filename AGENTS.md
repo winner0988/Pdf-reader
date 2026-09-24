@@ -68,7 +68,9 @@
 ├─ src-tauri/           # Tauri 主行程（Rust）
 ├─ crates/
 │  ├─ pdf_worker/       # 連結 MuPDF 的低權限子行程
-│  └─ ipc_contract/     # 前端 ↔ 主行程 ↔ worker 的訊息型別（唯一定義處）
+│  ├─ ipc_contract/     # 前端 ↔ 主行程 ↔ worker 的訊息型別（唯一定義處）
+│  ├─ sandbox/          # 以受限權限啟動 worker（所有行程隔離用的 unsafe 集中在此）
+│  └─ worker_host/      # 主行程端：啟動、握手、驗證、逾時、重啟 worker
 ├─ tests/
 │  ├─ corpus/           # 由腳本產生的測試 PDF
 │  └─ e2e/              # 端對端測試
@@ -98,7 +100,9 @@ CI 使用同一組指令。工具版本由 `package.json`（`packageManager`）�
 | 建置產物不得引用外部資源（先 `pnpm build`） | `node scripts/ci/check-dist.mjs` |
 | Rust 依賴稽核 | `cargo deny check`（需 `cargo install cargo-deny --locked`） |
 | 開發模式執行 | `pnpm tauri dev` |
-| 建置安裝檔 | `pnpm tauri build`（產出 `target/release/bundle/nsis/*.exe`） |
+| 發行腳本測試 | `node --test scripts/release/pe-imports.test.mjs` |
+| 建置安裝檔 | `pnpm bundle`（產出 `target/release/bundle/nsis/*.exe`，含 `pdf_worker.exe`；不要用 `pnpm tauri build`，見 `docs/architecture/packaging.md`） |
+| E2E 測試 | `pnpm e2e:build` 後 `pnpm e2e`（操作真正的 app，見 `docs/architecture/e2e.md`） |
 
 提交 PR 前，在本機把表中「開發模式執行」以上的指令全部跑過一次。
 

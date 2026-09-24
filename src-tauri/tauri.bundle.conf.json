@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBuildCommand": "pnpm build && node scripts/release/build-worker.mjs"
+  },
+  "bundle": {
+    "externalBin": ["binaries/pdf_worker"]
+  }
+}

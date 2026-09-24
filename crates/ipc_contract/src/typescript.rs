@@ -56,6 +56,9 @@ pub fn bindings() -> String {
         LinkTarget,
         LinkId,
         PageLink,
+        LinkArgs,
+        OutlineLinkArgs,
+        LinkPreview,
         OutlineItem,
         OutlineResult,
         SearchArgs,
@@ -63,6 +66,7 @@ pub fn bindings() -> String {
         SearchEvent,
         ErrorCode,
         IpcError,
+        OpenEvent,
     );
 
     let limits: [(&str, String); 17] = [

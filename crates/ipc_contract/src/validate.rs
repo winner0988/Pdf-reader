@@ -9,9 +9,10 @@ use std::collections::HashSet;
 use thiserror::Error;
 
 use crate::limits::*;
+use crate::text::{classify_uri, is_clean_display_text};
 use crate::types::{
-    DocumentInfo, FindingKind, IpcError, LinkTarget, OutlineItem, OutlineResult, PageLink,
-    PageSize, Point, Quad, Rect, RenderPageArgs, SearchArgs, SearchHit, SecurityReport,
+    DocumentInfo, FindingKind, IpcError, LinkTarget, OpenEvent, OutlineItem, OutlineResult,
+    PageLink, PageSize, Point, Quad, Rect, RenderPageArgs, SearchArgs, SearchHit, SecurityReport,
 };
 use crate::worker::{OpenedDocument, Raster, WorkerError, WorkerResponse};
 
@@ -72,6 +73,17 @@ fn check_text(what: &'static str, text: &str, max: u32) -> Result<(), Validation
             what,
             len: text.len(),
             max: max as usize,
+        });
+    }
+    Ok(())
+}
+
+/// Text from the PDF must arrive already cleaned (no control, bidi or zero-width characters).
+fn check_clean(what: &'static str, text: &str) -> Result<(), ValidationError> {
+    if !is_clean_display_text(text) {
+        return Err(ValidationError::Invalid {
+            what,
+            reason: "contains control or invisible formatting characters",
         });
     }
     Ok(())
@@ -165,10 +177,21 @@ impl Validate for LinkTarget {
                         reason: "empty",
                     });
                 }
-                check_text("link URI", uri, MAX_URI_BYTES)
+                check_text("link URI", uri, MAX_URI_BYTES)?;
+                // Only http, https and mailto may be offered at all.
+                if !matches!(classify_uri(uri), LinkTarget::Uri { .. }) {
+                    return Err(ValidationError::Invalid {
+                        what: "link URI",
+                        reason: "not an openable http, https or mailto URI",
+                    });
+                }
+                Ok(())
             }
             LinkTarget::Blocked { target, .. } => match target {
-                Some(target) => check_text("blocked action target", target, MAX_TEXT_BYTES),
+                Some(target) => {
+                    check_text("blocked action target", target, MAX_TEXT_BYTES)?;
+                    check_clean("blocked action target", target)
+                }
                 None => Ok(()),
             },
         }
@@ -185,6 +208,7 @@ impl Validate for PageLink {
 impl Validate for OutlineItem {
     fn validate(&self) -> Result<(), ValidationError> {
         check_text("outline title", &self.title, MAX_TEXT_BYTES)?;
+        check_clean("outline title", &self.title)?;
         if self.depth > MAX_OUTLINE_DEPTH {
             return Err(ValidationError::OutOfRange {
                 what: "outline depth",
@@ -303,13 +327,9 @@ impl Validate for WorkerResponse {
                 }
                 Ok(())
             }
-            WorkerResponse::SearchHits { hits, .. } => {
+            WorkerResponse::PageSearched { hits, .. } => {
                 check_count("search hits", hits.len(), MAX_SEARCH_HITS)?;
                 hits.iter().try_for_each(SearchHit::validate)
-            }
-            WorkerResponse::SearchProgress { .. } => Ok(()),
-            WorkerResponse::SearchDone { total_hits, .. } => {
-                check_count("search hits", *total_hits as usize, MAX_SEARCH_HITS)
             }
             WorkerResponse::Error { error, .. } => error.validate(),
         }
@@ -349,16 +369,21 @@ impl Validate for SearchArgs {
     }
 }
 
+/// A display name is a bare file name; anything that looks like a path is a bug.
+fn check_display_name(name: &str) -> Result<(), ValidationError> {
+    check_text("display name", name, MAX_DISPLAY_NAME_BYTES)?;
+    if name.contains(['/', '\\', ':']) {
+        return Err(ValidationError::Invalid {
+            what: "display name",
+            reason: "contains path separators",
+        });
+    }
+    Ok(())
+}
+
 impl Validate for DocumentInfo {
     fn validate(&self) -> Result<(), ValidationError> {
-        check_text("display name", &self.display_name, MAX_DISPLAY_NAME_BYTES)?;
-        // A display name is a bare file name; anything that looks like a path is a bug.
-        if self.display_name.contains(['/', '\\', ':']) {
-            return Err(ValidationError::Invalid {
-                what: "display name",
-                reason: "contains path separators",
-            });
-        }
+        check_display_name(&self.display_name)?;
         check_count("pages", self.pages.len(), MAX_PAGE_COUNT)?;
         self.pages.iter().try_for_each(PageSize::validate)?;
         self.security.validate()
@@ -368,6 +393,24 @@ impl Validate for DocumentInfo {
 impl Validate for IpcError {
     fn validate(&self) -> Result<(), ValidationError> {
         check_text("error message", &self.message, MAX_ERROR_MESSAGE_BYTES)
+    }
+}
+
+impl Validate for OpenEvent {
+    fn validate(&self) -> Result<(), ValidationError> {
+        match self {
+            OpenEvent::DragHover { .. } => Ok(()),
+            OpenEvent::Opening { display_name } => check_display_name(display_name),
+            OpenEvent::Opened { info, .. } => info.validate(),
+            OpenEvent::Failed {
+                display_name,
+                error,
+                ..
+            } => {
+                check_display_name(display_name)?;
+                error.validate()
+            }
+        }
     }
 }
 
@@ -510,11 +553,17 @@ mod tests {
         );
         assert!(uri(String::new()).validate().is_err());
         // MVP-12 must be able to show a 10,000-character URL.
-        assert!(uri("a".repeat(10_000)).validate().is_ok());
+        let long = |len: usize| format!("https://example.invalid/{}", "a".repeat(len - 24));
+        assert!(uri(long(10_000)).validate().is_ok());
+        assert!(uri(long(MAX_URI_BYTES as usize + 1)).validate().is_err());
+        // Only http, https and mailto.
+        assert!(uri("file:///C:/x.exe".to_owned()).validate().is_err());
+        assert!(uri("javascript:alert(1)".to_owned()).validate().is_err());
+        // Hidden characters stay, so that the confirmation can show them (MVP-12).
         assert!(
-            uri("a".repeat(MAX_URI_BYTES as usize + 1))
+            uri("https://a.invalid/\u{202E}exe.pdf".to_owned())
                 .validate()
-                .is_err()
+                .is_ok()
         );
 
         let blocked = LinkTarget::Blocked {
@@ -522,6 +571,11 @@ mod tests {
             target: Some("x".repeat(MAX_TEXT_BYTES as usize + 1)),
         };
         assert!(blocked.validate().is_err());
+        let hidden = LinkTarget::Blocked {
+            action: BlockedAction::Launch,
+            target: Some("calc\u{202E}fdp.exe".to_owned()),
+        };
+        assert!(hidden.validate().is_err());
 
         let nan_destination = LinkTarget::Page {
             page_index: 0,
@@ -566,7 +620,7 @@ mod tests {
 
     #[test]
     fn search_hits_are_bounded() {
-        let hits = |count: usize| WorkerResponse::SearchHits {
+        let hits = |count: usize| WorkerResponse::PageSearched {
             request: RequestId(1),
             page_index: 0,
             hits: vec![
@@ -575,6 +629,7 @@ mod tests {
                 };
                 count
             ],
+            has_text: true,
         };
         assert!(hits(3).validate().is_ok());
         assert!(hits(MAX_SEARCH_HITS as usize + 1).validate().is_err());
@@ -649,6 +704,25 @@ mod tests {
         assert!(info("報告.pdf").validate().is_ok());
         assert!(info(r"C:\Users\someone\報告.pdf").validate().is_err());
         assert!(info("docs/報告.pdf").validate().is_err());
+    }
+
+    #[test]
+    fn open_events_carry_no_paths() {
+        let opening = |display_name: &str| OpenEvent::Opening {
+            display_name: display_name.to_owned(),
+        };
+        assert!(opening("報告.pdf").validate().is_ok());
+        assert!(opening(r"C:\Users\someone\報告.pdf").validate().is_err());
+        let failed = OpenEvent::Failed {
+            display_name: r"\\server\share\報告.pdf".to_owned(),
+            error: IpcError {
+                code: ErrorCode::Unreadable,
+                message: String::new(),
+            },
+            ignored_files: 0,
+        };
+        assert!(failed.validate().is_err());
+        assert!(OpenEvent::DragHover { active: true }.validate().is_ok());
     }
 
     #[test]

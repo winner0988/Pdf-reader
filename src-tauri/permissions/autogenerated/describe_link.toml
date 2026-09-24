@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-describe-link"
+description = "Enables the describe_link command without any pre-configured scope."
+commands.allow = ["describe_link"]
+
+[[permission]]
+identifier = "deny-describe-link"
+description = "Denies the describe_link command without any pre-configured scope."
+commands.deny = ["describe_link"]

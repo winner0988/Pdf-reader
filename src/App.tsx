@@ -1,21 +1,58 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
+import { tauriOpenApi, type OpenApi } from "@/features/open/api";
+import { OpenNotice } from "@/features/open/OpenNotice";
+import { useOpenSession } from "@/features/open/useOpenSession";
+import { tauriLinksApi, type LinksApi } from "@/features/links/source";
+import { tauriSearchApi, type SearchApi } from "@/features/search/useSearch";
+import { tauriOutlineApi, useOutline, type OutlineApi } from "@/features/outline/useOutline";
 import { DevDemoSwitcher } from "@/features/shell/DevDemoSwitcher";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
+import { createPageRenderer, tauriRenderApi, type RenderApi } from "@/features/viewer/renderer";
 
-export default function App() {
-  const [state, setState] = useState<ShellState>({ kind: "empty" });
+type AppProps = {
+  api?: OpenApi;
+  renderApi?: RenderApi;
+  outlineApi?: OutlineApi;
+  searchApi?: SearchApi;
+  linksApi?: LinksApi;
+};
+
+export default function App({
+  api = tauriOpenApi,
+  renderApi = tauriRenderApi,
+  outlineApi = tauriOutlineApi,
+  searchApi = tauriSearchApi,
+  linksApi = tauriLinksApi,
+}: AppProps) {
+  const { session, open, retry, close, dismissNotice } = useOpenSession(api);
+  const renderer = useMemo(() => createPageRenderer(renderApi), [renderApi]);
+  const outline = useOutline(outlineApi, session.doc, session.hasOutline);
+  // Development only: fake states for working on the UI without the main process.
+  const [demo, setDemo] = useState<ShellState | null>(null);
 
   return (
     <>
       <ReaderShell
-        state={state}
-        // Opening, closing and retrying need the main process; MVP-06 wires them to IPC.
-        onOpen={() => {}}
-        onClose={() => setState({ kind: "empty" })}
+        state={demo ?? session.shell}
+        dropActive={session.dragActive}
+        renderer={renderer}
+        outline={demo ? undefined : outline}
+        searchApi={demo ? undefined : searchApi}
+        linksApi={demo ? undefined : linksApi}
+        onOpen={() => {
+          setDemo(null);
+          open();
+        }}
+        onClose={() => {
+          setDemo(null);
+          close();
+        }}
+        onRetry={retry}
       />
-      {import.meta.env.DEV && <DevDemoSwitcher onChange={setState} />}
+      {session.notice && <OpenNotice notice={session.notice} onDismiss={dismissNotice} />}
+      {import.meta.env.DEV && <DevDemoSwitcher onChange={setDemo} />}
     </>
   );
 }

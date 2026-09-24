@@ -39,16 +39,18 @@ flowchart LR
 | CI | `PR hygiene` | PR 標題符合 Conventional Commits、內文連結 Issue（僅 PR） |
 | CI | `Rust (Windows)` | `cargo fmt`、`clippy -D warnings`、`cargo test` |
 | CI | `Frontend` | `pnpm lint`、`typecheck`、`test`、`build`、建置產物不得引用外部資源 |
+| CI | `E2E (Windows)` | 建置 release app 與 worker，以 Playwright 操作真正的 app（`pnpm e2e`，見 [e2e.md](architecture/e2e.md)）；失敗時上傳截圖與日誌（保留 7 天） |
 | Security | `Secret scan` | gitleaks 掃描所有 commit |
 | Security | `Dependency audit` | `cargo deny check`（弱點、禁用 crate、授權、來源）、`pnpm audit`；每週一排程 |
+| Fuzz | `Fuzz (worker_messages)`、`Fuzz (open_document)` | cargo-fuzz：IPC 解碼與以 MuPDF 開啟 PDF（見 [fuzzing.md](security/fuzzing.md)）；每週一排程，修改相關檔案的 PR 跑 2 分鐘 |
 
-E2E 測試由 QA-02 加入，fuzzing 由 QA-03 加入。「不連網、零遙測」的完整驗證方式（含發布前的手動檢查）見 [docs/security/offline-verification.md](security/offline-verification.md)。
+「不連網、零遙測」的完整驗證方式（含發布前的手動檢查）見 [docs/security/offline-verification.md](security/offline-verification.md)。
 
 ## GitHub 設定（需在網頁上手動完成）
 
 ### 1. 分支保護
 
-> ⚠️ **私有 repo 在 GitHub Free 方案無法使用分支保護與 Rulesets**，需要 GitHub Pro（個人）或改為公開 repo。沒有分支保護時，上述規則只能靠紀律與 agent 遵守 AGENTS.md。
+> 公開 repo 在 GitHub Free 方案就能使用 Rulesets。repo 改為公開後請盡快設定；設定前，上述規則只能靠紀律與 agent 遵守 AGENTS.md。
 
 Settings → Rules → Rulesets → New branch ruleset：
 
@@ -56,8 +58,9 @@ Settings → Rules → Rulesets → New branch ruleset：
 - 勾選 **Restrict deletions**、**Block force pushes**、**Require linear history**
 - 勾選 **Require a pull request before merging**
   - Allowed merge methods：只留 **Squash**
-- 勾選 **Require status checks to pass**，加入：`Guardrails`、`PR hygiene`、`Rust (Windows)`、`Frontend`、`Secret scan`
+- 勾選 **Require status checks to pass**，加入：`Guardrails`、`PR hygiene`、`Rust (Windows)`、`Frontend`、`E2E (Windows)`、`Secret scan`
   - `Dependency audit` 建議先不設為必要（新公告的弱點會讓無關 PR 突然失敗），改看每週排程結果
+  - `Fuzz` 不能設為必要：它只在修改相關檔案時執行，沒執行的必要檢查會讓 PR 一直等待
 - 若你是唯一維護者，**不要**勾「Require approvals」，否則你無法合併 AI 以你帳號開的 PR；改用 CODEOWNERS + `needs-security-review` 標籤當人工關卡
 
 ### 2. 合併設定
@@ -66,9 +69,12 @@ Settings → General → Pull Requests：只啟用 **Allow squash merging**（�
 
 ### 3. Actions
 
-Settings → Actions → General：Workflow permissions 選 **Read repository contents**。
+Settings → Actions → General：
 
-> 私有 repo 的 Actions 每月有免費分鐘數上限，Windows runner 以 2 倍計算。`Rust (Windows)` 是最耗分鐘的 job。
+- Workflow permissions 選 **Read repository contents**。
+- Approval for running fork pull request workflows from contributors 選 **Require approval for all external contributors**：外部貢獻者的 PR 要你看過程式碼、按下核准後才會執行 CI。
+
+> 公開 repo 使用 GitHub 提供的標準 runner 不計分鐘數。但 Actions 的**日誌與 artifact 也是公開的**：任何人都能看日誌，登入 GitHub 的人都能下載 artifact。fuzzing 的崩潰樣本與 AddressSanitizer 報告因此也會公開，做法待決定，見 [fuzzing.md](security/fuzzing.md#公開-repo-的限制) 與 [#57](https://github.com/winner0988/Pdf-reader/issues/57)。
 
 ### 4. 標籤與工作卡
 
@@ -80,3 +86,11 @@ bash scripts/backlog-to-issues.sh             # 建立標籤與第一批 Issue
 ```
 
 之後建立一個 GitHub Project（Board），欄位建議：`Backlog → Ready → In progress → In review → Done`，把 Issue 全部加進去。
+
+### 5. 安全設定（公開 repo）
+
+Settings → Advanced Security（舊版介面叫 Code security）：
+
+- **Private vulnerability reporting**：啟用。[SECURITY.md](../SECURITY.md) 的回報方式需要它。
+- **Dependabot alerts**：啟用。版本更新的 PR 由 [dependabot.yml](../.github/dependabot.yml) 設定。
+- **Secret scanning** 與 **Push protection**：公開 repo 免費，啟用後含有憑證的 push 會直接被擋下。CI 的 `Secret scan`（gitleaks）照樣保留。

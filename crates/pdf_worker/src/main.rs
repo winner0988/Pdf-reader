@@ -1,21 +1,17 @@
 //! `pdf_worker`: the isolated PDF engine process (ADR 0008).
 //!
-//! MVP-01 only prints its version; MuPDF (MVP-03) and the IPC loop (MVP-04) come later.
+//! Started by the main process inside the sandbox; talks only over stdin/stdout using the IPC
+//! contract. Diagnostics go to stderr. Stdout must carry nothing but frames.
 
-fn version_banner() -> String {
-    format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
-}
+use std::io;
+use std::process::ExitCode;
 
-fn main() {
-    println!("{}", version_banner());
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn banner_contains_name_and_version() {
-        assert_eq!(version_banner(), "pdf_worker 0.1.0");
+fn main() -> ExitCode {
+    match pdf_worker::serve::serve(io::stdin().lock(), io::stdout().lock()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("pdf_worker: {error}");
+            ExitCode::FAILURE
+        }
     }
 }

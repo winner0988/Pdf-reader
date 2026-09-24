@@ -4,25 +4,31 @@
 import type { ShellDocument, ShellState } from "@/features/shell/model";
 
 const LETTER = { widthPt: 612, heightPt: 792 };
+const page = (pageIndex: number) => ({ kind: "page" as const, pageIndex, x: null, y: null });
 
 export const demoDocument: ShellDocument = {
   displayName: "報告.pdf",
   pages: Array.from({ length: 12 }, (_, index) =>
     index === 5 ? { widthPt: 842, heightPt: 595 } : LETTER,
   ),
-  outline: [
-    { title: "第 1 章 簡介", depth: 0, pageIndex: 0 },
-    { title: "第 1.1 節 背景", depth: 1, pageIndex: 1 },
-    { title: "第 1.2 節 目標", depth: 1, pageIndex: 2 },
-    { title: "第 2 章 方法", depth: 0, pageIndex: 4 },
-    { title: "第 2.1 節 資料", depth: 1, pageIndex: 5 },
-    { title: "附錄", depth: 0, pageIndex: 10 },
-  ],
+  outline: {
+    status: "ready",
+    truncated: false,
+    items: [
+      { title: "第 1 章 簡介", depth: 0, target: page(0) },
+      { title: "第 1.1 節 背景", depth: 1, target: page(1) },
+      { title: "第 1.2 節 目標", depth: 1, target: page(2) },
+      { title: "第 2 章 方法", depth: 0, target: page(4) },
+      { title: "第 2.1 節 資料", depth: 1, target: page(5) },
+      { title: "附錄", depth: 0, target: page(10) },
+    ],
+  },
   findings: [
     { kind: "javaScript", count: 2 },
     { kind: "openAction", count: 1 },
     { kind: "remoteFileSpec", count: 1 },
   ],
+  scanComplete: true,
 };
 
 export const DEMO_STATES: Record<string, ShellState> = {
@@ -35,6 +41,18 @@ export const DEMO_STATES: Record<string, ShellState> = {
   open: { kind: "open", document: demoDocument },
   "open: no findings, no outline": {
     kind: "open",
-    document: { ...demoDocument, displayName: "乾淨.pdf", outline: [], findings: [] },
+    document: { ...demoDocument, displayName: "乾淨.pdf", outline: { status: "none" }, findings: [] },
+  },
+  "open: scan incomplete": {
+    kind: "open",
+    document: {
+      ...demoDocument,
+      displayName: "大型.pdf",
+      findings: [
+        { kind: "javaScript", count: 12 },
+        { kind: "uncReference", count: 1 },
+      ],
+      scanComplete: false,
+    },
   },
 };

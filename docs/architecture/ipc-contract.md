@@ -39,17 +39,39 @@ flowchart LR
 
 | 命令 | 參數 | 回傳 | 可取消 | 實作卡 |
 |---|---|---|---|---|
-| `open_document_dialog` | 無 | `DocumentInfo \| null`（使用者取消時為 `null`） | 否 | MVP-06 |
+| `subscribe_open_events` | `{ onEvent: Channel<OpenEvent> }` | 無（事件走頻道，見下節） | 否 | MVP-06 |
+| `open_document_dialog` | 無 | `boolean`：`false` 表示使用者取消（或已有對話框開著）；結果走開檔頻道 | 否 | MVP-06 |
+| `retry_open` | 無 | 無（重新開啟最近一次嘗試的檔案，結果走開檔頻道） | 否 | MVP-06 |
 | `close_document` | `{ doc: DocumentId }` | 無 | 否 | MVP-06 |
 | `render_page` | `{ args: RenderPageArgs }` | `ArrayBuffer`（見「頁面影像」） | 是 | MVP-07 |
 | `get_outline` | `{ doc: DocumentId }` | `OutlineResult` | 否 | MVP-09 |
 | `get_page_links` | `{ doc: DocumentId, pageIndex: number }` | `PageLink[]` | 否 | MVP-12 |
-| `search` | `{ args: SearchArgs, onEvent: Channel<SearchEvent> }` | 無（結果走頻道） | 是 | MVP-10 |
-| `cancel` | `{ request: RequestId }` | 無 | — | MVP-07 |
+| `describe_link` | `{ args: LinkArgs }`（`{ doc, link: LinkId }`，其他欄位一律拒絕） | `LinkPreview`：原始 URI、實際開啟的 ASCII 形式、主機（Unicode）與 punycode | 否 | MVP-12 |
+| `open_link` | `{ args: LinkArgs }` | 無；主行程從 worker 重新取得該連結、再次檢查後交給系統 | 否 | MVP-12 |
+| `describe_outline_link` | `{ args: OutlineLinkArgs }`（`{ doc, item }`：目錄中的位置，其他欄位一律拒絕） | `LinkPreview` | 否 | #49 |
+| `open_outline_link` | `{ args: OutlineLinkArgs }` | 無；主行程從 worker 重新取得目錄、再次檢查後交給系統 | 否 | #49 |
+| `search` | `{ args: SearchArgs, onEvent: Channel<SearchEvent> }` | 無（結果走頻道：`hits`、`progress`，最後一個 `done`，含 `noTextLayer`）；以 `cancel(args.request)` 取消 | 是 | MVP-10 |
+| `cancel` | `{ request: RequestId }` | 無（只取消還在佇列中的請求，見 [rendering.md](rendering.md#取消)） | — | MVP-07 |
 
-| 事件（主行程 → 前端） | 內容 | 用途 |
+### 開檔頻道（主行程 → 前端）
+
+所有開檔結果（對話框、拖放、命令列參數）都經由前端呼叫 `subscribe_open_events` 時傳入的 Tauri `Channel` 送出，內容是 `OpenEvent`：
+
+| `kind` | 欄位 | 意義 |
 |---|---|---|
-| `document-opened` | `DocumentInfo` | 由拖放或命令列參數開啟的文件（MVP-06） |
+| `dragHover` | `active` | 檔案拖曳進入（`true`）或離開（`false`）視窗，畫布顯示拖放目標 |
+| `opening` | `displayName` | 開始開檔，前端 300 ms 後顯示載入中 |
+| `opened` | `info: DocumentInfo`、`ignoredFiles` | 開檔成功；`ignoredFiles > 0` 表示拖放了多個檔案，只開了第一個 |
+| `failed` | `displayName`、`error: IpcError`、`ignoredFiles` | 開檔失敗 |
+
+- **為什麼用 Channel 而不是 Tauri 事件**：前端要監聽事件就必須有 `core:event` 權限，而 Tauri 內建的拖放事件（`tauri://drag-drop`）會帶**完整路徑**，拿到權限的頁面也能收到。不授予任何 `core:event` 權限，路徑就不可能進入 WebView。
+- 主行程只保留最新的頻道（頁面重新載入時取代舊的）。訂閱前的事件（例如啟動時由命令列開檔）會排隊，最多 16 個，訂閱時依序送出；沒有排隊事件但已有開啟的文件時，送出一次 `opened`，讓重新載入的頁面恢復顯示。
+- 一個視窗一次只開一份文件：開新文件前，主行程先關閉目前的文件（worker `Close`）。開檔依序處理，兩次開檔的事件不會交錯。
+- 驗證：MVP-06 以開發者工具在頁面重新載入時記錄所有 IPC 請求／回應、主行程注入的腳本（頻道訊息）、DOM、console 與 JS heap snapshot。從路徑含有特殊標記的資料夾開檔後，這些地方都找不到該標記，但都找得到檔名。
+
+### 權限
+
+`src-tauri/build.rs` 以 app manifest 宣告上述命令，因此每個命令都要在 `src-tauri/capabilities/main.json` 明確允許（`allow-subscribe-open-events` 等）。沒有授予任何 `core:*`、dialog、fs 權限；原生開檔對話框由 Rust 端的 `rfd` 顯示，前端無法指定路徑，也拿不到路徑。
 
 規則：
 
@@ -57,6 +79,39 @@ flowchart LR
 - `RequestId` 由前端產生，只用來取消；主行程另外配發送給 worker 的 `RequestId`，前端無法直接指定 worker 端的請求。
 - 主行程收到命令後先以 `validate` 模組檢查參數（縮放範圍、查詢長度、頁碼是否在範圍內），不合格回傳 `invalidArgument`。
 - `DocumentInfo.displayName` 只能是檔名；`validate` 會拒絕含有 `/`、`\`、`:` 的值。
+
+### 目錄與 PDF 提供的文字（MVP-09）
+
+`get_outline` 回傳 `OutlineResult`：依閱讀順序（父項在子項之前）排列的扁平清單，每項有 `depth`（0 為最上層）與 `target`，前端自行組成樹。
+
+- **worker 自己走訪目錄物件**，不使用 MuPDF 的目錄載入器，原因有兩個：
+  - MuPDF 的載入器每一層巢狀都遞迴一次，深層巢狀的惡意檔案可以耗盡堆疊。實測 20,000 層會讓 worker 崩潰。
+  - 只要有一個目的地錯誤（例如指向不存在的頁面），MuPDF 就拒絕整份目錄。
+- **走訪方式**：
+  - 使用明確的堆疊，不遞迴。
+  - 同一個物件第二次出現（循環）時截斷該分支。
+  - 項目數與深度的上限分別是 `MAX_OUTLINE_ITEMS`、`MAX_OUTLINE_DEPTH`，超過時 `truncated = true`。
+  - 單一項目的錯誤只讓該項目沒有 `target`。
+- **目標**：
+  - `/Dest` 與 `/GoTo` 解析成頁碼；主行程再檢查頁碼小於頁數，超出範圍視為協定違規。
+  - `/URI` 由 `ipc_contract::text::classify_uri` 分類：
+    - 只有 `http`、`https`、`mailto`（最長 `MAX_URI_BYTES`）是 `uri`，其餘一律是 `blocked`：
+      - `javascript:` → `javaScript`；
+      - 網路路徑（`\伺服器`、`smb:`、有主機的 `file://`）→ `networkShare`；
+      - 其他 `file:` → `localFile`；
+      - 其他 scheme → `other`。
+    - `uri` **保留 PDF 原本的字元**，包括雙向控制與其他隱藏字元：確認對話框要把它們以 `[U+XXXX]` 標示並警示（MVP-12），不能悄悄移除。前端顯示任何 URI 時都先經過 `revealHidden`（`src/features/links/text.ts`）。
+    - URI 字串的位元組：有 BOM 時是 UTF-16，合法的 UTF-8 就當 UTF-8，其他逐位元組對應。這樣以 UTF-8 寫入的 IDN 不會變成亂碼，偽裝的網域才看得出來。
+  - `/Launch`、`/GoToR`、`/GoToE`、`/JavaScript`、`/SubmitForm`、`/ImportData` 都是 `blocked`，並記下動作種類。`target` 最多只帶檔名，不帶腳本內容。
+  - 前端點擊 `uri` 項目時，以它在目錄中的位置確認並開啟（`describe_outline_link`／`open_outline_link`，#49）；點擊 `blocked` 項目時說明封鎖原因。
+- **頁面連結**（`get_page_links`，MVP-12a）：見 [links.md](links.md)。
+- **PDF 提供的文字**（目錄標題、`blocked` 的 `target`）在 worker 內以 `clean_display_text` 處理：
+  - 控制字元與換行改成空白；
+  - 移除雙向文字控制（U+202A–U+202E、U+2066–U+2069 等）、零寬字元與 BOM，避免「exe.pdf」這類偽裝；
+  - 合併連續空白，並截斷到 `MAX_TEXT_BYTES`。
+
+  主行程的 `Validate` 會拒絕任何仍含這些字元的文字（`is_clean_display_text`）。前端一律以純文字顯示。
+- **`LinkTarget` 的序列化**：JSON（給前端）用 `kind` 標籤；主行程與 worker 之間的 postcard 無法解碼 internally tagged enum，所以在非 human-readable 的格式改用 externally tagged。兩種格式都有 round-trip 測試（`ipc_contract::worker::tests`）。
 
 ### 頁面影像
 
@@ -70,6 +125,8 @@ flowchart LR
 | 8 | 4 | 寬（u32 LE，像素） |
 | 12 | 4 | 高（u32 LE，像素） |
 | 16 | 寬 × 高 × 4 | 像素，由上到下逐列，無 padding |
+
+主行程會把縮放比例降到點陣圖上限以內（`fit_scale`），所以回傳的寬高可能小於「頁面尺寸 × 縮放」；前端一律以回傳的寬高解碼，再縮放到頁面的顯示尺寸。排程、取消與快取見 [rendering.md](rendering.md)。
 
 選擇理由：
 
@@ -106,7 +163,7 @@ flowchart LR
 | `Render` | `request`, `doc`, `page_index`, `scale`, `rotation` | `Rendered` 或 `Error` |
 | `GetOutline` | `request`, `doc` | `Outline` 或 `Error` |
 | `GetPageLinks` | `request`, `doc`, `page_index` | `PageLinks` 或 `Error` |
-| `Search` | `request`, `doc`, `query`, `case_sensitive` | 0 個以上 `SearchHits`／`SearchProgress`，最後一個 `SearchDone` 或 `Error` |
+| `SearchPage` | `request`, `doc`, `page_index`, `query`, `case_sensitive`, `max_hits` | `PageSearched`（`hits`、`has_text`）或 `Error`；整份文件的搜尋由主行程逐頁驅動，見 [search.md](search.md) |
 | `Cancel` | `target` | 無（被取消的請求回 `Error { code: Cancelled }`，或已完成則照常回應） |
 | `Close` | `doc` | 無 |
 | `Shutdown` | — | worker 結束 |
@@ -173,7 +230,7 @@ worker 端的 `WorkerErrorCode` 以 `From` 轉換對應到上表。
 
 - 以路徑開啟或讀取檔案（前端與 worker 都拿不到路徑）
 - 執行指令或啟動程式
-- 開啟任意 URL：外部連結由 MVP-12 以 `LinkId` 開啟，主行程從 worker 先前回報的連結表查出 URI、再次檢查 scheme，並經使用者確認；前端送來的 URI 字串一律不採信
+- 開啟任意 URL：外部連結以 `LinkId` 開啟（`open_link`），主行程向 worker 重新取得該頁的連結、找出這個 id、再次檢查 scheme 並正規化，再交給系統；`LinkArgs` 沒有任何 URI 欄位，多出的欄位會被拒絕。前端送來的 URI 字串一律不採信
 - 任何連網請求
 
 ## 修改合約的流程

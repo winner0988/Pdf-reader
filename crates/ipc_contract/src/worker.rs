@@ -42,11 +42,16 @@ pub enum WorkerRequest {
         doc: DocumentId,
         page_index: u32,
     },
-    Search {
+    /// Searches one page. The main process walks the pages itself, so renders can run between
+    /// pages and a search is cancelled by simply not asking for the next page.
+    SearchPage {
         request: RequestId,
         doc: DocumentId,
+        page_index: u32,
         query: String,
         case_sensitive: bool,
+        /// Stop after this many hits on the page.
+        max_hits: u32,
     },
     /// Best effort: the worker drops the target request if it has not finished yet.
     Cancel {
@@ -83,20 +88,12 @@ pub enum WorkerResponse {
         page_index: u32,
         links: Vec<PageLink>,
     },
-    /// Zero or more per search, followed by exactly one `SearchDone` or `Error`.
-    SearchHits {
+    PageSearched {
         request: RequestId,
         page_index: u32,
         hits: Vec<SearchHit>,
-    },
-    SearchProgress {
-        request: RequestId,
-        pages_searched: u32,
-    },
-    SearchDone {
-        request: RequestId,
-        total_hits: u32,
-        truncated: bool,
+        /// Whether the page has any text at all (none on every page means no text layer).
+        has_text: bool,
     },
     Error {
         request: Option<RequestId>,
@@ -165,6 +162,76 @@ impl From<WorkerErrorCode> for ErrorCode {
             WorkerErrorCode::LimitExceeded => ErrorCode::LimitExceeded,
             WorkerErrorCode::Cancelled => ErrorCode::Cancelled,
             WorkerErrorCode::Internal => ErrorCode::Internal,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{BlockedAction, LinkTarget, OutlineItem};
+
+    fn targets() -> Vec<LinkTarget> {
+        vec![
+            LinkTarget::Page {
+                page_index: 3,
+                x: Some(10.0),
+                y: None,
+            },
+            LinkTarget::Uri {
+                uri: "https://example.invalid/".to_owned(),
+            },
+            LinkTarget::Blocked {
+                action: BlockedAction::Launch,
+                target: Some("calc.exe".to_owned()),
+            },
+        ]
+    }
+
+    #[test]
+    fn outlines_and_links_cross_the_worker_boundary() {
+        // postcard cannot decode internally tagged enums; LinkTarget must still get through.
+        let response = WorkerResponse::Outline {
+            request: RequestId(1),
+            outline: OutlineResult {
+                items: targets()
+                    .into_iter()
+                    .map(|target| OutlineItem {
+                        title: "t".to_owned(),
+                        depth: 0,
+                        target: Some(target),
+                    })
+                    .collect(),
+                truncated: true,
+            },
+        };
+        let bytes = postcard::to_allocvec(&response).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerResponse>(&bytes).unwrap(),
+            response
+        );
+    }
+
+    #[test]
+    fn the_frontend_sees_link_targets_tagged_by_kind() {
+        let json: Vec<serde_json::Value> = targets()
+            .iter()
+            .map(|target| serde_json::to_value(target).unwrap())
+            .collect();
+        assert_eq!(
+            json[0],
+            serde_json::json!({ "kind": "page", "pageIndex": 3, "x": 10.0, "y": null })
+        );
+        assert_eq!(
+            json[1],
+            serde_json::json!({ "kind": "uri", "uri": "https://example.invalid/" })
+        );
+        assert_eq!(
+            json[2],
+            serde_json::json!({ "kind": "blocked", "action": "launch", "target": "calc.exe" })
+        );
+        for (value, target) in json.into_iter().zip(targets()) {
+            assert_eq!(serde_json::from_value::<LinkTarget>(value).unwrap(), target);
         }
     }
 }

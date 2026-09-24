@@ -78,10 +78,14 @@ scale: number, rotation: Rotation, };
 /**
  * Actions that are recognised but never performed.
  */
-export type BlockedAction = "launch" | "remoteGoTo" | "embeddedGoTo" | "javaScript" | "submitForm" | "importData" | "other";
+export type BlockedAction = "launch" | "remoteGoTo" | "embeddedGoTo" | "javaScript" | "submitForm" | "importData" | "localFile" | "networkShare" | "other";
 
 /**
  * Where a link or outline item points.
+ *
+ * Serialized with a `kind` tag in JSON (for the frontend), but externally tagged in binary
+ * formats: postcard, used between the main process and the worker, cannot decode internally
+ * tagged enums. See [`link_target_serde`].
  */
 export type LinkTarget = { "kind": "page", pageIndex: number, x: number | null, y: number | null, } | { "kind": "uri", uri: string, } | { "kind": "blocked", action: BlockedAction, target: string | null, };
 
@@ -92,6 +96,41 @@ export type LinkTarget = { "kind": "page", pageIndex: number, x: number | null, 
 export type LinkId = { pageIndex: number, index: number, };
 
 export type PageLink = { id: LinkId, rect: Rect, target: LinkTarget, };
+
+/**
+ * Arguments of `describe_link` and `open_link` (MVP-12): a link the worker reported, by id.
+ * There is deliberately no field for a URI; any other field is rejected.
+ */
+export type LinkArgs = { doc: DocumentId, link: LinkId, };
+
+/**
+ * Arguments of `describe_outline_link` and `open_outline_link` (#49): an outline item by its
+ * position in the outline the worker reported (`OutlineResult::items`), never a URI.
+ */
+export type OutlineLinkArgs = { doc: DocumentId, item: number, };
+
+/**
+ * What the confirmation shows about a web link before it is opened (MVP-12).
+ */
+export type LinkPreview = { 
+/**
+ * The URI exactly as the PDF has it; the frontend writes out its hidden characters.
+ */
+uri: string, 
+/**
+ * What the system is given when the user opens it: ASCII only, the host in punycode and
+ * everything else percent-encoded. Also what "copy link" copies.
+ */
+opens: string, 
+/**
+ * The site the browser will contact (for `mailto`, the mail domain), as it reads.
+ */
+host: string | null, 
+/**
+ * The host's ASCII (punycode) form when it differs from `host`: an internationalised
+ * name, which may imitate another one.
+ */
+asciiHost: string | null, };
 
 /**
  * One outline entry, in pre-order; `depth` 0 is the top level.
@@ -111,7 +150,7 @@ export type SearchArgs = { request: RequestId, doc: DocumentId, query: string, c
 
 export type SearchHit = { quads: Array<Quad>, };
 
-export type SearchEvent = { "kind": "hits", pageIndex: number, hits: Array<SearchHit>, } | { "kind": "progress", pagesSearched: number, } | { "kind": "done", totalHits: number, truncated: boolean, };
+export type SearchEvent = { "kind": "hits", pageIndex: number, hits: Array<SearchHit>, } | { "kind": "progress", pagesSearched: number, } | { "kind": "done", totalHits: number, truncated: boolean, noTextLayer: boolean, };
 
 /**
  * Error codes the frontend maps to localized messages.
@@ -123,6 +162,13 @@ export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "n
  * document content; the UI shows a localized text chosen by `code`.
  */
 export type IpcError = { code: ErrorCode, message: string, };
+
+/**
+ * Pushed by the main process on the channel passed to `subscribe_open_events`, for documents
+ * opened from the dialog, by drag and drop, or from the command line. A window shows one
+ * document at a time, so the latest event always describes what the window should show.
+ */
+export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", displayName: string, } | { "kind": "opened", info: DocumentInfo, ignoredFiles: number, } | { "kind": "failed", displayName: string, error: IpcError, ignoredFiles: number, };
 
 /** Limits enforced by the main process (crates/ipc_contract/src/limits.rs). */
 export const LIMITS = {

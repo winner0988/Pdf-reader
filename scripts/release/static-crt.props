@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Imported into MuPDF's MSBuild projects by scripts/release/build-worker.mjs (through the
+  ForceImportBeforeCppTargets property, which MSBuild reads from the environment). It comes after
+  the projects' own settings, so it replaces their /MD with the static runtime (/MT), matching
+  the Rust code built with +crt-static.
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+  </ItemDefinitionGroup>
+</Project>

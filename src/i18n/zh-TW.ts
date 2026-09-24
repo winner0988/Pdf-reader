@@ -2,6 +2,7 @@
 // Source of truth for wording: docs/ux/screen-map.md, section 8.
 
 import type { ErrorCode, FindingKind } from "@/features/shell/model";
+import type { BlockedAction } from "@/ipc/generated/contract";
 
 export const strings = {
   appName: "PDF Reader",
@@ -15,6 +16,10 @@ export const strings = {
     privacyNote: "所有處理都在這台電腦上完成：不連網、不收集任何資料。",
   },
   loading: (displayName: string) => `正在開啟 ${displayName}…`,
+  open: {
+    dropMultiple: (displayName: string) => `一次只能開啟一個檔案，已開啟第一個：${displayName}`,
+    dismissNotice: "關閉提示",
+  },
   error: {
     title: "無法開啟這個檔案",
     retry: "重試",
@@ -61,12 +66,58 @@ export const strings = {
     outlineTab: "目錄",
     thumbnailsTab: "縮圖（之後）",
     outlineEmpty: "這份文件沒有目錄",
-    outlineTruncated: (limit: number) => `目錄項目過多，只顯示前 ${limit} 項`,
+    outlineLoading: "正在讀取目錄…",
+    outlineFailed: "無法讀取這份文件的目錄",
+    outlineTruncated: "目錄項目過多或層級過深，只顯示部分內容",
+    outlineExpand: "展開",
+    outlineCollapse: "收合",
+    outlineExternalLink: "外部連結",
+    outlineBlockedAction: "已封鎖的動作",
   },
   canvas: {
     label: "頁面",
     page: (page: number) => `第 ${page} 頁`,
     pageRenderFailed: "這一頁無法顯示",
+  },
+  links: {
+    hoverPage: (page: number) => `前往第 ${page} 頁`,
+    hoverBlocked: (reason: string) => `已封鎖：${reason}`,
+    confirmTitle: "要開啟外部連結嗎？",
+    confirmBody: "這個連結會在預設瀏覽器中開啟。瀏覽器會連上網路，對方可能因此得知你的 IP 位址。",
+    confirmHost: "網站",
+    confirmFullUrl: "完整網址",
+    warnIdn: (asciiHost: string) => `網址包含非拉丁字母，可能是假冒的網站。實際網址：${asciiHost}`,
+    warnControl: "網址包含會改變文字顯示方向的隱藏字元，已以 [U+XXXX] 標示。",
+    copy: "複製連結",
+    cancel: "取消",
+    open: "開啟",
+    openFailed: "無法開啟這個連結：系統沒有可以開啟它的程式。",
+    blockedTitle: "已封鎖這個連結",
+    blockedContent: "連結內容（僅供檢視）",
+    blockedCopy: "複製內容",
+    blockedNoContent: "（沒有內容）",
+    close: "關閉",
+    /** Why a link is blocked: a short label (status bar) and an explanation (dialog). */
+    blocked: {
+      javaScript: { label: "腳本連結", description: "這個連結會執行程式碼，因此不允許開啟。" },
+      localFile: {
+        label: "本機檔案連結",
+        description: "這個連結使用 file: 通訊協定，可能開啟你電腦上的程式或檔案，因此不允許開啟。",
+      },
+      networkShare: {
+        label: "網路共用路徑",
+        description: "這個連結指向網路共用資料夾，Windows 可能因此自動傳送你的帳號資訊，因此不允許開啟。",
+      },
+      other: {
+        label: "不支援的連結類型",
+        description: "這個連結會交給其他程式處理，可能被用來啟動程式，因此不允許開啟。",
+      },
+      launch: { label: "啟動外部程式", description: "這個連結會啟動電腦上的程式，因此不允許開啟。" },
+      remoteGoTo: { label: "開啟其他文件", description: "這個連結會開啟其他檔案或網路位置，因此不允許開啟。" },
+      embeddedGoTo: { label: "開啟內嵌文件", description: "這個連結會開啟文件內嵌的其他文件，目前版本不支援。" },
+      submitForm: { label: "表單傳送", description: "這個連結會把表單內容送到網路或其他位置，因此不允許開啟。" },
+      importData: { label: "匯入外部資料", description: "這個連結會從其他檔案讀取資料，因此不允許開啟。" },
+    } satisfies Record<BlockedAction, { label: string; description: string }>,
   },
   search: {
     label: "搜尋文件",
@@ -76,6 +127,11 @@ export const strings = {
     next: "下一筆",
     caseSensitive: "區分大小寫",
     close: "關閉搜尋",
+    progress: (searched: number, total: number) => `搜尋中… 已完成 ${searched}／${total} 頁`,
+    noResults: (query: string) => `找不到「${query}」`,
+    noTextLayer: "此文件沒有文字層，目前版本尚不支援 OCR",
+    truncated: (limit: number) => `結果超過 ${limit.toLocaleString("en-US")} 筆，只顯示前 ${limit.toLocaleString("en-US")} 筆`,
+    failed: "搜尋失敗，請再試一次。",
   },
   banner: {
     label: "已封鎖內容警示",
@@ -83,6 +139,11 @@ export const strings = {
       `已封鎖此文件中的 ${total} 項內容：${kinds.join("、")}${more ? "等" : ""}。這些內容不會執行。`,
     details: "詳細資訊",
     dismiss: "關閉警示",
+    detailsTitle: "已封鎖的內容",
+    detailsNote: "這些內容在本程式中永遠不會執行，也沒有「允許」選項。",
+    detailsCount: (count: number) => `${count.toLocaleString("en-US")} 項`,
+    detailsClose: "關閉已封鎖的內容",
+    scanIncomplete: "文件太大，掃描未完成；可能還有未列出的項目。",
   },
   findings: {
     javaScript: { name: "JavaScript 腳本", description: "文件內嵌的程式碼" },

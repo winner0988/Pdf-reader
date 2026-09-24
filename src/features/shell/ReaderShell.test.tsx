@@ -1,11 +1,15 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { demoDocument } from "@/features/shell/demo";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
+import type { SearchApi } from "@/features/search/useSearch";
 import { strings } from "@/i18n/zh-TW";
+import type { LinksApi } from "@/features/links/source";
+import type { OutlineView } from "@/features/outline/tree";
+import type { LinkPreview, PageLink, SearchEvent } from "@/ipc/generated/contract";
 import { mediaQuery } from "@/test/setup";
 
 const openState: ShellState = { kind: "open", document: demoDocument };
@@ -60,7 +64,12 @@ describe("states", () => {
 
     expect(screen.getByRole("toolbar")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: strings.sidebar.label })).toBeInTheDocument();
-    expect(screen.getAllByRole("img", { name: /^第 \d+ 頁$/ })).toHaveLength(12);
+    // Virtual scrolling: only the pages near the viewport are mounted (MVP-07).
+    const mounted = screen.getAllByRole("img", { name: /^第 \d+ 頁$/ });
+    expect(mounted.length).toBeGreaterThan(0);
+    expect(mounted.length).toBeLessThan(12);
+    expect(mounted[0]).toHaveAccessibleName("第 1 頁");
+    expect(screen.queryByRole("img", { name: "第 12 頁" })).not.toBeInTheDocument();
     expect(statusText()).toContain("報告.pdf");
     expect(statusText()).toContain("第 1 / 12 頁 · 符合寬度");
   });
@@ -71,7 +80,7 @@ describe("open document", () => {
     const { user } = renderShell(openState);
 
     const banner = screen.getByRole("region", { name: strings.banner.label });
-    expect(banner).toHaveTextContent("已封鎖此文件中的 4 項內容");
+    expect(banner).toHaveTextContent("已封鎖此文件中的 3 項內容：JavaScript 腳本、開檔自動動作、遠端資源引用。");
     await user.click(within(banner).getByRole("button", { name: strings.banner.dismiss }));
     expect(screen.queryByRole("region", { name: strings.banner.label })).not.toBeInTheDocument();
   });
@@ -81,10 +90,57 @@ describe("open document", () => {
     expect(screen.queryByRole("region", { name: strings.banner.label })).not.toBeInTheDocument();
   });
 
+  it("the details list every blocked kind with its count, and offer no way to run any of it", async () => {
+    const { user } = renderShell({
+      kind: "open",
+      document: {
+        ...demoDocument,
+        findings: [
+          { kind: "uncReference", count: 1 },
+          { kind: "javaScript", count: 2 },
+          { kind: "openAction", count: 1 },
+        ],
+      },
+    });
+
+    const detailsButton = screen.getByRole("button", { name: strings.banner.details });
+    expect(detailsButton).toHaveAttribute("aria-expanded", "false");
+    await user.click(detailsButton);
+    const panel = screen.getByRole("complementary", { name: strings.banner.detailsTitle });
+    expect(detailsButton).toHaveAttribute("aria-expanded", "true");
+    expect(within(panel).getByRole("button", { name: strings.banner.detailsClose })).toHaveFocus();
+    expect(within(panel).getByText(strings.banner.detailsNote)).toBeInTheDocument();
+
+    const rows = within(panel).getAllByRole("listitem");
+    expect(rows.map((row) => row.getAttribute("data-kind"))).toEqual(["javaScript", "openAction", "uncReference"]);
+    expect(rows[0]).toHaveTextContent(`${strings.findings.javaScript.name}2 項${strings.findings.javaScript.description}`);
+    // The UNC row stands out: following it can send the user's account hash to a server.
+    expect(within(rows[2]!).getByText(strings.findings.uncReference.name)).toHaveClass("text-destructive");
+    // Closing is the only thing the panel can do.
+    expect(within(panel).getAllByRole("button")).toHaveLength(1);
+    expect(within(panel).queryByRole("note")).not.toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("complementary", { name: strings.banner.detailsTitle })).not.toBeInTheDocument();
+    expect(detailsButton).toHaveFocus();
+  });
+
+  it("an unfinished scan is shown even when nothing was found", async () => {
+    const { user } = renderShell({ kind: "open", document: { ...demoDocument, findings: [], scanComplete: false } });
+
+    const banner = screen.getByRole("region", { name: strings.banner.label });
+    expect(banner).toHaveTextContent(strings.banner.scanIncomplete);
+    await user.click(within(banner).getByRole("button", { name: strings.banner.details }));
+    const panel = screen.getByRole("complementary", { name: strings.banner.detailsTitle });
+    expect(within(panel).getByRole("note")).toHaveTextContent(strings.banner.scanIncomplete);
+    await user.click(within(panel).getByRole("button", { name: strings.banner.detailsClose }));
+    expect(screen.queryByRole("complementary", { name: strings.banner.detailsTitle })).not.toBeInTheDocument();
+  });
+
   it("jumps to a page from the outline and from the page field", async () => {
     const { user } = renderShell(openState);
 
-    await user.click(screen.getByRole("button", { name: "第 2 章 方法" }));
+    await user.click(screen.getByRole("treeitem", { name: "第 2 章 方法" }));
     expect(statusText()).toContain("第 5 / 12 頁");
 
     const pageField = screen.getByRole("textbox", { name: strings.toolbar.pageNumber });
@@ -153,6 +209,169 @@ describe("shortcuts", () => {
     expect(field).toHaveFocus();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("search")).not.toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveFocus();
+  });
+
+  it("Enter searches, hits are marked on the pages, F3 steps through them, closing clears the marks", async () => {
+    let emit: (event: SearchEvent) => void = () => {};
+    const searchApi = {
+      search: vi.fn((_args, onEvent: (event: SearchEvent) => void) => {
+        emit = (event) => act(() => onEvent(event));
+        return new Promise<void>(() => {});
+      }),
+      cancel: vi.fn(() => Promise.resolve()),
+    } satisfies SearchApi;
+    const { user } = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { searchApi });
+    const line = { ul: { x: 72, y: 72 }, ur: { x: 144, y: 72 }, ll: { x: 72, y: 84 }, lr: { x: 144, y: 84 } };
+    const marks = (selector = "polygon") => document.querySelectorAll(`[data-highlights] ${selector}`);
+
+    await user.keyboard("{Control>}f{/Control}needle{Enter}");
+    expect(searchApi.search).toHaveBeenCalledWith(
+      expect.objectContaining({ doc: 5, query: "needle", caseSensitive: false }),
+      expect.any(Function),
+    );
+    emit({ kind: "hits", pageIndex: 0, hits: [{ quads: [line] }, { quads: [line] }] });
+    emit({ kind: "done", totalHits: 2, truncated: false, noTextLayer: false });
+    const search = screen.getByRole("search");
+    expect(within(search).getByRole("status")).toHaveTextContent(strings.search.count(1, 2));
+    expect(marks()).toHaveLength(3); // two hits, one of them outlined
+    expect(marks("[data-current]")).toHaveLength(1);
+
+    // F3 works from the search field too.
+    await user.keyboard("{F3}");
+    expect(within(search).getByRole("status")).toHaveTextContent(strings.search.count(2, 2));
+    await user.keyboard("{Shift>}{F3}{/Shift}");
+    expect(within(search).getByRole("status")).toHaveTextContent(strings.search.count(1, 2));
+
+    await user.keyboard("{Escape}");
+    expect(marks()).toHaveLength(0);
+    // F3 reopens the bar and searches again.
+    await user.keyboard("{F3}");
+    expect(screen.getByRole("search")).toBeInTheDocument();
+    expect(searchApi.search).toHaveBeenCalledTimes(2);
+  });
+
+  describe("links", () => {
+    const pageLinks: PageLink[] = [
+      {
+        id: { pageIndex: 0, index: 0 },
+        rect: { x0: 72, y0: 80, x1: 300, y1: 102 },
+        target: { kind: "page", pageIndex: 7, x: null, y: null },
+      },
+      {
+        id: { pageIndex: 0, index: 1 },
+        rect: { x0: 72, y0: 120, x1: 300, y1: 142 },
+        target: { kind: "uri", uri: "https://example.invalid/docs" },
+      },
+      {
+        id: { pageIndex: 0, index: 2 },
+        rect: { x0: 72, y0: 160, x1: 300, y1: 182 },
+        target: { kind: "blocked", action: "launch", target: "calc.exe" },
+      },
+    ];
+    const preview: LinkPreview = {
+      uri: "https://example.invalid/docs",
+      opens: "https://example.invalid/docs",
+      host: "example.invalid",
+      asciiHost: null,
+    };
+    const setup = () => {
+      const linksApi = {
+        getPageLinks: vi.fn((_doc: number, pageIndex: number) => Promise.resolve(pageIndex === 0 ? pageLinks : [])),
+        describeLink: vi.fn(() => Promise.resolve(preview)),
+        openLink: vi.fn(() => Promise.resolve()),
+        describeOutlineLink: vi.fn(() => Promise.resolve(preview)),
+        openOutlineLink: vi.fn(() => Promise.resolve()),
+      } satisfies LinksApi;
+      const outline: OutlineView = {
+        status: "ready",
+        truncated: false,
+        items: [
+          { title: "第 1 章", depth: 0, target: { kind: "page", pageIndex: 0, x: null, y: null } },
+          { title: "官方網站", depth: 0, target: { kind: "uri", uri: "https://example.invalid/docs" } },
+          { title: "執行程式", depth: 0, target: { kind: "blocked", action: "launch", target: "calc.exe" } },
+        ],
+      };
+      const utils = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { linksApi, outline });
+      return { ...utils, linksApi };
+    };
+
+    it("an internal link jumps to its page; the status bar says what a link does", async () => {
+      const { user, linksApi } = setup();
+
+      const toPage = await screen.findByRole("button", { name: "前往第 8 頁" });
+      await user.hover(toPage);
+      expect(statusText()).toContain("前往第 8 頁");
+      await user.click(toPage);
+      expect(statusText()).toContain("第 8 / 12 頁");
+      expect(linksApi.getPageLinks).toHaveBeenCalledWith(5, 0);
+    });
+
+    it("a web link opens only after confirmation, named by its id", async () => {
+      const { user, linksApi } = setup();
+
+      await user.click(await screen.findByRole("button", { name: "https://example.invalid/docs" }));
+      const dialog = await screen.findByRole("dialog", { name: strings.links.confirmTitle });
+      expect(linksApi.describeLink).toHaveBeenCalledWith(5, { pageIndex: 0, index: 1 });
+      expect(within(dialog).getByText("example.invalid")).toHaveAttribute("data-host");
+      expect(within(dialog).getByLabelText(strings.links.confirmFullUrl)).toHaveTextContent("https://example.invalid/docs");
+      // Cancel is where the focus starts; Escape cancels.
+      await waitFor(() => expect(within(dialog).getByRole("button", { name: strings.links.cancel })).toHaveFocus());
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(linksApi.openLink).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole("button", { name: "https://example.invalid/docs" }));
+      await user.click(await screen.findByRole("button", { name: strings.links.open }));
+      expect(linksApi.openLink).toHaveBeenCalledWith(5, { pageIndex: 0, index: 1 });
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    });
+
+    it("says so when the system cannot open it, and stays open", async () => {
+      const { user, linksApi } = setup();
+      linksApi.openLink.mockRejectedValueOnce({ code: "internal", message: "" });
+
+      await user.click(await screen.findByRole("button", { name: "https://example.invalid/docs" }));
+      await user.click(await screen.findByRole("button", { name: strings.links.open }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(strings.links.openFailed);
+      expect(screen.getByRole("dialog", { name: strings.links.confirmTitle })).toBeInTheDocument();
+    });
+
+    it("an outline item with a web link is confirmed and opened by its position (#49)", async () => {
+      const { user, linksApi } = setup();
+
+      await user.click(screen.getByRole("treeitem", { name: /官方網站/ }));
+      const dialog = await screen.findByRole("dialog", { name: strings.links.confirmTitle });
+      expect(linksApi.describeOutlineLink).toHaveBeenCalledWith(5, 1);
+      await user.click(within(dialog).getByRole("button", { name: strings.links.open }));
+      expect(linksApi.openOutlineLink).toHaveBeenCalledWith(5, 1);
+      expect(linksApi.openLink).not.toHaveBeenCalled();
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+      // A blocked outline item explains itself, like a blocked link on a page.
+      await user.click(screen.getByRole("treeitem", { name: /執行程式/ }));
+      const blocked = await screen.findByRole("dialog", { name: strings.links.blockedTitle });
+      expect(blocked).toHaveTextContent(strings.links.blocked.launch.description);
+      expect(linksApi.describeOutlineLink).toHaveBeenCalledTimes(1);
+    });
+
+    it("a blocked link only explains why, with nothing to open it", async () => {
+      const { user, linksApi } = setup();
+
+      await user.click(await screen.findByRole("button", { name: "已封鎖：啟動外部程式" }));
+      const dialog = await screen.findByRole("dialog", { name: strings.links.blockedTitle });
+      expect(dialog).toHaveTextContent(strings.links.blocked.launch.description);
+      expect(within(dialog).getByLabelText(strings.links.blockedContent)).toHaveTextContent("calc.exe");
+      expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toEqual([
+        strings.links.blockedCopy,
+        strings.links.close,
+      ]);
+      await waitFor(() => expect(within(dialog).getByRole("button", { name: strings.links.close })).toHaveFocus());
+      await user.click(within(dialog).getByRole("button", { name: strings.links.close }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(linksApi.describeLink).not.toHaveBeenCalled();
+      expect(linksApi.openLink).not.toHaveBeenCalled();
+    });
   });
 
   it("on narrow windows the sidebar starts closed, floats, and closes when the page is used", async () => {

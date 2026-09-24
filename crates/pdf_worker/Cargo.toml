@@ -4,7 +4,25 @@ description = "Low-privilege child process that is the only code linked against 
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+ipc_contract = { version = "0.1.0", path = "../ipc_contract" }
+mupdf = { version = "=0.8.0", default-features = false, features = ["base14-fonts"] }
+thiserror = "2"
+
+[dev-dependencies]
+# Reads tests/corpus/manifest.json (already in the workspace through ipc_contract).
+serde_json = "1"
+worker_host = { path = "../worker_host" }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Threading",
+] }

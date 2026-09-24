@@ -1,0 +1,505 @@
+{
+  "version": 1,
+  "generator": "tests/corpus/generate.py",
+  "note": "Generated file; run `python tests/corpus/generate.py`. Descriptions in README.md.",
+  "files": [
+    {
+      "path": "benign/single-page.pdf",
+      "category": "benign",
+      "purpose": "Smallest valid document.",
+      "expected": "Opens; one Letter page.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Hello, PDF Reader."
+      ],
+      "bytes": 704,
+      "sha256": "d49b63a3f20ab93263f737dfad698d70bc7e56a4206c6e391bbc280ed5a952fb"
+    },
+    {
+      "path": "benign/multi-page-10.pdf",
+      "category": "benign",
+      "purpose": "Ten pages; a unique keyword on page 7.",
+      "expected": "Opens; 10 pages; searching 'needle' finds exactly one hit on page 7.",
+      "pages": 10,
+      "findings": [],
+      "text": [
+        "Page 1 of 10",
+        "needle"
+      ],
+      "bytes": 3216,
+      "sha256": "37950d0b5266c0ebcb3c148fc0bcc7e6c9b5b97f0e374b8dcb47b31be87fb031"
+    },
+    {
+      "path": "benign/mixed-text-zh-en.pdf",
+      "category": "benign",
+      "purpose": "English and Traditional Chinese text (Type0 font, non-embedded, with ToUnicode).",
+      "expected": "Opens; both strings are searchable. CJK glyphs may render as fallback boxes if no CJK font is available.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Privacy-first PDF Reader",
+        "隱私優先的 PDF 閱讀器"
+      ],
+      "bytes": 1900,
+      "sha256": "98a68ec13178b51aedeb8fa44a8d050fa2f95282c908d4436e84dbd643771a85"
+    },
+    {
+      "path": "benign/outline-3-levels.pdf",
+      "category": "benign",
+      "purpose": "Three-level outline over six pages.",
+      "expected": "Outline shows Chapter 1 > Section 1.1 > Subsection 1.1.1, Chapter 2 > Section 2.1, Appendix; each jumps to its page.",
+      "pages": 6,
+      "findings": [],
+      "text": [],
+      "bytes": 2914,
+      "sha256": "5ba626e5c4736f49b587189bcb26573cc268e10a193cd049f61f7d46d637b6fb"
+    },
+    {
+      "path": "benign/internal-links.pdf",
+      "category": "benign",
+      "purpose": "Internal links (Dest and GoTo action).",
+      "expected": "Clicking the links on page 1 navigates to pages 3 and 2 without any dialog.",
+      "pages": 3,
+      "findings": [],
+      "text": [],
+      "bytes": 1643,
+      "sha256": "fe5d8325d92964e27bba0111f7344b0d663e517f981a71fa03f866edcb543624"
+    },
+    {
+      "path": "benign/external-https-link.pdf",
+      "category": "benign",
+      "purpose": "One external https link.",
+      "expected": "Clicking shows a confirmation dialog with the full URL; cancelling does nothing.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 971,
+      "sha256": "e7f95273cab051c065884722c2259fbd1a05afe2a9d03c39ebd54c50737692f8"
+    },
+    {
+      "path": "benign/rotated-page.pdf",
+      "category": "benign",
+      "purpose": "Second page has /Rotate 90.",
+      "expected": "Page 2 is displayed rotated 90 degrees clockwise.",
+      "pages": 2,
+      "findings": [],
+      "text": [],
+      "bytes": 989,
+      "sha256": "25b832e04c5d169c5766d3c0f1fcabf74cc7c921b0fa37fd1acdbdbf195295fa"
+    },
+    {
+      "path": "benign/mixed-page-sizes.pdf",
+      "category": "benign",
+      "purpose": "A4, Letter, A3 landscape and a 200 x 200 pt page.",
+      "expected": "Each page keeps its own size.",
+      "pages": 4,
+      "findings": [],
+      "text": [],
+      "bytes": 1512,
+      "sha256": "85bd617a9a0b4391e4c454f5861edd0beef288e1a97a4ff356fa4b2d0bfbba76"
+    },
+    {
+      "path": "benign/image-only.pdf",
+      "category": "benign",
+      "purpose": "A page with an image and no text layer.",
+      "expected": "Renders a gradient; search reports that the document has no text layer.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 13171,
+      "sha256": "1c81bc7cd4e6584a527582c1486333a5cec953e37589b393b152de40b5ead3f2"
+    },
+    {
+      "path": "benign/encrypted-rc4-40.pdf",
+      "category": "benign",
+      "purpose": "Encrypted with the standard handler (RC4 40-bit, R2); user password 'user', owner password 'owner'.",
+      "expected": "MVP: reported as encrypted and not supported; no crash.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 968,
+      "sha256": "e7dcb4050cdbcc57de25883dc00335e6bd3adeb5cd020700ae017d10280cbc56"
+    },
+    {
+      "path": "malicious/js-document-level.pdf",
+      "category": "malicious",
+      "purpose": "Document-level JavaScript in the names tree.",
+      "expected": "No script runs; finding reported.",
+      "pages": 1,
+      "findings": [
+        "javaScript"
+      ],
+      "text": [],
+      "bytes": 884,
+      "sha256": "1eee0f9ca98cca5eb12f1ff1fe40234c6480d6fb91144fd14499a411d5403765"
+    },
+    {
+      "path": "malicious/openaction-js.pdf",
+      "category": "malicious",
+      "purpose": "JavaScript in /OpenAction.",
+      "expected": "No script runs on open; findings reported.",
+      "pages": 1,
+      "findings": [
+        "javaScript",
+        "openAction"
+      ],
+      "text": [],
+      "bytes": 791,
+      "sha256": "491d718779b3ef9c84de28e29740eb4f0e1b427977ca7b7c26a93bf7c4704443"
+    },
+    {
+      "path": "malicious/openaction-uri.pdf",
+      "category": "malicious",
+      "purpose": "URI in /OpenAction (open-tracking beacon).",
+      "expected": "Nothing is opened or fetched; finding reported.",
+      "pages": 1,
+      "findings": [
+        "openAction"
+      ],
+      "text": [],
+      "bytes": 829,
+      "sha256": "bf7a1c310c95202027cd1fb0cbc06b97b28b3000eb098950b940caf3937796bd"
+    },
+    {
+      "path": "malicious/page-aa.pdf",
+      "category": "malicious",
+      "purpose": "Page open/close additional actions with JavaScript.",
+      "expected": "No script runs when the page is shown or hidden; findings reported.",
+      "pages": 1,
+      "findings": [
+        "javaScript",
+        "additionalActions"
+      ],
+      "text": [],
+      "bytes": 875,
+      "sha256": "0f6df523dd8212ce0cc1060004b768b9eb45c5418165dbdf859ee95bb3fcd499"
+    },
+    {
+      "path": "malicious/field-aa.pdf",
+      "category": "malicious",
+      "purpose": "Form field keystroke/format scripts.",
+      "expected": "No script runs; findings reported.",
+      "pages": 1,
+      "findings": [
+        "javaScript",
+        "additionalActions"
+      ],
+      "text": [],
+      "bytes": 1118,
+      "sha256": "8130d25ba7f678a3d3fe417be8d5e65c8aa23612714398933ca761b09d774869"
+    },
+    {
+      "path": "malicious/submitform.pdf",
+      "category": "malicious",
+      "purpose": "Button submitting the form to a remote URL.",
+      "expected": "Nothing is sent; finding reported.",
+      "pages": 1,
+      "findings": [
+        "submitForm"
+      ],
+      "text": [],
+      "bytes": 1060,
+      "sha256": "6deb5a1699ca82a671cbc6b0c16fd9736c6d574fcb447a7f2ce240e77aa22c96"
+    },
+    {
+      "path": "malicious/importdata.pdf",
+      "category": "malicious",
+      "purpose": "Button importing form data from a file.",
+      "expected": "No file is read; finding reported.",
+      "pages": 1,
+      "findings": [
+        "importData"
+      ],
+      "text": [],
+      "bytes": 1018,
+      "sha256": "9d8a1d29bb3565ed8858711e9bc14638278b96ec7d0964e4d8a5787d6d520951"
+    },
+    {
+      "path": "malicious/launch.pdf",
+      "category": "malicious",
+      "purpose": "Link with a /Launch action (nonexistent program).",
+      "expected": "No program starts; the link is shown as blocked; finding reported.",
+      "pages": 1,
+      "findings": [
+        "launch"
+      ],
+      "text": [],
+      "bytes": 1017,
+      "sha256": "8aac8cba4afd1a1ed6a4d4c7d410a9f69acfc8992cf268b553bc29df97738697"
+    },
+    {
+      "path": "malicious/gotor-unc.pdf",
+      "category": "malicious",
+      "purpose": "GoToR to a UNC path.",
+      "expected": "No SMB connection is attempted; link blocked; findings reported.",
+      "pages": 1,
+      "findings": [
+        "remoteGoTo",
+        "uncReference"
+      ],
+      "text": [],
+      "bytes": 974,
+      "sha256": "b5f059a507b1349be99ecbd6ff7cc2b4ca7d972b646be844c7cf69c15b03e10f"
+    },
+    {
+      "path": "malicious/gotoe.pdf",
+      "category": "malicious",
+      "purpose": "GoToE into an embedded document.",
+      "expected": "Link blocked; finding reported.",
+      "pages": 1,
+      "findings": [
+        "embeddedGoTo"
+      ],
+      "text": [],
+      "bytes": 943,
+      "sha256": "b1a88d6752782bc5538867be1beabe4ef380427565cb4bd9bae64ece1e3676e6"
+    },
+    {
+      "path": "malicious/remote-filespec.pdf",
+      "category": "malicious",
+      "purpose": "Image XObject whose data is an external stream at a URL (remote resource beacon).",
+      "expected": "Nothing is fetched; the image is not drawn; finding reported.",
+      "pages": 1,
+      "findings": [
+        "remoteFileSpec"
+      ],
+      "text": [],
+      "bytes": 1022,
+      "sha256": "feded3d68875a5c7cc7e23a2db31006553efa78493650eb370dd6af4ffc1d652"
+    },
+    {
+      "path": "malicious/xfa.pdf",
+      "category": "malicious",
+      "purpose": "XFA form with a remote submit event.",
+      "expected": "XFA is ignored; finding reported.",
+      "pages": 1,
+      "findings": [
+        "xfa"
+      ],
+      "text": [],
+      "bytes": 1129,
+      "sha256": "5c69797bd14841663a01c04cc7eee9a4eb6b7e3cbfcd877f3b2a4b600bef8216"
+    },
+    {
+      "path": "malicious/embedded-file.pdf",
+      "category": "malicious",
+      "purpose": "Document with an embedded file.",
+      "expected": "The attachment is never opened or extracted automatically; finding reported.",
+      "pages": 1,
+      "findings": [
+        "embeddedFile"
+      ],
+      "text": [],
+      "bytes": 1019,
+      "sha256": "9fa194e402189a7609ba0b28d04618535aa208ac44b4f98145e120cb84c5bb55"
+    },
+    {
+      "path": "malicious/link-javascript-scheme.pdf",
+      "category": "malicious",
+      "purpose": "URI link with the javascript: scheme.",
+      "expected": "Blocked with an explanation; nothing runs.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 951,
+      "sha256": "56e632beb1a1537a8c66ff9b0c9f3a9a24cffd1b066cfd4e3116080166eb6ae9"
+    },
+    {
+      "path": "malicious/link-file-scheme.pdf",
+      "category": "malicious",
+      "purpose": "URI link with the file: scheme.",
+      "expected": "Blocked with an explanation; nothing opens.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 964,
+      "sha256": "0db4beb3e8d941f6c78808bf05c41c29559f810b2abae241417954883813ce33"
+    },
+    {
+      "path": "malicious/link-smb-scheme.pdf",
+      "category": "malicious",
+      "purpose": "URI link with the smb: scheme.",
+      "expected": "Blocked with an explanation; no SMB connection.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 948,
+      "sha256": "abecc6b844560d0f3689858295172d36a887dcf35b128b0818073312bac7eb12"
+    },
+    {
+      "path": "malicious/link-unc-uri.pdf",
+      "category": "malicious",
+      "purpose": "URI link whose value is a UNC path.",
+      "expected": "Blocked with an explanation; no SMB connection.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 944,
+      "sha256": "d2f00f40d1a339d3c575c54f4fe2b90d22bdc591d52ad21cacbf4d8f999b5555"
+    },
+    {
+      "path": "malicious/link-ms-protocol.pdf",
+      "category": "malicious",
+      "purpose": "URI link with a Windows protocol handler scheme.",
+      "expected": "Blocked with an explanation; nothing starts.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 945,
+      "sha256": "91ec0acbf1bfea1dddb3e2c6289e326a3e49b7c772f3eeeaea714955d4d661b7"
+    },
+    {
+      "path": "malicious/link-idn-homograph.pdf",
+      "category": "malicious",
+      "purpose": "https link whose host uses a Cyrillic 'а' (UTF-8 bytes).",
+      "expected": "Confirmation dialog shows the punycode host and an IDN warning.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 976,
+      "sha256": "52a656bf7a196d29c73efa627dbacf22bdca57c25d1dfdb9d0b0963db2e961f6"
+    },
+    {
+      "path": "malicious/link-rtl-override.pdf",
+      "category": "malicious",
+      "purpose": "https link containing a right-to-left override character.",
+      "expected": "Confirmation dialog shows the control character visibly and warns.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 974,
+      "sha256": "51888524882196043fbc7f47ce354c85fa738919f41cc46920218010707ee143"
+    },
+    {
+      "path": "malicious/link-long-url.pdf",
+      "category": "malicious",
+      "purpose": "https link with a 10,000-character URL.",
+      "expected": "Confirmation dialog shows the whole URL (scrollable).",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 20902,
+      "sha256": "c6f4b4c4c74ed47a83851d2a53d075150b88e45deaf58db5d0ec6d527b02a9ac"
+    },
+    {
+      "path": "malformed/truncated.pdf",
+      "category": "malformed",
+      "purpose": "multi-page-10.pdf cut at 60%.",
+      "expected": "Opens with repair or reports corrupted; never crashes.",
+      "pages": null,
+      "findings": [],
+      "text": [],
+      "bytes": 1929,
+      "sha256": "d03fb65ff6d31caf608919e7b4995931d0042de8f6588185be63db13558f4d28"
+    },
+    {
+      "path": "malformed/broken-xref.pdf",
+      "category": "malformed",
+      "purpose": "Every xref offset is off by 7 bytes.",
+      "expected": "Opens after repair (1 page) or reports corrupted; never crashes.",
+      "pages": null,
+      "findings": [],
+      "text": [],
+      "bytes": 712,
+      "sha256": "e39ae7af3cf579fba0bc326314bdcc610ce41cea9d884013cc6d30481813d4bf"
+    },
+    {
+      "path": "malformed/page-tree-cycle.pdf",
+      "category": "malformed",
+      "purpose": "The page tree lists itself as a kid.",
+      "expected": "Reports corrupted; never hangs or crashes.",
+      "pages": null,
+      "findings": [],
+      "text": [],
+      "bytes": 320,
+      "sha256": "790aec5b308605e9228336d70805e09e6e332ce307b7ffe5945da024718f196c"
+    },
+    {
+      "path": "malformed/outline-cycle.pdf",
+      "category": "malformed",
+      "purpose": "Outline items whose /Next pointers form a cycle.",
+      "expected": "Opens; the outline is cut at the cycle; never hangs.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 1032,
+      "sha256": "2bcac821bb2b98776f625555c02394f7126827f5153e8b08725e38591b0c0eb9"
+    },
+    {
+      "path": "malformed/huge-page-size.pdf",
+      "category": "malformed",
+      "purpose": "MediaBox of 1e9 x 1e9 points.",
+      "expected": "Rejected by validation or rendered within the raster limits; never allocates unbounded memory.",
+      "pages": null,
+      "findings": [],
+      "text": [],
+      "bytes": 718,
+      "sha256": "df90f4a812bcbc7c0bba2c0d99180e99f99ee1d1fd0f2bcb2fab3e40bbc3602b"
+    },
+    {
+      "path": "malformed/deep-nesting.pdf",
+      "category": "malformed",
+      "purpose": "10,000 nested arrays in the page dictionary.",
+      "expected": "Opens or reports corrupted; no stack overflow.",
+      "pages": null,
+      "findings": [],
+      "text": [],
+      "bytes": 20715,
+      "sha256": "57e4eb403a0847c98b349aa9b2bfd739e135d8a1ca3727979e805bf1ffb1b4c0"
+    },
+    {
+      "path": "malformed/no-pages.pdf",
+      "category": "malformed",
+      "purpose": "Structurally valid document with zero pages.",
+      "expected": "Reports corrupted (a document needs at least one page).",
+      "pages": null,
+      "findings": [],
+      "text": [],
+      "bytes": 432,
+      "sha256": "b21bfc213b2ab173a6061886a4e2eacafaf836af48e5e353ee0b7c20807b31d4"
+    },
+    {
+      "path": "malformed/not-a-pdf.pdf",
+      "category": "malformed",
+      "purpose": "Text file named .pdf.",
+      "expected": "Reports not a PDF.",
+      "pages": null,
+      "findings": [],
+      "text": [],
+      "bytes": 49,
+      "sha256": "3aa1d7385c6caad43ff3d50af6e0cab53499e2112fbe91baeae399a4103202e6"
+    },
+    {
+      "path": "malformed/empty.pdf",
+      "category": "malformed",
+      "purpose": "Zero bytes.",
+      "expected": "Reports not a PDF or corrupted.",
+      "pages": null,
+      "findings": [],
+      "text": [],
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "large/output/large-1000-pages.pdf",
+      "category": "large",
+      "purpose": "About 200 MB: 1000 pages with a 256 x 256 RGB image and searchable text each (MVP-07, MVP-10).",
+      "expected": "Opens; memory stays bounded while scrolling; 'needle-0500' finds one hit on page 500.",
+      "pages": 1000,
+      "findings": [],
+      "text": [],
+      "onDemand": true
+    },
+    {
+      "path": "large/output/outline-100k-items.pdf",
+      "category": "large",
+      "purpose": "100,000 outline items (MVP-09).",
+      "expected": "Outline truncated at the limit and flagged; no hang.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "onDemand": true
+    }
+  ]
+}

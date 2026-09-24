@@ -35,11 +35,25 @@ const DEV_ONLY_SOURCES = {
 };
 
 /**
- * Permissions the frontend may be granted. Empty on purpose: add an entry only together with
- * a work card that needs it, a one-line justification, and the needs-security-review label.
+ * Permissions the frontend may be granted. Add an entry only together with a work card that
+ * needs it, a one-line justification, and the needs-security-review label.
  */
 const ALLOWED_PERMISSIONS = new Map([
-  // ["core:event:allow-listen", "MVP-06: receive document-opened events"],
+  // The app's own commands (src-tauri/src/commands.rs). They take document and request ids,
+  // never paths or URIs; each was reviewed with its card's PR.
+  ["allow-subscribe-open-events", "MVP-06: receive open outcomes on a channel instead of core:event"],
+  ["allow-open-document-dialog", "MVP-06: the main process shows the dialog; the path stays there"],
+  ["allow-retry-open", "MVP-06: reopen the last attempted file after a worker failure"],
+  ["allow-close-document", "MVP-06: release a document by its id"],
+  ["allow-render-page", "MVP-07: render a page of an open document"],
+  ["allow-cancel", "MVP-07, MVP-10: cancel a queued render or a running search by request id"],
+  ["allow-get-outline", "MVP-09: read the checked outline"],
+  ["allow-search", "MVP-10: full-text search, results on a channel"],
+  ["allow-get-page-links", "MVP-12: where a page's links are and where they point"],
+  ["allow-describe-link", "MVP-12: what the confirmation dialog shows, checked in the main process"],
+  ["allow-open-link", "MVP-12: open a confirmed http/https/mailto link by its id"],
+  ["allow-describe-outline-link", "#49: the same confirmation for an outline item"],
+  ["allow-open-outline-link", "#49: open a confirmed outline link by its position"],
 ]);
 
 /** Plugin permission prefixes that are never granted to the frontend, allowlist or not. */

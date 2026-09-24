@@ -6,7 +6,15 @@
 /scripts/ci/                  @winner0988
 /docs/adr/                    @winner0988
 /crates/pdf_worker/           @winner0988
+/crates/sandbox/              @winner0988
+/crates/worker_host/          @winner0988
+/.cargo/                      @winner0988
 /crates/ipc_contract/         @winner0988
 /src-tauri/capabilities/      @winner0988
+/src-tauri/permissions/       @winner0988
+/src-tauri/build.rs           @winner0988
 /src-tauri/tauri.conf.json    @winner0988
+/src-tauri/tauri.bundle.conf.json @winner0988
+/src-tauri/windows/           @winner0988
+/scripts/release/             @winner0988
 /deny.toml                    @winner0988

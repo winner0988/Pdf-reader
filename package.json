@@ -2,6 +2,7 @@
   "name": "pdf-reader",
   "private": true,
   "version": "0.1.0",
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "packageManager": "pnpm@12.5.1",
   "engines": {
@@ -15,10 +16,14 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "tauri": "tauri",
-    "ipc:generate": "cargo run -q --locked -p ipc_contract --bin generate_ts"
+    "bundle": "tauri build --config src-tauri/tauri.bundle.conf.json",
+    "ipc:generate": "cargo run -q --locked -p ipc_contract --bin generate_ts",
+    "e2e:build": "cargo build --release --locked -p pdf_worker && tauri build --no-bundle",
+    "e2e": "playwright test --config tests/e2e/playwright.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
+    "@tauri-apps/api": "^2.11.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.47.0",
@@ -29,6 +34,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.63.0",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2.11.5",
     "@testing-library/dom": "^10.4.2",

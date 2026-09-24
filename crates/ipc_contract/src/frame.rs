@@ -257,9 +257,11 @@ mod tests {
 
     #[test]
     fn non_hello_first_message_is_rejected() {
-        let first = WorkerResponse::SearchProgress {
+        let first = WorkerResponse::PageSearched {
             request: RequestId(1),
-            pages_searched: 1,
+            page_index: 0,
+            hits: Vec::new(),
+            has_text: false,
         };
         assert!(matches!(
             check_hello(&first).unwrap_err(),

@@ -1,0 +1,46 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names [(note.txt) 7 0 R] >> >> >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<<  /Length 62 >>
+stream
+BT /F1 14 Tf 72 720 Td (Document with an embedded file) Tj ET
+
+endstream
+endobj
+6 0 obj
+<< /Type /EmbeddedFile /Subtype /text#2Fplain /Length 25 >>
+stream
+hello from an attachment
+
+endstream
+endobj
+7 0 obj
+<< /Type /Filespec /F (note.txt) /UF (note.txt) /EF << /F 6 0 R >> >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000124 00000 n 
+0000000181 00000 n 
+0000000278 00000 n 
+0000000404 00000 n 
+0000000517 00000 n 
+0000000635 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R /ID [<ADB3436BE68B4978A30A6163DA5F799B> <ADB3436BE68B4978A30A6163DA5F799B>] >>
+startxref
+720
+%%EOF

@@ -21,7 +21,7 @@ pub struct PageSize {
 }
 
 /// Clockwise view rotation. Only affects rendering; the file is never modified.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum Rotation {
     #[default]
@@ -160,28 +160,118 @@ pub enum BlockedAction {
     JavaScript,
     SubmitForm,
     ImportData,
+    /// A `file:` URI on this computer.
+    LocalFile,
+    /// A UNC path (`\\server\share`), `smb:` or `file://server`: on Windows, following it can
+    /// send the user's account hash to that server.
+    NetworkShare,
     Other,
 }
 
 /// Where a link or outline item points.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+///
+/// Serialized with a `kind` tag in JSON (for the frontend), but externally tagged in binary
+/// formats: postcard, used between the main process and the worker, cannot decode internally
+/// tagged enums. See [`link_target_serde`].
+#[derive(Debug, Clone, PartialEq, TS)]
+#[ts(tag = "kind", rename_all = "camelCase")]
 pub enum LinkTarget {
     /// A page in the same document; `x`/`y` are page-space coordinates when specified.
-    #[serde(rename_all = "camelCase")]
+    #[ts(rename_all = "camelCase")]
     Page {
         page_index: u32,
         x: Option<f32>,
         y: Option<f32>,
     },
-    /// An external URI, shown to the user as-is. Opening it requires confirmation and goes
-    /// through the main process by link id (MVP-12); the frontend never opens URIs itself.
+    /// An external `http`, `https` or `mailto` URI, exactly as the PDF has it (hidden characters
+    /// included, so that the confirmation can show them). Opening it requires confirmation and
+    /// goes through the main process by link id (MVP-12); the frontend never opens URIs itself.
     Uri { uri: String },
     /// A recognised action that is blocked. `target` is PDF-provided text for display only.
     Blocked {
         action: BlockedAction,
         target: Option<String>,
     },
+}
+
+/// Chooses the representation of [`LinkTarget`] by format: tagged for human-readable formats
+/// (JSON to the frontend), externally tagged otherwise (postcard to and from the worker).
+mod link_target_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use super::{BlockedAction, LinkTarget};
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(tag = "kind", rename_all = "camelCase")]
+    enum Tagged {
+        #[serde(rename_all = "camelCase")]
+        Page {
+            page_index: u32,
+            x: Option<f32>,
+            y: Option<f32>,
+        },
+        Uri {
+            uri: String,
+        },
+        Blocked {
+            action: BlockedAction,
+            target: Option<String>,
+        },
+    }
+
+    #[derive(Serialize, Deserialize)]
+    enum Compact {
+        Page {
+            page_index: u32,
+            x: Option<f32>,
+            y: Option<f32>,
+        },
+        Uri {
+            uri: String,
+        },
+        Blocked {
+            action: BlockedAction,
+            target: Option<String>,
+        },
+    }
+
+    macro_rules! convert {
+        ($from:ident => $to:ident) => {
+            impl From<$from> for $to {
+                fn from(target: $from) -> Self {
+                    match target {
+                        $from::Page { page_index, x, y } => $to::Page { page_index, x, y },
+                        $from::Uri { uri } => $to::Uri { uri },
+                        $from::Blocked { action, target } => $to::Blocked { action, target },
+                    }
+                }
+            }
+        };
+    }
+    convert!(LinkTarget => Tagged);
+    convert!(LinkTarget => Compact);
+    convert!(Tagged => LinkTarget);
+    convert!(Compact => LinkTarget);
+
+    impl Serialize for LinkTarget {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            if serializer.is_human_readable() {
+                Tagged::from(self.clone()).serialize(serializer)
+            } else {
+                Compact::from(self.clone()).serialize(serializer)
+            }
+        }
+    }
+
+    impl<'de> Deserialize<'de> for LinkTarget {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            if deserializer.is_human_readable() {
+                Tagged::deserialize(deserializer).map(Into::into)
+            } else {
+                Compact::deserialize(deserializer).map(Into::into)
+            }
+        }
+    }
 }
 
 /// Identifies a link reported by the worker, so the main process can look it up later
@@ -198,6 +288,40 @@ pub struct PageLink {
     pub id: LinkId,
     pub rect: Rect,
     pub target: LinkTarget,
+}
+
+/// Arguments of `describe_link` and `open_link` (MVP-12): a link the worker reported, by id.
+/// There is deliberately no field for a URI; any other field is rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LinkArgs {
+    pub doc: DocumentId,
+    pub link: LinkId,
+}
+
+/// Arguments of `describe_outline_link` and `open_outline_link` (#49): an outline item by its
+/// position in the outline the worker reported (`OutlineResult::items`), never a URI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OutlineLinkArgs {
+    pub doc: DocumentId,
+    pub item: u32,
+}
+
+/// What the confirmation shows about a web link before it is opened (MVP-12).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkPreview {
+    /// The URI exactly as the PDF has it; the frontend writes out its hidden characters.
+    pub uri: String,
+    /// What the system is given when the user opens it: ASCII only, the host in punycode and
+    /// everything else percent-encoded. Also what "copy link" copies.
+    pub opens: String,
+    /// The site the browser will contact (for `mailto`, the mail domain), as it reads.
+    pub host: Option<String>,
+    /// The host's ASCII (punycode) form when it differs from `host`: an internationalised
+    /// name, which may imitate another one.
+    pub ascii_host: Option<String>,
 }
 
 /// One outline entry, in pre-order; `depth` 0 is the top level.
@@ -240,8 +364,13 @@ pub enum SearchEvent {
     },
     #[serde(rename_all = "camelCase")]
     Progress { pages_searched: u32 },
+    /// `no_text_layer`: no page had any text, so the document needs OCR to be searchable.
     #[serde(rename_all = "camelCase")]
-    Done { total_hits: u32, truncated: bool },
+    Done {
+        total_hits: u32,
+        truncated: bool,
+        no_text_layer: bool,
+    },
 }
 
 /// Error codes the frontend maps to localized messages.
@@ -271,4 +400,29 @@ pub enum ErrorCode {
 pub struct IpcError {
     pub code: ErrorCode,
     pub message: String,
+}
+
+/// Pushed by the main process on the channel passed to `subscribe_open_events`, for documents
+/// opened from the dialog, by drag and drop, or from the command line. A window shows one
+/// document at a time, so the latest event always describes what the window should show.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum OpenEvent {
+    /// Files are being dragged over the window (`true`), or the drag left without a drop.
+    DragHover { active: bool },
+    /// Opening has started.
+    #[serde(rename_all = "camelCase")]
+    Opening { display_name: String },
+    /// `ignored_files`: other files in the same drop that were not opened.
+    #[serde(rename_all = "camelCase")]
+    Opened {
+        info: DocumentInfo,
+        ignored_files: u32,
+    },
+    #[serde(rename_all = "camelCase")]
+    Failed {
+        display_name: String,
+        error: IpcError,
+        ignored_files: u32,
+    },
 }

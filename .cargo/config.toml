@@ -1,0 +1,13 @@
+# Toolchain locations for building MuPDF (crates/pdf_worker, via mupdf-sys 0.8.0).
+# Paths are LLVM's default install location, also used by GitHub's Windows runners. To use
+# another location, set these variables in your environment; they take precedence (force = false).
+# See docs/architecture/mupdf-binding.md.
+[env]
+# mupdf-sys compiles a small C wrapper using an empty initializer (`{}`), which the Visual
+# Studio 2019 C compiler rejects. clang-cl compiles it for the MSVC ABI with any Visual Studio
+# version; MuPDF itself is still built by MSBuild.
+CC_x86_64_pc_windows_msvc = { value = "C:\\Program Files\\LLVM\\bin\\clang-cl.exe", force = false }
+# bindgen needs clang's own headers (e.g. max_align_t, which MSVC's C headers lack). Without
+# these it silently falls back to MSVC headers and the mupdf crate fails to compile.
+CLANG_PATH = { value = "C:\\Program Files\\LLVM\\bin\\clang.exe", force = false }
+LIBCLANG_PATH = { value = "C:\\Program Files\\LLVM\\bin", force = false }

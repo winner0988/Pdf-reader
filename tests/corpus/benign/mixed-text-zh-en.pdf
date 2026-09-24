@@ -1,0 +1,81 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [8 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<<  /Length 493 >>
+stream
+/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+12 beginbfchar
+<0020> <0020>
+<0044> <0044>
+<0046> <0046>
+<0050> <0050>
+<512A> <512A>
+<5148> <5148>
+<5668> <5668>
+<7684> <7684>
+<79C1> <79C1>
+<8B80> <8B80>
+<95B1> <95B1>
+<96B1> <96B1>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+
+endstream
+endobj
+5 0 obj
+<< /Type /FontDescriptor /FontName /MingLiU /Flags 6 /FontBBox [0 -200 1000 900] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 880 /StemV 93 >>
+endobj
+6 0 obj
+<< /Type /Font /Subtype /CIDFontType0 /BaseFont /MingLiU /CIDSystemInfo << /Registry (Adobe) /Ordering (CNS1) /Supplement 0 >> /FontDescriptor 5 0 R >>
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type0 /BaseFont /MingLiU /Encoding /UniCNS-UCS2-H /DescendantFonts [6 0 R] /ToUnicode 4 0 R >>
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 7 0 R >> >> /Contents 9 0 R >>
+endobj
+9 0 obj
+<<  /Length 140 >>
+stream
+BT /F1 20 Tf 72 720 Td (Privacy-first PDF Reader) Tj ET
+BT /F2 20 Tf 72 660 Td <96B179C1512A514876840020005000440046002095B18B805668> Tj ET
+
+endstream
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000763 00000 n 
+0000000928 00000 n 
+0000001095 00000 n 
+0000001230 00000 n 
+0000001366 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R /ID [<EAF1355E67C223888FF8E9A946C3404A> <EAF1355E67C223888FF8E9A946C3404A>] >>
+startxref
+1558
+%%EOF
