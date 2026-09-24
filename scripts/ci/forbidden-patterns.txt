@@ -37,7 +37,10 @@ cdn\.jsdelivr\.net
 unpkg\.com
 cdnjs\.cloudflare\.com
 
-# --- Tauri plugins with network capability (blocked until ADR 0009 is decided) ---
+# --- Tauri plugins with network capability ---
+# ADR 0009 (option B): the only planned network access is a user-triggered update check from
+# the main process. It has its own work card; until then every HTTP client stays forbidden, and
+# that card adds a reviewed exception limited to one module.
 tauri-plugin-http
 tauri-plugin-websocket
 tauri-plugin-upload
