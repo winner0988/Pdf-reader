@@ -7,7 +7,6 @@ import type { BlockedAction } from "@/ipc/generated/contract";
 export const strings = {
   appName: "PDF Reader",
   tagline: "離線運作 · 無遙測 · 開發中",
-  windowTitle: (displayName: string) => `${displayName} — PDF Reader`,
 
   empty: {
     title: "開啟 PDF 檔案",
@@ -17,8 +16,16 @@ export const strings = {
   },
   loading: (displayName: string) => `正在開啟 ${displayName}…`,
   open: {
-    dropMultiple: (displayName: string) => `一次只能開啟一個檔案，已開啟第一個：${displayName}`,
     dismissNotice: "關閉提示",
+  },
+  tabs: {
+    label: "已開啟的文件",
+    open: "開啟檔案",
+    close: (displayName: string) => `關閉「${displayName}」`,
+    loading: "（正在開啟）",
+    failed: "（無法開啟）",
+    tabLimit: (limit: number, ignored: number) =>
+      `最多同時開啟 ${limit} 份文件，有 ${ignored} 個檔案沒有開啟。`,
   },
   error: {
     title: "無法開啟這個檔案",
@@ -180,7 +187,9 @@ export const strings = {
     keys: "按鍵",
     descriptions: {
       open: "開啟檔案",
-      close: "關閉文件",
+      close: "關閉分頁",
+      nextTab: "下一個分頁",
+      previousTab: "上一個分頁",
       search: "搜尋",
       findNext: "下一筆結果",
       findPrevious: "上一筆結果",

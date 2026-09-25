@@ -7,6 +7,12 @@
 export type DocumentId = number;
 
 /**
+ * One tab of the window (MVP-14, ADR 0012): a file from the moment it starts opening until the
+ * tab is closed, whether it opened or failed. Assigned by the main process.
+ */
+export type TabId = number;
+
+/**
  * Caller-chosen id used to correlate and cancel a request.
  */
 export type RequestId = number;
@@ -165,10 +171,11 @@ export type IpcError = { code: ErrorCode, message: string, };
 
 /**
  * Pushed by the main process on the channel passed to `subscribe_open_events`, for documents
- * opened from the dialog, by drag and drop, or from the command line. A window shows one
- * document at a time, so the latest event always describes what the window should show.
+ * opened from the dialog, by drag and drop, from the command line or from a second launch of
+ * the app. Every file gets its own tab (MVP-14): `Opening` adds it, then `Opened` or `Failed`
+ * says how it went.
  */
-export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", displayName: string, } | { "kind": "opened", info: DocumentInfo, ignoredFiles: number, } | { "kind": "failed", displayName: string, error: IpcError, ignoredFiles: number, };
+export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, };
 
 /** Limits enforced by the main process (crates/ipc_contract/src/limits.rs). */
 export const LIMITS = {
@@ -188,6 +195,7 @@ export const LIMITS = {
   maxQuadsPerHit: 64,
   maxErrorMessageBytes: 1024,
   maxDisplayNameBytes: 1024,
+  maxTabs: 20,
   protocolVersion: 0,
 } as const;
 

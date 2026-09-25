@@ -1,19 +1,22 @@
-// Main-process commands for opening documents (docs/architecture/ipc-contract.md, MVP-06).
-// The WebView never sees a path: the dialog runs in the main process, and every outcome arrives
-// as an OpenEvent carrying a document id and a file name.
+// Main-process commands for opening documents in tabs (docs/architecture/ipc-contract.md, MVP-06,
+// MVP-14). The WebView never sees a path: the dialog runs in the main process, and every outcome
+// arrives as an OpenEvent carrying a tab id, a document id and a file name.
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 
-import type { DocumentId, OpenEvent } from "@/ipc/generated/contract";
+import type { OpenEvent, TabId } from "@/ipc/generated/contract";
 
 export type OpenApi = {
   /** Registers `onEvent` for every open event of this page. Safe to call more than once. */
   listen(onEvent: (event: OpenEvent) => void): () => void;
-  /** Shows the native open dialog; false if the user cancelled. */
+  /** Shows the native open dialog (several files can be picked); false if the user cancelled. */
   openDialog(): Promise<boolean>;
-  /** Opens the most recently attempted file again. */
-  retry(): Promise<void>;
-  close(doc: DocumentId): Promise<void>;
+  /** Opens the file of a tab that failed to open again, in the same tab. */
+  retry(tab: TabId): Promise<void>;
+  /** Closes a tab; its worker ends. */
+  close(tab: TabId): Promise<void>;
+  /** The tab the window shows, for the window title. */
+  setActive(tab: TabId | null): Promise<void>;
 };
 
 /**
@@ -42,6 +45,7 @@ export const tauriOpenApi: OpenApi = {
     await invoke("subscribe_open_events", { onEvent: channel });
   }),
   openDialog: () => invoke<boolean>("open_document_dialog"),
-  retry: () => invoke<void>("retry_open"),
-  close: (doc) => invoke<void>("close_document", { doc }),
+  retry: (tab) => invoke<void>("retry_open", { tab }),
+  close: (tab) => invoke<void>("close_tab", { tab }),
+  setActive: (tab) => invoke<void>("set_active_tab", { tab }),
 };

@@ -15,7 +15,10 @@ mod render;
 mod search;
 mod strings;
 
-use tauri::Manager;
+use std::ffi::OsString;
+use std::path::Path;
+
+use tauri::{AppHandle, Manager};
 
 use crate::documents::Documents;
 use crate::events::OpenEvents;
@@ -44,9 +47,20 @@ pub fn run() {
             worker_host::WORKER_FILE_NAME
         );
     }
-    let launch_document = cli::document_argument(std::env::args_os());
+    let launch_documents = cli::document_arguments(std::env::args_os());
 
     tauri::Builder::default()
+        // First, so that a second launch ends before anything else starts: it hands its files to
+        // this window (each gets a tab) and exits (MVP-14, ADR 0012). Paths stay in the main
+        // processes; a relative one is taken from the second launch's working directory.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            let paths = cli::document_arguments(argv.into_iter().map(OsString::from))
+                .into_iter()
+                .map(|path| Path::new(&cwd).join(path))
+                .collect();
+            commands::open_paths(app, paths);
+            show_window(app);
+        }))
         .manage(Documents::new(worker))
         .manage(OpenEvents::default())
         .manage(Searches::default())
@@ -54,7 +68,8 @@ pub fn run() {
             commands::subscribe_open_events,
             commands::open_document_dialog,
             commands::retry_open,
-            commands::close_document,
+            commands::close_tab,
+            commands::set_active_tab,
             commands::render_page,
             commands::cancel,
             commands::get_outline,
@@ -72,11 +87,17 @@ pub fn run() {
             app.manage(Renderer::start(DEFAULT_CACHE_BYTES, move |args| {
                 handle.state::<Documents>().render(args)
             }));
-            if let Some(path) = launch_document {
-                commands::open_in_background(app.app_handle().clone(), path, 0);
-            }
+            commands::open_paths(app.app_handle(), launch_documents);
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running the Tauri application");
+}
+
+/// Brings the window to the front, e.g. after a second launch handed it a file.
+fn show_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
 }

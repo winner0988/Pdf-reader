@@ -12,7 +12,8 @@
 
 | # | 區域 | 內容與行為 | 實作卡 |
 |---|---|---|---|
-| 1 | 標題列 | `<檔名> — PDF Reader`；沒有開啟文件時只顯示 `PDF Reader`。只顯示檔名，不顯示路徑。 | MVP-05 |
+| 0 | 分頁列 | 有開啟檔案時出現在最上方。每個檔案一個分頁：檔名（太長時截斷，滑鼠停留顯示全名）；載入中顯示轉動圖示，開檔失敗顯示警告圖示。右側「＋」開啟檔案。✕ 或中鍵關閉分頁；關閉目前的分頁後顯示右邊的分頁，沒有就顯示左邊的。最多 20 個分頁。每個分頁記住自己的頁碼、縮放、旋轉、側欄與搜尋。 | MVP-14 |
+| 1 | 標題列 | `<檔名> — PDF Reader`（目前分頁的檔名）；沒有開啟文件時只顯示 `PDF Reader`。只顯示檔名，不顯示路徑。 | MVP-05、14 |
 | 2 | 工具列 | 左到右：側欄開關、開啟、頁碼輸入框／總頁數、縮小、縮放比例下拉、放大、符合寬度、符合頁面、逆時針旋轉、順時針旋轉；右側：搜尋、更多（⋯：設定、快捷鍵、關於）。沒有開啟文件時只顯示側欄開關、開啟、更多。每個圖示按鈕都有工具提示，內容包含快捷鍵。 | MVP-05、08 |
 | 3 | 安全警示橫幅 | 文件含有已封鎖內容、或掃描未完成時才出現，位於工具列下方、頁面畫布上方。顯示摘要（最多列 3 類，其餘以「等」表示；數字是類別數，不是各類數量的總和，因為類別會重疊，例如頁面事件執行的腳本同時是「JavaScript」與「事件觸發動作」）與「詳細資訊」、關閉（✕）。沒有任何發現但掃描未完成時，摘要改為 scanIncomplete 的文字。關閉只對目前這份文件的這次開啟有效。 | MVP-11 |
 | 4 | 側欄 | 預設寬 280 px，可拖曳調整為 200～480 px。分頁：「目錄」、「縮圖（之後）」。目前頁面所屬的目錄項目以底色標示。視窗寬度小於 960 px 時側欄改為浮動覆蓋，開啟後點畫布即關閉。 | MVP-05、09 |
@@ -109,8 +110,9 @@
 
 | 動作 | 快捷鍵 |
 |---|---|
-| 開啟檔案 | `Ctrl+O` |
-| 關閉文件 | `Ctrl+W` |
+| 開啟檔案 | `Ctrl+O`（對話框可以選多個檔案，每個一個分頁） |
+| 關閉分頁 | `Ctrl+W` |
+| 下一個／上一個分頁 | `Ctrl+Tab`（或 `Ctrl+PageDown`）／`Ctrl+Shift+Tab`（或 `Ctrl+PageUp`）；焦點在分頁列時用 `←`／`→`、`Home`／`End` |
 | 搜尋 | `Ctrl+F` |
 | 下一筆／上一筆結果 | `Enter`／`Shift+Enter`（搜尋列中）；`F3`／`Shift+F3`（任何時候） |
 | 放大／縮小 | `Ctrl+=`（或 `Ctrl++`）／`Ctrl+-`；`Ctrl+滾輪` |
@@ -157,7 +159,6 @@
 | emptyDropHint | 或將檔案拖放到這個視窗 |
 | privacyNote | 所有處理都在這台電腦上完成：不連網、不收集任何資料。 |
 | loading | 正在開啟 <檔名>… |
-| dropMultiple | 一次只能開啟一個檔案，已開啟第一個：<檔名> |
 | pageStatus | 第 <n> / <N> 頁 · <縮放>% |
 | pageOutOfRange | 頁碼需介於 1 與 <N> 之間 |
 | pageRenderFailed | 這一頁無法顯示 |
@@ -293,6 +294,17 @@
 | defaultApp.failedTitle | 無法開啟 Windows 設定 |
 | defaultApp.failedHelp | 請手動開啟：設定 → 應用程式 → 預設應用程式，搜尋「PDF Reader」，再把 .pdf 設為用它開啟。 |
 
+### 分頁
+
+| 鍵 | 文字 |
+|---|---|
+| tabs.label | 已開啟的文件 |
+| tabs.open | 開啟檔案 |
+| tabs.close | 關閉「<檔名>」 |
+| tabs.loading | （正在開啟） |
+| tabs.failed | （無法開啟） |
+| tabs.tabLimit | 最多同時開啟 <上限> 份文件，有 <數量> 個檔案沒有開啟。 |
+
 ### 主行程的原生對話框
 
 這些文字由主行程自己顯示，放在 `src-tauri/src/strings.rs`。
@@ -301,7 +313,7 @@
 |---|---|
 | OPEN_DIALOG_TITLE | 開啟 PDF 檔案 |
 | PDF_FILTER_NAME | PDF 檔案 |
-| window_title | `<檔名> - PDF Reader`；沒有開啟文件時為 `PDF Reader` |
+| window_title | `<檔名> — PDF Reader`；沒有開啟文件時為 `PDF Reader` |
 | WEBVIEW2_MISSING_TITLE | 無法開啟 PDF Reader |
 | WEBVIEW2_MISSING_MESSAGE | 這台電腦缺少 Microsoft Edge WebView2 Runtime，PDF Reader 需要它才能顯示畫面。（空一行）Windows 11 已內建 WebView2。如果它被移除了，請到 Microsoft 官方網站下載並安裝「WebView2 Runtime」，然後再開啟 PDF Reader：https://developer.microsoft.com/microsoft-edge/webview2/（空一行）PDF Reader 不會自行下載任何東西。 |
 
@@ -319,3 +331,4 @@
 | MVP-10 | `benign/multi-page-10.pdf` 搜尋 `needle` 的結果與標示；搜尋進度；`benign/image-only.pdf` 的無文字層提示 |
 | MVP-11 | `malicious/openaction-js.pdf` 的警示橫幅；明細面板；掃描未完成提示 |
 | MVP-12 | `benign/external-https-link.pdf` 確認對話框；`link-idn-homograph.pdf`、`link-rtl-override.pdf` 的警示；`link-long-url.pdf`；`link-file-scheme.pdf` 與 `launch.pdf` 的封鎖對話框 |
+| MVP-14 | 三個分頁（一個已開啟、一個在背景、一個開檔失敗）的淺色與深色 |

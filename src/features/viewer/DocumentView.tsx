@@ -11,7 +11,6 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
-import { pageElementId } from "@/features/shell/format";
 import type { PageSize, Rotation, Zoom } from "@/features/shell/model";
 import {
   anchorAt,
@@ -373,7 +372,6 @@ function PageSlot({ index, box, left, doc, renderer, scale, paused, rotation, re
 
   return (
     <div
-      id={pageElementId(index + 1)}
       role="img"
       aria-label={strings.canvas.page(index + 1)}
       data-state={state.kind}

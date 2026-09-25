@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
@@ -48,6 +48,8 @@ type ReaderShellProps = {
   linksApi?: LinksApi;
   /** Opens Windows Settings for "set as default"; without it (demo data, tests) nothing happens. */
   systemApi?: SystemApi;
+  /** Whether this shell is the one shown (MVP-14): a hidden tab's shell handles no keys. */
+  active?: boolean;
   version?: string;
   /** Delay before the loading state appears; tests pass 0. */
   loadingDelayMs?: number;
@@ -61,9 +63,11 @@ const isNarrowWindow = () => window.innerWidth < OVERLAY_SIDEBAR_BELOW_PX;
 /** Region order for F6 / Shift+F6 (docs/ux/screen-map.md, section 7). */
 const REGION_ORDER = ["toolbar", "banner", "sidebar", "canvas"];
 
-function focusRegion(direction: 1 | -1) {
+/** Moves focus to the next or previous region of `shell`: every tab has its own regions (MVP-14). */
+function focusRegion(shell: HTMLElement | null, direction: 1 | -1) {
+  if (!shell) return;
   const regions = REGION_ORDER.map((name) =>
-    document.querySelector<HTMLElement>(`[data-region="${name}"]`),
+    shell.querySelector<HTMLElement>(`[data-region="${name}"]`),
   ).filter((element): element is HTMLElement => element !== null);
   if (regions.length === 0) return;
   const current = regions.findIndex((region) => region.contains(document.activeElement));
@@ -85,6 +89,7 @@ export function ReaderShell({
   searchApi,
   linksApi,
   systemApi,
+  active = true,
   version = "0.1.0",
   loadingDelayMs,
 }: ReaderShellProps) {
@@ -103,10 +108,12 @@ export function ReaderShell({
   const [currentPage, setCurrentPage] = useState(1);
   const [dialog, setDialog] = useState<"shortcuts" | "about" | "setDefaultFailed" | null>(null);
   const pageInputRef = useRef<HTMLInputElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLElement>(null);
   const viewRef = useRef<DocumentViewHandle>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const detailsButtonRef = useRef<HTMLButtonElement>(null);
+  const detailsId = useId();
 
   const document_ = state.kind === "open" ? state.document : null;
   const pageCount = document_?.pages.length ?? 0;
@@ -187,10 +194,10 @@ export function ReaderShell({
       if (document_) goToPage(pageCount);
     },
     toggleSidebar: () => setSidebarOpen((open) => !open),
-    nextRegion: () => focusRegion(1),
-    previousRegion: () => focusRegion(-1),
+    nextRegion: () => focusRegion(shellRef.current, 1),
+    previousRegion: () => focusRegion(shellRef.current, -1),
     help: () => setDialog("shortcuts"),
-  });
+  }, active);
 
   /**
    * Links inside the document jump right away. A web link is described by the main process
@@ -247,7 +254,7 @@ export function ReaderShell({
 
   return (
     <TooltipProvider>
-      <div className="flex h-screen flex-col bg-background text-foreground">
+      <div ref={shellRef} className="flex h-full flex-col bg-background text-foreground">
         <Toolbar
           document={document_ ? { pageCount, currentPage, zoom } : null}
           sidebarOpen={sidebarOpen && document_ !== null}
@@ -285,6 +292,7 @@ export function ReaderShell({
                 findings={findings}
                 scanComplete={scanComplete}
                 detailsOpen={detailsOpen}
+                detailsId={detailsId}
                 detailsButtonRef={detailsButtonRef}
                 onToggleDetails={() => setDetailsOpen((open) => !open)}
                 onDismiss={() => {
@@ -342,7 +350,7 @@ export function ReaderShell({
             )}
           </div>
           {bannerShown && detailsOpen && (
-            <SecurityDetails findings={findings} scanComplete={scanComplete} onClose={closeDetails} />
+            <SecurityDetails id={detailsId} findings={findings} scanComplete={scanComplete} onClose={closeDetails} />
           )}
         </div>
         <StatusBar

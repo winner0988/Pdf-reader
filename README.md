@@ -16,7 +16,8 @@
 
 | 功能 | 說明 |
 |---|---|
-| 開啟本機 PDF | 開啟對話框、拖放、命令列參數；損毀、加密、不是 PDF 的檔案會顯示清楚的錯誤 |
+| 開啟本機 PDF | 開啟對話框（可多選）、拖放、命令列參數、從檔案總管開啟；損毀、加密、不是 PDF 的檔案會顯示清楚的錯誤 |
+| 分頁 | 同時開多份文件，每份一個分頁，最多 20 個；每個分頁記住自己的頁碼、縮放與搜尋 |
 | 閱讀 | 虛擬滾動與 HiDPI 渲染；縮放（含符合寬度、符合頁面）與旋轉，只改檢視、不改檔案 |
 | 目錄 | 側欄樹狀目錄，可以只用鍵盤操作 |
 | 全文搜尋 | 逐頁搜尋文字層（不含 OCR）、標示結果、上一筆／下一筆、區分大小寫 |
@@ -29,7 +30,7 @@ OCR、Word 轉檔、完整編輯、簽章、加密、批次背景服務、表單
 
 - **不連網、零遙測**：程式本身沒有任何網路功能，也不收集任何資料。CI 會擋下網路與遙測相關的依賴，並檢查 CSP、capability 與建置產物；完整的驗證方式見 [offline-verification.md](docs/security/offline-verification.md)。
 - **引擎隔離**（[ADR 0008](docs/adr/0008-pdf-worker-isolation.md)、[worker-sandbox.md](docs/architecture/worker-sandbox.md)）：
-  - MuPDF 只在 `pdf_worker` 子行程中執行：沒有任何 capability 的 AppContainer（連 localhost 都不能連、讀不到使用者的檔案）、Job Object、Low integrity，並關閉 win32k 系統呼叫等。
+  - MuPDF 只在 `pdf_worker` 子行程中執行，**每份文件有自己的 worker**（[ADR 0012](docs/adr/0012-tabs-and-worker-per-document.md)），一份惡意 PDF 碰不到其他文件：沒有任何 capability 的 AppContainer（連 localhost 都不能連、讀不到使用者的檔案）、Job Object、Low integrity，並關閉 win32k 系統呼叫等。
   - 前端只拿得到不透明的文件代號，拿不到檔案路徑。
 - **主動內容**（[active-content.md](docs/architecture/active-content.md)）：MuPDF 編譯時就不含 JavaScript 引擎；掃描只是告知，沒有「允許執行」按鈕。
 - **連結**（[links.md](docs/architecture/links.md)）：主行程不接受前端傳來的網址，只接受連結的代號，並重新向 worker 取得、檢查後才開啟。

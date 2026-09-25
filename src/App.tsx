@@ -2,15 +2,19 @@ import { useMemo, useState } from "react";
 
 import { tauriOpenApi, type OpenApi } from "@/features/open/api";
 import { OpenNotice } from "@/features/open/OpenNotice";
-import { useOpenSession } from "@/features/open/useOpenSession";
 import { tauriLinksApi, type LinksApi } from "@/features/links/source";
 import { tauriSearchApi, type SearchApi } from "@/features/search/useSearch";
 import { tauriOutlineApi, useOutline, type OutlineApi } from "@/features/outline/useOutline";
 import { DevDemoSwitcher } from "@/features/shell/DevDemoSwitcher";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
+import { useShortcuts } from "@/features/shortcuts/useShortcuts";
 import { tauriSystemApi, type SystemApi } from "@/features/system/defaultApp";
-import { createPageRenderer, tauriRenderApi, type RenderApi } from "@/features/viewer/renderer";
+import { docOf, shellState, tabElementId, tabPanelId, type Tab } from "@/features/tabs/model";
+import { TabBar } from "@/features/tabs/TabBar";
+import { useTabs } from "@/features/tabs/useTabs";
+import { createPageRenderer, tauriRenderApi, type PageRenderer, type RenderApi } from "@/features/viewer/renderer";
+import type { TabId } from "@/ipc/generated/contract";
 
 type AppProps = {
   api?: OpenApi;
@@ -29,34 +33,98 @@ export default function App({
   linksApi = tauriLinksApi,
   systemApi = tauriSystemApi,
 }: AppProps) {
-  const { session, open, retry, close, dismissNotice } = useOpenSession(api);
+  const tabs = useTabs(api);
+  const { state } = tabs;
   const renderer = useMemo(() => createPageRenderer(renderApi), [renderApi]);
-  const outline = useOutline(outlineApi, session.doc, session.hasOutline);
   // Development only: fake states for working on the UI without the main process.
   const [demo, setDemo] = useState<ShellState | null>(null);
 
+  useShortcuts({
+    nextTab: () => tabs.step(1),
+    previousTab: () => tabs.step(-1),
+  });
+
+  const open = () => {
+    setDemo(null);
+    tabs.open();
+  };
+
   return (
-    <>
-      <ReaderShell
-        state={demo ?? session.shell}
-        dropActive={session.dragActive}
-        renderer={renderer}
-        outline={demo ? undefined : outline}
-        searchApi={demo ? undefined : searchApi}
-        linksApi={demo ? undefined : linksApi}
-        systemApi={systemApi}
-        onOpen={() => {
-          setDemo(null);
-          open();
-        }}
-        onClose={() => {
-          setDemo(null);
-          close();
-        }}
-        onRetry={retry}
-      />
-      {session.notice && <OpenNotice notice={session.notice} onDismiss={dismissNotice} />}
+    <div className="flex h-screen flex-col">
+      {state.tabs.length > 0 && !demo && (
+        <TabBar
+          tabs={state.tabs}
+          active={state.active}
+          onActivate={tabs.activate}
+          onClose={tabs.close}
+          onOpen={open}
+        />
+      )}
+      <div className="min-h-0 flex-1">
+        {state.tabs.length === 0 || demo ? (
+          <ReaderShell
+            state={demo ?? { kind: "empty" }}
+            dropActive={state.dragActive}
+            renderer={renderer}
+            systemApi={systemApi}
+            onOpen={open}
+            onClose={() => setDemo(null)}
+          />
+        ) : (
+          state.tabs.map((tab) => (
+            <TabPane
+              key={tab.tab}
+              tab={tab}
+              active={tab.tab === state.active}
+              dropActive={state.dragActive}
+              renderer={renderer}
+              outlineApi={outlineApi}
+              searchApi={searchApi}
+              linksApi={linksApi}
+              systemApi={systemApi}
+              onOpen={open}
+              onClose={tabs.close}
+              onRetry={tabs.retry}
+            />
+          ))
+        )}
+      </div>
+      {state.notice && <OpenNotice notice={state.notice} onDismiss={tabs.dismissNotice} />}
       {import.meta.env.DEV && <DevDemoSwitcher onChange={setDemo} />}
-    </>
+    </div>
+  );
+}
+
+type TabPaneProps = {
+  tab: Tab;
+  active: boolean;
+  dropActive: boolean;
+  renderer: PageRenderer;
+  outlineApi: OutlineApi;
+  searchApi: SearchApi;
+  linksApi: LinksApi;
+  systemApi: SystemApi;
+  onOpen: () => void;
+  onClose: (tab: TabId) => void;
+  onRetry: (tab: TabId) => void;
+};
+
+/**
+ * One tab's reader. Every tab stays mounted and hidden tabs are only hidden, so each keeps its
+ * page, zoom, rotation, sidebar and search while another is shown (MVP-14).
+ */
+function TabPane({ tab, active, outlineApi, onClose, onRetry, ...shell }: TabPaneProps) {
+  const outline = useOutline(outlineApi, docOf(tab), tab.content.kind === "open" && tab.content.hasOutline);
+  return (
+    <div role="tabpanel" id={tabPanelId(tab.tab)} aria-labelledby={tabElementId(tab.tab)} hidden={!active} className="h-full">
+      <ReaderShell
+        {...shell}
+        state={shellState(tab)}
+        active={active}
+        outline={outline}
+        onClose={() => onClose(tab.tab)}
+        onRetry={() => onRetry(tab.tab)}
+      />
+    </div>
   );
 }

@@ -43,8 +43,9 @@ const ALLOWED_PERMISSIONS = new Map([
   // never paths or URIs; each was reviewed with its card's PR.
   ["allow-subscribe-open-events", "MVP-06: receive open outcomes on a channel instead of core:event"],
   ["allow-open-document-dialog", "MVP-06: the main process shows the dialog; the path stays there"],
-  ["allow-retry-open", "MVP-06: reopen the last attempted file after a worker failure"],
-  ["allow-close-document", "MVP-06: release a document by its id"],
+  ["allow-retry-open", "MVP-06, MVP-14: reopen a tab's file after a worker failure, by tab id"],
+  ["allow-close-tab", "MVP-14: close a tab by its id; its worker ends"],
+  ["allow-set-active-tab", "MVP-14: which tab the window shows, for the window title"],
   ["allow-render-page", "MVP-07: render a page of an open document"],
   ["allow-cancel", "MVP-07, MVP-10: cancel a queued render or a running search by request id"],
   ["allow-get-outline", "MVP-09: read the checked outline"],

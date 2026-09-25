@@ -1,15 +1,18 @@
-//! The window's document: opens files through the sandboxed worker and keeps paths in the main
-//! process (MVP-06, ADR 0008). The frontend only ever sees a `DocumentId` and a file name.
+//! The window's documents (MVP-06, MVP-14): every file the user opens gets a tab, and every open
+//! document its own sandboxed worker (ADR 0012), so a hostile PDF that takes over its worker
+//! cannot reach the other documents. Paths stay in the main process (ADR 0008): the frontend
+//! only ever sees tab and document ids and file names.
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, MutexGuard};
 
-use ipc_contract::limits::{MAX_DISPLAY_NAME_BYTES, MAX_TEXT_BYTES};
+use ipc_contract::limits::{MAX_DISPLAY_NAME_BYTES, MAX_TABS, MAX_TEXT_BYTES};
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
     BlockedAction, DocumentId, DocumentInfo, ErrorCode, IpcError, LinkArgs, LinkPreview,
     LinkTarget, OpenEvent, OutlineLinkArgs, OutlineResult, PageLink, RenderPageArgs, SearchHit,
+    TabId,
 };
 use ipc_contract::validate::{Validate, check_page_index};
 use ipc_contract::worker::{WorkerRequest, WorkerResponse};
@@ -19,15 +22,38 @@ use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 const FALLBACK_NAME: &str = "PDF";
 
 pub struct Documents {
+    worker: PathBuf,
     inner: Mutex<Inner>,
 }
 
 struct Inner {
-    host: WorkerHost,
-    /// The window shows at most one document.
-    current: Option<OpenDocument>,
-    /// Most recent open attempt, for "retry". Never leaves the main process.
-    last_path: Option<PathBuf>,
+    /// For tab and document ids; never reused while the app runs.
+    next_id: u32,
+    /// In the order the tabs were added.
+    tabs: Vec<Arc<Tab>>,
+    /// The tab the window shows, for the window title.
+    active: Option<TabId>,
+}
+
+impl Inner {
+    fn next_id(&mut self) -> u32 {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+}
+
+/// One tab. Locks are always taken in the order `Documents::inner`, `Tab::event`,
+/// `Tab::document`, and `inner` is never held during a worker request.
+struct Tab {
+    id: TabId,
+    /// Never leaves the main process.
+    path: PathBuf,
+    display_name: String,
+    /// What the frontend was last told about this tab (`Opening`, `Opened` or `Failed`). Readable
+    /// while `document` is busy with a long worker request.
+    event: Mutex<OpenEvent>,
+    document: Mutex<Option<OpenDocument>>,
 }
 
 /// Hits on one page, and whether the page has any text at all.
@@ -38,99 +64,194 @@ pub struct PageFound {
 }
 
 struct OpenDocument {
-    /// What the frontend knows; `info.doc` stays the same for the document's lifetime.
+    /// What the frontend knows. `info.doc` is assigned here, unique among all documents, and
+    /// stays the same for the document's lifetime.
     info: DocumentInfo,
+    /// This document's own worker (ADR 0012).
+    host: WorkerHost,
     path: PathBuf,
-    /// The document's id in the current worker process. Differs from `info.doc` after the
-    /// worker was restarted and the file reopened.
+    /// The document's id in its worker process. Changes when the worker is restarted and the
+    /// file reopened.
     worker_doc: DocumentId,
-    /// The worker that had the document open crashed, timed out or misbehaved; the file is
-    /// reopened in a fresh worker before the next render.
+    /// The worker crashed, timed out or misbehaved; the file is reopened in a fresh worker
+    /// before the next request.
     lost: bool,
 }
 
 impl Documents {
     pub fn new(worker: PathBuf) -> Self {
         Self {
+            worker,
             inner: Mutex::new(Inner {
-                host: WorkerHost::new(worker, HostConfig::default()),
-                current: None,
-                last_path: None,
+                next_id: 1,
+                tabs: Vec::new(),
+                active: None,
             }),
         }
     }
 
-    /// Opens `path` as the window's document, replacing the current one, and reports
-    /// `Opening` followed by `Opened` or `Failed`. Opens are serialized, so the events of two
-    /// opens never interleave.
-    pub fn open(&self, path: &Path, ignored_files: u32, report: &dyn Fn(OpenEvent)) {
-        let mut inner = self.lock();
-        let display_name = display_name(path);
-        report(OpenEvent::Opening {
-            display_name: display_name.clone(),
-        });
-        inner.last_path = Some(path.to_owned());
-        if let Some(previous) = inner.current.take() {
-            // Best effort: if the worker is gone, so is the document.
-            let _ = inner.host.notify(&WorkerRequest::Close {
-                doc: previous.worker_doc,
+    /// Adds a tab for each of `paths`, in order, and reports `Opening` for each. Files beyond
+    /// `MAX_TABS` tabs are not opened and reported once, as `TabLimit`. Each returned tab still
+    /// has to be loaded with [`Self::load`].
+    pub fn add(&self, paths: &[PathBuf], report: &dyn Fn(OpenEvent)) -> Vec<TabId> {
+        let mut opening = Vec::new();
+        {
+            let mut inner = self.lock();
+            for path in paths {
+                if inner.tabs.len() >= MAX_TABS as usize {
+                    break;
+                }
+                let id = TabId(inner.next_id());
+                let display_name = display_name(path);
+                let event = OpenEvent::Opening {
+                    tab: id,
+                    display_name: display_name.clone(),
+                };
+                inner.tabs.push(Arc::new(Tab {
+                    id,
+                    path: path.clone(),
+                    display_name,
+                    event: Mutex::new(event.clone()),
+                    document: Mutex::new(None),
+                }));
+                opening.push((id, event));
+            }
+        }
+        let ignored = paths.len() - opening.len();
+        let tabs = opening.iter().map(|(id, _)| *id).collect();
+        for (_, event) in opening {
+            report(event);
+        }
+        if ignored > 0 {
+            report(OpenEvent::TabLimit {
+                ignored_files: u32::try_from(ignored).unwrap_or(u32::MAX),
             });
         }
+        tabs
+    }
 
-        let result = check_file(path).and_then(|()| {
-            let (doc, response) = inner.host.open(path).map_err(|error| ipc_error(&error))?;
-            document_info(doc, display_name.clone(), response)
+    /// Opens the file of `tab` in a new worker of its own and reports `Opened` or `Failed`.
+    /// Takes as long as the worker needs; tabs load independently of each other. If the tab is
+    /// closed meanwhile, the new worker ends and nothing is reported.
+    pub fn load(&self, tab: TabId, report: &dyn Fn(OpenEvent)) {
+        let Some(tab) = self.tab(tab) else {
+            return;
+        };
+        let result = check_file(&tab.path).and_then(|()| {
+            let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
+            let (worker_doc, response) = host.open(&tab.path).map_err(|error| ipc_error(&error))?;
+            let doc = DocumentId(self.lock().next_id());
+            let info = document_info(doc, tab.display_name.clone(), response)?;
+            Ok(OpenDocument {
+                info,
+                host,
+                path: tab.path.clone(),
+                worker_doc,
+                lost: false,
+            })
         });
-        match result {
-            Ok(info) => {
-                inner.current = Some(OpenDocument {
-                    info: info.clone(),
-                    path: path.to_owned(),
-                    worker_doc: info.doc,
-                    lost: false,
-                });
-                report(OpenEvent::Opened {
-                    info,
-                    ignored_files,
+        let event = match &result {
+            Ok(document) => OpenEvent::Opened {
+                tab: tab.id,
+                info: document.info.clone(),
+            },
+            Err(error) => OpenEvent::Failed {
+                tab: tab.id,
+                display_name: tab.display_name.clone(),
+                error: error.clone(),
+            },
+        };
+        {
+            let inner = self.lock();
+            if !inner.tabs.iter().any(|open| Arc::ptr_eq(open, &tab)) {
+                return;
+            }
+            *lock(&tab.event) = event.clone();
+            *lock(&tab.document) = result.ok();
+        }
+        report(event);
+    }
+
+    /// Opens the file of a failed tab again, in the same tab.
+    pub fn retry(&self, tab: TabId, report: &dyn Fn(OpenEvent)) -> Result<(), IpcError> {
+        let found = self.tab(tab).ok_or_else(unknown_tab)?;
+        let opening = OpenEvent::Opening {
+            tab,
+            display_name: found.display_name.clone(),
+        };
+        {
+            let mut event = lock(&found.event);
+            if !matches!(*event, OpenEvent::Failed { .. }) {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "only a tab that failed to open can be retried".to_owned(),
                 });
             }
-            Err(error) => report(OpenEvent::Failed {
-                display_name,
-                error,
-                ignored_files,
-            }),
+            *event = opening.clone();
         }
+        report(opening);
+        self.load(tab, report);
+        Ok(())
     }
 
-    /// Opens the most recently attempted file again. Returns false if there is none.
-    pub fn retry(&self, report: &dyn Fn(OpenEvent)) -> bool {
-        let Some(path) = self.lock().last_path.clone() else {
-            return false;
+    /// Closes `tab`: its worker ends and its path is forgotten.
+    pub fn close(&self, tab: TabId) -> Result<(), IpcError> {
+        let removed = {
+            let mut inner = self.lock();
+            let index = inner
+                .tabs
+                .iter()
+                .position(|open| open.id == tab)
+                .ok_or_else(unknown_tab)?;
+            if inner.active == Some(tab) {
+                inner.active = None;
+            }
+            inner.tabs.remove(index)
         };
-        self.open(&path, 0, report);
-        true
-    }
-
-    /// Closes `doc` and releases it in the worker.
-    pub fn close(&self, doc: DocumentId) -> Result<(), IpcError> {
-        let mut inner = self.lock();
-        match inner.current.take_if(|current| current.info.doc == doc) {
-            Some(current) => inner
-                .host
-                .notify(&WorkerRequest::Close {
-                    doc: current.worker_doc,
-                })
-                .map_err(|error| ipc_error(&error)),
-            None => Err(unknown_document()),
+        if let Some(mut document) = lock(&removed.document).take() {
+            // Best effort: the worker process ends with its host anyway.
+            let _ = document.host.notify(&WorkerRequest::Close {
+                doc: document.worker_doc,
+            });
         }
+        Ok(())
     }
 
-    /// The open document, if any (sent again when the frontend reloads).
-    pub fn current(&self) -> Option<DocumentInfo> {
-        self.lock()
-            .current
-            .as_ref()
-            .map(|current| current.info.clone())
+    /// Records the tab the window shows (`None`: no tab) and returns its file name, for the
+    /// window title. An unknown tab counts as none.
+    pub fn set_active(&self, tab: Option<TabId>) -> Option<String> {
+        let mut inner = self.lock();
+        let active = tab.and_then(|id| inner.tabs.iter().find(|open| open.id == id).cloned());
+        inner.active = active.as_ref().map(|found| found.id);
+        active.map(|found| found.display_name.clone())
+    }
+
+    /// The file name of the tab the window shows.
+    pub fn active_name(&self) -> Option<String> {
+        let inner = self.lock();
+        let active = inner.active?;
+        inner
+            .tabs
+            .iter()
+            .find(|open| open.id == active)
+            .map(|found| found.display_name.clone())
+    }
+
+    /// Every tab as the frontend last heard about it, in tab order: all a reloaded page needs.
+    pub fn snapshot(&self) -> Vec<OpenEvent> {
+        let tabs = self.lock().tabs.clone();
+        tabs.iter().map(|tab| lock(&tab.event).clone()).collect()
+    }
+
+    /// The ids of the open documents (the render cache keeps only these).
+    pub fn open_documents(&self) -> Vec<DocumentId> {
+        self.snapshot()
+            .into_iter()
+            .filter_map(|event| match event {
+                OpenEvent::Opened { info, .. } => Some(info.doc),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Renders a page and returns it in the `render_page` wire format (ipc_contract::raster).
@@ -138,45 +259,41 @@ impl Documents {
     /// dies while rendering, this page fails; the next render reopens the file in a new worker.
     pub fn render(&self, args: &RenderPageArgs) -> Result<Vec<u8>, IpcError> {
         args.validate().map_err(invalid_argument)?;
-        let mut inner = self.lock();
-        let Inner { host, current, .. } = &mut *inner;
-        let current = current
-            .as_mut()
-            .filter(|current| current.info.doc == args.doc)
-            .ok_or_else(unknown_document)?;
-        let page_count = u32::try_from(current.info.pages.len()).unwrap_or(u32::MAX);
-        check_page_index(args.page_index, page_count).map_err(invalid_argument)?;
-        let page = current.info.pages[args.page_index as usize];
-        let scale = fit_scale(page, args.scale).map_err(|error| IpcError {
-            code: ErrorCode::LimitExceeded,
-            message: format!("page too large to render: {error}"),
-        })?;
-
-        let rendered = request(host, current, |request, doc| WorkerRequest::Render {
-            request,
-            doc,
-            page_index: args.page_index,
-            scale,
-            rotation: args.rotation,
-        })?;
-        match rendered {
-            WorkerResponse::Rendered { raster, .. } => {
-                encode_raster(&raster).map_err(|error| IpcError {
-                    code: ErrorCode::ProtocolViolation,
-                    message: format!("invalid raster: {error}"),
-                })
+        self.with_document(args.doc, |document| {
+            let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+            check_page_index(args.page_index, page_count).map_err(invalid_argument)?;
+            let page = document.info.pages[args.page_index as usize];
+            let scale = fit_scale(page, args.scale).map_err(|error| IpcError {
+                code: ErrorCode::LimitExceeded,
+                message: format!("page too large to render: {error}"),
+            })?;
+            let rendered = request(document, |request, doc| WorkerRequest::Render {
+                request,
+                doc,
+                page_index: args.page_index,
+                scale,
+                rotation: args.rotation,
+            })?;
+            match rendered {
+                WorkerResponse::Rendered { raster, .. } => {
+                    encode_raster(&raster).map_err(|error| IpcError {
+                        code: ErrorCode::ProtocolViolation,
+                        message: format!("invalid raster: {error}"),
+                    })
+                }
+                _ => Err(unexpected("Render")),
             }
-            _ => Err(unexpected("Render")),
-        }
+        })
     }
 
-    /// Number of pages of `doc`, if it is the open document.
+    /// Number of pages of `doc`, if it is open.
     pub fn page_count(&self, doc: DocumentId) -> Option<u32> {
-        self.lock()
-            .current
-            .as_ref()
-            .filter(|current| current.info.doc == doc)
-            .map(|current| u32::try_from(current.info.pages.len()).unwrap_or(u32::MAX))
+        self.snapshot().into_iter().find_map(|event| match event {
+            OpenEvent::Opened { info, .. } if info.doc == doc => {
+                Some(u32::try_from(info.pages.len()).unwrap_or(u32::MAX))
+            }
+            _ => None,
+        })
     }
 
     /// Searches one page of `doc` (MVP-10); at most `max_hits` hits.
@@ -188,69 +305,61 @@ impl Documents {
         case_sensitive: bool,
         max_hits: u32,
     ) -> Result<PageFound, IpcError> {
-        let mut inner = self.lock();
-        let Inner { host, current, .. } = &mut *inner;
-        let current = current
-            .as_mut()
-            .filter(|current| current.info.doc == doc)
-            .ok_or_else(unknown_document)?;
-        let page_count = u32::try_from(current.info.pages.len()).unwrap_or(u32::MAX);
-        check_page_index(page_index, page_count).map_err(invalid_argument)?;
-        let response = request(host, current, |request, doc| WorkerRequest::SearchPage {
-            request,
-            doc,
-            page_index,
-            query: query.to_owned(),
-            case_sensitive,
-            max_hits,
-        })?;
-        match response {
-            WorkerResponse::PageSearched {
-                page_index: answered,
-                hits,
-                has_text,
-                ..
-            } if answered == page_index && hits.len() <= max_hits as usize => {
-                Ok(PageFound { hits, has_text })
+        self.with_document(doc, |document| {
+            let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+            check_page_index(page_index, page_count).map_err(invalid_argument)?;
+            let response = request(document, |request, doc| WorkerRequest::SearchPage {
+                request,
+                doc,
+                page_index,
+                query: query.to_owned(),
+                case_sensitive,
+                max_hits,
+            })?;
+            match response {
+                WorkerResponse::PageSearched {
+                    page_index: answered,
+                    hits,
+                    has_text,
+                    ..
+                } if answered == page_index && hits.len() <= max_hits as usize => {
+                    Ok(PageFound { hits, has_text })
+                }
+                _ => Err(unexpected("SearchPage")),
             }
-            _ => Err(unexpected("SearchPage")),
-        }
+        })
     }
 
     /// The document's outline (MVP-09). Every page target is checked against the page count.
     pub fn outline(&self, doc: DocumentId) -> Result<OutlineResult, IpcError> {
-        let mut inner = self.lock();
-        let Inner { host, current, .. } = &mut *inner;
-        let current = current
-            .as_mut()
-            .filter(|current| current.info.doc == doc)
-            .ok_or_else(unknown_document)?;
-        let response = request(host, current, |request, doc| WorkerRequest::GetOutline {
-            request,
-            doc,
-        })?;
-        let WorkerResponse::Outline { outline, .. } = response else {
-            return Err(unexpected("GetOutline"));
-        };
-        let page_count = current.info.pages.len();
-        let in_range = outline.items.iter().all(|item| match &item.target {
-            Some(LinkTarget::Page { page_index, .. }) => (*page_index as usize) < page_count,
-            _ => true,
-        });
-        if !in_range {
-            return Err(IpcError {
-                code: ErrorCode::ProtocolViolation,
-                message: "outline points past the last page".to_owned(),
+        self.with_document(doc, |document| {
+            let response = request(document, |request, doc| WorkerRequest::GetOutline {
+                request,
+                doc,
+            })?;
+            let WorkerResponse::Outline { outline, .. } = response else {
+                return Err(unexpected("GetOutline"));
+            };
+            let page_count = document.info.pages.len();
+            let in_range = outline.items.iter().all(|item| match &item.target {
+                Some(LinkTarget::Page { page_index, .. }) => (*page_index as usize) < page_count,
+                _ => true,
             });
-        }
-        // As for page links: a web link no browser could parse is shown as blocked.
-        let mut outline = outline;
-        for item in &mut outline.items {
-            if let Some(target) = &mut item.target {
-                block_unopenable(target);
+            if !in_range {
+                return Err(IpcError {
+                    code: ErrorCode::ProtocolViolation,
+                    message: "outline points past the last page".to_owned(),
+                });
             }
-        }
-        Ok(outline)
+            // As for page links: a web link no browser could parse is shown as blocked.
+            let mut outline = outline;
+            for item in &mut outline.items {
+                if let Some(target) = &mut item.target {
+                    block_unopenable(target);
+                }
+            }
+            Ok(outline)
+        })
     }
 
     /// The web link of outline item `args.item`, checked for opening (#49). Like page links, the
@@ -273,52 +382,50 @@ impl Documents {
     /// The links of one page (MVP-12). The worker's answer must be about that page, with one id
     /// per link and page targets inside the document.
     pub fn page_links(&self, doc: DocumentId, page_index: u32) -> Result<Vec<PageLink>, IpcError> {
-        let mut inner = self.lock();
-        let Inner { host, current, .. } = &mut *inner;
-        let current = current
-            .as_mut()
-            .filter(|current| current.info.doc == doc)
-            .ok_or_else(unknown_document)?;
-        let page_count = current.info.pages.len();
-        check_page_index(page_index, u32::try_from(page_count).unwrap_or(u32::MAX))
-            .map_err(invalid_argument)?;
-        let response = request(host, current, |request, doc| WorkerRequest::GetPageLinks {
-            request,
-            doc,
-            page_index,
-        })?;
-        let WorkerResponse::PageLinks {
-            page_index: answered,
-            links,
-            ..
-        } = response
-        else {
-            return Err(unexpected("GetPageLinks"));
-        };
-        let mut ids = std::collections::HashSet::new();
-        let consistent = answered == page_index
-            && links.iter().all(|link| {
-                ids.insert(link.id)
-                    && match link.target {
-                        LinkTarget::Page { page_index, .. } => (page_index as usize) < page_count,
-                        _ => true,
-                    }
-            });
-        if !consistent {
-            return Err(IpcError {
-                code: ErrorCode::ProtocolViolation,
-                message: "page links do not match the document".to_owned(),
-            });
-        }
-        // A web link that could never be opened (a browser could not parse it) is shown as
-        // blocked, so that what the status bar says matches what a click does.
-        Ok(links
-            .into_iter()
-            .map(|mut link| {
-                block_unopenable(&mut link.target);
-                link
-            })
-            .collect())
+        self.with_document(doc, |document| {
+            let page_count = document.info.pages.len();
+            check_page_index(page_index, u32::try_from(page_count).unwrap_or(u32::MAX))
+                .map_err(invalid_argument)?;
+            let response = request(document, |request, doc| WorkerRequest::GetPageLinks {
+                request,
+                doc,
+                page_index,
+            })?;
+            let WorkerResponse::PageLinks {
+                page_index: answered,
+                links,
+                ..
+            } = response
+            else {
+                return Err(unexpected("GetPageLinks"));
+            };
+            let mut ids = std::collections::HashSet::new();
+            let consistent = answered == page_index
+                && links.iter().all(|link| {
+                    ids.insert(link.id)
+                        && match link.target {
+                            LinkTarget::Page { page_index, .. } => {
+                                (page_index as usize) < page_count
+                            }
+                            _ => true,
+                        }
+                });
+            if !consistent {
+                return Err(IpcError {
+                    code: ErrorCode::ProtocolViolation,
+                    message: "page links do not match the document".to_owned(),
+                });
+            }
+            // A web link that could never be opened (a browser could not parse it) is shown as
+            // blocked, so that what the status bar says matches what a click does.
+            Ok(links
+                .into_iter()
+                .map(|mut link| {
+                    block_unopenable(&mut link.target);
+                    link
+                })
+                .collect())
+        })
     }
 
     /// The web link `args` names, checked for opening (MVP-12). The link is asked from the
@@ -339,15 +446,42 @@ impl Documents {
     }
 
     #[cfg(test)]
-    fn worker_id(&self) -> Option<u32> {
-        self.lock().host.worker_id()
+    fn worker_id(&self, doc: DocumentId) -> Option<u32> {
+        self.with_document(doc, |document| Ok(document.host.worker_id()))
+            .ok()
+            .flatten()
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
-        self.inner
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
+    fn tab(&self, id: TabId) -> Option<Arc<Tab>> {
+        self.lock().tabs.iter().find(|open| open.id == id).cloned()
     }
+
+    /// Runs `work` on the open document `doc`, holding only that document's lock: requests for
+    /// other tabs go on meanwhile.
+    fn with_document<T>(
+        &self,
+        doc: DocumentId,
+        work: impl FnOnce(&mut OpenDocument) -> Result<T, IpcError>,
+    ) -> Result<T, IpcError> {
+        let tabs = self.lock().tabs.clone();
+        let tab = tabs
+            .iter()
+            .find(|tab| matches!(&*lock(&tab.event), OpenEvent::Opened { info, .. } if info.doc == doc))
+            .ok_or_else(unknown_document)?;
+        let mut document = lock(&tab.document);
+        match document.as_mut() {
+            Some(document) if document.info.doc == doc => work(document),
+            _ => Err(unknown_document()),
+        }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Inner> {
+        lock(&self.inner)
+    }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poison| poison.into_inner())
 }
 
 /// Turns a web link no browser could parse into a blocked one (it could never be opened).
@@ -363,28 +497,30 @@ fn block_unopenable(target: &mut LinkTarget) {
     }
 }
 
-/// Sends a request about `current` to the worker (made by `make` from a request id and the
+/// Sends a request about `document` to its worker (made by `make` from a request id and the
 /// worker's document id). If the worker that had the document died, the file is reopened in a
 /// new one first; if the worker dies now, the document is marked lost for the next request.
 fn request(
-    host: &mut WorkerHost,
-    current: &mut OpenDocument,
+    document: &mut OpenDocument,
     make: impl FnOnce(ipc_contract::types::RequestId, DocumentId) -> WorkerRequest,
 ) -> Result<WorkerResponse, IpcError> {
-    if current.lost {
-        current.worker_doc = reopen(host, current)?;
-        current.lost = false;
+    if document.lost {
+        document.worker_doc = reopen(document)?;
+        document.lost = false;
     }
-    let doc = current.worker_doc;
-    host.request(|request| make(request, doc)).map_err(|error| {
-        if matches!(
-            error,
-            HostError::Crashed | HostError::Timeout | HostError::ProtocolViolation(_)
-        ) {
-            current.lost = true;
-        }
-        ipc_error(&error)
-    })
+    let doc = document.worker_doc;
+    document
+        .host
+        .request(|request| make(request, doc))
+        .map_err(|error| {
+            if matches!(
+                error,
+                HostError::Crashed | HostError::Timeout | HostError::ProtocolViolation(_)
+            ) {
+                document.lost = true;
+            }
+            ipc_error(&error)
+        })
 }
 
 fn unexpected(request: &str) -> IpcError {
@@ -394,15 +530,16 @@ fn unexpected(request: &str) -> IpcError {
     }
 }
 
-/// Opens the current document's file again in a fresh worker; it must still have the same pages.
-fn reopen(host: &mut WorkerHost, current: &OpenDocument) -> Result<DocumentId, IpcError> {
-    check_file(&current.path)?;
-    let (doc, response) = host
-        .open(&current.path)
+/// Opens the document's file again in a fresh worker; it must still have the same pages.
+fn reopen(document: &mut OpenDocument) -> Result<DocumentId, IpcError> {
+    check_file(&document.path)?;
+    let (doc, response) = document
+        .host
+        .open(&document.path)
         .map_err(|error| ipc_error(&error))?;
-    let reopened = document_info(doc, current.info.display_name.clone(), response)?;
-    if reopened.pages != current.info.pages {
-        let _ = host.notify(&WorkerRequest::Close { doc });
+    let reopened = document_info(doc, document.info.display_name.clone(), response)?;
+    if reopened.pages != document.info.pages {
+        let _ = document.host.notify(&WorkerRequest::Close { doc });
         return Err(IpcError {
             code: ErrorCode::Corrupted,
             message: "the file changed on disk after it was opened".to_owned(),
@@ -415,6 +552,13 @@ fn unknown_document() -> IpcError {
     IpcError {
         code: ErrorCode::UnknownDocument,
         message: "no such open document".to_owned(),
+    }
+}
+
+fn unknown_tab() -> IpcError {
+    IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: "no such tab".to_owned(),
     }
 }
 
@@ -584,51 +728,94 @@ mod tests {
         assert!(error.validate().is_ok());
     }
 
-    #[test]
-    fn closing_an_unknown_document_is_an_error() {
-        let documents = Documents::new(PathBuf::from("missing-worker.exe"));
-        assert_eq!(
-            documents.close(DocumentId(7)).unwrap_err().code,
-            ErrorCode::UnknownDocument
-        );
-        assert_eq!(documents.current(), None);
+    fn missing(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("mvp14-does-not-exist-{name}.pdf"))
     }
 
     #[test]
-    fn a_failed_open_is_reported_and_can_be_retried() {
+    fn closing_an_unknown_tab_is_an_error() {
         let documents = Documents::new(PathBuf::from("missing-worker.exe"));
-        assert!(!documents.retry(&|_| {}));
+        assert_eq!(
+            documents.close(TabId(7)).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(documents.snapshot(), []);
+    }
+
+    #[test]
+    fn a_failed_open_is_reported_and_can_be_retried_in_the_same_tab() {
+        let documents = Documents::new(PathBuf::from("missing-worker.exe"));
+        assert_eq!(
+            documents.retry(TabId(1), &|_| {}).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
 
         let events = std::cell::RefCell::new(Vec::new());
-        let missing = std::env::temp_dir().join("mvp06-does-not-exist.pdf");
-        documents.open(&missing, 2, &|event| events.borrow_mut().push(event));
-        assert!(documents.retry(&|event| events.borrow_mut().push(event)));
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let tabs = documents.add(&[missing("a")], &report);
+        let [tab] = tabs[..] else {
+            panic!("one tab expected");
+        };
+        documents.load(tab, &report);
+        documents.retry(tab, &report).unwrap();
 
+        let display_name = "mvp14-does-not-exist-a.pdf".to_owned();
+        let opening = OpenEvent::Opening {
+            tab,
+            display_name: display_name.clone(),
+        };
         let failed = OpenEvent::Failed {
-            display_name: "mvp06-does-not-exist.pdf".to_owned(),
+            tab,
+            display_name,
             error: IpcError {
                 code: ErrorCode::Unreadable,
                 message: "the file does not exist or cannot be accessed".to_owned(),
             },
-            ignored_files: 2,
         };
-        let events = events.into_inner();
-        assert_eq!(events.len(), 4);
         assert_eq!(
-            events[0],
-            OpenEvent::Opening {
-                display_name: "mvp06-does-not-exist.pdf".to_owned()
-            }
+            events.into_inner(),
+            [opening.clone(), failed.clone(), opening, failed.clone()]
         );
-        assert_eq!(events[1], failed);
-        // A retry is a fresh attempt: nothing was dropped this time.
-        assert!(matches!(
-            &events[3],
-            OpenEvent::Failed {
-                ignored_files: 0,
-                ..
-            }
-        ));
+        assert_eq!(documents.snapshot(), [failed]);
+    }
+
+    #[test]
+    fn files_beyond_the_tab_limit_are_not_opened() {
+        let documents = Documents::new(PathBuf::from("missing-worker.exe"));
+        let events = std::cell::RefCell::new(Vec::new());
+        let paths: Vec<PathBuf> = (0..MAX_TABS + 2).map(|i| missing(&i.to_string())).collect();
+        let tabs = documents.add(&paths, &|event| events.borrow_mut().push(event));
+        assert_eq!(tabs.len(), MAX_TABS as usize);
+        let events = events.into_inner();
+        assert_eq!(events.len(), MAX_TABS as usize + 1);
+        assert_eq!(
+            events.last(),
+            Some(&OpenEvent::TabLimit { ignored_files: 2 })
+        );
+        // Closing a tab makes room for one more file.
+        documents.close(tabs[0]).unwrap();
+        assert_eq!(documents.add(&paths[..1], &|_| {}).len(), 1);
+    }
+
+    #[test]
+    fn the_title_follows_the_active_tab() {
+        let documents = Documents::new(PathBuf::from("missing-worker.exe"));
+        let tabs = documents.add(&[missing("a"), missing("b")], &|_| {});
+        assert_eq!(documents.active_name(), None);
+        assert_eq!(
+            documents.set_active(Some(tabs[1])).as_deref(),
+            Some("mvp14-does-not-exist-b.pdf")
+        );
+        assert_eq!(
+            documents.active_name().as_deref(),
+            Some("mvp14-does-not-exist-b.pdf")
+        );
+        // Closing the active tab leaves no active tab until the window says which one it shows.
+        documents.close(tabs[1]).unwrap();
+        assert_eq!(documents.active_name(), None);
+        assert_eq!(documents.set_active(Some(tabs[1])), None);
+        // Tab ids are never reused.
+        assert!(documents.add(&[missing("c")], &|_| {})[0] > tabs[1]);
     }
 }
 
@@ -707,18 +894,43 @@ mod with_worker {
         out
     }
 
-    fn open_bytes(name: &str, bytes: &[u8]) -> (Documents, DocumentInfo, PathBuf) {
-        let path = std::env::temp_dir().join(format!("mvp07-{}-{name}.pdf", std::process::id()));
-        std::fs::write(&path, bytes).unwrap();
-        let documents = Documents::new(worker());
+    /// Opens `path` in a new tab of `documents`, synchronously.
+    fn open_in(documents: &Documents, path: &Path) -> DocumentInfo {
         let opened = std::cell::RefCell::new(None);
-        documents.open(&path, 0, &|event| {
+        let report = |event: OpenEvent| {
             if let OpenEvent::Opened { info, .. } = event {
                 *opened.borrow_mut() = Some(info);
             }
-        });
-        let info = opened.into_inner().expect("opened");
+        };
+        for tab in documents.add(&[path.to_owned()], &report) {
+            documents.load(tab, &report);
+        }
+        opened.into_inner().expect("opened")
+    }
+
+    fn write_pdf(name: &str, bytes: &[u8]) -> PathBuf {
+        let path = std::env::temp_dir().join(format!("mvp07-{}-{name}.pdf", std::process::id()));
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    fn open_bytes(name: &str, bytes: &[u8]) -> (Documents, DocumentInfo, PathBuf) {
+        let path = write_pdf(name, bytes);
+        let documents = Documents::new(worker());
+        let info = open_in(&documents, &path);
         (documents, info, path)
+    }
+
+    /// The tab that shows `doc`.
+    fn tab_of(documents: &Documents, doc: DocumentId) -> TabId {
+        documents
+            .snapshot()
+            .into_iter()
+            .find_map(|event| match event {
+                OpenEvent::Opened { tab, info } if info.doc == doc => Some(tab),
+                _ => None,
+            })
+            .expect("open tab")
     }
 
     fn open(name: &str, pages: usize) -> (Documents, DocumentInfo, PathBuf) {
@@ -796,12 +1008,42 @@ mod with_worker {
             code(args(DocumentId(info.doc.0 + 1), 0, 1.0, Rotation::None)),
             ErrorCode::UnknownDocument
         );
-        documents.close(info.doc).unwrap();
+        documents.close(tab_of(&documents, info.doc)).unwrap();
         assert_eq!(
             code(args(info.doc, 0, 1.0, Rotation::None)),
             ErrorCode::UnknownDocument
         );
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn every_document_has_a_worker_of_its_own() {
+        let documents = Documents::new(worker());
+        let first_path = write_pdf("own-worker-1", &letter_pdf(1));
+        let second_path = write_pdf("own-worker-2", &letter_pdf(2));
+        let first = open_in(&documents, &first_path);
+        let second = open_in(&documents, &second_path);
+        assert_ne!(first.doc, second.doc);
+        let first_worker = documents.worker_id(first.doc).expect("worker running");
+        let second_worker = documents.worker_id(second.doc).expect("worker running");
+        assert_ne!(first_worker, second_worker);
+
+        // Closing one tab ends its worker; the other document is untouched.
+        documents.close(tab_of(&documents, first.doc)).unwrap();
+        assert_eq!(
+            documents
+                .render(&args(first.doc, 0, 0.5, Rotation::None))
+                .unwrap_err()
+                .code,
+            ErrorCode::UnknownDocument
+        );
+        let page = documents
+            .render(&args(second.doc, 1, 0.5, Rotation::None))
+            .unwrap();
+        assert_eq!(size(&page), (306, 396));
+        assert_eq!(documents.worker_id(second.doc), Some(second_worker));
+        std::fs::remove_file(first_path).ok();
+        std::fs::remove_file(second_path).ok();
     }
 
     #[test]
@@ -811,7 +1053,7 @@ mod with_worker {
             .render(&args(info.doc, 0, 0.5, Rotation::None))
             .unwrap();
 
-        let pid = documents.worker_id().expect("worker running");
+        let pid = documents.worker_id(info.doc).expect("worker running");
         let killed = std::process::Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/F"])
             .output()
@@ -827,15 +1069,15 @@ mod with_worker {
             .render(&args(info.doc, 1, 0.5, Rotation::None))
             .unwrap();
         assert_eq!(size(&page), (306, 396));
-        assert_ne!(documents.worker_id(), Some(pid));
-        assert_eq!(documents.current().unwrap().doc, info.doc);
+        assert_ne!(documents.worker_id(info.doc), Some(pid));
+        assert_eq!(documents.open_documents(), [info.doc]);
         std::fs::remove_file(path).ok();
     }
 
     #[test]
     fn a_file_changed_on_disk_is_not_silently_swapped_in() {
         let (documents, info, path) = open("changed", 2);
-        let pid = documents.worker_id().expect("worker running");
+        let pid = documents.worker_id(info.doc).expect("worker running");
         std::process::Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/F"])
             .output()
@@ -888,7 +1130,7 @@ mod with_worker {
         let expected = vec![("One".to_owned(), Some(0)), ("Two".to_owned(), Some(1))];
         assert_eq!(pages(documents.outline(info.doc).unwrap()), expected);
 
-        let pid = documents.worker_id().expect("worker running");
+        let pid = documents.worker_id(info.doc).expect("worker running");
         std::process::Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/F"])
             .output()
