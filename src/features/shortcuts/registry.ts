@@ -56,7 +56,8 @@ export const SHORTCUTS: Shortcut[] = [
   { id: "help", keys: ["Ctrl+/"], matches: (e) => ctrl(e) && e.key === "/" },
 ];
 
-function isTextInput(target: EventTarget | null): boolean {
+/** A field where keys and the context menu edit text. */
+export function isTextInput(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return (
     target.isContentEditable ||

@@ -2,7 +2,10 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import App from "@/App";
+import { suppressDefaultContextMenu } from "@/features/shell/contextMenu";
 import "@/index.css";
+
+suppressDefaultContextMenu();
 
 const root = document.getElementById("root");
 if (!root) {
