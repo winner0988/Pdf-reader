@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -8,8 +8,10 @@ import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { SearchApi } from "@/features/search/useSearch";
 import { strings } from "@/i18n/zh-TW";
 import type { LinksApi } from "@/features/links/source";
+import type { TextApi } from "@/features/text/source";
+import { contentWidth, layoutPages, pageLeft } from "@/features/viewer/layout";
 import type { OutlineView } from "@/features/outline/tree";
-import type { LinkPreview, PageLink, SearchEvent } from "@/ipc/generated/contract";
+import type { LinkPreview, PageLink, PageText, SearchEvent } from "@/ipc/generated/contract";
 import { mediaQuery } from "@/test/setup";
 
 const openState: ShellState = { kind: "open", document: demoDocument };
@@ -412,6 +414,102 @@ describe("shortcuts", () => {
     const { user } = renderShell({ kind: "empty" });
     await user.keyboard("{Control>}f{/Control}");
     expect(screen.queryByRole("search")).not.toBeInTheDocument();
+  });
+});
+
+describe("selecting and copying text (MVP-15)", () => {
+  // "Hello world" 72 pt from the left and 100 pt from the top, 6 pt per character; the second
+  // page is scanned (no text).
+  const hello: PageText = {
+    lines: [
+      {
+        text: "Hello world",
+        quad: { ul: { x: 72, y: 100 }, ur: { x: 138, y: 100 }, ll: { x: 72, y: 112 }, lr: { x: 138, y: 112 } },
+        edges: Array.from({ length: 12 }, (_, i) => i * 6),
+      },
+    ],
+    truncated: false,
+  };
+  const scanned: PageText = { lines: [], truncated: false };
+
+  /** Client coordinates of a point on a page, in page points, at 100% (jsdom puts the view at 0, 0). */
+  const at = (index: number, x: number, y: number) => {
+    const layout = layoutPages(demoDocument.pages, 0, 1);
+    const box = layout.boxes[index]!;
+    return {
+      clientX: pageLeft(box, contentWidth(layout, 1000)) + (x * 4) / 3,
+      clientY: box.top + (y * 4) / 3,
+    };
+  };
+
+  async function setup() {
+    const textApi = {
+      getPageText: vi.fn((_doc: number, page: number) => Promise.resolve(page === 0 ? hello : scanned)),
+    } satisfies TextApi;
+    const utils = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { textApi });
+    // The clipboard stub lives as long as the window: start every test from something known.
+    await navigator.clipboard.writeText("before");
+    // 100%: a page point is 4/3 CSS pixels.
+    await utils.user.keyboard("{Control>}1{/Control}");
+    const canvas = screen.getByRole("main");
+    Object.defineProperty(canvas, "clientWidth", { configurable: true, value: 1000 });
+    Object.defineProperty(canvas, "clientHeight", { configurable: true, value: 800 });
+    act(() => canvas.dispatchEvent(new Event("scroll")));
+    // The first two pages' text is asked for once they have been in view for a moment.
+    await waitFor(() => expect(textApi.getPageText).toHaveBeenCalledWith(5, 1));
+    await act(async () => {});
+    const pages = screen.getByRole("img", { name: "第 1 頁" }).parentElement!;
+    const selectHello = () => {
+      fireEvent.mouseDown(pages, { button: 0, detail: 1, ...at(0, 73, 106) });
+      fireEvent.mouseMove(window, at(0, 101, 106));
+      fireEvent.mouseUp(window);
+    };
+    return { ...utils, pages, selectHello, textApi };
+  }
+
+  it("Ctrl+C copies the selected text", async () => {
+    const { user, selectHello } = await setup();
+    selectHello();
+    await user.keyboard("{Control>}c{/Control}");
+    await waitFor(async () => expect(await navigator.clipboard.readText()).toBe("Hello"));
+  });
+
+  it("Ctrl+C in a text field copies the field's text, not the page's", async () => {
+    const { user, selectHello } = await setup();
+    selectHello();
+    await user.click(screen.getByRole("textbox", { name: strings.toolbar.pageNumber }));
+    await user.keyboard("{Control>}c{/Control}");
+    await act(async () => {});
+    expect(await navigator.clipboard.readText()).not.toBe("Hello");
+  });
+
+  it("right-clicking the document offers to copy, once something is selected", async () => {
+    const { user, pages, selectHello } = await setup();
+    fireEvent.contextMenu(pages, at(0, 80, 106));
+    expect(await screen.findByRole("menuitem", { name: /複製/ })).toHaveAttribute("aria-disabled", "true");
+    await user.keyboard("{Escape}");
+
+    selectHello();
+    fireEvent.contextMenu(pages, at(0, 80, 106));
+    const copy = await screen.findByRole("menuitem", { name: /複製/ });
+    expect(copy).not.toHaveAttribute("aria-disabled", "true");
+    await user.click(copy);
+    await waitFor(async () => expect(await navigator.clipboard.readText()).toBe("Hello"));
+  });
+
+  it("says for a while that a scanned page has no text to select", async () => {
+    const { pages } = await setup();
+    vi.useFakeTimers();
+    try {
+      fireEvent.mouseDown(pages, { button: 0, detail: 1, ...at(1, 100, 100) });
+      fireEvent.mouseMove(window, at(1, 200, 200));
+      fireEvent.mouseUp(window);
+      expect(statusText()).toContain(strings.text.noTextLayer);
+      act(() => vi.advanceTimersByTime(4000));
+      expect(statusText()).not.toContain(strings.text.noTextLayer);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

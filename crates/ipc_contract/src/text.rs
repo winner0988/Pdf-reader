@@ -1,6 +1,7 @@
-//! Text taken from a PDF and shown to the user (outline titles, link targets). A PDF controls this
-//! text completely, so it is reduced to plain, single-line, left-to-right-safe text before it
-//! leaves the worker, and the main process rejects anything that was not.
+//! Text taken from a PDF and shown to the user (outline titles, link targets) or copied (a page's
+//! text, MVP-15). A PDF controls this text completely, so it is reduced to plain,
+//! left-to-right-safe text before it leaves the worker, and the main process rejects anything
+//! that was not.
 
 use crate::limits::{MAX_TEXT_BYTES, MAX_URI_BYTES};
 use crate::types::{BlockedAction, LinkTarget};
@@ -54,6 +55,25 @@ pub fn is_clean_display_text(text: &str) -> bool {
         && !text.starts_with(' ')
         && !text.ends_with(' ')
         && !text.contains("  ")
+}
+
+/// A character of a page's text as it is selected and copied (MVP-15): whitespace and control
+/// characters become a space, and invisible formatting characters are dropped (`None`), so that
+/// pasted text reads as it looks. Unlike display text, spaces are not collapsed: every character
+/// keeps its place on the page.
+pub fn copy_text_char(c: char) -> Option<char> {
+    if is_invisible_format(c) {
+        return None;
+    }
+    if c.is_control() || c.is_whitespace() {
+        return Some(' ');
+    }
+    Some(c)
+}
+
+/// Whether `text` is already what [`copy_text_char`] would produce.
+pub fn is_clean_copy_text(text: &str) -> bool {
+    text.chars().all(|c| copy_text_char(c) == Some(c))
 }
 
 /// Classifies a URI from a PDF. Only `http`, `https` and `mailto` may ever be offered to the
@@ -130,6 +150,20 @@ fn decode_pdf_string(raw: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copied_text_keeps_every_visible_character_in_place() {
+        let copied: String = "隱私\u{3000}first\t\u{202E}PDF\u{200B}  x\n"
+            .chars()
+            .filter_map(copy_text_char)
+            .collect();
+        // Whitespace stays (as a space) so that characters keep their positions; nothing is
+        // collapsed or trimmed, unlike display text.
+        assert_eq!(copied, "隱私 first PDF  x ");
+        assert!(is_clean_copy_text(&copied));
+        assert!(!is_clean_copy_text("a\u{202E}b"));
+        assert!(!is_clean_copy_text("a\u{00A0}b"));
+    }
 
     #[test]
     fn keeps_ordinary_titles() {

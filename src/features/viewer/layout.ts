@@ -177,6 +177,37 @@ export function pageToBox(
   return { x: (x / shown.widthPt) * box.width, y: (y / shown.heightPt) * box.height };
 }
 
+/** The inverse of {@link pageToBox}: a point in a page's box, in CSS pixels, as a point in page space. */
+export function boxToPage(
+  point: { x: number; y: number },
+  page: PageSize,
+  rotation: Rotation,
+  box: Pick<PageBox, "width" | "height">,
+): { x: number; y: number } {
+  const shown = displayedSize(page, rotation);
+  const x = (point.x / box.width) * shown.widthPt;
+  const y = (point.y / box.height) * shown.heightPt;
+  const { widthPt: w, heightPt: h } = page;
+  if (rotation === 90) return { x: y, y: h - x };
+  if (rotation === 180) return { x: w - x, y: h - y };
+  if (rotation === 270) return { x: w - y, y: x };
+  return { x, y };
+}
+
+/**
+ * The page at content height `y`: the one whose box reaches that height, or the nearer one when
+ * `y` falls in the gap between two pages. Null for a document without pages.
+ */
+export function pageNear(layout: Layout, y: number): number | null {
+  const count = layout.boxes.length;
+  if (count === 0) return null;
+  const index = Math.min(firstBelow(layout.boxes, y), count - 1);
+  const box = layout.boxes[index]!;
+  const previous = layout.boxes[index - 1];
+  if (y < box.top && previous && box.top - y > y - (previous.top + previous.height)) return index - 1;
+  return index;
+}
+
 /** A page-space rectangle (a link's area) as a CSS pixel rectangle inside the page's box. */
 export function rectToBox(
   rect: { x0: number; y0: number; x1: number; y1: number },

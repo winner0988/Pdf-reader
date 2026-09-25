@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use ipc_contract::types::{
     DocumentId, ErrorCode, IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs,
-    OutlineResult, PageLink, RenderPageArgs, RequestId, SearchArgs, SearchEvent, TabId,
+    OutlineResult, PageLink, PageText, RenderPageArgs, RequestId, SearchArgs, SearchEvent, TabId,
 };
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
@@ -126,6 +126,17 @@ pub async fn render_page(app: AppHandle, args: RenderPageArgs) -> Result<Respons
 #[tauri::command]
 pub async fn get_outline(app: AppHandle, doc: DocumentId) -> Result<OutlineResult, IpcError> {
     blocking(move || app.state::<Documents>().outline(doc)).await
+}
+
+/// One page's text for selecting and copying (MVP-15): its lines and where their characters
+/// are on the page.
+#[tauri::command]
+pub async fn get_page_text(
+    app: AppHandle,
+    doc: DocumentId,
+    page_index: u32,
+) -> Result<PageText, IpcError> {
+    blocking(move || app.state::<Documents>().page_text(doc, page_index)).await
 }
 
 /// The links of one page (MVP-12): where they are and where they point. Opening a web link

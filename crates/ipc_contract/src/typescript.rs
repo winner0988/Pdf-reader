@@ -65,12 +65,14 @@ pub fn bindings() -> String {
         SearchArgs,
         SearchHit,
         SearchEvent,
+        PageText,
+        TextLine,
         ErrorCode,
         IpcError,
         OpenEvent,
     );
 
-    let limits: [(&str, String); 18] = [
+    let limits: [(&str, String); 19] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -85,6 +87,7 @@ pub fn bindings() -> String {
         ("maxQueryBytes", MAX_QUERY_BYTES.to_string()),
         ("maxSearchHits", MAX_SEARCH_HITS.to_string()),
         ("maxQuadsPerHit", MAX_QUADS_PER_HIT.to_string()),
+        ("maxPageTextChars", MAX_PAGE_TEXT_CHARS.to_string()),
         ("maxErrorMessageBytes", MAX_ERROR_MESSAGE_BYTES.to_string()),
         ("maxDisplayNameBytes", MAX_DISPLAY_NAME_BYTES.to_string()),
         ("maxTabs", MAX_TABS.to_string()),

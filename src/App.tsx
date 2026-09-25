@@ -10,6 +10,7 @@ import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import { useShortcuts } from "@/features/shortcuts/useShortcuts";
 import { tauriSystemApi, type SystemApi } from "@/features/system/defaultApp";
+import { tauriTextApi, type TextApi } from "@/features/text/source";
 import { docOf, shellState, tabElementId, tabPanelId, type Tab } from "@/features/tabs/model";
 import { TabBar } from "@/features/tabs/TabBar";
 import { useTabs } from "@/features/tabs/useTabs";
@@ -22,6 +23,7 @@ type AppProps = {
   outlineApi?: OutlineApi;
   searchApi?: SearchApi;
   linksApi?: LinksApi;
+  textApi?: TextApi;
   systemApi?: SystemApi;
 };
 
@@ -31,6 +33,7 @@ export default function App({
   outlineApi = tauriOutlineApi,
   searchApi = tauriSearchApi,
   linksApi = tauriLinksApi,
+  textApi = tauriTextApi,
   systemApi = tauriSystemApi,
 }: AppProps) {
   const tabs = useTabs(api);
@@ -81,6 +84,7 @@ export default function App({
               outlineApi={outlineApi}
               searchApi={searchApi}
               linksApi={linksApi}
+              textApi={textApi}
               systemApi={systemApi}
               onOpen={open}
               onClose={tabs.close}
@@ -103,6 +107,7 @@ type TabPaneProps = {
   outlineApi: OutlineApi;
   searchApi: SearchApi;
   linksApi: LinksApi;
+  textApi: TextApi;
   systemApi: SystemApi;
   onOpen: () => void;
   onClose: (tab: TabId) => void;

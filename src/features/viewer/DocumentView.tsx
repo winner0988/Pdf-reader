@@ -14,10 +14,12 @@ import { Button } from "@/components/ui/button";
 import type { PageSize, Rotation, Zoom } from "@/features/shell/model";
 import {
   anchorAt,
+  boxToPage,
   contentWidth,
   currentPageAt,
   layoutPages,
   pageLeft,
+  pageNear,
   rectToBox,
   renderScale,
   rotateAnchor,
@@ -32,10 +34,20 @@ import {
 } from "@/features/viewer/layout";
 import { linkHoverText } from "@/features/links/text";
 import type { LinkSource } from "@/features/links/source";
-import { pageOverlay, revealScroll, type Highlight, type Highlights, type PageOverlay } from "@/features/viewer/highlights";
+import { hasSelectedText, selectionQuads, type TextSelection } from "@/features/text/model";
+import type { TextSource } from "@/features/text/source";
+import { useTextSelection, type PagePoint } from "@/features/text/useTextSelection";
+import {
+  pageOverlay,
+  quadPoints,
+  revealScroll,
+  type Highlight,
+  type Highlights,
+  type PageOverlay,
+} from "@/features/viewer/highlights";
 import { errorCodeOf, type PageRenderer, type RenderJob } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
-import type { DocumentId, PageLink, Rotation as ContractRotation } from "@/ipc/generated/contract";
+import type { DocumentId, PageLink, PageText, Rotation as ContractRotation } from "@/ipc/generated/contract";
 import type { RasterImage } from "@/ipc/raster";
 
 export type DocumentViewHandle = {
@@ -43,6 +55,10 @@ export type DocumentViewHandle = {
   scrollToPage(page: number): void;
   /** Scrolls so that a search hit is a third of the way down the view. */
   revealHit(hit: Highlight): void;
+  /** Whether any text is selected (MVP-15). */
+  hasSelection(): boolean;
+  /** The selected text, or null when nothing is selected. */
+  selectedText(): Promise<string | null>;
 };
 
 type DocumentViewProps = {
@@ -66,6 +82,12 @@ type DocumentViewProps = {
   /** The pointer or focus is on a link (its description), or left it (null). */
   onLinkHover?: (text: string | null) => void;
   onLinkActivate?: (link: PageLink) => void;
+  /** Where the pages' text comes from (MVP-15); without it (demo data) no text can be selected. */
+  text?: TextSource;
+  /** Some text became selected (true), or nothing is selected any more (false). */
+  onSelectionChange?: (selected: boolean) => void;
+  /** The user tried to select text on a page that has none: a scanned page needs OCR. */
+  onNoText?: () => void;
   /** Delay before a newly mounted page asks for a render; tests pass 0. */
   requestDelayMs?: number;
   ref?: Ref<DocumentViewHandle>;
@@ -129,6 +151,9 @@ export function DocumentView({
   links,
   onLinkHover,
   onLinkActivate,
+  text,
+  onSelectionChange,
+  onNoText,
   requestDelayMs = REQUEST_DELAY_MS,
   ref,
 }: DocumentViewProps) {
@@ -215,6 +240,35 @@ export function DocumentView({
     if (scrollIntent && element) scrollElement(element, scrollIntent);
   }, [scrollIntent, scrollContainer]);
 
+  const rootRef = useRef<HTMLDivElement>(null);
+  /** The page nearest to a pointer, and where the pointer is in that page's space. */
+  const locate = (clientX: number, clientY: number): PagePoint | null => {
+    const root = rootRef.current;
+    if (!root) return null;
+    const bounds = root.getBoundingClientRect();
+    const x = clientX - bounds.left;
+    const y = clientY - bounds.top;
+    const index = pageNear(layout, y);
+    if (index === null) return null;
+    const box = layout.boxes[index]!;
+    const left = pageLeft(box, width);
+    return {
+      page: index,
+      inside: x >= left && x <= left + box.width && y >= box.top && y <= box.top + box.height,
+      point: boxToPage({ x: x - left, y: y - box.top }, pages[index]!, rotation, box),
+    };
+  };
+  const textSelection = useTextSelection({ doc, source: text, locate, scrollContainer, onNoText });
+  const { selection } = textSelection;
+  const selected = hasSelectedText(selection);
+  const onSelection = useRef(onSelectionChange);
+  useEffect(() => {
+    onSelection.current = onSelectionChange;
+  });
+  useEffect(() => {
+    onSelection.current?.(selected);
+  }, [selected]);
+
   const onPageChange = useRef(onCurrentPageChange);
   const onZoomChange = useRef(onEffectiveZoomChange);
   const onHover = useRef(onLinkHover);
@@ -247,8 +301,10 @@ export function DocumentView({
         const position = element && revealScroll(hit, pages, rotation, layout, width, measure(element));
         if (element && position) scrollElement(element, position);
       },
+      hasSelection: textSelection.hasSelection,
+      selectedText: textSelection.selectedText,
     }),
-    [layout, scrollContainer, pages, rotation, width],
+    [layout, scrollContainer, pages, rotation, width, textSelection.hasSelection, textSelection.selectedText],
   );
 
   // The first renders use the measured scale right away. After that, a new resolution is
@@ -288,6 +344,22 @@ export function DocumentView({
         requestDelayMs={delay}
       />,
     );
+    if (text && doc !== undefined) {
+      slots.push(
+        <PageSelection
+          key={`text-${index}`}
+          source={text}
+          doc={doc}
+          index={index}
+          page={pages[index]!}
+          rotation={rotation}
+          box={box}
+          left={left}
+          delayMs={delay}
+          selection={selection}
+        />,
+      );
+    }
     if (links && doc !== undefined) {
       slots.push(
         <PageLinks
@@ -308,7 +380,14 @@ export function DocumentView({
   }
 
   return (
-    <div className="relative" style={{ width, height: layout.totalHeight }}>
+    <div
+      ref={rootRef}
+      // Text is selected by the app (MVP-15), not the WebView: it lives in the PDF, not in the DOM.
+      className="relative select-none"
+      style={{ width, height: layout.totalHeight }}
+      onMouseDown={textSelection.onMouseDown}
+      onMouseMove={textSelection.onMouseMove}
+    >
       {slots}
     </div>
   );
@@ -422,6 +501,64 @@ function PageSlot({ index, box, left, doc, renderer, scale, paused, rotation, re
         </div>
       )}
     </div>
+  );
+}
+
+type PageSelectionProps = {
+  source: TextSource;
+  doc: DocumentId;
+  index: number;
+  page: PageSize;
+  rotation: Rotation;
+  box: PageBox;
+  left: number;
+  delayMs: number;
+  selection: TextSelection | null;
+};
+
+/**
+ * A page's text (MVP-15): asked for once the page has been in view for a moment, so that the
+ * pointer can select on it, and the selected part of it drawn over the page.
+ */
+function PageSelection({ source, doc, index, page, rotation, box, left, delayMs, selection }: PageSelectionProps) {
+  const [loaded, setLoaded] = useState<{ doc: DocumentId; text: PageText } | null>(null);
+
+  useEffect(() => {
+    let current = true;
+    const load = () =>
+      source.text(doc, index).then(
+        (text) => {
+          if (current) setLoaded({ doc, text });
+        },
+        // Without its text a page only cannot be selected; the next time it is shown asks again.
+        () => {},
+      );
+    // Like renders: pages that only flash by during a fast scroll are not asked.
+    const timer = delayMs > 0 ? window.setTimeout(load, delayMs) : undefined;
+    if (timer === undefined) void load();
+    return () => {
+      current = false;
+      window.clearTimeout(timer);
+    };
+  }, [source, doc, index, delayMs]);
+
+  const text = loaded?.doc === doc ? loaded.text : undefined;
+  const quads = text && hasSelectedText(selection) ? selectionQuads(text, index, selection) : [];
+  if (quads.length === 0) return null;
+  return (
+    <svg
+      aria-hidden
+      data-selection={index + 1}
+      // Multiplied like the search highlights: the text under the selection stays readable.
+      className="pointer-events-none absolute mix-blend-multiply"
+      style={{ top: box.top, left, width: box.width, height: box.height }}
+      viewBox={`0 0 ${box.width} ${box.height}`}
+      preserveAspectRatio="none"
+    >
+      {quads.map((quad, i) => (
+        <polygon key={i} points={quadPoints(quad, page, rotation, box)} className="fill-sky-500/35" />
+      ))}
+    </svg>
   );
 }
 

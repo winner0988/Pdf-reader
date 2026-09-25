@@ -74,6 +74,7 @@ pub fn run() {
             commands::cancel,
             commands::get_outline,
             commands::get_page_links,
+            commands::get_page_text,
             commands::describe_link,
             commands::open_link,
             commands::describe_outline_link,

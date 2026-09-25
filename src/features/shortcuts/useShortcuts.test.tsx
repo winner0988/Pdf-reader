@@ -41,6 +41,13 @@ describe("useShortcuts", () => {
     expect(second).not.toHaveBeenCalled();
   });
 
+  it("lets the browser have a key that the handler did not use", () => {
+    const copy = vi.fn(() => false);
+    render(<Listener handlers={{ copy }} />);
+    expect(fireEvent.keyDown(window, { key: "c", ctrlKey: true })).toBe(true);
+    expect(copy).toHaveBeenCalledTimes(1);
+  });
+
   it("leaves a key alone that a focused control already used", () => {
     const close = vi.fn();
     render(<Listener handlers={{ close }} />);

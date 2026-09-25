@@ -10,6 +10,8 @@ export type Shortcut = {
   /** Key labels shown in the help dialog. */
   keys: string[];
   matches: (event: KeyboardEvent) => boolean;
+  /** A text field keeps its own meaning of the key, even with Ctrl (copying the field's text). */
+  notInTextFields?: boolean;
 };
 
 const ctrl = (event: KeyboardEvent) => event.ctrlKey && !event.altKey;
@@ -27,6 +29,12 @@ export const SHORTCUTS: Shortcut[] = [
     id: "previousTab",
     keys: ["Ctrl+Shift+Tab", "Ctrl+PageUp"],
     matches: (e) => ctrl(e) && ((e.key === "Tab" && e.shiftKey) || e.key === "PageUp"),
+  },
+  {
+    id: "copy",
+    keys: ["Ctrl+C"],
+    matches: (e) => ctrl(e) && !e.shiftKey && e.key.toLowerCase() === "c",
+    notInTextFields: true,
   },
   { id: "search", keys: ["Ctrl+F"], matches: (e) => ctrl(e) && e.key.toLowerCase() === "f" },
   { id: "findNext", keys: ["F3"], matches: (e) => plain(e) && !e.shiftKey && e.key === "F3" },
@@ -62,11 +70,16 @@ const isFunctionKey = (event: KeyboardEvent) => /^F\d{1,2}$/.test(event.key);
 /**
  * Returns the shortcut for a key event, or undefined. While typing in a text field only
  * Ctrl combinations and function keys apply, so plain keys such as Home/End keep their
- * editing meaning (and F3 still finds the next hit from the search field).
+ * editing meaning (and F3 still finds the next hit from the search field); Ctrl+C copies the
+ * field's own text.
  */
 export function findShortcut(event: KeyboardEvent): Shortcut | undefined {
   const shortcut = SHORTCUTS.find((candidate) => candidate.matches(event));
-  if (shortcut && isTextInput(event.target) && !event.ctrlKey && !isFunctionKey(event)) {
+  if (
+    shortcut &&
+    isTextInput(event.target) &&
+    (shortcut.notInTextFields || (!event.ctrlKey && !isFunctionKey(event)))
+  ) {
     return undefined;
   }
   return shortcut;

@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef, useRef, type Ref } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,11 +6,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PageSize, Rotation, Zoom } from "@/features/shell/model";
 import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
 import type { LinkSource } from "@/features/links/source";
+import { createTextSource, type TextSource } from "@/features/text/source";
 import type { Highlights } from "@/features/viewer/highlights";
-import { CSS_PX_PER_PT, PAGE_GAP_PX, PAGE_PADDING_PX } from "@/features/viewer/layout";
+import {
+  CSS_PX_PER_PT,
+  PAGE_GAP_PX,
+  PAGE_PADDING_PX,
+  contentWidth,
+  layoutPages,
+  pageLeft,
+  pageToBox,
+} from "@/features/viewer/layout";
 import type { PageRenderer, RenderJob } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
-import type { IpcError, PageLink, RenderPageArgs } from "@/ipc/generated/contract";
+import type { IpcError, PageLink, PageText, RenderPageArgs, TextLine } from "@/ipc/generated/contract";
 import type { RasterImage } from "@/ipc/raster";
 
 const LETTER = { widthPt: 612, heightPt: 792 };
@@ -56,6 +65,9 @@ type HarnessProps = {
   links?: LinkSource;
   onLinkHover?: (text: string | null) => void;
   onLinkActivate?: (link: PageLink) => void;
+  text?: TextSource;
+  onSelectionChange?: (selected: boolean) => void;
+  onNoText?: () => void;
   view?: Ref<DocumentViewHandle>;
 };
 
@@ -70,6 +82,9 @@ function Harness({
   links,
   onLinkHover,
   onLinkActivate,
+  text,
+  onSelectionChange,
+  onNoText,
   view,
 }: HarnessProps) {
   const scroller = useRef<HTMLElement>(null);
@@ -89,6 +104,9 @@ function Harness({
         links={links}
         onLinkHover={onLinkHover}
         onLinkActivate={onLinkActivate}
+        text={text}
+        onSelectionChange={onSelectionChange}
+        onNoText={onNoText}
         requestDelayMs={0}
       />
     </main>
@@ -514,6 +532,142 @@ describe("DocumentView", () => {
       scrollTo(screen.getByTestId("scroller"), 0);
       await act(async () => {});
       expect(screen.queryAllByRole("button")).toEqual([]);
+    });
+  });
+
+  describe("selecting text (MVP-15)", () => {
+    const pages = Array(3).fill(LETTER);
+    /** A horizontal line from (x, y) in page points, 6 pt per character and 12 pt high. */
+    const textLine = (text: string, x: number, y: number): TextLine => {
+      const count = Array.from(text).length;
+      return {
+        text,
+        quad: { ul: { x, y }, ur: { x: x + count * 6, y }, ll: { x, y: y + 12 }, lr: { x: x + count * 6, y: y + 12 } },
+        edges: Array.from({ length: count + 1 }, (_, i) => i * 6),
+      };
+    };
+    const texts: PageText[] = [
+      { lines: [textLine("Hello world", 72, 100), textLine("中文字", 72, 120)], truncated: false },
+      { lines: [textLine("Second page", 72, 100)], truncated: false },
+      // A scanned page: no text layer.
+      { lines: [], truncated: false },
+    ];
+    const source = () => createTextSource({ getPageText: (_doc, page) => Promise.resolve(texts[page]!) });
+
+    /** Client coordinates of a point on a page, in page points (jsdom puts the view at 0, 0). */
+    const at = (index: number, x: number, y: number, rotation: 0 | 90 = 0) => {
+      const layout = layoutPages(pages, rotation, 1);
+      const box = layout.boxes[index]!;
+      const point = pageToBox({ x, y }, LETTER, rotation, box);
+      return { clientX: pageLeft(box, contentWidth(layout, 1000)) + point.x, clientY: box.top + point.y };
+    };
+
+    async function setUp(props: Partial<HarnessProps> = {}) {
+      const view = createRef<DocumentViewHandle>();
+      const utils = render(<Harness pages={pages} text={source()} view={view} {...props} />);
+      const scroller = sizeScroller(800);
+      scrollTo(scroller, 0);
+      // The mounted pages' text arrives.
+      await act(async () => {});
+      const root = scroller.firstElementChild as HTMLElement;
+      const press = (point: ReturnType<typeof at>, detail = 1, shiftKey = false) =>
+        fireEvent.mouseDown(root, { button: 0, detail, shiftKey, ...point });
+      const drag = (from: ReturnType<typeof at>, to: ReturnType<typeof at>) => {
+        press(from);
+        fireEvent.mouseMove(window, to);
+        fireEvent.mouseUp(window, to);
+      };
+      return { ...utils, view, root, press, drag, copied: () => view.current!.selectedText() };
+    }
+
+    it("selects by dragging over the text, draws the selection and copies it", async () => {
+      const onSelectionChange = vi.fn();
+      const { drag, copied } = await setUp({ onSelectionChange });
+
+      // From before "H" to just after "o".
+      drag(at(0, 73, 106), at(0, 101, 106));
+      expect(await copied()).toBe("Hello");
+      expect(onSelectionChange).toHaveBeenLastCalledWith(true);
+      const polygon = document.querySelector("[data-selection='1'] polygon")!;
+      expect(polygon.getAttribute("points")).toBe("96,133.33 136,133.33 136,149.33 96,149.33");
+    });
+
+    it("selects a word with a double click and a line with a triple click", async () => {
+      const { press, copied } = await setUp();
+      press(at(0, 72 + 6 * 7 + 1, 106), 2);
+      fireEvent.mouseUp(window);
+      expect(await copied()).toBe("world");
+      press(at(0, 80, 125), 3);
+      fireEvent.mouseUp(window);
+      expect(await copied()).toBe("中文字");
+    });
+
+    it("selects across pages, and a press beside the text clears the selection", async () => {
+      const onSelectionChange = vi.fn();
+      const { drag, press, copied, view } = await setUp({ onSelectionChange });
+      drag(at(0, 72 + 6 * 6 + 1, 106), at(1, 72 + 6 * 6 + 1, 106));
+      expect(await copied()).toBe("world\n中文字\nSecond");
+      expect(document.querySelectorAll("[data-selection] polygon")).toHaveLength(3);
+
+      press(at(0, 500, 700));
+      fireEvent.mouseUp(window);
+      expect(view.current!.hasSelection()).toBe(false);
+      expect(await copied()).toBeNull();
+      expect(onSelectionChange).toHaveBeenLastCalledWith(false);
+      expect(document.querySelector("[data-selection]")).toBeNull();
+    });
+
+    it("extends the selection with Shift+click", async () => {
+      const { drag, press, copied } = await setUp();
+      drag(at(0, 73, 106), at(0, 101, 106));
+      press(at(0, 72 + 6 * 11, 106), 1, true);
+      fireEvent.mouseUp(window);
+      expect(await copied()).toBe("Hello world");
+    });
+
+    it("says once that a page without text cannot be selected", async () => {
+      const onNoText = vi.fn();
+      const { press } = await setUp({ onNoText });
+      press(at(2, 100, 100));
+      fireEvent.mouseMove(window, at(2, 101, 100));
+      expect(onNoText).not.toHaveBeenCalled();
+      fireEvent.mouseMove(window, at(2, 200, 150));
+      fireEvent.mouseMove(window, at(2, 300, 200));
+      fireEvent.mouseUp(window);
+      expect(onNoText).toHaveBeenCalledTimes(1);
+    });
+
+    it("shows the text cursor over text only", async () => {
+      const { root } = await setUp();
+      fireEvent.mouseMove(root, at(0, 80, 106));
+      expect(root.style.cursor).toBe("text");
+      fireEvent.mouseMove(root, at(0, 500, 700));
+      expect(root.style.cursor).toBe("");
+    });
+
+    it("finds the same text when the view is rotated", async () => {
+      const { drag, copied } = await setUp({ rotation: 90 });
+      drag(at(0, 73, 106, 90), at(0, 101, 106, 90));
+      expect(await copied()).toBe("Hello");
+    });
+
+    it("leaves presses on links to the links", async () => {
+      const links = {
+        links: vi.fn((_doc: number, page: number) =>
+          Promise.resolve(
+            page === 0
+              ? [{ id: { pageIndex: 0, index: 0 }, rect: { x0: 72, y0: 98, x1: 138, y1: 114 }, target: { kind: "page", pageIndex: 1, x: null, y: null } } satisfies PageLink]
+              : [],
+          ),
+        ),
+      } satisfies LinkSource;
+      const onLinkActivate = vi.fn();
+      const { view } = await setUp({ links, onLinkActivate });
+      const link = await screen.findByRole("button", { name: "前往第 2 頁" });
+      fireEvent.mouseDown(link, { button: 0, detail: 1, ...at(0, 80, 106) });
+      fireEvent.mouseMove(window, at(0, 101, 106));
+      fireEvent.mouseUp(window);
+      expect(view.current!.hasSelection()).toBe(false);
     });
   });
 });

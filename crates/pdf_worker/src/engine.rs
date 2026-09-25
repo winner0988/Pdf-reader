@@ -6,12 +6,13 @@
 
 use std::collections::HashSet;
 
-use ipc_contract::types::{BlockedAction, Point, Quad, SecurityReport};
+use ipc_contract::types::{BlockedAction, PageText as TextLayer, Point, Quad, SecurityReport};
 use mupdf::pdf::{PdfDocument as MuPdfDocument, PdfObject};
 use mupdf::{Colorspace, Document, Matrix, Page, TextPageFlags};
 
 use crate::scan::{self, ScanBudget};
 use crate::search::{PageSearch, PageText};
+use crate::text_layer::TextLayerBuilder;
 use thiserror::Error;
 
 /// PDF files must start with this header within the first 1024 bytes (PDF 1.7, 7.5.2).
@@ -420,6 +421,27 @@ impl PdfDocument {
         Ok(text.search(query, max_hits))
     }
 
+    /// One page's text for selecting and copying (MVP-15): the lines of the same text layer
+    /// search uses, in the same page space, up to `max_chars` characters.
+    pub fn page_text(&self, index: u32, max_chars: usize) -> Result<TextLayer, EngineError> {
+        let text_page = self
+            .load_page(index)?
+            .to_text_page(TextPageFlags::empty())?;
+        let mut layer = TextLayerBuilder::new(max_chars);
+        'blocks: for block in text_page.blocks() {
+            for line in block.lines() {
+                layer.push_line(
+                    line.chars()
+                        .filter_map(|ch| ch.char().map(|c| (c, contract_quad(ch.quad())))),
+                );
+                if layer.is_full() {
+                    break 'blocks;
+                }
+            }
+        }
+        Ok(layer.finish())
+    }
+
     fn load_page(&self, index: u32) -> Result<Page, EngineError> {
         if index >= self.page_count()? {
             return Err(EngineError::PageOutOfRange(index));
@@ -676,28 +698,76 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn searches_chinese_text_from_the_to_unicode_map() {
-        // Helvetica draws "AB", but the ToUnicode map says the text is 隱私 (U+96B1 U+79C1):
-        // search reads the text layer, not the glyphs, and needs no CJK font.
+    /// Helvetica draws "AB", but the ToUnicode map says the text is 隱私 (U+96B1 U+79C1).
+    fn to_unicode_pdf() -> Vec<u8> {
         let cmap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap
                     /CMapName /Test-UCS def /CMapType 2 def
                     1 begincodespacerange <00> <FF> endcodespacerange
                     2 beginbfchar <41> <96B1> <42> <79C1> endbfchar
                     endcmap CMapName currentdict /CMap defineresource pop end end";
         let content = "BT /F1 24 Tf 72 700 Td (AB) Tj ET";
-        let pdf = build_pdf(&[
+        build_pdf(&[
             "<< /Type /Catalog /Pages 2 0 R >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
             &stream(content),
             "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 6 0 R >>",
             &stream(cmap),
-        ]);
-        let doc = PdfDocument::from_bytes(&pdf).unwrap();
+        ])
+    }
+
+    #[test]
+    fn searches_chinese_text_from_the_to_unicode_map() {
+        // Search reads the text layer, not the glyphs, and needs no CJK font.
+        let doc = PdfDocument::from_bytes(&to_unicode_pdf()).unwrap();
         assert_eq!(doc.search_page(0, "隱私", false, 10).unwrap().hits.len(), 1);
         assert_eq!(doc.search_page(0, "私", false, 10).unwrap().hits.len(), 1);
         assert!(doc.search_page(0, "AB", false, 10).unwrap().hits.is_empty());
+    }
+
+    #[test]
+    fn gives_the_text_of_a_page_line_by_line() {
+        use ipc_contract::validate::Validate;
+
+        let doc = PdfDocument::from_bytes(&two_page_pdf()).unwrap();
+        let text = doc.page_text(0, 1000).unwrap();
+        text.validate().unwrap();
+        assert!(!text.truncated);
+        let [line] = &text.lines[..] else {
+            panic!("one line: {text:?}")
+        };
+        assert_eq!(line.text, "Hello MuPDF");
+        // The line and its characters are where search finds the same text.
+        let hit = doc.search_page(0, "mupdf", false, 1).unwrap().hits[0].quads[0];
+        let m = line.text.chars().position(|c| c == 'M').unwrap();
+        assert!(
+            (line.quad.ul.x + line.edges[m] - hit.ul.x).abs() < 0.5,
+            "{line:?} {hit:?}"
+        );
+        assert!((line.quad.ur.x - hit.ur.x).abs() < 0.5, "{line:?} {hit:?}");
+        assert!((line.quad.ul.y - hit.ul.y).abs() < 0.5 && (line.quad.ll.y - hit.ll.y).abs() < 0.5);
+
+        assert!(doc.page_text(1, 1000).unwrap().lines.is_empty());
+        assert!(matches!(
+            doc.page_text(2, 1000),
+            Err(EngineError::PageOutOfRange(2))
+        ));
+    }
+
+    #[test]
+    fn page_text_stops_at_the_character_limit() {
+        let doc = PdfDocument::from_bytes(&two_page_pdf()).unwrap();
+        let text = doc.page_text(0, 5).unwrap();
+        assert!(text.truncated);
+        assert_eq!(text.lines[0].text, "Hello");
+    }
+
+    #[test]
+    fn page_text_comes_from_the_to_unicode_map() {
+        let doc = PdfDocument::from_bytes(&to_unicode_pdf()).unwrap();
+        let text = doc.page_text(0, 1000).unwrap();
+        assert_eq!(text.lines[0].text, "隱私");
+        assert_eq!(text.lines[0].edges.len(), 3);
     }
 
     #[test]

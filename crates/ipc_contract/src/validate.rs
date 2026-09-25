@@ -9,10 +9,11 @@ use std::collections::HashSet;
 use thiserror::Error;
 
 use crate::limits::*;
-use crate::text::{classify_uri, is_clean_display_text};
+use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text};
 use crate::types::{
     DocumentInfo, FindingKind, IpcError, LinkTarget, OpenEvent, OutlineItem, OutlineResult,
-    PageLink, PageSize, Point, Quad, Rect, RenderPageArgs, SearchArgs, SearchHit, SecurityReport,
+    PageLink, PageSize, PageText, Point, Quad, Rect, RenderPageArgs, SearchArgs, SearchHit,
+    SecurityReport, TextLine,
 };
 use crate::worker::{OpenedDocument, Raster, WorkerError, WorkerResponse};
 
@@ -241,6 +242,54 @@ impl Validate for OutlineResult {
     }
 }
 
+impl Validate for PageText {
+    fn validate(&self) -> Result<(), ValidationError> {
+        let mut chars = 0usize;
+        for line in &self.lines {
+            line.validate()?;
+            chars += line.edges.len() - 1;
+            check_count("page text characters", chars, MAX_PAGE_TEXT_CHARS)?;
+        }
+        Ok(())
+    }
+}
+
+impl Validate for TextLine {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.quad.validate()?;
+        if self.text.is_empty() {
+            return Err(ValidationError::Invalid {
+                what: "text line",
+                reason: "empty",
+            });
+        }
+        if !is_clean_copy_text(&self.text) {
+            return Err(ValidationError::Invalid {
+                what: "text line",
+                reason: "contains control or invisible formatting characters",
+            });
+        }
+        if self.edges.len() != self.text.chars().count() + 1 {
+            return Err(ValidationError::Invalid {
+                what: "text line edges",
+                reason: "not one more than the characters",
+            });
+        }
+        let mut previous = 0.0;
+        for &edge in &self.edges {
+            check_coordinate("text line edge", edge)?;
+            if edge < previous {
+                return Err(ValidationError::Invalid {
+                    what: "text line edges",
+                    reason: "negative or decreasing",
+                });
+            }
+            previous = edge;
+        }
+        Ok(())
+    }
+}
+
 impl Validate for SearchHit {
     fn validate(&self) -> Result<(), ValidationError> {
         if self.quads.is_empty() {
@@ -327,6 +376,7 @@ impl Validate for WorkerResponse {
                 }
                 Ok(())
             }
+            WorkerResponse::PageText { text, .. } => text.validate(),
             WorkerResponse::PageSearched { hits, .. } => {
                 check_count("search hits", hits.len(), MAX_SEARCH_HITS)?;
                 hits.iter().try_for_each(SearchHit::validate)
@@ -583,6 +633,60 @@ mod tests {
             y: None,
         };
         assert!(nan_destination.validate().is_err());
+    }
+
+    fn text_line(text: &str, edges: Vec<f32>) -> TextLine {
+        TextLine {
+            text: text.to_owned(),
+            quad: quad(),
+            edges,
+        }
+    }
+
+    #[test]
+    fn text_lines_have_clean_text_and_an_edge_per_character() {
+        assert_eq!(
+            text_line("中文 ok", vec![0.0, 2.0, 4.0, 5.0, 7.0, 9.0]).validate(),
+            Ok(())
+        );
+        // A right-to-left override could reorder what is pasted; a tab is not a space.
+        for text in ["a\u{202E}b", "a\tb", "a\nb"] {
+            let edges = vec![0.0; text.chars().count() + 1];
+            assert!(text_line(text, edges).validate().is_err(), "{text:?}");
+        }
+        assert!(text_line("", vec![0.0]).validate().is_err());
+        assert!(text_line("ab", vec![0.0, 1.0]).validate().is_err());
+        assert!(text_line("ab", vec![0.0, 2.0, 1.0]).validate().is_err());
+        assert!(text_line("ab", vec![-1.0, 0.0, 1.0]).validate().is_err());
+        assert!(
+            text_line("ab", vec![0.0, f32::NAN, 1.0])
+                .validate()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn page_text_is_bounded() {
+        let line = text_line("abcd", vec![0.0, 1.0, 2.0, 3.0, 4.0]);
+        let lines = |count: usize| PageText {
+            lines: vec![line.clone(); count],
+            truncated: true,
+        };
+        let most = MAX_PAGE_TEXT_CHARS as usize / 4;
+        assert_eq!(lines(most).validate(), Ok(()));
+        assert!(matches!(
+            lines(most + 1).validate(),
+            Err(ValidationError::TooMany { .. })
+        ));
+        let response = WorkerResponse::PageText {
+            request: RequestId(1),
+            page_index: 0,
+            text: PageText {
+                lines: vec![text_line("a", vec![0.0])],
+                truncated: false,
+            },
+        };
+        assert!(response.validate().is_err());
     }
 
     #[test]
