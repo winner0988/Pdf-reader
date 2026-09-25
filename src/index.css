@@ -128,3 +128,31 @@
     @apply font-sans;
     }
 }
+
+/*
+ * Printing (MVP-17, docs/architecture/printing.md): only the pages being printed reach the
+ * printer, never the app itself, and they are never seen on screen. Each page fits the paper
+ * the user picks in the system's print dialog, whatever its size or orientation.
+ */
+@media screen {
+  [data-print-pages] {
+    display: none;
+  }
+}
+
+@media print {
+  body > :not([data-print-pages]) {
+    display: none !important;
+  }
+
+  [data-print-pages] img {
+    display: block;
+    width: 100%;
+    height: 100vh;
+    object-fit: contain;
+  }
+
+  [data-print-pages] img:not(:last-child) {
+    break-after: page;
+  }
+}

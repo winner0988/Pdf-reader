@@ -125,6 +125,16 @@
 - **右鍵功能表**：開啟文件時，在畫布上按右鍵顯示 app 自己的功能表，目前只有「複製」（沒有選取時停用），取代 WebView 預設的功能表。
 - **沒有文字層的頁面**（掃描件）不能選取；在上面拖曳時，狀態列顯示 text.noTextLayer 4 秒。
 
+### 列印（MVP-17）
+
+- `Ctrl+P` 或「⋯」→「列印…」開啟 app 的列印對話框（沒有開啟文件時停用；`Ctrl+P` 不會印出 app 本身）。
+- **範圍**：全部（預設）、目前頁，或頁碼（例如 `1-3, 5`，可用 `,`、`，`、`、` 或空白分隔，範圍用 `-` 或 `~`）。
+  - 頁碼不在文件中時顯示 print.invalid；
+  - 一次最多 300 頁，超過時顯示 print.tooMany。
+- **繼續**：逐頁準備列印，對話框顯示 print.preparing 的進度，可以取消。準備好後開啟系統的列印對話框，在那裡選印表機、份數、直向／橫向。
+- 列印時不套用檢視用的旋轉與縮放；每一頁依紙張大小等比例縮放，完整印在一張紙上。
+- 做法與限制見 [printing.md](../architecture/printing.md)。
+
 ### 快捷鍵
 
 依 Windows 與常見 PDF 閱讀器的慣例；`Ctrl+/` 開啟快捷鍵說明。
@@ -134,6 +144,7 @@
 | 開啟檔案 | `Ctrl+O`（對話框可以選多個檔案，每個一個分頁） |
 | 關閉分頁 | `Ctrl+W` |
 | 複製選取的文字 | `Ctrl+C`（焦點在文字欄位時複製欄位中的文字） |
+| 列印 | `Ctrl+P` |
 | 下一個／上一個分頁 | `Ctrl+Tab`（或 `Ctrl+PageDown`）／`Ctrl+Shift+Tab`（或 `Ctrl+PageUp`）；焦點在分頁列時用 `←`／`→`、`Home`／`End` |
 | 搜尋 | `Ctrl+F` |
 | 下一筆／上一筆結果 | `Enter`／`Shift+Enter`（搜尋列中）；`F3`／`Shift+F3`（任何時候） |
@@ -348,6 +359,26 @@
 | password.cancel | 取消 |
 | password.wrong | 密碼不正確，請再試一次。 |
 
+### 列印（MVP-17）
+
+| 鍵 | 文字 |
+|---|---|
+| menu.print | 列印… |
+| shortcuts.descriptions.print | 列印 |
+| print.title | 列印 |
+| print.note | 先選要列印的頁面；印表機、份數與直向／橫向在下一步的列印對話框中選擇。 |
+| print.range | 列印範圍 |
+| print.all | 全部（<N> 頁） |
+| print.current | 目前頁（第 <n> 頁） |
+| print.pages | 頁碼 |
+| print.pagesPlaceholder | 例如 1-3, 5 |
+| print.next | 繼續 |
+| print.cancel | 取消 |
+| print.invalid | 請輸入 1 到 <N> 之間的頁碼，例如 1-3, 5 |
+| print.tooMany | 一次最多列印 <上限> 頁，請分次列印。 |
+| print.preparing | 正在準備列印…（<n>／<N> 頁） |
+| print.failed | 有頁面無法準備列印，請再試一次。 |
+
 ### 主行程的原生對話框
 
 這些文字由主行程自己顯示，放在 `src-tauri/src/strings.rs`。
@@ -377,3 +408,4 @@
 | MVP-14 | 三個分頁（一個已開啟、一個在背景、一個開檔失敗）的淺色與深色 |
 | MVP-15 | `benign/mixed-text-zh-en.pdf` 跨中英文兩行的選取與右鍵功能表；順時針旋轉 90° 並放大到 400% 時的選取 |
 | MVP-16 | `benign/encrypted-aes256.pdf` 詢問密碼；密碼錯誤的提示（淺色與深色） |
+| MVP-17 | `benign/mixed-page-sizes.pdf` 的列印對話框（淺色與深色）；送到印表機的頁面（列印媒體下的畫面） |

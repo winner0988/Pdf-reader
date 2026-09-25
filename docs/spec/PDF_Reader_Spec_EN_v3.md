@@ -51,6 +51,7 @@ This version folds the decisions resolved during the grilling process back into 
 
 ## 6. Reading, Markup & Interaction Module
 - **Basic Reading & Management**: Zoom in/out, bookmark navigation, full-text search (local indexing, including the hidden text layer produced by OCR), and dark mode. Support for inserting, deleting, rotating, splitting, and merging pages.
+- **Printing**: Print the current document on any printer available to the computer, with a page range, number of copies, and portrait or landscape orientation; the view's rotation and zoom are not applied. Print data is processed locally and never sent over the network (network printers are handled by the operating system).
 - **Markup & Annotations**: Provide basic tools like highlighters, freehand drawing, and custom stamps.
 - **AcroForm Filling**: Support reading and filling standard PDF forms containing text boxes and checkboxes. Allow users to "flatten" the form, locking the data into uneditable static content.
 - **Local Crash Recovery**: Implement a local differential temporary state mechanism that saves on every edit action. If power is lost or the app crashes during editing, prompt for a local restoration upon the next launch, independent of cloud backups.

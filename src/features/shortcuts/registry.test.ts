@@ -21,6 +21,7 @@ describe("findShortcut", () => {
     [{ key: "F4" }, "toggleSidebar"],
     [{ key: "F6", shiftKey: true }, "previousRegion"],
     [{ key: "/", ctrlKey: true }, "help"],
+    [{ key: "p", ctrlKey: true }, "print"],
   ])("maps %o to %s", (init, id) => {
     expect(findShortcut(keydown(init))?.id).toBe(id);
   });

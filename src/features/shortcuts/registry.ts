@@ -36,6 +36,7 @@ export const SHORTCUTS: Shortcut[] = [
     matches: (e) => ctrl(e) && !e.shiftKey && e.key.toLowerCase() === "c",
     notInTextFields: true,
   },
+  { id: "print", keys: ["Ctrl+P"], matches: (e) => ctrl(e) && e.key.toLowerCase() === "p" },
   { id: "search", keys: ["Ctrl+F"], matches: (e) => ctrl(e) && e.key.toLowerCase() === "f" },
   { id: "findNext", keys: ["F3"], matches: (e) => plain(e) && !e.shiftKey && e.key === "F3" },
   { id: "findPrevious", keys: ["Shift+F3"], matches: (e) => plain(e) && e.shiftKey && e.key === "F3" },
