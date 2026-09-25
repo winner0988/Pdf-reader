@@ -1,12 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "Permissions for the main window: only the app's own document commands (MVP-06, MVP-07, MVP-09, MVP-10, MVP-12, MVP-14, MVP-15, REL-03). No core:event, dialog or fs permissions: paths must never reach the WebView. Any addition needs the needs-security-review label.",
+  "description": "Permissions for the main window: only the app's own document commands (MVP-06, MVP-07, MVP-09, MVP-10, MVP-12, MVP-14, MVP-15, MVP-16, REL-03). No core:event, dialog or fs permissions: paths must never reach the WebView. Any addition needs the needs-security-review label.",
   "windows": ["main"],
   "permissions": [
     "allow-subscribe-open-events",
     "allow-open-document-dialog",
     "allow-retry-open",
+    "allow-unlock-tab",
     "allow-close-tab",
     "allow-set-active-tab",
     "allow-render-page",

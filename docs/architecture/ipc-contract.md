@@ -42,6 +42,7 @@ flowchart LR
 | `subscribe_open_events` | `{ onEvent: Channel<OpenEvent> }` | 無（事件走頻道，見下節） | 否 | MVP-06 |
 | `open_document_dialog` | 無 | `boolean`：`false` 表示使用者取消（或已有對話框開著）；可以選多個檔案，每個一個分頁，結果走開檔頻道 | 否 | MVP-06、14 |
 | `retry_open` | `{ tab: TabId }` | 無（在同一個分頁重新開啟開檔失敗的檔案，結果走開檔頻道） | 否 | MVP-06、14 |
+| `unlock_tab` | `{ args: UnlockArgs }`：`tab` 與 `password` | 無；以密碼在新的 worker 開啟這個分頁的加密檔案，結果走開檔頻道（見 [encryption.md](encryption.md)） | 否 | MVP-16 |
 | `close_tab` | `{ tab: TabId }` | 無；分頁的 worker 結束，主行程忘記它的路徑 | 否 | MVP-14 |
 | `set_active_tab` | `{ tab: TabId \| null }` | 無；主行程以它記錄的檔名設定視窗標題 | 否 | MVP-14 |
 | `render_page` | `{ args: RenderPageArgs }` | `ArrayBuffer`（見「頁面影像」） | 是 | MVP-07 |
@@ -64,6 +65,7 @@ flowchart LR
 | `dragHover` | `active` | 檔案拖曳進入（`true`）或離開（`false`）視窗，畫布顯示拖放目標 |
 | `opening` | `tab`、`displayName` | 新增分頁並開始開檔（或重試失敗的分頁）；前端 300 ms 後顯示載入中 |
 | `opened` | `tab`、`info: DocumentInfo` | 開檔成功 |
+| `passwordNeeded` | `tab`、`displayName`、`wrong` | 檔案加密，分頁詢問密碼；`wrong` 表示剛才的密碼不對（MVP-16） |
 | `failed` | `tab`、`displayName`、`error: IpcError` | 開檔失敗，分頁顯示錯誤 |
 | `tabLimit` | `ignoredFiles` | 已有 `LIMITS.maxTabs`（20）個分頁，這幾個檔案沒有開啟 |
 
@@ -165,7 +167,7 @@ flowchart LR
 
 | `WorkerRequest` | 欄位 | 預期回應 |
 |---|---|---|
-| `Open` | `request`, `doc`, `file: FileHandle` | `Opened` 或 `Error` |
+| `Open` | `request`, `doc`, `file: FileHandle`, `password: Option<Password>` | `Opened` 或 `Error`；加密文件沒有密碼時是 `Encrypted`，密碼不對時是 `WrongPassword`（MVP-16） |
 | `Render` | `request`, `doc`, `page_index`, `scale`, `rotation` | `Rendered` 或 `Error` |
 | `GetOutline` | `request`, `doc` | `Outline` 或 `Error` |
 | `GetPageLinks` | `request`, `doc`, `page_index` | `PageLinks` 或 `Error` |
@@ -195,7 +197,8 @@ flowchart LR
 | `cancelled` | 請求已取消 |
 | `notPdf` | 不是 PDF |
 | `corrupted` | PDF 損毀，無法解析 |
-| `encrypted` | 加密文件（MVP 不支援） |
+| `encrypted` | 需要密碼（分頁會詢問，MVP-16） |
+| `unsupportedEncryption` | 加密方式不支援（例如以憑證加密） |
 | `unreadable` | 無法讀取（權限不足等） |
 | `tooLarge` | 檔案超過大小上限 |
 | `limitExceeded` | 結果超過上限（例如渲染尺寸） |
@@ -223,6 +226,7 @@ worker 端的 `WorkerErrorCode` 以 `From` 轉換對應到上表。
 | URI | 32,768 bytes | MVP-12 須能完整顯示 10,000 字元的 URL |
 | 短文字（目錄標題、被封鎖動作的目標） | 1,024 bytes | |
 | 搜尋字串 | 1,024 bytes | |
+| 密碼 | 1,024 bytes | 不可為空、不可含 NUL；PDF 本身最多用到 127 bytes（MVP-16） |
 | 搜尋結果 | 10,000 筆 | 超過時 `truncated` |
 | 每筆結果的 quad | 64 | |
 | 每頁文字（選取與複製） | 100,000 字元 | 超過時 worker 截斷並設 `truncated`（MVP-15） |

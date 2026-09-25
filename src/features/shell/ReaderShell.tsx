@@ -16,9 +16,12 @@ import { SecurityDetails } from "@/features/security-banner/SecurityDetails";
 import { hasBannerContent } from "@/features/security-banner/summary";
 import { AboutDialog, SetDefaultFailedDialog, ShortcutsDialog } from "@/features/shell/dialogs";
 import { rotate, stepZoom, type Rotation, type ShellState, type Zoom } from "@/features/shell/model";
+import { PrintDialog } from "@/features/print/PrintDialog";
+import { PrintPages } from "@/features/print/PrintPages";
+import { freePrintPages, renderForPrint, type PrintPage } from "@/features/print/render";
 import { SearchBar } from "@/features/shell/SearchBar";
 import { Sidebar } from "@/features/shell/Sidebar";
-import { EmptyState, ErrorState, LoadingState } from "@/features/shell/states";
+import { EmptyState, ErrorState, LoadingState, PasswordState } from "@/features/shell/states";
 import { StatusBar } from "@/features/shell/StatusBar";
 import { Toolbar } from "@/features/shell/Toolbar";
 import { useShortcuts } from "@/features/shortcuts/useShortcuts";
@@ -44,6 +47,8 @@ type ReaderShellProps = {
   onOpen: () => void;
   onClose?: () => void;
   onRetry?: () => void;
+  /** The password the user typed for an encrypted document (MVP-16). */
+  onUnlock?: (password: string) => void;
   /** Files are being dragged over the window: the canvas shows it is a drop target. */
   dropActive?: boolean;
   /** Renders pages; without it (demo data, tests) pages are placeholders. */
@@ -99,6 +104,7 @@ export function ReaderShell({
   onOpen,
   onClose,
   onRetry,
+  onUnlock,
   dropActive = false,
   renderer,
   outline,
@@ -127,7 +133,9 @@ export function ReaderShell({
   const [fitPercent, setFitPercent] = useState(100);
   const [rotation, setRotation] = useState<Rotation>(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [dialog, setDialog] = useState<"shortcuts" | "about" | "setDefaultFailed" | null>(null);
+  const [dialog, setDialog] = useState<"shortcuts" | "about" | "setDefaultFailed" | "print" | null>(null);
+  /** Pages rendered for printing, while the system's print dialog is up (MVP-17). */
+  const [printPages, setPrintPages] = useState<PrintPage[] | null>(null);
   const pageInputRef = useRef<HTMLInputElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLElement>(null);
@@ -156,6 +164,7 @@ export function ReaderShell({
     setLinkDialog(null);
     setTextSelected(false);
     setNoTextHint(null);
+    if (dialog === "print") setDialog(null);
   }
 
   useEffect(() => {
@@ -204,9 +213,17 @@ export function ReaderShell({
     if (currentHit) viewRef.current?.revealHit(currentHit);
   }, [currentHit]);
 
+  // Printing needs the worker's pages: not for demo data. Without a document Ctrl+P still does
+  // nothing, rather than the WebView printing the app itself.
+  const printable = document_?.doc !== undefined && renderer !== undefined;
+  const print = () => {
+    if (printable) setDialog("print");
+  };
+
   useShortcuts({
     open: onOpen,
     close: onClose,
+    print,
     copy: () => !hasPageSelection() && copySelection(),
     // Inline: focusing the field uses a ref, which must not be touched during render.
     search: () => {
@@ -316,6 +333,7 @@ export function ReaderShell({
           onSetDefault={() => {
             systemApi?.openDefaultAppsSettings().catch(() => setDialog("setDefaultFailed"));
           }}
+          onPrint={printable ? print : undefined}
         />
         <div className="relative flex min-h-0 flex-1">
           {sidebarOpen && document_ && (
@@ -361,6 +379,14 @@ export function ReaderShell({
               {state.kind === "empty" && <EmptyState onOpen={onOpen} />}
               {state.kind === "loading" && (
                 <LoadingState displayName={state.displayName} delayMs={loadingDelayMs} />
+              )}
+              {state.kind === "password" && (
+                <PasswordState
+                  displayName={state.displayName}
+                  wrong={state.wrong}
+                  onUnlock={(password) => onUnlock?.(password)}
+                  onCancel={() => onClose?.()}
+                />
               )}
               {state.kind === "error" && (
                 <ErrorState code={state.code} displayName={state.displayName} onOpen={onOpen} onRetry={onRetry} />
@@ -433,6 +459,27 @@ export function ReaderShell({
         open={dialog === "setDefaultFailed"}
         onOpenChange={(open) => setDialog(open ? "setDefaultFailed" : null)}
       />
+      {printable && (
+        <PrintDialog
+          open={dialog === "print"}
+          onOpenChange={(open) => setDialog(open ? "print" : null)}
+          pageCount={pageCount}
+          currentPage={currentPage}
+          prepare={(pages, onProgress, signal) =>
+            renderForPrint({ renderer, doc: document_.doc!, pages, sizes: document_.pages, onProgress, signal })
+          }
+          onReady={setPrintPages}
+        />
+      )}
+      {printPages && (
+        <PrintPages
+          pages={printPages}
+          onDone={() => {
+            freePrintPages(printPages);
+            setPrintPages(null);
+          }}
+        />
+      )}
       <AboutDialog
         open={dialog === "about"}
         onOpenChange={(open) => setDialog(open ? "about" : null)}

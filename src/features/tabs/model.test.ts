@@ -47,6 +47,23 @@ describe("tabs", () => {
     expect(state.active).toBe(3);
   });
 
+  it("an encrypted file's tab asks for the password, again after a wrong one", () => {
+    const asking = run([
+      event({ kind: "opening", tab: 1, displayName: "機密.pdf" }),
+      event({ kind: "passwordNeeded", tab: 1, displayName: "機密.pdf", wrong: false }),
+    ]);
+    expect(shellState(asking.tabs[0]!)).toEqual({ kind: "password", displayName: "機密.pdf", wrong: false });
+    const wrong = run(
+      [
+        event({ kind: "opening", tab: 1, displayName: "機密.pdf" }),
+        event({ kind: "passwordNeeded", tab: 1, displayName: "機密.pdf", wrong: true }),
+      ],
+      asking,
+    );
+    expect(wrong.tabs[0]!.content).toEqual({ kind: "password", wrong: true });
+    expect(run([event({ kind: "opened", tab: 1, info: info(9, "機密.pdf") })], wrong).tabs[0]!.content.kind).toBe("open");
+  });
+
   it("a retry keeps the tab where it is and does not switch to it", () => {
     const failedOne = run([
       event({ kind: "failed", tab: 1, displayName: "a.pdf", error: { code: "workerCrashed", message: "" } }),

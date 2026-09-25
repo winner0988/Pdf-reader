@@ -13,6 +13,19 @@ export type DocumentId = number;
 export type TabId = number;
 
 /**
+ * A password the user typed to open an encrypted document (MVP-16, docs/architecture/encryption.md).
+ * It lives only while the document is being opened: it is never stored or logged (`Debug` does
+ * not show it), and its memory is wiped when it is dropped.
+ */
+export type Password = string;
+
+/**
+ * Arguments of `unlock_tab`: the password for a tab that asked for one. Any other field is
+ * rejected.
+ */
+export type UnlockArgs = { tab: TabId, password: Password, };
+
+/**
  * Caller-chosen id used to correlate and cancel a request.
  */
 export type RequestId = number;
@@ -189,7 +202,7 @@ edges: Array<number>, };
 /**
  * Error codes the frontend maps to localized messages.
  */
-export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "internal";
+export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "internal";
 
 /**
  * Rejection value of every command. `message` is for logs and must not contain paths or
@@ -203,7 +216,7 @@ export type IpcError = { code: ErrorCode, message: string, };
  * the app. Every file gets its own tab (MVP-14): `Opening` adds it, then `Opened` or `Failed`
  * says how it went.
  */
-export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, };
+export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, };
 
 /** Limits enforced by the main process (crates/ipc_contract/src/limits.rs). */
 export const LIMITS = {
@@ -219,6 +232,7 @@ export const LIMITS = {
   maxUriBytes: 32768,
   maxTextBytes: 1024,
   maxQueryBytes: 1024,
+  maxPasswordBytes: 1024,
   maxSearchHits: 10000,
   maxQuadsPerHit: 64,
   maxPageTextChars: 100000,

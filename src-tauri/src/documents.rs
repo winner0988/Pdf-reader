@@ -4,18 +4,18 @@
 //! only ever sees tab and document ids and file names.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use ipc_contract::limits::{MAX_DISPLAY_NAME_BYTES, MAX_TABS, MAX_TEXT_BYTES};
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
     BlockedAction, DocumentId, DocumentInfo, ErrorCode, IpcError, LinkArgs, LinkPreview,
-    LinkTarget, OpenEvent, OutlineLinkArgs, OutlineResult, PageLink, PageText, RenderPageArgs,
-    SearchHit, TabId,
+    LinkTarget, OpenEvent, OutlineLinkArgs, OutlineResult, PageLink, PageText, Password,
+    RenderPageArgs, SearchHit, TabId,
 };
 use ipc_contract::validate::{Validate, check_page_index};
-use ipc_contract::worker::{WorkerRequest, WorkerResponse};
+use ipc_contract::worker::{WorkerErrorCode, WorkerRequest, WorkerResponse};
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
 /// Display name used when a path has no file name component.
@@ -24,6 +24,9 @@ const FALLBACK_NAME: &str = "PDF";
 pub struct Documents {
     worker: PathBuf,
     inner: Mutex<Inner>,
+    /// Where events go that no command is waiting for: a document whose worker died and that
+    /// needs its password again (MVP-16). Set once at startup.
+    reporter: OnceLock<Box<dyn Fn(OpenEvent) + Send + Sync>>,
 }
 
 struct Inner {
@@ -73,6 +76,9 @@ struct OpenDocument {
     /// The document's id in its worker process. Changes when the worker is restarted and the
     /// file reopened.
     worker_doc: DocumentId,
+    /// Opened with a password (MVP-16). The password is not kept, so if the worker dies the
+    /// document cannot be reopened: the tab asks for the password again.
+    protected: bool,
     /// The worker crashed, timed out or misbehaved; the file is reopened in a fresh worker
     /// before the next request.
     lost: bool,
@@ -87,7 +93,13 @@ impl Documents {
                 tabs: Vec::new(),
                 active: None,
             }),
+            reporter: OnceLock::new(),
         }
+    }
+
+    /// Where events go that no command is waiting for (see the field).
+    pub fn set_reporter(&self, reporter: impl Fn(OpenEvent) + Send + Sync + 'static) {
+        let _ = self.reporter.set(Box::new(reporter));
     }
 
     /// Adds a tab for each of `paths`, in order, and reports `Opening` for each. Files beyond
@@ -134,12 +146,34 @@ impl Documents {
     /// Takes as long as the worker needs; tabs load independently of each other. If the tab is
     /// closed meanwhile, the new worker ends and nothing is reported.
     pub fn load(&self, tab: TabId, report: &dyn Fn(OpenEvent)) {
+        self.load_with(tab, None, report);
+    }
+
+    /// Opens the tab's file, trying `password` if it is encrypted (MVP-16). A file that needs
+    /// a password, or another one than it got, makes the tab ask for it.
+    fn load_with(&self, tab: TabId, password: Option<Password>, report: &dyn Fn(OpenEvent)) {
         let Some(tab) = self.tab(tab) else {
             return;
         };
+        let protected = password.is_some();
+        // Some(wrong) when the file needs a password.
+        let mut asks = None;
         let result = check_file(&tab.path).and_then(|()| {
             let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
-            let (worker_doc, response) = host.open(&tab.path).map_err(|error| ipc_error(&error))?;
+            let opened = match password {
+                Some(password) => host.open_with_password(&tab.path, password),
+                None => host.open(&tab.path),
+            };
+            let (worker_doc, response) = opened.map_err(|error| {
+                if let HostError::Worker(error) = &error {
+                    match error.code {
+                        WorkerErrorCode::Encrypted => asks = Some(false),
+                        WorkerErrorCode::WrongPassword => asks = Some(true),
+                        _ => {}
+                    }
+                }
+                ipc_error(&error)
+            })?;
             let doc = DocumentId(self.lock().next_id());
             let info = document_info(doc, tab.display_name.clone(), response)?;
             Ok(OpenDocument {
@@ -147,15 +181,21 @@ impl Documents {
                 host,
                 path: tab.path.clone(),
                 worker_doc,
+                protected,
                 lost: false,
             })
         });
-        let event = match &result {
-            Ok(document) => OpenEvent::Opened {
+        let event = match (&result, asks) {
+            (Ok(document), _) => OpenEvent::Opened {
                 tab: tab.id,
                 info: document.info.clone(),
             },
-            Err(error) => OpenEvent::Failed {
+            (Err(_), Some(wrong)) => OpenEvent::PasswordNeeded {
+                tab: tab.id,
+                display_name: tab.display_name.clone(),
+                wrong,
+            },
+            (Err(error), None) => OpenEvent::Failed {
                 tab: tab.id,
                 display_name: tab.display_name.clone(),
                 error: error.clone(),
@@ -191,6 +231,34 @@ impl Documents {
         }
         report(opening);
         self.load(tab, report);
+        Ok(())
+    }
+
+    /// Tries `password` on a tab that asked for one (MVP-16): the tab opens, or asks again. The
+    /// password goes to the tab's own new worker only, and is wiped once it has been sent.
+    pub fn unlock(
+        &self,
+        tab: TabId,
+        password: Password,
+        report: &dyn Fn(OpenEvent),
+    ) -> Result<(), IpcError> {
+        let found = self.tab(tab).ok_or_else(unknown_tab)?;
+        let opening = OpenEvent::Opening {
+            tab,
+            display_name: found.display_name.clone(),
+        };
+        {
+            let mut event = lock(&found.event);
+            if !matches!(*event, OpenEvent::PasswordNeeded { .. }) {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "only a tab that asks for a password can be unlocked".to_owned(),
+                });
+            }
+            *event = opening.clone();
+        }
+        report(opening);
+        self.load_with(tab, Some(password), report);
         Ok(())
     }
 
@@ -491,10 +559,28 @@ impl Documents {
             .find(|tab| matches!(&*lock(&tab.event), OpenEvent::Opened { info, .. } if info.doc == doc))
             .ok_or_else(unknown_document)?;
         let mut document = lock(&tab.document);
-        match document.as_mut() {
+        let result = match document.as_mut() {
             Some(document) if document.info.doc == doc => work(document),
             _ => Err(unknown_document()),
+        };
+        if document
+            .as_ref()
+            .is_some_and(|document| document.protected && document.lost)
+        {
+            // The worker died and the password was not kept (MVP-16): the tab asks for it again.
+            *document = None;
+            drop(document);
+            let asking = OpenEvent::PasswordNeeded {
+                tab: tab.id,
+                display_name: tab.display_name.clone(),
+                wrong: false,
+            };
+            *lock(&tab.event) = asking.clone();
+            if let Some(report) = self.reporter.get() {
+                report(asking);
+            }
         }
+        result
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -527,6 +613,14 @@ fn request(
     make: impl FnOnce(ipc_contract::types::RequestId, DocumentId) -> WorkerRequest,
 ) -> Result<WorkerResponse, IpcError> {
     if document.lost {
+        if document.protected {
+            // Cannot happen: `with_document` forgets such a document at once. Never reopen it
+            // without its password.
+            return Err(IpcError {
+                code: ErrorCode::Encrypted,
+                message: "the document's password is needed again".to_owned(),
+            });
+        }
         document.worker_doc = reopen(document)?;
         document.lost = false;
     }
@@ -1390,5 +1484,82 @@ mod with_worker {
             ErrorCode::UnknownDocument
         );
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn an_encrypted_file_asks_for_its_password_until_it_gets_it() {
+        let documents = Documents::new(worker());
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/encrypted-aes256.pdf");
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let last = || events.borrow().last().cloned().expect("an event");
+        let [tab] = documents.add(&[path], &report)[..] else {
+            panic!("one tab")
+        };
+
+        documents.load(tab, &report);
+        assert!(matches!(
+            last(),
+            OpenEvent::PasswordNeeded { wrong: false, .. }
+        ));
+        documents
+            .unlock(tab, Password::new("wrong".to_owned()), &report)
+            .unwrap();
+        assert!(matches!(
+            last(),
+            OpenEvent::PasswordNeeded { wrong: true, .. }
+        ));
+        documents
+            .unlock(tab, Password::new("user".to_owned()), &report)
+            .unwrap();
+        let OpenEvent::Opened { info, .. } = last() else {
+            panic!("{:?}", last())
+        };
+        documents
+            .render(&args(info.doc, 0, 0.5, Rotation::None))
+            .unwrap();
+        // Only a tab that asks for a password can be unlocked.
+        assert_eq!(
+            documents
+                .unlock(tab, Password::new("user".to_owned()), &report)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+
+        // Its worker dies. The password was not kept, so the tab asks for it again.
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let sink = asked.clone();
+        documents.set_reporter(move |event| sink.lock().unwrap().push(event));
+        let pid = documents.worker_id(info.doc).expect("worker running");
+        let killed = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output()
+            .unwrap();
+        assert!(killed.status.success());
+        let error = documents
+            .render(&args(info.doc, 0, 0.5, Rotation::None))
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::WorkerCrashed);
+        assert!(matches!(
+            asked.lock().unwrap().as_slice(),
+            [OpenEvent::PasswordNeeded { tab: asking, wrong: false, .. }] if *asking == tab
+        ));
+        assert!(matches!(
+            documents.snapshot().as_slice(),
+            [OpenEvent::PasswordNeeded { .. }]
+        ));
+        assert_eq!(
+            documents
+                .render(&args(info.doc, 0, 0.5, Rotation::None))
+                .unwrap_err()
+                .code,
+            ErrorCode::UnknownDocument
+        );
+        documents
+            .unlock(tab, Password::new("owner".to_owned()), &report)
+            .unwrap();
+        assert!(matches!(last(), OpenEvent::Opened { .. }));
     }
 }

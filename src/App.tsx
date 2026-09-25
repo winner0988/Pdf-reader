@@ -89,6 +89,7 @@ export default function App({
               onOpen={open}
               onClose={tabs.close}
               onRetry={tabs.retry}
+              onUnlock={tabs.unlock}
             />
           ))
         )}
@@ -112,13 +113,14 @@ type TabPaneProps = {
   onOpen: () => void;
   onClose: (tab: TabId) => void;
   onRetry: (tab: TabId) => void;
+  onUnlock: (tab: TabId, password: string) => void;
 };
 
 /**
  * One tab's reader. Every tab stays mounted and hidden tabs are only hidden, so each keeps its
  * page, zoom, rotation, sidebar and search while another is shown (MVP-14).
  */
-function TabPane({ tab, active, outlineApi, onClose, onRetry, ...shell }: TabPaneProps) {
+function TabPane({ tab, active, outlineApi, onClose, onRetry, onUnlock, ...shell }: TabPaneProps) {
   const outline = useOutline(outlineApi, docOf(tab), tab.content.kind === "open" && tab.content.hasOutline);
   return (
     <div role="tabpanel" id={tabPanelId(tab.tab)} aria-labelledby={tabElementId(tab.tab)} hidden={!active} className="h-full">
@@ -129,6 +131,7 @@ function TabPane({ tab, active, outlineApi, onClose, onRetry, ...shell }: TabPan
         outline={outline}
         onClose={() => onClose(tab.tab)}
         onRetry={() => onRetry(tab.tab)}
+        onUnlock={(password) => onUnlock(tab.tab, password)}
       />
     </div>
   );

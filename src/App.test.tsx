@@ -20,6 +20,7 @@ function fakeMainProcess() {
     }),
     openDialog: vi.fn(() => Promise.resolve(true)),
     retry: vi.fn(() => Promise.resolve()),
+    unlock: vi.fn(() => Promise.resolve()),
     close: vi.fn(() => Promise.resolve()),
     setActive: vi.fn(() => Promise.resolve()),
   } satisfies OpenApi;
@@ -134,6 +135,25 @@ describe("App", () => {
     expect(statusBar()).toHaveTextContent(strings.toolbar.fitWidth);
     await user.click(tab("a.pdf"));
     expect(statusBar()).toHaveTextContent("110%");
+  });
+
+  it("asks for an encrypted file's password in its tab and passes it on", async () => {
+    const { api, push, user } = renderApp();
+    push(opening(1, "a.pdf"));
+    push(opened(1, info(9, "a.pdf")));
+    push(opening(2, "機密.pdf"));
+    push({ kind: "passwordNeeded", tab: 2, displayName: "機密.pdf", wrong: false });
+
+    expect(within(tabList()).getByRole("tab", { selected: true })).toHaveAccessibleName(
+      `${strings.tabs.locked}機密.pdf`,
+    );
+    await user.type(screen.getByLabelText(strings.password.label), "user{Enter}");
+    expect(api.unlock).toHaveBeenCalledExactlyOnceWith(2, "user");
+
+    // Cancelling closes the tab and shows the other one.
+    await user.click(screen.getByRole("button", { name: strings.password.cancel }));
+    expect(api.close).toHaveBeenCalledWith(2);
+    expect(statusBar()).toHaveTextContent("a.pdf");
   });
 
   it("gives the elements of different tabs different ids", async () => {

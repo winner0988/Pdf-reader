@@ -31,6 +31,12 @@
 - **空狀態**：①「選擇檔案…（Ctrl+O）」是主要按鈕，啟動後焦點預設在它上面。② 隱私說明固定顯示。整個畫布都是拖放目標；拖曳進入時畫布邊框以強調色虛線標示。
 - **載入中**：開檔超過 300 ms 才顯示，避免快速開檔時閃爍。顯示頁面骨架與「正在開啟 <檔名>…」。
 - **錯誤**：① 標題固定為「無法開啟這個檔案」，說明依錯誤碼（見文字表）。② 「開啟其他檔案」一律顯示；「重試」只在 `workerCrashed`、`workerTimeout`、`unreadable` 時顯示。
+- **需要密碼**（MVP-16）：加密的檔案在它的分頁中顯示鎖頭圖示、「這份文件受密碼保護」、說明與密碼欄位（遮蔽輸入，焦點預設在欄位上），以及「解鎖」（欄位空白時停用）與「取消」。
+  - `Enter` 或「解鎖」送出；送出後欄位立刻清空，分頁改為載入中。
+  - 密碼不對時回到這個畫面，欄位下方以紅字顯示 password.wrong。
+  - 「取消」關閉這個分頁。
+  - 分頁列上這個分頁顯示鎖頭圖示。
+  - 以憑證加密等不支援的方式時，顯示錯誤畫面與 unsupportedEncryption 的說明。
 - **單頁渲染失敗**（MVP-07）：該頁占位框內顯示「這一頁無法顯示」與「重試」，其他頁面不受影響。
 
 ## 3. 搜尋
@@ -119,6 +125,16 @@
 - **右鍵功能表**：開啟文件時，在畫布上按右鍵顯示 app 自己的功能表，目前只有「複製」（沒有選取時停用），取代 WebView 預設的功能表。
 - **沒有文字層的頁面**（掃描件）不能選取；在上面拖曳時，狀態列顯示 text.noTextLayer 4 秒。
 
+### 列印（MVP-17）
+
+- `Ctrl+P` 或「⋯」→「列印…」開啟 app 的列印對話框（沒有開啟文件時停用；`Ctrl+P` 不會印出 app 本身）。
+- **範圍**：全部（預設）、目前頁，或頁碼（例如 `1-3, 5`，可用 `,`、`，`、`、` 或空白分隔，範圍用 `-` 或 `~`）。
+  - 頁碼不在文件中時顯示 print.invalid；
+  - 一次最多 300 頁，超過時顯示 print.tooMany。
+- **繼續**：逐頁準備列印，對話框顯示 print.preparing 的進度，可以取消。準備好後開啟系統的列印對話框，在那裡選印表機、份數、直向／橫向。
+- 列印時不套用檢視用的旋轉與縮放；每一頁依紙張大小等比例縮放，完整印在一張紙上。
+- 做法與限制見 [printing.md](../architecture/printing.md)。
+
 ### 快捷鍵
 
 依 Windows 與常見 PDF 閱讀器的慣例；`Ctrl+/` 開啟快捷鍵說明。
@@ -128,6 +144,7 @@
 | 開啟檔案 | `Ctrl+O`（對話框可以選多個檔案，每個一個分頁） |
 | 關閉分頁 | `Ctrl+W` |
 | 複製選取的文字 | `Ctrl+C`（焦點在文字欄位時複製欄位中的文字） |
+| 列印 | `Ctrl+P` |
 | 下一個／上一個分頁 | `Ctrl+Tab`（或 `Ctrl+PageDown`）／`Ctrl+Shift+Tab`（或 `Ctrl+PageUp`）；焦點在分頁列時用 `←`／`→`、`Home`／`End` |
 | 搜尋 | `Ctrl+F` |
 | 下一筆／上一筆結果 | `Enter`／`Shift+Enter`（搜尋列中）；`F3`／`Shift+F3`（任何時候） |
@@ -191,7 +208,8 @@
 | cancelled | （不顯示） |
 | notPdf | 這不是 PDF 檔案。 |
 | corrupted | 這個 PDF 檔案已損毀，無法開啟。 |
-| encrypted | 這份文件有密碼保護，目前版本尚不支援開啟加密文件。 |
+| encrypted | 這份文件需要密碼才能開啟。 |
+| unsupportedEncryption | 這份文件使用本程式不支援的加密方式（例如以憑證加密），無法開啟。 |
 | unreadable | 無法讀取這個檔案，請確認檔案存在且你有存取權限。 |
 | tooLarge | 檔案太大，無法開啟。 |
 | limitExceeded | 內容超過可處理的上限，部分內容可能無法顯示。 |
@@ -319,6 +337,7 @@
 | tabs.close | 關閉「<檔名>」 |
 | tabs.loading | （正在開啟） |
 | tabs.failed | （無法開啟） |
+| tabs.locked | （需要密碼） |
 | tabs.tabLimit | 最多同時開啟 <上限> 份文件，有 <數量> 個檔案沒有開啟。 |
 
 ### 選取與複製文字
@@ -328,6 +347,37 @@
 | text.copy | 複製 |
 | text.noTextLayer | 這一頁沒有文字層，無法選取文字（目前版本尚不支援 OCR） |
 | shortcuts.descriptions.copy | 複製選取的文字 |
+
+### 需要密碼（MVP-16）
+
+| 鍵 | 文字 |
+|---|---|
+| password.title | 這份文件受密碼保護 |
+| password.description | 輸入密碼以開啟「<檔名>」。密碼只用來開啟這份文件，不會被儲存。 |
+| password.label | 密碼 |
+| password.submit | 解鎖 |
+| password.cancel | 取消 |
+| password.wrong | 密碼不正確，請再試一次。 |
+
+### 列印（MVP-17）
+
+| 鍵 | 文字 |
+|---|---|
+| menu.print | 列印… |
+| shortcuts.descriptions.print | 列印 |
+| print.title | 列印 |
+| print.note | 先選要列印的頁面；印表機、份數與直向／橫向在下一步的列印對話框中選擇。 |
+| print.range | 列印範圍 |
+| print.all | 全部（<N> 頁） |
+| print.current | 目前頁（第 <n> 頁） |
+| print.pages | 頁碼 |
+| print.pagesPlaceholder | 例如 1-3, 5 |
+| print.next | 繼續 |
+| print.cancel | 取消 |
+| print.invalid | 請輸入 1 到 <N> 之間的頁碼，例如 1-3, 5 |
+| print.tooMany | 一次最多列印 <上限> 頁，請分次列印。 |
+| print.preparing | 正在準備列印…（<n>／<N> 頁） |
+| print.failed | 有頁面無法準備列印，請再試一次。 |
 
 ### 主行程的原生對話框
 
@@ -357,3 +407,5 @@
 | MVP-12 | `benign/external-https-link.pdf` 確認對話框；`link-idn-homograph.pdf`、`link-rtl-override.pdf` 的警示；`link-long-url.pdf`；`link-file-scheme.pdf` 與 `launch.pdf` 的封鎖對話框 |
 | MVP-14 | 三個分頁（一個已開啟、一個在背景、一個開檔失敗）的淺色與深色 |
 | MVP-15 | `benign/mixed-text-zh-en.pdf` 跨中英文兩行的選取與右鍵功能表；順時針旋轉 90° 並放大到 400% 時的選取 |
+| MVP-16 | `benign/encrypted-aes256.pdf` 詢問密碼；密碼錯誤的提示（淺色與深色） |
+| MVP-17 | `benign/mixed-page-sizes.pdf` 的列印對話框（淺色與深色）；送到印表機的頁面（列印媒體下的畫面） |

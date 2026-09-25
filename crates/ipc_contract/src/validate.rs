@@ -13,7 +13,7 @@ use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text};
 use crate::types::{
     DocumentInfo, FindingKind, IpcError, LinkTarget, OpenEvent, OutlineItem, OutlineResult,
     PageLink, PageSize, PageText, Point, Quad, Rect, RenderPageArgs, SearchArgs, SearchHit,
-    SecurityReport, TextLine,
+    SecurityReport, TextLine, UnlockArgs,
 };
 use crate::worker::{OpenedDocument, Raster, WorkerError, WorkerResponse};
 
@@ -419,6 +419,26 @@ impl Validate for SearchArgs {
     }
 }
 
+impl Validate for UnlockArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        let password = self.password.as_str();
+        if password.is_empty() {
+            return Err(ValidationError::Invalid {
+                what: "password",
+                reason: "empty",
+            });
+        }
+        // MuPDF takes the password as a C string.
+        if password.contains(' ') {
+            return Err(ValidationError::Invalid {
+                what: "password",
+                reason: "contains a NUL character",
+            });
+        }
+        check_text("password", password, MAX_PASSWORD_BYTES)
+    }
+}
+
 /// A display name is a bare file name; anything that looks like a path is a bug.
 fn check_display_name(name: &str) -> Result<(), ValidationError> {
     check_text("display name", name, MAX_DISPLAY_NAME_BYTES)?;
@@ -450,7 +470,8 @@ impl Validate for OpenEvent {
     fn validate(&self) -> Result<(), ValidationError> {
         match self {
             OpenEvent::DragHover { .. } | OpenEvent::TabLimit { .. } => Ok(()),
-            OpenEvent::Opening { display_name, .. } => check_display_name(display_name),
+            OpenEvent::Opening { display_name, .. }
+            | OpenEvent::PasswordNeeded { display_name, .. } => check_display_name(display_name),
             OpenEvent::Opened { info, .. } => info.validate(),
             OpenEvent::Failed {
                 display_name,
@@ -687,6 +708,55 @@ mod tests {
             },
         };
         assert!(response.validate().is_err());
+    }
+
+    fn unlock(password: &str) -> UnlockArgs {
+        UnlockArgs {
+            tab: TabId(1),
+            password: crate::types::Password::new(password.to_owned()),
+        }
+    }
+
+    #[test]
+    fn a_password_is_never_shown_and_travels_as_a_plain_string() {
+        let args = unlock("s3cret");
+        assert!(!format!("{args:?}").contains("s3cret"));
+        let json = serde_json::to_string(&args).unwrap();
+        assert_eq!(json, r#"{"tab":1,"password":"s3cret"}"#);
+        assert_eq!(serde_json::from_str::<UnlockArgs>(&json).unwrap(), args);
+        // Nothing but the tab and the password.
+        assert!(
+            serde_json::from_str::<UnlockArgs>(r#"{"tab":1,"password":"x","path":"C:\\x.pdf"}"#)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn unlock_passwords_are_bounded() {
+        assert_eq!(unlock("中文密碼 and spaces").validate(), Ok(()));
+        assert!(unlock("").validate().is_err());
+        assert!(unlock("a\0b").validate().is_err());
+        assert!(
+            unlock(&"x".repeat(MAX_PASSWORD_BYTES as usize))
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            unlock(&"x".repeat(MAX_PASSWORD_BYTES as usize + 1))
+                .validate()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_tab_asking_for_a_password_has_a_plain_file_name() {
+        let asking = |display_name: &str| OpenEvent::PasswordNeeded {
+            tab: TabId(1),
+            display_name: display_name.to_owned(),
+            wrong: true,
+        };
+        assert_eq!(asking("機密.pdf").validate(), Ok(()));
+        assert!(asking(r"C:\secret\機密.pdf").validate().is_err());
     }
 
     #[test]

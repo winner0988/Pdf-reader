@@ -31,8 +31,12 @@ pub const MAX_RASTER_PIXELS: u64 = 4096 * 4096;
 pub enum EngineError {
     #[error("not a PDF document")]
     NotPdf,
-    #[error("the document is encrypted")]
+    #[error("the document needs a password")]
     Encrypted,
+    #[error("the password does not open the document")]
+    WrongPassword,
+    #[error("the document's encryption is not supported")]
+    UnsupportedEncryption,
     #[error("page {0} does not exist")]
     PageOutOfRange(u32),
     #[error("render scale must be between {MIN_RENDER_SCALE} and {MAX_RENDER_SCALE}")]
@@ -100,6 +104,12 @@ pub struct PdfDocument {
 impl PdfDocument {
     /// Opens a PDF from memory. Encrypted documents are refused (not supported in the MVP).
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, EngineError> {
+        Self::open(bytes, None)
+    }
+
+    /// Opens a PDF from memory. An encrypted one needs `password` (MVP-16): the user or the
+    /// owner password, or none at all for a document whose user password is empty.
+    pub fn open(bytes: &[u8], password: Option<&str>) -> Result<Self, EngineError> {
         let head = &bytes[..bytes.len().min(HEADER_SEARCH_BYTES)];
         if !head
             .windows(PDF_HEADER.len())
@@ -107,9 +117,12 @@ impl PdfDocument {
         {
             return Err(EngineError::NotPdf);
         }
-        let doc = Document::from_bytes(bytes, "application/pdf")?;
+        let mut doc = Document::from_bytes(bytes, "application/pdf").map_err(open_error)?;
         if doc.needs_password()? {
-            return Err(EngineError::Encrypted);
+            let password = password.ok_or(EngineError::Encrypted)?;
+            if !doc.authenticate(password)? {
+                return Err(EngineError::WrongPassword);
+            }
         }
         Ok(Self {
             doc: MuPdfDocument::try_from(doc)?,
@@ -450,6 +463,18 @@ impl PdfDocument {
     }
 }
 
+/// MuPDF refuses, while opening the file, a security handler other than the standard password
+/// one (certificate encryption, `/Adobe.PubSec`) and encryption versions it does not know. Such
+/// a document is not broken: it is encrypted in a way the app cannot open.
+fn open_error(error: mupdf::Error) -> EngineError {
+    let message = error.to_string();
+    if message.contains("encryption handler") || message.contains("encryption version") {
+        EngineError::UnsupportedEncryption
+    } else {
+        EngineError::MuPdf(error)
+    }
+}
+
 fn contract_quad(quad: mupdf::Quad) -> Quad {
     let point = |p: mupdf::Point| Point { x: p.x, y: p.y };
     Quad {
@@ -768,6 +793,29 @@ mod tests {
         let text = doc.page_text(0, 1000).unwrap();
         assert_eq!(text.lines[0].text, "隱私");
         assert_eq!(text.lines[0].edges.len(), 3);
+    }
+
+    /// The two-page test PDF with an Encrypt dictionary for `filter` (nothing is encrypted, but
+    /// MuPDF looks at the security handler before anything else).
+    fn encrypted_with(filter: &str) -> Vec<u8> {
+        let mut pdf = two_page_pdf();
+        let trailer = b"trailer\n<< /Size 8 /Root 1 0 R";
+        let at = pdf
+            .windows(trailer.len())
+            .position(|window| window == trailer)
+            .expect("trailer");
+        let encrypt = format!(" /Encrypt << /Filter /{filter} /V 4 /R 4 /Length 128 >>");
+        let end = at + trailer.len();
+        pdf.splice(end..end, encrypt.into_bytes());
+        pdf
+    }
+
+    #[test]
+    fn certificate_encryption_is_reported_as_unsupported() {
+        assert!(matches!(
+            PdfDocument::open(&encrypted_with("Adobe.PubSec"), Some("password")),
+            Err(EngineError::UnsupportedEncryption)
+        ));
     }
 
     #[test]

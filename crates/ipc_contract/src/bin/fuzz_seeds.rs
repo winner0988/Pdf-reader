@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use ipc_contract::frame::encode;
 use ipc_contract::types::{
     BlockedAction, DocumentId, FindingKind, LinkId, LinkTarget, OutlineItem, OutlineResult,
-    PageLink, PageSize, PageText, Point, Quad, Rect, RequestId, Rotation, SearchHit,
+    PageLink, PageSize, PageText, Password, Point, Quad, Rect, RequestId, Rotation, SearchHit,
     SecurityFinding, SecurityReport, TextLine,
 };
 use ipc_contract::worker::{
@@ -146,6 +146,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             doc,
             file: FileHandle(0x1f4),
+            password: None,
+        },
+        WorkerRequest::Open {
+            request,
+            doc,
+            file: FileHandle(0x1f4),
+            password: Some(Password::new("user".to_owned())),
         },
         WorkerRequest::Render {
             request,

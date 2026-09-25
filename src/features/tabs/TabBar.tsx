@@ -1,7 +1,7 @@
 // The row of tabs (MVP-14, docs/ux/screen-map.md). Each tab is a button with role "tab"; its close
 // button sits next to it rather than inside it, so no interactive element is nested in another.
 
-import { LoaderCircle, Plus, TriangleAlert, X } from "lucide-react";
+import { LoaderCircle, LockKeyhole, Plus, TriangleAlert, X } from "lucide-react";
 import { useRef, type KeyboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -86,6 +86,12 @@ export function TabBar({ tabs, active, onActivate, onClose, onOpen }: TabBarProp
                   <>
                     <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden />
                     <span className="sr-only">{t.loading}</span>
+                  </>
+                )}
+                {tab.content.kind === "password" && (
+                  <>
+                    <LockKeyhole className="size-3.5 shrink-0" aria-hidden />
+                    <span className="sr-only">{t.locked}</span>
                   </>
                 )}
                 {tab.content.kind === "error" && (

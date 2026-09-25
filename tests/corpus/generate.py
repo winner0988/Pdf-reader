@@ -1063,10 +1063,10 @@ SAMPLES = [
            "Renders a gradient; search reports that the document has no text layer.", 1),
     Sample("benign/encrypted-rc4-40.pdf", benign_encrypted,
            "Encrypted with the standard handler (RC4 40-bit, R2); user password 'user', owner password 'owner'.",
-           "MVP: reported as encrypted and not supported; no crash.", 1),
+           "Asks for a password (MVP-16): 'user' or 'owner' opens it, any other is refused.", 1),
     Sample("benign/encrypted-aes256.pdf", benign_encrypted_aes256,
            "AES-256 encryption (standard security handler, revision 6); user password 'user', owner 'owner'.",
-           "MVP: reported as encrypted and not supported; no crash. With the password MuPDF decrypts it and "
+           "Asks for a password (MVP-16): 'user' or 'owner' opens it, any other is refused; once open, "
            "the text is readable.", 1),
     Sample("benign/signed.pdf", benign_signed,
            "Signed (adbe.pkcs7.detached, SHA-256, RSA-2048) with the corpus's self-signed test certificate. The "
