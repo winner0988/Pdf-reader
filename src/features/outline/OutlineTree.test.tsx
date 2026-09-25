@@ -139,7 +139,7 @@ describe("OutlineTree", () => {
 
 describe("Sidebar outline states", () => {
   const renderSidebar = (outline: OutlineView) =>
-    render(<Sidebar outline={outline} currentPage={1} onJumpToPage={vi.fn()} />);
+    render(<Sidebar outline={outline} pages={[]} currentPage={1} onJumpToPage={vi.fn()} />);
 
   const states: [OutlineView, string][] = [
     [{ status: "loading" }, strings.sidebar.outlineLoading],

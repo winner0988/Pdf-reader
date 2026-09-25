@@ -35,6 +35,15 @@ export function errorCodeOf(error: unknown): ErrorCode {
   return typeof code === "string" ? code : "internal";
 }
 
+/** Draws a raster into the canvas at its native resolution; CSS scales it to its box. */
+export function drawRaster(canvas: HTMLCanvasElement | null, raster: RasterImage) {
+  const context = canvas?.getContext("2d");
+  if (!canvas || !context) return;
+  canvas.width = raster.width;
+  canvas.height = raster.height;
+  context.putImageData(new ImageData(raster.pixels, raster.width, raster.height), 0, 0);
+}
+
 export function createPageRenderer(api: RenderApi, nextId: () => RequestId = nextRequestId): PageRenderer {
   return {
     render(args) {

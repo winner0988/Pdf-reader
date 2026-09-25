@@ -82,7 +82,7 @@ export const strings = {
   sidebar: {
     label: "側欄",
     outlineTab: "目錄",
-    thumbnailsTab: "縮圖（之後）",
+    thumbnailsTab: "縮圖",
     outlineEmpty: "這份文件沒有目錄",
     outlineLoading: "正在讀取目錄…",
     outlineFailed: "無法讀取這份文件的目錄",
