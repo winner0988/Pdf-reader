@@ -44,7 +44,9 @@ use windows_sys::Win32::Security::{
     TOKEN_ADJUST_DEFAULT, TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_MANDATORY_LABEL,
     TOKEN_QUERY, TokenIntegrityLevel,
 };
-use windows_sys::Win32::Storage::FileSystem::{FILE_GENERIC_EXECUTE, FILE_GENERIC_READ};
+use windows_sys::Win32::Storage::FileSystem::{
+    FILE_APPEND_DATA, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_WRITE_DATA, SYNCHRONIZE,
+};
 use windows_sys::Win32::System::JobObjects::{
     CreateJobObjectW, JOB_OBJECT_LIMIT_ACTIVE_PROCESS, JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_LIMIT_PROCESS_MEMORY,
@@ -275,15 +277,28 @@ impl Sandboxed {
     /// Duplicates `file` into the child with read-only access and returns the handle value as
     /// the child sees it. The child never learns the path.
     pub fn duplicate_read_only(&self, file: &File) -> io::Result<u64> {
+        self.duplicate(file, FILE_GENERIC_READ)
+    }
+
+    /// Duplicates `file` into the child with write-only access: it can write the file's content,
+    /// but not read it, delete or rename it, or change its attributes. For a new file the parent
+    /// created, such as a document being saved (ADR 0013, proposed); the child never learns the
+    /// path.
+    pub fn duplicate_write_only(&self, file: &File) -> io::Result<u64> {
+        self.duplicate(file, FILE_WRITE_DATA | FILE_APPEND_DATA | SYNCHRONIZE)
+    }
+
+    fn duplicate(&self, file: &File, access: u32) -> io::Result<u64> {
         let mut target: HANDLE = null_mut();
-        // SAFETY: both process handles and the source handle are valid for the call.
+        // SAFETY: both process handles and the source handle are valid for the call; the
+        // duplicate gets exactly `access`, never more than the source has.
         check(unsafe {
             DuplicateHandle(
                 GetCurrentProcess(),
                 file.as_raw_handle(),
                 self.process.as_raw_handle(),
                 &mut target,
-                FILE_GENERIC_READ,
+                access,
                 0,
                 0,
             )

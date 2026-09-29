@@ -111,22 +111,48 @@ fn duplicated_file_handles_are_read_only() {
         .open(&path)
         .unwrap();
 
-    let output = read_handle_in_child(&file);
+    let output = handle_in_child("read-handle-stdin", |child| {
+        child.duplicate_read_only(&file)
+    });
     assert_eq!(output, "read:12 write:denied");
     drop(file);
     std::fs::remove_file(&path).ok();
 }
 
-/// Starts a probe that waits for a handle value on stdin, duplicates `file` into it, and
-/// reports what the probe could do with it.
-fn read_handle_in_child(file: &std::fs::File) -> String {
-    let mut child = Sandboxed::spawn(
-        probe(),
-        &[OsStr::new("read-handle-stdin")],
-        &SandboxConfig::default(),
-    )
-    .unwrap();
-    let value = child.duplicate_read_only(file).unwrap();
+#[test]
+fn duplicated_write_handles_are_write_only() {
+    // A new file created here, as the main process creates the file a document is saved to
+    // (ADR 0013, proposed).
+    let path = std::env::temp_dir().join(format!("sandbox-write-{}.pdf", std::process::id()));
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&path)
+        .unwrap();
+
+    let output = handle_in_child("write-handle-stdin", |child| {
+        child.duplicate_write_only(&file)
+    });
+    assert_eq!(output, "write:allowed read:denied delete:denied");
+    drop(file);
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "written in the sandbox"
+    );
+    std::fs::remove_file(&path).ok();
+}
+
+/// Starts a probe running `action`, which waits for a handle value on stdin; `duplicate` puts
+/// the handle into the probe. Returns what the probe could do with it.
+fn handle_in_child(
+    action: &str,
+    duplicate: impl FnOnce(&Sandboxed) -> std::io::Result<u64>,
+) -> String {
+    let mut child =
+        Sandboxed::spawn(probe(), &[OsStr::new(action)], &SandboxConfig::default()).unwrap();
+    let value = duplicate(&child).unwrap();
     child
         .stdin
         .as_mut()

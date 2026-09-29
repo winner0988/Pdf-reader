@@ -18,6 +18,7 @@
 | [0010](0010-document-id-write-safety.md) | 文件識別碼寫入 PDF 的安全限制 | 提議中 |
 | [0011](0011-license-and-distribution.md) | 專案以 AGPL-3.0-or-later 授權並公開原始碼 | 提議中 |
 | [0012](0012-tabs-and-worker-per-document.md) | 多份文件以分頁呈現，每份文件一個 worker，單一執行個體 | 提議中 |
+| [0013](0013-editing-and-saving.md) | 編輯在文件自己的 worker 中套用，存檔由主行程交出寫入 handle、完整寫好後才取代原檔 | 提議中 |
 
 ## 規則
 
