@@ -172,6 +172,22 @@ fn handle_in_child(
 }
 
 #[test]
+fn root_certificates_are_readable() {
+    // Signature verification (ADR 0014, proposed) checks chains against the roots Windows trusts,
+    // from inside the worker. The machine's store holds them; whether the user's store is
+    // readable is reported for the ADR.
+    let output = run_default(&["root-certificates"]);
+    let count = |store: &str| -> Option<usize> {
+        output
+            .split_whitespace()
+            .find_map(|part| part.strip_prefix(store))
+            .and_then(|value| value.parse().ok())
+    };
+    assert!(count("local-machine:").is_some_and(|n| n > 0), "{output}");
+    println!("root certificates in the sandbox: {output}");
+}
+
+#[test]
 fn memory_limit_is_enforced() {
     let config = SandboxConfig {
         memory_limit_bytes: 64 * 1024 * 1024,

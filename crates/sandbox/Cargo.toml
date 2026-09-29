@@ -21,6 +21,8 @@ windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Security_Authorization",
+    # Only the test probe (src/bin/sandbox_probe.rs): certificate stores in the sandbox (ADR 0014).
+    "Win32_Security_Cryptography",
     "Win32_Security_Isolation",
     "Win32_Storage_FileSystem",
     "Win32_System_JobObjects",
