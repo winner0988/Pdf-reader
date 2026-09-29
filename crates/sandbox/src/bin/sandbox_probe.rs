@@ -91,6 +91,11 @@ mod probe {
                     allowed(delete)
                 )
             }
+            Some("root-certificates") => format!(
+                "current-user:{} local-machine:{}",
+                root_certificates(false),
+                root_certificates(true)
+            ),
             Some("load-user32") => {
                 let name: Vec<u16> = OsStr::new("user32.dll")
                     .encode_wide()
@@ -165,6 +170,49 @@ mod probe {
                 size_of::<FILE_DISPOSITION_INFO>() as u32,
             ) != 0
         }
+    }
+
+    /// How many certificates the ROOT store shows here, or "denied" if it cannot be opened: can a
+    /// signature's chain be checked against the roots Windows trusts (ADR 0014)?
+    fn root_certificates(local_machine: bool) -> String {
+        use windows_sys::Win32::Security::Cryptography::{
+            CERT_STORE_PROV_SYSTEM_W, CERT_STORE_READONLY_FLAG, CERT_SYSTEM_STORE_CURRENT_USER,
+            CERT_SYSTEM_STORE_LOCAL_MACHINE, CertCloseStore, CertEnumCertificatesInStore,
+            CertOpenStore,
+        };
+
+        let location = if local_machine {
+            CERT_SYSTEM_STORE_LOCAL_MACHINE
+        } else {
+            CERT_SYSTEM_STORE_CURRENT_USER
+        };
+        let name: Vec<u16> = OsStr::new("ROOT").encode_wide().chain(Some(0)).collect();
+        // SAFETY: a NUL-terminated store name that outlives the call; read-only.
+        let store = unsafe {
+            CertOpenStore(
+                CERT_STORE_PROV_SYSTEM_W,
+                0,
+                0,
+                location | CERT_STORE_READONLY_FLAG,
+                name.as_ptr().cast(),
+            )
+        };
+        if store.is_null() {
+            return "denied".into();
+        }
+        let mut count = 0;
+        let mut certificate = null_mut();
+        loop {
+            // SAFETY: an open store; the previous context is released by the call itself.
+            certificate = unsafe { CertEnumCertificatesInStore(store, certificate) };
+            if certificate.is_null() {
+                break;
+            }
+            count += 1;
+        }
+        // SAFETY: the store was opened above and is closed once.
+        unsafe { CertCloseStore(store, 0) };
+        count.to_string()
     }
 
     fn integrity_rid() -> String {

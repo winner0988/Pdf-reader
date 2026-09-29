@@ -24,5 +24,7 @@ worker_host = { path = "../worker_host" }
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security",
+    # The signature verification POC of ADR 0014 (tests/signature_poc.rs).
+    "Win32_Security_Cryptography",
     "Win32_System_Threading",
 ] }
