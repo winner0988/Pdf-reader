@@ -50,6 +50,16 @@ async function freePort(): Promise<number> {
 
 type Running = { child: ChildProcess; log: string[]; profile: string; browser?: Browser };
 
+/** The app process behind each page. */
+const processes = new WeakMap<Page, number>();
+
+/** The id of the app process behind `page`, e.g. to find its windows with UI Automation. */
+export function appProcessId(page: Page): number {
+  const id = processes.get(page);
+  if (id === undefined) throw new Error("not a page from launch()");
+  return id;
+}
+
 /** Whether something answers on the WebView's debugging port (loopback only). */
 function listening(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -180,6 +190,7 @@ export const test = base.extend<{
       child.stderr?.on("data", (chunk) => running.log.push(String(chunk)));
       running.browser = await connect(port, running);
       const page = await mainPage(running.browser);
+      if (child.pid !== undefined) processes.set(page, child.pid);
       page.on("console", (message) => running.log.push(`[console.${message.type()}] ${message.text()}\n`));
       page.on("pageerror", (error) => running.log.push(`[pageerror] ${error.message}\n`));
       return page;

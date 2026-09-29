@@ -7,7 +7,8 @@
 //! settings address is a constant. It runs on the main thread, where COM is initialised as the
 //! shell expects.
 
-// The one Win32 call of the main process; see the SAFETY comment below.
+// A Win32 call (the other ones are the open dialog's, in open_dialog.rs); see the SAFETY
+// comment below.
 #![allow(unsafe_code)]
 
 use ipc_contract::types::{ErrorCode, IpcError};

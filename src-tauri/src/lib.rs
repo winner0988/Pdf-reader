@@ -10,6 +10,7 @@ mod commands;
 mod documents;
 mod events;
 mod links;
+mod open_dialog;
 mod opener;
 mod render;
 mod search;
