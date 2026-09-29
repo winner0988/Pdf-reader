@@ -2578,8 +2578,11 @@ version = "0.1.0"
 dependencies = [
  "ipc_contract",
  "mupdf",
+ "sandbox",
  "serde_json",
  "thiserror 2.0.20",
+ "windows",
+ "windows-future",
  "windows-sys 0.61.2",
  "worker_host",
 ]
