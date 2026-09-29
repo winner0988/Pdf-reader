@@ -73,6 +73,24 @@ mod probe {
                     if write.is_ok() { "allowed" } else { "denied" }
                 )
             }
+            Some("write-handle-stdin") => {
+                let mut line = String::new();
+                std::io::stdin().lock().read_line(&mut line).ok();
+                let value: usize = line.trim().parse().unwrap();
+                // SAFETY: the test duplicated this handle into us for exclusive use.
+                let mut file = unsafe { File::from_raw_handle(value as RawHandle) };
+                let write = file.write_all(b"written in the sandbox").is_ok();
+                let mut content = String::new();
+                let read = file.read_to_string(&mut content).is_ok();
+                let delete = delete_on_close(&file);
+                let allowed = |done: bool| if done { "allowed" } else { "denied" };
+                format!(
+                    "write:{} read:{} delete:{}",
+                    allowed(write),
+                    allowed(read),
+                    allowed(delete)
+                )
+            }
             Some("load-user32") => {
                 let name: Vec<u16> = OsStr::new("user32.dll")
                     .encode_wide()
@@ -126,6 +144,26 @@ mod probe {
             }
             Some("noop") | None => "noop".into(),
             Some(other) => format!("unknown:{other}"),
+        }
+    }
+
+    /// Whether the file behind `file` could be marked for deletion through the handle.
+    fn delete_on_close(file: &File) -> bool {
+        use std::os::windows::io::AsRawHandle;
+
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_DISPOSITION_INFO, FileDispositionInfo, SetFileInformationByHandle,
+        };
+
+        let info = FILE_DISPOSITION_INFO { DeleteFile: true };
+        // SAFETY: a valid handle and a correctly sized, initialised structure.
+        unsafe {
+            SetFileInformationByHandle(
+                file.as_raw_handle() as HANDLE,
+                FileDispositionInfo,
+                (&raw const info).cast(),
+                size_of::<FILE_DISPOSITION_INFO>() as u32,
+            ) != 0
         }
     }
 
