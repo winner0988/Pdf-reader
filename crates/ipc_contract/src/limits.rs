@@ -63,3 +63,6 @@ pub const MAX_DISPLAY_NAME_BYTES: u32 = 1_024;
 /// Maximum number of tabs in the window (MVP-14, ADR 0012). Each open document has its own
 /// worker process, so this also bounds the number of workers.
 pub const MAX_TABS: u32 = 20;
+
+/// Maximum number of recently opened files kept and listed (#73, spec §3).
+pub const MAX_RECENT_FILES: u32 = 20;

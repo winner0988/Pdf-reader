@@ -2556,14 +2556,18 @@ dependencies = [
 name = "pdf-reader"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.3.4",
  "ipc_contract",
  "rfd",
+ "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-single-instance",
  "tokio",
  "url",
+ "windows",
  "windows-sys 0.61.2",
  "worker_host",
 ]

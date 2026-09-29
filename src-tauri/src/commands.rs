@@ -6,9 +6,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use ipc_contract::types::{
-    DocumentId, ErrorCode, IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs,
-    OutlineResult, PageLink, PageText, RenderPageArgs, RequestId, SearchArgs, SearchEvent, TabId,
-    UnlockArgs,
+    DocumentId, ErrorCode, FileRecordingArgs, IpcError, LinkArgs, LinkPreview, OpenEvent,
+    OutlineLinkArgs, OutlineResult, PageLink, PageText, RecentFile, RecentId, RenderPageArgs,
+    RequestId, SearchArgs, SearchEvent, TabId, UnlockArgs,
 };
 use ipc_contract::validate::Validate;
 use tauri::ipc::{Channel, Response};
@@ -16,6 +16,7 @@ use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEven
 
 use crate::documents::Documents;
 use crate::events::OpenEvents;
+use crate::recent::RecentFiles;
 use crate::render::Renderer;
 use crate::search::{self, Searches};
 use crate::strings;
@@ -38,9 +39,10 @@ pub async fn subscribe_open_events(
 /// Set while the open dialog is showing.
 static DIALOG_SHOWING: AtomicBool = AtomicBool::new(false);
 
-/// Shows the native open dialog (PDF files only; several can be picked). Returns false if the
-/// user cancelled, or if a dialog is already showing; otherwise every file gets a tab and the
-/// outcomes arrive on the open-events channel.
+/// Shows the system's open dialog (PDF files only; several can be picked; nothing is added to
+/// the recent items of Windows, #86). Returns false if the user cancelled, or if a dialog is
+/// already showing; otherwise every file gets a tab and the outcomes arrive on the open-events
+/// channel.
 #[tauri::command]
 pub async fn open_document_dialog(app: AppHandle, window: WebviewWindow) -> Result<bool, IpcError> {
     // The dialog is modal to the window, but the page could still ask twice.
@@ -55,19 +57,10 @@ pub async fn open_document_dialog(app: AppHandle, window: WebviewWindow) -> Resu
     }
     let _showing = Showing;
 
-    let picked = rfd::AsyncFileDialog::new()
-        .set_title(strings::OPEN_DIALOG_TITLE)
-        .add_filter(strings::PDF_FILTER_NAME, &["pdf"])
-        .set_parent(&window)
-        .pick_files()
-        .await;
-    let Some(files) = picked else {
+    let Some(files) = crate::open_dialog::pick_pdfs(&window).await? else {
         return Ok(false);
     };
-    open_paths(
-        &app,
-        files.iter().map(|file| file.path().to_owned()).collect(),
-    );
+    open_paths(&app, files);
     Ok(true)
 }
 
@@ -76,10 +69,9 @@ pub async fn open_document_dialog(app: AppHandle, window: WebviewWindow) -> Resu
 #[tauri::command]
 pub async fn retry_open(app: AppHandle, tab: TabId) -> Result<(), IpcError> {
     blocking(move || {
-        let events = app.state::<OpenEvents>();
         let result = app
             .state::<Documents>()
-            .retry(tab, &|event| events.send(event));
+            .retry(tab, &|event| report(&app, event));
         after_tabs_changed(&app);
         result
     })
@@ -96,10 +88,9 @@ pub async fn unlock_tab(app: AppHandle, args: UnlockArgs) -> Result<(), IpcError
     })?;
     let UnlockArgs { tab, password } = args;
     blocking(move || {
-        let events = app.state::<OpenEvents>();
         let result = app
             .state::<Documents>()
-            .unlock(tab, password, &|event| events.send(event));
+            .unlock(tab, password, &|event| report(&app, event));
         after_tabs_changed(&app);
         result
     })
@@ -127,6 +118,106 @@ pub async fn set_active_tab(app: AppHandle, tab: Option<TabId>) -> Result<(), Ip
         Ok(())
     })
     .await
+}
+
+/// The recently opened files (#73): file names and ids; the paths stay in the main process.
+#[tauri::command]
+pub async fn get_recent_files(app: AppHandle) -> Result<Vec<RecentFile>, IpcError> {
+    blocking(move || checked(app.state::<RecentFiles>().list())).await
+}
+
+/// Opens a recently opened file in a new tab, by its id. A file that is gone is taken off the
+/// list and reported as `unreadable`; otherwise the outcome arrives on the open-events channel.
+#[tauri::command]
+pub async fn open_recent_file(app: AppHandle, id: RecentId) -> Result<(), IpcError> {
+    blocking(move || {
+        let recent = app.state::<RecentFiles>();
+        let path = recent.path(id).ok_or_else(unknown_recent_file)?;
+        if !path.is_file() {
+            let _ = recent.remove(id);
+            return Err(IpcError {
+                code: ErrorCode::Unreadable,
+                message: "the file is no longer there".to_owned(),
+            });
+        }
+        open_paths(&app, vec![path]);
+        Ok(())
+    })
+    .await
+}
+
+/// Takes a file off the recent files list and returns the list.
+#[tauri::command]
+pub async fn remove_recent_file(app: AppHandle, id: RecentId) -> Result<Vec<RecentFile>, IpcError> {
+    blocking(move || {
+        let list = app
+            .state::<RecentFiles>()
+            .remove(id)
+            .map_err(|_| unknown_recent_file())?;
+        checked(list)
+    })
+    .await
+}
+
+/// Empties the recent files list; the files the user asked not to record stay unrecorded.
+#[tauri::command]
+pub async fn clear_recent_files(app: AppHandle) -> Result<(), IpcError> {
+    blocking(move || {
+        app.state::<RecentFiles>().clear();
+        Ok(())
+    })
+    .await
+}
+
+/// Whether the file of an open document may be on the recent files list ("不記錄此檔案").
+#[tauri::command]
+pub async fn get_file_recording(app: AppHandle, doc: DocumentId) -> Result<bool, IpcError> {
+    blocking(move || {
+        let path = document_path(&app, doc)?;
+        Ok(app.state::<RecentFiles>().is_recorded(&path))
+    })
+    .await
+}
+
+/// Sets whether the file of an open document may be on the recent files list. Not recording it
+/// takes it off the list; the choice is kept as a salted hash, not as the path.
+#[tauri::command]
+pub async fn set_file_recording(app: AppHandle, args: FileRecordingArgs) -> Result<(), IpcError> {
+    blocking(move || {
+        let path = document_path(&app, args.doc)?;
+        app.state::<RecentFiles>()
+            .set_recorded(&path, args.record)
+            .map_err(|_| IpcError {
+                code: ErrorCode::Internal,
+                message: "no randomness for the list of files not to record".to_owned(),
+            })
+    })
+    .await
+}
+
+fn document_path(app: &AppHandle, doc: DocumentId) -> Result<PathBuf, IpcError> {
+    app.state::<Documents>()
+        .document_path(doc)
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        })
+}
+
+fn unknown_recent_file() -> IpcError {
+    IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: "no such recent file".to_owned(),
+    }
+}
+
+/// The list as the frontend may see it: file names only, at most `MAX_RECENT_FILES`.
+fn checked(list: Vec<RecentFile>) -> Result<Vec<RecentFile>, IpcError> {
+    list.validate().map_err(|error| IpcError {
+        code: ErrorCode::Internal,
+        message: format!("invalid recent files list: {error}"),
+    })?;
+    Ok(list)
 }
 
 /// Opens the page of Windows Settings where PDF Reader can be made the default PDF app
@@ -254,19 +345,31 @@ pub fn open_paths(app: &AppHandle, paths: Vec<PathBuf>) {
     if paths.is_empty() {
         return;
     }
-    let events = app.state::<OpenEvents>();
     let tabs = app
         .state::<Documents>()
-        .add(&paths, &|event| events.send(event));
+        .add(&paths, &|event| report(app, event));
     for tab in tabs {
         let app = app.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            let events = app.state::<OpenEvents>();
             app.state::<Documents>()
-                .load(tab, &|event| events.send(event));
+                .load(tab, &|event| report(&app, event));
             after_tabs_changed(&app);
         });
     }
+}
+
+/// Sends an open outcome to the frontend. A file that opened goes first on the recent files
+/// list (#73), unless the user asked not to record it.
+fn report(app: &AppHandle, event: OpenEvent) {
+    if let OpenEvent::Opened { tab, .. } = &event
+        && let (Some(path), Some(recent)) = (
+            app.state::<Documents>().tab_path(*tab),
+            app.try_state::<RecentFiles>(),
+        )
+    {
+        recent.record(&path);
+    }
+    app.state::<OpenEvents>().send(event);
 }
 
 /// Puts the file name of the tab the window shows in the window title (REL-03, MVP-14). The name

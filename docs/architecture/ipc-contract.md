@@ -40,7 +40,7 @@ flowchart LR
 | 命令 | 參數 | 回傳 | 可取消 | 實作卡 |
 |---|---|---|---|---|
 | `subscribe_open_events` | `{ onEvent: Channel<OpenEvent> }` | 無（事件走頻道，見下節） | 否 | MVP-06 |
-| `open_document_dialog` | 無 | `boolean`：`false` 表示使用者取消（或已有對話框開著）；可以選多個檔案，每個一個分頁，結果走開檔頻道 | 否 | MVP-06、14 |
+| `open_document_dialog` | 無 | `boolean`：`false` 表示使用者取消（或已有對話框開著）；可以選多個檔案，每個一個分頁，結果走開檔頻道。選的檔案不會加進 Windows 的「最近使用的項目」 | 否 | MVP-06、14、#86 |
 | `retry_open` | `{ tab: TabId }` | 無（在同一個分頁重新開啟開檔失敗的檔案，結果走開檔頻道） | 否 | MVP-06、14 |
 | `unlock_tab` | `{ args: UnlockArgs }`：`tab` 與 `password` | 無；以密碼在新的 worker 開啟這個分頁的加密檔案，結果走開檔頻道（見 [encryption.md](encryption.md)） | 否 | MVP-16 |
 | `close_tab` | `{ tab: TabId }` | 無；分頁的 worker 結束，主行程忘記它的路徑 | 否 | MVP-14 |
@@ -55,6 +55,12 @@ flowchart LR
 | `open_outline_link` | `{ args: OutlineLinkArgs }` | 無；主行程從 worker 重新取得目錄、再次檢查後交給系統 | 否 | #49 |
 | `search` | `{ args: SearchArgs, onEvent: Channel<SearchEvent> }` | 無（結果走頻道：`hits`、`progress`，最後一個 `done`，含 `noTextLayer`）；以 `cancel(args.request)` 取消 | 是 | MVP-10 |
 | `cancel` | `{ request: RequestId }` | 無（只取消還在佇列中的請求，見 [rendering.md](rendering.md#取消)） | — | MVP-07 |
+| `get_recent_files` | 無 | `RecentFile[]`：`id` 與 `displayName`，最新的在前，最多 `LIMITS.maxRecentFiles`（20）筆；路徑留在主行程（見 [recent-files.md](recent-files.md)） | 否 | #73 |
+| `open_recent_file` | `{ id: RecentId }` | 無；主行程以新分頁開啟，結果走開檔頻道。檔案已經不在時從清單移除並回傳 `unreadable` | 否 | #73 |
+| `remove_recent_file` | `{ id: RecentId }` | `RecentFile[]`：移除後的清單 | 否 | #73 |
+| `clear_recent_files` | 無 | 無；「不記錄此檔案」的選擇保留 | 否 | #73 |
+| `get_file_recording` | `{ doc: DocumentId }` | `boolean`：這份文件的檔案可不可以記錄（「不記錄此檔案」沒有勾選） | 否 | #73 |
+| `set_file_recording` | `{ args: FileRecordingArgs }`（`{ doc, record }`，其他欄位一律拒絕） | 無；不記錄時從清單移除並記下加鹽的雜湊值 | 否 | #73 |
 
 ### 開檔頻道（主行程 → 前端）
 
@@ -78,7 +84,7 @@ flowchart LR
 
 ### 權限
 
-`src-tauri/build.rs` 以 app manifest 宣告上述命令，因此每個命令都要在 `src-tauri/capabilities/main.json` 明確允許（`allow-subscribe-open-events` 等）。沒有授予任何 `core:*`、dialog、fs 權限；原生開檔對話框由 Rust 端的 `rfd` 顯示，前端無法指定路徑，也拿不到路徑。
+`src-tauri/build.rs` 以 app manifest 宣告上述命令，因此每個命令都要在 `src-tauri/capabilities/main.json` 明確允許（`allow-subscribe-open-events` 等）。沒有授予任何 `core:*`、dialog、fs 權限；開啟對話框由主行程顯示，前端無法指定路徑，也拿不到路徑（見下方「開啟對話框」）。
 
 規則：
 
@@ -87,6 +93,21 @@ flowchart LR
 - 主行程收到命令後先以 `validate` 模組檢查參數（縮放範圍、查詢長度、頁碼是否在範圍內），不合格回傳 `invalidArgument`。
 - `DocumentInfo.displayName` 只能是檔名；`validate` 會拒絕含有 `/`、`\`、`:` 的值。
 - `DocumentInfo.permissions`（MVP-19）：文件作者是否允許複製文字、列印、高品質列印，由 worker 從加密字典讀取；未加密的文件全部為 `true`。見 [encryption.md](encryption.md)「權限」。
+
+### 開啟對話框（MVP-06、#86）
+
+`src-tauri/src/open_dialog.rs` 直接使用 Windows 的 `IFileOpenDialog`（原本由 `rfd` 顯示同一個對話框）：
+
+- **不加入「最近使用的項目」**：加上 `FOS_DONTADDTORECENT`。沒有這個選項時，Windows 會把選到的檔案加進檔案總管的「最近」與工作列的跳躍清單，在 app 之外留下開過哪些檔案的紀錄；`rfd` 無法設定這個選項（#86）。
+- 其餘沿用系統的預設選項（不改變行程的工作資料夾、只能選已存在的檔案），另外加上可以多選、只接受檔案系統中的檔案。
+- 對話框在自己的執行緒上執行（單執行緒 COM），擁有者是 app 的視窗，在使用者完成前 app 的視窗不能操作，與 `rfd` 相同。
+- 不在控制範圍內：
+  - 在檔案總管中按兩下開啟 PDF 時，是檔案總管自己記錄；
+  - 對話框本身會記得上次開啟的資料夾（Windows 以 app 的執行檔名稱保存），方便下次開啟。
+- `rfd` 仍用來顯示缺少 WebView2 時的訊息框。
+- 測試：
+  - Rust 單元測試建立真正的對話框物件，讀回它的選項確認 `FOS_DONTADDTORECENT` 已設定，系統的預設選項也還在；
+  - E2E（`tests/e2e/open.spec.ts`）以 `open-dialog.ps1` 透過 UI Automation 找到對話框：先取消（沒有分頁），再輸入語料的路徑並按「開啟」（開啟分頁並渲染第一頁）。
 
 ### 目錄與 PDF 提供的文字（MVP-09）
 
