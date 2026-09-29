@@ -1,5 +1,5 @@
 ---
-title: "[B2-10] ADR 0014：OCR（含 POC）"
+title: "[B2-10] ADR 0015：OCR（含 POC）"
 labels: task,batch-2,area:worker,area:security,agent:core,needs-security-review
 ---
 
@@ -11,7 +11,7 @@ labels: task,batch-2,area:worker,area:security,agent:core,needs-security-review
 掃描件（沒有文字層）目前不能搜尋也不能選取。定案 OCR 的整合方式，並以 POC 證明可以在離線、沙盒中辨識語料的掃描頁。
 
 ## 範圍
-ADR 0014（提議中）比較並建議：
+ADR 0015（提議中）比較並建議：
 
 1. **引擎**：
    - Tesseract（規格指定；Apache-2.0；C++，需要建置或隨附執行檔；語言包每種約 10–50 MB）；
@@ -31,11 +31,11 @@ POC：在測試中辨識 `benign/image-only.pdf`（或新增的掃描樣本）�
 - 不連網下載任何模型。
 
 ## 可動的模組
-- `docs/adr/0014-*.md`、`docs/adr/README.md`
+- `docs/adr/0015-*.md`、`docs/adr/README.md`
 - POC：`crates/pdf_worker/tests/` 或獨立的 POC crate；`tests/corpus/`（必要時新增掃描樣本）
 
 ## 驗收情境
-- ADR 0014 為「提議中」，每個決定點都有選項、建議與理由，包含對安裝檔大小與授權的影響。
+- ADR 0015 為「提議中」，每個決定點都有選項、建議與理由，包含對安裝檔大小與授權的影響。
 - POC 在 CI 上辨識出預期的文字，而且在沙盒限制下執行（AppContainer、無網路）。
 
 ## 必跑測試

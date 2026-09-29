@@ -1,5 +1,5 @@
 ---
-title: "[B2-11] ADR 0015：數位簽章驗證（唯讀，含 POC）"
+title: "[B2-11] ADR 0014：數位簽章驗證（唯讀，含 POC）"
 labels: task,batch-2,area:worker,area:security,agent:core,needs-security-review
 ---
 
@@ -11,7 +11,7 @@ labels: task,batch-2,area:worker,area:security,agent:core,needs-security-review
 開啟已簽章的文件時，告訴使用者簽章是否有效：文件在簽章後有沒有被修改、簽署者是誰、憑證是否受信任。驗證完全離線。
 
 ## 範圍
-ADR 0015（提議中）比較並建議：
+ADR 0014（提議中）比較並建議：
 
 1. **在哪裡解析**：簽章字典與 CMS 資料來自不受信任的 PDF，解析必須在 worker（沙盒）中進行。
 2. **密碼學實作**：
@@ -31,11 +31,11 @@ POC（測試中）：
 - UI（ADR 接受後另開卡）。
 
 ## 可動的模組
-- `docs/adr/0015-*.md`、`docs/adr/README.md`
+- `docs/adr/0014-*.md`、`docs/adr/README.md`
 - POC：`crates/pdf_worker/tests/` 或獨立的 POC crate；`tests/corpus/`（被竄改的簽章樣本由腳本產生）
 
 ## 驗收情境
-- ADR 0015 為「提議中」，每個決定點都有選項、建議與理由。
+- ADR 0014 為「提議中」，每個決定點都有選項、建議與理由。
 - POC 在 CI 上：兩個簽章樣本驗證為有效（自簽）；竄改後的樣本被偵測出來。
 
 ## 必跑測試

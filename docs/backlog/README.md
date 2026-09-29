@@ -121,8 +121,8 @@ flowchart LR
 | [B2-07](batch-2/B2-07-highlights-and-notes.md) | #96 | 註解：螢光筆與文字附註 | 前端＋核心 | B2-02 |
 | [B2-08](batch-2/B2-08-ink-and-stamps.md) | #97 | 註解：手繪線條與印章 | 前端＋核心 | B2-07 |
 | [B2-09](batch-2/B2-09-form-filling.md) | #98 | 表單填寫與扁平化（不含腳本） | 前端＋核心 | B2-02 |
-| [B2-10](batch-2/B2-10-ocr-architecture.md) | #99 | ADR 0014：OCR（含 POC） | 核心 | — |
-| [B2-11](batch-2/B2-11-signature-verification.md) | #100 | ADR 0015：數位簽章驗證（唯讀，含 POC） | 核心 | — |
+| [B2-10](batch-2/B2-10-ocr-architecture.md) | #99 | ADR 0015：OCR（含 POC） | 核心 | — |
+| [B2-11](batch-2/B2-11-signature-verification.md) | #100 | ADR 0014：數位簽章驗證（唯讀，含 POC） | 核心 | — |
 | [B2-12](batch-2/B2-12-settings.md) | #101 | 設定頁與設定儲存 | 前端＋核心 | — |
 | [B2-13](batch-2/B2-13-crash-recovery.md) | #102 | 本地崩潰復原 | 核心＋前端 | B2-02、B2-05 |
 
@@ -151,6 +151,7 @@ flowchart LR
 | 4 | B2-06、B2-08、B2-13 |
 
 - 每張 ADR 卡（B2-01、B2-10、B2-11）只產出「提議中」的 ADR 與 POC；接受由負責人決定，之後的實作卡依 ADR 另開。
+- ADR 編號依完成順序：0013 編輯與存檔（#106）、0014 簽章驗證（#107）、0015 OCR。
 - 所有會寫檔或新增命令的卡都需要 `needs-security-review`。
 
 ## 第三批候選
