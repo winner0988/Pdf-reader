@@ -33,3 +33,29 @@ test("fit width stays put when the vertical scroll bar would come and go (#46)",
   }
   expect([...widths]).toHaveLength(1);
 });
+
+test("fitted pages leave no horizontal scroll bar at 150% display scaling (#83)", async ({ launch }) => {
+  // At 150% the vertical scroll bar is 23 device pixels, 15⅓ CSS pixels: the canvas is a third
+  // of a pixel narrower than its clientWidth, which is rounded.
+  const page = await launch(corpus("benign/single-page.pdf"), { deviceScaleFactor: 1.5 });
+  await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
+  expect(await page.evaluate(() => devicePixelRatio)).toBe(1.5);
+  const canvas = page.getByRole("main", { name: strings.canvas.label });
+  // A horizontal scroll bar takes its height from the canvas.
+  const scrollBarHeight = () => canvas.evaluate((element) => (element as HTMLElement).offsetHeight - element.clientHeight);
+
+  for (const [key, zoom] of [
+    ["Control+2", strings.toolbar.fitWidth],
+    ["Control+0", strings.toolbar.fitPage],
+  ] as const) {
+    await page.keyboard.press(key);
+    await expect(page.getByRole("contentinfo")).toContainText(zoom);
+    await expect.poll(scrollBarHeight).toBe(0);
+    await canvas.evaluate((element) => element.scrollTo({ left: 10 }));
+    expect(await canvas.evaluate((element) => element.scrollLeft)).toBe(0);
+  }
+
+  // Wider than the canvas, the page does scroll sideways.
+  await page.getByRole("combobox", { name: strings.toolbar.zoomLevel }).selectOption("400");
+  await expect.poll(scrollBarHeight).toBeGreaterThan(0);
+});
