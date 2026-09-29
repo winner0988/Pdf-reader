@@ -25,6 +25,12 @@ rfd = { version = "0.17.2", default-features = false }
 tokio = { version = "1", default-features = false, features = ["sync"] }
 # Already used by Tauri: parses web links the way browsers do before one is opened (MVP-12).
 url = "2"
+# The recent files list (#73): its file in the app's data folder, and the salted hashes of the
+# files not to record. All four are already used by Tauri or the contract crate.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+getrandom = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 # The system's open dialog, with an option rfd cannot set (#86, src/open_dialog.rs). Already
@@ -42,8 +48,6 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
-[dev-dependencies]
-serde_json = "1"
 
 [lints]
 workspace = true

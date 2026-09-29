@@ -12,8 +12,8 @@ use crate::limits::*;
 use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text};
 use crate::types::{
     DocumentInfo, FindingKind, IpcError, LinkTarget, OpenEvent, OutlineItem, OutlineResult,
-    PageLink, PageSize, PageText, Point, Quad, Rect, RenderPageArgs, SearchArgs, SearchHit,
-    SecurityReport, TextLine, UnlockArgs,
+    PageLink, PageSize, PageText, Point, Quad, RecentFile, Rect, RenderPageArgs, SearchArgs,
+    SearchHit, SecurityReport, TextLine, UnlockArgs,
 };
 use crate::worker::{OpenedDocument, Raster, WorkerError, WorkerResponse};
 
@@ -451,6 +451,20 @@ fn check_display_name(name: &str) -> Result<(), ValidationError> {
     Ok(())
 }
 
+impl Validate for RecentFile {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_display_name(&self.display_name)
+    }
+}
+
+/// The recent files list the frontend gets (#73).
+impl Validate for [RecentFile] {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_count("recent files", self.len(), MAX_RECENT_FILES)?;
+        self.iter().try_for_each(RecentFile::validate)
+    }
+}
+
 impl Validate for DocumentInfo {
     fn validate(&self) -> Result<(), ValidationError> {
         check_display_name(&self.display_name)?;
@@ -489,8 +503,8 @@ impl Validate for OpenEvent {
 mod tests {
     use super::*;
     use crate::types::{
-        BlockedAction, DocumentId, DocumentPermissions, ErrorCode, LinkId, RequestId, Rotation,
-        SecurityFinding, TabId,
+        BlockedAction, DocumentId, DocumentPermissions, ErrorCode, LinkId, RecentId, RequestId,
+        Rotation, SecurityFinding, TabId,
     };
     use crate::worker::WorkerErrorCode;
 
@@ -866,6 +880,25 @@ mod tests {
                 .validate()
                 .is_err()
         );
+    }
+
+    #[test]
+    fn recent_files_show_names_only_and_are_bounded() {
+        let file = |id: u32, display_name: &str| RecentFile {
+            id: RecentId(id),
+            display_name: display_name.to_owned(),
+        };
+        assert!([file(1, "報告.pdf")].validate().is_ok());
+        assert!([file(1, r"C:\Users\someone\報告.pdf")].validate().is_err());
+        let many: Vec<RecentFile> = (0..=MAX_RECENT_FILES).map(|id| file(id, "a.pdf")).collect();
+        assert!(matches!(
+            many.validate(),
+            Err(ValidationError::TooMany {
+                what: "recent files",
+                ..
+            })
+        ));
+        assert!(many[..MAX_RECENT_FILES as usize].validate().is_ok());
     }
 
     #[test]

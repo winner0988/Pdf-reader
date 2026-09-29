@@ -21,16 +21,17 @@
      - `options.deviceScaleFactor` 另外加上 `--force-device-scale-factor`，像 Windows 的顯示比例（例如 150%）一樣縮放，與這台電腦的設定無關。
      - CDP 的模擬（`Emulation.setDeviceMetricsOverride`）做不到：它讓捲軸保持整數的 CSS 像素，重現不了 #83。
    - `WEBVIEW2_USER_DATA_FOLDER=<新的暫存資料夾>`：每個測試有自己的 WebView2 瀏覽器行程與設定，不會連到前一個測試留下的行程，也不碰使用者的資料。
+   - `PDF_READER_DATA_DIR=<另一個新的暫存資料夾>`：app 自己的資料（最近開啟的檔案，#73）也寫到這裡，不會寫進使用者的清單。這是 app 讀的環境變數（不是 WebView2 的），在 CI 以系統管理員執行時也有效。測試以 `dataDir(page)` 取得這個資料夾。
 2. **開檔**：要開的檔案以命令列參數傳入（與使用者從檔案總管開啟相同的路徑，MVP-06）。只使用 `tests/corpus/` 的檔案。
 3. **連線**：等偵錯埠回應後，以 `chromium.connectOverCDP` 連上，取得 app 視窗的頁面。
-4. **結束**：中斷連線，以 `taskkill /T` 結束 app 與它的 worker、WebView2 行程，刪除暫存設定。
+4. **結束**：中斷連線，以 `taskkill /T` 結束 app 與它的 worker、WebView2 行程，刪除暫存設定與資料資料夾。
 5. **失敗時**：保存截圖（`screenshot-N.png`）與 app 的日誌（stdout／stderr 與 WebView 主控台，`app-N.log`）到 `tests/e2e/test-results/`，也附在 HTML 報告中。
    - WebView 根本沒有啟動時沒有頁面可截：
      - 在 CI 上改截 runner 的整個桌面，看得到 app 可能在等待的對話框；
      - 在開發者電腦上不截，因為那會截到你自己的螢幕。
    - 日誌另外附上 app 的行程樹與各行程的命令列。
 
-app 本身完全沒有為測試做任何修改：沒有測試專用的建置選項，也沒有開放遠端偵錯。遠端偵錯只在測試程式設定環境變數（或 CI 上的機器原則，見下）時才會開啟。
+app 本身完全沒有為測試做任何修改：沒有測試專用的建置選項，也沒有開放遠端偵錯。遠端偵錯只在測試程式設定環境變數（或 CI 上的機器原則，見下）時才會開啟。`PDF_READER_DATA_DIR` 是一般的設定（見 [recent-files.md](recent-files.md)），不是測試專用。
 
 ### CI 上的機器原則
 

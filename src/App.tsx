@@ -5,6 +5,7 @@ import { OpenNotice } from "@/features/open/OpenNotice";
 import { tauriLinksApi, type LinksApi } from "@/features/links/source";
 import { tauriSearchApi, type SearchApi } from "@/features/search/useSearch";
 import { tauriOutlineApi, useOutline, type OutlineApi } from "@/features/outline/useOutline";
+import { tauriRecentApi, type RecentApi } from "@/features/recent/api";
 import { DevDemoSwitcher } from "@/features/shell/DevDemoSwitcher";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
@@ -25,6 +26,7 @@ type AppProps = {
   linksApi?: LinksApi;
   textApi?: TextApi;
   systemApi?: SystemApi;
+  recentApi?: RecentApi;
 };
 
 export default function App({
@@ -35,6 +37,7 @@ export default function App({
   linksApi = tauriLinksApi,
   textApi = tauriTextApi,
   systemApi = tauriSystemApi,
+  recentApi = tauriRecentApi,
 }: AppProps) {
   const tabs = useTabs(api);
   const { state } = tabs;
@@ -70,6 +73,7 @@ export default function App({
             dropActive={state.dragActive}
             renderer={renderer}
             systemApi={systemApi}
+            recentApi={demo ? undefined : recentApi}
             onOpen={open}
             onClose={() => setDemo(null)}
           />
@@ -86,6 +90,7 @@ export default function App({
               linksApi={linksApi}
               textApi={textApi}
               systemApi={systemApi}
+              recentApi={recentApi}
               onOpen={open}
               onClose={tabs.close}
               onRetry={tabs.retry}
@@ -110,6 +115,7 @@ type TabPaneProps = {
   linksApi: LinksApi;
   textApi: TextApi;
   systemApi: SystemApi;
+  recentApi: RecentApi;
   onOpen: () => void;
   onClose: (tab: TabId) => void;
   onRetry: (tab: TabId) => void;

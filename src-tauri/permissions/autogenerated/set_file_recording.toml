@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-file-recording"
+description = "Enables the set_file_recording command without any pre-configured scope."
+commands.allow = ["set_file_recording"]
+
+[[permission]]
+identifier = "deny-set-file-recording"
+description = "Denies the set_file_recording command without any pre-configured scope."
+commands.deny = ["set_file_recording"]
