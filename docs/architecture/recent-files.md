@@ -54,7 +54,7 @@
 ## Windows 的「最近使用的項目」
 
 - app 自己不呼叫 `SHAddToRecentDocs`。
-- 開啟對話框設定了 `FOS_DONTADDTORECENT`（[#86](https://github.com/winner0988/Pdf-reader/issues/86)，見 [ipc-contract.md](ipc-contract.md)「開啟對話框」），在對話框中選的檔案也不會加進去。
+- 開啟與匯出（B2-04）的檔案對話框都設定了 `FOS_DONTADDTORECENT`（[#86](https://github.com/winner0988/Pdf-reader/issues/86)，見 [ipc-contract.md](ipc-contract.md)「檔案對話框」），在對話框中選的檔案也不會加進去。
 - 不在 app 控制範圍內：在檔案總管中按兩下開啟 PDF 時，是檔案總管自己記錄。使用者可以在 Windows 設定中關閉「在開始、跳躍清單與檔案總管中顯示最近開啟的項目」。
 
 ## 驗證

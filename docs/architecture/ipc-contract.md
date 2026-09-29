@@ -88,7 +88,7 @@ flowchart LR
 
 ### 權限
 
-`src-tauri/build.rs` 以 app manifest 宣告上述命令，因此每個命令都要在 `src-tauri/capabilities/main.json` 明確允許（`allow-subscribe-open-events` 等）。沒有授予任何 `core:*`、dialog、fs 權限；開啟對話框由主行程顯示，前端無法指定路徑，也拿不到路徑（見下方「開啟對話框」）。
+`src-tauri/build.rs` 以 app manifest 宣告上述命令，因此每個命令都要在 `src-tauri/capabilities/main.json` 明確允許（`allow-subscribe-open-events` 等）。沒有授予任何 `core:*`、dialog、fs 權限；檔案對話框（開啟、匯出）由主行程顯示，前端無法指定路徑，也拿不到路徑（見下方「檔案對話框」）。
 
 規則：
 
