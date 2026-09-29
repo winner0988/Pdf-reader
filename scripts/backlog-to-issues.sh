@@ -21,6 +21,7 @@ labels=(
   "bug|d73a4a|缺陷"
   "decision|5319e7|需要負責人拍板，結果寫成 ADR"
   "mvp|0e8a16|MVP 範圍"
+  "batch-2|0e8a16|第二批工作卡（MVP 之後）"
   "ux|c5def5|畫面與互動設計"
   "qa|fbca04|測試與品質"
   "security|b60205|安全相關"
