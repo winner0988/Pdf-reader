@@ -108,23 +108,23 @@ flowchart LR
 
 方向：從閱讀器走向編輯器。先定案**編輯與存檔**的共同做法（B2-01、B2-02），其他編輯功能都建立在上面；OCR 與簽章依本頁原本的規定先做 POC 與 ADR。
 
-| 卡片 | 標題 | 角色 | 相依 |
-|---|---|---|---|
-| [DEC-03](batch-2/DEC-03-accept-pending-adrs.md) | 定案提議中的 ADR 0009–0012 | 負責人 | — |
-| [DEC-04](batch-2/DEC-04-installer-code-signing.md) | 決定安裝檔與執行檔的程式碼簽章 | 負責人 | DEC-03 |
-| [B2-01](batch-2/B2-01-edit-and-save-architecture.md) | ADR 0013：編輯與存檔架構（含 POC） | 核心 | — |
-| [B2-02](batch-2/B2-02-save-and-save-as.md) | 儲存與另存新檔 | 核心＋前端 | B2-01 |
-| [B2-03](batch-2/B2-03-privacy-export.md) | 隱私匯出：清除中繼資料後另存 | 核心＋前端 | B2-02 |
-| [B2-04](batch-2/B2-04-export-text-and-images.md) | 匯出純文字與頁面圖片 | 核心＋前端 | — |
-| [B2-05](batch-2/B2-05-page-management.md) | 頁面管理：旋轉、刪除、排序、插入空白頁 | 前端＋核心 | B2-02 |
-| [B2-06](batch-2/B2-06-merge-and-split.md) | 合併與拆分 PDF | 核心＋前端 | B2-05 |
-| [B2-07](batch-2/B2-07-highlights-and-notes.md) | 註解：螢光筆與文字附註 | 前端＋核心 | B2-02 |
-| [B2-08](batch-2/B2-08-ink-and-stamps.md) | 註解：手繪線條與印章 | 前端＋核心 | B2-07 |
-| [B2-09](batch-2/B2-09-form-filling.md) | 表單填寫與扁平化（不含腳本） | 前端＋核心 | B2-02 |
-| [B2-10](batch-2/B2-10-ocr-architecture.md) | ADR 0014：OCR（含 POC） | 核心 | — |
-| [B2-11](batch-2/B2-11-signature-verification.md) | ADR 0015：數位簽章驗證（唯讀，含 POC） | 核心 | — |
-| [B2-12](batch-2/B2-12-settings.md) | 設定頁與設定儲存 | 前端＋核心 | — |
-| [B2-13](batch-2/B2-13-crash-recovery.md) | 本地崩潰復原 | 核心＋前端 | B2-02、B2-05 |
+| 卡片 | Issue | 標題 | 角色 | 相依 |
+|---|---|---|---|---|
+| [DEC-03](batch-2/DEC-03-accept-pending-adrs.md) | #103 | 定案提議中的 ADR 0009–0012 | 負責人 | — |
+| [DEC-04](batch-2/DEC-04-installer-code-signing.md) | #104 | 決定安裝檔與執行檔的程式碼簽章 | 負責人 | DEC-03 |
+| [B2-01](batch-2/B2-01-edit-and-save-architecture.md) | #90 | ADR 0013：編輯與存檔架構（含 POC） | 核心 | — |
+| [B2-02](batch-2/B2-02-save-and-save-as.md) | #91 | 儲存與另存新檔 | 核心＋前端 | B2-01 |
+| [B2-03](batch-2/B2-03-privacy-export.md) | #92 | 隱私匯出：清除中繼資料後另存 | 核心＋前端 | B2-02 |
+| [B2-04](batch-2/B2-04-export-text-and-images.md) | #93 | 匯出純文字與頁面圖片 | 核心＋前端 | — |
+| [B2-05](batch-2/B2-05-page-management.md) | #94 | 頁面管理：旋轉、刪除、排序、插入空白頁 | 前端＋核心 | B2-02 |
+| [B2-06](batch-2/B2-06-merge-and-split.md) | #95 | 合併與拆分 PDF | 核心＋前端 | B2-05 |
+| [B2-07](batch-2/B2-07-highlights-and-notes.md) | #96 | 註解：螢光筆與文字附註 | 前端＋核心 | B2-02 |
+| [B2-08](batch-2/B2-08-ink-and-stamps.md) | #97 | 註解：手繪線條與印章 | 前端＋核心 | B2-07 |
+| [B2-09](batch-2/B2-09-form-filling.md) | #98 | 表單填寫與扁平化（不含腳本） | 前端＋核心 | B2-02 |
+| [B2-10](batch-2/B2-10-ocr-architecture.md) | #99 | ADR 0014：OCR（含 POC） | 核心 | — |
+| [B2-11](batch-2/B2-11-signature-verification.md) | #100 | ADR 0015：數位簽章驗證（唯讀，含 POC） | 核心 | — |
+| [B2-12](batch-2/B2-12-settings.md) | #101 | 設定頁與設定儲存 | 前端＋核心 | — |
+| [B2-13](batch-2/B2-13-crash-recovery.md) | #102 | 本地崩潰復原 | 核心＋前端 | B2-02、B2-05 |
 
 ```mermaid
 flowchart LR
