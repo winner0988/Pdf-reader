@@ -54,7 +54,8 @@ app 本身完全沒有為測試做任何修改：沒有測試專用的建置選�
 | 以命令列開啟 `benign/multi-page-10.pdf` | 狀態列顯示檔名與「第 1 / 10 頁」；第 1 頁已由 worker 渲染（`data-state="ready"`）；沒有安全警示橫幅 |
 | 開啟 `malformed/page-tree-cycle.pdf` | 錯誤狀態：「這個 PDF 檔案已損毀，無法開啟。」與「開啟其他檔案」 |
 | 開啟 `malformed/not-a-pdf.pdf` | 錯誤狀態：「這不是 PDF 檔案。」 |
-| 以開啟對話框開啟（#86） | `Ctrl+O` 後取消：沒有分頁；再按「選擇檔案…」，輸入 `benign/single-page.pdf` 並開啟：分頁出現、第 1 頁已渲染。對話框是系統的，由 `open-dialog.ps1` 以 UI Automation 找到後回答 |
+| 以開啟對話框開啟（#86） | `Ctrl+O` 後取消：沒有分頁；再按「選擇檔案…」，輸入 `benign/single-page.pdf` 並開啟：分頁出現、第 1 頁已渲染。對話框是系統的，由 `answerFileDialog`（`file-dialog.ps1`）以 UI Automation 找到後回答 |
+| 匯出（B2-04，`export.spec.ts`） | 純文字寫到另存的檔案；兩頁 PNG 寫到選的資料夾（簽名、72 dpi 的寬度）；取消另存時什麼都不寫 |
 
 之後每張功能卡都可以在 `tests/e2e/` 加上自己的驗收情境。預期文字一律從 `src/i18n/zh-TW.ts` 取得，不要寫死。
 

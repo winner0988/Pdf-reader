@@ -1,22 +1,7 @@
 // First end-to-end tests (QA-02): starting, opening from the command line and with the open
 // dialog, damaged files.
-import { execFile } from "node:child_process";
-import path from "node:path";
-import { promisify } from "node:util";
-
 import { strings } from "../../src/i18n/zh-TW";
-import { appProcessId, corpus, expect, test } from "./app";
-
-/** Answers the app's open dialog (the system's own) through UI Automation: open-dialog.ps1. */
-async function answerOpenDialog(processId: number, answer: { path: string } | "cancel") {
-  const script = path.join(import.meta.dirname, "open-dialog.ps1");
-  const args = answer === "cancel" ? ["-Cancel"] : ["-Path", answer.path];
-  await promisify(execFile)(
-    "powershell",
-    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-ProcessId", String(processId), ...args],
-    { timeout: 60_000 },
-  );
-}
+import { answerFileDialog, corpus, expect, test } from "./app";
 
 test("starts with the empty state", async ({ launch }) => {
   const page = await launch();
@@ -55,10 +40,8 @@ test("a file that is not a PDF says so", async ({ launch }) => {
 test("the open dialog opens the picked file in a tab, and can be cancelled (#86)", async ({ launch }) => {
   const page = await launch();
   await expect(page.getByRole("heading", { name: strings.empty.title })).toBeVisible();
-  const app = appProcessId(page);
-
   await page.keyboard.press("Control+o");
-  await answerOpenDialog(app, "cancel");
+  await answerFileDialog(page, "cancel");
   // Cancelled: no tab, and the start screen is still there.
   await page.waitForTimeout(500);
   await expect(page.getByRole("tab")).toHaveCount(0);
@@ -66,7 +49,7 @@ test("the open dialog opens the picked file in a tab, and can be cancelled (#86)
 
   // The dialog can be shown again once closed.
   await page.getByRole("button", { name: strings.empty.openButton }).click();
-  await answerOpenDialog(app, { path: corpus("benign/single-page.pdf") });
+  await answerFileDialog(page, { path: corpus("benign/single-page.pdf") });
   await expect(page.getByRole("tab", { name: /single-page\.pdf/ })).toBeVisible();
   await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
 });

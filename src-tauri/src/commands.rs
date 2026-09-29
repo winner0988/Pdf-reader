@@ -6,9 +6,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use ipc_contract::types::{
-    DocumentId, ErrorCode, FileRecordingArgs, IpcError, LinkArgs, LinkPreview, OpenEvent,
-    OutlineLinkArgs, OutlineResult, PageLink, PageText, RecentFile, RecentId, RenderPageArgs,
-    RequestId, SearchArgs, SearchEvent, TabId, UnlockArgs,
+    DocumentId, ErrorCode, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs, IpcError,
+    LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs, OutlineResult, PageLink, PageText,
+    RecentFile, RecentId, RenderPageArgs, RequestId, SearchArgs, SearchEvent, TabId, UnlockArgs,
 };
 use ipc_contract::validate::Validate;
 use tauri::ipc::{Channel, Response};
@@ -16,6 +16,8 @@ use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEven
 
 use crate::documents::Documents;
 use crate::events::OpenEvents;
+use crate::export::{self, Exports};
+use crate::file_dialog;
 use crate::recent::RecentFiles;
 use crate::render::Renderer;
 use crate::search::{self, Searches};
@@ -57,7 +59,7 @@ pub async fn open_document_dialog(app: AppHandle, window: WebviewWindow) -> Resu
     }
     let _showing = Showing;
 
-    let Some(files) = crate::open_dialog::pick_pdfs(&window).await? else {
+    let Some(files) = crate::file_dialog::pick_pdfs(&window).await? else {
         return Ok(false);
     };
     open_paths(&app, files);
@@ -313,11 +315,96 @@ pub async fn search(
     blocking(move || search::run(&app, args, on_event)).await
 }
 
-/// Cancels a queued `render_page` request (it then fails with `cancelled`) or a running search.
+/// Exports pages of an open document as text or PNG files (B2-04). The WebView says what to
+/// export; the main process asks where, in the system's dialogs, and writes the files. Returns
+/// false if the user cancelled a dialog; progress arrives on `on_event`; `cancel(args.request)`
+/// stops it.
+#[tauri::command]
+pub async fn export_pages(
+    app: AppHandle,
+    window: WebviewWindow,
+    args: ExportArgs,
+    on_event: Channel<ExportEvent>,
+) -> Result<bool, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let info = app
+        .state::<Documents>()
+        .document_info(args.doc)
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        })?;
+    // Exporting copies the content: the author's permission to copy covers it (MVP-19).
+    if !info.permissions.copy {
+        return Err(IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "the document's author does not allow copying its content".to_owned(),
+        });
+    }
+    let page_count = u32::try_from(info.pages.len()).unwrap_or(u32::MAX);
+    if args.pages.iter().any(|page| *page >= page_count) {
+        return Err(IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "no such page".to_owned(),
+        });
+    }
+    let stem = export::stem(&info.display_name);
+    let ExportArgs {
+        request,
+        doc,
+        pages,
+        format,
+    } = args;
+    match format {
+        ExportFormat::Text => {
+            let Some(file) = file_dialog::save_text_file(&window, format!("{stem}.txt")).await?
+            else {
+                return Ok(false);
+            };
+            blocking(move || export::write_text(&app, request, doc, &pages, &file, &on_event))
+                .await?;
+        }
+        ExportFormat::Png { dpi } => {
+            let Some(folder) = file_dialog::pick_folder(&window).await? else {
+                return Ok(false);
+            };
+            let targets = export::png_targets(&folder, &stem, &pages);
+            let existing = targets.iter().filter(|target| target.exists()).count();
+            if existing > 0 && !confirm_overwrite(&window, existing).await {
+                return Ok(false);
+            }
+            blocking(move || {
+                export::write_pngs(&app, request, doc, &pages, dpi, &targets, &on_event)
+            })
+            .await?;
+        }
+    }
+    Ok(true)
+}
+
+/// Asks, in a native message box, whether exported files may replace `count` existing ones.
+async fn confirm_overwrite(window: &WebviewWindow, count: usize) -> bool {
+    let answer = rfd::AsyncMessageDialog::new()
+        .set_level(rfd::MessageLevel::Warning)
+        .set_title(strings::OVERWRITE_TITLE)
+        .set_description(strings::overwrite_message(count))
+        .set_buttons(rfd::MessageButtons::YesNo)
+        .set_parent(window)
+        .show()
+        .await;
+    answer == rfd::MessageDialogResult::Yes
+}
+
+/// Cancels a queued `render_page` request (it then fails with `cancelled`), a running search or a
+/// running export.
 #[tauri::command]
 pub async fn cancel(app: AppHandle, request: RequestId) -> Result<(), IpcError> {
     app.state::<Renderer>().cancel(request);
     app.state::<Searches>().cancel(request);
+    app.state::<Exports>().cancel(request);
     Ok(())
 }
 

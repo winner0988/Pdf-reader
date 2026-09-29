@@ -7,7 +7,7 @@
 //! settings address is a constant. It runs on the main thread, where COM is initialised as the
 //! shell expects.
 
-// A Win32 call (the other ones are the open dialog's, in open_dialog.rs); see the SAFETY
+// A Win32 call (the other ones are the file dialogs', in file_dialog.rs); see the SAFETY
 // comment below.
 #![allow(unsafe_code)]
 

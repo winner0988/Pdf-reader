@@ -1,7 +1,8 @@
-# Answers the app's open dialog (#86, tests/e2e/open.spec.ts): the dialog is the system's own,
-# so the page cannot reach it. Finds the dialog of the given process with UI Automation, then
-# answers it the way the dialog's own keys do: the path goes into "File name" (WM_SETTEXT) and
-# the dialog gets IDOK (Open) or IDCANCEL (Cancel). Returns once the dialog has closed.
+# Answers one of the app's file dialogs (#86, B2-04): open, save, or choose a folder. They are the
+# system's own, so the page cannot reach them. Finds the dialog of the given process with UI
+# Automation, then answers it the way the dialog's own keys do: the path goes into the file name
+# box (WM_SETTEXT) and the dialog gets IDOK (Open, Save, Select Folder) or IDCANCEL (Cancel).
+# Returns once the dialog has closed.
 param(
     [Parameter(Mandatory = $true)][int]$ProcessId,
     [string]$Path,
@@ -42,27 +43,38 @@ while (-not $dialog -and (Get-Date) -lt $deadline) {
     }
     if (-not $dialog) { Start-Sleep -Milliseconds 200 }
 }
-if (-not $dialog) { throw "the open dialog did not appear" }
+if (-not $dialog) { throw "the file dialog did not appear" }
 $dialogWindow = [IntPtr]$dialog.Current.NativeWindowHandle
 
-# Standard ids of the common file dialog: IDOK (1) is Open, IDCANCEL (2) is Cancel, and the
-# file name box is the Edit control 1148.
+# Standard ids of the common file dialog: IDOK (1) is Open, Save or Select Folder, IDCANCEL (2)
+# is Cancel, and the file name box is the Edit control 1148 (1001 in some save dialogs, 1152 when
+# choosing a folder).
 $WM_SETTEXT = 0x000C
 $WM_COMMAND = 0x0111
 if ($Cancel) {
     $command = 2
 } else {
-    $isFileName = New-Object System.Windows.Automation.AndCondition(
-        (Property $Element::AutomationIdProperty "1148"), (Property $Element::ClassNameProperty "Edit"))
-    $fileName = $dialog.FindFirst($Scope::Descendants, $isFileName)
-    if (-not $fileName) { throw "the open dialog has no file name box" }
+    $isEdit = Property $Element::ClassNameProperty "Edit"
+    $fileName = $null
+    foreach ($id in @("1148", "1001", "1152")) {
+        $fileName = $dialog.FindFirst($Scope::Descendants,
+            (New-Object System.Windows.Automation.AndCondition((Property $Element::AutomationIdProperty $id), $isEdit)))
+        if ($fileName) { break }
+    }
+    if (-not $fileName) {
+        $edits = ($dialog.FindAll($Scope::Descendants, $isEdit) | ForEach-Object { $_.Current.AutomationId }) -join ", "
+        throw "the file dialog has no file name box (edits: $edits)"
+    }
     [void][OpenDialog.Native]::SendMessage([IntPtr]$fileName.Current.NativeWindowHandle, $WM_SETTEXT, [IntPtr]::Zero, $Path)
     $command = 1
 }
-[void][OpenDialog.Native]::PostMessage($dialogWindow, $WM_COMMAND, [IntPtr]$command, [IntPtr]::Zero)
-
-$deadline = (Get-Date).AddSeconds(20)
-while ([OpenDialog.Native]::IsWindow($dialogWindow)) {
-    if ((Get-Date) -gt $deadline) { throw "the open dialog did not close" }
-    Start-Sleep -Milliseconds 100
+# Choosing a folder, the first OK with a typed path only goes into that folder; the next one
+# selects the folder the dialog is then in. So OK is repeated while the dialog stays open.
+for ($attempt = 1; $attempt -le 3 -and [OpenDialog.Native]::IsWindow($dialogWindow); $attempt++) {
+    [void][OpenDialog.Native]::PostMessage($dialogWindow, $WM_COMMAND, [IntPtr]$command, [IntPtr]::Zero)
+    $deadline = (Get-Date).AddSeconds(5)
+    while ([OpenDialog.Native]::IsWindow($dialogWindow) -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 100
+    }
 }
+if ([OpenDialog.Native]::IsWindow($dialogWindow)) { throw "the file dialog did not close" }

@@ -64,6 +64,7 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-clear-recent-files", "#73: empty the recent files list"],
   ["allow-get-file-recording", "#73: whether an open document's file may be on the recent files list"],
   ["allow-set-file-recording", "#73: record an open document's file on the recent files list, or not"],
+  ["allow-export-pages", "B2-04: export pages as text or PNG; the main process asks where and writes the files"],
 ]);
 
 /** Plugin permission prefixes that are never granted to the frontend, allowlist or not. */

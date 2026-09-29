@@ -96,6 +96,22 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
                 },
             }),
+            WorkerRequest::RenderPng {
+                request,
+                doc,
+                page_index,
+                scale,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => match document.render_png(page_index, scale) {
+                    Ok(png) => WorkerResponse::Png { request, png },
+                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+                },
+            }),
             WorkerRequest::GetPageText {
                 request,
                 doc,

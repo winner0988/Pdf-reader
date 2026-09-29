@@ -47,6 +47,30 @@ displayName: string, };
 export type FileRecordingArgs = { doc: DocumentId, record: boolean, };
 
 /**
+ * What an export writes (B2-04).
+ */
+export type ExportFormat = { "kind": "text" } | { "kind": "png", dpi: number, };
+
+/**
+ * Arguments of `export_pages` (B2-04): what to export, never where; the main process asks the
+ * user. Any other field is rejected.
+ */
+export type ExportArgs = { 
+/**
+ * Stops the export with `cancel`.
+ */
+request: RequestId, doc: DocumentId, 
+/**
+ * Zero-based, in the order they are exported; at most `MAX_EXPORT_PAGES`, no repeats.
+ */
+pages: Array<number>, format: ExportFormat, };
+
+/**
+ * Progress of `export_pages` on its channel (B2-04).
+ */
+export type ExportEvent = { "kind": "progress", pagesDone: number, total: number, };
+
+/**
  * Caller-chosen id used to correlate and cancel a request.
  */
 export type RequestId = number;
@@ -271,6 +295,7 @@ export const LIMITS = {
   maxDisplayNameBytes: 1024,
   maxTabs: 20,
   maxRecentFiles: 20,
+  maxExportPages: 1000,
   protocolVersion: 0,
 } as const;
 

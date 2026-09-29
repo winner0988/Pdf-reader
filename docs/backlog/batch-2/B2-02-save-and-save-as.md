@@ -37,7 +37,7 @@ labels: task,batch-2,area:app,area:worker,area:ipc,area:ui,agent:core,agent:fron
 ## 必跑測試
 - Rust：原子取代、寫入失敗時原檔不變、handle 只能寫入暫存檔。
 - 前端：未儲存標示、關閉時的詢問。
-- E2E：另存新檔（以 UI Automation 回答系統對話框，比照 `tests/e2e/open-dialog.ps1`）後重新開啟。
+- E2E：另存新檔（以 UI Automation 回答系統對話框，比照 `tests/e2e/file-dialog.ps1`）後重新開啟。
 
 ## 資安限制
 - 前端永遠拿不到路徑；另存對話框只在主行程。
