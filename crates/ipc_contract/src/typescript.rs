@@ -47,6 +47,8 @@ pub fn bindings() -> String {
         UnlockArgs,
         RecentFile,
         FileRecordingArgs,
+        ThemePreference,
+        Settings,
         ExportFormat,
         ExportArgs,
         ExportEvent,

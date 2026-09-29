@@ -65,6 +65,9 @@ export function dataDir(page: Page): string {
 /** The app process behind each page. */
 const processes = new WeakMap<Page, number>();
 
+/** The app behind each page, for `quit`. */
+const apps = new WeakMap<Page, Running>();
+
 /** The id of the app process behind `page`, e.g. to find its windows with UI Automation. */
 export function appProcessId(page: Page): number {
   const id = processes.get(page);
@@ -158,6 +161,26 @@ function stop(running: Running) {
 }
 
 /**
+ * Ends the app behind `page` now, with its worker and WebView2 processes, as a crash or a power
+ * cut would: nothing is saved on the way out. A later `launch` can then start the app again with
+ * the same data folder (`dataDir`). Its folders are still deleted when the test ends.
+ */
+export async function quit(page: Page): Promise<void> {
+  const running = apps.get(page);
+  if (!running) throw new Error("not a page from launch()");
+  await running.browser?.close().catch(() => {});
+  const exited = new Promise((resolve) => running.child.once("exit", resolve));
+  try {
+    execFileSync("taskkill", ["/PID", String(running.child.pid), "/T", "/F"], { stdio: "ignore" });
+  } catch {
+    // Already gone.
+  }
+  // The single-instance lock goes with the process: wait for it, or the next launch hands its
+  // file to this one and exits.
+  if (running.child.exitCode === null) await exited;
+}
+
+/**
  * Answers the file dialog the app behind `page` is showing (open, save or choose a folder, #86,
  * B2-04): types `path` into its file name box and confirms, or cancels. The dialogs are the
  * system's own, so the page cannot reach them: file-dialog.ps1 does, through UI Automation.
@@ -188,6 +211,8 @@ export type LaunchOptions = {
    * CDP's emulation cannot do that: it keeps them at whole CSS pixels.
    */
   deviceScaleFactor?: number;
+  /** The data folder of an earlier launch in the same test (`dataDir(page)`), after `quit`. */
+  dataDir?: string;
 };
 
 export const test = base.extend<{
@@ -200,7 +225,7 @@ export const test = base.extend<{
     await provide(async (file, options = {}) => {
       const port = await freePort();
       const profile = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-"));
-      const data = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-data-"));
+      const data = options.dataDir ?? mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-data-"));
       const browserArguments = [
         `--remote-debugging-port=${port}`,
         ...(options.deviceScaleFactor ? [`--force-device-scale-factor=${options.deviceScaleFactor}`] : []),
@@ -222,6 +247,7 @@ export const test = base.extend<{
       running.browser = await connect(port, running);
       const page = await mainPage(running.browser);
       dataDirs.set(page, data);
+      apps.set(page, running);
       if (child.pid !== undefined) processes.set(page, child.pid);
       page.on("console", (message) => running.log.push(`[console.${message.type()}] ${message.text()}\n`));
       page.on("pageerror", (error) => running.log.push(`[pageerror] ${error.message}\n`));

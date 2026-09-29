@@ -64,6 +64,9 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-clear-recent-files", "#73: empty the recent files list"],
   ["allow-get-file-recording", "#73: whether an open document's file may be on the recent files list"],
   ["allow-set-file-recording", "#73: record an open document's file on the recent files list, or not"],
+  ["allow-get-settings", "B2-12: the user's settings (theme, whether to record recent files)"],
+  ["allow-set-settings", "B2-12: replace the user's settings; typed, no other field accepted"],
+  ["allow-clear-recent-exclusions", "B2-12: forget which files the user asked not to record"],
   ["allow-export-pages", "B2-04: export pages as text or PNG; the main process asks where and writes the files"],
 ]);
 

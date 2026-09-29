@@ -78,6 +78,35 @@ pub struct RecentFile {
     pub display_name: String,
 }
 
+/// Which colours the app uses (B2-12): the system's light or dark mode, or always one of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ThemePreference {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+/// The user's settings (B2-12), kept by the main process in the app's local data folder. The
+/// frontend reads them and sends the whole set back; any other field is rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Settings {
+    pub theme: ThemePreference,
+    /// Whether files that open go on the recent files list (#73).
+    pub record_recent_files: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            theme: ThemePreference::System,
+            record_recent_files: true,
+        }
+    }
+}
+
 /// What an export writes (B2-04).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -589,4 +618,36 @@ pub enum OpenEvent {
     /// `ignored_files` files were not opened: the window already has `MAX_TABS` tabs.
     #[serde(rename_all = "camelCase")]
     TabLimit { ignored_files: u32 },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_travel_as_camel_case_and_take_no_other_field() {
+        let settings = Settings {
+            theme: ThemePreference::Dark,
+            record_recent_files: false,
+        };
+        let json = serde_json::to_value(settings).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "theme": "dark", "recordRecentFiles": false })
+        );
+        assert!(
+            serde_json::from_value::<Settings>(
+                serde_json::json!({ "theme": "dark", "recordRecentFiles": false, "path": "C:/x" })
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<Settings>(
+                serde_json::json!({ "theme": "sepia", "recordRecentFiles": true })
+            )
+            .is_err()
+        );
+        assert_eq!(Settings::default().theme, ThemePreference::System);
+        assert!(Settings::default().record_recent_files);
+    }
 }

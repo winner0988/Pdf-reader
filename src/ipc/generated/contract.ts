@@ -47,6 +47,21 @@ displayName: string, };
 export type FileRecordingArgs = { doc: DocumentId, record: boolean, };
 
 /**
+ * Which colours the app uses (B2-12): the system's light or dark mode, or always one of them.
+ */
+export type ThemePreference = "system" | "light" | "dark";
+
+/**
+ * The user's settings (B2-12), kept by the main process in the app's local data folder. The
+ * frontend reads them and sends the whole set back; any other field is rejected.
+ */
+export type Settings = { theme: ThemePreference, 
+/**
+ * Whether files that open go on the recent files list (#73).
+ */
+recordRecentFiles: boolean, };
+
+/**
  * What an export writes (B2-04).
  */
 export type ExportFormat = { "kind": "text" } | { "kind": "png", dpi: number, };

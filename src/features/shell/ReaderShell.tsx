@@ -15,6 +15,8 @@ import { createLinkSource, type LinksApi } from "@/features/links/source";
 import { ALL_PERMISSIONS, restrictionSummary } from "@/features/permissions/permissions";
 import type { RecentApi } from "@/features/recent/api";
 import { useSearch, type SearchApi } from "@/features/search/useSearch";
+import { SettingsDialog } from "@/features/settings/SettingsDialog";
+import { useSettings } from "@/features/settings/useSettings";
 import { SecurityBanner } from "@/features/security-banner/SecurityBanner";
 import { SecurityDetails } from "@/features/security-banner/SecurityDetails";
 import { hasBannerContent } from "@/features/security-banner/summary";
@@ -143,7 +145,7 @@ export function ReaderShell({
   const [fitPercent, setFitPercent] = useState(100);
   const [rotation, setRotation] = useState<Rotation>(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [dialog, setDialog] = useState<"shortcuts" | "about" | "setDefaultFailed" | "print" | "export" | null>(
+  const [dialog, setDialog] = useState<"shortcuts" | "about" | "settings" | "setDefaultFailed" | "print" | "export" | null>(
     null,
   );
   /** Pages rendered for printing, while the system's print dialog is up (MVP-17). */
@@ -214,8 +216,11 @@ export function ReaderShell({
     viewRef.current?.scrollToPage(clamped);
   };
 
-  // "不記錄此檔案" (#73): asked for whenever the menu opens, so it is never stale.
-  const recording = recentApi && document_?.doc !== undefined ? { api: recentApi, doc: document_.doc } : null;
+  // "不記錄此檔案" (#73): asked for whenever the menu opens, so it is never stale. Not offered when
+  // the settings say not to record any file (B2-12).
+  const recordingAllowed = useSettings()?.settings.recordRecentFiles ?? true;
+  const recording =
+    recentApi && recordingAllowed && document_?.doc !== undefined ? { api: recentApi, doc: document_.doc } : null;
   const askRecording = () => {
     recording?.api.isRecorded(recording.doc).then(setRecorded, () => setRecorded(null));
   };
@@ -370,6 +375,7 @@ export function ReaderShell({
           onThemeChange={setTheme}
           onShowShortcuts={() => setDialog("shortcuts")}
           onShowAbout={() => setDialog("about")}
+          onShowSettings={() => setDialog("settings")}
           onSetDefault={() => {
             systemApi?.openDefaultAppsSettings().catch(() => setDialog("setDefaultFailed"));
           }}
@@ -550,6 +556,11 @@ export function ReaderShell({
           }}
         />
       )}
+      <SettingsDialog
+        open={dialog === "settings"}
+        onOpenChange={(open) => setDialog(open ? "settings" : null)}
+        recentApi={recentApi}
+      />
       <AboutDialog
         open={dialog === "about"}
         onOpenChange={(open) => setDialog(open ? "about" : null)}
