@@ -13,6 +13,8 @@ Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type -Namespace OpenDialog -Name Native -MemberDefinition @"
 [DllImport("user32.dll", CharSet = CharSet.Unicode)]
 public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, string lParam);
+[DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageW")]
+public static extern IntPtr GetText(IntPtr window, uint message, IntPtr size, System.Text.StringBuilder text);
 [DllImport("user32.dll")]
 public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 [DllImport("user32.dll")]
@@ -50,22 +52,57 @@ $dialogWindow = [IntPtr]$dialog.Current.NativeWindowHandle
 # is Cancel, and the file name box is the Edit control 1148 (1001 in some save dialogs, 1152 when
 # choosing a folder).
 $WM_SETTEXT = 0x000C
+$WM_GETTEXT = 0x000D
 $WM_COMMAND = 0x0111
+function Text-Of($window) {
+    $text = New-Object System.Text.StringBuilder 2048
+    [void][OpenDialog.Native]::GetText($window, $WM_GETTEXT, [IntPtr]2048, $text)
+    $text.ToString()
+}
 if ($Cancel) {
     $command = 2
 } else {
     $isEdit = Property $Element::ClassNameProperty "Edit"
     $fileName = $null
     foreach ($id in @("1148", "1001", "1152")) {
-        $fileName = $dialog.FindFirst($Scope::Descendants,
+        $candidates = $dialog.FindAll($Scope::Descendants,
             (New-Object System.Windows.Automation.AndCondition((Property $Element::AutomationIdProperty $id), $isEdit)))
+        # The box the user sees: a dialog can hold hidden edits with these ids too.
+        $fileName = $candidates | Where-Object { -not $_.Current.IsOffscreen } | Select-Object -First 1
         if ($fileName) { break }
     }
     if (-not $fileName) {
         $edits = ($dialog.FindAll($Scope::Descendants, $isEdit) | ForEach-Object { $_.Current.AutomationId }) -join ", "
         throw "the file dialog has no file name box (edits: $edits)"
     }
-    [void][OpenDialog.Native]::SendMessage([IntPtr]$fileName.Current.NativeWindowHandle, $WM_SETTEXT, [IntPtr]::Zero, $Path)
+    $box = [IntPtr]$fileName.Current.NativeWindowHandle
+
+    # A save dialog fills in its suggested name after it appears. Typed before that, the path
+    # would be replaced and the file saved somewhere else: wait until the box stays the same.
+    $last = $null
+    $since = Get-Date
+    $deadline = (Get-Date).AddSeconds(10)
+    while ((Get-Date) -lt $deadline) {
+        $text = Text-Of $box
+        if ($text -cne $last) {
+            $last = $text
+            $since = Get-Date
+        } elseif (((Get-Date) - $since).TotalMilliseconds -ge 500) {
+            break
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    $typed = $false
+    for ($attempt = 1; $attempt -le 5 -and -not $typed; $attempt++) {
+        [void][OpenDialog.Native]::SendMessage($box, $WM_SETTEXT, [IntPtr]::Zero, $Path)
+        Start-Sleep -Milliseconds 300
+        $typed = (Text-Of $box) -ceq $Path
+    }
+    if (-not $typed) {
+        # Never confirm a path other than the one asked for.
+        [void][OpenDialog.Native]::PostMessage($dialogWindow, $WM_COMMAND, [IntPtr]2, [IntPtr]::Zero)
+        throw "the path did not stay in the file name box (it holds '$(Text-Of $box)')"
+    }
     $command = 1
 }
 # Choosing a folder, the first OK with a typed path only goes into that folder; the next one

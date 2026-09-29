@@ -72,7 +72,7 @@ pnpm e2e
 
 - `pnpm e2e:build` 建置 release 版的 `pdf_worker` 與 app（`target/release/`，不建置安裝檔）。
 - 要測其他位置的 app：設定 `E2E_APP=<pdf-reader.exe 的路徑>`（旁邊要有 `pdf_worker.exe`）。
-- 測試會開啟 app 視窗（其中一個也會開啟系統的開啟對話框並自動回答）；執行期間不要操作滑鼠鍵盤。
+- 測試會開啟 app 視窗（有幾個也會開啟系統的開啟、另存或選擇資料夾對話框並自動回答）；執行期間不要操作滑鼠鍵盤。
 - 報告：`tests/e2e/playwright-report/index.html`。
 
 ## CI
