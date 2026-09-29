@@ -49,6 +49,8 @@ export type ToolbarProps = {
   onThemeChange: (theme: ThemePreference) => void;
   onShowShortcuts: () => void;
   onShowAbout: () => void;
+  /** Opens the settings (B2-12); without it the menu has no settings item. */
+  onShowSettings?: () => void;
   onSetDefault: () => void;
   /** Prints the open document (MVP-17); without it the menu item is disabled. */
   onPrint?: () => void;
@@ -229,6 +231,9 @@ function MoreMenu(props: ToolbarProps) {
           {menu.shortcuts}
           <DropdownMenuShortcut>Ctrl+/</DropdownMenuShortcut>
         </DropdownMenuItem>
+        {props.onShowSettings && (
+          <DropdownMenuItem onClick={props.onShowSettings}>{menu.settings}</DropdownMenuItem>
+        )}
         <DropdownMenuItem onClick={props.onShowAbout}>{menu.about}</DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={props.onSetDefault}>{menu.setDefault}</DropdownMenuItem>

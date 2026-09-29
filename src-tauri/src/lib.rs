@@ -10,11 +10,13 @@ mod commands;
 mod documents;
 mod events;
 mod links;
+mod local_data;
 mod open_dialog;
 mod opener;
 mod recent;
 mod render;
 mod search;
+mod settings;
 mod strings;
 
 use std::ffi::OsString;
@@ -27,6 +29,7 @@ use crate::events::OpenEvents;
 use crate::recent::RecentFiles;
 use crate::render::{DEFAULT_CACHE_BYTES, Renderer};
 use crate::search::Searches;
+use crate::settings::SettingsStore;
 
 pub fn run() {
     // The installer does not install WebView2 (REL-02: webviewInstallMode is "skip"). Without it
@@ -91,11 +94,19 @@ pub fn run() {
             commands::clear_recent_files,
             commands::get_file_recording,
             commands::set_file_recording,
+            commands::get_settings,
+            commands::set_settings,
+            commands::clear_recent_exclusions,
         ])
         .on_window_event(commands::on_window_event)
         .setup(move |app| {
-            let recent = data_dir(app.app_handle()).map(|dir| dir.join(recent::FILE_NAME));
-            app.manage(RecentFiles::new(recent));
+            let data = data_dir(app.app_handle());
+            app.manage(SettingsStore::load(
+                data.as_ref().map(|dir| dir.join(settings::FILE_NAME)),
+            ));
+            app.manage(RecentFiles::new(
+                data.map(|dir| dir.join(recent::FILE_NAME)),
+            ));
             let reporter = app.app_handle().clone();
             app.state::<Documents>()
                 .set_reporter(move |event| reporter.state::<OpenEvents>().send(event));
@@ -110,7 +121,8 @@ pub fn run() {
         .expect("error while running the Tauri application");
 }
 
-/// Where the app keeps its own data, such as the recent files list (#73): the folder
+/// Where the app keeps its own data, such as the recent files list (#73) and the settings
+/// (B2-12): the folder
 /// `PDF_READER_DATA_DIR` names if it is an absolute path (the E2E tests give every run its own),
 /// otherwise the app's local data folder, which does not roam with the Windows profile.
 fn data_dir(app: &AppHandle) -> Option<PathBuf> {

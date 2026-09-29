@@ -25,6 +25,9 @@ fn main() {
         "clear_recent_files",
         "get_file_recording",
         "set_file_recording",
+        "get_settings",
+        "set_settings",
+        "clear_recent_exclusions",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("failed to run tauri-build");

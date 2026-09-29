@@ -20,6 +20,7 @@
    - `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<空閒的埠>`：遠端偵錯只綁 127.0.0.1。
      - `options.deviceScaleFactor` 另外加上 `--force-device-scale-factor`，像 Windows 的顯示比例（例如 150%）一樣縮放，與這台電腦的設定無關。
      - CDP 的模擬（`Emulation.setDeviceMetricsOverride`）做不到：它讓捲軸保持整數的 CSS 像素，重現不了 #83。
+     - `options.dataDir` 沿用同一個測試中前一次啟動的資料資料夾（`dataDir(page)`），搭配 `quit(page)`：立即結束前一個 app（像當機一樣，不會在結束時存任何東西），再以同一個資料資料夾重新啟動，用來測試跨次啟動保留的資料（B2-12）。
    - `WEBVIEW2_USER_DATA_FOLDER=<新的暫存資料夾>`：每個測試有自己的 WebView2 瀏覽器行程與設定，不會連到前一個測試留下的行程，也不碰使用者的資料。
    - `PDF_READER_DATA_DIR=<另一個新的暫存資料夾>`：app 自己的資料（最近開啟的檔案，#73）也寫到這裡，不會寫進使用者的清單。這是 app 讀的環境變數（不是 WebView2 的），在 CI 以系統管理員執行時也有效。測試以 `dataDir(page)` 取得這個資料夾。
 2. **開檔**：要開的檔案以命令列參數傳入（與使用者從檔案總管開啟相同的路徑，MVP-06）。只使用 `tests/corpus/` 的檔案。
