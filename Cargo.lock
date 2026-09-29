@@ -2567,6 +2567,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tokio",
  "url",
+ "windows",
  "windows-sys 0.61.2",
  "worker_host",
 ]

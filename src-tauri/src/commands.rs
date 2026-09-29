@@ -39,9 +39,10 @@ pub async fn subscribe_open_events(
 /// Set while the open dialog is showing.
 static DIALOG_SHOWING: AtomicBool = AtomicBool::new(false);
 
-/// Shows the native open dialog (PDF files only; several can be picked). Returns false if the
-/// user cancelled, or if a dialog is already showing; otherwise every file gets a tab and the
-/// outcomes arrive on the open-events channel.
+/// Shows the system's open dialog (PDF files only; several can be picked; nothing is added to
+/// the recent items of Windows, #86). Returns false if the user cancelled, or if a dialog is
+/// already showing; otherwise every file gets a tab and the outcomes arrive on the open-events
+/// channel.
 #[tauri::command]
 pub async fn open_document_dialog(app: AppHandle, window: WebviewWindow) -> Result<bool, IpcError> {
     // The dialog is modal to the window, but the page could still ask twice.
@@ -56,19 +57,10 @@ pub async fn open_document_dialog(app: AppHandle, window: WebviewWindow) -> Resu
     }
     let _showing = Showing;
 
-    let picked = rfd::AsyncFileDialog::new()
-        .set_title(strings::OPEN_DIALOG_TITLE)
-        .add_filter(strings::PDF_FILTER_NAME, &["pdf"])
-        .set_parent(&window)
-        .pick_files()
-        .await;
-    let Some(files) = picked else {
+    let Some(files) = crate::open_dialog::pick_pdfs(&window).await? else {
         return Ok(false);
     };
-    open_paths(
-        &app,
-        files.iter().map(|file| file.path().to_owned()).collect(),
-    );
+    open_paths(&app, files);
     Ok(true)
 }
 
