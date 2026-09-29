@@ -181,6 +181,25 @@ pub struct SecurityReport {
     pub scan_complete: bool,
 }
 
+/// What the document's author allows (MVP-19). An encrypted PDF can forbid copying its text and
+/// printing it; the app obeys, as Adobe Acrobat does. An unencrypted document allows everything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentPermissions {
+    pub copy: bool,
+    pub print: bool,
+    /// Printing at full quality; without it only a low-resolution image is printed.
+    pub print_high_quality: bool,
+}
+
+impl DocumentPermissions {
+    pub const ALL: Self = Self {
+        copy: true,
+        print: true,
+        print_high_quality: true,
+    };
+}
+
 /// An open document as the frontend sees it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -192,6 +211,7 @@ pub struct DocumentInfo {
     pub pages: Vec<PageSize>,
     pub has_outline: bool,
     pub security: SecurityReport,
+    pub permissions: DocumentPermissions,
 }
 
 /// Arguments of the `render_page` command.

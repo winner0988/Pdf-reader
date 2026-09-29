@@ -76,7 +76,9 @@ impl OpenEvents {
 mod tests {
     use std::sync::Arc;
 
-    use ipc_contract::types::{DocumentId, DocumentInfo, PageSize, SecurityReport, TabId};
+    use ipc_contract::types::{
+        DocumentId, DocumentInfo, DocumentPermissions, PageSize, SecurityReport, TabId,
+    };
     use tauri::ipc::InvokeResponseBody;
 
     use super::*;
@@ -155,6 +157,7 @@ mod tests {
             }],
             has_outline: false,
             security: SecurityReport::default(),
+            permissions: DocumentPermissions::ALL,
         };
         let (channel, received) = recording_channel();
         events.subscribe(channel, || {

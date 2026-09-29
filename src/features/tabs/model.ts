@@ -47,6 +47,7 @@ export function toShellDocument(info: DocumentInfo): ShellDocument {
     pages: info.pages,
     findings: info.security.findings,
     scanComplete: info.security.scanComplete,
+    permissions: info.permissions,
   };
 }
 

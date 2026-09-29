@@ -97,6 +97,17 @@ export const strings = {
     page: (page: number) => `第 ${page} 頁`,
     pageRenderFailed: "這一頁無法顯示",
   },
+  permissions: {
+    restricted: (what: string) => `已限制：${what}`,
+    noCopy: "不可複製",
+    noPrint: "不可列印",
+    lowResPrint: "只能低解析度列印",
+    /** In a menu, in place of the shortcut of what the author forbids. */
+    notAllowed: "作者不允許",
+    copyBlocked: "文件作者不允許複製此文件的文字",
+    printBlocked: "文件作者不允許列印此文件",
+    lowResNote: (dpi: number) => `文件作者只允許低解析度列印：頁面會以 ${dpi} dpi 列印。`,
+  },
   text: {
     copy: "複製",
     noTextLayer: "這一頁沒有文字層，無法選取文字（目前版本尚不支援 OCR）",

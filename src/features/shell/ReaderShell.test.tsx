@@ -3,12 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { demoDocument } from "@/features/shell/demo";
-import type { ShellState } from "@/features/shell/model";
+import type { DocumentPermissions, ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { SearchApi } from "@/features/search/useSearch";
 import { strings } from "@/i18n/zh-TW";
 import type { LinksApi } from "@/features/links/source";
-import { PRINT_SCALE } from "@/features/print/render";
+import { PRINT_SCALE, printScale } from "@/features/print/render";
 import type { TextApi } from "@/features/text/source";
 import type { PageRenderer } from "@/features/viewer/renderer";
 import { contentWidth, layoutPages, pageLeft } from "@/features/viewer/layout";
@@ -475,11 +475,11 @@ describe("selecting and copying text (MVP-15)", () => {
     };
   };
 
-  async function setup() {
+  async function setup(permissions: DocumentPermissions = demoDocument.permissions) {
     const textApi = {
       getPageText: vi.fn((_doc: number, page: number) => Promise.resolve(page === 0 ? hello : scanned)),
     } satisfies TextApi;
-    const utils = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { textApi });
+    const utils = renderShell({ kind: "open", document: { ...demoDocument, doc: 5, permissions } }, { textApi });
     // The clipboard stub lives as long as the window: start every test from something known.
     await navigator.clipboard.writeText("before");
     // 100%: a page point is 4/3 CSS pixels.
@@ -530,6 +530,22 @@ describe("selecting and copying text (MVP-15)", () => {
     await waitFor(async () => expect(await navigator.clipboard.readText()).toBe("Hello"));
   });
 
+  it("when the author forbids copying, the text can be selected but not copied, and the app says why (MVP-19)", async () => {
+    const { user, pages, selectHello } = await setup({ copy: false, print: true, printHighQuality: true });
+    expect(statusText()).toContain("已限制：不可複製");
+    selectHello();
+    expect(document.querySelectorAll("[data-selection] polygon")).toHaveLength(1);
+
+    await user.keyboard("{Control>}c{/Control}");
+    expect(screen.getByRole("status")).toHaveTextContent(strings.permissions.copyBlocked);
+    fireEvent.contextMenu(pages, at(0, 80, 106));
+    const copy = await screen.findByRole("menuitem", { name: /複製/ });
+    expect(copy).toHaveAttribute("aria-disabled", "true");
+    expect(copy).toHaveTextContent(strings.permissions.notAllowed);
+    await act(async () => {});
+    expect(await navigator.clipboard.readText()).toBe("before");
+  });
+
   it("says for a while that a scanned page has no text to select", async () => {
     const { pages } = await setup();
     vi.useFakeTimers();
@@ -556,7 +572,7 @@ describe("printing (MVP-17)", () => {
     vi.unstubAllGlobals();
   });
 
-  function setup() {
+  function setup(permissions: DocumentPermissions = demoDocument.permissions) {
     // jsdom has no canvas, ImageData or blob URLs, and cannot print.
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
       putImageData: vi.fn(),
@@ -576,11 +592,11 @@ describe("printing (MVP-17)", () => {
         cancel: vi.fn(),
       })),
     } satisfies PageRenderer;
-    const utils = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { renderer });
-    const printed = () =>
+    const utils = renderShell({ kind: "open", document: { ...demoDocument, doc: 5, permissions } }, { renderer });
+    const printed = (scale = PRINT_SCALE) =>
       renderer.render.mock.calls
         .map(([args]) => args)
-        .filter((args) => args.scale === PRINT_SCALE)
+        .filter((args) => args.scale === scale)
         .map((args) => [args.pageIndex, args.rotation]);
     return { ...utils, print, revoke, printed };
   }
@@ -618,6 +634,35 @@ describe("printing (MVP-17)", () => {
     await user.click(within(dialog).getByRole("button", { name: strings.print.next }));
     expect(within(dialog).getByRole("alert")).toHaveTextContent(strings.print.invalid(12));
     expect(print).not.toHaveBeenCalled();
+  });
+
+  it("when the author forbids printing, the menu item says so and Ctrl+P explains (MVP-19)", async () => {
+    const { user, print } = setup({ copy: true, print: false, printHighQuality: false });
+    expect(statusText()).toContain("已限制：不可列印");
+    await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    const item = await screen.findByRole("menuitem", { name: /列印/ });
+    expect(item).toHaveAttribute("aria-disabled", "true");
+    expect(item).toHaveTextContent(strings.permissions.notAllowed);
+    await user.keyboard("{Escape}");
+
+    expect(fireEvent.keyDown(window, { key: "p", ctrlKey: true })).toBe(false);
+    expect(screen.getByRole("status")).toHaveTextContent(strings.permissions.printBlocked);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(print).not.toHaveBeenCalled();
+  });
+
+  it("when the author allows only low-resolution printing, pages print at 150 dpi and the dialog says so", async () => {
+    const { user, print, printed } = setup({ copy: true, print: true, printHighQuality: false });
+    expect(statusText()).toContain("已限制：只能低解析度列印");
+    await user.keyboard("{Control>}p{/Control}");
+    const dialog = await screen.findByRole("dialog", { name: strings.print.title });
+    expect(dialog).toHaveTextContent(strings.permissions.lowResNote(150));
+    await user.click(within(dialog).getByRole("radio", { name: strings.print.current(1) }));
+    await user.click(within(dialog).getByRole("button", { name: strings.print.next }));
+
+    await waitFor(() => expect(print).toHaveBeenCalledTimes(1));
+    expect(printed(printScale(150))).toEqual([[0, "none"]]);
+    expect(printed()).toEqual([]);
   });
 
   it("demo data cannot be printed, and Ctrl+P never prints the app itself", () => {

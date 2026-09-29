@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::PROTOCOL_VERSION;
 use crate::types::{
-    DocumentId, ErrorCode, OutlineResult, PageLink, PageSize, PageText, Password, RequestId,
-    Rotation, SearchHit, SecurityReport,
+    DocumentId, DocumentPermissions, ErrorCode, OutlineResult, PageLink, PageSize, PageText,
+    Password, RequestId, Rotation, SearchHit, SecurityReport,
 };
 
 /// A read-only file handle that the main process duplicated into the worker process.
@@ -130,6 +130,7 @@ pub struct OpenedDocument {
     pub pages: Vec<PageSize>,
     pub has_outline: bool,
     pub security: SecurityReport,
+    pub permissions: DocumentPermissions,
 }
 
 /// A rendered page: opaque RGBA8 (alpha is always 255), rows top to bottom, no padding.

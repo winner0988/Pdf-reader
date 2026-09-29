@@ -774,6 +774,7 @@ fn document_info(
         pages: document.pages,
         has_outline: document.has_outline,
         security: document.security,
+        permissions: document.permissions,
     };
     info.validate().map_err(|error| IpcError {
         code: ErrorCode::Internal,

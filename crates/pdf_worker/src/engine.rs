@@ -6,7 +6,9 @@
 
 use std::collections::HashSet;
 
-use ipc_contract::types::{BlockedAction, PageText as TextLayer, Point, Quad, SecurityReport};
+use ipc_contract::types::{
+    BlockedAction, DocumentPermissions, PageText as TextLayer, Point, Quad, SecurityReport,
+};
 use mupdf::pdf::{PdfDocument as MuPdfDocument, PdfObject};
 use mupdf::{Colorspace, Document, Matrix, Page, TextPageFlags};
 
@@ -98,6 +100,8 @@ pub struct PageLinkEntry {
 
 /// An open PDF document.
 pub struct PdfDocument {
+    /// The binding's `PdfObject`s do not borrow the document they come from: none may outlive
+    /// this field, so they stay local to the methods below.
     doc: MuPdfDocument,
 }
 
@@ -147,6 +151,34 @@ impl PdfDocument {
                 findings: Vec::new(),
                 scan_complete: false,
             },
+        }
+    }
+
+    /// What the author allows (MVP-19), from the encryption dictionary's `/P` and `/R`.
+    /// MuPDF's own `permissions()` cannot be used: the binding turns any `/P` with the reserved
+    /// bits set, that is every real one, into "everything allowed".
+    ///
+    /// Acrobat lifts the restrictions for whoever opened the file with the owner password; the
+    /// binding does not say which password opened it, so they stay (docs/architecture/encryption.md).
+    pub fn permissions(&self) -> DocumentPermissions {
+        let Some(encrypt) = self
+            .doc
+            .trailer()
+            .ok()
+            .and_then(|trailer| trailer.get_dict("Encrypt").ok().flatten())
+        else {
+            return DocumentPermissions::ALL;
+        };
+        let int = |key: &str| {
+            encrypt
+                .get_dict(key)
+                .ok()
+                .flatten()
+                .and_then(|value| value.as_int().ok())
+        };
+        match int("P") {
+            Some(p) => permissions_from(p, int("R")),
+            None => DocumentPermissions::ALL,
         }
     }
 
@@ -460,6 +492,18 @@ impl PdfDocument {
             return Err(EngineError::PageOutOfRange(index));
         }
         Ok(self.doc.load_page(index as i32)?)
+    }
+}
+
+/// The permissions in `/P` (ISO 32000-2, table 22; bit n counts from 1). Revision 2 of the
+/// standard security handler has no high-quality bit: whoever may print, prints at full quality.
+fn permissions_from(p: i32, revision: Option<i32>) -> DocumentPermissions {
+    let allows = |bit: u32| p & (1 << (bit - 1)) != 0;
+    let print = allows(3);
+    DocumentPermissions {
+        copy: allows(5),
+        print,
+        print_high_quality: print && (revision.is_some_and(|r| r < 3) || allows(12)),
     }
 }
 
@@ -816,6 +860,52 @@ mod tests {
             PdfDocument::open(&encrypted_with("Adobe.PubSec"), Some("password")),
             Err(EngineError::UnsupportedEncryption)
         ));
+    }
+
+    #[test]
+    fn reads_the_permission_bits() {
+        const PRINT: i32 = 1 << 2;
+        const COPY: i32 = 1 << 4;
+        const PRINT_HQ: i32 = 1 << 11;
+        let all = -4;
+        assert_eq!(permissions_from(all, Some(6)), DocumentPermissions::ALL);
+        assert_eq!(
+            permissions_from(all & !COPY, Some(4)),
+            DocumentPermissions {
+                copy: false,
+                print: true,
+                print_high_quality: true
+            }
+        );
+        // Without the high-quality bit, printing is low resolution from revision 3 on.
+        let low_res = DocumentPermissions {
+            copy: true,
+            print: true,
+            print_high_quality: false,
+        };
+        assert_eq!(permissions_from(all & !PRINT_HQ, Some(3)), low_res);
+        assert_eq!(permissions_from(all & !PRINT_HQ, None), low_res);
+        assert_eq!(
+            permissions_from(all & !PRINT_HQ, Some(2)),
+            DocumentPermissions::ALL
+        );
+        // The high-quality bit alone does not allow printing.
+        for revision in [Some(2), Some(6)] {
+            assert_eq!(
+                permissions_from(all & !PRINT & !COPY, revision),
+                DocumentPermissions {
+                    copy: false,
+                    print: false,
+                    print_high_quality: false
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn an_unencrypted_document_allows_everything() {
+        let doc = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
+        assert_eq!(doc.permissions(), DocumentPermissions::ALL);
     }
 
     #[test]

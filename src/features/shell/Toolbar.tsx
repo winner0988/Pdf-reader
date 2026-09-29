@@ -51,6 +51,8 @@ export type ToolbarProps = {
   onSetDefault: () => void;
   /** Prints the open document (MVP-17); without it the menu item is disabled. */
   onPrint?: () => void;
+  /** The document's author forbids printing (MVP-19): the menu item says so. */
+  printBlocked?: boolean;
 };
 
 export function Toolbar(props: ToolbarProps) {
@@ -204,7 +206,7 @@ function MoreMenu(props: ToolbarProps) {
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={!props.onPrint} onClick={props.onPrint}>
           {menu.print}
-          <DropdownMenuShortcut>Ctrl+P</DropdownMenuShortcut>
+          <DropdownMenuShortcut>{props.printBlocked ? strings.permissions.notAllowed : "Ctrl+P"}</DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={props.onShowShortcuts}>
           {menu.shortcuts}

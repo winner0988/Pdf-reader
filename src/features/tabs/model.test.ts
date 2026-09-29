@@ -9,6 +9,7 @@ const info = (doc: number, displayName: string): DocumentInfo => ({
   pages: [{ widthPt: 612, heightPt: 792 }],
   hasOutline: true,
   security: { findings: [], scanComplete: true },
+  permissions: { copy: true, print: true, printHighQuality: true },
 });
 
 const event = (e: OpenEvent): TabsAction => ({ type: "event", event: e });
