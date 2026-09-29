@@ -687,6 +687,7 @@ describe("recently opened files (#73)", () => {
         files = [];
         return Promise.resolve();
       }),
+      clearExclusions: vi.fn(() => Promise.resolve()),
       isRecorded: vi.fn<RecentApi["isRecorded"]>(() => Promise.resolve(true)),
       setRecorded: vi.fn<RecentApi["setRecorded"]>(() => Promise.resolve()),
     } satisfies RecentApi;

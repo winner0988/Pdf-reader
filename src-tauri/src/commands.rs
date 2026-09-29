@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use ipc_contract::types::{
     DocumentId, ErrorCode, FileRecordingArgs, IpcError, LinkArgs, LinkPreview, OpenEvent,
     OutlineLinkArgs, OutlineResult, PageLink, PageText, RecentFile, RecentId, RenderPageArgs,
-    RequestId, SearchArgs, SearchEvent, TabId, UnlockArgs,
+    RequestId, SearchArgs, SearchEvent, Settings, TabId, UnlockArgs,
 };
 use ipc_contract::validate::Validate;
 use tauri::ipc::{Channel, Response};
@@ -19,6 +19,7 @@ use crate::events::OpenEvents;
 use crate::recent::RecentFiles;
 use crate::render::Renderer;
 use crate::search::{self, Searches};
+use crate::settings::SettingsStore;
 use crate::strings;
 
 /// Registers the frontend's channel for [`OpenEvent`]s.
@@ -185,12 +186,46 @@ pub async fn get_file_recording(app: AppHandle, doc: DocumentId) -> Result<bool,
 pub async fn set_file_recording(app: AppHandle, args: FileRecordingArgs) -> Result<(), IpcError> {
     blocking(move || {
         let path = document_path(&app, args.doc)?;
+        let list = app.state::<SettingsStore>().get().record_recent_files;
         app.state::<RecentFiles>()
-            .set_recorded(&path, args.record)
+            .set_recorded(&path, args.record, list)
             .map_err(|_| IpcError {
                 code: ErrorCode::Internal,
                 message: "no randomness for the list of files not to record".to_owned(),
             })
+    })
+    .await
+}
+
+/// Forgets which files the user asked not to record (the settings page, B2-12).
+#[tauri::command]
+pub async fn clear_recent_exclusions(app: AppHandle) -> Result<(), IpcError> {
+    blocking(move || {
+        app.state::<RecentFiles>().forget_exclusions();
+        Ok(())
+    })
+    .await
+}
+
+/// The user's settings (B2-12).
+#[tauri::command]
+pub async fn get_settings(app: AppHandle) -> Result<Settings, IpcError> {
+    blocking(move || Ok(app.state::<SettingsStore>().get())).await
+}
+
+/// Replaces the user's settings (B2-12). They apply at once; an error only says they could not
+/// be saved for the next run. Turning off the recent files list also empties it.
+#[tauri::command]
+pub async fn set_settings(app: AppHandle, settings: Settings) -> Result<(), IpcError> {
+    blocking(move || {
+        let saved = app.state::<SettingsStore>().set(settings);
+        if !settings.record_recent_files {
+            app.state::<RecentFiles>().clear();
+        }
+        saved.map_err(|_| IpcError {
+            code: ErrorCode::Unreadable,
+            message: "the settings could not be saved".to_owned(),
+        })
     })
     .await
 }
@@ -359,9 +394,13 @@ pub fn open_paths(app: &AppHandle, paths: Vec<PathBuf>) {
 }
 
 /// Sends an open outcome to the frontend. A file that opened goes first on the recent files
-/// list (#73), unless the user asked not to record it.
+/// list (#73), unless the user asked not to record it, or not to record any file (B2-12).
 fn report(app: &AppHandle, event: OpenEvent) {
+    let recording = app
+        .try_state::<SettingsStore>()
+        .is_some_and(|settings| settings.get().record_recent_files);
     if let OpenEvent::Opened { tab, .. } = &event
+        && recording
         && let (Some(path), Some(recent)) = (
             app.state::<Documents>().tab_path(*tab),
             app.try_state::<RecentFiles>(),

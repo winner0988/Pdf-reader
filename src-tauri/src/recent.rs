@@ -5,8 +5,6 @@
 //! Files the user asked not to record are kept as salted SHA-256 hashes of their paths, so the
 //! file on disk does not say which files they are.
 
-use std::fs::{self, File};
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
@@ -16,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::documents::display_name;
+use crate::local_data;
 
 /// The file in the data folder.
 pub const FILE_NAME: &str = "recent.json";
@@ -159,20 +158,36 @@ impl RecentFiles {
         });
     }
 
+    /// Forgets which files the user asked not to record (the settings, B2-12): they are recorded
+    /// again the next time they open.
+    pub fn forget_exclusions(&self) {
+        self.with(|state| {
+            state.excluded.clear();
+            state.salt.clear();
+            self.save(state);
+        });
+    }
+
     /// Whether `path` may be on the list (the user did not ask not to record it).
     pub fn is_recorded(&self, path: &Path) -> bool {
         self.with(|state| !state.is_excluded(path))
     }
 
     /// Whether `path`, a file that is open, may be on the list. Not recording it also takes it off
-    /// the list; recording it again puts it first, as it is open.
-    pub fn set_recorded(&self, path: &Path, record: bool) -> Result<(), getrandom::Error> {
+    /// the list; recording it again puts it first, as it is open, if `list` (the settings may say
+    /// not to record any file, B2-12).
+    pub fn set_recorded(
+        &self,
+        path: &Path,
+        record: bool,
+        list: bool,
+    ) -> Result<(), getrandom::Error> {
         self.with(|state| {
             if record {
                 if let Some(hash) = state.hash(path) {
                     state.excluded.retain(|excluded| *excluded != hash);
                 }
-                if recordable(path) {
+                if list && recordable(path) {
                     state.add_front(path.to_owned());
                 }
             } else {
@@ -209,7 +224,7 @@ impl RecentFiles {
             return;
         };
         if state.entries.is_empty() && state.excluded.is_empty() {
-            let _ = fs::remove_file(file);
+            local_data::remove(file);
             return;
         }
         let stored = Stored {
@@ -222,20 +237,8 @@ impl RecentFiles {
             salt: hex(&state.salt),
             excluded: state.excluded.clone(),
         };
-        let Ok(json) = serde_json::to_vec_pretty(&stored) else {
-            return;
-        };
-        // A new file replaces the old one whole, so a crash never leaves half a list.
-        let temporary = file.with_extension("json.tmp");
-        let written = file
-            .parent()
-            .map_or(Ok(()), fs::create_dir_all)
-            .and_then(|()| {
-                fs::write(&temporary, json)?;
-                fs::rename(&temporary, file)
-            });
-        if written.is_err() {
-            let _ = fs::remove_file(&temporary);
+        if let Ok(json) = serde_json::to_vec_pretty(&stored) {
+            let _ = local_data::write(file, &json);
         }
     }
 }
@@ -267,17 +270,8 @@ fn key(path: &Path) -> String {
 /// Reads `recent.json`. Anything unexpected (too large, not the app's format) counts as no list;
 /// the next change overwrites the file.
 fn load(file: &Path) -> State {
-    let stored = File::open(file).ok().and_then(|opened| {
-        let mut json = Vec::new();
-        opened
-            .take(MAX_FILE_BYTES + 1)
-            .read_to_end(&mut json)
-            .ok()?;
-        if json.len() as u64 > MAX_FILE_BYTES {
-            return None;
-        }
-        serde_json::from_slice::<Stored>(&json).ok()
-    });
+    let stored = local_data::read(file, MAX_FILE_BYTES)
+        .and_then(|json| serde_json::from_slice::<Stored>(&json).ok());
     let Some(stored) = stored.filter(|stored| stored.version == VERSION) else {
         return State::default();
     };
@@ -328,6 +322,8 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     /// A fresh data folder for one test.
@@ -422,7 +418,7 @@ mod tests {
         let recent = RecentFiles::new(Some(file.clone()));
         recent.record(&pdf("secret"));
         recent.record(&pdf("plain"));
-        recent.set_recorded(&pdf("secret"), false).unwrap();
+        recent.set_recorded(&pdf("secret"), false, true).unwrap();
         assert_eq!(names(&recent), ["plain.pdf"]);
         assert!(!recent.is_recorded(&pdf("SECRET")));
         recent.record(&pdf("secret"));
@@ -439,9 +435,21 @@ mod tests {
         assert!(file.exists(), "the choice is kept");
 
         // Recording it again puts it first: it is open.
-        again.set_recorded(&pdf("secret"), true).unwrap();
+        again.set_recorded(&pdf("secret"), true, true).unwrap();
         assert_eq!(names(&again), ["secret.pdf"]);
         assert!(again.is_recorded(&pdf("secret")));
+
+        // Not listed when the settings say not to record any file.
+        again.set_recorded(&pdf("secret"), false, true).unwrap();
+        again.set_recorded(&pdf("secret"), true, false).unwrap();
+        assert!(again.list().is_empty());
+        assert!(again.is_recorded(&pdf("secret")));
+
+        // Forgetting the choices: recorded again, and no salt or hash is kept.
+        again.set_recorded(&pdf("secret"), false, true).unwrap();
+        again.forget_exclusions();
+        assert!(again.is_recorded(&pdf("secret")));
+        assert!(!file.exists(), "nothing left to keep");
         let _ = fs::remove_dir_all(dir);
     }
 

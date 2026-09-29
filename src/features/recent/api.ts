@@ -13,6 +13,8 @@ export type RecentApi = {
   /** Takes a file off the list and returns the list. */
   remove(id: RecentId): Promise<RecentFile[]>;
   clear(): Promise<void>;
+  /** Forgets which files the user asked not to record (the settings, B2-12). */
+  clearExclusions(): Promise<void>;
   /** Whether an open document's file may be on the list ("不記錄此檔案" unchecked). */
   isRecorded(doc: DocumentId): Promise<boolean>;
   setRecorded(doc: DocumentId, record: boolean): Promise<void>;
@@ -23,6 +25,7 @@ export const tauriRecentApi: RecentApi = {
   open: (id) => invoke<void>("open_recent_file", { id }),
   remove: (id) => invoke<RecentFile[]>("remove_recent_file", { id }),
   clear: () => invoke<void>("clear_recent_files"),
+  clearExclusions: () => invoke<void>("clear_recent_exclusions"),
   isRecorded: (doc) => invoke<boolean>("get_file_recording", { doc }),
   setRecorded: (doc, record) =>
     invoke<void>("set_file_recording", { args: { doc, record } satisfies FileRecordingArgs }),

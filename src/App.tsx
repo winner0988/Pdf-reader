@@ -6,6 +6,8 @@ import { tauriLinksApi, type LinksApi } from "@/features/links/source";
 import { tauriSearchApi, type SearchApi } from "@/features/search/useSearch";
 import { tauriOutlineApi, useOutline, type OutlineApi } from "@/features/outline/useOutline";
 import { tauriRecentApi, type RecentApi } from "@/features/recent/api";
+import { tauriSettingsApi, type SettingsApi } from "@/features/settings/api";
+import { SettingsProvider } from "@/features/settings/SettingsProvider";
 import { DevDemoSwitcher } from "@/features/shell/DevDemoSwitcher";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
@@ -27,6 +29,7 @@ type AppProps = {
   textApi?: TextApi;
   systemApi?: SystemApi;
   recentApi?: RecentApi;
+  settingsApi?: SettingsApi;
 };
 
 export default function App({
@@ -38,6 +41,7 @@ export default function App({
   textApi = tauriTextApi,
   systemApi = tauriSystemApi,
   recentApi = tauriRecentApi,
+  settingsApi = tauriSettingsApi,
 }: AppProps) {
   const tabs = useTabs(api);
   const { state } = tabs;
@@ -56,52 +60,54 @@ export default function App({
   };
 
   return (
-    <div className="flex h-screen flex-col">
-      {state.tabs.length > 0 && !demo && (
-        <TabBar
-          tabs={state.tabs}
-          active={state.active}
-          onActivate={tabs.activate}
-          onClose={tabs.close}
-          onOpen={open}
-        />
-      )}
-      <div className="min-h-0 flex-1">
-        {state.tabs.length === 0 || demo ? (
-          <ReaderShell
-            state={demo ?? { kind: "empty" }}
-            dropActive={state.dragActive}
-            renderer={renderer}
-            systemApi={systemApi}
-            recentApi={demo ? undefined : recentApi}
+    <SettingsProvider api={settingsApi}>
+      <div className="flex h-screen flex-col">
+        {state.tabs.length > 0 && !demo && (
+          <TabBar
+            tabs={state.tabs}
+            active={state.active}
+            onActivate={tabs.activate}
+            onClose={tabs.close}
             onOpen={open}
-            onClose={() => setDemo(null)}
           />
-        ) : (
-          state.tabs.map((tab) => (
-            <TabPane
-              key={tab.tab}
-              tab={tab}
-              active={tab.tab === state.active}
+        )}
+        <div className="min-h-0 flex-1">
+          {state.tabs.length === 0 || demo ? (
+            <ReaderShell
+              state={demo ?? { kind: "empty" }}
               dropActive={state.dragActive}
               renderer={renderer}
-              outlineApi={outlineApi}
-              searchApi={searchApi}
-              linksApi={linksApi}
-              textApi={textApi}
               systemApi={systemApi}
-              recentApi={recentApi}
+              recentApi={demo ? undefined : recentApi}
               onOpen={open}
-              onClose={tabs.close}
-              onRetry={tabs.retry}
-              onUnlock={tabs.unlock}
+              onClose={() => setDemo(null)}
             />
-          ))
-        )}
+          ) : (
+            state.tabs.map((tab) => (
+              <TabPane
+                key={tab.tab}
+                tab={tab}
+                active={tab.tab === state.active}
+                dropActive={state.dragActive}
+                renderer={renderer}
+                outlineApi={outlineApi}
+                searchApi={searchApi}
+                linksApi={linksApi}
+                textApi={textApi}
+                systemApi={systemApi}
+                recentApi={recentApi}
+                onOpen={open}
+                onClose={tabs.close}
+                onRetry={tabs.retry}
+                onUnlock={tabs.unlock}
+              />
+            ))
+          )}
+        </div>
+        {state.notice && <OpenNotice notice={state.notice} onDismiss={tabs.dismissNotice} />}
+        {import.meta.env.DEV && <DevDemoSwitcher onChange={setDemo} />}
       </div>
-      {state.notice && <OpenNotice notice={state.notice} onDismiss={tabs.dismissNotice} />}
-      {import.meta.env.DEV && <DevDemoSwitcher onChange={setDemo} />}
-    </div>
+    </SettingsProvider>
   );
 }
 
