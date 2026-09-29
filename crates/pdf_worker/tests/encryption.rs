@@ -1,10 +1,11 @@
 //! Encrypted documents (MVP-16) through the real worker in its sandbox: without a password the
 //! worker asks for one, a wrong one is refused, and the user or owner password opens the file.
+//! Documents that restrict copying or printing report it (MVP-19).
 #![cfg(windows)]
 
 use std::path::{Path, PathBuf};
 
-use ipc_contract::types::{DocumentId, Password};
+use ipc_contract::types::{DocumentId, DocumentPermissions, Password};
 use ipc_contract::worker::{WorkerErrorCode, WorkerRequest, WorkerResponse};
 use worker_host::{HostConfig, HostError, WorkerHost};
 
@@ -82,4 +83,51 @@ fn a_document_without_encryption_ignores_a_password() {
         )
         .unwrap();
     assert!(matches!(response, WorkerResponse::Opened { .. }));
+}
+
+fn opened_permissions(
+    result: Result<(DocumentId, WorkerResponse), HostError>,
+) -> DocumentPermissions {
+    match result {
+        Ok((_, WorkerResponse::Opened { document, .. })) => document.permissions,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn restricted_samples_open_without_a_password_and_report_their_permissions() {
+    for (name, permissions) in [
+        (
+            "benign/restricted-no-copy-no-print.pdf",
+            DocumentPermissions {
+                copy: false,
+                print: false,
+                print_high_quality: false,
+            },
+        ),
+        (
+            "benign/restricted-low-res-print.pdf",
+            DocumentPermissions {
+                copy: true,
+                print: true,
+                print_high_quality: false,
+            },
+        ),
+        ("benign/single-page.pdf", DocumentPermissions::ALL),
+    ] {
+        assert_eq!(
+            opened_permissions(host().open(&corpus(name))),
+            permissions,
+            "{name}"
+        );
+    }
+    // Opened with a password, the encrypted samples allow everything.
+    for name in ["benign/encrypted-rc4-40.pdf", "benign/encrypted-aes256.pdf"] {
+        let password = Password::new("user".to_owned());
+        assert_eq!(
+            opened_permissions(host().open_with_password(&corpus(name), password)),
+            DocumentPermissions::ALL,
+            "{name}"
+        );
+    }
 }

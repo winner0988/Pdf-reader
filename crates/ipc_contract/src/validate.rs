@@ -503,8 +503,8 @@ impl Validate for OpenEvent {
 mod tests {
     use super::*;
     use crate::types::{
-        BlockedAction, DocumentId, ErrorCode, LinkId, RecentId, RequestId, Rotation,
-        SecurityFinding, TabId,
+        BlockedAction, DocumentId, DocumentPermissions, ErrorCode, LinkId, RecentId, RequestId,
+        Rotation, SecurityFinding, TabId,
     };
     use crate::worker::WorkerErrorCode;
 
@@ -553,6 +553,7 @@ mod tests {
             pages,
             has_outline: false,
             security: SecurityReport::default(),
+            permissions: DocumentPermissions::ALL,
         };
         assert!(doc(vec![page(612.0, 792.0)]).validate().is_ok());
         assert!(doc(vec![]).validate().is_err());
@@ -908,6 +909,7 @@ mod tests {
             pages: vec![page(612.0, 792.0)],
             has_outline: false,
             security: SecurityReport::default(),
+            permissions: DocumentPermissions::ALL,
         };
         assert!(info("報告.pdf").validate().is_ok());
         assert!(info(r"C:\Users\someone\報告.pdf").validate().is_err());

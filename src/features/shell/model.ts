@@ -2,9 +2,16 @@
 // generated src/ipc/generated/contract.ts.
 
 import type { OutlineView } from "@/features/outline/tree";
-import type { DocumentId, ErrorCode, FindingKind, PageSize, SecurityFinding } from "@/ipc/generated/contract";
+import type {
+  DocumentId,
+  DocumentPermissions,
+  ErrorCode,
+  FindingKind,
+  PageSize,
+  SecurityFinding,
+} from "@/ipc/generated/contract";
 
-export type { ErrorCode, FindingKind, PageSize, SecurityFinding };
+export type { DocumentPermissions, ErrorCode, FindingKind, PageSize, SecurityFinding };
 
 export type ShellDocument = {
   /** Main-process id for rendering; absent for demo data. */
@@ -17,6 +24,8 @@ export type ShellDocument = {
   findings: SecurityFinding[];
   /** False when the worker's scan stopped at its budget: there may be more than `findings`. */
   scanComplete: boolean;
+  /** What the document's author allows (MVP-19). */
+  permissions: DocumentPermissions;
 };
 
 export type ShellState =

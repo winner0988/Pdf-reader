@@ -542,11 +542,18 @@ def r6_hash(password: bytes, salt: bytes, udata: bytes) -> bytes:
 
 
 AES_TEXT = "Encrypted sample, AES-256 (user password: user)"
+NO_COPY_TEXT = "Restricted sample: no copying, no printing (owner password: owner)"
+LOW_RES_TEXT = "Restricted sample: low-resolution printing only (owner password: owner)"
+
+# Permission bits of /P (ISO 32000-2, table 22), 1-based bit n is 1 << (n - 1).
+PERM_PRINT = 1 << 2
+PERM_COPY = 1 << 4
+PERM_PRINT_HQ = 1 << 11
+ALL_PERMISSIONS = -4
 
 
-def benign_encrypted_aes256() -> bytes:
-    name = "encrypted-aes256"
-    user_password, owner_password, permissions = b"user", b"owner", -4
+def aes256_document(name: str, user_password: bytes, owner_password: bytes, permissions: int, text: str) -> bytes:
+    """One page of `text`, encrypted with the AES-256 security handler (revision 6)."""
     stream = DeterministicBytes(f"Pdf-reader corpus {name}".encode("ascii"))
     file_key = stream.take(32)
     user_validation, user_key_salt = stream.take(8), stream.take(8)
@@ -562,7 +569,7 @@ def benign_encrypted_aes256() -> bytes:
     doc = Document(name)
     doc.reserve_pages(1)
     iv = stream.take(16)
-    plain = text_ops([(72, 720, 20, AES_TEXT)])
+    plain = text_ops([(72, 720, 20, text)])
     content = doc.pdf.add(Pdf.stream("", iv + aes_cbc_encrypt(file_key, iv, pkcs7_pad(plain))))
     doc.pdf.set(
         doc.page_nums[0],
@@ -578,6 +585,22 @@ def benign_encrypted_aes256() -> bytes:
         f" /P {permissions} /Perms {hex_string(perms_value)} /EncryptMetadata true >>"
     )
     return doc.build(encrypt=encrypt)
+
+
+def benign_encrypted_aes256() -> bytes:
+    return aes256_document("encrypted-aes256", b"user", b"owner", ALL_PERMISSIONS, AES_TEXT)
+
+
+def benign_restricted_no_copy() -> bytes:
+    """No open password, but the author forbids copying and printing (MVP-19)."""
+    permissions = ALL_PERMISSIONS & ~PERM_COPY & ~PERM_PRINT & ~PERM_PRINT_HQ
+    return aes256_document("restricted-no-copy-no-print", b"", b"owner", permissions, NO_COPY_TEXT)
+
+
+def benign_restricted_low_res_print() -> bytes:
+    """No open password; printing is allowed, but not at high quality (MVP-19)."""
+    permissions = ALL_PERMISSIONS & ~PERM_PRINT_HQ
+    return aes256_document("restricted-low-res-print", b"", b"owner", permissions, LOW_RES_TEXT)
 
 
 # Digital signatures: a detached CMS (PKCS #7) signature, SHA-256 with RSA-2048, from a
@@ -1068,6 +1091,15 @@ SAMPLES = [
            "AES-256 encryption (standard security handler, revision 6); user password 'user', owner 'owner'.",
            "Asks for a password (MVP-16): 'user' or 'owner' opens it, any other is refused; once open, "
            "the text is readable.", 1),
+    Sample("benign/restricted-no-copy-no-print.pdf", benign_restricted_no_copy,
+           "AES-256 (R6) with an empty user password and owner password 'owner'; /P forbids copying and printing.",
+           "Opens without a password (MVP-19): text can be selected but not copied, and the document cannot be "
+           "printed.", 1, text=[NO_COPY_TEXT]),
+    Sample("benign/restricted-low-res-print.pdf", benign_restricted_low_res_print,
+           "AES-256 (R6) with an empty user password and owner password 'owner'; /P allows printing but not at "
+           "high quality.",
+           "Opens without a password (MVP-19): copying works; printing is at low resolution only.", 1,
+           text=[LOW_RES_TEXT]),
     Sample("benign/signed.pdf", benign_signed,
            "Signed (adbe.pkcs7.detached, SHA-256, RSA-2048) with the corpus's self-signed test certificate. The "
            "key is derived from a fixed seed in generate.py, so anyone can re-create it: never trust it.",

@@ -25,7 +25,7 @@ sequenceDiagram
 ```
 
 - **支援**：MuPDF 的標準安全處理程序（RC4、AES-128、AES-256），使用者密碼與擁有者密碼都能開啟。語料測試的是 RC4 40-bit（R2）與 AES-256（R6）兩個樣本。
-- **使用者密碼為空**的文件（只設權限密碼）照常直接開啟，不會詢問。
+- **使用者密碼為空**的文件（只設權限密碼）照常直接開啟，不會詢問；作者設定的權限照樣生效（見下方「權限」）。
 - **不支援**：以憑證加密（`/Adobe.PubSec`）或其他安全處理程序、MuPDF 不認得的加密版本。MuPDF 開檔時就拒絕，worker 回報 `unsupportedEncryption`，分頁說明原因，不會被當成損毀。
 - **取消**就是關閉這個分頁。
 - 每份文件有自己的 worker（ADR 0012），所以密碼只送到這個分頁的 worker。
@@ -51,7 +51,30 @@ sequenceDiagram
 
 一般文件在 worker 崩潰後，會在新的 worker 中重新開啟（使用者看不出來）。以密碼開啟的文件做不到：密碼沒有保留。所以主行程放棄這份文件，分頁改回「需要密碼」（`passwordNeeded { wrong: false }`），使用者重新輸入後再開啟。
 
+## 權限（MVP-19）
+
+工作卡 [#82](https://github.com/winner0988/Pdf-reader/issues/82)。負責人在 [#70](https://github.com/winner0988/Pdf-reader/issues/70) 決定比照 Adobe Acrobat 遵守 PDF 的權限。
+
+| `/P` 的位元（ISO 32000-2 表 22） | 沒有這個位元時 | app 的行為 |
+|---|---|---|
+| 5：複製文字 | 禁止複製 | 仍可選取；`Ctrl+C` 不複製，狀態列說明原因；右鍵「複製」停用並標示「作者不允許」 |
+| 3：列印 | 禁止列印 | 「⋯」→「列印…」停用並標示「作者不允許」；`Ctrl+P` 在狀態列說明原因 |
+| 12：高品質列印（R3 以上） | 允許列印，但只能低解析度 | 以 150 dpi（Acrobat 的「低解析度」）而不是 200 dpi 列印；列印對話框說明 |
+
+- 受限制的文件在狀態列顯示「已限制：…」，例如「已限制：不可複製、不可列印」。未加密的文件全部允許。
+- **讀取**：worker 從 trailer 的 `/Encrypt` 讀 `/P` 與 `/R`（`engine::PdfDocument::permissions`），以 `DocumentPermissions`（`copy`、`print`、`printHighQuality`）放進 `OpenedDocument` 與 `DocumentInfo` 交給前端。只用物件 API，沒有 `unsafe`。
+- **沒有用 `mupdf` 的 `PdfDocument::permissions()`**：繫結以 `Permission::from_bits(...)` 轉換 `/P`，失敗時當成「全部允許」。真正的 `/P` 都設了保留位元，所以一律失敗，結果永遠是全部允許。
+- 修訂版 2（R2，40-bit RC4）沒有高品質列印位元：允許列印就是完整品質。
+- **權限不是安全邊界**，而是文件作者的要求：能開啟文件就能解密全部內容，其他程式也可以不理會。app 遵守它，但不宣稱能防止擷取。
+- 語料：`benign/restricted-no-copy-no-print.pdf` 與 `benign/restricted-low-res-print.pdf`（AES-256，使用者密碼為空，擁有者密碼 `owner`）。
+
+### 與 Acrobat 的差異
+
+Acrobat 在使用者以**擁有者密碼**開啟文件時解除所有限制。`mupdf` 繫結的 `authenticate` 只回傳成功與否，MuPDF 回報的「以擁有者密碼通過」在繫結中被丟掉，看不出是哪一個密碼。所以目前輸入擁有者密碼也不會解除限制。
+
+最常見的情形與 Acrobat 相同：只設權限密碼的文件開啟時不需要密碼，限制一律生效。
+
 ## 尚未處理
 
 - **記住密碼**（Windows 認證管理員，ADR 0006）：另開工作卡。
-- **權限**（禁止複製、禁止列印）：要不要遵守，已在 [#70](https://github.com/winner0988/Pdf-reader/issues/70#issuecomment-5822177101) 請負責人決定。`mupdf` 已提供安全的 `PdfDocument::permissions()`，實作時不需要 `unsafe`。
+- **以擁有者密碼解除權限限制**：見上方「與 Acrobat 的差異」；需要繫結回報是哪一個密碼通過。

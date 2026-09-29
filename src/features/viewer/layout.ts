@@ -75,6 +75,16 @@ export function contentWidth(layout: Layout, viewportWidth: number): number {
   return Math.max(viewportWidth, layout.maxWidth + 2 * PAGE_PADDING_PX);
 }
 
+/**
+ * Whether the pages fit the viewport's width, give or take a pixel: then the content just fills
+ * the viewport. `clientWidth` is rounded to whole pixels (at 150% display scaling a canvas 904.67
+ * pixels wide reads 905), so content given the measured width can be a fraction of a pixel too
+ * wide, which shows a horizontal scroll bar at fit width (#83).
+ */
+export function fitsWidth(layout: Layout, viewportWidth: number): boolean {
+  return layout.maxWidth + 2 * PAGE_PADDING_PX <= viewportWidth + 1;
+}
+
 /** Left edge of a page: centered in the content. */
 export function pageLeft(box: PageBox, width: number): number {
   return (width - box.width) / 2;

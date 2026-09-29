@@ -9,8 +9,11 @@ import type { RasterImage } from "@/ipc/raster";
 
 /** Dots per inch pages are printed at: sharp text, a few megabytes per page while rendering. */
 export const PRINT_DPI = 200;
-/** The worker's scale for it: device pixels per PDF point (72 per inch). */
-export const PRINT_SCALE = PRINT_DPI / 72;
+/** When the author allows only low-resolution printing (MVP-19); Acrobat's "low resolution" too. */
+export const LOW_RES_PRINT_DPI = 150;
+/** The worker's scale for a resolution: device pixels per PDF point (72 per inch). */
+export const printScale = (dpi: number) => dpi / 72;
+export const PRINT_SCALE = printScale(PRINT_DPI);
 
 export type PrintPage = { pageIndex: number; url: string; size: PageSize };
 
@@ -38,6 +41,8 @@ type Options = {
   sizes: readonly PageSize[];
   onProgress: (done: number) => void;
   signal: AbortSignal;
+  /** Defaults to `PRINT_DPI`. */
+  dpi?: number;
   encode?: Encode;
 };
 
@@ -54,6 +59,7 @@ export async function renderForPrint({
   sizes,
   onProgress,
   signal,
+  dpi = PRINT_DPI,
   encode = encodePng,
 }: Options): Promise<PrintPage[]> {
   const done: PrintPage[] = [];
@@ -63,7 +69,7 @@ export async function renderForPrint({
   try {
     for (const pageIndex of pages) {
       if (signal.aborted) throw new PrintCancelled();
-      job = renderer.render({ doc, pageIndex, scale: PRINT_SCALE, rotation: "none" });
+      job = renderer.render({ doc, pageIndex, scale: printScale(dpi), rotation: "none" });
       let raster: RasterImage;
       try {
         raster = await job.result;

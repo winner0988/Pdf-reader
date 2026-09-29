@@ -1,6 +1,7 @@
 // Fake data for developing and screenshotting the shell before real IPC exists (MVP-05).
 // Only used in development builds (see DevDemoSwitcher).
 
+import { ALL_PERMISSIONS } from "@/features/permissions/permissions";
 import type { ShellDocument, ShellState } from "@/features/shell/model";
 
 const LETTER = { widthPt: 612, heightPt: 792 };
@@ -29,6 +30,7 @@ export const demoDocument: ShellDocument = {
     { kind: "remoteFileSpec", count: 1 },
   ],
   scanComplete: true,
+  permissions: ALL_PERMISSIONS,
 };
 
 export const DEMO_STATES: Record<string, ShellState> = {
@@ -53,6 +55,15 @@ export const DEMO_STATES: Record<string, ShellState> = {
         { kind: "uncReference", count: 1 },
       ],
       scanComplete: false,
+    },
+  },
+  "open: restricted": {
+    kind: "open",
+    document: {
+      ...demoDocument,
+      displayName: "受限.pdf",
+      findings: [],
+      permissions: { copy: false, print: false, printHighQuality: false },
     },
   },
 };

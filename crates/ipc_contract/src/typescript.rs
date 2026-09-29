@@ -56,6 +56,7 @@ pub fn bindings() -> String {
         FindingKind,
         SecurityFinding,
         SecurityReport,
+        DocumentPermissions,
         DocumentInfo,
         RenderPageArgs,
         BlockedAction,

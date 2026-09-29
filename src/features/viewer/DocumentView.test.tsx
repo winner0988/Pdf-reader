@@ -175,6 +175,18 @@ describe("DocumentView", () => {
     expect(parseFloat(content.style.height)).toBeGreaterThan(PITCH * 999);
   });
 
+  it("content that fits fills the viewport's width; wider content scrolls sideways (#83)", () => {
+    const { rerender } = render(<Harness pages={[LETTER]} zoom="fitWidth" />);
+    const scroller = sizeScroller(800, 905);
+    act(() => scroller.dispatchEvent(new Event("scroll")));
+    const content = () => scroller.firstElementChild as HTMLElement;
+    // Not 905px: the viewport may really be 904.67 pixels wide.
+    expect(content().style.width).toBe("100%");
+
+    rerender(<Harness pages={[LETTER]} zoom={400} />);
+    expect(content().style.width).toBe(`${612 * CSS_PX_PER_PT * 4 + 2 * PAGE_PADDING_PX}px`);
+  });
+
   it("cancels pages that scroll out of range and requests the new ones", () => {
     const { renderer, calls, active } = fakeRenderer();
     render(<Harness pages={Array(100).fill(LETTER)} renderer={renderer} />);
