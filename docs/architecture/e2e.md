@@ -14,10 +14,12 @@
 
 ## 運作方式（`tests/e2e/app.ts`）
 
-每個測試用 `launch(file?)` 啟動一個 app：
+每個測試用 `launch(file?, options?)` 啟動一個 app：
 
 1. **環境變數**：WebView2 從環境變數讀取啟動設定。
    - `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<空閒的埠>`：遠端偵錯只綁 127.0.0.1。
+     - `options.deviceScaleFactor` 另外加上 `--force-device-scale-factor`，像 Windows 的顯示比例（例如 150%）一樣縮放，與這台電腦的設定無關。
+     - CDP 的模擬（`Emulation.setDeviceMetricsOverride`）做不到：它讓捲軸保持整數的 CSS 像素，重現不了 #83。
    - `WEBVIEW2_USER_DATA_FOLDER=<新的暫存資料夾>`：每個測試有自己的 WebView2 瀏覽器行程與設定，不會連到前一個測試留下的行程，也不碰使用者的資料。
 2. **開檔**：要開的檔案以命令列參數傳入（與使用者從檔案總管開啟相同的路徑，MVP-06）。只使用 `tests/corpus/` 的檔案。
 3. **連線**：等偵錯埠回應後，以 `chromium.connectOverCDP` 連上，取得 app 視窗的頁面。
@@ -35,7 +37,8 @@ app 本身完全沒有為測試做任何修改：沒有測試專用的建置選�
 - **原因**：WebView2 Runtime 150 起，**以系統管理員權限（elevated）執行的 app** 會忽略 `WEBVIEW2_*` 環境變數與目前使用者（HKCU）的原則所加的瀏覽器參數，只接受機器原則（HKLM）與 app 本身透過 API 傳入的參數。GitHub 的 Windows runner 以系統管理員執行，所以只設環境變數時，遠端偵錯埠不會開啟。
   - QA-02 初次在 CI 執行時就是這樣：app 正常顯示，但 WebView2 瀏覽器行程的命令列沒有 `--remote-debugging-port`。
   - runner 上是 WebView2 152；本機（一般權限，153）不受影響。
-- **做法**：只在 CI（`CI` 環境變數）上，每次啟動 app 前，在 `HKLM\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments` 寫入以執行檔名稱（`pdf-reader.exe`）為名的值 `--remote-debugging-port=<埠>`，app 結束後刪除。
+- **做法**：只在 CI（`CI` 環境變數）上，每次啟動 app 前，在 `HKLM\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments` 寫入以執行檔名稱（`pdf-reader.exe`）為名的值，app 結束後刪除。
+  - 值與環境變數的瀏覽器參數相同：`--remote-debugging-port=<埠>`，需要時再加上 `--force-device-scale-factor`。
 - **本機**：不會修改登錄檔，因為那是整台電腦的設定；只用環境變數。
 
 ### 關於 WebView2 的環境變數

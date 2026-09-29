@@ -17,6 +17,7 @@ import {
   boxToPage,
   contentWidth,
   currentPageAt,
+  fitsWidth,
   layoutPages,
   pageLeft,
   pageNear,
@@ -383,7 +384,8 @@ export function DocumentView({
       ref={rootRef}
       // Text is selected by the app (MVP-15), not the WebView: it lives in the PDF, not in the DOM.
       className="relative select-none"
-      style={{ width, height: layout.totalHeight }}
+      // Content that fits is exactly as wide as the viewport, whatever fraction of a pixel that is.
+      style={{ width: fitsWidth(layout, viewport.width) ? "100%" : width, height: layout.totalHeight }}
       onMouseDown={textSelection.onMouseDown}
       onMouseMove={textSelection.onMouseMove}
     >

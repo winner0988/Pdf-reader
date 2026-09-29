@@ -8,6 +8,7 @@ import {
   boxToPage,
   contentWidth,
   currentPageAt,
+  fitsWidth,
   layoutPages,
   pageLeft,
   pageNear,
@@ -137,6 +138,14 @@ describe("horizontal layout", () => {
     const zoomed = layoutPages([LETTER], 0, 4); // 3264 px wide
     expect(contentWidth(zoomed, 1000)).toBe(3264 + 2 * PAGE_PADDING_PX);
     expect(pageLeft(zoomed.boxes[0]!, contentWidth(zoomed, 1000))).toBe(PAGE_PADDING_PX);
+  });
+
+  it("pages fitted to a rounded width still fit (#83)", () => {
+    const viewport = { top: 0, left: 0, width: 905, height: 649 };
+    const fitted = layoutPages([LETTER], 0, zoomFactor("fitWidth", [LETTER], 0, viewport));
+    expect(fitsWidth(fitted, 905)).toBe(true);
+    expect(fitsWidth(layoutPages([LETTER], 0, 1), 905)).toBe(true);
+    expect(fitsWidth(layoutPages([LETTER], 0, 4), 905)).toBe(false);
   });
 });
 

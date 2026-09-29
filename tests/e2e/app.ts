@@ -30,13 +30,13 @@ const STARTUP_TIMEOUT_MS = 30_000;
  */
 const MACHINE_POLICY = "HKLM\\Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments";
 
-function setDebuggingPolicy(port: number | null) {
+function setDebuggingPolicy(browserArguments: string | null) {
   if (!process.env.CI) return;
   const name = path.basename(APP);
   const args =
-    port === null
+    browserArguments === null
       ? ["delete", MACHINE_POLICY, "/v", name, "/f"]
-      : ["add", MACHINE_POLICY, "/v", name, "/t", "REG_SZ", "/d", `--remote-debugging-port=${port}`, "/f"];
+      : ["add", MACHINE_POLICY, "/v", name, "/t", "REG_SZ", "/d", browserArguments, "/f"];
   execFileSync("reg", args, { stdio: "ignore" });
 }
 
@@ -142,21 +142,34 @@ export function launchAgain(file: string): void {
   execFileSync(APP, [file], { stdio: "ignore", timeout: STARTUP_TIMEOUT_MS });
 }
 
+export type LaunchOptions = {
+  /**
+   * Display scaling as Windows applies it (`--force-device-scale-factor`), whatever this
+   * computer's: scroll bars then take fractions of CSS pixels, as on real screens (#83).
+   * CDP's emulation cannot do that: it keeps them at whole CSS pixels.
+   */
+  deviceScaleFactor?: number;
+};
+
 export const test = base.extend<{
   /** Starts the app, optionally with a file to open (as a command-line argument), and returns its window's page. */
-  launch: (file?: string) => Promise<Page>;
+  launch: (file?: string, options?: LaunchOptions) => Promise<Page>;
 }>({
   // eslint-disable-next-line no-empty-pattern -- Playwright fixtures take their dependencies as the first argument.
   launch: async ({}, provide, testInfo) => {
     const started: Running[] = [];
-    await provide(async (file) => {
+    await provide(async (file, options = {}) => {
       const port = await freePort();
       const profile = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-"));
-      setDebuggingPolicy(port);
+      const browserArguments = [
+        `--remote-debugging-port=${port}`,
+        ...(options.deviceScaleFactor ? [`--force-device-scale-factor=${options.deviceScaleFactor}`] : []),
+      ].join(" ");
+      setDebuggingPolicy(browserArguments);
       const child = spawn(APP, file ? [file] : [], {
         env: {
           ...process.env,
-          WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}`,
+          WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: browserArguments,
           WEBVIEW2_USER_DATA_FOLDER: profile,
         },
         stdio: ["ignore", "pipe", "pipe"],
