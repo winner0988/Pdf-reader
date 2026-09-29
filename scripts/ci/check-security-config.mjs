@@ -58,6 +58,12 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-describe-outline-link", "#49: the same confirmation for an outline item"],
   ["allow-open-outline-link", "#49: open a confirmed outline link by its position"],
   ["allow-open-default-apps-settings", "REL-03: open the fixed default-apps page of Windows Settings"],
+  ["allow-get-recent-files", "#73: the recently opened files as names and ids; the paths stay in the main process"],
+  ["allow-open-recent-file", "#73: open a recently opened file by its id"],
+  ["allow-remove-recent-file", "#73: take a file off the recent files list by its id"],
+  ["allow-clear-recent-files", "#73: empty the recent files list"],
+  ["allow-get-file-recording", "#73: whether an open document's file may be on the recent files list"],
+  ["allow-set-file-recording", "#73: record an open document's file on the recent files list, or not"],
 ]);
 
 /** Plugin permission prefixes that are never granted to the frontend, allowlist or not. */

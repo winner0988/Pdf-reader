@@ -11,17 +11,19 @@ mod documents;
 mod events;
 mod links;
 mod opener;
+mod recent;
 mod render;
 mod search;
 mod strings;
 
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
 
 use crate::documents::Documents;
 use crate::events::OpenEvents;
+use crate::recent::RecentFiles;
 use crate::render::{DEFAULT_CACHE_BYTES, Renderer};
 use crate::search::Searches;
 
@@ -82,9 +84,17 @@ pub fn run() {
             commands::open_outline_link,
             commands::search,
             commands::open_default_apps_settings,
+            commands::get_recent_files,
+            commands::open_recent_file,
+            commands::remove_recent_file,
+            commands::clear_recent_files,
+            commands::get_file_recording,
+            commands::set_file_recording,
         ])
         .on_window_event(commands::on_window_event)
         .setup(move |app| {
+            let recent = data_dir(app.app_handle()).map(|dir| dir.join(recent::FILE_NAME));
+            app.manage(RecentFiles::new(recent));
             let reporter = app.app_handle().clone();
             app.state::<Documents>()
                 .set_reporter(move |event| reporter.state::<OpenEvents>().send(event));
@@ -97,6 +107,16 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running the Tauri application");
+}
+
+/// Where the app keeps its own data, such as the recent files list (#73): the folder
+/// `PDF_READER_DATA_DIR` names if it is an absolute path (the E2E tests give every run its own),
+/// otherwise the app's local data folder, which does not roam with the Windows profile.
+fn data_dir(app: &AppHandle) -> Option<PathBuf> {
+    std::env::var_os("PDF_READER_DATA_DIR")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .or_else(|| app.path().app_local_data_dir().ok())
 }
 
 /// Brings the window to the front, e.g. after a second launch handed it a file.

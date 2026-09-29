@@ -546,6 +546,19 @@ impl Documents {
         self.lock().tabs.iter().find(|open| open.id == id).cloned()
     }
 
+    /// The file of `tab`, for the recent files list (#73). Never leaves the main process.
+    pub fn tab_path(&self, tab: TabId) -> Option<PathBuf> {
+        self.tab(tab).map(|found| found.path.clone())
+    }
+
+    /// The file of the open document `doc`, for the recent files list (#73).
+    pub fn document_path(&self, doc: DocumentId) -> Option<PathBuf> {
+        let tabs = self.lock().tabs.clone();
+        tabs.iter()
+            .find(|tab| matches!(&*lock(&tab.event), OpenEvent::Opened { info, .. } if info.doc == doc))
+            .map(|tab| tab.path.clone())
+    }
+
     /// Runs `work` on the open document `doc`, holding only that document's lock: requests for
     /// other tabs go on meanwhile.
     fn with_document<T>(

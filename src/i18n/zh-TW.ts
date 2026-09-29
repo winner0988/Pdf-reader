@@ -14,6 +14,14 @@ export const strings = {
     dropHint: "或將檔案拖放到這個視窗",
     privacyNote: "所有處理都在這台電腦上完成：不連網、不收集任何資料。",
   },
+  recent: {
+    title: "最近開啟的檔案",
+    remove: (name: string) => `從清單移除「${name}」`,
+    clear: "清除清單",
+    missing: (name: string) => `找不到「${name}」，已從清單移除。`,
+    failed: "無法開啟這個檔案，請再試一次。",
+    note: "清單只顯示檔名；完整路徑只存在這台電腦上的 app 資料中。",
+  },
   loading: (displayName: string) => `正在開啟 ${displayName}…`,
   open: {
     dismissNotice: "關閉提示",
@@ -192,6 +200,7 @@ export const strings = {
     about: "關於",
     setDefault: "設為預設 PDF 閱讀器",
     print: "列印…",
+    dontRecord: "不記錄此檔案",
   },
   print: {
     title: "列印",

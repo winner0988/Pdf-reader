@@ -10,6 +10,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
+import type { RecentApi } from "@/features/recent/api";
 import { useSearch, type SearchApi } from "@/features/search/useSearch";
 import { SecurityBanner } from "@/features/security-banner/SecurityBanner";
 import { SecurityDetails } from "@/features/security-banner/SecurityDetails";
@@ -63,6 +64,8 @@ type ReaderShellProps = {
   textApi?: TextApi;
   /** Opens Windows Settings for "set as default"; without it (demo data, tests) nothing happens. */
   systemApi?: SystemApi;
+  /** The recently opened files (#73); without it (demo data, tests) the start screen lists none. */
+  recentApi?: RecentApi;
   /** Whether this shell is the one shown (MVP-14): a hidden tab's shell handles no keys. */
   active?: boolean;
   version?: string;
@@ -112,6 +115,7 @@ export function ReaderShell({
   linksApi,
   textApi,
   systemApi,
+  recentApi,
   active = true,
   version = "0.1.0",
   loadingDelayMs,
@@ -136,6 +140,8 @@ export function ReaderShell({
   const [dialog, setDialog] = useState<"shortcuts" | "about" | "setDefaultFailed" | "print" | null>(null);
   /** Pages rendered for printing, while the system's print dialog is up (MVP-17). */
   const [printPages, setPrintPages] = useState<PrintPage[] | null>(null);
+  /** Whether the document's file may be on the recent files list (#73); null until asked. */
+  const [recorded, setRecorded] = useState<boolean | null>(null);
   const pageInputRef = useRef<HTMLInputElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLElement>(null);
@@ -164,6 +170,7 @@ export function ReaderShell({
     setLinkDialog(null);
     setTextSelected(false);
     setNoTextHint(null);
+    setRecorded(null);
     if (dialog === "print") setDialog(null);
   }
 
@@ -187,6 +194,15 @@ export function ReaderShell({
     const clamped = Math.min(Math.max(page, 1), pageCount);
     setCurrentPage(clamped);
     viewRef.current?.scrollToPage(clamped);
+  };
+
+  // "不記錄此檔案" (#73): asked for whenever the menu opens, so it is never stale.
+  const recording = recentApi && document_?.doc !== undefined ? { api: recentApi, doc: document_.doc } : null;
+  const askRecording = () => {
+    recording?.api.isRecorded(recording.doc).then(setRecorded, () => setRecorded(null));
+  };
+  const setRecording = (record: boolean) => {
+    recording?.api.setRecorded(recording.doc, record).then(() => setRecorded(record), askRecording);
   };
 
   const whenOpen = (action: () => void) => () => {
@@ -334,6 +350,8 @@ export function ReaderShell({
             systemApi?.openDefaultAppsSettings().catch(() => setDialog("setDefaultFailed"));
           }}
           onPrint={printable ? print : undefined}
+          onMoreMenuOpen={askRecording}
+          recording={recording ? { recorded, onChange: setRecording } : undefined}
         />
         <div className="relative flex min-h-0 flex-1">
           {sidebarOpen && document_ && (
@@ -379,7 +397,7 @@ export function ReaderShell({
                 if (sidebarOpen && isNarrowWindow()) setSidebarOpen(false);
               }}
             >
-              {state.kind === "empty" && <EmptyState onOpen={onOpen} />}
+              {state.kind === "empty" && <EmptyState onOpen={onOpen} recent={recentApi} />}
               {state.kind === "loading" && (
                 <LoadingState displayName={state.displayName} delayMs={loadingDelayMs} />
               )}

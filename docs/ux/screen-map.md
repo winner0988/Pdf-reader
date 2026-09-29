@@ -29,6 +29,13 @@
 | ![空狀態](wireframes/empty-state.svg) | ![載入中](wireframes/loading-state.svg) | ![錯誤](wireframes/error-state.svg) |
 
 - **空狀態**：①「選擇檔案…（Ctrl+O）」是主要按鈕，啟動後焦點預設在它上面。② 隱私說明固定顯示。整個畫布都是拖放目標；拖曳進入時畫布邊框以強調色虛線標示。
+- **最近開啟的檔案**（#73）：空狀態的拖放提示下方列出最近開啟的檔案，最新的在前，最多 20 筆；沒有時不顯示這一區。
+  - 每一筆只顯示**檔名**（不顯示資料夾），按下以新分頁開啟；右側的 × 從清單移除。
+  - 「清除清單」一鍵清除全部。
+  - 檔案已經不在時顯示 recent.missing，並從清單移除。
+  - 下方說明 recent.note。
+  - 儲存方式見 [recent-files.md](../architecture/recent-files.md)。
+- **不記錄此檔案**：開啟文件時，「⋯」選單有核取項目「不記錄此檔案」。勾選後這個檔案從清單移除，之後再開也不記錄；取消勾選後恢復記錄。
 - **載入中**：開檔超過 300 ms 才顯示，避免快速開檔時閃爍。顯示頁面骨架與「正在開啟 <檔名>…」。
 - **錯誤**：① 標題固定為「無法開啟這個檔案」，說明依錯誤碼（見文字表）。② 「開啟其他檔案」一律顯示；「重試」只在 `workerCrashed`、`workerTimeout`、`unreadable` 時顯示。
 - **需要密碼**（MVP-16）：加密的檔案在它的分頁中顯示鎖頭圖示、「這份文件受密碼保護」、說明與密碼欄位（遮蔽輸入，焦點預設在欄位上），以及「解鎖」（欄位空白時停用）與「取消」。
@@ -195,6 +202,13 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | emptyOpenButton | 選擇檔案…（Ctrl+O） |
 | emptyDropHint | 或將檔案拖放到這個視窗 |
 | privacyNote | 所有處理都在這台電腦上完成：不連網、不收集任何資料。 |
+| recent.title | 最近開啟的檔案 |
+| recent.remove | 從清單移除「<檔名>」 |
+| recent.clear | 清除清單 |
+| recent.missing | 找不到「<檔名>」，已從清單移除。 |
+| recent.failed | 無法開啟這個檔案，請再試一次。 |
+| recent.note | 清單只顯示檔名；完整路徑只存在這台電腦上的 app 資料中。 |
+| menu.dontRecord | 不記錄此檔案 |
 | loading | 正在開啟 <檔名>… |
 | pageStatus | 第 <n> / <N> 頁 · <縮放>% |
 | pageOutOfRange | 頁碼需介於 1 與 <N> 之間 |
@@ -413,4 +427,4 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | MVP-15 | `benign/mixed-text-zh-en.pdf` 跨中英文兩行的選取與右鍵功能表；順時針旋轉 90° 並放大到 400% 時的選取 |
 | MVP-16 | `benign/encrypted-aes256.pdf` 詢問密碼；密碼錯誤的提示（淺色與深色） |
 | MVP-17 | `benign/mixed-page-sizes.pdf` 的列印對話框（淺色與深色）；送到印表機的頁面（列印媒體下的畫面） |
-| MVP-18 | `benign/multi-page-10.pdf` 的縮圖側欄，標示目前頁（淺色與深色） |
+| MVP-18 | `benign/multi-page-10.pdf` 的縮圖側欄，標示目前頁（淺色與深色）；空狀態的最近開啟的檔案；「⋯」選單的「不記錄此檔案」 |

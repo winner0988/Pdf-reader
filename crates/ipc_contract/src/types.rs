@@ -14,6 +14,11 @@ pub struct DocumentId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
 pub struct TabId(pub u32);
 
+/// An entry of the recently opened files (#73), valid while the app runs. The main process keeps
+/// the entry's path; the frontend only ever gets this id and the file name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct RecentId(pub u32);
+
 /// A password the user typed to open an encrypted document (MVP-16, docs/architecture/encryption.md).
 /// It lives only while the document is being opened: it is never stored or logged (`Debug` does
 /// not show it), and its memory is wiped when it is dropped.
@@ -62,6 +67,24 @@ impl<'de> Deserialize<'de> for Password {
 pub struct UnlockArgs {
     pub tab: TabId,
     pub password: Password,
+}
+
+/// A recently opened file as the frontend sees it (#73): no path, only the file name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentFile {
+    pub id: RecentId,
+    /// File name for display only (no directory components).
+    pub display_name: String,
+}
+
+/// Arguments of `set_file_recording` (#73): whether an open document's file may be on the recent
+/// files list. Any other field is rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FileRecordingArgs {
+    pub doc: DocumentId,
+    pub record: bool,
 }
 
 /// Caller-chosen id used to correlate and cancel a request.
