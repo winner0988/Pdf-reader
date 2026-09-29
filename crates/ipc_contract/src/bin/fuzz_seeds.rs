@@ -7,9 +7,9 @@ use std::path::PathBuf;
 
 use ipc_contract::frame::encode;
 use ipc_contract::types::{
-    BlockedAction, DocumentId, FindingKind, LinkId, LinkTarget, OutlineItem, OutlineResult,
-    PageLink, PageSize, PageText, Password, Point, Quad, Rect, RequestId, Rotation, SearchHit,
-    SecurityFinding, SecurityReport, TextLine,
+    BlockedAction, DocumentId, DocumentPermissions, FindingKind, LinkId, LinkTarget, OutlineItem,
+    OutlineResult, PageLink, PageSize, PageText, Password, Point, Quad, Rect, RequestId, Rotation,
+    SearchHit, SecurityFinding, SecurityReport, TextLine,
 };
 use ipc_contract::worker::{
     FileHandle, OpenedDocument, Raster, WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
@@ -56,6 +56,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         count: 2,
                     }],
                     scan_complete: false,
+                },
+                permissions: DocumentPermissions {
+                    copy: false,
+                    print: true,
+                    print_high_quality: false,
                 },
             },
         },

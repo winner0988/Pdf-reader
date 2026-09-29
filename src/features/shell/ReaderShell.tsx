@@ -10,6 +10,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
+import { ALL_PERMISSIONS, restrictionSummary } from "@/features/permissions/permissions";
 import { useSearch, type SearchApi } from "@/features/search/useSearch";
 import { SecurityBanner } from "@/features/security-banner/SecurityBanner";
 import { SecurityDetails } from "@/features/security-banner/SecurityDetails";
@@ -18,7 +19,7 @@ import { AboutDialog, SetDefaultFailedDialog, ShortcutsDialog } from "@/features
 import { rotate, stepZoom, type Rotation, type ShellState, type Zoom } from "@/features/shell/model";
 import { PrintDialog } from "@/features/print/PrintDialog";
 import { PrintPages } from "@/features/print/PrintPages";
-import { freePrintPages, renderForPrint, type PrintPage } from "@/features/print/render";
+import { freePrintPages, LOW_RES_PRINT_DPI, PRINT_DPI, renderForPrint, type PrintPage } from "@/features/print/render";
 import { SearchBar } from "@/features/shell/SearchBar";
 import { Sidebar } from "@/features/shell/Sidebar";
 import { EmptyState, ErrorState, LoadingState, PasswordState } from "@/features/shell/states";
@@ -75,8 +76,8 @@ const OVERLAY_SIDEBAR_BELOW_PX = 960;
 
 const isNarrowWindow = () => window.innerWidth < OVERLAY_SIDEBAR_BELOW_PX;
 
-/** How long the status bar says that a page has no text to select. */
-const NO_TEXT_HINT_MS = 4000;
+/** How long the status bar shows a hint, such as that a page has no text to select. */
+const HINT_MS = 4000;
 
 /** Text the WebView itself has selected (in a dialog, say): Ctrl+C copies that, not the PDF's. */
 const hasPageSelection = () => (window.getSelection()?.toString() ?? "") !== "";
@@ -126,8 +127,8 @@ export function ReaderShell({
   const [linkDialog, setLinkDialog] = useState<LinkDialog | null>(null);
   /** Whether any of the document's text is selected (MVP-15). */
   const [textSelected, setTextSelected] = useState(false);
-  /** The user tried to select on a page without text: counts the tries, so each one shows it anew. */
-  const [noTextHint, setNoTextHint] = useState<number | null>(null);
+  /** A passing message in the status bar; `id` counts them, so the same one shows anew each time. */
+  const [hint, setHint] = useState<{ text: string; id: number } | null>(null);
   const [zoom, setZoom] = useState<Zoom>("fitWidth");
   /** What a fit mode currently shows, so zoom steps continue from there. */
   const [fitPercent, setFitPercent] = useState(100);
@@ -146,6 +147,7 @@ export function ReaderShell({
 
   const document_ = state.kind === "open" ? state.document : null;
   const pageCount = document_?.pages.length ?? 0;
+  const permissions = document_?.permissions ?? ALL_PERMISSIONS;
   const search = useSearch({ api: searchApi, doc: document_?.doc, active: searchOpen });
   const linkSource = useMemo(() => (linksApi ? createLinkSource(linksApi) : undefined), [linksApi]);
   const textSource = useMemo(() => (textApi ? createTextSource(textApi) : undefined), [textApi]);
@@ -163,20 +165,29 @@ export function ReaderShell({
     setLinkHover(null);
     setLinkDialog(null);
     setTextSelected(false);
-    setNoTextHint(null);
+    setHint(null);
     if (dialog === "print") setDialog(null);
   }
 
   useEffect(() => {
-    if (noTextHint === null) return;
-    const timer = window.setTimeout(() => setNoTextHint(null), NO_TEXT_HINT_MS);
+    if (hint === null) return;
+    const timer = window.setTimeout(() => setHint(null), HINT_MS);
     return () => window.clearTimeout(timer);
-  }, [noTextHint]);
+  }, [hint]);
 
-  /** Copies the selected text (MVP-15). False when none is selected: the key does what it usually does. */
+  const showHint = (text: string) => setHint((last) => ({ text, id: (last?.id ?? 0) + 1 }));
+
+  /**
+   * Copies the selected text (MVP-15), unless the author forbids it (MVP-19). False when none is
+   * selected: the key does what it usually does.
+   */
   const copySelection = () => {
     const view = viewRef.current;
     if (!view?.hasSelection()) return false;
+    if (!permissions.copy) {
+      showHint(strings.permissions.copyBlocked);
+      return true;
+    }
     void view.selectedText().then((text) => {
       if (text) navigator.clipboard?.writeText(text).catch(() => {});
     });
@@ -217,7 +228,9 @@ export function ReaderShell({
   // nothing, rather than the WebView printing the app itself.
   const printable = document_?.doc !== undefined && renderer !== undefined;
   const print = () => {
-    if (printable) setDialog("print");
+    if (!printable) return;
+    if (permissions.print) setDialog("print");
+    else showHint(strings.permissions.printBlocked);
   };
 
   useShortcuts({
@@ -333,7 +346,8 @@ export function ReaderShell({
           onSetDefault={() => {
             systemApi?.openDefaultAppsSettings().catch(() => setDialog("setDefaultFailed"));
           }}
-          onPrint={printable ? print : undefined}
+          onPrint={printable && permissions.print ? print : undefined}
+          printBlocked={!permissions.print}
         />
         <div className="relative flex min-h-0 flex-1">
           {sidebarOpen && document_ && (
@@ -415,13 +429,13 @@ export function ReaderShell({
                       onLinkActivate={(link) => activateLink(link)}
                       text={textSource}
                       onSelectionChange={setTextSelected}
-                      onNoText={() => setNoTextHint((tries) => (tries ?? 0) + 1)}
+                      onNoText={() => showHint(strings.text.noTextLayer)}
                     />
                   </ContextMenuTrigger>
                   <ContextMenuContent>
-                    <ContextMenuItem disabled={!textSelected} onClick={() => copySelection()}>
+                    <ContextMenuItem disabled={!textSelected || !permissions.copy} onClick={() => copySelection()}>
                       {strings.text.copy}
-                      <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
+                      <ContextMenuShortcut>{permissions.copy ? "Ctrl+C" : strings.permissions.notAllowed}</ContextMenuShortcut>
                     </ContextMenuItem>
                   </ContextMenuContent>
                 </ContextMenu>
@@ -439,7 +453,9 @@ export function ReaderShell({
         </div>
         <StatusBar
           document={document_ ? { displayName: document_.displayName, currentPage, pageCount, zoom } : null}
-          hoverTarget={linkHover ?? (noTextHint === null ? undefined : strings.text.noTextLayer)}
+          hoverTarget={linkHover ?? undefined}
+          hint={hint?.text}
+          restriction={document_ ? restrictionSummary(permissions) : null}
         />
       </div>
       {linkDialog?.kind === "confirm" && (
@@ -469,9 +485,18 @@ export function ReaderShell({
           pageCount={pageCount}
           currentPage={currentPage}
           prepare={(pages, onProgress, signal) =>
-            renderForPrint({ renderer, doc: document_.doc!, pages, sizes: document_.pages, onProgress, signal })
+            renderForPrint({
+              renderer,
+              doc: document_.doc!,
+              pages,
+              sizes: document_.pages,
+              onProgress,
+              signal,
+              dpi: permissions.printHighQuality ? PRINT_DPI : LOW_RES_PRINT_DPI,
+            })
           }
           onReady={setPrintPages}
+          lowResolutionDpi={permissions.printHighQuality ? undefined : LOW_RES_PRINT_DPI}
         />
       )}
       {printPages && (

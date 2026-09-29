@@ -86,6 +86,7 @@ flowchart LR
 - `RequestId` 由前端產生，只用來取消；主行程另外配發送給 worker 的 `RequestId`，前端無法直接指定 worker 端的請求。
 - 主行程收到命令後先以 `validate` 模組檢查參數（縮放範圍、查詢長度、頁碼是否在範圍內），不合格回傳 `invalidArgument`。
 - `DocumentInfo.displayName` 只能是檔名；`validate` 會拒絕含有 `/`、`\`、`:` 的值。
+- `DocumentInfo.permissions`（MVP-19）：文件作者是否允許複製文字、列印、高品質列印，由 worker 從加密字典讀取；未加密的文件全部為 `true`。見 [encryption.md](encryption.md)「權限」。
 
 ### 目錄與 PDF 提供的文字（MVP-09）
 

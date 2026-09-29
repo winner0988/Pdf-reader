@@ -194,6 +194,7 @@ fn open(
     }
     let has_outline = document.has_outline();
     let security = document.active_content(ScanBudget::default());
+    let permissions = document.permissions();
     documents.insert(doc, document);
     WorkerResponse::Opened {
         request,
@@ -201,6 +202,7 @@ fn open(
             pages,
             has_outline,
             security,
+            permissions,
         },
     }
 }

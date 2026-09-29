@@ -22,6 +22,8 @@ type PrintDialogProps = {
   prepare: (pages: number[], onProgress: (done: number) => void, signal: AbortSignal) => Promise<PrintPage[]>;
   /** The pages are ready: print them. */
   onReady: (pages: PrintPage[]) => void;
+  /** The author allows only low-resolution printing (MVP-19): the resolution it prints at. */
+  lowResolutionDpi?: number;
 };
 
 type Problem = "invalid" | "tooMany" | "failed";
@@ -30,7 +32,15 @@ type Problem = "invalid" | "tooMany" | "failed";
  * Chooses which pages to print (MVP-17). The system's print dialog comes next, for the printer,
  * copies and orientation; the pages are rendered in between, so a range keeps that short.
  */
-export function PrintDialog({ open, onOpenChange, pageCount, currentPage, prepare, onReady }: PrintDialogProps) {
+export function PrintDialog({
+  open,
+  onOpenChange,
+  pageCount,
+  currentPage,
+  prepare,
+  onReady,
+  lowResolutionDpi,
+}: PrintDialogProps) {
   const t = strings.print;
   const [range, setRange] = useState<PrintRange["kind"]>("all");
   const [text, setText] = useState("");
@@ -104,6 +114,9 @@ export function PrintDialog({ open, onOpenChange, pageCount, currentPage, prepar
         <DialogHeader>
           <DialogTitle>{t.title}</DialogTitle>
           <DialogDescription>{t.note}</DialogDescription>
+          {lowResolutionDpi !== undefined && (
+            <DialogDescription>{strings.permissions.lowResNote(lowResolutionDpi)}</DialogDescription>
+          )}
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
           <fieldset disabled={progress !== null} className="space-y-2 text-sm">

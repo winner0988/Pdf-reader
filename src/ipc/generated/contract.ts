@@ -73,6 +73,16 @@ export type SecurityReport = { findings: Array<SecurityFinding>,
 scanComplete: boolean, };
 
 /**
+ * What the document's author allows (MVP-19). An encrypted PDF can forbid copying its text and
+ * printing it; the app obeys, as Adobe Acrobat does. An unencrypted document allows everything.
+ */
+export type DocumentPermissions = { copy: boolean, print: boolean, 
+/**
+ * Printing at full quality; without it only a low-resolution image is printed.
+ */
+printHighQuality: boolean, };
+
+/**
  * An open document as the frontend sees it.
  */
 export type DocumentInfo = { doc: DocumentId, 
@@ -83,7 +93,7 @@ displayName: string,
 /**
  * One entry per page; the page count is `pages.length`.
  */
-pages: Array<PageSize>, hasOutline: boolean, security: SecurityReport, };
+pages: Array<PageSize>, hasOutline: boolean, security: SecurityReport, permissions: DocumentPermissions, };
 
 /**
  * Arguments of the `render_page` command.

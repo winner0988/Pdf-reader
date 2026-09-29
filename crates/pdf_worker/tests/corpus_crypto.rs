@@ -70,6 +70,37 @@ fn encrypted_samples_open_only_with_their_passwords() {
     }
 }
 
+#[test]
+fn restricted_samples_open_without_a_password() {
+    for (name, text) in [
+        (
+            "benign/restricted-no-copy-no-print.pdf",
+            "Restricted sample: no copying, no printing (owner password: owner)",
+        ),
+        (
+            "benign/restricted-low-res-print.pdf",
+            "Restricted sample: low-resolution printing only (owner password: owner)",
+        ),
+    ] {
+        let bytes = corpus(name);
+        // The empty user password opens them: MuPDF does not ask.
+        let doc = PdfDocument::from_bytes(&bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let lines = doc.page_text(0, 1000).expect("page text").lines;
+        assert!(
+            lines.iter().any(|line| line.text.contains(text)),
+            "{name}: {lines:?}"
+        );
+        // The owner password opens them too, and is not needed to read /P.
+        let mupdf = Document::from_bytes(&bytes, "application/pdf").expect("open");
+        assert!(!mupdf.needs_password().expect("needs_password"), "{name}");
+        // The document must outlive the objects read from it.
+        let pdf = MuPdfDocument::from_bytes(&bytes).expect("open");
+        let encrypt = get(&pdf.trailer().expect("trailer"), "Encrypt");
+        assert_eq!(get(&encrypt, "R").as_int().unwrap(), 6, "{name}");
+        PdfDocument::open(&bytes, Some("owner")).unwrap_or_else(|e| panic!("{name}: {e}"));
+    }
+}
+
 fn get(object: &PdfObject, key: &str) -> PdfObject {
     object
         .get_dict(key)
