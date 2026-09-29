@@ -1,7 +1,8 @@
 // Starts the real app and drives its WebView over the Chrome DevTools Protocol (QA-02,
 // docs/architecture/e2e.md). WebView2 reads its launch settings from environment variables:
 // each test gets a remote debugging port on 127.0.0.1 and a fresh, temporary WebView2 profile,
-// so it has its own browser process and nothing carries over between tests.
+// so it has its own browser process and nothing carries over between tests. The app's own data
+// (the recent files list, #73) goes to a temporary folder too, never to the user's.
 
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -48,7 +49,17 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-type Running = { child: ChildProcess; log: string[]; profile: string; browser?: Browser };
+type Running = { child: ChildProcess; log: string[]; profile: string; data: string; browser?: Browser };
+
+/** Each page's app data folder (`PDF_READER_DATA_DIR`). */
+const dataDirs = new WeakMap<Page, string>();
+
+/** Where the app behind `page` keeps its own data, such as `recent.json` (#73). */
+export function dataDir(page: Page): string {
+  const dir = dataDirs.get(page);
+  if (!dir) throw new Error("not a page from launch()");
+  return dir;
+}
 
 /** Whether something answers on the WebView's debugging port (loopback only). */
 function listening(port: number): Promise<boolean> {
@@ -132,6 +143,7 @@ function stop(running: Running) {
   }
   // WebView2 can hold its profile for a moment after exiting.
   rmSync(running.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  rmSync(running.data, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }
 
 /**
@@ -161,6 +173,7 @@ export const test = base.extend<{
     await provide(async (file, options = {}) => {
       const port = await freePort();
       const profile = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-"));
+      const data = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-data-"));
       const browserArguments = [
         `--remote-debugging-port=${port}`,
         ...(options.deviceScaleFactor ? [`--force-device-scale-factor=${options.deviceScaleFactor}`] : []),
@@ -171,15 +184,17 @@ export const test = base.extend<{
           ...process.env,
           WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: browserArguments,
           WEBVIEW2_USER_DATA_FOLDER: profile,
+          PDF_READER_DATA_DIR: data,
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
-      const running: Running = { child, log: [], profile };
+      const running: Running = { child, log: [], profile, data };
       started.push(running);
       child.stdout?.on("data", (chunk) => running.log.push(String(chunk)));
       child.stderr?.on("data", (chunk) => running.log.push(String(chunk)));
       running.browser = await connect(port, running);
       const page = await mainPage(running.browser);
+      dataDirs.set(page, data);
       page.on("console", (message) => running.log.push(`[console.${message.type()}] ${message.text()}\n`));
       page.on("pageerror", (error) => running.log.push(`[pageerror] ${error.message}\n`));
       return page;

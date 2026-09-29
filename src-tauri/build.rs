@@ -19,6 +19,12 @@ fn main() {
         "open_outline_link",
         "search",
         "open_default_apps_settings",
+        "get_recent_files",
+        "open_recent_file",
+        "remove_recent_file",
+        "clear_recent_files",
+        "get_file_recording",
+        "set_file_recording",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("failed to run tauri-build");

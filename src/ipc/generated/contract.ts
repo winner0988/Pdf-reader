@@ -13,6 +13,12 @@ export type DocumentId = number;
 export type TabId = number;
 
 /**
+ * An entry of the recently opened files (#73), valid while the app runs. The main process keeps
+ * the entry's path; the frontend only ever gets this id and the file name.
+ */
+export type RecentId = number;
+
+/**
  * A password the user typed to open an encrypted document (MVP-16, docs/architecture/encryption.md).
  * It lives only while the document is being opened: it is never stored or logged (`Debug` does
  * not show it), and its memory is wiped when it is dropped.
@@ -24,6 +30,21 @@ export type Password = string;
  * rejected.
  */
 export type UnlockArgs = { tab: TabId, password: Password, };
+
+/**
+ * A recently opened file as the frontend sees it (#73): no path, only the file name.
+ */
+export type RecentFile = { id: RecentId, 
+/**
+ * File name for display only (no directory components).
+ */
+displayName: string, };
+
+/**
+ * Arguments of `set_file_recording` (#73): whether an open document's file may be on the recent
+ * files list. Any other field is rejected.
+ */
+export type FileRecordingArgs = { doc: DocumentId, record: boolean, };
 
 /**
  * Caller-chosen id used to correlate and cancel a request.
@@ -249,6 +270,7 @@ export const LIMITS = {
   maxErrorMessageBytes: 1024,
   maxDisplayNameBytes: 1024,
   maxTabs: 20,
+  maxRecentFiles: 20,
   protocolVersion: 0,
 } as const;
 

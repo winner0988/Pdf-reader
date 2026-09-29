@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-file-recording"
+description = "Enables the get_file_recording command without any pre-configured scope."
+commands.allow = ["get_file_recording"]
+
+[[permission]]
+identifier = "deny-get-file-recording"
+description = "Denies the get_file_recording command without any pre-configured scope."
+commands.deny = ["get_file_recording"]

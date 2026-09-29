@@ -14,6 +14,7 @@ import { useId, useState, type Ref } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -53,6 +54,13 @@ export type ToolbarProps = {
   onPrint?: () => void;
   /** The document's author forbids printing (MVP-19): the menu item says so. */
   printBlocked?: boolean;
+  /** The "⋯" menu opened. */
+  onMoreMenuOpen?: () => void;
+  /**
+   * Whether the open document's file may be on the recent files list (#73): the menu offers
+   * "不記錄此檔案". `recorded` is null until known.
+   */
+  recording?: { recorded: boolean | null; onChange: (record: boolean) => void };
 };
 
 export function Toolbar(props: ToolbarProps) {
@@ -187,7 +195,7 @@ function PageInput({
 function MoreMenu(props: ToolbarProps) {
   const menu = strings.menu;
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={(open) => open && props.onMoreMenuOpen?.()}>
       <DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label={t.more} />}>
         <MoreHorizontal />
       </DropdownMenuTrigger>
@@ -208,6 +216,15 @@ function MoreMenu(props: ToolbarProps) {
           {menu.print}
           <DropdownMenuShortcut>{props.printBlocked ? strings.permissions.notAllowed : "Ctrl+P"}</DropdownMenuShortcut>
         </DropdownMenuItem>
+        {props.recording && (
+          <DropdownMenuCheckboxItem
+            checked={props.recording.recorded === false}
+            disabled={props.recording.recorded === null}
+            onCheckedChange={(checked) => props.recording?.onChange(!checked)}
+          >
+            {menu.dontRecord}
+          </DropdownMenuCheckboxItem>
+        )}
         <DropdownMenuItem onClick={props.onShowShortcuts}>
           {menu.shortcuts}
           <DropdownMenuShortcut>Ctrl+/</DropdownMenuShortcut>

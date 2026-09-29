@@ -8,12 +8,13 @@ import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { SearchApi } from "@/features/search/useSearch";
 import { strings } from "@/i18n/zh-TW";
 import type { LinksApi } from "@/features/links/source";
+import type { RecentApi } from "@/features/recent/api";
 import { PRINT_SCALE, printScale } from "@/features/print/render";
 import type { TextApi } from "@/features/text/source";
 import type { PageRenderer } from "@/features/viewer/renderer";
 import { contentWidth, layoutPages, pageLeft } from "@/features/viewer/layout";
 import type { OutlineView } from "@/features/outline/tree";
-import type { LinkPreview, PageLink, PageText, SearchEvent } from "@/ipc/generated/contract";
+import type { LinkPreview, PageLink, PageText, RecentFile, SearchEvent } from "@/ipc/generated/contract";
 import { mediaQuery } from "@/test/setup";
 
 const openState: ShellState = { kind: "open", document: demoDocument };
@@ -669,6 +670,98 @@ describe("printing (MVP-17)", () => {
     renderShell(openState);
     expect(fireEvent.keyDown(window, { key: "p", ctrlKey: true })).toBe(false);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
+describe("recently opened files (#73)", () => {
+  function fakeRecentApi(initial: RecentFile[]) {
+    let files = [...initial];
+    return {
+      list: vi.fn(() => Promise.resolve(files)),
+      open: vi.fn<RecentApi["open"]>(() => Promise.resolve()),
+      remove: vi.fn((id: number) => {
+        files = files.filter((file) => file.id !== id);
+        return Promise.resolve(files);
+      }),
+      clear: vi.fn(() => {
+        files = [];
+        return Promise.resolve();
+      }),
+      isRecorded: vi.fn<RecentApi["isRecorded"]>(() => Promise.resolve(true)),
+      setRecorded: vi.fn<RecentApi["setRecorded"]>(() => Promise.resolve()),
+    } satisfies RecentApi;
+  }
+
+  const listed = () =>
+    within(screen.getByRole("region", { name: strings.recent.title }))
+      .queryAllByRole("button", { name: /\.pdf$/ })
+      .map((button) => button.textContent);
+
+  it("the start screen lists them by name and opens one by its id", async () => {
+    const recentApi = fakeRecentApi([
+      { id: 7, displayName: "報告.pdf" },
+      { id: 3, displayName: "合約.pdf" },
+    ]);
+    const { user } = renderShell({ kind: "empty" }, { recentApi });
+    expect(await screen.findByRole("heading", { name: strings.recent.title })).toBeInTheDocument();
+    expect(listed()).toEqual(["報告.pdf", "合約.pdf"]);
+    await user.click(screen.getByRole("button", { name: "合約.pdf" }));
+    expect(recentApi.open).toHaveBeenCalledWith(3);
+  });
+
+  it("says when a file is gone, and lists what is left", async () => {
+    const recentApi = fakeRecentApi([{ id: 1, displayName: "舊.pdf" }]);
+    recentApi.open.mockImplementation(() => {
+      recentApi.list.mockResolvedValue([]);
+      return Promise.reject({ code: "unreadable", message: "gone" });
+    });
+    const { user } = renderShell({ kind: "empty" }, { recentApi });
+    await user.click(await screen.findByRole("button", { name: "舊.pdf" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(strings.recent.missing("舊.pdf"));
+    await waitFor(() => expect(listed()).toEqual([]));
+  });
+
+  it("removes one file, or clears the list", async () => {
+    const recentApi = fakeRecentApi([
+      { id: 1, displayName: "a.pdf" },
+      { id: 2, displayName: "b.pdf" },
+    ]);
+    const { user } = renderShell({ kind: "empty" }, { recentApi });
+    await user.click(await screen.findByRole("button", { name: strings.recent.remove("a.pdf") }));
+    expect(recentApi.remove).toHaveBeenCalledWith(1);
+    await waitFor(() => expect(listed()).toEqual(["b.pdf"]));
+
+    await user.click(screen.getByRole("button", { name: strings.recent.clear }));
+    expect(recentApi.clear).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("heading", { name: strings.recent.title })).toBeNull());
+  });
+
+  it("an empty list shows nothing", async () => {
+    const recentApi = fakeRecentApi([]);
+    renderShell({ kind: "empty" }, { recentApi });
+    await waitFor(() => expect(recentApi.list).toHaveBeenCalled());
+    expect(screen.queryByRole("heading", { name: strings.recent.title })).toBeNull();
+  });
+
+  it("「不記錄此檔案」 asks the main process when the menu opens, and changes it", async () => {
+    const recentApi = fakeRecentApi([]);
+    const { user } = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { recentApi });
+    await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    await waitFor(() => expect(recentApi.isRecorded).toHaveBeenCalledWith(5));
+    const item = await screen.findByRole("menuitemcheckbox", { name: strings.menu.dontRecord });
+    await waitFor(() => expect(item).not.toHaveAttribute("aria-disabled", "true"));
+    expect(item).toHaveAttribute("aria-checked", "false");
+
+    await user.click(item);
+    expect(recentApi.setRecorded).toHaveBeenCalledWith(5, false);
+    await waitFor(() => expect(item).toHaveAttribute("aria-checked", "true"));
+  });
+
+  it("demo data has no recent files to record", async () => {
+    const { user } = renderShell(openState);
+    await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    await screen.findByRole("menuitem", { name: new RegExp(strings.menu.about) });
+    expect(screen.queryByRole("menuitemcheckbox", { name: strings.menu.dontRecord })).toBeNull();
   });
 });
 
