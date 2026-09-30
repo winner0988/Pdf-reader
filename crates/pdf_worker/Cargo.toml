@@ -10,6 +10,16 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The OCR POC of ADR 0015, option C (examples/tesseract_probe.rs): needs the libraries that
+# scripts/ocr-poc/build-tesseract.ps1 builds, in TESSERACT_POC_DIR. Off by default; the worker
+# never uses it.
+tesseract-poc = []
+
+[[example]]
+name = "tesseract_probe"
+required-features = ["tesseract-poc"]
+
 [dependencies]
 ipc_contract = { version = "0.1.0", path = "../ipc_contract" }
 mupdf = { version = "=0.8.0", default-features = false, features = ["base14-fonts", "bundled-fonts-droid"] }

@@ -69,7 +69,7 @@ AppContainer 不影響這個流程：handle 在複製時就已帶著存取權限
 `SandboxConfig::allow_win32k` 讓子行程保留 win32k 系統呼叫，其他限制全部不變。
 
 - worker 永遠不設定它（預設 `false`）。
-- 目前只有 OCR 的 POC 使用（`crates/pdf_worker/tests/ocr_poc.rs`），證明 Windows 內建 OCR 需要 win32k；ADR 0015 提議以它啟動只接收像素的 OCR 行程。
+- 只有 OCR 的 POC 使用（`crates/pdf_worker/tests/ocr_poc.rs`），證明 Windows 內建 OCR 需要 win32k。ADR 0015 建議的 Tesseract 不需要它：在 worker 自己的沙盒中就能辨識。ADR 0015 接受後移除這個選項。
 - 驗證：`win32k_is_only_available_when_asked_for`（設定後 `user32.dll` 可以載入；預設值是停用）。
 
 ## AppContainer
