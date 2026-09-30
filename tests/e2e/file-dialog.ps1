@@ -118,9 +118,21 @@ if ($Cancel) {
     Describe "typed into $($fileName.Current.AutomationId)"
     $command = 1
 }
-# Choosing a folder, the first OK with a typed path only goes into that folder; the next one
-# selects the folder the dialog is then in. So OK is repeated while the dialog stays open.
+# The first OK with a typed path may only go into the path's folder, so OK is repeated while the
+# dialog stays open. Choosing a folder, the next OK selects the folder the dialog is then in. A save
+# dialog may have put its suggested name back meanwhile: the path is typed again first, or the
+# file would be saved under that name.
+$choosingFolder = -not $Cancel -and (Test-Path -LiteralPath $Path -PathType Container)
 for ($attempt = 1; $attempt -le 3 -and [OpenDialog.Native]::IsWindow($dialogWindow); $attempt++) {
+    if ($attempt -gt 1 -and -not $Cancel -and -not $choosingFolder -and (Text-Of $box) -cne $Path) {
+        Describe "went to the folder"
+        [void][OpenDialog.Native]::SendMessage($box, $WM_SETTEXT, [IntPtr]::Zero, $Path)
+        Start-Sleep -Milliseconds 300
+        if ((Text-Of $box) -cne $Path) {
+            [void][OpenDialog.Native]::PostMessage($dialogWindow, $WM_COMMAND, [IntPtr]2, [IntPtr]::Zero)
+            throw "the path did not stay in the file name box (it holds '$(Text-Of $box)')"
+        }
+    }
     [void][OpenDialog.Native]::PostMessage($dialogWindow, $WM_COMMAND, [IntPtr]$command, [IntPtr]::Zero)
     $deadline = (Get-Date).AddSeconds(5)
     while ([OpenDialog.Native]::IsWindow($dialogWindow) -and (Get-Date) -lt $deadline) {
