@@ -2,13 +2,14 @@
 # system's own, so the page cannot reach them. Finds the dialog of the given process with UI
 # Automation, then answers it the way the dialog's own keys do: the path goes into the file name
 # box (WM_SETTEXT) and the dialog gets IDOK (Open, Save, Select Folder) or IDCANCEL (Cancel).
-# Returns once the dialog has closed.
+# Returns once the dialog has closed. Prints what it saw, for a failing test to show.
 param(
     [Parameter(Mandatory = $true)][int]$ProcessId,
     [string]$Path,
     [switch]$Cancel
 )
 $ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type -Namespace OpenDialog -Name Native -MemberDefinition @"
 [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -59,6 +60,17 @@ function Text-Of($window) {
     [void][OpenDialog.Native]::GetText($window, $WM_GETTEXT, [IntPtr]2048, $text)
     $text.ToString()
 }
+# The dialog's title, its edit boxes and its address bar, as one line.
+function Describe($when) {
+    $edits = $dialog.FindAll($Scope::Descendants, (Property $Element::ClassNameProperty "Edit")) | ForEach-Object {
+        $hidden = if ($_.Current.IsOffscreen) { " hidden" } else { "" }
+        "$($_.Current.AutomationId)$hidden='$(Text-Of ([IntPtr]$_.Current.NativeWindowHandle))'"
+    }
+    $bars = $dialog.FindAll($Scope::Descendants, (Property $Element::ClassNameProperty "ToolbarWindow32")) |
+        ForEach-Object { $_.Current.Name } | Where-Object { $_ }
+    Write-Output "$when`: dialog '$($dialog.Current.Name)'; edits $($edits -join ', '); bars $($bars -join ' | ')"
+}
+Describe "found"
 if ($Cancel) {
     $command = 2
 } else {
@@ -103,6 +115,7 @@ if ($Cancel) {
         [void][OpenDialog.Native]::PostMessage($dialogWindow, $WM_COMMAND, [IntPtr]2, [IntPtr]::Zero)
         throw "the path did not stay in the file name box (it holds '$(Text-Of $box)')"
     }
+    Describe "typed into $($fileName.Current.AutomationId)"
     $command = 1
 }
 # Choosing a folder, the first OK with a typed path only goes into that folder; the next one

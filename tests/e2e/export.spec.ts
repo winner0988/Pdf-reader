@@ -1,6 +1,6 @@
 // Exporting (B2-04) in the real app. The page only says what to export; the main process shows
 // the system's save or folder dialog (answered here through UI Automation) and writes the files.
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -33,8 +33,10 @@ test.describe("export", () => {
     await dialog.getByRole("button", { name: t.start }).click();
 
     const file = path.join(folder, "exported.txt");
-    await answerFileDialog(page, { path: file });
+    const dialogReport = await answerFileDialog(page, { path: file });
     await expect(page.getByRole("contentinfo")).toContainText(t.done(1));
+    // What the dialog showed and what the folder holds, should the file be elsewhere.
+    expect(existsSync(file), `${dialogReport}\nthe folder holds: ${readdirSync(folder).join(", ")}`).toBe(true);
     const text = readFileSync(file, "utf8");
     expect(text).toContain("Privacy-first PDF Reader");
     expect(text).toContain("隱私優先的 PDF 閱讀器");
