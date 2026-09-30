@@ -142,13 +142,21 @@ pub enum ExportEvent {
     Progress { pages_done: u32, total: u32 },
 }
 
-/// A change to an open document (ADR 0013), applied in its worker. Page management (B2-05) adds
-/// more kinds.
+/// A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
+/// those of the document as it is before the edit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Edit {
-    /// Turns `pages` (0-based, no repeats) clockwise by `by`, on top of their current rotation.
+    /// Turns `pages` (no repeats) clockwise by `by`, on top of their current rotation.
     RotatePages { pages: Vec<u32>, by: Rotation },
+    /// Removes `pages` (no repeats); at least one page must remain (B2-05).
+    DeletePages { pages: Vec<u32> },
+    /// Moves `pages` (no repeats) to just before page `before` (the page count: to the end),
+    /// together and in their current order; the other pages keep theirs (B2-05).
+    MovePages { pages: Vec<u32>, before: u32 },
+    /// Inserts a blank page at index `at` (the page count: after the last page), upright and the
+    /// size page `like` is shown at (B2-05).
+    InsertBlankPage { at: u32, like: u32 },
 }
 
 /// Arguments of `apply_edit` (B2-02). Any other field is rejected.

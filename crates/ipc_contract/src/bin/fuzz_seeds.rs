@@ -232,6 +232,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 degrees: 90,
             },
         },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::DeletePages { pages: vec![3, 1] },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::MovePages {
+                pages: vec![4],
+                before: 0,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::InsertBlankPage { at: 1, like: 0 },
+        },
         WorkerRequest::Save {
             request,
             doc,

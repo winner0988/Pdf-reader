@@ -13,3 +13,4 @@ pub mod scan;
 pub mod search;
 pub mod serve;
 pub mod text_layer;
+mod unlink;

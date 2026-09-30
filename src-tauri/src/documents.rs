@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-use ipc_contract::limits::{MAX_DISPLAY_NAME_BYTES, MAX_TABS, MAX_TEXT_BYTES};
+use ipc_contract::limits::{MAX_DISPLAY_NAME_BYTES, MAX_PAGE_COUNT, MAX_TABS, MAX_TEXT_BYTES};
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
@@ -345,19 +345,59 @@ impl Documents {
         let ((), event) = self.change_document(args.doc, |document| {
             let permissions = document.info.permissions;
             let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
-            match &args.edit {
-                Edit::RotatePages { pages, .. } => {
-                    // Assembling the document, as Acrobat reads the author's permissions (MVP-19).
-                    if !(permissions.assemble || permissions.modify) {
-                        return Err(not_allowed());
-                    }
-                    for &page in pages {
-                        check_page_index(page, page_count).map_err(invalid_argument)?;
-                    }
-                }
+            // Every kind of edit so far manages pages: assembling the document, as Acrobat
+            // reads the author's permissions (MVP-19).
+            if !(permissions.assemble || permissions.modify) {
+                return Err(not_allowed());
             }
-            let pages = edit_in_worker(document, &edit)?;
-            if pages.len() != document.info.pages.len() {
+            let check_pages = |pages: &[u32]| {
+                pages
+                    .iter()
+                    .try_for_each(|&page| check_page_index(page, page_count))
+                    .map_err(invalid_argument)
+            };
+            let expected_pages = match &args.edit {
+                Edit::RotatePages { pages, .. } => {
+                    check_pages(pages)?;
+                    page_count
+                }
+                Edit::DeletePages { pages } => {
+                    check_pages(pages)?;
+                    // Validated: no repeats, so fewer pages than the document has leave some.
+                    page_count
+                        .checked_sub(u32::try_from(pages.len()).unwrap_or(u32::MAX))
+                        .filter(|&left| left > 0)
+                        .ok_or_else(|| invalid_argument("a document keeps at least one page"))?
+                }
+                Edit::MovePages { pages, before } => {
+                    check_pages(pages)?;
+                    if *before > page_count {
+                        return Err(invalid_argument("no such place to move pages to"));
+                    }
+                    page_count
+                }
+                Edit::InsertBlankPage { at, like } => {
+                    check_page_index(*like, page_count).map_err(invalid_argument)?;
+                    if *at > page_count {
+                        return Err(invalid_argument("no such place to insert a page"));
+                    }
+                    if page_count >= MAX_PAGE_COUNT {
+                        return Err(IpcError {
+                            code: ErrorCode::LimitExceeded,
+                            message: format!("a document has at most {MAX_PAGE_COUNT} pages"),
+                        });
+                    }
+                    page_count + 1
+                }
+            };
+            let pages = edit_in_worker(document, &edit).inspect_err(|error| {
+                // The worker failed partway through: its copy may be half edited. Opened again
+                // from the file with the edits made so far, it is as it was.
+                if matches!(error.code, ErrorCode::Internal | ErrorCode::LimitExceeded) {
+                    document.lost = true;
+                }
+            })?;
+            if pages.len() != expected_pages as usize {
                 return Err(unexpected("Edit"));
             }
             document.edits.push(edit);
@@ -2140,13 +2180,99 @@ mod with_worker {
         std::fs::remove_file(path).ok();
     }
 
+    /// Applies `edit` to the document `doc`, which then has a new id; returns its pages.
+    fn edited_pages(documents: &Documents, doc: &mut DocumentId, edit: Edit) -> Vec<PageSize> {
+        let info = opened_info(documents.apply_edit(&EditArgs { doc: *doc, edit }).unwrap());
+        *doc = info.doc;
+        info.pages
+    }
+
+    #[test]
+    fn pages_come_and_go_and_survive_a_worker_crash() {
+        let (documents, info, path) = open("page-management", 3);
+        let mut doc = info.doc;
+        // Page 2 turned a quarter tells the pages apart.
+        let turn = Edit::RotatePages {
+            pages: vec![1],
+            by: Rotation::Cw90,
+        };
+        assert_eq!(
+            edited_pages(&documents, &mut doc, turn),
+            [LETTER, LANDSCAPE, LETTER]
+        );
+        let insert = Edit::InsertBlankPage { at: 0, like: 1 };
+        assert_eq!(
+            edited_pages(&documents, &mut doc, insert),
+            [LANDSCAPE, LETTER, LANDSCAPE, LETTER]
+        );
+        let delete = Edit::DeletePages { pages: vec![1] };
+        assert_eq!(
+            edited_pages(&documents, &mut doc, delete),
+            [LANDSCAPE, LANDSCAPE, LETTER]
+        );
+        let move_ = Edit::MovePages {
+            pages: vec![2],
+            before: 0,
+        };
+        assert_eq!(
+            edited_pages(&documents, &mut doc, move_),
+            [LETTER, LANDSCAPE, LANDSCAPE]
+        );
+
+        // The file is opened again in a new worker, and the four edits applied again.
+        let pid = documents.worker_id(doc).expect("worker running");
+        std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            documents
+                .render(&args(doc, 0, 0.5, Rotation::None))
+                .unwrap_err()
+                .code,
+            ErrorCode::WorkerCrashed
+        );
+        let shape = |page| {
+            let (width, height) = size(
+                &documents
+                    .render(&args(doc, page, 0.5, Rotation::None))
+                    .unwrap(),
+            );
+            width > height
+        };
+        assert_eq!((shape(0), shape(1), shape(2)), (false, true, true));
+        let copy = path.with_file_name(format!("b205-copy-{}.pdf", std::process::id()));
+        documents.save(doc, Some(copy.clone())).unwrap();
+        let reopened = open_in(&Documents::new(worker()), &copy);
+        assert_eq!(reopened.pages, [LETTER, LANDSCAPE, LANDSCAPE]);
+        std::fs::remove_file(copy).ok();
+        std::fs::remove_file(path).ok();
+    }
+
     #[test]
     fn edits_are_checked_before_they_reach_the_worker() {
         let (documents, info, path) = open("bad-edit", 1);
-        for args in [rotate(info.doc, vec![1]), rotate(info.doc, vec![])] {
+        let edit = |edit: Edit| EditArgs {
+            doc: info.doc,
+            edit,
+        };
+        for args in [
+            rotate(info.doc, vec![1]),
+            rotate(info.doc, vec![]),
+            // The last page cannot go.
+            edit(Edit::DeletePages { pages: vec![0] }),
+            edit(Edit::DeletePages { pages: vec![1] }),
+            edit(Edit::MovePages {
+                pages: vec![0],
+                before: 2,
+            }),
+            edit(Edit::InsertBlankPage { at: 2, like: 0 }),
+            edit(Edit::InsertBlankPage { at: 0, like: 1 }),
+        ] {
             assert_eq!(
                 documents.apply_edit(&args).unwrap_err().code,
-                ErrorCode::InvalidArgument
+                ErrorCode::InvalidArgument,
+                "{args:?}"
             );
         }
         assert_eq!(

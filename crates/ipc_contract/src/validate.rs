@@ -522,20 +522,7 @@ impl Validate for Edit {
     fn validate(&self) -> Result<(), ValidationError> {
         match self {
             Edit::RotatePages { pages, by } => {
-                if pages.is_empty() {
-                    return Err(ValidationError::Invalid {
-                        what: "pages to rotate",
-                        reason: "empty",
-                    });
-                }
-                check_count("pages to rotate", pages.len(), MAX_PAGE_COUNT)?;
-                let unique: HashSet<u32> = pages.iter().copied().collect();
-                if unique.len() != pages.len() {
-                    return Err(ValidationError::Invalid {
-                        what: "pages to rotate",
-                        reason: "a page appears twice",
-                    });
-                }
+                check_page_list("pages to rotate", pages)?;
                 if *by == Rotation::None {
                     return Err(ValidationError::Invalid {
                         what: "rotation",
@@ -544,8 +531,50 @@ impl Validate for Edit {
                 }
                 Ok(())
             }
+            Edit::DeletePages { pages } => check_page_list("pages to delete", pages),
+            Edit::MovePages { pages, before } => {
+                check_page_list("pages to move", pages)?;
+                if *before > MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "page to move before",
+                    });
+                }
+                Ok(())
+            }
+            Edit::InsertBlankPage { at, like } => {
+                if *at > MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "where to insert",
+                    });
+                }
+                if *like >= MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "page to take the size of",
+                    });
+                }
+                Ok(())
+            }
         }
     }
+}
+
+/// Pages an edit names: some, at most `MAX_PAGE_COUNT`, none twice.
+fn check_page_list(what: &'static str, pages: &[u32]) -> Result<(), ValidationError> {
+    if pages.is_empty() {
+        return Err(ValidationError::Invalid {
+            what,
+            reason: "empty",
+        });
+    }
+    check_count(what, pages.len(), MAX_PAGE_COUNT)?;
+    let unique: HashSet<u32> = pages.iter().copied().collect();
+    if unique.len() != pages.len() {
+        return Err(ValidationError::Invalid {
+            what,
+            reason: "a page appears twice",
+        });
+    }
+    Ok(())
 }
 
 /// A display name is a bare file name; anything that looks like a path is a bug.
@@ -1097,6 +1126,54 @@ mod tests {
             }))
             .unwrap(),
             rotate(vec![0], Rotation::Cw270)
+        );
+    }
+
+    #[test]
+    fn page_management_names_pages_once_and_places_within_bounds() {
+        let edit = |edit: Edit| EditArgs {
+            doc: DocumentId(1),
+            edit,
+        };
+        let delete = |pages: Vec<u32>| edit(Edit::DeletePages { pages });
+        assert!(delete(vec![2, 0]).validate().is_ok());
+        assert!(delete(vec![]).validate().is_err());
+        assert!(delete(vec![3, 3]).validate().is_err());
+        assert!(delete((0..=MAX_PAGE_COUNT).collect()).validate().is_err());
+
+        let move_ = |pages: Vec<u32>, before: u32| edit(Edit::MovePages { pages, before });
+        assert!(move_(vec![4], 0).validate().is_ok());
+        assert!(move_(vec![0, 1], MAX_PAGE_COUNT).validate().is_ok());
+        assert!(move_(vec![], 0).validate().is_err());
+        assert!(move_(vec![1, 1], 0).validate().is_err());
+        assert!(move_(vec![1], MAX_PAGE_COUNT + 1).validate().is_err());
+
+        let insert = |at: u32, like: u32| edit(Edit::InsertBlankPage { at, like });
+        assert!(insert(0, 0).validate().is_ok());
+        assert!(
+            insert(MAX_PAGE_COUNT, MAX_PAGE_COUNT - 1)
+                .validate()
+                .is_ok()
+        );
+        assert!(insert(MAX_PAGE_COUNT + 1, 0).validate().is_err());
+        assert!(insert(0, MAX_PAGE_COUNT).validate().is_err());
+
+        // The frontend's form.
+        assert_eq!(
+            serde_json::from_value::<EditArgs>(serde_json::json!({
+                "doc": 1,
+                "edit": { "kind": "movePages", "pages": [4], "before": 0 }
+            }))
+            .unwrap(),
+            move_(vec![4], 0)
+        );
+        assert_eq!(
+            serde_json::from_value::<EditArgs>(serde_json::json!({
+                "doc": 1,
+                "edit": { "kind": "insertBlankPage", "at": 2, "like": 1 }
+            }))
+            .unwrap(),
+            insert(2, 1)
         );
     }
 

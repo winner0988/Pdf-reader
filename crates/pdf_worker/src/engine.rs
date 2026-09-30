@@ -7,11 +7,11 @@
 use std::collections::HashSet;
 use std::io::{self, Write};
 
-use ipc_contract::limits::{MAX_DOCUMENT_BYTES, MAX_JPEG_BYTES, MAX_PNG_BYTES};
+use ipc_contract::limits::{MAX_DOCUMENT_BYTES, MAX_JPEG_BYTES, MAX_PAGE_COUNT, MAX_PNG_BYTES};
 use ipc_contract::types::{
     BlockedAction, DocumentPermissions, PageText as TextLayer, Point, Quad, SecurityReport,
 };
-use mupdf::pdf::{PdfDocument as MuPdfDocument, PdfObject, PdfWriteOptions};
+use mupdf::pdf::{PageSelection, PdfDocument as MuPdfDocument, PdfObject, PdfWriteOptions};
 use mupdf::{Colorspace, Document, ImageFormat, Matrix, Page, Pixmap, TextPageFlags};
 
 use crate::owner_password;
@@ -55,6 +55,12 @@ pub enum EngineError {
     InvalidScale,
     #[error("rotation must be 0, 90, 180 or 270 degrees")]
     InvalidRotation,
+    #[error("invalid edit: {0}")]
+    InvalidEdit(&'static str),
+    #[error("a document keeps at least one page")]
+    NoPageLeft,
+    #[error("a document has at most {MAX_PAGE_COUNT} pages")]
+    TooManyPages,
     #[error("a {width} x {height} render exceeds the raster limit")]
     TooLarge { width: u64, height: u64 },
     #[error("could not write the file: {0}")]
@@ -600,6 +606,96 @@ impl PdfDocument {
             }
         }
         Ok(())
+    }
+
+    /// Removes `pages` (no repeats), leaving at least one (B2-05). Every page is checked first.
+    ///
+    /// Outline entries, links and named destinations may still point to a removed page, and
+    /// would keep it, its content included, in a rewritten file. So what points to it is cut
+    /// ([`crate::unlink`]): such an entry or link stays, but goes nowhere, and a rewrite leaves
+    /// the page's content out, as ADR 0013 promises.
+    pub fn delete_pages(&mut self, pages: &[u32]) -> Result<(), EngineError> {
+        let count = self.checked_pages(pages)?;
+        if pages.len() >= count as usize {
+            return Err(EngineError::NoPageLeft);
+        }
+        let mut removed = HashSet::new();
+        for &page in pages {
+            removed.insert(self.doc.find_page(page as i32)?.as_indirect()?);
+        }
+        let selection: Vec<usize> = pages.iter().map(|&page| page as usize).collect();
+        self.doc.delete_pages(PageSelection::Pages(selection))?;
+        // A damaged page tree can list one page object twice: one still in it is kept.
+        for index in 0..self.page_count()? {
+            removed.remove(&self.doc.find_page(index as i32)?.as_indirect()?);
+        }
+        removed.remove(&0);
+        crate::unlink::unlink(&self.doc, &removed)
+    }
+
+    /// Moves `pages` (no repeats) to just before page `before` (the page count: to the end),
+    /// together and in their order in the document; the other pages keep theirs (B2-05). If
+    /// MuPDF fails halfway, the moves already made are undone.
+    pub fn move_pages(&mut self, pages: &[u32], before: u32) -> Result<(), EngineError> {
+        let count = self.checked_pages(pages)?;
+        if before > count {
+            return Err(EngineError::PageOutOfRange(before));
+        }
+        let mut moved = pages.to_vec();
+        moved.sort_unstable();
+        let len = moved.len() as u32;
+        // Where they start once in place: after the pages that stay and come before `before`.
+        let start = before - moved.iter().filter(|&&page| page < before).count() as u32;
+        // Each page first goes to the end, in order: the ones already there were before it, so
+        // it is `index` places nearer the start than it was. Then the block goes to its place.
+        let steps = moved
+            .iter()
+            .enumerate()
+            .map(|(index, &page)| (page - index as u32, count - 1))
+            .chain((0..len).map(|index| (count - len + index, start + index)))
+            .filter(|(from, to)| from != to);
+        let mut done = Vec::new();
+        for (from, to) in steps {
+            if let Err(error) = self.doc.move_page(from as usize, to as usize) {
+                for &(from, to) in done.iter().rev() {
+                    let _ = self.doc.move_page(to as usize, from as usize);
+                }
+                return Err(error.into());
+            }
+            done.push((from, to));
+        }
+        Ok(())
+    }
+
+    /// Inserts a blank page at index `at` (the page count: after the last page), upright and
+    /// the size page `like` is shown at (B2-05).
+    pub fn insert_blank_page(&mut self, at: u32, like: u32) -> Result<(), EngineError> {
+        let count = self.page_count()?;
+        if at > count {
+            return Err(EngineError::PageOutOfRange(at));
+        }
+        if count >= MAX_PAGE_COUNT {
+            return Err(EngineError::TooManyPages);
+        }
+        let size = self.page_size(like)?;
+        self.doc.new_page_at(at as i32, size)?;
+        Ok(())
+    }
+
+    /// Checks the pages an edit names (some, none twice, all in the document) and returns the
+    /// page count.
+    fn checked_pages(&self, pages: &[u32]) -> Result<u32, EngineError> {
+        if pages.is_empty() {
+            return Err(EngineError::InvalidEdit("no pages"));
+        }
+        if pages.iter().collect::<HashSet<_>>().len() != pages.len() {
+            return Err(EngineError::InvalidEdit("a page appears twice"));
+        }
+        let count = self.page_count()?;
+        if let Some(&page) = pages.iter().find(|&&page| page >= count) {
+            return Err(EngineError::PageOutOfRange(page));
+        }
+        Ok(count)
     }
 
     /// Whether the document is signed: its form says signatures exist (`/SigFlags` bit 1), or a
@@ -1655,6 +1751,181 @@ mod tests {
             Err(EngineError::InvalidRotation)
         ));
         assert_eq!(doc.page_size(0).expect("size"), (612.0, 792.0));
+    }
+
+    /// The first line of text on each page: which page is where.
+    fn page_titles(doc: &PdfDocument) -> Vec<String> {
+        (0..doc.page_count().expect("count"))
+            .map(|page| {
+                doc.page_text(page, 1_000)
+                    .expect("text")
+                    .lines
+                    .first()
+                    .map_or_else(String::new, |line| line.text.clone())
+            })
+            .collect()
+    }
+
+    /// The titles of `multi-page-10.pdf`'s pages `numbers` (1-based).
+    fn titles(numbers: &[u32]) -> Vec<String> {
+        numbers.iter().map(|n| format!("Page {n} of 10")).collect()
+    }
+
+    #[test]
+    fn deleting_pages_removes_them_and_leaves_one_at_least() {
+        let mut doc = PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
+        doc.delete_pages(&[9, 0, 4]).expect("delete");
+        assert_eq!(page_titles(&doc), titles(&[2, 3, 4, 6, 7, 8, 9]));
+        // Out of range, twice, none or all: refused, and nothing changes.
+        assert!(matches!(
+            doc.delete_pages(&[7]),
+            Err(EngineError::PageOutOfRange(7))
+        ));
+        assert!(matches!(
+            doc.delete_pages(&[1, 1]),
+            Err(EngineError::InvalidEdit(_))
+        ));
+        assert!(matches!(
+            doc.delete_pages(&[]),
+            Err(EngineError::InvalidEdit(_))
+        ));
+        assert!(matches!(
+            doc.delete_pages(&(0..7).collect::<Vec<_>>()),
+            Err(EngineError::NoPageLeft)
+        ));
+        assert_eq!(doc.page_count().expect("count"), 7);
+        doc.delete_pages(&(1..7).collect::<Vec<_>>())
+            .expect("all but one");
+        assert_eq!(page_titles(&doc), titles(&[2]));
+    }
+
+    #[test]
+    fn moved_pages_go_together_before_a_page() {
+        let open = || PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
+        for (pages, before, expected) in [
+            // Page 5 to the front (the card's example).
+            (vec![4], 0, vec![5, 1, 2, 3, 4, 6, 7, 8, 9, 10]),
+            // Two pages, listed out of order, before page 9: together, in document order.
+            (vec![5, 1], 8, vec![1, 3, 4, 5, 7, 8, 2, 6, 9, 10]),
+            (vec![0, 2], 10, vec![2, 4, 5, 6, 7, 8, 9, 10, 1, 3]),
+            (vec![9, 8], 1, vec![1, 9, 10, 2, 3, 4, 5, 6, 7, 8]),
+            // Before one of themselves, or all of them: already in place.
+            (vec![3, 4], 4, (1..=10).collect()),
+            ((0..10).collect(), 10, (1..=10).collect()),
+        ] {
+            let mut doc = open();
+            doc.move_pages(&pages, before).expect("move");
+            assert_eq!(
+                page_titles(&doc),
+                titles(&expected),
+                "{pages:?} before {before}"
+            );
+        }
+        let mut doc = open();
+        assert!(matches!(
+            doc.move_pages(&[0], 11),
+            Err(EngineError::PageOutOfRange(11))
+        ));
+        assert!(matches!(
+            doc.move_pages(&[10], 0),
+            Err(EngineError::PageOutOfRange(10))
+        ));
+        assert!(matches!(
+            doc.move_pages(&[2, 2], 0),
+            Err(EngineError::InvalidEdit(_))
+        ));
+        assert_eq!(page_titles(&doc), titles(&(1..=10).collect::<Vec<_>>()));
+    }
+
+    #[test]
+    fn a_blank_page_goes_where_asked_the_size_another_is_shown_at() {
+        let mut doc = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
+        // Page 1 turned a quarter: shown landscape.
+        doc.rotate_pages(&[0], 90).expect("rotate");
+        doc.insert_blank_page(0, 0).expect("before the first");
+        doc.insert_blank_page(3, 2).expect("after the last");
+        let sizes: Vec<_> = (0..doc.page_count().expect("count"))
+            .map(|page| doc.page_size(page).expect("size"))
+            .collect();
+        assert_eq!(
+            sizes,
+            [
+                (792.0, 612.0),
+                (792.0, 612.0),
+                (612.0, 792.0),
+                (612.0, 792.0)
+            ]
+        );
+        // Blank and upright: landscape by its own size, not turned.
+        assert!(doc.page_text(0, 100).expect("text").lines.is_empty());
+        assert_eq!(
+            doc.doc
+                .load_pdf_page(0)
+                .expect("page")
+                .rotation()
+                .expect("rotation"),
+            0
+        );
+        assert!(matches!(
+            doc.insert_blank_page(5, 0),
+            Err(EngineError::PageOutOfRange(5))
+        ));
+        assert!(matches!(
+            doc.insert_blank_page(0, 4),
+            Err(EngineError::PageOutOfRange(4))
+        ));
+        assert_eq!(doc.page_count().expect("count"), 4);
+    }
+
+    #[test]
+    fn a_deleted_page_leaves_the_file_even_where_a_link_pointed_to_it() {
+        // Page 1 links to page 3 (a destination) and to page 2 (a GoTo action).
+        let mut doc = PdfDocument::from_bytes(&corpus("benign/internal-links.pdf")).expect("open");
+        doc.delete_pages(&[2]).expect("delete page 3");
+        let (file, _) = saved(&doc);
+        assert!(
+            !contains(&file, b"(Page 3) Tj"),
+            "page 3 is still in the file"
+        );
+        assert!(contains(&file, b"(Page 2) Tj"));
+        // Both links are still there; the one to page 3 goes nowhere.
+        let reopened = PdfDocument::from_bytes(&file).expect("reopen");
+        let targets: Vec<_> = reopened
+            .page_links(0, 10)
+            .expect("links")
+            .into_iter()
+            .map(|link| link.target)
+            .collect();
+        assert_eq!(targets, [OutlineTarget::None, OutlineTarget::Page(1)]);
+    }
+
+    #[test]
+    fn a_deleted_page_leaves_the_file_even_where_the_outline_pointed_to_it() {
+        let mut doc =
+            PdfDocument::from_bytes(&corpus("benign/outline-3-levels.pdf")).expect("open");
+        doc.delete_pages(&[2]).expect("delete");
+        let (file, _) = saved(&doc);
+        assert!(!contains(&file, b"(Subsection 1.1.1) Tj"));
+        let outline = PdfDocument::from_bytes(&file)
+            .expect("reopen")
+            .outline(100, 64)
+            .expect("outline");
+        let targets: Vec<_> = outline
+            .entries
+            .iter()
+            .map(|entry| (entry.title.as_str(), entry.target.clone()))
+            .collect();
+        assert_eq!(
+            targets,
+            [
+                ("Chapter 1", OutlineTarget::Page(0)),
+                ("Section 1.1", OutlineTarget::Page(1)),
+                ("Subsection 1.1.1", OutlineTarget::None),
+                ("Chapter 2", OutlineTarget::Page(2)),
+                ("Section 2.1", OutlineTarget::Page(3)),
+                ("Appendix", OutlineTarget::Page(4)),
+            ]
+        );
     }
 
     #[test]

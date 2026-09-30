@@ -88,10 +88,10 @@ pages: Array<number>, format: ExportFormat, };
 export type ExportEvent = { "kind": "progress", pagesDone: number, total: number, };
 
 /**
- * A change to an open document (ADR 0013), applied in its worker. Page management (B2-05) adds
- * more kinds.
+ * A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
+ * those of the document as it is before the edit.
  */
-export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, };
+export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, };
 
 /**
  * Arguments of `apply_edit` (B2-02). Any other field is rejected.
