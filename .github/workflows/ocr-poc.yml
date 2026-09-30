@@ -38,6 +38,9 @@ jobs:
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ocr-poc/build-tesseract.ps1
       - name: Recognise a scanned page in the sandbox
         shell: pwsh
+        # The tests run the probes, which `--test ocr_poc` alone does not build.
         run: |
           $env:TESSERACT_POC_DIR = (Resolve-Path target/ocr-poc/install).Path
+          cargo build -p pdf_worker --features tesseract-poc --locked --examples
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test -p pdf_worker --features tesseract-poc --locked --test ocr_poc -- --nocapture
