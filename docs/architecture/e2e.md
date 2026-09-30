@@ -17,9 +17,11 @@
 每個測試用 `launch(file?, options?)` 啟動一個 app：
 
 1. **環境變數**：WebView2 從環境變數讀取啟動設定。
-   - `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=<app 的參數> --remote-debugging-port=<空閒的埠>`：遠端偵錯只綁 127.0.0.1。
-     - 這個變數會**取代** app 自己的瀏覽器參數，所以前面先放 `src-tauri/tauri.conf.json` 的 `additionalBrowserArgs`（例如讓 WebView2 不自行連網的參數，#121）：測試的 app 與出貨的 app 相同。
+   - `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<空閒的埠>`：遠端偵錯只綁 127.0.0.1。
+     - WebView2 把這個變數的參數**加在** app 自己的參數之後：app 照常傳入 `src-tauri/tauri.conf.json` 的 `additionalBrowserArgs`（例如讓 WebView2 不自行連網的參數，#121），所以測試的 app 與出貨的 app 相同。
+       - 2026-09-30 以 WebView2 154 確認：只設偵錯埠時，瀏覽器行程的命令列仍有 app 的參數。#124 誤以為這個變數會取代 app 的參數，把它們又放進變數一次，已經拿掉。
      - `options.netLog` 另外加上 `--log-net-log`：WebView2 把它發出的每個請求寫進這個檔案（`network.spec.ts`）。
+     - `options.browserArguments` 另外加上只用於這次啟動的參數，例如 `network.spec.ts` 的 `--component-updater=fast-update`。
      - `options.deviceScaleFactor` 另外加上 `--force-device-scale-factor`，像 Windows 的顯示比例（例如 150%）一樣縮放，與這台電腦的設定無關。
      - CDP 的模擬（`Emulation.setDeviceMetricsOverride`）做不到：它讓捲軸保持整數的 CSS 像素，重現不了 #83。
      - `options.dataDir` 沿用同一個測試中前一次啟動的資料資料夾（`dataDir(page)`），搭配 `quit(page)`：立即結束前一個 app（像當機一樣，不會在結束時存任何東西），再以同一個資料資料夾重新啟動，用來測試跨次啟動保留的資料（B2-12）。
@@ -33,6 +35,7 @@
      - 在 CI 上改截 runner 的整個桌面，看得到 app 可能在等待的對話框；
      - 在開發者電腦上不截，因為那會截到你自己的螢幕。
    - 日誌另外附上 app 的行程樹與各行程的命令列。
+   - WebView 沒有啟動時，錯誤訊息本身就附上 WebView2 瀏覽器行程的命令列：不必下載 CI 上傳的檔案，從記錄就看得出它收到了哪些參數。
 
 app 本身完全沒有為測試做任何修改：沒有測試專用的建置選項，也沒有開放遠端偵錯。遠端偵錯只在測試程式設定環境變數（或 CI 上的機器原則，見下）時才會開啟。`PDF_READER_DATA_DIR` 是一般的設定（見 [recent-files.md](recent-files.md)），不是測試專用。
 
@@ -42,7 +45,8 @@ app 本身完全沒有為測試做任何修改：沒有測試專用的建置選�
   - QA-02 初次在 CI 執行時就是這樣：app 正常顯示，但 WebView2 瀏覽器行程的命令列沒有 `--remote-debugging-port`。
   - runner 上是 WebView2 152；本機（一般權限，153）不受影響。
 - **做法**：只在 CI（`CI` 環境變數）上，每次啟動 app 前，在 `HKLM\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments` 寫入以執行檔名稱（`pdf-reader.exe`）為名的值，app 結束後刪除。
-  - 值與環境變數的瀏覽器參數相同：app 的參數、`--remote-debugging-port=<埠>`，需要時再加上 `--force-device-scale-factor` 或 `--log-net-log`。
+  - 值與環境變數的瀏覽器參數相同：`--remote-debugging-port=<埠>`，需要時再加上 `--force-device-scale-factor`、`--log-net-log` 等。它和環境變數一樣加在 app 自己的參數之後。
+  - 值要短。#121 的第一版把 app 的參數也放進這個值，加上 `--log-net-log` 在暫存資料夾的長路徑，約 265 字元；CI 上的 WebView 就沒有帶著偵錯埠啟動（其他測試約 175 字元，都正常）。原因沒有確認，可能是長度上限。現在的值最長約 150 字元。
 - **本機**：不會修改登錄檔，因為那是整台電腦的設定；只用環境變數。
 
 ### 關於 WebView2 的環境變數
@@ -59,6 +63,7 @@ app 本身完全沒有為測試做任何修改：沒有測試專用的建置選�
 | 開啟 `malformed/not-a-pdf.pdf` | 錯誤狀態：「這不是 PDF 檔案。」 |
 | 以開啟對話框開啟（#86） | `Ctrl+O` 後取消：沒有分頁；再按「選擇檔案…」，輸入 `benign/single-page.pdf` 並開啟：分頁出現、第 1 頁已渲染。對話框是系統的，由 `answerFileDialog`（`file-dialog.ps1`）以 UI Automation 找到後回答 |
 | 匯出（B2-04，`export.spec.ts`） | 純文字寫到另存的檔案；兩頁 PNG 寫到選的資料夾（簽名、72 dpi 的寬度）；取消另存時什麼都不寫 |
+| 不自行連網（#121，`network.spec.ts`） | WebView2 瀏覽器行程的命令列帶有 app 的每個參數；啟動、顯示文件並停留到啟動後 25 秒（以 `--component-updater=fast-update` 讓元件更新程式提早到約 10 秒詢問，預設約 60 秒；app 的 `--disable-component-update` 照樣停用它），WebView2 的 net log 除了 app 自己的內容，沒有任何請求 |
 | 儲存（B2-02，`saving.spec.ts`） | 還沒有編輯的 UI，所以以 app 自己的 IPC（`apply_edit`，文件 id 取自頁面的 `data-doc`）旋轉第 1 頁：另存新檔後重新開啟新檔，第 1 頁已旋轉、原檔的雜湊值不變；`Ctrl+S` 寫回原檔；`Ctrl+W` 詢問（取消、不儲存）；以 `closeAppWindow`（對 app 視窗送出 `WM_CLOSE`，同關閉按鈕）關閉視窗時詢問，選「儲存」後 app 結束、重新開啟時第 1 頁已旋轉 |
 
 之後每張功能卡都可以在 `tests/e2e/` 加上自己的驗收情境。預期文字一律從 `src/i18n/zh-TW.ts` 取得，不要寫死。

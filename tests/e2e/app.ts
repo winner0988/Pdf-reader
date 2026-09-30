@@ -5,7 +5,7 @@
 // (the recent files list, #73) goes to a temporary folder too, never to the user's.
 
 import { execFile, execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { get } from "node:http";
 import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -25,19 +25,12 @@ export const corpus = (file: string) => path.join(ROOT, "tests", "corpus", file)
 const STARTUP_TIMEOUT_MS = 30_000;
 
 /**
- * The shipped app's WebView2 arguments (src-tauri/tauri.conf.json), such as those that stop
- * WebView2 connecting on its own (#121). WebView2 takes a test's arguments instead of the app's,
- * so they go along with the debugging port: the app runs as it ships.
- */
-const APP_BROWSER_ARGUMENTS: string =
-  JSON.parse(readFileSync(path.join(ROOT, "src-tauri", "tauri.conf.json"), "utf8")).app.windows[0]
-    .additionalBrowserArgs ?? "";
-
-/**
  * WebView2 Runtime 150 and later ignore WEBVIEW2_* environment variables and per-user policy in
  * elevated processes; only machine policy still adds browser arguments there. GitHub's Windows
  * runners run elevated, so on CI (only: it changes machine-wide settings) the debugging port is
- * also set as that policy, for this executable, while the app starts.
+ * also set as that policy, for this executable, while the app starts. Like the environment
+ * variable, it adds to the arguments the app itself passes (src-tauri/tauri.conf.json, such as
+ * those that stop WebView2 connecting on its own, #121): the app runs as it ships.
  */
 const MACHINE_POLICY = "HKLM\\Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments";
 
@@ -110,7 +103,13 @@ async function connect(port: number, running: Running): Promise<Browser> {
     if (await listening(port)) return chromium.connectOverCDP(endpoint);
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  throw new Error(`the app's WebView did not start within ${STARTUP_TIMEOUT_MS} ms`);
+  // Its browser process's command line says whether WebView2 took the test's arguments: shown in
+  // CI's log, not only in the uploaded files.
+  const browserProcess = running.child.pid === undefined ? "" : browserCommandLine(running.child.pid);
+  throw new Error(
+    `the app's WebView did not start within ${STARTUP_TIMEOUT_MS} ms; its WebView2 browser process:\n` +
+      (browserProcess || "(none)"),
+  );
 }
 
 async function mainPage(browser: Browser): Promise<Page> {
@@ -150,6 +149,19 @@ function processTree(pid: number): string {
   } catch (error) {
     return `(process list failed: ${String(error)})`;
   }
+}
+
+/** The WebView2 browser process under the app with `pid`, as "<id> <name> <command line>". */
+function browserCommandLine(pid: number): string {
+  return processTree(pid)
+    .split(/\r?\n/)
+    .filter((line) => /msedgewebview2\.exe/i.test(line) && !line.includes("--type="))
+    .join("\n");
+}
+
+/** The command line of the app's WebView2 browser process: the arguments WebView2 runs with. */
+export function webViewCommandLine(page: Page): string {
+  return browserCommandLine(appProcessId(page));
 }
 
 function stop(running: Running) {
@@ -245,6 +257,8 @@ export type LaunchOptions = {
   dataDir?: string;
   /** Where WebView2 writes its network log (`--log-net-log`): every request it makes (#121). */
   netLog?: string;
+  /** More WebView2 arguments, for this launch only. */
+  browserArguments?: string[];
 };
 
 export const test = base.extend<{
@@ -259,13 +273,13 @@ export const test = base.extend<{
       const profile = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-"));
       const data = options.dataDir ?? mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-data-"));
       const browserArguments = [
-        APP_BROWSER_ARGUMENTS,
         `--remote-debugging-port=${port}`,
         ...(options.deviceScaleFactor ? [`--force-device-scale-factor=${options.deviceScaleFactor}`] : []),
         // Quoted only when it must be: on CI the arguments also go through `reg add`.
         ...(options.netLog
-          ? [`--log-net-log=${/\s/.test(options.netLog) ? `"${options.netLog}"` : options.netLog}`, "--net-log-capture-mode=Default"]
+          ? [`--log-net-log=${/\s/.test(options.netLog) ? `"${options.netLog}"` : options.netLog}`]
           : []),
+        ...(options.browserArguments ?? []),
       ]
         .filter(Boolean)
         .join(" ");
