@@ -5,7 +5,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use ts_rs::TS;
 use zeroize::Zeroize;
 
-/// Opaque handle for an open document, assigned by the main process. Never a path.
+/// Opaque handle for an open document, assigned by the main process. Never a path. It stands for
+/// the document's content: every edit gives the document a new id (B2-02), so pages, text and
+/// links fetched for an earlier id are never mistaken for the current ones.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 pub struct DocumentId(pub u32);
 
@@ -138,6 +140,32 @@ pub enum ExportEvent {
     Progress { pages_done: u32, total: u32 },
 }
 
+/// A change to an open document (ADR 0013), applied in its worker. Page management (B2-05) adds
+/// more kinds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Edit {
+    /// Turns `pages` (0-based, no repeats) clockwise by `by`, on top of their current rotation.
+    RotatePages { pages: Vec<u32>, by: Rotation },
+}
+
+/// Arguments of `apply_edit` (B2-02). Any other field is rejected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EditArgs {
+    pub doc: DocumentId,
+    pub edit: Edit,
+}
+
+/// How `save_document` or `save_document_as` wrote the file (B2-02, ADR 0013).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveResult {
+    /// Appended to the file instead of rewriting it, to keep its signatures valid: content that
+    /// was removed may still be in the file.
+    pub incremental: bool,
+}
+
 /// Arguments of `set_file_recording` (#73): whether an open document's file may be on the recent
 /// files list. Any other field is rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -159,7 +187,8 @@ pub struct PageSize {
     pub height_pt: f32,
 }
 
-/// Clockwise view rotation. Only affects rendering; the file is never modified.
+/// A clockwise rotation in quarter turns: of the view in `render_page`, which never changes the
+/// file, or of pages in `Edit::RotatePages`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum Rotation {
@@ -273,6 +302,10 @@ pub struct DocumentPermissions {
     pub print: bool,
     /// Printing at full quality; without it only a low-resolution image is printed.
     pub print_high_quality: bool,
+    /// Changing the document (`/P` bit 4).
+    pub modify: bool,
+    /// Inserting, deleting and rotating pages (`/P` bit 11, or bit 4 before revision 3).
+    pub assemble: bool,
 }
 
 impl DocumentPermissions {
@@ -280,6 +313,8 @@ impl DocumentPermissions {
         copy: true,
         print: true,
         print_high_quality: true,
+        modify: true,
+        assemble: true,
     };
 }
 
@@ -295,6 +330,8 @@ pub struct DocumentInfo {
     pub has_outline: bool,
     pub security: SecurityReport,
     pub permissions: DocumentPermissions,
+    /// Changed since it was opened or last saved (B2-02): the file does not have the changes yet.
+    pub unsaved: bool,
 }
 
 /// Arguments of the `render_page` command.
@@ -577,6 +614,17 @@ pub enum ErrorCode {
     WorkerTimeout,
     /// The worker sent a message that failed validation.
     ProtocolViolation,
+    /// Saving (B2-02): the file or its folder cannot be written (read-only, or no access).
+    ReadOnly,
+    /// Saving: the disk is full.
+    DiskFull,
+    /// Saving: another program has the file open.
+    FileInUse,
+    /// Saving: another program changed the file after it was opened; overwriting it would lose
+    /// that change, so the user is asked to save a copy instead.
+    ChangedOnDisk,
+    /// Saving: the file could not be written for another reason.
+    Unwritable,
     Internal,
 }
 
@@ -618,6 +666,9 @@ pub enum OpenEvent {
     /// `ignored_files` files were not opened: the window already has `MAX_TABS` tabs.
     #[serde(rename_all = "camelCase")]
     TabLimit { ignored_files: u32 },
+    /// The user asked to close the window while `tabs` have unsaved changes (B2-02): the window
+    /// stays open until the frontend has asked what to do and calls `close_window`.
+    CloseRequested { tabs: Vec<TabId> },
 }
 
 #[cfg(test)]

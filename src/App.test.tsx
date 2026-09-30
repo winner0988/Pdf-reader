@@ -33,7 +33,8 @@ const info = (doc: number, displayName: string, pages = 10): DocumentInfo => ({
   pages: Array.from({ length: pages }, () => ({ widthPt: 612, heightPt: 792 })),
   hasOutline: false,
   security: { findings: [], scanComplete: true },
-  permissions: { copy: true, print: true, printHighQuality: true },
+  permissions: { copy: true, print: true, printHighQuality: true, modify: true, assemble: true },
+  unsaved: false,
 });
 
 const opening = (tab: number, displayName: string): OpenEvent => ({ kind: "opening", tab, displayName });

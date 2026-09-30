@@ -14,6 +14,9 @@ import { ExportDialog } from "@/features/export/ExportDialog";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
 import { ALL_PERMISSIONS, restrictionSummary } from "@/features/permissions/permissions";
 import type { RecentApi } from "@/features/recent/api";
+import type { SavingApi } from "@/features/saving/api";
+import { saveAsHelps } from "@/features/saving/messages";
+import { SaveFailedDialog } from "@/features/saving/SaveFailedDialog";
 import { useSearch, type SearchApi } from "@/features/search/useSearch";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { useSettings } from "@/features/settings/useSettings";
@@ -21,7 +24,7 @@ import { SecurityBanner } from "@/features/security-banner/SecurityBanner";
 import { SecurityDetails } from "@/features/security-banner/SecurityDetails";
 import { hasBannerContent } from "@/features/security-banner/summary";
 import { AboutDialog, SetDefaultFailedDialog, ShortcutsDialog } from "@/features/shell/dialogs";
-import { rotate, stepZoom, type Rotation, type ShellState, type Zoom } from "@/features/shell/model";
+import { rotate, sameSession, stepZoom, type Rotation, type ShellState, type Zoom } from "@/features/shell/model";
 import { PrintDialog } from "@/features/print/PrintDialog";
 import { PrintPages } from "@/features/print/PrintPages";
 import { freePrintPages, LOW_RES_PRINT_DPI, PRINT_DPI, renderForPrint, type PrintPage } from "@/features/print/render";
@@ -38,7 +41,7 @@ import { DocumentView, type DocumentViewHandle } from "@/features/viewer/Documen
 import type { PageRenderer } from "@/features/viewer/renderer";
 import type { OutlineView } from "@/features/outline/tree";
 import { strings } from "@/i18n/zh-TW";
-import type { BlockedAction, LinkPreview, LinkTarget, PageLink } from "@/ipc/generated/contract";
+import type { BlockedAction, LinkPreview, LinkTarget, PageLink, SaveResult } from "@/ipc/generated/contract";
 
 /**
  * A link dialog that is open: the confirmation of a web link (with how to open it: by the
@@ -73,6 +76,8 @@ type ReaderShellProps = {
   recentApi?: RecentApi;
   /** Exports pages as text or PNG files (B2-04); without it (demo data, tests) nothing can be. */
   exportApi?: ExportApi;
+  /** Saves the document (B2-02); without it (demo data, tests) nothing can be. */
+  savingApi?: SavingApi;
   /** Whether this shell is the one shown (MVP-14): a hidden tab's shell handles no keys. */
   active?: boolean;
   version?: string;
@@ -124,6 +129,7 @@ export function ReaderShell({
   systemApi,
   recentApi,
   exportApi,
+  savingApi,
   active = true,
   version = "0.1.0",
   loadingDelayMs,
@@ -148,6 +154,8 @@ export function ReaderShell({
   const [dialog, setDialog] = useState<"shortcuts" | "about" | "settings" | "setDefaultFailed" | "print" | "export" | null>(
     null,
   );
+  /** Why saving failed (B2-02), while that is shown. */
+  const [saveFailed, setSaveFailed] = useState<unknown>(null);
   /** Pages rendered for printing, while the system's print dialog is up (MVP-17). */
   const [printPages, setPrintPages] = useState<PrintPage[] | null>(null);
   /** Whether the document's file may be on the recent files list (#73); null until asked. */
@@ -167,10 +175,13 @@ export function ReaderShell({
   const linkSource = useMemo(() => (linksApi ? createLinkSource(linksApi) : undefined), [linksApi]);
   const textSource = useMemo(() => (textApi ? createTextSource(textApi) : undefined), [textApi]);
 
-  // Per-document view state starts fresh for every newly opened document (nothing is remembered).
+  // Per-document view state starts fresh for every newly opened document (nothing is remembered);
+  // an edit or saving (B2-02) changes the document shown, not which one it is.
   const [viewedDocument, setViewedDocument] = useState(document_);
   if (viewedDocument !== document_) {
     setViewedDocument(document_);
+  }
+  if (viewedDocument !== document_ && !sameSession(viewedDocument, document_)) {
     setZoom("fitWidth");
     setRotation(0);
     setCurrentPage(1);
@@ -265,8 +276,26 @@ export function ReaderShell({
   // permission to copy covers it (MVP-19).
   const exportable = document_?.doc !== undefined && exportApi !== undefined;
 
+  // Saving (B2-02) needs the main process, which has the file: not for demo data.
+  const doc = document_?.doc;
+  const savable = doc !== undefined && savingApi !== undefined;
+  const saved = (result: SaveResult | null) => {
+    if (result) showHint(result.incremental ? strings.saving.savedIncremental : strings.saving.saved);
+  };
+  const save = () => {
+    if (!savable || !document_?.unsaved) return;
+    savingApi.save(doc).then(saved, setSaveFailed);
+  };
+  const saveAs = () => {
+    setSaveFailed(null);
+    if (savable) savingApi.saveAs(doc).then(saved, setSaveFailed);
+  };
+
   useShortcuts({
     open: onOpen,
+    // Always taken, even with nothing to save: the WebView would otherwise save the page.
+    save,
+    saveAs,
     close: onClose,
     print,
     copy: () => !hasPageSelection() && copySelection(),
@@ -381,6 +410,8 @@ export function ReaderShell({
           }}
           onPrint={printable && permissions.print ? print : undefined}
           printBlocked={!permissions.print}
+          onSave={savable && document_?.unsaved ? save : undefined}
+          onSaveAs={savable ? saveAs : undefined}
           onExport={exportable && permissions.copy ? () => setDialog("export") : undefined}
           exportBlocked={exportable && !permissions.copy}
           onMoreMenuOpen={askRecording}
@@ -510,6 +541,11 @@ export function ReaderShell({
           onClose={() => setLinkDialog(null)}
         />
       )}
+      <SaveFailedDialog
+        failure={saveFailed}
+        onSaveAs={savable && saveAsHelps(saveFailed) ? saveAs : undefined}
+        onClose={() => setSaveFailed(null)}
+      />
       <ShortcutsDialog open={dialog === "shortcuts"} onOpenChange={(open) => setDialog(open ? "shortcuts" : null)} />
       <SetDefaultFailedDialog
         open={dialog === "setDefaultFailed"}

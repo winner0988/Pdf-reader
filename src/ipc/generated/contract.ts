@@ -2,7 +2,9 @@
 // See docs/architecture/ipc-contract.md.
 
 /**
- * Opaque handle for an open document, assigned by the main process. Never a path.
+ * Opaque handle for an open document, assigned by the main process. Never a path. It stands for
+ * the document's content: every edit gives the document a new id (B2-02), so pages, text and
+ * links fetched for an earlier id are never mistaken for the current ones.
  */
 export type DocumentId = number;
 
@@ -86,6 +88,27 @@ pages: Array<number>, format: ExportFormat, };
 export type ExportEvent = { "kind": "progress", pagesDone: number, total: number, };
 
 /**
+ * A change to an open document (ADR 0013), applied in its worker. Page management (B2-05) adds
+ * more kinds.
+ */
+export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, };
+
+/**
+ * Arguments of `apply_edit` (B2-02). Any other field is rejected.
+ */
+export type EditArgs = { doc: DocumentId, edit: Edit, };
+
+/**
+ * How `save_document` or `save_document_as` wrote the file (B2-02, ADR 0013).
+ */
+export type SaveResult = { 
+/**
+ * Appended to the file instead of rewriting it, to keep its signatures valid: content that
+ * was removed may still be in the file.
+ */
+incremental: boolean, };
+
+/**
  * Caller-chosen id used to correlate and cancel a request.
  */
 export type RequestId = number;
@@ -96,7 +119,8 @@ export type RequestId = number;
 export type PageSize = { widthPt: number, heightPt: number, };
 
 /**
- * Clockwise view rotation. Only affects rendering; the file is never modified.
+ * A clockwise rotation in quarter turns: of the view in `render_page`, which never changes the
+ * file, or of pages in `Edit::RotatePages`.
  */
 export type Rotation = "none" | "cw90" | "cw180" | "cw270";
 
@@ -140,7 +164,15 @@ export type DocumentPermissions = { copy: boolean, print: boolean,
 /**
  * Printing at full quality; without it only a low-resolution image is printed.
  */
-printHighQuality: boolean, };
+printHighQuality: boolean, 
+/**
+ * Changing the document (`/P` bit 4).
+ */
+modify: boolean, 
+/**
+ * Inserting, deleting and rotating pages (`/P` bit 11, or bit 4 before revision 3).
+ */
+assemble: boolean, };
 
 /**
  * An open document as the frontend sees it.
@@ -153,7 +185,11 @@ displayName: string,
 /**
  * One entry per page; the page count is `pages.length`.
  */
-pages: Array<PageSize>, hasOutline: boolean, security: SecurityReport, permissions: DocumentPermissions, };
+pages: Array<PageSize>, hasOutline: boolean, security: SecurityReport, permissions: DocumentPermissions, 
+/**
+ * Changed since it was opened or last saved (B2-02): the file does not have the changes yet.
+ */
+unsaved: boolean, };
 
 /**
  * Arguments of the `render_page` command.
@@ -272,7 +308,7 @@ edges: Array<number>, };
 /**
  * Error codes the frontend maps to localized messages.
  */
-export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "internal";
+export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "internal";
 
 /**
  * Rejection value of every command. `message` is for logs and must not contain paths or
@@ -286,7 +322,7 @@ export type IpcError = { code: ErrorCode, message: string, };
  * the app. Every file gets its own tab (MVP-14): `Opening` adds it, then `Opened` or `Failed`
  * says how it went.
  */
-export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, };
+export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, } | { "kind": "closeRequested", tabs: Array<TabId>, };
 
 /** Limits enforced by the main process (crates/ipc_contract/src/limits.rs). */
 export const LIMITS = {

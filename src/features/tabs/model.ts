@@ -22,6 +22,8 @@ export type TabsNotice =
 export type TabsState = {
   /** In the order the tabs were added. */
   tabs: Tab[];
+  /** The window is to close, but these tabs have unsaved changes (B2-02): ask the user first. */
+  closeRequest: TabId[] | null;
   active: TabId | null;
   /** Tabs the user closed. Tab ids are never reused, so events still on their way for these are ignored. */
   closed: TabId[];
@@ -36,9 +38,17 @@ export type TabsAction =
   | { type: "step"; by: 1 | -1 }
   | { type: "closed"; tab: TabId }
   | { type: "failed"; code: ErrorCode }
-  | { type: "dismissNotice" };
+  | { type: "dismissNotice" }
+  | { type: "dismissCloseRequest" };
 
-export const initialTabs: TabsState = { tabs: [], active: null, closed: [], dragActive: false, notice: null };
+export const initialTabs: TabsState = {
+  tabs: [],
+  closeRequest: null,
+  active: null,
+  closed: [],
+  dragActive: false,
+  notice: null,
+};
 
 export function toShellDocument(info: DocumentInfo): ShellDocument {
   return {
@@ -48,7 +58,13 @@ export function toShellDocument(info: DocumentInfo): ShellDocument {
     findings: info.security.findings,
     scanComplete: info.security.scanComplete,
     permissions: info.permissions,
+    unsaved: info.unsaved,
   };
+}
+
+/** Whether the tab's document has unsaved changes (B2-02). */
+export function isUnsaved(tab: Tab): boolean {
+  return tab.content.kind === "open" && tab.content.document.unsaved === true;
 }
 
 /** Element ids that tie a tab to its panel (aria-controls, aria-labelledby). */
@@ -108,6 +124,8 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsState {
       return { ...state, notice: { kind: "failed", code: action.code } };
     case "dismissNotice":
       return { ...state, notice: null };
+    case "dismissCloseRequest":
+      return { ...state, closeRequest: null };
     case "event":
       break;
   }
@@ -120,16 +138,24 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsState {
         ...upsert(state, { tab: event.tab, displayName: event.displayName, content: { kind: "loading" } }, true),
         dragActive: false,
       };
-    case "opened":
+    case "opened": {
+      // An open tab hearing about its document again: it was edited or saved (B2-02).
+      const shown = state.tabs.find((tab) => tab.tab === event.tab)?.content;
+      const session = shown?.kind === "open" ? shown.document.session : event.info.doc;
       return upsert(
         state,
         {
           tab: event.tab,
           displayName: event.info.displayName,
-          content: { kind: "open", document: toShellDocument(event.info), hasOutline: event.info.hasOutline },
+          content: {
+            kind: "open",
+            document: { ...toShellDocument(event.info), session },
+            hasOutline: event.info.hasOutline,
+          },
         },
         false,
       );
+    }
     case "passwordNeeded":
       return upsert(
         state,
@@ -144,5 +170,7 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsState {
       );
     case "tabLimit":
       return { ...state, notice: { kind: "tabLimit", ignoredFiles: event.ignoredFiles } };
+    case "closeRequested":
+      return { ...state, closeRequest: event.tabs };
   }
 }

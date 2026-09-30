@@ -446,6 +446,7 @@ function PageSlot({ index, box, left, doc, renderer, scale, paused, rotation, re
       role="img"
       aria-label={strings.canvas.page(index + 1)}
       data-state={state.kind}
+      data-doc={doc}
       className="absolute flex items-center justify-center overflow-hidden bg-white text-sm text-neutral-400 shadow-sm ring-1 ring-black/10"
       style={{ top: box.top, left, width: box.width, height: box.height }}
     >

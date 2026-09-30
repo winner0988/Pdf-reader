@@ -7,6 +7,8 @@ import { tauriLinksApi, type LinksApi } from "@/features/links/source";
 import { tauriSearchApi, type SearchApi } from "@/features/search/useSearch";
 import { tauriOutlineApi, useOutline, type OutlineApi } from "@/features/outline/useOutline";
 import { tauriRecentApi, type RecentApi } from "@/features/recent/api";
+import { tauriSavingApi, type SavingApi } from "@/features/saving/api";
+import { UnsavedDialog } from "@/features/saving/UnsavedDialog";
 import { tauriSettingsApi, type SettingsApi } from "@/features/settings/api";
 import { SettingsProvider } from "@/features/settings/SettingsProvider";
 import { DevDemoSwitcher } from "@/features/shell/DevDemoSwitcher";
@@ -15,7 +17,7 @@ import { ReaderShell } from "@/features/shell/ReaderShell";
 import { useShortcuts } from "@/features/shortcuts/useShortcuts";
 import { tauriSystemApi, type SystemApi } from "@/features/system/defaultApp";
 import { tauriTextApi, type TextApi } from "@/features/text/source";
-import { docOf, shellState, tabElementId, tabPanelId, type Tab } from "@/features/tabs/model";
+import { docOf, isUnsaved, shellState, tabElementId, tabPanelId, type Tab } from "@/features/tabs/model";
 import { TabBar } from "@/features/tabs/TabBar";
 import { useTabs } from "@/features/tabs/useTabs";
 import { createPageRenderer, tauriRenderApi, type PageRenderer, type RenderApi } from "@/features/viewer/renderer";
@@ -32,6 +34,7 @@ type AppProps = {
   recentApi?: RecentApi;
   settingsApi?: SettingsApi;
   exportApi?: ExportApi;
+  savingApi?: SavingApi;
 };
 
 export default function App({
@@ -45,6 +48,7 @@ export default function App({
   recentApi = tauriRecentApi,
   settingsApi = tauriSettingsApi,
   exportApi = tauriExportApi,
+  savingApi = tauriSavingApi,
 }: AppProps) {
   const tabs = useTabs(api);
   const { state } = tabs;
@@ -62,6 +66,25 @@ export default function App({
     tabs.open();
   };
 
+  // Unsaved changes (B2-02): closing their tab, or the window, asks first.
+  const [closing, setClosing] = useState<TabId | null>(null);
+  const requestClose = (tab: TabId) => {
+    const found = state.tabs.find((candidate) => candidate.tab === tab);
+    if (found && isUnsaved(found)) setClosing(tab);
+    else tabs.close(tab);
+  };
+  const closingTab = state.tabs.find((tab) => tab.tab === closing && isUnsaved(tab));
+  const closeRequest = state.closeRequest
+    ? state.tabs.filter((tab) => state.closeRequest?.includes(tab.tab) && isUnsaved(tab))
+    : [];
+  /** Saves each tab's document in turn; stops at the first that fails. */
+  const saveAll = async (list: Tab[]) => {
+    for (const tab of list) {
+      const doc = docOf(tab);
+      if (doc !== null) await savingApi.save(doc);
+    }
+  };
+
   return (
     <SettingsProvider api={settingsApi}>
       <div className="flex h-screen flex-col">
@@ -70,7 +93,7 @@ export default function App({
             tabs={state.tabs}
             active={state.active}
             onActivate={tabs.activate}
-            onClose={tabs.close}
+            onClose={requestClose}
             onOpen={open}
           />
         )}
@@ -100,8 +123,9 @@ export default function App({
                 systemApi={systemApi}
                 recentApi={recentApi}
                 exportApi={exportApi}
+                savingApi={savingApi}
                 onOpen={open}
-                onClose={tabs.close}
+                onClose={requestClose}
                 onRetry={tabs.retry}
                 onUnlock={tabs.unlock}
               />
@@ -109,6 +133,31 @@ export default function App({
           )}
         </div>
         {state.notice && <OpenNotice notice={state.notice} onDismiss={tabs.dismissNotice} />}
+        <UnsavedDialog
+          names={closingTab ? [closingTab.displayName] : null}
+          onSave={async () => {
+            if (!closingTab) return;
+            await saveAll([closingTab]);
+            tabs.close(closingTab.tab);
+            setClosing(null);
+          }}
+          onDiscard={() => {
+            if (closingTab) tabs.close(closingTab.tab);
+            setClosing(null);
+          }}
+          onCancel={() => setClosing(null)}
+        />
+        <UnsavedDialog
+          names={closeRequest.length > 0 ? closeRequest.map((tab) => tab.displayName) : null}
+          onSave={async () => {
+            await saveAll(closeRequest);
+            await savingApi.closeWindow(false);
+          }}
+          onDiscard={() => {
+            savingApi.closeWindow(true).catch(() => {});
+          }}
+          onCancel={tabs.dismissCloseRequest}
+        />
         {import.meta.env.DEV && <DevDemoSwitcher onChange={setDemo} />}
       </div>
     </SettingsProvider>
@@ -127,6 +176,7 @@ type TabPaneProps = {
   systemApi: SystemApi;
   recentApi: RecentApi;
   exportApi: ExportApi;
+  savingApi: SavingApi;
   onOpen: () => void;
   onClose: (tab: TabId) => void;
   onRetry: (tab: TabId) => void;

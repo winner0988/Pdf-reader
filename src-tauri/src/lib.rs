@@ -16,6 +16,7 @@ mod local_data;
 mod opener;
 mod recent;
 mod render;
+mod saving;
 mod search;
 mod settings;
 mod strings;
@@ -101,6 +102,10 @@ pub fn run() {
             commands::set_settings,
             commands::clear_recent_exclusions,
             commands::export_pages,
+            commands::apply_edit,
+            commands::save_document,
+            commands::save_document_as,
+            commands::close_window,
         ])
         .on_window_event(commands::on_window_event)
         .setup(move |app| {

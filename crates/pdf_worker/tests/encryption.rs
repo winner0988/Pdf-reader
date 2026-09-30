@@ -103,14 +103,14 @@ fn restricted_samples_open_without_a_password_and_report_their_permissions() {
                 copy: false,
                 print: false,
                 print_high_quality: false,
+                ..DocumentPermissions::ALL
             },
         ),
         (
             "benign/restricted-low-res-print.pdf",
             DocumentPermissions {
-                copy: true,
-                print: true,
                 print_high_quality: false,
+                ..DocumentPermissions::ALL
             },
         ),
         ("benign/single-page.pdf", DocumentPermissions::ALL),
@@ -121,12 +121,23 @@ fn restricted_samples_open_without_a_password_and_report_their_permissions() {
             "{name}"
         );
     }
-    // Opened with a password, the encrypted samples allow everything.
-    for name in ["benign/encrypted-rc4-40.pdf", "benign/encrypted-aes256.pdf"] {
+    // Opened with a password: the AES sample allows everything; the RC4 one (revision 2, /P -44)
+    // allows copying and printing, but not changing the document.
+    for (name, permissions) in [
+        (
+            "benign/encrypted-rc4-40.pdf",
+            DocumentPermissions {
+                modify: false,
+                assemble: false,
+                ..DocumentPermissions::ALL
+            },
+        ),
+        ("benign/encrypted-aes256.pdf", DocumentPermissions::ALL),
+    ] {
         let password = Password::new("user".to_owned());
         assert_eq!(
             opened_permissions(host().open_with_password(&corpus(name), password)),
-            DocumentPermissions::ALL,
+            permissions,
             "{name}"
         );
     }

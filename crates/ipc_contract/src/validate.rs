@@ -11,9 +11,9 @@ use thiserror::Error;
 use crate::limits::*;
 use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text};
 use crate::types::{
-    DocumentInfo, ExportArgs, ExportFormat, FindingKind, IpcError, LinkTarget, OpenEvent,
-    OutlineItem, OutlineResult, PageLink, PageSize, PageText, Point, Quad, RecentFile, Rect,
-    RenderPageArgs, SearchArgs, SearchHit, SecurityReport, TextLine, UnlockArgs,
+    DocumentInfo, Edit, EditArgs, ExportArgs, ExportFormat, FindingKind, IpcError, LinkTarget,
+    OpenEvent, OutlineItem, OutlineResult, PageLink, PageSize, PageText, Point, Quad, RecentFile,
+    Rect, RenderPageArgs, Rotation, SearchArgs, SearchHit, SecurityReport, TextLine, UnlockArgs,
 };
 use crate::worker::{OpenedDocument, Raster, WorkerError, WorkerResponse};
 
@@ -305,16 +305,21 @@ impl Validate for SearchHit {
 
 impl Validate for OpenedDocument {
     fn validate(&self) -> Result<(), ValidationError> {
-        if self.pages.is_empty() {
-            return Err(ValidationError::Invalid {
-                what: "document",
-                reason: "has no pages",
-            });
-        }
-        check_count("pages", self.pages.len(), MAX_PAGE_COUNT)?;
-        self.pages.iter().try_for_each(PageSize::validate)?;
+        check_pages(&self.pages)?;
         self.security.validate()
     }
+}
+
+/// A document's pages: at least one, at most `MAX_PAGE_COUNT`, each a sane size.
+fn check_pages(pages: &[PageSize]) -> Result<(), ValidationError> {
+    if pages.is_empty() {
+        return Err(ValidationError::Invalid {
+            what: "document",
+            reason: "has no pages",
+        });
+    }
+    check_count("pages", pages.len(), MAX_PAGE_COUNT)?;
+    pages.iter().try_for_each(PageSize::validate)
 }
 
 impl Validate for Raster {
@@ -381,6 +386,15 @@ impl Validate for WorkerResponse {
             WorkerResponse::PageSearched { hits, .. } => {
                 check_count("search hits", hits.len(), MAX_SEARCH_HITS)?;
                 hits.iter().try_for_each(SearchHit::validate)
+            }
+            WorkerResponse::Edited { pages, .. } => check_pages(pages),
+            WorkerResponse::Saved { bytes, .. } => {
+                if *bytes == 0 || *bytes > MAX_DOCUMENT_BYTES {
+                    return Err(ValidationError::OutOfRange {
+                        what: "saved file size",
+                    });
+                }
+                Ok(())
             }
             WorkerResponse::Error { error, .. } => error.validate(),
         }
@@ -480,6 +494,44 @@ impl Validate for ExportArgs {
     }
 }
 
+impl Validate for EditArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.edit.validate()
+    }
+}
+
+/// An edit's own bounds; its pages are checked against the document by the caller
+/// ([`check_page_index`]).
+impl Validate for Edit {
+    fn validate(&self) -> Result<(), ValidationError> {
+        match self {
+            Edit::RotatePages { pages, by } => {
+                if pages.is_empty() {
+                    return Err(ValidationError::Invalid {
+                        what: "pages to rotate",
+                        reason: "empty",
+                    });
+                }
+                check_count("pages to rotate", pages.len(), MAX_PAGE_COUNT)?;
+                let unique: HashSet<u32> = pages.iter().copied().collect();
+                if unique.len() != pages.len() {
+                    return Err(ValidationError::Invalid {
+                        what: "pages to rotate",
+                        reason: "a page appears twice",
+                    });
+                }
+                if *by == Rotation::None {
+                    return Err(ValidationError::Invalid {
+                        what: "rotation",
+                        reason: "turns nothing",
+                    });
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 /// A display name is a bare file name; anything that looks like a path is a bug.
 fn check_display_name(name: &str) -> Result<(), ValidationError> {
     check_text("display name", name, MAX_DISPLAY_NAME_BYTES)?;
@@ -525,6 +577,7 @@ impl Validate for OpenEvent {
     fn validate(&self) -> Result<(), ValidationError> {
         match self {
             OpenEvent::DragHover { .. } | OpenEvent::TabLimit { .. } => Ok(()),
+            OpenEvent::CloseRequested { tabs } => check_count("unsaved tabs", tabs.len(), MAX_TABS),
             OpenEvent::Opening { display_name, .. }
             | OpenEvent::PasswordNeeded { display_name, .. } => check_display_name(display_name),
             OpenEvent::Opened { info, .. } => info.validate(),
@@ -986,6 +1039,46 @@ mod tests {
     }
 
     #[test]
+    fn edits_name_existing_pages_once_and_turn_them() {
+        let rotate = |pages: Vec<u32>, by: Rotation| EditArgs {
+            doc: DocumentId(1),
+            edit: Edit::RotatePages { pages, by },
+        };
+        assert!(rotate(vec![0, 2], Rotation::Cw90).validate().is_ok());
+        assert!(rotate(vec![], Rotation::Cw90).validate().is_err());
+        assert!(rotate(vec![1, 1], Rotation::Cw180).validate().is_err());
+        assert!(rotate(vec![1], Rotation::None).validate().is_err());
+        // The frontend's form: tagged by kind, as everything else it sends.
+        assert_eq!(
+            serde_json::from_value::<EditArgs>(serde_json::json!({
+                "doc": 1,
+                "edit": { "kind": "rotatePages", "pages": [0], "by": "cw270" }
+            }))
+            .unwrap(),
+            rotate(vec![0], Rotation::Cw270)
+        );
+    }
+
+    #[test]
+    fn edited_pages_and_saved_files_are_bounded() {
+        let edited = |pages: Vec<PageSize>| WorkerResponse::Edited {
+            request: RequestId(1),
+            pages,
+        };
+        assert!(edited(vec![page(792.0, 612.0)]).validate().is_ok());
+        assert!(edited(Vec::new()).validate().is_err());
+        assert!(edited(vec![page(f32::NAN, 612.0)]).validate().is_err());
+        let saved = |bytes: u64| WorkerResponse::Saved {
+            request: RequestId(1),
+            bytes,
+            incremental: false,
+        };
+        assert!(saved(1_234).validate().is_ok());
+        assert!(saved(0).validate().is_err());
+        assert!(saved(MAX_DOCUMENT_BYTES + 1).validate().is_err());
+    }
+
+    #[test]
     fn display_name_must_not_be_a_path() {
         let info = |display_name: &str| DocumentInfo {
             doc: DocumentId(1),
@@ -994,6 +1087,7 @@ mod tests {
             has_outline: false,
             security: SecurityReport::default(),
             permissions: DocumentPermissions::ALL,
+            unsaved: false,
         };
         assert!(info("報告.pdf").validate().is_ok());
         assert!(info(r"C:\Users\someone\報告.pdf").validate().is_err());

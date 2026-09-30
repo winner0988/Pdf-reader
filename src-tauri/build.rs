@@ -29,6 +29,10 @@ fn main() {
         "set_settings",
         "clear_recent_exclusions",
         "export_pages",
+        "apply_edit",
+        "save_document",
+        "save_document_as",
+        "close_window",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("failed to run tauri-build");

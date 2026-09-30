@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { initialTabs, reduceTabs, shellState, type TabsAction, type TabsState } from "@/features/tabs/model";
+import { initialTabs, isUnsaved, reduceTabs, shellState, type TabsAction, type TabsState } from "@/features/tabs/model";
 import type { DocumentInfo, OpenEvent } from "@/ipc/generated/contract";
 
 const info = (doc: number, displayName: string): DocumentInfo => ({
@@ -9,7 +9,8 @@ const info = (doc: number, displayName: string): DocumentInfo => ({
   pages: [{ widthPt: 612, heightPt: 792 }],
   hasOutline: true,
   security: { findings: [], scanComplete: true },
-  permissions: { copy: true, print: true, printHighQuality: true },
+  permissions: { copy: true, print: true, printHighQuality: true, modify: true, assemble: true },
+  unsaved: false,
 });
 
 const event = (e: OpenEvent): TabsAction => ({ type: "event", event: e });
@@ -109,5 +110,41 @@ describe("tabs", () => {
     expect(limited.notice).toEqual({ kind: "tabLimit", ignoredFiles: 4 });
     expect(run([{ type: "failed", code: "internal" }]).notice).toEqual({ kind: "failed", code: "internal" });
     expect(run([{ type: "dismissNotice" }], limited).notice).toBeNull();
+  });
+
+  it("an edited or saved document stays the same opened file; opening it again does not (B2-02)", () => {
+    const opened = run([
+      event({ kind: "opening", tab: 1, displayName: "a.pdf" }),
+      event({ kind: "opened", tab: 1, info: info(9, "a.pdf") }),
+    ]);
+    const session = (state: TabsState) => {
+      const content = state.tabs[0]?.content;
+      return content?.kind === "open" ? content.document.session : undefined;
+    };
+    expect(session(opened)).toBe(9);
+    // An edit gives the document a new id; it is still the file the tab opened.
+    const edited = run([event({ kind: "opened", tab: 1, info: { ...info(12, "a.pdf"), unsaved: true } })], opened);
+    expect(session(edited)).toBe(9);
+    expect(isUnsaved(edited.tabs[0]!)).toBe(true);
+    // Saved as another file: still the same session, under its new name.
+    const saved = run([event({ kind: "opened", tab: 1, info: info(12, "b.pdf") })], edited);
+    expect(saved.tabs[0]?.displayName).toBe("b.pdf");
+    expect(session(saved)).toBe(9);
+    expect(isUnsaved(saved.tabs[0]!)).toBe(false);
+    // A tab that asked for a password again opens its file anew.
+    const reopened = run(
+      [
+        event({ kind: "passwordNeeded", tab: 1, displayName: "b.pdf", wrong: false }),
+        event({ kind: "opened", tab: 1, info: info(15, "b.pdf") }),
+      ],
+      saved,
+    );
+    expect(session(reopened)).toBe(15);
+  });
+
+  it("keeps the window's close request until it is answered (B2-02)", () => {
+    const asked = run([event({ kind: "closeRequested", tabs: [1, 2] })]);
+    expect(asked.closeRequest).toEqual([1, 2]);
+    expect(run([{ type: "dismissCloseRequest" }], asked).closeRequest).toBeNull();
   });
 });

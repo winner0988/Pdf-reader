@@ -65,6 +65,10 @@ flowchart LR
 | `get_settings` | 無 | `Settings`：`theme`（`system`／`light`／`dark`）、`recordRecentFiles`（見 [local-data.md](local-data.md)） | 否 | B2-12 |
 | `set_settings` | `{ settings: Settings }`（完整的一組，其他欄位一律拒絕） | 無；立即套用並寫入 `settings.json`，寫不進去時回傳 `unreadable`（仍然套用）；關閉最近開啟的檔案時一併清除清單 | 否 | B2-12 |
 | `export_pages` | `{ args: ExportArgs, onEvent: Channel<ExportEvent> }`：`request`、`doc`、`pages`（最多 `LIMITS.maxExportPages`）、`format`（`text` 或 `png` 與 `dpi`）；不含路徑，其他欄位一律拒絕 | `boolean`：`false` 表示使用者關閉了系統的對話框；進度走頻道；以 `cancel(args.request)` 停止。作者禁止複製時拒絕（見 [export.md](export.md)） | 是 | B2-04 |
+| `apply_edit` | `{ args: EditArgs }`：`doc`、`edit`（`Edit`：目前只有 `rotatePages`，`pages` 與 `by`）；其他欄位一律拒絕 | 無；文件換新的 `DocumentId`，分頁的新狀態（`opened`，`unsaved: true`）走開檔頻道。作者禁止時拒絕（見 [saving.md](saving.md)） | 否 | B2-02 |
+| `save_document` | `{ doc: DocumentId }` | `SaveResult`（`incremental`）；分頁的新狀態走開檔頻道。檔案在開啟後被改過時回 `changedOnDisk` | 否 | B2-02 |
+| `save_document_as` | `{ doc: DocumentId }`（不含路徑：主行程顯示另存對話框） | `SaveResult \| null`：`null` 表示使用者關閉了對話框；之後分頁指向新檔 | 否 | B2-02 |
+| `close_window` | `{ discard: boolean }` | 無；有未儲存的文件時，只有 `discard: true` 才關閉 | 否 | B2-02 |
 
 ### 開檔頻道（主行程 → 前端）
 
@@ -78,11 +82,12 @@ flowchart LR
 | `passwordNeeded` | `tab`、`displayName`、`wrong` | 檔案加密，分頁詢問密碼；`wrong` 表示剛才的密碼不對（MVP-16） |
 | `failed` | `tab`、`displayName`、`error: IpcError` | 開檔失敗，分頁顯示錯誤 |
 | `tabLimit` | `ignoredFiles` | 已有 `LIMITS.maxTabs`（20）個分頁，這幾個檔案沒有開啟 |
+| `closeRequested` | `tabs` | 使用者要關閉視窗，但這些分頁有未儲存的變更（B2-02）：視窗先不關，前端詢問後呼叫 `close_window` |
 
 - **為什麼用 Channel 而不是 Tauri 事件**：前端要監聽事件就必須有 `core:event` 權限，而 Tauri 內建的拖放事件（`tauri://drag-drop`）會帶**完整路徑**，拿到權限的頁面也能收到。不授予任何 `core:event` 權限，路徑就不可能進入 WebView。
 - 主行程只保留最新的頻道（頁面重新載入時取代舊的）。訂閱時送出**所有分頁目前的狀態**（`Documents::snapshot`，每個分頁一個 `opening`、`opened` 或 `failed`），讓重新載入的頁面恢復全部分頁；快照在事件佇列的鎖內取得，所以不會漏掉任何事件。訂閱前排隊的 `tabLimit` 提示也會送出。
 - **每份文件有自己的 worker**（ADR 0012）：一份惡意 PDF 就算攻陷它的 worker，也碰不到其他分頁的文件。各分頁的開檔、渲染與搜尋互不等待；關閉分頁就結束它的 worker。
-- **`DocumentId` 由主行程配發**，在所有分頁中不重複；它與 worker 內部的文件代號無關，worker 重新啟動後前端看到的 `DocumentId` 不變。
+- **`DocumentId` 由主行程配發**，在所有分頁中不重複；它與 worker 內部的文件代號無關，worker 重新啟動後前端看到的 `DocumentId` 不變。每次編輯後文件換新的 id（B2-02）：id 代表內容，舊 id 的頁面、文字、連結不再提供。
 - **單一執行個體**：app 已開啟時再次啟動（例如從檔案總管開啟 PDF），新的執行個體把命令列上的檔案交給第一個，然後結束；路徑只在兩個主行程之間傳遞。
 - 驗證：MVP-06 以開發者工具在頁面重新載入時記錄所有 IPC 請求／回應、主行程注入的腳本（頻道訊息）、DOM、console 與 JS heap snapshot。從路徑含有特殊標記的資料夾開檔後，這些地方都找不到該標記，但都找得到檔名。
 
@@ -96,7 +101,8 @@ flowchart LR
 - `RequestId` 由前端產生，只用來取消；主行程另外配發送給 worker 的 `RequestId`，前端無法直接指定 worker 端的請求。
 - 主行程收到命令後先以 `validate` 模組檢查參數（縮放範圍、查詢長度、頁碼是否在範圍內），不合格回傳 `invalidArgument`。
 - `DocumentInfo.displayName` 只能是檔名；`validate` 會拒絕含有 `/`、`\`、`:` 的值。
-- `DocumentInfo.permissions`（MVP-19）：文件作者是否允許複製文字、列印、高品質列印，由 worker 從加密字典讀取；未加密的文件全部為 `true`。見 [encryption.md](encryption.md)「權限」。
+- `DocumentInfo.permissions`（MVP-19）：文件作者是否允許複製文字、列印、高品質列印、修改（`modify`）與組合文件（`assemble`，插入、刪除、旋轉頁面），由 worker 從加密字典讀取；未加密的文件全部為 `true`。見 [encryption.md](encryption.md)「權限」。
+- `DocumentInfo.unsaved`（B2-02）：文件在開啟或上次存檔後有變更，檔案還沒有這些變更。
 
 ### 檔案對話框（MVP-06、#86、B2-04）
 
@@ -203,11 +209,13 @@ flowchart LR
 | `GetPageText` | `request`, `doc`, `page_index` | `PageText`（`lines`、`truncated`）或 `Error` |
 | `RenderPng` | `request`, `doc`, `page_index`, `scale` | `Png`（PNG 位元組，最多 `MAX_PNG_BYTES`，主行程檢查簽名）或 `Error`；不旋轉，匯出用（B2-04） |
 | `SearchPage` | `request`, `doc`, `page_index`, `query`, `case_sensitive`, `max_hits` | `PageSearched`（`hits`、`has_text`）或 `Error`；整份文件的搜尋由主行程逐頁驅動，見 [search.md](search.md) |
+| `Edit` | `request`, `doc`, `edit`（`WorkerEdit`：`RotatePages { pages, degrees }`） | `Edited`（套用後的 `pages`）或 `Error`；只改記憶體中的文件（B2-02） |
+| `Save` | `request`, `doc`, `file`（**只能寫入**的 handle，指向主行程建立的新暫存檔） | `Saved`（`bytes`、`incremental`）或 `Error`（`DiskFull`、`Unwritable`、`LimitExceeded` 等）；逾時 5 分鐘，見 [saving.md](saving.md) |
 | `Cancel` | `target` | 無（被取消的請求回 `Error { code: Cancelled }`，或已完成則照常回應） |
 | `Close` | `doc` | 無 |
 | `Shutdown` | — | worker 結束 |
 
-`FileHandle` 是主行程以唯讀方式開檔後複製進 worker 行程的 handle 值（ADR 0008），**worker 永遠拿不到路徑**；實際交付方式由 MVP-04 實作並記錄在 `docs/architecture/worker-sandbox.md`。
+`FileHandle` 是主行程複製進 worker 行程的 handle 值（ADR 0008）：`Open` 是唯讀開啟的檔案，`Save` 是只能寫入的新暫存檔（B2-02）。**worker 永遠拿不到路徑**；交付方式記錄在 `docs/architecture/worker-sandbox.md`。
 
 `WorkerResponse` 的每個值在使用前都要通過 `Validate`：頁數、頁面尺寸、座標是否為有限數且在範圍內、點陣圖大小與像素長度是否一致、字串與清單長度、目錄是否為合法的前序結構、連結 id 是否屬於回報的頁面等。
 
@@ -235,6 +243,11 @@ flowchart LR
 | `workerCrashed` | worker 崩潰，已重啟 |
 | `workerTimeout` | worker 逾時，已重啟 |
 | `protocolViolation` | worker 送出不合法的訊息，已終止 |
+| `readOnly` | 存檔：檔案或資料夾唯讀、拒絕寫入（B2-02） |
+| `diskFull` | 存檔：磁碟已滿 |
+| `fileInUse` | 存檔：其他程式開著檔案而不允許取代 |
+| `changedOnDisk` | 存檔：檔案在開啟後被其他程式修改過，不覆寫 |
+| `unwritable` | 存檔：其他寫入失敗 |
 | `internal` | 其他內部錯誤 |
 
 worker 端的 `WorkerErrorCode` 以 `From` 轉換對應到上表。

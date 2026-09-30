@@ -11,6 +11,9 @@ pub const MAX_FRAME_BYTES: usize = 80 * 1024 * 1024;
 /// Maximum number of pages in a document.
 pub const MAX_PAGE_COUNT: u32 = 100_000;
 
+/// Largest document the worker opens, and largest file it writes when saving (ADR 0013).
+pub const MAX_DOCUMENT_BYTES: u64 = 512 * 1024 * 1024;
+
 /// Sanity bound for a page side in PDF points. Memory is bounded by the raster limits below,
 /// this only rejects absurd values (the PDF spec allows 14 400 units, scaled by `UserUnit`).
 pub const MAX_PAGE_SIDE_PT: f32 = 1_000_000.0;

@@ -181,6 +181,26 @@ export async function quit(page: Page): Promise<void> {
 }
 
 /**
+ * Asks the app window behind `page` to close, as its close button does (WM_CLOSE): the page
+ * cannot, as it has no permission to close the window. Returns once the message is posted.
+ */
+export async function closeAppWindow(page: Page): Promise<void> {
+  const script = [
+    `Add-Type -Namespace E2e -Name Window -MemberDefinition '[DllImport("user32.dll")] public static extern bool PostMessage(System.IntPtr window, uint message, System.IntPtr wParam, System.IntPtr lParam);'`,
+    `$window = (Get-Process -Id ${appProcessId(page)}).MainWindowHandle`,
+    "if ($window -eq [System.IntPtr]::Zero) { throw 'the app has no window' }",
+    // WM_CLOSE
+    "[void][E2e.Window]::PostMessage($window, 0x0010, [System.IntPtr]::Zero, [System.IntPtr]::Zero)",
+  ].join("; ");
+  await promisify(execFile)("powershell", ["-NoProfile", "-NonInteractive", "-Command", script], { timeout: 30_000 });
+}
+
+/** Whether the app process behind `page` is still running. */
+export function appRunning(page: Page): boolean {
+  return apps.get(page)?.child.exitCode === null;
+}
+
+/**
  * Answers the file dialog the app behind `page` is showing (open, save or choose a folder, #86,
  * B2-04): types `path` into its file name box and confirms, or cancels. The dialogs are the
  * system's own, so the page cannot reach them: file-dialog.ps1 does, through UI Automation.
