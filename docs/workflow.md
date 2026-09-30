@@ -37,7 +37,7 @@ flowchart LR
 |---|---|---|
 | CI | `Guardrails` | 禁用遙測／網路依賴、ADR 編號與索引、CSP／開發模式 CSP／capability 政策、守門腳本自身的測試 |
 | CI | `PR hygiene` | PR 標題符合 Conventional Commits、內文連結 Issue（僅 PR） |
-| CI | `Rust (Windows)` | `cargo fmt`、`clippy -D warnings`、`cargo test`（先安裝 OCR POC 需要的 Windows OCR 語言，ADR 0015） |
+| CI | `Rust (Windows)` | `cargo fmt`、`clippy -D warnings`、`cargo test` |
 | CI | `Frontend` | `pnpm lint`、`typecheck`、`test`、`build`、建置產物不得引用外部資源 |
 | CI | `E2E (Windows)` | 建置 release app 與 worker，以 Playwright 操作真正的 app（`pnpm e2e`，見 [e2e.md](architecture/e2e.md)）；失敗時上傳截圖與日誌（保留 7 天） |
 | Security | `Secret scan` | gitleaks 掃描所有 commit |

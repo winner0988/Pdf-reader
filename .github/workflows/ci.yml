@@ -102,17 +102,6 @@ jobs:
         run: cargo fmt --all --check
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      # The OCR POC of ADR 0015 (crates/pdf_worker/tests/ocr_poc.rs) needs Windows' own OCR for
-      # English and Traditional Chinese; the runner may lack them, so Windows Update adds them.
-      - name: Windows OCR languages
-        shell: pwsh
-        run: |
-          foreach ($language in "en-US", "zh-TW") {
-            $name = "Language.OCR~~~$language~0.0.1.0"
-            $state = (Get-WindowsCapability -Online -Name $name).State
-            Write-Host "${name}: $state"
-            if ($state -ne "Installed") { Add-WindowsCapability -Online -Name $name | Out-Null }
-          }
       - name: Test
         run: cargo test --workspace --locked
       # The fuzz targets (fuzz/, QA-03) are built by cargo-fuzz with nightly Rust in the Fuzz
