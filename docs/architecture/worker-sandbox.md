@@ -56,12 +56,12 @@
 
 AppContainer 不影響這個流程：handle 在複製時就已帶著存取權限，worker 使用時不會再做路徑層級的存取檢查。
 
-### 寫入（ADR 0013，提議中）
+### 寫入（ADR 0013）
 
 存檔時，主行程建立暫存檔，以 `Sandboxed::duplicate_write_only` 把 handle 複製進 worker。存取權限只有 `FILE_WRITE_DATA | FILE_APPEND_DATA | SYNCHRONIZE`：worker 可以寫入內容，但不能讀取、刪除、改名或改屬性。
 
 - 驗證：`duplicated_write_handles_are_write_only`（寫得進去；讀取與刪除都被拒絕）。
-- 目前只有這個測試使用；存檔（B2-02）在 ADR 0013 接受後才接上。
+- 目前只有這個測試使用；存檔（B2-02）會接上。
 
 ### 保留 win32k（ADR 0015，提議中）
 

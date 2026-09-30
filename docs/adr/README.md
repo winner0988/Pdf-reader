@@ -14,13 +14,12 @@
 | [0006](0006-password-credential-store.md) | 加密檔案密碼交由系統憑證庫記住 | 已接受 |
 | [0007](0007-tech-stack-and-platform.md) | 技術棧與首發平台 | 已接受 |
 | [0008](0008-pdf-worker-isolation.md) | PDF 引擎隔離在 pdf_worker 子行程，前端不直接接觸引擎 | 已接受 |
-| [0009](0009-default-network-policy.md) | 預設網路政策 | 提議中 |
-| [0010](0010-document-id-write-safety.md) | 文件識別碼寫入 PDF 的安全限制 | 提議中 |
-| [0011](0011-license-and-distribution.md) | 專案以 AGPL-3.0-or-later 授權並公開原始碼 | 提議中 |
-| [0012](0012-tabs-and-worker-per-document.md) | 多份文件以分頁呈現，每份文件一個 worker，單一執行個體 | 提議中 |
-| [0013](0013-editing-and-saving.md) | 編輯在文件自己的 worker 中套用，存檔由主行程交出寫入 handle、完整寫好後才取代原檔 | 提議中 |
-| [0014](0014-signature-verification.md) | 數位簽章在 worker 中以 Windows CryptoAPI 離線驗證 | 提議中 |
-| [0015](0015-ocr.md) | 掃描頁以 Windows 內建 OCR 在獨立的沙盒行程中辨識，只交給它頁面影像 | 提議中 |
+| [0009](0009-default-network-policy.md) | 預設網路政策 | 已接受 |
+| [0010](0010-document-id-write-safety.md) | 文件識別碼寫入 PDF 的安全限制 | 已接受 |
+| [0011](0011-license-and-distribution.md) | 專案以 AGPL-3.0-or-later 授權並公開原始碼 | 已接受 |
+| [0012](0012-tabs-and-worker-per-document.md) | 多份文件以分頁呈現，每份文件一個 worker，單一執行個體 | 已接受 |
+| [0013](0013-editing-and-saving.md) | 編輯在文件自己的 worker 中套用，存檔由主行程交出寫入 handle、完整寫好後才取代原檔 | 已接受 |
+| [0014](0014-signature-verification.md) | 數位簽章在 worker 中以 Windows CryptoAPI 離線驗證 | 已接受 |
 
 ## 規則
 

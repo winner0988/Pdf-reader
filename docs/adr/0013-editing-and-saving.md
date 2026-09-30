@@ -1,9 +1,9 @@
 # ADR 0013：編輯在文件自己的 worker 中套用，存檔由主行程交出寫入 handle、完整寫好後才取代原檔
 
 ## 狀態
-提議中
+已接受
 
-（工作卡 #90〔B2-01〕。POC：`crates/sandbox/tests/sandbox.rs` 的 `duplicated_write_handles_are_write_only`、`crates/pdf_worker/tests/save_poc.rs`。）
+（負責人於 2026-09-30 接受〔#103〕。工作卡 #90〔B2-01〕。POC：`crates/sandbox/tests/sandbox.rs` 的 `duplicated_write_handles_are_write_only`、`crates/pdf_worker/tests/save_poc.rs`。）
 
 ## 背景
 - 規格 §4–§6 要求編輯（文字、圖片、頁面、註解、表單）與「每次編輯動作即存」的崩潰復原；到目前為止 app 只讀取 PDF。
@@ -12,7 +12,7 @@
 - 會修改 PDF 的卡片（B2-02～B2-09、B2-13）都需要同一套做法：編輯怎麼表示、在哪裡套用、怎麼復原、怎麼寫回檔案而不讓沙盒拿到更多權限。
 - 相關的既有規則：
   - 信任以內容雜湊為準（ADR 0002），存檔後內容改變，信任失效；
-  - 文件識別碼要寫進 PDF（ADR 0010，提議中）；
+  - 文件識別碼只在使用者明確操作時寫進 PDF（ADR 0010）；
   - 作者設定的權限（MVP-19）。
 - POC 的發現：
   - 沙盒中的行程可以透過複製進來的**只能寫入** handle 寫檔，不能讀取，也不能刪除或改名；

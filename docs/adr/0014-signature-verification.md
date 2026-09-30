@@ -1,9 +1,9 @@
 # ADR 0014：數位簽章在 worker 中以 Windows CryptoAPI 離線驗證
 
 ## 狀態
-提議中
+已接受
 
-（工作卡 #100〔B2-11〕。POC：`crates/pdf_worker/tests/signature_poc.rs`、`crates/sandbox/tests/sandbox.rs` 的 `root_certificates_are_readable`。原本的卡片寫作 ADR 0015；因為 ADR 編號必須連續、而本條比 OCR 的 ADR 先完成，改為 0014，OCR 改為 0015。）
+（負責人於 2026-09-30 接受選項 A〔#103〕。工作卡 #100〔B2-11〕。POC：`crates/pdf_worker/tests/signature_poc.rs`、`crates/sandbox/tests/sandbox.rs` 的 `root_certificates_are_readable`。原本的卡片寫作 ADR 0015；因為 ADR 編號必須連續、而本條比 OCR 的 ADR 先完成，改為 0014，OCR 改為 0015。）
 
 ## 背景
 - 規格 §3「本地數位簽章」：驗證完全離線。本 ADR 只處理**驗證**；簽署與載入 `.pfx` 另寫 ADR。
