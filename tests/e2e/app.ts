@@ -5,7 +5,7 @@
 // (the recent files list, #73) goes to a temporary folder too, never to the user's.
 
 import { execFile, execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { get } from "node:http";
 import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -23,6 +23,15 @@ const APP = process.env.E2E_APP ?? path.join(ROOT, "target", "release", "pdf-rea
 export const corpus = (file: string) => path.join(ROOT, "tests", "corpus", file);
 
 const STARTUP_TIMEOUT_MS = 30_000;
+
+/**
+ * The shipped app's WebView2 arguments (src-tauri/tauri.conf.json), such as those that stop
+ * WebView2 connecting on its own (#121). WebView2 takes a test's arguments instead of the app's,
+ * so they go along with the debugging port: the app runs as it ships.
+ */
+const APP_BROWSER_ARGUMENTS: string =
+  JSON.parse(readFileSync(path.join(ROOT, "src-tauri", "tauri.conf.json"), "utf8")).app.windows[0]
+    .additionalBrowserArgs ?? "";
 
 /**
  * WebView2 Runtime 150 and later ignore WEBVIEW2_* environment variables and per-user policy in
@@ -234,6 +243,8 @@ export type LaunchOptions = {
   deviceScaleFactor?: number;
   /** The data folder of an earlier launch in the same test (`dataDir(page)`), after `quit`. */
   dataDir?: string;
+  /** Where WebView2 writes its network log (`--log-net-log`): every request it makes (#121). */
+  netLog?: string;
 };
 
 export const test = base.extend<{
@@ -248,9 +259,16 @@ export const test = base.extend<{
       const profile = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-"));
       const data = options.dataDir ?? mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-data-"));
       const browserArguments = [
+        APP_BROWSER_ARGUMENTS,
         `--remote-debugging-port=${port}`,
         ...(options.deviceScaleFactor ? [`--force-device-scale-factor=${options.deviceScaleFactor}`] : []),
-      ].join(" ");
+        // Quoted only when it must be: on CI the arguments also go through `reg add`.
+        ...(options.netLog
+          ? [`--log-net-log=${/\s/.test(options.netLog) ? `"${options.netLog}"` : options.netLog}`, "--net-log-capture-mode=Default"]
+          : []),
+      ]
+        .filter(Boolean)
+        .join(" ");
       setDebuggingPolicy(browserArguments);
       const child = spawn(APP, file ? [file] : [], {
         env: {

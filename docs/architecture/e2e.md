@@ -17,7 +17,9 @@
 每個測試用 `launch(file?, options?)` 啟動一個 app：
 
 1. **環境變數**：WebView2 從環境變數讀取啟動設定。
-   - `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<空閒的埠>`：遠端偵錯只綁 127.0.0.1。
+   - `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=<app 的參數> --remote-debugging-port=<空閒的埠>`：遠端偵錯只綁 127.0.0.1。
+     - 這個變數會**取代** app 自己的瀏覽器參數，所以前面先放 `src-tauri/tauri.conf.json` 的 `additionalBrowserArgs`（例如讓 WebView2 不自行連網的參數，#121）：測試的 app 與出貨的 app 相同。
+     - `options.netLog` 另外加上 `--log-net-log`：WebView2 把它發出的每個請求寫進這個檔案（`network.spec.ts`）。
      - `options.deviceScaleFactor` 另外加上 `--force-device-scale-factor`，像 Windows 的顯示比例（例如 150%）一樣縮放，與這台電腦的設定無關。
      - CDP 的模擬（`Emulation.setDeviceMetricsOverride`）做不到：它讓捲軸保持整數的 CSS 像素，重現不了 #83。
      - `options.dataDir` 沿用同一個測試中前一次啟動的資料資料夾（`dataDir(page)`），搭配 `quit(page)`：立即結束前一個 app（像當機一樣，不會在結束時存任何東西），再以同一個資料資料夾重新啟動，用來測試跨次啟動保留的資料（B2-12）。
@@ -40,7 +42,7 @@ app 本身完全沒有為測試做任何修改：沒有測試專用的建置選�
   - QA-02 初次在 CI 執行時就是這樣：app 正常顯示，但 WebView2 瀏覽器行程的命令列沒有 `--remote-debugging-port`。
   - runner 上是 WebView2 152；本機（一般權限，153）不受影響。
 - **做法**：只在 CI（`CI` 環境變數）上，每次啟動 app 前，在 `HKLM\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments` 寫入以執行檔名稱（`pdf-reader.exe`）為名的值，app 結束後刪除。
-  - 值與環境變數的瀏覽器參數相同：`--remote-debugging-port=<埠>`，需要時再加上 `--force-device-scale-factor`。
+  - 值與環境變數的瀏覽器參數相同：app 的參數、`--remote-debugging-port=<埠>`，需要時再加上 `--force-device-scale-factor` 或 `--log-net-log`。
 - **本機**：不會修改登錄檔，因為那是整台電腦的設定；只用環境變數。
 
 ### 關於 WebView2 的環境變數

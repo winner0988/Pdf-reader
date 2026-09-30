@@ -155,6 +155,49 @@ export function checkCsp(csp, { dev = false, label = "CSP" } = {}) {
   return problems;
 }
 
+/**
+ * WebView2 arguments every window needs (#121). By default WebView2 fetches Microsoft's
+ * configuration service and looks for a proxy (WPAD) as the app starts; these stop both. The
+ * list replaces Tauri's own default, so it must keep the features Tauri turns off.
+ */
+const REQUIRED_BROWSER_ARGUMENTS = ["--disable-background-networking", "--no-proxy-server"];
+const REQUIRED_DISABLED_FEATURES = ["msWebOOUI", "msPdfOOUI", "msSmartScreenProtection"];
+/** Never in the shipped configuration: an open debugging port, or a proxy of our choosing. */
+const FORBIDDEN_BROWSER_ARGUMENTS = ["--remote-debugging-port", "--remote-debugging-pipe", "--proxy-server", "--proxy-pac-url"];
+
+/** Returns a list of problems with the WebView2 arguments of the app's windows. */
+export function checkBrowserArguments(windows) {
+  const problems = [];
+  if (!Array.isArray(windows) || windows.length === 0) {
+    return ["tauri.conf.json: app.windows must declare the main window, with its WebView2 arguments"];
+  }
+  for (const window of windows) {
+    const label = `tauri.conf.json: window "${window?.label ?? "?"}" additionalBrowserArgs`;
+    const args = String(window?.additionalBrowserArgs ?? "")
+      .split(/\s+/)
+      .filter(Boolean);
+    for (const required of REQUIRED_BROWSER_ARGUMENTS) {
+      if (!args.includes(required)) {
+        problems.push(`${label} must include ${required}, or WebView2 connects on its own (#121)`);
+      }
+    }
+    const disabled = args
+      .filter((arg) => arg.startsWith("--disable-features="))
+      .flatMap((arg) => arg.slice("--disable-features=".length).split(","));
+    for (const feature of REQUIRED_DISABLED_FEATURES) {
+      if (!disabled.includes(feature)) {
+        problems.push(`${label} must disable ${feature}, as Tauri's default list (which it replaces) does`);
+      }
+    }
+    for (const forbidden of FORBIDDEN_BROWSER_ARGUMENTS) {
+      if (args.some((arg) => arg === forbidden || arg.startsWith(`${forbidden}=`))) {
+        problems.push(`${label} must not include ${forbidden}`);
+      }
+    }
+  }
+  return problems;
+}
+
 /** Returns a list of problems with src-tauri/tauri.conf.json. */
 export function checkTauriConfig(config) {
   const problems = [];
@@ -175,6 +218,7 @@ export function checkTauriConfig(config) {
   if (config?.app?.withGlobalTauri) {
     problems.push("tauri.conf.json: withGlobalTauri must stay false");
   }
+  problems.push(...checkBrowserArguments(config?.app?.windows));
   for (const plugin of Object.keys(config?.plugins ?? {})) {
     if (FORBIDDEN_PLUGINS.includes(plugin)) {
       problems.push(`tauri.conf.json: plugin "${plugin}" is not allowed`);
@@ -257,5 +301,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
     process.exit(1);
   }
-  console.log("OK: CSP, dev CSP and capabilities are within policy.");
+  console.log("OK: CSP, dev CSP, WebView2 arguments and capabilities are within policy.");
 }

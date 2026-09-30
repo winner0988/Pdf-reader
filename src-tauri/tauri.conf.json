@@ -18,7 +18,8 @@
         "height": 800,
         "minWidth": 800,
         "minHeight": 600,
-        "center": true
+        "center": true,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-networking --no-proxy-server"
       }
     ],
     "security": {
