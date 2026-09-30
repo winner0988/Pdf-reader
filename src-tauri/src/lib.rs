@@ -9,9 +9,10 @@ mod cli;
 mod commands;
 mod documents;
 mod events;
+mod export;
+mod file_dialog;
 mod links;
 mod local_data;
-mod open_dialog;
 mod opener;
 mod recent;
 mod render;
@@ -26,6 +27,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::documents::Documents;
 use crate::events::OpenEvents;
+use crate::export::Exports;
 use crate::recent::RecentFiles;
 use crate::render::{DEFAULT_CACHE_BYTES, Renderer};
 use crate::search::Searches;
@@ -70,6 +72,7 @@ pub fn run() {
         .manage(Documents::new(worker))
         .manage(OpenEvents::default())
         .manage(Searches::default())
+        .manage(Exports::default())
         .invoke_handler(tauri::generate_handler![
             commands::subscribe_open_events,
             commands::open_document_dialog,
@@ -97,6 +100,7 @@ pub fn run() {
             commands::get_settings,
             commands::set_settings,
             commands::clear_recent_exclusions,
+            commands::export_pages,
         ])
         .on_window_event(commands::on_window_event)
         .setup(move |app| {

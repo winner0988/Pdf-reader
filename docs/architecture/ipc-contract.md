@@ -64,6 +64,7 @@ flowchart LR
 | `clear_recent_exclusions` | 無 | 無；忘記「不記錄此檔案」的選擇 | 否 | B2-12 |
 | `get_settings` | 無 | `Settings`：`theme`（`system`／`light`／`dark`）、`recordRecentFiles`（見 [local-data.md](local-data.md)） | 否 | B2-12 |
 | `set_settings` | `{ settings: Settings }`（完整的一組，其他欄位一律拒絕） | 無；立即套用並寫入 `settings.json`，寫不進去時回傳 `unreadable`（仍然套用）；關閉最近開啟的檔案時一併清除清單 | 否 | B2-12 |
+| `export_pages` | `{ args: ExportArgs, onEvent: Channel<ExportEvent> }`：`request`、`doc`、`pages`（最多 `LIMITS.maxExportPages`）、`format`（`text` 或 `png` 與 `dpi`）；不含路徑，其他欄位一律拒絕 | `boolean`：`false` 表示使用者關閉了系統的對話框；進度走頻道；以 `cancel(args.request)` 停止。作者禁止複製時拒絕（見 [export.md](export.md)） | 是 | B2-04 |
 
 ### 開檔頻道（主行程 → 前端）
 
@@ -87,7 +88,7 @@ flowchart LR
 
 ### 權限
 
-`src-tauri/build.rs` 以 app manifest 宣告上述命令，因此每個命令都要在 `src-tauri/capabilities/main.json` 明確允許（`allow-subscribe-open-events` 等）。沒有授予任何 `core:*`、dialog、fs 權限；開啟對話框由主行程顯示，前端無法指定路徑，也拿不到路徑（見下方「開啟對話框」）。
+`src-tauri/build.rs` 以 app manifest 宣告上述命令，因此每個命令都要在 `src-tauri/capabilities/main.json` 明確允許（`allow-subscribe-open-events` 等）。沒有授予任何 `core:*`、dialog、fs 權限；檔案對話框（開啟、匯出）由主行程顯示，前端無法指定路徑，也拿不到路徑（見下方「檔案對話框」）。
 
 規則：
 
@@ -97,9 +98,9 @@ flowchart LR
 - `DocumentInfo.displayName` 只能是檔名；`validate` 會拒絕含有 `/`、`\`、`:` 的值。
 - `DocumentInfo.permissions`（MVP-19）：文件作者是否允許複製文字、列印、高品質列印，由 worker 從加密字典讀取；未加密的文件全部為 `true`。見 [encryption.md](encryption.md)「權限」。
 
-### 開啟對話框（MVP-06、#86）
+### 檔案對話框（MVP-06、#86、B2-04）
 
-`src-tauri/src/open_dialog.rs` 直接使用 Windows 的 `IFileOpenDialog`（原本由 `rfd` 顯示同一個對話框）：
+`src-tauri/src/file_dialog.rs` 直接使用 Windows 的 `IFileOpenDialog`（開啟 PDF；原本由 `rfd` 顯示同一個對話框）、`IFileSaveDialog`（匯出純文字）與選擇資料夾模式的 `IFileOpenDialog`（匯出頁面圖片）：
 
 - **不加入「最近使用的項目」**：加上 `FOS_DONTADDTORECENT`。沒有這個選項時，Windows 會把選到的檔案加進檔案總管的「最近」與工作列的跳躍清單，在 app 之外留下開過哪些檔案的紀錄；`rfd` 無法設定這個選項（#86）。
 - 其餘沿用系統的預設選項（不改變行程的工作資料夾、只能選已存在的檔案），另外加上可以多選、只接受檔案系統中的檔案。
@@ -110,7 +111,10 @@ flowchart LR
 - `rfd` 仍用來顯示缺少 WebView2 時的訊息框。
 - 測試：
   - Rust 單元測試建立真正的對話框物件，讀回它的選項確認 `FOS_DONTADDTORECENT` 已設定，系統的預設選項也還在；
-  - E2E（`tests/e2e/open.spec.ts`）以 `open-dialog.ps1` 透過 UI Automation 找到對話框：先取消（沒有分頁），再輸入語料的路徑並按「開啟」（開啟分頁並渲染第一頁）。
+  - E2E 以 `file-dialog.ps1` 透過 UI Automation 找到對話框並回答：
+    - `open.spec.ts`：先取消（沒有分頁），再輸入語料的路徑並按「開啟」（開啟分頁並渲染第一頁）；
+    - `export.spec.ts`：另存純文字、選擇圖片的資料夾、取消。
+  - 另存對話框出現後才填入建議的檔名：腳本等檔名框不再變動才輸入路徑，讀回確認後才按確定；確認不到就按取消並失敗，檔案不會存到別的地方。
 
 ### 目錄與 PDF 提供的文字（MVP-09）
 
@@ -197,6 +201,7 @@ flowchart LR
 | `GetOutline` | `request`, `doc` | `Outline` 或 `Error` |
 | `GetPageLinks` | `request`, `doc`, `page_index` | `PageLinks` 或 `Error` |
 | `GetPageText` | `request`, `doc`, `page_index` | `PageText`（`lines`、`truncated`）或 `Error` |
+| `RenderPng` | `request`, `doc`, `page_index`, `scale` | `Png`（PNG 位元組，最多 `MAX_PNG_BYTES`，主行程檢查簽名）或 `Error`；不旋轉，匯出用（B2-04） |
 | `SearchPage` | `request`, `doc`, `page_index`, `query`, `case_sensitive`, `max_hits` | `PageSearched`（`hits`、`has_text`）或 `Error`；整份文件的搜尋由主行程逐頁驅動，見 [search.md](search.md) |
 | `Cancel` | `target` | 無（被取消的請求回 `Error { code: Cancelled }`，或已完成則照常回應） |
 | `Close` | `doc` | 無 |

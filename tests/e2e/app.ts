@@ -4,12 +4,13 @@
 // so it has its own browser process and nothing carries over between tests. The app's own data
 // (the recent files list, #73) goes to a temporary folder too, never to the user's.
 
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { execFile, execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { get } from "node:http";
 import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import { chromium, test as base, type Browser, type Page } from "@playwright/test";
 
@@ -177,6 +178,22 @@ export async function quit(page: Page): Promise<void> {
   // The single-instance lock goes with the process: wait for it, or the next launch hands its
   // file to this one and exits.
   if (running.child.exitCode === null) await exited;
+}
+
+/**
+ * Answers the file dialog the app behind `page` is showing (open, save or choose a folder, #86,
+ * B2-04): types `path` into its file name box and confirms, or cancels. The dialogs are the
+ * system's own, so the page cannot reach them: file-dialog.ps1 does, through UI Automation.
+ * Returns once the dialog has closed.
+ */
+export async function answerFileDialog(page: Page, answer: { path: string } | "cancel"): Promise<void> {
+  const script = path.join(import.meta.dirname, "file-dialog.ps1");
+  const args = answer === "cancel" ? ["-Cancel"] : ["-Path", answer.path];
+  await promisify(execFile)(
+    "powershell",
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-ProcessId", String(appProcessId(page)), ...args],
+    { timeout: 60_000 },
+  );
 }
 
 /**

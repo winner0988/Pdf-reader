@@ -49,6 +49,9 @@ pub fn bindings() -> String {
         FileRecordingArgs,
         ThemePreference,
         Settings,
+        ExportFormat,
+        ExportArgs,
+        ExportEvent,
         RequestId,
         PageSize,
         Rotation,
@@ -80,7 +83,7 @@ pub fn bindings() -> String {
         OpenEvent,
     );
 
-    let limits: [(&str, String); 21] = [
+    let limits: [(&str, String); 22] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -101,6 +104,7 @@ pub fn bindings() -> String {
         ("maxDisplayNameBytes", MAX_DISPLAY_NAME_BYTES.to_string()),
         ("maxTabs", MAX_TABS.to_string()),
         ("maxRecentFiles", MAX_RECENT_FILES.to_string()),
+        ("maxExportPages", MAX_EXPORT_PAGES.to_string()),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];
     out.push_str(

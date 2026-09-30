@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 
+import { tauriExportApi, type ExportApi } from "@/features/export/api";
 import { tauriOpenApi, type OpenApi } from "@/features/open/api";
 import { OpenNotice } from "@/features/open/OpenNotice";
 import { tauriLinksApi, type LinksApi } from "@/features/links/source";
@@ -30,6 +31,7 @@ type AppProps = {
   systemApi?: SystemApi;
   recentApi?: RecentApi;
   settingsApi?: SettingsApi;
+  exportApi?: ExportApi;
 };
 
 export default function App({
@@ -42,6 +44,7 @@ export default function App({
   systemApi = tauriSystemApi,
   recentApi = tauriRecentApi,
   settingsApi = tauriSettingsApi,
+  exportApi = tauriExportApi,
 }: AppProps) {
   const tabs = useTabs(api);
   const { state } = tabs;
@@ -96,6 +99,7 @@ export default function App({
                 textApi={textApi}
                 systemApi={systemApi}
                 recentApi={recentApi}
+                exportApi={exportApi}
                 onOpen={open}
                 onClose={tabs.close}
                 onRetry={tabs.retry}
@@ -122,6 +126,7 @@ type TabPaneProps = {
   textApi: TextApi;
   systemApi: SystemApi;
   recentApi: RecentApi;
+  exportApi: ExportApi;
   onOpen: () => void;
   onClose: (tab: TabId) => void;
   onRetry: (tab: TabId) => void;
