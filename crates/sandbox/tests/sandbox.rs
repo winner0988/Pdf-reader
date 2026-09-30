@@ -76,6 +76,17 @@ fn win32k_is_unavailable() {
 }
 
 #[test]
+fn win32k_is_only_available_when_asked_for() {
+    // Only the OCR POC of ADR 0015 asks; everything else keeps it disabled.
+    let config = SandboxConfig {
+        allow_win32k: true,
+        ..SandboxConfig::default()
+    };
+    assert_eq!(run(&["load-user32"], &config, None).0, "loaded");
+    assert!(!SandboxConfig::default().allow_win32k);
+}
+
+#[test]
 fn environment_is_minimal() {
     // In the AppContainer, Windows adds LOCALAPPDATA, TEMP and TMP pointing into the
     // container's own folder.
