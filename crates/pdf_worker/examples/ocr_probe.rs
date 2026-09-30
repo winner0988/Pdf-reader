@@ -68,6 +68,11 @@ mod ocr {
         let bitmap = decode(&bmp(width, height, grey)).map_err(at("decode"))?;
 
         let tag = Language::CreateLanguage(&HSTRING::from(language)).map_err(at("language"))?;
+        if !OcrEngine::IsLanguageSupported(&tag).map_err(at("recogniser"))? {
+            return Err(format!(
+                "recogniser: Windows has no OCR for {language} here"
+            ));
+        }
         let engine = OcrEngine::TryCreateFromLanguage(&tag).map_err(at("recogniser"))?;
         let recognition = engine.RecognizeAsync(&bitmap).map_err(at("recognise"))?;
         let result = wait(&recognition).map_err(at("recognise"))?;
