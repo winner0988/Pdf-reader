@@ -186,14 +186,15 @@ export async function quit(page: Page): Promise<void> {
  * system's own, so the page cannot reach them: file-dialog.ps1 does, through UI Automation.
  * Returns once the dialog has closed.
  */
-export async function answerFileDialog(page: Page, answer: { path: string } | "cancel"): Promise<void> {
+export async function answerFileDialog(page: Page, answer: { path: string } | "cancel"): Promise<string> {
   const script = path.join(import.meta.dirname, "file-dialog.ps1");
   const args = answer === "cancel" ? ["-Cancel"] : ["-Path", answer.path];
-  await promisify(execFile)(
+  const { stdout } = await promisify(execFile)(
     "powershell",
     ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-ProcessId", String(appProcessId(page)), ...args],
     { timeout: 60_000 },
   );
+  return stdout;
 }
 
 /**
