@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,7 +12,7 @@ import {
   thumbSize,
   visibleThumbs,
 } from "@/features/thumbnails/layout";
-import { Thumbnails } from "@/features/thumbnails/Thumbnails";
+import { Thumbnails, type PageEditing } from "@/features/thumbnails/Thumbnails";
 import type { PageRenderer } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
 
@@ -71,13 +71,13 @@ describe("Thumbnails", () => {
         />
       </div>,
     );
-    const list = screen.getByRole("list", { name: strings.sidebar.thumbnailsTab });
+    const list = screen.getByRole("listbox", { name: strings.sidebar.thumbnailsTab });
     return { ...utils, renderer, onJumpToPage, list, pages, user: userEvent.setup() };
   }
 
   it("shows only the thumbnails near the view and renders them small and unturned", () => {
     const { renderer } = setup();
-    const shown = screen.getAllByRole("button").map((button) => button.getAttribute("aria-label"));
+    const shown = screen.getAllByRole("option").map((option) => option.getAttribute("aria-label"));
     expect(shown[0]).toBe(strings.canvas.page(1));
     expect(shown.length).toBeLessThan(15);
     const args = renderer.render.mock.calls.map(([call]) => call);
@@ -87,9 +87,9 @@ describe("Thumbnails", () => {
 
   it("goes to a page, marks the page being read and keeps it in view", async () => {
     const { user, onJumpToPage, rerender, list, renderer, pages } = setup();
-    await user.click(screen.getByRole("button", { name: strings.canvas.page(2) }));
+    await user.click(screen.getByRole("option", { name: strings.canvas.page(2) }));
     expect(onJumpToPage).toHaveBeenCalledWith(2);
-    expect(screen.getByRole("button", { name: strings.canvas.page(1) })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("option", { name: strings.canvas.page(1) })).toHaveAttribute("aria-current", "page");
 
     rerender(
       <div style={{ height: 600 }}>
@@ -99,18 +99,138 @@ describe("Thumbnails", () => {
     const scroller = list.parentElement!;
     expect(scroller.scrollTop).toBeGreaterThan(0);
     act(() => scroller.dispatchEvent(new Event("scroll")));
-    expect(screen.getByRole("button", { name: strings.canvas.page(40) })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("option", { name: strings.canvas.page(40) })).toHaveAttribute("aria-current", "page");
   });
 
   it("moves between thumbnails with the arrow keys", async () => {
     setup();
-    const first = screen.getByRole("button", { name: strings.canvas.page(1) });
+    const first = screen.getByRole("option", { name: strings.canvas.page(1) });
     first.focus();
     fireEvent.keyDown(first, { key: "ArrowDown" });
     await act(async () => {});
-    expect(screen.getByRole("button", { name: strings.canvas.page(2) })).toHaveFocus();
+    expect(screen.getByRole("option", { name: strings.canvas.page(2) })).toHaveFocus();
     fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
     await act(async () => {});
     expect(first).toHaveFocus();
+  });
+});
+
+describe("page management in the thumbnails (B2-05)", () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+  });
+
+  function setup({ allowed = true, count = 10 } = {}) {
+    const apply = vi.fn<PageEditing["apply"]>(() => Promise.resolve());
+    const onJumpToPage = vi.fn();
+    const pages = Array(count).fill(LETTER);
+    render(
+      <div style={{ height: 600 }}>
+        <Thumbnails
+          pages={pages}
+          doc={3}
+          currentPage={1}
+          onJumpToPage={onJumpToPage}
+          editing={{ allowed, apply }}
+          requestDelayMs={0}
+        />
+      </div>,
+    );
+    const thumb = (number: number) => screen.getByRole("option", { name: strings.canvas.page(number) });
+    const selected = () =>
+      screen
+        .getAllByRole("option")
+        .filter((option) => option.getAttribute("aria-selected") === "true")
+        .map((option) => option.getAttribute("aria-label"));
+    const menu = async (number: number, item: string) => {
+      fireEvent.contextMenu(thumb(number));
+      return screen.findByRole("menuitem", { name: new RegExp(`^${item}`) });
+    };
+    return { apply, onJumpToPage, thumb, selected, menu, user: userEvent.setup() };
+  }
+
+  it("selects with a click, Ctrl and Shift, and says how many", async () => {
+    const { user, thumb, selected, onJumpToPage } = setup();
+    await user.click(thumb(2));
+    expect(onJumpToPage).toHaveBeenCalledWith(2);
+    await user.keyboard("{Control>}");
+    await user.click(thumb(4));
+    await user.keyboard("{/Control}{Shift>}");
+    await user.click(thumb(6));
+    await user.keyboard("{/Shift}");
+    expect(selected()).toEqual([4, 5, 6].map((n) => strings.canvas.page(n)));
+    expect(screen.getByText(strings.pages.selected(3))).toBeInTheDocument();
+    // Only a plain click goes to a page.
+    expect(onJumpToPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("turns, inserts and deletes the selected pages from the context menu", async () => {
+    const { user, apply, menu } = setup();
+    await user.click(await menu(3, strings.pages.rotateCw));
+    expect(apply).toHaveBeenLastCalledWith({ kind: "rotatePages", pages: [2], by: "cw90" });
+    await user.click(await menu(3, strings.pages.rotateCcw));
+    expect(apply).toHaveBeenLastCalledWith({ kind: "rotatePages", pages: [2], by: "cw270" });
+    await user.click(await menu(3, strings.pages.insertBefore));
+    expect(apply).toHaveBeenLastCalledWith({ kind: "insertBlankPage", at: 2, like: 2 });
+    await user.click(await menu(5, strings.pages.insertAfter));
+    expect(apply).toHaveBeenLastCalledWith({ kind: "insertBlankPage", at: 5, like: 4 });
+    await user.click(await menu(5, strings.pages.delete));
+    expect(apply).toHaveBeenLastCalledWith({ kind: "deletePages", pages: [4] });
+  });
+
+  it("deletes with the Delete key, but never every page", async () => {
+    const { user, apply, thumb } = setup({ count: 3 });
+    await user.click(thumb(2));
+    await user.keyboard("{Delete}");
+    expect(apply).toHaveBeenLastCalledWith({ kind: "deletePages", pages: [1] });
+    apply.mockClear();
+    await user.keyboard("{Control>}a{/Control}{Delete}");
+    expect(apply).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent(strings.pages.keepOne);
+  });
+
+  it("deletes the page with the focus when none is selected", async () => {
+    const { apply, thumb } = setup();
+    thumb(1).focus();
+    fireEvent.keyDown(thumb(1), { key: "ArrowDown" });
+    await act(async () => {});
+    expect(thumb(2)).toHaveFocus();
+    fireEvent.keyDown(thumb(2), { key: "Delete" });
+    expect(apply).toHaveBeenLastCalledWith({ kind: "deletePages", pages: [1] });
+  });
+
+  it("moves the selected pages to a page number from the keyboard", async () => {
+    const { user, apply, menu } = setup();
+    await user.click(await menu(5, strings.pages.moveTo));
+    const dialog = await screen.findByRole("dialog", { name: strings.pages.move.title });
+    const number = within(dialog).getByLabelText(strings.pages.move.page);
+    await user.clear(number);
+    await user.type(number, "11");
+    await user.click(within(dialog).getByRole("button", { name: strings.pages.move.confirm }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(strings.pages.move.outOfRange(10));
+    await user.clear(number);
+    await user.type(number, "1");
+    await user.click(within(dialog).getByRole("button", { name: strings.pages.move.confirm }));
+    expect(apply).toHaveBeenLastCalledWith({ kind: "movePages", pages: [4], before: 0 });
+  });
+
+  it("drags the selected pages to another place", () => {
+    const { apply, thumb } = setup();
+    const list = screen.getByRole("listbox", { name: strings.sidebar.thumbnailsTab });
+    // In jsdom every element is at 0, 0: list coordinates are the pointer's.
+    fireEvent.pointerDown(thumb(5), { pointerId: 1, button: 0, clientX: 60, clientY: 800 });
+    fireEvent.pointerMove(list, { pointerId: 1, clientX: 60, clientY: 10 });
+    fireEvent.pointerUp(list, { pointerId: 1, clientX: 60, clientY: 10 });
+    expect(apply).toHaveBeenLastCalledWith({ kind: "movePages", pages: [4], before: 0 });
+  });
+
+  it("offers nothing that changes pages when the author forbids it", async () => {
+    const { user, apply, menu, thumb } = setup({ allowed: false });
+    expect(await menu(2, strings.pages.delete)).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText(strings.pages.notAllowed)).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await user.click(thumb(2));
+    await user.keyboard("{Delete}");
+    expect(apply).not.toHaveBeenCalled();
   });
 });

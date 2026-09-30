@@ -59,6 +59,7 @@ app 本身完全沒有為測試做任何修改：沒有測試專用的建置選�
 | 開啟 `malformed/not-a-pdf.pdf` | 錯誤狀態：「這不是 PDF 檔案。」 |
 | 以開啟對話框開啟（#86） | `Ctrl+O` 後取消：沒有分頁；再按「選擇檔案…」，輸入 `benign/single-page.pdf` 並開啟：分頁出現、第 1 頁已渲染。對話框是系統的，由 `answerFileDialog`（`file-dialog.ps1`）以 UI Automation 找到後回答 |
 | 匯出（B2-04，`export.spec.ts`） | 純文字寫到另存的檔案；兩頁 PNG 寫到選的資料夾（簽名、72 dpi 的寬度）；取消另存時什麼都不寫 |
+| 頁面管理（B2-05，`pages.spec.ts`） | 在縮圖上以右鍵刪除第 3 頁、以「移到…」把第 5 頁移到最前面、右鍵把第 2 頁向右轉；另存後重新開啟：9 頁，搜尋定位各頁、第 3 頁是橫的。另以滑鼠拖曳縮圖移動頁面 |
 | 儲存（B2-02，`saving.spec.ts`） | 還沒有編輯的 UI，所以以 app 自己的 IPC（`apply_edit`，文件 id 取自頁面的 `data-doc`）旋轉第 1 頁：另存新檔後重新開啟新檔，第 1 頁已旋轉、原檔的雜湊值不變；`Ctrl+S` 寫回原檔；`Ctrl+W` 詢問（取消、不儲存）；以 `closeAppWindow`（對 app 視窗送出 `WM_CLOSE`，同關閉按鈕）關閉視窗時詢問，選「儲存」後 app 結束、重新開啟時第 1 頁已旋轉 |
 
 之後每張功能卡都可以在 `tests/e2e/` 加上自己的驗收情境。預期文字一律從 `src/i18n/zh-TW.ts` 取得，不要寫死。

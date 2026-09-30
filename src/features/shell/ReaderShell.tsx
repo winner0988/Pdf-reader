@@ -38,6 +38,8 @@ import { Toolbar } from "@/features/shell/Toolbar";
 import { useShortcuts } from "@/features/shortcuts/useShortcuts";
 import type { SystemApi } from "@/features/system/defaultApp";
 import { createTextSource, type TextApi } from "@/features/text/source";
+import type { EditingApi } from "@/features/thumbnails/api";
+import type { PageEditing } from "@/features/thumbnails/Thumbnails";
 import { useTheme } from "@/features/theme/useTheme";
 import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
 import type { PageRenderer } from "@/features/viewer/renderer";
@@ -80,6 +82,8 @@ type ReaderShellProps = {
   exportApi?: ExportApi;
   /** Saves the document (B2-02); without it (demo data, tests) nothing can be. */
   savingApi?: SavingApi;
+  /** Page management in the thumbnails (B2-05); without it (demo data, tests) pages stay as they are. */
+  editingApi?: EditingApi;
   /** The update check in the settings (#64); without it (demo data, tests) it is not offered. */
   updatesApi?: UpdatesApi;
   /** Whether this shell is the one shown (MVP-14): a hidden tab's shell handles no keys. */
@@ -134,6 +138,7 @@ export function ReaderShell({
   recentApi,
   exportApi,
   savingApi,
+  editingApi,
   updatesApi,
   active = true,
   version = "0.1.0",
@@ -298,6 +303,18 @@ export function ReaderShell({
     if (savable) savingApi.saveAs(doc).then(saved, setSaveFailed);
   };
 
+  // Page management (B2-05) needs the main process too. The author's permission to assemble or
+  // change the document covers it (MVP-19).
+  const pageEditing: PageEditing | undefined =
+    doc !== undefined && editingApi !== undefined
+      ? {
+          allowed: permissions.assemble || permissions.modify,
+          apply: (edit) => editingApi.applyEdit(doc, edit),
+        }
+      : undefined;
+  // Deleting pages can leave the page being read past the end.
+  if (pageCount > 0 && currentPage > pageCount) setCurrentPage(pageCount);
+
   useShortcuts({
     open: onOpen,
     // Always taken, even with nothing to save: the WebView would otherwise save the page.
@@ -429,7 +446,8 @@ export function ReaderShell({
         <div className="relative flex min-h-0 flex-1">
           {sidebarOpen && document_ && (
             <Sidebar
-              key={document_.doc ?? document_.displayName}
+              // One per opened file: an edit (B2-05) keeps the tab shown and the pages selected.
+              key={document_.session ?? document_.doc ?? document_.displayName}
               outline={outline ?? document_.outline ?? { status: "none" }}
               pages={document_.pages}
               doc={document_.doc}
@@ -437,6 +455,7 @@ export function ReaderShell({
               currentPage={currentPage}
               onJumpToPage={goToPage}
               onOpenLink={openOutlineLink}
+              pageEditing={pageEditing}
             />
           )}
           <div className="flex min-w-0 flex-1 flex-col">
