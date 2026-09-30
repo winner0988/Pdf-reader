@@ -44,6 +44,10 @@ async function find(page: Page, query: string) {
   await search.press("Enter");
 }
 
+/** The toolbar's page count: the document has `total` pages. */
+const hasPages = (page: Page, total: number) =>
+  expect(page.getByText(strings.toolbar.pageCount(total), { exact: true })).toBeVisible();
+
 /** The status bar says page `number` of `total` is shown. */
 const showsPage = (page: Page, number: number, total: number) =>
   expect(page.getByRole("contentinfo")).toContainText(strings.statusBar.pageStatus(number, total, ""));
@@ -58,7 +62,7 @@ test("pages deleted, moved and turned from the thumbnails are so in the file sav
     const list = await openThumbnails(page);
 
     await fromMenu(page, list, 3, strings.pages.delete);
-    await expect(thumb(list, 10)).toHaveCount(0);
+    await hasPages(page, 9);
     // Page 5 is now the fourth.
     const doc = await fromMenu(page, list, 4, strings.pages.moveTo);
     const dialog = page.getByRole("dialog", { name: strings.pages.move.title });
