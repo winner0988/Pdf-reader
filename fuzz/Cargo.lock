@@ -261,7 +261,9 @@ version = "0.1.0"
 dependencies = [
  "ipc_contract",
  "mupdf",
+ "mupdf-sys",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]

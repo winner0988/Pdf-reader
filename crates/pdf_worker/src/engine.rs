@@ -14,6 +14,7 @@ use ipc_contract::types::{
 use mupdf::pdf::{PdfDocument as MuPdfDocument, PdfObject, PdfWriteOptions};
 use mupdf::{Colorspace, Document, ImageFormat, Matrix, Page, Pixmap, TextPageFlags};
 
+use crate::owner_password;
 use crate::scan::{self, ScanBudget};
 use crate::search::{PageSearch, PageText};
 use crate::text_layer::TextLayerBuilder;
@@ -110,6 +111,8 @@ pub struct PdfDocument {
     /// The binding's `PdfObject`s do not borrow the document they come from: none may outlive
     /// this field, so they stay local to the methods below.
     doc: MuPdfDocument,
+    /// Opened with the owner password: nothing is restricted, as in Acrobat (#88).
+    owner: bool,
 }
 
 impl PdfDocument {
@@ -129,14 +132,17 @@ impl PdfDocument {
             return Err(EngineError::NotPdf);
         }
         let mut doc = Document::from_bytes(bytes, "application/pdf").map_err(open_error)?;
+        let mut owner = false;
         if doc.needs_password()? {
             let password = password.ok_or(EngineError::Encrypted)?;
             if !doc.authenticate(password)? {
                 return Err(EngineError::WrongPassword);
             }
+            owner = owner_password::is_owner_password(bytes, password);
         }
         Ok(Self {
             doc: MuPdfDocument::try_from(doc)?,
+            owner,
         })
     }
 
@@ -165,9 +171,12 @@ impl PdfDocument {
     /// MuPDF's own `permissions()` cannot be used: the binding turns any `/P` with the reserved
     /// bits set, that is every real one, into "everything allowed".
     ///
-    /// Acrobat lifts the restrictions for whoever opened the file with the owner password; the
-    /// binding does not say which password opened it, so they stay (docs/architecture/encryption.md).
+    /// As in Acrobat, whoever opened the file with the owner password has no restrictions (#88,
+    /// docs/architecture/encryption.md).
     pub fn permissions(&self) -> DocumentPermissions {
+        if self.owner {
+            return DocumentPermissions::ALL;
+        }
         let Some(encrypt) = self
             .doc
             .trailer()
@@ -1419,6 +1428,30 @@ mod tests {
         // The signed bytes come first, unchanged: the signature still covers them.
         assert!(file.len() > original.len());
         assert_eq!(&file[..original.len()], &original[..]);
+    }
+
+    #[test]
+    fn the_owner_password_lifts_the_authors_restrictions() {
+        let restricted = corpus("benign/restricted-open-password.pdf");
+        let with_user = PdfDocument::open(&restricted, Some("user"))
+            .expect("open")
+            .permissions();
+        assert_eq!(
+            with_user,
+            DocumentPermissions {
+                copy: false,
+                print: false,
+                print_high_quality: false,
+                ..DocumentPermissions::ALL
+            }
+        );
+        let with_owner = PdfDocument::open(&restricted, Some("owner")).expect("open");
+        assert_eq!(with_owner.permissions(), DocumentPermissions::ALL);
+        // Without an open password nothing is typed, so the restrictions stay, as in Acrobat.
+        let no_open_password =
+            PdfDocument::from_bytes(&corpus("benign/restricted-no-copy-no-print.pdf"))
+                .expect("open");
+        assert!(!no_open_password.permissions().copy);
     }
 
     #[test]

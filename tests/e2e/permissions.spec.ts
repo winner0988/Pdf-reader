@@ -1,6 +1,7 @@
-// PDF permissions (MVP-19) in the real app. The corpus's restricted samples open without a
-// password; what their author forbids is not done, and the app says why. Copied text and
-// printing are recorded instead of reaching this computer's clipboard and printers.
+// PDF permissions (MVP-19) in the real app. Most of the corpus's restricted samples open without
+// a password; what their author forbids is not done, and the app says why. The owner password
+// lifts the restrictions, as in Acrobat (#88). Copied text and printing are recorded instead of
+// reaching this computer's clipboard and printers.
 import type { Page } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
@@ -8,8 +9,13 @@ import { corpus, expect, test } from "./app";
 
 type Recorded = { copied: string[]; printed: number };
 
-async function open(launch: (file?: string) => Promise<Page>, file: string) {
+async function open(launch: (file?: string) => Promise<Page>, file: string, password?: string) {
   const page = await launch(corpus(file));
+  if (password !== undefined) {
+    const field = page.getByLabel(strings.password.label, { exact: true });
+    await field.fill(password);
+    await field.press("Enter");
+  }
   await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
   await page.evaluate(() => {
     const recorded: Recorded = { copied: [], printed: 0 };
@@ -81,4 +87,32 @@ test("a document that allows only low-resolution printing prints at 150 dpi, and
     .locator("[data-print-pages] img")
     .evaluate((image) => (image as HTMLImageElement).naturalWidth);
   expect(Math.abs(width - (612 * 150) / 72)).toBeLessThanOrEqual(1);
+});
+
+test("opened with the user password, a document keeps what its author forbids (#88)", async ({ launch }) => {
+  const { page, recorded } = await open(launch, "benign/restricted-open-password.pdf", "user");
+  const statusBar = page.getByRole("contentinfo");
+  await expect(statusBar).toContainText(strings.permissions.restricted("不可複製、不可列印"));
+
+  await selectWord(page);
+  await page.keyboard.press("Control+c");
+  await expect(statusBar.getByRole("status")).toHaveText(strings.permissions.copyBlocked);
+  await page.keyboard.press("Control+p");
+  await expect(statusBar.getByRole("status")).toHaveText(strings.permissions.printBlocked);
+  expect(await recorded()).toEqual({ copied: [], printed: 0 });
+});
+
+test("opened with the owner password, nothing is restricted, as in Acrobat (#88)", async ({ launch }) => {
+  const { page, recorded } = await open(launch, "benign/restricted-open-password.pdf", "owner");
+  await expect(page.getByRole("contentinfo")).not.toContainText(strings.permissions.restricted(""));
+
+  await selectWord(page);
+  await page.keyboard.press("Control+c");
+  await expect.poll(async () => (await recorded()).copied).toEqual(["Restricted"]);
+
+  await page.keyboard.press("Control+p");
+  const dialog = page.getByRole("dialog", { name: strings.print.title });
+  await expect(dialog).not.toContainText(strings.permissions.lowResNote(150));
+  await dialog.getByRole("button", { name: strings.print.next }).click();
+  await expect.poll(async () => (await recorded()).printed).toBe(1);
 });

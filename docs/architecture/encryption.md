@@ -39,12 +39,13 @@ sequenceDiagram
 | 前端 | 密碼欄位送出後立刻清空；密碼只經過一次 `unlock_tab`。 |
 | IPC 型別 | `Password`（`ipc_contract::types`）：`Debug` 只顯示 `Password(..)`，所以任何日誌、錯誤或 `{:?}` 都印不出密碼；被丟棄時以 `zeroize` 清除記憶體。 |
 | 主行程 | 先檢查（不可為空、不可含 NUL、最多 `MAX_PASSWORD_BYTES` = 1,024 bytes），放進送給 worker 的 `Open` 請求；送出後編碼的 frame 以 `frame::send_wiped` 清除，請求本身隨即丟棄。**不保留密碼**。 |
-| worker | 讀取請求改用沒有緩衝的標準輸入（標準函式庫的緩衝無法清除），收到的 frame 以 `frame::receive_wiped` 清除；密碼交給 MuPDF 驗證後，`open` 結束時丟棄。之後 MuPDF 只保留解密所需的金鑰。 |
+| worker | 讀取請求改用沒有緩衝的標準輸入（標準函式庫的緩衝無法清除），收到的 frame 以 `frame::receive_wiped` 清除；密碼交給 MuPDF 驗證後，`open` 結束時丟棄。判斷是否為擁有者密碼（#88）時交給 MuPDF 的複本，用完即以 `zeroize` 清除。之後 MuPDF 只保留解密所需的金鑰。 |
 
 ### 做不到的部分
 
 - **WebView 與 Tauri 的 IPC**：JavaScript 字串無法清除，Tauri 反序列化時的暫存也不在我們的控制範圍內。它們會隨著記憶體重複使用而被覆蓋。
 - **MuPDF 的 Rust 繫結**：`authenticate` 會把密碼複製成 C 字串，用完沒有清除；這個暫存只存在沙盒中的 worker 裡，文件關閉時 worker 就結束。
+- **MuPDF 本身**：驗證密碼時會轉換編碼、複製到自己堆疊上的緩衝區，沒有清除；同樣只在沙盒中的 worker 裡。
 - **作業系統的管線緩衝區**。
 
 ### worker 崩潰時
@@ -62,19 +63,29 @@ sequenceDiagram
 | 12：高品質列印（R3 以上） | 允許列印，但只能低解析度 | 以 150 dpi（Acrobat 的「低解析度」）而不是 200 dpi 列印；列印對話框說明 |
 
 - 受限制的文件在狀態列顯示「已限制：…」，例如「已限制：不可複製、不可列印」。未加密的文件全部允許。
-- **讀取**：worker 從 trailer 的 `/Encrypt` 讀 `/P` 與 `/R`（`engine::PdfDocument::permissions`），以 `DocumentPermissions`（`copy`、`print`、`printHighQuality`）放進 `OpenedDocument` 與 `DocumentInfo` 交給前端。只用物件 API，沒有 `unsafe`。
+- **讀取**：worker 從 trailer 的 `/Encrypt` 讀 `/P` 與 `/R`（`engine::PdfDocument::permissions`），以 `DocumentPermissions`（`copy`、`print`、`printHighQuality`）放進 `OpenedDocument` 與 `DocumentInfo` 交給前端。只用物件 API，沒有 `unsafe`。以擁有者密碼開啟的文件則全部允許（見下方「擁有者密碼」）。
 - **沒有用 `mupdf` 的 `PdfDocument::permissions()`**：繫結以 `Permission::from_bits(...)` 轉換 `/P`，失敗時當成「全部允許」。真正的 `/P` 都設了保留位元，所以一律失敗，結果永遠是全部允許。
 - 修訂版 2（R2，40-bit RC4）沒有高品質列印位元：允許列印就是完整品質。
 - **權限不是安全邊界**，而是文件作者的要求：能開啟文件就能解密全部內容，其他程式也可以不理會。app 遵守它，但不宣稱能防止擷取。
-- 語料：`benign/restricted-no-copy-no-print.pdf` 與 `benign/restricted-low-res-print.pdf`（AES-256，使用者密碼為空，擁有者密碼 `owner`）。
+- 語料：
+  - `benign/restricted-no-copy-no-print.pdf` 與 `benign/restricted-low-res-print.pdf`：AES-256，使用者密碼為空，擁有者密碼 `owner`；
+  - `benign/restricted-open-password.pdf`：AES-256，使用者密碼 `user`、擁有者密碼 `owner`，禁止複製與列印。
 
-### 與 Acrobat 的差異
+### 擁有者密碼
 
-Acrobat 在使用者以**擁有者密碼**開啟文件時解除所有限制。`mupdf` 繫結的 `authenticate` 只回傳成功與否，MuPDF 回報的「以擁有者密碼通過」在繫結中被丟掉，看不出是哪一個密碼。所以目前輸入擁有者密碼也不會解除限制。
+工作卡 [#88](https://github.com/winner0988/Pdf-reader/issues/88)，負責人選擇由 worker 直接呼叫 MuPDF 的 C 函式。
 
-最常見的情形與 Acrobat 相同：只設權限密碼的文件開啟時不需要密碼，限制一律生效。
+- 與 Acrobat 相同：需要密碼的文件以**擁有者密碼**開啟時，解除所有限制（`DocumentPermissions` 全部允許）；以使用者密碼開啟時，作者的限制照樣生效。
+- 只設權限密碼（使用者密碼為空）的文件開啟時不需要密碼，所以不會輸入擁有者密碼，限制一律生效，也與 Acrobat 相同。
+- **做法**：`mupdf` 繫結的 `authenticate` 只回傳成功與否。所以密碼通過繫結的驗證後，`owner_password::is_owner_password` 以 `mupdf-sys` 另開一次同一份文件，呼叫 `pdf_authenticate_password`，看 MuPDF 回報的是不是擁有者密碼（4）：
+  - 只有需要密碼的文件才會多開一次；檔案內容以共用的方式交給 MuPDF，不另外複製；
+  - 為何安全：見 [mupdf-binding.md](mupdf-binding.md) 的「目前的 API」；
+  - 結果只存在 worker 的 `PdfDocument` 中，文件關閉即丟棄。
+- 測試：
+  - `owner_password` 與 `engine` 的單元測試；
+  - `tests/encryption.rs`：在沙盒中的 worker 裡，AES 與 RC4 的樣本都測；
+  - E2E `permissions.spec.ts`：在真正的 app 中，使用者密碼不能複製、列印，擁有者密碼都可以。
 
 ## 尚未處理
 
 - **記住密碼**（Windows 認證管理員，ADR 0006）：另開工作卡。
-- **以擁有者密碼解除權限限制**：見上方「與 Acrobat 的差異」；需要繫結回報是哪一個密碼通過。
