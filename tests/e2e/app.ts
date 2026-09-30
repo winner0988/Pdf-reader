@@ -262,7 +262,10 @@ export const test = base.extend<{
         APP_BROWSER_ARGUMENTS,
         `--remote-debugging-port=${port}`,
         ...(options.deviceScaleFactor ? [`--force-device-scale-factor=${options.deviceScaleFactor}`] : []),
-        ...(options.netLog ? [`--log-net-log="${options.netLog}"`, "--net-log-capture-mode=Default"] : []),
+        // Quoted only when it must be: on CI the arguments also go through `reg add`.
+        ...(options.netLog
+          ? [`--log-net-log=${/\s/.test(options.netLog) ? `"${options.netLog}"` : options.netLog}`, "--net-log-capture-mode=Default"]
+          : []),
       ]
         .filter(Boolean)
         .join(" ");
