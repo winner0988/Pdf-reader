@@ -1,4 +1,6 @@
-# Builds Tesseract and Leptonica for the OCR POC of ADR 0015 (option C, #99), locally and in CI.
+# Builds Tesseract and Leptonica for the Tesseract POC of ADR 0015 (#99), locally and in CI, and
+# fetches the language data that both of its probes use (the other probe uses the Tesseract inside
+# MuPDF, which needs no build of its own).
 #
 # Downloads the pinned sources and language data (each checked against its SHA-256), then builds
 # static libraries with CMake and Visual Studio: without network (curl), archive, image-format or

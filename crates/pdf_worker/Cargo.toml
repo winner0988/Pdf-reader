@@ -11,13 +11,17 @@ publish.workspace = true
 workspace = true
 
 [features]
-# The OCR POC of ADR 0015, option C (examples/tesseract_probe.rs): needs the libraries that
-# scripts/ocr-poc/build-tesseract.ps1 builds, in TESSERACT_POC_DIR. Off by default; the worker
-# never uses it.
+# The Tesseract POC of ADR 0015 (examples/tesseract_probe.rs, examples/mupdf_tesseract_probe.rs):
+# needs what scripts/ocr-poc/build-tesseract.ps1 builds and fetches, in TESSERACT_POC_DIR. Off by
+# default; the worker never uses it.
 tesseract-poc = []
 
 [[example]]
 name = "tesseract_probe"
+required-features = ["tesseract-poc"]
+
+[[example]]
+name = "mupdf_tesseract_probe"
 required-features = ["tesseract-poc"]
 
 [dependencies]

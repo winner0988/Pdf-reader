@@ -1,15 +1,18 @@
 name: OCR POC
 
-# The OCR POC of ADR 0015 (#99), option C: builds Tesseract and Leptonica from pinned sources
-# (scripts/ocr-poc/build-tesseract.ps1) and recognises a scanned corpus page in the worker's own
-# sandbox. Runs only when the POC's files change, i.e. on the POC's pull request: the owner chose
-# not to add its build time to every CI run. Removed once ADR 0015 is decided.
+# The Tesseract POC of ADR 0015 (#99): recognises a scanned corpus page in the worker's own
+# sandbox with the Tesseract inside MuPDF, and with Tesseract and Leptonica built apart from pinned
+# sources (scripts/ocr-poc/build-tesseract.ps1, which also fetches the language data both use).
+# Runs only when the POC's files change, i.e. on the POC's pull request: the owner chose not to add
+# its build time to every CI run. Removed once ADR 0015 is decided.
 
 on:
   pull_request:
     paths:
       - ".github/workflows/ocr-poc.yml"
       - "scripts/ocr-poc/**"
+      - "crates/pdf_worker/examples/common/**"
+      - "crates/pdf_worker/examples/mupdf_tesseract_probe.rs"
       - "crates/pdf_worker/examples/tesseract_probe.rs"
       - "crates/pdf_worker/tests/ocr_poc.rs"
 

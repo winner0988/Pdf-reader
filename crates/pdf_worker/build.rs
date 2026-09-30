@@ -3,8 +3,9 @@
 //! - windows-core imports ole32, which imports user32, which cannot load when win32k is
 //!   disabled, as in the worker's sandbox. Delay-loaded, ole32 is only loaded if called, which
 //!   the Windows OCR probe avoids.
-//! - With the `tesseract-poc` feature, the Tesseract probe links the static libraries that
-//!   scripts/ocr-poc/build-tesseract.ps1 installs in `TESSERACT_POC_DIR`.
+//! - With the `tesseract-poc` feature, examples/tesseract_probe.rs links the static libraries
+//!   that scripts/ocr-poc/build-tesseract.ps1 installs in `TESSERACT_POC_DIR`; this says where
+//!   they are, and the probe names them.
 
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
@@ -19,11 +20,6 @@ fn main() {
              scripts/ocr-poc/build-tesseract.ps1 (target/ocr-poc/install)",
         );
         let lib = std::path::Path::new(&dir).join("lib");
-        for name in ["tesseract55.lib", "leptonica-1.87.0.lib"] {
-            println!(
-                "cargo::rustc-link-arg-examples={}",
-                lib.join(name).display()
-            );
-        }
+        println!("cargo::rustc-link-search=native={}", lib.display());
     }
 }

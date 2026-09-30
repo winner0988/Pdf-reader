@@ -12,9 +12,9 @@
 //! Needs Windows' OCR for English, which English Windows has (so does the CI runner). Traditional
 //! Chinese is checked where Windows has its OCR too, as Traditional Chinese Windows does.
 //!
-//! Option C, Tesseract (module `tesseract`), recognises the same image in the worker's own
-//! sandbox, win32k disabled too. It needs the `tesseract-poc` feature and the libraries
-//! scripts/ocr-poc/build-tesseract.ps1 builds (`TESSERACT_POC_DIR`).
+//! Tesseract (module `tesseract`) recognises the same image in the worker's own sandbox, win32k
+//! disabled too: both the copy inside MuPDF and one built apart. It needs the `tesseract-poc`
+//! feature and what scripts/ocr-poc/build-tesseract.ps1 builds and fetches (`TESSERACT_POC_DIR`).
 #![cfg(windows)]
 
 use std::ffi::OsStr;
@@ -216,8 +216,8 @@ fn recognition_fails_in_the_workers_own_sandbox() {
     );
 }
 
-/// Option C of ADR 0015: Tesseract, in the worker's own sandbox, win32k disabled too. The
-/// language data goes to the probe on stdin with the image: the sandbox opens no files.
+/// Tesseract, in the worker's own sandbox, win32k disabled too. The language data goes to the
+/// probe on stdin with the image: the sandbox opens no files.
 #[cfg(feature = "tesseract-poc")]
 mod tesseract {
     use std::path::Path;
@@ -234,6 +234,11 @@ mod tesseract {
     }
 
     fn recognise(image: &[u8], language: &str) -> Vec<String> {
+        recognise_with("tesseract_probe", image, language)
+    }
+
+    /// What `probe` recognised in `image`, run in the worker's own sandbox.
+    fn recognise_with(probe: &str, image: &[u8], language: &str) -> Vec<String> {
         let data = traineddata(language);
         let mut input = u32::try_from(data.len())
             .expect("language data size")
@@ -241,12 +246,28 @@ mod tesseract {
             .to_vec();
         input.extend_from_slice(&data);
         input.extend_from_slice(image);
-        run_probe(
-            "tesseract_probe",
-            language,
-            &input,
-            &SandboxConfig::default(),
-        )
+        run_probe(probe, language, &input, &SandboxConfig::default())
+    }
+
+    #[test]
+    fn mupdf_s_own_tesseract_recognises_english_in_the_workers_own_sandbox() {
+        let output = recognise_with("mupdf_tesseract_probe", &scanned_page(), "eng");
+        assert!(
+            output.contains(&"line:Privacy-first PDF Reader".to_owned()),
+            "{output:?}"
+        );
+    }
+
+    #[test]
+    fn mupdf_s_own_tesseract_recognises_chinese_in_the_workers_own_sandbox() {
+        let output = recognise_with("mupdf_tesseract_probe", &scanned_page(), "chi_tra");
+        let lines: Vec<String> = output.iter().map(|line| line.replace(' ', "")).collect();
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("隱私優先的PDF閱讀器")),
+            "{output:?}"
+        );
     }
 
     #[test]
