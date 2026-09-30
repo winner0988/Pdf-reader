@@ -58,6 +58,12 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-describe-outline-link", "#49: the same confirmation for an outline item"],
   ["allow-open-outline-link", "#49: open a confirmed outline link by its position"],
   ["allow-open-default-apps-settings", "REL-03: open the fixed default-apps page of Windows Settings"],
+  [
+    "allow-check-for-updates",
+    "#64, ADR 0009: the one network request, from the main process to a fixed GitHub address; no arguments",
+  ],
+  ["allow-describe-releases-page", "#64: what the link confirmation shows about the fixed releases page"],
+  ["allow-open-releases-page", "#64: open the fixed releases page after the user confirmed it"],
   ["allow-get-recent-files", "#73: the recently opened files as names and ids; the paths stay in the main process"],
   ["allow-open-recent-file", "#73: open a recently opened file by its id"],
   ["allow-remove-recent-file", "#73: take a file off the recent files list by its id"],

@@ -98,12 +98,16 @@
 
 ![關於](wireframes/about.svg)
 
-- 「關於」：版本、隱私承諾、第三方元件授權（本機檢視，不連網）。
+- 「關於」：版本、隱私承諾、第三方元件授權（本機檢視，不連網）。隱私承諾說明唯一的連網：使用者在設定中按下「檢查更新」時。
 - 「設定」（B2-12）：「⋯」→「設定…」開啟對話框。變更立即套用並儲存，沒有「確定」按鈕。
   - **外觀**：跟隨系統（預設）／淺色／深色。與「⋯」選單的外觀是同一個設定，所有分頁共用，重新啟動後保留。
   - **最近開啟的檔案**：
     - 「記錄最近開啟的檔案」（預設開啟）：關閉時清除目前的清單，之後開啟的檔案都不記錄，「⋯」選單也不再有「不記錄此檔案」；
     - 「清除清單」、「清除『不記錄此檔案』的選擇」：完成後在下方說明（settings.listCleared、settings.exclusionsCleared）。
+  - **更新**（#64，ADR 0009）：
+    - settings.updatesNote 說明只在按下時查詢、不會自動下載或安裝，以及 GitHub 會看到 IP 位址與時間；
+    - 「檢查更新」：每按一次向 GitHub 查詢一次，查詢期間停用。結果顯示在下方：settings.upToDate、settings.available、settings.noRelease 或 settings.checkFailed；
+    - 有新版本時多一個「前往下載頁…」：與文件中的外部連結一樣，先顯示確認對話框（第 4 節）與完整網址，使用者確認後才交給瀏覽器開啟；網址固定為本專案的 GitHub Releases 頁面。
   - **這台電腦上保存的資料**：列出 settings.dataItems 與 settings.dataLocation。
   - 設定寫不進檔案時顯示 settings.saveFailed：仍然套用，但重新啟動後會回到之前的設定。
   - 保存方式見 [local-data.md](../architecture/local-data.md)。
@@ -249,7 +253,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | emptyTitle | 開啟 PDF 檔案 |
 | emptyOpenButton | 選擇檔案…（Ctrl+O） |
 | emptyDropHint | 或將檔案拖放到這個視窗 |
-| privacyNote | 所有處理都在這台電腦上完成：不連網、不收集任何資料。 |
+| privacyNote | 所有處理都在這台電腦上完成：不會自行連網、不收集任何資料。 |
 | recent.title | 最近開啟的檔案 |
 | recent.remove | 從清單移除「<檔名>」 |
 | recent.clear | 清除清單 |
@@ -382,7 +386,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | aboutTitle | 關於 PDF Reader |
 | aboutVersion | 版本 <版本> |
 | aboutPrivacyTitle | 隱私承諾 |
-| aboutPrivacy1 | 不連網：不檢查更新、不載入遠端資源 |
+| aboutPrivacy1 | 不會自行連網：只有在設定中按下「檢查更新」時，才向 GitHub 查詢最新的版本號碼；不載入遠端資源 |
 | aboutPrivacy2 | 不收集任何使用者資料，不回報錯誤 |
 | aboutPrivacy3 | PDF 中的 JavaScript 與自動動作一律不執行 |
 | aboutLicenses | 第三方元件與授權 |
@@ -405,6 +409,15 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | settings.dataItems | 最近開啟的檔案：完整路徑，只在這台電腦上；畫面只顯示檔名／設定：外觀、是否記錄最近開啟的檔案／畫面元件（WebView2）的暫存資料 |
 | settings.dataLocation | 全部都在 %LOCALAPPDATA%\io.github.winner0988.pdfreader 資料夾中，不會同步到其他電腦，也不會上傳。關閉 app 後可以直接刪除這個資料夾。 |
 | settings.saveFailed | 設定無法儲存：目前已套用，但重新啟動後會回到之前的設定。 |
+| settings.updates | 更新 |
+| settings.updatesNote | 只在你按下時向 GitHub 查詢最新的版本號碼，不會自動下載或安裝。GitHub 會看到你的 IP 位址與查詢的時間。 |
+| settings.checkUpdates | 檢查更新 |
+| settings.checking | 正在向 GitHub 查詢… |
+| settings.upToDate | 已是最新版本（<目前版本>）。 |
+| settings.available | 有新版本 <最新版本>（目前是 <目前版本>）。 |
+| settings.noRelease | GitHub 上還沒有任何發行版本。 |
+| settings.checkFailed | 無法檢查更新，請確認網路連線後再試一次。 |
+| settings.openReleases | 前往下載頁… |
 | menu.setDefault | 設為預設 PDF 閱讀器 |
 | defaultApp.failedTitle | 無法開啟 Windows 設定 |
 | defaultApp.failedHelp | 請手動開啟：設定 → 應用程式 → 預設應用程式，搜尋「PDF Reader」，再把 .pdf 設為用它開啟。 |

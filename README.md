@@ -1,6 +1,6 @@
 # Pdf-reader
 
-注重隱私、完全離線的 Windows 桌面 PDF 閱讀器（之後擴充為編輯器）。不連網、無遙測、PDF 主動內容預設封鎖，PDF 引擎隔離在低權限子行程中執行。
+注重隱私、完全離線的 Windows 桌面 PDF 閱讀器（之後擴充為編輯器）。不會自行連網、無遙測、PDF 主動內容預設封鎖，PDF 引擎隔離在低權限子行程中執行。
 
 > **狀態：MVP 開發中，尚未發布安裝檔。** 下面列出的功能都已完成並有測試；目前要自行從原始碼建置。進度見 [工作卡](docs/backlog/README.md) 與 [Issues](https://github.com/winner0988/Pdf-reader/issues)。
 >
@@ -36,7 +36,7 @@ OCR、Word 轉檔、完整編輯、簽章、加密、批次背景服務、表單
 
 ## 安全設計
 
-- **不連網、零遙測**：程式本身沒有任何網路功能，也不收集任何資料。CI 會擋下網路與遙測相關的依賴，並檢查 CSP、capability 與建置產物；完整的驗證方式見 [offline-verification.md](docs/security/offline-verification.md)。
+- **不會自行連網、零遙測**：開檔、閱讀、搜尋、啟動與關閉都不連網，也不收集任何資料。唯一的連網是使用者在設定中按下「檢查更新」時，由主行程向 GitHub 查詢一次最新的版本號碼，不帶任何識別資料（[ADR 0009](docs/adr/0009-default-network-policy.md)、[update-check.md](docs/architecture/update-check.md)）。CI 會擋下網路與遙測相關的依賴，並檢查 CSP、capability 與建置產物；完整的驗證方式見 [offline-verification.md](docs/security/offline-verification.md)。
 - **引擎隔離**（[ADR 0008](docs/adr/0008-pdf-worker-isolation.md)、[worker-sandbox.md](docs/architecture/worker-sandbox.md)）：
   - MuPDF 只在 `pdf_worker` 子行程中執行，**每份文件有自己的 worker**（[ADR 0012](docs/adr/0012-tabs-and-worker-per-document.md)），一份惡意 PDF 碰不到其他文件：沒有任何 capability 的 AppContainer（連 localhost 都不能連、讀不到使用者的檔案）、Job Object、Low integrity，並關閉 win32k 系統呼叫等。
   - 前端只拿得到不透明的文件代號，拿不到檔案路徑。

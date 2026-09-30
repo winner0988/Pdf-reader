@@ -14,6 +14,7 @@ import { ExportDialog } from "@/features/export/ExportDialog";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
 import { ALL_PERMISSIONS, restrictionSummary } from "@/features/permissions/permissions";
 import type { RecentApi } from "@/features/recent/api";
+import type { UpdatesApi } from "@/features/settings/updates";
 import type { SavingApi } from "@/features/saving/api";
 import { saveAsHelps } from "@/features/saving/messages";
 import { SaveFailedDialog } from "@/features/saving/SaveFailedDialog";
@@ -78,6 +79,8 @@ type ReaderShellProps = {
   exportApi?: ExportApi;
   /** Saves the document (B2-02); without it (demo data, tests) nothing can be. */
   savingApi?: SavingApi;
+  /** The update check in the settings (#64); without it (demo data, tests) it is not offered. */
+  updatesApi?: UpdatesApi;
   /** Whether this shell is the one shown (MVP-14): a hidden tab's shell handles no keys. */
   active?: boolean;
   version?: string;
@@ -130,6 +133,7 @@ export function ReaderShell({
   recentApi,
   exportApi,
   savingApi,
+  updatesApi,
   active = true,
   version = "0.1.0",
   loadingDelayMs,
@@ -596,6 +600,7 @@ export function ReaderShell({
         open={dialog === "settings"}
         onOpenChange={(open) => setDialog(open ? "settings" : null)}
         recentApi={recentApi}
+        updatesApi={updatesApi}
       />
       <AboutDialog
         open={dialog === "about"}

@@ -1,12 +1,13 @@
 # 離線驗證流程
 
-證明應用程式「不連網、零遙測」（AGENTS.md 原則 1、2；ADR 0009）。自動檢查在每個 PR 上執行；手動檢查在**每次發布前**執行，結果附在發布 PR 中。
+證明應用程式「不會自行連網、零遙測」（AGENTS.md 原則 1、2；ADR 0009）：唯一的連網是使用者在設定中按下「檢查更新」時的一個請求（[update-check.md](../architecture/update-check.md)）。自動檢查在每個 PR 上執行；手動檢查在**每次發布前**執行，結果附在發布 PR 中。
 
 ## 自動檢查（CI）
 
 | 層 | 檢查 | 位置 |
 |---|---|---|
 | 原始碼 | 遙測 SDK、遠端字型／CDN、具網路能力的 Tauri 外掛名稱 | `scripts/ci/check-forbidden.sh`（`Guardrails`） |
+| 原始碼 | WinHTTP（檢查更新用的唯一網路 API）只能出現在 `src-tauri/src/update_check.rs`（`@only` 規則） | 同上 |
 | Rust 依賴圖 | 禁用 HTTP／WebSocket／TLS client 與遙測 crate；授權白名單；只允許 crates.io | `deny.toml`（`Security` → `Dependency audit`） |
 | npm 依賴 | 已知弱點 | `pnpm audit --prod`（`Dependency audit`） |
 | 正式版 CSP | 只允許 `'self'`、`data:`／`blob:`（限圖片與 worker）、Tauri IPC；必須有 `object-src`／`base-uri`／`form-action`／`frame-src 'none'` | `scripts/ci/check-security-config.mjs`（`Guardrails`） |
@@ -33,16 +34,20 @@
 powershell -ExecutionPolicy Bypass -File scripts/security/watch-connections.ps1 -Seconds 180
 ```
 
-在腳本執行期間依序操作下方「操作清單」。**預期結果：`Endpoints seen: 0`。**
+在腳本執行期間依序操作下方「操作清單」。**預期結果**：
 
-限制：輪詢會漏掉比間隔更短的連線；DNS 查詢由系統的 DNS Client 服務發出，不屬於應用程式行程，此方法看不到。因此發布前還要做方法 B。
+- 除了第 8 步（檢查更新），沒有任何端點；
+- 第 8 步只出現一個 `pdf-reader` 的 TCP 連線，連到 GitHub（`api.github.com` 的位址）的 443 埠；有設定 WinHTTP proxy（`netsh winhttp`）時連到 proxy；
+- 所以結果是 `Endpoints seen: 1`（沒做第 8 步則是 0）。
+
+限制：輪詢會漏掉比間隔更短的連線（腳本以 `netstat` 輪詢，每輪約 0.1 秒；#64 之前每輪約 1 秒，漏掉了 #121 的連線）；DNS 查詢由系統的 DNS Client 服務發出，不屬於應用程式行程，此方法看不到。因此發布前還要做方法 B。
 
 ### 方法 B：Process Monitor（完整紀錄）
 
 1. 從 Microsoft Sysinternals 官方網站取得 Process Monitor。
 2. Filter：`Process Name` 是 `pdf-reader.exe`、`pdf_worker.exe`、`msedgewebview2.exe` → Include；`Operation` begins with `TCP` 或 `UDP` → Include。
 3. 開始擷取後啟動應用程式，執行下方「操作清單」。
-4. **預期結果：沒有任何事件。** 若 `msedgewebview2.exe` 出現事件，確認其父行程是否為本應用程式（其他程式也會使用 WebView2）。
+4. **預期結果**：只有第 8 步 `pdf-reader.exe` 連到 GitHub（或 WinHTTP proxy）443 埠的 TCP 事件，沒有其他事件。若 `msedgewebview2.exe` 出現事件，確認其父行程是否為本應用程式（其他程式也會使用 WebView2）。
 
 ### 操作清單
 
@@ -52,9 +57,11 @@ powershell -ExecutionPolicy Bypass -File scripts/security/watch-connections.ps1 
 4. 搜尋一個存在與一個不存在的字詞。
 5. 點擊文件中的外部連結，在確認對話框中按**取消**。
 6. 依序開啟 QA-01 `malicious/` 目錄中的每個檔案。
-7. 關閉應用程式。
+7. 開啟「⋯」→「設定…」，**不要**按「檢查更新」，停留 30 秒。
+8. 按一次「檢查更新」，等結果出現後再停留 30 秒（不應再有連線）。
+9. 關閉應用程式。
 
-> 功能尚未實作的步驟（MVP 期間）標記為「不適用」即可，但步驟 1 與 7 每次都要做。
+> 功能尚未實作的步驟（MVP 期間）標記為「不適用」即可，但步驟 1、8 與 9 每次都要做。
 
 ### 紀錄格式
 
@@ -80,3 +87,4 @@ powershell -ExecutionPolicy Bypass -File scripts/security/watch-connections.ps1 
 | 日期 | 版本 | 方法 | 結果 |
 |---|---|---|---|
 | 2026-09-24 | `main`（MVP-01 骨架，正式版建置） | 方法 A，啟動後停留 20 秒 | 0 個端點（WebView2 子行程已納入監看）；另以本機 TCP 連線做正向對照，腳本可正確偵測 |
+| 2026-09-30 | #64 的分支（release 建置，E2E 以 CDP 操作） | 方法 A（改用 `netstat` 後的腳本）：開啟設定停留 20 秒不按，按一次「檢查更新」，再停留 20 秒 | 按下後只有一個 `pdf-reader` 的連線，連到 `api.github.com`（`20.27.177.116:443`），結果「GitHub 上還沒有任何發行版本」；前後都沒有其他 `pdf-reader` 的連線。另外兩條 `127.0.0.1` 是 E2E 的 CDP 連線。**但 WebView2 啟動時自行連到微軟（`config.edge.skype.com`），並做 WPAD 查詢**，一般啟動也會：見 #121，這不是本次變更造成的，修正前本流程不會通過 |

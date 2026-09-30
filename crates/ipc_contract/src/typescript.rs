@@ -55,6 +55,7 @@ pub fn bindings() -> String {
         Edit,
         EditArgs,
         SaveResult,
+        UpdateCheck,
         RequestId,
         PageSize,
         Rotation,

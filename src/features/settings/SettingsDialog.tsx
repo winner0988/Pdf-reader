@@ -3,6 +3,8 @@ import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { RecentApi } from "@/features/recent/api";
+import type { UpdatesApi } from "@/features/settings/updates";
+import { UpdatesSection } from "@/features/settings/UpdatesSection";
 import { useSettings } from "@/features/settings/useSettings";
 import { useTheme, type ThemePreference } from "@/features/theme/useTheme";
 import { strings } from "@/i18n/zh-TW";
@@ -12,15 +14,18 @@ type SettingsDialogProps = {
   onOpenChange: (open: boolean) => void;
   /** The recent files list (#73); without it (demo data, tests) its settings are not shown. */
   recentApi?: RecentApi;
+  /** The update check (#64); without it (demo data, tests) it is not shown. */
+  updatesApi?: UpdatesApi;
 };
 
 const THEMES: ThemePreference[] = ["system", "light", "dark"];
 
 /**
- * The settings (B2-12): appearance, the recent files list, and what the app keeps on this
- * computer. Every change applies and is saved at once; there is nothing to confirm.
+ * The settings (B2-12): appearance, the recent files list, the update check (#64), and what the
+ * app keeps on this computer. Every change applies and is saved at once; there is nothing to
+ * confirm.
  */
-export function SettingsDialog({ open, onOpenChange, recentApi }: SettingsDialogProps) {
+export function SettingsDialog({ open, onOpenChange, recentApi, updatesApi }: SettingsDialogProps) {
   const t = strings.settings;
   const shared = useSettings();
   const [theme, setTheme] = useTheme();
@@ -107,6 +112,8 @@ export function SettingsDialog({ open, onOpenChange, recentApi }: SettingsDialog
             </p>
           </section>
         )}
+
+        {updatesApi && <UpdatesSection api={updatesApi} />}
 
         <section aria-labelledby={dataId} className="space-y-2 text-sm">
           <h3 id={dataId} className="font-medium">

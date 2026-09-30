@@ -37,10 +37,15 @@ cdn\.jsdelivr\.net
 unpkg\.com
 cdnjs\.cloudflare\.com
 
-# --- Tauri plugins with network capability ---
-# ADR 0009 (option B): the only planned network access is a user-triggered update check from
-# the main process. It has its own work card; until then every HTTP client stays forbidden, and
-# that card adds a reviewed exception limited to one module.
+# --- Network access (ADR 0009, option B) ---
+# The app's one network request is the update check the user asks for (#64), sent from the main
+# process with Windows' own WinHTTP; HTTP and TLS crates stay banned in deny.toml. A pattern
+# followed by "@only <path>..." may appear in those files and nowhere else: WinHTTP only in the
+# update check's module, its feature only in src-tauri/Cargo.toml, and its name in the worker's
+# isolation test, which checks that the worker never loads it.
+WinHttp @only src-tauri/src/update_check.rs src-tauri/Cargo.toml crates/pdf_worker/tests/isolation.rs
+
+# Tauri plugins with network capability: none, the update check included.
 tauri-plugin-http
 tauri-plugin-websocket
 tauri-plugin-upload
