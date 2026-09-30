@@ -23,6 +23,7 @@ use ipc_contract::validate::{Validate, check_page_index};
 use ipc_contract::worker::{WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse};
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
+use crate::export::ImageKind;
 use crate::saving::{self, FileIdentity, Temporary};
 
 /// Display name used when a path has no file name component.
@@ -722,13 +723,14 @@ impl Documents {
         })
     }
 
-    /// A page as a PNG file at `dpi`, unturned, for exporting (B2-04). Pages too large for the
-    /// raster limits come out at a lower resolution, as renders do.
-    pub fn render_png(
+    /// A page as a PNG (B2-04) or JPEG (#111) file at `dpi`, unturned, for exporting. Pages too
+    /// large for the raster limits come out at a lower resolution, as renders do.
+    pub fn render_image(
         &self,
         doc: DocumentId,
         page_index: u32,
         dpi: u32,
+        kind: ImageKind,
     ) -> Result<Vec<u8>, IpcError> {
         self.with_document(doc, |document| {
             let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
@@ -738,14 +740,29 @@ impl Documents {
                 code: ErrorCode::LimitExceeded,
                 message: format!("page too large to export: {error}"),
             })?;
-            match request(document, |request, doc| WorkerRequest::RenderPng {
-                request,
-                doc,
-                page_index,
-                scale,
-            })? {
-                WorkerResponse::Png { png, .. } => Ok(png),
-                _ => Err(unexpected("RenderPng")),
+            match kind {
+                ImageKind::Png => {
+                    match request(document, |request, doc| WorkerRequest::RenderPng {
+                        request,
+                        doc,
+                        page_index,
+                        scale,
+                    })? {
+                        WorkerResponse::Png { png, .. } => Ok(png),
+                        _ => Err(unexpected("RenderPng")),
+                    }
+                }
+                ImageKind::Jpeg => {
+                    match request(document, |request, doc| WorkerRequest::RenderJpeg {
+                        request,
+                        doc,
+                        page_index,
+                        scale,
+                    })? {
+                        WorkerResponse::Jpeg { jpeg, .. } => Ok(jpeg),
+                        _ => Err(unexpected("RenderJpeg")),
+                    }
+                }
             }
         })
     }

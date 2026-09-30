@@ -71,6 +71,13 @@ pub enum WorkerRequest {
         page_index: u32,
         scale: f32,
     },
+    /// One page as a JPEG file, unturned, for exporting (#111).
+    RenderJpeg {
+        request: RequestId,
+        doc: DocumentId,
+        page_index: u32,
+        scale: f32,
+    },
     /// One page's text for selecting and copying (MVP-15).
     GetPageText {
         request: RequestId,
@@ -156,6 +163,11 @@ pub enum WorkerResponse {
     Png {
         request: RequestId,
         png: Vec<u8>,
+    },
+    /// The JPEG file of `RenderJpeg`.
+    Jpeg {
+        request: RequestId,
+        jpeg: Vec<u8>,
     },
     PageSearched {
         request: RequestId,

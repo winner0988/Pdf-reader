@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  checkBrowserArguments,
   checkCapability,
   checkCsp,
   checkRepository,
@@ -90,9 +91,13 @@ test("the dev CSP is extracted from vite.config.ts", () => {
 
 const offlineBundle = { windows: { webviewInstallMode: { type: "skip" } } };
 
+const QUIET_ARGUMENTS =
+  "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-networking --no-proxy-server";
+const quietWindows = [{ label: "main", additionalBrowserArgs: QUIET_ARGUMENTS }];
+
 test("dangerous Tauri settings are rejected", () => {
   const config = (security, app = {}) => ({
-    app: { security: { csp: productionCsp, ...security }, ...app },
+    app: { security: { csp: productionCsp, ...security }, windows: quietWindows, ...app },
     bundle: offlineBundle,
   });
   assert.deepEqual(checkTauriConfig(config({})), []);
@@ -101,11 +106,41 @@ test("dangerous Tauri settings are rejected", () => {
   assert.notDeepEqual(checkTauriConfig(config({ assetProtocol: { enable: true } })), []);
   assert.notDeepEqual(checkTauriConfig(config({}, { withGlobalTauri: true })), []);
   assert.notDeepEqual(checkTauriConfig({ ...config({}), plugins: { updater: {} } }), []);
-  assert.notDeepEqual(checkTauriConfig({ app: {}, bundle: offlineBundle }), [], "a missing CSP is rejected");
+  assert.notDeepEqual(
+    checkTauriConfig({ app: { windows: quietWindows }, bundle: offlineBundle }),
+    [],
+    "a missing CSP is rejected",
+  );
+});
+
+test("the WebView never connects on its own (#121)", () => {
+  assert.deepEqual(checkBrowserArguments(quietWindows), []);
+  const window = (additionalBrowserArgs) => [{ label: "main", additionalBrowserArgs }];
+  for (const [args, why] of [
+    [undefined, "Tauri's default list: WebView2 fetches its configuration and looks for a proxy"],
+    ["--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --no-proxy-server", "background requests"],
+    [
+      "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-networking",
+      "proxy discovery",
+    ],
+    ["--disable-background-networking --no-proxy-server", "Tauri's own disabled features are lost"],
+    ["--disable-features=msWebOOUI,msPdfOOUI --disable-background-networking --no-proxy-server", "SmartScreen"],
+    [`${QUIET_ARGUMENTS} --remote-debugging-port=9222`, "an open debugging port"],
+    [`${QUIET_ARGUMENTS} --proxy-server=http://proxy.example.invalid:8080`, "a proxy of our choosing"],
+  ]) {
+    assert.notDeepEqual(checkBrowserArguments(window(args)), [], why);
+  }
+  assert.notDeepEqual(checkBrowserArguments([]), [], "no window");
+  assert.notDeepEqual(checkBrowserArguments(undefined), [], "no windows section");
+  assert.notDeepEqual(
+    checkBrowserArguments([...quietWindows, { label: "other" }]),
+    [],
+    "every window, not only the first",
+  );
 });
 
 test("the installer never downloads WebView2", () => {
-  const config = (bundle) => ({ app: { security: { csp: productionCsp } }, bundle });
+  const config = (bundle) => ({ app: { security: { csp: productionCsp }, windows: quietWindows }, bundle });
   for (const type of ["skip", "offlineInstaller", "fixedRuntime"]) {
     assert.deepEqual(checkTauriConfig(config({ windows: { webviewInstallMode: { type } } })), [], type);
   }

@@ -173,6 +173,7 @@ export const strings = {
     format: "格式",
     text: "純文字（.txt）",
     png: "頁面圖片（PNG，每頁一個檔案）",
+    jpg: "頁面圖片（JPG，每頁一個檔案，檔案較小）",
     resolution: "解析度",
     dpi: (dpi: number) => `${dpi} dpi`,
     range: "頁面",

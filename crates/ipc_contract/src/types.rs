@@ -117,6 +117,8 @@ pub enum ExportFormat {
     Text,
     /// One PNG file per page at `dpi` dots per inch: 72, 150 or 300.
     Png { dpi: u32 },
+    /// One JPEG file per page at `dpi` dots per inch, as for PNG (#111).
+    Jpg { dpi: u32 },
 }
 
 /// Arguments of `export_pages` (B2-04): what to export, never where; the main process asks the

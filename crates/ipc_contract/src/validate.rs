@@ -383,6 +383,7 @@ impl Validate for WorkerResponse {
             }
             WorkerResponse::PageText { text, .. } => text.validate(),
             WorkerResponse::Png { png, .. } => check_png(png),
+            WorkerResponse::Jpeg { jpeg, .. } => check_jpeg(jpeg),
             WorkerResponse::PageSearched { hits, .. } => {
                 check_count("search hits", hits.len(), MAX_SEARCH_HITS)?;
                 hits.iter().try_for_each(SearchHit::validate)
@@ -469,6 +470,21 @@ fn check_png(png: &[u8]) -> Result<(), ValidationError> {
     Ok(())
 }
 
+/// The first bytes of every JPEG file: the start-of-image marker, then another marker.
+pub const JPEG_SIGNATURE: [u8; 3] = [0xFF, 0xD8, 0xFF];
+
+/// An exported page (#111): a JPEG file of at most `MAX_JPEG_BYTES`.
+fn check_jpeg(jpeg: &[u8]) -> Result<(), ValidationError> {
+    check_count("JPEG bytes", jpeg.len(), MAX_JPEG_BYTES as u32)?;
+    if !jpeg.starts_with(&JPEG_SIGNATURE) {
+        return Err(ValidationError::Invalid {
+            what: "JPEG",
+            reason: "does not start with the JPEG markers",
+        });
+    }
+    Ok(())
+}
+
 impl Validate for ExportArgs {
     fn validate(&self) -> Result<(), ValidationError> {
         if self.pages.is_empty() {
@@ -485,7 +501,7 @@ impl Validate for ExportArgs {
                 reason: "a page appears twice",
             });
         }
-        if let ExportFormat::Png { dpi } = self.format
+        if let ExportFormat::Png { dpi } | ExportFormat::Jpg { dpi } = self.format
             && !matches!(dpi, 72 | 150 | 300)
         {
             return Err(ValidationError::OutOfRange { what: "export dpi" });
@@ -998,6 +1014,14 @@ mod tests {
                 .validate()
                 .is_err()
         );
+        for dpi in [72, 150, 300] {
+            assert!(args(vec![0], ExportFormat::Jpg { dpi }).validate().is_ok());
+        }
+        assert!(
+            args(vec![0], ExportFormat::Jpg { dpi: 600 })
+                .validate()
+                .is_err()
+        );
         let too_many = (0..=MAX_EXPORT_PAGES).collect();
         assert!(matches!(
             args(too_many, ExportFormat::Text).validate(),
@@ -1018,6 +1042,22 @@ mod tests {
         let mut huge = PNG_SIGNATURE.to_vec();
         huge.resize(MAX_PNG_BYTES + 1, 0);
         assert!(png(huge).validate().is_err());
+    }
+
+    #[test]
+    fn exported_pages_are_jpeg_files_of_bounded_size() {
+        let jpeg = |jpeg: Vec<u8>| WorkerResponse::Jpeg {
+            request: RequestId(1),
+            jpeg,
+        };
+        let mut file = JPEG_SIGNATURE.to_vec();
+        file.extend_from_slice(b"\xE0rest of the file");
+        assert!(jpeg(file).validate().is_ok());
+        assert!(jpeg(PNG_SIGNATURE.to_vec()).validate().is_err());
+        assert!(jpeg(vec![0xFF, 0xD8]).validate().is_err());
+        let mut huge = JPEG_SIGNATURE.to_vec();
+        huge.resize(MAX_JPEG_BYTES + 1, 0);
+        assert!(jpeg(huge).validate().is_err());
     }
 
     #[test]

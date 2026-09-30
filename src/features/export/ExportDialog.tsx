@@ -31,12 +31,13 @@ type Problem = "invalid" | "tooMany" | "failed";
 const RESOLUTIONS = [72, 150, 300];
 
 /**
- * Chooses what to export (B2-04): the text or page images, and which pages. The main process
- * then asks where, in the system's dialog, and writes the files; this dialog shows the progress.
+ * Chooses what to export (B2-04, #111): the text or page images (PNG or JPG), and which pages.
+ * The main process then asks where, in the system's dialog, and writes the files; this dialog
+ * shows the progress.
  */
 export function ExportDialog({ open, onOpenChange, doc, pageCount, currentPage, api, onFinished }: ExportDialogProps) {
   const t = strings.export;
-  const [kind, setKind] = useState<"text" | "png">("text");
+  const [kind, setKind] = useState<ExportFormat["kind"]>("text");
   const [dpi, setDpi] = useState(150);
   const [range, setRange] = useState<PrintRange["kind"]>("all");
   const [text, setText] = useState("");
@@ -85,7 +86,7 @@ export function ExportDialog({ open, onOpenChange, doc, pageCount, currentPage, 
     }
     setProblem(null);
     written.current = 0;
-    const format: ExportFormat = kind === "text" ? { kind: "text" } : { kind: "png", dpi };
+    const format: ExportFormat = kind === "text" ? { kind: "text" } : { kind, dpi };
     const job = api.exportPages(doc, result.pages, format, (done, total) => {
       written.current = done;
       setProgress({ done, total });
@@ -142,15 +143,20 @@ export function ExportDialog({ open, onOpenChange, doc, pageCount, currentPage, 
               <input type="radio" name="format" checked={kind === "text"} onChange={() => setKind("text")} />
               {t.text}
             </label>
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="flex items-center gap-2">
-                <input type="radio" name="format" checked={kind === "png"} onChange={() => setKind("png")} />
-                {t.png}
-              </label>
+            <label className="flex items-center gap-2">
+              <input type="radio" name="format" checked={kind === "png"} onChange={() => setKind("png")} />
+              {t.png}
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="radio" name="format" checked={kind === "jpg"} onChange={() => setKind("jpg")} />
+              {t.jpg}
+            </label>
+            {/* The images' resolution, PNG or JPG alike. */}
+            <div className="flex items-center gap-2 pl-6">
               <select
                 aria-label={t.resolution}
                 className="h-8 rounded-md border border-input bg-background px-2 disabled:opacity-50"
-                disabled={kind !== "png"}
+                disabled={kind === "text"}
                 value={dpi}
                 onChange={(event) => setDpi(Number(event.target.value))}
               >

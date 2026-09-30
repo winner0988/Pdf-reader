@@ -76,6 +76,8 @@ pnpm e2e:build && pnpm e2e         # 端對端測試：建置 release 版後以 
 
 `pnpm bundle` 會在 `target/release/bundle/nsis/` 產出包含 `pdf_worker.exe` 的安裝檔（尚未簽章），見 [docs/architecture/packaging.md](docs/architecture/packaging.md)。完整的檢查指令見 [AGENTS.md](AGENTS.md#指令)。
 
+> **安裝檔沒有程式碼簽章**：執行時 Windows SmartScreen 會警告「不明的發行者」。CI 建置的安裝檔附有 `<安裝檔名>.sha256`，請先以 `Get-FileHash -Algorithm SHA256 <安裝檔>` 核對雜湊值相同，再按「其他資訊」→「仍要執行」（[packaging.md](docs/architecture/packaging.md#安裝檔的-sha-256112)）。
+
 ## 技術棧
 
 Windows-first · Tauri 2 + Rust · React + TypeScript + Vite · Tailwind + shadcn/ui · MuPDF（`pdf_worker` 子行程）· SQLite · Windows Credential Manager。理由見 [ADR 0007](docs/adr/0007-tech-stack-and-platform.md)。

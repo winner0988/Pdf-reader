@@ -89,6 +89,22 @@ describe("export (B2-04)", () => {
     await waitFor(() => expect(statusText()).toContain(t.stopped(1)));
   });
 
+  it("exports pages as JPG at the resolution the images share (#111)", async () => {
+    const fake = fakeExportApi();
+    const { user } = renderShell(fake.api);
+    const dialog = await openExport(user);
+    const resolution = within(dialog).getByRole("combobox", { name: t.resolution });
+    // The resolution is for images only.
+    expect(resolution).toBeDisabled();
+
+    await user.click(within(dialog).getByRole("radio", { name: t.jpg }));
+    expect(resolution).toBeEnabled();
+    await user.selectOptions(resolution, "72");
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+    const pages = demoDocument.pages.map((_, index) => index);
+    expect(fake.api.exportPages).toHaveBeenCalledWith(5, pages, { kind: "jpg", dpi: 72 }, expect.any(Function));
+  });
+
   it("stays open when the user closes the system's dialog, and explains failures", async () => {
     const fake = fakeExportApi();
     const { user } = renderShell(fake.api);

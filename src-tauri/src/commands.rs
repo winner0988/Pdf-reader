@@ -17,7 +17,7 @@ use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEven
 
 use crate::documents::Documents;
 use crate::events::OpenEvents;
-use crate::export::{self, Exports};
+use crate::export::{self, Exports, ImageKind};
 use crate::file_dialog;
 use crate::recent::RecentFiles;
 use crate::render::Renderer;
@@ -425,17 +425,22 @@ pub async fn export_pages(
             blocking(move || export::write_text(&app, request, doc, &pages, &file, &on_event))
                 .await?;
         }
-        ExportFormat::Png { dpi } => {
+        ExportFormat::Png { dpi } | ExportFormat::Jpg { dpi } => {
+            let kind = if matches!(format, ExportFormat::Png { .. }) {
+                ImageKind::Png
+            } else {
+                ImageKind::Jpeg
+            };
             let Some(folder) = file_dialog::pick_folder(&window).await? else {
                 return Ok(false);
             };
-            let targets = export::png_targets(&folder, &stem, &pages);
+            let targets = export::image_targets(&folder, &stem, &pages, kind);
             let existing = targets.iter().filter(|target| target.exists()).count();
             if existing > 0 && !confirm_overwrite(&window, existing).await {
                 return Ok(false);
             }
             blocking(move || {
-                export::write_pngs(&app, request, doc, &pages, dpi, &targets, &on_event)
+                export::write_images(&app, request, doc, &pages, dpi, kind, &targets, &on_event)
             })
             .await?;
         }
