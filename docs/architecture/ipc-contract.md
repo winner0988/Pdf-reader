@@ -69,6 +69,9 @@ flowchart LR
 | `save_document` | `{ doc: DocumentId }` | `SaveResult`（`incremental`）；分頁的新狀態走開檔頻道。檔案在開啟後被改過時回 `changedOnDisk` | 否 | B2-02 |
 | `save_document_as` | `{ doc: DocumentId }`（不含路徑：主行程顯示另存對話框） | `SaveResult \| null`：`null` 表示使用者關閉了對話框；之後分頁指向新檔 | 否 | B2-02 |
 | `close_window` | `{ discard: boolean }` | 無；有未儲存的文件時，只有 `discard: true` 才關閉 | 否 | B2-02 |
+| `check_for_updates` | 無 | `UpdateCheck`：`upToDate`、`available`（`latest`）或 `noRelease`，都帶 `current`；主行程向固定的 GitHub 位址送出 app 唯一的網路請求，得不到可用的回答時回 `networkFailed`；查詢中再呼叫回 `invalidArgument`（見 [update-check.md](update-check.md)） | 否 | #64 |
+| `describe_releases_page` | 無 | `LinkPreview`：固定的 GitHub Releases 頁面 | 否 | #64 |
+| `open_releases_page` | 無 | 無；把固定的 GitHub Releases 頁面交給系統瀏覽器（前端先顯示連結確認） | 否 | #64 |
 
 ### 開檔頻道（主行程 → 前端）
 
@@ -249,6 +252,7 @@ flowchart LR
 | `fileInUse` | 存檔：其他程式開著檔案而不允許取代 |
 | `changedOnDisk` | 存檔：檔案在開啟後被其他程式修改過，不覆寫 |
 | `unwritable` | 存檔：其他寫入失敗 |
+| `networkFailed` | 檢查更新：GitHub 沒有給出可用的回答（離線、被擋，或不是預期的回應）（#64） |
 | `internal` | 其他內部錯誤 |
 
 worker 端的 `WorkerErrorCode` 以 `From` 轉換對應到上表。

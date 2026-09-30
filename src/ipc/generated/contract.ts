@@ -109,6 +109,12 @@ export type SaveResult = {
 incremental: boolean, };
 
 /**
+ * What `check_for_updates` found (#64, ADR 0009). Versions are `major.minor.patch`; the latest
+ * one is rewritten from its three numbers, so nothing else from GitHub's answer reaches the page.
+ */
+export type UpdateCheck = { "kind": "upToDate", current: string, } | { "kind": "available", current: string, latest: string, } | { "kind": "noRelease", current: string, };
+
+/**
  * Caller-chosen id used to correlate and cancel a request.
  */
 export type RequestId = number;
@@ -308,7 +314,7 @@ edges: Array<number>, };
 /**
  * Error codes the frontend maps to localized messages.
  */
-export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "internal";
+export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "networkFailed" | "internal";
 
 /**
  * Rejection value of every command. `message` is for logs and must not contain paths or

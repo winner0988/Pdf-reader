@@ -8,18 +8,33 @@
   it sees. Expected output during the offline verification: nothing but the header.
 
   Polling can miss connections shorter than the interval, so this complements (does not
-  replace) the Process Monitor procedure in docs/security/offline-verification.md.
+  replace) the Process Monitor procedure in docs/security/offline-verification.md. TCP is read
+  with netstat, several times faster than Get-NetTCPConnection, and the process tree only every
+  second, so a poll takes about a tenth of a second: the update check's one connection (#64),
+  which lasts about a second, is seen.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts/security/watch-connections.ps1 -Seconds 120
 #>
 param(
   [int]$Seconds = 120,
-  [int]$IntervalMs = 200,
+  [int]$IntervalMs = 50,
   [string[]]$ProcessNames = @('pdf-reader', 'pdf_worker')
 )
 
 $names = $ProcessNames
+
+# TCP connections with a remote end: Remote (address:port), State and OwningProcess.
+function Get-TcpConnections {
+  foreach ($protocol in 'TCP', 'TCPv6') {
+    foreach ($line in (netstat -ano -p $protocol)) {
+      $fields = -split $line
+      if ($fields.Count -eq 5 -and $fields[0] -eq 'TCP' -and $fields[2] -notmatch '^(0\.0\.0\.0|\[::\]):0$') {
+        [pscustomobject]@{ Remote = $fields[2]; State = $fields[3]; OwningProcess = [int]$fields[4] }
+      }
+    }
+  }
+}
 
 function Get-AppProcessIds {
   $roots = Get-Process -Name $names -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id
@@ -39,16 +54,20 @@ function Get-AppProcessIds {
 Write-Host "Watching network endpoints of $($names -join ', ') and child processes for $Seconds s..."
 $seen = [System.Collections.Generic.HashSet[string]]::new()
 $deadline = (Get-Date).AddSeconds($Seconds)
+$ids = $null
+$treeRead = [datetime]::MinValue
 while ((Get-Date) -lt $deadline) {
-  $ids = Get-AppProcessIds
+  if (((Get-Date) - $treeRead).TotalSeconds -ge 1) {
+    $ids = Get-AppProcessIds
+    $treeRead = Get-Date
+  }
   if ($ids.Count -gt 0) {
-    $tcp = Get-NetTCPConnection -ErrorAction SilentlyContinue |
-      Where-Object { $ids.Contains([int]$_.OwningProcess) -and $_.RemoteAddress -notin @('0.0.0.0', '::') }
+    $tcp = Get-TcpConnections | Where-Object { $ids.Contains($_.OwningProcess) }
     foreach ($c in $tcp) {
-      $key = "TCP $($c.OwningProcess) $($c.RemoteAddress):$($c.RemotePort)"
+      $key = "TCP $($c.OwningProcess) $($c.Remote)"
       if ($seen.Add($key)) {
         $name = (Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue).ProcessName
-        Write-Host "$(Get-Date -Format HH:mm:ss.fff) TCP $name ($($c.OwningProcess)) -> $($c.RemoteAddress):$($c.RemotePort) [$($c.State)]"
+        Write-Host "$(Get-Date -Format HH:mm:ss.fff) TCP $name ($($c.OwningProcess)) -> $($c.Remote) [$($c.State)]"
       }
     }
     $udp = Get-NetUDPEndpoint -ErrorAction SilentlyContinue | Where-Object { $ids.Contains([int]$_.OwningProcess) }

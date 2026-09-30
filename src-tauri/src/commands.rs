@@ -9,7 +9,7 @@ use ipc_contract::types::{
     DocumentId, EditArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs,
     IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs, OutlineResult, PageLink, PageText,
     RecentFile, RecentId, RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent, Settings,
-    TabId, UnlockArgs,
+    TabId, UnlockArgs, UpdateCheck,
 };
 use ipc_contract::validate::Validate;
 use tauri::ipc::{Channel, Response};
@@ -263,6 +263,28 @@ fn checked(list: Vec<RecentFile>) -> Result<Vec<RecentFile>, IpcError> {
 #[tauri::command]
 pub async fn open_default_apps_settings(app: AppHandle) -> Result<(), IpcError> {
     crate::opener::open(&app, crate::opener::DEFAULT_APPS_SETTINGS.to_owned()).await
+}
+
+/// Asks GitHub whether a newer release exists (#64, ADR 0009): the app's one network request,
+/// sent only when the user presses 「檢查更新」. It takes nothing from the page.
+#[tauri::command]
+pub async fn check_for_updates(app: AppHandle) -> Result<UpdateCheck, IpcError> {
+    let current = app.package_info().version.to_string();
+    blocking(move || crate::update_check::check(&current)).await
+}
+
+/// What the link confirmation shows about the releases page (#64): a fixed address.
+#[tauri::command]
+pub fn describe_releases_page() -> Result<LinkPreview, IpcError> {
+    crate::links::preview(crate::update_check::RELEASES_PAGE)
+}
+
+/// Opens the releases page once the user confirmed it (#64), as any web link is opened. The
+/// address is fixed; this command takes no arguments.
+#[tauri::command]
+pub async fn open_releases_page(app: AppHandle) -> Result<(), IpcError> {
+    let preview = crate::links::preview(crate::update_check::RELEASES_PAGE)?;
+    crate::opener::open(&app, preview.opens).await
 }
 
 /// Renders a page. The answer is raw bytes (an `ArrayBuffer` in the page) in the layout of

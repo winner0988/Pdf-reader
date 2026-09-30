@@ -157,6 +157,19 @@ pub struct EditArgs {
     pub edit: Edit,
 }
 
+/// What `check_for_updates` found (#64, ADR 0009). Versions are `major.minor.patch`; the latest
+/// one is rewritten from its three numbers, so nothing else from GitHub's answer reaches the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum UpdateCheck {
+    /// No release is newer than this app.
+    UpToDate { current: String },
+    /// A newer release exists; the page offers the releases page (`open_releases_page`).
+    Available { current: String, latest: String },
+    /// The project has not published a release yet.
+    NoRelease { current: String },
+}
+
 /// How `save_document` or `save_document_as` wrote the file (B2-02, ADR 0013).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -625,6 +638,9 @@ pub enum ErrorCode {
     ChangedOnDisk,
     /// Saving: the file could not be written for another reason.
     Unwritable,
+    /// The update check (#64) got no usable answer from GitHub: offline, blocked, or an answer
+    /// it did not expect.
+    NetworkFailed,
     Internal,
 }
 

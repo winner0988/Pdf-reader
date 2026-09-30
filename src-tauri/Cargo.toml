@@ -43,9 +43,12 @@ windows = { version = "0.61", features = [
     "Win32_UI_Shell_Common",
 ] }
 # ShellExecuteW, to hand a checked link to the default browser (src/opener.rs); ReplaceFileW and
-# MoveFileExW, to put a saved document in its file's place (src/saving.rs, B2-02).
+# MoveFileExW, to put a saved document in its file's place (src/saving.rs, B2-02); WinHTTP, for
+# the update check the user asks for, the app's one network request (src/update_check.rs, #64,
+# ADR 0009).
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_Networking_WinHttp",
     "Win32_Storage_FileSystem",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",

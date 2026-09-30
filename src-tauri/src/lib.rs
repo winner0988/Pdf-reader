@@ -20,6 +20,7 @@ mod saving;
 mod search;
 mod settings;
 mod strings;
+mod update_check;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -92,6 +93,9 @@ pub fn run() {
             commands::open_outline_link,
             commands::search,
             commands::open_default_apps_settings,
+            commands::check_for_updates,
+            commands::describe_releases_page,
+            commands::open_releases_page,
             commands::get_recent_files,
             commands::open_recent_file,
             commands::remove_recent_file,

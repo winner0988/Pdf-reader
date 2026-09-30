@@ -11,6 +11,7 @@ import { tauriSavingApi, type SavingApi } from "@/features/saving/api";
 import { UnsavedDialog } from "@/features/saving/UnsavedDialog";
 import { tauriSettingsApi, type SettingsApi } from "@/features/settings/api";
 import { SettingsProvider } from "@/features/settings/SettingsProvider";
+import { tauriUpdatesApi, type UpdatesApi } from "@/features/settings/updates";
 import { DevDemoSwitcher } from "@/features/shell/DevDemoSwitcher";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
@@ -35,6 +36,7 @@ type AppProps = {
   settingsApi?: SettingsApi;
   exportApi?: ExportApi;
   savingApi?: SavingApi;
+  updatesApi?: UpdatesApi;
 };
 
 export default function App({
@@ -49,6 +51,7 @@ export default function App({
   settingsApi = tauriSettingsApi,
   exportApi = tauriExportApi,
   savingApi = tauriSavingApi,
+  updatesApi = tauriUpdatesApi,
 }: AppProps) {
   const tabs = useTabs(api);
   const { state } = tabs;
@@ -105,6 +108,7 @@ export default function App({
               renderer={renderer}
               systemApi={systemApi}
               recentApi={demo ? undefined : recentApi}
+              updatesApi={demo ? undefined : updatesApi}
               onOpen={open}
               onClose={() => setDemo(null)}
             />
@@ -124,6 +128,7 @@ export default function App({
                 recentApi={recentApi}
                 exportApi={exportApi}
                 savingApi={savingApi}
+                updatesApi={updatesApi}
                 onOpen={open}
                 onClose={requestClose}
                 onRetry={tabs.retry}
@@ -177,6 +182,7 @@ type TabPaneProps = {
   recentApi: RecentApi;
   exportApi: ExportApi;
   savingApi: SavingApi;
+  updatesApi: UpdatesApi;
   onOpen: () => void;
   onClose: (tab: TabId) => void;
   onRetry: (tab: TabId) => void;

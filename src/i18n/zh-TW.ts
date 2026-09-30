@@ -12,7 +12,7 @@ export const strings = {
     title: "開啟 PDF 檔案",
     openButton: "選擇檔案…（Ctrl+O）",
     dropHint: "或將檔案拖放到這個視窗",
-    privacyNote: "所有處理都在這台電腦上完成：不連網、不收集任何資料。",
+    privacyNote: "所有處理都在這台電腦上完成：不會自行連網、不收集任何資料。",
   },
   recent: {
     title: "最近開啟的檔案",
@@ -60,6 +60,7 @@ export const strings = {
       fileInUse: "檔案正被其他程式使用，無法寫入。",
       changedOnDisk: "檔案在開啟後被其他程式修改過；為了不覆寫那些修改，沒有儲存。",
       unwritable: "無法寫入檔案。",
+      networkFailed: "無法從 GitHub 取得最新版本的資訊。",
       internal: "發生未預期的錯誤。",
     } satisfies Record<ErrorCode, string>,
   },
@@ -281,6 +282,16 @@ export const strings = {
     dataLocation:
       "全部都在 %LOCALAPPDATA%\\io.github.winner0988.pdfreader 資料夾中，不會同步到其他電腦，也不會上傳。關閉 app 後可以直接刪除這個資料夾。",
     saveFailed: "設定無法儲存：目前已套用，但重新啟動後會回到之前的設定。",
+    updates: "更新",
+    checkUpdates: "檢查更新",
+    updatesNote:
+      "只在你按下時向 GitHub 查詢最新的版本號碼，不會自動下載或安裝。GitHub 會看到你的 IP 位址與查詢的時間。",
+    checking: "正在向 GitHub 查詢…",
+    upToDate: (current: string) => `已是最新版本（${current}）。`,
+    available: (latest: string, current: string) => `有新版本 ${latest}（目前是 ${current}）。`,
+    noRelease: "GitHub 上還沒有任何發行版本。",
+    checkFailed: "無法檢查更新，請確認網路連線後再試一次。",
+    openReleases: "前往下載頁…",
   },
   print: {
     title: "列印",
@@ -338,7 +349,7 @@ export const strings = {
     version: (version: string) => `版本 ${version}`,
     privacyTitle: "隱私承諾",
     privacy: [
-      "不連網：不檢查更新、不載入遠端資源",
+      "不會自行連網：只有在設定中按下「檢查更新」時，才向 GitHub 查詢最新的版本號碼；不載入遠端資源",
       "不收集任何使用者資料，不回報錯誤",
       "PDF 中的 JavaScript 與自動動作一律不執行",
     ],

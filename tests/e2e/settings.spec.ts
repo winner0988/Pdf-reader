@@ -35,3 +35,21 @@ test("settings survive a restart, and a closed recent files list records nothing
   // Recording is off: the file that opened is not on the list, and there is no list at all.
   expect(existsSync(path.join(folder, "recent.json"))).toBe(false);
 });
+
+// The update check (#64) is offered with what it tells GitHub; the test never presses it, so it
+// never connects anywhere (docs/security/offline-verification.md has the manual check).
+test("the settings offer to check for updates, and say what GitHub sees", async ({ launch }) => {
+  const page = await launch();
+  await page.getByRole("button", { name: strings.toolbar.more }).click();
+  await page.getByRole("menuitem", { name: strings.menu.settings }).click();
+  const dialog = page.getByRole("dialog", { name: t.title });
+  await expect(dialog.getByRole("heading", { name: t.updates })).toBeVisible();
+  await expect(dialog).toContainText(t.updatesNote);
+  await expect(dialog.getByRole("button", { name: t.checkUpdates })).toBeEnabled();
+  await expect(dialog.getByRole("status").filter({ hasText: /\S/ })).toHaveCount(0);
+
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: strings.toolbar.more }).click();
+  await page.getByRole("menuitem", { name: strings.menu.about }).click();
+  await expect(page.getByRole("dialog", { name: strings.about.title })).toContainText(strings.about.privacy[0]);
+});
