@@ -94,11 +94,18 @@ REL-03（[#68](https://github.com/winner0988/Pdf-reader/issues/68)），規格 �
 
 CI runner 裝有 VC++ 執行階段，所以「在乾淨的 Windows 11 上能執行」是靠第 5 步的匯入表檢查來保證，不是實際在乾淨環境上執行。
 
+## 程式碼簽章（DEC-04）
+
+負責人於 2026-09-30 決定**暫不簽章**（[#104](https://github.com/winner0988/Pdf-reader/issues/104)、[#103 的留言](https://github.com/winner0988/Pdf-reader/issues/103#issuecomment-5901887836)）：
+
+- 發行時附上安裝檔的 SHA-256 雜湊值，並說明 Windows SmartScreen 會警告「不明的發行者」（[#112](https://github.com/winner0988/Pdf-reader/issues/112)）；
+- 決定對外散布安裝檔（ADR 0011）時，再評估 Azure Trusted Signing 或 OV／EV 憑證，屆時寫成 ADR（金鑰保管、要簽的檔案、時間戳記伺服器）。
+
 ## 剩餘風險
 
 | 風險 | 後續 |
 |---|---|
-| 安裝檔尚未簽章，SmartScreen 會警告 | 程式碼簽章另開卡 |
+| 安裝檔尚未簽章，SmartScreen 會警告 | 暫不簽章（見上方「程式碼簽章」）；發行時附 SHA-256 |
 | 沒有在真正乾淨的 Windows 11 VM 上實測安裝 | 發佈前的手動驗收清單 |
 | 其他使用者的 AppContainer profile 在解除安裝後留下 | 內容為空，影響很小；如需處理，可在主程式啟動時清理 |
 | 缺少 WebView2 的電腦（被移除，或 Windows 10）無法使用 | 安裝檔與 app 都會說明，由使用者自行安裝；CI runner 裝有 WebView2，所以這兩段說明沒有在 CI 上實際顯示過 |

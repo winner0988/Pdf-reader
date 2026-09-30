@@ -72,13 +72,17 @@ use windows_sys::Win32::System::Threading::{
 /// `PROCESS_CREATION_CHILD_PROCESS_RESTRICTED` (winbase.h).
 const CHILD_PROCESS_RESTRICTED: u32 = 0x01;
 
+/// Win32k system calls disabled: no windows, GDI, DirectX, clipboard or input
+/// (`PROCESS_CREATION_MITIGATION_POLICY_WIN32K_SYSTEM_CALL_DISABLE_ALWAYS_ON`).
+const WIN32K_DISABLED: u64 = 1 << 28;
+
 /// Exploit mitigations (winbase.h, `PROCESS_CREATION_MITIGATION_POLICY_*_ALWAYS_ON`).
 const MITIGATIONS: u64 = (1 << 8) // force relocate images (mandatory ASLR)
     | (1 << 12) // terminate on heap corruption
     | (1 << 16) // bottom-up ASLR
     | (1 << 20) // high-entropy ASLR
     | (1 << 24) // strict handle checks: using an invalid handle crashes the process
-    | (1 << 28) // win32k system calls disabled: no windows, GDI, clipboard or input
+    | WIN32K_DISABLED
     | (1 << 32) // legacy extension points disabled
     | (1 << 36) // no dynamic code (no JIT, no writable+executable memory)
     | (1 << 52) // no image loads from remote shares
@@ -108,6 +112,10 @@ pub struct SandboxConfig {
     /// AppContainer profile to run in, with no capabilities: no network at all and no access
     /// to the user's files. The profile is created on first use and reused afterwards.
     pub app_container: Option<String>,
+    /// Leaves win32k system calls available; every other restriction stays. Never for the
+    /// worker: only the OCR POC of ADR 0015 (proposed) sets it, to show what Windows' own OCR
+    /// needs (crates/pdf_worker/tests/ocr_poc.rs).
+    pub allow_win32k: bool,
 }
 
 impl Default for SandboxConfig {
@@ -115,6 +123,7 @@ impl Default for SandboxConfig {
         Self {
             memory_limit_bytes: 2 * 1024 * 1024 * 1024,
             app_container: Some(WORKER_APP_CONTAINER.to_owned()),
+            allow_win32k: false,
         }
     }
 }
@@ -172,7 +181,11 @@ impl Sandboxed {
             child_stderr.as_raw_handle(),
         ];
         let jobs: [HANDLE; 1] = [job.as_raw_handle()];
-        let mitigations: u64 = MITIGATIONS;
+        let mitigations: u64 = if config.allow_win32k {
+            MITIGATIONS & !WIN32K_DISABLED
+        } else {
+            MITIGATIONS
+        };
         let child_policy: u32 = CHILD_PROCESS_RESTRICTED;
         let container = match config.app_container.as_deref() {
             Some(name) => {

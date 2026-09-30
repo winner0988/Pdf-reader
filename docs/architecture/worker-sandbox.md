@@ -61,6 +61,16 @@ AppContainer 不影響這個流程：handle 在複製時就已帶著存取權限
 存檔時，主行程在目的地的資料夾建立新的暫存檔，以 `WorkerHost::save`（`Sandboxed::duplicate_write_only`）把 handle 複製進 worker。存取權限只有 `FILE_WRITE_DATA | FILE_APPEND_DATA | SYNCHRONIZE`：worker 可以寫入內容，但不能讀取、刪除、改名或改屬性，也拿不到路徑。主行程確認寫好的檔案後才取代目的地，見 [saving.md](saving.md)。
 
 - 驗證：`duplicated_write_handles_are_write_only`（寫得進去；讀取與刪除都被拒絕）、`an_edited_document_is_saved_through_a_write_only_handle`（經由真正的沙盒存檔）。
+- 驗證：`duplicated_write_handles_are_write_only`（寫得進去；讀取與刪除都被拒絕）。
+- 目前只有這個測試使用；存檔（B2-02）會接上。
+
+### 保留 win32k（ADR 0015，提議中）
+
+`SandboxConfig::allow_win32k` 讓子行程保留 win32k 系統呼叫，其他限制全部不變。
+
+- worker 永遠不設定它（預設 `false`）。
+- 目前只有 OCR 的 POC 使用（`crates/pdf_worker/tests/ocr_poc.rs`），證明 Windows 內建 OCR 需要 win32k；ADR 0015 提議以它啟動只接收像素的 OCR 行程。
+- 驗證：`win32k_is_only_available_when_asked_for`（設定後 `user32.dll` 可以載入；預設值是停用）。
 
 ## AppContainer
 

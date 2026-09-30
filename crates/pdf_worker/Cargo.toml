@@ -28,3 +28,16 @@ windows-sys = { version = "0.61", features = [
     "Win32_Security_Cryptography",
     "Win32_System_Threading",
 ] }
+# The OCR POC of ADR 0015 (examples/ocr_probe.rs, tests/ocr_poc.rs): Windows' own OCR, run in the
+# worker's sandbox. All three are already in the workspace (worker_host uses sandbox; the app uses
+# windows, which brings windows-future); no new crates.
+sandbox = { path = "../sandbox" }
+windows = { version = "0.61", features = [
+    "Foundation",
+    "Globalization",
+    "Graphics_Imaging",
+    "Media_Ocr",
+    "Storage_Streams",
+    "Win32_System_WinRT",
+] }
+windows-future = "0.2"
