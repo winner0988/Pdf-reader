@@ -6,11 +6,12 @@
 
 use std::collections::HashSet;
 
+use ipc_contract::limits::MAX_PNG_BYTES;
 use ipc_contract::types::{
     BlockedAction, DocumentPermissions, PageText as TextLayer, Point, Quad, SecurityReport,
 };
 use mupdf::pdf::{PdfDocument as MuPdfDocument, PdfObject};
-use mupdf::{Colorspace, Document, Matrix, Page, TextPageFlags};
+use mupdf::{Colorspace, Document, ImageFormat, Matrix, Page, Pixmap, TextPageFlags};
 
 use crate::scan::{self, ScanBudget};
 use crate::search::{PageSearch, PageText};
@@ -400,30 +401,7 @@ impl PdfDocument {
         scale: f32,
         rotation: u16,
     ) -> Result<RenderedPage, EngineError> {
-        if !scale.is_finite() || !(MIN_RENDER_SCALE..=MAX_RENDER_SCALE).contains(&scale) {
-            return Err(EngineError::InvalidScale);
-        }
-        if !matches!(rotation, 0 | 90 | 180 | 270) {
-            return Err(EngineError::InvalidRotation);
-        }
-        let page = self.load_page(index)?;
-
-        // Reject oversized renders before MuPDF allocates the pixmap.
-        let bounds = page.bounds()?;
-        let to_px = |points: f32| (f64::from(points) * f64::from(scale)).ceil().max(1.0) as u64;
-        let (mut width, mut height) = (to_px(bounds.x1 - bounds.x0), to_px(bounds.y1 - bounds.y0));
-        if rotation % 180 == 90 {
-            std::mem::swap(&mut width, &mut height);
-        }
-        if width.saturating_mul(height) > MAX_RASTER_PIXELS {
-            return Err(EngineError::TooLarge { width, height });
-        }
-
-        let mut ctm = Matrix::new_scale(scale, scale);
-        ctm.concat(Matrix::new_rotate(f32::from(rotation)));
-        // No alpha: MuPDF paints an opaque white background, which the contract requires.
-        let pixmap = page.to_pixmap(&ctm, &Colorspace::device_rgb(), false, false)?;
-
+        let pixmap = self.pixmap(index, scale, rotation)?;
         let (width, height) = (pixmap.width(), pixmap.height());
         let channels = usize::from(pixmap.n());
         let stride = usize::try_from(pixmap.stride()).unwrap_or(0);
@@ -440,6 +418,48 @@ impl PdfDocument {
             height,
             rgba,
         })
+    }
+
+    /// The page as a PNG file, unturned, for exporting (B2-04). MuPDF encodes it; the worker never
+    /// writes a file.
+    pub fn render_png(&self, index: u32, scale: f32) -> Result<Vec<u8>, EngineError> {
+        let pixmap = self.pixmap(index, scale, 0)?;
+        let mut png = Vec::new();
+        pixmap.write_to(&mut png, ImageFormat::PNG)?;
+        if png.len() > MAX_PNG_BYTES {
+            return Err(EngineError::TooLarge {
+                width: u64::from(pixmap.width()),
+                height: u64::from(pixmap.height()),
+            });
+        }
+        Ok(png)
+    }
+
+    /// The page drawn at `scale` and `rotation`, opaque RGB on white. Oversized pages are refused
+    /// before MuPDF allocates anything.
+    fn pixmap(&self, index: u32, scale: f32, rotation: u16) -> Result<Pixmap, EngineError> {
+        if !scale.is_finite() || !(MIN_RENDER_SCALE..=MAX_RENDER_SCALE).contains(&scale) {
+            return Err(EngineError::InvalidScale);
+        }
+        if !matches!(rotation, 0 | 90 | 180 | 270) {
+            return Err(EngineError::InvalidRotation);
+        }
+        let page = self.load_page(index)?;
+
+        let bounds = page.bounds()?;
+        let to_px = |points: f32| (f64::from(points) * f64::from(scale)).ceil().max(1.0) as u64;
+        let (mut width, mut height) = (to_px(bounds.x1 - bounds.x0), to_px(bounds.y1 - bounds.y0));
+        if rotation % 180 == 90 {
+            std::mem::swap(&mut width, &mut height);
+        }
+        if width.saturating_mul(height) > MAX_RASTER_PIXELS {
+            return Err(EngineError::TooLarge { width, height });
+        }
+
+        let mut ctm = Matrix::new_scale(scale, scale);
+        ctm.concat(Matrix::new_rotate(f32::from(rotation)));
+        // No alpha: MuPDF paints an opaque white background, which the contract requires.
+        Ok(page.to_pixmap(&ctm, &Colorspace::device_rgb(), false, false)?)
     }
 
     /// Searches one page's text layer for `query` (MVP-10); coordinates are page points with
@@ -1051,6 +1071,22 @@ mod tests {
             .flat_map(|y| (x0..x1).map(move |x| (x, y)))
             .filter(|&(x, y)| pixel(page, x, y)[0] < 128)
             .count()
+    }
+
+    #[test]
+    fn exports_a_page_as_a_png_file() {
+        let doc = PdfDocument::from_bytes(&two_page_pdf()).unwrap();
+        let (width_pt, height_pt) = doc.page_size(0).unwrap();
+        let png = doc.render_png(0, 150.0 / 72.0).unwrap();
+        assert!(png.starts_with(&ipc_contract::validate::PNG_SIGNATURE));
+        // IHDR: width and height, big-endian, right after the signature and chunk header.
+        let size = |at: usize| u32::from_be_bytes(png[at..at + 4].try_into().unwrap());
+        assert_eq!(size(16), (width_pt * 150.0 / 72.0).ceil() as u32);
+        assert_eq!(size(20), (height_pt * 150.0 / 72.0).ceil() as u32);
+        assert!(matches!(
+            doc.render_png(0, 1000.0),
+            Err(EngineError::InvalidScale)
+        ));
     }
 
     #[test]

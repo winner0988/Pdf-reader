@@ -11,9 +11,9 @@ use thiserror::Error;
 use crate::limits::*;
 use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text};
 use crate::types::{
-    DocumentInfo, FindingKind, IpcError, LinkTarget, OpenEvent, OutlineItem, OutlineResult,
-    PageLink, PageSize, PageText, Point, Quad, RecentFile, Rect, RenderPageArgs, SearchArgs,
-    SearchHit, SecurityReport, TextLine, UnlockArgs,
+    DocumentInfo, ExportArgs, ExportFormat, FindingKind, IpcError, LinkTarget, OpenEvent,
+    OutlineItem, OutlineResult, PageLink, PageSize, PageText, Point, Quad, RecentFile, Rect,
+    RenderPageArgs, SearchArgs, SearchHit, SecurityReport, TextLine, UnlockArgs,
 };
 use crate::worker::{OpenedDocument, Raster, WorkerError, WorkerResponse};
 
@@ -377,6 +377,7 @@ impl Validate for WorkerResponse {
                 Ok(())
             }
             WorkerResponse::PageText { text, .. } => text.validate(),
+            WorkerResponse::Png { png, .. } => check_png(png),
             WorkerResponse::PageSearched { hits, .. } => {
                 check_count("search hits", hits.len(), MAX_SEARCH_HITS)?;
                 hits.iter().try_for_each(SearchHit::validate)
@@ -436,6 +437,46 @@ impl Validate for UnlockArgs {
             });
         }
         check_text("password", password, MAX_PASSWORD_BYTES)
+    }
+}
+
+/// The first bytes of every PNG file.
+pub const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'];
+
+/// An exported page: a PNG file of at most `MAX_PNG_BYTES`.
+fn check_png(png: &[u8]) -> Result<(), ValidationError> {
+    check_count("PNG bytes", png.len(), MAX_PNG_BYTES as u32)?;
+    if !png.starts_with(&PNG_SIGNATURE) {
+        return Err(ValidationError::Invalid {
+            what: "PNG",
+            reason: "does not start with the PNG signature",
+        });
+    }
+    Ok(())
+}
+
+impl Validate for ExportArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.pages.is_empty() {
+            return Err(ValidationError::Invalid {
+                what: "export pages",
+                reason: "empty",
+            });
+        }
+        check_count("export pages", self.pages.len(), MAX_EXPORT_PAGES)?;
+        let unique: HashSet<u32> = self.pages.iter().copied().collect();
+        if unique.len() != self.pages.len() {
+            return Err(ValidationError::Invalid {
+                what: "export pages",
+                reason: "a page appears twice",
+            });
+        }
+        if let ExportFormat::Png { dpi } = self.format
+            && !matches!(dpi, 72 | 150 | 300)
+        {
+            return Err(ValidationError::OutOfRange { what: "export dpi" });
+        }
+        Ok(())
     }
 }
 
@@ -880,6 +921,49 @@ mod tests {
                 .validate()
                 .is_err()
         );
+    }
+
+    #[test]
+    fn exports_name_known_pages_formats_and_resolutions() {
+        let args = |pages: Vec<u32>, format: ExportFormat| ExportArgs {
+            request: RequestId(1),
+            doc: DocumentId(1),
+            pages,
+            format,
+        };
+        assert!(args(vec![0, 2, 1], ExportFormat::Text).validate().is_ok());
+        assert!(
+            args(vec![0], ExportFormat::Png { dpi: 150 })
+                .validate()
+                .is_ok()
+        );
+        assert!(args(vec![], ExportFormat::Text).validate().is_err());
+        assert!(args(vec![1, 1], ExportFormat::Text).validate().is_err());
+        assert!(
+            args(vec![0], ExportFormat::Png { dpi: 96 })
+                .validate()
+                .is_err()
+        );
+        let too_many = (0..=MAX_EXPORT_PAGES).collect();
+        assert!(matches!(
+            args(too_many, ExportFormat::Text).validate(),
+            Err(ValidationError::TooMany { .. })
+        ));
+    }
+
+    #[test]
+    fn exported_pages_are_png_files_of_bounded_size() {
+        let png = |png: Vec<u8>| WorkerResponse::Png {
+            request: RequestId(1),
+            png,
+        };
+        let mut file = PNG_SIGNATURE.to_vec();
+        file.extend_from_slice(b"rest of the file");
+        assert!(png(file).validate().is_ok());
+        assert!(png(b"GIF89a".to_vec()).validate().is_err());
+        let mut huge = PNG_SIGNATURE.to_vec();
+        huge.resize(MAX_PNG_BYTES + 1, 0);
+        assert!(png(huge).validate().is_err());
     }
 
     #[test]

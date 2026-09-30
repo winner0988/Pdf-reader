@@ -67,6 +67,7 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-get-settings", "B2-12: the user's settings (theme, whether to record recent files)"],
   ["allow-set-settings", "B2-12: replace the user's settings; typed, no other field accepted"],
   ["allow-clear-recent-exclusions", "B2-12: forget which files the user asked not to record"],
+  ["allow-export-pages", "B2-04: export pages as text or PNG; the main process asks where and writes the files"],
 ]);
 
 /** Plugin permission prefixes that are never granted to the frontend, allowlist or not. */

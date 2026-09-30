@@ -13,6 +13,20 @@ pub fn window_title(file_name: Option<&str>) -> String {
 }
 pub const PDF_FILTER_NAME: &str = "PDF 檔案";
 
+/// Export (B2-04): where the text goes, and the folder the page images go to.
+pub const EXPORT_TEXT_DIALOG_TITLE: &str = "匯出純文字";
+pub const TEXT_FILTER_NAME: &str = "純文字檔";
+pub const EXPORT_IMAGES_DIALOG_TITLE: &str = "選擇匯出頁面圖片的資料夾";
+pub const OVERWRITE_TITLE: &str = "檔案已經存在";
+
+/// Asked before exported page images replace files already in the chosen folder.
+pub fn overwrite_message(count: usize) -> String {
+    format!("這個資料夾已經有 {count} 個同名的檔案。要覆寫嗎？")
+}
+
+/// What an exported text file says for a page without text.
+pub const NO_TEXT_LAYER_PAGE: &str = "（此頁沒有文字層）";
+
 /// Shown instead of the window when the Microsoft Edge WebView2 Runtime is missing: the
 /// installer never downloads it (REL-02).
 pub const WEBVIEW2_MISSING_TITLE: &str = "無法開啟 PDF Reader";

@@ -9,6 +9,8 @@ import {
 } from "@/components/ui/context-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
+import type { ExportApi } from "@/features/export/api";
+import { ExportDialog } from "@/features/export/ExportDialog";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
 import { ALL_PERMISSIONS, restrictionSummary } from "@/features/permissions/permissions";
 import type { RecentApi } from "@/features/recent/api";
@@ -69,6 +71,8 @@ type ReaderShellProps = {
   systemApi?: SystemApi;
   /** The recently opened files (#73); without it (demo data, tests) the start screen lists none. */
   recentApi?: RecentApi;
+  /** Exports pages as text or PNG files (B2-04); without it (demo data, tests) nothing can be. */
+  exportApi?: ExportApi;
   /** Whether this shell is the one shown (MVP-14): a hidden tab's shell handles no keys. */
   active?: boolean;
   version?: string;
@@ -119,6 +123,7 @@ export function ReaderShell({
   textApi,
   systemApi,
   recentApi,
+  exportApi,
   active = true,
   version = "0.1.0",
   loadingDelayMs,
@@ -140,7 +145,7 @@ export function ReaderShell({
   const [fitPercent, setFitPercent] = useState(100);
   const [rotation, setRotation] = useState<Rotation>(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [dialog, setDialog] = useState<"shortcuts" | "about" | "settings" | "setDefaultFailed" | "print" | null>(
+  const [dialog, setDialog] = useState<"shortcuts" | "about" | "settings" | "setDefaultFailed" | "print" | "export" | null>(
     null,
   );
   /** Pages rendered for printing, while the system's print dialog is up (MVP-17). */
@@ -177,7 +182,7 @@ export function ReaderShell({
     setTextSelected(false);
     setHint(null);
     setRecorded(null);
-    if (dialog === "print") setDialog(null);
+    if (dialog === "print" || dialog === "export") setDialog(null);
   }
 
   useEffect(() => {
@@ -255,6 +260,10 @@ export function ReaderShell({
     if (permissions.print) setDialog("print");
     else showHint(strings.permissions.printBlocked);
   };
+
+  // Exporting needs the worker's pages and the main process (not demo data); the author's
+  // permission to copy covers it (MVP-19).
+  const exportable = document_?.doc !== undefined && exportApi !== undefined;
 
   useShortcuts({
     open: onOpen,
@@ -372,6 +381,8 @@ export function ReaderShell({
           }}
           onPrint={printable && permissions.print ? print : undefined}
           printBlocked={!permissions.print}
+          onExport={exportable && permissions.copy ? () => setDialog("export") : undefined}
+          exportBlocked={exportable && !permissions.copy}
           onMoreMenuOpen={askRecording}
           recording={recording ? { recorded, onChange: setRecording } : undefined}
         />
@@ -523,6 +534,17 @@ export function ReaderShell({
           }
           onReady={setPrintPages}
           lowResolutionDpi={permissions.printHighQuality ? undefined : LOW_RES_PRINT_DPI}
+        />
+      )}
+      {exportable && (
+        <ExportDialog
+          open={dialog === "export"}
+          onOpenChange={(open) => setDialog(open ? "export" : null)}
+          doc={document_.doc!}
+          pageCount={pageCount}
+          currentPage={currentPage}
+          api={exportApi}
+          onFinished={showHint}
         />
       )}
       {printPages && (

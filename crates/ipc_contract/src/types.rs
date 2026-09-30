@@ -107,6 +107,37 @@ impl Default for Settings {
     }
 }
 
+/// What an export writes (B2-04).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ExportFormat {
+    /// The pages' text, one UTF-8 `.txt` file.
+    Text,
+    /// One PNG file per page at `dpi` dots per inch: 72, 150 or 300.
+    Png { dpi: u32 },
+}
+
+/// Arguments of `export_pages` (B2-04): what to export, never where; the main process asks the
+/// user. Any other field is rejected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExportArgs {
+    /// Stops the export with `cancel`.
+    pub request: RequestId,
+    pub doc: DocumentId,
+    /// Zero-based, in the order they are exported; at most `MAX_EXPORT_PAGES`, no repeats.
+    pub pages: Vec<u32>,
+    pub format: ExportFormat,
+}
+
+/// Progress of `export_pages` on its channel (B2-04).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ExportEvent {
+    #[serde(rename_all = "camelCase")]
+    Progress { pages_done: u32, total: u32 },
+}
+
 /// Arguments of `set_file_recording` (#73): whether an open document's file may be on the recent
 /// files list. Any other field is rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

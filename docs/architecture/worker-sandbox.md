@@ -63,6 +63,14 @@ AppContainer 不影響這個流程：handle 在複製時就已帶著存取權限
 - 驗證：`duplicated_write_handles_are_write_only`（寫得進去；讀取與刪除都被拒絕）。
 - 目前只有這個測試使用；存檔（B2-02）會接上。
 
+### 保留 win32k（ADR 0015，提議中）
+
+`SandboxConfig::allow_win32k` 讓子行程保留 win32k 系統呼叫，其他限制全部不變。
+
+- worker 永遠不設定它（預設 `false`）。
+- 目前只有 OCR 的 POC 使用（`crates/pdf_worker/tests/ocr_poc.rs`），證明 Windows 內建 OCR 需要 win32k；ADR 0015 提議以它啟動只接收像素的 OCR 行程。
+- 驗證：`win32k_is_only_available_when_asked_for`（設定後 `user32.dll` 可以載入；預設值是停用）。
+
 ## AppContainer
 
 - `Sandboxed::spawn` 第一次執行時以 `CreateAppContainerProfile` 建立 profile（不要求任何 capability），之後改用 `DeriveAppContainerSidFromAppContainerName` 取得同一個 SID。建立 profile 與修改 ACL 都以行程內的鎖序列化，避免並行建立失敗。

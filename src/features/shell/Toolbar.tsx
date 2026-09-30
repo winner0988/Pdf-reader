@@ -56,6 +56,10 @@ export type ToolbarProps = {
   onPrint?: () => void;
   /** The document's author forbids printing (MVP-19): the menu item says so. */
   printBlocked?: boolean;
+  /** Exports the open document's text or pages (B2-04); without it the menu item is disabled. */
+  onExport?: () => void;
+  /** The document's author forbids copying, which covers exporting (MVP-19). */
+  exportBlocked?: boolean;
   /** The "⋯" menu opened. */
   onMoreMenuOpen?: () => void;
   /**
@@ -214,6 +218,10 @@ function MoreMenu(props: ToolbarProps) {
           </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
+        <DropdownMenuItem disabled={!props.onExport} onClick={props.onExport}>
+          {menu.export}
+          {props.exportBlocked && <DropdownMenuShortcut>{strings.permissions.notAllowed}</DropdownMenuShortcut>}
+        </DropdownMenuItem>
         <DropdownMenuItem disabled={!props.onPrint} onClick={props.onPrint}>
           {menu.print}
           <DropdownMenuShortcut>{props.printBlocked ? strings.permissions.notAllowed : "Ctrl+P"}</DropdownMenuShortcut>

@@ -66,3 +66,9 @@ pub const MAX_TABS: u32 = 20;
 
 /// Maximum number of recently opened files kept and listed (#73, spec §3).
 pub const MAX_RECENT_FILES: u32 = 20;
+
+/// Maximum number of pages one export writes (B2-04).
+pub const MAX_EXPORT_PAGES: u32 = 1_000;
+
+/// Maximum size of one exported PNG page (B2-04); below the frame limit.
+pub const MAX_PNG_BYTES: usize = 64 * 1024 * 1024;

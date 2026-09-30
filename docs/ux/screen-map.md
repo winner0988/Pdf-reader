@@ -150,6 +150,20 @@
 - 列印時不套用檢視用的旋轉與縮放；每一頁依紙張大小等比例縮放，完整印在一張紙上。
 - 做法與限制見 [printing.md](../architecture/printing.md)。
 
+### 匯出（B2-04）
+
+- 「⋯」→「匯出…」開啟匯出對話框（沒有開啟文件時停用；作者禁止複製時停用並標示 permissions.notAllowed）。
+- **格式**：純文字（.txt，預設），或頁面圖片（PNG，每頁一個檔案；解析度 72／150（預設）／300 dpi）。
+- **頁面**：與列印相同的範圍（全部、目前頁、頁碼）；一次最多 1,000 頁，超過時顯示 export.tooMany。
+- **匯出…**：主行程顯示系統的對話框：
+  - 純文字：另存新檔，建議檔名 `<原檔名>.txt`，已存在時由對話框詢問是否取代；
+  - 圖片：選擇資料夾，檔名是 `<原檔名>-p<頁碼>.png`，已有同名檔案時以訊息方塊詢問是否覆寫。
+
+  關閉系統的對話框時回到匯出對話框，可以再試。
+- 匯出時顯示 export.progress，按「停止」在下一頁之前停止。
+- 結束後關閉對話框，狀態列顯示 export.done 或 export.stopped 4 秒。
+- 做法與限制見 [export.md](../architecture/export.md)。
+
 ### 文件權限（MVP-19）
 
 加密的 PDF 可以限制複製與列印，app 比照 Adobe Acrobat 遵守（[encryption.md](../architecture/encryption.md)「權限」）。
@@ -432,6 +446,34 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | print.preparing | 正在準備列印…（<n>／<N> 頁） |
 | print.failed | 有頁面無法準備列印，請再試一次。 |
 
+### 匯出（B2-04）
+
+| 鍵 | 文字 |
+|---|---|
+| menu.export | 匯出… |
+| export.title | 匯出 |
+| export.note | 檔案只在這台電腦上產生；按「匯出…」後選擇存放的位置。 |
+| export.format | 格式 |
+| export.text | 純文字（.txt） |
+| export.png | 頁面圖片（PNG，每頁一個檔案） |
+| export.resolution | 解析度 |
+| export.dpi | <dpi> dpi |
+| export.range | 頁面 |
+| export.tooMany | 一次最多匯出 <上限> 頁，請分次匯出。 |
+| export.start | 匯出… |
+| export.cancel | 取消 |
+| export.stop | 停止 |
+| export.progress | 正在匯出…（<n>／<N> 頁） |
+| export.done | 已匯出 <N> 頁。 |
+| export.stopped | 已停止，已匯出 <n> 頁。 |
+| export.failed | 匯出失敗，請再試一次。 |
+| EXPORT_TEXT_DIALOG_TITLE（主行程） | 匯出純文字 |
+| TEXT_FILTER_NAME（主行程） | 純文字檔 |
+| EXPORT_IMAGES_DIALOG_TITLE（主行程） | 選擇匯出頁面圖片的資料夾 |
+| OVERWRITE_TITLE（主行程） | 檔案已經存在 |
+| overwrite_message（主行程） | 這個資料夾已經有 <N> 個同名的檔案。要覆寫嗎？ |
+| NO_TEXT_LAYER_PAGE（主行程，寫在文字檔中） | （此頁沒有文字層） |
+
 ### 文件權限（MVP-19）
 
 | 鍵 | 文字 |
@@ -478,3 +520,4 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | MVP-18 | `benign/multi-page-10.pdf` 的縮圖側欄，標示目前頁（淺色與深色）；空狀態的最近開啟的檔案；「⋯」選單的「不記錄此檔案」 |
 | MVP-19 | `benign/restricted-no-copy-no-print.pdf` 的狀態列與停用的「列印…」；`benign/restricted-low-res-print.pdf` 的列印對話框（淺色與深色） |
 | B2-12 | 設定對話框（淺色與深色） |
+| B2-04 | 匯出對話框（淺色與深色） |

@@ -551,6 +551,43 @@ impl Documents {
         self.tab(tab).map(|found| found.path.clone())
     }
 
+    /// What the frontend was told about the open document `doc` (its name, pages, permissions).
+    pub fn document_info(&self, doc: DocumentId) -> Option<DocumentInfo> {
+        let tabs = self.lock().tabs.clone();
+        tabs.iter().find_map(|tab| match &*lock(&tab.event) {
+            OpenEvent::Opened { info, .. } if info.doc == doc => Some(info.clone()),
+            _ => None,
+        })
+    }
+
+    /// A page as a PNG file at `dpi`, unturned, for exporting (B2-04). Pages too large for the
+    /// raster limits come out at a lower resolution, as renders do.
+    pub fn render_png(
+        &self,
+        doc: DocumentId,
+        page_index: u32,
+        dpi: u32,
+    ) -> Result<Vec<u8>, IpcError> {
+        self.with_document(doc, |document| {
+            let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+            check_page_index(page_index, page_count).map_err(invalid_argument)?;
+            let page = document.info.pages[page_index as usize];
+            let scale = fit_scale(page, dpi as f32 / 72.0).map_err(|error| IpcError {
+                code: ErrorCode::LimitExceeded,
+                message: format!("page too large to export: {error}"),
+            })?;
+            match request(document, |request, doc| WorkerRequest::RenderPng {
+                request,
+                doc,
+                page_index,
+                scale,
+            })? {
+                WorkerResponse::Png { png, .. } => Ok(png),
+                _ => Err(unexpected("RenderPng")),
+            }
+        })
+    }
+
     /// The file of the open document `doc`, for the recent files list (#73).
     pub fn document_path(&self, doc: DocumentId) -> Option<PathBuf> {
         let tabs = self.lock().tabs.clone();

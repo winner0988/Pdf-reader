@@ -325,6 +325,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::Outline { request, .. }
         | WorkerResponse::PageLinks { request, .. }
         | WorkerResponse::PageText { request, .. }
+        | WorkerResponse::Png { request, .. }
         | WorkerResponse::PageSearched { request, .. } => Some(*request),
         WorkerResponse::Error { request, .. } => *request,
     }
