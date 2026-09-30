@@ -36,7 +36,7 @@ getrandom = "0.3"
 [target.'cfg(windows)'.dependencies]
 # The system's file dialogs, with an option rfd cannot set (#86, B2-04, src/file_dialog.rs).
 # Already used by Tauri, in this version.
-windows = { version = "0.61", features = [
+windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_System_Com",
     "Win32_UI_Shell",
