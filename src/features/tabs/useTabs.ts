@@ -54,6 +54,7 @@ export function useTabs(api: OpenApi) {
   const activate = useCallback((tab: TabId) => dispatch({ type: "activate", tab }), []);
   const step = useCallback((by: 1 | -1) => dispatch({ type: "step", by }), []);
   const dismissNotice = useCallback(() => dispatch({ type: "dismissNotice" }), []);
+  const dismissCloseRequest = useCallback(() => dispatch({ type: "dismissCloseRequest" }), []);
 
-  return { state, open, retry, unlock, close, activate, step, dismissNotice };
+  return { state, open, retry, unlock, close, activate, step, dismissNotice, dismissCloseRequest };
 }

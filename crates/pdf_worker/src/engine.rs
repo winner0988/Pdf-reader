@@ -5,18 +5,22 @@
 //! Nothing in this crate may call `PdfDocument::enable_js`.
 
 use std::collections::HashSet;
+use std::io::{self, Write};
 
-use ipc_contract::limits::MAX_PNG_BYTES;
+use ipc_contract::limits::{MAX_DOCUMENT_BYTES, MAX_PNG_BYTES};
 use ipc_contract::types::{
     BlockedAction, DocumentPermissions, PageText as TextLayer, Point, Quad, SecurityReport,
 };
-use mupdf::pdf::{PdfDocument as MuPdfDocument, PdfObject};
+use mupdf::pdf::{PdfDocument as MuPdfDocument, PdfObject, PdfWriteOptions};
 use mupdf::{Colorspace, Document, ImageFormat, Matrix, Page, Pixmap, TextPageFlags};
 
 use crate::scan::{self, ScanBudget};
 use crate::search::{PageSearch, PageText};
 use crate::text_layer::TextLayerBuilder;
 use thiserror::Error;
+
+/// Most form fields looked at to find a signature (`PdfDocument::is_signed`).
+const MAX_FORM_FIELDS: usize = 10_000;
 
 /// PDF files must start with this header within the first 1024 bytes (PDF 1.7, 7.5.2).
 const PDF_HEADER: &[u8] = b"%PDF-";
@@ -48,6 +52,8 @@ pub enum EngineError {
     InvalidRotation,
     #[error("a {width} x {height} render exceeds the raster limit")]
     TooLarge { width: u64, height: u64 },
+    #[error("could not write the file: {0}")]
+    Write(io::Error),
     #[error("MuPDF: {0}")]
     MuPdf(#[from] mupdf::Error),
 }
@@ -513,6 +519,122 @@ impl PdfDocument {
         }
         Ok(self.doc.load_page(index as i32)?)
     }
+
+    /// Turns `pages` clockwise by `degrees` (90, 180 or 270) on top of their rotation, in memory
+    /// (ADR 0013). Every page is checked first; if MuPDF fails halfway, the pages already turned
+    /// are turned back, so the document is either fully edited or unchanged.
+    pub fn rotate_pages(&mut self, pages: &[u32], degrees: u16) -> Result<(), EngineError> {
+        if !matches!(degrees, 90 | 180 | 270) {
+            return Err(EngineError::InvalidRotation);
+        }
+        let count = self.page_count()?;
+        if let Some(&page) = pages.iter().find(|&&page| page >= count) {
+            return Err(EngineError::PageOutOfRange(page));
+        }
+        let turn = |page: u32, degrees: i32| -> Result<(), EngineError> {
+            let mut pdf_page = self.doc.load_pdf_page(page as i32)?;
+            let rotation = pdf_page.rotation()?;
+            pdf_page.set_rotation((rotation + degrees).rem_euclid(360))?;
+            Ok(())
+        };
+        for (done, &page) in pages.iter().enumerate() {
+            if let Err(error) = turn(page, i32::from(degrees)) {
+                for &turned in &pages[..done] {
+                    let _ = turn(turned, -i32::from(degrees));
+                }
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether the document is signed: its form says signatures exist (`/SigFlags` bit 1), or a
+    /// signature field has a value. Saving must then append, to keep the signatures valid.
+    pub fn is_signed(&self) -> bool {
+        (|| -> Result<bool, mupdf::Error> {
+            let Some(form) = self.doc.catalog()?.get_dict("AcroForm")? else {
+                return Ok(false);
+            };
+            if let Some(flags) = form.get_dict("SigFlags")?
+                && flags.as_int()? & 1 != 0
+            {
+                return Ok(true);
+            }
+            let Some(fields) = form.get_dict("Fields")? else {
+                return Ok(false);
+            };
+            // Breadth first through the field tree, bounded like the other walks here.
+            let mut queue = vec![fields];
+            let mut seen = 0;
+            while let Some(list) = queue.pop() {
+                for index in 0..list.len()? {
+                    seen += 1;
+                    if seen > MAX_FORM_FIELDS {
+                        return Ok(false);
+                    }
+                    let Some(field) = list.get_array(index as i32)? else {
+                        continue;
+                    };
+                    let is_signature = field
+                        .get_dict("FT")?
+                        .is_some_and(|kind| kind.as_name().is_ok_and(|name| name == b"Sig"));
+                    if is_signature && field.get_dict("V")?.is_some() {
+                        return Ok(true);
+                    }
+                    if let Some(kids) = field.get_dict("Kids")? {
+                        queue.push(kids);
+                    }
+                }
+            }
+            Ok(false)
+        })()
+        .unwrap_or(false)
+    }
+
+    /// Writes the document, with its edits, to `out` (ADR 0013): appended to the original for a
+    /// signed document, so its signatures stay valid; otherwise rewritten without its unused
+    /// objects, so that removed content is really gone. An encrypted document stays encrypted
+    /// as it was. Returns the bytes written and whether they were appended; stops with
+    /// `Write(FileTooLarge)` beyond `MAX_DOCUMENT_BYTES`.
+    pub fn save(&self, out: &mut impl Write) -> Result<(u64, bool), EngineError> {
+        let incremental = self.is_signed() && self.doc.can_be_saved_incrementally();
+        let mut options = PdfWriteOptions::default();
+        if incremental {
+            options.set_incremental(true);
+        } else {
+            options.set_garbage(true);
+        }
+        let mut limited = Limited {
+            out,
+            left: MAX_DOCUMENT_BYTES,
+        };
+        match self.doc.write_to_with_options(&mut limited, options) {
+            Ok(bytes) => Ok((bytes, incremental)),
+            Err(mupdf::Error::Io(error)) => Err(EngineError::Write(error)),
+            Err(error) => Err(EngineError::MuPdf(error)),
+        }
+    }
+}
+
+/// Passes writes through until `left` bytes have gone, then fails with `FileTooLarge`.
+struct Limited<'a, W> {
+    out: &'a mut W,
+    left: u64,
+}
+
+impl<W: Write> Write for Limited<'_, W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if buf.len() as u64 > self.left {
+            return Err(io::ErrorKind::FileTooLarge.into());
+        }
+        let written = self.out.write(buf)?;
+        self.left -= written as u64;
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.out.flush()
+    }
 }
 
 /// The permissions in `/P` (ISO 32000-2, table 22; bit n counts from 1). Revision 2 of the
@@ -520,10 +642,18 @@ impl PdfDocument {
 fn permissions_from(p: i32, revision: Option<i32>) -> DocumentPermissions {
     let allows = |bit: u32| p & (1 << (bit - 1)) != 0;
     let print = allows(3);
+    let before_revision_3 = revision.is_some_and(|r| r < 3);
     DocumentPermissions {
         copy: allows(5),
         print,
-        print_high_quality: print && (revision.is_some_and(|r| r < 3) || allows(12)),
+        print_high_quality: print && (before_revision_3 || allows(12)),
+        modify: allows(4),
+        // Revision 2 has no assembly bit (bit 11 is reserved, and set): modifying covers it.
+        assemble: if before_revision_3 {
+            allows(4)
+        } else {
+            allows(11)
+        },
     }
 }
 
@@ -893,15 +1023,13 @@ mod tests {
             permissions_from(all & !COPY, Some(4)),
             DocumentPermissions {
                 copy: false,
-                print: true,
-                print_high_quality: true
+                ..DocumentPermissions::ALL
             }
         );
         // Without the high-quality bit, printing is low resolution from revision 3 on.
         let low_res = DocumentPermissions {
-            copy: true,
-            print: true,
             print_high_quality: false,
+            ..DocumentPermissions::ALL
         };
         assert_eq!(permissions_from(all & !PRINT_HQ, Some(3)), low_res);
         assert_eq!(permissions_from(all & !PRINT_HQ, None), low_res);
@@ -916,10 +1044,19 @@ mod tests {
                 DocumentPermissions {
                     copy: false,
                     print: false,
-                    print_high_quality: false
+                    print_high_quality: false,
+                    ..DocumentPermissions::ALL
                 }
             );
         }
+        // Changing pages needs the assembly bit from revision 3 on, the modify bit before.
+        const MODIFY: i32 = 1 << 3;
+        const ASSEMBLE: i32 = 1 << 10;
+        let pages_only = permissions_from(all & !MODIFY, Some(4));
+        assert!(!pages_only.modify && pages_only.assemble);
+        assert!(!permissions_from(all & !ASSEMBLE, Some(4)).assemble);
+        assert!(permissions_from(all & !ASSEMBLE, Some(2)).assemble);
+        assert!(!permissions_from(all & !MODIFY & !ASSEMBLE, Some(2)).assemble);
     }
 
     #[test]
@@ -1211,5 +1348,128 @@ mod tests {
         let mut doc = mupdf::pdf::PdfDocument::from_bytes(&pdf).unwrap();
         doc.enable_js().unwrap();
         assert!(!doc.is_js_supported().unwrap());
+    }
+
+    fn corpus(name: &str) -> Vec<u8> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/corpus")
+            .join(name);
+        std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
+    fn saved(doc: &PdfDocument) -> (Vec<u8>, bool) {
+        let mut out = Vec::new();
+        let (bytes, incremental) = doc.save(&mut out).expect("save");
+        assert_eq!(bytes, out.len() as u64);
+        (out, incremental)
+    }
+
+    #[test]
+    fn rotating_pages_turns_them_on_top_of_their_rotation() {
+        let mut doc = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
+        doc.rotate_pages(&[0], 90).expect("rotate");
+        assert_eq!(doc.page_size(0).expect("size"), (792.0, 612.0));
+        assert_eq!(doc.page_size(1).expect("size"), (612.0, 792.0));
+        // Three more quarter turns bring it back.
+        doc.rotate_pages(&[0], 270).expect("rotate");
+        assert_eq!(doc.page_size(0).expect("size"), (612.0, 792.0));
+    }
+
+    #[test]
+    fn a_bad_rotation_changes_nothing() {
+        let mut doc = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
+        assert!(matches!(
+            doc.rotate_pages(&[0, 2], 90),
+            Err(EngineError::PageOutOfRange(2))
+        ));
+        assert!(matches!(
+            doc.rotate_pages(&[0], 45),
+            Err(EngineError::InvalidRotation)
+        ));
+        assert_eq!(doc.page_size(0).expect("size"), (612.0, 792.0));
+    }
+
+    #[test]
+    fn saving_rewrites_the_document_with_its_edits() {
+        let mut doc = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
+        assert!(!doc.is_signed());
+        doc.rotate_pages(&[1], 180).expect("rotate");
+        let (file, incremental) = saved(&doc);
+        assert!(!incremental);
+        assert!(file.starts_with(b"%PDF-"));
+        let reopened = mupdf::pdf::PdfDocument::from_bytes(&file).expect("reopen");
+        let rotation = |page| {
+            reopened
+                .load_pdf_page(page)
+                .expect("page")
+                .rotation()
+                .expect("rotation")
+        };
+        assert_eq!((rotation(0), rotation(1)), (0, 180));
+    }
+
+    #[test]
+    fn a_signed_document_is_appended_to() {
+        let original = corpus("benign/signed.pdf");
+        let mut doc = PdfDocument::from_bytes(&original).expect("open");
+        assert!(doc.is_signed());
+        doc.rotate_pages(&[0], 90).expect("rotate");
+        let (file, incremental) = saved(&doc);
+        assert!(incremental);
+        // The signed bytes come first, unchanged: the signature still covers them.
+        assert!(file.len() > original.len());
+        assert_eq!(&file[..original.len()], &original[..]);
+    }
+
+    #[test]
+    fn an_encrypted_document_stays_encrypted() {
+        let mut doc =
+            PdfDocument::open(&corpus("benign/encrypted-aes256.pdf"), Some("user")).expect("open");
+        doc.rotate_pages(&[0], 90).expect("rotate");
+        let (file, _) = saved(&doc);
+        assert!(matches!(
+            PdfDocument::from_bytes(&file),
+            Err(EngineError::Encrypted)
+        ));
+        let reopened = PdfDocument::open(&file, Some("user")).expect("reopen");
+        assert_eq!(
+            reopened.page_size(0).expect("size"),
+            doc.page_size(0).expect("size")
+        );
+        assert!(matches!(
+            PdfDocument::open(&file, Some("wrong")),
+            Err(EngineError::WrongPassword)
+        ));
+    }
+
+    #[test]
+    fn nothing_is_written_beyond_the_limit() {
+        let mut out = Vec::new();
+        let mut limited = Limited {
+            out: &mut out,
+            left: 4,
+        };
+        assert_eq!(limited.write(b"%PDF").expect("fits"), 4);
+        let error = limited.write(b"-").expect_err("beyond the limit");
+        assert_eq!(error.kind(), io::ErrorKind::FileTooLarge);
+        assert_eq!(out, b"%PDF");
+    }
+
+    #[test]
+    fn a_full_disk_is_told_apart() {
+        struct Full;
+        impl Write for Full {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::ErrorKind::StorageFull.into())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let doc = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
+        match doc.save(&mut Full) {
+            Err(EngineError::Write(error)) => assert_eq!(error.kind(), io::ErrorKind::StorageFull),
+            other => panic!("{other:?}"),
+        }
     }
 }

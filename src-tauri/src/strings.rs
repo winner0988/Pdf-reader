@@ -4,14 +4,18 @@
 pub const OPEN_DIALOG_TITLE: &str = "開啟 PDF 檔案";
 
 /// The window title: the open document's file name, so windows and taskbar buttons can be told
-/// apart (REL-03), then the app's name.
-pub fn window_title(file_name: Option<&str>) -> String {
-    match file_name {
-        Some(name) => format!("{name} — PDF Reader"),
-        None => "PDF Reader".to_owned(),
+/// apart (REL-03), then the app's name. A dot marks unsaved changes (B2-02), as on the tab.
+pub fn window_title(file_name: Option<&str>, unsaved: bool) -> String {
+    match (file_name, unsaved) {
+        (Some(name), true) => format!("• {name} — PDF Reader"),
+        (Some(name), false) => format!("{name} — PDF Reader"),
+        (None, _) => "PDF Reader".to_owned(),
     }
 }
 pub const PDF_FILTER_NAME: &str = "PDF 檔案";
+
+/// Saving a document as another file (B2-02).
+pub const SAVE_AS_DIALOG_TITLE: &str = "另存新檔";
 
 /// Export (B2-04): where the text goes, and the folder the page images go to.
 pub const EXPORT_TEXT_DIALOG_TITLE: &str = "匯出純文字";
@@ -40,8 +44,15 @@ mod tests {
     use super::window_title;
 
     #[test]
-    fn the_window_title_names_the_open_file() {
-        assert_eq!(window_title(Some("report.pdf")), "report.pdf — PDF Reader");
-        assert_eq!(window_title(None), "PDF Reader");
+    fn the_window_title_names_the_open_file_and_marks_unsaved_changes() {
+        assert_eq!(
+            window_title(Some("report.pdf"), false),
+            "report.pdf — PDF Reader"
+        );
+        assert_eq!(
+            window_title(Some("report.pdf"), true),
+            "• report.pdf — PDF Reader"
+        );
+        assert_eq!(window_title(None, false), "PDF Reader");
     }
 }

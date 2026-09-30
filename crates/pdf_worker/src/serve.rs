@@ -9,8 +9,8 @@ use std::io::{Read, Write};
 
 use ipc_contract::frame::{self, FrameError};
 use ipc_contract::limits::{
-    MAX_ERROR_MESSAGE_BYTES, MAX_LINKS_PER_PAGE, MAX_OUTLINE_DEPTH, MAX_OUTLINE_ITEMS,
-    MAX_PAGE_COUNT, MAX_PAGE_TEXT_CHARS, MAX_SEARCH_HITS, MAX_TEXT_BYTES,
+    MAX_DOCUMENT_BYTES, MAX_ERROR_MESSAGE_BYTES, MAX_LINKS_PER_PAGE, MAX_OUTLINE_DEPTH,
+    MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_PAGE_TEXT_CHARS, MAX_SEARCH_HITS, MAX_TEXT_BYTES,
 };
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
@@ -18,15 +18,13 @@ use ipc_contract::types::{
     RequestId,
 };
 use ipc_contract::worker::{
-    FileHandle, OpenedDocument, Raster, WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
+    FileHandle, OpenedDocument, Raster, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest,
+    WorkerResponse,
 };
 
 use crate::engine::{EngineError, OutlineTarget, PdfDocument};
 use crate::handle;
 use crate::scan::ScanBudget;
-
-/// Largest document the worker reads (mirrors `worker_host::MAX_DOCUMENT_BYTES`).
-const MAX_DOCUMENT_BYTES: u64 = 512 * 1024 * 1024;
 
 /// Serves requests until Shutdown or end of input.
 pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), FrameError> {
@@ -159,6 +157,25 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     }
                 }
             }),
+            WorkerRequest::Edit { request, doc, edit } => Some(match documents.get_mut(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => match apply(document, &edit) {
+                    Ok(pages) => WorkerResponse::Edited { request, pages },
+                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+                },
+            }),
+            WorkerRequest::Save { request, doc, file } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => save(document, request, file),
+            }),
             // Requests are handled one at a time, so there is nothing in flight to cancel.
             WorkerRequest::Cancel { .. } => None,
             WorkerRequest::Close { doc } => {
@@ -190,24 +207,18 @@ fn open(
         Ok(document) => document,
         Err(engine) => return engine_error(request, &engine, WorkerErrorCode::Corrupted),
     };
-    let count = match document.page_count() {
+    match document.page_count() {
         Ok(0) => return error(request, WorkerErrorCode::Corrupted, "document has no pages"),
         Ok(count) if count > MAX_PAGE_COUNT => {
             return error(request, WorkerErrorCode::LimitExceeded, "too many pages");
         }
-        Ok(count) => count,
+        Ok(_) => {}
+        Err(engine) => return engine_error(request, &engine, WorkerErrorCode::Corrupted),
+    }
+    let pages = match page_sizes(&document) {
+        Ok(pages) => pages,
         Err(engine) => return engine_error(request, &engine, WorkerErrorCode::Corrupted),
     };
-    let mut pages = Vec::with_capacity(count as usize);
-    for index in 0..count {
-        match document.page_size(index) {
-            Ok((width_pt, height_pt)) => pages.push(PageSize {
-                width_pt,
-                height_pt,
-            }),
-            Err(engine) => return engine_error(request, &engine, WorkerErrorCode::Corrupted),
-        }
-    }
     let has_outline = document.has_outline();
     let security = document.active_content(ScanBudget::default());
     let permissions = document.permissions();
@@ -220,6 +231,47 @@ fn open(
             security,
             permissions,
         },
+    }
+}
+
+/// The size of every page, as `Opened` and `Edited` report them.
+fn page_sizes(document: &PdfDocument) -> Result<Vec<PageSize>, EngineError> {
+    (0..document.page_count()?)
+        .map(|index| {
+            let (width_pt, height_pt) = document.page_size(index)?;
+            Ok(PageSize {
+                width_pt,
+                height_pt,
+            })
+        })
+        .collect()
+}
+
+/// Applies an edit to the document in memory (ADR 0013) and returns its pages as they are now.
+fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<Vec<PageSize>, EngineError> {
+    match edit {
+        WorkerEdit::RotatePages { pages, degrees } => document.rotate_pages(pages, *degrees)?,
+    }
+    page_sizes(document)
+}
+
+/// Writes the document to the write-only handle `file` (ADR 0013). The handle is closed when
+/// this returns; the main process checks the file before it replaces anything with it.
+fn save(document: &PdfDocument, request: RequestId, file: FileHandle) -> WorkerResponse {
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match document.save(&mut file) {
+        Ok((bytes, incremental)) => WorkerResponse::Saved {
+            request,
+            bytes,
+            incremental,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
 }
 
@@ -333,6 +385,11 @@ fn engine_error(
         EngineError::PageOutOfRange(_) => WorkerErrorCode::PageOutOfRange,
         EngineError::InvalidScale | EngineError::InvalidRotation => WorkerErrorCode::InvalidRequest,
         EngineError::TooLarge { .. } => WorkerErrorCode::LimitExceeded,
+        EngineError::Write(error) => match error.kind() {
+            std::io::ErrorKind::StorageFull => WorkerErrorCode::DiskFull,
+            std::io::ErrorKind::FileTooLarge => WorkerErrorCode::LimitExceeded,
+            _ => WorkerErrorCode::Unwritable,
+        },
         EngineError::MuPdf(_) => other,
     };
     error(request, code, &engine.to_string())

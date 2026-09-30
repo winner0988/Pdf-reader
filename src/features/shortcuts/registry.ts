@@ -19,6 +19,8 @@ const plain = (event: KeyboardEvent) => !event.ctrlKey && !event.altKey && !even
 
 export const SHORTCUTS: Shortcut[] = [
   { id: "open", keys: ["Ctrl+O"], matches: (e) => ctrl(e) && e.key.toLowerCase() === "o" },
+  { id: "save", keys: ["Ctrl+S"], matches: (e) => ctrl(e) && !e.shiftKey && e.key.toLowerCase() === "s" },
+  { id: "saveAs", keys: ["Ctrl+Shift+S"], matches: (e) => ctrl(e) && e.shiftKey && e.key.toLowerCase() === "s" },
   { id: "close", keys: ["Ctrl+W"], matches: (e) => ctrl(e) && e.key.toLowerCase() === "w" },
   {
     id: "nextTab",

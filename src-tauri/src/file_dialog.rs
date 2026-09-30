@@ -1,4 +1,4 @@
-//! The system's file dialogs (MVP-06, #86, B2-04): `IFileOpenDialog` and `IFileSaveDialog`, shown
+//! The system's file dialogs (MVP-06, #86, B2-04, B2-02): `IFileOpenDialog` and `IFileSaveDialog`, shown
 //! by the main process so that paths never reach the WebView. Nothing picked in them is added to
 //! the user's recent items in Windows (#86; `rfd` could not set that option).
 //!
@@ -36,6 +36,8 @@ enum Kind {
     OpenPdfs,
     /// Where to save exported text (B2-04), suggesting `file_name`.
     SaveText { file_name: String },
+    /// Where to save a document as another file (B2-02), suggesting `file_name`.
+    SavePdf { file_name: String },
     /// A folder for exported page images (B2-04).
     PickFolder,
 }
@@ -53,6 +55,17 @@ pub async fn save_text_file(
     file_name: String,
 ) -> Result<Option<PathBuf>, IpcError> {
     Ok(run(window, Kind::SaveText { file_name })
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
+/// Asks where to save a document as another file, suggesting `file_name`. The dialog itself
+/// asks before replacing an existing file, its own included.
+pub async fn save_pdf_file(
+    window: &WebviewWindow,
+    file_name: String,
+) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::SavePdf { file_name })
         .await?
         .and_then(|mut paths| paths.pop()))
 }
@@ -91,7 +104,7 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
     let common = defaults | FOS_FORCEFILESYSTEM | FOS_DONTADDTORECENT;
     match kind {
         Kind::OpenPdfs => common | FOS_ALLOWMULTISELECT,
-        Kind::SaveText { .. } => common | FOS_OVERWRITEPROMPT,
+        Kind::SaveText { .. } | Kind::SavePdf { .. } => common | FOS_OVERWRITEPROMPT,
         Kind::PickFolder => common | FOS_PICKFOLDERS,
     }
 }
@@ -137,7 +150,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
     // SAFETY: COM is initialised on this thread (`Com`); the class ids are the system's dialogs.
     unsafe {
         match kind {
-            Kind::SaveText { .. } => {
+            Kind::SaveText { .. } | Kind::SavePdf { .. } => {
                 CoCreateInstance::<_, IFileSaveDialog>(&FileSaveDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
             }
@@ -159,6 +172,10 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             strings::EXPORT_TEXT_DIALOG_TITLE,
             Some((strings::TEXT_FILTER_NAME, "*.txt")),
         ),
+        Kind::SavePdf { .. } => (
+            strings::SAVE_AS_DIALOG_TITLE,
+            Some((strings::PDF_FILTER_NAME, "*.pdf")),
+        ),
         Kind::PickFolder => (strings::EXPORT_IMAGES_DIALOG_TITLE, None),
     };
     let title = HSTRING::from(title);
@@ -173,8 +190,13 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
                 pszSpec: PCWSTR(pattern.as_ptr()),
             }])?;
         }
-        if let Kind::SaveText { file_name } = kind {
-            dialog.SetDefaultExtension(&HSTRING::from("txt"))?;
+        if let Kind::SaveText { file_name } | Kind::SavePdf { file_name } = kind {
+            let extension = if let Kind::SavePdf { .. } = kind {
+                "pdf"
+            } else {
+                "txt"
+            };
+            dialog.SetDefaultExtension(&HSTRING::from(extension))?;
             dialog.SetFileName(&HSTRING::from(file_name.as_str()))?;
         }
     }
@@ -232,6 +254,11 @@ mod tests {
         assert!(
             save(FOS_DONTADDTORECENT) && save(FOS_OVERWRITEPROMPT) && save(FOS_FORCEFILESYSTEM)
         );
+
+        let save_as = options_of(Kind::SavePdf {
+            file_name: "報告.pdf".to_owned(),
+        });
+        assert!(save_as(FOS_DONTADDTORECENT) && save_as(FOS_OVERWRITEPROMPT));
 
         let folder = options_of(Kind::PickFolder);
         assert!(

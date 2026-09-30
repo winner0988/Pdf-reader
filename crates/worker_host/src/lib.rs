@@ -22,8 +22,11 @@ use ipc_contract::worker::{FileHandle, WorkerError, WorkerRequest, WorkerRespons
 use sandbox::{SandboxConfig, Sandboxed};
 use thiserror::Error;
 
-/// Largest document the worker is asked to open.
-pub const MAX_DOCUMENT_BYTES: u64 = 512 * 1024 * 1024;
+/// Largest document the worker is asked to open, or writes when saving.
+pub const MAX_DOCUMENT_BYTES: u64 = ipc_contract::limits::MAX_DOCUMENT_BYTES;
+
+/// How long saving a document may take (ADR 0013): a large document is rewritten whole.
+pub const SAVE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 /// File name of the worker executable. The installer puts it next to the app
 /// (`bundle.externalBin`); in development cargo builds it into the same `target/<profile>/`.
@@ -191,10 +194,39 @@ impl WorkerHost {
         Ok((doc, response))
     }
 
+    /// Writes the open document `doc` to `file` (ADR 0013): `file` is a new temporary file the
+    /// caller created and still owns; the worker gets a duplicated write-only handle to it
+    /// (never a path), which cannot read, delete or rename. Returns the worker's `Saved`
+    /// response. Saving may take longer than other requests: up to [`SAVE_TIMEOUT`].
+    pub fn save(&mut self, doc: DocumentId, file: &File) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_write_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::Save {
+            request,
+            doc,
+            file: FileHandle(handle),
+        })
+    }
+
     /// Sends a request built by `make` (which receives a fresh request id) and returns the
     /// validated response. Worker-reported errors come back as [`HostError::Worker`].
     pub fn request(
         &mut self,
+        make: impl FnOnce(RequestId) -> WorkerRequest,
+    ) -> Result<WorkerResponse, HostError> {
+        let timeout = self.config.request_timeout;
+        self.request_within(timeout, make)
+    }
+
+    fn request_within(
+        &mut self,
+        timeout: Duration,
         make: impl FnOnce(RequestId) -> WorkerRequest,
     ) -> Result<WorkerResponse, HostError> {
         self.ensure_running()?;
@@ -202,7 +234,7 @@ impl WorkerHost {
         self.next_request = self.next_request.wrapping_add(1).max(1);
         let request = make(id);
 
-        let result = self.exchange(&request, id);
+        let result = self.exchange(&request, id, timeout);
         if matches!(
             result,
             Err(HostError::Crashed | HostError::Timeout | HostError::ProtocolViolation(_))
@@ -229,8 +261,8 @@ impl WorkerHost {
         &mut self,
         request: &WorkerRequest,
         id: RequestId,
+        timeout: Duration,
     ) -> Result<WorkerResponse, HostError> {
-        let timeout = self.config.request_timeout;
         let connection = self.connection.as_mut().expect("running");
         // Wiped after writing: an Open request may carry a password (MVP-16).
         frame::send_wiped(&mut connection.stdin, request).map_err(|_| HostError::Crashed)?;
@@ -326,7 +358,9 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::PageLinks { request, .. }
         | WorkerResponse::PageText { request, .. }
         | WorkerResponse::Png { request, .. }
-        | WorkerResponse::PageSearched { request, .. } => Some(*request),
+        | WorkerResponse::PageSearched { request, .. }
+        | WorkerResponse::Edited { request, .. }
+        | WorkerResponse::Saved { request, .. } => Some(*request),
         WorkerResponse::Error { request, .. } => *request,
     }
 }

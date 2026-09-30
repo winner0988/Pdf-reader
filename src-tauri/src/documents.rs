@@ -2,27 +2,36 @@
 //! document its own sandboxed worker (ADR 0012), so a hostile PDF that takes over its worker
 //! cannot reach the other documents. Paths stay in the main process (ADR 0008): the frontend
 //! only ever sees tab and document ids and file names.
+//!
+//! Edits (ADR 0013) change a document in its worker's memory; `save` writes it to a file
+//! (src/saving.rs). Until then the main process keeps the edits, to apply them again should the
+//! worker have to be restarted.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use ipc_contract::limits::{MAX_DISPLAY_NAME_BYTES, MAX_TABS, MAX_TEXT_BYTES};
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
-    BlockedAction, DocumentId, DocumentInfo, ErrorCode, IpcError, LinkArgs, LinkPreview,
-    LinkTarget, OpenEvent, OutlineLinkArgs, OutlineResult, PageLink, PageText, Password,
-    RenderPageArgs, SearchHit, TabId,
+    BlockedAction, DocumentId, DocumentInfo, Edit, EditArgs, ErrorCode, IpcError, LinkArgs,
+    LinkPreview, LinkTarget, OpenEvent, OutlineLinkArgs, OutlineResult, PageLink, PageSize,
+    PageText, Password, RenderPageArgs, SaveResult, SearchHit, TabId,
 };
 use ipc_contract::validate::{Validate, check_page_index};
-use ipc_contract::worker::{WorkerErrorCode, WorkerRequest, WorkerResponse};
+use ipc_contract::worker::{WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse};
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
+
+use crate::saving::{self, FileIdentity, Temporary};
 
 /// Display name used when a path has no file name component.
 const FALLBACK_NAME: &str = "PDF";
 
 pub struct Documents {
     worker: PathBuf,
+    /// For tab and document ids; never reused while the app runs.
+    next_id: AtomicU32,
     inner: Mutex<Inner>,
     /// Where events go that no command is waiting for: a document whose worker died and that
     /// needs its password again (MVP-16). Set once at startup.
@@ -30,29 +39,20 @@ pub struct Documents {
 }
 
 struct Inner {
-    /// For tab and document ids; never reused while the app runs.
-    next_id: u32,
     /// In the order the tabs were added.
     tabs: Vec<Arc<Tab>>,
     /// The tab the window shows, for the window title.
     active: Option<TabId>,
 }
 
-impl Inner {
-    fn next_id(&mut self) -> u32 {
-        let id = self.next_id;
-        self.next_id += 1;
-        id
-    }
-}
-
 /// One tab. Locks are always taken in the order `Documents::inner`, `Tab::event`,
-/// `Tab::document`, and `inner` is never held during a worker request.
+/// `Tab::document`, and `inner` is never held during a worker request. `path` and
+/// `display_name` are only ever locked on their own.
 struct Tab {
     id: TabId,
-    /// Never leaves the main process.
-    path: PathBuf,
-    display_name: String,
+    /// Never leaves the main process. Changes when the document is saved as another file.
+    path: Mutex<PathBuf>,
+    display_name: Mutex<String>,
     /// What the frontend was last told about this tab (`Opening`, `Opened` or `Failed`). Readable
     /// while `document` is busy with a long worker request.
     event: Mutex<OpenEvent>,
@@ -82,14 +82,18 @@ struct OpenDocument {
     /// The worker crashed, timed out or misbehaved; the file is reopened in a fresh worker
     /// before the next request.
     lost: bool,
+    /// The file as it was when read or last written, to notice another program changing it.
+    identity: Option<FileIdentity>,
+    /// Edits since the file was last written, in order. `info.unsaved` while there are any.
+    edits: Vec<WorkerEdit>,
 }
 
 impl Documents {
     pub fn new(worker: PathBuf) -> Self {
         Self {
             worker,
+            next_id: AtomicU32::new(1),
             inner: Mutex::new(Inner {
-                next_id: 1,
                 tabs: Vec::new(),
                 active: None,
             }),
@@ -113,7 +117,7 @@ impl Documents {
                 if inner.tabs.len() >= MAX_TABS as usize {
                     break;
                 }
-                let id = TabId(inner.next_id());
+                let id = TabId(self.next_id());
                 let display_name = display_name(path);
                 let event = OpenEvent::Opening {
                     tab: id,
@@ -121,8 +125,8 @@ impl Documents {
                 };
                 inner.tabs.push(Arc::new(Tab {
                     id,
-                    path: path.clone(),
-                    display_name,
+                    path: Mutex::new(path.clone()),
+                    display_name: Mutex::new(display_name),
                     event: Mutex::new(event.clone()),
                     document: Mutex::new(None),
                 }));
@@ -156,13 +160,17 @@ impl Documents {
             return;
         };
         let protected = password.is_some();
+        let path = lock(&tab.path).clone();
+        let display_name = lock(&tab.display_name).clone();
         // Some(wrong) when the file needs a password.
         let mut asks = None;
-        let result = check_file(&tab.path).and_then(|()| {
+        let result = check_file(&path).and_then(|()| {
+            // Before the worker reads it: a change while it opens shows as a change later.
+            let identity = FileIdentity::of(&path);
             let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
             let opened = match password {
-                Some(password) => host.open_with_password(&tab.path, password),
-                None => host.open(&tab.path),
+                Some(password) => host.open_with_password(&path, password),
+                None => host.open(&path),
             };
             let (worker_doc, response) = opened.map_err(|error| {
                 if let HostError::Worker(error) = &error {
@@ -174,15 +182,17 @@ impl Documents {
                 }
                 ipc_error(&error)
             })?;
-            let doc = DocumentId(self.lock().next_id());
-            let info = document_info(doc, tab.display_name.clone(), response)?;
+            let doc = DocumentId(self.next_id());
+            let info = document_info(doc, display_name.clone(), response)?;
             Ok(OpenDocument {
                 info,
                 host,
-                path: tab.path.clone(),
+                path: path.clone(),
                 worker_doc,
                 protected,
                 lost: false,
+                identity,
+                edits: Vec::new(),
             })
         });
         let event = match (&result, asks) {
@@ -192,12 +202,12 @@ impl Documents {
             },
             (Err(_), Some(wrong)) => OpenEvent::PasswordNeeded {
                 tab: tab.id,
-                display_name: tab.display_name.clone(),
+                display_name,
                 wrong,
             },
             (Err(error), None) => OpenEvent::Failed {
                 tab: tab.id,
-                display_name: tab.display_name.clone(),
+                display_name,
                 error: error.clone(),
             },
         };
@@ -217,7 +227,7 @@ impl Documents {
         let found = self.tab(tab).ok_or_else(unknown_tab)?;
         let opening = OpenEvent::Opening {
             tab,
-            display_name: found.display_name.clone(),
+            display_name: lock(&found.display_name).clone(),
         };
         {
             let mut event = lock(&found.event);
@@ -245,7 +255,7 @@ impl Documents {
         let found = self.tab(tab).ok_or_else(unknown_tab)?;
         let opening = OpenEvent::Opening {
             tab,
-            display_name: found.display_name.clone(),
+            display_name: lock(&found.display_name).clone(),
         };
         {
             let mut event = lock(&found.event);
@@ -291,18 +301,125 @@ impl Documents {
         let mut inner = self.lock();
         let active = tab.and_then(|id| inner.tabs.iter().find(|open| open.id == id).cloned());
         inner.active = active.as_ref().map(|found| found.id);
-        active.map(|found| found.display_name.clone())
+        drop(inner);
+        active.map(|found| lock(&found.display_name).clone())
     }
 
     /// The file name of the tab the window shows.
     pub fn active_name(&self) -> Option<String> {
+        self.active_tab()
+            .map(|found| lock(&found.display_name).clone())
+    }
+
+    /// Whether the document of the tab the window shows has unsaved changes (B2-02).
+    pub fn active_unsaved(&self) -> bool {
+        self.active_tab().is_some_and(
+            |found| matches!(&*lock(&found.event), OpenEvent::Opened { info, .. } if info.unsaved),
+        )
+    }
+
+    fn active_tab(&self) -> Option<Arc<Tab>> {
         let inner = self.lock();
         let active = inner.active?;
-        inner
-            .tabs
-            .iter()
-            .find(|open| open.id == active)
-            .map(|found| found.display_name.clone())
+        inner.tabs.iter().find(|open| open.id == active).cloned()
+    }
+
+    /// The tabs whose documents have changes that are not in their files yet (B2-02).
+    pub fn unsaved_tabs(&self) -> Vec<TabId> {
+        let tabs = self.lock().tabs.clone();
+        tabs.iter()
+            .filter(
+                |tab| matches!(&*lock(&tab.event), OpenEvent::Opened { info, .. } if info.unsaved),
+            )
+            .map(|tab| tab.id)
+            .collect()
+    }
+
+    /// Applies an edit to its document in the document's own worker (ADR 0013) and returns the
+    /// tab's new state: the document has a new id, its pages as they are now, and `unsaved`.
+    /// Only `save` writes the file.
+    pub fn apply_edit(&self, args: &EditArgs) -> Result<OpenEvent, IpcError> {
+        args.validate().map_err(invalid_argument)?;
+        let edit = WorkerEdit::from(&args.edit);
+        let ((), event) = self.change_document(args.doc, |document| {
+            let permissions = document.info.permissions;
+            let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+            match &args.edit {
+                Edit::RotatePages { pages, .. } => {
+                    // Assembling the document, as Acrobat reads the author's permissions (MVP-19).
+                    if !(permissions.assemble || permissions.modify) {
+                        return Err(not_allowed());
+                    }
+                    for &page in pages {
+                        check_page_index(page, page_count).map_err(invalid_argument)?;
+                    }
+                }
+            }
+            let pages = edit_in_worker(document, &edit)?;
+            if pages.len() != document.info.pages.len() {
+                return Err(unexpected("Edit"));
+            }
+            document.edits.push(edit);
+            document.info.pages = pages;
+            document.info.unsaved = true;
+            document.info.doc = DocumentId(self.next_id());
+            Ok(())
+        })?;
+        Ok(event)
+    }
+
+    /// Writes the open document `doc`, with its edits, to its own file, or to `destination`
+    /// (save as), and returns how, with the tab's new state (ADR 0013). Its own file is only
+    /// overwritten if no other program changed it since it was read or last written. Whatever
+    /// fails, the destination stays as it was, and so do the changes in the app.
+    pub fn save(
+        &self,
+        doc: DocumentId,
+        destination: Option<PathBuf>,
+    ) -> Result<(SaveResult, OpenEvent), IpcError> {
+        self.change_document(doc, |document| {
+            let destination = match destination {
+                Some(destination) => destination,
+                // Nothing to write.
+                None if document.edits.is_empty() => return Ok(SaveResult { incremental: false }),
+                None => {
+                    match (document.identity, FileIdentity::of(&document.path)) {
+                        (Some(then), Some(now)) if then == now => {}
+                        _ => {
+                            return Err(IpcError {
+                                code: ErrorCode::ChangedOnDisk,
+                                message: "another program changed the file after it was read"
+                                    .to_owned(),
+                            });
+                        }
+                    }
+                    document.path.clone()
+                }
+            };
+            saving::check_writable(&destination)?;
+            let mut temporary = Temporary::new(&destination)?;
+            let worker_doc = live_worker(document)?;
+            let response = document
+                .host
+                .save(worker_doc, temporary.file())
+                .map_err(|error| lost_on(document, &error))?;
+            let WorkerResponse::Saved {
+                bytes, incremental, ..
+            } = response
+            else {
+                return Err(unexpected("Save"));
+            };
+            temporary.check(bytes)?;
+            temporary.replace(&destination)?;
+            document.identity = FileIdentity::of(&destination);
+            document.edits.clear();
+            document.info.unsaved = false;
+            if destination != document.path {
+                document.info.display_name = display_name(&destination);
+                document.path = destination;
+            }
+            Ok(SaveResult { incremental })
+        })
     }
 
     /// Every tab as the frontend last heard about it, in tab order: all a reloaded page needs.
@@ -548,7 +665,7 @@ impl Documents {
 
     /// The file of `tab`, for the recent files list (#73). Never leaves the main process.
     pub fn tab_path(&self, tab: TabId) -> Option<PathBuf> {
-        self.tab(tab).map(|found| found.path.clone())
+        self.tab(tab).map(|found| lock(&found.path).clone())
     }
 
     /// What the frontend was told about the open document `doc` (its name, pages, permissions).
@@ -593,7 +710,7 @@ impl Documents {
         let tabs = self.lock().tabs.clone();
         tabs.iter()
             .find(|tab| matches!(&*lock(&tab.event), OpenEvent::Opened { info, .. } if info.doc == doc))
-            .map(|tab| tab.path.clone())
+            .map(|tab| lock(&tab.path).clone())
     }
 
     /// Runs `work` on the open document `doc`, holding only that document's lock: requests for
@@ -617,20 +734,67 @@ impl Documents {
             .as_ref()
             .is_some_and(|document| document.protected && document.lost)
         {
-            // The worker died and the password was not kept (MVP-16): the tab asks for it again.
             *document = None;
             drop(document);
-            let asking = OpenEvent::PasswordNeeded {
-                tab: tab.id,
-                display_name: tab.display_name.clone(),
-                wrong: false,
-            };
-            *lock(&tab.event) = asking.clone();
-            if let Some(report) = self.reporter.get() {
-                report(asking);
-            }
+            self.ask_for_password_again(tab);
         }
         result
+    }
+
+    /// Like `with_document`, for `work` that changes the document (an edit, saving). Once it
+    /// succeeds, the tab's state is recorded for a reloaded page and returned for the frontend.
+    fn change_document<T>(
+        &self,
+        doc: DocumentId,
+        work: impl FnOnce(&mut OpenDocument) -> Result<T, IpcError>,
+    ) -> Result<(T, OpenEvent), IpcError> {
+        let tabs = self.lock().tabs.clone();
+        let tab = tabs
+            .iter()
+            .find(|tab| matches!(&*lock(&tab.event), OpenEvent::Opened { info, .. } if info.doc == doc))
+            .ok_or_else(unknown_document)?;
+        let mut document = lock(&tab.document);
+        let result = match document.as_mut() {
+            Some(document) if document.info.doc == doc => work(document),
+            _ => Err(unknown_document()),
+        };
+        if document
+            .as_ref()
+            .is_some_and(|document| document.protected && document.lost)
+        {
+            *document = None;
+            drop(document);
+            self.ask_for_password_again(tab);
+            return Err(result.err().unwrap_or_else(unknown_document));
+        }
+        let value = result?;
+        let (info, path) = document
+            .as_ref()
+            .map(|document| (document.info.clone(), document.path.clone()))
+            .ok_or_else(unknown_document)?;
+        drop(document);
+        *lock(&tab.display_name) = info.display_name.clone();
+        *lock(&tab.path) = path;
+        let event = OpenEvent::Opened { tab: tab.id, info };
+        *lock(&tab.event) = event.clone();
+        Ok((value, event))
+    }
+
+    /// The worker died and the password was not kept (MVP-16): the tab asks for it again.
+    fn ask_for_password_again(&self, tab: &Tab) {
+        let asking = OpenEvent::PasswordNeeded {
+            tab: tab.id,
+            display_name: lock(&tab.display_name).clone(),
+            wrong: false,
+        };
+        *lock(&tab.event) = asking.clone();
+        if let Some(report) = self.reporter.get() {
+            report(asking);
+        }
+    }
+
+    fn next_id(&self) -> u32 {
+        self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -662,6 +826,16 @@ fn request(
     document: &mut OpenDocument,
     make: impl FnOnce(ipc_contract::types::RequestId, DocumentId) -> WorkerRequest,
 ) -> Result<WorkerResponse, IpcError> {
+    let doc = live_worker(document)?;
+    document
+        .host
+        .request(|request| make(request, doc))
+        .map_err(|error| lost_on(document, &error))
+}
+
+/// The document's id in its worker. If the worker that had the document died, the file is
+/// opened again in a new one first, with the edits not yet saved.
+fn live_worker(document: &mut OpenDocument) -> Result<DocumentId, IpcError> {
     if document.lost {
         if document.protected {
             // Cannot happen: `with_document` forgets such a document at once. Never reopen it
@@ -674,19 +848,41 @@ fn request(
         document.worker_doc = reopen(document)?;
         document.lost = false;
     }
-    let doc = document.worker_doc;
-    document
-        .host
-        .request(|request| make(request, doc))
-        .map_err(|error| {
-            if matches!(
-                error,
-                HostError::Crashed | HostError::Timeout | HostError::ProtocolViolation(_)
-            ) {
-                document.lost = true;
-            }
-            ipc_error(&error)
-        })
+    Ok(document.worker_doc)
+}
+
+/// What the frontend gets for a failed worker request; a worker that can no longer be used
+/// marks the document lost, for the next request to open it again.
+fn lost_on(document: &mut OpenDocument, error: &HostError) -> IpcError {
+    if matches!(
+        error,
+        HostError::Crashed | HostError::Timeout | HostError::ProtocolViolation(_)
+    ) {
+        document.lost = true;
+    }
+    ipc_error(error)
+}
+
+/// Applies `edit` in the document's worker and returns the document's pages after it.
+fn edit_in_worker(
+    document: &mut OpenDocument,
+    edit: &WorkerEdit,
+) -> Result<Vec<PageSize>, IpcError> {
+    match request(document, |request, doc| WorkerRequest::Edit {
+        request,
+        doc,
+        edit: edit.clone(),
+    })? {
+        WorkerResponse::Edited { pages, .. } => Ok(pages),
+        _ => Err(unexpected("Edit")),
+    }
+}
+
+fn not_allowed() -> IpcError {
+    IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: "the document's author does not allow this change".to_owned(),
+    }
 }
 
 fn unexpected(request: &str) -> IpcError {
@@ -696,15 +892,27 @@ fn unexpected(request: &str) -> IpcError {
     }
 }
 
-/// Opens the document's file again in a fresh worker; it must still have the same pages.
+/// Opens the document's file again in a fresh worker and applies the edits not yet saved; it
+/// must then have the same pages as before.
 fn reopen(document: &mut OpenDocument) -> Result<DocumentId, IpcError> {
     check_file(&document.path)?;
     let (doc, response) = document
         .host
         .open(&document.path)
         .map_err(|error| ipc_error(&error))?;
-    let reopened = document_info(doc, document.info.display_name.clone(), response)?;
-    if reopened.pages != document.info.pages {
+    let mut pages = document_info(doc, document.info.display_name.clone(), response)?.pages;
+    for edit in &document.edits {
+        match document.host.request(|request| WorkerRequest::Edit {
+            request,
+            doc,
+            edit: edit.clone(),
+        }) {
+            Ok(WorkerResponse::Edited { pages: edited, .. }) => pages = edited,
+            Ok(_) => return Err(unexpected("Edit")),
+            Err(error) => return Err(ipc_error(&error)),
+        }
+    }
+    if pages != document.info.pages {
         let _ = document.host.notify(&WorkerRequest::Close { doc });
         return Err(IpcError {
             code: ErrorCode::Corrupted,
@@ -825,6 +1033,7 @@ fn document_info(
         has_outline: document.has_outline,
         security: document.security,
         permissions: document.permissions,
+        unsaved: false,
     };
     info.validate().map_err(|error| IpcError {
         code: ErrorCode::Internal,
@@ -1612,5 +1821,230 @@ mod with_worker {
             .unlock(tab, Password::new("owner".to_owned()), &report)
             .unwrap();
         assert!(matches!(last(), OpenEvent::Opened { .. }));
+    }
+
+    fn rotate(doc: DocumentId, pages: Vec<u32>) -> EditArgs {
+        EditArgs {
+            doc,
+            edit: Edit::RotatePages {
+                pages,
+                by: Rotation::Cw90,
+            },
+        }
+    }
+
+    fn opened_info(event: OpenEvent) -> DocumentInfo {
+        match event {
+            OpenEvent::Opened { info, .. } => info,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// The first page's size in the file at `path`, opened in a fresh window.
+    fn first_page_of(path: &Path) -> PageSize {
+        open_in(&Documents::new(worker()), path).pages[0]
+    }
+
+    const LETTER: PageSize = PageSize {
+        width_pt: 612.0,
+        height_pt: 792.0,
+    };
+    const LANDSCAPE: PageSize = PageSize {
+        width_pt: 792.0,
+        height_pt: 612.0,
+    };
+
+    #[test]
+    fn an_edit_gives_the_document_a_new_id_and_is_saved_as_a_copy() {
+        let (documents, info, path) = open("edit-copy", 2);
+        let original = std::fs::read(&path).unwrap();
+        let edited = opened_info(documents.apply_edit(&rotate(info.doc, vec![0])).unwrap());
+        assert_ne!(edited.doc, info.doc);
+        assert_eq!(edited.pages, [LANDSCAPE, LETTER]);
+        assert!(edited.unsaved);
+        assert_eq!(documents.unsaved_tabs(), [tab_of(&documents, edited.doc)]);
+        // Pages of the document before the edit are no longer served.
+        assert_eq!(
+            documents
+                .render(&args(info.doc, 0, 0.5, Rotation::None))
+                .unwrap_err()
+                .code,
+            ErrorCode::UnknownDocument
+        );
+        let (width, height) = size(
+            &documents
+                .render(&args(edited.doc, 0, 0.5, Rotation::None))
+                .unwrap(),
+        );
+        assert!(width > height);
+
+        let copy = path.with_file_name(format!("b202-copy-{}.pdf", std::process::id()));
+        let (result, event) = documents.save(edited.doc, Some(copy.clone())).unwrap();
+        assert!(!result.incremental);
+        let saved = opened_info(event);
+        assert_eq!(saved.doc, edited.doc);
+        assert!(!saved.unsaved);
+        assert_eq!(saved.display_name, display_name(&copy));
+        assert!(documents.unsaved_tabs().is_empty());
+        // The tab now stands for the copy; the original is as it was.
+        assert_eq!(documents.document_path(saved.doc), Some(copy.clone()));
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert_eq!(first_page_of(&copy), LANDSCAPE);
+        std::fs::remove_file(copy).ok();
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn saving_writes_the_file_itself_once_there_is_something_to_write() {
+        let (documents, info, path) = open("save-in-place", 1);
+        let before = std::fs::read(&path).unwrap();
+        // Nothing changed: nothing is written.
+        documents.save(info.doc, None).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+
+        let edited = opened_info(documents.apply_edit(&rotate(info.doc, vec![0])).unwrap());
+        let (_, event) = documents.save(edited.doc, None).unwrap();
+        assert!(!opened_info(event).unsaved);
+        assert_eq!(first_page_of(&path), LANDSCAPE);
+        // No temporary or backup file is left next to it.
+        let stem = path.file_name().unwrap().to_string_lossy().into_owned();
+        let left: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with(&stem) && name != &stem)
+            .collect();
+        assert!(left.is_empty(), "{left:?}");
+
+        // Once saved, the file is the document's own again: a second edit saves over it too.
+        let again = opened_info(documents.apply_edit(&rotate(edited.doc, vec![0])).unwrap());
+        documents.save(again.doc, None).unwrap();
+        assert_eq!(
+            first_page_of(&path),
+            PageSize {
+                width_pt: 612.0,
+                height_pt: 792.0
+            }
+        );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_file_another_program_changed_is_not_overwritten() {
+        let (documents, info, path) = open("changed-before-save", 1);
+        let edited = opened_info(documents.apply_edit(&rotate(info.doc, vec![0])).unwrap());
+        let theirs = letter_pdf(3);
+        std::fs::write(&path, &theirs).unwrap();
+        let error = documents.save(edited.doc, None).unwrap_err();
+        assert_eq!(error.code, ErrorCode::ChangedOnDisk);
+        assert_eq!(std::fs::read(&path).unwrap(), theirs);
+        // The change is still there, to be saved as another file.
+        assert_eq!(documents.unsaved_tabs().len(), 1);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_failed_save_keeps_the_file_and_the_changes() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let (documents, info, path) = open("save-fails", 1);
+        let before = std::fs::read(&path).unwrap();
+        let identity = FileIdentity::of(&path);
+        let edited = opened_info(documents.apply_edit(&rotate(info.doc, vec![0])).unwrap());
+        // Another program has the file open without letting it be replaced.
+        const FILE_SHARE_READ: u32 = 1;
+        let holder = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ)
+            .open(&path)
+            .unwrap();
+        let error = documents.save(edited.doc, None).unwrap_err();
+        assert_eq!(error.code, ErrorCode::FileInUse);
+        drop(holder);
+        // Neither its content nor its modification time changed.
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(FileIdentity::of(&path), identity);
+        assert_eq!(documents.unsaved_tabs().len(), 1);
+        // Once the other program lets go, the same changes are saved.
+        documents.save(edited.doc, None).unwrap();
+        assert_eq!(first_page_of(&path), LANDSCAPE);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn edits_survive_a_worker_crash() {
+        let (documents, info, path) = open("edit-crash", 2);
+        let edited = opened_info(documents.apply_edit(&rotate(info.doc, vec![1])).unwrap());
+        let pid = documents.worker_id(edited.doc).expect("worker running");
+        std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            documents
+                .render(&args(edited.doc, 1, 0.5, Rotation::None))
+                .unwrap_err()
+                .code,
+            ErrorCode::WorkerCrashed
+        );
+        // The file is opened again in a new worker, and the edit applied again.
+        let (width, height) = size(
+            &documents
+                .render(&args(edited.doc, 1, 0.5, Rotation::None))
+                .unwrap(),
+        );
+        assert!(width > height);
+        let copy = path.with_file_name(format!("b202-crash-copy-{}.pdf", std::process::id()));
+        documents.save(edited.doc, Some(copy.clone())).unwrap();
+        let reopened = open_in(&Documents::new(worker()), &copy);
+        assert_eq!(reopened.pages, [LETTER, LANDSCAPE]);
+        std::fs::remove_file(copy).ok();
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn edits_are_checked_before_they_reach_the_worker() {
+        let (documents, info, path) = open("bad-edit", 1);
+        for args in [rotate(info.doc, vec![1]), rotate(info.doc, vec![])] {
+            assert_eq!(
+                documents.apply_edit(&args).unwrap_err().code,
+                ErrorCode::InvalidArgument
+            );
+        }
+        assert_eq!(
+            documents
+                .apply_edit(&rotate(DocumentId(9_999), vec![0]))
+                .unwrap_err()
+                .code,
+            ErrorCode::UnknownDocument
+        );
+        assert!(documents.unsaved_tabs().is_empty());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn an_author_who_forbids_changing_pages_is_obeyed() {
+        // RC4, revision 2, /P without the modify bit (tests/corpus/generate.py).
+        let documents = Documents::new(worker());
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/encrypted-rc4-40.pdf");
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let [tab] = documents.add(&[path], &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(tab, &report);
+        documents
+            .unlock(tab, Password::new("user".to_owned()), &report)
+            .unwrap();
+        let info = opened_info(events.borrow().last().cloned().unwrap());
+        assert!(!info.permissions.modify && !info.permissions.assemble);
+        assert_eq!(
+            documents
+                .apply_edit(&rotate(info.doc, vec![0]))
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
     }
 }

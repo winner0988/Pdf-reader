@@ -25,6 +25,11 @@ struct Sink {
 }
 
 impl OpenEvents {
+    /// Whether a page is listening (it asks about unsaved changes before the window closes).
+    pub fn has_receiver(&self) -> bool {
+        self.lock().channel.is_some()
+    }
+
     pub fn send(&self, event: OpenEvent) {
         let mut sink = self.lock();
         match &sink.channel {
@@ -158,6 +163,7 @@ mod tests {
             has_outline: false,
             security: SecurityReport::default(),
             permissions: DocumentPermissions::ALL,
+            unsaved: false,
         };
         let (channel, received) = recording_channel();
         events.subscribe(channel, || {

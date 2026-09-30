@@ -26,7 +26,19 @@ export type ShellDocument = {
   scanComplete: boolean;
   /** What the document's author allows (MVP-19). */
   permissions: DocumentPermissions;
+  /** Changed since it was opened or last saved (B2-02). */
+  unsaved?: boolean;
+  /**
+   * The same while the tab shows the file it opened, through edits and saving (which give the
+   * document a new `doc`, B2-02); a new one when a file is opened. Absent for demo data.
+   */
+  session?: number;
 };
+
+/** Whether two documents are the same opened file: an edit or saving (B2-02) changes the document, not the file. */
+export function sameSession(a: ShellDocument | null, b: ShellDocument | null): boolean {
+  return a === b || (a?.session !== undefined && a.session === b?.session);
+}
 
 export type ShellState =
   | { kind: "empty" }

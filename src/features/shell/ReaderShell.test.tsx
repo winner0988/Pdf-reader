@@ -532,7 +532,7 @@ describe("selecting and copying text (MVP-15)", () => {
   });
 
   it("when the author forbids copying, the text can be selected but not copied, and the app says why (MVP-19)", async () => {
-    const { user, pages, selectHello } = await setup({ copy: false, print: true, printHighQuality: true });
+    const { user, pages, selectHello } = await setup({ copy: false, print: true, printHighQuality: true, modify: true, assemble: true });
     expect(statusText()).toContain("已限制：不可複製");
     selectHello();
     expect(document.querySelectorAll("[data-selection] polygon")).toHaveLength(1);
@@ -638,7 +638,7 @@ describe("printing (MVP-17)", () => {
   });
 
   it("when the author forbids printing, the menu item says so and Ctrl+P explains (MVP-19)", async () => {
-    const { user, print } = setup({ copy: true, print: false, printHighQuality: false });
+    const { user, print } = setup({ copy: true, print: false, printHighQuality: false, modify: true, assemble: true });
     expect(statusText()).toContain("已限制：不可列印");
     await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
     const item = await screen.findByRole("menuitem", { name: /列印/ });
@@ -653,7 +653,7 @@ describe("printing (MVP-17)", () => {
   });
 
   it("when the author allows only low-resolution printing, pages print at 150 dpi and the dialog says so", async () => {
-    const { user, print, printed } = setup({ copy: true, print: true, printHighQuality: false });
+    const { user, print, printed } = setup({ copy: true, print: true, printHighQuality: false, modify: true, assemble: true });
     expect(statusText()).toContain("已限制：只能低解析度列印");
     await user.keyboard("{Control>}p{/Control}");
     const dialog = await screen.findByRole("dialog", { name: strings.print.title });

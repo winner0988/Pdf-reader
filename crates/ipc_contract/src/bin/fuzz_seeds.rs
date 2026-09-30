@@ -12,7 +12,8 @@ use ipc_contract::types::{
     SearchHit, SecurityFinding, SecurityReport, TextLine,
 };
 use ipc_contract::worker::{
-    FileHandle, OpenedDocument, Raster, WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
+    FileHandle, OpenedDocument, Raster, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest,
+    WorkerResponse,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -61,6 +62,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     copy: false,
                     print: true,
                     print_high_quality: false,
+                    modify: false,
+                    assemble: true,
                 },
             },
         },
@@ -138,6 +141,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }],
             has_text: true,
         },
+        WorkerResponse::Edited {
+            request,
+            pages: vec![
+                PageSize {
+                    width_pt: 792.0,
+                    height_pt: 612.0,
+                },
+                page,
+            ],
+        },
+        WorkerResponse::Saved {
+            request,
+            bytes: 4096,
+            incremental: true,
+        },
         WorkerResponse::Error {
             request: Some(request),
             error: WorkerError {
@@ -184,6 +202,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             query: "needle 中文".to_owned(),
             case_sensitive: false,
             max_hits: 100,
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::RotatePages {
+                pages: vec![0, 2],
+                degrees: 90,
+            },
+        },
+        WorkerRequest::Save {
+            request,
+            doc,
+            file: FileHandle(0x2a8),
         },
         WorkerRequest::Cancel { target: request },
         WorkerRequest::Close { doc },

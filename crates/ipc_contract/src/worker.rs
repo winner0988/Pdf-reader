@@ -9,14 +9,34 @@ use serde::{Deserialize, Serialize};
 
 use crate::PROTOCOL_VERSION;
 use crate::types::{
-    DocumentId, DocumentPermissions, ErrorCode, OutlineResult, PageLink, PageSize, PageText,
+    DocumentId, DocumentPermissions, Edit, ErrorCode, OutlineResult, PageLink, PageSize, PageText,
     Password, RequestId, Rotation, SearchHit, SecurityReport,
 };
 
-/// A read-only file handle that the main process duplicated into the worker process.
-/// The value is only meaningful inside the worker; the worker never receives a path.
+/// A file handle that the main process duplicated into the worker process: read-only for
+/// `Open`, write-only for `Save`. The value is only meaningful inside the worker; the worker
+/// never receives a path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileHandle(pub u64);
+
+/// An edit as the worker applies it (ADR 0013). The frontend's form is [`Edit`], which postcard
+/// cannot carry (it is tagged for JSON).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkerEdit {
+    /// Adds `degrees` (90, 180 or 270) to the rotation of each of `pages`.
+    RotatePages { pages: Vec<u32>, degrees: u16 },
+}
+
+impl From<&Edit> for WorkerEdit {
+    fn from(edit: &Edit) -> Self {
+        match edit {
+            Edit::RotatePages { pages, by } => WorkerEdit::RotatePages {
+                pages: pages.clone(),
+                degrees: by.degrees(),
+            },
+        }
+    }
+}
 
 /// Main process -> worker.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -67,6 +87,20 @@ pub enum WorkerRequest {
         case_sensitive: bool,
         /// Stop after this many hits on the page.
         max_hits: u32,
+    },
+    /// Changes the document in memory (ADR 0013); the file is only written by `Save`.
+    Edit {
+        request: RequestId,
+        doc: DocumentId,
+        edit: WorkerEdit,
+    },
+    /// Writes the document, with its edits, to `file`: a write-only handle to a new temporary
+    /// file the main process created (ADR 0013). A signed document is appended to, to keep its
+    /// signatures valid; any other is rewritten without its unused objects.
+    Save {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
     },
     /// Best effort: the worker drops the target request if it has not finished yet.
     Cancel {
@@ -119,6 +153,18 @@ pub enum WorkerResponse {
         hits: Vec<SearchHit>,
         /// Whether the page has any text at all (none on every page means no text layer).
         has_text: bool,
+    },
+    /// The edit is applied; `pages` are the document's pages now.
+    Edited {
+        request: RequestId,
+        pages: Vec<PageSize>,
+    },
+    /// The document was written: `bytes` long, appended to the original (`incremental`, for a
+    /// signed document) or rewritten.
+    Saved {
+        request: RequestId,
+        bytes: u64,
+        incremental: bool,
     },
     Error {
         request: Option<RequestId>,
@@ -175,6 +221,10 @@ pub enum WorkerErrorCode {
     Unreadable,
     LimitExceeded,
     Cancelled,
+    /// Saving: the disk is full.
+    DiskFull,
+    /// Saving: the file could not be written for another reason.
+    Unwritable,
     Internal,
 }
 
@@ -192,6 +242,8 @@ impl From<WorkerErrorCode> for ErrorCode {
             WorkerErrorCode::Unreadable => ErrorCode::Unreadable,
             WorkerErrorCode::LimitExceeded => ErrorCode::LimitExceeded,
             WorkerErrorCode::Cancelled => ErrorCode::Cancelled,
+            WorkerErrorCode::DiskFull => ErrorCode::DiskFull,
+            WorkerErrorCode::Unwritable => ErrorCode::Unwritable,
             WorkerErrorCode::Internal => ErrorCode::Internal,
         }
     }

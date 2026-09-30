@@ -6,10 +6,10 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use ipc_contract::types::{
-    DocumentId, ErrorCode, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs, IpcError,
-    LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs, OutlineResult, PageLink, PageText,
-    RecentFile, RecentId, RenderPageArgs, RequestId, SearchArgs, SearchEvent, Settings, TabId,
-    UnlockArgs,
+    DocumentId, EditArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs,
+    IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs, OutlineResult, PageLink, PageText,
+    RecentFile, RecentId, RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent, Settings,
+    TabId, UnlockArgs,
 };
 use ipc_contract::validate::Validate;
 use tauri::ipc::{Channel, Response};
@@ -434,6 +434,82 @@ async fn confirm_overwrite(window: &WebviewWindow, count: usize) -> bool {
     answer == rfd::MessageDialogResult::Yes
 }
 
+/// Applies an edit to an open document (B2-02, ADR 0013). The document gets a new id; the tab's
+/// new state arrives on the open-events channel. Only saving writes the file.
+#[tauri::command]
+pub async fn apply_edit(app: AppHandle, args: EditArgs) -> Result<(), IpcError> {
+    blocking(move || {
+        let event = app.state::<Documents>().apply_edit(&args)?;
+        app.state::<OpenEvents>().send(event);
+        after_tabs_changed(&app);
+        Ok(())
+    })
+    .await
+}
+
+/// Writes an open document, with its edits, to its own file (B2-02, ADR 0013). The tab's new
+/// state arrives on the open-events channel.
+#[tauri::command]
+pub async fn save_document(app: AppHandle, doc: DocumentId) -> Result<SaveResult, IpcError> {
+    blocking(move || {
+        let (result, event) = app.state::<Documents>().save(doc, None)?;
+        app.state::<OpenEvents>().send(event);
+        show_active_in_title(&app);
+        Ok(result)
+    })
+    .await
+}
+
+/// Writes an open document to another file, which the user picks in the system's save dialog
+/// (B2-02): `None` if they closed the dialog. The tab then stands for the new file, which goes
+/// on the recent files list like any file that opens (#73).
+#[tauri::command]
+pub async fn save_document_as(
+    app: AppHandle,
+    window: WebviewWindow,
+    doc: DocumentId,
+) -> Result<Option<SaveResult>, IpcError> {
+    let name = app
+        .state::<Documents>()
+        .document_info(doc)
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        })?
+        .display_name;
+    let Some(destination) = file_dialog::save_pdf_file(&window, name).await? else {
+        return Ok(None);
+    };
+    blocking(move || {
+        let (result, event) = app.state::<Documents>().save(doc, Some(destination))?;
+        report(&app, event);
+        show_active_in_title(&app);
+        Ok(Some(result))
+    })
+    .await
+}
+
+/// Closes the window once the user was asked about unsaved changes (B2-02): with some left, only
+/// if they chose to `discard` them.
+#[tauri::command]
+pub async fn close_window(
+    app: AppHandle,
+    window: WebviewWindow,
+    discard: bool,
+) -> Result<(), IpcError> {
+    if !discard && !app.state::<Documents>().unsaved_tabs().is_empty() {
+        return Err(IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "documents have unsaved changes".to_owned(),
+        });
+    }
+    // Unlike `close`, `destroy` does not ask again (see `on_window_event`).
+    window.destroy().map_err(|_| IpcError {
+        code: ErrorCode::Internal,
+        message: "the window could not be closed".to_owned(),
+    })
+}
+
 /// Cancels a queued `render_page` request (it then fails with `cancelled`), a running search or a
 /// running export.
 #[tauri::command]
@@ -446,10 +522,21 @@ pub async fn cancel(app: AppHandle, request: RequestId) -> Result<(), IpcError> 
 
 /// Drag and drop onto the window: only the first file is opened.
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
+    let app = window.app_handle();
+    if let WindowEvent::CloseRequested { api, .. } = event {
+        // Unsaved changes (B2-02): the page asks what to do, then calls `close_window`. Without a
+        // page listening, nobody could ask, and the window would never close.
+        let unsaved = app.state::<Documents>().unsaved_tabs();
+        let events = app.state::<OpenEvents>();
+        if !unsaved.is_empty() && events.has_receiver() {
+            api.prevent_close();
+            events.send(OpenEvent::CloseRequested { tabs: unsaved });
+        }
+        return;
+    }
     let WindowEvent::DragDrop(drag) = event else {
         return;
     };
-    let app = window.app_handle();
     let events = app.state::<OpenEvents>();
     match drag {
         DragDropEvent::Enter { .. } => events.send(OpenEvent::DragHover { active: true }),
@@ -502,9 +589,13 @@ fn report(app: &AppHandle, event: OpenEvent) {
 /// Puts the file name of the tab the window shows in the window title (REL-03, MVP-14). The name
 /// has no directory components (`DocumentInfo::display_name`).
 fn show_active_in_title(app: &AppHandle) {
-    let name = app.state::<Documents>().active_name();
+    let documents = app.state::<Documents>();
+    let title = strings::window_title(
+        documents.active_name().as_deref(),
+        documents.active_unsaved(),
+    );
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.set_title(&strings::window_title(name.as_deref()));
+        let _ = window.set_title(&title);
     }
 }
 

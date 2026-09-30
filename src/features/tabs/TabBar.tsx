@@ -6,7 +6,7 @@ import { useRef, type KeyboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/features/shell/IconButton";
-import { tabElementId, tabPanelId, type Tab } from "@/features/tabs/model";
+import { isUnsaved, tabElementId, tabPanelId, type Tab } from "@/features/tabs/model";
 import { strings } from "@/i18n/zh-TW";
 import type { TabId } from "@/ipc/generated/contract";
 import { cn } from "@/lib/utils";
@@ -100,7 +100,13 @@ export function TabBar({ tabs, active, onActivate, onClose, onOpen }: TabBarProp
                     <span className="sr-only">{t.failed}</span>
                   </>
                 )}
+                {isUnsaved(tab) && (
+                  <span aria-hidden className="shrink-0 font-bold">
+                    •
+                  </span>
+                )}
                 <span className="truncate">{tab.displayName}</span>
+                {isUnsaved(tab) && <span className="sr-only">{t.unsaved}</span>}
               </button>
               <Button
                 variant="ghost"

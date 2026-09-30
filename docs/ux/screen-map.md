@@ -164,6 +164,19 @@
 - 結束後關閉對話框，狀態列顯示 export.done 或 export.stopped 4 秒。
 - 做法與限制見 [export.md](../architecture/export.md)。
 
+### 儲存（B2-02）
+
+- 「⋯」→「儲存」（`Ctrl+S`）：沒有未儲存的變更時停用；「另存新檔…」（`Ctrl+Shift+S`）：有開啟的文件就可以用。沒有文件時 `Ctrl+S` 也不會讓 WebView 儲存網頁。
+- 另存新檔由主行程顯示系統的另存對話框（建議原檔名；已存在時由對話框詢問是否取代）。關閉對話框什麼都不做。
+- 成功：狀態列顯示 saving.saved 4 秒；已簽章的文件以附加的方式儲存，改顯示 saving.savedIncremental。另存之後分頁改用新檔名。
+- 失敗：對話框 saving.failedTitle，說明原因（error.messages 的 readOnly、diskFull、fileInUse、changedOnDisk、unwritable）、saving.keptChanges，可能有幫助時加上 saving.trySaveAs 與「另存新檔…」按鈕。
+- **未儲存的標示**：分頁名稱前有「•」（報讀 tabs.unsaved），視窗標題是「• 檔名 — PDF Reader」。
+- **關閉前詢問**：
+  - 關閉有未儲存變更的分頁（按鈕、`Ctrl+W`、中鍵）：saving.askTitle，說明 saving.askOne；按鈕「取消」、「不儲存」、「儲存」；
+  - 關閉視窗時有未儲存的文件：saving.askMany 並列出檔名；按鈕「取消」、「不儲存」、「全部儲存」；
+  - 儲存時顯示 saving.saving；失敗時在對話框中說明，分頁或視窗不關閉。
+- 本卡沒有編輯的 UI（頁面管理 B2-05 起）。做法與限制見 [saving.md](../architecture/saving.md)。
+
 ### 文件權限（MVP-19）
 
 加密的 PDF 可以限制複製與列印，app 比照 Adobe Acrobat 遵守（[encryption.md](../architecture/encryption.md)「權限」）。
@@ -183,7 +196,8 @@
 | 動作 | 快捷鍵 |
 |---|---|
 | 開啟檔案 | `Ctrl+O`（對話框可以選多個檔案，每個一個分頁） |
-| 關閉分頁 | `Ctrl+W` |
+| 儲存／另存新檔 | `Ctrl+S`／`Ctrl+Shift+S` |
+| 關閉分頁 | `Ctrl+W`（有未儲存的變更時先詢問） |
 | 複製選取的文字 | `Ctrl+C`（焦點在文字欄位時複製欄位中的文字） |
 | 列印 | `Ctrl+P` |
 | 下一個／上一個分頁 | `Ctrl+Tab`（或 `Ctrl+PageDown`）／`Ctrl+Shift+Tab`（或 `Ctrl+PageUp`）；焦點在分頁列時用 `←`／`→`、`Home`／`End` |
@@ -474,6 +488,36 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | overwrite_message（主行程） | 這個資料夾已經有 <N> 個同名的檔案。要覆寫嗎？ |
 | NO_TEXT_LAYER_PAGE（主行程，寫在文字檔中） | （此頁沒有文字層） |
 
+### 儲存（B2-02）
+
+| 鍵 | 文字 |
+|---|---|
+| menu.save | 儲存 |
+| menu.saveAs | 另存新檔… |
+| tabs.unsaved | （有未儲存的變更） |
+| saving.saved | 已儲存。 |
+| saving.savedIncremental | 已儲存。為了保留數位簽章，變更附加在檔案後面：刪除的內容仍會留在檔案中。 |
+| saving.failedTitle | 無法儲存 |
+| saving.keptChanges | 變更仍保留在這裡，沒有遺失。 |
+| saving.trySaveAs | 可以改用「另存新檔」存成另一個檔案。 |
+| saving.saveAs | 另存新檔… |
+| saving.ok | 確定 |
+| saving.askTitle | 要儲存變更嗎？ |
+| saving.askOne | 「<檔名>」有尚未儲存的變更。 |
+| saving.askMany | 有 <N> 份文件的變更尚未儲存： |
+| saving.save | 儲存 |
+| saving.saveAll | 全部儲存 |
+| saving.discard | 不儲存 |
+| saving.cancel | 取消 |
+| saving.saving | 正在儲存… |
+| error.messages.readOnly | 檔案或它所在的資料夾是唯讀的，無法寫入。 |
+| error.messages.diskFull | 磁碟空間不足，無法寫入。 |
+| error.messages.fileInUse | 檔案正被其他程式使用，無法寫入。 |
+| error.messages.changedOnDisk | 檔案在開啟後被其他程式修改過；為了不覆寫那些修改，沒有儲存。 |
+| error.messages.unwritable | 無法寫入檔案。 |
+| SAVE_AS_DIALOG_TITLE（主行程） | 另存新檔 |
+| window_title（主行程，有未儲存的變更時） | • <檔名> — PDF Reader |
+
 ### 文件權限（MVP-19）
 
 | 鍵 | 文字 |
@@ -521,3 +565,4 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | MVP-19 | `benign/restricted-no-copy-no-print.pdf` 的狀態列與停用的「列印…」；`benign/restricted-low-res-print.pdf` 的列印對話框（淺色與深色） |
 | B2-12 | 設定對話框（淺色與深色） |
 | B2-04 | 匯出對話框（淺色與深色） |
+| B2-02 | 有未儲存變更的分頁與關閉分頁時的詢問（淺色與深色） |
