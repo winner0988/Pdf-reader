@@ -7,7 +7,7 @@
 use std::collections::HashSet;
 use std::io::{self, Write};
 
-use ipc_contract::limits::{MAX_DOCUMENT_BYTES, MAX_PNG_BYTES};
+use ipc_contract::limits::{MAX_DOCUMENT_BYTES, MAX_JPEG_BYTES, MAX_PNG_BYTES};
 use ipc_contract::types::{
     BlockedAction, DocumentPermissions, PageText as TextLayer, Point, Quad, SecurityReport,
 };
@@ -22,6 +22,10 @@ use thiserror::Error;
 
 /// Most form fields looked at to find a signature (`PdfDocument::is_signed`).
 const MAX_FORM_FIELDS: usize = 10_000;
+
+/// Quality of exported JPEG pages (#111), 1 to 100: text stays sharp, the file far smaller than
+/// the PNG of the same page.
+const JPEG_QUALITY: u8 = 90;
 
 /// PDF files must start with this header within the first 1024 bytes (PDF 1.7, 7.5.2).
 const PDF_HEADER: &[u8] = b"%PDF-";
@@ -55,6 +59,8 @@ pub enum EngineError {
     TooLarge { width: u64, height: u64 },
     #[error("could not write the file: {0}")]
     Write(io::Error),
+    #[error("could not encode the image: {0}")]
+    Encode(String),
     #[error("MuPDF: {0}")]
     MuPdf(#[from] mupdf::Error),
 }
@@ -448,6 +454,41 @@ impl PdfDocument {
             });
         }
         Ok(png)
+    }
+
+    /// The page as a JPEG file (quality [`JPEG_QUALITY`]), unturned, for exporting (#111). The
+    /// binding has no JPEG writer, so `jpeg-encoder` makes it: pure Rust, without `unsafe`.
+    /// The worker never writes a file.
+    pub fn render_jpeg(&self, index: u32, scale: f32) -> Result<Vec<u8>, EngineError> {
+        let pixmap = self.pixmap(index, scale, 0)?;
+        let (width, height) = (pixmap.width(), pixmap.height());
+        let too_large = || EngineError::TooLarge {
+            width: u64::from(width),
+            height: u64::from(height),
+        };
+        // A JPEG side is at most 65535 pixels; the raster limit keeps pages far below it.
+        let (Ok(jpeg_width), Ok(jpeg_height)) = (u16::try_from(width), u16::try_from(height))
+        else {
+            return Err(too_large());
+        };
+        // The encoder takes rows of RGB without padding.
+        let channels = usize::from(pixmap.n());
+        let stride = usize::try_from(pixmap.stride()).unwrap_or(0);
+        let row_bytes = width as usize * channels;
+        let mut rgb = Vec::with_capacity(width as usize * height as usize * 3);
+        for row in pixmap.samples().chunks_exact(stride.max(1)) {
+            for pixel in row[..row_bytes].chunks_exact(channels) {
+                rgb.extend_from_slice(&pixel[..3]);
+            }
+        }
+        let mut jpeg = Vec::new();
+        jpeg_encoder::Encoder::new(&mut jpeg, JPEG_QUALITY)
+            .encode(&rgb, jpeg_width, jpeg_height, jpeg_encoder::ColorType::Rgb)
+            .map_err(|error| EngineError::Encode(error.to_string()))?;
+        if jpeg.len() > MAX_JPEG_BYTES {
+            return Err(too_large());
+        }
+        Ok(jpeg)
     }
 
     /// The page drawn at `scale` and `rotation`, opaque RGB on white. Oversized pages are refused
@@ -1231,6 +1272,48 @@ mod tests {
         assert_eq!(size(20), (height_pt * 150.0 / 72.0).ceil() as u32);
         assert!(matches!(
             doc.render_png(0, 1000.0),
+            Err(EngineError::InvalidScale)
+        ));
+    }
+
+    #[test]
+    fn exports_a_page_as_a_jpeg_file() {
+        let doc = PdfDocument::from_bytes(&two_page_pdf()).unwrap();
+        let scale = 150.0 / 72.0;
+        let jpeg = doc.render_jpeg(0, scale).unwrap();
+        assert!(jpeg.starts_with(&ipc_contract::validate::JPEG_SIGNATURE));
+
+        // MuPDF opens it: a Letter page at 150 dpi is 1275 x 1650 pixels.
+        let decoded = mupdf::Image::from_bytes(&jpeg)
+            .and_then(|image| image.to_pixmap())
+            .expect("a JPEG file MuPDF can open");
+        assert_eq!((decoded.width(), decoded.height()), (1275, 1650));
+        // The same picture as the page rendered for the screen, up to JPEG's small losses: rows,
+        // their order and the colour channels are where they belong.
+        let page = doc.render(0, scale, 0).unwrap();
+        assert_eq!((page.width, page.height), (1275, 1650));
+        let channels = usize::from(decoded.n());
+        assert_eq!(channels, 3, "RGB");
+        let stride = usize::try_from(decoded.stride()).unwrap();
+        let mut difference = 0u64;
+        for (y, row) in decoded.samples().chunks_exact(stride).enumerate() {
+            for x in 0..page.width as usize {
+                let jpeg = &row[x * 3..x * 3 + 3];
+                let screen = &page.rgba[(y * page.width as usize + x) * 4..][..3];
+                for (a, b) in jpeg.iter().zip(screen) {
+                    difference += u64::from(a.abs_diff(*b));
+                }
+            }
+        }
+        let mean = difference as f64 / (1275.0 * 1650.0 * 3.0);
+        assert!(mean < 2.0, "mean difference {mean}");
+        assert!(
+            page.rgba.iter().any(|&value| value < 128),
+            "the page has dark marks"
+        );
+
+        assert!(matches!(
+            doc.render_jpeg(0, 1000.0),
             Err(EngineError::InvalidScale)
         ));
     }

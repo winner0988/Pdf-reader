@@ -1,7 +1,7 @@
-//! Exporting pages as text or PNG files (B2-04, docs/architecture/export.md). The WebView only
-//! says what to export. The main process asks the user where, in the system's dialogs
-//! (`file_dialog`), gets each page's text or PNG from the document's worker, and writes the files;
-//! no file content passes through the WebView.
+//! Exporting pages as text, PNG or JPEG files (B2-04, #111, docs/architecture/export.md). The
+//! WebView only says what to export. The main process asks the user where, in the system's
+//! dialogs (`file_dialog`), gets each page's text or image file from the document's worker, and
+//! writes the files; no file content passes through the WebView.
 //!
 //! Pages are fetched as background work on the render thread, as search does, so the view keeps
 //! up during a long export.
@@ -119,11 +119,29 @@ pub fn stem(display_name: &str) -> String {
     }
 }
 
-/// Where each exported page image goes: `<stem>-p<page number>.png` in `folder`.
-pub fn png_targets(folder: &Path, stem: &str, pages: &[u32]) -> Vec<PathBuf> {
+/// The image file an export writes for each page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageKind {
+    /// B2-04.
+    Png,
+    /// #111.
+    Jpeg,
+}
+
+impl ImageKind {
+    fn extension(self) -> &'static str {
+        match self {
+            ImageKind::Png => "png",
+            ImageKind::Jpeg => "jpg",
+        }
+    }
+}
+
+/// Where each exported page image goes: `<stem>-p<page number>.png` (or `.jpg`) in `folder`.
+pub fn image_targets(folder: &Path, stem: &str, pages: &[u32], kind: ImageKind) -> Vec<PathBuf> {
     pages
         .iter()
-        .map(|page| folder.join(format!("{stem}-p{}.png", page + 1)))
+        .map(|page| folder.join(format!("{stem}-p{}.{}", page + 1, kind.extension())))
         .collect()
 }
 
@@ -204,14 +222,16 @@ pub fn write_text(
     write_whole(file, text_file(&texts).as_bytes()).map_err(not_written)
 }
 
-/// Writes each of `pages` of `doc` as a PNG file at `dpi` to its target. Pages written before a
-/// cancel or a failure stay.
-pub fn write_pngs(
+/// Writes each of `pages` of `doc` as an image file of `kind` at `dpi` to its target. Pages
+/// written before a cancel or a failure stay.
+#[allow(clippy::too_many_arguments)]
+pub fn write_images(
     app: &AppHandle,
     request: RequestId,
     doc: DocumentId,
     pages: &[u32],
     dpi: u32,
+    kind: ImageKind,
     targets: &[PathBuf],
     channel: &Channel<ExportEvent>,
 ) -> Result<(), IpcError> {
@@ -221,8 +241,8 @@ pub fn write_pngs(
         request,
         pages,
         channel,
-        move |app, page| app.state::<Documents>().render_png(doc, page, dpi),
-        |page, png| write_whole(targets[&page], &png).map_err(not_written),
+        move |app, page| app.state::<Documents>().render_image(doc, page, dpi, kind),
+        |page, image| write_whole(targets[&page], &image).map_err(not_written),
     )
 }
 
@@ -238,7 +258,7 @@ mod tests {
         assert_eq!(stem("Report.PDF"), "Report");
         assert_eq!(stem("notes"), "notes");
         assert_eq!(stem(".pdf"), "PDF");
-        let targets = png_targets(Path::new(r"C:\out"), "報告", &[0, 9]);
+        let targets = image_targets(Path::new(r"C:\out"), "報告", &[0, 9], ImageKind::Png);
         assert_eq!(
             targets,
             [
@@ -246,6 +266,8 @@ mod tests {
                 PathBuf::from(r"C:\out\報告-p10.png")
             ]
         );
+        let targets = image_targets(Path::new(r"C:\out"), "報告", &[2], ImageKind::Jpeg);
+        assert_eq!(targets, [PathBuf::from(r"C:\out\報告-p3.jpg")]);
     }
 
     #[test]

@@ -35,6 +35,10 @@ confidence-threshold = 0.9
 exceptions = [
     { crate = "mupdf", allow = ["AGPL-3.0"] },
     { crate = "mupdf-sys", allow = ["AGPL-3.0"] },
+    # The JPEG export (#111): parts of jpeg-encoder are ported from libjpeg, under the IJG
+    # license, permissive and GPL-compatible; MuPDF already ships libjpeg under it. Its notices
+    # need crediting the Independent JPEG Group, as MuPDF's do.
+    { crate = "jpeg-encoder", allow = ["IJG"] },
 ]
 
 [licenses.private]

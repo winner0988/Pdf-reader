@@ -110,6 +110,22 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
                 },
             }),
+            WorkerRequest::RenderJpeg {
+                request,
+                doc,
+                page_index,
+                scale,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => match document.render_jpeg(page_index, scale) {
+                    Ok(jpeg) => WorkerResponse::Jpeg { request, jpeg },
+                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+                },
+            }),
             WorkerRequest::GetPageText {
                 request,
                 doc,
@@ -390,7 +406,7 @@ fn engine_error(
             std::io::ErrorKind::FileTooLarge => WorkerErrorCode::LimitExceeded,
             _ => WorkerErrorCode::Unwritable,
         },
-        EngineError::MuPdf(_) => other,
+        EngineError::MuPdf(_) | EngineError::Encode(_) => other,
     };
     error(request, code, &engine.to_string())
 }

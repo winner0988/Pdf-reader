@@ -358,6 +358,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::PageLinks { request, .. }
         | WorkerResponse::PageText { request, .. }
         | WorkerResponse::Png { request, .. }
+        | WorkerResponse::Jpeg { request, .. }
         | WorkerResponse::PageSearched { request, .. }
         | WorkerResponse::Edited { request, .. }
         | WorkerResponse::Saved { request, .. } => Some(*request),
