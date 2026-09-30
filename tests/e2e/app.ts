@@ -59,7 +59,56 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-type Running = { child: ChildProcess; log: string[]; profile: string; data: string; browser?: Browser };
+type Running = {
+  child: ChildProcess;
+  log: string[];
+  profile: string;
+  data: string;
+  browser?: Browser;
+  /** When the app was started, and when its WebView answered (`Date.now()`). */
+  launched: number;
+  connected?: number;
+};
+
+/** How much of the end of a failed test's app log also goes to the test's output (CI's log). */
+const LOG_TAIL_CHARS = 3_000;
+
+/**
+ * A failed test's app, for the test's output and so for CI's log: how its start went, what its
+ * page shows, and the end of its log. Enough to tell a document still opening from an error or a
+ * page that never laid out, without downloading the uploaded files (#133).
+ */
+async function summary(running: Running, page: Page | undefined): Promise<string> {
+  const started =
+    running.connected === undefined
+      ? "its WebView never answered"
+      : `its WebView answered ${running.connected - running.launched} ms after launch`;
+  const state = running.child.exitCode === null ? "still running" : `exited with ${running.child.exitCode}`;
+  let timer: NodeJS.Timeout | undefined;
+  const shown = page
+    ? await Promise.race([
+        page.evaluate(() => ({
+          url: location.href,
+          readyState: document.readyState,
+          visibility: document.visibilityState,
+          focused: document.hasFocus(),
+          viewport: `${window.innerWidth}x${window.innerHeight}`,
+          text: document.body.innerText.replace(/\s+/g, " ").trim().slice(0, 1_000),
+        })),
+        new Promise<string>((resolve) => {
+          timer = setTimeout(() => resolve("no answer within 5 s"), 5_000);
+        }),
+      ])
+        .catch((error: unknown) => `not readable: ${String(error)}`)
+        .finally(() => clearTimeout(timer))
+    : "no page";
+  return [
+    `--- app: ${started}; ${Date.now() - running.launched} ms after launch it is ${state} ---`,
+    `page: ${JSON.stringify(shown)}`,
+    "end of its log:",
+    running.log.join("").slice(-LOG_TAIL_CHARS),
+  ].join("\n");
+}
 
 /** Each page's app data folder (`PDF_READER_DATA_DIR`). */
 const dataDirs = new WeakMap<Page, string>();
@@ -279,11 +328,12 @@ export const test = base.extend<{
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
-      const running: Running = { child, log: [], profile, data };
+      const running: Running = { child, log: [], profile, data, launched: Date.now() };
       started.push(running);
       child.stdout?.on("data", (chunk) => running.log.push(String(chunk)));
       child.stderr?.on("data", (chunk) => running.log.push(String(chunk)));
       running.browser = await connect(port, running);
+      running.connected = Date.now();
       const page = await mainPage(running.browser);
       dataDirs.set(page, data);
       apps.set(page, running);
@@ -311,6 +361,7 @@ export const test = base.extend<{
             // No desktop to capture.
           }
         }
+        console.log(await summary(running, page));
         if (running.child.pid !== undefined && running.child.exitCode === null) {
           running.log.push(`\n--- process tree ---\n${processTree(running.child.pid)}`);
         }
