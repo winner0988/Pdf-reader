@@ -11,6 +11,10 @@
 //!
 //! Needs Windows' OCR for English, which English Windows has (so does the CI runner). Traditional
 //! Chinese is checked where Windows has its OCR too, as Traditional Chinese Windows does.
+//!
+//! Tesseract (module `tesseract`) recognises the same image in the worker's own sandbox, win32k
+//! disabled too: both the copy inside MuPDF and one built apart. It needs the `tesseract-poc`
+//! feature and what scripts/ocr-poc/build-tesseract.ps1 builds and fetches (`TESSERACT_POC_DIR`).
 #![cfg(windows)]
 
 use std::ffi::OsStr;
@@ -93,15 +97,15 @@ fn scanned_page() -> Vec<u8> {
     pgm
 }
 
-/// examples/ocr_probe.rs, which `cargo test` builds next to the tests.
-fn probe() -> PathBuf {
+/// The example `name`, which `cargo test` builds next to the tests.
+fn probe(name: &str) -> PathBuf {
     let tests = std::env::current_exe().expect("test executable");
     let probe = tests
         .parent()
         .and_then(|deps| deps.parent())
         .expect("target folder")
         .join("examples")
-        .join("ocr_probe.exe");
+        .join(format!("{name}.exe"));
     assert!(
         probe.exists(),
         "{} is missing: run the whole package's tests (cargo test -p pdf_worker), which build the \
@@ -119,15 +123,22 @@ fn with_win32k() -> SandboxConfig {
     }
 }
 
-/// What the probe printed for `image` (a binary PGM) in a sandbox made with `config`.
+/// What Windows' OCR (examples/ocr_probe.rs) printed for `image` (a binary PGM) in a sandbox
+/// made with `config`.
 fn recognise(image: &[u8], language: &str, config: &SandboxConfig) -> Vec<String> {
+    run_probe("ocr_probe", language, image, config)
+}
+
+/// Runs the example `name` in a sandbox made with `config`, with `input` on its stdin, and
+/// returns the lines it printed. Says how long it took and how much memory it used.
+fn run_probe(name: &str, language: &str, input: &[u8], config: &SandboxConfig) -> Vec<String> {
     let started = Instant::now();
-    let mut child = Sandboxed::spawn(&probe(), &[OsStr::new(language)], config)
+    let mut child = Sandboxed::spawn(&probe(name), &[OsStr::new(language)], config)
         .expect("start the probe in the sandbox");
     let mut stdin = child.stdin.take().expect("stdin");
-    let image = image.to_vec();
+    let input = input.to_vec();
     // The probe reads all of it before answering; write while this thread reads.
-    let writer = std::thread::spawn(move || stdin.write_all(&image));
+    let writer = std::thread::spawn(move || stdin.write_all(&input));
     let mut output = String::new();
     child
         .stdout
@@ -139,9 +150,13 @@ fn recognise(image: &[u8], language: &str, config: &SandboxConfig) -> Vec<String
     let code = child.wait_timeout(Duration::from_secs(60)).expect("wait");
     assert!(
         sent.is_ok() && code == Some(0),
-        "the probe failed (exit code {code:x?}, sending the image: {sent:?}): {output}"
+        "the probe failed (exit code {code:x?}, sending the input: {sent:?}): {output}"
     );
-    eprintln!("{language}, {:?}: {output}", started.elapsed());
+    let memory = child.peak_memory_bytes().unwrap_or(0) / (1024 * 1024);
+    eprintln!(
+        "{name} {language}, {:?}, {memory} MB: {output}",
+        started.elapsed()
+    );
     output.lines().map(str::to_owned).collect()
 }
 
@@ -199,4 +214,80 @@ fn recognition_fails_in_the_workers_own_sandbox() {
         !output.iter().any(|line| line.starts_with("line:")),
         "{output:?}"
     );
+}
+
+/// Tesseract, in the worker's own sandbox, win32k disabled too. The language data goes to the
+/// probe on stdin with the image: the sandbox opens no files.
+#[cfg(feature = "tesseract-poc")]
+mod tesseract {
+    use std::path::Path;
+
+    use super::*;
+
+    /// A language's data, as scripts/ocr-poc/build-tesseract.ps1 installed it.
+    fn traineddata(language: &str) -> Vec<u8> {
+        let dir = std::env::var("TESSERACT_POC_DIR").expect("TESSERACT_POC_DIR");
+        let path = Path::new(&dir)
+            .join("tessdata")
+            .join(format!("{language}.traineddata"));
+        std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
+    fn recognise(image: &[u8], language: &str) -> Vec<String> {
+        recognise_with("tesseract_probe", image, language)
+    }
+
+    /// What `probe` recognised in `image`, run in the worker's own sandbox.
+    fn recognise_with(probe: &str, image: &[u8], language: &str) -> Vec<String> {
+        let data = traineddata(language);
+        let mut input = u32::try_from(data.len())
+            .expect("language data size")
+            .to_le_bytes()
+            .to_vec();
+        input.extend_from_slice(&data);
+        input.extend_from_slice(image);
+        run_probe(probe, language, &input, &SandboxConfig::default())
+    }
+
+    #[test]
+    fn mupdf_s_own_tesseract_recognises_english_in_the_workers_own_sandbox() {
+        let output = recognise_with("mupdf_tesseract_probe", &scanned_page(), "eng");
+        assert!(
+            output.contains(&"line:Privacy-first PDF Reader".to_owned()),
+            "{output:?}"
+        );
+    }
+
+    #[test]
+    fn mupdf_s_own_tesseract_recognises_chinese_in_the_workers_own_sandbox() {
+        let output = recognise_with("mupdf_tesseract_probe", &scanned_page(), "chi_tra");
+        let lines: Vec<String> = output.iter().map(|line| line.replace(' ', "")).collect();
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("隱私優先的PDF閱讀器")),
+            "{output:?}"
+        );
+    }
+
+    #[test]
+    fn english_on_a_scanned_page_is_recognised_in_the_workers_own_sandbox() {
+        let output = recognise(&scanned_page(), "eng");
+        assert!(
+            output.contains(&"line:Privacy-first PDF Reader".to_owned()),
+            "{output:?}"
+        );
+    }
+
+    #[test]
+    fn chinese_on_a_scanned_page_is_recognised_in_the_workers_own_sandbox() {
+        let output = recognise(&scanned_page(), "chi_tra");
+        let lines: Vec<String> = output.iter().map(|line| line.replace(' ', "")).collect();
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("隱私優先的PDF閱讀器")),
+            "{output:?}"
+        );
+    }
 }

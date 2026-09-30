@@ -20,7 +20,7 @@
 | [0012](0012-tabs-and-worker-per-document.md) | 多份文件以分頁呈現，每份文件一個 worker，單一執行個體 | 已接受 |
 | [0013](0013-editing-and-saving.md) | 編輯在文件自己的 worker 中套用，存檔由主行程交出寫入 handle、完整寫好後才取代原檔 | 已接受 |
 | [0014](0014-signature-verification.md) | 數位簽章在 worker 中以 Windows CryptoAPI 離線驗證 | 已接受 |
-| [0015](0015-ocr.md) | 掃描頁以 Windows 內建 OCR 在獨立的沙盒行程中辨識，只交給它頁面影像 | 提議中 |
+| [0015](0015-ocr.md) | 掃描頁以 MuPDF 內建的 Tesseract 在該文件自己的 worker 中辨識，沙盒不放寬 | 提議中 |
 
 ## 規則
 

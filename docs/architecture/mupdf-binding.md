@@ -31,7 +31,8 @@
 | 標準 14 字型（`base14-fonts`） | 開啟 | 沒有它，使用未嵌入標準字型（Helvetica 等）的 PDF 會顯示成空白 |
 | Droid CJK 備援字型（`bundled-fonts-droid`） | 開啟 | 見下方「CJK 字型」 |
 | XPS、SVG、CBZ、圖片、HTML、EPUB | 關閉 | 只處理 PDF |
-| Tesseract OCR、DOCX 輸出、Brotli | 關閉 | 不在 MVP；之後的 OCR 另立 ADR |
+| Tesseract OCR | Windows 上一律建置 | `tesseract` 功能只影響 make 建置；Windows 的 Visual Studio 方案一律以 `HAVE_TESSERACT` 編譯 MuPDF（見下方的注意）。OCR 見 ADR 0015 |
+| DOCX 輸出、Brotli | 關閉 | 不在 MVP |
 | 系統字型（`system-fonts`） | 關閉 | worker 在沙盒中不讀取系統的字型檔 |
 | Noto、SIL 字型（`bundled-fonts-noto`、`bundled-fonts-sil`） | 關閉 | 非 CJK 文字系統的備援字型，目前不需要 |
 
@@ -55,7 +56,12 @@ PDF 可以使用中日韓字型而不嵌入它（例如只寫 `/BaseFont /MingLi
   - 先不處理：中文使用者常見這類 PDF。
 - **測試**：`crates/pdf_worker/tests/fonts.rs` 以 `benign/mixed-text-zh-en.pdf` 確認中文可以搜尋，且字形區域確實有筆畫。
 
-注意：Windows 上 `mupdf-sys` 用 MSBuild 建置 MuPDF 的 Visual Studio 方案，會編譯方案內所有第三方函式庫（包含 Tesseract 等）的原始碼；Cargo feature 以 `FZ_ENABLE_*` 決定 MuPDF 是否使用它們，未被參照的程式碼不會連結進執行檔。這主要影響建置時間。
+注意：Windows 上 `mupdf-sys` 用 MSBuild 建置 MuPDF 的 Visual Studio 方案，會編譯方案內所有第三方函式庫的原始碼，這主要影響建置時間。Cargo feature 以 `FZ_ENABLE_*` 決定 MuPDF 是否使用它們，未被參照的程式碼不會連結進執行檔，但 **Tesseract 與 Leptonica 例外**：
+
+- 方案一律以 `HAVE_TESSERACT`、`HAVE_LEPTONICA` 編譯 MuPDF，沒有 `FZ_ENABLE_*` 可以關閉；
+- release 的 `pdf_worker.exe` 因此已經包含它們的一部分：依 link map，至少有 Tesseract 223 個原始檔中的 123 個、Leptonica 182 個中的 37 個，以及 MuPDF 的 `tessocr` 與 PDF OCR 輸出器（`output-pdfocr`）；
+- worker 從不呼叫它們：只有明確建立 OCR 裝置或 PDF OCR 輸出器時才會執行；
+- ADR 0015（提議中）建議的 OCR 就是使用這一份。
 
 ## 建置需求（Windows）
 
