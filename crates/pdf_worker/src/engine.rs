@@ -61,6 +61,10 @@ pub enum EngineError {
     Write(io::Error),
     #[error("could not encode the image: {0}")]
     Encode(String),
+    #[error("an encrypted document has no privacy export: its copy could not be encrypted again")]
+    EncryptedCopy,
+    #[error("the document has too many objects to clean")]
+    TooComplex,
     #[error("MuPDF: {0}")]
     MuPdf(#[from] mupdf::Error),
 }
@@ -654,15 +658,59 @@ impl PdfDocument {
         } else {
             options.set_garbage(true);
         }
-        let mut limited = Limited {
-            out,
-            left: MAX_DOCUMENT_BYTES,
-        };
-        match self.doc.write_to_with_options(&mut limited, options) {
-            Ok(bytes) => Ok((bytes, incremental)),
-            Err(mupdf::Error::Io(error)) => Err(EngineError::Write(error)),
-            Err(error) => Err(EngineError::MuPdf(error)),
+        Ok((write_limited(&self.doc, out, options)?, incremental))
+    }
+
+    /// Whether the document is encrypted (MVP-16), with a password or only with permissions.
+    pub fn is_encrypted(&self) -> bool {
+        self.doc
+            .trailer()
+            .ok()
+            .and_then(|trailer| trailer.get_dict("Encrypt").ok().flatten())
+            .is_some()
+    }
+
+    /// Writes to `out` a copy of the document, edits included, without its metadata, and with
+    /// `id` as its identifier (B2-03, [`crate::privacy::strip`]). The copy is rewritten whole,
+    /// without the objects nothing uses any more, so none of the metadata is left in the file.
+    ///
+    /// The open document is not touched: it is saved into memory and opened again, and that
+    /// second document is the one cleaned. An encrypted document is refused: the worker keeps no
+    /// password, so its copy could not be encrypted again, and an unencrypted copy would drop
+    /// what its author asked for.
+    pub fn privacy_copy(&self, id: &[u8; 16], out: &mut impl Write) -> Result<u64, EngineError> {
+        if self.is_encrypted() {
+            return Err(EngineError::EncryptedCopy);
         }
+        let mut options = PdfWriteOptions::default();
+        options.set_garbage(true);
+        let mut bytes = Vec::new();
+        write_limited(&self.doc, &mut bytes, options)?;
+        let copy = Document::from_bytes(&bytes, "application/pdf").map_err(open_error)?;
+        drop(bytes);
+        let copy = MuPdfDocument::try_from(copy)?;
+        crate::privacy::strip(&copy, id)?;
+        let mut options = PdfWriteOptions::default();
+        options.set_garbage(true);
+        write_limited(&copy, out, options)
+    }
+}
+
+/// Writes `doc` to `out` with `options`, stopping with `Write(FileTooLarge)` beyond
+/// `MAX_DOCUMENT_BYTES`; returns the bytes written.
+fn write_limited(
+    doc: &MuPdfDocument,
+    out: &mut impl Write,
+    options: PdfWriteOptions,
+) -> Result<u64, EngineError> {
+    let mut limited = Limited {
+        out,
+        left: MAX_DOCUMENT_BYTES,
+    };
+    match doc.write_to_with_options(&mut limited, options) {
+        Ok(bytes) => Ok(bytes),
+        Err(mupdf::Error::Io(error)) => Err(EngineError::Write(error)),
+        Err(error) => Err(EngineError::MuPdf(error)),
     }
 }
 
@@ -1273,6 +1321,134 @@ mod tests {
         assert!(matches!(
             doc.render_png(0, 1000.0),
             Err(EngineError::InvalidScale)
+        ));
+    }
+
+    /// Every dictionary of `doc`: each object's, and those written directly inside it.
+    fn every_dictionary(doc: &MuPdfDocument) -> Vec<PdfObject> {
+        let mut found = Vec::new();
+        for number in 1..doc.xref_len().unwrap() {
+            let Some(object) = doc.xref_object(number as i32).unwrap() else {
+                continue;
+            };
+            let mut pending = vec![object];
+            while let Some(node) = pending.pop() {
+                let children: Vec<PdfObject> = if node.is_dict().unwrap() {
+                    (0..node.dict_len().unwrap())
+                        .filter_map(|index| node.get_dict_val(index as i32).unwrap())
+                        .collect()
+                } else if node.is_array().unwrap() {
+                    (0..node.len().unwrap())
+                        .filter_map(|index| node.get_array(index as i32).unwrap())
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                pending.extend(
+                    children
+                        .into_iter()
+                        .filter(|child| !child.is_indirect().unwrap()),
+                );
+                if node.is_dict().unwrap() {
+                    found.push(node);
+                }
+            }
+        }
+        found
+    }
+
+    fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
+    }
+
+    #[test]
+    fn the_privacy_export_leaves_no_metadata() {
+        const AUTHOR: &[u8] = b"Jane Q. Private-Author";
+        let original = corpus("benign/metadata-full.pdf");
+        assert!(contains(&original, AUTHOR), "the sample names its author");
+        let doc = PdfDocument::from_bytes(&original).unwrap();
+        let id = [0xA5; 16];
+        let mut copy = Vec::new();
+        let written = doc.privacy_copy(&id, &mut copy).unwrap();
+        assert_eq!(written, copy.len() as u64);
+
+        // Not in the file, and not in any of its streams once decoded.
+        assert!(!contains(&copy, AUTHOR));
+        let exported = PdfDocument::from_bytes(&copy).unwrap();
+        let trailer = exported.doc.trailer().unwrap();
+        assert!(trailer.get_dict("Info").unwrap().is_none());
+        let first_id = trailer
+            .get_dict("ID")
+            .unwrap()
+            .and_then(|id| id.get_array(0).unwrap())
+            .and_then(|first| first.as_bytes().ok());
+        assert_eq!(first_id, Some("a5".repeat(16).into_bytes()));
+        let dictionaries = every_dictionary(&exported.doc);
+        assert!(dictionaries.len() > 5, "{}", dictionaries.len());
+        for dict in &dictionaries {
+            for key in ["Metadata", "PieceInfo", "LastModified", "Thumb"] {
+                assert!(dict.get_dict(key).unwrap().is_none(), "/{key} is left");
+            }
+            if dict.is_stream().unwrap() {
+                assert!(!contains(&dict.read_stream().unwrap(), AUTHOR));
+            }
+        }
+        // The sticky note is still there, without its author and dates.
+        let note = dictionaries
+            .iter()
+            .find(|dict| {
+                dict.get_dict("Subtype")
+                    .unwrap()
+                    .is_some_and(|subtype| subtype.as_name().unwrap() == b"Text")
+            })
+            .expect("the note");
+        for key in ["T", "M", "CreationDate"] {
+            assert!(note.get_dict(key).unwrap().is_none(), "/{key} of the note");
+        }
+        assert!(note.get_dict("Contents").unwrap().is_some());
+
+        // The same page.
+        assert_eq!(
+            exported.render(0, 1.0, 0).unwrap(),
+            doc.render(0, 1.0, 0).unwrap()
+        );
+        // The open document is not changed.
+        assert!(
+            doc.doc
+                .trailer()
+                .unwrap()
+                .get_dict("Info")
+                .unwrap()
+                .is_some()
+        );
+        let mut again = Vec::new();
+        doc.privacy_copy(&[0x5A; 16], &mut again).unwrap();
+        assert!(!contains(&again, AUTHOR));
+    }
+
+    #[test]
+    fn the_privacy_export_keeps_form_field_names_and_refuses_encrypted_documents() {
+        let form = build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R << /Subtype /Square /Rect [10 10 50 50] /T (Direct Author) /M (D:20260102) >>] >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (customer_name) /Rect [72 700 272 720] /V (x) >>",
+        ]);
+        let doc = PdfDocument::from_bytes(&form).unwrap();
+        let mut copy = Vec::new();
+        doc.privacy_copy(&[1; 16], &mut copy).unwrap();
+        // The field keeps its name; the annotation written directly in /Annots loses its author.
+        assert!(contains(&copy, b"customer_name"));
+        assert!(!contains(&copy, b"Direct Author"));
+
+        let encrypted = corpus("benign/encrypted-aes256.pdf");
+        let doc = PdfDocument::open(&encrypted, Some("user")).unwrap();
+        assert!(doc.is_encrypted());
+        assert!(matches!(
+            doc.privacy_copy(&[1; 16], &mut Vec::new()),
+            Err(EngineError::EncryptedCopy)
         ));
     }
 

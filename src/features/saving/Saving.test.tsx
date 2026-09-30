@@ -16,6 +16,7 @@ function fakeSavingApi(overrides: Partial<SavingApi> = {}) {
     save: vi.fn<SavingApi["save"]>(() => Promise.resolve({ incremental: false })),
     saveAs: vi.fn<SavingApi["saveAs"]>(() => Promise.resolve({ incremental: false })),
     closeWindow: vi.fn<SavingApi["closeWindow"]>(() => Promise.resolve()),
+    privacyExport: vi.fn<SavingApi["privacyExport"]>(() => Promise.resolve(true)),
     ...overrides,
   } satisfies SavingApi;
 }

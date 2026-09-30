@@ -168,6 +168,16 @@
 - 結束後關閉對話框，狀態列顯示 export.done 或 export.stopped 4 秒。
 - 做法與限制見 [export.md](../architecture/export.md)。
 
+### 隱私匯出（B2-03）
+
+- 「⋯」→「隱私匯出…」（在「匯出…」之後）開啟說明對話框。沒有開啟文件時停用；加密的文件停用，並標示 privacyExport.encrypted。
+- **對話框**：privacyExport.description，列出 privacyExport.removed（副本中會清除）與 privacyExport.kept（不會清除，分享前請自行檢查），以及 privacyExport.signatures。
+- **選擇位置並匯出…**：主行程顯示系統的另存對話框，建議檔名 `<原檔名>（隱私匯出）.pdf`，已存在時由對話框詢問是否取代。
+  - 選到原本的檔案時，以訊息方塊說明（PRIVACY_EXPORT_SAME_FILE_MESSAGE），再顯示一次另存對話框；
+  - 關閉系統的對話框時回到說明對話框，可以再試；失敗時在對話框中顯示 privacyExport.failed。
+- 完成後關閉對話框，狀態列顯示 privacyExport.done 4 秒。分頁仍然是原本的文件，副本不加入最近開啟的檔案。
+- 做法與限制見 [privacy-export.md](../architecture/privacy-export.md)。
+
 ### 儲存（B2-02）
 
 - 「⋯」→「儲存」（`Ctrl+S`）：沒有未儲存的變更時停用；「另存新檔…」（`Ctrl+Shift+S`）：有開啟的文件就可以用。沒有文件時 `Ctrl+S` 也不會讓 WebView 儲存網頁。
@@ -499,6 +509,29 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | TEXT_FILTER_NAME（主行程） | 純文字檔 |
 | EXPORT_IMAGES_DIALOG_TITLE（主行程） | 選擇匯出頁面圖片的資料夾 |
 | OVERWRITE_TITLE（主行程） | 檔案已經存在 |
+
+### 隱私匯出（B2-03）
+
+| 鍵 | 文字 |
+|---|---|
+| menu.privacyExport | 隱私匯出… |
+| privacyExport.title | 隱私匯出 |
+| privacyExport.description | 另存一份清除中繼資料的副本，方便分享。原本的檔案不會改變。 |
+| privacyExport.removedTitle | 副本中會清除 |
+| privacyExport.removed | 文件資訊：作者、標題、主旨、關鍵字、建立與修改的程式、日期／XMP 中繼資料：文件、頁面、圖片等各處的（可能含有 GPS 位置）／應用程式的私有資料、頁面縮圖與修改時間／註解的作者與日期（註解本身保留）／文件識別碼：換成新的亂數 |
+| privacyExport.keptTitle | 不會清除（分享前請自行檢查） |
+| privacyExport.kept | 頁面上的文字與圖片，以及註解的內容／圖片本身的 EXIF（例如相片中的 GPS 位置）／附加的檔案、表單欄位的值、書籤 |
+| privacyExport.signatures | 副本中的數位簽章會失效。 |
+| privacyExport.start | 選擇位置並匯出… |
+| privacyExport.cancel | 取消 |
+| privacyExport.running | 正在匯出… |
+| privacyExport.done | 已匯出隱私副本。 |
+| privacyExport.failed | 隱私匯出失敗，請再試一次。 |
+| privacyExport.encrypted | 加密的文件不適用 |
+| PRIVACY_EXPORT_DIALOG_TITLE（主行程） | 隱私匯出：選擇副本的位置 |
+| privacy_export_file_name（主行程） | <原檔名>（隱私匯出）.pdf |
+| PRIVACY_EXPORT_SAME_FILE_TITLE（主行程） | 請選擇其他檔案 |
+| PRIVACY_EXPORT_SAME_FILE_MESSAGE（主行程） | 隱私匯出會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
 | overwrite_message（主行程） | 這個資料夾已經有 <N> 個同名的檔案。要覆寫嗎？ |
 | NO_TEXT_LAYER_PAGE（主行程，寫在文字檔中） | （此頁沒有文字層） |
 

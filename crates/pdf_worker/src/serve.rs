@@ -192,6 +192,19 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => save(document, request, file),
             }),
+            WorkerRequest::PrivacyCopy {
+                request,
+                doc,
+                file,
+                id,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => privacy_copy(document, request, file, &id),
+            }),
             // Requests are handled one at a time, so there is nothing in flight to cancel.
             WorkerRequest::Cancel { .. } => None,
             WorkerRequest::Close { doc } => {
@@ -238,6 +251,7 @@ fn open(
     let has_outline = document.has_outline();
     let security = document.active_content(ScanBudget::default());
     let permissions = document.permissions();
+    let encrypted = document.is_encrypted();
     documents.insert(doc, document);
     WorkerResponse::Opened {
         request,
@@ -246,6 +260,7 @@ fn open(
             has_outline,
             security,
             permissions,
+            encrypted,
         },
     }
 }
@@ -286,6 +301,30 @@ fn save(document: &PdfDocument, request: RequestId, file: FileHandle) -> WorkerR
             request,
             bytes,
             incremental,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
+/// Writes the privacy export of `document` (B2-03) to `file`, a handle like `save`'s.
+fn privacy_copy(
+    document: &PdfDocument,
+    request: RequestId,
+    file: FileHandle,
+    id: &[u8; 16],
+) -> WorkerResponse {
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match document.privacy_copy(id, &mut file) {
+        Ok(bytes) => WorkerResponse::Saved {
+            request,
+            bytes,
+            incremental: false,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
@@ -399,8 +438,10 @@ fn engine_error(
         EngineError::WrongPassword => WorkerErrorCode::WrongPassword,
         EngineError::UnsupportedEncryption => WorkerErrorCode::UnsupportedEncryption,
         EngineError::PageOutOfRange(_) => WorkerErrorCode::PageOutOfRange,
-        EngineError::InvalidScale | EngineError::InvalidRotation => WorkerErrorCode::InvalidRequest,
-        EngineError::TooLarge { .. } => WorkerErrorCode::LimitExceeded,
+        EngineError::InvalidScale | EngineError::InvalidRotation | EngineError::EncryptedCopy => {
+            WorkerErrorCode::InvalidRequest
+        }
+        EngineError::TooLarge { .. } | EngineError::TooComplex => WorkerErrorCode::LimitExceeded,
         EngineError::Write(error) => match error.kind() {
             std::io::ErrorKind::StorageFull => WorkerErrorCode::DiskFull,
             std::io::ErrorKind::FileTooLarge => WorkerErrorCode::LimitExceeded,

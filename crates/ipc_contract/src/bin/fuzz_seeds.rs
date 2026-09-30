@@ -65,6 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     modify: false,
                     assemble: true,
                 },
+                encrypted: true,
             },
         },
         WorkerResponse::Rendered {
@@ -235,6 +236,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             doc,
             file: FileHandle(0x2a8),
+        },
+        WorkerRequest::PrivacyCopy {
+            request,
+            doc,
+            file: FileHandle(0x2ac),
+            id: [0x5a; 16],
         },
         WorkerRequest::Cancel { target: request },
         WorkerRequest::Close { doc },

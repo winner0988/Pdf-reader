@@ -110,6 +110,7 @@ pub fn run() {
             commands::save_document,
             commands::save_document_as,
             commands::close_window,
+            commands::privacy_export,
         ])
         .on_window_event(commands::on_window_event)
         .setup(move |app| {

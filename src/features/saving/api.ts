@@ -12,10 +12,17 @@ export type SavingApi = {
   saveAs(doc: DocumentId): Promise<SaveResult | null>;
   /** Closes the window once the user was asked about unsaved changes; `discard` drops them. */
   closeWindow(discard: boolean): Promise<void>;
+  /**
+   * Writes a copy of the document without its metadata (B2-03) where the user says in the
+   * system's save dialog, never over its own file: `false` if the dialog was closed. The
+   * document itself does not change.
+   */
+  privacyExport(doc: DocumentId): Promise<boolean>;
 };
 
 export const tauriSavingApi: SavingApi = {
   save: (doc) => invoke<SaveResult>("save_document", { doc }),
   saveAs: (doc) => invoke<SaveResult | null>("save_document_as", { doc }),
   closeWindow: (discard) => invoke<void>("close_window", { discard }),
+  privacyExport: (doc) => invoke<boolean>("privacy_export", { doc }),
 };

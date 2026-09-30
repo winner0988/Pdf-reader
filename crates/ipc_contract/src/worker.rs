@@ -109,6 +109,16 @@ pub enum WorkerRequest {
         doc: DocumentId,
         file: FileHandle,
     },
+    /// Writes to `file` (as for `Save`) a copy of the document, edits included, without its
+    /// metadata and with `id` as its identifier (B2-03). The open document is not changed.
+    /// Answered by `Saved`, never appended.
+    PrivacyCopy {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
+        /// Random, from the main process.
+        id: [u8; 16],
+    },
     /// Best effort: the worker drops the target request if it has not finished yet.
     Cancel {
         target: RequestId,
@@ -201,6 +211,8 @@ pub struct OpenedDocument {
     pub has_outline: bool,
     pub security: SecurityReport,
     pub permissions: DocumentPermissions,
+    /// Encrypted (MVP-16), with a password or with permissions only.
+    pub encrypted: bool,
 }
 
 /// A rendered page: opaque RGBA8 (alpha is always 255), rows top to bottom, no padding.

@@ -17,6 +17,16 @@ pub const PDF_FILTER_NAME: &str = "PDF 檔案";
 /// Saving a document as another file (B2-02).
 pub const SAVE_AS_DIALOG_TITLE: &str = "另存新檔";
 
+/// The privacy export (B2-03): where the copy goes, what it is called at first, and why the
+/// document's own file cannot be chosen.
+pub const PRIVACY_EXPORT_DIALOG_TITLE: &str = "隱私匯出：選擇副本的位置";
+pub fn privacy_export_file_name(stem: &str) -> String {
+    format!("{stem}（隱私匯出）.pdf")
+}
+pub const PRIVACY_EXPORT_SAME_FILE_TITLE: &str = "請選擇其他檔案";
+pub const PRIVACY_EXPORT_SAME_FILE_MESSAGE: &str =
+    "隱私匯出會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
+
 /// Export (B2-04): where the text goes, and the folder the page images go to.
 pub const EXPORT_TEXT_DIALOG_TITLE: &str = "匯出純文字";
 pub const TEXT_FILTER_NAME: &str = "純文字檔";

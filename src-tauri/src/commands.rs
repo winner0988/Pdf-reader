@@ -448,6 +448,49 @@ pub async fn export_pages(
     Ok(true)
 }
 
+/// Writes a copy of the document without its metadata (B2-03, docs/architecture/privacy-export.md)
+/// where the user says in the system's save dialog, never over the document's own file. `false`
+/// when the user closes the dialog. The document itself does not change.
+#[tauri::command]
+pub async fn privacy_export(
+    app: AppHandle,
+    window: WebviewWindow,
+    doc: DocumentId,
+) -> Result<bool, IpcError> {
+    let info = app
+        .state::<Documents>()
+        .document_info(doc)
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        })?;
+    if info.encrypted {
+        return Err(IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "an encrypted document has no privacy export".to_owned(),
+        });
+    }
+    let file_name = strings::privacy_export_file_name(&export::stem(&info.display_name));
+    let destination = loop {
+        let Some(path) = file_dialog::privacy_export_file(&window, file_name.clone()).await? else {
+            return Ok(false);
+        };
+        if !app.state::<Documents>().is_document_file(doc, &path) {
+            break path;
+        }
+        rfd::AsyncMessageDialog::new()
+            .set_level(rfd::MessageLevel::Info)
+            .set_title(strings::PRIVACY_EXPORT_SAME_FILE_TITLE)
+            .set_description(strings::PRIVACY_EXPORT_SAME_FILE_MESSAGE)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .set_parent(&window)
+            .show()
+            .await;
+    };
+    blocking(move || app.state::<Documents>().privacy_export(doc, &destination)).await?;
+    Ok(true)
+}
+
 /// Asks, in a native message box, whether exported files may replace `count` existing ones.
 async fn confirm_overwrite(window: &WebviewWindow, count: usize) -> bool {
     let answer = rfd::AsyncMessageDialog::new()

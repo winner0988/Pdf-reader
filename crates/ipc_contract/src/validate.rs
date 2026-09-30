@@ -664,6 +664,7 @@ mod tests {
             has_outline: false,
             security: SecurityReport::default(),
             permissions: DocumentPermissions::ALL,
+            encrypted: false,
         };
         assert!(doc(vec![page(612.0, 792.0)]).validate().is_ok());
         assert!(doc(vec![]).validate().is_err());
@@ -1128,6 +1129,7 @@ mod tests {
             security: SecurityReport::default(),
             permissions: DocumentPermissions::ALL,
             unsaved: false,
+            encrypted: false,
         };
         assert!(info("報告.pdf").validate().is_ok());
         assert!(info(r"C:\Users\someone\報告.pdf").validate().is_err());
