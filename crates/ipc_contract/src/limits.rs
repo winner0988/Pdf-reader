@@ -75,3 +75,7 @@ pub const MAX_EXPORT_PAGES: u32 = 1_000;
 
 /// Maximum size of one exported PNG page (B2-04); below the frame limit.
 pub const MAX_PNG_BYTES: usize = 64 * 1024 * 1024;
+
+/// Maximum size of one exported JPEG page (#111); below the frame limit. A page at the largest
+/// raster the worker makes stays well under it at the export quality.
+pub const MAX_JPEG_BYTES: usize = 64 * 1024 * 1024;

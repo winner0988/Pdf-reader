@@ -1,5 +1,6 @@
-// Exporting (B2-04) in the real app. The page only says what to export; the main process shows
-// the system's save or folder dialog (answered here through UI Automation) and writes the files.
+// Exporting (B2-04, #111) in the real app. The page only says what to export; the main process
+// shows the system's save or folder dialog (answered here through UI Automation) and writes the
+// files.
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -63,6 +64,29 @@ test.describe("export", () => {
     }
     // Only the chosen pages, and no temporary files.
     expect(readdirSync(folder).sort()).toEqual(["multi-page-10-p2.png", "multi-page-10-p3.png"]);
+  });
+
+  test("page images can be JPG files instead (#111)", async ({ launch }) => {
+    const page = await launch(corpus("benign/multi-page-10.pdf"));
+    const dialog = await openExport(page);
+    await dialog.getByRole("radio", { name: t.jpg }).check();
+    await dialog.getByRole("combobox", { name: t.resolution }).selectOption("150");
+    await dialog.getByRole("radio", { name: strings.print.current(1) }).check();
+    await dialog.getByRole("button", { name: t.start }).click();
+
+    await answerFileDialog(page, { path: folder });
+    await expect(page.getByRole("contentinfo")).toContainText(t.done(1));
+    const jpeg = readFileSync(path.join(folder, "multi-page-10-p1.jpg"));
+    expect([...jpeg.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+    // It opens, here in the WebView: a Letter page at 150 dpi is 1275 by 1650 pixels.
+    const size = await page.evaluate(async (base64) => {
+      const image = new Image();
+      image.src = `data:image/jpeg;base64,${base64}`;
+      await image.decode();
+      return [image.naturalWidth, image.naturalHeight];
+    }, jpeg.toString("base64"));
+    expect(size).toEqual([1275, 1650]);
+    expect(readdirSync(folder)).toEqual(["multi-page-10-p1.jpg"]);
   });
 
   test("nothing is written when the save dialog is cancelled", async ({ launch }) => {

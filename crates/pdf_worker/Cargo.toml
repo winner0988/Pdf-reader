@@ -26,6 +26,10 @@ required-features = ["tesseract-poc"]
 
 [dependencies]
 ipc_contract = { version = "0.1.0", path = "../ipc_contract" }
+# Encodes exported pages as JPEG (#111): the binding has no JPEG writer. Pure Rust, no
+# dependencies, and no `unsafe` without its `simd` feature, which stays off. MIT or Apache-2.0,
+# and IJG for the parts ported from libjpeg (see deny.toml).
+jpeg-encoder = { version = "0.7.1", default-features = false, features = ["std"] }
 mupdf = { version = "=0.8.0", default-features = false, features = ["base14-fonts", "bundled-fonts-droid"] }
 # The same crate `mupdf` builds on, called directly only to learn which password opened a
 # document (src/owner_password.rs, #88). No features of its own: `mupdf` chooses them.

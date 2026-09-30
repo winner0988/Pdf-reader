@@ -141,6 +141,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }],
             has_text: true,
         },
+        WorkerResponse::Png {
+            request,
+            png: b"\x89PNG\r\n\x1a\nIHDR".to_vec(),
+        },
+        WorkerResponse::Jpeg {
+            request,
+            jpeg: b"\xFF\xD8\xFF\xE0JFIF".to_vec(),
+        },
         WorkerResponse::Edited {
             request,
             pages: vec![
@@ -183,6 +191,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             page_index: 0,
             scale: 1.5,
             rotation: Rotation::Cw90,
+        },
+        WorkerRequest::RenderPng {
+            request,
+            doc,
+            page_index: 0,
+            scale: 150.0 / 72.0,
+        },
+        WorkerRequest::RenderJpeg {
+            request,
+            doc,
+            page_index: 0,
+            scale: 300.0 / 72.0,
         },
         WorkerRequest::GetOutline { request, doc },
         WorkerRequest::GetPageLinks {
