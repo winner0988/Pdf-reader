@@ -1,6 +1,7 @@
 //! Encrypted documents (MVP-16) through the real worker in its sandbox: without a password the
 //! worker asks for one, a wrong one is refused, and the user or owner password opens the file.
-//! Documents that restrict copying or printing report it (MVP-19).
+//! Documents that restrict copying or printing report it (MVP-19), unless the owner password
+//! opened them (#88).
 #![cfg(windows)]
 
 use std::path::{Path, PathBuf};
@@ -34,6 +35,10 @@ fn encrypted_samples_ask_for_a_password_and_open_with_it() {
     for (name, text) in [
         ("benign/encrypted-rc4-40.pdf", "Encrypted sample"),
         ("benign/encrypted-aes256.pdf", "Encrypted sample, AES-256"),
+        (
+            "benign/restricted-open-password.pdf",
+            "Restricted sample with an open password",
+        ),
     ] {
         let path = corpus(name);
         let mut host = host();
@@ -121,8 +126,9 @@ fn restricted_samples_open_without_a_password_and_report_their_permissions() {
             "{name}"
         );
     }
-    // Opened with a password: the AES sample allows everything; the RC4 one (revision 2, /P -44)
-    // allows copying and printing, but not changing the document.
+    // Opened with the user password: the AES sample allows everything; the RC4 one (revision 2,
+    // /P -44) allows copying and printing, but not changing the document; the restricted one
+    // allows neither copying nor printing.
     for (name, permissions) in [
         (
             "benign/encrypted-rc4-40.pdf",
@@ -133,11 +139,37 @@ fn restricted_samples_open_without_a_password_and_report_their_permissions() {
             },
         ),
         ("benign/encrypted-aes256.pdf", DocumentPermissions::ALL),
+        (
+            "benign/restricted-open-password.pdf",
+            DocumentPermissions {
+                copy: false,
+                print: false,
+                print_high_quality: false,
+                ..DocumentPermissions::ALL
+            },
+        ),
     ] {
         let password = Password::new("user".to_owned());
         assert_eq!(
             opened_permissions(host().open_with_password(&corpus(name), password)),
             permissions,
+            "{name}"
+        );
+    }
+}
+
+/// As in Acrobat, the owner password lifts the author's restrictions (#88): the worker asks MuPDF
+/// which password worked, in its sandbox.
+#[test]
+fn the_owner_password_lifts_the_authors_restrictions() {
+    for name in [
+        "benign/restricted-open-password.pdf",
+        "benign/encrypted-rc4-40.pdf",
+    ] {
+        let password = Password::new("owner".to_owned());
+        assert_eq!(
+            opened_permissions(host().open_with_password(&corpus(name), password)),
+            DocumentPermissions::ALL,
             "{name}"
         );
     }

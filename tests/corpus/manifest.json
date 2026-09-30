@@ -159,6 +159,17 @@
       "sha256": "e9eac6a0c0e3e649919ed103c9db49af72f29250884fe9b1668df9cd8b71cfc8"
     },
     {
+      "path": "benign/restricted-open-password.pdf",
+      "category": "benign",
+      "purpose": "AES-256 (R6); user password 'user', owner password 'owner'; /P forbids copying and printing.",
+      "expected": "Asks for a password: with 'user' the text cannot be copied and the document cannot be printed; with 'owner' nothing is restricted, as in Acrobat (#88).",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 1410,
+      "sha256": "c0c375f576cefac8175bc1df626e2a8b6a1295cfb9264d0cca2a2b63c24922ce"
+    },
+    {
       "path": "benign/signed.pdf",
       "category": "benign",
       "purpose": "Signed (adbe.pkcs7.detached, SHA-256, RSA-2048) with the corpus's self-signed test certificate. The key is derived from a fixed seed in generate.py, so anyone can re-create it: never trust it.",

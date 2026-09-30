@@ -544,6 +544,7 @@ def r6_hash(password: bytes, salt: bytes, udata: bytes) -> bytes:
 AES_TEXT = "Encrypted sample, AES-256 (user password: user)"
 NO_COPY_TEXT = "Restricted sample: no copying, no printing (owner password: owner)"
 LOW_RES_TEXT = "Restricted sample: low-resolution printing only (owner password: owner)"
+OPEN_PASSWORD_TEXT = "Restricted sample with an open password (user: user, owner: owner)"
 
 # Permission bits of /P (ISO 32000-2, table 22), 1-based bit n is 1 << (n - 1).
 PERM_PRINT = 1 << 2
@@ -601,6 +602,12 @@ def benign_restricted_low_res_print() -> bytes:
     """No open password; printing is allowed, but not at high quality (MVP-19)."""
     permissions = ALL_PERMISSIONS & ~PERM_PRINT_HQ
     return aes256_document("restricted-low-res-print", b"", b"owner", permissions, LOW_RES_TEXT)
+
+
+def benign_restricted_open_password() -> bytes:
+    """An open password, and the author forbids copying and printing; the owner password lifts that (#88)."""
+    permissions = ALL_PERMISSIONS & ~PERM_COPY & ~PERM_PRINT & ~PERM_PRINT_HQ
+    return aes256_document("restricted-open-password", b"user", b"owner", permissions, OPEN_PASSWORD_TEXT)
 
 
 # Digital signatures: a detached CMS (PKCS #7) signature, SHA-256 with RSA-2048, from a
@@ -1100,6 +1107,10 @@ SAMPLES = [
            "high quality.",
            "Opens without a password (MVP-19): copying works; printing is at low resolution only.", 1,
            text=[LOW_RES_TEXT]),
+    Sample("benign/restricted-open-password.pdf", benign_restricted_open_password,
+           "AES-256 (R6); user password 'user', owner password 'owner'; /P forbids copying and printing.",
+           "Asks for a password: with 'user' the text cannot be copied and the document cannot be printed; with "
+           "'owner' nothing is restricted, as in Acrobat (#88).", 1),
     Sample("benign/signed.pdf", benign_signed,
            "Signed (adbe.pkcs7.detached, SHA-256, RSA-2048) with the corpus's self-signed test certificate. The "
            "key is derived from a fixed seed in generate.py, so anyone can re-create it: never trust it.",

@@ -86,7 +86,10 @@ CI 由 `Swatinem/rust-cache` 快取 `target/`（含 MuPDF 建置結果），`Car
 - `PdfDocument::from_bytes`：檢查前 1024 bytes 內有 `%PDF-`（否則 `NotPdf`）；加密文件回傳 `Encrypted`（MVP 不支援）。
 - `page_count`、`page_size`（point，未旋轉）。
 - `render(index, scale, rotation)`：縮放 0.01～64、旋轉 0／90／180／270（順時針）；**在 MuPDF 配置記憶體之前**先以頁面尺寸估算點陣圖大小，超過 4096 × 4096 像素就拒絕；輸出不透明 RGBA8（與 IPC 合約一致）。
-- 我們的程式碼沒有任何 `unsafe`（workspace 的 `unsafe_code = "deny"` 維持有效），FFI 全部封裝在 `mupdf` crate 內。
+- MuPDF 的 FFI 幾乎全部封裝在 `mupdf` crate 內；workspace 的 `unsafe_code = "deny"` 維持有效。唯一的例外是 `crates/pdf_worker/src/owner_password.rs`（#88）：
+  - 繫結不說是哪一個密碼開啟了文件，所以這裡以 `mupdf-sys`（與 `mupdf` 同一版本，沒有自己的 feature）另開一次文件，呼叫 `pdf_authenticate_password`；
+  - 為了讓 MuPDF 的錯誤（long jump）絕不穿過 Rust 的呼叫框架：開檔經由 `mupdf-sys` 會捕捉錯誤的 C wrapper；其他呼叫都在這個模組自己的 context 上，沒有任何 `fz_try` 區塊，MuPDF 遇到錯誤會直接結束行程而不是跳躍；
+  - `FZ_VERSION` 不在 `mupdf-sys` 的繫結中，所以版本寫在程式碼裡。升級 MuPDF 時若沒有更新，MuPDF 不會建立 context，擁有者密碼的測試會失敗。
 
 ## 尚未解決
 
