@@ -8,6 +8,7 @@
 pub mod engine;
 mod handle;
 mod owner_password;
+mod privacy;
 pub mod scan;
 pub mod search;
 pub mod serve;

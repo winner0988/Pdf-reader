@@ -164,6 +164,7 @@ mod tests {
             security: SecurityReport::default(),
             permissions: DocumentPermissions::ALL,
             unsaved: false,
+            encrypted: false,
         };
         let (channel, received) = recording_channel();
         events.subscribe(channel, || {

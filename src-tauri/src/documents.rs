@@ -422,6 +422,51 @@ impl Documents {
         })
     }
 
+    /// Writes the privacy export of `doc` (B2-03) to `destination`: a copy without its metadata,
+    /// made by the document's worker. The document, its edits and its file are not changed.
+    /// Refused for an encrypted document, and for the document's own file.
+    pub fn privacy_export(&self, doc: DocumentId, destination: &Path) -> Result<(), IpcError> {
+        // The new /ID: random, so it tells nothing of when or where the copy was made.
+        let mut id = [0u8; 16];
+        getrandom::fill(&mut id).map_err(|_| IpcError {
+            code: ErrorCode::Internal,
+            message: "no random bytes for the new document id".to_owned(),
+        })?;
+        self.with_document(doc, |document| {
+            if document.info.encrypted {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "an encrypted document has no privacy export".to_owned(),
+                });
+            }
+            if same_file(&document.path, destination) {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "the privacy export never replaces the document's own file".to_owned(),
+                });
+            }
+            saving::check_writable(destination)?;
+            let mut temporary = Temporary::new(destination)?;
+            let worker_doc = live_worker(document)?;
+            let response = document
+                .host
+                .privacy_copy(worker_doc, temporary.file(), id)
+                .map_err(|error| lost_on(document, &error))?;
+            let WorkerResponse::Saved { bytes, .. } = response else {
+                return Err(unexpected("PrivacyCopy"));
+            };
+            temporary.check(bytes)?;
+            temporary.replace(destination)
+        })
+    }
+
+    /// Whether `path` is the file of the open document `doc` (the privacy export may not write
+    /// there).
+    pub fn is_document_file(&self, doc: DocumentId, path: &Path) -> bool {
+        self.with_document(doc, |document| Ok(same_file(&document.path, path)))
+            .unwrap_or(false)
+    }
+
     /// Every tab as the frontend last heard about it, in tab order: all a reloaded page needs.
     pub fn snapshot(&self) -> Vec<OpenEvent> {
         let tabs = self.lock().tabs.clone();
@@ -885,6 +930,15 @@ fn not_allowed() -> IpcError {
     }
 }
 
+/// Whether `a` and `b` name the same existing file, as the system resolves them (letter case,
+/// short names, links): a dialog may spell a path differently. A missing file is no other file.
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
 fn unexpected(request: &str) -> IpcError {
     IpcError {
         code: ErrorCode::ProtocolViolation,
@@ -1034,6 +1088,7 @@ fn document_info(
         security: document.security,
         permissions: document.permissions,
         unsaved: false,
+        encrypted: document.encrypted,
     };
     info.validate().map_err(|error| IpcError {
         code: ErrorCode::Internal,
@@ -1969,6 +2024,72 @@ mod with_worker {
         documents.save(edited.doc, None).unwrap();
         assert_eq!(first_page_of(&path), LANDSCAPE);
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn the_privacy_export_writes_a_clean_copy_and_leaves_the_document_alone() {
+        const AUTHOR: &[u8] = b"Jane Q. Private-Author";
+        let sample =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign/metadata-full.pdf");
+        let (documents, info, path) = open_bytes("privacy-export", &std::fs::read(sample).unwrap());
+        assert!(!info.encrypted);
+        let before = std::fs::read(&path).unwrap();
+        let identity = FileIdentity::of(&path);
+        let copy = path.with_file_name("privacy-export-copy.pdf");
+        std::fs::remove_file(&copy).ok();
+
+        documents.privacy_export(info.doc, &copy).unwrap();
+        let written = std::fs::read(&copy).unwrap();
+        assert!(written.starts_with(b"%PDF-"));
+        assert!(!written.windows(AUTHOR.len()).any(|window| window == AUTHOR));
+        // The document and its file are as they were.
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(FileIdentity::of(&path), identity);
+        assert!(documents.unsaved_tabs().is_empty());
+
+        // Never over the document's own file, however the dialog spells it.
+        let shouted = PathBuf::from(path.to_string_lossy().to_uppercase());
+        assert!(documents.is_document_file(info.doc, &shouted));
+        assert!(!documents.is_document_file(info.doc, &copy));
+        assert_eq!(
+            documents
+                .privacy_export(info.doc, &shouted)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        std::fs::remove_file(copy).ok();
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn an_encrypted_document_has_no_privacy_export() {
+        let documents = Documents::new(worker());
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/encrypted-aes256.pdf");
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let [tab] = documents.add(&[path], &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(tab, &report);
+        documents
+            .unlock(tab, Password::new("user".to_owned()), &report)
+            .unwrap();
+        let Some(OpenEvent::Opened { info, .. }) = events.borrow().last().cloned() else {
+            panic!("opened")
+        };
+        assert!(info.encrypted);
+        let copy = std::env::temp_dir().join(format!(
+            "pdf-reader-privacy-encrypted-{}.pdf",
+            std::process::id()
+        ));
+        assert_eq!(
+            documents.privacy_export(info.doc, &copy).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        assert!(!copy.exists());
     }
 
     #[test]

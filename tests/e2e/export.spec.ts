@@ -14,7 +14,7 @@ const t = strings.export;
 async function openExport(page: Page) {
   await expect(page.getByRole("img", { name: strings.canvas.page(1) }).first()).toHaveAttribute("data-state", "ready");
   await page.getByRole("button", { name: strings.toolbar.more }).click();
-  await page.getByRole("menuitem", { name: new RegExp(strings.menu.export) }).click();
+  await page.getByRole("menuitem", { name: new RegExp(`^${strings.menu.export}`) }).click();
   return page.getByRole("dialog", { name: t.title });
 }
 

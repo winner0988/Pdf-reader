@@ -28,6 +28,7 @@ function renderApp(saving: Partial<SavingApi> = {}) {
     save: vi.fn<SavingApi["save"]>(() => Promise.resolve({ incremental: false })),
     saveAs: vi.fn<SavingApi["saveAs"]>(() => Promise.resolve(null)),
     closeWindow: vi.fn<SavingApi["closeWindow"]>(() => Promise.resolve()),
+    privacyExport: vi.fn<SavingApi["privacyExport"]>(() => Promise.resolve(true)),
     ...saving,
   } satisfies SavingApi;
   const renderApi: RenderApi = { renderPage: () => new Promise(() => {}), cancel: () => Promise.resolve() };
@@ -43,6 +44,7 @@ const info = (doc: number, displayName: string, unsaved: boolean): DocumentInfo 
   security: { findings: [], scanComplete: true },
   permissions: { copy: true, print: true, printHighQuality: true, modify: true, assemble: true },
   unsaved,
+  encrypted: false,
 });
 
 function open(push: (event: OpenEvent) => void, tab: number, doc: number, name: string, unsaved: boolean) {

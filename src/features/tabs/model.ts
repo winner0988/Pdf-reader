@@ -59,6 +59,7 @@ export function toShellDocument(info: DocumentInfo): ShellDocument {
     scanComplete: info.security.scanComplete,
     permissions: info.permissions,
     unsaved: info.unsaved,
+    encrypted: info.encrypted,
   };
 }
 

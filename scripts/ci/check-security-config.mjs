@@ -78,6 +78,10 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-save-document", "B2-02: write an open document to its own file; the main process owns the path"],
   ["allow-save-document-as", "B2-02: write an open document to a file the user picks in the main process's save dialog"],
   ["allow-close-window", "B2-02: close the window after the user was asked about unsaved changes"],
+  [
+    "allow-privacy-export",
+    "B2-03: a copy without metadata; the main process asks where, never the document's own file",
+  ],
 ]);
 
 /** Plugin permission prefixes that are never granted to the frontend, allowlist or not. */

@@ -11,6 +11,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
 import type { ExportApi } from "@/features/export/api";
 import { ExportDialog } from "@/features/export/ExportDialog";
+import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
 import { ALL_PERMISSIONS, restrictionSummary } from "@/features/permissions/permissions";
 import type { RecentApi } from "@/features/recent/api";
@@ -155,7 +156,9 @@ export function ReaderShell({
   const [fitPercent, setFitPercent] = useState(100);
   const [rotation, setRotation] = useState<Rotation>(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [dialog, setDialog] = useState<"shortcuts" | "about" | "settings" | "setDefaultFailed" | "print" | "export" | null>(
+  const [dialog, setDialog] = useState<
+    "shortcuts" | "about" | "settings" | "setDefaultFailed" | "print" | "export" | "privacyExport" | null
+  >(
     null,
   );
   /** Why saving failed (B2-02), while that is shown. */
@@ -197,7 +200,7 @@ export function ReaderShell({
     setTextSelected(false);
     setHint(null);
     setRecorded(null);
-    if (dialog === "print" || dialog === "export") setDialog(null);
+    if (dialog === "print" || dialog === "export" || dialog === "privacyExport") setDialog(null);
   }
 
   useEffect(() => {
@@ -418,6 +421,8 @@ export function ReaderShell({
           onSaveAs={savable ? saveAs : undefined}
           onExport={exportable && permissions.copy ? () => setDialog("export") : undefined}
           exportBlocked={exportable && !permissions.copy}
+          onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}
+          privacyExportBlocked={savable && document_?.encrypted === true}
           onMoreMenuOpen={askRecording}
           recording={recording ? { recorded, onChange: setRecording } : undefined}
         />
@@ -574,6 +579,14 @@ export function ReaderShell({
           }
           onReady={setPrintPages}
           lowResolutionDpi={permissions.printHighQuality ? undefined : LOW_RES_PRINT_DPI}
+        />
+      )}
+      {savable && (
+        <PrivacyExportDialog
+          open={dialog === "privacyExport"}
+          onOpenChange={(open) => setDialog(open ? "privacyExport" : null)}
+          onExport={() => savingApi.privacyExport(doc)}
+          onFinished={showHint}
         />
       )}
       {exportable && (

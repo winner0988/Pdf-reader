@@ -214,6 +214,30 @@ impl WorkerHost {
         })
     }
 
+    /// Writes to `file`, as [`save`](Self::save) does, a copy of `doc` without its metadata and
+    /// with `id` as its identifier (B2-03); `doc` itself is not changed.
+    pub fn privacy_copy(
+        &mut self,
+        doc: DocumentId,
+        file: &File,
+        id: [u8; 16],
+    ) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_write_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::PrivacyCopy {
+            request,
+            doc,
+            file: FileHandle(handle),
+            id,
+        })
+    }
+
     /// Sends a request built by `make` (which receives a fresh request id) and returns the
     /// validated response. Worker-reported errors come back as [`HostError::Worker`].
     pub fn request(

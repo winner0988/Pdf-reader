@@ -345,6 +345,8 @@ pub struct DocumentInfo {
     pub permissions: DocumentPermissions,
     /// Changed since it was opened or last saved (B2-02): the file does not have the changes yet.
     pub unsaved: bool,
+    /// Encrypted (MVP-16): it has no privacy export (B2-03).
+    pub encrypted: bool,
 }
 
 /// Arguments of the `render_page` command.

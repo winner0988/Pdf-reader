@@ -195,7 +195,11 @@ pages: Array<PageSize>, hasOutline: boolean, security: SecurityReport, permissio
 /**
  * Changed since it was opened or last saved (B2-02): the file does not have the changes yet.
  */
-unsaved: boolean, };
+unsaved: boolean, 
+/**
+ * Encrypted (MVP-16): it has no privacy export (B2-03).
+ */
+encrypted: boolean, };
 
 /**
  * Arguments of the `render_page` command.

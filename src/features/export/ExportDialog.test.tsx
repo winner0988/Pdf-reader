@@ -48,7 +48,7 @@ function renderShell(exportApi: ExportApi, permissions?: DocumentPermissions) {
 
 async function openExport(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
-  await user.click(await screen.findByRole("menuitem", { name: new RegExp(strings.menu.export) }));
+  await user.click(await screen.findByRole("menuitem", { name: new RegExp(`^${strings.menu.export}`) }));
   return screen.findByRole("dialog", { name: t.title });
 }
 
@@ -118,7 +118,7 @@ describe("export (B2-04)", () => {
     const fake = fakeExportApi();
     const { user } = renderShell(fake.api, { copy: false, print: true, printHighQuality: true, modify: true, assemble: true });
     await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
-    const item = await screen.findByRole("menuitem", { name: new RegExp(strings.menu.export) });
+    const item = await screen.findByRole("menuitem", { name: new RegExp(`^${strings.menu.export}`) });
     expect(item).toHaveAttribute("aria-disabled", "true");
     expect(item).toHaveTextContent(strings.permissions.notAllowed);
   });

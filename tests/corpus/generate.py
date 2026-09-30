@@ -69,7 +69,7 @@ class Pdf:
         return self.add(self.stream(dictionary, data))
 
     def build(self, root: int, *, doc_id: bytes, encrypt: int | None = None,
-              xref_shift: int = 0) -> bytes:
+              xref_shift: int = 0, info: int | None = None) -> bytes:
         out = bytearray(b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
         offsets = []
         for num, body in enumerate(self.objects, start=1):
@@ -85,6 +85,8 @@ class Pdf:
         trailer = f"/Size {len(offsets) + 1} /Root {root} 0 R /ID [{hex_string(doc_id)} {hex_string(doc_id)}]"
         if encrypt is not None:
             trailer += f" /Encrypt {encrypt} 0 R"
+        if info is not None:
+            trailer += f" /Info {info} 0 R"
         out += f"trailer\n<< {trailer} >>\nstartxref\n{xref_at}\n%%EOF\n".encode("latin-1")
         return bytes(out)
 
@@ -604,6 +606,67 @@ def benign_restricted_low_res_print() -> bytes:
     return aes256_document("restricted-low-res-print", b"", b"owner", permissions, LOW_RES_TEXT)
 
 
+# The privacy export (B2-03) removes all of these; the name and tool below must not survive it.
+PRIVATE_AUTHOR = "Jane Q. Private-Author"
+PRIVATE_TOOL = "SecretWriter 9.1 on Windows 10.0.19045"
+METADATA_TEXT = "Metadata sample: the privacy export removes every kind in this file"
+
+
+def xmp_packet(author: str, tool: str) -> bytes:
+    """An XMP packet naming the author and tool, with a modification date and a GPS position."""
+    return (
+        '<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>\n'
+        '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        '<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"'
+        ' xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:exif="http://ns.adobe.com/exif/1.0/">'
+        f"<dc:creator><rdf:Seq><rdf:li>{author}</rdf:li></rdf:Seq></dc:creator>"
+        f"<xmp:CreatorTool>{tool}</xmp:CreatorTool><xmp:ModifyDate>2026-01-02T03:04:05Z</xmp:ModifyDate>"
+        "<exif:GPSLatitude>25,2.0N</exif:GPSLatitude><exif:GPSLongitude>121,33.0E</exif:GPSLongitude>"
+        "</rdf:Description></rdf:RDF></x:xmpmeta>\n"
+        '<?xpacket end="w"?>'
+    ).encode("utf-8")
+
+
+def benign_metadata_full() -> bytes:
+    """Every kind of metadata the privacy export removes (B2-03), each naming the same author."""
+    doc = Document("metadata-full")
+    doc.reserve_pages(1)
+    def xmp() -> int:
+        return doc.pdf.add_stream("/Type /Metadata /Subtype /XML", xmp_packet(PRIVATE_AUTHOR, PRIVATE_TOOL))
+
+    catalog_xmp, page_xmp, image_xmp = xmp(), xmp(), xmp()
+    piece_info = doc.pdf.add(
+        f"<< /SecretWriter << /LastModified (D:20260102030405Z) /Private {pdf_string(PRIVATE_AUTHOR)} >> >>"
+    )
+    thumbnail = doc.pdf.add_stream(
+        "/Width 2 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 8", bytes([0, 255, 255, 0])
+    )
+    image = doc.pdf.add_stream(
+        "/Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 8"
+        f" /Metadata {image_xmp} 0 R",
+        bytes([0, 128, 128, 0]),
+    )
+    note = doc.pdf.add(
+        "<< /Type /Annot /Subtype /Text /Rect [72 600 92 620] /Contents (A sticky note)"
+        f" /T {pdf_string(PRIVATE_AUTHOR)} /M (D:20260102030405Z) /CreationDate (D:20260101000000Z) >>"
+    )
+    doc.set_page(0, Page(
+        lines=[(72, 720, 16, METADATA_TEXT)],
+        annots=[note],
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+        extra_content=b"\nq 40 0 0 40 72 640 cm /Im1 Do Q\n",
+        extra=f" /Metadata {page_xmp} 0 R /PieceInfo {piece_info} 0 R /Thumb {thumbnail} 0 R"
+        " /LastModified (D:20260102030405Z)",
+    ))
+    doc.catalog_extra = f" /Metadata {catalog_xmp} 0 R /PieceInfo {piece_info} 0 R"
+    info = doc.pdf.add(
+        f"<< /Author {pdf_string(PRIVATE_AUTHOR)} /Title (Private title) /Subject (Private subject)"
+        f" /Keywords (private, keywords) /Creator {pdf_string(PRIVATE_TOOL)} /Producer {pdf_string(PRIVATE_TOOL)}"
+        " /CreationDate (D:20260101000000Z) /ModDate (D:20260102030405Z) >>"
+    )
+    return doc.build(info=info)
+
+
 def benign_restricted_open_password() -> bytes:
     """An open password, and the author forbids copying and printing; the owner password lifts that (#88)."""
     permissions = ALL_PERMISSIONS & ~PERM_COPY & ~PERM_PRINT & ~PERM_PRINT_HQ
@@ -1111,6 +1174,12 @@ SAMPLES = [
            "AES-256 (R6); user password 'user', owner password 'owner'; /P forbids copying and printing.",
            "Asks for a password: with 'user' the text cannot be copied and the document cannot be printed; with "
            "'owner' nothing is restricted, as in Acrobat (#88).", 1),
+    Sample("benign/metadata-full.pdf", benign_metadata_full,
+           f"Every kind of metadata the privacy export removes, each naming '{PRIVATE_AUTHOR}': /Info, XMP on the "
+           "catalog, the page and an image (with a GPS position), /PieceInfo, a page thumbnail, /LastModified, and "
+           "a sticky note's author and dates.",
+           "Opens like an ordinary document (B2-03). Its privacy export has none of these, a new /ID, and renders "
+           f"the same; the bytes '{PRIVATE_AUTHOR}' appear nowhere in it.", 1, text=[METADATA_TEXT]),
     Sample("benign/signed.pdf", benign_signed,
            "Signed (adbe.pkcs7.detached, SHA-256, RSA-2048) with the corpus's self-signed test certificate. The "
            "key is derived from a fixed seed in generate.py, so anyone can re-create it: never trust it.",

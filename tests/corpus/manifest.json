@@ -170,6 +170,19 @@
       "sha256": "c0c375f576cefac8175bc1df626e2a8b6a1295cfb9264d0cca2a2b63c24922ce"
     },
     {
+      "path": "benign/metadata-full.pdf",
+      "category": "benign",
+      "purpose": "Every kind of metadata the privacy export removes, each naming 'Jane Q. Private-Author': /Info, XMP on the catalog, the page and an image (with a GPS position), /PieceInfo, a page thumbnail, /LastModified, and a sticky note's author and dates.",
+      "expected": "Opens like an ordinary document (B2-03). Its privacy export has none of these, a new /ID, and renders the same; the bytes 'Jane Q. Private-Author' appear nowhere in it.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Metadata sample: the privacy export removes every kind in this file"
+      ],
+      "bytes": 4249,
+      "sha256": "fb2d0f4f78ca55aab5cd12b145302609f31ebe8461fa00a869e75a972f051c30"
+    },
+    {
       "path": "benign/signed.pdf",
       "category": "benign",
       "purpose": "Signed (adbe.pkcs7.detached, SHA-256, RSA-2048) with the corpus's self-signed test certificate. The key is derived from a fixed seed in generate.py, so anyone can re-create it: never trust it.",

@@ -37,6 +37,7 @@
     "allow-apply-edit",
     "allow-save-document",
     "allow-save-document-as",
-    "allow-close-window"
+    "allow-close-window",
+    "allow-privacy-export"
   ]
 }
