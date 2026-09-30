@@ -1,7 +1,7 @@
-# Answers one of the app's file dialogs (#86, B2-04): open, save, or choose a folder. They are the
-# system's own, so the page cannot reach them. Finds the dialog of the given process with UI
-# Automation, then answers it the way the dialog's own keys do: the path goes into the file name
-# box (WM_SETTEXT) and the dialog gets IDOK (Open, Save, Select Folder) or IDCANCEL (Cancel).
+# Answers one of the app's file dialogs (#86, B2-04, B2-02): open, save, or choose a folder. They
+# are the system's own, so the page cannot reach them. Finds the dialog of the given process with
+# UI Automation, then answers it the way the dialog's own keys do: the path goes into the file name
+# box, as typed, and the dialog gets IDOK (Open, Save, Select Folder) or IDCANCEL (Cancel).
 # Returns once the dialog has closed. Prints what it saw, for a failing test to show.
 param(
     [Parameter(Mandatory = $true)][int]$ProcessId,
@@ -16,6 +16,8 @@ Add-Type -Namespace OpenDialog -Name Native -MemberDefinition @"
 public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, string lParam);
 [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageW")]
 public static extern IntPtr GetText(IntPtr window, uint message, IntPtr size, System.Text.StringBuilder text);
+[DllImport("user32.dll", EntryPoint = "SendMessageW")]
+public static extern IntPtr SendValue(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 [DllImport("user32.dll")]
 public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 [DllImport("user32.dll")]
@@ -55,10 +57,27 @@ $dialogWindow = [IntPtr]$dialog.Current.NativeWindowHandle
 $WM_SETTEXT = 0x000C
 $WM_GETTEXT = 0x000D
 $WM_COMMAND = 0x0111
+$WM_KEYDOWN = 0x0100
+$WM_KEYUP = 0x0101
+$WM_CHAR = 0x0102
+$EM_SETSEL = 0x00B1
+$VK_BACK = 0x08
 function Text-Of($window) {
     $text = New-Object System.Text.StringBuilder 2048
     [void][OpenDialog.Native]::GetText($window, $WM_GETTEXT, [IntPtr]2048, $text)
     $text.ToString()
+}
+# Puts `$text` in the box as if typed. A save dialog keeps the name it suggested unless the user
+# types: set as text alone, the path is shown but the file is saved under the suggestion, in the
+# dialog's folder (seen on CI). So it goes in with one character too many, which a real
+# Backspace then removes.
+function Type-Into($box, $text) {
+    [void][OpenDialog.Native]::SendMessage($box, $WM_SETTEXT, [IntPtr]::Zero, "${text}x")
+    $end = [IntPtr]($text.Length + 1)
+    [void][OpenDialog.Native]::SendValue($box, $EM_SETSEL, $end, $end)
+    [void][OpenDialog.Native]::SendValue($box, $WM_KEYDOWN, [IntPtr]$VK_BACK, [IntPtr]1)
+    [void][OpenDialog.Native]::SendValue($box, $WM_CHAR, [IntPtr]$VK_BACK, [IntPtr]1)
+    [void][OpenDialog.Native]::SendValue($box, $WM_KEYUP, [IntPtr]$VK_BACK, [IntPtr]0xC0000001)
 }
 # The dialog's title, its edit boxes and its address bar, as one line.
 function Describe($when) {
@@ -106,7 +125,7 @@ if ($Cancel) {
     }
     $typed = $false
     for ($attempt = 1; $attempt -le 5 -and -not $typed; $attempt++) {
-        [void][OpenDialog.Native]::SendMessage($box, $WM_SETTEXT, [IntPtr]::Zero, $Path)
+        Type-Into $box $Path
         Start-Sleep -Milliseconds 300
         $typed = (Text-Of $box) -ceq $Path
     }
@@ -126,7 +145,7 @@ $choosingFolder = -not $Cancel -and (Test-Path -LiteralPath $Path -PathType Cont
 for ($attempt = 1; $attempt -le 3 -and [OpenDialog.Native]::IsWindow($dialogWindow); $attempt++) {
     if ($attempt -gt 1 -and -not $Cancel -and -not $choosingFolder -and (Text-Of $box) -cne $Path) {
         Describe "went to the folder"
-        [void][OpenDialog.Native]::SendMessage($box, $WM_SETTEXT, [IntPtr]::Zero, $Path)
+        Type-Into $box $Path
         Start-Sleep -Milliseconds 300
         if ((Text-Of $box) -cne $Path) {
             [void][OpenDialog.Native]::PostMessage($dialogWindow, $WM_COMMAND, [IntPtr]2, [IntPtr]::Zero)
