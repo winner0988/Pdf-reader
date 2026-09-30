@@ -55,6 +55,26 @@ jobs:
       - name: Build installer
         run: pnpm bundle
 
+      # DEC-04 (#112): the installer is not signed, so it comes with its SHA-256, which users check
+      # with Get-FileHash (docs/architecture/packaging.md). Taken from the file as built, before
+      # anything runs it.
+      - name: Installer SHA-256
+        run: |
+          $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          $hash = (Get-FileHash -Algorithm SHA256 $installer.FullName).Hash.ToLowerInvariant()
+          # The format of sha256sum: the hash, two spaces, the file name.
+          [IO.File]::WriteAllText("$($installer.FullName).sha256", "$hash  $($installer.Name)`n")
+          "SHA-256 of $($installer.Name): $hash"
+          @(
+            "### Installer",
+            "",
+            "| File | SHA-256 |",
+            "|---|---|",
+            "| ``$($installer.Name)`` | ``$hash`` |",
+            "",
+            "Not signed (DEC-04): check a copy with ``Get-FileHash -Algorithm SHA256 <file>``."
+          ) | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
       # REL-02: the installer never downloads WebView2. Tauri's template keeps the code of every
       # install mode behind compile-time !if checks, so check the mode this installer was built
       # with (tauri.conf.json; check-security-config.mjs enforces the setting too). For "skip"
@@ -127,3 +147,25 @@ jobs:
           if ($left) { throw "left after uninstalling: $($left -join ', ')" }
           if ($null -ne (Get-ItemProperty 'HKLM:\SOFTWARE\RegisteredApplications').'PDF Reader') { throw 'still in RegisteredApplications' }
           if ($null -ne (Get-ItemProperty 'HKLM:\SOFTWARE\Classes\.pdf\OpenWithProgids' -ErrorAction SilentlyContinue).'PdfReader.Document') { throw 'still in Open with' }
+
+      # The file uploaded is the one the SHA-256 was taken from: installing and uninstalling it
+      # changed nothing.
+      - name: Installer still matches its SHA-256
+        run: |
+          $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          $expected = ((Get-Content -Raw "$($installer.FullName).sha256") -split '\s+')[0]
+          $actual = (Get-FileHash -Algorithm SHA256 $installer.FullName).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "SHA-256 of $($installer.Name) is $actual, the .sha256 file says $expected" }
+          "$($installer.Name) matches its .sha256"
+
+      # For checking a build, not a release (DEC-04; distributing the installer is decided
+      # separately): kept two weeks.
+      - name: Upload the installer with its SHA-256
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installer
+          path: |
+            target/release/bundle/nsis/*-setup.exe
+            target/release/bundle/nsis/*-setup.exe.sha256
+          if-no-files-found: error
+          retention-days: 14
