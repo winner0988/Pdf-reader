@@ -101,11 +101,27 @@ CI runner 裝有 VC++ 執行階段，所以「在乾淨的 Windows 11 上能執�
 - 發行時附上安裝檔的 SHA-256 雜湊值，並說明 Windows SmartScreen 會警告「不明的發行者」（[#112](https://github.com/winner0988/Pdf-reader/issues/112)）；
 - 決定對外散布安裝檔（ADR 0011）時，再評估 Azure Trusted Signing 或 OV／EV 憑證，屆時寫成 ADR（金鑰保管、要簽的檔案、時間戳記伺服器）。
 
+### 安裝檔的 SHA-256（#112）
+
+- **CI 產生**：`Installer (Windows)`（`.github/workflows/installer.yml`）在建置後、執行安裝檔之前算出 SHA-256：
+  - 寫進工作摘要（job summary）；
+  - 寫成 `<安裝檔名>.sha256`，格式與 `sha256sum` 相同（雜湊值、兩個空格、檔名）；
+  - 安裝、解除安裝的檢查之後再核對一次，確認上傳的就是算雜湊值的那個檔案；
+  - 兩個檔案一起上傳為 artifact `installer`，保留 14 天。這是為了檢查建置結果，**不是正式發行**；是否對外散布另行決定（ADR 0011）。
+- **使用者核對**：在 PowerShell 中執行，結果要與 `.sha256` 檔（或發行說明）中的值相同：
+
+  ```powershell
+  Get-FileHash -Algorithm SHA256 '.\PDF Reader_0.1.0_x64-setup.exe'
+  ```
+
+  `Get-FileHash` 顯示大寫，`.sha256` 檔是小寫，兩者比對時不分大小寫。
+- **SmartScreen**：安裝檔沒有簽章，執行時 Windows 會顯示「Windows 已保護您的電腦」，發行者是「不明的發行者」。核對過雜湊值後，按「其他資訊」→「仍要執行」。
+
 ## 剩餘風險
 
 | 風險 | 後續 |
 |---|---|
-| 安裝檔尚未簽章，SmartScreen 會警告 | 暫不簽章（見上方「程式碼簽章」）；發行時附 SHA-256 |
+| 安裝檔尚未簽章，SmartScreen 會警告 | 暫不簽章（見上方「程式碼簽章」）；CI 產生並上傳 SHA-256（見上方「安裝檔的 SHA-256」） |
 | 沒有在真正乾淨的 Windows 11 VM 上實測安裝 | 發佈前的手動驗收清單 |
 | 其他使用者的 AppContainer profile 在解除安裝後留下 | 內容為空，影響很小；如需處理，可在主程式啟動時清理 |
 | 缺少 WebView2 的電腦（被移除，或 Windows 10）無法使用 | 安裝檔與 app 都會說明，由使用者自行安裝；CI runner 裝有 WebView2，所以這兩段說明沒有在 CI 上實際顯示過 |
