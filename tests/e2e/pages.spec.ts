@@ -122,3 +122,45 @@ test("dragging a thumbnail moves its page (B2-05)", async ({ launch }) => {
   await find(page, "Page 2 of 10");
   await showsPage(page, 1, 10);
 });
+
+test("three edits undone with Ctrl+Z leave the document as it was, with nothing to save (B2-05)", async ({
+  launch,
+}) => {
+  // Nothing is saved: the corpus file itself is never written.
+  const page = await launch(corpus("benign/multi-page-10.pdf"));
+  await expect(pageSlot(page, 1)).toHaveAttribute("data-state", "ready");
+  const list = await openThumbnails(page);
+  const unsaved = page.getByRole("tab", { name: new RegExp(`^multi-page-10\\.pdf\\s*${strings.tabs.unsaved}$`) });
+  const saved = page.getByRole("tab", { name: "multi-page-10.pdf", exact: true });
+
+  await fromMenu(page, list, 3, strings.pages.delete);
+  const doc = await fromMenu(page, list, 4, strings.pages.moveTo);
+  const dialog = page.getByRole("dialog", { name: strings.pages.move.title });
+  await dialog.getByLabel(strings.pages.move.page).fill("1");
+  await dialog.getByRole("button", { name: strings.pages.move.confirm }).click();
+  await edited(page, doc);
+  await fromMenu(page, list, 3, strings.pages.rotateCw);
+  await expect(unsaved).toBeVisible();
+
+  for (let undo = 0; undo < 3; undo++) {
+    const before = await pageSlot(page, 1).getAttribute("data-doc");
+    await page.keyboard.press("Control+z");
+    await edited(page, before);
+  }
+  // As it was: ten pages in order, none turned, nothing to save.
+  await expect(saved).toBeVisible();
+  await hasPages(page, 10);
+  await find(page, "Page 3 of 10");
+  await showsPage(page, 3, 10);
+  const second = await pageSlot(page, 2).boundingBox();
+  expect(second && second.width < second.height).toBe(true);
+
+  // Ctrl+Y makes the last one undone again: page 3 is deleted once more. (Not from the search
+  // field, which keeps its own undo: Esc closes it.)
+  await page.keyboard.press("Escape");
+  const before = await pageSlot(page, 1).getAttribute("data-doc");
+  await page.keyboard.press("Control+y");
+  await edited(page, before);
+  await expect(unsaved).toBeVisible();
+  await hasPages(page, 9);
+});

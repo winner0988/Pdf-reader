@@ -250,6 +250,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             doc,
             edit: WorkerEdit::InsertBlankPage { at: 1, like: 0 },
         },
+        WorkerRequest::Revert {
+            request,
+            doc,
+            edits: vec![
+                WorkerEdit::DeletePages { pages: vec![0] },
+                WorkerEdit::MovePages {
+                    pages: vec![1],
+                    before: 0,
+                },
+            ],
+        },
         WorkerRequest::Save {
             request,
             doc,

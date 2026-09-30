@@ -52,6 +52,8 @@ sequenceDiagram
 
 一般文件在 worker 崩潰後，會在新的 worker 中重新開啟（使用者看不出來）。以密碼開啟的文件做不到：密碼沒有保留。所以主行程放棄這份文件，分頁改回「需要密碼」（`passwordNeeded { wrong: false }`），使用者重新輸入後再開啟。
 
+同樣的原因，以密碼開啟的文件**不能復原**編輯（B2-05）：復原要從原始位元組重新開啟文件（ADR 0013），需要密碼。見 [page-management.md](page-management.md)「復原與重做」。
+
 ## 權限（MVP-19）
 
 工作卡 [#82](https://github.com/winner0988/Pdf-reader/issues/82)。負責人在 [#70](https://github.com/winner0988/Pdf-reader/issues/70) 決定比照 Adobe Acrobat 遵守 PDF 的權限。

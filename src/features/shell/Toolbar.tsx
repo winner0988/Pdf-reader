@@ -60,6 +60,9 @@ export type ToolbarProps = {
   onSave?: () => void;
   /** Saves the open document as another file (B2-02). */
   onSaveAs?: () => void;
+  /** Undoes the last edit, or makes the last undone one again (B2-05); without them the items are disabled. */
+  onUndo?: () => void;
+  onRedo?: () => void;
   /** Exports the open document's text or pages (B2-04); without it the menu item is disabled. */
   onExport?: () => void;
   /** The document's author forbids copying, which covers exporting (MVP-19). */
@@ -225,6 +228,15 @@ function MoreMenu(props: ToolbarProps) {
             <DropdownMenuRadioItem value="dark">{menu.themeDark}</DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem disabled={!props.onUndo} onClick={props.onUndo}>
+          {menu.undo}
+          <DropdownMenuShortcut>Ctrl+Z</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!props.onRedo} onClick={props.onRedo}>
+          {menu.redo}
+          <DropdownMenuShortcut>Ctrl+Y</DropdownMenuShortcut>
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={!props.onSave} onClick={props.onSave}>
           {menu.save}

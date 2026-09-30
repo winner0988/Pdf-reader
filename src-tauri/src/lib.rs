@@ -11,6 +11,7 @@ mod documents;
 mod events;
 mod export;
 mod file_dialog;
+mod history;
 mod links;
 mod local_data;
 mod opener;
@@ -107,6 +108,8 @@ pub fn run() {
             commands::clear_recent_exclusions,
             commands::export_pages,
             commands::apply_edit,
+            commands::undo_edit,
+            commands::redo_edit,
             commands::save_document,
             commands::save_document_as,
             commands::close_window,

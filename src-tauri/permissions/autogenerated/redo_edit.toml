@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-redo-edit"
+description = "Enables the redo_edit command without any pre-configured scope."
+commands.allow = ["redo_edit"]
+
+[[permission]]
+identifier = "deny-redo-edit"
+description = "Denies the redo_edit command without any pre-configured scope."
+commands.deny = ["redo_edit"]

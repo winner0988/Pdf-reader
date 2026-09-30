@@ -45,6 +45,8 @@ const info = (doc: number, displayName: string, unsaved: boolean): DocumentInfo 
   permissions: { copy: true, print: true, printHighQuality: true, modify: true, assemble: true },
   unsaved,
   encrypted: false,
+  canUndo: false,
+  canRedo: false,
 });
 
 function open(push: (event: OpenEvent) => void, tab: number, doc: number, name: string, unsaved: boolean) {

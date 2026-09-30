@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-use ipc_contract::limits::{MAX_DISPLAY_NAME_BYTES, MAX_PAGE_COUNT, MAX_TABS, MAX_TEXT_BYTES};
+use ipc_contract::limits::{
+    MAX_DISPLAY_NAME_BYTES, MAX_PAGE_COUNT, MAX_TABS, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
+};
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
@@ -24,6 +26,7 @@ use ipc_contract::worker::{WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerRes
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
 use crate::export::ImageKind;
+use crate::history::History;
 use crate::saving::{self, FileIdentity, Temporary};
 
 /// Display name used when a path has no file name component.
@@ -85,8 +88,9 @@ struct OpenDocument {
     lost: bool,
     /// The file as it was when read or last written, to notice another program changing it.
     identity: Option<FileIdentity>,
-    /// Edits since the file was last written, in order. `info.unsaved` while there are any.
-    edits: Vec<WorkerEdit>,
+    /// Edits since the file was read or last written, applied and undone (B2-05).
+    /// `info.unsaved` while some are applied.
+    history: History,
 }
 
 impl Documents {
@@ -193,7 +197,7 @@ impl Documents {
                 protected,
                 lost: false,
                 identity,
-                edits: Vec::new(),
+                history: History::default(),
             })
         });
         let event = match (&result, asks) {
@@ -350,6 +354,12 @@ impl Documents {
             if !(permissions.assemble || permissions.modify) {
                 return Err(not_allowed());
             }
+            if !document.history.has_room() {
+                return Err(IpcError {
+                    code: ErrorCode::LimitExceeded,
+                    message: format!("at most {MAX_UNDO_EDITS} edits between saves"),
+                });
+            }
             let check_pages = |pages: &[u32]| {
                 pages
                     .iter()
@@ -400,9 +410,65 @@ impl Documents {
             if pages.len() != expected_pages as usize {
                 return Err(unexpected("Edit"));
             }
-            document.edits.push(edit);
+            document.history.push(edit);
             document.info.pages = pages;
-            document.info.unsaved = true;
+            show_history(document);
+            document.info.doc = DocumentId(self.next_id());
+            Ok(())
+        })?;
+        Ok(event)
+    }
+
+    /// Undoes the last edit of `doc` (B2-05, ADR 0013): its worker opens the document again from
+    /// the bytes it keeps and applies the edits before it. Returns the tab's new state, as
+    /// `apply_edit` does. Not for a document opened with a password (MVP-16).
+    pub fn undo(&self, doc: DocumentId) -> Result<OpenEvent, IpcError> {
+        let ((), event) = self.change_document(doc, |document| {
+            if document.protected {
+                return Err(invalid_argument(
+                    "a document opened with a password cannot be undone: the password is not kept",
+                ));
+            }
+            let edits = document
+                .history
+                .before_last()
+                .ok_or_else(|| invalid_argument("nothing to undo"))?
+                .to_vec();
+            let pages = revert_in_worker(document, edits).inspect_err(|error| {
+                if matches!(error.code, ErrorCode::Internal | ErrorCode::LimitExceeded) {
+                    document.lost = true;
+                }
+            })?;
+            document.history.undone();
+            document.info.pages = pages;
+            show_history(document);
+            document.info.doc = DocumentId(self.next_id());
+            Ok(())
+        })?;
+        Ok(event)
+    }
+
+    /// Makes the last undone edit of `doc` again (B2-05); returns the tab's new state.
+    pub fn redo(&self, doc: DocumentId) -> Result<OpenEvent, IpcError> {
+        let ((), event) = self.change_document(doc, |document| {
+            if document.protected {
+                return Err(invalid_argument(
+                    "a document opened with a password cannot be undone: the password is not kept",
+                ));
+            }
+            let edit = document
+                .history
+                .next()
+                .ok_or_else(|| invalid_argument("nothing to redo"))?
+                .clone();
+            let pages = edit_in_worker(document, &edit).inspect_err(|error| {
+                if matches!(error.code, ErrorCode::Internal | ErrorCode::LimitExceeded) {
+                    document.lost = true;
+                }
+            })?;
+            document.history.redone();
+            document.info.pages = pages;
+            show_history(document);
             document.info.doc = DocumentId(self.next_id());
             Ok(())
         })?;
@@ -422,7 +488,9 @@ impl Documents {
             let destination = match destination {
                 Some(destination) => destination,
                 // Nothing to write.
-                None if document.edits.is_empty() => return Ok(SaveResult { incremental: false }),
+                None if !document.history.unsaved() => {
+                    return Ok(SaveResult { incremental: false });
+                }
                 None => {
                     match (document.identity, FileIdentity::of(&document.path)) {
                         (Some(then), Some(now)) if then == now => {}
@@ -453,11 +521,15 @@ impl Documents {
             temporary.check(bytes)?;
             temporary.replace(&destination)?;
             document.identity = FileIdentity::of(&destination);
-            document.edits.clear();
-            document.info.unsaved = false;
             if destination != document.path {
                 document.info.display_name = display_name(&destination);
                 document.path = destination;
+            }
+            document.history.saved();
+            show_history(document);
+            // Undo starts from the file now: the worker keeps its bytes instead (ADR 0013).
+            if !document.protected {
+                rebase(document);
             }
             Ok(SaveResult { incremental })
         })
@@ -980,6 +1052,55 @@ fn edit_in_worker(
     }
 }
 
+/// Opens the document again in its worker from the bytes the worker keeps and applies `edits`
+/// (undo, ADR 0013); returns the document's pages after them.
+fn revert_in_worker(
+    document: &mut OpenDocument,
+    edits: Vec<WorkerEdit>,
+) -> Result<Vec<PageSize>, IpcError> {
+    match request(document, |request, doc| WorkerRequest::Revert {
+        request,
+        doc,
+        edits,
+    })? {
+        WorkerResponse::Edited { pages, .. } => Ok(pages),
+        _ => Err(unexpected("Revert")),
+    }
+}
+
+/// What the frontend is told of the history: unsaved changes, and whether undo and redo can be
+/// done. Never for a document opened with a password, which could not be opened again (MVP-16).
+fn show_history(document: &mut OpenDocument) {
+    let history = &document.history;
+    document.info.unsaved = history.unsaved();
+    document.info.can_undo = !document.protected && history.can_undo();
+    document.info.can_redo = !document.protected && history.can_redo();
+}
+
+/// Opens the file just written in the document's worker, in place of the document, so the worker
+/// keeps the file's bytes to undo from (ADR 0013). If that fails, the document is opened again
+/// at the next request.
+fn rebase(document: &mut OpenDocument) {
+    let old = document.worker_doc;
+    let opened = document
+        .host
+        .open(&document.path)
+        .ok()
+        .and_then(|(doc, response)| {
+            let pages = document_info(doc, document.info.display_name.clone(), response)
+                .ok()?
+                .pages;
+            (pages == document.info.pages).then_some(doc)
+        });
+    match opened {
+        Some(doc) => {
+            let _ = document.host.notify(&WorkerRequest::Close { doc: old });
+            document.worker_doc = doc;
+        }
+        None => document.lost = true,
+    }
+}
+
 fn not_allowed() -> IpcError {
     IpcError {
         code: ErrorCode::InvalidArgument,
@@ -1012,7 +1133,7 @@ fn reopen(document: &mut OpenDocument) -> Result<DocumentId, IpcError> {
         .open(&document.path)
         .map_err(|error| ipc_error(&error))?;
     let mut pages = document_info(doc, document.info.display_name.clone(), response)?.pages;
-    for edit in &document.edits {
+    for edit in document.history.applied() {
         match document.host.request(|request| WorkerRequest::Edit {
             request,
             doc,
@@ -1146,6 +1267,8 @@ fn document_info(
         permissions: document.permissions,
         unsaved: false,
         encrypted: document.encrypted,
+        can_undo: false,
+        can_redo: false,
     };
     info.validate().map_err(|error| IpcError {
         code: ErrorCode::Internal,
@@ -2247,6 +2370,132 @@ mod with_worker {
         assert_eq!(reopened.pages, [LETTER, LANDSCAPE, LANDSCAPE]);
         std::fs::remove_file(copy).ok();
         std::fs::remove_file(path).ok();
+    }
+
+    /// The tab's state after undoing (or, with `undo` false, redoing) an edit of `doc`, which
+    /// then has a new id.
+    fn stepped(documents: &Documents, doc: &mut DocumentId, undo: bool) -> DocumentInfo {
+        let event = if undo {
+            documents.undo(*doc)
+        } else {
+            documents.redo(*doc)
+        };
+        let info = opened_info(event.unwrap());
+        *doc = info.doc;
+        info
+    }
+
+    fn turn(page: u32) -> Edit {
+        Edit::RotatePages {
+            pages: vec![page],
+            by: Rotation::Cw90,
+        }
+    }
+
+    #[test]
+    fn undo_and_redo_go_through_the_edits_and_back_to_the_file() {
+        let (documents, info, path) = open("undo", 3);
+        let mut doc = info.doc;
+        edited_pages(&documents, &mut doc, turn(1));
+        edited_pages(&documents, &mut doc, Edit::DeletePages { pages: vec![0] });
+
+        let info = stepped(&documents, &mut doc, true);
+        assert_eq!(info.pages, [LETTER, LANDSCAPE, LETTER]);
+        assert!(info.unsaved && info.can_undo && info.can_redo);
+        let info = stepped(&documents, &mut doc, true);
+        assert_eq!(info.pages, [LETTER, LETTER, LETTER]);
+        // The file again: nothing to save, nothing more to undo.
+        assert!(!info.unsaved && !info.can_undo && info.can_redo);
+        assert!(documents.unsaved_tabs().is_empty());
+        assert_eq!(
+            documents.undo(doc).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        let info = stepped(&documents, &mut doc, false);
+        assert_eq!(info.pages, [LETTER, LANDSCAPE, LETTER]);
+        assert!(info.unsaved);
+        // A new edit drops what was undone.
+        edited_pages(
+            &documents,
+            &mut doc,
+            Edit::InsertBlankPage { at: 0, like: 0 },
+        );
+        assert_eq!(
+            documents.redo(doc).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn after_saving_undo_starts_from_the_file() {
+        let (documents, info, path) = open("undo-save", 2);
+        let mut doc = info.doc;
+        edited_pages(&documents, &mut doc, turn(0));
+        let (_, event) = documents.save(doc, None).unwrap();
+        let saved = opened_info(event);
+        assert!(!saved.unsaved && !saved.can_undo && !saved.can_redo);
+        edited_pages(&documents, &mut doc, Edit::DeletePages { pages: vec![1] });
+        // Undone to the file as saved, with its page turned; not as it was first opened.
+        let info = stepped(&documents, &mut doc, true);
+        assert_eq!(info.pages, [LANDSCAPE, LETTER]);
+        assert!(!info.unsaved && !info.can_undo);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn what_was_undone_can_be_redone_after_a_worker_crash() {
+        let (documents, info, path) = open("undo-crash", 2);
+        let mut doc = info.doc;
+        edited_pages(&documents, &mut doc, turn(0));
+        edited_pages(&documents, &mut doc, turn(1));
+        stepped(&documents, &mut doc, true);
+        let pid = documents.worker_id(doc).expect("worker running");
+        std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            documents
+                .render(&args(doc, 0, 0.5, Rotation::None))
+                .unwrap_err()
+                .code,
+            ErrorCode::WorkerCrashed
+        );
+        // Opened again with the first turn; the second can still be made again.
+        let info = stepped(&documents, &mut doc, false);
+        assert_eq!(info.pages, [LANDSCAPE, LANDSCAPE]);
+        let info = stepped(&documents, &mut doc, true);
+        assert_eq!(info.pages, [LANDSCAPE, LETTER]);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_document_opened_with_a_password_has_no_undo() {
+        let documents = Documents::new(worker());
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/encrypted-aes256.pdf");
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let [tab] = documents.add(&[path], &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(tab, &report);
+        documents
+            .unlock(tab, Password::new("user".to_owned()), &report)
+            .unwrap();
+        let mut doc = opened_info(events.borrow().last().cloned().unwrap()).doc;
+        let edited = opened_info(
+            documents
+                .apply_edit(&EditArgs { doc, edit: turn(0) })
+                .unwrap(),
+        );
+        doc = edited.doc;
+        assert!(edited.unsaved && !edited.can_undo);
+        assert_eq!(
+            documents.undo(doc).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
     }
 
     #[test]

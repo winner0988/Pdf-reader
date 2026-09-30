@@ -11,6 +11,7 @@ use ipc_contract::frame::{self, FrameError};
 use ipc_contract::limits::{
     MAX_DOCUMENT_BYTES, MAX_ERROR_MESSAGE_BYTES, MAX_LINKS_PER_PAGE, MAX_OUTLINE_DEPTH,
     MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_PAGE_TEXT_CHARS, MAX_SEARCH_HITS, MAX_TEXT_BYTES,
+    MAX_UNDO_EDITS,
 };
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
@@ -30,6 +31,9 @@ use crate::scan::ScanBudget;
 pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), FrameError> {
     frame::send(&mut output, &WorkerResponse::hello())?;
     let mut documents: HashMap<DocumentId, PdfDocument> = HashMap::new();
+    // The bytes each document was opened from, to open it again for undo (ADR 0013). Not for a
+    // document opened with a password, which could not be opened again without it.
+    let mut originals: HashMap<DocumentId, Vec<u8>> = HashMap::new();
 
     // Wiped after decoding: an Open request may carry a password (MVP-16).
     while let Some(request) = frame::receive_wiped::<_, WorkerRequest>(&mut input)? {
@@ -39,7 +43,14 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 doc,
                 file,
                 password,
-            } => Some(open(&mut documents, request, doc, file, password)),
+            } => Some(open(
+                &mut documents,
+                &mut originals,
+                request,
+                doc,
+                file,
+                password,
+            )),
             WorkerRequest::Render {
                 request,
                 doc,
@@ -179,11 +190,18 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     WorkerErrorCode::UnknownDocument,
                     "unknown document",
                 ),
-                Some(document) => match apply(document, &edit) {
-                    Ok(pages) => WorkerResponse::Edited { request, pages },
-                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
-                },
+                Some(document) => {
+                    match apply(document, &edit).and_then(|()| page_sizes(document)) {
+                        Ok(pages) => WorkerResponse::Edited { request, pages },
+                        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+                    }
+                }
             }),
+            WorkerRequest::Revert {
+                request,
+                doc,
+                edits,
+            } => Some(revert(&mut documents, &originals, request, doc, &edits)),
             WorkerRequest::Save { request, doc, file } => Some(match documents.get(&doc) {
                 None => error(
                     request,
@@ -209,6 +227,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
             WorkerRequest::Cancel { .. } => None,
             WorkerRequest::Close { doc } => {
                 documents.remove(&doc);
+                originals.remove(&doc);
                 None
             }
             WorkerRequest::Shutdown => break,
@@ -223,6 +242,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
 /// Opens a document; `password` (MVP-16) is wiped when this returns, whatever happened.
 fn open(
     documents: &mut HashMap<DocumentId, PdfDocument>,
+    originals: &mut HashMap<DocumentId, Vec<u8>>,
     request: RequestId,
     doc: DocumentId,
     file: FileHandle,
@@ -253,6 +273,11 @@ fn open(
     let permissions = document.permissions();
     let encrypted = document.is_encrypted();
     documents.insert(doc, document);
+    if password.is_none() {
+        originals.insert(doc, bytes);
+    } else {
+        originals.remove(&doc);
+    }
     WorkerResponse::Opened {
         request,
         document: OpenedDocument {
@@ -278,15 +303,60 @@ fn page_sizes(document: &PdfDocument) -> Result<Vec<PageSize>, EngineError> {
         .collect()
 }
 
-/// Applies an edit to the document in memory (ADR 0013) and returns its pages as they are now.
-fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<Vec<PageSize>, EngineError> {
+/// Opens `doc` again from the bytes it was opened from and applies `edits` in order (undo,
+/// ADR 0013). The document is replaced only once every edit is applied: until then, and if one
+/// fails, it stays as it was.
+fn revert(
+    documents: &mut HashMap<DocumentId, PdfDocument>,
+    originals: &HashMap<DocumentId, Vec<u8>>,
+    request: RequestId,
+    doc: DocumentId,
+    edits: &[WorkerEdit],
+) -> WorkerResponse {
+    if !documents.contains_key(&doc) {
+        return error(
+            request,
+            WorkerErrorCode::UnknownDocument,
+            "unknown document",
+        );
+    }
+    let Some(bytes) = originals.get(&doc) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "opened with a password, which is not kept: it cannot be opened again",
+        );
+    };
+    if edits.len() > MAX_UNDO_EDITS as usize {
+        return error(request, WorkerErrorCode::LimitExceeded, "too many edits");
+    }
+    let mut document = match PdfDocument::open(bytes, None) {
+        Ok(document) => document,
+        Err(engine) => return engine_error(request, &engine, WorkerErrorCode::Corrupted),
+    };
+    for edit in edits {
+        if let Err(engine) = apply(&mut document, edit) {
+            return engine_error(request, &engine, WorkerErrorCode::Internal);
+        }
+    }
+    match page_sizes(&document) {
+        Ok(pages) => {
+            documents.insert(doc, document);
+            WorkerResponse::Edited { request, pages }
+        }
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
+/// Applies an edit to the document in memory (ADR 0013).
+fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineError> {
     match edit {
         WorkerEdit::RotatePages { pages, degrees } => document.rotate_pages(pages, *degrees)?,
         WorkerEdit::DeletePages { pages } => document.delete_pages(pages)?,
         WorkerEdit::MovePages { pages, before } => document.move_pages(pages, *before)?,
         WorkerEdit::InsertBlankPage { at, like } => document.insert_blank_page(*at, *like)?,
     }
-    page_sizes(document)
+    Ok(())
 }
 
 /// Writes the document to the write-only handle `file` (ADR 0013). The handle is closed when

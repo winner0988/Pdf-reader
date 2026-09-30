@@ -33,6 +33,8 @@ fn main() {
         "clear_recent_exclusions",
         "export_pages",
         "apply_edit",
+        "undo_edit",
+        "redo_edit",
         "save_document",
         "save_document_as",
         "close_window",

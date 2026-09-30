@@ -312,6 +312,17 @@ export function ReaderShell({
           apply: (edit) => editingApi.applyEdit(doc, edit),
         }
       : undefined;
+  // Undo and redo (B2-05). A document with changes but nothing to undo was opened with a
+  // password, which is not kept to open it again.
+  const undoable = pageEditing !== undefined && document_?.canUndo === true;
+  const redoable = pageEditing !== undefined && document_?.canRedo === true;
+  const undo = () => {
+    if (undoable) editingApi!.undo(doc!).catch(() => showHint(strings.pages.failed));
+    else if (document_?.unsaved) showHint(strings.pages.noUndo);
+  };
+  const redo = () => {
+    if (redoable) editingApi!.redo(doc!).catch(() => showHint(strings.pages.failed));
+  };
   // Deleting pages can leave the page being read past the end.
   if (pageCount > 0 && currentPage > pageCount) setCurrentPage(pageCount);
 
@@ -320,6 +331,8 @@ export function ReaderShell({
     // Always taken, even with nothing to save: the WebView would otherwise save the page.
     save,
     saveAs,
+    undo: whenOpen(undo),
+    redo: whenOpen(redo),
     close: onClose,
     print,
     copy: () => !hasPageSelection() && copySelection(),
@@ -436,6 +449,8 @@ export function ReaderShell({
           printBlocked={!permissions.print}
           onSave={savable && document_?.unsaved ? save : undefined}
           onSaveAs={savable ? saveAs : undefined}
+          onUndo={undoable ? undo : undefined}
+          onRedo={redoable ? redo : undefined}
           onExport={exportable && permissions.copy ? () => setDialog("export") : undefined}
           exportBlocked={exportable && !permissions.copy}
           onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}

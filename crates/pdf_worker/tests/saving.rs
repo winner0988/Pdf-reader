@@ -101,3 +101,77 @@ fn an_edit_of_a_missing_page_is_refused() {
     // The worker is still there for the document.
     assert!(host.is_running());
 }
+
+fn pages_of(response: Result<WorkerResponse, worker_host::HostError>) -> Vec<PageSize> {
+    match response.expect("request") {
+        WorkerResponse::Edited { pages, .. } => pages,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn undo_opens_the_kept_bytes_again_and_applies_the_edits_before() {
+    let mut host = host();
+    let (doc, pages) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    let turn = WorkerEdit::RotatePages {
+        pages: vec![0],
+        degrees: 90,
+    };
+    let delete = WorkerEdit::DeletePages { pages: vec![9] };
+    for edit in [turn.clone(), delete] {
+        pages_of(host.request(|request| WorkerRequest::Edit { request, doc, edit }));
+    }
+    // Undoing the deletion: the file's bytes again, turned once.
+    let undone = pages_of(host.request(|request| WorkerRequest::Revert {
+        request,
+        doc,
+        edits: vec![turn.clone()],
+    }));
+    assert_eq!(undone.len(), 10);
+    assert_eq!(
+        (undone[0].width_pt, undone[0].height_pt),
+        (pages[0].height_pt, pages[0].width_pt)
+    );
+    // Undoing everything: the file as it was.
+    let original = pages_of(host.request(|request| WorkerRequest::Revert {
+        request,
+        doc,
+        edits: Vec::new(),
+    }));
+    assert_eq!(original, pages);
+
+    // One edit that cannot be applied: refused, and the document stays as it was.
+    let refused = host.request(|request| WorkerRequest::Revert {
+        request,
+        doc,
+        edits: vec![turn, WorkerEdit::DeletePages { pages: vec![42] }],
+    });
+    assert!(refused.is_err(), "{refused:?}");
+    let still = pages_of(host.request(|request| WorkerRequest::Revert {
+        request,
+        doc,
+        edits: Vec::new(),
+    }));
+    assert_eq!(still, pages);
+}
+
+#[test]
+fn a_document_opened_with_a_password_is_not_opened_again() {
+    let mut host = host();
+    let response = host
+        .open_with_password(
+            &corpus("benign/encrypted-aes256.pdf"),
+            ipc_contract::types::Password::new("user".to_owned()),
+        )
+        .expect("open");
+    let (doc, WorkerResponse::Opened { .. }) = response else {
+        panic!("{response:?}");
+    };
+    let refused = host.request(|request| WorkerRequest::Revert {
+        request,
+        doc,
+        edits: Vec::new(),
+    });
+    assert!(refused.is_err(), "{refused:?}");
+    assert!(host.is_running());
+}
