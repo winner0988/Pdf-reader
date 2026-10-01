@@ -56,7 +56,7 @@ windows-sys = { version = "0.61", features = [
 # worker's sandbox. All three are already in the workspace (worker_host uses sandbox; the app uses
 # windows, which brings windows-future); no new crates.
 sandbox = { path = "../sandbox" }
-windows = { version = "0.61", features = [
+windows = { version = "0.62", features = [
     "Foundation",
     "Globalization",
     "Graphics_Imaging",
@@ -64,4 +64,4 @@ windows = { version = "0.61", features = [
     "Storage_Streams",
     "Win32_System_WinRT",
 ] }
-windows-future = "0.2"
+windows-future = "0.3"
