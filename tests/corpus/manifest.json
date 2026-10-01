@@ -183,6 +183,20 @@
       "sha256": "fb2d0f4f78ca55aab5cd12b145302609f31ebe8461fa00a869e75a972f051c30"
     },
     {
+      "path": "benign/tagged-form-two-pages.pdf",
+      "category": "benign",
+      "purpose": "Two tagged pages (a paragraph, then a figure with alt text), each with a filled text field.",
+      "expected": "Opens; 2 pages. Once page two is deleted and the document saved, the file has neither 'Figure alt text that only page two has' nor 'Field value that only page two has' (#138), and still has page one's paragraph and field.",
+      "pages": 2,
+      "findings": [],
+      "text": [
+        "Tagged page one",
+        "Tagged page two"
+      ],
+      "bytes": 2546,
+      "sha256": "7326ef18a7bf4fd36a9c50684803c60b1747f06cd10847188edba1d2e096e87a"
+    },
+    {
       "path": "benign/signed.pdf",
       "category": "benign",
       "purpose": "Signed (adbe.pkcs7.detached, SHA-256, RSA-2048) with the corpus's self-signed test certificate. The key is derived from a fixed seed in generate.py, so anyone can re-create it: never trust it.",
