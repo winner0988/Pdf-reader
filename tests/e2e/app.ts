@@ -155,6 +155,30 @@ async function summary(running: Running): Promise<string> {
       5_000,
     );
     lines.push(`page: ${JSON.stringify(shown)}`);
+    // When, in ms since the document started, its own files arrived, it was parsed and loaded,
+    // and each call to the main process was made and answered (the page's resource timing): a
+    // page that waited on something shows where.
+    const timeline = await within(
+      page.evaluate(() => {
+        const at = (ms: number) => Math.round(ms);
+        const [navigation] = performance.getEntriesByType("navigation") as PerformanceNavigationTiming[];
+        const resources = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
+        const named = (entry: PerformanceResourceTiming) => new URL(entry.name).pathname.split("/").pop() || entry.name;
+        return {
+          parsed: navigation ? at(navigation.domContentLoadedEventEnd) : null,
+          loaded: navigation ? at(navigation.loadEventEnd) : null,
+          files: resources
+            .filter((entry) => entry.name.startsWith("http://tauri.localhost/"))
+            .map((entry) => `${named(entry)} ${at(entry.startTime)}-${at(entry.responseEnd)}`),
+          calls: resources
+            .filter((entry) => entry.name.startsWith("http://ipc.localhost/"))
+            .slice(0, 20)
+            .map((entry) => `${named(entry)} ${at(entry.startTime)}-${at(entry.responseEnd)}`),
+        };
+      }),
+      3_000,
+    );
+    lines.push(`its timeline: ${JSON.stringify(timeline)}`);
     const timer = await within(page.evaluate(() => new Promise((resolve) => setTimeout(() => resolve("fired"), 10))), 3_000);
     const frame = await within(page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve("drawn")))), 3_000);
     // The canvas's width over ten frames: a fit-width page re-renders whenever it changes.
