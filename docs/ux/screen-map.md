@@ -208,7 +208,7 @@
 - **之後**：旋轉與移動的頁面仍保持選取，插入的空白頁被選取；刪除後不選取任何頁面。分頁標示未儲存（「•」）。
 - **作者的權限**（MVP-19）：不允許組合文件與修改時，功能表的項目停用並標示 pages.notAllowed，`Delete` 與拖曳都不作用。
 - 失敗時在縮圖上方顯示 pages.failed。
-- **復原／重做**：`Ctrl+Z`／`Ctrl+Y`（或 `Ctrl+Shift+Z`），「⋯」→ menu.undo／menu.redo（不能用時停用）。回到存檔時的狀態後，分頁不再標示未儲存；存檔後不能復原到存檔之前。以密碼開啟的文件不能復原，按 `Ctrl+Z` 時狀態列顯示 pages.noUndo 4 秒。焦點在文字欄位時，這些鍵留給欄位。做法見 [page-management.md](../architecture/page-management.md)。
+- **復原／重做**：`Ctrl+Z`／`Ctrl+Y`（或 `Ctrl+Shift+Z`），「⋯」→ menu.undo／menu.redo（不能用時停用）。回到存檔時的狀態後，分頁不再標示未儲存；存檔後不能復原到存檔之前。以密碼開啟的文件復原時，對話框 pages.undoPassword.title 再要一次密碼（pages.undoPassword.description）；密碼錯誤時顯示 pages.undoPassword.wrong，取消則不復原；重做不需要密碼。焦點在文字欄位時，這些鍵留給欄位。做法見 [page-management.md](../architecture/page-management.md)。
 
 ### 文件權限（MVP-19）
 
@@ -544,7 +544,10 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | pages.notAllowed | 文件作者不允許變更頁面 |
 | pages.keepOne | 至少要留下一頁，無法刪除全部頁面 |
 | pages.failed | 無法變更頁面，請再試一次。 |
-| pages.noUndo | 以密碼開啟的文件目前不能復原 |
+| pages.undoPassword.title | 輸入密碼以復原 |
+| pages.undoPassword.description | 這份文件以密碼開啟。復原要重新開啟文件，所以需要再輸入一次密碼；密碼用完即清除，不會保留。 |
+| pages.undoPassword.label／confirm／cancel | 密碼／復原／取消 |
+| pages.undoPassword.wrong | 密碼不正確，請再試一次。 |
 | menu.undo／menu.redo | 復原／重做 |
 | pages.move.title | 移動頁面 |
 | pages.move.description | 將選取的 <N> 頁移到： |

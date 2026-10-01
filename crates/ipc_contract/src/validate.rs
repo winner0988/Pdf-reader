@@ -12,8 +12,9 @@ use crate::limits::*;
 use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text};
 use crate::types::{
     DocumentInfo, Edit, EditArgs, ExportArgs, ExportFormat, FindingKind, IpcError, LinkTarget,
-    OpenEvent, OutlineItem, OutlineResult, PageLink, PageSize, PageText, Point, Quad, RecentFile,
-    Rect, RenderPageArgs, Rotation, SearchArgs, SearchHit, SecurityReport, TextLine, UnlockArgs,
+    OpenEvent, OutlineItem, OutlineResult, PageLink, PageSize, PageText, Password, Point, Quad,
+    RecentFile, Rect, RenderPageArgs, Rotation, SearchArgs, SearchHit, SecurityReport, TextLine,
+    UndoArgs, UnlockArgs,
 };
 use crate::worker::{OpenedDocument, Raster, WorkerError, WorkerResponse};
 
@@ -397,6 +398,7 @@ impl Validate for WorkerResponse {
                 }
                 Ok(())
             }
+            WorkerResponse::Rebased { .. } => Ok(()),
             WorkerResponse::Error { error, .. } => error.validate(),
         }
     }
@@ -437,22 +439,33 @@ impl Validate for SearchArgs {
 
 impl Validate for UnlockArgs {
     fn validate(&self) -> Result<(), ValidationError> {
-        let password = self.password.as_str();
-        if password.is_empty() {
-            return Err(ValidationError::Invalid {
-                what: "password",
-                reason: "empty",
-            });
-        }
-        // MuPDF takes the password as a C string.
-        if password.contains(' ') {
-            return Err(ValidationError::Invalid {
-                what: "password",
-                reason: "contains a NUL character",
-            });
-        }
-        check_text("password", password, MAX_PASSWORD_BYTES)
+        check_password(&self.password)
     }
+}
+
+impl Validate for UndoArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.password.as_ref().map_or(Ok(()), check_password)
+    }
+}
+
+/// A password the user typed: some, no NUL (MuPDF takes it as a C string), bounded.
+fn check_password(password: &Password) -> Result<(), ValidationError> {
+    let password = password.as_str();
+    if password.is_empty() {
+        return Err(ValidationError::Invalid {
+            what: "password",
+            reason: "empty",
+        });
+    }
+    // MuPDF takes the password as a C string.
+    if password.contains(' ') {
+        return Err(ValidationError::Invalid {
+            what: "password",
+            reason: "contains a NUL character",
+        });
+    }
+    check_text("password", password, MAX_PASSWORD_BYTES)
 }
 
 /// The first bytes of every PNG file.
@@ -1126,6 +1139,33 @@ mod tests {
             }))
             .unwrap(),
             rotate(vec![0], Rotation::Cw270)
+        );
+    }
+
+    #[test]
+    fn an_undo_password_is_checked_as_an_unlock_one_is() {
+        let undo = |password: Option<&str>| UndoArgs {
+            doc: DocumentId(1),
+            password: password.map(|password| Password::new(password.to_owned())),
+        };
+        assert!(undo(None).validate().is_ok());
+        assert!(undo(Some("user")).validate().is_ok());
+        assert!(undo(Some("")).validate().is_err());
+        assert!(undo(Some("a\u{0}b")).validate().is_err());
+        // The frontend's form: no password (null or left out), or the one typed.
+        for value in [
+            serde_json::json!({ "doc": 1, "password": null }),
+            serde_json::json!({ "doc": 1 }),
+        ] {
+            assert_eq!(
+                serde_json::from_value::<UndoArgs>(value).unwrap(),
+                undo(None)
+            );
+        }
+        assert_eq!(
+            serde_json::from_value::<UndoArgs>(serde_json::json!({ "doc": 1, "password": "user" }))
+                .unwrap(),
+            undo(Some("user"))
         );
     }
 

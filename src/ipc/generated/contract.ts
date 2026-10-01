@@ -99,6 +99,13 @@ export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, 
 export type EditArgs = { doc: DocumentId, edit: Edit, };
 
 /**
+ * Arguments of `undo_edit` (B2-05). A document opened with a password is opened again to undo
+ * an edit, so its password is asked for again and sent here (#94); it is not kept. Any other
+ * field is rejected.
+ */
+export type UndoArgs = { doc: DocumentId, password: Password | null, };
+
+/**
  * How `save_document` or `save_document_as` wrote the file (B2-02, ADR 0013).
  */
 export type SaveResult = { 
@@ -201,8 +208,8 @@ unsaved: boolean,
  */
 encrypted: boolean, 
 /**
- * An edit made since the file was last written can be undone (B2-05, ADR 0013). Never for
- * a document opened with a password: the password is not kept to open it again (MVP-16).
+ * An edit made since the file was last written can be undone (B2-05, ADR 0013). A document
+ * opened with a password asks for it again to undo: it is not kept (MVP-16, #94).
  */
 canUndo: boolean, 
 /**

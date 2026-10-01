@@ -52,7 +52,11 @@ sequenceDiagram
 
 一般文件在 worker 崩潰後，會在新的 worker 中重新開啟（使用者看不出來）。以密碼開啟的文件做不到：密碼沒有保留。所以主行程放棄這份文件，分頁改回「需要密碼」（`passwordNeeded { wrong: false }`），使用者重新輸入後再開啟。
 
-同樣的原因，以密碼開啟的文件**不能復原**編輯（B2-05）：復原要從原始位元組重新開啟文件（ADR 0013），需要密碼。見 [page-management.md](page-management.md)「復原與重做」。
+同樣的原因，**復原**以密碼開啟的文件的編輯時（B2-05），要再輸入一次密碼（#94 的決定）：復原要從原始位元組重新開啟文件（ADR 0013）。
+
+- 密碼只隨那一次復原請求（`undo_edit` → `WorkerRequest::Revert`）送到 worker，處理方式與開檔時相同：送出的 frame 清除、worker 收到後清除、用完即丟。
+- worker 保留的原始位元組仍是加密的，與磁碟上的檔案相同。
+- 見 [page-management.md](page-management.md)「復原與重做」。
 
 ## 權限（MVP-19）
 

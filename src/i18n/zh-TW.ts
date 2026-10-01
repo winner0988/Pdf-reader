@@ -119,7 +119,15 @@ export const strings = {
     notAllowed: "文件作者不允許變更頁面",
     keepOne: "至少要留下一頁，無法刪除全部頁面",
     failed: "無法變更頁面，請再試一次。",
-    noUndo: "以密碼開啟的文件目前不能復原",
+    /** Undo of a document opened with a password (#94): the password is asked for again. */
+    undoPassword: {
+      title: "輸入密碼以復原",
+      description: "這份文件以密碼開啟。復原要重新開啟文件，所以需要再輸入一次密碼；密碼用完即清除，不會保留。",
+      label: "密碼",
+      confirm: "復原",
+      cancel: "取消",
+      wrong: "密碼不正確，請再試一次。",
+    },
     move: {
       title: "移動頁面",
       description: (count: number) => `將選取的 ${count} 頁移到：`,

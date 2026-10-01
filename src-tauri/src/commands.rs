@@ -9,7 +9,7 @@ use ipc_contract::types::{
     DocumentId, EditArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs,
     IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs, OutlineResult, PageLink, PageText,
     RecentFile, RecentId, RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent, Settings,
-    TabId, UnlockArgs, UpdateCheck,
+    TabId, UndoArgs, UnlockArgs, UpdateCheck,
 };
 use ipc_contract::validate::Validate;
 use tauri::ipc::{Channel, Response};
@@ -520,9 +520,14 @@ pub async fn apply_edit(app: AppHandle, args: EditArgs) -> Result<(), IpcError> 
 /// Undoes the last edit of an open document (B2-05, ADR 0013). As with `apply_edit`, the tab's
 /// new state (a new `DocumentId`) arrives on the open-events channel.
 #[tauri::command]
-pub async fn undo_edit(app: AppHandle, doc: DocumentId) -> Result<(), IpcError> {
+pub async fn undo_edit(app: AppHandle, args: UndoArgs) -> Result<(), IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let UndoArgs { doc, password } = args;
     blocking(move || {
-        let event = app.state::<Documents>().undo(doc)?;
+        let event = app.state::<Documents>().undo(doc, password)?;
         app.state::<OpenEvents>().send(event);
         after_tabs_changed(&app);
         Ok(())

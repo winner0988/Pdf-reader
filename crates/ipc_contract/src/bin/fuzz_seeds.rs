@@ -160,6 +160,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 page,
             ],
         },
+        WorkerResponse::Rebased { request },
         WorkerResponse::Saved {
             request,
             bytes: 4096,
@@ -260,6 +261,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     before: 0,
                 },
             ],
+            password: Some(Password::new("user".to_owned())),
+        },
+        WorkerRequest::Rebase {
+            request,
+            doc,
+            file: FileHandle(0x2b0),
         },
         WorkerRequest::Save {
             request,

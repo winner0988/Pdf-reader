@@ -126,6 +126,7 @@ fn undo_opens_the_kept_bytes_again_and_applies_the_edits_before() {
         request,
         doc,
         edits: vec![turn.clone()],
+        password: None,
     }));
     assert_eq!(undone.len(), 10);
     assert_eq!(
@@ -137,6 +138,7 @@ fn undo_opens_the_kept_bytes_again_and_applies_the_edits_before() {
         request,
         doc,
         edits: Vec::new(),
+        password: None,
     }));
     assert_eq!(original, pages);
 
@@ -145,33 +147,76 @@ fn undo_opens_the_kept_bytes_again_and_applies_the_edits_before() {
         request,
         doc,
         edits: vec![turn, WorkerEdit::DeletePages { pages: vec![42] }],
+        password: None,
     });
     assert!(refused.is_err(), "{refused:?}");
     let still = pages_of(host.request(|request| WorkerRequest::Revert {
         request,
         doc,
         edits: Vec::new(),
+        password: None,
     }));
     assert_eq!(still, pages);
 }
 
 #[test]
-fn a_document_opened_with_a_password_is_not_opened_again() {
+fn a_document_opened_with_a_password_is_opened_again_with_it() {
+    use ipc_contract::types::Password;
     let mut host = host();
     let response = host
         .open_with_password(
             &corpus("benign/encrypted-aes256.pdf"),
-            ipc_contract::types::Password::new("user".to_owned()),
+            Password::new("user".to_owned()),
         )
         .expect("open");
-    let (doc, WorkerResponse::Opened { .. }) = response else {
+    let (doc, WorkerResponse::Opened { document, .. }) = response else {
         panic!("{response:?}");
     };
-    let refused = host.request(|request| WorkerRequest::Revert {
+    // Its password is not kept: without it, or with a wrong one, undo is refused.
+    for password in [None, Some(Password::new("wrong".to_owned()))] {
+        let refused = host.request(|request| WorkerRequest::Revert {
+            request,
+            doc,
+            edits: Vec::new(),
+            password,
+        });
+        assert!(refused.is_err(), "{refused:?}");
+    }
+    assert!(host.is_running());
+    let reverted = pages_of(host.request(|request| WorkerRequest::Revert {
         request,
         doc,
         edits: Vec::new(),
-    });
-    assert!(refused.is_err(), "{refused:?}");
-    assert!(host.is_running());
+        password: Some(Password::new("user".to_owned())),
+    }));
+    assert_eq!(reverted, document.pages);
+}
+
+#[test]
+fn after_a_save_undo_opens_the_saved_file_again() {
+    let mut host = host();
+    let (doc, pages) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    let delete = WorkerEdit::DeletePages { pages: vec![9] };
+    pages_of(host.request(|request| WorkerRequest::Edit {
+        request,
+        doc,
+        edit: delete,
+    }));
+    let (path, file) = new_file("rebase");
+    host.save(doc, &file).expect("save");
+    drop(file);
+    let rebased = host.rebase(doc, &path).expect("rebase");
+    assert!(
+        matches!(rebased, WorkerResponse::Rebased { .. }),
+        "{rebased:?}"
+    );
+    // Undoing everything since the save: the saved file, nine pages, not the ten it was opened with.
+    let reverted = pages_of(host.request(|request| WorkerRequest::Revert {
+        request,
+        doc,
+        edits: Vec::new(),
+        password: None,
+    }));
+    assert_eq!(reverted.len(), pages.len() - 1);
+    std::fs::remove_file(&path).ok();
 }

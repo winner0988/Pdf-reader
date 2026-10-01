@@ -71,6 +71,16 @@ pub struct UnlockArgs {
     pub password: Password,
 }
 
+/// Arguments of `undo_edit` (B2-05). A document opened with a password is opened again to undo
+/// an edit, so its password is asked for again and sent here (#94); it is not kept. Any other
+/// field is rejected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UndoArgs {
+    pub doc: DocumentId,
+    pub password: Option<Password>,
+}
+
 /// A recently opened file as the frontend sees it (#73): no path, only the file name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -357,8 +367,8 @@ pub struct DocumentInfo {
     pub unsaved: bool,
     /// Encrypted (MVP-16): it has no privacy export (B2-03).
     pub encrypted: bool,
-    /// An edit made since the file was last written can be undone (B2-05, ADR 0013). Never for
-    /// a document opened with a password: the password is not kept to open it again (MVP-16).
+    /// An edit made since the file was last written can be undone (B2-05, ADR 0013). A document
+    /// opened with a password asks for it again to undo: it is not kept (MVP-16, #94).
     pub can_undo: bool,
     /// An edit that was undone can be made again.
     pub can_redo: bool,
