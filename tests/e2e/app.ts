@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { chromium, test as base, type Browser, type Page } from "@playwright/test";
+import { chromium, test as base, type Browser, type Page, type Request } from "@playwright/test";
 
 export const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -63,7 +63,31 @@ type Running = {
   /** When the app was started, and when its WebView answered (`Date.now()`). */
   launched: number;
   connected?: number;
+  /** The page's calls to the main process (`invoke`) still waiting for an answer, with when each was made. */
+  pendingIpc: Map<Request, { command: string; at: number }>;
+  /** How many calls of each command were answered (or failed). */
+  answeredIpc: Map<string, number>;
 };
+
+/** Where the page's `invoke` calls go: Tauri's IPC, one URL path per command. */
+const IPC_ORIGIN = "http://ipc.localhost/";
+
+/** Follows the page's calls to the main process, for `summary`. */
+function followIpc(page: Page, running: Running) {
+  page.on("request", (request) => {
+    if (request.url().startsWith(IPC_ORIGIN)) {
+      running.pendingIpc.set(request, { command: new URL(request.url()).pathname.slice(1), at: Date.now() });
+    }
+  });
+  const answered = (request: Request) => {
+    const call = running.pendingIpc.get(request);
+    if (!call) return;
+    running.pendingIpc.delete(request);
+    running.answeredIpc.set(call.command, (running.answeredIpc.get(call.command) ?? 0) + 1);
+  };
+  page.on("requestfinished", answered);
+  page.on("requestfailed", answered);
+}
 
 /** How much of the end of a failed test's app log also goes to the test's output (CI's log). */
 const LOG_TAIL_CHARS = 3_000;
@@ -101,8 +125,13 @@ async function summary(running: Running): Promise<string> {
   const pages = running.browser?.contexts().flatMap((context) => context.pages()) ?? [];
   const page = running.page ?? pages[0];
   const lines = [
-    `--- app: ${started}; ${Date.now() - running.launched} ms after launch it is ${state} ---`,
+    `--- app: ${started}; ${Date.now() - running.launched} ms after launch it is ${state} (launched at ${running.launched}) ---`,
     `pages: ${JSON.stringify(pages.map((each) => `${each.url()}${each === page ? " (the test's)" : ""}`))}`,
+    // Whether the page asked for its pages to be rendered, and whether the main process answered.
+    `its calls to the main process: ${JSON.stringify({
+      answered: Object.fromEntries(running.answeredIpc),
+      waiting: [...running.pendingIpc.values()].map(({ command, at }) => `${command} for ${Date.now() - at} ms`),
+    })}`,
   ];
   if (page) {
     const shown = await within(
@@ -112,6 +141,8 @@ async function summary(running: Running): Promise<string> {
         visibility: document.visibilityState,
         focused: document.hasFocus(),
         viewport: `${window.innerWidth}x${window.innerHeight}`,
+        // When this document started, since the Unix epoch: a page that loaded again shows here.
+        started: Math.round(performance.timeOrigin),
         text: document.body.innerText.replace(/\s+/g, " ").trim().slice(0, 1_000),
         pageSlots: Array.from(document.querySelectorAll("[role=img][data-state]"), (slot) =>
           `${slot.getAttribute("aria-label")} ${slot.getAttribute("data-state")}`,
@@ -126,6 +157,22 @@ async function summary(running: Running): Promise<string> {
     lines.push(`page: ${JSON.stringify(shown)}`);
     const timer = await within(page.evaluate(() => new Promise((resolve) => setTimeout(() => resolve("fired"), 10))), 3_000);
     const frame = await within(page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve("drawn")))), 3_000);
+    // The canvas's width over ten frames: a fit-width page re-renders whenever it changes.
+    const widths = await within(
+      page.evaluate(
+        () =>
+          new Promise<number[]>((resolve) => {
+            const seen: number[] = [];
+            const sample = () => {
+              seen.push(document.querySelector("main")?.clientWidth ?? -1);
+              if (seen.length < 10) requestAnimationFrame(sample);
+              else resolve([...new Set(seen)]);
+            };
+            requestAnimationFrame(sample);
+          }),
+      ),
+      3_000,
+    );
     // A read-only call, as the page's own `invoke` makes it.
     const ipc = await within(
       page.evaluate(() =>
@@ -135,7 +182,7 @@ async function summary(running: Running): Promise<string> {
       ),
       3_000,
     );
-    lines.push(`its script: ${JSON.stringify({ timer, frame, ipc })}`);
+    lines.push(`its script: ${JSON.stringify({ timer, frame, widths, ipc })}`);
     const statusBar = await within(page.getByRole("contentinfo").count(), 3_000);
     const text = await within(
       page
@@ -391,7 +438,15 @@ export const test = base.extend<{
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
-      const running: Running = { child, log: [], profile, data, launched: Date.now() };
+      const running: Running = {
+        child,
+        log: [],
+        profile,
+        data,
+        launched: Date.now(),
+        pendingIpc: new Map(),
+        answeredIpc: new Map(),
+      };
       started.push(running);
       child.stdout?.on("data", (chunk) => running.log.push(String(chunk)));
       child.stderr?.on("data", (chunk) => running.log.push(String(chunk)));
@@ -399,6 +454,7 @@ export const test = base.extend<{
       running.connected = Date.now();
       const page = await mainPage(running.browser);
       running.page = page;
+      followIpc(page, running);
       dataDirs.set(page, data);
       apps.set(page, running);
       if (child.pid !== undefined) processes.set(page, child.pid);
