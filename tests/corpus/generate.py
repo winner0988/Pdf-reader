@@ -886,6 +886,63 @@ SIGNED_TEXT = "Signed sample (test certificate: never trust it)"
 CERTIFIED_TEXT = "Certified sample: no changes allowed (DocMDP P=1)"
 
 
+# What a deleted page leaves behind unless it is cleaned up (#138): its part of the structure tree
+# and its form fields. Each names page two, so a test can look for the bytes.
+TAGGED_ALT_TEXT = "Figure alt text that only page two has"
+TAGGED_PAGE_TWO_VALUE = "Field value that only page two has"
+TAGGED_PAGE_ONE_VALUE = "Field value on page one"
+
+
+def benign_tagged_form() -> bytes:
+    """Two tagged pages, each with a filled text field; page two's figure has alt text."""
+    doc = Document("tagged-form-two-pages")
+    doc.reserve_pages(2)
+    tree_root = doc.pdf.reserve()
+    document_elem = doc.pdf.reserve()
+    paragraph = doc.pdf.add(
+        f"<< /Type /StructElem /S /P /P {document_elem} 0 R /Pg {doc.page_nums[0]} 0 R /K 0 >>"
+    )
+    figure = doc.pdf.add(
+        f"<< /Type /StructElem /S /Figure /P {document_elem} 0 R /Pg {doc.page_nums[1]} 0 R /K 0"
+        f" /Alt {pdf_string(TAGGED_ALT_TEXT)} >>"
+    )
+    doc.pdf.set(
+        document_elem,
+        f"<< /Type /StructElem /S /Document /P {tree_root} 0 R /K [{paragraph} 0 R {figure} 0 R] >>",
+    )
+    parent_tree = doc.pdf.add(f"<< /Nums [0 [{paragraph} 0 R] 1 [{figure} 0 R]] >>")
+    doc.pdf.set(
+        tree_root,
+        f"<< /Type /StructTreeRoot /K {document_elem} 0 R /ParentTree {parent_tree} 0 R"
+        " /ParentTreeNextKey 2 >>",
+    )
+
+    def field(index: int, name: str, value: str) -> int:
+        appearance = doc.pdf.add_stream(
+            f"/Type /XObject /Subtype /Form /BBox [0 0 228 30] /Resources << /Font << /F1 {doc.font} 0 R >> >>",
+            f"/Tx BMC BT /F1 10 Tf 2 10 Td {pdf_string(value)} Tj ET EMC".encode("latin-1"),
+        )
+        return doc.pdf.add(
+            f"<< /Type /Annot /Subtype /Widget /FT /Tx /T ({name}) /V {pdf_string(value)}"
+            f" /Rect [72 600 300 630] /F 4 /P {doc.page_nums[index]} 0 R /AP << /N {appearance} 0 R >> >>"
+        )
+
+    kept = field(0, "page_one", TAGGED_PAGE_ONE_VALUE)
+    gone = field(1, "page_two", TAGGED_PAGE_TWO_VALUE)
+    for index, tag, text, widget in [(0, "P", "Tagged page one", kept), (1, "Figure", "Tagged page two", gone)]:
+        doc.set_page(index, Page(
+            extra_content=f"/{tag} <</MCID 0>> BDC\nBT /F1 14 Tf 72 720 Td {pdf_string(text)} Tj ET\nEMC\n"
+            .encode("latin-1"),
+            annots=[widget],
+            extra=f" /StructParents {index}",
+        ))
+    doc.catalog_extra = (
+        f" /StructTreeRoot {tree_root} 0 R /MarkInfo << /Marked true >>"
+        f" /AcroForm << /Fields [{kept} 0 R {gone} 0 R] /DA (/Helv 0 Tf 0 g) >>"
+    )
+    return doc.build()
+
+
 def benign_signed() -> bytes:
     return signed_sample("signed", SIGNED_TEXT, certify=False)
 
@@ -1180,6 +1237,11 @@ SAMPLES = [
            "a sticky note's author and dates.",
            "Opens like an ordinary document (B2-03). Its privacy export has none of these, a new /ID, and renders "
            f"the same; the bytes '{PRIVATE_AUTHOR}' appear nowhere in it.", 1, text=[METADATA_TEXT]),
+    Sample("benign/tagged-form-two-pages.pdf", benign_tagged_form,
+           "Two tagged pages (a paragraph, then a figure with alt text), each with a filled text field.",
+           f"Opens; 2 pages. Once page two is deleted and the document saved, the file has neither "
+           f"'{TAGGED_ALT_TEXT}' nor '{TAGGED_PAGE_TWO_VALUE}' (#138), and still has page one's paragraph and "
+           f"field.", 2, text=["Tagged page one", "Tagged page two"]),
     Sample("benign/signed.pdf", benign_signed,
            "Signed (adbe.pkcs7.detached, SHA-256, RSA-2048) with the corpus's self-signed test certificate. The "
            "key is derived from a fixed seed in generate.py, so anyone can re-create it: never trust it.",

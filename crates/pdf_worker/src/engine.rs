@@ -610,27 +610,33 @@ impl PdfDocument {
 
     /// Removes `pages` (no repeats), leaving at least one (B2-05). Every page is checked first.
     ///
-    /// Outline entries, links and named destinations may still point to a removed page, and
-    /// would keep it, its content included, in a rewritten file. So what points to it is cut
-    /// ([`crate::unlink`]): such an entry or link stays, but goes nowhere, and a rewrite leaves
-    /// the page's content out, as ADR 0013 promises.
+    /// A rewritten file keeps whatever is still referenced, so what only the removed pages had
+    /// is taken out too, as ADR 0013 promises:
+    /// - their form fields and their part of the structure tree ([`crate::leftovers`], #138);
+    /// - every reference to them, or to what was taken out ([`crate::unlink`]): an outline
+    ///   entry, link or named destination to a removed page stays, but goes nowhere.
     pub fn delete_pages(&mut self, pages: &[u32]) -> Result<(), EngineError> {
         let count = self.checked_pages(pages)?;
         if pages.len() >= count as usize {
             return Err(EngineError::NoPageLeft);
         }
-        let mut removed = HashSet::new();
-        for &page in pages {
-            removed.insert(self.doc.find_page(page as i32)?.as_indirect()?);
+        let deleting: HashSet<u32> = pages.iter().copied().collect();
+        let (mut removed, mut kept) = (HashSet::new(), HashSet::new());
+        for index in 0..count {
+            let number = self.doc.find_page(index as i32)?.as_indirect()?;
+            if deleting.contains(&index) {
+                removed.insert(number);
+            } else {
+                kept.insert(number);
+            }
         }
+        // A damaged page tree can list one page object twice: one still in it is kept.
+        removed.retain(|number| *number != 0 && !kept.contains(number));
+        let mut gone = crate::leftovers::take_out(&self.doc, &removed)?;
         let selection: Vec<usize> = pages.iter().map(|&page| page as usize).collect();
         self.doc.delete_pages(PageSelection::Pages(selection))?;
-        // A damaged page tree can list one page object twice: one still in it is kept.
-        for index in 0..self.page_count()? {
-            removed.remove(&self.doc.find_page(index as i32)?.as_indirect()?);
-        }
-        removed.remove(&0);
-        crate::unlink::unlink(&self.doc, &removed)
+        gone.extend(&removed);
+        crate::unlink::unlink(&self.doc, &gone)
     }
 
     /// Moves `pages` (no repeats) to just before page `before` (the page count: to the end),
@@ -1926,6 +1932,51 @@ mod tests {
                 ("Appendix", OutlineTarget::Page(4)),
             ]
         );
+    }
+
+    #[test]
+    fn a_deleted_page_leaves_neither_its_form_fields_nor_its_structure_behind() {
+        // Each page has a filled field; page two's figure has alt text (tests/corpus).
+        let mut doc =
+            PdfDocument::from_bytes(&corpus("benign/tagged-form-two-pages.pdf")).expect("open");
+        doc.delete_pages(&[1]).expect("delete page two");
+        let (file, _) = saved(&doc);
+        assert!(!contains(&file, b"Figure alt text that only page two has"));
+        assert!(!contains(&file, b"Field value that only page two has"));
+        assert!(contains(&file, b"Field value on page one"));
+
+        let reopened = mupdf::pdf::PdfDocument::from_bytes(&file).expect("reopen");
+        let catalog = reopened.catalog().expect("catalog");
+        let fields = catalog
+            .get_dict("AcroForm")
+            .expect("form")
+            .expect("form")
+            .get_dict("Fields")
+            .expect("fields")
+            .expect("fields");
+        assert_eq!(fields.len().expect("fields"), 1);
+        // The structure tree keeps page one's paragraph.
+        let paragraphs = catalog
+            .get_dict("StructTreeRoot")
+            .expect("tree")
+            .expect("tree")
+            .get_dict("K")
+            .expect("document")
+            .expect("document")
+            .get_dict("K")
+            .expect("kids")
+            .expect("kids");
+        assert_eq!(paragraphs.len().expect("kids"), 1);
+        let kind = paragraphs
+            .get_array(0)
+            .expect("kid")
+            .expect("kid")
+            .get_dict("S")
+            .expect("type")
+            .expect("type")
+            .as_name()
+            .expect("name");
+        assert_eq!(kind, b"P");
     }
 
     #[test]
