@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { chromium, test as base, type Browser, type Page, type Request } from "@playwright/test";
+import { chromium, test as base, type Browser, type CDPSession, type Page, type Request } from "@playwright/test";
 
 export const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -67,7 +67,37 @@ type Running = {
   pendingIpc: Map<Request, { command: string; at: number }>;
   /** How many calls of each command were answered (or failed). */
   answeredIpc: Map<string, number>;
+  /** The page's renderer counters (CDP `Performance`), from when the test got the page. */
+  performance?: CDPSession;
 };
+
+/**
+ * Runs in every document the page loads: notes each time its timers or its animation frames
+ * stopped for more than a quarter of a second (when, in ms since the document started, and for
+ * how long), for `summary` (#133). The test's own record: the app never reads it.
+ */
+function heartbeat() {
+  const page = window as unknown as { __e2eStalls?: { timer: string[]; frame: string[] } };
+  if (page.__e2eStalls) return;
+  const stalls: { timer: string[]; frame: string[] } = { timer: [], frame: [] };
+  page.__e2eStalls = stalls;
+  const note = (list: string[], last: number, now: number) => {
+    if (now - last > 250 && list.length < 50) list.push(`${Math.round(last)}+${Math.round(now - last)}`);
+  };
+  let timerLast = performance.now();
+  setInterval(() => {
+    const now = performance.now();
+    note(stalls.timer, timerLast, now);
+    timerLast = now;
+  }, 100);
+  let frameLast = performance.now();
+  const frame = (now: number) => {
+    note(stalls.frame, frameLast, now);
+    frameLast = now;
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
 
 /** Where the page's `invoke` calls go: Tauri's IPC, one URL path per command. */
 const IPC_ORIGIN = "http://ipc.localhost/";
@@ -207,6 +237,25 @@ async function summary(running: Running): Promise<string> {
       3_000,
     );
     lines.push(`its script: ${JSON.stringify({ timer, frame, widths, ipc })}`);
+    // Its main thread since the test got the page: the stalls the page saw, and the time spent in
+    // tasks of each kind (ms of wall time; a task waiting on something counts too).
+    const stalls = await within(
+      page.evaluate(() => (window as unknown as { __e2eStalls?: unknown }).__e2eStalls ?? "none recorded"),
+      3_000,
+    );
+    const busy = running.performance
+      ? await within(
+          running.performance.send("Performance.getMetrics").then(({ metrics }) =>
+            Object.fromEntries(
+              metrics
+                .filter(({ name }) => /^(Task|Script|Layout|RecalcStyle|V8Compile)Duration$|^(Layout|RecalcStyle)Count$/.test(name))
+                .map(({ name, value }) => [name, name.endsWith("Duration") ? Math.round(value * 1_000) : value]),
+            ),
+          ),
+          3_000,
+        )
+      : "not measured";
+    lines.push(`its main thread: ${JSON.stringify({ stalls, busy })}`);
     // The first page slot as React has it, read from React's own fields on its element (here
     // only, on failure): whether it waits for the scale to settle, and whether it is still the
     // same element half a second later (a slot that keeps mounting anew never asks).
@@ -506,6 +555,11 @@ export const test = base.extend<{
       const page = await mainPage(running.browser);
       running.page = page;
       followIpc(page, running);
+      // How the page's main thread spends its time, and when it stalls, from now on (#133).
+      await page.addInitScript(heartbeat);
+      await page.evaluate(heartbeat).catch(() => {});
+      running.performance = await page.context().newCDPSession(page);
+      await running.performance.send("Performance.enable").catch(() => {});
       dataDirs.set(page, data);
       apps.set(page, running);
       if (child.pid !== undefined) processes.set(page, child.pid);
