@@ -37,6 +37,8 @@
     "allow-apply-edit",
     "allow-undo-edit",
     "allow-redo-edit",
+    "allow-recover-edits",
+    "allow-discard-recovered-edits",
     "allow-save-document",
     "allow-save-document-as",
     "allow-close-window",

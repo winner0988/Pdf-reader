@@ -188,6 +188,13 @@ modify: boolean,
 assemble: boolean, };
 
 /**
+ * Changes to a file that an earlier run of the app made but neither saved nor discarded: it
+ * ended first (B2-13, ADR 0013). They are kept in the app's local data folder until the user
+ * answers.
+ */
+export type Recovery = "none" | "available" | "stale";
+
+/**
  * An open document as the frontend sees it.
  */
 export type DocumentInfo = { doc: DocumentId, 
@@ -215,7 +222,11 @@ canUndo: boolean,
 /**
  * An edit that was undone can be made again.
  */
-canRedo: boolean, };
+canRedo: boolean, 
+/**
+ * Unsaved changes an earlier run of the app left for this file (B2-13, ADR 0013).
+ */
+recovery: Recovery, };
 
 /**
  * Arguments of the `render_page` command.

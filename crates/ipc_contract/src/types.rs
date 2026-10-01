@@ -372,6 +372,22 @@ pub struct DocumentInfo {
     pub can_undo: bool,
     /// An edit that was undone can be made again.
     pub can_redo: bool,
+    /// Unsaved changes an earlier run of the app left for this file (B2-13, ADR 0013).
+    pub recovery: Recovery,
+}
+
+/// Changes to a file that an earlier run of the app made but neither saved nor discarded: it
+/// ended first (B2-13, ADR 0013). They are kept in the app's local data folder until the user
+/// answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum Recovery {
+    /// There are none, or the user has answered.
+    None,
+    /// They can be made again (`recover_edits`): the file is as it was when they were made.
+    Available,
+    /// Another program changed the file since: they cannot be made on it any more.
+    Stale,
 }
 
 /// Arguments of the `render_page` command.

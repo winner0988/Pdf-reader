@@ -77,6 +77,8 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-apply-edit", "B2-02: a typed edit of an open document, applied in its worker; validated, no PDF objects"],
   ["allow-undo-edit", "B2-05: undo the last edit of an open document; its worker opens the kept bytes again"],
   ["allow-redo-edit", "B2-05: make the last undone edit of an open document again"],
+  ["allow-recover-edits", "B2-13: make again the edits an earlier run left for an open document's file (crash recovery)"],
+  ["allow-discard-recovered-edits", "B2-13: delete the recovery journal an earlier run left for an open document's file"],
   ["allow-save-document", "B2-02: write an open document to its own file; the main process owns the path"],
   ["allow-save-document-as", "B2-02: write an open document to a file the user picks in the main process's save dialog"],
   ["allow-close-window", "B2-02: close the window after the user was asked about unsaved changes"],

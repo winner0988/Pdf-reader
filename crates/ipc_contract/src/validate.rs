@@ -655,8 +655,8 @@ impl Validate for OpenEvent {
 mod tests {
     use super::*;
     use crate::types::{
-        BlockedAction, DocumentId, DocumentPermissions, ErrorCode, LinkId, RecentId, RequestId,
-        Rotation, SecurityFinding, TabId,
+        BlockedAction, DocumentId, DocumentPermissions, ErrorCode, LinkId, RecentId, Recovery,
+        RequestId, Rotation, SecurityFinding, TabId,
     };
     use crate::worker::WorkerErrorCode;
 
@@ -1249,6 +1249,7 @@ mod tests {
             encrypted: false,
             can_undo: false,
             can_redo: false,
+            recovery: Recovery::None,
         };
         assert!(info("報告.pdf").validate().is_ok());
         assert!(info(r"C:\Users\someone\報告.pdf").validate().is_err());

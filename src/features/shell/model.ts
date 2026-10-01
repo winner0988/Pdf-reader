@@ -8,10 +8,11 @@ import type {
   ErrorCode,
   FindingKind,
   PageSize,
+  Recovery,
   SecurityFinding,
 } from "@/ipc/generated/contract";
 
-export type { DocumentPermissions, ErrorCode, FindingKind, PageSize, SecurityFinding };
+export type { DocumentPermissions, ErrorCode, FindingKind, PageSize, Recovery, SecurityFinding };
 
 export type ShellDocument = {
   /** Main-process id for rendering; absent for demo data. */
@@ -33,6 +34,8 @@ export type ShellDocument = {
   /** An edit can be undone, or an undone one made again (B2-05). */
   canUndo?: boolean;
   canRedo?: boolean;
+  /** Unsaved changes an earlier run of the app left for the file (B2-13). */
+  recovery?: Recovery;
   /**
    * The same while the tab shows the file it opened, through edits and saving (which give the
    * document a new `doc`, B2-02); a new one when a file is opened. Absent for demo data.

@@ -82,7 +82,7 @@ mod tests {
     use std::sync::Arc;
 
     use ipc_contract::types::{
-        DocumentId, DocumentInfo, DocumentPermissions, PageSize, SecurityReport, TabId,
+        DocumentId, DocumentInfo, DocumentPermissions, PageSize, Recovery, SecurityReport, TabId,
     };
     use tauri::ipc::InvokeResponseBody;
 
@@ -167,6 +167,7 @@ mod tests {
             encrypted: false,
             can_undo: false,
             can_redo: false,
+            recovery: Recovery::None,
         };
         let (channel, received) = recording_channel();
         events.subscribe(channel, || {

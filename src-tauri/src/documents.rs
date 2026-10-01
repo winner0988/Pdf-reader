@@ -5,7 +5,8 @@
 //!
 //! Edits (ADR 0013) change a document in its worker's memory; `save` writes it to a file
 //! (src/saving.rs). Until then the main process keeps the edits, to apply them again should the
-//! worker have to be restarted.
+//! worker have to be restarted, and a journal of them in the app's data folder, to make them again
+//! should the app end first (B2-13, src/recovery.rs).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -17,9 +18,9 @@ use ipc_contract::limits::{
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
-    BlockedAction, DocumentId, DocumentInfo, Edit, EditArgs, ErrorCode, IpcError, LinkArgs,
-    LinkPreview, LinkTarget, OpenEvent, OutlineLinkArgs, OutlineResult, PageLink, PageSize,
-    PageText, Password, RenderPageArgs, SaveResult, SearchHit, TabId,
+    BlockedAction, DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
+    IpcError, LinkArgs, LinkPreview, LinkTarget, OpenEvent, OutlineLinkArgs, OutlineResult,
+    PageLink, PageSize, PageText, Password, Recovery, RenderPageArgs, SaveResult, SearchHit, TabId,
 };
 use ipc_contract::validate::{Validate, check_page_index};
 use ipc_contract::worker::{WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse};
@@ -27,6 +28,7 @@ use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
 use crate::export::ImageKind;
 use crate::history::History;
+use crate::recovery::{Found, JournalId, Journals, TooLarge};
 use crate::saving::{self, FileIdentity, Temporary};
 
 /// Display name used when a path has no file name component.
@@ -40,6 +42,9 @@ pub struct Documents {
     /// Where events go that no command is waiting for: a document whose worker died and that
     /// needs its password again (MVP-16). Set once at startup.
     reporter: OnceLock<Box<dyn Fn(OpenEvent) + Send + Sync>>,
+    /// The crash recovery journals (B2-13). Set once at startup, when the data folder is known;
+    /// without them nothing is kept.
+    journals: OnceLock<Journals>,
 }
 
 struct Inner {
@@ -61,6 +66,9 @@ struct Tab {
     /// while `document` is busy with a long worker request.
     event: Mutex<OpenEvent>,
     document: Mutex<Option<OpenDocument>>,
+    /// The recovery journal of a document this tab lost with its password (B2-13): its edits are
+    /// made again once the password opens the file again. Only ever locked on its own.
+    released: Mutex<Option<JournalId>>,
 }
 
 /// Hits on one page, and whether the page has any text at all.
@@ -91,6 +99,11 @@ struct OpenDocument {
     /// Edits since the file was read or last written, applied and undone (B2-05).
     /// `info.unsaved` while some are applied.
     history: History,
+    /// The crash recovery journal of the edits applied (B2-13): there while some are.
+    journal: Option<JournalId>,
+    /// Edits an earlier run left for the file (B2-13), until the user makes them again or
+    /// discards them. `info.recovery` says whether they can be made.
+    recovered: Option<Found>,
 }
 
 impl Documents {
@@ -103,12 +116,18 @@ impl Documents {
                 active: None,
             }),
             reporter: OnceLock::new(),
+            journals: OnceLock::new(),
         }
     }
 
     /// Where events go that no command is waiting for (see the field).
     pub fn set_reporter(&self, reporter: impl Fn(OpenEvent) + Send + Sync + 'static) {
         let _ = self.reporter.set(Box::new(reporter));
+    }
+
+    /// Where the crash recovery journals go (see the field).
+    pub fn set_journals(&self, journals: Journals) {
+        let _ = self.journals.set(journals);
     }
 
     /// Adds a tab for each of `paths`, in order, and reports `Opening` for each. Files beyond
@@ -134,6 +153,7 @@ impl Documents {
                     display_name: Mutex::new(display_name),
                     event: Mutex::new(event.clone()),
                     document: Mutex::new(None),
+                    released: Mutex::new(None),
                 }));
                 opening.push((id, event));
             }
@@ -189,7 +209,7 @@ impl Documents {
             })?;
             let doc = DocumentId(self.next_id());
             let info = document_info(doc, display_name.clone(), response)?;
-            Ok(OpenDocument {
+            let mut document = OpenDocument {
                 info,
                 host,
                 path: path.clone(),
@@ -198,7 +218,11 @@ impl Documents {
                 lost: false,
                 identity,
                 history: History::default(),
-            })
+                journal: None,
+                recovered: None,
+            };
+            self.recover_on_open(&tab, &mut document);
+            Ok(document)
         });
         let event = match (&result, asks) {
             (Ok(document), _) => OpenEvent::Opened {
@@ -296,8 +320,55 @@ impl Documents {
             let _ = document.host.notify(&WorkerRequest::Close {
                 doc: document.worker_doc,
             });
+            // The page asked first: the changes are discarded (B2-02). What an earlier run left
+            // and the user did not answer about stays, for the next time the file opens.
+            self.forget_journals(document, false);
+        }
+        if let (Some(journals), Some(id)) = (self.journals(), lock(&removed.released).take()) {
+            journals.release(&id);
         }
         Ok(())
+    }
+
+    /// Deletes the recovery journals no tab uses (B2-13): with the recent files list (B2-12).
+    pub fn clear_unused_journals(&self) {
+        if let Some(journals) = self.journals() {
+            journals.clear_unused();
+        }
+    }
+
+    /// The user closes the window without saving (B2-02): the journals of the changes go first.
+    /// The documents stay as they are until the app ends.
+    pub fn discard_all(&self) {
+        let Some(journals) = self.journals() else {
+            return;
+        };
+        let tabs = self.lock().tabs.clone();
+        for tab in tabs {
+            if let Some(id) = lock(&tab.document)
+                .as_mut()
+                .and_then(|document| document.journal.take())
+            {
+                journals.remove(&id);
+            }
+        }
+    }
+
+    /// Done with `document`'s journals (B2-13): its own is deleted, unless it is `kept` for the
+    /// next opening of the file; edits an earlier run left are kept for it.
+    fn forget_journals(&self, document: OpenDocument, kept: bool) -> Option<JournalId> {
+        let journals = self.journals()?;
+        if let Some(found) = document.recovered {
+            journals.release(&found.id);
+        }
+        let own = document.journal?;
+        if kept {
+            journals.release(&own);
+            Some(own)
+        } else {
+            journals.remove(&own);
+            None
+        }
     }
 
     /// Records the tab the window shows (`None`: no tab) and returns its file name, for the
@@ -347,59 +418,23 @@ impl Documents {
         args.validate().map_err(invalid_argument)?;
         let edit = WorkerEdit::from(&args.edit);
         let ((), event) = self.change_document(args.doc, |document| {
-            let permissions = document.info.permissions;
             let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
-            // Every kind of edit so far manages pages: assembling the document, as Acrobat
-            // reads the author's permissions (MVP-19).
-            if !(permissions.assemble || permissions.modify) {
-                return Err(not_allowed());
-            }
+            let expected_pages = pages_after(&args.edit, page_count, document.info.permissions)?;
             if !document.history.has_room() {
                 return Err(IpcError {
                     code: ErrorCode::LimitExceeded,
                     message: format!("at most {MAX_UNDO_EDITS} edits between saves"),
                 });
             }
-            let check_pages = |pages: &[u32]| {
-                pages
-                    .iter()
-                    .try_for_each(|&page| check_page_index(page, page_count))
-                    .map_err(invalid_argument)
-            };
-            let expected_pages = match &args.edit {
-                Edit::RotatePages { pages, .. } => {
-                    check_pages(pages)?;
-                    page_count
+            // The crash recovery journal must be able to keep it too (B2-13).
+            let mut edits = document.history.applied().to_vec();
+            edits.push(args.edit.clone());
+            Journals::check(&document.path, document.identity, &edits).map_err(|TooLarge| {
+                IpcError {
+                    code: ErrorCode::LimitExceeded,
+                    message: "too many unsaved changes to keep safe: save first".to_owned(),
                 }
-                Edit::DeletePages { pages } => {
-                    check_pages(pages)?;
-                    // Validated: no repeats, so fewer pages than the document has leave some.
-                    page_count
-                        .checked_sub(u32::try_from(pages.len()).unwrap_or(u32::MAX))
-                        .filter(|&left| left > 0)
-                        .ok_or_else(|| invalid_argument("a document keeps at least one page"))?
-                }
-                Edit::MovePages { pages, before } => {
-                    check_pages(pages)?;
-                    if *before > page_count {
-                        return Err(invalid_argument("no such place to move pages to"));
-                    }
-                    page_count
-                }
-                Edit::InsertBlankPage { at, like } => {
-                    check_page_index(*like, page_count).map_err(invalid_argument)?;
-                    if *at > page_count {
-                        return Err(invalid_argument("no such place to insert a page"));
-                    }
-                    if page_count >= MAX_PAGE_COUNT {
-                        return Err(IpcError {
-                            code: ErrorCode::LimitExceeded,
-                            message: format!("a document has at most {MAX_PAGE_COUNT} pages"),
-                        });
-                    }
-                    page_count + 1
-                }
-            };
+            })?;
             let pages = edit_in_worker(document, &edit).inspect_err(|error| {
                 // The worker failed partway through: its copy may be half edited. Opened again
                 // from the file with the edits made so far, it is as it was.
@@ -410,9 +445,10 @@ impl Documents {
             if pages.len() != expected_pages as usize {
                 return Err(unexpected("Edit"));
             }
-            document.history.push(edit);
+            document.history.push(args.edit.clone());
             document.info.pages = pages;
             show_history(document);
+            self.keep_journal(document);
             document.info.doc = DocumentId(self.next_id());
             Ok(())
         })?;
@@ -440,7 +476,9 @@ impl Documents {
                 .history
                 .before_last()
                 .ok_or_else(|| invalid_argument("nothing to undo"))?
-                .to_vec();
+                .iter()
+                .map(WorkerEdit::from)
+                .collect();
             let pages = revert_in_worker(document, edits, password).inspect_err(|error| {
                 if matches!(error.code, ErrorCode::Internal | ErrorCode::LimitExceeded) {
                     document.lost = true;
@@ -449,6 +487,7 @@ impl Documents {
             document.history.undone();
             document.info.pages = pages;
             show_history(document);
+            self.keep_journal(document);
             document.info.doc = DocumentId(self.next_id());
             Ok(())
         })?;
@@ -462,8 +501,8 @@ impl Documents {
             let edit = document
                 .history
                 .next()
-                .ok_or_else(|| invalid_argument("nothing to redo"))?
-                .clone();
+                .map(WorkerEdit::from)
+                .ok_or_else(|| invalid_argument("nothing to redo"))?;
             let pages = edit_in_worker(document, &edit).inspect_err(|error| {
                 if matches!(error.code, ErrorCode::Internal | ErrorCode::LimitExceeded) {
                     document.lost = true;
@@ -472,7 +511,56 @@ impl Documents {
             document.history.redone();
             document.info.pages = pages;
             show_history(document);
+            self.keep_journal(document);
             document.info.doc = DocumentId(self.next_id());
+            Ok(())
+        })?;
+        Ok(event)
+    }
+
+    /// Makes the edits an earlier run left for the file of `doc` again (B2-13); returns the tab's
+    /// new state, as `apply_edit` does. They become the document's history, to undo one by one.
+    /// Only on the file as it was when they were made, and with no edits of the document's own:
+    /// those would have been made on the file, not on the edits.
+    pub fn recover(&self, doc: DocumentId) -> Result<OpenEvent, IpcError> {
+        let ((), event) = self.change_document(doc, |document| {
+            if document.info.recovery != Recovery::Available {
+                return Err(invalid_argument("no changes that can be made again"));
+            }
+            if document.history.unsaved() {
+                return Err(invalid_argument("the document has changes of its own"));
+            }
+            let edits = document
+                .recovered
+                .as_ref()
+                .map(|found| found.edits.clone())
+                .unwrap_or_default();
+            // On failure the offer stays: the worker may only have been unlucky.
+            replay(document, &edits)?;
+            if let Some(found) = document.recovered.take() {
+                // The journal of the edits is the document's own now.
+                document.journal = Some(found.id);
+            }
+            document.info.recovery = Recovery::None;
+            self.keep_journal(document);
+            document.info.doc = DocumentId(self.next_id());
+            Ok(())
+        })?;
+        Ok(event)
+    }
+
+    /// Discards the edits an earlier run left for the file of `doc` (B2-13): their journal is
+    /// deleted. Returns the tab's new state.
+    pub fn discard_recovered(&self, doc: DocumentId) -> Result<OpenEvent, IpcError> {
+        let ((), event) = self.change_document(doc, |document| {
+            let found = document
+                .recovered
+                .take()
+                .ok_or_else(|| invalid_argument("no changes to discard"))?;
+            if let Some(journals) = self.journals() {
+                journals.remove(&found.id);
+            }
+            document.info.recovery = Recovery::None;
             Ok(())
         })?;
         Ok(event)
@@ -527,9 +615,19 @@ impl Documents {
             if destination != document.path {
                 document.info.display_name = display_name(&destination);
                 document.path = destination;
+                // Edits an earlier run left are for the other file: kept for it.
+                if let (Some(found), Some(journals)) = (document.recovered.take(), self.journals())
+                {
+                    journals.release(&found.id);
+                }
+                document.info.recovery = Recovery::None;
+            } else if document.recovered.is_some() {
+                // They were for the file as it was.
+                document.info.recovery = Recovery::Stale;
             }
             document.history.saved();
             show_history(document);
+            self.keep_journal(document);
             // Undo starts from the file now: the worker keeps its bytes instead (ADR 0013).
             rebase(document);
             Ok(SaveResult { incremental })
@@ -905,13 +1003,9 @@ impl Documents {
             Some(document) if document.info.doc == doc => work(document),
             _ => Err(unknown_document()),
         };
-        if document
-            .as_ref()
-            .is_some_and(|document| document.protected && document.lost)
-        {
-            *document = None;
+        if let Some(lost) = document.take_if(|document| document.protected && document.lost) {
             drop(document);
-            self.ask_for_password_again(tab);
+            self.lose(tab, lost);
         }
         result
     }
@@ -933,13 +1027,9 @@ impl Documents {
             Some(document) if document.info.doc == doc => work(document),
             _ => Err(unknown_document()),
         };
-        if document
-            .as_ref()
-            .is_some_and(|document| document.protected && document.lost)
-        {
-            *document = None;
+        if let Some(lost) = document.take_if(|document| document.protected && document.lost) {
             drop(document);
-            self.ask_for_password_again(tab);
+            self.lose(tab, lost);
             return Err(result.err().unwrap_or_else(unknown_document));
         }
         let value = result?;
@@ -955,7 +1045,16 @@ impl Documents {
         Ok((value, event))
     }
 
-    /// The worker died and the password was not kept (MVP-16): the tab asks for it again.
+    /// The worker of `document`, opened with a password, died, and the password was not kept
+    /// (MVP-16): the tab asks for it again. The journal of its edits stays, for them to be made
+    /// again once the file opens (B2-13).
+    fn lose(&self, tab: &Tab, document: OpenDocument) {
+        let kept = self.forget_journals(document, true);
+        *lock(&tab.released) = kept;
+        self.ask_for_password_again(tab);
+    }
+
+    /// The tab asks for its file's password again.
     fn ask_for_password_again(&self, tab: &Tab) {
         let asking = OpenEvent::PasswordNeeded {
             tab: tab.id,
@@ -966,6 +1065,72 @@ impl Documents {
         if let Some(report) = self.reporter.get() {
             report(asking);
         }
+    }
+
+    fn journals(&self) -> Option<&Journals> {
+        self.journals.get()
+    }
+
+    /// Keeps `document`'s crash recovery journal in step with its history (B2-13): the edits it
+    /// has and its file does not, or no journal.
+    fn keep_journal(&self, document: &mut OpenDocument) {
+        let Some(journals) = self.journals() else {
+            return;
+        };
+        if !document.history.unsaved() {
+            if let Some(id) = document.journal.take() {
+                journals.remove(&id);
+            }
+            return;
+        }
+        if document.journal.is_none() {
+            document.journal = journals.create();
+        }
+        if let Some(id) = &document.journal {
+            // Checked before each edit (`Journals::check`); undo only makes it smaller, and redo
+            // brings back what it had.
+            let _ = journals.write(
+                id,
+                &document.path,
+                document.identity,
+                document.history.applied(),
+            );
+        }
+    }
+
+    /// What an earlier run left for the file `document` just opened (B2-13): a journal of edits,
+    /// offered to the user. The journal of a document this tab lost with its password is no
+    /// offer: its edits are made again at once.
+    fn recover_on_open(&self, tab: &Tab, document: &mut OpenDocument) {
+        let Some(journals) = self.journals() else {
+            return;
+        };
+        let released = lock(&tab.released).take();
+        let found = released
+            .and_then(|id| journals.take(&id, &document.path, document.identity))
+            .map(|found| (found, true))
+            .or_else(|| {
+                journals
+                    .find(&document.path, document.identity)
+                    .map(|found| (found, false))
+            });
+        let Some((found, own)) = found else {
+            return;
+        };
+        let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+        let applicable = found.same_file
+            && pages_after_all(&found.edits, page_count, document.info.permissions).is_ok();
+        if own && applicable && replay(document, &found.edits).is_ok() {
+            document.journal = Some(found.id);
+            self.keep_journal(document);
+            return;
+        }
+        document.info.recovery = if applicable {
+            Recovery::Available
+        } else {
+            Recovery::Stale
+        };
+        document.recovered = Some(found);
     }
 
     fn next_id(&self) -> u32 {
@@ -1036,6 +1201,102 @@ fn lost_on(document: &mut OpenDocument, error: &HostError) -> IpcError {
         document.lost = true;
     }
     ipc_error(error)
+}
+
+/// The page count after `edit`, made on a document of `page_count` pages whose author allows
+/// `permissions`; or why it cannot be made there. Edits from the page and from a recovery
+/// journal (B2-13) are checked alike.
+fn pages_after(
+    edit: &Edit,
+    page_count: u32,
+    permissions: DocumentPermissions,
+) -> Result<u32, IpcError> {
+    // Every kind of edit so far manages pages: assembling the document, as Acrobat reads the
+    // author's permissions (MVP-19).
+    if !(permissions.assemble || permissions.modify) {
+        return Err(not_allowed());
+    }
+    let check_pages = |pages: &[u32]| {
+        pages
+            .iter()
+            .try_for_each(|&page| check_page_index(page, page_count))
+            .map_err(invalid_argument)
+    };
+    match edit {
+        Edit::RotatePages { pages, .. } => {
+            check_pages(pages)?;
+            Ok(page_count)
+        }
+        Edit::DeletePages { pages } => {
+            check_pages(pages)?;
+            // Validated: no repeats, so fewer pages than the document has leave some.
+            page_count
+                .checked_sub(u32::try_from(pages.len()).unwrap_or(u32::MAX))
+                .filter(|&left| left > 0)
+                .ok_or_else(|| invalid_argument("a document keeps at least one page"))
+        }
+        Edit::MovePages { pages, before } => {
+            check_pages(pages)?;
+            if *before > page_count {
+                return Err(invalid_argument("no such place to move pages to"));
+            }
+            Ok(page_count)
+        }
+        Edit::InsertBlankPage { at, like } => {
+            check_page_index(*like, page_count).map_err(invalid_argument)?;
+            if *at > page_count {
+                return Err(invalid_argument("no such place to insert a page"));
+            }
+            if page_count >= MAX_PAGE_COUNT {
+                return Err(IpcError {
+                    code: ErrorCode::LimitExceeded,
+                    message: format!("a document has at most {MAX_PAGE_COUNT} pages"),
+                });
+            }
+            Ok(page_count + 1)
+        }
+    }
+}
+
+/// `pages_after` for `edits` in turn.
+fn pages_after_all(
+    edits: &[Edit],
+    page_count: u32,
+    permissions: DocumentPermissions,
+) -> Result<u32, IpcError> {
+    edits.iter().try_fold(page_count, |count, edit| {
+        pages_after(edit, count, permissions)
+    })
+}
+
+/// Makes `edits` (from a recovery journal, B2-13) on `document`, which has no edits applied, and
+/// makes them its history. Checked first, as edits from the page are; if the worker fails
+/// partway, the document is opened again from its file before the next request.
+fn replay(document: &mut OpenDocument, edits: &[Edit]) -> Result<(), IpcError> {
+    let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+    let expected = pages_after_all(edits, page_count, document.info.permissions)?;
+    if edits.len() > MAX_UNDO_EDITS as usize {
+        return Err(IpcError {
+            code: ErrorCode::LimitExceeded,
+            message: format!("at most {MAX_UNDO_EDITS} edits between saves"),
+        });
+    }
+    let mut pages = document.info.pages.clone();
+    for edit in edits {
+        pages = edit_in_worker(document, &WorkerEdit::from(edit)).inspect_err(|_| {
+            document.lost = true;
+        })?;
+    }
+    if pages.len() != expected as usize {
+        document.lost = true;
+        return Err(unexpected("Edit"));
+    }
+    for edit in edits {
+        document.history.push(edit.clone());
+    }
+    document.info.pages = pages;
+    show_history(document);
+    Ok(())
 }
 
 /// Applies `edit` in the document's worker and returns the document's pages after it.
@@ -1131,7 +1392,7 @@ fn reopen(document: &mut OpenDocument) -> Result<DocumentId, IpcError> {
         match document.host.request(|request| WorkerRequest::Edit {
             request,
             doc,
-            edit: edit.clone(),
+            edit: WorkerEdit::from(edit),
         }) {
             Ok(WorkerResponse::Edited { pages: edited, .. }) => pages = edited,
             Ok(_) => return Err(unexpected("Edit")),
@@ -1263,6 +1524,7 @@ fn document_info(
         encrypted: document.encrypted,
         can_undo: false,
         can_redo: false,
+        recovery: Recovery::None,
     };
     info.validate().map_err(|error| IpcError {
         code: ErrorCode::Internal,
@@ -2567,5 +2829,291 @@ mod with_worker {
                 .code,
             ErrorCode::InvalidArgument
         );
+    }
+
+    /// A data folder of its own, for the crash recovery journals (B2-13); removed when dropped.
+    struct DataFolder(PathBuf);
+
+    impl DataFolder {
+        fn new(name: &str) -> Self {
+            let folder = std::env::temp_dir().join(format!("b213-{}-{name}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&folder);
+            Self(folder)
+        }
+
+        fn recovery(&self) -> PathBuf {
+            self.0.join(crate::recovery::FOLDER_NAME)
+        }
+
+        /// A run of the app that keeps its journals here.
+        fn documents(&self) -> Documents {
+            let documents = Documents::new(worker());
+            documents.set_journals(Journals::new(Some(self.recovery())));
+            documents
+        }
+
+        fn journals(&self) -> usize {
+            std::fs::read_dir(self.recovery()).map_or(0, Iterator::count)
+        }
+
+        /// Writes a journal of `edits` for the file at `path` as it is now, as if an earlier run
+        /// had.
+        fn leave(&self, path: &Path, edits: serde_json::Value) {
+            let (len, since) = FileIdentity::of(path).unwrap().parts().unwrap();
+            let journal = serde_json::json!({
+                "version": 1,
+                "path": path.to_str().unwrap(),
+                "len": len,
+                "modifiedSecs": since.as_secs(),
+                "modifiedNanos": since.subsec_nanos(),
+                "edits": edits,
+            });
+            std::fs::create_dir_all(self.recovery()).unwrap();
+            std::fs::write(
+                self.recovery().join(format!("{:032x}.json", 1)),
+                journal.to_string(),
+            )
+            .unwrap();
+        }
+    }
+
+    impl Drop for DataFolder {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Opens the encrypted `path` with its user password in a new tab of `documents`.
+    fn unlocked(documents: &Documents, path: &Path) -> (TabId, DocumentInfo) {
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let [tab] = documents.add(&[path.to_owned()], &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(tab, &report);
+        documents
+            .unlock(tab, Password::new("user".to_owned()), &report)
+            .unwrap();
+        let info = opened_info(events.borrow().last().cloned().unwrap());
+        (tab, info)
+    }
+
+    #[test]
+    fn edits_a_run_did_not_save_are_offered_the_next_time_the_file_opens() {
+        let data = DataFolder::new("offer");
+        let path = write_pdf("b213-offer", &letter_pdf(3));
+        let earlier = data.documents();
+        let mut doc = open_in(&earlier, &path).doc;
+        edited_pages(&earlier, &mut doc, Edit::DeletePages { pages: vec![1] });
+        edited_pages(&earlier, &mut doc, turn(0));
+        assert_eq!(data.journals(), 1);
+        // The app ends without saving or discarding: its workers go, the journal stays.
+        drop(earlier);
+        assert_eq!(data.journals(), 1);
+
+        let later = data.documents();
+        let reopened = open_in(&later, &path);
+        assert_eq!(reopened.recovery, Recovery::Available);
+        assert_eq!(reopened.pages, [LETTER; 3]);
+        assert!(!reopened.unsaved);
+        // Another tab of the same file is not offered them too.
+        assert_eq!(open_in(&later, &path).recovery, Recovery::None);
+
+        let recovered = opened_info(later.recover(reopened.doc).unwrap());
+        assert_eq!(recovered.pages, [LANDSCAPE, LETTER]);
+        assert!(recovered.unsaved && recovered.can_undo);
+        assert_eq!(recovered.recovery, Recovery::None);
+        // They are the document's history, undone one by one.
+        let undone = opened_info(later.undo(recovered.doc, None).unwrap());
+        assert_eq!(undone.pages, [LETTER, LETTER]);
+        assert_eq!(data.journals(), 1);
+        // Saved, nothing is left to recover.
+        later.save(undone.doc, None).unwrap();
+        assert_eq!(data.journals(), 0);
+        assert_eq!(open_in(&data.documents(), &path).pages, [LETTER; 2]);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_file_changed_since_cannot_have_them_and_discarding_deletes_them() {
+        let data = DataFolder::new("stale");
+        let path = write_pdf("b213-stale", &letter_pdf(2));
+        let earlier = data.documents();
+        let mut doc = open_in(&earlier, &path).doc;
+        edited_pages(&earlier, &mut doc, turn(1));
+        drop(earlier);
+        // Another program writes the file.
+        std::fs::write(&path, letter_pdf(3)).unwrap();
+
+        let later = data.documents();
+        let reopened = open_in(&later, &path);
+        assert_eq!(reopened.recovery, Recovery::Stale);
+        assert_eq!(
+            later.recover(reopened.doc).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        let discarded = opened_info(later.discard_recovered(reopened.doc).unwrap());
+        assert_eq!(discarded.recovery, Recovery::None);
+        assert_eq!(discarded.pages, [LETTER; 3]);
+        assert_eq!(data.journals(), 0);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn saving_closing_or_undoing_everything_leaves_no_journal() {
+        let data = DataFolder::new("gone");
+        let path = write_pdf("b213-gone", &letter_pdf(2));
+        let documents = data.documents();
+        let mut doc = open_in(&documents, &path).doc;
+        edited_pages(&documents, &mut doc, turn(0));
+        assert_eq!(data.journals(), 1);
+        doc = opened_info(documents.undo(doc, None).unwrap()).doc;
+        assert_eq!(data.journals(), 0);
+        doc = opened_info(documents.redo(doc).unwrap()).doc;
+        assert_eq!(data.journals(), 1);
+        // Closing a tab with changes: the page asked first, and they are discarded.
+        documents.close(tab_of(&documents, doc)).unwrap();
+        assert_eq!(data.journals(), 0);
+        // The window closes without saving them.
+        let mut doc = open_in(&documents, &path).doc;
+        edited_pages(&documents, &mut doc, turn(0));
+        documents.discard_all();
+        assert_eq!(data.journals(), 0);
+        // Saved as another file.
+        let mut doc = open_in(&documents, &path).doc;
+        edited_pages(&documents, &mut doc, turn(1));
+        let copy = path.with_file_name(format!("b213-gone-copy-{}.pdf", std::process::id()));
+        documents.save(doc, Some(copy.clone())).unwrap();
+        assert_eq!(data.journals(), 0);
+        std::fs::remove_file(copy).ok();
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn edits_not_answered_about_stay_until_the_list_is_cleared() {
+        let data = DataFolder::new("unanswered");
+        let path = write_pdf("b213-unanswered", &letter_pdf(2));
+        let earlier = data.documents();
+        let mut doc = open_in(&earlier, &path).doc;
+        edited_pages(&earlier, &mut doc, turn(0));
+        drop(earlier);
+
+        let later = data.documents();
+        let offered = open_in(&later, &path);
+        assert_eq!(offered.recovery, Recovery::Available);
+        later.close(tab_of(&later, offered.doc)).unwrap();
+        assert_eq!(data.journals(), 1);
+        // Offered again the next time the file opens.
+        let again = open_in(&later, &path);
+        assert_eq!(again.recovery, Recovery::Available);
+        // Clearing the recent files list leaves what an open tab uses, and takes the rest.
+        later.clear_unused_journals();
+        assert_eq!(data.journals(), 1);
+        later.close(tab_of(&later, again.doc)).unwrap();
+        later.clear_unused_journals();
+        assert_eq!(data.journals(), 0);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn the_documents_own_edits_come_first() {
+        let data = DataFolder::new("own");
+        let path = write_pdf("b213-own", &letter_pdf(2));
+        data.leave(
+            &path,
+            serde_json::json!([{ "kind": "deletePages", "pages": [1] }]),
+        );
+        let documents = data.documents();
+        let offered = open_in(&documents, &path);
+        assert_eq!(offered.recovery, Recovery::Available);
+        let mut doc = offered.doc;
+        edited_pages(&documents, &mut doc, turn(0));
+        // Those were made on the file, not on the edits offered.
+        assert_eq!(
+            documents.recover(doc).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        doc = opened_info(documents.undo(doc, None).unwrap()).doc;
+        assert_eq!(opened_info(documents.recover(doc).unwrap()).pages, [LETTER]);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_journal_is_checked_against_its_file_before_anything_is_made() {
+        let data = DataFolder::new("unfit");
+        // The file has two pages.
+        let path = write_pdf("b213-unfit", &letter_pdf(2));
+        data.leave(
+            &path,
+            serde_json::json!([{ "kind": "deletePages", "pages": [4] }]),
+        );
+        let documents = data.documents();
+        let opened = open_in(&documents, &path);
+        assert_eq!(opened.recovery, Recovery::Stale);
+        assert_eq!(
+            documents.recover(opened.doc).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(opened.pages, [LETTER; 2]);
+        std::fs::remove_file(path).ok();
+
+        // An author who forbids changing pages (RC4, /P without the modify bit) is obeyed.
+        let data = DataFolder::new("forbidden");
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/encrypted-rc4-40.pdf");
+        data.leave(
+            &path,
+            serde_json::json!([{ "kind": "rotatePages", "pages": [0], "by": "cw90" }]),
+        );
+        let (_, info) = unlocked(&data.documents(), &path);
+        assert!(!info.permissions.modify && !info.permissions.assemble);
+        assert_eq!(info.recovery, Recovery::Stale);
+    }
+
+    #[test]
+    fn a_document_lost_with_its_password_gets_its_edits_back_once_it_opens_again() {
+        let data = DataFolder::new("password");
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/encrypted-aes256.pdf");
+        let path = write_pdf("b213-password", &std::fs::read(source).unwrap());
+        let documents = data.documents();
+        let (tab, opened) = unlocked(&documents, &path);
+        let edited = opened_info(
+            documents
+                .apply_edit(&EditArgs {
+                    doc: opened.doc,
+                    edit: turn(0),
+                })
+                .unwrap(),
+        );
+        // The worker dies; the password was not kept, so the tab asks for it again.
+        let pid = documents.worker_id(edited.doc).expect("worker running");
+        std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output()
+            .unwrap();
+        documents
+            .render(&args(edited.doc, 0, 0.5, Rotation::None))
+            .unwrap_err();
+        assert!(matches!(
+            documents.snapshot()[..],
+            [OpenEvent::PasswordNeeded { .. }]
+        ));
+        assert_eq!(data.journals(), 1);
+        // Given it, the file opens with the edit made again, without asking.
+        let reopened = std::cell::RefCell::new(None);
+        documents
+            .unlock(tab, Password::new("user".to_owned()), &|event| {
+                *reopened.borrow_mut() = Some(event);
+            })
+            .unwrap();
+        let reopened = opened_info(reopened.into_inner().unwrap());
+        assert_eq!(reopened.pages, edited.pages);
+        assert!(reopened.unsaved && reopened.can_undo);
+        assert_eq!(reopened.recovery, Recovery::None);
+        assert_eq!(data.journals(), 1);
+        documents.close(tab).unwrap();
+        assert_eq!(data.journals(), 0);
+        std::fs::remove_file(path).ok();
     }
 }

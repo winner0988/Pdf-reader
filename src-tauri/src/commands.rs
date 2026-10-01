@@ -168,6 +168,8 @@ pub async fn remove_recent_file(app: AppHandle, id: RecentId) -> Result<Vec<Rece
 pub async fn clear_recent_files(app: AppHandle) -> Result<(), IpcError> {
     blocking(move || {
         app.state::<RecentFiles>().clear();
+        // With them, the unsaved changes earlier runs left (B2-13): they name the files too.
+        app.state::<Documents>().clear_unused_journals();
         Ok(())
     })
     .await
@@ -224,6 +226,7 @@ pub async fn set_settings(app: AppHandle, settings: Settings) -> Result<(), IpcE
         let saved = app.state::<SettingsStore>().set(settings);
         if !settings.record_recent_files {
             app.state::<RecentFiles>().clear();
+            app.state::<Documents>().clear_unused_journals();
         }
         saved.map_err(|_| IpcError {
             code: ErrorCode::Unreadable,
@@ -547,6 +550,31 @@ pub async fn redo_edit(app: AppHandle, doc: DocumentId) -> Result<(), IpcError> 
     .await
 }
 
+/// Makes the edits an earlier run left for an open document's file again (B2-13, crash
+/// recovery). As with `apply_edit`, the tab's new state arrives on the open-events channel.
+#[tauri::command]
+pub async fn recover_edits(app: AppHandle, doc: DocumentId) -> Result<(), IpcError> {
+    blocking(move || {
+        let event = app.state::<Documents>().recover(doc)?;
+        app.state::<OpenEvents>().send(event);
+        after_tabs_changed(&app);
+        Ok(())
+    })
+    .await
+}
+
+/// Discards the edits an earlier run left for an open document's file (B2-13): their journal is
+/// deleted. The tab's new state arrives on the open-events channel.
+#[tauri::command]
+pub async fn discard_recovered_edits(app: AppHandle, doc: DocumentId) -> Result<(), IpcError> {
+    blocking(move || {
+        let event = app.state::<Documents>().discard_recovered(doc)?;
+        app.state::<OpenEvents>().send(event);
+        Ok(())
+    })
+    .await
+}
+
 /// Writes an open document, with its edits, to its own file (B2-02, ADR 0013). The tab's new
 /// state arrives on the open-events channel.
 #[tauri::command]
@@ -597,12 +625,15 @@ pub async fn close_window(
     window: WebviewWindow,
     discard: bool,
 ) -> Result<(), IpcError> {
-    if !discard && !app.state::<Documents>().unsaved_tabs().is_empty() {
+    let documents = app.state::<Documents>();
+    if !discard && !documents.unsaved_tabs().is_empty() {
         return Err(IpcError {
             code: ErrorCode::InvalidArgument,
             message: "documents have unsaved changes".to_owned(),
         });
     }
+    // The changes are discarded: nothing is left to recover them from (B2-13).
+    documents.discard_all();
     // Unlike `close`, `destroy` does not ask again (see `on_window_event`).
     window.destroy().map_err(|_| IpcError {
         code: ErrorCode::Internal,
