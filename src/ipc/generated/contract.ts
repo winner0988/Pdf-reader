@@ -208,8 +208,8 @@ unsaved: boolean,
  */
 encrypted: boolean, 
 /**
- * An edit made since the file was last written can be undone (B2-05, ADR 0013). Never for
- * a document opened with a password: the password is not kept to open it again (MVP-16).
+ * An edit made since the file was last written can be undone (B2-05, ADR 0013). A document
+ * opened with a password asks for it again to undo: it is not kept (MVP-16, #94).
  */
 canUndo: boolean, 
 /**
