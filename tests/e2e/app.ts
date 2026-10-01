@@ -58,6 +58,8 @@ type Running = {
   profile: string;
   data: string;
   browser?: Browser;
+  /** The page `launch` returned: the one the test drives. */
+  page?: Page;
   /** When the app was started, and when its WebView answered (`Date.now()`). */
   launched: number;
   connected?: number;
@@ -66,41 +68,88 @@ type Running = {
 /** How much of the end of a failed test's app log also goes to the test's output (CI's log). */
 const LOG_TAIL_CHARS = 3_000;
 
+/** `promise`'s outcome, or a note that there was none within `ms`: a stuck page must not stop the report. */
+async function within<T>(promise: Promise<T>, ms: number): Promise<T | string> {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([
+    promise,
+    new Promise<string>((resolve) => {
+      timer = setTimeout(() => resolve(`no answer within ${ms / 1_000} s`), ms);
+    }),
+  ])
+    .catch((error: unknown) => `failed: ${String(error).split("\n")[0]}`)
+    .finally(() => clearTimeout(timer));
+}
+
 /**
  * A failed test's app, for the test's output and so for CI's log: how its start went, what its
  * page shows, and the end of its log. Enough to tell a document still opening from an error or a
  * page that never laid out, without downloading the uploaded files (#133).
+ *
+ * The test's locators run in Playwright's own script world in the page, `evaluate` in the page's.
+ * On CI they have disagreed: the page's text showed the document while the test's locators found
+ * nothing in it, not even the status bar, and the pages never finished rendering (#133). So this
+ * also says which pages the WebView has, what the test's locators see, and whether the page's own
+ * timers, frames and calls to the main process still answer.
  */
-async function summary(running: Running, page: Page | undefined): Promise<string> {
+async function summary(running: Running): Promise<string> {
   const started =
     running.connected === undefined
       ? "its WebView never answered"
       : `its WebView answered ${running.connected - running.launched} ms after launch`;
   const state = running.child.exitCode === null ? "still running" : `exited with ${running.child.exitCode}`;
-  let timer: NodeJS.Timeout | undefined;
-  const shown = page
-    ? await Promise.race([
-        page.evaluate(() => ({
-          url: location.href,
-          readyState: document.readyState,
-          visibility: document.visibilityState,
-          focused: document.hasFocus(),
-          viewport: `${window.innerWidth}x${window.innerHeight}`,
-          text: document.body.innerText.replace(/\s+/g, " ").trim().slice(0, 1_000),
-        })),
-        new Promise<string>((resolve) => {
-          timer = setTimeout(() => resolve("no answer within 5 s"), 5_000);
-        }),
-      ])
-        .catch((error: unknown) => `not readable: ${String(error)}`)
-        .finally(() => clearTimeout(timer))
-    : "no page";
-  return [
+  const pages = running.browser?.contexts().flatMap((context) => context.pages()) ?? [];
+  const page = running.page ?? pages[0];
+  const lines = [
     `--- app: ${started}; ${Date.now() - running.launched} ms after launch it is ${state} ---`,
-    `page: ${JSON.stringify(shown)}`,
-    "end of its log:",
-    running.log.join("").slice(-LOG_TAIL_CHARS),
-  ].join("\n");
+    `pages: ${JSON.stringify(pages.map((each) => `${each.url()}${each === page ? " (the test's)" : ""}`))}`,
+  ];
+  if (page) {
+    const shown = await within(
+      page.evaluate(() => ({
+        url: location.href,
+        readyState: document.readyState,
+        visibility: document.visibilityState,
+        focused: document.hasFocus(),
+        viewport: `${window.innerWidth}x${window.innerHeight}`,
+        text: document.body.innerText.replace(/\s+/g, " ").trim().slice(0, 1_000),
+        pageSlots: Array.from(document.querySelectorAll("[role=img][data-state]"), (slot) =>
+          `${slot.getAttribute("aria-label")} ${slot.getAttribute("data-state")}`,
+        ).slice(0, 5),
+        // Anything that would hide the status bar or a page from the test's role locators.
+        hiding: Array.from(document.querySelectorAll("[aria-hidden=true], [inert]"))
+          .filter((element) => element.querySelector("footer, [role=img]"))
+          .map((element) => element.outerHTML.slice(0, 120)),
+      })),
+      5_000,
+    );
+    lines.push(`page: ${JSON.stringify(shown)}`);
+    const timer = await within(page.evaluate(() => new Promise((resolve) => setTimeout(() => resolve("fired"), 10))), 3_000);
+    const frame = await within(page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve("drawn")))), 3_000);
+    // A read-only call, as the page's own `invoke` makes it.
+    const ipc = await within(
+      page.evaluate(() =>
+        (window as unknown as { __TAURI_INTERNALS__: { invoke(command: string): Promise<unknown> } }).__TAURI_INTERNALS__
+          .invoke("get_settings")
+          .then(() => "answered"),
+      ),
+      3_000,
+    );
+    lines.push(`its script: ${JSON.stringify({ timer, frame, ipc })}`);
+    const statusBar = await within(page.getByRole("contentinfo").count(), 3_000);
+    const text = await within(
+      page
+        .locator("body")
+        .innerText({ timeout: 3_000 })
+        .then((body) => body.replace(/\s+/g, " ").trim().slice(0, 200)),
+      4_000,
+    );
+    lines.push(`the test's locators: ${JSON.stringify({ statusBar, text })}`);
+  } else {
+    lines.push("page: none");
+  }
+  lines.push("end of its log:", running.log.join("").slice(-LOG_TAIL_CHARS));
+  return lines.join("\n");
 }
 
 /** Each page's app data folder (`PDF_READER_DATA_DIR`). */
@@ -349,6 +398,7 @@ export const test = base.extend<{
       running.browser = await connect(port, running);
       running.connected = Date.now();
       const page = await mainPage(running.browser);
+      running.page = page;
       dataDirs.set(page, data);
       apps.set(page, running);
       if (child.pid !== undefined) processes.set(page, child.pid);
@@ -361,7 +411,7 @@ export const test = base.extend<{
     for (const [index, running] of started.entries()) {
       if (failed) {
         // Files in the test's output folder (uploaded by CI), also shown in the HTML report.
-        const page = running.browser?.contexts()[0]?.pages()[0];
+        const page = running.page ?? running.browser?.contexts()[0]?.pages()[0];
         const screenshot = testInfo.outputPath(`screenshot-${index}.png`);
         if (await page?.screenshot({ path: screenshot }).then(() => true, () => false)) {
           await testInfo.attach(`screenshot-${index}`, { path: screenshot, contentType: "image/png" });
@@ -375,7 +425,7 @@ export const test = base.extend<{
             // No desktop to capture.
           }
         }
-        console.log(await summary(running, page));
+        console.log(await summary(running));
         if (running.child.pid !== undefined && running.child.exitCode === null) {
           running.log.push(`\n--- process tree ---\n${processTree(running.child.pid)}`);
         }
