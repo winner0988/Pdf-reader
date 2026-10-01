@@ -11,7 +11,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ipc_contract::types::{ErrorCode, IpcError};
 use windows_sys::Win32::Storage::FileSystem::{
@@ -42,6 +42,19 @@ impl FileIdentity {
         Some(Self {
             len: metadata.len(),
             modified: metadata.modified().ok()?,
+        })
+    }
+
+    /// The size, and the modification time since the Unix epoch: to keep in a file (B2-13).
+    pub fn parts(self) -> Option<(u64, Duration)> {
+        Some((self.len, self.modified.duration_since(UNIX_EPOCH).ok()?))
+    }
+
+    /// `None` for a time the system cannot represent.
+    pub fn from_parts(len: u64, since_epoch: Duration) -> Option<Self> {
+        Some(Self {
+            len,
+            modified: UNIX_EPOCH.checked_add(since_epoch)?,
         })
     }
 }

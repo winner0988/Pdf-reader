@@ -119,6 +119,7 @@ export const strings = {
     notAllowed: "文件作者不允許變更頁面",
     keepOne: "至少要留下一頁，無法刪除全部頁面",
     failed: "無法變更頁面，請再試一次。",
+    saveFirst: "未儲存的變更太多，請先存檔再繼續編輯。",
     /** Undo of a document opened with a password (#94): the password is asked for again. */
     undoPassword: {
       title: "輸入密碼以復原",
@@ -173,6 +174,17 @@ export const strings = {
     discard: "不儲存",
     cancel: "取消",
     saving: "正在儲存…",
+  },
+  /** Unsaved changes an earlier run of the app left for a file (B2-13). */
+  recovery: {
+    label: "上次未儲存的變更",
+    available: "上次編輯這個檔案時，變更還沒儲存程式就結束了。要還原這些變更嗎？",
+    stale: "上次編輯這個檔案時，變更還沒儲存程式就結束了；之後這個檔案被修改過，所以無法還原。",
+    restore: "還原變更",
+    discard: "捨棄變更",
+    later: "稍後再決定",
+    ownChanges: "請先復原目前的變更，再還原上次的變更。",
+    failed: "無法處理上次的變更，請再試一次。",
   },
   privacyExport: {
     title: "隱私匯出",

@@ -35,6 +35,8 @@ fn main() {
         "apply_edit",
         "undo_edit",
         "redo_edit",
+        "recover_edits",
+        "discard_recovered_edits",
         "save_document",
         "save_document_as",
         "close_window",

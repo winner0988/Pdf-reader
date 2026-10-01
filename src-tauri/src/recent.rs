@@ -263,7 +263,7 @@ fn recordable(path: &Path) -> bool {
 }
 
 /// Windows file names ignore case, so one file is one entry however its path is spelled.
-fn key(path: &Path) -> String {
+pub fn key(path: &Path) -> String {
     path.to_string_lossy().to_lowercase()
 }
 

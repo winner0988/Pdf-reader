@@ -62,6 +62,7 @@ export function toShellDocument(info: DocumentInfo): ShellDocument {
     encrypted: info.encrypted,
     canUndo: info.canUndo,
     canRedo: info.canRedo,
+    recovery: info.recovery,
   };
 }
 

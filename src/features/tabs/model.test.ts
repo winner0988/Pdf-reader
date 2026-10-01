@@ -14,6 +14,7 @@ const info = (doc: number, displayName: string): DocumentInfo => ({
   encrypted: false,
   canUndo: false,
   canRedo: false,
+  recovery: "none",
 });
 
 const event = (e: OpenEvent): TabsAction => ({ type: "event", event: e });

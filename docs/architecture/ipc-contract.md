@@ -58,7 +58,7 @@ flowchart LR
 | `get_recent_files` | 無 | `RecentFile[]`：`id` 與 `displayName`，最新的在前，最多 `LIMITS.maxRecentFiles`（20）筆；路徑留在主行程（見 [recent-files.md](recent-files.md)） | 否 | #73 |
 | `open_recent_file` | `{ id: RecentId }` | 無；主行程以新分頁開啟，結果走開檔頻道。檔案已經不在時從清單移除並回傳 `unreadable` | 否 | #73 |
 | `remove_recent_file` | `{ id: RecentId }` | `RecentFile[]`：移除後的清單 | 否 | #73 |
-| `clear_recent_files` | 無 | 無；「不記錄此檔案」的選擇保留 | 否 | #73 |
+| `clear_recent_files` | 無 | 無；「不記錄此檔案」的選擇保留；一併刪除沒有分頁使用的復原日誌（B2-13） | 否 | #73 |
 | `get_file_recording` | `{ doc: DocumentId }` | `boolean`：這份文件的檔案可不可以記錄（「不記錄此檔案」沒有勾選） | 否 | #73 |
 | `set_file_recording` | `{ args: FileRecordingArgs }`（`{ doc, record }`，其他欄位一律拒絕） | 無；不記錄時從清單移除並記下加鹽的雜湊值 | 否 | #73 |
 | `clear_recent_exclusions` | 無 | 無；忘記「不記錄此檔案」的選擇 | 否 | B2-12 |
@@ -68,6 +68,8 @@ flowchart LR
 | `apply_edit` | `{ args: EditArgs }`：`doc`、`edit`（`Edit`：`rotatePages { pages, by }`、`deletePages { pages }`、`movePages { pages, before }`、`insertBlankPage { at, like }`，見 [page-management.md](page-management.md)）；其他欄位一律拒絕 | 無；文件換新的 `DocumentId`，分頁的新狀態（`opened`，`unsaved: true`）走開檔頻道。作者禁止時拒絕（見 [saving.md](saving.md)） | 否 | B2-02、B2-05 |
 | `undo_edit` | `{ args: UndoArgs }`：`doc`、`password`（以密碼開啟的文件才需要，否則 `null`；驗證同 `unlock_tab`；其他欄位一律拒絕） | 無；復原最後一個編輯，文件換新的 `DocumentId`，分頁的新狀態走開檔頻道。沒有可復原的編輯時拒絕；以密碼開啟的文件沒有帶密碼或密碼錯誤時回 `encrypted`（見 [page-management.md](page-management.md)） | 否 | B2-05 |
 | `redo_edit` | `{ doc: DocumentId }` | 無；重做最後一個復原掉的編輯，不需要密碼，其餘同 `undo_edit` | 否 | B2-05 |
+| `recover_edits` | `{ doc: DocumentId }` | 無；重新套用上一次執行留下的編輯（`recovery` 為 `available` 時），文件換新的 `DocumentId`，分頁的新狀態走開檔頻道。文件已有自己的編輯、或沒有可還原的編輯時回 `invalidArgument`（見 [crash-recovery.md](crash-recovery.md)） | 否 | B2-13 |
+| `discard_recovered_edits` | `{ doc: DocumentId }` | 無；刪除上一次執行留下的復原日誌，分頁的新狀態（`recovery: none`）走開檔頻道 | 否 | B2-13 |
 | `save_document` | `{ doc: DocumentId }` | `SaveResult`（`incremental`）；分頁的新狀態走開檔頻道。檔案在開啟後被改過時回 `changedOnDisk` | 否 | B2-02 |
 | `save_document_as` | `{ doc: DocumentId }`（不含路徑：主行程顯示另存對話框） | `SaveResult \| null`：`null` 表示使用者關閉了對話框；之後分頁指向新檔 | 否 | B2-02 |
 | `close_window` | `{ discard: boolean }` | 無；有未儲存的文件時，只有 `discard: true` 才關閉 | 否 | B2-02 |
@@ -110,6 +112,7 @@ flowchart LR
 - `DocumentInfo.permissions`（MVP-19）：文件作者是否允許複製文字、列印、高品質列印、修改（`modify`）與組合文件（`assemble`，插入、刪除、旋轉頁面），由 worker 從加密字典讀取；未加密的文件全部為 `true`。見 [encryption.md](encryption.md)「權限」。
 - `DocumentInfo.unsaved`（B2-02）：文件在開啟或上次存檔後有變更，檔案還沒有這些變更。
 - `DocumentInfo.canUndo`／`canRedo`（B2-05）：有可以復原或重做的編輯。以密碼開啟的文件復原時要再輸入密碼。
+- `DocumentInfo.recovery`（B2-13）：上一次執行留下、還沒回答的編輯：`none`、`available`（可以還原）或 `stale`（檔案已改變，不能還原）。見 [crash-recovery.md](crash-recovery.md)。
 - `DocumentInfo.encrypted`（B2-03）：文件有加密（有開啟密碼，或只有權限密碼）；沒有隱私匯出。
 
 ### 檔案對話框（MVP-06、#86、B2-04）

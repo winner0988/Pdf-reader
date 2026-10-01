@@ -67,6 +67,7 @@ pub fn bindings() -> String {
         SecurityFinding,
         SecurityReport,
         DocumentPermissions,
+        Recovery,
         DocumentInfo,
         RenderPageArgs,
         BlockedAction,

@@ -4,15 +4,18 @@
 //! Undo opens the document again from the bytes its worker keeps and applies all but the last
 //! edit; redo applies the next one again. Once the document is written, the file is where
 //! everything starts again: the history is emptied and the worker keeps the new file's bytes.
+//!
+//! The edits are kept as the page asked for them (`Edit`, validated): the ones applied are also
+//! the crash recovery journal (B2-13, `recovery.rs`).
 
 use ipc_contract::limits::MAX_UNDO_EDITS;
-use ipc_contract::worker::WorkerEdit;
+use ipc_contract::types::Edit;
 
 #[derive(Debug, Default)]
 pub struct History {
     /// Every edit since the file was read or last written. The first `applied` are in the
     /// document; the others were undone.
-    edits: Vec<WorkerEdit>,
+    edits: Vec<Edit>,
     applied: usize,
 }
 
@@ -36,19 +39,19 @@ impl History {
     }
 
     /// The edits the document has, in order: to open its file again with them.
-    pub fn applied(&self) -> &[WorkerEdit] {
+    pub fn applied(&self) -> &[Edit] {
         &self.edits[..self.applied]
     }
 
     /// `edit` was applied. What was undone can no longer be made again.
-    pub fn push(&mut self, edit: WorkerEdit) {
+    pub fn push(&mut self, edit: Edit) {
         self.edits.truncate(self.applied);
         self.edits.push(edit);
         self.applied += 1;
     }
 
     /// The edits the document has once its last one is undone; `None` with nothing to undo.
-    pub fn before_last(&self) -> Option<&[WorkerEdit]> {
+    pub fn before_last(&self) -> Option<&[Edit]> {
         self.applied.checked_sub(1).map(|kept| &self.edits[..kept])
     }
 
@@ -58,7 +61,7 @@ impl History {
     }
 
     /// The edit to make again; `None` with nothing undone.
-    pub fn next(&self) -> Option<&WorkerEdit> {
+    pub fn next(&self) -> Option<&Edit> {
         self.edits.get(self.applied)
     }
 
@@ -77,8 +80,8 @@ impl History {
 mod tests {
     use super::*;
 
-    fn delete(page: u32) -> WorkerEdit {
-        WorkerEdit::DeletePages { pages: vec![page] }
+    fn delete(page: u32) -> Edit {
+        Edit::DeletePages { pages: vec![page] }
     }
 
     #[test]

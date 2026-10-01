@@ -16,6 +16,7 @@ mod links;
 mod local_data;
 mod opener;
 mod recent;
+mod recovery;
 mod render;
 mod saving;
 mod search;
@@ -32,6 +33,7 @@ use crate::documents::Documents;
 use crate::events::OpenEvents;
 use crate::export::Exports;
 use crate::recent::RecentFiles;
+use crate::recovery::Journals;
 use crate::render::{DEFAULT_CACHE_BYTES, Renderer};
 use crate::search::Searches;
 use crate::settings::SettingsStore;
@@ -110,6 +112,8 @@ pub fn run() {
             commands::apply_edit,
             commands::undo_edit,
             commands::redo_edit,
+            commands::recover_edits,
+            commands::discard_recovered_edits,
             commands::save_document,
             commands::save_document_as,
             commands::close_window,
@@ -122,7 +126,10 @@ pub fn run() {
                 data.as_ref().map(|dir| dir.join(settings::FILE_NAME)),
             ));
             app.manage(RecentFiles::new(
-                data.map(|dir| dir.join(recent::FILE_NAME)),
+                data.as_ref().map(|dir| dir.join(recent::FILE_NAME)),
+            ));
+            app.state::<Documents>().set_journals(Journals::new(
+                data.map(|dir| dir.join(recovery::FOLDER_NAME)),
             ));
             let reporter = app.app_handle().clone();
             app.state::<Documents>()
@@ -138,8 +145,8 @@ pub fn run() {
         .expect("error while running the Tauri application");
 }
 
-/// Where the app keeps its own data, such as the recent files list (#73) and the settings
-/// (B2-12): the folder
+/// Where the app keeps its own data, such as the recent files list (#73), the settings (B2-12)
+/// and the crash recovery journals (B2-13): the folder
 /// `PDF_READER_DATA_DIR` names if it is an absolute path (the E2E tests give every run its own),
 /// otherwise the app's local data folder, which does not roam with the Windows profile.
 fn data_dir(app: &AppHandle) -> Option<PathBuf> {

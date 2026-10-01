@@ -22,6 +22,7 @@ import { SaveFailedDialog } from "@/features/saving/SaveFailedDialog";
 import { useSearch, type SearchApi } from "@/features/search/useSearch";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { useSettings } from "@/features/settings/useSettings";
+import { RecoveryBanner } from "@/features/recovery/RecoveryBanner";
 import { SecurityBanner } from "@/features/security-banner/SecurityBanner";
 import { SecurityDetails } from "@/features/security-banner/SecurityDetails";
 import { hasBannerContent } from "@/features/security-banner/summary";
@@ -149,6 +150,9 @@ export function ReaderShell({
   const [sidebarOpen, setSidebarOpen] = useState(() => !isNarrowWindow());
   const [searchOpen, setSearchOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  /** The user left the changes an earlier run left for later (B2-13): offered again next time. */
+  const [recoveryDismissed, setRecoveryDismissed] = useState(false);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   /** What the link under the pointer does (status bar). */
   const [linkHover, setLinkHover] = useState<string | null>(null);
@@ -199,6 +203,7 @@ export function ReaderShell({
     setRotation(0);
     setCurrentPage(1);
     setBannerDismissed(false);
+    setRecoveryDismissed(false);
     setDetailsOpen(false);
     setSearchOpen(false);
     setLinkHover(null);
@@ -334,6 +339,20 @@ export function ReaderShell({
   };
   const redo = () => {
     if (redoable) editingApi!.redo(doc!).catch(() => showHint(strings.pages.failed));
+  };
+  // Changes an earlier run of the app left for the file (B2-13): made again or discarded. The tab's
+  // new state comes on the open-events channel.
+  const recovery = document_?.recovery ?? "none";
+  const recoveryShown = !recoveryDismissed && doc !== undefined && editingApi !== undefined;
+  const answerRecovery = (restore: boolean) => {
+    if (doc === undefined || editingApi === undefined) return;
+    setRecoveryBusy(true);
+    (restore ? editingApi.recover(doc) : editingApi.discardRecovered(doc))
+      .catch((error: unknown) =>
+        // Restoring is refused while the document has edits of its own.
+        showHint(restore && errorCodeOf(error) === "invalidArgument" ? strings.recovery.ownChanges : strings.recovery.failed),
+      )
+      .finally(() => setRecoveryBusy(false));
   };
   // Deleting pages can leave the page being read past the end.
   if (pageCount > 0 && currentPage > pageCount) setCurrentPage(pageCount);
@@ -486,6 +505,18 @@ export function ReaderShell({
             />
           )}
           <div className="flex min-w-0 flex-1 flex-col">
+            {recoveryShown && recovery !== "none" && (
+              <RecoveryBanner
+                recovery={recovery}
+                busy={recoveryBusy}
+                onRestore={() => answerRecovery(true)}
+                onDiscard={() => answerRecovery(false)}
+                onLater={() => {
+                  setRecoveryDismissed(true);
+                  canvasRef.current?.focus();
+                }}
+              />
+            )}
             {bannerShown && (
               <SecurityBanner
                 findings={findings}

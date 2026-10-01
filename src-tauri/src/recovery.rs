@@ -1,0 +1,514 @@
+//! Crash recovery (B2-13, ADR 0013, docs/architecture/crash-recovery.md). The edits a document
+//! has and that are not in its file yet are kept in a journal in the app's local data folder,
+//! rewritten after every change. Saving, discarding the changes or closing the tab deletes it;
+//! one that is still there when its file opens again was left by a run that ended first, and
+//! the user is offered to make its edits again.
+//!
+//! A journal is read as untrusted data, like any file in the data folder: with a size limit,
+//! only in the app's format, and with every edit checked as an edit from the page is.
+
+use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
+
+use ipc_contract::limits::MAX_UNDO_EDITS;
+use ipc_contract::types::Edit;
+use ipc_contract::validate::Validate;
+use serde::{Deserialize, Serialize};
+
+use crate::local_data;
+use crate::recent::key;
+use crate::saving::FileIdentity;
+
+/// The folder in the data folder.
+pub const FOLDER_NAME: &str = "recovery";
+/// The largest journal. An edit that would make one larger is refused: the document has to be
+/// saved first.
+pub const MAX_JOURNAL_BYTES: usize = 4 * 1024 * 1024;
+/// Journals looked at when a file opens. A run has at most one per tab; more were not all left
+/// by the app.
+const MAX_JOURNALS: usize = 64;
+const VERSION: u32 = 1;
+const ID_BYTES: usize = 16;
+const EXTENSION: &str = "json";
+
+/// A journal file.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Stored {
+    version: u32,
+    /// The file's full path, as it was opened.
+    path: String,
+    /// The file as it was read: its size, and when it last changed (since the Unix epoch).
+    len: u64,
+    modified_secs: u64,
+    modified_nanos: u32,
+    /// The edits made to it since, in order.
+    edits: Vec<Edit>,
+}
+
+/// A journal's file name in the folder: random, so the folder says nothing of the files.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct JournalId(String);
+
+/// A journal an earlier run left for a file.
+#[derive(Debug, PartialEq)]
+pub struct Found {
+    pub id: JournalId,
+    pub edits: Vec<Edit>,
+    /// The file is as it was when the edits were made: they can be made on it again.
+    pub same_file: bool,
+}
+
+/// The journal would be larger than `MAX_JOURNAL_BYTES`.
+#[derive(Debug, PartialEq, Eq)]
+pub struct TooLarge;
+
+pub struct Journals {
+    /// `None` without a data folder: then nothing is kept.
+    folder: Option<PathBuf>,
+    /// The journals this run uses: its tabs' own, and those offered to a tab. No other tab is
+    /// offered them, and clearing leaves them.
+    in_use: Mutex<HashSet<JournalId>>,
+}
+
+impl Journals {
+    pub fn new(folder: Option<PathBuf>) -> Self {
+        Self {
+            folder,
+            in_use: Mutex::new(HashSet::new()),
+        }
+    }
+
+    /// A name for a new journal; nothing is written until `write`. `None` without a data folder.
+    pub fn create(&self) -> Option<JournalId> {
+        self.folder.as_ref()?;
+        let mut bytes = [0u8; ID_BYTES];
+        getrandom::fill(&mut bytes).ok()?;
+        let id = JournalId(bytes.iter().map(|byte| format!("{byte:02x}")).collect());
+        self.lock().insert(id.clone());
+        Some(id)
+    }
+
+    /// Whether a journal of `edits` to the file at `path` would be small enough to keep.
+    pub fn check(
+        path: &Path,
+        identity: Option<FileIdentity>,
+        edits: &[Edit],
+    ) -> Result<(), TooLarge> {
+        match encode(path, identity, edits) {
+            Some(json) if json.len() > MAX_JOURNAL_BYTES => Err(TooLarge),
+            _ => Ok(()),
+        }
+    }
+
+    /// Replaces journal `id` with `edits` to the file at `path`, which was `identity` when read.
+    /// Best effort: if the file cannot be written, a crash loses the changes, nothing else.
+    pub fn write(
+        &self,
+        id: &JournalId,
+        path: &Path,
+        identity: Option<FileIdentity>,
+        edits: &[Edit],
+    ) -> Result<(), TooLarge> {
+        let (Some(file), Some(json)) = (self.file(id), encode(path, identity, edits)) else {
+            return Ok(());
+        };
+        if json.len() > MAX_JOURNAL_BYTES {
+            return Err(TooLarge);
+        }
+        let _ = local_data::write(&file, &json);
+        Ok(())
+    }
+
+    /// Deletes journal `id`: its edits were saved or discarded.
+    pub fn remove(&self, id: &JournalId) {
+        if let Some(file) = self.file(id) {
+            local_data::remove(&file);
+        }
+        self.lock().remove(id);
+    }
+
+    /// Leaves journal `id` for a later run, or a later opening of its file: its tab closed
+    /// before the user answered, or lost its document.
+    pub fn release(&self, id: &JournalId) {
+        self.lock().remove(id);
+    }
+
+    /// The journal an earlier run left for the file at `path`, which is now `now`; it is then in
+    /// use. Journals that are not the app's, or whose edits are not valid, are left alone.
+    pub fn find(&self, path: &Path, now: Option<FileIdentity>) -> Option<Found> {
+        let folder = self.folder.as_ref()?;
+        let mut names: Vec<String> = fs::read_dir(folder)
+            .ok()?
+            .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+            .filter(|name| id_of(name).is_some())
+            .collect();
+        names.sort();
+        names.truncate(MAX_JOURNALS);
+        names
+            .iter()
+            .filter_map(|name| id_of(name))
+            .find_map(|id| self.take(&id, path, now))
+    }
+
+    /// Journal `id`, if it is one for the file at `path` and not in use; it is then in use.
+    pub fn take(&self, id: &JournalId, path: &Path, now: Option<FileIdentity>) -> Option<Found> {
+        if self.lock().contains(id) {
+            return None;
+        }
+        let stored = read(&self.file(id)?, path)?;
+        // Checked by `read`: the nanoseconds never carry into the seconds.
+        let then = FileIdentity::from_parts(
+            stored.len,
+            Duration::new(stored.modified_secs, stored.modified_nanos),
+        );
+        // Another tab may have taken it meanwhile.
+        if !self.lock().insert(id.clone()) {
+            return None;
+        }
+        Some(Found {
+            id: id.clone(),
+            edits: stored.edits,
+            same_file: now.is_some() && now == then,
+        })
+    }
+
+    /// Deletes every journal this run does not use (clearing the recent files list, B2-12).
+    pub fn clear_unused(&self) {
+        let Some(folder) = self.folder.as_ref() else {
+            return;
+        };
+        let Ok(entries) = fs::read_dir(folder) else {
+            return;
+        };
+        let in_use = self.lock().clone();
+        for entry in entries.filter_map(Result::ok) {
+            let Ok(name) = entry.file_name().into_string() else {
+                continue;
+            };
+            // A leftover of an interrupted write (`local_data::write`) too.
+            let stem = name.strip_suffix(".tmp").unwrap_or(&name);
+            if id_of(stem).is_some_and(|id| !in_use.contains(&id)) {
+                local_data::remove(&entry.path());
+            }
+        }
+    }
+
+    fn file(&self, id: &JournalId) -> Option<PathBuf> {
+        Some(self.folder.as_ref()?.join(format!("{}.{EXTENSION}", id.0)))
+    }
+
+    fn lock(&self) -> MutexGuard<'_, HashSet<JournalId>> {
+        self.in_use.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// The id of a journal file name: 32 lowercase hex digits and the extension.
+fn id_of(name: &str) -> Option<JournalId> {
+    let hex = name.strip_suffix(EXTENSION)?.strip_suffix('.')?;
+    (hex.len() == 2 * ID_BYTES
+        && hex
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')))
+    .then(|| JournalId(hex.to_owned()))
+}
+
+/// The journal file's content; `None` if the file has no usable identity or its path no text.
+fn encode(path: &Path, identity: Option<FileIdentity>, edits: &[Edit]) -> Option<Vec<u8>> {
+    let (len, since_epoch) = identity?.parts()?;
+    serde_json::to_vec(&Stored {
+        version: VERSION,
+        path: path.to_str()?.to_owned(),
+        len,
+        modified_secs: since_epoch.as_secs(),
+        modified_nanos: since_epoch.subsec_nanos(),
+        edits: edits.to_vec(),
+    })
+    .ok()
+}
+
+/// Journal `file`, if it is one the app could have written for the file at `path`.
+fn read(file: &Path, path: &Path) -> Option<Stored> {
+    let json = local_data::read(file, MAX_JOURNAL_BYTES as u64)?;
+    let stored: Stored = serde_json::from_slice(&json).ok()?;
+    let valid = stored.version == VERSION
+        && Path::new(&stored.path).is_absolute()
+        && key(Path::new(&stored.path)) == key(path)
+        && stored.modified_nanos < 1_000_000_000
+        && !stored.edits.is_empty()
+        && stored.edits.len() <= MAX_UNDO_EDITS as usize
+        && stored.edits.iter().all(|edit| edit.validate().is_ok());
+    valid.then_some(stored)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use ipc_contract::types::Rotation;
+
+    use super::*;
+
+    /// A data folder of its own for each test, removed when dropped.
+    struct Folder(PathBuf);
+
+    impl Folder {
+        fn new() -> Self {
+            static NEXT: AtomicU32 = AtomicU32::new(0);
+            let folder = std::env::temp_dir().join(format!(
+                "pdf-reader-recovery-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            let _ = fs::remove_dir_all(&folder);
+            Self(folder)
+        }
+
+        fn journals(&self) -> Journals {
+            Journals::new(Some(self.0.join(FOLDER_NAME)))
+        }
+
+        fn files(&self) -> Vec<String> {
+            let mut names: Vec<String> = fs::read_dir(self.0.join(FOLDER_NAME))
+                .map(|entries| {
+                    entries
+                        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+                        .collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            names
+        }
+    }
+
+    impl Drop for Folder {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn file() -> PathBuf {
+        PathBuf::from(r"C:\Users\someone\報告.pdf")
+    }
+
+    fn identity(len: u64) -> Option<FileIdentity> {
+        FileIdentity::from_parts(len, Duration::new(1_790_000_000, 123))
+    }
+
+    fn edits() -> Vec<Edit> {
+        vec![
+            Edit::DeletePages { pages: vec![2] },
+            Edit::RotatePages {
+                pages: vec![0, 1],
+                by: Rotation::Cw90,
+            },
+        ]
+    }
+
+    #[test]
+    fn a_journal_left_by_an_earlier_run_is_found_for_its_file_only() {
+        let folder = Folder::new();
+        let earlier = folder.journals();
+        let id = earlier.create().unwrap();
+        earlier
+            .write(&id, &file(), identity(1_000), &edits())
+            .unwrap();
+        assert_eq!(folder.files(), [format!("{}.json", id.0)]);
+        // The name says nothing of the file.
+        assert!(!folder.files()[0].contains("報告"));
+
+        let later = folder.journals();
+        assert_eq!(
+            later.find(Path::new(r"C:\Users\someone\other.pdf"), identity(1_000)),
+            None
+        );
+        // Windows paths ignore case.
+        let found = later
+            .find(Path::new(r"c:\users\SOMEONE\報告.PDF"), identity(1_000))
+            .unwrap();
+        assert_eq!(
+            found,
+            Found {
+                id: id.clone(),
+                edits: edits(),
+                same_file: true
+            }
+        );
+        // In use now: not offered twice.
+        assert_eq!(later.find(&file(), identity(1_000)), None);
+        later.remove(&id);
+        assert!(folder.files().is_empty());
+    }
+
+    #[test]
+    fn a_file_changed_since_is_told_apart() {
+        let folder = Folder::new();
+        let earlier = folder.journals();
+        let id = earlier.create().unwrap();
+        earlier
+            .write(&id, &file(), identity(1_000), &edits())
+            .unwrap();
+        let found = folder.journals().find(&file(), identity(999)).unwrap();
+        assert!(!found.same_file);
+        assert!(!folder.journals().find(&file(), None).unwrap().same_file);
+    }
+
+    #[test]
+    fn this_runs_journals_are_not_offered_until_released() {
+        let folder = Folder::new();
+        let journals = folder.journals();
+        let id = journals.create().unwrap();
+        journals
+            .write(&id, &file(), identity(1_000), &edits())
+            .unwrap();
+        assert_eq!(journals.find(&file(), identity(1_000)), None);
+        journals.release(&id);
+        assert_eq!(journals.find(&file(), identity(1_000)).unwrap().id, id);
+    }
+
+    #[test]
+    fn clearing_deletes_the_journals_not_in_use() {
+        let folder = Folder::new();
+        let earlier = folder.journals();
+        let left = earlier.create().unwrap();
+        earlier
+            .write(&left, &file(), identity(1_000), &edits())
+            .unwrap();
+        let journals = folder.journals();
+        let own = journals.create().unwrap();
+        journals
+            .write(&own, &file(), identity(1_000), &edits())
+            .unwrap();
+        fs::write(
+            folder
+                .0
+                .join(FOLDER_NAME)
+                .join(format!("{}.json.tmp", left.0)),
+            b"{",
+        )
+        .unwrap();
+        fs::write(
+            folder.0.join(FOLDER_NAME).join("notes.txt"),
+            b"not the app's",
+        )
+        .unwrap();
+
+        journals.clear_unused();
+        assert_eq!(
+            folder.files(),
+            [format!("{}.json", own.0), "notes.txt".to_owned()]
+        );
+    }
+
+    #[test]
+    fn a_journal_is_never_larger_than_the_limit() {
+        let folder = Folder::new();
+        let journals = folder.journals();
+        let id = journals.create().unwrap();
+        let all: Vec<u32> = (0..99_999).collect();
+        let large = vec![Edit::DeletePages { pages: all }; 10];
+        assert_eq!(
+            Journals::check(&file(), identity(1_000), &large),
+            Err(TooLarge)
+        );
+        assert_eq!(
+            journals.write(&id, &file(), identity(1_000), &large),
+            Err(TooLarge)
+        );
+        assert!(folder.files().is_empty());
+        assert_eq!(Journals::check(&file(), identity(1_000), &edits()), Ok(()));
+        // Without the file's identity there is nothing to check a later file against.
+        journals.write(&id, &file(), None, &edits()).unwrap();
+        assert!(folder.files().is_empty());
+    }
+
+    #[test]
+    fn journals_are_checked_as_untrusted_data() {
+        let folder = Folder::new();
+        let dir = folder.0.join(FOLDER_NAME);
+        fs::create_dir_all(&dir).unwrap();
+        let path = serde_json::to_string(&file().to_str().unwrap()).unwrap();
+        let journal = |edits: &str, extra: &str| {
+            format!(
+                r#"{{"version":1,"path":{path},"len":1000,"modifiedSecs":1790000000,"modifiedNanos":123,"edits":{edits}{extra}}}"#
+            )
+        };
+        let bad = [
+            // Not JSON, another version, unknown fields.
+            "{".to_owned(),
+            journal(r#"[{"kind":"deletePages","pages":[2]}]"#, "")
+                .replace("\"version\":1", "\"version\":2"),
+            journal(r#"[{"kind":"deletePages","pages":[2]}]"#, r#","more":1"#),
+            // No edits, an edit that is not valid (a page twice), too many edits.
+            journal("[]", ""),
+            journal(r#"[{"kind":"deletePages","pages":[2,2]}]"#, ""),
+            journal(
+                &format!(
+                    "[{}]",
+                    vec![r#"{"kind":"deletePages","pages":[2]}"#; MAX_UNDO_EDITS as usize + 1]
+                        .join(",")
+                ),
+                "",
+            ),
+            // A relative path.
+            journal(r#"[{"kind":"deletePages","pages":[2]}]"#, "").replace(&path, r#""報告.pdf""#),
+        ];
+        for (index, content) in bad.iter().enumerate() {
+            let name = format!("{index:032x}.json");
+            fs::write(dir.join(&name), content).unwrap();
+            assert_eq!(
+                folder
+                    .journals()
+                    .find(Path::new("報告.pdf"), identity(1_000)),
+                None,
+                "{content}"
+            );
+            assert_eq!(
+                folder.journals().find(&file(), identity(1_000)),
+                None,
+                "{content}"
+            );
+            fs::remove_file(dir.join(name)).unwrap();
+        }
+        // Too large, even if it were valid.
+        let mut huge = journal(r#"[{"kind":"deletePages","pages":[2]}]"#, "");
+        huge.insert_str(1, &" ".repeat(MAX_JOURNAL_BYTES));
+        fs::write(dir.join(format!("{:032x}.json", 0)), &huge).unwrap();
+        assert_eq!(folder.journals().find(&file(), identity(1_000)), None);
+        // A time the system cannot represent: no file is like that.
+        let far = journal(r#"[{"kind":"deletePages","pages":[2]}]"#, "")
+            .replace("1790000000", &u64::MAX.to_string());
+        fs::write(dir.join(format!("{:032x}.json", 0)), far).unwrap();
+        assert!(
+            !folder
+                .journals()
+                .find(&file(), identity(1_000))
+                .unwrap()
+                .same_file
+        );
+        // And the same journal, the right size, is found.
+        fs::write(
+            dir.join(format!("{:032x}.json", 0)),
+            journal(r#"[{"kind":"deletePages","pages":[2]}]"#, ""),
+        )
+        .unwrap();
+        assert!(
+            folder
+                .journals()
+                .find(&file(), identity(1_000))
+                .unwrap()
+                .same_file
+        );
+    }
+
+    #[test]
+    fn without_a_data_folder_nothing_is_kept() {
+        let journals = Journals::new(None);
+        assert_eq!(journals.create(), None);
+        assert_eq!(journals.find(&file(), identity(1_000)), None);
+        journals.clear_unused();
+    }
+}
