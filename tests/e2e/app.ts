@@ -183,6 +183,33 @@ async function summary(running: Running): Promise<string> {
       3_000,
     );
     lines.push(`its script: ${JSON.stringify({ timer, frame, widths, ipc })}`);
+    // The first page slot as React has it, read from React's own fields on its element (here
+    // only, on failure): whether it waits for the scale to settle, and whether it is still the
+    // same element half a second later (a slot that keeps mounting anew never asks).
+    const slot = await within(
+      page.evaluate(async () => {
+        type Fiber = { memoizedProps?: Record<string, unknown> | null; return?: Fiber | null };
+        const element = document.querySelector("[role=img][data-state]");
+        if (!element) return "no page slot";
+        const key = Object.keys(element).find((name) => name.startsWith("__reactFiber$"));
+        let fiber = key ? (element as unknown as Record<string, Fiber | undefined>)[key] : undefined;
+        let props: Record<string, unknown> | null = null;
+        for (let depth = 0; fiber && depth < 5 && !props; depth++, fiber = fiber.return ?? undefined) {
+          if (fiber.memoizedProps && "paused" in fiber.memoizedProps) props = fiber.memoizedProps;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        return {
+          paused: props?.paused,
+          scale: props?.scale,
+          requestDelayMs: props?.requestDelayMs,
+          doc: props?.doc,
+          renderer: props ? props.renderer !== undefined : "no props found",
+          sameElement: element.isConnected,
+        };
+      }),
+      3_000,
+    );
+    lines.push(`its first page slot: ${JSON.stringify(slot)}`);
     const statusBar = await within(page.getByRole("contentinfo").count(), 3_000);
     const text = await within(
       page
