@@ -53,6 +53,11 @@ pub fn bindings() -> String {
         ExportArgs,
         ExportEvent,
         Edit,
+        HighlightColor,
+        HighlightMark,
+        AnnotationId,
+        AnnotationKind,
+        PageAnnotation,
         EditArgs,
         UndoArgs,
         SaveResult,
@@ -89,7 +94,7 @@ pub fn bindings() -> String {
         OpenEvent,
     );
 
-    let limits: [(&str, String); 22] = [
+    let limits: [(&str, String); 26] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -111,6 +116,13 @@ pub fn bindings() -> String {
         ("maxTabs", MAX_TABS.to_string()),
         ("maxRecentFiles", MAX_RECENT_FILES.to_string()),
         ("maxExportPages", MAX_EXPORT_PAGES.to_string()),
+        ("maxAnnotationQuads", MAX_ANNOTATION_QUADS.to_string()),
+        ("maxHighlightPages", MAX_HIGHLIGHT_PAGES.to_string()),
+        ("maxNoteTextBytes", MAX_NOTE_TEXT_BYTES.to_string()),
+        (
+            "maxAnnotationsPerPage",
+            MAX_ANNOTATIONS_PER_PAGE.to_string(),
+        ),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];
     out.push_str(

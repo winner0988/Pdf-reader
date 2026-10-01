@@ -20,6 +20,8 @@ use crate::search::{PageSearch, PageText};
 use crate::text_layer::TextLayerBuilder;
 use thiserror::Error;
 
+mod annotations;
+
 /// Most form fields looked at to find a signature (`PdfDocument::is_signed`).
 const MAX_FORM_FIELDS: usize = 10_000;
 
@@ -854,6 +856,7 @@ fn permissions_from(p: i32, revision: Option<i32>) -> DocumentPermissions {
         } else {
             allows(11)
         },
+        annotate: allows(6),
     }
 }
 
@@ -938,6 +941,10 @@ fn percent_encode(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use ipc_contract::types::{
+        AnnotationId, AnnotationKind, HighlightColor, HighlightMark, PageAnnotation, Rect,
+    };
+
     use super::*;
 
     /// Builds a PDF with a correct xref table from object bodies (object n = body n-1).
@@ -1257,6 +1264,12 @@ mod tests {
         assert!(!permissions_from(all & !ASSEMBLE, Some(4)).assemble);
         assert!(permissions_from(all & !ASSEMBLE, Some(2)).assemble);
         assert!(!permissions_from(all & !MODIFY & !ASSEMBLE, Some(2)).assemble);
+        // Annotating has a bit of its own (6), in every revision (B2-07).
+        const ANNOTATE: i32 = 1 << 5;
+        for revision in [Some(2), Some(4)] {
+            let no_annotations = permissions_from(all & !ANNOTATE, revision);
+            assert!(!no_annotations.annotate && no_annotations.modify && no_annotations.assemble);
+        }
     }
 
     #[test]
@@ -1732,6 +1745,211 @@ mod tests {
         let (bytes, incremental) = doc.save(&mut out).expect("save");
         assert_eq!(bytes, out.len() as u64);
         (out, incremental)
+    }
+
+    /// One page with a highlighter mark (4), a note (5) with its pop-up (6) and a reply (10), a
+    /// square (7), a link (8) and a form field (9) (B2-07).
+    fn annotated_pdf() -> Vec<u8> {
+        build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [9 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R 5 0 R 6 0 R 7 0 R 8 0 R 9 0 R 10 0 R] >>",
+            "<< /Type /Annot /Subtype /Highlight /Rect [72 700 200 720] /QuadPoints [72 720 200 720 72 700 200 700] /C [1 0.92 0] /P 3 0 R >>",
+            "<< /Type /Annot /Subtype /Text /Rect [300 700 320 720] /Contents (Existing  note\ttext) /Popup 6 0 R /P 3 0 R >>",
+            "<< /Type /Annot /Subtype /Popup /Rect [320 600 520 700] /Parent 5 0 R >>",
+            "<< /Type /Annot /Subtype /Square /Rect [100 100 200 200] /C [1 0 0] >>",
+            "<< /Type /Annot /Subtype /Link /Rect [72 50 200 70] /A << /S /URI /URI (https://example.com) >> >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Rect [72 400 200 420] /P 3 0 R >>",
+            "<< /Type /Annot /Subtype /Text /Rect [330 700 350 720] /Contents (A reply) /IRT 5 0 R >>",
+        ])
+    }
+
+    /// Whether `rect` covers `area` (x0, y0, x1, y1) and not much more: a highlighter mark shows
+    /// a little beyond the text it marks.
+    fn covers(rect: Rect, [x0, y0, x1, y1]: [f32; 4]) -> bool {
+        let margin = |outer: f32, inner: f32| (0.0..15.0).contains(&(outer - inner));
+        margin(x0, rect.x0) && margin(y0, rect.y0) && margin(rect.x1, x1) && margin(rect.y1, y1)
+    }
+
+    fn annotation(doc: &PdfDocument, page: u32, id: u32) -> Option<PageAnnotation> {
+        doc.page_annotations(page)
+            .expect("annotations")
+            .into_iter()
+            .find(|annotation| annotation.id == AnnotationId(id))
+    }
+
+    #[test]
+    fn lists_a_pages_annotations_but_not_its_links_fields_or_pop_ups() {
+        let doc = PdfDocument::from_bytes(&annotated_pdf()).expect("open");
+        let listed = doc.page_annotations(0).expect("annotations");
+        let kinds: Vec<(u32, AnnotationKind)> = listed
+            .iter()
+            .map(|annotation| (annotation.id.0, annotation.kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                (4, AnnotationKind::Highlight),
+                (5, AnnotationKind::Note),
+                (7, AnnotationKind::Other),
+                (10, AnnotationKind::Note),
+            ]
+        );
+        let highlight = &listed[0];
+        assert_eq!(highlight.color, Some(HighlightColor::Yellow));
+        // Page space, origin at the top left: where it shows, the marked area and a little more.
+        assert!(covers(highlight.rect, [72.0, 72.0, 200.0, 92.0]));
+        // A note's text is cleaned like any text from a PDF.
+        assert_eq!(listed[1].text.as_deref(), Some("Existing note text"));
+        assert_eq!(listed[2].color, None);
+        assert!(matches!(
+            doc.page_annotations(1),
+            Err(EngineError::PageOutOfRange(1))
+        ));
+    }
+
+    #[test]
+    fn highlights_and_notes_are_standard_annotations_that_say_nothing_of_who_made_them() {
+        let mut doc = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
+        let quad = Quad {
+            ul: Point { x: 72.0, y: 56.0 },
+            ur: Point { x: 300.0, y: 56.0 },
+            ll: Point { x: 72.0, y: 100.0 },
+            lr: Point { x: 300.0, y: 100.0 },
+        };
+        let mark = |page: u32, quads: Vec<Quad>| HighlightMark { page, quads };
+        doc.add_highlights(&[mark(0, vec![quad])], HighlightColor::Green)
+            .expect("highlight");
+        doc.add_note(1, Point { x: 100.0, y: 120.0 }, "第一行\nsecond line")
+            .expect("note");
+        // A mark that does not fit leaves the document as it was, its other pages too.
+        for wrong in [
+            vec![mark(1, vec![quad]), mark(0, vec![])],
+            vec![mark(1, vec![quad]), mark(5, vec![quad])],
+            vec![mark(1, vec![quad]), mark(1, vec![quad])],
+        ] {
+            assert!(doc.add_highlights(&wrong, HighlightColor::Green).is_err());
+        }
+
+        let (bytes, _) = saved(&doc);
+        let reopened = PdfDocument::from_bytes(&bytes).expect("reopen");
+        let [highlight] = &reopened.page_annotations(0).expect("annotations")[..] else {
+            panic!("one highlight");
+        };
+        assert_eq!(highlight.kind, AnnotationKind::Highlight);
+        assert_eq!(highlight.color, Some(HighlightColor::Green));
+        assert!(covers(highlight.rect, [72.0, 56.0, 300.0, 100.0]));
+        let [note] = &reopened.page_annotations(1).expect("annotations")[..] else {
+            panic!("one note");
+        };
+        assert_eq!(note.kind, AnnotationKind::Note);
+        assert_eq!(note.text.as_deref(), Some("第一行\nsecond line"));
+        // Standard PDF: a highlight with QuadPoints and an appearance; nothing about who made
+        // them or when.
+        let annotations: Vec<PdfObject> = every_dictionary(&reopened.doc)
+            .into_iter()
+            .filter(|dict| {
+                dict.get_dict("Type")
+                    .ok()
+                    .flatten()
+                    .and_then(|name| name.as_name().ok())
+                    == Some(b"Annot".to_vec())
+            })
+            .collect();
+        assert!(annotations.len() >= 2);
+        for dict in &annotations {
+            for key in ["T", "M", "CreationDate", "NM"] {
+                assert!(dict.get_dict(key).unwrap().is_none(), "/{key} in {dict:?}");
+            }
+        }
+        assert!(annotations.iter().any(|dict| {
+            dict.get_dict("QuadPoints").unwrap().is_some() && dict.get_dict("AP").unwrap().is_some()
+        }));
+    }
+
+    #[test]
+    fn annotations_are_changed_and_removed_with_what_points_to_them() {
+        let mut doc = PdfDocument::from_bytes(&annotated_pdf()).expect("open");
+        doc.set_highlight_color(0, AnnotationId(4), HighlightColor::Pink)
+            .expect("color");
+        assert_eq!(
+            annotation(&doc, 0, 4).unwrap().color,
+            Some(HighlightColor::Pink)
+        );
+        doc.set_note_text(0, AnnotationId(10), "Changed reply")
+            .expect("text");
+        assert_eq!(
+            annotation(&doc, 0, 10).unwrap().text.as_deref(),
+            Some("Changed reply")
+        );
+        // Only a highlighter mark has a color, only a note a text; links, fields and pop-ups are
+        // not annotations the app edits.
+        for wrong in [
+            doc.set_highlight_color(0, AnnotationId(5), HighlightColor::Blue),
+            doc.set_note_text(0, AnnotationId(4), "no"),
+            doc.delete_annotation(0, AnnotationId(6)),
+            doc.delete_annotation(0, AnnotationId(8)),
+            doc.delete_annotation(0, AnnotationId(9)),
+            doc.delete_annotation(0, AnnotationId(99)),
+        ] {
+            assert!(
+                matches!(wrong, Err(EngineError::InvalidEdit(_))),
+                "{wrong:?}"
+            );
+        }
+
+        // The note goes with its pop-up, and the reply no longer points to it.
+        doc.delete_annotation(0, AnnotationId(5)).expect("delete");
+        doc.delete_annotation(0, AnnotationId(7)).expect("delete");
+        assert_eq!(
+            doc.page_annotations(0)
+                .expect("annotations")
+                .iter()
+                .map(|annotation| annotation.id.0)
+                .collect::<Vec<_>>(),
+            [4, 10]
+        );
+        let (bytes, _) = saved(&doc);
+        assert!(!contains(&bytes, b"Existing"));
+        let reopened = PdfDocument::from_bytes(&bytes).expect("reopen");
+        let dictionaries = every_dictionary(&reopened.doc);
+        let says = |dict: &PdfObject, text: &str| {
+            dict.get_dict("Contents")
+                .ok()
+                .flatten()
+                .is_some_and(|contents| contents.as_string().ok().as_deref() == Some(text))
+        };
+        assert!(
+            !dictionaries
+                .iter()
+                .any(|dict| says(dict, "Existing  note\ttext"))
+        );
+        let subtype = |dict: &PdfObject| {
+            dict.get_dict("Subtype")
+                .ok()
+                .flatten()
+                .and_then(|name| name.as_name().ok())
+        };
+        assert!(
+            !dictionaries
+                .iter()
+                .any(|dict| subtype(dict) == Some(b"Popup".to_vec()))
+        );
+        assert!(
+            !dictionaries
+                .iter()
+                .any(|dict| subtype(dict) == Some(b"Square".to_vec()))
+        );
+        let reply = dictionaries
+            .iter()
+            .find(|dict| says(dict, "Changed reply"))
+            .expect("the reply stays");
+        assert!(
+            reply
+                .get_dict("IRT")
+                .unwrap()
+                .is_none_or(|target| target.is_null().unwrap())
+        );
     }
 
     #[test]

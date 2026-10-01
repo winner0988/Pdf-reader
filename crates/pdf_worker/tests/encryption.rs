@@ -127,14 +127,15 @@ fn restricted_samples_open_without_a_password_and_report_their_permissions() {
         );
     }
     // Opened with the user password: the AES sample allows everything; the RC4 one (revision 2,
-    // /P -44) allows copying and printing, but not changing the document; the restricted one
-    // allows neither copying nor printing.
+    // /P -44) allows copying and printing, but not changing or annotating the document; the
+    // restricted one allows neither copying nor printing.
     for (name, permissions) in [
         (
             "benign/encrypted-rc4-40.pdf",
             DocumentPermissions {
                 modify: false,
                 assemble: false,
+                annotate: false,
                 ..DocumentPermissions::ALL
             },
         ),

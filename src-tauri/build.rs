@@ -12,6 +12,7 @@ fn main() {
         "cancel",
         "get_outline",
         "get_page_links",
+        "get_page_annotations",
         "get_page_text",
         "describe_link",
         "open_link",

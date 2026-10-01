@@ -3,6 +3,9 @@
 
 import type { Edit } from "@/ipc/generated/contract";
 
+/** The edits the thumbnails make: to pages, not to annotations (B2-07). */
+export type PageEdit = Extract<Edit, { kind: "rotatePages" | "deletePages" | "movePages" | "insertBlankPage" }>;
+
 /** Selected pages, ascending, and the page a Shift+click or Shift+arrow extends from. */
 export type Selection = { pages: number[]; anchor: number | null };
 
@@ -58,7 +61,7 @@ export function movesNothing(pages: readonly number[], before: number): boolean 
  * What is selected once `edit` is applied: the same pages turned, the pages moved where they went,
  * the page inserted; nothing once pages are deleted.
  */
-export function selectionAfter(edit: Edit): Selection {
+export function selectionAfter(edit: PageEdit): Selection {
   switch (edit.kind) {
     case "rotatePages": {
       const pages = [...edit.pages].sort((a, b) => a - b);

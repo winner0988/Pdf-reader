@@ -7,9 +7,10 @@ use std::path::PathBuf;
 
 use ipc_contract::frame::encode;
 use ipc_contract::types::{
-    BlockedAction, DocumentId, DocumentPermissions, FindingKind, LinkId, LinkTarget, OutlineItem,
-    OutlineResult, PageLink, PageSize, PageText, Password, Point, Quad, Rect, RequestId, Rotation,
-    SearchHit, SecurityFinding, SecurityReport, TextLine,
+    AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, FindingKind,
+    HighlightColor, HighlightMark, LinkId, LinkTarget, OutlineItem, OutlineResult, PageAnnotation,
+    PageLink, PageSize, PageText, Password, Point, Quad, Rect, RequestId, Rotation, SearchHit,
+    SecurityFinding, SecurityReport, TextLine,
 };
 use ipc_contract::worker::{
     FileHandle, OpenedDocument, Raster, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest,
@@ -64,6 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     print_high_quality: false,
                     modify: false,
                     assemble: true,
+                    annotate: false,
                 },
                 encrypted: true,
             },
@@ -90,6 +92,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .collect(),
                 truncated: true,
             },
+        },
+        WorkerResponse::PageAnnotations {
+            request,
+            page_index: 0,
+            annotations: vec![
+                PageAnnotation {
+                    id: AnnotationId(12),
+                    kind: AnnotationKind::Highlight,
+                    rect: Rect {
+                        x0: 72.0,
+                        y0: 80.0,
+                        x1: 300.0,
+                        y1: 102.0,
+                    },
+                    color: Some(HighlightColor::Yellow),
+                    text: None,
+                },
+                PageAnnotation {
+                    id: AnnotationId(13),
+                    kind: AnnotationKind::Note,
+                    rect: Rect {
+                        x0: 400.0,
+                        y0: 80.0,
+                        x1: 420.0,
+                        y1: 100.0,
+                    },
+                    color: None,
+                    text: Some("第一行\nsecond line".to_owned()),
+                },
+            ],
         },
         WorkerResponse::PageLinks {
             request,
@@ -217,6 +249,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             doc,
             page_index: 1,
         },
+        WorkerRequest::GetPageAnnotations {
+            request,
+            doc,
+            page_index: 1,
+        },
         WorkerRequest::SearchPage {
             request,
             doc,
@@ -250,6 +287,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             doc,
             edit: WorkerEdit::InsertBlankPage { at: 1, like: 0 },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddHighlight {
+                marks: vec![HighlightMark {
+                    page: 0,
+                    quads: vec![Quad {
+                        ul: Point { x: 72.0, y: 80.0 },
+                        ur: Point { x: 300.0, y: 80.0 },
+                        ll: Point { x: 72.0, y: 102.0 },
+                        lr: Point { x: 300.0, y: 102.0 },
+                    }],
+                }],
+                color: HighlightColor::Green,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddNote {
+                page: 1,
+                at: Point { x: 100.0, y: 120.0 },
+                text: "附註".to_owned(),
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::DeleteAnnotation {
+                page: 0,
+                annotation: AnnotationId(12),
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::SetHighlightColor {
+                page: 0,
+                annotation: AnnotationId(12),
+                color: HighlightColor::Pink,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::SetNoteText {
+                page: 1,
+                annotation: AnnotationId(13),
+                text: "改過的附註".to_owned(),
+            },
         },
         WorkerRequest::Revert {
             request,
