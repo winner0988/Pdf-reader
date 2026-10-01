@@ -20,6 +20,7 @@ import { tauriSystemApi, type SystemApi } from "@/features/system/defaultApp";
 import { tauriTextApi, type TextApi } from "@/features/text/source";
 import { docOf, isUnsaved, shellState, tabElementId, tabPanelId, type Tab } from "@/features/tabs/model";
 import { TabBar } from "@/features/tabs/TabBar";
+import { tauriEditingApi, type EditingApi } from "@/features/thumbnails/api";
 import { useTabs } from "@/features/tabs/useTabs";
 import { createPageRenderer, tauriRenderApi, type PageRenderer, type RenderApi } from "@/features/viewer/renderer";
 import type { TabId } from "@/ipc/generated/contract";
@@ -36,6 +37,7 @@ type AppProps = {
   settingsApi?: SettingsApi;
   exportApi?: ExportApi;
   savingApi?: SavingApi;
+  editingApi?: EditingApi;
   updatesApi?: UpdatesApi;
 };
 
@@ -51,6 +53,7 @@ export default function App({
   settingsApi = tauriSettingsApi,
   exportApi = tauriExportApi,
   savingApi = tauriSavingApi,
+  editingApi = tauriEditingApi,
   updatesApi = tauriUpdatesApi,
 }: AppProps) {
   const tabs = useTabs(api);
@@ -128,6 +131,7 @@ export default function App({
                 recentApi={recentApi}
                 exportApi={exportApi}
                 savingApi={savingApi}
+                editingApi={editingApi}
                 updatesApi={updatesApi}
                 onOpen={open}
                 onClose={requestClose}
@@ -182,6 +186,7 @@ type TabPaneProps = {
   recentApi: RecentApi;
   exportApi: ExportApi;
   savingApi: SavingApi;
+  editingApi: EditingApi;
   updatesApi: UpdatesApi;
   onOpen: () => void;
   onClose: (tab: TabId) => void;

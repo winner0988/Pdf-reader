@@ -4,7 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OutlineTree } from "@/features/outline/OutlineTree";
 import type { OutlineView } from "@/features/outline/tree";
 import type { PageSize } from "@/features/shell/model";
-import { Thumbnails } from "@/features/thumbnails/Thumbnails";
+import { Thumbnails, type PageEditing } from "@/features/thumbnails/Thumbnails";
 import type { PageRenderer } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
 import type { DocumentId } from "@/ipc/generated/contract";
@@ -20,6 +20,8 @@ type SidebarProps = {
   currentPage: number;
   onJumpToPage: (page: number) => void;
   onOpenLink?: ComponentProps<typeof OutlineTree>["onOpenLink"];
+  /** Page management in the thumbnails (B2-05). */
+  pageEditing?: PageEditing;
 };
 
 function Message({ children }: { children: string }) {
@@ -27,7 +29,16 @@ function Message({ children }: { children: string }) {
 }
 
 /** Side panel: the outline tree (MVP-09) and the page thumbnails (MVP-18). */
-export function Sidebar({ outline, pages, doc, renderer, currentPage, onJumpToPage, onOpenLink }: SidebarProps) {
+export function Sidebar({
+  outline,
+  pages,
+  doc,
+  renderer,
+  currentPage,
+  onJumpToPage,
+  onOpenLink,
+  pageEditing,
+}: SidebarProps) {
   return (
     <aside
       aria-label={t.label}
@@ -62,7 +73,14 @@ export function Sidebar({ outline, pages, doc, renderer, currentPage, onJumpToPa
           )}
         </TabsContent>
         <TabsContent value="thumbnails" className="min-h-0 flex-1">
-          <Thumbnails pages={pages} doc={doc} renderer={renderer} currentPage={currentPage} onJumpToPage={onJumpToPage} />
+          <Thumbnails
+            pages={pages}
+            doc={doc}
+            renderer={renderer}
+            currentPage={currentPage}
+            onJumpToPage={onJumpToPage}
+            editing={pageEditing}
+          />
         </TabsContent>
       </Tabs>
     </aside>

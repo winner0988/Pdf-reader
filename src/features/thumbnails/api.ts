@@ -1,0 +1,18 @@
+// Page management (B2-05, ADR 0013). The page only names the document and the edit: the main
+// process checks it, and the document's own worker applies it.
+
+import { invoke } from "@tauri-apps/api/core";
+
+import type { DocumentId, Edit } from "@/ipc/generated/contract";
+
+export type EditingApi = {
+  /**
+   * Applies `edit` to the document `doc`. The tab's new state (a new document id, the pages as
+   * they are now, `unsaved`) comes on the open-events channel before this resolves.
+   */
+  applyEdit(doc: DocumentId, edit: Edit): Promise<void>;
+};
+
+export const tauriEditingApi: EditingApi = {
+  applyEdit: (doc, edit) => invoke<void>("apply_edit", { args: { doc, edit } }),
+};

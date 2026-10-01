@@ -9,21 +9,21 @@ test("thumbnails show the pages and take the reader to one", async ({ launch }) 
   await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
 
   await page.getByRole("tab", { name: strings.sidebar.thumbnailsTab }).click();
-  const thumbnails = page.getByRole("list", { name: strings.sidebar.thumbnailsTab });
-  const first = thumbnails.getByRole("button", { name: strings.canvas.page(1) });
+  const thumbnails = page.getByRole("listbox", { name: strings.sidebar.thumbnailsTab });
+  const first = thumbnails.getByRole("option", { name: strings.canvas.page(1) });
   await expect(first).toHaveAttribute("aria-current", "page");
   // Rendered: the canvas has pixels.
   await expect.poll(() => first.locator("canvas").evaluate((canvas: HTMLCanvasElement) => canvas.width)).toBeGreaterThan(0);
 
   // Page 7's thumbnail is not mounted yet: the arrow keys scroll to it, as a user would.
-  await expect(thumbnails.getByRole("button", { name: strings.canvas.page(7) })).toHaveCount(0);
+  await expect(thumbnails.getByRole("option", { name: strings.canvas.page(7) })).toHaveCount(0);
   await first.focus();
   for (let number = 2; number <= 7; number++) {
     await page.keyboard.press("ArrowDown");
-    await expect(thumbnails.getByRole("button", { name: strings.canvas.page(number) })).toBeFocused();
+    await expect(thumbnails.getByRole("option", { name: strings.canvas.page(number) })).toBeFocused();
   }
   await page.keyboard.press("Enter");
   const status = page.getByRole("contentinfo");
   await expect(status).toContainText(strings.statusBar.pageStatus(7, 10, strings.toolbar.fitWidth));
-  await expect(thumbnails.getByRole("button", { name: strings.canvas.page(7) })).toHaveAttribute("aria-current", "page");
+  await expect(thumbnails.getByRole("option", { name: strings.canvas.page(7) })).toHaveAttribute("aria-current", "page");
 });

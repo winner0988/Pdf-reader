@@ -1,52 +1,77 @@
-// Page management (B2-05) in the real app. Until the thumbnails offer it, the edits are made
-// through the app's own IPC, as the page will: page 3 deleted, page 5 moved to the front, page 2
-// turned right; then the document is saved as another file and opened again. Which page is where
-// is told by search (the word "needle" is on page 7 only) and by shape (a turned page is wider
-// than tall).
+// Page management (B2-05) in the real app, from the thumbnails. The card's first scenario: page 3
+// deleted from the context menu, page 5 moved to the front with "移到…", page 2 turned right; then
+// the document is saved as another file and opened again. Which page is where is told by search
+// (each page's title is "Page N of 10"; "needle" is on page 7 only) and by shape (a turned page
+// is wider than tall). Dragging a thumbnail is checked on its own.
 import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
 import { answerFileDialog, corpus, expect, quit, test } from "./app";
 
-type TauriWindow = {
-  __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> };
-};
-
 const pageSlot = (page: Page, number: number) =>
   page.getByRole("img", { name: strings.canvas.page(number) }).first();
 
-/** Applies `edit` through the app's IPC to the document whose pages are shown, and waits for it. */
-async function edit(page: Page, edit: Record<string, unknown>) {
-  const doc = await pageSlot(page, 1).getAttribute("data-doc");
-  await page.evaluate(
-    async ([doc, edit]) => {
-      await (window as unknown as TauriWindow).__TAURI_INTERNALS__.invoke("apply_edit", {
-        args: { doc: Number(doc), edit },
-      });
-    },
-    [doc, edit] as const,
-  );
-  // An edited document has a new id.
-  await expect(pageSlot(page, 1)).not.toHaveAttribute("data-doc", doc ?? "");
+async function openThumbnails(page: Page): Promise<Locator> {
+  await page.getByRole("tab", { name: strings.sidebar.thumbnailsTab }).click();
+  return page.getByRole("listbox", { name: strings.sidebar.thumbnailsTab });
 }
 
-test("pages deleted, moved and turned are so in the file saved (B2-05)", async ({ launch }) => {
+const thumb = (list: Locator, number: number) => list.getByRole("option", { name: strings.canvas.page(number) });
+
+/** Waits until the document shown is a new one: an edit gives it a new id (B2-02). */
+async function edited(page: Page, before: string | null) {
+  await expect(pageSlot(page, 1)).not.toHaveAttribute("data-doc", before ?? "");
+}
+
+/** Right-clicks thumbnail `number` and picks `item` from its menu; waits for the edit. */
+async function fromMenu(page: Page, list: Locator, number: number, item: string) {
+  const doc = await pageSlot(page, 1).getAttribute("data-doc");
+  await thumb(list, number).click({ button: "right" });
+  await page.getByRole("menuitem", { name: new RegExp(`^${item}`) }).click();
+  if (item !== strings.pages.moveTo) await edited(page, doc);
+  return doc;
+}
+
+/** Searches for `query`: the viewer goes to its first hit. */
+async function find(page: Page, query: string) {
+  const search = page.getByRole("textbox", { name: strings.search.placeholder });
+  if (!(await search.isVisible())) await page.keyboard.press("Control+f");
+  await search.fill(query);
+  await search.press("Enter");
+}
+
+/** The toolbar's page count: the document has `total` pages. */
+const hasPages = (page: Page, total: number) =>
+  expect(page.getByText(strings.toolbar.pageCount(total), { exact: true })).toBeVisible();
+
+/** The status bar says page `number` of `total` is shown. */
+const showsPage = (page: Page, number: number, total: number) =>
+  expect(page.getByRole("contentinfo")).toContainText(strings.statusBar.pageStatus(number, total, ""));
+
+test("pages deleted, moved and turned from the thumbnails are so in the file saved (B2-05)", async ({ launch }) => {
   const folder = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-pages-"));
   try {
     const file = path.join(folder, "original.pdf");
     copyFileSync(corpus("benign/multi-page-10.pdf"), file);
     const page = await launch(file);
     await expect(pageSlot(page, 1)).toHaveAttribute("data-state", "ready");
+    const list = await openThumbnails(page);
 
-    // Pages are counted as the document is before each edit.
-    await edit(page, { kind: "deletePages", pages: [2] });
-    await edit(page, { kind: "movePages", pages: [3], before: 0 });
-    await edit(page, { kind: "rotatePages", pages: [2], by: "cw90" });
-    await expect(page.getByRole("contentinfo")).toContainText(strings.statusBar.pageStatus(1, 9, ""));
+    await fromMenu(page, list, 3, strings.pages.delete);
+    await hasPages(page, 9);
+    // Page 5 is now the fourth.
+    const doc = await fromMenu(page, list, 4, strings.pages.moveTo);
+    const dialog = page.getByRole("dialog", { name: strings.pages.move.title });
+    await dialog.getByLabel(strings.pages.move.page).fill("1");
+    await dialog.getByRole("button", { name: strings.pages.move.confirm }).click();
+    await edited(page, doc);
+    // Page 2 is now the third.
+    await fromMenu(page, list, 3, strings.pages.rotateCw);
+    await showsPage(page, 1, 9);
 
     await page.keyboard.press("Control+Shift+S");
     const copy = path.join(folder, "rearranged.pdf");
@@ -61,27 +86,39 @@ test("pages deleted, moved and turned are so in the file saved (B2-05)", async (
     const turned = await pageSlot(reopened, 3).boundingBox();
     expect(upright && upright.width < upright.height).toBe(true);
     expect(turned && turned.width > turned.height).toBe(true);
-
     // Nine pages, in the order 5, 1, 2, 4, 6, 7, 8, 9, 10.
-    await reopened.keyboard.press("Control+f");
-    const search = reopened.getByRole("textbox", { name: strings.search.placeholder });
-    const find = async (query: string) => {
-      await search.fill(query);
-      await search.press("Enter");
-    };
-    const status = reopened.getByRole("contentinfo");
-    // Page 7, the only one with "needle", is the sixth ...
-    await find("needle");
-    await expect(status).toContainText(strings.statusBar.pageStatus(6, 9, ""));
-    // ... page 5 is the first ...
-    await find("Page 5 of 10");
-    await expect(status).toContainText(strings.statusBar.pageStatus(1, 9, ""));
-    // ... and page 3 is gone.
-    await find("Page 3 of 10");
+    await find(reopened, "needle");
+    await showsPage(reopened, 6, 9);
+    await find(reopened, "Page 5 of 10");
+    await showsPage(reopened, 1, 9);
+    await find(reopened, "Page 3 of 10");
     await expect(
       reopened.getByRole("search", { name: strings.search.label }).getByRole("status"),
     ).toHaveText(strings.search.noResults("Page 3 of 10"));
   } finally {
     rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
+});
+
+test("dragging a thumbnail moves its page (B2-05)", async ({ launch }) => {
+  // Nothing is saved: the corpus file itself is never written.
+  const page = await launch(corpus("benign/multi-page-10.pdf"));
+  await expect(pageSlot(page, 1)).toHaveAttribute("data-state", "ready");
+  const list = await openThumbnails(page);
+  const doc = await pageSlot(page, 1).getAttribute("data-doc");
+
+  const from = await thumb(list, 2).boundingBox();
+  const to = await thumb(list, 1).boundingBox();
+  if (!from || !to) throw new Error("the thumbnails are not on screen");
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(from.x + from.width / 2, to.y + 10, { steps: 8 });
+  await page.mouse.up();
+  await edited(page, doc);
+
+  // Page 2 went before page 1.
+  await find(page, "Page 1 of 10");
+  await showsPage(page, 2, 10);
+  await find(page, "Page 2 of 10");
+  await showsPage(page, 1, 10);
 });

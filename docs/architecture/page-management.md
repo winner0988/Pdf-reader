@@ -2,7 +2,7 @@
 
 工作卡 [#94](https://github.com/winner0988/Pdf-reader/issues/94)；依 [ADR 0013](../adr/0013-editing-and-saving.md)，編輯與存檔的共同做法見 [saving.md](saving.md)。
 
-這份文件目前記錄編輯指令與它們在 worker 中的做法。縮圖上的操作與復原／重做之後加上。
+畫面見 [screen-map.md](../ux/screen-map.md)「頁面管理」。復原／重做尚未實作（見文末）。
 
 ## 編輯指令
 
@@ -56,6 +56,18 @@
   - 被刪除頁面上的表單欄位，連同它們的值，仍在文件的表單中；
   - 已簽章的文件以增量更新存檔，被刪除的頁面仍在原本的位元組中（見 [saving.md](saving.md)）。
 
+## 縮圖上的操作（前端）
+
+- `src/features/thumbnails/`：
+  - `Thumbnails.tsx`：縮圖清單是可以多選的 listbox（`aria-multiselectable`，每張縮圖是 `option`，`aria-selected` 表示選取、`aria-current` 表示正在閱讀的頁面），只有一張縮圖在 Tab 順序中；
+  - `selection.ts`：選取（點擊、`Ctrl`、`Shift`、全選），以及編輯後選取跟著頁面走；
+  - `MovePagesDialog.tsx`：「移到…」；
+  - `api.ts`：`apply_edit` 的呼叫。頁面只送文件 id 與編輯指令。
+- **拖曳用指標事件**，不用 HTML5 拖放：視窗的檔案拖放（MVP-06）由 Tauri 在原生層接手，WebView 內的拖放事件因此不會觸發。
+- 一次一個編輯：送出後到結果回來前，其他操作停用。下一個編輯的頁碼要以這一個的結果計算。
+- 側欄以分頁的工作階段（`session`）為 key，不是文件 id：編輯後文件 id 會變，側欄不重新掛載，所以停在「縮圖」並保留選取。
+- 刪除頁面後，若正在閱讀的頁碼超過頁數，改為最後一頁。
+
 ## 復原與重做
 
 尚未實作。ADR 0013 以「從原始位元組重新開啟、重新套用」復原，但以密碼開啟的文件沒有保留密碼（[encryption.md](encryption.md)），無法重新開啟。做法待負責人決定（[#94 的留言](https://github.com/winner0988/Pdf-reader/issues/94#issuecomment-5915292284)）。
@@ -72,7 +84,10 @@
   - 旋轉、插入、刪除、移動依序套用，每一步的頁面尺寸都正確；
   - worker 當掉後重新開啟並重新套用，另存的檔案相同；
   - 參數錯誤在送到 worker 前被拒絕。
-- E2E（`tests/e2e/pages.spec.ts`）：經由 app 自己的 IPC 做工作卡的第一個驗收情境（刪除第 3 頁、第 5 頁移到最前面、第 2 頁向右轉），另存後重新開啟：
-  - 共 9 頁；
-  - 搜尋「needle」（原本第 7 頁）落在第 6 頁；
-  - 第 3 頁（原本的第 2 頁）是橫的。
+- 前端（Vitest）：`selection.test.ts`（選取與編輯後的選取）、`Thumbnails.test.tsx`（點擊與修飾鍵、右鍵功能表的每一項、`Delete` 但不能刪光、「移到…」與頁碼範圍、拖曳、作者不允許時）。
+- E2E（`tests/e2e/pages.spec.ts`）：
+  - 以縮圖做工作卡的第一個驗收情境：右鍵刪除第 3 頁、以「移到…」把第 5 頁移到最前面、右鍵把第 2 頁向右轉；另存後重新開啟：
+    - 共 9 頁；
+    - 搜尋「needle」（原本第 7 頁）落在第 6 頁，「Page 5 of 10」在第 1 頁，「Page 3 of 10」找不到；
+    - 第 3 頁（原本的第 2 頁）是橫的。
+  - 以滑鼠把第 2 張縮圖拖到第 1 張之前：兩頁對調。
