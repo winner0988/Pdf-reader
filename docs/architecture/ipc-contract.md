@@ -65,7 +65,7 @@ flowchart LR
 | `get_settings` | 無 | `Settings`：`theme`（`system`／`light`／`dark`）、`recordRecentFiles`（見 [local-data.md](local-data.md)） | 否 | B2-12 |
 | `set_settings` | `{ settings: Settings }`（完整的一組，其他欄位一律拒絕） | 無；立即套用並寫入 `settings.json`，寫不進去時回傳 `unreadable`（仍然套用）；關閉最近開啟的檔案時一併清除清單 | 否 | B2-12 |
 | `export_pages` | `{ args: ExportArgs, onEvent: Channel<ExportEvent> }`：`request`、`doc`、`pages`（最多 `LIMITS.maxExportPages`）、`format`（`text`，或 `png`／`jpg` 與 `dpi`）；不含路徑，其他欄位一律拒絕 | `boolean`：`false` 表示使用者關閉了系統的對話框；進度走頻道；以 `cancel(args.request)` 停止。作者禁止複製時拒絕（見 [export.md](export.md)） | 是 | B2-04 |
-| `apply_edit` | `{ args: EditArgs }`：`doc`、`edit`（`Edit`：目前只有 `rotatePages`，`pages` 與 `by`）；其他欄位一律拒絕 | 無；文件換新的 `DocumentId`，分頁的新狀態（`opened`，`unsaved: true`）走開檔頻道。作者禁止時拒絕（見 [saving.md](saving.md)） | 否 | B2-02 |
+| `apply_edit` | `{ args: EditArgs }`：`doc`、`edit`（`Edit`：`rotatePages { pages, by }`、`deletePages { pages }`、`movePages { pages, before }`、`insertBlankPage { at, like }`，見 [page-management.md](page-management.md)）；其他欄位一律拒絕 | 無；文件換新的 `DocumentId`，分頁的新狀態（`opened`，`unsaved: true`）走開檔頻道。作者禁止時拒絕（見 [saving.md](saving.md)） | 否 | B2-02、B2-05 |
 | `save_document` | `{ doc: DocumentId }` | `SaveResult`（`incremental`）；分頁的新狀態走開檔頻道。檔案在開啟後被改過時回 `changedOnDisk` | 否 | B2-02 |
 | `save_document_as` | `{ doc: DocumentId }`（不含路徑：主行程顯示另存對話框） | `SaveResult \| null`：`null` 表示使用者關閉了對話框；之後分頁指向新檔 | 否 | B2-02 |
 | `close_window` | `{ discard: boolean }` | 無；有未儲存的文件時，只有 `discard: true` 才關閉 | 否 | B2-02 |
@@ -215,7 +215,7 @@ flowchart LR
 | `GetPageText` | `request`, `doc`, `page_index` | `PageText`（`lines`、`truncated`）或 `Error` |
 | `RenderPng` | `request`, `doc`, `page_index`, `scale` | `Png`（PNG 位元組，最多 `MAX_PNG_BYTES`，主行程檢查簽名）或 `Error`；不旋轉，匯出用（B2-04） |
 | `SearchPage` | `request`, `doc`, `page_index`, `query`, `case_sensitive`, `max_hits` | `PageSearched`（`hits`、`has_text`）或 `Error`；整份文件的搜尋由主行程逐頁驅動，見 [search.md](search.md) |
-| `Edit` | `request`, `doc`, `edit`（`WorkerEdit`：`RotatePages { pages, degrees }`） | `Edited`（套用後的 `pages`）或 `Error`；只改記憶體中的文件（B2-02） |
+| `Edit` | `request`, `doc`, `edit`（`WorkerEdit`：`RotatePages { pages, degrees }`、`DeletePages { pages }`、`MovePages { pages, before }`、`InsertBlankPage { at, like }`） | `Edited`（套用後的 `pages`）或 `Error`；只改記憶體中的文件（B2-02） |
 | `Save` | `request`, `doc`, `file`（**只能寫入**的 handle，指向主行程建立的新暫存檔） | `Saved`（`bytes`、`incremental`）或 `Error`（`DiskFull`、`Unwritable`、`LimitExceeded` 等）；逾時 5 分鐘，見 [saving.md](saving.md) |
 | `PrivacyCopy` | `request`, `doc`, `file`（同 `Save`）, `id`（16 bytes，主行程產生的亂數） | `Saved`（`incremental` 一律為 false）或 `Error`（加密的文件：`InvalidRequest`；太多物件：`LimitExceeded`）；寫出清除中繼資料的副本，worker 中的文件不變（B2-03，見 [privacy-export.md](privacy-export.md)） |
 | `Cancel` | `target` | 無（被取消的請求回 `Error { code: Cancelled }`，或已完成則照常回應） |

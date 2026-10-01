@@ -25,6 +25,12 @@ pub struct FileHandle(pub u64);
 pub enum WorkerEdit {
     /// Adds `degrees` (90, 180 or 270) to the rotation of each of `pages`.
     RotatePages { pages: Vec<u32>, degrees: u16 },
+    /// As [`Edit::DeletePages`].
+    DeletePages { pages: Vec<u32> },
+    /// As [`Edit::MovePages`].
+    MovePages { pages: Vec<u32>, before: u32 },
+    /// As [`Edit::InsertBlankPage`].
+    InsertBlankPage { at: u32, like: u32 },
 }
 
 impl From<&Edit> for WorkerEdit {
@@ -33,6 +39,17 @@ impl From<&Edit> for WorkerEdit {
             Edit::RotatePages { pages, by } => WorkerEdit::RotatePages {
                 pages: pages.clone(),
                 degrees: by.degrees(),
+            },
+            Edit::DeletePages { pages } => WorkerEdit::DeletePages {
+                pages: pages.clone(),
+            },
+            Edit::MovePages { pages, before } => WorkerEdit::MovePages {
+                pages: pages.clone(),
+                before: *before,
+            },
+            Edit::InsertBlankPage { at, like } => WorkerEdit::InsertBlankPage {
+                at: *at,
+                like: *like,
             },
         }
     }

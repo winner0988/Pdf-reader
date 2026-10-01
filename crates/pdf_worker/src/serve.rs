@@ -282,6 +282,9 @@ fn page_sizes(document: &PdfDocument) -> Result<Vec<PageSize>, EngineError> {
 fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<Vec<PageSize>, EngineError> {
     match edit {
         WorkerEdit::RotatePages { pages, degrees } => document.rotate_pages(pages, *degrees)?,
+        WorkerEdit::DeletePages { pages } => document.delete_pages(pages)?,
+        WorkerEdit::MovePages { pages, before } => document.move_pages(pages, *before)?,
+        WorkerEdit::InsertBlankPage { at, like } => document.insert_blank_page(*at, *like)?,
     }
     page_sizes(document)
 }
@@ -438,10 +441,14 @@ fn engine_error(
         EngineError::WrongPassword => WorkerErrorCode::WrongPassword,
         EngineError::UnsupportedEncryption => WorkerErrorCode::UnsupportedEncryption,
         EngineError::PageOutOfRange(_) => WorkerErrorCode::PageOutOfRange,
-        EngineError::InvalidScale | EngineError::InvalidRotation | EngineError::EncryptedCopy => {
-            WorkerErrorCode::InvalidRequest
+        EngineError::InvalidScale
+        | EngineError::InvalidRotation
+        | EngineError::InvalidEdit(_)
+        | EngineError::NoPageLeft
+        | EngineError::EncryptedCopy => WorkerErrorCode::InvalidRequest,
+        EngineError::TooLarge { .. } | EngineError::TooComplex | EngineError::TooManyPages => {
+            WorkerErrorCode::LimitExceeded
         }
-        EngineError::TooLarge { .. } | EngineError::TooComplex => WorkerErrorCode::LimitExceeded,
         EngineError::Write(error) => match error.kind() {
             std::io::ErrorKind::StorageFull => WorkerErrorCode::DiskFull,
             std::io::ErrorKind::FileTooLarge => WorkerErrorCode::LimitExceeded,
