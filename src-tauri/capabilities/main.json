@@ -35,6 +35,8 @@
     "allow-clear-recent-exclusions",
     "allow-export-pages",
     "allow-apply-edit",
+    "allow-undo-edit",
+    "allow-redo-edit",
     "allow-save-document",
     "allow-save-document-as",
     "allow-close-window",

@@ -165,6 +165,8 @@ mod tests {
             permissions: DocumentPermissions::ALL,
             unsaved: false,
             encrypted: false,
+            can_undo: false,
+            can_redo: false,
         };
         let (channel, received) = recording_channel();
         events.subscribe(channel, || {

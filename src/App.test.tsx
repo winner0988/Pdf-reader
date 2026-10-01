@@ -36,6 +36,8 @@ const info = (doc: number, displayName: string, pages = 10): DocumentInfo => ({
   permissions: { copy: true, print: true, printHighQuality: true, modify: true, assemble: true },
   unsaved: false,
   encrypted: false,
+  canUndo: false,
+  canRedo: false,
 });
 
 const opening = (tab: number, displayName: string): OpenEvent => ({ kind: "opening", tab, displayName });

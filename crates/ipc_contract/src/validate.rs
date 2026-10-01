@@ -1207,6 +1207,8 @@ mod tests {
             permissions: DocumentPermissions::ALL,
             unsaved: false,
             encrypted: false,
+            can_undo: false,
+            can_redo: false,
         };
         assert!(info("報告.pdf").validate().is_ok());
         assert!(info(r"C:\Users\someone\報告.pdf").validate().is_err());

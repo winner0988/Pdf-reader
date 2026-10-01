@@ -517,6 +517,31 @@ pub async fn apply_edit(app: AppHandle, args: EditArgs) -> Result<(), IpcError> 
     .await
 }
 
+/// Undoes the last edit of an open document (B2-05, ADR 0013). As with `apply_edit`, the tab's
+/// new state (a new `DocumentId`) arrives on the open-events channel.
+#[tauri::command]
+pub async fn undo_edit(app: AppHandle, doc: DocumentId) -> Result<(), IpcError> {
+    blocking(move || {
+        let event = app.state::<Documents>().undo(doc)?;
+        app.state::<OpenEvents>().send(event);
+        after_tabs_changed(&app);
+        Ok(())
+    })
+    .await
+}
+
+/// Makes the last undone edit of an open document again (B2-05).
+#[tauri::command]
+pub async fn redo_edit(app: AppHandle, doc: DocumentId) -> Result<(), IpcError> {
+    blocking(move || {
+        let event = app.state::<Documents>().redo(doc)?;
+        app.state::<OpenEvents>().send(event);
+        after_tabs_changed(&app);
+        Ok(())
+    })
+    .await
+}
+
 /// Writes an open document, with its edits, to its own file (B2-02, ADR 0013). The tab's new
 /// state arrives on the open-events channel.
 #[tauri::command]

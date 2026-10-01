@@ -136,6 +136,15 @@ pub enum WorkerRequest {
         /// Random, from the main process.
         id: [u8; 16],
     },
+    /// Opens the document again from the bytes it was opened from, and applies `edits` in
+    /// order (undo, ADR 0013). Answered by `Edited`; the document is replaced only once every
+    /// edit is applied. Refused for a document opened with a password, whose bytes are not
+    /// kept (the password is not either).
+    Revert {
+        request: RequestId,
+        doc: DocumentId,
+        edits: Vec<WorkerEdit>,
+    },
     /// Best effort: the worker drops the target request if it has not finished yet.
     Cancel {
         target: RequestId,

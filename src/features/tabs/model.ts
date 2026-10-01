@@ -60,6 +60,8 @@ export function toShellDocument(info: DocumentInfo): ShellDocument {
     permissions: info.permissions,
     unsaved: info.unsaved,
     encrypted: info.encrypted,
+    canUndo: info.canUndo,
+    canRedo: info.canRedo,
   };
 }
 

@@ -199,7 +199,16 @@ unsaved: boolean,
 /**
  * Encrypted (MVP-16): it has no privacy export (B2-03).
  */
-encrypted: boolean, };
+encrypted: boolean, 
+/**
+ * An edit made since the file was last written can be undone (B2-05, ADR 0013). Never for
+ * a document opened with a password: the password is not kept to open it again (MVP-16).
+ */
+canUndo: boolean, 
+/**
+ * An edit that was undone can be made again.
+ */
+canRedo: boolean, };
 
 /**
  * Arguments of the `render_page` command.

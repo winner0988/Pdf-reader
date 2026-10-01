@@ -70,6 +70,10 @@ pub const MAX_TABS: u32 = 20;
 /// Maximum number of recently opened files kept and listed (#73, spec §3).
 pub const MAX_RECENT_FILES: u32 = 20;
 
+/// Most edits kept for undo between two saves (B2-05); another one is refused until the
+/// document is saved. Also bounds the edits of one `WorkerRequest::Revert`.
+pub const MAX_UNDO_EDITS: u32 = 1_000;
+
 /// Maximum number of pages one export writes (B2-04).
 pub const MAX_EXPORT_PAGES: u32 = 1_000;
 

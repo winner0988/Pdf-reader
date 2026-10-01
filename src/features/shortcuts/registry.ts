@@ -21,6 +21,19 @@ export const SHORTCUTS: Shortcut[] = [
   { id: "open", keys: ["Ctrl+O"], matches: (e) => ctrl(e) && e.key.toLowerCase() === "o" },
   { id: "save", keys: ["Ctrl+S"], matches: (e) => ctrl(e) && !e.shiftKey && e.key.toLowerCase() === "s" },
   { id: "saveAs", keys: ["Ctrl+Shift+S"], matches: (e) => ctrl(e) && e.shiftKey && e.key.toLowerCase() === "s" },
+  // A text field keeps its own undo.
+  {
+    id: "undo",
+    keys: ["Ctrl+Z"],
+    matches: (e) => ctrl(e) && !e.shiftKey && e.key.toLowerCase() === "z",
+    notInTextFields: true,
+  },
+  {
+    id: "redo",
+    keys: ["Ctrl+Y", "Ctrl+Shift+Z"],
+    matches: (e) => ctrl(e) && (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z")),
+    notInTextFields: true,
+  },
   { id: "close", keys: ["Ctrl+W"], matches: (e) => ctrl(e) && e.key.toLowerCase() === "w" },
   {
     id: "nextTab",

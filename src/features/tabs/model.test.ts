@@ -12,6 +12,8 @@ const info = (doc: number, displayName: string): DocumentInfo => ({
   permissions: { copy: true, print: true, printHighQuality: true, modify: true, assemble: true },
   unsaved: false,
   encrypted: false,
+  canUndo: false,
+  canRedo: false,
 });
 
 const event = (e: OpenEvent): TabsAction => ({ type: "event", event: e });

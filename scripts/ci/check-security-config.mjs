@@ -75,6 +75,8 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-clear-recent-exclusions", "B2-12: forget which files the user asked not to record"],
   ["allow-export-pages", "B2-04: export pages as text or PNG; the main process asks where and writes the files"],
   ["allow-apply-edit", "B2-02: a typed edit of an open document, applied in its worker; validated, no PDF objects"],
+  ["allow-undo-edit", "B2-05: undo the last edit of an open document; its worker opens the kept bytes again"],
+  ["allow-redo-edit", "B2-05: make the last undone edit of an open document again"],
   ["allow-save-document", "B2-02: write an open document to its own file; the main process owns the path"],
   ["allow-save-document-as", "B2-02: write an open document to a file the user picks in the main process's save dialog"],
   ["allow-close-window", "B2-02: close the window after the user was asked about unsaved changes"],

@@ -119,6 +119,7 @@ export const strings = {
     notAllowed: "文件作者不允許變更頁面",
     keepOne: "至少要留下一頁，無法刪除全部頁面",
     failed: "無法變更頁面，請再試一次。",
+    noUndo: "以密碼開啟的文件目前不能復原",
     move: {
       title: "移動頁面",
       description: (count: number) => `將選取的 ${count} 頁移到：`,
@@ -299,6 +300,8 @@ export const strings = {
   menu: {
     save: "儲存",
     saveAs: "另存新檔…",
+    undo: "復原",
+    redo: "重做",
     appearance: "外觀",
     themeSystem: "跟隨系統",
     themeLight: "淺色",
@@ -372,6 +375,8 @@ export const strings = {
       open: "開啟檔案",
       save: "儲存",
       saveAs: "另存新檔",
+      undo: "復原",
+      redo: "重做",
       close: "關閉分頁",
       copy: "複製選取的文字",
       print: "列印",
