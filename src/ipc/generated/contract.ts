@@ -91,12 +91,18 @@ export type ExportEvent = { "kind": "progress", pagesDone: number, total: number
  * A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
  * those of the document as it is before the edit.
  */
-export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "addHighlight", page: number, quads: Array<Quad>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, };
+export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "addHighlight", marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, };
 
 /**
  * The highlighter's colors (B2-07).
  */
 export type HighlightColor = "yellow" | "green" | "blue" | "pink";
+
+/**
+ * The part of a highlighter mark on one page (B2-07): `quads` in page space, as text selection
+ * gives them, one per line.
+ */
+export type HighlightMark = { page: number, quads: Array<Quad>, };
 
 /**
  * An annotation of an open document: the number of its object in the document, which stays
@@ -419,6 +425,7 @@ export const LIMITS = {
   maxRecentFiles: 20,
   maxExportPages: 1000,
   maxAnnotationQuads: 1000,
+  maxHighlightPages: 100,
   maxNoteTextBytes: 4096,
   maxAnnotationsPerPage: 2000,
   protocolVersion: 0,

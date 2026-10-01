@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use ipc_contract::frame::encode;
 use ipc_contract::types::{
     AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, FindingKind,
-    HighlightColor, LinkId, LinkTarget, OutlineItem, OutlineResult, PageAnnotation, PageLink,
-    PageSize, PageText, Password, Point, Quad, Rect, RequestId, Rotation, SearchHit,
+    HighlightColor, HighlightMark, LinkId, LinkTarget, OutlineItem, OutlineResult, PageAnnotation,
+    PageLink, PageSize, PageText, Password, Point, Quad, Rect, RequestId, Rotation, SearchHit,
     SecurityFinding, SecurityReport, TextLine,
 };
 use ipc_contract::worker::{
@@ -292,12 +292,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             doc,
             edit: WorkerEdit::AddHighlight {
-                page: 0,
-                quads: vec![Quad {
-                    ul: Point { x: 72.0, y: 80.0 },
-                    ur: Point { x: 300.0, y: 80.0 },
-                    ll: Point { x: 72.0, y: 102.0 },
-                    lr: Point { x: 300.0, y: 102.0 },
+                marks: vec![HighlightMark {
+                    page: 0,
+                    quads: vec![Quad {
+                        ul: Point { x: 72.0, y: 80.0 },
+                        ur: Point { x: 300.0, y: 80.0 },
+                        ll: Point { x: 72.0, y: 102.0 },
+                        lr: Point { x: 300.0, y: 102.0 },
+                    }],
                 }],
                 color: HighlightColor::Green,
             },

@@ -167,12 +167,11 @@ pub enum Edit {
     /// Inserts a blank page at index `at` (the page count: after the last page), upright and the
     /// size page `like` is shown at (B2-05).
     InsertBlankPage { at: u32, like: u32 },
-    /// Marks text of page `page` with a highlighter (a `Highlight` annotation) over `quads`, in
-    /// page space as text selection gives them: at least one, at most `MAX_ANNOTATION_QUADS`
-    /// (B2-07).
+    /// Marks text with a highlighter in `color`: a `Highlight` annotation on each page of `marks`,
+    /// over its quads (B2-07). One edit however many pages the text spans, so that one undo
+    /// takes it all back.
     AddHighlight {
-        page: u32,
-        quads: Vec<Quad>,
+        marks: Vec<HighlightMark>,
         color: HighlightColor,
     },
     /// Puts a note (a `Text` annotation) saying `text` at `at` on page `page` (B2-07).
@@ -192,6 +191,14 @@ pub enum Edit {
         annotation: AnnotationId,
         text: String,
     },
+}
+
+/// The part of a highlighter mark on one page (B2-07): `quads` in page space, as text selection
+/// gives them, one per line.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+pub struct HighlightMark {
+    pub page: u32,
+    pub quads: Vec<Quad>,
 }
 
 /// The highlighter's colors (B2-07).

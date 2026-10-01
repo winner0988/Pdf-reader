@@ -941,7 +941,9 @@ fn percent_encode(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use ipc_contract::types::{AnnotationId, AnnotationKind, HighlightColor, PageAnnotation, Rect};
+    use ipc_contract::types::{
+        AnnotationId, AnnotationKind, HighlightColor, HighlightMark, PageAnnotation, Rect,
+    };
 
     use super::*;
 
@@ -1815,14 +1817,19 @@ mod tests {
             ll: Point { x: 72.0, y: 100.0 },
             lr: Point { x: 300.0, y: 100.0 },
         };
-        doc.add_highlight(0, &[quad], HighlightColor::Green)
+        let mark = |page: u32, quads: Vec<Quad>| HighlightMark { page, quads };
+        doc.add_highlights(&[mark(0, vec![quad])], HighlightColor::Green)
             .expect("highlight");
         doc.add_note(1, Point { x: 100.0, y: 120.0 }, "第一行\nsecond line")
             .expect("note");
-        assert!(matches!(
-            doc.add_highlight(0, &[], HighlightColor::Green),
-            Err(EngineError::InvalidEdit(_))
-        ));
+        // A mark that does not fit leaves the document as it was, its other pages too.
+        for wrong in [
+            vec![mark(1, vec![quad]), mark(0, vec![])],
+            vec![mark(1, vec![quad]), mark(5, vec![quad])],
+            vec![mark(1, vec![quad]), mark(1, vec![quad])],
+        ] {
+            assert!(doc.add_highlights(&wrong, HighlightColor::Green).is_err());
+        }
 
         let (bytes, _) = saved(&doc);
         let reopened = PdfDocument::from_bytes(&bytes).expect("reopen");

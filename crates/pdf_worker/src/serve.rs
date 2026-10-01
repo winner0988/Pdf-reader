@@ -395,9 +395,7 @@ fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineErro
         WorkerEdit::DeletePages { pages } => document.delete_pages(pages)?,
         WorkerEdit::MovePages { pages, before } => document.move_pages(pages, *before)?,
         WorkerEdit::InsertBlankPage { at, like } => document.insert_blank_page(*at, *like)?,
-        WorkerEdit::AddHighlight { page, quads, color } => {
-            document.add_highlight(*page, quads, *color)?;
-        }
+        WorkerEdit::AddHighlight { marks, color } => document.add_highlights(marks, *color)?,
         WorkerEdit::AddNote { page, at, text } => document.add_note(*page, *at, text)?,
         WorkerEdit::DeleteAnnotation { page, annotation } => {
             document.delete_annotation(*page, *annotation)?;

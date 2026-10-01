@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::PROTOCOL_VERSION;
 use crate::types::{
-    AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, HighlightColor, OutlineResult,
-    PageAnnotation, PageLink, PageSize, PageText, Password, Point, Quad, RequestId, Rotation,
-    SearchHit, SecurityReport,
+    AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, HighlightColor, HighlightMark,
+    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Point, RequestId,
+    Rotation, SearchHit, SecurityReport,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -34,8 +34,7 @@ pub enum WorkerEdit {
     InsertBlankPage { at: u32, like: u32 },
     /// As [`Edit::AddHighlight`].
     AddHighlight {
-        page: u32,
-        quads: Vec<Quad>,
+        marks: Vec<HighlightMark>,
         color: HighlightColor,
     },
     /// As [`Edit::AddNote`].
@@ -74,9 +73,8 @@ impl From<&Edit> for WorkerEdit {
                 at: *at,
                 like: *like,
             },
-            Edit::AddHighlight { page, quads, color } => WorkerEdit::AddHighlight {
-                page: *page,
-                quads: quads.clone(),
+            Edit::AddHighlight { marks, color } => WorkerEdit::AddHighlight {
+                marks: marks.clone(),
                 color: *color,
             },
             Edit::AddNote { page, at, text } => WorkerEdit::AddNote {

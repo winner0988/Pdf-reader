@@ -54,6 +54,7 @@ pub fn bindings() -> String {
         ExportEvent,
         Edit,
         HighlightColor,
+        HighlightMark,
         AnnotationId,
         AnnotationKind,
         PageAnnotation,
@@ -93,7 +94,7 @@ pub fn bindings() -> String {
         OpenEvent,
     );
 
-    let limits: [(&str, String); 25] = [
+    let limits: [(&str, String); 26] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -116,6 +117,7 @@ pub fn bindings() -> String {
         ("maxRecentFiles", MAX_RECENT_FILES.to_string()),
         ("maxExportPages", MAX_EXPORT_PAGES.to_string()),
         ("maxAnnotationQuads", MAX_ANNOTATION_QUADS.to_string()),
+        ("maxHighlightPages", MAX_HIGHLIGHT_PAGES.to_string()),
         ("maxNoteTextBytes", MAX_NOTE_TEXT_BYTES.to_string()),
         (
             "maxAnnotationsPerPage",

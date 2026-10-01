@@ -77,8 +77,12 @@ pub const MAX_UNDO_EDITS: u32 = 1_000;
 /// Maximum number of pages one export writes (B2-04).
 pub const MAX_EXPORT_PAGES: u32 = 1_000;
 
-/// Most quadrilaterals one highlighter mark covers (B2-07): one per line of selected text.
+/// Most quadrilaterals one highlighter mark covers (B2-07), on all its pages: one per line of
+/// selected text.
 pub const MAX_ANNOTATION_QUADS: u32 = 1_000;
+
+/// Most pages one highlighter mark spans (B2-07).
+pub const MAX_HIGHLIGHT_PAGES: u32 = 100;
 
 /// Longest text of a note (B2-07), in UTF-8 bytes; also the most of a note's text the worker
 /// reports.

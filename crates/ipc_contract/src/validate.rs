@@ -575,16 +575,34 @@ impl Validate for Edit {
                 }
                 Ok(())
             }
-            Edit::AddHighlight { page, quads, .. } => {
-                check_annotated_page(*page)?;
-                if quads.is_empty() {
+            Edit::AddHighlight { marks, .. } => {
+                if marks.is_empty() {
                     return Err(ValidationError::Invalid {
                         what: "highlight",
-                        reason: "covers nothing",
+                        reason: "on no page",
                     });
                 }
-                check_count("highlight quads", quads.len(), MAX_ANNOTATION_QUADS)?;
-                quads.iter().try_for_each(Quad::validate)
+                check_count("highlighted pages", marks.len(), MAX_HIGHLIGHT_PAGES)?;
+                let pages: HashSet<u32> = marks.iter().map(|mark| mark.page).collect();
+                if pages.len() != marks.len() {
+                    return Err(ValidationError::Invalid {
+                        what: "highlighted pages",
+                        reason: "a page appears twice",
+                    });
+                }
+                let quads: usize = marks.iter().map(|mark| mark.quads.len()).sum();
+                check_count("highlight quads", quads, MAX_ANNOTATION_QUADS)?;
+                for mark in marks {
+                    check_annotated_page(mark.page)?;
+                    if mark.quads.is_empty() {
+                        return Err(ValidationError::Invalid {
+                            what: "highlight",
+                            reason: "covers nothing on a page",
+                        });
+                    }
+                    mark.quads.iter().try_for_each(Quad::validate)?;
+                }
+                Ok(())
             }
             Edit::AddNote { page, at, text } => {
                 check_annotated_page(*page)?;
@@ -736,7 +754,8 @@ mod tests {
     use super::*;
     use crate::types::{
         AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, ErrorCode,
-        HighlightColor, LinkId, RecentId, Recovery, RequestId, Rotation, SecurityFinding, TabId,
+        HighlightColor, HighlightMark, LinkId, RecentId, Recovery, RequestId, Rotation,
+        SecurityFinding, TabId,
     };
     use crate::worker::WorkerErrorCode;
 
@@ -1236,23 +1255,62 @@ mod tests {
                 y: 22.0,
             },
         };
-        let highlight = |quads: Vec<Quad>| Edit::AddHighlight {
-            page: 0,
-            quads,
+        let mark = |page: u32, quads: Vec<Quad>| HighlightMark { page, quads };
+        let highlight = |marks: Vec<HighlightMark>| Edit::AddHighlight {
+            marks,
             color: HighlightColor::Yellow,
         };
-        assert!(highlight(vec![quad(72.0)]).validate().is_ok());
-        assert!(highlight(vec![]).validate().is_err());
-        assert!(highlight(vec![quad(f32::NAN)]).validate().is_err());
         assert!(
-            highlight(vec![quad(2.0 * MAX_PAGE_SIDE_PT)])
+            highlight(vec![mark(0, vec![quad(72.0)])])
+                .validate()
+                .is_ok()
+        );
+        // Across pages: one edit.
+        assert!(
+            highlight(vec![mark(0, vec![quad(72.0)]), mark(1, vec![quad(72.0)])])
+                .validate()
+                .is_ok()
+        );
+        assert!(highlight(vec![]).validate().is_err());
+        assert!(highlight(vec![mark(0, vec![])]).validate().is_err());
+        assert!(
+            highlight(vec![mark(0, vec![quad(72.0)]), mark(0, vec![quad(72.0)])])
                 .validate()
                 .is_err()
         );
         assert!(
-            highlight(vec![quad(72.0); MAX_ANNOTATION_QUADS as usize + 1])
+            highlight(vec![mark(MAX_PAGE_COUNT, vec![quad(72.0)])])
                 .validate()
                 .is_err()
+        );
+        assert!(
+            highlight(vec![mark(0, vec![quad(f32::NAN)])])
+                .validate()
+                .is_err()
+        );
+        assert!(
+            highlight(vec![mark(0, vec![quad(2.0 * MAX_PAGE_SIDE_PT)])])
+                .validate()
+                .is_err()
+        );
+        // The quads of all its pages count.
+        let half = MAX_ANNOTATION_QUADS as usize / 2 + 1;
+        assert!(
+            highlight(vec![
+                mark(0, vec![quad(72.0); half]),
+                mark(1, vec![quad(72.0); half])
+            ])
+            .validate()
+            .is_err()
+        );
+        assert!(
+            highlight(
+                (0..=MAX_HIGHLIGHT_PAGES)
+                    .map(|page| mark(page, vec![quad(72.0)]))
+                    .collect()
+            )
+            .validate()
+            .is_err()
         );
 
         let note = |text: &str| Edit::AddNote {

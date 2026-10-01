@@ -20,7 +20,7 @@
 
 | `Edit` | 內容 | 驗證 |
 |---|---|---|
-| `addHighlight { page, quads, color }` | 在第 `page` 頁標示螢光筆 | 1 到 `LIMITS.maxAnnotationQuads`（1,000）個四邊形，座標都是有限值且不超過頁面大小的上限 |
+| `addHighlight { marks, color }` | 標示螢光筆：`marks` 的每一頁（`{ page, quads }`）各一個 `Highlight` 註解。選取的文字跨頁時仍是一個編輯，一次復原全部取消 | 1 到 `LIMITS.maxHighlightPages`（100）頁，頁碼不重複，每頁至少一個四邊形，全部最多 `LIMITS.maxAnnotationQuads`（1,000）個，座標都是有限值且不超過頁面大小的上限；有一頁不符合時，任何一頁都不改變 |
 | `addNote { page, at, text }` | 在 `at` 放一個附註 | 文字見下方 |
 | `deleteAnnotation { page, annotation }` | 移除一個註解（app 加的，或文件原有的） | 註解必須在那一頁 |
 | `setHighlightColor { page, annotation, color }` | 改變螢光筆的顏色 | 只能是螢光筆 |

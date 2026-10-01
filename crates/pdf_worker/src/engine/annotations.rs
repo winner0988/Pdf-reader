@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use ipc_contract::limits::{MAX_ANNOTATIONS_PER_PAGE, MAX_NOTE_TEXT_BYTES, MAX_PAGE_SIDE_PT};
 use ipc_contract::text::clean_note_text;
 use ipc_contract::types::{
-    AnnotationId, AnnotationKind, HighlightColor, PageAnnotation, Point, Quad, Rect,
+    AnnotationId, AnnotationKind, HighlightColor, HighlightMark, PageAnnotation, Point, Quad, Rect,
 };
 use mupdf::Error;
 use mupdf::color::AnnotationColor;
@@ -93,21 +93,37 @@ impl PdfDocument {
         Ok(annotations)
     }
 
-    /// Marks text of page `index` with the highlighter, over `quads` (page space).
-    pub fn add_highlight(
+    /// Marks text with the highlighter: a `Highlight` annotation on each page of `marks`, over
+    /// its quads (page space). Every page is checked first, so the document is unchanged when
+    /// one does not fit; MuPDF failing halfway leaves it to be opened again (see `Edit`).
+    pub fn add_highlights(
         &mut self,
-        index: u32,
-        quads: &[Quad],
+        marks: &[HighlightMark],
         color: HighlightColor,
     ) -> Result<(), EngineError> {
-        if quads.is_empty() {
+        let count = self.page_count()?;
+        if marks.is_empty() || marks.iter().any(|mark| mark.quads.is_empty()) {
             return Err(EngineError::InvalidEdit("a highlight covers nothing"));
         }
-        let mut page = self.annotated_page(index)?;
-        let quads: Vec<mupdf::Quad> = quads.iter().map(binding_quad).collect();
-        let mut annotation = page.add_highlight_annotation(quads)?;
-        annotation.set_color(annotation_color(color))?;
-        annotation.update()?;
+        if marks
+            .iter()
+            .map(|mark| mark.page)
+            .collect::<HashSet<_>>()
+            .len()
+            != marks.len()
+        {
+            return Err(EngineError::InvalidEdit("a page appears twice"));
+        }
+        if let Some(mark) = marks.iter().find(|mark| mark.page >= count) {
+            return Err(EngineError::PageOutOfRange(mark.page));
+        }
+        for mark in marks {
+            let mut page = self.annotated_page(mark.page)?;
+            let quads: Vec<mupdf::Quad> = mark.quads.iter().map(binding_quad).collect();
+            let mut annotation = page.add_highlight_annotation(quads)?;
+            annotation.set_color(annotation_color(color))?;
+            annotation.update()?;
+        }
         Ok(())
     }
 
