@@ -15,7 +15,7 @@ tauri-build.workspace = true
 
 [dependencies]
 # A second launch hands its files to the running window as tabs (MVP-14, ADR 0012).
-tauri-plugin-single-instance = "=2.4.4"
+tauri-plugin-single-instance = "=2.5.0"
 tauri.workspace = true
 ipc_contract = { path = "../crates/ipc_contract" }
 worker_host = { path = "../crates/worker_host" }
@@ -30,13 +30,13 @@ url = "2"
 # files not to record. All four are already used by Tauri or the contract crate.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
-getrandom = "0.3"
+sha2 = "0.11"
+getrandom = "0.4"
 
 [target.'cfg(windows)'.dependencies]
 # The system's file dialogs, with an option rfd cannot set (#86, B2-04, src/file_dialog.rs).
 # Already used by Tauri, in this version.
-windows = { version = "0.61", features = [
+windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_System_Com",
     "Win32_UI_Shell",

@@ -92,7 +92,7 @@ test("the dev CSP is extracted from vite.config.ts", () => {
 const offlineBundle = { windows: { webviewInstallMode: { type: "skip" } } };
 
 const QUIET_ARGUMENTS =
-  "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-networking --no-proxy-server";
+  "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-networking --no-proxy-server --disable-component-update";
 const quietWindows = [{ label: "main", additionalBrowserArgs: QUIET_ARGUMENTS }];
 
 test("dangerous Tauri settings are rejected", () => {
@@ -116,15 +116,17 @@ test("dangerous Tauri settings are rejected", () => {
 test("the WebView never connects on its own (#121)", () => {
   assert.deepEqual(checkBrowserArguments(quietWindows), []);
   const window = (additionalBrowserArgs) => [{ label: "main", additionalBrowserArgs }];
+  const without = (arg) =>
+    QUIET_ARGUMENTS.split(" ")
+      .filter((other) => other !== arg)
+      .join(" ");
   for (const [args, why] of [
     [undefined, "Tauri's default list: WebView2 fetches its configuration and looks for a proxy"],
-    ["--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --no-proxy-server", "background requests"],
-    [
-      "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-networking",
-      "proxy discovery",
-    ],
-    ["--disable-background-networking --no-proxy-server", "Tauri's own disabled features are lost"],
-    ["--disable-features=msWebOOUI,msPdfOOUI --disable-background-networking --no-proxy-server", "SmartScreen"],
+    [without("--disable-background-networking"), "background requests"],
+    [without("--no-proxy-server"), "proxy discovery"],
+    [without("--disable-component-update"), "the component updater"],
+    [without("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"), "Tauri's own disabled features are lost"],
+    [QUIET_ARGUMENTS.replace(",msSmartScreenProtection", ""), "SmartScreen"],
     [`${QUIET_ARGUMENTS} --remote-debugging-port=9222`, "an open debugging port"],
     [`${QUIET_ARGUMENTS} --proxy-server=http://proxy.example.invalid:8080`, "a proxy of our choosing"],
   ]) {

@@ -163,10 +163,11 @@ export function checkCsp(csp, { dev = false, label = "CSP" } = {}) {
 
 /**
  * WebView2 arguments every window needs (#121). By default WebView2 fetches Microsoft's
- * configuration service and looks for a proxy (WPAD) as the app starts; these stop both. The
- * list replaces Tauri's own default, so it must keep the features Tauri turns off.
+ * configuration service and looks for a proxy (WPAD) as the app starts, and its component
+ * updater asks Microsoft for updates about a minute later; these stop all three. The list
+ * replaces Tauri's own default, so it must keep the features Tauri turns off.
  */
-const REQUIRED_BROWSER_ARGUMENTS = ["--disable-background-networking", "--no-proxy-server"];
+const REQUIRED_BROWSER_ARGUMENTS = ["--disable-background-networking", "--no-proxy-server", "--disable-component-update"];
 const REQUIRED_DISABLED_FEATURES = ["msWebOOUI", "msPdfOOUI", "msSmartScreenProtection"];
 /** Never in the shipped configuration: an open debugging port, or a proxy of our choosing. */
 const FORBIDDEN_BROWSER_ARGUMENTS = ["--remote-debugging-port", "--remote-debugging-pipe", "--proxy-server", "--proxy-pac-url"];
