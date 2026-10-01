@@ -339,7 +339,7 @@ impl Documents {
 
     /// The user closes the window without saving (B2-02): the journals of the changes go first.
     /// The documents stay as they are until the app ends.
-    pub fn discard_all(&self) {
+    pub fn discard_unsaved(&self) {
         let Some(journals) = self.journals() else {
             return;
         };
@@ -2977,7 +2977,7 @@ mod with_worker {
         // The window closes without saving them.
         let mut doc = open_in(&documents, &path).doc;
         edited_pages(&documents, &mut doc, turn(0));
-        documents.discard_all();
+        documents.discard_unsaved();
         assert_eq!(data.journals(), 0);
         // Saved as another file.
         let mut doc = open_in(&documents, &path).doc;

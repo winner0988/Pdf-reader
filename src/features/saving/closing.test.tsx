@@ -47,6 +47,7 @@ const info = (doc: number, displayName: string, unsaved: boolean): DocumentInfo 
   encrypted: false,
   canUndo: false,
   canRedo: false,
+  recovery: "none",
 });
 
 function open(push: (event: OpenEvent) => void, tab: number, doc: number, name: string, unsaved: boolean) {

@@ -224,6 +224,17 @@ describe("page management in the thumbnails (B2-05)", () => {
     expect(apply).toHaveBeenLastCalledWith({ kind: "movePages", pages: [4], before: 0 });
   });
 
+  it("asks to save first when there are too many unsaved changes to keep (B2-13)", async () => {
+    const { user, apply, thumb } = setup();
+    apply.mockRejectedValueOnce({ code: "limitExceeded", message: "" });
+    await user.click(thumb(2));
+    await user.keyboard("{Delete}");
+    expect(await screen.findByRole("alert")).toHaveTextContent(strings.pages.saveFirst);
+    apply.mockRejectedValueOnce({ code: "internal", message: "" });
+    await user.keyboard("{Delete}");
+    expect(await screen.findByText(strings.pages.failed)).toBeInTheDocument();
+  });
+
   it("offers nothing that changes pages when the author forbids it", async () => {
     const { user, apply, menu, thumb } = setup({ allowed: false });
     expect(await menu(2, strings.pages.delete)).toHaveAttribute("aria-disabled", "true");

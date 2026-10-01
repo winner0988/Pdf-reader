@@ -13,6 +13,8 @@ function fakeEditingApi() {
     applyEdit: vi.fn<EditingApi["applyEdit"]>(() => Promise.resolve()),
     undo: vi.fn<EditingApi["undo"]>(() => Promise.resolve()),
     redo: vi.fn<EditingApi["redo"]>(() => Promise.resolve()),
+    recover: vi.fn<EditingApi["recover"]>(() => Promise.resolve()),
+    discardRecovered: vi.fn<EditingApi["discardRecovered"]>(() => Promise.resolve()),
   } satisfies EditingApi;
 }
 

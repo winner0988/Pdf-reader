@@ -38,6 +38,7 @@ const info = (doc: number, displayName: string, pages = 10): DocumentInfo => ({
   encrypted: false,
   canUndo: false,
   canRedo: false,
+  recovery: "none",
 });
 
 const opening = (tab: number, displayName: string): OpenEvent => ({ kind: "opening", tab, displayName });

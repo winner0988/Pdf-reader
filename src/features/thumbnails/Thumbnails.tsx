@@ -182,9 +182,10 @@ export function Thumbnails({
         setBusy(false);
         setSelection(selectionAfter(edit));
       },
-      () => {
+      (error: unknown) => {
         setBusy(false);
-        setMessage(t.failed);
+        // Too many unsaved changes to keep (B2-05, B2-13): saving makes room.
+        setMessage(errorCodeOf(error) === "limitExceeded" ? t.saveFirst : t.failed);
       },
     );
   };

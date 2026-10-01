@@ -633,7 +633,7 @@ pub async fn close_window(
         });
     }
     // The changes are discarded: nothing is left to recover them from (B2-13).
-    documents.discard_all();
+    documents.discard_unsaved();
     // Unlike `close`, `destroy` does not ask again (see `on_window_event`).
     window.destroy().map_err(|_| IpcError {
         code: ErrorCode::Internal,
