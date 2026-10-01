@@ -14,6 +14,7 @@
     "allow-cancel",
     "allow-get-outline",
     "allow-get-page-links",
+    "allow-get-page-annotations",
     "allow-get-page-text",
     "allow-describe-link",
     "allow-open-link",

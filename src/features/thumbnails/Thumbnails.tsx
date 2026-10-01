@@ -35,6 +35,7 @@ import {
   NO_SELECTION,
   selectAll,
   selectionAfter,
+  type PageEdit,
   selectOnly,
   toggle,
   within,
@@ -173,7 +174,7 @@ export function Thumbnails({
   const selected = selection.pages;
   const allSelected = selected.length >= count;
 
-  const apply = (edit: Edit) => {
+  const apply = (edit: PageEdit) => {
     if (!editing || !canEdit) return;
     setBusy(true);
     setMessage(null);

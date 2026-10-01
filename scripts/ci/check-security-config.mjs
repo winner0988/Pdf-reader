@@ -52,6 +52,7 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-get-outline", "MVP-09: read the checked outline"],
   ["allow-search", "MVP-10: full-text search, results on a channel"],
   ["allow-get-page-links", "MVP-12: where a page's links are and where they point"],
+  ["allow-get-page-annotations", "B2-07: list one page's annotations (highlights, notes and the document's own) to select and edit them"],
   ["allow-get-page-text", "MVP-15: a page's text and where its characters are, for selecting and copying"],
   ["allow-describe-link", "MVP-12: what the confirmation dialog shows, checked in the main process"],
   ["allow-open-link", "MVP-12: open a confirmed http/https/mailto link by its id"],

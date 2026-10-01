@@ -106,6 +106,25 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
                 },
             }),
+            WorkerRequest::GetPageAnnotations {
+                request,
+                doc,
+                page_index,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => match document.page_annotations(page_index) {
+                    Ok(annotations) => WorkerResponse::PageAnnotations {
+                        request,
+                        page_index,
+                        annotations,
+                    },
+                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                },
+            }),
             WorkerRequest::RenderPng {
                 request,
                 doc,
@@ -376,6 +395,23 @@ fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineErro
         WorkerEdit::DeletePages { pages } => document.delete_pages(pages)?,
         WorkerEdit::MovePages { pages, before } => document.move_pages(pages, *before)?,
         WorkerEdit::InsertBlankPage { at, like } => document.insert_blank_page(*at, *like)?,
+        WorkerEdit::AddHighlight { page, quads, color } => {
+            document.add_highlight(*page, quads, *color)?;
+        }
+        WorkerEdit::AddNote { page, at, text } => document.add_note(*page, *at, text)?,
+        WorkerEdit::DeleteAnnotation { page, annotation } => {
+            document.delete_annotation(*page, *annotation)?;
+        }
+        WorkerEdit::SetHighlightColor {
+            page,
+            annotation,
+            color,
+        } => document.set_highlight_color(*page, *annotation, *color)?,
+        WorkerEdit::SetNoteText {
+            page,
+            annotation,
+            text,
+        } => document.set_note_text(*page, *annotation, text)?,
     }
     Ok(())
 }

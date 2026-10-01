@@ -77,6 +77,16 @@ pub const MAX_UNDO_EDITS: u32 = 1_000;
 /// Maximum number of pages one export writes (B2-04).
 pub const MAX_EXPORT_PAGES: u32 = 1_000;
 
+/// Most quadrilaterals one highlighter mark covers (B2-07): one per line of selected text.
+pub const MAX_ANNOTATION_QUADS: u32 = 1_000;
+
+/// Longest text of a note (B2-07), in UTF-8 bytes; also the most of a note's text the worker
+/// reports.
+pub const MAX_NOTE_TEXT_BYTES: u32 = 4_096;
+
+/// Most annotations reported for one page (B2-07); the rest are not listed.
+pub const MAX_ANNOTATIONS_PER_PAGE: u32 = 2_000;
+
 /// Maximum size of one exported PNG page (B2-04); below the frame limit.
 pub const MAX_PNG_BYTES: usize = 64 * 1024 * 1024;
 

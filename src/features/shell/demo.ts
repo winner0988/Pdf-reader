@@ -63,7 +63,7 @@ export const DEMO_STATES: Record<string, ShellState> = {
       ...demoDocument,
       displayName: "受限.pdf",
       findings: [],
-      permissions: { copy: false, print: false, printHighQuality: false, modify: true, assemble: true },
+      permissions: { copy: false, print: false, printHighQuality: false, modify: true, assemble: true, annotate: true },
     },
   },
 };

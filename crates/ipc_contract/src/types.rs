@@ -154,7 +154,7 @@ pub enum ExportEvent {
 
 /// A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
 /// those of the document as it is before the edit.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Edit {
     /// Turns `pages` (no repeats) clockwise by `by`, on top of their current rotation.
@@ -167,10 +167,76 @@ pub enum Edit {
     /// Inserts a blank page at index `at` (the page count: after the last page), upright and the
     /// size page `like` is shown at (B2-05).
     InsertBlankPage { at: u32, like: u32 },
+    /// Marks text of page `page` with a highlighter (a `Highlight` annotation) over `quads`, in
+    /// page space as text selection gives them: at least one, at most `MAX_ANNOTATION_QUADS`
+    /// (B2-07).
+    AddHighlight {
+        page: u32,
+        quads: Vec<Quad>,
+        color: HighlightColor,
+    },
+    /// Puts a note (a `Text` annotation) saying `text` at `at` on page `page` (B2-07).
+    AddNote { page: u32, at: Point, text: String },
+    /// Removes annotation `annotation` of page `page`: one the app added, or one the document
+    /// had (B2-07).
+    DeleteAnnotation { page: u32, annotation: AnnotationId },
+    /// Gives the highlighter annotation `annotation` of page `page` another color (B2-07).
+    SetHighlightColor {
+        page: u32,
+        annotation: AnnotationId,
+        color: HighlightColor,
+    },
+    /// Replaces what the note `annotation` of page `page` says (B2-07).
+    SetNoteText {
+        page: u32,
+        annotation: AnnotationId,
+        text: String,
+    },
+}
+
+/// The highlighter's colors (B2-07).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum HighlightColor {
+    Yellow,
+    Green,
+    Blue,
+    Pink,
+}
+
+/// An annotation of an open document: the number of its object in the document, which stays
+/// the same through edits until the document is saved (B2-07).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct AnnotationId(pub u32);
+
+/// What an annotation of a page is, as far as the app edits it (B2-07).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum AnnotationKind {
+    /// A highlighter mark (`Highlight`): its color can be changed.
+    Highlight,
+    /// A note (`Text`): what it says can be changed.
+    Note,
+    /// Any other kind (a drawing, a stamp, a comment box): it can only be removed.
+    Other,
+}
+
+/// An annotation of a page (B2-07), from the page's worker; links, form fields and pop-up
+/// windows are not listed. `text` is what a note says, cleaned like any text from a PDF.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PageAnnotation {
+    pub id: AnnotationId,
+    pub kind: AnnotationKind,
+    /// Where it is on the page (page space).
+    pub rect: Rect,
+    /// A highlighter mark in one of the app's colors.
+    pub color: Option<HighlightColor>,
+    pub text: Option<String>,
 }
 
 /// Arguments of `apply_edit` (B2-02). Any other field is rejected.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EditArgs {
     pub doc: DocumentId,
@@ -339,6 +405,8 @@ pub struct DocumentPermissions {
     pub modify: bool,
     /// Inserting, deleting and rotating pages (`/P` bit 11, or bit 4 before revision 3).
     pub assemble: bool,
+    /// Adding, changing and removing annotations (`/P` bit 6, B2-07).
+    pub annotate: bool,
 }
 
 impl DocumentPermissions {
@@ -348,6 +416,7 @@ impl DocumentPermissions {
         print_high_quality: true,
         modify: true,
         assemble: true,
+        annotate: true,
     };
 }
 

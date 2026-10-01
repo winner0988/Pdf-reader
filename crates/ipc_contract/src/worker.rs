@@ -9,8 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::PROTOCOL_VERSION;
 use crate::types::{
-    DocumentId, DocumentPermissions, Edit, ErrorCode, OutlineResult, PageLink, PageSize, PageText,
-    Password, RequestId, Rotation, SearchHit, SecurityReport,
+    AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, HighlightColor, OutlineResult,
+    PageAnnotation, PageLink, PageSize, PageText, Password, Point, Quad, RequestId, Rotation,
+    SearchHit, SecurityReport,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -21,7 +22,7 @@ pub struct FileHandle(pub u64);
 
 /// An edit as the worker applies it (ADR 0013). The frontend's form is [`Edit`], which postcard
 /// cannot carry (it is tagged for JSON).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum WorkerEdit {
     /// Adds `degrees` (90, 180 or 270) to the rotation of each of `pages`.
     RotatePages { pages: Vec<u32>, degrees: u16 },
@@ -31,6 +32,28 @@ pub enum WorkerEdit {
     MovePages { pages: Vec<u32>, before: u32 },
     /// As [`Edit::InsertBlankPage`].
     InsertBlankPage { at: u32, like: u32 },
+    /// As [`Edit::AddHighlight`].
+    AddHighlight {
+        page: u32,
+        quads: Vec<Quad>,
+        color: HighlightColor,
+    },
+    /// As [`Edit::AddNote`].
+    AddNote { page: u32, at: Point, text: String },
+    /// As [`Edit::DeleteAnnotation`].
+    DeleteAnnotation { page: u32, annotation: AnnotationId },
+    /// As [`Edit::SetHighlightColor`].
+    SetHighlightColor {
+        page: u32,
+        annotation: AnnotationId,
+        color: HighlightColor,
+    },
+    /// As [`Edit::SetNoteText`].
+    SetNoteText {
+        page: u32,
+        annotation: AnnotationId,
+        text: String,
+    },
 }
 
 impl From<&Edit> for WorkerEdit {
@@ -50,6 +73,38 @@ impl From<&Edit> for WorkerEdit {
             Edit::InsertBlankPage { at, like } => WorkerEdit::InsertBlankPage {
                 at: *at,
                 like: *like,
+            },
+            Edit::AddHighlight { page, quads, color } => WorkerEdit::AddHighlight {
+                page: *page,
+                quads: quads.clone(),
+                color: *color,
+            },
+            Edit::AddNote { page, at, text } => WorkerEdit::AddNote {
+                page: *page,
+                at: *at,
+                text: text.clone(),
+            },
+            Edit::DeleteAnnotation { page, annotation } => WorkerEdit::DeleteAnnotation {
+                page: *page,
+                annotation: *annotation,
+            },
+            Edit::SetHighlightColor {
+                page,
+                annotation,
+                color,
+            } => WorkerEdit::SetHighlightColor {
+                page: *page,
+                annotation: *annotation,
+                color: *color,
+            },
+            Edit::SetNoteText {
+                page,
+                annotation,
+                text,
+            } => WorkerEdit::SetNoteText {
+                page: *page,
+                annotation: *annotation,
+                text: text.clone(),
             },
         }
     }
@@ -77,6 +132,12 @@ pub enum WorkerRequest {
         doc: DocumentId,
     },
     GetPageLinks {
+        request: RequestId,
+        doc: DocumentId,
+        page_index: u32,
+    },
+    /// One page's annotations, other than links, form fields and pop-ups (B2-07).
+    GetPageAnnotations {
         request: RequestId,
         doc: DocumentId,
         page_index: u32,
@@ -190,6 +251,11 @@ pub enum WorkerResponse {
         request: RequestId,
         page_index: u32,
         links: Vec<PageLink>,
+    },
+    PageAnnotations {
+        request: RequestId,
+        page_index: u32,
+        annotations: Vec<PageAnnotation>,
     },
     PageText {
         request: RequestId,
