@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { chromium, test as base, type Browser, type Page } from "@playwright/test";
+import { chromium, test as base, type Browser, type CDPSession, type Page, type Request } from "@playwright/test";
 
 export const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -58,49 +58,245 @@ type Running = {
   profile: string;
   data: string;
   browser?: Browser;
+  /** The page `launch` returned: the one the test drives. */
+  page?: Page;
   /** When the app was started, and when its WebView answered (`Date.now()`). */
   launched: number;
   connected?: number;
+  /** The page's calls to the main process (`invoke`) still waiting for an answer, with when each was made. */
+  pendingIpc: Map<Request, { command: string; at: number }>;
+  /** How many calls of each command were answered (or failed). */
+  answeredIpc: Map<string, number>;
+  /** The page's renderer counters (CDP `Performance`), from when the test got the page. */
+  performance?: CDPSession;
 };
+
+/**
+ * Runs in every document the page loads: notes each time its timers or its animation frames
+ * stopped for more than a quarter of a second (when, in ms since the document started, and for
+ * how long), for `summary` (#133). The test's own record: the app never reads it.
+ */
+function heartbeat() {
+  const page = window as unknown as { __e2eStalls?: { timer: string[]; frame: string[] } };
+  if (page.__e2eStalls) return;
+  const stalls: { timer: string[]; frame: string[] } = { timer: [], frame: [] };
+  page.__e2eStalls = stalls;
+  const note = (list: string[], last: number, now: number) => {
+    if (now - last > 250 && list.length < 50) list.push(`${Math.round(last)}+${Math.round(now - last)}`);
+  };
+  let timerLast = performance.now();
+  setInterval(() => {
+    const now = performance.now();
+    note(stalls.timer, timerLast, now);
+    timerLast = now;
+  }, 100);
+  let frameLast = performance.now();
+  const frame = (now: number) => {
+    note(stalls.frame, frameLast, now);
+    frameLast = now;
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+
+/** Where the page's `invoke` calls go: Tauri's IPC, one URL path per command. */
+const IPC_ORIGIN = "http://ipc.localhost/";
+
+/** Follows the page's calls to the main process, for `summary`. */
+function followIpc(page: Page, running: Running) {
+  page.on("request", (request) => {
+    if (request.url().startsWith(IPC_ORIGIN)) {
+      running.pendingIpc.set(request, { command: new URL(request.url()).pathname.slice(1), at: Date.now() });
+    }
+  });
+  const answered = (request: Request) => {
+    const call = running.pendingIpc.get(request);
+    if (!call) return;
+    running.pendingIpc.delete(request);
+    running.answeredIpc.set(call.command, (running.answeredIpc.get(call.command) ?? 0) + 1);
+  };
+  page.on("requestfinished", answered);
+  page.on("requestfailed", answered);
+}
 
 /** How much of the end of a failed test's app log also goes to the test's output (CI's log). */
 const LOG_TAIL_CHARS = 3_000;
+
+/** `promise`'s outcome, or a note that there was none within `ms`: a stuck page must not stop the report. */
+async function within<T>(promise: Promise<T>, ms: number): Promise<T | string> {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([
+    promise,
+    new Promise<string>((resolve) => {
+      timer = setTimeout(() => resolve(`no answer within ${ms / 1_000} s`), ms);
+    }),
+  ])
+    .catch((error: unknown) => `failed: ${String(error).split("\n")[0]}`)
+    .finally(() => clearTimeout(timer));
+}
 
 /**
  * A failed test's app, for the test's output and so for CI's log: how its start went, what its
  * page shows, and the end of its log. Enough to tell a document still opening from an error or a
  * page that never laid out, without downloading the uploaded files (#133).
+ *
+ * The test's locators run in Playwright's own script world in the page, `evaluate` in the page's.
+ * On CI they have disagreed: the page's text showed the document while the test's locators found
+ * nothing in it, not even the status bar, and the pages never finished rendering (#133). So this
+ * also says which pages the WebView has, what the test's locators see, and whether the page's own
+ * timers, frames and calls to the main process still answer.
  */
-async function summary(running: Running, page: Page | undefined): Promise<string> {
+async function summary(running: Running): Promise<string> {
   const started =
     running.connected === undefined
       ? "its WebView never answered"
       : `its WebView answered ${running.connected - running.launched} ms after launch`;
   const state = running.child.exitCode === null ? "still running" : `exited with ${running.child.exitCode}`;
-  let timer: NodeJS.Timeout | undefined;
-  const shown = page
-    ? await Promise.race([
-        page.evaluate(() => ({
-          url: location.href,
-          readyState: document.readyState,
-          visibility: document.visibilityState,
-          focused: document.hasFocus(),
-          viewport: `${window.innerWidth}x${window.innerHeight}`,
-          text: document.body.innerText.replace(/\s+/g, " ").trim().slice(0, 1_000),
-        })),
-        new Promise<string>((resolve) => {
-          timer = setTimeout(() => resolve("no answer within 5 s"), 5_000);
-        }),
-      ])
-        .catch((error: unknown) => `not readable: ${String(error)}`)
-        .finally(() => clearTimeout(timer))
-    : "no page";
-  return [
-    `--- app: ${started}; ${Date.now() - running.launched} ms after launch it is ${state} ---`,
-    `page: ${JSON.stringify(shown)}`,
-    "end of its log:",
-    running.log.join("").slice(-LOG_TAIL_CHARS),
-  ].join("\n");
+  const pages = running.browser?.contexts().flatMap((context) => context.pages()) ?? [];
+  const page = running.page ?? pages[0];
+  const lines = [
+    `--- app: ${started}; ${Date.now() - running.launched} ms after launch it is ${state} (launched at ${running.launched}) ---`,
+    `pages: ${JSON.stringify(pages.map((each) => `${each.url()}${each === page ? " (the test's)" : ""}`))}`,
+    // Whether the page asked for its pages to be rendered, and whether the main process answered.
+    `its calls to the main process: ${JSON.stringify({
+      answered: Object.fromEntries(running.answeredIpc),
+      waiting: [...running.pendingIpc.values()].map(({ command, at }) => `${command} for ${Date.now() - at} ms`),
+    })}`,
+  ];
+  if (page) {
+    const shown = await within(
+      page.evaluate(() => ({
+        url: location.href,
+        readyState: document.readyState,
+        visibility: document.visibilityState,
+        focused: document.hasFocus(),
+        viewport: `${window.innerWidth}x${window.innerHeight}`,
+        // When this document started, since the Unix epoch: a page that loaded again shows here.
+        started: Math.round(performance.timeOrigin),
+        text: document.body.innerText.replace(/\s+/g, " ").trim().slice(0, 1_000),
+        pageSlots: Array.from(document.querySelectorAll("[role=img][data-state]"), (slot) =>
+          `${slot.getAttribute("aria-label")} ${slot.getAttribute("data-state")}`,
+        ).slice(0, 5),
+        // Anything that would hide the status bar or a page from the test's role locators.
+        hiding: Array.from(document.querySelectorAll("[aria-hidden=true], [inert]"))
+          .filter((element) => element.querySelector("footer, [role=img]"))
+          .map((element) => element.outerHTML.slice(0, 120)),
+      })),
+      5_000,
+    );
+    lines.push(`page: ${JSON.stringify(shown)}`);
+    // When, in ms since the document started, its own files arrived, it was parsed and loaded,
+    // and each call to the main process was made and answered (the page's resource timing): a
+    // page that waited on something shows where.
+    const timeline = await within(
+      page.evaluate(() => {
+        const at = (ms: number) => Math.round(ms);
+        const [navigation] = performance.getEntriesByType("navigation") as PerformanceNavigationTiming[];
+        const resources = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
+        const named = (entry: PerformanceResourceTiming) => new URL(entry.name).pathname.split("/").pop() || entry.name;
+        return {
+          parsed: navigation ? at(navigation.domContentLoadedEventEnd) : null,
+          loaded: navigation ? at(navigation.loadEventEnd) : null,
+          files: resources
+            .filter((entry) => entry.name.startsWith("http://tauri.localhost/"))
+            .map((entry) => `${named(entry)} ${at(entry.startTime)}-${at(entry.responseEnd)}`),
+          calls: resources
+            .filter((entry) => entry.name.startsWith("http://ipc.localhost/"))
+            .slice(0, 20)
+            .map((entry) => `${named(entry)} ${at(entry.startTime)}-${at(entry.responseEnd)}`),
+        };
+      }),
+      3_000,
+    );
+    lines.push(`its timeline: ${JSON.stringify(timeline)}`);
+    const timer = await within(page.evaluate(() => new Promise((resolve) => setTimeout(() => resolve("fired"), 10))), 3_000);
+    const frame = await within(page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve("drawn")))), 3_000);
+    // The canvas's width over ten frames: a fit-width page re-renders whenever it changes.
+    const widths = await within(
+      page.evaluate(
+        () =>
+          new Promise<number[]>((resolve) => {
+            const seen: number[] = [];
+            const sample = () => {
+              seen.push(document.querySelector("main")?.clientWidth ?? -1);
+              if (seen.length < 10) requestAnimationFrame(sample);
+              else resolve([...new Set(seen)]);
+            };
+            requestAnimationFrame(sample);
+          }),
+      ),
+      3_000,
+    );
+    // A read-only call, as the page's own `invoke` makes it.
+    const ipc = await within(
+      page.evaluate(() =>
+        (window as unknown as { __TAURI_INTERNALS__: { invoke(command: string): Promise<unknown> } }).__TAURI_INTERNALS__
+          .invoke("get_settings")
+          .then(() => "answered"),
+      ),
+      3_000,
+    );
+    lines.push(`its script: ${JSON.stringify({ timer, frame, widths, ipc })}`);
+    // Its main thread since the test got the page: the stalls the page saw, and the time spent in
+    // tasks of each kind (ms of wall time; a task waiting on something counts too).
+    const stalls = await within(
+      page.evaluate(() => (window as unknown as { __e2eStalls?: unknown }).__e2eStalls ?? "none recorded"),
+      3_000,
+    );
+    const busy = running.performance
+      ? await within(
+          running.performance.send("Performance.getMetrics").then(({ metrics }) =>
+            Object.fromEntries(
+              metrics
+                .filter(({ name }) => /^(Task|Script|Layout|RecalcStyle|V8Compile)Duration$|^(Layout|RecalcStyle)Count$/.test(name))
+                .map(({ name, value }) => [name, name.endsWith("Duration") ? Math.round(value * 1_000) : value]),
+            ),
+          ),
+          3_000,
+        )
+      : "not measured";
+    lines.push(`its main thread: ${JSON.stringify({ stalls, busy })}`);
+    // The first page slot as React has it, read from React's own fields on its element (here
+    // only, on failure): whether it waits for the scale to settle, and whether it is still the
+    // same element half a second later (a slot that keeps mounting anew never asks).
+    const slot = await within(
+      page.evaluate(async () => {
+        type Fiber = { memoizedProps?: Record<string, unknown> | null; return?: Fiber | null };
+        const element = document.querySelector("[role=img][data-state]");
+        if (!element) return "no page slot";
+        const key = Object.keys(element).find((name) => name.startsWith("__reactFiber$"));
+        let fiber = key ? (element as unknown as Record<string, Fiber | undefined>)[key] : undefined;
+        let props: Record<string, unknown> | null = null;
+        for (let depth = 0; fiber && depth < 5 && !props; depth++, fiber = fiber.return ?? undefined) {
+          if (fiber.memoizedProps && "paused" in fiber.memoizedProps) props = fiber.memoizedProps;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        return {
+          paused: props?.paused,
+          scale: props?.scale,
+          requestDelayMs: props?.requestDelayMs,
+          doc: props?.doc,
+          renderer: props ? props.renderer !== undefined : "no props found",
+          sameElement: element.isConnected,
+        };
+      }),
+      3_000,
+    );
+    lines.push(`its first page slot: ${JSON.stringify(slot)}`);
+    const statusBar = await within(page.getByRole("contentinfo").count(), 3_000);
+    const text = await within(
+      page
+        .locator("body")
+        .innerText({ timeout: 3_000 })
+        .then((body) => body.replace(/\s+/g, " ").trim().slice(0, 200)),
+      4_000,
+    );
+    lines.push(`the test's locators: ${JSON.stringify({ statusBar, text })}`);
+  } else {
+    lines.push("page: none");
+  }
+  lines.push("end of its log:", running.log.join("").slice(-LOG_TAIL_CHARS));
+  return lines.join("\n");
 }
 
 /** Each page's app data folder (`PDF_READER_DATA_DIR`). */
@@ -342,13 +538,28 @@ export const test = base.extend<{
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
-      const running: Running = { child, log: [], profile, data, launched: Date.now() };
+      const running: Running = {
+        child,
+        log: [],
+        profile,
+        data,
+        launched: Date.now(),
+        pendingIpc: new Map(),
+        answeredIpc: new Map(),
+      };
       started.push(running);
       child.stdout?.on("data", (chunk) => running.log.push(String(chunk)));
       child.stderr?.on("data", (chunk) => running.log.push(String(chunk)));
       running.browser = await connect(port, running);
       running.connected = Date.now();
       const page = await mainPage(running.browser);
+      running.page = page;
+      followIpc(page, running);
+      // How the page's main thread spends its time, and when it stalls, from now on (#133).
+      await page.addInitScript(heartbeat);
+      await page.evaluate(heartbeat).catch(() => {});
+      running.performance = await page.context().newCDPSession(page);
+      await running.performance.send("Performance.enable").catch(() => {});
       dataDirs.set(page, data);
       apps.set(page, running);
       if (child.pid !== undefined) processes.set(page, child.pid);
@@ -361,7 +572,7 @@ export const test = base.extend<{
     for (const [index, running] of started.entries()) {
       if (failed) {
         // Files in the test's output folder (uploaded by CI), also shown in the HTML report.
-        const page = running.browser?.contexts()[0]?.pages()[0];
+        const page = running.page ?? running.browser?.contexts()[0]?.pages()[0];
         const screenshot = testInfo.outputPath(`screenshot-${index}.png`);
         if (await page?.screenshot({ path: screenshot }).then(() => true, () => false)) {
           await testInfo.attach(`screenshot-${index}`, { path: screenshot, contentType: "image/png" });
@@ -375,7 +586,7 @@ export const test = base.extend<{
             // No desktop to capture.
           }
         }
-        console.log(await summary(running, page));
+        console.log(await summary(running));
         if (running.child.pid !== undefined && running.child.exitCode === null) {
           running.log.push(`\n--- process tree ---\n${processTree(running.child.pid)}`);
         }
