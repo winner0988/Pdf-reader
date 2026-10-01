@@ -421,20 +421,27 @@ impl Documents {
 
     /// Undoes the last edit of `doc` (B2-05, ADR 0013): its worker opens the document again from
     /// the bytes it keeps and applies the edits before it. Returns the tab's new state, as
-    /// `apply_edit` does. Not for a document opened with a password (MVP-16).
-    pub fn undo(&self, doc: DocumentId) -> Result<OpenEvent, IpcError> {
+    /// `apply_edit` does.
+    ///
+    /// A document opened with a password needs it again (#94): the password is not kept
+    /// (MVP-16). Without one this answers `encrypted`, and the page asks the user for it; it
+    /// goes to the worker in that one request and is wiped.
+    pub fn undo(&self, doc: DocumentId, password: Option<Password>) -> Result<OpenEvent, IpcError> {
         let ((), event) = self.change_document(doc, |document| {
-            if document.protected {
-                return Err(invalid_argument(
-                    "a document opened with a password cannot be undone: the password is not kept",
-                ));
-            }
+            let password = if document.protected {
+                Some(password.ok_or_else(|| IpcError {
+                    code: ErrorCode::Encrypted,
+                    message: "the document's password is needed to undo".to_owned(),
+                })?)
+            } else {
+                None
+            };
             let edits = document
                 .history
                 .before_last()
                 .ok_or_else(|| invalid_argument("nothing to undo"))?
                 .to_vec();
-            let pages = revert_in_worker(document, edits).inspect_err(|error| {
+            let pages = revert_in_worker(document, edits, password).inspect_err(|error| {
                 if matches!(error.code, ErrorCode::Internal | ErrorCode::LimitExceeded) {
                     document.lost = true;
                 }
@@ -448,14 +455,10 @@ impl Documents {
         Ok(event)
     }
 
-    /// Makes the last undone edit of `doc` again (B2-05); returns the tab's new state.
+    /// Makes the last undone edit of `doc` again (B2-05); returns the tab's new state. No
+    /// password is needed: the edit is applied to the document as it is.
     pub fn redo(&self, doc: DocumentId) -> Result<OpenEvent, IpcError> {
         let ((), event) = self.change_document(doc, |document| {
-            if document.protected {
-                return Err(invalid_argument(
-                    "a document opened with a password cannot be undone: the password is not kept",
-                ));
-            }
             let edit = document
                 .history
                 .next()
@@ -528,9 +531,7 @@ impl Documents {
             document.history.saved();
             show_history(document);
             // Undo starts from the file now: the worker keeps its bytes instead (ADR 0013).
-            if !document.protected {
-                rebase(document);
-            }
+            rebase(document);
             Ok(SaveResult { incremental })
         })
     }
@@ -1053,15 +1054,18 @@ fn edit_in_worker(
 }
 
 /// Opens the document again in its worker from the bytes the worker keeps and applies `edits`
-/// (undo, ADR 0013); returns the document's pages after them.
+/// (undo, ADR 0013); returns the document's pages after them. `password`: the user's, for a
+/// document opened with one.
 fn revert_in_worker(
     document: &mut OpenDocument,
     edits: Vec<WorkerEdit>,
+    password: Option<Password>,
 ) -> Result<Vec<PageSize>, IpcError> {
     match request(document, |request, doc| WorkerRequest::Revert {
         request,
         doc,
         edits,
+        password,
     })? {
         WorkerResponse::Edited { pages, .. } => Ok(pages),
         _ => Err(unexpected("Revert")),
@@ -1069,35 +1073,25 @@ fn revert_in_worker(
 }
 
 /// What the frontend is told of the history: unsaved changes, and whether undo and redo can be
-/// done. Never for a document opened with a password, which could not be opened again (MVP-16).
+/// done.
 fn show_history(document: &mut OpenDocument) {
     let history = &document.history;
     document.info.unsaved = history.unsaved();
-    document.info.can_undo = !document.protected && history.can_undo();
-    document.info.can_redo = !document.protected && history.can_redo();
+    document.info.can_undo = history.can_undo();
+    document.info.can_redo = history.can_redo();
 }
 
-/// Opens the file just written in the document's worker, in place of the document, so the worker
-/// keeps the file's bytes to undo from (ADR 0013). If that fails, the document is opened again
-/// at the next request.
+/// Has the document's worker keep the bytes of the file just written, in place of those it
+/// opened, to undo from (ADR 0013). Nothing is parsed, so a document opened with a password
+/// needs none here. If that fails, the document is opened again at the next request.
 fn rebase(document: &mut OpenDocument) {
-    let old = document.worker_doc;
-    let opened = document
+    let path = document.path.clone();
+    let rebased = document
         .host
-        .open(&document.path)
-        .ok()
-        .and_then(|(doc, response)| {
-            let pages = document_info(doc, document.info.display_name.clone(), response)
-                .ok()?
-                .pages;
-            (pages == document.info.pages).then_some(doc)
-        });
-    match opened {
-        Some(doc) => {
-            let _ = document.host.notify(&WorkerRequest::Close { doc: old });
-            document.worker_doc = doc;
-        }
-        None => document.lost = true,
+        .rebase(document.worker_doc, &path)
+        .is_ok_and(|response| matches!(response, WorkerResponse::Rebased { .. }));
+    if !rebased {
+        document.lost = true;
     }
 }
 
@@ -2376,7 +2370,7 @@ mod with_worker {
     /// then has a new id.
     fn stepped(documents: &Documents, doc: &mut DocumentId, undo: bool) -> DocumentInfo {
         let event = if undo {
-            documents.undo(*doc)
+            documents.undo(*doc, None)
         } else {
             documents.redo(*doc)
         };
@@ -2408,7 +2402,7 @@ mod with_worker {
         assert!(!info.unsaved && !info.can_undo && info.can_redo);
         assert!(documents.unsaved_tabs().is_empty());
         assert_eq!(
-            documents.undo(doc).unwrap_err().code,
+            documents.undo(doc, None).unwrap_err().code,
             ErrorCode::InvalidArgument
         );
         let info = stepped(&documents, &mut doc, false);
@@ -2471,7 +2465,7 @@ mod with_worker {
     }
 
     #[test]
-    fn a_document_opened_with_a_password_has_no_undo() {
+    fn undo_asks_again_for_the_password_of_a_document_opened_with_one() {
         let documents = Documents::new(worker());
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../tests/corpus/benign/encrypted-aes256.pdf");
@@ -2484,18 +2478,32 @@ mod with_worker {
         documents
             .unlock(tab, Password::new("user".to_owned()), &report)
             .unwrap();
-        let mut doc = opened_info(events.borrow().last().cloned().unwrap()).doc;
+        let opened = opened_info(events.borrow().last().cloned().unwrap());
+        let mut doc = opened.doc;
         let edited = opened_info(
             documents
                 .apply_edit(&EditArgs { doc, edit: turn(0) })
                 .unwrap(),
         );
         doc = edited.doc;
-        assert!(edited.unsaved && !edited.can_undo);
-        assert_eq!(
-            documents.undo(doc).unwrap_err().code,
-            ErrorCode::InvalidArgument
-        );
+        assert!(edited.unsaved && edited.can_undo);
+        // Its password is not kept: undo asks for it (`encrypted`), and a wrong one is refused
+        // the same way, changing nothing; the page knows which, having sent one or not.
+        let undo = |password: Option<&str>| {
+            documents.undo(
+                doc,
+                password.map(|password| Password::new(password.to_owned())),
+            )
+        };
+        assert_eq!(undo(None).unwrap_err().code, ErrorCode::Encrypted);
+        assert_eq!(undo(Some("wrong")).unwrap_err().code, ErrorCode::Encrypted);
+        let undone = opened_info(undo(Some("user")).unwrap());
+        assert_eq!(undone.pages, opened.pages);
+        assert!(!undone.unsaved && !undone.can_undo && undone.can_redo);
+        // Redo needs none: the edit is applied to the document as it is.
+        doc = undone.doc;
+        let redone = opened_info(documents.redo(doc).unwrap());
+        assert_eq!(redone.pages, edited.pages);
     }
 
     #[test]

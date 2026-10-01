@@ -40,9 +40,10 @@ import type { SystemApi } from "@/features/system/defaultApp";
 import { createTextSource, type TextApi } from "@/features/text/source";
 import type { EditingApi } from "@/features/thumbnails/api";
 import type { PageEditing } from "@/features/thumbnails/Thumbnails";
+import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
 import { useTheme } from "@/features/theme/useTheme";
 import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
-import type { PageRenderer } from "@/features/viewer/renderer";
+import { errorCodeOf, type PageRenderer } from "@/features/viewer/renderer";
 import type { OutlineView } from "@/features/outline/tree";
 import { strings } from "@/i18n/zh-TW";
 import type { BlockedAction, LinkPreview, LinkTarget, PageLink, SaveResult } from "@/ipc/generated/contract";
@@ -312,13 +313,24 @@ export function ReaderShell({
           apply: (edit) => editingApi.applyEdit(doc, edit),
         }
       : undefined;
-  // Undo and redo (B2-05). A document with changes but nothing to undo was opened with a
-  // password, which is not kept to open it again.
+  // Undo and redo (B2-05). A document opened with a password needs it again to undo (#94): the
+  // first try, without one, fails with `encrypted`, and the password is asked for.
   const undoable = pageEditing !== undefined && document_?.canUndo === true;
   const redoable = pageEditing !== undefined && document_?.canRedo === true;
-  const undo = () => {
-    if (undoable) editingApi!.undo(doc!).catch(() => showHint(strings.pages.failed));
-    else if (document_?.unsaved) showHint(strings.pages.noUndo);
+  const [undoPassword, setUndoPassword] = useState<{ wrong: boolean } | null>(null);
+  const undo = (password?: string) => {
+    if (!undoable) return;
+    editingApi!.undo(doc!, password).then(
+      () => setUndoPassword(null),
+      (error: unknown) => {
+        if (errorCodeOf(error) === "encrypted") {
+          setUndoPassword({ wrong: password !== undefined });
+        } else {
+          setUndoPassword(null);
+          showHint(strings.pages.failed);
+        }
+      },
+    );
   };
   const redo = () => {
     if (redoable) editingApi!.redo(doc!).catch(() => showHint(strings.pages.failed));
@@ -331,7 +343,7 @@ export function ReaderShell({
     // Always taken, even with nothing to save: the WebView would otherwise save the page.
     save,
     saveAs,
-    undo: whenOpen(undo),
+    undo: whenOpen(() => undo()),
     redo: whenOpen(redo),
     close: onClose,
     print,
@@ -449,7 +461,7 @@ export function ReaderShell({
           printBlocked={!permissions.print}
           onSave={savable && document_?.unsaved ? save : undefined}
           onSaveAs={savable ? saveAs : undefined}
-          onUndo={undoable ? undo : undefined}
+          onUndo={undoable ? () => undo() : undefined}
           onRedo={redoable ? redo : undefined}
           onExport={exportable && permissions.copy ? () => setDialog("export") : undefined}
           exportBlocked={exportable && !permissions.copy}
@@ -584,6 +596,12 @@ export function ReaderShell({
           onClose={() => setLinkDialog(null)}
         />
       )}
+      <UndoPasswordDialog
+        open={undoPassword !== null}
+        wrong={undoPassword?.wrong ?? false}
+        onUndo={undo}
+        onCancel={() => setUndoPassword(null)}
+      />
       <SaveFailedDialog
         failure={saveFailed}
         onSaveAs={savable && saveAsHelps(saveFailed) ? saveAs : undefined}

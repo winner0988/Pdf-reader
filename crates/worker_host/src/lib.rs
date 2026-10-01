@@ -214,6 +214,29 @@ impl WorkerHost {
         })
     }
 
+    /// Has the worker keep the bytes of the file at `path`, read-only, as the ones undo opens
+    /// `doc` again from (ADR 0013): the file `doc` was just saved to. Returns `Rebased`.
+    pub fn rebase(&mut self, doc: DocumentId, path: &Path) -> Result<WorkerResponse, HostError> {
+        let file = File::open(path).map_err(HostError::Unreadable)?;
+        let size = file.metadata().map_err(HostError::Unreadable)?.len();
+        if size > MAX_DOCUMENT_BYTES {
+            return Err(HostError::TooLarge);
+        }
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_read_only(&file)
+            .map_err(HostError::Spawn)?;
+        self.request(|request| WorkerRequest::Rebase {
+            request,
+            doc,
+            file: FileHandle(handle),
+        })
+    }
+
     /// Writes to `file`, as [`save`](Self::save) does, a copy of `doc` without its metadata and
     /// with `id` as its identifier (B2-03); `doc` itself is not changed.
     pub fn privacy_copy(
@@ -385,6 +408,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::Jpeg { request, .. }
         | WorkerResponse::PageSearched { request, .. }
         | WorkerResponse::Edited { request, .. }
+        | WorkerResponse::Rebased { request }
         | WorkerResponse::Saved { request, .. } => Some(*request),
         WorkerResponse::Error { request, .. } => *request,
     }

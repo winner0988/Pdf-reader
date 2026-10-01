@@ -144,6 +144,17 @@ pub enum WorkerRequest {
         request: RequestId,
         doc: DocumentId,
         edits: Vec<WorkerEdit>,
+        /// For a document opened with a password: the user typed it again (#94). Not kept.
+        password: Option<Password>,
+    },
+    /// Keeps the bytes of `file`, read-only, as the ones undo opens `doc` again from: the file
+    /// the document was just saved to, in place of the one it was opened from (ADR 0013). The
+    /// document itself does not change; nothing is parsed, so no password is needed. Answered
+    /// by `Rebased`.
+    Rebase {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
     },
     /// Best effort: the worker drops the target request if it has not finished yet.
     Cancel {
@@ -206,6 +217,10 @@ pub enum WorkerResponse {
     Edited {
         request: RequestId,
         pages: Vec<PageSize>,
+    },
+    /// `Rebase` is done.
+    Rebased {
+        request: RequestId,
     },
     /// The document was written: `bytes` long, appended to the original (`incremental`, for a
     /// signed document) or rewritten.

@@ -31,8 +31,9 @@ use crate::scan::ScanBudget;
 pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), FrameError> {
     frame::send(&mut output, &WorkerResponse::hello())?;
     let mut documents: HashMap<DocumentId, PdfDocument> = HashMap::new();
-    // The bytes each document was opened from, to open it again for undo (ADR 0013). Not for a
-    // document opened with a password, which could not be opened again without it.
+    // The bytes each document was opened from (or last saved to), to open it again for undo
+    // (ADR 0013). For a document opened with a password they are still encrypted; the password
+    // itself is not kept: undo asks for it again (#94).
     let mut originals: HashMap<DocumentId, Vec<u8>> = HashMap::new();
 
     // Wiped after decoding: an Open request may carry a password (MVP-16).
@@ -201,7 +202,30 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 request,
                 doc,
                 edits,
-            } => Some(revert(&mut documents, &originals, request, doc, &edits)),
+                password,
+            } => Some(revert(
+                &mut documents,
+                &originals,
+                request,
+                doc,
+                &edits,
+                password.as_ref(),
+            )),
+            WorkerRequest::Rebase { request, doc, file } => Some(if documents.contains_key(&doc) {
+                match read_limited(handle::take_file(file)) {
+                    Ok(bytes) => {
+                        originals.insert(doc, bytes);
+                        WorkerResponse::Rebased { request }
+                    }
+                    Err(response) => response(request),
+                }
+            } else {
+                error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                )
+            }),
             WorkerRequest::Save { request, doc, file } => Some(match documents.get(&doc) {
                 None => error(
                     request,
@@ -273,11 +297,7 @@ fn open(
     let permissions = document.permissions();
     let encrypted = document.is_encrypted();
     documents.insert(doc, document);
-    if password.is_none() {
-        originals.insert(doc, bytes);
-    } else {
-        originals.remove(&doc);
-    }
+    originals.insert(doc, bytes);
     WorkerResponse::Opened {
         request,
         document: OpenedDocument {
@@ -303,15 +323,16 @@ fn page_sizes(document: &PdfDocument) -> Result<Vec<PageSize>, EngineError> {
         .collect()
 }
 
-/// Opens `doc` again from the bytes it was opened from and applies `edits` in order (undo,
-/// ADR 0013). The document is replaced only once every edit is applied: until then, and if one
-/// fails, it stays as it was.
+/// Opens `doc` again from the bytes it was opened from (or last saved to) and applies `edits` in
+/// order (undo, ADR 0013); a document opened with a password needs it again. The document is
+/// replaced only once every edit is applied: until then, and if one fails, it stays as it was.
 fn revert(
     documents: &mut HashMap<DocumentId, PdfDocument>,
     originals: &HashMap<DocumentId, Vec<u8>>,
     request: RequestId,
     doc: DocumentId,
     edits: &[WorkerEdit],
+    password: Option<&Password>,
 ) -> WorkerResponse {
     if !documents.contains_key(&doc) {
         return error(
@@ -323,14 +344,14 @@ fn revert(
     let Some(bytes) = originals.get(&doc) else {
         return error(
             request,
-            WorkerErrorCode::InvalidRequest,
-            "opened with a password, which is not kept: it cannot be opened again",
+            WorkerErrorCode::UnknownDocument,
+            "unknown document",
         );
     };
     if edits.len() > MAX_UNDO_EDITS as usize {
         return error(request, WorkerErrorCode::LimitExceeded, "too many edits");
     }
-    let mut document = match PdfDocument::open(bytes, None) {
+    let mut document = match PdfDocument::open(bytes, password.map(Password::as_str)) {
         Ok(document) => document,
         Err(engine) => return engine_error(request, &engine, WorkerErrorCode::Corrupted),
     };

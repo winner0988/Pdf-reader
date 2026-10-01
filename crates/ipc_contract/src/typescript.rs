@@ -54,6 +54,7 @@ pub fn bindings() -> String {
         ExportEvent,
         Edit,
         EditArgs,
+        UndoArgs,
         SaveResult,
         UpdateCheck,
         RequestId,

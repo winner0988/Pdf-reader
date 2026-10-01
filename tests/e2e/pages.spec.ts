@@ -164,3 +164,39 @@ test("three edits undone with Ctrl+Z leave the document as it was, with nothing 
   await expect(unsaved).toBeVisible();
   await hasPages(page, 9);
 });
+
+test("undoing an edit of a document opened with a password asks for the password again (#94)", async ({
+  launch,
+}) => {
+  const page = await launch(corpus("benign/encrypted-aes256.pdf"));
+  const unlock = page.getByLabel(strings.password.label, { exact: true });
+  await unlock.fill("user");
+  await unlock.press("Enter");
+  await expect(pageSlot(page, 1)).toHaveAttribute("data-state", "ready");
+  const list = await openThumbnails(page);
+  const shape = async () => {
+    const box = await pageSlot(page, 1).boundingBox();
+    return box && box.width > box.height ? "turned" : "upright";
+  };
+  expect(await shape()).toBe("upright");
+  await fromMenu(page, list, 1, strings.pages.rotateCw);
+  expect(await shape()).toBe("turned");
+
+  // The password is not kept: undo asks for it, and says when it is wrong. (While the dialog is
+  // up, the page behind it is hidden from the accessibility tree.)
+  const t = strings.pages.undoPassword;
+  const before = await pageSlot(page, 1).getAttribute("data-doc");
+  await page.keyboard.press("Control+z");
+  const dialog = page.getByRole("dialog", { name: t.title });
+  const field = dialog.getByLabel(t.label);
+  await field.fill("wrong");
+  await field.press("Enter");
+  await expect(dialog.getByRole("alert")).toHaveText(t.wrong);
+
+  await field.fill("user");
+  await field.press("Enter");
+  await expect(dialog).toBeHidden();
+  await edited(page, before);
+  expect(await shape()).toBe("upright");
+  await expect(page.getByRole("tab", { name: "encrypted-aes256.pdf", exact: true })).toBeVisible();
+});
