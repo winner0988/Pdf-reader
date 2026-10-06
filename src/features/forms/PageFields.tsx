@@ -115,9 +115,12 @@ type ControlProps = {
   onScript: () => void;
 };
 
+// Opaque: the page is drawn with its form fields (docs/architecture/rendering.md), and a control
+// that let them show through would be read over a second copy of its own text.
 const BASE =
-  "pointer-events-auto absolute box-border border bg-sky-50/90 text-neutral-900 outline-offset-1 " +
-  "focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-60 read-only:bg-neutral-100/80";
+  "pointer-events-auto absolute box-border border bg-sky-50 text-neutral-900 outline-offset-1 " +
+  "focus-visible:outline-2 focus-visible:outline-primary disabled:bg-neutral-100 disabled:text-neutral-500 " +
+  "read-only:bg-neutral-100";
 
 /** What every control says about its field, to the screen reader and the mouse. */
 function describe(field: FormField, allowed: boolean) {
