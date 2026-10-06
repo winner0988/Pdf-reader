@@ -432,6 +432,14 @@ describe("sending values one after another (B2-09)", () => {
     await waitFor(() => expect(saving.save).toHaveBeenCalledWith(6));
   });
 
+  it("leaves the user in the box they were typing in, to go on after saving", async () => {
+    const { saving, user, box } = await setup({ live: true });
+    await user.type(box("Your name"), "!");
+    await user.keyboard("{Control>}s{/Control}");
+    await waitFor(() => expect(saving.save).toHaveBeenCalledWith(6));
+    await waitFor(() => expect(box("Your name")).toHaveFocus());
+  });
+
   it("does not save a document without changes", async () => {
     const { editing, saving, user, box } = await setup({ live: true });
     await user.click(box("Your name"));

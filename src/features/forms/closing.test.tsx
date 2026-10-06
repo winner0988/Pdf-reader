@@ -63,9 +63,11 @@ async function openForm() {
     setActive: vi.fn(() => Promise.resolve()),
   } satisfies OpenApi;
   let doc = 9;
+  let value = FIELD.value;
   // Like the main process: the new document is announced, then the command is answered.
   const editingApi = {
-    applyEdit: vi.fn<EditingApi["applyEdit"]>(() => {
+    applyEdit: vi.fn<EditingApi["applyEdit"]>((_doc, edit) => {
+      if (edit.kind === "setFieldValue") value = edit.value;
       doc += 1;
       push({ kind: "opened", tab: 1, info: info(doc, true) });
       return Promise.resolve();
@@ -82,7 +84,7 @@ async function openForm() {
     privacyExport: vi.fn<SavingApi["privacyExport"]>(() => Promise.resolve(true)),
   } satisfies SavingApi;
   const formsApi = {
-    getPageFields: vi.fn((_doc: number, page: number) => Promise.resolve(page === 0 ? [FIELD] : [])),
+    getPageFields: vi.fn((_doc: number, page: number) => Promise.resolve(page === 0 ? [{ ...FIELD, value }] : [])),
   } satisfies FormsApi;
   const renderApi: RenderApi = { renderPage: () => new Promise(() => {}), cancel: () => Promise.resolve() };
   render(

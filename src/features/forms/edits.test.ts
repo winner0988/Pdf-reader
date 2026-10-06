@@ -94,7 +94,47 @@ describe("FieldEdits", () => {
     sending.finish();
     await flush();
     expect(next).toHaveBeenCalledTimes(1);
+    // The user was leaving (closing, say): the box stays left.
+    expect(box).not.toHaveFocus();
     host.remove();
+  });
+
+  it("gives the box back to a user who may go on typing, when asked to", async () => {
+    const edits = new FieldEdits();
+    const host = document.createElement("div");
+    host.setAttribute("data-page-fields", "1");
+    const box = document.createElement("input");
+    host.append(box);
+    document.body.append(host);
+    box.focus();
+    const sending = job();
+    box.addEventListener("blur", () => void edits.run(() => sending.promise));
+    edits.whenSettled(vi.fn(), { keepFocus: true });
+    expect(box).not.toHaveFocus();
+    sending.finish();
+    await flush();
+    expect(box).toHaveFocus();
+    host.remove();
+  });
+
+  it("does not take the focus back from where the user went in the meantime", async () => {
+    const edits = new FieldEdits();
+    const host = document.createElement("div");
+    host.setAttribute("data-page-fields", "1");
+    const box = document.createElement("input");
+    const other = document.createElement("button");
+    host.append(box);
+    document.body.append(host, other);
+    box.focus();
+    const sending = job();
+    box.addEventListener("blur", () => void edits.run(() => sending.promise));
+    edits.whenSettled(vi.fn(), { keepFocus: true });
+    other.focus();
+    sending.finish();
+    await flush();
+    expect(other).toHaveFocus();
+    host.remove();
+    other.remove();
   });
 
   it("leaves a box outside the form alone", () => {

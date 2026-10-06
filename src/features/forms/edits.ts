@@ -45,12 +45,19 @@ export class FieldEdits {
   /**
    * Calls `next` once the value being typed in a field (if one is) has been sent and answered, and
    * with it every earlier one: at once when there is none, so that most commands stay as they are.
+   * With `keepFocus` the user, who may go on typing (after saving, say), gets the box back unless
+   * they moved on.
    */
-  whenSettled(next: () => void): void {
+  whenSettled(next: () => void, { keepFocus = false } = {}): void {
     const active = document.activeElement;
+    const box = active instanceof HTMLElement && active.closest("[data-page-fields]") ? active : null;
     // Leaving the box sends what was typed (its blur handler calls `run`, right now).
-    if (active instanceof HTMLElement && active.closest("[data-page-fields]")) active.blur();
-    if (this.pending === 0) next();
-    else void this.tail.then(next);
+    box?.blur();
+    const proceed = () => {
+      next();
+      if (keepFocus && box?.isConnected && document.activeElement === document.body) box.focus();
+    };
+    if (this.pending === 0) proceed();
+    else void this.tail.then(proceed);
   }
 }

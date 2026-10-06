@@ -347,18 +347,24 @@ export function ReaderShell({
   const latestDocument = () => latest?.() ?? (doc !== undefined ? { doc, unsaved: document_?.unsaved === true } : undefined);
   const save = () => {
     if (!savable) return;
-    edits.whenSettled(() => {
-      const now = latestDocument();
-      if (now?.unsaved) savingApi.save(now.doc).then(saved, setSaveFailed);
-    });
+    edits.whenSettled(
+      () => {
+        const now = latestDocument();
+        if (now?.unsaved) savingApi.save(now.doc).then(saved, setSaveFailed);
+      },
+      { keepFocus: true },
+    );
   };
   const saveAs = () => {
     setSaveFailed(null);
     if (!savable) return;
-    edits.whenSettled(() => {
-      const now = latestDocument();
-      if (now) savingApi.saveAs(now.doc).then(saved, setSaveFailed);
-    });
+    edits.whenSettled(
+      () => {
+        const now = latestDocument();
+        if (now) savingApi.saveAs(now.doc).then(saved, setSaveFailed);
+      },
+      { keepFocus: true },
+    );
   };
 
   // Page management (B2-05) needs the main process too. The author's permission to assemble or
