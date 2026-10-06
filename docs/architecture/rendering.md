@@ -31,6 +31,12 @@ sequenceDiagram
 | `Documents::render` | `src-tauri/src/documents.rs` | 驗證參數、頁碼、縮放上限；送出 `Render`；worker 崩潰後重新開啟文件 |
 | `fit_scale` | `crates/ipc_contract/src/raster.rs` | 計算不超過點陣圖上限的最大縮放比例 |
 
+## 頁面上畫什麼
+
+worker 畫的是頁面看起來的樣子：頁面內容，加上它的**註解與表單欄位**（MuPDF 的 `fz_run_page`，不是只有 `fz_run_page_contents`）。使用者加的螢光筆、附註、手繪與印章，文件原有的註解，以及填過的表單欄位，因此都在畫面、列印（MVP-17）、匯出圖片與縮圖上；列印與匯出不另外處理。
+
+這個選擇曾經是關的（`show_extras = false`）：B2-07 的註解、B2-09 的表單欄位在 worker 的測試與存檔後的檔案中都對，但 app 自己的畫面上看不到，直到 `a_page_is_drawn_with_its_annotations_and_form_fields` 這個測試把它固定下來。表單欄位的輸入元件蓋在畫好的欄位上（見 [forms.md](forms.md)），所以輸入元件的背景是不透明的。
+
 ## 前端：虛擬滾動
 
 程式碼在 `src/features/viewer/`：`layout.ts`（純函式）、`renderer.ts`（呼叫 `render_page`／`cancel`）、`DocumentView.tsx`（元件）。
