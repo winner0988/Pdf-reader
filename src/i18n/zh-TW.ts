@@ -89,6 +89,8 @@ export const strings = {
     rotateCcw: "逆時針旋轉",
     rotateCw: "順時針旋轉",
     search: "搜尋",
+    highlight: (color: string) => `螢光筆（${color}）`,
+    highlightNeedsText: "螢光筆：先選取文字",
     more: "更多",
   },
   statusBar: {
@@ -174,6 +176,30 @@ export const strings = {
     discard: "不儲存",
     cancel: "取消",
     saving: "正在儲存…",
+  },
+  /** Highlighter marks and notes (B2-07). */
+  annotations: {
+    highlight: "螢光筆",
+    colors: { yellow: "黃色", green: "綠色", blue: "藍色", pink: "粉紅色" },
+    highlightIn: (color: string) => `螢光筆標示（${color}）`,
+    noteSaying: (text: string) => `附註：${text}`,
+    kind: { highlight: "螢光筆標示", note: "附註", other: "註解" },
+    addNote: "在這裡新增附註…",
+    editNote: "編輯附註…",
+    tooMuch: "選取的範圍太大，請分段標示。",
+    notOnPage: "請在頁面上按右鍵，才能新增附註。",
+    delete: "刪除註解",
+    notAllowed: "文件作者不允許變更註解",
+    failed: "無法變更註解，請再試一次。",
+    noteDialog: {
+      addTitle: "新增附註",
+      editTitle: "編輯附註",
+      label: "附註內容",
+      save: "儲存",
+      cancel: "取消",
+      empty: "請輸入附註內容。",
+      tooLong: "附註太長了，請縮短一些。",
+    },
   },
   /** Unsaved changes an earlier run of the app left for a file (B2-13). */
   recovery: {

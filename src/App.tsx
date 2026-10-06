@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { tauriExportApi, type ExportApi } from "@/features/export/api";
 import { tauriOpenApi, type OpenApi } from "@/features/open/api";
 import { OpenNotice } from "@/features/open/OpenNotice";
+import { tauriAnnotationsApi, type AnnotationsApi } from "@/features/annotations/source";
 import { tauriLinksApi, type LinksApi } from "@/features/links/source";
 import { tauriSearchApi, type SearchApi } from "@/features/search/useSearch";
 import { tauriOutlineApi, useOutline, type OutlineApi } from "@/features/outline/useOutline";
@@ -32,6 +33,7 @@ type AppProps = {
   searchApi?: SearchApi;
   linksApi?: LinksApi;
   textApi?: TextApi;
+  annotationsApi?: AnnotationsApi;
   systemApi?: SystemApi;
   recentApi?: RecentApi;
   settingsApi?: SettingsApi;
@@ -48,6 +50,7 @@ export default function App({
   searchApi = tauriSearchApi,
   linksApi = tauriLinksApi,
   textApi = tauriTextApi,
+  annotationsApi = tauriAnnotationsApi,
   systemApi = tauriSystemApi,
   recentApi = tauriRecentApi,
   settingsApi = tauriSettingsApi,
@@ -127,6 +130,7 @@ export default function App({
                 searchApi={searchApi}
                 linksApi={linksApi}
                 textApi={textApi}
+                annotationsApi={annotationsApi}
                 systemApi={systemApi}
                 recentApi={recentApi}
                 exportApi={exportApi}
@@ -182,6 +186,7 @@ type TabPaneProps = {
   searchApi: SearchApi;
   linksApi: LinksApi;
   textApi: TextApi;
+  annotationsApi: AnnotationsApi;
   systemApi: SystemApi;
   recentApi: RecentApi;
   exportApi: ExportApi;
