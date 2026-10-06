@@ -7,11 +7,16 @@
 use std::collections::HashSet;
 use std::io::{self, Write};
 
-use ipc_contract::limits::{MAX_DOCUMENT_BYTES, MAX_JPEG_BYTES, MAX_PAGE_COUNT, MAX_PNG_BYTES};
+use ipc_contract::limits::{
+    MAX_DOCUMENT_BYTES, MAX_JPEG_BYTES, MAX_PAGE_COUNT, MAX_PNG_BYTES, MAX_SOURCE_BYTES,
+};
 use ipc_contract::types::{
     BlockedAction, DocumentPermissions, PageText as TextLayer, Point, Quad, SecurityReport,
 };
-use mupdf::pdf::{PageSelection, PdfDocument as MuPdfDocument, PdfObject, PdfWriteOptions};
+use mupdf::pdf::{
+    Encryption, InsertPdfOptions, InsertPosition, PageSelection, PdfDocument as MuPdfDocument,
+    PdfObject, PdfWriteOptions,
+};
 use mupdf::{Colorspace, Document, ImageFormat, Matrix, Page, Pixmap, TextPageFlags};
 
 use crate::owner_password;
@@ -72,6 +77,9 @@ pub enum EngineError {
     Encode(String),
     #[error("an encrypted document has no privacy export: its copy could not be encrypted again")]
     EncryptedCopy,
+    /// The author of a document forbids what was asked (MVP-19).
+    #[error("the document's author does not allow this: {0}")]
+    NotAllowed(&'static str),
     #[error("the document has too many objects to clean")]
     TooComplex,
     #[error("MuPDF: {0}")]
@@ -863,6 +871,95 @@ impl PdfDocument {
     }
 }
 
+/// What `PdfDocument::prepare_source` made of a PDF whose pages the user wants in another
+/// document (B2-06).
+#[derive(Debug)]
+pub struct PreparedSource {
+    /// The PDF as MuPDF writes it, plain: not encrypted, so that it can be opened again whenever
+    /// the edit that uses it is made again, without a password.
+    pub bytes: Vec<u8>,
+    pub pages: u32,
+    /// The active content the PDF has (MVP-11). None of it comes along with the pages.
+    pub security: SecurityReport,
+}
+
+impl PdfDocument {
+    /// Opens `bytes`, a PDF the user chose to take pages from (with `password`, if it is
+    /// encrypted), and makes the plain copy of it that its pages are later taken from (B2-06):
+    /// written again by MuPDF, so that what is left is a clean file, and not encrypted, so that
+    /// no password has to be kept. It is at most `MAX_SOURCE_BYTES` long.
+    ///
+    /// The author of an encrypted file may forbid taking pages out of it (`/P` bit 5, which is
+    /// what Acrobat calls extracting pages): then nothing is made.
+    pub fn prepare_source(
+        bytes: &[u8],
+        password: Option<&str>,
+    ) -> Result<PreparedSource, EngineError> {
+        let source = PdfDocument::open(bytes, password)?;
+        let pages = source.page_count()?;
+        if pages == 0 {
+            return Err(EngineError::InvalidEdit("the file has no pages"));
+        }
+        if pages > MAX_PAGE_COUNT {
+            return Err(EngineError::TooManyPages);
+        }
+        if !source.permissions().copy {
+            return Err(EngineError::NotAllowed("taking pages out of the file"));
+        }
+        let security = source.active_content(ScanBudget::default());
+        let mut options = PdfWriteOptions::default();
+        options.set_garbage(true);
+        // Whatever the file had (the default of MuPDF's writer keeps it).
+        options.set_encryption(Encryption::None);
+        let mut plain = Vec::new();
+        write_at_most(&source.doc, &mut plain, options, MAX_SOURCE_BYTES as u64)?;
+        Ok(PreparedSource {
+            bytes: plain,
+            pages,
+            security,
+        })
+    }
+
+    /// Puts the pages of `source` (a plain PDF, as `prepare_source` made it) into the document
+    /// from index `at` on (the page count: after the last page), in their order (B2-06).
+    ///
+    /// Only what is on the pages comes along (their content and what it uses): MuPDF takes a
+    /// page over without its annotations, links and form fields, and nothing that belongs to the
+    /// source as a whole (its `/OpenAction`, scripts, outline, embedded files). What a page
+    /// does by itself (its `/AA`) is not taken either: see docs/architecture/merge.md. If it
+    /// fails, the document is as it was.
+    pub fn insert_pages(&mut self, at: u32, source: &[u8]) -> Result<(), EngineError> {
+        let count = self.page_count()?;
+        if at > count {
+            return Err(EngineError::PageOutOfRange(at));
+        }
+        let source = PdfDocument::from_bytes(source)?;
+        let inserted = source.page_count()?;
+        if inserted == 0 {
+            return Err(EngineError::InvalidEdit("the source has no pages"));
+        }
+        if count.saturating_add(inserted) > MAX_PAGE_COUNT {
+            return Err(EngineError::TooManyPages);
+        }
+        let target = if at == count {
+            InsertPosition::Append
+        } else {
+            InsertPosition::Before(at as usize)
+        };
+        // Whatever the graft makes is numbered from here on.
+        let first_new = self.doc.count_objects()?;
+        self.doc.insert_pdf(
+            &source.doc,
+            InsertPdfOptions {
+                source_pages: PageSelection::All,
+                target,
+                ..InsertPdfOptions::default()
+            },
+        )?;
+        crate::scrub::scrub_pages(&self.doc, at, inserted, first_new)
+    }
+}
+
 /// Writes `doc` to `out` with `options`, stopping with `Write(FileTooLarge)` beyond
 /// `MAX_DOCUMENT_BYTES`; returns the bytes written.
 fn write_limited(
@@ -870,10 +967,17 @@ fn write_limited(
     out: &mut impl Write,
     options: PdfWriteOptions,
 ) -> Result<u64, EngineError> {
-    let mut limited = Limited {
-        out,
-        left: MAX_DOCUMENT_BYTES,
-    };
+    write_at_most(doc, out, options, MAX_DOCUMENT_BYTES)
+}
+
+/// As [`write_limited`], with `limit` bytes the most.
+fn write_at_most(
+    doc: &MuPdfDocument,
+    out: &mut impl Write,
+    options: PdfWriteOptions,
+    limit: u64,
+) -> Result<u64, EngineError> {
+    let mut limited = Limited { out, left: limit };
     match doc.write_to_with_options(&mut limited, options) {
         Ok(bytes) => Ok(bytes),
         Err(mupdf::Error::Io(error)) => Err(EngineError::Write(error)),
@@ -2782,5 +2886,249 @@ mod tests {
             Err(EngineError::Write(error)) => assert_eq!(error.kind(), io::ErrorKind::StorageFull),
             other => panic!("{other:?}"),
         }
+    }
+
+    /// The plain copy `prepare_source` makes of the corpus file `name`.
+    fn source_of(name: &str, password: Option<&str>) -> PreparedSource {
+        PdfDocument::prepare_source(&corpus(name), password).expect("source")
+    }
+
+    /// `bytes` without the data of its streams: what a page shows (its text, say) is not what
+    /// the file says.
+    fn without_streams(bytes: &[u8]) -> Vec<u8> {
+        let (mut kept, mut at) = (Vec::new(), 0);
+        while let Some(start) = find(&bytes[at..], b"stream") {
+            let from = at + start;
+            // "endstream" ends a stream; "stream" alone starts one.
+            if bytes[..from].ends_with(b"end") {
+                kept.extend_from_slice(&bytes[at..from + 6]);
+                at = from + 6;
+                continue;
+            }
+            kept.extend_from_slice(&bytes[at..from + 6]);
+            match find(&bytes[from..], b"endstream") {
+                Some(end) => at = from + end,
+                None => return kept,
+            }
+        }
+        kept.extend_from_slice(&bytes[at..]);
+        kept
+    }
+
+    fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        haystack
+            .windows(needle.len())
+            .position(|window| window == needle)
+    }
+
+    /// Whether `name` (without its slash) is a name in the PDF `bytes`, outside its streams:
+    /// followed by a delimiter, so that `/AA` is not `/AAPL`.
+    fn has_name(bytes: &[u8], name: &str) -> bool {
+        let token = format!("/{name}");
+        let bytes = without_streams(bytes);
+        bytes.windows(token.len() + 1).any(|window| {
+            window.starts_with(token.as_bytes())
+                && matches!(
+                    window[token.len()],
+                    b' ' | b'\r' | b'\n' | b'\t' | b'/' | b'<' | b'>' | b'[' | b']' | b'(' | b')'
+                )
+        })
+    }
+
+    #[test]
+    fn the_pages_of_another_file_go_in_at_a_place_in_their_order() {
+        let source = source_of("benign/mixed-page-sizes.pdf", None);
+        assert_eq!(source.pages, 4);
+        let sizes = |doc: &PdfDocument| -> Vec<(u32, u32)> {
+            (0..doc.page_count().unwrap())
+                .map(|page| {
+                    let (width, height) = doc.page_size(page).unwrap();
+                    (width.round() as u32, height.round() as u32)
+                })
+                .collect()
+        };
+        let own = |doc: &PdfDocument| sizes(doc)[0];
+        let mut doc = PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
+        let letter = own(&doc);
+        let inserted = sizes(&PdfDocument::from_bytes(&source.bytes).expect("copy"));
+        assert_eq!(inserted.len(), 4);
+
+        // After the third page.
+        doc.insert_pages(3, &source.bytes).expect("insert");
+        assert_eq!(doc.page_count().unwrap(), 14);
+        let now = sizes(&doc);
+        assert_eq!(&now[..3], &[letter; 3]);
+        assert_eq!(&now[3..7], &inserted[..]);
+        assert_eq!(&now[7..], &[letter; 7]);
+        // The pages around are the ones they were, in their order.
+        let titles_now = page_titles(&doc);
+        assert_eq!(titles_now[..3], titles(&[1, 2, 3])[..]);
+        assert_eq!(titles_now[7..], titles(&[4, 5, 6, 7, 8, 9, 10])[..]);
+
+        // At the start and at the end (the page count).
+        doc.insert_pages(0, &source.bytes).expect("start");
+        assert_eq!(sizes(&doc)[..4], inserted[..]);
+        let count = doc.page_count().unwrap();
+        doc.insert_pages(count, &source.bytes).expect("end");
+        assert_eq!(doc.page_count().unwrap(), count + 4);
+        assert_eq!(sizes(&doc)[count as usize..], inserted[..]);
+        // Beyond the end there is no place.
+        let count = doc.page_count().unwrap();
+        assert!(matches!(
+            doc.insert_pages(count + 1, &source.bytes),
+            Err(EngineError::PageOutOfRange(_))
+        ));
+        assert_eq!(doc.page_count().unwrap(), count);
+    }
+
+    #[test]
+    fn inserted_pages_are_in_the_saved_file_and_show_what_they_showed() {
+        let source = source_of("benign/single-page.pdf", None);
+        let own_text = PdfDocument::from_bytes(&corpus("benign/single-page.pdf"))
+            .expect("open")
+            .page_text(0, 1_000)
+            .expect("text")
+            .lines
+            .first()
+            .map(|line| line.text.clone())
+            .expect("a line");
+        let mut doc = PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
+        doc.insert_pages(2, &source.bytes).expect("insert");
+        let (bytes, _) = saved(&doc);
+        let reopened = PdfDocument::from_bytes(&bytes).expect("reopen");
+        assert_eq!(reopened.page_count().unwrap(), 11);
+        let titles_now = page_titles(&reopened);
+        assert_eq!(titles_now[3], titles(&[3])[0]);
+        assert_eq!(titles_now[2], own_text);
+        // The page is drawn as it was.
+        let drawn = |doc: &PdfDocument, page: u32| doc.render(page, 1.0, 0).expect("render").rgba;
+        let original = PdfDocument::from_bytes(&corpus("benign/single-page.pdf")).expect("open");
+        assert_eq!(drawn(&reopened, 2), drawn(&original, 0));
+    }
+
+    #[test]
+    fn an_encrypted_file_gives_a_plain_copy_for_its_password_and_none_without() {
+        for name in ["benign/encrypted-aes256.pdf", "benign/encrypted-rc4-40.pdf"] {
+            let bytes = corpus(name);
+            assert!(matches!(
+                PdfDocument::prepare_source(&bytes, None),
+                Err(EngineError::Encrypted)
+            ));
+            assert!(matches!(
+                PdfDocument::prepare_source(&bytes, Some("not it")),
+                Err(EngineError::WrongPassword)
+            ));
+        }
+        let aes = source_of("benign/encrypted-aes256.pdf", Some("user"));
+        // Opens with no password at all, and says what the encrypted file did.
+        let plain = PdfDocument::from_bytes(&aes.bytes).expect("plain");
+        assert!(!plain.is_encrypted());
+        assert_eq!(aes.pages, plain.page_count().unwrap());
+        let text: Vec<String> = plain
+            .page_text(0, 1_000)
+            .expect("text")
+            .lines
+            .into_iter()
+            .map(|line| line.text)
+            .collect();
+        assert!(!text.is_empty());
+        // And its pages go into a document.
+        let mut doc = PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
+        doc.insert_pages(1, &aes.bytes).expect("insert");
+        assert_eq!(doc.page_count().unwrap(), 10 + aes.pages);
+        assert!(!has_name(&saved(&doc).0, "Encrypt"));
+    }
+
+    #[test]
+    fn the_author_who_forbids_copying_forbids_taking_pages_out_unless_the_owner_asks() {
+        // Nothing to type, and what the author forbids is forbidden.
+        let bytes = corpus("benign/restricted-no-copy-no-print.pdf");
+        assert!(matches!(
+            PdfDocument::prepare_source(&bytes, None),
+            Err(EngineError::NotAllowed(_))
+        ));
+        // With a password: the user's is held to it, and as in Acrobat the owner's lifts every
+        // restriction.
+        let bytes = corpus("benign/restricted-open-password.pdf");
+        assert!(matches!(
+            PdfDocument::prepare_source(&bytes, Some("user")),
+            Err(EngineError::NotAllowed(_))
+        ));
+        assert!(PdfDocument::prepare_source(&bytes, Some("owner")).is_ok());
+    }
+
+    #[test]
+    fn what_is_active_in_a_source_does_not_come_along_and_is_reported() {
+        let active = [
+            "malicious/openaction-js.pdf",
+            "malicious/js-document-level.pdf",
+            "malicious/page-aa.pdf",
+            "malicious/field-aa.pdf",
+            "malicious/launch.pdf",
+            "malicious/submitform.pdf",
+            "malicious/importdata.pdf",
+            "malicious/gotor-unc.pdf",
+            "malicious/gotoe.pdf",
+            "malicious/xfa.pdf",
+            "malicious/embedded-file.pdf",
+            "malicious/remote-filespec.pdf",
+            "malicious/openaction-uri.pdf",
+        ];
+        for name in active {
+            let source = source_of(name, None);
+            // The scan sees it, so that the banner can say so ...
+            assert!(!source.security.findings.is_empty(), "{name}");
+            // ... and none of it is in a document that took the pages.
+            let mut doc =
+                PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
+            let before = doc.active_content(ScanBudget::default());
+            assert!(before.findings.is_empty());
+            doc.insert_pages(5, &source.bytes).expect("insert");
+            let (bytes, _) = saved(&doc);
+            for forbidden in [
+                "JavaScript",
+                "JS",
+                "OpenAction",
+                "AA",
+                "Launch",
+                "SubmitForm",
+                "ImportData",
+                "GoToR",
+                "GoToE",
+                "XFA",
+                "EmbeddedFile",
+                "EmbeddedFiles",
+                "AcroForm",
+                "URI",
+                "FS",
+            ] {
+                assert!(!has_name(&bytes, forbidden), "{name}: /{forbidden}");
+            }
+            let after = PdfDocument::from_bytes(&bytes).expect("reopen");
+            assert!(
+                after
+                    .active_content(ScanBudget::default())
+                    .findings
+                    .is_empty(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_source_that_is_no_pdf_or_a_place_that_is_not_there_changes_nothing() {
+        let mut doc = PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
+        assert!(matches!(
+            PdfDocument::prepare_source(b"not a pdf at all", None),
+            Err(EngineError::NotPdf)
+        ));
+        assert!(matches!(
+            doc.insert_pages(1, b"not a pdf at all"),
+            Err(EngineError::NotPdf)
+        ));
+        let truncated = &corpus("benign/multi-page-10.pdf")[..200];
+        assert!(doc.insert_pages(1, truncated).is_err());
+        assert_eq!(doc.page_count().unwrap(), 10);
+        assert_eq!(page_titles(&doc), titles(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
     }
 }

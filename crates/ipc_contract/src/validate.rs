@@ -424,6 +424,20 @@ impl Validate for WorkerResponse {
                 Ok(())
             }
             WorkerResponse::Rebased { .. } => Ok(()),
+            WorkerResponse::Source {
+                bytes,
+                pages,
+                security,
+                ..
+            } => {
+                check_count("source file bytes", bytes.len(), MAX_SOURCE_BYTES as u32)?;
+                if *pages == 0 || *pages > MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "source page count",
+                    });
+                }
+                security.validate()
+            }
             WorkerResponse::Error { error, .. } => error.validate(),
         }
     }
@@ -1752,6 +1766,43 @@ mod tests {
         assert!(saved(1_234).validate().is_ok());
         assert!(saved(0).validate().is_err());
         assert!(saved(MAX_DOCUMENT_BYTES + 1).validate().is_err());
+    }
+
+    #[test]
+    fn the_copy_of_a_source_file_is_bounded_and_has_pages() {
+        let source = |len: usize, pages: u32| WorkerResponse::Source {
+            request: RequestId(1),
+            bytes: vec![0; len],
+            pages,
+            security: SecurityReport::default(),
+        };
+        assert!(source(1_000, 3).validate().is_ok());
+        assert!(source(MAX_SOURCE_BYTES, 1).validate().is_ok());
+        assert!(source(MAX_SOURCE_BYTES + 1, 1).validate().is_err());
+        assert!(source(1_000, 0).validate().is_err());
+        assert!(source(1_000, MAX_PAGE_COUNT).validate().is_ok());
+        assert!(source(1_000, MAX_PAGE_COUNT + 1).validate().is_err());
+        // What the scan says is checked as it is for a document.
+        let bad_report = SecurityReport {
+            findings: vec![
+                SecurityFinding {
+                    kind: FindingKind::JavaScript,
+                    count: 1,
+                };
+                20
+            ],
+            scan_complete: true,
+        };
+        assert!(
+            WorkerResponse::Source {
+                request: RequestId(1),
+                bytes: Vec::new(),
+                pages: 1,
+                security: bad_report,
+            }
+            .validate()
+            .is_err()
+        );
     }
 
     #[test]

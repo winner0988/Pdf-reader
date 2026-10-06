@@ -345,6 +345,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | corrupted | 這個 PDF 檔案已損毀，無法開啟。 |
 | encrypted | 這份文件需要密碼才能開啟。 |
 | unsupportedEncryption | 這份文件使用本程式不支援的加密方式（例如以憑證加密），無法開啟。 |
+| notAllowed | 這份文件的作者不允許這個動作。 |
 | unreadable | 無法讀取這個檔案，請確認檔案存在且你有存取權限。 |
 | tooLarge | 檔案太大，無法開啟。 |
 | limitExceeded | 內容超過可處理的上限，部分內容可能無法顯示。 |

@@ -10,8 +10,8 @@ use std::io::{Read, Write};
 use ipc_contract::frame::{self, FrameError};
 use ipc_contract::limits::{
     MAX_DOCUMENT_BYTES, MAX_ERROR_MESSAGE_BYTES, MAX_LINKS_PER_PAGE, MAX_OUTLINE_DEPTH,
-    MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_PAGE_TEXT_CHARS, MAX_SEARCH_HITS, MAX_TEXT_BYTES,
-    MAX_UNDO_EDITS,
+    MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_PAGE_TEXT_CHARS, MAX_SEARCH_HITS, MAX_SOURCE_BYTES,
+    MAX_TEXT_BYTES, MAX_UNDO_EDITS,
 };
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
@@ -285,6 +285,11 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => privacy_copy(document, request, file, &id),
             }),
+            WorkerRequest::PrepareSource {
+                request,
+                file,
+                password,
+            } => Some(prepare_source(request, file, password)),
             WorkerRequest::SavePages {
                 request,
                 doc,
@@ -429,6 +434,7 @@ fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineErro
         WorkerEdit::DeletePages { pages } => document.delete_pages(pages)?,
         WorkerEdit::MovePages { pages, before } => document.move_pages(pages, *before)?,
         WorkerEdit::InsertBlankPage { at, like } => document.insert_blank_page(*at, *like)?,
+        WorkerEdit::InsertPages { at, source } => document.insert_pages(*at, source)?,
         WorkerEdit::AddHighlight { marks, color } => document.add_highlights(marks, *color)?,
         WorkerEdit::AddNote { page, at, text } => document.add_note(*page, *at, text)?,
         WorkerEdit::DeleteAnnotation { page, annotation } => {
@@ -521,9 +527,36 @@ fn save_pages(
     }
 }
 
+/// Makes the plain copy of the PDF in `file`, whose pages are to go into a document (B2-06);
+/// `password` is wiped when this returns.
+fn prepare_source(
+    request: RequestId,
+    file: FileHandle,
+    password: Option<Password>,
+) -> WorkerResponse {
+    let bytes = match read_at_most(handle::take_file(file), MAX_SOURCE_BYTES as u64) {
+        Ok(bytes) => bytes,
+        Err(response) => return response(request),
+    };
+    match PdfDocument::prepare_source(&bytes, password.as_ref().map(Password::as_str)) {
+        Ok(source) => WorkerResponse::Source {
+            request,
+            bytes: source.bytes,
+            pages: source.pages,
+            security: source.security,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+    }
+}
+
 type ErrorFor = fn(RequestId) -> WorkerResponse;
 
 fn read_limited(file: Option<File>) -> Result<Vec<u8>, ErrorFor> {
+    read_at_most(file, MAX_DOCUMENT_BYTES)
+}
+
+/// Reads all of `file`, which may be `limit` bytes the most.
+fn read_at_most(file: Option<File>, limit: u64) -> Result<Vec<u8>, ErrorFor> {
     let Some(file) = file else {
         return Err(|request| {
             error(
@@ -534,11 +567,7 @@ fn read_limited(file: Option<File>) -> Result<Vec<u8>, ErrorFor> {
         });
     };
     let mut bytes = Vec::new();
-    if file
-        .take(MAX_DOCUMENT_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .is_err()
-    {
+    if file.take(limit + 1).read_to_end(&mut bytes).is_err() {
         return Err(|request| {
             error(
                 request,
@@ -547,7 +576,7 @@ fn read_limited(file: Option<File>) -> Result<Vec<u8>, ErrorFor> {
             )
         });
     }
-    if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
+    if bytes.len() as u64 > limit {
         return Err(|request| error(request, WorkerErrorCode::LimitExceeded, "file too large"));
     }
     Ok(bytes)
@@ -629,6 +658,7 @@ fn engine_error(
         EngineError::WrongPassword => WorkerErrorCode::WrongPassword,
         EngineError::UnsupportedEncryption => WorkerErrorCode::UnsupportedEncryption,
         EngineError::PageOutOfRange(_) => WorkerErrorCode::PageOutOfRange,
+        EngineError::NotAllowed(_) => WorkerErrorCode::NotAllowed,
         EngineError::InvalidScale
         | EngineError::InvalidRotation
         | EngineError::InvalidEdit(_)

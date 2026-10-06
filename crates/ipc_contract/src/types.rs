@@ -821,6 +821,9 @@ pub enum ErrorCode {
     /// Encrypted in a way the app cannot open (not the standard password security handler, for
     /// example with a certificate).
     UnsupportedEncryption,
+    /// The author of the document forbids what was asked of it (MVP-19): the pages of a file
+    /// cannot be taken out (B2-06).
+    NotAllowed,
     Unreadable,
     TooLarge,
     LimitExceeded,
