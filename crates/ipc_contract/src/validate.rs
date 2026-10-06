@@ -1340,6 +1340,48 @@ mod tests {
     }
 
     #[test]
+    fn stamp_pictures_from_the_worker_are_png_headers_of_a_bounded_size() {
+        let png = |width: u32, height: u32| {
+            let mut file = PNG_SIGNATURE.to_vec();
+            file.extend_from_slice(&13u32.to_be_bytes());
+            file.extend_from_slice(b"IHDR");
+            file.extend_from_slice(&width.to_be_bytes());
+            file.extend_from_slice(&height.to_be_bytes());
+            file.extend_from_slice(&[8, 6, 0, 0, 0, 0, 0, 0, 0]);
+            file
+        };
+        assert_eq!(stamp_png_size(&png(64, 32)), Ok((64, 32)));
+        assert_eq!(
+            stamp_png_size(&png(MAX_STAMP_SIDE_PX, 1)),
+            Ok((MAX_STAMP_SIDE_PX, 1))
+        );
+        for wrong in [png(0, 32), png(64, 0), png(MAX_STAMP_SIDE_PX + 1, 32)] {
+            assert!(stamp_png_size(&wrong).is_err());
+        }
+        // Not a PNG, not a header first, cut short, or too large.
+        assert!(stamp_png_size(&[]).is_err());
+        assert!(stamp_png_size(b"GIF89a, and then some more bytes").is_err());
+        let mut other_chunk = png(64, 32);
+        other_chunk[12..16].copy_from_slice(b"IDAT");
+        assert!(stamp_png_size(&other_chunk).is_err());
+        assert!(stamp_png_size(&png(64, 32)[..20]).is_err());
+        let mut huge = png(64, 32);
+        huge.resize(MAX_STAMP_PNG_BYTES + 1, 0);
+        assert!(stamp_png_size(&huge).is_err());
+
+        // The size the response says is the size the file has.
+        let response = |png: Vec<u8>, width: u32, height: u32| WorkerResponse::StampImage {
+            request: RequestId(1),
+            png,
+            width,
+            height,
+        };
+        assert!(response(png(64, 32), 64, 32).validate().is_ok());
+        assert!(response(png(64, 32), 65, 32).validate().is_err());
+        assert!(response(png(64, 32), 32, 64).validate().is_err());
+    }
+
+    #[test]
     fn exported_pages_are_jpeg_files_of_bounded_size() {
         let jpeg = |jpeg: Vec<u8>| WorkerResponse::Jpeg {
             request: RequestId(1),

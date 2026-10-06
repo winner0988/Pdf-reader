@@ -237,6 +237,28 @@ impl WorkerHost {
         })
     }
 
+    /// Has the worker make the picture in `file` (a PNG or JPEG the main process opened) into
+    /// what a stamp is made of (B2-08): the worker reads it through a read-only handle, as it
+    /// reads a document, and never gets a path. Returns `StampImage`.
+    pub fn prepare_stamp_image(&mut self, file: &File) -> Result<WorkerResponse, HostError> {
+        let size = file.metadata().map_err(HostError::Unreadable)?.len();
+        if size > ipc_contract::limits::MAX_STAMP_SOURCE_BYTES as u64 {
+            return Err(HostError::TooLarge);
+        }
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_read_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request(|request| WorkerRequest::PrepareStampImage {
+            request,
+            file: FileHandle(handle),
+        })
+    }
+
     /// Writes to `file`, as [`save`](Self::save) does, a copy of `doc` without its metadata and
     /// with `id` as its identifier (B2-03); `doc` itself is not changed.
     pub fn privacy_copy(

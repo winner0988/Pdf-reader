@@ -16,6 +16,18 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 - 每個新註解都有外觀串流（`/AP`，MuPDF 產生），其他閱讀器也看得到。
 - **不寫入任何可識別使用者的資訊**：MuPDF 建立註解時不寫作者（`/T`）、建立與修改時間（`/CreationDate`、`/M`）或唯一名稱（`/NM`），app 也不加。worker 的測試檢查這幾個欄位都不存在。
 
+## 自訂圖片印章：worker 的部分（B2-08）
+
+使用者選的圖片是不受信任的輸入，只在沙盒的 worker 裡解碼；選圖片的對話框、檔案路徑與按鈕在後面的 PR，這裡是 worker 這一端。
+
+- **`PrepareStampImage`**：主行程把使用者選的檔案以**唯讀 handle**交給 worker（worker 拿不到路徑），worker 回 `StampImage`：一個 PNG，裡面**只有像素**。
+  - 只收 PNG 與 JPEG（看開頭的位元組；GIF、BMP、TIFF、JPEG 2000 等一律拒絕，少一些解碼器就少一些攻擊面）；檔案最多 16 MiB（`MAX_STAMP_SOURCE_BYTES`），每邊最多 8,192、全部最多 16 Mpx，**在解碼任何像素之前**就檢查（PNG 先讀自己的標頭、MuPDF 再讀一次；JPEG 由 MuPDF 讀標頭）；
+  - 殘缺的 PNG（沒有像素資料或結束區塊）拒絕，不當成空白圖片；
+  - 解碼成像素之後只留灰階或 RGB（有無透明都可以），縮小到每邊最多 `MAX_STAMP_SIDE_PX`（1,024，每次減半）、再編碼成 PNG；編出來超過 `MAX_STAMP_PNG_BYTES`（2 MiB，雜訊一類壓不下去的圖）就再減半，直到夠小；
+  - **不留任何中繼資料**：EXIF（GPS 位置、相機型號、拍攝時間）、PNG 的文字區塊（`tEXt`）、`eXIf`、色彩描述檔等都隨檔案一起丟掉，輸出只有 `IHDR`、`pHYs`、`IDAT`、`IEND`。已知限制：JPEG 的 EXIF 方向不套用（照片會是相機拍的方向，要先轉好再選）。
+- **`AddImageStamp { page, rect, png }`**（`WorkerEdit`，主行程用）：`png` 是上面做出來的檔案，worker 再檢查一次（簽名、標頭、大小）、再解碼一次、用像素做成一個新的圖片物件，**不用原來的位元組**（MuPDF 收到 JPEG 檔會原樣放進 PDF，EXIF 也跟著進去；測試的對照組證明這點）。`Stamp` 註解的外觀是一個蓋住單位正方形的表單，畫這張圖，由讀者對應到 `rect`；`/Name` 是 `Picture`（不是標準印章，MuPDF 不會重畫外觀）。
+- 測試：`crates/pdf_worker/src/engine/stamp_image.rs`（解碼與重新編碼、EXIF 與 PNG 區塊沒有了、透明保留、存檔的 PDF 沒有任何一個私密字串、對照組：原樣放進去的 JPEG 有；畫出來的像素是圖片的顏色；不是 PNG／JPEG、殘缺、太大、標頭謊稱的大小都拒絕；大圖縮小、雜訊壓到上限內）與 `crates/pdf_worker/tests/stamp_image.rs`（經過真正的沙盒與唯讀 handle，壞圖片拒絕之後 worker 仍可用）。語料：`tests/corpus/images/`（見 [README](../../tests/corpus/README.md)）。
+
 ## 編輯指令
 
 都是 `apply_edit` 的 `Edit`，與頁面編輯相同：主行程先驗證，在文件自己的 worker 中套用，記入編輯歷史（可以復原、重做）與崩潰復原日誌，存檔時才寫入檔案。

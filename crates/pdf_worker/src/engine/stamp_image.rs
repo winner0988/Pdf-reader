@@ -35,18 +35,19 @@ pub fn prepare_stamp_picture(bytes: &[u8]) -> Result<StampPicture, EngineError> 
     if !(bytes.starts_with(&PNG_SIGNATURE) || bytes.starts_with(&JPEG_SIGNATURE)) {
         return Err(EngineError::InvalidPicture("not a PNG or JPEG picture"));
     }
+    // A PNG says how large it is in its first chunk, and its chunks tell whether it is whole
+    // (MuPDF turns one without pixel data into an empty picture): both are read here, before
+    // MuPDF sees it.
+    if let Some((width, height)) = png_header_size(bytes) {
+        check_size(width, height)?;
+        if !png_is_whole(bytes) {
+            return Err(EngineError::InvalidPicture("the PNG is cut short"));
+        }
+    }
     // MuPDF reads the header; the pixels are decoded below, once the size is known to be fine.
     let image = Image::from_bytes(bytes)
         .map_err(|_| EngineError::InvalidPicture("the picture cannot be read"))?;
-    let (width, height) = (image.width(), image.height());
-    if width == 0
-        || height == 0
-        || width > MAX_STAMP_SOURCE_SIDE_PX
-        || height > MAX_STAMP_SOURCE_SIDE_PX
-        || u64::from(width) * u64::from(height) > MAX_STAMP_SOURCE_PIXELS
-    {
-        return Err(EngineError::PictureTooLarge);
-    }
+    check_size(image.width(), image.height())?;
     let mut pixmap = image
         .to_pixmap()
         .map_err(|_| EngineError::InvalidPicture("the picture cannot be read"))?;
@@ -82,6 +83,58 @@ pub fn prepare_stamp_picture(bytes: &[u8]) -> Result<StampPicture, EngineError> 
         }
         pixmap.shrink(1)?;
     }
+}
+
+/// The size a PNG file says it has (its header chunk comes first), without reading any more.
+fn png_header_size(bytes: &[u8]) -> Option<(u32, u32)> {
+    let header = bytes.get(8..24)?;
+    if !bytes.starts_with(&PNG_SIGNATURE) || &header[4..8] != b"IHDR" {
+        return None;
+    }
+    let side = |at: usize| {
+        u32::from_be_bytes([header[at], header[at + 1], header[at + 2], header[at + 3]])
+    };
+    Some((side(8), side(12)))
+}
+
+/// Whether a PNG file has its header chunk first, some pixel data, and its end chunk: the chunks
+/// are walked by their lengths, nothing is decoded.
+fn png_is_whole(bytes: &[u8]) -> bool {
+    let mut at = 8;
+    let mut first = true;
+    let mut pixels = false;
+    while let Some(header) = bytes.get(at..at + 8) {
+        let length = u32::from_be_bytes([header[0], header[1], header[2], header[3]]) as usize;
+        let kind = &header[4..8];
+        if first != (kind == b"IHDR") {
+            return false;
+        }
+        first = false;
+        pixels |= kind == b"IDAT";
+        // The data and the check value must be there.
+        let end = at.saturating_add(12).saturating_add(length);
+        if end > bytes.len() {
+            return false;
+        }
+        if kind == b"IEND" {
+            return pixels;
+        }
+        at = end;
+    }
+    false
+}
+
+/// Refuses a picture of no size, or of more than the worker decodes.
+fn check_size(width: u32, height: u32) -> Result<(), EngineError> {
+    if width == 0
+        || height == 0
+        || width > MAX_STAMP_SOURCE_SIDE_PX
+        || height > MAX_STAMP_SOURCE_SIDE_PX
+        || u64::from(width) * u64::from(height) > MAX_STAMP_SOURCE_PIXELS
+    {
+        return Err(EngineError::PictureTooLarge);
+    }
+    Ok(())
 }
 
 fn encode(pixmap: &Pixmap) -> Result<Vec<u8>, EngineError> {
@@ -356,14 +409,26 @@ mod tests {
         let mut too_long = PNG_SIGNATURE.to_vec();
         too_long.resize(MAX_STAMP_SOURCE_BYTES + 1, 0);
         assert!(matches!(refused(&too_long), EngineError::PictureTooLarge));
-        // Cut short, a picture is an error, not a crash.
+        // Cut short, a picture is an error, not a crash: in its header always, and a PNG in its
+        // pixels too. (A JPEG cut in its pixels is shown as far as it goes, as everywhere.)
         for name in ["images/stamp-exif.jpg", "images/stamp-metadata.png"] {
             let whole = corpus(name);
-            for keep in [10, 40, whole.len() / 2, whole.len() - 12] {
+            for keep in [10, 33, 40, 100] {
                 assert!(
                     prepare_stamp_picture(&whole[..keep]).is_err(),
                     "{name} cut at {keep}"
                 );
+            }
+            if name.ends_with(".png") {
+                for keep in [whole.len() / 2, whole.len() - 12, whole.len() - 1] {
+                    assert!(
+                        matches!(
+                            prepare_stamp_picture(&whole[..keep]),
+                            Err(EngineError::InvalidPicture(_))
+                        ),
+                        "{name} cut at {keep}"
+                    );
+                }
             }
         }
         // The stamp edit takes only what the worker made.
