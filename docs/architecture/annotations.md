@@ -23,7 +23,7 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 - **`PrepareStampImage`**：主行程把使用者選的檔案以**唯讀 handle**交給 worker（worker 拿不到路徑），worker 回 `StampImage`：一個 PNG，裡面**只有像素**。
   - 只收 PNG 與 JPEG（看開頭的位元組；GIF、BMP、TIFF、JPEG 2000 等一律拒絕，少一些解碼器就少一些攻擊面）；檔案最多 16 MiB（`MAX_STAMP_SOURCE_BYTES`），每邊最多 8,192、全部最多 16 Mpx，**在解碼任何像素之前**就檢查（PNG 先讀自己的標頭、MuPDF 再讀一次；JPEG 由 MuPDF 讀標頭）；
   - 殘缺的 PNG（沒有像素資料或結束區塊）拒絕，不當成空白圖片；
-  - 解碼成像素之後只留灰階或 RGB（有無透明都可以），縮小到每邊最多 `MAX_STAMP_SIDE_PX`（1,024，每次減半）、再編碼成 PNG；編出來超過 `MAX_STAMP_PNG_BYTES`（2 MiB，雜訊一類壓不下去的圖）就再減半，直到夠小；
+  - 解碼成像素之後只留灰階或 RGB（有無透明都可以），縮小到每邊最多 `MAX_STAMP_SIDE_PX`（1,024，每次減半）、再編碼成 PNG；編出來超過 `MAX_STAMP_PNG_BYTES`（1 MiB，雜訊一類壓不下去的圖）就再減半，直到夠小；這個大小也是為了讓崩潰復原的日誌（4 MiB，B2-13）放得下一張圖片加上其他編輯；
   - **不留任何中繼資料**：EXIF（GPS 位置、相機型號、拍攝時間）、PNG 的文字區塊（`tEXt`）、`eXIf`、色彩描述檔等都隨檔案一起丟掉，輸出只有 `IHDR`、`pHYs`、`IDAT`、`IEND`。已知限制：JPEG 的 EXIF 方向不套用（照片會是相機拍的方向，要先轉好再選）。
 - **`AddImageStamp { page, rect, png }`**（`WorkerEdit`，主行程用）：`png` 是上面做出來的檔案，worker 再檢查一次（簽名、標頭、大小）、再解碼一次、用像素做成一個新的圖片物件，**不用原來的位元組**（MuPDF 收到 JPEG 檔會原樣放進 PDF，EXIF 也跟著進去；測試的對照組證明這點）。`Stamp` 註解的外觀是一個蓋住單位正方形的表單，畫這張圖，由讀者對應到 `rect`；`/Name` 是 `Picture`（不是標準印章，MuPDF 不會重畫外觀）。
 - 測試：`crates/pdf_worker/src/engine/stamp_image.rs`（解碼與重新編碼、EXIF 與 PNG 區塊沒有了、透明保留、存檔的 PDF 沒有任何一個私密字串、對照組：原樣放進去的 JPEG 有；畫出來的像素是圖片的顏色；不是 PNG／JPEG、殘缺、太大、標頭謊稱的大小都拒絕；大圖縮小、雜訊壓到上限內）與 `crates/pdf_worker/tests/stamp_image.rs`（經過真正的沙盒與唯讀 handle，壞圖片拒絕之後 worker 仍可用）。語料：`tests/corpus/images/`（見 [README](../../tests/corpus/README.md)）。
