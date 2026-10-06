@@ -43,6 +43,7 @@ fn main() {
         "save_document_as",
         "close_window",
         "privacy_export",
+        "pick_stamp_image",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("failed to run tauri-build");

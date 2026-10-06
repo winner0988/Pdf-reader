@@ -91,7 +91,7 @@ export type ExportEvent = { "kind": "progress", pagesDone: number, total: number
  * A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
  * those of the document as it is before the edit.
  */
-export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "addHighlight", marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" };
+export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "addHighlight", marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" };
 
 /**
  * The highlighter's colors (B2-07).
@@ -119,6 +119,18 @@ export type InkWidth = "thin" | "medium" | "thick";
  * in English, in a color that suits it, as the other readers' stamps of the same names are.
  */
 export type StampName = "approved" | "notApproved" | "draft" | "final" | "confidential" | "forComment" | "asIs" | "topSecret";
+
+/**
+ * A picture the user chose for a stamp (B2-08), as the main process keeps it for an open
+ * document: only its pixels, in a PNG file. It is named by this number in edits.
+ */
+export type StampImageId = number;
+
+/**
+ * What `pick_stamp_image` tells of the picture the user chose (B2-08): its number for
+ * `Edit::AddImageStamp` and its size in pixels, as it will be drawn (a large picture is shrunk).
+ */
+export type StampImageInfo = { image: StampImageId, width: number, height: number, };
 
 /**
  * An annotation of an open document: the number of its object in the document, which stays
