@@ -339,6 +339,8 @@ impl WorkerResponse {
 pub struct OpenedDocument {
     pub pages: Vec<PageSize>,
     pub has_outline: bool,
+    /// The document has a form with at least one field (B2-09).
+    pub has_form: bool,
     pub security: SecurityReport,
     pub permissions: DocumentPermissions,
     /// Encrypted (MVP-16), with a password or with permissions only.

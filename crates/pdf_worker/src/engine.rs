@@ -228,6 +228,22 @@ impl PdfDocument {
         .unwrap_or(false)
     }
 
+    /// Whether the document has a form with at least one field (B2-09; cheap: nothing is walked).
+    pub fn has_form(&self) -> bool {
+        (|| -> Result<bool, mupdf::Error> {
+            let Some(fields) = self
+                .doc
+                .catalog()?
+                .get_dict("AcroForm")?
+                .and_then(|form| form.get_dict("Fields").ok().flatten())
+            else {
+                return Ok(false);
+            };
+            Ok(fields.is_array()? && fields.len()? > 0)
+        })()
+        .unwrap_or(false)
+    }
+
     /// The outline (table of contents), flattened in reading order, with at most `max_items`
     /// entries no deeper than `max_depth` (0 = top level).
     ///
@@ -2052,6 +2068,11 @@ mod tests {
             .collect();
         assert_eq!(on, ["Small", "Medium", "Large"]);
         assert!(sizes.iter().all(|field| field.value == "Off"));
+        // The buttons of a group have the group's own number; any other field is its own group.
+        assert!(sizes.iter().all(|field| field.group == sizes[0].group));
+        assert!(sizes.iter().all(|field| field.group != field.id));
+        assert_eq!(name.group, name.id);
+        assert_ne!(name.group, agree.group);
 
         let country = only(&doc, "Country");
         assert_eq!(country.value, "TW");
@@ -2172,6 +2193,21 @@ mod tests {
             Err(EngineError::PageOutOfRange(3))
         ));
         assert_eq!(doc.page_fields(0).expect("fields"), before);
+    }
+
+    #[test]
+    fn a_document_knows_whether_it_has_a_form() {
+        let has_form = |name: &str| {
+            PdfDocument::from_bytes(&corpus(name))
+                .expect("open")
+                .has_form()
+        };
+        assert!(form().has_form());
+        assert!(has_form("malicious/field-aa.pdf"));
+        assert!(!has_form("benign/single-page.pdf"));
+        let mut flattened = form();
+        flattened.flatten_form().expect("flatten");
+        assert!(!flattened.has_form());
     }
 
     #[test]

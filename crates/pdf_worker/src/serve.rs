@@ -331,6 +331,7 @@ fn open(
         Err(engine) => return engine_error(request, &engine, WorkerErrorCode::Corrupted),
     };
     let has_outline = document.has_outline();
+    let has_form = document.has_form();
     let security = document.active_content(ScanBudget::default());
     let permissions = document.permissions();
     let encrypted = document.is_encrypted();
@@ -341,6 +342,7 @@ fn open(
         document: OpenedDocument {
             pages,
             has_outline,
+            has_form,
             security,
             permissions,
             encrypted,

@@ -32,6 +32,7 @@ const info = (doc: number, displayName: string, pages = 10): DocumentInfo => ({
   displayName,
   pages: Array.from({ length: pages }, () => ({ widthPt: 612, heightPt: 792 })),
   hasOutline: false,
+  hasForm: false,
   security: { findings: [], scanComplete: true },
   permissions: { copy: true, print: true, printHighQuality: true, modify: true, assemble: true, annotate: true, fillForms: true },
   unsaved: false,

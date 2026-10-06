@@ -48,7 +48,7 @@ flowchart LR
 | `render_page` | `{ args: RenderPageArgs }` | `ArrayBuffer`（見「頁面影像」） | 是 | MVP-07 |
 | `get_outline` | `{ doc: DocumentId }` | `OutlineResult` | 否 | MVP-09 |
 | `get_page_links` | `{ doc: DocumentId, pageIndex: number }` | `PageLink[]` | 否 | MVP-12 |
-| `get_page_fields` | `{ doc: DocumentId, pageIndex: number }` | `FormField[]`：`id`、`kind`（`text`／`checkbox`／`radio`／`combo`／`list`）、`rect`、`label`、`value`、`onValue`、`options`、旗標（`readOnly`、`required`、`multiline`、`password`、`editable`、`multiSelect`）、`maxLen`、`hasScript`；不含隱藏的欄位、按鈕與簽章欄位，最多 `LIMITS.maxFieldsPerPage`（見 [forms.md](forms.md)） | 否 | B2-09 |
+| `get_page_fields` | `{ doc: DocumentId, pageIndex: number }` | `FormField[]`：`id`、`group`、`kind`（`text`／`checkbox`／`radio`／`combo`／`list`）、`rect`、`label`、`value`、`onValue`、`options`、旗標（`readOnly`、`required`、`multiline`、`password`、`editable`、`multiSelect`）、`maxLen`、`hasScript`；不含隱藏的欄位、按鈕與簽章欄位，最多 `LIMITS.maxFieldsPerPage`（見 [forms.md](forms.md)） | 否 | B2-09 |
 | `get_page_annotations` | `{ doc: DocumentId, pageIndex: number }` | `PageAnnotation[]`：`id`（文件中的物件編號）、`kind`（`highlight`／`note`／`other`）、`rect`、`color`（螢光筆的四種顏色之一，或 `null`）、`text`（附註的文字，已清理）；不含連結、表單欄位與彈出視窗，最多 `LIMITS.maxAnnotationsPerPage`（見 [annotations.md](annotations.md)） | 否 | B2-07 |
 | `get_page_text` | `{ doc: DocumentId, pageIndex: number }` | `PageText`：每一行的文字、四邊形與字元位置（見 [text-selection.md](text-selection.md)） | 否 | MVP-15 |
 | `describe_link` | `{ args: LinkArgs }`（`{ doc, link: LinkId }`，其他欄位一律拒絕） | `LinkPreview`：原始 URI、實際開啟的 ASCII 形式、主機（Unicode）與 punycode | 否 | MVP-12 |
@@ -115,6 +115,7 @@ flowchart LR
 - `DocumentInfo.unsaved`（B2-02）：文件在開啟或上次存檔後有變更，檔案還沒有這些變更。
 - `DocumentInfo.canUndo`／`canRedo`（B2-05）：有可以復原或重做的編輯。以密碼開啟的文件復原時要再輸入密碼。
 - `DocumentInfo.recovery`（B2-13）：上一次執行留下、還沒回答的編輯：`none`、`available`（可以還原）或 `stale`（檔案已改變，不能還原）。見 [crash-recovery.md](crash-recovery.md)。
+- `DocumentInfo.hasForm`（B2-09）：文件有表單，且沒有被扁平化。見 [forms.md](forms.md)。
 - `DocumentInfo.encrypted`（B2-03）：文件有加密（有開啟密碼，或只有權限密碼）；沒有隱私匯出。
 
 ### 檔案對話框（MVP-06、#86、B2-04）

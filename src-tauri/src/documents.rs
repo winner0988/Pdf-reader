@@ -100,6 +100,8 @@ struct OpenDocument {
     /// Edits since the file was read or last written, applied and undone (B2-05).
     /// `info.unsaved` while some are applied.
     history: History,
+    /// The file has a form (B2-09); `info.has_form` is that, unless the form is flattened.
+    form_in_file: bool,
     /// The crash recovery journal of the edits applied (B2-13): there while some are.
     journal: Option<JournalId>,
     /// Edits an earlier run left for the file (B2-13), until the user makes them again or
@@ -210,6 +212,7 @@ impl Documents {
             })?;
             let doc = DocumentId(self.next_id());
             let info = document_info(doc, display_name.clone(), response)?;
+            let info_has_form = info.has_form;
             let mut document = OpenDocument {
                 info,
                 host,
@@ -219,6 +222,7 @@ impl Documents {
                 lost: false,
                 identity,
                 history: History::default(),
+                form_in_file: info_has_form,
                 journal: None,
                 recovered: None,
             };
@@ -626,6 +630,8 @@ impl Documents {
                 // They were for the file as it was.
                 document.info.recovery = Recovery::Stale;
             }
+            // The file has the form as it is now: flattened, or not.
+            document.form_in_file = document.info.has_form;
             document.history.saved();
             show_history(document);
             self.keep_journal(document);
@@ -1451,6 +1457,12 @@ fn revert_in_worker(
 /// done.
 fn show_history(document: &mut OpenDocument) {
     let history = &document.history;
+    // A flattened form is page content: nothing is left to fill in (B2-09).
+    let flattened = history
+        .applied()
+        .iter()
+        .any(|edit| matches!(edit, Edit::FlattenForm));
+    document.info.has_form = document.form_in_file && !flattened;
     document.info.unsaved = history.unsaved();
     document.info.can_undo = history.can_undo();
     document.info.can_redo = history.can_redo();
@@ -1632,6 +1644,7 @@ fn document_info(
         display_name,
         pages: document.pages,
         has_outline: document.has_outline,
+        has_form: document.has_form,
         security: document.security,
         permissions: document.permissions,
         unsaved: false,
@@ -3408,6 +3421,7 @@ mod with_worker {
     fn a_form_is_filled_in_undone_saved_and_flattened_like_any_edit() {
         let (documents, info, path) = open_form("b209-form");
         let mut doc = info.doc;
+        assert!(info.has_form);
         assert_eq!(field(&documents, doc, "Your name").value, "Jane Q. Public");
 
         let filled = fill(&documents, &mut doc, "Your name", "林 小明");
@@ -3440,8 +3454,15 @@ mod with_worker {
                 .unwrap(),
         );
         assert!(documents.page_fields(flattened.doc, 0).unwrap().is_empty());
+        assert!(!flattened.has_form);
         let undone = opened_info(documents.undo(flattened.doc, None).unwrap());
+        assert!(undone.has_form);
         assert_eq!(field(&documents, undone.doc, "Your name").value, "林 小明");
+        // Flattened and saved, the file has no form, and neither has the document that saved it.
+        let flattened = opened_info(documents.redo(undone.doc).unwrap());
+        documents.save(flattened.doc, None).unwrap();
+        assert!(!opened_info(documents.snapshot().remove(0)).has_form);
+        assert!(!open_in(&Documents::new(worker()), &path).has_form);
         std::fs::remove_file(path).ok();
     }
 

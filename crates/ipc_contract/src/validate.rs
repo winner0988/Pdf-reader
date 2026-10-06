@@ -879,6 +879,7 @@ mod tests {
         let doc = |pages: Vec<PageSize>| OpenedDocument {
             pages,
             has_outline: false,
+            has_form: false,
             security: SecurityReport::default(),
             permissions: DocumentPermissions::ALL,
             encrypted: false,
@@ -1538,6 +1539,7 @@ mod tests {
     fn form_fields_from_the_worker_are_checked() {
         let field = |id: u32| FormField {
             id: FieldId(id),
+            group: FieldId(id),
             kind: FieldKind::Combo,
             rect: Rect {
                 x0: 72.0,
@@ -1701,6 +1703,7 @@ mod tests {
             display_name: display_name.to_owned(),
             pages: vec![page(612.0, 792.0)],
             has_outline: false,
+            has_form: false,
             security: SecurityReport::default(),
             permissions: DocumentPermissions::ALL,
             unsaved: false,

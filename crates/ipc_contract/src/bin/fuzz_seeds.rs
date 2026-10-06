@@ -52,6 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             document: OpenedDocument {
                 pages: vec![page; 3],
                 has_outline: true,
+                has_form: true,
                 security: SecurityReport {
                     findings: vec![SecurityFinding {
                         kind: FindingKind::JavaScript,
@@ -100,6 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             fields: vec![
                 FormField {
                     id: FieldId(6),
+                    group: FieldId(6),
                     kind: FieldKind::Text,
                     rect: Rect {
                         x0: 72.0,
@@ -122,6 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
                 FormField {
                     id: FieldId(22),
+                    group: FieldId(22),
                     kind: FieldKind::Combo,
                     rect: Rect {
                         x0: 72.0,

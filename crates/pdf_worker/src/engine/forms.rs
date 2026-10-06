@@ -214,8 +214,20 @@ fn read_field(widget: &PdfWidget) -> Result<Option<FormField>, EngineError> {
         None
     };
 
+    // The field the widget belongs to; a widget that is its own field is its own group.
+    let head = field_head(&object)?;
+    let group = if head.is_indirect()? {
+        u32::try_from(head.as_indirect()?)
+            .ok()
+            .filter(|&number| number > 0)
+            .unwrap_or(id)
+    } else {
+        id
+    };
+
     Ok(Some(FormField {
         id: FieldId(id),
+        group: FieldId(group),
         kind,
         rect,
         label,

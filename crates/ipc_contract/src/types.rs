@@ -234,6 +234,9 @@ pub struct FieldOption {
 #[serde(rename_all = "camelCase")]
 pub struct FormField {
     pub id: FieldId,
+    /// The field the widget belongs to (its first parent with a name): the widgets of a radio
+    /// button group, or of a check box group, have the same.
+    pub group: FieldId,
     pub kind: FieldKind,
     /// Where it is on the page (page space).
     pub rect: Rect,
@@ -507,6 +510,9 @@ pub struct DocumentInfo {
     /// One entry per page; the page count is `pages.length`.
     pub pages: Vec<PageSize>,
     pub has_outline: bool,
+    /// The document has a form (fields to fill in, B2-09), which flattening has not turned into
+    /// page content.
+    pub has_form: bool,
     pub security: SecurityReport,
     pub permissions: DocumentPermissions,
     /// Changed since it was opened or last saved (B2-02): the file does not have the changes yet.

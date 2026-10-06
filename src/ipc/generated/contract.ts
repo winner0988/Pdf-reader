@@ -150,7 +150,12 @@ export type FieldOption = { value: string, label: string, };
  * A form field of a page (B2-09), from the page's worker. Text is cleaned like any text from a
  * PDF. Nothing here is ever run: a field's scripts only make `has_script` true.
  */
-export type FormField = { id: FieldId, kind: FieldKind, 
+export type FormField = { id: FieldId, 
+/**
+ * The field the widget belongs to (its first parent with a name): the widgets of a radio
+ * button group, or of a check box group, have the same.
+ */
+group: FieldId, kind: FieldKind, 
 /**
  * Where it is on the page (page space).
  */
@@ -306,7 +311,12 @@ displayName: string,
 /**
  * One entry per page; the page count is `pages.length`.
  */
-pages: Array<PageSize>, hasOutline: boolean, security: SecurityReport, permissions: DocumentPermissions, 
+pages: Array<PageSize>, hasOutline: boolean, 
+/**
+ * The document has a form (fields to fill in, B2-09), which flattening has not turned into
+ * page content.
+ */
+hasForm: boolean, security: SecurityReport, permissions: DocumentPermissions, 
 /**
  * Changed since it was opened or last saved (B2-02): the file does not have the changes yet.
  */
