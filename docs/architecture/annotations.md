@@ -1,6 +1,6 @@
-# 註解：螢光筆與文字附註（B2-07）
+# 註解：螢光筆、文字附註、手繪線條與印章（B2-07、B2-08）
 
-工作卡 [#96](https://github.com/winner0988/Pdf-reader/issues/96)；規格 §6「註解標記：螢光筆」。編輯的共通做法（指令、復原、存檔、崩潰復原）見 [ADR 0013](../adr/0013-editing-and-saving.md)、[page-management.md](page-management.md)、[saving.md](saving.md) 與 [crash-recovery.md](crash-recovery.md)。
+工作卡 [#96](https://github.com/winner0988/Pdf-reader/issues/96)（螢光筆與附註）、[#97](https://github.com/winner0988/Pdf-reader/issues/97)（手繪線條與印章）；規格 §6「註解標記：螢光筆」。編輯的共通做法（指令、復原、存檔、崩潰復原）見 [ADR 0013](../adr/0013-editing-and-saving.md)、[page-management.md](page-management.md)、[saving.md](saving.md) 與 [crash-recovery.md](crash-recovery.md)。
 
 worker 與主行程的做法在前面各節；畫面（選取文字後的「螢光筆」、放置附註、選取與變更既有的註解）見「畫面」。
 
@@ -10,6 +10,8 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 |---|---|---|
 | 螢光筆 | `Highlight`，`/QuadPoints` 是選取的文字的四邊形（每行一個），`/C` 是顏色 | 四種顏色：黃、綠、藍、粉紅 |
 | 文字附註 | `Text`（附註圖示，20 × 20 pt），`/Contents` 是附註的文字 | MuPDF 另外加上一個彈出視窗（`Popup`） |
+| 手繪線條（B2-08） | `Ink`，`/InkList` 是每一筆的點（PDF 座標），`/C` 是顏色，`/BS` 的 `/W` 是粗細 | 四種顏色（黑、紅、藍、綠）、三種粗細（1、2.5、5 pt）；線條是圓頭圓角，只有一個點的一筆是一個圓點 |
+| 標準印章（B2-08） | `Stamp`，`/Name` 是標準名稱（`Approved`、`NotApproved`、`Draft`、`Final`、`Confidential`、`ForComment`、`AsIs`、`TopSecret`），`/C` 是顏色 | MuPDF 產生外觀：英文字、細邊框，略微傾斜，與其他閱讀器的同名印章相同；大小固定 190 : 50 的比例 |
 
 - 每個新註解都有外觀串流（`/AP`，MuPDF 產生），其他閱讀器也看得到。
 - **不寫入任何可識別使用者的資訊**：MuPDF 建立註解時不寫作者（`/T`）、建立與修改時間（`/CreationDate`、`/M`）或唯一名稱（`/NM`），app 也不加。worker 的測試檢查這幾個欄位都不存在。
@@ -25,8 +27,12 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 | `deleteAnnotation { page, annotation }` | 移除一個註解（app 加的，或文件原有的） | 註解必須在那一頁 |
 | `setHighlightColor { page, annotation, color }` | 改變螢光筆的顏色 | 只能是螢光筆 |
 | `setNoteText { page, annotation, text }` | 改變附註的文字 | 只能是附註；文字見下方 |
+| `addInk { page, strokes, color, width }` | 手繪：`strokes` 的每一筆（頁面空間的點）一起成為一個 `Ink` 註解，所以一次復原取消整張圖 | 至少一筆、每筆至少一個點；最多 `LIMITS.maxInkStrokes`（256）筆、全部最多 `LIMITS.maxInkPoints`（20,000）個點，座標都是有限值且不超過頁面大小的上限 |
+| `addStamp { page, rect, stamp }` | 在 `rect` 蓋上標準印章 | `rect` 是正的，每邊至少 `LIMITS.minAnnotationSidePt`（8 pt），座標都是有限值 |
+| `setAnnotationRect { page, annotation, rect }` | 移動並縮放手繪或印章，`rect` 是列出的範圍（見下方）的新位置 | 同上；只能是手繪或印章 |
 
 - 座標是頁面空間（PDF 點，頁面左上角為原點，y 向下），與文字選取、搜尋結果的四邊形相同；worker 交給 MuPDF 換算成 PDF 的座標。
+- **移動與縮放**（`setAnnotationRect`）：印章交給 MuPDF 改 `/Rect`，外觀依印章固有的比例縮放並置中（列出的範圍是縮放後的）；手繪把每個點重新排進新的範圍：範圍是點的外框加上 MuPDF 在線條四周留的邊（線寬 + 6 pt，讓細線、圓點也點得到），這個邊保持不變，所以只移動時每個點都平移同樣的距離，線條粗細也不變。沒有範圍的軸（水平或垂直的直線）的點放在新範圍的中央；已有超過 `LIMITS.maxInkPoints` 個點的手繪（文件原有的）不移動。
 - **附註的文字**：不可以是空的或只有空白，最多 `LIMITS.maxNoteTextBytes`（4,096 bytes，UTF-8）；除了換行（`\n`）不能有控制字元，也不能有雙向控制字元、零寬字元等看不見的格式字元。使用者自己的空白保留。
 - **權限**（MVP-19）：`/P` 的第 6 位元（註解）沒有設定時，主行程拒絕所有註解的編輯；頁面編輯仍依第 4、11 位元。以擁有者密碼開啟時全部允許（#88）。
 - 頁碼不存在、註解不在那一頁、類型不符時，什麼都不改變。
@@ -40,8 +46,8 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 
 ## 列出頁面的註解（`get_page_annotations`）
 
-- 回傳 `PageAnnotation[]`：`id`、`kind`（`highlight`、`note`、`other`）、`rect`（顯示的範圍，頁面空間）、`color`（是 app 的四種顏色之一時）、`text`（附註的文字）。
-- 不列出：連結（見 [links.md](links.md)）、表單欄位、彈出視窗。其他種類（手繪、印章、方框等，`other`）可以選取並刪除。
+- 回傳 `PageAnnotation[]`：`id`、`kind`（`highlight`、`note`、`ink`、`stamp`、`other`）、`rect`（顯示的範圍，頁面空間；手繪含線條四周的邊）、`color`（螢光筆是 app 的四種顏色之一時）、`text`（附註的文字）。
+- 不列出：連結（見 [links.md](links.md)）、表單欄位、彈出視窗。手繪與印章（含文件原有的）可以移動與縮放，其他種類（方框等，`other`）只能選取並刪除。
 - 文件原有的註解照常由 MuPDF 渲染在頁面上。
 - worker 的輸出一律當成不可信任的資料：
   - 附註的文字逐行清理成顯示用的文字（控制字元與連續空白變成一個空白，看不見的格式字元去掉，與目錄標題相同），最多 4,096 bytes；
@@ -86,6 +92,9 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
   - 移除附註時一併移除彈出視窗，回覆不再指向它，存檔後檔案中沒有它的文字；
   - 存檔並重新開啟後，註解的編號不變；
   - 一次標示多頁時，有一頁不符就什麼都不改變；
+  - 手繪（B2-08）：存檔、重新開啟後是標準的 `Ink`，筆畫的點（PDF 座標）、顏色、粗細都在，有外觀，沒有作者與時間，範圍是點加上線寬與邊；一筆只有一個點是圓點；沒有筆畫、有空的一筆、頁碼不存在時拒絕；
+  - 八種標準印章：`/Name` 正確、外觀有對應的英文字、有顏色，沒有作者與時間；
+  - 移動與縮放：手繪只移動時每個點平移同樣的距離，縮放時點散布在新範圍（減去不變的邊），線寬不變；印章依固有比例縮放並置中；方框等其他種類、不存在的註解與頁碼拒絕；
   - 負向對照：加上作者、不切斷指向、或存檔時重新編號，對應的測試會失敗。
-- 主行程（`src-tauri/src/documents.rs`）：新增、改變、移除、復原後編號不變；不存在的註解、頁碼與不是文字的附註被拒絕；作者不允許註解的文件（RC4 語料，`/P -44`）拒絕註解的編輯。
-- 合約（`crates/ipc_contract`）：註解編輯與 worker 回傳的註解的驗證；附註文字的清理。
+- 主行程（`src-tauri/src/documents.rs`）：新增、改變、移除、復原後編號不變；不存在的註解、頁碼與不是文字的附註被拒絕；作者不允許註解的文件（RC4 語料，`/P -44`）拒絕註解的編輯（含手繪、印章與移動）。手繪與印章的新增、移動、復原、移除與被拒絕的情形（不存在的註解、太小的範圍、頁碼不存在、沒有筆畫）。
+- 合約（`crates/ipc_contract`）：註解編輯與 worker 回傳的註解的驗證；附註文字的清理；手繪的筆數與點數上限（各自與全部）、座標、印章與移動的範圍（太小、倒置、不是數字），以及前端 JSON 的形式。

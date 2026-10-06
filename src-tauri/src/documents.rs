@@ -1296,7 +1296,10 @@ fn pages_after(
         Edit::AddNote { page, .. }
         | Edit::DeleteAnnotation { page, .. }
         | Edit::SetHighlightColor { page, .. }
-        | Edit::SetNoteText { page, .. } => Some(vec![*page]),
+        | Edit::SetNoteText { page, .. }
+        | Edit::AddInk { page, .. }
+        | Edit::AddStamp { page, .. }
+        | Edit::SetAnnotationRect { page, .. } => Some(vec![*page]),
         _ => None,
     };
     if let Some(pages) = annotated {
@@ -1373,6 +1376,9 @@ fn pages_after(
         | Edit::DeleteAnnotation { .. }
         | Edit::SetHighlightColor { .. }
         | Edit::SetNoteText { .. }
+        | Edit::AddInk { .. }
+        | Edit::AddStamp { .. }
+        | Edit::SetAnnotationRect { .. }
         | Edit::SetFieldValue { .. }
         | Edit::FlattenForm => Ok(page_count),
     }
@@ -1819,7 +1825,8 @@ mod tests {
 mod with_worker {
     use ipc_contract::limits::MAX_RASTER_PIXELS;
     use ipc_contract::types::{
-        AnnotationId, FieldId, HighlightColor, HighlightMark, Point, Quad, RequestId, Rotation,
+        AnnotationId, AnnotationKind, FieldId, HighlightColor, HighlightMark, InkColor, InkWidth,
+        Point, Quad, Rect, RequestId, Rotation, StampName,
     };
 
     use super::*;
@@ -3358,6 +3365,129 @@ mod with_worker {
     }
 
     #[test]
+    fn drawings_and_stamps_are_added_moved_removed_and_undone_like_any_annotation() {
+        let (documents, info, path) = open("drawings", 2);
+        let mut doc = info.doc;
+        let edit = |doc: &mut DocumentId, edit: Edit| {
+            *doc = opened_info(documents.apply_edit(&EditArgs { doc: *doc, edit }).unwrap()).doc;
+        };
+        edit(
+            &mut doc,
+            Edit::AddInk {
+                page: 0,
+                strokes: vec![vec![
+                    Point { x: 100.0, y: 100.0 },
+                    Point { x: 200.0, y: 150.0 },
+                ]],
+                color: InkColor::Green,
+                width: InkWidth::Thin,
+            },
+        );
+        edit(
+            &mut doc,
+            Edit::AddStamp {
+                page: 1,
+                rect: Rect {
+                    x0: 72.0,
+                    y0: 72.0,
+                    x1: 262.0,
+                    y1: 122.0,
+                },
+                stamp: StampName::Draft,
+            },
+        );
+        let [drawing] = &documents.page_annotations(doc, 0).unwrap()[..] else {
+            panic!("one drawing")
+        };
+        assert_eq!(drawing.kind, AnnotationKind::Ink);
+        let (drawing, before) = (drawing.id, drawing.rect);
+        let [stamp] = &documents.page_annotations(doc, 1).unwrap()[..] else {
+            panic!("one stamp")
+        };
+        assert_eq!(stamp.kind, AnnotationKind::Stamp);
+        let stamp = stamp.id;
+
+        // Moved a little to the right and down.
+        let moved = Rect {
+            x0: before.x0 + 40.0,
+            y0: before.y0 + 25.0,
+            x1: before.x1 + 40.0,
+            y1: before.y1 + 25.0,
+        };
+        edit(
+            &mut doc,
+            Edit::SetAnnotationRect {
+                page: 0,
+                annotation: drawing,
+                rect: moved,
+            },
+        );
+        let at = documents.page_annotations(doc, 0).unwrap()[0].rect;
+        assert!((at.x0 - moved.x0).abs() < 0.6 && (at.y1 - moved.y1).abs() < 0.6);
+        // Undone: where it was, with the same number.
+        doc = opened_info(documents.undo(doc, None).unwrap()).doc;
+        let back = documents.page_annotations(doc, 0).unwrap();
+        assert_eq!(back[0].id, drawing);
+        assert!((back[0].rect.x0 - before.x0).abs() < 0.6);
+
+        edit(
+            &mut doc,
+            Edit::DeleteAnnotation {
+                page: 1,
+                annotation: stamp,
+            },
+        );
+        assert!(documents.page_annotations(doc, 1).unwrap().is_empty());
+
+        // What is not there, a page that is not either, or a rectangle too small to grab, never
+        // reaches a document.
+        let refused = |edit: Edit| {
+            documents
+                .apply_edit(&EditArgs { doc, edit })
+                .unwrap_err()
+                .code
+        };
+        let rect = |side: f32| Rect {
+            x0: 10.0,
+            y0: 10.0,
+            x1: 10.0 + side,
+            y1: 10.0 + side,
+        };
+        for wrong in [
+            Edit::SetAnnotationRect {
+                page: 0,
+                annotation: AnnotationId(9_999),
+                rect: rect(50.0),
+            },
+            Edit::SetAnnotationRect {
+                page: 0,
+                annotation: drawing,
+                rect: rect(1.0),
+            },
+            Edit::SetAnnotationRect {
+                page: 2,
+                annotation: drawing,
+                rect: rect(50.0),
+            },
+            Edit::AddStamp {
+                page: 2,
+                rect: rect(50.0),
+                stamp: StampName::Final,
+            },
+            Edit::AddInk {
+                page: 0,
+                strokes: vec![],
+                color: InkColor::Black,
+                width: InkWidth::Thick,
+            },
+        ] {
+            assert_eq!(refused(wrong), ErrorCode::InvalidArgument);
+        }
+        assert_eq!(documents.page_annotations(doc, 0).unwrap().len(), 1);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
     fn an_author_who_forbids_annotations_is_obeyed() {
         // RC4, /P without the annotation bit (tests/corpus/generate.py).
         let documents = Documents::new(worker());
@@ -3365,20 +3495,46 @@ mod with_worker {
             .join("../tests/corpus/benign/encrypted-rc4-40.pdf");
         let (_, info) = unlocked(&documents, &path);
         assert!(!info.permissions.annotate);
-        assert_eq!(
-            documents
-                .apply_edit(&EditArgs {
-                    doc: info.doc,
-                    edit: Edit::AddNote {
-                        page: 0,
-                        at: Point { x: 72.0, y: 72.0 },
-                        text: "no".to_owned(),
-                    },
-                })
-                .unwrap_err()
-                .code,
-            ErrorCode::InvalidArgument
-        );
+        let rect = Rect {
+            x0: 72.0,
+            y0: 72.0,
+            x1: 262.0,
+            y1: 122.0,
+        };
+        for forbidden in [
+            Edit::AddNote {
+                page: 0,
+                at: Point { x: 72.0, y: 72.0 },
+                text: "no".to_owned(),
+            },
+            Edit::AddInk {
+                page: 0,
+                strokes: vec![vec![Point { x: 72.0, y: 72.0 }]],
+                color: InkColor::Black,
+                width: InkWidth::Thin,
+            },
+            Edit::AddStamp {
+                page: 0,
+                rect,
+                stamp: StampName::Approved,
+            },
+            Edit::SetAnnotationRect {
+                page: 0,
+                annotation: AnnotationId(5),
+                rect,
+            },
+        ] {
+            assert_eq!(
+                documents
+                    .apply_edit(&EditArgs {
+                        doc: info.doc,
+                        edit: forbidden,
+                    })
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidArgument
+            );
+        }
         // Listing them is not editing them.
         assert!(documents.page_annotations(info.doc, 0).is_ok());
     }

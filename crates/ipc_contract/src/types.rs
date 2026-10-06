@@ -191,6 +191,29 @@ pub enum Edit {
         annotation: AnnotationId,
         text: String,
     },
+    /// Draws with the pen on page `page` (B2-08): an `Ink` annotation of `strokes` (each a
+    /// line through its points, in page space), in `color` and `width`. One edit however many
+    /// strokes, so that one undo takes the whole drawing back.
+    AddInk {
+        page: u32,
+        strokes: Vec<Vec<Point>>,
+        color: InkColor,
+        width: InkWidth,
+    },
+    /// Puts a standard stamp (a `Stamp` annotation) over `rect` on page `page` (B2-08).
+    AddStamp {
+        page: u32,
+        rect: Rect,
+        stamp: StampName,
+    },
+    /// Moves and resizes the drawing or stamp `annotation` of page `page` to `rect`, which is a
+    /// rectangle as `PageAnnotation::rect` lists it (B2-08). A drawing keeps the thickness of
+    /// its line: its points are placed in the new rectangle.
+    SetAnnotationRect {
+        page: u32,
+        annotation: AnnotationId,
+        rect: Rect,
+    },
     /// Sets the value of form field `field` of page `page` (B2-09): the text of a text field, the
     /// chosen option of a combo box or list box, or `on_value` or `"Off"` for a check box (a
     /// radio button only takes its `on_value`, which clears the others of its group).
@@ -281,6 +304,40 @@ pub enum HighlightColor {
     Pink,
 }
 
+/// The pen's colors (B2-08).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum InkColor {
+    Black,
+    Red,
+    Blue,
+    Green,
+}
+
+/// How thick the pen draws (B2-08): 1, 2.5 or 5 points.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum InkWidth {
+    Thin,
+    Medium,
+    Thick,
+}
+
+/// The standard stamps (B2-08): the names PDF gives them, which readers know. MuPDF draws each
+/// in English, in a color that suits it, as the other readers' stamps of the same names are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum StampName {
+    Approved,
+    NotApproved,
+    Draft,
+    Final,
+    Confidential,
+    ForComment,
+    AsIs,
+    TopSecret,
+}
+
 /// An annotation of an open document: the number of its object in the document, which stays
 /// the same through edits until the document is saved (B2-07).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
@@ -294,7 +351,11 @@ pub enum AnnotationKind {
     Highlight,
     /// A note (`Text`): what it says can be changed.
     Note,
-    /// Any other kind (a drawing, a stamp, a comment box): it can only be removed.
+    /// A drawing of the pen (`Ink`, B2-08): it can be moved, resized and removed.
+    Ink,
+    /// A stamp (`Stamp`, B2-08): it can be moved, resized and removed.
+    Stamp,
+    /// Any other kind (a comment box, a shape): it can only be removed.
     Other,
 }
 

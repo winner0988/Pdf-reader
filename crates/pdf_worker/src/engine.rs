@@ -967,7 +967,7 @@ fn percent_encode(name: &str) -> String {
 mod tests {
     use ipc_contract::types::{
         AnnotationId, AnnotationKind, FieldId, FieldKind, FieldOption, FormField, HighlightColor,
-        HighlightMark, PageAnnotation, Rect,
+        HighlightMark, InkColor, InkWidth, PageAnnotation, Rect, StampName,
     };
 
     use super::*;
@@ -2287,6 +2287,341 @@ mod tests {
         let (bytes, _) = saved(&doc);
         let reopened = PdfDocument::from_bytes(&bytes).expect("reopen");
         assert_eq!(numbered(&reopened), before);
+    }
+
+    /// The annotations of `subtype` that `doc` has, as dictionaries.
+    fn annotation_dicts(doc: &PdfDocument, subtype: &str) -> Vec<PdfObject> {
+        let name = |dict: &PdfObject, key: &str| {
+            dict.get_dict(key)
+                .ok()
+                .flatten()
+                .and_then(|value| value.as_name().ok())
+        };
+        every_dictionary(&doc.doc)
+            .into_iter()
+            .filter(|dict| {
+                name(dict, "Type") == Some(b"Annot".to_vec())
+                    && name(dict, "Subtype") == Some(subtype.as_bytes().to_vec())
+            })
+            .collect()
+    }
+
+    fn numbers(object: &PdfObject) -> Vec<f32> {
+        (0..object.len().expect("length"))
+            .map(|index| {
+                object
+                    .get_array(index as i32)
+                    .expect("item")
+                    .expect("present")
+                    .as_float()
+                    .expect("number")
+            })
+            .collect()
+    }
+
+    fn near(actual: f32, wanted: f32) -> bool {
+        (actual - wanted).abs() < 0.6
+    }
+
+    fn rect_near(rect: Rect, wanted: Rect) -> bool {
+        near(rect.x0, wanted.x0)
+            && near(rect.y0, wanted.y0)
+            && near(rect.x1, wanted.x1)
+            && near(rect.y1, wanted.y1)
+    }
+
+    #[test]
+    fn a_drawing_is_a_standard_ink_annotation_in_the_color_and_thickness_chosen() {
+        let mut doc = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
+        let line = vec![
+            Point { x: 100.0, y: 100.0 },
+            Point { x: 150.0, y: 130.0 },
+            Point { x: 200.0, y: 100.0 },
+        ];
+        let dot = vec![Point { x: 300.0, y: 300.0 }];
+        doc.add_ink(0, &[line, dot], InkColor::Red, InkWidth::Thick)
+            .expect("ink");
+        // What does not fit changes nothing.
+        for wrong in [vec![], vec![vec![]]] {
+            assert!(
+                doc.add_ink(0, &wrong, InkColor::Red, InkWidth::Thin)
+                    .is_err()
+            );
+        }
+        let one = vec![vec![Point { x: 1.0, y: 1.0 }]];
+        assert!(matches!(
+            doc.add_ink(5, &one, InkColor::Red, InkWidth::Thin),
+            Err(EngineError::PageOutOfRange(5))
+        ));
+
+        let (bytes, _) = saved(&doc);
+        let reopened = PdfDocument::from_bytes(&bytes).expect("reopen");
+        let [drawing] = &reopened.page_annotations(0).expect("annotations")[..] else {
+            panic!("one drawing");
+        };
+        assert_eq!(drawing.kind, AnnotationKind::Ink);
+        // The points (100..300 each way) and the margin MuPDF leaves around a line this thick.
+        let margin = 5.0 + 6.0;
+        let wanted = Rect {
+            x0: 100.0 - margin,
+            y0: 100.0 - margin,
+            x1: 300.0 + margin,
+            y1: 300.0 + margin,
+        };
+        assert!(rect_near(drawing.rect, wanted), "{:?}", drawing.rect);
+
+        // A standard annotation: the strokes, color and thickness, an appearance, no author.
+        let [dict] = &annotation_dicts(&reopened, "Ink")[..] else {
+            panic!("one dictionary");
+        };
+        let list = dict.get_dict("InkList").unwrap().expect("ink list");
+        assert_eq!(list.len().unwrap(), 2);
+        let first = numbers(&list.get_array(0).unwrap().unwrap());
+        // The page is 792 points high; PDF space has its origin at the bottom left.
+        assert_eq!(first, [100.0, 692.0, 150.0, 662.0, 200.0, 692.0]);
+        assert_eq!(
+            numbers(&list.get_array(1).unwrap().unwrap()),
+            [300.0, 492.0]
+        );
+        let color = numbers(&dict.get_dict("C").unwrap().expect("color"));
+        assert!(near(color[0], 0.85) && near(color[1], 0.1) && near(color[2], 0.1));
+        let width = dict.get_dict("BS").unwrap().expect("border style");
+        assert!(near(
+            width
+                .get_dict("W")
+                .unwrap()
+                .expect("width")
+                .as_float()
+                .unwrap(),
+            5.0
+        ));
+        assert!(dict.get_dict("AP").unwrap().is_some());
+        for key in ["T", "M", "CreationDate", "NM"] {
+            assert!(dict.get_dict(key).unwrap().is_none(), "/{key} in {dict:?}");
+        }
+    }
+
+    #[test]
+    fn standard_stamps_have_the_name_appearance_and_color_readers_know() {
+        let mut doc = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
+        let stamps = [
+            (StampName::Approved, "Approved", "APPROVED"),
+            (StampName::NotApproved, "NotApproved", "NOT APPROVED"),
+            (StampName::Draft, "Draft", "DRAFT"),
+            (StampName::Final, "Final", "FINAL"),
+            (StampName::Confidential, "Confidential", "CONFIDENTIAL"),
+            (StampName::ForComment, "ForComment", "FOR COMMENT"),
+            (StampName::AsIs, "AsIs", "AS IS"),
+            (StampName::TopSecret, "TopSecret", "TOP SECRET"),
+        ];
+        let place = |index: usize| Rect {
+            x0: 50.0,
+            y0: 50.0 + 60.0 * index as f32,
+            x1: 240.0,
+            y1: 100.0 + 60.0 * index as f32,
+        };
+        for (index, (stamp, _, _)) in stamps.iter().enumerate() {
+            doc.add_stamp(0, place(index), *stamp).expect("stamp");
+        }
+        assert!(matches!(
+            doc.add_stamp(9, place(0), StampName::Draft),
+            Err(EngineError::PageOutOfRange(9))
+        ));
+
+        let (bytes, _) = saved(&doc);
+        let reopened = PdfDocument::from_bytes(&bytes).expect("reopen");
+        let listed = reopened.page_annotations(0).expect("annotations");
+        assert_eq!(listed.len(), stamps.len());
+        for (index, annotation) in listed.iter().enumerate() {
+            assert_eq!(annotation.kind, AnnotationKind::Stamp);
+            assert!(
+                rect_near(annotation.rect, place(index)),
+                "{:?}",
+                annotation.rect
+            );
+        }
+        let dicts = annotation_dicts(&reopened, "Stamp");
+        assert_eq!(dicts.len(), stamps.len());
+        for (_, name, text) in stamps {
+            let dict = dicts
+                .iter()
+                .find(|dict| {
+                    dict.get_dict("Name")
+                        .unwrap()
+                        .and_then(|n| n.as_name().ok())
+                        == Some(name.as_bytes().to_vec())
+                })
+                .unwrap_or_else(|| panic!("no stamp named {name}"));
+            // The appearance says it in English; no author, time or unique name.
+            let appearance = dict.get_dict("AP").unwrap().expect("appearance");
+            let content = appearance
+                .get_dict("N")
+                .unwrap()
+                .expect("normal")
+                .read_stream();
+            let content = String::from_utf8_lossy(&content.expect("stream")).into_owned();
+            assert!(content.contains(&format!("({text})")), "{name}: {content}");
+            for key in ["T", "M", "CreationDate", "NM"] {
+                assert!(dict.get_dict(key).unwrap().is_none(), "/{key} in {dict:?}");
+            }
+        }
+        // Each has a color of its own kind: the approved one is green, the draft one red.
+        let color = |wanted: &str| {
+            let dict = dicts
+                .iter()
+                .find(|dict| {
+                    dict.get_dict("Name")
+                        .unwrap()
+                        .and_then(|n| n.as_name().ok())
+                        == Some(wanted.as_bytes().to_vec())
+                })
+                .expect("stamp");
+            numbers(&dict.get_dict("C").unwrap().expect("color"))
+        };
+        assert!(color("Approved")[1] > color("Approved")[0]);
+        assert!(color("Draft")[0] > color("Draft")[1]);
+    }
+
+    /// The points of the first annotation of page 0, in page space.
+    fn first_points(doc: &PdfDocument) -> Vec<Vec<(f32, f32)>> {
+        let page = doc.pdf_page(0).expect("page");
+        let annotation = page.annotations().next().expect("annotation");
+        annotation
+            .ink_list()
+            .expect("ink list")
+            .into_iter()
+            .map(|stroke| stroke.into_iter().map(|p| (p.x, p.y)).collect())
+            .collect()
+    }
+
+    #[test]
+    fn a_drawing_is_moved_and_resized_with_its_line_as_thick_as_before() {
+        let mut doc = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
+        let strokes = vec![vec![
+            Point { x: 100.0, y: 100.0 },
+            Point { x: 200.0, y: 150.0 },
+        ]];
+        doc.add_ink(0, &strokes, InkColor::Blue, InkWidth::Medium)
+            .expect("ink");
+        let [listed] = &doc.page_annotations(0).expect("annotations")[..] else {
+            panic!("one drawing");
+        };
+        let (id, before) = (listed.id, listed.rect);
+
+        // Moved: the points go with it, exactly.
+        let moved = Rect {
+            x0: before.x0 + 50.0,
+            y0: before.y0 + 30.0,
+            x1: before.x1 + 50.0,
+            y1: before.y1 + 30.0,
+        };
+        doc.set_annotation_rect(0, id, moved).expect("move");
+        assert!(rect_near(
+            annotation(&doc, 0, id.0).expect("listed").rect,
+            moved
+        ));
+        assert_eq!(first_points(&doc), [[(150.0, 130.0), (250.0, 180.0)]]);
+
+        // Resized to twice as wide and three times as high: the points spread over the new
+        // rectangle, less the margin around the line, which is as it was.
+        let bigger = Rect {
+            x0: moved.x0,
+            y0: moved.y0,
+            x1: moved.x0 + 2.0 * (moved.x1 - moved.x0),
+            y1: moved.y0 + 3.0 * (moved.y1 - moved.y0),
+        };
+        doc.set_annotation_rect(0, id, bigger).expect("resize");
+        assert!(rect_near(
+            annotation(&doc, 0, id.0).expect("listed").rect,
+            bigger
+        ));
+        let margin = 2.5 + 6.0;
+        let strokes = first_points(&doc);
+        let [stroke] = &strokes[..] else {
+            panic!("one stroke");
+        };
+        let &[from, to] = &stroke[..] else {
+            panic!("two points");
+        };
+        assert!(near(from.0, bigger.x0 + margin) && near(from.1, bigger.y0 + margin));
+        assert!(near(to.0, bigger.x1 - margin) && near(to.1, bigger.y1 - margin));
+
+        let (bytes, _) = saved(&doc);
+        let reopened = PdfDocument::from_bytes(&bytes).expect("reopen");
+        let [dict] = &annotation_dicts(&reopened, "Ink")[..] else {
+            panic!("one dictionary");
+        };
+        let width = dict.get_dict("BS").unwrap().expect("border style");
+        assert!(near(
+            width.get_dict("W").unwrap().unwrap().as_float().unwrap(),
+            2.5
+        ));
+    }
+
+    #[test]
+    fn a_stamp_is_moved_and_resized_keeping_its_shape_and_other_annotations_are_not() {
+        let mut doc = PdfDocument::from_bytes(&annotated_pdf()).expect("open");
+        let wide = Rect {
+            x0: 50.0,
+            y0: 500.0,
+            x1: 240.0,
+            y1: 550.0,
+        };
+        doc.add_stamp(0, wide, StampName::Approved).expect("stamp");
+        let id = doc
+            .page_annotations(0)
+            .expect("annotations")
+            .into_iter()
+            .find(|annotation| annotation.kind == AnnotationKind::Stamp)
+            .expect("the stamp")
+            .id;
+
+        // Half the size, as wide as it is high: the same shape.
+        let half = Rect {
+            x0: 100.0,
+            y0: 200.0,
+            x1: 195.0,
+            y1: 225.0,
+        };
+        doc.set_annotation_rect(0, id, half).expect("resize");
+        assert!(rect_near(
+            annotation(&doc, 0, id.0).expect("listed").rect,
+            half
+        ));
+
+        // A rectangle of another shape: the stamp keeps its own, centered in it.
+        let long = Rect {
+            x0: 100.0,
+            y0: 300.0,
+            x1: 400.0,
+            y1: 350.0,
+        };
+        doc.set_annotation_rect(0, id, long).expect("resize");
+        let fitted = Rect {
+            x0: 250.0 - 95.0,
+            y0: 300.0,
+            x1: 250.0 + 95.0,
+            y1: 350.0,
+        };
+        assert!(rect_near(
+            annotation(&doc, 0, id.0).expect("listed").rect,
+            fitted
+        ));
+
+        // The square the document had (7), and what is not there, are not moved.
+        for other in [7, 5, 4, 999] {
+            assert!(
+                matches!(
+                    doc.set_annotation_rect(0, AnnotationId(other), half),
+                    Err(EngineError::InvalidEdit(_))
+                ),
+                "annotation {other}"
+            );
+        }
+        assert!(matches!(
+            doc.set_annotation_rect(3, id, half),
+            Err(EngineError::PageOutOfRange(3))
+        ));
     }
 
     #[test]
