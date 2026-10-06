@@ -58,6 +58,10 @@ pub fn bindings() -> String {
         AnnotationId,
         AnnotationKind,
         PageAnnotation,
+        FieldId,
+        FieldKind,
+        FieldOption,
+        FormField,
         EditArgs,
         UndoArgs,
         SaveResult,
@@ -94,7 +98,7 @@ pub fn bindings() -> String {
         OpenEvent,
     );
 
-    let limits: [(&str, String); 26] = [
+    let limits: [(&str, String); 29] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -123,6 +127,9 @@ pub fn bindings() -> String {
             "maxAnnotationsPerPage",
             MAX_ANNOTATIONS_PER_PAGE.to_string(),
         ),
+        ("maxFieldsPerPage", MAX_FIELDS_PER_PAGE.to_string()),
+        ("maxFieldValueBytes", MAX_FIELD_VALUE_BYTES.to_string()),
+        ("maxFieldOptions", MAX_FIELD_OPTIONS.to_string()),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];
     out.push_str(

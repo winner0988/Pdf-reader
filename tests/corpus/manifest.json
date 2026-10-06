@@ -183,6 +183,19 @@
       "sha256": "fb2d0f4f78ca55aab5cd12b145302609f31ebe8461fa00a869e75a972f051c30"
     },
     {
+      "path": "benign/form-fields.pdf",
+      "category": "benign",
+      "purpose": "One page with a text field with a value, a multi-line one, one with a 5-character limit, a read-only and a required one, a check box, a radio group of three, a combo box and a list box; no script.",
+      "expected": "Opens; 1 page; the fields can be filled in, saved, and flattened (B2-09).",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Form with every kind of field"
+      ],
+      "bytes": 4793,
+      "sha256": "d479b452e448c65d6b220fc969719c062df80b5508ca207df57c36ca223af053"
+    },
+    {
       "path": "benign/tagged-form-two-pages.pdf",
       "category": "benign",
       "purpose": "Two tagged pages (a paragraph, then a figure with alt text), each with a filled text field.",

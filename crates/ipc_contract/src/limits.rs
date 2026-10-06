@@ -91,6 +91,16 @@ pub const MAX_NOTE_TEXT_BYTES: u32 = 4_096;
 /// Most annotations reported for one page (B2-07); the rest are not listed.
 pub const MAX_ANNOTATIONS_PER_PAGE: u32 = 2_000;
 
+/// Most form fields reported for one page (B2-09); the rest are not listed.
+pub const MAX_FIELDS_PER_PAGE: u32 = 5_000;
+
+/// Longest value of a form field (B2-09), in UTF-8 bytes; also the most of one the worker
+/// reports (a field with more is shown but cannot be changed).
+pub const MAX_FIELD_VALUE_BYTES: u32 = 16 * 1024;
+
+/// Most choices of a combo box or list box (B2-09).
+pub const MAX_FIELD_OPTIONS: u32 = 1_000;
+
 /// Maximum size of one exported PNG page (B2-04); below the frame limit.
 pub const MAX_PNG_BYTES: usize = 64 * 1024 * 1024;
 

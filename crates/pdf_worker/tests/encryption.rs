@@ -127,7 +127,7 @@ fn restricted_samples_open_without_a_password_and_report_their_permissions() {
         );
     }
     // Opened with the user password: the AES sample allows everything; the RC4 one (revision 2,
-    // /P -44) allows copying and printing, but not changing or annotating the document; the
+    // /P -44) allows copying and printing, but not changing, annotating or filling in the document; the
     // restricted one allows neither copying nor printing.
     for (name, permissions) in [
         (
@@ -136,6 +136,7 @@ fn restricted_samples_open_without_a_password_and_report_their_permissions() {
                 modify: false,
                 assemble: false,
                 annotate: false,
+                fill_forms: false,
                 ..DocumentPermissions::ALL
             },
         ),

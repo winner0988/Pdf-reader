@@ -161,6 +161,7 @@ mod tests {
                 height_pt: 792.0,
             }],
             has_outline: false,
+            has_form: false,
             security: SecurityReport::default(),
             permissions: DocumentPermissions::ALL,
             unsaved: false,

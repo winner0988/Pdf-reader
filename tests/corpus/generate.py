@@ -943,6 +943,69 @@ def benign_tagged_form() -> bytes:
     return doc.build()
 
 
+FORM_NAME_VALUE = "Jane Q. Public"
+FORM_LOCKED_VALUE = "Locked value"
+
+
+def benign_form_fields() -> bytes:
+    """One page of an AcroForm with every kind of field the app fills (B2-09), and no script."""
+    doc = Document("form-fields")
+    doc.reserve_pages(1)
+    page = doc.page_nums[0]
+    helv = doc.pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+
+    def widget(rect: str, body: str) -> int:
+        return doc.pdf.add(
+            f"<< /Type /Annot /Subtype /Widget /Rect [{rect}] /F 4 /P {page} 0 R"
+            f" /MK << /BC [0] /BG [1] >> {body} >>"
+        )
+
+    def states(on: str) -> str:
+        """The appearance streams of a check box or radio button: drawn when on, empty when off."""
+        mark = doc.pdf.add_stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 18 18]", b"q 0 g 4 4 10 10 re f Q"
+        )
+        blank = doc.pdf.add_stream("/Type /XObject /Subtype /Form /BBox [0 0 18 18]", b"")
+        return f"/AP << /N << /{on} {mark} 0 R /Off {blank} 0 R >> >> /AS /Off"
+
+    name = widget("72 650 300 674", f"/FT /Tx /T (name) /TU (Your name) /V {pdf_string(FORM_NAME_VALUE)}")
+    notes = widget("72 560 300 640", "/FT /Tx /Ff 4096 /T (notes) /TU (Notes)")
+    code = widget("72 520 140 544", "/FT /Tx /T (code) /TU (Code of at most five characters) /MaxLen 5")
+    agree = widget("72 480 90 498", f"/FT /Btn /T (agree) /TU (I agree) /V /Off {states('Yes')}")
+    choices = [(label, widget(rect, f"/Parent 0 0 R {states(label)}")) for label, rect in
+               [("Small", "72 440 90 458"), ("Medium", "132 440 150 458"), ("Large", "192 440 210 458")]]
+    size = doc.pdf.add(
+        "<< /FT /Btn /Ff 32768 /T (size) /TU (Size) /V /Off /Kids ["
+        + " ".join(f"{number} 0 R" for _, number in choices) + "] >>"
+    )
+    for _, number in choices:
+        doc.pdf.set(number, doc.pdf.objects[number - 1].decode("latin-1").replace("/Parent 0 0 R", f"/Parent {size} 0 R"))
+    country = widget(
+        "72 390 300 414",
+        "/FT /Ch /Ff 131072 /T (country) /TU (Country) /V (TW)"
+        " /Opt [[(TW) (Taiwan)] [(JP) (Japan)] [(US) (United States)]]",
+    )
+    fruit = widget(
+        "72 300 200 370",
+        "/FT /Ch /T (fruit) /TU (Fruit) /V (banana) /Opt [(apple) (banana) (cherry)]",
+    )
+    locked = widget("72 250 300 274", f"/FT /Tx /Ff 1 /T (locked) /V {pdf_string(FORM_LOCKED_VALUE)}")
+    must = widget("72 210 300 234", "/FT /Tx /Ff 2 /T (must) /TU (Required)")
+    top_level = [name, notes, code, agree, size, country, fruit, locked, must]
+    annots = [name, notes, code, agree, *[number for _, number in choices], country, fruit, locked, must]
+    labels = [
+        (20, 658, "Name"), (20, 620, "Notes"), (20, 524, "Code"), (20, 484, "Agree"),
+        (20, 444, "Size"), (20, 394, "Country"), (20, 340, "Fruit"), (20, 254, "Locked"), (20, 214, "Required"),
+    ]
+    doc.set_page(0, Page(lines=[(72, 740, 16, "Form with every kind of field")] + [(x, y, 10, t) for x, y, t in labels],
+                         annots=annots))
+    doc.catalog_extra = (
+        f" /AcroForm << /Fields [{' '.join(f'{n} 0 R' for n in top_level)}] /NeedAppearances true"
+        f" /DA (/Helv 11 Tf 0 g) /DR << /Font << /Helv {helv} 0 R >> >> >>"
+    )
+    return doc.build()
+
+
 def benign_signed() -> bytes:
     return signed_sample("signed", SIGNED_TEXT, certify=False)
 
@@ -1237,6 +1300,11 @@ SAMPLES = [
            "a sticky note's author and dates.",
            "Opens like an ordinary document (B2-03). Its privacy export has none of these, a new /ID, and renders "
            f"the same; the bytes '{PRIVATE_AUTHOR}' appear nowhere in it.", 1, text=[METADATA_TEXT]),
+    Sample("benign/form-fields.pdf", benign_form_fields,
+           "One page with a text field with a value, a multi-line one, one with a 5-character limit, a read-only "
+           "and a required one, a check box, a radio group of three, a combo box and a list box; no script.",
+           "Opens; 1 page; the fields can be filled in, saved, and flattened (B2-09).", 1,
+           text=["Form with every kind of field"]),
     Sample("benign/tagged-form-two-pages.pdf", benign_tagged_form,
            "Two tagged pages (a paragraph, then a figure with alt text), each with a filled text field.",
            f"Opens; 2 pages. Once page two is deleted and the document saved, the file has neither "

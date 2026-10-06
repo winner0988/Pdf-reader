@@ -7,9 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use ipc_contract::types::{
     DocumentId, EditArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs,
-    IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation,
-    PageLink, PageText, RecentFile, RecentId, RenderPageArgs, RequestId, SaveResult, SearchArgs,
-    SearchEvent, Settings, TabId, UndoArgs, UnlockArgs, UpdateCheck,
+    FormField, IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs, OutlineResult,
+    PageAnnotation, PageLink, PageText, RecentFile, RecentId, RenderPageArgs, RequestId,
+    SaveResult, SearchArgs, SearchEvent, Settings, TabId, UndoArgs, UnlockArgs, UpdateCheck,
 };
 use ipc_contract::validate::Validate;
 use tauri::ipc::{Channel, Response};
@@ -324,6 +324,17 @@ pub async fn get_page_annotations(
     page_index: u32,
 ) -> Result<Vec<PageAnnotation>, IpcError> {
     blocking(move || app.state::<Documents>().page_annotations(doc, page_index)).await
+}
+
+/// The form fields of one page (B2-09): where they are, what they hold and what can be put in
+/// them. They are filled in with `apply_edit`.
+#[tauri::command]
+pub async fn get_page_fields(
+    app: AppHandle,
+    doc: DocumentId,
+    page_index: u32,
+) -> Result<Vec<FormField>, IpcError> {
+    blocking(move || app.state::<Documents>().page_fields(doc, page_index)).await
 }
 
 /// The links of one page (MVP-12): where they are and where they point. Opening a web link

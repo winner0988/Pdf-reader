@@ -106,6 +106,25 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
                 },
             }),
+            WorkerRequest::GetPageFields {
+                request,
+                doc,
+                page_index,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => match document.page_fields(page_index) {
+                    Ok(fields) => WorkerResponse::PageFields {
+                        request,
+                        page_index,
+                        fields,
+                    },
+                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                },
+            }),
             WorkerRequest::GetPageAnnotations {
                 request,
                 doc,
@@ -312,6 +331,7 @@ fn open(
         Err(engine) => return engine_error(request, &engine, WorkerErrorCode::Corrupted),
     };
     let has_outline = document.has_outline();
+    let has_form = document.has_form();
     let security = document.active_content(ScanBudget::default());
     let permissions = document.permissions();
     let encrypted = document.is_encrypted();
@@ -322,6 +342,7 @@ fn open(
         document: OpenedDocument {
             pages,
             has_outline,
+            has_form,
             security,
             permissions,
             encrypted,
@@ -410,6 +431,10 @@ fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineErro
             annotation,
             text,
         } => document.set_note_text(*page, *annotation, text)?,
+        WorkerEdit::SetFieldValue { page, field, value } => {
+            document.set_field_value(*page, *field, value)?;
+        }
+        WorkerEdit::FlattenForm => document.flatten_form()?,
     }
     Ok(())
 }

@@ -90,6 +90,7 @@ pub fn run() {
             commands::get_outline,
             commands::get_page_links,
             commands::get_page_annotations,
+            commands::get_page_fields,
             commands::get_page_text,
             commands::describe_link,
             commands::open_link,

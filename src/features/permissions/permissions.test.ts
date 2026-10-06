@@ -8,7 +8,7 @@ describe("restrictionSummary", () => {
   });
 
   it("lists what the author forbids", () => {
-    expect(restrictionSummary({ copy: false, print: false, printHighQuality: false, modify: true, assemble: true, annotate: true })).toBe(
+    expect(restrictionSummary({ copy: false, print: false, printHighQuality: false, modify: true, assemble: true, annotate: true, fillForms: true })).toBe(
       "已限制：不可複製、不可列印",
     );
     expect(restrictionSummary({ ...ALL_PERMISSIONS, copy: false })).toBe("已限制：不可複製");
@@ -16,6 +16,6 @@ describe("restrictionSummary", () => {
 
   it("mentions low-resolution printing only when printing is allowed", () => {
     expect(restrictionSummary({ ...ALL_PERMISSIONS, printHighQuality: false })).toBe("已限制：只能低解析度列印");
-    expect(restrictionSummary({ copy: true, print: false, printHighQuality: true, modify: true, assemble: true, annotate: true })).toBe("已限制：不可列印");
+    expect(restrictionSummary({ copy: true, print: false, printHighQuality: true, modify: true, assemble: true, annotate: true, fillForms: true })).toBe("已限制：不可列印");
   });
 });

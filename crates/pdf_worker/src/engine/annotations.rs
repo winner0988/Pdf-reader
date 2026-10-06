@@ -80,7 +80,7 @@ impl PdfDocument {
     /// pop-up windows are not among them (MuPDF lists links and fields apart). At most
     /// `MAX_ANNOTATIONS_PER_PAGE`; one that cannot be read is skipped.
     pub fn page_annotations(&self, index: u32) -> Result<Vec<PageAnnotation>, EngineError> {
-        let page = self.annotated_page(index)?;
+        let page = self.pdf_page(index)?;
         let mut annotations = Vec::new();
         for annotation in page.annotations() {
             if annotations.len() == MAX_ANNOTATIONS_PER_PAGE as usize {
@@ -118,7 +118,7 @@ impl PdfDocument {
             return Err(EngineError::PageOutOfRange(mark.page));
         }
         for mark in marks {
-            let mut page = self.annotated_page(mark.page)?;
+            let mut page = self.pdf_page(mark.page)?;
             let quads: Vec<mupdf::Quad> = mark.quads.iter().map(binding_quad).collect();
             let mut annotation = page.add_highlight_annotation(quads)?;
             annotation.set_color(annotation_color(color))?;
@@ -129,7 +129,7 @@ impl PdfDocument {
 
     /// Puts a note saying `text` at `at` (page space) on page `index`.
     pub fn add_note(&mut self, index: u32, at: Point, text: &str) -> Result<(), EngineError> {
-        let mut page = self.annotated_page(index)?;
+        let mut page = self.pdf_page(index)?;
         let rect = mupdf::Rect {
             x0: at.x,
             y0: at.y,
@@ -145,7 +145,7 @@ impl PdfDocument {
     /// to them (a reply, the structure tree) points nowhere afterwards, so that a rewrite leaves
     /// them out of the file ([`crate::unlink`]).
     pub fn delete_annotation(&mut self, index: u32, id: AnnotationId) -> Result<(), EngineError> {
-        let mut page = self.annotated_page(index)?;
+        let mut page = self.pdf_page(index)?;
         let annotation = find(&page, id)?;
         let mut gone = HashSet::from([annotation.xref()?]);
         if let Some(popup) = annotation.object().get_dict("Popup")?
@@ -165,7 +165,7 @@ impl PdfDocument {
         id: AnnotationId,
         color: HighlightColor,
     ) -> Result<(), EngineError> {
-        let page = self.annotated_page(index)?;
+        let page = self.pdf_page(index)?;
         let mut annotation = find(&page, id)?;
         if annotation.r#type()? != PdfAnnotationType::Highlight {
             return Err(EngineError::InvalidEdit("not a highlighter mark"));
@@ -182,7 +182,7 @@ impl PdfDocument {
         id: AnnotationId,
         text: &str,
     ) -> Result<(), EngineError> {
-        let page = self.annotated_page(index)?;
+        let page = self.pdf_page(index)?;
         let mut annotation = find(&page, id)?;
         if annotation.r#type()? != PdfAnnotationType::Text {
             return Err(EngineError::InvalidEdit("not a note"));
@@ -192,7 +192,7 @@ impl PdfDocument {
         Ok(())
     }
 
-    fn annotated_page(&self, index: u32) -> Result<PdfPage, EngineError> {
+    pub(super) fn pdf_page(&self, index: u32) -> Result<PdfPage, EngineError> {
         if index >= self.page_count()? {
             return Err(EngineError::PageOutOfRange(index));
         }

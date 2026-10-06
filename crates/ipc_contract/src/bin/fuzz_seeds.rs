@@ -7,10 +7,10 @@ use std::path::PathBuf;
 
 use ipc_contract::frame::encode;
 use ipc_contract::types::{
-    AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, FindingKind,
-    HighlightColor, HighlightMark, LinkId, LinkTarget, OutlineItem, OutlineResult, PageAnnotation,
-    PageLink, PageSize, PageText, Password, Point, Quad, Rect, RequestId, Rotation, SearchHit,
-    SecurityFinding, SecurityReport, TextLine,
+    AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, FieldId,
+    FieldKind, FieldOption, FindingKind, FormField, HighlightColor, HighlightMark, LinkId,
+    LinkTarget, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
+    Point, Quad, Rect, RequestId, Rotation, SearchHit, SecurityFinding, SecurityReport, TextLine,
 };
 use ipc_contract::worker::{
     FileHandle, OpenedDocument, Raster, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest,
@@ -52,6 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             document: OpenedDocument {
                 pages: vec![page; 3],
                 has_outline: true,
+                has_form: true,
                 security: SecurityReport {
                     findings: vec![SecurityFinding {
                         kind: FindingKind::JavaScript,
@@ -66,6 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     modify: false,
                     assemble: true,
                     annotate: false,
+                    fill_forms: true,
                 },
                 encrypted: true,
             },
@@ -92,6 +94,67 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .collect(),
                 truncated: true,
             },
+        },
+        WorkerResponse::PageFields {
+            request,
+            page_index: 0,
+            fields: vec![
+                FormField {
+                    id: FieldId(6),
+                    group: FieldId(6),
+                    kind: FieldKind::Text,
+                    rect: Rect {
+                        x0: 72.0,
+                        y0: 100.0,
+                        x1: 300.0,
+                        y1: 124.0,
+                    },
+                    label: Some("Your name".to_owned()),
+                    value: "Jane\nPublic".to_owned(),
+                    on_value: None,
+                    options: vec![],
+                    read_only: false,
+                    required: true,
+                    multiline: true,
+                    password: false,
+                    editable: false,
+                    multi_select: false,
+                    max_len: Some(40),
+                    has_script: true,
+                },
+                FormField {
+                    id: FieldId(22),
+                    group: FieldId(22),
+                    kind: FieldKind::Combo,
+                    rect: Rect {
+                        x0: 72.0,
+                        y0: 200.0,
+                        x1: 300.0,
+                        y1: 224.0,
+                    },
+                    label: None,
+                    value: "TW".to_owned(),
+                    on_value: None,
+                    options: vec![
+                        FieldOption {
+                            value: "TW".to_owned(),
+                            label: "臺灣".to_owned(),
+                        },
+                        FieldOption {
+                            value: "JP".to_owned(),
+                            label: "Japan".to_owned(),
+                        },
+                    ],
+                    read_only: false,
+                    required: false,
+                    multiline: false,
+                    password: false,
+                    editable: true,
+                    multi_select: false,
+                    max_len: None,
+                    has_script: false,
+                },
+            ],
         },
         WorkerResponse::PageAnnotations {
             request,
@@ -254,6 +317,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             doc,
             page_index: 1,
         },
+        WorkerRequest::GetPageFields {
+            request,
+            doc,
+            page_index: 0,
+        },
         WorkerRequest::SearchPage {
             request,
             doc,
@@ -338,6 +406,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 annotation: AnnotationId(13),
                 text: "改過的附註".to_owned(),
             },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::SetFieldValue {
+                page: 0,
+                field: FieldId(6),
+                value: "Jane Q. Public".to_owned(),
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::FlattenForm,
         },
         WorkerRequest::Revert {
             request,

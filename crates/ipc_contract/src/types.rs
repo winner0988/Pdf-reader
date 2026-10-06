@@ -191,6 +191,76 @@ pub enum Edit {
         annotation: AnnotationId,
         text: String,
     },
+    /// Sets the value of form field `field` of page `page` (B2-09): the text of a text field, the
+    /// chosen option of a combo box or list box, or `on_value` or `"Off"` for a check box (a
+    /// radio button only takes its `on_value`, which clears the others of its group).
+    SetFieldValue {
+        page: u32,
+        field: FieldId,
+        value: String,
+    },
+    /// Turns the form into the page content it draws: no field can be filled in afterwards
+    /// (B2-09).
+    FlattenForm,
+}
+
+/// A form field of an open document: the number of its widget in the document, which stays the
+/// same through edits and saving (B2-09).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct FieldId(pub u32);
+
+/// What kind of field it is, as far as the app fills it in (B2-09). Push buttons and signature
+/// fields are not listed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum FieldKind {
+    Text,
+    Checkbox,
+    Radio,
+    Combo,
+    List,
+}
+
+/// One choice of a combo box or list box (B2-09): what is stored and what is shown.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct FieldOption {
+    pub value: String,
+    pub label: String,
+}
+
+/// A form field of a page (B2-09), from the page's worker. Text is cleaned like any text from a
+/// PDF. Nothing here is ever run: a field's scripts only make `has_script` true.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FormField {
+    pub id: FieldId,
+    /// The field the widget belongs to (its first parent with a name): the widgets of a radio
+    /// button group, or of a check box group, have the same.
+    pub group: FieldId,
+    pub kind: FieldKind,
+    /// Where it is on the page (page space).
+    pub rect: Rect,
+    /// What the field is for: its tooltip, or else its name.
+    pub label: Option<String>,
+    /// The text of a text field; the chosen option's value of a combo box or list box; for a
+    /// check box or radio button the state it is in (`on_value` or `"Off"`).
+    pub value: String,
+    /// What a check box or radio button is set to when it is on.
+    pub on_value: Option<String>,
+    pub options: Vec<FieldOption>,
+    /// The field cannot be changed: the author says so, or the app cannot do it right (a list
+    /// that allows several choices, a value cut short).
+    pub read_only: bool,
+    pub required: bool,
+    pub multiline: bool,
+    pub password: bool,
+    /// A combo box whose value may also be typed.
+    pub editable: bool,
+    pub multi_select: bool,
+    /// Most characters of a text field.
+    pub max_len: Option<u32>,
+    /// The field has scripts (to calculate, format, check or react to keys), which are never run.
+    pub has_script: bool,
 }
 
 /// The part of a highlighter mark on one page (B2-07): `quads` in page space, as text selection
@@ -414,6 +484,8 @@ pub struct DocumentPermissions {
     pub assemble: bool,
     /// Adding, changing and removing annotations (`/P` bit 6, B2-07).
     pub annotate: bool,
+    /// Filling in form fields (`/P` bit 9, or bit 6 which covers annotations and forms, B2-09).
+    pub fill_forms: bool,
 }
 
 impl DocumentPermissions {
@@ -424,6 +496,7 @@ impl DocumentPermissions {
         modify: true,
         assemble: true,
         annotate: true,
+        fill_forms: true,
     };
 }
 
@@ -437,6 +510,9 @@ pub struct DocumentInfo {
     /// One entry per page; the page count is `pages.length`.
     pub pages: Vec<PageSize>,
     pub has_outline: bool,
+    /// The document has a form (fields to fill in, B2-09), which flattening has not turned into
+    /// page content.
+    pub has_form: bool,
     pub security: SecurityReport,
     pub permissions: DocumentPermissions,
     /// Changed since it was opened or last saved (B2-02): the file does not have the changes yet.

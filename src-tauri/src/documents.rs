@@ -19,9 +19,9 @@ use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
     BlockedAction, DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
-    IpcError, LinkArgs, LinkPreview, LinkTarget, OpenEvent, OutlineLinkArgs, OutlineResult,
-    PageAnnotation, PageLink, PageSize, PageText, Password, Recovery, RenderPageArgs, SaveResult,
-    SearchHit, TabId,
+    FormField, IpcError, LinkArgs, LinkPreview, LinkTarget, OpenEvent, OutlineLinkArgs,
+    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Recovery,
+    RenderPageArgs, SaveResult, SearchHit, TabId,
 };
 use ipc_contract::validate::{Validate, check_page_index};
 use ipc_contract::worker::{WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse};
@@ -100,6 +100,8 @@ struct OpenDocument {
     /// Edits since the file was read or last written, applied and undone (B2-05).
     /// `info.unsaved` while some are applied.
     history: History,
+    /// The file has a form (B2-09); `info.has_form` is that, unless the form is flattened.
+    form_in_file: bool,
     /// The crash recovery journal of the edits applied (B2-13): there while some are.
     journal: Option<JournalId>,
     /// Edits an earlier run left for the file (B2-13), until the user makes them again or
@@ -210,6 +212,7 @@ impl Documents {
             })?;
             let doc = DocumentId(self.next_id());
             let info = document_info(doc, display_name.clone(), response)?;
+            let info_has_form = info.has_form;
             let mut document = OpenDocument {
                 info,
                 host,
@@ -219,6 +222,7 @@ impl Documents {
                 lost: false,
                 identity,
                 history: History::default(),
+                form_in_file: info_has_form,
                 journal: None,
                 recovered: None,
             };
@@ -626,6 +630,8 @@ impl Documents {
                 // They were for the file as it was.
                 document.info.recovery = Recovery::Stale;
             }
+            // The file has the form as it is now: flattened, or not.
+            document.form_in_file = document.info.has_form;
             document.history.saved();
             show_history(document);
             self.keep_journal(document);
@@ -843,6 +849,39 @@ impl Documents {
                 } if answered == page_index => Ok(text),
                 _ => Err(unexpected("GetPageText")),
             }
+        })
+    }
+
+    /// The form fields of one page (B2-09): where they are, what they hold and what can be put
+    /// in them. Nothing in a field is ever run.
+    pub fn page_fields(
+        &self,
+        doc: DocumentId,
+        page_index: u32,
+    ) -> Result<Vec<FormField>, IpcError> {
+        self.with_document(doc, |document| {
+            let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+            check_page_index(page_index, page_count).map_err(invalid_argument)?;
+            let response = request(document, |request, doc| WorkerRequest::GetPageFields {
+                request,
+                doc,
+                page_index,
+            })?;
+            let WorkerResponse::PageFields {
+                page_index: answered,
+                fields,
+                ..
+            } = response
+            else {
+                return Err(unexpected("GetPageFields"));
+            };
+            if answered != page_index {
+                return Err(IpcError {
+                    code: ErrorCode::ProtocolViolation,
+                    message: "page fields do not match the document".to_owned(),
+                });
+            }
+            Ok(fields)
         })
     }
 
@@ -1270,6 +1309,21 @@ fn pages_after(
             .map_err(invalid_argument)?;
         return Ok(page_count);
     }
+    // Filling in a form (B2-09) has its own permission too (`/P` bit 9, or bit 6); the worker
+    // checks that the field is on the page and can have the value.
+    if let Edit::SetFieldValue { page, .. } = edit {
+        if !permissions.fill_forms {
+            return Err(not_allowed());
+        }
+        check_page_index(*page, page_count).map_err(invalid_argument)?;
+        return Ok(page_count);
+    }
+    if let Edit::FlattenForm = edit {
+        if !permissions.fill_forms {
+            return Err(not_allowed());
+        }
+        return Ok(page_count);
+    }
     // The other edits manage pages: assembling the document, as Acrobat reads the author's
     // permissions (MVP-19).
     if !(permissions.assemble || permissions.modify) {
@@ -1318,7 +1372,9 @@ fn pages_after(
         | Edit::AddNote { .. }
         | Edit::DeleteAnnotation { .. }
         | Edit::SetHighlightColor { .. }
-        | Edit::SetNoteText { .. } => Ok(page_count),
+        | Edit::SetNoteText { .. }
+        | Edit::SetFieldValue { .. }
+        | Edit::FlattenForm => Ok(page_count),
     }
 }
 
@@ -1401,6 +1457,12 @@ fn revert_in_worker(
 /// done.
 fn show_history(document: &mut OpenDocument) {
     let history = &document.history;
+    // A flattened form is page content: nothing is left to fill in (B2-09).
+    let flattened = history
+        .applied()
+        .iter()
+        .any(|edit| matches!(edit, Edit::FlattenForm));
+    document.info.has_form = document.form_in_file && !flattened;
     document.info.unsaved = history.unsaved();
     document.info.can_undo = history.can_undo();
     document.info.can_redo = history.can_redo();
@@ -1582,6 +1644,7 @@ fn document_info(
         display_name,
         pages: document.pages,
         has_outline: document.has_outline,
+        has_form: document.has_form,
         security: document.security,
         permissions: document.permissions,
         unsaved: false,
@@ -1756,7 +1819,7 @@ mod tests {
 mod with_worker {
     use ipc_contract::limits::MAX_RASTER_PIXELS;
     use ipc_contract::types::{
-        AnnotationId, HighlightColor, HighlightMark, Point, Quad, RequestId, Rotation,
+        AnnotationId, FieldId, HighlightColor, HighlightMark, Point, Quad, RequestId, Rotation,
     };
 
     use super::*;
@@ -3318,5 +3381,159 @@ mod with_worker {
         );
         // Listing them is not editing them.
         assert!(documents.page_annotations(info.doc, 0).is_ok());
+    }
+
+    /// A copy of the form sample in a file of its own, opened in a window of its own.
+    fn open_form(name: &str) -> (Documents, DocumentInfo, PathBuf) {
+        let source =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign/form-fields.pdf");
+        open_bytes(name, &std::fs::read(source).unwrap())
+    }
+
+    fn field(documents: &Documents, doc: DocumentId, label: &str) -> FormField {
+        documents
+            .page_fields(doc, 0)
+            .unwrap()
+            .into_iter()
+            .find(|field| field.label.as_deref() == Some(label))
+            .unwrap_or_else(|| panic!("no field {label}"))
+    }
+
+    fn fill(documents: &Documents, doc: &mut DocumentId, label: &str, value: &str) -> DocumentInfo {
+        let id = field(documents, *doc, label).id;
+        let info = opened_info(
+            documents
+                .apply_edit(&EditArgs {
+                    doc: *doc,
+                    edit: Edit::SetFieldValue {
+                        page: 0,
+                        field: id,
+                        value: value.to_owned(),
+                    },
+                })
+                .unwrap(),
+        );
+        *doc = info.doc;
+        info
+    }
+
+    #[test]
+    fn a_form_is_filled_in_undone_saved_and_flattened_like_any_edit() {
+        let (documents, info, path) = open_form("b209-form");
+        let mut doc = info.doc;
+        assert!(info.has_form);
+        assert_eq!(field(&documents, doc, "Your name").value, "Jane Q. Public");
+
+        let filled = fill(&documents, &mut doc, "Your name", "林 小明");
+        assert!(filled.unsaved && filled.can_undo);
+        fill(&documents, &mut doc, "I agree", "Yes");
+        assert_eq!(field(&documents, doc, "Your name").value, "林 小明");
+        assert_eq!(field(&documents, doc, "I agree").value, "Yes");
+
+        // Undo opens the document again and makes the edits before it again: the same numbers.
+        doc = opened_info(documents.undo(doc, None).unwrap()).doc;
+        assert_eq!(field(&documents, doc, "I agree").value, "Off");
+        assert_eq!(field(&documents, doc, "Your name").value, "林 小明");
+        doc = opened_info(documents.redo(doc).unwrap()).doc;
+        assert_eq!(field(&documents, doc, "I agree").value, "Yes");
+
+        // Saved, the values are in the file.
+        documents.save(doc, None).unwrap();
+        let other = Documents::new(worker());
+        let again = open_in(&other, &path);
+        assert_eq!(field(&other, again.doc, "Your name").value, "林 小明");
+        assert_eq!(field(&other, again.doc, "I agree").value, "Yes");
+
+        // Flattened, there is nothing left to fill in; undo brings the fields back.
+        let flattened = opened_info(
+            documents
+                .apply_edit(&EditArgs {
+                    doc,
+                    edit: Edit::FlattenForm,
+                })
+                .unwrap(),
+        );
+        assert!(documents.page_fields(flattened.doc, 0).unwrap().is_empty());
+        assert!(!flattened.has_form);
+        let undone = opened_info(documents.undo(flattened.doc, None).unwrap());
+        assert!(undone.has_form);
+        assert_eq!(field(&documents, undone.doc, "Your name").value, "林 小明");
+        // Flattened and saved, the file has no form, and neither has the document that saved it.
+        let flattened = opened_info(documents.redo(undone.doc).unwrap());
+        documents.save(flattened.doc, None).unwrap();
+        assert!(!opened_info(documents.snapshot().remove(0)).has_form);
+        assert!(!open_in(&Documents::new(worker()), &path).has_form);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn what_a_form_cannot_take_never_reaches_the_document() {
+        let (documents, info, path) = open_form("b209-refused");
+        let doc = info.doc;
+        let name = field(&documents, doc, "Your name").id;
+        let refused = |edit: Edit| {
+            documents
+                .apply_edit(&EditArgs { doc, edit })
+                .unwrap_err()
+                .code
+        };
+        let set = |page: u32, field: FieldId, value: &str| Edit::SetFieldValue {
+            page,
+            field,
+            value: value.to_owned(),
+        };
+        // Text that is not text, a page that is not there, a field that is not on the page, a
+        // value the field cannot have.
+        assert_eq!(
+            refused(set(0, name, "a\u{202E}b")),
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(refused(set(5, name, "x")), ErrorCode::InvalidArgument);
+        assert_eq!(
+            refused(set(0, FieldId(9_999), "x")),
+            ErrorCode::InvalidArgument
+        );
+        let locked = field(&documents, doc, "locked").id;
+        assert_eq!(refused(set(0, locked, "x")), ErrorCode::InvalidArgument);
+        assert_eq!(
+            refused(set(0, name, "two\nlines")),
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(field(&documents, doc, "Your name").value, "Jane Q. Public");
+        // None of that was an edit.
+        let info = opened_info(documents.snapshot().remove(0));
+        assert!(!info.unsaved && !info.can_undo);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn an_author_who_forbids_filling_in_forms_is_obeyed() {
+        // RC4, revision 2, /P without bit 6, which covers annotating and filling in forms.
+        let documents = Documents::new(worker());
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/encrypted-rc4-40.pdf");
+        let (_, info) = unlocked(&documents, &path);
+        assert!(!info.permissions.fill_forms);
+        for edit in [
+            Edit::SetFieldValue {
+                page: 0,
+                field: FieldId(1),
+                value: "x".to_owned(),
+            },
+            Edit::FlattenForm,
+        ] {
+            assert_eq!(
+                documents
+                    .apply_edit(&EditArgs {
+                        doc: info.doc,
+                        edit,
+                    })
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidArgument
+            );
+        }
+        // Listing the fields is not filling them in.
+        assert!(documents.page_fields(info.doc, 0).is_ok());
     }
 }
