@@ -120,6 +120,35 @@ pub fn clean_note_text(input: &str, max_bytes: usize) -> String {
     out
 }
 
+/// A form field's text as the page shows and edits it (B2-09): line breaks are LF (a space in a
+/// single-line field), a tab is a space, control and invisible formatting characters are dropped,
+/// and the spacing stays. Cut at `max_bytes` at a character boundary; `true` says it was cut.
+pub fn clean_field_text(input: &str, max_bytes: usize, multiline: bool) -> (String, bool) {
+    let mut out = String::with_capacity(input.len().min(max_bytes));
+    let mut chars = input.chars().peekable();
+    while let Some(c) = chars.next() {
+        let c = match c {
+            '\r' => {
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                '\n'
+            }
+            '\t' => ' ',
+            c => c,
+        };
+        let c = if c == '\n' && !multiline { ' ' } else { c };
+        if (c.is_control() && c != '\n') || is_invisible_format(c) {
+            continue;
+        }
+        if out.len() + c.len_utf8() > max_bytes {
+            return (out, true);
+        }
+        out.push(c);
+    }
+    (out, false)
+}
+
 /// Classifies a URI from a PDF. Only `http`, `https` and `mailto` may ever be offered to the
 /// user (AGENTS.md principle 5); everything else is a blocked action shown as text.
 ///
@@ -194,6 +223,25 @@ fn decode_pdf_string(raw: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fields_text_keeps_its_spacing_and_loses_what_is_not_text() {
+        let from_pdf = "  one\r\n two\rthree\tfour\u{7}\u{202E}\u{200B}!  ";
+        // Several lines, as a multi-line field has them; the spacing stays.
+        let (many, cut) = clean_field_text(from_pdf, 1_000, true);
+        assert_eq!(many, "  one\n two\nthree four!  ");
+        assert!(!cut);
+        assert!(is_note_text(&many));
+        // A single-line field has one line.
+        assert_eq!(
+            clean_field_text(from_pdf, 1_000, false).0,
+            "  one  two three four!  "
+        );
+        // Cut at a character boundary, and it says so.
+        let (cut_text, cut) = clean_field_text("abc中文字", 7, true);
+        assert_eq!((cut_text.as_str(), cut), ("abc中", true));
+        assert_eq!(clean_field_text("abc", 3, true), ("abc".to_owned(), false));
+    }
 
     #[test]
     fn a_note_keeps_its_lines_and_loses_everything_else() {

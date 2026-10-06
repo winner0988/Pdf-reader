@@ -11,10 +11,10 @@ use thiserror::Error;
 use crate::limits::*;
 use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text, is_note_text};
 use crate::types::{
-    DocumentInfo, Edit, EditArgs, ExportArgs, ExportFormat, FindingKind, IpcError, LinkTarget,
-    OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
-    Point, Quad, RecentFile, Rect, RenderPageArgs, Rotation, SearchArgs, SearchHit, SecurityReport,
-    TextLine, UndoArgs, UnlockArgs,
+    DocumentInfo, Edit, EditArgs, ExportArgs, ExportFormat, FindingKind, FormField, IpcError,
+    LinkTarget, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize,
+    PageText, Password, Point, Quad, RecentFile, Rect, RenderPageArgs, Rotation, SearchArgs,
+    SearchHit, SecurityReport, TextLine, UndoArgs, UnlockArgs,
 };
 use crate::worker::{OpenedDocument, Raster, WorkerError, WorkerResponse};
 
@@ -390,6 +390,23 @@ impl Validate for WorkerResponse {
                 )?;
                 annotations.iter().try_for_each(PageAnnotation::validate)
             }
+            WorkerResponse::PageFields {
+                page_index, fields, ..
+            } => {
+                check_count("page fields", fields.len(), MAX_FIELDS_PER_PAGE)?;
+                let mut ids = HashSet::new();
+                for field in fields {
+                    if !ids.insert(field.id) {
+                        return Err(ValidationError::Invalid {
+                            what: "page fields",
+                            reason: "a field appears twice",
+                        });
+                    }
+                    field.validate()?;
+                }
+                let _ = page_index;
+                Ok(())
+            }
             WorkerResponse::PageText { text, .. } => text.validate(),
             WorkerResponse::Png { png, .. } => check_png(png),
             WorkerResponse::Jpeg { jpeg, .. } => check_jpeg(jpeg),
@@ -616,6 +633,11 @@ impl Validate for Edit {
                 check_annotated_page(*page)?;
                 check_note_text(text)
             }
+            Edit::SetFieldValue { page, value, .. } => {
+                check_annotated_page(*page)?;
+                check_field_value(value)
+            }
+            Edit::FlattenForm => Ok(()),
         }
     }
 }
@@ -643,6 +665,60 @@ fn check_note_text(text: &str) -> Result<(), ValidationError> {
     if !is_note_text(text) {
         return Err(ValidationError::Invalid {
             what: "note text",
+            reason: "contains control or invisible formatting characters",
+        });
+    }
+    Ok(())
+}
+
+/// A form field's value (B2-09): within the limit, and only text (it may be empty, and may have
+/// several lines).
+fn check_field_value(value: &str) -> Result<(), ValidationError> {
+    check_text("field value", value, MAX_FIELD_VALUE_BYTES)?;
+    if !is_note_text(value) {
+        return Err(ValidationError::Invalid {
+            what: "field value",
+            reason: "contains control or invisible formatting characters",
+        });
+    }
+    Ok(())
+}
+
+impl Validate for FormField {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.rect.validate()?;
+        if let Some(label) = &self.label {
+            check_text("field label", label, MAX_TEXT_BYTES)?;
+            check_clean("field label", label)?;
+        }
+        check_field_value(&self.value)?;
+        if let Some(on_value) = &self.on_value {
+            check_text("field on value", on_value, MAX_TEXT_BYTES)?;
+            check_field_text_line("field on value", on_value)?;
+        }
+        check_count("field options", self.options.len(), MAX_FIELD_OPTIONS)?;
+        for option in &self.options {
+            check_text("field option", &option.value, MAX_TEXT_BYTES)?;
+            check_field_text_line("field option", &option.value)?;
+            check_text("field option label", &option.label, MAX_TEXT_BYTES)?;
+            check_field_text_line("field option label", &option.label)?;
+        }
+        if let Some(max_len) = self.max_len
+            && max_len == 0
+        {
+            return Err(ValidationError::OutOfRange {
+                what: "field length limit",
+            });
+        }
+        Ok(())
+    }
+}
+
+/// One line of text of a field that is not the field's own text: no line breaks either.
+fn check_field_text_line(what: &'static str, text: &str) -> Result<(), ValidationError> {
+    if !is_note_text(text) || text.contains('\n') {
+        return Err(ValidationError::Invalid {
+            what,
             reason: "contains control or invisible formatting characters",
         });
     }
@@ -754,8 +830,8 @@ mod tests {
     use super::*;
     use crate::types::{
         AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, ErrorCode,
-        HighlightColor, HighlightMark, LinkId, RecentId, Recovery, RequestId, Rotation,
-        SecurityFinding, TabId,
+        FieldId, FieldKind, FieldOption, HighlightColor, HighlightMark, LinkId, RecentId, Recovery,
+        RequestId, Rotation, SecurityFinding, TabId,
     };
     use crate::worker::WorkerErrorCode;
 
@@ -1403,6 +1479,125 @@ mod tests {
             .validate()
             .is_err()
         );
+    }
+
+    #[test]
+    fn form_edits_are_bounded_and_values_are_only_text() {
+        let set = |value: &str| Edit::SetFieldValue {
+            page: 0,
+            field: FieldId(6),
+            value: value.to_owned(),
+        };
+        // A field may be cleared, and may have several lines and its own spacing.
+        for good in ["", "Jane  Q.\nPublic", "隱私 first"] {
+            assert!(set(good).validate().is_ok(), "{good:?}");
+        }
+        for bad in ["a\tb", "a\u{0}b", "a\u{202E}b"] {
+            assert!(set(bad).validate().is_err(), "{bad:?}");
+        }
+        assert!(
+            set(&"a".repeat(MAX_FIELD_VALUE_BYTES as usize))
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            set(&"a".repeat(MAX_FIELD_VALUE_BYTES as usize + 1))
+                .validate()
+                .is_err()
+        );
+        assert!(
+            Edit::SetFieldValue {
+                page: MAX_PAGE_COUNT,
+                field: FieldId(6),
+                value: String::new(),
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(Edit::FlattenForm.validate().is_ok());
+
+        // The frontend's form.
+        assert_eq!(
+            serde_json::from_value::<Edit>(serde_json::json!({
+                "kind": "setFieldValue", "page": 2, "field": 6, "value": "x"
+            }))
+            .unwrap(),
+            Edit::SetFieldValue {
+                page: 2,
+                field: FieldId(6),
+                value: "x".to_owned()
+            }
+        );
+        assert_eq!(
+            serde_json::from_value::<Edit>(serde_json::json!({ "kind": "flattenForm" })).unwrap(),
+            Edit::FlattenForm
+        );
+    }
+
+    #[test]
+    fn form_fields_from_the_worker_are_checked() {
+        let field = |id: u32| FormField {
+            id: FieldId(id),
+            kind: FieldKind::Combo,
+            rect: Rect {
+                x0: 72.0,
+                y0: 100.0,
+                x1: 300.0,
+                y1: 124.0,
+            },
+            label: Some("Country".to_owned()),
+            value: "TW".to_owned(),
+            on_value: None,
+            options: vec![FieldOption {
+                value: "TW".to_owned(),
+                label: "Taiwan".to_owned(),
+            }],
+            read_only: false,
+            required: false,
+            multiline: false,
+            password: false,
+            editable: false,
+            multi_select: false,
+            max_len: None,
+            has_script: false,
+        };
+        let response = |fields: Vec<FormField>| WorkerResponse::PageFields {
+            request: RequestId(1),
+            page_index: 0,
+            fields,
+        };
+        assert!(response(vec![field(1), field(2)]).validate().is_ok());
+        assert!(response(vec![field(1), field(1)]).validate().is_err());
+        assert!(
+            response((0..=MAX_FIELDS_PER_PAGE).map(field).collect())
+                .validate()
+                .is_err()
+        );
+        let broken = |change: &dyn Fn(&mut FormField)| {
+            let mut broken = field(1);
+            change(&mut broken);
+            response(vec![broken]).validate().is_err()
+        };
+        // Not cleaned: a label with a bidirectional override, a value with a control character,
+        // an option with a line break; or out of bounds.
+        assert!(broken(&|f| f.label = Some("a\u{202E}b".to_owned())));
+        assert!(broken(&|f| f.value = "a\u{7}b".to_owned()));
+        assert!(broken(&|f| f.options[0].label = "a\nb".to_owned()));
+        assert!(broken(&|f| f.on_value = Some("a\tb".to_owned())));
+        assert!(broken(&|f| f.rect.x1 = f32::NAN));
+        assert!(broken(&|f| f.max_len = Some(0)));
+        assert!(broken(&|f| {
+            f.options = vec![f.options[0].clone(); MAX_FIELD_OPTIONS as usize + 1];
+        }));
+        assert!(broken(&|f| {
+            f.value = "a".repeat(MAX_FIELD_VALUE_BYTES as usize + 1);
+        }));
+        // A multi-line value is a field's own.
+        let mut text = field(1);
+        text.kind = FieldKind::Text;
+        text.value = "one\n  two".to_owned();
+        text.options.clear();
+        assert!(response(vec![text]).validate().is_ok());
     }
 
     #[test]

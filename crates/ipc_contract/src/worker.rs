@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::PROTOCOL_VERSION;
 use crate::types::{
-    AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, HighlightColor, HighlightMark,
-    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Point, RequestId,
-    Rotation, SearchHit, SecurityReport,
+    AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FormField,
+    HighlightColor, HighlightMark, OutlineResult, PageAnnotation, PageLink, PageSize, PageText,
+    Password, Point, RequestId, Rotation, SearchHit, SecurityReport,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -53,6 +53,14 @@ pub enum WorkerEdit {
         annotation: AnnotationId,
         text: String,
     },
+    /// As [`Edit::SetFieldValue`].
+    SetFieldValue {
+        page: u32,
+        field: FieldId,
+        value: String,
+    },
+    /// As [`Edit::FlattenForm`].
+    FlattenForm,
 }
 
 impl From<&Edit> for WorkerEdit {
@@ -104,6 +112,12 @@ impl From<&Edit> for WorkerEdit {
                 annotation: *annotation,
                 text: text.clone(),
             },
+            Edit::SetFieldValue { page, field, value } => WorkerEdit::SetFieldValue {
+                page: *page,
+                field: *field,
+                value: value.clone(),
+            },
+            Edit::FlattenForm => WorkerEdit::FlattenForm,
         }
     }
 }
@@ -136,6 +150,12 @@ pub enum WorkerRequest {
     },
     /// One page's annotations, other than links, form fields and pop-ups (B2-07).
     GetPageAnnotations {
+        request: RequestId,
+        doc: DocumentId,
+        page_index: u32,
+    },
+    /// One page's form fields (B2-09).
+    GetPageFields {
         request: RequestId,
         doc: DocumentId,
         page_index: u32,
@@ -254,6 +274,11 @@ pub enum WorkerResponse {
         request: RequestId,
         page_index: u32,
         annotations: Vec<PageAnnotation>,
+    },
+    PageFields {
+        request: RequestId,
+        page_index: u32,
+        fields: Vec<FormField>,
     },
     PageText {
         request: RequestId,

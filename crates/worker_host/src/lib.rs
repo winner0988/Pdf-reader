@@ -404,6 +404,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::Outline { request, .. }
         | WorkerResponse::PageLinks { request, .. }
         | WorkerResponse::PageAnnotations { request, .. }
+        | WorkerResponse::PageFields { request, .. }
         | WorkerResponse::PageText { request, .. }
         | WorkerResponse::Png { request, .. }
         | WorkerResponse::Jpeg { request, .. }

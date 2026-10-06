@@ -21,6 +21,7 @@ use crate::text_layer::TextLayerBuilder;
 use thiserror::Error;
 
 mod annotations;
+mod forms;
 
 /// Most form fields looked at to find a signature (`PdfDocument::is_signed`).
 const MAX_FORM_FIELDS: usize = 10_000;
@@ -857,6 +858,13 @@ fn permissions_from(p: i32, revision: Option<i32>) -> DocumentPermissions {
             allows(11)
         },
         annotate: allows(6),
+        // Bit 6 covers annotating and filling in forms; bit 9 (revision 3 and later; reserved, and
+        // set, before) only the latter.
+        fill_forms: if before_revision_3 {
+            allows(6)
+        } else {
+            allows(9) || allows(6)
+        },
     }
 }
 
@@ -942,7 +950,8 @@ fn percent_encode(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use ipc_contract::types::{
-        AnnotationId, AnnotationKind, HighlightColor, HighlightMark, PageAnnotation, Rect,
+        AnnotationId, AnnotationKind, FieldId, FieldKind, FieldOption, FormField, HighlightColor,
+        HighlightMark, PageAnnotation, Rect,
     };
 
     use super::*;
@@ -1264,6 +1273,15 @@ mod tests {
         assert!(!permissions_from(all & !ASSEMBLE, Some(4)).assemble);
         assert!(permissions_from(all & !ASSEMBLE, Some(2)).assemble);
         assert!(!permissions_from(all & !MODIFY & !ASSEMBLE, Some(2)).assemble);
+        // Filling in forms: bit 9 from revision 3 on, or bit 6, which covers it; before revision 3
+        // bit 9 is reserved (and set), so only bit 6 counts (B2-09).
+        const FILL_FORMS: i32 = 1 << 8;
+        const ANNOTATE_BIT: i32 = 1 << 5;
+        assert!(permissions_from(all & !ANNOTATE_BIT, Some(4)).fill_forms);
+        assert!(permissions_from(all & !FILL_FORMS, Some(4)).fill_forms);
+        assert!(!permissions_from(all & !FILL_FORMS & !ANNOTATE_BIT, Some(4)).fill_forms);
+        assert!(!permissions_from(all & !ANNOTATE_BIT, Some(2)).fill_forms);
+        assert!(permissions_from(all & !FILL_FORMS, Some(2)).fill_forms);
         // Annotating has a bit of its own (6), in every revision (B2-07).
         const ANNOTATE: i32 = 1 << 5;
         for revision in [Some(2), Some(4)] {
@@ -1950,6 +1968,267 @@ mod tests {
                 .unwrap()
                 .is_none_or(|target| target.is_null().unwrap())
         );
+    }
+
+    fn form() -> PdfDocument {
+        PdfDocument::from_bytes(&corpus("benign/form-fields.pdf")).expect("open")
+    }
+
+    /// The field named `label` (its tooltip, or its name) among the page's, in the order listed.
+    fn fields_named(doc: &PdfDocument, label: &str) -> Vec<FormField> {
+        doc.page_fields(0)
+            .expect("fields")
+            .into_iter()
+            .filter(|field| field.label.as_deref() == Some(label))
+            .collect()
+    }
+
+    fn only(doc: &PdfDocument, label: &str) -> FormField {
+        let [field] = &fields_named(doc, label)[..] else {
+            panic!("one field named {label}")
+        };
+        field.clone()
+    }
+
+    fn set(doc: &mut PdfDocument, label: &str, value: &str) -> Result<(), EngineError> {
+        let field = only(doc, label);
+        doc.set_field_value(0, field.id, value)
+    }
+
+    #[test]
+    fn lists_a_pages_form_fields_with_what_the_page_needs_to_fill_them() {
+        let doc = form();
+        let fields = doc.page_fields(0).expect("fields");
+        let kinds: Vec<FieldKind> = fields.iter().map(|field| field.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                FieldKind::Text,
+                FieldKind::Text,
+                FieldKind::Text,
+                FieldKind::Checkbox,
+                FieldKind::Radio,
+                FieldKind::Radio,
+                FieldKind::Radio,
+                FieldKind::Combo,
+                FieldKind::List,
+                FieldKind::Text,
+                FieldKind::Text,
+            ]
+        );
+        let name = only(&doc, "Your name");
+        assert_eq!(name.value, "Jane Q. Public");
+        assert!(!name.read_only && !name.required && !name.multiline && name.max_len.is_none());
+        // Page space, origin at the top left: [72 650 300 674] on a 792-point page.
+        assert_eq!(
+            name.rect,
+            Rect {
+                x0: 72.0,
+                y0: 118.0,
+                x1: 300.0,
+                y1: 142.0
+            }
+        );
+        assert!(only(&doc, "Notes").multiline);
+        assert_eq!(
+            only(&doc, "Code of at most five characters").max_len,
+            Some(5)
+        );
+        assert!(only(&doc, "Required").required);
+        // A field without a tooltip is called by its name.
+        let locked = only(&doc, "locked");
+        assert!(locked.read_only);
+        assert_eq!(locked.value, "Locked value");
+
+        let agree = only(&doc, "I agree");
+        assert_eq!(
+            (agree.value.as_str(), agree.on_value.as_deref()),
+            ("Off", Some("Yes"))
+        );
+        let sizes = fields_named(&doc, "Size");
+        let on: Vec<_> = sizes
+            .iter()
+            .map(|field| field.on_value.clone().unwrap())
+            .collect();
+        assert_eq!(on, ["Small", "Medium", "Large"]);
+        assert!(sizes.iter().all(|field| field.value == "Off"));
+
+        let country = only(&doc, "Country");
+        assert_eq!(country.value, "TW");
+        assert_eq!(
+            country.options,
+            [("TW", "Taiwan"), ("JP", "Japan"), ("US", "United States")].map(|(value, label)| {
+                FieldOption {
+                    value: value.to_owned(),
+                    label: label.to_owned(),
+                }
+            })
+        );
+        assert!(!country.editable);
+        let fruit = only(&doc, "Fruit");
+        assert_eq!(fruit.value, "banana");
+        assert_eq!(fruit.options.len(), 3);
+        assert!(fields.iter().all(|field| !field.has_script));
+        assert!(matches!(
+            doc.page_fields(1),
+            Err(EngineError::PageOutOfRange(1))
+        ));
+    }
+
+    #[test]
+    fn fields_are_filled_in_and_the_values_are_in_the_saved_file() {
+        let mut doc = form();
+        set(&mut doc, "Your name", "林 小明").expect("text");
+        set(&mut doc, "Notes", "one\n  two").expect("several lines");
+        set(&mut doc, "Code of at most five characters", "AB12Z").expect("limit");
+        set(&mut doc, "I agree", "Yes").expect("check");
+        set(&mut doc, "Country", "JP").expect("combo");
+        set(&mut doc, "Fruit", "cherry").expect("list");
+        // A radio button takes the whole group with it.
+        let sizes = fields_named(&doc, "Size");
+        doc.set_field_value(0, sizes[1].id, "Medium")
+            .expect("radio");
+        let states = |doc: &PdfDocument| -> Vec<String> {
+            fields_named(doc, "Size")
+                .into_iter()
+                .map(|field| field.value)
+                .collect()
+        };
+        assert_eq!(states(&doc), ["Off", "Medium", "Off"]);
+        doc.set_field_value(0, sizes[2].id, "Large").expect("radio");
+        assert_eq!(states(&doc), ["Off", "Off", "Large"]);
+
+        let (bytes, _) = saved(&doc);
+        let reopened = PdfDocument::from_bytes(&bytes).expect("reopen");
+        assert_eq!(only(&reopened, "Your name").value, "林 小明");
+        assert_eq!(only(&reopened, "Notes").value, "one\n  two");
+        assert_eq!(
+            only(&reopened, "Code of at most five characters").value,
+            "AB12Z"
+        );
+        assert_eq!(only(&reopened, "I agree").value, "Yes");
+        assert_eq!(only(&reopened, "Country").value, "JP");
+        assert_eq!(only(&reopened, "Fruit").value, "cherry");
+        assert_eq!(states(&reopened), ["Off", "Off", "Large"]);
+        // The value of a button is a name, as other readers expect (MuPDF writes a text).
+        let agree = every_dictionary(&reopened.doc)
+            .into_iter()
+            .find(|dict| {
+                dict.get_dict("T")
+                    .ok()
+                    .flatten()
+                    .is_some_and(|name| name.as_string().ok().as_deref() == Some("agree"))
+            })
+            .expect("the check box");
+        assert!(agree.get_dict("V").unwrap().unwrap().is_name().unwrap());
+
+        // A check box goes off again.
+        let mut again = PdfDocument::from_bytes(&bytes).expect("reopen");
+        set(&mut again, "I agree", "Off").expect("uncheck");
+        assert_eq!(only(&again, "I agree").value, "Off");
+        // And a field is cleared.
+        set(&mut again, "Your name", "").expect("clear");
+        assert_eq!(only(&again, "Your name").value, "");
+    }
+
+    #[test]
+    fn what_a_field_cannot_have_is_refused_and_changes_nothing() {
+        let mut doc = form();
+        let before = doc.page_fields(0).expect("fields");
+        let name = only(&doc, "Your name");
+        let sizes = fields_named(&doc, "Size");
+        let code = "Code of at most five characters";
+        for (label, value) in [
+            ("locked", "other"),
+            (code, "six 6!"),
+            ("Your name", "two\nlines"),
+            ("Country", "FR"),
+            ("Fruit", "kiwi"),
+            ("I agree", "Maybe"),
+        ] {
+            assert!(
+                matches!(
+                    set(&mut doc, label, value),
+                    Err(EngineError::InvalidEdit(_))
+                ),
+                "{label}: {value}"
+            );
+        }
+        // A radio button is only turned on, and the field must be on the page.
+        assert!(matches!(
+            doc.set_field_value(0, sizes[0].id, "Off"),
+            Err(EngineError::InvalidEdit(_))
+        ));
+        assert!(matches!(
+            doc.set_field_value(0, sizes[0].id, "Large"),
+            Err(EngineError::InvalidEdit(_))
+        ));
+        assert!(matches!(
+            doc.set_field_value(0, FieldId(9_999), "x"),
+            Err(EngineError::InvalidEdit(_))
+        ));
+        assert!(matches!(
+            doc.set_field_value(3, name.id, "x"),
+            Err(EngineError::PageOutOfRange(3))
+        ));
+        assert_eq!(doc.page_fields(0).expect("fields"), before);
+    }
+
+    #[test]
+    fn scripts_are_noticed_and_never_run() {
+        // /AA keystroke and format scripts: the field is filled in, and the scripts did nothing.
+        let mut doc = PdfDocument::from_bytes(&corpus("malicious/field-aa.pdf")).expect("open");
+        let [field] = &doc.page_fields(0).expect("fields")[..] else {
+            panic!("one field")
+        };
+        assert!(field.has_script);
+        let id = field.id;
+        doc.set_field_value(0, id, "12.5").expect("set");
+        assert_eq!(doc.page_fields(0).expect("fields")[0].value, "12.5");
+        // The sample of fields without scripts says so.
+        assert!(
+            form()
+                .page_fields(0)
+                .expect("fields")
+                .iter()
+                .all(|field| !field.has_script)
+        );
+    }
+
+    #[test]
+    fn flattening_turns_the_fields_into_page_content() {
+        let mut doc = form();
+        set(&mut doc, "Your name", "Flattened Name").expect("set");
+        doc.flatten_form().expect("flatten");
+        assert!(doc.page_fields(0).expect("fields").is_empty());
+        let (bytes, _) = saved(&doc);
+        assert!(!contains(&bytes, b"AcroForm"));
+        assert!(!contains(&bytes, b"/FT"));
+        assert!(!contains(&bytes, b"/Widget"));
+        let reopened = PdfDocument::from_bytes(&bytes).expect("reopen");
+        assert!(reopened.page_fields(0).expect("fields").is_empty());
+        // What the fields showed is on the page now, where the text can be found.
+        let text: Vec<String> = reopened
+            .page_text(0, 10_000)
+            .expect("text")
+            .lines
+            .into_iter()
+            .map(|line| line.text)
+            .collect();
+        assert!(
+            text.iter().any(|line| line.contains("Flattened Name")),
+            "{text:?}"
+        );
+        assert!(
+            text.iter().any(|line| line.contains("Locked value")),
+            "{text:?}"
+        );
+        // A signed document keeps its fields: flattening would make its signatures worthless.
+        let mut signed = PdfDocument::from_bytes(&corpus("benign/signed.pdf")).expect("open");
+        assert!(matches!(
+            signed.flatten_form(),
+            Err(EngineError::InvalidEdit(_))
+        ));
     }
 
     #[test]

@@ -91,7 +91,7 @@ export type ExportEvent = { "kind": "progress", pagesDone: number, total: number
  * A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
  * those of the document as it is before the edit.
  */
-export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "addHighlight", marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, };
+export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "addHighlight", marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" };
 
 /**
  * The highlighter's colors (B2-07).
@@ -128,6 +128,63 @@ rect: Rect,
  * A highlighter mark in one of the app's colors.
  */
 color: HighlightColor | null, text: string | null, };
+
+/**
+ * A form field of an open document: the number of its widget in the document, which stays the
+ * same through edits and saving (B2-09).
+ */
+export type FieldId = number;
+
+/**
+ * What kind of field it is, as far as the app fills it in (B2-09). Push buttons and signature
+ * fields are not listed.
+ */
+export type FieldKind = "text" | "checkbox" | "radio" | "combo" | "list";
+
+/**
+ * One choice of a combo box or list box (B2-09): what is stored and what is shown.
+ */
+export type FieldOption = { value: string, label: string, };
+
+/**
+ * A form field of a page (B2-09), from the page's worker. Text is cleaned like any text from a
+ * PDF. Nothing here is ever run: a field's scripts only make `has_script` true.
+ */
+export type FormField = { id: FieldId, kind: FieldKind, 
+/**
+ * Where it is on the page (page space).
+ */
+rect: Rect, 
+/**
+ * What the field is for: its tooltip, or else its name.
+ */
+label: string | null, 
+/**
+ * The text of a text field; the chosen option's value of a combo box or list box; for a
+ * check box or radio button the state it is in (`on_value` or `"Off"`).
+ */
+value: string, 
+/**
+ * What a check box or radio button is set to when it is on.
+ */
+onValue: string | null, options: Array<FieldOption>, 
+/**
+ * The field cannot be changed: the author says so, or the app cannot do it right (a list
+ * that allows several choices, a value cut short).
+ */
+readOnly: boolean, required: boolean, multiline: boolean, password: boolean, 
+/**
+ * A combo box whose value may also be typed.
+ */
+editable: boolean, multiSelect: boolean, 
+/**
+ * Most characters of a text field.
+ */
+maxLen: number | null, 
+/**
+ * The field has scripts (to calculate, format, check or react to keys), which are never run.
+ */
+hasScript: boolean, };
 
 /**
  * Arguments of `apply_edit` (B2-02). Any other field is rejected.
@@ -225,7 +282,11 @@ assemble: boolean,
 /**
  * Adding, changing and removing annotations (`/P` bit 6, B2-07).
  */
-annotate: boolean, };
+annotate: boolean, 
+/**
+ * Filling in form fields (`/P` bit 9, or bit 6 which covers annotations and forms, B2-09).
+ */
+fillForms: boolean, };
 
 /**
  * Changes to a file that an earlier run of the app made but neither saved nor discarded: it
@@ -428,6 +489,9 @@ export const LIMITS = {
   maxHighlightPages: 100,
   maxNoteTextBytes: 4096,
   maxAnnotationsPerPage: 2000,
+  maxFieldsPerPage: 5000,
+  maxFieldValueBytes: 16384,
+  maxFieldOptions: 1000,
   protocolVersion: 0,
 } as const;
 

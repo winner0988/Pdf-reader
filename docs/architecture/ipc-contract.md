@@ -48,6 +48,7 @@ flowchart LR
 | `render_page` | `{ args: RenderPageArgs }` | `ArrayBuffer`（見「頁面影像」） | 是 | MVP-07 |
 | `get_outline` | `{ doc: DocumentId }` | `OutlineResult` | 否 | MVP-09 |
 | `get_page_links` | `{ doc: DocumentId, pageIndex: number }` | `PageLink[]` | 否 | MVP-12 |
+| `get_page_fields` | `{ doc: DocumentId, pageIndex: number }` | `FormField[]`：`id`、`kind`（`text`／`checkbox`／`radio`／`combo`／`list`）、`rect`、`label`、`value`、`onValue`、`options`、旗標（`readOnly`、`required`、`multiline`、`password`、`editable`、`multiSelect`）、`maxLen`、`hasScript`；不含隱藏的欄位、按鈕與簽章欄位，最多 `LIMITS.maxFieldsPerPage`（見 [forms.md](forms.md)） | 否 | B2-09 |
 | `get_page_annotations` | `{ doc: DocumentId, pageIndex: number }` | `PageAnnotation[]`：`id`（文件中的物件編號）、`kind`（`highlight`／`note`／`other`）、`rect`、`color`（螢光筆的四種顏色之一，或 `null`）、`text`（附註的文字，已清理）；不含連結、表單欄位與彈出視窗，最多 `LIMITS.maxAnnotationsPerPage`（見 [annotations.md](annotations.md)） | 否 | B2-07 |
 | `get_page_text` | `{ doc: DocumentId, pageIndex: number }` | `PageText`：每一行的文字、四邊形與字元位置（見 [text-selection.md](text-selection.md)） | 否 | MVP-15 |
 | `describe_link` | `{ args: LinkArgs }`（`{ doc, link: LinkId }`，其他欄位一律拒絕） | `LinkPreview`：原始 URI、實際開啟的 ASCII 形式、主機（Unicode）與 punycode | 否 | MVP-12 |
@@ -66,7 +67,7 @@ flowchart LR
 | `get_settings` | 無 | `Settings`：`theme`（`system`／`light`／`dark`）、`recordRecentFiles`（見 [local-data.md](local-data.md)） | 否 | B2-12 |
 | `set_settings` | `{ settings: Settings }`（完整的一組，其他欄位一律拒絕） | 無；立即套用並寫入 `settings.json`，寫不進去時回傳 `unreadable`（仍然套用）；關閉最近開啟的檔案時一併清除清單 | 否 | B2-12 |
 | `export_pages` | `{ args: ExportArgs, onEvent: Channel<ExportEvent> }`：`request`、`doc`、`pages`（最多 `LIMITS.maxExportPages`）、`format`（`text`，或 `png`／`jpg` 與 `dpi`）；不含路徑，其他欄位一律拒絕 | `boolean`：`false` 表示使用者關閉了系統的對話框；進度走頻道；以 `cancel(args.request)` 停止。作者禁止複製時拒絕（見 [export.md](export.md)） | 是 | B2-04 |
-| `apply_edit` | `{ args: EditArgs }`：`doc`、`edit`（`Edit`：`rotatePages { pages, by }`、`deletePages { pages }`、`movePages { pages, before }`、`insertBlankPage { at, like }`，見 [page-management.md](page-management.md)；註解：`addHighlight { marks, color }`（`marks`：每頁的 `{ page, quads }`）、`addNote { page, at, text }`、`deleteAnnotation { page, annotation }`、`setHighlightColor { page, annotation, color }`、`setNoteText { page, annotation, text }`，見 [annotations.md](annotations.md)）；其他欄位一律拒絕 | 無；文件換新的 `DocumentId`，分頁的新狀態（`opened`，`unsaved: true`）走開檔頻道。作者禁止時拒絕（見 [saving.md](saving.md)） | 否 | B2-02、B2-05 |
+| `apply_edit` | `{ args: EditArgs }`：`doc`、`edit`（`Edit`：`rotatePages { pages, by }`、`deletePages { pages }`、`movePages { pages, before }`、`insertBlankPage { at, like }`，見 [page-management.md](page-management.md)；註解：`addHighlight { marks, color }`（`marks`：每頁的 `{ page, quads }`）、`addNote { page, at, text }`、`deleteAnnotation { page, annotation }`、`setHighlightColor { page, annotation, color }`、`setNoteText { page, annotation, text }`，見 [annotations.md](annotations.md)）；表單：`setFieldValue { page, field, value }`、`flattenForm`，見 [forms.md](forms.md)；其他欄位一律拒絕 | 無；文件換新的 `DocumentId`，分頁的新狀態（`opened`，`unsaved: true`）走開檔頻道。作者禁止時拒絕（見 [saving.md](saving.md)） | 否 | B2-02、B2-05 |
 | `undo_edit` | `{ args: UndoArgs }`：`doc`、`password`（以密碼開啟的文件才需要，否則 `null`；驗證同 `unlock_tab`；其他欄位一律拒絕） | 無；復原最後一個編輯，文件換新的 `DocumentId`，分頁的新狀態走開檔頻道。沒有可復原的編輯時拒絕；以密碼開啟的文件沒有帶密碼或密碼錯誤時回 `encrypted`（見 [page-management.md](page-management.md)） | 否 | B2-05 |
 | `redo_edit` | `{ doc: DocumentId }` | 無；重做最後一個復原掉的編輯，不需要密碼，其餘同 `undo_edit` | 否 | B2-05 |
 | `recover_edits` | `{ doc: DocumentId }` | 無；重新套用上一次執行留下的編輯（`recovery` 為 `available` 時），文件換新的 `DocumentId`，分頁的新狀態走開檔頻道。文件已有自己的編輯、或沒有可還原的編輯時回 `invalidArgument`（見 [crash-recovery.md](crash-recovery.md)） | 否 | B2-13 |
@@ -110,7 +111,7 @@ flowchart LR
 - `RequestId` 由前端產生，只用來取消；主行程另外配發送給 worker 的 `RequestId`，前端無法直接指定 worker 端的請求。
 - 主行程收到命令後先以 `validate` 模組檢查參數（縮放範圍、查詢長度、頁碼是否在範圍內），不合格回傳 `invalidArgument`。
 - `DocumentInfo.displayName` 只能是檔名；`validate` 會拒絕含有 `/`、`\`、`:` 的值。
-- `DocumentInfo.permissions`（MVP-19）：文件作者是否允許複製文字、列印、高品質列印、修改（`modify`）、組合文件（`assemble`，插入、刪除、旋轉頁面）與註解（`annotate`，B2-07），由 worker 從加密字典讀取；未加密的文件全部為 `true`。見 [encryption.md](encryption.md)「權限」。
+- `DocumentInfo.permissions`（MVP-19）：文件作者是否允許複製文字、列印、高品質列印、修改（`modify`）、組合文件（`assemble`，插入、刪除、旋轉頁面）、註解（`annotate`，B2-07）與填寫表單（`fillForms`，B2-09），由 worker 從加密字典讀取；未加密的文件全部為 `true`。見 [encryption.md](encryption.md)「權限」。
 - `DocumentInfo.unsaved`（B2-02）：文件在開啟或上次存檔後有變更，檔案還沒有這些變更。
 - `DocumentInfo.canUndo`／`canRedo`（B2-05）：有可以復原或重做的編輯。以密碼開啟的文件復原時要再輸入密碼。
 - `DocumentInfo.recovery`（B2-13）：上一次執行留下、還沒回答的編輯：`none`、`available`（可以還原）或 `stale`（檔案已改變，不能還原）。見 [crash-recovery.md](crash-recovery.md)。

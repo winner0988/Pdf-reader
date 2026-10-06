@@ -8,7 +8,7 @@ import type { DocumentPermissions } from "@/ipc/generated/contract";
 export type { DocumentPermissions };
 
 /** What an unencrypted document (and demo data) allows. */
-export const ALL_PERMISSIONS: DocumentPermissions = { copy: true, print: true, printHighQuality: true, modify: true, assemble: true, annotate: true };
+export const ALL_PERMISSIONS: DocumentPermissions = { copy: true, print: true, printHighQuality: true, modify: true, assemble: true, annotate: true, fillForms: true };
 
 /** The status bar's note of what is restricted, or null when nothing is. */
 export function restrictionSummary(permissions: DocumentPermissions): string | null {

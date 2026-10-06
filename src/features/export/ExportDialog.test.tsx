@@ -132,7 +132,7 @@ describe("export (B2-04)", () => {
 
   it("is not offered when the author forbids copying (MVP-19)", async () => {
     const fake = fakeExportApi();
-    const { user } = renderShell(fake.api, { copy: false, print: true, printHighQuality: true, modify: true, assemble: true, annotate: true });
+    const { user } = renderShell(fake.api, { copy: false, print: true, printHighQuality: true, modify: true, assemble: true, annotate: true, fillForms: true });
     await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
     const item = await screen.findByRole("menuitem", { name: new RegExp(`^${strings.menu.export}`) });
     expect(item).toHaveAttribute("aria-disabled", "true");
