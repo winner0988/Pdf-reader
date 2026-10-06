@@ -10,8 +10,8 @@ use std::io::{Read, Write};
 use ipc_contract::frame::{self, FrameError};
 use ipc_contract::limits::{
     MAX_DOCUMENT_BYTES, MAX_ERROR_MESSAGE_BYTES, MAX_LINKS_PER_PAGE, MAX_OUTLINE_DEPTH,
-    MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_PAGE_TEXT_CHARS, MAX_SEARCH_HITS, MAX_TEXT_BYTES,
-    MAX_UNDO_EDITS,
+    MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_PAGE_TEXT_CHARS, MAX_SEARCH_HITS,
+    MAX_STAMP_SOURCE_BYTES, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
 };
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
@@ -23,7 +23,7 @@ use ipc_contract::worker::{
     WorkerResponse,
 };
 
-use crate::engine::{EngineError, OutlineTarget, PdfDocument};
+use crate::engine::{EngineError, OutlineTarget, PdfDocument, prepare_stamp_picture};
 use crate::handle;
 use crate::scan::ScanBudget;
 
@@ -250,7 +250,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 password.as_ref(),
             )),
             WorkerRequest::Rebase { request, doc, file } => Some(if documents.contains_key(&doc) {
-                match read_limited(handle::take_file(file)) {
+                match read_limited(handle::take_file(file), MAX_DOCUMENT_BYTES) {
                     Ok(bytes) => {
                         originals.insert(doc, bytes);
                         WorkerResponse::Rebased { request }
@@ -285,6 +285,9 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => privacy_copy(document, request, file, &id),
             }),
+            WorkerRequest::PrepareStampImage { request, file } => {
+                Some(prepare_stamp_image(request, file))
+            }
             // Requests are handled one at a time, so there is nothing in flight to cancel.
             WorkerRequest::Cancel { .. } => None,
             WorkerRequest::Close { doc } => {
@@ -310,7 +313,7 @@ fn open(
     file: FileHandle,
     password: Option<Password>,
 ) -> WorkerResponse {
-    let bytes = match read_limited(handle::take_file(file)) {
+    let bytes = match read_limited(handle::take_file(file), MAX_DOCUMENT_BYTES) {
         Ok(bytes) => bytes,
         Err(response) => return response(request),
     };
@@ -447,8 +450,28 @@ fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineErro
             annotation,
             rect,
         } => document.set_annotation_rect(*page, *annotation, *rect)?,
+        WorkerEdit::AddImageStamp { page, rect, png } => {
+            document.add_image_stamp(*page, *rect, png)?;
+        }
     }
     Ok(())
+}
+
+/// Makes the picture behind the read-only handle `file` into what a stamp is made of (B2-08).
+fn prepare_stamp_image(request: RequestId, file: FileHandle) -> WorkerResponse {
+    let bytes = match read_limited(handle::take_file(file), MAX_STAMP_SOURCE_BYTES as u64) {
+        Ok(bytes) => bytes,
+        Err(response) => return response(request),
+    };
+    match prepare_stamp_picture(&bytes) {
+        Ok(picture) => WorkerResponse::StampImage {
+            request,
+            png: picture.png,
+            width: picture.width,
+            height: picture.height,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+    }
 }
 
 /// Writes the document to the write-only handle `file` (ADR 0013). The handle is closed when
@@ -497,7 +520,7 @@ fn privacy_copy(
 
 type ErrorFor = fn(RequestId) -> WorkerResponse;
 
-fn read_limited(file: Option<File>) -> Result<Vec<u8>, ErrorFor> {
+fn read_limited(file: Option<File>, limit: u64) -> Result<Vec<u8>, ErrorFor> {
     let Some(file) = file else {
         return Err(|request| {
             error(
@@ -508,11 +531,7 @@ fn read_limited(file: Option<File>) -> Result<Vec<u8>, ErrorFor> {
         });
     };
     let mut bytes = Vec::new();
-    if file
-        .take(MAX_DOCUMENT_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .is_err()
-    {
+    if file.take(limit + 1).read_to_end(&mut bytes).is_err() {
         return Err(|request| {
             error(
                 request,
@@ -521,7 +540,7 @@ fn read_limited(file: Option<File>) -> Result<Vec<u8>, ErrorFor> {
             )
         });
     }
-    if bytes.len() as u64 > MAX_DOCUMENT_BYTES {
+    if bytes.len() as u64 > limit {
         return Err(|request| error(request, WorkerErrorCode::LimitExceeded, "file too large"));
     }
     Ok(bytes)
@@ -606,11 +625,13 @@ fn engine_error(
         EngineError::InvalidScale
         | EngineError::InvalidRotation
         | EngineError::InvalidEdit(_)
+        | EngineError::InvalidPicture(_)
         | EngineError::NoPageLeft
         | EngineError::EncryptedCopy => WorkerErrorCode::InvalidRequest,
-        EngineError::TooLarge { .. } | EngineError::TooComplex | EngineError::TooManyPages => {
-            WorkerErrorCode::LimitExceeded
-        }
+        EngineError::TooLarge { .. }
+        | EngineError::TooComplex
+        | EngineError::TooManyPages
+        | EngineError::PictureTooLarge => WorkerErrorCode::LimitExceeded,
         EngineError::Write(error) => match error.kind() {
             std::io::ErrorKind::StorageFull => WorkerErrorCode::DiskFull,
             std::io::ErrorKind::FileTooLarge => WorkerErrorCode::LimitExceeded,

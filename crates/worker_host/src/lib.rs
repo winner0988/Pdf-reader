@@ -407,6 +407,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::PageFields { request, .. }
         | WorkerResponse::PageText { request, .. }
         | WorkerResponse::Png { request, .. }
+        | WorkerResponse::StampImage { request, .. }
         | WorkerResponse::Jpeg { request, .. }
         | WorkerResponse::PageSearched { request, .. }
         | WorkerResponse::Edited { request, .. }

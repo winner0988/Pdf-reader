@@ -408,6 +408,17 @@ impl Validate for WorkerResponse {
                 Ok(())
             }
             WorkerResponse::PageText { text, .. } => text.validate(),
+            WorkerResponse::StampImage {
+                png, width, height, ..
+            } => {
+                if stamp_png_size(png)? != (*width, *height) {
+                    return Err(ValidationError::Invalid {
+                        what: "stamp picture",
+                        reason: "is not the size it says",
+                    });
+                }
+                Ok(())
+            }
             WorkerResponse::Png { png, .. } => check_png(png),
             WorkerResponse::Jpeg { jpeg, .. } => check_jpeg(jpeg),
             WorkerResponse::PageSearched { hits, .. } => {
@@ -506,6 +517,33 @@ fn check_png(png: &[u8]) -> Result<(), ValidationError> {
         });
     }
     Ok(())
+}
+
+/// The picture of a stamp (B2-08): a PNG file of at most `MAX_STAMP_PNG_BYTES`, its first chunk
+/// the header, of a size from 1 x 1 up to `MAX_STAMP_SIDE_PX` on each side. Returns that size,
+/// as the header says it. Nothing of the picture is decoded.
+pub fn stamp_png_size(png: &[u8]) -> Result<(u32, u32), ValidationError> {
+    check_count("stamp PNG bytes", png.len(), MAX_STAMP_PNG_BYTES as u32)?;
+    // The signature, then the header chunk: 13 bytes of data, named IHDR, the size first.
+    let header = png.get(8..24).filter(|_| png.starts_with(&PNG_SIGNATURE));
+    let Some(header) =
+        header.filter(|header| header[..4] == [0, 0, 0, 13] && &header[4..8] == b"IHDR")
+    else {
+        return Err(ValidationError::Invalid {
+            what: "stamp PNG",
+            reason: "does not start with the PNG signature and header",
+        });
+    };
+    let side = |bytes: &[u8]| u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    let (width, height) = (side(&header[8..12]), side(&header[12..16]));
+    for side in [width, height] {
+        if side == 0 || side > MAX_STAMP_SIDE_PX {
+            return Err(ValidationError::OutOfRange {
+                what: "stamp picture size",
+            });
+        }
+    }
+    Ok((width, height))
 }
 
 /// The first bytes of every JPEG file: the start-of-image marker, then another marker.
