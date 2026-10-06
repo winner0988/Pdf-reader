@@ -66,7 +66,7 @@ recordRecentFiles: boolean, };
 /**
  * What an export writes (B2-04).
  */
-export type ExportFormat = { "kind": "text" } | { "kind": "png", dpi: number, } | { "kind": "jpg", dpi: number, };
+export type ExportFormat = { "kind": "text" } | { "kind": "png", dpi: number, } | { "kind": "jpg", dpi: number, } | { "kind": "pdf" } | { "kind": "pdfEvery", count: number, };
 
 /**
  * Arguments of `export_pages` (B2-04): what to export, never where; the main process asks the
@@ -495,6 +495,7 @@ export const LIMITS = {
   maxTabs: 20,
   maxRecentFiles: 20,
   maxExportPages: 1000,
+  maxSplitFiles: 1000,
   maxAnnotationQuads: 1000,
   maxHighlightPages: 100,
   maxNoteTextBytes: 4096,

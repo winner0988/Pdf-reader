@@ -679,6 +679,64 @@ impl Documents {
         })
     }
 
+    /// Writes the pages `pages` (0-based, no repeats, in this order) of `doc` to `destination` as a
+    /// document of their own (B2-06): made by the document's worker from the document as it is
+    /// now, edits included. The document and its file are not changed. Refused for an encrypted
+    /// document, whose copy could not be encrypted again, and for the document's own file.
+    pub fn save_pages(
+        &self,
+        doc: DocumentId,
+        pages: &[u32],
+        destination: &Path,
+    ) -> Result<(), IpcError> {
+        self.with_document(doc, |document| {
+            if document.info.encrypted {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "an encrypted document cannot be split: its pages would lose the protection its author asked for"
+                        .to_owned(),
+                });
+            }
+            // Pages are copied out of the document: the author's permission to copy covers it.
+            if !document.info.permissions.copy {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "the document's author does not allow copying its content"
+                        .to_owned(),
+                });
+            }
+            if same_file(&document.path, destination) {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "some pages never replace the document's own file".to_owned(),
+                });
+            }
+            let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+            let mut seen = std::collections::HashSet::new();
+            for &page in pages {
+                check_page_index(page, page_count).map_err(invalid_argument)?;
+                if !seen.insert(page) {
+                    return Err(invalid_argument("a page appears twice"));
+                }
+            }
+            if pages.is_empty() {
+                return Err(invalid_argument("no pages to save"));
+            }
+            saving::check_writable(destination)?;
+            let mut temporary = Temporary::new(destination)?;
+            let worker_doc = live_worker(document)?;
+            let response = document
+                .host
+                .save_pages(worker_doc, pages, temporary.file())
+                .map_err(|error| lost_on(document, &error))?;
+            let WorkerResponse::Saved { bytes, .. } = response else {
+                return Err(unexpected("SavePages"));
+            };
+            temporary.check(bytes)?;
+            temporary.replace(destination)
+        })
+    }
+
     /// Whether `path` is the file of the open document `doc` (the privacy export may not write
     /// there).
     pub fn is_document_file(&self, doc: DocumentId, path: &Path) -> bool {
@@ -3355,6 +3413,81 @@ mod with_worker {
             ErrorCode::InvalidArgument
         );
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn some_pages_are_saved_as_a_document_of_their_own_and_the_document_is_not_changed() {
+        let (documents, info, path) = open("split-pages", 6);
+        let doc = edit_then_split_setup(&documents, info.doc);
+        let destination =
+            std::env::temp_dir().join(format!("b206-split-{}.pdf", std::process::id()));
+        std::fs::remove_file(&destination).ok();
+        // Pages 2, 3 and 5 of what the document is now, edits included: one was deleted before.
+        documents
+            .save_pages(doc.doc, &[1, 2, 4], &destination)
+            .unwrap();
+        let copy = open_in(&Documents::new(worker()), &destination);
+        assert_eq!(copy.pages, [LETTER, LETTER, LETTER]);
+        assert!(!copy.unsaved);
+        // The document keeps its pages, its edits and its file.
+        let after = documents.document_info(doc.doc).unwrap();
+        assert_eq!(after.pages.len(), 5);
+        assert!(after.unsaved);
+
+        // A page that is not there, one named twice, none, the document's own file or one that
+        // is not writable: nothing is written and nothing changes.
+        let refused =
+            |pages: &[u32], to: &Path| documents.save_pages(doc.doc, pages, to).unwrap_err().code;
+        let other = std::env::temp_dir().join(format!("b206-never-{}.pdf", std::process::id()));
+        for wrong in [&[][..], &[9], &[1, 1]] {
+            assert_eq!(refused(wrong, &other), ErrorCode::InvalidArgument);
+        }
+        assert_eq!(refused(&[0], &path), ErrorCode::InvalidArgument);
+        assert!(!other.exists());
+        std::fs::remove_file(&destination).ok();
+        std::fs::remove_file(path).ok();
+    }
+
+    /// Deletes the first page of the document, which has pages of a mixed size: the edit the
+    /// split must take into account.
+    fn edit_then_split_setup(documents: &Documents, doc: DocumentId) -> DocumentInfo {
+        opened_info(
+            documents
+                .apply_edit(&EditArgs {
+                    doc,
+                    edit: Edit::DeletePages { pages: vec![0] },
+                })
+                .unwrap(),
+        )
+    }
+
+    #[test]
+    fn an_encrypted_document_or_one_that_cannot_be_copied_is_not_split() {
+        let documents = Documents::new(worker());
+        let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign");
+        let destination =
+            std::env::temp_dir().join(format!("b206-refused-{}.pdf", std::process::id()));
+        // Encrypted (the user password is "user").
+        let (_, info) = unlocked(&documents, &corpus.join("encrypted-rc4-40.pdf"));
+        assert!(info.encrypted);
+        assert_eq!(
+            documents
+                .save_pages(info.doc, &[0], &destination)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        // The author does not allow copying.
+        let info = open_in(&documents, &corpus.join("restricted-no-copy-no-print.pdf"));
+        assert!(!info.permissions.copy);
+        assert_eq!(
+            documents
+                .save_pages(info.doc, &[0], &destination)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        assert!(!destination.exists());
     }
 
     #[test]

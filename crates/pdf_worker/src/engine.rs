@@ -817,6 +817,52 @@ impl PdfDocument {
     }
 }
 
+impl PdfDocument {
+    /// Writes the pages `pages` (0-based, no repeats) of this document to `out` as a document of
+    /// their own (B2-06), in the order they have in the document. The open document is not
+    /// touched: it is saved into memory and opened again, and that second document loses the
+    /// other pages as any document does (see `delete_pages`: what only they had goes too, and
+    /// what pointed to them points nowhere). What the kept pages have, their annotations,
+    /// links and form fields included, stays as it is, and so does what belongs to the document
+    /// as a whole.
+    ///
+    /// An encrypted document is refused, as for the privacy export: the worker keeps no
+    /// password, so the copy could not be encrypted again, and an unencrypted one would drop what
+    /// its author asked for.
+    pub fn pages_copy(&self, pages: &[u32], out: &mut impl Write) -> Result<u64, EngineError> {
+        if self.is_encrypted() {
+            return Err(EngineError::EncryptedCopy);
+        }
+        if pages.is_empty() {
+            return Err(EngineError::InvalidEdit("no pages to copy"));
+        }
+        let count = self.page_count()?;
+        let mut seen = HashSet::new();
+        for &page in pages {
+            if page >= count {
+                return Err(EngineError::PageOutOfRange(page));
+            }
+            if !seen.insert(page) {
+                return Err(EngineError::InvalidEdit("a page appears twice"));
+            }
+        }
+        let mut options = PdfWriteOptions::default();
+        options.set_garbage(true);
+        let mut bytes = Vec::new();
+        write_limited(&self.doc, &mut bytes, options)?;
+        let mut copy = PdfDocument::from_bytes(&bytes)?;
+        drop(bytes);
+        let keep: HashSet<u32> = pages.iter().copied().collect();
+        let others: Vec<u32> = (0..count).filter(|page| !keep.contains(page)).collect();
+        if !others.is_empty() {
+            copy.delete_pages(&others)?;
+        }
+        let mut options = PdfWriteOptions::default();
+        options.set_garbage(true);
+        write_limited(&copy.doc, out, options)
+    }
+}
+
 /// Writes `doc` to `out` with `options`, stopping with `Write(FileTooLarge)` beyond
 /// `MAX_DOCUMENT_BYTES`; returns the bytes written.
 fn write_limited(
@@ -2287,6 +2333,102 @@ mod tests {
         let (bytes, _) = saved(&doc);
         let reopened = PdfDocument::from_bytes(&bytes).expect("reopen");
         assert_eq!(numbered(&reopened), before);
+    }
+
+    /// The pages `pages` of `doc` as a document of their own, opened again.
+    fn pages_of(doc: &PdfDocument, pages: &[u32]) -> (PdfDocument, Vec<u8>) {
+        let mut out = Vec::new();
+        doc.pages_copy(pages, &mut out).expect("copy");
+        (PdfDocument::from_bytes(&out).expect("reopen"), out)
+    }
+
+    #[test]
+    fn some_pages_are_a_document_of_their_own_in_the_order_of_the_document() {
+        let doc = PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
+        let (copy, bytes) = pages_of(&doc, &[3, 1, 2]);
+        assert_eq!(copy.page_count().expect("count"), 3);
+        // However they were named, they keep the order they have in the document.
+        assert_eq!(page_titles(&copy), titles(&[2, 3, 4]));
+        // Nothing of the other pages comes with them: not their text, not their size in bytes.
+        for page in 0..3 {
+            let found = copy.search_page(page, "needle", false, 10).expect("search");
+            assert!(found.hits.is_empty());
+        }
+        assert!(bytes.len() < corpus("benign/multi-page-10.pdf").len());
+        assert!(!bytes.windows(6).any(|window| window == b"needle"));
+        // The open document is as it was.
+        assert_eq!(doc.page_count().expect("count"), 10);
+        assert_eq!(page_titles(&doc), titles(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+        // The page that has the keyword, copied alone, has it.
+        let (seven, _) = pages_of(&doc, &[6]);
+        assert_eq!(
+            seven
+                .search_page(0, "needle", false, 10)
+                .expect("search")
+                .hits
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn the_pages_are_copied_as_they_are_now_edits_included() {
+        let mut doc = PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
+        doc.delete_pages(&[0, 1]).expect("delete");
+        doc.rotate_pages(&[0], 90).expect("rotate");
+        let (copy, _) = pages_of(&doc, &[0, 1]);
+        // What were pages 3 and 4, the first of them turned.
+        assert_eq!(page_titles(&copy), titles(&[3, 4]));
+        assert_eq!(copy.page_size(0).expect("size"), (792.0, 612.0));
+        assert_eq!(copy.page_size(1).expect("size"), (612.0, 792.0));
+    }
+
+    #[test]
+    fn a_page_keeps_its_size_and_what_was_added_to_it() {
+        let doc = PdfDocument::from_bytes(&corpus("benign/mixed-page-sizes.pdf")).expect("open");
+        let sizes: Vec<(f32, f32)> = (0..4)
+            .map(|page| doc.page_size(page).expect("size"))
+            .collect();
+        let (copy, _) = pages_of(&doc, &[3, 0]);
+        assert_eq!(copy.page_size(0).expect("size"), sizes[0]);
+        assert_eq!(copy.page_size(1).expect("size"), sizes[3]);
+
+        let annotated = PdfDocument::from_bytes(&annotated_pdf()).expect("open");
+        let (copy, _) = pages_of(&annotated, &[0]);
+        let kinds: Vec<AnnotationKind> = copy
+            .page_annotations(0)
+            .expect("annotations")
+            .iter()
+            .map(|annotation| annotation.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                AnnotationKind::Highlight,
+                AnnotationKind::Note,
+                AnnotationKind::Other,
+                AnnotationKind::Note
+            ]
+        );
+    }
+
+    #[test]
+    fn no_page_is_copied_that_is_not_there_or_twice_or_none_and_nothing_is_written() {
+        let doc = PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
+        for wrong in [vec![], vec![10], vec![1, 1], vec![0, 99]] {
+            let mut out = Vec::new();
+            assert!(doc.pages_copy(&wrong, &mut out).is_err(), "{wrong:?}");
+            assert!(out.is_empty());
+        }
+        // An encrypted document is refused, as for the privacy export.
+        let encrypted =
+            PdfDocument::open(&corpus("benign/encrypted-aes256.pdf"), Some("user")).expect("open");
+        let mut out = Vec::new();
+        assert!(matches!(
+            encrypted.pages_copy(&[0], &mut out),
+            Err(EngineError::EncryptedCopy)
+        ));
+        assert!(out.is_empty());
     }
 
     #[test]

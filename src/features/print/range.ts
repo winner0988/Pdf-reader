@@ -6,6 +6,18 @@ export const MAX_PRINT_PAGES = 300;
 
 export type PrintRange = { kind: "all" } | { kind: "current" } | { kind: "pages"; text: string };
 
+/** The text that names `pages` (0-based, in document order, each once) as a list: "2-4, 6". */
+export function formatPageList(pages: readonly number[]): string {
+  const parts: string[] = [];
+  for (let at = 0; at < pages.length; ) {
+    let end = at;
+    while (end + 1 < pages.length && pages[end + 1] === pages[end]! + 1) end++;
+    parts.push(end > at ? `${pages[at]! + 1}-${pages[end]! + 1}` : `${pages[at]! + 1}`);
+    at = end + 1;
+  }
+  return parts.join(", ");
+}
+
 /** 0-based page indexes in document order, or why the range cannot be printed. */
 export type RangeResult = { pages: number[] } | { error: "invalid" | "tooMany" };
 

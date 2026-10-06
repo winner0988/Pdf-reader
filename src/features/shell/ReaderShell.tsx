@@ -48,7 +48,7 @@ import { useShortcuts } from "@/features/shortcuts/useShortcuts";
 import type { SystemApi } from "@/features/system/defaultApp";
 import { createTextSource, type TextApi } from "@/features/text/source";
 import type { EditingApi } from "@/features/thumbnails/api";
-import type { PageEditing } from "@/features/thumbnails/Thumbnails";
+import type { PageEditing, SavePages } from "@/features/thumbnails/Thumbnails";
 import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
 import { useTheme } from "@/features/theme/useTheme";
 import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
@@ -308,6 +308,18 @@ export function ReaderShell({
   // Exporting needs the worker's pages and the main process (not demo data); the author's
   // permission to copy covers it (MVP-19).
   const exportable = document_?.doc !== undefined && exportApi !== undefined;
+  /** Pages chosen in the thumbnails to be saved as a file of their own (B2-06). */
+  const [exportPreset, setExportPreset] = useState<number[] | null>(null);
+  const savePages: SavePages | undefined =
+    exportable && document_?.encrypted !== true
+      ? {
+          allowed: permissions.copy,
+          open: (pages) => {
+            setExportPreset(pages);
+            setDialog("export");
+          },
+        }
+      : undefined;
 
   // Saving (B2-02) needs the main process, which has the file: not for demo data.
   const doc = document_?.doc;
@@ -505,7 +517,14 @@ export function ReaderShell({
           onSaveAs={savable ? saveAs : undefined}
           onUndo={undoable ? () => undo() : undefined}
           onRedo={redoable ? redo : undefined}
-          onExport={exportable && permissions.copy ? () => setDialog("export") : undefined}
+          onExport={
+            exportable && permissions.copy
+              ? () => {
+                  setExportPreset(null);
+                  setDialog("export");
+                }
+              : undefined
+          }
           exportBlocked={exportable && !permissions.copy}
           onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}
           privacyExportBlocked={savable && document_?.encrypted === true}
@@ -533,6 +552,7 @@ export function ReaderShell({
               onJumpToPage={goToPage}
               onOpenLink={openOutlineLink}
               pageEditing={pageEditing}
+              savePages={savePages}
             />
           )}
           <div className="flex min-w-0 flex-1 flex-col">
@@ -751,6 +771,8 @@ export function ReaderShell({
           doc={document_.doc!}
           pageCount={pageCount}
           currentPage={currentPage}
+          encrypted={document_.encrypted === true}
+          preset={exportPreset}
           api={exportApi}
           onFinished={showHint}
         />

@@ -77,6 +77,10 @@ pub const MAX_UNDO_EDITS: u32 = 1_000;
 /// Maximum number of pages one export writes (B2-04).
 pub const MAX_EXPORT_PAGES: u32 = 1_000;
 
+/// Most files one split writes (B2-06). The pages of a PDF export are not rendered or read one by
+/// one, so a split may take as many pages as a document has, but not make a thousand and one files.
+pub const MAX_SPLIT_FILES: u32 = 1_000;
+
 /// Most quadrilaterals one highlighter mark covers (B2-07), on all its pages: one per line of
 /// selected text.
 pub const MAX_ANNOTATION_QUADS: u32 = 1_000;

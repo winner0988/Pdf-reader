@@ -235,6 +235,18 @@ pub enum WorkerRequest {
         doc: DocumentId,
         file: FileHandle,
     },
+    /// Writes the pages `pages` (0-based, no repeats) of the document to `file` (write-only, as
+    /// for `Save`) as a document of their own, in the order they have in the document: the
+    /// document as it is now is copied and the other pages are taken out of the copy. The
+    /// document itself does not change. Answered by `Saved` (`incremental` is false). An encrypted document is refused:
+    /// the worker keeps no password, and a copy that was not encrypted again would drop what its
+    /// author asked for (B2-06).
+    SavePages {
+        request: RequestId,
+        doc: DocumentId,
+        pages: Vec<u32>,
+        file: FileHandle,
+    },
     /// Best effort: the worker drops the target request if it has not finished yet.
     Cancel {
         target: RequestId,
