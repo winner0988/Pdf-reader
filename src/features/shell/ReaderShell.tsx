@@ -4,10 +4,18 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { HIGHLIGHT_COLORS, SWATCH } from "@/features/annotations/model";
+import { NoteDialog } from "@/features/annotations/NoteDialog";
+import { createAnnotationSource, type AnnotationsApi } from "@/features/annotations/source";
+import { useAnnotations } from "@/features/annotations/useAnnotations";
 import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
 import type { ExportApi } from "@/features/export/api";
 import { ExportDialog } from "@/features/export/ExportDialog";
@@ -76,6 +84,8 @@ type ReaderShellProps = {
   linksApi?: LinksApi;
   /** The pages' text for selecting and copying; without it (demo data, tests) none can be selected. */
   textApi?: TextApi;
+  /** The pages' annotations (B2-07); without it (demo data, tests) pages have none to show. */
+  annotationsApi?: AnnotationsApi;
   /** Opens Windows Settings for "set as default"; without it (demo data, tests) nothing happens. */
   systemApi?: SystemApi;
   /** The recently opened files (#73); without it (demo data, tests) the start screen lists none. */
@@ -136,6 +146,7 @@ export function ReaderShell({
   searchApi,
   linksApi,
   textApi,
+  annotationsApi,
   systemApi,
   recentApi,
   exportApi,
@@ -191,6 +202,10 @@ export function ReaderShell({
   const search = useSearch({ api: searchApi, doc: document_?.doc, active: searchOpen });
   const linkSource = useMemo(() => (linksApi ? createLinkSource(linksApi) : undefined), [linksApi]);
   const textSource = useMemo(() => (textApi ? createTextSource(textApi) : undefined), [textApi]);
+  const annotationSource = useMemo(
+    () => (annotationsApi ? createAnnotationSource(annotationsApi) : undefined),
+    [annotationsApi],
+  );
 
   // Per-document view state starts fresh for every newly opened document (nothing is remembered);
   // an edit or saving (B2-02) changes the document shown, not which one it is.
@@ -340,6 +355,14 @@ export function ReaderShell({
   const redo = () => {
     if (redoable) editingApi!.redo(doc!).catch(() => showHint(strings.pages.failed));
   };
+  // Highlighter marks and notes (B2-07); the author's permission to annotate covers them (MVP-19).
+  const annotations = useAnnotations({
+    doc,
+    editing: editingApi,
+    allowed: permissions.annotate,
+    view: viewRef,
+    onProblem: showHint,
+  });
   // Changes an earlier run of the app left for the file (B2-13): made again or discarded. The tab's
   // new state comes on the open-events channel.
   const recovery = document_?.recovery ?? "none";
@@ -486,6 +509,14 @@ export function ReaderShell({
           exportBlocked={exportable && !permissions.copy}
           onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}
           privacyExportBlocked={savable && document_?.encrypted === true}
+          highlight={
+            editingApi !== undefined && doc !== undefined
+              ? {
+                  color: annotations.color,
+                  onClick: annotations.enabled && textSelected ? () => annotations.highlight() : undefined,
+                }
+              : undefined
+          }
           onMoreMenuOpen={askRecording}
           recording={recording ? { recorded, onChange: setRecording } : undefined}
         />
@@ -565,7 +596,10 @@ export function ReaderShell({
               {document_ && (
                 // Right-clicking the document shows the app's own menu, not the WebView's.
                 <ContextMenu>
-                  <ContextMenuTrigger className="min-h-full">
+                  <ContextMenuTrigger
+                    className="min-h-full"
+                    onContextMenu={(event) => annotations.contextMenuAt(event.clientX, event.clientY)}
+                  >
                     <DocumentView
                       ref={viewRef}
                       pages={document_.pages}
@@ -584,6 +618,9 @@ export function ReaderShell({
                       text={textSource}
                       onSelectionChange={setTextSelected}
                       onNoText={() => showHint(strings.text.noTextLayer)}
+                      annotations={annotationSource}
+                      onAnnotationEdit={annotations.edit}
+                      onEditNote={annotations.editNote}
                     />
                   </ContextMenuTrigger>
                   <ContextMenuContent>
@@ -591,6 +628,34 @@ export function ReaderShell({
                       {strings.text.copy}
                       <ContextMenuShortcut>{permissions.copy ? "Ctrl+C" : strings.permissions.notAllowed}</ContextMenuShortcut>
                     </ContextMenuItem>
+                    {editingApi !== undefined && (
+                      <>
+                        <ContextMenuSeparator />
+                        <ContextMenuSub>
+                          <ContextMenuSubTrigger disabled={!textSelected || !annotations.enabled}>
+                            {strings.annotations.highlight}
+                          </ContextMenuSubTrigger>
+                          <ContextMenuSubContent>
+                            {HIGHLIGHT_COLORS.map((color) => (
+                              <ContextMenuItem key={color} onClick={() => annotations.highlight(color)}>
+                                <span
+                                  aria-hidden
+                                  className="size-3 rounded-full border border-black/20"
+                                  style={{ backgroundColor: SWATCH[color] }}
+                                />
+                                {strings.annotations.colors[color]}
+                              </ContextMenuItem>
+                            ))}
+                          </ContextMenuSubContent>
+                        </ContextMenuSub>
+                        <ContextMenuItem disabled={!annotations.enabled} onClick={() => annotations.newNote()}>
+                          {strings.annotations.addNote}
+                          {!permissions.annotate && (
+                            <ContextMenuShortcut>{strings.permissions.notAllowed}</ContextMenuShortcut>
+                          )}
+                        </ContextMenuItem>
+                      </>
+                    )}
                   </ContextMenuContent>
                 </ContextMenu>
               )}
@@ -625,6 +690,13 @@ export function ReaderShell({
           action={linkDialog.action}
           content={linkDialog.content}
           onClose={() => setLinkDialog(null)}
+        />
+      )}
+      {annotations.note && (
+        <NoteDialog
+          initial={annotations.note.kind === "edit" ? (annotations.note.annotation.text ?? "") : null}
+          onSave={annotations.saveNote}
+          onCancel={annotations.closeNote}
         />
       )}
       <UndoPasswordDialog

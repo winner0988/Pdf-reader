@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type R
 import {
   caretAt,
   dragSelection,
+  selectionQuads,
   hasSelectedText,
   lineAt,
   sameSelection,
@@ -19,7 +20,7 @@ import {
   type TextSelection,
 } from "@/features/text/model";
 import type { TextSource } from "@/features/text/source";
-import type { DocumentId, PageText, Point } from "@/ipc/generated/contract";
+import type { DocumentId, PageText, Point, Quad } from "@/ipc/generated/contract";
 
 /** A pointer position as a page (the nearest one) and a point in that page's space. */
 export type PagePoint = { page: number; point: Point; inside: boolean };
@@ -42,6 +43,8 @@ export type TextSelectionController = {
   hasSelection(): boolean;
   /** The selected text, reading the pages it spans; null when nothing is selected. */
   selectedText(): Promise<string | null>;
+  /** Where the selected text is on each page it spans (for the highlighter, B2-07); none when nothing is selected. */
+  selectedQuads(): Promise<{ page: number; quads: Quad[] }[]>;
 };
 
 /** Within this distance (CSS px) of the view's edge a drag scrolls, at most this far per frame. */
@@ -163,6 +166,21 @@ export function useTextSelection(options: Options): TextSelectionController {
     drag.current = current;
   };
 
+  /** The text of every page the selection spans, read as needed; null when nothing is selected. */
+  const selectedPages = async (): Promise<Map<number, PageText> | null> => {
+    const current = latest.current.selection;
+    const { source: text, doc: document } = latest.current.options;
+    if (!hasSelectedText(current) || !text || document === undefined) return null;
+    const [start, end] = selectionRange(current);
+    const indexes = Array.from({ length: end.page - start.page + 1 }, (_, i) => start.page + i);
+    const results = await Promise.allSettled(indexes.map((page) => text.textOnce(document, page)));
+    const texts = new Map<number, PageText>();
+    results.forEach((result, i) => {
+      if (result.status === "fulfilled") texts.set(indexes[i]!, result.value);
+    });
+    return texts;
+  };
+
   return {
     selection,
     onMouseDown(event) {
@@ -196,16 +214,17 @@ export function useTextSelection(options: Options): TextSelectionController {
     hasSelection: () => hasSelectedText(latest.current.selection),
     async selectedText() {
       const current = latest.current.selection;
-      const { source: text, doc: document } = latest.current.options;
-      if (!hasSelectedText(current) || !text || document === undefined) return null;
-      const [start, end] = selectionRange(current);
-      const indexes = Array.from({ length: end.page - start.page + 1 }, (_, i) => start.page + i);
-      const results = await Promise.allSettled(indexes.map((page) => text.textOnce(document, page)));
-      const texts = new Map<number, PageText>();
-      results.forEach((result, i) => {
-        if (result.status === "fulfilled") texts.set(indexes[i]!, result.value);
-      });
-      return selectedText(current, (page) => texts.get(page));
+      const texts = await selectedPages();
+      return texts && hasSelectedText(current) ? selectedText(current, (page) => texts.get(page)) : null;
+    },
+    async selectedQuads() {
+      const current = latest.current.selection;
+      const texts = await selectedPages();
+      if (!texts || !hasSelectedText(current)) return [];
+      return [...texts.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([page, pageText]) => ({ page, quads: selectionQuads(pageText, page, current) }))
+        .filter(({ quads }) => quads.length > 0);
     },
   };
 }

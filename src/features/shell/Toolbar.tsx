@@ -4,6 +4,7 @@ import {
   Minus,
   MoreHorizontal,
   PanelLeft,
+  Highlighter,
   Plus,
   RotateCcw,
   RotateCw,
@@ -27,6 +28,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { IconButton } from "@/features/shell/IconButton";
 import { ZOOM_LEVELS, type Zoom } from "@/features/shell/model";
+import type { HighlightColor } from "@/ipc/generated/contract";
 import type { ThemePreference } from "@/features/theme/useTheme";
 import { strings } from "@/i18n/zh-TW";
 
@@ -71,6 +73,12 @@ export type ToolbarProps = {
   onPrivacyExport?: () => void;
   /** An encrypted document has no privacy export (B2-03): the menu item says so. */
   privacyExportBlocked?: boolean;
+  /**
+   * Marks the selected text with the highlighter in the color it used last (B2-07); without a
+   * click handler (no text is selected, or the author does not allow annotating) the button is
+   * disabled.
+   */
+  highlight?: { color: HighlightColor; onClick?: () => void };
   /** The "⋯" menu opened. */
   onMoreMenuOpen?: () => void;
   /**
@@ -143,6 +151,19 @@ export function Toolbar(props: ToolbarProps) {
       )}
 
       <div className="flex-1" />
+      {document && props.highlight && (
+        <IconButton
+          label={
+            props.highlight.onClick
+              ? t.highlight(strings.annotations.colors[props.highlight.color])
+              : t.highlightNeedsText
+          }
+          disabled={!props.highlight.onClick}
+          onClick={props.highlight.onClick}
+        >
+          <Highlighter />
+        </IconButton>
+      )}
       {document && (
         <IconButton label={t.search} shortcut="Ctrl+F" pressed={props.searchOpen} onClick={props.onSearch}>
           <Search />

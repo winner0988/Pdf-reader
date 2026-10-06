@@ -2,7 +2,7 @@
 
 工作卡 [#96](https://github.com/winner0988/Pdf-reader/issues/96)；規格 §6「註解標記：螢光筆」。編輯的共通做法（指令、復原、存檔、崩潰復原）見 [ADR 0013](../adr/0013-editing-and-saving.md)、[page-management.md](page-management.md)、[saving.md](saving.md) 與 [crash-recovery.md](crash-recovery.md)。
 
-這份文件先說明 worker 與主行程的部分；畫面（選取文字後的「螢光筆」、放置附註、選取既有的註解）在下一個 PR。
+worker 與主行程的做法在前面各節；畫面（選取文字後的「螢光筆」、放置附註、選取與變更既有的註解）見「畫面」。
 
 ## 註解是標準的 PDF 註解
 
@@ -54,7 +54,29 @@
 - 其他還指向它們的地方（另一個註解的回覆 `/IRT`、彈出視窗的 `/Parent`、結構樹的 `/OBJR`）改成 `null`（`unlink.rs`，與刪除頁面相同，見 [page-management.md](page-management.md)）。
 - 完整重寫的存檔就不會再包含它們，例如附註的文字。
 
+## 畫面
+
+畫面的行為與文字見 [screen-map.md](../ux/screen-map.md)「註解（B2-07）」。程式在 `src/features/annotations/`。
+
+- **標示螢光筆**：先選取文字（MVP-15），再從右鍵功能表的「螢光筆」選顏色，或按工具列的螢光筆按鈕（用上次的顏色，一開始是黃色）。
+  - 選取的文字在每一頁各有一組四邊形（頁面空間，與文字選取、搜尋相同）；`DocumentView` 的 `highlightMarks()` 向文字來源取得，組成一個 `addHighlight`：跨頁也只是一個編輯，一次復原全部取消。
+  - 超過 `LIMITS.maxHighlightPages`（100）頁或 `LIMITS.maxAnnotationQuads`（1,000）個四邊形時不送出，狀態列說明請分段標示。
+  - 編輯之後文件換了新的編號，選取自然清除，只剩 MuPDF 畫在頁面上的螢光筆。
+- **新增附註**：在頁面上按右鍵，選「在這裡新增附註…」；位置是按右鍵的地方（`DocumentView` 的 `pageAt()`，頁面以外的地方不能放），內容在對話框輸入。
+- **選取既有的註解**：每個註解在頁面上有一個透明的輪廓按鈕（可用 `Tab` 與螢幕閱讀器操作，標籤是 `annotationLabel`），也可以在註解上點一下。
+  - 輪廓讓滑鼠通過：滑鼠點擊是由 `DocumentView` 依位置找出被點的註解（`annotationAt`），所以螢光筆下面的文字仍然可以選取。按下去後移動超過 4 px 是在選取文字，不是點選。
+  - 選取的註解旁出現一個小工具列：螢光筆有四種顏色與刪除，附註有文字、編輯與刪除，其他種類只有刪除。`Delete` 刪除，`Esc` 放開。
+  - 編輯讓選取的註解不見時（例如復原），自動放開。
+- **作者不允許註解**（`/P` 第 6 位元）：工具列的螢光筆與右鍵的項目停用，右鍵的「新增附註」標示「作者不允許」；註解仍然顯示，也可以選取，但工具列的按鈕都停用，`Delete` 不作用。
+- **文字的處理**：使用者輸入的附註文字先由 `noteText` 整理成主行程接受的形式：換行統一成 LF、Tab 變成四個空白、控制字元與看不見的格式字元去掉、頭尾空白去掉；空的或超過 `LIMITS.maxNoteTextBytes`（以 UTF-8 計）時對話框說明，不送出。主行程仍會再檢查一次。
+
 ## 測試
+
+- 前端（`src/features/annotations/`）：
+  - `model.test.ts`：附註文字的整理與長度、找出位置上的註解、名稱；
+  - `source.test.ts`：每頁只問一次、換文件重問、失敗後再問；
+  - `Annotations.test.tsx`：右鍵標示並選顏色、工具列按鈕用上次的顏色、作者不允許時不提供、太多時的說明、新增附註（位置與內容）、空的與太長的附註、頁面以外不能放、以鍵盤或點擊選取註解並改顏色與刪除、改附註、作者不允許時只能看。
+- E2E（`tests/e2e/annotations.spec.ts`）：選取 Privacy 標示螢光筆，輪廓覆蓋這個字；復原與重做；改顏色；另存新檔，檔案中有標準的 `Highlight` 與 `QuadPoints`、沒有作者與建立時間；重新開啟後仍在，可以刪除。另一個測試新增附註並改內容。
 
 - worker（`crates/pdf_worker/src/engine.rs`）：
   - 列出註解，不含連結、表單欄位與彈出視窗；

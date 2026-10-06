@@ -141,7 +141,7 @@
   - 每一行之間換行，跨頁也換行；
   - 控制字元、雙向文字控制與零寬字元不會被複製；
   - 焦點在文字欄位（搜尋框、頁碼）時，`Ctrl+C` 複製欄位中的文字；對話框裡的文字由 WebView 自己複製。
-- **右鍵功能表**：開啟文件時，在畫布上按右鍵顯示 app 自己的功能表，目前只有「複製」（沒有選取時停用），取代 WebView 預設的功能表。
+- **右鍵功能表**：開啟文件時，在畫布上按右鍵顯示 app 自己的功能表，取代 WebView 預設的功能表：「複製」（沒有選取時停用），以及註解的「螢光筆」與「在這裡新增附註…」（見「註解」）。
 - **沒有文字層的頁面**（掃描件）不能選取；在上面拖曳時，狀態列顯示 text.noTextLayer 4 秒。
 - **作者禁止複製**時仍可選取，但 `Ctrl+C` 不複製，狀態列顯示 permissions.copyBlocked 4 秒；右鍵「複製」停用，快捷鍵的位置改為 permissions.notAllowed。
 
@@ -221,6 +221,24 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
 - 檔案在那之後被其他程式修改過時（recovery.stale），不能還原，只能捨棄或稍後再決定。
 - 處理失敗時狀態列提示 recovery.failed。
 - 以密碼開啟的文件，worker 崩潰後再輸入密碼時，變更自動重新套用，不顯示提示列。
+
+### 註解（B2-07）
+
+螢光筆與文字附註存成標準的 PDF 註解，其他閱讀器也看得到；不寫入作者、時間等可以識別使用者的資訊。做法見 [annotations.md](../architecture/annotations.md)。
+
+- **螢光筆**：選取文字後，右鍵功能表的「annotations.highlight」展開四種顏色（黃、綠、藍、粉紅）；或按工具列的螢光筆按鈕，用上次的顏色（一開始是黃色）。
+  - 沒有選取文字時，右鍵的項目與工具列的按鈕停用，按鈕的說明是 toolbar.highlightNeedsText；
+  - 跨頁的選取是一個編輯，一次復原全部取消；
+  - 標示之後選取清除。
+- **附註**：在頁面上按右鍵，選「annotations.addNote」；對話框 annotations.noteDialog.addTitle，輸入內容後按「儲存」。空的顯示 annotations.noteDialog.empty，太長顯示 annotations.noteDialog.tooLong。在頁面以外按右鍵時，狀態列顯示 annotations.notOnPage。
+- **選取註解**：
+  - 頁面上每個註解（螢光筆、附註、文件原有的其他註解）有一個透明的輪廓，可以用 `Tab` 或點擊選取，選取時以虛線輪廓標示；
+  - 選取的註解旁出現小工具列：螢光筆有四種顏色（目前的有外框）與刪除；附註顯示文字、「編輯附註…」與刪除；其他種類只有刪除；
+  - `Delete` 刪除選取的註解，`Esc` 放開；在頁面上的其他地方點一下也放開；
+  - 螢光筆下面的文字仍然可以選取。
+- **作者不允許註解**時，上述的編輯都停用，右鍵的「新增附註」標示 permissions.notAllowed，工具列的按鈕說明 annotations.notAllowed；註解仍然顯示。
+- 編輯失敗時，狀態列顯示 annotations.failed；未儲存的變更太多時顯示 pages.saveFirst。
+- 沒有鍵盤快捷鍵（螢光筆可以從工具列的按鈕以鍵盤操作）。
 
 ### 文件權限（MVP-19）
 
@@ -568,6 +586,30 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | pages.move.before／pages.move.after | 之前／之後（pages.move.position：位置，選項組的可讀名稱） |
 | pages.move.outOfRange | 頁碼需介於 1 與 <總頁數> 之間 |
 | pages.move.confirm／pages.move.cancel | 移動／取消 |
+
+### 註解（B2-07）
+
+| 鍵 | 文字 |
+|---|---|
+| annotations.highlight | 螢光筆 |
+| annotations.colors.* | 黃色、綠色、藍色、粉紅色 |
+| annotations.highlightIn(color) | 螢光筆標示（<顏色>）（頁面上輪廓與工具列的名稱） |
+| annotations.noteSaying(text) | 附註：<文字> |
+| annotations.kind.highlight／note／other | 螢光筆標示／附註／註解 |
+| annotations.addNote | 在這裡新增附註… |
+| annotations.editNote | 編輯附註… |
+| annotations.delete | 刪除註解 |
+| annotations.notAllowed | 文件作者不允許變更註解 |
+| annotations.failed | 無法變更註解，請再試一次。 |
+| annotations.tooMuch | 選取的範圍太大，請分段標示。 |
+| annotations.notOnPage | 請在頁面上按右鍵，才能新增附註。 |
+| annotations.noteDialog.addTitle／editTitle | 新增附註／編輯附註 |
+| annotations.noteDialog.label | 附註內容 |
+| annotations.noteDialog.save／cancel | 儲存／取消 |
+| annotations.noteDialog.empty | 請輸入附註內容。 |
+| annotations.noteDialog.tooLong | 附註太長了，請縮短一些。 |
+| toolbar.highlight(color) | 螢光筆（<顏色>） |
+| toolbar.highlightNeedsText | 螢光筆：先選取文字 |
 
 ### 崩潰復原（B2-13）
 
