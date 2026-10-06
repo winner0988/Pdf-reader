@@ -1252,16 +1252,22 @@ fn pages_after(
 ) -> Result<u32, IpcError> {
     // Annotations (B2-07) have a permission of their own; the worker checks that the annotation
     // is on the page.
-    if let Edit::AddHighlight { page, .. }
-    | Edit::AddNote { page, .. }
-    | Edit::DeleteAnnotation { page, .. }
-    | Edit::SetHighlightColor { page, .. }
-    | Edit::SetNoteText { page, .. } = edit
-    {
+    let annotated: Option<Vec<u32>> = match edit {
+        Edit::AddHighlight { marks, .. } => Some(marks.iter().map(|mark| mark.page).collect()),
+        Edit::AddNote { page, .. }
+        | Edit::DeleteAnnotation { page, .. }
+        | Edit::SetHighlightColor { page, .. }
+        | Edit::SetNoteText { page, .. } => Some(vec![*page]),
+        _ => None,
+    };
+    if let Some(pages) = annotated {
         if !permissions.annotate {
             return Err(not_allowed());
         }
-        check_page_index(*page, page_count).map_err(invalid_argument)?;
+        pages
+            .into_iter()
+            .try_for_each(|page| check_page_index(page, page_count))
+            .map_err(invalid_argument)?;
         return Ok(page_count);
     }
     // The other edits manage pages: assembling the document, as Acrobat reads the author's
@@ -1749,7 +1755,9 @@ mod tests {
 #[cfg(test)]
 mod with_worker {
     use ipc_contract::limits::MAX_RASTER_PIXELS;
-    use ipc_contract::types::{AnnotationId, HighlightColor, Point, Quad, RequestId, Rotation};
+    use ipc_contract::types::{
+        AnnotationId, HighlightColor, HighlightMark, Point, Quad, RequestId, Rotation,
+    };
 
     use super::*;
 
@@ -3197,8 +3205,10 @@ mod with_worker {
         edit(
             &mut doc,
             Edit::AddHighlight {
-                page: 0,
-                quads: vec![quad(72.0)],
+                marks: vec![HighlightMark {
+                    page: 0,
+                    quads: vec![quad(72.0)],
+                }],
                 color: HighlightColor::Blue,
             },
         );
