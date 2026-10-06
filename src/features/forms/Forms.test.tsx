@@ -5,10 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { FormsApi } from "@/features/forms/source";
 import { ALL_PERMISSIONS } from "@/features/permissions/permissions";
 import { demoDocument } from "@/features/shell/demo";
-import type { DocumentPermissions, ShellDocument } from "@/features/shell/model";
+import type { DocumentPermissions, Rotation, ShellDocument } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { SavingApi } from "@/features/saving/api";
 import type { EditingApi } from "@/features/thumbnails/api";
+import { rectToBox } from "@/features/viewer/layout";
 import { strings } from "@/i18n/zh-TW";
 import type { FormField } from "@/ipc/generated/contract";
 
@@ -165,6 +166,33 @@ describe("filling in a form (B2-09)", () => {
     // The buttons of a group are one group for the keyboard.
     expect(box(t.choice("Size", "Small"))).toHaveAttribute("name", "field-21");
     expect(box(t.choice("Size", "Medium"))).toHaveAttribute("name", "field-21");
+  });
+
+  it("puts each field where its rectangle is on the page, and turns with the page", async () => {
+    const { box, user } = await setup();
+    const layer = () => document.querySelector<HTMLElement>("[data-page-fields]")!;
+    const placed = (element: HTMLElement) => ({
+      left: parseFloat(element.style.left),
+      top: parseFloat(element.style.top),
+      width: parseFloat(element.style.width),
+      height: parseFloat(element.style.height),
+    });
+    const expected = (rotation: Rotation) =>
+      rectToBox(FIELDS[0]!.rect, demoDocument.pages[0]!, rotation, {
+        width: parseFloat(layer().style.width),
+        height: parseFloat(layer().style.height),
+      });
+    const expectPlaced = (rotation: Rotation) => {
+      const actual = placed(box("Your name"));
+      const want = expected(rotation);
+      for (const side of ["left", "top", "width", "height"] as const) expect(actual[side]).toBeCloseTo(want[side], 2);
+    };
+    expectPlaced(0);
+    const before = placed(box("Your name"));
+    // Turned a quarter: the page's box and the field in it are both turned.
+    await user.keyboard("{Control>}]{/Control}");
+    await waitFor(() => expect(placed(box("Your name"))).not.toEqual(before));
+    expectPlaced(90);
   });
 
   it("sends a text field when the user leaves it, once, and keeps what was typed", async () => {
