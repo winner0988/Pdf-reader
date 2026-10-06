@@ -7,9 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use ipc_contract::types::{
     DocumentId, EditArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs,
-    IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs, OutlineResult, PageLink, PageText,
-    RecentFile, RecentId, RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent, Settings,
-    TabId, UndoArgs, UnlockArgs, UpdateCheck,
+    IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation,
+    PageLink, PageText, RecentFile, RecentId, RenderPageArgs, RequestId, SaveResult, SearchArgs,
+    SearchEvent, Settings, TabId, UndoArgs, UnlockArgs, UpdateCheck,
 };
 use ipc_contract::validate::Validate;
 use tauri::ipc::{Channel, Response};
@@ -313,6 +313,17 @@ pub async fn get_page_text(
     page_index: u32,
 ) -> Result<PageText, IpcError> {
     blocking(move || app.state::<Documents>().page_text(doc, page_index)).await
+}
+
+/// The annotations of one page (B2-07): highlighter marks, notes and the document's own, each by
+/// its number, to select, change or remove with `apply_edit`.
+#[tauri::command]
+pub async fn get_page_annotations(
+    app: AppHandle,
+    doc: DocumentId,
+    page_index: u32,
+) -> Result<Vec<PageAnnotation>, IpcError> {
+    blocking(move || app.state::<Documents>().page_annotations(doc, page_index)).await
 }
 
 /// The links of one page (MVP-12): where they are and where they point. Opening a web link

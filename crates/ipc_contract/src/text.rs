@@ -76,6 +76,50 @@ pub fn is_clean_copy_text(text: &str) -> bool {
     text.chars().all(|c| copy_text_char(c) == Some(c))
 }
 
+/// Whether `text` can be what a note says (B2-07): lines of text, without control characters
+/// other than the line breaks (`\n`) or invisible formatting characters. The user's own spacing
+/// is kept.
+pub fn is_note_text(text: &str) -> bool {
+    !text
+        .chars()
+        .any(|c| (c.is_control() && c != '\n') || is_invisible_format(c))
+}
+
+/// What a note in a PDF says, as [`is_note_text`] accepts it: each line is display text (see
+/// [`clean_display_text`]), empty lines at the start and the end are dropped, and the whole is
+/// cut to `max_bytes` at a line or character boundary.
+pub fn clean_note_text(input: &str, max_bytes: usize) -> String {
+    let lines: Vec<String> = input
+        .split(['\n', '\r'])
+        .map(|line| clean_display_text(line, max_bytes))
+        .collect();
+    let first = lines.iter().position(|line| !line.is_empty());
+    let last = lines.iter().rposition(|line| !line.is_empty());
+    let (Some(first), Some(last)) = (first, last) else {
+        return String::new();
+    };
+    let mut out = String::new();
+    for line in &lines[first..=last] {
+        let separator = usize::from(!out.is_empty());
+        if out.len() + separator + line.len() > max_bytes {
+            // The part of the line that fits, cut at a character boundary.
+            let cut = clean_display_text(line, max_bytes.saturating_sub(out.len() + separator));
+            if !cut.is_empty() {
+                if separator == 1 {
+                    out.push('\n');
+                }
+                out.push_str(&cut);
+            }
+            break;
+        }
+        if separator == 1 {
+            out.push('\n');
+        }
+        out.push_str(line);
+    }
+    out
+}
+
 /// Classifies a URI from a PDF. Only `http`, `https` and `mailto` may ever be offered to the
 /// user (AGENTS.md principle 5); everything else is a blocked action shown as text.
 ///
@@ -150,6 +194,25 @@ fn decode_pdf_string(raw: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_note_keeps_its_lines_and_loses_everything_else() {
+        let from_pdf = "\r\n  第一行\u{202E}  text\t here \r\rsecond\u{200B} line\n\n";
+        let note = clean_note_text(from_pdf, MAX_TEXT_BYTES as usize);
+        // Each line is display text; the empty line between paragraphs stays, those around go.
+        assert_eq!(note, "第一行 text here\n\nsecond line");
+        assert!(is_note_text(&note));
+        assert_eq!(clean_note_text(" \n\t\n ", 100), "");
+        // Cut at a character boundary, within the limit.
+        let cut = clean_note_text("abc\n中文字", 7);
+        assert_eq!(cut, "abc\n中");
+        assert!(cut.len() <= 7);
+        // What the user types keeps its spacing; control and invisible characters do not pass.
+        assert!(is_note_text("  indented\nand  spaced  "));
+        assert!(!is_note_text("tab\there"));
+        assert!(!is_note_text("bell\u{7}"));
+        assert!(!is_note_text("abc\u{202E}def"));
+    }
 
     #[test]
     fn copied_text_keeps_every_visible_character_in_place() {

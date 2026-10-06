@@ -9,12 +9,12 @@ use std::collections::HashSet;
 use thiserror::Error;
 
 use crate::limits::*;
-use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text};
+use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text, is_note_text};
 use crate::types::{
     DocumentInfo, Edit, EditArgs, ExportArgs, ExportFormat, FindingKind, IpcError, LinkTarget,
-    OpenEvent, OutlineItem, OutlineResult, PageLink, PageSize, PageText, Password, Point, Quad,
-    RecentFile, Rect, RenderPageArgs, Rotation, SearchArgs, SearchHit, SecurityReport, TextLine,
-    UndoArgs, UnlockArgs,
+    OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
+    Point, Quad, RecentFile, Rect, RenderPageArgs, Rotation, SearchArgs, SearchHit, SecurityReport,
+    TextLine, UndoArgs, UnlockArgs,
 };
 use crate::worker::{OpenedDocument, Raster, WorkerError, WorkerResponse};
 
@@ -382,6 +382,14 @@ impl Validate for WorkerResponse {
                 }
                 Ok(())
             }
+            WorkerResponse::PageAnnotations { annotations, .. } => {
+                check_count(
+                    "page annotations",
+                    annotations.len(),
+                    MAX_ANNOTATIONS_PER_PAGE,
+                )?;
+                annotations.iter().try_for_each(PageAnnotation::validate)
+            }
             WorkerResponse::PageText { text, .. } => text.validate(),
             WorkerResponse::Png { png, .. } => check_png(png),
             WorkerResponse::Jpeg { jpeg, .. } => check_jpeg(jpeg),
@@ -567,7 +575,97 @@ impl Validate for Edit {
                 }
                 Ok(())
             }
+            Edit::AddHighlight { marks, .. } => {
+                if marks.is_empty() {
+                    return Err(ValidationError::Invalid {
+                        what: "highlight",
+                        reason: "on no page",
+                    });
+                }
+                check_count("highlighted pages", marks.len(), MAX_HIGHLIGHT_PAGES)?;
+                let pages: HashSet<u32> = marks.iter().map(|mark| mark.page).collect();
+                if pages.len() != marks.len() {
+                    return Err(ValidationError::Invalid {
+                        what: "highlighted pages",
+                        reason: "a page appears twice",
+                    });
+                }
+                let quads: usize = marks.iter().map(|mark| mark.quads.len()).sum();
+                check_count("highlight quads", quads, MAX_ANNOTATION_QUADS)?;
+                for mark in marks {
+                    check_annotated_page(mark.page)?;
+                    if mark.quads.is_empty() {
+                        return Err(ValidationError::Invalid {
+                            what: "highlight",
+                            reason: "covers nothing on a page",
+                        });
+                    }
+                    mark.quads.iter().try_for_each(Quad::validate)?;
+                }
+                Ok(())
+            }
+            Edit::AddNote { page, at, text } => {
+                check_annotated_page(*page)?;
+                at.validate()?;
+                check_note_text(text)
+            }
+            Edit::DeleteAnnotation { page, .. } | Edit::SetHighlightColor { page, .. } => {
+                check_annotated_page(*page)
+            }
+            Edit::SetNoteText { page, text, .. } => {
+                check_annotated_page(*page)?;
+                check_note_text(text)
+            }
         }
+    }
+}
+
+/// The page an annotation edit is on: one a document can have; whether this document has it is
+/// checked by the caller ([`check_page_index`]).
+fn check_annotated_page(page: u32) -> Result<(), ValidationError> {
+    if page >= MAX_PAGE_COUNT {
+        return Err(ValidationError::OutOfRange {
+            what: "annotated page",
+        });
+    }
+    Ok(())
+}
+
+/// What a note says (B2-07): something, within the length limit, and only text.
+fn check_note_text(text: &str) -> Result<(), ValidationError> {
+    if text.trim().is_empty() {
+        return Err(ValidationError::Invalid {
+            what: "note text",
+            reason: "empty",
+        });
+    }
+    check_text("note text", text, MAX_NOTE_TEXT_BYTES)?;
+    if !is_note_text(text) {
+        return Err(ValidationError::Invalid {
+            what: "note text",
+            reason: "contains control or invisible formatting characters",
+        });
+    }
+    Ok(())
+}
+
+impl Validate for PageAnnotation {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.rect.validate()?;
+        if let Some(text) = &self.text {
+            check_text("note text", text, MAX_NOTE_TEXT_BYTES)?;
+            if !is_note_text(text)
+                || text
+                    .split('\n')
+                    .any(|line| !line.is_empty() && !is_clean_display_text(line))
+            {
+                return Err(ValidationError::Invalid {
+                    what: "note text",
+                    reason: "not cleaned",
+                });
+            }
+        }
+        Ok(())
     }
 }
 
@@ -655,8 +753,9 @@ impl Validate for OpenEvent {
 mod tests {
     use super::*;
     use crate::types::{
-        BlockedAction, DocumentId, DocumentPermissions, ErrorCode, LinkId, RecentId, Recovery,
-        RequestId, Rotation, SecurityFinding, TabId,
+        AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, ErrorCode,
+        HighlightColor, HighlightMark, LinkId, RecentId, Recovery, RequestId, Rotation,
+        SecurityFinding, TabId,
     };
     use crate::worker::WorkerErrorCode;
 
@@ -1139,6 +1238,170 @@ mod tests {
             }))
             .unwrap(),
             rotate(vec![0], Rotation::Cw270)
+        );
+    }
+
+    #[test]
+    fn annotation_edits_are_bounded_and_notes_are_only_text() {
+        let quad = |x: f32| Quad {
+            ul: Point { x, y: 10.0 },
+            ur: Point {
+                x: x + 50.0,
+                y: 10.0,
+            },
+            ll: Point { x, y: 22.0 },
+            lr: Point {
+                x: x + 50.0,
+                y: 22.0,
+            },
+        };
+        let mark = |page: u32, quads: Vec<Quad>| HighlightMark { page, quads };
+        let highlight = |marks: Vec<HighlightMark>| Edit::AddHighlight {
+            marks,
+            color: HighlightColor::Yellow,
+        };
+        assert!(
+            highlight(vec![mark(0, vec![quad(72.0)])])
+                .validate()
+                .is_ok()
+        );
+        // Across pages: one edit.
+        assert!(
+            highlight(vec![mark(0, vec![quad(72.0)]), mark(1, vec![quad(72.0)])])
+                .validate()
+                .is_ok()
+        );
+        assert!(highlight(vec![]).validate().is_err());
+        assert!(highlight(vec![mark(0, vec![])]).validate().is_err());
+        assert!(
+            highlight(vec![mark(0, vec![quad(72.0)]), mark(0, vec![quad(72.0)])])
+                .validate()
+                .is_err()
+        );
+        assert!(
+            highlight(vec![mark(MAX_PAGE_COUNT, vec![quad(72.0)])])
+                .validate()
+                .is_err()
+        );
+        assert!(
+            highlight(vec![mark(0, vec![quad(f32::NAN)])])
+                .validate()
+                .is_err()
+        );
+        assert!(
+            highlight(vec![mark(0, vec![quad(2.0 * MAX_PAGE_SIDE_PT)])])
+                .validate()
+                .is_err()
+        );
+        // The quads of all its pages count.
+        let half = MAX_ANNOTATION_QUADS as usize / 2 + 1;
+        assert!(
+            highlight(vec![
+                mark(0, vec![quad(72.0); half]),
+                mark(1, vec![quad(72.0); half])
+            ])
+            .validate()
+            .is_err()
+        );
+        assert!(
+            highlight(
+                (0..=MAX_HIGHLIGHT_PAGES)
+                    .map(|page| mark(page, vec![quad(72.0)]))
+                    .collect()
+            )
+            .validate()
+            .is_err()
+        );
+
+        let note = |text: &str| Edit::AddNote {
+            page: 0,
+            at: Point { x: 72.0, y: 72.0 },
+            text: text.to_owned(),
+        };
+        assert!(
+            note("第一行\n  second line, with  its spaces")
+                .validate()
+                .is_ok()
+        );
+        assert!(note("").validate().is_err());
+        assert!(note(" \n ").validate().is_err());
+        assert!(note("a\tb").validate().is_err());
+        assert!(note("a\u{202E}b").validate().is_err());
+        assert!(
+            note(&"字".repeat(MAX_NOTE_TEXT_BYTES as usize))
+                .validate()
+                .is_err()
+        );
+        let set_text = |text: &str| Edit::SetNoteText {
+            page: 0,
+            annotation: AnnotationId(5),
+            text: text.to_owned(),
+        };
+        assert!(set_text("changed").validate().is_ok());
+        assert!(set_text("a\u{0}b").validate().is_err());
+        let delete = |page: u32| Edit::DeleteAnnotation {
+            page,
+            annotation: AnnotationId(5),
+        };
+        assert!(delete(3).validate().is_ok());
+        assert!(delete(MAX_PAGE_COUNT).validate().is_err());
+
+        // The frontend's form.
+        assert_eq!(
+            serde_json::from_value::<Edit>(serde_json::json!({
+                "kind": "setHighlightColor", "page": 1, "annotation": 9, "color": "pink"
+            }))
+            .unwrap(),
+            Edit::SetHighlightColor {
+                page: 1,
+                annotation: AnnotationId(9),
+                color: HighlightColor::Pink,
+            }
+        );
+    }
+
+    #[test]
+    fn annotations_from_the_worker_are_checked() {
+        let annotation = |text: Option<&str>| PageAnnotation {
+            id: AnnotationId(4),
+            kind: AnnotationKind::Note,
+            rect: Rect {
+                x0: 10.0,
+                y0: 10.0,
+                x1: 30.0,
+                y1: 30.0,
+            },
+            color: None,
+            text: text.map(str::to_owned),
+        };
+        let response = |annotations: Vec<PageAnnotation>| WorkerResponse::PageAnnotations {
+            request: RequestId(1),
+            page_index: 0,
+            annotations,
+        };
+        assert!(
+            response(vec![annotation(Some("one\n\ntwo"))])
+                .validate()
+                .is_ok()
+        );
+        assert!(response(vec![annotation(None)]).validate().is_ok());
+        // Not cleaned: a line with a double space, a tab, a bidi override.
+        for text in ["a  b", "a\tb", "a\u{202E}b"] {
+            assert!(
+                response(vec![annotation(Some(text))]).validate().is_err(),
+                "{text:?}"
+            );
+        }
+        let mut far = annotation(None);
+        far.rect.x1 = f32::INFINITY;
+        assert!(response(vec![far]).validate().is_err());
+        assert!(
+            response(vec![
+                annotation(None);
+                MAX_ANNOTATIONS_PER_PAGE as usize + 1
+            ])
+            .validate()
+            .is_err()
         );
     }
 

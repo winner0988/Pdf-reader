@@ -20,7 +20,8 @@ use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
     BlockedAction, DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
     IpcError, LinkArgs, LinkPreview, LinkTarget, OpenEvent, OutlineLinkArgs, OutlineResult,
-    PageLink, PageSize, PageText, Password, Recovery, RenderPageArgs, SaveResult, SearchHit, TabId,
+    PageAnnotation, PageLink, PageSize, PageText, Password, Recovery, RenderPageArgs, SaveResult,
+    SearchHit, TabId,
 };
 use ipc_contract::validate::{Validate, check_page_index};
 use ipc_contract::worker::{WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse};
@@ -845,6 +846,44 @@ impl Documents {
         })
     }
 
+    /// The annotations of one page that can be selected and removed (B2-07): highlighter marks,
+    /// notes and other kinds, each by its number in the document.
+    pub fn page_annotations(
+        &self,
+        doc: DocumentId,
+        page_index: u32,
+    ) -> Result<Vec<PageAnnotation>, IpcError> {
+        self.with_document(doc, |document| {
+            let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+            check_page_index(page_index, page_count).map_err(invalid_argument)?;
+            let response = request(document, |request, doc| WorkerRequest::GetPageAnnotations {
+                request,
+                doc,
+                page_index,
+            })?;
+            let WorkerResponse::PageAnnotations {
+                page_index: answered,
+                annotations,
+                ..
+            } = response
+            else {
+                return Err(unexpected("GetPageAnnotations"));
+            };
+            let mut ids = std::collections::HashSet::new();
+            if answered != page_index
+                || !annotations
+                    .iter()
+                    .all(|annotation| ids.insert(annotation.id))
+            {
+                return Err(IpcError {
+                    code: ErrorCode::ProtocolViolation,
+                    message: "page annotations do not match the document".to_owned(),
+                });
+            }
+            Ok(annotations)
+        })
+    }
+
     pub fn page_links(&self, doc: DocumentId, page_index: u32) -> Result<Vec<PageLink>, IpcError> {
         self.with_document(doc, |document| {
             let page_count = document.info.pages.len();
@@ -1211,8 +1250,28 @@ fn pages_after(
     page_count: u32,
     permissions: DocumentPermissions,
 ) -> Result<u32, IpcError> {
-    // Every kind of edit so far manages pages: assembling the document, as Acrobat reads the
-    // author's permissions (MVP-19).
+    // Annotations (B2-07) have a permission of their own; the worker checks that the annotation
+    // is on the page.
+    let annotated: Option<Vec<u32>> = match edit {
+        Edit::AddHighlight { marks, .. } => Some(marks.iter().map(|mark| mark.page).collect()),
+        Edit::AddNote { page, .. }
+        | Edit::DeleteAnnotation { page, .. }
+        | Edit::SetHighlightColor { page, .. }
+        | Edit::SetNoteText { page, .. } => Some(vec![*page]),
+        _ => None,
+    };
+    if let Some(pages) = annotated {
+        if !permissions.annotate {
+            return Err(not_allowed());
+        }
+        pages
+            .into_iter()
+            .try_for_each(|page| check_page_index(page, page_count))
+            .map_err(invalid_argument)?;
+        return Ok(page_count);
+    }
+    // The other edits manage pages: assembling the document, as Acrobat reads the author's
+    // permissions (MVP-19).
     if !(permissions.assemble || permissions.modify) {
         return Err(not_allowed());
     }
@@ -1255,6 +1314,11 @@ fn pages_after(
             }
             Ok(page_count + 1)
         }
+        Edit::AddHighlight { .. }
+        | Edit::AddNote { .. }
+        | Edit::DeleteAnnotation { .. }
+        | Edit::SetHighlightColor { .. }
+        | Edit::SetNoteText { .. } => Ok(page_count),
     }
 }
 
@@ -1691,7 +1755,9 @@ mod tests {
 #[cfg(test)]
 mod with_worker {
     use ipc_contract::limits::MAX_RASTER_PIXELS;
-    use ipc_contract::types::{RequestId, Rotation};
+    use ipc_contract::types::{
+        AnnotationId, HighlightColor, HighlightMark, Point, Quad, RequestId, Rotation,
+    };
 
     use super::*;
 
@@ -3115,5 +3181,142 @@ mod with_worker {
         documents.close(tab).unwrap();
         assert_eq!(data.journals(), 0);
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn annotations_are_added_changed_removed_and_undone_like_any_edit() {
+        let (documents, info, path) = open("annotations", 2);
+        let mut doc = info.doc;
+        let quad = |x: f32| Quad {
+            ul: Point { x, y: 100.0 },
+            ur: Point {
+                x: x + 100.0,
+                y: 100.0,
+            },
+            ll: Point { x, y: 120.0 },
+            lr: Point {
+                x: x + 100.0,
+                y: 120.0,
+            },
+        };
+        let edit = |doc: &mut DocumentId, edit: Edit| {
+            *doc = opened_info(documents.apply_edit(&EditArgs { doc: *doc, edit }).unwrap()).doc;
+        };
+        edit(
+            &mut doc,
+            Edit::AddHighlight {
+                marks: vec![HighlightMark {
+                    page: 0,
+                    quads: vec![quad(72.0)],
+                }],
+                color: HighlightColor::Blue,
+            },
+        );
+        edit(
+            &mut doc,
+            Edit::AddNote {
+                page: 1,
+                at: Point { x: 300.0, y: 300.0 },
+                text: "附註".to_owned(),
+            },
+        );
+        let [highlight] = &documents.page_annotations(doc, 0).unwrap()[..] else {
+            panic!("one highlight")
+        };
+        assert_eq!(highlight.color, Some(HighlightColor::Blue));
+        let [note] = &documents.page_annotations(doc, 1).unwrap()[..] else {
+            panic!("one note")
+        };
+        assert_eq!(note.text.as_deref(), Some("附註"));
+        let (highlight, note) = (highlight.id, note.id);
+
+        edit(
+            &mut doc,
+            Edit::SetNoteText {
+                page: 1,
+                annotation: note,
+                text: "改過".to_owned(),
+            },
+        );
+        edit(
+            &mut doc,
+            Edit::DeleteAnnotation {
+                page: 0,
+                annotation: highlight,
+            },
+        );
+        assert!(documents.page_annotations(doc, 0).unwrap().is_empty());
+        assert_eq!(
+            documents.page_annotations(doc, 1).unwrap()[0]
+                .text
+                .as_deref(),
+            Some("改過")
+        );
+        // Undo opens the document again and makes the earlier edits again: the same numbers.
+        doc = opened_info(documents.undo(doc, None).unwrap()).doc;
+        assert_eq!(documents.page_annotations(doc, 0).unwrap()[0].id, highlight);
+
+        // An annotation that is not there, on a page that is not either, or text that is not
+        // only text, never reaches a document.
+        let refused = |edit: Edit| {
+            documents
+                .apply_edit(&EditArgs { doc, edit })
+                .unwrap_err()
+                .code
+        };
+        assert_eq!(
+            refused(Edit::DeleteAnnotation {
+                page: 0,
+                annotation: AnnotationId(9_999),
+            }),
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(
+            refused(Edit::DeleteAnnotation {
+                page: 2,
+                annotation: highlight,
+            }),
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(
+            refused(Edit::AddNote {
+                page: 0,
+                at: Point { x: 1.0, y: 1.0 },
+                text: "a\u{202E}b".to_owned(),
+            }),
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(documents.page_annotations(doc, 0).unwrap().len(), 1);
+        assert_eq!(
+            documents.page_annotations(doc, 2).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn an_author_who_forbids_annotations_is_obeyed() {
+        // RC4, /P without the annotation bit (tests/corpus/generate.py).
+        let documents = Documents::new(worker());
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/encrypted-rc4-40.pdf");
+        let (_, info) = unlocked(&documents, &path);
+        assert!(!info.permissions.annotate);
+        assert_eq!(
+            documents
+                .apply_edit(&EditArgs {
+                    doc: info.doc,
+                    edit: Edit::AddNote {
+                        page: 0,
+                        at: Point { x: 72.0, y: 72.0 },
+                        text: "no".to_owned(),
+                    },
+                })
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        // Listing them is not editing them.
+        assert!(documents.page_annotations(info.doc, 0).is_ok());
     }
 }

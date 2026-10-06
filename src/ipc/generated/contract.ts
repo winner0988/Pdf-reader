@@ -91,7 +91,43 @@ export type ExportEvent = { "kind": "progress", pagesDone: number, total: number
  * A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
  * those of the document as it is before the edit.
  */
-export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, };
+export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "addHighlight", marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, };
+
+/**
+ * The highlighter's colors (B2-07).
+ */
+export type HighlightColor = "yellow" | "green" | "blue" | "pink";
+
+/**
+ * The part of a highlighter mark on one page (B2-07): `quads` in page space, as text selection
+ * gives them, one per line.
+ */
+export type HighlightMark = { page: number, quads: Array<Quad>, };
+
+/**
+ * An annotation of an open document: the number of its object in the document, which stays
+ * the same through edits until the document is saved (B2-07).
+ */
+export type AnnotationId = number;
+
+/**
+ * What an annotation of a page is, as far as the app edits it (B2-07).
+ */
+export type AnnotationKind = "highlight" | "note" | "other";
+
+/**
+ * An annotation of a page (B2-07), from the page's worker; links, form fields and pop-up
+ * windows are not listed. `text` is what a note says, cleaned like any text from a PDF.
+ */
+export type PageAnnotation = { id: AnnotationId, kind: AnnotationKind, 
+/**
+ * Where it is on the page (page space).
+ */
+rect: Rect, 
+/**
+ * A highlighter mark in one of the app's colors.
+ */
+color: HighlightColor | null, text: string | null, };
 
 /**
  * Arguments of `apply_edit` (B2-02). Any other field is rejected.
@@ -185,7 +221,11 @@ modify: boolean,
 /**
  * Inserting, deleting and rotating pages (`/P` bit 11, or bit 4 before revision 3).
  */
-assemble: boolean, };
+assemble: boolean, 
+/**
+ * Adding, changing and removing annotations (`/P` bit 6, B2-07).
+ */
+annotate: boolean, };
 
 /**
  * Changes to a file that an earlier run of the app made but neither saved nor discarded: it
@@ -384,6 +424,10 @@ export const LIMITS = {
   maxTabs: 20,
   maxRecentFiles: 20,
   maxExportPages: 1000,
+  maxAnnotationQuads: 1000,
+  maxHighlightPages: 100,
+  maxNoteTextBytes: 4096,
+  maxAnnotationsPerPage: 2000,
   protocolVersion: 0,
 } as const;
 
