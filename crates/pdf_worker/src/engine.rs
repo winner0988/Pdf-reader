@@ -2268,6 +2268,28 @@ mod tests {
     }
 
     #[test]
+    fn annotation_numbers_stay_the_same_through_saving_and_opening_again() {
+        // Saving drops what nothing uses but does not renumber (garbage level 1): the numbers
+        // the page was told stay true if the worker has to open the saved file again.
+        let mut doc = PdfDocument::from_bytes(&annotated_pdf()).expect("open");
+        doc.add_note(0, Point { x: 400.0, y: 400.0 }, "New note")
+            .expect("note");
+        doc.delete_annotation(0, AnnotationId(7)).expect("delete");
+        let numbered = |doc: &PdfDocument| -> Vec<(u32, Option<String>)> {
+            doc.page_annotations(0)
+                .expect("annotations")
+                .into_iter()
+                .map(|annotation| (annotation.id.0, annotation.text))
+                .collect()
+        };
+        let before = numbered(&doc);
+        assert!(before.len() >= 4, "{before:?}");
+        let (bytes, _) = saved(&doc);
+        let reopened = PdfDocument::from_bytes(&bytes).expect("reopen");
+        assert_eq!(numbered(&reopened), before);
+    }
+
+    #[test]
     fn rotating_pages_turns_them_on_top_of_their_rotation() {
         let mut doc = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
         doc.rotate_pages(&[0], 90).expect("rotate");

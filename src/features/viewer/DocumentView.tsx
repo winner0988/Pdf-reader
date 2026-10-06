@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type Ref,
   type RefObject,
 } from "react";
@@ -33,6 +34,9 @@ import {
   type Viewport,
   type ViewportPoint,
 } from "@/features/viewer/layout";
+import { annotationAt } from "@/features/annotations/model";
+import { PageAnnotations } from "@/features/annotations/PageAnnotations";
+import type { AnnotationSource } from "@/features/annotations/source";
 import { linkHoverText } from "@/features/links/text";
 import type { LinkSource } from "@/features/links/source";
 import { hasSelectedText, selectionQuads, type TextSelection } from "@/features/text/model";
@@ -48,7 +52,17 @@ import {
 } from "@/features/viewer/highlights";
 import { drawRaster, errorCodeOf, type PageRenderer, type RenderJob } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
-import type { DocumentId, PageLink, PageText, Rotation as ContractRotation } from "@/ipc/generated/contract";
+import type {
+  AnnotationId,
+  DocumentId,
+  Edit,
+  HighlightMark,
+  PageAnnotation,
+  PageLink,
+  PageText,
+  Point,
+  Rotation as ContractRotation,
+} from "@/ipc/generated/contract";
 
 export type DocumentViewHandle = {
   /** Scrolls so that the 1-based `page` is at the top. */
@@ -59,6 +73,10 @@ export type DocumentViewHandle = {
   hasSelection(): boolean;
   /** The selected text, or null when nothing is selected. */
   selectedText(): Promise<string | null>;
+  /** Where the selected text is on each page, for the highlighter (B2-07); none when nothing is selected. */
+  highlightMarks(): Promise<HighlightMark[]>;
+  /** The page under a pointer (client coordinates) and the point on it (page space); null off the pages. */
+  pageAt(clientX: number, clientY: number): { page: number; point: Point } | null;
 };
 
 type DocumentViewProps = {
@@ -88,6 +106,12 @@ type DocumentViewProps = {
   onSelectionChange?: (selected: boolean) => void;
   /** The user tried to select text on a page that has none: a scanned page needs OCR. */
   onNoText?: () => void;
+  /** Where the pages' annotations come from (B2-07); without it (demo data) none are shown. */
+  annotations?: AnnotationSource;
+  /** Changes an annotation (B2-07); without it (the author does not allow it) none can be changed. */
+  onAnnotationEdit?: (edit: Edit) => void;
+  /** Asks for a note's new text. */
+  onEditNote?: (page: number, annotation: PageAnnotation) => void;
   /** Delay before a newly mounted page asks for a render; tests pass 0. */
   requestDelayMs?: number;
   ref?: Ref<DocumentViewHandle>;
@@ -107,6 +131,8 @@ const REQUEST_DELAY_MS = 100;
 const NEARBY_EXTRA_DELAY_MS = 150;
 /** Wheel distance (in pixels) for one zoom step; a mouse notch is about 100. */
 const WHEEL_STEP_PX = 50;
+/** How far a press may move and still be a click, not a text selection (B2-07). */
+const CLICK_SLOP_PX = 4;
 
 const UNMEASURED: Viewport = { top: 0, left: 0, width: 0, height: 0 };
 
@@ -154,6 +180,9 @@ export function DocumentView({
   text,
   onSelectionChange,
   onNoText,
+  annotations,
+  onAnnotationEdit,
+  onEditNote,
   requestDelayMs = REQUEST_DELAY_MS,
   ref,
 }: DocumentViewProps) {
@@ -260,6 +289,22 @@ export function DocumentView({
   };
   const textSelection = useTextSelection({ doc, source: text, locate, scrollContainer, onNoText });
   const { selection } = textSelection;
+
+  // The chosen annotation (B2-07). A click (a press that did not move, so not selecting text) on
+  // an annotation chooses it, anywhere else lets it go.
+  const [chosen, setChosen] = useState<{ page: number; id: AnnotationId } | null>(null);
+  const pressed = useRef<{ x: number; y: number } | null>(null);
+  const chooseAt = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const from = pressed.current;
+    pressed.current = null;
+    if (!annotations || doc === undefined || !from) return;
+    if (Math.hypot(event.clientX - from.x, event.clientY - from.y) > CLICK_SLOP_PX) return;
+    // Links and the page's own buttons keep their clicks.
+    if (event.target instanceof Element && event.target.closest("button")) return;
+    const at = locate(event.clientX, event.clientY);
+    const found = at?.inside ? annotationAt(annotations.loaded(doc, at.page) ?? [], at.point) : null;
+    setChosen(at && found ? { page: at.page, id: found.id } : null);
+  };
   const selected = hasSelectedText(selection);
   const onSelection = useRef(onSelectionChange);
   useEffect(() => {
@@ -303,8 +348,15 @@ export function DocumentView({
       },
       hasSelection: textSelection.hasSelection,
       selectedText: textSelection.selectedText,
+      highlightMarks: textSelection.selectedQuads,
+      pageAt(clientX, clientY) {
+        const at = locate(clientX, clientY);
+        return at?.inside ? { page: at.page, point: at.point } : null;
+      },
     }),
-    [layout, scrollContainer, pages, rotation, width, textSelection.hasSelection, textSelection.selectedText],
+    // `locate` reads the layout and the view's position, both already listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [layout, scrollContainer, pages, rotation, width, textSelection.hasSelection, textSelection.selectedText, textSelection.selectedQuads],
   );
 
   // The first renders use the measured scale right away. After that, a new resolution is
@@ -360,6 +412,29 @@ export function DocumentView({
         />,
       );
     }
+    if (annotations && doc !== undefined) {
+      slots.push(
+        <PageAnnotations
+          key={`annotations-${index}`}
+          source={annotations}
+          doc={doc}
+          index={index}
+          page={pages[index]!}
+          rotation={rotation}
+          box={box}
+          left={left}
+          delayMs={delay}
+          chosen={chosen?.page === index ? chosen.id : null}
+          onChoose={(id) => setChosen(id === null ? null : { page: index, id })}
+          onRelease={() => {
+            setChosen(null);
+            scrollContainer.current?.focus();
+          }}
+          onEdit={onAnnotationEdit}
+          onEditNote={onEditNote}
+        />,
+      );
+    }
     if (links && doc !== undefined) {
       slots.push(
         <PageLinks
@@ -386,8 +461,12 @@ export function DocumentView({
       className="relative select-none"
       // Content that fits is exactly as wide as the viewport, whatever fraction of a pixel that is.
       style={{ width: fitsWidth(layout, viewport.width) ? "100%" : width, height: layout.totalHeight }}
-      onMouseDown={textSelection.onMouseDown}
+      onMouseDown={(event) => {
+        pressed.current = event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
+        textSelection.onMouseDown(event);
+      }}
       onMouseMove={textSelection.onMouseMove}
+      onClick={chooseAt}
     >
       {slots}
     </div>
