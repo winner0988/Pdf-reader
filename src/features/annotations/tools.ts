@@ -4,10 +4,24 @@
 
 import type { PageSize, Rotation } from "@/features/shell/model";
 import { boxToPage, type PageBox } from "@/features/viewer/layout";
-import { LIMITS, type InkColor, type InkWidth, type Point, type Rect, type StampName } from "@/ipc/generated/contract";
+import {
+  LIMITS,
+  type InkColor,
+  type InkWidth,
+  type Point,
+  type Rect,
+  type StampImageInfo,
+  type StampName,
+} from "@/ipc/generated/contract";
 
-/** What the pointer does on the pages: draws with the pen, or places a stamp. */
-export type Tool = { kind: "pen"; color: InkColor; width: InkWidth } | { kind: "stamp"; stamp: StampName };
+/**
+ * What the pointer does on the pages: draws with the pen, or places a stamp (one of the standard
+ * ones, or a picture of the user's own).
+ */
+export type Tool =
+  | { kind: "pen"; color: InkColor; width: InkWidth }
+  | { kind: "stamp"; stamp: StampName }
+  | { kind: "picture"; picture: StampImageInfo };
 
 export const INK_COLORS: InkColor[] = ["black", "red", "blue", "green"];
 export const INK_WIDTHS: InkWidth[] = ["thin", "medium", "thick"];
@@ -77,15 +91,39 @@ export function keptPointOnPage(point: Point, page: PageSize): Point {
   return { x: Math.min(Math.max(point.x, 0), page.widthPt), y: Math.min(Math.max(point.y, 0), page.heightPt) };
 }
 
-/** The rectangle a stamp takes when put down at `at` (page space), inside the page. */
-export function stampRectAt(at: Point, page: PageSize): Rect {
+/** A rectangle of the given size around `at` (page space), moved to lie inside the page. */
+function rectAround(at: Point, page: PageSize, width: number, height: number): Rect {
   const place = (center: number, size: number, limit: number): [number, number] => {
     const start = Math.min(Math.max(center - size / 2, 0), Math.max(limit - size, 0));
     return [start, start + size];
   };
-  const [x0, x1] = place(at.x, STAMP_WIDTH_PT, page.widthPt);
-  const [y0, y1] = place(at.y, STAMP_HEIGHT_PT, page.heightPt);
+  const [x0, x1] = place(at.x, width, page.widthPt);
+  const [y0, y1] = place(at.y, height, page.heightPt);
   return { x0, y0, x1, y1 };
+}
+
+/** The rectangle a stamp takes when put down at `at` (page space), inside the page. */
+export function stampRectAt(at: Point, page: PageSize): Rect {
+  return rectAround(at, page, STAMP_WIDTH_PT, STAMP_HEIGHT_PT);
+}
+
+/** The longer side of a picture stamp when it is put down, in points. */
+export const PICTURE_LONG_SIDE_PT = 150;
+
+/**
+ * The rectangle a picture stamp takes when put down at `at`: the picture's own shape with its
+ * longer side `PICTURE_LONG_SIDE_PT`, inside the page. A very long and thin picture gets the
+ * least side a stamp may have on its shorter side (a little out of shape, but it can be grabbed).
+ */
+export function pictureRectAt(at: Point, page: PageSize, picture: Pick<StampImageInfo, "width" | "height">): Rect {
+  const scale = PICTURE_LONG_SIDE_PT / Math.max(picture.width, picture.height, 1);
+  const least = LIMITS.minAnnotationSidePt;
+  return rectAround(
+    at,
+    page,
+    Math.max(picture.width * scale, least),
+    Math.max(picture.height * scale, least),
+  );
 }
 
 /** A box on a page as the screen shows it, in CSS pixels from the page's top left. */
