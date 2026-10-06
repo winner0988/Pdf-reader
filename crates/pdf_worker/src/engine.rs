@@ -543,8 +543,10 @@ impl PdfDocument {
 
         let mut ctm = Matrix::new_scale(scale, scale);
         ctm.concat(Matrix::new_rotate(f32::from(rotation)));
-        // No alpha: MuPDF paints an opaque white background, which the contract requires.
-        Ok(page.to_pixmap(&ctm, &Colorspace::device_rgb(), false, false)?)
+        // No alpha: MuPDF paints an opaque white background, which the contract requires. With the
+        // extras: the annotations and form fields are part of what the page looks like (what
+        // the user added, what prints and what is exported), not only its content.
+        Ok(page.to_pixmap(&ctm, &Colorspace::device_rgb(), false, true)?)
     }
 
     /// Searches one page's text layer for `query` (MVP-10); coordinates are page points with
@@ -2265,6 +2267,43 @@ mod tests {
             signed.flatten_form(),
             Err(EngineError::InvalidEdit(_))
         ));
+    }
+
+    /// A form XObject drawing a `color` rectangle over its whole 100 x 100 box.
+    fn solid_form(color: &str) -> String {
+        let content = format!("{color} rg 0 0 100 100 re f");
+        format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /Length {} >>
+stream
+{content}
+endstream",
+            content.len()
+        )
+    }
+
+    #[test]
+    fn a_page_is_drawn_with_its_annotations_and_form_fields() {
+        // What a reader shows: the page, and over it what was added to it. A red square
+        // annotation at (100, 100) to (200, 200) and a blue text field at (300, 100) to (400,
+        // 200), page space, each with an appearance of its own.
+        let pdf = build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [6 0 R] >> >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R 6 0 R] >>",
+            "<< /Type /Annot /Subtype /Square /Rect [100 592 200 692] /F 4 /AP << /N 5 0 R >> >>",
+            &solid_form("1 0 0"),
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (box) /Rect [300 592 400 692] /F 4 /AP << /N 7 0 R >> >>",
+            &solid_form("0 0 1"),
+        ]);
+        let doc = PdfDocument::from_bytes(&pdf).expect("open");
+        let page = doc.render(0, 1.0, 0).expect("render");
+        let at = |x: usize, y: usize| {
+            let start = (y * page.width as usize + x) * 4;
+            page.rgba[start..start + 3].to_vec()
+        };
+        assert_eq!(at(150, 150), [255, 0, 0], "the annotation");
+        assert_eq!(at(350, 150), [0, 0, 255], "the form field");
+        assert_eq!(at(250, 150), [255, 255, 255], "the page between them");
     }
 
     #[test]
