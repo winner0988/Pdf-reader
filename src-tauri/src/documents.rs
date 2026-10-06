@@ -1253,13 +1253,13 @@ impl Documents {
         let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
         let applicable = found.same_file
             && pages_after_all(&found.edits, page_count, document.info.permissions).is_ok();
-        if own && applicable && {
+        if own && applicable {
             document.pictures.restore(found.pictures.clone());
-            replay(document, &found.edits).is_ok()
-        } {
-            document.journal = Some(found.id);
-            self.keep_journal(document);
-            return;
+            if replay(document, &found.edits).is_ok() {
+                document.journal = Some(found.id);
+                self.keep_journal(document);
+                return;
+            }
         }
         document.info.recovery = if applicable {
             Recovery::Available
