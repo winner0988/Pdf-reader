@@ -60,9 +60,12 @@ type Running = {
   browser?: Browser;
   /** The page `launch` returned: the one the test drives. */
   page?: Page;
-  /** When the app was started, and when its WebView answered (`Date.now()`). */
+  /** When the app was started, when its WebView answered, and when its page appeared (`Date.now()`). */
   launched: number;
   connected?: number;
+  ready?: number;
+  /** What the app and the computer were doing while its page was slow to appear (#133). */
+  slowStart?: Promise<string>;
   /** The page's calls to the main process (`invoke`) still waiting for an answer, with when each was made. */
   pendingIpc: Map<Request, { command: string; at: number }>;
   /** How many calls of each command were answered (or failed). */
@@ -154,8 +157,13 @@ async function summary(running: Running): Promise<string> {
   const state = running.child.exitCode === null ? "still running" : `exited with ${running.child.exitCode}`;
   const pages = running.browser?.contexts().flatMap((context) => context.pages()) ?? [];
   const page = running.page ?? pages[0];
+  const appeared =
+    running.ready === undefined
+      ? "its page never appeared"
+      : `its page appeared ${running.ready - running.launched} ms after launch`;
   const lines = [
-    `--- app: ${started}; ${Date.now() - running.launched} ms after launch it is ${state} (launched at ${running.launched}) ---`,
+    `--- app: ${started}; ${appeared}; ${Date.now() - running.launched} ms after launch it is ${state} (launched at ${running.launched}) ---`,
+    ...(running.slowStart ? [`while its page was slow to appear: ${await running.slowStart}`] : []),
     `pages: ${JSON.stringify(pages.map((each) => `${each.url()}${each === page ? " (the test's)" : ""}`))}`,
     // Whether the page asked for its pages to be rendered, and whether the main process answered.
     `its calls to the main process: ${JSON.stringify({
@@ -355,6 +363,66 @@ async function connect(port: number, running: Running): Promise<Browser> {
     `the app's WebView did not start within ${STARTUP_TIMEOUT_MS} ms; its WebView2 browser process:\n` +
       (browserProcess || "(none)"),
   );
+}
+
+/**
+ * How long WebView2 may take to load the app's page. In the fresh profile each test gets, CI has
+ * seen it take 17 to 35 s: the app's HTML arrived that late, and then everything was fast (#133).
+ */
+const PAGE_TIMEOUT_MS = 60_000;
+/** A page slower than this to appear is noted in the test's output, with what was going on. */
+const SLOW_PAGE_MS = 5_000;
+
+/**
+ * Waits until the app's page has rendered (React has put something in `#root`), so that a test's
+ * own timeouts measure the app, not WebView2 starting up. When the page is slow to appear, notes
+ * whether the app's window answers (`IsHungAppWindow`: is the app's main thread stuck?), how much
+ * processor time the app and its WebView2 processes have used, and what the computer is busy with.
+ */
+async function waitForApp(page: Page, running: Running) {
+  const pid = running.child.pid;
+  const timer =
+    pid === undefined
+      ? undefined
+      : setTimeout(() => {
+          running.slowStart = startSnapshot(pid);
+        }, SLOW_PAGE_MS);
+  try {
+    await page.locator("#root > *").first().waitFor({ state: "attached", timeout: PAGE_TIMEOUT_MS });
+  } finally {
+    clearTimeout(timer);
+  }
+  running.ready = Date.now();
+  if (running.slowStart) {
+    console.log(
+      `--- app: its page appeared ${running.ready - running.launched} ms after launch; meanwhile ${await running.slowStart}`,
+    );
+  }
+}
+
+/** The app's window and processes, and the computer, now: see `waitForApp`. */
+async function startSnapshot(pid: number): Promise<string> {
+  const script = [
+    `Add-Type -Namespace E2e -Name Hung -MemberDefinition '[DllImport("user32.dll")] public static extern bool IsHungAppWindow(System.IntPtr window);'`,
+    `$window = (Get-Process -Id ${pid}).MainWindowHandle`,
+    "$state = if ($window -eq [System.IntPtr]::Zero) { 'no window yet' } elseif ([E2e.Hung]::IsHungAppWindow($window)) { 'the window does not answer' } else { 'the window answers' }",
+    "$all = Get-CimInstance Win32_Process",
+    `$tree = @(${pid})`,
+    "do { $more = $all | Where-Object { $tree -contains $_.ParentProcessId -and $tree -notcontains $_.ProcessId }; $tree += $more.ProcessId } while ($more)",
+    String.raw`$processes = $all | Where-Object { $tree -contains $_.ProcessId } | ForEach-Object { $cpu = (Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue).CPU; $type = if ($_.CommandLine -match '--type=([a-z-]+)') { $Matches[1] } else { 'main' }; "$($_.Name) ($type) $([math]::Round($cpu, 1)) s" }`,
+    // The busiest processes, and the disk, over one second.
+    String.raw`$busy = (Get-Counter '\Process(*)\% Processor Time', '\PhysicalDisk(_Total)\% Disk Time' -SampleInterval 1 -MaxSamples 1).CounterSamples | Sort-Object CookedValue -Descending | Select-Object -First 8 | ForEach-Object { "$($_.Path.Split('\')[-2]) $([math]::Round($_.CookedValue))%" }`,
+    String.raw`"$state; processor time used: $($processes -join ', '); busiest now: $($busy -join ', ')"`,
+  ].join("; ");
+  try {
+    const { stdout } = await promisify(execFile)("powershell", ["-NoProfile", "-NonInteractive", "-Command", script], {
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+    return stdout.trim();
+  } catch (error) {
+    return `(not known: ${String(error).split(/\r?\n/)[0]})`;
+  }
 }
 
 async function mainPage(browser: Browser): Promise<Page> {
@@ -560,6 +628,11 @@ export const test = base.extend<{
       await page.evaluate(heartbeat).catch(() => {});
       running.performance = await page.context().newCDPSession(page);
       await running.performance.send("Performance.enable").catch(() => {});
+      // WebView2's start is not the test's: the test's time limit grows by what it takes.
+      const budget = testInfo.timeout;
+      if (budget > 0) testInfo.setTimeout(budget + PAGE_TIMEOUT_MS);
+      await waitForApp(page, running);
+      if (budget > 0) testInfo.setTimeout(budget + ((running.ready ?? Date.now()) - running.launched));
       dataDirs.set(page, data);
       apps.set(page, running);
       if (child.pid !== undefined) processes.set(page, child.pid);
