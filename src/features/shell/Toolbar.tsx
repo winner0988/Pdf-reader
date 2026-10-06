@@ -1,14 +1,17 @@
 import {
+  ChevronDown,
   ChevronLeft,
   FolderOpen,
   Minus,
   MoreHorizontal,
   PanelLeft,
   Highlighter,
+  Pencil,
   Plus,
   RotateCcw,
   RotateCw,
   Search,
+  Stamp,
 } from "lucide-react";
 import { useId, useState, type Ref } from "react";
 
@@ -28,7 +31,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { IconButton } from "@/features/shell/IconButton";
 import { ZOOM_LEVELS, type Zoom } from "@/features/shell/model";
-import type { HighlightColor } from "@/ipc/generated/contract";
+import { INK_COLORS, INK_SWATCH, INK_WIDTHS, STAMPS } from "@/features/annotations/tools";
+import type { HighlightColor, InkColor, InkWidth, StampName } from "@/ipc/generated/contract";
 import type { ThemePreference } from "@/features/theme/useTheme";
 import { strings } from "@/i18n/zh-TW";
 
@@ -79,6 +83,20 @@ export type ToolbarProps = {
    * disabled.
    */
   highlight?: { color: HighlightColor; onClick?: () => void };
+  /**
+   * The pen (B2-08): turned on or off with its button, in the color and thickness the menu next
+   * to it says. Without a toggle (the author does not allow annotating) the button is disabled.
+   */
+  pen?: {
+    active: boolean;
+    color: InkColor;
+    width: InkWidth;
+    onToggle?: () => void;
+    onColor: (color: InkColor) => void;
+    onWidth: (width: InkWidth) => void;
+  };
+  /** The stamps (B2-08): the menu has them; choosing one is to put it on a page. `active` is the one chosen. */
+  stamp?: { active: StampName | null; onChoose?: (stamp: StampName) => void };
   /** The "⋯" menu opened. */
   onMoreMenuOpen?: () => void;
   /**
@@ -164,6 +182,8 @@ export function Toolbar(props: ToolbarProps) {
           <Highlighter />
         </IconButton>
       )}
+      {document && props.pen && <PenControls pen={props.pen} />}
+      {document && props.stamp && <StampMenu stamp={props.stamp} />}
       {document && (
         <IconButton label={t.search} shortcut="Ctrl+F" pressed={props.searchOpen} onClick={props.onSearch}>
           <Search />
@@ -171,6 +191,92 @@ export function Toolbar(props: ToolbarProps) {
       )}
       <MoreMenu {...props} />
     </div>
+  );
+}
+
+/** The pen's button, and next to it the menu of its color and thickness. */
+function PenControls({ pen }: { pen: NonNullable<ToolbarProps["pen"]> }) {
+  const labels = strings.annotations;
+  return (
+    <>
+      <IconButton
+        label={labels.pen}
+        // The reason, when it is disabled, is in the tooltip.
+        shortcut={pen.onToggle ? undefined : labels.notAllowed}
+        pressed={pen.active}
+        disabled={!pen.onToggle}
+        onClick={pen.onToggle}
+      >
+        <Pencil />
+      </IconButton>
+      <DropdownMenu>
+        <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={labels.penStyle} disabled={!pen.onToggle} />}>
+          <ChevronDown />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-40">
+          <DropdownMenuGroup>
+            <DropdownMenuRadioGroup value={pen.color} onValueChange={(value) => pen.onColor(value as InkColor)}>
+              {INK_COLORS.map((color) => (
+                <DropdownMenuRadioItem key={color} value={color}>
+                  <span
+                    aria-hidden
+                    className="mr-2 inline-block size-3 rounded-full border border-black/20"
+                    style={{ backgroundColor: INK_SWATCH[color] }}
+                  />
+                  {labels.inkColors[color]}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuRadioGroup value={pen.width} onValueChange={(value) => pen.onWidth(value as InkWidth)}>
+              {INK_WIDTHS.map((width) => (
+                <DropdownMenuRadioItem key={width} value={width}>
+                  {labels.inkWidths[width]}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  );
+}
+
+/** The stamps: the menu of them, the one chosen marked. */
+function StampMenu({ stamp }: { stamp: NonNullable<ToolbarProps["stamp"]> }) {
+  const labels = strings.annotations;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={labels.stamp}
+            title={stamp.onChoose ? undefined : labels.notAllowed}
+            disabled={!stamp.onChoose}
+            data-stamp-button=""
+            data-active={stamp.active !== null || undefined}
+            className="data-active:bg-accent"
+          />
+        }
+      >
+        <Stamp />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-40">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>{labels.stamp}</DropdownMenuLabel>
+          {/* Items, not a radio group: a choice closes the menu, and the pointer is the page's. */}
+          {STAMPS.map((name) => (
+            <DropdownMenuItem key={name} aria-current={stamp.active === name || undefined} onClick={() => stamp.onChoose?.(name)}>
+              {labels.stamps[name]}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
