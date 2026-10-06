@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 
 import type { OpenApi } from "@/features/open/api";
 import { initialTabs, reduceTabs } from "@/features/tabs/model";
-import type { ErrorCode, IpcError, TabId } from "@/ipc/generated/contract";
+import type { DocumentInfo, ErrorCode, IpcError, TabId } from "@/ipc/generated/contract";
 
 function errorCode(error: unknown): ErrorCode {
   const code = (error as Partial<IpcError> | null)?.code;
@@ -15,8 +15,22 @@ function errorCode(error: unknown): ErrorCode {
  */
 export function useTabs(api: OpenApi) {
   const [state, dispatch] = useReducer(reduceTabs, initialTabs);
+  /**
+   * Each open tab's document as the main process last described it. The page renders an event a
+   * moment after it arrives; a command issued in between (the next field of a form, saving) must
+   * not use the document the page was still showing.
+   */
+  const latest = useRef(new Map<TabId, DocumentInfo>());
 
-  useEffect(() => api.listen((event) => dispatch({ type: "event", event })), [api]);
+  useEffect(
+    () =>
+      api.listen((event) => {
+        if (event.kind === "opened") latest.current.set(event.tab, event.info);
+        else if ("tab" in event) latest.current.delete(event.tab);
+        dispatch({ type: "event", event });
+      }),
+    [api],
+  );
 
   // The main process titles the window after the tab it shows.
   useEffect(() => {
@@ -46,15 +60,17 @@ export function useTabs(api: OpenApi) {
     (tab: TabId) => {
       // The tab goes away either way; a document the worker already lost needs no release.
       dispatch({ type: "closed", tab });
+      latest.current.delete(tab);
       api.close(tab).catch(() => {});
     },
     [api],
   );
 
+  const latestInfo = useCallback((tab: TabId) => latest.current.get(tab), []);
   const activate = useCallback((tab: TabId) => dispatch({ type: "activate", tab }), []);
   const step = useCallback((by: 1 | -1) => dispatch({ type: "step", by }), []);
   const dismissNotice = useCallback(() => dispatch({ type: "dismissNotice" }), []);
   const dismissCloseRequest = useCallback(() => dispatch({ type: "dismissCloseRequest" }), []);
 
-  return { state, open, retry, unlock, close, activate, step, dismissNotice, dismissCloseRequest };
+  return { state, open, retry, unlock, close, latestInfo, activate, step, dismissNotice, dismissCloseRequest };
 }
