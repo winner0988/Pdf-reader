@@ -4082,10 +4082,7 @@ mod with_worker {
                 Ok(())
             })
             .unwrap();
-        assert_eq!(
-            documents.page_text(back.doc, 4).unwrap().lines.len() > 0,
-            true
-        );
+        assert!(!documents.page_text(back.doc, 4).unwrap().lines.is_empty());
 
         // Saved as a copy: the copy has them.
         let copy = std::env::temp_dir().join(format!("b206-{}-copy.pdf", std::process::id()));
