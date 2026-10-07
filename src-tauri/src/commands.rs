@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use ipc_contract::types::{
     DocumentId, EditArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs,
@@ -900,15 +901,21 @@ pub async fn save_document_as(
 }
 
 /// Closes the window once the user was asked about unsaved changes (B2-02): with some left, only
-/// if they chose to `discard` them.
+/// if they chose to `discard` them. The page may not have known of them when it asked to close
+/// (a value it was still sending, #153): then the window stays open and the page is asked to ask.
 #[tauri::command]
 pub async fn close_window(
     app: AppHandle,
     window: WebviewWindow,
     discard: bool,
 ) -> Result<(), IpcError> {
+    // The page answered (see `close_if_unanswered`).
+    CLOSE_ANSWERED.store(true, Ordering::SeqCst);
     let documents = app.state::<Documents>();
-    if !discard && !documents.unsaved_tabs().is_empty() {
+    let unsaved = documents.unsaved_tabs();
+    if !discard && !unsaved.is_empty() {
+        app.state::<OpenEvents>()
+            .send(OpenEvent::CloseRequested { tabs: unsaved });
         return Err(IpcError {
             code: ErrorCode::InvalidArgument,
             message: "documents have unsaved changes".to_owned(),
@@ -933,17 +940,55 @@ pub async fn cancel(app: AppHandle, request: RequestId) -> Result<(), IpcError> 
     Ok(())
 }
 
+/// How long the page has to answer a request to close the window that names no unsaved tab. A page
+/// that has none to ask about answers at once (it calls `close_window`), so this only matters for
+/// one that does not answer at all: the window must still close.
+const CLOSE_ANSWER: Duration = Duration::from_secs(5);
+
+/// Whether the page has called `close_window` since the window was last asked to close with no tab
+/// known to have unsaved changes.
+static CLOSE_ANSWERED: AtomicBool = AtomicBool::new(false);
+
+/// Closes `window` if, after `CLOSE_ANSWER`, the page has not answered (called `close_window`) and
+/// no tab has unsaved changes: it is not answering (#153). A page that answered and was then
+/// asked to wait, by a question the user has not answered, keeps the window.
+fn close_if_unanswered(window: Window) {
+    std::thread::spawn(move || {
+        std::thread::sleep(CLOSE_ANSWER);
+        if !CLOSE_ANSWERED.load(Ordering::SeqCst)
+            && window
+                .app_handle()
+                .state::<Documents>()
+                .unsaved_tabs()
+                .is_empty()
+        {
+            // `destroy`, not `close`: `close` would ask again (see `on_window_event`).
+            let _ = window.destroy();
+        }
+    });
+}
+
 /// Drag and drop onto the window: only the first file is opened.
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     let app = window.app_handle();
     if let WindowEvent::CloseRequested { api, .. } = event {
-        // Unsaved changes (B2-02): the page asks what to do, then calls `close_window`. Without a
-        // page listening, nobody could ask, and the window would never close.
-        let unsaved = app.state::<Documents>().unsaved_tabs();
+        // The page asks what to do about unsaved changes (B2-02), then calls `close_window`. It
+        // is asked even when no tab is known to have any: a value still being typed in a field is
+        // a change only the page knows of (#153), and it sends it first. Without a page
+        // listening, nobody could ask, and the window would never close.
         let events = app.state::<OpenEvents>();
-        if !unsaved.is_empty() && events.has_receiver() {
+        if events.has_receiver() {
+            let unsaved = app.state::<Documents>().unsaved_tabs();
+            let none_known = unsaved.is_empty();
+            if none_known {
+                // Before the page can answer.
+                CLOSE_ANSWERED.store(false, Ordering::SeqCst);
+            }
             api.prevent_close();
             events.send(OpenEvent::CloseRequested { tabs: unsaved });
+            if none_known {
+                close_if_unanswered(window.clone());
+            }
         }
         return;
     }

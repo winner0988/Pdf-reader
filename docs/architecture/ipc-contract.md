@@ -102,7 +102,7 @@ flowchart LR
 | `passwordNeeded` | `tab`、`displayName`、`wrong` | 檔案加密，分頁詢問密碼；`wrong` 表示剛才的密碼不對（MVP-16） |
 | `failed` | `tab`、`displayName`、`error: IpcError` | 開檔失敗，分頁顯示錯誤 |
 | `tabLimit` | `ignoredFiles` | 已有 `LIMITS.maxTabs`（20）個分頁，這幾個檔案沒有開啟 |
-| `closeRequested` | `tabs` | 使用者要關閉視窗，但這些分頁有未儲存的變更（B2-02）：視窗先不關，前端詢問後呼叫 `close_window` |
+| `closeRequested` | `tabs` | 使用者要關閉視窗（B2-02）：視窗先不關。`tabs` 是主行程知道有未儲存變更的分頁，前端詢問後呼叫 `close_window`；`tabs` 是空的時（只有頁面知道有變更，例如正在輸入的表單欄位，#153），前端先送出輸入的值再呼叫 `close_window(false)`，主行程發現有變更時會再送一次帶著分頁的事件 |
 | `ocr` | `tab`、`progress: OcrProgress` | 辨識這個分頁掃描頁文字的進度：`doc`（分頁現在的文件）、`run`（`idle`、`running`、`done`、`stopped`、`noLanguage`、`failed`）、`pages`、`checked`（已看過的頁數）、`scans`（其中的掃描頁）、`recognised`、`failed`（B2-10，見 [ocr.md](ocr.md)）；有變化時送出，訂閱時也送出目前的進度 |
 | `ocrPage` | `tab`、`doc`、`pageIndex` | 這一頁的文字辨識好了（或放棄了）：頁面關於文字的說法（選取、搜尋）變了，前端重新取得（B2-10） |
 
