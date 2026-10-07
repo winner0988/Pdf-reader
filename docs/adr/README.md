@@ -21,6 +21,7 @@
 | [0013](0013-editing-and-saving.md) | 編輯在文件自己的 worker 中套用，存檔由主行程交出寫入 handle、完整寫好後才取代原檔 | 已接受 |
 | [0014](0014-signature-verification.md) | 數位簽章在 worker 中以 Windows CryptoAPI 離線驗證 | 已接受 |
 | [0015](0015-ocr.md) | 掃描頁以 MuPDF 內建的 Tesseract 在該文件自己的 worker 中辨識，沙盒不放寬 | 已接受 |
+| [0016](0016-redaction.md) | 安全遮蔽是「標記範圍、套用、整份重寫」三步，只對沒有簽章的文件，並在存檔後驗證 | 提議中 |
 
 ## 規則
 
