@@ -71,6 +71,41 @@ pub struct UnlockArgs {
     pub password: Password,
 }
 
+/// What the reader of an encrypted copy is not allowed to do (B2-15, docs/architecture/encrypt-copy.md),
+/// as far as readers that honour the restrictions go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Restrictions {
+    /// No printing at all.
+    pub print: bool,
+    /// No copying of text or images out of the document. Reading it aloud stays allowed.
+    pub copy: bool,
+    /// No changes: not to its pages, its annotations or its form.
+    pub modify: bool,
+}
+
+impl Restrictions {
+    /// Whether any is asked for.
+    pub fn any(&self) -> bool {
+        self.print || self.copy || self.modify
+    }
+}
+
+/// Arguments of `encrypt_copy` (B2-15): the open document is written, encrypted with AES-256, to a
+/// file the user chooses next. The passwords are never stored or logged (see [`Password`]). Any
+/// other field is rejected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EncryptArgs {
+    pub doc: DocumentId,
+    /// Opens the copy; without one anyone can.
+    pub open_password: Option<Password>,
+    /// Lifts the restrictions, and changes the copy's security. Needed when a restriction is
+    /// asked for, and then not the open password: those who know that one could lift them.
+    pub permissions_password: Option<Password>,
+    pub restrictions: Restrictions,
+}
+
 /// Arguments of `unlock_pages_source` (B2-06): the password of the encrypted file the user just
 /// chose to take pages from. Any other field is rejected.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

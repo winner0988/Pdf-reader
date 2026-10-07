@@ -189,6 +189,14 @@
 - **從縮圖**：選好頁面（`Ctrl`／`Shift` 多選）後右鍵「pages.saveSelected」：開啟匯出對話框，格式是 PDF 檔案，頁面是選好的（例如「2-4, 6」）；作者禁止複製時停用並標示 permissions.notAllowed，加密的文件沒有這個項目。
 - 做法與限制見 [export.md](../architecture/export.md)。
 
+### 加密並另存新檔（B2-15）
+
+- 「⋯」→「加密並另存新檔…」（在「隱私匯出…」之後）開啟對話框。沒有開啟文件時停用；加密的文件停用，並標示 encryption.encrypted。做法見 [encrypt-copy.md](../architecture/encrypt-copy.md)。
+- **對話框**：encryption.description；「開啟密碼」與再輸入一次（encryption.openPasswordHint：沒有的話任何人都能開）；「限制」三個核取方塊（encryption.restrict.*）、「權限密碼」與再輸入一次（encryption.permissionsPasswordHint）；encryption.note（密碼不會被記住也無法找回、限制由閱讀器自行遵守）與 encryption.signatures（有數位簽章的文件不能加密）。
+- **提示**：欄位下方一行（`role="status"`）說明第一個問題：沒有設定任何東西、兩次輸入不同、有限制卻沒有權限密碼、權限密碼與開啟密碼相同、密碼太長（以位元組計）；有問題時「加密並另存新檔…」停用。
+- **加密並另存新檔…**：主行程顯示系統的另存對話框，建議檔名 `<原檔名>（已加密）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（ENCRYPTED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，可以再試；失敗（例如有數位簽章）時顯示 encryption.failed，沒有檔案被留下。
+- 關閉對話框或完成後，密碼欄位清空，不留任何密碼。完成後狀態列顯示 encryption.done 4 秒；分頁仍然是原本的文件。
+
 ### 隱私匯出（B2-03）
 
 - 「⋯」→「隱私匯出…」（在「匯出…」之後）開啟說明對話框。沒有開啟文件時停用；加密的文件停用，並標示 privacyExport.encrypted。
@@ -760,6 +768,34 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | PRIVACY_EXPORT_SAME_FILE_MESSAGE（主行程） | 隱私匯出會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
 | overwrite_message（主行程） | 這個資料夾已經有 <N> 個同名的檔案。要覆寫嗎？ |
 | NO_TEXT_LAYER_PAGE（主行程，寫在文字檔中） | （此頁沒有文字層） |
+
+### 加密並另存新檔（B2-15）
+
+| 鍵 | 文字 |
+|---|---|
+| menu.encryptCopy | 加密並另存新檔… |
+| encryption.title | 加密並另存新檔 |
+| encryption.description | 把目前的文件以 AES-256 加密後另存成新檔。目前的文件與它的檔案不會改變。 |
+| encryption.openPassword／encryption.again | 開啟密碼／再輸入一次（第二個欄位的名稱是「開啟密碼（再輸入一次）」） |
+| encryption.openPasswordHint | 沒有開啟密碼的話，任何人都能開啟這份副本。 |
+| encryption.restrictionsTitle | 限制 |
+| encryption.restrict.print／copy／modify | 不允許列印／不允許複製文字與圖片／不允許修改（包含頁面整理、註解與填寫表單） |
+| encryption.permissionsPassword | 權限密碼（再輸入一次的欄位同上） |
+| encryption.permissionsPasswordHint | 用來解除下面的限制；有任何限制時一定要設，而且要與開啟密碼不同。 |
+| encryption.note | 密碼不會被記住，也無法找回：忘記了就打不開這份副本。限制由閱讀器自行遵守，這個 app 與 Acrobat 都遵守，但有些程式會忽略；要真正保密請設開啟密碼。 |
+| encryption.signatures | 有數位簽章的文件不能加密：簽章會失效。 |
+| encryption.start／encryption.cancel | 加密並另存新檔…／取消 |
+| encryption.running／encryption.done | 正在加密…／已加密並另存新檔。 |
+| encryption.failed | 無法加密這份文件。有數位簽章的文件不能加密；其他原因請再試一次。 |
+| encryption.problem.nothing | 請設定開啟密碼，或至少選一項限制。 |
+| encryption.problem.openMismatch／permissionsMismatch | 兩次輸入的開啟密碼不一樣。／兩次輸入的權限密碼不一樣。 |
+| encryption.problem.permissionsNeeded | 有任何限制時，一定要設權限密碼。 |
+| encryption.problem.same | 權限密碼要與開啟密碼不同，否則知道開啟密碼的人也能解除限制。 |
+| encryption.problem.tooLong(max) | 密碼最多 <max> 個位元組（一個中文字是 3 個）。 |
+| encryption.encrypted | 已加密的文件不適用（選單中，取代快捷鍵的位置） |
+| ENCRYPTED_COPY_DIALOG_TITLE（主行程） | 加密並另存新檔：選擇副本的位置 |
+| encrypted_copy_file_name（主行程） | <原檔名>（已加密）.pdf |
+| ENCRYPTED_COPY_SAME_FILE_TITLE／MESSAGE（主行程） | 請選擇其他檔案／加密會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
 
 ### 儲存（B2-02）
 

@@ -107,6 +107,10 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-stop-ocr", "B2-10: stop recognising an open document's pages, by document id"],
   ["allow-set-ocr-focus", "B2-10: the page the user looks at, which is recognised first, by document id and page number"],
   [
+    "allow-encrypt-copy",
+    "B2-15: a copy encrypted with AES-256; the passwords are used once and not kept, the main process asks where, never the document's own file",
+  ],
+  [
     "allow-pick-stamp-image",
     "B2-08: a picture for a custom stamp; the main process asks in its open dialog and the path stays there, the document's worker keeps only the pixels",
   ],

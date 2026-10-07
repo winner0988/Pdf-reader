@@ -79,6 +79,7 @@ flowchart LR
 | `save_document_as` | `{ doc: DocumentId }`（不含路徑：主行程顯示另存對話框） | `SaveResult \| null`：`null` 表示使用者關閉了對話框；之後分頁指向新檔 | 否 | B2-02 |
 | `close_window` | `{ discard: boolean }` | 無；有未儲存的文件時，只有 `discard: true` 才關閉 | 否 | B2-02 |
 | `pick_stamp_image` | `{ doc: DocumentId }`（不含路徑：主行程顯示開啟對話框，檔案由主行程開啟並交給文件自己的 worker） | `StampImageInfo`（`image`、`width`、`height`）或 `null`（使用者關閉了對話框）。圖片只留下像素，見 [annotations.md](annotations.md)；作者禁止註解、圖片不能用、太大時拒絕 | 否 | B2-08 |
+| `encrypt_copy` | `{ args: EncryptArgs }`：`doc`、`openPassword`、`permissionsPassword`（都可以是 `null`）、`restrictions`（`print`、`copy`、`modify`）；其他欄位一律拒絕。**沒有路徑**：主行程顯示另存對話框，不能選原檔 | `boolean`：`false` 表示使用者關閉了對話框；文件已加密、有數位簽章、參數不合規則時是錯誤。見 [encrypt-copy.md](encrypt-copy.md) | 否 | B2-15 |
 | `privacy_export` | `{ doc: DocumentId }`（不含路徑：主行程顯示另存對話框，不能選原檔） | `boolean`：`false` 表示使用者關閉了對話框。寫出清除中繼資料的副本，文件與原檔不變；加密的文件拒絕（見 [privacy-export.md](privacy-export.md)） | 否 | B2-03 |
 | `get_ocr_languages` | 無 | `OcrLanguages`：`languages`（`code`、`bundled`、`bytes`；內附的在前，匯入的在後）與 `automatic`（`ocrLanguage: null` 代表的語言，沒有任何語言時為 `null`） | 否 | B2-10 |
 | `import_ocr_language` | 無（不含路徑：主行程顯示開啟對話框，只能選一個 `.traineddata`） | `LanguageImport`：`imported`（帶最新的 `languages`）、`cancelled`，或 `refused`（`reason`：`unreadable`、`tooLarge`、`notLanguageData`、`badName`、`nameTaken`、`tooMany`）；檢查名稱、大小（`LIMITS.maxLanguageDataBytes`）與格式後複製到 app 的資料資料夾，什麼都不下載 | 否 | B2-10 |
@@ -241,6 +242,7 @@ flowchart LR
 | `Revert` | `request`, `doc`, `edits`（`WorkerEdit` 的清單，最多 `MAX_UNDO_EDITS` 個）, `password`（以密碼開啟的文件才有，用完即清除） | `Edited`（套用後的 `pages`）或 `Error`；從保留的位元組重新開啟並依序套用，全部成功才取代文件（復原，B2-05） |
 | `Rebase` | `request`, `doc`, `file`（唯讀 handle：剛存好的檔案） | `Rebased`；之後復原從這個檔案的位元組重新開啟。不解析檔案，不需要密碼 |
 | `Save` | `request`, `doc`, `file`（**只能寫入**的 handle，指向主行程建立的新暫存檔） | `Saved`（`bytes`、`incremental`）或 `Error`（`DiskFull`、`Unwritable`、`LimitExceeded` 等）；逾時 5 分鐘，見 [saving.md](saving.md) |
+| `EncryptedCopy` | `request`, `doc`, `file`（同 `Save`）, `open_password`（可以沒有）, `owner_password`, `restrictions` | `Saved`（`incremental` 一律為 false）或 `Error`（已加密或有簽章的文件、不能有的密碼：`InvalidRequest`）；兩個密碼的處理同 `Open`（送出後清除、worker 收到後清除）；開著的文件不變（B2-15） |
 | `PrivacyCopy` | `request`, `doc`, `file`（同 `Save`）, `id`（16 bytes，主行程產生的亂數） | `Saved`（`incremental` 一律為 false）或 `Error`（加密的文件：`InvalidRequest`；太多物件：`LimitExceeded`）；寫出清除中繼資料的副本，worker 中的文件不變（B2-03，見 [privacy-export.md](privacy-export.md)） |
 | `PrepareSource` | `request`, `file`（**唯讀** handle：使用者選的 PDF）, `password`（加密的檔案才有，用完即清除） | `Source`（`bytes`：乾淨、沒有加密的 PDF，最多 `MAX_SOURCE_BYTES`；`pages`；`security`：這個檔案的主動內容掃描）或 `Error`（要密碼：`Encrypted`；密碼不對：`WrongPassword`；作者不允許取出頁面：`NotAllowed`；太大：`LimitExceeded`）；worker 不保留任何東西（B2-06，見 [merge.md](merge.md)） |
 | `PrepareStampImage` | `request`, `file`（唯讀 handle：使用者選的圖片，PNG 或 JPEG） | `StampImage`（`png`：只含像素的 PNG，最多 `MAX_STAMP_PNG_BYTES`；`width`、`height`，每邊最多 `MAX_STAMP_SIDE_PX`；主行程檢查簽名、標頭與它們一致）或 `Error`（不是可用的圖片：`InvalidRequest`；太大：`LimitExceeded`）；自訂圖片印章用，見 [annotations.md](annotations.md)（B2-08） |

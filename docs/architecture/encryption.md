@@ -1,6 +1,6 @@
 # 開啟加密 PDF（MVP-16）
 
-工作卡 [#71](https://github.com/winner0988/Pdf-reader/issues/71)；規格 §3「檔案加密與權限」中開啟的部分。畫面見 [screen-map.md](../ux/screen-map.md) §2「需要密碼」。
+工作卡 [#71](https://github.com/winner0988/Pdf-reader/issues/71)；規格 §3「檔案加密與權限」中開啟的部分（寫出加密的副本見 [encrypt-copy.md](encrypt-copy.md)）。畫面見 [screen-map.md](../ux/screen-map.md) §2「需要密碼」。
 
 ## 流程
 

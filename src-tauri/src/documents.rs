@@ -22,7 +22,7 @@ use ipc_contract::types::{
     BlockedAction, DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
     FormField, IpcError, LinkArgs, LinkPreview, LinkTarget, OpenEvent, OutlineLinkArgs,
     OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource, Password, Recovery,
-    RenderPageArgs, SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId,
+    RenderPageArgs, Restrictions, SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId,
     StampImageInfo, TabId,
 };
 use ipc_contract::validate::{Validate, check_page_index, stamp_png_size};
@@ -713,6 +713,55 @@ impl Documents {
                 .map_err(|error| lost_on(document, &error))?;
             let WorkerResponse::Saved { bytes, .. } = response else {
                 return Err(unexpected("PrivacyCopy"));
+            };
+            temporary.check(bytes)?;
+            temporary.replace(destination)
+        })
+    }
+
+    /// Writes a copy of `doc` to `destination`, edits included, encrypted with AES-256 (B2-15,
+    /// docs/architecture/encrypt-copy.md), made by the document's worker: `open_password` opens
+    /// it (none: anyone can), `owner_password` lifts `restrictions`. The passwords go to the
+    /// worker in one request and are wiped; nothing is kept. The document, its edits and its
+    /// file are not changed. Refused for an encrypted document, whose copy would drop what its
+    /// author asked for, for a signed one (its signatures would not hold; the worker says so), and
+    /// for the document's own file.
+    pub fn encrypted_copy(
+        &self,
+        doc: DocumentId,
+        destination: &Path,
+        open_password: Option<Password>,
+        owner_password: Password,
+        restrictions: Restrictions,
+    ) -> Result<(), IpcError> {
+        self.with_document(doc, |document| {
+            if document.info.encrypted {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "an encrypted document has no encrypted copy".to_owned(),
+                });
+            }
+            if same_file(&document.path, destination) {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "the encrypted copy never replaces the document's own file".to_owned(),
+                });
+            }
+            saving::check_writable(destination)?;
+            let mut temporary = Temporary::new(destination)?;
+            let worker_doc = live_worker(document)?;
+            let response = document
+                .host
+                .encrypted_copy(
+                    worker_doc,
+                    temporary.file(),
+                    open_password,
+                    owner_password,
+                    restrictions,
+                )
+                .map_err(|error| lost_on(document, &error))?;
+            let WorkerResponse::Saved { bytes, .. } = response else {
+                return Err(unexpected("EncryptedCopy"));
             };
             temporary.check(bytes)?;
             temporary.replace(destination)
@@ -3199,6 +3248,132 @@ mod with_worker {
         ));
         assert_eq!(
             documents.privacy_export(info.doc, &copy).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        assert!(!copy.exists());
+    }
+
+    fn password(text: &str) -> Password {
+        Password::new(text.to_owned())
+    }
+
+    const COPY_PRINTING: Restrictions = Restrictions {
+        print: true,
+        copy: false,
+        modify: false,
+    };
+
+    #[test]
+    fn an_encrypted_copy_has_the_edits_and_its_passwords_and_leaves_the_document_alone() {
+        let (documents, info, path) = open("encrypted-copy", 3);
+        // An edit that is not saved is in the copy, as in any copy of the document.
+        let edited = opened_info(documents.apply_edit(&rotate(info.doc, vec![0])).unwrap());
+        let before = std::fs::read(&path).unwrap();
+        let copy = path.with_file_name("encrypted-copy-copy.pdf");
+        std::fs::remove_file(&copy).ok();
+
+        documents
+            .encrypted_copy(
+                edited.doc,
+                &copy,
+                Some(password("pw-open-7Qz")),
+                password("pw-owner-7Qz"),
+                COPY_PRINTING,
+            )
+            .unwrap();
+        let written = std::fs::read(&copy).unwrap();
+        assert!(written.windows(6).any(|window| window == b"/AESV3"));
+        for secret in [&b"pw-open-7Qz"[..], b"pw-owner-7Qz"] {
+            assert!(!written.windows(secret.len()).any(|window| window == secret));
+        }
+        // The document, its edit and its file are as they were; it still saves as it was.
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(documents.unsaved_tabs().len(), 1);
+        assert!(!documents.document_info(edited.doc).unwrap().encrypted);
+        documents.save(edited.doc, None).unwrap();
+        let saved = std::fs::read(&path).unwrap();
+        assert!(!saved.windows(8).any(|window| window == b"/Encrypt"));
+
+        // The copy asks for a password, and opens restricted as it was asked to.
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let [tab] = documents.add(std::slice::from_ref(&copy), &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(tab, &report);
+        assert!(matches!(
+            events.borrow().last(),
+            Some(OpenEvent::PasswordNeeded { .. })
+        ));
+        documents
+            .unlock(tab, password("pw-open-7Qz"), &report)
+            .unwrap();
+        let opened = opened_info(events.borrow().last().cloned().unwrap());
+        assert!(opened.encrypted);
+        assert_eq!(opened.pages.len(), 3);
+        assert!(!opened.permissions.print && opened.permissions.copy);
+        // An encrypted document has no encrypted copy: its author's restrictions would go.
+        let again = copy.with_file_name("encrypted-copy-again.pdf");
+        assert_eq!(
+            documents
+                .encrypted_copy(
+                    opened.doc,
+                    &again,
+                    Some(password("a")),
+                    password("b"),
+                    COPY_PRINTING
+                )
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        assert!(!again.exists());
+        std::fs::remove_file(copy).ok();
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn an_encrypted_copy_never_replaces_the_documents_own_file_or_a_signed_documents_signatures() {
+        let (documents, info, path) = open("encrypted-copy-own", 1);
+        let before = std::fs::read(&path).unwrap();
+        let shouted = PathBuf::from(path.to_string_lossy().to_uppercase());
+        for destination in [&path, &shouted] {
+            assert_eq!(
+                documents
+                    .encrypted_copy(
+                        info.doc,
+                        destination,
+                        Some(password("pw-open-7Qz")),
+                        password("pw-owner-7Qz"),
+                        Restrictions::default(),
+                    )
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidArgument
+            );
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        std::fs::remove_file(path).ok();
+
+        // A signed document: the worker refuses, and nothing is left at the destination.
+        let signed =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign/signed.pdf");
+        let documents = Documents::new(worker());
+        let info = open_in(&documents, &signed);
+        let copy =
+            std::env::temp_dir().join(format!("pdf-reader-signed-copy-{}.pdf", std::process::id()));
+        std::fs::remove_file(&copy).ok();
+        assert_eq!(
+            documents
+                .encrypted_copy(
+                    info.doc,
+                    &copy,
+                    Some(password("pw-open-7Qz")),
+                    password("pw-owner-7Qz"),
+                    Restrictions::default(),
+                )
+                .unwrap_err()
+                .code,
             ErrorCode::InvalidArgument
         );
         assert!(!copy.exists());
