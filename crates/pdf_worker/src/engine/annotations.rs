@@ -110,7 +110,7 @@ fn binding_point(point: Point) -> mupdf::Point {
     }
 }
 
-fn binding_rect(rect: Rect) -> mupdf::Rect {
+pub(super) fn binding_rect(rect: Rect) -> mupdf::Rect {
     mupdf::Rect {
         x0: rect.x0,
         y0: rect.y0,
