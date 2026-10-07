@@ -9,12 +9,14 @@ use std::collections::HashSet;
 use thiserror::Error;
 
 use crate::limits::*;
+use crate::ocr::is_language_name;
 use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text, is_note_text};
 use crate::types::{
     DocumentInfo, Edit, EditArgs, ExportArgs, ExportFormat, FindingKind, FormField, IpcError,
-    LinkTarget, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize,
-    PageText, Password, Point, Quad, RecentFile, Rect, RenderPageArgs, Rotation, SearchArgs,
-    SearchHit, SecurityReport, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs,
+    LinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation,
+    PageLink, PageSize, PageText, Password, Point, Quad, RecentFile, Rect, RemoveLanguageArgs,
+    RenderPageArgs, Rotation, SearchArgs, SearchHit, SecurityReport, Settings, TextLine, UndoArgs,
+    UnlockArgs, UnlockSourceArgs,
 };
 use crate::worker::{OcrOutcome, OpenedDocument, Raster, WorkerError, WorkerResponse};
 
@@ -960,10 +962,91 @@ impl Validate for IpcError {
     }
 }
 
+impl Validate for Settings {
+    fn validate(&self) -> Result<(), ValidationError> {
+        match &self.ocr_language {
+            Some(code) if !is_language_name(code) => Err(ValidationError::Invalid {
+                what: "OCR language",
+                reason: "not the code of a language",
+            }),
+            _ => Ok(()),
+        }
+    }
+}
+
+impl Validate for RemoveLanguageArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if !is_language_name(&self.code) {
+            return Err(ValidationError::Invalid {
+                what: "OCR language",
+                reason: "not the code of a language",
+            });
+        }
+        Ok(())
+    }
+}
+
+impl Validate for OcrLanguages {
+    fn validate(&self) -> Result<(), ValidationError> {
+        // Those that came with the app are few; the user's are bounded.
+        check_count(
+            "OCR languages",
+            self.languages.len(),
+            MAX_IMPORTED_LANGUAGES + 16,
+        )?;
+        let mut seen = HashSet::new();
+        for language in &self.languages {
+            if !is_language_name(&language.code) || !seen.insert(language.code.as_str()) {
+                return Err(ValidationError::Invalid {
+                    what: "OCR languages",
+                    reason: "a code that is not one, or that appears twice",
+                });
+            }
+            if language.bytes > MAX_LANGUAGE_DATA_BYTES as u64 {
+                return Err(ValidationError::OutOfRange {
+                    what: "language data size",
+                });
+            }
+        }
+        if let Some(automatic) = &self.automatic
+            && !seen.contains(automatic.as_str())
+        {
+            return Err(ValidationError::Invalid {
+                what: "OCR languages",
+                reason: "the automatic language is not installed",
+            });
+        }
+        Ok(())
+    }
+}
+
+impl Validate for OcrProgress {
+    fn validate(&self) -> Result<(), ValidationError> {
+        let consistent = self.pages <= MAX_PAGE_COUNT
+            && self.checked <= self.pages
+            && self.scans <= self.checked
+            && u64::from(self.recognised) + u64::from(self.failed) <= u64::from(self.scans);
+        if !consistent {
+            return Err(ValidationError::Invalid {
+                what: "OCR progress",
+                reason: "the counts do not add up",
+            });
+        }
+        Ok(())
+    }
+}
+
 impl Validate for OpenEvent {
     fn validate(&self) -> Result<(), ValidationError> {
         match self {
             OpenEvent::DragHover { .. } | OpenEvent::TabLimit { .. } => Ok(()),
+            OpenEvent::Ocr { progress, .. } => progress.validate(),
+            OpenEvent::OcrPage { page_index, .. } => {
+                if *page_index >= MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange { what: "page index" });
+                }
+                Ok(())
+            }
             OpenEvent::CloseRequested { tabs } => check_count("unsaved tabs", tabs.len(), MAX_TABS),
             OpenEvent::Opening { display_name, .. }
             | OpenEvent::PasswordNeeded { display_name, .. } => check_display_name(display_name),
@@ -1210,6 +1293,88 @@ mod tests {
             },
         };
         assert!(response.validate().is_err());
+    }
+
+    #[test]
+    fn ocr_settings_languages_and_progress_are_checked() {
+        use crate::types::{DocumentId, OcrLanguage, OcrRun};
+        let settings = |language: Option<&str>| Settings {
+            ocr_language: language.map(str::to_owned),
+            ..Settings::default()
+        };
+        assert_eq!(settings(None).validate(), Ok(()));
+        assert_eq!(settings(Some("chi_tra")).validate(), Ok(()));
+        for bad in ["", "../eng", "eng.traineddata", "1x", "a b"] {
+            assert!(settings(Some(bad)).validate().is_err(), "{bad:?}");
+        }
+        assert!(RemoveLanguageArgs { code: "eng".into() }.validate().is_ok());
+        assert!(
+            RemoveLanguageArgs { code: "x/y".into() }
+                .validate()
+                .is_err()
+        );
+
+        let language = |code: &str, bytes: u64| OcrLanguage {
+            code: code.into(),
+            bundled: false,
+            bytes,
+        };
+        let languages = |list: Vec<OcrLanguage>, automatic: Option<&str>| OcrLanguages {
+            languages: list,
+            automatic: automatic.map(str::to_owned),
+        };
+        assert_eq!(languages(vec![], None).validate(), Ok(()));
+        assert_eq!(
+            languages(vec![language("eng", 10), language("deu", 20)], Some("deu")).validate(),
+            Ok(())
+        );
+        assert!(
+            languages(vec![language("eng", 1), language("eng", 2)], None)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            languages(vec![language("e/ng", 1)], None)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            languages(vec![language("eng", u64::MAX)], None)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            languages(vec![language("eng", 1)], Some("deu"))
+                .validate()
+                .is_err()
+        );
+
+        let progress = |pages, checked, scans, recognised, failed| OcrProgress {
+            doc: DocumentId(1),
+            run: OcrRun::Running,
+            pages,
+            checked,
+            scans,
+            recognised,
+            failed,
+        };
+        assert_eq!(progress(10, 7, 5, 3, 2).validate(), Ok(()));
+        assert_eq!(progress(MAX_PAGE_COUNT, 0, 0, 0, 0).validate(), Ok(()));
+        for bad in [
+            progress(10, 11, 0, 0, 0),
+            progress(10, 5, 6, 0, 0),
+            progress(10, 5, 5, 4, 2),
+            progress(MAX_PAGE_COUNT + 1, 0, 0, 0, 0),
+        ] {
+            assert!(bad.validate().is_err(), "{bad:?}");
+        }
+        let event = |page_index| OpenEvent::OcrPage {
+            tab: TabId(1),
+            doc: DocumentId(1),
+            page_index,
+        };
+        assert_eq!(event(MAX_PAGE_COUNT - 1).validate(), Ok(()));
+        assert!(event(MAX_PAGE_COUNT).validate().is_err());
     }
 
     #[test]

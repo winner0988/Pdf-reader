@@ -87,12 +87,15 @@ jobs:
           if ($mode -in 'downloadBootstrapper', 'embedBootstrapper') { throw "the installer downloads WebView2 ('$mode'; REL-02)" }
           "WebView2 install mode: '$mode' (empty means skip)"
 
-      - name: Installer contains the worker
+      - name: Installer contains the worker and the OCR language data
         run: |
           $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
           $listing = 7z l $installer.FullName
           $listing
           if (-not ($listing -match '\bpdf_worker\.exe$')) { throw "pdf_worker.exe is not in $($installer.Name)" }
+          foreach ($name in 'eng', 'chi_tra') {
+            if (-not ($listing -match "tessdata[\\/]$name\.traineddata$")) { throw "$name.traineddata is not in $($installer.Name)" }
+          }
 
       - name: Install silently (per machine)
         run: |
@@ -100,6 +103,17 @@ jobs:
           $process = Start-Process $installer.FullName -ArgumentList '/S' -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "installer exited with $($process.ExitCode)" }
           Get-ChildItem (Join-Path $env:ProgramFiles 'PDF Reader')
+
+      # B2-10: the language data that came with the app is what the repository has (ADR 0015).
+      - name: Installed with the OCR language data
+        run: |
+          $dir = Join-Path $env:ProgramFiles 'PDF Reader\tessdata'
+          foreach ($name in 'eng', 'chi_tra') {
+            $installed = Join-Path $dir "$name.traineddata"
+            if (-not (Test-Path $installed)) { throw "$installed is missing" }
+            $expected = (Get-FileHash "src-tauri/resources/tessdata/$name.traineddata" -Algorithm SHA256).Hash
+            if ((Get-FileHash $installed -Algorithm SHA256).Hash -ne $expected) { throw "$installed is not the repository's file" }
+          }
 
       # REL-03: offered for .pdf ("Open with", Default apps), without taking over the default.
       - name: Registered as a PDF app
@@ -123,10 +137,13 @@ jobs:
           node scripts/release/check-imports.mjs @exes
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
-      - name: Installed worker starts in the sandbox, opens and renders a PDF
+      # B2-10: the worker the installer put on disk (a static C runtime, built apart from the one
+      # the tests use) reads a scan with the language data it put next to it.
+      - name: Installed worker starts in the sandbox, opens and renders a PDF, and reads a scan
         run: |
           $worker = Join-Path $env:ProgramFiles 'PDF Reader\pdf_worker.exe'
-          cargo run --locked -p worker_host --bin worker_smoke -- $worker
+          $languages = Join-Path $env:ProgramFiles 'PDF Reader\tessdata'
+          cargo run --locked -p worker_host --bin worker_smoke -- $worker --ocr tests/corpus/benign/scanned-text.pdf $languages
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Uninstall removes the AppContainer profile
