@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { tauriExportApi, type ExportApi } from "@/features/export/api";
 import { tauriOpenApi, type OpenApi } from "@/features/open/api";
@@ -92,6 +92,18 @@ export default function App({
       else tabs.close(tab);
     });
   };
+  // The window is being closed and no tab is known to have unsaved changes (#153): a value still
+  // being typed in a field is one only this page knows of, so it is sent first. The main process
+  // then closes the window, or asks again (naming the tabs) if the value made a change.
+  const noTabKnown = state.closeRequest !== null && state.closeRequest.length === 0;
+  const { dismissCloseRequest } = tabs;
+  useEffect(() => {
+    if (!noTabKnown) return;
+    dismissCloseRequest();
+    fieldEdits.whenSettled(() => {
+      savingApi.closeWindow(false).catch(() => {});
+    });
+  }, [noTabKnown, dismissCloseRequest, fieldEdits, savingApi]);
   const closingTab = state.tabs.find((tab) => tab.tab === closing && isUnsaved(tab));
   const closeRequest = state.closeRequest
     ? state.tabs.filter((tab) => state.closeRequest?.includes(tab.tab) && isUnsaved(tab))

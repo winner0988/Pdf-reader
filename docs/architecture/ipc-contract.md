@@ -95,7 +95,7 @@ flowchart LR
 | `passwordNeeded` | `tab`、`displayName`、`wrong` | 檔案加密，分頁詢問密碼；`wrong` 表示剛才的密碼不對（MVP-16） |
 | `failed` | `tab`、`displayName`、`error: IpcError` | 開檔失敗，分頁顯示錯誤 |
 | `tabLimit` | `ignoredFiles` | 已有 `LIMITS.maxTabs`（20）個分頁，這幾個檔案沒有開啟 |
-| `closeRequested` | `tabs` | 使用者要關閉視窗，但這些分頁有未儲存的變更（B2-02）：視窗先不關，前端詢問後呼叫 `close_window` |
+| `closeRequested` | `tabs` | 使用者要關閉視窗（B2-02）：視窗先不關。`tabs` 是主行程知道有未儲存變更的分頁，前端詢問後呼叫 `close_window`；`tabs` 是空的時（只有頁面知道有變更，例如正在輸入的表單欄位，#153），前端先送出輸入的值再呼叫 `close_window(false)`，主行程發現有變更時會再送一次帶著分頁的事件 |
 
 - **為什麼用 Channel 而不是 Tauri 事件**：前端要監聽事件就必須有 `core:event` 權限，而 Tauri 內建的拖放事件（`tauri://drag-drop`）會帶**完整路徑**，拿到權限的頁面也能收到。不授予任何 `core:event` 權限，路徑就不可能進入 WebView。
 - 主行程只保留最新的頻道（頁面重新載入時取代舊的）。訂閱時送出**所有分頁目前的狀態**（`Documents::snapshot`，每個分頁一個 `opening`、`opened` 或 `failed`），讓重新載入的頁面恢復全部分頁；快照在事件佇列的鎖內取得，所以不會漏掉任何事件。訂閱前排隊的 `tabLimit` 提示也會送出。

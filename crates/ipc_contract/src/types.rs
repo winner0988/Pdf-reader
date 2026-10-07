@@ -1005,8 +1005,10 @@ pub enum OpenEvent {
     /// `ignored_files` files were not opened: the window already has `MAX_TABS` tabs.
     #[serde(rename_all = "camelCase")]
     TabLimit { ignored_files: u32 },
-    /// The user asked to close the window while `tabs` have unsaved changes (B2-02): the window
-    /// stays open until the frontend has asked what to do and calls `close_window`.
+    /// The user asked to close the window (B2-02): `tabs` have unsaved changes the main process
+    /// knows of, none when only the page can know of any (a value still being typed in a field,
+    /// #153). The window stays open until the frontend has sent what it was still sending, asked
+    /// what to do and called `close_window`, which asks it again if that made unsaved changes.
     CloseRequested { tabs: Vec<TabId> },
 }
 
