@@ -94,6 +94,9 @@ pub struct Session {
     layout: Option<DocumentId>,
     /// The worker has the language's data.
     loaded: bool,
+    /// A scanned page was found, and the worker has no language to read it in: it is loaded
+    /// (only then: most documents have no scans, and their workers never load one).
+    needs_language: bool,
     /// Which pages the worker has been asked about, or has nothing more to say about.
     asked: Vec<bool>,
     remaining: u32,
@@ -122,6 +125,7 @@ impl Session {
             worker: None,
             layout: None,
             loaded: false,
+            needs_language: false,
             asked: Vec::new(),
             remaining: 0,
             cursor: 0,
@@ -137,6 +141,7 @@ impl Session {
         }
     }
 
+    #[cfg(test)]
     pub fn run(&self) -> OcrRun {
         self.run
     }
@@ -279,8 +284,9 @@ impl Session {
                 {
                     return;
                 }
+                // Not waiting for a language: the walk starts. Waiting for one: it goes on from
+                // the scanned page that found none.
                 self.run = OcrRun::Running;
-                self.layout = None;
             }
             OcrRun::Done => {
                 // An edit or a new worker may leave pages to read (merged pages, a lost result).
@@ -301,12 +307,8 @@ impl Session {
             self.layout = Some(doc);
             self.reset_walk(link.page_count());
         }
-        // Only so many documents are read at once: this one waits its turn, without loading a
-        // language into its worker before it has one.
+        // Only so many documents are read at once: this one waits its turn.
         if !ctx.may_start && self.queued.is_empty() {
-            return;
-        }
-        if !self.ensure_language(link, ctx) {
             return;
         }
         if !self.queued.is_empty() {
@@ -314,6 +316,11 @@ impl Session {
         }
         if self.run == OcrRun::Running && ctx.may_start {
             self.ask(link);
+            // A scan, and the worker has no language yet: it is given one, and asked again.
+            if self.run == OcrRun::Running && self.needs_language && self.ensure_language(link, ctx)
+            {
+                self.ask(link);
+            }
         }
         if self.run == OcrRun::Running && self.remaining == 0 && self.queued.is_empty() {
             self.run = OcrRun::Done;
@@ -333,6 +340,7 @@ impl Session {
             self.loaded = false;
         }
         if self.loaded {
+            self.needs_language = false;
             return true;
         }
         let data = match ctx.languages.read(&code) {
@@ -351,9 +359,12 @@ impl Session {
             self.run = OcrRun::Failed;
             return false;
         }
-        // The worker dropped the pages that were waiting.
         self.loaded = true;
-        self.reset_walk(link.page_count());
+        self.needs_language = false;
+        // Loading dropped the pages that were waiting in the worker: they are asked about again.
+        if !self.queued.is_empty() {
+            self.reset_walk(link.page_count());
+        }
         true
     }
 }
@@ -448,6 +459,7 @@ impl Session {
                 Ok(OcrPageState::Full) => break,
                 Ok(OcrPageState::NoLanguage) => {
                     self.loaded = false;
+                    self.needs_language = true;
                     break;
                 }
                 Err(error) if worker_lost(&error) => {
@@ -633,7 +645,10 @@ mod tests {
         room: usize,
         queued: usize,
         asked: Vec<u32>,
+        /// Every language it was given, over the document's workers.
         loaded: Vec<String>,
+        /// The current worker has a language: it says so of a scan only if it has.
+        has_language: bool,
         stopped: u32,
         gave_up: bool,
         /// Given at the next poll.
@@ -655,6 +670,7 @@ mod tests {
                 queued: 0,
                 asked: Vec::new(),
                 loaded: Vec::new(),
+                has_language: false,
                 stopped: 0,
                 gave_up: false,
                 finished: Vec::new(),
@@ -698,6 +714,7 @@ mod tests {
                 return Err(error.clone());
             }
             self.loaded.push(language.to_owned());
+            self.has_language = true;
             self.queued = 0;
             Ok(())
         }
@@ -712,6 +729,9 @@ mod tests {
                 .copied()
                 .unwrap_or(OcrPageState::NotScan);
             if answer == OcrPageState::Queued {
+                if !self.has_language {
+                    return Ok(OcrPageState::NoLanguage);
+                }
                 if self.queued >= self.room {
                     return Ok(OcrPageState::Full);
                 }
@@ -823,8 +843,10 @@ mod tests {
         let mut rig = Rig::new("walk", &["eng"]);
         let mut link = Fake::new(5).scans(&[1, 3]);
         rig.step(&mut link);
+        // The language is loaded when page 1, the first scan, finds none, and the page is asked about
+        // again.
         assert_eq!(link.loaded, ["eng"]);
-        assert_eq!(link.asked, [0, 1, 2, 3, 4]);
+        assert_eq!(link.asked, [0, 1, 1, 2, 3, 4]);
         let progress = rig.progress();
         assert_eq!(
             (
@@ -866,6 +888,7 @@ mod tests {
             (progress.run, progress.checked, progress.scans),
             (OcrRun::Done, 3, 0)
         );
+        assert!(link.loaded.is_empty(), "no scan, no language");
     }
 
     #[test]
@@ -875,13 +898,14 @@ mod tests {
         link.room = 1;
         rig.session.set_focus(4);
         rig.step(&mut link);
-        // Room for one page: the page in view takes it, and page 0 is sent away (full).
-        assert_eq!(link.asked, [4, 5, 0]);
+        // The page in view is a scan with no language to read it: it is loaded, and the page takes
+        // the one place there is; page 0 is sent away (full).
+        assert_eq!(link.asked, [4, 4, 5, 0]);
         link.done(4, OcrOutcome::Recognised { chars: 1 });
         // The user moves on: the next step takes up from the page now in view.
         rig.session.set_focus(2);
         rig.step(&mut link);
-        assert_eq!(&link.asked[3..], [2, 3, 0]);
+        assert_eq!(&link.asked[4..], [2, 3, 0]);
     }
 
     #[test]
@@ -920,13 +944,16 @@ mod tests {
         let mut link = Fake::new(2).scans(&[0]);
         rig.step(&mut link);
         assert_eq!(rig.progress().run, OcrRun::Running);
-        // The worker was lost and the user's next request opened the document in a new one.
+        // The worker was lost and the user's next request opened the document in a new one,
+        // which has no language yet.
         link.worker = DocumentId(2);
+        link.has_language = false;
         link.queued = 0;
         link.waiting = 0;
+        let before = link.asked.len();
         rig.step(&mut link);
         assert_eq!(link.loaded, ["eng", "eng"]);
-        assert_eq!(link.asked, [0, 1, 0, 1]);
+        assert_eq!(&link.asked[before..], [0, 0, 1]);
         assert_eq!(rig.progress().scans, 1, "counted again, not added");
     }
 
@@ -951,7 +978,7 @@ mod tests {
         rig.session.start();
         rig.step(&mut link);
         assert_eq!(rig.progress().run, OcrRun::Running);
-        assert_eq!(link.asked, [0, 1, 2]);
+        assert_eq!(link.asked, [0, 0, 1, 2]);
 
         rig.session.stop();
         assert_eq!(rig.session.run(), OcrRun::Stopped);
@@ -962,13 +989,13 @@ mod tests {
         // A stopped session asks nothing, and the settings do not start it again.
         rig.settings.ocr_auto = true;
         rig.step(&mut link);
-        assert_eq!((link.stopped, link.asked.len()), (1, 3));
+        assert_eq!((link.stopped, link.asked.len()), (1, 4));
     }
 
     #[test]
     fn with_no_language_it_looks_again_a_little_later() {
         let mut rig = Rig::new("nolang", &[]);
-        let mut link = Fake::new(2);
+        let mut link = Fake::new(2).scans(&[0]);
         rig.step(&mut link);
         assert_eq!(rig.progress().run, OcrRun::NoLanguage);
         fs::write(rig.dir.join("deu.traineddata"), language_data(1)).unwrap();
@@ -976,21 +1003,23 @@ mod tests {
         assert_eq!(rig.progress().run, OcrRun::NoLanguage, "not at once");
         rig.now += NO_LANGUAGE_RETRY;
         rig.step(&mut link);
-        assert_eq!(rig.progress().run, OcrRun::Done);
+        // It goes on from the scan that found no language: the page is read now.
+        assert_eq!(rig.progress().run, OcrRun::Running);
         assert_eq!(link.loaded, ["deu"]);
+        assert_eq!(link.asked, [0, 0, 0, 1]);
     }
 
     #[test]
     fn the_language_of_the_settings_is_used_if_it_is_installed() {
         let mut rig = Rig::new("choice", &["eng", "chi_tra", "deu"]);
         rig.settings.ocr_language = Some("deu".to_owned());
-        let mut link = Fake::new(1);
+        let mut link = Fake::new(1).scans(&[0]);
         rig.step(&mut link);
         assert_eq!(link.loaded, ["deu"]);
         // One that is not installed gives the app's choice.
         let mut rig = Rig::new("choice2", &["eng", "chi_tra"]);
         rig.settings.ocr_language = Some("fra".to_owned());
-        let mut link = Fake::new(1);
+        let mut link = Fake::new(1).scans(&[0]);
         rig.step(&mut link);
         assert_eq!(link.loaded, ["chi_tra"]);
     }
@@ -1013,7 +1042,7 @@ mod tests {
 
         // The worker refuses the language data.
         let mut rig = Rig::new("fail2", &["eng"]);
-        let mut link = Fake::new(1);
+        let mut link = Fake::new(1).scans(&[0]);
         link.load_error = Some(error(ErrorCode::InvalidArgument));
         rig.step(&mut link);
         assert_eq!(rig.progress().run, OcrRun::Failed);
@@ -1021,7 +1050,7 @@ mod tests {
         // Data on disk that is not language data.
         let mut rig = Rig::new("fail3", &[]);
         fs::write(rig.dir.join("eng.traineddata"), b"not language data").unwrap();
-        let mut link = Fake::new(1);
+        let mut link = Fake::new(1).scans(&[0]);
         rig.step(&mut link);
         assert_eq!(rig.progress().run, OcrRun::Failed);
         assert!(link.loaded.is_empty());
@@ -1052,7 +1081,7 @@ mod tests {
         for _ in 0..3 {
             rig.step(&mut link);
         }
-        assert_eq!(link.asked, [0, 1, 0, 1], "asked about every page again");
+        assert_eq!(link.asked, [0, 0, 1, 0, 1], "asked about every page again");
 
         // Pages wait for ever.
         let mut rig = Rig::new("stuck", &["eng"]);
@@ -1135,9 +1164,9 @@ mod tests {
         let asked = |tabs: &FakeTabs, n| lock(&tabs.links)[&tab(n)].asked.clone();
         // The first reads; the second is busy with the user's own request and is not waited for;
         // so the third has a turn too; the fourth waits.
-        assert_eq!(asked(&tabs, 1), [0, 1]);
+        assert_eq!(asked(&tabs, 1), [0, 0, 1]);
         assert_eq!(asked(&tabs, 2), Vec::<u32>::new());
-        assert_eq!(asked(&tabs, 3), [0, 1]);
+        assert_eq!(asked(&tabs, 3), [0, 0, 1]);
         assert_eq!(asked(&tabs, 4), Vec::<u32>::new());
         assert!(
             lock(&tabs.links)[&tab(4)].loaded.is_empty(),
