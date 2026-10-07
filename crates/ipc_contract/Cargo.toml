@@ -19,3 +19,6 @@ zeroize = "1.9"
 
 [dev-dependencies]
 serde_json = "1"
+# Checks the hashes of the language data the installer carries (src/ocr.rs); already in the
+# workspace through the app.
+sha2 = "0.11"

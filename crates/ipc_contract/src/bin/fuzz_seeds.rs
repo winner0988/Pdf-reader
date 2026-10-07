@@ -15,8 +15,8 @@ use ipc_contract::types::{
     TextLine, UnverifiableReason,
 };
 use ipc_contract::worker::{
-    FileHandle, OpenedDocument, Raster, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest,
-    WorkerResponse,
+    FileHandle, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument, Raster, WorkerEdit,
+    WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
 };
 
 /// The start of a stamp picture: the signature and a header chunk of 64 x 32 pixels.
@@ -260,6 +260,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     edges: vec![0.0, 7.0, 13.0, 16.0, 19.0, 26.0, 29.0, 43.0, 57.0],
                 }],
                 truncated: false,
+                recognised: true,
             },
         },
         WorkerResponse::PageSearched {
@@ -300,6 +301,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ],
         },
         WorkerResponse::Rebased { request },
+        WorkerResponse::OcrLoaded { request },
+        WorkerResponse::OcrChecked {
+            request,
+            state: OcrPageState::Queued,
+        },
+        WorkerResponse::OcrPolled {
+            request,
+            finished: vec![
+                OcrFinished {
+                    doc,
+                    page_index: 3,
+                    outcome: OcrOutcome::Recognised { chars: 1800 },
+                },
+                OcrFinished {
+                    doc,
+                    page_index: 4,
+                    outcome: OcrOutcome::TimedOut,
+                },
+                OcrFinished {
+                    doc,
+                    page_index: 5,
+                    outcome: OcrOutcome::Failed,
+                },
+            ],
+            waiting: 2,
+        },
+        WorkerResponse::OcrStopped { request },
         WorkerResponse::Source {
             request,
             bytes: b"%PDF-1.7\n%%EOF\n".to_vec(),
@@ -368,6 +396,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             doc,
             page_index: 1,
         },
+        WorkerRequest::OcrLoad {
+            request,
+            language: "eng".to_owned(),
+            data: vec![24, 0, 0, 0, 255, 255, 255, 255],
+        },
+        WorkerRequest::OcrPage {
+            request,
+            doc,
+            page_index: 3,
+            max_millis: 60_000,
+        },
+        WorkerRequest::OcrPoll { request },
+        WorkerRequest::OcrStop { request },
         WorkerRequest::GetPageAnnotations {
             request,
             doc,

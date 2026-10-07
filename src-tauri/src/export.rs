@@ -396,6 +396,7 @@ mod tests {
         let page = |lines: Vec<TextLine>| PageText {
             lines,
             truncated: false,
+            recognised: false,
         };
         let text = text_file(&[
             page(vec![line("Privacy-first PDF Reader"), line("隱私優先")]),

@@ -3,7 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import type { DocumentId, Edit, UndoArgs } from "@/ipc/generated/contract";
+import type { DocumentId, Edit, PagesSource, UndoArgs, UnlockSourceArgs } from "@/ipc/generated/contract";
 
 export type EditingApi = {
   /**
@@ -27,6 +27,17 @@ export type EditingApi = {
   recover(doc: DocumentId): Promise<void>;
   /** Discards the edits an earlier run left for the document's file (B2-13). */
   discardRecovered(doc: DocumentId): Promise<void>;
+  /**
+   * Asks for a PDF whose pages go into the document (B2-06): the main process asks in the
+   * system's dialog and keeps a clean copy of the file; the path never comes here. `null` when
+   * the user closes the dialog; rejects with `encrypted` for a file that needs a password (then
+   * `unlockPagesSource`), `notAllowed` for one whose author forbids taking pages out, and
+   * `limitExceeded`, `tooLarge` or others for a file that cannot be used. Without it (demo data)
+   * pages cannot be taken from a file.
+   */
+  pickPagesSource?(doc: DocumentId): Promise<PagesSource | null>;
+  /** Tries `password` on the file `pickPagesSource` could not open without one. */
+  unlockPagesSource?(doc: DocumentId, password: string): Promise<PagesSource>;
 };
 
 export const tauriEditingApi: EditingApi = {
@@ -35,4 +46,7 @@ export const tauriEditingApi: EditingApi = {
   redo: (doc) => invoke<void>("redo_edit", { doc }),
   recover: (doc) => invoke<void>("recover_edits", { doc }),
   discardRecovered: (doc) => invoke<void>("discard_recovered_edits", { doc }),
+  pickPagesSource: (doc) => invoke<PagesSource | null>("pick_pages_source", { doc }),
+  unlockPagesSource: (doc, password) =>
+    invoke<PagesSource>("unlock_pages_source", { args: { doc, password } satisfies UnlockSourceArgs }),
 };

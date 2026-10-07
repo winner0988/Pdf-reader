@@ -112,10 +112,6 @@ pub struct SandboxConfig {
     /// AppContainer profile to run in, with no capabilities: no network at all and no access
     /// to the user's files. The profile is created on first use and reused afterwards.
     pub app_container: Option<String>,
-    /// Leaves win32k system calls available; every other restriction stays. Never for the
-    /// worker: only the OCR POC of ADR 0015 (proposed) sets it, to show what Windows' own OCR
-    /// needs (crates/pdf_worker/tests/ocr_poc.rs).
-    pub allow_win32k: bool,
 }
 
 impl Default for SandboxConfig {
@@ -123,7 +119,6 @@ impl Default for SandboxConfig {
         Self {
             memory_limit_bytes: 2 * 1024 * 1024 * 1024,
             app_container: Some(WORKER_APP_CONTAINER.to_owned()),
-            allow_win32k: false,
         }
     }
 }
@@ -181,11 +176,7 @@ impl Sandboxed {
             child_stderr.as_raw_handle(),
         ];
         let jobs: [HANDLE; 1] = [job.as_raw_handle()];
-        let mitigations: u64 = if config.allow_win32k {
-            MITIGATIONS & !WIN32K_DISABLED
-        } else {
-            MITIGATIONS
-        };
+        let mitigations: u64 = MITIGATIONS;
         let child_policy: u32 = CHILD_PROCESS_RESTRICTED;
         let container = match config.app_container.as_deref() {
             Some(name) => {

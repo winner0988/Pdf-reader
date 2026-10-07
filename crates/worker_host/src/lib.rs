@@ -497,6 +497,10 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::PageSearched { request, .. }
         | WorkerResponse::Edited { request, .. }
         | WorkerResponse::Rebased { request }
+        | WorkerResponse::OcrLoaded { request }
+        | WorkerResponse::OcrChecked { request, .. }
+        | WorkerResponse::OcrPolled { request, .. }
+        | WorkerResponse::OcrStopped { request }
         | WorkerResponse::Source { request, .. }
         | WorkerResponse::Saved { request, .. } => Some(*request),
         WorkerResponse::Error { request, .. } => *request,

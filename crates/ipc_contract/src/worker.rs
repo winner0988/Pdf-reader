@@ -341,6 +341,34 @@ pub enum WorkerRequest {
         pages: Vec<u32>,
         file: FileHandle,
     },
+    /// Loads the data of one language to recognise scanned pages in (B2-10, ADR 0015): the bytes
+    /// of a Tesseract `.traineddata` file, which the main process read and checked
+    /// (`crate::ocr::check_language_data`; the worker checks it too). It replaces the language
+    /// loaded before, and drops the pages waiting. Answered by `OcrLoaded`.
+    OcrLoad {
+        request: RequestId,
+        language: String,
+        data: Vec<u8>,
+    },
+    /// Looks at page `page_index` of `doc` and, if it is a scan (it has no text, and pictures
+    /// cover most of it), queues it to be recognised in the background, in at most `max_millis`.
+    /// The page is drawn here and recognised on a thread of its own, so the worker goes on
+    /// answering other requests. Answered at once by `OcrChecked`. No language is needed to tell
+    /// that a page is no scan: only a scan is answered with `NoLanguage` if none was loaded.
+    OcrPage {
+        request: RequestId,
+        doc: DocumentId,
+        page_index: u32,
+        max_millis: u32,
+    },
+    /// Takes the pages that were recognised since the last poll. Answered by `OcrPolled`.
+    OcrPoll {
+        request: RequestId,
+    },
+    /// Drops the pages waiting and stops the one being read. Answered by `OcrStopped`.
+    OcrStop {
+        request: RequestId,
+    },
     /// Makes the PDF in `file` (read-only) into what its pages are later taken from (B2-06): a
     /// plain, clean copy of it, with how many pages it has and what active content it has.
     /// `password` is for an encrypted file, wiped when the request is done. Answered by
@@ -451,10 +479,64 @@ pub enum WorkerResponse {
         bytes: u64,
         incremental: bool,
     },
+    /// `OcrLoad` is done: pages are recognised in that language now.
+    OcrLoaded {
+        request: RequestId,
+    },
+    OcrChecked {
+        request: RequestId,
+        state: OcrPageState,
+    },
+    OcrPolled {
+        request: RequestId,
+        finished: Vec<OcrFinished>,
+        /// Pages waiting or being read.
+        waiting: u32,
+    },
+    OcrStopped {
+        request: RequestId,
+    },
     Error {
         request: Option<RequestId>,
         error: WorkerError,
     },
+}
+
+/// What `OcrPage` found out about a page (B2-10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OcrPageState {
+    /// It has text of its own, or is not mostly a picture: nothing to recognise.
+    NotScan,
+    /// Its text was recognised before.
+    Recognised,
+    /// It is waiting or being read; `OcrPoll` will say when it is done.
+    Queued,
+    /// Reading it failed or took too long before, and it is not tried again.
+    Failed,
+    /// The queue is full: ask again after a poll.
+    Full,
+    /// The page is a scan, and no language was loaded (`OcrLoad`).
+    NoLanguage,
+}
+
+/// A page that was recognised or given up on, as `OcrPoll` reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OcrFinished {
+    pub doc: DocumentId,
+    /// The page's index now: pages may have been moved or deleted since it was queued.
+    pub page_index: u32,
+    pub outcome: OcrOutcome,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OcrOutcome {
+    /// Its text is kept in the worker, `chars` characters of it (none: the picture had no text).
+    Recognised {
+        chars: u32,
+    },
+    /// It took longer than the time allowed.
+    TimedOut,
+    Failed,
 }
 
 impl WorkerResponse {

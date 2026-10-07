@@ -10,20 +10,6 @@ publish.workspace = true
 [lints]
 workspace = true
 
-[features]
-# The Tesseract POC of ADR 0015 (examples/tesseract_probe.rs, examples/mupdf_tesseract_probe.rs):
-# needs what scripts/ocr-poc/build-tesseract.ps1 builds and fetches, in TESSERACT_POC_DIR. Off by
-# default; the worker never uses it.
-tesseract-poc = []
-
-[[example]]
-name = "tesseract_probe"
-required-features = ["tesseract-poc"]
-
-[[example]]
-name = "mupdf_tesseract_probe"
-required-features = ["tesseract-poc"]
-
 [dependencies]
 ipc_contract = { version = "0.1.0", path = "../ipc_contract" }
 # Encodes exported pages as JPEG (#111): the binding has no JPEG writer. Pure Rust, no
@@ -57,16 +43,3 @@ windows-sys = { version = "0.61", features = [
     "Win32_Security_Cryptography",
     "Win32_System_Threading",
 ] }
-# The OCR POC of ADR 0015 (examples/ocr_probe.rs, tests/ocr_poc.rs): Windows' own OCR, run in the
-# worker's sandbox. All three are already in the workspace (worker_host uses sandbox; the app uses
-# windows, which brings windows-future); no new crates.
-sandbox = { path = "../sandbox" }
-windows = { version = "0.62", features = [
-    "Foundation",
-    "Globalization",
-    "Graphics_Imaging",
-    "Media_Ocr",
-    "Storage_Streams",
-    "Win32_System_WinRT",
-] }
-windows-future = "0.3"

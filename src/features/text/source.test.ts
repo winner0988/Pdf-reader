@@ -12,6 +12,7 @@ const textOf = (pageIndex: number): PageText => ({
     },
   ],
   truncated: false,
+  recognised: false,
 });
 
 function api() {

@@ -56,6 +56,7 @@ import type { SystemApi } from "@/features/system/defaultApp";
 import { createTextSource, type TextApi } from "@/features/text/source";
 import type { EditingApi } from "@/features/thumbnails/api";
 import type { PageEditing, SavePages } from "@/features/thumbnails/Thumbnails";
+import { SourcePasswordDialog } from "@/features/thumbnails/SourcePasswordDialog";
 import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
 import { useTheme } from "@/features/theme/useTheme";
 import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
@@ -71,6 +72,7 @@ import type {
   LinkPreview,
   LinkTarget,
   PageLink,
+  PagesSource,
   SaveResult,
   StampName,
 } from "@/ipc/generated/contract";
@@ -194,7 +196,11 @@ export function ReaderShell({
   const [theme, setTheme] = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(() => !isNarrowWindow());
   const [searchOpen, setSearchOpen] = useState(false);
-  const [bannerDismissed, setBannerDismissed] = useState(false);
+  /**
+   * What the banner said each time the user closed it: it comes back only with something it did
+   * not say then, as when the pages of a file with other content come in (B2-06).
+   */
+  const [bannerDismissed, setBannerDismissed] = useState<string[]>([]);
   /** The user left the changes an earlier run left for later (B2-13): offered again next time. */
   const [recoveryDismissed, setRecoveryDismissed] = useState(false);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
@@ -259,7 +265,7 @@ export function ReaderShell({
     setZoom("fitWidth");
     setRotation(0);
     setCurrentPage(1);
-    setBannerDismissed(false);
+    setBannerDismissed([]);
     setRecoveryDismissed(false);
     setDetailsOpen(false);
     setSignaturesDismissed(false);
@@ -401,11 +407,46 @@ export function ReaderShell({
 
   // Page management (B2-05) needs the main process too. The author's permission to assemble or
   // change the document covers it (MVP-19).
+  // The pages of another file (B2-06): asked for in the main process's dialog; a file that needs
+  // a password gets it asked here, one try after another until it opens or the user gives up.
+  const [sourcePassword, setSourcePassword] = useState<{
+    wrong: boolean;
+    answer: (password: string | null) => void;
+  } | null>(null);
+  const insertFrom = async (at: number): Promise<number | null> => {
+    const api = editingApi;
+    if (!api?.pickPagesSource || doc === undefined) return null;
+    let source: PagesSource | null;
+    try {
+      source = await api.pickPagesSource(doc);
+    } catch (error) {
+      if (errorCodeOf(error) !== "encrypted" || !api.unlockPagesSource) throw error;
+      source = null;
+      for (let wrong = false; ; wrong = true) {
+        const password = await new Promise<string | null>((answer) => setSourcePassword({ wrong, answer }));
+        if (password === null) break;
+        try {
+          source = await api.unlockPagesSource(doc, password);
+          break;
+        } catch (failure) {
+          if (errorCodeOf(failure) !== "encrypted") {
+            setSourcePassword(null);
+            throw failure;
+          }
+        }
+      }
+      setSourcePassword(null);
+    }
+    if (!source) return null;
+    await api.applyEdit(doc, { kind: "insertPages", at, source: source.source });
+    return source.pages;
+  };
   const pageEditing: PageEditing | undefined =
     doc !== undefined && editingApi !== undefined
       ? {
           allowed: permissions.assemble || permissions.modify,
           apply: (edit) => editingApi.applyEdit(doc, edit),
+          insertFrom: editingApi.pickPagesSource ? insertFrom : undefined,
         }
       : undefined;
   // Undo and redo (B2-05). A document opened with a password needs it again to undo (#94): the
@@ -659,7 +700,9 @@ export function ReaderShell({
 
   const findings = document_?.findings ?? [];
   const scanComplete = document_?.scanComplete ?? true;
-  const bannerShown = document_ !== null && hasBannerContent(findings, scanComplete) && !bannerDismissed;
+  const bannerSays = JSON.stringify([findings, scanComplete]);
+  const bannerShown =
+    document_ !== null && hasBannerContent(findings, scanComplete) && !bannerDismissed.includes(bannerSays);
   const closeDetails = () => {
     setDetailsOpen(false);
     detailsButtonRef.current?.focus();
@@ -808,7 +851,7 @@ export function ReaderShell({
                   setDetailsOpen((open) => !open);
                 }}
                 onDismiss={() => {
-                  setBannerDismissed(true);
+                  setBannerDismissed((said) => [...said, bannerSays]);
                   setDetailsOpen(false);
                   canvasRef.current?.focus();
                 }}
@@ -959,6 +1002,12 @@ export function ReaderShell({
           onCancel={annotations.closeNote}
         />
       )}
+      <SourcePasswordDialog
+        open={sourcePassword !== null}
+        wrong={sourcePassword?.wrong ?? false}
+        onSubmit={(password) => sourcePassword?.answer(password)}
+        onCancel={() => sourcePassword?.answer(null)}
+      />
       <UndoPasswordDialog
         open={undoPassword !== null}
         wrong={undoPassword?.wrong ?? false}

@@ -162,3 +162,21 @@ pub const MAX_PNG_BYTES: usize = 64 * 1024 * 1024;
 /// Maximum size of one exported JPEG page (#111); below the frame limit. A page at the largest
 /// raster the worker makes stays well under it at the export quality.
 pub const MAX_JPEG_BYTES: usize = 64 * 1024 * 1024;
+
+/// Largest language data (a Tesseract `.traineddata` file) the app takes or the worker is sent
+/// (B2-10, ADR 0015). The biggest of Tesseract's own files (the "best" models of Chinese and
+/// Japanese) are under 60 MB.
+pub const MAX_LANGUAGE_DATA_BYTES: usize = 64 * 1024 * 1024;
+
+/// Longest name of a language for recognising text, such as `eng` or `chi_tra` (B2-10).
+pub const MAX_LANGUAGE_NAME_BYTES: usize = 32;
+
+/// Most pages the worker holds to recognise at once, waiting and being read (B2-10): a page drawn
+/// for it is up to 16 MB.
+pub const MAX_OCR_QUEUE: u32 = 4;
+
+/// Most pages one `OcrPoll` reports (B2-10).
+pub const MAX_OCR_RESULTS: u32 = 64;
+
+/// Longest time one page may be given to be recognised (B2-10), in milliseconds.
+pub const MAX_OCR_PAGE_MILLIS: u32 = 5 * 60 * 1000;
