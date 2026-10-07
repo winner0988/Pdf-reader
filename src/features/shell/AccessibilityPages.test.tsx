@@ -15,7 +15,8 @@ import { demoDocument } from "@/features/shell/demo";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { EditingApi } from "@/features/thumbnails/api";
 import { strings } from "@/i18n/zh-TW";
-import type { FormField, OcrLanguages, PageAnnotation, PageLink } from "@/ipc/generated/contract";
+import type { SignatureView } from "@/features/signatures/useSignatures";
+import type { FormField, OcrLanguages, PageAnnotation, PageLink, SignatureInfo } from "@/ipc/generated/contract";
 import { expectAccessible } from "@/test/axe";
 
 /** The window with the first page laid out, as it is once the reader has a size. */
@@ -232,5 +233,51 @@ describe("files dragged over the window", () => {
   it("the window says where they will go", async () => {
     render(<ReaderShell state={{ kind: "empty" }} onOpen={vi.fn()} dropActive loadingDelayMs={0} />);
     await expectAccessible(document.body);
+  });
+});
+
+describe("the digital signatures of a document", () => {
+  const signature = (overrides: Partial<SignatureInfo> = {}): SignatureInfo => ({
+    status: "valid",
+    signerTrusted: false,
+    reason: null,
+    fieldName: "Signature1",
+    signer: "Jane Public",
+    claimedTime: "2026-01-01 00:00:00 UTC",
+    certification: null,
+    ...overrides,
+  });
+  const view = (...signatures: SignatureInfo[]): SignatureView => ({
+    status: "ready",
+    report: { signatures, truncated: false },
+  });
+
+  it("the banner and the panel, for every state a signature can be in", async () => {
+    const states: SignatureInfo[] = [
+      signature({ signerTrusted: true }),
+      signature(),
+      signature({ status: "changedAfterSigning" }),
+      signature({ status: "invalid", signer: null }),
+      signature({ status: "unverifiable", signer: null, reason: "unsupportedFormat" }),
+      signature({ status: "unverifiable", signer: null, reason: "tooLarge" }),
+      signature({ certification: "noChanges" }),
+    ];
+    for (const state of states) {
+      const { unmount } = render(
+        <ReaderShell
+          state={{ kind: "open", document: { ...demoDocument, doc: 5, session: 1 } }}
+          onOpen={vi.fn()}
+          loadingDelayMs={0}
+          signatures={view(state)}
+        />,
+      );
+      await screen.findByRole("region", { name: strings.signatures.label });
+      await expectAccessible(document.body);
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: strings.signatures.details }));
+      await screen.findByRole("complementary", { name: strings.signatures.detailsTitle });
+      await expectAccessible(document.body);
+      unmount();
+    }
   });
 });

@@ -140,3 +140,32 @@ describe("unsaved changes (B2-02)", () => {
     expect(savingApi.save).not.toHaveBeenCalled();
   });
 });
+
+describe("closing the window when no tab is known to have unsaved changes (#153)", () => {
+  it("asks the main process to close it, without a question", async () => {
+    const { savingApi, push } = renderApp();
+    open(push, 1, 9, "a.pdf", false);
+
+    push({ kind: "closeRequested", tabs: [] });
+    await waitFor(() => expect(savingApi.closeWindow).toHaveBeenCalledWith(false));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("does so with no document open too, and every time it is asked", async () => {
+    const { savingApi, push } = renderApp();
+
+    push({ kind: "closeRequested", tabs: [] });
+    await waitFor(() => expect(savingApi.closeWindow).toHaveBeenCalledTimes(1));
+    push({ kind: "closeRequested", tabs: [] });
+    await waitFor(() => expect(savingApi.closeWindow).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not close it when it is told of unsaved changes, only asks", async () => {
+    const { savingApi, push, user } = renderApp();
+    open(push, 1, 9, "a.pdf", true);
+
+    push({ kind: "closeRequested", tabs: [1] });
+    await user.click(within(await question()).getByRole("button", { name: t.cancel }));
+    expect(savingApi.closeWindow).not.toHaveBeenCalled();
+  });
+});

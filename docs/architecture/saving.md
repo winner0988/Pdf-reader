@@ -66,10 +66,10 @@ sequenceDiagram
 
 - **標示**：分頁名稱前有「•」（螢幕報讀：「有未儲存的變更」），視窗標題也是「• 檔名 — PDF Reader」。
 - **關閉分頁**（按鈕、`Ctrl+W`、中鍵）：詢問「儲存／不儲存／取消」。存檔失敗時說明原因，分頁不關閉。
-- **關閉視窗**：主行程攔截視窗的關閉要求（`CloseRequested`），有未儲存的文件時不關閉，改送 `OpenEvent::CloseRequested { tabs }`；前端詢問「全部儲存／不儲存／取消」後呼叫 `close_window`：
-  - `close_window(false)` 只在已經沒有未儲存的文件時關閉；
+- **關閉視窗**：主行程攔截視窗的關閉要求（`CloseRequested`），一律不關閉，改送 `OpenEvent::CloseRequested { tabs }`（`tabs` 是它知道有未儲存變更的分頁，可以是空的：正在輸入、還沒送出的表單欄位的值只有頁面知道，見 [forms.md](forms.md)，#153）。`tabs` 不是空的時，前端詢問「全部儲存／不儲存／取消」後呼叫 `close_window`；`tabs` 是空的時，前端先把正在輸入的值送出，再呼叫 `close_window(false)`：
+  - `close_window(false)` 只在已經沒有未儲存的文件時關閉；有的話不關閉，並再送一次帶著分頁的 `closeRequested`（前端因此詢問，並回傳錯誤 `invalidArgument`，前端忽略它）；
   - `close_window(true)` 捨棄變更並關閉；
-  - 沒有頁面在聽（例如 WebView 當掉）時直接關閉，否則視窗永遠關不掉。
+  - 沒有頁面在聽（例如 WebView 當掉）時直接關閉，否則視窗永遠關不掉；有頁面在聽、但 5 秒內沒有回應，而且仍沒有未儲存的分頁，也關閉。
 - 同一個檔案再開一次時，會開在另一個分頁（顯示檔案目前的內容）。兩個分頁都存檔時，後存的一方會因為檔案已被改過而收到 `changedOnDisk`，不會互相覆寫。
 - **崩潰復原**（B2-13）：未儲存的編輯也寫在 app 本機資料資料夾的日誌中；存檔、選擇「不儲存」或關閉分頁後刪除。app 沒有正常結束時，下次開啟同一個檔案會提示還原，見 [crash-recovery.md](crash-recovery.md)。
 
