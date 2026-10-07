@@ -130,6 +130,7 @@ pub fn run() {
             commands::save_document_as,
             commands::close_window,
             commands::privacy_export,
+            commands::encrypt_copy,
             commands::get_ocr_languages,
             commands::import_ocr_language,
             commands::remove_ocr_language,

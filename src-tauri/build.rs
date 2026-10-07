@@ -46,6 +46,7 @@ fn main() {
         "save_document_as",
         "close_window",
         "privacy_export",
+        "encrypt_copy",
         "get_ocr_languages",
         "import_ocr_language",
         "remove_ocr_language",

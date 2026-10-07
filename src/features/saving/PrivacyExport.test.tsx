@@ -16,6 +16,7 @@ function fakeSavingApi(privacyExport: SavingApi["privacyExport"]) {
     saveAs: vi.fn<SavingApi["saveAs"]>(() => Promise.resolve(null)),
     closeWindow: vi.fn<SavingApi["closeWindow"]>(() => Promise.resolve()),
     privacyExport: vi.fn<SavingApi["privacyExport"]>(privacyExport),
+    encryptCopy: vi.fn<SavingApi["encryptCopy"]>(() => Promise.resolve(true)),
   } satisfies SavingApi;
 }
 
