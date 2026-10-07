@@ -15,6 +15,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { HIGHLIGHT_COLORS, SWATCH } from "@/features/annotations/model";
 import { NoteDialog } from "@/features/annotations/NoteDialog";
 import { createAnnotationSource, type AnnotationsApi } from "@/features/annotations/source";
+import { stampRectAt, type Tool } from "@/features/annotations/tools";
 import { useAnnotations } from "@/features/annotations/useAnnotations";
 import { FieldEdits, until } from "@/features/forms/edits";
 import { FlattenDialog } from "@/features/forms/FlattenDialog";
@@ -60,12 +61,15 @@ import type { OutlineView } from "@/features/outline/tree";
 import { strings } from "@/i18n/zh-TW";
 import type {
   BlockedAction,
+  InkColor,
+  InkWidth,
   DocumentId,
   Edit,
   LinkPreview,
   LinkTarget,
   PageLink,
   SaveResult,
+  StampName,
 } from "@/ipc/generated/contract";
 
 /**
@@ -210,6 +214,8 @@ export function ReaderShell({
   const [saveFailed, setSaveFailed] = useState<unknown>(null);
   /** Pages rendered for printing, while the system's print dialog is up (MVP-17). */
   const [printPages, setPrintPages] = useState<PrintPage[] | null>(null);
+  /** What the pointer does on the pages (B2-08): draws with the pen, or puts a stamp down. */
+  const [tool, setTool] = useState<Tool | null>(null);
   /** Whether the document's file may be on the recent files list (#73); null until asked. */
   const [recorded, setRecorded] = useState<boolean | null>(null);
   const pageInputRef = useRef<HTMLInputElement>(null);
@@ -249,6 +255,7 @@ export function ReaderShell({
     setLinkHover(null);
     setLinkDialog(null);
     setTextSelected(false);
+    setTool(null);
     setHint(null);
     setRecorded(null);
     if (dialog === "print" || dialog === "export" || dialog === "privacyExport") setDialog(null);
@@ -447,6 +454,61 @@ export function ReaderShell({
     view: viewRef,
     onProblem: showHint,
   });
+  // How the pen draws (B2-08).
+  const [ink, setInk] = useState<{ color: InkColor; width: InkWidth }>({ color: "black", width: "medium" });
+  const toolOn = annotations.enabled ? tool : null;
+  const togglePen = () => {
+    if (tool?.kind === "pen") {
+      setTool(null);
+    } else {
+      setTool({ kind: "pen", ...ink });
+      showHint(strings.annotations.penOn);
+    }
+  };
+  const inkStyle = (change: Partial<{ color: InkColor; width: InkWidth }>) => {
+    const next = { ...ink, ...change };
+    setInk(next);
+    if (tool?.kind === "pen") setTool({ kind: "pen", ...next });
+  };
+  const chooseStamp = (stamp: StampName) => {
+    setTool({ kind: "stamp", stamp });
+    showHint(strings.annotations.placeStamp(strings.annotations.stamps[stamp]));
+  };
+  // Esc puts the tool away; Enter puts a stamp in the middle of the page being read, for those who
+  // cannot point.
+  const chosenPage = document_?.pages[currentPage - 1];
+  const edit = annotations.edit;
+  useEffect(() => {
+    if (!tool || !active) return;
+    // Esc comes after an open menu has had it: that only closes the menu.
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setTool(null);
+    };
+    // Enter is the stamp's only where the user is looking at the page, or at the stamp's own
+    // button (which gets the focus back when its menu closes); elsewhere it does what it does. It
+    // comes before the button sees it: Enter on the stamp's button would open its menu.
+    const onEnter = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || tool.kind !== "stamp" || !chosenPage || !edit) return;
+      const target = event.target;
+      const here =
+        !(target instanceof Element) ||
+        target === document.body ||
+        target.closest('[data-region="canvas"], [data-stamp-button]') !== null;
+      // A form field on the page (B2-09) keeps its Enter.
+      const typing = target instanceof Element && target.closest("input, textarea, select") !== null;
+      if (!here || typing) return;
+      event.preventDefault();
+      const middle = { x: chosenPage.widthPt / 2, y: chosenPage.heightPt / 2 };
+      edit({ kind: "addStamp", page: currentPage - 1, rect: stampRectAt(middle, chosenPage), stamp: tool.stamp });
+      setTool(null);
+    };
+    window.addEventListener("keydown", onEscape);
+    window.addEventListener("keydown", onEnter, true);
+    return () => {
+      window.removeEventListener("keydown", onEscape);
+      window.removeEventListener("keydown", onEnter, true);
+    };
+  }, [tool, active, chosenPage, currentPage, edit]);
   // Changes an earlier run of the app left for the file (B2-13): made again or discarded. The tab's
   // new state comes on the open-events channel.
   const recovery = document_?.recovery ?? "none";
@@ -613,6 +675,26 @@ export function ReaderShell({
                 }
               : undefined
           }
+          pen={
+            editingApi !== undefined && doc !== undefined
+              ? {
+                  active: toolOn?.kind === "pen",
+                  color: ink.color,
+                  width: ink.width,
+                  onToggle: annotations.enabled ? togglePen : undefined,
+                  onColor: (color) => inkStyle({ color }),
+                  onWidth: (width) => inkStyle({ width }),
+                }
+              : undefined
+          }
+          stamp={
+            editingApi !== undefined && doc !== undefined
+              ? {
+                  active: toolOn?.kind === "stamp" ? toolOn.stamp : null,
+                  onChoose: annotations.enabled ? chooseStamp : undefined,
+                }
+              : undefined
+          }
           onMoreMenuOpen={askRecording}
           recording={recording ? { recorded, onChange: setRecording } : undefined}
         />
@@ -718,6 +800,8 @@ export function ReaderShell({
                       annotations={annotationSource}
                       onAnnotationEdit={annotations.edit}
                       onEditNote={annotations.editNote}
+                      tool={toolOn ?? undefined}
+                      onToolDone={() => setTool(null)}
                       forms={formSource}
                       onFieldEdit={fillForms ? editField : undefined}
                       onFieldScript={() => showHint(strings.forms.scriptNotRun)}
