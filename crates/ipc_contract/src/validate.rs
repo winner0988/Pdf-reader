@@ -408,6 +408,17 @@ impl Validate for WorkerResponse {
                 Ok(())
             }
             WorkerResponse::PageText { text, .. } => text.validate(),
+            WorkerResponse::StampImage {
+                png, width, height, ..
+            } => {
+                if stamp_png_size(png)? != (*width, *height) {
+                    return Err(ValidationError::Invalid {
+                        what: "stamp picture",
+                        reason: "is not the size it says",
+                    });
+                }
+                Ok(())
+            }
             WorkerResponse::Png { png, .. } => check_png(png),
             WorkerResponse::Jpeg { jpeg, .. } => check_jpeg(jpeg),
             WorkerResponse::PageSearched { hits, .. } => {
@@ -520,6 +531,33 @@ fn check_png(png: &[u8]) -> Result<(), ValidationError> {
         });
     }
     Ok(())
+}
+
+/// The picture of a stamp (B2-08): a PNG file of at most `MAX_STAMP_PNG_BYTES`, its first chunk
+/// the header, of a size from 1 x 1 up to `MAX_STAMP_SIDE_PX` on each side. Returns that size,
+/// as the header says it. Nothing of the picture is decoded.
+pub fn stamp_png_size(png: &[u8]) -> Result<(u32, u32), ValidationError> {
+    check_count("stamp PNG bytes", png.len(), MAX_STAMP_PNG_BYTES as u32)?;
+    // The signature, then the header chunk: 13 bytes of data, named IHDR, the size first.
+    let header = png.get(8..24).filter(|_| png.starts_with(&PNG_SIGNATURE));
+    let Some(header) =
+        header.filter(|header| header[..4] == [0, 0, 0, 13] && &header[4..8] == b"IHDR")
+    else {
+        return Err(ValidationError::Invalid {
+            what: "stamp PNG",
+            reason: "does not start with the PNG signature and header",
+        });
+    };
+    let side = |bytes: &[u8]| u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    let (width, height) = (side(&header[8..12]), side(&header[12..16]));
+    for side in [width, height] {
+        if side == 0 || side > MAX_STAMP_SIDE_PX {
+            return Err(ValidationError::OutOfRange {
+                what: "stamp picture size",
+            });
+        }
+    }
+    Ok((width, height))
 }
 
 /// The first bytes of every JPEG file: the start-of-image marker, then another marker.
@@ -1371,6 +1409,48 @@ mod tests {
         let mut huge = PNG_SIGNATURE.to_vec();
         huge.resize(MAX_PNG_BYTES + 1, 0);
         assert!(png(huge).validate().is_err());
+    }
+
+    #[test]
+    fn stamp_pictures_from_the_worker_are_png_headers_of_a_bounded_size() {
+        let png = |width: u32, height: u32| {
+            let mut file = PNG_SIGNATURE.to_vec();
+            file.extend_from_slice(&13u32.to_be_bytes());
+            file.extend_from_slice(b"IHDR");
+            file.extend_from_slice(&width.to_be_bytes());
+            file.extend_from_slice(&height.to_be_bytes());
+            file.extend_from_slice(&[8, 6, 0, 0, 0, 0, 0, 0, 0]);
+            file
+        };
+        assert_eq!(stamp_png_size(&png(64, 32)), Ok((64, 32)));
+        assert_eq!(
+            stamp_png_size(&png(MAX_STAMP_SIDE_PX, 1)),
+            Ok((MAX_STAMP_SIDE_PX, 1))
+        );
+        for wrong in [png(0, 32), png(64, 0), png(MAX_STAMP_SIDE_PX + 1, 32)] {
+            assert!(stamp_png_size(&wrong).is_err());
+        }
+        // Not a PNG, not a header first, cut short, or too large.
+        assert!(stamp_png_size(&[]).is_err());
+        assert!(stamp_png_size(b"GIF89a, and then some more bytes").is_err());
+        let mut other_chunk = png(64, 32);
+        other_chunk[12..16].copy_from_slice(b"IDAT");
+        assert!(stamp_png_size(&other_chunk).is_err());
+        assert!(stamp_png_size(&png(64, 32)[..20]).is_err());
+        let mut huge = png(64, 32);
+        huge.resize(MAX_STAMP_PNG_BYTES + 1, 0);
+        assert!(stamp_png_size(&huge).is_err());
+
+        // The size the response says is the size the file has.
+        let response = |png: Vec<u8>, width: u32, height: u32| WorkerResponse::StampImage {
+            request: RequestId(1),
+            png,
+            width,
+            height,
+        };
+        assert!(response(png(64, 32), 64, 32).validate().is_ok());
+        assert!(response(png(64, 32), 65, 32).validate().is_err());
+        assert!(response(png(64, 32), 32, 64).validate().is_err());
     }
 
     #[test]

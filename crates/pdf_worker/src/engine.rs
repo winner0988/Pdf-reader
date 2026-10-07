@@ -27,6 +27,9 @@ use thiserror::Error;
 
 mod annotations;
 mod forms;
+mod stamp_image;
+
+pub use stamp_image::{StampPicture, prepare_stamp_picture};
 
 /// Most form fields looked at to find a signature (`PdfDocument::is_signed`).
 const MAX_FORM_FIELDS: usize = 10_000;
@@ -82,6 +85,10 @@ pub enum EngineError {
     NotAllowed(&'static str),
     #[error("the document has too many objects to clean")]
     TooComplex,
+    #[error("invalid picture: {0}")]
+    InvalidPicture(&'static str),
+    #[error("the picture is too large")]
+    PictureTooLarge,
     #[error("MuPDF: {0}")]
     MuPdf(#[from] mupdf::Error),
 }

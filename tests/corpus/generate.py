@@ -18,7 +18,9 @@ import argparse
 import hashlib
 import json
 import random
+import struct
 import sys
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -1237,6 +1239,171 @@ def outline_100k(path: Path) -> None:
 # --------------------------------------------------------------------------- corpus
 
 
+# --------------------------------------------------------------------------- images (B2-08)
+# Pictures for custom stamps: what a phone or a camera writes besides the pixels (EXIF with a
+# GPS position, the camera make and model, the date) must not reach a saved PDF.
+
+PRIVATE_MAKE = "Canon"
+PRIVATE_MODEL = "Canon EOS 5D Mark IV"
+PRIVATE_TIME = "2023:07:04 12:34:56"
+PRIVATE_AUTHOR_NAME = "Jane Q. Private-Author"
+
+
+def tiff_ifd(entries: list[tuple[int, int, int, bytes]], start: int) -> tuple[bytes, bytes]:
+    """An IFD at offset `start` of a big-endian TIFF structure, and the data its entries point to.
+
+    An entry is (tag, type, count, value); a value of more than four bytes goes to the data.
+    """
+    data_start = start + 2 + 12 * len(entries) + 4
+    ifd = struct.pack(">H", len(entries))
+    data = b""
+    for tag, kind, count, value in entries:
+        if len(value) <= 4:
+            field_bytes = value.ljust(4, b"\x00")
+        else:
+            field_bytes = struct.pack(">I", data_start + len(data))
+            data += value + (b"\x00" if len(value) % 2 else b"")
+        ifd += struct.pack(">HHI", tag, kind, count) + field_bytes
+    return ifd + struct.pack(">I", 0), data
+
+
+def rationals(*pairs: tuple[int, int]) -> bytes:
+    return b"".join(struct.pack(">II", num, den) for num, den in pairs)
+
+
+def tiff_with_private_data() -> bytes:
+    """EXIF as a camera writes it: make, model and time, and a GPS position (25 deg 2 min 3 s N,
+    121 deg 33 min 54 s E)."""
+    make = PRIVATE_MAKE.encode() + b"\x00"
+    model = PRIVATE_MODEL.encode() + b"\x00"
+    taken = PRIVATE_TIME.encode() + b"\x00"
+
+    def build(gps_offset: int) -> tuple[bytes, bytes, bytes, bytes]:
+        entries = [
+            (0x010F, 2, len(make), make),
+            (0x0110, 2, len(model), model),
+            (0x0132, 2, len(taken), taken),
+            (0x8825, 4, 1, struct.pack(">I", gps_offset)),
+        ]
+        ifd0, data0 = tiff_ifd(entries, 8)
+        gps_start = 8 + len(ifd0) + len(data0)
+        gps, gps_data = tiff_ifd(
+            [
+                (1, 2, 2, b"N\x00"),
+                (2, 5, 3, rationals((25, 1), (2, 1), (3, 1))),
+                (3, 2, 2, b"E\x00"),
+                (4, 5, 3, rationals((121, 1), (33, 1), (54, 1))),
+            ],
+            gps_start,
+        )
+        return ifd0, data0, gps, gps_data
+
+    ifd0, data0, gps, gps_data = build(0)
+    ifd0, data0, gps, gps_data = build(8 + len(ifd0) + len(data0))
+    return b"MM\x00*" + struct.pack(">I", 8) + ifd0 + data0 + gps + gps_data
+
+
+def exif_app1() -> bytes:
+    body = b"Exif\x00\x00" + tiff_with_private_data()
+    return b"\xff\xe1" + struct.pack(">H", len(body) + 2) + body
+
+
+def jpeg_segment(marker: int, body: bytes) -> bytes:
+    return bytes((0xFF, marker)) + struct.pack(">H", len(body) + 2) + body
+
+
+def dc_only_jpeg(width: int, height: int, pixel) -> bytes:
+    """A baseline JPEG (YCbCr, no subsampling) of flat 8 x 8 blocks: each block is the color
+    `pixel(x, y)` gives at its center. Tables of its own keep it small: sixteen DC categories of
+    four bits, and an AC table with only the end of block."""
+    assert width % 8 == 0 and height % 8 == 0
+    out = bytearray(b"\xff\xd8")
+    out += jpeg_segment(0xDB, bytes([0]) + bytes([1] * 64))
+    components = b"".join(bytes((number, 0x11, 0)) for number in (1, 2, 3))
+    out += jpeg_segment(0xC0, struct.pack(">BHHB", 8, height, width, 3) + components)
+    out += jpeg_segment(0xC4, bytes([0x00, 0, 0, 0, 12] + [0] * 12) + bytes(range(12)))
+    out += jpeg_segment(0xC4, bytes([0x10, 1] + [0] * 15) + bytes([0]))
+    out += jpeg_segment(0xDA, bytes([3, 1, 0x00, 2, 0x00, 3, 0x00, 0, 63, 0]))
+    bits = ""
+    previous = [0, 0, 0]
+    for top in range(0, height, 8):
+        for left in range(0, width, 8):
+            red, green, blue = pixel(left + 4, top + 4)
+            luma = 0.299 * red + 0.587 * green + 0.114 * blue
+            blue_diff = 128 - 0.168736 * red - 0.331264 * green + 0.5 * blue
+            red_diff = 128 + 0.5 * red - 0.418688 * green - 0.081312 * blue
+            for index, value in enumerate((luma, blue_diff, red_diff)):
+                level = 8 * (min(255, max(0, round(value))) - 128)
+                diff = level - previous[index]
+                previous[index] = level
+                size = abs(diff).bit_length()
+                bits += format(size, "04b")
+                if size:
+                    amplitude = diff if diff > 0 else diff + (1 << size) - 1
+                    bits += format(amplitude, f"0{size}b")
+                bits += "0"  # the end of the block
+    bits += "1" * (-len(bits) % 8)
+    for start in range(0, len(bits), 8):
+        byte = int(bits[start:start + 8], 2)
+        out += bytes((byte,)) + (b"\x00" if byte == 0xFF else b"")
+    return bytes(out) + b"\xff\xd9"
+
+
+def stamp_picture(x: int, y: int) -> tuple[int, int, int]:
+    """A red and blue picture with a green stripe: easy to tell from a mix-up."""
+    if 24 <= x < 40:
+        return (40, 160, 70)
+    return (200, 40, 40) if y < 16 else (40, 60, 200)
+
+
+def stamp_jpeg_with_exif() -> bytes:
+    jpeg = dc_only_jpeg(64, 32, stamp_picture)
+    return jpeg[:2] + exif_app1() + jpeg[2:]
+
+
+def zlib_stored(data: bytes) -> bytes:
+    """A zlib stream of stored blocks: the same bytes on every platform."""
+    out = bytearray(b"\x78\x01")
+    for start in range(0, max(len(data), 1), 65535):
+        block = data[start:start + 65535]
+        last = start + 65535 >= len(data)
+        out += struct.pack("<BHH", 1 if last else 0, len(block), len(block) ^ 0xFFFF) + block
+    return bytes(out) + struct.pack(">I", zlib.adler32(data))
+
+
+def png_chunk(kind: bytes, data: bytes) -> bytes:
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+
+def stamp_png_with_metadata() -> bytes:
+    """An RGBA picture (the corner is see-through) with the chunks a camera or an editor adds."""
+    width, height = 64, 32
+    rows = bytearray()
+    for y in range(height):
+        rows.append(0)
+        for x in range(width):
+            red, green, blue = stamp_picture(x, y)
+            rows += bytes((red, green, blue, 0 if x < 8 and y < 8 else 255))
+    return b"\x89PNG\r\n\x1a\n" + b"".join([
+        png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)),
+        png_chunk(b"tEXt", b"Author\x00" + PRIVATE_AUTHOR_NAME.encode()),
+        png_chunk(b"tEXt", b"Software\x00" + PRIVATE_MODEL.encode()),
+        png_chunk(b"eXIf", tiff_with_private_data()),
+        png_chunk(b"pHYs", struct.pack(">IIB", 2835, 2835, 1)),
+        png_chunk(b"IDAT", zlib_stored(bytes(rows))),
+        png_chunk(b"IEND", b""),
+    ])
+
+
+def stamp_png_huge() -> bytes:
+    """A PNG that says it is 60000 x 60000 pixels, and has hardly any data."""
+    return b"\x89PNG\r\n\x1a\n" + b"".join([
+        png_chunk(b"IHDR", struct.pack(">IIBBBBB", 60000, 60000, 8, 2, 0, 0, 0)),
+        png_chunk(b"IDAT", zlib_stored(bytes(3 * 16))),
+        png_chunk(b"IEND", b""),
+    ])
+
+
 @dataclass
 class Sample:
     path: str
@@ -1418,6 +1585,22 @@ def check_structure(data: bytes) -> None:
             raise AssertionError(f"object {num}: xref offset {offset} does not point at its header")
 
 
+# Pictures, not PDFs: listed under "images" in the manifest, apart from the documents.
+IMAGE_SAMPLES = [
+    ("images/stamp-exif.jpg", stamp_jpeg_with_exif,
+     f"A 64 x 32 JPEG (a red and a blue half and a green stripe) with EXIF: the camera make '{PRIVATE_MAKE}', "
+     f"the model '{PRIVATE_MODEL}', the time '{PRIVATE_TIME}' and a GPS position.",
+     "Becomes a stamp whose PDF has the picture and none of the EXIF (B2-08)."),
+    ("images/stamp-metadata.png", stamp_png_with_metadata,
+     f"A 64 x 32 RGBA PNG (its top left corner see-through) with tEXt chunks ('{PRIVATE_AUTHOR_NAME}', "
+     f"'{PRIVATE_MODEL}'), an eXIf chunk with a GPS position and a pHYs chunk.",
+     "Becomes a stamp with its corner still see-through, and none of the metadata (B2-08)."),
+    ("images/stamp-huge-dimensions.png", stamp_png_huge,
+     "A PNG that says it is 60000 x 60000 pixels, in 116 bytes.",
+     "Refused before any pixel is decoded (B2-08)."),
+]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--large", action="store_true", help="also generate the on-demand files")
@@ -1447,6 +1630,22 @@ def main() -> int:
             "pages": sample.pages,
             "findings": sample.findings,
             "text": sample.text,
+            "bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        })
+    manifest["images"] = []
+    for path, build, purpose, expected in IMAGE_SAMPLES:
+        data = build()
+        if data != build():
+            raise AssertionError(f"{path} is not deterministic")
+        target = ROOT / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        manifest["images"].append({
+            "path": path,
+            "category": "images",
+            "purpose": purpose,
+            "expected": expected,
             "bytes": len(data),
             "sha256": hashlib.sha256(data).hexdigest(),
         })
