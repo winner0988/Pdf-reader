@@ -125,12 +125,18 @@ pub enum ThemePreference {
 
 /// The user's settings (B2-12), kept by the main process in the app's local data folder. The
 /// frontend reads them and sends the whole set back; any other field is rejected.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
     pub theme: ThemePreference,
     /// Whether files that open go on the recent files list (#73).
     pub record_recent_files: bool,
+    /// Whether the text of scanned pages is recognised by itself when a document opens (B2-10,
+    /// ADR 0015); if not, only when the user asks for it.
+    pub ocr_auto: bool,
+    /// The language scanned pages are recognised in: the code of an installed one, or none to
+    /// let the app choose by the language of its interface.
+    pub ocr_language: Option<String>,
 }
 
 impl Default for Settings {
@@ -138,8 +144,125 @@ impl Default for Settings {
         Self {
             theme: ThemePreference::System,
             record_recent_files: true,
+            ocr_auto: true,
+            ocr_language: None,
         }
     }
+}
+
+/// A language that scanned pages can be recognised in (B2-10).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrLanguage {
+    /// What its data file is called, without `.traineddata`: `eng`, `chi_tra`...
+    pub code: String,
+    /// It came with the app; the others were imported by the user and can be removed.
+    pub bundled: bool,
+    /// How big its data is, in bytes.
+    pub bytes: u64,
+}
+
+/// The languages installed for recognising text (B2-10).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrLanguages {
+    /// Those that came with the app first, then the imported ones; each in order of its code.
+    pub languages: Vec<OcrLanguage>,
+    /// The language `Settings::ocr_language: None` stands for. None when none is installed.
+    pub automatic: Option<String>,
+}
+
+/// Why importing a language was refused (B2-10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum LanguageRefusal {
+    /// The file could not be read.
+    Unreadable,
+    /// It is larger than `LIMITS.maxLanguageDataBytes`.
+    TooLarge,
+    /// It is not the language data of Tesseract's LSTM engine.
+    NotLanguageData,
+    /// Its name is not a code the app can use: a letter, then letters, digits, `_` or `-`.
+    BadName,
+    /// A language that came with the app has that code.
+    NameTaken,
+    /// `LIMITS.maxImportedLanguages` languages are imported already.
+    TooMany,
+}
+
+/// What `import_ocr_language` came to (B2-10).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum LanguageImport {
+    /// The language is installed; these are all there are now.
+    Imported {
+        languages: OcrLanguages,
+    },
+    /// The user closed the dialog.
+    Cancelled,
+    Refused {
+        reason: LanguageRefusal,
+    },
+}
+
+/// How recognising the text of a document's scanned pages is going (B2-10, ADR 0015).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum OcrRun {
+    /// Not started: the document opened while recognising is left to the user, or it is not
+    /// this document's turn yet.
+    Idle,
+    Running,
+    /// Every page was looked at and every scanned page read.
+    Done,
+    /// The user stopped it.
+    Stopped,
+    /// No language is installed that the settings name or the app can choose.
+    NoLanguage,
+    /// The engine could not go on (its language data was refused, or its worker was lost).
+    Failed,
+}
+
+/// The state of recognising a tab's scanned pages: pages are looked at one after another, the
+/// scanned ones are read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrProgress {
+    /// The document the numbers are about: the tab's current one.
+    pub doc: DocumentId,
+    pub run: OcrRun,
+    /// How many pages the document has.
+    pub pages: u32,
+    /// Pages looked at so far, to tell whether they are scans.
+    pub checked: u32,
+    /// Scanned pages found among them.
+    pub scans: u32,
+    /// Scanned pages whose text was recognised.
+    pub recognised: u32,
+    /// Scanned pages that could not be read, or took too long.
+    pub failed: u32,
+}
+
+/// `start_ocr` and `stop_ocr` (B2-10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OcrArgs {
+    pub doc: DocumentId,
+}
+
+/// `set_ocr_focus` (B2-10): the page the user is looking at, which is recognised first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OcrFocusArgs {
+    pub doc: DocumentId,
+    pub page_index: u32,
+}
+
+/// `remove_ocr_language` (B2-10).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RemoveLanguageArgs {
+    pub code: String,
 }
 
 /// What an export writes (B2-04).
@@ -1010,6 +1133,18 @@ pub enum OpenEvent {
     /// #153). The window stays open until the frontend has sent what it was still sending, asked
     /// what to do and called `close_window`, which asks it again if that made unsaved changes.
     CloseRequested { tabs: Vec<TabId> },
+    /// How recognising the text of a tab's scanned pages is going (B2-10); sent when it changes,
+    /// and to a page that subscribes while it runs.
+    #[serde(rename_all = "camelCase")]
+    Ocr { tab: TabId, progress: OcrProgress },
+    /// The text of a page of `doc` was recognised (B2-10): what the page says about its text
+    /// (selection, search) changed.
+    #[serde(rename_all = "camelCase")]
+    OcrPage {
+        tab: TabId,
+        doc: DocumentId,
+        page_index: u32,
+    },
 }
 
 #[cfg(test)]
@@ -1021,25 +1156,33 @@ mod tests {
         let settings = Settings {
             theme: ThemePreference::Dark,
             record_recent_files: false,
+            ocr_auto: false,
+            ocr_language: Some("eng".to_owned()),
         };
-        let json = serde_json::to_value(settings).unwrap();
+        let json = serde_json::to_value(&settings).unwrap();
         assert_eq!(
             json,
-            serde_json::json!({ "theme": "dark", "recordRecentFiles": false })
+            serde_json::json!({
+                "theme": "dark",
+                "recordRecentFiles": false,
+                "ocrAuto": false,
+                "ocrLanguage": "eng"
+            })
         );
-        assert!(
-            serde_json::from_value::<Settings>(
-                serde_json::json!({ "theme": "dark", "recordRecentFiles": false, "path": "C:/x" })
-            )
-            .is_err()
-        );
-        assert!(
-            serde_json::from_value::<Settings>(
-                serde_json::json!({ "theme": "sepia", "recordRecentFiles": true })
-            )
-            .is_err()
-        );
+        let with = |name: &str, value: serde_json::Value| {
+            let mut json = serde_json::json!({
+                "theme": "dark", "recordRecentFiles": false, "ocrAuto": true, "ocrLanguage": null
+            });
+            json[name] = value;
+            json
+        };
+        assert!(serde_json::from_value::<Settings>(with("theme", "light".into())).is_ok());
+        assert!(serde_json::from_value::<Settings>(with("path", "C:/x".into())).is_err());
+        assert!(serde_json::from_value::<Settings>(with("theme", "sepia".into())).is_err());
+        assert!(serde_json::from_value::<Settings>(with("ocrAuto", "yes".into())).is_err());
         assert_eq!(Settings::default().theme, ThemePreference::System);
         assert!(Settings::default().record_recent_files);
+        assert!(Settings::default().ocr_auto);
+        assert_eq!(Settings::default().ocr_language, None);
     }
 }

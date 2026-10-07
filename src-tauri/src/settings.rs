@@ -6,6 +6,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 
+use ipc_contract::ocr::is_language_name;
 use ipc_contract::types::{Settings, ThemePreference};
 use serde::{Deserialize, Serialize};
 
@@ -24,6 +25,15 @@ struct Stored {
     version: u32,
     theme: ThemePreference,
     record_recent_files: bool,
+    /// Added with the recognising of scanned pages (B2-10): a file written before it lacks them.
+    #[serde(default = "default_ocr_auto")]
+    ocr_auto: bool,
+    #[serde(default)]
+    ocr_language: Option<String>,
+}
+
+fn default_ocr_auto() -> bool {
+    Settings::default().ocr_auto
 }
 
 pub struct SettingsStore {
@@ -45,6 +55,9 @@ impl SettingsStore {
             .map_or_else(Settings::default, |stored| Settings {
                 theme: stored.theme,
                 record_recent_files: stored.record_recent_files,
+                ocr_auto: stored.ocr_auto,
+                // Only what could be a language's code is taken from a file.
+                ocr_language: stored.ocr_language.filter(|code| is_language_name(code)),
             });
         Self {
             file,
@@ -53,13 +66,16 @@ impl SettingsStore {
     }
 
     pub fn get(&self) -> Settings {
-        *self.current.lock().unwrap_or_else(PoisonError::into_inner)
+        self.current
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// Replaces the settings. They apply at once, even if the file cannot be written; the error
     /// says they will not survive a restart.
     pub fn set(&self, settings: Settings) -> io::Result<()> {
-        *self.current.lock().unwrap_or_else(PoisonError::into_inner) = settings;
+        *self.current.lock().unwrap_or_else(PoisonError::into_inner) = settings.clone();
         let Some(file) = &self.file else {
             return Ok(());
         };
@@ -67,6 +83,8 @@ impl SettingsStore {
             version: VERSION,
             theme: settings.theme,
             record_recent_files: settings.record_recent_files,
+            ocr_auto: settings.ocr_auto,
+            ocr_language: settings.ocr_language,
         };
         let json = serde_json::to_vec_pretty(&stored).map_err(io::Error::other)?;
         local_data::write(file, &json)
@@ -96,10 +114,40 @@ mod tests {
         let dark = Settings {
             theme: ThemePreference::Dark,
             record_recent_files: false,
+            ocr_auto: false,
+            ocr_language: Some("chi_tra".to_owned()),
         };
-        store.set(dark).unwrap();
+        store.set(dark.clone()).unwrap();
         assert_eq!(store.get(), dark);
         assert_eq!(SettingsStore::load(Some(file)).get(), dark);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_file_from_before_the_ocr_settings_gets_their_defaults() {
+        let dir = folder("before-ocr");
+        let file = dir.join(FILE_NAME);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            &file,
+            r#"{"version": 1, "theme": "dark", "recordRecentFiles": false}"#,
+        )
+        .unwrap();
+        let settings = SettingsStore::load(Some(file.clone())).get();
+        assert_eq!(settings.theme, ThemePreference::Dark);
+        assert!(!settings.record_recent_files);
+        assert!(settings.ocr_auto);
+        assert_eq!(settings.ocr_language, None);
+
+        // A language that is not a code is not taken.
+        fs::write(
+            &file,
+            r#"{"version": 1, "theme": "dark", "recordRecentFiles": true, "ocrAuto": false, "ocrLanguage": "../eng"}"#,
+        )
+        .unwrap();
+        let settings = SettingsStore::load(Some(file)).get();
+        assert!(!settings.ocr_auto);
+        assert_eq!(settings.ocr_language, None);
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -132,9 +180,9 @@ mod tests {
         let store = SettingsStore::load(None);
         let light = Settings {
             theme: ThemePreference::Light,
-            record_recent_files: true,
+            ..Settings::default()
         };
-        store.set(light).unwrap();
+        store.set(light.clone()).unwrap();
         assert_eq!(store.get(), light);
     }
 }
