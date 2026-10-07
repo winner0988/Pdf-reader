@@ -270,6 +270,7 @@ dependencies = [
  "mupdf",
  "mupdf-sys",
  "thiserror",
+ "windows-sys",
  "zeroize",
 ]
 
