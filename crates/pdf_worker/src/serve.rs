@@ -30,6 +30,7 @@ use crate::handle;
 use crate::ocr::OcrError;
 use crate::ocr_worker::{Job, OcrWorker};
 use crate::scan::ScanBudget;
+use crate::signatures;
 
 /// Serves requests until Shutdown or end of input.
 pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), FrameError> {
@@ -150,6 +151,20 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
                 },
             }),
+            WorkerRequest::VerifySignatures { request, doc } => {
+                // Signatures cover the bytes of the file, not the document as it is edited.
+                Some(match (documents.get(&doc), originals.get(&doc)) {
+                    (Some(document), Some(file)) => match signatures::verify(document, file) {
+                        Ok(report) => WorkerResponse::Signatures { request, report },
+                        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                    },
+                    _ => error(
+                        request,
+                        WorkerErrorCode::UnknownDocument,
+                        "unknown document",
+                    ),
+                })
+            }
             WorkerRequest::RenderPng {
                 request,
                 doc,

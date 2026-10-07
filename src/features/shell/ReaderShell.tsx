@@ -40,6 +40,9 @@ import { useSettings } from "@/features/settings/useSettings";
 import { RecoveryBanner } from "@/features/recovery/RecoveryBanner";
 import { SecurityBanner } from "@/features/security-banner/SecurityBanner";
 import { SecurityDetails } from "@/features/security-banner/SecurityDetails";
+import { SignatureBanner } from "@/features/signatures/SignatureBanner";
+import { SignatureDetails } from "@/features/signatures/SignatureDetails";
+import type { SignatureView } from "@/features/signatures/useSignatures";
 import { hasBannerContent } from "@/features/security-banner/summary";
 import { AboutDialog, SetDefaultFailedDialog, ShortcutsDialog } from "@/features/shell/dialogs";
 import { rotate, sameSession, stepZoom, type Rotation, type ShellState, type Zoom } from "@/features/shell/model";
@@ -108,6 +111,8 @@ type ReaderShellProps = {
   annotationsApi?: AnnotationsApi;
   /** The pages' form fields (B2-09); without it (demo data, tests) pages have none to show. */
   formsApi?: FormsApi;
+  /** The document's digital signatures, verified (B2-14); without it (demo data, tests) it has none to show. */
+  signatures?: SignatureView;
   /** Opens Windows Settings for "set as default"; without it (demo data, tests) nothing happens. */
   systemApi?: SystemApi;
   /** The recently opened files (#73); without it (demo data, tests) the start screen lists none. */
@@ -185,6 +190,7 @@ export function ReaderShell({
   textApi,
   annotationsApi,
   formsApi,
+  signatures,
   systemApi,
   recentApi,
   exportApi,
@@ -211,6 +217,9 @@ export function ReaderShell({
   const [recoveryDismissed, setRecoveryDismissed] = useState(false);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  /** The signatures' banner was closed, and their panel is open (B2-14). */
+  const [signaturesDismissed, setSignaturesDismissed] = useState(false);
+  const [signaturesOpen, setSignaturesOpen] = useState(false);
   /** What the link under the pointer does (status bar). */
   const [linkHover, setLinkHover] = useState<string | null>(null);
   const [linkDialog, setLinkDialog] = useState<LinkDialog | null>(null);
@@ -243,6 +252,8 @@ export function ReaderShell({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const detailsButtonRef = useRef<HTMLButtonElement>(null);
   const detailsId = useId();
+  const signaturesButtonRef = useRef<HTMLButtonElement>(null);
+  const signaturesId = useId();
 
   const document_ = state.kind === "open" ? state.document : null;
   const pageCount = document_?.pages.length ?? 0;
@@ -269,6 +280,8 @@ export function ReaderShell({
     setBannerDismissed([]);
     setRecoveryDismissed(false);
     setDetailsOpen(false);
+    setSignaturesDismissed(false);
+    setSignaturesOpen(false);
     setSearchOpen(false);
     setLinkHover(null);
     setLinkDialog(null);
@@ -718,6 +731,12 @@ export function ReaderShell({
     setDetailsOpen(false);
     detailsButtonRef.current?.focus();
   };
+  const signatureReport = signatures?.status === "ready" ? signatures.report : null;
+  const signaturesShown = document_ !== null && signatureReport !== null && !signaturesDismissed;
+  const closeSignatures = () => {
+    setSignaturesOpen(false);
+    signaturesButtonRef.current?.focus();
+  };
 
   return (
     <TooltipProvider>
@@ -828,6 +847,23 @@ export function ReaderShell({
                 }}
               />
             )}
+            {signaturesShown && (
+              <SignatureBanner
+                report={signatureReport}
+                detailsOpen={signaturesOpen}
+                detailsId={signaturesId}
+                detailsButtonRef={signaturesButtonRef}
+                onToggleDetails={() => {
+                  setDetailsOpen(false);
+                  setSignaturesOpen((open) => !open);
+                }}
+                onDismiss={() => {
+                  setSignaturesDismissed(true);
+                  setSignaturesOpen(false);
+                  canvasRef.current?.focus();
+                }}
+              />
+            )}
             {bannerShown && (
               <SecurityBanner
                 findings={findings}
@@ -835,7 +871,10 @@ export function ReaderShell({
                 detailsOpen={detailsOpen}
                 detailsId={detailsId}
                 detailsButtonRef={detailsButtonRef}
-                onToggleDetails={() => setDetailsOpen((open) => !open)}
+                onToggleDetails={() => {
+                  setSignaturesOpen(false);
+                  setDetailsOpen((open) => !open);
+                }}
                 onDismiss={() => {
                   setBannerDismissed((said) => [...said, bannerSays]);
                   setDetailsOpen(false);
@@ -955,6 +994,9 @@ export function ReaderShell({
           </div>
           {bannerShown && detailsOpen && (
             <SecurityDetails id={detailsId} findings={findings} scanComplete={scanComplete} onClose={closeDetails} />
+          )}
+          {signaturesShown && signaturesOpen && (
+            <SignatureDetails id={signaturesId} report={signatureReport} onClose={closeSignatures} />
           )}
         </div>
         <StatusBar

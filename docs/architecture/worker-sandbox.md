@@ -8,7 +8,7 @@
 |---|---|---|
 | `crates/sandbox` | 以受限權限啟動子行程；本專案所有行程隔離用的 Win32 FFI 集中在這裡 | 有（每個區塊附 SAFETY 說明） |
 | `crates/worker_host` | 主行程端：啟動、握手、送出請求、驗證回應、逾時、崩潰後重啟、交付檔案 | 無 |
-| `crates/pdf_worker` | worker 本身：`serve` 迴圈 + MuPDF 引擎 | 只有 `handle.rs`：把收到的 handle 值轉成 `File` |
+| `crates/pdf_worker` | worker 本身：`serve` 迴圈 + MuPDF 引擎 | `handle.rs`：把收到的 handle 值轉成 `File`；`owner_password.rs`：直接呼叫 MuPDF 的 C 函式，查出是哪個密碼開啟了文件（#88）；`crypt.rs`：呼叫 Windows CryptoAPI 驗證數位簽章（B2-14，ADR 0014，見 [signatures.md](signatures.md)） |
 
 `worker_host` 會在 MVP-06 接到 Tauri 命令上。
 

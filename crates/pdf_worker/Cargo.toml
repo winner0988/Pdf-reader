@@ -25,6 +25,11 @@ thiserror = "2"
 # workspace through ipc_contract).
 zeroize = "1.9"
 
+# Verifies the signatures of a document with Windows' own cryptography (ADR 0014, src/crypt.rs).
+# Already in the workspace; only the features it needs.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
+
 [dev-dependencies]
 # Reads tests/corpus/manifest.json (already in the workspace through ipc_contract).
 serde_json = "1"
