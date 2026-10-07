@@ -32,6 +32,9 @@ async function fromMenu(page: Page, list: Locator, number: number, item: string)
   const doc = await pageSlot(page, 1).getAttribute("data-doc");
   await thumb(list, number).click({ button: "right" });
   await page.getByRole("menuitem", { name: new RegExp(`^${item}`) }).click();
+  // The menu goes on for a moment (it closes with an animation) and keeps the keys a test presses
+  // meanwhile: on a slow machine they are lost (#163). A person is slower than that.
+  await expect(page.getByRole("menu")).toHaveCount(0);
   if (item !== strings.pages.moveTo) await edited(page, doc);
   return doc;
 }
