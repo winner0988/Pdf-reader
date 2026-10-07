@@ -27,6 +27,10 @@ use thiserror::Error;
 
 mod annotations;
 mod forms;
+mod ocr;
+
+pub use ocr::OcrKnown;
+
 mod stamp_image;
 
 pub use stamp_image::{StampPicture, prepare_stamp_picture};
@@ -85,6 +89,8 @@ pub enum EngineError {
     NotAllowed(&'static str),
     #[error("the document has too many objects to clean")]
     TooComplex,
+    #[error("the page has no area")]
+    NoArea,
     #[error("invalid picture: {0}")]
     InvalidPicture(&'static str),
     #[error("the picture is too large")]
@@ -147,6 +153,8 @@ pub struct PdfDocument {
     doc: MuPdfDocument,
     /// Opened with the owner password: nothing is restricted, as in Acrobat (#88).
     owner: bool,
+    /// The text read from pages that are only a picture (B2-10).
+    ocr: ocr::OcrPages,
 }
 
 impl PdfDocument {
@@ -177,6 +185,7 @@ impl PdfDocument {
         Ok(Self {
             doc: MuPdfDocument::try_from(doc)?,
             owner,
+            ocr: ocr::OcrPages::new(),
         })
     }
 
@@ -585,6 +594,14 @@ impl PdfDocument {
                 );
             }
         }
+        // A page that is only a picture has the text that was read from it (B2-10).
+        if !text.has_text()
+            && let Some(recognised) = self.ocr_text(index)
+        {
+            for line in &recognised.lines {
+                text.push_line(ocr::char_quads(line));
+            }
+        }
         Ok(text.search(query, max_hits))
     }
 
@@ -606,7 +623,14 @@ impl PdfDocument {
                 }
             }
         }
-        Ok(layer.finish())
+        let text = layer.finish();
+        // A page that is only a picture has the text that was read from it (B2-10).
+        if text.lines.is_empty()
+            && let Some(recognised) = self.ocr_text(index)
+        {
+            return Ok(recognised.clone());
+        }
+        Ok(text)
     }
 
     fn load_page(&self, index: u32) -> Result<Page, EngineError> {
@@ -641,6 +665,7 @@ impl PdfDocument {
                 return Err(error);
             }
         }
+        self.ocr_turned(pages);
         Ok(())
     }
 
@@ -671,6 +696,7 @@ impl PdfDocument {
         let mut gone = crate::leftovers::take_out(&self.doc, &removed)?;
         let selection: Vec<usize> = pages.iter().map(|&page| page as usize).collect();
         self.doc.delete_pages(PageSelection::Pages(selection))?;
+        self.ocr_forget(removed.iter().copied());
         gone.extend(&removed);
         crate::unlink::unlink(&self.doc, &gone)
     }
@@ -721,6 +747,7 @@ impl PdfDocument {
         }
         let size = self.page_size(like)?;
         self.doc.new_page_at(at as i32, size)?;
+        self.ocr_forget_page(at);
         Ok(())
     }
 

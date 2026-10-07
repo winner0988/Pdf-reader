@@ -6,25 +6,29 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
+use std::time::Duration;
 
 use ipc_contract::frame::{self, FrameError};
 use ipc_contract::limits::{
-    MAX_DOCUMENT_BYTES, MAX_ERROR_MESSAGE_BYTES, MAX_LINKS_PER_PAGE, MAX_OUTLINE_DEPTH,
-    MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_PAGE_TEXT_CHARS, MAX_SEARCH_HITS, MAX_SOURCE_BYTES,
-    MAX_STAMP_SOURCE_BYTES, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
+    MAX_DOCUMENT_BYTES, MAX_ERROR_MESSAGE_BYTES, MAX_LINKS_PER_PAGE, MAX_OCR_PAGE_MILLIS,
+    MAX_OUTLINE_DEPTH, MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_PAGE_TEXT_CHARS, MAX_SEARCH_HITS,
+    MAX_SOURCE_BYTES, MAX_STAMP_SOURCE_BYTES, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
 };
+use ipc_contract::ocr::{check_language_data, is_language_name};
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
     DocumentId, LinkId, LinkTarget, OutlineItem, OutlineResult, PageLink, PageSize, Password, Rect,
     RequestId,
 };
 use ipc_contract::worker::{
-    FileHandle, OpenedDocument, Raster, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest,
-    WorkerResponse,
+    FileHandle, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument, Raster, WorkerEdit,
+    WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
 };
 
-use crate::engine::{EngineError, OutlineTarget, PdfDocument, prepare_stamp_picture};
+use crate::engine::{EngineError, OcrKnown, OutlineTarget, PdfDocument, prepare_stamp_picture};
 use crate::handle;
+use crate::ocr::OcrError;
+use crate::ocr_worker::{Job, OcrWorker};
 use crate::scan::ScanBudget;
 
 /// Serves requests until Shutdown or end of input.
@@ -35,6 +39,8 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
     // (ADR 0013). For a document opened with a password they are still encrypted; the password
     // itself is not kept: undo asks for it again (#94).
     let mut originals: HashMap<DocumentId, Vec<u8>> = HashMap::new();
+    // Recognises the text of scanned pages on a thread of its own (B2-10).
+    let mut ocr = OcrWorker::default();
 
     // Wiped after decoding: an Open request may carry a password (MVP-16).
     while let Some(request) = frame::receive_wiped::<_, WorkerRequest>(&mut input)? {
@@ -306,6 +312,35 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => save_pages(document, request, &pages, file),
             }),
+            WorkerRequest::OcrLoad {
+                request,
+                language,
+                data,
+            } => {
+                let response = ocr_load(&mut ocr, request, &language, data);
+                // Loading dropped the pages that were waiting.
+                documents.values_mut().for_each(PdfDocument::ocr_stopped);
+                Some(response)
+            }
+            WorkerRequest::OcrPage {
+                request,
+                doc,
+                page_index,
+                max_millis,
+            } => Some(match documents.get_mut(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => ocr_page(&ocr, document, request, doc, page_index, max_millis),
+            }),
+            WorkerRequest::OcrPoll { request } => Some(ocr_poll(&ocr, &mut documents, request)),
+            WorkerRequest::OcrStop { request } => {
+                ocr.stop();
+                documents.values_mut().for_each(PdfDocument::ocr_stopped);
+                Some(WorkerResponse::OcrStopped { request })
+            }
             // Requests are handled one at a time, so there is nothing in flight to cancel.
             WorkerRequest::Cancel { .. } => None,
             WorkerRequest::Close { doc } => {
@@ -688,6 +723,7 @@ fn engine_error(
         EngineError::WrongPassword => WorkerErrorCode::WrongPassword,
         EngineError::UnsupportedEncryption => WorkerErrorCode::UnsupportedEncryption,
         EngineError::PageOutOfRange(_) => WorkerErrorCode::PageOutOfRange,
+        EngineError::NoArea => WorkerErrorCode::Corrupted,
         EngineError::NotAllowed(_) => WorkerErrorCode::NotAllowed,
         EngineError::InvalidScale
         | EngineError::InvalidRotation
@@ -722,5 +758,123 @@ fn error(request: RequestId, code: WorkerErrorCode, detail: &str) -> WorkerRespo
     WorkerResponse::Error {
         request: Some(request),
         error: WorkerError { code, detail },
+    }
+}
+
+/// Loads the language data of a request (B2-10). The main process checked it; so does the worker,
+/// since Tesseract does not defend itself against data that is not.
+fn ocr_load(
+    ocr: &mut OcrWorker,
+    request: RequestId,
+    language: &str,
+    data: Vec<u8>,
+) -> WorkerResponse {
+    if !is_language_name(language) || check_language_data(&data).is_err() {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "not the data of a language",
+        );
+    }
+    match ocr.load(language, data) {
+        Ok(()) => WorkerResponse::OcrLoaded { request },
+        Err(OcrError::LanguageData) => error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "the recogniser refused the language data",
+        ),
+        Err(other) => error(request, WorkerErrorCode::Internal, &other.to_string()),
+    }
+}
+
+/// Looks at one page and queues it for recognising if it is a scan (B2-10). The page is drawn
+/// here, in the request loop, and read on the recogniser's thread.
+fn ocr_page(
+    ocr: &OcrWorker,
+    document: &mut PdfDocument,
+    request: RequestId,
+    doc: DocumentId,
+    page_index: u32,
+    max_millis: u32,
+) -> WorkerResponse {
+    let state = (|| -> Result<OcrPageState, EngineError> {
+        match document.ocr_known(page_index)? {
+            OcrKnown::Recognised => return Ok(OcrPageState::Recognised),
+            OcrKnown::NotScan => return Ok(OcrPageState::NotScan),
+            OcrKnown::Waiting => return Ok(OcrPageState::Queued),
+            OcrKnown::Failed => return Ok(OcrPageState::Failed),
+            OcrKnown::Unknown => {}
+        }
+        // Most pages are no scans, and need no language to say so: that is looked at first.
+        if !document.ocr_is_scan(page_index)? {
+            return Ok(OcrPageState::NotScan);
+        }
+        if ocr.language().is_none() {
+            return Ok(OcrPageState::NoLanguage);
+        }
+        if !ocr.has_room() {
+            return Ok(OcrPageState::Full);
+        }
+        let (picture, geometry, page_key) = document.ocr_picture(page_index)?;
+        let job = Job {
+            doc,
+            epoch: document.ocr_epoch(),
+            page_key,
+            picture,
+            geometry,
+            time: Duration::from_millis(u64::from(max_millis.clamp(1, MAX_OCR_PAGE_MILLIS))),
+        };
+        Ok(match ocr.enqueue(job) {
+            Ok(()) => {
+                document.ocr_waiting(page_key);
+                OcrPageState::Queued
+            }
+            Err(_) => OcrPageState::Full,
+        })
+    })();
+    match state {
+        Ok(state) => WorkerResponse::OcrChecked { request, state },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+    }
+}
+
+/// The pages the recogniser finished since the last poll: their text is kept with the document,
+/// and the answer says which pages and how it went.
+fn ocr_poll(
+    ocr: &OcrWorker,
+    documents: &mut HashMap<DocumentId, PdfDocument>,
+    request: RequestId,
+) -> WorkerResponse {
+    let (done, waiting) = ocr.take_finished();
+    let mut finished = Vec::new();
+    for item in done {
+        let Some(document) = documents.get_mut(&item.doc) else {
+            continue;
+        };
+        let (text, outcome) = match item.outcome {
+            Ok(text) => {
+                let chars = text
+                    .lines
+                    .iter()
+                    .map(|line| line.edges.len().saturating_sub(1))
+                    .sum::<usize>();
+                let chars = u32::try_from(chars).unwrap_or(u32::MAX);
+                (Some(text), OcrOutcome::Recognised { chars })
+            }
+            Err(OcrError::Stopped) => (None, OcrOutcome::TimedOut),
+            Err(_) => (None, OcrOutcome::Failed),
+        };
+        if let Some(page_index) = document.ocr_finish(item.page_key, item.epoch, text) {
+            finished.push(OcrFinished {
+                doc: item.doc,
+                page_index,
+                outcome,
+            });
+        }
+    }
+    WorkerResponse::OcrPolled {
+        request,
+        finished,
+        waiting: u32::try_from(waiting).unwrap_or(u32::MAX),
     }
 }

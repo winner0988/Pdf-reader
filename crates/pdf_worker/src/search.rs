@@ -74,6 +74,11 @@ impl PageText {
         }
     }
 
+    /// Whether any line added so far has a character that is not whitespace.
+    pub fn has_text(&self) -> bool {
+        self.has_text
+    }
+
     /// Finds up to `max_hits` non-overlapping occurrences of `query`.
     pub fn search(&self, query: &str, max_hits: usize) -> PageSearch {
         let pattern = normalize_query(query, self.case_sensitive);

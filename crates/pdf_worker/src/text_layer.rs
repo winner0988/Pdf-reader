@@ -74,6 +74,7 @@ impl TextLayerBuilder {
         PageText {
             lines: self.lines,
             truncated: self.truncated,
+            recognised: false,
         }
     }
 }

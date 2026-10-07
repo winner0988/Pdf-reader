@@ -6,6 +6,7 @@
 //!   declarations for them are generated into `src/ipc/generated/contract.ts`.
 //! - [`worker`]: messages between the main process and `pdf_worker` (postcard over stdio).
 //! - [`frame`]: length-prefixed framing with a size limit checked before allocation.
+//! - [`ocr`]: the limits of recognising scanned pages and a check of the language data it needs.
 //! - [`raster`]: the binary layout used to hand rendered pages to the frontend.
 //! - [`validate`]: bounds checks for everything that originates in the untrusted worker.
 //!
@@ -18,6 +19,7 @@
 
 pub mod frame;
 pub mod limits;
+pub mod ocr;
 pub mod raster;
 pub mod text;
 pub mod types;
