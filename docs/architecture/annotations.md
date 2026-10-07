@@ -18,7 +18,7 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 
 ## 自訂圖片印章：worker 的部分（B2-08）
 
-使用者選的圖片是不受信任的輸入，只在沙盒的 worker 裡解碼；選圖片的對話框、檔案路徑與按鈕在後面的 PR，這裡是 worker 這一端。
+使用者選的圖片是不受信任的輸入，只在沙盒的 worker 裡解碼；這裡是 worker 這一端，選圖片的對話框與檔案路徑在下一節（主行程），按鈕在畫面的 PR。
 
 - **`PrepareStampImage`**：主行程把使用者選的檔案以**唯讀 handle**交給 worker（worker 拿不到路徑），worker 回 `StampImage`：一個 PNG，裡面**只有像素**。
   - 只收 PNG 與 JPEG（看開頭的位元組；GIF、BMP、TIFF、JPEG 2000 等一律拒絕，少一些解碼器就少一些攻擊面）；檔案最多 16 MiB（`MAX_STAMP_SOURCE_BYTES`），每邊最多 8,192、全部最多 16 Mpx，**在解碼任何像素之前**就檢查（PNG 先讀自己的標頭、MuPDF 再讀一次；JPEG 由 MuPDF 讀標頭）；
@@ -27,6 +27,20 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
   - **不留任何中繼資料**：EXIF（GPS 位置、相機型號、拍攝時間）、PNG 的文字區塊（`tEXt`）、`eXIf`、色彩描述檔等都隨檔案一起丟掉，輸出只有 `IHDR`、`pHYs`、`IDAT`、`IEND`。已知限制：JPEG 的 EXIF 方向不套用（照片會是相機拍的方向，要先轉好再選）。
 - **`AddImageStamp { page, rect, png }`**（`WorkerEdit`，主行程用）：`png` 是上面做出來的檔案，worker 再檢查一次（簽名、標頭、大小）、再解碼一次、用像素做成一個新的圖片物件，**不用原來的位元組**（MuPDF 收到 JPEG 檔會原樣放進 PDF，EXIF 也跟著進去；測試的對照組證明這點）。`Stamp` 註解的外觀是一個蓋住單位正方形的表單，畫這張圖，由讀者對應到 `rect`；`/Name` 是 `Picture`（不是標準印章，MuPDF 不會重畫外觀）。
 - 測試：`crates/pdf_worker/src/engine/stamp_image.rs`（解碼與重新編碼、EXIF 與 PNG 區塊沒有了、透明保留、存檔的 PDF 沒有任何一個私密字串、對照組：原樣放進去的 JPEG 有；畫出來的像素是圖片的顏色；不是 PNG／JPEG、殘缺、太大、標頭謊稱的大小都拒絕；大圖縮小、雜訊壓到上限內）與 `crates/pdf_worker/tests/stamp_image.rs`（經過真正的沙盒與唯讀 handle，壞圖片拒絕之後 worker 仍可用）。語料：`tests/corpus/images/`（見 [README](../../tests/corpus/README.md)）。
+
+## 自訂圖片印章：主行程的部分（B2-08）
+
+`pick_stamp_image { doc }`（`commands.rs`）：
+1. 主行程顯示系統的開啟對話框（`file_dialog.rs` 的 `Kind::OpenImage`：單選，只列 PNG 與 JPEG，不加入 Windows 的最近項目），**路徑留在主行程**，前端只拿到結果；使用者關閉對話框時回 `null`；
+2. 在檔案**已開啟**的 handle 上檢查（`open_picture`）：存在、是一般檔案、不超過 `MAX_STAMP_SOURCE_BYTES`（16 MiB）；檢查與讀取是同一個 handle，中間不會被換掉；
+3. 交給**這份文件自己的 worker**（`Documents::prepare_stamp_image`；文件的作者不允許註解時拒絕）：worker 只拿到唯讀 handle，做出只有像素的 PNG（見上一節）；主行程再檢查它是 PNG 且大小與 worker 說的相符；
+4. 把 PNG 存在這份文件的圖片庫（`pictures.rs`），回傳 `StampImageInfo { image, width, height }`，`image` 是編號，`width` 與 `height` 是畫在頁面上的像素尺寸（大圖已縮小）。
+
+之後前端用 `addImageStamp { page, rect, image }` 把它放到頁面上（一個普通的編輯，可以復原、重做）。
+
+- **圖片庫**：圖片不放在編輯裡（編輯只有編號），由主行程替每份文件保管，**只要編輯歷史（做過的與復原後還可以重做的）有一個編輯用它就留著**：復原會重開文件再套用其餘編輯，每次套用都把圖片連同編輯交給 worker（`WorkerEdit::AddImageStamp { png }`）；worker 掛掉重開檔案時一樣。選了新的圖片時，沒有任何編輯用到的圖片就丟掉（使用者改選另一張）；編號不會再給別的圖片。存檔後歷史清空，圖片也跟著丟掉。最多同時保管 `MAX_PICTURES`（16）張，都有編輯用到時再選會回 `limitExceeded`（請先存檔）；每張最多 1 MiB。
+- **崩潰復原**：編輯歷史就是復原日誌（見 [crash-recovery.md](crash-recovery.md)），日誌多了 `pictures`：被已套用的編輯用到的圖片，每張 `{ id, png }`，`png` 是小寫十六進位文字（不另加依賴，大小是兩倍；每張最多 1 MiB，所以一張加上其他編輯一定放得進 4 MiB 的日誌）。放不下時與其他編輯一樣被拒絕，請先存檔。讀日誌時把圖片當不可信任的資料：十六進位必須是 app 自己寫的格式、是 PNG 檔而且標頭的大小是印章可以有的大小、編號不重複、最多 16 張、每個 `addImageStamp` 都找得到它的圖片；`worker` 在套用編輯時還會再檢查並解碼一次。
+- 測試（`src-tauri/src/documents.rs`、`pictures.rs`、`recovery.rs`）：圖片變成印章、復原、重做、worker 掛掉後重開都還在、存檔後沒有 EXIF 與相機型號；上一次執行沒存檔的圖片印章在下次開啟時帶著圖片還原，並且能復原與重做；找不到圖片的編輯、不是圖片的檔案、太大的圖片被拒絕，文件還能繼續用；作者不允許註解時拒絕；圖片庫的保留與丟棄規則、上限；日誌的圖片（十六進位、不可信任的內容、大小上限：一張放得下，兩張最大的放不下）；`open_picture` 的各種情形。
 
 ## 編輯指令
 
@@ -41,6 +55,7 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 | `setNoteText { page, annotation, text }` | 改變附註的文字 | 只能是附註；文字見下方 |
 | `addInk { page, strokes, color, width }` | 手繪：`strokes` 的每一筆（頁面空間的點）一起成為一個 `Ink` 註解，所以一次復原取消整張圖 | 至少一筆、每筆至少一個點；最多 `LIMITS.maxInkStrokes`（256）筆、全部最多 `LIMITS.maxInkPoints`（20,000）個點，座標都是有限值且不超過頁面大小的上限 |
 | `addStamp { page, rect, stamp }` | 在 `rect` 蓋上標準印章 | `rect` 是正的，每邊至少 `LIMITS.minAnnotationSidePt`（8 pt），座標都是有限值 |
+| `addImageStamp { page, rect, image }` | 在 `rect` 蓋上使用者自己的圖片印章；`image` 是 `pick_stamp_image` 回的編號（見上一節與下一節） | 同 `addStamp`；圖片必須是這份文件目前有的（主行程找不到時拒絕） |
 | `setAnnotationRect { page, annotation, rect }` | 移動並縮放手繪或印章，`rect` 是列出的範圍（見下方）的新位置 | 同上；只能是手繪或印章 |
 
 - 座標是頁面空間（PDF 點，頁面左上角為原點，y 向下），與文字選取、搜尋結果的四邊形相同；worker 交給 MuPDF 換算成 PDF 的座標。

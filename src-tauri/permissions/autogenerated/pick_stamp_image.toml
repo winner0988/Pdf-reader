@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-pick-stamp-image"
+description = "Enables the pick_stamp_image command without any pre-configured scope."
+commands.allow = ["pick_stamp_image"]
+
+[[permission]]
+identifier = "deny-pick-stamp-image"
+description = "Denies the pick_stamp_image command without any pre-configured scope."
+commands.deny = ["pick_stamp_image"]

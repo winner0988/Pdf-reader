@@ -721,7 +721,9 @@ impl Validate for Edit {
                 }
                 Ok(())
             }
-            Edit::AddStamp { page, rect, .. } | Edit::SetAnnotationRect { page, rect, .. } => {
+            Edit::AddStamp { page, rect, .. }
+            | Edit::AddImageStamp { page, rect, .. }
+            | Edit::SetAnnotationRect { page, rect, .. } => {
                 check_annotated_page(*page)?;
                 check_annotation_rect(rect)
             }
@@ -931,7 +933,7 @@ mod tests {
     use crate::types::{
         AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, ErrorCode,
         FieldId, FieldKind, FieldOption, HighlightColor, HighlightMark, InkColor, InkWidth, LinkId,
-        RecentId, Recovery, RequestId, Rotation, SecurityFinding, StampName, TabId,
+        RecentId, Recovery, RequestId, Rotation, SecurityFinding, StampImageId, StampName, TabId,
     };
     use crate::worker::WorkerErrorCode;
 
@@ -1672,7 +1674,12 @@ mod tests {
             annotation: AnnotationId(5),
             rect,
         };
-        for make in [stamp, moved] {
+        let picture = |rect: Rect| Edit::AddImageStamp {
+            page: 0,
+            rect,
+            image: StampImageId(1),
+        };
+        for make in [stamp, moved, picture] {
             assert!(
                 make(rect(10.0, 10.0, 10.0 + side, 10.0 + side))
                     .validate()
@@ -1703,6 +1710,29 @@ mod tests {
                     .is_err()
             );
         }
+
+        // The page of a picture stamp is checked as any annotation's is.
+        assert!(
+            Edit::AddImageStamp {
+                page: MAX_PAGE_COUNT,
+                rect: rect(10.0, 10.0, 100.0, 60.0),
+                image: StampImageId(1),
+            }
+            .validate()
+            .is_err()
+        );
+        assert_eq!(
+            serde_json::from_value::<Edit>(serde_json::json!({
+                "kind": "addImageStamp", "page": 1, "image": 4,
+                "rect": {"x0": 1.0, "y0": 2.0, "x1": 91.0, "y1": 52.0}
+            }))
+            .unwrap(),
+            Edit::AddImageStamp {
+                page: 1,
+                rect: rect(1.0, 2.0, 91.0, 52.0),
+                image: StampImageId(4),
+            }
+        );
 
         // The frontend form.
         assert_eq!(

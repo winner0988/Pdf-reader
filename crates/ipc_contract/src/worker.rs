@@ -12,7 +12,7 @@ use crate::types::{
     AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FormField,
     HighlightColor, HighlightMark, InkColor, InkWidth, OutlineResult, PageAnnotation, PageLink,
     PageSize, PageText, Password, Point, Rect, RequestId, Rotation, SearchHit, SecurityReport,
-    StampName,
+    StampImageId, StampName,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -86,9 +86,18 @@ pub enum WorkerEdit {
     AddImageStamp { page: u32, rect: Rect, png: Vec<u8> },
 }
 
-impl From<&Edit> for WorkerEdit {
-    fn from(edit: &Edit) -> Self {
-        match edit {
+/// An edit names a stamp picture that its document does not have (B2-08).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnknownPicture;
+
+impl WorkerEdit {
+    /// `edit` as the worker is asked to make it. A picture stamp names its picture; `picture`
+    /// gives the PNG file of it (B2-08), which the worker is sent with the edit.
+    pub fn of(
+        edit: &Edit,
+        picture: impl Fn(StampImageId) -> Option<Vec<u8>>,
+    ) -> Result<Self, UnknownPicture> {
+        Ok(match edit {
             Edit::RotatePages { pages, by } => WorkerEdit::RotatePages {
                 pages: pages.clone(),
                 degrees: by.degrees(),
@@ -157,6 +166,11 @@ impl From<&Edit> for WorkerEdit {
                 rect: *rect,
                 stamp: *stamp,
             },
+            Edit::AddImageStamp { page, rect, image } => WorkerEdit::AddImageStamp {
+                page: *page,
+                rect: *rect,
+                png: picture(*image).ok_or(UnknownPicture)?,
+            },
             Edit::SetAnnotationRect {
                 page,
                 annotation,
@@ -166,7 +180,7 @@ impl From<&Edit> for WorkerEdit {
                 annotation: *annotation,
                 rect: *rect,
             },
-        }
+        })
     }
 }
 
