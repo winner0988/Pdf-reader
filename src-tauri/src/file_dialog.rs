@@ -40,8 +40,12 @@ enum Kind {
     SavePdf { file_name: String },
     /// Where to write the privacy export of a document (B2-03), suggesting `file_name`.
     PrivacyExport { file_name: String },
-    /// A folder for exported page images (B2-04).
-    PickFolder,
+    /// Where to save some pages of a document as a file of their own (B2-06), suggesting
+    /// `file_name`.
+    SplitPdf { file_name: String },
+    /// A folder for exported page images (B2-04), or for the files of a split document (B2-06),
+    /// under the title the caller gives.
+    PickFolder { title: &'static str },
 }
 
 /// Shows the open dialog (PDF files only; several can be picked) over `window` and returns the
@@ -83,9 +87,24 @@ pub async fn privacy_export_file(
         .and_then(|mut paths| paths.pop()))
 }
 
-/// Asks for the folder exported page images go to.
-pub async fn pick_folder(window: &WebviewWindow) -> Result<Option<PathBuf>, IpcError> {
-    Ok(run(window, Kind::PickFolder)
+/// Asks where to save some pages of a document as a file of their own (B2-06), suggesting
+/// `file_name`. The dialog itself asks before replacing an existing file.
+pub async fn split_pdf_file(
+    window: &WebviewWindow,
+    file_name: String,
+) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::SplitPdf { file_name })
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
+/// Asks for a folder (the one exported page images go to, or the files of a split document),
+/// under `title`.
+pub async fn pick_folder(
+    window: &WebviewWindow,
+    title: &'static str,
+) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::PickFolder { title })
         .await?
         .and_then(|mut paths| paths.pop()))
 }
@@ -117,10 +136,11 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
     let common = defaults | FOS_FORCEFILESYSTEM | FOS_DONTADDTORECENT;
     match kind {
         Kind::OpenPdfs => common | FOS_ALLOWMULTISELECT,
-        Kind::SaveText { .. } | Kind::SavePdf { .. } | Kind::PrivacyExport { .. } => {
-            common | FOS_OVERWRITEPROMPT
-        }
-        Kind::PickFolder => common | FOS_PICKFOLDERS,
+        Kind::SaveText { .. }
+        | Kind::SavePdf { .. }
+        | Kind::PrivacyExport { .. }
+        | Kind::SplitPdf { .. } => common | FOS_OVERWRITEPROMPT,
+        Kind::PickFolder { .. } => common | FOS_PICKFOLDERS,
     }
 }
 
@@ -165,11 +185,14 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
     // SAFETY: COM is initialised on this thread (`Com`); the class ids are the system's dialogs.
     unsafe {
         match kind {
-            Kind::SaveText { .. } | Kind::SavePdf { .. } | Kind::PrivacyExport { .. } => {
+            Kind::SaveText { .. }
+            | Kind::SavePdf { .. }
+            | Kind::PrivacyExport { .. }
+            | Kind::SplitPdf { .. } => {
                 CoCreateInstance::<_, IFileSaveDialog>(&FileSaveDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
             }
-            Kind::OpenPdfs | Kind::PickFolder => {
+            Kind::OpenPdfs | Kind::PickFolder { .. } => {
                 CoCreateInstance::<_, IFileOpenDialog>(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
             }
@@ -195,7 +218,11 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             strings::PRIVACY_EXPORT_DIALOG_TITLE,
             Some((strings::PDF_FILTER_NAME, "*.pdf")),
         ),
-        Kind::PickFolder => (strings::EXPORT_IMAGES_DIALOG_TITLE, None),
+        Kind::SplitPdf { .. } => (
+            strings::SPLIT_DIALOG_TITLE,
+            Some((strings::PDF_FILTER_NAME, "*.pdf")),
+        ),
+        Kind::PickFolder { title } => (*title, None),
     };
     let title = HSTRING::from(title);
     // SAFETY: the strings outlive the calls, which copy them; the filter array has one entry.
@@ -211,12 +238,13 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
         }
         if let Kind::SaveText { file_name }
         | Kind::SavePdf { file_name }
-        | Kind::PrivacyExport { file_name } = kind
+        | Kind::PrivacyExport { file_name }
+        | Kind::SplitPdf { file_name } = kind
         {
-            let extension = if let Kind::SavePdf { .. } | Kind::PrivacyExport { .. } = kind {
-                "pdf"
-            } else {
+            let extension = if let Kind::SaveText { .. } = kind {
                 "txt"
+            } else {
+                "pdf"
             };
             dialog.SetDefaultExtension(&HSTRING::from(extension))?;
             dialog.SetFileName(&HSTRING::from(file_name.as_str()))?;
@@ -287,7 +315,14 @@ mod tests {
         });
         assert!(privacy(FOS_DONTADDTORECENT) && privacy(FOS_OVERWRITEPROMPT));
 
-        let folder = options_of(Kind::PickFolder);
+        let split = options_of(Kind::SplitPdf {
+            file_name: "報告-p2-4.pdf".to_owned(),
+        });
+        assert!(split(FOS_DONTADDTORECENT) && split(FOS_OVERWRITEPROMPT));
+
+        let folder = options_of(Kind::PickFolder {
+            title: strings::EXPORT_IMAGES_DIALOG_TITLE,
+        });
         assert!(
             folder(FOS_DONTADDTORECENT) && folder(FOS_PICKFOLDERS) && folder(FOS_FORCEFILESYSTEM)
         );

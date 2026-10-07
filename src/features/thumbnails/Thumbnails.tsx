@@ -48,6 +48,14 @@ import type { DocumentId, Edit } from "@/ipc/generated/contract";
 
 const t = strings.pages;
 
+/** Saving some pages as a file of their own (B2-06): the thumbnails only say which. */
+export type SavePages = {
+  /** The author allows copying the content, and the document is not encrypted. */
+  allowed: boolean;
+  /** Opens what asks where to save them; `pages` are 0-based and in order. */
+  open: (pages: number[]) => void;
+};
+
 /** Page management in the thumbnails (B2-05). */
 export type PageEditing = {
   /** The document's author allows assembling or changing it (MVP-19). */
@@ -65,6 +73,8 @@ type ThumbnailsProps = {
   onJumpToPage: (page: number) => void;
   /** Page management; without it (demo data) pages can only be looked at. */
   editing?: PageEditing;
+  /** Saving the selected pages as a file of their own (B2-06); not offered without it. */
+  savePages?: SavePages;
   /** Delay before a thumbnail that came into view asks for a render; tests pass 0. */
   requestDelayMs?: number;
 };
@@ -102,6 +112,7 @@ export function Thumbnails({
   currentPage,
   onJumpToPage,
   editing,
+  savePages,
   requestDelayMs = REQUEST_DELAY_MS,
 }: ThumbnailsProps) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -406,6 +417,20 @@ export function Thumbnails({
                 <ContextMenuItem disabled={!canEdit || selected.length === 0} onClick={() => setMoveOpen(true)}>
                   {t.moveTo}
                 </ContextMenuItem>
+                {savePages && (
+                  <>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem
+                      disabled={!savePages.allowed || selected.length === 0}
+                      onClick={() => savePages.open(selected)}
+                    >
+                      {t.saveSelected}
+                      {!savePages.allowed && (
+                        <ContextMenuShortcut>{strings.permissions.notAllowed}</ContextMenuShortcut>
+                      )}
+                    </ContextMenuItem>
+                  </>
+                )}
               </ContextMenuGroup>
             </ContextMenuContent>
           </ContextMenu>

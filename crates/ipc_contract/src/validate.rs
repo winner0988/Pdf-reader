@@ -569,7 +569,21 @@ impl Validate for ExportArgs {
                 reason: "empty",
             });
         }
-        check_count("export pages", self.pages.len(), MAX_EXPORT_PAGES)?;
+        // A PDF takes its pages by reference, not one by one through the page text or a render:
+        // as many as a document has.
+        let pdf = matches!(
+            self.format,
+            ExportFormat::Pdf | ExportFormat::PdfEvery { .. }
+        );
+        check_count(
+            "export pages",
+            self.pages.len(),
+            if pdf {
+                MAX_PAGE_COUNT
+            } else {
+                MAX_EXPORT_PAGES
+            },
+        )?;
         let unique: HashSet<u32> = self.pages.iter().copied().collect();
         if unique.len() != self.pages.len() {
             return Err(ValidationError::Invalid {
@@ -581,6 +595,15 @@ impl Validate for ExportArgs {
             && !matches!(dpi, 72 | 150 | 300)
         {
             return Err(ValidationError::OutOfRange { what: "export dpi" });
+        }
+        if let ExportFormat::PdfEvery { count } = self.format {
+            if count == 0 {
+                return Err(ValidationError::OutOfRange {
+                    what: "pages per file",
+                });
+            }
+            let files = self.pages.len().div_ceil(count as usize);
+            check_count("split files", files, MAX_SPLIT_FILES)?;
         }
         Ok(())
     }
@@ -1322,6 +1345,41 @@ mod tests {
             args(too_many, ExportFormat::Text).validate(),
             Err(ValidationError::TooMany { .. })
         ));
+    }
+
+    #[test]
+    fn a_split_takes_as_many_pages_as_a_document_has_but_not_too_many_files() {
+        let args = |pages: Vec<u32>, format: ExportFormat| ExportArgs {
+            request: RequestId(1),
+            doc: DocumentId(1),
+            pages,
+            format,
+        };
+        // Pages go to a PDF by reference: more than a text or an image export takes.
+        let many: Vec<u32> = (0..=MAX_EXPORT_PAGES).collect();
+        assert!(args(many.clone(), ExportFormat::Pdf).validate().is_ok());
+        assert!(args(many, ExportFormat::Text).validate().is_err());
+        let all: Vec<u32> = (0..MAX_PAGE_COUNT).collect();
+        assert!(args(all.clone(), ExportFormat::Pdf).validate().is_ok());
+        assert!(
+            args((0..=MAX_PAGE_COUNT).collect(), ExportFormat::Pdf)
+                .validate()
+                .is_err()
+        );
+        assert!(args(vec![], ExportFormat::Pdf).validate().is_err());
+        assert!(args(vec![3, 3], ExportFormat::Pdf).validate().is_err());
+
+        // Pieces: at least a page each, and no more than MAX_SPLIT_FILES of them.
+        let every = |count: u32| ExportFormat::PdfEvery { count };
+        assert!(args(vec![0, 1, 2], every(1)).validate().is_ok());
+        assert!(args(vec![0, 1, 2], every(500)).validate().is_ok());
+        assert!(args(vec![0, 1, 2], every(0)).validate().is_err());
+        let thousand: Vec<u32> = (0..MAX_SPLIT_FILES).collect();
+        assert!(args(thousand, every(1)).validate().is_ok());
+        let more: Vec<u32> = (0..=MAX_SPLIT_FILES).collect();
+        assert!(args(more.clone(), every(1)).validate().is_err());
+        assert!(args(more, every(2)).validate().is_ok());
+        assert!(args(all, every(100)).validate().is_ok());
     }
 
     #[test]

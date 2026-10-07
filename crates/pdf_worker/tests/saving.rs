@@ -220,3 +220,41 @@ fn after_a_save_undo_opens_the_saved_file_again() {
     assert_eq!(reverted.len(), pages.len() - 1);
     std::fs::remove_file(&path).ok();
 }
+
+#[test]
+fn some_pages_are_saved_as_a_document_of_their_own_and_the_document_is_not_changed() {
+    let mut host = host();
+    let (doc, pages) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    assert_eq!(pages.len(), 10);
+
+    let (path, file) = new_file("pages");
+    let saved = host.save_pages(doc, &[1, 2, 6], &file).expect("save pages");
+    let WorkerResponse::Saved {
+        bytes, incremental, ..
+    } = saved
+    else {
+        panic!("{saved:?}");
+    };
+    drop(file);
+    assert!(!incremental);
+    assert_eq!(std::fs::metadata(&path).expect("file").len(), bytes);
+    let (_, copy) = opened(&mut host, &path);
+    assert_eq!(copy.len(), 3);
+    std::fs::remove_file(&path).ok();
+
+    // The document still has all its pages, and the worker serves it.
+    let again = host
+        .request(|request| WorkerRequest::GetOutline { request, doc })
+        .expect("the document is still there");
+    assert!(matches!(again, WorkerResponse::Outline { .. }), "{again:?}");
+
+    // What is not a list of this document's pages is refused, and writes nothing.
+    for wrong in [vec![], vec![10], vec![3, 3]] {
+        let (path, file) = new_file("refused");
+        assert!(host.save_pages(doc, &wrong, &file).is_err(), "{wrong:?}");
+        drop(file);
+        assert_eq!(std::fs::metadata(&path).expect("file").len(), 0);
+        std::fs::remove_file(&path).ok();
+    }
+    assert!(host.is_running());
+}
