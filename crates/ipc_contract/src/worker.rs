@@ -11,7 +11,7 @@ use crate::PROTOCOL_VERSION;
 use crate::types::{
     AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FormField,
     HighlightColor, HighlightMark, OutlineResult, PageAnnotation, PageLink, PageSize, PageText,
-    Password, Point, RequestId, Rotation, SearchHit, SecurityReport,
+    Password, Point, RequestId, Rotation, SearchHit, SecurityReport, SourceId,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -68,9 +68,18 @@ pub enum WorkerEdit {
     FlattenForm,
 }
 
-impl From<&Edit> for WorkerEdit {
-    fn from(edit: &Edit) -> Self {
-        match edit {
+/// An edit names a file whose pages it takes that its document does not have (B2-06).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnknownSource;
+
+impl WorkerEdit {
+    /// `edit` as the worker is asked to make it. An edit that takes the pages of a file names it;
+    /// `source` gives the clean copy of that file (B2-06), which the worker is sent with the edit.
+    pub fn of(
+        edit: &Edit,
+        source: impl Fn(SourceId) -> Option<Vec<u8>>,
+    ) -> Result<Self, UnknownSource> {
+        Ok(match edit {
             Edit::RotatePages { pages, by } => WorkerEdit::RotatePages {
                 pages: pages.clone(),
                 degrees: by.degrees(),
@@ -85,6 +94,10 @@ impl From<&Edit> for WorkerEdit {
             Edit::InsertBlankPage { at, like } => WorkerEdit::InsertBlankPage {
                 at: *at,
                 like: *like,
+            },
+            Edit::InsertPages { at, source: id } => WorkerEdit::InsertPages {
+                at: *at,
+                source: source(*id).ok_or(UnknownSource)?,
             },
             Edit::AddHighlight { marks, color } => WorkerEdit::AddHighlight {
                 marks: marks.clone(),
@@ -123,7 +136,7 @@ impl From<&Edit> for WorkerEdit {
                 value: value.clone(),
             },
             Edit::FlattenForm => WorkerEdit::FlattenForm,
-        }
+        })
     }
 }
 

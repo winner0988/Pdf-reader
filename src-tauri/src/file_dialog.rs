@@ -34,6 +34,8 @@ use crate::strings;
 enum Kind {
     /// PDF files to open; several can be picked.
     OpenPdfs,
+    /// The one PDF file whose pages are put into the document (B2-06).
+    OpenPagesSource,
     /// Where to save exported text (B2-04), suggesting `file_name`.
     SaveText { file_name: String },
     /// Where to save a document as another file (B2-02), suggesting `file_name`.
@@ -98,6 +100,14 @@ pub async fn split_pdf_file(
         .and_then(|mut paths| paths.pop()))
 }
 
+/// Asks for the PDF file whose pages are put into a document (B2-06): one file. `None` if the user
+/// cancelled.
+pub async fn pick_pages_source(window: &WebviewWindow) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::OpenPagesSource)
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
 /// Asks for a folder (the one exported page images go to, or the files of a split document),
 /// under `title`.
 pub async fn pick_folder(
@@ -141,6 +151,7 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
         | Kind::PrivacyExport { .. }
         | Kind::SplitPdf { .. } => common | FOS_OVERWRITEPROMPT,
         Kind::PickFolder { .. } => common | FOS_PICKFOLDERS,
+        Kind::OpenPagesSource => common,
     }
 }
 
@@ -192,7 +203,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
                 CoCreateInstance::<_, IFileSaveDialog>(&FileSaveDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
             }
-            Kind::OpenPdfs | Kind::PickFolder { .. } => {
+            Kind::OpenPdfs | Kind::OpenPagesSource | Kind::PickFolder { .. } => {
                 CoCreateInstance::<_, IFileOpenDialog>(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
             }
@@ -220,6 +231,10 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
         ),
         Kind::SplitPdf { .. } => (
             strings::SPLIT_DIALOG_TITLE,
+            Some((strings::PDF_FILTER_NAME, "*.pdf")),
+        ),
+        Kind::OpenPagesSource => (
+            strings::PAGES_SOURCE_DIALOG_TITLE,
             Some((strings::PDF_FILTER_NAME, "*.pdf")),
         ),
         Kind::PickFolder { title } => (*title, None),
@@ -319,6 +334,13 @@ mod tests {
             file_name: "報告-p2-4.pdf".to_owned(),
         });
         assert!(split(FOS_DONTADDTORECENT) && split(FOS_OVERWRITEPROMPT));
+
+        // One file whose pages go into the document (B2-06), not several.
+        let source = options_of(Kind::OpenPagesSource);
+        assert!(
+            source(FOS_DONTADDTORECENT) && source(FOS_FORCEFILESYSTEM) && source(FOS_FILEMUSTEXIST)
+        );
+        assert!(!source(FOS_ALLOWMULTISELECT));
 
         let folder = options_of(Kind::PickFolder {
             title: strings::EXPORT_IMAGES_DIALOG_TITLE,

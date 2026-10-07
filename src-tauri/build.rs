@@ -6,6 +6,8 @@ fn main() {
         "open_document_dialog",
         "retry_open",
         "unlock_tab",
+        "pick_pages_source",
+        "unlock_pages_source",
         "close_tab",
         "set_active_tab",
         "render_page",

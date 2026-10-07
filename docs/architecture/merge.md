@@ -1,6 +1,6 @@
 # 合併文件：插入其他檔案的頁面（B2-06）
 
-工作卡 [#95](https://github.com/winner0988/Pdf-reader/issues/95) 的第二部分（第一部分是[拆分](split.md)）；規格 §6「拆分／合併 PDF」。這份文件描述整個功能；**worker 這一端**（`PrepareSource`、`InsertPages`）先到，主行程（來源檔的保管、編輯歷史、崩潰復原、警示橫幅）與畫面在之後的 PR，各節標出是哪一個。
+工作卡 [#95](https://github.com/winner0988/Pdf-reader/issues/95) 的第二部分（第一部分是[拆分](split.md)）；規格 §6「拆分／合併 PDF」。這份文件描述整個功能；**worker 這一端**（`PrepareSource`、`InsertPages`）與**主行程**（來源檔的保管、編輯歷史、崩潰復原、警示橫幅）已經有了，畫面在之後的 PR。
 
 ## 使用者做什麼
 
@@ -58,7 +58,15 @@ sequenceDiagram
 - 沙盒中的 worker（`crates/pdf_worker/tests/merge.rs`）：加密檔案以密碼做出乾淨副本、插入、再以 `Revert` 重做；不允許、不是 PDF、太大的來源被拒絕，worker 繼續運作；惡意來源的頁面插入、存檔後掃描沒有發現。
 - 合約（`crates/ipc_contract`）：`Source` 回應的驗證、模糊測試的種子。
 
+## 主行程（`src-tauri/src/sources.rs`、`documents.rs`、`recovery.rs`、`commands.rs`）
+
+- **命令**：`pick_pages_source { doc }`（開啟對話框 → 檢查檔案（一般檔案、不超過 64 MiB）→ `PrepareSource`）回 `PagesSource { source, pages }`；加密的檔案回 `encrypted`，路徑記在這份文件的 `pending_source`（只在主行程），前端問密碼後呼叫 `unlock_pages_source { doc, password }`，密碼不對時檔案繼續等。作者不允許變更頁面（`/P` 的整理頁面與修改都沒有）的文件，連對話框都不顯示。
+- **保管**（`Sources`）：worker 做出的乾淨副本由主行程保管，只要編輯歷史（做過的與復原後還可以重做的）有一個編輯用到就留著；選了新的檔案時，沒有編輯用到的就丟掉（使用者改選另一個）；存檔後全部丟掉（檔案已經有那些頁面）。每份文件最多 `MAX_SOURCES`（16）個、共 `MAX_SOURCES_BYTES`（128 MiB），放不下時 `limitExceeded`，請先存檔。
+- **編輯**：`Edit::InsertPages { at, source }` 經過 `apply_edit`：與整理頁面相同要作者允許；頁數（來源的頁數）與位置先檢查，合併後不超過 `MAX_PAGE_COUNT`。復原是重開文件再套用其餘的編輯、worker 重啟時也是：每次都把副本連同編輯交給 worker（`WorkerEdit::of`；找不到副本時拒絕），這樣的請求等候的時間與存檔相同（`request_long`）。
+- **警示橫幅**：來源檔的掃描結果（worker 回的 `security`）在編輯還在歷史裡時，併入文件的 `DocumentInfo.security`（同一種類的數量相加，掃描沒完成就是沒完成）；復原後不見，重做後回來，存檔後（檔案已經沒有那些內容）也不見。
+- **崩潰復原日誌**：見 [crash-recovery.md](crash-recovery.md)「插入其他檔案的頁面」：日誌只記到第一個插入之前的編輯，`lost` 記下被留在外面的有幾個；下次開啟時提示列用 `partial` 或 `lost` 說明（擁有者 2026-10-07 的決定）。
+- 測試：`sources.rs`（保留與丟棄、編號、上限、橫幅的數字）；`documents.rs`（真的 worker）：插入、復原、重做、worker 掛掉後重開都在，存檔後的副本有那些頁面；惡意來源的內容在橫幅上、只在頁面還在的時候；加密檔案要密碼、密碼不對、作者不允許取出頁面、擁有者密碼解除；不是 PDF、不存在、位置不對、不存在的來源被拒絕；作者不允許變更頁面的文件；日誌的 `partial` 與 `lost`（還原能還原的、只能捨棄）；`recovery.rs`：`lost` 的記錄與讀取、含有插入的日誌不合格。
+
 ## 之後的 PR
 
-- **主行程**：`pick_pages_source` 與（加密時）`unlock_pages_source` 命令；每份文件保管來源的位元組（`Sources`，經過檢查的副本，每份最多 `MAX_SOURCES_BYTES`）；`Edit::InsertPages { at, source }` 經過 `apply_edit`，復原與重做、worker 重啟時再把來源送給 worker；警示橫幅併入來源的掃描結果（插入的編輯還在歷史裡時）；崩潰復原日誌放不下來源，所以日誌只記到第一個插入之前，提示列說明之後的變更無法還原（擁有者 2026-10-07 的決定）。
-- **畫面**：縮圖右鍵功能表、密碼對話框、E2E。
+- **畫面**：縮圖右鍵功能表「在這一頁之前（之後）插入其他檔案的頁面…」、密碼對話框、橫幅併入來源掃描結果之後重新顯示、E2E。

@@ -21,6 +21,7 @@ mod render;
 mod saving;
 mod search;
 mod settings;
+mod sources;
 mod strings;
 mod update_check;
 
@@ -83,6 +84,8 @@ pub fn run() {
             commands::open_document_dialog,
             commands::retry_open,
             commands::unlock_tab,
+            commands::pick_pages_source,
+            commands::unlock_pages_source,
             commands::close_tab,
             commands::set_active_tab,
             commands::render_page,

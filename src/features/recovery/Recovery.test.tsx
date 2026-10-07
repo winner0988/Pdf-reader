@@ -62,6 +62,23 @@ describe("changes an earlier run left (B2-13)", () => {
     expect(api.discardRecovered).toHaveBeenCalledWith(5);
   });
 
+  it("are offered as far as they go when some took the pages of another file (B2-06)", async () => {
+    const { api, user } = renderShell({ recovery: "partial" });
+    const region = banner()!;
+    expect(region).toHaveTextContent(t.partial);
+    await user.click(within(region).getByRole("button", { name: t.restore }));
+    expect(api.recover).toHaveBeenCalledWith(5);
+  });
+
+  it("can only be told of when none of them can be made again (B2-06)", async () => {
+    const { api, user } = renderShell({ recovery: "lost" });
+    const region = banner()!;
+    expect(region).toHaveTextContent(t.lost);
+    expect(within(region).queryByRole("button", { name: t.restore })).toBeNull();
+    await user.click(within(region).getByRole("button", { name: t.discard }));
+    expect(api.discardRecovered).toHaveBeenCalledWith(5);
+  });
+
   it("can be left for later, without an answer", async () => {
     const { api, user } = renderShell({ recovery: "available" });
     await user.click(within(banner()!).getByRole("button", { name: t.later }));
