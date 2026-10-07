@@ -5,6 +5,7 @@
 //! [`scan`] looks for active content when a document opens, and [`search`] and [`text_layer`]
 //! work on a page's text; [`ocr`] reads the text of pages that are only a picture.
 
+mod crypt;
 pub mod engine;
 mod handle;
 mod leftovers;
@@ -16,5 +17,6 @@ pub mod scan;
 mod scrub;
 pub mod search;
 pub mod serve;
+mod signatures;
 pub mod text_layer;
 mod unlink;
