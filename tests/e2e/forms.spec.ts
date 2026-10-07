@@ -9,7 +9,7 @@ import path from "node:path";
 import type { Page } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
-import { answerFileDialog, corpus, expect, quit, test } from "./app";
+import { answerFileDialog, appRunning, closeAppWindow, corpus, expect, quit, test } from "./app";
 
 const t = strings.forms;
 
@@ -62,6 +62,36 @@ test("every kind of field is filled in, and the saved copy has the values (B2-09
     await expect(box(reopened, "Country")).toHaveValue("JP");
     await expect(box(reopened, "Fruit")).toHaveValue("cherry");
     await expect(box(reopened, "Required")).toHaveValue("done");
+  } finally {
+    rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+test("closing the window while a value is being typed asks whether to save it (#153)", async ({ launch }) => {
+  const folder = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-forms-"));
+  try {
+    const file = path.join(folder, "form.pdf");
+    copyFileSync(corpus("benign/form-fields.pdf"), file);
+    const page = await launch(file);
+    await expect(firstPage(page)).toHaveAttribute("data-state", "ready");
+
+    // Typed, and the box not left: the window's close button must not lose the value.
+    await box(page, "Your name").fill("林 小明");
+    await closeAppWindow(page);
+    const question = page.getByRole("dialog", { name: strings.saving.askTitle });
+    await expect(question).toContainText(strings.saving.askOne("form.pdf"));
+    await question.getByRole("button", { name: strings.saving.cancel }).click();
+    await expect(question).toHaveCount(0);
+    await expect(unsaved(page, "form\\.pdf")).toBeVisible();
+    expect(appRunning(page)).toBe(true);
+
+    await closeAppWindow(page);
+    await question.getByRole("button", { name: strings.saving.save, exact: true }).click();
+    await expect.poll(() => appRunning(page), { timeout: 15_000 }).toBe(false);
+
+    const reopened = await launch(file);
+    await expect(firstPage(reopened)).toHaveAttribute("data-state", "ready");
+    await expect(box(reopened, "Your name")).toHaveValue("林 小明");
   } finally {
     rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }

@@ -143,6 +143,19 @@ pub const MAX_FIELD_VALUE_BYTES: u32 = 16 * 1024;
 /// Most choices of a combo box or list box (B2-09).
 pub const MAX_FIELD_OPTIONS: u32 = 1_000;
 
+/// Most signature fields one document has verified (B2-14, ADR 0014); the rest are not looked at,
+/// and the report says so.
+pub const MAX_SIGNATURES: u32 = 100;
+
+/// Largest signature the worker verifies (B2-14): the bytes of its `/Contents` value, which the
+/// file holds as hex text twice as long. A signature is a few kilobytes; one of this size has
+/// little but padding or many certificates.
+pub const MAX_SIGNATURE_CONTENTS_BYTES: usize = 1024 * 1024;
+
+/// Longest text of a signature's field name or signer that the worker reports (B2-14), in
+/// UTF-8 bytes.
+pub const MAX_SIGNATURE_TEXT_BYTES: u32 = 256;
+
 /// Maximum size of one exported PNG page (B2-04); below the frame limit.
 pub const MAX_PNG_BYTES: usize = 64 * 1024 * 1024;
 
@@ -167,3 +180,7 @@ pub const MAX_OCR_RESULTS: u32 = 64;
 
 /// Longest time one page may be given to be recognised (B2-10), in milliseconds.
 pub const MAX_OCR_PAGE_MILLIS: u32 = 5 * 60 * 1000;
+
+/// Most languages the user can import for recognising text (B2-10), besides those that come with
+/// the app: each is up to `MAX_LANGUAGE_DATA_BYTES` in the app's data folder.
+pub const MAX_IMPORTED_LANGUAGES: u32 = 20;

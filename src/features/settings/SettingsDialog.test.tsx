@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { RecentApi } from "@/features/recent/api";
-import type { SettingsApi } from "@/features/settings/api";
+import { DEFAULT_SETTINGS, type SettingsApi } from "@/features/settings/api";
 import { SettingsProvider } from "@/features/settings/SettingsProvider";
 import { demoDocument } from "@/features/shell/demo";
 import type { ShellState } from "@/features/shell/model";
@@ -14,7 +14,7 @@ import { mediaQuery } from "@/test/setup";
 
 const t = strings.settings;
 
-function fakeSettingsApi(saved: Settings = { theme: "system", recordRecentFiles: true }) {
+function fakeSettingsApi(saved: Settings = DEFAULT_SETTINGS) {
   return {
     get: vi.fn<SettingsApi["get"]>(() => Promise.resolve(saved)),
     set: vi.fn<SettingsApi["set"]>(() => Promise.resolve()),
@@ -54,7 +54,7 @@ async function openSettings(user: ReturnType<typeof userEvent.setup>) {
 describe("settings (B2-12)", () => {
   it("the saved theme applies once the settings arrive", async () => {
     mediaQuery.matches = false;
-    const settingsApi = fakeSettingsApi({ theme: "dark", recordRecentFiles: true });
+    const settingsApi = fakeSettingsApi({ ...DEFAULT_SETTINGS, theme: "dark" });
     renderWithSettings(settingsApi, fakeRecentApi());
     await waitFor(() => expect(document.documentElement).toHaveClass("dark"));
     expect(settingsApi.get).toHaveBeenCalledTimes(1);
@@ -69,7 +69,7 @@ describe("settings (B2-12)", () => {
 
     await user.click(within(dialog).getByRole("radio", { name: t.themes.dark }));
     expect(document.documentElement).toHaveClass("dark");
-    expect(settingsApi.set).toHaveBeenLastCalledWith({ theme: "dark", recordRecentFiles: true });
+    expect(settingsApi.set).toHaveBeenLastCalledWith({ ...DEFAULT_SETTINGS, theme: "dark" });
     // The dialog shows the choice it saved.
     expect(within(dialog).getByRole("radio", { name: t.themes.dark })).toBeChecked();
   });
@@ -81,7 +81,7 @@ describe("settings (B2-12)", () => {
     const dialog = await openSettings(user);
 
     await user.click(within(dialog).getByRole("checkbox", { name: new RegExp(t.record) }));
-    expect(settingsApi.set).toHaveBeenLastCalledWith({ theme: "system", recordRecentFiles: false });
+    expect(settingsApi.set).toHaveBeenLastCalledWith({ ...DEFAULT_SETTINGS, recordRecentFiles: false });
     await user.keyboard("{Escape}");
 
     await user.click(screen.getByRole("button", { name: strings.toolbar.more }));

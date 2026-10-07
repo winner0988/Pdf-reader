@@ -328,7 +328,7 @@ export const strings = {
   },
   text: {
     copy: "複製",
-    noTextLayer: "這一頁沒有文字層，無法選取文字（目前版本尚不支援 OCR）",
+    noTextLayer: "這一頁沒有文字層，無法選取文字。",
   },
   links: {
     hoverPage: (page: number) => `前往第 ${page} 頁`,
@@ -380,9 +380,66 @@ export const strings = {
     close: "關閉搜尋",
     progress: (searched: number, total: number) => `搜尋中… 已完成 ${searched}／${total} 頁`,
     noResults: (query: string) => `找不到「${query}」`,
-    noTextLayer: "此文件沒有文字層，目前版本尚不支援 OCR",
+    noTextLayer: "此文件沒有文字層（掃描檔可以在「⋯」選單選「辨識此文件的文字」）",
     truncated: (limit: number) => `結果超過 ${limit.toLocaleString("en-US")} 筆，只顯示前 ${limit.toLocaleString("en-US")} 筆`,
     failed: "搜尋失敗，請再試一次。",
+  },
+  /** Digital signatures (B2-14, ADR 0014). */
+  signatures: {
+    label: "數位簽章",
+    details: "簽章資料",
+    dismiss: "關閉簽章提示",
+    detailsTitle: "數位簽章",
+    detailsClose: "關閉簽章資料",
+    detailsNote:
+      "簽章在這台電腦上離線驗證，不會連上網路。「簽章有效」表示簽署之後內容沒有被改動，不保證簽署者的身分；憑證是否已被撤銷也沒有檢查。",
+    summaryOne: {
+      valid: "此文件有數位簽章：簽章有效，簽署者受信任。",
+      unconfirmed: "此文件有數位簽章：簽章有效，但無法確認簽署者是誰。",
+      changed: "此文件有數位簽章：簽署之後文件又有變更。",
+      invalid: "此文件的數位簽章無效：簽署之後文件被改動，或簽章與文件不符。",
+      unverifiable: "此文件有數位簽章，但本程式無法驗證它。",
+    },
+    summaryMany: (total: number, parts: string[]) => `此文件有 ${total} 個數位簽章：${parts.join("、")}。`,
+    summaryPart: {
+      valid: (count: number) => `${count} 個有效，簽署者受信任`,
+      unconfirmed: (count: number) => `${count} 個有效但無法確認簽署者`,
+      changed: (count: number) => `${count} 個在簽署後有變更`,
+      invalid: (count: number) => `${count} 個無效`,
+      unverifiable: (count: number) => `${count} 個無法驗證`,
+    },
+    truncated: (max: number) => `這份文件的簽章欄位太多，只驗證了前 ${max} 個。`,
+    unnamed: (index: number) => `簽章 ${index}`,
+    status: {
+      valid: "簽章有效，簽署者受信任",
+      unconfirmed: "簽章有效，但無法確認簽署者",
+      changed: "簽署之後文件有變更",
+      invalid: "簽章無效",
+      unverifiable: "無法驗證",
+    },
+    explanation: {
+      valid: "簽署之後文件沒有被改動，而且簽署者的憑證鏈接到這台電腦的 Windows 信任的根憑證。",
+      unconfirmed:
+        "簽署之後文件沒有被改動，但簽署者的憑證不是由這台電腦的 Windows 信任的單位簽發（例如自己簽發的憑證），無法確認簽署者是誰。",
+      changed: "簽章對簽署時的內容仍然有效，但文件在簽署之後又有變更（也可能只是又加了別人的簽章）。",
+      invalid: "簽署之後文件被改動，或簽章本身與文件不符：不要相信這份文件是簽署者簽署的樣子。",
+    },
+    reason: {
+      unsupportedFormat: "這種簽章的格式本程式不驗證。",
+      unsupportedAlgorithm: "這台電腦的 Windows 不支援它使用的演算法。",
+      tooLarge: "簽章的資料太大，本程式不驗證。",
+      notAvailable: "這個系統無法驗證簽章。",
+    },
+    signer: "簽署者",
+    time: "簽署時間",
+    timeNote: "簽署者自己聲稱的時間，沒有時間戳記證明",
+    certification: "認證簽章",
+    certificationLevel: {
+      noChanges: "簽署者不允許簽署之後有任何變更",
+      fillForms: "簽署者只允許簽署之後填寫表單與簽署",
+      fillFormsAndAnnotate: "簽署者只允許簽署之後填寫表單、簽署與加註解",
+    },
+    certificationBroken: "這是認證簽章，不允許簽署之後有任何變更，但文件有變更。",
   },
   banner: {
     label: "已封鎖內容警示",
@@ -430,6 +487,69 @@ export const strings = {
     dontRecord: "不記錄此檔案",
     settings: "設定…",
   },
+  /** Recognising the text of scanned pages (B2-10). */
+  ocr: {
+    /** The status bar while scanned pages are being read: how many of those found are done. */
+    running: (done: number, scans: number) => `辨識文字：${done} / ${scans} 頁`,
+    stop: "停止",
+    stopLabel: "停止辨識文字",
+    /** What the user is told when it ends. */
+    done: (recognised: number, failed: number) =>
+      failed > 0
+        ? `已辨識 ${recognised} 頁的文字，${failed} 頁無法辨識。`
+        : `已辨識 ${recognised} 頁的文字。`,
+    stopped: "已停止辨識文字。",
+    none: "沒有需要辨識的頁面：每一頁都有文字，或不是圖片頁。",
+    /** Trying to select on a scanned page whose text is not recognised (yet). */
+    selectWhileReading: "這一頁是掃描頁，文字還在辨識中。",
+    selectNotStarted: "這一頁是掃描頁，沒有文字可以選取。可以在「⋯」選單選「辨識此文件的文字」。",
+    noLanguage: "沒有可用的 OCR 語言，無法辨識掃描頁的文字。請在「設定」匯入語言資料。",
+    failed: "無法辨識這份文件的文字。",
+    /** Next to the file name while the page shown has text that was recognised. */
+    pageNote: "此頁文字由 OCR 辨識，可能有誤",
+    menu: "辨識此文件的文字",
+    menuRunning: "正在辨識文字…",
+    /** What the languages of the data are called (the others show their code). */
+    languages: {
+      eng: "English",
+      chi_tra: "繁體中文",
+      chi_sim: "简体中文",
+      jpn: "日本語",
+      kor: "한국어",
+      deu: "Deutsch",
+      fra: "Français",
+      spa: "Español",
+      ita: "Italiano",
+      rus: "Русский",
+    } as Record<string, string>,
+    settings: {
+      title: "文字辨識（OCR）",
+      auto: "開啟文件時自動辨識掃描頁的文字",
+      autoNote:
+        "只辨識沒有文字的圖片頁；在背景進行，不會碰到檔案。關閉後，可以在「⋯」選單選「辨識此文件的文字」。辨識的結果只存在記憶體中，關閉文件就丟棄。",
+      language: "辨識的語言",
+      automatic: (name: string) => `自動（${name}）`,
+      noneInstalled: "沒有可用的語言",
+      languageNote: "繁體中文的資料也認得英文與數字；英文的資料認不得中文。一次只用一種語言。",
+      importButton: "匯入語言資料…",
+      importNote:
+        "選一個 Tesseract 的 .traineddata 檔案（例如 deu.traineddata）。app 不會下載任何東西；檔案會複製到這台電腦的資料資料夾。",
+      imported: "已匯入語言資料。",
+      importedLanguages: "匯入的語言",
+      remove: (name: string) => `移除 ${name}`,
+      removeButton: "移除",
+      removed: "已移除。",
+      refused: {
+        unreadable: "無法讀取這個檔案。",
+        tooLarge: "這個檔案太大（上限 64 MB）。",
+        notLanguageData: "這不是 Tesseract 的語言資料，或不含 LSTM 模型。",
+        badName: "檔名要像 eng.traineddata：英文字母開頭，只有字母、數字、底線與連字號。",
+        nameTaken: "app 已經內附這個語言，不能取代。",
+        tooMany: "匯入的語言已經太多，請先移除一些。",
+      },
+      failed: "無法完成，請再試一次。",
+    },
+  },
   settings: {
     title: "設定",
     description: "變更會立即套用並儲存在這台電腦上。",
@@ -446,7 +566,8 @@ export const strings = {
     dataTitle: "這台電腦上保存的資料",
     dataItems: [
       "最近開啟的檔案：完整路徑，只在這台電腦上；畫面只顯示檔名",
-      "設定：外觀、是否記錄最近開啟的檔案",
+      "設定：外觀、是否記錄最近開啟的檔案、掃描頁的文字辨識",
+      "OCR 語言資料：你匯入的 .traineddata 檔案（內附的在安裝資料夾）",
       "畫面元件（WebView2）的暫存資料",
     ],
     dataLocation:

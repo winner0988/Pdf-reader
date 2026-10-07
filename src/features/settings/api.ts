@@ -18,4 +18,9 @@ export const tauriSettingsApi: SettingsApi = {
   set: (settings) => invoke<void>("set_settings", { settings }),
 };
 
-export const DEFAULT_SETTINGS: Settings = { theme: "system", recordRecentFiles: true };
+export const DEFAULT_SETTINGS: Settings = {
+  theme: "system",
+  recordRecentFiles: true,
+  ocrAuto: true,
+  ocrLanguage: null,
+};
