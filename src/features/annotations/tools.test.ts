@@ -5,6 +5,8 @@ import {
   keptOnPage,
   keptPointOnPage,
   moved,
+  PICTURE_LONG_SIDE_PT,
+  pictureRectAt,
   rectOfBox,
   STAMP_HEIGHT_PT,
   STAMP_WIDTH_PT,
@@ -59,6 +61,26 @@ describe("placing a stamp", () => {
     expect(far.x1).toBeCloseTo(612);
     expect(far.y1).toBeCloseTo(792);
     expect(stampRectAt({ x: 40, y: 20 }, { widthPt: 100, heightPt: 20 })).toMatchObject({ x0: 0, y0: 0 });
+  });
+});
+
+describe("placing a picture stamp", () => {
+  it("takes the shape of the picture, its longer side as long as a stamp's", () => {
+    const wide = pictureRectAt({ x: 300, y: 400 }, LETTER, { width: 64, height: 32 });
+    expect(wide.x1 - wide.x0).toBeCloseTo(PICTURE_LONG_SIDE_PT);
+    expect(wide.y1 - wide.y0).toBeCloseTo(PICTURE_LONG_SIDE_PT / 2);
+    expect((wide.x0 + wide.x1) / 2).toBeCloseTo(300);
+    expect((wide.y0 + wide.y1) / 2).toBeCloseTo(400);
+    const tall = pictureRectAt({ x: 300, y: 400 }, LETTER, { width: 100, height: 400 });
+    expect(tall.y1 - tall.y0).toBeCloseTo(PICTURE_LONG_SIDE_PT);
+    expect(tall.x1 - tall.x0).toBeCloseTo(PICTURE_LONG_SIDE_PT / 4);
+  });
+
+  it("is a little thicker than the picture when it is too thin to grab, and stays on the page", () => {
+    const thin = pictureRectAt({ x: 5, y: 790 }, LETTER, { width: 1_000, height: 4 });
+    expect(thin.y1 - thin.y0).toBeCloseTo(LIMITS.minAnnotationSidePt);
+    expect(thin.x0).toBe(0);
+    expect(thin.y1).toBe(792);
   });
 });
 

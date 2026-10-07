@@ -239,6 +239,14 @@ pub enum Edit {
         rect: Rect,
         stamp: StampName,
     },
+    /// Puts a picture of the user's own over `rect` on page `page` as a stamp (B2-08). `image` is
+    /// what `pick_stamp_image` made of the picture's file: only its pixels, kept by the main
+    /// process for the document as long as an edit uses them.
+    AddImageStamp {
+        page: u32,
+        rect: Rect,
+        image: StampImageId,
+    },
     /// Moves and resizes the drawing or stamp `annotation` of page `page` to `rect`, which is a
     /// rectangle as `PageAnnotation::rect` lists it (B2-08). A drawing keeps the thickness of
     /// its line: its points are placed in the new rectangle.
@@ -369,6 +377,21 @@ pub enum StampName {
     ForComment,
     AsIs,
     TopSecret,
+}
+
+/// A picture the user chose for a stamp (B2-08), as the main process keeps it for an open
+/// document: only its pixels, in a PNG file. It is named by this number in edits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct StampImageId(pub u32);
+
+/// What `pick_stamp_image` tells of the picture the user chose (B2-08): its number for
+/// `Edit::AddImageStamp` and its size in pixels, as it will be drawn (a large picture is shrunk).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct StampImageInfo {
+    pub image: StampImageId,
+    pub width: u32,
+    pub height: u32,
 }
 
 /// An annotation of an open document: the number of its object in the document, which stays
