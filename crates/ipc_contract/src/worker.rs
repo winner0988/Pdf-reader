@@ -12,7 +12,7 @@ use crate::types::{
     AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FormField,
     HighlightColor, HighlightMark, InkColor, InkWidth, OutlineResult, PageAnnotation, PageLink,
     PageSize, PageText, Password, Point, Rect, RequestId, Rotation, SearchHit, SecurityReport,
-    StampImageId, StampName,
+    SourceId, StampImageId, StampName,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -91,17 +91,25 @@ pub enum WorkerEdit {
     AddImageStamp { page: u32, rect: Rect, png: Vec<u8> },
 }
 
-/// An edit names a stamp picture that its document does not have (B2-08).
+/// An edit names a file its document does not have: one whose pages it takes (B2-06), or the
+/// picture of a stamp (B2-08).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UnknownPicture;
+pub enum UnknownFile {
+    /// The file whose pages the edit takes.
+    Source,
+    /// The picture of the stamp.
+    Picture,
+}
 
 impl WorkerEdit {
-    /// `edit` as the worker is asked to make it. A picture stamp names its picture; `picture`
-    /// gives the PNG file of it (B2-08), which the worker is sent with the edit.
+    /// `edit` as the worker is asked to make it. An edit that takes the pages of a file names it;
+    /// `source` gives the clean copy of that file (B2-06). A picture stamp names its picture;
+    /// `picture` gives the PNG file of it (B2-08). The worker is sent them with the edit.
     pub fn of(
         edit: &Edit,
+        source: impl Fn(SourceId) -> Option<Vec<u8>>,
         picture: impl Fn(StampImageId) -> Option<Vec<u8>>,
-    ) -> Result<Self, UnknownPicture> {
+    ) -> Result<Self, UnknownFile> {
         Ok(match edit {
             Edit::RotatePages { pages, by } => WorkerEdit::RotatePages {
                 pages: pages.clone(),
@@ -117,6 +125,10 @@ impl WorkerEdit {
             Edit::InsertBlankPage { at, like } => WorkerEdit::InsertBlankPage {
                 at: *at,
                 like: *like,
+            },
+            Edit::InsertPages { at, source: id } => WorkerEdit::InsertPages {
+                at: *at,
+                source: source(*id).ok_or(UnknownFile::Source)?,
             },
             Edit::AddHighlight { marks, color } => WorkerEdit::AddHighlight {
                 marks: marks.clone(),
@@ -174,7 +186,7 @@ impl WorkerEdit {
             Edit::AddImageStamp { page, rect, image } => WorkerEdit::AddImageStamp {
                 page: *page,
                 rect: *rect,
-                png: picture(*image).ok_or(UnknownPicture)?,
+                png: picture(*image).ok_or(UnknownFile::Picture)?,
             },
             Edit::SetAnnotationRect {
                 page,

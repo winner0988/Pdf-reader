@@ -42,6 +42,8 @@ flowchart LR
 | `subscribe_open_events` | `{ onEvent: Channel<OpenEvent> }` | 無（事件走頻道，見下節） | 否 | MVP-06 |
 | `open_document_dialog` | 無 | `boolean`：`false` 表示使用者取消（或已有對話框開著）；可以選多個檔案，每個一個分頁，結果走開檔頻道。選的檔案不會加進 Windows 的「最近使用的項目」 | 否 | MVP-06、14、#86 |
 | `retry_open` | `{ tab: TabId }` | 無（在同一個分頁重新開啟開檔失敗的檔案，結果走開檔頻道） | 否 | MVP-06、14 |
+| `pick_pages_source` | `{ doc: DocumentId }`（不含路徑：主行程顯示開啟對話框；作者不允許變更頁面時先拒絕，不問使用者） | `PagesSource`（`source`、`pages`）或 `null`（使用者關閉了對話框）；檔案在主行程以唯讀開啟、交給文件自己的 worker，做出乾淨的副本，由主行程保管；加密的檔案回 `encrypted`，`unlock_pages_source` 給密碼；作者不允許取出頁面回 `notAllowed`（B2-06，見 [merge.md](merge.md)） | 否 | B2-06 |
+| `unlock_pages_source` | `{ args: UnlockSourceArgs }`：`doc` 與 `password` | `PagesSource`；對剛才選的加密檔案試這個密碼（路徑只在主行程）；密碼不對回 `encrypted`，檔案繼續等；沒有檔案在等回 `invalidArgument` | 否 | B2-06 |
 | `unlock_tab` | `{ args: UnlockArgs }`：`tab` 與 `password` | 無；以密碼在新的 worker 開啟這個分頁的加密檔案，結果走開檔頻道（見 [encryption.md](encryption.md)） | 否 | MVP-16 |
 | `close_tab` | `{ tab: TabId }` | 無；分頁的 worker 結束，主行程忘記它的路徑 | 否 | MVP-14 |
 | `set_active_tab` | `{ tab: TabId \| null }` | 無；主行程以它記錄的檔名設定視窗標題 | 否 | MVP-14 |
