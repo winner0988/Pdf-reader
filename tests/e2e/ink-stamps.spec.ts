@@ -1,14 +1,14 @@
 // The pen and the standard stamps (B2-08) in the real app. A line is drawn with the mouse and a
 // stamp put down with a click; both are moved and the document is saved as a copy. The copy opens
 // again with them: standard PDF annotations that say nothing of who made them.
-import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { Locator, Page } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
-import { answerFileDialog, corpus, expect, quit, test } from "./app";
+import { answerFileDialog, corpus, dataDir, expect, quit, test } from "./app";
 
 const t = strings.annotations;
 
@@ -238,4 +238,93 @@ test("the pen draws over a link instead of following it (B2-08)", async ({ launc
   await expect(drawing(page)).toHaveCount(0);
   await page.mouse.click(area.x + area.width * 0.5, middle);
   await expect(pageNumber).toHaveValue("3");
+});
+
+/** What a camera wrote into `images/stamp-exif.jpg` besides its pixels (tests/corpus/generate.py). */
+const PRIVATE = ["Canon", "2023:07:04", "Exif", "Mark IV"];
+
+test("a picture of the user's own is a stamp: the copy has its pixels and nothing a camera wrote, and a crash leaves it to restore (B2-08)", async ({
+  launch,
+}) => {
+  const folder = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-picture-"));
+  try {
+    const file = path.join(folder, "original.pdf");
+    copyFileSync(corpus("benign/mixed-text-zh-en.pdf"), file);
+    const page = await launch(file);
+    await expect(firstPage(page)).toHaveAttribute("data-state", "ready");
+    await page.keyboard.press("Control+0");
+    await expect.poll(async () => (await boxOf(firstPage(page))).height).toBeLessThan(700);
+    const sheet = await boxOf(firstPage(page));
+
+    // The last item of the stamp menu asks for the picture in the system's dialog.
+    await page.getByRole("button", { name: t.stamp }).click();
+    await page.getByRole("menuitem", { name: t.pickPicture }).click();
+    await answerFileDialog(page, { path: corpus("images/stamp-exif.jpg") });
+    await expect(page.getByRole("contentinfo")).toContainText(t.placePicture);
+    await expect(drawing(page)).toHaveCount(1);
+    const [x, y] = [sheet.x + sheet.width * 0.5, sheet.y + sheet.height * 0.6];
+    await page.mouse.click(x, y);
+    await expect(stamps(page)).toHaveCount(1);
+    await expect(drawing(page)).toHaveCount(0);
+    // In the shape of the picture (64 x 32), where it was clicked, showing its red half over its
+    // blue half.
+    const box = await boxOf(stamps(page));
+    expect(Math.abs(box.width / box.height - 2)).toBeLessThan(0.2);
+    expect(Math.abs(box.x + box.width / 2 - x)).toBeLessThan(3);
+    expect(Math.abs(box.y + box.height / 2 - y)).toBeLessThan(3);
+    await expect.poll(() => pixelsOf(page, box, "red")).toBeGreaterThan(100);
+    await expect.poll(() => pixelsOf(page, box, "blue")).toBeGreaterThan(100);
+
+    // Undone, and made again from the picture the app keeps for it.
+    await page.keyboard.press("Control+z");
+    await expect(stamps(page)).toHaveCount(0);
+    await page.keyboard.press("Control+y");
+    await expect(stamps(page)).toHaveCount(1);
+    await expect.poll(() => pixelsOf(page, box, "red")).toBeGreaterThan(100);
+
+    // The app ends with the stamp unsaved, as in a crash. Its journal has the picture (as hex
+    // text), whose pixels are all it has of the file.
+    const data = dataDir(page);
+    const [journal] = readdirSync(path.join(data, "recovery"));
+    const kept = JSON.parse(readFileSync(path.join(data, "recovery", journal!), "utf8")) as {
+      pictures: { id: number; png: string }[];
+    };
+    expect(kept.pictures).toHaveLength(1);
+    const png = Buffer.from(kept.pictures[0]!.png, "hex");
+    expect(png.subarray(1, 4).toString("latin1")).toBe("PNG");
+    for (const private_ of PRIVATE) expect(png.includes(private_)).toBe(false);
+    await quit(page);
+
+    const again = await launch(file, { dataDir: data });
+    await expect(firstPage(again)).toHaveAttribute("data-state", "ready");
+    await expect(stamps(again)).toHaveCount(0);
+    const banner = again.getByRole("region", { name: strings.recovery.label });
+    await expect(banner).toContainText(strings.recovery.available);
+    await banner.getByRole("button", { name: strings.recovery.restore }).click();
+    await expect(stamps(again)).toHaveCount(1);
+    await expect.poll(async () => pixelsOf(again, await boxOf(stamps(again)), "blue")).toBeGreaterThan(100);
+    // Undone and made again from the picture the journal had.
+    await again.keyboard.press("Control+z");
+    await expect(stamps(again)).toHaveCount(0);
+    await again.keyboard.press("Control+y");
+    await expect(stamps(again)).toHaveCount(1);
+
+    const copy = path.join(folder, "picture.pdf");
+    await again.keyboard.press("Control+Shift+S");
+    await answerFileDialog(again, { path: copy });
+    await expect(again.getByRole("contentinfo")).toContainText(strings.saving.saved);
+    await quit(again);
+
+    // A standard stamp with an image of its pixels, and none of what the camera wrote.
+    const saved = readFileSync(copy).toString("latin1");
+    expect(saved).toMatch(/\/Subtype\s*\/Stamp/);
+    expect(saved).toMatch(/\/Subtype\s*\/Image/);
+    for (const private_ of PRIVATE) expect(saved).not.toContain(private_);
+    const reopened = await launch(copy);
+    await expect(firstPage(reopened)).toHaveAttribute("data-state", "ready");
+    await expect(stamps(reopened)).toHaveCount(1);
+    await expect.poll(async () => pixelsOf(reopened, await boxOf(stamps(reopened)), "red")).toBeGreaterThan(100);
+  } finally {
+    rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
 });

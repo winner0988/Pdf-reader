@@ -15,6 +15,7 @@ mod history;
 mod links;
 mod local_data;
 mod opener;
+mod pictures;
 mod recent;
 mod recovery;
 mod render;
@@ -123,6 +124,7 @@ pub fn run() {
             commands::save_document_as,
             commands::close_window,
             commands::privacy_export,
+            commands::pick_stamp_image,
         ])
         .on_window_event(commands::on_window_event)
         .setup(move |app| {

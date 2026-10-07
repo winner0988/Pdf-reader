@@ -33,6 +33,9 @@ pub const PRIVACY_EXPORT_SAME_FILE_MESSAGE: &str =
 pub const EXPORT_TEXT_DIALOG_TITLE: &str = "匯出純文字";
 pub const TEXT_FILTER_NAME: &str = "純文字檔";
 pub const EXPORT_IMAGES_DIALOG_TITLE: &str = "選擇匯出頁面圖片的資料夾";
+/// The dialog for the picture of a custom stamp (B2-08).
+pub const STAMP_IMAGE_DIALOG_TITLE: &str = "選擇印章要用的圖片";
+pub const IMAGE_FILTER_NAME: &str = "圖片（PNG、JPEG）";
 pub const SPLIT_DIALOG_TITLE: &str = "將選取的頁面另存為新檔";
 pub const SPLIT_SAME_FILE_TITLE: &str = "請選擇其他檔案";
 pub const SPLIT_SAME_FILE_MESSAGE: &str =
