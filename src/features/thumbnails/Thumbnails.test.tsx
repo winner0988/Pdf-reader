@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -120,7 +120,17 @@ describe("page management in the thumbnails (B2-05)", () => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
   });
 
-  function setup({ allowed = true, count = 10, savePages }: { allowed?: boolean; count?: number; savePages?: SavePages } = {}) {
+  function setup({
+    allowed = true,
+    count = 10,
+    savePages,
+    insertFrom,
+  }: {
+    allowed?: boolean;
+    count?: number;
+    savePages?: SavePages;
+    insertFrom?: PageEditing["insertFrom"];
+  } = {}) {
     const apply = vi.fn<PageEditing["apply"]>(() => Promise.resolve());
     const onJumpToPage = vi.fn();
     const pages = Array(count).fill(LETTER);
@@ -131,7 +141,7 @@ describe("page management in the thumbnails (B2-05)", () => {
           doc={3}
           currentPage={1}
           onJumpToPage={onJumpToPage}
-          editing={{ allowed, apply }}
+          editing={{ allowed, apply, insertFrom }}
           savePages={savePages}
           requestDelayMs={0}
         />
@@ -177,6 +187,48 @@ describe("page management in the thumbnails (B2-05)", () => {
     expect(apply).toHaveBeenLastCalledWith({ kind: "insertBlankPage", at: 5, like: 4 });
     await user.click(await menu(5, strings.pages.delete));
     expect(apply).toHaveBeenLastCalledWith({ kind: "deletePages", pages: [4] });
+  });
+
+  it("takes the pages of another file in before or after the selected page, and selects them (B2-06)", async () => {
+    const insertFrom = vi.fn<NonNullable<PageEditing["insertFrom"]>>(() => Promise.resolve(3));
+    const { user, selected, menu } = setup({ insertFrom });
+    await user.click(await menu(4, strings.pages.insertFileBefore));
+    expect(insertFrom).toHaveBeenLastCalledWith(3);
+    // The pages that came in are page 4 and the two after it.
+    await waitFor(() => expect(selected()).toEqual([4, 5, 6].map((n) => strings.canvas.page(n))));
+    // After the page that was pressed (not one of the selected): the place after page 2.
+    await user.click(await menu(2, strings.pages.insertFileAfter));
+    expect(insertFrom).toHaveBeenLastCalledWith(2);
+  });
+
+  it("does nothing when the user closes the dialog, and says why when the file cannot be used (B2-06)", async () => {
+    const insertFrom = vi.fn<NonNullable<PageEditing["insertFrom"]>>(() => Promise.resolve(null));
+    const { user, selected, menu } = setup({ insertFrom });
+    await user.click(await menu(2, strings.pages.insertFileAfter));
+    expect(insertFrom).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).toBeNull();
+    // The selection is the page that was pressed, as for any menu.
+    expect(selected()).toEqual([strings.canvas.page(2)]);
+
+    const failures = [
+      [{ code: "notAllowed", message: "" }, strings.pages.sourceNotAllowed],
+      [{ code: "limitExceeded", message: "" }, strings.pages.sourceTooLarge],
+      [{ code: "tooLarge", message: "" }, strings.pages.sourceTooLarge],
+      [{ code: "corrupted", message: "" }, strings.pages.sourceFailed],
+      [{ code: "notPdf", message: "" }, strings.pages.sourceFailed],
+    ] as const;
+    for (const [error, text] of failures) {
+      insertFrom.mockRejectedValueOnce(error);
+      await user.click(await menu(2, strings.pages.insertFileBefore));
+      expect(await screen.findByRole("alert")).toHaveTextContent(text);
+    }
+  });
+
+  it("offers the pages of another file only where it can be asked for, and not against the author (B2-06)", async () => {
+    const without = setup();
+    fireEvent.contextMenu(without.thumb(2));
+    await screen.findByRole("menuitem", { name: new RegExp(`^${strings.pages.rotateCw}`) });
+    expect(screen.queryByRole("menuitem", { name: new RegExp(strings.pages.insertFileBefore) })).toBeNull();
   });
 
   it("saves the selected pages as a file of their own from the context menu, when that is offered (B2-06)", async () => {
