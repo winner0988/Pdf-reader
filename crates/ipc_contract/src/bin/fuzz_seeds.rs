@@ -518,6 +518,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 png: stamp_png(),
             },
         },
+        WorkerRequest::SavePages {
+            request,
+            doc,
+            pages: vec![0, 2, 3],
+            file: FileHandle(0x2b8),
+        },
         WorkerRequest::Save {
             request,
             doc,

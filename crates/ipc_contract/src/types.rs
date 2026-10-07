@@ -129,6 +129,12 @@ pub enum ExportFormat {
     Png { dpi: u32 },
     /// One JPEG file per page at `dpi` dots per inch, as for PNG (#111).
     Jpg { dpi: u32 },
+    /// One PDF file of the pages (in the order they have in the document): a document of their
+    /// own (B2-06).
+    Pdf,
+    /// PDF files of `count` pages each (the last one of what is left), one after the other in a
+    /// folder: the pages split into pieces (B2-06).
+    PdfEvery { count: u32 },
 }
 
 /// Arguments of `export_pages` (B2-04): what to export, never where; the main process asks the

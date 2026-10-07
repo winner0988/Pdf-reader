@@ -12,7 +12,7 @@ import {
   thumbSize,
   visibleThumbs,
 } from "@/features/thumbnails/layout";
-import { Thumbnails, type PageEditing } from "@/features/thumbnails/Thumbnails";
+import { Thumbnails, type PageEditing, type SavePages } from "@/features/thumbnails/Thumbnails";
 import type { PageRenderer } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
 
@@ -120,7 +120,7 @@ describe("page management in the thumbnails (B2-05)", () => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
   });
 
-  function setup({ allowed = true, count = 10 } = {}) {
+  function setup({ allowed = true, count = 10, savePages }: { allowed?: boolean; count?: number; savePages?: SavePages } = {}) {
     const apply = vi.fn<PageEditing["apply"]>(() => Promise.resolve());
     const onJumpToPage = vi.fn();
     const pages = Array(count).fill(LETTER);
@@ -132,6 +132,7 @@ describe("page management in the thumbnails (B2-05)", () => {
           currentPage={1}
           onJumpToPage={onJumpToPage}
           editing={{ allowed, apply }}
+          savePages={savePages}
           requestDelayMs={0}
         />
       </div>,
@@ -176,6 +177,35 @@ describe("page management in the thumbnails (B2-05)", () => {
     expect(apply).toHaveBeenLastCalledWith({ kind: "insertBlankPage", at: 5, like: 4 });
     await user.click(await menu(5, strings.pages.delete));
     expect(apply).toHaveBeenLastCalledWith({ kind: "deletePages", pages: [4] });
+  });
+
+  it("saves the selected pages as a file of their own from the context menu, when that is offered (B2-06)", async () => {
+    const open = vi.fn<SavePages["open"]>();
+    const { user, thumb, menu } = setup({ savePages: { allowed: true, open } });
+    await user.click(thumb(2));
+    await user.keyboard("{Control>}");
+    await user.click(thumb(4));
+    await user.keyboard("{/Control}");
+    await user.click(await menu(4, strings.pages.saveSelected));
+    expect(open).toHaveBeenCalledWith([1, 3]);
+  });
+
+  it("does not offer saving pages without the option, and disables it when the author forbids copying", async () => {
+    const without = setup();
+    fireEvent.contextMenu(without.thumb(2));
+    await screen.findByRole("menuitem", { name: new RegExp(`^${strings.pages.rotateCw}`) });
+    expect(screen.queryByRole("menuitem", { name: new RegExp(strings.pages.saveSelected) })).toBeNull();
+  });
+
+  it("disables saving pages, and says why, when the author forbids copying (MVP-19)", async () => {
+    const open = vi.fn<SavePages["open"]>();
+    const { user, thumb, menu } = setup({ savePages: { allowed: false, open } });
+    await user.click(thumb(2));
+    const item = await menu(2, strings.pages.saveSelected);
+    expect(item).toHaveAttribute("aria-disabled", "true");
+    expect(item).toHaveTextContent(strings.permissions.notAllowed);
+    await user.click(item);
+    expect(open).not.toHaveBeenCalled();
   });
 
   it("deletes with the Delete key, but never every page", async () => {
