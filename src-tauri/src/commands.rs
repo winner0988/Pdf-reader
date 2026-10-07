@@ -9,8 +9,8 @@ use ipc_contract::types::{
     DocumentId, EditArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs,
     FormField, IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs, OutlineResult,
     PageAnnotation, PageLink, PageText, RecentFile, RecentId, RenderPageArgs, RequestId,
-    SaveResult, SearchArgs, SearchEvent, Settings, StampImageInfo, TabId, UndoArgs, UnlockArgs,
-    UpdateCheck,
+    SaveResult, SearchArgs, SearchEvent, Settings, SignatureReport, StampImageInfo, TabId,
+    UndoArgs, UnlockArgs, UpdateCheck,
 };
 use ipc_contract::validate::Validate;
 use tauri::ipc::{Channel, Response};
@@ -336,6 +336,14 @@ pub async fn get_page_fields(
     page_index: u32,
 ) -> Result<Vec<FormField>, IpcError> {
     blocking(move || app.state::<Documents>().page_fields(doc, page_index)).await
+}
+
+/// The digital signatures of an open document (B2-14, ADR 0014), verified offline by the
+/// document's own worker: whether each holds, whether the file changed after it, and who signed.
+/// Nothing is fetched from anywhere.
+#[tauri::command]
+pub async fn get_signatures(app: AppHandle, doc: DocumentId) -> Result<SignatureReport, IpcError> {
+    blocking(move || app.state::<Documents>().signatures(doc)).await
 }
 
 /// The links of one page (MVP-12): where they are and where they point. Opening a web link

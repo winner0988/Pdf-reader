@@ -49,6 +49,7 @@ flowchart LR
 | `get_outline` | `{ doc: DocumentId }` | `OutlineResult` | 否 | MVP-09 |
 | `get_page_links` | `{ doc: DocumentId, pageIndex: number }` | `PageLink[]` | 否 | MVP-12 |
 | `get_page_fields` | `{ doc: DocumentId, pageIndex: number }` | `FormField[]`：`id`、`group`、`kind`（`text`／`checkbox`／`radio`／`combo`／`list`）、`rect`、`label`、`value`、`onValue`、`options`、旗標（`readOnly`、`required`、`multiline`、`password`、`editable`、`multiSelect`）、`maxLen`、`hasScript`；不含隱藏的欄位、按鈕與簽章欄位，最多 `LIMITS.maxFieldsPerPage`（見 [forms.md](forms.md)） | 否 | B2-09 |
+| `get_signatures` | `{ doc: DocumentId }` | `SignatureReport`：`signatures`（每個有簽章的簽章欄位一筆：`status`〔`valid`／`changedAfterSigning`／`invalid`／`unverifiable`〕、`signerTrusted`、`reason`、`fieldName`、`signer`、`claimedTime`、`certification`）與 `truncated`（超過 `MAX_SIGNATURES` 個欄位）；在該文件的 worker 離線驗證，見 [signatures.md](signatures.md) | 否 | B2-14 |
 | `get_page_annotations` | `{ doc: DocumentId, pageIndex: number }` | `PageAnnotation[]`：`id`（文件中的物件編號）、`kind`（`highlight`／`note`／`ink`／`stamp`／`other`）、`rect`、`color`（螢光筆的四種顏色之一，或 `null`）、`text`（附註的文字，已清理）；不含連結、表單欄位與彈出視窗，最多 `LIMITS.maxAnnotationsPerPage`（見 [annotations.md](annotations.md)） | 否 | B2-07 |
 | `get_page_text` | `{ doc: DocumentId, pageIndex: number }` | `PageText`：每一行的文字、四邊形與字元位置（見 [text-selection.md](text-selection.md)） | 否 | MVP-15 |
 | `describe_link` | `{ args: LinkArgs }`（`{ doc, link: LinkId }`，其他欄位一律拒絕） | `LinkPreview`：原始 URI、實際開啟的 ASCII 形式、主機（Unicode）與 punycode | 否 | MVP-12 |
@@ -223,6 +224,7 @@ flowchart LR
 | `GetOutline` | `request`, `doc` | `Outline` 或 `Error` |
 | `GetPageLinks` | `request`, `doc`, `page_index` | `PageLinks` 或 `Error` |
 | `GetPageText` | `request`, `doc`, `page_index` | `PageText`（`lines`、`truncated`）或 `Error` |
+| `VerifySignatures` | `request`, `doc` | `Signatures`（`report: SignatureReport`，最多 `MAX_SIGNATURES` 筆；沒有簽署者的簽章不會有名字，主行程檢查）或 `Error`；驗證的是 worker 保存的檔案位元組，不是編輯後的文件（B2-14） |
 | `RenderPng` | `request`, `doc`, `page_index`, `scale` | `Png`（PNG 位元組，最多 `MAX_PNG_BYTES`，主行程檢查簽名）或 `Error`；不旋轉，匯出用（B2-04） |
 | `SearchPage` | `request`, `doc`, `page_index`, `query`, `case_sensitive`, `max_hits` | `PageSearched`（`hits`、`has_text`）或 `Error`；整份文件的搜尋由主行程逐頁驅動，見 [search.md](search.md) |
 | `Edit` | `request`, `doc`, `edit`（`WorkerEdit`：`RotatePages { pages, degrees }`、`DeletePages { pages }`、`MovePages { pages, before }`、`InsertBlankPage { at, like }`、`InsertPages { at, source }`：`source` 是 `PrepareSource` 做出來的檔案，B2-06，見 [merge.md](merge.md)） | `Edited`（套用後的 `pages`）或 `Error`；只改記憶體中的文件（B2-02） |

@@ -22,7 +22,7 @@ use ipc_contract::types::{
     BlockedAction, DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
     FormField, IpcError, LinkArgs, LinkPreview, LinkTarget, OpenEvent, OutlineLinkArgs,
     OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Recovery,
-    RenderPageArgs, SaveResult, SearchHit, StampImageInfo, TabId,
+    RenderPageArgs, SaveResult, SearchHit, SignatureReport, StampImageInfo, TabId,
 };
 use ipc_contract::validate::{Validate, check_page_index, stamp_png_size};
 use ipc_contract::worker::{
@@ -954,6 +954,22 @@ impl Documents {
                 });
             }
             Ok(fields)
+        })
+    }
+
+    /// The signatures of `doc` as its file has them (B2-14, ADR 0014), verified offline by the
+    /// document's worker: whether each holds, whether the file changed after it, and who signed.
+    /// Nothing is fetched, and nothing in the file is run.
+    pub fn signatures(&self, doc: DocumentId) -> Result<SignatureReport, IpcError> {
+        self.with_document(doc, |document| {
+            let response = request(document, |request, doc| WorkerRequest::VerifySignatures {
+                request,
+                doc,
+            })?;
+            let WorkerResponse::Signatures { report, .. } = response else {
+                return Err(unexpected("VerifySignatures"));
+            };
+            Ok(report)
         })
     }
 

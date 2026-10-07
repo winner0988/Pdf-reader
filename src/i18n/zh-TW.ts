@@ -366,6 +366,63 @@ export const strings = {
     truncated: (limit: number) => `結果超過 ${limit.toLocaleString("en-US")} 筆，只顯示前 ${limit.toLocaleString("en-US")} 筆`,
     failed: "搜尋失敗，請再試一次。",
   },
+  /** Digital signatures (B2-14, ADR 0014). */
+  signatures: {
+    label: "數位簽章",
+    details: "簽章資料",
+    dismiss: "關閉簽章提示",
+    detailsTitle: "數位簽章",
+    detailsClose: "關閉簽章資料",
+    detailsNote:
+      "簽章在這台電腦上離線驗證，不會連上網路。「簽章有效」表示簽署之後內容沒有被改動，不保證簽署者的身分；憑證是否已被撤銷也沒有檢查。",
+    summaryOne: {
+      valid: "此文件有數位簽章：簽章有效，簽署者受信任。",
+      unconfirmed: "此文件有數位簽章：簽章有效，但無法確認簽署者是誰。",
+      changed: "此文件有數位簽章：簽署之後文件又有變更。",
+      invalid: "此文件的數位簽章無效：簽署之後文件被改動，或簽章與文件不符。",
+      unverifiable: "此文件有數位簽章，但本程式無法驗證它。",
+    },
+    summaryMany: (total: number, parts: string[]) => `此文件有 ${total} 個數位簽章：${parts.join("、")}。`,
+    summaryPart: {
+      valid: (count: number) => `${count} 個有效，簽署者受信任`,
+      unconfirmed: (count: number) => `${count} 個有效但無法確認簽署者`,
+      changed: (count: number) => `${count} 個在簽署後有變更`,
+      invalid: (count: number) => `${count} 個無效`,
+      unverifiable: (count: number) => `${count} 個無法驗證`,
+    },
+    truncated: (max: number) => `這份文件的簽章欄位太多，只驗證了前 ${max} 個。`,
+    unnamed: (index: number) => `簽章 ${index}`,
+    status: {
+      valid: "簽章有效，簽署者受信任",
+      unconfirmed: "簽章有效，但無法確認簽署者",
+      changed: "簽署之後文件有變更",
+      invalid: "簽章無效",
+      unverifiable: "無法驗證",
+    },
+    explanation: {
+      valid: "簽署之後文件沒有被改動，而且簽署者的憑證鏈接到這台電腦的 Windows 信任的根憑證。",
+      unconfirmed:
+        "簽署之後文件沒有被改動，但簽署者的憑證不是由這台電腦的 Windows 信任的單位簽發（例如自己簽發的憑證），無法確認簽署者是誰。",
+      changed: "簽章對簽署時的內容仍然有效，但文件在簽署之後又有變更（也可能只是又加了別人的簽章）。",
+      invalid: "簽署之後文件被改動，或簽章本身與文件不符：不要相信這份文件是簽署者簽署的樣子。",
+    },
+    reason: {
+      unsupportedFormat: "這種簽章的格式本程式不驗證。",
+      unsupportedAlgorithm: "這台電腦的 Windows 不支援它使用的演算法。",
+      tooLarge: "簽章的資料太大，本程式不驗證。",
+      notAvailable: "這個系統無法驗證簽章。",
+    },
+    signer: "簽署者",
+    time: "簽署時間",
+    timeNote: "簽署者自己聲稱的時間，沒有時間戳記證明",
+    certification: "認證簽章",
+    certificationLevel: {
+      noChanges: "簽署者不允許簽署之後有任何變更",
+      fillForms: "簽署者只允許簽署之後填寫表單與簽署",
+      fillFormsAndAnnotate: "簽署者只允許簽署之後填寫表單、簽署與加註解",
+    },
+    certificationBroken: "這是認證簽章，不允許簽署之後有任何變更，但文件有變更。",
+  },
   banner: {
     label: "已封鎖內容警示",
     summary: (total: number, kinds: string[], more: boolean) =>

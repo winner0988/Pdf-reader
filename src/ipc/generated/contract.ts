@@ -329,6 +329,68 @@ fillForms: boolean, };
 export type Recovery = "none" | "available" | "stale";
 
 /**
+ * The signatures of an open document, as far as they could be looked at (B2-14, ADR 0014).
+ */
+export type SignatureReport = { 
+/**
+ * One entry for each signature field that has a signature, in the order of the form.
+ */
+signatures: Array<SignatureInfo>, 
+/**
+ * The document has more signature fields than were looked at (`MAX_SIGNATURES`).
+ */
+truncated: boolean, };
+
+/**
+ * What verifying one signature of an open document found (B2-14, ADR 0014). It is checked
+ * offline: that a signature holds says the signed bytes are as the signer left them, never that
+ * the signer is who they say (see `signer_trusted`), and nothing is asked of any server.
+ */
+export type SignatureInfo = { status: SignatureStatus, 
+/**
+ * The signer's certificate chains to a root Windows trusts, with what Windows has on this
+ * computer (nothing is fetched; whether it was revoked is not checked). Only meaningful for
+ * a signature that holds (`valid`, `changedAfterSigning`).
+ */
+signerTrusted: boolean, 
+/**
+ * Why the signature could not be verified (`unverifiable`).
+ */
+reason: UnverifiableReason | null, 
+/**
+ * The signature field's name, as the file gives it; display only.
+ */
+fieldName: string | null, 
+/**
+ * Who signed, as the certificate names them. Only for a signature that holds.
+ */
+signer: string | null, 
+/**
+ * When the signer says they signed, as text ("2026-09-24 12:00:00 UTC+08:00"). Only the
+ * signer's own claim: nothing vouches for the time (there is no time stamp, RFC 3161).
+ */
+claimedTime: string | null, 
+/**
+ * A signature that certifies the document says what may still be changed in it (DocMDP).
+ */
+certification: Certification | null, };
+
+/**
+ * Whether a signature holds (B2-14).
+ */
+export type SignatureStatus = "valid" | "changedAfterSigning" | "invalid" | "unverifiable";
+
+/**
+ * Why a signature could not be verified (B2-14).
+ */
+export type UnverifiableReason = "unsupportedFormat" | "unsupportedAlgorithm" | "tooLarge" | "notAvailable";
+
+/**
+ * What a certifying signature allows to be changed after it (DocMDP, B2-14).
+ */
+export type Certification = "noChanges" | "fillForms" | "fillFormsAndAnnotate";
+
+/**
  * An open document as the frontend sees it.
  */
 export type DocumentInfo = { doc: DocumentId, 

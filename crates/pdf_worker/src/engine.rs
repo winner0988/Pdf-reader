@@ -27,8 +27,10 @@ use thiserror::Error;
 
 mod annotations;
 mod forms;
+mod signatures;
 mod stamp_image;
 
+pub use signatures::{SignatureField, SignatureFields};
 pub use stamp_image::{StampPicture, prepare_stamp_picture};
 
 /// Most form fields looked at to find a signature (`PdfDocument::is_signed`).

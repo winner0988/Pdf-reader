@@ -7,6 +7,7 @@ import { tauriAnnotationsApi, type AnnotationsApi } from "@/features/annotations
 import { FieldEdits } from "@/features/forms/edits";
 import { tauriFormsApi, type FormsApi } from "@/features/forms/source";
 import { tauriLinksApi, type LinksApi } from "@/features/links/source";
+import { tauriSignaturesApi, useSignatures, type SignaturesApi } from "@/features/signatures/useSignatures";
 import { tauriSearchApi, type SearchApi } from "@/features/search/useSearch";
 import { tauriOutlineApi, useOutline, type OutlineApi } from "@/features/outline/useOutline";
 import { tauriRecentApi, type RecentApi } from "@/features/recent/api";
@@ -37,6 +38,7 @@ type AppProps = {
   textApi?: TextApi;
   annotationsApi?: AnnotationsApi;
   formsApi?: FormsApi;
+  signaturesApi?: SignaturesApi;
   systemApi?: SystemApi;
   recentApi?: RecentApi;
   settingsApi?: SettingsApi;
@@ -55,6 +57,7 @@ export default function App({
   textApi = tauriTextApi,
   annotationsApi = tauriAnnotationsApi,
   formsApi = tauriFormsApi,
+  signaturesApi = tauriSignaturesApi,
   systemApi = tauriSystemApi,
   recentApi = tauriRecentApi,
   settingsApi = tauriSettingsApi,
@@ -142,6 +145,7 @@ export default function App({
                 textApi={textApi}
                 annotationsApi={annotationsApi}
                 formsApi={formsApi}
+                signaturesApi={signaturesApi}
                 systemApi={systemApi}
                 recentApi={recentApi}
                 exportApi={exportApi}
@@ -201,6 +205,7 @@ type TabPaneProps = {
   textApi: TextApi;
   annotationsApi: AnnotationsApi;
   formsApi: FormsApi;
+  signaturesApi: SignaturesApi;
   systemApi: SystemApi;
   recentApi: RecentApi;
   exportApi: ExportApi;
@@ -219,8 +224,24 @@ type TabPaneProps = {
  * One tab's reader. Every tab stays mounted and hidden tabs are only hidden, so each keeps its
  * page, zoom, rotation, sidebar and search while another is shown (MVP-14).
  */
-function TabPane({ tab, active, outlineApi, latestInfo, onClose, onRetry, onUnlock, ...shell }: TabPaneProps) {
+function TabPane({
+  tab,
+  active,
+  outlineApi,
+  signaturesApi,
+  latestInfo,
+  onClose,
+  onRetry,
+  onUnlock,
+  ...shell
+}: TabPaneProps) {
   const outline = useOutline(outlineApi, docOf(tab), tab.content.kind === "open" && tab.content.hasOutline);
+  const signatures = useSignatures(
+    signaturesApi,
+    docOf(tab),
+    tab.content.kind === "open" ? tab.content.document.session : undefined,
+    isUnsaved(tab),
+  );
   return (
     <div role="tabpanel" id={tabPanelId(tab.tab)} aria-labelledby={tabElementId(tab.tab)} hidden={!active} className="h-full">
       <ReaderShell
@@ -228,6 +249,7 @@ function TabPane({ tab, active, outlineApi, latestInfo, onClose, onRetry, onUnlo
         state={shellState(tab)}
         active={active}
         outline={outline}
+        signatures={signatures}
         latest={() => latestInfo(tab.tab)}
         onClose={() => onClose(tab.tab)}
         onRetry={() => onRetry(tab.tab)}
