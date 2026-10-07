@@ -193,6 +193,7 @@
   - 關閉有未儲存變更的分頁（按鈕、`Ctrl+W`、中鍵）：saving.askTitle，說明 saving.askOne；按鈕「取消」、「不儲存」、「儲存」；
   - 關閉視窗時有未儲存的文件：saving.askMany 並列出檔名；按鈕「取消」、「不儲存」、「全部儲存」；
   - 儲存時顯示 saving.saving；失敗時在對話框中說明，分頁或視窗不關閉。
+- 表單欄位輸入到一半時，儲存與另存新檔會先送出輸入的值（見下方「表單」）。
 - 編輯的 UI 見下方「頁面管理」。做法與限制見 [saving.md](../architecture/saving.md)。
 
 ### 頁面管理（B2-05）
@@ -243,6 +244,22 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
 - 編輯失敗時，狀態列顯示 annotations.failed；未儲存的變更太多時顯示 pages.saveFirst。
 - 沒有鍵盤快捷鍵（螢光筆可以從工具列的按鈕以鍵盤操作）。
 
+### 表單（B2-09）
+
+文件有表單（AcroForm）時，欄位直接顯示在頁面上，可以填寫。做法與限制見 [forms.md](../architecture/forms.md)。
+
+- **欄位**：文字框（多行欄位是多行輸入框，密碼欄位顯示為圓點）、核取方塊、選項按鈕（同一群組只有一個停留點，方向鍵在群組內移動）、下拉選單（有些可以自己輸入）與清單方塊，位置與頁面上的欄位一致，縮放與旋轉時跟著移動。`Tab` 依頁面的順序在欄位之間移動，只用鍵盤就能填完整份表單。
+- **送出的時機**：
+  - 文字框在離開時（`Tab`、點別處）或按 `Enter`（多行欄位按 `Ctrl+Enter`）時送出，`Esc` 放棄剛輸入的；超過最大長度的字打不進去；
+  - 核取方塊、選項按鈕、下拉選單與清單方塊在選擇的當下送出；
+  - 之後分頁標示未儲存（「•」），可以用 `Ctrl+Z`／`Ctrl+Y` 一個值一個值復原與重做（焦點在文字框時，`Ctrl+Z` 是文字框自己的復原）；
+  - 輸入到一半按 `Ctrl+S`、`Ctrl+Shift+S` 或關閉分頁，會先送出輸入的值；儲存之後焦點仍在原來的欄位，可以接著輸入；關閉分頁時照常詢問是否儲存。直接關閉視窗（標題列的 ✕）不會，見 forms.md 的「已知限制」。
+- **必填欄位**空著時有紅色外框。
+- **唯讀欄位**與作者不允許填寫表單（MVP-19）：欄位只能看（文字框仍可選取與複製），滑鼠停留時說明原因（forms.readOnly、forms.notAllowed）；「扁平化表單…」停用並標示 permissions.notAllowed。
+- **有腳本的欄位**：進入欄位時，狀態列顯示 forms.scriptNotRun 4 秒；欄位仍可填寫，腳本不會執行（自動計算、格式化與檢查都沒有作用）。
+- 填寫失敗時，欄位回到原來的值，狀態列顯示 forms.failed；未儲存的變更太多時顯示 pages.saveFirst。
+- **扁平化**：「⋯」→ forms.flatten（只在文件有表單時出現）；對話框 forms.flattenDialog.title 說明欄位會成為頁面的一部分、可以復原；按 forms.flattenDialog.confirm 後立刻顯示另存新檔的對話框（原檔不變）。有簽章的文件不能扁平化（forms.flattenFailed）。扁平化之後頁面上沒有欄位，選單裡也不再有這個項目。
+
 ### 文件權限（MVP-19）
 
 加密的 PDF 可以限制複製與列印，app 比照 Adobe Acrobat 遵守（[encryption.md](../architecture/encryption.md)「權限」）。
@@ -282,7 +299,7 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
 | 關閉對話框、面板、搜尋列 | `Esc` |
 | 快捷鍵說明 | `Ctrl+/` |
 
-焦點在文字輸入框時，只保留 `Ctrl` 組合鍵與 `Esc`，其他單鍵快捷鍵不作用。
+焦點在文字輸入框時，只保留 `Ctrl` 組合鍵與 `Esc`，其他單鍵快捷鍵不作用；下拉選單與清單方塊也一樣（單鍵用來選擇選項）。
 
 ### 右鍵
 
@@ -691,6 +708,21 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | error.messages.unwritable | 無法寫入檔案。 |
 | SAVE_AS_DIALOG_TITLE（主行程） | 另存新檔 |
 | window_title（主行程，有未儲存的變更時） | • <檔名> — PDF Reader |
+
+### 表單（B2-09）
+
+| 鍵 | 文字 |
+|---|---|
+| forms.scriptNotRun | 這個欄位有腳本（自動計算、格式化或檢查），本程式不會執行它。 |
+| forms.notAllowed | 文件作者不允許填寫表單 |
+| forms.readOnly | 這個欄位是唯讀的 |
+| forms.failed | 無法填寫這個欄位，請再試一次。 |
+| forms.choice(group, choice) | <群組>：<選擇>（選項按鈕的可讀名稱） |
+| forms.flatten | 扁平化表單… |
+| forms.flattenFailed | 無法扁平化表單（有簽章的文件不能扁平化）。 |
+| forms.flattenDialog.title | 扁平化表單 |
+| forms.flattenDialog.description | 欄位目前填的內容會成為頁面的一部分，之後不能再修改，也不再有表單欄位。可以用「復原」（Ctrl+Z）取消；也可以另存新檔，保留原來的檔案。 |
+| forms.flattenDialog.confirm／forms.flattenDialog.cancel | 扁平化並另存新檔…／取消 |
 
 ### 文件權限（MVP-19）
 

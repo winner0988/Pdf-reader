@@ -8,9 +8,10 @@ use std::path::PathBuf;
 use ipc_contract::frame::encode;
 use ipc_contract::types::{
     AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, FieldId,
-    FieldKind, FieldOption, FindingKind, FormField, HighlightColor, HighlightMark, LinkId,
-    LinkTarget, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
-    Point, Quad, Rect, RequestId, Rotation, SearchHit, SecurityFinding, SecurityReport, TextLine,
+    FieldKind, FieldOption, FindingKind, FormField, HighlightColor, HighlightMark, InkColor,
+    InkWidth, LinkId, LinkTarget, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize,
+    PageText, Password, Point, Quad, Rect, RequestId, Rotation, SearchHit, SecurityFinding,
+    SecurityReport, StampName, TextLine,
 };
 use ipc_contract::worker::{
     FileHandle, OpenedDocument, Raster, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest,
@@ -432,6 +433,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             doc,
             edit: WorkerEdit::FlattenForm,
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddInk {
+                page: 0,
+                strokes: vec![
+                    vec![
+                        Point { x: 100.0, y: 100.0 },
+                        Point { x: 140.0, y: 120.0 },
+                        Point { x: 180.0, y: 100.0 },
+                    ],
+                    vec![Point { x: 200.0, y: 200.0 }],
+                ],
+                color: InkColor::Red,
+                width: InkWidth::Medium,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddStamp {
+                page: 0,
+                rect: Rect {
+                    x0: 72.0,
+                    y0: 72.0,
+                    x1: 262.0,
+                    y1: 122.0,
+                },
+                stamp: StampName::Approved,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::SetAnnotationRect {
+                page: 0,
+                annotation: AnnotationId(14),
+                rect: Rect {
+                    x0: 100.0,
+                    y0: 100.0,
+                    x1: 300.0,
+                    y1: 160.0,
+                },
+            },
         },
         WorkerRequest::Revert {
             request,

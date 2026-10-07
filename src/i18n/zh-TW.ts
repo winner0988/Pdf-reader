@@ -179,13 +179,31 @@ export const strings = {
     cancel: "取消",
     saving: "正在儲存…",
   },
+  /** Filling in forms (B2-09). */
+  forms: {
+    scriptNotRun: "這個欄位有腳本（自動計算、格式化或檢查），本程式不會執行它。",
+    notAllowed: "文件作者不允許填寫表單",
+    readOnly: "這個欄位是唯讀的",
+    failed: "無法填寫這個欄位，請再試一次。",
+    /** One button of a group of radio buttons: the group, and the choice it stands for. */
+    choice: (group: string, choice: string) => `${group}：${choice}`,
+    flatten: "扁平化表單…",
+    flattenFailed: "無法扁平化表單（有簽章的文件不能扁平化）。",
+    flattenDialog: {
+      title: "扁平化表單",
+      description:
+        "欄位目前填的內容會成為頁面的一部分，之後不能再修改，也不再有表單欄位。可以用「復原」（Ctrl+Z）取消；也可以另存新檔，保留原來的檔案。",
+      confirm: "扁平化並另存新檔…",
+      cancel: "取消",
+    },
+  },
   /** Highlighter marks and notes (B2-07). */
   annotations: {
     highlight: "螢光筆",
     colors: { yellow: "黃色", green: "綠色", blue: "藍色", pink: "粉紅色" },
     highlightIn: (color: string) => `螢光筆標示（${color}）`,
     noteSaying: (text: string) => `附註：${text}`,
-    kind: { highlight: "螢光筆標示", note: "附註", other: "註解" },
+    kind: { highlight: "螢光筆標示", note: "附註", ink: "手繪線條", stamp: "印章", other: "註解" },
     addNote: "在這裡新增附註…",
     editNote: "編輯附註…",
     tooMuch: "選取的範圍太大，請分段標示。",

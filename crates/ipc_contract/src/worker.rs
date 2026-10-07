@@ -10,8 +10,9 @@ use serde::{Deserialize, Serialize};
 use crate::PROTOCOL_VERSION;
 use crate::types::{
     AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FormField,
-    HighlightColor, HighlightMark, OutlineResult, PageAnnotation, PageLink, PageSize, PageText,
-    Password, Point, RequestId, Rotation, SearchHit, SecurityReport,
+    HighlightColor, HighlightMark, InkColor, InkWidth, OutlineResult, PageAnnotation, PageLink,
+    PageSize, PageText, Password, Point, Rect, RequestId, Rotation, SearchHit, SecurityReport,
+    StampName,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -66,6 +67,25 @@ pub enum WorkerEdit {
     },
     /// As [`Edit::FlattenForm`].
     FlattenForm,
+    /// As [`Edit::AddInk`].
+    AddInk {
+        page: u32,
+        strokes: Vec<Vec<Point>>,
+        color: InkColor,
+        width: InkWidth,
+    },
+    /// As [`Edit::AddStamp`].
+    AddStamp {
+        page: u32,
+        rect: Rect,
+        stamp: StampName,
+    },
+    /// As [`Edit::SetAnnotationRect`].
+    SetAnnotationRect {
+        page: u32,
+        annotation: AnnotationId,
+        rect: Rect,
+    },
 }
 
 impl From<&Edit> for WorkerEdit {
@@ -123,6 +143,31 @@ impl From<&Edit> for WorkerEdit {
                 value: value.clone(),
             },
             Edit::FlattenForm => WorkerEdit::FlattenForm,
+            Edit::AddInk {
+                page,
+                strokes,
+                color,
+                width,
+            } => WorkerEdit::AddInk {
+                page: *page,
+                strokes: strokes.clone(),
+                color: *color,
+                width: *width,
+            },
+            Edit::AddStamp { page, rect, stamp } => WorkerEdit::AddStamp {
+                page: *page,
+                rect: *rect,
+                stamp: *stamp,
+            },
+            Edit::SetAnnotationRect {
+                page,
+                annotation,
+                rect,
+            } => WorkerEdit::SetAnnotationRect {
+                page: *page,
+                annotation: *annotation,
+                rect: *rect,
+            },
         }
     }
 }

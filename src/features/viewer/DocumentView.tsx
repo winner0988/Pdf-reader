@@ -37,6 +37,8 @@ import {
 import { annotationAt } from "@/features/annotations/model";
 import { PageAnnotations } from "@/features/annotations/PageAnnotations";
 import type { AnnotationSource } from "@/features/annotations/source";
+import { PageFields } from "@/features/forms/PageFields";
+import type { FormSource } from "@/features/forms/source";
 import { linkHoverText } from "@/features/links/text";
 import type { LinkSource } from "@/features/links/source";
 import { hasSelectedText, selectionQuads, type TextSelection } from "@/features/text/model";
@@ -110,6 +112,12 @@ type DocumentViewProps = {
   annotations?: AnnotationSource;
   /** Changes an annotation (B2-07); without it (the author does not allow it) none can be changed. */
   onAnnotationEdit?: (edit: Edit) => void;
+  /** Where the pages' form fields come from (B2-09); without it (demo data) pages have none. */
+  forms?: FormSource;
+  /** Changes the document for a field the user filled in; rejects if it could not. Without it the fields are only shown. */
+  onFieldEdit?: (edit: Edit) => Promise<void>;
+  /** The user entered a field that has scripts: they are not run. */
+  onFieldScript?: () => void;
   /** Asks for a note's new text. */
   onEditNote?: (page: number, annotation: PageAnnotation) => void;
   /** Delay before a newly mounted page asks for a render; tests pass 0. */
@@ -183,6 +191,9 @@ export function DocumentView({
   annotations,
   onAnnotationEdit,
   onEditNote,
+  forms,
+  onFieldEdit,
+  onFieldScript,
   requestDelayMs = REQUEST_DELAY_MS,
   ref,
 }: DocumentViewProps) {
@@ -299,8 +310,8 @@ export function DocumentView({
     pressed.current = null;
     if (!annotations || doc === undefined || !from) return;
     if (Math.hypot(event.clientX - from.x, event.clientY - from.y) > CLICK_SLOP_PX) return;
-    // Links and the page's own buttons keep their clicks.
-    if (event.target instanceof Element && event.target.closest("button")) return;
+    // Links, the page's own buttons and the form's fields keep their clicks.
+    if (event.target instanceof Element && event.target.closest("button, input, textarea, select")) return;
     const at = locate(event.clientX, event.clientY);
     const found = at?.inside ? annotationAt(annotations.loaded(doc, at.page) ?? [], at.point) : null;
     setChosen(at && found ? { page: at.page, id: found.id } : null);
@@ -432,6 +443,24 @@ export function DocumentView({
           }}
           onEdit={onAnnotationEdit}
           onEditNote={onEditNote}
+        />,
+      );
+    }
+    if (forms && doc !== undefined) {
+      slots.push(
+        <PageFields
+          key={`fields-${index}`}
+          source={forms}
+          doc={doc}
+          index={index}
+          page={pages[index]!}
+          rotation={rotation}
+          box={box}
+          left={left}
+          delayMs={delay}
+          allowed={onFieldEdit !== undefined}
+          onEdit={onFieldEdit ?? (() => Promise.reject(new Error("the fields cannot be changed")))}
+          onScript={() => onFieldScript?.()}
         />,
       );
     }

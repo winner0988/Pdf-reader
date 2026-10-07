@@ -185,8 +185,8 @@ export function useTextSelection(options: Options): TextSelectionController {
     selection,
     onMouseDown(event) {
       if (event.button !== 0 || !source || doc === undefined) return;
-      // Links and the retry button keep their clicks.
-      if (event.target instanceof Element && event.target.closest("button")) return;
+      // Links, the retry button and the form's fields keep their clicks.
+      if (event.target instanceof Element && event.target.closest("button, input, textarea, select")) return;
       const found = textAt(event.clientX, event.clientY, true);
       const spot = found && spotAt(found.pageText, found.at.page, found.at.point, TEXT_SLACK_PT);
       if (!found || !spot) {

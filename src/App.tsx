@@ -4,6 +4,8 @@ import { tauriExportApi, type ExportApi } from "@/features/export/api";
 import { tauriOpenApi, type OpenApi } from "@/features/open/api";
 import { OpenNotice } from "@/features/open/OpenNotice";
 import { tauriAnnotationsApi, type AnnotationsApi } from "@/features/annotations/source";
+import { FieldEdits } from "@/features/forms/edits";
+import { tauriFormsApi, type FormsApi } from "@/features/forms/source";
 import { tauriLinksApi, type LinksApi } from "@/features/links/source";
 import { tauriSearchApi, type SearchApi } from "@/features/search/useSearch";
 import { tauriOutlineApi, useOutline, type OutlineApi } from "@/features/outline/useOutline";
@@ -24,7 +26,7 @@ import { TabBar } from "@/features/tabs/TabBar";
 import { tauriEditingApi, type EditingApi } from "@/features/thumbnails/api";
 import { useTabs } from "@/features/tabs/useTabs";
 import { createPageRenderer, tauriRenderApi, type PageRenderer, type RenderApi } from "@/features/viewer/renderer";
-import type { TabId } from "@/ipc/generated/contract";
+import type { DocumentInfo, TabId } from "@/ipc/generated/contract";
 
 type AppProps = {
   api?: OpenApi;
@@ -34,6 +36,7 @@ type AppProps = {
   linksApi?: LinksApi;
   textApi?: TextApi;
   annotationsApi?: AnnotationsApi;
+  formsApi?: FormsApi;
   systemApi?: SystemApi;
   recentApi?: RecentApi;
   settingsApi?: SettingsApi;
@@ -51,6 +54,7 @@ export default function App({
   linksApi = tauriLinksApi,
   textApi = tauriTextApi,
   annotationsApi = tauriAnnotationsApi,
+  formsApi = tauriFormsApi,
   systemApi = tauriSystemApi,
   recentApi = tauriRecentApi,
   settingsApi = tauriSettingsApi,
@@ -61,6 +65,8 @@ export default function App({
 }: AppProps) {
   const tabs = useTabs(api);
   const { state } = tabs;
+  // The values filled into forms, on their way to the documents (B2-09): closing a tab waits for them.
+  const [fieldEdits] = useState(() => new FieldEdits());
   const renderer = useMemo(() => createPageRenderer(renderApi), [renderApi]);
   // Development only: fake states for working on the UI without the main process.
   const [demo, setDemo] = useState<ShellState | null>(null);
@@ -78,9 +84,13 @@ export default function App({
   // Unsaved changes (B2-02): closing their tab, or the window, asks first.
   const [closing, setClosing] = useState<TabId | null>(null);
   const requestClose = (tab: TabId) => {
-    const found = state.tabs.find((candidate) => candidate.tab === tab);
-    if (found && isUnsaved(found)) setClosing(tab);
-    else tabs.close(tab);
+    // A value still being typed in a field is a change too, and is sent first (B2-09).
+    fieldEdits.whenSettled(() => {
+      const known = tabs.latestInfo(tab);
+      const found = state.tabs.find((candidate) => candidate.tab === tab);
+      if (known?.unsaved ?? (found && isUnsaved(found))) setClosing(tab);
+      else tabs.close(tab);
+    });
   };
   const closingTab = state.tabs.find((tab) => tab.tab === closing && isUnsaved(tab));
   const closeRequest = state.closeRequest
@@ -131,12 +141,15 @@ export default function App({
                 linksApi={linksApi}
                 textApi={textApi}
                 annotationsApi={annotationsApi}
+                formsApi={formsApi}
                 systemApi={systemApi}
                 recentApi={recentApi}
                 exportApi={exportApi}
                 savingApi={savingApi}
                 editingApi={editingApi}
                 updatesApi={updatesApi}
+                fieldEdits={fieldEdits}
+                latestInfo={tabs.latestInfo}
                 onOpen={open}
                 onClose={requestClose}
                 onRetry={tabs.retry}
@@ -187,12 +200,15 @@ type TabPaneProps = {
   linksApi: LinksApi;
   textApi: TextApi;
   annotationsApi: AnnotationsApi;
+  formsApi: FormsApi;
   systemApi: SystemApi;
   recentApi: RecentApi;
   exportApi: ExportApi;
   savingApi: SavingApi;
   editingApi: EditingApi;
   updatesApi: UpdatesApi;
+  fieldEdits: FieldEdits;
+  latestInfo: (tab: TabId) => DocumentInfo | undefined;
   onOpen: () => void;
   onClose: (tab: TabId) => void;
   onRetry: (tab: TabId) => void;
@@ -203,7 +219,7 @@ type TabPaneProps = {
  * One tab's reader. Every tab stays mounted and hidden tabs are only hidden, so each keeps its
  * page, zoom, rotation, sidebar and search while another is shown (MVP-14).
  */
-function TabPane({ tab, active, outlineApi, onClose, onRetry, onUnlock, ...shell }: TabPaneProps) {
+function TabPane({ tab, active, outlineApi, latestInfo, onClose, onRetry, onUnlock, ...shell }: TabPaneProps) {
   const outline = useOutline(outlineApi, docOf(tab), tab.content.kind === "open" && tab.content.hasOutline);
   return (
     <div role="tabpanel" id={tabPanelId(tab.tab)} aria-labelledby={tabElementId(tab.tab)} hidden={!active} className="h-full">
@@ -212,6 +228,7 @@ function TabPane({ tab, active, outlineApi, onClose, onRetry, onUnlock, ...shell
         state={shellState(tab)}
         active={active}
         outline={outline}
+        latest={() => latestInfo(tab.tab)}
         onClose={() => onClose(tab.tab)}
         onRetry={() => onRetry(tab.tab)}
         onUnlock={(password) => onUnlock(tab.tab, password)}
