@@ -34,6 +34,27 @@ export type Password = string;
 export type UnlockArgs = { tab: TabId, password: Password, };
 
 /**
+ * Arguments of `unlock_pages_source` (B2-06): the password of the encrypted file the user just
+ * chose to take pages from. Any other field is rejected.
+ */
+export type UnlockSourceArgs = { doc: DocumentId, password: Password, };
+
+/**
+ * A file the user chose to take pages from (B2-06), as the main process keeps it for an open
+ * document: a clean copy of it, named by `source` in `Edit::InsertPages`.
+ */
+export type SourceId = number;
+
+/**
+ * What `pick_pages_source` tells of the file the user chose (B2-06).
+ */
+export type PagesSource = { source: SourceId, 
+/**
+ * How many pages it has: all of them are inserted.
+ */
+pages: number, };
+
+/**
  * A recently opened file as the frontend sees it (#73): no path, only the file name.
  */
 export type RecentFile = { id: RecentId, 
@@ -191,7 +212,7 @@ export type ExportEvent = { "kind": "progress", pagesDone: number, total: number
  * A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
  * those of the document as it is before the edit.
  */
-export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "addHighlight", marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" };
+export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" };
 
 /**
  * The highlighter's colors (B2-07).
@@ -426,7 +447,7 @@ fillForms: boolean, };
  * ended first (B2-13, ADR 0013). They are kept in the app's local data folder until the user
  * answers.
  */
-export type Recovery = "none" | "available" | "stale";
+export type Recovery = "none" | "available" | "partial" | "lost" | "stale";
 
 /**
  * An open document as the frontend sees it.

@@ -62,6 +62,12 @@ export type PageEditing = {
   allowed: boolean;
   /** Applies `edit` to the document shown; resolves once the document has it. */
   apply: (edit: Edit) => Promise<void>;
+  /**
+   * Takes the pages of another file, which the user chooses (the shell asks, and the password if
+   * the file needs one), into the document from page `at` (0-based) on (B2-06). Resolves how many
+   * pages came in; `null` if the user closed a dialog. Not offered without it.
+   */
+  insertFrom?: (at: number) => Promise<number | null>;
 };
 
 type ThumbnailsProps = {
@@ -198,6 +204,31 @@ export function Thumbnails({
         setBusy(false);
         // Too many unsaved changes to keep (B2-05, B2-13): saving makes room.
         setMessage(errorCodeOf(error) === "limitExceeded" ? t.saveFirst : t.failed);
+      },
+    );
+  };
+
+  /** Takes the pages of a file the user chooses into the document from page `at` on (B2-06). */
+  const takePages = (at: number) => {
+    if (!editing?.insertFrom || !canEdit) return;
+    setBusy(true);
+    setMessage(null);
+    editing.insertFrom(at).then(
+      (inserted) => {
+        setBusy(false);
+        // The pages that came in are the ones selected, as for a blank page.
+        if (inserted) setSelection({ pages: Array.from({ length: inserted }, (_, index) => at + index), anchor: at });
+      },
+      (error: unknown) => {
+        setBusy(false);
+        const code = errorCodeOf(error);
+        setMessage(
+          code === "notAllowed"
+            ? t.sourceNotAllowed
+            : code === "limitExceeded" || code === "tooLarge"
+              ? t.sourceTooLarge
+              : t.sourceFailed,
+        );
       },
     );
   };
@@ -413,6 +444,22 @@ export function Thumbnails({
                 >
                   {t.insertAfter}
                 </ContextMenuItem>
+                {editing.insertFrom && (
+                  <>
+                    <ContextMenuItem
+                      disabled={!canEdit || selected.length === 0}
+                      onClick={() => takePages(selected[0]!)}
+                    >
+                      {t.insertFileBefore}
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      disabled={!canEdit || selected.length === 0}
+                      onClick={() => takePages(selected.at(-1)! + 1)}
+                    >
+                      {t.insertFileAfter}
+                    </ContextMenuItem>
+                  </>
+                )}
                 <ContextMenuSeparator />
                 <ContextMenuItem disabled={!canEdit || selected.length === 0} onClick={() => setMoveOpen(true)}>
                   {t.moveTo}
