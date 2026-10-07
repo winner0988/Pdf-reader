@@ -19,7 +19,7 @@
 | 3a | 未儲存變更的提示列 | 上一次執行留下這個檔案的未儲存變更時才出現（app 當機、被強制結束或斷電），位於工具列下方、安全警示橫幅上方。說明 recovery.available，按鈕 recovery.restore、recovery.discard、✕（recovery.later）；檔案在那之後被修改過時說明 recovery.stale，只有 recovery.discard 與 ✕。見「崩潰復原」。 | B2-13 |
 | 4 | 側欄 | 預設寬 280 px，可拖曳調整為 200～480 px。分頁：「目錄」、「縮圖」。目前頁面所屬的目錄項目以底色標示。「縮圖」：每頁一張，寬 128 px、依頁面比例（很細長的頁面最高 256 px），下方標示頁碼；只渲染畫面附近的縮圖，在畫面上停留片刻才渲染；點擊跳到該頁；目前頁以強調色外框標示並保持在畫面內；`↑`／`↓` 在縮圖之間移動，`Enter` 跳到該頁。縮圖可以多選並變更頁面（見第 7 節「頁面管理」）。視窗寬度小於 960 px 時側欄改為浮動覆蓋，開啟後點畫布即關閉。 | MVP-05、09、18 |
 | 5 | 頁面畫布 | 連續垂直捲動，頁與頁間距 12 px，水平置中；放大後比視窗寬時出現水平捲軸。尚未渲染的頁面顯示淺灰占位框（尺寸正確）。連結區域滑鼠游標變成手指，懸停時狀態列顯示目標。文字上方游標變成 I 字形，可以選取與複製文字；右鍵顯示 app 自己的功能表（見「選取與複製文字」）。 | MVP-07、08、12、15 |
-| 6 | 狀態列 | 左：檔名；文件作者限制了複製或列印時，後面接著鎖頭圖示與 permissions.restricted（見「文件權限」）。右：連結懸停目標（見「連結」）或暫時的提示（沒有文字層、作者不允許複製或列印；螢幕閱讀器會讀出）、`第 n / N 頁 · 縮放%`。 | MVP-05、15、19 |
+| 6 | 狀態列 | 左：檔名；文件作者限制了複製或列印時，後面接著鎖頭圖示與 permissions.restricted（見「文件權限」）。辨識掃描頁的文字時：進度與「停止」（見「掃描頁的文字辨識」）；目前這一頁的文字是辨識出來的時候：ocr.pageNote。右：連結懸停目標（見「連結」）或暫時的提示（沒有文字層、作者不允許複製或列印、辨識的結果；螢幕閱讀器會讀出）、`第 n / N 頁 · 縮放%`。 | MVP-05、15、19、B2-10 |
 
 「目前頁」定義：與畫布垂直中線相交的頁面；若中線落在頁與頁之間，取上方那一頁。
 
@@ -109,6 +109,11 @@
     - settings.updatesNote 說明只在按下時查詢、不會自動下載或安裝，以及 GitHub 會看到 IP 位址與時間；
     - 「檢查更新」：每按一次向 GitHub 查詢一次，查詢期間停用。結果顯示在下方：settings.upToDate、settings.available、settings.noRelease 或 settings.checkFailed；
     - 有新版本時多一個「前往下載頁…」：與文件中的外部連結一樣，先顯示確認對話框（第 4 節）與完整網址，使用者確認後才交給瀏覽器開啟；網址固定為本專案的 GitHub Releases 頁面。
+  - **文字辨識（OCR）**（B2-10，ADR 0015）：
+    - 「開啟文件時自動辨識掃描頁的文字」（預設開啟，ocr.settings.auto 與 ocr.settings.autoNote）：關閉時只在使用者要求時辨識（「⋯」→「辨識此文件的文字」）；
+    - 「辨識的語言」：下拉選單，第一項是 app 的選擇（ocr.settings.automatic：繁體中文的資料，也認得英文與數字），其後是安裝的語言（名稱與代碼，例如「English（eng）」）；沒有安裝的語言當成第一項；
+    - 「匯入語言資料…」：主行程顯示開啟對話框，選一個 Tesseract 的 `.traineddata`（app 不下載任何東西）。成功顯示 ocr.settings.imported，被拒絕時顯示原因（ocr.settings.refused.*：讀不到、太大、不是語言資料、檔名不合、內附的語言不能取代、匯入太多）；
+    - 匯入的語言列在「匯入的語言」下，各有一個「移除」按鈕（內附的沒有）；移除目前選的語言時，改回 app 的選擇。
   - **這台電腦上保存的資料**：列出 settings.dataItems 與 settings.dataLocation。
   - 設定寫不進檔案時顯示 settings.saveFailed：仍然套用，但重新啟動後會回到之前的設定。
   - 保存方式見 [local-data.md](../architecture/local-data.md)。
@@ -142,8 +147,20 @@
   - 控制字元、雙向文字控制與零寬字元不會被複製；
   - 焦點在文字欄位（搜尋框、頁碼）時，`Ctrl+C` 複製欄位中的文字；對話框裡的文字由 WebView 自己複製。
 - **右鍵功能表**：開啟文件時，在畫布上按右鍵顯示 app 自己的功能表，取代 WebView 預設的功能表：「複製」（沒有選取時停用），以及註解的「螢光筆」與「在這裡新增附註…」（見「註解」）。
-- **沒有文字層的頁面**（掃描件）不能選取；在上面拖曳時，狀態列顯示 text.noTextLayer 4 秒。
+- **沒有文字層的頁面**（掃描件）不能選取；在上面拖曳時，狀態列依情況顯示 4 秒：正在辨識文字時 ocr.selectWhileReading，沒有開始（手動、已停止、沒有語言）時 ocr.selectNotStarted，其他 text.noTextLayer。辨識好之後，那一頁和有文字層的頁面一樣可以選取、複製、搜尋與標示（見下節）。
 - **作者禁止複製**時仍可選取，但 `Ctrl+C` 不複製，狀態列顯示 permissions.copyBlocked 4 秒；右鍵「複製」停用，快捷鍵的位置改為 permissions.notAllowed。
+
+### 掃描頁的文字辨識（B2-10）
+
+[ADR 0015](../adr/0015-ocr.md)；做法見 [ocr.md](../architecture/ocr.md)。「掃描頁」是沒有文字、圖片又涵蓋大部分頁面的頁面；辨識出的文字只存在記憶體中，不寫進檔案。
+
+- **自動**（設定預設）：開啟文件後在背景進行，從使用者正在看的頁面開始；沒有掃描頁的文件什麼都不顯示，也不載入任何語言。
+- **進度**：找到掃描頁、辨識進行中時，狀態列在檔名後顯示 ocr.running（「辨識文字：已完成／掃描頁數 頁」）與「停止」按鈕（aria 名稱 ocr.stopLabel）。停止後已辨識的文字保留。
+- **結束**時狀態列顯示 4 秒：ocr.done（辨識的頁數，有失敗的頁面時一併說明）、ocr.stopped、ocr.noLanguage（沒有可用的語言，到設定匯入）或 ocr.failed。使用者自己按了「辨識此文件的文字」而文件沒有掃描頁時顯示 ocr.none。
+- **手動**：「⋯」→「辨識此文件的文字」（ocr.menu；辨識中停用並改為 ocr.menuRunning）。自動關閉、已停止或失敗之後，用它重新開始。
+- **標示**：目前這一頁的文字是辨識出來的，狀態列顯示 ocr.pageNote（可能有誤）。
+- **使用**：辨識好的頁面和有文字層的頁面一樣：選取、複製、搜尋與螢光筆標示。在頁面上繼續辨識時，搜尋會在辨識暫停 1 秒後自動重新搜尋，包含新辨識的頁面。轉動頁面會丟掉那一頁的結果並重新辨識；復原、刪除或移動頁面時結果跟著頁面走。
+- 文件在辨識時仍可以正常閱讀、縮放與編輯：辨識在 worker 的背景執行緒進行。
 
 ### 列印（MVP-17）
 
@@ -400,7 +417,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | searchCount | 第 <n>／<N> 筆 |
 | searchProgress | 搜尋中… 已完成 <已搜尋頁數>／<總頁數> 頁 |
 | searchNoResults | 找不到「<查詢>」 |
-| searchNoTextLayer | 此文件沒有文字層，目前版本尚不支援 OCR |
+| searchNoTextLayer | 此文件沒有文字層（掃描檔可以在「⋯」選單選「辨識此文件的文字」） |
 | searchTruncated | 結果超過 <上限> 筆，只顯示前 <上限> 筆 |
 | searchFailed | 搜尋失敗，請再試一次。 |
 | searchCaseSensitive | 區分大小寫 |
@@ -543,7 +560,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | 鍵 | 文字 |
 |---|---|
 | text.copy | 複製 |
-| text.noTextLayer | 這一頁沒有文字層，無法選取文字（目前版本尚不支援 OCR） |
+| text.noTextLayer | 這一頁沒有文字層，無法選取文字。 |
 | shortcuts.descriptions.copy | 複製選取的文字 |
 
 ### 需要密碼（MVP-16）
@@ -775,6 +792,37 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | forms.flattenDialog.description | 欄位目前填的內容會成為頁面的一部分，之後不能再修改，也不再有表單欄位。可以用「復原」（Ctrl+Z）取消；也可以另存新檔，保留原來的檔案。 |
 | forms.flattenDialog.confirm／forms.flattenDialog.cancel | 扁平化並另存新檔…／取消 |
 
+### 掃描頁的文字辨識（B2-10）
+
+| 鍵 | 文字 |
+|---|---|
+| ocr.running(完成, 掃描頁) | 辨識文字：<完成> / <掃描頁> 頁 |
+| ocr.stop／ocr.stopLabel | 停止／停止辨識文字 |
+| ocr.done(辨識, 失敗) | 已辨識 <辨識> 頁的文字。（有失敗的：已辨識 <辨識> 頁的文字，<失敗> 頁無法辨識。） |
+| ocr.stopped | 已停止辨識文字。 |
+| ocr.none | 沒有需要辨識的頁面：每一頁都有文字，或不是圖片頁。 |
+| ocr.noLanguage | 沒有可用的 OCR 語言，無法辨識掃描頁的文字。請在「設定」匯入語言資料。 |
+| ocr.failed | 無法辨識這份文件的文字。 |
+| ocr.pageNote | 此頁文字由 OCR 辨識，可能有誤 |
+| ocr.menu／ocr.menuRunning | 辨識此文件的文字／正在辨識文字… |
+| ocr.selectWhileReading | 這一頁是掃描頁，文字還在辨識中。 |
+| ocr.selectNotStarted | 這一頁是掃描頁，沒有文字可以選取。可以在「⋯」選單選「辨識此文件的文字」。 |
+| ocr.languages.* | English、繁體中文、简体中文、日本語、한국어、Deutsch、Français、Español、Italiano、Русский（其他語言顯示代碼） |
+| ocr.settings.title | 文字辨識（OCR） |
+| ocr.settings.auto／ocr.settings.autoNote | 開啟文件時自動辨識掃描頁的文字／只辨識沒有文字的圖片頁；在背景進行，不會碰到檔案。關閉後，可以在「⋯」選單選「辨識此文件的文字」。辨識的結果只存在記憶體中，關閉文件就丟棄。 |
+| ocr.settings.language／ocr.settings.automatic(名稱) | 辨識的語言／自動（<名稱>） |
+| ocr.settings.noneInstalled／ocr.settings.languageNote | 沒有可用的語言／繁體中文的資料也認得英文與數字；英文的資料認不得中文。一次只用一種語言。 |
+| ocr.settings.importButton／ocr.settings.importNote | 匯入語言資料…／選一個 Tesseract 的 .traineddata 檔案（例如 deu.traineddata）。app 不會下載任何東西；檔案會複製到這台電腦的資料資料夾。 |
+| ocr.settings.imported／ocr.settings.importedLanguages | 已匯入語言資料。／匯入的語言 |
+| ocr.settings.remove(名稱)／ocr.settings.removeButton／ocr.settings.removed | 移除 <名稱>／移除／已移除。 |
+| ocr.settings.refused.unreadable | 無法讀取這個檔案。 |
+| ocr.settings.refused.tooLarge | 這個檔案太大（上限 64 MB）。 |
+| ocr.settings.refused.notLanguageData | 這不是 Tesseract 的語言資料，或不含 LSTM 模型。 |
+| ocr.settings.refused.badName | 檔名要像 eng.traineddata：英文字母開頭，只有字母、數字、底線與連字號。 |
+| ocr.settings.refused.nameTaken | app 已經內附這個語言，不能取代。 |
+| ocr.settings.refused.tooMany | 匯入的語言已經太多，請先移除一些。 |
+| ocr.settings.failed | 無法完成，請再試一次。 |
+
 ### 文件權限（MVP-19）
 
 | 鍵 | 文字 |
@@ -796,6 +844,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 |---|---|
 | OPEN_DIALOG_TITLE | 開啟 PDF 檔案 |
 | PDF_FILTER_NAME | PDF 檔案 |
+| LANGUAGE_DIALOG_TITLE／LANGUAGE_FILTER_NAME | 匯入 OCR 語言資料／Tesseract 語言資料（.traineddata）（B2-10） |
 | window_title | `<檔名> — PDF Reader`；沒有開啟文件時為 `PDF Reader` |
 | WEBVIEW2_MISSING_TITLE | 無法開啟 PDF Reader |
 | WEBVIEW2_MISSING_MESSAGE | 這台電腦缺少 Microsoft Edge WebView2 Runtime，PDF Reader 需要它才能顯示畫面。（空一行）Windows 11 已內建 WebView2。如果它被移除了，請到 Microsoft 官方網站下載並安裝「WebView2 Runtime」，然後再開啟 PDF Reader：https://developer.microsoft.com/microsoft-edge/webview2/（空一行）PDF Reader 不會自行下載任何東西。 |

@@ -21,6 +21,9 @@ import { FieldEdits, until } from "@/features/forms/edits";
 import { FlattenDialog } from "@/features/forms/FlattenDialog";
 import { createFormSource, type FormsApi } from "@/features/forms/source";
 import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
+import type { OcrApi } from "@/features/ocr/api";
+import type { OcrTab } from "@/features/ocr/model";
+import { useOcrView } from "@/features/ocr/useOcrView";
 import type { ExportApi } from "@/features/export/api";
 import { ExportDialog } from "@/features/export/ExportDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
@@ -117,6 +120,10 @@ type ReaderShellProps = {
   editingApi?: EditingApi;
   /** The update check in the settings (#64); without it (demo data, tests) it is not offered. */
   updatesApi?: UpdatesApi;
+  /** Recognising the text of scanned pages (B2-10); without it (demo data, tests) it is not offered. */
+  ocrApi?: OcrApi;
+  /** How it goes for this tab's document: the latest progress, and which pages' text is new. */
+  ocr?: OcrTab;
   /**
    * The document of the tab as the main process last said it, which can be a moment ahead of the
    * state shown: the next field of a form, saving and closing must not use the document this
@@ -139,6 +146,9 @@ const isNarrowWindow = () => window.innerWidth < OVERLAY_SIDEBAR_BELOW_PX;
 
 /** How long the status bar shows a hint, such as that a page has no text to select. */
 const HINT_MS = 4000;
+
+/** A search is done again this long after the last page whose text was recognised (B2-10). */
+const SEARCH_REFRESH_MS = 1000;
 
 /** Text the WebView itself has selected (in a dialog, say): Ctrl+C copies that, not the PDF's. */
 const hasPageSelection = () => (window.getSelection()?.toString() ?? "") !== "";
@@ -181,6 +191,8 @@ export function ReaderShell({
   savingApi,
   editingApi,
   updatesApi,
+  ocrApi,
+  ocr,
   latest,
   fieldEdits,
   active = true,
@@ -274,6 +286,18 @@ export function ReaderShell({
   }, [hint]);
 
   const showHint = (text: string) => setHint((last) => ({ text, id: (last?.id ?? 0) + 1 }));
+  const ocrView = useOcrView({ api: ocrApi, ocr, doc: document_?.doc, currentPage, active, showHint });
+  // Scanned pages whose text was recognised since the search ran are searched too, once the
+  // recognising has paused for a moment.
+  const refreshSearch = useRef(search.refresh);
+  useEffect(() => {
+    refreshSearch.current = search.refresh;
+  });
+  useEffect(() => {
+    if (!searchOpen || ocrView.versionTotal === 0) return;
+    const timer = window.setTimeout(() => refreshSearch.current(), SEARCH_REFRESH_MS);
+    return () => window.clearTimeout(timer);
+  }, [searchOpen, ocrView.versionTotal]);
 
   /**
    * Copies the selected text (MVP-15), unless the author forbids it (MVP-19). False when none is
@@ -736,6 +760,7 @@ export function ReaderShell({
           exportBlocked={exportable && !permissions.copy}
           onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}
           privacyExportBlocked={savable && document_?.encrypted === true}
+          ocr={ocrView.menu}
           flatten={
             document_?.hasForm && editingApi !== undefined
               ? { onClick: fillForms ? () => setFlattenOpen(true) : undefined }
@@ -872,7 +897,9 @@ export function ReaderShell({
                       onLinkActivate={(link) => activateLink(link)}
                       text={textSource}
                       onSelectionChange={setTextSelected}
-                      onNoText={() => showHint(strings.text.noTextLayer)}
+                      onNoText={ocrView.noText}
+                      textVersions={ocrView.textVersions}
+                      onRecognised={ocrView.onRecognised}
                       annotations={annotationSource}
                       onAnnotationEdit={annotations.edit}
                       onEditNote={annotations.editNote}
@@ -935,6 +962,8 @@ export function ReaderShell({
           hoverTarget={linkHover ?? undefined}
           hint={hint?.text}
           restriction={document_ ? restrictionSummary(permissions) : null}
+          ocr={ocrView.status}
+          ocrNote={ocrView.note}
         />
       </div>
       {linkDialog?.kind === "confirm" && (
@@ -1038,6 +1067,7 @@ export function ReaderShell({
         onOpenChange={(open) => setDialog(open ? "settings" : null)}
         recentApi={recentApi}
         updatesApi={updatesApi}
+        ocrApi={ocrApi}
       />
       <AboutDialog
         open={dialog === "about"}

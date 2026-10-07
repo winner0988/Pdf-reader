@@ -132,3 +132,18 @@ Tesseract 與 Leptonica 隨 `mupdf-sys` 建置，版本由固定的 `mupdf` =0.8
 - `ocr_languages.rs`：列出、自動選擇、讀取、匯入（各種拒絕的原因、數量上限、取代、副檔名大小寫）、移除；內附資料通過檢查。
 - `ocr.rs`：以假的文件與 worker 測走訪的順序、佇列滿了、編輯後重新走訪、新 worker、手動與停止、沒有語言、語言資料壞掉、卡住、同時辨識的上限、忙碌的文件與關閉的分頁。
 - `documents.rs`（真的 worker）：開啟 `benign/scanned-text.pdf`（語料庫中的掃描樣本，由 `generate.py` 以內建的點陣字型畫出「PRIVACY FIRST」與「SECRET PAPER」，沒有文字層）：辨識後 `get_page_text` 與搜尋都找得到、有文字的文件沒有東西可辨識、設定為手動時等使用者開始。
+
+## 畫面
+
+說明畫面怎麼用上面的命令與事件；使用者看到的行為與文字見 [screen-map.md](../ux/screen-map.md)「掃描頁的文字辨識」。
+
+- **事件**：`ocr`（進度）與 `ocrPage`（某頁辨識好了）走開檔頻道，`useTabs` 認出它們（`isOcrEvent`）交給 `useOcr`，**不當成分頁的變化**（否則會把分頁最後一次告知的文件資訊清掉）。`useOcr` 的狀態（`features/ocr/model.ts`）每個分頁一份：最新的進度，和這份文件的每一頁被辨識了幾次（`versions`）；分頁換了 `DocumentId`（編輯之後）就重新計。
+- **文字**：`TextSource.text(doc, page, version)` 的 `version` 變了就重新向主行程要這一頁的文字，所以辨識好的頁面立刻有文字可選取、可標示；`PageSelection` 取得文字時回報這一頁是不是辨識出來的（`recognised`），狀態列據此標示目前這一頁。
+- **搜尋**：搜尋做完之後如果又有頁面辨識好，辨識暫停 1 秒就重新搜尋（`useSearch.refresh`）；沒有做完的搜尋、關著的搜尋列都不動。
+- **使用者正在看的頁面**：目前頁停留 300 ms 就以 `set_ocr_focus` 告訴主行程（只有顯示中的分頁）。
+- **設定**（`OcrSection`）：自動或手動、語言、匯入與移除；匯入由主行程顯示對話框，畫面只聽結果。
+- **提示**（`useOcrView`）：辨識結束時狀態列顯示一次結果（完成、停止、沒有語言、失敗）；沒有掃描頁的文件自動辨識完不說話，使用者自己按了「辨識此文件的文字」才說「沒有需要辨識的頁面」。
+
+### 端對端測試（`tests/e2e/ocr.spec.ts`）
+
+以真正的 app、`benign/scanned-text.pdf` 與內附的語言資料：自動辨識（狀態列、可搜尋、可選取）、設定為手動時等使用者開始、匯入語言資料（壞的與好的檔案，對話框由 UI Automation 回答）。
