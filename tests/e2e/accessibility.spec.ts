@@ -132,6 +132,16 @@ test("a document with something active in it: the banner and its details", async
   await inBothThemes(page, (theme) => noProblems(page, theme));
 });
 
+test("a signed document: the signature banner and its panel", async ({ launch }) => {
+  const page = await launch(corpus("benign/signed.pdf"));
+  await expect(page.getByRole("region", { name: strings.signatures.label })).toBeVisible();
+  await inBothThemes(page, (theme) => noProblems(page, theme));
+
+  await page.getByRole("button", { name: strings.signatures.details }).click();
+  await expect(page.getByRole("complementary", { name: strings.signatures.detailsTitle })).toBeVisible();
+  await inBothThemes(page, (theme) => noProblems(page, theme));
+});
+
 test("a document with a form, and one that asks for a password", async ({ launch }) => {
   const form = await launch(corpus("benign/form-fields.pdf"));
   await expect(form.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
