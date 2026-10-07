@@ -352,7 +352,9 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 - 文字對比符合 WCAG AA；尊重系統的「減少動態效果」設定。
 - 目錄樹以方向鍵操作：`↑`／`↓` 移動、`→` 展開／進入子項、`←` 收合／回到父項、`Enter` 跳頁。
 - 地標（landmark）：分頁列是 `nav`，工具列在 `header`（banner）裡，側欄是 `aside`，頁面區是 `main`，狀態列是 `footer`（contentinfo）；警示橫幅與復原提示列是有名稱的 `region`。
-- 自動檢查：`src/test/axe.ts` 以 axe-core（WCAG 2.0／2.1 的 A 與 AA，加上 best-practice）檢查主視窗的每個狀態、每個對話框與選單，以及頁面上的欄位、連結與註解（`src/features/shell/Accessibility*.test.tsx`）。jsdom 沒有版面與繪製，所以色彩對比不在其中，仍由設計 token 與人工檢查負責。略過的規則都寫了原因：彈出的選單不在地標裡（`region`）；分頁列的關閉按鈕在 tablist 裡（[#188](https://github.com/winner0988/Pdf-reader/issues/188)，待決定）。新增畫面或對話框時，在這些測試中加一個檢查。
+- 自動檢查：`src/test/axe.ts` 以 axe-core（WCAG 2.0／2.1 的 A 與 AA，加上 best-practice）檢查主視窗的每個狀態、每個對話框與選單，以及頁面上的欄位、連結與註解（`src/features/shell/Accessibility*.test.tsx`）。jsdom 沒有版面與繪製，所以色彩對比在下一條的檢查。略過的規則都寫了原因：彈出的選單不在地標裡（`region`）；分頁列的關閉按鈕在 tablist 裡（[#188](https://github.com/winner0988/Pdf-reader/issues/188)，待決定）。新增畫面或對話框時，在這些測試中加一個檢查。
+- 真正的 app 中的檢查（#192）：`tests/e2e/accessibility.spec.ts` 在淺色與深色各檢查一次主視窗、文件（目錄、縮圖、搜尋列）、警示橫幅、表單、要密碼的檔案與各個對話框，包含色彩對比。略過的規則寫在檔案裡：axe 不會往有名稱的分頁面板裡找它包著的地標（`region`）、桌面視窗不是網頁（`page-has-heading-one`）、分頁的關閉按鈕（#188）。小字的灰色文字在 `--muted` 底上要有 4.5:1，所以 `--muted-foreground` 是 `oklch(0.52 0 0)`。
+- 系統設為「減少動態效果」時，所有轉場與動畫縮到 0.01 ms，不再移動或淡入淡出（`src/index.css`，E2E 檢查）。畫面區（`main`）在 Tab 順序中（有焦點時有 2 px 的外框），鍵盤才捲得動頁面，即使裡面沒有別的可以聚焦的東西。
 
 ### 深色模式
 

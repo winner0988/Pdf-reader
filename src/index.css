@@ -60,7 +60,8 @@
     --secondary: oklch(0.97 0 0);
     --secondary-foreground: oklch(0.205 0 0);
     --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
+    /* 5:1 on --muted, as WCAG AA wants for small text (shadcn's 0.556 makes 4.3:1). */
+    --muted-foreground: oklch(0.52 0 0);
     --accent: oklch(0.97 0 0);
     --accent-foreground: oklch(0.205 0 0);
     --destructive: oklch(0.577 0.245 27.325);
@@ -154,5 +155,17 @@
 
   [data-print-pages] img:not(:last-child) {
     break-after: page;
+  }
+}
+
+/* The system's "reduce motion" setting (docs/ux/screen-map.md): nothing moves or fades. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

@@ -848,11 +848,13 @@ export function ReaderShell({
               aria-label={strings.canvas.label}
               data-region="canvas"
               data-drop-active={dropActive || undefined}
-              tabIndex={-1}
+              // In the Tab order after the sidebar (docs/ux/screen-map.md), which also lets the
+              // keyboard scroll the page area when nothing in it can be focused.
+              tabIndex={0}
               // The scroll bar's space is always kept: otherwise a fitted page just taller than the
               // canvas makes the scroll bar appear, which narrows the canvas, which shrinks the page,
               // which hides the scroll bar again, forever (#46).
-              className="relative min-h-0 flex-1 overflow-auto bg-muted outline-none [scrollbar-gutter:stable] data-drop-active:outline-2 data-drop-active:-outline-offset-4 data-drop-active:outline-primary data-drop-active:outline-dashed"
+              className="relative min-h-0 flex-1 overflow-auto bg-muted outline-none [scrollbar-gutter:stable] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-primary data-drop-active:outline-2 data-drop-active:-outline-offset-4 data-drop-active:outline-primary data-drop-active:outline-dashed"
               onPointerDown={() => {
                 // A floating sidebar closes when the user goes back to the page.
                 if (sidebarOpen && isNarrowWindow()) setSidebarOpen(false);
