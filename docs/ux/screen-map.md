@@ -351,6 +351,8 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 - 對話框開啟時焦點鎖在對話框內，關閉後回到觸發它的元件。
 - 文字對比符合 WCAG AA；尊重系統的「減少動態效果」設定。
 - 目錄樹以方向鍵操作：`↑`／`↓` 移動、`→` 展開／進入子項、`←` 收合／回到父項、`Enter` 跳頁。
+- 地標（landmark）：分頁列是 `nav`，工具列在 `header`（banner）裡，側欄是 `aside`，頁面區是 `main`，狀態列是 `footer`（contentinfo）；警示橫幅與復原提示列是有名稱的 `region`。
+- 自動檢查：`src/test/axe.ts` 以 axe-core（WCAG 2.0／2.1 的 A 與 AA，加上 best-practice）檢查主視窗的每個狀態、每個對話框與選單，以及頁面上的欄位、連結與註解（`src/features/shell/Accessibility*.test.tsx`）。jsdom 沒有版面與繪製，所以色彩對比不在其中，仍由設計 token 與人工檢查負責。略過的規則都寫了原因：彈出的選單不在地標裡（`region`）；分頁列的關閉按鈕在 tablist 裡（[#188](https://github.com/winner0988/Pdf-reader/issues/188)，待決定）。新增畫面或對話框時，在這些測試中加一個檢查。
 
 ### 深色模式
 

@@ -129,88 +129,90 @@ export type ToolbarProps = {
 export function Toolbar(props: ToolbarProps) {
   const { document } = props;
   return (
-    <div
-      role="toolbar"
-      aria-label={strings.appName}
-      data-region="toolbar"
-      className="flex h-12 shrink-0 items-center gap-1 border-b bg-background px-2"
-    >
-      <IconButton label={t.toggleSidebar} shortcut="F4" pressed={props.sidebarOpen} onClick={props.onToggleSidebar}>
-        {props.sidebarOpen ? <ChevronLeft /> : <PanelLeft />}
-      </IconButton>
-      <IconButton label={t.open} shortcut="Ctrl+O" onClick={props.onOpen}>
-        <FolderOpen />
-      </IconButton>
+    <header className="shrink-0">
+      <div
+        role="toolbar"
+        aria-label={strings.appName}
+        data-region="toolbar"
+        className="flex h-12 shrink-0 items-center gap-1 border-b bg-background px-2"
+      >
+        <IconButton label={t.toggleSidebar} shortcut="F4" pressed={props.sidebarOpen} onClick={props.onToggleSidebar}>
+          {props.sidebarOpen ? <ChevronLeft /> : <PanelLeft />}
+        </IconButton>
+        <IconButton label={t.open} shortcut="Ctrl+O" onClick={props.onOpen}>
+          <FolderOpen />
+        </IconButton>
 
-      {document && (
-        <>
-          <PageInput
-            key={document.currentPage}
-            pageCount={document.pageCount}
-            currentPage={document.currentPage}
-            inputRef={props.pageInputRef}
-            onGoToPage={props.onGoToPage}
-          />
-          <div className="mx-1 h-6 w-px bg-border" aria-hidden />
-          <IconButton label={t.zoomOut} shortcut="Ctrl+-" onClick={props.onZoomOut}>
-            <Minus />
-          </IconButton>
-          <select
-            aria-label={t.zoomLevel}
-            className="h-8 rounded-md border bg-background px-2 text-sm"
-            value={String(document.zoom)}
-            onChange={(event) => {
-              const value = event.target.value;
-              props.onZoomChange(value === "fitWidth" || value === "fitPage" ? value : Number(value));
-            }}
+        {document && (
+          <>
+            <PageInput
+              key={document.currentPage}
+              pageCount={document.pageCount}
+              currentPage={document.currentPage}
+              inputRef={props.pageInputRef}
+              onGoToPage={props.onGoToPage}
+            />
+            <div className="mx-1 h-6 w-px bg-border" aria-hidden />
+            <IconButton label={t.zoomOut} shortcut="Ctrl+-" onClick={props.onZoomOut}>
+              <Minus />
+            </IconButton>
+            <select
+              aria-label={t.zoomLevel}
+              className="h-8 rounded-md border bg-background px-2 text-sm"
+              value={String(document.zoom)}
+              onChange={(event) => {
+                const value = event.target.value;
+                props.onZoomChange(value === "fitWidth" || value === "fitPage" ? value : Number(value));
+              }}
+            >
+              <option value="fitWidth">{t.fitWidth}</option>
+              <option value="fitPage">{t.fitPage}</option>
+              {typeof document.zoom === "number" && !ZOOM_LEVELS.includes(document.zoom) && (
+                <option value={document.zoom}>{t.zoomPercent(document.zoom)}</option>
+              )}
+              {ZOOM_LEVELS.map((level) => (
+                <option key={level} value={level}>
+                  {t.zoomPercent(level)}
+                </option>
+              ))}
+            </select>
+            <IconButton label={t.zoomIn} shortcut="Ctrl+=" onClick={props.onZoomIn}>
+              <Plus />
+            </IconButton>
+            <div className="mx-1 h-6 w-px bg-border" aria-hidden />
+            <IconButton label={t.rotateCcw} shortcut="Ctrl+[" onClick={() => props.onRotate(-1)}>
+              <RotateCcw />
+            </IconButton>
+            <IconButton label={t.rotateCw} shortcut="Ctrl+]" onClick={() => props.onRotate(1)}>
+              <RotateCw />
+            </IconButton>
+          </>
+        )}
+
+        <div className="flex-1" />
+        {document && props.highlight && (
+          <IconButton
+            label={
+              props.highlight.onClick
+                ? t.highlight(strings.annotations.colors[props.highlight.color])
+                : t.highlightNeedsText
+            }
+            disabled={!props.highlight.onClick}
+            onClick={props.highlight.onClick}
           >
-            <option value="fitWidth">{t.fitWidth}</option>
-            <option value="fitPage">{t.fitPage}</option>
-            {typeof document.zoom === "number" && !ZOOM_LEVELS.includes(document.zoom) && (
-              <option value={document.zoom}>{t.zoomPercent(document.zoom)}</option>
-            )}
-            {ZOOM_LEVELS.map((level) => (
-              <option key={level} value={level}>
-                {t.zoomPercent(level)}
-              </option>
-            ))}
-          </select>
-          <IconButton label={t.zoomIn} shortcut="Ctrl+=" onClick={props.onZoomIn}>
-            <Plus />
+            <Highlighter />
           </IconButton>
-          <div className="mx-1 h-6 w-px bg-border" aria-hidden />
-          <IconButton label={t.rotateCcw} shortcut="Ctrl+[" onClick={() => props.onRotate(-1)}>
-            <RotateCcw />
+        )}
+        {document && props.pen && <PenControls pen={props.pen} />}
+        {document && props.stamp && <StampMenu stamp={props.stamp} />}
+        {document && (
+          <IconButton label={t.search} shortcut="Ctrl+F" pressed={props.searchOpen} onClick={props.onSearch}>
+            <Search />
           </IconButton>
-          <IconButton label={t.rotateCw} shortcut="Ctrl+]" onClick={() => props.onRotate(1)}>
-            <RotateCw />
-          </IconButton>
-        </>
-      )}
-
-      <div className="flex-1" />
-      {document && props.highlight && (
-        <IconButton
-          label={
-            props.highlight.onClick
-              ? t.highlight(strings.annotations.colors[props.highlight.color])
-              : t.highlightNeedsText
-          }
-          disabled={!props.highlight.onClick}
-          onClick={props.highlight.onClick}
-        >
-          <Highlighter />
-        </IconButton>
-      )}
-      {document && props.pen && <PenControls pen={props.pen} />}
-      {document && props.stamp && <StampMenu stamp={props.stamp} />}
-      {document && (
-        <IconButton label={t.search} shortcut="Ctrl+F" pressed={props.searchOpen} onClick={props.onSearch}>
-          <Search />
-        </IconButton>
-      )}
-      <MoreMenu {...props} />
-    </div>
+        )}
+        <MoreMenu {...props} />
+      </div>
+    </header>
   );
 }
 
