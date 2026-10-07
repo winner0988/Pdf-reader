@@ -43,6 +43,20 @@ describe("findShortcut", () => {
     expect(findShortcut(keydown({ key: "c", ctrlKey: true }, document.createElement("textarea")))).toBeUndefined();
   });
 
+  it("keeps plain keys for choosing in a list of options, and leaves Ctrl combinations to the app (B2-09)", () => {
+    const choices = document.createElement("select");
+    expect(findShortcut(keydown({ key: "Home" }, choices))).toBeUndefined();
+    expect(findShortcut(keydown({ key: "End" }, choices))).toBeUndefined();
+    expect(findShortcut(keydown({ key: "f", ctrlKey: true }, choices))?.id).toBe("search");
+    // A list is no text field: undo and copy are the document's.
+    expect(findShortcut(keydown({ key: "z", ctrlKey: true }, choices))?.id).toBe("undo");
+    expect(findShortcut(keydown({ key: "F4" }, choices))?.id).toBe("toggleSidebar");
+    // A check box or a radio button does not use them: the page's keys still work there.
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    expect(findShortcut(keydown({ key: "Home" }, box))?.id).toBe("firstPage");
+  });
+
   it("honours function keys inside text fields: they do not edit text", () => {
     const input = document.createElement("input");
     expect(findShortcut(keydown({ key: "F3" }, input))?.id).toBe("findNext");

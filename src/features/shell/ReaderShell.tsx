@@ -16,6 +16,9 @@ import { HIGHLIGHT_COLORS, SWATCH } from "@/features/annotations/model";
 import { NoteDialog } from "@/features/annotations/NoteDialog";
 import { createAnnotationSource, type AnnotationsApi } from "@/features/annotations/source";
 import { useAnnotations } from "@/features/annotations/useAnnotations";
+import { FieldEdits, until } from "@/features/forms/edits";
+import { FlattenDialog } from "@/features/forms/FlattenDialog";
+import { createFormSource, type FormsApi } from "@/features/forms/source";
 import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
 import type { ExportApi } from "@/features/export/api";
 import { ExportDialog } from "@/features/export/ExportDialog";
@@ -55,7 +58,15 @@ import { DocumentView, type DocumentViewHandle } from "@/features/viewer/Documen
 import { errorCodeOf, type PageRenderer } from "@/features/viewer/renderer";
 import type { OutlineView } from "@/features/outline/tree";
 import { strings } from "@/i18n/zh-TW";
-import type { BlockedAction, LinkPreview, LinkTarget, PageLink, SaveResult } from "@/ipc/generated/contract";
+import type {
+  BlockedAction,
+  DocumentId,
+  Edit,
+  LinkPreview,
+  LinkTarget,
+  PageLink,
+  SaveResult,
+} from "@/ipc/generated/contract";
 
 /**
  * A link dialog that is open: the confirmation of a web link (with how to open it: by the
@@ -86,6 +97,8 @@ type ReaderShellProps = {
   textApi?: TextApi;
   /** The pages' annotations (B2-07); without it (demo data, tests) pages have none to show. */
   annotationsApi?: AnnotationsApi;
+  /** The pages' form fields (B2-09); without it (demo data, tests) pages have none to show. */
+  formsApi?: FormsApi;
   /** Opens Windows Settings for "set as default"; without it (demo data, tests) nothing happens. */
   systemApi?: SystemApi;
   /** The recently opened files (#73); without it (demo data, tests) the start screen lists none. */
@@ -98,7 +111,15 @@ type ReaderShellProps = {
   editingApi?: EditingApi;
   /** The update check in the settings (#64); without it (demo data, tests) it is not offered. */
   updatesApi?: UpdatesApi;
-  /** Whether this shell is the one shown (MVP-14): a hidden tab's shell handles no keys. */
+  /**
+   * The document of the tab as the main process last said it, which can be a moment ahead of the
+   * state shown: the next field of a form, saving and closing must not use the document this
+   * page was still showing (B2-09). Without it (demo data, tests) the document shown is the latest.
+   */
+  latest?: () => { doc: DocumentId; unsaved: boolean } | undefined;
+  /** The values of the form on their way to the document (B2-09); shared, so that closing a tab can wait for them. */
+  fieldEdits?: FieldEdits;
+  /** Whether this shell is the one shown (MVP-14): a hidden tab shell handles no keys. */
   active?: boolean;
   version?: string;
   /** Delay before the loading state appears; tests pass 0. */
@@ -147,12 +168,15 @@ export function ReaderShell({
   linksApi,
   textApi,
   annotationsApi,
+  formsApi,
   systemApi,
   recentApi,
   exportApi,
   savingApi,
   editingApi,
   updatesApi,
+  latest,
+  fieldEdits,
   active = true,
   version = "0.1.0",
   loadingDelayMs,
@@ -206,6 +230,7 @@ export function ReaderShell({
     () => (annotationsApi ? createAnnotationSource(annotationsApi) : undefined),
     [annotationsApi],
   );
+  const formSource = useMemo(() => (formsApi ? createFormSource(formsApi) : undefined), [formsApi]);
 
   // Per-document view state starts fresh for every newly opened document (nothing is remembered);
   // an edit or saving (B2-02) changes the document shown, not which one it is.
@@ -315,13 +340,31 @@ export function ReaderShell({
   const saved = (result: SaveResult | null) => {
     if (result) showHint(result.incremental ? strings.saving.savedIncremental : strings.saving.saved);
   };
+  // A value still being typed in a field of the form is part of what is saved (B2-09), and the
+  // edit that sent it gave the document a new id: saving looks at the document as it is then.
+  const [ownEdits] = useState(() => new FieldEdits());
+  const edits = fieldEdits ?? ownEdits;
+  const latestDocument = () => latest?.() ?? (doc !== undefined ? { doc, unsaved: document_?.unsaved === true } : undefined);
   const save = () => {
-    if (!savable || !document_?.unsaved) return;
-    savingApi.save(doc).then(saved, setSaveFailed);
+    if (!savable) return;
+    edits.whenSettled(
+      () => {
+        const now = latestDocument();
+        if (now?.unsaved) savingApi.save(now.doc).then(saved, setSaveFailed);
+      },
+      { keepFocus: true },
+    );
   };
   const saveAs = () => {
     setSaveFailed(null);
-    if (savable) savingApi.saveAs(doc).then(saved, setSaveFailed);
+    if (!savable) return;
+    edits.whenSettled(
+      () => {
+        const now = latestDocument();
+        if (now) savingApi.saveAs(now.doc).then(saved, setSaveFailed);
+      },
+      { keepFocus: true },
+    );
   };
 
   // Page management (B2-05) needs the main process too. The author's permission to assemble or
@@ -354,6 +397,35 @@ export function ReaderShell({
   };
   const redo = () => {
     if (redoable) editingApi!.redo(doc!).catch(() => showHint(strings.pages.failed));
+  };
+  // Filling in the form (B2-09); the author's permission to fill in forms covers it, and flattening (MVP-19).
+  const fillForms = permissions.fillForms && doc !== undefined && editingApi !== undefined;
+  // One value after another: each edit gives the document a new id, which the next one must use.
+  const editField = (edit: Edit): Promise<void> => {
+    if (!fillForms) return Promise.reject(new Error("the fields cannot be changed"));
+    return edits
+      .run(async () => {
+        const before = latestDocument();
+        if (!before) throw new Error("no document");
+        await editingApi!.applyEdit(before.doc, edit);
+        // The document the edit made is announced on the open-events channel, which a big
+        // document's announcement reaches a moment after the answer: the next edit and saving
+        // need it.
+        if (latest) await until(() => latest()?.doc !== before.doc);
+      })
+      .catch((error: unknown) => {
+        showHint(errorCodeOf(error) === "limitExceeded" ? strings.pages.saveFirst : strings.forms.failed);
+        throw error;
+      });
+  };
+  const [flattenOpen, setFlattenOpen] = useState(false);
+  // Flattened, the document is to be saved as another file: where is asked next (by the system).
+  const flatten = () => {
+    setFlattenOpen(false);
+    editField({ kind: "flattenForm" }).then(
+      () => saveAs(),
+      () => showHint(strings.forms.flattenFailed),
+    );
   };
   // Highlighter marks and notes (B2-07); the author's permission to annotate covers them (MVP-19).
   const annotations = useAnnotations({
@@ -509,6 +581,11 @@ export function ReaderShell({
           exportBlocked={exportable && !permissions.copy}
           onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}
           privacyExportBlocked={savable && document_?.encrypted === true}
+          flatten={
+            document_?.hasForm && editingApi !== undefined
+              ? { onClick: fillForms ? () => setFlattenOpen(true) : undefined }
+              : undefined
+          }
           highlight={
             editingApi !== undefined && doc !== undefined
               ? {
@@ -621,6 +698,9 @@ export function ReaderShell({
                       annotations={annotationSource}
                       onAnnotationEdit={annotations.edit}
                       onEditNote={annotations.editNote}
+                      forms={formSource}
+                      onFieldEdit={fillForms ? editField : undefined}
+                      onFieldScript={() => showHint(strings.forms.scriptNotRun)}
                     />
                   </ContextMenuTrigger>
                   <ContextMenuContent>
@@ -692,6 +772,7 @@ export function ReaderShell({
           onClose={() => setLinkDialog(null)}
         />
       )}
+      {flattenOpen && <FlattenDialog onConfirm={flatten} onCancel={() => setFlattenOpen(false)} />}
       {annotations.note && (
         <NoteDialog
           initial={annotations.note.kind === "edit" ? (annotations.note.annotation.text ?? "") : null}

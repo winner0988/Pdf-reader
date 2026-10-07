@@ -63,6 +63,7 @@ export function toShellDocument(info: DocumentInfo): ShellDocument {
     canUndo: info.canUndo,
     canRedo: info.canRedo,
     recovery: info.recovery,
+    hasForm: info.hasForm,
   };
 }
 
