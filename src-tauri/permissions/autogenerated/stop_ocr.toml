@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-stop-ocr"
+description = "Enables the stop_ocr command without any pre-configured scope."
+commands.allow = ["stop_ocr"]
+
+[[permission]]
+identifier = "deny-stop-ocr"
+description = "Denies the stop_ocr command without any pre-configured scope."
+commands.deny = ["stop_ocr"]

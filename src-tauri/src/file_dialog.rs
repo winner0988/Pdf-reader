@@ -46,6 +46,8 @@ enum Kind {
     /// A folder for exported page images (B2-04), or for the files of a split document (B2-06),
     /// under the title the caller gives.
     PickFolder { title: &'static str },
+    /// One file of language data for recognising text (B2-10).
+    OpenLanguageData,
 }
 
 /// Shows the open dialog (PDF files only; several can be picked) over `window` and returns the
@@ -98,6 +100,13 @@ pub async fn split_pdf_file(
         .and_then(|mut paths| paths.pop()))
 }
 
+/// Asks for one file of language data for recognising text (`.traineddata`, B2-10).
+pub async fn pick_language_data(window: &WebviewWindow) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::OpenLanguageData)
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
 /// Asks for a folder (the one exported page images go to, or the files of a split document),
 /// under `title`.
 pub async fn pick_folder(
@@ -141,6 +150,7 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
         | Kind::PrivacyExport { .. }
         | Kind::SplitPdf { .. } => common | FOS_OVERWRITEPROMPT,
         Kind::PickFolder { .. } => common | FOS_PICKFOLDERS,
+        Kind::OpenLanguageData => common,
     }
 }
 
@@ -192,7 +202,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
                 CoCreateInstance::<_, IFileSaveDialog>(&FileSaveDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
             }
-            Kind::OpenPdfs | Kind::PickFolder { .. } => {
+            Kind::OpenPdfs | Kind::PickFolder { .. } | Kind::OpenLanguageData => {
                 CoCreateInstance::<_, IFileOpenDialog>(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
             }
@@ -223,6 +233,10 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             Some((strings::PDF_FILTER_NAME, "*.pdf")),
         ),
         Kind::PickFolder { title } => (*title, None),
+        Kind::OpenLanguageData => (
+            strings::LANGUAGE_DIALOG_TITLE,
+            Some((strings::LANGUAGE_FILTER_NAME, "*.traineddata")),
+        ),
     };
     let title = HSTRING::from(title);
     // SAFETY: the strings outlive the calls, which copy them; the filter array has one entry.
@@ -319,6 +333,13 @@ mod tests {
             file_name: "報告-p2-4.pdf".to_owned(),
         });
         assert!(split(FOS_DONTADDTORECENT) && split(FOS_OVERWRITEPROMPT));
+
+        let language = options_of(Kind::OpenLanguageData);
+        assert!(
+            language(FOS_DONTADDTORECENT) && language(FOS_FORCEFILESYSTEM),
+            "nothing picked goes on the recent items"
+        );
+        assert!(!language(FOS_ALLOWMULTISELECT), "one file");
 
         let folder = options_of(Kind::PickFolder {
             title: strings::EXPORT_IMAGES_DIALOG_TITLE,

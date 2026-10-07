@@ -43,6 +43,12 @@ fn main() {
         "save_document_as",
         "close_window",
         "privacy_export",
+        "get_ocr_languages",
+        "import_ocr_language",
+        "remove_ocr_language",
+        "start_ocr",
+        "stop_ocr",
+        "set_ocr_focus",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("failed to run tauri-build");

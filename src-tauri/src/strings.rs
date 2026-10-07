@@ -27,6 +27,10 @@ pub const PRIVACY_EXPORT_SAME_FILE_TITLE: &str = "請選擇其他檔案";
 pub const PRIVACY_EXPORT_SAME_FILE_MESSAGE: &str =
     "隱私匯出會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
 
+/// Importing a language for recognising the text of scanned pages (B2-10).
+pub const LANGUAGE_DIALOG_TITLE: &str = "匯入 OCR 語言資料";
+pub const LANGUAGE_FILTER_NAME: &str = "Tesseract 語言資料（.traineddata）";
+
 /// Export (B2-04): where the text goes, and the folder the page images go to.
 pub const EXPORT_TEXT_DIALOG_TITLE: &str = "匯出純文字";
 pub const TEXT_FILTER_NAME: &str = "純文字檔";
