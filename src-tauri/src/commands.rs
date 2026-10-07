@@ -8,9 +8,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use ipc_contract::types::{
     DocumentId, EditArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs,
     FormField, IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs, OutlineResult,
-    PageAnnotation, PageLink, PageText, RecentFile, RecentId, RenderPageArgs, RequestId,
-    SaveResult, SearchArgs, SearchEvent, Settings, SignatureReport, StampImageInfo, TabId,
-    UndoArgs, UnlockArgs, UpdateCheck,
+    PageAnnotation, PageLink, PageText, PagesSource, RecentFile, RecentId, RenderPageArgs,
+    RequestId, SaveResult, SearchArgs, SearchEvent, Settings, SignatureReport, StampImageInfo,
+    TabId, UndoArgs, UnlockArgs, UnlockSourceArgs, UpdateCheck,
 };
 use ipc_contract::validate::Validate;
 use tauri::ipc::{Channel, Response};
@@ -100,6 +100,46 @@ pub async fn unlock_tab(app: AppHandle, args: UnlockArgs) -> Result<(), IpcError
         result
     })
     .await
+}
+
+/// Asks for the PDF file whose pages go into `doc` (B2-06, docs/architecture/merge.md) in the
+/// system's open dialog, and makes a clean copy of it, which the document keeps. The path stays
+/// in the main process: the file is opened here, read-only, and `doc`'s worker, which scans it
+/// and writes the copy, gets that handle. `null` when the user closes the dialog; an encrypted
+/// file answers `encrypted`, and `unlock_pages_source` gives the password.
+#[tauri::command]
+pub async fn pick_pages_source(
+    app: AppHandle,
+    window: WebviewWindow,
+    doc: DocumentId,
+) -> Result<Option<PagesSource>, IpcError> {
+    // The user is not asked for a file the author does not let the document take pages from.
+    app.state::<Documents>().check_can_insert_pages(doc)?;
+    let Some(path) = file_dialog::pick_pages_source(&window).await? else {
+        return Ok(None);
+    };
+    blocking(move || {
+        app.state::<Documents>()
+            .prepare_pages_source(doc, &path, None)
+            .map(Some)
+    })
+    .await
+}
+
+/// Tries a password on the encrypted file `pick_pages_source` just could not open (B2-06). It
+/// goes to the document's worker only and is wiped afterwards. A wrong one answers `encrypted`
+/// again, and the file waits for another.
+#[tauri::command]
+pub async fn unlock_pages_source(
+    app: AppHandle,
+    args: UnlockSourceArgs,
+) -> Result<PagesSource, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let UnlockSourceArgs { doc, password } = args;
+    blocking(move || app.state::<Documents>().unlock_pages_source(doc, password)).await
 }
 
 /// Closes a tab (MVP-14): its document's worker ends and its path is forgotten.

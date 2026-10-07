@@ -53,6 +53,14 @@ struct Stored {
     /// The pictures those edits name (B2-08).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pictures: Vec<StoredPicture>,
+    /// How many more were made, which are not here: the first that put the pages of another file
+    /// into the document, and all after it (B2-06; the journal cannot keep the other file).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    lost: u32,
+}
+
+fn is_zero(count: &u32) -> bool {
+    *count == 0
 }
 
 /// A picture in a journal: its number, and its PNG file as hex text.
@@ -80,6 +88,8 @@ pub struct Found {
     pub edits: Vec<Edit>,
     /// The pictures the edits name, under the numbers they have in them.
     pub pictures: ReadPictures,
+    /// How many edits of the run are not in `edits` (see `Stored::lost`).
+    pub lost: u32,
     /// The file is as it was when the edits were made: they can be made on it again.
     pub same_file: bool,
 }
@@ -114,23 +124,24 @@ impl Journals {
         Some(id)
     }
 
-    /// Whether a journal of `edits` (and the `pictures` they name) to the file at `path` would
-    /// be small enough to keep.
+    /// Whether a journal of `edits` (and the `pictures` they name) to the file at `path`, and
+    /// `lost` more that it cannot keep, would be small enough to keep.
     pub fn check(
         path: &Path,
         identity: Option<FileIdentity>,
         edits: &[Edit],
         pictures: PictureFiles,
+        lost: u32,
     ) -> Result<(), TooLarge> {
-        match encode(path, identity, edits, pictures) {
+        match encode(path, identity, edits, pictures, lost) {
             Some(json) if json.len() > MAX_JOURNAL_BYTES => Err(TooLarge),
             _ => Ok(()),
         }
     }
 
     /// Replaces journal `id` with `edits` to the file at `path`, which was `identity` when read,
-    /// and the `pictures` they name. Best effort: if the file cannot be written, a crash loses
-    /// the changes, nothing else.
+    /// and the `pictures` they name, and says that `lost` more were made. Best effort: if the file
+    /// cannot be written, a crash loses the changes, nothing else.
     pub fn write(
         &self,
         id: &JournalId,
@@ -138,8 +149,10 @@ impl Journals {
         identity: Option<FileIdentity>,
         edits: &[Edit],
         pictures: PictureFiles,
+        lost: u32,
     ) -> Result<(), TooLarge> {
-        let (Some(file), Some(json)) = (self.file(id), encode(path, identity, edits, pictures))
+        let (Some(file), Some(json)) =
+            (self.file(id), encode(path, identity, edits, pictures, lost))
         else {
             return Ok(());
         };
@@ -200,6 +213,7 @@ impl Journals {
             id: id.clone(),
             edits: stored.edits,
             pictures,
+            lost: stored.lost,
             same_file: now.is_some() && now == then,
         })
     }
@@ -250,6 +264,7 @@ fn encode(
     identity: Option<FileIdentity>,
     edits: &[Edit],
     pictures: PictureFiles,
+    lost: u32,
 ) -> Option<Vec<u8>> {
     let (len, since_epoch) = identity?.parts()?;
     serde_json::to_vec(&Stored {
@@ -266,6 +281,7 @@ fn encode(
                 png: hex(png),
             })
             .collect(),
+        lost,
     })
     .ok()
 }
@@ -307,9 +323,15 @@ fn read(file: &Path, path: &Path) -> Option<(Stored, ReadPictures)> {
         && Path::new(&stored.path).is_absolute()
         && key(Path::new(&stored.path)) == key(path)
         && stored.modified_nanos < 1_000_000_000
-        && !stored.edits.is_empty()
+        && (!stored.edits.is_empty() || stored.lost > 0)
         && stored.edits.len() <= MAX_UNDO_EDITS as usize
-        && stored.edits.iter().all(|edit| edit.validate().is_ok());
+        && stored.lost <= MAX_UNDO_EDITS
+        && stored.edits.len() + stored.lost as usize <= MAX_UNDO_EDITS as usize
+        // The journal cannot keep another file: it never has an edit that takes its pages.
+        && stored
+            .edits
+            .iter()
+            .all(|edit| !matches!(edit, Edit::InsertPages { .. }) && edit.validate().is_ok());
     if !valid {
         return None;
     }
@@ -410,7 +432,7 @@ mod tests {
         let earlier = folder.journals();
         let id = earlier.create().unwrap();
         earlier
-            .write(&id, &file(), identity(1_000), &edits(), &[])
+            .write(&id, &file(), identity(1_000), &edits(), &[], 0)
             .unwrap();
         assert_eq!(folder.files(), [format!("{}.json", id.0)]);
         // The name says nothing of the file.
@@ -431,6 +453,7 @@ mod tests {
                 id: id.clone(),
                 edits: edits(),
                 pictures: Vec::new(),
+                lost: 0,
                 same_file: true
             }
         );
@@ -446,7 +469,7 @@ mod tests {
         let earlier = folder.journals();
         let id = earlier.create().unwrap();
         earlier
-            .write(&id, &file(), identity(1_000), &edits(), &[])
+            .write(&id, &file(), identity(1_000), &edits(), &[], 0)
             .unwrap();
         let found = folder.journals().find(&file(), identity(999)).unwrap();
         assert!(!found.same_file);
@@ -459,7 +482,7 @@ mod tests {
         let journals = folder.journals();
         let id = journals.create().unwrap();
         journals
-            .write(&id, &file(), identity(1_000), &edits(), &[])
+            .write(&id, &file(), identity(1_000), &edits(), &[], 0)
             .unwrap();
         assert_eq!(journals.find(&file(), identity(1_000)), None);
         journals.release(&id);
@@ -472,12 +495,12 @@ mod tests {
         let earlier = folder.journals();
         let left = earlier.create().unwrap();
         earlier
-            .write(&left, &file(), identity(1_000), &edits(), &[])
+            .write(&left, &file(), identity(1_000), &edits(), &[], 0)
             .unwrap();
         let journals = folder.journals();
         let own = journals.create().unwrap();
         journals
-            .write(&own, &file(), identity(1_000), &edits(), &[])
+            .write(&own, &file(), identity(1_000), &edits(), &[], 0)
             .unwrap();
         fs::write(
             folder
@@ -508,20 +531,22 @@ mod tests {
         let all: Vec<u32> = (0..99_999).collect();
         let large = vec![Edit::DeletePages { pages: all }; 10];
         assert_eq!(
-            Journals::check(&file(), identity(1_000), &large, &[]),
+            Journals::check(&file(), identity(1_000), &large, &[], 0),
             Err(TooLarge)
         );
         assert_eq!(
-            journals.write(&id, &file(), identity(1_000), &large, &[]),
+            journals.write(&id, &file(), identity(1_000), &large, &[], 0),
             Err(TooLarge)
         );
         assert!(folder.files().is_empty());
         assert_eq!(
-            Journals::check(&file(), identity(1_000), &edits(), &[]),
+            Journals::check(&file(), identity(1_000), &edits(), &[], 0),
             Ok(())
         );
         // Without the file's identity there is nothing to check a later file against.
-        journals.write(&id, &file(), None, &edits(), &[]).unwrap();
+        journals
+            .write(&id, &file(), None, &edits(), &[], 0)
+            .unwrap();
         assert!(folder.files().is_empty());
     }
 
@@ -659,6 +684,7 @@ mod tests {
                 identity(1_000),
                 &edits,
                 &[(StampImageId(3), &picture)],
+                0,
             )
             .unwrap();
         let text =
@@ -728,12 +754,87 @@ mod tests {
         let one = [(StampImageId(3), &large[..])];
         let two = [(StampImageId(3), &large[..]), (StampImageId(4), &large[..])];
         assert_eq!(
-            Journals::check(&file(), identity(1_000), &edits, &one),
+            Journals::check(&file(), identity(1_000), &edits, &one, 0),
             Ok(())
         );
         assert_eq!(
-            Journals::check(&file(), identity(1_000), &edits, &two),
+            Journals::check(&file(), identity(1_000), &edits, &two, 0),
             Err(TooLarge)
+        );
+    }
+
+    #[test]
+    fn what_a_journal_could_not_keep_is_counted() {
+        let folder = Folder::new();
+        let journals = folder.journals();
+        let id = journals.create().unwrap();
+        // Two edits kept, three left out.
+        journals
+            .write(&id, &file(), identity(1_000), &edits(), &[], 3)
+            .unwrap();
+        let path = folder.0.join(FOLDER_NAME).join(format!("{}.json", id.0));
+        assert!(fs::read_to_string(&path).unwrap().contains(r#""lost":3"#));
+        journals.release(&id);
+        let found = folder.journals().find(&file(), identity(1_000)).unwrap();
+        assert_eq!((found.edits.len(), found.lost), (2, 3));
+        // None kept at all is a journal too, if something was left out; and none of either is not.
+        let other = Folder::new();
+        let journals = other.journals();
+        let id = journals.create().unwrap();
+        journals
+            .write(&id, &file(), identity(1_000), &[], &[], 1)
+            .unwrap();
+        journals.release(&id);
+        let found = other.journals().find(&file(), identity(1_000)).unwrap();
+        assert_eq!((found.edits.len(), found.lost), (0, 1));
+        let path = other.0.join(FOLDER_NAME).join(format!("{}.json", id.0));
+        let empty = fs::read_to_string(&path)
+            .unwrap()
+            .replace(r#","lost":1"#, "");
+        fs::write(&path, empty).unwrap();
+        assert_eq!(other.journals().find(&file(), identity(1_000)), None);
+    }
+
+    #[test]
+    fn a_journal_that_has_the_pages_of_another_file_or_too_many_left_out_is_not_the_apps() {
+        let folder = Folder::new();
+        let dir = folder.0.join(FOLDER_NAME);
+        fs::create_dir_all(&dir).unwrap();
+        let path = serde_json::to_string(&file().to_str().unwrap()).unwrap();
+        let journal = |edits: &str, lost: u32| {
+            format!(
+                r#"{{"version":1,"path":{path},"len":1000,"modifiedSecs":1790000000,"modifiedNanos":123,"edits":{edits},"lost":{lost}}}"#
+            )
+        };
+        let delete = r#"{"kind":"deletePages","pages":[2]}"#;
+        let bad = [
+            // The pages of another file cannot be in a journal: it cannot keep the file.
+            journal(r#"[{"kind":"insertPages","at":1,"source":3}]"#, 0),
+            // More left out than a document has edits.
+            journal(&format!("[{delete}]"), MAX_UNDO_EDITS),
+            journal("[]", MAX_UNDO_EDITS + 1),
+        ];
+        for (index, content) in bad.iter().enumerate() {
+            let name = format!("{index:032x}.json");
+            fs::write(dir.join(&name), content).unwrap();
+            assert_eq!(
+                folder.journals().find(&file(), identity(1_000)),
+                None,
+                "{content}"
+            );
+            fs::remove_file(dir.join(name)).unwrap();
+        }
+        fs::write(
+            dir.join(format!("{:032x}.json", 0)),
+            journal(&format!("[{delete}]"), 4),
+        )
+        .unwrap();
+        assert_eq!(
+            folder
+                .journals()
+                .find(&file(), identity(1_000))
+                .map(|found| found.lost),
+            Some(4)
         );
     }
 }

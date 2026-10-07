@@ -10,7 +10,11 @@ import type { Recovery } from "@/ipc/generated/contract";
 const t = strings.recovery;
 
 type RecoveryBannerProps = {
-  /** `available`: the edits can be made again; `stale`: the file changed since, so they cannot. */
+  /**
+   * `available`: the edits can be made again; `partial`: some can, and the others took the pages of
+   * another file (B2-06), which a journal cannot keep; `lost`: none can, for that reason; `stale`:
+   * the file changed since, so they cannot.
+   */
   recovery: Exclude<Recovery, "none">;
   /** While an answer is on its way, the buttons wait. */
   busy: boolean;
@@ -29,8 +33,8 @@ export function RecoveryBanner({ recovery, busy, onRestore, onDiscard, onLater }
       className="flex shrink-0 items-center gap-2 border-b border-sky-300 bg-sky-50 px-3 py-1.5 text-sm text-sky-950 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-100"
     >
       <HistoryIcon className="size-4 shrink-0" aria-hidden />
-      <p className="min-w-0 flex-1">{recovery === "available" ? t.available : t.stale}</p>
-      {recovery === "available" && (
+      <p className="min-w-0 flex-1">{t[recovery]}</p>
+      {(recovery === "available" || recovery === "partial") && (
         <Button size="sm" disabled={busy} onClick={onRestore}>
           {t.restore}
         </Button>

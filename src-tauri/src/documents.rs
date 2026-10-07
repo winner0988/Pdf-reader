@@ -13,20 +13,21 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use ipc_contract::limits::{
-    MAX_DISPLAY_NAME_BYTES, MAX_PAGE_COUNT, MAX_STAMP_SOURCE_BYTES, MAX_TABS, MAX_TEXT_BYTES,
-    MAX_UNDO_EDITS,
+    MAX_DISPLAY_NAME_BYTES, MAX_PAGE_COUNT, MAX_SOURCE_BYTES, MAX_STAMP_SOURCE_BYTES, MAX_TABS,
+    MAX_TEXT_BYTES, MAX_UNDO_EDITS,
 };
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
     BlockedAction, DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
     FormField, IpcError, LinkArgs, LinkPreview, LinkTarget, OpenEvent, OutlineLinkArgs,
-    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Recovery,
-    RenderPageArgs, SaveResult, SearchHit, SignatureReport, StampImageInfo, TabId,
+    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource, Password, Recovery,
+    RenderPageArgs, SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId,
+    StampImageInfo, TabId,
 };
 use ipc_contract::validate::{Validate, check_page_index, stamp_png_size};
 use ipc_contract::worker::{
-    UnknownPicture, WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
+    UnknownFile, WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
 };
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
@@ -35,6 +36,7 @@ use crate::history::History;
 use crate::pictures::{Full, Pictures};
 use crate::recovery::{Found, JournalId, Journals, TooLarge};
 use crate::saving::{self, FileIdentity, Temporary};
+use crate::sources::{Full as SourcesFull, Source, Sources};
 
 /// Display name used when a path has no file name component.
 const FALLBACK_NAME: &str = "PDF";
@@ -111,6 +113,14 @@ struct OpenDocument {
     /// Edits an earlier run left for the file (B2-13), until the user makes them again or
     /// discards them. `info.recovery` says whether they can be made.
     recovered: Option<Found>,
+    /// The files whose pages the history took in (B2-06).
+    sources: Sources,
+    /// What the document's own file has that is active, as the worker said when it opened; the
+    /// banner adds what the files taken from have (`show_history`).
+    security_in_file: SecurityReport,
+    /// The encrypted file the user chose to take pages from, while the password is asked for
+    /// (B2-06): the path never leaves the main process.
+    pending_source: Option<PathBuf>,
     /// The pictures of the picture stamps of the history (B2-08).
     pictures: Pictures,
 }
@@ -219,6 +229,7 @@ impl Documents {
             let doc = DocumentId(self.next_id());
             let info = document_info(doc, display_name.clone(), response)?;
             let info_has_form = info.has_form;
+            let security_in_file = info.security.clone();
             let mut document = OpenDocument {
                 info,
                 host,
@@ -231,6 +242,9 @@ impl Documents {
                 form_in_file: info_has_form,
                 journal: None,
                 recovered: None,
+                sources: Sources::default(),
+                security_in_file,
+                pending_source: None,
                 pictures: Pictures::default(),
             };
             self.recover_on_open(&tab, &mut document);
@@ -430,8 +444,13 @@ impl Documents {
         args.validate().map_err(invalid_argument)?;
         let ((), event) = self.change_document(args.doc, |document| {
             let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
-            let expected_pages = pages_after(&args.edit, page_count, document.info.permissions)?;
-            let edit = worker_edit(&document.pictures, &args.edit)?;
+            let expected_pages = pages_after(
+                &args.edit,
+                page_count,
+                document.info.permissions,
+                &|source| document.sources.pages(source),
+            )?;
+            let edit = worker_edit(&document.sources, &document.pictures, &args.edit)?;
             if !document.history.has_room() {
                 return Err(IpcError {
                     code: ErrorCode::LimitExceeded,
@@ -441,8 +460,9 @@ impl Documents {
             // The crash recovery journal must be able to keep it too (B2-13).
             let mut edits = document.history.applied().to_vec();
             edits.push(args.edit.clone());
-            let pictures = document.pictures.used_by(&edits);
-            Journals::check(&document.path, document.identity, &edits, &pictures).map_err(
+            let (kept, lost) = journalled(&edits);
+            let pictures = document.pictures.used_by(kept);
+            Journals::check(&document.path, document.identity, kept, &pictures, lost).map_err(
                 |TooLarge| IpcError {
                     code: ErrorCode::LimitExceeded,
                     message: "too many unsaved changes to keep safe: save first".to_owned(),
@@ -490,7 +510,7 @@ impl Documents {
                 .before_last()
                 .ok_or_else(|| invalid_argument("nothing to undo"))?
                 .iter()
-                .map(|edit| worker_edit(&document.pictures, edit))
+                .map(|edit| worker_edit(&document.sources, &document.pictures, edit))
                 .collect::<Result<_, _>>()?;
             let pages = revert_in_worker(document, edits, password).inspect_err(|error| {
                 if matches!(error.code, ErrorCode::Internal | ErrorCode::LimitExceeded) {
@@ -515,7 +535,7 @@ impl Documents {
                 .history
                 .next()
                 .ok_or_else(|| invalid_argument("nothing to redo"))
-                .and_then(|edit| worker_edit(&document.pictures, edit))?;
+                .and_then(|edit| worker_edit(&document.sources, &document.pictures, edit))?;
             let pages = edit_in_worker(document, &edit).inspect_err(|error| {
                 if matches!(error.code, ErrorCode::Internal | ErrorCode::LimitExceeded) {
                     document.lost = true;
@@ -537,7 +557,10 @@ impl Documents {
     /// those would have been made on the file, not on the edits.
     pub fn recover(&self, doc: DocumentId) -> Result<OpenEvent, IpcError> {
         let ((), event) = self.change_document(doc, |document| {
-            if document.info.recovery != Recovery::Available {
+            if !matches!(
+                document.info.recovery,
+                Recovery::Available | Recovery::Partial
+            ) {
                 return Err(invalid_argument("no changes that can be made again"));
             }
             if document.history.unsaved() {
@@ -647,6 +670,7 @@ impl Documents {
             // The file has the form as it is now: flattened, or not.
             document.form_in_file = document.info.has_form;
             document.history.saved();
+            document.sources.clear();
             show_history(document);
             self.keep_journal(document);
             // Undo starts from the file now: the worker keeps its bytes instead (ADR 0013).
@@ -955,6 +979,93 @@ impl Documents {
             }
             Ok(fields)
         })
+    }
+
+    /// Whether pages may be put into `doc` (B2-06): its author allows changing its pages. The
+    /// user is not asked for a file otherwise.
+    pub fn check_can_insert_pages(&self, doc: DocumentId) -> Result<(), IpcError> {
+        self.with_document(doc, |document| {
+            let permissions = document.info.permissions;
+            if permissions.assemble || permissions.modify {
+                Ok(())
+            } else {
+                Err(not_allowed())
+            }
+        })
+    }
+
+    /// Makes the clean copy of the PDF at `path`, a file the user chose to take pages from
+    /// (B2-06), and keeps it for `doc`. The document's own worker does the work, through a
+    /// read-only handle, as it reads any file. `password` is for an encrypted file: without it, or
+    /// with a wrong one, this answers `encrypted` and remembers the path (`pending_source`, which
+    /// never leaves the main process) for `unlock_pages_source`.
+    pub fn prepare_pages_source(
+        &self,
+        doc: DocumentId,
+        path: &Path,
+        password: Option<Password>,
+    ) -> Result<PagesSource, IpcError> {
+        self.with_document(doc, |document| {
+            let permissions = document.info.permissions;
+            if !(permissions.assemble || permissions.modify) {
+                return Err(not_allowed());
+            }
+            let file = open_source(path)?;
+            let response = match document.host.prepare_source(&file, password) {
+                Ok(response) => response,
+                Err(HostError::Worker(error))
+                    if matches!(
+                        error.code,
+                        WorkerErrorCode::Encrypted | WorkerErrorCode::WrongPassword
+                    ) =>
+                {
+                    document.pending_source = Some(path.to_owned());
+                    return Err(ipc_error(&HostError::Worker(error)));
+                }
+                Err(error) => return Err(lost_on(document, &error)),
+            };
+            let WorkerResponse::Source {
+                bytes,
+                pages,
+                security,
+                ..
+            } = response
+            else {
+                return Err(unexpected("PrepareSource"));
+            };
+            let source = document
+                .sources
+                .add(
+                    Source {
+                        bytes,
+                        pages,
+                        security,
+                    },
+                    document.history.all(),
+                )
+                .map_err(|SourcesFull| IpcError {
+                    code: ErrorCode::LimitExceeded,
+                    message: "too many files in the unsaved changes: save first".to_owned(),
+                })?;
+            document.pending_source = None;
+            Ok(PagesSource { source, pages })
+        })
+    }
+
+    /// Tries `password` on the encrypted file the user chose just before (B2-06), the one
+    /// `prepare_pages_source` could not open without it.
+    pub fn unlock_pages_source(
+        &self,
+        doc: DocumentId,
+        password: Password,
+    ) -> Result<PagesSource, IpcError> {
+        let path = self.with_document(doc, |document| {
+            document
+                .pending_source
+                .clone()
+                .ok_or_else(|| invalid_argument("no file waits for a password"))
+        })?;
+        self.prepare_pages_source(doc, &path, Some(password))
     }
 
     /// The signatures of `doc` as its file has them (B2-14, ADR 0014), verified offline by the
@@ -1299,9 +1410,9 @@ impl Documents {
         if let Some(id) = &document.journal {
             // Checked before each edit (`Journals::check`); undo only makes it smaller, and redo
             // brings back what it had.
-            let edits = document.history.applied();
-            let pictures = document.pictures.used_by(edits);
-            let _ = journals.write(id, &document.path, document.identity, edits, &pictures);
+            let (kept, lost) = journalled(document.history.applied());
+            let pictures = document.pictures.used_by(kept);
+            let _ = journals.write(id, &document.path, document.identity, kept, &pictures, lost);
         }
     }
 
@@ -1327,7 +1438,9 @@ impl Documents {
         let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
         let applicable = found.same_file
             && pages_after_all(&found.edits, page_count, document.info.permissions).is_ok();
-        if own && applicable {
+        // Edits that were left out (B2-06) are not made again unasked: the document would be
+        // without what they did, and the user is told.
+        if own && applicable && found.lost == 0 {
             document.pictures.restore(found.pictures.clone());
             if replay(document, &found.edits).is_ok() {
                 document.journal = Some(found.id);
@@ -1335,10 +1448,11 @@ impl Documents {
                 return;
             }
         }
-        document.info.recovery = if applicable {
-            Recovery::Available
-        } else {
-            Recovery::Stale
+        document.info.recovery = match (applicable, found.lost, found.edits.is_empty()) {
+            (false, _, _) => Recovery::Stale,
+            (true, 0, _) => Recovery::Available,
+            (true, _, true) => Recovery::Lost,
+            (true, _, false) => Recovery::Partial,
         };
         document.recovered = Some(found);
     }
@@ -1383,6 +1497,23 @@ fn request(
         .map_err(|error| lost_on(document, &error))
 }
 
+/// As [`request`], for what may take as long as saving (pages taken from a file, B2-06).
+fn request_long(
+    document: &mut OpenDocument,
+    make: impl FnOnce(ipc_contract::types::RequestId, DocumentId) -> WorkerRequest,
+) -> Result<WorkerResponse, IpcError> {
+    let doc = live_worker(document)?;
+    document
+        .host
+        .request_long(|request| make(request, doc))
+        .map_err(|error| lost_on(document, &error))
+}
+
+/// Whether `edit` takes the pages of a file: it carries the file, and may take long.
+fn takes_pages(edit: &WorkerEdit) -> bool {
+    matches!(edit, WorkerEdit::InsertPages { .. })
+}
+
 /// The document's id in its worker. If the worker that had the document died, the file is
 /// opened again in a new one first, with the edits not yet saved.
 fn live_worker(document: &mut OpenDocument) -> Result<DocumentId, IpcError> {
@@ -1420,6 +1551,7 @@ fn pages_after(
     edit: &Edit,
     page_count: u32,
     permissions: DocumentPermissions,
+    source_pages: &dyn Fn(SourceId) -> Option<u32>,
 ) -> Result<u32, IpcError> {
     // Annotations (B2-07) have a permission of their own; the worker checks that the annotation
     // is on the page.
@@ -1491,6 +1623,20 @@ fn pages_after(
             }
             Ok(page_count)
         }
+        Edit::InsertPages { at, source } => {
+            if *at > page_count {
+                return Err(invalid_argument("no such place to insert pages"));
+            }
+            let inserted =
+                source_pages(*source).ok_or_else(|| invalid_argument("no such source file"))?;
+            if page_count.saturating_add(inserted) > MAX_PAGE_COUNT {
+                return Err(IpcError {
+                    code: ErrorCode::LimitExceeded,
+                    message: format!("a document has at most {MAX_PAGE_COUNT} pages"),
+                });
+            }
+            Ok(page_count + inserted)
+        }
         Edit::InsertBlankPage { at, like } => {
             check_page_index(*like, page_count).map_err(invalid_argument)?;
             if *at > page_count {
@@ -1518,14 +1664,29 @@ fn pages_after(
     }
 }
 
+/// What the crash recovery journal keeps of the edits a document has (B2-06): those before the
+/// first that takes the pages of another file, which it cannot keep, and how many edits are
+/// left out (that one, and those after it, which are made on the pages it put in).
+fn journalled(applied: &[Edit]) -> (&[Edit], u32) {
+    let kept = applied
+        .iter()
+        .position(|edit| matches!(edit, Edit::InsertPages { .. }))
+        .unwrap_or(applied.len());
+    (
+        &applied[..kept],
+        u32::try_from(applied.len() - kept).unwrap_or(u32::MAX),
+    )
+}
+
 /// `pages_after` for `edits` in turn.
 fn pages_after_all(
     edits: &[Edit],
     page_count: u32,
     permissions: DocumentPermissions,
 ) -> Result<u32, IpcError> {
+    // A journal never has the pages of a file (it cannot keep one): `pages_after` refuses those.
     edits.iter().try_fold(page_count, |count, edit| {
-        pages_after(edit, count, permissions)
+        pages_after(edit, count, permissions, &|_| None)
     })
 }
 
@@ -1543,7 +1704,7 @@ fn replay(document: &mut OpenDocument, edits: &[Edit]) -> Result<(), IpcError> {
     }
     let mut pages = document.info.pages.clone();
     for edit in edits {
-        let edit = worker_edit(&document.pictures, edit)?;
+        let edit = worker_edit(&document.sources, &document.pictures, edit)?;
         pages = edit_in_worker(document, &edit).inspect_err(|_| {
             document.lost = true;
         })?;
@@ -1560,10 +1721,22 @@ fn replay(document: &mut OpenDocument, edits: &[Edit]) -> Result<(), IpcError> {
     Ok(())
 }
 
-/// `edit` as the worker is asked to make it: a picture stamp is sent with its picture (B2-08).
-fn worker_edit(pictures: &Pictures, edit: &Edit) -> Result<WorkerEdit, IpcError> {
-    WorkerEdit::of(edit, |image| pictures.png(image))
-        .map_err(|UnknownPicture| invalid_argument("no such picture"))
+/// `edit` as the worker is asked to make it: an edit that takes the pages of a file is sent with
+/// the clean copy of the file (B2-06), and a picture stamp with its picture (B2-08).
+fn worker_edit(
+    sources: &Sources,
+    pictures: &Pictures,
+    edit: &Edit,
+) -> Result<WorkerEdit, IpcError> {
+    WorkerEdit::of(
+        edit,
+        |source| sources.bytes(source),
+        |image| pictures.png(image),
+    )
+    .map_err(|unknown| match unknown {
+        UnknownFile::Source => invalid_argument("no such source file"),
+        UnknownFile::Picture => invalid_argument("no such picture"),
+    })
 }
 
 /// Applies `edit` in the document's worker and returns the document's pages after it.
@@ -1571,7 +1744,12 @@ fn edit_in_worker(
     document: &mut OpenDocument,
     edit: &WorkerEdit,
 ) -> Result<Vec<PageSize>, IpcError> {
-    match request(document, |request, doc| WorkerRequest::Edit {
+    let send = if takes_pages(edit) {
+        request_long
+    } else {
+        request
+    };
+    match send(document, |request, doc| WorkerRequest::Edit {
         request,
         doc,
         edit: edit.clone(),
@@ -1589,7 +1767,12 @@ fn revert_in_worker(
     edits: Vec<WorkerEdit>,
     password: Option<Password>,
 ) -> Result<Vec<PageSize>, IpcError> {
-    match request(document, |request, doc| WorkerRequest::Revert {
+    let send = if edits.iter().any(takes_pages) {
+        request_long
+    } else {
+        request
+    };
+    match send(document, |request, doc| WorkerRequest::Revert {
         request,
         doc,
         edits,
@@ -1613,6 +1796,11 @@ fn show_history(document: &mut OpenDocument) {
     document.info.unsaved = history.unsaved();
     document.info.can_undo = history.can_undo();
     document.info.can_redo = history.can_redo();
+    // What the files that pages were taken from had that is active (B2-06): none of it came along,
+    // and the banner says it was there.
+    document.info.security = document
+        .sources
+        .security(&document.security_in_file, history.applied());
 }
 
 /// Has the document's worker keep the bytes of the file just written, in place of those it
@@ -1662,11 +1850,15 @@ fn reopen(document: &mut OpenDocument) -> Result<DocumentId, IpcError> {
         .map_err(|error| ipc_error(&error))?;
     let mut pages = document_info(doc, document.info.display_name.clone(), response)?.pages;
     for edit in document.history.applied() {
-        let edit = worker_edit(&document.pictures, edit)?;
-        match document
-            .host
-            .request(|request| WorkerRequest::Edit { request, doc, edit })
-        {
+        let edit = worker_edit(&document.sources, &document.pictures, edit)?;
+        let take_long = takes_pages(&edit);
+        let make = |request| WorkerRequest::Edit { request, doc, edit };
+        let response = if take_long {
+            document.host.request_long(make)
+        } else {
+            document.host.request(make)
+        };
+        match response {
             Ok(WorkerResponse::Edited { pages: edited, .. }) => pages = edited,
             Ok(_) => return Err(unexpected("Edit")),
             Err(error) => return Err(ipc_error(&error)),
@@ -1755,6 +1947,31 @@ pub fn check_file(path: &Path) -> Result<(), IpcError> {
         });
     }
     Ok(())
+}
+
+/// Opens a PDF file the user chose to take pages from (B2-06), read-only, for the worker: it
+/// exists, is a regular file, and is no larger than a source may be. Checked on the open file,
+/// so that it cannot change between the check and the reading.
+pub fn open_source(path: &Path) -> Result<std::fs::File, IpcError> {
+    let unreadable = |_| IpcError {
+        code: ErrorCode::Unreadable,
+        message: "the file does not exist or cannot be read".to_owned(),
+    };
+    let file = std::fs::File::open(path).map_err(unreadable)?;
+    let metadata = file.metadata().map_err(unreadable)?;
+    if !metadata.is_file() {
+        return Err(IpcError {
+            code: ErrorCode::NotPdf,
+            message: "not a regular file".to_owned(),
+        });
+    }
+    if metadata.len() > MAX_SOURCE_BYTES as u64 {
+        return Err(IpcError {
+            code: ErrorCode::TooLarge,
+            message: format!("larger than {MAX_SOURCE_BYTES} bytes"),
+        });
+    }
+    Ok(file)
 }
 
 /// Opens a picture file the user chose for a stamp (B2-08), read-only, for the worker: it
@@ -3954,6 +4171,231 @@ mod with_worker {
         assert!(documents.page_fields(info.doc, 0).is_ok());
     }
 
+    fn corpus_path(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus")
+            .join(name)
+    }
+
+    fn insert_pages(at: u32, source: ipc_contract::types::SourceId) -> Edit {
+        Edit::InsertPages { at, source }
+    }
+
+    #[test]
+    fn the_pages_of_another_file_are_an_edit_that_undo_redo_and_saving_follow() {
+        let (documents, info, path) = open("merge-edit", 3);
+        let taken = documents
+            .prepare_pages_source(info.doc, &corpus_path("benign/mixed-page-sizes.pdf"), None)
+            .unwrap();
+        assert_eq!(taken.pages, 4);
+        // Choosing the file is not an edit.
+        assert!(!documents.document_info(info.doc).unwrap().unsaved);
+
+        let mut doc = info.doc;
+        let pages = edited_pages(&documents, &mut doc, insert_pages(1, taken.source));
+        assert_eq!(pages.len(), 7);
+        assert_eq!(pages[0], LETTER);
+        assert_eq!(pages[5], LETTER);
+        assert_ne!(pages[1], LETTER);
+        // Undone (the document is opened again from its file and the other edits are made again),
+        // and made again from the copy the main process keeps.
+        let undone = opened_info(documents.undo(doc, None).unwrap());
+        assert_eq!(undone.pages, [LETTER; 3]);
+        let redone = opened_info(documents.redo(undone.doc).unwrap());
+        assert_eq!(redone.pages, pages);
+        // Another edit after it, then undone and redone: the pages are still there.
+        let mut doc = redone.doc;
+        let turned = edited_pages(&documents, &mut doc, turn(0));
+        assert_eq!(turned.len(), 7);
+        let back = opened_info(documents.undo(doc, None).unwrap());
+        assert_eq!(back.pages, pages);
+        // A worker that died is replaced, and the pages are taken again in the new one.
+        documents
+            .with_document(back.doc, |document| {
+                document.lost = true;
+                Ok(())
+            })
+            .unwrap();
+        assert!(!documents.page_text(back.doc, 4).unwrap().lines.is_empty());
+
+        // Saved as a copy: the copy has them.
+        let copy = std::env::temp_dir().join(format!("b206-{}-copy.pdf", std::process::id()));
+        let _ = std::fs::remove_file(&copy);
+        documents.save(back.doc, Some(copy.clone())).unwrap();
+        assert_eq!(first_page_count(&copy), 7);
+        std::fs::remove_file(&copy).ok();
+        std::fs::remove_file(path).ok();
+    }
+
+    /// How many pages the file at `path` has, opened in a fresh window.
+    fn first_page_count(path: &Path) -> usize {
+        open_in(&Documents::new(worker()), path).pages.len()
+    }
+
+    #[test]
+    fn what_was_active_in_the_file_taken_from_is_on_the_banner_only_while_its_pages_are_in() {
+        let (documents, info, path) = open("merge-banner", 2);
+        let taken = documents
+            .prepare_pages_source(info.doc, &corpus_path("malicious/openaction-js.pdf"), None)
+            .unwrap();
+        // Choosing the file says nothing yet: it is nobody's pages.
+        assert!(
+            documents
+                .document_info(info.doc)
+                .unwrap()
+                .security
+                .findings
+                .is_empty()
+        );
+        let mut doc = info.doc;
+        edited_pages(&documents, &mut doc, insert_pages(2, taken.source));
+        let now = documents.document_info(doc).unwrap();
+        assert!(
+            now.security
+                .findings
+                .iter()
+                .any(|finding| finding.kind == ipc_contract::types::FindingKind::OpenAction),
+            "{:?}",
+            now.security
+        );
+        // Undone, it is not there; made again, it is.
+        let undone = opened_info(documents.undo(doc, None).unwrap());
+        assert!(undone.security.findings.is_empty());
+        let redone = opened_info(documents.redo(undone.doc).unwrap());
+        assert!(!redone.security.findings.is_empty());
+        // Saved, the file has the pages and nothing active, and so the banner has nothing.
+        let copy = std::env::temp_dir().join(format!("b206-{}-banner.pdf", std::process::id()));
+        let _ = std::fs::remove_file(&copy);
+        let saved = opened_info(documents.save(redone.doc, Some(copy.clone())).unwrap().1);
+        assert!(saved.security.findings.is_empty());
+        let reopened = open_in(&Documents::new(worker()), &copy);
+        assert!(reopened.security.findings.is_empty());
+        assert_eq!(reopened.pages.len(), 3);
+        std::fs::remove_file(&copy).ok();
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn an_encrypted_file_waits_for_its_password_and_the_author_may_forbid_taking_pages() {
+        let (documents, info, path) = open("merge-password", 1);
+        let aes = corpus_path("benign/encrypted-aes256.pdf");
+        assert_eq!(
+            documents
+                .prepare_pages_source(info.doc, &aes, None)
+                .unwrap_err()
+                .code,
+            ErrorCode::Encrypted
+        );
+        // A wrong password is no better, and the file goes on waiting.
+        assert_eq!(
+            documents
+                .unlock_pages_source(info.doc, Password::new("wrong".to_owned()))
+                .unwrap_err()
+                .code,
+            ErrorCode::Encrypted
+        );
+        let taken = documents
+            .unlock_pages_source(info.doc, Password::new("user".to_owned()))
+            .unwrap();
+        assert_eq!(taken.pages, 1);
+        // Nothing waits any more.
+        assert_eq!(
+            documents
+                .unlock_pages_source(info.doc, Password::new("user".to_owned()))
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        // Taken, it needs no password: it is a plain copy.
+        let mut doc = info.doc;
+        assert_eq!(
+            edited_pages(&documents, &mut doc, insert_pages(1, taken.source)).len(),
+            2
+        );
+
+        // What the author of a file forbids, the file's pages are not taken either; the owner
+        // password is the author's.
+        let restricted = corpus_path("benign/restricted-open-password.pdf");
+        assert!(
+            documents
+                .prepare_pages_source(doc, &restricted, None)
+                .is_err()
+        );
+        assert_eq!(
+            documents
+                .unlock_pages_source(doc, Password::new("user".to_owned()))
+                .unwrap_err()
+                .code,
+            ErrorCode::NotAllowed
+        );
+        assert!(
+            documents
+                .unlock_pages_source(doc, Password::new("owner".to_owned()))
+                .is_ok()
+        );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn what_cannot_be_taken_from_or_put_into_is_refused() {
+        let (documents, info, path) = open("merge-refused", 2);
+        // Not a PDF, a folder, a file that is not there.
+        for (what, wrong) in [
+            ("manifest.json", ErrorCode::NotPdf),
+            ("", ErrorCode::Unreadable),
+            ("benign/missing.pdf", ErrorCode::Unreadable),
+        ] {
+            assert_eq!(
+                documents
+                    .prepare_pages_source(info.doc, &corpus_path(what), None)
+                    .unwrap_err()
+                    .code,
+                wrong,
+                "{what}"
+            );
+        }
+        // An edit that names a file the document does not have, or a place that is not there.
+        let taken = documents
+            .prepare_pages_source(info.doc, &corpus_path("benign/single-page.pdf"), None)
+            .unwrap();
+        let refused = |at: u32, source| {
+            documents
+                .apply_edit(&EditArgs {
+                    doc: info.doc,
+                    edit: insert_pages(at, source),
+                })
+                .unwrap_err()
+                .code
+        };
+        assert_eq!(
+            refused(0, ipc_contract::types::SourceId(99)),
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(refused(3, taken.source), ErrorCode::InvalidArgument);
+        // The document is as it was after any of it.
+        assert_eq!(documents.document_info(info.doc).unwrap().pages.len(), 2);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_document_whose_author_forbids_changing_its_pages_takes_no_pages() {
+        // RC4, revision 2, /P without the modify bit (tests/corpus/generate.py).
+        let documents = Documents::new(worker());
+        let (_, info) = unlocked(&documents, &corpus_path("benign/encrypted-rc4-40.pdf"));
+        assert!(!info.permissions.modify && !info.permissions.assemble);
+        assert_eq!(
+            documents.check_can_insert_pages(info.doc).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(
+            documents
+                .prepare_pages_source(info.doc, &corpus_path("benign/single-page.pdf"), None)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+    }
+
     /// The picture of the corpus file `name`, opened as the one the user chose is (B2-08).
     fn picture(name: &str) -> std::fs::File {
         open_picture(
@@ -4113,5 +4555,80 @@ mod with_worker {
                 .code,
             ErrorCode::InvalidArgument
         );
+    }
+
+    #[test]
+    fn a_journal_stops_before_the_pages_of_another_file_and_the_rest_is_offered_as_far_as_it_goes()
+    {
+        let data = DataFolder::new("merge-partial");
+        let path = write_pdf("b206-partial", &letter_pdf(3));
+        let earlier = data.documents();
+        let mut doc = open_in(&earlier, &path).doc;
+        let taken = earlier
+            .prepare_pages_source(doc, &corpus_path("benign/single-page.pdf"), None)
+            .unwrap();
+        edited_pages(&earlier, &mut doc, turn(0));
+        edited_pages(&earlier, &mut doc, insert_pages(1, taken.source));
+        edited_pages(&earlier, &mut doc, turn(2));
+        // The journal has the edit before the pages of the other file, and says two are left out.
+        let file = std::fs::read_dir(data.recovery())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let kept: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+        assert_eq!(kept["edits"].as_array().unwrap().len(), 1);
+        assert_eq!(kept["lost"], 2);
+        drop(earlier);
+
+        let later = data.documents();
+        let reopened = open_in(&later, &path);
+        assert_eq!(reopened.recovery, Recovery::Partial);
+        assert_eq!(reopened.pages, [LETTER; 3]);
+        // What can be made again is: the first turn, and not the pages or the second turn.
+        let recovered = opened_info(later.recover(reopened.doc).unwrap());
+        assert_eq!(recovered.pages, [LANDSCAPE, LETTER, LETTER]);
+        assert_eq!(recovered.recovery, Recovery::None);
+        // It is the document's own history now: nothing is left out of it.
+        let file = std::fs::read_dir(data.recovery())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let now: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+        assert!(now.get("lost").is_none());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_journal_with_nothing_before_the_pages_of_another_file_can_only_be_told_of() {
+        let data = DataFolder::new("merge-lost");
+        let path = write_pdf("b206-lost", &letter_pdf(2));
+        let earlier = data.documents();
+        let mut doc = open_in(&earlier, &path).doc;
+        let taken = earlier
+            .prepare_pages_source(doc, &corpus_path("benign/single-page.pdf"), None)
+            .unwrap();
+        edited_pages(&earlier, &mut doc, insert_pages(2, taken.source));
+        // There is a journal (the document has changes), though no edit can be kept in it.
+        assert_eq!(data.journals(), 1);
+        drop(earlier);
+
+        let later = data.documents();
+        let reopened = open_in(&later, &path);
+        assert_eq!(reopened.recovery, Recovery::Lost);
+        assert_eq!(reopened.pages, [LETTER; 2]);
+        assert_eq!(
+            later.recover(reopened.doc).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        let discarded = opened_info(later.discard_recovered(reopened.doc).unwrap());
+        assert_eq!(discarded.recovery, Recovery::None);
+        assert_eq!(data.journals(), 0);
+        std::fs::remove_file(path).ok();
     }
 }

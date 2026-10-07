@@ -346,6 +346,15 @@ impl WorkerHost {
         self.request_within(timeout, make)
     }
 
+    /// As [`request`](Self::request), for what may take as long as saving does: the pages of a
+    /// file of up to `MAX_SOURCE_BYTES` taken into a document (B2-06).
+    pub fn request_long(
+        &mut self,
+        make: impl FnOnce(RequestId) -> WorkerRequest,
+    ) -> Result<WorkerResponse, HostError> {
+        self.request_within(SAVE_TIMEOUT, make)
+    }
+
     fn request_within(
         &mut self,
         timeout: Duration,

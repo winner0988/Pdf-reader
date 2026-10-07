@@ -13,6 +13,8 @@ pub fn window_title(file_name: Option<&str>, unsaved: bool) -> String {
     }
 }
 pub const PDF_FILTER_NAME: &str = "PDF 檔案";
+/// The dialog for the file whose pages are put into the document (B2-06).
+pub const PAGES_SOURCE_DIALOG_TITLE: &str = "選擇要插入頁面的 PDF 檔案";
 
 /// Saving a document as another file (B2-02).
 pub const SAVE_AS_DIALOG_TITLE: &str = "另存新檔";

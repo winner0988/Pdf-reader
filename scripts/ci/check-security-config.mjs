@@ -45,6 +45,14 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-open-document-dialog", "MVP-06: the main process shows the dialog; the path stays there"],
   ["allow-retry-open", "MVP-06, MVP-14: reopen a tab's file after a worker failure, by tab id"],
   ["allow-unlock-tab", "MVP-16: try a password on a tab whose file is encrypted; it goes to that tab's worker only"],
+  [
+    "allow-pick-pages-source",
+    "B2-06: a PDF whose pages go into the document; the main process asks in its open dialog and the path stays there, the document's worker scans it and writes a clean copy",
+  ],
+  [
+    "allow-unlock-pages-source",
+    "B2-06: the password of the encrypted file just chosen to take pages from; it goes to that document's worker only",
+  ],
   ["allow-close-tab", "MVP-14: close a tab by its id; its worker ends"],
   ["allow-set-active-tab", "MVP-14: which tab the window shows, for the window title"],
   ["allow-render-page", "MVP-07: render a page of an open document"],
