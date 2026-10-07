@@ -81,6 +81,9 @@ export function isTextInput(target: EventTarget | null): boolean {
   );
 }
 
+/** A drop-down list or list box: plain keys (Home, End, the arrows) choose an option in it. */
+const isChoiceList = (target: EventTarget | null) => target instanceof HTMLSelectElement;
+
 /** F1–F12: they never edit text. */
 const isFunctionKey = (event: KeyboardEvent) => /^F\d{1,2}$/.test(event.key);
 
@@ -97,6 +100,10 @@ export function findShortcut(event: KeyboardEvent): Shortcut | undefined {
     isTextInput(event.target) &&
     (shortcut.notInTextFields || (!event.ctrlKey && !isFunctionKey(event)))
   ) {
+    return undefined;
+  }
+  // In a list of choices plain keys choose; Ctrl combinations (and undo) are still the app's.
+  if (shortcut && isChoiceList(event.target) && !event.ctrlKey && !isFunctionKey(event)) {
     return undefined;
   }
   return shortcut;
