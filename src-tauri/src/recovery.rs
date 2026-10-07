@@ -5,7 +5,9 @@
 //! the user is offered to make its edits again.
 //!
 //! A journal is read as untrusted data, like any file in the data folder: with a size limit,
-//! only in the app's format, and with every edit checked as an edit from the page is.
+//! only in the app's format, and with every edit checked as an edit from the page is. The
+//! pictures of picture stamps (B2-08) are in it too, as the edits name them: as hex text, each
+//! a PNG file that is checked as the worker's is.
 
 use std::collections::HashSet;
 use std::fs;
@@ -14,11 +16,12 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use ipc_contract::limits::MAX_UNDO_EDITS;
-use ipc_contract::types::Edit;
-use ipc_contract::validate::Validate;
+use ipc_contract::types::{Edit, StampImageId};
+use ipc_contract::validate::{Validate, stamp_png_size};
 use serde::{Deserialize, Serialize};
 
 use crate::local_data;
+use crate::pictures::MAX_PICTURES;
 use crate::recent::key;
 use crate::saving::FileIdentity;
 
@@ -47,7 +50,24 @@ struct Stored {
     modified_nanos: u32,
     /// The edits made to it since, in order.
     edits: Vec<Edit>,
+    /// The pictures those edits name (B2-08).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pictures: Vec<StoredPicture>,
 }
+
+/// A picture in a journal: its number, and its PNG file as hex text.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredPicture {
+    id: u32,
+    png: String,
+}
+
+/// The pictures an edit list names, with their PNG files (B2-08).
+pub type PictureFiles<'a> = &'a [(StampImageId, &'a [u8])];
+
+/// The same, read from a journal.
+pub type ReadPictures = Vec<(StampImageId, Vec<u8>)>;
 
 /// A journal's file name in the folder: random, so the folder says nothing of the files.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -58,6 +78,8 @@ pub struct JournalId(String);
 pub struct Found {
     pub id: JournalId,
     pub edits: Vec<Edit>,
+    /// The pictures the edits name, under the numbers they have in them.
+    pub pictures: ReadPictures,
     /// The file is as it was when the edits were made: they can be made on it again.
     pub same_file: bool,
 }
@@ -92,28 +114,33 @@ impl Journals {
         Some(id)
     }
 
-    /// Whether a journal of `edits` to the file at `path` would be small enough to keep.
+    /// Whether a journal of `edits` (and the `pictures` they name) to the file at `path` would
+    /// be small enough to keep.
     pub fn check(
         path: &Path,
         identity: Option<FileIdentity>,
         edits: &[Edit],
+        pictures: PictureFiles,
     ) -> Result<(), TooLarge> {
-        match encode(path, identity, edits) {
+        match encode(path, identity, edits, pictures) {
             Some(json) if json.len() > MAX_JOURNAL_BYTES => Err(TooLarge),
             _ => Ok(()),
         }
     }
 
-    /// Replaces journal `id` with `edits` to the file at `path`, which was `identity` when read.
-    /// Best effort: if the file cannot be written, a crash loses the changes, nothing else.
+    /// Replaces journal `id` with `edits` to the file at `path`, which was `identity` when read,
+    /// and the `pictures` they name. Best effort: if the file cannot be written, a crash loses
+    /// the changes, nothing else.
     pub fn write(
         &self,
         id: &JournalId,
         path: &Path,
         identity: Option<FileIdentity>,
         edits: &[Edit],
+        pictures: PictureFiles,
     ) -> Result<(), TooLarge> {
-        let (Some(file), Some(json)) = (self.file(id), encode(path, identity, edits)) else {
+        let (Some(file), Some(json)) = (self.file(id), encode(path, identity, edits, pictures))
+        else {
             return Ok(());
         };
         if json.len() > MAX_JOURNAL_BYTES {
@@ -159,7 +186,7 @@ impl Journals {
         if self.lock().contains(id) {
             return None;
         }
-        let stored = read(&self.file(id)?, path)?;
+        let (stored, pictures) = read(&self.file(id)?, path)?;
         // Checked by `read`: the nanoseconds never carry into the seconds.
         let then = FileIdentity::from_parts(
             stored.len,
@@ -172,6 +199,7 @@ impl Journals {
         Some(Found {
             id: id.clone(),
             edits: stored.edits,
+            pictures,
             same_file: now.is_some() && now == then,
         })
     }
@@ -217,7 +245,12 @@ fn id_of(name: &str) -> Option<JournalId> {
 }
 
 /// The journal file's content; `None` if the file has no usable identity or its path no text.
-fn encode(path: &Path, identity: Option<FileIdentity>, edits: &[Edit]) -> Option<Vec<u8>> {
+fn encode(
+    path: &Path,
+    identity: Option<FileIdentity>,
+    edits: &[Edit],
+    pictures: PictureFiles,
+) -> Option<Vec<u8>> {
     let (len, since_epoch) = identity?.parts()?;
     serde_json::to_vec(&Stored {
         version: VERSION,
@@ -226,12 +259,48 @@ fn encode(path: &Path, identity: Option<FileIdentity>, edits: &[Edit]) -> Option
         modified_secs: since_epoch.as_secs(),
         modified_nanos: since_epoch.subsec_nanos(),
         edits: edits.to_vec(),
+        pictures: pictures
+            .iter()
+            .map(|(id, png)| StoredPicture {
+                id: id.0,
+                png: hex(png),
+            })
+            .collect(),
     })
     .ok()
 }
 
-/// Journal `file`, if it is one the app could have written for the file at `path`.
-fn read(file: &Path, path: &Path) -> Option<Stored> {
+/// `bytes` as lowercase hex text.
+fn hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut text = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        text.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        text.push(char::from(DIGITS[usize::from(byte & 15)]));
+    }
+    text
+}
+
+/// The bytes of lowercase hex `text`; `None` for anything else.
+fn unhex(text: &str) -> Option<Vec<u8>> {
+    let digit = |byte: u8| match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        _ => None,
+    };
+    let (pairs, rest) = text.as_bytes().as_chunks::<2>();
+    if !rest.is_empty() {
+        return None;
+    }
+    pairs
+        .iter()
+        .map(|&[high, low]| Some(digit(high)? << 4 | digit(low)?))
+        .collect()
+}
+
+/// Journal `file`, if it is one the app could have written for the file at `path`; with its
+/// pictures, decoded.
+fn read(file: &Path, path: &Path) -> Option<(Stored, ReadPictures)> {
     let json = local_data::read(file, MAX_JOURNAL_BYTES as u64)?;
     let stored: Stored = serde_json::from_slice(&json).ok()?;
     let valid = stored.version == VERSION
@@ -241,7 +310,34 @@ fn read(file: &Path, path: &Path) -> Option<Stored> {
         && !stored.edits.is_empty()
         && stored.edits.len() <= MAX_UNDO_EDITS as usize
         && stored.edits.iter().all(|edit| edit.validate().is_ok());
-    valid.then_some(stored)
+    if !valid {
+        return None;
+    }
+    let pictures = pictures_of(&stored)?;
+    Some((stored, pictures))
+}
+
+/// The pictures of a journal, if they are all good: each a PNG file whose header says a size a
+/// stamp can have, no number twice, and one for every picture the edits name (B2-08). The worker
+/// checks and decodes a picture again when an edit puts it on a page.
+fn pictures_of(stored: &Stored) -> Option<ReadPictures> {
+    if stored.pictures.len() > MAX_PICTURES {
+        return None;
+    }
+    let mut pictures = ReadPictures::new();
+    for picture in &stored.pictures {
+        let id = StampImageId(picture.id);
+        let png = unhex(&picture.png).filter(|png| stamp_png_size(png).is_ok())?;
+        if pictures.iter().any(|(seen, _)| *seen == id) {
+            return None;
+        }
+        pictures.push((id, png));
+    }
+    let named = stored.edits.iter().all(|edit| match edit {
+        Edit::AddImageStamp { image, .. } => pictures.iter().any(|(id, _)| id == image),
+        _ => true,
+    });
+    named.then_some(pictures)
 }
 
 #[cfg(test)]
@@ -314,7 +410,7 @@ mod tests {
         let earlier = folder.journals();
         let id = earlier.create().unwrap();
         earlier
-            .write(&id, &file(), identity(1_000), &edits())
+            .write(&id, &file(), identity(1_000), &edits(), &[])
             .unwrap();
         assert_eq!(folder.files(), [format!("{}.json", id.0)]);
         // The name says nothing of the file.
@@ -334,6 +430,7 @@ mod tests {
             Found {
                 id: id.clone(),
                 edits: edits(),
+                pictures: Vec::new(),
                 same_file: true
             }
         );
@@ -349,7 +446,7 @@ mod tests {
         let earlier = folder.journals();
         let id = earlier.create().unwrap();
         earlier
-            .write(&id, &file(), identity(1_000), &edits())
+            .write(&id, &file(), identity(1_000), &edits(), &[])
             .unwrap();
         let found = folder.journals().find(&file(), identity(999)).unwrap();
         assert!(!found.same_file);
@@ -362,7 +459,7 @@ mod tests {
         let journals = folder.journals();
         let id = journals.create().unwrap();
         journals
-            .write(&id, &file(), identity(1_000), &edits())
+            .write(&id, &file(), identity(1_000), &edits(), &[])
             .unwrap();
         assert_eq!(journals.find(&file(), identity(1_000)), None);
         journals.release(&id);
@@ -375,12 +472,12 @@ mod tests {
         let earlier = folder.journals();
         let left = earlier.create().unwrap();
         earlier
-            .write(&left, &file(), identity(1_000), &edits())
+            .write(&left, &file(), identity(1_000), &edits(), &[])
             .unwrap();
         let journals = folder.journals();
         let own = journals.create().unwrap();
         journals
-            .write(&own, &file(), identity(1_000), &edits())
+            .write(&own, &file(), identity(1_000), &edits(), &[])
             .unwrap();
         fs::write(
             folder
@@ -411,17 +508,20 @@ mod tests {
         let all: Vec<u32> = (0..99_999).collect();
         let large = vec![Edit::DeletePages { pages: all }; 10];
         assert_eq!(
-            Journals::check(&file(), identity(1_000), &large),
+            Journals::check(&file(), identity(1_000), &large, &[]),
             Err(TooLarge)
         );
         assert_eq!(
-            journals.write(&id, &file(), identity(1_000), &large),
+            journals.write(&id, &file(), identity(1_000), &large, &[]),
             Err(TooLarge)
         );
         assert!(folder.files().is_empty());
-        assert_eq!(Journals::check(&file(), identity(1_000), &edits()), Ok(()));
+        assert_eq!(
+            Journals::check(&file(), identity(1_000), &edits(), &[]),
+            Ok(())
+        );
         // Without the file's identity there is nothing to check a later file against.
-        journals.write(&id, &file(), None, &edits()).unwrap();
+        journals.write(&id, &file(), None, &edits(), &[]).unwrap();
         assert!(folder.files().is_empty());
     }
 
@@ -510,5 +610,130 @@ mod tests {
         assert_eq!(journals.create(), None);
         assert_eq!(journals.find(&file(), identity(1_000)), None);
         journals.clear_unused();
+    }
+
+    /// A PNG file as far as its header goes, which is all a journal's picture is checked for here
+    /// (the worker decodes it when an edit puts it on a page).
+    fn png(width: u32, height: u32) -> Vec<u8> {
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13];
+        png.extend_from_slice(b"IHDR");
+        png.extend_from_slice(&width.to_be_bytes());
+        png.extend_from_slice(&height.to_be_bytes());
+        png
+    }
+
+    fn picture_stamp(image: u32) -> Edit {
+        Edit::AddImageStamp {
+            page: 0,
+            rect: ipc_contract::types::Rect {
+                x0: 100.0,
+                y0: 100.0,
+                x1: 228.0,
+                y1: 164.0,
+            },
+            image: StampImageId(image),
+        }
+    }
+
+    #[test]
+    fn hex_text_is_lowercase_and_strict() {
+        assert_eq!(hex(&[0, 15, 255, 0x4a]), "000fff4a");
+        assert_eq!(unhex("000fff4a"), Some(vec![0, 15, 255, 0x4a]));
+        assert_eq!(unhex(""), Some(Vec::new()));
+        for bad in ["0", "000FFF", "0g", "00 0f", "é0"] {
+            assert_eq!(unhex(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_pictures_of_picture_stamps_are_kept_as_hex_text_and_come_back() {
+        let folder = Folder::new();
+        let journals = folder.journals();
+        let id = journals.create().unwrap();
+        let picture = png(64, 32);
+        let edits = vec![picture_stamp(3), Edit::DeletePages { pages: vec![2] }];
+        journals
+            .write(
+                &id,
+                &file(),
+                identity(1_000),
+                &edits,
+                &[(StampImageId(3), &picture)],
+            )
+            .unwrap();
+        let text =
+            fs::read_to_string(folder.0.join(FOLDER_NAME).join(format!("{}.json", id.0))).unwrap();
+        assert!(text.contains(&hex(&picture)));
+        journals.release(&id);
+        let found = folder.journals().find(&file(), identity(1_000)).unwrap();
+        assert_eq!(found.edits, edits);
+        assert_eq!(found.pictures, [(StampImageId(3), picture)]);
+    }
+
+    #[test]
+    fn a_journal_with_a_picture_it_cannot_have_is_not_the_apps() {
+        let folder = Folder::new();
+        let dir = folder.0.join(FOLDER_NAME);
+        fs::create_dir_all(&dir).unwrap();
+        let path = serde_json::to_string(&file().to_str().unwrap()).unwrap();
+        let journal = |pictures: &str| {
+            format!(
+                r#"{{"version":1,"path":{path},"len":1000,"modifiedSecs":1790000000,"modifiedNanos":123,"edits":[{{"kind":"addImageStamp","page":0,"rect":{{"x0":100,"y0":100,"x1":228,"y1":164}},"image":3}}],"pictures":{pictures}}}"#
+            )
+        };
+        let picture = |id: u32, png: &[u8]| format!(r#"{{"id":{id},"png":"{}"}}"#, hex(png));
+        let good = journal(&format!("[{}]", picture(3, &png(64, 32))));
+        let many: Vec<String> = (3..3 + crate::pictures::MAX_PICTURES as u32 + 1)
+            .map(|id| picture(id, &png(8, 8)))
+            .collect();
+        let bad = [
+            // The edit names a picture that is not there, or there is none.
+            journal("[]"),
+            journal(&format!("[{}]", picture(4, &png(64, 32)))),
+            // Not hex in the app's way; not a PNG file; a size no stamp has; a number twice; and
+            // more pictures than a document keeps.
+            journal(r#"[{"id":3,"png":"89504E47"}]"#),
+            journal(r#"[{"id":3,"png":"0"}]"#),
+            journal(&format!("[{}]", picture(3, b"not a picture at all"))),
+            journal(&format!("[{}]", picture(3, &png(0, 32)))),
+            journal(&format!("[{}]", picture(3, &png(64, 5_000)))),
+            journal(&format!(
+                "[{},{}]",
+                picture(3, &png(64, 32)),
+                picture(3, &png(8, 8))
+            )),
+            journal(&format!("[{}]", many.join(","))),
+            journal(r#"[{"id":3,"png":"","more":1}]"#),
+        ];
+        for (index, content) in bad.iter().enumerate() {
+            let name = format!("{index:032x}.json");
+            fs::write(dir.join(&name), content).unwrap();
+            assert_eq!(
+                folder.journals().find(&file(), identity(1_000)),
+                None,
+                "{content}"
+            );
+            fs::remove_file(dir.join(name)).unwrap();
+        }
+        fs::write(dir.join(format!("{:032x}.json", 0)), good).unwrap();
+        let found = folder.journals().find(&file(), identity(1_000)).unwrap();
+        assert_eq!(found.pictures, [(StampImageId(3), png(64, 32))]);
+    }
+
+    #[test]
+    fn one_picture_fits_a_journal_and_two_of_the_largest_do_not() {
+        let mut large = png(64, 32);
+        large.resize(ipc_contract::limits::MAX_STAMP_PNG_BYTES, 0);
+        let edits = vec![picture_stamp(3), picture_stamp(4)];
+        let one = [(StampImageId(3), &large[..])];
+        let two = [(StampImageId(3), &large[..]), (StampImageId(4), &large[..])];
+        assert_eq!(
+            Journals::check(&file(), identity(1_000), &edits, &one),
+            Ok(())
+        );
+        assert_eq!(
+            Journals::check(&file(), identity(1_000), &edits, &two),
+            Err(TooLarge)
+        );
     }
 }

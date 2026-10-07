@@ -13,6 +13,7 @@ pub mod ocr_worker;
 mod owner_password;
 mod privacy;
 pub mod scan;
+mod scrub;
 pub mod search;
 pub mod serve;
 pub mod text_layer;

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { PointerEventsCheckLevel } from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -11,7 +11,7 @@ import type { DocumentPermissions } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { EditingApi } from "@/features/thumbnails/api";
 import { strings } from "@/i18n/zh-TW";
-import type { Edit, PageAnnotation, PageLink } from "@/ipc/generated/contract";
+import type { Edit, PageAnnotation, PageLink, StampImageInfo } from "@/ipc/generated/contract";
 
 const t = strings.annotations;
 
@@ -37,6 +37,8 @@ async function setup(
   permissions: DocumentPermissions = ALL_PERMISSIONS,
   onPage: PageAnnotation[] = [drawing, stamp],
   linksApi?: LinksApi,
+  /** What the user's choice of a picture gives; `null`: the API cannot ask for one. */
+  pick: (() => Promise<StampImageInfo | null>) | null = () => Promise.resolve(null),
 ) {
   const editing = {
     applyEdit: vi.fn<EditingApi["applyEdit"]>(() => Promise.resolve()),
@@ -47,6 +49,7 @@ async function setup(
   } satisfies EditingApi;
   const annotationsApi = {
     getPageAnnotations: vi.fn((_doc: number, page: number) => Promise.resolve(page === 0 ? onPage : [])),
+    ...(pick ? { pickStampImage: vi.fn(pick) } : {}),
   } satisfies AnnotationsApi;
   render(
     <ReaderShell
@@ -69,7 +72,7 @@ async function setup(
   const layer = () => document.querySelector<HTMLElement>('[data-page-drawing="1"]');
   const penButton = () => screen.getByRole("button", { name: t.pen });
   const stampButton = () => screen.getByRole("button", { name: t.stamp });
-  return { editing, layer, penButton, stampButton, user };
+  return { annotationsApi, editing, layer, penButton, stampButton, user };
 }
 
 const lastEdit = (editing: { applyEdit: ReturnType<typeof vi.fn> }): Edit => editing.applyEdit.mock.calls.at(-1)![1] as Edit;
@@ -407,5 +410,84 @@ describe("drawing on a page that is zoomed and turned (B2-08)", () => {
     expect((edit.rect.x0 + edit.rect.x1) / 2).toBeCloseTo(300);
     expect((edit.rect.y0 + edit.rect.y1) / 2).toBeCloseTo(392);
     expect(edit.rect.x1 - edit.rect.x0).toBeCloseTo(STAMP_WIDTH_PT);
+  });
+});
+
+describe("a picture of the user's own as a stamp (B2-08)", () => {
+  const picture: StampImageInfo = { image: 4, width: 64, height: 32 };
+  const choose = async (user: ReturnType<typeof userEvent.setup>, stampButton: () => HTMLElement) => {
+    await user.click(stampButton());
+    await user.click(await screen.findByRole("menuitem", { name: t.pickPicture }));
+  };
+
+  it("asks for the picture, and puts it down where the pointer is released, in its own shape", async () => {
+    const { annotationsApi, editing, layer, stampButton, user } = await setup(
+      ALL_PERMISSIONS,
+      [drawing, stamp],
+      undefined,
+      () => Promise.resolve(picture),
+    );
+    await choose(user, stampButton);
+    expect(annotationsApi.pickStampImage).toHaveBeenCalledWith(5);
+    await waitFor(() => expect(layer()).not.toBeNull());
+    expect(layer()!.dataset.tool).toBe("picture");
+    expect(screen.getByRole("contentinfo")).toHaveTextContent(t.placePicture);
+
+    fireEvent.pointerDown(layer()!, pointer(300, 200));
+    fireEvent.pointerUp(layer()!, pointer(300, 200));
+    const edit = lastEdit(editing);
+    expect(edit).toMatchObject({ kind: "addImageStamp", page: 0, image: 4 });
+    if (edit.kind !== "addImageStamp") throw new Error("a picture stamp");
+    // 64 : 32 pixels, the longer side 150 points; the pointer is in the middle of it.
+    expect(edit.rect.x1 - edit.rect.x0).toBeCloseTo(150);
+    expect(edit.rect.y1 - edit.rect.y0).toBeCloseTo(75);
+    expect((edit.rect.x0 + edit.rect.x1) / 2).toBeCloseTo(300);
+    expect((edit.rect.y0 + edit.rect.y1) / 2).toBeCloseTo(200);
+    // One stamp for one choice.
+    expect(layer()).toBeNull();
+  });
+
+  it("puts it in the middle of the page with Enter, and nothing happens when the dialog is closed", async () => {
+    const { editing, layer, stampButton, user } = await setup(ALL_PERMISSIONS, [], undefined, () =>
+      Promise.resolve(picture),
+    );
+    await choose(user, stampButton);
+    await waitFor(() => expect(layer()).not.toBeNull());
+    await user.keyboard("{Enter}");
+    const edit = lastEdit(editing);
+    if (edit.kind !== "addImageStamp") throw new Error("a picture stamp");
+    expect((edit.rect.x0 + edit.rect.x1) / 2).toBeCloseTo(306);
+    expect((edit.rect.y0 + edit.rect.y1) / 2).toBeCloseTo(396);
+    expect(layer()).toBeNull();
+  });
+
+  it("does nothing when the user closes the dialog", async () => {
+    const { annotationsApi, layer, stampButton, user } = await setup();
+    await choose(user, stampButton);
+    await waitFor(() => expect(annotationsApi.pickStampImage).toHaveBeenCalled());
+    await act(async () => {});
+    expect(layer()).toBeNull();
+    expect(screen.getByRole("contentinfo")).not.toHaveTextContent(t.placePicture);
+  });
+
+  it("says why a picture cannot be used", async () => {
+    const asked = [
+      [{ code: "limitExceeded", message: "" }, t.tooManyPictures],
+      [{ code: "tooLarge", message: "" }, t.pictureTooLarge],
+      [{ code: "invalidArgument", message: "" }, t.pictureFailed],
+    ] as const;
+    for (const [error, hint] of asked) {
+      const { layer, stampButton, user } = await setup(ALL_PERMISSIONS, [], undefined, () => Promise.reject(error));
+      await choose(user, stampButton);
+      await waitFor(() => expect(screen.getByRole("contentinfo")).toHaveTextContent(hint));
+      expect(layer()).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("is not in the menu when the API cannot ask for one", async () => {
+    const { stampButton, user } = await setup(ALL_PERMISSIONS, [], undefined, null);
+    await user.click(stampButton());
+    expect(await screen.findByRole("menuitem", { name: t.pickPicture })).toHaveAttribute("aria-disabled", "true");
   });
 });

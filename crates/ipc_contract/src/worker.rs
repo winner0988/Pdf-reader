@@ -12,7 +12,7 @@ use crate::types::{
     AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FormField,
     HighlightColor, HighlightMark, InkColor, InkWidth, OutlineResult, PageAnnotation, PageLink,
     PageSize, PageText, Password, Point, Rect, RequestId, Rotation, SearchHit, SecurityReport,
-    StampName,
+    StampImageId, StampName,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -33,6 +33,11 @@ pub enum WorkerEdit {
     MovePages { pages: Vec<u32>, before: u32 },
     /// As [`Edit::InsertBlankPage`].
     InsertBlankPage { at: u32, like: u32 },
+    /// Puts the pages of `source` (a plain PDF file, as `PrepareSource` made it) into the
+    /// document from index `at` on, in their order (B2-06). Only what is on the pages comes
+    /// along: not their annotations, links and form fields, and nothing active (see
+    /// docs/architecture/merge.md).
+    InsertPages { at: u32, source: Vec<u8> },
     /// As [`Edit::AddHighlight`].
     AddHighlight {
         marks: Vec<HighlightMark>,
@@ -86,9 +91,18 @@ pub enum WorkerEdit {
     AddImageStamp { page: u32, rect: Rect, png: Vec<u8> },
 }
 
-impl From<&Edit> for WorkerEdit {
-    fn from(edit: &Edit) -> Self {
-        match edit {
+/// An edit names a stamp picture that its document does not have (B2-08).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnknownPicture;
+
+impl WorkerEdit {
+    /// `edit` as the worker is asked to make it. A picture stamp names its picture; `picture`
+    /// gives the PNG file of it (B2-08), which the worker is sent with the edit.
+    pub fn of(
+        edit: &Edit,
+        picture: impl Fn(StampImageId) -> Option<Vec<u8>>,
+    ) -> Result<Self, UnknownPicture> {
+        Ok(match edit {
             Edit::RotatePages { pages, by } => WorkerEdit::RotatePages {
                 pages: pages.clone(),
                 degrees: by.degrees(),
@@ -157,6 +171,11 @@ impl From<&Edit> for WorkerEdit {
                 rect: *rect,
                 stamp: *stamp,
             },
+            Edit::AddImageStamp { page, rect, image } => WorkerEdit::AddImageStamp {
+                page: *page,
+                rect: *rect,
+                png: picture(*image).ok_or(UnknownPicture)?,
+            },
             Edit::SetAnnotationRect {
                 page,
                 annotation,
@@ -166,7 +185,7 @@ impl From<&Edit> for WorkerEdit {
                 annotation: *annotation,
                 rect: *rect,
             },
-        }
+        })
     }
 }
 
@@ -331,6 +350,15 @@ pub enum WorkerRequest {
     OcrStop {
         request: RequestId,
     },
+    /// Makes the PDF in `file` (read-only) into what its pages are later taken from (B2-06): a
+    /// plain, clean copy of it, with how many pages it has and what active content it has.
+    /// `password` is for an encrypted file, wiped when the request is done. Answered by
+    /// `Source`; nothing is kept in the worker.
+    PrepareSource {
+        request: RequestId,
+        file: FileHandle,
+        password: Option<Password>,
+    },
     /// Best effort: the worker drops the target request if it has not finished yet.
     Cancel {
         target: RequestId,
@@ -413,6 +441,13 @@ pub enum WorkerResponse {
     /// `Rebase` is done.
     Rebased {
         request: RequestId,
+    },
+    /// The copy of the file of `PrepareSource` (B2-06).
+    Source {
+        request: RequestId,
+        bytes: Vec<u8>,
+        pages: u32,
+        security: SecurityReport,
     },
     /// The document was written: `bytes` long, appended to the original (`incremental`, for a
     /// signed document) or rewritten.
@@ -531,6 +566,8 @@ pub enum WorkerErrorCode {
     /// The given password does not open the document.
     WrongPassword,
     UnsupportedEncryption,
+    /// The author of the document forbids what was asked of it (B2-06).
+    NotAllowed,
     Unreadable,
     LimitExceeded,
     Cancelled,
@@ -552,6 +589,7 @@ impl From<WorkerErrorCode> for ErrorCode {
             WorkerErrorCode::Corrupted => ErrorCode::Corrupted,
             WorkerErrorCode::Encrypted | WorkerErrorCode::WrongPassword => ErrorCode::Encrypted,
             WorkerErrorCode::UnsupportedEncryption => ErrorCode::UnsupportedEncryption,
+            WorkerErrorCode::NotAllowed => ErrorCode::NotAllowed,
             WorkerErrorCode::Unreadable => ErrorCode::Unreadable,
             WorkerErrorCode::LimitExceeded => ErrorCode::LimitExceeded,
             WorkerErrorCode::Cancelled => ErrorCode::Cancelled,

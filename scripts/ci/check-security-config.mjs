@@ -97,6 +97,10 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-start-ocr", "B2-10: recognise the text of an open document's scanned pages now, by document id"],
   ["allow-stop-ocr", "B2-10: stop recognising an open document's pages, by document id"],
   ["allow-set-ocr-focus", "B2-10: the page the user looks at, which is recognised first, by document id and page number"],
+  [
+    "allow-pick-stamp-image",
+    "B2-08: a picture for a custom stamp; the main process asks in its open dialog and the path stays there, the document's worker keeps only the pixels",
+  ],
 ]);
 
 /** Plugin permission prefixes that are never granted to the frontend, allowlist or not. */

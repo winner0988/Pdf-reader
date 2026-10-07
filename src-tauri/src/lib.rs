@@ -17,6 +17,7 @@ mod local_data;
 mod ocr;
 mod ocr_languages;
 mod opener;
+mod pictures;
 mod recent;
 mod recovery;
 mod render;
@@ -131,6 +132,7 @@ pub fn run() {
             commands::start_ocr,
             commands::stop_ocr,
             commands::set_ocr_focus,
+            commands::pick_stamp_image,
         ])
         .on_window_event(commands::on_window_event)
         .setup(move |app| {

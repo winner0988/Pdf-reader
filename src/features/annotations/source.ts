@@ -4,14 +4,23 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import type { DocumentId, PageAnnotation } from "@/ipc/generated/contract";
+import type { DocumentId, PageAnnotation, StampImageInfo } from "@/ipc/generated/contract";
 
 export type AnnotationsApi = {
   getPageAnnotations(doc: DocumentId, pageIndex: number): Promise<PageAnnotation[]>;
+  /**
+   * Asks the user for a picture (PNG or JPEG) in the system's dialog and makes it into a stamp
+   * picture of the document (B2-08): only its pixels, kept by the main process, which never
+   * tells the path. `null` when the user closes the dialog; rejects with `limitExceeded` (too many
+   * pictures in the unsaved changes), `tooLarge` or another code when the picture cannot be used.
+   * Without it (demo data, tests) the stamp menu has no picture of the user's own.
+   */
+  pickStampImage?(doc: DocumentId): Promise<StampImageInfo | null>;
 };
 
 export const tauriAnnotationsApi: AnnotationsApi = {
   getPageAnnotations: (doc, pageIndex) => invoke<PageAnnotation[]>("get_page_annotations", { doc, pageIndex }),
+  pickStampImage: (doc) => invoke<StampImageInfo | null>("pick_stamp_image", { doc }),
 };
 
 export type AnnotationSource = {

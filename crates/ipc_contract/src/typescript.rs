@@ -67,6 +67,8 @@ pub fn bindings() -> String {
         InkColor,
         InkWidth,
         StampName,
+        StampImageId,
+        StampImageInfo,
         AnnotationId,
         AnnotationKind,
         PageAnnotation,
