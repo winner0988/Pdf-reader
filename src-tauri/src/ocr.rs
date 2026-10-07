@@ -33,8 +33,12 @@ const STALL: Duration = Duration::from_millis(PAGE_MILLIS as u64 + 90_000);
 /// Between steps.
 const TICK: Duration = Duration::from_millis(150);
 
-/// How long one step keeps asking for pages: the document's lock is held meanwhile.
-const STEP_BUDGET: Duration = Duration::from_millis(60);
+/// How long one step keeps asking for pages, and how many it asks about at most: the document's
+/// lock is held meanwhile, and a page that is no scan costs the worker about as much as the text
+/// of the page (a few milliseconds), which is spent on the request loop that renders for the
+/// user. A page that was queued ends the step: drawing it takes longer than that.
+const STEP_BUDGET: Duration = Duration::from_millis(25);
+const STEP_PAGES: usize = 8;
 
 /// How many documents are asked for new pages at once; the others wait their turn.
 const MAX_ACTIVE: usize = 2;
@@ -431,7 +435,10 @@ impl Session {
     /// step has had its time.
     fn ask(&mut self, link: &mut dyn OcrLink) {
         let started = Instant::now();
-        while started.elapsed() < STEP_BUDGET {
+        for _ in 0..STEP_PAGES {
+            if started.elapsed() >= STEP_BUDGET {
+                break;
+            }
             let Some(page) = self.next_page() else {
                 break;
             };
@@ -454,6 +461,8 @@ impl Session {
                         self.busy_since = Some(Instant::now());
                     }
                     self.queued.insert(page);
+                    // Drawing the page took a while: the user's requests go first.
+                    break;
                 }
                 // As many as the worker takes: the same page is asked about again at the next step.
                 Ok(OcrPageState::Full) => break,
@@ -810,6 +819,17 @@ mod tests {
             self.events.extend(events);
         }
 
+        /// Steps until every page was asked about (a page that was queued ends a step).
+        fn walk(&mut self, link: &mut Fake) {
+            for _ in 0..50 {
+                self.step(link);
+                if self.session.remaining == 0 || self.session.run != OcrRun::Running {
+                    return;
+                }
+            }
+            panic!("the walk did not end");
+        }
+
         fn progress(&self) -> OcrProgress {
             self.events
                 .iter()
@@ -842,7 +862,7 @@ mod tests {
     fn a_document_is_walked_its_scans_read_and_the_page_told_as_they_finish() {
         let mut rig = Rig::new("walk", &["eng"]);
         let mut link = Fake::new(5).scans(&[1, 3]);
-        rig.step(&mut link);
+        rig.walk(&mut link);
         // The language is loaded when page 1, the first scan, finds none, and the page is asked about
         // again.
         assert_eq!(link.loaded, ["eng"]);
@@ -899,11 +919,15 @@ mod tests {
         rig.session.set_focus(4);
         rig.step(&mut link);
         // The page in view is a scan with no language to read it: it is loaded, and the page takes
-        // the one place there is; page 0 is sent away (full).
+        // the one place there is, which ends the step.
+        assert_eq!(link.asked, [4, 4]);
+        // Page 0 is sent away: full.
+        rig.step(&mut link);
         assert_eq!(link.asked, [4, 4, 5, 0]);
         link.done(4, OcrOutcome::Recognised { chars: 1 });
-        // The user moves on: the next step takes up from the page now in view.
+        // The user moves on: the next steps take up from the page now in view.
         rig.session.set_focus(2);
+        rig.step(&mut link);
         rig.step(&mut link);
         assert_eq!(&link.asked[4..], [2, 3, 0]);
     }
@@ -951,7 +975,7 @@ mod tests {
         link.queued = 0;
         link.waiting = 0;
         let before = link.asked.len();
-        rig.step(&mut link);
+        rig.walk(&mut link);
         assert_eq!(link.loaded, ["eng", "eng"]);
         assert_eq!(&link.asked[before..], [0, 0, 1]);
         assert_eq!(rig.progress().scans, 1, "counted again, not added");
@@ -976,7 +1000,7 @@ mod tests {
         assert!(link.loaded.is_empty() && link.asked.is_empty());
 
         rig.session.start();
-        rig.step(&mut link);
+        rig.walk(&mut link);
         assert_eq!(rig.progress().run, OcrRun::Running);
         assert_eq!(link.asked, [0, 0, 1, 2]);
 
@@ -1006,7 +1030,7 @@ mod tests {
         // It goes on from the scan that found no language: the page is read now.
         assert_eq!(rig.progress().run, OcrRun::Running);
         assert_eq!(link.loaded, ["deu"]);
-        assert_eq!(link.asked, [0, 0, 0, 1]);
+        assert_eq!(link.asked, [0, 0, 0]);
     }
 
     #[test]
@@ -1078,7 +1102,7 @@ mod tests {
         // The worker says nothing is waiting, and no result has come: its queue was dropped.
         link.waiting = 0;
         link.queued = 0;
-        for _ in 0..3 {
+        for _ in 0..4 {
             rig.step(&mut link);
         }
         assert_eq!(link.asked, [0, 0, 1, 0, 1], "asked about every page again");
@@ -1164,9 +1188,9 @@ mod tests {
         let asked = |tabs: &FakeTabs, n| lock(&tabs.links)[&tab(n)].asked.clone();
         // The first reads; the second is busy with the user's own request and is not waited for;
         // so the third has a turn too; the fourth waits.
-        assert_eq!(asked(&tabs, 1), [0, 0, 1]);
+        assert_eq!(asked(&tabs, 1), [0, 0]);
         assert_eq!(asked(&tabs, 2), Vec::<u32>::new());
-        assert_eq!(asked(&tabs, 3), [0, 0, 1]);
+        assert_eq!(asked(&tabs, 3), [0, 0]);
         assert_eq!(asked(&tabs, 4), Vec::<u32>::new());
         assert!(
             lock(&tabs.links)[&tab(4)].loaded.is_empty(),
