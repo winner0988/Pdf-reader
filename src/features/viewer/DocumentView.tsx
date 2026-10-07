@@ -36,6 +36,8 @@ import {
 } from "@/features/viewer/layout";
 import { annotationAt } from "@/features/annotations/model";
 import { PageAnnotations } from "@/features/annotations/PageAnnotations";
+import { PageDrawing } from "@/features/annotations/PageDrawing";
+import { stampRectAt, type Tool } from "@/features/annotations/tools";
 import type { AnnotationSource } from "@/features/annotations/source";
 import { PageFields } from "@/features/forms/PageFields";
 import type { FormSource } from "@/features/forms/source";
@@ -120,6 +122,13 @@ type DocumentViewProps = {
   onFieldScript?: () => void;
   /** Asks for a note's new text. */
   onEditNote?: (page: number, annotation: PageAnnotation) => void;
+  /**
+   * What the pointer does on the pages (B2-08): draws with the pen, or puts a stamp down. Without
+   * it (or without `onAnnotationEdit`) it selects text and chooses annotations.
+   */
+  tool?: Tool;
+  /** A stamp was put down: the tool is done. */
+  onToolDone?: () => void;
   /** Delay before a newly mounted page asks for a render; tests pass 0. */
   requestDelayMs?: number;
   ref?: Ref<DocumentViewHandle>;
@@ -191,6 +200,8 @@ export function DocumentView({
   annotations,
   onAnnotationEdit,
   onEditNote,
+  tool,
+  onToolDone,
   forms,
   onFieldEdit,
   onFieldScript,
@@ -478,6 +489,30 @@ export function DocumentView({
           delayMs={delay}
           onHover={hoverLink}
           onActivate={activateLink}
+        />,
+      );
+    }
+    // The last layer, so that it gets the press before links, fields or text do.
+    if (tool && onAnnotationEdit && doc !== undefined) {
+      slots.push(
+        <PageDrawing
+          key={`drawing-${index}`}
+          tool={tool}
+          index={index}
+          page={pages[index]!}
+          rotation={rotation}
+          box={box}
+          left={left}
+          onStroke={(page, points) => {
+            if (tool.kind === "pen") {
+              onAnnotationEdit({ kind: "addInk", page, strokes: [points], color: tool.color, width: tool.width });
+            }
+          }}
+          onPlace={(page, at) => {
+            if (tool.kind !== "stamp") return;
+            onAnnotationEdit({ kind: "addStamp", page, rect: stampRectAt(at, pages[page]!), stamp: tool.stamp });
+            onToolDone?.();
+          }}
         />,
       );
     }
