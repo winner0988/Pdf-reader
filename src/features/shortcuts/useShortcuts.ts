@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { findShortcut, type ShortcutId } from "@/features/shortcuts/registry";
 
@@ -10,9 +10,13 @@ export type ShortcutHandlers = Partial<Record<ShortcutId, () => void | boolean>>
  * `enabled` (a tab that is not shown, MVP-14) no key is handled.
  */
 export function useShortcuts(handlers: ShortcutHandlers, enabled = true): void {
-  // Keep the listener stable while always calling the latest handlers.
+  // Keep the listener stable while always calling the latest handlers. A layout effect, not a
+  // passive one: it runs before the browser can handle another key, whereas a passive effect of
+  // a render that no click caused (the main process told the page of a change) waits until
+  // after the paint. A key pressed in that gap, as soon as the page showed the change (Ctrl+Y
+  // right after Ctrl+Z), would be handled with the handlers of the page before it (#194).
   const latest = useRef({ handlers, enabled });
-  useEffect(() => {
+  useLayoutEffect(() => {
     latest.current = { handlers, enabled };
   });
 

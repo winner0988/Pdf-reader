@@ -1,5 +1,6 @@
-import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { useEffect, useState } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useShortcuts, type ShortcutHandlers } from "@/features/shortcuts/useShortcuts";
 
@@ -9,6 +10,10 @@ function Listener({ handlers, enabled }: { handlers: ShortcutHandlers; enabled?:
 }
 
 const ctrlW = () => fireEvent.keyDown(window, { key: "w", ctrlKey: true });
+
+afterEach(() => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+});
 
 describe("useShortcuts", () => {
   it("calls the handler of the shortcut and keeps the browser from acting on the key", () => {
@@ -55,5 +60,37 @@ describe("useShortcuts", () => {
     event.preventDefault();
     window.dispatchEvent(event);
     expect(close).not.toHaveBeenCalled();
+  });
+
+  it("handles a key pressed as soon as the page shows a change that no event of the page caused (#194)", async () => {
+    // Ctrl+Y right after Ctrl+Z: the main process told the page that there is something to redo.
+    // Such a render's passive effects wait until after the paint; a key pressed in the gap, as
+    // soon as the DOM shows the change, must not be handled with what the page had before it.
+    const redo = vi.fn();
+    let change = () => {};
+    function Page() {
+      const [canRedo, setCanRedo] = useState(false);
+      useEffect(() => {
+        change = () => setCanRedo(true);
+      }, []);
+      useShortcuts(canRedo ? { redo } : {});
+      return <div data-testid="page" data-can-redo={canRedo} />;
+    }
+    render(<Page />);
+    const shown = new Promise<void>((resolve) => {
+      const watcher = new MutationObserver(() => {
+        watcher.disconnect();
+        // The DOM has the change (microtask of the commit); the passive effects have not run.
+        fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+        resolve();
+      });
+      watcher.observe(screen.getByTestId("page"), { attributes: true });
+    });
+    // An update outside what React is told is a test (act): it is scheduled as the main
+    // process's events are.
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
+    change();
+    await shown;
+    expect(redo).toHaveBeenCalledTimes(1);
   });
 });
