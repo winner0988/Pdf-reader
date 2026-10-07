@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { tauriExportApi, type ExportApi } from "@/features/export/api";
 import { tauriOpenApi, type OpenApi } from "@/features/open/api";
@@ -7,6 +7,9 @@ import { tauriAnnotationsApi, type AnnotationsApi } from "@/features/annotations
 import { FieldEdits } from "@/features/forms/edits";
 import { tauriFormsApi, type FormsApi } from "@/features/forms/source";
 import { tauriLinksApi, type LinksApi } from "@/features/links/source";
+import { tauriOcrApi, type OcrApi } from "@/features/ocr/api";
+import type { OcrTab } from "@/features/ocr/model";
+import { useOcr } from "@/features/ocr/useOcr";
 import { tauriSearchApi, type SearchApi } from "@/features/search/useSearch";
 import { tauriOutlineApi, useOutline, type OutlineApi } from "@/features/outline/useOutline";
 import { tauriRecentApi, type RecentApi } from "@/features/recent/api";
@@ -44,6 +47,7 @@ type AppProps = {
   savingApi?: SavingApi;
   editingApi?: EditingApi;
   updatesApi?: UpdatesApi;
+  ocrApi?: OcrApi;
 };
 
 export default function App({
@@ -62,9 +66,19 @@ export default function App({
   savingApi = tauriSavingApi,
   editingApi = tauriEditingApi,
   updatesApi = tauriUpdatesApi,
+  ocrApi = tauriOcrApi,
 }: AppProps) {
-  const tabs = useTabs(api);
+  // How recognising the text of each tab's scanned pages goes arrives with the open events (B2-10).
+  const ocr = useOcr();
+  const tabs = useTabs(api, ocr.handle);
   const { state } = tabs;
+  // A closed tab's recognising is forgotten.
+  const { state: ocrState, forget: forgetOcr } = ocr;
+  useEffect(() => {
+    for (const tab of ocrState.keys()) {
+      if (!state.tabs.some((open) => open.tab === tab)) forgetOcr(tab);
+    }
+  }, [state.tabs, ocrState, forgetOcr]);
   // The values filled into forms, on their way to the documents (B2-09): closing a tab waits for them.
   const [fieldEdits] = useState(() => new FieldEdits());
   const renderer = useMemo(() => createPageRenderer(renderApi), [renderApi]);
@@ -148,6 +162,8 @@ export default function App({
                 savingApi={savingApi}
                 editingApi={editingApi}
                 updatesApi={updatesApi}
+                ocrApi={ocrApi}
+                ocr={ocr.state.get(tab.tab)}
                 fieldEdits={fieldEdits}
                 latestInfo={tabs.latestInfo}
                 onOpen={open}
@@ -207,6 +223,8 @@ type TabPaneProps = {
   savingApi: SavingApi;
   editingApi: EditingApi;
   updatesApi: UpdatesApi;
+  ocrApi: OcrApi;
+  ocr: OcrTab | undefined;
   fieldEdits: FieldEdits;
   latestInfo: (tab: TabId) => DocumentInfo | undefined;
   onOpen: () => void;

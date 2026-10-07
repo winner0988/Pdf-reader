@@ -2,6 +2,8 @@ import { useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import type { OcrApi } from "@/features/ocr/api";
+import { OcrSection } from "@/features/ocr/OcrSection";
 import type { RecentApi } from "@/features/recent/api";
 import type { UpdatesApi } from "@/features/settings/updates";
 import { UpdatesSection } from "@/features/settings/UpdatesSection";
@@ -16,6 +18,8 @@ type SettingsDialogProps = {
   recentApi?: RecentApi;
   /** The update check (#64); without it (demo data, tests) it is not shown. */
   updatesApi?: UpdatesApi;
+  /** Recognising the text of scanned pages (B2-10); without it (demo data, tests) it is not shown. */
+  ocrApi?: OcrApi;
 };
 
 const THEMES: ThemePreference[] = ["system", "light", "dark"];
@@ -25,7 +29,7 @@ const THEMES: ThemePreference[] = ["system", "light", "dark"];
  * app keeps on this computer. Every change applies and is saved at once; there is nothing to
  * confirm.
  */
-export function SettingsDialog({ open, onOpenChange, recentApi, updatesApi }: SettingsDialogProps) {
+export function SettingsDialog({ open, onOpenChange, recentApi, updatesApi, ocrApi }: SettingsDialogProps) {
   const t = strings.settings;
   const shared = useSettings();
   const [theme, setTheme] = useTheme();
@@ -112,6 +116,8 @@ export function SettingsDialog({ open, onOpenChange, recentApi, updatesApi }: Se
             </p>
           </section>
         )}
+
+        {ocrApi && <OcrSection api={ocrApi} />}
 
         {updatesApi && <UpdatesSection api={updatesApi} />}
 

@@ -48,6 +48,11 @@ export type SearchController = {
   submit(direction: 1 | -1): void;
   /** Closing the search bar: cancels the search and forgets its results (the query stays). */
   clear(): void;
+  /**
+   * Some pages' text is new (scanned pages were recognised, B2-10): a search that was done is done
+   * again, so that the new text is searched too. Nothing happens if there is no such search.
+   */
+  refresh(): void;
 };
 
 type Running = { current: RequestId | null };
@@ -137,6 +142,9 @@ export function useSearch({ api, doc, active, delayMs = SEARCH_DELAY_MS }: UseSe
     clear() {
       stop(api, running);
       dispatch({ type: "clear" });
+    },
+    refresh() {
+      if (searchable && isSearched(state, wanted)) launch(api, running, dispatch, doc, wanted);
     },
   };
 }

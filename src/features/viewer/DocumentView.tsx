@@ -110,6 +110,13 @@ type DocumentViewProps = {
   onSelectionChange?: (selected: boolean) => void;
   /** The user tried to select text on a page that has none: a scanned page needs OCR. */
   onNoText?: () => void;
+  /**
+   * How many times each page's text was recognised since the document opened (B2-10): a page
+   * whose count changed asks for its text again. Pages not listed have the count 0.
+   */
+  textVersions?: ReadonlyMap<number, number>;
+  /** A page's text arrived, and whether it was recognised from the page's picture (B2-10). */
+  onRecognised?: (pageIndex: number, recognised: boolean) => void;
   /** Where the pages' annotations come from (B2-07); without it (demo data) none are shown. */
   annotations?: AnnotationSource;
   /** Changes an annotation (B2-07); without it (the author does not allow it) none can be changed. */
@@ -197,6 +204,8 @@ export function DocumentView({
   text,
   onSelectionChange,
   onNoText,
+  textVersions,
+  onRecognised,
   annotations,
   onAnnotationEdit,
   onEditNote,
@@ -425,6 +434,8 @@ export function DocumentView({
           source={text}
           doc={doc}
           index={index}
+          version={textVersions?.get(index) ?? 0}
+          onRecognised={onRecognised}
           page={pages[index]!}
           rotation={rotation}
           box={box}
@@ -644,6 +655,9 @@ type PageSelectionProps = {
   source: TextSource;
   doc: DocumentId;
   index: number;
+  /** See `DocumentViewProps.textVersions`. */
+  version: number;
+  onRecognised?: (pageIndex: number, recognised: boolean) => void;
   page: PageSize;
   rotation: Rotation;
   box: PageBox;
@@ -656,15 +670,34 @@ type PageSelectionProps = {
  * A page's text (MVP-15): asked for once the page has been in view for a moment, so that the
  * pointer can select on it, and the selected part of it drawn over the page.
  */
-function PageSelection({ source, doc, index, page, rotation, box, left, delayMs, selection }: PageSelectionProps) {
+function PageSelection({
+  source,
+  doc,
+  index,
+  version,
+  onRecognised,
+  page,
+  rotation,
+  box,
+  left,
+  delayMs,
+  selection,
+}: PageSelectionProps) {
   const [loaded, setLoaded] = useState<{ doc: DocumentId; text: PageText } | null>(null);
+  // The latest, for the effect below, which must not run again for a new callback.
+  const told = useRef(onRecognised);
+  useEffect(() => {
+    told.current = onRecognised;
+  });
 
   useEffect(() => {
     let current = true;
     const load = () =>
-      source.text(doc, index).then(
+      source.text(doc, index, version).then(
         (text) => {
-          if (current) setLoaded({ doc, text });
+          if (!current) return;
+          setLoaded({ doc, text });
+          told.current?.(index, text.recognised);
         },
         // Without its text a page only cannot be selected; the next time it is shown asks again.
         () => {},
@@ -676,7 +709,7 @@ function PageSelection({ source, doc, index, page, rotation, box, left, delayMs,
       current = false;
       window.clearTimeout(timer);
     };
-  }, [source, doc, index, delayMs]);
+  }, [source, doc, index, version, delayMs]);
 
   const text = loaded?.doc === doc ? loaded.text : undefined;
   const quads = text && hasSelectedText(selection) ? selectionQuads(text, index, selection) : [];

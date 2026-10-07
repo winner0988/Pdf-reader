@@ -31,6 +31,22 @@ describe("text source", () => {
     expect(main.getPageText).toHaveBeenCalledTimes(1);
   });
 
+  it("asks again for a page whose text was recognised since (a new version), and only then", async () => {
+    const main = api();
+    const source = createTextSource(main);
+    await source.text(1, 0, 0);
+    await source.text(1, 0, 0);
+    expect(main.getPageText).toHaveBeenCalledTimes(1);
+    await source.text(1, 0, 1);
+    await source.text(1, 0, 1);
+    expect(main.getPageText).toHaveBeenCalledTimes(2);
+    // The old text is not there while the new one is on its way.
+    const next = source.text(1, 0, 2);
+    expect(source.loaded(1, 0)).toBeUndefined();
+    await next;
+    expect(source.loaded(1, 0)).toEqual(textOf(0));
+  });
+
   it("starts over for another document", async () => {
     const main = api();
     const source = createTextSource(main);
