@@ -66,7 +66,7 @@ flowchart LR
 | `clear_recent_exclusions` | 無 | 無；忘記「不記錄此檔案」的選擇 | 否 | B2-12 |
 | `get_settings` | 無 | `Settings`：`theme`（`system`／`light`／`dark`）、`recordRecentFiles`（見 [local-data.md](local-data.md)） | 否 | B2-12 |
 | `set_settings` | `{ settings: Settings }`（完整的一組，其他欄位一律拒絕） | 無；立即套用並寫入 `settings.json`，寫不進去時回傳 `unreadable`（仍然套用）；關閉最近開啟的檔案時一併清除清單 | 否 | B2-12 |
-| `export_pages` | `{ args: ExportArgs, onEvent: Channel<ExportEvent> }`：`request`、`doc`、`pages`（最多 `LIMITS.maxExportPages`）、`format`（`text`，或 `png`／`jpg` 與 `dpi`）；不含路徑，其他欄位一律拒絕 | `boolean`：`false` 表示使用者關閉了系統的對話框；進度走頻道；以 `cancel(args.request)` 停止。作者禁止複製時拒絕（見 [export.md](export.md)） | 是 | B2-04 |
+| `export_pages` | `{ args: ExportArgs, onEvent: Channel<ExportEvent> }`：`request`、`doc`、`pages`（最多 `LIMITS.maxExportPages`）、`format`（`text`；`png`／`jpg` 與 `dpi`；`pdf`；`pdfEvery` 與 `count`，B2-06）；`pdf` 與 `pdfEvery` 的 `pages` 可以到 `LIMITS.maxPageCount`，`pdfEvery` 最多 `LIMITS.maxSplitFiles` 個檔案；不含路徑，其他欄位一律拒絕 | `boolean`：`false` 表示使用者關閉了系統的對話框；進度走頻道；以 `cancel(args.request)` 停止。作者禁止複製時拒絕（見 [export.md](export.md)） | 是 | B2-04 |
 | `apply_edit` | `{ args: EditArgs }`：`doc`、`edit`（`Edit`：`rotatePages { pages, by }`、`deletePages { pages }`、`movePages { pages, before }`、`insertBlankPage { at, like }`，見 [page-management.md](page-management.md)；註解：`addHighlight { marks, color }`（`marks`：每頁的 `{ page, quads }`）、`addNote { page, at, text }`、`deleteAnnotation { page, annotation }`、`setHighlightColor { page, annotation, color }`、`setNoteText { page, annotation, text }`、`addInk { page, strokes, color, width }`、`addStamp { page, rect, stamp }`、`setAnnotationRect { page, annotation, rect }`，見 [annotations.md](annotations.md)）；表單：`setFieldValue { page, field, value }`、`flattenForm`，見 [forms.md](forms.md)；其他欄位一律拒絕 | 無；文件換新的 `DocumentId`，分頁的新狀態（`opened`，`unsaved: true`）走開檔頻道。作者禁止時拒絕（見 [saving.md](saving.md)） | 否 | B2-02、B2-05 |
 | `undo_edit` | `{ args: UndoArgs }`：`doc`、`password`（以密碼開啟的文件才需要，否則 `null`；驗證同 `unlock_tab`；其他欄位一律拒絕） | 無；復原最後一個編輯，文件換新的 `DocumentId`，分頁的新狀態走開檔頻道。沒有可復原的編輯時拒絕；以密碼開啟的文件沒有帶密碼或密碼錯誤時回 `encrypted`（見 [page-management.md](page-management.md)） | 否 | B2-05 |
 | `redo_edit` | `{ doc: DocumentId }` | 無；重做最後一個復原掉的編輯，不需要密碼，其餘同 `undo_edit` | 否 | B2-05 |
@@ -229,6 +229,7 @@ flowchart LR
 | `Rebase` | `request`, `doc`, `file`（唯讀 handle：剛存好的檔案） | `Rebased`；之後復原從這個檔案的位元組重新開啟。不解析檔案，不需要密碼 |
 | `Save` | `request`, `doc`, `file`（**只能寫入**的 handle，指向主行程建立的新暫存檔） | `Saved`（`bytes`、`incremental`）或 `Error`（`DiskFull`、`Unwritable`、`LimitExceeded` 等）；逾時 5 分鐘，見 [saving.md](saving.md) |
 | `PrivacyCopy` | `request`, `doc`, `file`（同 `Save`）, `id`（16 bytes，主行程產生的亂數） | `Saved`（`incremental` 一律為 false）或 `Error`（加密的文件：`InvalidRequest`；太多物件：`LimitExceeded`）；寫出清除中繼資料的副本，worker 中的文件不變（B2-03，見 [privacy-export.md](privacy-export.md)） |
+| `SavePages` | `request`, `doc`, `pages`（不重複，檔案裡依文件的順序）, `file`（**只能寫入**的 handle） | `Saved`（`incremental` 一律為 false）或 `Error`（加密的文件：`InvalidRequest`；頁碼不存在：`PageOutOfRange`）；寫出這些頁面組成的文件，worker 中的文件不變（B2-06，見 [split.md](split.md)） |
 | `Cancel` | `target` | 無（被取消的請求回 `Error { code: Cancelled }`，或已完成則照常回應） |
 | `Close` | `doc` | 無 |
 | `Shutdown` | — | worker 結束 |

@@ -285,6 +285,19 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => privacy_copy(document, request, file, &id),
             }),
+            WorkerRequest::SavePages {
+                request,
+                doc,
+                pages,
+                file,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => save_pages(document, request, &pages, file),
+            }),
             // Requests are handled one at a time, so there is nothing in flight to cancel.
             WorkerRequest::Cancel { .. } => None,
             WorkerRequest::Close { doc } => {
@@ -486,6 +499,31 @@ fn privacy_copy(
         );
     };
     match document.privacy_copy(id, &mut file) {
+        Ok(bytes) => WorkerResponse::Saved {
+            request,
+            bytes,
+            incremental: false,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
+/// Writes the pages `pages` of `document` as a document of their own (B2-06) to `file`, a handle
+/// like `save`'s.
+fn save_pages(
+    document: &PdfDocument,
+    request: RequestId,
+    pages: &[u32],
+    file: FileHandle,
+) -> WorkerResponse {
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match document.pages_copy(pages, &mut file) {
         Ok(bytes) => WorkerResponse::Saved {
             request,
             bytes,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { MAX_PRINT_PAGES, pagesToPrint, parsePageList } from "@/features/print/range";
+import { formatPageList, MAX_PRINT_PAGES, pagesToPrint, parsePageList } from "@/features/print/range";
 
 describe("print ranges", () => {
   it("reads page lists the way people write them", () => {
@@ -21,6 +21,17 @@ describe("print ranges", () => {
     expect(pagesToPrint({ kind: "current" }, 3, 2)).toEqual({ pages: [1] });
     expect(pagesToPrint({ kind: "pages", text: "3, 1" }, 3, 2)).toEqual({ pages: [0, 2] });
     expect(pagesToPrint({ kind: "pages", text: "4" }, 3, 2)).toEqual({ error: "invalid" });
+  });
+
+  it("names pages as a list that reads back as the same pages", () => {
+    expect(formatPageList([])).toBe("");
+    expect(formatPageList([4])).toBe("5");
+    expect(formatPageList([1, 2, 3, 5])).toBe("2-4, 6");
+    expect(formatPageList([0, 2, 4])).toBe("1, 3, 5");
+    expect(formatPageList([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])).toBe("1-10");
+    for (const pages of [[0], [1, 2, 3, 5], [0, 2, 4, 5, 6, 9]]) {
+      expect(parsePageList(formatPageList(pages), 10)).toEqual(pages);
+    }
   });
 
   it("prints at most so many pages at once", () => {

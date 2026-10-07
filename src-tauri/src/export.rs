@@ -198,6 +198,68 @@ fn each_page<T: Send + 'static>(
     result
 }
 
+/// A file of a split document (B2-06): where it goes, and which pages of the document it takes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SplitFile {
+    pub path: PathBuf,
+    pub pages: Vec<u32>,
+}
+
+/// The files `pages` are split into when each takes `count` of them at most, in `folder`: named
+/// by the pages they take, or by their number when those do not follow one another.
+pub fn split_targets(folder: &Path, stem: &str, pages: &[u32], count: usize) -> Vec<SplitFile> {
+    let chunks: Vec<&[u32]> = pages.chunks(count.max(1)).collect();
+    chunks
+        .iter()
+        .enumerate()
+        .map(|(part, chunk)| SplitFile {
+            path: folder.join(strings::split_part_name(stem, chunk, part, chunks.len())),
+            pages: chunk.to_vec(),
+        })
+        .collect()
+}
+
+/// Writes each of `files` of `doc` in turn, as background work on the render thread, sending
+/// progress (in pages) until done or cancelled. Files written before a cancel or a failure stay.
+/// Blocks: call it on the blocking pool.
+pub fn write_pdfs(
+    app: &AppHandle,
+    request: RequestId,
+    doc: DocumentId,
+    files: &[SplitFile],
+    channel: &Channel<ExportEvent>,
+) -> Result<(), IpcError> {
+    let exports = app.state::<Exports>();
+    let stop = exports.start(request);
+    let total = files.iter().fold(0u32, |sum, file| {
+        sum.saturating_add(u32::try_from(file.pages.len()).unwrap_or(u32::MAX))
+    });
+    let result = (|| {
+        let mut pages_done = 0u32;
+        for file in files {
+            if stop.load(Ordering::SeqCst) {
+                return Err(cancelled());
+            }
+            let (handle, file) = (app.clone(), file.clone());
+            block_on(app.state::<Renderer>().in_background(move || {
+                handle
+                    .state::<Documents>()
+                    .save_pages(doc, &file.pages, &file.path)
+                    .map(|()| file.pages.len())
+            }))
+            .ok_or_else(cancelled)?
+            .map(|written| {
+                pages_done = pages_done.saturating_add(u32::try_from(written).unwrap_or(u32::MAX));
+            })?;
+            // Nobody listening any more is no reason to stop writing.
+            let _ = channel.send(ExportEvent::Progress { pages_done, total });
+        }
+        Ok(())
+    })();
+    exports.finish(request);
+    result
+}
+
 /// Writes the text of `pages` of `doc` to `file`, whole: nothing is written if it is cancelled.
 pub fn write_text(
     app: &AppHandle,
@@ -268,6 +330,30 @@ mod tests {
         );
         let targets = image_targets(Path::new(r"C:\out"), "報告", &[2], ImageKind::Jpeg);
         assert_eq!(targets, [PathBuf::from(r"C:\out\報告-p3.jpg")]);
+    }
+
+    #[test]
+    fn a_split_makes_files_of_so_many_pages_named_by_them() {
+        let pages: Vec<u32> = (0..10).collect();
+        let files = split_targets(Path::new(r"C:\out"), "報告", &pages, 4);
+        let named: Vec<(PathBuf, Vec<u32>)> = files
+            .into_iter()
+            .map(|file| (file.path, file.pages))
+            .collect();
+        assert_eq!(
+            named,
+            [
+                (PathBuf::from(r"C:\out\報告-p1-4.pdf"), vec![0, 1, 2, 3]),
+                (PathBuf::from(r"C:\out\報告-p5-8.pdf"), vec![4, 5, 6, 7]),
+                (PathBuf::from(r"C:\out\報告-p9-10.pdf"), vec![8, 9]),
+            ]
+        );
+        // One page a file; a choice that skips pages is numbered, not named by them.
+        let each = split_targets(Path::new(r"C:\out"), "報告", &[0, 1], 1);
+        assert_eq!(each[1].path, PathBuf::from(r"C:\out\報告-p2.pdf"));
+        let skipping = split_targets(Path::new(r"C:\out"), "報告", &[0, 2, 4, 6], 2);
+        assert_eq!(skipping[0].path, PathBuf::from(r"C:\out\報告-1.pdf"));
+        assert_eq!(skipping[1].pages, [4, 6]);
     }
 
     #[test]

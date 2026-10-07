@@ -434,6 +434,18 @@ pub async fn export_pages(
             message: "no such page".to_owned(),
         });
     }
+    // The copy of an encrypted document could not be encrypted again (B2-06).
+    if info.encrypted
+        && matches!(
+            args.format,
+            ExportFormat::Pdf | ExportFormat::PdfEvery { .. }
+        )
+    {
+        return Err(IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "an encrypted document cannot be split".to_owned(),
+        });
+    }
     let stem = export::stem(&info.display_name);
     let ExportArgs {
         request,
@@ -456,7 +468,9 @@ pub async fn export_pages(
             } else {
                 ImageKind::Jpeg
             };
-            let Some(folder) = file_dialog::pick_folder(&window).await? else {
+            let Some(folder) =
+                file_dialog::pick_folder(&window, strings::EXPORT_IMAGES_DIALOG_TITLE).await?
+            else {
                 return Ok(false);
             };
             let targets = export::image_targets(&folder, &stem, &pages, kind);
@@ -469,8 +483,58 @@ pub async fn export_pages(
             })
             .await?;
         }
+        ExportFormat::Pdf => {
+            let destination = loop {
+                let name = strings::split_file_name(&stem, &pages);
+                let Some(path) = file_dialog::split_pdf_file(&window, name).await? else {
+                    return Ok(false);
+                };
+                if !app.state::<Documents>().is_document_file(doc, &path) {
+                    break path;
+                }
+                tell_same_file(&window).await;
+            };
+            let files = vec![export::SplitFile {
+                path: destination,
+                pages,
+            }];
+            blocking(move || export::write_pdfs(&app, request, doc, &files, &on_event)).await?;
+        }
+        ExportFormat::PdfEvery { count } => {
+            let Some(folder) =
+                file_dialog::pick_folder(&window, strings::SPLIT_FOLDER_DIALOG_TITLE).await?
+            else {
+                return Ok(false);
+            };
+            let files = export::split_targets(&folder, &stem, &pages, count as usize);
+            let documents = app.state::<Documents>();
+            if files
+                .iter()
+                .any(|file| documents.is_document_file(doc, &file.path))
+            {
+                tell_same_file(&window).await;
+                return Ok(false);
+            }
+            let existing = files.iter().filter(|file| file.path.exists()).count();
+            if existing > 0 && !confirm_overwrite(&window, existing).await {
+                return Ok(false);
+            }
+            blocking(move || export::write_pdfs(&app, request, doc, &files, &on_event)).await?;
+        }
     }
     Ok(true)
+}
+
+/// Says, in a native message box, that the pages cannot replace the document's own file.
+async fn tell_same_file(window: &WebviewWindow) {
+    rfd::AsyncMessageDialog::new()
+        .set_level(rfd::MessageLevel::Info)
+        .set_title(strings::SPLIT_SAME_FILE_TITLE)
+        .set_description(strings::SPLIT_SAME_FILE_MESSAGE)
+        .set_buttons(rfd::MessageButtons::Ok)
+        .set_parent(window)
+        .show()
+        .await;
 }
 
 /// Writes a copy of the document without its metadata (B2-03, docs/architecture/privacy-export.md)
