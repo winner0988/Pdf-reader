@@ -221,6 +221,18 @@ describe("putting a stamp down (B2-08)", () => {
     expect(layer()).toBeNull();
   });
 
+  it("leaves Enter to a form field on the page", async () => {
+    const { editing, layer, stampButton, user } = await setup();
+    await choose(user, stampButton, t.stamps.draft);
+    const field = document.createElement("input");
+    screen.getByRole("main").appendChild(field);
+    field.focus();
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(editing.applyEdit).not.toHaveBeenCalled();
+    expect(layer()).not.toBeNull();
+    field.remove();
+  });
+
   it("puts it in the middle of the page with Enter, for those who cannot point, and Esc gives it up", async () => {
     const { editing, layer, stampButton, user } = await setup();
     await choose(user, stampButton, t.stamps.draft);

@@ -106,6 +106,12 @@ export type ToolbarProps = {
     /** Asks for a picture of the user's own to make a stamp of. */
     onPick?: () => void;
   };
+  /**
+   * Turns the form of the open document into page content (B2-09); given only for a document
+   * with a form. Without a click handler (the author does not allow filling in forms) the item
+   * says so.
+   */
+  flatten?: { onClick?: () => void };
   /** The "⋯" menu opened. */
   onMoreMenuOpen?: () => void;
   /**
@@ -390,6 +396,14 @@ function MoreMenu(props: ToolbarProps) {
           {menu.saveAs}
           <DropdownMenuShortcut>Ctrl+Shift+S</DropdownMenuShortcut>
         </DropdownMenuItem>
+        {props.flatten && (
+          <DropdownMenuItem disabled={!props.flatten.onClick} onClick={props.flatten.onClick}>
+            {strings.forms.flatten}
+            {!props.flatten.onClick && (
+              <DropdownMenuShortcut>{strings.permissions.notAllowed}</DropdownMenuShortcut>
+            )}
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem disabled={!props.onExport} onClick={props.onExport}>
           {menu.export}
           {props.exportBlocked && <DropdownMenuShortcut>{strings.permissions.notAllowed}</DropdownMenuShortcut>}
