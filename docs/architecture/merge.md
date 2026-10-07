@@ -1,6 +1,6 @@
 # 合併文件：插入其他檔案的頁面（B2-06）
 
-工作卡 [#95](https://github.com/winner0988/Pdf-reader/issues/95) 的第二部分（第一部分是[拆分](split.md)）；規格 §6「拆分／合併 PDF」。這份文件描述整個功能；**worker 這一端**（`PrepareSource`、`InsertPages`）與**主行程**（來源檔的保管、編輯歷史、崩潰復原、警示橫幅）已經有了，畫面在之後的 PR。
+工作卡 [#95](https://github.com/winner0988/Pdf-reader/issues/95) 的第二部分（第一部分是[拆分](split.md)）；規格 §6「拆分／合併 PDF」。這份文件描述整個功能：**worker 這一端**（`PrepareSource`、`InsertPages`）、**主行程**（來源檔的保管、編輯歷史、崩潰復原、警示橫幅）與畫面。
 
 ## 使用者做什麼
 
@@ -33,7 +33,7 @@ sequenceDiagram
 
 - 以 MuPDF 開啟（加密的檔案用使用者給的密碼；密碼不留）；沒有頁面或超過 `MAX_PAGE_COUNT` 頁的拒絕。
 - **作者的權限**：有密碼保護、且沒有「複製／取出」（`/P` 第 5 位元，Acrobat 稱為「擷取頁面」）的檔案不能取出頁面（`NotAllowed`）；用擁有者密碼開啟時沒有限制，與 Acrobat 相同（#88）。
-- **掃描主動內容**（MVP-11 的掃描）：結果隨副本回來，由主行程併入文件的警示橫幅（見下方「之後的 PR」）。
+- **掃描主動內容**（MVP-11 的掃描）：結果隨副本回來，由主行程併入文件的警示橫幅（見下方「主行程」）。
 - **寫出乾淨、沒有加密的副本**：MuPDF 重新寫一次（回收沒有用到的物件，並明確指定不加密），所以之後不需要密碼，也不必再修復一次損毀的檔案。副本最多 `MAX_SOURCE_BYTES`（64 MiB），超過時 `LimitExceeded`；來源檔本身也最多這麼大（主行程在 worker 讀取之前就檢查）。
 
 ## 頁面怎麼放進來（worker：`PdfDocument::insert_pages`）
@@ -49,7 +49,7 @@ sequenceDiagram
 | 上限 | 值 | 在哪裡檢查 |
 |---|---|---|
 | 一個來源檔 | `MAX_SOURCE_BYTES`（64 MiB） | 主行程（檔案大小）與 worker（讀取與副本） |
-| 一份文件保管的來源（之後的 PR） | `MAX_SOURCES_BYTES`（128 MiB） | 主行程 |
+| 一份文件保管的來源 | `MAX_SOURCES_BYTES`（128 MiB） | 主行程 |
 | 頁數 | 合併後最多 `MAX_PAGE_COUNT` | worker（`TooManyPages`） |
 
 ## 測試

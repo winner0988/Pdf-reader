@@ -1,8 +1,8 @@
 # Pdf-reader
 
-注重隱私、完全離線的 Windows 桌面 PDF 閱讀器（之後擴充為編輯器）。不會自行連網、無遙測、PDF 主動內容預設封鎖，PDF 引擎隔離在低權限子行程中執行。
+注重隱私、完全離線的 Windows 桌面 PDF 閱讀器（並逐步擴充為編輯器）。不會自行連網、無遙測、PDF 主動內容預設封鎖，PDF 引擎隔離在低權限子行程中執行。
 
-> **狀態：MVP 開發中，尚未發布安裝檔。** 下面列出的功能都已完成並有測試；目前要自行從原始碼建置。進度見 [工作卡](docs/backlog/README.md) 與 [Issues](https://github.com/winner0988/Pdf-reader/issues)。
+> **狀態：開發中，尚未發布安裝檔。** 下面列出的功能都已合併到 `main` 並有測試；目前要自行從原始碼建置。進度見 [工作卡](docs/backlog/README.md) 與 [Issues](https://github.com/winner0988/Pdf-reader/issues)。
 >
 > **設為預設 PDF 閱讀器**：安裝後在「⋯」選單選「設為預設 PDF 閱讀器」，或在檔案總管對 PDF 按右鍵 →「開啟檔案」→ PDF Reader。
 >
@@ -12,27 +12,38 @@
 |---|---|
 | ![搜尋 needle，第 7 頁的結果以黃色標示](docs/ux/screenshots/mvp-10/search-needle-light.png) | ![確認對話框顯示網站與完整網址，按「開啟」才交給瀏覽器](docs/ux/screenshots/mvp-12/confirm-https-light.png) |
 
+| 在縮圖管理頁面 | 隱私匯出：說明會清除與不會清除什麼 |
+|---|---|
+| ![縮圖的右鍵功能表：旋轉、刪除、插入空白頁、移到](docs/ux/screenshots/b2-05/thumbnail-menu-light.png) | ![隱私匯出對話框列出副本中會清除與不會清除的內容](docs/ux/screenshots/b2-03/privacy-export-light.png) |
+
 ## 功能
 
 | 功能 | 說明 |
 |---|---|
-| 開啟本機 PDF | 開啟對話框（可多選）、拖放、命令列參數、從檔案總管開啟；損毀、加密、不是 PDF 的檔案會顯示清楚的錯誤 |
+| 開啟本機 PDF | 開啟對話框（可多選）、拖放、命令列參數、從檔案總管開啟；損毀、不是 PDF、或用不支援的方式加密的檔案會顯示清楚的錯誤 |
 | 分頁 | 同時開多份文件，每份一個分頁，最多 20 個；每個分頁記住自己的頁碼、縮放與搜尋 |
 | 閱讀 | 虛擬滾動與 HiDPI 渲染；縮放（含符合寬度、符合頁面）與旋轉，只改檢視、不改檔案 |
 | 目錄與縮圖 | 側欄樹狀目錄，可以只用鍵盤操作；每頁縮圖，點擊跳頁 |
 | 最近開啟的檔案 | 開始畫面列出最近 20 個檔案，只顯示檔名；完整路徑只存在這台電腦的 app 資料中；一鍵清除，也可以設定「不記錄此檔案」或完全不記錄 |
-| 設定 | 外觀（跟隨系統、淺色、深色）與最近開啟的檔案；跨次啟動保留，並說明 app 在這台電腦上保存了哪些資料 |
-| 全文搜尋 | 逐頁搜尋文字層（不含 OCR）、標示結果、上一筆／下一筆、區分大小寫 |
+| 設定 | 外觀（跟隨系統、淺色、深色）、最近開啟的檔案、掃描頁的文字辨識與檢查更新；跨次啟動保留，並說明 app 在這台電腦上保存了哪些資料 |
+| 全文搜尋 | 逐頁搜尋文字層（含 OCR 辨識出的文字）、標示結果、上一筆／下一筆、區分大小寫 |
 | 選取與複製文字 | 拖曳、雙擊選詞、三擊選行，`Ctrl+C` 或右鍵複製；中文也可以；縮放、旋轉後仍對齊 |
 | 開啟加密 PDF | 詢問密碼（RC4、AES-256）；密碼只交給這份文件的沙盒行程，不儲存、用完即清除 |
 | 文件權限 | 比照 Adobe Acrobat 遵守作者的限制：禁止複製、禁止列印、只允許低解析度列印；狀態列標示「已限制」 |
 | 列印 | `Ctrl+P`：選頁面範圍，再於系統的列印對話框選印表機、份數與方向；不經網路 |
-| 匯出 | 把文字匯出為 .txt、把頁面匯出為 PNG（72／150／300 dpi），只在這台電腦上產生；作者禁止複製時不能匯出 |
-| 儲存 | `Ctrl+S` 儲存、`Ctrl+Shift+S` 另存新檔；先寫好暫存檔才取代原檔，失敗時原檔不變；關閉有未儲存變更的分頁或視窗時會詢問（編輯功能之後加入） |
+| 匯出 | 把文字匯出為 .txt、把頁面匯出為 PNG 或 JPG（72／150／300 dpi），或把選取的頁面存成新的 PDF（也可以每幾頁存成一個檔案）；只在這台電腦上產生；作者禁止複製時不能匯出 |
+| 儲存 | `Ctrl+S` 儲存、`Ctrl+Shift+S` 另存新檔；先寫好暫存檔才取代原檔，失敗時原檔不變；已簽章的文件以附加的方式儲存，不動原有的內容；關閉有未儲存變更的分頁或視窗時會詢問 |
+| 頁面管理 | 在縮圖側欄選取頁面（點擊、`Ctrl`／`Shift`、鍵盤），永久旋轉、刪除、插入空白頁，用對話框或拖曳移動；作者不允許時停用。`Ctrl+Z`／`Ctrl+Y` 復原與重做，儲存之後才寫入檔案 |
+| 註解 | 螢光筆（四種顏色）、文字附註、手繪線條（四種顏色、三種粗細）、八種標準印章與自己的圖片印章；可以選取、改色、移動、縮放與刪除。存成標準的 PDF 註解，其他閱讀器也看得到，不寫入作者與時間 |
+| 填寫表單 | 直接在頁面上填寫文字框、核取方塊、選項按鈕、下拉選單與清單方塊，`Tab` 依頁面的順序移動；不執行欄位的腳本（會說明）。「扁平化表單」把填好的內容變成頁面的一部分，可以復原，有簽章的文件不能扁平化 |
+| 拆分與合併 | 縮圖的右鍵「插入其他檔案的頁面…」把另一份 PDF 的全部頁面放進來（只帶進頁面，不帶進主動內容；加密的檔案先問密碼）；匯出時可以把選的頁面存成新檔案，或每幾頁存成一個檔案 |
+| 掃描頁的文字辨識 | 沒有文字層的掃描頁在背景辨識（Tesseract，在 worker 的沙盒中執行；安裝檔附繁體中文與英文的語言資料，也可以匯入其他語言），辨識出的文字可以搜尋、選取、複製與標示。結果只存在記憶體，不寫進檔案；狀態列顯示進度並可以停止，設定中可以改成手動 |
+| 崩潰復原 | 編輯途中當機、被強制結束或斷電時，下次開啟同一個檔案會提示還原未儲存的變更；不需要雲端備份，也不會自動寫回原檔 |
+| 隱私匯出 | 「⋯」→「隱私匯出…」另存一份清除作者、軟體、時間等中繼資料的副本，對話框說明會清除與不會清除什麼；原本的檔案與未儲存的變更都不受影響 |
 | 主動內容 | JavaScript、開檔自動動作、`/Launch`、表單送出、遠端檔案引用等一律不執行；偵測到時以橫幅列出擋下了什麼 |
 | 連結 | 文件內的連結直接跳頁；外部連結顯示完整網址，確認後才交給預設瀏覽器，只允許 `http`、`https`、`mailto`；其他一律封鎖並說明原因 |
 
-OCR、Word 轉檔、完整編輯、簽章、加密、批次背景服務、表單腳本沙盒都**不在** MVP 內；每一項都要先做 POC 並寫 ADR。
+**還沒有**：數位簽章（驗證與簽署）、另存加密副本、安全遮蔽、記住密碼、機敏標記、批次處理、表單腳本沙盒、文字方塊與字型、插入圖片、Word 轉檔與從 Office 文件建立 PDF。每一項都要先做 POC 並寫 ADR；已定案與提議中的決定見 [docs/adr/](docs/adr/README.md)。
 
 ## 安全設計
 
@@ -44,6 +55,9 @@ OCR、Word 轉檔、完整編輯、簽章、加密、批次背景服務、表單
 - **連結**（[links.md](docs/architecture/links.md)）：主行程不接受前端傳來的網址，只接受連結的代號，並重新向 worker 取得、檢查後才開啟。
 - **本機資料**（[local-data.md](docs/architecture/local-data.md)）：只有主行程讀寫 app 資料資料夾中的檔案，前端只能透過型別化的命令修改已定義的設定。
 - **最近開啟的檔案**（[recent-files.md](docs/architecture/recent-files.md)）：完整路徑只存在這台電腦的 app 資料資料夾（不漫遊），前端只拿得到檔名與代號；「不記錄此檔案」只存加鹽的雜湊值，不存路徑。
+- **編輯與存檔**（[saving.md](docs/architecture/saving.md)）：編輯是型別化的指令，前端只送指令、不送任何 PDF 物件，由該文件自己的 worker 套用；存檔先把完整的檔案寫進暫存檔，成功才取代原檔。崩潰復原的日誌放在 app 資料資料夾，檔名是亂數，讀取時當成不可信任的資料（[crash-recovery.md](docs/architecture/crash-recovery.md)）。
+- **其他檔案的頁面與圖片**（[merge.md](docs/architecture/merge.md)、[annotations.md](docs/architecture/annotations.md)）：要插入的頁面與自訂印章的圖片都是不受信任的輸入，只在沙盒的 worker 中處理；頁面不帶進主動內容與外部資料，圖片只保留像素。
+- **文字辨識**（[ocr.md](docs/architecture/ocr.md)）：Tesseract 在該文件自己的 worker 的沙盒中執行，沙盒沒有為它放寬任何一項；語言資料由主行程讀取、以位元組交給 worker，worker 不開檔案。
 - **測試**：
   - 惡意與損毀樣本的[語料庫](tests/corpus/README.md)，全部由腳本產生；
   - 以 Playwright 操作真正 app 的[端對端測試](docs/architecture/e2e.md)；
@@ -89,10 +103,10 @@ Windows-first · Tauri 2 + Rust · React + TypeScript + Vite · Tailwind + shadc
 | [規格書（繁中）](docs/spec/PDF_Reader_Spec_ZH_v3.md)／[Spec (EN)](docs/spec/PDF_Reader_Spec_EN_v3.md) | 完整產品需求 |
 | [CONTEXT.md](CONTEXT.md) | 專案詞彙表 |
 | [docs/adr/](docs/adr/README.md) | 架構決策紀錄 |
-| [docs/architecture/](docs/architecture/) | 各元件的設計：IPC 合約、worker 沙盒、渲染、搜尋、連結、主動內容、打包、E2E |
+| [docs/architecture/](docs/architecture/) | 各元件的設計：IPC 合約、worker 沙盒、渲染、搜尋、連結、主動內容、編輯與存檔、註解與表單、OCR、打包、E2E |
 | [docs/security/](docs/security/) | 離線驗證、fuzzing 與人工安全檢查 |
 | [docs/ux/](docs/ux/screen-map.md) | 畫面地圖、wireframe 與各功能的截圖 |
-| [docs/backlog/](docs/backlog/README.md) | MVP 第一批工作卡 |
+| [docs/backlog/](docs/backlog/README.md) | 第一批（MVP）與第二批（編輯與其他功能）的工作卡 |
 | [docs/workflow.md](docs/workflow.md) | 開發流程、分支與 CI 規則、GitHub 設定步驟 |
 | [AGENTS.md](AGENTS.md) | AI coding agent 的工作規則 |
 | [docs/planning/](docs/planning/2026-09-23-kickoff-plan.md) | 專案啟動時的規劃紀錄 |
