@@ -26,6 +26,10 @@ mod ocr;
 
 pub use ocr::OcrKnown;
 
+mod stamp_image;
+
+pub use stamp_image::{StampPicture, prepare_stamp_picture};
+
 /// Most form fields looked at to find a signature (`PdfDocument::is_signed`).
 const MAX_FORM_FIELDS: usize = 10_000;
 
@@ -79,6 +83,10 @@ pub enum EngineError {
     TooComplex,
     #[error("the page has no area")]
     NoArea,
+    #[error("invalid picture: {0}")]
+    InvalidPicture(&'static str),
+    #[error("the picture is too large")]
+    PictureTooLarge,
     #[error("MuPDF: {0}")]
     MuPdf(#[from] mupdf::Error),
 }

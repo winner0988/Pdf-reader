@@ -99,6 +99,25 @@ pub const MAX_INK_STROKES: u32 = 256;
 /// reports (a point every few pixels is plenty), so a drawing seldom has a tenth of this.
 pub const MAX_INK_POINTS: u32 = 20_000;
 
+/// Largest picture file a custom stamp is made from (B2-08), in bytes; the worker reads no more.
+pub const MAX_STAMP_SOURCE_BYTES: usize = 16 * 1024 * 1024;
+
+/// Most pixels such a picture may have (B2-08). It is decoded in the worker, four bytes a pixel
+/// at most; what is larger is refused before any pixel is decoded.
+pub const MAX_STAMP_SOURCE_PIXELS: u64 = 16 * 1024 * 1024;
+
+/// Longest side such a picture may have (B2-08), in pixels.
+pub const MAX_STAMP_SOURCE_SIDE_PX: u32 = 8_192;
+
+/// The picture a stamp is made of is shrunk until neither side is longer than this (B2-08), in
+/// pixels: a stamp is a few centimeters wide.
+pub const MAX_STAMP_SIDE_PX: u32 = 1_024;
+
+/// Most bytes of the PNG file of a stamp picture (B2-08), below the frame limit; also what a
+/// stamp edit carries. A picture this large still fits the crash recovery journal (4 MiB, B2-13)
+/// with its edits, written as hex text twice as large.
+pub const MAX_STAMP_PNG_BYTES: usize = 1024 * 1024;
+
 /// Least a stamp or any annotation the app moves or resizes may measure on each side (B2-08), in
 /// points: smaller than that it cannot be seen or grabbed.
 pub const MIN_ANNOTATION_SIDE_PT: f32 = 8.0;
