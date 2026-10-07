@@ -82,7 +82,107 @@ export type Settings = { theme: ThemePreference,
 /**
  * Whether files that open go on the recent files list (#73).
  */
-recordRecentFiles: boolean, };
+recordRecentFiles: boolean, 
+/**
+ * Whether the text of scanned pages is recognised by itself when a document opens (B2-10,
+ * ADR 0015); if not, only when the user asks for it.
+ */
+ocrAuto: boolean, 
+/**
+ * The language scanned pages are recognised in: the code of an installed one, or none to
+ * let the app choose by the language of its interface.
+ */
+ocrLanguage: string | null, };
+
+/**
+ * A language that scanned pages can be recognised in (B2-10).
+ */
+export type OcrLanguage = { 
+/**
+ * What its data file is called, without `.traineddata`: `eng`, `chi_tra`...
+ */
+code: string, 
+/**
+ * It came with the app; the others were imported by the user and can be removed.
+ */
+bundled: boolean, 
+/**
+ * How big its data is, in bytes.
+ */
+bytes: bigint, };
+
+/**
+ * The languages installed for recognising text (B2-10).
+ */
+export type OcrLanguages = { 
+/**
+ * Those that came with the app first, then the imported ones; each in order of its code.
+ */
+languages: Array<OcrLanguage>, 
+/**
+ * The language `Settings::ocr_language: None` stands for. None when none is installed.
+ */
+automatic: string | null, };
+
+/**
+ * Why importing a language was refused (B2-10).
+ */
+export type LanguageRefusal = "unreadable" | "tooLarge" | "notLanguageData" | "badName" | "nameTaken" | "tooMany";
+
+/**
+ * What `import_ocr_language` came to (B2-10).
+ */
+export type LanguageImport = { "kind": "imported", languages: OcrLanguages, } | { "kind": "cancelled" } | { "kind": "refused", reason: LanguageRefusal, };
+
+/**
+ * How recognising the text of a document's scanned pages is going (B2-10, ADR 0015).
+ */
+export type OcrRun = "idle" | "running" | "done" | "stopped" | "noLanguage" | "failed";
+
+/**
+ * The state of recognising a tab's scanned pages: pages are looked at one after another, the
+ * scanned ones are read.
+ */
+export type OcrProgress = { 
+/**
+ * The document the numbers are about: the tab's current one.
+ */
+doc: DocumentId, run: OcrRun, 
+/**
+ * How many pages the document has.
+ */
+pages: number, 
+/**
+ * Pages looked at so far, to tell whether they are scans.
+ */
+checked: number, 
+/**
+ * Scanned pages found among them.
+ */
+scans: number, 
+/**
+ * Scanned pages whose text was recognised.
+ */
+recognised: number, 
+/**
+ * Scanned pages that could not be read, or took too long.
+ */
+failed: number, };
+
+/**
+ * `start_ocr` and `stop_ocr` (B2-10).
+ */
+export type OcrArgs = { doc: DocumentId, };
+
+/**
+ * `set_ocr_focus` (B2-10): the page the user is looking at, which is recognised first.
+ */
+export type OcrFocusArgs = { doc: DocumentId, pageIndex: number, };
+
+/**
+ * `remove_ocr_language` (B2-10).
+ */
+export type RemoveLanguageArgs = { code: string, };
 
 /**
  * What an export writes (B2-04).
@@ -350,6 +450,68 @@ fillForms: boolean, };
 export type Recovery = "none" | "available" | "partial" | "lost" | "stale";
 
 /**
+ * The signatures of an open document, as far as they could be looked at (B2-14, ADR 0014).
+ */
+export type SignatureReport = { 
+/**
+ * One entry for each signature field that has a signature, in the order of the form.
+ */
+signatures: Array<SignatureInfo>, 
+/**
+ * The document has more signature fields than were looked at (`MAX_SIGNATURES`).
+ */
+truncated: boolean, };
+
+/**
+ * What verifying one signature of an open document found (B2-14, ADR 0014). It is checked
+ * offline: that a signature holds says the signed bytes are as the signer left them, never that
+ * the signer is who they say (see `signer_trusted`), and nothing is asked of any server.
+ */
+export type SignatureInfo = { status: SignatureStatus, 
+/**
+ * The signer's certificate chains to a root Windows trusts, with what Windows has on this
+ * computer (nothing is fetched; whether it was revoked is not checked). Only meaningful for
+ * a signature that holds (`valid`, `changedAfterSigning`).
+ */
+signerTrusted: boolean, 
+/**
+ * Why the signature could not be verified (`unverifiable`).
+ */
+reason: UnverifiableReason | null, 
+/**
+ * The signature field's name, as the file gives it; display only.
+ */
+fieldName: string | null, 
+/**
+ * Who signed, as the certificate names them. Only for a signature that holds.
+ */
+signer: string | null, 
+/**
+ * When the signer says they signed, as text ("2026-09-24 12:00:00 UTC+08:00"). Only the
+ * signer's own claim: nothing vouches for the time (there is no time stamp, RFC 3161).
+ */
+claimedTime: string | null, 
+/**
+ * A signature that certifies the document says what may still be changed in it (DocMDP).
+ */
+certification: Certification | null, };
+
+/**
+ * Whether a signature holds (B2-14).
+ */
+export type SignatureStatus = "valid" | "changedAfterSigning" | "invalid" | "unverifiable";
+
+/**
+ * Why a signature could not be verified (B2-14).
+ */
+export type UnverifiableReason = "unsupportedFormat" | "unsupportedAlgorithm" | "tooLarge" | "notAvailable";
+
+/**
+ * What a certifying signature allows to be changed after it (DocMDP, B2-14).
+ */
+export type Certification = "noChanges" | "fillForms" | "fillFormsAndAnnotate";
+
+/**
  * An open document as the frontend sees it.
  */
 export type DocumentInfo = { doc: DocumentId, 
@@ -524,7 +686,7 @@ export type IpcError = { code: ErrorCode, message: string, };
  * the app. Every file gets its own tab (MVP-14): `Opening` adds it, then `Opened` or `Failed`
  * says how it went.
  */
-export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, } | { "kind": "closeRequested", tabs: Array<TabId>, };
+export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, } | { "kind": "closeRequested", tabs: Array<TabId>, } | { "kind": "ocr", tab: TabId, progress: OcrProgress, } | { "kind": "ocrPage", tab: TabId, doc: DocumentId, pageIndex: number, };
 
 /** Limits enforced by the main process (crates/ipc_contract/src/limits.rs). */
 export const LIMITS = {
@@ -560,6 +722,8 @@ export const LIMITS = {
   maxFieldsPerPage: 5000,
   maxFieldValueBytes: 16384,
   maxFieldOptions: 1000,
+  maxLanguageDataBytes: 67108864,
+  maxImportedLanguages: 20,
   protocolVersion: 0,
 } as const;
 

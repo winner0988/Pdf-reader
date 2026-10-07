@@ -15,7 +15,7 @@ tauri-build.workspace = true
 
 [dependencies]
 # A second launch hands its files to the running window as tabs (MVP-14, ADR 0012).
-tauri-plugin-single-instance = "=2.5.0"
+tauri-plugin-single-instance = "=2.5.2"
 tauri.workspace = true
 ipc_contract = { path = "../crates/ipc_contract" }
 worker_host = { path = "../crates/worker_host" }

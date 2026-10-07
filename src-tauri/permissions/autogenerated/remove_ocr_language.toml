@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-remove-ocr-language"
+description = "Enables the remove_ocr_language command without any pre-configured scope."
+commands.allow = ["remove_ocr_language"]
+
+[[permission]]
+identifier = "deny-remove-ocr-language"
+description = "Denies the remove_ocr_language command without any pre-configured scope."
+commands.deny = ["remove_ocr_language"]

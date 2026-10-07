@@ -364,6 +364,95 @@ def benign_image_only() -> bytes:
     return doc.build()
 
 
+# --------------------------------------------------------------------------- a scanned page
+
+# The letters of the scanned sample, 5 x 7 cells each, drawn for this corpus: no font and no
+# image is read, so the sample is a picture of text and nothing else.
+SCAN_GLYPHS = {
+    " ": ("00000", "00000", "00000", "00000", "00000", "00000", "00000"),
+    "A": ("01110", "10001", "10001", "11111", "10001", "10001", "10001"),
+    "C": ("01110", "10001", "10000", "10000", "10000", "10001", "01110"),
+    "E": ("11111", "10000", "10000", "11110", "10000", "10000", "11111"),
+    "F": ("11111", "10000", "10000", "11110", "10000", "10000", "10000"),
+    "I": ("01110", "00100", "00100", "00100", "00100", "00100", "01110"),
+    "P": ("11110", "10001", "10001", "11110", "10000", "10000", "10000"),
+    "R": ("11110", "10001", "10001", "11110", "10100", "10010", "10001"),
+    "S": ("01111", "10000", "10000", "01110", "00001", "00001", "11110"),
+    "T": ("11111", "00100", "00100", "00100", "00100", "00100", "00100"),
+    "V": ("10001", "10001", "10001", "10001", "10001", "01010", "00100"),
+    "Y": ("10001", "10001", "01010", "00100", "00100", "00100", "00100"),
+}
+
+
+def run_length_encode(data: bytes) -> bytes:
+    """PDF's RunLengthDecode (ISO 32000-1, 7.4.5): runs of 2 to 128 equal bytes, and the others as they are."""
+    out = bytearray()
+    literal = bytearray()
+
+    def flush() -> None:
+        if literal:
+            out.append(len(literal) - 1)
+            out.extend(literal)
+            literal.clear()
+
+    i = 0
+    while i < len(data):
+        run = 1
+        while i + run < len(data) and run < 128 and data[i + run] == data[i]:
+            run += 1
+        if run >= 2:
+            flush()
+            out.append(257 - run)
+            out.append(data[i])
+            i += run
+        else:
+            literal.append(data[i])
+            if len(literal) == 128:
+                flush()
+            i += 1
+    flush()
+    out.append(128)
+    return bytes(out)
+
+
+def scan_image(lines: list[str], *, width: int, height: int, cell: int, x: int, y: int, leading: int) -> bytes:
+    """A 1-bit grey picture (0 is black, rows padded to whole bytes) of `lines` in SCAN_GLYPHS."""
+    row_bytes = (width + 7) // 8
+    rows = [bytearray(bytes([255]) * row_bytes) for _ in range(height)]
+    for line_number, text in enumerate(lines):
+        top = y + line_number * leading
+        for index, letter in enumerate(text):
+            left = x + index * 6 * cell
+            for glyph_row, bits in enumerate(SCAN_GLYPHS[letter]):
+                for glyph_column, bit in enumerate(bits):
+                    if bit != "1":
+                        continue
+                    for dy in range(cell):
+                        row = rows[top + glyph_row * cell + dy]
+                        for dx in range(cell):
+                            column = left + glyph_column * cell + dx
+                            row[column // 8] &= ~(0x80 >> (column % 8)) & 255
+    return b"".join(bytes(row) for row in rows)
+
+
+SCANNED_LINES = ["PRIVACY FIRST", "SECRET PAPER"]
+
+
+def benign_scanned_text() -> bytes:
+    doc = Document("scanned-text")
+    width, height = 1224, 1584  # a Letter page at 144 dpi
+    image = doc.pdf.add_stream(
+        f"/Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceGray "
+        "/BitsPerComponent 1 /Filter /RunLengthDecode",
+        run_length_encode(scan_image(SCANNED_LINES, width=width, height=height, cell=7, x=100, y=300, leading=140)),
+    )
+    doc.add_pages([Page(
+        extra_content=b"q 612 0 0 792 0 0 cm /Im1 Do Q" + bytes([10]),
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    )])
+    return doc.build()
+
+
 # RC4 and the standard security handler, revision 2 (PDF 1.7, 7.6.3). The AES-256 handler
 # (revision 6) and signatures follow below, also with the standard library only (QA-04).
 PASSWORD_PADDING = bytes.fromhex(
@@ -1441,6 +1530,11 @@ SAMPLES = [
            "Each page keeps its own size.", 4),
     Sample("benign/image-only.pdf", benign_image_only, "A page with an image and no text layer.",
            "Renders a gradient; search reports that the document has no text layer.", 1),
+    Sample("benign/scanned-text.pdf", benign_scanned_text,
+           "A scan: the page is one picture of two lines of text (PRIVACY FIRST, SECRET PAPER) and nothing "
+           "else, so it has no text layer.",
+           "Search finds nothing and text cannot be selected until the text is recognised (OCR, B2-10); "
+           "then both lines can be searched.", 1),
     Sample("benign/encrypted-rc4-40.pdf", benign_encrypted,
            "Encrypted with the standard handler (RC4 40-bit, R2); user password 'user', owner password 'owner'.",
            "Asks for a password (MVP-16): 'user' or 'owner' opens it, any other is refused.", 1),

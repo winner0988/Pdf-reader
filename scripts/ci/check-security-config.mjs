@@ -62,6 +62,7 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-get-page-links", "MVP-12: where a page's links are and where they point"],
   ["allow-get-page-annotations", "B2-07: list one page's annotations (highlights, notes and the document's own) to select and edit them"],
   ["allow-get-page-fields", "B2-09: list one page's form fields (values, options, whether they have scripts) to fill them in; nothing in them is run"],
+  ["allow-get-signatures", "B2-14: the signatures of an open document, verified offline by its worker (whether each holds, who signed); by document id"],
   ["allow-get-page-text", "MVP-15: a page's text and where its characters are, for selecting and copying"],
   ["allow-describe-link", "MVP-12: what the confirmation dialog shows, checked in the main process"],
   ["allow-open-link", "MVP-12: open a confirmed http/https/mailto link by its id"],
@@ -96,6 +97,15 @@ const ALLOWED_PERMISSIONS = new Map([
     "allow-privacy-export",
     "B2-03: a copy without metadata; the main process asks where, never the document's own file",
   ],
+  ["allow-get-ocr-languages", "B2-10: the languages scanned pages can be recognised in (codes and sizes)"],
+  [
+    "allow-import-ocr-language",
+    "B2-10: the main process asks for a .traineddata file, checks its name, size and format, and copies it into the app's data folder; the path stays there",
+  ],
+  ["allow-remove-ocr-language", "B2-10: remove an imported language by its code; the ones that came with the app stay"],
+  ["allow-start-ocr", "B2-10: recognise the text of an open document's scanned pages now, by document id"],
+  ["allow-stop-ocr", "B2-10: stop recognising an open document's pages, by document id"],
+  ["allow-set-ocr-focus", "B2-10: the page the user looks at, which is recognised first, by document id and page number"],
   [
     "allow-pick-stamp-image",
     "B2-08: a picture for a custom stamp; the main process asks in its open dialog and the path stays there, the document's worker keeps only the pixels",

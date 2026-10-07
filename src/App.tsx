@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { tauriExportApi, type ExportApi } from "@/features/export/api";
 import { tauriOpenApi, type OpenApi } from "@/features/open/api";
@@ -7,6 +7,10 @@ import { tauriAnnotationsApi, type AnnotationsApi } from "@/features/annotations
 import { FieldEdits } from "@/features/forms/edits";
 import { tauriFormsApi, type FormsApi } from "@/features/forms/source";
 import { tauriLinksApi, type LinksApi } from "@/features/links/source";
+import { tauriSignaturesApi, useSignatures, type SignaturesApi } from "@/features/signatures/useSignatures";
+import { tauriOcrApi, type OcrApi } from "@/features/ocr/api";
+import type { OcrTab } from "@/features/ocr/model";
+import { useOcr } from "@/features/ocr/useOcr";
 import { tauriSearchApi, type SearchApi } from "@/features/search/useSearch";
 import { tauriOutlineApi, useOutline, type OutlineApi } from "@/features/outline/useOutline";
 import { tauriRecentApi, type RecentApi } from "@/features/recent/api";
@@ -37,6 +41,7 @@ type AppProps = {
   textApi?: TextApi;
   annotationsApi?: AnnotationsApi;
   formsApi?: FormsApi;
+  signaturesApi?: SignaturesApi;
   systemApi?: SystemApi;
   recentApi?: RecentApi;
   settingsApi?: SettingsApi;
@@ -44,6 +49,7 @@ type AppProps = {
   savingApi?: SavingApi;
   editingApi?: EditingApi;
   updatesApi?: UpdatesApi;
+  ocrApi?: OcrApi;
 };
 
 export default function App({
@@ -55,6 +61,7 @@ export default function App({
   textApi = tauriTextApi,
   annotationsApi = tauriAnnotationsApi,
   formsApi = tauriFormsApi,
+  signaturesApi = tauriSignaturesApi,
   systemApi = tauriSystemApi,
   recentApi = tauriRecentApi,
   settingsApi = tauriSettingsApi,
@@ -62,9 +69,19 @@ export default function App({
   savingApi = tauriSavingApi,
   editingApi = tauriEditingApi,
   updatesApi = tauriUpdatesApi,
+  ocrApi = tauriOcrApi,
 }: AppProps) {
-  const tabs = useTabs(api);
+  // How recognising the text of each tab's scanned pages goes arrives with the open events (B2-10).
+  const ocr = useOcr();
+  const tabs = useTabs(api, ocr.handle);
   const { state } = tabs;
+  // A closed tab's recognising is forgotten.
+  const { state: ocrState, forget: forgetOcr } = ocr;
+  useEffect(() => {
+    for (const tab of ocrState.keys()) {
+      if (!state.tabs.some((open) => open.tab === tab)) forgetOcr(tab);
+    }
+  }, [state.tabs, ocrState, forgetOcr]);
   // The values filled into forms, on their way to the documents (B2-09): closing a tab waits for them.
   const [fieldEdits] = useState(() => new FieldEdits());
   const renderer = useMemo(() => createPageRenderer(renderApi), [renderApi]);
@@ -92,6 +109,18 @@ export default function App({
       else tabs.close(tab);
     });
   };
+  // The window is being closed and no tab is known to have unsaved changes (#153): a value still
+  // being typed in a field is one only this page knows of, so it is sent first. The main process
+  // then closes the window, or asks again (naming the tabs) if the value made a change.
+  const noTabKnown = state.closeRequest !== null && state.closeRequest.length === 0;
+  const { dismissCloseRequest } = tabs;
+  useEffect(() => {
+    if (!noTabKnown) return;
+    dismissCloseRequest();
+    fieldEdits.whenSettled(() => {
+      savingApi.closeWindow(false).catch(() => {});
+    });
+  }, [noTabKnown, dismissCloseRequest, fieldEdits, savingApi]);
   const closingTab = state.tabs.find((tab) => tab.tab === closing && isUnsaved(tab));
   const closeRequest = state.closeRequest
     ? state.tabs.filter((tab) => state.closeRequest?.includes(tab.tab) && isUnsaved(tab))
@@ -125,6 +154,7 @@ export default function App({
               systemApi={systemApi}
               recentApi={demo ? undefined : recentApi}
               updatesApi={demo ? undefined : updatesApi}
+              ocrApi={demo ? undefined : ocrApi}
               onOpen={open}
               onClose={() => setDemo(null)}
             />
@@ -142,12 +172,15 @@ export default function App({
                 textApi={textApi}
                 annotationsApi={annotationsApi}
                 formsApi={formsApi}
+                signaturesApi={signaturesApi}
                 systemApi={systemApi}
                 recentApi={recentApi}
                 exportApi={exportApi}
                 savingApi={savingApi}
                 editingApi={editingApi}
                 updatesApi={updatesApi}
+                ocrApi={ocrApi}
+                ocr={ocr.state.get(tab.tab)}
                 fieldEdits={fieldEdits}
                 latestInfo={tabs.latestInfo}
                 onOpen={open}
@@ -201,12 +234,15 @@ type TabPaneProps = {
   textApi: TextApi;
   annotationsApi: AnnotationsApi;
   formsApi: FormsApi;
+  signaturesApi: SignaturesApi;
   systemApi: SystemApi;
   recentApi: RecentApi;
   exportApi: ExportApi;
   savingApi: SavingApi;
   editingApi: EditingApi;
   updatesApi: UpdatesApi;
+  ocrApi: OcrApi;
+  ocr: OcrTab | undefined;
   fieldEdits: FieldEdits;
   latestInfo: (tab: TabId) => DocumentInfo | undefined;
   onOpen: () => void;
@@ -219,8 +255,24 @@ type TabPaneProps = {
  * One tab's reader. Every tab stays mounted and hidden tabs are only hidden, so each keeps its
  * page, zoom, rotation, sidebar and search while another is shown (MVP-14).
  */
-function TabPane({ tab, active, outlineApi, latestInfo, onClose, onRetry, onUnlock, ...shell }: TabPaneProps) {
+function TabPane({
+  tab,
+  active,
+  outlineApi,
+  signaturesApi,
+  latestInfo,
+  onClose,
+  onRetry,
+  onUnlock,
+  ...shell
+}: TabPaneProps) {
   const outline = useOutline(outlineApi, docOf(tab), tab.content.kind === "open" && tab.content.hasOutline);
+  const signatures = useSignatures(
+    signaturesApi,
+    docOf(tab),
+    tab.content.kind === "open" ? tab.content.document.session : undefined,
+    isUnsaved(tab),
+  );
   return (
     <div role="tabpanel" id={tabPanelId(tab.tab)} aria-labelledby={tabElementId(tab.tab)} hidden={!active} className="h-full">
       <ReaderShell
@@ -228,6 +280,7 @@ function TabPane({ tab, active, outlineApi, latestInfo, onClose, onRetry, onUnlo
         state={shellState(tab)}
         active={active}
         outline={outline}
+        signatures={signatures}
         latest={() => latestInfo(tab.tab)}
         onClose={() => onClose(tab.tab)}
         onRetry={() => onRetry(tab.tab)}

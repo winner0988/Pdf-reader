@@ -48,6 +48,8 @@ enum Kind {
     /// A folder for exported page images (B2-04), or for the files of a split document (B2-06),
     /// under the title the caller gives.
     PickFolder { title: &'static str },
+    /// One file of language data for recognising text (B2-10).
+    OpenLanguageData,
     /// The picture of a custom stamp (B2-08): one PNG or JPEG file.
     OpenImage,
 }
@@ -110,6 +112,13 @@ pub async fn split_pdf_file(
         .and_then(|mut paths| paths.pop()))
 }
 
+/// Asks for one file of language data for recognising text (`.traineddata`, B2-10).
+pub async fn pick_language_data(window: &WebviewWindow) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::OpenLanguageData)
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
 /// Asks for the PDF file whose pages are put into a document (B2-06): one file. `None` if the user
 /// cancelled.
 pub async fn pick_pages_source(window: &WebviewWindow) -> Result<Option<PathBuf>, IpcError> {
@@ -161,7 +170,7 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
         | Kind::PrivacyExport { .. }
         | Kind::SplitPdf { .. } => common | FOS_OVERWRITEPROMPT,
         Kind::PickFolder { .. } => common | FOS_PICKFOLDERS,
-        Kind::OpenPagesSource | Kind::OpenImage => common,
+        Kind::OpenLanguageData | Kind::OpenPagesSource | Kind::OpenImage => common,
     }
 }
 
@@ -213,7 +222,11 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
                 CoCreateInstance::<_, IFileSaveDialog>(&FileSaveDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
             }
-            Kind::OpenPdfs | Kind::OpenPagesSource | Kind::PickFolder { .. } | Kind::OpenImage => {
+            Kind::OpenPdfs
+            | Kind::OpenPagesSource
+            | Kind::PickFolder { .. }
+            | Kind::OpenLanguageData
+            | Kind::OpenImage => {
                 CoCreateInstance::<_, IFileOpenDialog>(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
             }
@@ -248,6 +261,10 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             Some((strings::PDF_FILTER_NAME, "*.pdf")),
         ),
         Kind::PickFolder { title } => (*title, None),
+        Kind::OpenLanguageData => (
+            strings::LANGUAGE_DIALOG_TITLE,
+            Some((strings::LANGUAGE_FILTER_NAME, "*.traineddata")),
+        ),
         Kind::OpenImage => (
             strings::STAMP_IMAGE_DIALOG_TITLE,
             Some((strings::IMAGE_FILTER_NAME, "*.png;*.jpg;*.jpeg")),
@@ -348,6 +365,13 @@ mod tests {
             file_name: "報告-p2-4.pdf".to_owned(),
         });
         assert!(split(FOS_DONTADDTORECENT) && split(FOS_OVERWRITEPROMPT));
+
+        let language = options_of(Kind::OpenLanguageData);
+        assert!(
+            language(FOS_DONTADDTORECENT) && language(FOS_FORCEFILESYSTEM),
+            "nothing picked goes on the recent items"
+        );
+        assert!(!language(FOS_ALLOWMULTISELECT), "one file");
 
         // One file whose pages go into the document (B2-06), not several.
         let source = options_of(Kind::OpenPagesSource);

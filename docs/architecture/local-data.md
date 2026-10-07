@@ -15,7 +15,8 @@
 | 檔案或資料夾 | 內容 | 誰寫入 | 說明 |
 |---|---|---|---|
 | `recent.json` | 最近開啟的檔案的**完整路徑**（最多 20 筆）；「不記錄此檔案」的加鹽雜湊值 | 主行程 | [recent-files.md](recent-files.md) |
-| `settings.json` | 外觀、是否記錄最近開啟的檔案 | 主行程 | 本頁「設定」 |
+| `settings.json` | 外觀、是否記錄最近開啟的檔案、掃描頁的文字辨識（自動或手動、語言） | 主行程 | 本頁「設定」 |
+| `tessdata\` | 使用者匯入的 OCR 語言資料（`<代碼>.traineddata`，每個最多 64 MiB，最多 20 個）。內附的 `eng`、`chi_tra` 不在這裡，在安裝資料夾的 `tessdata\` | 主行程 | [ocr.md](ocr.md) |
 | `recovery\` | 崩潰復原日誌：有未儲存變更的文件，每份一個，含檔案的**完整路徑**、大小與修改時間，以及還沒存檔的編輯。正常存檔、不儲存或關閉時刪除，只有 app 沒有正常結束時才會留下 | 主行程 | [crash-recovery.md](crash-recovery.md) |
 | `EBWebView\` | 畫面元件（WebView2）的暫存資料 | WebView2 | 本頁「WebView2」 |
 
@@ -35,9 +36,11 @@
 |---|---|---|
 | `theme` | `system` | `system`（跟隨系統）、`light`、`dark` |
 | `recordRecentFiles` | `true` | 關閉時清除目前的清單，之後開啟的檔案都不記錄；「⋯」選單也不再提供「不記錄此檔案」 |
+| `ocrAuto` | `true` | 開啟文件時自動辨識掃描頁的文字；關閉時只在使用者要求時辨識（B2-10） |
+| `ocrLanguage` | `null` | 辨識用的語言代碼；`null` 表示 app 決定（繁體中文的資料，也認得英文與數字）。沒有安裝的語言當成 `null` |
 
 - 啟動時就讀取，因為視窗一開始就需要外觀。
-- 前端送回**完整的一組設定**（`Settings`，`deny_unknown_fields`）。
+- 前端送回**完整的一組設定**（`Settings`，`deny_unknown_fields`；`ocrLanguage` 要像語言代碼）。有新項目之前寫的檔案沒有 `ocrAuto` 與 `ocrLanguage`，用預設值。
 - 變更立即套用；檔案寫不進去時仍然套用，畫面說明「重新啟動後會回到之前的設定」。
 - 所有分頁共用同一組設定（前端的 `SettingsProvider`）。
 

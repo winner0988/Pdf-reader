@@ -80,8 +80,10 @@ test("the pages of another file go in after a page, in their order, and are in t
     await expect(
       page.getByRole("tab", { name: new RegExp(`^original\\.pdf\\s*${strings.tabs.unsaved}$`) }),
     ).toBeVisible();
-    // The pages that came in are selected, and the others are where they were.
-    await expect(list.getByRole("option", { selected: true })).toHaveCount(4);
+    // The pages that came in are selected, and the others are where they were. The list only has
+    // the thumbnails in view (it is virtualized, and a small window shows few), so they are counted
+    // in what the sidebar says.
+    await expect(page.getByText(t.selected(4), { exact: true })).toBeVisible();
     await inOrder(page);
 
     // Undone and made again (the main process keeps the file for it).

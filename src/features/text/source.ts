@@ -14,8 +14,11 @@ export const tauriTextApi: TextApi = {
 };
 
 export type TextSource = {
-  /** The page's text, kept for the next time. */
-  text(doc: DocumentId, pageIndex: number): Promise<PageText>;
+  /**
+   * The page's text, kept for the next time. A different `version` than the kept text was asked
+   * with asks again: a scanned page whose text was recognised since has new text (B2-10).
+   */
+  text(doc: DocumentId, pageIndex: number, version?: number): Promise<PageText>;
   /** The page's text if it has arrived: hit-testing a pointer cannot wait for it. */
   loaded(doc: DocumentId, pageIndex: number): PageText | undefined;
   /**
@@ -28,7 +31,7 @@ export type TextSource = {
 /** Pages kept: the ones on screen and around them, with room for going back and forth. */
 const KEPT_PAGES = 64;
 
-type Entry = { answer: Promise<PageText>; text?: PageText };
+type Entry = { answer: Promise<PageText>; text?: PageText; version: number };
 
 export function createTextSource(api: Pick<TextApi, "getPageText">, keep = KEPT_PAGES): TextSource {
   let cachedDoc: DocumentId | null = null;
@@ -42,15 +45,16 @@ export function createTextSource(api: Pick<TextApi, "getPageText">, keep = KEPT_
     }
   };
   return {
-    text(doc, pageIndex) {
+    text(doc, pageIndex, version = 0) {
       forDocument(doc);
       const kept = pages.get(pageIndex);
-      if (kept) {
+      if (kept && kept.version === version) {
         pages.delete(pageIndex);
         pages.set(pageIndex, kept);
         return kept.answer;
       }
-      const entry: Entry = { answer: api.getPageText(doc, pageIndex) };
+      const entry: Entry = { answer: api.getPageText(doc, pageIndex), version };
+      pages.delete(pageIndex);
       pages.set(pageIndex, entry);
       entry.answer.then(
         (text) => {
