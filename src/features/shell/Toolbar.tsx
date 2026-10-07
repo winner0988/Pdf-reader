@@ -116,6 +116,11 @@ export type ToolbarProps = {
    * says so.
    */
   flatten?: { onClick?: () => void };
+  /**
+   * Recognises the text of the document's scanned pages now (B2-10); given only where the main
+   * process can (not for demo data). `running` while it is doing so.
+   */
+  ocr?: { running: boolean; onStart: () => void };
   /** The "⋯" menu opened. */
   onMoreMenuOpen?: () => void;
   /**
@@ -400,6 +405,11 @@ function MoreMenu(props: ToolbarProps) {
           {menu.saveAs}
           <DropdownMenuShortcut>Ctrl+Shift+S</DropdownMenuShortcut>
         </DropdownMenuItem>
+        {props.ocr && (
+          <DropdownMenuItem disabled={props.ocr.running} onClick={props.ocr.onStart}>
+            {props.ocr.running ? strings.ocr.menuRunning : strings.ocr.menu}
+          </DropdownMenuItem>
+        )}
         {props.flatten && (
           <DropdownMenuItem disabled={!props.flatten.onClick} onClick={props.flatten.onClick}>
             {strings.forms.flatten}
