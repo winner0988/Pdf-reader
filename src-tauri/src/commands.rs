@@ -3,16 +3,19 @@
 //! [`OpenEvent`]s carrying only a `TabId`, a `DocumentId` and a file name.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use ipc_contract::types::{
     DocumentId, EditArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs,
-    FormField, IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs, OutlineResult,
-    PageAnnotation, PageLink, PageText, PagesSource, RecentFile, RecentId, RenderPageArgs,
-    RequestId, SaveResult, SearchArgs, SearchEvent, Settings, StampImageInfo, TabId, UndoArgs,
+    FormField, IpcError, LanguageImport, LinkArgs, LinkPreview, OcrArgs, OcrFocusArgs,
+    OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText,
+    PagesSource, RecentFile, RecentId, RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult,
+    SearchArgs, SearchEvent, Settings, SignatureReport, StampImageInfo, TabId, UndoArgs,
     UnlockArgs, UnlockSourceArgs, UpdateCheck,
 };
-use ipc_contract::validate::Validate;
+use ipc_contract::validate::{Validate, check_page_index};
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
 
@@ -20,6 +23,7 @@ use crate::documents::Documents;
 use crate::events::OpenEvents;
 use crate::export::{self, Exports, ImageKind};
 use crate::file_dialog;
+use crate::ocr::Ocr;
 use crate::recent::RecentFiles;
 use crate::render::Renderer;
 use crate::search::{self, Searches};
@@ -34,8 +38,12 @@ pub async fn subscribe_open_events(
 ) -> Result<(), IpcError> {
     blocking(move || {
         let documents = app.state::<Documents>();
-        app.state::<OpenEvents>()
-            .subscribe(on_event, || documents.snapshot());
+        let ocr = app.state::<Arc<Ocr>>();
+        app.state::<OpenEvents>().subscribe(on_event, || {
+            let mut events = documents.snapshot();
+            events.extend(ocr.snapshot());
+            events
+        });
         Ok(())
     })
     .await
@@ -263,9 +271,14 @@ pub async fn get_settings(app: AppHandle) -> Result<Settings, IpcError> {
 /// be saved for the next run. Turning off the recent files list also empties it.
 #[tauri::command]
 pub async fn set_settings(app: AppHandle, settings: Settings) -> Result<(), IpcError> {
+    settings.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
     blocking(move || {
+        let record_recent_files = settings.record_recent_files;
         let saved = app.state::<SettingsStore>().set(settings);
-        if !settings.record_recent_files {
+        if !record_recent_files {
             app.state::<RecentFiles>().clear();
             app.state::<Documents>().clear_unused_journals();
         }
@@ -273,6 +286,119 @@ pub async fn set_settings(app: AppHandle, settings: Settings) -> Result<(), IpcE
             code: ErrorCode::Unreadable,
             message: "the settings could not be saved".to_owned(),
         })
+    })
+    .await
+}
+
+/// The languages that scanned pages can be recognised in (B2-10, ADR 0015): those that came with
+/// the app and the ones the user imported.
+#[tauri::command]
+pub async fn get_ocr_languages(app: AppHandle) -> Result<OcrLanguages, IpcError> {
+    blocking(move || Ok(app.state::<Arc<Ocr>>().languages().list())).await
+}
+
+/// Set while the language dialog is showing.
+static LANGUAGE_DIALOG_SHOWING: AtomicBool = AtomicBool::new(false);
+
+/// Asks for a `.traineddata` file in a dialog of the main process (the path stays here) and
+/// imports it as a language (B2-10): its name, size and format are checked, and a file that fails
+/// is refused with the reason. Nothing is downloaded.
+#[tauri::command]
+pub async fn import_ocr_language(
+    app: AppHandle,
+    window: WebviewWindow,
+) -> Result<LanguageImport, IpcError> {
+    if LANGUAGE_DIALOG_SHOWING.swap(true, Ordering::SeqCst) {
+        return Ok(LanguageImport::Cancelled);
+    }
+    struct Showing;
+    impl Drop for Showing {
+        fn drop(&mut self) {
+            LANGUAGE_DIALOG_SHOWING.store(false, Ordering::SeqCst);
+        }
+    }
+    let _showing = Showing;
+    let Some(file) = file_dialog::pick_language_data(&window).await? else {
+        return Ok(LanguageImport::Cancelled);
+    };
+    blocking(move || {
+        let ocr = app.state::<Arc<Ocr>>();
+        Ok(match ocr.languages().import(&file) {
+            Ok(()) => LanguageImport::Imported {
+                languages: ocr.languages().list(),
+            },
+            Err(reason) => LanguageImport::Refused { reason },
+        })
+    })
+    .await
+}
+
+/// Removes a language the user imported (B2-10); the ones that came with the app stay. Returns
+/// the languages there are now.
+#[tauri::command]
+pub async fn remove_ocr_language(
+    app: AppHandle,
+    args: RemoveLanguageArgs,
+) -> Result<OcrLanguages, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    blocking(move || {
+        let ocr = app.state::<Arc<Ocr>>();
+        ocr.languages().remove(&args.code);
+        Ok(ocr.languages().list())
+    })
+    .await
+}
+
+/// The tab that shows `doc`, if it is open (B2-10).
+fn tab_of(app: &AppHandle, doc: DocumentId) -> Result<TabId, IpcError> {
+    app.state::<Documents>().tab_of(doc).ok_or(IpcError {
+        code: ErrorCode::UnknownDocument,
+        message: "no such open document".to_owned(),
+    })
+}
+
+/// Recognises the text of the scanned pages of an open document now, whatever the settings say
+/// about doing it on its own (B2-10). Its progress arrives on the open-events channel.
+#[tauri::command]
+pub async fn start_ocr(app: AppHandle, args: OcrArgs) -> Result<(), IpcError> {
+    blocking(move || {
+        let tab = tab_of(&app, args.doc)?;
+        app.state::<Arc<Ocr>>().start_tab(tab);
+        Ok(())
+    })
+    .await
+}
+
+/// Stops recognising the text of an open document's pages; what was read stays (B2-10).
+#[tauri::command]
+pub async fn stop_ocr(app: AppHandle, args: OcrArgs) -> Result<(), IpcError> {
+    blocking(move || {
+        let tab = tab_of(&app, args.doc)?;
+        app.state::<Arc<Ocr>>().stop_tab(tab);
+        Ok(())
+    })
+    .await
+}
+
+/// The page of an open document that the user looks at, which is recognised first (B2-10).
+#[tauri::command]
+pub async fn set_ocr_focus(app: AppHandle, args: OcrFocusArgs) -> Result<(), IpcError> {
+    blocking(move || {
+        let documents = app.state::<Documents>();
+        let pages = documents.page_count(args.doc).ok_or(IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        })?;
+        check_page_index(args.page_index, pages).map_err(|error| IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: error.to_string(),
+        })?;
+        let tab = tab_of(&app, args.doc)?;
+        app.state::<Arc<Ocr>>().set_focus(tab, args.page_index);
+        Ok(())
     })
     .await
 }
@@ -376,6 +502,14 @@ pub async fn get_page_fields(
     page_index: u32,
 ) -> Result<Vec<FormField>, IpcError> {
     blocking(move || app.state::<Documents>().page_fields(doc, page_index)).await
+}
+
+/// The digital signatures of an open document (B2-14, ADR 0014), verified offline by the
+/// document's own worker: whether each holds, whether the file changed after it, and who signed.
+/// Nothing is fetched from anywhere.
+#[tauri::command]
+pub async fn get_signatures(app: AppHandle, doc: DocumentId) -> Result<SignatureReport, IpcError> {
+    blocking(move || app.state::<Documents>().signatures(doc)).await
 }
 
 /// The links of one page (MVP-12): where they are and where they point. Opening a web link
@@ -767,15 +901,21 @@ pub async fn save_document_as(
 }
 
 /// Closes the window once the user was asked about unsaved changes (B2-02): with some left, only
-/// if they chose to `discard` them.
+/// if they chose to `discard` them. The page may not have known of them when it asked to close
+/// (a value it was still sending, #153): then the window stays open and the page is asked to ask.
 #[tauri::command]
 pub async fn close_window(
     app: AppHandle,
     window: WebviewWindow,
     discard: bool,
 ) -> Result<(), IpcError> {
+    // The page answered (see `close_if_unanswered`).
+    CLOSE_ANSWERED.store(true, Ordering::SeqCst);
     let documents = app.state::<Documents>();
-    if !discard && !documents.unsaved_tabs().is_empty() {
+    let unsaved = documents.unsaved_tabs();
+    if !discard && !unsaved.is_empty() {
+        app.state::<OpenEvents>()
+            .send(OpenEvent::CloseRequested { tabs: unsaved });
         return Err(IpcError {
             code: ErrorCode::InvalidArgument,
             message: "documents have unsaved changes".to_owned(),
@@ -800,17 +940,55 @@ pub async fn cancel(app: AppHandle, request: RequestId) -> Result<(), IpcError> 
     Ok(())
 }
 
+/// How long the page has to answer a request to close the window that names no unsaved tab. A page
+/// that has none to ask about answers at once (it calls `close_window`), so this only matters for
+/// one that does not answer at all: the window must still close.
+const CLOSE_ANSWER: Duration = Duration::from_secs(5);
+
+/// Whether the page has called `close_window` since the window was last asked to close with no tab
+/// known to have unsaved changes.
+static CLOSE_ANSWERED: AtomicBool = AtomicBool::new(false);
+
+/// Closes `window` if, after `CLOSE_ANSWER`, the page has not answered (called `close_window`) and
+/// no tab has unsaved changes: it is not answering (#153). A page that answered and was then
+/// asked to wait, by a question the user has not answered, keeps the window.
+fn close_if_unanswered(window: Window) {
+    std::thread::spawn(move || {
+        std::thread::sleep(CLOSE_ANSWER);
+        if !CLOSE_ANSWERED.load(Ordering::SeqCst)
+            && window
+                .app_handle()
+                .state::<Documents>()
+                .unsaved_tabs()
+                .is_empty()
+        {
+            // `destroy`, not `close`: `close` would ask again (see `on_window_event`).
+            let _ = window.destroy();
+        }
+    });
+}
+
 /// Drag and drop onto the window: only the first file is opened.
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     let app = window.app_handle();
     if let WindowEvent::CloseRequested { api, .. } = event {
-        // Unsaved changes (B2-02): the page asks what to do, then calls `close_window`. Without a
-        // page listening, nobody could ask, and the window would never close.
-        let unsaved = app.state::<Documents>().unsaved_tabs();
+        // The page asks what to do about unsaved changes (B2-02), then calls `close_window`. It
+        // is asked even when no tab is known to have any: a value still being typed in a field is
+        // a change only the page knows of (#153), and it sends it first. Without a page
+        // listening, nobody could ask, and the window would never close.
         let events = app.state::<OpenEvents>();
-        if !unsaved.is_empty() && events.has_receiver() {
+        if events.has_receiver() {
+            let unsaved = app.state::<Documents>().unsaved_tabs();
+            let none_known = unsaved.is_empty();
+            if none_known {
+                // Before the page can answer.
+                CLOSE_ANSWERED.store(false, Ordering::SeqCst);
+            }
             api.prevent_close();
             events.send(OpenEvent::CloseRequested { tabs: unsaved });
+            if none_known {
+                close_if_unanswered(window.clone());
+            }
         }
         return;
     }

@@ -96,3 +96,54 @@ Tesseract 與 Leptonica 隨 `mupdf-sys` 建置，版本由固定的 `mupdf` =0.8
 - `ocr_worker.rs`：頁面座標的換算、背景辨識、佇列與取走、換語言、停止、逾時。
 - `ipc_contract` 的 `ocr`：語言資料格式的各種壞法、內附資料的雜湊值；`validate`：`OcrPolled` 的上限。
 - `crates/pdf_worker/tests/ocr.rs`：真正的 worker 在沙盒中（停用 win32k 的 AppContainer），辨識掃描頁並提供文字與搜尋、不是掃描頁的頁面、沒有文字的圖片、中文、轉動與復原、刪除／移動／插入頁面、壞的語言檔、辨識時渲染照常回應、停止。
+
+## 主行程
+
+### 設定與語言
+
+- **設定**（`settings.json`，見 [local-data.md](local-data.md)）：`ocrAuto`（預設開）與 `ocrLanguage`（`null` 表示由 app 決定）。沒有這兩項的舊檔用預設值；檔案裡不像語言代碼的 `ocrLanguage` 會被丟掉。
+- **語言資料**（`src-tauri/src/ocr_languages.rs`）在兩個 `tessdata` 資料夾：
+  - 內附的：安裝檔放在程式旁邊（`bundle.resources`）；開發與 E2E 建置由 `tauri-build` 複製到 `target/<profile>/tessdata`；
+  - 匯入的：app 的資料資料夾（`PDF_READER_DATA_DIR` 或本機資料夾）下的 `tessdata`。
+- 檔名是 `<代碼>.traineddata`，代碼要通過 `is_language_name`；列出時略過其他檔名、空檔與超過上限的檔案。**自動**選擇：`chi_tra`（也認得英文與數字），其次 `eng`，再其次第一個。設定指定的語言沒有安裝時用自動的。
+- **匯入**（`import_ocr_language`）：對話框在主行程，路徑不到畫面。依序檢查檔名（`BadName`）、內附語言的代碼（`NameTaken`：匯入的檔案不能取代內附的）、已匯入的數量（`TooMany`，最多 `MAX_IMPORTED_LANGUAGES`＝20；取代同代碼的不算）、大小（`TooLarge`，最多 `MAX_LANGUAGE_DATA_BYTES`＝64 MiB，讀取時就限制）、格式（`NotLanguageData`，`check_language_data`）；通過才經暫存檔複製進資料資料夾。壞掉的檔案不會留下任何東西。
+- **讀取**交給 worker 之前再檢查一次（資料夾裡的檔案可能是手動放進去的）；只移除匯入的語言。
+
+### 排程
+
+`src-tauri/src/ocr.rs`：每個分頁一個 `Session`，由一條執行緒每 150 ms 走一輪（`Ocr::tick`）。
+
+- **不打擾使用者**：文件正忙於使用者的請求（渲染、存檔…）時這一輪跳過它（`try_lock`），不等；worker 遺失時不碰它（使用者的下一個請求才會重新開啟），所以辨識不會把 worker 弄活或弄死。
+- **每一步很短**：取一次結果、問 worker 最多 8 頁（約 25 ms 內；判斷不是掃描頁的頁面各花幾毫秒，那是 worker 的請求迴圈在做事，也是使用者的渲染要用的）；排進佇列的頁面要把頁面畫出來，花得久，所以它結束這一步。每份文件每 150 ms 最多這樣一步，使用者的請求最多等一小步。同時最多 `MAX_ACTIVE`（2）份文件在辨識，顯示中的分頁優先，其他的等輪到才載入語言。
+- **走訪的順序**：從使用者正在看的頁面（`set_ocr_focus`）往後，繞回開頭；每頁問一次 `OcrPage`。worker 立刻回答：不是掃描頁、已經辨識過、已排隊、佇列滿了（下一步再問同一頁）。
+- **語言晚一點載入**：worker 對掃描頁回 `NoLanguage` 時，才讀出語言資料、送 `OcrLoad`，然後再問同一頁；沒有掃描頁的文件到 `done` 都沒有載入任何語言。沒有可用的語言時狀態是 `noLanguage`（只有出現掃描頁的文件才會），語言匯入後從那一頁接下去，不重新走訪。換了 worker 或換了設定的語言，一樣在下一個掃描頁再載入。
+- **進度**：`checked`（問過的頁數）、`scans`（其中的掃描頁）、`recognised`、`failed`；每個辨識好的頁面另外送 `ocrPage`。
+- **編輯、復原、重做**會換 `DocumentId`：session 重新走訪所有頁面，worker 對辨識過的頁面立刻回答，一頁一個請求。**換了 worker**（舊的遺失後重開）則重新載入語言並重新開始。
+- **狀態**（`OcrRun`）：`idle`（設定為手動，或還沒輪到）→ `running` → `done`；`stopped`（使用者停止）、`noLanguage`（沒有可用的語言，每 2 秒再找一次，因為可能剛匯入）、`failed`（語言資料被拒絕，或 worker 遺失／卡住）。**`stopped` 與 `failed` 不會自動再開始**：避免一份讓辨識崩潰的文件造成「崩潰、重開、再崩潰」的迴圈；使用者按「辨識此文件的文字」（`start_ocr`）才再試。
+- **卡住**：有頁面排著、`PAGE_MILLIS`（2 分鐘）加 90 秒都沒有任何結果，就停止這個 worker（文件在使用者的下一個請求重新開啟），狀態 `failed`。worker 說沒有任何頁面排著、我們卻以為有（佇列被丟掉）時，重新問一遍所有頁面。
+- 訂閱開檔頻道時，目前的進度也一併送出（`Ocr::snapshot`）。
+
+### 命令與事件
+
+見 [ipc-contract.md](ipc-contract.md)：`get_ocr_languages`、`import_ocr_language`、`remove_ocr_language`、`start_ocr`、`stop_ocr`、`set_ocr_focus`，以及開檔頻道的 `ocr`、`ocrPage` 事件。這些命令都只用文件代號與語言代碼，不含路徑；新的 `allow-*` 權限都在 `check-security-config.mjs` 的允許清單裡說明。
+
+### 測試
+
+- `ocr_languages.rs`：列出、自動選擇、讀取、匯入（各種拒絕的原因、數量上限、取代、副檔名大小寫）、移除；內附資料通過檢查。
+- `ocr.rs`：以假的文件與 worker 測走訪的順序、佇列滿了、編輯後重新走訪、新 worker、手動與停止、沒有語言、語言資料壞掉、卡住、同時辨識的上限、忙碌的文件與關閉的分頁。
+- `documents.rs`（真的 worker）：開啟 `benign/scanned-text.pdf`（語料庫中的掃描樣本，由 `generate.py` 以內建的點陣字型畫出「PRIVACY FIRST」與「SECRET PAPER」，沒有文字層）：辨識後 `get_page_text` 與搜尋都找得到、有文字的文件沒有東西可辨識、設定為手動時等使用者開始。
+
+## 畫面
+
+說明畫面怎麼用上面的命令與事件；使用者看到的行為與文字見 [screen-map.md](../ux/screen-map.md)「掃描頁的文字辨識」。
+
+- **事件**：`ocr`（進度）與 `ocrPage`（某頁辨識好了）走開檔頻道，`useTabs` 認出它們（`isOcrEvent`）交給 `useOcr`，**不當成分頁的變化**（否則會把分頁最後一次告知的文件資訊清掉）。`useOcr` 的狀態（`features/ocr/model.ts`）每個分頁一份：最新的進度，和這份文件的每一頁被辨識了幾次（`versions`）；分頁換了 `DocumentId`（編輯之後）就重新計。
+- **文字**：`TextSource.text(doc, page, version)` 的 `version` 變了就重新向主行程要這一頁的文字，所以辨識好的頁面立刻有文字可選取、可標示；`PageSelection` 取得文字時回報這一頁是不是辨識出來的（`recognised`），狀態列據此標示目前這一頁。
+- **搜尋**：搜尋做完之後如果又有頁面辨識好，辨識暫停 1 秒就重新搜尋（`useSearch.refresh`）；沒有做完的搜尋、關著的搜尋列都不動。
+- **使用者正在看的頁面**：目前頁停留 300 ms 就以 `set_ocr_focus` 告訴主行程（只有顯示中的分頁）。
+- **設定**（`OcrSection`）：自動或手動、語言、匯入與移除；匯入由主行程顯示對話框，畫面只聽結果。
+- **提示**（`useOcrView`）：辨識結束時狀態列顯示一次結果（完成、停止、沒有語言、失敗）；沒有掃描頁的文件自動辨識完不說話，使用者自己按了「辨識此文件的文字」才說「沒有需要辨識的頁面」。
+
+### 端對端測試（`tests/e2e/ocr.spec.ts`）
+
+以真正的 app、`benign/scanned-text.pdf` 與內附的語言資料：自動辨識（狀態列、可搜尋、可選取）、設定為手動時等使用者開始、匯入語言資料（壞的與好的檔案，對話框由 UI Automation 回答）。

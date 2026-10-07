@@ -177,5 +177,10 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsState {
       return { ...state, notice: { kind: "tabLimit", ignoredFiles: event.ignoredFiles } };
     case "closeRequested":
       return { ...state, closeRequest: event.tabs };
+    // How recognising the text of scanned pages goes (B2-10) is told apart before the tabs
+    // hear of it (useTabs): it is not about the tabs themselves.
+    case "ocr":
+    case "ocrPage":
+      return state;
   }
 }

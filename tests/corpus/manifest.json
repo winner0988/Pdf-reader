@@ -111,6 +111,17 @@
       "sha256": "1c81bc7cd4e6584a527582c1486333a5cec953e37589b393b152de40b5ead3f2"
     },
     {
+      "path": "benign/scanned-text.pdf",
+      "category": "benign",
+      "purpose": "A scan: the page is one picture of two lines of text (PRIVACY FIRST, SECRET PAPER) and nothing else, so it has no text layer.",
+      "expected": "Search finds nothing and text cannot be selected until the text is recognised (OCR, B2-10); then both lines can be searched.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 10786,
+      "sha256": "e001a33c80593d3f9b2040dab29ef584468364fa4017242c54e0d3c04aeb0fd2"
+    },
+    {
       "path": "benign/encrypted-rc4-40.pdf",
       "category": "benign",
       "purpose": "Encrypted with the standard handler (RC4 40-bit, R2); user password 'user', owner password 'owner'.",

@@ -19,7 +19,7 @@
 | 3a | 未儲存變更的提示列 | 上一次執行留下這個檔案的未儲存變更時才出現（app 當機、被強制結束或斷電），位於工具列下方、安全警示橫幅上方。說明 recovery.available，按鈕 recovery.restore、recovery.discard、✕（recovery.later）；檔案在那之後被修改過時說明 recovery.stale，只有 recovery.discard 與 ✕。見「崩潰復原」。 | B2-13 |
 | 4 | 側欄 | 預設寬 280 px，可拖曳調整為 200～480 px。分頁：「目錄」、「縮圖」。目前頁面所屬的目錄項目以底色標示。「縮圖」：每頁一張，寬 128 px、依頁面比例（很細長的頁面最高 256 px），下方標示頁碼；只渲染畫面附近的縮圖，在畫面上停留片刻才渲染；點擊跳到該頁；目前頁以強調色外框標示並保持在畫面內；`↑`／`↓` 在縮圖之間移動，`Enter` 跳到該頁。縮圖可以多選並變更頁面（見第 7 節「頁面管理」）。視窗寬度小於 960 px 時側欄改為浮動覆蓋，開啟後點畫布即關閉。 | MVP-05、09、18 |
 | 5 | 頁面畫布 | 連續垂直捲動，頁與頁間距 12 px，水平置中；放大後比視窗寬時出現水平捲軸。尚未渲染的頁面顯示淺灰占位框（尺寸正確）。連結區域滑鼠游標變成手指，懸停時狀態列顯示目標。文字上方游標變成 I 字形，可以選取與複製文字；右鍵顯示 app 自己的功能表（見「選取與複製文字」）。 | MVP-07、08、12、15 |
-| 6 | 狀態列 | 左：檔名；文件作者限制了複製或列印時，後面接著鎖頭圖示與 permissions.restricted（見「文件權限」）。右：連結懸停目標（見「連結」）或暫時的提示（沒有文字層、作者不允許複製或列印；螢幕閱讀器會讀出）、`第 n / N 頁 · 縮放%`。 | MVP-05、15、19 |
+| 6 | 狀態列 | 左：檔名；文件作者限制了複製或列印時，後面接著鎖頭圖示與 permissions.restricted（見「文件權限」）。辨識掃描頁的文字時：進度與「停止」（見「掃描頁的文字辨識」）；目前這一頁的文字是辨識出來的時候：ocr.pageNote。右：連結懸停目標（見「連結」）或暫時的提示（沒有文字層、作者不允許複製或列印、辨識的結果；螢幕閱讀器會讀出）、`第 n / N 頁 · 縮放%`。 | MVP-05、15、19、B2-10 |
 
 「目前頁」定義：與畫布垂直中線相交的頁面；若中線落在頁與頁之間，取上方那一頁。
 
@@ -109,6 +109,11 @@
     - settings.updatesNote 說明只在按下時查詢、不會自動下載或安裝，以及 GitHub 會看到 IP 位址與時間；
     - 「檢查更新」：每按一次向 GitHub 查詢一次，查詢期間停用。結果顯示在下方：settings.upToDate、settings.available、settings.noRelease 或 settings.checkFailed；
     - 有新版本時多一個「前往下載頁…」：與文件中的外部連結一樣，先顯示確認對話框（第 4 節）與完整網址，使用者確認後才交給瀏覽器開啟；網址固定為本專案的 GitHub Releases 頁面。
+  - **文字辨識（OCR）**（B2-10，ADR 0015）：
+    - 「開啟文件時自動辨識掃描頁的文字」（預設開啟，ocr.settings.auto 與 ocr.settings.autoNote）：關閉時只在使用者要求時辨識（「⋯」→「辨識此文件的文字」）；
+    - 「辨識的語言」：下拉選單，第一項是 app 的選擇（ocr.settings.automatic：繁體中文的資料，也認得英文與數字），其後是安裝的語言（名稱與代碼，例如「English（eng）」）；沒有安裝的語言當成第一項；
+    - 「匯入語言資料…」：主行程顯示開啟對話框，選一個 Tesseract 的 `.traineddata`（app 不下載任何東西）。成功顯示 ocr.settings.imported，被拒絕時顯示原因（ocr.settings.refused.*：讀不到、太大、不是語言資料、檔名不合、內附的語言不能取代、匯入太多）；
+    - 匯入的語言列在「匯入的語言」下，各有一個「移除」按鈕（內附的沒有）；移除目前選的語言時，改回 app 的選擇。
   - **這台電腦上保存的資料**：列出 settings.dataItems 與 settings.dataLocation。
   - 設定寫不進檔案時顯示 settings.saveFailed：仍然套用，但重新啟動後會回到之前的設定。
   - 保存方式見 [local-data.md](../architecture/local-data.md)。
@@ -142,8 +147,20 @@
   - 控制字元、雙向文字控制與零寬字元不會被複製；
   - 焦點在文字欄位（搜尋框、頁碼）時，`Ctrl+C` 複製欄位中的文字；對話框裡的文字由 WebView 自己複製。
 - **右鍵功能表**：開啟文件時，在畫布上按右鍵顯示 app 自己的功能表，取代 WebView 預設的功能表：「複製」（沒有選取時停用），以及註解的「螢光筆」與「在這裡新增附註…」（見「註解」）。
-- **沒有文字層的頁面**（掃描件）不能選取；在上面拖曳時，狀態列顯示 text.noTextLayer 4 秒。
+- **沒有文字層的頁面**（掃描件）不能選取；在上面拖曳時，狀態列依情況顯示 4 秒：正在辨識文字時 ocr.selectWhileReading，沒有開始（手動、已停止、沒有語言）時 ocr.selectNotStarted，其他 text.noTextLayer。辨識好之後，那一頁和有文字層的頁面一樣可以選取、複製、搜尋與標示（見下節）。
 - **作者禁止複製**時仍可選取，但 `Ctrl+C` 不複製，狀態列顯示 permissions.copyBlocked 4 秒；右鍵「複製」停用，快捷鍵的位置改為 permissions.notAllowed。
+
+### 掃描頁的文字辨識（B2-10）
+
+[ADR 0015](../adr/0015-ocr.md)；做法見 [ocr.md](../architecture/ocr.md)。「掃描頁」是沒有文字、圖片又涵蓋大部分頁面的頁面；辨識出的文字只存在記憶體中，不寫進檔案。
+
+- **自動**（設定預設）：開啟文件後在背景進行，從使用者正在看的頁面開始；沒有掃描頁的文件什麼都不顯示，也不載入任何語言。
+- **進度**：找到掃描頁、辨識進行中時，狀態列在檔名後顯示 ocr.running（「辨識文字：已完成／掃描頁數 頁」）與「停止」按鈕（aria 名稱 ocr.stopLabel）。停止後已辨識的文字保留。
+- **結束**時狀態列顯示 4 秒：ocr.done（辨識的頁數，有失敗的頁面時一併說明）、ocr.stopped、ocr.noLanguage（沒有可用的語言，到設定匯入）或 ocr.failed。使用者自己按了「辨識此文件的文字」而文件沒有掃描頁時顯示 ocr.none。
+- **手動**：「⋯」→「辨識此文件的文字」（ocr.menu；辨識中停用並改為 ocr.menuRunning）。自動關閉、已停止或失敗之後，用它重新開始。
+- **標示**：目前這一頁的文字是辨識出來的，狀態列顯示 ocr.pageNote（可能有誤）。
+- **使用**：辨識好的頁面和有文字層的頁面一樣：選取、複製、搜尋與螢光筆標示。在頁面上繼續辨識時，搜尋會在辨識暫停 1 秒後自動重新搜尋，包含新辨識的頁面。轉動頁面會丟掉那一頁的結果並重新辨識；復原、刪除或移動頁面時結果跟著頁面走。
+- 文件在辨識時仍可以正常閱讀、縮放與編輯：辨識在 worker 的背景執行緒進行。
 
 ### 列印（MVP-17）
 
@@ -274,12 +291,22 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
   - 文字框在離開時（`Tab`、點別處）或按 `Enter`（多行欄位按 `Ctrl+Enter`）時送出，`Esc` 放棄剛輸入的；超過最大長度的字打不進去；
   - 核取方塊、選項按鈕、下拉選單與清單方塊在選擇的當下送出；
   - 之後分頁標示未儲存（「•」），可以用 `Ctrl+Z`／`Ctrl+Y` 一個值一個值復原與重做（焦點在文字框時，`Ctrl+Z` 是文字框自己的復原）；
-  - 輸入到一半按 `Ctrl+S`、`Ctrl+Shift+S` 或關閉分頁，會先送出輸入的值；儲存之後焦點仍在原來的欄位，可以接著輸入；關閉分頁時照常詢問是否儲存。直接關閉視窗（標題列的 ✕）不會，見 forms.md 的「已知限制」。
+  - 輸入到一半按 `Ctrl+S`、`Ctrl+Shift+S`、關閉分頁或關閉視窗（標題列的 ✕），會先送出輸入的值；儲存之後焦點仍在原來的欄位，可以接著輸入；關閉分頁與關閉視窗時照常詢問是否儲存（輸入的值是一個未儲存的變更）。
 - **必填欄位**空著時有紅色外框。
 - **唯讀欄位**與作者不允許填寫表單（MVP-19）：欄位只能看（文字框仍可選取與複製），滑鼠停留時說明原因（forms.readOnly、forms.notAllowed）；「扁平化表單…」停用並標示 permissions.notAllowed。
 - **有腳本的欄位**：進入欄位時，狀態列顯示 forms.scriptNotRun 4 秒；欄位仍可填寫，腳本不會執行（自動計算、格式化與檢查都沒有作用）。
 - 填寫失敗時，欄位回到原來的值，狀態列顯示 forms.failed；未儲存的變更太多時顯示 pages.saveFirst。
 - **扁平化**：「⋯」→ forms.flatten（只在文件有表單時出現）；對話框 forms.flattenDialog.title 說明欄位會成為頁面的一部分、可以復原；按 forms.flattenDialog.confirm 後立刻顯示另存新檔的對話框（原檔不變）。有簽章的文件不能扁平化（forms.flattenFailed）。扁平化之後頁面上沒有欄位，選單裡也不再有這個項目。
+
+### 數位簽章（B2-14）
+
+文件有數位簽章時，畫布上方顯示簽章提示列（與安全警示橫幅並列），說明這些簽章合起來是什麼狀況。驗證在這台電腦上離線進行，不連網；做法與限制見 [signatures.md](../architecture/signatures.md)。
+
+- **何時出現**：文件開啟之後在背景驗證，不擋開檔與渲染，驗證完才出現提示列。沒有簽章的文件、驗證失敗的文件都沒有提示列。簽章是檔案的：文件有未儲存的變更時不重新驗證，儲存之後依新的檔案重新驗證。
+- **顏色與句子**依最糟的那一個簽章：全部有效且簽署者受信任 → 綠色；有效但無法確認簽署者、簽署後有變更、無法驗證 → 琥珀色；有任何一個無效 → 紅色。只有一個簽章時句子說明它的狀況（signatures.summaryOne.*）；有多個時說明各種狀況各有幾個（signatures.summaryMany）；欄位太多沒有全部驗證時加一句說明。
+- **「簽章資料」**開啟畫布右側的面板（寬 380 px，`Esc` 或 ✕ 關閉，焦點回到按鈕；與已封鎖內容明細輪流開啟，一次只開一個）：每個簽章一筆，有欄位名稱、狀態（文字與圖示，不只靠顏色）、說明、簽署者（取自憑證）、簽署時間（標示為簽署者自己聲稱、沒有時間戳記證明）與認證簽章允許的變更；認證簽章不允許任何變更、但文件有變更時多一行警告。最上方一律說明離線驗證、不保證簽署者的身分、沒有檢查撤銷狀態（signatures.detailsNote）。
+- **✕** 關閉提示列（下次開啟這個檔案又會出現）。
+- 「簽章有效」從不說成「可信任」；「受信任」只在簽署者的憑證鏈接到這台電腦的 Windows 信任的根憑證時使用。
 
 ### 文件權限（MVP-19）
 
@@ -328,7 +355,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 
 ### 焦點與無障礙
 
-- `Tab` 順序：工具列（左到右）→ 安全警示橫幅 → 側欄 → 畫布 → 搜尋列（開啟時）。
+- `Tab` 順序：工具列（左到右）→ 提示列（簽章提示列、安全警示橫幅）→ 側欄 → 畫布 → 搜尋列（開啟時）。
 - 所有互動元件都能只用鍵盤操作；焦點框清楚可見（2 px 強調色外框）。
 - 圖示按鈕都有可讀名稱（`aria-label`）；點擊區至少 32 × 32 px。
 - 對話框開啟時焦點鎖在對話框內，關閉後回到觸發它的元件。
@@ -400,7 +427,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | searchCount | 第 <n>／<N> 筆 |
 | searchProgress | 搜尋中… 已完成 <已搜尋頁數>／<總頁數> 頁 |
 | searchNoResults | 找不到「<查詢>」 |
-| searchNoTextLayer | 此文件沒有文字層，目前版本尚不支援 OCR |
+| searchNoTextLayer | 此文件沒有文字層（掃描檔可以在「⋯」選單選「辨識此文件的文字」） |
 | searchTruncated | 結果超過 <上限> 筆，只顯示前 <上限> 筆 |
 | searchFailed | 搜尋失敗，請再試一次。 |
 | searchCaseSensitive | 區分大小寫 |
@@ -543,7 +570,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | 鍵 | 文字 |
 |---|---|
 | text.copy | 複製 |
-| text.noTextLayer | 這一頁沒有文字層，無法選取文字（目前版本尚不支援 OCR） |
+| text.noTextLayer | 這一頁沒有文字層，無法選取文字。 |
 | shortcuts.descriptions.copy | 複製選取的文字 |
 
 ### 需要密碼（MVP-16）
@@ -775,6 +802,73 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | forms.flattenDialog.description | 欄位目前填的內容會成為頁面的一部分，之後不能再修改，也不再有表單欄位。可以用「復原」（Ctrl+Z）取消；也可以另存新檔，保留原來的檔案。 |
 | forms.flattenDialog.confirm／forms.flattenDialog.cancel | 扁平化並另存新檔…／取消 |
 
+### 數位簽章（B2-14）
+
+| 鍵 | 文字 |
+|---|---|
+| signatures.label | 數位簽章 |
+| signatures.details／signatures.dismiss | 簽章資料／關閉簽章提示 |
+| signatures.summaryOne.valid | 此文件有數位簽章：簽章有效，簽署者受信任。 |
+| signatures.summaryOne.unconfirmed | 此文件有數位簽章：簽章有效，但無法確認簽署者是誰。 |
+| signatures.summaryOne.changed | 此文件有數位簽章：簽署之後文件又有變更。 |
+| signatures.summaryOne.invalid | 此文件的數位簽章無效：簽署之後文件被改動，或簽章與文件不符。 |
+| signatures.summaryOne.unverifiable | 此文件有數位簽章，但本程式無法驗證它。 |
+| signatures.summaryMany(total, parts) | 此文件有 <total> 個數位簽章：<parts 以「、」相接>。 |
+| signatures.summaryPart.valid／unconfirmed／changed／invalid／unverifiable | <n> 個有效，簽署者受信任／<n> 個有效但無法確認簽署者／<n> 個在簽署後有變更／<n> 個無效／<n> 個無法驗證 |
+| signatures.truncated(max) | 這份文件的簽章欄位太多，只驗證了前 <max> 個。 |
+| signatures.detailsTitle／signatures.detailsClose | 數位簽章／關閉簽章資料 |
+| signatures.detailsNote | 簽章在這台電腦上離線驗證，不會連上網路。「簽章有效」表示簽署之後內容沒有被改動，不保證簽署者的身分；憑證是否已被撤銷也沒有檢查。 |
+| signatures.unnamed(index) | 簽章 <index>（簽章欄位沒有名字時） |
+| signatures.status.valid | 簽章有效，簽署者受信任 |
+| signatures.status.unconfirmed | 簽章有效，但無法確認簽署者 |
+| signatures.status.changed | 簽署之後文件有變更 |
+| signatures.status.invalid／signatures.status.unverifiable | 簽章無效／無法驗證 |
+| signatures.explanation.valid | 簽署之後文件沒有被改動，而且簽署者的憑證鏈接到這台電腦的 Windows 信任的根憑證。 |
+| signatures.explanation.unconfirmed | 簽署之後文件沒有被改動，但簽署者的憑證不是由這台電腦的 Windows 信任的單位簽發（例如自己簽發的憑證），無法確認簽署者是誰。 |
+| signatures.explanation.changed | 簽章對簽署時的內容仍然有效，但文件在簽署之後又有變更（也可能只是又加了別人的簽章）。 |
+| signatures.explanation.invalid | 簽署之後文件被改動，或簽章本身與文件不符：不要相信這份文件是簽署者簽署的樣子。 |
+| signatures.reason.unsupportedFormat | 這種簽章的格式本程式不驗證。 |
+| signatures.reason.unsupportedAlgorithm | 這台電腦的 Windows 不支援它使用的演算法。 |
+| signatures.reason.tooLarge／signatures.reason.notAvailable | 簽章的資料太大，本程式不驗證。／這個系統無法驗證簽章。 |
+| signatures.signer／signatures.time | 簽署者／簽署時間 |
+| signatures.timeNote | 簽署者自己聲稱的時間，沒有時間戳記證明 |
+| signatures.certification | 認證簽章 |
+| signatures.certificationLevel.noChanges | 簽署者不允許簽署之後有任何變更 |
+| signatures.certificationLevel.fillForms | 簽署者只允許簽署之後填寫表單與簽署 |
+| signatures.certificationLevel.fillFormsAndAnnotate | 簽署者只允許簽署之後填寫表單、簽署與加註解 |
+| signatures.certificationBroken | 這是認證簽章，不允許簽署之後有任何變更，但文件有變更。 |
+
+### 掃描頁的文字辨識（B2-10）
+
+| 鍵 | 文字 |
+|---|---|
+| ocr.running(完成, 掃描頁) | 辨識文字：<完成> / <掃描頁> 頁 |
+| ocr.stop／ocr.stopLabel | 停止／停止辨識文字 |
+| ocr.done(辨識, 失敗) | 已辨識 <辨識> 頁的文字。（有失敗的：已辨識 <辨識> 頁的文字，<失敗> 頁無法辨識。） |
+| ocr.stopped | 已停止辨識文字。 |
+| ocr.none | 沒有需要辨識的頁面：每一頁都有文字，或不是圖片頁。 |
+| ocr.noLanguage | 沒有可用的 OCR 語言，無法辨識掃描頁的文字。請在「設定」匯入語言資料。 |
+| ocr.failed | 無法辨識這份文件的文字。 |
+| ocr.pageNote | 此頁文字由 OCR 辨識，可能有誤 |
+| ocr.menu／ocr.menuRunning | 辨識此文件的文字／正在辨識文字… |
+| ocr.selectWhileReading | 這一頁是掃描頁，文字還在辨識中。 |
+| ocr.selectNotStarted | 這一頁是掃描頁，沒有文字可以選取。可以在「⋯」選單選「辨識此文件的文字」。 |
+| ocr.languages.* | English、繁體中文、简体中文、日本語、한국어、Deutsch、Français、Español、Italiano、Русский（其他語言顯示代碼） |
+| ocr.settings.title | 文字辨識（OCR） |
+| ocr.settings.auto／ocr.settings.autoNote | 開啟文件時自動辨識掃描頁的文字／只辨識沒有文字的圖片頁；在背景進行，不會碰到檔案。關閉後，可以在「⋯」選單選「辨識此文件的文字」。辨識的結果只存在記憶體中，關閉文件就丟棄。 |
+| ocr.settings.language／ocr.settings.automatic(名稱) | 辨識的語言／自動（<名稱>） |
+| ocr.settings.noneInstalled／ocr.settings.languageNote | 沒有可用的語言／繁體中文的資料也認得英文與數字；英文的資料認不得中文。一次只用一種語言。 |
+| ocr.settings.importButton／ocr.settings.importNote | 匯入語言資料…／選一個 Tesseract 的 .traineddata 檔案（例如 deu.traineddata）。app 不會下載任何東西；檔案會複製到這台電腦的資料資料夾。 |
+| ocr.settings.imported／ocr.settings.importedLanguages | 已匯入語言資料。／匯入的語言 |
+| ocr.settings.remove(名稱)／ocr.settings.removeButton／ocr.settings.removed | 移除 <名稱>／移除／已移除。 |
+| ocr.settings.refused.unreadable | 無法讀取這個檔案。 |
+| ocr.settings.refused.tooLarge | 這個檔案太大（上限 64 MB）。 |
+| ocr.settings.refused.notLanguageData | 這不是 Tesseract 的語言資料，或不含 LSTM 模型。 |
+| ocr.settings.refused.badName | 檔名要像 eng.traineddata：英文字母開頭，只有字母、數字、底線與連字號。 |
+| ocr.settings.refused.nameTaken | app 已經內附這個語言，不能取代。 |
+| ocr.settings.refused.tooMany | 匯入的語言已經太多，請先移除一些。 |
+| ocr.settings.failed | 無法完成，請再試一次。 |
+
 ### 文件權限（MVP-19）
 
 | 鍵 | 文字 |
@@ -796,6 +890,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 |---|---|
 | OPEN_DIALOG_TITLE | 開啟 PDF 檔案 |
 | PDF_FILTER_NAME | PDF 檔案 |
+| LANGUAGE_DIALOG_TITLE／LANGUAGE_FILTER_NAME | 匯入 OCR 語言資料／Tesseract 語言資料（.traineddata）（B2-10） |
 | window_title | `<檔名> — PDF Reader`；沒有開啟文件時為 `PDF Reader` |
 | WEBVIEW2_MISSING_TITLE | 無法開啟 PDF Reader |
 | WEBVIEW2_MISSING_MESSAGE | 這台電腦缺少 Microsoft Edge WebView2 Runtime，PDF Reader 需要它才能顯示畫面。（空一行）Windows 11 已內建 WebView2。如果它被移除了，請到 Microsoft 官方網站下載並安裝「WebView2 Runtime」，然後再開啟 PDF Reader：https://developer.microsoft.com/microsoft-edge/webview2/（空一行）PDF Reader 不會自行下載任何東西。 |

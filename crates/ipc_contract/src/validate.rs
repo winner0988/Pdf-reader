@@ -9,12 +9,14 @@ use std::collections::HashSet;
 use thiserror::Error;
 
 use crate::limits::*;
+use crate::ocr::is_language_name;
 use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text, is_note_text};
 use crate::types::{
     DocumentInfo, Edit, EditArgs, ExportArgs, ExportFormat, FindingKind, FormField, IpcError,
-    LinkTarget, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize,
-    PageText, Password, Point, Quad, RecentFile, Rect, RenderPageArgs, Rotation, SearchArgs,
-    SearchHit, SecurityReport, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs,
+    LinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation,
+    PageLink, PageSize, PageText, Password, Point, Quad, RecentFile, Rect, RemoveLanguageArgs,
+    RenderPageArgs, Rotation, SearchArgs, SearchHit, SecurityReport, Settings, SignatureInfo,
+    SignatureReport, SignatureStatus, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs,
 };
 use crate::worker::{OcrOutcome, OpenedDocument, Raster, WorkerError, WorkerResponse};
 
@@ -408,6 +410,7 @@ impl Validate for WorkerResponse {
                 Ok(())
             }
             WorkerResponse::PageText { text, .. } => text.validate(),
+            WorkerResponse::Signatures { report, .. } => report.validate(),
             WorkerResponse::StampImage {
                 png, width, height, ..
             } => {
@@ -476,6 +479,53 @@ impl Validate for WorkerResponse {
             }
             WorkerResponse::Error { error, .. } => error.validate(),
         }
+    }
+}
+
+/// Longest time text of a signature: "2026-09-24 12:00:00 UTC+08:00" is 30 bytes.
+const MAX_SIGNATURE_TIME_BYTES: u32 = 40;
+
+impl Validate for SignatureInfo {
+    fn validate(&self) -> Result<(), ValidationError> {
+        let holds = matches!(
+            self.status,
+            SignatureStatus::Valid | SignatureStatus::ChangedAfterSigning
+        );
+        if self.reason.is_some() != (self.status == SignatureStatus::Unverifiable) {
+            return Err(ValidationError::Invalid {
+                what: "signature",
+                reason: "has a reason only when it could not be verified",
+            });
+        }
+        // Who signed and whether to trust them are only known of a signature that holds.
+        if !holds && (self.signer.is_some() || self.signer_trusted) {
+            return Err(ValidationError::Invalid {
+                what: "signature",
+                reason: "names a signer though it does not hold",
+            });
+        }
+        for (what, text, max) in [
+            (
+                "signature field name",
+                &self.field_name,
+                MAX_SIGNATURE_TEXT_BYTES,
+            ),
+            ("signer", &self.signer, MAX_SIGNATURE_TEXT_BYTES),
+            ("signing time", &self.claimed_time, MAX_SIGNATURE_TIME_BYTES),
+        ] {
+            if let Some(text) = text {
+                check_text(what, text, max)?;
+                check_clean(what, text)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Validate for SignatureReport {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_count("signatures", self.signatures.len(), MAX_SIGNATURES)?;
+        self.signatures.iter().try_for_each(SignatureInfo::validate)
     }
 }
 
@@ -960,10 +1010,91 @@ impl Validate for IpcError {
     }
 }
 
+impl Validate for Settings {
+    fn validate(&self) -> Result<(), ValidationError> {
+        match &self.ocr_language {
+            Some(code) if !is_language_name(code) => Err(ValidationError::Invalid {
+                what: "OCR language",
+                reason: "not the code of a language",
+            }),
+            _ => Ok(()),
+        }
+    }
+}
+
+impl Validate for RemoveLanguageArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if !is_language_name(&self.code) {
+            return Err(ValidationError::Invalid {
+                what: "OCR language",
+                reason: "not the code of a language",
+            });
+        }
+        Ok(())
+    }
+}
+
+impl Validate for OcrLanguages {
+    fn validate(&self) -> Result<(), ValidationError> {
+        // Those that came with the app are few; the user's are bounded.
+        check_count(
+            "OCR languages",
+            self.languages.len(),
+            MAX_IMPORTED_LANGUAGES + 16,
+        )?;
+        let mut seen = HashSet::new();
+        for language in &self.languages {
+            if !is_language_name(&language.code) || !seen.insert(language.code.as_str()) {
+                return Err(ValidationError::Invalid {
+                    what: "OCR languages",
+                    reason: "a code that is not one, or that appears twice",
+                });
+            }
+            if language.bytes > MAX_LANGUAGE_DATA_BYTES as u64 {
+                return Err(ValidationError::OutOfRange {
+                    what: "language data size",
+                });
+            }
+        }
+        if let Some(automatic) = &self.automatic
+            && !seen.contains(automatic.as_str())
+        {
+            return Err(ValidationError::Invalid {
+                what: "OCR languages",
+                reason: "the automatic language is not installed",
+            });
+        }
+        Ok(())
+    }
+}
+
+impl Validate for OcrProgress {
+    fn validate(&self) -> Result<(), ValidationError> {
+        let consistent = self.pages <= MAX_PAGE_COUNT
+            && self.checked <= self.pages
+            && self.scans <= self.checked
+            && u64::from(self.recognised) + u64::from(self.failed) <= u64::from(self.scans);
+        if !consistent {
+            return Err(ValidationError::Invalid {
+                what: "OCR progress",
+                reason: "the counts do not add up",
+            });
+        }
+        Ok(())
+    }
+}
+
 impl Validate for OpenEvent {
     fn validate(&self) -> Result<(), ValidationError> {
         match self {
             OpenEvent::DragHover { .. } | OpenEvent::TabLimit { .. } => Ok(()),
+            OpenEvent::Ocr { progress, .. } => progress.validate(),
+            OpenEvent::OcrPage { page_index, .. } => {
+                if *page_index >= MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange { what: "page index" });
+                }
+                Ok(())
+            }
             OpenEvent::CloseRequested { tabs } => check_count("unsaved tabs", tabs.len(), MAX_TABS),
             OpenEvent::Opening { display_name, .. }
             | OpenEvent::PasswordNeeded { display_name, .. } => check_display_name(display_name),
@@ -987,6 +1118,7 @@ mod tests {
         AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, ErrorCode,
         FieldId, FieldKind, FieldOption, HighlightColor, HighlightMark, InkColor, InkWidth, LinkId,
         RecentId, Recovery, RequestId, Rotation, SecurityFinding, StampImageId, StampName, TabId,
+        UnverifiableReason,
     };
     use crate::worker::WorkerErrorCode;
 
@@ -1213,6 +1345,88 @@ mod tests {
     }
 
     #[test]
+    fn ocr_settings_languages_and_progress_are_checked() {
+        use crate::types::{DocumentId, OcrLanguage, OcrRun};
+        let settings = |language: Option<&str>| Settings {
+            ocr_language: language.map(str::to_owned),
+            ..Settings::default()
+        };
+        assert_eq!(settings(None).validate(), Ok(()));
+        assert_eq!(settings(Some("chi_tra")).validate(), Ok(()));
+        for bad in ["", "../eng", "eng.traineddata", "1x", "a b"] {
+            assert!(settings(Some(bad)).validate().is_err(), "{bad:?}");
+        }
+        assert!(RemoveLanguageArgs { code: "eng".into() }.validate().is_ok());
+        assert!(
+            RemoveLanguageArgs { code: "x/y".into() }
+                .validate()
+                .is_err()
+        );
+
+        let language = |code: &str, bytes: u64| OcrLanguage {
+            code: code.into(),
+            bundled: false,
+            bytes,
+        };
+        let languages = |list: Vec<OcrLanguage>, automatic: Option<&str>| OcrLanguages {
+            languages: list,
+            automatic: automatic.map(str::to_owned),
+        };
+        assert_eq!(languages(vec![], None).validate(), Ok(()));
+        assert_eq!(
+            languages(vec![language("eng", 10), language("deu", 20)], Some("deu")).validate(),
+            Ok(())
+        );
+        assert!(
+            languages(vec![language("eng", 1), language("eng", 2)], None)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            languages(vec![language("e/ng", 1)], None)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            languages(vec![language("eng", u64::MAX)], None)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            languages(vec![language("eng", 1)], Some("deu"))
+                .validate()
+                .is_err()
+        );
+
+        let progress = |pages, checked, scans, recognised, failed| OcrProgress {
+            doc: DocumentId(1),
+            run: OcrRun::Running,
+            pages,
+            checked,
+            scans,
+            recognised,
+            failed,
+        };
+        assert_eq!(progress(10, 7, 5, 3, 2).validate(), Ok(()));
+        assert_eq!(progress(MAX_PAGE_COUNT, 0, 0, 0, 0).validate(), Ok(()));
+        for bad in [
+            progress(10, 11, 0, 0, 0),
+            progress(10, 5, 6, 0, 0),
+            progress(10, 5, 5, 4, 2),
+            progress(MAX_PAGE_COUNT + 1, 0, 0, 0, 0),
+        ] {
+            assert!(bad.validate().is_err(), "{bad:?}");
+        }
+        let event = |page_index| OpenEvent::OcrPage {
+            tab: TabId(1),
+            doc: DocumentId(1),
+            page_index,
+        };
+        assert_eq!(event(MAX_PAGE_COUNT - 1).validate(), Ok(()));
+        assert!(event(MAX_PAGE_COUNT).validate().is_err());
+    }
+
+    #[test]
     fn recognised_pages_are_bounded() {
         use crate::types::DocumentId;
         use crate::worker::{OcrFinished, OcrOutcome};
@@ -1359,6 +1573,104 @@ mod tests {
             }
             .validate()
             .is_err()
+        );
+    }
+
+    fn signature(status: SignatureStatus) -> SignatureInfo {
+        SignatureInfo {
+            status,
+            signer_trusted: false,
+            reason: None,
+            field_name: Some("Signature1".to_owned()),
+            signer: None,
+            claimed_time: Some("2026-09-24 12:00:00 UTC+08:00".to_owned()),
+            certification: None,
+        }
+    }
+
+    #[test]
+    fn a_signature_report_is_bounded_and_consistent() {
+        let report = |signatures| SignatureReport {
+            signatures,
+            truncated: false,
+        };
+        let holds = SignatureInfo {
+            signer: Some("Jane Public".to_owned()),
+            signer_trusted: true,
+            ..signature(SignatureStatus::Valid)
+        };
+        assert!(
+            report(vec![holds.clone(), signature(SignatureStatus::Invalid)])
+                .validate()
+                .is_ok()
+        );
+        let many = vec![signature(SignatureStatus::Invalid); MAX_SIGNATURES as usize];
+        assert!(report(many.clone()).validate().is_ok());
+        let mut too_many = many;
+        too_many.push(signature(SignatureStatus::Invalid));
+        assert!(report(too_many).validate().is_err());
+
+        // A reason is for a signature that could not be verified, and only for that.
+        let unverifiable = SignatureInfo {
+            reason: Some(UnverifiableReason::UnsupportedFormat),
+            ..signature(SignatureStatus::Unverifiable)
+        };
+        assert!(unverifiable.validate().is_ok());
+        assert!(signature(SignatureStatus::Unverifiable).validate().is_err());
+        assert!(
+            SignatureInfo {
+                reason: Some(UnverifiableReason::TooLarge),
+                ..holds.clone()
+            }
+            .validate()
+            .is_err()
+        );
+        // Nobody signed a signature that does not hold, and nobody is trusted by it.
+        for status in [SignatureStatus::Invalid, SignatureStatus::Unverifiable] {
+            let named = SignatureInfo {
+                signer: Some("Jane Public".to_owned()),
+                reason: (status == SignatureStatus::Unverifiable)
+                    .then_some(UnverifiableReason::TooLarge),
+                ..signature(status)
+            };
+            assert!(named.validate().is_err(), "{status:?}");
+            let trusted = SignatureInfo {
+                signer_trusted: true,
+                reason: named.reason,
+                ..signature(status)
+            };
+            assert!(trusted.validate().is_err(), "{status:?}");
+        }
+        // Text is bounded and clean.
+        let text = |signer: String| SignatureInfo {
+            signer: Some(signer),
+            ..holds.clone()
+        };
+        assert!(
+            text("x".repeat(MAX_SIGNATURE_TEXT_BYTES as usize))
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            text("x".repeat(MAX_SIGNATURE_TEXT_BYTES as usize + 1))
+                .validate()
+                .is_err()
+        );
+        assert!(text("Jane\u{202e}Public".to_owned()).validate().is_err());
+        assert!(text("Jane\nPublic".to_owned()).validate().is_err());
+        let time = |time: &str| SignatureInfo {
+            claimed_time: Some(time.to_owned()),
+            ..holds.clone()
+        };
+        assert!(
+            time(&"9".repeat(MAX_SIGNATURE_TIME_BYTES as usize))
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            time(&"9".repeat(MAX_SIGNATURE_TIME_BYTES as usize + 1))
+                .validate()
+                .is_err()
         );
     }
 
