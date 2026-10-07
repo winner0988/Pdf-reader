@@ -201,7 +201,7 @@ export const strings = {
     colors: { yellow: "黃色", green: "綠色", blue: "藍色", pink: "粉紅色" },
     highlightIn: (color: string) => `螢光筆標示（${color}）`,
     noteSaying: (text: string) => `附註：${text}`,
-    kind: { highlight: "螢光筆標示", note: "附註", other: "註解" },
+    kind: { highlight: "螢光筆標示", note: "附註", ink: "手繪線條", stamp: "印章", other: "註解" },
     addNote: "在這裡新增附註…",
     editNote: "編輯附註…",
     tooMuch: "選取的範圍太大，請分段標示。",

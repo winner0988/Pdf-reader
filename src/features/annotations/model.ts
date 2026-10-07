@@ -23,8 +23,10 @@ export function annotationLabel(annotation: PageAnnotation): string {
       return annotation.color ? t.highlightIn(t.colors[annotation.color]) : t.kind.highlight;
     case "note":
       return annotation.text ? t.noteSaying(annotation.text) : t.kind.note;
+    case "ink":
+    case "stamp":
     case "other":
-      return t.kind.other;
+      return t.kind[annotation.kind];
   }
 }
 
