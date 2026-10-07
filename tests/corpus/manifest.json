@@ -615,5 +615,31 @@
       "text": [],
       "onDemand": true
     }
+  ],
+  "images": [
+    {
+      "path": "images/stamp-exif.jpg",
+      "category": "images",
+      "purpose": "A 64 x 32 JPEG (a red and a blue half and a green stripe) with EXIF: the camera make 'Canon', the model 'Canon EOS 5D Mark IV', the time '2023:07:04 12:34:56' and a GPS position.",
+      "expected": "Becomes a stamp whose PDF has the picture and none of the EXIF (B2-08).",
+      "bytes": 476,
+      "sha256": "47314811899b045cfbe2e8575692531148c1064c66b45e46c2600aa15eb0e891"
+    },
+    {
+      "path": "images/stamp-metadata.png",
+      "category": "images",
+      "purpose": "A 64 x 32 RGBA PNG (its top left corner see-through) with tEXt chunks ('Jane Q. Private-Author', 'Canon EOS 5D Mark IV'), an eXIf chunk with a GPS position and a pHYs chunk.",
+      "expected": "Becomes a stamp with its corner still see-through, and none of the metadata (B2-08).",
+      "bytes": 8619,
+      "sha256": "215aa99901e863d6f47b35be18ed728e06f0bddcaab586ac29e282b5626acaff"
+    },
+    {
+      "path": "images/stamp-huge-dimensions.png",
+      "category": "images",
+      "purpose": "A PNG that says it is 60000 x 60000 pixels, in 116 bytes.",
+      "expected": "Refused before any pixel is decoded (B2-08).",
+      "bytes": 116,
+      "sha256": "f1fbbac806c7b65896e408e1ba92f2932060572cf11f27b82c1e870b70fd21d5"
+    }
   ]
 }
