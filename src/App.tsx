@@ -139,6 +139,7 @@ export default function App({
               systemApi={systemApi}
               recentApi={demo ? undefined : recentApi}
               updatesApi={demo ? undefined : updatesApi}
+              ocrApi={demo ? undefined : ocrApi}
               onOpen={open}
               onClose={() => setDemo(null)}
             />
