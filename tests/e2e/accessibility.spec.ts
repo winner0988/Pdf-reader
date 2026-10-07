@@ -163,6 +163,7 @@ test("the dialogs of the menu", async ({ launch }) => {
     [strings.menu.about, strings.about.title],
     [strings.menu.export, strings.export.title],
     [strings.menu.privacyExport, strings.privacyExport.title],
+    [strings.menu.encryptCopy, strings.encryption.title],
   ];
   for (const [item, title] of dialogs) {
     await chooseFromMenu(page, item);
