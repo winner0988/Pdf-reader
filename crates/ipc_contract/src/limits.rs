@@ -14,6 +14,14 @@ pub const MAX_PAGE_COUNT: u32 = 100_000;
 /// Largest document the worker opens, and largest file it writes when saving (ADR 0013).
 pub const MAX_DOCUMENT_BYTES: u64 = 512 * 1024 * 1024;
 
+/// Largest file whose pages are inserted into a document (B2-06), and largest plain copy of it
+/// the worker gives back: the main process keeps the copy in memory for as long as an edit uses
+/// it, and it goes to the worker again with every replay of that edit.
+pub const MAX_SOURCE_BYTES: usize = 64 * 1024 * 1024;
+
+/// Most bytes of such copies one document keeps (B2-06).
+pub const MAX_SOURCES_BYTES: usize = 128 * 1024 * 1024;
+
 /// Sanity bound for a page side in PDF points. Memory is bounded by the raster limits below,
 /// this only rejects absurd values (the PDF spec allows 14 400 units, scaled by `UserUnit`).
 pub const MAX_PAGE_SIDE_PT: f32 = 1_000_000.0;

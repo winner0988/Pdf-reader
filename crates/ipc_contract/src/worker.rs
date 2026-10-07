@@ -33,6 +33,11 @@ pub enum WorkerEdit {
     MovePages { pages: Vec<u32>, before: u32 },
     /// As [`Edit::InsertBlankPage`].
     InsertBlankPage { at: u32, like: u32 },
+    /// Puts the pages of `source` (a plain PDF file, as `PrepareSource` made it) into the
+    /// document from index `at` on, in their order (B2-06). Only what is on the pages comes
+    /// along: not their annotations, links and form fields, and nothing active (see
+    /// docs/architecture/merge.md).
+    InsertPages { at: u32, source: Vec<u8> },
     /// As [`Edit::AddHighlight`].
     AddHighlight {
         marks: Vec<HighlightMark>,
@@ -317,6 +322,15 @@ pub enum WorkerRequest {
         pages: Vec<u32>,
         file: FileHandle,
     },
+    /// Makes the PDF in `file` (read-only) into what its pages are later taken from (B2-06): a
+    /// plain, clean copy of it, with how many pages it has and what active content it has.
+    /// `password` is for an encrypted file, wiped when the request is done. Answered by
+    /// `Source`; nothing is kept in the worker.
+    PrepareSource {
+        request: RequestId,
+        file: FileHandle,
+        password: Option<Password>,
+    },
     /// Best effort: the worker drops the target request if it has not finished yet.
     Cancel {
         target: RequestId,
@@ -400,6 +414,13 @@ pub enum WorkerResponse {
     Rebased {
         request: RequestId,
     },
+    /// The copy of the file of `PrepareSource` (B2-06).
+    Source {
+        request: RequestId,
+        bytes: Vec<u8>,
+        pages: u32,
+        security: SecurityReport,
+    },
     /// The document was written: `bytes` long, appended to the original (`incremental`, for a
     /// signed document) or rewritten.
     Saved {
@@ -463,6 +484,8 @@ pub enum WorkerErrorCode {
     /// The given password does not open the document.
     WrongPassword,
     UnsupportedEncryption,
+    /// The author of the document forbids what was asked of it (B2-06).
+    NotAllowed,
     Unreadable,
     LimitExceeded,
     Cancelled,
@@ -484,6 +507,7 @@ impl From<WorkerErrorCode> for ErrorCode {
             WorkerErrorCode::Corrupted => ErrorCode::Corrupted,
             WorkerErrorCode::Encrypted | WorkerErrorCode::WrongPassword => ErrorCode::Encrypted,
             WorkerErrorCode::UnsupportedEncryption => ErrorCode::UnsupportedEncryption,
+            WorkerErrorCode::NotAllowed => ErrorCode::NotAllowed,
             WorkerErrorCode::Unreadable => ErrorCode::Unreadable,
             WorkerErrorCode::LimitExceeded => ErrorCode::LimitExceeded,
             WorkerErrorCode::Cancelled => ErrorCode::Cancelled,

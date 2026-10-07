@@ -273,6 +273,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ],
         },
         WorkerResponse::Rebased { request },
+        WorkerResponse::Source {
+            request,
+            bytes: b"%PDF-1.7\n%%EOF\n".to_vec(),
+            pages: 3,
+            security: SecurityReport {
+                findings: vec![SecurityFinding {
+                    kind: FindingKind::JavaScript,
+                    count: 2,
+                }],
+                scan_complete: true,
+            },
+        },
         WorkerResponse::Saved {
             request,
             bytes: 4096,
@@ -500,9 +512,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             doc,
             file: FileHandle(0x2b0),
         },
+        WorkerRequest::PrepareSource {
+            request,
+            file: FileHandle(0x2c0),
+            password: Some(Password::new("user".to_owned())),
+        },
         WorkerRequest::PrepareStampImage {
             request,
             file: FileHandle(0x2b8),
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::InsertPages {
+                at: 1,
+                source: b"%PDF-1.7\n%%EOF\n".to_vec(),
+            },
         },
         WorkerRequest::Edit {
             request,

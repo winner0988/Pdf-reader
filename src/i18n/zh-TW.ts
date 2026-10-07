@@ -60,6 +60,7 @@ export const strings = {
       fileInUse: "檔案正被其他程式使用，無法寫入。",
       changedOnDisk: "檔案在開啟後被其他程式修改過；為了不覆寫那些修改，沒有儲存。",
       unwritable: "無法寫入檔案。",
+      notAllowed: "這份文件的作者不允許這個動作。",
       networkFailed: "無法從 GitHub 取得最新版本的資訊。",
       internal: "發生未預期的錯誤。",
     } satisfies Record<ErrorCode, string>,
