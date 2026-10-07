@@ -29,6 +29,16 @@ pub const PRIVACY_EXPORT_SAME_FILE_TITLE: &str = "請選擇其他檔案";
 pub const PRIVACY_EXPORT_SAME_FILE_MESSAGE: &str =
     "隱私匯出會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
 
+/// Encrypting a copy (B2-15): where the copy goes, what it is called at first, and why the
+/// document's own file cannot be chosen.
+pub const ENCRYPTED_COPY_DIALOG_TITLE: &str = "加密並另存新檔：選擇副本的位置";
+pub fn encrypted_copy_file_name(stem: &str) -> String {
+    format!("{stem}（已加密）.pdf")
+}
+pub const ENCRYPTED_COPY_SAME_FILE_TITLE: &str = "請選擇其他檔案";
+pub const ENCRYPTED_COPY_SAME_FILE_MESSAGE: &str =
+    "加密會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
+
 /// Importing a language for recognising the text of scanned pages (B2-10).
 pub const LANGUAGE_DIALOG_TITLE: &str = "匯入 OCR 語言資料";
 pub const LANGUAGE_FILTER_NAME: &str = "Tesseract 語言資料（.traineddata）";

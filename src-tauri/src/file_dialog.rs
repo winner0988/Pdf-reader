@@ -42,6 +42,8 @@ enum Kind {
     SavePdf { file_name: String },
     /// Where to write the privacy export of a document (B2-03), suggesting `file_name`.
     PrivacyExport { file_name: String },
+    /// Where to write an encrypted copy of a document (B2-15), suggesting `file_name`.
+    EncryptedCopy { file_name: String },
     /// Where to save some pages of a document as a file of their own (B2-06), suggesting
     /// `file_name`.
     SplitPdf { file_name: String },
@@ -89,6 +91,17 @@ pub async fn privacy_export_file(
     file_name: String,
 ) -> Result<Option<PathBuf>, IpcError> {
     Ok(run(window, Kind::PrivacyExport { file_name })
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
+/// Asks where to write an encrypted copy of a document (B2-15), suggesting `file_name`. The
+/// dialog itself asks before replacing an existing file.
+pub async fn encrypted_copy_file(
+    window: &WebviewWindow,
+    file_name: String,
+) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::EncryptedCopy { file_name })
         .await?
         .and_then(|mut paths| paths.pop()))
 }
@@ -168,6 +181,7 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
         Kind::SaveText { .. }
         | Kind::SavePdf { .. }
         | Kind::PrivacyExport { .. }
+        | Kind::EncryptedCopy { .. }
         | Kind::SplitPdf { .. } => common | FOS_OVERWRITEPROMPT,
         Kind::PickFolder { .. } => common | FOS_PICKFOLDERS,
         Kind::OpenLanguageData | Kind::OpenPagesSource | Kind::OpenImage => common,
@@ -218,6 +232,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
             Kind::SaveText { .. }
             | Kind::SavePdf { .. }
             | Kind::PrivacyExport { .. }
+            | Kind::EncryptedCopy { .. }
             | Kind::SplitPdf { .. } => {
                 CoCreateInstance::<_, IFileSaveDialog>(&FileSaveDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
@@ -250,6 +265,10 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
         ),
         Kind::PrivacyExport { .. } => (
             strings::PRIVACY_EXPORT_DIALOG_TITLE,
+            Some((strings::PDF_FILTER_NAME, "*.pdf")),
+        ),
+        Kind::EncryptedCopy { .. } => (
+            strings::ENCRYPTED_COPY_DIALOG_TITLE,
             Some((strings::PDF_FILTER_NAME, "*.pdf")),
         ),
         Kind::SplitPdf { .. } => (
@@ -285,6 +304,7 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
         if let Kind::SaveText { file_name }
         | Kind::SavePdf { file_name }
         | Kind::PrivacyExport { file_name }
+        | Kind::EncryptedCopy { file_name }
         | Kind::SplitPdf { file_name } = kind
         {
             let extension = if let Kind::SaveText { .. } = kind {
@@ -360,6 +380,11 @@ mod tests {
             file_name: "報告（隱私匯出）.pdf".to_owned(),
         });
         assert!(privacy(FOS_DONTADDTORECENT) && privacy(FOS_OVERWRITEPROMPT));
+
+        let encrypted = options_of(Kind::EncryptedCopy {
+            file_name: "報告（已加密）.pdf".to_owned(),
+        });
+        assert!(encrypted(FOS_DONTADDTORECENT) && encrypted(FOS_OVERWRITEPROMPT));
 
         let split = options_of(Kind::SplitPdf {
             file_name: "報告-p2-4.pdf".to_owned(),

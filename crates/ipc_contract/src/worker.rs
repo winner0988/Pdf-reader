@@ -11,8 +11,8 @@ use crate::PROTOCOL_VERSION;
 use crate::types::{
     AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FormField,
     HighlightColor, HighlightMark, InkColor, InkWidth, OutlineResult, PageAnnotation, PageLink,
-    PageSize, PageText, Password, Point, Rect, RequestId, Rotation, SearchHit, SecurityReport,
-    SignatureReport, SourceId, StampImageId, StampName,
+    PageSize, PageText, Password, Point, Rect, RequestId, Restrictions, Rotation, SearchHit,
+    SecurityReport, SignatureReport, SourceId, StampImageId, StampName,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -300,6 +300,20 @@ pub enum WorkerRequest {
         file: FileHandle,
         /// Random, from the main process.
         id: [u8; 16],
+    },
+    /// Writes to `file` (as for `Save`) a copy of the document, edits included, encrypted with
+    /// AES-256 (B2-15, docs/architecture/encrypt-copy.md). The open document is not changed.
+    /// Answered by `Saved`, never appended. Refused for a signed document (its signatures would
+    /// go). Both passwords are wiped as any password is (MVP-16).
+    EncryptedCopy {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
+        /// Opens the copy; none: anyone can.
+        open_password: Option<Password>,
+        /// Lifts the restrictions. The main process makes one up when the user gave none.
+        owner_password: Password,
+        restrictions: Restrictions,
     },
     /// Opens the document again from the bytes it was opened from, and applies `edits` in
     /// order (undo, ADR 0013). Answered by `Edited`; the document is replaced only once every
