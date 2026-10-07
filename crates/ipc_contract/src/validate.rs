@@ -16,7 +16,7 @@ use crate::types::{
     LinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation,
     PageLink, PageSize, PageText, Password, Point, Quad, RecentFile, Rect, RemoveLanguageArgs,
     RenderPageArgs, Rotation, SearchArgs, SearchHit, SecurityReport, Settings, TextLine, UndoArgs,
-    UnlockArgs,
+    UnlockArgs, UnlockSourceArgs,
 };
 use crate::worker::{OcrOutcome, OpenedDocument, Raster, WorkerError, WorkerResponse};
 
@@ -520,6 +520,12 @@ impl Validate for UnlockArgs {
     }
 }
 
+impl Validate for UnlockSourceArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_password(&self.password)
+    }
+}
+
 impl Validate for UndoArgs {
     fn validate(&self) -> Result<(), ValidationError> {
         self.password.as_ref().map_or(Ok(()), check_password)
@@ -690,6 +696,14 @@ impl Validate for Edit {
                 if *like >= MAX_PAGE_COUNT {
                     return Err(ValidationError::OutOfRange {
                         what: "page to take the size of",
+                    });
+                }
+                Ok(())
+            }
+            Edit::InsertPages { at, .. } => {
+                if *at > MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "where to insert",
                     });
                 }
                 Ok(())

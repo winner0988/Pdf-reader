@@ -118,6 +118,21 @@ export const strings = {
     delete: "刪除",
     insertBefore: "在前面插入空白頁",
     insertAfter: "在後面插入空白頁",
+    /** The pages of another file (B2-06). */
+    insertFileBefore: "在前面插入其他檔案的頁面…",
+    insertFileAfter: "在後面插入其他檔案的頁面…",
+    sourceNotAllowed: "這個檔案的作者不允許取出它的頁面。",
+    sourceFailed: "無法插入這個檔案的頁面，請確認它是沒有損毀的 PDF 檔案。",
+    sourceTooLarge: "這個檔案太大，或插入之後會超過頁數、尚未儲存的變更的上限；請先存檔，或選擇小一點的檔案。",
+    /** The file whose pages are to be put in is encrypted: its password is asked for. */
+    sourcePassword: {
+      title: "這個檔案受密碼保護",
+      description: "輸入密碼才能取出這個檔案的頁面。密碼只用在這一次，不會被儲存。",
+      label: "密碼",
+      confirm: "插入頁面",
+      cancel: "取消",
+      wrong: "密碼不正確，請再試一次。",
+    },
     moveTo: "移到…",
     saveSelected: "將選取的頁面另存為新檔…",
     notAllowed: "文件作者不允許變更頁面",
@@ -250,6 +265,9 @@ export const strings = {
     label: "上次未儲存的變更",
     available: "上次編輯這個檔案時，變更還沒儲存程式就結束了。要還原這些變更嗎？",
     stale: "上次編輯這個檔案時，變更還沒儲存程式就結束了；之後這個檔案被修改過，所以無法還原。",
+    partial:
+      "上次編輯這個檔案時，變更還沒儲存程式就結束了。插入其他檔案的頁面，以及在那之後的變更無法還原；在那之前的變更可以還原。要還原嗎？",
+    lost: "上次編輯這個檔案時，變更還沒儲存程式就結束了。那些變更是從插入其他檔案的頁面開始的，無法還原。",
     restore: "還原變更",
     discard: "捨棄變更",
     later: "稍後再決定",

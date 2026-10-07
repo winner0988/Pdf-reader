@@ -71,6 +71,29 @@ pub struct UnlockArgs {
     pub password: Password,
 }
 
+/// Arguments of `unlock_pages_source` (B2-06): the password of the encrypted file the user just
+/// chose to take pages from. Any other field is rejected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UnlockSourceArgs {
+    pub doc: DocumentId,
+    pub password: Password,
+}
+
+/// A file the user chose to take pages from (B2-06), as the main process keeps it for an open
+/// document: a clean copy of it, named by `source` in `Edit::InsertPages`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct SourceId(pub u32);
+
+/// What `pick_pages_source` tells of the file the user chose (B2-06).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PagesSource {
+    pub source: SourceId,
+    /// How many pages it has: all of them are inserted.
+    pub pages: u32,
+}
+
 /// Arguments of `undo_edit` (B2-05). A document opened with a password is opened again to undo
 /// an edit, so its password is asked for again and sent here (#94); it is not kept. Any other
 /// field is rejected.
@@ -296,6 +319,10 @@ pub enum Edit {
     /// Inserts a blank page at index `at` (the page count: after the last page), upright and the
     /// size page `like` is shown at (B2-05).
     InsertBlankPage { at: u32, like: u32 },
+    /// Puts all the pages of the file `source` (what `pick_pages_source` made of the file the user
+    /// chose) into the document from index `at` on, in their order (B2-06). Only what is on the
+    /// pages comes along (docs/architecture/merge.md).
+    InsertPages { at: u32, source: SourceId },
     /// Marks text with a highlighter in `color`: a `Highlight` annotation on each page of `marks`,
     /// over its quads (B2-07). One edit however many pages the text spans, so that one undo
     /// takes it all back.
@@ -751,6 +778,11 @@ pub enum Recovery {
     None,
     /// They can be made again (`recover_edits`): the file is as it was when they were made.
     Available,
+    /// Some can be made again: the others put the pages of another file into the document, or
+    /// came after that, and the journal cannot keep another file (B2-06).
+    Partial,
+    /// None can be made again, for the same reason.
+    Lost,
     /// Another program changed the file since: they cannot be made on it any more.
     Stale,
 }

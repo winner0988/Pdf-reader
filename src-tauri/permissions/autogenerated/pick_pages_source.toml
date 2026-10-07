@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-pick-pages-source"
+description = "Enables the pick_pages_source command without any pre-configured scope."
+commands.allow = ["pick_pages_source"]
+
+[[permission]]
+identifier = "deny-pick-pages-source"
+description = "Denies the pick_pages_source command without any pre-configured scope."
+commands.deny = ["pick_pages_source"]

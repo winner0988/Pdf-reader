@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-unlock-pages-source"
+description = "Enables the unlock_pages_source command without any pre-configured scope."
+commands.allow = ["unlock_pages_source"]
+
+[[permission]]
+identifier = "deny-unlock-pages-source"
+description = "Denies the unlock_pages_source command without any pre-configured scope."
+commands.deny = ["unlock_pages_source"]

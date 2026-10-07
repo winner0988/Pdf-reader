@@ -1,6 +1,6 @@
 # 合併文件：插入其他檔案的頁面（B2-06）
 
-工作卡 [#95](https://github.com/winner0988/Pdf-reader/issues/95) 的第二部分（第一部分是[拆分](split.md)）；規格 §6「拆分／合併 PDF」。這份文件描述整個功能；**worker 這一端**（`PrepareSource`、`InsertPages`）先到，主行程（來源檔的保管、編輯歷史、崩潰復原、警示橫幅）與畫面在之後的 PR，各節標出是哪一個。
+工作卡 [#95](https://github.com/winner0988/Pdf-reader/issues/95) 的第二部分（第一部分是[拆分](split.md)）；規格 §6「拆分／合併 PDF」。這份文件描述整個功能；**worker 這一端**（`PrepareSource`、`InsertPages`）與**主行程**（來源檔的保管、編輯歷史、崩潰復原、警示橫幅）已經有了，畫面在之後的 PR。
 
 ## 使用者做什麼
 
@@ -58,7 +58,19 @@ sequenceDiagram
 - 沙盒中的 worker（`crates/pdf_worker/tests/merge.rs`）：加密檔案以密碼做出乾淨副本、插入、再以 `Revert` 重做；不允許、不是 PDF、太大的來源被拒絕，worker 繼續運作；惡意來源的頁面插入、存檔後掃描沒有發現。
 - 合約（`crates/ipc_contract`）：`Source` 回應的驗證、模糊測試的種子。
 
-## 之後的 PR
+## 主行程（`src-tauri/src/sources.rs`、`documents.rs`、`recovery.rs`、`commands.rs`）
 
-- **主行程**：`pick_pages_source` 與（加密時）`unlock_pages_source` 命令；每份文件保管來源的位元組（`Sources`，經過檢查的副本，每份最多 `MAX_SOURCES_BYTES`）；`Edit::InsertPages { at, source }` 經過 `apply_edit`，復原與重做、worker 重啟時再把來源送給 worker；警示橫幅併入來源的掃描結果（插入的編輯還在歷史裡時）；崩潰復原日誌放不下來源，所以日誌只記到第一個插入之前，提示列說明之後的變更無法還原（擁有者 2026-10-07 的決定）。
-- **畫面**：縮圖右鍵功能表、密碼對話框、E2E。
+- **命令**：`pick_pages_source { doc }`（開啟對話框 → 檢查檔案（一般檔案、不超過 64 MiB）→ `PrepareSource`）回 `PagesSource { source, pages }`；加密的檔案回 `encrypted`，路徑記在這份文件的 `pending_source`（只在主行程），前端問密碼後呼叫 `unlock_pages_source { doc, password }`，密碼不對時檔案繼續等。作者不允許變更頁面（`/P` 的整理頁面與修改都沒有）的文件，連對話框都不顯示。
+- **保管**（`Sources`）：worker 做出的乾淨副本由主行程保管，只要編輯歷史（做過的與復原後還可以重做的）有一個編輯用到就留著；選了新的檔案時，沒有編輯用到的就丟掉（使用者改選另一個）；存檔後全部丟掉（檔案已經有那些頁面）。每份文件最多 `MAX_SOURCES`（16）個、共 `MAX_SOURCES_BYTES`（128 MiB），放不下時 `limitExceeded`，請先存檔。
+- **編輯**：`Edit::InsertPages { at, source }` 經過 `apply_edit`：與整理頁面相同要作者允許；頁數（來源的頁數）與位置先檢查，合併後不超過 `MAX_PAGE_COUNT`。復原是重開文件再套用其餘的編輯、worker 重啟時也是：每次都把副本連同編輯交給 worker（`WorkerEdit::of`；找不到副本時拒絕），這樣的請求等候的時間與存檔相同（`request_long`）。
+- **警示橫幅**：來源檔的掃描結果（worker 回的 `security`）在編輯還在歷史裡時，併入文件的 `DocumentInfo.security`（同一種類的數量相加，掃描沒完成就是沒完成）；復原後不見，重做後回來，存檔後（檔案已經沒有那些內容）也不見。
+- **崩潰復原日誌**：見 [crash-recovery.md](crash-recovery.md)「插入其他檔案的頁面」：日誌只記到第一個插入之前的編輯，`lost` 記下被留在外面的有幾個；下次開啟時提示列用 `partial` 或 `lost` 說明（擁有者 2026-10-07 的決定）。
+- 測試：`sources.rs`（保留與丟棄、編號、上限、橫幅的數字）；`documents.rs`（真的 worker）：插入、復原、重做、worker 掛掉後重開都在，存檔後的副本有那些頁面；惡意來源的內容在橫幅上、只在頁面還在的時候；加密檔案要密碼、密碼不對、作者不允許取出頁面、擁有者密碼解除；不是 PDF、不存在、位置不對、不存在的來源被拒絕；作者不允許變更頁面的文件；日誌的 `partial` 與 `lost`（還原能還原的、只能捨棄）；`recovery.rs`：`lost` 的記錄與讀取、含有插入的日誌不合格。
+
+## 畫面（`src/features/thumbnails/`、`ReaderShell.tsx`）
+
+- 縮圖的右鍵功能表多了 `pages.insertFileBefore`、`pages.insertFileAfter`（`Thumbnails` 的 `PageEditing.insertFrom`；沒有就不顯示，作者不允許變更頁面時停用）。位置是第一個（之前）或最後一個（之後）選取的頁面；插入的頁面成為選取的頁面。
+- `ReaderShell.insertFrom(at)`：`pickPagesSource(doc)`；回 `encrypted` 時，`SourcePasswordDialog` 要密碼，`unlockPagesSource(doc, password)`，密碼不對再問，取消就不插入（不顯示訊息）；成功後 `applyEdit(doc, { kind: "insertPages", at, source })`。失敗的訊息在縮圖上方：`notAllowed` → 作者不允許；`limitExceeded`／`tooLarge` → 太大或超過上限；其他 → 無法使用這個檔案。
+- **警示橫幅**：使用者每次關閉橫幅，`ReaderShell` 都記下當時橫幅說的內容（發現的種類與掃描是否完成）；只有說了從沒說過的內容（插入的檔案帶來新的發現）才再顯示，編輯本身（新的文件編號）、復原與重做回到說過的內容都不會讓它回來。
+- 測試：`Thumbnails.test.tsx`（選單項目與位置、插入後的選取、關閉對話框、三種失敗的說明、沒有 `insertFrom` 時不顯示）；`Merge.test.tsx`（`ReaderShell`：選檔案後套用編輯、關閉對話框不套用、加密檔案的密碼：不對的說明、再試、取消、作者不允許的說明；橫幅的重新顯示）。
+- E2E（`tests/e2e/merge.spec.ts`，真正的 app 與真正的系統對話框）：從多頁文件的第 3 頁之後插入 `mixed-page-sizes.pdf`，14 頁、依序（以搜尋與狀態列確認每一頁在哪裡）、插入的頁面被選取，復原與重做，另存新檔重新開啟仍是 14 頁、依序；插入含 `/OpenAction` 與 JavaScript 的檔案：橫幅出現（關閉後復原再重做仍是關閉的；再插入另一種內容的檔案才又出現）、存檔後橫幅消失，檔案中找不到 `/S /JavaScript`、`/JS`、`/OpenAction` 的字典；加密的檔案：密碼不對的說明、正確的密碼，作者不允許取出頁面的檔案被拒絕；插入後 app 結束，下次開啟提示列說明無法還原（`recovery.lost`，沒有「還原變更」），捨棄後文件仍是 10 頁。
