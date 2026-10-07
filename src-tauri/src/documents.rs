@@ -3144,7 +3144,7 @@ mod with_worker {
         // The copy asks for a password, and opens restricted as it was asked to.
         let events = std::cell::RefCell::new(Vec::new());
         let report = |event: OpenEvent| events.borrow_mut().push(event);
-        let [tab] = documents.add(&[copy.clone()], &report)[..] else {
+        let [tab] = documents.add(std::slice::from_ref(&copy), &report)[..] else {
             panic!("one tab")
         };
         documents.load(tab, &report);
