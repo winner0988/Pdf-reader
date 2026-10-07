@@ -755,14 +755,15 @@ fn ocr_page(
             OcrKnown::Failed => return Ok(OcrPageState::Failed),
             OcrKnown::Unknown => {}
         }
+        // Most pages are no scans, and need no language to say so: that is looked at first.
+        if !document.ocr_is_scan(page_index)? {
+            return Ok(OcrPageState::NotScan);
+        }
         if ocr.language().is_none() {
             return Ok(OcrPageState::NoLanguage);
         }
         if !ocr.has_room() {
             return Ok(OcrPageState::Full);
-        }
-        if !document.ocr_is_scan(page_index)? {
-            return Ok(OcrPageState::NotScan);
         }
         let (picture, geometry, page_key) = document.ocr_picture(page_index)?;
         let job = Job {

@@ -231,7 +231,7 @@ flowchart LR
 | `PrivacyCopy` | `request`, `doc`, `file`（同 `Save`）, `id`（16 bytes，主行程產生的亂數） | `Saved`（`incremental` 一律為 false）或 `Error`（加密的文件：`InvalidRequest`；太多物件：`LimitExceeded`）；寫出清除中繼資料的副本，worker 中的文件不變（B2-03，見 [privacy-export.md](privacy-export.md)） |
 | `SavePages` | `request`, `doc`, `pages`（不重複，檔案裡依文件的順序）, `file`（**只能寫入**的 handle） | `Saved`（`incremental` 一律為 false）或 `Error`（加密的文件：`InvalidRequest`；頁碼不存在：`PageOutOfRange`）；寫出這些頁面組成的文件，worker 中的文件不變（B2-06，見 [split.md](split.md)） |
 | `OcrLoad` | `request`, `language`（`eng`、`chi_tra`…）, `data`（`.traineddata` 的位元組，最多 `MAX_LANGUAGE_DATA_BYTES`） | `OcrLoaded` 或 `Error`（不是語言資料：`InvalidRequest`）；取代已載入的語言，丟掉排隊中的頁面（B2-10，見 [ocr.md](ocr.md)） |
-| `OcrPage` | `request`, `doc`, `page_index`, `max_millis` | `OcrChecked`（`state`：`NotScan`、`Recognised`、`Queued`、`Failed`、`Full`、`NoLanguage`）或 `Error`；看這一頁是不是掃描頁，是就畫成灰階圖放進佇列，由 worker 自己的辨識執行緒在背景辨識，立刻回應（B2-10） |
+| `OcrPage` | `request`, `doc`, `page_index`, `max_millis` | `OcrChecked`（`state`：`NotScan`、`Recognised`、`Queued`、`Failed`、`Full`、`NoLanguage`）或 `Error`；看這一頁是不是掃描頁，是就畫成灰階圖放進佇列，由 worker 自己的辨識執行緒在背景辨識，立刻回應。判斷不需要語言：不是掃描頁就回 `NotScan`；掃描頁而還沒載入語言時回 `NoLanguage`，主行程這時才送 `OcrLoad`（B2-10） |
 | `OcrPoll` | `request` | `OcrPolled`（`finished`：最多 `MAX_OCR_RESULTS` 個 `{ doc, page_index, outcome }`，`waiting`）；取走上次之後辨識完的頁面。`outcome` 是 `Recognised { chars }`、`TimedOut` 或 `Failed` |
 | `OcrStop` | `request` | `OcrStopped`；丟掉排隊中的頁面，停止正在辨識的那一頁 |
 | `Cancel` | `target` | 無（被取消的請求回 `Error { code: Cancelled }`，或已完成則照常回應） |

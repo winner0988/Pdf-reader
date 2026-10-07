@@ -257,9 +257,10 @@ fn read(host: &mut WorkerHost, doc: DocumentId, page_indexes: &[u32]) {
 }
 
 #[test]
-fn pages_with_text_of_their_own_are_not_scans_and_a_language_is_needed() {
+fn pages_with_text_of_their_own_are_not_scans_and_a_scan_needs_a_language() {
     let (mut host, doc) = open_corpus(PRIVACY);
-    assert_eq!(check(&mut host, doc, 0), OcrPageState::NoLanguage);
+    // No language is needed to tell that a page is no scan.
+    assert_eq!(check(&mut host, doc, 0), OcrPageState::NotScan);
     load(&mut host, "eng");
     assert_eq!(check(&mut host, doc, 0), OcrPageState::NotScan);
     assert_eq!(

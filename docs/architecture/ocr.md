@@ -27,6 +27,8 @@ sequenceDiagram
   W-->>M: 有文字層的頁面照舊；掃描頁是辨識出的文字（recognised）
 ```
 
+語言要到第一個掃描頁出現時才載入（`OcrPage` 對掃描頁回 `NoLanguage`，主行程這時才送 `OcrLoad`）：大多數文件沒有掃描頁，它們的 worker 不載入任何語言（約 40 MB 與一次載入的時間）。
+
 ## 掃描頁
 
 `PdfDocument::ocr_is_scan`：頁面**沒有文字**（文字層裡沒有空白以外的字元），且**圖片涵蓋至少一半的頁面**（MuPDF 的文字抽取以 `PRESERVE_IMAGES` 回報圖片區塊與位置）。兩者都符合才辨識：

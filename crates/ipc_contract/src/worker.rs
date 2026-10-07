@@ -304,7 +304,8 @@ pub enum WorkerRequest {
     /// Looks at page `page_index` of `doc` and, if it is a scan (it has no text, and pictures
     /// cover most of it), queues it to be recognised in the background, in at most `max_millis`.
     /// The page is drawn here and recognised on a thread of its own, so the worker goes on
-    /// answering other requests. Answered at once by `OcrChecked`.
+    /// answering other requests. Answered at once by `OcrChecked`. No language is needed to tell
+    /// that a page is no scan: only a scan is answered with `NoLanguage` if none was loaded.
     OcrPage {
         request: RequestId,
         doc: DocumentId,
@@ -438,7 +439,7 @@ pub enum OcrPageState {
     Failed,
     /// The queue is full: ask again after a poll.
     Full,
-    /// No language was loaded (`OcrLoad`).
+    /// The page is a scan, and no language was loaded (`OcrLoad`).
     NoLanguage,
 }
 
