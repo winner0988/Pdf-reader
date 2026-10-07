@@ -291,12 +291,22 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
   - 文字框在離開時（`Tab`、點別處）或按 `Enter`（多行欄位按 `Ctrl+Enter`）時送出，`Esc` 放棄剛輸入的；超過最大長度的字打不進去；
   - 核取方塊、選項按鈕、下拉選單與清單方塊在選擇的當下送出；
   - 之後分頁標示未儲存（「•」），可以用 `Ctrl+Z`／`Ctrl+Y` 一個值一個值復原與重做（焦點在文字框時，`Ctrl+Z` 是文字框自己的復原）；
-  - 輸入到一半按 `Ctrl+S`、`Ctrl+Shift+S` 或關閉分頁，會先送出輸入的值；儲存之後焦點仍在原來的欄位，可以接著輸入；關閉分頁時照常詢問是否儲存。直接關閉視窗（標題列的 ✕）不會，見 forms.md 的「已知限制」。
+  - 輸入到一半按 `Ctrl+S`、`Ctrl+Shift+S`、關閉分頁或關閉視窗（標題列的 ✕），會先送出輸入的值；儲存之後焦點仍在原來的欄位，可以接著輸入；關閉分頁與關閉視窗時照常詢問是否儲存（輸入的值是一個未儲存的變更）。
 - **必填欄位**空著時有紅色外框。
 - **唯讀欄位**與作者不允許填寫表單（MVP-19）：欄位只能看（文字框仍可選取與複製），滑鼠停留時說明原因（forms.readOnly、forms.notAllowed）；「扁平化表單…」停用並標示 permissions.notAllowed。
 - **有腳本的欄位**：進入欄位時，狀態列顯示 forms.scriptNotRun 4 秒；欄位仍可填寫，腳本不會執行（自動計算、格式化與檢查都沒有作用）。
 - 填寫失敗時，欄位回到原來的值，狀態列顯示 forms.failed；未儲存的變更太多時顯示 pages.saveFirst。
 - **扁平化**：「⋯」→ forms.flatten（只在文件有表單時出現）；對話框 forms.flattenDialog.title 說明欄位會成為頁面的一部分、可以復原；按 forms.flattenDialog.confirm 後立刻顯示另存新檔的對話框（原檔不變）。有簽章的文件不能扁平化（forms.flattenFailed）。扁平化之後頁面上沒有欄位，選單裡也不再有這個項目。
+
+### 數位簽章（B2-14）
+
+文件有數位簽章時，畫布上方顯示簽章提示列（與安全警示橫幅並列），說明這些簽章合起來是什麼狀況。驗證在這台電腦上離線進行，不連網；做法與限制見 [signatures.md](../architecture/signatures.md)。
+
+- **何時出現**：文件開啟之後在背景驗證，不擋開檔與渲染，驗證完才出現提示列。沒有簽章的文件、驗證失敗的文件都沒有提示列。簽章是檔案的：文件有未儲存的變更時不重新驗證，儲存之後依新的檔案重新驗證。
+- **顏色與句子**依最糟的那一個簽章：全部有效且簽署者受信任 → 綠色；有效但無法確認簽署者、簽署後有變更、無法驗證 → 琥珀色；有任何一個無效 → 紅色。只有一個簽章時句子說明它的狀況（signatures.summaryOne.*）；有多個時說明各種狀況各有幾個（signatures.summaryMany）；欄位太多沒有全部驗證時加一句說明。
+- **「簽章資料」**開啟畫布右側的面板（寬 380 px，`Esc` 或 ✕ 關閉，焦點回到按鈕；與已封鎖內容明細輪流開啟，一次只開一個）：每個簽章一筆，有欄位名稱、狀態（文字與圖示，不只靠顏色）、說明、簽署者（取自憑證）、簽署時間（標示為簽署者自己聲稱、沒有時間戳記證明）與認證簽章允許的變更；認證簽章不允許任何變更、但文件有變更時多一行警告。最上方一律說明離線驗證、不保證簽署者的身分、沒有檢查撤銷狀態（signatures.detailsNote）。
+- **✕** 關閉提示列（下次開啟這個檔案又會出現）。
+- 「簽章有效」從不說成「可信任」；「受信任」只在簽署者的憑證鏈接到這台電腦的 Windows 信任的根憑證時使用。
 
 ### 文件權限（MVP-19）
 
@@ -345,7 +355,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 
 ### 焦點與無障礙
 
-- `Tab` 順序：工具列（左到右）→ 安全警示橫幅 → 側欄 → 畫布 → 搜尋列（開啟時）。
+- `Tab` 順序：工具列（左到右）→ 提示列（簽章提示列、安全警示橫幅）→ 側欄 → 畫布 → 搜尋列（開啟時）。
 - 所有互動元件都能只用鍵盤操作；焦點框清楚可見（2 px 強調色外框）。
 - 圖示按鈕都有可讀名稱（`aria-label`）；點擊區至少 32 × 32 px。
 - 對話框開啟時焦點鎖在對話框內，關閉後回到觸發它的元件。
@@ -793,6 +803,42 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | forms.flattenDialog.title | 扁平化表單 |
 | forms.flattenDialog.description | 欄位目前填的內容會成為頁面的一部分，之後不能再修改，也不再有表單欄位。可以用「復原」（Ctrl+Z）取消；也可以另存新檔，保留原來的檔案。 |
 | forms.flattenDialog.confirm／forms.flattenDialog.cancel | 扁平化並另存新檔…／取消 |
+
+### 數位簽章（B2-14）
+
+| 鍵 | 文字 |
+|---|---|
+| signatures.label | 數位簽章 |
+| signatures.details／signatures.dismiss | 簽章資料／關閉簽章提示 |
+| signatures.summaryOne.valid | 此文件有數位簽章：簽章有效，簽署者受信任。 |
+| signatures.summaryOne.unconfirmed | 此文件有數位簽章：簽章有效，但無法確認簽署者是誰。 |
+| signatures.summaryOne.changed | 此文件有數位簽章：簽署之後文件又有變更。 |
+| signatures.summaryOne.invalid | 此文件的數位簽章無效：簽署之後文件被改動，或簽章與文件不符。 |
+| signatures.summaryOne.unverifiable | 此文件有數位簽章，但本程式無法驗證它。 |
+| signatures.summaryMany(total, parts) | 此文件有 <total> 個數位簽章：<parts 以「、」相接>。 |
+| signatures.summaryPart.valid／unconfirmed／changed／invalid／unverifiable | <n> 個有效，簽署者受信任／<n> 個有效但無法確認簽署者／<n> 個在簽署後有變更／<n> 個無效／<n> 個無法驗證 |
+| signatures.truncated(max) | 這份文件的簽章欄位太多，只驗證了前 <max> 個。 |
+| signatures.detailsTitle／signatures.detailsClose | 數位簽章／關閉簽章資料 |
+| signatures.detailsNote | 簽章在這台電腦上離線驗證，不會連上網路。「簽章有效」表示簽署之後內容沒有被改動，不保證簽署者的身分；憑證是否已被撤銷也沒有檢查。 |
+| signatures.unnamed(index) | 簽章 <index>（簽章欄位沒有名字時） |
+| signatures.status.valid | 簽章有效，簽署者受信任 |
+| signatures.status.unconfirmed | 簽章有效，但無法確認簽署者 |
+| signatures.status.changed | 簽署之後文件有變更 |
+| signatures.status.invalid／signatures.status.unverifiable | 簽章無效／無法驗證 |
+| signatures.explanation.valid | 簽署之後文件沒有被改動，而且簽署者的憑證鏈接到這台電腦的 Windows 信任的根憑證。 |
+| signatures.explanation.unconfirmed | 簽署之後文件沒有被改動，但簽署者的憑證不是由這台電腦的 Windows 信任的單位簽發（例如自己簽發的憑證），無法確認簽署者是誰。 |
+| signatures.explanation.changed | 簽章對簽署時的內容仍然有效，但文件在簽署之後又有變更（也可能只是又加了別人的簽章）。 |
+| signatures.explanation.invalid | 簽署之後文件被改動，或簽章本身與文件不符：不要相信這份文件是簽署者簽署的樣子。 |
+| signatures.reason.unsupportedFormat | 這種簽章的格式本程式不驗證。 |
+| signatures.reason.unsupportedAlgorithm | 這台電腦的 Windows 不支援它使用的演算法。 |
+| signatures.reason.tooLarge／signatures.reason.notAvailable | 簽章的資料太大，本程式不驗證。／這個系統無法驗證簽章。 |
+| signatures.signer／signatures.time | 簽署者／簽署時間 |
+| signatures.timeNote | 簽署者自己聲稱的時間，沒有時間戳記證明 |
+| signatures.certification | 認證簽章 |
+| signatures.certificationLevel.noChanges | 簽署者不允許簽署之後有任何變更 |
+| signatures.certificationLevel.fillForms | 簽署者只允許簽署之後填寫表單與簽署 |
+| signatures.certificationLevel.fillFormsAndAnnotate | 簽署者只允許簽署之後填寫表單、簽署與加註解 |
+| signatures.certificationBroken | 這是認證簽章，不允許簽署之後有任何變更，但文件有變更。 |
 
 ### 掃描頁的文字辨識（B2-10）
 

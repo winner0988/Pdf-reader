@@ -22,7 +22,8 @@ use ipc_contract::types::{
     BlockedAction, DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
     FormField, IpcError, LinkArgs, LinkPreview, LinkTarget, OpenEvent, OutlineLinkArgs,
     OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource, Password, Recovery,
-    RenderPageArgs, SaveResult, SearchHit, SecurityReport, SourceId, StampImageInfo, TabId,
+    RenderPageArgs, SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId,
+    StampImageInfo, TabId,
 };
 use ipc_contract::validate::{Validate, check_page_index, stamp_png_size};
 use ipc_contract::worker::{
@@ -1067,6 +1068,22 @@ impl Documents {
                 .ok_or_else(|| invalid_argument("no file waits for a password"))
         })?;
         self.prepare_pages_source(doc, &path, Some(password))
+    }
+
+    /// The signatures of `doc` as its file has them (B2-14, ADR 0014), verified offline by the
+    /// document's worker: whether each holds, whether the file changed after it, and who signed.
+    /// Nothing is fetched, and nothing in the file is run.
+    pub fn signatures(&self, doc: DocumentId) -> Result<SignatureReport, IpcError> {
+        self.with_document(doc, |document| {
+            let response = request(document, |request, doc| WorkerRequest::VerifySignatures {
+                request,
+                doc,
+            })?;
+            let WorkerResponse::Signatures { report, .. } = response else {
+                return Err(unexpected("VerifySignatures"));
+            };
+            Ok(report)
+        })
     }
 
     /// Makes the picture in `file` (a PNG or JPEG the user chose, which the caller opened) into

@@ -15,8 +15,8 @@ use crate::types::{
     DocumentInfo, Edit, EditArgs, ExportArgs, ExportFormat, FindingKind, FormField, IpcError,
     LinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation,
     PageLink, PageSize, PageText, Password, Point, Quad, RecentFile, Rect, RemoveLanguageArgs,
-    RenderPageArgs, Rotation, SearchArgs, SearchHit, SecurityReport, Settings, TextLine, UndoArgs,
-    UnlockArgs, UnlockSourceArgs,
+    RenderPageArgs, Rotation, SearchArgs, SearchHit, SecurityReport, Settings, SignatureInfo,
+    SignatureReport, SignatureStatus, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs,
 };
 use crate::worker::{OcrOutcome, OpenedDocument, Raster, WorkerError, WorkerResponse};
 
@@ -410,6 +410,7 @@ impl Validate for WorkerResponse {
                 Ok(())
             }
             WorkerResponse::PageText { text, .. } => text.validate(),
+            WorkerResponse::Signatures { report, .. } => report.validate(),
             WorkerResponse::StampImage {
                 png, width, height, ..
             } => {
@@ -478,6 +479,53 @@ impl Validate for WorkerResponse {
             }
             WorkerResponse::Error { error, .. } => error.validate(),
         }
+    }
+}
+
+/// Longest time text of a signature: "2026-09-24 12:00:00 UTC+08:00" is 30 bytes.
+const MAX_SIGNATURE_TIME_BYTES: u32 = 40;
+
+impl Validate for SignatureInfo {
+    fn validate(&self) -> Result<(), ValidationError> {
+        let holds = matches!(
+            self.status,
+            SignatureStatus::Valid | SignatureStatus::ChangedAfterSigning
+        );
+        if self.reason.is_some() != (self.status == SignatureStatus::Unverifiable) {
+            return Err(ValidationError::Invalid {
+                what: "signature",
+                reason: "has a reason only when it could not be verified",
+            });
+        }
+        // Who signed and whether to trust them are only known of a signature that holds.
+        if !holds && (self.signer.is_some() || self.signer_trusted) {
+            return Err(ValidationError::Invalid {
+                what: "signature",
+                reason: "names a signer though it does not hold",
+            });
+        }
+        for (what, text, max) in [
+            (
+                "signature field name",
+                &self.field_name,
+                MAX_SIGNATURE_TEXT_BYTES,
+            ),
+            ("signer", &self.signer, MAX_SIGNATURE_TEXT_BYTES),
+            ("signing time", &self.claimed_time, MAX_SIGNATURE_TIME_BYTES),
+        ] {
+            if let Some(text) = text {
+                check_text(what, text, max)?;
+                check_clean(what, text)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Validate for SignatureReport {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_count("signatures", self.signatures.len(), MAX_SIGNATURES)?;
+        self.signatures.iter().try_for_each(SignatureInfo::validate)
     }
 }
 
@@ -1070,6 +1118,7 @@ mod tests {
         AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, ErrorCode,
         FieldId, FieldKind, FieldOption, HighlightColor, HighlightMark, InkColor, InkWidth, LinkId,
         RecentId, Recovery, RequestId, Rotation, SecurityFinding, StampImageId, StampName, TabId,
+        UnverifiableReason,
     };
     use crate::worker::WorkerErrorCode;
 
@@ -1524,6 +1573,104 @@ mod tests {
             }
             .validate()
             .is_err()
+        );
+    }
+
+    fn signature(status: SignatureStatus) -> SignatureInfo {
+        SignatureInfo {
+            status,
+            signer_trusted: false,
+            reason: None,
+            field_name: Some("Signature1".to_owned()),
+            signer: None,
+            claimed_time: Some("2026-09-24 12:00:00 UTC+08:00".to_owned()),
+            certification: None,
+        }
+    }
+
+    #[test]
+    fn a_signature_report_is_bounded_and_consistent() {
+        let report = |signatures| SignatureReport {
+            signatures,
+            truncated: false,
+        };
+        let holds = SignatureInfo {
+            signer: Some("Jane Public".to_owned()),
+            signer_trusted: true,
+            ..signature(SignatureStatus::Valid)
+        };
+        assert!(
+            report(vec![holds.clone(), signature(SignatureStatus::Invalid)])
+                .validate()
+                .is_ok()
+        );
+        let many = vec![signature(SignatureStatus::Invalid); MAX_SIGNATURES as usize];
+        assert!(report(many.clone()).validate().is_ok());
+        let mut too_many = many;
+        too_many.push(signature(SignatureStatus::Invalid));
+        assert!(report(too_many).validate().is_err());
+
+        // A reason is for a signature that could not be verified, and only for that.
+        let unverifiable = SignatureInfo {
+            reason: Some(UnverifiableReason::UnsupportedFormat),
+            ..signature(SignatureStatus::Unverifiable)
+        };
+        assert!(unverifiable.validate().is_ok());
+        assert!(signature(SignatureStatus::Unverifiable).validate().is_err());
+        assert!(
+            SignatureInfo {
+                reason: Some(UnverifiableReason::TooLarge),
+                ..holds.clone()
+            }
+            .validate()
+            .is_err()
+        );
+        // Nobody signed a signature that does not hold, and nobody is trusted by it.
+        for status in [SignatureStatus::Invalid, SignatureStatus::Unverifiable] {
+            let named = SignatureInfo {
+                signer: Some("Jane Public".to_owned()),
+                reason: (status == SignatureStatus::Unverifiable)
+                    .then_some(UnverifiableReason::TooLarge),
+                ..signature(status)
+            };
+            assert!(named.validate().is_err(), "{status:?}");
+            let trusted = SignatureInfo {
+                signer_trusted: true,
+                reason: named.reason,
+                ..signature(status)
+            };
+            assert!(trusted.validate().is_err(), "{status:?}");
+        }
+        // Text is bounded and clean.
+        let text = |signer: String| SignatureInfo {
+            signer: Some(signer),
+            ..holds.clone()
+        };
+        assert!(
+            text("x".repeat(MAX_SIGNATURE_TEXT_BYTES as usize))
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            text("x".repeat(MAX_SIGNATURE_TEXT_BYTES as usize + 1))
+                .validate()
+                .is_err()
+        );
+        assert!(text("Jane\u{202e}Public".to_owned()).validate().is_err());
+        assert!(text("Jane\nPublic".to_owned()).validate().is_err());
+        let time = |time: &str| SignatureInfo {
+            claimed_time: Some(time.to_owned()),
+            ..holds.clone()
+        };
+        assert!(
+            time(&"9".repeat(MAX_SIGNATURE_TIME_BYTES as usize))
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            time(&"9".repeat(MAX_SIGNATURE_TIME_BYTES as usize + 1))
+                .validate()
+                .is_err()
         );
     }
 
