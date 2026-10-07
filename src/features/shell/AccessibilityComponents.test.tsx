@@ -8,6 +8,7 @@ import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialo
 import { OutlineTree } from "@/features/outline/OutlineTree";
 import { PrintDialog } from "@/features/print/PrintDialog";
 import { RecoveryBanner } from "@/features/recovery/RecoveryBanner";
+import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
 import { SaveFailedDialog } from "@/features/saving/SaveFailedDialog";
 import { UnsavedDialog } from "@/features/saving/UnsavedDialog";
@@ -62,6 +63,12 @@ describe("dialogs", () => {
     render(
       <PrivacyExportDialog open onOpenChange={vi.fn()} onExport={() => Promise.resolve(false)} onFinished={vi.fn()} />,
     );
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("the encrypted copy", async () => {
+    render(<EncryptDialog open onOpenChange={vi.fn()} doc={5} onEncrypt={() => Promise.resolve(false)} onFinished={vi.fn()} />);
     await screen.findByRole("dialog");
     await expectAccessible(everything());
   });

@@ -252,32 +252,28 @@ describe("the digital signatures of a document", () => {
     report: { signatures, truncated: false },
   });
 
-  it("the banner and the panel, for every state a signature can be in", async () => {
-    const states: SignatureInfo[] = [
-      signature({ signerTrusted: true }),
-      signature(),
-      signature({ status: "changedAfterSigning" }),
-      signature({ status: "invalid", signer: null }),
-      signature({ status: "unverifiable", signer: null, reason: "unsupportedFormat" }),
-      signature({ status: "unverifiable", signer: null, reason: "tooLarge" }),
-      signature({ certification: "noChanges" }),
-    ];
-    for (const state of states) {
-      const { unmount } = render(
-        <ReaderShell
-          state={{ kind: "open", document: { ...demoDocument, doc: 5, session: 1 } }}
-          onOpen={vi.fn()}
-          loadingDelayMs={0}
-          signatures={view(state)}
-        />,
-      );
-      await screen.findByRole("region", { name: strings.signatures.label });
-      await expectAccessible(document.body);
-      const user = userEvent.setup();
-      await user.click(screen.getByRole("button", { name: strings.signatures.details }));
-      await screen.findByRole("complementary", { name: strings.signatures.detailsTitle });
-      await expectAccessible(document.body);
-      unmount();
-    }
+  it.each([
+    ["holds and its signer is trusted", signature({ signerTrusted: true })],
+    ["holds, and nobody vouches for its signer", signature()],
+    ["holds, but the document was changed after", signature({ status: "changedAfterSigning" })],
+    ["does not hold", signature({ status: "invalid", signer: null })],
+    ["cannot be verified: a kind it does not know", signature({ status: "unverifiable", signer: null, reason: "unsupportedFormat" })],
+    ["cannot be verified: too large", signature({ status: "unverifiable", signer: null, reason: "tooLarge" })],
+    ["certifies the document", signature({ certification: "noChanges" })],
+  ])("the banner and the panel of a signature that %s", async (_state, info) => {
+    render(
+      <ReaderShell
+        state={{ kind: "open", document: { ...demoDocument, doc: 5, session: 1 } }}
+        onOpen={vi.fn()}
+        loadingDelayMs={0}
+        signatures={view(info)}
+      />,
+    );
+    await screen.findByRole("region", { name: strings.signatures.label });
+    await expectAccessible(document.body);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: strings.signatures.details }));
+    await screen.findByRole("complementary", { name: strings.signatures.detailsTitle });
+    await expectAccessible(document.body);
   });
 });
