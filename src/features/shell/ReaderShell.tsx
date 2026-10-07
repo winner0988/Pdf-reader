@@ -15,7 +15,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { HIGHLIGHT_COLORS, SWATCH } from "@/features/annotations/model";
 import { NoteDialog } from "@/features/annotations/NoteDialog";
 import { createAnnotationSource, type AnnotationsApi } from "@/features/annotations/source";
-import { stampRectAt, type Tool } from "@/features/annotations/tools";
+import { pictureRectAt, stampRectAt, type Tool } from "@/features/annotations/tools";
 import { useAnnotations } from "@/features/annotations/useAnnotations";
 import { FieldEdits, until } from "@/features/forms/edits";
 import { FlattenDialog } from "@/features/forms/FlattenDialog";
@@ -474,6 +474,28 @@ export function ReaderShell({
     setTool({ kind: "stamp", stamp });
     showHint(strings.annotations.placeStamp(strings.annotations.stamps[stamp]));
   };
+  // A picture of the user's own: asked for in the system's dialog, made into a stamp picture of
+  // the document by the main process (the path never comes here).
+  const choosePicture = () => {
+    if (!annotationsApi?.pickStampImage || doc === undefined) return;
+    annotationsApi.pickStampImage(doc).then(
+      (picture) => {
+        if (!picture) return;
+        setTool({ kind: "picture", picture });
+        showHint(strings.annotations.placePicture);
+      },
+      (error: unknown) => {
+        const code = errorCodeOf(error);
+        showHint(
+          code === "limitExceeded"
+            ? strings.annotations.tooManyPictures
+            : code === "tooLarge"
+              ? strings.annotations.pictureTooLarge
+              : strings.annotations.pictureFailed,
+        );
+      },
+    );
+  };
   // Esc puts the tool away; Enter puts a stamp in the middle of the page being read, for those who
   // cannot point.
   const chosenPage = document_?.pages[currentPage - 1];
@@ -488,7 +510,7 @@ export function ReaderShell({
     // button (which gets the focus back when its menu closes); elsewhere it does what it does. It
     // comes before the button sees it: Enter on the stamp's button would open its menu.
     const onEnter = (event: KeyboardEvent) => {
-      if (event.key !== "Enter" || tool.kind !== "stamp" || !chosenPage || !edit) return;
+      if (event.key !== "Enter" || tool.kind === "pen" || !chosenPage || !edit) return;
       const target = event.target;
       const here =
         !(target instanceof Element) ||
@@ -499,7 +521,16 @@ export function ReaderShell({
       if (!here || typing) return;
       event.preventDefault();
       const middle = { x: chosenPage.widthPt / 2, y: chosenPage.heightPt / 2 };
-      edit({ kind: "addStamp", page: currentPage - 1, rect: stampRectAt(middle, chosenPage), stamp: tool.stamp });
+      if (tool.kind === "stamp") {
+        edit({ kind: "addStamp", page: currentPage - 1, rect: stampRectAt(middle, chosenPage), stamp: tool.stamp });
+      } else {
+        edit({
+          kind: "addImageStamp",
+          page: currentPage - 1,
+          rect: pictureRectAt(middle, chosenPage, tool.picture),
+          image: tool.picture.image,
+        });
+      }
       setTool(null);
     };
     window.addEventListener("keydown", onEscape);
@@ -690,8 +721,10 @@ export function ReaderShell({
           stamp={
             editingApi !== undefined && doc !== undefined
               ? {
-                  active: toolOn?.kind === "stamp" ? toolOn.stamp : null,
+                  active:
+                    toolOn?.kind === "stamp" ? toolOn.stamp : toolOn?.kind === "picture" ? "picture" : null,
                   onChoose: annotations.enabled ? chooseStamp : undefined,
+                  onPick: annotations.enabled && annotationsApi?.pickStampImage ? choosePicture : undefined,
                 }
               : undefined
           }

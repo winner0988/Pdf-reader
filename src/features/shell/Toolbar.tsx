@@ -95,8 +95,17 @@ export type ToolbarProps = {
     onColor: (color: InkColor) => void;
     onWidth: (width: InkWidth) => void;
   };
-  /** The stamps (B2-08): the menu has them; choosing one is to put it on a page. `active` is the one chosen. */
-  stamp?: { active: StampName | null; onChoose?: (stamp: StampName) => void };
+  /**
+   * The stamps (B2-08): the menu has them; choosing one is to put it on a page. `active` is the
+   * one chosen ("picture": one of the user's own). Without `onChoose` and `onPick` (the author
+   * does not allow annotating) the menu is disabled.
+   */
+  stamp?: {
+    active: StampName | "picture" | null;
+    onChoose?: (stamp: StampName) => void;
+    /** Asks for a picture of the user's own to make a stamp of. */
+    onPick?: () => void;
+  };
   /**
    * Turns the form of the open document into page content (B2-09); given only for a document
    * with a form. Without a click handler (the author does not allow filling in forms) the item
@@ -281,6 +290,14 @@ function StampMenu({ stamp }: { stamp: NonNullable<ToolbarProps["stamp"]> }) {
             </DropdownMenuItem>
           ))}
         </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          aria-current={stamp.active === "picture" || undefined}
+          disabled={!stamp.onPick}
+          onClick={stamp.onPick}
+        >
+          {labels.pickPicture}
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

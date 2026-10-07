@@ -253,6 +253,7 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
   - 顏色（annotations.inkColors）：黑、紅、藍、綠；粗細（annotations.inkWidths）：細、中、粗；一開始是黑色、中；只影響之後畫的線，只記在這次執行中；
   - 按一下沒有拖曳畫出一個圓點。
 - **印章**：按印章按鈕選一種（annotations.stamps），狀態列顯示 annotations.placeStamp；在頁面上點一下，以點擊處為中心放下，放下後工具自動結束；按 `Enter` 放在目前這一頁的中央（給不能使用滑鼠的人）；`Esc` 取消。標準印章的文字是英文（由 PDF 引擎畫出，其他閱讀器看到的一樣），選單與說明用中文。
+- **自訂圖片印章**：印章選單的最後一項「annotations.pickPicture」（前面有分隔線）。選了之後出現系統的開啟對話框（單選，只列 PNG 與 JPEG）；選好圖片後狀態列顯示 annotations.placePicture，在頁面上點一下放下（以點擊處為中心，保持圖片的形狀，較長的一邊 150 點），或按 `Enter` 放在這一頁的中央，`Esc` 取消。關閉對話框什麼都不發生。圖片不能用時狀態列說明：annotations.pictureTooLarge（太大）、annotations.tooManyPictures（尚未儲存的變更用了太多不同的圖片，要先存檔）、annotations.pictureFailed（其他，包含不是 PNG 或 JPEG）。圖片只留下像素，相機的資料（EXIF、GPS）不會進入文件。
 - **移動與縮放**：選取手繪或印章（`Tab` 或點一下）時，周圍出現控制點；拖曳本體移動，拖曳控制點縮放。手繪有八個控制點，可以自由縮放；印章只有四個角，維持比例。拖曳時以虛線輪廓預覽，放開才生效（可以復原）。方向鍵移動 1 點，加 `Shift` 移動 10 點；按住不放不會連續移動。操作方式（annotations.moveHint）是這個輪廓的工具提示，也是螢幕閱讀器念出的說明。
 - **作者不允許註解**時，畫筆與印章按鈕停用，說明是 annotations.notAllowed；已有的手繪與印章仍然顯示，可以選取，但沒有控制點，方向鍵與 `Delete` 不作用。
 - 編輯失敗時，狀態列顯示 annotations.failed；未儲存的變更太多時顯示 pages.saveFirst。
@@ -669,6 +670,11 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | annotations.kind.ink／stamp | 手繪線條／印章（頁面上輪廓與工具列的名稱） |
 | annotations.penOn | 畫筆已開啟：在頁面上按住並拖曳來畫線，按 Esc 結束。 |
 | annotations.placeStamp(name) | 在頁面上點一下放下「<名稱>」印章（或按 Enter 放在這一頁的中央），按 Esc 取消。 |
+| annotations.pickPicture | 自訂圖片… |
+| annotations.placePicture | 在頁面上點一下放下圖片印章（或按 Enter 放在這一頁的中央），按 Esc 取消。 |
+| annotations.pictureFailed | 無法使用這張圖片，請選擇 PNG 或 JPEG 檔案。 |
+| annotations.pictureTooLarge | 這張圖片太大了，請選擇小一點的圖片。 |
+| annotations.tooManyPictures | 尚未儲存的變更裡用了太多不同的圖片，請先儲存。 |
 | annotations.moveHint | 拖曳移動；拖曳控制點調整大小；方向鍵移動 1 點，加 Shift 移動 10 點。 |
 
 ### 崩潰復原（B2-13）
