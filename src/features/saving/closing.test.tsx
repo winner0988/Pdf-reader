@@ -29,6 +29,7 @@ function renderApp(saving: Partial<SavingApi> = {}) {
     saveAs: vi.fn<SavingApi["saveAs"]>(() => Promise.resolve(null)),
     closeWindow: vi.fn<SavingApi["closeWindow"]>(() => Promise.resolve()),
     privacyExport: vi.fn<SavingApi["privacyExport"]>(() => Promise.resolve(true)),
+    encryptCopy: vi.fn<SavingApi["encryptCopy"]>(() => Promise.resolve(true)),
     ...saving,
   } satisfies SavingApi;
   const renderApi: RenderApi = { renderPage: () => new Promise(() => {}), cancel: () => Promise.resolve() };

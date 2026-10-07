@@ -10,7 +10,7 @@ use ipc_contract::types::{
     AnnotationId, AnnotationKind, BlockedAction, Certification, DocumentId, DocumentPermissions,
     FieldId, FieldKind, FieldOption, FindingKind, FormField, HighlightColor, HighlightMark,
     InkColor, InkWidth, LinkId, LinkTarget, OutlineItem, OutlineResult, PageAnnotation, PageLink,
-    PageSize, PageText, Password, Point, Quad, Rect, RequestId, Rotation, SearchHit,
+    PageSize, PageText, Password, Point, Quad, Rect, RequestId, Restrictions, Rotation, SearchHit,
     SecurityFinding, SecurityReport, SignatureInfo, SignatureReport, SignatureStatus, StampName,
     TextLine, UnverifiableReason,
 };
@@ -628,6 +628,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             doc,
             file: FileHandle(0x2ac),
             id: [0x5a; 16],
+        },
+        WorkerRequest::EncryptedCopy {
+            request,
+            doc,
+            file: FileHandle(0x2b0),
+            open_password: Some(Password::new("open sesame".to_owned())),
+            owner_password: Password::new("0123456789abcdef0123456789abcdef".to_owned()),
+            restrictions: Restrictions {
+                print: false,
+                copy: true,
+                modify: true,
+            },
         },
         WorkerRequest::Cancel { target: request },
         WorkerRequest::Close { doc },

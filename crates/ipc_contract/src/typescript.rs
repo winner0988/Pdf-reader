@@ -48,6 +48,8 @@ pub fn bindings() -> String {
         UnlockSourceArgs,
         SourceId,
         PagesSource,
+        Restrictions,
+        EncryptArgs,
         RecentFile,
         FileRecordingArgs,
         ThemePreference,
@@ -120,7 +122,7 @@ pub fn bindings() -> String {
         OpenEvent,
     );
 
-    let limits: [(&str, String); 35] = [
+    let limits: [(&str, String); 36] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -134,6 +136,7 @@ pub fn bindings() -> String {
         ("maxTextBytes", MAX_TEXT_BYTES.to_string()),
         ("maxQueryBytes", MAX_QUERY_BYTES.to_string()),
         ("maxPasswordBytes", MAX_PASSWORD_BYTES.to_string()),
+        ("maxNewPasswordBytes", MAX_NEW_PASSWORD_BYTES.to_string()),
         ("maxSearchHits", MAX_SEARCH_HITS.to_string()),
         ("maxQuadsPerHit", MAX_QUADS_PER_HIT.to_string()),
         ("maxPageTextChars", MAX_PAGE_TEXT_CHARS.to_string()),

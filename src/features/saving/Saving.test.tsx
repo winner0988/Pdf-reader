@@ -17,6 +17,7 @@ function fakeSavingApi(overrides: Partial<SavingApi> = {}) {
     saveAs: vi.fn<SavingApi["saveAs"]>(() => Promise.resolve({ incremental: false })),
     closeWindow: vi.fn<SavingApi["closeWindow"]>(() => Promise.resolve()),
     privacyExport: vi.fn<SavingApi["privacyExport"]>(() => Promise.resolve(true)),
+    encryptCopy: vi.fn<SavingApi["encryptCopy"]>(() => Promise.resolve(true)),
     ...overrides,
   } satisfies SavingApi;
 }
@@ -30,7 +31,8 @@ function renderShell(api: SavingApi, unsaved: boolean) {
 
 async function menuItem(user: ReturnType<typeof userEvent.setup>, name: string) {
   await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
-  return screen.findByRole("menuitem", { name: new RegExp(name) });
+  // From the start: "加密並另存新檔…" (B2-15) ends as "另存新檔…" does.
+  return screen.findByRole("menuitem", { name: new RegExp(`^${name}`) });
 }
 
 const statusText = () => screen.getByRole("contentinfo").textContent ?? "";
