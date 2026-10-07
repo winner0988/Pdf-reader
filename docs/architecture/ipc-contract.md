@@ -67,7 +67,7 @@ flowchart LR
 | `get_settings` | 無 | `Settings`：`theme`（`system`／`light`／`dark`）、`recordRecentFiles`（見 [local-data.md](local-data.md)） | 否 | B2-12 |
 | `set_settings` | `{ settings: Settings }`（完整的一組，其他欄位一律拒絕） | 無；立即套用並寫入 `settings.json`，寫不進去時回傳 `unreadable`（仍然套用）；關閉最近開啟的檔案時一併清除清單 | 否 | B2-12 |
 | `export_pages` | `{ args: ExportArgs, onEvent: Channel<ExportEvent> }`：`request`、`doc`、`pages`（最多 `LIMITS.maxExportPages`）、`format`（`text`；`png`／`jpg` 與 `dpi`；`pdf`；`pdfEvery` 與 `count`，B2-06）；`pdf` 與 `pdfEvery` 的 `pages` 可以到 `LIMITS.maxPageCount`，`pdfEvery` 最多 `LIMITS.maxSplitFiles` 個檔案；不含路徑，其他欄位一律拒絕 | `boolean`：`false` 表示使用者關閉了系統的對話框；進度走頻道；以 `cancel(args.request)` 停止。作者禁止複製時拒絕（見 [export.md](export.md)） | 是 | B2-04 |
-| `apply_edit` | `{ args: EditArgs }`：`doc`、`edit`（`Edit`：`rotatePages { pages, by }`、`deletePages { pages }`、`movePages { pages, before }`、`insertBlankPage { at, like }`，見 [page-management.md](page-management.md)；註解：`addHighlight { marks, color }`（`marks`：每頁的 `{ page, quads }`）、`addNote { page, at, text }`、`deleteAnnotation { page, annotation }`、`setHighlightColor { page, annotation, color }`、`setNoteText { page, annotation, text }`、`addInk { page, strokes, color, width }`、`addStamp { page, rect, stamp }`、`setAnnotationRect { page, annotation, rect }`，見 [annotations.md](annotations.md)）；表單：`setFieldValue { page, field, value }`、`flattenForm`，見 [forms.md](forms.md)；其他欄位一律拒絕 | 無；文件換新的 `DocumentId`，分頁的新狀態（`opened`，`unsaved: true`）走開檔頻道。作者禁止時拒絕（見 [saving.md](saving.md)） | 否 | B2-02、B2-05 |
+| `apply_edit` | `{ args: EditArgs }`：`doc`、`edit`（`Edit`：`rotatePages { pages, by }`、`deletePages { pages }`、`movePages { pages, before }`、`insertBlankPage { at, like }`，見 [page-management.md](page-management.md)；註解：`addHighlight { marks, color }`（`marks`：每頁的 `{ page, quads }`）、`addNote { page, at, text }`、`deleteAnnotation { page, annotation }`、`setHighlightColor { page, annotation, color }`、`setNoteText { page, annotation, text }`、`addInk { page, strokes, color, width }`、`addStamp { page, rect, stamp }`、`addImageStamp { page, rect, image }`、`setAnnotationRect { page, annotation, rect }`，見 [annotations.md](annotations.md)）；表單：`setFieldValue { page, field, value }`、`flattenForm`，見 [forms.md](forms.md)；其他欄位一律拒絕 | 無；文件換新的 `DocumentId`，分頁的新狀態（`opened`，`unsaved: true`）走開檔頻道。作者禁止時拒絕（見 [saving.md](saving.md)） | 否 | B2-02、B2-05 |
 | `undo_edit` | `{ args: UndoArgs }`：`doc`、`password`（以密碼開啟的文件才需要，否則 `null`；驗證同 `unlock_tab`；其他欄位一律拒絕） | 無；復原最後一個編輯，文件換新的 `DocumentId`，分頁的新狀態走開檔頻道。沒有可復原的編輯時拒絕；以密碼開啟的文件沒有帶密碼或密碼錯誤時回 `encrypted`（見 [page-management.md](page-management.md)） | 否 | B2-05 |
 | `redo_edit` | `{ doc: DocumentId }` | 無；重做最後一個復原掉的編輯，不需要密碼，其餘同 `undo_edit` | 否 | B2-05 |
 | `recover_edits` | `{ doc: DocumentId }` | 無；重新套用上一次執行留下的編輯（`recovery` 為 `available` 時），文件換新的 `DocumentId`，分頁的新狀態走開檔頻道。文件已有自己的編輯、或沒有可還原的編輯時回 `invalidArgument`（見 [crash-recovery.md](crash-recovery.md)） | 否 | B2-13 |
@@ -75,6 +75,7 @@ flowchart LR
 | `save_document` | `{ doc: DocumentId }` | `SaveResult`（`incremental`）；分頁的新狀態走開檔頻道。檔案在開啟後被改過時回 `changedOnDisk` | 否 | B2-02 |
 | `save_document_as` | `{ doc: DocumentId }`（不含路徑：主行程顯示另存對話框） | `SaveResult \| null`：`null` 表示使用者關閉了對話框；之後分頁指向新檔 | 否 | B2-02 |
 | `close_window` | `{ discard: boolean }` | 無；有未儲存的文件時，只有 `discard: true` 才關閉 | 否 | B2-02 |
+| `pick_stamp_image` | `{ doc: DocumentId }`（不含路徑：主行程顯示開啟對話框，檔案由主行程開啟並交給文件自己的 worker） | `StampImageInfo`（`image`、`width`、`height`）或 `null`（使用者關閉了對話框）。圖片只留下像素，見 [annotations.md](annotations.md)；作者禁止註解、圖片不能用、太大時拒絕 | 否 | B2-08 |
 | `privacy_export` | `{ doc: DocumentId }`（不含路徑：主行程顯示另存對話框，不能選原檔） | `boolean`：`false` 表示使用者關閉了對話框。寫出清除中繼資料的副本，文件與原檔不變；加密的文件拒絕（見 [privacy-export.md](privacy-export.md)） | 否 | B2-03 |
 | `check_for_updates` | 無 | `UpdateCheck`：`upToDate`、`available`（`latest`）或 `noRelease`，都帶 `current`；主行程向固定的 GitHub 位址送出 app 唯一的網路請求，得不到可用的回答時回 `networkFailed`；查詢中再呼叫回 `invalidArgument`（見 [update-check.md](update-check.md)） | 否 | #64 |
 | `describe_releases_page` | 無 | `LinkPreview`：固定的 GitHub Releases 頁面 | 否 | #64 |
@@ -224,11 +225,12 @@ flowchart LR
 | `GetPageText` | `request`, `doc`, `page_index` | `PageText`（`lines`、`truncated`、`recognised`）或 `Error`；沒有文字的掃描頁在辨識之後回傳辨識出的文字，`recognised` 為 true（B2-10） |
 | `RenderPng` | `request`, `doc`, `page_index`, `scale` | `Png`（PNG 位元組，最多 `MAX_PNG_BYTES`，主行程檢查簽名）或 `Error`；不旋轉，匯出用（B2-04） |
 | `SearchPage` | `request`, `doc`, `page_index`, `query`, `case_sensitive`, `max_hits` | `PageSearched`（`hits`、`has_text`）或 `Error`；整份文件的搜尋由主行程逐頁驅動，見 [search.md](search.md) |
-| `Edit` | `request`, `doc`, `edit`（`WorkerEdit`：`RotatePages { pages, degrees }`、`DeletePages { pages }`、`MovePages { pages, before }`、`InsertBlankPage { at, like }`） | `Edited`（套用後的 `pages`）或 `Error`；只改記憶體中的文件（B2-02） |
+| `Edit` | `request`, `doc`, `edit`（`WorkerEdit`：`RotatePages { pages, degrees }`、`DeletePages { pages }`、`MovePages { pages, before }`、`InsertBlankPage { at, like }`、`InsertPages { at, source }`：`source` 是 `PrepareSource` 做出來的檔案，B2-06，見 [merge.md](merge.md)） | `Edited`（套用後的 `pages`）或 `Error`；只改記憶體中的文件（B2-02） |
 | `Revert` | `request`, `doc`, `edits`（`WorkerEdit` 的清單，最多 `MAX_UNDO_EDITS` 個）, `password`（以密碼開啟的文件才有，用完即清除） | `Edited`（套用後的 `pages`）或 `Error`；從保留的位元組重新開啟並依序套用，全部成功才取代文件（復原，B2-05） |
 | `Rebase` | `request`, `doc`, `file`（唯讀 handle：剛存好的檔案） | `Rebased`；之後復原從這個檔案的位元組重新開啟。不解析檔案，不需要密碼 |
 | `Save` | `request`, `doc`, `file`（**只能寫入**的 handle，指向主行程建立的新暫存檔） | `Saved`（`bytes`、`incremental`）或 `Error`（`DiskFull`、`Unwritable`、`LimitExceeded` 等）；逾時 5 分鐘，見 [saving.md](saving.md) |
 | `PrivacyCopy` | `request`, `doc`, `file`（同 `Save`）, `id`（16 bytes，主行程產生的亂數） | `Saved`（`incremental` 一律為 false）或 `Error`（加密的文件：`InvalidRequest`；太多物件：`LimitExceeded`）；寫出清除中繼資料的副本，worker 中的文件不變（B2-03，見 [privacy-export.md](privacy-export.md)） |
+| `PrepareSource` | `request`, `file`（**唯讀** handle：使用者選的 PDF）, `password`（加密的檔案才有，用完即清除） | `Source`（`bytes`：乾淨、沒有加密的 PDF，最多 `MAX_SOURCE_BYTES`；`pages`；`security`：這個檔案的主動內容掃描）或 `Error`（要密碼：`Encrypted`；密碼不對：`WrongPassword`；作者不允許取出頁面：`NotAllowed`；太大：`LimitExceeded`）；worker 不保留任何東西（B2-06，見 [merge.md](merge.md)） |
 | `PrepareStampImage` | `request`, `file`（唯讀 handle：使用者選的圖片，PNG 或 JPEG） | `StampImage`（`png`：只含像素的 PNG，最多 `MAX_STAMP_PNG_BYTES`；`width`、`height`，每邊最多 `MAX_STAMP_SIDE_PX`；主行程檢查簽名、標頭與它們一致）或 `Error`（不是可用的圖片：`InvalidRequest`；太大：`LimitExceeded`）；自訂圖片印章用，見 [annotations.md](annotations.md)（B2-08） |
 | `SavePages` | `request`, `doc`, `pages`（不重複，檔案裡依文件的順序）, `file`（**只能寫入**的 handle） | `Saved`（`incremental` 一律為 false）或 `Error`（加密的文件：`InvalidRequest`；頁碼不存在：`PageOutOfRange`）；寫出這些頁面組成的文件，worker 中的文件不變（B2-06，見 [split.md](split.md)） |
 | `OcrLoad` | `request`, `language`（`eng`、`chi_tra`…）, `data`（`.traineddata` 的位元組，最多 `MAX_LANGUAGE_DATA_BYTES`） | `OcrLoaded` 或 `Error`（不是語言資料：`InvalidRequest`）；取代已載入的語言，丟掉排隊中的頁面（B2-10，見 [ocr.md](ocr.md)） |
@@ -261,6 +263,7 @@ flowchart LR
 | `corrupted` | PDF 損毀，無法解析 |
 | `encrypted` | 需要密碼（分頁會詢問，MVP-16） |
 | `unsupportedEncryption` | 加密方式不支援（例如以憑證加密） |
+| `notAllowed` | 文件的作者不允許（MVP-19）：目前只有「取出檔案的頁面」（B2-06） |
 | `unreadable` | 無法讀取（權限不足等） |
 | `tooLarge` | 檔案超過大小上限 |
 | `limitExceeded` | 結果超過上限（例如渲染尺寸） |

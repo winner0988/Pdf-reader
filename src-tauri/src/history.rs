@@ -43,6 +43,11 @@ impl History {
         &self.edits[..self.applied]
     }
 
+    /// Every edit kept: the ones the document has, and those undone, which can be made again.
+    pub fn all(&self) -> &[Edit] {
+        &self.edits
+    }
+
     /// `edit` was applied. What was undone can no longer be made again.
     pub fn push(&mut self, edit: Edit) {
         self.edits.truncate(self.applied);

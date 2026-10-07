@@ -46,6 +46,8 @@ enum Kind {
     /// A folder for exported page images (B2-04), or for the files of a split document (B2-06),
     /// under the title the caller gives.
     PickFolder { title: &'static str },
+    /// The picture of a custom stamp (B2-08): one PNG or JPEG file.
+    OpenImage,
 }
 
 /// Shows the open dialog (PDF files only; several can be picked) over `window` and returns the
@@ -83,6 +85,14 @@ pub async fn privacy_export_file(
     file_name: String,
 ) -> Result<Option<PathBuf>, IpcError> {
     Ok(run(window, Kind::PrivacyExport { file_name })
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
+/// Asks for the picture of a custom stamp (B2-08): one PNG or JPEG file. `None` if the user
+/// cancelled.
+pub async fn pick_image(window: &WebviewWindow) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::OpenImage)
         .await?
         .and_then(|mut paths| paths.pop()))
 }
@@ -141,6 +151,7 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
         | Kind::PrivacyExport { .. }
         | Kind::SplitPdf { .. } => common | FOS_OVERWRITEPROMPT,
         Kind::PickFolder { .. } => common | FOS_PICKFOLDERS,
+        Kind::OpenImage => common,
     }
 }
 
@@ -192,7 +203,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
                 CoCreateInstance::<_, IFileSaveDialog>(&FileSaveDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
             }
-            Kind::OpenPdfs | Kind::PickFolder { .. } => {
+            Kind::OpenPdfs | Kind::PickFolder { .. } | Kind::OpenImage => {
                 CoCreateInstance::<_, IFileOpenDialog>(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
             }
@@ -223,6 +234,10 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             Some((strings::PDF_FILTER_NAME, "*.pdf")),
         ),
         Kind::PickFolder { title } => (*title, None),
+        Kind::OpenImage => (
+            strings::STAMP_IMAGE_DIALOG_TITLE,
+            Some((strings::IMAGE_FILTER_NAME, "*.png;*.jpg;*.jpeg")),
+        ),
     };
     let title = HSTRING::from(title);
     // SAFETY: the strings outlive the calls, which copy them; the filter array has one entry.
@@ -326,5 +341,12 @@ mod tests {
         assert!(
             folder(FOS_DONTADDTORECENT) && folder(FOS_PICKFOLDERS) && folder(FOS_FORCEFILESYSTEM)
         );
+
+        // One picture for a stamp (B2-08), not several.
+        let image = options_of(Kind::OpenImage);
+        assert!(
+            image(FOS_DONTADDTORECENT) && image(FOS_FORCEFILESYSTEM) && image(FOS_FILEMUSTEXIST)
+        );
+        assert!(!image(FOS_ALLOWMULTISELECT));
     }
 }

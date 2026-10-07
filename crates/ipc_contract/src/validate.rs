@@ -460,6 +460,20 @@ impl Validate for WorkerResponse {
                 }
                 Ok(())
             }
+            WorkerResponse::Source {
+                bytes,
+                pages,
+                security,
+                ..
+            } => {
+                check_count("source file bytes", bytes.len(), MAX_SOURCE_BYTES as u32)?;
+                if *pages == 0 || *pages > MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "source page count",
+                    });
+                }
+                security.validate()
+            }
             WorkerResponse::Error { error, .. } => error.validate(),
         }
     }
@@ -746,7 +760,9 @@ impl Validate for Edit {
                 }
                 Ok(())
             }
-            Edit::AddStamp { page, rect, .. } | Edit::SetAnnotationRect { page, rect, .. } => {
+            Edit::AddStamp { page, rect, .. }
+            | Edit::AddImageStamp { page, rect, .. }
+            | Edit::SetAnnotationRect { page, rect, .. } => {
                 check_annotated_page(*page)?;
                 check_annotation_rect(rect)
             }
@@ -956,7 +972,7 @@ mod tests {
     use crate::types::{
         AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, ErrorCode,
         FieldId, FieldKind, FieldOption, HighlightColor, HighlightMark, InkColor, InkWidth, LinkId,
-        RecentId, Recovery, RequestId, Rotation, SecurityFinding, StampName, TabId,
+        RecentId, Recovery, RequestId, Rotation, SecurityFinding, StampImageId, StampName, TabId,
     };
     use crate::worker::WorkerErrorCode;
 
@@ -1742,7 +1758,12 @@ mod tests {
             annotation: AnnotationId(5),
             rect,
         };
-        for make in [stamp, moved] {
+        let picture = |rect: Rect| Edit::AddImageStamp {
+            page: 0,
+            rect,
+            image: StampImageId(1),
+        };
+        for make in [stamp, moved, picture] {
             assert!(
                 make(rect(10.0, 10.0, 10.0 + side, 10.0 + side))
                     .validate()
@@ -1773,6 +1794,29 @@ mod tests {
                     .is_err()
             );
         }
+
+        // The page of a picture stamp is checked as any annotation's is.
+        assert!(
+            Edit::AddImageStamp {
+                page: MAX_PAGE_COUNT,
+                rect: rect(10.0, 10.0, 100.0, 60.0),
+                image: StampImageId(1),
+            }
+            .validate()
+            .is_err()
+        );
+        assert_eq!(
+            serde_json::from_value::<Edit>(serde_json::json!({
+                "kind": "addImageStamp", "page": 1, "image": 4,
+                "rect": {"x0": 1.0, "y0": 2.0, "x1": 91.0, "y1": 52.0}
+            }))
+            .unwrap(),
+            Edit::AddImageStamp {
+                page: 1,
+                rect: rect(1.0, 2.0, 91.0, 52.0),
+                image: StampImageId(4),
+            }
+        );
 
         // The frontend form.
         assert_eq!(
@@ -2061,6 +2105,43 @@ mod tests {
         assert!(saved(1_234).validate().is_ok());
         assert!(saved(0).validate().is_err());
         assert!(saved(MAX_DOCUMENT_BYTES + 1).validate().is_err());
+    }
+
+    #[test]
+    fn the_copy_of_a_source_file_is_bounded_and_has_pages() {
+        let source = |len: usize, pages: u32| WorkerResponse::Source {
+            request: RequestId(1),
+            bytes: vec![0; len],
+            pages,
+            security: SecurityReport::default(),
+        };
+        assert!(source(1_000, 3).validate().is_ok());
+        assert!(source(MAX_SOURCE_BYTES, 1).validate().is_ok());
+        assert!(source(MAX_SOURCE_BYTES + 1, 1).validate().is_err());
+        assert!(source(1_000, 0).validate().is_err());
+        assert!(source(1_000, MAX_PAGE_COUNT).validate().is_ok());
+        assert!(source(1_000, MAX_PAGE_COUNT + 1).validate().is_err());
+        // What the scan says is checked as it is for a document.
+        let bad_report = SecurityReport {
+            findings: vec![
+                SecurityFinding {
+                    kind: FindingKind::JavaScript,
+                    count: 1,
+                };
+                20
+            ],
+            scan_complete: true,
+        };
+        assert!(
+            WorkerResponse::Source {
+                request: RequestId(1),
+                bytes: Vec::new(),
+                pages: 1,
+                security: bad_report,
+            }
+            .validate()
+            .is_err()
+        );
     }
 
     #[test]

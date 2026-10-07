@@ -13,7 +13,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use ipc_contract::limits::{
-    MAX_DISPLAY_NAME_BYTES, MAX_PAGE_COUNT, MAX_TABS, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
+    MAX_DISPLAY_NAME_BYTES, MAX_PAGE_COUNT, MAX_STAMP_SOURCE_BYTES, MAX_TABS, MAX_TEXT_BYTES,
+    MAX_UNDO_EDITS,
 };
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
@@ -21,14 +22,17 @@ use ipc_contract::types::{
     BlockedAction, DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
     FormField, IpcError, LinkArgs, LinkPreview, LinkTarget, OpenEvent, OutlineLinkArgs,
     OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Recovery,
-    RenderPageArgs, SaveResult, SearchHit, TabId,
+    RenderPageArgs, SaveResult, SearchHit, StampImageInfo, TabId,
 };
-use ipc_contract::validate::{Validate, check_page_index};
-use ipc_contract::worker::{WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse};
+use ipc_contract::validate::{Validate, check_page_index, stamp_png_size};
+use ipc_contract::worker::{
+    UnknownPicture, WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
+};
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
 use crate::export::ImageKind;
 use crate::history::History;
+use crate::pictures::{Full, Pictures};
 use crate::recovery::{Found, JournalId, Journals, TooLarge};
 use crate::saving::{self, FileIdentity, Temporary};
 
@@ -107,6 +111,8 @@ struct OpenDocument {
     /// Edits an earlier run left for the file (B2-13), until the user makes them again or
     /// discards them. `info.recovery` says whether they can be made.
     recovered: Option<Found>,
+    /// The pictures of the picture stamps of the history (B2-08).
+    pictures: Pictures,
 }
 
 impl Documents {
@@ -225,6 +231,7 @@ impl Documents {
                 form_in_file: info_has_form,
                 journal: None,
                 recovered: None,
+                pictures: Pictures::default(),
             };
             self.recover_on_open(&tab, &mut document);
             Ok(document)
@@ -421,10 +428,10 @@ impl Documents {
     /// Only `save` writes the file.
     pub fn apply_edit(&self, args: &EditArgs) -> Result<OpenEvent, IpcError> {
         args.validate().map_err(invalid_argument)?;
-        let edit = WorkerEdit::from(&args.edit);
         let ((), event) = self.change_document(args.doc, |document| {
             let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
             let expected_pages = pages_after(&args.edit, page_count, document.info.permissions)?;
+            let edit = worker_edit(&document.pictures, &args.edit)?;
             if !document.history.has_room() {
                 return Err(IpcError {
                     code: ErrorCode::LimitExceeded,
@@ -434,12 +441,13 @@ impl Documents {
             // The crash recovery journal must be able to keep it too (B2-13).
             let mut edits = document.history.applied().to_vec();
             edits.push(args.edit.clone());
-            Journals::check(&document.path, document.identity, &edits).map_err(|TooLarge| {
-                IpcError {
+            let pictures = document.pictures.used_by(&edits);
+            Journals::check(&document.path, document.identity, &edits, &pictures).map_err(
+                |TooLarge| IpcError {
                     code: ErrorCode::LimitExceeded,
                     message: "too many unsaved changes to keep safe: save first".to_owned(),
-                }
-            })?;
+                },
+            )?;
             let pages = edit_in_worker(document, &edit).inspect_err(|error| {
                 // The worker failed partway through: its copy may be half edited. Opened again
                 // from the file with the edits made so far, it is as it was.
@@ -482,8 +490,8 @@ impl Documents {
                 .before_last()
                 .ok_or_else(|| invalid_argument("nothing to undo"))?
                 .iter()
-                .map(WorkerEdit::from)
-                .collect();
+                .map(|edit| worker_edit(&document.pictures, edit))
+                .collect::<Result<_, _>>()?;
             let pages = revert_in_worker(document, edits, password).inspect_err(|error| {
                 if matches!(error.code, ErrorCode::Internal | ErrorCode::LimitExceeded) {
                     document.lost = true;
@@ -506,8 +514,8 @@ impl Documents {
             let edit = document
                 .history
                 .next()
-                .map(WorkerEdit::from)
-                .ok_or_else(|| invalid_argument("nothing to redo"))?;
+                .ok_or_else(|| invalid_argument("nothing to redo"))
+                .and_then(|edit| worker_edit(&document.pictures, edit))?;
             let pages = edit_in_worker(document, &edit).inspect_err(|error| {
                 if matches!(error.code, ErrorCode::Internal | ErrorCode::LimitExceeded) {
                     document.lost = true;
@@ -540,6 +548,12 @@ impl Documents {
                 .as_ref()
                 .map(|found| found.edits.clone())
                 .unwrap_or_default();
+            let pictures = document
+                .recovered
+                .as_ref()
+                .map(|found| found.pictures.clone())
+                .unwrap_or_default();
+            document.pictures.restore(pictures);
             // On failure the offer stays: the worker may only have been unlucky.
             replay(document, &edits)?;
             if let Some(found) = document.recovered.take() {
@@ -943,6 +957,50 @@ impl Documents {
         })
     }
 
+    /// Makes the picture in `file` (a PNG or JPEG the user chose, which the caller opened) into
+    /// what a stamp of `doc` is made of, and keeps it for the document (B2-08). The document's
+    /// worker does the work: it reads the file through a read-only handle, as it reads any file,
+    /// and keeps nothing of it but the pixels. Returns the picture's number and its size.
+    pub fn prepare_stamp_image(
+        &self,
+        doc: DocumentId,
+        file: &std::fs::File,
+    ) -> Result<StampImageInfo, IpcError> {
+        self.with_document(doc, |document| {
+            if !document.info.permissions.annotate {
+                return Err(not_allowed());
+            }
+            let response = document
+                .host
+                .prepare_stamp_image(file)
+                .map_err(|error| lost_on(document, &error))?;
+            let WorkerResponse::StampImage {
+                png, width, height, ..
+            } = response
+            else {
+                return Err(unexpected("PrepareStampImage"));
+            };
+            // What the worker made is checked as a journal's pictures are: a PNG file of the
+            // size it says, of a size a stamp can have.
+            if stamp_png_size(&png).map_err(|_| unexpected("PrepareStampImage"))? != (width, height)
+            {
+                return Err(unexpected("PrepareStampImage"));
+            }
+            let image = document
+                .pictures
+                .add(png, document.history.all())
+                .map_err(|Full| IpcError {
+                    code: ErrorCode::LimitExceeded,
+                    message: "too many pictures in the unsaved changes: save first".to_owned(),
+                })?;
+            Ok(StampImageInfo {
+                image,
+                width,
+                height,
+            })
+        })
+    }
+
     /// The annotations of one page that can be selected and removed (B2-07): highlighter marks,
     /// notes and other kinds, each by its number in the document.
     pub fn page_annotations(
@@ -1225,12 +1283,9 @@ impl Documents {
         if let Some(id) = &document.journal {
             // Checked before each edit (`Journals::check`); undo only makes it smaller, and redo
             // brings back what it had.
-            let _ = journals.write(
-                id,
-                &document.path,
-                document.identity,
-                document.history.applied(),
-            );
+            let edits = document.history.applied();
+            let pictures = document.pictures.used_by(edits);
+            let _ = journals.write(id, &document.path, document.identity, edits, &pictures);
         }
     }
 
@@ -1256,10 +1311,13 @@ impl Documents {
         let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
         let applicable = found.same_file
             && pages_after_all(&found.edits, page_count, document.info.permissions).is_ok();
-        if own && applicable && replay(document, &found.edits).is_ok() {
-            document.journal = Some(found.id);
-            self.keep_journal(document);
-            return;
+        if own && applicable {
+            document.pictures.restore(found.pictures.clone());
+            if replay(document, &found.edits).is_ok() {
+                document.journal = Some(found.id);
+                self.keep_journal(document);
+                return;
+            }
         }
         document.info.recovery = if applicable {
             Recovery::Available
@@ -1357,6 +1415,7 @@ fn pages_after(
         | Edit::SetNoteText { page, .. }
         | Edit::AddInk { page, .. }
         | Edit::AddStamp { page, .. }
+        | Edit::AddImageStamp { page, .. }
         | Edit::SetAnnotationRect { page, .. } => Some(vec![*page]),
         _ => None,
     };
@@ -1436,6 +1495,7 @@ fn pages_after(
         | Edit::SetNoteText { .. }
         | Edit::AddInk { .. }
         | Edit::AddStamp { .. }
+        | Edit::AddImageStamp { .. }
         | Edit::SetAnnotationRect { .. }
         | Edit::SetFieldValue { .. }
         | Edit::FlattenForm => Ok(page_count),
@@ -1467,7 +1527,8 @@ fn replay(document: &mut OpenDocument, edits: &[Edit]) -> Result<(), IpcError> {
     }
     let mut pages = document.info.pages.clone();
     for edit in edits {
-        pages = edit_in_worker(document, &WorkerEdit::from(edit)).inspect_err(|_| {
+        let edit = worker_edit(&document.pictures, edit)?;
+        pages = edit_in_worker(document, &edit).inspect_err(|_| {
             document.lost = true;
         })?;
     }
@@ -1481,6 +1542,12 @@ fn replay(document: &mut OpenDocument, edits: &[Edit]) -> Result<(), IpcError> {
     document.info.pages = pages;
     show_history(document);
     Ok(())
+}
+
+/// `edit` as the worker is asked to make it: a picture stamp is sent with its picture (B2-08).
+fn worker_edit(pictures: &Pictures, edit: &Edit) -> Result<WorkerEdit, IpcError> {
+    WorkerEdit::of(edit, |image| pictures.png(image))
+        .map_err(|UnknownPicture| invalid_argument("no such picture"))
 }
 
 /// Applies `edit` in the document's worker and returns the document's pages after it.
@@ -1579,11 +1646,11 @@ fn reopen(document: &mut OpenDocument) -> Result<DocumentId, IpcError> {
         .map_err(|error| ipc_error(&error))?;
     let mut pages = document_info(doc, document.info.display_name.clone(), response)?.pages;
     for edit in document.history.applied() {
-        match document.host.request(|request| WorkerRequest::Edit {
-            request,
-            doc,
-            edit: WorkerEdit::from(edit),
-        }) {
+        let edit = worker_edit(&document.pictures, edit)?;
+        match document
+            .host
+            .request(|request| WorkerRequest::Edit { request, doc, edit })
+        {
             Ok(WorkerResponse::Edited { pages: edited, .. }) => pages = edited,
             Ok(_) => return Err(unexpected("Edit")),
             Err(error) => return Err(ipc_error(&error)),
@@ -1672,6 +1739,28 @@ pub fn check_file(path: &Path) -> Result<(), IpcError> {
         });
     }
     Ok(())
+}
+
+/// Opens a picture file the user chose for a stamp (B2-08), read-only, for the worker: it
+/// exists, is a regular file, and is no larger than a picture for a stamp may be. Checked on the
+/// open file, so that it cannot change between the check and the reading.
+pub fn open_picture(path: &Path) -> Result<std::fs::File, IpcError> {
+    let unreadable = |_| IpcError {
+        code: ErrorCode::Unreadable,
+        message: "the picture does not exist or cannot be read".to_owned(),
+    };
+    let file = std::fs::File::open(path).map_err(unreadable)?;
+    let metadata = file.metadata().map_err(unreadable)?;
+    if !metadata.is_file() {
+        return Err(invalid_argument("not a regular file"));
+    }
+    if metadata.len() > MAX_STAMP_SOURCE_BYTES as u64 {
+        return Err(IpcError {
+            code: ErrorCode::TooLarge,
+            message: format!("larger than {MAX_STAMP_SOURCE_BYTES} bytes"),
+        });
+    }
+    Ok(file)
 }
 
 /// Maps a host error to what the frontend receives. The message never includes worker text
@@ -1766,6 +1855,29 @@ mod tests {
         );
         assert_eq!(check_file(&dir).unwrap_err().code, ErrorCode::NotPdf);
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn open_picture_classifies_problems() {
+        let dir = std::env::temp_dir().join(format!("b208-picture-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("stamp.png");
+        std::fs::write(&file, b"\x89PNG").unwrap();
+        assert!(open_picture(&file).is_ok());
+        assert_eq!(
+            open_picture(&dir.join("missing.png")).unwrap_err().code,
+            ErrorCode::Unreadable
+        );
+        // A folder is no picture.
+        assert!(open_picture(&dir).is_err());
+        // Larger than a picture for a stamp may be (a sparse file: nothing is written).
+        let large = dir.join("large.png");
+        std::fs::File::create(&large)
+            .unwrap()
+            .set_len(MAX_STAMP_SOURCE_BYTES as u64 + 1)
+            .unwrap();
+        assert_eq!(open_picture(&large).unwrap_err().code, ErrorCode::TooLarge);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1884,7 +1996,7 @@ mod with_worker {
     use ipc_contract::limits::MAX_RASTER_PIXELS;
     use ipc_contract::types::{
         AnnotationId, AnnotationKind, FieldId, HighlightColor, HighlightMark, InkColor, InkWidth,
-        Point, Quad, Rect, RequestId, Rotation, StampName,
+        Point, Quad, Rect, RequestId, Rotation, StampImageId, StampName,
     };
 
     use super::*;
@@ -3824,5 +3936,166 @@ mod with_worker {
         }
         // Listing the fields is not filling them in.
         assert!(documents.page_fields(info.doc, 0).is_ok());
+    }
+
+    /// The picture of the corpus file `name`, opened as the one the user chose is (B2-08).
+    fn picture(name: &str) -> std::fs::File {
+        open_picture(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../tests/corpus/images")
+                .join(name),
+        )
+        .unwrap()
+    }
+
+    fn picture_stamp(page: u32, image: StampImageId) -> Edit {
+        Edit::AddImageStamp {
+            page,
+            rect: Rect {
+                x0: 100.0,
+                y0: 100.0,
+                x1: 228.0,
+                y1: 164.0,
+            },
+            image,
+        }
+    }
+
+    fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
+    }
+
+    /// What a camera wrote into `images/stamp-exif.jpg` besides its pixels.
+    const PRIVATE: [&[u8]; 4] = [b"Canon", b"2023:07:04", b"Exif", b"Mark IV"];
+
+    #[test]
+    fn a_picture_becomes_a_stamp_that_undo_redo_and_saving_keep_without_its_exif() {
+        let (documents, info, path) = open("picture-stamp", 2);
+        let picked = documents
+            .prepare_stamp_image(info.doc, &picture("stamp-exif.jpg"))
+            .unwrap();
+        assert_eq!((picked.width, picked.height), (64, 32));
+        let mut doc = info.doc;
+        edited_pages(&documents, &mut doc, picture_stamp(0, picked.image));
+        let [stamp] = &documents.page_annotations(doc, 0).unwrap()[..] else {
+            panic!("one stamp")
+        };
+        assert_eq!(stamp.kind, AnnotationKind::Stamp);
+        // Undone, and made again, from the picture the main process keeps for it.
+        doc = opened_info(documents.undo(doc, None).unwrap()).doc;
+        assert!(documents.page_annotations(doc, 0).unwrap().is_empty());
+        doc = opened_info(documents.redo(doc).unwrap()).doc;
+        assert_eq!(documents.page_annotations(doc, 0).unwrap().len(), 1);
+        // A worker that died is replaced, and the stamp is made again in the new one.
+        documents
+            .with_document(doc, |document| {
+                document.lost = true;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(documents.page_annotations(doc, 0).unwrap().len(), 1);
+
+        let copy = std::env::temp_dir().join(format!("b208-{}-copy.pdf", std::process::id()));
+        let _ = std::fs::remove_file(&copy);
+        documents.save(doc, Some(copy.clone())).unwrap();
+        let saved = std::fs::read(&copy).unwrap();
+        std::fs::remove_file(&copy).ok();
+        assert!(contains(&saved, b"/Stamp"));
+        for private in PRIVATE {
+            assert!(!contains(&saved, private));
+        }
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_picture_stamp_an_earlier_run_did_not_save_comes_back_with_its_picture() {
+        let data = DataFolder::new("picture");
+        let path = write_pdf("b208-picture", &letter_pdf(2));
+        let earlier = data.documents();
+        let mut doc = open_in(&earlier, &path).doc;
+        let picked = earlier
+            .prepare_stamp_image(doc, &picture("stamp-exif.jpg"))
+            .unwrap();
+        edited_pages(&earlier, &mut doc, picture_stamp(1, picked.image));
+        // The journal has the picture, as text, and the pixels of it alone.
+        let journal = std::fs::read_dir(data.recovery())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let text = std::fs::read_to_string(journal).unwrap();
+        assert!(text.contains("\"pictures\""));
+        for private in PRIVATE {
+            assert!(!text.contains(&String::from_utf8_lossy(private).into_owned()));
+        }
+        drop(earlier);
+
+        let later = data.documents();
+        let reopened = open_in(&later, &path);
+        assert_eq!(reopened.recovery, Recovery::Available);
+        let recovered = opened_info(later.recover(reopened.doc).unwrap());
+        assert_eq!(later.page_annotations(recovered.doc, 1).unwrap().len(), 1);
+        // Made again from the recovered picture: undo and redo work on it.
+        let undone = opened_info(later.undo(recovered.doc, None).unwrap());
+        assert!(later.page_annotations(undone.doc, 1).unwrap().is_empty());
+        let redone = opened_info(later.redo(undone.doc).unwrap());
+        assert_eq!(later.page_annotations(redone.doc, 1).unwrap().len(), 1);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_picture_that_is_not_there_or_not_one_is_refused_and_the_document_goes_on() {
+        let (documents, info, path) = open("picture-refused", 1);
+        // No such picture.
+        assert_eq!(
+            documents
+                .apply_edit(&EditArgs {
+                    doc: info.doc,
+                    edit: picture_stamp(0, StampImageId(99)),
+                })
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        // A PDF file is no picture; the worker says so, and goes on.
+        let not_a_picture = std::fs::File::open(&path).unwrap();
+        assert!(
+            documents
+                .prepare_stamp_image(info.doc, &not_a_picture)
+                .is_err()
+        );
+        let picked = documents
+            .prepare_stamp_image(info.doc, &picture("stamp-metadata.png"))
+            .unwrap();
+        let mut doc = info.doc;
+        edited_pages(&documents, &mut doc, picture_stamp(0, picked.image));
+        assert_eq!(documents.page_annotations(doc, 0).unwrap().len(), 1);
+        // A picture that claims to be far too large is refused before it is decoded.
+        assert!(
+            documents
+                .prepare_stamp_image(doc, &picture("stamp-huge-dimensions.png"))
+                .is_err()
+        );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_document_that_may_not_be_annotated_takes_no_picture_stamps() {
+        // RC4, revision 2, /P without the annotate bit (tests/corpus/generate.py).
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/encrypted-rc4-40.pdf");
+        let documents = Documents::new(worker());
+        let (_, info) = unlocked(&documents, &path);
+        assert!(!info.permissions.annotate);
+        assert_eq!(
+            documents
+                .prepare_stamp_image(info.doc, &picture("stamp-metadata.png"))
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
     }
 }
