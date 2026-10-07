@@ -111,7 +111,7 @@ pub const MAX_STAMP_SIDE_PX: u32 = 1_024;
 
 /// Most bytes of the PNG file of a stamp picture (B2-08), below the frame limit; also what a
 /// stamp edit carries. A picture this large still fits the crash recovery journal (4 MiB, B2-13)
-/// with its edits, written as text a third larger.
+/// with its edits, written as hex text twice as large.
 pub const MAX_STAMP_PNG_BYTES: usize = 1024 * 1024;
 
 /// Least a stamp or any annotation the app moves or resizes may measure on each side (B2-08), in
