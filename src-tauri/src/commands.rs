@@ -8,12 +8,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use ipc_contract::types::{
-    DocumentId, EditArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs,
-    FormField, IpcError, LanguageImport, LinkArgs, LinkPreview, OcrArgs, OcrFocusArgs,
-    OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText,
-    PagesSource, RecentFile, RecentId, RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult,
-    SearchArgs, SearchEvent, Settings, SignatureReport, StampImageInfo, TabId, UndoArgs,
-    UnlockArgs, UnlockSourceArgs, UpdateCheck,
+    DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat,
+    FileRecordingArgs, FormField, IpcError, LanguageImport, LinkArgs, LinkPreview, OcrArgs,
+    OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation,
+    PageLink, PageText, PagesSource, Password, RecentFile, RecentId, RemoveLanguageArgs,
+    RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent, Settings, SignatureReport,
+    StampImageInfo, TabId, UndoArgs, UnlockArgs, UnlockSourceArgs, UpdateCheck,
 };
 use ipc_contract::validate::{Validate, check_page_index};
 use tauri::ipc::{Channel, Response};
@@ -753,6 +753,82 @@ pub async fn privacy_export(
     };
     blocking(move || app.state::<Documents>().privacy_export(doc, &destination)).await?;
     Ok(true)
+}
+
+/// Writes a copy of the document encrypted with AES-256 (B2-15, docs/architecture/encrypt-copy.md)
+/// where the user says in the system's save dialog, never over the document's own file. `false`
+/// when the user closes the dialog. The document itself does not change. The passwords of `args`
+/// are used once and not kept; the copy's permissions password is made up here when the user gave
+/// none (only the open password was asked for), and thrown away.
+#[tauri::command]
+pub async fn encrypt_copy(
+    app: AppHandle,
+    window: WebviewWindow,
+    args: EncryptArgs,
+) -> Result<bool, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let doc = args.doc;
+    let info = app
+        .state::<Documents>()
+        .document_info(doc)
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        })?;
+    if info.encrypted {
+        return Err(IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "an encrypted document has no encrypted copy".to_owned(),
+        });
+    }
+    let file_name = strings::encrypted_copy_file_name(&export::stem(&info.display_name));
+    let destination = loop {
+        let Some(path) = file_dialog::encrypted_copy_file(&window, file_name.clone()).await? else {
+            return Ok(false);
+        };
+        if !app.state::<Documents>().is_document_file(doc, &path) {
+            break path;
+        }
+        rfd::AsyncMessageDialog::new()
+            .set_level(rfd::MessageLevel::Info)
+            .set_title(strings::ENCRYPTED_COPY_SAME_FILE_TITLE)
+            .set_description(strings::ENCRYPTED_COPY_SAME_FILE_MESSAGE)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .set_parent(&window)
+            .show()
+            .await;
+    };
+    blocking(move || {
+        let owner_password = match args.permissions_password {
+            Some(password) => password,
+            None => unguessable_password()?,
+        };
+        app.state::<Documents>().encrypted_copy(
+            doc,
+            &destination,
+            args.open_password,
+            owner_password,
+            args.restrictions,
+        )
+    })
+    .await?;
+    Ok(true)
+}
+
+/// A password nobody knows, not even the user: 128 random bits as hex text. The permissions
+/// password of a copy that only has an open password (the PDF standard has the field either way).
+fn unguessable_password() -> Result<Password, IpcError> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|_| IpcError {
+        code: ErrorCode::Internal,
+        message: "no random bytes for a password".to_owned(),
+    })?;
+    Ok(Password::new(
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
+    ))
 }
 
 /// Asks for a picture (PNG or JPEG) in the system's open dialog and makes it into what a stamp

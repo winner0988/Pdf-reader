@@ -77,6 +77,10 @@ export type ToolbarProps = {
   onPrivacyExport?: () => void;
   /** An encrypted document has no privacy export (B2-03): the menu item says so. */
   privacyExportBlocked?: boolean;
+  /** Writes an encrypted copy (B2-15); without it the menu item is disabled. */
+  onEncryptCopy?: () => void;
+  /** An encrypted document has no encrypted copy (B2-15): the menu item says so. */
+  encryptCopyBlocked?: boolean;
   /**
    * Marks the selected text with the highlighter in the color it used last (B2-07); without a
    * click handler (no text is selected, or the author does not allow annotating) the button is
@@ -423,6 +427,10 @@ function MoreMenu(props: ToolbarProps) {
           {props.privacyExportBlocked && (
             <DropdownMenuShortcut>{strings.privacyExport.encrypted}</DropdownMenuShortcut>
           )}
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!props.onEncryptCopy} onClick={props.onEncryptCopy}>
+          {menu.encryptCopy}
+          {props.encryptCopyBlocked && <DropdownMenuShortcut>{strings.encryption.encrypted}</DropdownMenuShortcut>}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={!props.onPrint} onClick={props.onPrint}>
           {menu.print}

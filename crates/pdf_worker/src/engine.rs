@@ -8,14 +8,16 @@ use std::collections::HashSet;
 use std::io::{self, Write};
 
 use ipc_contract::limits::{
-    MAX_DOCUMENT_BYTES, MAX_JPEG_BYTES, MAX_PAGE_COUNT, MAX_PNG_BYTES, MAX_SOURCE_BYTES,
+    MAX_DOCUMENT_BYTES, MAX_JPEG_BYTES, MAX_NEW_PASSWORD_BYTES, MAX_PAGE_COUNT, MAX_PNG_BYTES,
+    MAX_SOURCE_BYTES,
 };
 use ipc_contract::types::{
-    BlockedAction, DocumentPermissions, PageText as TextLayer, Point, Quad, SecurityReport,
+    BlockedAction, DocumentPermissions, PageText as TextLayer, Point, Quad, Restrictions,
+    SecurityReport,
 };
 use mupdf::pdf::{
     Encryption, InsertPdfOptions, InsertPosition, PageSelection, PdfDocument as MuPdfDocument,
-    PdfObject, PdfWriteOptions,
+    PdfObject, PdfWriteOptions, Permission,
 };
 use mupdf::{Colorspace, Document, ImageFormat, Matrix, Page, Pixmap, TextPageFlags};
 
@@ -861,6 +863,77 @@ impl PdfDocument {
         options.set_garbage(true);
         write_limited(&copy, out, options)
     }
+}
+
+impl PdfDocument {
+    /// Writes to `out` a copy of the document, edits included, encrypted with AES-256 (B2-15,
+    /// docs/architecture/encrypt-copy.md): `open_password` opens it (none: anyone can), and
+    /// `owner_password` lifts `restrictions`. The open document is not touched.
+    ///
+    /// The open document is not touched: writing with new encryption gives the document an
+    /// `/Encrypt` of its own (and every save after that would be encrypted), so it is saved into
+    /// memory and opened again, and that second document is the one written encrypted. A signed
+    /// document is refused: its signatures would not hold. So is an encrypted one, as for the
+    /// privacy export: the worker keeps no password, and a copy with other settings would drop
+    /// what its author asked for. Reading it aloud (accessibility) stays allowed whatever is
+    /// restricted.
+    pub fn encrypted_copy(
+        &self,
+        open_password: Option<&str>,
+        owner_password: &str,
+        restrictions: Restrictions,
+        out: &mut impl Write,
+    ) -> Result<u64, EngineError> {
+        if self.is_encrypted() {
+            return Err(EngineError::EncryptedCopy);
+        }
+        if self.is_signed() {
+            return Err(EngineError::InvalidEdit(
+                "a signed document cannot be encrypted: its signatures would not hold",
+            ));
+        }
+        // The binding copies a password into a buffer of 128 bytes and panics if it does not fit.
+        for password in open_password.into_iter().chain([owner_password]) {
+            if password.is_empty()
+                || password.len() > MAX_NEW_PASSWORD_BYTES as usize
+                || password.contains('\0')
+            {
+                return Err(EngineError::InvalidEdit("not a password a copy can have"));
+            }
+        }
+        let mut plain = PdfWriteOptions::default();
+        plain.set_garbage(true);
+        let mut bytes = Vec::new();
+        write_limited(&self.doc, &mut bytes, plain)?;
+        let copy = Document::from_bytes(&bytes, "application/pdf").map_err(open_error)?;
+        drop(bytes);
+        let copy = MuPdfDocument::try_from(copy)?;
+        let mut options = PdfWriteOptions::default();
+        options.set_garbage(true);
+        options.set_encryption(Encryption::Aes256);
+        options.set_permissions(permissions_of(restrictions));
+        options.set_owner_password(owner_password);
+        options.set_user_password(open_password.unwrap_or(""));
+        write_limited(&copy, out, options)
+    }
+}
+
+/// What the readers of a copy may do: everything but what `restrictions` take away, and always
+/// reading it aloud.
+fn permissions_of(restrictions: Restrictions) -> Permission {
+    let mut allowed = Permission::all();
+    if restrictions.print {
+        allowed.remove(Permission::PRINT | Permission::PRINT_HQ);
+    }
+    if restrictions.copy {
+        allowed.remove(Permission::COPY);
+    }
+    if restrictions.modify {
+        allowed.remove(
+            Permission::MODIFY | Permission::ANNOTATE | Permission::FORM | Permission::ASSEMBLE,
+        );
+    }
+    allowed
 }
 
 impl PdfDocument {
@@ -3265,6 +3338,178 @@ endstream",
             PdfDocument::open(&file, Some("wrong")),
             Err(EngineError::WrongPassword)
         ));
+    }
+
+    /// The bytes of the copy `doc` makes with these settings.
+    fn encrypted(
+        doc: &PdfDocument,
+        open: Option<&str>,
+        owner: &str,
+        restrictions: Restrictions,
+    ) -> Vec<u8> {
+        let mut out = Vec::new();
+        doc.encrypted_copy(open, owner, restrictions, &mut out)
+            .expect("encrypted copy");
+        out
+    }
+
+    fn has(bytes: &[u8], needle: &[u8]) -> bool {
+        bytes.windows(needle.len()).any(|window| window == needle)
+    }
+
+    #[test]
+    fn a_copy_needs_its_open_password_and_is_encrypted_with_aes_256() {
+        let mut doc = PdfDocument::from_bytes(&two_page_pdf()).unwrap();
+        doc.rotate_pages(&[0], 90).unwrap();
+        let bytes = encrypted(
+            &doc,
+            Some("pw-open-7Qz"),
+            "pw-owner-7Qz",
+            Restrictions::default(),
+        );
+        // AES-256 (revision 6), and neither password is in the file.
+        assert!(has(&bytes, b"/AESV3") && has(&bytes, b"/R 6"), "AES-256");
+        assert!(!has(&bytes, b"pw-open-7Qz") && !has(&bytes, b"pw-owner-7Qz"));
+        // It does not open without the password, nor with another; either of its own opens it.
+        assert!(matches!(
+            PdfDocument::from_bytes(&bytes),
+            Err(EngineError::Encrypted)
+        ));
+        assert!(matches!(
+            PdfDocument::open(&bytes, Some("pw-other-7Qz")),
+            Err(EngineError::WrongPassword)
+        ));
+        for password in ["pw-open-7Qz", "pw-owner-7Qz"] {
+            let opened = PdfDocument::open(&bytes, Some(password)).expect("opens");
+            assert_eq!(opened.page_count().unwrap(), 2);
+            // The edit is in it, nothing is restricted.
+            assert_eq!(opened.page_size(0).unwrap(), doc.page_size(0).unwrap());
+            assert_eq!(opened.permissions(), DocumentPermissions::ALL);
+        }
+        // The document itself is as it was.
+        assert!(!doc.is_encrypted());
+    }
+
+    #[test]
+    fn what_is_restricted_is_obeyed_unless_the_permissions_password_opened_the_copy() {
+        let doc = PdfDocument::from_bytes(&two_page_pdf()).unwrap();
+        let copy = |print, copy, modify| {
+            let restrictions = Restrictions {
+                print,
+                copy,
+                modify,
+            };
+            // The open password opens it as restricted; the permissions password lifts them.
+            let bytes = encrypted(&doc, Some("pw-open-7Qz"), "pw-owner-7Qz", restrictions);
+            let restricted = PdfDocument::open(&bytes, Some("pw-open-7Qz"))
+                .expect("opens")
+                .permissions();
+            let lifted = PdfDocument::open(&bytes, Some("pw-owner-7Qz"))
+                .expect("opens")
+                .permissions();
+            // With no open password anyone opens it, restricted: it asks for no password, so the
+            // permissions password cannot be given here.
+            let bytes = encrypted(&doc, None, "pw-owner-7Qz", restrictions);
+            let anyone = PdfDocument::from_bytes(&bytes)
+                .expect("opens")
+                .permissions();
+            assert_eq!(restricted, anyone);
+            (restricted, lifted)
+        };
+        let (printing, owner) = copy(true, false, false);
+        assert_eq!(
+            (printing.print, printing.print_high_quality, printing.copy),
+            (false, false, true)
+        );
+        assert!(printing.modify && printing.assemble && printing.annotate && printing.fill_forms);
+        assert_eq!(owner, DocumentPermissions::ALL);
+
+        let (copying, owner) = copy(false, true, false);
+        assert_eq!(
+            (copying.copy, copying.print, copying.modify),
+            (false, true, true)
+        );
+        assert_eq!(owner, DocumentPermissions::ALL);
+
+        let (changing, owner) = copy(false, false, true);
+        assert_eq!(
+            (
+                changing.modify,
+                changing.assemble,
+                changing.annotate,
+                changing.fill_forms,
+                changing.print,
+                changing.copy
+            ),
+            (false, false, false, false, true, true)
+        );
+        assert_eq!(owner, DocumentPermissions::ALL);
+
+        let (everything, _) = copy(true, true, true);
+        assert!(!everything.print && !everything.copy && !everything.modify);
+    }
+
+    #[test]
+    fn a_password_a_copy_cannot_have_is_refused_not_a_crash() {
+        let doc = PdfDocument::from_bytes(&two_page_pdf()).unwrap();
+        let long = "p".repeat(MAX_NEW_PASSWORD_BYTES as usize + 1);
+        let longest = "p".repeat(MAX_NEW_PASSWORD_BYTES as usize);
+        let ask = |open: Option<&str>, owner: &str| {
+            doc.encrypted_copy(open, owner, Restrictions::default(), &mut Vec::new())
+        };
+        assert!(ask(Some(&longest), &longest).is_ok());
+        for (open, owner) in [
+            (Some(long.as_str()), "owner"),
+            (Some("open"), long.as_str()),
+            (Some(""), "owner"),
+            (Some("open"), ""),
+            (Some("op\0en"), "owner"),
+            (None, "own\0er"),
+        ] {
+            assert!(
+                matches!(ask(open, owner), Err(EngineError::InvalidEdit(_))),
+                "{open:?} {owner:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_encrypted_document_has_no_encrypted_copy_and_is_left_as_it_was() {
+        let doc =
+            PdfDocument::open(&corpus("benign/encrypted-aes256.pdf"), Some("user")).expect("open");
+        assert!(matches!(
+            doc.encrypted_copy(
+                Some("pw-new-7Qz"),
+                "pw-owner-7Qz",
+                Restrictions::default(),
+                &mut Vec::new()
+            ),
+            Err(EngineError::EncryptedCopy)
+        ));
+        // It still saves as it was encrypted.
+        let (file, _) = saved(&doc);
+        assert!(matches!(
+            PdfDocument::from_bytes(&file),
+            Err(EngineError::Encrypted)
+        ));
+        assert!(PdfDocument::open(&file, Some("user")).is_ok());
+    }
+
+    #[test]
+    fn making_a_copy_does_not_change_what_the_document_saves_as() {
+        let doc = PdfDocument::from_bytes(&two_page_pdf()).unwrap();
+        let before = saved(&doc).0;
+        let _ = encrypted(
+            &doc,
+            Some("pw-open-7Qz"),
+            "pw-owner-7Qz",
+            Restrictions::default(),
+        );
+        let after = saved(&doc).0;
+        // Not encrypted, and the same pages.
+        assert!(PdfDocument::from_bytes(&after).is_ok());
+        assert_eq!(before.len(), after.len());
+        assert!(!has(&after, b"/Encrypt"));
     }
 
     #[test]
