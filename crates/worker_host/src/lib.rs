@@ -239,6 +239,34 @@ impl WorkerHost {
         })
     }
 
+    /// Has the worker make the plain copy of the PDF in `file` (a file the main process opened),
+    /// whose pages are to go into a document (B2-06): the worker reads it through a read-only
+    /// handle, as it reads a document, and never gets a path. `password` is for an encrypted
+    /// file. Returns `Source`.
+    pub fn prepare_source(
+        &mut self,
+        file: &File,
+        password: Option<Password>,
+    ) -> Result<WorkerResponse, HostError> {
+        let size = file.metadata().map_err(HostError::Unreadable)?.len();
+        if size > ipc_contract::limits::MAX_SOURCE_BYTES as u64 {
+            return Err(HostError::TooLarge);
+        }
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_read_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::PrepareSource {
+            request,
+            file: FileHandle(handle),
+            password,
+        })
+    }
+
     /// Has the worker keep the bytes of the file at `path`, read-only, as the ones undo opens
     /// `doc` again from (ADR 0013): the file `doc` was just saved to. Returns `Rebased`.
     pub fn rebase(&mut self, doc: DocumentId, path: &Path) -> Result<WorkerResponse, HostError> {
@@ -463,6 +491,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::OcrChecked { request, .. }
         | WorkerResponse::OcrPolled { request, .. }
         | WorkerResponse::OcrStopped { request }
+        | WorkerResponse::Source { request, .. }
         | WorkerResponse::Saved { request, .. } => Some(*request),
         WorkerResponse::Error { request, .. } => *request,
     }

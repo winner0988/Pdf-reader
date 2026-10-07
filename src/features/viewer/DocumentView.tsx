@@ -37,7 +37,7 @@ import {
 import { annotationAt } from "@/features/annotations/model";
 import { PageAnnotations } from "@/features/annotations/PageAnnotations";
 import { PageDrawing } from "@/features/annotations/PageDrawing";
-import { stampRectAt, type Tool } from "@/features/annotations/tools";
+import { pictureRectAt, stampRectAt, type Tool } from "@/features/annotations/tools";
 import type { AnnotationSource } from "@/features/annotations/source";
 import { PageFields } from "@/features/forms/PageFields";
 import type { FormSource } from "@/features/forms/source";
@@ -509,8 +509,18 @@ export function DocumentView({
             }
           }}
           onPlace={(page, at) => {
-            if (tool.kind !== "stamp") return;
-            onAnnotationEdit({ kind: "addStamp", page, rect: stampRectAt(at, pages[page]!), stamp: tool.stamp });
+            if (tool.kind === "stamp") {
+              onAnnotationEdit({ kind: "addStamp", page, rect: stampRectAt(at, pages[page]!), stamp: tool.stamp });
+            } else if (tool.kind === "picture") {
+              onAnnotationEdit({
+                kind: "addImageStamp",
+                page,
+                rect: pictureRectAt(at, pages[page]!, tool.picture),
+                image: tool.picture.image,
+              });
+            } else {
+              return;
+            }
             onToolDone?.();
           }}
         />,

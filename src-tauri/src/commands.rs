@@ -11,7 +11,7 @@ use ipc_contract::types::{
     FormField, IpcError, LanguageImport, LinkArgs, LinkPreview, OcrArgs, OcrFocusArgs,
     OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText,
     RecentFile, RecentId, RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult, SearchArgs,
-    SearchEvent, Settings, TabId, UndoArgs, UnlockArgs, UpdateCheck,
+    SearchEvent, Settings, StampImageInfo, TabId, UndoArgs, UnlockArgs, UpdateCheck,
 };
 use ipc_contract::validate::{Validate, check_page_index};
 use tauri::ipc::{Channel, Response};
@@ -703,6 +703,28 @@ pub async fn privacy_export(
     };
     blocking(move || app.state::<Documents>().privacy_export(doc, &destination)).await?;
     Ok(true)
+}
+
+/// Asks for a picture (PNG or JPEG) in the system's open dialog and makes it into what a stamp
+/// of `doc` is made of (B2-08, docs/architecture/annotations.md). The path stays in the main
+/// process: the file is opened here, read-only, and the document's worker, which keeps only its
+/// pixels, gets that handle. `None` when the user closes the dialog.
+#[tauri::command]
+pub async fn pick_stamp_image(
+    app: AppHandle,
+    window: WebviewWindow,
+    doc: DocumentId,
+) -> Result<Option<StampImageInfo>, IpcError> {
+    let Some(path) = file_dialog::pick_image(&window).await? else {
+        return Ok(None);
+    };
+    blocking(move || {
+        let file = crate::documents::open_picture(&path)?;
+        app.state::<Documents>()
+            .prepare_stamp_image(doc, &file)
+            .map(Some)
+    })
+    .await
 }
 
 /// Asks, in a native message box, whether exported files may replace `count` existing ones.
