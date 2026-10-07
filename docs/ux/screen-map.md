@@ -208,6 +208,11 @@
   - pages.rotateCw、pages.rotateCcw：永久旋轉選取的頁面（與工具列只改變檢視的旋轉不同）；
   - pages.delete（`Delete`；沒有選取時，`Delete` 刪除有焦點的縮圖）：選取全部頁面時停用，按 `Delete` 則在縮圖上方顯示 pages.keepOne；
   - pages.insertBefore、pages.insertAfter：在第一個（或最後一個）選取的頁面前（或後）插入空白頁，大小與那一頁顯示的大小相同；
+  - pages.insertFileBefore、pages.insertFileAfter（B2-06）：在第一個（或最後一個）選取的頁面前（或後）插入**其他 PDF 檔案的全部頁面**。系統的開啟對話框選檔案（單選，只列 PDF）；選好之後頁面依原來的順序插入，插入的頁面被選取；關閉對話框什麼都不發生。做法見 [merge.md](../architecture/merge.md)；
+    - 檔案受密碼保護時，對話框 pages.sourcePassword.title（pages.sourcePassword.description）要密碼；密碼不對時顯示 pages.sourcePassword.wrong，對話框留著讓使用者再試；取消則不插入；密碼用完即清除，不會保留；
+    - 檔案的作者不允許取出頁面時，縮圖上方顯示 pages.sourceNotAllowed；檔案太大、或插入後超過頁數與未儲存變更的上限時顯示 pages.sourceTooLarge；其他情形（不是 PDF、損毀）顯示 pages.sourceFailed；
+    - 來源檔有主動內容時，內容不會進入文件，但警示橫幅（主視窗 3）列出它有哪些；使用者關閉過橫幅之後，插入的檔案讓橫幅有從沒說過的內容時才再顯示；復原與重做回到說過的內容時不會再出現；
+    - 只在不是示範資料的文件顯示這兩項；作者不允許變更頁面時停用（pages.notAllowed）。
   - pages.moveTo：對話框 pages.move.title，輸入頁碼並選擇「之前／之後」；頁碼超出範圍時顯示 pages.move.outOfRange。
 - **拖曳**：把選取的縮圖拖到兩張縮圖之間（以一條線標示位置），靠近清單上下緣時自動捲動；`Esc` 取消。拖曳沒有選取的縮圖時只移動它。
 - **之後**：旋轉與移動的頁面仍保持選取，插入的空白頁被選取；刪除後不選取任何頁面。分頁標示未儲存（「•」）。
@@ -602,6 +607,14 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | pages.rotateCw／pages.rotateCcw | 向右旋轉 90°／向左旋轉 90° |
 | pages.delete | 刪除 |
 | pages.insertBefore／pages.insertAfter | 在前面插入空白頁／在後面插入空白頁 |
+| pages.insertFileBefore／pages.insertFileAfter | 在前面插入其他檔案的頁面…／在後面插入其他檔案的頁面… |
+| pages.sourcePassword.title | 這個檔案受密碼保護 |
+| pages.sourcePassword.description | 輸入密碼才能取出這個檔案的頁面。密碼只用在這一次，不會被儲存。 |
+| pages.sourcePassword.label／confirm／cancel | 密碼／插入頁面／取消 |
+| pages.sourcePassword.wrong | 密碼不正確，請再試一次。 |
+| pages.sourceNotAllowed | 這個檔案的作者不允許取出它的頁面。 |
+| pages.sourceTooLarge | 這個檔案太大，或插入之後會超過頁數、尚未儲存的變更的上限；請先存檔，或選擇小一點的檔案。 |
+| pages.sourceFailed | 無法插入這個檔案的頁面，請確認它是沒有損毀的 PDF 檔案。 |
 | pages.moveTo | 移到… |
 | pages.saveSelected | 將選取的頁面另存為新檔… |
 | pages.notAllowed | 文件作者不允許變更頁面 |

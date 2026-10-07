@@ -67,6 +67,10 @@ sequenceDiagram
 - **崩潰復原日誌**：見 [crash-recovery.md](crash-recovery.md)「插入其他檔案的頁面」：日誌只記到第一個插入之前的編輯，`lost` 記下被留在外面的有幾個；下次開啟時提示列用 `partial` 或 `lost` 說明（擁有者 2026-10-07 的決定）。
 - 測試：`sources.rs`（保留與丟棄、編號、上限、橫幅的數字）；`documents.rs`（真的 worker）：插入、復原、重做、worker 掛掉後重開都在，存檔後的副本有那些頁面；惡意來源的內容在橫幅上、只在頁面還在的時候；加密檔案要密碼、密碼不對、作者不允許取出頁面、擁有者密碼解除；不是 PDF、不存在、位置不對、不存在的來源被拒絕；作者不允許變更頁面的文件；日誌的 `partial` 與 `lost`（還原能還原的、只能捨棄）；`recovery.rs`：`lost` 的記錄與讀取、含有插入的日誌不合格。
 
-## 之後的 PR
+## 畫面（`src/features/thumbnails/`、`ReaderShell.tsx`）
 
-- **畫面**：縮圖右鍵功能表「在這一頁之前（之後）插入其他檔案的頁面…」、密碼對話框、橫幅併入來源掃描結果之後重新顯示、E2E。
+- 縮圖的右鍵功能表多了 `pages.insertFileBefore`、`pages.insertFileAfter`（`Thumbnails` 的 `PageEditing.insertFrom`；沒有就不顯示，作者不允許變更頁面時停用）。位置是第一個（之前）或最後一個（之後）選取的頁面；插入的頁面成為選取的頁面。
+- `ReaderShell.insertFrom(at)`：`pickPagesSource(doc)`；回 `encrypted` 時，`SourcePasswordDialog` 要密碼，`unlockPagesSource(doc, password)`，密碼不對再問，取消就不插入（不顯示訊息）；成功後 `applyEdit(doc, { kind: "insertPages", at, source })`。失敗的訊息在縮圖上方：`notAllowed` → 作者不允許；`limitExceeded`／`tooLarge` → 太大或超過上限；其他 → 無法使用這個檔案。
+- **警示橫幅**：使用者每次關閉橫幅，`ReaderShell` 都記下當時橫幅說的內容（發現的種類與掃描是否完成）；只有說了從沒說過的內容（插入的檔案帶來新的發現）才再顯示，編輯本身（新的文件編號）、復原與重做回到說過的內容都不會讓它回來。
+- 測試：`Thumbnails.test.tsx`（選單項目與位置、插入後的選取、關閉對話框、三種失敗的說明、沒有 `insertFrom` 時不顯示）；`Merge.test.tsx`（`ReaderShell`：選檔案後套用編輯、關閉對話框不套用、加密檔案的密碼：不對的說明、再試、取消、作者不允許的說明；橫幅的重新顯示）。
+- E2E（`tests/e2e/merge.spec.ts`，真正的 app 與真正的系統對話框）：從多頁文件的第 3 頁之後插入 `mixed-page-sizes.pdf`，14 頁、依序（以搜尋與狀態列確認每一頁在哪裡）、插入的頁面被選取，復原與重做，另存新檔重新開啟仍是 14 頁、依序；插入含 `/OpenAction` 與 JavaScript 的檔案：橫幅出現（關閉後復原再重做仍是關閉的；再插入另一種內容的檔案才又出現）、存檔後橫幅消失，檔案中找不到 `/S /JavaScript`、`/JS`、`/OpenAction` 的字典；加密的檔案：密碼不對的說明、正確的密碼，作者不允許取出頁面的檔案被拒絕；插入後 app 結束，下次開啟提示列說明無法還原（`recovery.lost`，沒有「還原變更」），捨棄後文件仍是 10 頁。
