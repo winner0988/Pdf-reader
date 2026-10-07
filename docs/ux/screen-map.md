@@ -244,6 +244,20 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
 - 編輯失敗時，狀態列顯示 annotations.failed；未儲存的變更太多時顯示 pages.saveFirst。
 - 沒有鍵盤快捷鍵（螢光筆可以從工具列的按鈕以鍵盤操作）。
 
+### 手繪與印章（B2-08）
+
+手繪線條與標準印章也存成標準的 PDF 註解（`Ink`、`Stamp`），不寫入作者與時間。做法見 [annotations.md](../architecture/annotations.md)。
+
+- **工具列**：搜尋按鈕左邊依序是畫筆按鈕（annotations.pen，開啟時是按下的狀態）、它旁邊的小箭頭（annotations.penStyle，選單選顏色與粗細），與印章按鈕（annotations.stamp，選單列出八種印章）。
+- **畫線**：按畫筆按鈕，狀態列顯示 annotations.penOn；在頁面上按住並拖曳畫線，放開就加上一筆（可以復原）。畫筆維持開啟，可以連續畫；`Esc` 或再按一次畫筆按鈕結束（選單開著時，第一次 `Esc` 只關選單）。
+  - 顏色（annotations.inkColors）：黑、紅、藍、綠；粗細（annotations.inkWidths）：細、中、粗；一開始是黑色、中；只影響之後畫的線，只記在這次執行中；
+  - 按一下沒有拖曳畫出一個圓點。
+- **印章**：按印章按鈕選一種（annotations.stamps），狀態列顯示 annotations.placeStamp；在頁面上點一下，以點擊處為中心放下，放下後工具自動結束；按 `Enter` 放在目前這一頁的中央（給不能使用滑鼠的人）；`Esc` 取消。標準印章的文字是英文（由 PDF 引擎畫出，其他閱讀器看到的一樣），選單與說明用中文。
+- **移動與縮放**：選取手繪或印章（`Tab` 或點一下）時，周圍出現控制點；拖曳本體移動，拖曳控制點縮放。手繪有八個控制點，可以自由縮放；印章只有四個角，維持比例。拖曳時以虛線輪廓預覽，放開才生效（可以復原）。方向鍵移動 1 點，加 `Shift` 移動 10 點；按住不放不會連續移動。操作方式（annotations.moveHint）是這個輪廓的工具提示，也是螢幕閱讀器念出的說明。
+- **作者不允許註解**時，畫筆與印章按鈕停用，說明是 annotations.notAllowed；已有的手繪與印章仍然顯示，可以選取，但沒有控制點，方向鍵與 `Delete` 不作用。
+- 編輯失敗時，狀態列顯示 annotations.failed；未儲存的變更太多時顯示 pages.saveFirst。
+- 沒有開啟畫筆或印章的快捷鍵（可以從工具列的按鈕以鍵盤操作）。
+
 ### 表單（B2-09）
 
 文件有表單（AcroForm）時，欄位直接顯示在頁面上，可以填寫。做法與限制見 [forms.md](../architecture/forms.md)。
@@ -641,6 +655,21 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | annotations.noteDialog.tooLong | 附註太長了，請縮短一些。 |
 | toolbar.highlight(color) | 螢光筆（<顏色>） |
 | toolbar.highlightNeedsText | 螢光筆：先選取文字 |
+
+### 手繪與印章（B2-08）
+
+| 鍵 | 文字 |
+|---|---|
+| annotations.pen | 畫筆 |
+| annotations.penStyle | 畫筆的顏色與粗細 |
+| annotations.inkColors.* | 黑色、紅色、藍色、綠色 |
+| annotations.inkWidths.* | 細、中、粗 |
+| annotations.stamp | 新增印章 |
+| annotations.stamps.* | 已核准、未核准、草稿、最終版、機密、供評論、照現狀、絕密 |
+| annotations.kind.ink／stamp | 手繪線條／印章（頁面上輪廓與工具列的名稱） |
+| annotations.penOn | 畫筆已開啟：在頁面上按住並拖曳來畫線，按 Esc 結束。 |
+| annotations.placeStamp(name) | 在頁面上點一下放下「<名稱>」印章（或按 Enter 放在這一頁的中央），按 Esc 取消。 |
+| annotations.moveHint | 拖曳移動；拖曳控制點調整大小；方向鍵移動 1 點，加 Shift 移動 10 點。 |
 
 ### 崩潰復原（B2-13）
 
