@@ -12,7 +12,7 @@ use crate::types::{
     AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FormField,
     HighlightColor, HighlightMark, InkColor, InkWidth, OutlineResult, PageAnnotation, PageLink,
     PageSize, PageText, Password, Point, Rect, RequestId, Restrictions, Rotation, SearchHit,
-    SecurityReport, SourceId, StampImageId, StampName,
+    SecurityReport, SignatureReport, SourceId, StampImageId, StampName,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -239,6 +239,13 @@ pub enum WorkerRequest {
         doc: DocumentId,
         page_index: u32,
     },
+    /// Verifies the signatures of the document as its file has them (B2-14, ADR 0014): offline,
+    /// with Windows' own cryptography and what Windows has on this computer. Answered by
+    /// `Signatures`.
+    VerifySignatures {
+        request: RequestId,
+        doc: DocumentId,
+    },
     /// One page as a PNG file, unturned, for exporting (B2-04).
     RenderPng {
         request: RequestId,
@@ -429,6 +436,10 @@ pub enum WorkerResponse {
         request: RequestId,
         page_index: u32,
         fields: Vec<FormField>,
+    },
+    Signatures {
+        request: RequestId,
+        report: SignatureReport,
     },
     PageText {
         request: RequestId,

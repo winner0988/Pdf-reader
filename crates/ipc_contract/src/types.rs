@@ -775,6 +775,83 @@ impl DocumentPermissions {
     };
 }
 
+/// The signatures of an open document, as far as they could be looked at (B2-14, ADR 0014).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SignatureReport {
+    /// One entry for each signature field that has a signature, in the order of the form.
+    pub signatures: Vec<SignatureInfo>,
+    /// The document has more signature fields than were looked at (`MAX_SIGNATURES`).
+    pub truncated: bool,
+}
+
+/// What verifying one signature of an open document found (B2-14, ADR 0014). It is checked
+/// offline: that a signature holds says the signed bytes are as the signer left them, never that
+/// the signer is who they say (see `signer_trusted`), and nothing is asked of any server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SignatureInfo {
+    pub status: SignatureStatus,
+    /// The signer's certificate chains to a root Windows trusts, with what Windows has on this
+    /// computer (nothing is fetched; whether it was revoked is not checked). Only meaningful for
+    /// a signature that holds (`valid`, `changedAfterSigning`).
+    pub signer_trusted: bool,
+    /// Why the signature could not be verified (`unverifiable`).
+    pub reason: Option<UnverifiableReason>,
+    /// The signature field's name, as the file gives it; display only.
+    pub field_name: Option<String>,
+    /// Who signed, as the certificate names them. Only for a signature that holds.
+    pub signer: Option<String>,
+    /// When the signer says they signed, as text ("2026-09-24 12:00:00 UTC+08:00"). Only the
+    /// signer's own claim: nothing vouches for the time (there is no time stamp, RFC 3161).
+    pub claimed_time: Option<String>,
+    /// A signature that certifies the document says what may still be changed in it (DocMDP).
+    pub certification: Option<Certification>,
+}
+
+/// Whether a signature holds (B2-14).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SignatureStatus {
+    /// The signature holds, and the file ends where the signature's range does: nothing was
+    /// changed after.
+    Valid,
+    /// The signature holds for what was signed, but the file has more after that: it was changed
+    /// (or other signatures were added) after.
+    ChangedAfterSigning,
+    /// The signature does not hold: the signed bytes were changed, or the signature does not fit
+    /// the file.
+    Invalid,
+    /// It could not be verified: `reason` says why.
+    Unverifiable,
+}
+
+/// Why a signature could not be verified (B2-14).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum UnverifiableReason {
+    /// A kind of signature the app does not verify (an old format, a document time stamp).
+    UnsupportedFormat,
+    /// It uses an algorithm this computer's Windows does not know.
+    UnsupportedAlgorithm,
+    /// It is larger than the app looks at.
+    TooLarge,
+    /// This computer cannot verify signatures (not Windows).
+    NotAvailable,
+}
+
+/// What a certifying signature allows to be changed after it (DocMDP, B2-14).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum Certification {
+    /// Nothing (`/P` 1).
+    NoChanges,
+    /// Filling in forms and signing (`/P` 2).
+    FillForms,
+    /// Filling in forms, signing and commenting (`/P` 3).
+    FillFormsAndAnnotate,
+}
+
 /// An open document as the frontend sees it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -1163,8 +1240,10 @@ pub enum OpenEvent {
     /// `ignored_files` files were not opened: the window already has `MAX_TABS` tabs.
     #[serde(rename_all = "camelCase")]
     TabLimit { ignored_files: u32 },
-    /// The user asked to close the window while `tabs` have unsaved changes (B2-02): the window
-    /// stays open until the frontend has asked what to do and calls `close_window`.
+    /// The user asked to close the window (B2-02): `tabs` have unsaved changes the main process
+    /// knows of, none when only the page can know of any (a value still being typed in a field,
+    /// #153). The window stays open until the frontend has sent what it was still sending, asked
+    /// what to do and called `close_window`, which asks it again if that made unsaved changes.
     CloseRequested { tabs: Vec<TabId> },
     /// How recognising the text of a tab's scanned pages is going (B2-10); sent when it changes,
     /// and to a page that subscribes while it runs.

@@ -7,11 +7,12 @@ use std::path::PathBuf;
 
 use ipc_contract::frame::encode;
 use ipc_contract::types::{
-    AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, FieldId,
-    FieldKind, FieldOption, FindingKind, FormField, HighlightColor, HighlightMark, InkColor,
-    InkWidth, LinkId, LinkTarget, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize,
-    PageText, Password, Point, Quad, Rect, RequestId, Restrictions, Rotation, SearchHit,
-    SecurityFinding, SecurityReport, StampName, TextLine,
+    AnnotationId, AnnotationKind, BlockedAction, Certification, DocumentId, DocumentPermissions,
+    FieldId, FieldKind, FieldOption, FindingKind, FormField, HighlightColor, HighlightMark,
+    InkColor, InkWidth, LinkId, LinkTarget, OutlineItem, OutlineResult, PageAnnotation, PageLink,
+    PageSize, PageText, Password, Point, Quad, Rect, RequestId, Restrictions, Rotation, SearchHit,
+    SecurityFinding, SecurityReport, SignatureInfo, SignatureReport, SignatureStatus, StampName,
+    TextLine, UnverifiableReason,
 };
 use ipc_contract::worker::{
     FileHandle, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument, Raster, WorkerEdit,
@@ -103,6 +104,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         target: Some(target.clone()),
                     })
                     .collect(),
+                truncated: true,
+            },
+        },
+        WorkerResponse::Signatures {
+            request,
+            report: SignatureReport {
+                signatures: vec![
+                    SignatureInfo {
+                        status: SignatureStatus::ChangedAfterSigning,
+                        signer_trusted: true,
+                        reason: None,
+                        field_name: Some("Signature1".to_owned()),
+                        signer: Some("Jane Public".to_owned()),
+                        claimed_time: Some("2026-09-24 12:00:00 UTC+08:00".to_owned()),
+                        certification: Some(Certification::NoChanges),
+                    },
+                    SignatureInfo {
+                        status: SignatureStatus::Unverifiable,
+                        signer_trusted: false,
+                        reason: Some(UnverifiableReason::UnsupportedFormat),
+                        field_name: None,
+                        signer: None,
+                        claimed_time: None,
+                        certification: None,
+                    },
+                ],
                 truncated: true,
             },
         },
@@ -392,6 +419,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             doc,
             page_index: 0,
         },
+        WorkerRequest::VerifySignatures { request, doc },
         WorkerRequest::SearchPage {
             request,
             doc,

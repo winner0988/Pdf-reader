@@ -519,6 +519,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::PageLinks { request, .. }
         | WorkerResponse::PageAnnotations { request, .. }
         | WorkerResponse::PageFields { request, .. }
+        | WorkerResponse::Signatures { request, .. }
         | WorkerResponse::PageText { request, .. }
         | WorkerResponse::Png { request, .. }
         | WorkerResponse::StampImage { request, .. }

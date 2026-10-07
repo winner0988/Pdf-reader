@@ -99,7 +99,7 @@ async function openForm() {
   act(() => canvas.dispatchEvent(new Event("scroll")));
   const user = userEvent.setup();
   const name = await screen.findByRole("textbox", { name: "Your name" });
-  return { api, editingApi, savingApi, user, name };
+  return { api, editingApi, savingApi, push, user, name };
 }
 
 const t = strings.saving;
@@ -139,5 +139,47 @@ describe("closing a tab while a field is being typed in (B2-09)", () => {
     await user.keyboard("{Control>}w{/Control}");
     expect(api.close).toHaveBeenCalledWith(1);
     expect(editingApi.applyEdit).not.toHaveBeenCalled();
+  });
+});
+
+describe("closing the window while a field is being typed in (#153)", () => {
+  it("sends the value first, and the main process then asks about the change it made", async () => {
+    const { editingApi, savingApi, push, user, name } = await openForm();
+    savingApi.closeWindow.mockImplementationOnce(() => {
+      // As the main process does: the value made an unsaved change, so the window stays and the
+      // page is asked again, naming the tab.
+      push({ kind: "closeRequested", tabs: [1] });
+      return Promise.reject({ code: "invalidArgument", message: "" });
+    });
+    await user.type(name, "!");
+    // The window's close button: no tab is known to have unsaved changes yet.
+    push({ kind: "closeRequested", tabs: [] });
+    expect(await screen.findByRole("dialog", { name: t.askTitle })).toHaveTextContent(t.askOne("form.pdf"));
+    expect(editingApi.applyEdit).toHaveBeenCalledWith(9, { kind: "setFieldValue", page: 0, field: 6, value: "Jane!" });
+    expect(savingApi.closeWindow).toHaveBeenCalledTimes(1);
+    expect(savingApi.closeWindow).toHaveBeenCalledWith(false);
+  });
+
+  it("saves the document the value made when the user says so, then closes the window", async () => {
+    const { savingApi, push, user, name } = await openForm();
+    savingApi.closeWindow.mockImplementationOnce(() => {
+      push({ kind: "closeRequested", tabs: [1] });
+      return Promise.reject({ code: "invalidArgument", message: "" });
+    });
+    await user.type(name, "!");
+    push({ kind: "closeRequested", tabs: [] });
+    const dialog = await screen.findByRole("dialog", { name: t.askTitle });
+    await user.click(within(dialog).getByRole("button", { name: t.save }));
+    await waitFor(() => expect(savingApi.save).toHaveBeenCalledWith(10));
+    await waitFor(() => expect(savingApi.closeWindow).toHaveBeenCalledTimes(2));
+  });
+
+  it("closes the window at once when nothing was typed", async () => {
+    const { editingApi, savingApi, push, user, name } = await openForm();
+    await user.click(name);
+    push({ kind: "closeRequested", tabs: [] });
+    await waitFor(() => expect(savingApi.closeWindow).toHaveBeenCalledWith(false));
+    expect(editingApi.applyEdit).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
