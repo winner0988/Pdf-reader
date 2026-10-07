@@ -59,5 +59,7 @@ describe("annotations on a page", () => {
     expect(annotationLabel(note)).toBe(strings.annotations.noteSaying("Existing note"));
     expect(annotationLabel({ ...note, text: null })).toBe(strings.annotations.kind.note);
     expect(annotationLabel({ ...note, kind: "other", text: null })).toBe(strings.annotations.kind.other);
+    expect(annotationLabel({ ...note, kind: "ink", text: null })).toBe(strings.annotations.kind.ink);
+    expect(annotationLabel({ ...note, kind: "stamp", text: null })).toBe(strings.annotations.kind.stamp);
   });
 });

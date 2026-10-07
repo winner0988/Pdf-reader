@@ -454,6 +454,18 @@ fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineErro
             document.set_field_value(*page, *field, value)?;
         }
         WorkerEdit::FlattenForm => document.flatten_form()?,
+        WorkerEdit::AddInk {
+            page,
+            strokes,
+            color,
+            width,
+        } => document.add_ink(*page, strokes, *color, *width)?,
+        WorkerEdit::AddStamp { page, rect, stamp } => document.add_stamp(*page, *rect, *stamp)?,
+        WorkerEdit::SetAnnotationRect {
+            page,
+            annotation,
+            rect,
+        } => document.set_annotation_rect(*page, *annotation, *rect)?,
     }
     Ok(())
 }

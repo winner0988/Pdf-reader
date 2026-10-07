@@ -1,16 +1,20 @@
-//! Annotations (B2-07): highlighter marks and notes the user adds, changing them, and removing
-//! any annotation a page has. They are standard PDF annotations (`Highlight`, `Text`), with an
-//! appearance stream, so other readers show them too.
+//! Annotations (B2-07, B2-08): highlighter marks, notes, pen drawings and stamps the user adds,
+//! changing them, and removing any annotation a page has. They are standard PDF annotations
+//! (`Highlight`, `Text`, `Ink`, `Stamp`), with an appearance stream, so other readers show them
+//! too.
 //!
 //! Nothing that tells who made them is written: MuPDF puts no author (`/T`), dates or unique
 //! name (`/NM`) in a new annotation, and none is added here.
 
 use std::collections::HashSet;
 
-use ipc_contract::limits::{MAX_ANNOTATIONS_PER_PAGE, MAX_NOTE_TEXT_BYTES, MAX_PAGE_SIDE_PT};
+use ipc_contract::limits::{
+    MAX_ANNOTATIONS_PER_PAGE, MAX_INK_POINTS, MAX_NOTE_TEXT_BYTES, MAX_PAGE_SIDE_PT,
+};
 use ipc_contract::text::clean_note_text;
 use ipc_contract::types::{
-    AnnotationId, AnnotationKind, HighlightColor, HighlightMark, PageAnnotation, Point, Quad, Rect,
+    AnnotationId, AnnotationKind, HighlightColor, HighlightMark, InkColor, InkWidth,
+    PageAnnotation, Point, Quad, Rect, StampName,
 };
 use mupdf::Error;
 use mupdf::color::AnnotationColor;
@@ -35,8 +39,48 @@ fn rgb(color: HighlightColor) -> [f32; 3] {
 }
 
 fn annotation_color(color: HighlightColor) -> AnnotationColor {
-    let [red, green, blue] = rgb(color);
+    annotation_rgb(rgb(color))
+}
+
+fn annotation_rgb([red, green, blue]: [f32; 3]) -> AnnotationColor {
     AnnotationColor::Rgb { red, green, blue }
+}
+
+/// The pen colors as RGB.
+fn ink_rgb(color: InkColor) -> [f32; 3] {
+    match color {
+        InkColor::Black => [0.0, 0.0, 0.0],
+        InkColor::Red => [0.85, 0.1, 0.1],
+        InkColor::Blue => [0.1, 0.3, 0.85],
+        InkColor::Green => [0.1, 0.6, 0.2],
+    }
+}
+
+/// How thick the pen draws, in points.
+fn ink_line_width(width: InkWidth) -> f32 {
+    match width {
+        InkWidth::Thin => 1.0,
+        InkWidth::Medium => 2.5,
+        InkWidth::Thick => 5.0,
+    }
+}
+
+/// The name PDF gives a standard stamp (readers draw the stamp from it), and the color MuPDF
+/// draws it in.
+fn stamp_style(stamp: StampName) -> (&'static str, [f32; 3]) {
+    const RED: [f32; 3] = [0.8, 0.0, 0.0];
+    const GREEN: [f32; 3] = [0.0, 0.5, 0.1];
+    const BLUE: [f32; 3] = [0.0, 0.2, 0.7];
+    match stamp {
+        StampName::Approved => ("Approved", GREEN),
+        StampName::NotApproved => ("NotApproved", RED),
+        StampName::Draft => ("Draft", RED),
+        StampName::Final => ("Final", BLUE),
+        StampName::Confidential => ("Confidential", RED),
+        StampName::ForComment => ("ForComment", BLUE),
+        StampName::AsIs => ("AsIs", BLUE),
+        StampName::TopSecret => ("TopSecret", RED),
+    }
 }
 
 /// Which of the highlighter's colors `color` is, if any.
@@ -63,6 +107,15 @@ fn binding_point(point: Point) -> mupdf::Point {
     mupdf::Point {
         x: point.x,
         y: point.y,
+    }
+}
+
+fn binding_rect(rect: Rect) -> mupdf::Rect {
+    mupdf::Rect {
+        x0: rect.x0,
+        y0: rect.y0,
+        x1: rect.x1,
+        y1: rect.y1,
     }
 }
 
@@ -141,6 +194,75 @@ impl PdfDocument {
         Ok(())
     }
 
+    /// Draws `strokes` (page space) with the pen on page `index`: one `Ink` annotation, in `color`
+    /// and `width`. Its line has round ends, so a stroke of one point is a dot.
+    pub fn add_ink(
+        &mut self,
+        index: u32,
+        strokes: &[Vec<Point>],
+        color: InkColor,
+        width: InkWidth,
+    ) -> Result<(), EngineError> {
+        if strokes.is_empty() || strokes.iter().any(Vec::is_empty) {
+            return Err(EngineError::InvalidEdit(
+                "a drawing needs strokes with points",
+            ));
+        }
+        let mut page = self.pdf_page(index)?;
+        let strokes: Vec<Vec<mupdf::Point>> = strokes
+            .iter()
+            .map(|stroke| stroke.iter().copied().map(binding_point).collect())
+            .collect();
+        let mut annotation = page.add_ink_annotation(strokes)?;
+        annotation.set_color(annotation_rgb(ink_rgb(color)))?;
+        annotation.set_border_width(ink_line_width(width))?;
+        annotation.update()?;
+        Ok(())
+    }
+
+    /// Puts the standard stamp `stamp` over `rect` (page space) on page `index`. MuPDF draws it in
+    /// English, as other readers draw the stamps of these names, keeping its shape: it fills the
+    /// rectangle as far as that shape allows.
+    pub fn add_stamp(
+        &mut self,
+        index: u32,
+        rect: Rect,
+        stamp: StampName,
+    ) -> Result<(), EngineError> {
+        let (name, color) = stamp_style(stamp);
+        let mut page = self.pdf_page(index)?;
+        let mut annotation = page.add_stamp_annotation(binding_rect(rect), name)?;
+        annotation.set_color(annotation_rgb(color))?;
+        annotation.update()?;
+        Ok(())
+    }
+
+    /// Moves and resizes the drawing or stamp `id` of page `index` to `rect` (page space, as
+    /// listed). A stamp keeps its shape inside the rectangle; a drawing keeps the thickness of its
+    /// line, and its points are laid out again in the rectangle.
+    pub fn set_annotation_rect(
+        &mut self,
+        index: u32,
+        id: AnnotationId,
+        rect: Rect,
+    ) -> Result<(), EngineError> {
+        let page = self.pdf_page(index)?;
+        let mut annotation = find(&page, id)?;
+        match annotation.r#type()? {
+            PdfAnnotationType::Stamp => {
+                annotation.set_rect(binding_rect(rect))?;
+                annotation.update()?;
+            }
+            PdfAnnotationType::Ink => place_ink(&mut annotation, rect)?,
+            _ => {
+                return Err(EngineError::InvalidEdit(
+                    "only a drawing or a stamp can be moved",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Removes annotation `id` of page `index`, with its pop-up window. What else still points
     /// to them (a reply, the structure tree) points nowhere afterwards, so that a rewrite leaves
     /// them out of the file ([`crate::unlink`]).
@@ -202,6 +324,81 @@ impl PdfDocument {
     }
 }
 
+/// Lays the points of the drawing `annotation` out again so that it fills `rect` (page space, a
+/// rectangle as listed: the bounds of the drawing, with the margin MuPDF leaves around its line).
+///
+/// The margin is kept: the points go into `rect` less what the bounds have more than the points.
+/// An axis along which the points have no extent (a straight line) keeps none: the line goes to
+/// the middle of the rectangle.
+fn place_ink(annotation: &mut PdfAnnotation, rect: Rect) -> Result<(), EngineError> {
+    let strokes = annotation.ink_list()?;
+    if strokes.iter().map(Vec::len).sum::<usize>() > MAX_INK_POINTS as usize {
+        return Err(EngineError::InvalidEdit("the drawing has too many points"));
+    }
+    let mut points = strokes.iter().flatten();
+    let Some(first) = points.next() else {
+        return Err(EngineError::InvalidEdit("the drawing has no points"));
+    };
+    let (mut x0, mut y0, mut x1, mut y1) = (first.x, first.y, first.x, first.y);
+    for point in points {
+        (x0, x1) = (x0.min(point.x), x1.max(point.x));
+        (y0, y1) = (y0.min(point.y), y1.max(point.y));
+    }
+    let bounds = annotation.bounds()?;
+    let map_x = axis_map(x0, x1, bounds.x0, bounds.x1, rect.x0, rect.x1);
+    let map_y = axis_map(y0, y1, bounds.y0, bounds.y1, rect.y0, rect.y1);
+    let placed: Vec<Vec<mupdf::Point>> = strokes
+        .iter()
+        .map(|stroke| {
+            stroke
+                .iter()
+                .map(|point| mupdf::Point {
+                    x: map_x(point.x),
+                    y: map_y(point.y),
+                })
+                .collect()
+        })
+        .collect();
+    if placed
+        .iter()
+        .flatten()
+        .any(|point| !point.x.is_finite() || !point.y.is_finite())
+    {
+        return Err(EngineError::InvalidEdit("the drawing does not fit there"));
+    }
+    annotation.set_ink_list(placed)?;
+    annotation.update()?;
+    Ok(())
+}
+
+/// Where the values `from..=to` of one axis of a drawing go: into `new_from..=new_to` less the
+/// margin the drawing bounds (`outer_from..=outer_to`) have around them.
+fn axis_map(
+    from: f32,
+    to: f32,
+    outer_from: f32,
+    outer_to: f32,
+    new_from: f32,
+    new_to: f32,
+) -> impl Fn(f32) -> f32 {
+    let (target_from, target_to) = (new_from + (from - outer_from), new_to - (outer_to - to));
+    // A rectangle smaller than the margins: the points gather in its middle.
+    let (target_from, target_to) = if target_to < target_from {
+        let middle = (new_from + new_to) / 2.0;
+        (middle, middle)
+    } else {
+        (target_from, target_to)
+    };
+    let extent = to - from;
+    move |value| {
+        if extent > f32::EPSILON {
+            target_from + (value - from) * (target_to - target_from) / extent
+        } else {
+            (target_from + target_to) / 2.0
+        }
+    }
+}
+
 /// Annotation `id` of `page`, other than a pop-up window.
 fn find(page: &PdfPage, id: AnnotationId) -> Result<PdfAnnotation, EngineError> {
     let wanted = i32::try_from(id.0).map_err(|_| EngineError::InvalidEdit("no such annotation"))?;
@@ -221,6 +418,8 @@ fn entry(annotation: &PdfAnnotation) -> Result<Option<PageAnnotation>, Error> {
         PdfAnnotationType::Popup => return Ok(None),
         PdfAnnotationType::Highlight => AnnotationKind::Highlight,
         PdfAnnotationType::Text => AnnotationKind::Note,
+        PdfAnnotationType::Ink => AnnotationKind::Ink,
+        PdfAnnotationType::Stamp => AnnotationKind::Stamp,
         _ => AnnotationKind::Other,
     };
     let Ok(number) = u32::try_from(annotation.xref()?) else {
