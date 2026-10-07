@@ -661,8 +661,47 @@ impl Validate for Edit {
                 check_field_value(value)
             }
             Edit::FlattenForm => Ok(()),
+            Edit::AddInk { page, strokes, .. } => {
+                check_annotated_page(*page)?;
+                if strokes.is_empty() {
+                    return Err(ValidationError::Invalid {
+                        what: "ink",
+                        reason: "has no stroke",
+                    });
+                }
+                check_count("ink strokes", strokes.len(), MAX_INK_STROKES)?;
+                let points: usize = strokes.iter().map(Vec::len).sum();
+                check_count("ink points", points, MAX_INK_POINTS)?;
+                for stroke in strokes {
+                    if stroke.is_empty() {
+                        return Err(ValidationError::Invalid {
+                            what: "ink",
+                            reason: "has a stroke without points",
+                        });
+                    }
+                    stroke.iter().try_for_each(Point::validate)?;
+                }
+                Ok(())
+            }
+            Edit::AddStamp { page, rect, .. } | Edit::SetAnnotationRect { page, rect, .. } => {
+                check_annotated_page(*page)?;
+                check_annotation_rect(rect)
+            }
         }
     }
+}
+
+/// A rectangle an annotation is put in or moved to (B2-08): finite, upright, and large enough to
+/// be seen and grabbed.
+fn check_annotation_rect(rect: &Rect) -> Result<(), ValidationError> {
+    rect.validate()?;
+    if rect.x1 - rect.x0 < MIN_ANNOTATION_SIDE_PT || rect.y1 - rect.y0 < MIN_ANNOTATION_SIDE_PT {
+        return Err(ValidationError::Invalid {
+            what: "annotation rectangle",
+            reason: "too small, or upside down",
+        });
+    }
+    Ok(())
 }
 
 /// The page an annotation edit is on: one a document can have; whether this document has it is
@@ -853,8 +892,8 @@ mod tests {
     use super::*;
     use crate::types::{
         AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, ErrorCode,
-        FieldId, FieldKind, FieldOption, HighlightColor, HighlightMark, LinkId, RecentId, Recovery,
-        RequestId, Rotation, SecurityFinding, TabId,
+        FieldId, FieldKind, FieldOption, HighlightColor, HighlightMark, InkColor, InkWidth, LinkId,
+        RecentId, Recovery, RequestId, Rotation, SecurityFinding, StampName, TabId,
     };
     use crate::worker::WorkerErrorCode;
 
@@ -1492,6 +1531,126 @@ mod tests {
                 annotation: AnnotationId(9),
                 color: HighlightColor::Pink,
             }
+        );
+    }
+
+    #[test]
+    fn drawings_and_stamps_are_bounded_and_their_rectangles_are_upright_and_visible() {
+        let ink = |strokes: Vec<Vec<Point>>| Edit::AddInk {
+            page: 0,
+            strokes,
+            color: InkColor::Red,
+            width: InkWidth::Thin,
+        };
+        let at = |x: f32| Point { x, y: 72.0 };
+        assert!(
+            ink(vec![vec![at(1.0), at(2.0)], vec![at(3.0)]])
+                .validate()
+                .is_ok()
+        );
+        assert!(ink(vec![]).validate().is_err());
+        assert!(ink(vec![vec![]]).validate().is_err());
+        assert!(ink(vec![vec![at(1.0)], vec![]]).validate().is_err());
+        assert!(ink(vec![vec![at(f32::NAN)]]).validate().is_err());
+        assert!(
+            ink(vec![vec![at(2.0 * MAX_PAGE_SIDE_PT)]])
+                .validate()
+                .is_err()
+        );
+        // The strokes and the points of all of them count.
+        let many = MAX_INK_STROKES as usize;
+        assert!(ink(vec![vec![at(1.0)]; many]).validate().is_ok());
+        assert!(ink(vec![vec![at(1.0)]; many + 1]).validate().is_err());
+        let half = MAX_INK_POINTS as usize / 2 + 1;
+        assert!(
+            ink(vec![vec![at(1.0); half], vec![at(1.0); half]])
+                .validate()
+                .is_err()
+        );
+        assert!(
+            ink(vec![vec![at(1.0); MAX_INK_POINTS as usize]])
+                .validate()
+                .is_ok()
+        );
+        let on_page = |page: u32| Edit::AddInk {
+            page,
+            strokes: vec![vec![at(1.0)]],
+            color: InkColor::Black,
+            width: InkWidth::Thick,
+        };
+        assert!(on_page(MAX_PAGE_COUNT).validate().is_err());
+
+        let side = MIN_ANNOTATION_SIDE_PT;
+        let rect = |x0: f32, y0: f32, x1: f32, y1: f32| Rect { x0, y0, x1, y1 };
+        let stamp = |rect: Rect| Edit::AddStamp {
+            page: 0,
+            rect,
+            stamp: StampName::Approved,
+        };
+        let moved = |rect: Rect| Edit::SetAnnotationRect {
+            page: 0,
+            annotation: AnnotationId(5),
+            rect,
+        };
+        for make in [stamp, moved] {
+            assert!(
+                make(rect(10.0, 10.0, 10.0 + side, 10.0 + side))
+                    .validate()
+                    .is_ok()
+            );
+            assert!(make(rect(10.0, 10.0, 200.0, 60.0)).validate().is_ok());
+            // Too small to see, upside down, or not a number.
+            assert!(
+                make(rect(10.0, 10.0, 10.0 + side - 1.0, 60.0))
+                    .validate()
+                    .is_err()
+            );
+            assert!(
+                make(rect(10.0, 10.0, 200.0, 10.0 + side - 1.0))
+                    .validate()
+                    .is_err()
+            );
+            assert!(make(rect(200.0, 10.0, 10.0, 60.0)).validate().is_err());
+            assert!(make(rect(10.0, 60.0, 200.0, 10.0)).validate().is_err());
+            assert!(
+                make(rect(10.0, 10.0, f32::INFINITY, 60.0))
+                    .validate()
+                    .is_err()
+            );
+            assert!(
+                make(rect(10.0, 10.0, 2.0 * MAX_PAGE_SIDE_PT, 60.0))
+                    .validate()
+                    .is_err()
+            );
+        }
+
+        // The frontend form.
+        assert_eq!(
+            serde_json::from_value::<Edit>(serde_json::json!({
+                "kind": "addInk", "page": 2, "color": "blue", "width": "medium",
+                "strokes": [[{"x": 1.0, "y": 2.0}, {"x": 3.0, "y": 4.0}]]
+            }))
+            .unwrap(),
+            Edit::AddInk {
+                page: 2,
+                strokes: vec![vec![Point { x: 1.0, y: 2.0 }, Point { x: 3.0, y: 4.0 }]],
+                color: InkColor::Blue,
+                width: InkWidth::Medium,
+            }
+        );
+        assert!(
+            serde_json::from_value::<Edit>(serde_json::json!({
+                "kind": "addStamp", "page": 0, "stamp": "notApproved",
+                "rect": {"x0": 1.0, "y0": 2.0, "x1": 91.0, "y1": 52.0}
+            }))
+            .is_ok()
+        );
+        assert!(
+            serde_json::from_value::<Edit>(serde_json::json!({
+                "kind": "addStamp", "page": 0, "stamp": "Paid",
+                "rect": {"x0": 1.0, "y0": 2.0, "x1": 91.0, "y1": 52.0}
+            }))
+            .is_err()
         );
     }
 

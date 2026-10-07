@@ -92,6 +92,17 @@ pub const MAX_HIGHLIGHT_PAGES: u32 = 100;
 /// reports.
 pub const MAX_NOTE_TEXT_BYTES: u32 = 4_096;
 
+/// Most strokes one pen drawing has (B2-08): a stroke is one press of the pen to its release.
+pub const MAX_INK_STROKES: u32 = 256;
+
+/// Most points one pen drawing has, on all its strokes (B2-08). The page thins what the pen
+/// reports (a point every few pixels is plenty), so a drawing seldom has a tenth of this.
+pub const MAX_INK_POINTS: u32 = 20_000;
+
+/// Least a stamp or any annotation the app moves or resizes may measure on each side (B2-08), in
+/// points: smaller than that it cannot be seen or grabbed.
+pub const MIN_ANNOTATION_SIDE_PT: f32 = 8.0;
+
 /// Most annotations reported for one page (B2-07); the rest are not listed.
 pub const MAX_ANNOTATIONS_PER_PAGE: u32 = 2_000;
 
