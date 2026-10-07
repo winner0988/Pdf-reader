@@ -28,6 +28,34 @@ async function find(page: Page, query: string) {
   return box;
 }
 
+type Box = { x: number; y: number; width: number; height: number };
+
+/**
+ * The colors of the first page as drawn (its canvas) at a grid of points inside `box`, a box of
+ * the screen. Some of them are on the letters; the others are the color of the mark.
+ */
+async function pixelsIn(page: Page, box: Box): Promise<number[][]> {
+  return firstPage(page)
+    .locator("canvas")
+    .evaluate((canvas: HTMLCanvasElement, area) => {
+      const bounds = canvas.getBoundingClientRect();
+      const context = canvas.getContext("2d")!;
+      const colors: number[][] = [];
+      for (let row = 1; row <= 3; row++) {
+        for (let column = 1; column <= 8; column++) {
+          const x = area.x + (area.width * column) / 9;
+          const y = area.y + (area.height * row) / 4;
+          const at = {
+            x: Math.floor(((x - bounds.left) * canvas.width) / bounds.width),
+            y: Math.floor(((y - bounds.top) * canvas.height) / bounds.height),
+          };
+          colors.push(Array.from(context.getImageData(at.x, at.y, 1, 1).data.slice(0, 3)));
+        }
+      }
+      return colors;
+    }, box);
+}
+
 /** The marks of the highlighter on the first page, as the page lists them (by their outlines). */
 const marks = (page: Page) => page.locator("[data-page-annotations] [data-annotation=highlight]");
 
@@ -61,6 +89,12 @@ test("text marked with the highlighter is in the saved copy, as a standard annot
     expect(outline.y).toBeLessThanOrEqual(privacy.y + 1);
     expect(outline.y + outline.height).toBeGreaterThanOrEqual(privacy.y + privacy.height - 1);
 
+    // And the page shows it: somewhere in the outline, off the letters, the page is green now (it
+    // was white: the mark is drawn when the page is drawn with its annotations).
+    await expect
+      .poll(async () => (await pixelsIn(page, outline)).some(([red, green, blue]) => green - blue > 60 && green > red))
+      .toBe(true);
+
     // Undo takes it away, redo brings it back; the colour can be changed from its toolbar.
     await page.keyboard.press("Control+z");
     await expect(marks(page)).toHaveCount(0);
@@ -69,6 +103,9 @@ test("text marked with the highlighter is in the saved copy, as a standard annot
     await marks(page).first().focus();
     await page.getByRole("toolbar", { name: t.highlightIn(t.colors.green) }).getByRole("button", { name: t.colors.pink }).click();
     await expect(marks(page).first()).toHaveAccessibleName(t.highlightIn(t.colors.pink));
+    await expect
+      .poll(async () => (await pixelsIn(page, outline)).some(([red, green]) => red - green > 60))
+      .toBe(true);
 
     const copy = path.join(folder, "marked.pdf");
     await page.keyboard.press("Control+Shift+S");
