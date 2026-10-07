@@ -180,3 +180,7 @@ pub const MAX_OCR_RESULTS: u32 = 64;
 
 /// Longest time one page may be given to be recognised (B2-10), in milliseconds.
 pub const MAX_OCR_PAGE_MILLIS: u32 = 5 * 60 * 1000;
+
+/// Most languages the user can import for recognising text (B2-10), besides those that come with
+/// the app: each is up to `MAX_LANGUAGE_DATA_BYTES` in the app's data folder.
+pub const MAX_IMPORTED_LANGUAGES: u32 = 20;

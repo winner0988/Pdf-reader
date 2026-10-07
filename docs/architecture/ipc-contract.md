@@ -67,7 +67,7 @@ flowchart LR
 | `get_file_recording` | `{ doc: DocumentId }` | `boolean`：這份文件的檔案可不可以記錄（「不記錄此檔案」沒有勾選） | 否 | #73 |
 | `set_file_recording` | `{ args: FileRecordingArgs }`（`{ doc, record }`，其他欄位一律拒絕） | 無；不記錄時從清單移除並記下加鹽的雜湊值 | 否 | #73 |
 | `clear_recent_exclusions` | 無 | 無；忘記「不記錄此檔案」的選擇 | 否 | B2-12 |
-| `get_settings` | 無 | `Settings`：`theme`（`system`／`light`／`dark`）、`recordRecentFiles`（見 [local-data.md](local-data.md)） | 否 | B2-12 |
+| `get_settings` | 無 | `Settings`：`theme`（`system`／`light`／`dark`）、`recordRecentFiles`（見 [local-data.md](local-data.md)）、`ocrAuto`（開啟文件時自動辨識掃描頁的文字）、`ocrLanguage`（辨識用的語言代碼，`null` 表示由 app 依介面語言決定，見 [ocr.md](ocr.md)） | 否 | B2-12、B2-10 |
 | `set_settings` | `{ settings: Settings }`（完整的一組，其他欄位一律拒絕） | 無；立即套用並寫入 `settings.json`，寫不進去時回傳 `unreadable`（仍然套用）；關閉最近開啟的檔案時一併清除清單 | 否 | B2-12 |
 | `export_pages` | `{ args: ExportArgs, onEvent: Channel<ExportEvent> }`：`request`、`doc`、`pages`（最多 `LIMITS.maxExportPages`）、`format`（`text`；`png`／`jpg` 與 `dpi`；`pdf`；`pdfEvery` 與 `count`，B2-06）；`pdf` 與 `pdfEvery` 的 `pages` 可以到 `LIMITS.maxPageCount`，`pdfEvery` 最多 `LIMITS.maxSplitFiles` 個檔案；不含路徑，其他欄位一律拒絕 | `boolean`：`false` 表示使用者關閉了系統的對話框；進度走頻道；以 `cancel(args.request)` 停止。作者禁止複製時拒絕（見 [export.md](export.md)） | 是 | B2-04 |
 | `apply_edit` | `{ args: EditArgs }`：`doc`、`edit`（`Edit`：`rotatePages { pages, by }`、`deletePages { pages }`、`movePages { pages, before }`、`insertBlankPage { at, like }`，見 [page-management.md](page-management.md)；註解：`addHighlight { marks, color }`（`marks`：每頁的 `{ page, quads }`）、`addNote { page, at, text }`、`deleteAnnotation { page, annotation }`、`setHighlightColor { page, annotation, color }`、`setNoteText { page, annotation, text }`、`addInk { page, strokes, color, width }`、`addStamp { page, rect, stamp }`、`addImageStamp { page, rect, image }`、`setAnnotationRect { page, annotation, rect }`，見 [annotations.md](annotations.md)）；表單：`setFieldValue { page, field, value }`、`flattenForm`，見 [forms.md](forms.md)；其他欄位一律拒絕 | 無；文件換新的 `DocumentId`，分頁的新狀態（`opened`，`unsaved: true`）走開檔頻道。作者禁止時拒絕（見 [saving.md](saving.md)） | 否 | B2-02、B2-05 |
@@ -80,6 +80,12 @@ flowchart LR
 | `close_window` | `{ discard: boolean }` | 無；有未儲存的文件時，只有 `discard: true` 才關閉 | 否 | B2-02 |
 | `pick_stamp_image` | `{ doc: DocumentId }`（不含路徑：主行程顯示開啟對話框，檔案由主行程開啟並交給文件自己的 worker） | `StampImageInfo`（`image`、`width`、`height`）或 `null`（使用者關閉了對話框）。圖片只留下像素，見 [annotations.md](annotations.md)；作者禁止註解、圖片不能用、太大時拒絕 | 否 | B2-08 |
 | `privacy_export` | `{ doc: DocumentId }`（不含路徑：主行程顯示另存對話框，不能選原檔） | `boolean`：`false` 表示使用者關閉了對話框。寫出清除中繼資料的副本，文件與原檔不變；加密的文件拒絕（見 [privacy-export.md](privacy-export.md)） | 否 | B2-03 |
+| `get_ocr_languages` | 無 | `OcrLanguages`：`languages`（`code`、`bundled`、`bytes`；內附的在前，匯入的在後）與 `automatic`（`ocrLanguage: null` 代表的語言，沒有任何語言時為 `null`） | 否 | B2-10 |
+| `import_ocr_language` | 無（不含路徑：主行程顯示開啟對話框，只能選一個 `.traineddata`） | `LanguageImport`：`imported`（帶最新的 `languages`）、`cancelled`，或 `refused`（`reason`：`unreadable`、`tooLarge`、`notLanguageData`、`badName`、`nameTaken`、`tooMany`）；檢查名稱、大小（`LIMITS.maxLanguageDataBytes`）與格式後複製到 app 的資料資料夾，什麼都不下載 | 否 | B2-10 |
+| `remove_ocr_language` | `{ args: RemoveLanguageArgs }`：`code` | `OcrLanguages`；只能移除匯入的語言，內附的不能 | 否 | B2-10 |
+| `start_ocr` | `{ args: OcrArgs }`：`doc` | 無；現在就辨識這份文件的掃描頁，不管設定是否自動；進度走開檔頻道（`ocr` 事件） | 否 | B2-10 |
+| `stop_ocr` | `{ args: OcrArgs }`：`doc` | 無；停止辨識，已辨識的文字保留 | 否 | B2-10 |
+| `set_ocr_focus` | `{ args: OcrFocusArgs }`：`doc`、`pageIndex` | 無；使用者正在看的頁面，優先辨識（頁碼超出範圍時回 `invalidArgument`） | 否 | B2-10 |
 | `check_for_updates` | 無 | `UpdateCheck`：`upToDate`、`available`（`latest`）或 `noRelease`，都帶 `current`；主行程向固定的 GitHub 位址送出 app 唯一的網路請求，得不到可用的回答時回 `networkFailed`；查詢中再呼叫回 `invalidArgument`（見 [update-check.md](update-check.md)） | 否 | #64 |
 | `describe_releases_page` | 無 | `LinkPreview`：固定的 GitHub Releases 頁面 | 否 | #64 |
 | `open_releases_page` | 無 | 無；把固定的 GitHub Releases 頁面交給系統瀏覽器（前端先顯示連結確認） | 否 | #64 |
@@ -97,6 +103,8 @@ flowchart LR
 | `failed` | `tab`、`displayName`、`error: IpcError` | 開檔失敗，分頁顯示錯誤 |
 | `tabLimit` | `ignoredFiles` | 已有 `LIMITS.maxTabs`（20）個分頁，這幾個檔案沒有開啟 |
 | `closeRequested` | `tabs` | 使用者要關閉視窗，但這些分頁有未儲存的變更（B2-02）：視窗先不關，前端詢問後呼叫 `close_window` |
+| `ocr` | `tab`、`progress: OcrProgress` | 辨識這個分頁掃描頁文字的進度：`doc`（分頁現在的文件）、`run`（`idle`、`running`、`done`、`stopped`、`noLanguage`、`failed`）、`pages`、`checked`（已看過的頁數）、`scans`（其中的掃描頁）、`recognised`、`failed`（B2-10，見 [ocr.md](ocr.md)）；有變化時送出，訂閱時也送出目前的進度 |
+| `ocrPage` | `tab`、`doc`、`pageIndex` | 這一頁的文字辨識好了（或放棄了）：頁面關於文字的說法（選取、搜尋）變了，前端重新取得（B2-10） |
 
 - **為什麼用 Channel 而不是 Tauri 事件**：前端要監聽事件就必須有 `core:event` 權限，而 Tauri 內建的拖放事件（`tauri://drag-drop`）會帶**完整路徑**，拿到權限的頁面也能收到。不授予任何 `core:event` 權限，路徑就不可能進入 WebView。
 - 主行程只保留最新的頻道（頁面重新載入時取代舊的）。訂閱時送出**所有分頁目前的狀態**（`Documents::snapshot`，每個分頁一個 `opening`、`opened` 或 `failed`），讓重新載入的頁面恢復全部分頁；快照在事件佇列的鎖內取得，所以不會漏掉任何事件。訂閱前排隊的 `tabLimit` 提示也會送出。

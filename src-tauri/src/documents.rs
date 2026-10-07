@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, TryLockError};
 
 use ipc_contract::limits::{
     MAX_DISPLAY_NAME_BYTES, MAX_PAGE_COUNT, MAX_SOURCE_BYTES, MAX_STAMP_SOURCE_BYTES, MAX_TABS,
@@ -27,12 +27,14 @@ use ipc_contract::types::{
 };
 use ipc_contract::validate::{Validate, check_page_index, stamp_png_size};
 use ipc_contract::worker::{
-    UnknownFile, WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
+    OcrFinished, OcrPageState, UnknownFile, WorkerEdit, WorkerErrorCode, WorkerRequest,
+    WorkerResponse,
 };
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
 use crate::export::ImageKind;
 use crate::history::History;
+use crate::ocr::{OcrLink, PAGE_MILLIS, Tabs};
 use crate::pictures::{Full, Pictures};
 use crate::recovery::{Found, JournalId, Journals, TooLarge};
 use crate::saving::{self, FileIdentity, Temporary};
@@ -2044,6 +2046,141 @@ fn document_info(
         message: format!("invalid document info: {error}"),
     })?;
     Ok(info)
+}
+
+impl Documents {
+    /// The tab whose document the page knows as `doc` (B2-10).
+    pub fn tab_of(&self, doc: DocumentId) -> Option<TabId> {
+        let tabs = self.lock().tabs.clone();
+        tabs.iter()
+            .find(|tab| matches!(&*lock(&tab.event), OpenEvent::Opened { info, .. } if info.doc == doc))
+            .map(|tab| tab.id)
+    }
+}
+
+/// Every tab, the one the window shows first; and a way into the open document of each, for
+/// recognising the text of scanned pages (B2-10, src/ocr.rs).
+impl Tabs for Documents {
+    fn tabs(&self) -> Vec<TabId> {
+        let inner = self.lock();
+        let mut tabs: Vec<TabId> = inner.tabs.iter().map(|tab| tab.id).collect();
+        if let Some(active) = inner.active
+            && let Some(at) = tabs.iter().position(|&tab| tab == active)
+        {
+            tabs[..=at].rotate_right(1);
+        }
+        tabs
+    }
+
+    /// Only if the document is not busy with another request: recognising never makes the user
+    /// wait, and never opens a lost document again (their next request does).
+    fn with_link(&self, tab: TabId, step: &mut dyn FnMut(&mut dyn OcrLink)) -> bool {
+        let tabs = self.lock().tabs.clone();
+        let Some(tab) = tabs.iter().find(|candidate| candidate.id == tab) else {
+            return false;
+        };
+        let mut document = match tab.document.try_lock() {
+            Ok(document) => document,
+            Err(TryLockError::Poisoned(poison)) => poison.into_inner(),
+            Err(TryLockError::WouldBlock) => return false,
+        };
+        let Some(document) = document.as_mut() else {
+            return false;
+        };
+        step(&mut Link { document });
+        true
+    }
+}
+
+/// A tab's open document, as recognising scanned pages uses it.
+struct Link<'a> {
+    document: &'a mut OpenDocument,
+}
+
+/// A request about recognising, to the worker of `document`: never to a new one. If the worker
+/// that had the document died, this fails, and the document is opened again by the user's next
+/// request.
+fn ocr_request(
+    document: &mut OpenDocument,
+    make: impl FnOnce(ipc_contract::types::RequestId, DocumentId) -> WorkerRequest,
+) -> Result<WorkerResponse, IpcError> {
+    if document.lost {
+        return Err(IpcError {
+            code: ErrorCode::WorkerCrashed,
+            message: "the document's worker was lost".to_owned(),
+        });
+    }
+    let doc = document.worker_doc;
+    document
+        .host
+        .request(|request| make(request, doc))
+        .map_err(|error| lost_on(document, &error))
+}
+
+impl OcrLink for Link<'_> {
+    fn frontend_doc(&self) -> DocumentId {
+        self.document.info.doc
+    }
+
+    fn worker_doc(&self) -> DocumentId {
+        self.document.worker_doc
+    }
+
+    fn page_count(&self) -> u32 {
+        u32::try_from(self.document.info.pages.len()).unwrap_or(u32::MAX)
+    }
+
+    fn is_lost(&self) -> bool {
+        self.document.lost
+    }
+
+    fn load_language(&mut self, language: &str, data: Vec<u8>) -> Result<(), IpcError> {
+        match ocr_request(self.document, |request, _| WorkerRequest::OcrLoad {
+            request,
+            language: language.to_owned(),
+            data,
+        })? {
+            WorkerResponse::OcrLoaded { .. } => Ok(()),
+            _ => Err(unexpected("OcrLoad")),
+        }
+    }
+
+    fn check_page(&mut self, page_index: u32) -> Result<OcrPageState, IpcError> {
+        match ocr_request(self.document, |request, doc| WorkerRequest::OcrPage {
+            request,
+            doc,
+            page_index,
+            max_millis: PAGE_MILLIS,
+        })? {
+            WorkerResponse::OcrChecked { state, .. } => Ok(state),
+            _ => Err(unexpected("OcrPage")),
+        }
+    }
+
+    fn poll(&mut self) -> Result<(Vec<OcrFinished>, u32), IpcError> {
+        match ocr_request(self.document, |request, _| WorkerRequest::OcrPoll {
+            request,
+        })? {
+            WorkerResponse::OcrPolled {
+                finished, waiting, ..
+            } => Ok((finished, waiting)),
+            _ => Err(unexpected("OcrPoll")),
+        }
+    }
+
+    fn stop(&mut self) -> Result<(), IpcError> {
+        match ocr_request(self.document, |request, _| WorkerRequest::OcrStop {
+            request,
+        })? {
+            WorkerResponse::OcrStopped { .. } => Ok(()),
+            _ => Err(unexpected("OcrStop")),
+        }
+    }
+
+    fn give_up(&mut self) {
+        self.document.host.stop();
+        self.document.lost = true;
+    }
 }
 
 #[cfg(test)]
@@ -4630,5 +4767,169 @@ mod with_worker {
         assert_eq!(discarded.recovery, Recovery::None);
         assert_eq!(data.journals(), 0);
         std::fs::remove_file(path).ok();
+    }
+
+    /// Recognising the text of scanned pages (B2-10), through the real worker.
+    mod ocr {
+        use std::time::{Duration, Instant};
+
+        use ipc_contract::types::{OcrProgress, OcrRun, Settings};
+
+        use super::*;
+        use crate::ocr::Ocr;
+        use crate::ocr_languages::Languages;
+
+        fn corpus(name: &str) -> PathBuf {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../tests/corpus")
+                .join(name)
+        }
+
+        fn ocr() -> Ocr {
+            Ocr::new(Languages::new(
+                Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/tessdata")),
+                None,
+            ))
+        }
+
+        fn english() -> Settings {
+            Settings {
+                ocr_language: Some("eng".to_owned()),
+                ..Settings::default()
+            }
+        }
+
+        fn last_progress(events: &[OpenEvent]) -> Option<OcrProgress> {
+            events.iter().rev().find_map(|event| match event {
+                OpenEvent::Ocr { progress, .. } => Some(*progress),
+                _ => None,
+            })
+        }
+
+        /// Steps recognising until the latest progress is one `until` accepts; everything the
+        /// page was told is returned.
+        fn run(
+            documents: &Documents,
+            ocr: &Ocr,
+            settings: &Settings,
+            until: impl Fn(&OcrProgress) -> bool,
+        ) -> Vec<OpenEvent> {
+            let mut events = Vec::new();
+            let started = Instant::now();
+            loop {
+                ocr.tick(documents, settings, Instant::now(), &mut |event| {
+                    events.push(event);
+                });
+                if last_progress(&events).is_some_and(|progress| until(&progress)) {
+                    return events;
+                }
+                assert!(
+                    started.elapsed() < Duration::from_secs(90),
+                    "not done in time: {events:?}"
+                );
+                std::thread::sleep(Duration::from_millis(30));
+            }
+        }
+
+        fn done(progress: &OcrProgress) -> bool {
+            progress.run == OcrRun::Done
+        }
+
+        fn lines(text: &PageText) -> Vec<&str> {
+            text.lines.iter().map(|line| line.text.as_str()).collect()
+        }
+
+        #[test]
+        fn the_scanned_pages_of_a_document_are_read_in_the_background_and_then_found() {
+            let documents = Documents::new(worker());
+            let info = open_in(&documents, &corpus("benign/scanned-text.pdf"));
+            // Before: the page has no text, so there is nothing to select and nothing to find.
+            assert!(documents.page_text(info.doc, 0).unwrap().lines.is_empty());
+            let found = documents
+                .search_page(info.doc, 0, "secret", false, 10)
+                .unwrap();
+            assert!(!found.has_text && found.hits.is_empty());
+
+            let events = run(&documents, &ocr(), &english(), done);
+            let progress = last_progress(&events).unwrap();
+            assert_eq!(
+                (
+                    progress.doc,
+                    progress.pages,
+                    progress.checked,
+                    progress.scans
+                ),
+                (info.doc, 1, 1, 1)
+            );
+            assert_eq!((progress.recognised, progress.failed), (1, 0));
+            assert!(events.iter().any(|event| matches!(
+                event,
+                OpenEvent::OcrPage { doc, page_index: 0, .. } if *doc == info.doc
+            )));
+
+            let text = documents.page_text(info.doc, 0).unwrap();
+            assert!(text.recognised);
+            assert_eq!(lines(&text), ["PRIVACY FIRST", "SECRET PAPER"]);
+            let found = documents
+                .search_page(info.doc, 0, "secret", false, 10)
+                .unwrap();
+            assert!(found.has_text);
+            assert_eq!(found.hits.len(), 1);
+        }
+
+        #[test]
+        fn the_language_the_app_chooses_reads_the_sample_too() {
+            // Traditional Chinese is what the app chooses; its data reads Latin letters as well.
+            let documents = Documents::new(worker());
+            let info = open_in(&documents, &corpus("benign/scanned-text.pdf"));
+            run(&documents, &ocr(), &Settings::default(), done);
+            let text = documents.page_text(info.doc, 0).unwrap();
+            assert!(text.recognised);
+            // Its data reads blocky Latin lettering poorly, so only that something was read is
+            // checked (English data reads this sample exactly, above).
+            assert!(!lines(&text).is_empty());
+        }
+
+        #[test]
+        fn a_document_with_text_has_nothing_to_read() {
+            let documents = Documents::new(worker());
+            let info = open_in(&documents, &corpus("benign/mixed-text-zh-en.pdf"));
+            let events = run(&documents, &ocr(), &english(), done);
+            let progress = last_progress(&events).unwrap();
+            assert_eq!(
+                (progress.pages, progress.checked, progress.scans),
+                (1, 1, 0)
+            );
+            assert!(!documents.page_text(info.doc, 0).unwrap().recognised);
+            assert!(
+                events
+                    .iter()
+                    .all(|event| !matches!(event, OpenEvent::OcrPage { .. }))
+            );
+        }
+
+        #[test]
+        fn left_to_the_user_the_text_is_only_read_when_they_ask() {
+            let documents = Documents::new(worker());
+            let info = open_in(&documents, &corpus("benign/scanned-text.pdf"));
+            let ocr = ocr();
+            let settings = Settings {
+                ocr_auto: false,
+                ..english()
+            };
+            let events = run(&documents, &ocr, &settings, |progress| {
+                progress.run == OcrRun::Idle
+            });
+            assert_eq!(last_progress(&events).unwrap().checked, 0);
+            for _ in 0..5 {
+                ocr.tick(&documents, &settings, Instant::now(), &mut |_| {});
+                std::thread::sleep(Duration::from_millis(30));
+            }
+            assert!(documents.page_text(info.doc, 0).unwrap().lines.is_empty());
+
+            ocr.start_tab(tab_of(&documents, info.doc));
+            run(&documents, &ocr, &settings, done);
+            assert!(documents.page_text(info.doc, 0).unwrap().recognised);
+        }
     }
 }

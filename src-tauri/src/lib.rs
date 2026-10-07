@@ -14,6 +14,8 @@ mod file_dialog;
 mod history;
 mod links;
 mod local_data;
+mod ocr;
+mod ocr_languages;
 mod opener;
 mod pictures;
 mod recent;
@@ -28,12 +30,15 @@ mod update_check;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use tauri::{AppHandle, Manager};
 
 use crate::documents::Documents;
 use crate::events::OpenEvents;
 use crate::export::Exports;
+use crate::ocr::Ocr;
+use crate::ocr_languages::Languages;
 use crate::recent::RecentFiles;
 use crate::recovery::Journals;
 use crate::render::{DEFAULT_CACHE_BYTES, Renderer};
@@ -125,6 +130,12 @@ pub fn run() {
             commands::save_document_as,
             commands::close_window,
             commands::privacy_export,
+            commands::get_ocr_languages,
+            commands::import_ocr_language,
+            commands::remove_ocr_language,
+            commands::start_ocr,
+            commands::stop_ocr,
+            commands::set_ocr_focus,
             commands::pick_stamp_image,
         ])
         .on_window_event(commands::on_window_event)
@@ -133,6 +144,11 @@ pub fn run() {
             app.manage(SettingsStore::load(
                 data.as_ref().map(|dir| dir.join(settings::FILE_NAME)),
             ));
+            app.manage(Arc::new(Ocr::new(Languages::new(
+                bundled_languages(app.app_handle()),
+                data.as_ref()
+                    .map(|dir| dir.join(ocr_languages::FOLDER_NAME)),
+            ))));
             app.manage(RecentFiles::new(
                 data.as_ref().map(|dir| dir.join(recent::FILE_NAME)),
             ));
@@ -146,6 +162,18 @@ pub fn run() {
             app.manage(Renderer::start(DEFAULT_CACHE_BYTES, move |args| {
                 handle.state::<Documents>().render(args)
             }));
+            // Recognising the text of scanned pages (B2-10) goes on in the background.
+            let (tabs, settings, events) = (
+                OcrTabs(app.app_handle().clone()),
+                app.app_handle().clone(),
+                app.app_handle().clone(),
+            );
+            Ocr::start(
+                Arc::clone(&app.state::<Arc<Ocr>>()),
+                tabs,
+                move || settings.state::<SettingsStore>().get(),
+                move |event| events.state::<OpenEvents>().send(event),
+            );
             commands::open_paths(app.app_handle(), launch_documents);
             Ok(())
         })
@@ -162,6 +190,46 @@ fn data_dir(app: &AppHandle) -> Option<PathBuf> {
         .map(PathBuf::from)
         .filter(|dir| dir.is_absolute())
         .or_else(|| app.path().app_local_data_dir().ok())
+}
+
+/// The folder of the language data that came with the app (B2-10): `tessdata` in the app's
+/// resource folder, which on Windows is where the installer puts it, next to the program. A
+/// development build finds it next to the program too (the build copies it there), and in the
+/// source folder.
+fn bundled_languages(app: &AppHandle) -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(resources) = app.path().resource_dir() {
+        candidates.push(resources.join(ocr_languages::FOLDER_NAME));
+    }
+    if let Ok(program) = std::env::current_exe()
+        && let Some(folder) = program.parent()
+    {
+        candidates.push(folder.join(ocr_languages::FOLDER_NAME));
+    }
+    #[cfg(debug_assertions)]
+    candidates.push(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join(ocr_languages::FOLDER_NAME),
+    );
+    candidates.into_iter().find(|folder| folder.is_dir())
+}
+
+/// The app's documents, as the thread that recognises text steps over them.
+struct OcrTabs(AppHandle);
+
+impl ocr::Tabs for OcrTabs {
+    fn tabs(&self) -> Vec<ipc_contract::types::TabId> {
+        self.0.state::<Documents>().tabs()
+    }
+
+    fn with_link(
+        &self,
+        tab: ipc_contract::types::TabId,
+        step: &mut dyn FnMut(&mut dyn ocr::OcrLink),
+    ) -> bool {
+        self.0.state::<Documents>().with_link(tab, step)
+    }
 }
 
 /// Brings the window to the front, e.g. after a second launch handed it a file.
