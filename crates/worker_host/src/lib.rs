@@ -214,6 +214,31 @@ impl WorkerHost {
         })
     }
 
+    /// Writes the pages `pages` of the open document `doc` to `file` as a document of their own
+    /// (B2-06), as [`save`](Self::save) writes `doc`: the worker gets a write-only handle, never a
+    /// path. Returns `Saved`. The document itself does not change.
+    pub fn save_pages(
+        &mut self,
+        doc: DocumentId,
+        pages: &[u32],
+        file: &File,
+    ) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_write_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::SavePages {
+            request,
+            doc,
+            pages: pages.to_vec(),
+            file: FileHandle(handle),
+        })
+    }
+
     /// Has the worker keep the bytes of the file at `path`, read-only, as the ones undo opens
     /// `doc` again from (ADR 0013): the file `doc` was just saved to. Returns `Rebased`.
     pub fn rebase(&mut self, doc: DocumentId, path: &Path) -> Result<WorkerResponse, HostError> {

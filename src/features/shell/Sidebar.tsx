@@ -4,7 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OutlineTree } from "@/features/outline/OutlineTree";
 import type { OutlineView } from "@/features/outline/tree";
 import type { PageSize } from "@/features/shell/model";
-import { Thumbnails, type PageEditing } from "@/features/thumbnails/Thumbnails";
+import { Thumbnails, type PageEditing, type SavePages } from "@/features/thumbnails/Thumbnails";
 import type { PageRenderer } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
 import type { DocumentId } from "@/ipc/generated/contract";
@@ -22,6 +22,8 @@ type SidebarProps = {
   onOpenLink?: ComponentProps<typeof OutlineTree>["onOpenLink"];
   /** Page management in the thumbnails (B2-05). */
   pageEditing?: PageEditing;
+  /** Saving the selected pages as a file of their own (B2-06). */
+  savePages?: SavePages;
 };
 
 function Message({ children }: { children: string }) {
@@ -38,6 +40,7 @@ export function Sidebar({
   onJumpToPage,
   onOpenLink,
   pageEditing,
+  savePages,
 }: SidebarProps) {
   return (
     <aside
@@ -80,6 +83,7 @@ export function Sidebar({
             currentPage={currentPage}
             onJumpToPage={onJumpToPage}
             editing={pageEditing}
+            savePages={savePages}
           />
         </TabsContent>
       </Tabs>

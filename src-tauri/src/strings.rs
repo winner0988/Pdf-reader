@@ -34,6 +34,43 @@ pub const EXPORT_IMAGES_DIALOG_TITLE: &str = "選擇匯出頁面圖片的資料�
 /// The dialog for the picture of a custom stamp (B2-08).
 pub const STAMP_IMAGE_DIALOG_TITLE: &str = "選擇印章要用的圖片";
 pub const IMAGE_FILTER_NAME: &str = "圖片（PNG、JPEG）";
+pub const SPLIT_DIALOG_TITLE: &str = "將選取的頁面另存為新檔";
+pub const SPLIT_SAME_FILE_TITLE: &str = "請選擇其他檔案";
+pub const SPLIT_SAME_FILE_MESSAGE: &str =
+    "拆分出的頁面是一份新的檔案，不會取代原本的檔案。請選擇原檔以外的位置或檔名。";
+pub const SPLIT_FOLDER_DIALOG_TITLE: &str = "選擇存放拆分後檔案的資料夾";
+/// The name suggested for a file of some pages of a document (B2-06): the pages' numbers when
+/// they follow one another, else only that they were chosen.
+pub fn split_file_name(stem: &str, pages: &[u32]) -> String {
+    match (pages.first(), pages.last()) {
+        (Some(first), Some(last)) if follow_one_another(pages) => {
+            let (first, last) = (first.saturating_add(1), last.saturating_add(1));
+            if first == last {
+                format!("{stem}-p{first}.pdf")
+            } else {
+                format!("{stem}-p{first}-{last}.pdf")
+            }
+        }
+        _ => format!("{stem}（選取的頁面）.pdf"),
+    }
+}
+
+/// The name of part number `part` (0-based) of `parts` that a document is split into (B2-06): the
+/// pages' numbers when they follow one another, else the number of the part.
+pub fn split_part_name(stem: &str, pages: &[u32], part: usize, parts: usize) -> String {
+    if follow_one_another(pages) {
+        split_file_name(stem, pages)
+    } else {
+        let width = parts.to_string().len();
+        format!("{stem}-{:0width$}.pdf", part + 1)
+    }
+}
+
+fn follow_one_another(pages: &[u32]) -> bool {
+    pages
+        .windows(2)
+        .all(|pair| pair[0].checked_add(1) == Some(pair[1]))
+}
 pub const OVERWRITE_TITLE: &str = "檔案已經存在";
 
 /// Asked before exported page images replace files already in the chosen folder.
@@ -54,7 +91,19 @@ PDF Reader 不會自行下載任何東西。";
 
 #[cfg(test)]
 mod tests {
-    use super::window_title;
+    use super::{split_file_name, split_part_name, window_title};
+
+    #[test]
+    fn split_files_are_named_by_their_pages_or_by_their_number() {
+        assert_eq!(split_file_name("報告", &[1, 2, 3]), "報告-p2-4.pdf");
+        assert_eq!(split_file_name("報告", &[4]), "報告-p5.pdf");
+        assert_eq!(split_file_name("報告", &[1, 3]), "報告（選取的頁面）.pdf");
+        assert_eq!(split_file_name("報告", &[2, 1]), "報告（選取的頁面）.pdf");
+        assert_eq!(split_part_name("報告", &[0, 1], 0, 3), "報告-p1-2.pdf");
+        // Pages that do not follow one another: the number of the part, as wide as the last.
+        assert_eq!(split_part_name("報告", &[0, 2], 1, 12), "報告-02.pdf");
+        assert_eq!(split_part_name("報告", &[0, 2], 1, 5), "報告-2.pdf");
+    }
 
     #[test]
     fn the_window_title_names_the_open_file_and_marks_unsaved_changes() {

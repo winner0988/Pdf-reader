@@ -158,15 +158,18 @@
 ### 匯出（B2-04）
 
 - 「⋯」→「匯出…」開啟匯出對話框（沒有開啟文件時停用；作者禁止複製時停用並標示 permissions.notAllowed）。
-- **格式**：純文字（.txt，預設），或頁面圖片：PNG 或 JPG（#111），每頁一個檔案；解析度 72／150（預設）／300 dpi，兩種圖片共用，選純文字時停用。
-- **頁面**：與列印相同的範圍（全部、目前頁、頁碼）；一次最多 1,000 頁，超過時顯示 export.tooMany。
+- **格式**：純文字（.txt，預設），或頁面圖片：PNG 或 JPG（#111），每頁一個檔案；解析度 72／150（預設）／300 dpi，兩種圖片共用，只有選圖片時可用。還有兩種 PDF 格式（B2-06，見 [split.md](../architecture/split.md)）：export.pdf（選的頁面存成一個新檔案）與 export.pdfEvery（每幾頁存成一個檔案，旁邊的輸入框填頁數，預設 10；在輸入框打字就選了這一種）。加密的文件停用兩種 PDF 格式並顯示 export.encryptedNote。
+- **頁面**：與列印相同的範圍（全部、目前頁、頁碼）；文字與圖片一次最多 1,000 頁，超過時顯示 export.tooMany；PDF 格式可以是整份文件的頁數。每個檔案的頁數不是 1 以上的整數時顯示 export.perFileInvalid，拆出的檔案超過 1,000 個時顯示 export.tooManyFiles。
 - **匯出…**：主行程顯示系統的對話框：
   - 純文字：另存新檔，建議檔名 `<原檔名>.txt`，已存在時由對話框詢問是否取代；
-  - 圖片：選擇資料夾，檔名是 `<原檔名>-p<頁碼>.png` 或 `.jpg`，已有同名檔案時以訊息方塊詢問是否覆寫。
+  - 圖片：選擇資料夾，檔名是 `<原檔名>-p<頁碼>.png` 或 `.jpg`，已有同名檔案時以訊息方塊詢問是否覆寫；
+  - 一個 PDF 檔案：另存新檔（標題「將選取的頁面另存為新檔」），建議檔名 `<原檔名>-p2-4.pdf`（頁面不連續時 `<原檔名>（選取的頁面）.pdf`）；選到文件自己的檔案時以訊息方塊說明、可以再選；
+  - 每幾頁一個檔案：選擇資料夾，檔名 `<原檔名>-p1-10.pdf`…（頁面不連續時 `<原檔名>-01.pdf`…），已有同名檔案時詢問是否覆寫。
 
   關閉系統的對話框時回到匯出對話框，可以再試。
 - 匯出時顯示 export.progress，按「停止」在下一頁之前停止。
-- 結束後關閉對話框，狀態列顯示 export.done 或 export.stopped 4 秒。
+- 結束後關閉對話框，狀態列顯示 export.done、export.splitDone（每幾頁一個檔案）或 export.stopped 4 秒。
+- **從縮圖**：選好頁面（`Ctrl`／`Shift` 多選）後右鍵「pages.saveSelected」：開啟匯出對話框，格式是 PDF 檔案，頁面是選好的（例如「2-4, 6」）；作者禁止複製時停用並標示 permissions.notAllowed，加密的文件沒有這個項目。
 - 做法與限制見 [export.md](../architecture/export.md)。
 
 ### 隱私匯出（B2-03）
@@ -240,6 +243,20 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
 - **作者不允許註解**時，上述的編輯都停用，右鍵的「新增附註」標示 permissions.notAllowed，工具列的按鈕說明 annotations.notAllowed；註解仍然顯示。
 - 編輯失敗時，狀態列顯示 annotations.failed；未儲存的變更太多時顯示 pages.saveFirst。
 - 沒有鍵盤快捷鍵（螢光筆可以從工具列的按鈕以鍵盤操作）。
+
+### 手繪與印章（B2-08）
+
+手繪線條與標準印章也存成標準的 PDF 註解（`Ink`、`Stamp`），不寫入作者與時間。做法見 [annotations.md](../architecture/annotations.md)。
+
+- **工具列**：搜尋按鈕左邊依序是畫筆按鈕（annotations.pen，開啟時是按下的狀態）、它旁邊的小箭頭（annotations.penStyle，選單選顏色與粗細），與印章按鈕（annotations.stamp，選單列出八種印章）。
+- **畫線**：按畫筆按鈕，狀態列顯示 annotations.penOn；在頁面上按住並拖曳畫線，放開就加上一筆（可以復原）。畫筆維持開啟，可以連續畫；`Esc` 或再按一次畫筆按鈕結束（選單開著時，第一次 `Esc` 只關選單）。
+  - 顏色（annotations.inkColors）：黑、紅、藍、綠；粗細（annotations.inkWidths）：細、中、粗；一開始是黑色、中；只影響之後畫的線，只記在這次執行中；
+  - 按一下沒有拖曳畫出一個圓點。
+- **印章**：按印章按鈕選一種（annotations.stamps），狀態列顯示 annotations.placeStamp；在頁面上點一下，以點擊處為中心放下，放下後工具自動結束；按 `Enter` 放在目前這一頁的中央（給不能使用滑鼠的人）；`Esc` 取消。標準印章的文字是英文（由 PDF 引擎畫出，其他閱讀器看到的一樣），選單與說明用中文。
+- **移動與縮放**：選取手繪或印章（`Tab` 或點一下）時，周圍出現控制點；拖曳本體移動，拖曳控制點縮放。手繪有八個控制點，可以自由縮放；印章只有四個角，維持比例。拖曳時以虛線輪廓預覽，放開才生效（可以復原）。方向鍵移動 1 點，加 `Shift` 移動 10 點；按住不放不會連續移動。操作方式（annotations.moveHint）是這個輪廓的工具提示，也是螢幕閱讀器念出的說明。
+- **作者不允許註解**時，畫筆與印章按鈕停用，說明是 annotations.notAllowed；已有的手繪與印章仍然顯示，可以選取，但沒有控制點，方向鍵與 `Delete` 不作用。
+- 編輯失敗時，狀態列顯示 annotations.failed；未儲存的變更太多時顯示 pages.saveFirst。
+- 沒有開啟畫筆或印章的快捷鍵（可以從工具列的按鈕以鍵盤操作）。
 
 ### 表單（B2-09）
 
@@ -563,6 +580,12 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | export.text | 純文字（.txt） |
 | export.png | 頁面圖片（PNG，每頁一個檔案） |
 | export.jpg | 頁面圖片（JPG，每頁一個檔案，檔案較小） |
+| export.pdf | PDF 檔案（選的頁面存成一個新檔案） |
+| export.pdfEvery | PDF 檔案（每幾頁存成一個檔案） |
+| export.perFile | 每個檔案的頁數（輸入框的可讀名稱） |
+| export.encryptedNote | 加密的文件不能存成 PDF 檔案：拆出來的檔案不會再有作者設定的保護。 |
+| export.perFileInvalid | 請輸入每個檔案的頁數（1 以上的整數）。 |
+| export.tooManyFiles | 一次最多拆成 <上限> 個檔案，請增加每個檔案的頁數。 |
 | export.resolution | 解析度 |
 | export.dpi | <dpi> dpi |
 | export.range | 頁面 |
@@ -572,11 +595,15 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | export.stop | 停止 |
 | export.progress | 正在匯出…（<n>／<N> 頁） |
 | export.done | 已匯出 <N> 頁。 |
+| export.splitDone | 已將 <N> 頁存成 <K> 個檔案。 |
 | export.stopped | 已停止，已匯出 <n> 頁。 |
 | export.failed | 匯出失敗，請再試一次。 |
 | EXPORT_TEXT_DIALOG_TITLE（主行程） | 匯出純文字 |
 | TEXT_FILTER_NAME（主行程） | 純文字檔 |
 | EXPORT_IMAGES_DIALOG_TITLE（主行程） | 選擇匯出頁面圖片的資料夾 |
+| SPLIT_DIALOG_TITLE（主行程） | 將選取的頁面另存為新檔 |
+| SPLIT_FOLDER_DIALOG_TITLE（主行程） | 選擇存放拆分後檔案的資料夾 |
+| SPLIT_SAME_FILE_TITLE／SPLIT_SAME_FILE_MESSAGE（主行程） | 請選擇其他檔案／拆分出的頁面是一份新的檔案，不會取代原本的檔案。請選擇原檔以外的位置或檔名。 |
 | OVERWRITE_TITLE（主行程） | 檔案已經存在 |
 
 ### 頁面管理（B2-05）
@@ -588,6 +615,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | pages.delete | 刪除 |
 | pages.insertBefore／pages.insertAfter | 在前面插入空白頁／在後面插入空白頁 |
 | pages.moveTo | 移到… |
+| pages.saveSelected | 將選取的頁面另存為新檔… |
 | pages.notAllowed | 文件作者不允許變更頁面 |
 | pages.keepOne | 至少要留下一頁，無法刪除全部頁面 |
 | pages.failed | 無法變更頁面，請再試一次。 |
@@ -627,6 +655,21 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | annotations.noteDialog.tooLong | 附註太長了，請縮短一些。 |
 | toolbar.highlight(color) | 螢光筆（<顏色>） |
 | toolbar.highlightNeedsText | 螢光筆：先選取文字 |
+
+### 手繪與印章（B2-08）
+
+| 鍵 | 文字 |
+|---|---|
+| annotations.pen | 畫筆 |
+| annotations.penStyle | 畫筆的顏色與粗細 |
+| annotations.inkColors.* | 黑色、紅色、藍色、綠色 |
+| annotations.inkWidths.* | 細、中、粗 |
+| annotations.stamp | 新增印章 |
+| annotations.stamps.* | 已核准、未核准、草稿、最終版、機密、供評論、照現狀、絕密 |
+| annotations.kind.ink／stamp | 手繪線條／印章（頁面上輪廓與工具列的名稱） |
+| annotations.penOn | 畫筆已開啟：在頁面上按住並拖曳來畫線，按 Esc 結束。 |
+| annotations.placeStamp(name) | 在頁面上點一下放下「<名稱>」印章（或按 Enter 放在這一頁的中央），按 Esc 取消。 |
+| annotations.moveHint | 拖曳移動；拖曳控制點調整大小；方向鍵移動 1 點，加 Shift 移動 10 點。 |
 
 ### 崩潰復原（B2-13）
 
