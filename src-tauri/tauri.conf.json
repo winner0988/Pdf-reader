@@ -41,6 +41,9 @@
     "active": true,
     "targets": ["nsis"],
     "category": "Productivity",
+    "resources": {
+      "resources/tessdata/*.traineddata": "tessdata/"
+    },
     "shortDescription": "Privacy-first, offline PDF reader",
     "icon": [
       "icons/32x32.png",

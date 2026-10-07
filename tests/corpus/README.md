@@ -19,7 +19,7 @@ python tests/corpus/generate.py --large   # 另外產生大型檔案到 large/ou
 
 | 目錄 | 內容 | 用途 |
 |---|---|---|
-| `benign/` | 一般文件：單頁、多頁、中英文、三層目錄、內部連結、外部連結、旋轉頁、不同尺寸、純圖片；加密（RC4 40-bit、AES-256）；已簽章、DocMDP 認證簽章 | 功能測試（MVP-06～12）；ADR 0006、ADR 0010 的測試 |
+| `benign/` | 一般文件：單頁、多頁、中英文、三層目錄、內部連結、外部連結、旋轉頁、不同尺寸、純圖片、掃描頁（`scanned-text.pdf`：一張兩行文字的圖片，沒有文字層，OCR 的樣本）；加密（RC4 40-bit、AES-256）；已簽章、DocMDP 認證簽章 | 功能測試（MVP-06～12）；ADR 0006、ADR 0010 的測試 |
 | `malicious/` | 主動內容與遠端引用：JavaScript、OpenAction、AA、Launch、SubmitForm、ImportData、GoToR（UNC）、GoToE、遠端檔案規格、XFA、嵌入檔案；危險 scheme 與偽裝連結 | 封鎖與偵測（MVP-11、MVP-12） |
 | `malformed/` | 截斷、xref 錯誤、頁面樹循環、目錄循環、超大頁面、深層巢狀、零頁、非 PDF、空檔 | 錯誤處理、fuzzing 種子（QA-03） |
 | `images/` | 自訂印章用的圖片（B2-08）：帶 EXIF（GPS、相機型號、時間）的 JPEG、帶文字與 `eXIf` 區塊且角落透明的 PNG、標頭謊稱 60000 × 60000 的 PNG。不是 PDF，列在 `manifest.json` 的 `images`，不在 `files` | 圖片解碼與中繼資料的清除 |

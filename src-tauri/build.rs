@@ -46,6 +46,12 @@ fn main() {
         "close_window",
         "privacy_export",
         "encrypt_copy",
+        "get_ocr_languages",
+        "import_ocr_language",
+        "remove_ocr_language",
+        "start_ocr",
+        "stop_ocr",
+        "set_ocr_focus",
         "pick_stamp_image",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))

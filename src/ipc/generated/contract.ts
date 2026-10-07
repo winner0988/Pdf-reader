@@ -116,7 +116,107 @@ export type Settings = { theme: ThemePreference,
 /**
  * Whether files that open go on the recent files list (#73).
  */
-recordRecentFiles: boolean, };
+recordRecentFiles: boolean, 
+/**
+ * Whether the text of scanned pages is recognised by itself when a document opens (B2-10,
+ * ADR 0015); if not, only when the user asks for it.
+ */
+ocrAuto: boolean, 
+/**
+ * The language scanned pages are recognised in: the code of an installed one, or none to
+ * let the app choose by the language of its interface.
+ */
+ocrLanguage: string | null, };
+
+/**
+ * A language that scanned pages can be recognised in (B2-10).
+ */
+export type OcrLanguage = { 
+/**
+ * What its data file is called, without `.traineddata`: `eng`, `chi_tra`...
+ */
+code: string, 
+/**
+ * It came with the app; the others were imported by the user and can be removed.
+ */
+bundled: boolean, 
+/**
+ * How big its data is, in bytes.
+ */
+bytes: bigint, };
+
+/**
+ * The languages installed for recognising text (B2-10).
+ */
+export type OcrLanguages = { 
+/**
+ * Those that came with the app first, then the imported ones; each in order of its code.
+ */
+languages: Array<OcrLanguage>, 
+/**
+ * The language `Settings::ocr_language: None` stands for. None when none is installed.
+ */
+automatic: string | null, };
+
+/**
+ * Why importing a language was refused (B2-10).
+ */
+export type LanguageRefusal = "unreadable" | "tooLarge" | "notLanguageData" | "badName" | "nameTaken" | "tooMany";
+
+/**
+ * What `import_ocr_language` came to (B2-10).
+ */
+export type LanguageImport = { "kind": "imported", languages: OcrLanguages, } | { "kind": "cancelled" } | { "kind": "refused", reason: LanguageRefusal, };
+
+/**
+ * How recognising the text of a document's scanned pages is going (B2-10, ADR 0015).
+ */
+export type OcrRun = "idle" | "running" | "done" | "stopped" | "noLanguage" | "failed";
+
+/**
+ * The state of recognising a tab's scanned pages: pages are looked at one after another, the
+ * scanned ones are read.
+ */
+export type OcrProgress = { 
+/**
+ * The document the numbers are about: the tab's current one.
+ */
+doc: DocumentId, run: OcrRun, 
+/**
+ * How many pages the document has.
+ */
+pages: number, 
+/**
+ * Pages looked at so far, to tell whether they are scans.
+ */
+checked: number, 
+/**
+ * Scanned pages found among them.
+ */
+scans: number, 
+/**
+ * Scanned pages whose text was recognised.
+ */
+recognised: number, 
+/**
+ * Scanned pages that could not be read, or took too long.
+ */
+failed: number, };
+
+/**
+ * `start_ocr` and `stop_ocr` (B2-10).
+ */
+export type OcrArgs = { doc: DocumentId, };
+
+/**
+ * `set_ocr_focus` (B2-10): the page the user is looking at, which is recognised first.
+ */
+export type OcrFocusArgs = { doc: DocumentId, pageIndex: number, };
+
+/**
+ * `remove_ocr_language` (B2-10).
+ */
+export type RemoveLanguageArgs = { code: string, };
 
 /**
  * What an export writes (B2-04).
@@ -558,7 +658,7 @@ export type IpcError = { code: ErrorCode, message: string, };
  * the app. Every file gets its own tab (MVP-14): `Opening` adds it, then `Opened` or `Failed`
  * says how it went.
  */
-export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, } | { "kind": "closeRequested", tabs: Array<TabId>, };
+export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, } | { "kind": "closeRequested", tabs: Array<TabId>, } | { "kind": "ocr", tab: TabId, progress: OcrProgress, } | { "kind": "ocrPage", tab: TabId, doc: DocumentId, pageIndex: number, };
 
 /** Limits enforced by the main process (crates/ipc_contract/src/limits.rs). */
 export const LIMITS = {
@@ -595,6 +695,8 @@ export const LIMITS = {
   maxFieldsPerPage: 5000,
   maxFieldValueBytes: 16384,
   maxFieldOptions: 1000,
+  maxLanguageDataBytes: 67108864,
+  maxImportedLanguages: 20,
   protocolVersion: 0,
 } as const;
 

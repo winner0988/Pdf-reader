@@ -3,16 +3,18 @@
 //! [`OpenEvent`]s carrying only a `TabId`, a `DocumentId` and a file name.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use ipc_contract::types::{
     DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat,
-    FileRecordingArgs, FormField, IpcError, LinkArgs, LinkPreview, OpenEvent, OutlineLinkArgs,
-    OutlineResult, PageAnnotation, PageLink, PageText, PagesSource, Password, RecentFile, RecentId,
+    FileRecordingArgs, FormField, IpcError, LanguageImport, LinkArgs, LinkPreview, OcrArgs,
+    OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation,
+    PageLink, PageText, PagesSource, Password, RecentFile, RecentId, RemoveLanguageArgs,
     RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent, Settings, StampImageInfo,
     TabId, UndoArgs, UnlockArgs, UnlockSourceArgs, UpdateCheck,
 };
-use ipc_contract::validate::Validate;
+use ipc_contract::validate::{Validate, check_page_index};
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
 
@@ -20,6 +22,7 @@ use crate::documents::Documents;
 use crate::events::OpenEvents;
 use crate::export::{self, Exports, ImageKind};
 use crate::file_dialog;
+use crate::ocr::Ocr;
 use crate::recent::RecentFiles;
 use crate::render::Renderer;
 use crate::search::{self, Searches};
@@ -34,8 +37,12 @@ pub async fn subscribe_open_events(
 ) -> Result<(), IpcError> {
     blocking(move || {
         let documents = app.state::<Documents>();
-        app.state::<OpenEvents>()
-            .subscribe(on_event, || documents.snapshot());
+        let ocr = app.state::<Arc<Ocr>>();
+        app.state::<OpenEvents>().subscribe(on_event, || {
+            let mut events = documents.snapshot();
+            events.extend(ocr.snapshot());
+            events
+        });
         Ok(())
     })
     .await
@@ -263,9 +270,14 @@ pub async fn get_settings(app: AppHandle) -> Result<Settings, IpcError> {
 /// be saved for the next run. Turning off the recent files list also empties it.
 #[tauri::command]
 pub async fn set_settings(app: AppHandle, settings: Settings) -> Result<(), IpcError> {
+    settings.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
     blocking(move || {
+        let record_recent_files = settings.record_recent_files;
         let saved = app.state::<SettingsStore>().set(settings);
-        if !settings.record_recent_files {
+        if !record_recent_files {
             app.state::<RecentFiles>().clear();
             app.state::<Documents>().clear_unused_journals();
         }
@@ -273,6 +285,119 @@ pub async fn set_settings(app: AppHandle, settings: Settings) -> Result<(), IpcE
             code: ErrorCode::Unreadable,
             message: "the settings could not be saved".to_owned(),
         })
+    })
+    .await
+}
+
+/// The languages that scanned pages can be recognised in (B2-10, ADR 0015): those that came with
+/// the app and the ones the user imported.
+#[tauri::command]
+pub async fn get_ocr_languages(app: AppHandle) -> Result<OcrLanguages, IpcError> {
+    blocking(move || Ok(app.state::<Arc<Ocr>>().languages().list())).await
+}
+
+/// Set while the language dialog is showing.
+static LANGUAGE_DIALOG_SHOWING: AtomicBool = AtomicBool::new(false);
+
+/// Asks for a `.traineddata` file in a dialog of the main process (the path stays here) and
+/// imports it as a language (B2-10): its name, size and format are checked, and a file that fails
+/// is refused with the reason. Nothing is downloaded.
+#[tauri::command]
+pub async fn import_ocr_language(
+    app: AppHandle,
+    window: WebviewWindow,
+) -> Result<LanguageImport, IpcError> {
+    if LANGUAGE_DIALOG_SHOWING.swap(true, Ordering::SeqCst) {
+        return Ok(LanguageImport::Cancelled);
+    }
+    struct Showing;
+    impl Drop for Showing {
+        fn drop(&mut self) {
+            LANGUAGE_DIALOG_SHOWING.store(false, Ordering::SeqCst);
+        }
+    }
+    let _showing = Showing;
+    let Some(file) = file_dialog::pick_language_data(&window).await? else {
+        return Ok(LanguageImport::Cancelled);
+    };
+    blocking(move || {
+        let ocr = app.state::<Arc<Ocr>>();
+        Ok(match ocr.languages().import(&file) {
+            Ok(()) => LanguageImport::Imported {
+                languages: ocr.languages().list(),
+            },
+            Err(reason) => LanguageImport::Refused { reason },
+        })
+    })
+    .await
+}
+
+/// Removes a language the user imported (B2-10); the ones that came with the app stay. Returns
+/// the languages there are now.
+#[tauri::command]
+pub async fn remove_ocr_language(
+    app: AppHandle,
+    args: RemoveLanguageArgs,
+) -> Result<OcrLanguages, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    blocking(move || {
+        let ocr = app.state::<Arc<Ocr>>();
+        ocr.languages().remove(&args.code);
+        Ok(ocr.languages().list())
+    })
+    .await
+}
+
+/// The tab that shows `doc`, if it is open (B2-10).
+fn tab_of(app: &AppHandle, doc: DocumentId) -> Result<TabId, IpcError> {
+    app.state::<Documents>().tab_of(doc).ok_or(IpcError {
+        code: ErrorCode::UnknownDocument,
+        message: "no such open document".to_owned(),
+    })
+}
+
+/// Recognises the text of the scanned pages of an open document now, whatever the settings say
+/// about doing it on its own (B2-10). Its progress arrives on the open-events channel.
+#[tauri::command]
+pub async fn start_ocr(app: AppHandle, args: OcrArgs) -> Result<(), IpcError> {
+    blocking(move || {
+        let tab = tab_of(&app, args.doc)?;
+        app.state::<Arc<Ocr>>().start_tab(tab);
+        Ok(())
+    })
+    .await
+}
+
+/// Stops recognising the text of an open document's pages; what was read stays (B2-10).
+#[tauri::command]
+pub async fn stop_ocr(app: AppHandle, args: OcrArgs) -> Result<(), IpcError> {
+    blocking(move || {
+        let tab = tab_of(&app, args.doc)?;
+        app.state::<Arc<Ocr>>().stop_tab(tab);
+        Ok(())
+    })
+    .await
+}
+
+/// The page of an open document that the user looks at, which is recognised first (B2-10).
+#[tauri::command]
+pub async fn set_ocr_focus(app: AppHandle, args: OcrFocusArgs) -> Result<(), IpcError> {
+    blocking(move || {
+        let documents = app.state::<Documents>();
+        let pages = documents.page_count(args.doc).ok_or(IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        })?;
+        check_page_index(args.page_index, pages).map_err(|error| IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: error.to_string(),
+        })?;
+        let tab = tab_of(&app, args.doc)?;
+        app.state::<Arc<Ocr>>().set_focus(tab, args.page_index);
+        Ok(())
     })
     .await
 }

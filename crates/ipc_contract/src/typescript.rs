@@ -54,6 +54,15 @@ pub fn bindings() -> String {
         FileRecordingArgs,
         ThemePreference,
         Settings,
+        OcrLanguage,
+        OcrLanguages,
+        LanguageRefusal,
+        LanguageImport,
+        OcrRun,
+        OcrProgress,
+        OcrArgs,
+        OcrFocusArgs,
+        RemoveLanguageArgs,
         ExportFormat,
         ExportArgs,
         ExportEvent,
@@ -108,7 +117,7 @@ pub fn bindings() -> String {
         OpenEvent,
     );
 
-    let limits: [(&str, String); 34] = [
+    let limits: [(&str, String); 36] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -145,6 +154,8 @@ pub fn bindings() -> String {
         ("maxFieldsPerPage", MAX_FIELDS_PER_PAGE.to_string()),
         ("maxFieldValueBytes", MAX_FIELD_VALUE_BYTES.to_string()),
         ("maxFieldOptions", MAX_FIELD_OPTIONS.to_string()),
+        ("maxLanguageDataBytes", MAX_LANGUAGE_DATA_BYTES.to_string()),
+        ("maxImportedLanguages", MAX_IMPORTED_LANGUAGES.to_string()),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];
     out.push_str(

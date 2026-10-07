@@ -21,6 +21,15 @@ pnpm bundle    # 產出 target/release/bundle/nsis/PDF Reader_<版本>_x64-setup
 
 為什麼 `externalBin` 放在獨立的設定檔：`tauri-build` 在**每次**編譯主程式時都會檢查 `externalBin` 指到的檔案存在。如果寫在 `tauri.conf.json`，`cargo clippy --workspace`、`cargo test --workspace` 都得先建置一次 release worker。
 
+## 附帶的 OCR 語言資料
+
+`bundle.resources`（`tauri.conf.json`）把 `src-tauri/resources/tessdata/*.traineddata`（`eng`、`chi_tra`，6.5 MB，見該資料夾的 README）放在安裝資料夾的 `tessdata\`，主程式旁邊。
+
+- 檔案已經在 repo 裡，所以每次編譯 `tauri-build` 的存在檢查都過，不像 `externalBin` 需要獨立的設定檔；
+- `cargo build` 與 `tauri build --no-bundle`（E2E 用）時 `tauri-build` 會把它們複製到 `target/<profile>/tessdata`，開發與 E2E 不必安裝就找得到；
+- 主行程在 `resource_dir()/tessdata`、程式旁邊的 `tessdata`（開發版再加上原始碼的 `resources/tessdata`）中找第一個存在的資料夾（`bundled_languages`）。
+- CI（`installer.yml`）確認安裝檔含這兩個檔案、安裝後的雜湊值與 repo 的相同，並以安裝後的 worker 辨識一頁掃描頁（`worker_smoke`）。
+
 ## 不依賴 VC++ 執行階段
 
 乾淨的 Windows 11 不保證裝有 VC++ 可轉散發套件。
