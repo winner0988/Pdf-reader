@@ -18,6 +18,16 @@ use ipc_contract::worker::{
     WorkerResponse,
 };
 
+/// The start of a stamp picture: the signature and a header chunk of 64 x 32 pixels.
+fn stamp_png() -> Vec<u8> {
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    png.extend_from_slice(&[0, 0, 0, 13]);
+    png.extend_from_slice(b"IHDR");
+    png.extend_from_slice(&[0, 0, 0, 64, 0, 0, 0, 32, 8, 6, 0, 0, 0]);
+    png.extend_from_slice(&[0; 4]);
+    png
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = PathBuf::from(
         std::env::args()
@@ -245,6 +255,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         WorkerResponse::Jpeg {
             request,
             jpeg: b"\xFF\xD8\xFF\xE0JFIF".to_vec(),
+        },
+        WorkerResponse::StampImage {
+            request,
+            png: stamp_png(),
+            width: 64,
+            height: 32,
         },
         WorkerResponse::Edited {
             request,
@@ -483,6 +499,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             doc,
             file: FileHandle(0x2b0),
+        },
+        WorkerRequest::PrepareStampImage {
+            request,
+            file: FileHandle(0x2b8),
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddImageStamp {
+                page: 0,
+                rect: Rect {
+                    x0: 100.0,
+                    y0: 100.0,
+                    x1: 228.0,
+                    y1: 164.0,
+                },
+                png: stamp_png(),
+            },
         },
         WorkerRequest::SavePages {
             request,

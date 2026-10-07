@@ -81,6 +81,9 @@ pub enum WorkerEdit {
         annotation: AnnotationId,
         rect: Rect,
     },
+    /// Puts the picture `png` (as `StampImage` made it) over `rect` on page `page` as a stamp
+    /// (B2-08).
+    AddImageStamp { page: u32, rect: Rect, png: Vec<u8> },
 }
 
 impl From<&Edit> for WorkerEdit {
@@ -280,6 +283,14 @@ pub enum WorkerRequest {
         doc: DocumentId,
         file: FileHandle,
     },
+    /// Makes the picture `file` (read-only; a PNG or JPEG) into what a stamp is made of: its
+    /// pixels, in a PNG file, shrunk to `MAX_STAMP_SIDE_PX` at most. Nothing else of the file
+    /// survives (EXIF, GPS position, camera, text chunks, color profile). Answered by
+    /// `StampImage` (B2-08).
+    PrepareStampImage {
+        request: RequestId,
+        file: FileHandle,
+    },
     /// Writes the pages `pages` (0-based, no repeats) of the document to `file` (write-only, as
     /// for `Save`) as a document of their own, in the order they have in the document: the
     /// document as it is now is copied and the other pages are taken out of the copy. The
@@ -341,6 +352,13 @@ pub enum WorkerResponse {
         request: RequestId,
         page_index: u32,
         text: PageText,
+    },
+    /// The picture of `PrepareStampImage`: a PNG file of `width` x `height` pixels.
+    StampImage {
+        request: RequestId,
+        png: Vec<u8>,
+        width: u32,
+        height: u32,
     },
     /// The PNG file of `RenderPng`.
     Png {
