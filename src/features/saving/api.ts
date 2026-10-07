@@ -3,7 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import type { DocumentId, SaveResult } from "@/ipc/generated/contract";
+import type { DocumentId, EncryptArgs, SaveResult } from "@/ipc/generated/contract";
 
 export type SavingApi = {
   /** Writes the document, with its changes, to its own file. */
@@ -18,6 +18,12 @@ export type SavingApi = {
    * document itself does not change.
    */
   privacyExport(doc: DocumentId): Promise<boolean>;
+  /**
+   * Writes a copy of the document encrypted with AES-256 (B2-15) where the user says in the
+   * system's save dialog, never over its own file: `false` if the dialog was closed. The
+   * document itself does not change. The passwords go to the main process once and are not kept.
+   */
+  encryptCopy(args: EncryptArgs): Promise<boolean>;
 };
 
 export const tauriSavingApi: SavingApi = {
@@ -25,4 +31,5 @@ export const tauriSavingApi: SavingApi = {
   saveAs: (doc) => invoke<SaveResult | null>("save_document_as", { doc }),
   closeWindow: (discard) => invoke<void>("close_window", { discard }),
   privacyExport: (doc) => invoke<boolean>("privacy_export", { doc }),
+  encryptCopy: (args) => invoke<boolean>("encrypt_copy", { args }),
 };

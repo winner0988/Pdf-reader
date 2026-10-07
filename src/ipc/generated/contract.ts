@@ -55,6 +55,40 @@ export type PagesSource = { source: SourceId,
 pages: number, };
 
 /**
+ * What the reader of an encrypted copy is not allowed to do (B2-15, docs/architecture/encrypt-copy.md),
+ * as far as readers that honour the restrictions go.
+ */
+export type Restrictions = { 
+/**
+ * No printing at all.
+ */
+print: boolean, 
+/**
+ * No copying of text or images out of the document. Reading it aloud stays allowed.
+ */
+copy: boolean, 
+/**
+ * No changes: not to its pages, its annotations or its form.
+ */
+modify: boolean, };
+
+/**
+ * Arguments of `encrypt_copy` (B2-15): the open document is written, encrypted with AES-256, to a
+ * file the user chooses next. The passwords are never stored or logged (see [`Password`]). Any
+ * other field is rejected.
+ */
+export type EncryptArgs = { doc: DocumentId, 
+/**
+ * Opens the copy; without one anyone can.
+ */
+openPassword: Password | null, 
+/**
+ * Lifts the restrictions, and changes the copy's security. Needed when a restriction is
+ * asked for, and then not the open password: those who know that one could lift them.
+ */
+permissionsPassword: Password | null, restrictions: Restrictions, };
+
+/**
  * A recently opened file as the frontend sees it (#73): no path, only the file name.
  */
 export type RecentFile = { id: RecentId, 
@@ -541,6 +575,7 @@ export const LIMITS = {
   maxTextBytes: 1024,
   maxQueryBytes: 1024,
   maxPasswordBytes: 1024,
+  maxNewPasswordBytes: 127,
   maxSearchHits: 10000,
   maxQuadsPerHit: 64,
   maxPageTextChars: 100000,

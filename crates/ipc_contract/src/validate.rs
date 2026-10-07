@@ -11,10 +11,10 @@ use thiserror::Error;
 use crate::limits::*;
 use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text, is_note_text};
 use crate::types::{
-    DocumentInfo, Edit, EditArgs, ExportArgs, ExportFormat, FindingKind, FormField, IpcError,
-    LinkTarget, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize,
-    PageText, Password, Point, Quad, RecentFile, Rect, RenderPageArgs, Rotation, SearchArgs,
-    SearchHit, SecurityReport, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs,
+    DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs, ExportFormat, FindingKind, FormField,
+    IpcError, LinkTarget, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink,
+    PageSize, PageText, Password, Point, Quad, RecentFile, Rect, RenderPageArgs, Rotation,
+    SearchArgs, SearchHit, SecurityReport, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs,
 };
 use crate::worker::{OcrOutcome, OpenedDocument, Raster, WorkerError, WorkerResponse};
 
@@ -518,6 +518,43 @@ impl Validate for UnlockArgs {
     }
 }
 
+/// A password a copy is encrypted with (B2-15): not empty, no NUL, at most 127 bytes.
+fn check_new_password(password: &Password) -> Result<(), ValidationError> {
+    check_password(password)?;
+    check_text("password", password.as_str(), MAX_NEW_PASSWORD_BYTES)
+}
+
+impl Validate for EncryptArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        for password in [&self.open_password, &self.permissions_password]
+            .into_iter()
+            .flatten()
+        {
+            check_new_password(password)?;
+        }
+        if self.open_password.is_none() && !self.restrictions.any() {
+            return Err(ValidationError::Invalid {
+                what: "encryption",
+                reason: "nothing is asked for: no open password and no restriction",
+            });
+        }
+        if self.restrictions.any() && self.permissions_password.is_none() {
+            return Err(ValidationError::Invalid {
+                what: "encryption",
+                reason: "a restriction needs a permissions password to lift it",
+            });
+        }
+        // Whoever knows the open password would have the permissions password's rights too.
+        if self.open_password.is_some() && self.open_password == self.permissions_password {
+            return Err(ValidationError::Invalid {
+                what: "encryption",
+                reason: "the permissions password is the open password",
+            });
+        }
+        Ok(())
+    }
+}
+
 impl Validate for UnlockSourceArgs {
     fn validate(&self) -> Result<(), ValidationError> {
         check_password(&self.password)
@@ -986,7 +1023,8 @@ mod tests {
     use crate::types::{
         AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, ErrorCode,
         FieldId, FieldKind, FieldOption, HighlightColor, HighlightMark, InkColor, InkWidth, LinkId,
-        RecentId, Recovery, RequestId, Rotation, SecurityFinding, StampImageId, StampName, TabId,
+        RecentId, Recovery, RequestId, Restrictions, Rotation, SecurityFinding, StampImageId,
+        StampName, TabId,
     };
     use crate::worker::WorkerErrorCode;
 
@@ -1359,6 +1397,102 @@ mod tests {
             }
             .validate()
             .is_err()
+        );
+    }
+
+    fn password(text: &str) -> Option<Password> {
+        Some(Password::new(text.to_owned()))
+    }
+
+    fn encrypt(
+        open: Option<Password>,
+        permissions: Option<Password>,
+        restrictions: [bool; 3],
+    ) -> EncryptArgs {
+        let [print, copy, modify] = restrictions;
+        EncryptArgs {
+            doc: DocumentId(1),
+            open_password: open,
+            permissions_password: permissions,
+            restrictions: Restrictions {
+                print,
+                copy,
+                modify,
+            },
+        }
+    }
+
+    #[test]
+    fn what_a_copy_is_encrypted_with_is_checked() {
+        let none = [false; 3];
+        // An open password alone; restrictions with their password; both.
+        assert!(encrypt(password("open"), None, none).validate().is_ok());
+        assert!(
+            encrypt(None, password("owner"), [true, false, false])
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            encrypt(password("open"), password("owner"), [true, true, true])
+                .validate()
+                .is_ok()
+        );
+        // A permissions password without a restriction is allowed when something else is asked.
+        assert!(
+            encrypt(password("open"), password("owner"), none)
+                .validate()
+                .is_ok()
+        );
+
+        // Nothing is asked for; a restriction nobody could lift; a permissions password that is
+        // the open one, which would let those who open it lift the restrictions.
+        assert!(encrypt(None, None, none).validate().is_err());
+        assert!(encrypt(None, password("owner"), none).validate().is_err());
+        assert!(
+            encrypt(password("open"), None, [false, true, false])
+                .validate()
+                .is_err()
+        );
+        assert!(
+            encrypt(None, None, [true, false, false])
+                .validate()
+                .is_err()
+        );
+        assert!(
+            encrypt(password("same"), password("same"), [true, false, false])
+                .validate()
+                .is_err()
+        );
+
+        // Passwords: not empty, no NUL, at most 127 bytes (the standard's, MuPDF's buffer).
+        let longest = "p".repeat(MAX_NEW_PASSWORD_BYTES as usize);
+        assert!(encrypt(password(&longest), None, none).validate().is_ok());
+        assert!(
+            encrypt(password(&format!("{longest}p")), None, none)
+                .validate()
+                .is_err()
+        );
+        assert!(encrypt(password(""), None, none).validate().is_err());
+        assert!(encrypt(password("a\0b"), None, none).validate().is_err());
+        assert!(
+            encrypt(
+                password("open"),
+                password(&format!("{longest}p")),
+                [true, false, false]
+            )
+            .validate()
+            .is_err()
+        );
+        // Bytes, not characters: 43 of these are 129 bytes.
+        assert!(
+            encrypt(password(&"密".repeat(43)), None, none)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            encrypt(password(&"密".repeat(42)), None, none)
+                .validate()
+                .is_ok()
         );
     }
 

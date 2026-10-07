@@ -52,6 +52,12 @@ pub const MAX_TEXT_BYTES: u32 = 1_024;
 /// Maximum length of a document password (UTF-8 bytes, MVP-16). PDF itself uses at most 127.
 pub const MAX_PASSWORD_BYTES: u32 = 1_024;
 
+/// Longest password a copy is encrypted with (UTF-8 bytes, B2-15): what the PDF standard allows,
+/// and the size of the buffers MuPDF keeps it in. A password an opened document takes can be longer
+/// (`MAX_PASSWORD_BYTES`): only the first 127 bytes of a longer one count in the standard's
+/// algorithms, which the user would not expect.
+pub const MAX_NEW_PASSWORD_BYTES: u32 = 127;
+
 /// Maximum length of a search query (UTF-8 bytes).
 pub const MAX_QUERY_BYTES: u32 = 1_024;
 

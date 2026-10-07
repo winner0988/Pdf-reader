@@ -18,7 +18,7 @@ use ipc_contract::ocr::{check_language_data, is_language_name};
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
     DocumentId, LinkId, LinkTarget, OutlineItem, OutlineResult, PageLink, PageSize, Password, Rect,
-    RequestId,
+    RequestId, Restrictions,
 };
 use ipc_contract::worker::{
     FileHandle, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument, Raster, WorkerEdit,
@@ -291,6 +291,28 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => privacy_copy(document, request, file, &id),
             }),
+            WorkerRequest::EncryptedCopy {
+                request,
+                doc,
+                file,
+                open_password,
+                owner_password,
+                restrictions,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => encrypted_copy(
+                    document,
+                    request,
+                    file,
+                    open_password.as_ref().map(Password::as_str),
+                    owner_password.as_str(),
+                    restrictions,
+                ),
+            }),
             WorkerRequest::PrepareSource {
                 request,
                 file,
@@ -549,6 +571,31 @@ fn save(document: &PdfDocument, request: RequestId, file: FileHandle) -> WorkerR
 }
 
 /// Writes the privacy export of `document` (B2-03) to `file`, a handle like `save`'s.
+fn encrypted_copy(
+    document: &PdfDocument,
+    request: RequestId,
+    file: FileHandle,
+    open_password: Option<&str>,
+    owner_password: &str,
+    restrictions: Restrictions,
+) -> WorkerResponse {
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match document.encrypted_copy(open_password, owner_password, restrictions, &mut file) {
+        Ok(bytes) => WorkerResponse::Saved {
+            request,
+            bytes,
+            incremental: false,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
 fn privacy_copy(
     document: &PdfDocument,
     request: RequestId,

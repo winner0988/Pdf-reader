@@ -82,6 +82,7 @@ async function openForm() {
     saveAs: vi.fn<SavingApi["saveAs"]>(() => Promise.resolve(null)),
     closeWindow: vi.fn<SavingApi["closeWindow"]>(() => Promise.resolve()),
     privacyExport: vi.fn<SavingApi["privacyExport"]>(() => Promise.resolve(true)),
+    encryptCopy: vi.fn<SavingApi["encryptCopy"]>(() => Promise.resolve(true)),
   } satisfies SavingApi;
   const formsApi = {
     getPageFields: vi.fn((_doc: number, page: number) => Promise.resolve(page === 0 ? [{ ...FIELD, value }] : [])),

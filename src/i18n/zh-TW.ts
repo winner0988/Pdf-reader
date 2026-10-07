@@ -300,6 +300,39 @@ export const strings = {
     /** In the menu, in place of the shortcut, when it does not apply. */
     encrypted: "加密的文件不適用",
   },
+  /** Encrypting a copy (B2-15). */
+  encryption: {
+    title: "加密並另存新檔",
+    description: "把目前的文件以 AES-256 加密後另存成新檔。目前的文件與它的檔案不會改變。",
+    openPassword: "開啟密碼",
+    openPasswordHint: "沒有開啟密碼的話，任何人都能開啟這份副本。",
+    permissionsPassword: "權限密碼",
+    permissionsPasswordHint: "用來解除下面的限制；有任何限制時一定要設，而且要與開啟密碼不同。",
+    again: "再輸入一次",
+    restrictionsTitle: "限制",
+    restrict: {
+      print: "不允許列印",
+      copy: "不允許複製文字與圖片",
+      modify: "不允許修改（包含頁面整理、註解與填寫表單）",
+    },
+    note: "密碼不會被記住，也無法找回：忘記了就打不開這份副本。限制由閱讀器自行遵守，這個 app 與 Acrobat 都遵守，但有些程式會忽略；要真正保密請設開啟密碼。",
+    signatures: "有數位簽章的文件不能加密：簽章會失效。",
+    start: "加密並另存新檔…",
+    cancel: "取消",
+    running: "正在加密…",
+    done: "已加密並另存新檔。",
+    failed: "無法加密這份文件。有數位簽章的文件不能加密；其他原因請再試一次。",
+    problem: {
+      nothing: "請設定開啟密碼，或至少選一項限制。",
+      openMismatch: "兩次輸入的開啟密碼不一樣。",
+      permissionsMismatch: "兩次輸入的權限密碼不一樣。",
+      permissionsNeeded: "有任何限制時，一定要設權限密碼。",
+      same: "權限密碼要與開啟密碼不同，否則知道開啟密碼的人也能解除限制。",
+      tooLong: (max: number) => `密碼最多 ${max} 個位元組（一個中文字是 3 個）。`,
+    },
+    /** In the menu, in place of the shortcut, when it does not apply. */
+    encrypted: "已加密的文件不適用",
+  },
   export: {
     title: "匯出",
     note: "檔案只在這台電腦上產生；按「匯出…」後選擇存放的位置。",
@@ -427,6 +460,7 @@ export const strings = {
     print: "列印…",
     export: "匯出…",
     privacyExport: "隱私匯出…",
+    encryptCopy: "加密並另存新檔…",
     dontRecord: "不記錄此檔案",
     settings: "設定…",
   },

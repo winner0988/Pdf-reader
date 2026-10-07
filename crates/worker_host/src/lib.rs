@@ -16,7 +16,7 @@ use std::thread;
 use std::time::Duration;
 
 use ipc_contract::frame::{self, FrameError};
-use ipc_contract::types::{DocumentId, ErrorCode, Password, RequestId};
+use ipc_contract::types::{DocumentId, ErrorCode, Password, RequestId, Restrictions};
 use ipc_contract::validate::Validate;
 use ipc_contract::worker::{FileHandle, WorkerError, WorkerRequest, WorkerResponse};
 use sandbox::{SandboxConfig, Sandboxed};
@@ -333,6 +333,36 @@ impl WorkerHost {
             doc,
             file: FileHandle(handle),
             id,
+        })
+    }
+
+    /// Writes to `file`, as [`save`](Self::save) does, a copy of `doc` encrypted with AES-256
+    /// (B2-15): `open_password` opens it (none: anyone can), `owner_password` lifts
+    /// `restrictions`. Both go to the worker in this request only and are wiped once it is sent.
+    /// `doc` itself is not changed. Returns `Saved`.
+    pub fn encrypted_copy(
+        &mut self,
+        doc: DocumentId,
+        file: &File,
+        open_password: Option<Password>,
+        owner_password: Password,
+        restrictions: Restrictions,
+    ) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_write_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::EncryptedCopy {
+            request,
+            doc,
+            file: FileHandle(handle),
+            open_password,
+            owner_password,
+            restrictions,
         })
     }
 

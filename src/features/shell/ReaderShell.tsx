@@ -23,6 +23,7 @@ import { createFormSource, type FormsApi } from "@/features/forms/source";
 import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
 import type { ExportApi } from "@/features/export/api";
 import { ExportDialog } from "@/features/export/ExportDialog";
+import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
 import { ALL_PERMISSIONS, restrictionSummary } from "@/features/permissions/permissions";
@@ -212,7 +213,7 @@ export function ReaderShell({
   const [rotation, setRotation] = useState<Rotation>(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [dialog, setDialog] = useState<
-    "shortcuts" | "about" | "settings" | "setDefaultFailed" | "print" | "export" | "privacyExport" | null
+    "shortcuts" | "about" | "settings" | "setDefaultFailed" | "print" | "export" | "privacyExport" | "encrypt" | null
   >(
     null,
   );
@@ -264,7 +265,9 @@ export function ReaderShell({
     setTool(null);
     setHint(null);
     setRecorded(null);
-    if (dialog === "print" || dialog === "export" || dialog === "privacyExport") setDialog(null);
+    if (dialog === "print" || dialog === "export" || dialog === "privacyExport" || dialog === "encrypt") {
+      setDialog(null);
+    }
   }
 
   useEffect(() => {
@@ -736,6 +739,8 @@ export function ReaderShell({
           exportBlocked={exportable && !permissions.copy}
           onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}
           privacyExportBlocked={savable && document_?.encrypted === true}
+          onEncryptCopy={savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined}
+          encryptCopyBlocked={savable && document_?.encrypted === true}
           flatten={
             document_?.hasForm && editingApi !== undefined
               ? { onClick: fillForms ? () => setFlattenOpen(true) : undefined }
@@ -1008,6 +1013,15 @@ export function ReaderShell({
           open={dialog === "privacyExport"}
           onOpenChange={(open) => setDialog(open ? "privacyExport" : null)}
           onExport={() => savingApi.privacyExport(doc)}
+          onFinished={showHint}
+        />
+      )}
+      {savable && (
+        <EncryptDialog
+          open={dialog === "encrypt"}
+          onOpenChange={(open) => setDialog(open ? "encrypt" : null)}
+          doc={doc}
+          onEncrypt={(args) => savingApi.encryptCopy(args)}
           onFinished={showHint}
         />
       )}

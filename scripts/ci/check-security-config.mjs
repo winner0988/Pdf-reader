@@ -97,6 +97,10 @@ const ALLOWED_PERMISSIONS = new Map([
     "B2-03: a copy without metadata; the main process asks where, never the document's own file",
   ],
   [
+    "allow-encrypt-copy",
+    "B2-15: a copy encrypted with AES-256; the passwords are used once and not kept, the main process asks where, never the document's own file",
+  ],
+  [
     "allow-pick-stamp-image",
     "B2-08: a picture for a custom stamp; the main process asks in its open dialog and the path stays there, the document's worker keeps only the pixels",
   ],
