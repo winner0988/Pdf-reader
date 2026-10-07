@@ -27,6 +27,7 @@ const hello: PageText = {
     },
   ],
   truncated: false,
+  recognised: false,
 };
 
 const highlight: PageAnnotation = {
@@ -60,7 +61,7 @@ async function setup(permissions: DocumentPermissions = ALL_PERMISSIONS, onPage:
     discardRecovered: vi.fn<EditingApi["discardRecovered"]>(() => Promise.resolve()),
   } satisfies EditingApi;
   const textApi = {
-    getPageText: vi.fn((_doc: number, page: number) => Promise.resolve(page === 0 ? hello : { lines: [], truncated: false })),
+    getPageText: vi.fn((_doc: number, page: number) => Promise.resolve(page === 0 ? hello : { lines: [], truncated: false, recognised: false })),
   } satisfies TextApi;
   const annotationsApi = {
     getPageAnnotations: vi.fn((_doc: number, page: number) => Promise.resolve(page === 0 ? onPage : [])),

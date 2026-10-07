@@ -463,8 +463,9 @@ describe("selecting and copying text (MVP-15)", () => {
       },
     ],
     truncated: false,
+    recognised: false,
   };
-  const scanned: PageText = { lines: [], truncated: false };
+  const scanned: PageText = { lines: [], truncated: false, recognised: false };
 
   /** Client coordinates of a point on a page, in page points, at 100% (jsdom puts the view at 0, 0). */
   const at = (index: number, x: number, y: number) => {

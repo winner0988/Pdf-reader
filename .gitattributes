@@ -14,3 +14,4 @@
 *.woff2 binary
 *.ttf binary
 *.otf binary
+*.traineddata binary

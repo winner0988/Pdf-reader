@@ -221,7 +221,7 @@ flowchart LR
 | `Render` | `request`, `doc`, `page_index`, `scale`, `rotation` | `Rendered` 或 `Error` |
 | `GetOutline` | `request`, `doc` | `Outline` 或 `Error` |
 | `GetPageLinks` | `request`, `doc`, `page_index` | `PageLinks` 或 `Error` |
-| `GetPageText` | `request`, `doc`, `page_index` | `PageText`（`lines`、`truncated`）或 `Error` |
+| `GetPageText` | `request`, `doc`, `page_index` | `PageText`（`lines`、`truncated`、`recognised`）或 `Error`；沒有文字的掃描頁在辨識之後回傳辨識出的文字，`recognised` 為 true（B2-10） |
 | `RenderPng` | `request`, `doc`, `page_index`, `scale` | `Png`（PNG 位元組，最多 `MAX_PNG_BYTES`，主行程檢查簽名）或 `Error`；不旋轉，匯出用（B2-04） |
 | `SearchPage` | `request`, `doc`, `page_index`, `query`, `case_sensitive`, `max_hits` | `PageSearched`（`hits`、`has_text`）或 `Error`；整份文件的搜尋由主行程逐頁驅動，見 [search.md](search.md) |
 | `Edit` | `request`, `doc`, `edit`（`WorkerEdit`：`RotatePages { pages, degrees }`、`DeletePages { pages }`、`MovePages { pages, before }`、`InsertBlankPage { at, like }`） | `Edited`（套用後的 `pages`）或 `Error`；只改記憶體中的文件（B2-02） |
@@ -230,6 +230,10 @@ flowchart LR
 | `Save` | `request`, `doc`, `file`（**只能寫入**的 handle，指向主行程建立的新暫存檔） | `Saved`（`bytes`、`incremental`）或 `Error`（`DiskFull`、`Unwritable`、`LimitExceeded` 等）；逾時 5 分鐘，見 [saving.md](saving.md) |
 | `PrivacyCopy` | `request`, `doc`, `file`（同 `Save`）, `id`（16 bytes，主行程產生的亂數） | `Saved`（`incremental` 一律為 false）或 `Error`（加密的文件：`InvalidRequest`；太多物件：`LimitExceeded`）；寫出清除中繼資料的副本，worker 中的文件不變（B2-03，見 [privacy-export.md](privacy-export.md)） |
 | `SavePages` | `request`, `doc`, `pages`（不重複，檔案裡依文件的順序）, `file`（**只能寫入**的 handle） | `Saved`（`incremental` 一律為 false）或 `Error`（加密的文件：`InvalidRequest`；頁碼不存在：`PageOutOfRange`）；寫出這些頁面組成的文件，worker 中的文件不變（B2-06，見 [split.md](split.md)） |
+| `OcrLoad` | `request`, `language`（`eng`、`chi_tra`…）, `data`（`.traineddata` 的位元組，最多 `MAX_LANGUAGE_DATA_BYTES`） | `OcrLoaded` 或 `Error`（不是語言資料：`InvalidRequest`）；取代已載入的語言，丟掉排隊中的頁面（B2-10，見 [ocr.md](ocr.md)） |
+| `OcrPage` | `request`, `doc`, `page_index`, `max_millis` | `OcrChecked`（`state`：`NotScan`、`Recognised`、`Queued`、`Failed`、`Full`、`NoLanguage`）或 `Error`；看這一頁是不是掃描頁，是就畫成灰階圖放進佇列，由 worker 自己的辨識執行緒在背景辨識，立刻回應（B2-10） |
+| `OcrPoll` | `request` | `OcrPolled`（`finished`：最多 `MAX_OCR_RESULTS` 個 `{ doc, page_index, outcome }`，`waiting`）；取走上次之後辨識完的頁面。`outcome` 是 `Recognised { chars }`、`TimedOut` 或 `Failed` |
+| `OcrStop` | `request` | `OcrStopped`；丟掉排隊中的頁面，停止正在辨識的那一頁 |
 | `Cancel` | `target` | 無（被取消的請求回 `Error { code: Cancelled }`，或已完成則照常回應） |
 | `Close` | `doc` | 無 |
 | `Shutdown` | — | worker 結束 |

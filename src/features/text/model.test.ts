@@ -26,7 +26,7 @@ function line(text: string, x: number, y: number, width: number): TextLine {
   };
 }
 
-const page = (...lines: TextLine[]): PageText => ({ lines, truncated: false });
+const page = (...lines: TextLine[]): PageText => ({ lines, truncated: false, recognised: false });
 
 // Page 0: an English line over a Chinese one. Page 1: one more line.
 const first = page(line("Hello world", 72, 100, 6), line("中文字", 72, 120, 12));

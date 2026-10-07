@@ -16,7 +16,7 @@ use crate::types::{
     PageText, Password, Point, Quad, RecentFile, Rect, RenderPageArgs, Rotation, SearchArgs,
     SearchHit, SecurityReport, TextLine, UndoArgs, UnlockArgs,
 };
-use crate::worker::{OpenedDocument, Raster, WorkerError, WorkerResponse};
+use crate::worker::{OcrOutcome, OpenedDocument, Raster, WorkerError, WorkerResponse};
 
 /// Maximum length of the worker version string in `Hello`.
 const MAX_VERSION_BYTES: usize = 64;
@@ -424,6 +424,31 @@ impl Validate for WorkerResponse {
                 Ok(())
             }
             WorkerResponse::Rebased { .. } => Ok(()),
+            WorkerResponse::OcrLoaded { .. }
+            | WorkerResponse::OcrChecked { .. }
+            | WorkerResponse::OcrStopped { .. } => Ok(()),
+            WorkerResponse::OcrPolled {
+                finished, waiting, ..
+            } => {
+                check_count("recognised pages", finished.len(), MAX_OCR_RESULTS)?;
+                if *waiting > MAX_OCR_QUEUE {
+                    return Err(ValidationError::OutOfRange {
+                        what: "pages waiting to be recognised",
+                    });
+                }
+                for page in finished {
+                    if page.page_index >= MAX_PAGE_COUNT {
+                        return Err(ValidationError::OutOfRange { what: "page index" });
+                    }
+                    if matches!(page.outcome, OcrOutcome::Recognised { chars } if chars > MAX_PAGE_TEXT_CHARS)
+                    {
+                        return Err(ValidationError::OutOfRange {
+                            what: "recognised characters",
+                        });
+                    }
+                }
+                Ok(())
+            }
             WorkerResponse::Error { error, .. } => error.validate(),
         }
     }
@@ -1099,6 +1124,7 @@ mod tests {
         let lines = |count: usize| PageText {
             lines: vec![line.clone(); count],
             truncated: true,
+            recognised: false,
         };
         let most = MAX_PAGE_TEXT_CHARS as usize / 4;
         assert_eq!(lines(most).validate(), Ok(()));
@@ -1112,9 +1138,53 @@ mod tests {
             text: PageText {
                 lines: vec![text_line("a", vec![0.0])],
                 truncated: false,
+                recognised: false,
             },
         };
         assert!(response.validate().is_err());
+    }
+
+    #[test]
+    fn recognised_pages_are_bounded() {
+        use crate::types::DocumentId;
+        use crate::worker::{OcrFinished, OcrOutcome};
+        let page = |page_index: u32, outcome: OcrOutcome| OcrFinished {
+            doc: DocumentId(1),
+            page_index,
+            outcome,
+        };
+        let polled = |finished: Vec<OcrFinished>, waiting: u32| WorkerResponse::OcrPolled {
+            request: RequestId(1),
+            finished,
+            waiting,
+        };
+        let done = OcrOutcome::Recognised { chars: 10 };
+        assert_eq!(polled(vec![], 0).validate(), Ok(()));
+        assert_eq!(
+            polled(
+                vec![page(0, done), page(99_999, OcrOutcome::TimedOut)],
+                MAX_OCR_QUEUE
+            )
+            .validate(),
+            Ok(())
+        );
+        let many = vec![page(0, done); MAX_OCR_RESULTS as usize];
+        assert_eq!(polled(many.clone(), 0).validate(), Ok(()));
+        let mut too_many = many;
+        too_many.push(page(0, done));
+        assert!(matches!(
+            polled(too_many, 0).validate(),
+            Err(ValidationError::TooMany { .. })
+        ));
+        assert!(polled(vec![], MAX_OCR_QUEUE + 1).validate().is_err());
+        assert!(
+            polled(vec![page(MAX_PAGE_COUNT, done)], 0)
+                .validate()
+                .is_err()
+        );
+        let chars = |chars: u32| polled(vec![page(0, OcrOutcome::Recognised { chars })], 0);
+        assert_eq!(chars(MAX_PAGE_TEXT_CHARS).validate(), Ok(()));
+        assert!(chars(MAX_PAGE_TEXT_CHARS + 1).validate().is_err());
     }
 
     fn unlock(password: &str) -> UnlockArgs {

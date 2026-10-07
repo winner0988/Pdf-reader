@@ -559,10 +559,10 @@ describe("DocumentView", () => {
       };
     };
     const texts: PageText[] = [
-      { lines: [textLine("Hello world", 72, 100), textLine("中文字", 72, 120)], truncated: false },
-      { lines: [textLine("Second page", 72, 100)], truncated: false },
+      { lines: [textLine("Hello world", 72, 100), textLine("中文字", 72, 120)], truncated: false, recognised: false },
+      { lines: [textLine("Second page", 72, 100)], truncated: false, recognised: false },
       // A scanned page: no text layer.
-      { lines: [], truncated: false },
+      { lines: [], truncated: false, recognised: false },
     ];
     const source = () => createTextSource({ getPageText: (_doc, page) => Promise.resolve(texts[page]!) });
 

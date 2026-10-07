@@ -64,13 +64,9 @@ AppContainer 不影響這個流程：handle 在複製時就已帶著存取權限
 - 驗證：`duplicated_write_handles_are_write_only`（寫得進去；讀取與刪除都被拒絕）。
 - 目前只有這個測試使用；存檔（B2-02）會接上。
 
-### 保留 win32k（ADR 0015，提議中）
+### OCR 不放寬沙盒（ADR 0015）
 
-`SandboxConfig::allow_win32k` 讓子行程保留 win32k 系統呼叫，其他限制全部不變。
-
-- worker 永遠不設定它（預設 `false`）。
-- 只有 OCR 的 POC 使用（`crates/pdf_worker/tests/ocr_poc.rs`），證明 Windows 內建 OCR 需要 win32k。ADR 0015 建議的 Tesseract 不需要它：在 worker 自己的沙盒中就能辨識。ADR 0015 接受後移除這個選項。
-- 驗證：`win32k_is_only_available_when_asked_for`（設定後 `user32.dll` 可以載入；預設值是停用）。
+辨識掃描頁的 Tesseract 在 worker 自己的沙盒中執行（停用 win32k 的 AppContainer，沒有網路也沒有檔案），沙盒沒有為它放寬任何一項；POC 時為了 Windows 內建 OCR 而加的 `SandboxConfig::allow_win32k` 已移除。見 [ocr.md](ocr.md)；驗證：`crates/pdf_worker/tests/ocr.rs` 以真正的 worker 與沙盒辨識掃描頁。
 
 ## AppContainer
 

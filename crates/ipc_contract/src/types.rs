@@ -851,6 +851,9 @@ pub struct PageText {
     pub lines: Vec<TextLine>,
     /// The page had more than `LIMITS.maxPageTextChars` characters; the rest was left out.
     pub truncated: bool,
+    /// The page has no text of its own: this was recognised from its picture (OCR, B2-10), and
+    /// may be wrong.
+    pub recognised: bool,
 }
 
 /// A line of text in page space. Its characters sit side by side from the quad's `ul` towards
