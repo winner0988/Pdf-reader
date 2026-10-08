@@ -137,3 +137,33 @@ test.describe("a path longer than 260 characters", () => {
     expect(await landscape(reopened)).toBe(true);
   });
 });
+
+// A Windows account with a Chinese name has the app's data folder under it.
+test("an app data folder with Chinese characters and spaces keeps the settings and the recent files", async ({
+  launch,
+}) => {
+  const root = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-unicode-data-"));
+  const data = path.join(root, "使用者 王小明", "應用程式 資料");
+  mkdirSync(data, { recursive: true });
+  const file = corpus("benign/single-page.pdf");
+  try {
+    const page = await launch(file, { dataDir: data });
+    await expect(firstPage(page)).toHaveAttribute("data-state", "ready");
+    await page.getByRole("button", { name: strings.toolbar.more }).click();
+    await page.getByRole("menuitem", { name: strings.menu.settings }).click();
+    const dialog = page.getByRole("dialog", { name: strings.settings.title });
+    await dialog.getByRole("radio", { name: strings.settings.themes.dark }).check();
+
+    const settings = path.join(data, "settings.json");
+    await expect.poll(() => (existsSync(settings) ? JSON.parse(readFileSync(settings, "utf8")).theme : null)).toBe("dark");
+    expect(JSON.parse(readFileSync(path.join(data, "recent.json"), "utf8")).files).toEqual([file]);
+
+    await quit(page);
+    const again = await launch(undefined, { dataDir: data });
+    await expect(again.locator("html")).toHaveClass(/dark/);
+    const list = again.getByRole("region", { name: strings.recent.title });
+    await expect(list.getByRole("button", { name: "single-page.pdf", exact: true })).toBeVisible();
+  } finally {
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
