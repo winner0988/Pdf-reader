@@ -21,6 +21,14 @@ pnpm bundle    # 產出 target/release/bundle/nsis/PDF Reader_<版本>_x64-setup
 
 為什麼 `externalBin` 放在獨立的設定檔：`tauri-build` 在**每次**編譯主程式時都會檢查 `externalBin` 指到的檔案存在。如果寫在 `tauri.conf.json`，`cargo clippy --workspace`、`cargo test --workspace` 都得先建置一次 release worker。
 
+## 安裝程式的語言（REL-06）
+
+`bundle.windows.nsis.languages`（`tauri.conf.json`）是 `["TradChinese", "English"]`，Tauri 預設只有英文：
+
+- 預設依作業系統的語言選：繁體中文的 Windows 看到繁體中文，英文的看到英文；都不是時用第一個（繁體中文），與 app 的語言一致。不顯示語言選擇視窗。
+- `windows/installer-hooks.nsh` 的提示（缺少 WebView2）與「預設應用程式」的說明本來就是繁體中文，不隨語言變動。
+- CI（`installer.yml`）檢查產生的 `installer.nsi` 依序含這兩個語言；CI 看不到精靈的畫面，所以負責人在乾淨的 Windows 11 上裝一次時要看一眼（[release.md](../release.md)）。
+
 ## 附帶的 OCR 語言資料
 
 `bundle.resources`（`tauri.conf.json`）把 `src-tauri/resources/tessdata/*.traineddata`（`eng`、`chi_tra`，6.5 MB，見該資料夾的 README）放在安裝資料夾的 `tessdata\`，主程式旁邊。

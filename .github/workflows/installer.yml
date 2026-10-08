@@ -89,6 +89,15 @@ jobs:
           if ($mode -in 'downloadBootstrapper', 'embedBootstrapper') { throw "the installer downloads WebView2 ('$mode'; REL-02)" }
           "WebView2 install mode: '$mode' (empty means skip)"
 
+      # REL-06 (#203): the wizard speaks the app's language: Traditional Chinese for a Chinese
+      # Windows and for any language that is not listed (the first one), English for an English one.
+      - name: Installer is in the app's language
+        run: |
+          $languages = Select-String -Path target/release/nsis/x64/installer.nsi -Pattern '^!insertmacro MUI_LANGUAGE "(.*)"' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value }
+          if (($languages -join ',') -ne 'TradChinese,English') { throw "installer languages: $($languages -join ', ')" }
+          "installer languages: $($languages -join ', ')"
+
       - name: Installer contains the worker, the OCR language data, the licence and the notices
         run: |
           $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
