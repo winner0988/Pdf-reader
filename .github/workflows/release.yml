@@ -4,10 +4,15 @@ name: Release
 # workflow does (it is that workflow, called), and makes a DRAFT release of it: the installer, its
 # SHA-256 and the notes of CHANGELOG.md. A draft is seen by nobody else and is not what the app's
 # update check reads; publishing it is the owner's button. Run by hand (workflow_dispatch), it
-# does the checks and the build and makes no release.
+# does the checks and the build and makes no release. A pull request that changes this workflow
+# or the release scripts runs the checks (not the build: the Installer workflow runs on its own).
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "scripts/release/**"
   workflow_dispatch:
 
 permissions:
@@ -15,7 +20,7 @@ permissions:
 
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   checks:
@@ -52,6 +57,7 @@ jobs:
   installer:
     name: Installer
     needs: checks
+    if: github.event_name != 'pull_request'
     uses: ./.github/workflows/installer.yml
 
   draft:
