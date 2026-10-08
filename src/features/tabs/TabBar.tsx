@@ -45,7 +45,7 @@ export function TabBar({ tabs, active, onActivate, onClose, onOpen }: TabBarProp
   }
 
   return (
-    <div className="flex h-10 shrink-0 items-end gap-1 border-b bg-muted/60 px-2">
+    <nav className="flex h-10 shrink-0 items-end gap-1 border-b bg-muted/60 px-2">
       <div role="tablist" aria-label={t.label} className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto">
         {tabs.map((tab, index) => {
           const selected = tab.tab === active;
@@ -127,6 +127,6 @@ export function TabBar({ tabs, active, onActivate, onClose, onOpen }: TabBarProp
           <Plus aria-hidden />
         </IconButton>
       </div>
-    </div>
+    </nav>
   );
 }
