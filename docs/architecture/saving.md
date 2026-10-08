@@ -46,6 +46,7 @@ sequenceDiagram
   - 目的地已存在：`ReplaceFileW` 保留原檔的屬性與權限。一定帶備份檔名：不帶備份時，`ReplaceFileW` 可能在原檔已刪除後才失敗（`ERROR_UNABLE_TO_MOVE_REPLACEMENT`）。成功後刪除備份（也就是被取代的原檔）；原檔已移到備份、新檔卻無法就位時（`ERROR_UNABLE_TO_MOVE_REPLACEMENT_2`），把備份移回原位；
   - 目的地不存在：`MoveFileExW`（不取代已存在的檔案）。
   - 任何一步失敗：刪除暫存檔，**目的地不變，變更仍保留在 app 中**。
+  - **長路徑**（#207）：標準函式庫自己的檔案函式遇到超過 `MAX_PATH`（260）的路徑會自動加 `\\?\` 前綴，所以開檔與建暫存檔都沒問題；`ReplaceFileW` 與 `MoveFileExW` 是原始呼叫，拿到什麼用什麼，會因此失敗（程式的 manifest 沒有要求長路徑，Windows 預設也沒開）。`saving.rs` 的 `extended` 在路徑達 240 個 UTF-16 單位時先正規化（`std::path::absolute`），再加 `\\?\`（網路路徑加 `\\?\UNC\`）；240 讓加上 13 個字元的 `.tmp`／`.bak` 後仍在 260 以內的路徑維持原樣。E2E：`tests/e2e/unicode-paths.spec.ts`。
 - **原地儲存（Ctrl+S）**：開啟或上次存檔時記下檔案的大小與修改時間；存檔前不同，就表示其他程式改過檔案，回報 `changedOnDisk`，請使用者改用另存新檔，不覆寫。沒有變更時不寫檔。
 - **另存新檔之後**：分頁改指向新檔（檔名、之後的原地儲存、worker 重新啟動時開啟的檔案），新檔依設定加入最近開啟的檔案（#73）。
 - **文件識別碼**：一般存檔不寫入（ADR 0010）。
