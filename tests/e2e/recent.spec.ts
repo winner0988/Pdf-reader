@@ -1,6 +1,7 @@
 // The recently opened files (#73) in the real app. The list lives in the test's own data folder
 // (tests/e2e/app.ts); the page may show file names only, never where the files are.
-import { existsSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { Page } from "@playwright/test";
@@ -85,4 +86,30 @@ test("「不記錄此檔案」 takes a file off the list and keeps it off, witho
   await closeAll(page);
   await expect(recentList(page)).toHaveCount(0);
   expect(JSON.parse(stored(page)).files).toEqual([]);
+});
+
+test("a file that was deleted since says so, and goes off the list", async ({ launch }) => {
+  const folder = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-gone-"));
+  try {
+    const file = path.join(folder, "gone.pdf");
+    copyFileSync(SINGLE, file);
+    const page = await launch(file);
+    await ready(page);
+    await closeAll(page);
+    const button = recentList(page).getByRole("button", { name: "gone.pdf", exact: true });
+    await expect(button).toBeVisible();
+
+    rmSync(file);
+    await button.click();
+    await expect(page.getByRole("alert")).toHaveText(strings.recent.missing("gone.pdf"));
+    // No tab was made for it, the list no longer has it, and the file that is stored does not either.
+    await expect(page.getByRole("tab")).toHaveCount(0);
+    expect(existsSync(recentJson(page)) ? JSON.parse(stored(page)).files : []).toEqual([]);
+
+    // The app is fine: another file opens.
+    launchAgain(SINGLE);
+    await ready(page);
+  } finally {
+    rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
 });
