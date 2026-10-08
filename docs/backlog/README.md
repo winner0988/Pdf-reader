@@ -162,6 +162,6 @@ flowchart LR
 - 存檔時加密與設定權限（規格 §3）；安全遮蔽，從檔案中真正移除內容（規格 §3）。
 - 機敏標記（ADR 0004）：要文件識別碼（ADR 0010）。密碼記憶：ADR 0017 已接受（取代 ADR 0006，不用文件識別碼），實作卡 [#218](https://github.com/winner0988/Pdf-reader/issues/218)–[#221](https://github.com/winner0988/Pdf-reader/issues/221)。
 - 信任後載入遠端資源（ADR 0002）：等 ADR 0009，並另寫 ADR。
-- 文字方塊與字型子集化（規格 §4）；插入圖片與 EXIF 清除（規格 §5）。
+- 文字方塊與字型子集化（規格 §4）：ADR 0018 已接受，實作卡 [#224](https://github.com/winner0988/Pdf-reader/issues/224)–[#228](https://github.com/winner0988/Pdf-reader/issues/228)，第二階段（匯入字型檔）[#229](https://github.com/winner0988/Pdf-reader/issues/229)。插入圖片與 EXIF 清除（規格 §5）。
 - 簽署文件與載入 `.pfx`（B2-11 之後）；OCR：掃描頁的文字辨識（#142，ADR 0015 已接受）；檢查更新（#64，等 ADR 0009）。
 - 全文索引（規格 §6「建立本地索引」）；硬體加速（規格 §2）。

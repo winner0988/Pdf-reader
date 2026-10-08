@@ -1,11 +1,9 @@
 # ADR 0018：文字方塊是頁面上的 FreeText 註解，外觀由 worker 以所選字型的子集自己產生
 
 ## 狀態
-提議中
+已接受
 
-（工作卡 [#185](https://github.com/winner0988/Pdf-reader/issues/185)〔B2-18〕。POC：`crates/pdf_worker/tests/text_box_poc.rs`。接受後才開實作卡。）
-
-負責人於 2026-10-09 決定了**字型的來源**：第一版只用已安裝的字型，匯入字型檔寫成第二階段（[#185 的留言](https://github.com/winner0988/Pdf-reader/issues/185#issuecomment-6064631589)）。其餘的決定還沒有，狀態維持「提議中」。
+（負責人於 2026-10-09 接受：文字方塊用 FreeText 註解、新增 `subsetter` 與 `skrifa`、粗體與斜體只用家族的變體、第一版只做 TrueType 輪廓、復原日誌放子集；字型的來源是第一版只用已安裝的字型、匯入字型檔是第二階段〔[#185 的留言](https://github.com/winner0988/Pdf-reader/issues/185#issuecomment-6064631589)、[續](https://github.com/winner0988/Pdf-reader/issues/185#issuecomment-6064771103)〕。工作卡 [#185](https://github.com/winner0988/Pdf-reader/issues/185)〔B2-18〕。實作卡：[#224](https://github.com/winner0988/Pdf-reader/issues/224)–[#228](https://github.com/winner0988/Pdf-reader/issues/228)，第二階段 [#229](https://github.com/winner0988/Pdf-reader/issues/229)。POC：`crates/pdf_worker/tests/text_box_poc.rs`。）
 
 ## 背景
 - 規格 §4：在頁面任意處新增文字方塊，可更改字型、大小、顏色、粗細與對齊方式；只讀使用者作業系統本機已安裝的字型，嚴禁連線取得字型；寫入新文字時只把用到的字形輪廓嵌入 PDF，避免亂碼，也避免檔案暴增。
@@ -119,4 +117,4 @@
   - 第二階段不做、或改成別的做法：第一版不受影響，字型清單的項目本來就有「來源」欄位。
 - 接受時要同步：規格書 §4（中英文；「僅掃描並讀取…已安裝的字型」補上第二階段的「或使用者自己選的本機字型檔」）、CONTEXT.md（新增「文字方塊」詞條）、`docs/backlog/README.md` 的第三批候選、`docs/architecture/annotations.md`。
 - 第一版的實作卡要涵蓋：字型清單與讀檔（主行程，讀登錄檔）、`Edit::AddTextBox` 與編輯文字方塊的指令、worker 的排版與外觀、`AnnotationKind::TextBox`、搜尋與選取、日誌與復原、對話框（字型、大小、顏色、粗細、對齊；字型選單最後一行說明怎麼增加字型）、授權說明、找不到字型時的行為、E2E，與字型的 fuzz。第二階段另開卡：匯入與移除的命令、`fonts` 資料夾與清單、worker 的檢查、設定頁、E2E，與匯入的字型檔的 fuzz。
-- **需要負責人決定**：選項 A（FreeText）；新增 `subsetter` 與 `skrifa`；粗體與斜體只用家族的變體；第一版只做 TrueType 輪廓；復原日誌放子集。（字型的來源已經決定：第一版已安裝的字型，第二階段匯入字型檔。）
+- **負責人的決定（2026-10-09）**：選項 A（FreeText）；新增 `subsetter` 與 `skrifa`；粗體與斜體只用家族的變體；第一版只做 TrueType 輪廓；復原日誌放子集；字型的來源是第一版已安裝的字型、第二階段匯入字型檔，不另外附字型。
