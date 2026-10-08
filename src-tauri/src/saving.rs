@@ -6,7 +6,6 @@
 // ReplaceFileW and MoveFileExW; each unsafe block says why it is sound.
 #![allow(unsafe_code)]
 
-use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::os::windows::ffi::OsStrExt;
@@ -174,8 +173,46 @@ fn random_hex() -> Result<String, IpcError> {
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
+/// Paths of this many UTF-16 units or more are given to the raw Windows calls below in their
+/// extended-length form. `MAX_PATH` is 260 including the terminating NUL, and the backup's name is
+/// 13 units longer than the destination's: a destination shorter than this keeps both names under
+/// it.
+const EXTENDED_FROM: usize = 240;
+
+/// A path as `MoveFileExW` and `ReplaceFileW` take it, without the terminating NUL. The standard
+/// library gives its own file functions the `\\?\` prefix when a path needs it, but these two take
+/// what they are given and fail beyond `MAX_PATH`: the manifest of this program does not ask for
+/// long paths and Windows does not enable them by default (#207). A long path is made absolute and
+/// normalised, which the prefix switches off, and gets the prefix: `\\?\C:\...`, or
+/// `\\?\UNC\server\share\...` on a network share. A short path is left as it is.
+fn extended(path: &Path) -> Vec<u16> {
+    let units: Vec<u16> = path.as_os_str().encode_wide().collect();
+    if units.len() < EXTENDED_FROM {
+        return units;
+    }
+    let Ok(absolute) = std::path::absolute(path) else {
+        return units;
+    };
+    let absolute: Vec<u16> = absolute.as_os_str().encode_wide().collect();
+    let starts = |prefix: &str| absolute.starts_with(&prefix.encode_utf16().collect::<Vec<u16>>());
+    let with = |prefix: &str, rest: &[u16]| -> Vec<u16> {
+        prefix.encode_utf16().chain(rest.iter().copied()).collect()
+    };
+    if starts(r"\\?\") || starts(r"\\.\") {
+        absolute
+    } else if starts(r"\\") {
+        with(r"\\?\UNC\", &absolute[2..])
+    } else if absolute.get(1) == Some(&u16::from(b':')) {
+        with(r"\\?\", &absolute)
+    } else {
+        absolute
+    }
+}
+
 fn wide(path: &Path) -> Vec<u16> {
-    OsStr::new(path).encode_wide().chain(Some(0)).collect()
+    let mut units = extended(path);
+    units.push(0);
+    units
 }
 
 /// Moves `file` to `destination`. An existing destination is first renamed to a backup name,
@@ -312,6 +349,54 @@ mod tests {
         temporary.replace(&copy).unwrap();
         assert_eq!(names(&dir), ["copy.pdf", "報告.pdf"]);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A folder for one test whose path is longer than `MAX_PATH`: the root, and the folder in it.
+    fn long_folder(name: &str) -> (PathBuf, PathBuf) {
+        let root = folder(name);
+        let mut dir = root.clone();
+        for index in 0..7 {
+            dir.push(format!("資料夾-{index}-{}", "x".repeat(32)));
+        }
+        fs::create_dir_all(&dir).unwrap();
+        assert!(dir.as_os_str().encode_wide().count() > 300);
+        (root, dir)
+    }
+
+    #[test]
+    fn a_path_longer_than_max_path_is_replaced_and_created_too() {
+        let (root, dir) = long_folder("long");
+        let destination = dir.join("報告.pdf");
+        fs::write(&destination, b"%PDF-1.4 the original %%EOF").unwrap();
+        let mut temporary = written(&destination, PDF);
+        temporary.check(PDF.len() as u64).unwrap();
+        temporary.replace(&destination).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), PDF);
+        assert_eq!(names(&dir), ["報告.pdf"]);
+
+        let copy = dir.join("copy.pdf");
+        let mut temporary = written(&copy, PDF);
+        temporary.check(PDF.len() as u64).unwrap();
+        temporary.replace(&copy).unwrap();
+        assert_eq!(names(&dir), ["copy.pdf", "報告.pdf"]);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn long_paths_get_the_extended_prefix_and_short_ones_do_not() {
+        let text = |path: &str| String::from_utf16(&extended(Path::new(path))).unwrap();
+        let long = "x".repeat(300);
+
+        assert_eq!(text(r"C:\a\報告.pdf"), r"C:\a\報告.pdf");
+        let drive = format!(r"C:\{long}\報告.pdf");
+        assert_eq!(text(&drive), format!(r"\\?\{drive}"));
+        let share = format!(r"\\server\share\{long}\a.pdf");
+        assert_eq!(text(&share), format!(r"\\?\UNC\server\share\{long}\a.pdf"));
+        // Already extended, or a device path: as it is.
+        let extended_already = format!(r"\\?\C:\{long}\a.pdf");
+        assert_eq!(text(&extended_already), extended_already);
+        // The prefix turns normalising off, so it is done first.
+        assert_eq!(text(&format!("C:/{long}/../b.pdf")), r"\\?\C:\b.pdf");
     }
 
     #[test]
