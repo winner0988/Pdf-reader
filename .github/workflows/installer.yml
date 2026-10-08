@@ -163,6 +163,40 @@ jobs:
           cargo run --locked -p worker_host --bin worker_smoke -- $worker --ocr tests/corpus/benign/scanned-text.pdf $languages
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
+      # REL-05 (#200): the program users run is the installed one, not the build in target/ that
+      # E2E (Windows) drives. It starts from Program Files, renders in the sandboxed worker next to
+      # it, finds the language data the installer put there, shows the licences and connects to
+      # nothing. The same tests, pointed at the installed program (E2E_APP, docs/architecture/e2e.md).
+      - name: Installed app passes the E2E smoke tests
+        run: |
+          $env:E2E_APP = Join-Path $env:ProgramFiles 'PDF Reader\pdf-reader.exe'
+          pnpm e2e open.spec.ts settings.spec.ts network.spec.ts
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          pnpm e2e ocr.spec.ts -g 'scanned page is read in the background'
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      # Only screenshots of tests/corpus files and the app's logs (docs/architecture/e2e.md).
+      - name: Upload screenshots and logs of the installed app
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installed-e2e-results
+          path: |
+            tests/e2e/test-results/
+            tests/e2e/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # The tests close what they start. A program still running from the install folder would
+      # keep the uninstaller from removing it, so say so instead of failing there.
+      - name: Nothing of the app is left running
+        run: |
+          $left = Get-Process -Name 'pdf-reader', 'pdf_worker' -ErrorAction SilentlyContinue
+          if ($left) {
+            "::warning::still running after the E2E tests: $($left.Name -join ', ')"
+            $left | Stop-Process -Force
+          }
+
       - name: Uninstall removes the AppContainer profile
         run: |
           $dir = Join-Path $env:ProgramFiles 'PDF Reader'
