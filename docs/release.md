@@ -9,7 +9,7 @@ REL-04（[#198](https://github.com/winner0988/Pdf-reader/issues/198)）。怎麼
 推上形如 `v0.1.0` 的 tag，[`Release` 工作](../.github/workflows/release.yml)依序做：
 
 1. **檢查**（`checks`）：`package.json`、`Cargo.toml`、`Cargo.lock` 是同一個版本，tag 是 `v<那個版本>`，`CHANGELOG.md` 有那個版本的日期小節（[check-version.mjs](../scripts/release/check-version.mjs)）；第三方元件聲明是這個 commit 的依賴會產生的樣子（`third-party-licenses.mjs --check`）；發行腳本的測試。
-2. **安裝檔**（`installer`）：就是 [`Installer` 工作](../.github/workflows/installer.yml)，被這個工作呼叫：建置、檢查內容（含 `pdf_worker.exe`、OCR 語言資料、`LICENSE`、`THIRD_PARTY_LICENSES.txt`）、靜默安裝、PDF 關聯、不需要 VC++ 執行階段、安裝後的 worker 在沙盒中跑、解除安裝，再留下雜湊值（[packaging.md](architecture/packaging.md)）。
+2. **安裝檔**（`installer`）：就是 [`Installer` 工作](../.github/workflows/installer.yml)，被這個工作呼叫：建置、檢查內容（含 `pdf_worker.exe`、OCR 語言資料、`LICENSE`、`THIRD_PARTY_LICENSES.txt`）、靜默安裝、PDF 關聯、不需要 VC++ 執行階段、安裝後的 worker 在沙盒中跑、**安裝後的 app** 跑一小組 E2E（開檔、授權、不連網、掃描頁辨識）、解除安裝，再留下雜湊值（[packaging.md](architecture/packaging.md)）。
 3. **草稿**（`draft`）：只有 tag 才做。下載上一步的安裝檔，確認它的雜湊值還是 Windows 工作算出的那個，改成沒有空白的檔名（GitHub 會把附件名稱裡的空白換成點，`.sha256` 與發行說明裡的檔名就對不上了），重新寫一份 `.sha256`，用 [release-notes.mjs](../scripts/release/release-notes.mjs) 把 `CHANGELOG.md` 的小節加上下載與核對、原始碼與授權寫成發行說明，建立**草稿** Release（`gh release create --draft --verify-tag`）。
 
 草稿只有有權限的人看得到，也不是「最新版本」：[ADR 0009](adr/0009-default-network-policy.md) 的檢查更新讀的是 `releases/latest`，草稿與預先發行版都不算。

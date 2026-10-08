@@ -109,7 +109,8 @@ REL-03（[#68](https://github.com/winner0988/Pdf-reader/issues/68)），規格 �
 4. `/S` 靜默安裝（per machine），並確認 PDF 關聯已註冊、`.pdf` 的預設值沒有被改成 PDF Reader。
 5. 對安裝後的所有 `.exe` 執行 `check-imports.mjs`。
 6. `worker_smoke`（`crates/worker_host/src/bin/worker_smoke.rs`）以沙盒啟動**安裝後的** worker，完成握手、開啟並渲染一頁 PDF。
-7. 靜默解除安裝，確認 AppContainer profile 的資料夾與 PDF 關聯都已移除。
+7. 以 `E2E_APP` 指向**安裝後的** `pdf-reader.exe`，跑一小組 E2E（REL-05，[#200](https://github.com/winner0988/Pdf-reader/issues/200)）：啟動與從命令列開檔並渲染（`open`）、設定與「關於」的授權（`settings`）、啟動、開檔與閒置時不連到任何外部位址（`network`）、安裝程式放的語言資料被找到而掃描頁被辨識（`ocr` 的第一個測試）。`E2E (Windows)` 測的是 `target/release/` 的建置，不是使用者執行的這一份；失敗時上傳截圖與日誌（`installed-e2e-results`，保留 7 天）。
+8. 靜默解除安裝，確認 AppContainer profile 的資料夾與 PDF 關聯都已移除。
 
 CI runner 裝有 VC++ 執行階段，所以「在乾淨的 Windows 11 上能執行」是靠第 5 步的匯入表檢查來保證，不是實際在乾淨環境上執行。
 
