@@ -14,7 +14,7 @@ REL-04（[#198](https://github.com/winner0988/Pdf-reader/issues/198)）。怎麼
 
 草稿只有有權限的人看得到，也不是「最新版本」：[ADR 0009](adr/0009-default-network-policy.md) 的檢查更新讀的是 `releases/latest`，草稿與預先發行版都不算。
 
-在 Actions 頁面手動執行 `Release`（Run workflow）只做 1、2，不建立 release；推 tag 之前先這樣做一次，可以先知道會不會失敗。修改 `release.yml` 或 `scripts/release/` 的 PR 會自動執行 1（2 在那種 PR 上由 `Installer` 工作自己做）。
+在 Actions 頁面手動執行 `Release`（Run workflow）做 1、2，與 3 的前幾步（下載安裝檔、改名、重做 `.sha256`、寫發行說明），只差最後的「建立草稿」：那一步不做，改成列出會附上的檔案，所以不建立 release。推 tag 之前先這樣演練一次，可以先知道會不會失敗。修改 `release.yml` 或 `scripts/release/` 的 PR 會自動執行 1（2 在那種 PR 上由 `Installer` 工作自己做）。
 
 ## 負責人的檢查表
 

@@ -41,7 +41,7 @@ flowchart LR
 | CI | `Frontend` | `pnpm lint`、`typecheck`、`test`、`build`、建置產物不得引用外部資源 |
 | CI | `E2E (Windows)` | 建置 release app 與 worker，以 Playwright 操作真正的 app（`pnpm e2e`，見 [e2e.md](architecture/e2e.md)）；失敗時上傳截圖與日誌（保留 7 天） |
 | Installer | `Installer (Windows)` | `pnpm bundle` 建置安裝檔，檢查內容（worker、OCR 語言資料、`LICENSE`、第三方元件聲明）、靜默安裝、PDF 關聯、不需要 VC++ 執行階段、安裝後的 worker、解除安裝，並留下 SHA-256；push 到 `main` 與變更會進入安裝檔的 PR（見 [packaging.md](architecture/packaging.md#ci)） |
-| Release | `Release checks`、`Installer`、`Draft release` | 版本、tag、變更記錄一致，第三方元件聲明是最新的；推 `v<x.y.z>` tag 後建置安裝檔並建立**草稿** release，不發布（見 [release.md](release.md)）。改到 `release.yml` 或 `scripts/release/` 的 PR 只跑檢查 |
+| Release | `Release checks`、`Installer`、`Draft release` | 版本、tag、變更記錄一致，第三方元件聲明是最新的；推 `v<x.y.z>` tag 後建置安裝檔並建立**草稿** release，不發布；手動執行是演練，做到建立草稿之前（見 [release.md](release.md)）。改到 `release.yml` 或 `scripts/release/` 的 PR 只跑檢查 |
 | Security | `Secret scan` | gitleaks 掃描所有 commit |
 | Security | `Dependency audit` | `cargo deny check`（弱點、禁用 crate、授權、來源）、`pnpm audit`；每週一排程 |
 | Fuzz | `Fuzz (worker_messages)`、`Fuzz (open_document)` | cargo-fuzz：IPC 解碼與以 MuPDF 開啟 PDF（見 [fuzzing.md](security/fuzzing.md)）；每週一排程，修改相關檔案的 PR 跑 2 分鐘 |
