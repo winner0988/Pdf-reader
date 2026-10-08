@@ -46,7 +46,7 @@ REL-04（[#198](https://github.com/winner0988/Pdf-reader/issues/198)）。怎麼
 
 ### 發行後
 
-- [ ] README 最上面的「狀態：開發中，尚未發布安裝檔」改成連到 Releases 頁面的說明（一個一般的 docs PR）。
+- [ ] README 最上面的「狀態：開發中，尚未發布安裝檔」改成連到 Releases 頁面的說明；`SECURITY.md` 的「支援版本」（現在寫「專案尚未發布任何版本，目前只修正 `main`」）改成只修正最新發行的版本（一個一般的 docs PR）。
 - [ ] 在 Windows 的舊版上按「檢查更新」，確認會看到新版本；新版上則顯示已是最新。
 
 ## 失敗的時候
