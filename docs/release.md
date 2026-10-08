@@ -41,7 +41,7 @@ REL-04（[#198](https://github.com/winner0988/Pdf-reader/issues/198)）。怎麼
 
 - [ ] 等 `Release` 工作完成，草稿出現在 [Releases](https://github.com/winner0988/Pdf-reader/releases)。
 - [ ] 打開草稿：發行說明、兩個附件（`PDF-Reader_<版本>_x64-setup.exe` 與 `.sha256`）都在。
-- [ ] 在**乾淨的 Windows 11**（沒有裝過開發工具；虛擬機器即可）下載草稿的安裝檔，PowerShell 的 `Get-FileHash -Algorithm SHA256` 與發行說明表格中的相同；SmartScreen 警告出現時按「其他資訊」→「仍要執行」，安裝，開啟一份 PDF，看「關於」的授權、原始碼與第三方元件授權，再解除安裝。
+- [ ] 在**乾淨的 Windows 11**（沒有裝過開發工具；虛擬機器即可）下載草稿的安裝檔，PowerShell 的 `Get-FileHash -Algorithm SHA256` 與發行說明表格中的相同；SmartScreen 警告出現時按「其他資訊」→「仍要執行」，安裝（精靈的語言依 Windows 的語言：繁體中文或英文，[packaging.md](architecture/packaging.md#安裝程式的語言rel-06)），開啟一份 PDF，看「關於」的授權、原始碼與第三方元件授權，再解除安裝。
 - [ ] 按 **Publish release**（勾選 Set as the latest release）。
 
 ### 發行後

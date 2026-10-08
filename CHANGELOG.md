@@ -40,6 +40,7 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 - Windows 11（x64）的安裝檔，安裝到 `Program Files`（需要系統管理員權限）；不下載任何東西（包括 WebView2，它在 Windows 11 內建）。
 - 註冊為 PDF 應用程式，出現在「開啟檔案」與「預設應用程式」中，**不會**自己搶預設。
+- 安裝精靈依 Windows 的語言顯示繁體中文或英文（其他語言顯示繁體中文）。
 - 安裝檔附 `LICENSE` 與第三方元件授權聲明；「關於」寫明授權、原始碼的位置與第三方元件授權。
 
 ### 這個版本還沒有
