@@ -4,8 +4,9 @@ name: Release
 # workflow does (it is that workflow, called), and makes a DRAFT release of it: the installer, its
 # SHA-256 and the notes of CHANGELOG.md. A draft is seen by nobody else and is not what the app's
 # update check reads; publishing it is the owner's button. Run by hand (workflow_dispatch), it
-# does the checks and the build and makes no release. A pull request that changes this workflow
-# or the release scripts runs the checks (not the build: the Installer workflow runs on its own).
+# does the checks, the build and the draft's steps up to making it, and makes no release. A pull
+# request that changes this workflow or the release scripts runs the checks (not the build: the
+# Installer workflow runs on its own).
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
@@ -63,8 +64,9 @@ jobs:
   draft:
     name: Draft release
     needs: installer
-    # Only a tag makes a release.
-    if: github.ref_type == 'tag'
+    # A tag makes the release. A manual run does the same up to the last step and makes none: a
+    # rehearsal of the part that cannot be tried without a tag.
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       # `gh release create` writes the draft; `gh run download` reads the installer of this run.
@@ -72,7 +74,6 @@ jobs:
       actions: read
     env:
       GH_TOKEN: ${{ github.token }}
-      TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -80,6 +81,16 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
+      # The checks job has already made sure the tag is v<this version>; say so again where it is used.
+      - name: The version of this release
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version package.json)
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::the tag is $GITHUB_REF_NAME, the version is $version"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
       - name: Download the installer of this run
         run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name installer --dir installer
       # GitHub turns a space in the name of an asset into a dot, and the installer is called
@@ -94,7 +105,7 @@ jobs:
           expected=$(cut -d' ' -f1 "${built[0]}.sha256")
           actual=$(sha256sum "${built[0]}" | cut -d' ' -f1)
           test "$expected" = "$actual"
-          name="PDF-Reader_${TAG#v}_x64-setup.exe"
+          name="PDF-Reader_${VERSION}_x64-setup.exe"
           mkdir release
           cp "${built[0]}" "release/$name"
           (cd release && sha256sum "$name" > "$name.sha256")
@@ -102,11 +113,17 @@ jobs:
       - name: Write the notes
         run: |
           set -euo pipefail
-          node scripts/release/release-notes.mjs "${TAG#v}" release/*-setup.exe.sha256 > notes.md
+          node scripts/release/release-notes.mjs "$VERSION" release/*-setup.exe.sha256 > notes.md
           cat notes.md
       - name: Make the draft
+        if: github.ref_type == 'tag'
         run: |
           set -euo pipefail
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
-            --title "PDF Reader ${TAG#v}" --notes-file notes.md \
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+            --title "PDF Reader $VERSION" --notes-file notes.md \
             release/*-setup.exe release/*-setup.exe.sha256
+      - name: Rehearsal, no release is made
+        if: github.ref_type != 'tag'
+        run: |
+          echo "A tag v$VERSION would make a draft with:"
+          ls -l release
