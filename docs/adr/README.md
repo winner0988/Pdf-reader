@@ -11,7 +11,7 @@
 | [0003](0003-mupdf-engine.md) | 選定 MuPDF 作為 PDF 處理引擎 | 已接受 |
 | [0004](0004-sensitive-file-scope.md) | 系統層級外洩防護只套用在手動標記的文件 | 已接受 |
 | [0005](0005-batch-background-execution.md) | 批次處理可在背景／系統列繼續執行 | 已接受 |
-| [0006](0006-password-credential-store.md) | 加密檔案密碼交由系統憑證庫記住 | 已接受 |
+| [0006](0006-password-credential-store.md) | 加密檔案密碼交由系統憑證庫記住 | 已取代（由 ADR 0017 取代） |
 | [0007](0007-tech-stack-and-platform.md) | 技術棧與首發平台 | 已接受 |
 | [0008](0008-pdf-worker-isolation.md) | PDF 引擎隔離在 pdf_worker 子行程，前端不直接接觸引擎 | 已接受 |
 | [0009](0009-default-network-policy.md) | 預設網路政策 | 已接受 |
@@ -22,7 +22,7 @@
 | [0014](0014-signature-verification.md) | 數位簽章在 worker 中以 Windows CryptoAPI 離線驗證 | 已接受 |
 | [0015](0015-ocr.md) | 掃描頁以 MuPDF 內建的 Tesseract 在該文件自己的 worker 中辨識，沙盒不放寬 | 已接受 |
 | [0016](0016-redaction.md) | 安全遮蔽是「標記範圍、套用、整份重寫」三步，只對沒有簽章的文件，並在存檔後驗證 | 提議中 |
-| [0017](0017-password-memory-key.md) | 加密檔案的密碼記憶以檔案自己的密碼驗證資料為查找鍵，不寫入文件識別碼 | 提議中 |
+| [0017](0017-password-memory-key.md) | 加密檔案的密碼記憶以檔案自己的密碼驗證資料為查找鍵，不寫入文件識別碼 | 已接受 |
 | [0018](0018-text-boxes-and-fonts.md) | 文字方塊是頁面上的 FreeText 註解，外觀由 worker 以已安裝字型的子集自己產生 | 提議中 |
 
 ## 規則
