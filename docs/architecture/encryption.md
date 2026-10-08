@@ -96,4 +96,4 @@ sequenceDiagram
 
 ## 尚未處理
 
-- **記住密碼**（Windows 認證管理員，ADR 0006）：另開工作卡。
+- **記住密碼**（Windows 認證管理員；ADR 0017，取代 ADR 0006）：以檔案自己的 `/Encrypt` 資料的雜湊為鍵，不寫入也不修改 PDF；預設不記住，使用者勾選才記，有記住時開檔自動使用，最多 256 項。實作卡 [#218](https://github.com/winner0988/Pdf-reader/issues/218)–[#221](https://github.com/winner0988/Pdf-reader/issues/221)，尚未實作。

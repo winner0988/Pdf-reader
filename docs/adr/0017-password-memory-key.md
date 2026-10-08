@@ -1,9 +1,9 @@
 # ADR 0017：加密檔案的密碼記憶以檔案自己的密碼驗證資料為查找鍵，不寫入文件識別碼
 
 ## 狀態
-提議中
+已接受
 
-（工作卡 [#181](https://github.com/winner0988/Pdf-reader/issues/181)〔B2-17〕。POC：`crates/pdf_worker/tests/password_key_poc.rs`。接受後取代 ADR 0006，ADR 0010 中「記住此文件的密碼」一例不再適用。）
+（負責人於 2026-10-08 接受選項 B，「記住」預設不勾、有記住時自動使用、上限 256 項〔[#181](https://github.com/winner0988/Pdf-reader/issues/181) 的留言〕。工作卡 #181〔B2-17〕。實作卡：[#218](https://github.com/winner0988/Pdf-reader/issues/218)–[#221](https://github.com/winner0988/Pdf-reader/issues/221)。POC：`crates/pdf_worker/tests/password_key_poc.rs`。接受後取代 ADR 0006，ADR 0010 中「記住此文件的密碼」一例不再適用。）
 
 ## 背景
 - ADR 0006：記住的密碼交給系統憑證庫，**查找鍵是文件識別碼**。CONTEXT.md「文件識別碼」：識別碼寫進 PDF 的中繼資料，ADR 0010 規定只在使用者明確操作時寫入，已簽章與唯讀的文件拒絕，加密文件要先有權限密碼。
