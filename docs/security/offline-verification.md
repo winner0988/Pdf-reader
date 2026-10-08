@@ -45,7 +45,7 @@ WebView2 預設會**自行連網**，與 app 的程式碼無關：
 
 ### 準備
 
-1. 以 `pnpm tauri build` 建置正式版，或安裝即將發布的安裝檔。
+1. 安裝即將發布的安裝檔：`pnpm bundle` 的產物，或草稿 Release 的附件（[release.md](../release.md)）。`pnpm tauri build` 的產物不含 worker，不要用。
 2. 準備 QA-01 的測試語料（`tests/corpus/`），**不要**使用私人文件。
 3. 關閉其他使用網路的程式，降低干擾。
 
