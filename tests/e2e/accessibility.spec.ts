@@ -174,6 +174,21 @@ test("the dialogs of the menu", async ({ launch }) => {
   }
 });
 
+test("the licences of what the app is made of, a view of the About dialog", async ({ launch }) => {
+  const page = await launch(corpus("benign/multi-page-10.pdf"));
+  await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
+  await chooseFromMenu(page, strings.menu.about);
+  await page
+    .getByRole("dialog", { name: strings.about.title })
+    .getByRole("button", { name: strings.about.thirdParty })
+    .click();
+  // The text is a chunk of the app that is loaded when it is asked for.
+  await expect(page.getByRole("region", { name: strings.licenses.textLabel })).toContainText(
+    "GNU AFFERO GENERAL PUBLIC LICENSE",
+  );
+  await inBothThemes(page, (theme) => noProblems(page, `third-party licences, ${theme}`));
+});
+
 test("the system's setting to reduce motion is respected", async ({ launch }) => {
   const page = await launch(corpus("benign/multi-page-10.pdf"));
   await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");

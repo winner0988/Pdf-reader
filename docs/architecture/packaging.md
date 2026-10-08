@@ -30,6 +30,16 @@ pnpm bundle    # 產出 target/release/bundle/nsis/PDF Reader_<版本>_x64-setup
 - 主行程在 `resource_dir()/tessdata`、程式旁邊的 `tessdata`（開發版再加上原始碼的 `resources/tessdata`）中找第一個存在的資料夾（`bundled_languages`）。
 - CI（`installer.yml`）確認安裝檔含這兩個檔案、安裝後的雜湊值與 repo 的相同，並以安裝後的 worker 辨識一頁掃描頁（`worker_smoke`）。
 
+## 授權與第三方元件聲明（REL-04）
+
+ADR 0011：把安裝檔交給任何人，都要附上 `LICENSE` 與第三方授權聲明，並說明原始碼在哪裡。
+
+- **安裝檔**：`bundle.resources` 把 `LICENSE`（AGPL-3.0-or-later 全文）與 `src/assets/THIRD_PARTY_LICENSES.txt` 放在安裝資料夾，主程式旁邊。
+- **聲明由產生器做出來**：`node scripts/release/third-party-licenses.mjs` 把兩個執行檔在 Windows 的正常依賴（`cargo metadata --filter-platform`）、前端的正式依賴（`pnpm licenses list --prod`）、MuPDF 與它內建的 C 程式庫（FreeType、HarfBuzz、Tesseract、Leptonica…）、OCR 語言資料與字型的授權與授權全文收在一個檔案裡，相同的全文只列一次，以編號對照。全文是各個套件自己帶的檔案；沒有帶授權檔的套件只有在 MIT 與 BSD-3-Clause 時才補上標準全文（寫明作者），其他的會讓產生器停下來，由人處理。
+- **提交進 repo**：檔案提交在 `src/assets/`，「關於」→「第三方元件授權…」讀的就是它（只在按了才載入，用動態匯入的獨立區塊，不連網，CSP 與 IPC 都不變）。依賴更新（Dependabot）不會使它的檢查失敗；發行時由 `Release` 工作（見 [release.md](../release.md)）用 `--check` 確認它是最新的，不是的話在發行 PR 重新產生。
+- **「關於」**也寫明授權、原始碼的網址（`SOURCE_URL`）與這個版本的 tag（`v<版本>`）。網址是文字，不是連結：開外部連結要經過連結確認，而這裡沒有需要新增的命令。
+- **CI**：`installer.yml` 確認安裝檔含這兩個檔案，安裝後它們的雜湊值與 repo 的相同。
+
 ## 不依賴 VC++ 執行階段
 
 乾淨的 Windows 11 不保證裝有 VC++ 可轉散發套件。
@@ -95,7 +105,7 @@ REL-03（[#68](https://github.com/winner0988/Pdf-reader/issues/68)），規格 �
 
 1. `pnpm bundle` 建置安裝檔。
 2. 確認安裝腳本不會下載 WebView2（見上方「WebView2」）。
-3. 以 7-Zip 列出安裝檔內容，確認包含 `pdf_worker.exe`。
+3. 以 7-Zip 列出安裝檔內容，確認包含 `pdf_worker.exe`、OCR 語言資料、`LICENSE` 與 `THIRD_PARTY_LICENSES.txt`。
 4. `/S` 靜默安裝（per machine），並確認 PDF 關聯已註冊、`.pdf` 的預設值沒有被改成 PDF Reader。
 5. 對安裝後的所有 `.exe` 執行 `check-imports.mjs`。
 6. `worker_smoke`（`crates/worker_host/src/bin/worker_smoke.rs`）以沙盒啟動**安裝後的** worker，完成握手、開啟並渲染一頁 PDF。

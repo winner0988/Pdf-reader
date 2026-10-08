@@ -100,7 +100,7 @@ CI 使用同一組指令。工具版本由 `package.json`（`packageManager`）�
 | 建置產物不得引用外部資源（先 `pnpm build`） | `node scripts/ci/check-dist.mjs` |
 | Rust 依賴稽核 | `cargo deny check`（需 `cargo install cargo-deny --locked`） |
 | 開發模式執行 | `pnpm tauri dev` |
-| 發行腳本測試 | `node --test scripts/release/pe-imports.test.mjs` |
+| 發行腳本測試 | `node --test scripts/release/*.test.mjs` |
 | 建置安裝檔 | `pnpm bundle`（產出 `target/release/bundle/nsis/*.exe`，含 `pdf_worker.exe`；不要用 `pnpm tauri build`，見 `docs/architecture/packaging.md`） |
 | E2E 測試 | `pnpm e2e:build` 後 `pnpm e2e`（操作真正的 app，見 `docs/architecture/e2e.md`） |
 

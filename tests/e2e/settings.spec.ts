@@ -3,6 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
+import { SOURCE_URL } from "../../src/features/shell/about";
 import { strings } from "../../src/i18n/zh-TW";
 import { corpus, dataDir, expect, quit, test } from "./app";
 
@@ -51,5 +52,17 @@ test("the settings offer to check for updates, and say what GitHub sees", async 
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: strings.toolbar.more }).click();
   await page.getByRole("menuitem", { name: strings.menu.about }).click();
-  await expect(page.getByRole("dialog", { name: strings.about.title })).toContainText(strings.about.privacy[0]);
+  const about = page.getByRole("dialog", { name: strings.about.title });
+  await expect(about).toContainText(strings.about.privacy[0]);
+
+  // ADR 0011: the licence, where the source is, and the licences of what the app is made of.
+  await expect(about).toContainText(strings.about.license);
+  await expect(about).toContainText(SOURCE_URL);
+  await about.getByRole("button", { name: strings.about.thirdParty }).click();
+  const licences = page.getByRole("region", { name: strings.licenses.textLabel });
+  for (const part of ["MuPDF", "Tesseract", "GNU AFFERO GENERAL PUBLIC LICENSE", "tauri"]) {
+    await expect(licences).toContainText(part);
+  }
+  await page.getByRole("button", { name: strings.licenses.back }).click();
+  await expect(page.getByRole("dialog", { name: strings.about.title })).toBeVisible();
 });

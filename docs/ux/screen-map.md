@@ -99,7 +99,7 @@
 
 ![關於](wireframes/about.svg)
 
-- 「關於」：版本、隱私承諾、第三方元件授權（本機檢視，不連網）。隱私承諾說明唯一的連網：使用者在設定中按下「檢查更新」時。
+- 「關於」：版本、隱私承諾、授權（AGPL-3.0-or-later）、原始碼的網址與這個版本的 tag、第三方元件授權（按「第三方元件授權…」在同一個對話框中檢視，本機的檔案，不連網；「返回」回到關於）。隱私承諾說明唯一的連網：使用者在設定中按下「檢查更新」時。
 - 「設定」（B2-12）：「⋯」→「設定…」開啟對話框。變更立即套用並儲存，沒有「確定」按鈕。
   - **外觀**：跟隨系統（預設）／淺色／深色。與「⋯」選單的外觀是同一個設定，所有分頁共用，重新啟動後保留。
   - **最近開啟的檔案**：
@@ -532,7 +532,14 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | aboutPrivacy1 | 不會自行連網：只有在設定中按下「檢查更新」時，才向 GitHub 查詢最新的版本號碼；不載入遠端資源 |
 | aboutPrivacy2 | 不收集任何使用者資料，不回報錯誤 |
 | aboutPrivacy3 | PDF 中的 JavaScript 與自動動作一律不執行 |
-| aboutLicenses | 第三方元件與授權 |
+| about.license | 授權：GNU Affero General Public License 第 3 版或之後的版本（AGPL-3.0-or-later）。 |
+| about.source | 原始碼：<網址> |
+| about.sourceTag | 每個版本的完整原始碼是這個 repository 的 tag v<版本>。 |
+| about.thirdParty | 第三方元件授權… |
+| licenses.title | 第三方元件授權 |
+| licenses.description | PDF Reader 內含的元件各自的授權；安裝檔附上同一份檔案（THIRD_PARTY_LICENSES.txt）。這裡不連網。 |
+| licenses.textLabel | 第三方元件授權全文 |
+| licenses.loading／failed／back | 正在載入…／無法載入授權文字。／返回 |
 | settingsAppearance | 外觀 |
 | settingsSystem | 跟隨系統 |
 | settingsLight | 淺色 |

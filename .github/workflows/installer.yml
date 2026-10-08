@@ -19,6 +19,8 @@ on:
       - "rust-toolchain.toml"
       - ".github/workflows/installer.yml"
   workflow_dispatch:
+  # The release (docs/release.md) builds, installs and checks the installer the same way.
+  workflow_call:
 
 permissions:
   contents: read
@@ -50,7 +52,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Release script tests
-        run: node --test scripts/release/pe-imports.test.mjs
+        run: node --test scripts/release/*.test.mjs
 
       - name: Build installer
         run: pnpm bundle
@@ -87,12 +89,16 @@ jobs:
           if ($mode -in 'downloadBootstrapper', 'embedBootstrapper') { throw "the installer downloads WebView2 ('$mode'; REL-02)" }
           "WebView2 install mode: '$mode' (empty means skip)"
 
-      - name: Installer contains the worker and the OCR language data
+      - name: Installer contains the worker, the OCR language data, the licence and the notices
         run: |
           $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
           $listing = 7z l $installer.FullName
           $listing
           if (-not ($listing -match '\bpdf_worker\.exe$')) { throw "pdf_worker.exe is not in $($installer.Name)" }
+          # REL-04, ADR 0011: handing the installer to anyone comes with the licence and the notices.
+          foreach ($name in 'LICENSE', 'THIRD_PARTY_LICENSES.txt') {
+            if (-not ($listing -match "(^|[\s\\/])$([regex]::Escape($name))$")) { throw "$name is not in $($installer.Name)" }
+          }
           foreach ($name in 'eng', 'chi_tra') {
             if (-not ($listing -match "tessdata[\\/]$name\.traineddata$")) { throw "$name.traineddata is not in $($installer.Name)" }
           }
@@ -113,6 +119,17 @@ jobs:
             if (-not (Test-Path $installed)) { throw "$installed is missing" }
             $expected = (Get-FileHash "src-tauri/resources/tessdata/$name.traineddata" -Algorithm SHA256).Hash
             if ((Get-FileHash $installed -Algorithm SHA256).Hash -ne $expected) { throw "$installed is not the repository's file" }
+          }
+
+      # REL-04: the licence and the notices that came with the app are the repository's files.
+      - name: Installed with the licence and the notices
+        run: |
+          $dir = Join-Path $env:ProgramFiles 'PDF Reader'
+          $files = @{ 'LICENSE' = 'LICENSE'; 'THIRD_PARTY_LICENSES.txt' = 'src/assets/THIRD_PARTY_LICENSES.txt' }
+          foreach ($name in $files.Keys) {
+            $installed = Join-Path $dir $name
+            if (-not (Test-Path $installed)) { throw "$installed is missing" }
+            if ((Get-FileHash $installed -Algorithm SHA256).Hash -ne (Get-FileHash $files[$name] -Algorithm SHA256).Hash) { throw "$installed is not the repository's file" }
           }
 
       # REL-03: offered for .pdf ("Open with", Default apps), without taking over the default.
