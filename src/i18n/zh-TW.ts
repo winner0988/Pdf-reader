@@ -680,6 +680,19 @@ export const strings = {
       "不收集任何使用者資料，不回報錯誤",
       "PDF 中的 JavaScript 與自動動作一律不執行",
     ],
+    license: "授權：GNU Affero General Public License 第 3 版或之後的版本（AGPL-3.0-or-later）。",
+    source: "原始碼：",
+    sourceTag: (version: string) => `每個版本的完整原始碼是這個 repository 的 tag v${version}。`,
+    thirdParty: "第三方元件授權…",
+  },
+  /** The licences of the components (ADR 0011). */
+  licenses: {
+    title: "第三方元件授權",
+    description: "PDF Reader 內含的元件各自的授權；安裝檔附上同一份檔案（THIRD_PARTY_LICENSES.txt）。這裡不連網。",
+    textLabel: "第三方元件授權全文",
+    loading: "正在載入…",
+    failed: "無法載入授權文字。",
+    back: "返回",
   },
   close: "關閉",
 } as const;

@@ -110,5 +110,9 @@ describe("the window's panels and the dialogs of its menu", () => {
     await chooseFromMenu(strings.menu.about);
     await screen.findByRole("dialog", { name: strings.about.title });
     await expectAccessible(document.body);
+    // The licences of the components, which the page shows when asked.
+    await user.click(screen.getByRole("button", { name: strings.about.thirdParty }));
+    await screen.findByRole("region", { name: strings.licenses.textLabel });
+    await expectAccessible(document.body);
   });
 });

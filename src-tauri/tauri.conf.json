@@ -42,7 +42,9 @@
     "targets": ["nsis"],
     "category": "Productivity",
     "resources": {
-      "resources/tessdata/*.traineddata": "tessdata/"
+      "resources/tessdata/*.traineddata": "tessdata/",
+      "../LICENSE": "LICENSE",
+      "../src/assets/THIRD_PARTY_LICENSES.txt": "THIRD_PARTY_LICENSES.txt"
     },
     "shortDescription": "Privacy-first, offline PDF reader",
     "icon": [
