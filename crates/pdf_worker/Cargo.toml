@@ -31,8 +31,11 @@ zeroize = "1.9"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
 
 [dev-dependencies]
+mupdf-fonts-droid = "=0.8.0"
 # Reads tests/corpus/manifest.json (already in the workspace through ipc_contract).
 serde_json = "1"
+skrifa = "0.42.1"
+subsetter = "0.2.6"
 worker_host = { path = "../worker_host" }
 
 [target.'cfg(windows)'.dev-dependencies]
