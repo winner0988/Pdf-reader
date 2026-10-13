@@ -4,7 +4,16 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import type { DocumentId, PageAnnotation, StampImageInfo } from "@/ipc/generated/contract";
+import type {
+  AnnotationId,
+  DocumentId,
+  FontId,
+  FontInfo,
+  PageAnnotation,
+  PreparedTextBox,
+  StampImageInfo,
+  TextBoxInfo,
+} from "@/ipc/generated/contract";
 
 export type AnnotationsApi = {
   getPageAnnotations(doc: DocumentId, pageIndex: number): Promise<PageAnnotation[]>;
@@ -16,11 +25,31 @@ export type AnnotationsApi = {
    * Without it (demo data, tests) the stamp menu has no picture of the user's own.
    */
   pickStampImage?(doc: DocumentId): Promise<StampImageInfo | null>;
+  /**
+   * The fonts installed in Windows (B2-27): ids and names, never a path; read again every time, so
+   * that a font installed a moment ago is in the list. Without it (demo data, tests) there are no
+   * text boxes.
+   */
+  getFonts?(): Promise<FontInfo[]>;
+  /**
+   * Makes the words and the font into what a text box is made of (B2-29): the main process reads
+   * the font by its id and the document's worker cuts it to the words. Rejects with a code that
+   * says why the font or the text cannot be used (`fontMissingGlyphs`, `fontNotTrueType`,
+   * `textNotSupported`, ...).
+   */
+  prepareTextBox?(doc: DocumentId, text: string, font: FontId): Promise<PreparedTextBox>;
+  /** What text box `annotation` of a page says of itself, to fill in the dialog that changes it. */
+  getTextBox?(doc: DocumentId, pageIndex: number, annotation: AnnotationId): Promise<TextBoxInfo>;
 };
 
 export const tauriAnnotationsApi: AnnotationsApi = {
   getPageAnnotations: (doc, pageIndex) => invoke<PageAnnotation[]>("get_page_annotations", { doc, pageIndex }),
   pickStampImage: (doc) => invoke<StampImageInfo | null>("pick_stamp_image", { doc }),
+  getFonts: () => invoke<FontInfo[]>("get_fonts"),
+  prepareTextBox: (doc, text, font) =>
+    invoke<PreparedTextBox>("prepare_text_box", { args: { doc, text, font } }),
+  getTextBox: (doc, pageIndex, annotation) =>
+    invoke<TextBoxInfo>("get_text_box", { doc, pageIndex, annotation }),
 };
 
 export type AnnotationSource = {

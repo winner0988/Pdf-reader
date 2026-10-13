@@ -26,6 +26,14 @@ describe("findShortcut", () => {
     expect(findShortcut(keydown(init))?.id).toBe(id);
   });
 
+  it("leaves the keys of an input method that is composing to it", () => {
+    const input = document.createElement("textarea");
+    // Even Ctrl combinations and function keys, which text fields otherwise leave to the app.
+    expect(findShortcut(keydown({ key: "f", ctrlKey: true, isComposing: true }, input))).toBeUndefined();
+    expect(findShortcut(keydown({ key: "F4", isComposing: true }, input))).toBeUndefined();
+    expect(findShortcut(keydown({ key: "f", ctrlKey: true }, input))?.id).toBe("search");
+  });
+
   it("ignores unrelated keys and Alt combinations", () => {
     expect(findShortcut(keydown({ key: "o" }))).toBeUndefined();
     expect(findShortcut(keydown({ key: "o", ctrlKey: true, altKey: true }))).toBeUndefined();

@@ -94,6 +94,8 @@ const isFunctionKey = (event: KeyboardEvent) => /^F\d{1,2}$/.test(event.key);
  * field's own text.
  */
 export function findShortcut(event: KeyboardEvent): Shortcut | undefined {
+  // A key an input method is using to compose (Chinese, Japanese) is the input method's, not a shortcut.
+  if (event.isComposing) return undefined;
   const shortcut = SHORTCUTS.find((candidate) => candidate.matches(event));
   if (
     shortcut &&

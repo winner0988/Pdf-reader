@@ -1,7 +1,9 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, it, vi } from "vitest";
 
 import { NoteDialog } from "@/features/annotations/NoteDialog";
+import { TextBoxDialog } from "@/features/annotations/TextBoxDialog";
 import { ExportDialog } from "@/features/export/ExportDialog";
 import { FlattenDialog } from "@/features/forms/FlattenDialog";
 import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
@@ -21,16 +23,49 @@ import { MovePagesDialog } from "@/features/thumbnails/MovePagesDialog";
 import { SourcePasswordDialog } from "@/features/thumbnails/SourcePasswordDialog";
 import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
 import { strings } from "@/i18n/zh-TW";
-import type { BlockedAction, LinkPreview, OutlineItem } from "@/ipc/generated/contract";
+import type { BlockedAction, FontInfo, LinkPreview, OutlineItem } from "@/ipc/generated/contract";
 import { expectAccessible } from "@/test/axe";
 
 /** The page, with whatever a dialog put outside the render container. */
 const everything = () => document.body;
 
+const FONTS: FontInfo[] = [
+  { id: 1, name: "Arial", family: "Arial", bold: false, italic: false, source: "installed" },
+  { id: 2, name: "Arial Bold", family: "Arial", bold: true, italic: false, source: "installed" },
+  { id: 3, name: "Microsoft JhengHei", family: "Microsoft JhengHei", bold: false, italic: false, source: "installed" },
+];
+
 describe("dialogs", () => {
   it("a note", async () => {
     render(<NoteDialog initial={null} onSave={vi.fn()} onCancel={vi.fn()} />);
     await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("a new text box", async () => {
+    render(<TextBoxDialog mode="add" fonts={FONTS} onSave={() => Promise.resolve(null)} onCancel={vi.fn()} />);
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("a text box whose font is gone, with a problem shown", async () => {
+    render(
+      <TextBoxDialog
+        mode="edit"
+        fonts={FONTS}
+        start={{
+          text: "Hello 你好",
+          font: "Gone Font",
+          style: { size: 18, color: { r: 200, g: 30, b: 30 }, align: "center" },
+          overflow: true,
+        }}
+        onSave={() => Promise.resolve("problem")}
+        onCancel={vi.fn()}
+      />,
+    );
+    await screen.findByRole("dialog");
+    await userEvent.click(screen.getByRole("button", { name: strings.annotations.textBoxDialog.save }));
+    await screen.findByRole("alert");
     await expectAccessible(everything());
   });
 

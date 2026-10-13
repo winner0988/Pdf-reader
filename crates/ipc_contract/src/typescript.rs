@@ -132,7 +132,7 @@ pub fn bindings() -> String {
         OpenEvent,
     );
 
-    let limits: [(&str, String); 36] = [
+    let limits: [(&str, String); 39] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -159,6 +159,9 @@ pub fn bindings() -> String {
         ("maxAnnotationQuads", MAX_ANNOTATION_QUADS.to_string()),
         ("maxHighlightPages", MAX_HIGHLIGHT_PAGES.to_string()),
         ("maxNoteTextBytes", MAX_NOTE_TEXT_BYTES.to_string()),
+        ("maxTextBoxBytes", MAX_TEXT_BOX_BYTES.to_string()),
+        ("minTextBoxSize", MIN_TEXT_BOX_SIZE.to_string()),
+        ("maxTextBoxSize", MAX_TEXT_BOX_SIZE.to_string()),
         ("maxInkStrokes", MAX_INK_STROKES.to_string()),
         ("maxInkPoints", MAX_INK_POINTS.to_string()),
         ("minAnnotationSidePt", MIN_ANNOTATION_SIDE_PT.to_string()),

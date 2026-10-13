@@ -12,6 +12,9 @@ import {
   STAMP_WIDTH_PT,
   stampRectAt,
   strokePoints,
+  TEXT_BOX_HEIGHT_PT,
+  TEXT_BOX_WIDTH_PT,
+  textBoxRectAt,
   thin,
 } from "@/features/annotations/tools";
 import type { Rotation } from "@/features/shell/model";
@@ -144,5 +147,24 @@ describe("keeping a rectangle on its page", () => {
     expect(keptOnPage({ x0: -10, y0: 780, x1: 90, y1: 820 }, LETTER)).toEqual({ x0: 0, y0: 752, x1: 100, y1: 792 });
     expect(keptOnPage({ x0: 10, y0: 10, x1: 20, y1: 20 }, LETTER)).toEqual({ x0: 10, y0: 10, x1: 20, y1: 20 });
     expect(keptOnPage({ x0: -5, y0: 0, x1: 700, y1: 10 }, LETTER)).toEqual({ x0: -5, y0: 0, x1: 700, y1: 10 });
+  });
+});
+
+describe("putting a text box down", () => {
+  it("makes a box of the usual size around the point, inside the page", () => {
+    const rect = textBoxRectAt({ x: 300, y: 400 }, LETTER);
+    expect([rect.x1 - rect.x0, rect.y1 - rect.y0]).toEqual([TEXT_BOX_WIDTH_PT, TEXT_BOX_HEIGHT_PT]);
+    expect([(rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2]).toEqual([300, 400]);
+    // At a corner it is moved onto the page, not shrunk.
+    expect(textBoxRectAt({ x: 0, y: 0 }, LETTER)).toEqual({ x0: 0, y0: 0, x1: TEXT_BOX_WIDTH_PT, y1: TEXT_BOX_HEIGHT_PT });
+    const far = textBoxRectAt({ x: 612, y: 792 }, LETTER);
+    expect([far.x1, far.y1]).toEqual([612, 792]);
+    expect(far.x1 - far.x0).toBe(TEXT_BOX_WIDTH_PT);
+  });
+
+  it("is no larger than a small page, and no smaller than a box can be", () => {
+    const small = textBoxRectAt({ x: 50, y: 50 }, { widthPt: 100, heightPt: 30 });
+    expect([small.x0, small.x1, small.y0, small.y1]).toEqual([0, 100, 0, 30]);
+    expect(TEXT_BOX_HEIGHT_PT).toBeGreaterThanOrEqual(LIMITS.minAnnotationSidePt);
   });
 });

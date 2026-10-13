@@ -14,6 +14,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { HIGHLIGHT_COLORS, SWATCH } from "@/features/annotations/model";
 import { NoteDialog } from "@/features/annotations/NoteDialog";
+import { TextBoxDialog } from "@/features/annotations/TextBoxDialog";
 import { createAnnotationSource, type AnnotationsApi } from "@/features/annotations/source";
 import { pictureRectAt, stampRectAt, type Tool } from "@/features/annotations/tools";
 import { useAnnotations } from "@/features/annotations/useAnnotations";
@@ -530,6 +531,8 @@ export function ReaderShell({
   // Highlighter marks and notes (B2-07); the author's permission to annotate covers them (MVP-19).
   const annotations = useAnnotations({
     doc,
+    api: annotationsApi,
+    pageSizeOf: (index) => document_?.pages[index],
     editing: editingApi,
     allowed: permissions.annotate,
     view: viewRef,
@@ -544,6 +547,15 @@ export function ReaderShell({
     } else {
       setTool({ kind: "pen", ...ink });
       showHint(strings.annotations.penOn);
+    }
+  };
+  // The text box tool (B2-30): a click on a page asks what the box says.
+  const toggleTextBox = () => {
+    if (tool?.kind === "textBox") {
+      setTool(null);
+    } else {
+      setTool({ kind: "textBox" });
+      showHint(strings.annotations.textBoxOn);
     }
   };
   const inkStyle = (change: Partial<{ color: InkColor; width: InkWidth }>) => {
@@ -587,22 +599,25 @@ export function ReaderShell({
     const onEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setTool(null);
     };
-    // Enter is the stamp's only where the user is looking at the page, or at the stamp's own
-    // button (which gets the focus back when its menu closes); elsewhere it does what it does. It
-    // comes before the button sees it: Enter on the stamp's button would open its menu.
+    // Enter is the stamp's (or the text box's) only where the user is looking at the page, or at
+    // the tool's own button (which gets the focus back when its menu closes); elsewhere it does
+    // what it does. It comes before the button sees it: Enter on the stamp's button would open its
+    // menu.
     const onEnter = (event: KeyboardEvent) => {
       if (event.key !== "Enter" || tool.kind === "pen" || !chosenPage || !edit) return;
       const target = event.target;
       const here =
         !(target instanceof Element) ||
         target === document.body ||
-        target.closest('[data-region="canvas"], [data-stamp-button]') !== null;
+        target.closest('[data-region="canvas"], [data-stamp-button], [data-text-box-button]') !== null;
       // A form field on the page (B2-09) keeps its Enter.
       const typing = target instanceof Element && target.closest("input, textarea, select") !== null;
       if (!here || typing) return;
       event.preventDefault();
       const middle = { x: chosenPage.widthPt / 2, y: chosenPage.heightPt / 2 };
-      if (tool.kind === "stamp") {
+      if (tool.kind === "textBox") {
+        annotations.newTextBox(currentPage - 1, middle);
+      } else if (tool.kind === "stamp") {
         edit({ kind: "addStamp", page: currentPage - 1, rect: stampRectAt(middle, chosenPage), stamp: tool.stamp });
       } else {
         edit({
@@ -620,7 +635,7 @@ export function ReaderShell({
       window.removeEventListener("keydown", onEscape);
       window.removeEventListener("keydown", onEnter, true);
     };
-  }, [tool, active, chosenPage, currentPage, edit]);
+  }, [tool, active, chosenPage, currentPage, edit, annotations]);
   // Changes an earlier run of the app left for the file (B2-13): made again or discarded. The tab's
   // new state comes on the open-events channel.
   const recovery = document_?.recovery ?? "none";
@@ -810,6 +825,11 @@ export function ReaderShell({
                 }
               : undefined
           }
+          textBox={
+            editingApi !== undefined && doc !== undefined && annotationsApi?.prepareTextBox
+              ? { active: toolOn?.kind === "textBox", onToggle: annotations.textBoxes ? toggleTextBox : undefined }
+              : undefined
+          }
           stamp={
             editingApi !== undefined && doc !== undefined
               ? {
@@ -949,6 +969,8 @@ export function ReaderShell({
                       annotations={annotationSource}
                       onAnnotationEdit={annotations.edit}
                       onEditNote={annotations.editNote}
+                      onEditTextBox={annotations.editTextBox}
+                      onNewTextBox={annotations.newTextBox}
                       tool={toolOn ?? undefined}
                       onToolDone={() => setTool(null)}
                       forms={formSource}
@@ -987,6 +1009,14 @@ export function ReaderShell({
                             <ContextMenuShortcut>{strings.permissions.notAllowed}</ContextMenuShortcut>
                           )}
                         </ContextMenuItem>
+                        {annotationsApi?.prepareTextBox && (
+                          <ContextMenuItem disabled={!annotations.textBoxes} onClick={() => annotations.newTextBoxAtMenu()}>
+                            {strings.annotations.addTextBox}
+                            {!permissions.annotate && (
+                              <ContextMenuShortcut>{strings.permissions.notAllowed}</ContextMenuShortcut>
+                            )}
+                          </ContextMenuItem>
+                        )}
                       </>
                     )}
                   </ContextMenuContent>
@@ -1036,6 +1066,16 @@ export function ReaderShell({
           initial={annotations.note.kind === "edit" ? (annotations.note.annotation.text ?? "") : null}
           onSave={annotations.saveNote}
           onCancel={annotations.closeNote}
+        />
+      )}
+      {annotations.textBox && (
+        <TextBoxDialog
+          mode={annotations.textBox.kind}
+          fonts={annotations.textBox.fonts}
+          start={annotations.textBox.kind === "edit" ? annotations.textBox.start : undefined}
+          lastFamily={annotations.lastFamily}
+          onSave={annotations.saveTextBox}
+          onCancel={annotations.closeTextBox}
         />
       )}
       <SourcePasswordDialog

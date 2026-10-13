@@ -2,7 +2,8 @@
 // page; here each gets a focusable outline, so that it can be chosen with the keyboard (or with
 // a click, which the view finds by position: the outlines let the pointer through, so text under
 // a highlighter mark can still be selected), and the chosen one a small toolbar. A chosen drawing
-// or stamp can also be moved and resized (B2-08): by dragging, or with the arrow keys.
+// or stamp can also be moved and resized (B2-08): by dragging, or with the arrow keys; so can a
+// text box (B2-30), which also has Enter and a button to change what it says.
 
 import { Pencil, Trash2 } from "lucide-react";
 import { Fragment, useEffect, useState, type KeyboardEvent } from "react";
@@ -45,7 +46,12 @@ type PageAnnotationsProps = {
   onEdit?: (edit: Edit) => void;
   /** Asks for a note's new text (the shell's dialog). */
   onEditNote?: (page: number, annotation: PageAnnotation) => void;
+  /** Asks for a text box's new words and style (the shell's dialog); without it the box can only be moved or removed. */
+  onEditTextBox?: (page: number, annotation: PageAnnotation) => void;
 };
+
+/** The kinds that can be moved and resized. */
+const MOVABLE = new Set(["ink", "stamp", "textBox"]);
 
 export function PageAnnotations({
   source,
@@ -61,6 +67,7 @@ export function PageAnnotations({
   onRelease,
   onEdit,
   onEditNote,
+  onEditTextBox,
 }: PageAnnotationsProps) {
   const [loaded, setLoaded] = useState<{ doc: DocumentId; annotations: PageAnnotation[] } | null>(null);
 
@@ -104,8 +111,12 @@ export function PageAnnotations({
     } else if (event.key === "Escape") {
       event.preventDefault();
       onRelease();
-    } else if (ARROWS[event.key] && onEdit && (annotation.kind === "ink" || annotation.kind === "stamp")) {
-      // A drawing or a stamp moves a point at a time, ten with Shift, the way the arrows point.
+    } else if (event.key === "Enter" && annotation.kind === "textBox" && onEdit && onEditTextBox) {
+      // Enter changes what a text box says: the keyboard's way to the dialog.
+      event.preventDefault();
+      if (!event.repeat) onEditTextBox(index, annotation);
+    } else if (ARROWS[event.key] && onEdit && MOVABLE.has(annotation.kind)) {
+      // A drawing, a stamp or a text box moves a point at a time, ten with Shift, the way the arrows point.
       event.preventDefault();
       // Each press is an edit of its own, made on the document as the one before left it: a held
       // key would send them faster than the document is ready for the next.
@@ -124,7 +135,7 @@ export function PageAnnotations({
       {annotations.map((annotation) => {
         const area = rectToBox(annotation.rect, page, rotation, box);
         const isChosen = annotation.id === chosen;
-        const movable = onEdit !== undefined && (annotation.kind === "ink" || annotation.kind === "stamp");
+        const movable = onEdit !== undefined && MOVABLE.has(annotation.kind);
         return (
           // The chosen one's toolbar follows its outline, so that Tab goes from one to the other.
           <Fragment key={annotation.id}>
@@ -161,6 +172,7 @@ export function PageAnnotations({
                   onEdit?.({ kind: "setHighlightColor", page: index, annotation: annotation.id, color })
                 }
                 onEditNote={() => onEditNote?.(index, annotation)}
+                onEditTextBox={onEditTextBox ? () => onEditTextBox(index, annotation) : undefined}
                 onDelete={() => remove(annotation)}
                 onKeyDown={keys(annotation, area)}
               />
@@ -179,6 +191,7 @@ type AnnotationToolbarProps = {
   allowed: boolean;
   onColor: (color: HighlightColor) => void;
   onEditNote: () => void;
+  onEditTextBox?: () => void;
   onDelete: () => void;
   onKeyDown: (event: KeyboardEvent) => void;
 };
@@ -190,6 +203,7 @@ function AnnotationToolbar({
   allowed,
   onColor,
   onEditNote,
+  onEditTextBox,
   onDelete,
   onKeyDown,
 }: AnnotationToolbarProps) {
@@ -229,10 +243,28 @@ function AnnotationToolbar({
           </Button>
         </>
       )}
-      {(annotation.kind === "ink" ||
-        annotation.kind === "stamp" ||
-        annotation.kind === "textBox" ||
-        annotation.kind === "other") && <span className="px-1">{t.kind[annotation.kind]}</span>}
+      {annotation.kind === "textBox" && (
+        <>
+          <span className="min-w-0 truncate px-1" title={annotation.text ?? undefined}>
+            {annotation.text ?? t.kind.textBox}
+          </span>
+          {onEditTextBox && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={t.editTextBox}
+              title={why ?? t.editTextBox}
+              disabled={!allowed}
+              onClick={onEditTextBox}
+            >
+              <Pencil />
+            </Button>
+          )}
+        </>
+      )}
+      {(annotation.kind === "ink" || annotation.kind === "stamp" || annotation.kind === "other") && (
+        <span className="px-1">{t.kind[annotation.kind]}</span>
+      )}
       <Button variant="ghost" size="icon-sm" aria-label={t.delete} title={why ?? t.delete} disabled={!allowed} onClick={onDelete}>
         <Trash2 />
       </Button>
