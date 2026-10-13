@@ -10,6 +10,7 @@ const highlight: PageAnnotation = {
   rect: { x0: 70, y0: 70, x1: 200, y1: 92 },
   color: "yellow",
   text: null,
+  picture: null,
 };
 const note: PageAnnotation = {
   id: 5,
@@ -17,6 +18,7 @@ const note: PageAnnotation = {
   rect: { x0: 150, y0: 80, x1: 170, y1: 100 },
   color: null,
   text: "Existing note",
+  picture: null,
 };
 
 /** Characters by code point: the invisible ones are not written out in the source. */

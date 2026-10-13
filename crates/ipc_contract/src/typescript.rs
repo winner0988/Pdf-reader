@@ -82,6 +82,7 @@ pub fn bindings() -> String {
         StampImageInfo,
         AnnotationId,
         AnnotationKind,
+        PictureView,
         PageAnnotation,
         FieldId,
         FieldKind,

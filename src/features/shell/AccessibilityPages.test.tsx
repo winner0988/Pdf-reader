@@ -109,11 +109,11 @@ describe("the page", () => {
 
 describe("marks and tools", () => {
   const marks: PageAnnotation[] = [
-    { id: 4, kind: "highlight", rect: { x0: 72, y0: 300, x1: 200, y1: 320 }, color: "yellow", text: null },
-    { id: 5, kind: "note", rect: { x0: 300, y0: 300, x1: 320, y1: 320 }, color: null, text: "Existing note" },
-    { id: 6, kind: "ink", rect: { x0: 72, y0: 400, x1: 200, y1: 460 }, color: null, text: null },
-    { id: 7, kind: "stamp", rect: { x0: 250, y0: 400, x1: 400, y1: 460 }, color: null, text: null },
-    { id: 8, kind: "other", rect: { x0: 72, y0: 500, x1: 200, y1: 520 }, color: null, text: null },
+    { id: 4, kind: "highlight", rect: { x0: 72, y0: 300, x1: 200, y1: 320 }, color: "yellow", text: null, picture: null },
+    { id: 5, kind: "note", rect: { x0: 300, y0: 300, x1: 320, y1: 320 }, color: null, text: "Existing note", picture: null },
+    { id: 6, kind: "ink", rect: { x0: 72, y0: 400, x1: 200, y1: 460 }, color: null, text: null, picture: null },
+    { id: 7, kind: "stamp", rect: { x0: 250, y0: 400, x1: 400, y1: 460 }, color: null, text: null, picture: null },
+    { id: 8, kind: "other", rect: { x0: 72, y0: 500, x1: 200, y1: 520 }, color: null, text: null, picture: null },
   ];
   const annotationsApi = {
     getPageAnnotations: vi.fn((_doc: number, page: number) => Promise.resolve(page === 0 ? marks : [])),
@@ -128,6 +128,27 @@ describe("marks and tools", () => {
       await screen.findByRole("toolbar", { name: annotationLabel(mark) });
       await expectAccessible(document.body);
     }
+  });
+
+  it("a picture of the user's own, chosen: its toolbar with the buttons that turn it, and its outline", async () => {
+    const picture: PageAnnotation = {
+      id: 9,
+      kind: "stamp",
+      rect: { x0: 250, y0: 600, x1: 380, y1: 700 },
+      color: null,
+      text: null,
+      picture: { angle: 20, width: 128, height: 64 },
+    };
+    const turnable = {
+      getPageAnnotations: vi.fn((_doc: number, page: number) => Promise.resolve(page === 0 ? [picture] : [])),
+    } satisfies AnnotationsApi;
+    await showFirstPage({ annotationsApi: turnable });
+    const outline = await screen.findByRole("button", { name: annotationLabel(picture) });
+    act(() => outline.focus());
+    await screen.findByRole("toolbar", { name: annotationLabel(picture) });
+    expect(screen.getByRole("button", { name: strings.annotations.turnRight })).toBeVisible();
+    expect(document.querySelector("[data-turn-outline]")).not.toBeNull();
+    await expectAccessible(document.body);
   });
 
   it("the pen, with the menu of its colour and thickness", async () => {

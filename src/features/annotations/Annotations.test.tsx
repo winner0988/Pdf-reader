@@ -36,6 +36,7 @@ const highlight: PageAnnotation = {
   rect: { x0: 72, y0: 300, x1: 200, y1: 320 },
   color: "yellow",
   text: null,
+  picture: null,
 };
 const note: PageAnnotation = {
   id: 5,
@@ -43,6 +44,7 @@ const note: PageAnnotation = {
   rect: { x0: 300, y0: 300, x1: 320, y1: 320 },
   color: null,
   text: "Existing note",
+  picture: null,
 };
 
 /** Client coordinates of a point on page `index`, in page points, at 100% (jsdom puts the view at 0, 0). */

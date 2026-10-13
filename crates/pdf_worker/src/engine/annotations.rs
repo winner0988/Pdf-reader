@@ -134,12 +134,13 @@ impl PdfDocument {
     /// `MAX_ANNOTATIONS_PER_PAGE`; one that cannot be read is skipped.
     pub fn page_annotations(&self, index: u32) -> Result<Vec<PageAnnotation>, EngineError> {
         let page = self.pdf_page(index)?;
+        let rotation = page.rotation().unwrap_or(0);
         let mut annotations = Vec::new();
         for annotation in page.annotations() {
             if annotations.len() == MAX_ANNOTATIONS_PER_PAGE as usize {
                 break;
             }
-            if let Ok(Some(entry)) = entry(&annotation) {
+            if let Ok(Some(entry)) = entry(&annotation, rotation) {
                 annotations.push(entry);
             }
         }
@@ -250,8 +251,13 @@ impl PdfDocument {
         let mut annotation = find(&page, id)?;
         match annotation.r#type()? {
             PdfAnnotationType::Stamp => {
-                annotation.set_rect(binding_rect(rect))?;
-                annotation.update()?;
+                // A picture that is turned keeps its shape and its appearance (B3-01).
+                if let Some(fitted) = super::stamp_image::fit_turned(&annotation, rect) {
+                    annotation.set_rect(binding_rect(fitted))?;
+                } else {
+                    annotation.set_rect(binding_rect(rect))?;
+                    annotation.update()?;
+                }
             }
             PdfAnnotationType::Ink => place_ink(&mut annotation, rect)?,
             // Never through MuPDF's setters: they would draw the box black again.
@@ -416,8 +422,9 @@ pub(super) fn find(page: &PdfPage, id: AnnotationId) -> Result<PdfAnnotation, En
         .ok_or(EngineError::InvalidEdit("no such annotation on the page"))
 }
 
-/// What the app lists of `annotation`; `None` for a pop-up window, or one without a number.
-fn entry(annotation: &PdfAnnotation) -> Result<Option<PageAnnotation>, Error> {
+/// What the app lists of `annotation`, on a page turned `page_rotation` degrees; `None` for a
+/// pop-up window, or one without a number.
+fn entry(annotation: &PdfAnnotation, page_rotation: i32) -> Result<Option<PageAnnotation>, Error> {
     let kind = match annotation.r#type()? {
         PdfAnnotationType::Popup => return Ok(None),
         PdfAnnotationType::Highlight => AnnotationKind::Highlight,
@@ -461,11 +468,16 @@ fn entry(annotation: &PdfAnnotation) -> Result<Option<PageAnnotation>, Error> {
             .map(|contents| clean_note_text(contents, MAX_NOTE_TEXT_BYTES as usize)),
         _ => None,
     };
+    let picture = match kind {
+        AnnotationKind::Stamp => super::stamp_image::picture_view(annotation, page_rotation),
+        _ => None,
+    };
     Ok(Some(PageAnnotation {
         id: AnnotationId(number),
         kind,
         rect,
         color,
         text,
+        picture,
     }))
 }

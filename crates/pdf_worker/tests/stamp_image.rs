@@ -109,6 +109,101 @@ fn a_picture_with_exif_becomes_a_stamp_in_a_saved_document_without_it() {
 }
 
 #[test]
+fn a_picture_stamp_is_turned_in_the_real_worker_and_comes_back_turned_from_the_saved_file() {
+    let mut host = host();
+    let (png, ..) = prepared(&mut host, "images/stamp-exif.jpg").expect("prepared");
+    let doc = match host.open(&corpus("benign/single-page.pdf")).expect("open") {
+        (doc, WorkerResponse::Opened { .. }) => doc,
+        other => panic!("{other:?}"),
+    };
+    let edit = |host: &mut WorkerHost, edit: WorkerEdit| {
+        let done = host
+            .request(|request| WorkerRequest::Edit { request, doc, edit })
+            .expect("the edit");
+        assert!(matches!(done, WorkerResponse::Edited { .. }), "{done:?}");
+    };
+    let listed = |host: &mut WorkerHost| {
+        let listed = host
+            .request(|request| WorkerRequest::GetPageAnnotations {
+                request,
+                doc,
+                page_index: 0,
+            })
+            .expect("annotations");
+        let WorkerResponse::PageAnnotations { annotations, .. } = listed else {
+            panic!("{listed:?}");
+        };
+        annotations
+    };
+    edit(
+        &mut host,
+        WorkerEdit::AddImageStamp {
+            page: 0,
+            rect: Rect {
+                x0: 100.0,
+                y0: 100.0,
+                x1: 228.0,
+                y1: 164.0,
+            },
+            png,
+        },
+    );
+    let [stamp] = &listed(&mut host)[..] else {
+        panic!("one stamp");
+    };
+    assert_eq!(stamp.picture.expect("a picture").angle, 0.0);
+    edit(
+        &mut host,
+        WorkerEdit::SetPictureAngle {
+            page: 0,
+            annotation: stamp.id,
+            degrees: 90.0,
+        },
+    );
+    let [turned] = &listed(&mut host)[..] else {
+        panic!("one stamp");
+    };
+    // A quarter turned: 64 across and 128 down, about the same middle.
+    assert!(
+        ((turned.rect.x1 - turned.rect.x0) - 64.0).abs() < 0.1,
+        "{turned:?}"
+    );
+    assert!(
+        ((turned.rect.y1 - turned.rect.y0) - 128.0).abs() < 0.1,
+        "{turned:?}"
+    );
+    assert!((turned.picture.expect("a picture").angle - 90.0).abs() < 0.01);
+
+    // Written, and read again by another worker: still turned.
+    let path = std::env::temp_dir().join(format!("pdf-worker-{}-turned.pdf", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .expect("create");
+    host.save(doc, &file).expect("save");
+    drop(file);
+    let mut other = self::host();
+    let (again, _) = other.open(&path).expect("open the copy");
+    let listed = other
+        .request(|request| WorkerRequest::GetPageAnnotations {
+            request,
+            doc: again,
+            page_index: 0,
+        })
+        .expect("annotations");
+    std::fs::remove_file(&path).ok();
+    let WorkerResponse::PageAnnotations { annotations, .. } = listed else {
+        panic!("{listed:?}");
+    };
+    let [stamp] = &annotations[..] else {
+        panic!("one stamp");
+    };
+    assert!((stamp.picture.expect("a picture").angle - 90.0).abs() < 0.01);
+}
+
+#[test]
 fn a_png_picture_is_made_too_without_its_chunks() {
     let mut host = host();
     let (png, width, height) = prepared(&mut host, "images/stamp-metadata.png").expect("prepared");

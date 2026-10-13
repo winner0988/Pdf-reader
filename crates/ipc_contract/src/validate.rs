@@ -890,8 +890,22 @@ impl Validate for Edit {
                 check_annotated_page(*page)?;
                 check_annotation_rect(rect)
             }
+            Edit::SetPictureAngle { page, degrees, .. } => {
+                check_annotated_page(*page)?;
+                check_angle(*degrees)
+            }
         }
     }
+}
+
+/// An angle a picture is turned to (B3-01), in degrees: a number, within a full turn each way.
+fn check_angle(degrees: f32) -> Result<(), ValidationError> {
+    if !degrees.is_finite() || degrees.abs() > MAX_PICTURE_ANGLE_DEGREES {
+        return Err(ValidationError::OutOfRange {
+            what: "picture angle",
+        });
+    }
+    Ok(())
 }
 
 /// A rectangle an annotation is put in or moved to (B2-08): finite, upright, and large enough to
@@ -1149,6 +1163,16 @@ fn check_field_text_line(what: &'static str, text: &str) -> Result<(), Validatio
 impl Validate for PageAnnotation {
     fn validate(&self) -> Result<(), ValidationError> {
         self.rect.validate()?;
+        if let Some(picture) = &self.picture {
+            check_angle(picture.angle)?;
+            for side in [picture.width, picture.height] {
+                if !side.is_finite() || side <= 0.0 || side > MAX_PAGE_SIDE_PT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "picture size",
+                    });
+                }
+            }
+        }
         if let Some(text) = &self.text {
             check_text("note text", text, MAX_NOTE_TEXT_BYTES)?;
             if !is_note_text(text)
@@ -1333,8 +1357,9 @@ mod tests {
     use crate::types::{
         AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, ErrorCode,
         FieldId, FieldKind, FieldOption, FontId, HighlightColor, HighlightMark, InkColor, InkWidth,
-        LinkId, RecentId, Recovery, RequestId, Restrictions, Rgb, Rotation, SecurityFinding,
-        StampImageId, StampName, TabId, TextAlign, TextBoxInfo, TextBoxModelId, UnverifiableReason,
+        LinkId, PictureView, RecentId, Recovery, RequestId, Restrictions, Rgb, Rotation,
+        SecurityFinding, StampImageId, StampName, TabId, TextAlign, TextBoxInfo, TextBoxModelId,
+        UnverifiableReason,
     };
     use crate::worker::{ModelGlyph, WorkerErrorCode};
 
@@ -1683,6 +1708,56 @@ mod tests {
         let chars = |chars: u32| polled(vec![page(0, OcrOutcome::Recognised { chars })], 0);
         assert_eq!(chars(MAX_PAGE_TEXT_CHARS).validate(), Ok(()));
         assert!(chars(MAX_PAGE_TEXT_CHARS + 1).validate().is_err());
+    }
+
+    #[test]
+    fn a_picture_is_turned_to_an_angle_within_a_full_turn_and_a_stamp_says_what_it_measures() {
+        let turn = |page: u32, degrees: f32| Edit::SetPictureAngle {
+            page,
+            annotation: AnnotationId(3),
+            degrees,
+        };
+        for angle in [0.0, 90.0, -45.5, 360.0, -360.0] {
+            assert_eq!(turn(0, angle).validate(), Ok(()), "{angle}");
+        }
+        for angle in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 360.5, -361.0] {
+            assert!(turn(0, angle).validate().is_err(), "{angle}");
+        }
+        assert!(turn(MAX_PAGE_COUNT, 10.0).validate().is_err());
+
+        // What the page is told of a picture: an angle, and a size that is a size.
+        let stamp = |picture: Option<PictureView>| PageAnnotation {
+            id: AnnotationId(3),
+            kind: AnnotationKind::Stamp,
+            rect: Rect {
+                x0: 10.0,
+                y0: 10.0,
+                x1: 90.0,
+                y1: 90.0,
+            },
+            color: None,
+            text: None,
+            picture,
+        };
+        let view = |angle: f32, width: f32, height: f32| {
+            Some(PictureView {
+                angle,
+                width,
+                height,
+            })
+        };
+        assert_eq!(stamp(None).validate(), Ok(()));
+        assert_eq!(stamp(view(15.0, 128.0, 64.0)).validate(), Ok(()));
+        for wrong in [
+            view(f32::NAN, 128.0, 64.0),
+            view(400.0, 128.0, 64.0),
+            view(0.0, 0.0, 64.0),
+            view(0.0, 128.0, -1.0),
+            view(0.0, f32::INFINITY, 64.0),
+            view(0.0, MAX_PAGE_SIDE_PT * 2.0, 64.0),
+        ] {
+            assert!(stamp(wrong).validate().is_err(), "{wrong:?}");
+        }
     }
 
     fn unlock(password: &str) -> UnlockArgs {
@@ -2857,6 +2932,7 @@ mod tests {
             },
             color: None,
             text: text.map(str::to_owned),
+            picture: None,
         };
         let response = |annotations: Vec<PageAnnotation>| WorkerResponse::PageAnnotations {
             request: RequestId(1),
