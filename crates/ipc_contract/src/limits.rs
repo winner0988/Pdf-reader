@@ -174,6 +174,13 @@ pub const MAX_JPEG_BYTES: usize = 64 * 1024 * 1024;
 /// Japanese) are under 60 MB.
 pub const MAX_LANGUAGE_DATA_BYTES: usize = 64 * 1024 * 1024;
 
+/// Most bytes the text of a text box has (B2-28, ADR 0018): about 1,300 Chinese characters.
+pub const MAX_TEXT_BOX_BYTES: usize = 4_096;
+
+/// Largest and smallest size a text box sets its text in, in points (B2-28).
+pub const MAX_TEXT_BOX_SIZE: f32 = 288.0;
+pub const MIN_TEXT_BOX_SIZE: f32 = 4.0;
+
 /// Longest name of a language for recognising text, such as `eng` or `chi_tra` (B2-10).
 pub const MAX_LANGUAGE_NAME_BYTES: usize = 32;
 

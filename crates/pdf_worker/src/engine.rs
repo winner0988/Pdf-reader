@@ -35,9 +35,11 @@ pub use ocr::OcrKnown;
 
 mod signatures;
 mod stamp_image;
+mod text_box;
 
 pub use signatures::{SignatureField, SignatureFields};
 pub use stamp_image::{StampPicture, prepare_stamp_picture};
+pub use text_box::{TextBoxFont, TextBoxMade, TextBoxSpec};
 
 /// Most form fields looked at to find a signature (`PdfDocument::is_signed`).
 const MAX_FORM_FIELDS: usize = 10_000;
@@ -97,6 +99,9 @@ pub enum EngineError {
     NoArea,
     #[error("invalid picture: {0}")]
     InvalidPicture(&'static str),
+    /// The font of a text box cannot be used (B2-28, ADR 0018).
+    #[error("the font cannot be used: {0:?}")]
+    Font(ipc_contract::types::FontRefusal),
     #[error("the picture is too large")]
     PictureTooLarge,
     #[error("MuPDF: {0}")]

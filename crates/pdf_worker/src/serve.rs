@@ -791,6 +791,7 @@ fn engine_error(
         | EngineError::InvalidRotation
         | EngineError::InvalidEdit(_)
         | EngineError::InvalidPicture(_)
+        | EngineError::Font(_)
         | EngineError::NoPageLeft
         | EngineError::EncryptedCopy => WorkerErrorCode::InvalidRequest,
         EngineError::TooLarge { .. }
