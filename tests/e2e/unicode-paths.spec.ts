@@ -107,6 +107,36 @@ test.describe("paths with spaces and Chinese characters", () => {
   });
 });
 
+test.describe("a name with characters that mean something elsewhere", () => {
+  let root: string;
+  test.beforeEach(() => {
+    root = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-special-"));
+  });
+  test.afterEach(() => {
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  });
+
+  // `%`, `&`, `#`, brackets and a leading dot are fine in a Windows name, and mean something in a URL,
+  // a command line or a shell.
+  test("opens, is listed, and Ctrl+S writes an edit into the file", async ({ launch }) => {
+    const name = "100% 完成 & #1 [最終] {v2} 'a' ＋全形.pdf";
+    const file = path.join(root, name);
+    copyFileSync(corpus("benign/multi-page-10.pdf"), file);
+
+    const page = await launch(file);
+    await expect(firstPage(page)).toHaveAttribute("data-state", "ready");
+    await expect(page.getByRole("tab", { name, exact: true })).toBeVisible();
+    await rotateFirstPage(page);
+    await page.keyboard.press("Control+S");
+    await expect(page.getByRole("contentinfo")).toContainText(strings.saving.saved);
+
+    await quit(page);
+    const reopened = await launch(file);
+    await expect(firstPage(reopened)).toHaveAttribute("data-state", "ready");
+    expect(await landscape(reopened)).toBe(true);
+  });
+});
+
 test.describe("a path longer than 260 characters", () => {
   let root: string;
   test.beforeEach(() => {

@@ -15,6 +15,7 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 
 - 每個新註解都有外觀串流（`/AP`，MuPDF 產生），其他閱讀器也看得到。
 - **不寫入任何可識別使用者的資訊**：MuPDF 建立註解時不寫作者（`/T`）、建立與修改時間（`/CreationDate`、`/M`）或唯一名稱（`/NM`），app 也不加。worker 的測試檢查這幾個欄位都不存在。
+- **文字方塊**（[ADR 0018](../adr/0018-text-boxes-and-fonts.md)，尚未實作，實作卡 [#224](https://github.com/winner0988/Pdf-reader/issues/224)–[#228](https://github.com/winner0988/Pdf-reader/issues/228)）是另一種註解：`FreeText`。它的外觀串流由 worker 自己寫（字型的子集），不用上面 MuPDF 產生外觀的做法，也**絕不**對它呼叫 MuPDF 的註解 setter 或 `update()`（會把外觀換成 `/DA` 的字型）。
 
 ## 自訂圖片印章：worker 的部分（B2-08）
 

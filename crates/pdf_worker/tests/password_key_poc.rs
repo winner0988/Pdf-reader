@@ -1,4 +1,4 @@
-//! POC for ADR 0017 (proposed, #181): what a remembered password of an encrypted PDF can be found
+//! POC for ADR 0017 (accepted 2026-10-08, #181): what a remembered password of an encrypted PDF can be found
 //! by. The file says it itself, before any password is given: its password verifier (`/U`, with
 //! its salts) sits unencrypted in the `/Encrypt` dictionary, which exists for exactly one
 //! encryption of the file. Nothing has to be written into the PDF (ADR 0010 is not needed), and a

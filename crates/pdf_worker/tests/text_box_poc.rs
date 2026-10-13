@@ -1,4 +1,4 @@
-//! POC for ADR 0018 (proposed, #185): a text box is a FreeText annotation whose appearance the worker
+//! POC for ADR 0018 (accepted 2026-10-09, #185): a text box is a FreeText annotation whose appearance the worker
 //! makes itself, in a subset of an installed font. Nothing here is the app's code: it shows what
 //! the pieces cost and where MuPDF gets in the way. The ADR's list of holes is the tests that say
 //! "is not" or "replaces".
