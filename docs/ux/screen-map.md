@@ -206,6 +206,13 @@
 - **加密並另存新檔…**：主行程顯示系統的另存對話框，建議檔名 `<原檔名>（已加密）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（ENCRYPTED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，可以再試；失敗（例如有數位簽章）時顯示 encryption.failed，沒有檔案被留下。
 - 關閉對話框或完成後，密碼欄位清空，不留任何密碼。完成後狀態列顯示 encryption.done 4 秒；分頁仍然是原本的文件。
 
+### 壓縮圖片並另存新檔（B3-01）
+
+- 「⋯」→「壓縮圖片並另存新檔…」（在「加密並另存新檔…」之後）開啟對話框。沒有開啟文件時停用；加密的文件停用，並標示 compress.encrypted。做法見 [compress-images.md](../architecture/compress-images.md)。
+- **對話框**：compress.description；「品質」三個選項（compress.quality.*，預設「中」）、「圖片的最大尺寸」五個選項（不縮小、長邊最多 3000、2000、1500、1000 像素，預設 2000）；compress.note（只有變小的圖片才會換掉、哪些通常不會動、重新編碼的圖片不帶相機的資料）與 compress.signatures（已加密或有數位簽章的文件不能壓縮）。選項是原生的單選按鈕，`Tab` 進入一組後用方向鍵選擇。
+- **選擇位置並壓縮…**：主行程顯示系統的另存對話框，建議檔名 `<原檔名>（已壓縮）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（COMPRESSED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，可以再試；失敗（有數位簽章、檔案不能寫入等）時顯示 compress.failed，沒有檔案被留下。壓縮中顯示 compress.running，選項與按鈕停用，不能關閉對話框。
+- **結果**：成功後對話框換成結果（標題 compress.resultTitle，`role="status"`）：副本的大小、不壓縮圖片時的大小與少了多少百分比、重新編碼了幾張圖片（共幾張）；沒有圖片、或都沒有變小時照實說；時間不夠時加上 compress.result.partial。按「完成」（compress.close）關閉；對話框不會自己消失，因為數字要讀。分頁仍然是原本的文件，副本不加入最近開啟的檔案。
+
 ### 隱私匯出（B2-03）
 
 - 「⋯」→「隱私匯出…」（在「匯出…」之後）開啟說明對話框。沒有開啟文件時停用；加密的文件停用，並標示 privacyExport.encrypted。
@@ -859,6 +866,33 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | ENCRYPTED_COPY_DIALOG_TITLE（主行程） | 加密並另存新檔：選擇副本的位置 |
 | encrypted_copy_file_name（主行程） | <原檔名>（已加密）.pdf |
 | ENCRYPTED_COPY_SAME_FILE_TITLE／MESSAGE（主行程） | 請選擇其他檔案／加密會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
+
+### 壓縮圖片並另存新檔（B3-01）
+
+| 鍵 | 文字 |
+|---|---|
+| menu.compressImages | 壓縮圖片並另存新檔… |
+| compress.title | 壓縮圖片並另存新檔 |
+| compress.description | 把文件裡的圖片重新編碼成較小的檔案，存成新檔。目前的文件與它的檔案不會改變，全部在這台電腦上完成。 |
+| compress.qualityTitle | 品質 |
+| compress.quality.high／medium／low | 高：畫面最接近原本／中（建議）：看起來幾乎一樣，檔案小很多／低：檔案最小，近看看得出差異 |
+| compress.sizeTitle | 圖片的最大尺寸 |
+| compress.sizeNone／compress.size(side) | 不縮小／長邊最多 <side> 像素 |
+| compress.note | 只有變小的圖片才會換掉。掃描的黑白頁面、有遮罩的圖片、色盤圖片與線條圖通常不會動。重新編碼的圖片不帶相機的資料（EXIF、GPS）。 |
+| compress.signatures | 已加密或有數位簽章的文件不能壓縮。 |
+| compress.start／compress.cancel／compress.close | 選擇位置並壓縮…／取消／完成 |
+| compress.running | 正在壓縮圖片… |
+| compress.failed | 無法壓縮這份文件。已加密或有數位簽章的文件不能壓縮；其他原因請再試一次。 |
+| compress.resultTitle | 已存成新檔 |
+| compress.result.done(before, after, saved, changed, images) | 副本大小 <after>（不壓縮圖片是 <before>，少了 <saved>%）。<images> 張圖片中的 <changed> 張重新編碼了。 |
+| compress.result.unchanged(size, images) | 副本大小 <size>。<images> 張圖片都沒有變小，所以沒有動。 |
+| compress.result.none(size) | 副本大小 <size>。文件裡沒有可以壓縮的圖片。 |
+| compress.result.partial | 時間不夠，其餘的圖片沒有處理。 |
+| compress.kilobytes(kb)／compress.megabytes(mb) | <kb> KB／<mb> MB（不到 1 MB 用 KB，其餘一位小數的 MB） |
+| compress.encrypted | 已加密的文件不適用（選單中，取代快捷鍵的位置） |
+| COMPRESSED_COPY_DIALOG_TITLE（主行程） | 壓縮圖片並另存新檔：選擇副本的位置 |
+| compressed_copy_file_name（主行程） | <原檔名>（已壓縮）.pdf |
+| COMPRESSED_COPY_SAME_FILE_TITLE／MESSAGE（主行程） | 請選擇其他檔案／壓縮會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
 
 ### 儲存（B2-02）
 

@@ -426,6 +426,44 @@ export const strings = {
     /** In the menu, in place of the shortcut, when it does not apply. */
     encrypted: "已加密的文件不適用",
   },
+  /** Compressing the pictures of a copy (B3-01). */
+  compress: {
+    title: "壓縮圖片並另存新檔",
+    description:
+      "把文件裡的圖片重新編碼成較小的檔案，存成新檔。目前的文件與它的檔案不會改變，全部在這台電腦上完成。",
+    qualityTitle: "品質",
+    quality: {
+      high: "高：畫面最接近原本",
+      medium: "中（建議）：看起來幾乎一樣，檔案小很多",
+      low: "低：檔案最小，近看看得出差異",
+    },
+    sizeTitle: "圖片的最大尺寸",
+    sizeNone: "不縮小",
+    /** A picture with a longer side than this is shrunk to it. */
+    size: (side: number) => `長邊最多 ${side} 像素`,
+    note: "只有變小的圖片才會換掉。掃描的黑白頁面、有遮罩的圖片、色盤圖片與線條圖通常不會動。重新編碼的圖片不帶相機的資料（EXIF、GPS）。",
+    signatures: "已加密或有數位簽章的文件不能壓縮。",
+    start: "選擇位置並壓縮…",
+    cancel: "取消",
+    close: "完成",
+    running: "正在壓縮圖片…",
+    failed: "無法壓縮這份文件。已加密或有數位簽章的文件不能壓縮；其他原因請再試一次。",
+    resultTitle: "已存成新檔",
+    result: {
+      /** The file, as a size, and what became of its pictures. */
+      none: (size: string) => `副本大小 ${size}。文件裡沒有可以壓縮的圖片。`,
+      unchanged: (size: string, images: number) =>
+        `副本大小 ${size}。${images} 張圖片都沒有變小，所以沒有動。`,
+      done: (before: string, after: string, saved: number, changed: number, images: number) =>
+        `副本大小 ${after}（不壓縮圖片是 ${before}，少了 ${saved}%）。${images} 張圖片中的 ${changed} 張重新編碼了。`,
+      partial: "時間不夠，其餘的圖片沒有處理。",
+    },
+    /** A size in bytes, as the status shows it. */
+    kilobytes: (kb: number) => `${kb} KB`,
+    megabytes: (mb: string) => `${mb} MB`,
+    /** In the menu, in place of the shortcut, when it does not apply. */
+    encrypted: "已加密的文件不適用",
+  },
   export: {
     title: "匯出",
     note: "檔案只在這台電腦上產生；按「匯出…」後選擇存放的位置。",
@@ -611,6 +649,7 @@ export const strings = {
     export: "匯出…",
     privacyExport: "隱私匯出…",
     encryptCopy: "加密並另存新檔…",
+    compressImages: "壓縮圖片並另存新檔…",
     dontRecord: "不記錄此檔案",
     settings: "設定…",
   },

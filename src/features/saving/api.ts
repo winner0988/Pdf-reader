@@ -3,7 +3,13 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import type { DocumentId, EncryptArgs, SaveResult } from "@/ipc/generated/contract";
+import type {
+  CompressArgs,
+  CompressResult,
+  DocumentId,
+  EncryptArgs,
+  SaveResult,
+} from "@/ipc/generated/contract";
 
 export type SavingApi = {
   /** Writes the document, with its changes, to its own file. */
@@ -24,6 +30,12 @@ export type SavingApi = {
    * document itself does not change. The passwords go to the main process once and are not kept.
    */
   encryptCopy(args: EncryptArgs): Promise<boolean>;
+  /**
+   * Writes a copy of the document whose pictures are encoded again, smaller (B3-01), where the
+   * user says in the system's save dialog, never over its own file: `null` if the dialog was
+   * closed, else what was done. The document itself does not change.
+   */
+  compressImages(args: CompressArgs): Promise<CompressResult | null>;
 };
 
 export const tauriSavingApi: SavingApi = {
@@ -32,4 +44,5 @@ export const tauriSavingApi: SavingApi = {
   closeWindow: (discard) => invoke<void>("close_window", { discard }),
   privacyExport: (doc) => invoke<boolean>("privacy_export", { doc }),
   encryptCopy: (args) => invoke<boolean>("encrypt_copy", { args }),
+  compressImages: (args) => invoke<CompressResult | null>("compress_images", { args }),
 };
