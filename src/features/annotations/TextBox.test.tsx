@@ -40,6 +40,7 @@ const box: PageAnnotation = {
   kind: "textBox",
   rect: { x0: 100, y0: 200, x1: 340, y1: 248 },
   color: null,
+  picture: null,
   text: "Hello 你好",
 };
 const INFO: TextBoxInfo = {

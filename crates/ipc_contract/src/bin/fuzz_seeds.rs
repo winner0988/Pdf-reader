@@ -9,9 +9,9 @@ use ipc_contract::frame::encode;
 use ipc_contract::types::{
     AnnotationId, AnnotationKind, BlockedAction, Certification, DocumentId, DocumentPermissions,
     FieldId, FieldKind, FieldOption, FindingKind, FontRefusal, FormField, HighlightColor,
-    HighlightMark, InkColor, InkWidth, LinkId, LinkTarget, OutlineItem, OutlineResult,
-    PageAnnotation, PageLink, PageSize, PageText, Password, PictureView, Point, Quad, Rect,
-    RequestId, Restrictions, Rgb, Rotation, SearchHit, SecurityFinding, SecurityReport,
+    HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, LinkTarget, OutlineItem,
+    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, PictureView, Point,
+    Quad, Rect, RequestId, Restrictions, Rgb, Rotation, SearchHit, SecurityFinding, SecurityReport,
     SignatureInfo, SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo,
     TextBoxStyle, TextLine, UnverifiableReason,
 };
@@ -391,6 +391,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             bytes: 4096,
             incremental: true,
+        },
+        WorkerResponse::Compressed {
+            request,
+            bytes: 2048,
+            before: 4096,
+            images: 7,
+            changed: 5,
+            partial: false,
         },
         WorkerResponse::Error {
             request: Some(request),
@@ -795,6 +803,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 copy: true,
                 modify: true,
             },
+        },
+        WorkerRequest::CompressedCopy {
+            request,
+            doc,
+            file: FileHandle(0x1f8),
+            quality: ImageQuality::Medium,
+            max_side: Some(2_000),
+        },
+        WorkerRequest::CompressedCopy {
+            request,
+            doc,
+            file: FileHandle(0x1f8),
+            quality: ImageQuality::Low,
+            max_side: None,
         },
         WorkerRequest::Cancel { target: request },
         WorkerRequest::Close { doc },

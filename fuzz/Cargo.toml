@@ -48,3 +48,10 @@ path = "fuzz_targets/text_box_font.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "compress_images"
+path = "fuzz_targets/compress_images.rs"
+test = false
+doc = false
+bench = false

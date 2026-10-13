@@ -126,6 +126,10 @@ const ALLOWED_PERMISSIONS = new Map([
     "B2-15: a copy encrypted with AES-256; the passwords are used once and not kept, the main process asks where, never the document's own file",
   ],
   [
+    "allow-compress-images",
+    "B3-01: a copy whose pictures are encoded again, smaller; the main process asks where, never the document's own file, and the worker decodes the pictures as it does for any page",
+  ],
+  [
     "allow-pick-stamp-image",
     "B2-08: a picture for a custom stamp; the main process asks in its open dialog and the path stays there, the document's worker keeps only the pixels",
   ],

@@ -1,9 +1,10 @@
 name: Fuzz
 
 # libFuzzer on the entry points hostile input reaches first (QA-03, docs/security/fuzzing.md):
-# the IPC decoding on both sides of the worker boundary, opening a PDF with MuPDF, and (B2-31) a
-# font file cut into a text box and drawn. Weekly for 20 minutes per target; pull requests that
-# touch the targets or the code they test run a short smoke run.
+# the IPC decoding on both sides of the worker boundary, opening a PDF with MuPDF, a font file
+# cut into a text box and drawn (B2-31), and encoding its pictures again for a compressed copy (B3-01).
+# Weekly for 20 minutes per target; pull requests that touch the targets or the code they test run a
+# short smoke run.
 #
 # This repository is public, and so are its Actions logs and artifacts (#57). A crash sample may
 # be a working exploit, so the fuzzer's output never reaches the log: it goes to fuzz.log, the
@@ -37,7 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [worker_messages, open_document, text_box_font]
+        target: [worker_messages, open_document, text_box_font, compress_images]
     env:
       FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '120' || '1200' }}
       # MuPDF and its C libraries get coverage and AddressSanitizer like the Rust code. Only
@@ -64,10 +65,11 @@ jobs:
           cargo install cargo-fuzz --version 0.13.2 --locked
       - name: Seed corpus
         run: |
-          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/text_box_font
+          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/text_box_font fuzz/corpus/compress_images
           env -u CC -u CXX -u CFLAGS cargo run --locked -q -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/worker_messages
           # The generated test corpus (QA-01); the 200 MB files are only made on demand.
           find tests/corpus -name '*.pdf' -not -path '*/large/*' -exec cp {} fuzz/corpus/open_document/ \;
+          cp fuzz/corpus/open_document/* fuzz/corpus/compress_images/
       # Built separately so that compiler errors stay visible; the run step below prints nothing.
       - name: Build the fuzz target
         run: cargo +nightly fuzz build ${{ matrix.target }}

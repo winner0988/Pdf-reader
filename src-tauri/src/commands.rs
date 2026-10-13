@@ -8,13 +8,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use ipc_contract::types::{
-    AnnotationId, DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent,
-    ExportFormat, FileRecordingArgs, FontInfo, FormField, IpcError, LanguageImport, LinkArgs,
-    LinkPreview, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult,
-    PageAnnotation, PageLink, PageText, PagesSource, Password, PrepareTextBoxArgs, PreparedTextBox,
-    RecentFile, RecentId, RememberedPasswords, RemoveLanguageArgs, RenderPageArgs, RequestId,
-    SaveResult, SearchArgs, SearchEvent, Settings, SignatureReport, StampImageInfo, TabId,
-    TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
+    AnnotationId, CompressArgs, CompressResult, DocumentId, EditArgs, EncryptArgs, ErrorCode,
+    ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs, FontInfo, FormField, IpcError,
+    LanguageImport, LinkArgs, LinkPreview, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent,
+    OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText, PagesSource, Password,
+    PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RememberedPasswords,
+    RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent, Settings,
+    SignatureReport, StampImageInfo, TabId, TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome,
+    UnlockSourceArgs, UpdateCheck,
 };
 use ipc_contract::validate::{Validate, check_page_index};
 use tauri::ipc::{Channel, Response};
@@ -840,6 +841,60 @@ pub async fn privacy_export(
     };
     blocking(move || app.state::<Documents>().privacy_export(doc, &destination)).await?;
     Ok(true)
+}
+
+/// Writes a copy of the document whose pictures are encoded again, smaller (B3-01,
+/// docs/architecture/compress-images.md) where the user says in the system's save dialog, never
+/// over the document's own file. `None` when the user closes the dialog; else what was done. The
+/// document itself does not change.
+#[tauri::command]
+pub async fn compress_images(
+    app: AppHandle,
+    window: WebviewWindow,
+    args: CompressArgs,
+) -> Result<Option<CompressResult>, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let doc = args.doc;
+    let info = app
+        .state::<Documents>()
+        .document_info(doc)
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        })?;
+    if info.encrypted {
+        return Err(IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "an encrypted document has no compressed copy".to_owned(),
+        });
+    }
+    let file_name = strings::compressed_copy_file_name(&export::stem(&info.display_name));
+    let destination = loop {
+        let Some(path) = file_dialog::compressed_copy_file(&window, file_name.clone()).await?
+        else {
+            return Ok(None);
+        };
+        if !app.state::<Documents>().is_document_file(doc, &path) {
+            break path;
+        }
+        rfd::AsyncMessageDialog::new()
+            .set_level(rfd::MessageLevel::Info)
+            .set_title(strings::COMPRESSED_COPY_SAME_FILE_TITLE)
+            .set_description(strings::COMPRESSED_COPY_SAME_FILE_MESSAGE)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .set_parent(&window)
+            .show()
+            .await;
+    };
+    let result = blocking(move || {
+        app.state::<Documents>()
+            .compress_copy(doc, &destination, args.quality, args.max_side)
+    })
+    .await?;
+    Ok(Some(result))
 }
 
 /// Writes a copy of the document encrypted with AES-256 (B2-15, docs/architecture/encrypt-copy.md)

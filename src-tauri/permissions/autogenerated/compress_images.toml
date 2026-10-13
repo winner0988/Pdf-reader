@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-compress-images"
+description = "Enables the compress_images command without any pre-configured scope."
+commands.allow = ["compress_images"]
+
+[[permission]]
+identifier = "deny-compress-images"
+description = "Denies the compress_images command without any pre-configured scope."
+commands.deny = ["compress_images"]

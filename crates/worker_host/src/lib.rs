@@ -16,7 +16,7 @@ use std::thread;
 use std::time::Duration;
 
 use ipc_contract::frame::{self, FrameError};
-use ipc_contract::types::{DocumentId, ErrorCode, Password, RequestId, Restrictions};
+use ipc_contract::types::{DocumentId, ErrorCode, ImageQuality, Password, RequestId, Restrictions};
 use ipc_contract::validate::Validate;
 use ipc_contract::worker::{FileHandle, WorkerError, WorkerRequest, WorkerResponse};
 use sandbox::{SandboxConfig, Sandboxed};
@@ -336,6 +336,33 @@ impl WorkerHost {
         })
     }
 
+    /// Writes to `file`, as [`save`](Self::save) does, a copy of `doc` whose pictures are encoded
+    /// again at `quality` and shrunk to `max_side` pixels on their longer side (B3-01); `doc`
+    /// itself is not changed. Returns `Compressed`.
+    pub fn compressed_copy(
+        &mut self,
+        doc: DocumentId,
+        file: &File,
+        quality: ImageQuality,
+        max_side: Option<u32>,
+    ) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_write_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::CompressedCopy {
+            request,
+            doc,
+            file: FileHandle(handle),
+            quality,
+            max_side,
+        })
+    }
+
     /// Writes to `file`, as [`save`](Self::save) does, a copy of `doc` encrypted with AES-256
     /// (B2-15): `open_password` opens it (none: anyone can), `owner_password` lifts
     /// `restrictions`. Both go to the worker in this request only and are wiped once it is sent.
@@ -534,7 +561,8 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::OcrPolled { request, .. }
         | WorkerResponse::OcrStopped { request }
         | WorkerResponse::Source { request, .. }
-        | WorkerResponse::Saved { request, .. } => Some(*request),
+        | WorkerResponse::Saved { request, .. }
+        | WorkerResponse::Compressed { request, .. } => Some(*request),
         WorkerResponse::Error { request, .. } => *request,
     }
 }

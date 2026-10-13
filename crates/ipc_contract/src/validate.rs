@@ -12,12 +12,12 @@ use crate::limits::*;
 use crate::ocr::is_language_name;
 use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text, is_note_text};
 use crate::types::{
-    DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs, ExportFormat, FindingKind, FormField,
-    IpcError, LinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult,
-    PageAnnotation, PageLink, PageSize, PageText, Password, Point, PrepareTextBoxArgs, Quad,
-    RecentFile, Rect, RemoveLanguageArgs, RenderPageArgs, Rotation, SearchArgs, SearchHit,
-    SecurityReport, Settings, SignatureInfo, SignatureReport, SignatureStatus, TextBoxInfo,
-    TextBoxStyle, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs,
+    CompressArgs, DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs, ExportFormat, FindingKind,
+    FormField, IpcError, LinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem,
+    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Point,
+    PrepareTextBoxArgs, Quad, RecentFile, Rect, RemoveLanguageArgs, RenderPageArgs, Rotation,
+    SearchArgs, SearchHit, SecurityReport, Settings, SignatureInfo, SignatureReport,
+    SignatureStatus, TextBoxInfo, TextBoxStyle, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs,
 };
 use crate::worker::{
     OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerError, WorkerErrorCode, WorkerResponse,
@@ -449,6 +449,27 @@ impl Validate for WorkerResponse {
                 }
                 Ok(())
             }
+            WorkerResponse::Compressed {
+                bytes,
+                before,
+                images,
+                changed,
+                ..
+            } => {
+                for size in [bytes, before] {
+                    if *size == 0 || *size > MAX_DOCUMENT_BYTES {
+                        return Err(ValidationError::OutOfRange {
+                            what: "compressed file size",
+                        });
+                    }
+                }
+                if *changed > *images || *images > MAX_IMAGES_PER_DOCUMENT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "compressed picture count",
+                    });
+                }
+                Ok(())
+            }
             WorkerResponse::Rebased { .. } => Ok(()),
             WorkerResponse::OcrLoaded { .. }
             | WorkerResponse::OcrChecked { .. }
@@ -611,6 +632,19 @@ impl Validate for EncryptArgs {
             return Err(ValidationError::Invalid {
                 what: "encryption",
                 reason: "the permissions password is the open password",
+            });
+        }
+        Ok(())
+    }
+}
+
+impl Validate for CompressArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if let Some(side) = self.max_side
+            && !(MIN_COMPRESS_SIDE_PX..=MAX_COMPRESS_SIDE_PX).contains(&side)
+        {
+            return Err(ValidationError::OutOfRange {
+                what: "picture side limit",
             });
         }
         Ok(())
@@ -3174,6 +3208,31 @@ mod tests {
             bytes,
             incremental: false,
         };
+        let compressed =
+            |bytes: u64, before: u64, images: u32, changed: u32| WorkerResponse::Compressed {
+                request: RequestId(1),
+                bytes,
+                before,
+                images,
+                changed,
+                partial: false,
+            };
+        assert!(compressed(1_000, 4_000, 5, 3).validate().is_ok());
+        assert!(compressed(1_000, 4_000, 0, 0).validate().is_ok());
+        assert!(compressed(0, 4_000, 5, 3).validate().is_err());
+        assert!(compressed(1_000, 0, 5, 3).validate().is_err());
+        assert!(
+            compressed(MAX_DOCUMENT_BYTES + 1, 4_000, 5, 3)
+                .validate()
+                .is_err()
+        );
+        // More pictures changed than there are, or an absurd number of them.
+        assert!(compressed(1_000, 4_000, 5, 6).validate().is_err());
+        assert!(
+            compressed(1_000, 4_000, MAX_IMAGES_PER_DOCUMENT + 1, 0)
+                .validate()
+                .is_err()
+        );
         assert!(saved(1_234).validate().is_ok());
         assert!(saved(0).validate().is_err());
         assert!(saved(MAX_DOCUMENT_BYTES + 1).validate().is_err());

@@ -50,6 +50,7 @@ fn main() {
         "close_window",
         "privacy_export",
         "encrypt_copy",
+        "compress_images",
         "get_ocr_languages",
         "get_fonts",
         "prepare_text_box",

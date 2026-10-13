@@ -466,6 +466,50 @@ export type SaveResult = {
 incremental: boolean, };
 
 /**
+ * How hard the pictures of a compressed copy are squeezed (B3-01,
+ * docs/architecture/compress-images.md): the quality they are encoded again at. What each stands
+ * for in numbers is the worker's business.
+ */
+export type ImageQuality = "high" | "medium" | "low";
+
+/**
+ * Arguments of `compress_images` (B3-01): the open document is written, its pictures encoded
+ * again, to a file the user chooses next. Any other field is rejected.
+ */
+export type CompressArgs = { doc: DocumentId, quality: ImageQuality, 
+/**
+ * A picture with a longer side than this, in pixels, is shrunk to it (its shape stays);
+ * none: no picture is shrunk.
+ */
+maxSide: number | null, };
+
+/**
+ * What `compress_images` did (B3-01), for the page to say.
+ */
+export type CompressResult = { 
+/**
+ * What the copy would measure with its pictures left as they are (rewritten whole, without
+ * what nothing uses), in bytes.
+ */
+before: number, 
+/**
+ * What the copy measures, in bytes.
+ */
+after: number, 
+/**
+ * The pictures in the document (those that are masks of others are not counted) ...
+ */
+images: number, 
+/**
+ * ... and how many of them were encoded again, because that made them smaller.
+ */
+changed: number, 
+/**
+ * The time was up before every picture was looked at: the rest were left as they are.
+ */
+partial: boolean, };
+
+/**
  * What `check_for_updates` found (#64, ADR 0009). Versions are `major.minor.patch`; the latest
  * one is rewritten from its three numbers, so nothing else from GitHub's answer reaches the page.
  */
