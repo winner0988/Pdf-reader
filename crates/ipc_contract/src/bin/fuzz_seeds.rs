@@ -10,10 +10,10 @@ use ipc_contract::types::{
     AnnotationId, AnnotationKind, BlockedAction, Certification, DocumentId, DocumentPermissions,
     FieldId, FieldKind, FieldOption, FindingKind, FontRefusal, FormField, HighlightColor,
     HighlightMark, InkColor, InkWidth, LinkId, LinkTarget, OutlineItem, OutlineResult,
-    PageAnnotation, PageLink, PageSize, PageText, Password, PictureView, Point, Quad, Rect, RequestId,
-    Restrictions, Rgb, Rotation, SearchHit, SecurityFinding, SecurityReport, SignatureInfo,
-    SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine,
-    UnverifiableReason,
+    PageAnnotation, PageLink, PageSize, PageText, Password, PictureView, Point, Quad, Rect,
+    RequestId, Restrictions, Rgb, Rotation, SearchHit, SecurityFinding, SecurityReport,
+    SignatureInfo, SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo,
+    TextBoxStyle, TextLine, UnverifiableReason,
 };
 use ipc_contract::worker::{
     FileHandle, FontData, ModelGlyph, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument,

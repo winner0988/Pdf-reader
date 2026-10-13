@@ -60,7 +60,7 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 | `addTextBox { page, rect, model, style }` | 在 `rect` 放一個文字方塊（FreeText 註解，B2-28，見 [text-box-engine.md](text-box-engine.md)）；`model` 是 `prepare_text_box` 回的號碼（文字與字型已經準備好），`style`：大小、顏色、對齊；粗體與斜體是同一家族的另一個字型，不是欄位 | 同 `addStamp`，大小在 4 到 288 點；文字在準備時驗證（不可全是空白，最多 `LIMITS.maxTextBoxBytes`（4,096 bytes），除了 `\n` 不能有控制字元與看不見的格式字元）。文字與字型先經 `prepare_text_box` 準備（見 [text-box-engine.md](text-box-engine.md)）；準備好的文字在這份文件的編輯歷史裡一直保管到不再被用到 |
 | `setTextBox { page, annotation, model, style }` | 改文字方塊：換大小、顏色、對齊（`style`），`model` 有的話連文字與字型一起換（`prepare_text_box` 回的號碼），沒有就用方塊原來的文字與字型，**不需要字型**；方塊留在原處 | `style` 同 `addTextBox`；`model` 必須是這份文件準備過的；只能是 app 的文字方塊 |
 | `setAnnotationRect { page, annotation, rect }` | 移動並縮放手繪、印章或文字方塊，`rect` 是列出的範圍（見下方）的新位置 | 同上；只能是手繪、印章或 app 的文字方塊 |
-| `setPictureAngle { page, annotation, degrees }` | 把使用者自己的圖片印章轉到 `degrees`（從正立起算，順時針為正），以中心為軸；大小不變，範圍變成裝得下轉過的圖片的框（B3-01，見下方） | `degrees` 是有限的數字，絕對值不超過 `LIMITS` 的一整圈（360）；只能是使用者自己的圖片印章（`PageAnnotation.picture` 不是 `null`） |
+| `setPictureAngle { page, annotation, degrees }` | 把使用者自己的圖片印章轉到 `degrees`（從正立起算，順時針為正），以中心為軸；大小不變，範圍變成裝得下轉過的圖片的框（B3-01，見下方） | `degrees` 是有限的數字，絕對值不超過 `MAX_PICTURE_ANGLE_DEGREES`（360，一整圈；`limits.rs`，頁面不需要它：送出的角度一律在 -180 到 180 之間）；只能是使用者自己的圖片印章（`PageAnnotation.picture` 不是 `null`） |
 
 - 座標是頁面空間（PDF 點，頁面左上角為原點，y 向下），與文字選取、搜尋結果的四邊形相同；worker 交給 MuPDF 換算成 PDF 的座標。
 - **旋轉圖片印章**（B3-01，`setPictureAngle`）：
