@@ -16,10 +16,12 @@ use crate::types::{
     IpcError, LinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult,
     PageAnnotation, PageLink, PageSize, PageText, Password, Point, Quad, RecentFile, Rect,
     RemoveLanguageArgs, RenderPageArgs, Rotation, SearchArgs, SearchHit, SecurityReport, Settings,
-    SignatureInfo, SignatureReport, SignatureStatus, TextLine, UndoArgs, UnlockArgs,
+    SignatureInfo, SignatureReport, SignatureStatus, TextBoxStyle, TextLine, UndoArgs, UnlockArgs,
     UnlockSourceArgs,
 };
-use crate::worker::{OcrOutcome, OpenedDocument, Raster, WorkerError, WorkerResponse};
+use crate::worker::{
+    OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerError, WorkerResponse,
+};
 
 /// Maximum length of the worker version string in `Hello`.
 const MAX_VERSION_BYTES: usize = 64;
@@ -914,6 +916,143 @@ fn check_note_text(text: &str) -> Result<(), ValidationError> {
     Ok(())
 }
 
+/// What a text box says (B2-28): something to see, within the limit, and only text (lines are
+/// broken at `\n`). Whether the font has a glyph for each character is for the worker to say.
+pub fn check_text_box_text(text: &str) -> Result<(), ValidationError> {
+    if text.trim().is_empty() {
+        return Err(ValidationError::Invalid {
+            what: "text box text",
+            reason: "empty",
+        });
+    }
+    if text.len() > MAX_TEXT_BOX_BYTES {
+        return Err(ValidationError::TooLong {
+            what: "text box text",
+            len: text.len(),
+            max: MAX_TEXT_BOX_BYTES,
+        });
+    }
+    if !is_note_text(text) {
+        return Err(ValidationError::Invalid {
+            what: "text box text",
+            reason: "contains control or invisible formatting characters",
+        });
+    }
+    Ok(())
+}
+
+impl Validate for TextBoxStyle {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if !self.size.is_finite() {
+            return Err(ValidationError::NotFinite { what: "text size" });
+        }
+        if !(MIN_TEXT_BOX_SIZE..=MAX_TEXT_BOX_SIZE).contains(&self.size) {
+            return Err(ValidationError::OutOfRange { what: "text size" });
+        }
+        Ok(())
+    }
+}
+
+/// Longest name of the font of a text box, as the font list's names are (B2-27).
+const MAX_MODEL_FONT_NAME_BYTES: usize = 128;
+
+/// The name of a subset font in a file: six capital letters, a plus and the font's name.
+fn is_subset_name(base: &str) -> bool {
+    let bytes = base.as_bytes();
+    (8..=47).contains(&bytes.len())
+        && bytes[..6].iter().all(u8::is_ascii_uppercase)
+        && bytes[6] == b'+'
+        && bytes[7..]
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
+}
+
+/// A text box model from the worker, from the journal, or from the page's own request (B2-28):
+/// everything that is a number or a length is bounded, and every character of the words has a
+/// glyph. The font file inside is not looked into here: the worker cuts it again before it uses it.
+impl Validate for TextBoxModel {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_text_box_text(&self.text)?;
+        check_text(
+            "text box font name",
+            &self.font,
+            MAX_MODEL_FONT_NAME_BYTES as u32,
+        )?;
+        check_clean("text box font name", &self.font)?;
+        if !is_subset_name(&self.base) {
+            return Err(ValidationError::Invalid {
+                what: "text box font",
+                reason: "is not named as a subset",
+            });
+        }
+        for value in [
+            self.ascent,
+            self.descent,
+            self.cap_height,
+            self.bbox[0],
+            self.bbox[1],
+            self.bbox[2],
+            self.bbox[3],
+        ] {
+            if value.abs() > 20_000 {
+                return Err(ValidationError::OutOfRange {
+                    what: "text box font metrics",
+                });
+            }
+        }
+        if !(1_000..=2_000).contains(&self.step) {
+            return Err(ValidationError::OutOfRange {
+                what: "text box line step",
+            });
+        }
+        check_count(
+            "text box glyphs",
+            self.glyphs.len(),
+            MAX_TEXT_BOX_GLYPHS as u32,
+        )?;
+        let mut chars = HashSet::new();
+        let mut advances = std::collections::HashMap::new();
+        for glyph in &self.glyphs {
+            if glyph.cid == 0 || glyph.advance > 5_000 {
+                return Err(ValidationError::OutOfRange {
+                    what: "text box glyph",
+                });
+            }
+            if glyph.ch == '\n' || !is_note_text(&glyph.ch.to_string()) || !chars.insert(glyph.ch) {
+                return Err(ValidationError::Invalid {
+                    what: "text box glyph",
+                    reason: "is a control character, or is there twice",
+                });
+            }
+            // One glyph, one width.
+            if *advances.entry(glyph.cid).or_insert(glyph.advance) != glyph.advance {
+                return Err(ValidationError::Invalid {
+                    what: "text box glyph",
+                    reason: "has two widths",
+                });
+            }
+        }
+        if !self.text.chars().all(|c| c == '\n' || chars.contains(&c)) {
+            return Err(ValidationError::Invalid {
+                what: "text box glyphs",
+                reason: "miss a character of the text",
+            });
+        }
+        if self.subset.len() < 12 || self.subset.len() > MAX_TEXT_BOX_SUBSET_BYTES {
+            return Err(ValidationError::OutOfRange {
+                what: "text box font subset",
+            });
+        }
+        if self.subset[..4] != [0, 1, 0, 0] {
+            return Err(ValidationError::Invalid {
+                what: "text box font subset",
+                reason: "is not TrueType",
+            });
+        }
+        Ok(())
+    }
+}
+
 /// A form field's value (B2-09): within the limit, and only text (it may be empty, and may have
 /// several lines).
 fn check_field_value(value: &str) -> Result<(), ValidationError> {
@@ -1155,10 +1294,10 @@ mod tests {
     use crate::types::{
         AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, ErrorCode,
         FieldId, FieldKind, FieldOption, HighlightColor, HighlightMark, InkColor, InkWidth, LinkId,
-        RecentId, Recovery, RequestId, Restrictions, Rotation, SecurityFinding, StampImageId,
-        StampName, TabId, UnverifiableReason,
+        RecentId, Recovery, RequestId, Restrictions, Rgb, Rotation, SecurityFinding, StampImageId,
+        StampName, TabId, TextAlign, UnverifiableReason,
     };
-    use crate::worker::WorkerErrorCode;
+    use crate::worker::{ModelGlyph, WorkerErrorCode};
 
     fn page(width_pt: f32, height_pt: f32) -> PageSize {
         PageSize {
@@ -2018,6 +2157,119 @@ mod tests {
             })
         ));
         assert!(many[..MAX_RECENT_FILES as usize].validate().is_ok());
+    }
+
+    fn sample_model() -> TextBoxModel {
+        TextBoxModel {
+            text: "Hello\n你好".to_owned(),
+            font: "Droid Sans Fallback".to_owned(),
+            face: 0,
+            view_only: false,
+            base: "ABCDEF+DroidSansFallback".to_owned(),
+            ascent: 880,
+            descent: -120,
+            cap_height: 700,
+            step: 1_300,
+            bbox: [-100, -250, 1_100, 950],
+            glyphs: "Helo你好"
+                .chars()
+                .zip(1u16..)
+                .map(|(ch, cid)| ModelGlyph {
+                    ch,
+                    cid,
+                    advance: 600,
+                })
+                .collect(),
+            subset: [&[0u8, 1, 0, 0][..], &[0u8; 60][..]].concat(),
+        }
+    }
+
+    #[test]
+    fn a_text_box_model_has_words_that_all_have_glyphs_a_subset_and_sane_measures() {
+        assert!(sample_model().validate().is_ok());
+        let broken = |change: &dyn Fn(&mut TextBoxModel)| {
+            let mut model = sample_model();
+            change(&mut model);
+            model.validate().is_err()
+        };
+        // The words.
+        assert!(broken(&|m| m.text = "  \n".to_owned()));
+        assert!(broken(&|m| m.text = "x".repeat(MAX_TEXT_BOX_BYTES + 1)));
+        assert!(broken(&|m| m.text = "Hello\u{202e}".to_owned()));
+        assert!(
+            broken(&|m| m.text = "Hello!".to_owned()),
+            "a character without a glyph"
+        );
+        // The glyphs.
+        assert!(broken(&|m| m.glyphs[0].cid = 0));
+        assert!(broken(&|m| m.glyphs[0].advance = 5_001));
+        assert!(broken(&|m| m.glyphs[1].ch = 'H'), "a character twice");
+        assert!(broken(&|m| m.glyphs[0].ch = '\n'));
+        assert!(
+            broken(&|m| {
+                m.glyphs[1].cid = m.glyphs[0].cid;
+                m.glyphs[1].advance = 601;
+            }),
+            "one glyph, two widths"
+        );
+        assert!(sample_model().glyphs.len() < MAX_TEXT_BOX_GLYPHS);
+        // The font.
+        assert!(broken(&|m| m.base = "Arial".to_owned()));
+        assert!(broken(&|m| m.base = "ABCDE+Arial".to_owned()));
+        assert!(broken(&|m| m.base = "ABCDEF+Ar ial".to_owned()));
+        assert!(broken(&|m| m.font = "x".repeat(129)));
+        assert!(broken(&|m| m.font = "Arial\u{0}".to_owned()));
+        assert!(broken(&|m| m.step = 500));
+        assert!(broken(&|m| m.step = 2_001));
+        assert!(broken(&|m| m.ascent = 30_000));
+        assert!(broken(&|m| m.bbox[2] = -30_000));
+        assert!(
+            broken(&|m| m.subset = vec![0, 1, 0, 0]),
+            "too short for a font"
+        );
+        assert!(broken(&|m| m.subset[0] = 1), "not TrueType");
+        assert!(broken(
+            &|m| m.subset = vec![0; MAX_TEXT_BOX_SUBSET_BYTES + 1]
+        ));
+    }
+
+    #[test]
+    fn a_text_box_model_crosses_the_worker_boundary_and_the_journal_unchanged() {
+        let model = sample_model();
+        let bytes = postcard::to_allocvec(&model).unwrap();
+        assert_eq!(postcard::from_bytes::<TextBoxModel>(&bytes).unwrap(), model);
+        let json = serde_json::to_string(&model).unwrap();
+        assert_eq!(serde_json::from_str::<TextBoxModel>(&json).unwrap(), model);
+    }
+
+    #[test]
+    fn the_style_of_a_text_box_is_a_size_a_colour_and_an_alignment() {
+        let style = |size: f32| TextBoxStyle {
+            size,
+            color: Rgb { r: 1, g: 2, b: 3 },
+            align: TextAlign::Center,
+        };
+        assert!(style(MIN_TEXT_BOX_SIZE).validate().is_ok());
+        assert!(style(MAX_TEXT_BOX_SIZE).validate().is_ok());
+        for bad in [
+            0.0,
+            -1.0,
+            MIN_TEXT_BOX_SIZE - 0.1,
+            MAX_TEXT_BOX_SIZE + 0.1,
+            f32::NAN,
+            f32::INFINITY,
+        ] {
+            assert!(style(bad).validate().is_err(), "{bad}");
+        }
+        let json = serde_json::json!({"size": 14.0, "color": {"r": 26, "g": 51, "b": 153}, "align": "right"});
+        let parsed: TextBoxStyle = serde_json::from_value(json).unwrap();
+        assert_eq!((parsed.size, parsed.align), (14.0, TextAlign::Right));
+        for bad in [
+            serde_json::json!({"size": 14.0, "color": {"r": 256, "g": 0, "b": 0}, "align": "left"}),
+            serde_json::json!({"size": 14.0, "color": {"r": 0, "g": 0, "b": 0}, "align": "justify"}),
+        ] {
+            assert!(serde_json::from_value::<TextBoxStyle>(bad).is_err());
+        }
     }
 
     #[test]

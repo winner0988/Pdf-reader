@@ -2,10 +2,10 @@
 //! chosen font. The font is the Droid Sans Fallback the worker carries, which has English and
 //! Chinese letters. Pages are Letter size; a box is given in page space (from the top left).
 
-use ipc_contract::types::{FontRefusal, Rect, Rgb, TextAlign};
+use ipc_contract::types::{FontRefusal, Rect, Rgb, TextAlign, TextBoxStyle};
 use mupdf::pdf::PdfDocument as MuPdf;
 use pdf_worker::engine::{
-    EngineError, PdfDocument, RenderedPage, TextBoxFont, TextBoxMade, TextBoxSpec,
+    EngineError, PdfDocument, RenderedPage, TextBoxFont, TextBoxMade, TextBoxSpec, prepare_text_box,
 };
 
 #[allow(dead_code)]
@@ -516,11 +516,6 @@ fn a_text_box_that_asks_for_something_unreasonable_is_refused() {
         (spec(""), BOX),
         (spec(" \n  "), BOX),
         (spec(&huge), BOX),
-        // Scripts whose letters change by their neighbours, and the direction controls.
-        (spec("\u{628}\u{644}"), BOX),
-        (spec("\u{5d0}\u{5d1}"), BOX),
-        (spec("e\u{301}"), BOX),
-        (spec("words \u{202e}drow"), BOX),
         (
             TextBoxSpec {
                 size: 3.0,
@@ -571,6 +566,159 @@ fn a_text_box_that_asks_for_something_unreasonable_is_refused() {
             .is_err(),
         "a page that is not there"
     );
+    // Scripts whose letters change by their neighbours, and the direction controls, are not set
+    // wrongly: they are refused as what they are.
+    for text in [
+        "\u{628}\u{644}",
+        "\u{5d0}\u{5d1}",
+        "\u{915}",
+        "\u{e01}",
+        "e\u{301}",
+        "words \u{202e}drow",
+        "a\u{200d}b",
+    ] {
+        let result = doc.add_text_box(0, BOX, &spec(text), &font(droid()));
+        assert!(
+            matches!(result, Err(EngineError::UnsupportedText)),
+            "{text:?}: {result:?}"
+        );
+    }
+    assert!(
+        saved(&mut doc) == before,
+        "something was put in the document"
+    );
+}
+
+fn style(size: f32) -> TextBoxStyle {
+    TextBoxStyle {
+        size,
+        color: BLUE,
+        align: TextAlign::Left,
+    }
+}
+
+#[test]
+fn a_model_is_a_few_kilobytes_and_is_set_again_in_other_documents_without_the_font() {
+    let model = prepare_text_box(&font(droid()), MIXED).expect("a model");
+    // The font file is 3.5 MB; the model holds the glyphs of the words.
+    assert!(model.subset.len() < 20_000, "{} bytes", model.subset.len());
+    assert!(!model.view_only);
+    assert_eq!(model.text, MIXED);
+    assert!(model.base.as_bytes()[6] == b'+' && model.glyphs.len() == 10);
+
+    // The same model, at two sizes in two documents: no font file is needed to set it.
+    let mut spans = Vec::new();
+    for size in [14.0, 28.0] {
+        let mut doc = blank();
+        let made = doc
+            .place_text_box(0, BOX, &model, &style(size))
+            .expect("placed");
+        assert!(!made.overflow);
+        let page = render(&saved(&mut doc));
+        let [left, top, right, bottom] = bounds(&ink(&page, IN_BOX));
+        spans.push((right - left, bottom - top));
+    }
+    assert!(spans[1].0 > spans[0].0 * 3 / 2, "{spans:?}");
+    assert!(spans[1].1 > spans[0].1 * 3 / 2, "{spans:?}");
+
+    // Setting the model is setting a box: the same objects in the same order, so the same
+    // numbers, which is what undo needs of an edit that is made again.
+    let (mut one, mut two) = (blank(), blank());
+    one.add_text_box(0, BOX, &spec(MIXED), &font(droid()))
+        .expect("box");
+    two.place_text_box(0, BOX, &model, &style(24.0))
+        .expect("box");
+    let ids = |doc: &PdfDocument| {
+        doc.page_annotations(0)
+            .expect("list")
+            .iter()
+            .map(|a| a.id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&one), ids(&two));
+}
+
+#[test]
+fn the_model_and_the_style_are_read_back_from_the_saved_file() {
+    let model = prepare_text_box(&font(droid()), "Hello\n你好，世界").expect("a model");
+    let wanted = TextBoxStyle {
+        size: 17.5,
+        color: Rgb {
+            r: 200,
+            g: 0,
+            b: 40,
+        },
+        align: TextAlign::Right,
+    };
+    let mut doc = blank();
+    let made = doc.place_text_box(0, BOX, &model, &wanted).expect("placed");
+    let reopened = PdfDocument::from_bytes(&saved(&mut doc)).expect("open");
+    let id = reopened.page_annotations(0).expect("list")[0].id;
+    let (read, style, overflow) = reopened.text_box(0, id).expect("a text box");
+    assert_eq!(read.text, model.text);
+    assert_eq!(
+        (read.font.as_str(), read.face, read.view_only),
+        (model.font.as_str(), model.face, model.view_only)
+    );
+    assert_eq!(read.base, model.base);
+    assert_eq!(read.glyphs, model.glyphs);
+    assert_eq!(
+        (
+            read.ascent,
+            read.descent,
+            read.cap_height,
+            read.step,
+            read.bbox
+        ),
+        (
+            model.ascent,
+            model.descent,
+            model.cap_height,
+            model.step,
+            model.bbox
+        )
+    );
+    assert_eq!(read.subset.len(), model.subset.len().max(read.subset.len()));
+    assert_eq!(style, wanted);
+    assert_eq!(overflow, made.overflow);
+    // What was read sets the box again, with another colour, and nothing else about it changes.
+    let recoloured = TextBoxStyle {
+        color: BLUE,
+        ..style
+    };
+    let mut again = blank();
+    again
+        .place_text_box(0, BOX, &read, &recoloured)
+        .expect("again");
+    assert!(blue(&render(&saved(&mut again))) > 50);
+}
+
+#[test]
+fn a_model_that_was_tampered_with_makes_no_text_box() {
+    let model = prepare_text_box(&font(droid()), "Hello 你好").expect("a model");
+    let mut doc = blank();
+    let before = saved(&mut doc);
+    let mut broken: Vec<(&str, ipc_contract::worker::TextBoxModel)> = Vec::new();
+    // A character without a glyph, a glyph past the end of the subset, a subset that is no font.
+    let mut missing = model.clone();
+    missing.glyphs.pop();
+    broken.push(("a missing glyph", missing));
+    let mut past = model.clone();
+    past.glyphs[0].cid = 4_000;
+    broken.push(("a glyph past the end", past));
+    let mut garbage = model.clone();
+    garbage.subset = [&[0u8, 1, 0, 0][..], &[7u8; 64][..]].concat();
+    broken.push(("a subset that is no font", garbage));
+    let mut named = model.clone();
+    named.base = "Arial".to_owned();
+    broken.push(("a name that is no subset's", named));
+    let mut scripts = model.clone();
+    scripts.text = "\u{628}".to_owned();
+    broken.push(("text that needs shaping", scripts));
+    for (what, model) in broken {
+        let result = doc.place_text_box(0, BOX, &model, &style(12.0));
+        assert!(result.is_err(), "{what}");
+    }
     assert!(
         saved(&mut doc) == before,
         "something was put in the document"

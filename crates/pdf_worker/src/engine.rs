@@ -39,7 +39,7 @@ mod text_box;
 
 pub use signatures::{SignatureField, SignatureFields};
 pub use stamp_image::{StampPicture, prepare_stamp_picture};
-pub use text_box::{TextBoxFont, TextBoxMade, TextBoxSpec};
+pub use text_box::{TextBoxFont, TextBoxMade, TextBoxSpec, prepare_text_box};
 
 /// Most form fields looked at to find a signature (`PdfDocument::is_signed`).
 const MAX_FORM_FIELDS: usize = 10_000;
@@ -102,6 +102,12 @@ pub enum EngineError {
     /// The font of a text box cannot be used (B2-28, ADR 0018).
     #[error("the font cannot be used: {0:?}")]
     Font(ipc_contract::types::FontRefusal),
+    /// The text of a text box needs a script the worker does not set (B2-28, ADR 0018).
+    #[error("the text needs a script that a text box cannot set")]
+    UnsupportedText,
+    /// The font of a text box cut to its words is larger than a document keeps (B2-28).
+    #[error("the font cut to the words is too large")]
+    SubsetTooLarge,
     #[error("the picture is too large")]
     PictureTooLarge,
     #[error("MuPDF: {0}")]

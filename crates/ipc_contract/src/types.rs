@@ -708,6 +708,18 @@ pub enum TextAlign {
     Right,
 }
 
+/// How a text box sets its words (B2-28, ADR 0018): the part of the choice that does not need the
+/// font again. Bold and italic are not here: they are other fonts of the family
+/// (`FontInfo::bold` and `italic`), chosen with the words.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TextBoxStyle {
+    /// In points: `MIN_TEXT_BOX_SIZE` to `MAX_TEXT_BOX_SIZE`.
+    pub size: f32,
+    pub color: Rgb,
+    pub align: TextAlign,
+}
+
 /// Why a font cannot be used for a text box (B2-28, ADR 0018): the first version sets text in
 /// TrueType outlines only, in fonts whose licence lets them be embedded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

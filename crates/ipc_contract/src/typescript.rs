@@ -93,6 +93,7 @@ pub fn bindings() -> String {
         Quad,
         Rgb,
         TextAlign,
+        TextBoxStyle,
         FontRefusal,
         FindingKind,
         SecurityFinding,

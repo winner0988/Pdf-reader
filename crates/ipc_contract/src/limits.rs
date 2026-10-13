@@ -113,6 +113,14 @@ pub const MAX_TEXT_BOX_BYTES: usize = 4_096;
 pub const MAX_TEXT_BOX_SIZE: f32 = 288.0;
 pub const MIN_TEXT_BOX_SIZE: f32 = 4.0;
 
+/// Largest subset of a font a text box keeps (B2-28): the glyphs of up to `MAX_TEXT_BOX_BYTES` of
+/// text. A subset of a CJK font is a few hundred bytes a glyph; the crash recovery journal that
+/// holds it is 4 MiB.
+pub const MAX_TEXT_BOX_SUBSET_BYTES: usize = 2 * 1024 * 1024;
+
+/// Most different characters in the text of a text box: one for each byte of the text, at most.
+pub const MAX_TEXT_BOX_GLYPHS: usize = MAX_TEXT_BOX_BYTES;
+
 /// Most strokes one pen drawing has (B2-08): a stroke is one press of the pen to its release.
 pub const MAX_INK_STROKES: u32 = 256;
 
