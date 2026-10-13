@@ -106,6 +106,13 @@ pub const MAX_HIGHLIGHT_PAGES: u32 = 100;
 /// reports.
 pub const MAX_NOTE_TEXT_BYTES: u32 = 4_096;
 
+/// Most bytes the text of a text box has (B2-28, ADR 0018): about 1,300 Chinese characters.
+pub const MAX_TEXT_BOX_BYTES: usize = 4_096;
+
+/// Largest and smallest size a text box sets its text in, in points (B2-28).
+pub const MAX_TEXT_BOX_SIZE: f32 = 288.0;
+pub const MIN_TEXT_BOX_SIZE: f32 = 4.0;
+
 /// Most strokes one pen drawing has (B2-08): a stroke is one press of the pen to its release.
 pub const MAX_INK_STROKES: u32 = 256;
 
@@ -173,13 +180,6 @@ pub const MAX_JPEG_BYTES: usize = 64 * 1024 * 1024;
 /// (B2-10, ADR 0015). The biggest of Tesseract's own files (the "best" models of Chinese and
 /// Japanese) are under 60 MB.
 pub const MAX_LANGUAGE_DATA_BYTES: usize = 64 * 1024 * 1024;
-
-/// Most bytes the text of a text box has (B2-28, ADR 0018): about 1,300 Chinese characters.
-pub const MAX_TEXT_BOX_BYTES: usize = 4_096;
-
-/// Largest and smallest size a text box sets its text in, in points (B2-28).
-pub const MAX_TEXT_BOX_SIZE: f32 = 288.0;
-pub const MIN_TEXT_BOX_SIZE: f32 = 4.0;
 
 /// Longest name of a language for recognising text, such as `eng` or `chi_tra` (B2-10).
 pub const MAX_LANGUAGE_NAME_BYTES: usize = 32;
