@@ -44,7 +44,19 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-subscribe-open-events", "MVP-06: receive open outcomes on a channel instead of core:event"],
   ["allow-open-document-dialog", "MVP-06: the main process shows the dialog; the path stays there"],
   ["allow-retry-open", "MVP-06, MVP-14: reopen a tab's file after a worker failure, by tab id"],
-  ["allow-unlock-tab", "MVP-16: try a password on a tab whose file is encrypted; it goes to that tab's worker only"],
+  ["allow-unlock-tab", "MVP-16, B2-25: try a password on a tab whose file is encrypted; it goes to that tab's worker only, and is remembered only if the user asks"],
+  [
+    "allow-forget-password",
+    "B2-25: forget the password the app remembers for the file of a tab, by tab id; nothing comes back but the tab's new state",
+  ],
+  [
+    "allow-forget-all-passwords",
+    "B2-25: forget every password the app remembers in Windows' Credential Manager; answers how many there were",
+  ],
+  [
+    "allow-get-remembered-passwords",
+    "B2-25: how many passwords the app remembers, and the most it will; no list, no keys, no passwords",
+  ],
   [
     "allow-pick-pages-source",
     "B2-06: a PDF whose pages go into the document; the main process asks in its open dialog and the path stays there, the document's worker scans it and writes a clean copy",

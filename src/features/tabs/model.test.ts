@@ -16,6 +16,8 @@ const info = (doc: number, displayName: string): DocumentInfo => ({
   canUndo: false,
   canRedo: false,
   recovery: "none",
+  passwordRemembered: false,
+  passwordRecalled: false,
 });
 
 const event = (e: OpenEvent): TabsAction => ({ type: "event", event: e });
@@ -57,13 +59,13 @@ describe("tabs", () => {
   it("an encrypted file's tab asks for the password, again after a wrong one", () => {
     const asking = run([
       event({ kind: "opening", tab: 1, displayName: "機密.pdf" }),
-      event({ kind: "passwordNeeded", tab: 1, displayName: "機密.pdf", wrong: false }),
+      event({ kind: "passwordNeeded", tab: 1, displayName: "機密.pdf", wrong: false, canRemember: false, rememberedFailed: false }),
     ]);
     expect(shellState(asking.tabs[0]!)).toEqual({ kind: "password", displayName: "機密.pdf", wrong: false });
     const wrong = run(
       [
         event({ kind: "opening", tab: 1, displayName: "機密.pdf" }),
-        event({ kind: "passwordNeeded", tab: 1, displayName: "機密.pdf", wrong: true }),
+        event({ kind: "passwordNeeded", tab: 1, displayName: "機密.pdf", wrong: true, canRemember: false, rememberedFailed: false }),
       ],
       asking,
     );
@@ -139,7 +141,7 @@ describe("tabs", () => {
     // A tab that asked for a password again opens its file anew.
     const reopened = run(
       [
-        event({ kind: "passwordNeeded", tab: 1, displayName: "b.pdf", wrong: false }),
+        event({ kind: "passwordNeeded", tab: 1, displayName: "b.pdf", wrong: false, canRemember: false, rememberedFailed: false }),
         event({ kind: "opened", tab: 1, info: info(15, "b.pdf") }),
       ],
       saved,

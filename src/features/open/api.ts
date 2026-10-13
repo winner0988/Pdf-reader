@@ -4,7 +4,7 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 
-import type { OpenEvent, TabId, UnlockArgs } from "@/ipc/generated/contract";
+import type { OpenEvent, RememberedPasswords, TabId, UnlockArgs, UnlockOutcome } from "@/ipc/generated/contract";
 
 export type OpenApi = {
   /** Registers `onEvent` for every open event of this page. Safe to call more than once. */
@@ -15,9 +15,17 @@ export type OpenApi = {
   retry(tab: TabId): Promise<void>;
   /**
    * Tries a password on a tab whose file is encrypted (MVP-16); the outcome arrives as an open
-   * event. The main process hands it to that tab's worker only and keeps nothing.
+   * event. The main process hands it to that tab's worker only. With `remember` it is also kept in
+   * Windows' Credential Manager once it has opened the file (B2-25, ADR 0017); the answer says
+   * why it was not, if it was not.
    */
-  unlock(tab: TabId, password: string): Promise<void>;
+  unlock(tab: TabId, password: string, remember?: boolean): Promise<UnlockOutcome>;
+  /** Forgets the password remembered for the file of a tab; its new state arrives as an open event. */
+  forgetPassword(tab: TabId): Promise<void>;
+  /** Forgets every remembered password; how many there were. */
+  forgetAllPasswords(): Promise<number>;
+  /** How many passwords are remembered, and the most there can be. */
+  rememberedPasswords(): Promise<RememberedPasswords>;
   /** Closes a tab; its worker ends. */
   close(tab: TabId): Promise<void>;
   /** The tab the window shows, for the window title. */
@@ -51,7 +59,11 @@ export const tauriOpenApi: OpenApi = {
   }),
   openDialog: () => invoke<boolean>("open_document_dialog"),
   retry: (tab) => invoke<void>("retry_open", { tab }),
-  unlock: (tab, password) => invoke<void>("unlock_tab", { args: { tab, password } satisfies UnlockArgs }),
+  unlock: (tab, password, remember = false) =>
+    invoke<UnlockOutcome>("unlock_tab", { args: { tab, password, remember } satisfies UnlockArgs }),
+  forgetPassword: (tab) => invoke<void>("forget_password", { tab }),
+  forgetAllPasswords: () => invoke<number>("forget_all_passwords"),
+  rememberedPasswords: () => invoke<RememberedPasswords>("get_remembered_passwords"),
   close: (tab) => invoke<void>("close_tab", { tab }),
   setActive: (tab) => invoke<void>("set_active_tab", { tab }),
 };

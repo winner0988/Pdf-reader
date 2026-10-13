@@ -11,8 +11,12 @@ sequenceDiagram
   participant W as 這個分頁的 pdf_worker
   M->>W: Open（沒有密碼）
   W-->>M: Error: Encrypted { password_key }
-  M-->>F: passwordNeeded { wrong: false }
-  F->>M: unlock_tab { tab, password }
+  opt 這份文件有記住的密碼（B2-25）
+    M->>W: Open { 記住的密碼 }（同一個 worker，只試一次）
+    W-->>M: Opened → opened { passwordRecalled }
+  end
+  M-->>F: passwordNeeded { wrong: false, canRemember, rememberedFailed }
+  F->>M: unlock_tab { tab, password, remember }
   M-->>F: opening
   M->>W: 新的 worker：Open { password }
   alt 密碼正確（使用者或擁有者密碼）
@@ -50,9 +54,9 @@ sequenceDiagram
 
 ### worker 崩潰時
 
-一般文件在 worker 崩潰後，會在新的 worker 中重新開啟（使用者看不出來）。以密碼開啟的文件做不到：密碼沒有保留。所以主行程放棄這份文件，分頁改回「需要密碼」（`passwordNeeded { wrong: false }`），使用者重新輸入後再開啟。
+一般文件在 worker 崩潰後，會在新的 worker 中重新開啟（使用者看不出來）。以密碼開啟的文件做不到：密碼沒有保留。所以主行程放棄這份文件，分頁改回「需要密碼」（`passwordNeeded { wrong: false }`），使用者重新輸入後再開啟。**有記住密碼的文件例外**（B2-25）：主行程以同一把鍵向認證管理員取回密碼，自己開新的 worker 重新開啟，分頁直接回到 `opened`（新的 `DocumentId`），尚未存檔的編輯由日誌補上（B2-13），使用者看不到密碼對話框；取不回來（記錄被刪、認證管理員出錯）或密碼不對時才問。
 
-同樣的原因，**復原**以密碼開啟的文件的編輯時（B2-05），要再輸入一次密碼（#94 的決定）：復原要從原始位元組重新開啟文件（ADR 0013）。
+同樣的原因，**復原**以密碼開啟的文件的編輯時（B2-05），要再輸入一次密碼（#94 的決定）：復原要從原始位元組重新開啟文件（ADR 0013）。有記住密碼的文件由主行程自己取回密碼，頁面不必送（也就不問）；沒有記住的維持這個決定。
 
 - 密碼只隨那一次復原請求（`undo_edit` → `WorkerRequest::Revert`）送到 worker，處理方式與開檔時相同：送出的 frame 清除、worker 收到後清除、用完即丟。
 - worker 保留的原始位元組仍是加密的，與磁碟上的檔案相同。
@@ -116,6 +120,18 @@ worker 回報「需要密碼」（`Error: Encrypted`）時，`WorkerError.passwo
 - **只有主行程用**：worker 的沙盒碰不到認證管理員，也不該看到別份文件的密碼。命令與開檔流程是 B2-25（[#220](https://github.com/winner0988/Pdf-reader/issues/220)）。
 - **測試**用真正的認證管理員，但各用自己的名稱前綴（`PdfReaderTest/<行程>-<名稱>/`），每個測試結束都清掉，失敗也一樣；不碰使用者自己的條目。
 
+## 記住的密碼的使用（ADR 0017，B2-25）
+
+實作在 `src-tauri/src/documents.rs`（`load_with`、`lose`、`undo`、`forget_*`）與 `commands.rs`。規則照 ADR 0017 的「信任規則」：
+
+- **開檔**：worker 回報「需要密碼」並帶鍵時，主行程向認證管理員找（`Credentials::recall`）；有就用**同一個 `WorkerHost`**（這個分頁自己的 worker，也就是回報那把鍵的那一個）送出，**只試一次**。成功：文件直接開啟，`DocumentInfo.passwordRecalled`。失敗（`WrongPassword`）：照常問使用者，`passwordNeeded` 帶 `rememberedFailed`（使用者沒有輸入錯的東西，所以 `wrong` 是 `false`），**記錄不刪**（被攻陷的 worker 不能藉由回報別人的鍵來刪記錄）。其他錯誤（檔案損毀等）照原樣回報。
+- **記住**：`unlock_tab` 的 `remember` 為真（畫面預設不勾）時，**密碼打開了文件之後**才存；輸入錯誤的不存；存的是使用者輸入的那一個（使用者密碼或擁有者密碼）；已有記錄就覆蓋。存不進去不阻擋開檔，`unlock_tab` 回 `UnlockOutcome.notRemembered`：`noKey`（檔案沒有鍵）、`full`（滿 256 項）、`unsuitable`（空的或太長）、`unavailable`（認證管理員做不到，或這次執行沒有憑證庫）。
+- **畫面拿到的**：`passwordNeeded.canRemember`（有鍵而且有憑證庫，才顯示勾選）、`rememberedFailed`；`DocumentInfo.passwordRemembered`（有記錄：可以忘記）與 `passwordRecalled`（這次是用記住的密碼開的：提示列）。**拿不到鍵與密碼。**
+- **忘記**：`forget_password(tab)` 刪這份文件的記錄（文件開著，回傳的新狀態 `passwordRemembered: false`）；`forget_all_passwords()` 刪全部（只動這一組前綴），開著的文件同樣收到新狀態；`get_remembered_passwords()` 回 `{ count, limit }`，沒有逐項列表。認證管理員出錯時回 `credentialsUnavailable`。
+- **存檔、加密副本與隱私匯出**：存檔保留加密時 `/U` 不變，記錄存檔後仍然找得到；加密副本有新的 `/U`，不套用任何記錄；隱私匯出的副本不繼承。
+- **合併別的檔案的加密來源**（B2-06）仍然每次詢問：ADR 0017 沒有涵蓋它。
+- **測試**（`documents.rs` 的 `with_worker`，用真正的 worker 與認證管理員，各用自己的前綴並在結束時清掉）：勾選記住後換一個「執行」與檔名也不問、沒勾就什麼都不留且錯誤的密碼不存、記錄不對時只試一次並留著記錄、復原不問、worker 被殺後自己重新開啟、忘記單一與全部（開著的文件收到新狀態）、滿了與沒有憑證庫時說明原因而文件照常開啟。
+
 ## 尚未處理
 
-- **記住密碼**（Windows 認證管理員；ADR 0017，取代 ADR 0006）：以檔案自己的 `/Encrypt` 資料的雜湊為鍵，不寫入也不修改 PDF；預設不記住，使用者勾選才記，有記住時開檔自動使用，最多 256 項。實作卡 [#218](https://github.com/winner0988/Pdf-reader/issues/218)（worker 的鍵，已完成）、[#219](https://github.com/winner0988/Pdf-reader/issues/219)–[#221](https://github.com/winner0988/Pdf-reader/issues/221)（憑證庫、開檔、畫面，尚未實作）。
+- **記住密碼的畫面**（密碼對話框的勾選、提示列的「已用記住的密碼開啟」與「忘記」、「⋯」選單、設定頁的項數與「全部忘記」，以及端對端）：B2-26（[#221](https://github.com/winner0988/Pdf-reader/issues/221)）。

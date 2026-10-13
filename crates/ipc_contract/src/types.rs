@@ -69,6 +69,44 @@ impl<'de> Deserialize<'de> for Password {
 pub struct UnlockArgs {
     pub tab: TabId,
     pub password: Password,
+    /// Remember the password for this file, once it has opened it (B2-25, ADR 0017). Off unless
+    /// the user ticks the box; only offered when the tab's `PasswordNeeded` said `canRemember`.
+    pub remember: bool,
+}
+
+/// Why a password the user asked to remember was not remembered (B2-25, ADR 0017). The document
+/// is open all the same.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum NotRemembered {
+    /// The file does not say how its password is checked (it is not the standard security
+    /// handler), so there is nothing to look it up by.
+    NoKey,
+    /// The app remembers as many passwords as it will (`RememberedPasswords::limit`): the user
+    /// has to forget some first.
+    Full,
+    /// The password is empty or longer than a credential holds.
+    Unsuitable,
+    /// Windows' Credential Manager would not take it (switched off, or forbidden by a policy).
+    Unavailable,
+}
+
+/// What `unlock_tab` answers, once the tab has the outcome (it arrives on the open channel).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct UnlockOutcome {
+    /// Set when the user asked to remember the password and it was not.
+    pub not_remembered: Option<NotRemembered>,
+}
+
+/// How many passwords the app remembers (B2-25, ADR 0017): there is no list, because an entry
+/// has nothing but a key to show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RememberedPasswords {
+    pub count: u32,
+    /// The most it will remember; one more is refused, never swapped for another.
+    pub limit: u32,
 }
 
 /// What the reader of an encrypted copy is not allowed to do (B2-15, docs/architecture/encrypt-copy.md),
@@ -995,6 +1033,10 @@ pub struct DocumentInfo {
     pub can_redo: bool,
     /// Unsaved changes an earlier run of the app left for this file (B2-13, ADR 0013).
     pub recovery: Recovery,
+    /// A password is remembered for this file (B2-25, ADR 0017): it can be forgotten.
+    pub password_remembered: bool,
+    /// The file was opened with the remembered password, without the user typing one.
+    pub password_recalled: bool,
 }
 
 /// Changes to a file that an earlier run of the app made but neither saved nor discarded: it
@@ -1334,6 +1376,9 @@ pub enum ErrorCode {
     /// The update check (#64) got no usable answer from GitHub: offline, blocked, or an answer
     /// it did not expect.
     NetworkFailed,
+    /// Windows' Credential Manager cannot be used (B2-25, ADR 0017): forgetting or counting the
+    /// remembered passwords failed.
+    CredentialsUnavailable,
     Internal,
 }
 
@@ -1360,11 +1405,16 @@ pub enum OpenEvent {
     #[serde(rename_all = "camelCase")]
     Opened { tab: TabId, info: DocumentInfo },
     /// The tab's file is encrypted and needs a password; `wrong` after one that did not open it.
+    /// `can_remember`: the file says what its password is checked by, so the user may ask for
+    /// the password to be remembered (B2-25, ADR 0017). `remembered_failed`: a password the app
+    /// remembered for the file was tried, and did not open it; the record is still there.
     #[serde(rename_all = "camelCase")]
     PasswordNeeded {
         tab: TabId,
         display_name: String,
         wrong: bool,
+        can_remember: bool,
+        remembered_failed: bool,
     },
     #[serde(rename_all = "camelCase")]
     Failed {

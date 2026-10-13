@@ -11,8 +11,6 @@
 
 // The Credential Manager's Win32 calls; each unsafe block says why it is sound.
 #![allow(unsafe_code)]
-// The commands that use it are B2-25 (#220); until they exist nothing here is called.
-#![allow(dead_code)]
 
 use std::ffi::c_void;
 use std::ptr::null_mut;
@@ -110,6 +108,11 @@ impl Credentials {
     /// Another set of passwords (the tests use their own, so that nothing of the user's is touched).
     pub fn with(prefix: String, capacity: usize) -> Self {
         Self { prefix, capacity }
+    }
+
+    /// The most passwords this set holds.
+    pub fn capacity(&self) -> usize {
+        self.capacity
     }
 
     fn target(&self, key: &[u8; 32]) -> Vec<u16> {

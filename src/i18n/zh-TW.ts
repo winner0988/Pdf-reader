@@ -70,6 +70,7 @@ export const strings = {
       fontNotEmbeddable: "這個字型的授權不允許嵌入文件，請選擇另一個字型。",
       fontMissingGlyphs: "這個字型沒有文字中的某些字，請選擇另一個字型。",
       textNotSupported: "文字含有目前無法排版的文字（例如阿拉伯文、希伯來文、印度系文字），請移除這些字。",
+      credentialsUnavailable: "無法使用 Windows 認證管理員，請稍後再試。",
       internal: "發生未預期的錯誤。",
     } satisfies Record<ErrorCode, string>,
   },

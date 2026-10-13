@@ -44,7 +44,10 @@ flowchart LR
 | `retry_open` | `{ tab: TabId }` | 無（在同一個分頁重新開啟開檔失敗的檔案，結果走開檔頻道） | 否 | MVP-06、14 |
 | `pick_pages_source` | `{ doc: DocumentId }`（不含路徑：主行程顯示開啟對話框；作者不允許變更頁面時先拒絕，不問使用者） | `PagesSource`（`source`、`pages`）或 `null`（使用者關閉了對話框）；檔案在主行程以唯讀開啟、交給文件自己的 worker，做出乾淨的副本，由主行程保管；加密的檔案回 `encrypted`，`unlock_pages_source` 給密碼；作者不允許取出頁面回 `notAllowed`（B2-06，見 [merge.md](merge.md)） | 否 | B2-06 |
 | `unlock_pages_source` | `{ args: UnlockSourceArgs }`：`doc` 與 `password` | `PagesSource`；對剛才選的加密檔案試這個密碼（路徑只在主行程）；密碼不對回 `encrypted`，檔案繼續等；沒有檔案在等回 `invalidArgument` | 否 | B2-06 |
-| `unlock_tab` | `{ args: UnlockArgs }`：`tab` 與 `password` | 無；以密碼在新的 worker 開啟這個分頁的加密檔案，結果走開檔頻道（見 [encryption.md](encryption.md)） | 否 | MVP-16 |
+| `unlock_tab` | `{ args: UnlockArgs }`：`tab`、`password` 與 `remember` | `UnlockOutcome`：`notRemembered`（要求記住卻沒記住的原因，否則 `null`）；以密碼在新的 worker 開啟這個分頁的加密檔案，結果走開檔頻道（見 [encryption.md](encryption.md)）。`remember` 為真時，密碼打開了文件之後才存進 Windows 認證管理員 | 否 | MVP-16、B2-25 |
+| `forget_password` | `{ tab }` | 無；忘記這份文件記住的密碼，文件的新狀態（`passwordRemembered: false`）走開檔頻道。只有開著的文件 | 否 | B2-25 |
+| `forget_all_passwords` | 無 | `number`：忘記了幾個；開著的文件收到新狀態。認證管理員出錯回 `credentialsUnavailable` | 否 | B2-25 |
+| `get_remembered_passwords` | 無 | `RememberedPasswords`：`count` 與 `limit`（256）；沒有逐項列表，沒有鍵與密碼 | 否 | B2-25 |
 | `close_tab` | `{ tab: TabId }` | 無；分頁的 worker 結束，主行程忘記它的路徑 | 否 | MVP-14 |
 | `set_active_tab` | `{ tab: TabId \| null }` | 無；主行程以它記錄的檔名設定視窗標題 | 否 | MVP-14 |
 | `render_page` | `{ args: RenderPageArgs }` | `ArrayBuffer`（見「頁面影像」） | 是 | MVP-07 |

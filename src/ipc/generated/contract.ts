@@ -31,7 +31,37 @@ export type Password = string;
  * Arguments of `unlock_tab`: the password for a tab that asked for one. Any other field is
  * rejected.
  */
-export type UnlockArgs = { tab: TabId, password: Password, };
+export type UnlockArgs = { tab: TabId, password: Password, 
+/**
+ * Remember the password for this file, once it has opened it (B2-25, ADR 0017). Off unless
+ * the user ticks the box; only offered when the tab's `PasswordNeeded` said `canRemember`.
+ */
+remember: boolean, };
+
+/**
+ * Why a password the user asked to remember was not remembered (B2-25, ADR 0017). The document
+ * is open all the same.
+ */
+export type NotRemembered = "noKey" | "full" | "unsuitable" | "unavailable";
+
+/**
+ * What `unlock_tab` answers, once the tab has the outcome (it arrives on the open channel).
+ */
+export type UnlockOutcome = { 
+/**
+ * Set when the user asked to remember the password and it was not.
+ */
+notRemembered: NotRemembered | null, };
+
+/**
+ * How many passwords the app remembers (B2-25, ADR 0017): there is no list, because an entry
+ * has nothing but a key to show.
+ */
+export type RememberedPasswords = { count: number, 
+/**
+ * The most it will remember; one more is refused, never swapped for another.
+ */
+limit: number, };
 
 /**
  * Arguments of `unlock_pages_source` (B2-06): the password of the encrypted file the user just
@@ -679,7 +709,15 @@ canRedo: boolean,
 /**
  * Unsaved changes an earlier run of the app left for this file (B2-13, ADR 0013).
  */
-recovery: Recovery, };
+recovery: Recovery, 
+/**
+ * A password is remembered for this file (B2-25, ADR 0017): it can be forgotten.
+ */
+passwordRemembered: boolean, 
+/**
+ * The file was opened with the remembered password, without the user typing one.
+ */
+passwordRecalled: boolean, };
 
 /**
  * Arguments of the `render_page` command.
@@ -803,7 +841,7 @@ edges: Array<number>, };
 /**
  * Error codes the frontend maps to localized messages.
  */
-export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "internal";
+export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "credentialsUnavailable" | "internal";
 
 /**
  * Rejection value of every command. `message` is for logs and must not contain paths or
@@ -817,7 +855,7 @@ export type IpcError = { code: ErrorCode, message: string, };
  * the app. Every file gets its own tab (MVP-14): `Opening` adds it, then `Opened` or `Failed`
  * says how it went.
  */
-export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, } | { "kind": "closeRequested", tabs: Array<TabId>, } | { "kind": "ocr", tab: TabId, progress: OcrProgress, } | { "kind": "ocrPage", tab: TabId, doc: DocumentId, pageIndex: number, };
+export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, canRemember: boolean, rememberedFailed: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, } | { "kind": "closeRequested", tabs: Array<TabId>, } | { "kind": "ocr", tab: TabId, progress: OcrProgress, } | { "kind": "ocrPage", tab: TabId, doc: DocumentId, pageIndex: number, };
 
 /** Limits enforced by the main process (crates/ipc_contract/src/limits.rs). */
 export const LIMITS = {

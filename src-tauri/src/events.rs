@@ -169,6 +169,8 @@ mod tests {
             can_undo: false,
             can_redo: false,
             recovery: Recovery::None,
+            password_remembered: false,
+            password_recalled: false,
         };
         let (channel, received) = recording_channel();
         events.subscribe(channel, || {
