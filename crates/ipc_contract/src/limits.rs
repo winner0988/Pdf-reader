@@ -174,6 +174,16 @@ pub const MAX_JPEG_BYTES: usize = 64 * 1024 * 1024;
 /// Japanese) are under 60 MB.
 pub const MAX_LANGUAGE_DATA_BYTES: usize = 64 * 1024 * 1024;
 
+/// Largest font file the main process reads to give the worker (B2-27, ADR 0018): the same size
+/// as language data. The CJK fonts of Windows are 5 to 30 MB.
+pub const MAX_FONT_BYTES: usize = 64 * 1024 * 1024;
+
+/// Longest name of a font in the list of fonts (B2-27), after it is made plain text.
+pub const MAX_FONT_NAME_BYTES: usize = 128;
+
+/// Most fonts the list holds (B2-27). A Windows with many families has a few hundred.
+pub const MAX_FONTS: usize = 4_096;
+
 /// Longest name of a language for recognising text, such as `eng` or `chi_tra` (B2-10).
 pub const MAX_LANGUAGE_NAME_BYTES: usize = 32;
 

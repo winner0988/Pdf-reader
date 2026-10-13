@@ -1259,6 +1259,33 @@ pub enum OpenEvent {
     },
 }
 
+/// A font on this computer that the user can set the text of a text box in (ADR 0018, B2-27).
+/// Valid until the next `get_fonts`; the page never gets where the font's file is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct FontId(pub u32);
+
+/// Where a font comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum FontSource {
+    /// Windows has it installed, for everyone or for this user (ADR 0018, the first version).
+    Installed,
+}
+
+/// One font of the list `get_fonts` gives.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FontInfo {
+    pub id: FontId,
+    /// What Windows calls it, without its kind: `Arial Bold`, `Microsoft JhengHei UI`.
+    pub name: String,
+    /// The name without `Bold`, `Italic` and the like: the faces of one family share it.
+    pub family: String,
+    pub bold: bool,
+    pub italic: bool,
+    pub source: FontSource,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -11,6 +11,7 @@ mod documents;
 mod events;
 mod export;
 mod file_dialog;
+mod fonts;
 mod history;
 mod links;
 mod local_data;
@@ -85,6 +86,7 @@ pub fn run() {
         .manage(OpenEvents::default())
         .manage(Searches::default())
         .manage(Exports::default())
+        .manage(fonts::Fonts::default())
         .invoke_handler(tauri::generate_handler![
             commands::subscribe_open_events,
             commands::open_document_dialog,
@@ -132,6 +134,7 @@ pub fn run() {
             commands::privacy_export,
             commands::encrypt_copy,
             commands::get_ocr_languages,
+            commands::get_fonts,
             commands::import_ocr_language,
             commands::remove_ocr_language,
             commands::start_ocr,

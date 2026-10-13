@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use ipc_contract::types::{
     DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat,
-    FileRecordingArgs, FormField, IpcError, LanguageImport, LinkArgs, LinkPreview, OcrArgs,
-    OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation,
+    FileRecordingArgs, FontInfo, FormField, IpcError, LanguageImport, LinkArgs, LinkPreview,
+    OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation,
     PageLink, PageText, PagesSource, Password, RecentFile, RecentId, RemoveLanguageArgs,
     RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent, Settings, SignatureReport,
     StampImageInfo, TabId, UndoArgs, UnlockArgs, UnlockSourceArgs, UpdateCheck,
@@ -295,6 +295,13 @@ pub async fn set_settings(app: AppHandle, settings: Settings) -> Result<(), IpcE
 #[tauri::command]
 pub async fn get_ocr_languages(app: AppHandle) -> Result<OcrLanguages, IpcError> {
     blocking(move || Ok(app.state::<Arc<Ocr>>().languages().list())).await
+}
+
+/// The fonts installed in Windows, for the text boxes (B2-27, ADR 0018): ids and names, never a
+/// path. Read again every time, so that a font installed a moment ago is in the list.
+#[tauri::command]
+pub async fn get_fonts(app: AppHandle) -> Result<Vec<FontInfo>, IpcError> {
+    blocking(move || Ok(app.state::<crate::fonts::Fonts>().list())).await
 }
 
 /// Set while the language dialog is showing.

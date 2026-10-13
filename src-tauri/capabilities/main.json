@@ -50,6 +50,7 @@
     "allow-privacy-export",
     "allow-encrypt-copy",
     "allow-get-ocr-languages",
+    "allow-get-fonts",
     "allow-import-ocr-language",
     "allow-remove-ocr-language",
     "allow-start-ocr",

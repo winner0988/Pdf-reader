@@ -159,6 +159,30 @@ languages: Array<OcrLanguage>,
 automatic: string | null, };
 
 /**
+ * A font on this computer that the user can set the text of a text box in (ADR 0018, B2-27).
+ * Valid until the next `get_fonts`; the page never gets where the font's file is.
+ */
+export type FontId = number;
+
+/**
+ * Where a font comes from.
+ */
+export type FontSource = "installed";
+
+/**
+ * One font of the list `get_fonts` gives.
+ */
+export type FontInfo = { id: FontId, 
+/**
+ * What Windows calls it, without its kind: `Arial Bold`, `Microsoft JhengHei UI`.
+ */
+name: string, 
+/**
+ * The name without `Bold`, `Italic` and the like: the faces of one family share it.
+ */
+family: string, bold: boolean, italic: boolean, source: FontSource, };
+
+/**
  * Why importing a language was refused (B2-10).
  */
 export type LanguageRefusal = "unreadable" | "tooLarge" | "notLanguageData" | "badName" | "nameTaken" | "tooMany";
