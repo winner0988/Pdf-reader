@@ -8,13 +8,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use ipc_contract::types::{
-    DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat,
-    FileRecordingArgs, FontInfo, FormField, IpcError, LanguageImport, LinkArgs, LinkPreview,
-    OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation,
-    PageLink, PageText, PagesSource, Password, PrepareTextBoxArgs, PreparedTextBox, RecentFile,
-    RecentId, RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent,
-    Settings, SignatureReport, StampImageInfo, TabId, UndoArgs, UnlockArgs, UnlockSourceArgs,
-    UpdateCheck,
+    AnnotationId, DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent,
+    ExportFormat, FileRecordingArgs, FontInfo, FormField, IpcError, LanguageImport, LinkArgs,
+    LinkPreview, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult,
+    PageAnnotation, PageLink, PageText, PagesSource, Password, PrepareTextBoxArgs, PreparedTextBox,
+    RecentFile, RecentId, RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult, SearchArgs,
+    SearchEvent, Settings, SignatureReport, StampImageInfo, TabId, TextBoxInfo, UndoArgs,
+    UnlockArgs, UnlockSourceArgs, UpdateCheck,
 };
 use ipc_contract::validate::{Validate, check_page_index};
 use tauri::ipc::{Channel, Response};
@@ -333,6 +333,23 @@ pub async fn prepare_text_box(
             &args.text,
             (name, file.bytes, file.face),
         )
+    })
+    .await
+}
+
+/// What text box `annotation` of page `page_index` of `doc` says of itself (B2-29): its words,
+/// its font's name, its style and whether the words fit, to fill in the dialog that changes it.
+/// Read from the file by the document's worker; the font is not needed.
+#[tauri::command]
+pub async fn get_text_box(
+    app: AppHandle,
+    doc: DocumentId,
+    page_index: u32,
+    annotation: AnnotationId,
+) -> Result<TextBoxInfo, IpcError> {
+    blocking(move || {
+        app.state::<Documents>()
+            .text_box(doc, page_index, annotation)
     })
     .await
 }

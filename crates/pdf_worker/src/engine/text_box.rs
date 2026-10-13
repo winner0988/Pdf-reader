@@ -25,6 +25,8 @@ use mupdf::pdf::{PdfAnnotation, PdfAnnotationType};
 
 pub use font::prepare_text_box;
 
+use mupdf::pdf::PdfObject;
+
 use super::annotations::{binding_rect, find};
 use super::{EngineError, PdfDocument};
 
@@ -71,18 +73,23 @@ fn finite(rect: Rect) -> bool {
         .all(|edge| edge.is_finite())
 }
 
+/// Whether two sides are the same length, as far as a box on a page can tell.
+fn same_length(one: f32, other: f32) -> bool {
+    (one - other).abs() < 0.01
+}
+
 impl PdfDocument {
-    /// Sets `model` in a text box over `rect` (page space) on page `index`: a `FreeText`
-    /// annotation that says the words and whose appearance sets them in the subset of the model.
-    /// Nothing is put in the document before every check has passed: a box that cannot be made
-    /// leaves no objects behind.
-    pub fn place_text_box(
+    /// Checks everything about a text box that can be checked, then writes the objects of it (its
+    /// font and appearance) in the document and gives the source of its annotation dictionary
+    /// and whether the words overflow the box. Nothing is put in the document before every check
+    /// has passed. `inverse` takes the page space of MuPDF to the PDF's.
+    fn make_text_box(
         &mut self,
-        index: u32,
         rect: Rect,
         model: &TextBoxModel,
         style: &TextBoxStyle,
-    ) -> Result<TextBoxMade, EngineError> {
+        inverse: mupdf::Matrix,
+    ) -> Result<(String, bool), EngineError> {
         model
             .validate()
             .map_err(|_| EngineError::InvalidEdit("the words of a text box"))?;
@@ -99,12 +106,6 @@ impl PdfDocument {
         let laid = layout::lay_out(model, style, (width, height))
             .ok_or(EngineError::InvalidEdit("the words of a text box"))?;
         let subset = font::clean_subset(model).ok_or(EngineError::Font(FontRefusal::NotAFont))?;
-        let page = self.pdf_page(index)?;
-        let mut page_object = page.object();
-        let inverse = page_object
-            .page_ctm()?
-            .invert()
-            .ok_or(EngineError::InvalidEdit("the page cannot be placed"))?;
 
         let (font_object, file) = pdf::write_font(&mut self.doc, model, &subset)?;
 
@@ -135,23 +136,49 @@ impl PdfDocument {
             false,
         )?;
         let entry = pdf::entry_source(model, style, laid.overflow, &file)?;
-        let annotation = pdf::parse(
-            &self.doc,
-            &format!(
-                "<< /Type /Annot /Subtype /FreeText /Rect [{:.3} {:.3} {:.3} {:.3}] \
-                 /Contents {} /DA ({}) /Q {} /F 4 \
-                 /IT /FreeTextTypeWriter /BS << /W 0 >> /AP << /N {} 0 R >> /{} {entry} >>",
-                at.x0,
-                at.y0,
-                at.x1,
-                at.y1,
-                pdf::utf16_hex(&model.text),
-                pdf::default_appearance(style),
-                pdf::quadding_of(style),
-                pdf::object_number(&stream)?,
-                pdf::KEY,
-            ),
-        )?;
+        let source = format!(
+            "<< /Type /Annot /Subtype /FreeText /Rect [{:.3} {:.3} {:.3} {:.3}] \
+             /Contents {} /DA ({}) /Q {} /F 4 \
+             /IT /FreeTextTypeWriter /BS << /W 0 >> /AP << /N {} 0 R >> /{} {entry} >>",
+            at.x0,
+            at.y0,
+            at.x1,
+            at.y1,
+            pdf::utf16_hex(&model.text),
+            pdf::default_appearance(style),
+            pdf::quadding_of(style),
+            pdf::object_number(&stream)?,
+            pdf::KEY,
+        );
+        Ok((source, laid.overflow))
+    }
+
+    /// The matrix that takes page space (MuPDF's, from the top left) to the PDF's, for page
+    /// `index`, and the page's object.
+    fn page_to_pdf(&self, index: u32) -> Result<(PdfObject, mupdf::Matrix), EngineError> {
+        let page = self.pdf_page(index)?;
+        let object = page.object();
+        let inverse = object
+            .page_ctm()?
+            .invert()
+            .ok_or(EngineError::InvalidEdit("the page cannot be placed"))?;
+        Ok((object, inverse))
+    }
+
+    /// Sets `model` in a text box over `rect` (page space) on page `index`: a `FreeText`
+    /// annotation that says the words and whose appearance sets them in the subset of the model.
+    /// Nothing is put in the document before every check has passed: a box that cannot be made
+    /// leaves no objects behind.
+    pub fn place_text_box(
+        &mut self,
+        index: u32,
+        rect: Rect,
+        model: &TextBoxModel,
+        style: &TextBoxStyle,
+    ) -> Result<TextBoxMade, EngineError> {
+        let (mut page_object, inverse) = self.page_to_pdf(index)?;
+        let (source, overflow) = self.make_text_box(rect, model, style, inverse)?;
+        let annotation = pdf::parse(&self.doc, &source)?;
         let annotation = self.doc.add_object(&annotation)?;
         match page_object.get_dict("Annots")? {
             Some(mut annots) => annots.array_push(annotation)?,
@@ -163,8 +190,101 @@ impl PdfDocument {
         }
         Ok(TextBoxMade {
             view_only: model.view_only,
-            overflow: laid.overflow,
+            overflow,
         })
+    }
+
+    /// Sets text box `id` of page `index` again, in `rect` (page space), from `model` and `style`:
+    /// a new font subset and appearance, and the same annotation (its number does not change).
+    /// The dictionary is changed key by key, never through MuPDF's annotation calls, which would
+    /// draw the box black again. What it had before is no longer used, and a full save leaves it
+    /// out.
+    pub fn replace_text_box(
+        &mut self,
+        index: u32,
+        id: AnnotationId,
+        rect: Rect,
+        model: &TextBoxModel,
+        style: &TextBoxStyle,
+    ) -> Result<TextBoxMade, EngineError> {
+        let (page_object, inverse) = self.page_to_pdf(index)?;
+        let page = self.pdf_page(index)?;
+        let annotation = find(&page, id)?;
+        if annotation.r#type()? != PdfAnnotationType::FreeText || !is_text_box(&annotation) {
+            return Err(EngineError::InvalidEdit("not a text box"));
+        }
+        drop(page_object);
+        let (source, overflow) = self.make_text_box(rect, model, style, inverse)?;
+        let fresh = pdf::parse(&self.doc, &source)?;
+        let mut object = annotation.object();
+        for key in ["Rect", "Contents", "DA", "Q", "AP", pdf::KEY] {
+            let value = fresh
+                .get_dict(key)?
+                .ok_or(EngineError::InvalidEdit("not a text box"))?;
+            object.dict_put(key, value)?;
+        }
+        Ok(TextBoxMade {
+            view_only: model.view_only,
+            overflow,
+        })
+    }
+
+    /// Where text box `id` of page `index` is (page space).
+    fn text_box_rect(&self, index: u32, id: AnnotationId) -> Result<Rect, EngineError> {
+        let page = self.pdf_page(index)?;
+        let bounds = find(&page, id)?.bounds()?;
+        Ok(Rect {
+            x0: bounds.x0,
+            y0: bounds.y0,
+            x1: bounds.x1,
+            y1: bounds.y1,
+        })
+    }
+
+    /// Moves and resizes text box `id` of page `index` to `rect` (page space). A move changes the
+    /// `/Rect` of the annotation and nothing else; a new size sets the words again (the lines
+    /// break differently), from the model the file has, so the font is not needed.
+    pub fn move_text_box(
+        &mut self,
+        index: u32,
+        id: AnnotationId,
+        rect: Rect,
+    ) -> Result<(), EngineError> {
+        let (model, style, _) = self.text_box(index, id)?;
+        let old = self.text_box_rect(index, id)?;
+        if !same_length(old.x1 - old.x0, rect.x1 - rect.x0)
+            || !same_length(old.y1 - old.y0, rect.y1 - rect.y0)
+        {
+            self.replace_text_box(index, id, rect, &model, &style)?;
+            return Ok(());
+        }
+        if !finite(rect) {
+            return Err(EngineError::InvalidEdit("the rectangle of a text box"));
+        }
+        let (_, inverse) = self.page_to_pdf(index)?;
+        let at = binding_rect(rect).transform(&inverse);
+        let page = self.pdf_page(index)?;
+        let mut object = find(&page, id)?.object();
+        let value = self.doc.new_object_from_str(&format!(
+            "[{:.3} {:.3} {:.3} {:.3}]",
+            at.x0, at.y0, at.x1, at.y1
+        ))?;
+        object.dict_put("Rect", value)?;
+        Ok(())
+    }
+
+    /// Gives text box `id` of page `index` another `style`, and other words if `model` is given
+    /// (otherwise those it has): it is set again in the rectangle it has.
+    pub fn set_text_box(
+        &mut self,
+        index: u32,
+        id: AnnotationId,
+        model: Option<&TextBoxModel>,
+        style: &TextBoxStyle,
+    ) -> Result<TextBoxMade, EngineError> {
+        let (own, _, _) = self.text_box(index, id)?;
+        let rect = self.text_box_rect(index, id)?;
+        self.replace_text_box(index, id, rect, model.unwrap_or(&own), style)
     }
 
     /// [`prepare_text_box`] and [`place_text_box`](Self::place_text_box) in one: a text box of

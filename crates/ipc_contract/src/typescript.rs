@@ -100,6 +100,7 @@ pub fn bindings() -> String {
         TextBoxModelId,
         PrepareTextBoxArgs,
         PreparedTextBox,
+        TextBoxInfo,
         FindingKind,
         SecurityFinding,
         SecurityReport,

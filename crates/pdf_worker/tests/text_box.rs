@@ -377,8 +377,6 @@ fn the_selection_and_removal_of_annotations_see_a_text_box_and_removal_takes_its
         [rect.x0, rect.y0, rect.x1, rect.y1],
         [72.0, 72.0, 372.0, 132.0]
     );
-    // Moving goes through MuPDF's setters, which would draw it black: it is refused until B2-29.
-    assert!(app.set_annotation_rect(0, listed[0].id, rect).is_err());
     let kept = saved(&mut app);
     assert!(kept.len() < 20_000, "{}", kept.len());
     assert!(
@@ -809,4 +807,168 @@ fn english_traditional_and_simplified_chinese_and_japanese_are_each_drawn_inside
         assert_eq!(annotation.contents().expect("contents"), Some(text));
         assert!(bytes.len() < 40_000, "{language}: {} bytes", bytes.len());
     }
+}
+
+/// The page as the app opens a file it saved, and the id of its one text box.
+fn reopened(doc: &mut PdfDocument) -> (PdfDocument, ipc_contract::types::AnnotationId) {
+    let app = PdfDocument::from_bytes(&saved(doc)).expect("open");
+    let id = app.page_annotations(0).expect("list")[0].id;
+    (app, id)
+}
+
+#[test]
+fn a_text_box_moved_through_the_annotation_edit_keeps_its_colour_and_its_font() {
+    let mut doc = blank();
+    doc.add_text_box(0, BOX, &spec(MIXED), &font(droid()))
+        .expect("box");
+    let (mut app, id) = reopened(&mut doc);
+    let before = render(&saved(&mut app));
+    let moved = Rect {
+        x0: 172.0,
+        y0: 272.0,
+        x1: 472.0,
+        y1: 332.0,
+    };
+    app.set_annotation_rect(0, id, moved).expect("moved");
+    let bytes = saved(&mut app);
+    let page = render(&bytes);
+    assert!(
+        ink(&page, IN_BOX).is_empty(),
+        "nothing is left where it was"
+    );
+    assert_eq!(
+        ink(&page, [172, 272, 472, 332]).len(),
+        ink(&before, IN_BOX).len(),
+        "the same pixels, a hundred points to the right and two hundred down"
+    );
+    assert!(blue(&page) > 100, "still blue, not black");
+    assert!(appearance_fonts(&bytes).iter().all(|base| is_subset(base)));
+    let listed = PdfDocument::from_bytes(&bytes)
+        .expect("open")
+        .page_annotations(0)
+        .expect("list");
+    assert_eq!(listed[0].id, id, "the same annotation");
+    let rect = listed[0].rect;
+    assert_eq!(
+        [rect.x0, rect.y0, rect.x1, rect.y1],
+        [172.0, 272.0, 472.0, 332.0]
+    );
+}
+
+#[test]
+fn a_text_box_resized_sets_its_words_again_from_the_file_without_the_font() {
+    let mut doc = blank();
+    let long = "one two three four five six seven eight nine ten eleven twelve";
+    doc.add_text_box(0, BOX, &spec(long), &font(droid()))
+        .expect("box");
+    let (mut app, id) = reopened(&mut doc);
+    let tall = |app: &mut PdfDocument| {
+        let page = render(&saved(app));
+        let [_, top, _, bottom] = bounds(&ink(&page, whole(&page)));
+        bottom - top
+    };
+    let narrow = tall(&mut app);
+    // A wider box: the lines break differently, so there are fewer of them.
+    let wide = Rect {
+        x1: 572.0,
+        y1: 200.0,
+        ..BOX
+    };
+    app.set_annotation_rect(0, id, wide).expect("resized");
+    let wider = tall(&mut app);
+    assert!(wider < narrow, "{wider} against {narrow} pixels tall");
+    let bytes = saved(&mut app);
+    assert!(blue(&render(&bytes)) > 100, "still blue");
+    // What the file says of the box is what it said, and it is still the same annotation.
+    let again = PdfDocument::from_bytes(&bytes).expect("open");
+    assert_eq!(again.page_annotations(0).expect("list")[0].id, id);
+    let (model, style, overflow) = again.text_box(0, id).expect("a text box");
+    assert_eq!(model.text, long);
+    assert_eq!((style.size, style.color), (24.0, BLUE));
+    assert!(!overflow);
+    let rect = again.page_annotations(0).expect("list")[0].rect;
+    assert_eq!([rect.x0, rect.x1, rect.y1], [72.0, 572.0, 200.0]);
+}
+
+#[test]
+fn a_text_box_gets_another_style_and_other_words_and_the_old_font_goes_with_a_full_save() {
+    let mut doc = blank();
+    doc.add_text_box(0, BOX, &spec("Hello 你好，世界"), &font(droid()))
+        .expect("box");
+    let (mut app, id) = reopened(&mut doc);
+    let first = saved(&mut app);
+
+    // Another size, colour and alignment, with the words it has.
+    let red = TextBoxStyle {
+        size: 36.0,
+        color: Rgb {
+            r: 200,
+            g: 20,
+            b: 20,
+        },
+        align: TextAlign::Right,
+    };
+    let made = app.set_text_box(0, id, None, &red).expect("restyled");
+    assert!(!made.overflow || made.overflow);
+    let page = render(&saved(&mut app));
+    assert!(pixels(&page, whole(&page), |[r, g, b]| r > g + 80 && r > b + 80).len() > 100);
+    assert_eq!(blue(&page), 0, "no longer blue");
+    let (model, style, _) = app.text_box(0, id).expect("a text box");
+    assert_eq!((model.text.as_str(), style), ("Hello 你好，世界", red));
+
+    // Other words, prepared from the font: the text of the box and its glyphs are the new ones.
+    let other = prepare_text_box(&font(droid()), "Goodbye 再見，朋友").expect("a model");
+    app.set_text_box(0, id, Some(&other), &style)
+        .expect("new words");
+    let listed = app.page_annotations(0).expect("list");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, id);
+    assert_eq!(listed[0].text.as_deref(), Some("Goodbye 再見，朋友"));
+    let last = saved(&mut app);
+    // The first subset is not in the file any more: it is about the size of the first save.
+    assert!(
+        last.len() < first.len() + 4_000,
+        "{} against {}",
+        last.len(),
+        first.len()
+    );
+    assert!(appearance_fonts(&last).iter().all(|base| is_subset(base)));
+}
+
+#[test]
+fn only_a_text_box_of_the_app_is_set_again_and_it_needs_a_rectangle_a_box_can_have() {
+    let mut doc = blank();
+    doc.add_text_box(0, BOX, &spec("Hello"), &font(droid()))
+        .expect("box");
+    let (mut app, id) = reopened(&mut doc);
+    let before = saved(&mut app);
+    // Not a box and not a rectangle.
+    assert!(
+        app.set_annotation_rect(0, ipc_contract::types::AnnotationId(9_999), BOX)
+            .is_err()
+    );
+    for rect in [
+        Rect { x1: 75.0, ..BOX },
+        Rect {
+            y1: f32::NAN,
+            ..BOX
+        },
+        Rect {
+            x0: 372.0,
+            x1: 72.0,
+            ..BOX
+        },
+    ] {
+        assert!(app.set_annotation_rect(0, id, rect).is_err(), "{rect:?}");
+    }
+    let other = prepare_text_box(&font(droid()), "Hello").expect("a model");
+    let wrong_style = TextBoxStyle {
+        size: 1_000.0,
+        ..style(12.0)
+    };
+    assert!(app.set_text_box(0, id, Some(&other), &wrong_style).is_err());
+    assert!(
+        saved(&mut app) == before,
+        "something was changed by what was refused"
+    );
 }

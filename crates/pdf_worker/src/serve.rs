@@ -18,7 +18,7 @@ use ipc_contract::ocr::{check_language_data, is_language_name};
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
     DocumentId, LinkId, LinkTarget, OutlineItem, OutlineResult, PageLink, PageSize, Password, Rect,
-    RequestId, Restrictions,
+    RequestId, Restrictions, TextBoxInfo,
 };
 use ipc_contract::worker::{
     FileHandle, FontData, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument, Raster,
@@ -151,6 +151,31 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                         request,
                         page_index,
                         annotations,
+                    },
+                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                },
+            }),
+            WorkerRequest::GetTextBox {
+                request,
+                doc,
+                page_index,
+                annotation,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => match document.text_box(page_index, annotation) {
+                    Ok((model, style, overflow)) => WorkerResponse::TextBox {
+                        request,
+                        info: TextBoxInfo {
+                            text: model.text,
+                            font: model.font,
+                            style,
+                            view_only: model.view_only,
+                            overflow,
+                        },
                     },
                     Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
                 },
@@ -561,6 +586,14 @@ fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineErro
             style,
         } => {
             document.place_text_box(*page, *rect, model, style)?;
+        }
+        WorkerEdit::SetTextBox {
+            page,
+            annotation,
+            model,
+            style,
+        } => {
+            document.set_text_box(*page, *annotation, model.as_ref(), style)?;
         }
     }
     Ok(())

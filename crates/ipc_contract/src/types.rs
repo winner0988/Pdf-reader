@@ -416,6 +416,15 @@ pub enum Edit {
         model: TextBoxModelId,
         style: TextBoxStyle,
     },
+    /// Gives the text box `annotation` of page `page` another `style`, and other words if `model`
+    /// is given (what `prepare_text_box` made of them and their font); without it, the words and
+    /// the font it has stay, and the font is not needed (B2-29). The box stays where it is.
+    SetTextBox {
+        page: u32,
+        annotation: AnnotationId,
+        model: Option<TextBoxModelId>,
+        style: TextBoxStyle,
+    },
     /// Moves and resizes the drawing or stamp `annotation` of page `page` to `rect`, which is a
     /// rectangle as `PageAnnotation::rect` lists it (B2-08). A drawing keeps the thickness of
     /// its line: its points are placed in the new rectangle.
@@ -599,6 +608,22 @@ pub struct PageAnnotation {
     /// A highlighter mark in one of the app's colors.
     pub color: Option<HighlightColor>,
     pub text: Option<String>,
+}
+
+/// What a text box says of itself (B2-29), from the page's worker: to fill in the dialog that
+/// changes it. The font is the name Windows lists it by; it may not be on this computer any more
+/// (the box is still shown and printed, and moved and resized, but other words or another font
+/// need a font that is).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TextBoxInfo {
+    pub text: String,
+    pub font: String,
+    pub style: TextBoxStyle,
+    /// The font's licence lets a document with it be viewed and printed only.
+    pub view_only: bool,
+    /// The words do not fit the box: what is below is cut off.
+    pub overflow: bool,
 }
 
 /// Arguments of `apply_edit` (B2-02). Any other field is rejected.

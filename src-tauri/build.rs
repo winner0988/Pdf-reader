@@ -50,6 +50,7 @@ fn main() {
         "get_ocr_languages",
         "get_fonts",
         "prepare_text_box",
+        "get_text_box",
         "import_ocr_language",
         "remove_ocr_language",
         "start_ocr",

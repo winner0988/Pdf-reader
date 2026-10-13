@@ -19,11 +19,11 @@ use ipc_contract::limits::{
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
-    BlockedAction, DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
-    FormField, IpcError, LinkArgs, LinkPreview, LinkTarget, OpenEvent, OutlineLinkArgs,
+    AnnotationId, BlockedAction, DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs,
+    ErrorCode, FormField, IpcError, LinkArgs, LinkPreview, LinkTarget, OpenEvent, OutlineLinkArgs,
     OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource, Password,
     PreparedTextBox, Recovery, RenderPageArgs, Restrictions, SaveResult, SearchHit, SecurityReport,
-    SignatureReport, SourceId, StampImageInfo, TabId,
+    SignatureReport, SourceId, StampImageInfo, TabId, TextBoxInfo,
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
@@ -1259,6 +1259,31 @@ impl Documents {
         })
     }
 
+    /// What text box `annotation` of page `page_index` says of itself (B2-29): its words, the
+    /// name of its font, its style, and whether the words fit: to fill in the dialog that changes
+    /// it. Read from the file by the document's worker; the font is not needed.
+    pub fn text_box(
+        &self,
+        doc: DocumentId,
+        page_index: u32,
+        annotation: AnnotationId,
+    ) -> Result<TextBoxInfo, IpcError> {
+        self.with_document(doc, |document| {
+            let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+            check_page_index(page_index, page_count).map_err(invalid_argument)?;
+            let response = request(document, |request, doc| WorkerRequest::GetTextBox {
+                request,
+                doc,
+                page_index,
+                annotation,
+            })?;
+            let WorkerResponse::TextBox { info, .. } = response else {
+                return Err(unexpected("GetTextBox"));
+            };
+            Ok(info)
+        })
+    }
+
     /// The annotations of one page that can be selected and removed (B2-07): highlighter marks,
     /// notes and other kinds, each by its number in the document.
     pub fn page_annotations(
@@ -1708,6 +1733,7 @@ fn pages_after(
         | Edit::AddStamp { page, .. }
         | Edit::AddImageStamp { page, .. }
         | Edit::AddTextBox { page, .. }
+        | Edit::SetTextBox { page, .. }
         | Edit::SetAnnotationRect { page, .. } => Some(vec![*page]),
         _ => None,
     };
@@ -1803,6 +1829,7 @@ fn pages_after(
         | Edit::AddStamp { .. }
         | Edit::AddImageStamp { .. }
         | Edit::AddTextBox { .. }
+        | Edit::SetTextBox { .. }
         | Edit::SetAnnotationRect { .. }
         | Edit::SetFieldValue { .. }
         | Edit::FlattenForm => Ok(page_count),
@@ -4983,6 +5010,130 @@ mod with_worker {
         // It is the document's own edit now, which can be undone.
         let undone = opened_info(later.undo(recovered.doc, None).unwrap());
         assert!(later.page_annotations(undone.doc, 0).unwrap().is_empty());
+        std::fs::remove_file(path).ok();
+    }
+
+    fn red() -> TextBoxStyle {
+        TextBoxStyle {
+            size: 24.0,
+            color: Rgb { r: 200, g: 0, b: 0 },
+            align: TextAlign::Center,
+        }
+    }
+
+    #[test]
+    fn a_text_box_is_moved_restyled_and_given_other_words_and_undo_redo_and_a_new_worker_agree() {
+        let (documents, info, path) = open("text-box-edit", 1);
+        let first = documents
+            .prepare_text_box(info.doc, "Hello, Wörld", arial())
+            .unwrap();
+        let mut doc = info.doc;
+        edited_pages(&documents, &mut doc, text_box_with(0, first.model));
+        let id = documents.page_annotations(doc, 0).unwrap()[0].id;
+        // What the dialog is filled in with: read from the file, no font needed.
+        let told = documents.text_box(doc, 0, id).unwrap();
+        assert_eq!(
+            (told.text.as_str(), told.font.as_str()),
+            ("Hello, Wörld", "Arial")
+        );
+        assert_eq!(told.style.size, 12.0);
+
+        let moved = Rect {
+            x0: 100.0,
+            y0: 300.0,
+            x1: 400.0,
+            y1: 360.0,
+        };
+        edited_pages(
+            &documents,
+            &mut doc,
+            Edit::SetAnnotationRect {
+                page: 0,
+                annotation: id,
+                rect: moved,
+            },
+        );
+        // Another style with the words it has: nothing is prepared, no font is read.
+        edited_pages(
+            &documents,
+            &mut doc,
+            Edit::SetTextBox {
+                page: 0,
+                annotation: id,
+                model: None,
+                style: red(),
+            },
+        );
+        let second = documents.prepare_text_box(doc, "Goodbye", arial()).unwrap();
+        edited_pages(
+            &documents,
+            &mut doc,
+            Edit::SetTextBox {
+                page: 0,
+                annotation: id,
+                model: Some(second.model),
+                style: red(),
+            },
+        );
+        let says = |doc: DocumentId| {
+            let told = documents.text_box(doc, 0, id).unwrap();
+            (told.text, told.style)
+        };
+        assert_eq!(says(doc), ("Goodbye".to_owned(), red()));
+
+        // Undone one edit at a time, and made again: the same annotation, with what it said.
+        doc = opened_info(documents.undo(doc, None).unwrap()).doc;
+        assert_eq!(says(doc), ("Hello, Wörld".to_owned(), red()));
+        doc = opened_info(documents.undo(doc, None).unwrap()).doc;
+        let (text, style) = says(doc);
+        assert_eq!((text.as_str(), style.size), ("Hello, Wörld", 12.0));
+        assert_eq!(
+            documents.page_annotations(doc, 0).unwrap()[0].rect.y0,
+            moved.y0
+        );
+        doc = opened_info(documents.redo(doc).unwrap()).doc;
+        doc = opened_info(documents.redo(doc).unwrap()).doc;
+        assert_eq!(says(doc), ("Goodbye".to_owned(), red()));
+        // A worker that died is replaced, and every edit is made again in the new one.
+        documents
+            .with_document(doc, |document| {
+                document.lost = true;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(says(doc), ("Goodbye".to_owned(), red()));
+        assert_eq!(documents.page_annotations(doc, 0).unwrap()[0].id, id);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn edited_text_boxes_come_back_after_a_crash_with_the_words_they_were_given() {
+        let data = DataFolder::new("text-box-edit-journal");
+        let path = write_pdf("b229-edit-journal", &letter_pdf(1));
+        let earlier = data.documents();
+        let mut doc = open_in(&earlier, &path).doc;
+        let first = earlier.prepare_text_box(doc, "Hello", arial()).unwrap();
+        edited_pages(&earlier, &mut doc, text_box_with(0, first.model));
+        let id = earlier.page_annotations(doc, 0).unwrap()[0].id;
+        let second = earlier.prepare_text_box(doc, "Goodbye", arial()).unwrap();
+        edited_pages(
+            &earlier,
+            &mut doc,
+            Edit::SetTextBox {
+                page: 0,
+                annotation: id,
+                model: Some(second.model),
+                style: red(),
+            },
+        );
+        drop(earlier);
+
+        let later = data.documents();
+        let reopened = open_in(&later, &path);
+        assert_eq!(reopened.recovery, Recovery::Available);
+        let recovered = opened_info(later.recover(reopened.doc).unwrap());
+        let told = later.text_box(recovered.doc, 0, id).unwrap();
+        assert_eq!((told.text.as_str(), told.style), ("Goodbye", red()));
         std::fs::remove_file(path).ok();
     }
 
