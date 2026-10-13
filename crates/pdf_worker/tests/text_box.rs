@@ -972,3 +972,215 @@ fn only_a_text_box_of_the_app_is_set_again_and_it_needs_a_rectangle_a_box_can_ha
         "something was changed by what was refused"
     );
 }
+
+/// Whether every corner of `quad` is inside `rect` (page space), give or take a point.
+fn inside(quad: &ipc_contract::types::Quad, rect: Rect) -> bool {
+    [quad.ul, quad.ur, quad.ll, quad.lr].iter().all(|p| {
+        p.x >= rect.x0 - 1.0 && p.x <= rect.x1 + 1.0 && p.y >= rect.y0 - 1.0 && p.y <= rect.y1 + 1.0
+    })
+}
+
+#[test]
+fn the_words_of_a_text_box_are_found_by_search_and_say_where_they_are() {
+    let mut doc = blank();
+    doc.add_text_box(0, BOX, &spec(MIXED), &font(droid()))
+        .expect("box");
+    let (app, _) = reopened(&mut doc);
+    for (query, case_sensitive) in [
+        ("hello", false),
+        ("你好", true),
+        ("世界", false),
+        ("o 你", false),
+    ] {
+        let found = app
+            .search_page(0, query, case_sensitive, 10)
+            .expect("search");
+        assert!(found.has_text, "{query}");
+        assert_eq!(found.hits.len(), 1, "{query}");
+        assert!(
+            found.hits[0].quads.iter().all(|quad| inside(quad, BOX)),
+            "{query}"
+        );
+    }
+    // The case matters when it is asked to.
+    assert!(
+        app.search_page(0, "HELLO", true, 10)
+            .expect("search")
+            .hits
+            .is_empty()
+    );
+    // Words that are not in the box are not found.
+    assert!(
+        app.search_page(0, "goodbye", false, 10)
+            .expect("search")
+            .hits
+            .is_empty()
+    );
+    // And they are further along than the start of the box when there are words before them.
+    let hello = app.search_page(0, "hello", false, 10).expect("search").hits[0].quads[0];
+    let world = app.search_page(0, "世界", false, 10).expect("search").hits[0].quads[0];
+    assert!(world.ul.x > hello.ur.x, "{world:?} after {hello:?}");
+}
+
+#[test]
+fn the_words_of_a_text_box_are_selected_and_copied_line_by_line() {
+    let mut doc = blank();
+    let long = "one two three four five six seven eight nine ten";
+    let mut first = spec(long);
+    first.size = 24.0;
+    doc.add_text_box(0, Rect { y1: 300.0, ..BOX }, &first, &font(droid()))
+        .expect("box");
+    let (app, _) = reopened(&mut doc);
+    let layer = app.page_text(0, 10_000).expect("text");
+    assert!(!layer.truncated && !layer.recognised);
+    assert!(layer.lines.len() > 1, "{} lines", layer.lines.len());
+    let said: Vec<&str> = layer.lines.iter().map(|line| line.text.as_str()).collect();
+    assert_eq!(said.join(" "), long);
+    let rect = Rect { y1: 300.0, ..BOX };
+    for line in &layer.lines {
+        assert!(inside(&line.quad, rect), "{line:?}");
+        let characters = line.text.chars().count();
+        assert_eq!(line.edges.len(), characters + 1);
+        assert!(line.edges.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert!(line.edges[0] >= 0.0);
+    }
+    // Reading order: each line below the one before.
+    assert!(
+        layer
+            .lines
+            .windows(2)
+            .all(|pair| pair[1].quad.ul.y > pair[0].quad.ul.y)
+    );
+    // The limit holds for the words of boxes too.
+    let cut = app.page_text(0, 10).expect("text");
+    assert!(cut.truncated);
+    assert!(
+        cut.lines
+            .iter()
+            .map(|line| line.text.chars().count())
+            .sum::<usize>()
+            <= 10
+    );
+}
+
+#[test]
+fn the_words_follow_a_box_that_is_moved_or_resized_and_not_one_the_app_did_not_make() {
+    let mut doc = blank();
+    doc.add_text_box(0, BOX, &spec("Hello"), &font(droid()))
+        .expect("box");
+    let (mut app, id) = reopened(&mut doc);
+    let moved = Rect {
+        x0: 172.0,
+        y0: 272.0,
+        x1: 472.0,
+        y1: 332.0,
+    };
+    app.set_annotation_rect(0, id, moved).expect("moved");
+    let found = app.search_page(0, "hello", false, 10).expect("search");
+    assert!(found.hits[0].quads.iter().all(|quad| inside(quad, moved)));
+    assert!(found.hits[0].quads.iter().all(|quad| !inside(quad, BOX)));
+    let layer = app.page_text(0, 1_000).expect("text");
+    assert_eq!(layer.lines.len(), 1);
+    assert!(inside(&layer.lines[0].quad, moved));
+
+    // The same annotation without the app's entry is another program's: its words are not ours.
+    let bytes = saved(&mut app);
+    let stripped = {
+        let raw = MuPdf::from_bytes(&bytes).expect("open");
+        let page = raw.load_pdf_page(0).expect("page");
+        let annotation = page.annotations().next().expect("an annotation");
+        annotation
+            .object()
+            .dict_delete("PdfReaderTextBox")
+            .expect("delete");
+        let mut out = Vec::new();
+        raw.write_to(&mut out).expect("write");
+        out
+    };
+    let other = PdfDocument::from_bytes(&stripped).expect("open");
+    assert!(other.page_text(0, 1_000).expect("text").lines.is_empty());
+    assert!(
+        other
+            .search_page(0, "hello", false, 10)
+            .expect("search")
+            .hits
+            .is_empty()
+    );
+}
+
+#[test]
+fn on_a_turned_page_the_words_are_upright_inside_the_box() {
+    for degrees in [90u16, 180, 270] {
+        let mut doc = blank();
+        doc.rotate_pages(&[0], degrees).expect("turn");
+        // The box is given in page space, as the user sees the page.
+        let rect = Rect {
+            x0: 40.0,
+            y0: 60.0,
+            x1: 330.0,
+            y1: 120.0,
+        };
+        doc.add_text_box(0, rect, &spec("Hello"), &font(droid()))
+            .expect("box");
+        let (app, _) = reopened(&mut doc);
+        let layer = app.page_text(0, 1_000).expect("text");
+        assert_eq!(layer.lines.len(), 1, "{degrees}");
+        let quad = layer.lines[0].quad;
+        assert!(inside(&quad, rect), "{degrees}: {quad:?}");
+        // Upright: left to right, top to bottom.
+        assert!(
+            quad.ur.x > quad.ul.x && quad.ll.y > quad.ul.y,
+            "{degrees}: {quad:?}"
+        );
+    }
+}
+
+#[test]
+fn the_copies_a_document_makes_carry_its_text_boxes_with_their_font_and_colour() {
+    use ipc_contract::types::{AnnotationKind, Restrictions};
+    let mut doc = blank();
+    doc.add_text_box(0, BOX, &spec(MIXED), &font(droid()))
+        .expect("box");
+    let (app, _) = reopened(&mut doc);
+    let carries = |bytes: &[u8], password: Option<&str>, what: &str| {
+        let copy = PdfDocument::open(bytes, password).unwrap_or_else(|e| panic!("{what}: {e}"));
+        let listed = copy.page_annotations(0).expect("list");
+        assert_eq!(listed.len(), 1, "{what}");
+        assert_eq!(listed[0].kind, AnnotationKind::TextBox, "{what}");
+        assert_eq!(listed[0].text.as_deref(), Some(MIXED), "{what}");
+        // Still a text box of the app: its words can be searched, and it draws in its colour.
+        assert_eq!(
+            copy.search_page(0, "你好", true, 5)
+                .expect("search")
+                .hits
+                .len(),
+            1,
+            "{what}"
+        );
+        let page = copy.render(0, 1.0, 0).expect("render");
+        assert!(blue(&page) > 100, "{what}: still blue");
+        assert!(ink(&page, whole(&page)).len() > 100, "{what}");
+    };
+
+    // The privacy export: no metadata, and the text box stays.
+    let mut privacy = Vec::new();
+    app.privacy_copy(&[7; 16], &mut privacy)
+        .expect("privacy copy");
+    carries(&privacy, None, "the privacy export");
+
+    // A document made of some of the pages (split, export as PDF).
+    let mut pages = Vec::new();
+    app.pages_copy(&[0], &mut pages).expect("pages copy");
+    carries(&pages, None, "the pages copy");
+
+    // The encrypted copy, opened with its password.
+    let mut encrypted = Vec::new();
+    app.encrypted_copy(
+        Some("pw-open-7Qz"),
+        "pw-owner-7Qz",
+        Restrictions::default(),
+        &mut encrypted,
+    )
+    .expect("encrypted copy");
+    carries(&encrypted, Some("pw-open-7Qz"), "the encrypted copy");
+}

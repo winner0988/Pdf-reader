@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use ipc_contract::limits::{MAX_TEXT_BOX_GLYPHS, MAX_TEXT_BOX_SUBSET_BYTES};
 use ipc_contract::types::{Rgb, TextAlign, TextBoxStyle};
-use ipc_contract::validate::Validate;
+use ipc_contract::validate::{Validate, check_text_box_text};
 use ipc_contract::worker::{ModelGlyph, TextBoxModel};
 use mupdf::Buffer;
 use mupdf::pdf::PdfObject;
@@ -214,6 +214,81 @@ fn ints(entry: &PdfObject, key: &str, max: usize) -> Result<Vec<i32>, EngineErro
         .collect()
 }
 
+/// The size, colour and alignment in the private entry `entry`.
+fn style_of(entry: &PdfObject) -> Result<TextBoxStyle, EngineError> {
+    let foreign = || EngineError::InvalidEdit("a text box that is not the app's");
+    let size = field(entry, "S")?.as_float()?;
+    let color = ints(entry, "C", 3)?;
+    let [r, g, b] = <[i32; 3]>::try_from(color).map_err(|_| foreign())?;
+    let channel = |value: i32| u8::try_from(value).map_err(|_| foreign());
+    let align = match int(entry, "A")? {
+        0 => TextAlign::Left,
+        1 => TextAlign::Center,
+        2 => TextAlign::Right,
+        _ => return Err(foreign()),
+    };
+    Ok(TextBoxStyle {
+        size,
+        color: Rgb {
+            r: channel(r)?,
+            g: channel(g)?,
+            b: channel(b)?,
+        },
+        align,
+    })
+}
+
+/// The words, the glyph widths and the style of a text box, read back from its private entry
+/// without its font file: what the text layer needs (B2-29). The model has no subset, so it is not
+/// one to set a box from. What a file says is not trusted: the words and the style are checked,
+/// and the glyph table is bounded.
+pub(super) fn read_for_layout(
+    entry: &PdfObject,
+) -> Result<(TextBoxModel, TextBoxStyle), EngineError> {
+    let foreign = || EngineError::InvalidEdit("a text box that is not the app's");
+    if int(entry, "V")? != VERSION {
+        return Err(foreign());
+    }
+    let text = from_utf16(&field(entry, "Text")?.as_bytes()?).ok_or_else(foreign)?;
+    check_text_box_text(&text).map_err(|_| foreign())?;
+    let metrics = ints(entry, "M", 8)?;
+    let [ascent, descent, cap_height, step, left, bottom, right, top] =
+        <[i32; 8]>::try_from(metrics).map_err(|_| foreign())?;
+    let flat = ints(entry, "G", 3 * MAX_TEXT_BOX_GLYPHS)?;
+    let (triples, rest) = flat.as_chunks::<3>();
+    if !rest.is_empty() {
+        return Err(foreign());
+    }
+    let glyphs = triples
+        .iter()
+        .map(|&[cid, advance, code]| {
+            Some(ModelGlyph {
+                ch: char::from_u32(u32::try_from(code).ok()?)?,
+                cid: u16::try_from(cid).ok()?,
+                advance: u16::try_from(advance).ok()?,
+            })
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(foreign)?;
+    let style = style_of(entry)?;
+    style.validate().map_err(|_| foreign())?;
+    let model = TextBoxModel {
+        text,
+        font: String::new(),
+        face: 0,
+        view_only: false,
+        base: String::new(),
+        ascent,
+        descent,
+        cap_height,
+        step,
+        bbox: [left, bottom, right, top],
+        glyphs,
+        subset: Vec::new(),
+    };
+    Ok((model, style))
+}
+
 /// The model, the style and whether the words overflow, read back from the private entry of a
 /// text box; checked like a model from anywhere else. What a file says is not trusted.
 pub(super) fn read_entry(
@@ -245,16 +320,7 @@ pub(super) fn read_entry(
         })
         .collect::<Option<Vec<_>>>()
         .ok_or_else(foreign)?;
-    let size = field(entry, "S")?.as_float()?;
-    let color = ints(entry, "C", 3)?;
-    let [r, g, b] = <[i32; 3]>::try_from(color).map_err(|_| foreign())?;
-    let channel = |value: i32| u8::try_from(value).map_err(|_| foreign());
-    let align = match int(entry, "A")? {
-        0 => TextAlign::Left,
-        1 => TextAlign::Center,
-        2 => TextAlign::Right,
-        _ => return Err(foreign()),
-    };
+    let style = style_of(entry)?;
     let overflow = field(entry, "Over")?.as_bool()?;
     let view_only = field(entry, "View")?.as_bool()?;
     let file = field(entry, "File")?;
@@ -278,15 +344,6 @@ pub(super) fn read_entry(
         bbox: [left, bottom, right, top],
         glyphs,
         subset,
-    };
-    let style = TextBoxStyle {
-        size,
-        color: Rgb {
-            r: channel(r)?,
-            g: channel(g)?,
-            b: channel(b)?,
-        },
-        align,
     };
     model.validate().map_err(|_| foreign())?;
     style.validate().map_err(|_| foreign())?;

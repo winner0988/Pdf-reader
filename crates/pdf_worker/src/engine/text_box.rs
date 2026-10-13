@@ -17,7 +17,9 @@ mod layout;
 mod pdf;
 
 use ipc_contract::limits::MIN_ANNOTATION_SIDE_PT;
-use ipc_contract::types::{AnnotationId, FontRefusal, Rect, Rgb, TextAlign, TextBoxStyle};
+use ipc_contract::types::{
+    AnnotationId, FontRefusal, Point, Quad, Rect, Rgb, TextAlign, TextBoxStyle,
+};
 use ipc_contract::validate::Validate;
 use ipc_contract::worker::TextBoxModel;
 use mupdf::Buffer;
@@ -72,6 +74,9 @@ fn finite(rect: Rect) -> bool {
         .iter()
         .all(|edge| edge.is_finite())
 }
+
+/// Most text boxes of a page whose words go into its text layer.
+const MAX_BOXES_IN_TEXT: usize = 500;
 
 /// Whether two sides are the same length, as far as a box on a page can tell.
 fn same_length(one: f32, other: f32) -> bool {
@@ -304,6 +309,68 @@ impl PdfDocument {
             align: spec.align,
         };
         self.place_text_box(index, rect, &model, &style)
+    }
+
+    /// The words of the text boxes of page `index`, line by line, each character with its quad in
+    /// page space (B2-29): MuPDF's text extraction leaves annotations out, so search and selection
+    /// would not find them. A box is laid out again, from the glyph widths in its entry, in the
+    /// size it has now; the font is not needed. One that cannot be read is left out.
+    pub(super) fn text_box_lines(&self, index: u32) -> Vec<Vec<(char, Quad)>> {
+        let Ok(page) = self.pdf_page(index) else {
+            return Vec::new();
+        };
+        let mut lines = Vec::new();
+        let mut boxes = 0;
+        for annotation in page.annotations() {
+            if boxes == MAX_BOXES_IN_TEXT {
+                break;
+            }
+            if annotation.r#type().ok() != Some(PdfAnnotationType::FreeText)
+                || !is_text_box(&annotation)
+            {
+                continue;
+            }
+            boxes += 1;
+            let Ok(bounds) = annotation.bounds() else {
+                continue;
+            };
+            let Ok(Some(entry)) = annotation.object().get_dict(pdf::KEY) else {
+                continue;
+            };
+            let Ok((model, style)) = pdf::read_for_layout(&entry) else {
+                continue;
+            };
+            let size = (bounds.x1 - bounds.x0, bounds.y1 - bounds.y0);
+            let Some(laid) = layout::lay_out(&model, &style, size) else {
+                continue;
+            };
+            let above = (model.ascent as f32 / 1000.0).clamp(0.5, 2.0) * style.size;
+            let below = (model.descent as f32 / 1000.0).clamp(-1.0, -0.05) * style.size;
+            // The box's own space goes up from its bottom left; the page's goes down.
+            let at = |x: f32, y: f32| Point {
+                x: bounds.x0 + x,
+                y: bounds.y1 - y,
+            };
+            for (x, baseline, glyphs) in laid.lines {
+                let mut left = x;
+                let mut line = Vec::with_capacity(glyphs.len());
+                for glyph in glyphs {
+                    let right = left + glyph.advance * style.size;
+                    line.push((
+                        glyph.ch,
+                        Quad {
+                            ul: at(left, baseline + above),
+                            ur: at(right, baseline + above),
+                            ll: at(left, baseline + below),
+                            lr: at(right, baseline + below),
+                        },
+                    ));
+                    left = right;
+                }
+                lines.push(line);
+            }
+        }
+        lines
     }
 
     /// The model and the style of text box `id` of page `index`, read back from the file; and

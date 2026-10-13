@@ -617,6 +617,10 @@ impl PdfDocument {
                 text.push_line(ocr::char_quads(line));
             }
         }
+        // The words of the text boxes (B2-29): annotations are not in MuPDF's text.
+        for line in self.text_box_lines(index) {
+            text.push_line(line);
+        }
         Ok(text.search(query, max_hits))
     }
 
@@ -638,12 +642,31 @@ impl PdfDocument {
                 }
             }
         }
-        let text = layer.finish();
+        let mut text = layer.finish();
         // A page that is only a picture has the text that was read from it (B2-10).
         if text.lines.is_empty()
             && let Some(recognised) = self.ocr_text(index)
         {
-            return Ok(recognised.clone());
+            text = recognised.clone();
+        }
+        // The words of the text boxes come after (B2-29): annotations are not in MuPDF's text.
+        let boxes = self.text_box_lines(index);
+        if !boxes.is_empty() {
+            let used: usize = text
+                .lines
+                .iter()
+                .map(|line| line.text.chars().count())
+                .sum();
+            let mut more = TextLayerBuilder::new(max_chars.saturating_sub(used));
+            for line in boxes {
+                more.push_line(line);
+                if more.is_full() {
+                    break;
+                }
+            }
+            let more = more.finish();
+            text.truncated |= more.truncated;
+            text.lines.extend(more.lines);
         }
         Ok(text)
     }

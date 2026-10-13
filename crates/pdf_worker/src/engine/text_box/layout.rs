@@ -134,6 +134,9 @@ pub(super) fn wrap(glyphs: &[Glyph], size: f32, width: f32) -> Vec<Vec<Glyph>> {
 
 /// The words of a box set in lines.
 pub(super) struct Laid {
+    /// Where the baseline of each line (that has glyphs) starts, in the box's own space (points,
+    /// from its bottom left), and its glyphs.
+    pub lines: Vec<(f32, f32, Vec<Glyph>)>,
     /// The drawing operators of the lines: the content of the appearance.
     pub content: String,
     /// The lines go below the box.
@@ -152,6 +155,7 @@ pub(super) fn lay_out(
     let step = model.step as f32 / 1000.0 * style.size;
     let [r, g, b] = [style.color.r, style.color.g, style.color.b].map(|c| f32::from(c) / 255.0);
     let mut content = format!("BT\n/F0 {} Tf\n{r:.4} {g:.4} {b:.4} rg\n", style.size);
+    let mut lines = Vec::new();
     for (index, line) in wrapped.iter().enumerate() {
         let y = height - PADDING - ascent - index as f32 * step;
         if line.is_empty() {
@@ -168,10 +172,12 @@ pub(super) fn lay_out(
             .map(|glyph| format!("{:04X}", glyph.cid))
             .collect();
         content.push_str(&format!("1 0 0 1 {x:.2} {y:.2} Tm <{hex}> Tj\n"));
+        lines.push((x, y, line.clone()));
     }
     content.push_str("ET\n");
     let bottom = PADDING + ascent + (wrapped.len() - 1) as f32 * step;
     Some(Laid {
+        lines,
         content,
         overflow: bottom > height,
     })

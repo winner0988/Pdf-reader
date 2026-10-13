@@ -5137,6 +5137,46 @@ mod with_worker {
         std::fs::remove_file(path).ok();
     }
 
+    #[test]
+    fn the_words_of_a_text_box_are_found_and_selected_beside_the_words_of_the_page() {
+        let text = "BT /F1 24 Tf 72 700 Td (Copy me) Tj ET";
+        let pdf = pdf_objects(&[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".to_owned(),
+            format!("<< /Length {} >>\nstream\n{text}\nendstream", text.len()),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+        ]);
+        let (documents, info, path) = open_bytes("text-box-text", &pdf);
+        let prepared = documents
+            .prepare_text_box(info.doc, "Hello, Wörld", arial())
+            .unwrap();
+        let mut doc = info.doc;
+        edited_pages(&documents, &mut doc, text_box_with(0, prepared.model));
+
+        // Selected and copied: the page's line, then the box's.
+        let layer = documents.page_text(doc, 0).unwrap();
+        let lines: Vec<&str> = layer.lines.iter().map(|line| line.text.as_str()).collect();
+        assert_eq!(lines, ["Copy me", "Hello, Wörld"]);
+        // Found: in the box, and in the page.
+        let found = |doc: DocumentId, query: &str| {
+            documents
+                .search_page(doc, 0, query, false, 10)
+                .unwrap()
+                .hits
+                .len()
+        };
+        assert_eq!(found(doc, "wörld"), 1);
+        assert_eq!(found(doc, "copy"), 1);
+        assert_eq!(found(doc, "nothing here"), 0);
+        // After undo the box and its words are gone; after redo they are back.
+        doc = opened_info(documents.undo(doc, None).unwrap()).doc;
+        assert_eq!(found(doc, "wörld"), 0);
+        doc = opened_info(documents.redo(doc).unwrap()).doc;
+        assert_eq!(found(doc, "wörld"), 1);
+        std::fs::remove_file(path).ok();
+    }
+
     /// The picture of the corpus file `name`, opened as the one the user chose is (B2-08).
     fn picture(name: &str) -> std::fs::File {
         open_picture(
