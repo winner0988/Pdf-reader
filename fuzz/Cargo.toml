@@ -18,6 +18,16 @@ pdf_worker = { path = "../crates/pdf_worker" }
 [workspace]
 members = ["."]
 
+# cargo-fuzz builds with overflow checks on; the shipped release build has them off. The font
+# subsetter adds two u16 values without a check in name.rs (typst/subsetter#30): the sum wraps in
+# the shipped build, which ends in a refused font, but panics here, and the fuzzer would stop at
+# the first damaged name table and show nothing else. Overflow checks stay on for all our own
+# code. `debug-assertions = true` is what makes cargo pass `overflow-checks=off` explicitly, which
+# beats the `-Cdebug-assertions` that cargo-fuzz adds to every crate.
+[profile.release.package.subsetter]
+debug-assertions = true
+overflow-checks = false
+
 [[bin]]
 name = "worker_messages"
 path = "fuzz_targets/worker_messages.rs"
@@ -28,6 +38,13 @@ bench = false
 [[bin]]
 name = "open_document"
 path = "fuzz_targets/open_document.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "text_box_font"
+path = "fuzz_targets/text_box_font.rs"
 test = false
 doc = false
 bench = false

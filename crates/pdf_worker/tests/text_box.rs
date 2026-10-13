@@ -482,6 +482,19 @@ fn a_font_that_cannot_be_used_makes_no_text_box_and_leaves_the_document_as_it_wa
 }
 
 #[test]
+fn a_font_whose_cut_cannot_be_read_back_is_refused_when_the_words_are_prepared() {
+    // One byte of the table directory of the bundled font is wrong. `subsetter` still writes a
+    // font from it, which `skrifa` cannot read again: that is said when the words are prepared
+    // (in the dialog), not when the box is put down. Found by the fuzz target of B2-31.
+    let mut damaged = droid().to_vec();
+    damaged[106] = 84;
+    assert!(matches!(
+        prepare_text_box(&font(&damaged), "Hello 你好"),
+        Err(EngineError::Font(FontRefusal::NotAFont))
+    ));
+}
+
+#[test]
 fn a_font_for_viewing_and_printing_only_is_used_and_says_so_and_one_that_may_be_edited_is_not() {
     for (fs_type, view_only) in [(0x0000, false), (0x0008, false), (0x0004, true)] {
         let bytes = with_fs_type(fs_type);

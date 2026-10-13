@@ -1,9 +1,9 @@
 name: Fuzz
 
-# libFuzzer on the two entry points hostile input reaches first (QA-03, docs/security/fuzzing.md):
-# the IPC decoding on both sides of the worker boundary, and opening a PDF with MuPDF. Weekly for
-# 20 minutes per target; pull requests that touch the targets or the code they test run a short
-# smoke run.
+# libFuzzer on the entry points hostile input reaches first (QA-03, docs/security/fuzzing.md):
+# the IPC decoding on both sides of the worker boundary, opening a PDF with MuPDF, and (B2-31) a
+# font file cut into a text box and drawn. Weekly for 20 minutes per target; pull requests that
+# touch the targets or the code they test run a short smoke run.
 #
 # This repository is public, and so are its Actions logs and artifacts (#57). A crash sample may
 # be a working exploit, so the fuzzer's output never reaches the log: it goes to fuzz.log, the
@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [worker_messages, open_document]
+        target: [worker_messages, open_document, text_box_font]
     env:
       FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '120' || '1200' }}
       # MuPDF and its C libraries get coverage and AddressSanitizer like the Rust code. Only
@@ -64,19 +64,38 @@ jobs:
           cargo install cargo-fuzz --version 0.13.2 --locked
       - name: Seed corpus
         run: |
-          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document
+          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/text_box_font
           env -u CC -u CXX -u CFLAGS cargo run --locked -q -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/worker_messages
           # The generated test corpus (QA-01); the 200 MB files are only made on demand.
           find tests/corpus -name '*.pdf' -not -path '*/large/*' -exec cp {} fuzz/corpus/open_document/ \;
       # Built separately so that compiler errors stay visible; the run step below prints nothing.
       - name: Build the fuzz target
         run: cargo +nightly fuzz build ${{ matrix.target }}
+      # Real fonts to start from: the CJK fallback font the worker carries (its source is in the
+      # cargo registry once the target is built) and the TrueType fonts of the runner. The files
+      # are only read by the fuzzer; nothing of them is kept or uploaded.
+      - name: Seed the font corpus
+        if: matrix.target == 'text_box_font'
+        run: |
+          find "${CARGO_HOME:-$HOME/.cargo}/registry/src" -path '*/mupdf-fonts-droid-*/fonts/*.ttf' \
+            -exec cp {} fuzz/corpus/text_box_font/ \;
+          # No `| head`: with pipefail, find would fail with SIGPIPE once head had enough.
+          count=0
+          while read -r font; do
+            [ "$count" -ge 20 ] && break
+            cp "$font" "fuzz/corpus/text_box_font/$(basename "$font")"
+            count=$((count + 1))
+          done < <(find /usr/share/fonts -name '*.ttf' -size -2M 2>/dev/null || true)
+          ls fuzz/corpus/text_box_font | wc -l
       # AddressSanitizer reports, panic messages and crashing inputs (libFuzzer prints small ones
-      # in Base64) go to fuzz.log only.
+      # in Base64) go to fuzz.log only. A font is far larger than a message: the font target may
+      # read seeds of up to 5 MiB, so that the fonts above are not cut off.
       - name: Fuzz
         run: |
+          max_len=1048576
+          if [ "${{ matrix.target }}" = text_box_font ]; then max_len=5242880; fi
           cargo +nightly fuzz run ${{ matrix.target }} fuzz/corpus/${{ matrix.target }} -- \
-            -max_total_time="$FUZZ_SECONDS" -max_len=1048576 -rss_limit_mb=4096 \
+            -max_total_time="$FUZZ_SECONDS" -max_len="$max_len" -rss_limit_mb=4096 \
             -print_final_stats=1 > fuzz.log 2>&1
       - name: Summary
         if: always()

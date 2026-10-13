@@ -190,6 +190,12 @@ pub fn prepare_text_box(font: &TextBoxFont, text: &str) -> Result<TextBoxModel, 
     model
         .validate()
         .map_err(|_| EngineError::Font(FontRefusal::NotAFont))?;
+    // Setting the box cuts the subset once more (`clean_subset`). A damaged font can give a
+    // subset that `skrifa` cannot read back; that is said now, to the dialog, and not when the
+    // box is put down (found by the font fuzz target, B2-31).
+    if clean_subset(&model).is_none() {
+        return Err(EngineError::Font(FontRefusal::NotAFont));
+    }
     Ok(model)
 }
 

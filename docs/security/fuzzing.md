@@ -8,9 +8,11 @@
 |---|---|---|
 | `worker_messages` | IPC 的兩端：主行程解碼並驗證 worker 的回應（`decode::<WorkerResponse>`、`check_hello`、`Validate`），worker 解碼主行程的請求，以及長度前綴的分框（`read_frame`） | `fuzz_seeds` 為每一種訊息寫一個有效的 payload |
 | `open_document` | 以 MuPDF 開啟 PDF，再做 worker 會做的每件事：頁面尺寸、渲染（0.1 倍、旋轉 90°）、連結、搜尋（前兩頁）、目錄、主動內容掃描 | `tests/corpus/` 的 PDF（QA-01，不含隨需產生的大型檔） |
+| `text_box_font` | 字型檔（B2-31，[text-box-engine.md](../architecture/text-box-engine.md)）：以 `skrifa` 讀取、以 `subsetter` 裁成文字用到的字形，做成文字方塊的模型。做得出模型的字型再放進一頁、渲染（MuPDF 讀取裁出來的字型）、存檔、重新開啟、渲染與搜尋。每個輸入試第一個字型與字型集合的第二個字型，文字依輸入的長度在英文、帶重音的拉丁字母、中文、日文四組中選一組（不佔用字型的位元組） | 隨 worker 附帶的 Droid Sans Fallback，加上 runner 上的 TrueType 字型（至多 20 個、各在 2 MB 內）；這個目標的輸入上限是 5 MiB，其他目標是 1 MiB |
 
 - 對所有輸入，程式都必須正常接受或拒絕：不能 panic、不能無限制地配置記憶體、不能出現記憶體錯誤。
 - 任何一種都算崩潰，libFuzzer 會把觸發它的輸入存到 `fuzz/artifacts/<目標>/`。
+- **字型目標與 `subsetter` 的溢位檢查**：cargo-fuzz 預設開啟溢位檢查，出貨的 release 建置沒有。裁字型的 `subsetter` 0.2.6 在 `name.rs` 對兩個 `u16` 相加時不檢查（上游 [typst/subsetter#30](https://github.com/typst/subsetter/issues/30)）：出貨的建置裡總和繞回去，結果是這筆名稱取不到、字型被拒絕；開著檢查就 panic，fuzz 會在第一個壞掉的 `name` 表就停下來，其他什麼都看不到。所以 `fuzz/Cargo.toml` 只對 `subsetter` 關掉溢位檢查（`[profile.release.package.subsetter]`），我們自己的程式碼仍然開著。上游修好、`subsetter` 升級後，就可以拿掉這一段。
 
 ## 自動執行（`.github/workflows/fuzz.yml`）
 
@@ -78,6 +80,16 @@ mkdir -p fuzz/corpus/open_document && find tests/corpus -name '*.pdf' -not -path
 
 ```bash
 cargo +nightly fuzz run open_document fuzz/corpus/open_document -- -max_total_time=300 -max_len=1048576 -rss_limit_mb=4096
+```
+
+字型的目標用 worker 附帶的字型當種子（建置過一次，原始碼就在 cargo 的 registry 裡），輸入上限 5 MiB：
+
+```bash
+mkdir -p fuzz/corpus/text_box_font && cp "$HOME"/.cargo/registry/src/*/mupdf-fonts-droid-*/fonts/*.ttf fuzz/corpus/text_box_font/
+```
+
+```bash
+cargo +nightly fuzz run text_box_font fuzz/corpus/text_box_font -- -max_total_time=300 -max_len=5242880 -rss_limit_mb=4096
 ```
 
 ### Windows
