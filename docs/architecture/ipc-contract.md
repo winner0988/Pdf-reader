@@ -230,7 +230,7 @@ flowchart LR
 
 | `WorkerRequest` | 欄位 | 預期回應 |
 |---|---|---|
-| `Open` | `request`, `doc`, `file: FileHandle`, `password: Option<Password>` | `Opened` 或 `Error`；加密文件沒有密碼時是 `Encrypted`，密碼不對時是 `WrongPassword`（MVP-16） |
+| `Open` | `request`, `doc`, `file: FileHandle`, `password: Option<Password>` | `Opened` 或 `Error`；加密文件沒有密碼時是 `Encrypted`（`WorkerError.password_key` 帶著查找記住的密碼用的鍵，ADR 0017，B2-23），密碼不對時是 `WrongPassword`（MVP-16） |
 | `Render` | `request`, `doc`, `page_index`, `scale`, `rotation` | `Rendered` 或 `Error` |
 | `GetOutline` | `request`, `doc` | `Outline` 或 `Error` |
 | `GetPageLinks` | `request`, `doc`, `page_index` | `PageLinks` 或 `Error` |

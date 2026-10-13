@@ -15,8 +15,8 @@ use ipc_contract::types::{
     TextLine, UnverifiableReason,
 };
 use ipc_contract::worker::{
-    FileHandle, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument, Raster, WorkerEdit,
-    WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
+    FileHandle, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument, PasswordKey, Raster,
+    WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
 };
 
 /// The start of a stamp picture: the signature and a header chunk of 64 x 32 pixels.
@@ -350,6 +350,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             error: WorkerError {
                 code: WorkerErrorCode::Corrupted,
                 detail: "broken xref".to_owned(),
+                password_key: None,
+            },
+        },
+        WorkerResponse::Error {
+            request: Some(request),
+            error: WorkerError {
+                code: WorkerErrorCode::Encrypted,
+                detail: "the document needs a password".to_owned(),
+                password_key: Some(PasswordKey([0x5a; 32])),
             },
         },
     ];

@@ -79,6 +79,44 @@ fn encrypted_samples_ask_for_a_password_and_open_with_it() {
 }
 
 #[test]
+fn a_request_for_a_password_says_what_a_remembered_one_is_looked_up_by() {
+    // ADR 0017: the worker reports the key with the request for a password, and with nothing
+    // else.
+    let mut seen = Vec::new();
+    for name in [
+        "benign/encrypted-rc4-40.pdf",
+        "benign/encrypted-aes256.pdf",
+        "benign/restricted-open-password.pdf",
+    ] {
+        let path = corpus(name);
+        let mut host = host();
+        let Err(HostError::Worker(asked)) = host.open(&path) else {
+            panic!("{name} did not ask for a password")
+        };
+        assert_eq!(asked.code, WorkerErrorCode::Encrypted, "{name}");
+        let key = asked.password_key.expect(name);
+        // The same file asks the same way again, and the key is what the library makes of it.
+        let Err(HostError::Worker(again)) = host.open(&path) else {
+            panic!("{name} did not ask again")
+        };
+        assert_eq!(again.password_key, Some(key), "{name}");
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(pdf_worker::password_key::of(&bytes), Some(key), "{name}");
+        // A wrong password is no request for one: it is refused, and says nothing of keys.
+        let wrong = Password::new("wrong".to_owned());
+        let Err(HostError::Worker(refused)) = host.open_with_password(&path, wrong) else {
+            panic!("{name} accepted a wrong password")
+        };
+        assert_eq!(refused.code, WorkerErrorCode::WrongPassword, "{name}");
+        assert_eq!(refused.password_key, None, "{name}");
+        seen.push(key);
+    }
+    for (index, key) in seen.iter().enumerate() {
+        assert!(!seen[..index].contains(key), "two files share a key");
+    }
+}
+
+#[test]
 fn a_document_without_encryption_ignores_a_password() {
     let mut host = host();
     let (_, response) = host

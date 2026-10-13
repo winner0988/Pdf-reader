@@ -12,6 +12,7 @@ mod leftovers;
 pub mod ocr;
 pub mod ocr_worker;
 mod owner_password;
+pub mod password_key;
 mod privacy;
 pub mod scan;
 mod scrub;

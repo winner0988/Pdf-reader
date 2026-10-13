@@ -29,6 +29,7 @@ use crate::engine::{EngineError, OcrKnown, OutlineTarget, PdfDocument, prepare_s
 use crate::handle;
 use crate::ocr::OcrError;
 use crate::ocr_worker::{Job, OcrWorker};
+use crate::password_key;
 use crate::scan::ScanBudget;
 use crate::signatures;
 
@@ -409,6 +410,7 @@ fn open(
     };
     let document = match PdfDocument::open(&bytes, password.as_ref().map(Password::as_str)) {
         Ok(document) => document,
+        Err(EngineError::Encrypted) => return password_needed(request, &bytes),
         Err(engine) => return engine_error(request, &engine, WorkerErrorCode::Corrupted),
     };
     match document.page_count() {
@@ -819,7 +821,24 @@ fn error(request: RequestId, code: WorkerErrorCode, detail: &str) -> WorkerRespo
     }
     WorkerResponse::Error {
         request: Some(request),
-        error: WorkerError { code, detail },
+        error: WorkerError {
+            code,
+            detail,
+            password_key: None,
+        },
+    }
+}
+
+/// The document asks for a password and none was given: the error says so, and where a
+/// password the user remembered for this file is looked up (ADR 0017).
+fn password_needed(request: RequestId, bytes: &[u8]) -> WorkerResponse {
+    WorkerResponse::Error {
+        request: Some(request),
+        error: WorkerError {
+            code: WorkerErrorCode::Encrypted,
+            detail: EngineError::Encrypted.to_string(),
+            password_key: password_key::of(bytes),
+        },
     }
 }
 

@@ -589,6 +589,36 @@ pub struct WorkerError {
     pub code: WorkerErrorCode,
     /// Diagnostic text; must not contain document content.
     pub detail: String,
+    /// Only with `Encrypted` (a password is needed and none was given): where a password the
+    /// user remembered for this file is looked up (ADR 0017). `None` when the file does not say
+    /// it, and for every other error.
+    pub password_key: Option<PasswordKey>,
+}
+
+/// Where a remembered password of an encrypted document is looked up (ADR 0017): a SHA-256 of
+/// what the file itself says about its user password (the revision and the verifier of its
+/// `/Encrypt` dictionary), so that nothing has to be written into the PDF. It is a name to look
+/// something up by, not a secret, and the worker is not trusted to give the right one: the main
+/// process only ever sends a remembered password to the worker that reported the key.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PasswordKey(pub [u8; 32]);
+
+impl PasswordKey {
+    /// The 64 lower-case hexadecimal digits of the key: the end of the name of its credential.
+    pub fn to_hex(&self) -> String {
+        self.0.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+}
+
+/// The first four bytes only: enough to tell two keys apart in a log, not to name the file.
+impl std::fmt::Debug for PasswordKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "PasswordKey({:02x}{:02x}{:02x}{:02x}..)",
+            self.0[0], self.0[1], self.0[2], self.0[3]
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -685,6 +715,35 @@ mod tests {
             postcard::from_bytes::<WorkerRequest>(&bytes).unwrap(),
             request
         );
+    }
+
+    #[test]
+    fn a_password_key_is_64_hex_digits_and_a_log_shows_four_bytes_of_it() {
+        let key = PasswordKey(std::array::from_fn(|index| index as u8));
+        assert_eq!(
+            key.to_hex(),
+            "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        );
+        assert_eq!(format!("{key:?}"), "PasswordKey(00010203..)");
+    }
+
+    #[test]
+    fn a_request_for_a_password_crosses_the_worker_boundary_with_its_key() {
+        for password_key in [Some(PasswordKey([0xa5; 32])), None] {
+            let response = WorkerResponse::Error {
+                request: Some(RequestId(7)),
+                error: WorkerError {
+                    code: WorkerErrorCode::Encrypted,
+                    detail: "the document needs a password".to_owned(),
+                    password_key,
+                },
+            };
+            let bytes = postcard::to_stdvec(&response).unwrap();
+            assert_eq!(
+                postcard::from_bytes::<WorkerResponse>(&bytes).unwrap(),
+                response
+            );
+        }
     }
 
     #[test]
