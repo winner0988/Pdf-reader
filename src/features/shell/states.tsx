@@ -48,7 +48,17 @@ type PasswordStateProps = {
   displayName: string;
   /** The last password did not open the document. */
   wrong: boolean;
-  onUnlock: (password: string) => void;
+  /**
+   * The user may ask for the password to be remembered (B2-26, ADR 0017): the file says where it
+   * is looked up. `false` says that it cannot be, `undefined` says nothing.
+   */
+  canRemember?: boolean;
+  /** The password the app remembered did not open the file. */
+  rememberedFailed?: boolean;
+  /** Whether "remember" is ticked. The shell keeps it across a wrong password; without it the box has its own. */
+  remember?: boolean;
+  onRememberChange?: (remember: boolean) => void;
+  onUnlock: (password: string, remember: boolean) => void;
   onCancel: () => void;
 };
 
@@ -57,9 +67,22 @@ type PasswordStateProps = {
  * field is cleared as soon as the password is handed to the main process, which gives it to the
  * document's own worker and keeps nothing.
  */
-export function PasswordState({ displayName, wrong, onUnlock, onCancel }: PasswordStateProps) {
+export function PasswordState({
+  displayName,
+  wrong,
+  canRemember,
+  rememberedFailed = false,
+  remember,
+  onRememberChange,
+  onUnlock,
+  onCancel,
+}: PasswordStateProps) {
   const t = strings.password;
   const [password, setPassword] = useState("");
+  const [ownRemember, setOwnRemember] = useState(false);
+  // Off unless the user ticks it: the app keeps a password only when asked.
+  const remembering = canRemember === true && (remember ?? ownRemember);
+  const rememberId = useId();
   const titleId = useId();
   const fieldId = useId();
   const errorId = useId();
@@ -70,7 +93,7 @@ export function PasswordState({ displayName, wrong, onUnlock, onCancel }: Passwo
       onSubmit={(event) => {
         event.preventDefault();
         if (password === "") return;
-        onUnlock(password);
+        onUnlock(password, remembering);
         setPassword("");
       }}
     >
@@ -79,6 +102,11 @@ export function PasswordState({ displayName, wrong, onUnlock, onCancel }: Passwo
         {t.title}
       </h1>
       <p className="max-w-md text-muted-foreground">{t.description(displayName)}</p>
+      {rememberedFailed && !wrong && (
+        <p role="status" className="max-w-md text-sm text-muted-foreground">
+          {t.rememberedFailed}
+        </p>
+      )}
       <label htmlFor={fieldId} className="sr-only">
         {t.label}
       </label>
@@ -102,6 +130,22 @@ export function PasswordState({ displayName, wrong, onUnlock, onCancel }: Passwo
           {t.wrong}
         </p>
       )}
+      {canRemember === true && (
+        <label htmlFor={rememberId} className="flex max-w-md items-start gap-2 text-left text-sm">
+          <input
+            id={rememberId}
+            type="checkbox"
+            className="mt-1"
+            checked={remembering}
+            onChange={(event) => (onRememberChange ?? setOwnRemember)(event.target.checked)}
+          />
+          <span>
+            {t.remember}
+            <span className="block text-xs text-muted-foreground">{t.rememberNote}</span>
+          </span>
+        </label>
+      )}
+      {canRemember === false && <p className="max-w-md text-xs text-muted-foreground">{t.cannotRemember}</p>}
       <div className="mt-2 flex gap-2">
         <Button type="submit" disabled={password === ""}>
           {t.submit}

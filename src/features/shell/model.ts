@@ -38,6 +38,10 @@ export type ShellDocument = {
   recovery?: Recovery;
   /** The document has a form, not flattened (B2-09). */
   hasForm?: boolean;
+  /** A password is remembered for the file (B2-26, ADR 0017): it can be forgotten. */
+  passwordRemembered?: boolean;
+  /** The file was opened with the remembered password, without the user typing one. */
+  passwordRecalled?: boolean;
   /**
    * The same while the tab shows the file it opened, through edits and saving (which give the
    * document a new `doc`, B2-02); a new one when a file is opened. Absent for demo data.
@@ -53,8 +57,11 @@ export function sameSession(a: ShellDocument | null, b: ShellDocument | null): b
 export type ShellState =
   | { kind: "empty" }
   | { kind: "loading"; displayName: string }
-  /** An encrypted document waits for its password (MVP-16). */
-  | { kind: "password"; displayName: string; wrong: boolean }
+  /**
+   * An encrypted document waits for its password (MVP-16). `canRemember`: the user may ask for it
+   * to be remembered; `rememberedFailed`: the remembered one did not open the file (B2-26).
+   */
+  | { kind: "password"; displayName: string; wrong: boolean; canRemember?: boolean; rememberedFailed?: boolean }
   | { kind: "error"; code: ErrorCode; displayName?: string }
   | { kind: "open"; document: ShellDocument };
 

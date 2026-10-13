@@ -82,6 +82,8 @@ export type ToolbarProps = {
   onEncryptCopy?: () => void;
   /** An encrypted document has no encrypted copy (B2-15): the menu item says so. */
   encryptCopyBlocked?: boolean;
+  /** Forgets the password the app remembers for this file (B2-26); given only when there is one. */
+  onForgetPassword?: () => void;
   /**
    * Marks the selected text with the highlighter in the color it used last (B2-07); without a
    * click handler (no text is selected, or the author does not allow annotating) the button is
@@ -453,6 +455,9 @@ function MoreMenu(props: ToolbarProps) {
           {menu.encryptCopy}
           {props.encryptCopyBlocked && <DropdownMenuShortcut>{strings.encryption.encrypted}</DropdownMenuShortcut>}
         </DropdownMenuItem>
+        {props.onForgetPassword && (
+          <DropdownMenuItem onClick={props.onForgetPassword}>{strings.password.forgetMenu}</DropdownMenuItem>
+        )}
         <DropdownMenuItem disabled={!props.onPrint} onClick={props.onPrint}>
           {menu.print}
           <DropdownMenuShortcut>{props.printBlocked ? strings.permissions.notAllowed : "Ctrl+P"}</DropdownMenuShortcut>

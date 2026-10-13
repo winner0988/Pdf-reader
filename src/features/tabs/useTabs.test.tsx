@@ -5,7 +5,7 @@ import type { OcrEvent } from "@/features/ocr/model";
 import { ALL_PERMISSIONS } from "@/features/permissions/permissions";
 import type { OpenApi } from "@/features/open/api";
 import { useTabs } from "@/features/tabs/useTabs";
-import type { DocumentId, DocumentInfo, OpenEvent, TabId } from "@/ipc/generated/contract";
+import type { DocumentId, DocumentInfo, OpenEvent, TabId, UnlockOutcome } from "@/ipc/generated/contract";
 
 const info: DocumentInfo = {
   doc: 7 as DocumentId,
@@ -24,7 +24,7 @@ const info: DocumentInfo = {
   passwordRecalled: false,
 };
 
-function setup(onOcr?: (event: OcrEvent) => void) {
+function setup(onOcr?: (event: OcrEvent) => void, unlocked: UnlockOutcome = { notRemembered: null }) {
   let send: (event: OpenEvent) => void = () => {};
   const api = {
     listen: vi.fn((listener: (event: OpenEvent) => void) => {
@@ -33,7 +33,7 @@ function setup(onOcr?: (event: OcrEvent) => void) {
     }),
     openDialog: vi.fn(() => Promise.resolve(true)),
     retry: vi.fn(() => Promise.resolve()),
-    unlock: vi.fn(() => Promise.resolve({ notRemembered: null })),
+    unlock: vi.fn(() => Promise.resolve(unlocked)),
     forgetPassword: vi.fn(() => Promise.resolve()),
     forgetAllPasswords: vi.fn(() => Promise.resolve(0)),
     rememberedPasswords: vi.fn(() => Promise.resolve({ count: 0, limit: 256 })),
@@ -41,7 +41,7 @@ function setup(onOcr?: (event: OcrEvent) => void) {
     setActive: vi.fn(() => Promise.resolve()),
   } satisfies OpenApi;
   const hook = renderHook(() => useTabs(api, onOcr));
-  return { hook, send: (event: OpenEvent) => act(() => send(event)) };
+  return { hook, api, send: (event: OpenEvent) => act(() => send(event)) };
 }
 
 describe("tabs and the open events", () => {
@@ -60,6 +60,31 @@ describe("tabs and the open events", () => {
     // The tab's document is still the one it last said, for a command that follows an edit.
     expect(hook.result.current.latestInfo(1 as TabId)).toEqual(info);
     expect(hook.result.current.state.tabs).toBe(tabs);
+  });
+
+  it("sends the password with what the user asked for it, and says when it was not kept as asked (B2-26)", async () => {
+    const { hook, api } = setup(undefined, { notRemembered: "full" });
+    await act(async () => hook.result.current.unlock(2 as TabId, "s3cret", true));
+    expect(api.unlock).toHaveBeenCalledExactlyOnceWith(2, "s3cret", true);
+    // The file opened, but the password was not kept: the user is told why.
+    expect(hook.result.current.state.notice).toEqual({ kind: "notRemembered", reason: "full" });
+
+    // Nothing to say when it was kept, or not asked for.
+    const quiet = setup();
+    await act(async () => quiet.hook.result.current.unlock(2 as TabId, "s3cret"));
+    expect(quiet.api.unlock).toHaveBeenCalledExactlyOnceWith(2, "s3cret", false);
+    expect(quiet.hook.result.current.state.notice).toBeNull();
+  });
+
+  it("forgets the password remembered for a tab's file, and reports when that fails (B2-26)", async () => {
+    const { hook, api } = setup();
+    await act(async () => hook.result.current.forgetPassword(3 as TabId));
+    expect(api.forgetPassword).toHaveBeenCalledExactlyOnceWith(3);
+    expect(hook.result.current.state.notice).toBeNull();
+
+    api.forgetPassword.mockRejectedValueOnce({ code: "credentialsUnavailable", message: "" });
+    await act(async () => hook.result.current.forgetPassword(3 as TabId));
+    expect(hook.result.current.state.notice).toEqual({ kind: "failed", code: "credentialsUnavailable" });
   });
 
   it("does not need anyone to listen to it", () => {

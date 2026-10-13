@@ -2,7 +2,7 @@
 // Source of truth for wording: docs/ux/screen-map.md, section 8.
 
 import type { ErrorCode, FindingKind } from "@/features/shell/model";
-import type { BlockedAction } from "@/ipc/generated/contract";
+import type { BlockedAction, NotRemembered } from "@/ipc/generated/contract";
 
 export const strings = {
   appName: "PDF Reader",
@@ -77,11 +77,33 @@ export const strings = {
 
   password: {
     title: "這份文件受密碼保護",
-    description: (displayName: string) => `輸入密碼以開啟「${displayName}」。密碼只用來開啟這份文件，不會被儲存。`,
+    description: (displayName: string) =>
+      `輸入密碼以開啟「${displayName}」。密碼只用來開啟這份文件；除非你勾選下方的「記住」，否則不會被儲存。`,
     label: "密碼",
     submit: "解鎖",
     cancel: "取消",
     wrong: "密碼不正確，請再試一次。",
+    /** Remembering the password (B2-26, ADR 0017). */
+    remember: "記住這份文件的密碼（存在 Windows 認證管理員）",
+    rememberNote:
+      "之後開啟這份文件（搬移或改名後的複本也一樣）就不必再輸入。同一個 Windows 帳號的其他程式讀得到認證管理員裡的密碼。",
+    cannotRemember: "這份文件不能記住密碼：它的加密資料沒有可以用來查找的部分。",
+    rememberedFailed:
+      "記住的密碼打不開這份文件，可能已經改過了。請輸入目前的密碼；勾選「記住」會取代舊的。",
+    notRemembered: {
+      noKey: "沒有記住密碼：這份文件的加密資料沒有可以用來查找的部分。",
+      full: "沒有記住密碼：記住的密碼已達上限。請先到「設定」忘記一些。",
+      unsuitable: "沒有記住密碼：密碼是空的或太長。",
+      unavailable: "沒有記住密碼：無法使用 Windows 認證管理員。",
+    } satisfies Record<NotRemembered, string>,
+    recalled: {
+      label: "記住的密碼",
+      text: "已用記住的密碼開啟這份文件。",
+      forget: "忘記",
+      dismiss: "關閉這則說明",
+    },
+    forgetMenu: "忘記這份文件的密碼",
+    forgotten: "已忘記這份文件的密碼。",
   },
 
   toolbar: {
@@ -672,6 +694,23 @@ export const strings = {
     dataLocation:
       "全部都在 %LOCALAPPDATA%\\io.github.winner0988.pdfreader 資料夾中，不會同步到其他電腦，也不會上傳。關閉 app 後可以直接刪除這個資料夾。",
     saveFailed: "設定無法儲存：目前已套用，但重新啟動後會回到之前的設定。",
+    /** The passwords the app remembers (B2-26, ADR 0017). */
+    passwords: {
+      title: "記住的密碼",
+      count: (count: number) => `已記住 ${count} 份文件的密碼`,
+      none: "沒有記住的密碼。",
+      limit: (limit: number) => `最多記住 ${limit} 份；滿了就不再記新的，要先忘記一些。`,
+      full: "已達上限：要記住新的密碼，請先忘記一些。",
+      note: "密碼存在 Windows 認證管理員，不在 app 的資料夾，也不在 PDF 檔案裡；同一個 Windows 帳號的其他程式讀得到。條目裡沒有檔名，所以這裡沒有清單；單一文件的密碼從該文件的「⋯」選單忘記。",
+      forgetAll: "全部忘記…",
+      confirmTitle: "忘記全部記住的密碼？",
+      confirmText: (count: number) =>
+        `會刪除 Windows 認證管理員裡 ${count} 份文件的密碼；之後開啟這些文件要重新輸入。`,
+      confirm: "全部忘記",
+      cancel: "取消",
+      forgotAll: (count: number) => `已忘記 ${count} 份文件的密碼。`,
+      failed: "無法使用 Windows 認證管理員。",
+    },
     updates: "更新",
     checkUpdates: "檢查更新",
     updatesNote:

@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import type { OcrApi } from "@/features/ocr/api";
 import { OcrSection } from "@/features/ocr/OcrSection";
 import type { RecentApi } from "@/features/recent/api";
+import { PasswordsSection, type PasswordsApi } from "@/features/settings/PasswordsSection";
 import type { UpdatesApi } from "@/features/settings/updates";
 import { UpdatesSection } from "@/features/settings/UpdatesSection";
 import { useSettings } from "@/features/settings/useSettings";
@@ -20,6 +21,8 @@ type SettingsDialogProps = {
   updatesApi?: UpdatesApi;
   /** Recognising the text of scanned pages (B2-10); without it (demo data, tests) it is not shown. */
   ocrApi?: OcrApi;
+  /** The passwords the app remembers (B2-26); without it (demo data, tests) they are not shown. */
+  passwordsApi?: PasswordsApi;
 };
 
 const THEMES: ThemePreference[] = ["system", "light", "dark"];
@@ -29,7 +32,14 @@ const THEMES: ThemePreference[] = ["system", "light", "dark"];
  * app keeps on this computer. Every change applies and is saved at once; there is nothing to
  * confirm.
  */
-export function SettingsDialog({ open, onOpenChange, recentApi, updatesApi, ocrApi }: SettingsDialogProps) {
+export function SettingsDialog({
+  open,
+  onOpenChange,
+  recentApi,
+  updatesApi,
+  ocrApi,
+  passwordsApi,
+}: SettingsDialogProps) {
   const t = strings.settings;
   const shared = useSettings();
   const [theme, setTheme] = useTheme();
@@ -118,6 +128,8 @@ export function SettingsDialog({ open, onOpenChange, recentApi, updatesApi, ocrA
         )}
 
         {ocrApi && <OcrSection api={ocrApi} />}
+
+        {passwordsApi && <PasswordsSection api={passwordsApi} />}
 
         {updatesApi && <UpdatesSection api={updatesApi} />}
 

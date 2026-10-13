@@ -78,7 +78,7 @@ describe("states", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
     await user.type(field, "s3cret{Enter}");
-    expect(onUnlock).toHaveBeenCalledExactlyOnceWith("s3cret");
+    expect(onUnlock).toHaveBeenCalledExactlyOnceWith("s3cret", false);
     expect(field).toHaveValue("");
     await user.click(screen.getByRole("button", { name: strings.password.cancel }));
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -88,6 +88,104 @@ describe("states", () => {
     renderShell({ kind: "password", displayName: "機密.pdf", wrong: true });
     expect(screen.getByRole("alert")).toHaveTextContent(strings.password.wrong);
     expect(screen.getByLabelText(strings.password.label)).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("password: remembering is offered when the file allows it, off until the user ticks it, and kept across a wrong password (B2-26)", async () => {
+    const onUnlock = vi.fn();
+    const asking = (wrong: boolean): ShellState => ({
+      kind: "password",
+      displayName: "機密.pdf",
+      wrong,
+      canRemember: true,
+      rememberedFailed: false,
+    });
+    const { user, rerender } = renderShell(asking(false), { onUnlock });
+    const box = screen.getByRole("checkbox", { name: new RegExp(strings.password.remember) });
+    expect(box).not.toBeChecked();
+    expect(screen.getByText(strings.password.rememberNote)).toBeInTheDocument();
+
+    // Not ticked: the main process is told not to keep it.
+    await user.type(screen.getByLabelText(strings.password.label), "first{Enter}");
+    expect(onUnlock).toHaveBeenLastCalledWith("first", false);
+
+    // Ticked, and the password was wrong: the box is still ticked for the next try.
+    await user.click(box);
+    await user.type(screen.getByLabelText(strings.password.label), "second{Enter}");
+    expect(onUnlock).toHaveBeenLastCalledWith("second", true);
+    rerender(<ReaderShell state={asking(true)} onOpen={vi.fn()} onUnlock={onUnlock} loadingDelayMs={0} />);
+    expect(screen.getByRole("checkbox", { name: new RegExp(strings.password.remember) })).toBeChecked();
+    await user.type(screen.getByLabelText(strings.password.label), "third{Enter}");
+    expect(onUnlock).toHaveBeenLastCalledWith("third", true);
+  });
+
+  it("password: says why it cannot be remembered, and that the remembered one failed (B2-26)", () => {
+    const { rerender } = renderShell({
+      kind: "password",
+      displayName: "機密.pdf",
+      wrong: false,
+      canRemember: false,
+      rememberedFailed: false,
+    });
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByText(strings.password.cannotRemember)).toBeInTheDocument();
+
+    rerender(
+      <ReaderShell
+        state={{ kind: "password", displayName: "機密.pdf", wrong: false, canRemember: true, rememberedFailed: true }}
+        onOpen={vi.fn()}
+        loadingDelayMs={0}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(strings.password.rememberedFailed);
+    // Nothing was typed wrongly, so there is no alert.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("a file opened with its remembered password says so, and the password can be forgotten (B2-26)", async () => {
+    const onForgetPassword = vi.fn();
+    const recalled: ShellState = {
+      kind: "open",
+      document: { ...demoDocument, encrypted: true, passwordRemembered: true, passwordRecalled: true },
+    };
+    const { user } = renderShell(recalled, { onForgetPassword });
+    const banner = screen.getByRole("region", { name: strings.password.recalled.label });
+    expect(banner).toHaveTextContent(strings.password.recalled.text);
+
+    await user.click(within(banner).getByRole("button", { name: strings.password.recalled.forget }));
+    expect(onForgetPassword).toHaveBeenCalledTimes(1);
+    expect(statusText()).toContain(strings.password.forgotten);
+    // The notice goes with the password, and the focus does not fall out of the page.
+    expect(screen.getByRole("main", { name: strings.canvas.label })).toHaveFocus();
+
+    // Closing the notice keeps the password; the menu can still forget it.
+    await user.click(within(banner).getByRole("button", { name: strings.password.recalled.dismiss }));
+    expect(screen.queryByRole("region", { name: strings.password.recalled.label })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    await user.click(await screen.findByRole("menuitem", { name: strings.password.forgetMenu }));
+    expect(onForgetPassword).toHaveBeenCalledTimes(2);
+  });
+
+  it("the menu has nothing to forget for a file without a remembered password (B2-26)", async () => {
+    const { user } = renderShell(
+      { kind: "open", document: { ...demoDocument, encrypted: true, passwordRemembered: false } },
+      { onForgetPassword: vi.fn() },
+    );
+    await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    expect(await screen.findByRole("menuitem", { name: strings.menu.settings })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: strings.password.forgetMenu })).not.toBeInTheDocument();
+  });
+
+  it("a password typed in and remembered can be forgotten from the menu, without a notice (B2-26)", async () => {
+    const onForgetPassword = vi.fn();
+    const { user } = renderShell(
+      { kind: "open", document: { ...demoDocument, encrypted: true, passwordRemembered: true } },
+      { onForgetPassword },
+    );
+    // It was typed in this time, not recalled: no notice.
+    expect(screen.queryByRole("region", { name: strings.password.recalled.label })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    await user.click(await screen.findByRole("menuitem", { name: strings.password.forgetMenu }));
+    expect(onForgetPassword).toHaveBeenCalledTimes(1);
   });
 
   it("error: explains encryption the app cannot open", () => {

@@ -37,6 +37,41 @@ describe("the window's states", () => {
     const { container } = shell({ kind: "open", document: demoDocument });
     await expectAccessible(container);
   });
+
+  it("asking for a password that can be remembered, and when the remembered one did not fit (B2-26)", async () => {
+    for (const rememberedFailed of [false, true]) {
+      const { container, unmount } = shell({
+        kind: "password",
+        displayName: "機密.pdf",
+        wrong: false,
+        canRemember: true,
+        rememberedFailed,
+      });
+      await expectAccessible(container);
+      unmount();
+    }
+    // A file whose password cannot be remembered says why.
+    const { container } = shell({
+      kind: "password",
+      displayName: "機密.pdf",
+      wrong: true,
+      canRemember: false,
+      rememberedFailed: false,
+    });
+    await expectAccessible(container);
+  });
+
+  it("a file that opened with the password the app remembered (B2-26)", async () => {
+    const { container } = render(
+      <ReaderShell
+        state={{ kind: "open", document: { ...demoDocument, encrypted: true, passwordRemembered: true, passwordRecalled: true } }}
+        onOpen={vi.fn()}
+        onForgetPassword={vi.fn()}
+        loadingDelayMs={0}
+      />,
+    );
+    await expectAccessible(container);
+  });
 });
 
 describe("the check itself", () => {
@@ -95,6 +130,21 @@ describe("the window's panels and the dialogs of its menu", () => {
     shell({ kind: "open", document: demoDocument });
     await chooseFromMenu(strings.menu.settings);
     await screen.findByRole("dialog", { name: strings.settings.title });
+    await expectAccessible(document.body);
+  });
+
+  it("the remembered passwords in the settings, and the question before forgetting them all (B2-26)", async () => {
+    const passwordsApi = {
+      rememberedPasswords: vi.fn(() => Promise.resolve({ count: 3, limit: 256 })),
+      forgetAllPasswords: vi.fn(() => Promise.resolve(3)),
+    };
+    render(<ReaderShell state={{ kind: "open", document: demoDocument }} onOpen={vi.fn()} passwordsApi={passwordsApi} loadingDelayMs={0} />);
+    await chooseFromMenu(strings.menu.settings);
+    await screen.findByRole("dialog", { name: strings.settings.title });
+    await screen.findByText(strings.settings.passwords.count(3));
+    await expectAccessible(document.body);
+    await user.click(screen.getByRole("button", { name: strings.settings.passwords.forgetAll }));
+    await screen.findByRole("group", { name: strings.settings.passwords.confirmTitle });
     await expectAccessible(document.body);
   });
 

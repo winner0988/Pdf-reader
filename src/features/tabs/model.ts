@@ -2,13 +2,17 @@
 // Pure, so it is tested without IPC.
 
 import type { ShellDocument, ShellState } from "@/features/shell/model";
-import type { DocumentId, DocumentInfo, ErrorCode, OpenEvent, TabId } from "@/ipc/generated/contract";
+import type { DocumentId, DocumentInfo, ErrorCode, NotRemembered, OpenEvent, TabId } from "@/ipc/generated/contract";
 
 export type TabContent =
   | { kind: "loading" }
   | { kind: "open"; document: ShellDocument; hasOutline: boolean }
-  /** An encrypted file waits for its password (MVP-16); `wrong` after one that did not open it. */
-  | { kind: "password"; wrong: boolean }
+  /**
+   * An encrypted file waits for its password (MVP-16); `wrong` after one that did not open it.
+   * `canRemember`: the user may ask for the password to be remembered (B2-26, ADR 0017);
+   * `rememberedFailed`: the one the app remembered did not open the file.
+   */
+  | { kind: "password"; wrong: boolean; canRemember: boolean; rememberedFailed: boolean }
   | { kind: "error"; code: ErrorCode };
 
 export type Tab = { tab: TabId; displayName: string; content: TabContent };
@@ -17,7 +21,9 @@ export type TabsNotice =
   /** Files dropped or picked beyond the tab limit were not opened. */
   | { kind: "tabLimit"; ignoredFiles: number }
   /** A command to the main process failed outright (e.g. the open dialog could not be shown). */
-  | { kind: "failed"; code: ErrorCode };
+  | { kind: "failed"; code: ErrorCode }
+  /** The password opened the file, but was not remembered as the user asked (B2-26). */
+  | { kind: "notRemembered"; reason: NotRemembered };
 
 export type TabsState = {
   /** In the order the tabs were added. */
@@ -38,6 +44,7 @@ export type TabsAction =
   | { type: "step"; by: 1 | -1 }
   | { type: "closed"; tab: TabId }
   | { type: "failed"; code: ErrorCode }
+  | { type: "notRemembered"; reason: NotRemembered }
   | { type: "dismissNotice" }
   | { type: "dismissCloseRequest" };
 
@@ -64,6 +71,8 @@ export function toShellDocument(info: DocumentInfo): ShellDocument {
     canRedo: info.canRedo,
     recovery: info.recovery,
     hasForm: info.hasForm,
+    passwordRemembered: info.passwordRemembered,
+    passwordRecalled: info.passwordRecalled,
   };
 }
 
@@ -84,7 +93,13 @@ export function shellState(tab: Tab): ShellState {
     case "open":
       return { kind: "open", document: tab.content.document };
     case "password":
-      return { kind: "password", displayName: tab.displayName, wrong: tab.content.wrong };
+      return {
+        kind: "password",
+        displayName: tab.displayName,
+        wrong: tab.content.wrong,
+        canRemember: tab.content.canRemember,
+        rememberedFailed: tab.content.rememberedFailed,
+      };
     case "error":
       return { kind: "error", code: tab.content.code, displayName: tab.displayName };
   }
@@ -127,6 +142,8 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsState {
     }
     case "failed":
       return { ...state, notice: { kind: "failed", code: action.code } };
+    case "notRemembered":
+      return { ...state, notice: { kind: "notRemembered", reason: action.reason } };
     case "dismissNotice":
       return { ...state, notice: null };
     case "dismissCloseRequest":
@@ -164,7 +181,16 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsState {
     case "passwordNeeded":
       return upsert(
         state,
-        { tab: event.tab, displayName: event.displayName, content: { kind: "password", wrong: event.wrong } },
+        {
+          tab: event.tab,
+          displayName: event.displayName,
+          content: {
+            kind: "password",
+            wrong: event.wrong,
+            canRemember: event.canRemember,
+            rememberedFailed: event.rememberedFailed,
+          },
+        },
         false,
       );
     case "failed":

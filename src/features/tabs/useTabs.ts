@@ -62,8 +62,22 @@ export function useTabs(api: OpenApi, onOcr?: (event: OcrEvent) => void) {
   );
 
   const unlock = useCallback(
-    (tab: TabId, password: string) => {
-      api.unlock(tab, password).catch((error: unknown) => dispatch({ type: "failed", code: errorCode(error) }));
+    (tab: TabId, password: string, remember = false) => {
+      api.unlock(tab, password, remember).then(
+        (outcome) => {
+          // The file opened, but the password was not kept as the user asked (B2-26).
+          if (outcome?.notRemembered) dispatch({ type: "notRemembered", reason: outcome.notRemembered });
+        },
+        (error: unknown) => dispatch({ type: "failed", code: errorCode(error) }),
+      );
+    },
+    [api],
+  );
+
+  /** Forgets the password remembered for a tab's file; the tab's new state arrives as an open event. */
+  const forgetPassword = useCallback(
+    (tab: TabId) => {
+      api.forgetPassword(tab).catch((error: unknown) => dispatch({ type: "failed", code: errorCode(error) }));
     },
     [api],
   );
@@ -84,5 +98,17 @@ export function useTabs(api: OpenApi, onOcr?: (event: OcrEvent) => void) {
   const dismissNotice = useCallback(() => dispatch({ type: "dismissNotice" }), []);
   const dismissCloseRequest = useCallback(() => dispatch({ type: "dismissCloseRequest" }), []);
 
-  return { state, open, retry, unlock, close, latestInfo, activate, step, dismissNotice, dismissCloseRequest };
+  return {
+    state,
+    open,
+    retry,
+    unlock,
+    forgetPassword,
+    close,
+    latestInfo,
+    activate,
+    step,
+    dismissNotice,
+    dismissCloseRequest,
+  };
 }

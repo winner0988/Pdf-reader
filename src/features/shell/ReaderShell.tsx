@@ -37,8 +37,10 @@ import type { SavingApi } from "@/features/saving/api";
 import { saveAsHelps } from "@/features/saving/messages";
 import { SaveFailedDialog } from "@/features/saving/SaveFailedDialog";
 import { useSearch, type SearchApi } from "@/features/search/useSearch";
+import type { PasswordsApi } from "@/features/settings/PasswordsSection";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { useSettings } from "@/features/settings/useSettings";
+import { RecalledBanner } from "@/features/passwords/RecalledBanner";
 import { RecoveryBanner } from "@/features/recovery/RecoveryBanner";
 import { SecurityBanner } from "@/features/security-banner/SecurityBanner";
 import { SecurityDetails } from "@/features/security-banner/SecurityDetails";
@@ -95,8 +97,12 @@ type ReaderShellProps = {
   onOpen: () => void;
   onClose?: () => void;
   onRetry?: () => void;
-  /** The password the user typed for an encrypted document (MVP-16). */
-  onUnlock?: (password: string) => void;
+  /** The password the user typed for an encrypted document (MVP-16), and whether to remember it (B2-26). */
+  onUnlock?: (password: string, remember: boolean) => void;
+  /** Forgets the password the app remembers for this tab's file (B2-26). */
+  onForgetPassword?: () => void;
+  /** The passwords the app remembers, in the settings (B2-26); without it (demo data, tests) they are not shown. */
+  passwordsApi?: PasswordsApi;
   /** Files are being dragged over the window: the canvas shows it is a drop target. */
   dropActive?: boolean;
   /** Renders pages; without it (demo data, tests) pages are placeholders. */
@@ -184,6 +190,8 @@ export function ReaderShell({
   onClose,
   onRetry,
   onUnlock,
+  onForgetPassword,
+  passwordsApi,
   dropActive = false,
   renderer,
   outline,
@@ -218,6 +226,10 @@ export function ReaderShell({
   /** The user left the changes an earlier run left for later (B2-13): offered again next time. */
   const [recoveryDismissed, setRecoveryDismissed] = useState(false);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
+  /** The notice that the file opened with a remembered password was closed (B2-26). */
+  const [recalledDismissed, setRecalledDismissed] = useState(false);
+  /** "Remember" is ticked in the password form: kept across a wrong password, off for every other file. */
+  const [rememberPassword, setRememberPassword] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   /** The signatures' banner was closed, and their panel is open (B2-14). */
   const [signaturesDismissed, setSignaturesDismissed] = useState(false);
@@ -281,6 +293,8 @@ export function ReaderShell({
     setCurrentPage(1);
     setBannerDismissed([]);
     setRecoveryDismissed(false);
+    setRecalledDismissed(false);
+    setRememberPassword(false);
     setDetailsOpen(false);
     setSignaturesDismissed(false);
     setSignaturesOpen(false);
@@ -303,6 +317,13 @@ export function ReaderShell({
   }, [hint]);
 
   const showHint = (text: string) => setHint((last) => ({ text, id: (last?.id ?? 0) + 1 }));
+  // Forgetting the password the app remembers for this file (B2-26); the file's new state follows.
+  const forgetPassword = onForgetPassword
+    ? () => {
+        onForgetPassword();
+        showHint(strings.password.forgotten);
+      }
+    : undefined;
   const ocrView = useOcrView({ api: ocrApi, ocr, doc: document_?.doc, currentPage, active, showHint });
   // Scanned pages whose text was recognised since the search ran are searched too, once the
   // recognising has paused for a moment.
@@ -799,6 +820,7 @@ export function ReaderShell({
           privacyExportBlocked={savable && document_?.encrypted === true}
           onEncryptCopy={savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined}
           encryptCopyBlocked={savable && document_?.encrypted === true}
+          onForgetPassword={document_?.passwordRemembered ? forgetPassword : undefined}
           ocr={ocrView.menu}
           flatten={
             document_?.hasForm && editingApi !== undefined
@@ -872,6 +894,19 @@ export function ReaderShell({
                 }}
               />
             )}
+            {document_?.passwordRecalled && !recalledDismissed && forgetPassword && (
+              <RecalledBanner
+                onForget={() => {
+                  forgetPassword();
+                  // The notice goes with the password: the page keeps the focus.
+                  canvasRef.current?.focus();
+                }}
+                onDismiss={() => {
+                  setRecalledDismissed(true);
+                  canvasRef.current?.focus();
+                }}
+              />
+            )}
             {signaturesShown && (
               <SignatureBanner
                 report={signatureReport}
@@ -932,7 +967,11 @@ export function ReaderShell({
                 <PasswordState
                   displayName={state.displayName}
                   wrong={state.wrong}
-                  onUnlock={(password) => onUnlock?.(password)}
+                  canRemember={state.canRemember}
+                  rememberedFailed={state.rememberedFailed}
+                  remember={rememberPassword}
+                  onRememberChange={setRememberPassword}
+                  onUnlock={(password, remember) => onUnlock?.(password, remember)}
                   onCancel={() => onClose?.()}
                 />
               )}
@@ -1166,6 +1205,7 @@ export function ReaderShell({
         recentApi={recentApi}
         updatesApi={updatesApi}
         ocrApi={ocrApi}
+        passwordsApi={passwordsApi}
       />
       <AboutDialog
         open={dialog === "about"}

@@ -132,6 +132,12 @@ worker 回報「需要密碼」（`Error: Encrypted`）時，`WorkerError.passwo
 - **合併別的檔案的加密來源**（B2-06）仍然每次詢問：ADR 0017 沒有涵蓋它。
 - **測試**（`documents.rs` 的 `with_worker`，用真正的 worker 與認證管理員，各用自己的前綴並在結束時清掉）：勾選記住後換一個「執行」與檔名也不問、沒勾就什麼都不留且錯誤的密碼不存、記錄不對時只試一次並留著記錄、復原不問、worker 被殺後自己重新開啟、忘記單一與全部（開著的文件收到新狀態）、滿了與沒有憑證庫時說明原因而文件照常開啟。
 
+## 記住密碼的畫面（ADR 0017，B2-26）
+
+畫面見 [screen-map.md](../ux/screen-map.md) §2「需要密碼」：密碼表單的核取方塊（預設不勾；沒有鍵的文件說明為什麼不能記）、記住的密碼打不開時的說明、存不進去時的通知、用記住的密碼開啟時的提示列與「忘記」、「⋯」選單的「忘記這份文件的密碼」、設定頁的項數與「全部忘記」（先問）。前端在 `src/features/passwords/`（提示列）、`src/features/settings/PasswordsSection.tsx`、`src/features/shell/states.tsx`（表單）與 `src/features/tabs/`（`unlock` 帶 `remember`，聽 `UnlockOutcome`）；拿不到鍵與密碼。
+
+測試：vitest 涵蓋表單、提示列、選單、設定頁、通知與 axe；端對端 `tests/e2e/password-memory.spec.ts` 用真正的 app 與真正的認證管理員（語料的加密樣本）：勾選記住 → 重新啟動後直接開啟 → 忘記後再問、沒勾選什麼都不留、錯誤的密碼不存、設定頁的項數與「全部忘記」（只在拋棄式的 runner 上做，因為它會忘記這個 Windows 帳號全部記住的密碼）。測試只動樣本自己的條目，並在 `finally` 以「忘記」移除；`accessibility.spec.ts` 在真正的 app 中以 axe 檢查表單、提示列與設定頁。
+
 ## 尚未處理
 
-- **記住密碼的畫面**（密碼對話框的勾選、提示列的「已用記住的密碼開啟」與「忘記」、「⋯」選單、設定頁的項數與「全部忘記」，以及端對端）：B2-26（[#221](https://github.com/winner0988/Pdf-reader/issues/221)）。
+（無）。
