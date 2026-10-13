@@ -11,9 +11,10 @@ use ipc_contract::types::{
     DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat,
     FileRecordingArgs, FontInfo, FormField, IpcError, LanguageImport, LinkArgs, LinkPreview,
     OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation,
-    PageLink, PageText, PagesSource, Password, RecentFile, RecentId, RemoveLanguageArgs,
-    RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent, Settings, SignatureReport,
-    StampImageInfo, TabId, UndoArgs, UnlockArgs, UnlockSourceArgs, UpdateCheck,
+    PageLink, PageText, PagesSource, Password, PrepareTextBoxArgs, PreparedTextBox, RecentFile,
+    RecentId, RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent,
+    Settings, SignatureReport, StampImageInfo, TabId, UndoArgs, UnlockArgs, UnlockSourceArgs,
+    UpdateCheck,
 };
 use ipc_contract::validate::{Validate, check_page_index};
 use tauri::ipc::{Channel, Response};
@@ -302,6 +303,38 @@ pub async fn get_ocr_languages(app: AppHandle) -> Result<OcrLanguages, IpcError>
 #[tauri::command]
 pub async fn get_fonts(app: AppHandle) -> Result<Vec<FontInfo>, IpcError> {
     blocking(move || Ok(app.state::<crate::fonts::Fonts>().list())).await
+}
+
+/// Makes the words a user typed, in a font from `get_fonts`, into what a text box of `doc` is made
+/// of (B2-29, ADR 0018, docs/architecture/text-box-engine.md). The font is read here, by its id:
+/// the page never gets a path, and the worker, which reads the font file's bytes (they are not
+/// trusted), keeps only a small subset of it. The answer names the words for `Edit::AddTextBox`,
+/// and says whether the font may only be viewed and printed. A font that cannot be used, or has no
+/// glyph for a character, is refused with a code that says why.
+#[tauri::command]
+pub async fn prepare_text_box(
+    app: AppHandle,
+    args: PrepareTextBoxArgs,
+) -> Result<PreparedTextBox, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    blocking(move || {
+        let (name, file) = app
+            .state::<crate::fonts::Fonts>()
+            .file(args.font)
+            .map_err(|error| IpcError {
+                code: ErrorCode::FontUnavailable,
+                message: format!("the font cannot be read: {error:?}"),
+            })?;
+        app.state::<Documents>().prepare_text_box(
+            args.doc,
+            &args.text,
+            (name, file.bytes, file.face),
+        )
+    })
+    .await
 }
 
 /// Set while the language dialog is showing.

@@ -21,13 +21,13 @@ use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
     BlockedAction, DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
     FormField, IpcError, LinkArgs, LinkPreview, LinkTarget, OpenEvent, OutlineLinkArgs,
-    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource, Password, Recovery,
-    RenderPageArgs, Restrictions, SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId,
-    StampImageInfo, TabId,
+    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource, Password,
+    PreparedTextBox, Recovery, RenderPageArgs, Restrictions, SaveResult, SearchHit, SecurityReport,
+    SignatureReport, SourceId, StampImageInfo, TabId,
 };
-use ipc_contract::validate::{Validate, check_page_index, stamp_png_size};
+use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
-    OcrFinished, OcrPageState, UnknownFile, WorkerEdit, WorkerErrorCode, WorkerRequest,
+    FontData, OcrFinished, OcrPageState, UnknownFile, WorkerEdit, WorkerErrorCode, WorkerRequest,
     WorkerResponse,
 };
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
@@ -36,9 +36,10 @@ use crate::export::ImageKind;
 use crate::history::History;
 use crate::ocr::{OcrLink, PAGE_MILLIS, Tabs};
 use crate::pictures::{Full, Pictures};
-use crate::recovery::{Found, JournalId, Journals, TooLarge};
+use crate::recovery::{Found, JournalId, Journals, Named, TooLarge};
 use crate::saving::{self, FileIdentity, Temporary};
 use crate::sources::{Full as SourcesFull, Source, Sources};
+use crate::text_boxes::{Full as TextBoxesFull, TextBoxes};
 
 /// Display name used when a path has no file name component.
 const FALLBACK_NAME: &str = "PDF";
@@ -125,6 +126,8 @@ struct OpenDocument {
     pending_source: Option<PathBuf>,
     /// The pictures of the picture stamps of the history (B2-08).
     pictures: Pictures,
+    /// The prepared words of the text boxes of the history (B2-29).
+    text_boxes: TextBoxes,
 }
 
 impl Documents {
@@ -248,6 +251,7 @@ impl Documents {
                 security_in_file,
                 pending_source: None,
                 pictures: Pictures::default(),
+                text_boxes: TextBoxes::default(),
             };
             self.recover_on_open(&tab, &mut document);
             Ok(document)
@@ -452,7 +456,12 @@ impl Documents {
                 document.info.permissions,
                 &|source| document.sources.pages(source),
             )?;
-            let edit = worker_edit(&document.sources, &document.pictures, &args.edit)?;
+            let edit = worker_edit(
+                &document.sources,
+                &document.pictures,
+                &document.text_boxes,
+                &args.edit,
+            )?;
             if !document.history.has_room() {
                 return Err(IpcError {
                     code: ErrorCode::LimitExceeded,
@@ -464,12 +473,21 @@ impl Documents {
             edits.push(args.edit.clone());
             let (kept, lost) = journalled(&edits);
             let pictures = document.pictures.used_by(kept);
-            Journals::check(&document.path, document.identity, kept, &pictures, lost).map_err(
-                |TooLarge| IpcError {
-                    code: ErrorCode::LimitExceeded,
-                    message: "too many unsaved changes to keep safe: save first".to_owned(),
+            let text_boxes = document.text_boxes.used_by(kept);
+            Journals::check(
+                &document.path,
+                document.identity,
+                kept,
+                Named {
+                    pictures: &pictures,
+                    text_boxes: &text_boxes,
                 },
-            )?;
+                lost,
+            )
+            .map_err(|TooLarge| IpcError {
+                code: ErrorCode::LimitExceeded,
+                message: "too many unsaved changes to keep safe: save first".to_owned(),
+            })?;
             let pages = edit_in_worker(document, &edit).inspect_err(|error| {
                 // The worker failed partway through: its copy may be half edited. Opened again
                 // from the file with the edits made so far, it is as it was.
@@ -512,7 +530,14 @@ impl Documents {
                 .before_last()
                 .ok_or_else(|| invalid_argument("nothing to undo"))?
                 .iter()
-                .map(|edit| worker_edit(&document.sources, &document.pictures, edit))
+                .map(|edit| {
+                    worker_edit(
+                        &document.sources,
+                        &document.pictures,
+                        &document.text_boxes,
+                        edit,
+                    )
+                })
                 .collect::<Result<_, _>>()?;
             let pages = revert_in_worker(document, edits, password).inspect_err(|error| {
                 if matches!(error.code, ErrorCode::Internal | ErrorCode::LimitExceeded) {
@@ -537,7 +562,14 @@ impl Documents {
                 .history
                 .next()
                 .ok_or_else(|| invalid_argument("nothing to redo"))
-                .and_then(|edit| worker_edit(&document.sources, &document.pictures, edit))?;
+                .and_then(|edit| {
+                    worker_edit(
+                        &document.sources,
+                        &document.pictures,
+                        &document.text_boxes,
+                        edit,
+                    )
+                })?;
             let pages = edit_in_worker(document, &edit).inspect_err(|error| {
                 if matches!(error.code, ErrorCode::Internal | ErrorCode::LimitExceeded) {
                     document.lost = true;
@@ -578,7 +610,13 @@ impl Documents {
                 .as_ref()
                 .map(|found| found.pictures.clone())
                 .unwrap_or_default();
+            let text_boxes = document
+                .recovered
+                .as_ref()
+                .map(|found| found.text_boxes.clone())
+                .unwrap_or_default();
             document.pictures.restore(pictures);
+            document.text_boxes.restore(text_boxes);
             // On failure the offer stays: the worker may only have been unlucky.
             replay(document, &edits)?;
             if let Some(found) = document.recovered.take() {
@@ -1179,6 +1217,48 @@ impl Documents {
         })
     }
 
+    /// Makes `text` in the font `font` (its name, and the bytes of its file, which the caller
+    /// read) into the prepared words of a text box of `doc`, and keeps them for the document
+    /// (B2-29, ADR 0018). The document's worker does the work: it reads the font, which is not
+    /// trusted, checks its licence, finds a glyph for each character and cuts the font to those
+    /// glyphs; what is kept is that small model, and never the font. Returns the number of the
+    /// words, to put them in a box with, and whether the font is for viewing and printing only.
+    pub fn prepare_text_box(
+        &self,
+        doc: DocumentId,
+        text: &str,
+        font: (String, Vec<u8>, u32),
+    ) -> Result<PreparedTextBox, IpcError> {
+        check_text_box_text(text).map_err(invalid_argument)?;
+        let (name, bytes, face) = font;
+        self.with_document(doc, |document| {
+            if !document.info.permissions.annotate {
+                return Err(not_allowed());
+            }
+            let font = FontData { bytes, face, name };
+            let response = document
+                .host
+                .request(|request| WorkerRequest::PrepareTextBox {
+                    request,
+                    font,
+                    text: text.to_owned(),
+                })
+                .map_err(|error| lost_on(document, &error))?;
+            let WorkerResponse::TextBoxPrepared { model, .. } = response else {
+                return Err(unexpected("PrepareTextBox"));
+            };
+            let view_only = model.view_only;
+            let model = document
+                .text_boxes
+                .add(model, document.history.all())
+                .map_err(|TextBoxesFull| IpcError {
+                    code: ErrorCode::LimitExceeded,
+                    message: "too many text boxes in the unsaved changes: save first".to_owned(),
+                })?;
+            Ok(PreparedTextBox { model, view_only })
+        })
+    }
+
     /// The annotations of one page that can be selected and removed (B2-07): highlighter marks,
     /// notes and other kinds, each by its number in the document.
     pub fn page_annotations(
@@ -1463,7 +1543,18 @@ impl Documents {
             // brings back what it had.
             let (kept, lost) = journalled(document.history.applied());
             let pictures = document.pictures.used_by(kept);
-            let _ = journals.write(id, &document.path, document.identity, kept, &pictures, lost);
+            let text_boxes = document.text_boxes.used_by(kept);
+            let _ = journals.write(
+                id,
+                &document.path,
+                document.identity,
+                kept,
+                Named {
+                    pictures: &pictures,
+                    text_boxes: &text_boxes,
+                },
+                lost,
+            );
         }
     }
 
@@ -1493,6 +1584,7 @@ impl Documents {
         // without what they did, and the user is told.
         if own && applicable && found.lost == 0 {
             document.pictures.restore(found.pictures.clone());
+            document.text_boxes.restore(found.text_boxes.clone());
             if replay(document, &found.edits).is_ok() {
                 document.journal = Some(found.id);
                 self.keep_journal(document);
@@ -1718,13 +1810,12 @@ fn pages_after(
 }
 
 /// What the crash recovery journal keeps of the edits a document has (B2-06): those before the
-/// first that takes the pages of another file, which it cannot keep, or sets a text box (its font
-/// is up to 64 MiB: B2-29 puts a subset in the journal instead), and how many edits are left out
-/// (that one, and those after it, which are made on what it put in).
+/// first that takes the pages of another file, which it cannot keep, and how many edits are left
+/// out (that one, and those after it, which are made on the pages it put in).
 fn journalled(applied: &[Edit]) -> (&[Edit], u32) {
     let kept = applied
         .iter()
-        .position(|edit| matches!(edit, Edit::InsertPages { .. } | Edit::AddTextBox { .. }))
+        .position(|edit| matches!(edit, Edit::InsertPages { .. }))
         .unwrap_or(applied.len());
     (
         &applied[..kept],
@@ -1758,7 +1849,12 @@ fn replay(document: &mut OpenDocument, edits: &[Edit]) -> Result<(), IpcError> {
     }
     let mut pages = document.info.pages.clone();
     for edit in edits {
-        let edit = worker_edit(&document.sources, &document.pictures, edit)?;
+        let edit = worker_edit(
+            &document.sources,
+            &document.pictures,
+            &document.text_boxes,
+            edit,
+        )?;
         pages = edit_in_worker(document, &edit).inspect_err(|_| {
             document.lost = true;
         })?;
@@ -1776,24 +1872,24 @@ fn replay(document: &mut OpenDocument, edits: &[Edit]) -> Result<(), IpcError> {
 }
 
 /// `edit` as the worker is asked to make it: an edit that takes the pages of a file is sent with
-/// the clean copy of the file (B2-06), and a picture stamp with its picture (B2-08).
+/// the clean copy of the file (B2-06), a picture stamp with its picture (B2-08) and a text box
+/// with its prepared words (B2-29).
 fn worker_edit(
     sources: &Sources,
     pictures: &Pictures,
+    text_boxes: &TextBoxes,
     edit: &Edit,
 ) -> Result<WorkerEdit, IpcError> {
     WorkerEdit::of(
         edit,
         |source| sources.bytes(source),
         |image| pictures.png(image),
-        // A text box is not made from here yet: B2-29 keeps the prepared words of a document, and
-        // undo and the journal with them (docs/architecture/text-box-engine.md).
-        |_| None,
+        |model| text_boxes.model(model),
     )
     .map_err(|unknown| match unknown {
         UnknownFile::Source => invalid_argument("no such source file"),
         UnknownFile::Picture => invalid_argument("no such picture"),
-        UnknownFile::TextBox => invalid_argument("text boxes cannot be added yet"),
+        UnknownFile::TextBox => invalid_argument("no such prepared text"),
     })
 }
 
@@ -1908,7 +2004,12 @@ fn reopen(document: &mut OpenDocument) -> Result<DocumentId, IpcError> {
         .map_err(|error| ipc_error(&error))?;
     let mut pages = document_info(doc, document.info.display_name.clone(), response)?.pages;
     for edit in document.history.applied() {
-        let edit = worker_edit(&document.sources, &document.pictures, edit)?;
+        let edit = worker_edit(
+            &document.sources,
+            &document.pictures,
+            &document.text_boxes,
+            edit,
+        )?;
         let take_long = takes_pages(&edit);
         let make = |request| WorkerRequest::Edit { request, doc, edit };
         let response = if take_long {
@@ -4717,11 +4818,7 @@ mod with_worker {
         );
     }
 
-    fn text_box() -> Edit {
-        text_box_on(0)
-    }
-
-    fn text_box_on(page: u32) -> Edit {
+    fn text_box_with(page: u32, model: TextBoxModelId) -> Edit {
         Edit::AddTextBox {
             page,
             rect: Rect {
@@ -4730,7 +4827,7 @@ mod with_worker {
                 x1: 372.0,
                 y1: 132.0,
             },
-            model: TextBoxModelId(1),
+            model,
             style: TextBoxStyle {
                 size: 12.0,
                 color: Rgb { r: 0, g: 0, b: 0 },
@@ -4739,50 +4836,153 @@ mod with_worker {
         }
     }
 
-    #[test]
-    fn the_journal_stops_before_a_text_box_as_it_does_before_the_pages_of_another_file() {
-        let edits = [turn(0), text_box(), turn(1)];
-        let (kept, lost) = journalled(&edits);
-        assert_eq!((kept, lost), (&edits[..1], 2));
-        let (kept, lost) = journalled(&edits[2..]);
-        assert_eq!((kept.len(), lost), (1, 0));
+    /// An installed TrueType font with Latin letters, as `Fonts` gives one: its name, the bytes
+    /// of its file and which font of the file.
+    fn arial() -> (String, Vec<u8>, u32) {
+        let windows = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+        let file = Path::new(&windows).join("Fonts").join("arial.ttf");
+        let bytes = std::fs::read(file).expect("Windows has Arial");
+        ("Arial".to_owned(), bytes, 0)
     }
 
     #[test]
-    fn a_text_box_is_checked_as_an_annotation_and_is_not_made_from_here_yet() {
-        // The author's permission to annotate, and the page, are checked first.
-        let documents = Documents::new(worker());
-        let (_, forbidden) = unlocked(&documents, &corpus_path("benign/encrypted-rc4-40.pdf"));
-        assert!(!forbidden.permissions.annotate);
-        let error = documents
-            .apply_edit(&EditArgs {
-                doc: forbidden.doc,
-                edit: text_box(),
+    fn words_are_prepared_put_in_boxes_and_made_again_by_undo_redo_and_a_new_worker() {
+        let (documents, info, path) = open("text-box-add", 2);
+        let prepared = documents
+            .prepare_text_box(info.doc, "Hello, Wörld", arial())
+            .unwrap();
+        assert!(!prepared.view_only);
+        let mut doc = info.doc;
+        edited_pages(&documents, &mut doc, text_box_with(0, prepared.model));
+        let [boxed] = &documents.page_annotations(doc, 0).unwrap()[..] else {
+            panic!("one text box")
+        };
+        assert_eq!(boxed.kind, AnnotationKind::TextBox);
+        assert_eq!(boxed.text.as_deref(), Some("Hello, Wörld"));
+
+        // The same words in five more boxes: the edit names them, the font is not sent again.
+        for page in [0, 1, 0, 1, 0] {
+            edited_pages(&documents, &mut doc, text_box_with(page, prepared.model));
+        }
+        let boxes =
+            |doc: DocumentId, page: u32| documents.page_annotations(doc, page).unwrap().len();
+        assert_eq!((boxes(doc, 0), boxes(doc, 1)), (4, 2));
+        // Undone, and made again, from the words the main process keeps for them.
+        doc = opened_info(documents.undo(doc, None).unwrap()).doc;
+        assert_eq!((boxes(doc, 0), boxes(doc, 1)), (3, 2));
+        doc = opened_info(documents.redo(doc).unwrap()).doc;
+        assert_eq!((boxes(doc, 0), boxes(doc, 1)), (4, 2));
+        // A worker that died is replaced, and every box is made again in the new one.
+        documents
+            .with_document(doc, |document| {
+                document.lost = true;
+                Ok(())
             })
-            .unwrap_err();
-        assert!(error.message.contains("author"), "{}", error.message);
-        let (documents, info, path) = open("text-box-not-yet", 1);
+            .unwrap();
+        assert_eq!((boxes(doc, 0), boxes(doc, 1)), (4, 2));
+
+        // Saved: the subsets of the font, a few kilobytes each, and not the font six times.
+        let copy = std::env::temp_dir().join(format!("b229-{}-copy.pdf", std::process::id()));
+        let _ = std::fs::remove_file(&copy);
+        documents.save(doc, Some(copy.clone())).unwrap();
+        let size = std::fs::metadata(&copy).unwrap().len();
+        assert!(size < 200_000, "{size} bytes");
+        let reopened = open_in(&documents, &copy);
         assert_eq!(
-            documents
-                .apply_edit(&EditArgs {
-                    doc: info.doc,
-                    edit: text_box_on(5)
-                })
-                .unwrap_err()
-                .code,
-            ErrorCode::InvalidArgument
+            documents.page_annotations(reopened.doc, 1).unwrap()[0].kind,
+            AnnotationKind::TextBox
         );
-        // Fonts are kept and replayed by B2-29: until then the edit is refused, and nothing
-        // is changed.
+        std::fs::remove_file(&copy).ok();
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_font_or_a_text_that_cannot_be_set_makes_no_prepared_words_and_changes_nothing() {
+        let (documents, info, path) = open("text-box-refused", 1);
+        let (name, bytes, face) = arial();
+        let refused = |text: &str, font: (String, Vec<u8>, u32)| {
+            documents
+                .prepare_text_box(info.doc, text, font)
+                .unwrap_err()
+                .code
+        };
+        let junk = ("Junk".to_owned(), b"not a font at all".to_vec(), 0);
+        assert_eq!(refused("words", junk), ErrorCode::FontInvalid);
+        let arial = || (name.clone(), bytes.clone(), face);
+        assert_eq!(
+            refused("words \u{e000}", arial()),
+            ErrorCode::FontMissingGlyphs
+        );
+        assert_eq!(
+            refused("\u{628}\u{644}", arial()),
+            ErrorCode::TextNotSupported
+        );
+        assert_eq!(refused("  \n ", arial()), ErrorCode::InvalidArgument);
+        // Words that nobody prepared are no edit.
         let error = documents
             .apply_edit(&EditArgs {
                 doc: info.doc,
-                edit: text_box(),
+                edit: text_box_with(0, TextBoxModelId(99)),
             })
             .unwrap_err();
         assert_eq!(error.code, ErrorCode::InvalidArgument);
-        assert!(error.message.contains("text boxes"), "{}", error.message);
-        assert_eq!(documents.unsaved_tabs(), Vec::<TabId>::new());
+        // A page the document does not have.
+        let prepared = documents
+            .prepare_text_box(info.doc, "Hello", arial())
+            .unwrap();
+        let error = documents
+            .apply_edit(&EditArgs {
+                doc: info.doc,
+                edit: text_box_with(5, prepared.model),
+            })
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidArgument);
+        assert!(documents.unsaved_tabs().is_empty());
+
+        // The author's permission to annotate comes first.
+        let (_, forbidden) = unlocked(&documents, &corpus_path("benign/encrypted-rc4-40.pdf"));
+        assert!(!forbidden.permissions.annotate);
+        let error = documents
+            .prepare_text_box(forbidden.doc, "Hello", arial())
+            .unwrap_err();
+        assert!(error.message.contains("author"), "{}", error.message);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn prepared_words_are_in_the_journal_as_a_small_subset_and_come_back_after_a_crash() {
+        let data = DataFolder::new("text-box-journal");
+        let path = write_pdf("b229-journal", &letter_pdf(2));
+        let earlier = data.documents();
+        let mut doc = open_in(&earlier, &path).doc;
+        let prepared = earlier
+            .prepare_text_box(doc, "Hello, Wörld", arial())
+            .unwrap();
+        edited_pages(&earlier, &mut doc, text_box_with(0, prepared.model));
+        // One journal: the edit, and the words it names, as a subset of the font; not the font.
+        let file = std::fs::read_dir(data.recovery())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("\"textBoxes\"") && text.contains("addTextBox"));
+        assert!(text.len() < 100_000, "{} bytes", text.len());
+        drop(earlier);
+
+        // The run ended without saving; the next one offers the box, and makes it.
+        let later = data.documents();
+        let reopened = open_in(&later, &path);
+        assert_eq!(reopened.recovery, Recovery::Available);
+        let recovered = opened_info(later.recover(reopened.doc).unwrap());
+        let [boxed] = &later.page_annotations(recovered.doc, 0).unwrap()[..] else {
+            panic!("one text box")
+        };
+        assert_eq!(boxed.kind, AnnotationKind::TextBox);
+        // It is the document's own edit now, which can be undone.
+        let undone = opened_info(later.undo(recovered.doc, None).unwrap());
+        assert!(later.page_annotations(undone.doc, 0).unwrap().is_empty());
         std::fs::remove_file(path).ok();
     }
 

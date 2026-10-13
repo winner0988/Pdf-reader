@@ -2,7 +2,7 @@
 
 [ADR 0018](../adr/0018-text-boxes-and-fonts.md) 的實作之一：worker 在頁面上加一個文字方塊，也就是 `FreeText` 註解，外觀（字型子集、排版）由 worker 自己寫。這份文件只講引擎；已安裝字型的清單與讀檔在 [text-boxes.md](text-boxes.md)（B2-27）。
 
-程式在 `crates/pdf_worker/src/engine/text_box.rs` 與它的 `text_box/`（`font.rs` 讀字型與切子集、`layout.rs` 斷行與排版、`pdf.rs` 寫成與讀回 PDF 物件）。契約型別 `Rgb`、`TextAlign`、`TextBoxStyle`、`TextBoxModelId`、`FontRefusal`、`TextBoxModel` 與限制常數在 `ipc_contract`。訊息、編輯與錯誤碼見下面的「契約」；**主行程還沒有接上**（`apply_edit` 對 `AddTextBox` 回 `invalidArgument`，沒有 `prepare_text_box` 命令），見「為什麼主行程還沒接上」。
+程式在 `crates/pdf_worker/src/engine/text_box.rs` 與它的 `text_box/`（`font.rs` 讀字型與切子集、`layout.rs` 斷行與排版、`pdf.rs` 寫成與讀回 PDF 物件）。契約型別 `Rgb`、`TextAlign`、`TextBoxStyle`、`TextBoxModelId`、`FontRefusal`、`TextBoxModel` 與限制常數在 `ipc_contract`。訊息、編輯與錯誤碼見下面的「契約」，主行程（命令、模型庫、復原、日誌）見「主行程」。
 
 ## 兩個步驟與「模型」
 
@@ -81,7 +81,7 @@
 
 文字方塊的流程照圖片印章（`pick_stamp_image` → `StampImageId` → `Edit::AddImageStamp`）的樣子：先**準備**，編輯只帶準備好的東西的號碼。
 
-- **`prepare_text_box { doc, text, font }`**（命令，B2-29 的主行程接上）→ `PreparedTextBox { model, viewOnly }`：`font` 是 `get_fonts`（B2-27）清單裡的字型代號，`text` 受 `PrepareTextBoxArgs` 驗證。主行程讀字型檔、送給 worker（`WorkerRequest::PrepareTextBox { font, text }` → `WorkerResponse::TextBoxPrepared { model }`），模型留在主行程（像圖片），畫面只拿到號碼 `TextBoxModelId` 與「字型只能檢視與列印」。畫面因此在關掉對話框**之前**就知道字型能不能用，不必等編輯失敗。
+- **`prepare_text_box { doc, text, font }`**（命令，`commands.rs`）→ `PreparedTextBox { model, viewOnly }`：`font` 是 `get_fonts`（B2-27）清單裡的字型代號，`text` 受 `PrepareTextBoxArgs` 驗證。主行程讀字型檔、送給 worker（`WorkerRequest::PrepareTextBox { font, text }` → `WorkerResponse::TextBoxPrepared { model }`），模型留在主行程（像圖片），畫面只拿到號碼 `TextBoxModelId` 與「字型只能檢視與列印」。畫面因此在關掉對話框**之前**就知道字型能不能用，不必等編輯失敗。
 - **`Edit::AddTextBox { page, rect, model, style }`**：`model` 是上面的號碼，`style` 是 `TextBoxStyle { size, color, align }`。字型不在 `style` 裡（它在模型裡），粗體與斜體也不是欄位：它們是同一家族的另一個字型（`FontInfo` 有 `family`、`bold`、`italic`），畫面準備文字時換一個字型代號就好；沒有變體時畫面說明，不模擬。驗證比照其他註解的編輯（頁碼、`rect` 正的、每邊至少 `MIN_ANNOTATION_SIDE_PT`、有限值，大小 4 到 288 點）。
 - **`WorkerEdit::PlaceTextBox { page, rect, model, style }`**：主行程把號碼換成模型再送給 worker（`WorkerEdit::of` 的 `text_box` 解析器；找不到回 `UnknownFile::TextBox`）。`FontData`（字型位元組）的 `Debug` 只印大小。
 - **`AnnotationKind::TextBox`**：`page_annotations` 對 app 的文字方塊回這個種類（有私有記號的 `FreeText`；別的程式做的 `FreeText` 仍是 `other`），`text` 是它的文字；移動（`setAnnotationRect`）與改文字現在還會被拒絕（見下一節的規則），只能選取與刪除。
@@ -103,13 +103,13 @@
 
 - **JSON 與 postcard**：`TextBoxModel` 在 worker 與主行程之間用 postcard（子集是原樣的位元組），在日誌裡用 JSON（子集是小寫十六進位文字，像圖片）；讀日誌時一樣當成不可信任的資料（`validate`）。
 
-## 為什麼主行程還沒接上
+## 主行程（B2-29）
 
-主行程要保管「準備好的文字」（模型庫）、在復原與重開時送回去、把它們放進崩潰復原日誌。這件事跟復原的設計連在一起，所以留給 B2-29：
-
-- 復原（ADR 0013）是重新開啟文件，把前面所有的編輯再做一次，放在**同一個**訊息裡（上限 `MAX_FRAME_BYTES`，80 MiB）。帶整個字型的話，同一個 19 MB 的中文字型用在五個方塊上就是 95 MB：復原會失敗；現在編輯帶的是模型（幾 KB），所以不會。
-- 崩潰復原日誌上限 4 MiB，放不下字型（ADR 0018：日誌放子集，不放整個字型）；放得下模型。
-- 在那之前 `apply_edit` 對 `AddTextBox` 回 `invalidArgument`，日誌也不收這種編輯（`journalled` 在它之前停下來，讀日誌時它是不合格的，像「插入其他檔案的頁面」一樣）。
+- **命令 `prepare_text_box`**（`commands.rs`）：驗證引數，用字型代號向 `Fonts` 要名稱與檔案（清單裡沒有時重新讀一次登錄檔；檔案不在、讀不到或太大回 `fontUnavailable`），交給 `Documents::prepare_text_box`。前端永遠拿不到路徑與字型的位元組。
+- **`Documents::prepare_text_box`**：作者不允許註解時拒絕；請文件自己的 worker 準備（`PrepareTextBox`）；worker 回的模型再驗證一次；放進這份文件的**模型庫**（`text_boxes.rs`，比照圖片庫 `pictures.rs`），回傳號碼。
+- **模型庫**：每份文件一個，模型以號碼命名；準備新的文字時，沒有任何編輯（做過的與復原後還能重做的）用到的模型會被放掉，所以對話框裡反覆準備不會堆積；號碼不重複使用；最多 1,000 個、子集合計最多 64 MiB，滿了回 `limitExceeded`（請使用者先存檔）。
+- **編輯**：`apply_edit(AddTextBox)` 把號碼換成模型再送給 worker（`WorkerEdit::PlaceTextBox`）；找不到號碼回 `invalidArgument`。復原、重做、worker 重開、崩潰後還原都用同一個換法，所以**字型檔只在準備時讀一次**，之後的重播送的是幾 KB 的模型。
+- **日誌**：日誌多一個 `textBoxes`（見 [crash-recovery.md](crash-recovery.md)）；寫日誌前先確認放得下（`Journals::check`），放不下的編輯被拒絕並請使用者先存檔；開啟檔案時日誌裡的模型當成不可信任的資料檢查。字型被解除安裝或換了電腦都不影響還原。
 
 ## 測試
 
@@ -117,8 +117,8 @@
 - `crates/pdf_worker/tests/text_box_worker.rs`（3 個）：在真正的沙盒 worker 裡，字型以位元組送去準備，模型在**另一個**沒見過字型的 worker 裡放成方塊、列出、存檔、只含子集；被拒絕的字型與文字各有自己的錯誤碼；被竄改的模型不做出方塊也不傷 worker。
 - 引擎內的單元測試：斷行（空白、長字、中文、標點）、需要字形變化的文字、`UTF-16` 與子集標籤、度量的單位。
 - `ipc_contract`：模型、樣式、編輯與準備文字的引數的驗證與前端的 JSON 形式；模型經 postcard 與 JSON 來回不變；錯誤碼對應。
-- 主行程：日誌在文字方塊之前停下來、日誌讀取拒絕它、權限與頁碼先檢查、現在回 `invalidArgument`。
+- 主行程（用這台電腦真正的 Arial）：準備、放進六個方塊、復原、重做、worker 死掉後重開、存檔後重新開啟；被拒絕的字型與文字各有自己的錯誤碼，文件沒有改變；作者不允許註解時先拒絕；日誌裡的文字方塊只有幾 KB，崩潰後下次開啟時還原，之後還能復原；模型庫的編號、放掉與上限；日誌裡的模型當成不可信任的資料（缺了、重複、不合格、不是十六進位、多出來的欄位）。
 
 ## 尚未實作
 
-`prepare_text_box` 命令、模型庫、復原與日誌的接上（B2-29）；移動、縮放、改字與樣式、搜尋與選取（B2-29）；畫面與輸入法（B2-30）；端對端與字型的 fuzz（B2-31）；匯入字型檔（B2-32）。
+移動、縮放、改字與樣式、搜尋與選取（B2-29 的其餘部分）；畫面與輸入法（B2-30）；端對端與字型的 fuzz（B2-31）；匯入字型檔（B2-32）。

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-prepare-text-box"
+description = "Enables the prepare_text_box command without any pre-configured scope."
+commands.allow = ["prepare_text_box"]
+
+[[permission]]
+identifier = "deny-prepare-text-box"
+description = "Denies the prepare_text_box command without any pre-configured scope."
+commands.deny = ["prepare_text_box"]

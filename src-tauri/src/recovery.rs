@@ -7,7 +7,9 @@
 //! A journal is read as untrusted data, like any file in the data folder: with a size limit,
 //! only in the app's format, and with every edit checked as an edit from the page is. The
 //! pictures of picture stamps (B2-08) are in it too, as the edits name them: as hex text, each
-//! a PNG file that is checked as the worker's is.
+//! a PNG file that is checked as the worker's is. So are the prepared words of text boxes
+//! (B2-29): each a small model with a subset of the font (hex text, too), never the font, and
+//! checked as the worker's models are.
 
 use std::collections::HashSet;
 use std::fs;
@@ -16,14 +18,16 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use ipc_contract::limits::MAX_UNDO_EDITS;
-use ipc_contract::types::{Edit, StampImageId};
+use ipc_contract::types::{Edit, StampImageId, TextBoxModelId};
 use ipc_contract::validate::{Validate, stamp_png_size};
+use ipc_contract::worker::TextBoxModel;
 use serde::{Deserialize, Serialize};
 
 use crate::local_data;
 use crate::pictures::MAX_PICTURES;
 use crate::recent::key;
 use crate::saving::FileIdentity;
+use crate::text_boxes::MAX_TEXT_BOX_MODELS;
 
 /// The folder in the data folder.
 pub const FOLDER_NAME: &str = "recovery";
@@ -53,6 +57,9 @@ struct Stored {
     /// The pictures those edits name (B2-08).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pictures: Vec<StoredPicture>,
+    /// The prepared words those edits name (B2-29).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    text_boxes: Vec<StoredTextBox>,
     /// How many more were made, which are not here: the first that put the pages of another file
     /// into the document, and all after it (B2-06; the journal cannot keep the other file).
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -71,11 +78,35 @@ struct StoredPicture {
     png: String,
 }
 
+/// The prepared words of a text box in a journal: their number, and the model, whose subset is
+/// hex text in JSON.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredTextBox {
+    id: u32,
+    model: TextBoxModel,
+}
+
 /// The pictures an edit list names, with their PNG files (B2-08).
 pub type PictureFiles<'a> = &'a [(StampImageId, &'a [u8])];
 
 /// The same, read from a journal.
 pub type ReadPictures = Vec<(StampImageId, Vec<u8>)>;
+
+/// The prepared words an edit list names, with their models (B2-29).
+pub type TextBoxFiles<'a> = &'a [(TextBoxModelId, &'a TextBoxModel)];
+
+/// The same, read from a journal.
+pub type ReadTextBoxes = Vec<(TextBoxModelId, TextBoxModel)>;
+
+/// What the edits of a journal name besides themselves: the pictures of picture stamps (B2-08) and
+/// the prepared words of text boxes (B2-29). A journal keeps them, and not the picture files and
+/// fonts they were made from.
+#[derive(Clone, Copy, Default)]
+pub struct Named<'a> {
+    pub pictures: PictureFiles<'a>,
+    pub text_boxes: TextBoxFiles<'a>,
+}
 
 /// A journal's file name in the folder: random, so the folder says nothing of the files.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -88,6 +119,8 @@ pub struct Found {
     pub edits: Vec<Edit>,
     /// The pictures the edits name, under the numbers they have in them.
     pub pictures: ReadPictures,
+    /// The prepared words the edits name, under the numbers they have in them.
+    pub text_boxes: ReadTextBoxes,
     /// How many edits of the run are not in `edits` (see `Stored::lost`).
     pub lost: u32,
     /// The file is as it was when the edits were made: they can be made on it again.
@@ -124,23 +157,23 @@ impl Journals {
         Some(id)
     }
 
-    /// Whether a journal of `edits` (and the `pictures` they name) to the file at `path`, and
+    /// Whether a journal of `edits` (and the pictures and prepared words they name) to the file at `path`, and
     /// `lost` more that it cannot keep, would be small enough to keep.
     pub fn check(
         path: &Path,
         identity: Option<FileIdentity>,
         edits: &[Edit],
-        pictures: PictureFiles,
+        named: Named,
         lost: u32,
     ) -> Result<(), TooLarge> {
-        match encode(path, identity, edits, pictures, lost) {
+        match encode(path, identity, edits, named, lost) {
             Some(json) if json.len() > MAX_JOURNAL_BYTES => Err(TooLarge),
             _ => Ok(()),
         }
     }
 
     /// Replaces journal `id` with `edits` to the file at `path`, which was `identity` when read,
-    /// and the `pictures` they name, and says that `lost` more were made. Best effort: if the file
+    /// and the pictures and prepared words they name, and says that `lost` more were made. Best effort: if the file
     /// cannot be written, a crash loses the changes, nothing else.
     pub fn write(
         &self,
@@ -148,11 +181,10 @@ impl Journals {
         path: &Path,
         identity: Option<FileIdentity>,
         edits: &[Edit],
-        pictures: PictureFiles,
+        named: Named,
         lost: u32,
     ) -> Result<(), TooLarge> {
-        let (Some(file), Some(json)) =
-            (self.file(id), encode(path, identity, edits, pictures, lost))
+        let (Some(file), Some(json)) = (self.file(id), encode(path, identity, edits, named, lost))
         else {
             return Ok(());
         };
@@ -199,7 +231,7 @@ impl Journals {
         if self.lock().contains(id) {
             return None;
         }
-        let (stored, pictures) = read(&self.file(id)?, path)?;
+        let (stored, pictures, text_boxes) = read(&self.file(id)?, path)?;
         // Checked by `read`: the nanoseconds never carry into the seconds.
         let then = FileIdentity::from_parts(
             stored.len,
@@ -213,6 +245,7 @@ impl Journals {
             id: id.clone(),
             edits: stored.edits,
             pictures,
+            text_boxes,
             lost: stored.lost,
             same_file: now.is_some() && now == then,
         })
@@ -263,7 +296,7 @@ fn encode(
     path: &Path,
     identity: Option<FileIdentity>,
     edits: &[Edit],
-    pictures: PictureFiles,
+    named: Named,
     lost: u32,
 ) -> Option<Vec<u8>> {
     let (len, since_epoch) = identity?.parts()?;
@@ -274,11 +307,20 @@ fn encode(
         modified_secs: since_epoch.as_secs(),
         modified_nanos: since_epoch.subsec_nanos(),
         edits: edits.to_vec(),
-        pictures: pictures
+        pictures: named
+            .pictures
             .iter()
             .map(|(id, png)| StoredPicture {
                 id: id.0,
                 png: hex(png),
+            })
+            .collect(),
+        text_boxes: named
+            .text_boxes
+            .iter()
+            .map(|(id, model)| StoredTextBox {
+                id: id.0,
+                model: (*model).clone(),
             })
             .collect(),
         lost,
@@ -315,8 +357,8 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
 }
 
 /// Journal `file`, if it is one the app could have written for the file at `path`; with its
-/// pictures, decoded.
-fn read(file: &Path, path: &Path) -> Option<(Stored, ReadPictures)> {
+/// pictures and prepared words, decoded.
+fn read(file: &Path, path: &Path) -> Option<(Stored, ReadPictures, ReadTextBoxes)> {
     let json = local_data::read(file, MAX_JOURNAL_BYTES as u64)?;
     let stored: Stored = serde_json::from_slice(&json).ok()?;
     let valid = stored.version == VERSION
@@ -327,17 +369,40 @@ fn read(file: &Path, path: &Path) -> Option<(Stored, ReadPictures)> {
         && stored.edits.len() <= MAX_UNDO_EDITS as usize
         && stored.lost <= MAX_UNDO_EDITS
         && stored.edits.len() + stored.lost as usize <= MAX_UNDO_EDITS as usize
-        // The journal cannot keep another file, or a font: it never has an edit that takes the
-        // pages of the one, or sets a text box (B2-28; B2-29 keeps a subset of the font).
-        && stored.edits.iter().all(|edit| {
-            !matches!(edit, Edit::InsertPages { .. } | Edit::AddTextBox { .. })
-                && edit.validate().is_ok()
-        });
+        // The journal cannot keep another file: it never has an edit that takes its pages.
+        && stored
+            .edits
+            .iter()
+            .all(|edit| !matches!(edit, Edit::InsertPages { .. }) && edit.validate().is_ok());
     if !valid {
         return None;
     }
     let pictures = pictures_of(&stored)?;
-    Some((stored, pictures))
+    let text_boxes = text_boxes_of(&stored)?;
+    Some((stored, pictures, text_boxes))
+}
+
+/// The prepared words of a journal, if they are all good: each model passes the check every
+/// model does (the worker checks it again, and cuts the subset again, when an edit puts it on a
+/// page), no number twice, at most what a document keeps, and one for every text box the edits
+/// put in (B2-29).
+fn text_boxes_of(stored: &Stored) -> Option<ReadTextBoxes> {
+    if stored.text_boxes.len() > MAX_TEXT_BOX_MODELS {
+        return None;
+    }
+    let mut models = ReadTextBoxes::new();
+    for kept in &stored.text_boxes {
+        let id = TextBoxModelId(kept.id);
+        if models.iter().any(|(seen, _)| *seen == id) || kept.model.validate().is_err() {
+            return None;
+        }
+        models.push((id, kept.model.clone()));
+    }
+    let named = stored.edits.iter().all(|edit| match edit {
+        Edit::AddTextBox { model, .. } => models.iter().any(|(id, _)| id == model),
+        _ => true,
+    });
+    named.then_some(models)
 }
 
 /// The pictures of a journal, if they are all good: each a PNG file whose header says a size a
@@ -368,6 +433,7 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use ipc_contract::types::Rotation;
+    use ipc_contract::worker::ModelGlyph;
 
     use super::*;
 
@@ -433,7 +499,7 @@ mod tests {
         let earlier = folder.journals();
         let id = earlier.create().unwrap();
         earlier
-            .write(&id, &file(), identity(1_000), &edits(), &[], 0)
+            .write(&id, &file(), identity(1_000), &edits(), Named::default(), 0)
             .unwrap();
         assert_eq!(folder.files(), [format!("{}.json", id.0)]);
         // The name says nothing of the file.
@@ -454,6 +520,7 @@ mod tests {
                 id: id.clone(),
                 edits: edits(),
                 pictures: Vec::new(),
+                text_boxes: Vec::new(),
                 lost: 0,
                 same_file: true
             }
@@ -470,7 +537,7 @@ mod tests {
         let earlier = folder.journals();
         let id = earlier.create().unwrap();
         earlier
-            .write(&id, &file(), identity(1_000), &edits(), &[], 0)
+            .write(&id, &file(), identity(1_000), &edits(), Named::default(), 0)
             .unwrap();
         let found = folder.journals().find(&file(), identity(999)).unwrap();
         assert!(!found.same_file);
@@ -483,7 +550,7 @@ mod tests {
         let journals = folder.journals();
         let id = journals.create().unwrap();
         journals
-            .write(&id, &file(), identity(1_000), &edits(), &[], 0)
+            .write(&id, &file(), identity(1_000), &edits(), Named::default(), 0)
             .unwrap();
         assert_eq!(journals.find(&file(), identity(1_000)), None);
         journals.release(&id);
@@ -496,12 +563,26 @@ mod tests {
         let earlier = folder.journals();
         let left = earlier.create().unwrap();
         earlier
-            .write(&left, &file(), identity(1_000), &edits(), &[], 0)
+            .write(
+                &left,
+                &file(),
+                identity(1_000),
+                &edits(),
+                Named::default(),
+                0,
+            )
             .unwrap();
         let journals = folder.journals();
         let own = journals.create().unwrap();
         journals
-            .write(&own, &file(), identity(1_000), &edits(), &[], 0)
+            .write(
+                &own,
+                &file(),
+                identity(1_000),
+                &edits(),
+                Named::default(),
+                0,
+            )
             .unwrap();
         fs::write(
             folder
@@ -532,21 +613,21 @@ mod tests {
         let all: Vec<u32> = (0..99_999).collect();
         let large = vec![Edit::DeletePages { pages: all }; 10];
         assert_eq!(
-            Journals::check(&file(), identity(1_000), &large, &[], 0),
+            Journals::check(&file(), identity(1_000), &large, Named::default(), 0),
             Err(TooLarge)
         );
         assert_eq!(
-            journals.write(&id, &file(), identity(1_000), &large, &[], 0),
+            journals.write(&id, &file(), identity(1_000), &large, Named::default(), 0),
             Err(TooLarge)
         );
         assert!(folder.files().is_empty());
         assert_eq!(
-            Journals::check(&file(), identity(1_000), &edits(), &[], 0),
+            Journals::check(&file(), identity(1_000), &edits(), Named::default(), 0),
             Ok(())
         );
         // Without the file's identity there is nothing to check a later file against.
         journals
-            .write(&id, &file(), None, &edits(), &[], 0)
+            .write(&id, &file(), None, &edits(), Named::default(), 0)
             .unwrap();
         assert!(folder.files().is_empty());
     }
@@ -684,7 +765,10 @@ mod tests {
                 &file(),
                 identity(1_000),
                 &edits,
-                &[(StampImageId(3), &picture)],
+                Named {
+                    pictures: &[(StampImageId(3), &picture)],
+                    ..Named::default()
+                },
                 0,
             )
             .unwrap();
@@ -755,11 +839,29 @@ mod tests {
         let one = [(StampImageId(3), &large[..])];
         let two = [(StampImageId(3), &large[..]), (StampImageId(4), &large[..])];
         assert_eq!(
-            Journals::check(&file(), identity(1_000), &edits, &one, 0),
+            Journals::check(
+                &file(),
+                identity(1_000),
+                &edits,
+                Named {
+                    pictures: &one,
+                    ..Named::default()
+                },
+                0,
+            ),
             Ok(())
         );
         assert_eq!(
-            Journals::check(&file(), identity(1_000), &edits, &two, 0),
+            Journals::check(
+                &file(),
+                identity(1_000),
+                &edits,
+                Named {
+                    pictures: &two,
+                    ..Named::default()
+                },
+                0,
+            ),
             Err(TooLarge)
         );
     }
@@ -771,7 +873,7 @@ mod tests {
         let id = journals.create().unwrap();
         // Two edits kept, three left out.
         journals
-            .write(&id, &file(), identity(1_000), &edits(), &[], 3)
+            .write(&id, &file(), identity(1_000), &edits(), Named::default(), 3)
             .unwrap();
         let path = folder.0.join(FOLDER_NAME).join(format!("{}.json", id.0));
         assert!(fs::read_to_string(&path).unwrap().contains(r#""lost":3"#));
@@ -783,7 +885,7 @@ mod tests {
         let journals = other.journals();
         let id = journals.create().unwrap();
         journals
-            .write(&id, &file(), identity(1_000), &[], &[], 1)
+            .write(&id, &file(), identity(1_000), &[], Named::default(), 1)
             .unwrap();
         journals.release(&id);
         let found = other.journals().find(&file(), identity(1_000)).unwrap();
@@ -841,6 +943,142 @@ mod tests {
                 .find(&file(), identity(1_000))
                 .map(|found| found.lost),
             Some(4)
+        );
+    }
+
+    fn model() -> TextBoxModel {
+        TextBoxModel {
+            text: "Hi".to_owned(),
+            font: "Arial".to_owned(),
+            face: 0,
+            view_only: false,
+            base: "ABCDEF+Arial".to_owned(),
+            ascent: 905,
+            descent: -212,
+            cap_height: 716,
+            step: 1_150,
+            bbox: [-665, -325, 2_000, 1_006],
+            glyphs: vec![
+                ModelGlyph {
+                    ch: 'H',
+                    cid: 1,
+                    advance: 722,
+                },
+                ModelGlyph {
+                    ch: 'i',
+                    cid: 2,
+                    advance: 222,
+                },
+            ],
+            subset: vec![0, 1, 0, 0, 9, 9, 9, 9, 9, 9, 9, 9],
+        }
+    }
+
+    fn text_box(model: u32) -> Edit {
+        Edit::AddTextBox {
+            page: 0,
+            rect: ipc_contract::types::Rect {
+                x0: 72.0,
+                y0: 72.0,
+                x1: 372.0,
+                y1: 132.0,
+            },
+            model: TextBoxModelId(model),
+            style: ipc_contract::types::TextBoxStyle {
+                size: 12.0,
+                color: ipc_contract::types::Rgb { r: 0, g: 0, b: 0 },
+                align: ipc_contract::types::TextAlign::Left,
+            },
+        }
+    }
+
+    #[test]
+    fn the_prepared_words_of_text_boxes_are_kept_as_hex_text_and_come_back_checked() {
+        let folder = Folder::new();
+        let journals = folder.journals();
+        let id = journals.create().unwrap();
+        let words = model();
+        let edits = vec![text_box(5), Edit::DeletePages { pages: vec![2] }];
+        journals
+            .write(
+                &id,
+                &file(),
+                identity(1_000),
+                &edits,
+                Named {
+                    text_boxes: &[(TextBoxModelId(5), &words)],
+                    ..Named::default()
+                },
+                0,
+            )
+            .unwrap();
+        let file_name = format!("{}.json", id.0);
+        let dir = folder.0.join(FOLDER_NAME);
+        let text = fs::read_to_string(dir.join(&file_name)).unwrap();
+        // The subset is hex text, as a picture is, and the edit names the words by their number.
+        assert!(
+            text.contains(r#""subset":"000100000909090909090909""#),
+            "{text}"
+        );
+        assert!(text.contains(r#""textBoxes":[{"id":5,"model":"#), "{text}");
+        let found = folder.journals().find(&file(), identity(1_000)).unwrap();
+        assert_eq!(found.text_boxes, [(TextBoxModelId(5), words.clone())]);
+        assert_eq!(found.edits, edits);
+
+        // A journal that is not the app's is left alone: it is read as untrusted data.
+        fs::remove_file(dir.join(&file_name)).unwrap();
+        let other = format!("{:032x}.json", 1);
+        let variant = |change: &dyn Fn(&mut serde_json::Value)| {
+            let mut json: serde_json::Value = serde_json::from_str(&text).unwrap();
+            change(&mut json);
+            fs::write(dir.join(&other), json.to_string()).unwrap();
+            let found = folder.journals().find(&file(), identity(1_000));
+            fs::remove_file(dir.join(&other)).unwrap();
+            found
+        };
+        assert!(variant(&|_| {}).is_some());
+        let model_of = |json: &mut serde_json::Value| json["textBoxes"][0]["model"].take();
+        // The words an edit names are not there, or are there twice.
+        assert!(variant(&|json| json["textBoxes"] = serde_json::json!([])).is_none());
+        assert!(variant(&|json| json["textBoxes"][0]["id"] = serde_json::json!(6)).is_none());
+        assert!(
+            variant(&|json| {
+                let again = json["textBoxes"][0].clone();
+                json["textBoxes"].as_array_mut().unwrap().push(again);
+            })
+            .is_none()
+        );
+        // A model that fails the check every model does: a character without a glyph, a name
+        // that is no subset's, a width that cannot be, a subset that is not hex, a field it
+        // does not have.
+        assert!(
+            variant(&|json| {
+                json["textBoxes"][0]["model"]["glyphs"]
+                    .as_array_mut()
+                    .unwrap()
+                    .pop();
+            })
+            .is_none()
+        );
+        for (field, value) in [
+            ("base", serde_json::json!("Arial")),
+            ("subset", serde_json::json!("xyz")),
+            ("subset", serde_json::json!("000100")),
+            ("extra", serde_json::json!(1)),
+        ] {
+            assert!(
+                variant(&|json| json["textBoxes"][0]["model"][field] = value.clone()).is_none(),
+                "{field}"
+            );
+        }
+        assert!(
+            variant(&|json| {
+                let words = model_of(json);
+                let mut words = words;
+                words["glyphs"][0]["advance"] = serde_json::json!(60_000);
+                json["textBoxes"][0]["model"] = words;
+            })
+            .is_none()
         );
     }
 }

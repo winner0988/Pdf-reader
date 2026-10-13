@@ -316,21 +316,27 @@ fn fonts_folder() -> PathBuf {
 /// The fonts of the last list, to read the file of the one the user chooses.
 #[derive(Default)]
 pub struct Fonts {
-    located: Mutex<HashMap<FontId, Located>>,
+    listed: Mutex<Listed>,
+}
+
+#[derive(Default)]
+struct Listed {
+    located: HashMap<FontId, Located>,
+    /// What Windows calls each, which a text box keeps to find its font again.
+    names: HashMap<FontId, String>,
 }
 
 impl Fonts {
     /// The installed fonts, read from Windows every time: one installed a moment ago is in it.
     pub fn list(&self) -> Vec<FontInfo> {
         let fonts = list(&installed(), &fonts_folder());
-        let mut located = self
-            .located
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        located.clear();
+        let mut listed = self.lock();
+        listed.located.clear();
+        listed.names.clear();
         let mut infos = Vec::with_capacity(fonts.len());
         for (info, place) in fonts {
-            located.insert(info.id, place);
+            listed.located.insert(info.id, place);
+            listed.names.insert(info.id, info.name.clone());
             infos.push(info);
         }
         infos
@@ -338,14 +344,39 @@ impl Fonts {
 
     /// The file of a font of the last list.
     pub fn read(&self, id: FontId) -> Result<FontFile, FontError> {
-        let located = self
-            .located
+        self.file(id).map(|(_, file)| file)
+    }
+
+    /// The name and the file of a font of the last list; of the list read again if the font is
+    /// not in it (nothing listed yet in this run, or a font installed since).
+    pub fn file(&self, id: FontId) -> Result<(String, FontFile), FontError> {
+        match self.try_file(id) {
+            Err(FontError::Unknown) => {
+                self.list();
+                self.try_file(id)
+            }
+            found => found,
+        }
+    }
+
+    fn try_file(&self, id: FontId) -> Result<(String, FontFile), FontError> {
+        let (name, located) = {
+            let listed = self.lock();
+            (
+                listed.names.get(&id).cloned(),
+                listed.located.get(&id).cloned(),
+            )
+        };
+        let (Some(name), Some(located)) = (name, located) else {
+            return Err(FontError::Unknown);
+        };
+        Ok((name, read_file(&located)?))
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Listed> {
+        self.listed
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .get(&id)
-            .cloned()
-            .ok_or(FontError::Unknown)?;
-        read_file(&located)
     }
 }
 
@@ -604,6 +635,30 @@ mod tests {
             .find(|id| !known.contains(id))
             .unwrap();
         assert_eq!(fonts.read(unknown), Err(FontError::Unknown));
+    }
+
+    #[test]
+    fn a_font_comes_with_its_name_and_its_file_also_when_nothing_was_listed_yet() {
+        // The real registry: a font is picked from one list, and asked for from a service that
+        // has not listed anything (the app was restarted, or a font was installed since).
+        let list = Fonts::default().list();
+        let listed = list
+            .iter()
+            .find(|info| info.name.eq_ignore_ascii_case("Arial"))
+            .or_else(|| list.first())
+            .expect("an installed font");
+        let fresh = Fonts::default();
+        let (name, file) = fresh.file(listed.id).expect("the font");
+        assert_eq!(name, listed.name);
+        assert!(
+            file.bytes.starts_with(&[0, 1, 0, 0])
+                || file.bytes.starts_with(b"true")
+                || file.bytes.starts_with(b"ttcf")
+                || file.bytes.starts_with(b"OTTO"),
+            "{:?}",
+            &file.bytes[..4]
+        );
+        assert_eq!(fresh.read(listed.id).expect("again").bytes, file.bytes);
     }
 
     #[test]

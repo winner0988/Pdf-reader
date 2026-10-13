@@ -28,6 +28,7 @@ mod search;
 mod settings;
 mod sources;
 mod strings;
+mod text_boxes;
 mod update_check;
 
 use std::ffi::OsString;
@@ -136,6 +137,7 @@ pub fn run() {
             commands::encrypt_copy,
             commands::get_ocr_languages,
             commands::get_fonts,
+            commands::prepare_text_box,
             commands::import_ocr_language,
             commands::remove_ocr_language,
             commands::start_ocr,
