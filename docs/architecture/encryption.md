@@ -94,6 +94,17 @@ sequenceDiagram
   - `tests/encryption.rs`：在沙盒中的 worker 裡，AES 與 RC4 的樣本都測；
   - E2E `permissions.spec.ts`：在真正的 app 中，使用者密碼不能複製、列印，擁有者密碼都可以。
 
+## 記住的密碼放在哪裡（ADR 0017，B2-24）
+
+`src-tauri/src/credentials.rs`：app 自己不存密碼，交給 Windows 的認證管理員（`CredWriteW`、`CredReadW`、`CredDeleteW`、`CredEnumerateW`，`windows-sys` 多一個 `Win32_Security_Credentials` feature，沒有新套件；`unsafe` 限於這個模組，每個區塊寫明為什麼安全）。
+
+- **條目**：類型 `CRED_TYPE_GENERIC`；名稱 `PdfReader/password/v1/<64 位十六進位的鍵>`（鍵見上一節；`v1` 是鍵的版本，換算法就開 `v2`，舊條目不再被找到）；使用者名稱 `PDF Reader`；說明一行文字；密碼的 UTF-8 位元組；`CRED_PERSIST_LOCAL_MACHINE`（跨登出與重開機，不隨網域設定檔漫遊）。**條目裡沒有檔名、路徑或任何文件內容**；Windows 的認證管理員看得到，使用者也能從那裡刪。
+- **上限**：密碼 1 到 1,024 個位元組（認證管理員自己的上限是 2,560）；最多 256 項，第 257 項被拒絕（`Full`），不會默默蓋掉別的；已經有的檔案可以改密碼。
+- **用法**：`remember`（覆蓋原有的）、`recall`、`forget`、`count`、`forget_all`（只動這一組的名稱前綴）。讀回的密碼放在會清除的字串裡；Windows 交出來的緩衝區先把密碼清零再還給它。條目被別人改成不是文字時回 `Damaged`；Windows 做不到（服務停用、原則禁止）時回 `Unavailable(錯誤碼)`，由呼叫的人決定（不擋開檔）。
+- **一次一個呼叫**：模組內有一把鎖，同一個行程的呼叫排隊進認證管理員。它的資料存在 Windows 重寫的檔案裡，多個執行緒同時寫與刪時，測試中看到剛刪掉的條目又出現（平行跑的測試留下了三個條目）；加了鎖之後平行跑五次都乾淨。
+- **只有主行程用**：worker 的沙盒碰不到認證管理員，也不該看到別份文件的密碼。命令與開檔流程是 B2-25（[#220](https://github.com/winner0988/Pdf-reader/issues/220)）。
+- **測試**用真正的認證管理員，但各用自己的名稱前綴（`PdfReaderTest/<行程>-<名稱>/`），每個測試結束都清掉，失敗也一樣；不碰使用者自己的條目。
+
 ## 尚未處理
 
 - **記住密碼**（Windows 認證管理員；ADR 0017，取代 ADR 0006）：以檔案自己的 `/Encrypt` 資料的雜湊為鍵，不寫入也不修改 PDF；預設不記住，使用者勾選才記，有記住時開檔自動使用，最多 256 項。實作卡 [#218](https://github.com/winner0988/Pdf-reader/issues/218)–[#221](https://github.com/winner0988/Pdf-reader/issues/221)，尚未實作。
