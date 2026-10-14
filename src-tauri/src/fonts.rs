@@ -18,7 +18,7 @@
 
 use std::collections::HashMap;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf, Prefix};
 use std::ptr::{null, null_mut};
 use std::sync::Mutex;
 
@@ -107,16 +107,49 @@ fn without_kind(name: &str) -> &str {
     }
 }
 
-/// The path a registration's file is at: a full path as it is, a bare file name in the fonts
-/// folder. `None` for what is neither (a relative path with folders or `..`).
+/// Whether an absolute path is safely on a local disk (e.g. `C:\...`). UNC paths (`\\server\share`),
+/// device paths (`\\.\...`), verbatim UNC (`\\?\UNC\...`), drive-relative (`C:foo`), and paths
+/// containing parent traversal (`..`) are strictly rejected.
+fn is_safe_disk_path(path: &Path) -> bool {
+    let mut components = path.components();
+    // The path must start with a local disk prefix (e.g. `C:`).
+    match components.next() {
+        Some(Component::Prefix(prefix)) => {
+            if !matches!(prefix.kind(), Prefix::Disk(_)) {
+                return false;
+            }
+        }
+        _ => return false,
+    }
+    // The disk prefix must be immediately followed by the root directory slash (`\`).
+    if !matches!(components.next(), Some(Component::RootDir)) {
+        return false;
+    }
+    // Traversal (`..`) or invalid components anywhere in the remaining path are disallowed.
+    for component in components {
+        match component {
+            Component::Normal(_) => {}
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// The path a registration's file is at: a full path on a local disk as it is, a bare file name
+/// in the fonts folder. `None` for what is neither (a relative path with folders or `..`, or any
+/// network, UNC or device path).
 fn path_of(file: &str, folder: &Path) -> Option<PathBuf> {
-    let path = Path::new(file.trim());
-    if path.is_absolute() {
+    let trimmed = file.trim();
+    if trimmed.starts_with(r"\\") || trimmed.starts_with("//") {
+        return None;
+    }
+    let path = Path::new(trimmed);
+    if is_safe_disk_path(path) {
         return Some(path.to_path_buf());
     }
     let mut parts = path.components();
     match (parts.next(), parts.next()) {
-        (Some(std::path::Component::Normal(name)), None) => Some(folder.join(name)),
+        (Some(Component::Normal(name)), None) => Some(folder.join(name)),
         _ => None,
     }
 }
@@ -599,5 +632,50 @@ mod tests {
         std::fs::create_dir_all(folder.join("dir.ttf")).unwrap();
         assert_eq!(read_file(&at("dir.ttf", 0)), Err(FontError::Unreadable));
         std::fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn unc_network_device_and_traversal_paths_are_strictly_rejected() {
+        let found = list(
+            &[
+                registration(
+                    Hive::User,
+                    "UNC Backslash (TrueType)",
+                    r"\\attacker\share\font.ttf",
+                ),
+                registration(
+                    Hive::User,
+                    "UNC Slash (TrueType)",
+                    "//attacker/share/font.ttf",
+                ),
+                registration(
+                    Hive::User,
+                    "Verbatim UNC (TrueType)",
+                    r"\\?\UNC\attacker\share\font.ttf",
+                ),
+                registration(Hive::User, "Device Path (TrueType)", r"\\.\COM1"),
+                registration(Hive::User, "Named Pipe (TrueType)", r"\\.\pipe\test.ttf"),
+                registration(
+                    Hive::User,
+                    "Verbatim Disk (TrueType)",
+                    r"\\?\C:\Windows\Fonts\evil.ttf",
+                ),
+                registration(
+                    Hive::User,
+                    "Absolute Traversal (TrueType)",
+                    r"C:\Windows\Fonts\..\..\evil.ttf",
+                ),
+                registration(Hive::User, "Drive Relative (TrueType)", r"C:evil.ttf"),
+                registration(Hive::User, "Root Relative (TrueType)", r"\evil.ttf"),
+                registration(
+                    Hive::User,
+                    "Valid Disk Font (TrueType)",
+                    r"C:\Users\someone\AppData\Local\Microsoft\Windows\Fonts\Valid.ttf",
+                ),
+            ],
+            &folder(),
+        );
+        let names: Vec<_> = found.iter().map(|(info, _)| info.name.as_str()).collect();
+        assert_eq!(names, ["Valid Disk Font"]);
     }
 }
