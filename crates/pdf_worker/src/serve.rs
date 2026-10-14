@@ -17,8 +17,8 @@ use ipc_contract::limits::{
 use ipc_contract::ocr::{check_language_data, is_language_name};
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
-    DocumentId, LinkId, LinkTarget, OutlineItem, OutlineResult, PageLink, PageSize, Password, Rect,
-    RequestId, Restrictions, TextBoxInfo,
+    DocumentId, ImageQuality, LinkId, LinkTarget, OutlineItem, OutlineResult, PageLink, PageSize,
+    Password, Rect, RequestId, Restrictions, TextBoxInfo,
 };
 use ipc_contract::worker::{
     FileHandle, FontData, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument, Raster,
@@ -334,6 +334,20 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     "unknown document",
                 ),
                 Some(document) => privacy_copy(document, request, file, &id),
+            }),
+            WorkerRequest::CompressedCopy {
+                request,
+                doc,
+                file,
+                quality,
+                max_side,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => compressed_copy(document, request, file, quality, max_side),
             }),
             WorkerRequest::EncryptedCopy {
                 request,
@@ -676,6 +690,34 @@ fn encrypted_copy(
             request,
             bytes,
             incremental: false,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
+/// Writes the compressed copy of `document` (B3-01) to `file`, a handle like `save`'s.
+fn compressed_copy(
+    document: &PdfDocument,
+    request: RequestId,
+    file: FileHandle,
+    quality: ImageQuality,
+    max_side: Option<u32>,
+) -> WorkerResponse {
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match document.compressed_copy(quality, max_side, &mut file) {
+        Ok(copy) => WorkerResponse::Compressed {
+            request,
+            bytes: copy.bytes,
+            before: copy.before,
+            images: copy.report.images,
+            changed: copy.report.changed,
+            partial: copy.report.partial,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }

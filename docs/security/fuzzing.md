@@ -9,6 +9,7 @@
 | `worker_messages` | IPC 的兩端：主行程解碼並驗證 worker 的回應（`decode::<WorkerResponse>`、`check_hello`、`Validate`），worker 解碼主行程的請求，以及長度前綴的分框（`read_frame`） | `fuzz_seeds` 為每一種訊息寫一個有效的 payload |
 | `open_document` | 以 MuPDF 開啟 PDF，再做 worker 會做的每件事：頁面尺寸、渲染（0.1 倍、旋轉 90°）、連結、搜尋（前兩頁）、目錄、主動內容掃描 | `tests/corpus/` 的 PDF（QA-01，不含隨需產生的大型檔） |
 | `text_box_font` | 字型檔（B2-31，[text-box-engine.md](../architecture/text-box-engine.md)）：以 `skrifa` 讀取、以 `subsetter` 裁成文字用到的字形，做成文字方塊的模型。做得出模型的字型再放進一頁、渲染（MuPDF 讀取裁出來的字型）、存檔、重新開啟、渲染與搜尋。每個輸入試第一個字型與字型集合的第二個字型，文字依輸入的長度在英文、帶重音的拉丁字母、中文、日文四組中選一組（不佔用字型的位元組） | 隨 worker 附帶的 Droid Sans Fallback，加上 runner 上的 TrueType 字型（至多 20 個、各在 2 MB 內）；這個目標的輸入上限是 5 MiB，其他目標是 1 MiB |
+| `compress_images` | 以 MuPDF 開啟 PDF，寫出壓縮圖片的副本（B3-01）：MuPDF 解碼每張圖片、縮小、編碼成 JPEG、換回去、完整重寫（品質低、尺寸上限 256、時間 2 秒） | 同 `open_document`（複製過去） |
 
 - 對所有輸入，程式都必須正常接受或拒絕：不能 panic、不能無限制地配置記憶體、不能出現記憶體錯誤。
 - 任何一種都算崩潰，libFuzzer 會把觸發它的輸入存到 `fuzz/artifacts/<目標>/`。

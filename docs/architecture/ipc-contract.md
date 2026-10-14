@@ -85,6 +85,7 @@ flowchart LR
 | `prepare_text_box` | `{ args: PrepareTextBoxArgs }`：`doc`、`text`、`font`（`get_fonts` 清單裡的字型代號）；其他欄位一律拒絕。文字不可全是空白，最多 `LIMITS.maxTextBoxBytes`（4,096 bytes），除了換行不能有控制字元與看不見的格式字元 | `PreparedTextBox`：`model`（`TextBoxModelId`，給 `addTextBox` 用）與 `viewOnly`（字型只能檢視與列印）。主行程用字型代號讀字型檔（前端拿不到路徑與位元組），交給文件自己的 worker 準備，只保管那份幾 KB 的子集模型。字型不能用、缺字、需要字形變化的文字、字型已不在，各有自己的錯誤碼（`fontInvalid`、`fontNotTrueType`、`fontVariable`、`fontColour`、`fontNotEmbeddable`、`fontMissingGlyphs`、`textNotSupported`、`fontUnavailable`）；作者不允許註解時 `invalidArgument` |
 | `get_text_box` | `{ doc, pageIndex, annotation }`：頁碼要在文件裡 | `TextBoxInfo`：`text`、`font`（Windows 叫它的名字，字型可能已不在這台電腦）、`style`（大小、顏色、對齊）、`viewOnly`、`overflow`（放不下）。由文件自己的 worker 從檔案讀出（方塊的私有記號裡有整個模型），不需要字型；用來填入改文字方塊的對話框。不是 app 做的文字方塊時 `invalidArgument` |
 | `encrypt_copy` | `{ args: EncryptArgs }`：`doc`、`openPassword`、`permissionsPassword`（都可以是 `null`）、`restrictions`（`print`、`copy`、`modify`）；其他欄位一律拒絕。**沒有路徑**：主行程顯示另存對話框，不能選原檔 | `boolean`：`false` 表示使用者關閉了對話框；文件已加密、有數位簽章、參數不合規則時是錯誤。見 [encrypt-copy.md](encrypt-copy.md) | 否 | B2-15 |
+| `compress_images` | `{ args: CompressArgs }`：`doc`、`quality`（`high`、`medium`、`low`）、`maxSide`（`null` 或 256 到 16,384 的像素數）；其他欄位一律拒絕。**沒有路徑**：主行程顯示另存對話框，不能選原檔 | `CompressResult \| null`：`null` 表示使用者關閉了對話框；否則 `before`（不換圖片時副本的位元組數）、`after`（副本的位元組數）、`images`（文件的圖片數）、`changed`（重新編碼的張數）、`partial`（時間不夠，剩下的原樣）。文件已加密或有數位簽章、參數不合規則時是錯誤。見 [compress-images.md](compress-images.md) | 否 | B3-01 |
 | `privacy_export` | `{ doc: DocumentId }`（不含路徑：主行程顯示另存對話框，不能選原檔） | `boolean`：`false` 表示使用者關閉了對話框。寫出清除中繼資料的副本，文件與原檔不變；加密的文件拒絕（見 [privacy-export.md](privacy-export.md)） | 否 | B2-03 |
 | `get_ocr_languages` | 無 | `OcrLanguages`：`languages`（`code`、`bundled`、`bytes`；內附的在前，匯入的在後）與 `automatic`（`ocrLanguage: null` 代表的語言，沒有任何語言時為 `null`） | 否 | B2-10 |
 | `import_ocr_language` | 無（不含路徑：主行程顯示開啟對話框，只能選一個 `.traineddata`） | `LanguageImport`：`imported`（帶最新的 `languages`）、`cancelled`，或 `refused`（`reason`：`unreadable`、`tooLarge`、`notLanguageData`、`badName`、`nameTaken`、`tooMany`）；檢查名稱、大小（`LIMITS.maxLanguageDataBytes`）與格式後複製到 app 的資料資料夾，什麼都不下載 | 否 | B2-10 |
@@ -248,6 +249,7 @@ flowchart LR
 | `Rebase` | `request`, `doc`, `file`（唯讀 handle：剛存好的檔案） | `Rebased`；之後復原從這個檔案的位元組重新開啟。不解析檔案，不需要密碼 |
 | `Save` | `request`, `doc`, `file`（**只能寫入**的 handle，指向主行程建立的新暫存檔） | `Saved`（`bytes`、`incremental`）或 `Error`（`DiskFull`、`Unwritable`、`LimitExceeded` 等）；逾時 5 分鐘，見 [saving.md](saving.md) |
 | `EncryptedCopy` | `request`, `doc`, `file`（同 `Save`）, `open_password`（可以沒有）, `owner_password`, `restrictions` | `Saved`（`incremental` 一律為 false）或 `Error`（已加密或有簽章的文件、不能有的密碼：`InvalidRequest`）；兩個密碼的處理同 `Open`（送出後清除、worker 收到後清除）；開著的文件不變（B2-15） |
+| `CompressedCopy` | `request`, `doc`, `file`（同 `Save`）, `quality`, `max_side`（可以沒有） | `Compressed`（`bytes`、`before`、`images`、`changed`、`partial`）或 `Error`（加密或有簽章的文件、不是尺寸的上限：`InvalidRequest`；太多物件：`LimitExceeded`）；寫出圖片重新編碼的副本，worker 中的文件不變（B3-01，見 [compress-images.md](compress-images.md)） |
 | `PrivacyCopy` | `request`, `doc`, `file`（同 `Save`）, `id`（16 bytes，主行程產生的亂數） | `Saved`（`incremental` 一律為 false）或 `Error`（加密的文件：`InvalidRequest`；太多物件：`LimitExceeded`）；寫出清除中繼資料的副本，worker 中的文件不變（B2-03，見 [privacy-export.md](privacy-export.md)） |
 | `PrepareSource` | `request`, `file`（**唯讀** handle：使用者選的 PDF）, `password`（加密的檔案才有，用完即清除） | `Source`（`bytes`：乾淨、沒有加密的 PDF，最多 `MAX_SOURCE_BYTES`；`pages`；`security`：這個檔案的主動內容掃描）或 `Error`（要密碼：`Encrypted`；密碼不對：`WrongPassword`；作者不允許取出頁面：`NotAllowed`；太大：`LimitExceeded`）；worker 不保留任何東西（B2-06，見 [merge.md](merge.md)） |
 | `PrepareStampImage` | `request`, `file`（唯讀 handle：使用者選的圖片，PNG 或 JPEG） | `StampImage`（`png`：只含像素的 PNG，最多 `MAX_STAMP_PNG_BYTES`；`width`、`height`，每邊最多 `MAX_STAMP_SIDE_PX`；主行程檢查簽名、標頭與它們一致）或 `Error`（不是可用的圖片：`InvalidRequest`；太大：`LimitExceeded`）；自訂圖片印章用，見 [annotations.md](annotations.md)（B2-08） |
@@ -260,7 +262,7 @@ flowchart LR
 | `Close` | `doc` | 無 |
 | `Shutdown` | — | worker 結束 |
 
-`FileHandle` 是主行程複製進 worker 行程的 handle 值（ADR 0008）：`Open`、`Rebase` 與 `PrepareStampImage` 是唯讀開啟的檔案，`Save` 與 `PrivacyCopy` 是只能寫入的新暫存檔（B2-02、B2-03、B2-08）。**worker 永遠拿不到路徑**；交付方式記錄在 `docs/architecture/worker-sandbox.md`。
+`FileHandle` 是主行程複製進 worker 行程的 handle 值（ADR 0008）：`Open`、`Rebase` 與 `PrepareStampImage` 是唯讀開啟的檔案，`Save`、`PrivacyCopy` 與 `CompressedCopy` 是只能寫入的新暫存檔（B2-02、B2-03、B3-01、B2-08）。**worker 永遠拿不到路徑**；交付方式記錄在 `docs/architecture/worker-sandbox.md`。
 
 `WorkerResponse` 的每個值在使用前都要通過 `Validate`：頁數、頁面尺寸、座標是否為有限數且在範圍內、點陣圖大小與像素長度是否一致、字串與清單長度、目錄是否為合法的前序結構、連結 id 是否屬於回報的頁面等。
 

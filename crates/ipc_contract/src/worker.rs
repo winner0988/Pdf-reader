@@ -10,10 +10,10 @@ use serde::{Deserialize, Serialize};
 use crate::PROTOCOL_VERSION;
 use crate::types::{
     AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FontRefusal,
-    FormField, HighlightColor, HighlightMark, InkColor, InkWidth, OutlineResult, PageAnnotation,
-    PageLink, PageSize, PageText, Password, Point, Rect, RequestId, Restrictions, Rotation,
-    SearchHit, SecurityReport, SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo,
-    TextBoxModelId, TextBoxStyle,
+    FormField, HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, OutlineResult,
+    PageAnnotation, PageLink, PageSize, PageText, Password, Point, Rect, RequestId, Restrictions,
+    Rotation, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageId, StampName,
+    TextBoxInfo, TextBoxModelId, TextBoxStyle,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -466,6 +466,18 @@ pub enum WorkerRequest {
         /// Random, from the main process.
         id: [u8; 16],
     },
+    /// Writes to `file` (as for `Save`) a copy of the document, edits included, whose pictures
+    /// are encoded again at `quality`, and shrunk to `max_side` pixels on their longer side
+    /// (B3-01, docs/architecture/compress-images.md). The open document is not changed.
+    /// Answered by `Compressed`, never appended. Refused for an encrypted document and for a
+    /// signed one (its signatures would not hold).
+    CompressedCopy {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
+        quality: ImageQuality,
+        max_side: Option<u32>,
+    },
     /// Writes to `file` (as for `Save`) a copy of the document, edits included, encrypted with
     /// AES-256 (B2-15, docs/architecture/encrypt-copy.md). The open document is not changed.
     /// Answered by `Saved`, never appended. Refused for a signed document (its signatures would
@@ -684,6 +696,17 @@ pub enum WorkerResponse {
         request: RequestId,
         bytes: u64,
         incremental: bool,
+    },
+    /// `CompressedCopy` is done: the copy is `bytes` long; with its pictures as they were it
+    /// would have been `before` long. `images` pictures were looked at, `changed` of them were
+    /// encoded again; `partial`: the time was up first.
+    Compressed {
+        request: RequestId,
+        bytes: u64,
+        before: u64,
+        images: u32,
+        changed: u32,
+        partial: bool,
     },
     /// `OcrLoad` is done: pages are recognised in that language now.
     OcrLoaded {

@@ -138,6 +138,7 @@ pub fn run() {
             commands::close_window,
             commands::privacy_export,
             commands::encrypt_copy,
+            commands::compress_images,
             commands::get_ocr_languages,
             commands::get_fonts,
             commands::prepare_text_box,

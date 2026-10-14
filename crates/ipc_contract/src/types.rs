@@ -717,6 +717,48 @@ pub struct SaveResult {
     pub incremental: bool,
 }
 
+/// How hard the pictures of a compressed copy are squeezed (B3-01,
+/// docs/architecture/compress-images.md): the quality they are encoded again at. What each stands
+/// for in numbers is the worker's business.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ImageQuality {
+    High,
+    Medium,
+    Low,
+}
+
+/// Arguments of `compress_images` (B3-01): the open document is written, its pictures encoded
+/// again, to a file the user chooses next. Any other field is rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompressArgs {
+    pub doc: DocumentId,
+    pub quality: ImageQuality,
+    /// A picture with a longer side than this, in pixels, is shrunk to it (its shape stays);
+    /// none: no picture is shrunk.
+    pub max_side: Option<u32>,
+}
+
+/// What `compress_images` did (B3-01), for the page to say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CompressResult {
+    /// What the copy would measure with its pictures left as they are (rewritten whole, without
+    /// what nothing uses), in bytes.
+    #[ts(type = "number")]
+    pub before: u64,
+    /// What the copy measures, in bytes.
+    #[ts(type = "number")]
+    pub after: u64,
+    /// The pictures in the document (those that are masks of others are not counted) ...
+    pub images: u32,
+    /// ... and how many of them were encoded again, because that made them smaller.
+    pub changed: u32,
+    /// The time was up before every picture was looked at: the rest were left as they are.
+    pub partial: bool,
+}
+
 /// Arguments of `set_file_recording` (#73): whether an open document's file may be on the recent
 /// files list. Any other field is rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

@@ -12,8 +12,8 @@ use ipc_contract::limits::{
     MAX_SOURCE_BYTES,
 };
 use ipc_contract::types::{
-    BlockedAction, DocumentPermissions, PageText as TextLayer, Point, Quad, Restrictions,
-    SecurityReport,
+    BlockedAction, DocumentPermissions, ImageQuality, PageText as TextLayer, Point, Quad,
+    Restrictions, SecurityReport,
 };
 use mupdf::pdf::{
     Encryption, InsertPdfOptions, InsertPosition, PageSelection, PdfDocument as MuPdfDocument,
@@ -21,6 +21,7 @@ use mupdf::pdf::{
 };
 use mupdf::{Colorspace, Document, ImageFormat, Matrix, Page, Pixmap, TextPageFlags};
 
+use crate::compress;
 use crate::owner_password;
 use crate::scan::{self, ScanBudget};
 use crate::search::{PageSearch, PageText};
@@ -949,6 +950,80 @@ impl PdfDocument {
         options.set_owner_password(owner_password);
         options.set_user_password(open_password.unwrap_or(""));
         write_limited(&copy, out, options)
+    }
+}
+
+/// What a compressed copy came to (B3-01).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompressedCopy {
+    /// The bytes written.
+    pub bytes: u64,
+    /// What the copy would have measured with its pictures as they were.
+    pub before: u64,
+    pub report: compress::Report,
+}
+
+impl PdfDocument {
+    /// Writes to `out` a copy of the document, edits included, whose pictures are encoded again
+    /// at `quality` and shrunk to `max_side` pixels on their longer side (B3-01,
+    /// docs/architecture/compress-images.md, [`compress::recompress`]). The open document is not
+    /// touched: it is saved into memory and opened again, and that second document is the one
+    /// whose pictures change. The copy is rewritten whole and its streams compressed, so what
+    /// nothing uses is gone. An encrypted document is refused, as for the privacy export; so is a
+    /// signed one: a copy that changed is no longer what the signature covers.
+    pub fn compressed_copy(
+        &self,
+        quality: ImageQuality,
+        max_side: Option<u32>,
+        out: &mut impl Write,
+    ) -> Result<CompressedCopy, EngineError> {
+        self.compressed_copy_within(quality, max_side, compress::BUDGET, out)
+    }
+
+    /// As [`compressed_copy`](Self::compressed_copy), with the time the pictures may take (the
+    /// fuzz target gives it a short one).
+    pub fn compressed_copy_within(
+        &self,
+        quality: ImageQuality,
+        max_side: Option<u32>,
+        budget: std::time::Duration,
+        out: &mut impl Write,
+    ) -> Result<CompressedCopy, EngineError> {
+        if self.is_encrypted() {
+            return Err(EngineError::EncryptedCopy);
+        }
+        if self.is_signed() {
+            return Err(EngineError::InvalidEdit(
+                "a signed document cannot be compressed: its signatures would not hold",
+            ));
+        }
+        let plain = || {
+            let mut options = PdfWriteOptions::default();
+            options.set_garbage(true);
+            options.set_compress(true);
+            options.set_compress_images(true);
+            options.set_compress_fonts(true);
+            options
+        };
+        let mut bytes = Vec::new();
+        let before = write_limited(&self.doc, &mut bytes, plain())?;
+        let copy = Document::from_bytes(&bytes, "application/pdf").map_err(open_error)?;
+        drop(bytes);
+        let copy = MuPdfDocument::try_from(copy)?;
+        let report = compress::recompress(
+            &copy,
+            compress::Options {
+                quality,
+                max_side,
+                budget,
+            },
+        )?;
+        let bytes = write_limited(&copy, out, plain())?;
+        Ok(CompressedCopy {
+            bytes,
+            before,
+            report,
+        })
     }
 }
 

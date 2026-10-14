@@ -19,12 +19,12 @@ use ipc_contract::limits::{
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
-    AnnotationId, BlockedAction, DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs,
-    ErrorCode, FormField, IpcError, LinkArgs, LinkPreview, LinkTarget, NotRemembered, OpenEvent,
-    OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource,
-    Password, PreparedTextBox, Recovery, RememberedPasswords, RenderPageArgs, Restrictions,
-    SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageInfo, TabId,
-    TextBoxInfo, UnlockOutcome,
+    AnnotationId, BlockedAction, CompressResult, DocumentId, DocumentInfo, DocumentPermissions,
+    Edit, EditArgs, ErrorCode, FormField, ImageQuality, IpcError, LinkArgs, LinkPreview,
+    LinkTarget, NotRemembered, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink,
+    PageSize, PageText, PagesSource, Password, PreparedTextBox, Recovery, RememberedPasswords,
+    RenderPageArgs, Restrictions, SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId,
+    StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
@@ -862,6 +862,63 @@ impl Documents {
             };
             temporary.check(bytes)?;
             temporary.replace(destination)
+        })
+    }
+
+    /// Writes to `destination` a copy of `doc`, edits included, whose pictures are encoded again
+    /// at `quality` and shrunk to `max_side` pixels on their longer side (B3-01,
+    /// docs/architecture/compress-images.md): made by the document's worker. The document, its
+    /// edits and its file are not changed. Refused for an encrypted document (its copy could not
+    /// be encrypted again), for a signed one (the worker says so: its signatures would not hold),
+    /// and for the document's own file.
+    pub fn compress_copy(
+        &self,
+        doc: DocumentId,
+        destination: &Path,
+        quality: ImageQuality,
+        max_side: Option<u32>,
+    ) -> Result<CompressResult, IpcError> {
+        self.with_document(doc, |document| {
+            if document.info.encrypted {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "an encrypted document has no compressed copy".to_owned(),
+                });
+            }
+            if same_file(&document.path, destination) {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "the compressed copy never replaces the document's own file"
+                        .to_owned(),
+                });
+            }
+            saving::check_writable(destination)?;
+            let mut temporary = Temporary::new(destination)?;
+            let worker_doc = live_worker(document)?;
+            let response = document
+                .host
+                .compressed_copy(worker_doc, temporary.file(), quality, max_side)
+                .map_err(|error| lost_on(document, &error))?;
+            let WorkerResponse::Compressed {
+                bytes,
+                before,
+                images,
+                changed,
+                partial,
+                ..
+            } = response
+            else {
+                return Err(unexpected("CompressedCopy"));
+            };
+            temporary.check(bytes)?;
+            temporary.replace(destination)?;
+            Ok(CompressResult {
+                before,
+                after: bytes,
+                images,
+                changed,
+                partial,
+            })
         })
     }
 
@@ -3633,6 +3690,99 @@ mod with_worker {
             ErrorCode::InvalidArgument
         );
         assert!(!copy.exists());
+    }
+
+    #[test]
+    fn a_compressed_copy_has_the_edits_and_leaves_the_document_alone() {
+        let sample =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign/image-only.pdf");
+        let (documents, info, path) = open_bytes("compress-copy", &std::fs::read(sample).unwrap());
+        // An edit that is not saved is in the copy, as in any copy of the document.
+        let edited = opened_info(documents.apply_edit(&rotate(info.doc, vec![0])).unwrap());
+        assert_ne!(edited.pages[0], info.pages[0]);
+        let before = std::fs::read(&path).unwrap();
+        let identity = FileIdentity::of(&path);
+        let copy = path.with_file_name("compress-copy-copy.pdf");
+        std::fs::remove_file(&copy).ok();
+
+        let result = documents
+            .compress_copy(edited.doc, &copy, ImageQuality::Medium, Some(1_000))
+            .unwrap();
+        let written = std::fs::read(&copy).unwrap();
+        assert!(written.starts_with(b"%PDF-"));
+        assert_eq!(result.after, written.len() as u64);
+        assert!(result.images >= 1, "the sample is a picture of a page");
+        assert!(result.changed <= result.images);
+        assert!(!result.partial);
+        assert_eq!(first_page_of(&copy), edited.pages[0]);
+        // The document, its edit and its file are as they were.
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(FileIdentity::of(&path), identity);
+        assert_eq!(documents.unsaved_tabs().len(), 1);
+        std::fs::remove_file(copy).ok();
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_compressed_copy_never_replaces_the_documents_own_file() {
+        let (documents, info, path) = open("compress-own-file", 1);
+        let before = std::fs::read(&path).unwrap();
+        let shouted = PathBuf::from(path.to_string_lossy().to_uppercase());
+        for destination in [&path, &shouted] {
+            assert_eq!(
+                documents
+                    .compress_copy(info.doc, destination, ImageQuality::Low, None)
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidArgument
+            );
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn an_encrypted_document_and_a_signed_one_have_no_compressed_copy() {
+        let copy = std::env::temp_dir().join(format!(
+            "pdf-reader-compress-refused-{}.pdf",
+            std::process::id()
+        ));
+        std::fs::remove_file(&copy).ok();
+        // Encrypted: the copy could not be encrypted again.
+        let documents = Documents::new(worker());
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/encrypted-aes256.pdf");
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let [tab] = documents.add(&[path], &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(tab, &report);
+        documents
+            .unlock(tab, Password::new("user".to_owned()), &report)
+            .unwrap();
+        let Some(OpenEvent::Opened { info, .. }) = events.borrow().last().cloned() else {
+            panic!("opened")
+        };
+        assert!(info.encrypted);
+        assert_eq!(
+            documents
+                .compress_copy(info.doc, &copy, ImageQuality::Medium, None)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        // Signed: the worker says no, and the file it was to write is not left behind.
+        let sample =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign/signed.pdf");
+        let (documents, info, path) =
+            open_bytes("compress-signed", &std::fs::read(sample).unwrap());
+        let error = documents
+            .compress_copy(info.doc, &copy, ImageQuality::Medium, None)
+            .unwrap_err();
+        assert_ne!(error.code, ErrorCode::Internal, "{error:?}");
+        assert!(!copy.exists());
+        std::fs::remove_file(path).ok();
     }
 
     fn password(text: &str) -> Password {
