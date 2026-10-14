@@ -400,7 +400,7 @@ fn axis_map(
 }
 
 /// Annotation `id` of `page`, other than a pop-up window.
-fn find(page: &PdfPage, id: AnnotationId) -> Result<PdfAnnotation, EngineError> {
+pub(super) fn find(page: &PdfPage, id: AnnotationId) -> Result<PdfAnnotation, EngineError> {
     let wanted = i32::try_from(id.0).map_err(|_| EngineError::InvalidEdit("no such annotation"))?;
     page.annotations()
         .find(|annotation| {

@@ -691,6 +691,54 @@ pub struct Quad {
     pub lr: Point,
 }
 
+/// A colour of red, green and blue, each from 0 to 255 (text boxes, B2-28).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Rgb {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+/// Where the lines of a text box are set (B2-28, ADR 0018).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum TextAlign {
+    Left,
+    Center,
+    Right,
+}
+
+/// How a text box sets its words (B2-28, ADR 0018): the part of the choice that does not need the
+/// font again. Bold and italic are not here: they are other fonts of the family
+/// (`FontInfo::bold` and `italic`), chosen with the words.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TextBoxStyle {
+    /// In points: `MIN_TEXT_BOX_SIZE` to `MAX_TEXT_BOX_SIZE`.
+    pub size: f32,
+    pub color: Rgb,
+    pub align: TextAlign,
+}
+
+/// Why a font cannot be used for a text box (B2-28, ADR 0018): the first version sets text in
+/// TrueType outlines only, in fonts whose licence lets them be embedded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum FontRefusal {
+    /// The bytes are not a font the worker can read and cut.
+    NotAFont,
+    /// OpenType with CFF outlines, or a font without outlines of its own.
+    NotTrueType,
+    /// A variable font.
+    Variable,
+    /// A colour font (colour layers, bitmaps or SVG).
+    Colour,
+    /// Its licence (OS/2 `fsType`) forbids embedding it, or cutting it.
+    NotEmbeddable,
+    /// It has no glyph for a character of the text.
+    MissingGlyphs,
+}
+
 /// Kinds of active content or remote references found in a document (MVP-11).
 /// None of them is ever executed or followed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]

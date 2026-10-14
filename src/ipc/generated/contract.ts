@@ -458,6 +458,33 @@ export type Rect = { x0: number, y0: number, x1: number, y1: number, };
 export type Quad = { ul: Point, ur: Point, ll: Point, lr: Point, };
 
 /**
+ * A colour of red, green and blue, each from 0 to 255 (text boxes, B2-28).
+ */
+export type Rgb = { r: number, g: number, b: number, };
+
+/**
+ * Where the lines of a text box are set (B2-28, ADR 0018).
+ */
+export type TextAlign = "left" | "center" | "right";
+
+/**
+ * How a text box sets its words (B2-28, ADR 0018): the part of the choice that does not need the
+ * font again. Bold and italic are not here: they are other fonts of the family
+ * (`FontInfo::bold` and `italic`), chosen with the words.
+ */
+export type TextBoxStyle = { 
+/**
+ * In points: `MIN_TEXT_BOX_SIZE` to `MAX_TEXT_BOX_SIZE`.
+ */
+size: number, color: Rgb, align: TextAlign, };
+
+/**
+ * Why a font cannot be used for a text box (B2-28, ADR 0018): the first version sets text in
+ * TrueType outlines only, in fonts whose licence lets them be embedded.
+ */
+export type FontRefusal = "notAFont" | "notTrueType" | "variable" | "colour" | "notEmbeddable" | "missingGlyphs";
+
+/**
  * Kinds of active content or remote references found in a document (MVP-11).
  * None of them is ever executed or followed.
  */

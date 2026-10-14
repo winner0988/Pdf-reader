@@ -21,6 +21,48 @@ use crate::types::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileHandle(pub u64);
 
+/// One character of the words of a text box: the glyph the font has for it, numbered in the
+/// subset, and how far it moves the pen (B2-28).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelGlyph {
+    pub ch: char,
+    /// The glyph's number in the subset (1 and up: 0 is the glyph for what is missing).
+    pub cid: u16,
+    /// In thousandths of the size of the text.
+    pub advance: u16,
+}
+
+/// The words of a text box and the font they are set in, made once from the font and then all
+/// that is needed to set them again: on another page, at another size, in another document, and
+/// in a crash recovery journal, none of which has the font (B2-28, ADR 0018: the journal keeps a
+/// subset, not the whole font). The worker makes it from a font file, which is not trusted; a
+/// model that comes back from disk or from the worker is checked like any other value
+/// ([`crate::validate`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextBoxModel {
+    /// Lines are broken at `\n` and where the box is not wide enough.
+    pub text: String,
+    /// What Windows calls the font, to find it again; and which font of its file.
+    pub font: String,
+    pub face: u32,
+    /// The font's licence lets a PDF with it be viewed and printed only (OS/2 `fsType` 4).
+    pub view_only: bool,
+    /// The name of the subset in the file: `ABCDEF+Name`.
+    pub base: String,
+    /// In thousandths of the size of the text.
+    pub ascent: i32,
+    pub descent: i32,
+    pub cap_height: i32,
+    /// The distance between two lines.
+    pub step: i32,
+    /// The box the glyphs fit in, `[left, bottom, right, top]`.
+    pub bbox: [i32; 4],
+    /// The glyphs of the characters of `text`, once each.
+    pub glyphs: Vec<ModelGlyph>,
+    /// The font cut to those glyphs: TrueType, in the order of `cid`.
+    pub subset: Vec<u8>,
+}
+
 /// An edit as the worker applies it (ADR 0013). The frontend's form is [`Edit`], which postcard
 /// cannot carry (it is tagged for JSON).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

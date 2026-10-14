@@ -793,11 +793,14 @@ fn engine_error(
         | EngineError::InvalidRotation
         | EngineError::InvalidEdit(_)
         | EngineError::InvalidPicture(_)
+        | EngineError::Font(_)
+        | EngineError::UnsupportedText
         | EngineError::NoPageLeft
         | EngineError::EncryptedCopy => WorkerErrorCode::InvalidRequest,
         EngineError::TooLarge { .. }
         | EngineError::TooComplex
         | EngineError::TooManyPages
+        | EngineError::SubsetTooLarge
         | EngineError::PictureTooLarge => WorkerErrorCode::LimitExceeded,
         EngineError::Write(error) => match error.kind() {
             std::io::ErrorKind::StorageFull => WorkerErrorCode::DiskFull,
