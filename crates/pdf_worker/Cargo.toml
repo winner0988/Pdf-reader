@@ -20,6 +20,9 @@ mupdf = { version = "=0.8.0", default-features = false, features = ["base14-font
 # The same crate `mupdf` builds on, called directly only to learn which password opened a
 # document (src/owner_password.rs, #88). No features of its own: `mupdf` chooses them.
 mupdf-sys = { version = "=0.8.0", default-features = false }
+# The key a remembered password is looked up by (src/password_key.rs, ADR 0017). Already in the
+# workspace through the main program.
+sha2 = "0.11"
 thiserror = "2"
 # Clears the copy of the password that src/owner_password.rs hands MuPDF (already in the
 # workspace through ipc_contract).

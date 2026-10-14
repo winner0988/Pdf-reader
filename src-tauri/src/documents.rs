@@ -2306,6 +2306,7 @@ mod tests {
         let error = ipc_error(&HostError::Worker(WorkerError {
             code: WorkerErrorCode::Encrypted,
             detail: r"secret text from C:\Users\someone\a.pdf".to_owned(),
+            password_key: None,
         }));
         assert_eq!(error.code, ErrorCode::Encrypted);
         assert!(!error.message.contains("secret") && !error.message.contains(r"C:\"));

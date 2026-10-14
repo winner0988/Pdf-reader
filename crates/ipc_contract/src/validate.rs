@@ -19,7 +19,9 @@ use crate::types::{
     SignatureInfo, SignatureReport, SignatureStatus, TextLine, UndoArgs, UnlockArgs,
     UnlockSourceArgs,
 };
-use crate::worker::{OcrOutcome, OpenedDocument, Raster, WorkerError, WorkerResponse};
+use crate::worker::{
+    OcrOutcome, OpenedDocument, Raster, WorkerError, WorkerErrorCode, WorkerResponse,
+};
 
 /// Maximum length of the worker version string in `Hello`.
 const MAX_VERSION_BYTES: usize = 64;
@@ -357,6 +359,13 @@ pub fn check_raster_size(width: u32, height: u32) -> Result<(), ValidationError>
 
 impl Validate for WorkerError {
     fn validate(&self) -> Result<(), ValidationError> {
+        // Only a request for a password has a key to give (ADR 0017).
+        if self.password_key.is_some() && self.code != WorkerErrorCode::Encrypted {
+            return Err(ValidationError::Invalid {
+                what: "password key",
+                reason: "only a request for a password has one",
+            });
+        }
         check_text("error detail", &self.detail, MAX_ERROR_MESSAGE_BYTES)
     }
 }
@@ -1809,12 +1818,37 @@ mod tests {
     }
 
     #[test]
+    fn only_a_request_for_a_password_carries_a_key() {
+        use crate::worker::PasswordKey;
+        let error = |code, password_key| WorkerResponse::Error {
+            request: None,
+            error: WorkerError {
+                code,
+                detail: "x".to_owned(),
+                password_key,
+            },
+        };
+        let key = Some(PasswordKey([1; 32]));
+        assert!(error(WorkerErrorCode::Encrypted, key).validate().is_ok());
+        assert!(error(WorkerErrorCode::Encrypted, None).validate().is_ok());
+        for code in [
+            WorkerErrorCode::WrongPassword,
+            WorkerErrorCode::Corrupted,
+            WorkerErrorCode::Internal,
+        ] {
+            assert!(error(code, key).validate().is_err(), "{code:?}");
+            assert!(error(code, None).validate().is_ok(), "{code:?}");
+        }
+    }
+
+    #[test]
     fn worker_error_detail_is_bounded() {
         let error = |detail: String| WorkerResponse::Error {
             request: None,
             error: WorkerError {
                 code: WorkerErrorCode::Corrupted,
                 detail,
+                password_key: None,
             },
         };
         assert!(error("bad xref".to_owned()).validate().is_ok());

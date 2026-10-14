@@ -159,7 +159,7 @@ flowchart LR
 - 格式轉換：匯出 Word（.docx）、從 Office 文件或圖片建立 PDF（規格 §7；先做 POC 與 ADR）。
 - 表單腳本沙盒（ADR 0001；先做 POC）。
 - 批次處理佇列與背景執行（ADR 0005）。
-- 存檔時加密與設定權限（規格 §3）；安全遮蔽，從檔案中真正移除內容（規格 §3）。
+- 存檔時加密與設定權限（規格 §3；B2-15 已完成）。安全遮蔽，從檔案中真正移除內容（規格 §3）：ADR 0016 已接受，實作卡 [#214](https://github.com/winner0988/Pdf-reader/issues/214)–[#217](https://github.com/winner0988/Pdf-reader/issues/217)。
 - 機敏標記（ADR 0004）：要文件識別碼（ADR 0010）。密碼記憶：ADR 0017 已接受（取代 ADR 0006，不用文件識別碼），實作卡 [#218](https://github.com/winner0988/Pdf-reader/issues/218)–[#221](https://github.com/winner0988/Pdf-reader/issues/221)。
 - 信任後載入遠端資源（ADR 0002）：等 ADR 0009，並另寫 ADR。
 - 文字方塊與字型子集化（規格 §4）：ADR 0018 已接受，實作卡 [#224](https://github.com/winner0988/Pdf-reader/issues/224)–[#228](https://github.com/winner0988/Pdf-reader/issues/228)，第二階段（匯入字型檔）[#229](https://github.com/winner0988/Pdf-reader/issues/229)。插入圖片與 EXIF 清除（規格 §5）。

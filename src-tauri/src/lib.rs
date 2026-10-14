@@ -7,6 +7,7 @@ compile_error!(
 
 mod cli;
 mod commands;
+mod credentials;
 mod documents;
 mod events;
 mod export;

@@ -27,7 +27,7 @@ flowchart LR
 
 1. 一個 agent 同時只做一張 Issue；一張 Issue 一個 branch；一個 PR 只做一件事。
 2. `main` 永遠保持可建置；不直接 push 到 `main`。
-3. PR 必須 CI 全綠、由**不同於作者**的 agent 或人 review，才能 squash merge。
+3. PR 必須 CI 全綠、由**不同於作者**的 agent 或人 review，才能 squash merge。審查與除錯的做法（給 Antigravity 等其他 agent）見 [agents/independent-review.md](agents/independent-review.md)。
 4. AI review 不能取代安全審查：安全敏感 PR（見 [AGENTS.md](../AGENTS.md#需要人工安全審查的變更)）必須由負責人親自核准。
 5. 分支命名與 PR 標題格式見 [AGENTS.md](../AGENTS.md#工作方式)。
 
