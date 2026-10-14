@@ -348,7 +348,7 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
         ),
         Kind::OpenBatchFiles => (
             strings::BATCH_FILES_DIALOG_TITLE,
-            Some((strings::PDF_FILTER_NAME, "*.pdf")),
+            one(strings::PDF_FILTER_NAME, "*.pdf"),
         ),
         Kind::SaveText { .. } => (
             strings::EXPORT_TEXT_DIALOG_TITLE,
