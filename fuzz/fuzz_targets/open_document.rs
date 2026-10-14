@@ -1,5 +1,6 @@
 //! Opening an untrusted PDF with MuPDF, then everything the worker does with it (QA-03):
-//! page sizes, rendering, the outline, links, the active-content scan and search. The sandbox
+//! page sizes, rendering, the outline, links, the active-content scan, search and the Word
+//! document made of the first pages (B3-02). The sandbox
 //! contains a crash (ADR 0008), but it does not replace finding it.
 #![no_main]
 
@@ -24,6 +25,9 @@ fuzz_target!(|data: &[u8]| {
         let _ = document.page_links(index, 100);
         let _ = document.search_page(index, "a", false, 100);
     }
+    // The Word document of the same pages (B3-02): their text as XML, their pictures as PNG files.
+    let first_pages: Vec<u32> = (0..pages.min(2)).collect();
+    let _ = document.docx(&first_pages, &mut std::io::sink());
     let _ = document.outline(1_000, 64);
     let _ = document.has_outline();
     let _ = document.active_content(ScanBudget {

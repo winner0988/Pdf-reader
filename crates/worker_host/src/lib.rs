@@ -239,6 +239,31 @@ impl WorkerHost {
         })
     }
 
+    /// Writes the pages `pages` of the open document `doc` to `file` as a Word document (B3-02),
+    /// as [`save_pages`](Self::save_pages) writes a PDF: the worker gets a write-only handle,
+    /// never a path. Returns `Saved`. The document itself does not change.
+    pub fn export_docx(
+        &mut self,
+        doc: DocumentId,
+        pages: &[u32],
+        file: &File,
+    ) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_write_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::ExportDocx {
+            request,
+            doc,
+            pages: pages.to_vec(),
+            file: FileHandle(handle),
+        })
+    }
+
     /// Has the worker make the plain copy of the PDF in `file` (a file the main process opened),
     /// whose pages are to go into a document (B2-06): the worker reads it through a read-only
     /// handle, as it reads a document, and never gets a path. `password` is for an encrypted

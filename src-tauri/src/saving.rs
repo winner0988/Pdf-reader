@@ -20,6 +20,11 @@ use windows_sys::Win32::Storage::FileSystem::{
 /// Every PDF starts with this (the header), and a complete one ends with the other.
 const PDF_HEADER: &[u8] = b"%PDF-";
 const PDF_END: &[u8] = b"%%EOF";
+/// A ZIP file (a Word document is one) starts with the header of its first file, and ends with
+/// the record that closes its directory: this signature, 18 more bytes and no comment.
+const ZIP_HEADER: &[u8; 4] = b"PK\x03\x04";
+const ZIP_END: &[u8] = b"PK\x05\x06";
+const ZIP_END_LEN: usize = 22;
 /// How far from the end of a file its end marker may be (it may be followed by white space).
 const END_SEARCH_BYTES: u64 = 1_024;
 
@@ -138,6 +143,35 @@ impl Temporary {
             .and_then(|_| file.read_exact(&mut tail))
             .map_err(|error| write_error(&error))?;
         if head != PDF_HEADER || !tail.trim_ascii_end().ends_with(PDF_END) {
+            return Err(incomplete());
+        }
+        Ok(())
+    }
+
+    /// As [`check`](Self::check), for a Word document (B3-02): a ZIP file as the worker writes
+    /// one, which starts with the header of its first file and ends with the record that closes
+    /// its directory (22 bytes, with no comment). The file's content is not parsed.
+    pub fn check_zip(&mut self, bytes: u64) -> Result<(), IpcError> {
+        let file = self.file.as_mut().expect("open until replaced");
+        file.sync_all().map_err(|error| write_error(&error))?;
+        let len = file.metadata().map_err(|error| write_error(&error))?.len();
+        let incomplete = || IpcError {
+            code: ErrorCode::Unwritable,
+            message: "the written file is not a complete Word document".to_owned(),
+        };
+        if len != bytes || len < (ZIP_HEADER.len() + ZIP_END_LEN) as u64 {
+            return Err(incomplete());
+        }
+        let mut head = [0; ZIP_HEADER.len()];
+        file.seek(SeekFrom::Start(0))
+            .and_then(|_| file.read_exact(&mut head))
+            .map_err(|error| write_error(&error))?;
+        let mut tail = [0; ZIP_END_LEN];
+        file.seek(SeekFrom::Start(len - ZIP_END_LEN as u64))
+            .and_then(|_| file.read_exact(&mut tail))
+            .map_err(|error| write_error(&error))?;
+        // The record starts with its signature and its last two bytes, the comment's length, are 0.
+        if head != *ZIP_HEADER || !tail.starts_with(ZIP_END) || tail[ZIP_END_LEN - 2..] != [0, 0] {
             return Err(incomplete());
         }
         Ok(())
@@ -330,6 +364,57 @@ mod tests {
     }
 
     const PDF: &[u8] = b"%PDF-1.7\n1 0 obj\n<< >>\nendobj\n%%EOF\n";
+
+    /// A ZIP file of nothing, but for what the check looks at.
+    fn zip(files_in_the_middle: usize) -> Vec<u8> {
+        let mut bytes = b"PK\x03\x04".to_vec();
+        bytes.extend(std::iter::repeat_n(7u8, files_in_the_middle));
+        bytes.extend_from_slice(b"PK\x05\x06");
+        bytes.extend_from_slice(&[0; 18]);
+        bytes
+    }
+
+    #[test]
+    fn a_zip_file_is_checked_by_its_ends_and_its_size() {
+        let dir = folder("zip");
+        let destination = dir.join("報告.docx");
+        let whole = zip(10);
+        let mut temporary = written(&destination, &whole);
+        temporary.check_zip(whole.len() as u64).unwrap();
+        // Not what the worker said it wrote.
+        assert_eq!(
+            temporary
+                .check_zip(whole.len() as u64 + 1)
+                .unwrap_err()
+                .code,
+            ErrorCode::Unwritable
+        );
+        temporary.replace(&destination).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), whole);
+
+        // A PDF is not a Word document; nor is a file that stops short, or one with a comment, or
+        // one that is too small to be.
+        let mut cut = zip(10);
+        cut.truncate(cut.len() - 5);
+        let mut commented = zip(10);
+        *commented.last_mut().unwrap() = 3;
+        commented.extend_from_slice(b"abc");
+        for content in [
+            PDF.to_vec(),
+            cut,
+            commented,
+            b"PK\x03\x04".to_vec(),
+            Vec::new(),
+        ] {
+            let mut temporary = written(&destination, &content);
+            assert_eq!(
+                temporary.check_zip(content.len() as u64).unwrap_err().code,
+                ErrorCode::Unwritable,
+                "{content:?}"
+            );
+        }
+        fs::remove_dir_all(dir).ok();
+    }
 
     #[test]
     fn a_checked_file_replaces_the_destination_and_nothing_is_left_over() {

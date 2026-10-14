@@ -549,6 +549,16 @@ pub enum WorkerRequest {
         pages: Vec<u32>,
         file: FileHandle,
     },
+    /// Writes the pages `pages` (0-based, no repeats) of the document to `file` (write-only, as
+    /// for `Save`) as a Word document (B3-02, docs/architecture/docx-export.md): their text and
+    /// pictures, in the order they are given. The document itself does not change. Answered by
+    /// `Saved` (`incremental` is false).
+    ExportDocx {
+        request: RequestId,
+        doc: DocumentId,
+        pages: Vec<u32>,
+        file: FileHandle,
+    },
     /// Loads the data of one language to recognise scanned pages in (B2-10, ADR 0015): the bytes
     /// of a Tesseract `.traineddata` file, which the main process read and checked
     /// (`crate::ocr::check_language_data`; the worker checks it too). It replaces the language

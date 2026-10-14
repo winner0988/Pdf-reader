@@ -260,6 +260,46 @@ pub fn write_pdfs(
     result
 }
 
+/// Writes `pages` of `doc` to `file` as a Word document (B3-02): one request to the document's
+/// worker, as background work on the render thread, with progress at the start and the end (the
+/// worker says nothing between). Nothing is written if it is cancelled before it starts, and what
+/// the worker is making cannot be stopped: the file is replaced only when it is done.
+/// Blocks: call it on the blocking pool.
+pub fn write_docx(
+    app: &AppHandle,
+    request: RequestId,
+    doc: DocumentId,
+    pages: &[u32],
+    file: &Path,
+    channel: &Channel<ExportEvent>,
+) -> Result<(), IpcError> {
+    let exports = app.state::<Exports>();
+    let stop = exports.start(request);
+    let total = u32::try_from(pages.len()).unwrap_or(u32::MAX);
+    let result = (|| {
+        if stop.load(Ordering::SeqCst) {
+            return Err(cancelled());
+        }
+        let _ = channel.send(ExportEvent::Progress {
+            pages_done: 0,
+            total,
+        });
+        let (handle, pages, file) = (app.clone(), pages.to_vec(), file.to_path_buf());
+        block_on(
+            app.state::<Renderer>()
+                .in_background(move || handle.state::<Documents>().docx_export(doc, &pages, &file)),
+        )
+        .ok_or_else(cancelled)??;
+        let _ = channel.send(ExportEvent::Progress {
+            pages_done: total,
+            total,
+        });
+        Ok(())
+    })();
+    exports.finish(request);
+    result
+}
+
 /// Writes the text of `pages` of `doc` to `file`, whole: nothing is written if it is cancelled.
 pub fn write_text(
     app: &AppHandle,

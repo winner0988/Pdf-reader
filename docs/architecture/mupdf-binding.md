@@ -32,7 +32,7 @@
 | Droid CJK 備援字型（`bundled-fonts-droid`） | 開啟 | 見下方「CJK 字型」 |
 | XPS、SVG、CBZ、圖片、HTML、EPUB | 關閉 | 只處理 PDF |
 | Tesseract OCR | Windows 上一律建置 | `tesseract` 功能只影響 make 建置；Windows 的 Visual Studio 方案一律以 `HAVE_TESSERACT` 編譯 MuPDF（見下方的注意）。OCR 見 ADR 0015 |
-| DOCX 輸出、Brotli | 關閉 | 不在 MVP |
+| DOCX 輸出、Brotli | 關閉 | 不在 MVP。匯出 Word（B3-02）沒有用 MuPDF 的 DOCX 寫出器：繫結的 `DocumentWriter` 只收檔案路徑，worker 沒有路徑（ADR 0008）；改由 worker 以結構化文字自己組出 `.docx`，見 [docx-export.md](docx-export.md) |
 | 系統字型（`system-fonts`） | 關閉 | worker 在沙盒中不讀取系統的字型檔 |
 | Noto、SIL 字型（`bundled-fonts-noto`、`bundled-fonts-sil`） | 關閉 | 非 CJK 文字系統的備援字型，目前不需要 |
 

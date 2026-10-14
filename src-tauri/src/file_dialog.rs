@@ -40,6 +40,8 @@ enum Kind {
     SaveText { file_name: String },
     /// Where to save a document as another file (B2-02), suggesting `file_name`.
     SavePdf { file_name: String },
+    /// Where to save some pages as a Word document (B3-02), suggesting `file_name`.
+    SaveDocx { file_name: String },
     /// Where to write the privacy export of a document (B2-03), suggesting `file_name`.
     PrivacyExport { file_name: String },
     /// Where to write an encrypted copy of a document (B2-15), suggesting `file_name`.
@@ -83,6 +85,17 @@ pub async fn save_pdf_file(
     file_name: String,
 ) -> Result<Option<PathBuf>, IpcError> {
     Ok(run(window, Kind::SavePdf { file_name })
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
+/// Asks where to save pages as a Word document (B3-02), suggesting `file_name`. The dialog itself
+/// asks before replacing an existing file, the document's own included (the caller sees to that).
+pub async fn save_docx_file(
+    window: &WebviewWindow,
+    file_name: String,
+) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::SaveDocx { file_name })
         .await?
         .and_then(|mut paths| paths.pop()))
 }
@@ -194,6 +207,7 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
         Kind::OpenPdfs => common | FOS_ALLOWMULTISELECT,
         Kind::SaveText { .. }
         | Kind::SavePdf { .. }
+        | Kind::SaveDocx { .. }
         | Kind::PrivacyExport { .. }
         | Kind::EncryptedCopy { .. }
         | Kind::CompressedCopy { .. }
@@ -246,6 +260,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
         match kind {
             Kind::SaveText { .. }
             | Kind::SavePdf { .. }
+            | Kind::SaveDocx { .. }
             | Kind::PrivacyExport { .. }
             | Kind::EncryptedCopy { .. }
             | Kind::CompressedCopy { .. }
@@ -278,6 +293,10 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
         Kind::SavePdf { .. } => (
             strings::SAVE_AS_DIALOG_TITLE,
             Some((strings::PDF_FILTER_NAME, "*.pdf")),
+        ),
+        Kind::SaveDocx { .. } => (
+            strings::EXPORT_DOCX_DIALOG_TITLE,
+            Some((strings::DOCX_FILTER_NAME, "*.docx")),
         ),
         Kind::PrivacyExport { .. } => (
             strings::PRIVACY_EXPORT_DIALOG_TITLE,
@@ -323,15 +342,16 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
         }
         if let Kind::SaveText { file_name }
         | Kind::SavePdf { file_name }
+        | Kind::SaveDocx { file_name }
         | Kind::PrivacyExport { file_name }
         | Kind::EncryptedCopy { file_name }
         | Kind::CompressedCopy { file_name }
         | Kind::SplitPdf { file_name } = kind
         {
-            let extension = if let Kind::SaveText { .. } = kind {
-                "txt"
-            } else {
-                "pdf"
+            let extension = match kind {
+                Kind::SaveText { .. } => "txt",
+                Kind::SaveDocx { .. } => "docx",
+                _ => "pdf",
             };
             dialog.SetDefaultExtension(&HSTRING::from(extension))?;
             dialog.SetFileName(&HSTRING::from(file_name.as_str()))?;
@@ -396,6 +416,11 @@ mod tests {
             file_name: "報告.pdf".to_owned(),
         });
         assert!(save_as(FOS_DONTADDTORECENT) && save_as(FOS_OVERWRITEPROMPT));
+
+        let docx = options_of(Kind::SaveDocx {
+            file_name: "報告.docx".to_owned(),
+        });
+        assert!(docx(FOS_DONTADDTORECENT) && docx(FOS_OVERWRITEPROMPT));
 
         let privacy = options_of(Kind::PrivacyExport {
             file_name: "報告（隱私匯出）.pdf".to_owned(),

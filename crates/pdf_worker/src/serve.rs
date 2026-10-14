@@ -397,6 +397,19 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => save_pages(document, request, &pages, file),
             }),
+            WorkerRequest::ExportDocx {
+                request,
+                doc,
+                pages,
+                file,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => export_docx(document, request, &pages, file),
+            }),
             WorkerRequest::OcrLoad {
                 request,
                 language,
@@ -746,6 +759,31 @@ fn privacy_copy(
     }
 }
 
+/// Writes the pages `pages` of `document` as a Word document (B3-02) to `file`, a handle like
+/// `save`'s.
+fn export_docx(
+    document: &PdfDocument,
+    request: RequestId,
+    pages: &[u32],
+    file: FileHandle,
+) -> WorkerResponse {
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match document.docx(pages, &mut file) {
+        Ok(bytes) => WorkerResponse::Saved {
+            request,
+            bytes,
+            incremental: false,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
 /// Writes the pages `pages` of `document` as a document of their own (B2-06) to `file`, a handle
 /// like `save`'s.
 fn save_pages(
@@ -911,7 +949,8 @@ fn engine_error(
         | EngineError::TooComplex
         | EngineError::TooManyPages
         | EngineError::SubsetTooLarge
-        | EngineError::PictureTooLarge => WorkerErrorCode::LimitExceeded,
+        | EngineError::PictureTooLarge
+        | EngineError::OutputTooLarge => WorkerErrorCode::LimitExceeded,
         EngineError::Write(error) => match error.kind() {
             std::io::ErrorKind::StorageFull => WorkerErrorCode::DiskFull,
             std::io::ErrorKind::FileTooLarge => WorkerErrorCode::LimitExceeded,
