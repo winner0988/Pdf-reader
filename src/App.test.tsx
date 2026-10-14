@@ -20,7 +20,10 @@ function fakeMainProcess() {
     }),
     openDialog: vi.fn(() => Promise.resolve(true)),
     retry: vi.fn(() => Promise.resolve()),
-    unlock: vi.fn(() => Promise.resolve()),
+    unlock: vi.fn(() => Promise.resolve({ notRemembered: null })),
+    forgetPassword: vi.fn(() => Promise.resolve()),
+    forgetAllPasswords: vi.fn(() => Promise.resolve(0)),
+    rememberedPasswords: vi.fn(() => Promise.resolve({ count: 0, limit: 256 })),
     close: vi.fn(() => Promise.resolve()),
     setActive: vi.fn(() => Promise.resolve()),
   } satisfies OpenApi;
@@ -40,6 +43,8 @@ const info = (doc: number, displayName: string, pages = 10): DocumentInfo => ({
   canUndo: false,
   canRedo: false,
   recovery: "none",
+  passwordRemembered: false,
+  passwordRecalled: false,
 });
 
 const opening = (tab: number, displayName: string): OpenEvent => ({ kind: "opening", tab, displayName });
@@ -149,7 +154,7 @@ describe("App", () => {
     push(opening(1, "a.pdf"));
     push(opened(1, info(9, "a.pdf")));
     push(opening(2, "機密.pdf"));
-    push({ kind: "passwordNeeded", tab: 2, displayName: "機密.pdf", wrong: false });
+    push({ kind: "passwordNeeded", tab: 2, displayName: "機密.pdf", wrong: false, canRemember: false, rememberedFailed: false });
 
     expect(within(tabList()).getByRole("tab", { selected: true })).toHaveAccessibleName(
       `${strings.tabs.locked}機密.pdf`,

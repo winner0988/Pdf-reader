@@ -20,18 +20,20 @@ use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
     AnnotationId, BlockedAction, DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs,
-    ErrorCode, FormField, IpcError, LinkArgs, LinkPreview, LinkTarget, OpenEvent, OutlineLinkArgs,
-    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource, Password,
-    PreparedTextBox, Recovery, RenderPageArgs, Restrictions, SaveResult, SearchHit, SecurityReport,
-    SignatureReport, SourceId, StampImageInfo, TabId, TextBoxInfo,
+    ErrorCode, FormField, IpcError, LinkArgs, LinkPreview, LinkTarget, NotRemembered, OpenEvent,
+    OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource,
+    Password, PreparedTextBox, Recovery, RememberedPasswords, RenderPageArgs, Restrictions,
+    SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageInfo, TabId,
+    TextBoxInfo, UnlockOutcome,
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
-    FontData, OcrFinished, OcrPageState, UnknownFile, WorkerEdit, WorkerErrorCode, WorkerRequest,
-    WorkerResponse,
+    FontData, OcrFinished, OcrPageState, PasswordKey, UnknownFile, WorkerEdit, WorkerErrorCode,
+    WorkerRequest, WorkerResponse,
 };
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
+use crate::credentials::{CredentialError, Credentials};
 use crate::export::ImageKind;
 use crate::history::History;
 use crate::ocr::{OcrLink, PAGE_MILLIS, Tabs};
@@ -55,6 +57,9 @@ pub struct Documents {
     /// The crash recovery journals (B2-13). Set once at startup, when the data folder is known;
     /// without them nothing is kept.
     journals: OnceLock<Journals>,
+    /// The passwords the user asked the app to remember (B2-25, ADR 0017). Set once at startup;
+    /// without it nothing is remembered or recalled.
+    credentials: OnceLock<Credentials>,
 }
 
 struct Inner {
@@ -79,6 +84,30 @@ struct Tab {
     /// The recovery journal of a document this tab lost with its password (B2-13): its edits are
     /// made again once the password opens the file again. Only ever locked on its own.
     released: Mutex<Option<JournalId>>,
+    /// What is known of the file's password: its key, and whether the app remembers one (B2-25).
+    /// Only ever locked on its own.
+    password: Mutex<PasswordFacts>,
+}
+
+/// What the main process knows of the password of an encrypted file (B2-25, ADR 0017).
+#[derive(Debug, Clone, Copy, Default)]
+struct PasswordFacts {
+    /// Where a remembered password is looked up, as the file's own worker reported it. The
+    /// worker is not trusted to give the right one: it is a name, and the password only ever goes
+    /// back to that worker.
+    key: Option<PasswordKey>,
+    /// The app has a password for the key (it may not be the right one).
+    record: bool,
+}
+
+/// The password of an attempt to open a file (B2-25).
+enum Given {
+    /// None: the file may ask for one, and a remembered one is tried.
+    Nothing,
+    /// The user typed it, and may have asked for it to be remembered once it opens the file.
+    Typed { password: Password, remember: bool },
+    /// The main process took it from the Credential Manager, for a file whose worker died.
+    Remembered(Password),
 }
 
 /// Hits on one page, and whether the page has any text at all.
@@ -128,6 +157,8 @@ struct OpenDocument {
     pictures: Pictures,
     /// The prepared words of the text boxes of the history (B2-29).
     text_boxes: TextBoxes,
+    /// What is known of the file's password (B2-25); the key only for a file opened with one.
+    password: PasswordFacts,
 }
 
 impl Documents {
@@ -141,6 +172,7 @@ impl Documents {
             }),
             reporter: OnceLock::new(),
             journals: OnceLock::new(),
+            credentials: OnceLock::new(),
         }
     }
 
@@ -152,6 +184,11 @@ impl Documents {
     /// Where the crash recovery journals go (see the field).
     pub fn set_journals(&self, journals: Journals) {
         let _ = self.journals.set(journals);
+    }
+
+    /// Where the remembered passwords are kept (see the field).
+    pub fn set_credentials(&self, credentials: Credentials) {
+        let _ = self.credentials.set(credentials);
     }
 
     /// Adds a tab for each of `paths`, in order, and reports `Opening` for each. Files beyond
@@ -178,6 +215,7 @@ impl Documents {
                     event: Mutex::new(event.clone()),
                     document: Mutex::new(None),
                     released: Mutex::new(None),
+                    password: Mutex::new(PasswordFacts::default()),
                 }));
                 opening.push((id, event));
             }
@@ -199,42 +237,99 @@ impl Documents {
     /// Takes as long as the worker needs; tabs load independently of each other. If the tab is
     /// closed meanwhile, the new worker ends and nothing is reported.
     pub fn load(&self, tab: TabId, report: &dyn Fn(OpenEvent)) {
-        self.load_with(tab, None, report);
+        self.load_with(tab, Given::Nothing, report);
     }
 
-    /// Opens the tab's file, trying `password` if it is encrypted (MVP-16). A file that needs
-    /// a password, or another one than it got, makes the tab ask for it.
-    fn load_with(&self, tab: TabId, password: Option<Password>, report: &dyn Fn(OpenEvent)) {
-        let Some(tab) = self.tab(tab) else {
-            return;
-        };
-        let protected = password.is_some();
+    /// Opens the tab's file with the password it was `given` (MVP-16). A file that needs a
+    /// password, or another one than it got, makes the tab ask for it.
+    ///
+    /// Given none, a password the app remembers for the file is tried once (B2-25, ADR 0017). It
+    /// goes to the worker that reported the file's key, which is this tab's own, and nowhere
+    /// else; if it does not open the file the user is asked, and the record is left alone. A
+    /// password the user typed and asked to remember is remembered once it has opened the file.
+    /// Returns why a password the user asked to remember was not.
+    fn load_with(
+        &self,
+        tab: TabId,
+        given: Given,
+        report: &dyn Fn(OpenEvent),
+    ) -> Option<NotRemembered> {
+        let tab = self.tab(tab)?;
         let path = lock(&tab.path).clone();
         let display_name = lock(&tab.display_name).clone();
+        // What the tab knows of the file's password: from the first try, or from the document
+        // that was lost with its worker.
+        let mut facts = *lock(&tab.password);
+        let (password, to_remember, from_memory) = match given {
+            Given::Nothing => (None, None, false),
+            Given::Typed {
+                password,
+                remember: true,
+            } => (Some(password.clone()), Some(password), false),
+            Given::Typed {
+                password,
+                remember: false,
+            } => (Some(password), None, false),
+            Given::Remembered(password) => (Some(password), None, true),
+        };
+        let given_password = password.is_some();
         // Some(wrong) when the file needs a password.
         let mut asks = None;
+        // The password that was tried came from memory and did not open the file.
+        let mut stale = from_memory;
+        let mut recalled = from_memory;
+        let mut not_remembered = None;
         let result = check_file(&path).and_then(|()| {
             // Before the worker reads it: a change while it opens shows as a change later.
             let identity = FileIdentity::of(&path);
             let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
-            let opened = match password {
+            let mut opened = match password {
                 Some(password) => host.open_with_password(&path, password),
                 None => host.open(&path),
             };
+            // The file asked for a password and the worker said where one is looked up.
+            let reported = match &opened {
+                Err(HostError::Worker(error))
+                    if !given_password && error.code == WorkerErrorCode::Encrypted =>
+                {
+                    Some(error.password_key)
+                }
+                _ => None,
+            };
+            if let Some(key) = reported {
+                facts = PasswordFacts { key, record: false };
+                if let Some(remembered) = key.and_then(|key| self.recall(&key)) {
+                    facts.record = true;
+                    opened = host.open_with_password(&path, remembered);
+                    recalled = opened.is_ok();
+                    stale = opened.is_err();
+                }
+            }
             let (worker_doc, response) = opened.map_err(|error| {
                 if let HostError::Worker(error) = &error {
                     match error.code {
                         WorkerErrorCode::Encrypted => asks = Some(false),
-                        WorkerErrorCode::WrongPassword => asks = Some(true),
+                        // The user typed nothing wrong when a remembered password did not fit.
+                        WorkerErrorCode::WrongPassword => asks = Some(!stale),
                         _ => {}
                     }
                 }
                 ipc_error(&error)
             })?;
             let doc = DocumentId(self.next_id());
-            let info = document_info(doc, display_name.clone(), response)?;
+            let mut info = document_info(doc, display_name.clone(), response)?;
             let info_has_form = info.has_form;
             let security_in_file = info.security.clone();
+            // Only now, so that a password that did not open the file is not kept.
+            if let Some(typed) = &to_remember {
+                match self.remember(facts.key, typed) {
+                    Ok(()) => facts.record = true,
+                    Err(why) => not_remembered = Some(why),
+                }
+            }
+            let protected = given_password || recalled;
+            info.password_remembered = protected && facts.record;
+            info.password_recalled = recalled;
             let mut document = OpenDocument {
                 info,
                 host,
@@ -252,6 +347,7 @@ impl Documents {
                 pending_source: None,
                 pictures: Pictures::default(),
                 text_boxes: TextBoxes::default(),
+                password: facts,
             };
             self.recover_on_open(&tab, &mut document);
             Ok(document)
@@ -265,6 +361,8 @@ impl Documents {
                 tab: tab.id,
                 display_name,
                 wrong,
+                can_remember: self.can_remember(&facts),
+                remembered_failed: stale,
             },
             (Err(error), None) => OpenEvent::Failed {
                 tab: tab.id,
@@ -275,12 +373,14 @@ impl Documents {
         {
             let inner = self.lock();
             if !inner.tabs.iter().any(|open| Arc::ptr_eq(open, &tab)) {
-                return;
+                return not_remembered;
             }
             *lock(&tab.event) = event.clone();
+            *lock(&tab.password) = facts;
             *lock(&tab.document) = result.ok();
         }
         report(event);
+        not_remembered
     }
 
     /// Opens the file of a failed tab again, in the same tab.
@@ -306,13 +406,16 @@ impl Documents {
     }
 
     /// Tries `password` on a tab that asked for one (MVP-16): the tab opens, or asks again. The
-    /// password goes to the tab's own new worker only, and is wiped once it has been sent.
+    /// password goes to the tab's own new worker only, and is wiped once it has been sent. With
+    /// `remember` it is also remembered once it has opened the file (B2-25, ADR 0017); the answer
+    /// says why it was not.
     pub fn unlock(
         &self,
         tab: TabId,
         password: Password,
+        remember: bool,
         report: &dyn Fn(OpenEvent),
-    ) -> Result<(), IpcError> {
+    ) -> Result<UnlockOutcome, IpcError> {
         let found = self.tab(tab).ok_or_else(unknown_tab)?;
         let opening = OpenEvent::Opening {
             tab,
@@ -329,8 +432,8 @@ impl Documents {
             *event = opening.clone();
         }
         report(opening);
-        self.load_with(tab, Some(password), report);
-        Ok(())
+        let not_remembered = self.load_with(tab, Given::Typed { password, remember }, report);
+        Ok(UnlockOutcome { not_remembered })
     }
 
     /// Closes `tab`: its worker ends and its path is forgotten.
@@ -518,10 +621,15 @@ impl Documents {
     pub fn undo(&self, doc: DocumentId, password: Option<Password>) -> Result<OpenEvent, IpcError> {
         let ((), event) = self.change_document(doc, |document| {
             let password = if document.protected {
-                Some(password.ok_or_else(|| IpcError {
-                    code: ErrorCode::Encrypted,
-                    message: "the document's password is needed to undo".to_owned(),
-                })?)
+                // The user is asked only when the app has no password for the file (B2-25).
+                Some(
+                    password
+                        .or_else(|| self.recalled(document))
+                        .ok_or_else(|| IpcError {
+                            code: ErrorCode::Encrypted,
+                            message: "the document's password is needed to undo".to_owned(),
+                        })?,
+                )
             } else {
                 None
             };
@@ -1523,12 +1631,25 @@ impl Documents {
     }
 
     /// The worker of `document`, opened with a password, died, and the password was not kept
-    /// (MVP-16): the tab asks for it again. The journal of its edits stays, for them to be made
+    /// (MVP-16): the tab asks for it again, unless the app remembers one for the file, which
+    /// opens it again by itself (B2-25). The journal of its edits stays, for them to be made
     /// again once the file opens (B2-13).
     fn lose(&self, tab: &Tab, document: OpenDocument) {
+        let recalled = self.recalled(&document);
+        *lock(&tab.password) = document.password;
         let kept = self.forget_journals(document, true);
         *lock(&tab.released) = kept;
-        self.ask_for_password_again(tab);
+        match recalled {
+            Some(password) => {
+                let report = |event: OpenEvent| {
+                    if let Some(report) = self.reporter.get() {
+                        report(event);
+                    }
+                };
+                self.load_with(tab.id, Given::Remembered(password), &report);
+            }
+            None => self.ask_for_password_again(tab),
+        }
     }
 
     /// The tab asks for its file's password again.
@@ -1537,11 +1658,116 @@ impl Documents {
             tab: tab.id,
             display_name: lock(&tab.display_name).clone(),
             wrong: false,
+            can_remember: self.can_remember(&lock(&tab.password)),
+            remembered_failed: false,
         };
         *lock(&tab.event) = asking.clone();
         if let Some(report) = self.reporter.get() {
             report(asking);
         }
+    }
+
+    /// Whether the user may ask for the password of a file with these facts to be remembered.
+    fn can_remember(&self, facts: &PasswordFacts) -> bool {
+        facts.key.is_some() && self.credentials.get().is_some()
+    }
+
+    /// The password the app remembers for `key` (B2-25, ADR 0017). A store that cannot be read,
+    /// or an entry someone changed, is no password: the user is asked.
+    fn recall(&self, key: &PasswordKey) -> Option<Password> {
+        let credentials = self.credentials.get()?;
+        let remembered = credentials.recall(&key.0).ok().flatten()?;
+        Some(Password::new(remembered.as_str().to_owned()))
+    }
+
+    /// The password the app remembers for `document`'s file, if it has one.
+    fn recalled(&self, document: &OpenDocument) -> Option<Password> {
+        let facts = document.password;
+        if !facts.record {
+            return None;
+        }
+        facts.key.and_then(|key| self.recall(&key))
+    }
+
+    /// Remembers `password` for `key`; why not, if it cannot be.
+    fn remember(&self, key: Option<PasswordKey>, password: &Password) -> Result<(), NotRemembered> {
+        let key = key.ok_or(NotRemembered::NoKey)?;
+        let credentials = self.credentials.get().ok_or(NotRemembered::Unavailable)?;
+        credentials
+            .remember(&key.0, password.as_str())
+            .map_err(|error| match error {
+                CredentialError::Unsuitable => NotRemembered::Unsuitable,
+                CredentialError::Full => NotRemembered::Full,
+                CredentialError::Damaged | CredentialError::Unavailable(_) => {
+                    NotRemembered::Unavailable
+                }
+            })
+    }
+
+    /// Forgets the password the app remembers for the file of `tab` (B2-25, ADR 0017). The
+    /// document stays open; the returned state says it no longer has one.
+    pub fn forget_password(&self, tab: TabId) -> Result<OpenEvent, IpcError> {
+        let found = self.tab(tab).ok_or_else(unknown_tab)?;
+        let doc = match &*lock(&found.event) {
+            OpenEvent::Opened { info, .. } => info.doc,
+            _ => {
+                return Err(invalid_argument(
+                    "only an open document has a remembered password",
+                ));
+            }
+        };
+        let ((), event) = self.change_document(doc, |document| {
+            if let Some(key) = document.password.key.filter(|_| document.password.record) {
+                let credentials = self.credentials.get().ok_or_else(credentials_unavailable)?;
+                credentials.forget(&key.0).map_err(credentials_error)?;
+            }
+            document.password.record = false;
+            document.info.password_remembered = false;
+            document.info.password_recalled = false;
+            Ok(())
+        })?;
+        Ok(event)
+    }
+
+    /// Forgets every password the app remembers; returns how many there were (B2-25). The open
+    /// documents no longer have one, and the page is told.
+    pub fn forget_all_passwords(&self) -> Result<u32, IpcError> {
+        let credentials = self.credentials.get().ok_or_else(credentials_unavailable)?;
+        let forgotten = credentials.forget_all().map_err(credentials_error)?;
+        let tabs = self.lock().tabs.clone();
+        for tab in tabs {
+            lock(&tab.password).record = false;
+            let event = {
+                let mut document = lock(&tab.document);
+                match document.as_mut() {
+                    Some(document) if document.password.record => {
+                        document.password.record = false;
+                        document.info.password_remembered = false;
+                        document.info.password_recalled = false;
+                        OpenEvent::Opened {
+                            tab: tab.id,
+                            info: document.info.clone(),
+                        }
+                    }
+                    _ => continue,
+                }
+            };
+            *lock(&tab.event) = event.clone();
+            if let Some(report) = self.reporter.get() {
+                report(event);
+            }
+        }
+        Ok(u32::try_from(forgotten).unwrap_or(u32::MAX))
+    }
+
+    /// How many passwords the app remembers, and the most it will (B2-25).
+    pub fn remembered_passwords(&self) -> Result<RememberedPasswords, IpcError> {
+        let credentials = self.credentials.get().ok_or_else(credentials_unavailable)?;
+        let count = credentials.count().map_err(credentials_error)?;
+        Ok(RememberedPasswords {
+            count: u32::try_from(count).unwrap_or(u32::MAX),
+            limit: u32::try_from(credentials.capacity()).unwrap_or(u32::MAX),
+        })
     }
 
     fn journals(&self) -> Option<&Journals> {
@@ -2182,6 +2408,21 @@ pub fn open_picture(path: &Path) -> Result<std::fs::File, IpcError> {
     Ok(file)
 }
 
+/// The Credential Manager cannot be used (B2-25).
+fn credentials_unavailable() -> IpcError {
+    IpcError {
+        code: ErrorCode::CredentialsUnavailable,
+        message: "the Credential Manager is not available".to_owned(),
+    }
+}
+
+fn credentials_error(error: CredentialError) -> IpcError {
+    IpcError {
+        code: ErrorCode::CredentialsUnavailable,
+        message: format!("the Credential Manager could not be used ({error:?})"),
+    }
+}
+
 /// Maps a host error to what the frontend receives. The message never includes worker text
 /// (which could quote document content) or paths.
 pub fn ipc_error(error: &HostError) -> IpcError {
@@ -2224,6 +2465,8 @@ fn document_info(
         can_undo: false,
         can_redo: false,
         recovery: Recovery::None,
+        password_remembered: false,
+        password_recalled: false,
     };
     info.validate().map_err(|error| IpcError {
         code: ErrorCode::Internal,
@@ -3117,14 +3360,14 @@ mod with_worker {
             OpenEvent::PasswordNeeded { wrong: false, .. }
         ));
         documents
-            .unlock(tab, Password::new("wrong".to_owned()), &report)
+            .unlock(tab, Password::new("wrong".to_owned()), false, &report)
             .unwrap();
         assert!(matches!(
             last(),
             OpenEvent::PasswordNeeded { wrong: true, .. }
         ));
         documents
-            .unlock(tab, Password::new("user".to_owned()), &report)
+            .unlock(tab, Password::new("user".to_owned()), false, &report)
             .unwrap();
         let OpenEvent::Opened { info, .. } = last() else {
             panic!("{:?}", last())
@@ -3135,7 +3378,7 @@ mod with_worker {
         // Only a tab that asks for a password can be unlocked.
         assert_eq!(
             documents
-                .unlock(tab, Password::new("user".to_owned()), &report)
+                .unlock(tab, Password::new("user".to_owned()), false, &report)
                 .unwrap_err()
                 .code,
             ErrorCode::InvalidArgument
@@ -3171,7 +3414,7 @@ mod with_worker {
             ErrorCode::UnknownDocument
         );
         documents
-            .unlock(tab, Password::new("owner".to_owned()), &report)
+            .unlock(tab, Password::new("owner".to_owned()), false, &report)
             .unwrap();
         assert!(matches!(last(), OpenEvent::Opened { .. }));
     }
@@ -3373,7 +3616,7 @@ mod with_worker {
         };
         documents.load(tab, &report);
         documents
-            .unlock(tab, Password::new("user".to_owned()), &report)
+            .unlock(tab, Password::new("user".to_owned()), false, &report)
             .unwrap();
         let Some(OpenEvent::Opened { info, .. }) = events.borrow().last().cloned() else {
             panic!("opened")
@@ -3443,7 +3686,7 @@ mod with_worker {
             Some(OpenEvent::PasswordNeeded { .. })
         ));
         documents
-            .unlock(tab, password("pw-open-7Qz"), &report)
+            .unlock(tab, password("pw-open-7Qz"), false, &report)
             .unwrap();
         let opened = opened_info(events.borrow().last().cloned().unwrap());
         assert!(opened.encrypted);
@@ -3714,6 +3957,339 @@ mod with_worker {
         std::fs::remove_file(path).ok();
     }
 
+    /// A set of remembered passwords for one test: the real Credential Manager, under a name no
+    /// other set has, so that nothing of the user's is touched. What is left is deleted when the
+    /// test ends.
+    struct Store {
+        prefix: String,
+    }
+
+    impl Store {
+        fn new(name: &str) -> Self {
+            Self {
+                prefix: format!("PdfReaderTest/documents/{name}/{}/", std::process::id()),
+            }
+        }
+
+        fn credentials(&self, capacity: usize) -> Credentials {
+            Credentials::with(self.prefix.clone(), capacity)
+        }
+    }
+
+    impl Drop for Store {
+        fn drop(&mut self) {
+            let _ = self.credentials(1).forget_all();
+        }
+    }
+
+    /// Documents that remember passwords in `store`: as the app does, a run of it.
+    fn remembering(store: &Store) -> Documents {
+        let documents = Documents::new(worker());
+        documents.set_credentials(store.credentials(8));
+        documents
+    }
+
+    fn sample(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign")
+            .join(name)
+    }
+
+    /// Adds a tab for `path` and loads it; the events it reported.
+    fn load_tab(documents: &Documents, path: &Path) -> (TabId, Vec<OpenEvent>) {
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let [tab] = documents.add(&[path.to_path_buf()], &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(tab, &report);
+        (tab, events.into_inner())
+    }
+
+    /// Types `text` into the tab that asks for a password; what came of it and the tab's new state.
+    fn type_password(
+        documents: &Documents,
+        tab: TabId,
+        text: &str,
+        remember: bool,
+    ) -> (UnlockOutcome, OpenEvent) {
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let outcome = documents
+            .unlock(tab, password(text), remember, &report)
+            .unwrap();
+        let last = events.borrow().last().cloned().expect("an event");
+        (outcome, last)
+    }
+
+    impl Documents {
+        /// The key the worker reported for the file of `tab`.
+        fn password_key_of(&self, tab: TabId) -> Option<PasswordKey> {
+            lock(&self.tab(tab)?.password).key
+        }
+    }
+
+    #[test]
+    fn a_password_the_user_asks_to_remember_opens_the_file_next_time_without_asking() {
+        let store = Store::new("remembers");
+        let original = sample("encrypted-aes256.pdf");
+        let documents = remembering(&store);
+        let (tab, events) = load_tab(&documents, &original);
+        // The file says where a password is looked up, so the user may ask for it to be remembered.
+        assert!(matches!(
+            events.last(),
+            Some(OpenEvent::PasswordNeeded {
+                wrong: false,
+                can_remember: true,
+                remembered_failed: false,
+                ..
+            })
+        ));
+        // Nothing is remembered before the user asks.
+        assert_eq!(documents.remembered_passwords().unwrap().count, 0);
+        let (outcome, event) = type_password(&documents, tab, "user", true);
+        assert_eq!(outcome.not_remembered, None);
+        let info = opened_info(event);
+        assert!(info.password_remembered && !info.password_recalled);
+        assert_eq!(
+            documents.remembered_passwords().unwrap(),
+            RememberedPasswords { count: 1, limit: 8 }
+        );
+
+        // Another run of the app, and the same file under another name: no question.
+        let moved =
+            std::env::temp_dir().join(format!("pdf-reader-remembered-{}.pdf", std::process::id()));
+        std::fs::copy(&original, &moved).unwrap();
+        let again = remembering(&store);
+        let (_, events) = load_tab(&again, &moved);
+        let info = opened_info(events.last().cloned().unwrap());
+        assert!(info.encrypted && info.password_remembered && info.password_recalled);
+        again
+            .render(&args(info.doc, 0, 0.5, Rotation::None))
+            .unwrap();
+        std::fs::remove_file(moved).ok();
+    }
+
+    #[test]
+    fn a_password_the_user_did_not_ask_to_remember_is_not_kept_and_a_wrong_one_never_is() {
+        let store = Store::new("forgets");
+        let path = sample("encrypted-aes256.pdf");
+        let documents = remembering(&store);
+        let (tab, _) = load_tab(&documents, &path);
+        let (outcome, event) = type_password(&documents, tab, "user", false);
+        assert_eq!(outcome.not_remembered, None);
+        let info = opened_info(event);
+        assert!(!info.password_remembered && !info.password_recalled);
+        assert_eq!(documents.remembered_passwords().unwrap().count, 0);
+        // Asked to remember, but it does not open the file: nothing is kept.
+        let (tab, _) = load_tab(&documents, &path);
+        let (outcome, event) = type_password(&documents, tab, "wrong", true);
+        assert!(matches!(
+            event,
+            OpenEvent::PasswordNeeded { wrong: true, .. }
+        ));
+        assert_eq!(outcome.not_remembered, None);
+        assert_eq!(documents.remembered_passwords().unwrap().count, 0);
+        // So the next time it asks again.
+        let (_, events) = load_tab(&documents, &path);
+        assert!(matches!(
+            events.last(),
+            Some(OpenEvent::PasswordNeeded { .. })
+        ));
+    }
+
+    #[test]
+    fn a_remembered_password_that_does_not_open_the_file_is_asked_about_once_and_left_alone() {
+        let store = Store::new("stale");
+        let path = sample("encrypted-aes256.pdf");
+        let documents = remembering(&store);
+        let (first, _) = load_tab(&documents, &path);
+        // Someone changed the entry: a password that is not the file's.
+        let key = documents
+            .password_key_of(first)
+            .expect("the file says its key");
+        store
+            .credentials(8)
+            .remember(&key.0, "not the password")
+            .unwrap();
+
+        let (second, events) = load_tab(&documents, &path);
+        // Tried once, and then the user is asked: nothing was typed wrongly, and the record stays.
+        assert!(matches!(
+            events.last(),
+            Some(OpenEvent::PasswordNeeded {
+                wrong: false,
+                can_remember: true,
+                remembered_failed: true,
+                ..
+            })
+        ));
+        assert_eq!(documents.remembered_passwords().unwrap().count, 1);
+        // The user's own password opens it. It was not asked to be remembered: the entry stays.
+        let (_, event) = type_password(&documents, second, "user", false);
+        let info = opened_info(event);
+        assert!(info.password_remembered && !info.password_recalled);
+        let kept = store.credentials(8).recall(&key.0).unwrap().unwrap();
+        assert_eq!(kept.as_str(), "not the password");
+
+        // Asked to be remembered, the new password takes its place.
+        let (third, _) = load_tab(&documents, &path);
+        type_password(&documents, third, "user", true);
+        let kept = store.credentials(8).recall(&key.0).unwrap().unwrap();
+        assert_eq!(kept.as_str(), "user");
+        let (_, events) = load_tab(&documents, &path);
+        let info = opened_info(events.last().cloned().unwrap());
+        assert!(info.password_recalled);
+    }
+
+    #[test]
+    fn undoing_in_a_document_with_a_remembered_password_does_not_ask_for_it() {
+        let store = Store::new("undo");
+        let documents = remembering(&store);
+        let (tab, _) = load_tab(&documents, &sample("encrypted-aes256.pdf"));
+        let (_, event) = type_password(&documents, tab, "user", true);
+        let opened = opened_info(event);
+        let edited = opened_info(
+            documents
+                .apply_edit(&EditArgs {
+                    doc: opened.doc,
+                    edit: turn(0),
+                })
+                .unwrap(),
+        );
+        assert!(edited.unsaved && edited.can_undo);
+        // The page sends none, and the main process takes the remembered one to the worker.
+        let undone = opened_info(documents.undo(edited.doc, None).unwrap());
+        assert_eq!(undone.pages, opened.pages);
+        assert!(!undone.unsaved && undone.can_redo);
+    }
+
+    #[test]
+    fn a_worker_that_died_is_replaced_and_a_remembered_password_opens_the_file_again_by_itself() {
+        let store = Store::new("crash");
+        let documents = remembering(&store);
+        let (tab, _) = load_tab(&documents, &sample("encrypted-aes256.pdf"));
+        let (_, event) = type_password(&documents, tab, "user", true);
+        let info = opened_info(event);
+        let reported = Arc::new(Mutex::new(Vec::new()));
+        let sink = reported.clone();
+        documents.set_reporter(move |event| sink.lock().unwrap().push(event));
+        let pid = documents.worker_id(info.doc).expect("worker running");
+        let killed = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output()
+            .unwrap();
+        assert!(killed.status.success());
+        let error = documents
+            .render(&args(info.doc, 0, 0.5, Rotation::None))
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::WorkerCrashed);
+        // No question: the tab is open again, in a new worker, with the remembered password.
+        let again = match reported.lock().unwrap().as_slice() {
+            [
+                OpenEvent::Opened {
+                    tab: reopened,
+                    info,
+                },
+            ] if *reopened == tab => info.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert!(again.password_remembered && again.password_recalled);
+        documents
+            .render(&args(again.doc, 0, 0.5, Rotation::None))
+            .unwrap();
+        assert!(matches!(
+            documents.snapshot().as_slice(),
+            [OpenEvent::Opened { .. }]
+        ));
+    }
+
+    #[test]
+    fn a_password_is_forgotten_for_one_document_or_for_all_of_them() {
+        let store = Store::new("forgetting");
+        let path = sample("encrypted-aes256.pdf");
+        let documents = remembering(&store);
+        let reported = Arc::new(Mutex::new(Vec::new()));
+        let sink = reported.clone();
+        documents.set_reporter(move |event| sink.lock().unwrap().push(event));
+        let (tab, _) = load_tab(&documents, &path);
+        let (_, event) = type_password(&documents, tab, "user", true);
+        assert!(opened_info(event).password_remembered);
+        assert_eq!(documents.remembered_passwords().unwrap().count, 1);
+
+        // One document: it stays open, and says it has none any more.
+        let info = opened_info(documents.forget_password(tab).unwrap());
+        assert!(!info.password_remembered && !info.password_recalled);
+        assert_eq!(documents.remembered_passwords().unwrap().count, 0);
+        let (again, events) = load_tab(&documents, &path);
+        assert!(matches!(
+            events.last(),
+            Some(OpenEvent::PasswordNeeded { .. })
+        ));
+        // Only an open document has one to forget.
+        assert_eq!(
+            documents.forget_password(again).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+
+        // All of them: the documents that are open are told.
+        let (_, event) = type_password(&documents, again, "user", true);
+        assert!(opened_info(event).password_remembered);
+        assert_eq!(documents.forget_all_passwords().unwrap(), 1);
+        assert_eq!(documents.remembered_passwords().unwrap().count, 0);
+        let told = reported.lock().unwrap();
+        let [.., OpenEvent::Opened { tab: last, info }] = told.as_slice() else {
+            panic!("{told:?}")
+        };
+        assert_eq!(*last, again);
+        assert!(!info.password_remembered);
+    }
+
+    #[test]
+    fn a_full_store_or_none_at_all_says_why_and_the_file_opens_all_the_same() {
+        let store = Store::new("full");
+        let path = sample("encrypted-aes256.pdf");
+        let documents = Documents::new(worker());
+        documents.set_credentials(store.credentials(1));
+        // Another file's key has the only place.
+        store
+            .credentials(1)
+            .remember(&[7; 32], "someone else's")
+            .unwrap();
+        let (tab, _) = load_tab(&documents, &path);
+        let (outcome, event) = type_password(&documents, tab, "user", true);
+        assert_eq!(outcome.not_remembered, Some(NotRemembered::Full));
+        let info = opened_info(event);
+        assert!(info.encrypted && !info.password_remembered);
+        assert_eq!(
+            documents.remembered_passwords().unwrap(),
+            RememberedPasswords { count: 1, limit: 1 }
+        );
+
+        // Without a store (the tests of the rest of the app have none), the user is not offered it.
+        let documents = Documents::new(worker());
+        let (tab, events) = load_tab(&documents, &path);
+        assert!(matches!(
+            events.last(),
+            Some(OpenEvent::PasswordNeeded {
+                can_remember: false,
+                ..
+            })
+        ));
+        let (outcome, event) = type_password(&documents, tab, "user", true);
+        assert_eq!(outcome.not_remembered, Some(NotRemembered::Unavailable));
+        assert!(opened_info(event).encrypted);
+        assert_eq!(
+            documents.remembered_passwords().unwrap_err().code,
+            ErrorCode::CredentialsUnavailable
+        );
+        // A file that does not say how its password is checked has no key to remember it by.
+        assert_eq!(
+            documents.remember(None, &password("x")),
+            Err(NotRemembered::NoKey)
+        );
+    }
+
     #[test]
     fn undo_asks_again_for_the_password_of_a_document_opened_with_one() {
         let documents = Documents::new(worker());
@@ -3726,7 +4302,7 @@ mod with_worker {
         };
         documents.load(tab, &report);
         documents
-            .unlock(tab, Password::new("user".to_owned()), &report)
+            .unlock(tab, Password::new("user".to_owned()), false, &report)
             .unwrap();
         let opened = opened_info(events.borrow().last().cloned().unwrap());
         let mut doc = opened.doc;
@@ -3806,7 +4382,7 @@ mod with_worker {
         };
         documents.load(tab, &report);
         documents
-            .unlock(tab, Password::new("user".to_owned()), &report)
+            .unlock(tab, Password::new("user".to_owned()), false, &report)
             .unwrap();
         let info = opened_info(events.borrow().last().cloned().unwrap());
         assert!(!info.permissions.modify && !info.permissions.assemble);
@@ -3880,7 +4456,7 @@ mod with_worker {
         };
         documents.load(tab, &report);
         documents
-            .unlock(tab, Password::new("user".to_owned()), &report)
+            .unlock(tab, Password::new("user".to_owned()), false, &report)
             .unwrap();
         let info = opened_info(events.borrow().last().cloned().unwrap());
         (tab, info)
@@ -4091,7 +4667,7 @@ mod with_worker {
         // Given it, the file opens with the edit made again, without asking.
         let reopened = std::cell::RefCell::new(None);
         documents
-            .unlock(tab, Password::new("user".to_owned()), &|event| {
+            .unlock(tab, Password::new("user".to_owned()), false, &|event| {
                 *reopened.borrow_mut() = Some(event);
             })
             .unwrap();

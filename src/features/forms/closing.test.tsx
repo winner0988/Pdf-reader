@@ -46,6 +46,8 @@ const info = (doc: number, unsaved: boolean): DocumentInfo => ({
   canUndo: unsaved,
   canRedo: false,
   recovery: "none",
+  passwordRemembered: false,
+  passwordRecalled: false,
 });
 
 async function openForm() {
@@ -58,7 +60,10 @@ async function openForm() {
     }),
     openDialog: vi.fn(() => Promise.resolve(true)),
     retry: vi.fn(() => Promise.resolve()),
-    unlock: vi.fn(() => Promise.resolve()),
+    unlock: vi.fn(() => Promise.resolve({ notRemembered: null })),
+    forgetPassword: vi.fn(() => Promise.resolve()),
+    forgetAllPasswords: vi.fn(() => Promise.resolve(0)),
+    rememberedPasswords: vi.fn(() => Promise.resolve({ count: 0, limit: 256 })),
     close: vi.fn(() => Promise.resolve()),
     setActive: vi.fn(() => Promise.resolve()),
   } satisfies OpenApi;

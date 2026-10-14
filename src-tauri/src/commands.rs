@@ -12,9 +12,9 @@ use ipc_contract::types::{
     ExportFormat, FileRecordingArgs, FontInfo, FormField, IpcError, LanguageImport, LinkArgs,
     LinkPreview, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult,
     PageAnnotation, PageLink, PageText, PagesSource, Password, PrepareTextBoxArgs, PreparedTextBox,
-    RecentFile, RecentId, RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult, SearchArgs,
-    SearchEvent, Settings, SignatureReport, StampImageInfo, TabId, TextBoxInfo, UndoArgs,
-    UnlockArgs, UnlockSourceArgs, UpdateCheck,
+    RecentFile, RecentId, RememberedPasswords, RemoveLanguageArgs, RenderPageArgs, RequestId,
+    SaveResult, SearchArgs, SearchEvent, Settings, SignatureReport, StampImageInfo, TabId,
+    TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
 };
 use ipc_contract::validate::{Validate, check_page_index};
 use tauri::ipc::{Channel, Response};
@@ -93,22 +93,52 @@ pub async fn retry_open(app: AppHandle, tab: TabId) -> Result<(), IpcError> {
 }
 
 /// Tries a password on a tab whose file is encrypted (MVP-16). It goes to that tab's worker
-/// only and is wiped afterwards; whether it opened the file arrives on the open channel.
+/// only and is wiped afterwards; whether it opened the file arrives on the open channel. With
+/// `remember` it is also remembered once it has opened the file (B2-25, ADR 0017), and the answer
+/// says why it was not, if it was not.
 #[tauri::command]
-pub async fn unlock_tab(app: AppHandle, args: UnlockArgs) -> Result<(), IpcError> {
+pub async fn unlock_tab(app: AppHandle, args: UnlockArgs) -> Result<UnlockOutcome, IpcError> {
     args.validate().map_err(|error| IpcError {
         code: ErrorCode::InvalidArgument,
         message: error.to_string(),
     })?;
-    let UnlockArgs { tab, password } = args;
+    let UnlockArgs {
+        tab,
+        password,
+        remember,
+    } = args;
     blocking(move || {
         let result = app
             .state::<Documents>()
-            .unlock(tab, password, &|event| report(&app, event));
+            .unlock(tab, password, remember, &|event| report(&app, event));
         after_tabs_changed(&app);
         result
     })
     .await
+}
+
+/// Forgets the password the app remembers for the file of a tab (B2-25, ADR 0017). The document
+/// stays open; its new state arrives on the open-events channel.
+#[tauri::command]
+pub async fn forget_password(app: AppHandle, tab: TabId) -> Result<(), IpcError> {
+    blocking(move || {
+        let event = app.state::<Documents>().forget_password(tab)?;
+        app.state::<OpenEvents>().send(event);
+        Ok(())
+    })
+    .await
+}
+
+/// Forgets every password the app remembers (B2-25, ADR 0017); answers how many there were.
+#[tauri::command]
+pub async fn forget_all_passwords(app: AppHandle) -> Result<u32, IpcError> {
+    blocking(move || app.state::<Documents>().forget_all_passwords()).await
+}
+
+/// How many passwords the app remembers, and the most it will (B2-25, ADR 0017).
+#[tauri::command]
+pub async fn get_remembered_passwords(app: AppHandle) -> Result<RememberedPasswords, IpcError> {
+    blocking(move || app.state::<Documents>().remembered_passwords()).await
 }
 
 /// Asks for the PDF file whose pages go into `doc` (B2-06, docs/architecture/merge.md) in the

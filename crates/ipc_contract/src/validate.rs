@@ -1689,6 +1689,7 @@ mod tests {
         UnlockArgs {
             tab: TabId(1),
             password: crate::types::Password::new(password.to_owned()),
+            remember: false,
         }
     }
 
@@ -1697,12 +1698,14 @@ mod tests {
         let args = unlock("s3cret");
         assert!(!format!("{args:?}").contains("s3cret"));
         let json = serde_json::to_string(&args).unwrap();
-        assert_eq!(json, r#"{"tab":1,"password":"s3cret"}"#);
+        assert_eq!(json, r#"{"tab":1,"password":"s3cret","remember":false}"#);
         assert_eq!(serde_json::from_str::<UnlockArgs>(&json).unwrap(), args);
-        // Nothing but the tab and the password.
+        // Nothing but the tab, the password and whether to remember it.
         assert!(
-            serde_json::from_str::<UnlockArgs>(r#"{"tab":1,"password":"x","path":"C:\\x.pdf"}"#)
-                .is_err()
+            serde_json::from_str::<UnlockArgs>(
+                r#"{"tab":1,"password":"x","remember":false,"path":"C:\\x.pdf"}"#
+            )
+            .is_err()
         );
     }
 
@@ -1729,6 +1732,8 @@ mod tests {
             tab: TabId(1),
             display_name: display_name.to_owned(),
             wrong: true,
+            can_remember: true,
+            remembered_failed: false,
         };
         assert_eq!(asking("機密.pdf").validate(), Ok(()));
         assert!(asking(r"C:\secret\機密.pdf").validate().is_err());
@@ -3150,6 +3155,8 @@ mod tests {
             can_undo: false,
             can_redo: false,
             recovery: Recovery::None,
+            password_remembered: false,
+            password_recalled: false,
         };
         assert!(info("報告.pdf").validate().is_ok());
         assert!(info(r"C:\Users\someone\報告.pdf").validate().is_err());

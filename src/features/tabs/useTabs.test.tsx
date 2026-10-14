@@ -20,6 +20,8 @@ const info: DocumentInfo = {
   canUndo: false,
   canRedo: false,
   recovery: "none",
+  passwordRemembered: false,
+  passwordRecalled: false,
 };
 
 function setup(onOcr?: (event: OcrEvent) => void) {
@@ -31,7 +33,10 @@ function setup(onOcr?: (event: OcrEvent) => void) {
     }),
     openDialog: vi.fn(() => Promise.resolve(true)),
     retry: vi.fn(() => Promise.resolve()),
-    unlock: vi.fn(() => Promise.resolve()),
+    unlock: vi.fn(() => Promise.resolve({ notRemembered: null })),
+    forgetPassword: vi.fn(() => Promise.resolve()),
+    forgetAllPasswords: vi.fn(() => Promise.resolve(0)),
+    rememberedPasswords: vi.fn(() => Promise.resolve({ count: 0, limit: 256 })),
     close: vi.fn(() => Promise.resolve()),
     setActive: vi.fn(() => Promise.resolve()),
   } satisfies OpenApi;

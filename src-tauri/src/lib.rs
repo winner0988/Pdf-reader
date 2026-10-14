@@ -94,6 +94,9 @@ pub fn run() {
             commands::open_document_dialog,
             commands::retry_open,
             commands::unlock_tab,
+            commands::forget_password,
+            commands::forget_all_passwords,
+            commands::get_remembered_passwords,
             commands::pick_pages_source,
             commands::unlock_pages_source,
             commands::close_tab,
@@ -166,6 +169,9 @@ pub fn run() {
             let reporter = app.app_handle().clone();
             app.state::<Documents>()
                 .set_reporter(move |event| reporter.state::<OpenEvents>().send(event));
+            // The passwords the user asks to remember (B2-25, ADR 0017) are kept by Windows.
+            app.state::<Documents>()
+                .set_credentials(credentials::Credentials::app());
             let handle = app.app_handle().clone();
             app.manage(Renderer::start(DEFAULT_CACHE_BYTES, move |args| {
                 handle.state::<Documents>().render(args)
