@@ -5,6 +5,7 @@ compile_error!(
     "PDF Reader supports Windows only for now (ADR 0007): the worker sandbox is Windows-specific."
 );
 
+mod batch;
 mod cli;
 mod clipboard;
 mod commands;
@@ -40,6 +41,7 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, Manager};
 
+use crate::batch::Batches;
 use crate::documents::Documents;
 use crate::events::OpenEvents;
 use crate::export::Exports;
@@ -92,6 +94,7 @@ pub fn run() {
         .manage(OpenEvents::default())
         .manage(Searches::default())
         .manage(Exports::default())
+        .manage(Batches::default())
         .manage(fonts::Fonts::default())
         .invoke_handler(tauri::generate_handler![
             commands::subscribe_open_events,
@@ -158,6 +161,7 @@ pub fn run() {
             commands::stop_ocr,
             commands::set_ocr_focus,
             commands::pick_stamp_image,
+            commands::run_batch,
             commands::create_pdf,
         ])
         .on_window_event(commands::on_window_event)

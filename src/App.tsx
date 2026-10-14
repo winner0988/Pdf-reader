@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { tauriBatchApi, type BatchApi } from "@/features/batch/api";
 import { tauriCreateApi, type CreateApi } from "@/features/create/api";
 import { tauriExportApi, type ExportApi } from "@/features/export/api";
 import { tauriOpenApi, type OpenApi } from "@/features/open/api";
@@ -50,6 +51,7 @@ type AppProps = {
   settingsApi?: SettingsApi;
   exportApi?: ExportApi;
   savingApi?: SavingApi;
+  batchApi?: BatchApi;
   createApi?: CreateApi;
   sensitiveApi?: SensitiveApi;
   editingApi?: EditingApi;
@@ -72,6 +74,7 @@ export default function App({
   settingsApi = tauriSettingsApi,
   exportApi = tauriExportApi,
   savingApi = tauriSavingApi,
+  batchApi = tauriBatchApi,
   createApi = tauriCreateApi,
   sensitiveApi = tauriSensitiveApi,
   editingApi = tauriEditingApi,
@@ -163,6 +166,7 @@ export default function App({
               updatesApi={demo ? undefined : updatesApi}
               ocrApi={demo ? undefined : ocrApi}
               passwordsApi={demo ? undefined : api}
+              batchApi={demo ? undefined : batchApi}
               createApi={demo ? undefined : createApi}
               sensitiveApi={demo ? undefined : sensitiveApi}
               onOpen={open}
@@ -187,6 +191,7 @@ export default function App({
                 recentApi={recentApi}
                 exportApi={exportApi}
                 savingApi={savingApi}
+                batchApi={batchApi}
                 createApi={createApi}
                 sensitiveApi={sensitiveApi}
                 editingApi={editingApi}
@@ -253,6 +258,7 @@ type TabPaneProps = {
   recentApi: RecentApi;
   exportApi: ExportApi;
   savingApi: SavingApi;
+  batchApi: BatchApi;
   createApi: CreateApi;
   sensitiveApi: SensitiveApi;
   editingApi: EditingApi;

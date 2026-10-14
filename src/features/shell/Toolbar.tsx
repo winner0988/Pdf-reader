@@ -82,6 +82,8 @@ export type ToolbarProps = {
   privacyExportBlocked?: boolean;
   /** Writes an encrypted copy (B2-15); without it the menu item is disabled. */
   onEncryptCopy?: () => void;
+  /** Does one thing to many files (B3-04); without it (demo data, tests) the menu item is disabled. */
+  onBatch?: () => void;
   /** An encrypted document has no encrypted copy (B2-15): the menu item says so. */
   encryptCopyBlocked?: boolean;
   /** Forgets the password the app remembers for this file (B2-26); given only when there is one. */
@@ -468,6 +470,9 @@ function MoreMenu(props: ToolbarProps) {
         <DropdownMenuItem disabled={!props.onEncryptCopy} onClick={props.onEncryptCopy}>
           {menu.encryptCopy}
           {props.encryptCopyBlocked && <DropdownMenuShortcut>{strings.encryption.encrypted}</DropdownMenuShortcut>}
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!props.onBatch} onClick={props.onBatch}>
+          {menu.batch}
         </DropdownMenuItem>
         {props.onForgetPassword && (
           <DropdownMenuItem onClick={props.onForgetPassword}>{strings.password.forgetMenu}</DropdownMenuItem>

@@ -7,21 +7,23 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use ipc_contract::limits::MAX_BATCH_FILES;
 use ipc_contract::types::{
-    AnnotationId, CompressArgs, CompressResult, CreateResult, DocumentId, EditArgs, EncryptArgs,
-    ErrorCode, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs, FontInfo, FormField,
-    IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs,
-    OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText,
-    PagesSource, Password, PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId,
-    RememberedPasswords, RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult, SearchArgs,
-    SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignatureReport,
-    StampImageInfo, TabId, TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs,
-    UpdateCheck,
+    AnnotationId, BatchArgs, BatchEvent, BatchReport, CompressArgs, CompressResult, CreateResult,
+    DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat,
+    FileRecordingArgs, FontInfo, FormField, IpcError, LanguageImport, LinkArgs, LinkPreview,
+    MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult,
+    PageAnnotation, PageLink, PageText, PagesSource, Password, PrepareTextBoxArgs, PreparedTextBox,
+    RecentFile, RecentId, RememberedPasswords, RemoveLanguageArgs, RenderPageArgs, RequestId,
+    SaveResult, SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings,
+    SignatureReport, StampImageInfo, TabId, TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome,
+    UnlockSourceArgs, UpdateCheck,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
 
+use crate::batch::{self, Batches};
 use crate::clipboard;
 use crate::create_pdf;
 use crate::documents::{self, Documents};
@@ -1083,9 +1085,59 @@ pub async fn encrypt_copy(
     Ok(true)
 }
 
+/// Does `args.operation` to PDF files the user picks (B3-04, ADR 0005,
+/// docs/architecture/batch.md): the system's open dialog for the files (several), then a folder
+/// for the copies. The files are done one after the other, each in a worker of its own, and each
+/// gets a copy in that folder; no file is changed or replaced, and one that fails does not stop
+/// the others. Progress arrives on `on_event`, by file name; `cancel` stops the batch before its
+/// next file. `None` when the user closes either dialog. The passwords of an encrypted copy go to
+/// each file's worker and are dropped with `args` when the batch ends.
+#[tauri::command]
+pub async fn run_batch(
+    app: AppHandle,
+    window: WebviewWindow,
+    args: BatchArgs,
+    on_event: Channel<BatchEvent>,
+) -> Result<Option<BatchReport>, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let Some(files) = file_dialog::pick_batch_files(&window).await? else {
+        return Ok(None);
+    };
+    if files.len() > MAX_BATCH_FILES as usize {
+        return Err(IpcError {
+            code: ErrorCode::LimitExceeded,
+            message: format!("more than {MAX_BATCH_FILES} files"),
+        });
+    }
+    let Some(folder) =
+        file_dialog::pick_folder(&window, strings::BATCH_FOLDER_DIALOG_TITLE).await?
+    else {
+        return Ok(None);
+    };
+    let report = blocking(move || {
+        let batches = app.state::<Batches>();
+        let running = batches.start(args.request);
+        Ok(batch::run(
+            &app.state::<Documents>(),
+            &files,
+            &folder,
+            &args.operation,
+            running.stop(),
+            &|event| {
+                let _ = on_event.send(event);
+            },
+        ))
+    })
+    .await?;
+    Ok(Some(report))
+}
+
 /// A password nobody knows, not even the user: 128 random bits as hex text. The permissions
 /// password of a copy that only has an open password (the PDF standard has the field either way).
-fn unguessable_password() -> Result<Password, IpcError> {
+pub(crate) fn unguessable_password() -> Result<Password, IpcError> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).map_err(|_| IpcError {
         code: ErrorCode::Internal,
@@ -1337,6 +1389,7 @@ pub async fn cancel(app: AppHandle, request: RequestId) -> Result<(), IpcError> 
     app.state::<Renderer>().cancel(request);
     app.state::<Searches>().cancel(request);
     app.state::<Exports>().cancel(request);
+    app.state::<Batches>().cancel(request);
     Ok(())
 }
 
