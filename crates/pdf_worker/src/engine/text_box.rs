@@ -32,6 +32,51 @@ use mupdf::pdf::PdfObject;
 use super::annotations::{binding_rect, find};
 use super::{EngineError, PdfDocument};
 
+/// `text` on one line, `size` points high, in `color`, as a form of its own (a watermark, B3-04):
+/// the words are set as a text box's are, in a subset of `font`, so that every reader shows them
+/// and search finds them. Gives the form, and how wide and how tall it is, in points.
+pub(super) fn line_form(
+    doc: &mut mupdf::pdf::PdfDocument,
+    font: &TextBoxFont,
+    text: &str,
+    size: f32,
+    color: Rgb,
+) -> Result<(PdfObject, f32, f32), EngineError> {
+    let model = prepare_text_box(font, text)?;
+    let words = || EngineError::InvalidEdit("the words of a watermark");
+    let glyphs = layout::glyphs(&model).ok_or_else(words)?;
+    let line: f32 = glyphs.iter().map(|glyph| glyph.advance * size).sum();
+    // As `layout::lay_out` sets a line: its baseline the ascent below the top, and room for what
+    // goes below the baseline under it.
+    let ascent = (model.ascent as f32 / 1000.0).max(0.8) * size;
+    let descent = (model.descent as f32 / 1000.0).clamp(-1.0, -0.05) * size;
+    let width = line + 2.0 * layout::PADDING;
+    let height = ascent - descent + 2.0 * layout::PADDING;
+    let style = TextBoxStyle {
+        size,
+        color,
+        align: TextAlign::Left,
+    };
+    // A little wider than the line, so that rounding never breaks it in two.
+    let laid = layout::lay_out(&model, &style, (width + 1.0, height)).ok_or_else(words)?;
+    let subset = font::clean_subset(&model).ok_or(EngineError::Font(FontRefusal::NotAFont))?;
+    let (font_object, _) = pdf::write_font(doc, &model, &subset)?;
+    let form = pdf::parse(
+        doc,
+        &format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 {width:.3} {height:.3}] \
+             /Resources << /Font << /F0 {} 0 R >> >> >>",
+            pdf::object_number(&font_object)?,
+        ),
+    )?;
+    let stream = doc.add_stream(
+        &Buffer::from_bytes(laid.content.as_bytes())?,
+        Some(&form),
+        false,
+    )?;
+    Ok((stream, width, height))
+}
+
 /// What a text box says and how it is set.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextBoxSpec<'a> {
@@ -160,7 +205,10 @@ impl PdfDocument {
 
     /// The matrix that takes page space (MuPDF's, from the top left) to the PDF's, for page
     /// `index`, and the page's object.
-    fn page_to_pdf(&self, index: u32) -> Result<(PdfObject, mupdf::Matrix), EngineError> {
+    pub(super) fn page_to_pdf(
+        &self,
+        index: u32,
+    ) -> Result<(PdfObject, mupdf::Matrix), EngineError> {
         let page = self.pdf_page(index)?;
         let object = page.object();
         let inverse = object

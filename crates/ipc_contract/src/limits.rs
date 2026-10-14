@@ -91,6 +91,20 @@ pub const MAX_UNDO_EDITS: u32 = 1_000;
 /// Maximum number of pages one export writes (B2-04).
 pub const MAX_EXPORT_PAGES: u32 = 1_000;
 
+/// Most characters of a watermark's words (B3-04).
+pub const MAX_WATERMARK_CHARS: usize = 100;
+
+/// Smallest and largest size of a watermark's words, in points (B3-04).
+pub const MIN_WATERMARK_SIZE_PT: f32 = 8.0;
+pub const MAX_WATERMARK_SIZE_PT: f32 = 200.0;
+
+/// Narrowest and widest a watermark's picture is drawn, in points (B3-04).
+pub const MIN_WATERMARK_WIDTH_PT: f32 = 16.0;
+pub const MAX_WATERMARK_WIDTH_PT: f32 = 1_200.0;
+
+/// Least opacity of a watermark, in percent (B3-04): fainter than this, it would not be seen.
+pub const MIN_WATERMARK_OPACITY: u8 = 5;
+
 /// Most files one split writes (B2-06). The pages of a PDF export are not rendered or read one by
 /// one, so a split may take as many pages as a document has, but not make a thousand and one files.
 pub const MAX_SPLIT_FILES: u32 = 1_000;

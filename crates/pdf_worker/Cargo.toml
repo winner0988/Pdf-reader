@@ -20,6 +20,10 @@ mupdf = { version = "=0.8.0", default-features = false, features = ["base14-font
 # The same crate `mupdf` builds on, called directly only to learn which password opened a
 # document (src/owner_password.rs, #88). No features of its own: `mupdf` chooses them.
 mupdf-sys = { version = "=0.8.0", default-features = false }
+# The font a watermark's words are set in (src/engine/watermark.rs, B3-04): Droid Sans Fallback,
+# which `mupdf` already builds into the worker for Chinese (its `bundled-fonts-droid` feature);
+# named here to read its bytes. Same crate, same version: nothing new is built.
+mupdf-fonts-droid = "=0.8.0"
 # Read and cut the font of a text box (src/engine/text_box.rs, ADR 0018): both are pure Rust and
 # without unsafe code, which matters, as the font is untrusted input. MIT or Apache-2.0.
 skrifa = "0.42.1"
@@ -38,7 +42,6 @@ zeroize = "1.9"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
 
 [dev-dependencies]
-mupdf-fonts-droid = "=0.8.0"
 # Reads tests/corpus/manifest.json (already in the workspace through ipc_contract).
 serde_json = "1"
 worker_host = { path = "../worker_host" }

@@ -119,6 +119,38 @@ openPassword: Password | null,
 permissionsPassword: Password | null, restrictions: Restrictions, };
 
 /**
+ * What a watermark is (B3-04, docs/architecture/watermark.md).
+ */
+export type WatermarkContent = { "kind": "text", text: string, size: number, color: Rgb, } | { "kind": "picture", widthPt: number, };
+
+/**
+ * Where on each page a watermark is (B3-04): in the middle, or at the top or the bottom, as the
+ * page is shown (a turned page included).
+ */
+export type WatermarkPlace = "center" | "top" | "bottom";
+
+/**
+ * Which pages get a watermark (B3-04): the same for every file of a batch, however many pages
+ * each has.
+ */
+export type WatermarkPages = "all" | "first" | "allButFirst";
+
+/**
+ * A watermark (B3-04): drawn on the pages of a copy as page content, over what is there, so that
+ * every reader shows it and it is not an annotation a click takes off.
+ */
+export type Watermark = { content: WatermarkContent, 
+/**
+ * How much of it shows, in percent: `MIN_WATERMARK_OPACITY` to 100.
+ */
+opacity: number, 
+/**
+ * Turned to run from the bottom left corner of the page towards the top right one; level
+ * otherwise.
+ */
+diagonal: boolean, place: WatermarkPlace, pages: WatermarkPages, };
+
+/**
  * A recently opened file as the frontend sees it (#73): no path, only the file name.
  */
 export type RecentFile = { id: RecentId, 
