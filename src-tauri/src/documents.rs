@@ -3759,7 +3759,7 @@ mod with_worker {
         };
         documents.load(tab, &report);
         documents
-            .unlock(tab, Password::new("user".to_owned()), &report)
+            .unlock(tab, Password::new("user".to_owned()), false, &report)
             .unwrap();
         let Some(OpenEvent::Opened { info, .. }) = events.borrow().last().cloned() else {
             panic!("opened")
