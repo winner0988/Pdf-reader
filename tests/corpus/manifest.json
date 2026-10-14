@@ -652,5 +652,79 @@
       "bytes": 116,
       "sha256": "f1fbbac806c7b65896e408e1ba92f2932060572cf11f27b82c1e870b70fd21d5"
     }
+  ],
+  "sources": [
+    {
+      "path": "sources/text.txt",
+      "category": "sources",
+      "purpose": "A UTF-8 text with Chinese.",
+      "expected": "Becomes pages of text with a margin (B3-03).",
+      "bytes": 84,
+      "sha256": "74c49c40ff5d91351c5a788acf79ba1ded69d9bffdd5734d0623612aa26d9be3"
+    },
+    {
+      "path": "sources/web-page.html",
+      "category": "sources",
+      "purpose": "A web page that links a stylesheet, a script, a picture and a frame on `.invalid` hosts and a local file, has a script of its own and a background picture from a local file.",
+      "expected": "Becomes pages of its text: nothing is run, nothing is fetched, no file is read (B3-03).",
+      "bytes": 503,
+      "sha256": "ef0c3edb7107254a9409d3a6d127e2a1bb96da9531490fb5fda4c9aa02016c20"
+    },
+    {
+      "path": "sources/picture.svg",
+      "category": "sources",
+      "purpose": "An SVG picture with a rectangle and a line of text.",
+      "expected": "Becomes a page with the text (B3-03).",
+      "bytes": 166,
+      "sha256": "7ee3887c2ae4317b428358da26100f23942b3d29bb8e4a0d3c7ecf1487e47d94"
+    },
+    {
+      "path": "sources/book.epub",
+      "category": "sources",
+      "purpose": "An EPUB of one chapter, whose metadata names 'Jane Q. Private-Author'.",
+      "expected": "Becomes pages of the chapter without the author (B3-03).",
+      "bytes": 1298,
+      "sha256": "589a61379a9f2b9730c706a9e5fb235d315d03f2f360d3ed872c83bd057b3e9d"
+    },
+    {
+      "path": "sources/page.xps",
+      "category": "sources",
+      "purpose": "An XPS file of one page (816 x 1056 units) with a red rectangle.",
+      "expected": "Becomes one Letter page (B3-03).",
+      "bytes": 1959,
+      "sha256": "01bc33abf190b2bdc1540c0e74f777360d624395eb732315efe647381590c7e7"
+    },
+    {
+      "path": "sources/letter.docx",
+      "category": "sources",
+      "purpose": "A Word file of two paragraphs whose properties name 'Jane Q. Private-Author' and a title.",
+      "expected": "Becomes pages of text without the author or the title; experimental (B3-03).",
+      "bytes": 2216,
+      "sha256": "9ceff66880d27dda07279fba8dd71285da61c57fc86d1594e04edcfe2060dd9c"
+    },
+    {
+      "path": "sources/bomb-declared-size.docx",
+      "category": "sources",
+      "purpose": "A Word file whose text part says it is 3.5 GiB unpacked and is a few hundred bytes.",
+      "expected": "Never makes the worker use more memory than its limit: an error, or the few words it has (B3-03).",
+      "bytes": 2148,
+      "sha256": "de9aef234a618331e74a2f791cd18cf05d5af4c92bdb951ffca3bd7bb1a0b7a2"
+    },
+    {
+      "path": "sources/sheet.xlsx",
+      "category": "sources",
+      "purpose": "An Excel file of one sheet: a text and a number.",
+      "expected": "Becomes a page with both; experimental (B3-03).",
+      "bytes": 2463,
+      "sha256": "82acd815e2a19f059097b42d5b7017d421f7bb312d08f6c2223648ab1f4fb03f"
+    },
+    {
+      "path": "sources/slides.pptx",
+      "category": "sources",
+      "purpose": "A PowerPoint file of one slide with a title.",
+      "expected": "Becomes a page with the title; experimental (B3-03).",
+      "bytes": 2516,
+      "sha256": "b47c8d7bb3e1d4d75cd58063d579bd4e264b705a55b5b10bcb3a0527623239dc"
+    }
   ]
 }

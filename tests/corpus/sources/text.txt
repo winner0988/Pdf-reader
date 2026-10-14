@@ -1,0 +1,4 @@
+Hello text file
+
+這是一份純文字檔。
+It has two paragraphs and some 中文.

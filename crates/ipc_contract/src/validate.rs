@@ -12,13 +12,13 @@ use crate::limits::*;
 use crate::ocr::is_language_name;
 use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text, is_note_text};
 use crate::types::{
-    CompressArgs, DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs, ExportFormat, FindingKind,
-    FormField, IpcError, LinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem,
-    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Point,
-    PrepareTextBoxArgs, Quad, RecentFile, Rect, RemoveLanguageArgs, RenderPageArgs, Rotation,
-    SearchArgs, SearchHit, SecurityReport, Settings, SignatureInfo, SignatureReport,
-    SignatureStatus, TextBoxInfo, TextBoxStyle, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs,
-    Watermark, WatermarkContent,
+    BatchArgs, BatchOperation, CompressArgs, DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs,
+    ExportFormat, FindingKind, FormField, IpcError, LinkTarget, OcrLanguages, OcrProgress,
+    OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
+    Point, PrepareTextBoxArgs, Quad, RecentFile, Rect, RemoveLanguageArgs, RenderPageArgs,
+    Restrictions, Rotation, SearchArgs, SearchHit, SecurityReport, Settings, SignatureInfo,
+    SignatureReport, SignatureStatus, TextBoxInfo, TextBoxStyle, TextLine, UndoArgs, UnlockArgs,
+    UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
     OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerError, WorkerErrorCode, WorkerResponse,
@@ -471,6 +471,19 @@ impl Validate for WorkerResponse {
                 }
                 Ok(())
             }
+            WorkerResponse::Created { bytes, pages, .. } => {
+                if *bytes == 0 || *bytes > MAX_DOCUMENT_BYTES {
+                    return Err(ValidationError::OutOfRange {
+                        what: "created file size",
+                    });
+                }
+                if *pages == 0 || *pages > MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "created page count",
+                    });
+                }
+                Ok(())
+            }
             WorkerResponse::Rebased { .. } => Ok(()),
             WorkerResponse::OcrLoaded { .. }
             | WorkerResponse::OcrChecked { .. }
@@ -610,32 +623,11 @@ fn check_new_password(password: &Password) -> Result<(), ValidationError> {
 
 impl Validate for EncryptArgs {
     fn validate(&self) -> Result<(), ValidationError> {
-        for password in [&self.open_password, &self.permissions_password]
-            .into_iter()
-            .flatten()
-        {
-            check_new_password(password)?;
-        }
-        if self.open_password.is_none() && !self.restrictions.any() {
-            return Err(ValidationError::Invalid {
-                what: "encryption",
-                reason: "nothing is asked for: no open password and no restriction",
-            });
-        }
-        if self.restrictions.any() && self.permissions_password.is_none() {
-            return Err(ValidationError::Invalid {
-                what: "encryption",
-                reason: "a restriction needs a permissions password to lift it",
-            });
-        }
-        // Whoever knows the open password would have the permissions password's rights too.
-        if self.open_password.is_some() && self.open_password == self.permissions_password {
-            return Err(ValidationError::Invalid {
-                what: "encryption",
-                reason: "the permissions password is the open password",
-            });
-        }
-        Ok(())
+        check_encryption(
+            self.open_password.as_ref(),
+            self.permissions_password.as_ref(),
+            self.restrictions,
+        )
     }
 }
 
@@ -680,6 +672,54 @@ impl Validate for Watermark {
         }
         Ok(())
     }
+}
+
+impl Validate for BatchArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        match &self.operation {
+            BatchOperation::RemoveMetadata => Ok(()),
+            BatchOperation::Encrypt {
+                open_password,
+                permissions_password,
+                restrictions,
+            } => check_encryption(
+                open_password.as_ref(),
+                permissions_password.as_ref(),
+                *restrictions,
+            ),
+        }
+    }
+}
+
+/// The rules of an encrypted copy (B2-15), one file or a batch of them (B3-04).
+fn check_encryption(
+    open_password: Option<&Password>,
+    permissions_password: Option<&Password>,
+    restrictions: Restrictions,
+) -> Result<(), ValidationError> {
+    for password in [open_password, permissions_password].into_iter().flatten() {
+        check_new_password(password)?;
+    }
+    if open_password.is_none() && !restrictions.any() {
+        return Err(ValidationError::Invalid {
+            what: "encryption",
+            reason: "nothing is asked for: no open password and no restriction",
+        });
+    }
+    if restrictions.any() && permissions_password.is_none() {
+        return Err(ValidationError::Invalid {
+            what: "encryption",
+            reason: "a restriction needs a permissions password to lift it",
+        });
+    }
+    // Whoever knows the open password would have the permissions password's rights too.
+    if open_password.is_some() && open_password == permissions_password {
+        return Err(ValidationError::Invalid {
+            what: "encryption",
+            reason: "the permissions password is the open password",
+        });
+    }
+    Ok(())
 }
 
 impl Validate for CompressArgs {
@@ -2044,6 +2084,44 @@ mod tests {
     }
 
     #[test]
+    fn a_batch_is_checked_as_its_operation_is() {
+        let batch = |operation| BatchArgs {
+            request: RequestId(7),
+            operation,
+        };
+        assert!(batch(BatchOperation::RemoveMetadata).validate().is_ok());
+        // The rules of one encrypted copy, for each file of a batch.
+        for (open, permissions, restrictions, ok) in [
+            (password("open"), None, [false; 3], true),
+            (None, password("owner"), [true, false, false], true),
+            (None, None, [false; 3], false),
+            (password("open"), None, [false, true, false], false),
+            (
+                password("same"),
+                password("same"),
+                [true, false, false],
+                false,
+            ),
+            (password(""), None, [false; 3], false),
+        ] {
+            let args = encrypt(open, permissions, restrictions);
+            let operation = BatchOperation::Encrypt {
+                open_password: args.open_password.clone(),
+                permissions_password: args.permissions_password.clone(),
+                restrictions: args.restrictions,
+            };
+            assert_eq!(batch(operation).validate().is_ok(), ok);
+            assert_eq!(args.validate().is_ok(), ok);
+        }
+        // What the page sends, and nothing else.
+        let json = r#"{"request":3,"operation":{"kind":"encrypt","openPassword":"pw","permissionsPassword":null,"restrictions":{"print":false,"copy":false,"modify":false}}}"#;
+        let args: BatchArgs = serde_json::from_str(json).expect("batch args");
+        assert!(args.validate().is_ok());
+        let more = r#"{"request":3,"operation":{"kind":"removeMetadata"},"files":["C:/x.pdf"]}"#;
+        assert!(serde_json::from_str::<BatchArgs>(more).is_err());
+    }
+
+    #[test]
     fn what_a_copy_is_encrypted_with_is_checked() {
         let none = [false; 3];
         // An open password alone; restrictions with their password; both.
@@ -3311,31 +3389,16 @@ mod tests {
             bytes,
             incremental: false,
         };
-        let compressed =
-            |bytes: u64, before: u64, images: u32, changed: u32| WorkerResponse::Compressed {
-                request: RequestId(1),
-                bytes,
-                before,
-                images,
-                changed,
-                partial: false,
-            };
-        assert!(compressed(1_000, 4_000, 5, 3).validate().is_ok());
-        assert!(compressed(1_000, 4_000, 0, 0).validate().is_ok());
-        assert!(compressed(0, 4_000, 5, 3).validate().is_err());
-        assert!(compressed(1_000, 0, 5, 3).validate().is_err());
-        assert!(
-            compressed(MAX_DOCUMENT_BYTES + 1, 4_000, 5, 3)
-                .validate()
-                .is_err()
-        );
-        // More pictures changed than there are, or an absurd number of them.
-        assert!(compressed(1_000, 4_000, 5, 6).validate().is_err());
-        assert!(
-            compressed(1_000, 4_000, MAX_IMAGES_PER_DOCUMENT + 1, 0)
-                .validate()
-                .is_err()
-        );
+        let created = |bytes: u64, pages: u32| WorkerResponse::Created {
+            request: RequestId(1),
+            bytes,
+            pages,
+        };
+        assert!(created(1_000, 3).validate().is_ok());
+        assert!(created(0, 3).validate().is_err());
+        assert!(created(1_000, 0).validate().is_err());
+        assert!(created(MAX_DOCUMENT_BYTES + 1, 3).validate().is_err());
+        assert!(created(1_000, MAX_PAGE_COUNT + 1).validate().is_err());
         assert!(saved(1_234).validate().is_ok());
         assert!(saved(0).validate().is_err());
         assert!(saved(MAX_DOCUMENT_BYTES + 1).validate().is_err());

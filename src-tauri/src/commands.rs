@@ -7,21 +7,24 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use ipc_contract::limits::MAX_BATCH_FILES;
 use ipc_contract::types::{
-    AnnotationId, CompressArgs, CompressResult, DocumentId, EditArgs, EncryptArgs, ErrorCode,
-    ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs, FontInfo, FormField, IpcError,
-    LanguageImport, LinkArgs, LinkPreview, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent,
-    OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText, PagesSource, Password,
-    PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RememberedPasswords,
-    RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent, Settings,
-    SignatureReport, StampImageInfo, TabId, TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome,
-    UnlockSourceArgs, UpdateCheck,
+    AnnotationId, BatchArgs, BatchEvent, BatchReport, CompressArgs, CompressResult, CreateResult,
+    DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat,
+    FileRecordingArgs, FontInfo, FormField, IpcError, LanguageImport, LinkArgs, LinkPreview,
+    OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation,
+    PageLink, PageText, PagesSource, Password, PrepareTextBoxArgs, PreparedTextBox, RecentFile,
+    RecentId, RememberedPasswords, RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult,
+    SearchArgs, SearchEvent, Settings, SignatureReport, StampImageInfo, TabId, TextBoxInfo,
+    UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
 };
 use ipc_contract::validate::{Validate, check_page_index};
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
 
-use crate::documents::Documents;
+use crate::batch::{self, Batches};
+use crate::create_pdf;
+use crate::documents::{self, Documents};
 use crate::events::OpenEvents;
 use crate::export::{self, Exports, ImageKind};
 use crate::file_dialog;
@@ -977,9 +980,59 @@ pub async fn encrypt_copy(
     Ok(true)
 }
 
+/// Does `args.operation` to PDF files the user picks (B3-04, ADR 0005,
+/// docs/architecture/batch.md): the system's open dialog for the files (several), then a folder
+/// for the copies. The files are done one after the other, each in a worker of its own, and each
+/// gets a copy in that folder; no file is changed or replaced, and one that fails does not stop
+/// the others. Progress arrives on `on_event`, by file name; `cancel` stops the batch before its
+/// next file. `None` when the user closes either dialog. The passwords of an encrypted copy go to
+/// each file's worker and are dropped with `args` when the batch ends.
+#[tauri::command]
+pub async fn run_batch(
+    app: AppHandle,
+    window: WebviewWindow,
+    args: BatchArgs,
+    on_event: Channel<BatchEvent>,
+) -> Result<Option<BatchReport>, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let Some(files) = file_dialog::pick_batch_files(&window).await? else {
+        return Ok(None);
+    };
+    if files.len() > MAX_BATCH_FILES as usize {
+        return Err(IpcError {
+            code: ErrorCode::LimitExceeded,
+            message: format!("more than {MAX_BATCH_FILES} files"),
+        });
+    }
+    let Some(folder) =
+        file_dialog::pick_folder(&window, strings::BATCH_FOLDER_DIALOG_TITLE).await?
+    else {
+        return Ok(None);
+    };
+    let report = blocking(move || {
+        let batches = app.state::<Batches>();
+        let running = batches.start(args.request);
+        Ok(batch::run(
+            &app.state::<Documents>(),
+            &files,
+            &folder,
+            &args.operation,
+            running.stop(),
+            &|event| {
+                let _ = on_event.send(event);
+            },
+        ))
+    })
+    .await?;
+    Ok(Some(report))
+}
+
 /// A password nobody knows, not even the user: 128 random bits as hex text. The permissions
 /// password of a copy that only has an open password (the PDF standard has the field either way).
-fn unguessable_password() -> Result<Password, IpcError> {
+pub(crate) fn unguessable_password() -> Result<Password, IpcError> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).map_err(|_| IpcError {
         code: ErrorCode::Internal,
@@ -988,6 +1041,65 @@ fn unguessable_password() -> Result<Password, IpcError> {
     Ok(Password::new(
         bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
     ))
+}
+
+/// Set while a PDF is being made of files (B3-03), from the open dialog to the end.
+static CREATING: AtomicBool = AtomicBool::new(false);
+
+/// Makes a PDF of files the user picks (B3-03, docs/architecture/create-pdf.md): the system's open
+/// dialog for the files (pictures, a web page, a text, a book, an XPS file, an SVG picture or an
+/// Office file; several pictures can go together, any other kind alone), then the save dialog for
+/// the PDF, never over one of the files. A sandboxed worker reads the files and makes the PDF; it
+/// then opens in a tab. Paths stay in the main process. `None` when the user closes either dialog,
+/// or when a PDF is already being made.
+#[tauri::command]
+pub async fn create_pdf(
+    app: AppHandle,
+    window: WebviewWindow,
+) -> Result<Option<CreateResult>, IpcError> {
+    if CREATING.swap(true, Ordering::SeqCst) {
+        return Ok(None);
+    }
+    struct Creating;
+    impl Drop for Creating {
+        fn drop(&mut self) {
+            CREATING.store(false, Ordering::SeqCst);
+        }
+    }
+    let _creating = Creating;
+
+    let Some(picked) = file_dialog::pick_sources(&window).await? else {
+        return Ok(None);
+    };
+    let sources = create_pdf::sources_of(picked)?;
+    let file_name =
+        strings::created_pdf_file_name(&export::stem(&documents::display_name(&sources[0].0)));
+    let destination = loop {
+        let Some(path) = file_dialog::save_created_pdf_file(&window, file_name.clone()).await?
+        else {
+            return Ok(None);
+        };
+        if !sources
+            .iter()
+            .any(|(source, _)| documents::same_file(source, &path))
+        {
+            break path;
+        }
+        rfd::AsyncMessageDialog::new()
+            .set_level(rfd::MessageLevel::Info)
+            .set_title(strings::CREATE_PDF_SAME_FILE_TITLE)
+            .set_description(strings::CREATE_PDF_SAME_FILE_MESSAGE)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .set_parent(&window)
+            .show()
+            .await;
+    };
+    let created = {
+        let (app, destination) = (app.clone(), destination.clone());
+        blocking(move || app.state::<Documents>().create_pdf(&sources, &destination)).await?
+    };
+    open_paths(&app, vec![destination]);
+    Ok(Some(created))
 }
 
 /// Asks for a picture (PNG or JPEG) in the system's open dialog and makes it into what a stamp
@@ -1172,6 +1284,7 @@ pub async fn cancel(app: AppHandle, request: RequestId) -> Result<(), IpcError> 
     app.state::<Renderer>().cancel(request);
     app.state::<Searches>().cancel(request);
     app.state::<Exports>().cancel(request);
+    app.state::<Batches>().cancel(request);
     Ok(())
 }
 

@@ -104,6 +104,8 @@ pub const MAX_WATERMARK_WIDTH_PT: f32 = 1_200.0;
 
 /// Least opacity of a watermark, in percent (B3-04): fainter than this, it would not be seen.
 pub const MIN_WATERMARK_OPACITY: u8 = 5;
+/// Most files one batch takes (B3-04).
+pub const MAX_BATCH_FILES: u32 = 500;
 
 /// Most files one split writes (B2-06). The pages of a PDF export are not rendered or read one by
 /// one, so a split may take as many pages as a document has, but not make a thousand and one files.
@@ -177,6 +179,9 @@ pub const MAX_COMPRESS_SIDE_PX: u32 = 16_384;
 
 /// Most pictures a compressed copy may say it looked at (B3-01): above what a document can hold.
 pub const MAX_IMAGES_PER_DOCUMENT: u32 = 10_000_000;
+
+/// Most files a PDF may be made of (B3-03): pictures, a page each.
+pub const MAX_CREATE_SOURCES: usize = 200;
 
 /// Most annotations reported for one page (B2-07); the rest are not listed.
 pub const MAX_ANNOTATIONS_PER_PAGE: u32 = 2_000;

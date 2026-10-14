@@ -1,8 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, vi } from "vitest";
 
 import { NoteDialog } from "@/features/annotations/NoteDialog";
+import { BatchDialog } from "@/features/batch/BatchDialog";
 import { TextBoxDialog } from "@/features/annotations/TextBoxDialog";
 import { ExportDialog } from "@/features/export/ExportDialog";
 import { FlattenDialog } from "@/features/forms/FlattenDialog";
@@ -10,6 +11,7 @@ import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialo
 import { OutlineTree } from "@/features/outline/OutlineTree";
 import { PrintDialog } from "@/features/print/PrintDialog";
 import { RecoveryBanner } from "@/features/recovery/RecoveryBanner";
+import { CreatePdfDialog } from "@/features/create/CreatePdfDialog";
 import { CompressDialog } from "@/features/saving/CompressDialog";
 import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
@@ -24,7 +26,7 @@ import { MovePagesDialog } from "@/features/thumbnails/MovePagesDialog";
 import { SourcePasswordDialog } from "@/features/thumbnails/SourcePasswordDialog";
 import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
 import { strings } from "@/i18n/zh-TW";
-import type { BlockedAction, FontInfo, LinkPreview, OutlineItem } from "@/ipc/generated/contract";
+import type { BatchEvent, BlockedAction, FontInfo, LinkPreview, OutlineItem } from "@/ipc/generated/contract";
 import { expectAccessible } from "@/test/axe";
 
 /** The page, with whatever a dialog put outside the render container. */
@@ -103,6 +105,29 @@ describe("dialogs", () => {
     await expectAccessible(everything());
   });
 
+  it("the batch, with its choices and with how each file went", async () => {
+    let onEvent: (event: BatchEvent) => void = () => {};
+    const api = {
+      run: vi.fn((_operation: unknown, handler: (event: BatchEvent) => void) => {
+        onEvent = handler;
+        return { request: 3, done: new Promise<never>(() => {}) };
+      }),
+      cancel: vi.fn(() => Promise.resolve()),
+    };
+    const user = userEvent.setup();
+    render(<BatchDialog open onOpenChange={vi.fn()} api={api} />);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("radio", { name: strings.batch.encrypt }));
+    await expectAccessible(everything());
+    await user.click(within(dialog).getByRole("radio", { name: strings.batch.removeMetadata }));
+    await user.click(within(dialog).getByRole("button", { name: strings.batch.start }));
+    act(() => {
+      onEvent({ kind: "started", files: ["a.pdf", "b.pdf"] });
+      onEvent({ kind: "file", index: 0, outcome: { kind: "failed", error: "encrypted" } });
+    });
+    await expectAccessible(everything());
+  });
+
   it("the encrypted copy", async () => {
     render(<EncryptDialog open onOpenChange={vi.fn()} doc={5} onEncrypt={() => Promise.resolve(false)} onFinished={vi.fn()} />);
     await screen.findByRole("dialog");
@@ -120,6 +145,16 @@ describe("dialogs", () => {
     render(<CompressDialog open onOpenChange={vi.fn()} doc={5} onCompress={() => Promise.resolve(done)} />);
     await userEvent.setup().click(await screen.findByRole("button", { name: strings.compress.start }));
     await screen.findByRole("button", { name: strings.compress.close });
+    await expectAccessible(everything());
+  });
+
+  it("the PDF made of files, at rest and with a reason it failed", async () => {
+    const api = { createPdf: vi.fn(() => Promise.reject({ code: "corrupted", message: "" })) };
+    render(<CreatePdfDialog open onOpenChange={vi.fn()} api={api} onFinished={vi.fn()} />);
+    const dialog = await screen.findByRole("dialog");
+    await expectAccessible(everything());
+    await userEvent.click(within(dialog).getByRole("button", { name: strings.create.start }));
+    await within(dialog).findByRole("alert");
     await expectAccessible(everything());
   });
 

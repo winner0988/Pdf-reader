@@ -17,10 +17,10 @@ use std::time::Duration;
 
 use ipc_contract::frame::{self, FrameError};
 use ipc_contract::types::{
-    DocumentId, ErrorCode, ImageQuality, Password, RequestId, Restrictions, Watermark,
+    CreateKind, DocumentId, ErrorCode, ImageQuality, Password, RequestId, Restrictions, Watermark,
 };
 use ipc_contract::validate::Validate;
-use ipc_contract::worker::{FileHandle, WorkerError, WorkerRequest, WorkerResponse};
+use ipc_contract::worker::{CreateSource, FileHandle, WorkerError, WorkerRequest, WorkerResponse};
 use sandbox::{SandboxConfig, Sandboxed};
 use thiserror::Error;
 
@@ -263,6 +263,39 @@ impl WorkerHost {
             doc,
             pages: pages.to_vec(),
             file: FileHandle(handle),
+        })
+    }
+
+    /// Has the worker make a PDF of `sources` (files the main process opened, and what each is)
+    /// and write it to `file` (B3-03). The worker gets a read-only handle to each source and a
+    /// write-only handle to `file`, never a path; no document is open for it. Returns `Created`.
+    pub fn create_pdf(
+        &mut self,
+        sources: &[(&File, CreateKind)],
+        file: &File,
+    ) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        let process = &self.connection.as_ref().expect("running").process;
+        let mut handed = Vec::with_capacity(sources.len());
+        for (source, kind) in sources {
+            handed.push(CreateSource {
+                file: FileHandle(
+                    process
+                        .duplicate_read_only(source)
+                        .map_err(HostError::Spawn)?,
+                ),
+                kind: *kind,
+            });
+        }
+        let output = FileHandle(
+            process
+                .duplicate_write_only(file)
+                .map_err(HostError::Spawn)?,
+        );
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::CreatePdf {
+            request,
+            sources: handed,
+            file: output,
         })
     }
 
@@ -616,7 +649,8 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::OcrStopped { request }
         | WorkerResponse::Source { request, .. }
         | WorkerResponse::Saved { request, .. }
-        | WorkerResponse::Compressed { request, .. } => Some(*request),
+        | WorkerResponse::Compressed { request, .. }
+        | WorkerResponse::Created { request, .. } => Some(*request),
         WorkerResponse::Error { request, .. } => *request,
     }
 }

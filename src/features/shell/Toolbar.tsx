@@ -67,6 +67,8 @@ export type ToolbarProps = {
   onSave?: () => void;
   /** Saves the open document as another file (B2-02). */
   onSaveAs?: () => void;
+  /** Makes a PDF of files (B3-03); without it (demo data, tests) the menu item is disabled. */
+  onCreatePdf?: () => void;
   /** Undoes the last edit, or makes the last undone one again (B2-05); without them the items are disabled. */
   onUndo?: () => void;
   onRedo?: () => void;
@@ -80,6 +82,8 @@ export type ToolbarProps = {
   privacyExportBlocked?: boolean;
   /** Writes an encrypted copy (B2-15); without it the menu item is disabled. */
   onEncryptCopy?: () => void;
+  /** Does one thing to many files (B3-04); without it (demo data, tests) the menu item is disabled. */
+  onBatch?: () => void;
   /** An encrypted document has no encrypted copy (B2-15): the menu item says so. */
   encryptCopyBlocked?: boolean;
   /** Forgets the password the app remembers for this file (B2-26); given only when there is one. */
@@ -432,6 +436,9 @@ function MoreMenu(props: ToolbarProps) {
           {menu.saveAs}
           <DropdownMenuShortcut>Ctrl+Shift+S</DropdownMenuShortcut>
         </DropdownMenuItem>
+        <DropdownMenuItem disabled={!props.onCreatePdf} onClick={props.onCreatePdf}>
+          {menu.createPdf}
+        </DropdownMenuItem>
         {props.ocr && (
           <DropdownMenuItem disabled={props.ocr.running} onClick={props.ocr.onStart}>
             {props.ocr.running ? strings.ocr.menuRunning : strings.ocr.menu}
@@ -458,6 +465,9 @@ function MoreMenu(props: ToolbarProps) {
         <DropdownMenuItem disabled={!props.onEncryptCopy} onClick={props.onEncryptCopy}>
           {menu.encryptCopy}
           {props.encryptCopyBlocked && <DropdownMenuShortcut>{strings.encryption.encrypted}</DropdownMenuShortcut>}
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!props.onBatch} onClick={props.onBatch}>
+          {menu.batch}
         </DropdownMenuItem>
         {props.onForgetPassword && (
           <DropdownMenuItem onClick={props.onForgetPassword}>{strings.password.forgetMenu}</DropdownMenuItem>

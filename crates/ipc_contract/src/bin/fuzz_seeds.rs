@@ -7,19 +7,19 @@ use std::path::PathBuf;
 
 use ipc_contract::frame::encode;
 use ipc_contract::types::{
-    AnnotationId, AnnotationKind, BlockedAction, Certification, DocumentId, DocumentPermissions,
-    FieldId, FieldKind, FieldOption, FindingKind, FontRefusal, FormField, HighlightColor,
-    HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, LinkTarget, OutlineItem,
-    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, PictureView, Point,
-    Quad, Rect, RequestId, Restrictions, Rgb, Rotation, SearchHit, SecurityFinding, SecurityReport,
-    SignatureInfo, SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo,
-    TextBoxStyle, TextLine, UnverifiableReason, Watermark, WatermarkContent, WatermarkPages,
-    WatermarkPlace,
+    AnnotationId, AnnotationKind, BlockedAction, Certification, CreateKind, DocumentId,
+    DocumentPermissions, FieldId, FieldKind, FieldOption, FindingKind, FontRefusal, FormField,
+    HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, LinkTarget,
+    OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
+    PictureView, Point, Quad, Rect, RequestId, Restrictions, Rgb, Rotation, SearchHit,
+    SecurityFinding, SecurityReport, SignatureInfo, SignatureReport, SignatureStatus, StampName,
+    TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason, Watermark,
+    WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
-    FileHandle, FontData, ModelGlyph, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument,
-    PasswordKey, Raster, TextBoxModel, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest,
-    WorkerResponse, WorkerWatermark,
+    CreateSource, FileHandle, FontData, ModelGlyph, OcrFinished, OcrOutcome, OcrPageState,
+    OpenedDocument, PasswordKey, Raster, TextBoxModel, WorkerEdit, WorkerError, WorkerErrorCode,
+    WorkerRequest, WorkerResponse, WorkerWatermark,
 };
 
 /// The words of a text box, as a worker would prepare them (a small one).
@@ -400,6 +400,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             images: 7,
             changed: 5,
             partial: false,
+        },
+        WorkerResponse::Created {
+            request,
+            bytes: 8192,
+            pages: 3,
         },
         WorkerResponse::Error {
             request: Some(request),
@@ -854,6 +859,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             doc,
             pages: vec![0, 2, 1],
             file: FileHandle(0x1f8),
+        },
+        WorkerRequest::CreatePdf {
+            request,
+            sources: vec![
+                CreateSource {
+                    file: FileHandle(0x1f4),
+                    kind: CreateKind::Image,
+                },
+                CreateSource {
+                    file: FileHandle(0x1f8),
+                    kind: CreateKind::Image,
+                },
+            ],
+            file: FileHandle(0x1fc),
         },
         WorkerRequest::Cancel { target: request },
         WorkerRequest::Close { doc },

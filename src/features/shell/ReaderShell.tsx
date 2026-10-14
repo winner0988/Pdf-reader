@@ -25,9 +25,13 @@ import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialo
 import type { OcrApi } from "@/features/ocr/api";
 import type { OcrTab } from "@/features/ocr/model";
 import { useOcrView } from "@/features/ocr/useOcrView";
+import type { CreateApi } from "@/features/create/api";
+import { CreatePdfDialog } from "@/features/create/CreatePdfDialog";
 import type { ExportApi } from "@/features/export/api";
 import { ExportDialog } from "@/features/export/ExportDialog";
 import { CompressDialog } from "@/features/saving/CompressDialog";
+import type { BatchApi } from "@/features/batch/api";
+import { BatchDialog } from "@/features/batch/BatchDialog";
 import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
@@ -130,6 +134,10 @@ type ReaderShellProps = {
   exportApi?: ExportApi;
   /** Saves the document (B2-02); without it (demo data, tests) nothing can be. */
   savingApi?: SavingApi;
+  /** Does one thing to many files (B3-04); without it (demo data, tests) nothing can be. */
+  batchApi?: BatchApi;
+  /** Makes a PDF of files (B3-03); without it (demo data, tests) nothing can be. */
+  createApi?: CreateApi;
   /** Page management in the thumbnails (B2-05); without it (demo data, tests) pages stay as they are. */
   editingApi?: EditingApi;
   /** The update check in the settings (#64); without it (demo data, tests) it is not offered. */
@@ -206,6 +214,8 @@ export function ReaderShell({
   recentApi,
   exportApi,
   savingApi,
+  batchApi,
+  createApi,
   editingApi,
   updatesApi,
   ocrApi,
@@ -248,7 +258,7 @@ export function ReaderShell({
   const [rotation, setRotation] = useState<Rotation>(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [dialog, setDialog] = useState<
-    | "shortcuts"
+| "shortcuts"
     | "about"
     | "settings"
     | "setDefaultFailed"
@@ -257,6 +267,8 @@ export function ReaderShell({
     | "privacyExport"
     | "encrypt"
     | "compress"
+    | "batch"
+    | "create"
     | null
   >(
     null,
@@ -821,6 +833,7 @@ export function ReaderShell({
           printBlocked={!permissions.print}
           onSave={savable && document_?.unsaved ? save : undefined}
           onSaveAs={savable ? saveAs : undefined}
+          onCreatePdf={createApi ? () => setDialog("create") : undefined}
           onUndo={undoable ? () => undo() : undefined}
           onRedo={redoable ? redo : undefined}
           onExport={
@@ -835,6 +848,7 @@ export function ReaderShell({
           onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}
           privacyExportBlocked={savable && document_?.encrypted === true}
           onEncryptCopy={savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined}
+          onBatch={batchApi ? () => setDialog("batch") : undefined}
           encryptCopyBlocked={savable && document_?.encrypted === true}
           onForgetPassword={document_?.passwordRemembered ? forgetPassword : undefined}
           onCompressImages={savable && !document_?.encrypted ? () => setDialog("compress") : undefined}
@@ -977,7 +991,13 @@ export function ReaderShell({
                 if (sidebarOpen && isNarrowWindow()) setSidebarOpen(false);
               }}
             >
-              {state.kind === "empty" && <EmptyState onOpen={onOpen} recent={recentApi} />}
+              {state.kind === "empty" && (
+                <EmptyState
+                  onOpen={onOpen}
+                  onCreate={createApi ? () => setDialog("create") : undefined}
+                  recent={recentApi}
+                />
+              )}
               {state.kind === "loading" && (
                 <LoadingState displayName={state.displayName} delayMs={loadingDelayMs} />
               )}
@@ -1178,6 +1198,14 @@ export function ReaderShell({
           lowResolutionDpi={permissions.printHighQuality ? undefined : LOW_RES_PRINT_DPI}
         />
       )}
+      {createApi && (
+        <CreatePdfDialog
+          open={dialog === "create"}
+          onOpenChange={(open) => setDialog(open ? "create" : null)}
+          api={createApi}
+          onFinished={showHint}
+        />
+      )}
       {savable && (
         <PrivacyExportDialog
           open={dialog === "privacyExport"}
@@ -1185,6 +1213,9 @@ export function ReaderShell({
           onExport={() => savingApi.privacyExport(doc)}
           onFinished={showHint}
         />
+      )}
+      {batchApi && (
+        <BatchDialog open={dialog === "batch"} onOpenChange={(open) => setDialog(open ? "batch" : null)} api={batchApi} />
       )}
       {savable && (
         <EncryptDialog

@@ -13,18 +13,19 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, TryLockError};
 
 use ipc_contract::limits::{
-    MAX_DISPLAY_NAME_BYTES, MAX_PAGE_COUNT, MAX_SOURCE_BYTES, MAX_STAMP_SOURCE_BYTES, MAX_TABS,
-    MAX_TEXT_BYTES, MAX_UNDO_EDITS,
+    MAX_CREATE_SOURCES, MAX_DISPLAY_NAME_BYTES, MAX_PAGE_COUNT, MAX_SOURCE_BYTES,
+    MAX_STAMP_SOURCE_BYTES, MAX_TABS, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
 };
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
-    AnnotationId, BlockedAction, CompressResult, DocumentId, DocumentInfo, DocumentPermissions,
-    Edit, EditArgs, ErrorCode, FormField, ImageQuality, IpcError, LinkArgs, LinkPreview,
-    LinkTarget, NotRemembered, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink,
-    PageSize, PageText, PagesSource, Password, PreparedTextBox, Recovery, RememberedPasswords,
-    RenderPageArgs, Restrictions, SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId,
-    StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
+    AnnotationId, BatchOperation, BlockedAction, CompressResult, CreateKind, CreateResult,
+    DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode, FormField,
+    ImageQuality, IpcError, LinkArgs, LinkPreview, LinkTarget, NotRemembered, OpenEvent,
+    OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource,
+    Password, PreparedTextBox, Recovery, RememberedPasswords, RenderPageArgs, Restrictions,
+    SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageInfo, TabId,
+    TextBoxInfo, UnlockOutcome,
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
@@ -45,6 +46,9 @@ use crate::text_boxes::{Full as TextBoxesFull, TextBoxes};
 
 /// Display name used when a path has no file name component.
 const FALLBACK_NAME: &str = "PDF";
+
+/// The highest number a batch copy's name gets (`name (999).pdf`) before it gives up (B3-04).
+const MAX_COPY_NUMBER: u32 = 999;
 
 pub struct Documents {
     worker: PathBuf,
@@ -1077,6 +1081,123 @@ impl Documents {
             temporary.check_zip(bytes)?;
             temporary.replace(destination)
         })
+    }
+
+    /// Makes the copy of the file `source` that `operation` asks for (B3-04,
+    /// docs/architecture/batch.md) in `folder`, named `name`, or `name (2)`, `name (3)`, ... when a
+    /// file has that name: no file is ever changed or replaced. The file is opened in a worker of
+    /// its own, which ends when this returns; nothing of it is kept. An encrypted file is refused:
+    /// a batch asks for no password to open one. Returns the copy's name.
+    pub fn batch_copy(
+        &self,
+        source: &Path,
+        folder: &Path,
+        name: &str,
+        operation: &BatchOperation,
+    ) -> Result<String, IpcError> {
+        check_file(source)?;
+        let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
+        let (doc, opened) = host.open(source).map_err(|error| ipc_error(&error))?;
+        let WorkerResponse::Opened { document, .. } = opened else {
+            return Err(unexpected("Open"));
+        };
+        if document.encrypted {
+            return Err(IpcError {
+                code: ErrorCode::Encrypted,
+                message: "an encrypted file has no copy in a batch".to_owned(),
+            });
+        }
+        let mut temporary = Temporary::new(&folder.join(name))?;
+        let response = match operation {
+            BatchOperation::RemoveMetadata => {
+                // The new /ID: random, as the privacy export's.
+                let mut id = [0u8; 16];
+                getrandom::fill(&mut id).map_err(|_| IpcError {
+                    code: ErrorCode::Internal,
+                    message: "no random bytes for the new document id".to_owned(),
+                })?;
+                host.privacy_copy(doc, temporary.file(), id)
+            }
+            BatchOperation::Encrypt {
+                open_password,
+                permissions_password,
+                restrictions,
+            } => {
+                let owner_password = match permissions_password {
+                    Some(password) => password.clone(),
+                    None => crate::commands::unguessable_password()?,
+                };
+                host.encrypted_copy(
+                    doc,
+                    temporary.file(),
+                    open_password.clone(),
+                    owner_password,
+                    *restrictions,
+                )
+            }
+        }
+        .map_err(|error| ipc_error(&error))?;
+        let WorkerResponse::Saved { bytes, .. } = response else {
+            return Err(unexpected("a batch copy"));
+        };
+        temporary.check(bytes)?;
+        for number in 1..=MAX_COPY_NUMBER {
+            let destination = folder.join(crate::batch::numbered(name, number));
+            if same_file(source, &destination) {
+                continue;
+            }
+            if temporary.place_new(&destination)? {
+                return Ok(display_name(&destination));
+            }
+        }
+        Err(IpcError {
+            code: ErrorCode::Unwritable,
+            message: "every name for the copy is taken".to_owned(),
+        })
+    }
+
+    /// Makes a PDF of `sources` (files and what each is, B3-03, docs/architecture/create-pdf.md)
+    /// and writes it to `destination`: a worker of its own, which ends when this does, reads each
+    /// file through a read-only handle and writes the PDF into a file next to the destination,
+    /// which then takes the destination's place. No document is involved: nothing open changes,
+    /// and nothing is kept. Refused when the destination is one of the files.
+    pub fn create_pdf(
+        &self,
+        sources: &[(PathBuf, CreateKind)],
+        destination: &Path,
+    ) -> Result<CreateResult, IpcError> {
+        let Some(&(_, kind)) = sources.first() else {
+            return Err(invalid_argument("no files to make a PDF of"));
+        };
+        if sources.len() > MAX_CREATE_SOURCES {
+            return Err(invalid_argument("too many files to make a PDF of"));
+        }
+        if sources.iter().any(|(path, _)| same_file(path, destination)) {
+            return Err(invalid_argument(
+                "the PDF never replaces one of the files it is made of",
+            ));
+        }
+        let files = sources
+            .iter()
+            .map(|(path, _)| open_create_source(path))
+            .collect::<Result<Vec<_>, _>>()?;
+        saving::check_writable(destination)?;
+        let mut temporary = Temporary::new(destination)?;
+        let handed: Vec<(&std::fs::File, CreateKind)> = files
+            .iter()
+            .zip(sources)
+            .map(|(file, (_, kind))| (file, *kind))
+            .collect();
+        let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
+        let response = host
+            .create_pdf(&handed, temporary.file())
+            .map_err(|error| ipc_error(&error))?;
+        let WorkerResponse::Created { bytes, pages, .. } = response else {
+            return Err(unexpected("CreatePdf"));
+        };
+        temporary.check(bytes)?;
+        temporary.replace(destination)?;
+        Ok(CreateResult { pages, kind })
     }
 
     /// Whether `path` is the file of the open document `doc` (the privacy export may not write
@@ -2342,7 +2463,7 @@ fn not_allowed() -> IpcError {
 
 /// Whether `a` and `b` name the same existing file, as the system resolves them (letter case,
 /// short names, links): a dialog may spell a path differently. A missing file is no other file.
-fn same_file(a: &Path, b: &Path) -> bool {
+pub fn same_file(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
         _ => false,
@@ -2530,6 +2651,28 @@ fn credentials_error(error: CredentialError) -> IpcError {
         code: ErrorCode::CredentialsUnavailable,
         message: format!("the Credential Manager could not be used ({error:?})"),
     }
+}
+
+/// Opens a file a PDF is made of (B3-03), read-only, for the worker: it exists, is a regular file,
+/// and is no larger than a source may be. Checked on the open file, so that it cannot change
+/// between the check and the reading.
+fn open_create_source(path: &Path) -> Result<std::fs::File, IpcError> {
+    let unreadable = |_| IpcError {
+        code: ErrorCode::Unreadable,
+        message: "the file does not exist or cannot be read".to_owned(),
+    };
+    let file = std::fs::File::open(path).map_err(unreadable)?;
+    let metadata = file.metadata().map_err(unreadable)?;
+    if !metadata.is_file() {
+        return Err(invalid_argument("not a regular file"));
+    }
+    if metadata.len() > MAX_SOURCE_BYTES as u64 {
+        return Err(IpcError {
+            code: ErrorCode::TooLarge,
+            message: format!("larger than {MAX_SOURCE_BYTES} bytes"),
+        });
+    }
+    Ok(file)
 }
 
 /// Maps a host error to what the frontend receives. The message never includes worker text
@@ -5520,6 +5663,362 @@ mod with_worker {
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../tests/corpus")
             .join(name)
+    }
+
+    /// An empty folder of its own for a batch test (B3-04).
+    fn batch_folder(name: &str) -> PathBuf {
+        let folder = std::env::temp_dir().join(format!("b304-{}-{name}", std::process::id()));
+        std::fs::remove_dir_all(&folder).ok();
+        std::fs::create_dir_all(&folder).unwrap();
+        folder
+    }
+
+    /// A folder of its own, empty, for the files a test writes.
+    fn folder(name: &str) -> PathBuf {
+        let folder = std::env::temp_dir().join(format!("b303-{}-{name}", std::process::id()));
+        std::fs::remove_dir_all(&folder).ok();
+        std::fs::create_dir_all(&folder).unwrap();
+        folder
+    }
+
+    fn names_in(folder: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    fn run_batch(
+        documents: &Documents,
+        files: &[PathBuf],
+        folder: &Path,
+        operation: &BatchOperation,
+        stop: bool,
+    ) -> (
+        ipc_contract::types::BatchReport,
+        Vec<ipc_contract::types::BatchEvent>,
+    ) {
+        let stop = std::sync::atomic::AtomicBool::new(stop);
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = crate::batch::run(documents, files, folder, operation, &stop, &|event| {
+            events.borrow_mut().push(event)
+        });
+        (report, events.into_inner())
+    }
+
+    #[test]
+    fn a_batch_copies_each_file_and_one_that_fails_stops_none_of_the_others() {
+        use ipc_contract::types::{BatchEvent, BatchOutcome, BatchReport};
+
+        let documents = Documents::new(worker());
+        let sources = batch_folder("sources");
+        let broken = sources.join("broken.pdf");
+        std::fs::write(&broken, b"%PDF-1.7 not really").unwrap();
+        let files = [
+            corpus_path("benign/metadata-full.pdf"),
+            corpus_path("benign/encrypted-aes256.pdf"),
+            broken.clone(),
+            corpus_path("benign/single-page.pdf"),
+        ];
+        let before: Vec<Vec<u8>> = files
+            .iter()
+            .map(|file| std::fs::read(file).unwrap())
+            .collect();
+        let out = batch_folder("out");
+        let (report, events) = run_batch(
+            &documents,
+            &files,
+            &out,
+            &BatchOperation::RemoveMetadata,
+            false,
+        );
+        assert_eq!(
+            report,
+            BatchReport {
+                done: 2,
+                failed: 2,
+                skipped: 0
+            }
+        );
+        assert_eq!(
+            events[0],
+            BatchEvent::Started {
+                files: vec![
+                    "metadata-full.pdf".to_owned(),
+                    "encrypted-aes256.pdf".to_owned(),
+                    "broken.pdf".to_owned(),
+                    "single-page.pdf".to_owned()
+                ]
+            }
+        );
+        let outcomes: Vec<BatchOutcome> = events[1..]
+            .iter()
+            .map(|event| match event {
+                BatchEvent::File { outcome, .. } => outcome.clone(),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            outcomes[0],
+            BatchOutcome::Done {
+                output: "metadata-full（隱私匯出）.pdf".to_owned()
+            }
+        );
+        // An encrypted file asks for a password a batch does not have.
+        assert_eq!(
+            outcomes[1],
+            BatchOutcome::Failed {
+                error: ErrorCode::Encrypted
+            }
+        );
+        assert!(
+            matches!(outcomes[2], BatchOutcome::Failed { .. }),
+            "{outcomes:?}"
+        );
+        assert_eq!(
+            outcomes[3],
+            BatchOutcome::Done {
+                output: "single-page（隱私匯出）.pdf".to_owned()
+            }
+        );
+        // The copies, and nothing else: no file the copies were made in is left.
+        assert_eq!(
+            names_in(&out),
+            [
+                "metadata-full（隱私匯出）.pdf",
+                "single-page（隱私匯出）.pdf"
+            ]
+        );
+        let copy = std::fs::read(out.join("metadata-full（隱私匯出）.pdf")).unwrap();
+        assert!(
+            !copy
+                .windows(22)
+                .any(|window| window == b"Jane Q. Private-Author")
+        );
+        // The files themselves are as they were.
+        for (file, bytes) in files.iter().zip(&before) {
+            assert_eq!(&std::fs::read(file).unwrap(), bytes, "{}", file.display());
+        }
+
+        // Again into the same folder: the copies there stay, the new ones get a number.
+        let (report, _) = run_batch(
+            &documents,
+            &files[..1],
+            &out,
+            &BatchOperation::RemoveMetadata,
+            false,
+        );
+        assert_eq!(report.done, 1);
+        assert_eq!(
+            names_in(&out),
+            [
+                "metadata-full（隱私匯出） (2).pdf",
+                "metadata-full（隱私匯出）.pdf",
+                "single-page（隱私匯出）.pdf"
+            ]
+        );
+        // Stopped before it began: every file is skipped and nothing is written.
+        let (report, events) = run_batch(
+            &documents,
+            &files,
+            &out,
+            &BatchOperation::RemoveMetadata,
+            true,
+        );
+        assert_eq!(
+            report,
+            BatchReport {
+                done: 0,
+                failed: 0,
+                skipped: 4
+            }
+        );
+        assert_eq!(events.len(), 5);
+        assert_eq!(names_in(&out).len(), 3);
+        std::fs::remove_dir_all(&out).ok();
+        std::fs::remove_dir_all(&sources).ok();
+    }
+
+    #[test]
+    fn a_batch_of_encrypted_copies_opens_only_with_the_password() {
+        let documents = Documents::new(worker());
+        let out = batch_folder("encrypted");
+        let operation = BatchOperation::Encrypt {
+            open_password: Some(Password::new("user".to_owned())),
+            permissions_password: None,
+            restrictions: Restrictions::default(),
+        };
+        let files = [
+            corpus_path("benign/single-page.pdf"),
+            corpus_path("benign/multi-page-10.pdf"),
+        ];
+        let (report, _) = run_batch(&documents, &files, &out, &operation, false);
+        assert_eq!(report.done, 2);
+        assert_eq!(
+            names_in(&out),
+            ["multi-page-10（已加密）.pdf", "single-page（已加密）.pdf"]
+        );
+        // The copy needs the password, and opens with it.
+        let copy = out.join("multi-page-10（已加密）.pdf");
+        let asked = std::cell::RefCell::new(false);
+        let report_event = |event: OpenEvent| {
+            if matches!(event, OpenEvent::PasswordNeeded { .. }) {
+                *asked.borrow_mut() = true;
+            }
+        };
+        for tab in documents.add(std::slice::from_ref(&copy), &report_event) {
+            documents.load(tab, &report_event);
+        }
+        assert!(*asked.borrow());
+        let (_, info) = unlocked(&documents, &copy);
+        assert_eq!(info.pages.len(), 10);
+        std::fs::remove_dir_all(&out).ok();
+    }
+
+    #[test]
+    fn a_pdf_is_made_of_files_and_opens_as_a_document() {
+        let documents = Documents::new(worker());
+        let folder = folder("made");
+        let made = documents
+            .create_pdf(
+                &[(corpus_path("sources/letter.docx"), CreateKind::Docx)],
+                &folder.join("letter.pdf"),
+            )
+            .unwrap();
+        assert!(made.pages >= 1);
+        assert_eq!(made.kind, CreateKind::Docx);
+        let info = open_in(&documents, &folder.join("letter.pdf"));
+        assert_eq!(info.pages.len() as u32, made.pages);
+        assert!(
+            documents
+                .page_text(info.doc, 0)
+                .unwrap()
+                .lines
+                .iter()
+                .any(|line| line.text.contains("First paragraph"))
+        );
+
+        // Pictures go together, a page each.
+        let pictures = ["images/stamp-exif.jpg", "images/stamp-metadata.png"]
+            .map(|name| (corpus_path(name), CreateKind::Image));
+        let made = documents
+            .create_pdf(&pictures, &folder.join("pictures.pdf"))
+            .unwrap();
+        assert_eq!((made.pages, made.kind), (2, CreateKind::Image));
+        assert_eq!(
+            open_in(&documents, &folder.join("pictures.pdf"))
+                .pages
+                .len(),
+            2
+        );
+        // Nothing else is left in the folder, no file the PDF was made in.
+        assert_eq!(names_in(&folder), ["letter.pdf", "pictures.pdf"]);
+        std::fs::remove_dir_all(&folder).ok();
+    }
+
+    #[test]
+    fn a_pdf_never_replaces_a_file_it_is_made_of_and_a_failure_leaves_the_destination_alone() {
+        let documents = Documents::new(worker());
+        let folder = folder("refused");
+        let text = folder.join("notes.txt");
+        std::fs::write(&text, "some words").unwrap();
+        let error = documents
+            .create_pdf(&[(text.clone(), CreateKind::Text)], &text)
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidArgument);
+        assert_eq!(std::fs::read(&text).unwrap(), b"some words");
+
+        // A file that is not what its name says: an error, and the file at the destination is
+        // the user's still.
+        let existing = folder.join("existing.pdf");
+        std::fs::write(&existing, b"the user's own file").unwrap();
+        let broken = folder.join("broken.docx");
+        std::fs::write(&broken, b"not a zip").unwrap();
+        let error = documents
+            .create_pdf(&[(broken.clone(), CreateKind::Docx)], &existing)
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::Corrupted);
+        assert_eq!(std::fs::read(&existing).unwrap(), b"the user's own file");
+
+        // A file that is gone, a folder, no file, and a file that is too large.
+        let gone = folder.join("gone.txt");
+        let error = documents
+            .create_pdf(&[(gone, CreateKind::Text)], &folder.join("a.pdf"))
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::Unreadable);
+        let error = documents
+            .create_pdf(&[(folder.clone(), CreateKind::Text)], &folder.join("a.pdf"))
+            .unwrap_err();
+        assert!(matches!(
+            error.code,
+            ErrorCode::InvalidArgument | ErrorCode::Unreadable
+        ));
+        assert_eq!(
+            documents
+                .create_pdf(&[], &folder.join("a.pdf"))
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        let large = folder.join("large.txt");
+        std::fs::File::create(&large)
+            .unwrap()
+            .set_len(MAX_SOURCE_BYTES as u64 + 1)
+            .unwrap();
+        let error = documents
+            .create_pdf(&[(large.clone(), CreateKind::Text)], &folder.join("a.pdf"))
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::TooLarge);
+
+        // A destination marked read-only is not replaced either.
+        let mut permissions = std::fs::metadata(&existing).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&existing, permissions.clone()).unwrap();
+        let error = documents
+            .create_pdf(
+                &[(corpus_path("sources/text.txt"), CreateKind::Text)],
+                &existing,
+            )
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::ReadOnly);
+        // Windows only (the crate does not build elsewhere): no world-writable file results.
+        #[allow(clippy::permissions_set_readonly_false)]
+        permissions.set_readonly(false);
+        std::fs::set_permissions(&existing, permissions).unwrap();
+
+        // No file made on the way is left.
+        assert_eq!(
+            names_in(&folder),
+            ["broken.docx", "existing.pdf", "large.txt", "notes.txt"]
+        );
+        std::fs::remove_dir_all(&folder).ok();
+    }
+
+    #[test]
+    fn a_pdf_made_of_a_file_that_asks_for_too_much_ends_in_an_error_and_the_app_goes_on() {
+        let documents = Documents::new(worker());
+        let folder = folder("hostile");
+        let error = documents
+            .create_pdf(
+                &[(
+                    corpus_path("sources/bomb-declared-size.docx"),
+                    CreateKind::Docx,
+                )],
+                &folder.join("bomb.pdf"),
+            )
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::Corrupted);
+        assert!(names_in(&folder).is_empty());
+        let made = documents
+            .create_pdf(
+                &[(corpus_path("sources/web-page.html"), CreateKind::Html)],
+                &folder.join("page.pdf"),
+            )
+            .unwrap();
+        assert!(made.pages >= 1);
+        std::fs::remove_dir_all(&folder).ok();
     }
 
     fn insert_pages(at: u32, source: ipc_contract::types::SourceId) -> Edit {

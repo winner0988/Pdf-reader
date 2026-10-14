@@ -2,7 +2,8 @@ name: Fuzz
 
 # libFuzzer on the entry points hostile input reaches first (QA-03, docs/security/fuzzing.md):
 # the IPC decoding on both sides of the worker boundary, opening a PDF with MuPDF, a font file
-# cut into a text box and drawn (B2-31), and encoding its pictures again for a compressed copy (B3-01).
+# cut into a text box and drawn (B2-31), encoding its pictures again for a compressed copy (B3-01),
+# and making a PDF of any other file (B3-03).
 # Weekly for 20 minutes per target; pull requests that touch the targets or the code they test run a
 # short smoke run.
 #
@@ -38,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [worker_messages, open_document, text_box_font, compress_images]
+        target: [worker_messages, open_document, text_box_font, compress_images, create_pdf]
     env:
       FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '120' || '1200' }}
       # MuPDF and its C libraries get coverage and AddressSanitizer like the Rust code. Only
@@ -65,11 +66,24 @@ jobs:
           cargo install cargo-fuzz --version 0.13.2 --locked
       - name: Seed corpus
         run: |
-          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/text_box_font fuzz/corpus/compress_images
+          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/text_box_font fuzz/corpus/compress_images fuzz/corpus/create_pdf
           env -u CC -u CXX -u CFLAGS cargo run --locked -q -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/worker_messages
           # The generated test corpus (QA-01); the 200 MB files are only made on demand.
           find tests/corpus -name '*.pdf' -not -path '*/large/*' -exec cp {} fuzz/corpus/open_document/ \;
           cp fuzz/corpus/open_document/* fuzz/corpus/compress_images/
+          # Files to make a PDF of (B3-03): the first byte is the number of the kind of file, in the
+          # order of KINDS in fuzz/fuzz_targets/create_pdf.rs.
+          seed() { printf "\x$1" | cat - "$2" > "fuzz/corpus/create_pdf/$(basename "$2")"; }
+          for file in tests/corpus/images/*; do seed 00 "$file"; done
+          seed 01 tests/corpus/sources/web-page.html
+          seed 02 tests/corpus/sources/text.txt
+          seed 03 tests/corpus/sources/book.epub
+          seed 04 tests/corpus/sources/page.xps
+          seed 05 tests/corpus/sources/picture.svg
+          seed 06 tests/corpus/sources/letter.docx
+          seed 06 tests/corpus/sources/bomb-declared-size.docx
+          seed 07 tests/corpus/sources/sheet.xlsx
+          seed 08 tests/corpus/sources/slides.pptx
       # Built separately so that compiler errors stay visible; the run step below prints nothing.
       - name: Build the fuzz target
         run: cargo +nightly fuzz build ${{ matrix.target }}

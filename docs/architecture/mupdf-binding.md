@@ -23,14 +23,15 @@
 
 ## 編譯期功能
 
-`crates/pdf_worker/Cargo.toml`：`default-features = false, features = ["base14-fonts", "bundled-fonts-droid"]`。
+`crates/pdf_worker/Cargo.toml`：`default-features = false, features = ["base14-fonts", "bundled-fonts-droid", "epub", "html", "svg", "xps"]`（後四個是 B3-03 加的，見 [create-pdf.md](create-pdf.md)）。
 
 | 功能 | 狀態 | 說明 |
 |---|---|---|
 | JavaScript（`js`） | **關閉** | 以 `FZ_ENABLE_JS=0` 編譯，MuPDF 的腳本支援只剩空殼。測試 `javascript_is_compiled_out` 在測試碼中刻意呼叫 `enable_js()`，確認 `is_js_supported()` 仍為 false。正式程式碼不得呼叫 `enable_js`（ADR 0001 的表單腳本沙盒日後另行評估） |
 | 標準 14 字型（`base14-fonts`） | 開啟 | 沒有它，使用未嵌入標準字型（Helvetica 等）的 PDF 會顯示成空白 |
 | Droid CJK 備援字型（`bundled-fonts-droid`） | 開啟 | 見下方「CJK 字型」 |
-| XPS、SVG、CBZ、圖片、HTML、EPUB | 關閉 | 只處理 PDF |
+| HTML、EPUB、SVG、XPS（`html`、`epub`、`svg`、`xps`） | 開啟（B3-03） | 「從檔案建立 PDF」要讀的格式。每一項就是 worker 沙盒裡多一個解析器，所以有 fuzz 目標（`create_pdf`）與惡意樣本；轉換是唯一有意用到它們的地方。**開啟文件時仍然只收 PDF**：worker 要求 `%PDF-` 檔頭、以 PDF 的 MIME 開啟，結果不是 PDF 文件就拒絕。但 MuPDF 也看內容選讀取器，所以一個同時有 `%PDF-` 檔頭又是 EPUB／XPS 的混合檔，理論上會先被這些讀取器解析一部分才被拒絕；原本就編進來的 Office、txt、fb2、mobi 讀取器早就是這樣，風險在沙盒內，`open_document` 的 fuzz 目標涵蓋這條路。評估與理由見 [create-pdf.md](create-pdf.md) |
+| CBZ、圖片文件（`cbz`、`img`） | 關閉 | 「把圖片當成文件開啟」不需要：建立 PDF 時圖片是以 `Image` 加進頁面，與這兩個開關無關 |
 | Tesseract OCR | Windows 上一律建置 | `tesseract` 功能只影響 make 建置；Windows 的 Visual Studio 方案一律以 `HAVE_TESSERACT` 編譯 MuPDF（見下方的注意）。OCR 見 ADR 0015 |
 | DOCX 輸出、Brotli | 關閉 | 不在 MVP。匯出 Word（B3-02）沒有用 MuPDF 的 DOCX 寫出器：繫結的 `DocumentWriter` 只收檔案路徑，worker 沒有路徑（ADR 0008）；改由 worker 以結構化文字自己組出 `.docx`，見 [docx-export.md](docx-export.md) |
 | 系統字型（`system-fonts`） | 關閉 | worker 在沙盒中不讀取系統的字型檔 |
