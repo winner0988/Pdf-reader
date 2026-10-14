@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-target: [worker_messages, open_document, text_box_font, compress_images, create_pdf]
+        target: [worker_messages, open_document, text_box_font, compress_images, create_pdf]
     env:
       FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '120' || '1200' }}
       # MuPDF and its C libraries get coverage and AddressSanitizer like the Rust code. Only
@@ -66,7 +66,7 @@ target: [worker_messages, open_document, text_box_font, compress_images, create_
           cargo install cargo-fuzz --version 0.13.2 --locked
       - name: Seed corpus
         run: |
-mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/text_box_font fuzz/corpus/compress_images fuzz/corpus/create_pdf
+          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/text_box_font fuzz/corpus/compress_images fuzz/corpus/create_pdf
           env -u CC -u CXX -u CFLAGS cargo run --locked -q -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/worker_messages
           # The generated test corpus (QA-01); the 200 MB files are only made on demand.
           find tests/corpus -name '*.pdf' -not -path '*/large/*' -exec cp {} fuzz/corpus/open_document/ \;
