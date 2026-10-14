@@ -160,6 +160,10 @@ pub enum BatchOperation {
         permissions_password: Option<Password>,
         restrictions: Restrictions,
     },
+    /// A copy whose pictures carry nothing but themselves: what a camera or a program wrote into
+    /// them (EXIF with the camera, the time and the place, XMP, IPTC, comments, thumbnails) is
+    /// taken out without encoding them again, so they look the same.
+    RemoveExif,
 }
 
 /// Arguments of `run_batch` (B3-04): what to do, never to which files or where; the main process
@@ -1546,6 +1550,9 @@ pub enum ErrorCode {
     /// Windows' Credential Manager cannot be used (B2-25, ADR 0017): forgetting or counting the
     /// remembered passwords failed.
     CredentialsUnavailable,
+    /// A picture of the document is stored in a way its metadata (EXIF) cannot be taken out of
+    /// without changing it (B3-04): no copy was made.
+    PictureNotCleaned,
     Internal,
 }
 

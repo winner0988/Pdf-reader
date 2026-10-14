@@ -64,7 +64,7 @@ sequenceDiagram
 ### 圖片
 
 - 一張圖片一頁，**頁面就是圖片**：用圖片自己的解析度換算成點（沒有寫解析度時 96 dpi）；長邊最多 1190 點（A3）、最少 144 點，比例不變。
-- JPEG 以原檔放進 PDF（`/DCTDecode`，不重新編碼，沒有畫質損失），**但先拿掉不是畫面的資訊**（`crates/pdf_worker/src/jpeg.rs`）：EXIF 與 XMP（`APP1`）、IPTC 與 Photoshop 區塊（`APP13`）、其他應用程式的 `APPn`、註解。保留決定顏色的區段：JFIF（`APP0`）、ICC 描述檔（`APP2`）、Adobe 標記（`APP14`）。EXIF 的方向是唯一讀出來用的：轉成頁面的 `/Rotate`，照片拿起來是橫的就轉正。
+- JPEG 以原檔放進 PDF（`/DCTDecode`，不重新編碼，沒有畫質損失），**但先拿掉不是畫面的資訊**（`crates/pdf_worker/src/jpeg.rs`）：EXIF 與 XMP（`APP1`）、IPTC 與 Photoshop 區塊（`APP13`）、其他應用程式的 `APPn`、註解（掃描之間的也算）、JFIF 標頭裡的縮圖、圖片結束之後的資料（B3-04 起，與批次處理的[清除圖片的 EXIF](batch.md) 共用）。保留決定顏色的區段：JFIF（`APP0`）、ICC 描述檔（`APP2`）、Adobe 標記（`APP14`）。EXIF 的方向是唯一讀出來用的：轉成頁面的 `/Rotate`，照片拿起來是橫的就轉正。
 - 其他格式（PNG、GIF、BMP、TIFF）解成像素再放進 PDF，所以**文字區塊、EXIF、色彩設定以外的東西都不會帶進去**；寫出時壓縮（Flate）。
 - 解碼前先看標頭的尺寸（`stamp-huge-dimensions.png` 謊稱 6 萬 × 6 萬畫素、只有 116 位元組：不解碼就拒絕）。
 

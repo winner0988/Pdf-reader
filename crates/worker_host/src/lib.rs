@@ -423,6 +423,29 @@ impl WorkerHost {
         })
     }
 
+    /// Writes to `file`, as [`save`](Self::save) does, a copy of `doc` whose pictures carry nothing
+    /// but themselves: what a camera or a program wrote into them is taken out (B3-04). `doc`
+    /// itself is not changed. Returns `ExifCleaned`.
+    pub fn exif_clean_copy(
+        &mut self,
+        doc: DocumentId,
+        file: &File,
+    ) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_write_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::ExifCleanCopy {
+            request,
+            doc,
+            file: FileHandle(handle),
+        })
+    }
+
     /// Writes to `file`, as [`save`](Self::save) does, a copy of `doc` encrypted with AES-256
     /// (B2-15): `open_password` opens it (none: anyone can), `owner_password` lifts
     /// `restrictions`. Both go to the worker in this request only and are wiped once it is sent.
@@ -623,6 +646,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::Source { request, .. }
         | WorkerResponse::Saved { request, .. }
         | WorkerResponse::Compressed { request, .. }
+        | WorkerResponse::ExifCleaned { request, .. }
         | WorkerResponse::Created { request, .. } => Some(*request),
         WorkerResponse::Error { request, .. } => *request,
     }

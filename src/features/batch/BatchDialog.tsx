@@ -76,7 +76,8 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
   const start = (event: FormEvent) => {
     event.preventDefault();
     if (problem !== null || active) return;
-    const operation: BatchOperation = kind === "encrypt" ? batchEncryptionOf(form) : { kind: "removeMetadata" };
+    const operation: BatchOperation =
+      kind === "encrypt" ? batchEncryptionOf(form) : kind === "removeExif" ? { kind: "removeExif" } : { kind: "removeMetadata" };
     setActive(true);
     setFailed(false);
     setRun(null);
@@ -127,7 +128,7 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
             <>
               <fieldset className="grid gap-2 text-sm" aria-describedby={operationId}>
                 <legend className="mb-1 font-medium">{t.operation}</legend>
-                {(["removeMetadata", "encrypt"] as const).map((choice) => (
+                {(["removeMetadata", "removeExif", "encrypt"] as const).map((choice) => (
                   <label key={choice} className="flex items-center gap-2">
                     <input
                       type="radio"
@@ -144,6 +145,7 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
               {kind === "encrypt" && (
                 <EncryptFields form={form} onChange={(changes) => setForm((now) => ({ ...now, ...changes }))} disabled={active} />
               )}
+              {kind === "removeExif" && <p className="text-sm">{t.exifNote}</p>}
               <ul id={operationId} className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
                 {t.notes(LIMITS.maxBatchFiles).map((note) => (
                   <li key={note}>{note}</li>

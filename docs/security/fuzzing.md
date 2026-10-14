@@ -11,6 +11,7 @@
 | `text_box_font` | 字型檔（B2-31，[text-box-engine.md](../architecture/text-box-engine.md)）：以 `skrifa` 讀取、以 `subsetter` 裁成文字用到的字形，做成文字方塊的模型。做得出模型的字型再放進一頁、渲染（MuPDF 讀取裁出來的字型）、存檔、重新開啟、渲染與搜尋。每個輸入試第一個字型與字型集合的第二個字型，文字依輸入的長度在英文、帶重音的拉丁字母、中文、日文四組中選一組（不佔用字型的位元組） | 隨 worker 附帶的 Droid Sans Fallback，加上 runner 上的 TrueType 字型（至多 20 個、各在 2 MB 內）；這個目標的輸入上限是 5 MiB，其他目標是 1 MiB |
 | `compress_images` | 以 MuPDF 開啟 PDF，寫出壓縮圖片的副本（B3-01）：MuPDF 解碼每張圖片、縮小、編碼成 JPEG、換回去、完整重寫（品質低、尺寸上限 256、時間 2 秒） | 同 `open_document`（複製過去） |
 | `create_pdf` | 「從檔案建立 PDF」（B3-03）：第一個位元組決定種類（圖片、網頁、純文字、EPUB、XPS、SVG、Word、Excel、PowerPoint），其餘是檔案；`PdfBuilder` 讀取、轉換、寫出（圖片會加兩次，試多頁的路徑） | `tests/corpus/sources/` 與 `tests/corpus/images/`，前面加種類的編號（CI 的 `Seed corpus` 步驟）；包含謊稱 3.5 GiB 的 Word 檔 |
+| `exif_clean` | 以 MuPDF 開啟 PDF，寫出清除圖片 EXIF 的副本（B3-04，批次處理）：每個 JPEG 串流（包括藏在無損濾鏡後面的）讀出來、切掉不是畫面的區段、換回去、完整重寫 | 同 `open_document`（複製過去），其中 `benign/photo-exif.pdf` 有相機與程式寫進去的各種資訊 |
 
 - 對所有輸入，程式都必須正常接受或拒絕：不能 panic、不能無限制地配置記憶體、不能出現記憶體錯誤。
 - 任何一種都算崩潰，libFuzzer 會把觸發它的輸入存到 `fuzz/artifacts/<目標>/`。

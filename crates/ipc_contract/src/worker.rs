@@ -485,6 +485,17 @@ pub enum WorkerRequest {
         quality: ImageQuality,
         max_side: Option<u32>,
     },
+    /// Writes to `file` (as for `Save`) a copy of the document, edits included, whose pictures
+    /// carry nothing but themselves: what a camera or a program wrote into them (EXIF, XMP and
+    /// the rest) is taken out without encoding them again (B3-04, docs/architecture/batch.md).
+    /// The open document is not changed. Answered by `ExifCleaned`, never appended. Refused for
+    /// an encrypted document, for a signed one (its signatures would not hold), and with
+    /// `PictureNotCleaned` when a picture is stored in a way its metadata cannot be taken out of.
+    ExifCleanCopy {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
+    },
     /// Writes to `file` (as for `Save`) a copy of the document, edits included, encrypted with
     /// AES-256 (B2-15, docs/architecture/encrypt-copy.md). The open document is not changed.
     /// Answered by `Saved`, never appended. Refused for a signed document (its signatures would
@@ -729,6 +740,14 @@ pub enum WorkerResponse {
         changed: u32,
         partial: bool,
     },
+    /// `ExifCleanCopy` is done: the copy is `bytes` long; `pictures` pictures (and other JPEG
+    /// streams) were looked at, and `cleaned` of them had something taken out.
+    ExifCleaned {
+        request: RequestId,
+        bytes: u64,
+        pictures: u32,
+        cleaned: u32,
+    },
     /// `CreatePdf` is done: the PDF is `bytes` long and has `pages` pages.
     Created {
         request: RequestId,
@@ -888,6 +907,8 @@ pub enum WorkerErrorCode {
     Font(FontRefusal),
     /// A text box cannot be set in the text: it needs a script the worker does not set (B2-28).
     UnsupportedText,
+    /// A picture is stored in a way its metadata cannot be taken out of (B3-04).
+    PictureNotCleaned,
     Internal,
 }
 
@@ -917,6 +938,7 @@ impl From<WorkerErrorCode> for ErrorCode {
                 FontRefusal::MissingGlyphs => ErrorCode::FontMissingGlyphs,
             },
             WorkerErrorCode::UnsupportedText => ErrorCode::TextNotSupported,
+            WorkerErrorCode::PictureNotCleaned => ErrorCode::PictureNotCleaned,
             WorkerErrorCode::Internal => ErrorCode::Internal,
         }
     }
@@ -1155,6 +1177,24 @@ mod tests {
         assert_eq!(
             ErrorCode::from(WorkerErrorCode::UnsupportedText),
             ErrorCode::TextNotSupported
+        );
+    }
+
+    #[test]
+    fn a_picture_that_cannot_be_cleaned_reaches_the_frontend_as_its_own_code() {
+        assert_eq!(
+            ErrorCode::from(WorkerErrorCode::PictureNotCleaned),
+            ErrorCode::PictureNotCleaned
+        );
+        let request = WorkerRequest::ExifCleanCopy {
+            request: RequestId(1),
+            doc: DocumentId(2),
+            file: FileHandle(3),
+        };
+        let bytes = postcard::to_stdvec(&request).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerRequest>(&bytes).unwrap(),
+            request
         );
     }
 

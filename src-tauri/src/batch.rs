@@ -65,12 +65,14 @@ impl Drop for Running<'_> {
 }
 
 /// What the copy of the file `display_name` is called (before a number makes it a name no file
-/// has): what the privacy export or the encrypted copy of one document suggests.
+/// has): what the privacy export or the encrypted copy of one document suggests, and for the
+/// pictures' metadata a name of its own.
 pub fn copy_name(display_name: &str, operation: &BatchOperation) -> String {
     let stem = export::stem(display_name);
     match operation {
         BatchOperation::RemoveMetadata => strings::privacy_export_file_name(&stem),
         BatchOperation::Encrypt { .. } => strings::encrypted_copy_file_name(&stem),
+        BatchOperation::RemoveExif => strings::exif_cleaned_file_name(&stem),
     }
 }
 
@@ -146,6 +148,10 @@ mod tests {
             restrictions: Restrictions::default(),
         };
         assert_eq!(copy_name("Report.PDF", &encrypt), "Report（已加密）.pdf");
+        assert_eq!(
+            copy_name("相片.pdf", &BatchOperation::RemoveExif),
+            "相片（已清除 EXIF）.pdf"
+        );
         assert_eq!(numbered("a.pdf", 1), "a.pdf");
         assert_eq!(numbered("a.pdf", 2), "a (2).pdf");
         assert_eq!(
