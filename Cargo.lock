@@ -2674,6 +2674,7 @@ dependencies = [
  "mupdf-fonts-droid",
  "mupdf-sys",
  "serde_json",
+ "sha2 0.11.0",
  "skrifa",
  "subsetter",
  "thiserror 2.0.21",
