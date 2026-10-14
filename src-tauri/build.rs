@@ -48,6 +48,7 @@ fn main() {
         "privacy_export",
         "encrypt_copy",
         "get_ocr_languages",
+        "get_fonts",
         "import_ocr_language",
         "remove_ocr_language",
         "start_ocr",

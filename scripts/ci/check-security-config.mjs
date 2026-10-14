@@ -98,6 +98,7 @@ const ALLOWED_PERMISSIONS = new Map([
     "B2-03: a copy without metadata; the main process asks where, never the document's own file",
   ],
   ["allow-get-ocr-languages", "B2-10: the languages scanned pages can be recognised in (codes and sizes)"],
+  ["allow-get-fonts", "B2-27: the fonts installed in Windows (ids and names, never a path), for text boxes"],
   [
     "allow-import-ocr-language",
     "B2-10: the main process asks for a .traineddata file, checks its name, size and format, and copies it into the app's data folder; the path stays there",
