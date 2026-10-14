@@ -91,6 +91,9 @@ pub const MAX_UNDO_EDITS: u32 = 1_000;
 /// Maximum number of pages one export writes (B2-04).
 pub const MAX_EXPORT_PAGES: u32 = 1_000;
 
+/// Most files one batch takes (B3-04).
+pub const MAX_BATCH_FILES: u32 = 500;
+
 /// Most files one split writes (B2-06). The pages of a PDF export are not rendered or read one by
 /// one, so a split may take as many pages as a document has, but not make a thousand and one files.
 pub const MAX_SPLIT_FILES: u32 = 1_000;
