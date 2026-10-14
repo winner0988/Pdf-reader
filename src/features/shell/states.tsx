@@ -8,7 +8,16 @@ import { RETRYABLE_ERRORS, type ErrorCode } from "@/features/shell/model";
 import { strings } from "@/i18n/zh-TW";
 
 /** The start screen: open a file, or one of the recently opened ones (#73). */
-export function EmptyState({ onOpen, recent }: { onOpen: () => void; recent?: RecentApi }) {
+export function EmptyState({
+  onOpen,
+  onCreate,
+  recent,
+}: {
+  onOpen: () => void;
+  /** Makes a PDF of files (B3-03); without it (demo data, tests) it is not offered. */
+  onCreate?: () => void;
+  recent?: RecentApi;
+}) {
   const t = strings.empty;
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
@@ -18,6 +27,11 @@ export function EmptyState({ onOpen, recent }: { onOpen: () => void; recent?: Re
         {t.openButton}
       </Button>
       <p className="text-sm text-muted-foreground">{t.dropHint}</p>
+      {onCreate && (
+        <Button variant="outline" onClick={onCreate}>
+          {t.createButton}
+        </Button>
+      )}
       {recent && <RecentFiles api={recent} />}
       <p className="mt-6 rounded-md bg-muted px-4 py-2 text-xs text-muted-foreground">{t.privacyNote}</p>
     </div>

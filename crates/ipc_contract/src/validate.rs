@@ -470,6 +470,19 @@ impl Validate for WorkerResponse {
                 }
                 Ok(())
             }
+            WorkerResponse::Created { bytes, pages, .. } => {
+                if *bytes == 0 || *bytes > MAX_DOCUMENT_BYTES {
+                    return Err(ValidationError::OutOfRange {
+                        what: "created file size",
+                    });
+                }
+                if *pages == 0 || *pages > MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "created page count",
+                    });
+                }
+                Ok(())
+            }
             WorkerResponse::Rebased { .. } => Ok(()),
             WorkerResponse::OcrLoaded { .. }
             | WorkerResponse::OcrChecked { .. }
@@ -3208,31 +3221,16 @@ mod tests {
             bytes,
             incremental: false,
         };
-        let compressed =
-            |bytes: u64, before: u64, images: u32, changed: u32| WorkerResponse::Compressed {
-                request: RequestId(1),
-                bytes,
-                before,
-                images,
-                changed,
-                partial: false,
-            };
-        assert!(compressed(1_000, 4_000, 5, 3).validate().is_ok());
-        assert!(compressed(1_000, 4_000, 0, 0).validate().is_ok());
-        assert!(compressed(0, 4_000, 5, 3).validate().is_err());
-        assert!(compressed(1_000, 0, 5, 3).validate().is_err());
-        assert!(
-            compressed(MAX_DOCUMENT_BYTES + 1, 4_000, 5, 3)
-                .validate()
-                .is_err()
-        );
-        // More pictures changed than there are, or an absurd number of them.
-        assert!(compressed(1_000, 4_000, 5, 6).validate().is_err());
-        assert!(
-            compressed(1_000, 4_000, MAX_IMAGES_PER_DOCUMENT + 1, 0)
-                .validate()
-                .is_err()
-        );
+        let created = |bytes: u64, pages: u32| WorkerResponse::Created {
+            request: RequestId(1),
+            bytes,
+            pages,
+        };
+        assert!(created(1_000, 3).validate().is_ok());
+        assert!(created(0, 3).validate().is_err());
+        assert!(created(1_000, 0).validate().is_err());
+        assert!(created(MAX_DOCUMENT_BYTES + 1, 3).validate().is_err());
+        assert!(created(1_000, MAX_PAGE_COUNT + 1).validate().is_err());
         assert!(saved(1_234).validate().is_ok());
         assert!(saved(0).validate().is_err());
         assert!(saved(MAX_DOCUMENT_BYTES + 1).validate().is_err());

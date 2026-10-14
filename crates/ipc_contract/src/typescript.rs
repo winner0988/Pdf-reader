@@ -94,6 +94,8 @@ pub fn bindings() -> String {
         ImageQuality,
         CompressArgs,
         CompressResult,
+        CreateKind,
+        CreateResult,
         UpdateCheck,
         RequestId,
         PageSize,

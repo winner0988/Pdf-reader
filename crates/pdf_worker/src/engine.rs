@@ -29,10 +29,12 @@ use crate::text_layer::TextLayerBuilder;
 use thiserror::Error;
 
 mod annotations;
+mod create;
 mod docx;
 mod forms;
 mod ocr;
 
+pub use create::{Created, PdfBuilder};
 pub use ocr::OcrKnown;
 
 mod signatures;
@@ -114,6 +116,9 @@ pub enum EngineError {
     PictureTooLarge,
     #[error("the result is larger than it may be")]
     OutputTooLarge,
+    /// A file a PDF is to be made of that MuPDF cannot read, or that has nothing in it (B3-03).
+    #[error("cannot make a PDF of this file: {0}")]
+    InvalidSource(&'static str),
     #[error("MuPDF: {0}")]
     MuPdf(#[from] mupdf::Error),
 }

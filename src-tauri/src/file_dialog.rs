@@ -1,4 +1,4 @@
-//! The system's file dialogs (MVP-06, #86, B2-04, B2-02, B2-03): `IFileOpenDialog` and `IFileSaveDialog`, shown
+//! The system's file dialogs (MVP-06, #86, B2-04, B2-02, B2-03, B3-03): `IFileOpenDialog` and `IFileSaveDialog`, shown
 //! by the main process so that paths never reach the WebView. Nothing picked in them is added to
 //! the user's recent items in Windows (#86; `rfd` could not set that option).
 //!
@@ -13,7 +13,7 @@ use std::marker::PhantomData;
 use std::os::windows::ffi::OsStringExt;
 use std::path::PathBuf;
 
-use ipc_contract::types::{ErrorCode, IpcError};
+use ipc_contract::types::{CreateKind, ErrorCode, IpcError};
 use tauri::WebviewWindow;
 use windows::Win32::Foundation::{ERROR_CANCELLED, HWND};
 use windows::Win32::System::Com::{
@@ -28,6 +28,7 @@ use windows::Win32::UI::Shell::{
 };
 use windows::core::{HRESULT, HSTRING, Interface, PCWSTR};
 
+use crate::create_pdf;
 use crate::strings;
 
 /// Which dialog to show.
@@ -59,6 +60,10 @@ enum Kind {
     OpenLanguageData,
     /// The picture of a custom stamp (B2-08): one PNG or JPEG file.
     OpenImage,
+    /// The files a PDF is made of (B3-03): several can be picked.
+    OpenSources,
+    /// Where to save a PDF made of files (B3-03), suggesting `file_name`.
+    SaveCreatedPdf { file_name: String },
 }
 
 /// Shows the open dialog (PDF files only; several can be picked) over `window` and returns the
@@ -152,6 +157,23 @@ pub async fn split_pdf_file(
         .and_then(|mut paths| paths.pop()))
 }
 
+/// Asks for the files a PDF is made of (B3-03): several can be picked. `None` if the user
+/// cancelled.
+pub async fn pick_sources(window: &WebviewWindow) -> Result<Option<Vec<PathBuf>>, IpcError> {
+    run(window, Kind::OpenSources).await
+}
+
+/// Asks where to save a PDF made of files (B3-03), suggesting `file_name`. The dialog itself asks
+/// before replacing an existing file.
+pub async fn save_created_pdf_file(
+    window: &WebviewWindow,
+    file_name: String,
+) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::SaveCreatedPdf { file_name })
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
 /// Asks for one file of language data for recognising text (`.traineddata`, B2-10).
 pub async fn pick_language_data(window: &WebviewWindow) -> Result<Option<PathBuf>, IpcError> {
     Ok(run(window, Kind::OpenLanguageData)
@@ -204,14 +226,15 @@ fn failed() -> IpcError {
 fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTIONS {
     let common = defaults | FOS_FORCEFILESYSTEM | FOS_DONTADDTORECENT;
     match kind {
-        Kind::OpenPdfs => common | FOS_ALLOWMULTISELECT,
+        Kind::OpenPdfs | Kind::OpenSources => common | FOS_ALLOWMULTISELECT,
         Kind::SaveText { .. }
         | Kind::SavePdf { .. }
         | Kind::SaveDocx { .. }
         | Kind::PrivacyExport { .. }
         | Kind::EncryptedCopy { .. }
         | Kind::CompressedCopy { .. }
-        | Kind::SplitPdf { .. } => common | FOS_OVERWRITEPROMPT,
+        | Kind::SplitPdf { .. }
+        | Kind::SaveCreatedPdf { .. } => common | FOS_OVERWRITEPROMPT,
         Kind::PickFolder { .. } => common | FOS_PICKFOLDERS,
         Kind::OpenLanguageData | Kind::OpenPagesSource | Kind::OpenImage => common,
     }
@@ -229,7 +252,7 @@ fn show(owner: HWND, kind: Kind) -> windows::core::Result<Option<Vec<PathBuf>>> 
         Err(error) if error.code() == HRESULT::from_win32(ERROR_CANCELLED.0) => return Ok(None),
         Err(error) => return Err(error),
     }
-    let paths = if let Kind::OpenPdfs = kind {
+    let paths = if matches!(kind, Kind::OpenPdfs | Kind::OpenSources) {
         // SAFETY: after a successful `Show`, `GetResults` returns the picked items.
         let items = unsafe { dialog.cast::<IFileOpenDialog>()?.GetResults()? };
         // SAFETY: a live item array of this thread.
@@ -264,7 +287,8 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
             | Kind::PrivacyExport { .. }
             | Kind::EncryptedCopy { .. }
             | Kind::CompressedCopy { .. }
-            | Kind::SplitPdf { .. } => {
+            | Kind::SplitPdf { .. }
+            | Kind::SaveCreatedPdf { .. } => {
                 CoCreateInstance::<_, IFileSaveDialog>(&FileSaveDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
             }
@@ -272,7 +296,8 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
             | Kind::OpenPagesSource
             | Kind::PickFolder { .. }
             | Kind::OpenLanguageData
-            | Kind::OpenImage => {
+            | Kind::OpenImage
+            | Kind::OpenSources => {
                 CoCreateInstance::<_, IFileOpenDialog>(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
             }
@@ -280,65 +305,101 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
     }
 }
 
+/// The filters of the dialog for the files a PDF is made of (B3-03): all of them first, then one
+/// for each family of files. The patterns come from the list of extensions the kinds are known by.
+fn source_filters() -> Vec<(&'static str, String)> {
+    let all = create_pdf::pattern(&create_pdf::KINDS);
+    let of = |kinds: &[CreateKind]| create_pdf::pattern(kinds);
+    vec![
+        (strings::CREATE_ALL_FILTER_NAME, all),
+        (strings::CREATE_IMAGES_FILTER_NAME, of(&[CreateKind::Image])),
+        (strings::CREATE_HTML_FILTER_NAME, of(&[CreateKind::Html])),
+        (strings::CREATE_TEXT_FILTER_NAME, of(&[CreateKind::Text])),
+        (
+            strings::CREATE_BOOKS_FILTER_NAME,
+            of(&[CreateKind::Epub, CreateKind::Xps]),
+        ),
+        (strings::CREATE_SVG_FILTER_NAME, of(&[CreateKind::Svg])),
+        (
+            strings::CREATE_OFFICE_FILTER_NAME,
+            of(&[CreateKind::Docx, CreateKind::Xlsx, CreateKind::Pptx]),
+        ),
+    ]
+}
+
 fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
-    let (title, filter) = match kind {
+    let one = |name: &'static str, pattern: &str| vec![(name, pattern.to_owned())];
+    let (title, filters) = match kind {
         Kind::OpenPdfs => (
             strings::OPEN_DIALOG_TITLE,
-            Some((strings::PDF_FILTER_NAME, "*.pdf")),
+            one(strings::PDF_FILTER_NAME, "*.pdf"),
         ),
         Kind::SaveText { .. } => (
             strings::EXPORT_TEXT_DIALOG_TITLE,
-            Some((strings::TEXT_FILTER_NAME, "*.txt")),
+            one(strings::TEXT_FILTER_NAME, "*.txt"),
         ),
         Kind::SavePdf { .. } => (
             strings::SAVE_AS_DIALOG_TITLE,
-            Some((strings::PDF_FILTER_NAME, "*.pdf")),
+            one(strings::PDF_FILTER_NAME, "*.pdf"),
         ),
         Kind::SaveDocx { .. } => (
             strings::EXPORT_DOCX_DIALOG_TITLE,
-            Some((strings::DOCX_FILTER_NAME, "*.docx")),
+            one(strings::DOCX_FILTER_NAME, "*.docx"),
         ),
         Kind::PrivacyExport { .. } => (
             strings::PRIVACY_EXPORT_DIALOG_TITLE,
-            Some((strings::PDF_FILTER_NAME, "*.pdf")),
+            one(strings::PDF_FILTER_NAME, "*.pdf"),
         ),
         Kind::EncryptedCopy { .. } => (
             strings::ENCRYPTED_COPY_DIALOG_TITLE,
-            Some((strings::PDF_FILTER_NAME, "*.pdf")),
+            one(strings::PDF_FILTER_NAME, "*.pdf"),
         ),
         Kind::CompressedCopy { .. } => (
             strings::COMPRESSED_COPY_DIALOG_TITLE,
-            Some((strings::PDF_FILTER_NAME, "*.pdf")),
+            one(strings::PDF_FILTER_NAME, "*.pdf"),
         ),
         Kind::SplitPdf { .. } => (
             strings::SPLIT_DIALOG_TITLE,
-            Some((strings::PDF_FILTER_NAME, "*.pdf")),
+            one(strings::PDF_FILTER_NAME, "*.pdf"),
+        ),
+        Kind::SaveCreatedPdf { .. } => (
+            strings::CREATE_PDF_DIALOG_TITLE,
+            one(strings::PDF_FILTER_NAME, "*.pdf"),
         ),
         Kind::OpenPagesSource => (
             strings::PAGES_SOURCE_DIALOG_TITLE,
-            Some((strings::PDF_FILTER_NAME, "*.pdf")),
+            one(strings::PDF_FILTER_NAME, "*.pdf"),
         ),
-        Kind::PickFolder { title } => (*title, None),
+        Kind::PickFolder { title } => (*title, Vec::new()),
         Kind::OpenLanguageData => (
             strings::LANGUAGE_DIALOG_TITLE,
-            Some((strings::LANGUAGE_FILTER_NAME, "*.traineddata")),
+            one(strings::LANGUAGE_FILTER_NAME, "*.traineddata"),
         ),
         Kind::OpenImage => (
             strings::STAMP_IMAGE_DIALOG_TITLE,
-            Some((strings::IMAGE_FILTER_NAME, "*.png;*.jpg;*.jpeg")),
+            one(strings::IMAGE_FILTER_NAME, "*.png;*.jpg;*.jpeg"),
         ),
+        Kind::OpenSources => (strings::CREATE_SOURCES_DIALOG_TITLE, source_filters()),
     };
     let title = HSTRING::from(title);
-    // SAFETY: the strings outlive the calls, which copy them; the filter array has one entry.
+    let texts: Vec<(HSTRING, HSTRING)> = filters
+        .iter()
+        .map(|(name, pattern)| (HSTRING::from(*name), HSTRING::from(pattern.as_str())))
+        .collect();
+    let specs: Vec<COMDLG_FILTERSPEC> = texts
+        .iter()
+        .map(|(name, pattern)| COMDLG_FILTERSPEC {
+            pszName: PCWSTR(name.as_ptr()),
+            pszSpec: PCWSTR(pattern.as_ptr()),
+        })
+        .collect();
+    // SAFETY: the strings outlive the calls, which copy them; each filter spec points at the
+    // strings of `texts`, which are alive until the end of the function.
     unsafe {
         dialog.SetOptions(options(kind, dialog.GetOptions()?))?;
         dialog.SetTitle(&title)?;
-        if let Some((name, pattern)) = filter {
-            let (name, pattern) = (HSTRING::from(name), HSTRING::from(pattern));
-            dialog.SetFileTypes(&[COMDLG_FILTERSPEC {
-                pszName: PCWSTR(name.as_ptr()),
-                pszSpec: PCWSTR(pattern.as_ptr()),
-            }])?;
+        if !specs.is_empty() {
+            dialog.SetFileTypes(&specs)?;
         }
         if let Kind::SaveText { file_name }
         | Kind::SavePdf { file_name }
@@ -346,7 +407,8 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
         | Kind::PrivacyExport { file_name }
         | Kind::EncryptedCopy { file_name }
         | Kind::CompressedCopy { file_name }
-        | Kind::SplitPdf { file_name } = kind
+        | Kind::SplitPdf { file_name }
+        | Kind::SaveCreatedPdf { file_name } = kind
         {
             let extension = match kind {
                 Kind::SaveText { .. } => "txt",
@@ -469,5 +531,47 @@ mod tests {
             image(FOS_DONTADDTORECENT) && image(FOS_FORCEFILESYSTEM) && image(FOS_FILEMUSTEXIST)
         );
         assert!(!image(FOS_ALLOWMULTISELECT));
+
+        // Several files a PDF is made of (B3-03), and where the PDF goes.
+        let sources = options_of(Kind::OpenSources);
+        assert!(
+            sources(FOS_DONTADDTORECENT)
+                && sources(FOS_FORCEFILESYSTEM)
+                && sources(FOS_FILEMUSTEXIST)
+                && sources(FOS_ALLOWMULTISELECT)
+        );
+        let created = options_of(Kind::SaveCreatedPdf {
+            file_name: "test.pdf".to_owned(),
+        });
+        assert!(
+            created(FOS_DONTADDTORECENT)
+                && created(FOS_OVERWRITEPROMPT)
+                && created(FOS_FORCEFILESYSTEM)
+        );
+    }
+
+    #[test]
+    fn the_dialog_for_the_files_of_a_pdf_lists_all_kinds_then_each_family() {
+        let filters = source_filters();
+        assert_eq!(filters.len(), 7);
+        // The first filter has every extension of every kind, and the others add up to it.
+        let listed =
+            |pattern: &str| -> Vec<String> { pattern.split(';').map(str::to_owned).collect() };
+        let mut together: Vec<String> = filters[1..]
+            .iter()
+            .flat_map(|(_, pattern)| listed(pattern))
+            .collect();
+        let mut all = listed(&filters[0].1);
+        together.sort();
+        all.sort();
+        assert_eq!(together, all);
+        assert!(all.contains(&"*.docx".to_owned()) && all.contains(&"*.png".to_owned()));
+        for (name, pattern) in &filters {
+            assert!(!name.is_empty() && !pattern.is_empty());
+        }
+        // A real dialog object takes them all (`SetFileTypes` fails otherwise).
+        let _com = Com::init().unwrap();
+        let dialog = new_dialog(&Kind::OpenSources).unwrap();
+        configure(&dialog, &Kind::OpenSources).unwrap();
     }
 }

@@ -10,9 +10,9 @@ use std::time::Duration;
 
 use ipc_contract::frame::{self, FrameError};
 use ipc_contract::limits::{
-    MAX_DOCUMENT_BYTES, MAX_ERROR_MESSAGE_BYTES, MAX_LINKS_PER_PAGE, MAX_OCR_PAGE_MILLIS,
-    MAX_OUTLINE_DEPTH, MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_PAGE_TEXT_CHARS, MAX_SEARCH_HITS,
-    MAX_SOURCE_BYTES, MAX_STAMP_SOURCE_BYTES, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
+    MAX_CREATE_SOURCES, MAX_DOCUMENT_BYTES, MAX_ERROR_MESSAGE_BYTES, MAX_LINKS_PER_PAGE,
+    MAX_OCR_PAGE_MILLIS, MAX_OUTLINE_DEPTH, MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_PAGE_TEXT_CHARS,
+    MAX_SEARCH_HITS, MAX_SOURCE_BYTES, MAX_STAMP_SOURCE_BYTES, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
 };
 use ipc_contract::ocr::{check_language_data, is_language_name};
 use ipc_contract::text::{classify_uri, clean_display_text};
@@ -21,13 +21,13 @@ use ipc_contract::types::{
     Password, Rect, RequestId, Restrictions, TextBoxInfo,
 };
 use ipc_contract::worker::{
-    FileHandle, FontData, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument, Raster,
-    WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
+    CreateSource, FileHandle, FontData, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument,
+    Raster, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
 };
 
 use crate::engine::{
-    EngineError, OcrKnown, OutlineTarget, PdfDocument, TextBoxFont, prepare_stamp_picture,
-    prepare_text_box,
+    EngineError, OcrKnown, OutlineTarget, PdfBuilder, PdfDocument, TextBoxFont,
+    prepare_stamp_picture, prepare_text_box,
 };
 use crate::handle;
 use crate::ocr::OcrError;
@@ -410,6 +410,11 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => export_docx(document, request, &pages, file),
             }),
+            WorkerRequest::CreatePdf {
+                request,
+                sources,
+                file,
+            } => Some(create_pdf(request, &sources, file)),
             WorkerRequest::OcrLoad {
                 request,
                 language,
@@ -784,6 +789,43 @@ fn export_docx(
     }
 }
 
+/// Makes a PDF of the files `sources` are handles to (B3-03) and writes it to `file`, a handle like
+/// `save`'s. One source is in memory at a time.
+fn create_pdf(request: RequestId, sources: &[CreateSource], file: FileHandle) -> WorkerResponse {
+    if sources.is_empty() || sources.len() > MAX_CREATE_SOURCES {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "no files, or too many",
+        );
+    }
+    let mut builder = PdfBuilder::new();
+    for source in sources {
+        let bytes = match read_limited(handle::take_file(source.file), MAX_SOURCE_BYTES as u64) {
+            Ok(bytes) => bytes,
+            Err(response) => return response(request),
+        };
+        if let Err(engine) = builder.add(&bytes, source.kind) {
+            return engine_error(request, &engine, WorkerErrorCode::Internal);
+        }
+    }
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match builder.finish(&mut file) {
+        Ok(created) => WorkerResponse::Created {
+            request,
+            bytes: created.bytes,
+            pages: created.pages,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
 /// Writes the pages `pages` of `document` as a document of their own (B2-06) to `file`, a handle
 /// like `save`'s.
 fn save_pages(
@@ -945,6 +987,7 @@ fn engine_error(
         | EngineError::InvalidPicture(_)
         | EngineError::NoPageLeft
         | EngineError::EncryptedCopy => WorkerErrorCode::InvalidRequest,
+        EngineError::InvalidSource(_) => WorkerErrorCode::Corrupted,
         EngineError::TooLarge { .. }
         | EngineError::TooComplex
         | EngineError::TooManyPages

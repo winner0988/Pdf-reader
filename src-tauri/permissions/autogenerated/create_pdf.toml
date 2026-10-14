@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-create-pdf"
+description = "Enables the create_pdf command without any pre-configured scope."
+commands.allow = ["create_pdf"]
+
+[[permission]]
+identifier = "deny-create-pdf"
+description = "Denies the create_pdf command without any pre-configured scope."
+commands.deny = ["create_pdf"]

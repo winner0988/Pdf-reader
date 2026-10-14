@@ -12,6 +12,7 @@ export const strings = {
     title: "開啟 PDF 檔案",
     openButton: "選擇檔案…（Ctrl+O）",
     dropHint: "或將檔案拖放到這個視窗",
+    createButton: "從檔案建立 PDF…",
     privacyNote: "所有處理都在這台電腦上完成：不會自行連網、不收集任何資料。",
   },
   recent: {
@@ -464,6 +465,43 @@ export const strings = {
     /** In the menu, in place of the shortcut, when it does not apply. */
     encrypted: "已加密的文件不適用",
   },
+  /** Making a PDF of files (B3-03). */
+  create: {
+    title: "從檔案建立 PDF",
+    description: "把圖片、網頁、純文字、電子書或 Office 文件轉成一份新的 PDF，新的 PDF 會在新分頁開啟。原本的檔案不會改變。",
+    kindsTitle: "可以用的檔案",
+    kinds: [
+      "圖片（PNG、JPEG、GIF、BMP、TIFF）：可以一次選很多張，依檔名順序排列，一張一頁",
+      "網頁（HTML）、純文字（TXT）、SVG 向量圖、電子書（EPUB）、XPS：一次一個檔案",
+      "Word（DOCX）、Excel（XLSX）、PowerPoint（PPTX）：一次一個檔案，是實驗性的功能",
+    ],
+    experimentalTitle: "Office 文件是實驗性的",
+    experimental:
+      "轉換用的是 PDF 引擎內建的功能，不是 Office：版面、字型、圖表和格式可能和原本不同，也不是每個功能都支援。重要的文件請在轉好後逐頁檢查。",
+    privacyTitle: "轉換時",
+    privacy: [
+      "不會連網：網頁裡的圖片、樣式表與其他遠端資源都不會載入，網頁裡的指令碼也不會執行",
+      "來源檔的作者、標題、日期等資訊不會帶進 PDF；圖片只留下畫面，沒有相機型號與拍攝位置",
+      "在隔離的程序中進行：損壞或惡意的檔案只會讓這次轉換失敗",
+    ],
+    limits: "每個檔案最多 64 MB，一次最多 200 個檔案。",
+    start: "選擇檔案…",
+    cancel: "取消",
+    running: "正在建立 PDF…",
+    done: (pages: number) => `已建立 ${pages} 頁的 PDF，並在新分頁開啟。`,
+    /** Why it failed, for the codes that mean something here; any other code has its general text. */
+    failures: {
+      invalidArgument:
+        "選的檔案不能一起轉成 PDF：圖片可以一次選很多張，其他格式一次只能選一個檔案；其他副檔名的檔案也不能用。",
+      corrupted: "選的檔案打不開，或不是它的副檔名所說的格式，沒有建立 PDF。",
+      tooLarge: "選的檔案太大，每個檔案最多 64 MB。",
+      limitExceeded: "選的檔案太大、太複雜或頁數太多，超過可處理的上限，沒有建立 PDF。",
+      unreadable: "讀不到選的檔案，或寫不進選的位置，請確認檔案存在且你有存取權限。",
+      workerTimeout: "轉換花了太久，已經停止。檔案可能太大或太複雜。",
+      workerCrashed: "轉換時 PDF 引擎意外結束，沒有建立 PDF。",
+    } as Partial<Record<ErrorCode, string>>,
+    failed: "無法建立 PDF，請再試一次。",
+  },
   export: {
     title: "匯出",
     note: "檔案只在這台電腦上產生；按「匯出…」後選擇存放的位置。",
@@ -653,6 +691,7 @@ export const strings = {
     privacyExport: "隱私匯出…",
     encryptCopy: "加密並另存新檔…",
     compressImages: "壓縮圖片並另存新檔…",
+    createPdf: "從檔案建立 PDF…",
     dontRecord: "不記錄此檔案",
     settings: "設定…",
   },
