@@ -290,6 +290,27 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
 - 編輯失敗時，狀態列顯示 annotations.failed；未儲存的變更太多時顯示 pages.saveFirst。
 - 沒有開啟畫筆或印章的快捷鍵（可以從工具列的按鈕以鍵盤操作）。
 
+### 文字方塊（B2-30）
+
+文字方塊是頁面上的 `FreeText` 註解，字型以子集嵌入檔案，其他閱讀器也看得到。做法見 [text-box-engine.md](../architecture/text-box-engine.md)，字型清單見 [text-boxes.md](../architecture/text-boxes.md)。畫面只送字型的代號與樣式，永遠拿不到字型檔或路徑。
+
+- **放置**：
+  - 工具列的「文字方塊」按鈕（annotations.textBox，字母 T 的圖示，在印章按鈕右邊，開啟時是按下的狀態），狀態列顯示 annotations.textBoxOn；在頁面上點一下，以點擊處為中心放一個 240 × 48 點的方框（不夠就移到頁面內），同時開啟對話框，放下後工具自動結束；
+  - 工具開著時按 `Enter`，放在目前這一頁的中央（給不能使用滑鼠的人，焦點在頁面或這個按鈕上時；比照印章）；`Esc` 或再按一次按鈕結束；
+  - 頁面上按右鍵，功能表的「annotations.addTextBox」，放在按右鍵的地方。
+- **對話框**（新增：annotations.textBoxDialog.addTitle，改：annotations.textBoxDialog.editTitle）：
+  - 文字（多行；`Enter` 換行，`Ctrl+Enter` 儲存）；用輸入法組字時，`Enter`、`Ctrl+Enter` 與其他按鍵都是輸入法的，不儲存，也不觸發應用程式的快捷鍵（全域的快捷鍵遇到組字中的按鍵一律不作用）；
+  - 字型：下拉選單列出已安裝字型的**家族**（每次開啟對話框都重新讀清單），旁邊的「粗體」「斜體」是同一家族的另一個字型；家族沒有那個變體時，說明 annotations.textBoxDialog.noBold／noItalic，按鈕不變，**不模擬**；換成沒有粗體或斜體的家族時，粗體或斜體會取消並同樣說明；選單下方一行說明 annotations.textBoxDialog.fontsHelp（找不到字型就先在 Windows 安裝它）；新的方塊一開始用上次的家族，沒有就用能顯示中日文的字型（微軟正黑體等），再沒有就用清單的第一個；
+  - 大小（點，4 到 288）、顏色（七個顏色與自訂顏色）、對齊（靠左、置中、靠右）；
+  - 儲存時畫面先請主行程準備文字與字型；字型不能用、字型沒有文字裡的某個字、文字需要字形變化（阿拉伯文、希伯來文、印度系文字、組合記號）、字型已不在，都在對話框裡顯示原因（錯誤碼的訊息：fontInvalid、fontNotTrueType、fontVariable、fontColour、fontNotEmbeddable、fontMissingGlyphs、textNotSupported、fontUnavailable），對話框不關，可以換字型再試；
+  - 字型的授權只允許檢視與列印時，方塊照樣加上，狀態列顯示 annotations.textBoxViewOnly；
+  - 空白、太長（4,096 位元組）、大小不對時，在對話框裡說明，不送出。
+- **選取、移動、縮放與刪除**沿用註解的操作：`Tab` 或點一下選取，周圍有八個控制點可以自由縮放（文字重新斷行），拖曳本體移動；選取後方向鍵移動 1 點、加 `Shift` 移動 10 點；`Delete` 刪除；小工具列顯示文字、「編輯文字方塊…」（annotations.editTextBox）與刪除。
+- **改文字與樣式**：小工具列的按鈕，或選取後按 `Enter`，開啟同一個對話框，從方塊現在的內容開始（文字、字型、大小、顏色、對齊）；只改樣式時不重新讀字型；改文字或字型時才重新準備；什麼都沒改就什麼都不送。方塊的字型這台電腦已經沒有時（解除安裝、換電腦），選單顯示 annotations.textBoxDialog.fontMissing，方塊照原樣顯示與列印，移動、縮放、改大小、顏色與對齊都照常；要改文字或換字型必須先選另一個字型（annotations.textBoxDialog.needFont）。文字超出方塊時，對話框提醒 annotations.textBoxDialog.overflow。
+- **作者不允許註解**時，按鈕與右鍵項目停用並說明；已有的方塊仍然顯示，但沒有控制點，也不能改。
+- 復原與重做、存檔、崩潰後還原、搜尋與選取複製都和別的註解一樣（搜尋與選取找得到方塊裡的字）。
+- 沒有開啟文字方塊工具的快捷鍵（可以從工具列的按鈕以鍵盤操作）。
+
 ### 表單（B2-09）
 
 文件有表單（AcroForm）時，欄位直接顯示在頁面上，可以填寫。做法與限制見 [forms.md](../architecture/forms.md)。

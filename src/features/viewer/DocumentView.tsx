@@ -129,6 +129,10 @@ type DocumentViewProps = {
   onFieldScript?: () => void;
   /** Asks for a note's new text. */
   onEditNote?: (page: number, annotation: PageAnnotation) => void;
+  /** Asks for a text box's new words and style (B2-30). */
+  onEditTextBox?: (page: number, annotation: PageAnnotation) => void;
+  /** The text box tool was used on a page: where (page space), to ask what it says. */
+  onNewTextBox?: (page: number, at: Point) => void;
   /**
    * What the pointer does on the pages (B2-08): draws with the pen, or puts a stamp down. Without
    * it (or without `onAnnotationEdit`) it selects text and chooses annotations.
@@ -209,6 +213,8 @@ export function DocumentView({
   annotations,
   onAnnotationEdit,
   onEditNote,
+  onEditTextBox,
+  onNewTextBox,
   tool,
   onToolDone,
   forms,
@@ -465,6 +471,7 @@ export function DocumentView({
           }}
           onEdit={onAnnotationEdit}
           onEditNote={onEditNote}
+          onEditTextBox={onEditTextBox}
         />,
       );
     }
@@ -529,6 +536,8 @@ export function DocumentView({
                 rect: pictureRectAt(at, pages[page]!, tool.picture),
                 image: tool.picture.image,
               });
+            } else if (tool.kind === "textBox") {
+              onNewTextBox?.(page, at);
             } else {
               return;
             }

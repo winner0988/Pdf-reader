@@ -21,7 +21,8 @@ import {
 export type Tool =
   | { kind: "pen"; color: InkColor; width: InkWidth }
   | { kind: "stamp"; stamp: StampName }
-  | { kind: "picture"; picture: StampImageInfo };
+  | { kind: "picture"; picture: StampImageInfo }
+  | { kind: "textBox" };
 
 export const INK_COLORS: InkColor[] = ["black", "red", "blue", "green"];
 export const INK_WIDTHS: InkWidth[] = ["thin", "medium", "thick"];
@@ -105,6 +106,15 @@ function rectAround(at: Point, page: PageSize, width: number, height: number): R
 /** The rectangle a stamp takes when put down at `at` (page space), inside the page. */
 export function stampRectAt(at: Point, page: PageSize): Rect {
   return rectAround(at, page, STAMP_WIDTH_PT, STAMP_HEIGHT_PT);
+}
+
+/** A text box is put down 240 points wide and 48 high; it is resized afterwards. */
+export const TEXT_BOX_WIDTH_PT = 240;
+export const TEXT_BOX_HEIGHT_PT = 48;
+
+/** The rectangle a text box takes when put down at `at` (page space), inside the page. */
+export function textBoxRectAt(at: Point, page: PageSize): Rect {
+  return rectAround(at, page, Math.min(TEXT_BOX_WIDTH_PT, page.widthPt), Math.min(TEXT_BOX_HEIGHT_PT, page.heightPt));
 }
 
 /** The longer side of a picture stamp when it is put down, in points. */

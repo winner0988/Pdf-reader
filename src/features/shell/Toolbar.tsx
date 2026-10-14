@@ -12,6 +12,7 @@ import {
   RotateCw,
   Search,
   Stamp,
+  Type,
 } from "lucide-react";
 import { useId, useState, type Ref } from "react";
 
@@ -111,6 +112,11 @@ export type ToolbarProps = {
     onPick?: () => void;
   };
   /**
+   * The text box tool (B2-30): turned on or off with its button; a click on a page then asks what
+   * the box says. Without a toggle (the author does not allow annotating) the button is disabled.
+   */
+  textBox?: { active: boolean; onToggle?: () => void };
+  /**
    * Turns the form of the open document into page content (B2-09); given only for a document
    * with a form. Without a click handler (the author does not allow filling in forms) the item
    * says so.
@@ -209,6 +215,19 @@ export function Toolbar(props: ToolbarProps) {
         )}
         {document && props.pen && <PenControls pen={props.pen} />}
         {document && props.stamp && <StampMenu stamp={props.stamp} />}
+        {document && props.textBox && (
+          <IconButton
+            label={strings.annotations.textBox}
+            // The reason, when it is disabled, is in the tooltip.
+            shortcut={props.textBox.onToggle ? undefined : strings.annotations.notAllowed}
+            pressed={props.textBox.active}
+            disabled={!props.textBox.onToggle}
+            onClick={props.textBox.onToggle}
+            data-text-box-button=""
+          >
+            <Type />
+          </IconButton>
+        )}
         {document && (
           <IconButton label={t.search} shortcut="Ctrl+F" pressed={props.searchOpen} onClick={props.onSearch}>
             <Search />

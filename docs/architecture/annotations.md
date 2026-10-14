@@ -67,6 +67,15 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 - **權限**（MVP-19）：`/P` 的第 6 位元（註解）沒有設定時，主行程拒絕所有註解的編輯；頁面編輯仍依第 4、11 位元。以擁有者密碼開啟時全部允許（#88）。
 - 頁碼不存在、註解不在那一頁、類型不符時，什麼都不改變。
 
+## 文字方塊的畫面（B2-30）
+
+前端在 `src/features/annotations/`：`TextBoxDialog.tsx`（對話框）、`textBox.ts`（字型家族與變體、顏色、大小的檢查）、`useAnnotations.ts`（開對話框、準備文字、送編輯）、`source.ts` 的 `getFonts`／`prepareTextBox`／`getTextBox`（三個命令的包裝），`tools.ts` 的 `textBoxRectAt`；工具列按鈕在 `Toolbar.tsx`，右鍵項目與工具在 `ReaderShell.tsx`，控制點與鍵盤在 `PageAnnotations.tsx`／`MoveResize.tsx`。畫面與操作見 [screen-map.md](../ux/screen-map.md)。
+
+- 新增：`getFonts` → 對話框 → `prepareTextBox(doc, text, font)`（得到號碼）→ `applyEdit({ kind: "addTextBox", page, rect, model, style })`。
+- 改：`getTextBox(doc, page, annotation)` 填入對話框；文字或字型有改才 `prepareTextBox`，然後 `applyEdit({ kind: "setTextBox", page, annotation, model, style })`（沒有改字時 `model` 是 `null`）；只改位置或大小用 `setAnnotationRect`。
+- 粗體與斜體不是編輯的欄位：畫面在家族裡找 `bold`／`italic` 符合的那個字型，找不到就說明，不做假的。
+- 失敗的原因在對話框裡顯示（錯誤碼對應的訊息），不關對話框；未儲存的變更太多（`limitExceeded`）顯示 pages.saveFirst。
+
 ## 註解的識別碼
 
 - `AnnotationId` 是註解在文件中的物件編號。
