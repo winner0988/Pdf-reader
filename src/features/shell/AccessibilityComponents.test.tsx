@@ -10,6 +10,7 @@ import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialo
 import { OutlineTree } from "@/features/outline/OutlineTree";
 import { PrintDialog } from "@/features/print/PrintDialog";
 import { RecoveryBanner } from "@/features/recovery/RecoveryBanner";
+import { CompressDialog } from "@/features/saving/CompressDialog";
 import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
 import { SaveFailedDialog } from "@/features/saving/SaveFailedDialog";
@@ -105,6 +106,20 @@ describe("dialogs", () => {
   it("the encrypted copy", async () => {
     render(<EncryptDialog open onOpenChange={vi.fn()} doc={5} onEncrypt={() => Promise.resolve(false)} onFinished={vi.fn()} />);
     await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("the compressed copy", async () => {
+    render(<CompressDialog open onOpenChange={vi.fn()} doc={5} onCompress={() => Promise.resolve(null)} />);
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("what came of the compressed copy", async () => {
+    const done = { before: 4_194_304, after: 1_048_576, images: 12, changed: 9, partial: false };
+    render(<CompressDialog open onOpenChange={vi.fn()} doc={5} onCompress={() => Promise.resolve(done)} />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: strings.compress.start }));
+    await screen.findByRole("button", { name: strings.compress.close });
     await expectAccessible(everything());
   });
 

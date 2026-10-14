@@ -27,6 +27,7 @@ import type { OcrTab } from "@/features/ocr/model";
 import { useOcrView } from "@/features/ocr/useOcrView";
 import type { ExportApi } from "@/features/export/api";
 import { ExportDialog } from "@/features/export/ExportDialog";
+import { CompressDialog } from "@/features/saving/CompressDialog";
 import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
@@ -247,7 +248,16 @@ export function ReaderShell({
   const [rotation, setRotation] = useState<Rotation>(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [dialog, setDialog] = useState<
-    "shortcuts" | "about" | "settings" | "setDefaultFailed" | "print" | "export" | "privacyExport" | "encrypt" | null
+    | "shortcuts"
+    | "about"
+    | "settings"
+    | "setDefaultFailed"
+    | "print"
+    | "export"
+    | "privacyExport"
+    | "encrypt"
+    | "compress"
+    | null
   >(
     null,
   );
@@ -305,7 +315,13 @@ export function ReaderShell({
     setTool(null);
     setHint(null);
     setRecorded(null);
-    if (dialog === "print" || dialog === "export" || dialog === "privacyExport" || dialog === "encrypt") {
+    if (
+      dialog === "print" ||
+      dialog === "export" ||
+      dialog === "privacyExport" ||
+      dialog === "encrypt" ||
+      dialog === "compress"
+    ) {
       setDialog(null);
     }
   }
@@ -821,6 +837,8 @@ export function ReaderShell({
           onEncryptCopy={savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined}
           encryptCopyBlocked={savable && document_?.encrypted === true}
           onForgetPassword={document_?.passwordRemembered ? forgetPassword : undefined}
+          onCompressImages={savable && !document_?.encrypted ? () => setDialog("compress") : undefined}
+          compressImagesBlocked={savable && document_?.encrypted === true}
           ocr={ocrView.menu}
           flatten={
             document_?.hasForm && editingApi !== undefined
@@ -1175,6 +1193,14 @@ export function ReaderShell({
           doc={doc}
           onEncrypt={(args) => savingApi.encryptCopy(args)}
           onFinished={showHint}
+        />
+      )}
+      {savable && (
+        <CompressDialog
+          open={dialog === "compress"}
+          onOpenChange={(open) => setDialog(open ? "compress" : null)}
+          doc={doc}
+          onCompress={(args) => savingApi.compressImages(args)}
         />
       )}
       {exportable && (
