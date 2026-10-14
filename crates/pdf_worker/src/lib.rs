@@ -9,6 +9,7 @@ mod compress;
 mod crypt;
 pub mod engine;
 mod handle;
+mod jpeg;
 mod leftovers;
 pub mod ocr;
 pub mod ocr_worker;

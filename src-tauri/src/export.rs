@@ -101,7 +101,12 @@ fn new_temporary_file(file: &Path) -> io::Result<(PathBuf, fs::File)> {
     Err(io::ErrorKind::AlreadyExists.into())
 }
 
-/// What exported file names start with: the document's file name without `.pdf`.
+/// What exported file names start with: the document's file name without `.pdf`, made into
+/// something Windows takes as the start of a file name (#264). The document may come from another
+/// system's files (a share, a folder from a Linux machine) and have characters in its name that a
+/// Windows file cannot: those become `_`. Windows also drops a space or a period at the end of a
+/// name, and reads a device name (`CON`, `NUL`, `COM1`, ...) as the device whatever follows it, an
+/// extension too: those get an underscore after the name.
 pub fn stem(display_name: &str) -> String {
     let stem = match display_name.len().checked_sub(4) {
         Some(at)
@@ -112,11 +117,53 @@ pub fn stem(display_name: &str) -> String {
         }
         _ => display_name,
     };
-    if stem.trim().is_empty() {
-        "PDF".to_owned()
-    } else {
-        stem.to_owned()
+    let allowed: String = stem
+        .chars()
+        .map(|c| {
+            if matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let allowed = allowed.trim_end_matches([' ', '.']);
+    if allowed.trim().is_empty() {
+        return "PDF".to_owned();
     }
+    // The device name is what comes before the first period (and the spaces before it).
+    let (name, extension) = allowed
+        .split_once('.')
+        .map_or((allowed, None), |(name, rest)| (name, Some(rest)));
+    if is_device_name(name) {
+        match extension {
+            Some(rest) => format!("{name}_.{rest}"),
+            None => format!("{name}_"),
+        }
+    } else {
+        allowed.to_owned()
+    }
+}
+
+/// Whether Windows takes `name` (without any extension) for a device and not a file.
+fn is_device_name(name: &str) -> bool {
+    let upper = name.trim_end().to_uppercase();
+    if matches!(
+        upper.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) {
+        return true;
+    }
+    upper
+        .strip_prefix("COM")
+        .or_else(|| upper.strip_prefix("LPT"))
+        .is_some_and(|number| {
+            let mut chars = number.chars();
+            matches!(
+                (chars.next(), chars.next()),
+                (Some('1'..='9' | '¹' | '²' | '³'), None)
+            )
+        })
 }
 
 /// The image file an export writes for each page.
@@ -370,6 +417,55 @@ mod tests {
         );
         let targets = image_targets(Path::new(r"C:\out"), "報告", &[2], ImageKind::Jpeg);
         assert_eq!(targets, [PathBuf::from(r"C:\out\報告-p3.jpg")]);
+    }
+
+    #[test]
+    fn what_windows_does_not_allow_in_a_file_name_is_not_in_the_start_of_one() {
+        // A document from another system's files (#264).
+        assert_eq!(stem("report?final*<1>.pdf"), "report_final__1_");
+        assert_eq!(stem("a:b|c\"d/e\\f.pdf"), "a_b_c_d_e_f");
+        assert_eq!(stem("tab\there\u{1}.pdf"), "tab_here_");
+        assert_eq!(
+            stem("報告？.pdf"),
+            "報告？",
+            "a full-width mark is a different character"
+        );
+        // A space or a period at the end is dropped by Windows: it never reaches the name.
+        assert_eq!(stem("name . .pdf"), "name");
+        assert_eq!(stem("name...pdf"), "name");
+        assert_eq!(stem("...pdf"), "PDF");
+        assert_eq!(stem("???.pdf"), "___");
+        assert_eq!(stem("   .pdf"), "PDF");
+        // Devices, with or without an extension, in any case.
+        for (name, expected) in [
+            ("CON.pdf", "CON_"),
+            ("nul", "nul_"),
+            ("Prn .pdf", "Prn_"),
+            ("Com1.pdf", "Com1_"),
+            ("LPT9.old.pdf", "LPT9_.old"),
+            ("AUX.txt.pdf", "AUX_.txt"),
+            ("conin$.pdf", "conin$_"),
+            ("COM\u{b2}.pdf", "COM\u{b2}_"),
+        ] {
+            assert_eq!(stem(name), expected, "{name}");
+        }
+        // Not devices.
+        for name in [
+            "COM10.pdf",
+            "COM0.pdf",
+            "console.pdf",
+            "LPT.pdf",
+            "xCON.pdf",
+            "a.con.pdf",
+        ] {
+            assert_eq!(stem(name), name.trim_end_matches(".pdf"), "{name}");
+        }
+        // The names built from it are names Windows takes.
+        let bad = stem("a?b*c.pdf");
+        let [target] = &image_targets(Path::new(r"C:\out"), &bad, &[0], ImageKind::Png)[..] else {
+            panic!("one target")
+        };
+        assert_eq!(target, &PathBuf::from(r"C:\out\a_b_c-p1.png"));
     }
 
     #[test]

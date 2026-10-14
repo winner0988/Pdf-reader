@@ -8,6 +8,7 @@ compile_error!(
 mod batch;
 mod cli;
 mod commands;
+mod create_pdf;
 mod credentials;
 mod documents;
 mod events;
@@ -153,6 +154,7 @@ pub fn run() {
             commands::set_ocr_focus,
             commands::pick_stamp_image,
             commands::run_batch,
+            commands::create_pdf,
         ])
         .on_window_event(commands::on_window_event)
         .setup(move |app| {

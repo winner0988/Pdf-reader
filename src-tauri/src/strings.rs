@@ -49,6 +49,24 @@ pub const COMPRESSED_COPY_SAME_FILE_TITLE: &str = "請選擇其他檔案";
 pub const COMPRESSED_COPY_SAME_FILE_MESSAGE: &str =
     "壓縮會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
 
+/// Making a PDF of files (B3-03): the dialog for the files and its filters, the one for where the
+/// PDF goes and what it is called at first, and why the PDF cannot go over one of the files.
+pub const CREATE_SOURCES_DIALOG_TITLE: &str = "選擇要建立 PDF 的檔案";
+pub const CREATE_ALL_FILTER_NAME: &str = "所有可以建立 PDF 的檔案";
+pub const CREATE_IMAGES_FILTER_NAME: &str = "圖片（PNG、JPEG、GIF、BMP、TIFF）";
+pub const CREATE_HTML_FILTER_NAME: &str = "網頁（HTML）";
+pub const CREATE_TEXT_FILTER_NAME: &str = "純文字（TXT）";
+pub const CREATE_BOOKS_FILTER_NAME: &str = "電子書與固定版面（EPUB、XPS）";
+pub const CREATE_SVG_FILTER_NAME: &str = "SVG 向量圖";
+pub const CREATE_OFFICE_FILTER_NAME: &str = "Office 文件（DOCX、XLSX、PPTX；實驗性）";
+pub const CREATE_PDF_DIALOG_TITLE: &str = "建立 PDF：選擇 PDF 的位置";
+pub fn created_pdf_file_name(stem: &str) -> String {
+    format!("{stem}.pdf")
+}
+pub const CREATE_PDF_SAME_FILE_TITLE: &str = "請選擇其他檔案";
+pub const CREATE_PDF_SAME_FILE_MESSAGE: &str =
+    "建立 PDF 不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
+
 /// Importing a language for recognising the text of scanned pages (B2-10).
 pub const LANGUAGE_DIALOG_TITLE: &str = "匯入 OCR 語言資料";
 pub const LANGUAGE_FILTER_NAME: &str = "Tesseract 語言資料（.traineddata）";

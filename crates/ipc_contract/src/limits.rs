@@ -167,6 +167,9 @@ pub const MAX_COMPRESS_SIDE_PX: u32 = 16_384;
 /// Most pictures a compressed copy may say it looked at (B3-01): above what a document can hold.
 pub const MAX_IMAGES_PER_DOCUMENT: u32 = 10_000_000;
 
+/// Most files a PDF may be made of (B3-03): pictures, a page each.
+pub const MAX_CREATE_SOURCES: usize = 200;
+
 /// Most annotations reported for one page (B2-07); the rest are not listed.
 pub const MAX_ANNOTATIONS_PER_PAGE: u32 = 2_000;
 

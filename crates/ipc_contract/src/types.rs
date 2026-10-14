@@ -823,6 +823,44 @@ pub struct CompressResult {
     pub partial: bool,
 }
 
+/// What a file is that a PDF is made of (B3-03, docs/architecture/create-pdf.md), which tells
+/// MuPDF how to read it. The main process decides it from the file's extension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum CreateKind {
+    /// A picture (PNG, JPEG, GIF, BMP, TIFF, JPEG 2000, JPEG XR): a page of its own. Several
+    /// pictures can make one PDF.
+    Image,
+    /// A web page (HTML) saved as a file: what it links to is not fetched.
+    Html,
+    /// Plain text, UTF-8 or UTF-16.
+    Text,
+    Epub,
+    Xps,
+    Svg,
+    /// Word. The three Office kinds are experimental: MuPDF's reading of them is not Office's.
+    Docx,
+    Xlsx,
+    Pptx,
+}
+
+impl CreateKind {
+    /// Whether MuPDF's reading of this kind is not as good as the program that made it: the page
+    /// says so.
+    pub fn is_experimental(self) -> bool {
+        matches!(self, Self::Docx | Self::Xlsx | Self::Pptx)
+    }
+}
+
+/// What `create_pdf` made (B3-03).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateResult {
+    pub pages: u32,
+    /// What the PDF was made of (that of the first file, when there are pictures).
+    pub kind: CreateKind,
+}
+
 /// Arguments of `set_file_recording` (#73): whether an open document's file may be on the recent
 /// files list. Any other field is rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

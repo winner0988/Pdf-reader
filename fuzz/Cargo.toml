@@ -55,3 +55,10 @@ path = "fuzz_targets/compress_images.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "create_pdf"
+path = "fuzz_targets/create_pdf.rs"
+test = false
+doc = false
+bench = false

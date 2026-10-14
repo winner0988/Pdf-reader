@@ -23,6 +23,7 @@ python tests/corpus/generate.py --large   # 另外產生大型檔案到 large/ou
 | `malicious/` | 主動內容與遠端引用：JavaScript、OpenAction、AA、Launch、SubmitForm、ImportData、GoToR（UNC）、GoToE、遠端檔案規格、XFA、嵌入檔案；危險 scheme 與偽裝連結 | 封鎖與偵測（MVP-11、MVP-12） |
 | `malformed/` | 截斷、xref 錯誤、頁面樹循環、目錄循環、超大頁面、深層巢狀、零頁、非 PDF、空檔 | 錯誤處理、fuzzing 種子（QA-03） |
 | `images/` | 自訂印章用的圖片（B2-08）：帶 EXIF（GPS、相機型號、時間）的 JPEG、帶文字與 `eXIf` 區塊且角落透明的 PNG、標頭謊稱 60000 × 60000 的 PNG。不是 PDF，列在 `manifest.json` 的 `images`，不在 `files` | 圖片解碼與中繼資料的清除 |
+| `sources/` | 「從檔案建立 PDF」的來源檔（B3-03）：純文字、網頁（連到 `.invalid` 主機與本機檔案、含指令碼）、SVG、EPUB、XPS、Word、Excel、PowerPoint，以及一個謊稱解開後有 3.5 GiB 的 Word 檔。不是 PDF，列在 `manifest.json` 的 `sources`，不在 `files`。ZIP 類的檔案不壓縮、日期固定為 1980-01-01，所以位元組可重現 | 轉換、不連網不執行、不帶出來源的中繼資料、記憶體上限（B3-03）；fuzzing 種子 |
 | `large/output/` | 1000 頁約 200 MB、10 萬個目錄項目（`--large` 產生，不提交） | 效能與上限（MVP-07、09、10） |
 
 每個檔案的用途、預期頁數、預期的安全發現、可搜尋文字與預期行為都列在 [`manifest.json`](manifest.json)：
@@ -30,7 +31,7 @@ python tests/corpus/generate.py --large   # 另外產生大型檔案到 large/ou
 | 欄位 | 說明 |
 |---|---|
 | `path` | 相對於本目錄 |
-| `category` | `benign`／`malicious`／`malformed`／`large`（`images` 的項目在 `images` 清單裡，沒有 `pages`、`findings`、`text`） |
+| `category` | `benign`／`malicious`／`malformed`／`large`（`images` 與 `sources` 的項目在各自的清單裡，沒有 `pages`、`findings`、`text`） |
 | `purpose` | 這個樣本測什麼 |
 | `expected` | 應用程式應有的行為 |
 | `pages` | 預期頁數；損毀檔為 `null`（依修復結果而定） |

@@ -11,6 +11,7 @@ import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialo
 import { OutlineTree } from "@/features/outline/OutlineTree";
 import { PrintDialog } from "@/features/print/PrintDialog";
 import { RecoveryBanner } from "@/features/recovery/RecoveryBanner";
+import { CreatePdfDialog } from "@/features/create/CreatePdfDialog";
 import { CompressDialog } from "@/features/saving/CompressDialog";
 import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
@@ -144,6 +145,16 @@ describe("dialogs", () => {
     render(<CompressDialog open onOpenChange={vi.fn()} doc={5} onCompress={() => Promise.resolve(done)} />);
     await userEvent.setup().click(await screen.findByRole("button", { name: strings.compress.start }));
     await screen.findByRole("button", { name: strings.compress.close });
+    await expectAccessible(everything());
+  });
+
+  it("the PDF made of files, at rest and with a reason it failed", async () => {
+    const api = { createPdf: vi.fn(() => Promise.reject({ code: "corrupted", message: "" })) };
+    render(<CreatePdfDialog open onOpenChange={vi.fn()} api={api} onFinished={vi.fn()} />);
+    const dialog = await screen.findByRole("dialog");
+    await expectAccessible(everything());
+    await userEvent.click(within(dialog).getByRole("button", { name: strings.create.start }));
+    await within(dialog).findByRole("alert");
     await expectAccessible(everything());
   });
 

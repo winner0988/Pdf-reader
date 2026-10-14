@@ -67,6 +67,8 @@ export type ToolbarProps = {
   onSave?: () => void;
   /** Saves the open document as another file (B2-02). */
   onSaveAs?: () => void;
+  /** Makes a PDF of files (B3-03); without it (demo data, tests) the menu item is disabled. */
+  onCreatePdf?: () => void;
   /** Undoes the last edit, or makes the last undone one again (B2-05); without them the items are disabled. */
   onUndo?: () => void;
   onRedo?: () => void;
@@ -433,6 +435,9 @@ function MoreMenu(props: ToolbarProps) {
         <DropdownMenuItem disabled={!props.onSaveAs} onClick={props.onSaveAs}>
           {menu.saveAs}
           <DropdownMenuShortcut>Ctrl+Shift+S</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!props.onCreatePdf} onClick={props.onCreatePdf}>
+          {menu.createPdf}
         </DropdownMenuItem>
         {props.ocr && (
           <DropdownMenuItem disabled={props.ocr.running} onClick={props.ocr.onStart}>

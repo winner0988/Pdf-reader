@@ -542,6 +542,21 @@ changed: number,
 partial: boolean, };
 
 /**
+ * What a file is that a PDF is made of (B3-03, docs/architecture/create-pdf.md), which tells
+ * MuPDF how to read it. The main process decides it from the file's extension.
+ */
+export type CreateKind = "image" | "html" | "text" | "epub" | "xps" | "svg" | "docx" | "xlsx" | "pptx";
+
+/**
+ * What `create_pdf` made (B3-03).
+ */
+export type CreateResult = { pages: number, 
+/**
+ * What the PDF was made of (that of the first file, when there are pictures).
+ */
+kind: CreateKind, };
+
+/**
  * What `check_for_updates` found (#64, ADR 0009). Versions are `major.minor.patch`; the latest
  * one is rewritten from its three numbers, so nothing else from GitHub's answer reaches the page.
  */

@@ -137,6 +137,10 @@ const ALLOWED_PERMISSIONS = new Map([
     "allow-pick-stamp-image",
     "B2-08: a picture for a custom stamp; the main process asks in its open dialog and the path stays there, the document's worker keeps only the pixels",
   ],
+  [
+    "allow-create-pdf",
+    "B3-03: a PDF made of files the user picks; the main process asks for the files and for where the PDF goes, a sandboxed worker reads them through read-only handles, and the paths stay there",
+  ],
 ]);
 
 /** Plugin permission prefixes that are never granted to the frontend, allowlist or not. */
