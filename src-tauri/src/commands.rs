@@ -1023,7 +1023,8 @@ pub async fn create_pdf(
     let file_name =
         strings::created_pdf_file_name(&export::stem(&documents::display_name(&sources[0].0)));
     let destination = loop {
-        let Some(path) = file_dialog::created_pdf_file(&window, file_name.clone()).await? else {
+        let Some(path) = file_dialog::save_created_pdf_file(&window, file_name.clone()).await?
+        else {
             return Ok(None);
         };
         if !sources
