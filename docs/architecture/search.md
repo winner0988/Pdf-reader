@@ -25,6 +25,7 @@ sequenceDiagram
 - **渲染優先**：每一頁的搜尋以「背景工作」排在渲染執行緒上（`Renderer::in_background`），只有在沒有等待中的渲染請求時才執行。搜尋長文件時，捲動與縮放仍然順暢。
 - **取消**：`cancel(request)` 設定該次搜尋的旗標，搜尋在下一頁之前停止（`Searches`）。前端開始新搜尋、修改關鍵字或關閉搜尋列時會取消舊的搜尋，並忽略舊搜尋的所有結果。文件關閉時，下一頁的搜尋會以 `unknownDocument` 結束。
 - **上限**：查詢最長 `MAX_QUERY_BYTES`（1,024 bytes）；整份文件最多 `MAX_SEARCH_HITS`（10,000）筆，達到時停止並標記 `truncated`；每筆命中最多 `MAX_QUADS_PER_HIT`（64）個區塊。worker 每頁最多只回傳「剩餘可用」的筆數。
+- **文字方塊的字**（B2-29）：MuPDF 的文字擷取不含註解，所以 worker 另外把頁面上 app 的文字方塊的字併進同一份文字層，接在頁面本身的文字後面（做法見 [text-box-engine.md](text-box-engine.md)）；命中的框是字在方塊裡的位置。
 - **沒有文字層**：所有頁面都沒有任何文字時，`done.noTextLayer = true`，前端提示「此文件沒有文字層，目前版本尚不支援 OCR」。
 
 ## 比對方式（`crates/pdf_worker/src/search.rs`）
