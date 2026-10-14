@@ -420,6 +420,7 @@ dependencies = [
  "ipc_contract",
  "jpeg-encoder",
  "mupdf",
+ "mupdf-fonts-droid",
  "mupdf-sys",
  "sha2",
  "skrifa",
