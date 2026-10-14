@@ -10,6 +10,7 @@
 | `open_document` | 以 MuPDF 開啟 PDF，再做 worker 會做的每件事：頁面尺寸、渲染（0.1 倍、旋轉 90°）、連結、搜尋（前兩頁）、Word 文件（前兩頁，B3-02）、目錄、主動內容掃描 | `tests/corpus/` 的 PDF（QA-01，不含隨需產生的大型檔） |
 | `text_box_font` | 字型檔（B2-31，[text-box-engine.md](../architecture/text-box-engine.md)）：以 `skrifa` 讀取、以 `subsetter` 裁成文字用到的字形，做成文字方塊的模型。做得出模型的字型再放進一頁、渲染（MuPDF 讀取裁出來的字型）、存檔、重新開啟、渲染與搜尋。每個輸入試第一個字型與字型集合的第二個字型，文字依輸入的長度在英文、帶重音的拉丁字母、中文、日文四組中選一組（不佔用字型的位元組） | 隨 worker 附帶的 Droid Sans Fallback，加上 runner 上的 TrueType 字型（至多 20 個、各在 2 MB 內）；這個目標的輸入上限是 5 MiB，其他目標是 1 MiB |
 | `compress_images` | 以 MuPDF 開啟 PDF，寫出壓縮圖片的副本（B3-01）：MuPDF 解碼每張圖片、縮小、編碼成 JPEG、換回去、完整重寫（品質低、尺寸上限 256、時間 2 秒） | 同 `open_document`（複製過去） |
+| `create_pdf` | 「從檔案建立 PDF」（B3-03）：第一個位元組決定種類（圖片、網頁、純文字、EPUB、XPS、SVG、Word、Excel、PowerPoint），其餘是檔案；`PdfBuilder` 讀取、轉換、寫出（圖片會加兩次，試多頁的路徑） | `tests/corpus/sources/` 與 `tests/corpus/images/`，前面加種類的編號（CI 的 `Seed corpus` 步驟）；包含謊稱 3.5 GiB 的 Word 檔 |
 
 - 對所有輸入，程式都必須正常接受或拒絕：不能 panic、不能無限制地配置記憶體、不能出現記憶體錯誤。
 - 任何一種都算崩潰，libFuzzer 會把觸發它的輸入存到 `fuzz/artifacts/<目標>/`。
@@ -77,6 +78,17 @@ cargo run --locked -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/worker_messag
 mkdir -p fuzz/corpus/open_document && find tests/corpus -name '*.pdf' -not -path '*/large/*' -exec cp {} fuzz/corpus/open_document/ \;
 ```
 
+`create_pdf` 的種子：每個檔案前面加一個位元組，是種類的編號（圖片 0、網頁 1、純文字 2、EPUB 3、XPS 4、SVG 5、Word 6、Excel 7、PowerPoint 8；順序同 `fuzz/fuzz_targets/create_pdf.rs` 的 `KINDS`）。做法見 `.github/workflows/fuzz.yml` 的 `Seed corpus` 步驟；在本機（Git Bash）：
+
+```bash
+mkdir -p fuzz/corpus/create_pdf
+seed() { printf "\x$1" | cat - "$2" > "fuzz/corpus/create_pdf/$(basename "$2")"; }
+for file in tests/corpus/images/*; do seed 00 "$file"; done
+seed 01 tests/corpus/sources/web-page.html; seed 02 tests/corpus/sources/text.txt; seed 03 tests/corpus/sources/book.epub
+seed 04 tests/corpus/sources/page.xps; seed 05 tests/corpus/sources/picture.svg; seed 06 tests/corpus/sources/letter.docx
+seed 06 tests/corpus/sources/bomb-declared-size.docx; seed 07 tests/corpus/sources/sheet.xlsx; seed 08 tests/corpus/sources/slides.pptx
+```
+
 執行（例如 5 分鐘）：
 
 ```bash
@@ -115,6 +127,7 @@ cargo +nightly fuzz run worker_messages fuzz/corpus/worker_messages -- -max_tota
 
 - `worker_messages`：31 秒 186 萬次；
 - `open_document`：91 秒 20,938 次（每秒約 230 次）；
+- `create_pdf`（B3-03，2026-10-14）：241 秒 12,507 次（每秒約 52 次，每次都真的產生 PDF），沒有崩潰；
 - 兩者都沒有崩潰。
 
 ## 崩潰的處理
@@ -145,6 +158,7 @@ cargo +nightly fuzz run worker_messages fuzz/corpus/worker_messages -- -max_tota
    |---|---|---|
    | Rust panic（`worker_messages`） | 主行程或 worker 的解碼／驗證 panic | 一般 bug，修正並加上單元測試 |
    | Rust panic（`open_document`） | 本專案程式碼（engine、scan、search）panic | 一般 bug；worker 會崩潰但被隔離，仍然要修 |
+   | Rust panic（`create_pdf`） | 本專案程式碼（`PdfBuilder`、`jpeg`）panic | 一般 bug，修正並加上單元測試 |
    | AddressSanitizer 報告（MuPDF 內部） | 堆疊在 MuPDF 或第三方 C 函式庫 | **安全問題**：依 [SECURITY.md](../../SECURITY.md) 私下處理，確認是否已在上游修正，必要時升級 `mupdf` crate |
    | `oom-*`、`timeout-*` | 記憶體或時間超過上限 | 檢查是否有未設上限的配置或迴圈；worker 的 Job Object 記憶體上限與主行程逾時是最後防線 |
 

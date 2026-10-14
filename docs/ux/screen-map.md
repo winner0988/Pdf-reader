@@ -29,7 +29,7 @@
 |---|---|---|
 | ![空狀態](wireframes/empty-state.svg) | ![載入中](wireframes/loading-state.svg) | ![錯誤](wireframes/error-state.svg) |
 
-- **空狀態**：①「選擇檔案…（Ctrl+O）」是主要按鈕，啟動後焦點預設在它上面。② 隱私說明固定顯示。整個畫布都是拖放目標；拖曳進入時畫布邊框以強調色虛線標示。
+- **空狀態**：①「選擇檔案…（Ctrl+O）」是主要按鈕，啟動後焦點預設在它上面；拖放提示下方有次要按鈕「從檔案建立 PDF…」（B3-03，見第 7 節）。② 隱私說明固定顯示。整個畫布都是拖放目標；拖曳進入時畫布邊框以強調色虛線標示。
 - **最近開啟的檔案**（#73）：空狀態的拖放提示下方列出最近開啟的檔案，最新的在前，最多 20 筆；沒有時不顯示這一區。
   - 每一筆只顯示**檔名**（不顯示資料夾），按下以新分頁開啟；右側的 × 從清單移除。
   - 「清除清單」一鍵清除全部。
@@ -213,6 +213,17 @@
 - **對話框**：compress.description；「品質」三個選項（compress.quality.*，預設「中」）、「圖片的最大尺寸」五個選項（不縮小、長邊最多 3000、2000、1500、1000 像素，預設 2000）；compress.note（只有變小的圖片才會換掉、哪些通常不會動、重新編碼的圖片不帶相機的資料）與 compress.signatures（已加密或有數位簽章的文件不能壓縮）。選項是原生的單選按鈕，`Tab` 進入一組後用方向鍵選擇。
 - **選擇位置並壓縮…**：主行程顯示系統的另存對話框，建議檔名 `<原檔名>（已壓縮）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（COMPRESSED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，可以再試；失敗（有數位簽章、檔案不能寫入等）時顯示 compress.failed，沒有檔案被留下。壓縮中顯示 compress.running，選項與按鈕停用，不能關閉對話框。
 - **結果**：成功後對話框換成結果（標題 compress.resultTitle，`role="status"`）：副本的大小、不壓縮圖片時的大小與少了多少百分比、重新編碼了幾張圖片（共幾張）；沒有圖片、或都沒有變小時照實說；時間不夠時加上 compress.result.partial。按「完成」（compress.close）關閉；對話框不會自己消失，因為數字要讀。分頁仍然是原本的文件，副本不加入最近開啟的檔案。
+
+### 從檔案建立 PDF（B3-03）
+
+- 入口有兩個：空狀態的次要按鈕「從檔案建立 PDF…」（沒有文件開著時也能用），以及「⋯」→「從檔案建立 PDF…」（在「另存新檔…」之後；有文件開著時也能用，新的 PDF 在新分頁開啟，原本的分頁不變）。示範資料（沒有主行程）時兩處都停用或不顯示。做法見 [create-pdf.md](../architecture/create-pdf.md)。
+- **對話框**：create.description，列出 create.kinds 與 create.limits（可以用哪些檔案、圖片可以多選、其他格式一次一個）；灰底區塊 create.experimentalTitle／create.experimental 說明 Office 文件是實驗性的；create.privacyTitle 下列出 create.privacy（不連網也不執行指令碼、不帶出作者與拍攝位置、在隔離的程序中進行）。
+- **選擇檔案…**：主行程依序顯示系統的兩個對話框：
+  - 開啟對話框（可多選；第一個篩選器是所有可以用的檔案，其後是圖片、網頁、純文字、電子書與固定版面、SVG、Office）；
+  - 另存對話框，建議檔名 `<第一個檔名>.pdf`，已存在時由對話框詢問是否取代；選到來源檔時以訊息方塊說明（CREATE_PDF_SAME_FILE_MESSAGE）再顯示一次。
+- 選的檔案不能一起（圖片與別的種類、或兩個以上不是圖片的檔案、不支援的副檔名）時，在對話框顯示 create.failures.invalidArgument，沒有檔案被留下。
+- 進行中顯示 create.running（`role="status"`），「選擇檔案…」與「取消」停用，`Esc` 不關閉對話框。關閉任一個系統對話框時回到這個對話框，可以再試；失敗時顯示 create.failures 中該錯誤碼的說明（沒有的錯誤碼用一般的錯誤訊息，都沒有則 create.failed）。
+- 完成後關閉對話框，新的 PDF 在新分頁開啟並成為目前的分頁；在有文件的視窗，狀態列顯示 create.done 4 秒。新的檔案和任何開啟的檔案一樣，依設定記錄在最近開啟的檔案。
 
 ### 隱私匯出（B2-03）
 
@@ -435,6 +446,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | emptyTitle | 開啟 PDF 檔案 |
 | emptyOpenButton | 選擇檔案…（Ctrl+O） |
 | emptyDropHint | 或將檔案拖放到這個視窗 |
+| empty.createButton | 從檔案建立 PDF… |
 | privacyNote | 所有處理都在這台電腦上完成：不會自行連網、不收集任何資料。 |
 | recent.title | 最近開啟的檔案 |
 | recent.remove | 從清單移除「<檔名>」 |
@@ -842,6 +854,40 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | PRIVACY_EXPORT_SAME_FILE_MESSAGE（主行程） | 隱私匯出會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
 | overwrite_message（主行程） | 這個資料夾已經有 <N> 個同名的檔案。要覆寫嗎？ |
 | NO_TEXT_LAYER_PAGE（主行程，寫在文字檔中） | （此頁沒有文字層） |
+
+### 從檔案建立 PDF（B3-03）
+
+| 鍵 | 文字 |
+|---|---|
+| menu.createPdf | 從檔案建立 PDF… |
+| create.title | 從檔案建立 PDF |
+| create.description | 把圖片、網頁、純文字、電子書或 Office 文件轉成一份新的 PDF，新的 PDF 會在新分頁開啟。原本的檔案不會改變。 |
+| create.kindsTitle | 可以用的檔案 |
+| create.kinds | 圖片（PNG、JPEG、GIF、BMP、TIFF）：可以一次選很多張，依檔名順序排列，一張一頁／網頁（HTML）、純文字（TXT）、SVG 向量圖、電子書（EPUB）、XPS：一次一個檔案／Word（DOCX）、Excel（XLSX）、PowerPoint（PPTX）：一次一個檔案，是實驗性的功能 |
+| create.limits | 每個檔案最多 64 MB，一次最多 200 個檔案。 |
+| create.experimentalTitle | Office 文件是實驗性的 |
+| create.experimental | 轉換用的是 PDF 引擎內建的功能，不是 Office：版面、字型、圖表和格式可能和原本不同，也不是每個功能都支援。重要的文件請在轉好後逐頁檢查。 |
+| create.privacyTitle | 轉換時 |
+| create.privacy | 不會連網：網頁裡的圖片、樣式表與其他遠端資源都不會載入，網頁裡的指令碼也不會執行／來源檔的作者、標題、日期等資訊不會帶進 PDF；圖片只留下畫面，沒有相機型號與拍攝位置／在隔離的程序中進行：損壞或惡意的檔案只會讓這次轉換失敗 |
+| create.start／create.cancel | 選擇檔案…／取消 |
+| create.running | 正在建立 PDF… |
+| create.done(pages) | 已建立 <N> 頁的 PDF，並在新分頁開啟。 |
+| create.failures.invalidArgument | 選的檔案不能一起轉成 PDF：圖片可以一次選很多張，其他格式一次只能選一個檔案；其他副檔名的檔案也不能用。 |
+| create.failures.corrupted | 選的檔案打不開，或不是它的副檔名所說的格式，沒有建立 PDF。 |
+| create.failures.tooLarge | 選的檔案太大，每個檔案最多 64 MB。 |
+| create.failures.limitExceeded | 選的檔案太大、太複雜或頁數太多，超過可處理的上限，沒有建立 PDF。 |
+| create.failures.unreadable | 讀不到選的檔案，或寫不進選的位置，請確認檔案存在且你有存取權限。 |
+| create.failures.workerTimeout | 轉換花了太久，已經停止。檔案可能太大或太複雜。 |
+| create.failures.workerCrashed | 轉換時 PDF 引擎意外結束，沒有建立 PDF。 |
+| create.failed | 無法建立 PDF，請再試一次。 |
+| CREATE_SOURCES_DIALOG_TITLE（主行程） | 選擇要建立 PDF 的檔案 |
+| CREATE_ALL_FILTER_NAME／CREATE_IMAGES_FILTER_NAME（主行程） | 所有可以建立 PDF 的檔案／圖片（PNG、JPEG、GIF、BMP、TIFF） |
+| CREATE_HTML_FILTER_NAME／CREATE_TEXT_FILTER_NAME（主行程） | 網頁（HTML）／純文字（TXT） |
+| CREATE_BOOKS_FILTER_NAME／CREATE_SVG_FILTER_NAME（主行程） | 電子書與固定版面（EPUB、XPS）／SVG 向量圖 |
+| CREATE_OFFICE_FILTER_NAME（主行程） | Office 文件（DOCX、XLSX、PPTX；實驗性） |
+| CREATE_PDF_DIALOG_TITLE（主行程） | 建立 PDF：選擇 PDF 的位置 |
+| created_pdf_file_name（主行程） | <第一個檔名>.pdf |
+| CREATE_PDF_SAME_FILE_TITLE／MESSAGE（主行程） | 請選擇其他檔案／建立 PDF 不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
 
 ### 加密並另存新檔（B2-15）
 

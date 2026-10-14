@@ -9,11 +9,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::PROTOCOL_VERSION;
 use crate::types::{
-    AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FontRefusal,
-    FormField, HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, OutlineResult,
-    PageAnnotation, PageLink, PageSize, PageText, Password, Point, Rect, RequestId, Restrictions,
-    Rotation, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageId, StampName,
-    TextBoxInfo, TextBoxModelId, TextBoxStyle,
+    AnnotationId, CreateKind, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId,
+    FontRefusal, FormField, HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth,
+    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Point, Rect, RequestId,
+    Restrictions, Rotation, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageId,
+    StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -127,6 +127,13 @@ mod hex_when_text {
             .collect::<Option<Vec<u8>>>()
             .ok_or_else(|| D::Error::custom("not lowercase hex"))
     }
+}
+
+/// A file a PDF is made of (B3-03): a read-only handle to it, and what it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreateSource {
+    pub file: FileHandle,
+    pub kind: CreateKind,
 }
 
 /// An edit as the worker applies it (ADR 0013). The frontend's form is [`Edit`], which postcard
@@ -549,14 +556,18 @@ pub enum WorkerRequest {
         pages: Vec<u32>,
         file: FileHandle,
     },
-    /// Writes the pages `pages` (0-based, no repeats) of the document to `file` (write-only, as
-    /// for `Save`) as a Word document (B3-02, docs/architecture/docx-export.md): their text and
-    /// pictures, in the order they are given. The document itself does not change. Answered by
-    /// `Saved` (`incremental` is false).
     ExportDocx {
         request: RequestId,
         doc: DocumentId,
         pages: Vec<u32>,
+        file: FileHandle,
+    },
+    /// Makes a PDF of `sources` and writes it to `file` (write-only, as for `Save`): pictures
+    /// are a page each and go together, any other source is the whole document, alone (B3-03,
+    /// docs/architecture/create-pdf.md). No document is open for it. Answered by `Created`.
+    CreatePdf {
+        request: RequestId,
+        sources: Vec<CreateSource>,
         file: FileHandle,
     },
     /// Loads the data of one language to recognise scanned pages in (B2-10, ADR 0015): the bytes
@@ -717,6 +728,12 @@ pub enum WorkerResponse {
         images: u32,
         changed: u32,
         partial: bool,
+    },
+    /// `CreatePdf` is done: the PDF is `bytes` long and has `pages` pages.
+    Created {
+        request: RequestId,
+        bytes: u64,
+        pages: u32,
     },
     /// `OcrLoad` is done: pages are recognised in that language now.
     OcrLoaded {

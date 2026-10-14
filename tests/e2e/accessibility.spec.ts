@@ -165,7 +165,8 @@ test("the dialogs of the menu", async ({ launch }) => {
     [strings.menu.export, strings.export.title],
     [strings.menu.privacyExport, strings.privacyExport.title],
     [strings.menu.encryptCopy, strings.encryption.title],
-    [strings.menu.compressImages, strings.compress.title],
+[strings.menu.compressImages, strings.compress.title],
+    [strings.menu.createPdf, strings.create.title],
   ];
   for (const [item, title] of dialogs) {
     await chooseFromMenu(page, item);

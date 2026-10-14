@@ -8,11 +8,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use ipc_contract::types::{
-    AnnotationId, CompressArgs, CompressResult, DocumentId, EditArgs, EncryptArgs, ErrorCode,
-    ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs, FontInfo, FormField, IpcError,
-    LanguageImport, LinkArgs, LinkPreview, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent,
-    OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText, PagesSource, Password,
-    PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RememberedPasswords,
+    AnnotationId, CompressArgs, CompressResult, CreateResult, DocumentId, EditArgs, EncryptArgs,
+    ErrorCode, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs, FontInfo, FormField,
+    IpcError, LanguageImport, LinkArgs, LinkPreview, OcrArgs, OcrFocusArgs, OcrLanguages,
+    OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText, PagesSource,
+    Password, PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RememberedPasswords,
     RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent, Settings,
     SignatureReport, StampImageInfo, TabId, TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome,
     UnlockSourceArgs, UpdateCheck,
@@ -21,7 +21,8 @@ use ipc_contract::validate::{Validate, check_page_index};
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
 
-use crate::documents::Documents;
+use crate::create_pdf;
+use crate::documents::{self, Documents};
 use crate::events::OpenEvents;
 use crate::export::{self, Exports, ImageKind};
 use crate::file_dialog;
@@ -988,6 +989,64 @@ fn unguessable_password() -> Result<Password, IpcError> {
     Ok(Password::new(
         bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
     ))
+}
+
+/// Set while a PDF is being made of files (B3-03), from the open dialog to the end.
+static CREATING: AtomicBool = AtomicBool::new(false);
+
+/// Makes a PDF of files the user picks (B3-03, docs/architecture/create-pdf.md): the system's open
+/// dialog for the files (pictures, a web page, a text, a book, an XPS file, an SVG picture or an
+/// Office file; several pictures can go together, any other kind alone), then the save dialog for
+/// the PDF, never over one of the files. A sandboxed worker reads the files and makes the PDF; it
+/// then opens in a tab. Paths stay in the main process. `None` when the user closes either dialog,
+/// or when a PDF is already being made.
+#[tauri::command]
+pub async fn create_pdf(
+    app: AppHandle,
+    window: WebviewWindow,
+) -> Result<Option<CreateResult>, IpcError> {
+    if CREATING.swap(true, Ordering::SeqCst) {
+        return Ok(None);
+    }
+    struct Creating;
+    impl Drop for Creating {
+        fn drop(&mut self) {
+            CREATING.store(false, Ordering::SeqCst);
+        }
+    }
+    let _creating = Creating;
+
+    let Some(picked) = file_dialog::pick_sources(&window).await? else {
+        return Ok(None);
+    };
+    let sources = create_pdf::sources_of(picked)?;
+    let file_name =
+        strings::created_pdf_file_name(&export::stem(&documents::display_name(&sources[0].0)));
+    let destination = loop {
+        let Some(path) = file_dialog::created_pdf_file(&window, file_name.clone()).await? else {
+            return Ok(None);
+        };
+        if !sources
+            .iter()
+            .any(|(source, _)| documents::same_file(source, &path))
+        {
+            break path;
+        }
+        rfd::AsyncMessageDialog::new()
+            .set_level(rfd::MessageLevel::Info)
+            .set_title(strings::CREATE_PDF_SAME_FILE_TITLE)
+            .set_description(strings::CREATE_PDF_SAME_FILE_MESSAGE)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .set_parent(&window)
+            .show()
+            .await;
+    };
+    let created = {
+        let (app, destination) = (app.clone(), destination.clone());
+        blocking(move || app.state::<Documents>().create_pdf(&sources, &destination)).await?
+    };
+    open_paths(&app, vec![destination]);
+    Ok(Some(created))
 }
 
 /// Asks for a picture (PNG or JPEG) in the system's open dialog and makes it into what a stamp

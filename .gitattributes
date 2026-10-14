@@ -5,6 +5,11 @@
 *.bat text eol=crlf
 
 *.pdf binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+*.epub binary
+*.xps binary
 *.png binary
 *.jpg binary
 *.jpeg binary

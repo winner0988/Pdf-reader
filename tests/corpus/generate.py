@@ -1695,6 +1695,266 @@ IMAGE_SAMPLES = [
 ]
 
 
+# --------------------------------------------------------------------------- sources (B3-03)
+# Files the app makes a PDF of: a text, a web page, an SVG picture, an EPUB, an XPS file and the
+# three Office kinds. Each says something that can be looked for in the PDF; the web page also
+# names what it must not load or run, and the Office file and the book name an author the PDF
+# must not carry.
+
+
+def zip_archive(entries: list[tuple[str, int, bytes, int, int]]) -> bytes:
+    """A ZIP archive of `entries` (name, method, bytes as stored, CRC-32, size once unpacked),
+    dated the first day the format can say."""
+    out = bytearray()
+    directory = bytearray()
+    for name, method, data, crc, size in entries:
+        raw = name.encode("utf-8")
+        offset = len(out)
+        out += struct.pack("<IHHHHHIIIHH", 0x04034B50, 20, 0, method, 0, 0x21, crc, len(data), size, len(raw), 0)
+        out += raw + data
+        directory += struct.pack(
+            "<IHHHHHHIIIHHHHHII", 0x02014B50, 20, 20, 0, method, 0, 0x21, crc, len(data), size, len(raw),
+            0, 0, 0, 0, 0, offset)
+        directory += raw
+    start = len(out)
+    out += directory
+    out += struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, len(entries), len(entries), len(directory), start, 0)
+    return bytes(out)
+
+
+def stored_zip(files: list[tuple[str, bytes]]) -> bytes:
+    """A ZIP archive of `files`, stored as they are."""
+    return zip_archive([(name, 0, data, zlib.crc32(data) & 0xFFFFFFFF, len(data)) for name, data in files])
+
+
+XML = '<?xml version="1.0" encoding="UTF-8"?>'
+OPC = "http://schemas.openxmlformats.org/package/2006/relationships"
+OFFICE_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+
+def source_text() -> bytes:
+    return "Hello text file\n\n這是一份純文字檔。\nIt has two paragraphs and some 中文.\n".encode("utf-8")
+
+
+def source_html() -> bytes:
+    return (
+        '<!DOCTYPE html><html><head><meta charset="utf-8"><title>A title</title>'
+        '<link rel="stylesheet" href="https://beacon.example.invalid/a.css">'
+        '<script src="https://beacon.example.invalid/a.js"></script>'
+        '<script>document.write("SCRIPT RAN")</script></head>'
+        '<body style="background-image:url(file:///C:/Windows/win.ini)"><h1>Web page heading</h1>'
+        "<p>Hello <b>world</b>, 你好.</p>"
+        '<img src="http://beacon.example.invalid/x.png" alt="remote picture">'
+        '<iframe src="file:///C:/Windows/win.ini"></iframe></body></html>'
+    ).encode("utf-8")
+
+
+def source_svg() -> bytes:
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="150">'
+        '<rect width="300" height="150" fill="#cde"/>'
+        '<text x="20" y="80" font-size="24">Hello SVG</text></svg>'
+    ).encode("utf-8")
+
+
+def source_epub() -> bytes:
+    return stored_zip([
+        ("mimetype", b"application/epub+zip"),
+        ("META-INF/container.xml", (
+            XML + '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>'
+            '<rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'
+        ).encode()),
+        ("content.opf", (
+            XML + '<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="id">'
+            '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Sample</dc:title>'
+            f"<dc:creator>{PRIVATE_AUTHOR_NAME}</dc:creator>"
+            '<dc:identifier id="id">x</dc:identifier><dc:language>en</dc:language></metadata>'
+            '<manifest><item id="c1" href="chapter1.xhtml" media-type="application/xhtml+xml"/></manifest>'
+            '<spine><itemref idref="c1"/></spine></package>'
+        ).encode()),
+        ("chapter1.xhtml", (
+            '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>c</title></head>'
+            "<body><h1>Chapter one</h1><p>The book's first words.</p></body></html>"
+        ).encode()),
+    ])
+
+
+def source_xps() -> bytes:
+    xps = "http://schemas.microsoft.com/xps/2005/06"
+    return stored_zip([
+        ("[Content_Types].xml", (
+            XML + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="fdseq" ContentType="application/vnd.ms-package.xps-fixeddocumentsequence+xml"/>'
+            '<Default Extension="fdoc" ContentType="application/vnd.ms-package.xps-fixeddocument+xml"/>'
+            '<Default Extension="fpage" ContentType="application/vnd.ms-package.xps-fixedpage+xml"/></Types>'
+        ).encode()),
+        ("_rels/.rels", (
+            XML + f'<Relationships xmlns="{OPC}"><Relationship Id="R1" '
+            f'Type="{xps}/fixedrepresentation" Target="FixedDocumentSequence.fdseq"/></Relationships>'
+        ).encode()),
+        ("FixedDocumentSequence.fdseq", (
+            XML + f'<FixedDocumentSequence xmlns="{xps}"><DocumentReference Source="Documents/1/FixedDocument.fdoc"/>'
+            "</FixedDocumentSequence>"
+        ).encode()),
+        ("Documents/1/FixedDocument.fdoc", (
+            XML + f'<FixedDocument xmlns="{xps}"><PageContent Source="Pages/1.fpage"/></FixedDocument>'
+        ).encode()),
+        ("Documents/1/Pages/1.fpage", (
+            XML + f'<FixedPage xmlns="{xps}" Width="816" Height="1056" xml:lang="en-US">'
+            '<Path Fill="#FFFF0000" Data="M 96,96 L 400,96 L 400,300 L 96,300 Z"/></FixedPage>'
+        ).encode()),
+    ])
+
+
+WORD = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def docx_parts() -> list[tuple[str, bytes]]:
+    """The parts of the sample Word file other than its text."""
+    return [
+        ("[Content_Types].xml", (
+            XML + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/word/document.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+            '<Override PartName="/docProps/core.xml" '
+            'ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>'
+        ).encode()),
+        ("_rels/.rels", (
+            XML + f'<Relationships xmlns="{OPC}"><Relationship Id="rId1" Type="{OFFICE_REL}/officeDocument" '
+            'Target="word/document.xml"/><Relationship Id="rId2" '
+            'Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" '
+            'Target="docProps/core.xml"/></Relationships>'
+        ).encode()),
+        ("docProps/core.xml", (
+            XML + '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
+            'xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Private title</dc:title>'
+            f"<dc:creator>{PRIVATE_AUTHOR_NAME}</dc:creator></cp:coreProperties>"
+        ).encode()),
+        ("word/_rels/document.xml.rels", (XML + f'<Relationships xmlns="{OPC}"/>').encode()),
+    ]
+
+
+def source_docx() -> bytes:
+    return stored_zip(docx_parts() + [("word/document.xml", (
+        XML + f'<w:document xmlns:w="{WORD}"><w:body>'
+        "<w:p><w:r><w:t>First paragraph of the letter.</w:t></w:r></w:p>"
+        "<w:p><w:r><w:t>Second paragraph 隱私.</w:t></w:r></w:p></w:body></w:document>"
+    ).encode())])
+
+
+# What the document part of the bomb says its size is: 3.5 GiB, as much as the field holds.
+BOMB_SIZE = 0xE0000000
+
+
+def source_docx_bomb() -> bytes:
+    """A Word file whose text part says it is 3.5 GiB when unpacked, in a few hundred bytes: a
+    reader that makes room for the size it is told asks for that much."""
+    text = (XML + f'<w:document xmlns:w="{WORD}"><w:body><w:p><w:r><w:t>Small, really.</w:t></w:r></w:p>'
+            "</w:body></w:document>").encode()
+    packed = b"" + struct.pack("<HH", len(text), len(text) ^ 0xFFFF) + text  # one stored block
+    entries = [(name, 0, data, zlib.crc32(data) & 0xFFFFFFFF, len(data)) for name, data in docx_parts()]
+    entries.append(("word/document.xml", 8, packed, zlib.crc32(text) & 0xFFFFFFFF, BOMB_SIZE))
+    return zip_archive(entries)
+
+
+def source_xlsx() -> bytes:
+    sheet = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    return stored_zip([
+        ("[Content_Types].xml", (
+            XML + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>'
+        ).encode()),
+        ("_rels/.rels", (
+            XML + f'<Relationships xmlns="{OPC}"><Relationship Id="rId1" Type="{OFFICE_REL}/officeDocument" '
+            'Target="xl/workbook.xml"/></Relationships>'
+        ).encode()),
+        ("xl/workbook.xml", (
+            XML + f'<workbook xmlns="{sheet}" xmlns:r="{OFFICE_REL}"><sheets>'
+            '<sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>'
+        ).encode()),
+        ("xl/_rels/workbook.xml.rels", (
+            XML + f'<Relationships xmlns="{OPC}"><Relationship Id="rId1" Type="{OFFICE_REL}/worksheet" '
+            f'Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="{OFFICE_REL}/sharedStrings" '
+            'Target="sharedStrings.xml"/></Relationships>'
+        ).encode()),
+        ("xl/worksheets/sheet1.xml", (
+            XML + f'<worksheet xmlns="{sheet}"><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c>'
+            '<c r="B1"><v>4242</v></c></row></sheetData></worksheet>'
+        ).encode()),
+        ("xl/sharedStrings.xml", (
+            XML + f'<sst xmlns="{sheet}" count="1" uniqueCount="1"><si><t>Alpha cell</t></si></sst>'
+        ).encode()),
+    ])
+
+
+def source_pptx() -> bytes:
+    pres = "http://schemas.openxmlformats.org/presentationml/2006/main"
+    draw = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    return stored_zip([
+        ("[Content_Types].xml", (
+            XML + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/ppt/presentation.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/></Types>'
+        ).encode()),
+        ("_rels/.rels", (
+            XML + f'<Relationships xmlns="{OPC}"><Relationship Id="rId1" Type="{OFFICE_REL}/officeDocument" '
+            'Target="ppt/presentation.xml"/></Relationships>'
+        ).encode()),
+        ("ppt/presentation.xml", (
+            XML + f'<p:presentation xmlns:a="{draw}" xmlns:r="{OFFICE_REL}" xmlns:p="{pres}">'
+            '<p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst><p:sldSz cx="9144000" cy="6858000"/>'
+            "</p:presentation>"
+        ).encode()),
+        ("ppt/_rels/presentation.xml.rels", (
+            XML + f'<Relationships xmlns="{OPC}"><Relationship Id="rId1" Type="{OFFICE_REL}/slide" '
+            'Target="slides/slide1.xml"/></Relationships>'
+        ).encode()),
+        ("ppt/slides/slide1.xml", (
+            XML + f'<p:sld xmlns:a="{draw}" xmlns:r="{OFFICE_REL}" xmlns:p="{pres}"><p:cSld><p:spTree>'
+            '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>'
+            '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr/>'
+            "<p:txBody><a:bodyPr/><a:p><a:r><a:t>Slide title text</a:t></a:r></a:p></p:txBody></p:sp>"
+            "</p:spTree></p:cSld></p:sld>"
+        ).encode()),
+    ])
+
+
+# Files to make a PDF of, not PDFs: listed under "sources" in the manifest.
+SOURCE_SAMPLES = [
+    ("sources/text.txt", source_text,
+     "A UTF-8 text with Chinese.", "Becomes pages of text with a margin (B3-03)."),
+    ("sources/web-page.html", source_html,
+     "A web page that links a stylesheet, a script, a picture and a frame on `.invalid` hosts and a local "
+     "file, has a script of its own and a background picture from a local file.",
+     "Becomes pages of its text: nothing is run, nothing is fetched, no file is read (B3-03)."),
+    ("sources/picture.svg", source_svg, "An SVG picture with a rectangle and a line of text.",
+     "Becomes a page with the text (B3-03)."),
+    ("sources/book.epub", source_epub, f"An EPUB of one chapter, whose metadata names '{PRIVATE_AUTHOR_NAME}'.",
+     "Becomes pages of the chapter without the author (B3-03)."),
+    ("sources/page.xps", source_xps, "An XPS file of one page (816 x 1056 units) with a red rectangle.",
+     "Becomes one Letter page (B3-03)."),
+    ("sources/letter.docx", source_docx,
+     f"A Word file of two paragraphs whose properties name '{PRIVATE_AUTHOR_NAME}' and a title.",
+     "Becomes pages of text without the author or the title; experimental (B3-03)."),
+    ("sources/bomb-declared-size.docx", source_docx_bomb,
+     "A Word file whose text part says it is 3.5 GiB unpacked and is a few hundred bytes.",
+     "Never makes the worker use more memory than its limit: an error, or the few words it has "
+     "(B3-03)."),
+    ("sources/sheet.xlsx", source_xlsx, "An Excel file of one sheet: a text and a number.",
+     "Becomes a page with both; experimental (B3-03)."),
+    ("sources/slides.pptx", source_pptx, "A PowerPoint file of one slide with a title.",
+     "Becomes a page with the title; experimental (B3-03)."),
+]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--large", action="store_true", help="also generate the on-demand files")
@@ -1738,6 +1998,22 @@ def main() -> int:
         manifest["images"].append({
             "path": path,
             "category": "images",
+            "purpose": purpose,
+            "expected": expected,
+            "bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        })
+    manifest["sources"] = []
+    for path, build, purpose, expected in SOURCE_SAMPLES:
+        data = build()
+        if data != build():
+            raise AssertionError(f"{path} is not deterministic")
+        target = ROOT / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        manifest["sources"].append({
+            "path": path,
+            "category": "sources",
             "purpose": purpose,
             "expected": expected,
             "bytes": len(data),
