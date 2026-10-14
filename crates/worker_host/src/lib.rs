@@ -524,6 +524,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::Png { request, .. }
         | WorkerResponse::StampImage { request, .. }
         | WorkerResponse::TextBoxPrepared { request, .. }
+        | WorkerResponse::TextBox { request, .. }
         | WorkerResponse::Jpeg { request, .. }
         | WorkerResponse::PageSearched { request, .. }
         | WorkerResponse::Edited { request, .. }

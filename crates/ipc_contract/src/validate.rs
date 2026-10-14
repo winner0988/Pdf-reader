@@ -16,8 +16,8 @@ use crate::types::{
     IpcError, LinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult,
     PageAnnotation, PageLink, PageSize, PageText, Password, Point, PrepareTextBoxArgs, Quad,
     RecentFile, Rect, RemoveLanguageArgs, RenderPageArgs, Rotation, SearchArgs, SearchHit,
-    SecurityReport, Settings, SignatureInfo, SignatureReport, SignatureStatus, TextBoxStyle,
-    TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs,
+    SecurityReport, Settings, SignatureInfo, SignatureReport, SignatureStatus, TextBoxInfo,
+    TextBoxStyle, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs,
 };
 use crate::worker::{
     OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerError, WorkerErrorCode, WorkerResponse,
@@ -422,6 +422,7 @@ impl Validate for WorkerResponse {
             WorkerResponse::PageText { text, .. } => text.validate(),
             WorkerResponse::Signatures { report, .. } => report.validate(),
             WorkerResponse::TextBoxPrepared { model, .. } => model.validate(),
+            WorkerResponse::TextBox { info, .. } => info.validate(),
             WorkerResponse::StampImage {
                 png, width, height, ..
             } => {
@@ -879,6 +880,10 @@ impl Validate for Edit {
                 check_annotation_rect(rect)?;
                 style.validate()
             }
+            Edit::SetTextBox { page, style, .. } => {
+                check_annotated_page(*page)?;
+                style.validate()
+            }
             Edit::AddStamp { page, rect, .. }
             | Edit::AddImageStamp { page, rect, .. }
             | Edit::SetAnnotationRect { page, rect, .. } => {
@@ -954,6 +959,19 @@ pub fn check_text_box_text(text: &str) -> Result<(), ValidationError> {
         });
     }
     Ok(())
+}
+
+impl Validate for TextBoxInfo {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_text_box_text(&self.text)?;
+        check_text(
+            "text box font name",
+            &self.font,
+            MAX_MODEL_FONT_NAME_BYTES as u32,
+        )?;
+        check_clean("text box font name", &self.font)?;
+        self.style.validate()
+    }
 }
 
 impl Validate for PrepareTextBoxArgs {
@@ -1316,7 +1334,7 @@ mod tests {
         AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, ErrorCode,
         FieldId, FieldKind, FieldOption, FontId, HighlightColor, HighlightMark, InkColor, InkWidth,
         LinkId, RecentId, Recovery, RequestId, Restrictions, Rgb, Rotation, SecurityFinding,
-        StampImageId, StampName, TabId, TextAlign, TextBoxModelId, UnverifiableReason,
+        StampImageId, StampName, TabId, TextAlign, TextBoxInfo, TextBoxModelId, UnverifiableReason,
     };
     use crate::worker::{ModelGlyph, WorkerErrorCode};
 
@@ -2457,6 +2475,80 @@ mod tests {
         let json = serde_json::to_value(&edit).unwrap();
         assert!(json.get("text").is_none() && json.get("font").is_none());
         assert_eq!(json["model"], 5);
+    }
+
+    #[test]
+    fn a_text_box_can_get_another_style_and_other_words() {
+        let style = |size: f32| TextBoxStyle {
+            size,
+            color: Rgb { r: 9, g: 9, b: 9 },
+            align: TextAlign::Center,
+        };
+        let set = |model: Option<u32>, size: f32, page: u32| Edit::SetTextBox {
+            page,
+            annotation: AnnotationId(5),
+            model: model.map(TextBoxModelId),
+            style: style(size),
+        };
+        assert!(set(None, 12.0, 0).validate().is_ok());
+        assert!(set(Some(3), 12.0, 0).validate().is_ok());
+        for bad in [
+            0.0,
+            MIN_TEXT_BOX_SIZE - 0.5,
+            MAX_TEXT_BOX_SIZE + 0.5,
+            f32::NAN,
+        ] {
+            assert!(set(None, bad, 0).validate().is_err(), "{bad}");
+        }
+        assert!(set(None, 12.0, MAX_PAGE_COUNT).validate().is_err());
+        // The form the page sends: the words are optional, and named by number when they are there.
+        let with: Edit = serde_json::from_value(serde_json::json!({
+            "kind": "setTextBox", "page": 1, "annotation": 5, "model": 3,
+            "style": {"size": 12.0, "color": {"r": 9, "g": 9, "b": 9}, "align": "center"}
+        }))
+        .unwrap();
+        assert_eq!(with, set(Some(3), 12.0, 1));
+        let without: Edit = serde_json::from_value(serde_json::json!({
+            "kind": "setTextBox", "page": 1, "annotation": 5, "model": null,
+            "style": {"size": 12.0, "color": {"r": 9, "g": 9, "b": 9}, "align": "center"}
+        }))
+        .unwrap();
+        assert_eq!(without, set(None, 12.0, 1));
+    }
+
+    #[test]
+    fn what_a_text_box_says_of_itself_is_checked_like_everything_from_the_worker() {
+        let info = || TextBoxInfo {
+            text: "Hello\n你好".to_owned(),
+            font: "Arial".to_owned(),
+            style: TextBoxStyle {
+                size: 12.0,
+                color: Rgb { r: 0, g: 0, b: 0 },
+                align: TextAlign::Left,
+            },
+            view_only: false,
+            overflow: true,
+        };
+        assert!(info().validate().is_ok());
+        let broken = |change: &dyn Fn(&mut TextBoxInfo)| {
+            let mut info = info();
+            change(&mut info);
+            info.validate().is_err()
+        };
+        assert!(broken(&|i| i.text = " ".to_owned()));
+        assert!(broken(&|i| i.text = "a\u{202e}b".to_owned()));
+        assert!(broken(&|i| i.text = "x".repeat(MAX_TEXT_BOX_BYTES + 1)));
+        assert!(broken(&|i| i.font = "x".repeat(129)));
+        assert!(broken(&|i| i.font = "Arial\u{0}".to_owned()));
+        assert!(broken(&|i| i.style.size = f32::INFINITY));
+        let response = WorkerResponse::TextBox {
+            request: RequestId(1),
+            info: info(),
+        };
+        assert!(response.validate().is_ok());
+        let json = serde_json::to_value(info()).unwrap();
+        assert_eq!(json["viewOnly"], false);
+        assert_eq!(json["style"]["align"], "left");
     }
 
     #[test]

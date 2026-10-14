@@ -12,8 +12,8 @@ use crate::types::{
     AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FontRefusal,
     FormField, HighlightColor, HighlightMark, InkColor, InkWidth, OutlineResult, PageAnnotation,
     PageLink, PageSize, PageText, Password, Point, Rect, RequestId, Restrictions, Rotation,
-    SearchHit, SecurityReport, SignatureReport, SourceId, StampImageId, StampName, TextBoxModelId,
-    TextBoxStyle,
+    SearchHit, SecurityReport, SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo,
+    TextBoxModelId, TextBoxStyle,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -197,6 +197,13 @@ pub enum WorkerEdit {
     /// Puts the picture `png` (as `StampImage` made it) over `rect` on page `page` as a stamp
     /// (B2-08).
     AddImageStamp { page: u32, rect: Rect, png: Vec<u8> },
+    /// As [`Edit::SetTextBox`], with the model itself if there is one (B2-29).
+    SetTextBox {
+        page: u32,
+        annotation: AnnotationId,
+        model: Option<TextBoxModel>,
+        style: TextBoxStyle,
+    },
     /// As [`Edit::AddTextBox`], with the model itself (B2-28): no font is needed to make it.
     PlaceTextBox {
         page: u32,
@@ -306,6 +313,19 @@ impl WorkerEdit {
                 page: *page,
                 rect: *rect,
                 png: picture(*image).ok_or(UnknownFile::Picture)?,
+            },
+            Edit::SetTextBox {
+                page,
+                annotation,
+                model,
+                style,
+            } => WorkerEdit::SetTextBox {
+                page: *page,
+                annotation: *annotation,
+                model: model
+                    .map(|id| text_box(id).ok_or(UnknownFile::TextBox))
+                    .transpose()?,
+                style: *style,
             },
             Edit::AddTextBox {
                 page,
@@ -482,6 +502,14 @@ pub enum WorkerRequest {
         font: FontData,
         text: String,
     },
+    /// What text box `annotation` of page `page_index` says of itself: its words, font, style and
+    /// whether they fit. Answered by `TextBox` (B2-29).
+    GetTextBox {
+        request: RequestId,
+        doc: DocumentId,
+        page_index: u32,
+        annotation: AnnotationId,
+    },
     /// Writes the pages `pages` (0-based, no repeats) of the document to `file` (write-only, as
     /// for `Save`) as a document of their own, in the order they have in the document: the
     /// document as it is now is copied and the other pages are taken out of the copy. The
@@ -584,6 +612,11 @@ pub enum WorkerResponse {
         request: RequestId,
         page_index: u32,
         text: PageText,
+    },
+    /// What text box `annotation` of a page says of itself (`GetTextBox`).
+    TextBox {
+        request: RequestId,
+        info: TextBoxInfo,
     },
     /// The model of `PrepareTextBox`.
     TextBoxPrepared {
@@ -926,6 +959,54 @@ mod tests {
         assert_eq!(
             WorkerEdit::of(&edit, |_| None, |_| None, |_| None),
             Err(UnknownFile::TextBox)
+        );
+    }
+
+    #[test]
+    fn setting_a_text_box_again_looks_for_new_words_only_when_it_has_some() {
+        use crate::types::{Rgb, TextAlign};
+        let style = TextBoxStyle {
+            size: 12.0,
+            color: Rgb { r: 1, g: 2, b: 3 },
+            align: TextAlign::Left,
+        };
+        let edit = |model: Option<u32>| Edit::SetTextBox {
+            page: 0,
+            annotation: AnnotationId(7),
+            model: model.map(TextBoxModelId),
+            style,
+        };
+        let models = |id: TextBoxModelId| (id == TextBoxModelId(4)).then(sample_model);
+        // Without new words, none are looked for: the box keeps the words it has.
+        let kept = WorkerEdit::of(&edit(None), |_| None, |_| None, |_| None).unwrap();
+        assert!(matches!(kept, WorkerEdit::SetTextBox { model: None, .. }));
+        let new = WorkerEdit::of(&edit(Some(4)), |_| None, |_| None, models).unwrap();
+        let WorkerEdit::SetTextBox {
+            model: Some(ref words),
+            ..
+        } = new
+        else {
+            panic!("{new:?}");
+        };
+        assert_eq!(*words, sample_model());
+        assert_eq!(
+            WorkerEdit::of(&edit(Some(9)), |_| None, |_| None, models),
+            Err(UnknownFile::TextBox)
+        );
+        for edit in [&kept, &new] {
+            let bytes = postcard::to_allocvec(edit).unwrap();
+            assert_eq!(&postcard::from_bytes::<WorkerEdit>(&bytes).unwrap(), edit);
+        }
+        let request = WorkerRequest::GetTextBox {
+            request: RequestId(2),
+            doc: DocumentId(3),
+            page_index: 1,
+            annotation: AnnotationId(7),
+        };
+        let bytes = postcard::to_allocvec(&request).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerRequest>(&bytes).unwrap(),
+            request
         );
     }
 

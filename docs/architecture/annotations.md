@@ -58,7 +58,8 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 | `addStamp { page, rect, stamp }` | 在 `rect` 蓋上標準印章 | `rect` 是正的，每邊至少 `LIMITS.minAnnotationSidePt`（8 pt），座標都是有限值 |
 | `addImageStamp { page, rect, image }` | 在 `rect` 蓋上使用者自己的圖片印章；`image` 是 `pick_stamp_image` 回的編號（見上一節與下一節） | 同 `addStamp`；圖片必須是這份文件目前有的（主行程找不到時拒絕） |
 | `addTextBox { page, rect, model, style }` | 在 `rect` 放一個文字方塊（FreeText 註解，B2-28，見 [text-box-engine.md](text-box-engine.md)）；`model` 是 `prepare_text_box` 回的號碼（文字與字型已經準備好），`style`：大小、顏色、對齊；粗體與斜體是同一家族的另一個字型，不是欄位 | 同 `addStamp`，大小在 4 到 288 點；文字在準備時驗證（不可全是空白，最多 `LIMITS.maxTextBoxBytes`（4,096 bytes），除了 `\n` 不能有控制字元與看不見的格式字元）。文字與字型先經 `prepare_text_box` 準備（見 [text-box-engine.md](text-box-engine.md)）；準備好的文字在這份文件的編輯歷史裡一直保管到不再被用到 |
-| `setAnnotationRect { page, annotation, rect }` | 移動並縮放手繪或印章，`rect` 是列出的範圍（見下方）的新位置 | 同上；只能是手繪或印章 |
+| `setTextBox { page, annotation, model, style }` | 改文字方塊：換大小、顏色、對齊（`style`），`model` 有的話連文字與字型一起換（`prepare_text_box` 回的號碼），沒有就用方塊原來的文字與字型，**不需要字型**；方塊留在原處 | `style` 同 `addTextBox`；`model` 必須是這份文件準備過的；只能是 app 的文字方塊 |
+| `setAnnotationRect { page, annotation, rect }` | 移動並縮放手繪、印章或文字方塊，`rect` 是列出的範圍（見下方）的新位置 | 同上；只能是手繪、印章或 app 的文字方塊 |
 
 - 座標是頁面空間（PDF 點，頁面左上角為原點，y 向下），與文字選取、搜尋結果的四邊形相同；worker 交給 MuPDF 換算成 PDF 的座標。
 - **移動與縮放**（`setAnnotationRect`）：印章交給 MuPDF 改 `/Rect`，外觀依印章固有的比例縮放並置中（列出的範圍是縮放後的）；手繪把每個點重新排進新的範圍：範圍是點的外框加上 MuPDF 在線條四周留的邊（線寬 + 6 pt，讓細線、圓點也點得到），這個邊保持不變，所以只移動時每個點都平移同樣的距離，線條粗細也不變。沒有範圍的軸（水平或垂直的直線）的點放在新範圍的中央；已有超過 `LIMITS.maxInkPoints` 個點的手繪（文件原有的）不移動。

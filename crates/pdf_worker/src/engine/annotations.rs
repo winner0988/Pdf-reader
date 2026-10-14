@@ -237,9 +237,9 @@ impl PdfDocument {
         Ok(())
     }
 
-    /// Moves and resizes the drawing or stamp `id` of page `index` to `rect` (page space, as
-    /// listed). A stamp keeps its shape inside the rectangle; a drawing keeps the thickness of its
-    /// line, and its points are laid out again in the rectangle.
+    /// Moves and resizes the drawing, stamp or text box `id` of page `index` to `rect` (page space,
+    /// as listed). A stamp keeps its shape inside the rectangle; a drawing keeps the thickness of
+    /// its line, and its points are laid out again in the rectangle; a text box sets its words again.
     pub fn set_annotation_rect(
         &mut self,
         index: u32,
@@ -254,9 +254,13 @@ impl PdfDocument {
                 annotation.update()?;
             }
             PdfAnnotationType::Ink => place_ink(&mut annotation, rect)?,
+            // Never through MuPDF's setters: they would draw the box black again.
+            PdfAnnotationType::FreeText if super::text_box::is_text_box(&annotation) => {
+                self.move_text_box(index, id, rect)?;
+            }
             _ => {
                 return Err(EngineError::InvalidEdit(
-                    "only a drawing or a stamp can be moved",
+                    "only a drawing, a stamp or a text box can be moved",
                 ));
             }
         }

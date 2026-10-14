@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-text-box"
+description = "Enables the get_text_box command without any pre-configured scope."
+commands.allow = ["get_text_box"]
+
+[[permission]]
+identifier = "deny-get-text-box"
+description = "Denies the get_text_box command without any pre-configured scope."
+commands.deny = ["get_text_box"]

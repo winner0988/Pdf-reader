@@ -99,6 +99,7 @@ const ALLOWED_PERMISSIONS = new Map([
   ],
   ["allow-get-ocr-languages", "B2-10: the languages scanned pages can be recognised in (codes and sizes)"],
   ["allow-get-fonts", "B2-27: the fonts installed in Windows (ids and names, never a path), for text boxes"],
+  ["allow-get-text-box", "B2-29: what a text box says of itself (words, font name, style), to fill in the dialog that changes it"],
   ["allow-prepare-text-box", "B2-29: the words of a text box, made into a small subset of a font by id (the page gets no path and no font bytes)"],
   [
     "allow-import-ocr-language",

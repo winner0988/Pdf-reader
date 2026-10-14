@@ -84,7 +84,7 @@
 - **`prepare_text_box { doc, text, font }`**（命令，`commands.rs`）→ `PreparedTextBox { model, viewOnly }`：`font` 是 `get_fonts`（B2-27）清單裡的字型代號，`text` 受 `PrepareTextBoxArgs` 驗證。主行程讀字型檔、送給 worker（`WorkerRequest::PrepareTextBox { font, text }` → `WorkerResponse::TextBoxPrepared { model }`），模型留在主行程（像圖片），畫面只拿到號碼 `TextBoxModelId` 與「字型只能檢視與列印」。畫面因此在關掉對話框**之前**就知道字型能不能用，不必等編輯失敗。
 - **`Edit::AddTextBox { page, rect, model, style }`**：`model` 是上面的號碼，`style` 是 `TextBoxStyle { size, color, align }`。字型不在 `style` 裡（它在模型裡），粗體與斜體也不是欄位：它們是同一家族的另一個字型（`FontInfo` 有 `family`、`bold`、`italic`），畫面準備文字時換一個字型代號就好；沒有變體時畫面說明，不模擬。驗證比照其他註解的編輯（頁碼、`rect` 正的、每邊至少 `MIN_ANNOTATION_SIDE_PT`、有限值，大小 4 到 288 點）。
 - **`WorkerEdit::PlaceTextBox { page, rect, model, style }`**：主行程把號碼換成模型再送給 worker（`WorkerEdit::of` 的 `text_box` 解析器；找不到回 `UnknownFile::TextBox`）。`FontData`（字型位元組）的 `Debug` 只印大小。
-- **`AnnotationKind::TextBox`**：`page_annotations` 對 app 的文字方塊回這個種類（有私有記號的 `FreeText`；別的程式做的 `FreeText` 仍是 `other`），`text` 是它的文字；移動（`setAnnotationRect`）與改文字現在還會被拒絕（見下一節的規則），只能選取與刪除。
+- **`AnnotationKind::TextBox`**：`page_annotations` 對 app 的文字方塊回這個種類（有私有記號的 `FreeText`；別的程式做的 `FreeText` 仍是 `other`），`text` 是它的文字；可以選取、移動、縮放、改樣式、改字與刪除。
 - **錯誤碼**：`FontRefusal` 與 `UnsupportedText` 經 `WorkerErrorCode::Font(…)`、`WorkerErrorCode::UnsupportedText` 到前端的 `ErrorCode`：
 
 | worker | 前端的 `ErrorCode` |
@@ -111,14 +111,26 @@
 - **編輯**：`apply_edit(AddTextBox)` 把號碼換成模型再送給 worker（`WorkerEdit::PlaceTextBox`）；找不到號碼回 `invalidArgument`。復原、重做、worker 重開、崩潰後還原都用同一個換法，所以**字型檔只在準備時讀一次**，之後的重播送的是幾 KB 的模型。
 - **日誌**：日誌多一個 `textBoxes`（見 [crash-recovery.md](crash-recovery.md)）；寫日誌前先確認放得下（`Journals::check`），放不下的編輯被拒絕並請使用者先存檔；開啟檔案時日誌裡的模型當成不可信任的資料檢查。字型被解除安裝或換了電腦都不影響還原。
 
+## 移動、縮放、改樣式與改字（B2-29）
+
+方塊的私有記號裡有整個模型，所以**只憑檔案就能再排一次**，不需要字型：
+
+- **移動**（`setAnnotationRect`，`move_text_box`）：大小沒變時只改註解的 `/Rect`，其他什麼都不動；大小變了（縮放）就用檔案裡的模型重新排版（斷行會不同）。從來不呼叫 MuPDF 的註解 setter。
+- **改樣式**（`setTextBox` 沒有 `model`，`set_text_box`）：大小、顏色、對齊換掉，文字與字型是方塊原來的；方塊留在原處。
+- **改字或換字型**（`setTextBox` 帶 `model`）：畫面先用 `prepare_text_box` 把新文字與新字型準備好，編輯帶號碼。新的子集、字型物件與外觀取代舊的，註解**還是同一個**（編號不變，所以記著註解編號的編輯與復原仍然對得上），舊的字型物件不再被引用，完整存檔時消失。
+- 這些都是用 `replace_text_box`：只對註解字典逐項 `dict_put`（`/Rect`、`/Contents`、`/DA`、`/Q`、`/AP`、私有記號），不經過 MuPDF 的註解函式。
+- **找不到原來的字型時**（解除安裝、換電腦）：方塊照原樣顯示與列印，移動、縮放、改大小、顏色與對齊、刪除都照常（比 ADR 0018 要求的更好：模型在檔案裡）；只有改字或換字型要先選一個字型。
+- `get_text_box` 回方塊的文字、字型名稱、樣式、`viewOnly` 與 `overflow`，用來填入對話框。
+
 ## 測試
 
 - `crates/pdf_worker/tests/text_box.rs`（16 個）：子集與存檔後重開、英文／繁體中文／簡體中文／日文各一個、顏色與大小、三種對齊、移動、轉過的頁面、守規則、現有的註解機制（選取與移除）看得到它而且移除時字型一起走、只有帶 app 的記號的 `FreeText` 才是文字方塊、各種被拒絕的字型與文字（用改過標籤的真字型）、需要字形變化的文字、僅供檢視的字型、放不下、不合理的輸入且文件不變；**模型**：幾 KB、不用字型就能放進別的文件並改大小、與 `add_text_box` 得到同樣的註解編號、從存好的檔案讀回、被竄改的模型不做出方塊。
 - `crates/pdf_worker/tests/text_box_worker.rs`（3 個）：在真正的沙盒 worker 裡，字型以位元組送去準備，模型在**另一個**沒見過字型的 worker 裡放成方塊、列出、存檔、只含子集；被拒絕的字型與文字各有自己的錯誤碼；被竄改的模型不做出方塊也不傷 worker。
 - 引擎內的單元測試：斷行（空白、長字、中文、標點）、需要字形變化的文字、`UTF-16` 與子集標籤、度量的單位。
 - `ipc_contract`：模型、樣式、編輯與準備文字的引數的驗證與前端的 JSON 形式；模型經 postcard 與 JSON 來回不變；錯誤碼對應。
+- `crates/pdf_worker/tests/text_box.rs` 還有（20 個中的一部分）：透過註解編輯移動後顏色與字型都還在、縮放後用檔案裡的模型重排而且註解編號不變、換樣式與換字的文字方塊舊字型隨完整存檔消失、不是 app 的文字方塊與不合法的矩形不會改到文件。沙盒 worker 的測試也走過 `GetTextBox`、移動、`SetTextBox`（不帶字型）與換字。
 - 主行程（用這台電腦真正的 Arial）：準備、放進六個方塊、復原、重做、worker 死掉後重開、存檔後重新開啟；被拒絕的字型與文字各有自己的錯誤碼，文件沒有改變；作者不允許註解時先拒絕；日誌裡的文字方塊只有幾 KB，崩潰後下次開啟時還原，之後還能復原；模型庫的編號、放掉與上限；日誌裡的模型當成不可信任的資料（缺了、重複、不合格、不是十六進位、多出來的欄位）。
 
 ## 尚未實作
 
-移動、縮放、改字與樣式、搜尋與選取（B2-29 的其餘部分）；畫面與輸入法（B2-30）；端對端與字型的 fuzz（B2-31）；匯入字型檔（B2-32）。
+搜尋與選取（B2-29 的其餘部分）；畫面與輸入法（B2-30）；端對端與字型的 fuzz（B2-31）；匯入字型檔（B2-32）。

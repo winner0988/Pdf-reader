@@ -226,3 +226,103 @@ fn a_model_that_was_tampered_with_makes_no_text_box_and_does_not_hurt_the_worker
     place(&mut host, doc, &model).expect("the box");
     assert_eq!(annotations(&mut host, doc).len(), 1);
 }
+
+fn info(
+    host: &mut WorkerHost,
+    doc: DocumentId,
+    annotation: ipc_contract::types::AnnotationId,
+) -> ipc_contract::types::TextBoxInfo {
+    let answer = host
+        .request(|request| WorkerRequest::GetTextBox {
+            request,
+            doc,
+            page_index: 0,
+            annotation,
+        })
+        .expect("the text box");
+    let WorkerResponse::TextBox { info, .. } = answer else {
+        panic!("{answer:?}");
+    };
+    info
+}
+
+fn edit(host: &mut WorkerHost, doc: DocumentId, edit: WorkerEdit) {
+    let made = host
+        .request(|request| WorkerRequest::Edit { request, doc, edit })
+        .expect("the edit");
+    assert!(matches!(made, WorkerResponse::Edited { .. }), "{made:?}");
+}
+
+#[test]
+fn a_text_box_is_read_moved_restyled_and_given_other_words_and_stays_the_same_annotation() {
+    let mut host = host();
+    let model = prepared(&mut host, "Hello 你好", droid()).expect("a model");
+    let doc = opened(&mut host);
+    place(&mut host, doc, &model).expect("the box");
+    let listed = annotations(&mut host, doc);
+    let id = listed[0].id;
+
+    // What the dialog is filled in with.
+    let told = info(&mut host, doc, id);
+    assert_eq!(told.text, "Hello 你好");
+    assert_eq!(told.font, "Droid Sans Fallback");
+    assert_eq!(told.style, STYLE);
+    assert!(!told.view_only && !told.overflow);
+
+    // Moved: a hundred points down.
+    let moved = Rect {
+        y0: BOX.y0 + 100.0,
+        y1: BOX.y1 + 100.0,
+        ..BOX
+    };
+    edit(
+        &mut host,
+        doc,
+        WorkerEdit::SetAnnotationRect {
+            page: 0,
+            annotation: id,
+            rect: moved,
+        },
+    );
+    let after = annotations(&mut host, doc);
+    assert_eq!((after[0].id, after[0].rect.y0), (id, moved.y0));
+
+    // Another size, colour and alignment, with the words and the font it has: no font is sent.
+    let red = TextBoxStyle {
+        size: 20.0,
+        color: Rgb { r: 200, g: 0, b: 0 },
+        align: TextAlign::Right,
+    };
+    edit(
+        &mut host,
+        doc,
+        WorkerEdit::SetTextBox {
+            page: 0,
+            annotation: id,
+            model: None,
+            style: red,
+        },
+    );
+    let told = info(&mut host, doc, id);
+    assert_eq!((told.text.as_str(), told.style), ("Hello 你好", red));
+
+    // Other words, prepared from the font.
+    let other = prepared(&mut host, "Goodbye 再見", droid()).expect("a model");
+    edit(
+        &mut host,
+        doc,
+        WorkerEdit::SetTextBox {
+            page: 0,
+            annotation: id,
+            model: Some(other),
+            style: red,
+        },
+    );
+    let finally = annotations(&mut host, doc);
+    assert_eq!((finally.len(), finally[0].id), (1, id));
+    assert_eq!(finally[0].text.as_deref(), Some("Goodbye 再見"));
+    assert_eq!(
+        finally[0].rect.y0, moved.y0,
+        "and it stayed where it was put"
+    );
+}

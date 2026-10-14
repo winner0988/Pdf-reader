@@ -138,6 +138,7 @@ pub fn run() {
             commands::get_ocr_languages,
             commands::get_fonts,
             commands::prepare_text_box,
+            commands::get_text_box,
             commands::import_ocr_language,
             commands::remove_ocr_language,
             commands::start_ocr,

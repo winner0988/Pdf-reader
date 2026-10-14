@@ -400,6 +400,9 @@ fn text_boxes_of(stored: &Stored) -> Option<ReadTextBoxes> {
     }
     let named = stored.edits.iter().all(|edit| match edit {
         Edit::AddTextBox { model, .. } => models.iter().any(|(id, _)| id == model),
+        Edit::SetTextBox {
+            model: Some(model), ..
+        } => models.iter().any(|(id, _)| id == model),
         _ => true,
     });
     named.then_some(models)

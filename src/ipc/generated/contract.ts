@@ -270,7 +270,7 @@ export type ExportEvent = { "kind": "progress", pagesDone: number, total: number
  * A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
  * those of the document as it is before the edit.
  */
-export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "addTextBox", page: number, rect: Rect, model: TextBoxModelId, style: TextBoxStyle, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" };
+export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "addTextBox", page: number, rect: Rect, model: TextBoxModelId, style: TextBoxStyle, } | { "kind": "setTextBox", page: number, annotation: AnnotationId, model: TextBoxModelId | null, style: TextBoxStyle, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" };
 
 /**
  * The highlighter's colors (B2-07).
@@ -513,6 +513,22 @@ model: TextBoxModelId,
  * The font's licence lets a document with it be viewed and printed only: the page says so.
  */
 viewOnly: boolean, };
+
+/**
+ * What a text box says of itself (B2-29), from the page's worker: to fill in the dialog that
+ * changes it. The font is the name Windows lists it by; it may not be on this computer any more
+ * (the box is still shown and printed, and moved and resized, but other words or another font
+ * need a font that is).
+ */
+export type TextBoxInfo = { text: string, font: string, style: TextBoxStyle, 
+/**
+ * The font's licence lets a document with it be viewed and printed only.
+ */
+viewOnly: boolean, 
+/**
+ * The words do not fit the box: what is below is cut off.
+ */
+overflow: boolean, };
 
 /**
  * Kinds of active content or remote references found in a document (MVP-11).

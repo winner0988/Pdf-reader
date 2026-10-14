@@ -12,7 +12,7 @@ use ipc_contract::types::{
     HighlightMark, InkColor, InkWidth, LinkId, LinkTarget, OutlineItem, OutlineResult,
     PageAnnotation, PageLink, PageSize, PageText, Password, Point, Quad, Rect, RequestId,
     Restrictions, Rgb, Rotation, SearchHit, SecurityFinding, SecurityReport, SignatureInfo,
-    SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxStyle, TextLine,
+    SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine,
     UnverifiableReason,
 };
 use ipc_contract::worker::{
@@ -393,6 +393,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             model: text_box_model(),
         },
+        WorkerResponse::TextBox {
+            request,
+            info: TextBoxInfo {
+                text: "Hello 你好".to_owned(),
+                font: "Arial".to_owned(),
+                style: TextBoxStyle {
+                    size: 12.0,
+                    color: Rgb {
+                        r: 26,
+                        g: 51,
+                        b: 153,
+                    },
+                    align: TextAlign::Left,
+                },
+                view_only: false,
+                overflow: true,
+            },
+        },
         WorkerResponse::Error {
             request: Some(request),
             error: WorkerError {
@@ -667,6 +685,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     y1: 164.0,
                 },
                 png: stamp_png(),
+            },
+        },
+        WorkerRequest::GetTextBox {
+            request,
+            doc,
+            page_index: 0,
+            annotation: AnnotationId(12),
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::SetTextBox {
+                page: 0,
+                annotation: AnnotationId(12),
+                model: Some(text_box_model()),
+                style: TextBoxStyle {
+                    size: 18.0,
+                    color: Rgb { r: 0, g: 0, b: 0 },
+                    align: TextAlign::Right,
+                },
             },
         },
         WorkerRequest::PrepareTextBox {

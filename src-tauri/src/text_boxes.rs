@@ -38,6 +38,7 @@ pub struct TextBoxes {
 fn used_by(edit: &Edit) -> Option<TextBoxModelId> {
     match edit {
         Edit::AddTextBox { model, .. } => Some(*model),
+        Edit::SetTextBox { model, .. } => *model,
         _ => None,
     }
 }
@@ -219,5 +220,28 @@ mod tests {
         // A number from a journal is not given to other words.
         let id = later.add(model(30), [&put(TextBoxModelId(7))]).unwrap();
         assert!(id.0 > 7);
+    }
+
+    #[test]
+    fn words_given_to_a_box_later_are_used_by_that_edit_too() {
+        let set = |model: Option<TextBoxModelId>| Edit::SetTextBox {
+            page: 0,
+            annotation: ipc_contract::types::AnnotationId(5),
+            model,
+            style: TextBoxStyle {
+                size: 12.0,
+                color: Rgb { r: 0, g: 0, b: 0 },
+                align: TextAlign::Left,
+            },
+        };
+        let mut boxes = TextBoxes::default();
+        let a = boxes.add(model(20), []).unwrap();
+        let history = [set(Some(a)), set(None)];
+        // Kept as long as the edit can be made, and in the journal; an edit without new words
+        // names nothing.
+        let b = boxes.add(model(30), &history).unwrap();
+        assert!(boxes.model(a).is_some() && boxes.model(b).is_some());
+        assert_eq!(boxes.used_by(&history).len(), 1);
+        assert!(boxes.used_by(&[set(None)]).is_empty());
     }
 }
