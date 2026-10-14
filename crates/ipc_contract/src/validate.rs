@@ -3366,6 +3366,7 @@ mod tests {
             request: RequestId(1),
             bytes,
             incremental: false,
+            redaction: None,
         };
         let created = |bytes: u64, pages: u32| WorkerResponse::Created {
             request: RequestId(1),

@@ -28,7 +28,7 @@ function renderApp(saving: Partial<SavingApi> = {}) {
     setActive: vi.fn(() => Promise.resolve()),
   } satisfies OpenApi;
   const savingApi = {
-    save: vi.fn<SavingApi["save"]>(() => Promise.resolve({ incremental: false })),
+    save: vi.fn<SavingApi["save"]>(() => Promise.resolve({ incremental: false, redaction: null })),
     saveAs: vi.fn<SavingApi["saveAs"]>(() => Promise.resolve(null)),
     closeWindow: vi.fn<SavingApi["closeWindow"]>(() => Promise.resolve()),
     privacyExport: vi.fn<SavingApi["privacyExport"]>(() => Promise.resolve(true)),

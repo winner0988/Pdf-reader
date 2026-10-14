@@ -180,6 +180,9 @@ pub struct PdfDocument {
     owner: bool,
     /// The text read from pages that are only a picture (B2-10).
     ocr: ocr::OcrPages,
+    /// What applying redactions removed since the document was last saved (B2-20): kept only
+    /// here, to check the file written next, and wiped once that file has taken its place.
+    removed: redaction::Removed,
 }
 
 impl PdfDocument {
@@ -211,6 +214,7 @@ impl PdfDocument {
             doc: MuPdfDocument::try_from(doc)?,
             owner,
             ocr: ocr::OcrPages::new(),
+            removed: redaction::Removed::default(),
         })
     }
 
@@ -864,6 +868,14 @@ impl PdfDocument {
     /// as it was. Returns the bytes written and whether they were appended; stops with
     /// `Write(FileTooLarge)` beyond `MAX_DOCUMENT_BYTES`.
     pub fn save(&self, out: &mut impl Write) -> Result<(u64, bool), EngineError> {
+        self.save_checked(out)
+            .map(|written| (written.bytes, written.incremental))
+    }
+
+    /// As [`save`](Self::save), and when redactions were applied since the document was last
+    /// saved, the bytes are read again before they go to `out`: whether any text is left in a
+    /// redacted area, or any removed words in the document's text (B2-20, ADR 0016).
+    pub fn save_checked(&self, out: &mut impl Write) -> Result<Written, EngineError> {
         let incremental = self.is_signed() && self.doc.can_be_saved_incrementally();
         let mut options = PdfWriteOptions::default();
         if incremental {
@@ -871,7 +883,22 @@ impl PdfDocument {
         } else {
             options.set_garbage(true);
         }
-        Ok((write_limited(&self.doc, out, options)?, incremental))
+        if self.removed.is_empty() {
+            return Ok(Written {
+                bytes: write_limited(&self.doc, out, options)?,
+                incremental,
+                redaction: None,
+            });
+        }
+        let mut written = Vec::new();
+        write_limited(&self.doc, &mut written, options)?;
+        let check = self.check_removed(&written)?;
+        out.write_all(&written).map_err(EngineError::Write)?;
+        Ok(Written {
+            bytes: written.len() as u64,
+            incremental,
+            redaction: Some(check),
+        })
     }
 
     /// Whether the document is encrypted (MVP-16), with a password or only with permissions.
@@ -960,6 +987,16 @@ impl PdfDocument {
         options.set_user_password(open_password.unwrap_or(""));
         write_limited(&copy, out, options)
     }
+}
+
+/// What saving wrote (see [`PdfDocument::save_checked`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Written {
+    pub bytes: u64,
+    /// Appended to the original, for a signed document.
+    pub incremental: bool,
+    /// What reading the bytes again found, when redactions were applied since the last save.
+    pub redaction: Option<ipc_contract::types::RedactionCheck>,
 }
 
 /// What a compressed copy came to (B3-01).

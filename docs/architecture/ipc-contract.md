@@ -79,7 +79,7 @@ flowchart LR
 | `redo_edit` | `{ doc: DocumentId }` | 無；重做最後一個復原掉的編輯，不需要密碼，其餘同 `undo_edit` | 否 | B2-05 |
 | `recover_edits` | `{ doc: DocumentId }` | 無；重新套用上一次執行留下的編輯（`recovery` 為 `available` 時），文件換新的 `DocumentId`，分頁的新狀態走開檔頻道。文件已有自己的編輯、或沒有可還原的編輯時回 `invalidArgument`（見 [crash-recovery.md](crash-recovery.md)） | 否 | B2-13 |
 | `discard_recovered_edits` | `{ doc: DocumentId }` | 無；刪除上一次執行留下的復原日誌，分頁的新狀態（`recovery: none`）走開檔頻道 | 否 | B2-13 |
-| `save_document` | `{ doc: DocumentId }` | `SaveResult`（`incremental`）；分頁的新狀態走開檔頻道。檔案在開啟後被改過時回 `changedOnDisk` | 否 | B2-02 |
+| `save_document` | `{ doc: DocumentId }` | `SaveResult`（`incremental`；`redaction`：套用過安全遮蔽時，寫出的檔案重新讀過的結果 `{ places }`，否則 `null`，見 [redaction.md](redaction.md)）；分頁的新狀態走開檔頻道。檔案在開啟後被改過時回 `changedOnDisk` | 否 | B2-02 |
 | `save_document_as` | `{ doc: DocumentId }`（不含路徑：主行程顯示另存對話框） | `SaveResult \| null`：`null` 表示使用者關閉了對話框；之後分頁指向新檔 | 否 | B2-02 |
 | `close_window` | `{ discard: boolean }` | 無；有未儲存的文件時，只有 `discard: true` 才關閉 | 否 | B2-02 |
 | `create_pdf` | 無（不含路徑：主行程顯示開啟對話框選來源檔——圖片可多選，其他種類一次一個，種類由副檔名決定——再顯示另存對話框，來源檔由主行程開啟並交給這次專用的 worker；同一時間只有一次，進行中再呼叫回 `null`） | `CreateResult`（`pages`、`kind`：`image`、`html`、`text`、`epub`、`xps`、`svg`、`docx`、`xlsx`、`pptx`）或 `null`（使用者關閉了任一個對話框）；新的 PDF 同時在新分頁開啟。副檔名不支援、不能一起的檔案、檔案不能讀取或太大、來源檔打不開或不是它說的格式（`corrupted`）、超過上限（`limitExceeded`）時拒絕，沒有留下檔案。見 [create-pdf.md](create-pdf.md) | 否 | B3-03 |

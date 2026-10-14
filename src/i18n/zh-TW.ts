@@ -211,6 +211,10 @@ export const strings = {
   saving: {
     saved: "已儲存。",
     savedIncremental: "已儲存。為了保留數位簽章，變更附加在檔案後面：刪除的內容仍會留在檔案中。",
+    /** After redacting (B2-20, ADR 0016): the saved file was read again. */
+    redactionVerified: "已儲存，已遮蔽並驗證：寫出的檔案裡，遮蔽的範圍沒有文字，也找不到被移除的字。",
+    redactionFailed: (places: number) =>
+      `已儲存，但遮蔽沒有通過驗證（${places} 處）：檔案可能仍含有被遮蔽的內容。請先不要分享這個檔案，改用「另存新檔」後再檢查。`,
     failedTitle: "無法儲存",
     /** After the reason: what the user still has, and what to try. */
     keptChanges: "變更仍保留在這裡，沒有遺失。",

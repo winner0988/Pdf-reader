@@ -774,7 +774,10 @@ impl Documents {
                 Some(destination) => destination,
                 // Nothing to write.
                 None if !document.history.unsaved() => {
-                    return Ok(SaveResult { incremental: false });
+                    return Ok(SaveResult {
+                        incremental: false,
+                        redaction: None,
+                    });
                 }
                 None => {
                     match (document.identity, FileIdentity::of(&document.path)) {
@@ -798,7 +801,10 @@ impl Documents {
                 .save(worker_doc, temporary.file())
                 .map_err(|error| lost_on(document, &error))?;
             let WorkerResponse::Saved {
-                bytes, incremental, ..
+                bytes,
+                incremental,
+                redaction,
+                ..
             } = response
             else {
                 return Err(unexpected("Save"));
@@ -827,7 +833,10 @@ impl Documents {
             self.keep_journal(document);
             // Undo starts from the file now: the worker keeps its bytes instead (ADR 0013).
             rebase(document);
-            Ok(SaveResult { incremental })
+            Ok(SaveResult {
+                incremental,
+                redaction,
+            })
         })
     }
 
@@ -4437,10 +4446,20 @@ mod with_worker {
         doc = redone.doc;
         assert!(!first_page_says(&documents, doc).contains("SECRET"));
 
-        // Saved: the file is rewritten whole, and has none of it.
-        documents.save(doc, None).unwrap();
+        // Saved: the file is rewritten whole, has none of it, and the worker says so after
+        // reading it again (B2-20).
+        let (result, event) = documents.save(doc, None).unwrap();
+        assert_eq!(
+            result.redaction,
+            Some(ipc_contract::types::RedactionCheck { places: 0 })
+        );
+        doc = opened_info(event).doc;
         let bytes = std::fs::read(&path).unwrap();
         assert!(!bytes.windows(6).any(|window| window == b"SECRET"));
+        // The file took the document's place: what was removed is forgotten, and the next save
+        // has nothing to check.
+        edited_pages(&documents, &mut doc, turn(0));
+        assert_eq!(documents.save(doc, None).unwrap().0.redaction, None);
         let again = open_in(&Documents::new(worker()), &path);
         assert_eq!(again.pages.len(), 1);
         std::fs::remove_file(path).ok();

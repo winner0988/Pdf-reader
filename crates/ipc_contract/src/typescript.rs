@@ -97,6 +97,7 @@ pub fn bindings() -> String {
         EditArgs,
         UndoArgs,
         SaveResult,
+        RedactionCheck,
         ImageQuality,
         CompressArgs,
         CompressResult,
