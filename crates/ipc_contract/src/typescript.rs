@@ -55,6 +55,10 @@ pub fn bindings() -> String {
         EncryptArgs,
         RecentFile,
         FileRecordingArgs,
+        SensitiveId,
+        SensitiveFile,
+        MarkCheck,
+        SensitiveArgs,
         ThemePreference,
         Settings,
         OcrLanguage,
@@ -141,7 +145,7 @@ pub fn bindings() -> String {
         OpenEvent,
     );
 
-    let limits: [(&str, String); 39] = [
+    let limits: [(&str, String); 41] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -163,6 +167,11 @@ pub fn bindings() -> String {
         ("maxDisplayNameBytes", MAX_DISPLAY_NAME_BYTES.to_string()),
         ("maxTabs", MAX_TABS.to_string()),
         ("maxRecentFiles", MAX_RECENT_FILES.to_string()),
+        ("maxSensitiveFiles", MAX_SENSITIVE_FILES.to_string()),
+        (
+            "maxClipboardTextBytes",
+            MAX_CLIPBOARD_TEXT_BYTES.to_string(),
+        ),
         ("maxExportPages", MAX_EXPORT_PAGES.to_string()),
         ("maxSplitFiles", MAX_SPLIT_FILES.to_string()),
         ("maxAnnotationQuads", MAX_ANNOTATION_QUADS.to_string()),

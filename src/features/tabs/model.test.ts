@@ -26,6 +26,7 @@ const info = (doc: number, displayName: string): DocumentInfo => ({
   recovery: "none",
   passwordRemembered: false,
   passwordRecalled: false,
+  sensitive: false,
 });
 
 const event = (e: OpenEvent): TabsAction => ({ type: "event", event: e });

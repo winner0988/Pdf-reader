@@ -84,6 +84,14 @@ pub const MAX_TABS: u32 = 20;
 /// Maximum number of recently opened files kept and listed (#73, spec §3).
 pub const MAX_RECENT_FILES: u32 = 20;
 
+/// Most files kept on the list of files marked as sensitive on this computer (B3-05, ADR 0004).
+/// Marking one more drops the oldest entry from the list; the mark stays in its file.
+pub const MAX_SENSITIVE_FILES: u32 = 1_000;
+
+/// Most text one copy from a sensitive document puts on the clipboard (B3-05), in UTF-8 bytes:
+/// the main process writes it, so it crosses the IPC. About five million Chinese characters.
+pub const MAX_CLIPBOARD_TEXT_BYTES: u32 = 16 * 1024 * 1024;
+
 /// Most edits kept for undo between two saves (B2-05); another one is refused until the
 /// document is saved. Also bounds the edits of one `WorkerRequest::Revert`.
 pub const MAX_UNDO_EDITS: u32 = 1_000;

@@ -142,6 +142,11 @@ export type ToolbarProps = {
    * "不記錄此檔案". `recorded` is null until known.
    */
   recording?: { recorded: boolean | null; onChange: (record: boolean) => void };
+  /**
+   * The sensitive mark of the open document's file (B3-05): the menu offers to write it, or to
+   * take it out when `marked`. Without it (demo data) the menu has no such item.
+   */
+  sensitive?: { marked: boolean; onClick: () => void };
 };
 
 export function Toolbar(props: ToolbarProps) {
@@ -475,6 +480,11 @@ function MoreMenu(props: ToolbarProps) {
           {menu.print}
           <DropdownMenuShortcut>{props.printBlocked ? strings.permissions.notAllowed : "Ctrl+P"}</DropdownMenuShortcut>
         </DropdownMenuItem>
+        {props.sensitive && (
+          <DropdownMenuItem onClick={props.sensitive.onClick}>
+            {props.sensitive.marked ? menu.unmarkSensitive : menu.markSensitive}
+          </DropdownMenuItem>
+        )}
         {props.recording && (
           <DropdownMenuCheckboxItem
             checked={props.recording.recorded === false}

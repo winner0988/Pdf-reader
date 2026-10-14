@@ -15,6 +15,8 @@ import { CompressDialog } from "@/features/saving/CompressDialog";
 import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
 import { SaveFailedDialog } from "@/features/saving/SaveFailedDialog";
+import { SensitiveDialog } from "@/features/sensitive/SensitiveDialog";
+import { SensitiveSection } from "@/features/sensitive/SensitiveSection";
 import { UnsavedDialog } from "@/features/saving/UnsavedDialog";
 import { demoDocument } from "@/features/shell/demo";
 import { SetDefaultFailedDialog } from "@/features/shell/dialogs";
@@ -121,6 +123,35 @@ describe("dialogs", () => {
     render(<CompressDialog open onOpenChange={vi.fn()} doc={5} onCompress={() => Promise.resolve(done)} />);
     await userEvent.setup().click(await screen.findByRole("button", { name: strings.compress.start }));
     await screen.findByRole("button", { name: strings.compress.close });
+    await expectAccessible(everything());
+  });
+
+  it("marking a document as sensitive: ready, with the permissions password and its error, and refused", async () => {
+    const ready = { check: vi.fn(() => Promise.resolve("ready" as const)), set: vi.fn() };
+    const { unmount } = render(
+      <SensitiveDialog open onOpenChange={vi.fn()} doc={5} sensitive={false} api={ready} onFinished={vi.fn()} />,
+    );
+    await screen.findByText(strings.sensitive.ready);
+    await expectAccessible(everything());
+    unmount();
+
+    const locked = {
+      check: vi.fn(() => Promise.resolve("needsPassword" as const)),
+      set: vi.fn(() => Promise.reject({ code: "notAllowed", message: "" })),
+    };
+    const second = render(
+      <SensitiveDialog open onOpenChange={vi.fn()} doc={5} sensitive={false} api={locked} onFinished={vi.fn()} />,
+    );
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText(strings.sensitive.passwordLabel), "user");
+    await user.click(screen.getByRole("button", { name: strings.sensitive.mark }));
+    await screen.findByText(strings.sensitive.notOwnerPassword);
+    await expectAccessible(everything());
+    second.unmount();
+
+    const signed = { check: vi.fn(() => Promise.resolve("signed" as const)), set: vi.fn() };
+    render(<SensitiveDialog open onOpenChange={vi.fn()} doc={5} sensitive api={signed} onFinished={vi.fn()} />);
+    await screen.findByText(strings.sensitive.signed);
     await expectAccessible(everything());
   });
 
@@ -273,8 +304,24 @@ describe("what the window shows", () => {
         restriction="已限制：不可複製、不可列印"
         ocr={{ text: strings.ocr.running(3, 8), onStop: vi.fn() }}
         ocrNote={strings.ocr.pageNote}
+        sensitive
       />,
     );
+    await expectAccessible(everything());
+  });
+
+  it("the list of files marked as sensitive", async () => {
+    const api = {
+      list: vi.fn(() =>
+        Promise.resolve([
+          { id: 1, displayName: "合約.pdf", open: true },
+          { id: 2, displayName: "薪資.pdf", open: false },
+        ]),
+      ),
+      remove: vi.fn(),
+    };
+    render(<SensitiveSection api={api} />);
+    await screen.findByText("合約.pdf");
     await expectAccessible(everything());
   });
 

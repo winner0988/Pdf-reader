@@ -167,6 +167,8 @@ test("the dialogs of the menu", async ({ launch }) => {
     [strings.menu.encryptCopy, strings.encryption.title],
 [strings.menu.compressImages, strings.compress.title],
     [strings.menu.createPdf, strings.create.title],
+    // Only asked about: closed before anything is written to the corpus file (B3-05).
+    [strings.menu.markSensitive, strings.sensitive.markTitle],
   ];
   for (const [item, title] of dialogs) {
     await chooseFromMenu(page, item);

@@ -110,6 +110,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     fill_forms: true,
                 },
                 encrypted: true,
+                signed: true,
+                identifier: Some([0x5a; 16]),
             },
         },
         WorkerResponse::Rendered {
@@ -696,6 +698,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             doc,
             file: FileHandle(0x2b0),
+        },
+        WorkerRequest::WriteIdentifier {
+            request,
+            doc,
+            file: FileHandle(0x2b4),
+            identifier: Some([0xa5; 16]),
+            password: Some(Password::new("owner".to_owned())),
+        },
+        WorkerRequest::WriteIdentifier {
+            request,
+            doc,
+            file: FileHandle(0x2b8),
+            identifier: None,
+            password: None,
         },
         WorkerRequest::PrepareSource {
             request,
