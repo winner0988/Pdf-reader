@@ -1960,7 +1960,8 @@ fn pages_after(
         | Edit::AddImageStamp { page, .. }
         | Edit::AddTextBox { page, .. }
         | Edit::SetTextBox { page, .. }
-        | Edit::SetAnnotationRect { page, .. } => Some(vec![*page]),
+        | Edit::SetAnnotationRect { page, .. }
+        | Edit::SetPictureAngle { page, .. } => Some(vec![*page]),
         _ => None,
     };
     if let Some(pages) = annotated {
@@ -2057,6 +2058,7 @@ fn pages_after(
         | Edit::AddTextBox { .. }
         | Edit::SetTextBox { .. }
         | Edit::SetAnnotationRect { .. }
+        | Edit::SetPictureAngle { .. }
         | Edit::SetFieldValue { .. }
         | Edit::FlattenForm => Ok(page_count),
     }
@@ -5026,6 +5028,11 @@ mod with_worker {
                 annotation: AnnotationId(5),
                 rect,
             },
+            Edit::SetPictureAngle {
+                page: 0,
+                annotation: AnnotationId(5),
+                degrees: 30.0,
+            },
         ] {
             assert_eq!(
                 documents
@@ -5821,6 +5828,64 @@ mod with_worker {
         for private in PRIVATE {
             assert!(!contains(&saved, private));
         }
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_turned_picture_stays_turned_through_undo_redo_a_worker_that_died_saving_and_a_crash() {
+        let data = DataFolder::new("picture-turn");
+        let path = write_pdf("b232-turn", &letter_pdf(2));
+        let earlier = data.documents();
+        let mut doc = open_in(&earlier, &path).doc;
+        let picked = earlier
+            .prepare_stamp_image(doc, &picture("stamp-exif.jpg"))
+            .unwrap();
+        edited_pages(&earlier, &mut doc, picture_stamp(0, picked.image));
+        let stamp = earlier.page_annotations(doc, 0).unwrap().remove(0);
+        edited_pages(
+            &earlier,
+            &mut doc,
+            Edit::SetPictureAngle {
+                page: 0,
+                annotation: stamp.id,
+                degrees: 30.0,
+            },
+        );
+        let angle = |documents: &Documents, doc| {
+            documents.page_annotations(doc, 0).unwrap()[0]
+                .picture
+                .expect("a picture")
+                .angle
+        };
+        assert!((angle(&earlier, doc) - 30.0).abs() < 0.01);
+        // Undone it is upright, redone it is turned again.
+        doc = opened_info(earlier.undo(doc, None).unwrap()).doc;
+        assert_eq!(angle(&earlier, doc), 0.0);
+        doc = opened_info(earlier.redo(doc).unwrap()).doc;
+        assert!((angle(&earlier, doc) - 30.0).abs() < 0.01);
+        // A worker that died is replaced, and the edits are made again in the new one.
+        earlier
+            .with_document(doc, |document| {
+                document.lost = true;
+                Ok(())
+            })
+            .unwrap();
+        assert!((angle(&earlier, doc) - 30.0).abs() < 0.01);
+        drop(earlier);
+
+        // The app ended before saving: the journal has the turn, and it is made again.
+        let later = data.documents();
+        let reopened = open_in(&later, &path);
+        assert_eq!(reopened.recovery, Recovery::Available);
+        let recovered = opened_info(later.recover(reopened.doc).unwrap());
+        assert!((angle(&later, recovered.doc) - 30.0).abs() < 0.01);
+        // Saved, and read again: still turned.
+        let copy = std::env::temp_dir().join(format!("b232-{}-copy.pdf", std::process::id()));
+        let _ = std::fs::remove_file(&copy);
+        later.save(recovered.doc, Some(copy.clone())).unwrap();
+        let reread = open_in(&later, &copy);
+        assert!((angle(&later, reread.doc) - 30.0).abs() < 0.01);
+        std::fs::remove_file(copy).ok();
         std::fs::remove_file(path).ok();
     }
 

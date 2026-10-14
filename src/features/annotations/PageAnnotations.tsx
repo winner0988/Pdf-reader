@@ -2,15 +2,19 @@
 // page; here each gets a focusable outline, so that it can be chosen with the keyboard (or with
 // a click, which the view finds by position: the outlines let the pointer through, so text under
 // a highlighter mark can still be selected), and the chosen one a small toolbar. A chosen drawing
-// or stamp can also be moved and resized (B2-08): by dragging, or with the arrow keys; so can a
-// text box (B2-30), which also has Enter and a button to change what it says.
+// or stamp can also be moved and resized (B2-08): by dragging, or with the arrow keys; a picture
+// of the user's own can be turned too (B3-01): by dragging its handle, with the buttons in its
+// toolbar, or with the keys [ and ]; so can a text box (B2-30), which also has Enter and a button
+// to change what it says.
 
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, RotateCcw, RotateCw, Trash2 } from "lucide-react";
 import { Fragment, useEffect, useState, type KeyboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { annotationLabel, HIGHLIGHT_COLORS, SWATCH } from "@/features/annotations/model";
 import { MoveResize } from "@/features/annotations/MoveResize";
+import { PictureTurn } from "@/features/annotations/PictureTurn";
+import { normalizeAngle, TURN_STEP_DEGREES } from "@/features/annotations/turn";
 import { keptOnPage, moved, rectOfBox, type Box } from "@/features/annotations/tools";
 import type { AnnotationSource } from "@/features/annotations/source";
 import type { PageSize, Rotation } from "@/features/shell/model";
@@ -103,6 +107,9 @@ export function PageAnnotations({
     onEdit?.({ kind: "deleteAnnotation", page: index, annotation: annotation.id });
   const place = (annotation: PageAnnotation, rect: Rect) =>
     onEdit?.({ kind: "setAnnotationRect", page: index, annotation: annotation.id, rect });
+  // A picture is turned to an angle (B3-01), not by a step on top of what the page last heard.
+  const turnTo = (annotation: PageAnnotation, degrees: number) =>
+    onEdit?.({ kind: "setPictureAngle", page: index, annotation: annotation.id, degrees: normalizeAngle(degrees) });
   const pixelsPerPoint = box.width / displayedSize(page, rotation).widthPt;
   const keys = (annotation: PageAnnotation, area: Box) => (event: KeyboardEvent) => {
     if ((event.key === "Delete" || event.key === "Backspace") && onEdit) {
@@ -115,6 +122,12 @@ export function PageAnnotations({
       // Enter changes what a text box says: the keyboard's way to the dialog.
       event.preventDefault();
       if (!event.repeat) onEditTextBox(index, annotation);
+    } else if ((event.key === "[" || event.key === "]") && onEdit && annotation.picture) {
+      // A picture is turned a step at a time, the way the bracket points (B3-01).
+      event.preventDefault();
+      if (event.repeat) return;
+      const by = event.key === "]" ? TURN_STEP_DEGREES : -TURN_STEP_DEGREES;
+      turnTo(annotation, annotation.picture.angle + by);
     } else if (ARROWS[event.key] && onEdit && MOVABLE.has(annotation.kind)) {
       // A drawing, a stamp or a text box moves a point at a time, ten with Shift, the way the arrows point.
       event.preventDefault();
@@ -143,7 +156,9 @@ export function PageAnnotations({
               type="button"
               aria-label={annotationLabel(annotation)}
               aria-pressed={isChosen}
-              aria-description={movable ? strings.annotations.moveHint : undefined}
+              aria-description={
+                movable ? (annotation.picture ? t.moveTurnHint : t.moveHint) : undefined
+              }
               data-annotation={annotation.kind}
               // The pointer goes through: a click is found by position (DocumentView).
               className="absolute rounded-[2px] outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary aria-pressed:outline-2 aria-pressed:outline-primary aria-pressed:outline-dashed"
@@ -161,11 +176,25 @@ export function PageAnnotations({
                 onPlace={(rect) => place(annotation, rect)}
               />
             )}
+            {isChosen && movable && annotation.picture && (
+              <PictureTurn
+                picture={annotation.picture}
+                rect={annotation.rect}
+                page={page}
+                rotation={rotation}
+                box={box}
+                onTurn={(degrees) => turnTo(annotation, degrees)}
+              />
+            )}
             {isChosen && (
               <AnnotationToolbar
                 annotation={annotation}
-                // Above it, unless there is no room on the page.
-                top={area.top >= 40 ? area.top - 40 : area.top + area.height + 4}
+                // Above it (and above the handle that turns a picture), unless there is no room on the page.
+                top={
+                  area.top >= (annotation.picture ? 72 : 40)
+                    ? area.top - (annotation.picture ? 72 : 40)
+                    : area.top + area.height + 4
+                }
                 left={Math.max(0, Math.min(area.left, box.width - 240))}
                 allowed={onEdit !== undefined}
                 onColor={(color) =>
@@ -173,6 +202,11 @@ export function PageAnnotations({
                 }
                 onEditNote={() => onEditNote?.(index, annotation)}
                 onEditTextBox={onEditTextBox ? () => onEditTextBox(index, annotation) : undefined}
+                onTurn={
+                  annotation.picture
+                    ? (by) => turnTo(annotation, (annotation.picture?.angle ?? 0) + by)
+                    : undefined
+                }
                 onDelete={() => remove(annotation)}
                 onKeyDown={keys(annotation, area)}
               />
@@ -192,6 +226,8 @@ type AnnotationToolbarProps = {
   onColor: (color: HighlightColor) => void;
   onEditNote: () => void;
   onEditTextBox?: () => void;
+  /** Turns the picture by so many degrees (B3-01); given only for a picture stamp. */
+  onTurn?: (by: number) => void;
   onDelete: () => void;
   onKeyDown: (event: KeyboardEvent) => void;
 };
@@ -204,6 +240,7 @@ function AnnotationToolbar({
   onColor,
   onEditNote,
   onEditTextBox,
+  onTurn,
   onDelete,
   onKeyDown,
 }: AnnotationToolbarProps) {
@@ -264,6 +301,30 @@ function AnnotationToolbar({
       )}
       {(annotation.kind === "ink" || annotation.kind === "stamp" || annotation.kind === "other") && (
         <span className="px-1">{t.kind[annotation.kind]}</span>
+      )}
+      {onTurn && (
+        <>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t.turnLeft}
+            title={why ?? t.turnLeft}
+            disabled={!allowed}
+            onClick={() => onTurn(-TURN_STEP_DEGREES)}
+          >
+            <RotateCcw />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t.turnRight}
+            title={why ?? t.turnRight}
+            disabled={!allowed}
+            onClick={() => onTurn(TURN_STEP_DEGREES)}
+          >
+            <RotateCw />
+          </Button>
+        </>
       )}
       <Button variant="ghost" size="icon-sm" aria-label={t.delete} title={why ?? t.delete} disabled={!allowed} onClick={onDelete}>
         <Trash2 />

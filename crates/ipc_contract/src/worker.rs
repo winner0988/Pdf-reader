@@ -194,6 +194,12 @@ pub enum WorkerEdit {
         annotation: AnnotationId,
         rect: Rect,
     },
+    /// As [`Edit::SetPictureAngle`].
+    SetPictureAngle {
+        page: u32,
+        annotation: AnnotationId,
+        degrees: f32,
+    },
     /// Puts the picture `png` (as `StampImage` made it) over `rect` on page `page` as a stamp
     /// (B2-08).
     AddImageStamp { page: u32, rect: Rect, png: Vec<u8> },
@@ -346,6 +352,15 @@ impl WorkerEdit {
                 page: *page,
                 annotation: *annotation,
                 rect: *rect,
+            },
+            Edit::SetPictureAngle {
+                page,
+                annotation,
+                degrees,
+            } => WorkerEdit::SetPictureAngle {
+                page: *page,
+                annotation: *annotation,
+                degrees: *degrees,
             },
         })
     }

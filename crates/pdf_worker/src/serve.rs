@@ -595,6 +595,11 @@ fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineErro
         } => {
             document.set_text_box(*page, *annotation, model.as_ref(), style)?;
         }
+        WorkerEdit::SetPictureAngle {
+            page,
+            annotation,
+            degrees,
+        } => document.set_picture_angle(*page, *annotation, *degrees)?,
     }
     Ok(())
 }

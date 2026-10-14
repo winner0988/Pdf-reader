@@ -282,6 +282,12 @@ export const strings = {
     pictureTooLarge: "這張圖片太大了，請選擇小一點的圖片。",
     tooManyPictures: "尚未儲存的變更裡用了太多不同的圖片，請先儲存。",
     moveHint: "拖曳移動；拖曳控制點調整大小；方向鍵移動 1 點，加 Shift 移動 10 點。",
+    /** Turning a picture of the user's own (B3-01). */
+    moveTurnHint:
+      "拖曳移動；拖曳控制點調整大小；方向鍵移動 1 點，加 Shift 移動 10 點；拖曳上方的圓點旋轉（加 Shift 每次轉 15 度），或按 [ 與 ] 每次轉 15 度。",
+    turnLeft: "向左轉 15 度",
+    turnRight: "向右轉 15 度",
+    turnHandle: "拖曳旋轉（加 Shift 每次轉 15 度）",
     addNote: "在這裡新增附註…",
     editNote: "編輯附註…",
     tooMuch: "選取的範圍太大，請分段標示。",

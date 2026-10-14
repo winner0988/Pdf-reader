@@ -9,6 +9,7 @@ const annotation = (id: number): PageAnnotation => ({
   rect: { x0: 0, y0: 0, x1: 20, y1: 20 },
   color: null,
   text: `note ${id}`,
+  picture: null,
 });
 
 describe("the annotations of each page", () => {

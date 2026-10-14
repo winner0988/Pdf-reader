@@ -471,6 +471,15 @@ pub enum Edit {
         annotation: AnnotationId,
         rect: Rect,
     },
+    /// Turns the picture stamp `annotation` of page `page` to `degrees` clockwise from upright
+    /// (B3-01), about its centre; its size does not change, and `PageAnnotation::rect` becomes
+    /// the box that holds the turned picture. Only a picture of the user's own can be turned
+    /// (`PageAnnotation::picture` says which).
+    SetPictureAngle {
+        page: u32,
+        annotation: AnnotationId,
+        degrees: f32,
+    },
     /// Sets the value of form field `field` of page `page` (B2-09): the text of a text field, the
     /// chosen option of a combo box or list box, or `on_value` or `"Off"` for a check box (a
     /// radio button only takes its `on_value`, which clears the others of its group).
@@ -646,6 +655,20 @@ pub struct PageAnnotation {
     /// A highlighter mark in one of the app's colors.
     pub color: Option<HighlightColor>,
     pub text: Option<String>,
+    /// A picture stamp of the user's own (B3-01): how it is turned, and what it measures.
+    pub picture: Option<PictureView>,
+}
+
+/// How a picture stamp is turned (B3-01), for the page to draw its outline: the picture is
+/// `width` by `height` (page space, points) when upright, turned `angle` degrees clockwise about
+/// the centre of `PageAnnotation::rect`, which is the box that holds it.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PictureView {
+    /// Clockwise, in -180 to 180.
+    pub angle: f32,
+    pub width: f32,
+    pub height: f32,
 }
 
 /// What a text box says of itself (B2-29), from the page's worker: to fill in the dialog that

@@ -21,6 +21,7 @@ const drawing: PageAnnotation = {
   rect: { x0: 100, y0: 200, x1: 250, y1: 260 },
   color: null,
   text: null,
+  picture: null,
 };
 const stamp: PageAnnotation = {
   id: 9,
@@ -28,6 +29,7 @@ const stamp: PageAnnotation = {
   rect: { x0: 300, y0: 400, x1: 450, y1: 400 + STAMP_HEIGHT_PT },
   color: null,
   text: null,
+  picture: null,
 };
 
 /** The pointer on page 1, `x` and `y` in page points: 4 / 3 CSS pixels each at 100%, from the layer's corner. */
@@ -347,7 +349,7 @@ describe("moving and resizing a drawing or a stamp (B2-08)", () => {
   });
 
   it("has no handles on what is not a drawing or a stamp, nor when the author forbids annotating", async () => {
-    const note: PageAnnotation = { id: 5, kind: "note", rect: { x0: 10, y0: 10, x1: 30, y1: 30 }, color: null, text: "n" };
+    const note: PageAnnotation = { id: 5, kind: "note", rect: { x0: 10, y0: 10, x1: 30, y1: 30 }, color: null, text: "n", picture: null };
     await setup(ALL_PERMISSIONS, [note]);
     act(() => screen.getByRole("button", { name: new RegExp(`^${t.noteSaying("n")}$`) }).focus());
     expect(document.querySelector("[data-move-resize]")).toBeNull();

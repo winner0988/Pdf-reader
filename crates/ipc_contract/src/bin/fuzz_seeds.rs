@@ -10,10 +10,10 @@ use ipc_contract::types::{
     AnnotationId, AnnotationKind, BlockedAction, Certification, DocumentId, DocumentPermissions,
     FieldId, FieldKind, FieldOption, FindingKind, FontRefusal, FormField, HighlightColor,
     HighlightMark, InkColor, InkWidth, LinkId, LinkTarget, OutlineItem, OutlineResult,
-    PageAnnotation, PageLink, PageSize, PageText, Password, Point, Quad, Rect, RequestId,
-    Restrictions, Rgb, Rotation, SearchHit, SecurityFinding, SecurityReport, SignatureInfo,
-    SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine,
-    UnverifiableReason,
+    PageAnnotation, PageLink, PageSize, PageText, Password, PictureView, Point, Quad, Rect,
+    RequestId, Restrictions, Rgb, Rotation, SearchHit, SecurityFinding, SecurityReport,
+    SignatureInfo, SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo,
+    TextBoxStyle, TextLine, UnverifiableReason,
 };
 use ipc_contract::worker::{
     FileHandle, FontData, ModelGlyph, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument,
@@ -237,6 +237,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     },
                     color: Some(HighlightColor::Yellow),
                     text: None,
+                    picture: None,
                 },
                 PageAnnotation {
                     id: AnnotationId(13),
@@ -249,6 +250,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     },
                     color: None,
                     text: Some("第一行\nsecond line".to_owned()),
+                    picture: None,
+                },
+                PageAnnotation {
+                    id: AnnotationId(14),
+                    kind: AnnotationKind::Stamp,
+                    rect: Rect {
+                        x0: 100.0,
+                        y0: 200.0,
+                        x1: 196.0,
+                        y1: 296.0,
+                    },
+                    color: None,
+                    text: None,
+                    picture: Some(PictureView {
+                        angle: 15.0,
+                        width: 128.0,
+                        height: 64.0,
+                    }),
                 },
             ],
         },
@@ -637,6 +656,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     x1: 300.0,
                     y1: 160.0,
                 },
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::SetPictureAngle {
+                page: 0,
+                annotation: AnnotationId(14),
+                degrees: -37.5,
             },
         },
         WorkerRequest::Revert {

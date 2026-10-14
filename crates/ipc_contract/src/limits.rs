@@ -151,6 +151,9 @@ pub const MAX_STAMP_PNG_BYTES: usize = 1024 * 1024;
 /// points: smaller than that it cannot be seen or grabbed.
 pub const MIN_ANNOTATION_SIDE_PT: f32 = 8.0;
 
+/// How far, in degrees, a picture may be turned to either way (B3-01): a full turn.
+pub const MAX_PICTURE_ANGLE_DEGREES: f32 = 360.0;
+
 /// Most annotations reported for one page (B2-07); the rest are not listed.
 pub const MAX_ANNOTATIONS_PER_PAGE: u32 = 2_000;
 
