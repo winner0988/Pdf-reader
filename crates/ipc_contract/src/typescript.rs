@@ -53,6 +53,11 @@ pub fn bindings() -> String {
         PagesSource,
         Restrictions,
         EncryptArgs,
+        BatchOperation,
+        BatchArgs,
+        BatchOutcome,
+        BatchEvent,
+        BatchReport,
         RecentFile,
         FileRecordingArgs,
         ThemePreference,
@@ -142,7 +147,7 @@ pub fn bindings() -> String {
         OpenEvent,
     );
 
-    let limits: [(&str, String); 39] = [
+    let limits: [(&str, String); 40] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -165,6 +170,7 @@ pub fn bindings() -> String {
         ("maxTabs", MAX_TABS.to_string()),
         ("maxRecentFiles", MAX_RECENT_FILES.to_string()),
         ("maxExportPages", MAX_EXPORT_PAGES.to_string()),
+        ("maxBatchFiles", MAX_BATCH_FILES.to_string()),
         ("maxSplitFiles", MAX_SPLIT_FILES.to_string()),
         ("maxAnnotationQuads", MAX_ANNOTATION_QUADS.to_string()),
         ("maxHighlightPages", MAX_HIGHLIGHT_PAGES.to_string()),

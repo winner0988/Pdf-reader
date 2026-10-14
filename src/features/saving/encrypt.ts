@@ -1,7 +1,14 @@
 // What is asked for when a copy of the document is encrypted (B2-15, docs/architecture/encrypt-copy.md):
 // the same rules the main process checks, so the dialog can say what is wrong before anything is sent.
 
-import { LIMITS, type DocumentId, type EncryptArgs, type Restrictions } from "@/ipc/generated/contract";
+import { strings } from "@/i18n/zh-TW";
+import {
+  LIMITS,
+  type BatchOperation,
+  type DocumentId,
+  type EncryptArgs,
+  type Restrictions,
+} from "@/ipc/generated/contract";
 
 export type EncryptForm = {
   open: string;
@@ -42,6 +49,22 @@ export function problemWith(form: EncryptForm): Problem | null {
   if (form.open !== "" && form.open === form.permissions) return "same";
   if (form.open === "" && !anyRestriction(form.restrictions)) return "nothing";
   return null;
+}
+
+/** What the user is told about `problem`. */
+export function describeProblem(problem: Problem): string {
+  const t = strings.encryption.problem;
+  return problem === "tooLong" ? t.tooLong(LIMITS.maxNewPasswordBytes) : t[problem];
+}
+
+/** The encryption of a batch (B3-04) for a form with nothing wrong with it. */
+export function batchEncryptionOf(form: EncryptForm): BatchOperation {
+  return {
+    kind: "encrypt",
+    openPassword: form.open === "" ? null : form.open,
+    permissionsPassword: form.permissions === "" ? null : form.permissions,
+    restrictions: form.restrictions,
+  };
 }
 
 /** The arguments of `encrypt_copy` for a form with nothing wrong with it. */

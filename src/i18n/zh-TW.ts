@@ -467,6 +467,43 @@ export const strings = {
     /** In the menu, in place of the shortcut, when it does not apply. */
     encrypted: "已加密的文件不適用",
   },
+  /** A batch (B3-04): one operation done to many files. */
+  batch: {
+    title: "批次處理",
+    description:
+      "對多個 PDF 檔案做同一件事：每個檔案產生一份副本，放在你選的資料夾。原本的檔案不會改變，資料夾裡已經有的檔案也不會被覆寫。",
+    operation: "要做的事",
+    removeMetadata: "清除中繼資料（與「隱私匯出」相同）",
+    encrypt: "加密（AES-256，與「加密並另存新檔」相同）",
+    notes: (limit: number) => [
+      `一次最多 ${limit} 個檔案，一個接一個處理；一個失敗不影響其他的。`,
+      "有密碼的 PDF 會略過：批次處理不詢問密碼。",
+      "處理中請不要關閉視窗：關閉會停止批次處理。",
+    ],
+    start: "選擇檔案並開始…",
+    cancel: "取消",
+    stop: "停止",
+    close: "完成",
+    filesLabel: "檔案",
+    running: (done: number, total: number) => `正在處理…（${done}／${total}）`,
+    stopping: "目前的檔案完成後就會停止…",
+    summary: (done: number, failed: number, skipped: number) =>
+      [`完成 ${done} 個`, failed > 0 ? `失敗 ${failed} 個` : "", skipped > 0 ? `略過 ${skipped} 個` : ""]
+        .filter((part) => part !== "")
+        .join("，") + "。",
+    waiting: "等待中",
+    done: (output: string) => `完成：${output}`,
+    failedFile: (reason: string) => `失敗：${reason}`,
+    skipped: "略過（已停止）",
+    /** Why a file failed, for the codes that mean something here; any other code has its general text. */
+    reasons: {
+      encrypted: "有密碼的檔案，批次處理不詢問密碼",
+      invalidArgument: "這個檔案不能這樣處理，例如有數位簽章的文件不能加密",
+      notPdf: "不是 PDF 檔案",
+      corrupted: "檔案已損毀",
+    } as Partial<Record<ErrorCode, string>>,
+    failed: "無法開始批次處理，請再試一次。",
+  },
   /** Making a PDF of files (B3-03). */
   create: {
     title: "從檔案建立 PDF",
@@ -693,6 +730,7 @@ export const strings = {
     privacyExport: "隱私匯出…",
     encryptCopy: "加密並另存新檔…",
     compressImages: "壓縮圖片並另存新檔…",
+    batch: "批次處理…",
     createPdf: "從檔案建立 PDF…",
     dontRecord: "不記錄此檔案",
     settings: "設定…",

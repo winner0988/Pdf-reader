@@ -86,6 +86,9 @@ pub const SPLIT_SAME_FILE_TITLE: &str = "請選擇其他檔案";
 pub const SPLIT_SAME_FILE_MESSAGE: &str =
     "拆分出的頁面是一份新的檔案，不會取代原本的檔案。請選擇原檔以外的位置或檔名。";
 pub const SPLIT_FOLDER_DIALOG_TITLE: &str = "選擇存放拆分後檔案的資料夾";
+/// A batch (B3-04): the files it is done to, and the folder its copies go to.
+pub const BATCH_FILES_DIALOG_TITLE: &str = "選擇要批次處理的 PDF 檔案";
+pub const BATCH_FOLDER_DIALOG_TITLE: &str = "選擇存放批次處理結果的資料夾";
 /// The name suggested for a file of some pages of a document (B2-06): the pages' numbers when
 /// they follow one another, else only that they were chosen.
 pub fn split_file_name(stem: &str, pages: &[u32]) -> String {
