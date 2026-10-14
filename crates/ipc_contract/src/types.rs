@@ -144,6 +144,66 @@ pub struct EncryptArgs {
     pub restrictions: Restrictions,
 }
 
+/// What a batch does to each of its files (B3-04, ADR 0005, docs/architecture/batch.md): a copy of
+/// each is written to the folder the user chooses; no file is changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum BatchOperation {
+    /// The privacy export (B2-03): a copy without the document's metadata.
+    RemoveMetadata,
+    /// The encrypted copy (B2-15), with the same passwords and restrictions for every file, and
+    /// the same rules as `EncryptArgs`. The passwords go to each file's worker once and are then
+    /// dropped: no report, event or record has them.
+    #[serde(rename_all = "camelCase")]
+    Encrypt {
+        open_password: Option<Password>,
+        permissions_password: Option<Password>,
+        restrictions: Restrictions,
+    },
+}
+
+/// Arguments of `run_batch` (B3-04): what to do, never to which files or where; the main process
+/// asks the user in the system's dialogs. Any other field is rejected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BatchArgs {
+    /// Stops the batch with `cancel`, before its next file.
+    pub request: RequestId,
+    pub operation: BatchOperation,
+}
+
+/// How one file of a batch went (B3-04).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum BatchOutcome {
+    /// Its copy is the file `output`, by name, in the folder the user chose.
+    Done { output: String },
+    /// No copy was made, because of `error`; nothing was left behind.
+    Failed { error: ErrorCode },
+    /// The batch was stopped before this file.
+    Skipped,
+}
+
+/// Progress of `run_batch` on its channel (B3-04).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum BatchEvent {
+    /// The files, by name, in the order they are done.
+    Started { files: Vec<String> },
+    /// File `index` of them is done, one way or another.
+    File { index: u32, outcome: BatchOutcome },
+}
+
+/// What `run_batch` did (B3-04): how many copies were made, how many files failed, and how many
+/// were not done because the batch was stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchReport {
+    pub done: u32,
+    pub failed: u32,
+    pub skipped: u32,
+}
+
 /// Arguments of `unlock_pages_source` (B2-06): the password of the encrypted file the user just
 /// chose to take pages from. Any other field is rejected.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

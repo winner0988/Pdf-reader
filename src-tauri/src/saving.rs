@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ipc_contract::types::{ErrorCode, IpcError};
+use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS};
 use windows_sys::Win32::Storage::FileSystem::{
     MOVEFILE_WRITE_THROUGH, MoveFileExW, REPLACEFILE_IGNORE_MERGE_ERRORS, ReplaceFileW,
 };
@@ -175,6 +176,36 @@ impl Temporary {
             return Err(incomplete());
         }
         Ok(())
+    }
+
+    /// Gives the file the name `destination`, which must not be taken: no file is ever replaced
+    /// (the copies a batch makes, B3-04). `Ok(false)` when a file has that name; the temporary
+    /// file is then still this one's, for another name.
+    pub fn place_new(&mut self, destination: &Path) -> Result<bool, IpcError> {
+        // Closed first: a file cannot be renamed while this process has it open.
+        drop(self.file.take());
+        // SAFETY: NUL-terminated paths that outlive the call. Without MOVEFILE_REPLACE_EXISTING,
+        // an existing destination is never overwritten: the call fails instead.
+        let moved = unsafe {
+            MoveFileExW(
+                wide(&self.path).as_ptr(),
+                wide(destination).as_ptr(),
+                MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        if moved != 0 {
+            self.path = PathBuf::new();
+            return Ok(true);
+        }
+        let error = io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(code)
+                if code == ERROR_ALREADY_EXISTS as i32 || code == ERROR_FILE_EXISTS as i32 =>
+            {
+                Ok(false)
+            }
+            _ => Err(write_error(&error)),
+        }
     }
 
     /// Puts the file in `destination`'s place. An existing destination is replaced with
@@ -414,6 +445,31 @@ mod tests {
             );
         }
         fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_new_file_takes_a_free_name_and_never_one_that_is_taken() {
+        let dir = folder("place-new");
+        let taken = dir.join("報告（隱私匯出）.pdf");
+        fs::write(&taken, b"the user's own file").unwrap();
+        let mut temporary = written(&taken, PDF);
+        temporary.check(PDF.len() as u64).unwrap();
+        // The name is taken: nothing happens to that file, and the new one is still there.
+        assert_eq!(temporary.place_new(&taken), Ok(false));
+        assert_eq!(fs::read(&taken).unwrap(), b"the user's own file");
+        let free = dir.join("報告（隱私匯出） (2).pdf");
+        assert_eq!(temporary.place_new(&free), Ok(true));
+        drop(temporary);
+        assert_eq!(fs::read(&free).unwrap(), PDF);
+        assert_eq!(
+            names(&dir),
+            ["報告（隱私匯出） (2).pdf", "報告（隱私匯出）.pdf"]
+        );
+        // One that is never placed leaves nothing behind.
+        let unplaced = written(&dir.join("other.pdf"), PDF);
+        drop(unplaced);
+        assert_eq!(names(&dir).len(), 2);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

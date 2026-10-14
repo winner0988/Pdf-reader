@@ -34,6 +34,8 @@ use crate::strings;
 enum Kind {
     /// PDF files to open; several can be picked.
     OpenPdfs,
+    /// PDF files a batch is done to (B3-04); several can be picked.
+    OpenBatchFiles,
     /// The one PDF file whose pages are put into the document (B2-06).
     OpenPagesSource,
     /// Where to save exported text (B2-04), suggesting `file_name`.
@@ -65,6 +67,12 @@ enum Kind {
 /// picked files, or `None` if the user cancelled.
 pub async fn pick_pdfs(window: &WebviewWindow) -> Result<Option<Vec<PathBuf>>, IpcError> {
     run(window, Kind::OpenPdfs).await
+}
+
+/// Asks for the PDF files a batch is done to (B3-04); several can be picked. `None` if the user
+/// cancelled.
+pub async fn pick_batch_files(window: &WebviewWindow) -> Result<Option<Vec<PathBuf>>, IpcError> {
+    run(window, Kind::OpenBatchFiles).await
 }
 
 /// Asks where to save exported text, suggesting `file_name`. The dialog itself asks before
@@ -204,7 +212,7 @@ fn failed() -> IpcError {
 fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTIONS {
     let common = defaults | FOS_FORCEFILESYSTEM | FOS_DONTADDTORECENT;
     match kind {
-        Kind::OpenPdfs => common | FOS_ALLOWMULTISELECT,
+        Kind::OpenPdfs | Kind::OpenBatchFiles => common | FOS_ALLOWMULTISELECT,
         Kind::SaveText { .. }
         | Kind::SavePdf { .. }
         | Kind::SaveDocx { .. }
@@ -229,7 +237,7 @@ fn show(owner: HWND, kind: Kind) -> windows::core::Result<Option<Vec<PathBuf>>> 
         Err(error) if error.code() == HRESULT::from_win32(ERROR_CANCELLED.0) => return Ok(None),
         Err(error) => return Err(error),
     }
-    let paths = if let Kind::OpenPdfs = kind {
+    let paths = if let Kind::OpenPdfs | Kind::OpenBatchFiles = kind {
         // SAFETY: after a successful `Show`, `GetResults` returns the picked items.
         let items = unsafe { dialog.cast::<IFileOpenDialog>()?.GetResults()? };
         // SAFETY: a live item array of this thread.
@@ -269,6 +277,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
                     .cast()
             }
             Kind::OpenPdfs
+            | Kind::OpenBatchFiles
             | Kind::OpenPagesSource
             | Kind::PickFolder { .. }
             | Kind::OpenLanguageData
@@ -284,6 +293,10 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
     let (title, filter) = match kind {
         Kind::OpenPdfs => (
             strings::OPEN_DIALOG_TITLE,
+            Some((strings::PDF_FILTER_NAME, "*.pdf")),
+        ),
+        Kind::OpenBatchFiles => (
+            strings::BATCH_FILES_DIALOG_TITLE,
             Some((strings::PDF_FILTER_NAME, "*.pdf")),
         ),
         Kind::SaveText { .. } => (
@@ -398,6 +411,14 @@ mod tests {
 
     #[test]
     fn no_dialog_adds_to_the_recent_items() {
+        let batch = options_of(Kind::OpenBatchFiles);
+        assert!(
+            batch(FOS_DONTADDTORECENT)
+                && batch(FOS_ALLOWMULTISELECT)
+                && batch(FOS_FORCEFILESYSTEM)
+                && batch(FOS_FILEMUSTEXIST)
+        );
+
         let open = options_of(Kind::OpenPdfs);
         assert!(
             open(FOS_DONTADDTORECENT) && open(FOS_ALLOWMULTISELECT) && open(FOS_FORCEFILESYSTEM)

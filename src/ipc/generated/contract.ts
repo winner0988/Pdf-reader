@@ -119,6 +119,38 @@ openPassword: Password | null,
 permissionsPassword: Password | null, restrictions: Restrictions, };
 
 /**
+ * What a batch does to each of its files (B3-04, ADR 0005, docs/architecture/batch.md): a copy of
+ * each is written to the folder the user chooses; no file is changed.
+ */
+export type BatchOperation = { "kind": "removeMetadata" } | { "kind": "encrypt", openPassword: Password | null, permissionsPassword: Password | null, restrictions: Restrictions, };
+
+/**
+ * Arguments of `run_batch` (B3-04): what to do, never to which files or where; the main process
+ * asks the user in the system's dialogs. Any other field is rejected.
+ */
+export type BatchArgs = { 
+/**
+ * Stops the batch with `cancel`, before its next file.
+ */
+request: RequestId, operation: BatchOperation, };
+
+/**
+ * How one file of a batch went (B3-04).
+ */
+export type BatchOutcome = { "kind": "done", output: string, } | { "kind": "failed", error: ErrorCode, } | { "kind": "skipped" };
+
+/**
+ * Progress of `run_batch` on its channel (B3-04).
+ */
+export type BatchEvent = { "kind": "started", files: Array<string>, } | { "kind": "file", index: number, outcome: BatchOutcome, };
+
+/**
+ * What `run_batch` did (B3-04): how many copies were made, how many files failed, and how many
+ * were not done because the batch was stopped.
+ */
+export type BatchReport = { done: number, failed: number, skipped: number, };
+
+/**
  * A recently opened file as the frontend sees it (#73): no path, only the file name.
  */
 export type RecentFile = { id: RecentId, 
@@ -940,6 +972,7 @@ export const LIMITS = {
   maxTabs: 20,
   maxRecentFiles: 20,
   maxExportPages: 1000,
+  maxBatchFiles: 500,
   maxSplitFiles: 1000,
   maxAnnotationQuads: 1000,
   maxHighlightPages: 100,

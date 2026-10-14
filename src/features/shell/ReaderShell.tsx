@@ -28,6 +28,8 @@ import { useOcrView } from "@/features/ocr/useOcrView";
 import type { ExportApi } from "@/features/export/api";
 import { ExportDialog } from "@/features/export/ExportDialog";
 import { CompressDialog } from "@/features/saving/CompressDialog";
+import type { BatchApi } from "@/features/batch/api";
+import { BatchDialog } from "@/features/batch/BatchDialog";
 import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
@@ -130,6 +132,8 @@ type ReaderShellProps = {
   exportApi?: ExportApi;
   /** Saves the document (B2-02); without it (demo data, tests) nothing can be. */
   savingApi?: SavingApi;
+  /** Does one thing to many files (B3-04); without it (demo data, tests) nothing can be. */
+  batchApi?: BatchApi;
   /** Page management in the thumbnails (B2-05); without it (demo data, tests) pages stay as they are. */
   editingApi?: EditingApi;
   /** The update check in the settings (#64); without it (demo data, tests) it is not offered. */
@@ -206,6 +210,7 @@ export function ReaderShell({
   recentApi,
   exportApi,
   savingApi,
+  batchApi,
   editingApi,
   updatesApi,
   ocrApi,
@@ -257,6 +262,7 @@ export function ReaderShell({
     | "privacyExport"
     | "encrypt"
     | "compress"
+    | "batch"
     | null
   >(
     null,
@@ -835,6 +841,7 @@ export function ReaderShell({
           onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}
           privacyExportBlocked={savable && document_?.encrypted === true}
           onEncryptCopy={savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined}
+          onBatch={batchApi ? () => setDialog("batch") : undefined}
           encryptCopyBlocked={savable && document_?.encrypted === true}
           onForgetPassword={document_?.passwordRemembered ? forgetPassword : undefined}
           onCompressImages={savable && !document_?.encrypted ? () => setDialog("compress") : undefined}
@@ -1185,6 +1192,9 @@ export function ReaderShell({
           onExport={() => savingApi.privacyExport(doc)}
           onFinished={showHint}
         />
+      )}
+      {batchApi && (
+        <BatchDialog open={dialog === "batch"} onOpenChange={(open) => setDialog(open ? "batch" : null)} api={batchApi} />
       )}
       {savable && (
         <EncryptDialog
