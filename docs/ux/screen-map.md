@@ -214,6 +214,15 @@
 - **選擇位置並壓縮…**：主行程顯示系統的另存對話框，建議檔名 `<原檔名>（已壓縮）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（COMPRESSED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，可以再試；失敗（有數位簽章、檔案不能寫入等）時顯示 compress.failed，沒有檔案被留下。壓縮中顯示 compress.running，選項與按鈕停用，不能關閉對話框。
 - **結果**：成功後對話框換成結果（標題 compress.resultTitle，`role="status"`）：副本的大小、不壓縮圖片時的大小與少了多少百分比、重新編碼了幾張圖片（共幾張）；沒有圖片、或都沒有變小時照實說；時間不夠時加上 compress.result.partial。按「完成」（compress.close）關閉；對話框不會自己消失，因為數字要讀。分頁仍然是原本的文件，副本不加入最近開啟的檔案。
 
+### 批次處理（B3-04）
+
+- 「⋯」→「批次處理…」（在「加密並另存新檔…」之後），沒有開啟文件時也能用。示範資料（沒有主行程）時停用。做法見 [batch.md](../architecture/batch.md)。
+- **對話框**：batch.description；「要做的事」兩個選項：batch.removeMetadata（預設）、batch.encrypt。選加密時出現與「加密並另存新檔」相同的欄位（開啟密碼、限制、權限密碼，各輸入兩次），規則與提示也相同；有問題時「選擇檔案並開始…」停用，狀態列說明。下方列出 batch.notes。
+- **選擇檔案並開始…**：主行程依序顯示系統的開啟對話框（可多選 PDF，標題 BATCH_FILES_DIALOG_TITLE）與資料夾對話框（BATCH_FOLDER_DIALOG_TITLE）。關閉任一個時回到這個對話框，可以再試。
+- **處理中**：對話框改為列出每個檔案（`role="list"`，名稱 batch.filesLabel）：等待中、完成（副本的檔名）、失敗（原因，紅字）、略過；狀態列（`role="status"`）是 batch.running。「停止」在目前的檔案做完後停下（batch.stopping）。處理中不能關閉對話框，`Esc` 也不行。
+- **完成**：狀態列是 batch.summary（完成、失敗、略過各幾個），按「完成」關閉。加密的密碼欄位在開始時與關閉時清空，不留任何密碼。
+- 無法開始時（例如檔案太多）顯示 batch.failed。
+
 ### 從檔案建立 PDF（B3-03）
 
 - 入口有兩個：空狀態的次要按鈕「從檔案建立 PDF…」（沒有文件開著時也能用），以及「⋯」→「從檔案建立 PDF…」（在「另存新檔…」之後；有文件開著時也能用，新的 PDF 在新分頁開啟，原本的分頁不變）。示範資料（沒有主行程）時兩處都停用或不顯示。做法見 [create-pdf.md](../architecture/create-pdf.md)。
@@ -854,6 +863,29 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | PRIVACY_EXPORT_SAME_FILE_MESSAGE（主行程） | 隱私匯出會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
 | overwrite_message（主行程） | 這個資料夾已經有 <N> 個同名的檔案。要覆寫嗎？ |
 | NO_TEXT_LAYER_PAGE（主行程，寫在文字檔中） | （此頁沒有文字層） |
+
+### 批次處理（B3-04）
+
+| 鍵 | 文字 |
+|---|---|
+| menu.batch | 批次處理… |
+| batch.title | 批次處理 |
+| batch.description | 對多個 PDF 檔案做同一件事：每個檔案產生一份副本，放在你選的資料夾。原本的檔案不會改變，資料夾裡已經有的檔案也不會被覆寫。 |
+| batch.operation | 要做的事 |
+| batch.removeMetadata／batch.encrypt | 清除中繼資料（與「隱私匯出」相同）／加密（AES-256，與「加密並另存新檔」相同） |
+| batch.notes(limit) | 一次最多 <limit> 個檔案，一個接一個處理；一個失敗不影響其他的。／有密碼的 PDF 會略過：批次處理不詢問密碼。／處理中請不要關閉視窗：關閉會停止批次處理。 |
+| batch.start／batch.cancel／batch.stop／batch.close | 選擇檔案並開始…／取消／停止／完成 |
+| batch.filesLabel | 檔案 |
+| batch.running(done, total) | 正在處理…（<done>／<total>） |
+| batch.stopping | 目前的檔案完成後就會停止… |
+| batch.summary(done, failed, skipped) | 完成 <N> 個，失敗 <N> 個，略過 <N> 個。（是 0 的部分不說） |
+| batch.waiting／batch.done(output)／batch.failedFile(reason)／batch.skipped | 等待中／完成：<副本檔名>／失敗：<原因>／略過（已停止） |
+| batch.reasons.encrypted | 有密碼的檔案，批次處理不詢問密碼 |
+| batch.reasons.invalidArgument | 這個檔案不能這樣處理，例如有數位簽章的文件不能加密 |
+| batch.reasons.notPdf／corrupted | 不是 PDF 檔案／檔案已損毀（其他原因用一般的錯誤訊息） |
+| batch.failed | 無法開始批次處理，請再試一次。 |
+| BATCH_FILES_DIALOG_TITLE（主行程） | 選擇要批次處理的 PDF 檔案 |
+| BATCH_FOLDER_DIALOG_TITLE（主行程） | 選擇存放批次處理結果的資料夾 |
 
 ### 從檔案建立 PDF（B3-03）
 
