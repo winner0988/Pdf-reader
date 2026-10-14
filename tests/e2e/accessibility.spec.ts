@@ -174,6 +174,41 @@ test("the dialogs of the menu", async ({ launch }) => {
   }
 });
 
+test("the text box dialog, with a problem shown, and the toolbar of a text box on the page (B2-31)", async ({ launch }) => {
+  const page = await launch(corpus("benign/mixed-text-zh-en.pdf"));
+  const sheet = page.getByRole("img", { name: strings.canvas.page(1) });
+  await expect(sheet).toHaveAttribute("data-state", "ready");
+  const t = strings.annotations;
+  const dialog = page.getByRole("dialog", { name: t.textBoxDialog.addTitle });
+
+  // The tool is on, and a click on the page (all of it on the screen) asks what the box says.
+  await page.keyboard.press("Control+0");
+  await expect.poll(async () => (await sheet.boundingBox())?.height ?? Infinity).toBeLessThan(700);
+  await page.getByRole("button", { name: t.textBox, exact: true }).click();
+  const area = (await sheet.boundingBox())!;
+  await page.mouse.click(area.x + area.width * 0.5, area.y + area.height * 0.6);
+  await expect(dialog).toBeVisible();
+  await inBothThemes(page, (theme) => noProblems(page, `new text box, ${theme}`));
+
+  // Saved with nothing in it: the problem is said in the dialog.
+  await dialog.getByRole("button", { name: t.textBoxDialog.save, exact: true }).click();
+  await expect(dialog.getByRole("alert")).toHaveText(t.textBoxDialog.empty);
+  await inBothThemes(page, (theme) => noProblems(page, `text box with a problem, ${theme}`));
+
+  // A box on the page, chosen: its outline, handles and small toolbar.
+  await dialog.getByLabel(t.textBoxDialog.text, { exact: true }).fill("Contrast");
+  await dialog.getByRole("button", { name: t.textBoxDialog.save, exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.locator("[data-page-annotations] [data-annotation=textBox]").first().focus();
+  await expect(page.getByRole("toolbar", { name: t.textBoxSaying("Contrast") })).toBeVisible();
+  await inBothThemes(page, (theme) => noProblems(page, `text box chosen, ${theme}`));
+
+  // The dialog again, for the box: it starts from what the box is.
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: t.textBoxDialog.editTitle })).toBeVisible();
+  await inBothThemes(page, (theme) => noProblems(page, `text box changed, ${theme}`));
+});
+
 test("the licences of what the app is made of, a view of the About dialog", async ({ launch }) => {
   const page = await launch(corpus("benign/multi-page-10.pdf"));
   await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
