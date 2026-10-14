@@ -1,9 +1,9 @@
 # ADR 0016：安全遮蔽是「標記範圍、套用、整份重寫」三步，只對沒有簽章的文件，並在存檔後驗證
 
 ## 狀態
-提議中
+已接受
 
-（工作卡 #178〔B2-16〕。POC：`crates/pdf_worker/tests/redaction_poc.rs`。）
+（負責人於 2026-10-08 接受選項 A〔[#178](https://github.com/winner0988/Pdf-reader/issues/178) 的留言〕。工作卡 #178〔B2-16〕。實作卡：[#214](https://github.com/winner0988/Pdf-reader/issues/214)–[#217](https://github.com/winner0988/Pdf-reader/issues/217)。POC：`crates/pdf_worker/tests/redaction_poc.rs`。）
 
 ## 背景
 - 規格 §3「安全遮蔽」：針對塗黑或刪除的敏感文字與圖片，必須從 PDF 二進位代碼中徹底移除，防止透過反組譯還原。目前 app 沒有任何這樣的功能。

@@ -2662,6 +2662,7 @@ dependencies = [
  "windows",
  "windows-sys 0.61.2",
  "worker_host",
+ "zeroize",
 ]
 
 [[package]]
@@ -2674,6 +2675,7 @@ dependencies = [
  "mupdf-fonts-droid",
  "mupdf-sys",
  "serde_json",
+ "sha2 0.11.0",
  "skrifa",
  "subsetter",
  "thiserror 2.0.21",
