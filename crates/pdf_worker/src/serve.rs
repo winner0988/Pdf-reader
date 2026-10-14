@@ -194,6 +194,19 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     ),
                 })
             }
+            WorkerRequest::SummariseRedactions { request, doc } => {
+                Some(match documents.get(&doc) {
+                    None => error(
+                        request,
+                        WorkerErrorCode::UnknownDocument,
+                        "unknown document",
+                    ),
+                    Some(document) => match document.redaction_summary() {
+                        Ok(summary) => WorkerResponse::RedactionSummary { request, summary },
+                        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                    },
+                })
+            }
             WorkerRequest::RenderPng {
                 request,
                 doc,
@@ -596,6 +609,8 @@ fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineErro
             document.set_field_value(*page, *field, value)?;
         }
         WorkerEdit::FlattenForm => document.flatten_form()?,
+        WorkerEdit::AddRedaction { page, rect } => document.add_redaction(*page, *rect)?,
+        WorkerEdit::ApplyRedactions => document.apply_redactions()?,
         WorkerEdit::AddInk {
             page,
             strokes,

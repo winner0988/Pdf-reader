@@ -92,7 +92,7 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 
 ## 列出頁面的註解（`get_page_annotations`）
 
-- 回傳 `PageAnnotation[]`：`id`、`kind`（`highlight`、`note`、`ink`、`stamp`、`textBox`、`other`）、`rect`（顯示的範圍，頁面空間；手繪含線條四周的邊）、`color`（螢光筆是 app 的四種顏色之一時）、`text`（附註的文字）、`picture`（認得的圖片印章才有：`angle`、`width`、`height`，見上方「旋轉圖片印章」；其他是 `null`）。
+- 回傳 `PageAnnotation[]`：`id`、`kind`（`highlight`、`note`、`ink`、`stamp`、`textBox`、`redaction`〔遮蔽標記，B2-19，見 [redaction.md](redaction.md)〕、`other`）、`rect`（顯示的範圍，頁面空間；手繪含線條四周的邊）、`color`（螢光筆是 app 的四種顏色之一時）、`text`（附註的文字）、`picture`（認得的圖片印章才有：`angle`、`width`、`height`，見上方「旋轉圖片印章」；其他是 `null`）。
 - 不列出：連結（見 [links.md](links.md)）、表單欄位、彈出視窗。手繪與印章（含文件原有的）可以移動與縮放，其他種類（方框等，`other`）只能選取並刪除。
 - 文件原有的註解照常由 MuPDF 渲染在頁面上。
 - worker 的輸出一律當成不可信任的資料：

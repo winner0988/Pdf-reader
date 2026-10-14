@@ -300,7 +300,7 @@ export type ExportEvent = { "kind": "progress", pagesDone: number, total: number
  * A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
  * those of the document as it is before the edit.
  */
-export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "addTextBox", page: number, rect: Rect, model: TextBoxModelId, style: TextBoxStyle, } | { "kind": "setTextBox", page: number, annotation: AnnotationId, model: TextBoxModelId | null, style: TextBoxStyle, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setPictureAngle", page: number, annotation: AnnotationId, degrees: number, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" };
+export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "addTextBox", page: number, rect: Rect, model: TextBoxModelId, style: TextBoxStyle, } | { "kind": "setTextBox", page: number, annotation: AnnotationId, model: TextBoxModelId | null, style: TextBoxStyle, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setPictureAngle", page: number, annotation: AnnotationId, degrees: number, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" } | { "kind": "addRedaction", page: number, rect: Rect, } | { "kind": "applyRedactions" };
 
 /**
  * The highlighter's colors (B2-07).
@@ -350,7 +350,7 @@ export type AnnotationId = number;
 /**
  * What an annotation of a page is, as far as the app edits it (B2-07).
  */
-export type AnnotationKind = "highlight" | "note" | "ink" | "stamp" | "textBox" | "other";
+export type AnnotationKind = "highlight" | "note" | "ink" | "stamp" | "textBox" | "redaction" | "other";
 
 /**
  * How a picture stamp is turned (B3-01), for the page to draw its outline: the picture is
@@ -380,6 +380,28 @@ color: HighlightColor | null, text: string | null,
  * A picture stamp of the user's own (B3-01): how it is turned, and what it measures.
  */
 picture: PictureView | null, };
+
+/**
+ * What applying the redaction marks of a document would do besides removing what their areas
+ * reach (B2-19, ADR 0016): the confirmation says it before anything is removed.
+ */
+export type RedactionSummary = { 
+/**
+ * The marks, on all the pages.
+ */
+marks: number, 
+/**
+ * The pages that have marks.
+ */
+pages: number, 
+/**
+ * The other annotations (notes, highlights, drawings…) that reach into an area: deleted.
+ */
+annotations: number, 
+/**
+ * The form fields that reach into an area: deleted, with their values.
+ */
+fields: number, };
 
 /**
  * A form field of an open document: the number of its widget in the document, which stays the

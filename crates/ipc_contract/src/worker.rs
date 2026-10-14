@@ -11,9 +11,9 @@ use crate::PROTOCOL_VERSION;
 use crate::types::{
     AnnotationId, CreateKind, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId,
     FontRefusal, FormField, HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth,
-    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Point, Rect, RequestId,
-    Restrictions, Rotation, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageId,
-    StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle,
+    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Point, Rect,
+    RedactionSummary, RequestId, Restrictions, Rotation, SearchHit, SecurityReport,
+    SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -182,6 +182,10 @@ pub enum WorkerEdit {
     },
     /// As [`Edit::FlattenForm`].
     FlattenForm,
+    /// As [`Edit::AddRedaction`].
+    AddRedaction { page: u32, rect: Rect },
+    /// As [`Edit::ApplyRedactions`].
+    ApplyRedactions,
     /// As [`Edit::AddInk`].
     AddInk {
         page: u32,
@@ -306,6 +310,11 @@ impl WorkerEdit {
                 value: value.clone(),
             },
             Edit::FlattenForm => WorkerEdit::FlattenForm,
+            Edit::AddRedaction { page, rect } => WorkerEdit::AddRedaction {
+                page: *page,
+                rect: *rect,
+            },
+            Edit::ApplyRedactions => WorkerEdit::ApplyRedactions,
             Edit::AddInk {
                 page,
                 strokes,
@@ -415,6 +424,12 @@ pub enum WorkerRequest {
     /// with Windows' own cryptography and what Windows has on this computer. Answered by
     /// `Signatures`.
     VerifySignatures {
+        request: RequestId,
+        doc: DocumentId,
+    },
+    /// What applying the redaction marks of `doc` would do besides removing what their areas
+    /// reach (B2-19, ADR 0016). Answered by `RedactionSummary`.
+    SummariseRedactions {
         request: RequestId,
         doc: DocumentId,
     },
@@ -655,6 +670,11 @@ pub enum WorkerResponse {
     Signatures {
         request: RequestId,
         report: SignatureReport,
+    },
+    /// `SummariseRedactions` is answered.
+    RedactionSummary {
+        request: RequestId,
+        summary: RedactionSummary,
     },
     PageText {
         request: RequestId,
@@ -1072,6 +1092,43 @@ mod tests {
         assert_eq!(
             postcard::from_bytes::<WorkerRequest>(&bytes).unwrap(),
             request
+        );
+    }
+
+    #[test]
+    fn redaction_edits_and_their_summary_cross_the_boundary() {
+        for edit in [
+            WorkerEdit::AddRedaction {
+                page: 2,
+                rect: Rect {
+                    x0: 1.0,
+                    y0: 2.0,
+                    x1: 30.0,
+                    y1: 40.0,
+                },
+            },
+            WorkerEdit::ApplyRedactions,
+        ] {
+            let bytes = postcard::to_allocvec(&edit).unwrap();
+            assert_eq!(postcard::from_bytes::<WorkerEdit>(&bytes).unwrap(), edit);
+        }
+        assert_eq!(
+            WorkerEdit::of(&Edit::ApplyRedactions, |_| None, |_| None, |_| None).unwrap(),
+            WorkerEdit::ApplyRedactions
+        );
+        let response = WorkerResponse::RedactionSummary {
+            request: RequestId(9),
+            summary: RedactionSummary {
+                marks: 3,
+                pages: 2,
+                annotations: 1,
+                fields: 0,
+            },
+        };
+        let bytes = postcard::to_allocvec(&response).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerResponse>(&bytes).unwrap(),
+            response
         );
     }
 

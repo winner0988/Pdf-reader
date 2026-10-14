@@ -20,6 +20,7 @@ fn main() {
         "get_page_annotations",
         "get_page_fields",
         "get_signatures",
+        "get_redaction_summary",
         "get_page_text",
         "describe_link",
         "open_link",

@@ -238,9 +238,10 @@ impl PdfDocument {
         Ok(())
     }
 
-    /// Moves and resizes the drawing, stamp or text box `id` of page `index` to `rect` (page space,
-    /// as listed). A stamp keeps its shape inside the rectangle; a drawing keeps the thickness of
-    /// its line, and its points are laid out again in the rectangle; a text box sets its words again.
+    /// Moves and resizes the drawing, stamp, text box or redaction mark `id` of page `index` to
+    /// `rect` (page space, as listed). A stamp keeps its shape inside the rectangle; a drawing keeps
+    /// the thickness of its line, and its points are laid out again in the rectangle; a text box
+    /// sets its words again.
     pub fn set_annotation_rect(
         &mut self,
         index: u32,
@@ -260,13 +261,18 @@ impl PdfDocument {
                 }
             }
             PdfAnnotationType::Ink => place_ink(&mut annotation, rect)?,
+            // A redaction mark (B2-19) is only an area until it is applied.
+            PdfAnnotationType::Redact => {
+                annotation.set_rect(binding_rect(rect))?;
+                annotation.update()?;
+            }
             // Never through MuPDF's setters: they would draw the box black again.
             PdfAnnotationType::FreeText if super::text_box::is_text_box(&annotation) => {
                 self.move_text_box(index, id, rect)?;
             }
             _ => {
                 return Err(EngineError::InvalidEdit(
-                    "only a drawing, a stamp or a text box can be moved",
+                    "only a drawing, a stamp, a text box or a redaction mark can be moved",
                 ));
             }
         }
@@ -434,6 +440,7 @@ fn entry(annotation: &PdfAnnotation, page_rotation: i32) -> Result<Option<PageAn
         PdfAnnotationType::FreeText if super::text_box::is_text_box(annotation) => {
             AnnotationKind::TextBox
         }
+        PdfAnnotationType::Redact => AnnotationKind::Redaction,
         _ => AnnotationKind::Other,
     };
     let Ok(number) = u32::try_from(annotation.xref()?) else {

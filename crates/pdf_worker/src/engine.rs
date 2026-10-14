@@ -33,6 +33,7 @@ mod create;
 mod docx;
 mod forms;
 mod ocr;
+mod redaction;
 
 pub use create::{Created, PdfBuilder};
 pub use ocr::OcrKnown;

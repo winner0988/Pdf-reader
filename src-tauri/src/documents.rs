@@ -23,9 +23,9 @@ use ipc_contract::types::{
     DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode, FormField, ImageQuality,
     IpcError, LinkArgs, LinkPreview, LinkTarget, NotRemembered, OpenEvent, OutlineLinkArgs,
     OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource, Password,
-    PreparedTextBox, Recovery, RememberedPasswords, RenderPageArgs, Restrictions, SaveResult,
-    SearchHit, SecurityReport, SignatureReport, SourceId, StampImageInfo, TabId, TextBoxInfo,
-    UnlockOutcome,
+    PreparedTextBox, Recovery, RedactionSummary, RememberedPasswords, RenderPageArgs, Restrictions,
+    SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageInfo, TabId,
+    TextBoxInfo, UnlockOutcome,
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
@@ -1433,6 +1433,21 @@ impl Documents {
         })
     }
 
+    /// What applying the redaction marks of `doc` would do besides removing what their areas
+    /// reach (B2-19, ADR 0016): the marks and their pages, and the other annotations and form
+    /// fields that would be deleted with them. Asked of the document's worker, as it is now.
+    pub fn redaction_summary(&self, doc: DocumentId) -> Result<RedactionSummary, IpcError> {
+        self.with_document(doc, |document| {
+            let response = request(document, |request, doc| {
+                WorkerRequest::SummariseRedactions { request, doc }
+            })?;
+            let WorkerResponse::RedactionSummary { summary, .. } = response else {
+                return Err(unexpected("SummariseRedactions"));
+            };
+            Ok(summary)
+        })
+    }
+
     /// Makes the picture in `file` (a PNG or JPEG the user chose, which the caller opened) into
     /// what a stamp of `doc` is made of, and keeps it for the document (B2-08). The document's
     /// worker does the work: it reads the file through a read-only handle, as it reads any file,
@@ -2116,6 +2131,24 @@ fn pages_after(
         | Edit::SetPictureAngle { page, .. } => Some(vec![*page]),
         _ => None,
     };
+    // Redaction (B2-19, ADR 0016) changes what the pages say, marks included: the author's
+    // permission to change the document covers it. The worker refuses a signed document.
+    match edit {
+        Edit::AddRedaction { page, .. } => {
+            if !permissions.modify {
+                return Err(not_allowed());
+            }
+            check_page_index(*page, page_count).map_err(invalid_argument)?;
+            return Ok(page_count);
+        }
+        Edit::ApplyRedactions => {
+            if !permissions.modify {
+                return Err(not_allowed());
+            }
+            return Ok(page_count);
+        }
+        _ => {}
+    }
     if let Some(pages) = annotated {
         if !permissions.annotate {
             return Err(not_allowed());
@@ -2212,7 +2245,9 @@ fn pages_after(
         | Edit::SetAnnotationRect { .. }
         | Edit::SetPictureAngle { .. }
         | Edit::SetFieldValue { .. }
-        | Edit::FlattenForm => Ok(page_count),
+        | Edit::FlattenForm
+        | Edit::AddRedaction { .. }
+        | Edit::ApplyRedactions => Ok(page_count),
     }
 }
 
@@ -4259,6 +4294,120 @@ mod with_worker {
             pages: vec![page],
             by: Rotation::Cw90,
         }
+    }
+
+    /// A page with a secret line between two public ones (B2-19).
+    fn redaction_sample() -> Vec<u8> {
+        let content = "BT /F1 18 Tf 72 700 Td (Public line one) Tj ET\n\
+                       BT /F1 18 Tf 72 650 Td (SECRET-ALPHA-123 inside) Tj ET\n\
+                       BT /F1 18 Tf 72 600 Td (Public line two) Tj ET\n";
+        pdf_objects(&[
+            "<< /Type /Catalog /Pages 2 0 R >>".into(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".into(),
+            format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".into(),
+        ])
+    }
+
+    /// What page 0 of `doc` says.
+    fn first_page_says(documents: &Documents, doc: DocumentId) -> String {
+        documents
+            .page_text(doc, 0)
+            .unwrap()
+            .lines
+            .into_iter()
+            .map(|line| line.text)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn a_redaction_is_marked_applied_undone_and_saved_without_what_it_removed() {
+        let (documents, info, path) = open_bytes("b219-redact", &redaction_sample());
+        let mut doc = info.doc;
+        let area = Rect {
+            x0: 60.0,
+            y0: 120.0,
+            x1: 330.0,
+            y1: 150.0,
+        };
+        edited_pages(
+            &documents,
+            &mut doc,
+            Edit::AddRedaction {
+                page: 0,
+                rect: area,
+            },
+        );
+        let summary = documents.redaction_summary(doc).unwrap();
+        assert_eq!((summary.marks, summary.pages), (1, 1));
+        assert!(first_page_says(&documents, doc).contains("SECRET"));
+
+        edited_pages(&documents, &mut doc, Edit::ApplyRedactions);
+        let said = first_page_says(&documents, doc);
+        assert!(
+            !said.contains("SECRET") && said.contains("Public line two"),
+            "{said}"
+        );
+        assert_eq!(documents.redaction_summary(doc).unwrap().marks, 0);
+
+        // Undone (ADR 0013): the text, and the mark, are back; done again, they go again.
+        let undone = opened_info(documents.undo(doc, None).unwrap());
+        doc = undone.doc;
+        assert!(first_page_says(&documents, doc).contains("SECRET"));
+        assert_eq!(documents.redaction_summary(doc).unwrap().marks, 1);
+        let redone = opened_info(documents.redo(doc).unwrap());
+        doc = redone.doc;
+        assert!(!first_page_says(&documents, doc).contains("SECRET"));
+
+        // Saved: the file is rewritten whole, and has none of it.
+        documents.save(doc, None).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(!bytes.windows(6).any(|window| window == b"SECRET"));
+        let again = open_in(&Documents::new(worker()), &path);
+        assert_eq!(again.pages.len(), 1);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn redaction_needs_the_authors_permission_to_change_the_document() {
+        let mark = Edit::AddRedaction {
+            page: 0,
+            rect: Rect {
+                x0: 10.0,
+                y0: 10.0,
+                x1: 50.0,
+                y1: 50.0,
+            },
+        };
+        let only_annotating = DocumentPermissions {
+            modify: false,
+            ..DocumentPermissions::ALL
+        };
+        for edit in [&mark, &Edit::ApplyRedactions] {
+            assert_eq!(
+                pages_after(edit, 1, only_annotating, &|_| None)
+                    .unwrap_err()
+                    .message,
+                not_allowed().message
+            );
+            assert_eq!(
+                pages_after(edit, 1, DocumentPermissions::ALL, &|_| None).unwrap(),
+                1
+            );
+        }
+        // A mark on a page the document does not have.
+        let elsewhere = Edit::AddRedaction {
+            page: 3,
+            rect: Rect {
+                x0: 10.0,
+                y0: 10.0,
+                x1: 50.0,
+                y1: 50.0,
+            },
+        };
+        assert!(pages_after(&elsewhere, 1, DocumentPermissions::ALL, &|_| None).is_err());
     }
 
     #[test]

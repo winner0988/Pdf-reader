@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-redaction-summary"
+description = "Enables the get_redaction_summary command without any pre-configured scope."
+commands.allow = ["get_redaction_summary"]
+
+[[permission]]
+identifier = "deny-get-redaction-summary"
+description = "Denies the get_redaction_summary command without any pre-configured scope."
+commands.deny = ["get_redaction_summary"]
