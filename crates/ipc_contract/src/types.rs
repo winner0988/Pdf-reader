@@ -405,6 +405,17 @@ pub enum Edit {
         rect: Rect,
         image: StampImageId,
     },
+    /// Puts a text box over `rect` on page `page` (B2-28, ADR 0018): a `FreeText` annotation
+    /// saying the words of `model` (what `prepare_text_box` made of them and their font), set in
+    /// the size, colour and alignment of `style`. Lines are broken at `\n` and where the box is
+    /// not wide enough. The words and the font are checked when they are prepared (see the
+    /// `font…` and `textNotSupported` error codes), so this edit does not need the font again.
+    AddTextBox {
+        page: u32,
+        rect: Rect,
+        model: TextBoxModelId,
+        style: TextBoxStyle,
+    },
     /// Moves and resizes the drawing or stamp `annotation` of page `page` to `rect`, which is a
     /// rectangle as `PageAnnotation::rect` lists it (B2-08). A drawing keeps the thickness of
     /// its line: its points are placed in the new rectangle.
@@ -569,6 +580,9 @@ pub enum AnnotationKind {
     Ink,
     /// A stamp (`Stamp`, B2-08): it can be moved, resized and removed.
     Stamp,
+    /// A text box the app made (`FreeText` with the app's own entry, B2-28): it can be removed;
+    /// moving, resizing and changing it follow (B2-29).
+    TextBox,
     /// Any other kind (a comment box, a shape): it can only be removed.
     Other,
 }
@@ -737,6 +751,36 @@ pub enum FontRefusal {
     NotEmbeddable,
     /// It has no glyph for a character of the text.
     MissingGlyphs,
+}
+
+/// The words of a text box, set in a font and cut to a subset of it, as the main process keeps
+/// them for an open document (B2-28, ADR 0018): named by this number in edits, as a picture of a
+/// stamp is. The page asks for one with `prepare_text_box` and then puts it in a box with
+/// `Edit::AddTextBox`; undo, redo and the crash recovery journal make the edit again from what is
+/// kept, without the font file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct TextBoxModelId(pub u32);
+
+/// Arguments of `prepare_text_box` (B2-28): the words and the font to set them in, never a path.
+/// Any other field is rejected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PrepareTextBoxArgs {
+    pub doc: DocumentId,
+    /// Not empty, at most `MAX_TEXT_BOX_BYTES`; lines are broken at `\n`.
+    pub text: String,
+    /// A font of the list `get_fonts` gave.
+    pub font: FontId,
+}
+
+/// What `prepare_text_box` tells of the words it prepared (B2-28).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PreparedTextBox {
+    /// The number to put them in a box with.
+    pub model: TextBoxModelId,
+    /// The font's licence lets a document with it be viewed and printed only: the page says so.
+    pub view_only: bool,
 }
 
 /// Kinds of active content or remote references found in a document (MVP-11).
@@ -1244,6 +1288,24 @@ pub enum ErrorCode {
     ChangedOnDisk,
     /// Saving: the file could not be written for another reason.
     Unwritable,
+    /// A text box (B2-28, ADR 0018): the font the user chose is not on the computer any more, or
+    /// its file cannot be read.
+    FontUnavailable,
+    /// A text box: the font is not one the app can read.
+    FontInvalid,
+    /// A text box: the font has no TrueType outlines (OpenType with CFF outlines).
+    FontNotTrueType,
+    /// A text box: a variable font.
+    FontVariable,
+    /// A text box: a colour font.
+    FontColour,
+    /// A text box: the licence of the font forbids embedding it in a document.
+    FontNotEmbeddable,
+    /// A text box: the font has no glyph for a character of the text.
+    FontMissingGlyphs,
+    /// A text box: the text needs a script the app does not set yet (Arabic, Hebrew, the scripts
+    /// of India and South-East Asia, marks that sit over a letter).
+    TextNotSupported,
     /// The update check (#64) got no usable answer from GitHub: offline, blocked, or an answer
     /// it did not expect.
     NetworkFailed,

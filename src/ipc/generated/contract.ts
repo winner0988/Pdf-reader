@@ -270,7 +270,7 @@ export type ExportEvent = { "kind": "progress", pagesDone: number, total: number
  * A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
  * those of the document as it is before the edit.
  */
-export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" };
+export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "addTextBox", page: number, rect: Rect, model: TextBoxModelId, style: TextBoxStyle, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" };
 
 /**
  * The highlighter's colors (B2-07).
@@ -320,7 +320,7 @@ export type AnnotationId = number;
 /**
  * What an annotation of a page is, as far as the app edits it (B2-07).
  */
-export type AnnotationKind = "highlight" | "note" | "ink" | "stamp" | "other";
+export type AnnotationKind = "highlight" | "note" | "ink" | "stamp" | "textBox" | "other";
 
 /**
  * An annotation of a page (B2-07), from the page's worker; links, form fields and pop-up
@@ -479,10 +479,40 @@ export type TextBoxStyle = {
 size: number, color: Rgb, align: TextAlign, };
 
 /**
- * Why a font cannot be used for a text box (B2-28, ADR 0018): the first version sets text in
- * TrueType outlines only, in fonts whose licence lets them be embedded.
+ * The words of a text box, set in a font and cut to a subset of it, as the main process keeps
+ * them for an open document (B2-28, ADR 0018): named by this number in edits, as a picture of a
+ * stamp is. The page asks for one with `prepare_text_box` and then puts it in a box with
+ * `Edit::AddTextBox`; undo, redo and the crash recovery journal make the edit again from what is
+ * kept, without the font file.
  */
-export type FontRefusal = "notAFont" | "notTrueType" | "variable" | "colour" | "notEmbeddable" | "missingGlyphs";
+export type TextBoxModelId = number;
+
+/**
+ * Arguments of `prepare_text_box` (B2-28): the words and the font to set them in, never a path.
+ * Any other field is rejected.
+ */
+export type PrepareTextBoxArgs = { doc: DocumentId, 
+/**
+ * Not empty, at most `MAX_TEXT_BOX_BYTES`; lines are broken at `\n`.
+ */
+text: string, 
+/**
+ * A font of the list `get_fonts` gave.
+ */
+font: FontId, };
+
+/**
+ * What `prepare_text_box` tells of the words it prepared (B2-28).
+ */
+export type PreparedTextBox = { 
+/**
+ * The number to put them in a box with.
+ */
+model: TextBoxModelId, 
+/**
+ * The font's licence lets a document with it be viewed and printed only: the page says so.
+ */
+viewOnly: boolean, };
 
 /**
  * Kinds of active content or remote references found in a document (MVP-11).
@@ -757,7 +787,7 @@ edges: Array<number>, };
 /**
  * Error codes the frontend maps to localized messages.
  */
-export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "networkFailed" | "internal";
+export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "internal";
 
 /**
  * Rejection value of every command. `message` is for logs and must not contain paths or

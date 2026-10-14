@@ -8,16 +8,44 @@ use std::path::PathBuf;
 use ipc_contract::frame::encode;
 use ipc_contract::types::{
     AnnotationId, AnnotationKind, BlockedAction, Certification, DocumentId, DocumentPermissions,
-    FieldId, FieldKind, FieldOption, FindingKind, FormField, HighlightColor, HighlightMark,
-    InkColor, InkWidth, LinkId, LinkTarget, OutlineItem, OutlineResult, PageAnnotation, PageLink,
-    PageSize, PageText, Password, Point, Quad, Rect, RequestId, Restrictions, Rotation, SearchHit,
-    SecurityFinding, SecurityReport, SignatureInfo, SignatureReport, SignatureStatus, StampName,
-    TextLine, UnverifiableReason,
+    FieldId, FieldKind, FieldOption, FindingKind, FontRefusal, FormField, HighlightColor,
+    HighlightMark, InkColor, InkWidth, LinkId, LinkTarget, OutlineItem, OutlineResult,
+    PageAnnotation, PageLink, PageSize, PageText, Password, Point, Quad, Rect, RequestId,
+    Restrictions, Rgb, Rotation, SearchHit, SecurityFinding, SecurityReport, SignatureInfo,
+    SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxStyle, TextLine,
+    UnverifiableReason,
 };
 use ipc_contract::worker::{
-    FileHandle, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument, PasswordKey, Raster,
-    WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
+    FileHandle, FontData, ModelGlyph, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument,
+    PasswordKey, Raster, TextBoxModel, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest,
+    WorkerResponse,
 };
+
+/// The words of a text box, as a worker would prepare them (a small one).
+fn text_box_model() -> TextBoxModel {
+    TextBoxModel {
+        text: "Hello 你好".to_owned(),
+        font: "Arial".to_owned(),
+        face: 0,
+        view_only: false,
+        base: "ABCDEF+Arial".to_owned(),
+        ascent: 905,
+        descent: -212,
+        cap_height: 716,
+        step: 1_150,
+        bbox: [-665, -325, 2_000, 1_006],
+        glyphs: "Helo 你好"
+            .chars()
+            .zip(1u16..)
+            .map(|(ch, cid)| ModelGlyph {
+                ch,
+                cid,
+                advance: 600,
+            })
+            .collect(),
+        subset: vec![0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    }
+}
 
 /// The start of a stamp picture: the signature and a header chunk of 64 x 32 pixels.
 fn stamp_png() -> Vec<u8> {
@@ -361,6 +389,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 password_key: Some(PasswordKey([0x5a; 32])),
             },
         },
+        WorkerResponse::TextBoxPrepared {
+            request,
+            model: text_box_model(),
+        },
+        WorkerResponse::Error {
+            request: Some(request),
+            error: WorkerError {
+                code: WorkerErrorCode::Font(FontRefusal::Variable),
+                detail: "the font cannot be used".to_owned(),
+                password_key: None,
+            },
+        },
+        WorkerResponse::Error {
+            request: Some(request),
+            error: WorkerError {
+                code: WorkerErrorCode::UnsupportedText,
+                detail: "a script that a text box cannot set".to_owned(),
+                password_key: None,
+            },
+        },
     ];
     let requests = [
         WorkerRequest::Open {
@@ -619,6 +667,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     y1: 164.0,
                 },
                 png: stamp_png(),
+            },
+        },
+        WorkerRequest::PrepareTextBox {
+            request,
+            font: FontData {
+                bytes: vec![0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                face: 0,
+                name: "Arial".to_owned(),
+            },
+            text: "Hello 你好".to_owned(),
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::PlaceTextBox {
+                page: 0,
+                rect: Rect {
+                    x0: 72.0,
+                    y0: 72.0,
+                    x1: 372.0,
+                    y1: 132.0,
+                },
+                model: text_box_model(),
+                style: TextBoxStyle {
+                    size: 12.0,
+                    color: Rgb {
+                        r: 26,
+                        g: 51,
+                        b: 153,
+                    },
+                    align: TextAlign::Center,
+                },
             },
         },
         WorkerRequest::SavePages {

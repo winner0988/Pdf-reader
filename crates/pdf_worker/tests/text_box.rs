@@ -370,7 +370,8 @@ fn the_selection_and_removal_of_annotations_see_a_text_box_and_removal_takes_its
     let mut app = PdfDocument::from_bytes(&saved(&mut doc)).expect("open");
     let listed = app.page_annotations(0).expect("annotations");
     assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].kind, AnnotationKind::Other);
+    assert_eq!(listed[0].kind, AnnotationKind::TextBox);
+    assert_eq!(listed[0].text.as_deref(), Some(MIXED));
     let rect = listed[0].rect;
     assert_eq!(
         [rect.x0, rect.y0, rect.x1, rect.y1],
@@ -723,4 +724,89 @@ fn a_model_that_was_tampered_with_makes_no_text_box() {
         saved(&mut doc) == before,
         "something was put in the document"
     );
+}
+
+#[test]
+fn only_a_free_text_with_the_apps_entry_is_a_text_box_and_the_entry_says_what_the_box_needs() {
+    use ipc_contract::types::AnnotationKind;
+    let mut doc = blank();
+    let small = Rect {
+        x1: 100.0,
+        y1: 82.0,
+        ..BOX
+    };
+    let spec_long = spec("one two three four five six seven eight nine ten");
+    doc.add_text_box(0, small, &spec_long, &font(droid()))
+        .expect("box");
+    let bytes = saved(&mut doc);
+    let doc = MuPdf::from_bytes(&bytes).expect("open");
+    let page = doc.load_pdf_page(0).expect("page");
+    let annotation = page.annotations().next().expect("an annotation");
+    let entry = annotation
+        .object()
+        .get_dict("PdfReaderTextBox")
+        .unwrap()
+        .expect("the entry");
+    let flag = |key: &str| entry.get_dict(key).unwrap().and_then(|v| v.as_bool().ok());
+    assert_eq!(flag("Over"), Some(true));
+    assert_eq!(flag("View"), Some(false));
+
+    // The same annotation without the entry, as another program would have made it: not ours.
+    let app = PdfDocument::from_bytes(&bytes).expect("open");
+    assert_eq!(
+        app.page_annotations(0).expect("list")[0].kind,
+        AnnotationKind::TextBox
+    );
+    let stripped = {
+        let raw = MuPdf::from_bytes(&bytes).expect("open");
+        let page = raw.load_pdf_page(0).expect("page");
+        let annotation = page.annotations().next().expect("an annotation");
+        annotation
+            .object()
+            .dict_delete("PdfReaderTextBox")
+            .expect("delete");
+        let mut out = Vec::new();
+        raw.write_to(&mut out).expect("write");
+        out
+    };
+    let app = PdfDocument::from_bytes(&stripped).expect("open");
+    let listed = app.page_annotations(0).expect("list");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].kind, AnnotationKind::Other);
+    assert_eq!(listed[0].text, None);
+}
+
+#[test]
+fn english_traditional_and_simplified_chinese_and_japanese_are_each_drawn_inside_the_box() {
+    // Characters that only one of the three CJK languages writes this way are in each line.
+    let lines = [
+        ("english", "The quick brown fox"),
+        ("traditional", "繁體中文的文字方塊，體驗學習"),
+        ("simplified", "简体中文的文字方框，体验学习"),
+        ("japanese", "日本語のテキスト、ひらがなとカタカナ"),
+    ];
+    let mut sizes = Vec::new();
+    for (language, text) in lines {
+        let mut doc = blank();
+        let made = doc
+            .add_text_box(0, BOX, &spec(text), &font(droid()))
+            .unwrap_or_else(|error| panic!("{language}: {error}"));
+        assert!(!made.overflow, "{language}");
+        let bytes = saved(&mut doc);
+        sizes.push(bytes.len());
+        let page = render(&bytes);
+        let inside = ink(&page, IN_BOX);
+        assert!(inside.len() > 100, "{language}: {}", inside.len());
+        assert_eq!(ink(&page, whole(&page)).len(), inside.len(), "{language}");
+        // The words are in the file for other readers, and the font is a few kilobytes.
+        let reopened = MuPdf::from_bytes(&bytes).expect("open");
+        let annotation = reopened
+            .load_pdf_page(0)
+            .expect("page")
+            .annotations()
+            .next()
+            .expect("an annotation");
+        assert_eq!(annotation.contents().expect("contents"), Some(text));
+        assert!(bytes.len() < 40_000, "{language}: {} bytes", bytes.len());
+    }
 }

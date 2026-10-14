@@ -229,9 +229,10 @@ function AnnotationToolbar({
           </Button>
         </>
       )}
-      {(annotation.kind === "ink" || annotation.kind === "stamp" || annotation.kind === "other") && (
-        <span className="px-1">{t.kind[annotation.kind]}</span>
-      )}
+      {(annotation.kind === "ink" ||
+        annotation.kind === "stamp" ||
+        annotation.kind === "textBox" ||
+        annotation.kind === "other") && <span className="px-1">{t.kind[annotation.kind]}</span>}
       <Button variant="ghost" size="icon-sm" aria-label={t.delete} title={why ?? t.delete} disabled={!allowed} onClick={onDelete}>
         <Trash2 />
       </Button>

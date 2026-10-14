@@ -2,7 +2,7 @@
 
 [ADR 0018](../adr/0018-text-boxes-and-fonts.md) 的實作之一：worker 在頁面上加一個文字方塊，也就是 `FreeText` 註解，外觀（字型子集、排版）由 worker 自己寫。這份文件只講引擎；已安裝字型的清單與讀檔在 [text-boxes.md](text-boxes.md)（B2-27）。
 
-程式在 `crates/pdf_worker/src/engine/text_box.rs` 與它的 `text_box/`（`font.rs` 讀字型與切子集、`layout.rs` 斷行與排版、`pdf.rs` 寫成與讀回 PDF 物件）。契約型別 `Rgb`、`TextAlign`、`TextBoxStyle`、`FontRefusal`、`TextBoxModel` 與限制常數在 `ipc_contract`。**這個 PR 沒有 IPC 命令**：訊息與編輯在契約的 PR，主行程在 B2-29。
+程式在 `crates/pdf_worker/src/engine/text_box.rs` 與它的 `text_box/`（`font.rs` 讀字型與切子集、`layout.rs` 斷行與排版、`pdf.rs` 寫成與讀回 PDF 物件）。契約型別 `Rgb`、`TextAlign`、`TextBoxStyle`、`TextBoxModelId`、`FontRefusal`、`TextBoxModel` 與限制常數在 `ipc_contract`。訊息、編輯與錯誤碼見下面的「契約」；**主行程還沒有接上**（`apply_edit` 對 `AddTextBox` 回 `invalidArgument`，沒有 `prepare_text_box` 命令），見「為什麼主行程還沒接上」。
 
 ## 兩個步驟與「模型」
 
@@ -77,12 +77,48 @@
 
 兩個測試守這條規則：`mupdf_draws_the_appearance_again_when_it_is_asked_to_change_the_annotation` 證明 MuPDF 現在確實會換掉外觀的字型（升級 MuPDF 後行為若變，它失敗，規則就可以重新看），`moving_a_text_box_by_its_rect_alone_moves_it_and_nothing_else_changes` 證明只改 `/Rect` 就夠。
 
+## 契約
+
+文字方塊的流程照圖片印章（`pick_stamp_image` → `StampImageId` → `Edit::AddImageStamp`）的樣子：先**準備**，編輯只帶準備好的東西的號碼。
+
+- **`prepare_text_box { doc, text, font }`**（命令，B2-29 的主行程接上）→ `PreparedTextBox { model, viewOnly }`：`font` 是 `get_fonts`（B2-27）清單裡的字型代號，`text` 受 `PrepareTextBoxArgs` 驗證。主行程讀字型檔、送給 worker（`WorkerRequest::PrepareTextBox { font, text }` → `WorkerResponse::TextBoxPrepared { model }`），模型留在主行程（像圖片），畫面只拿到號碼 `TextBoxModelId` 與「字型只能檢視與列印」。畫面因此在關掉對話框**之前**就知道字型能不能用，不必等編輯失敗。
+- **`Edit::AddTextBox { page, rect, model, style }`**：`model` 是上面的號碼，`style` 是 `TextBoxStyle { size, color, align }`。字型不在 `style` 裡（它在模型裡），粗體與斜體也不是欄位：它們是同一家族的另一個字型（`FontInfo` 有 `family`、`bold`、`italic`），畫面準備文字時換一個字型代號就好；沒有變體時畫面說明，不模擬。驗證比照其他註解的編輯（頁碼、`rect` 正的、每邊至少 `MIN_ANNOTATION_SIDE_PT`、有限值，大小 4 到 288 點）。
+- **`WorkerEdit::PlaceTextBox { page, rect, model, style }`**：主行程把號碼換成模型再送給 worker（`WorkerEdit::of` 的 `text_box` 解析器；找不到回 `UnknownFile::TextBox`）。`FontData`（字型位元組）的 `Debug` 只印大小。
+- **`AnnotationKind::TextBox`**：`page_annotations` 對 app 的文字方塊回這個種類（有私有記號的 `FreeText`；別的程式做的 `FreeText` 仍是 `other`），`text` 是它的文字；移動（`setAnnotationRect`）與改文字現在還會被拒絕（見下一節的規則），只能選取與刪除。
+- **錯誤碼**：`FontRefusal` 與 `UnsupportedText` 經 `WorkerErrorCode::Font(…)`、`WorkerErrorCode::UnsupportedText` 到前端的 `ErrorCode`：
+
+| worker | 前端的 `ErrorCode` |
+|---|---|
+| `Font(NotAFont)` | `fontInvalid` |
+| `Font(NotTrueType)` | `fontNotTrueType` |
+| `Font(Variable)` | `fontVariable` |
+| `Font(Colour)` | `fontColour` |
+| `Font(NotEmbeddable)` | `fontNotEmbeddable` |
+| `Font(MissingGlyphs)` | `fontMissingGlyphs` |
+| `UnsupportedText` | `textNotSupported` |
+| `SubsetTooLarge` | `limitExceeded` |
+| （主行程）字型檔不在了或讀不到 | `fontUnavailable` |
+
+訊息文字在 `src/i18n/zh-TW.ts`，集中管理。
+
+- **JSON 與 postcard**：`TextBoxModel` 在 worker 與主行程之間用 postcard（子集是原樣的位元組），在日誌裡用 JSON（子集是小寫十六進位文字，像圖片）；讀日誌時一樣當成不可信任的資料（`validate`）。
+
+## 為什麼主行程還沒接上
+
+主行程要保管「準備好的文字」（模型庫）、在復原與重開時送回去、把它們放進崩潰復原日誌。這件事跟復原的設計連在一起，所以留給 B2-29：
+
+- 復原（ADR 0013）是重新開啟文件，把前面所有的編輯再做一次，放在**同一個**訊息裡（上限 `MAX_FRAME_BYTES`，80 MiB）。帶整個字型的話，同一個 19 MB 的中文字型用在五個方塊上就是 95 MB：復原會失敗；現在編輯帶的是模型（幾 KB），所以不會。
+- 崩潰復原日誌上限 4 MiB，放不下字型（ADR 0018：日誌放子集，不放整個字型）；放得下模型。
+- 在那之前 `apply_edit` 對 `AddTextBox` 回 `invalidArgument`，日誌也不收這種編輯（`journalled` 在它之前停下來，讀日誌時它是不合格的，像「插入其他檔案的頁面」一樣）。
+
 ## 測試
 
-- `crates/pdf_worker/tests/text_box.rs`（14 個）：子集與存檔後重開、顏色與大小、三種對齊、移動、轉過的頁面、守規則、現有的註解機制（選取與移除）看得到它而且移除時字型一起走、各種被拒絕的字型與文字（用改過標籤的真字型）、需要字形變化的文字、僅供檢視的字型、放不下、不合理的輸入且文件不變；**模型**：幾 KB、不用字型就能放進別的文件並改大小、與 `add_text_box` 得到同樣的註解編號、從存好的檔案讀回、被竄改的模型不做出方塊。
+- `crates/pdf_worker/tests/text_box.rs`（16 個）：子集與存檔後重開、英文／繁體中文／簡體中文／日文各一個、顏色與大小、三種對齊、移動、轉過的頁面、守規則、現有的註解機制（選取與移除）看得到它而且移除時字型一起走、只有帶 app 的記號的 `FreeText` 才是文字方塊、各種被拒絕的字型與文字（用改過標籤的真字型）、需要字形變化的文字、僅供檢視的字型、放不下、不合理的輸入且文件不變；**模型**：幾 KB、不用字型就能放進別的文件並改大小、與 `add_text_box` 得到同樣的註解編號、從存好的檔案讀回、被竄改的模型不做出方塊。
+- `crates/pdf_worker/tests/text_box_worker.rs`（3 個）：在真正的沙盒 worker 裡，字型以位元組送去準備，模型在**另一個**沒見過字型的 worker 裡放成方塊、列出、存檔、只含子集；被拒絕的字型與文字各有自己的錯誤碼；被竄改的模型不做出方塊也不傷 worker。
 - 引擎內的單元測試：斷行（空白、長字、中文、標點）、需要字形變化的文字、`UTF-16` 與子集標籤、度量的單位。
-- `ipc_contract`：模型與樣式的驗證，模型經 postcard（worker）與 JSON（日誌）來回不變。
+- `ipc_contract`：模型、樣式、編輯與準備文字的引數的驗證與前端的 JSON 形式；模型經 postcard 與 JSON 來回不變；錯誤碼對應。
+- 主行程：日誌在文字方塊之前停下來、日誌讀取拒絕它、權限與頁碼先檢查、現在回 `invalidArgument`。
 
 ## 尚未實作
 
-契約的 `Edit::AddTextBox`、`prepare_text_box` 命令、錯誤碼與 `AnnotationKind::TextBox`（下一個 PR）；主行程的模型庫、復原與日誌（B2-29）；移動、縮放、改字、搜尋與選取（B2-29）；畫面與輸入法（B2-30）；端對端與字型的 fuzz（B2-31）；匯入字型檔（B2-32）。
+`prepare_text_box` 命令、模型庫、復原與日誌的接上（B2-29）；移動、縮放、改字與樣式、搜尋與選取（B2-29）；畫面與輸入法（B2-30）；端對端與字型的 fuzz（B2-31）；匯入字型檔（B2-32）。

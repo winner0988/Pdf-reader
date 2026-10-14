@@ -9,10 +9,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::PROTOCOL_VERSION;
 use crate::types::{
-    AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FormField,
-    HighlightColor, HighlightMark, InkColor, InkWidth, OutlineResult, PageAnnotation, PageLink,
-    PageSize, PageText, Password, Point, Rect, RequestId, Restrictions, Rotation, SearchHit,
-    SecurityReport, SignatureReport, SourceId, StampImageId, StampName,
+    AnnotationId, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FontRefusal,
+    FormField, HighlightColor, HighlightMark, InkColor, InkWidth, OutlineResult, PageAnnotation,
+    PageLink, PageSize, PageText, Password, Point, Rect, RequestId, Restrictions, Rotation,
+    SearchHit, SecurityReport, SignatureReport, SourceId, StampImageId, StampName, TextBoxModelId,
+    TextBoxStyle,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -20,6 +21,27 @@ use crate::types::{
 /// never receives a path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileHandle(pub u64);
+
+/// A font file as the worker is given it for a text box (B2-28, ADR 0018): the bytes the main
+/// process read from an installed font (not trusted: only the worker reads them), which font of
+/// the file is meant (0 unless it is a collection) and the name Windows lists it by.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FontData {
+    pub bytes: Vec<u8>,
+    pub face: u32,
+    pub name: String,
+}
+
+impl std::fmt::Debug for FontData {
+    /// Not the bytes: a font is up to 64 MiB.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FontData")
+            .field("bytes", &self.bytes.len())
+            .field("face", &self.face)
+            .field("name", &self.name)
+            .finish()
+    }
+}
 
 /// One character of the words of a text box: the glyph the font has for it, numbered in the
 /// subset, and how far it moves the pen (B2-28).
@@ -39,6 +61,7 @@ pub struct ModelGlyph {
 /// model that comes back from disk or from the worker is checked like any other value
 /// ([`crate::validate`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TextBoxModel {
     /// Lines are broken at `\n` and where the box is not wide enough.
     pub text: String,
@@ -59,8 +82,51 @@ pub struct TextBoxModel {
     pub bbox: [i32; 4],
     /// The glyphs of the characters of `text`, once each.
     pub glyphs: Vec<ModelGlyph>,
-    /// The font cut to those glyphs: TrueType, in the order of `cid`.
+    /// The font cut to those glyphs: TrueType, in the order of `cid`. As JSON (the journal) it is
+    /// lowercase hex text, as the pictures of a journal are.
+    #[serde(with = "hex_when_text")]
     pub subset: Vec<u8>,
+}
+
+/// Bytes that are hex text in JSON and plain bytes in postcard.
+mod hex_when_text {
+    use serde::de::Error;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            const DIGITS: &[u8; 16] = b"0123456789abcdef";
+            let mut text = String::with_capacity(bytes.len() * 2);
+            for byte in bytes {
+                text.push(char::from(DIGITS[usize::from(byte >> 4)]));
+                text.push(char::from(DIGITS[usize::from(byte & 15)]));
+            }
+            serializer.serialize_str(&text)
+        } else {
+            bytes.serialize(serializer)
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
+        if !deserializer.is_human_readable() {
+            return Vec::<u8>::deserialize(deserializer);
+        }
+        let text = String::deserialize(deserializer)?;
+        let digit = |byte: u8| match byte {
+            b'0'..=b'9' => Some(byte - b'0'),
+            b'a'..=b'f' => Some(byte - b'a' + 10),
+            _ => None,
+        };
+        let (pairs, rest) = text.as_bytes().as_chunks::<2>();
+        if !rest.is_empty() {
+            return Err(D::Error::custom("odd number of hex digits"));
+        }
+        pairs
+            .iter()
+            .map(|&[high, low]| Some(digit(high)? << 4 | digit(low)?))
+            .collect::<Option<Vec<u8>>>()
+            .ok_or_else(|| D::Error::custom("not lowercase hex"))
+    }
 }
 
 /// An edit as the worker applies it (ADR 0013). The frontend's form is [`Edit`], which postcard
@@ -131,26 +197,37 @@ pub enum WorkerEdit {
     /// Puts the picture `png` (as `StampImage` made it) over `rect` on page `page` as a stamp
     /// (B2-08).
     AddImageStamp { page: u32, rect: Rect, png: Vec<u8> },
+    /// As [`Edit::AddTextBox`], with the model itself (B2-28): no font is needed to make it.
+    PlaceTextBox {
+        page: u32,
+        rect: Rect,
+        model: TextBoxModel,
+        style: TextBoxStyle,
+    },
 }
 
-/// An edit names a file its document does not have: one whose pages it takes (B2-06), or the
-/// picture of a stamp (B2-08).
+/// An edit names something its document does not have: a file whose pages it takes (B2-06), the
+/// picture of a stamp (B2-08) or the words of a text box (B2-28).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnknownFile {
     /// The file whose pages the edit takes.
     Source,
     /// The picture of the stamp.
     Picture,
+    /// The words of the text box, prepared.
+    TextBox,
 }
 
 impl WorkerEdit {
     /// `edit` as the worker is asked to make it. An edit that takes the pages of a file names it;
     /// `source` gives the clean copy of that file (B2-06). A picture stamp names its picture;
-    /// `picture` gives the PNG file of it (B2-08). The worker is sent them with the edit.
+    /// `picture` gives the PNG file of it (B2-08). A text box names its prepared words; `text_box`
+    /// gives the model of them (B2-28). The worker is sent them with the edit.
     pub fn of(
         edit: &Edit,
         source: impl Fn(SourceId) -> Option<Vec<u8>>,
         picture: impl Fn(StampImageId) -> Option<Vec<u8>>,
+        text_box: impl Fn(TextBoxModelId) -> Option<TextBoxModel>,
     ) -> Result<Self, UnknownFile> {
         Ok(match edit {
             Edit::RotatePages { pages, by } => WorkerEdit::RotatePages {
@@ -229,6 +306,17 @@ impl WorkerEdit {
                 page: *page,
                 rect: *rect,
                 png: picture(*image).ok_or(UnknownFile::Picture)?,
+            },
+            Edit::AddTextBox {
+                page,
+                rect,
+                model,
+                style,
+            } => WorkerEdit::PlaceTextBox {
+                page: *page,
+                rect: *rect,
+                model: text_box(*model).ok_or(UnknownFile::TextBox)?,
+                style: *style,
             },
             Edit::SetAnnotationRect {
                 page,
@@ -385,6 +473,15 @@ pub enum WorkerRequest {
         request: RequestId,
         file: FileHandle,
     },
+    /// Makes `text` in the font `font` (a file the main process read; not trusted) into the
+    /// model of a text box: the font read and its licence checked, a glyph found for every
+    /// character, and the font cut to those glyphs. Answered by `TextBoxPrepared`, or by an
+    /// error that says why the font or the text cannot be used (B2-28).
+    PrepareTextBox {
+        request: RequestId,
+        font: FontData,
+        text: String,
+    },
     /// Writes the pages `pages` (0-based, no repeats) of the document to `file` (write-only, as
     /// for `Save`) as a document of their own, in the order they have in the document: the
     /// document as it is now is copied and the other pages are taken out of the copy. The
@@ -487,6 +584,11 @@ pub enum WorkerResponse {
         request: RequestId,
         page_index: u32,
         text: PageText,
+    },
+    /// The model of `PrepareTextBox`.
+    TextBoxPrepared {
+        request: RequestId,
+        model: TextBoxModel,
     },
     /// The picture of `PrepareStampImage`: a PNG file of `width` x `height` pixels.
     StampImage {
@@ -684,6 +786,10 @@ pub enum WorkerErrorCode {
     DiskFull,
     /// Saving: the file could not be written for another reason.
     Unwritable,
+    /// A text box cannot be set in the font (B2-28).
+    Font(FontRefusal),
+    /// A text box cannot be set in the text: it needs a script the worker does not set (B2-28).
+    UnsupportedText,
     Internal,
 }
 
@@ -704,6 +810,15 @@ impl From<WorkerErrorCode> for ErrorCode {
             WorkerErrorCode::Cancelled => ErrorCode::Cancelled,
             WorkerErrorCode::DiskFull => ErrorCode::DiskFull,
             WorkerErrorCode::Unwritable => ErrorCode::Unwritable,
+            WorkerErrorCode::Font(refusal) => match refusal {
+                FontRefusal::NotAFont => ErrorCode::FontInvalid,
+                FontRefusal::NotTrueType => ErrorCode::FontNotTrueType,
+                FontRefusal::Variable => ErrorCode::FontVariable,
+                FontRefusal::Colour => ErrorCode::FontColour,
+                FontRefusal::NotEmbeddable => ErrorCode::FontNotEmbeddable,
+                FontRefusal::MissingGlyphs => ErrorCode::FontMissingGlyphs,
+            },
+            WorkerErrorCode::UnsupportedText => ErrorCode::TextNotSupported,
             WorkerErrorCode::Internal => ErrorCode::Internal,
         }
     }
@@ -740,6 +855,160 @@ mod tests {
         assert_eq!(
             ErrorCode::from(WorkerErrorCode::UnsupportedEncryption),
             ErrorCode::UnsupportedEncryption
+        );
+    }
+
+    fn sample_model() -> TextBoxModel {
+        TextBoxModel {
+            text: "Hi".to_owned(),
+            font: "Arial Bold".to_owned(),
+            face: 2,
+            view_only: true,
+            base: "ABCDEF+Arial-Bold".to_owned(),
+            ascent: 905,
+            descent: -212,
+            cap_height: 716,
+            step: 1_150,
+            bbox: [-665, -325, 2_000, 1_006],
+            glyphs: vec![
+                ModelGlyph {
+                    ch: 'H',
+                    cid: 1,
+                    advance: 722,
+                },
+                ModelGlyph {
+                    ch: 'i',
+                    cid: 2,
+                    advance: 278,
+                },
+            ],
+            subset: vec![0, 1, 0, 0, 9, 9, 9, 9, 9, 9, 9, 9],
+        }
+    }
+
+    #[test]
+    fn a_text_box_edit_carries_its_model_and_makes_the_same_edit_again() {
+        use crate::types::{Rgb, TextAlign};
+        let edit = Edit::AddTextBox {
+            page: 1,
+            rect: Rect {
+                x0: 72.0,
+                y0: 72.0,
+                x1: 372.0,
+                y1: 132.0,
+            },
+            model: TextBoxModelId(4),
+            style: TextBoxStyle {
+                size: 14.0,
+                color: Rgb { r: 1, g: 2, b: 3 },
+                align: TextAlign::Right,
+            },
+        };
+        let model = |id: TextBoxModelId| (id == TextBoxModelId(4)).then(sample_model);
+        let made = WorkerEdit::of(&edit, |_| None, |_| None, model).unwrap();
+        let WorkerEdit::PlaceTextBox {
+            page,
+            model: sent,
+            style,
+            ..
+        } = &made
+        else {
+            panic!("{made:?}");
+        };
+        assert_eq!(
+            (*page, style.size, style.align),
+            (1, 14.0, TextAlign::Right)
+        );
+        assert_eq!(*sent, sample_model());
+        let bytes = postcard::to_allocvec(&made).unwrap();
+        assert_eq!(postcard::from_bytes::<WorkerEdit>(&bytes).unwrap(), made);
+        // Words that the document does not have are no edit.
+        assert_eq!(
+            WorkerEdit::of(&edit, |_| None, |_| None, |_| None),
+            Err(UnknownFile::TextBox)
+        );
+    }
+
+    #[test]
+    fn the_font_sent_to_prepare_words_does_not_print_its_bytes() {
+        let request = WorkerRequest::PrepareTextBox {
+            request: RequestId(3),
+            font: FontData {
+                bytes: vec![0, 1, 0, 0, 9, 9, 9, 9],
+                face: 2,
+                name: "Arial Bold".to_owned(),
+            },
+            text: "Hello".to_owned(),
+        };
+        let shown = format!("{request:?}");
+        assert!(
+            shown.contains("bytes: 8") && !shown.contains("[0, 1, 0, 0"),
+            "{shown}"
+        );
+        let bytes = postcard::to_allocvec(&request).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerRequest>(&bytes).unwrap(),
+            request
+        );
+        let response = WorkerResponse::TextBoxPrepared {
+            request: RequestId(3),
+            model: sample_model(),
+        };
+        let bytes = postcard::to_allocvec(&response).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerResponse>(&bytes).unwrap(),
+            response
+        );
+    }
+
+    #[test]
+    fn a_models_subset_is_hex_text_in_the_journal_and_plain_bytes_between_the_processes() {
+        let model = sample_model();
+        let json = serde_json::to_string(&model).unwrap();
+        assert!(
+            json.contains(r#""subset":"000100000909090909090909""#),
+            "{json}"
+        );
+        assert_eq!(serde_json::from_str::<TextBoxModel>(&json).unwrap(), model);
+        // Not lowercase hex, an odd number of digits, or a field that is not the model's.
+        for bad in [
+            json.replace("00010000", "0001000G"),
+            json.replace("00010000", "0001000A"),
+            json.replace(r#""subset":""#, r#""subset":"0"#),
+            json.replace(r#""face":2"#, r#""face":2,"extra":1"#),
+        ] {
+            assert!(serde_json::from_str::<TextBoxModel>(&bad).is_err(), "{bad}");
+        }
+        // Bytes cost their own size between the processes, and not twice that.
+        let bytes = postcard::to_allocvec(&model).unwrap();
+        assert!(
+            bytes.len() < json.len(),
+            "{} against {}",
+            bytes.len(),
+            json.len()
+        );
+    }
+
+    #[test]
+    fn a_font_refusal_reaches_the_frontend_as_a_code_it_can_explain() {
+        for (refusal, code) in [
+            (FontRefusal::NotAFont, ErrorCode::FontInvalid),
+            (FontRefusal::NotTrueType, ErrorCode::FontNotTrueType),
+            (FontRefusal::Variable, ErrorCode::FontVariable),
+            (FontRefusal::Colour, ErrorCode::FontColour),
+            (FontRefusal::NotEmbeddable, ErrorCode::FontNotEmbeddable),
+            (FontRefusal::MissingGlyphs, ErrorCode::FontMissingGlyphs),
+        ] {
+            assert_eq!(ErrorCode::from(WorkerErrorCode::Font(refusal)), code);
+            let bytes = postcard::to_allocvec(&WorkerErrorCode::Font(refusal)).unwrap();
+            assert_eq!(
+                postcard::from_bytes::<WorkerErrorCode>(&bytes).unwrap(),
+                WorkerErrorCode::Font(refusal)
+            );
+        }
+        assert_eq!(
+            ErrorCode::from(WorkerErrorCode::UnsupportedText),
+            ErrorCode::TextNotSupported
         );
     }
 

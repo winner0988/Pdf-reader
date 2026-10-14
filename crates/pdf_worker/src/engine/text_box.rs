@@ -21,7 +21,7 @@ use ipc_contract::types::{AnnotationId, FontRefusal, Rect, Rgb, TextAlign, TextB
 use ipc_contract::validate::Validate;
 use ipc_contract::worker::TextBoxModel;
 use mupdf::Buffer;
-use mupdf::pdf::PdfAnnotationType;
+use mupdf::pdf::{PdfAnnotation, PdfAnnotationType};
 
 pub use font::prepare_text_box;
 
@@ -55,6 +55,14 @@ pub struct TextBoxMade {
     pub view_only: bool,
     /// The text does not fit the height of the box: what is below is cut off.
     pub overflow: bool,
+}
+
+/// Whether `annotation` is a text box this app made (a `FreeText` with the app's entry).
+pub(super) fn is_text_box(annotation: &PdfAnnotation) -> bool {
+    annotation
+        .object()
+        .get_dict(pdf::KEY)
+        .is_ok_and(|entry| entry.is_some())
 }
 
 fn finite(rect: Rect) -> bool {
