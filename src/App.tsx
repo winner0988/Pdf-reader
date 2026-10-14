@@ -18,6 +18,7 @@ import { tauriSavingApi, type SavingApi } from "@/features/saving/api";
 import { UnsavedDialog } from "@/features/saving/UnsavedDialog";
 import { tauriSettingsApi, type SettingsApi } from "@/features/settings/api";
 import { SettingsProvider } from "@/features/settings/SettingsProvider";
+import type { PasswordsApi } from "@/features/settings/PasswordsSection";
 import { tauriUpdatesApi, type UpdatesApi } from "@/features/settings/updates";
 import { DevDemoSwitcher } from "@/features/shell/DevDemoSwitcher";
 import type { ShellState } from "@/features/shell/model";
@@ -155,6 +156,7 @@ export default function App({
               recentApi={demo ? undefined : recentApi}
               updatesApi={demo ? undefined : updatesApi}
               ocrApi={demo ? undefined : ocrApi}
+              passwordsApi={demo ? undefined : api}
               onOpen={open}
               onClose={() => setDemo(null)}
             />
@@ -180,6 +182,7 @@ export default function App({
                 editingApi={editingApi}
                 updatesApi={updatesApi}
                 ocrApi={ocrApi}
+                passwordsApi={api}
                 ocr={ocr.state.get(tab.tab)}
                 fieldEdits={fieldEdits}
                 latestInfo={tabs.latestInfo}
@@ -187,6 +190,7 @@ export default function App({
                 onClose={requestClose}
                 onRetry={tabs.retry}
                 onUnlock={tabs.unlock}
+                onForgetPassword={tabs.forgetPassword}
               />
             ))
           )}
@@ -242,13 +246,15 @@ type TabPaneProps = {
   editingApi: EditingApi;
   updatesApi: UpdatesApi;
   ocrApi: OcrApi;
+  passwordsApi: PasswordsApi;
   ocr: OcrTab | undefined;
   fieldEdits: FieldEdits;
   latestInfo: (tab: TabId) => DocumentInfo | undefined;
   onOpen: () => void;
   onClose: (tab: TabId) => void;
   onRetry: (tab: TabId) => void;
-  onUnlock: (tab: TabId, password: string) => void;
+  onUnlock: (tab: TabId, password: string, remember: boolean) => void;
+  onForgetPassword: (tab: TabId) => void;
 };
 
 /**
@@ -264,6 +270,7 @@ function TabPane({
   onClose,
   onRetry,
   onUnlock,
+  onForgetPassword,
   ...shell
 }: TabPaneProps) {
   const outline = useOutline(outlineApi, docOf(tab), tab.content.kind === "open" && tab.content.hasOutline);
@@ -284,7 +291,8 @@ function TabPane({
         latest={() => latestInfo(tab.tab)}
         onClose={() => onClose(tab.tab)}
         onRetry={() => onRetry(tab.tab)}
-        onUnlock={(password) => onUnlock(tab.tab, password)}
+        onUnlock={(password, remember) => onUnlock(tab.tab, password, remember)}
+        onForgetPassword={() => onForgetPassword(tab.tab)}
       />
     </div>
   );

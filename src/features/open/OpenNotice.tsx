@@ -16,9 +16,12 @@ export function OpenNotice({ notice, onDismiss }: { notice: TabsNotice; onDismis
   }, [notice, onDismiss]);
 
   const failed = notice.kind === "failed";
-  const text = failed
-    ? strings.error.messages[notice.code] || strings.error.title
-    : strings.tabs.tabLimit(LIMITS.maxTabs, notice.ignoredFiles);
+  const text =
+    notice.kind === "failed"
+      ? strings.error.messages[notice.code] || strings.error.title
+      : notice.kind === "notRemembered"
+        ? strings.password.notRemembered[notice.reason]
+        : strings.tabs.tabLimit(LIMITS.maxTabs, notice.ignoredFiles);
   return (
     <div
       role={failed ? "alert" : "status"}

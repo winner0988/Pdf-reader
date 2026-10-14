@@ -160,7 +160,8 @@ describe("App", () => {
       `${strings.tabs.locked}機密.pdf`,
     );
     await user.type(screen.getByLabelText(strings.password.label), "user{Enter}");
-    expect(api.unlock).toHaveBeenCalledExactlyOnceWith(2, "user");
+    // Nothing is remembered unless the user asks.
+    expect(api.unlock).toHaveBeenCalledExactlyOnceWith(2, "user", false);
 
     // Cancelling closes the tab and shows the other one.
     await user.click(screen.getByRole("button", { name: strings.password.cancel }));

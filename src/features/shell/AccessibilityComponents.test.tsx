@@ -221,7 +221,7 @@ describe("what the window shows", () => {
     const tabs: Tab[] = [
       { tab: 1, displayName: "報告.pdf", content: { kind: "open", document: demoDocument, hasOutline: true } },
       { tab: 2, displayName: "合約.pdf", content: { kind: "loading" } },
-      { tab: 3, displayName: "機密.pdf", content: { kind: "password", wrong: false } },
+      { tab: 3, displayName: "機密.pdf", content: { kind: "password", wrong: false, canRemember: true, rememberedFailed: false } },
       { tab: 4, displayName: "壞掉.pdf", content: { kind: "error", code: "corrupted" } },
     ];
     // The window's own panels hold the reader; here they only have to be what the tabs point to.

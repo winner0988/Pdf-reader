@@ -45,6 +45,15 @@
   - 「取消」關閉這個分頁。
   - 分頁列上這個分頁顯示鎖頭圖示。
   - 以憑證加密等不支援的方式時，顯示錯誤畫面與 unsupportedEncryption 的說明。
+  - **記住密碼**（B2-26，ADR 0017；做法見 [encryption.md](../architecture/encryption.md)）：
+    - 檔案的加密資料有可以查找的部分時（`passwordNeeded.canRemember`），密碼欄位下方有核取方塊 password.remember，**預設不勾**，旁邊小字說明 password.rememberNote（之後開啟就不必再輸入、搬移或改名也一樣；同一個 Windows 帳號的其他程式讀得到認證管理員裡的密碼）。勾選才存，而且是密碼**打開了文件之後**才存，輸入錯誤的不存。密碼不對時回到這個畫面，核取方塊保持使用者剛才的選擇；換一份文件則重新回到不勾。
+    - 沒有可以查找的部分時（不是標準的密碼安全處理程序），不顯示核取方塊，改以小字說明 password.cannotRemember。
+    - 這份文件記住的密碼打不開它（檔案的密碼可能改過了，`rememberedFailed`）：上方一行說明 password.rememberedFailed；沒有紅字，因為使用者沒有輸入錯的東西；舊的記錄不會被刪，勾選「記住」並輸入新密碼才取代它。
+    - 存不進去時（沒有可以查找的部分、已達上限、密碼是空的或太長、無法使用 Windows 認證管理員），文件照常開啟，畫面下方的通知說明原因（password.notRemembered.noKey／full／unsuitable／unavailable，8 秒後自己消失，也可以關閉）。
+- **用記住的密碼開啟的文件**（B2-26）：不出現密碼畫面；文件上方有一條提示列（region，名稱 password.recalled.label）說 password.recalled.text，有「忘記」（password.recalled.forget）與關閉的叉叉（password.recalled.dismiss，只是不再顯示，密碼仍然記著）。按「忘記」刪掉這份文件的記錄，提示列消失，狀態列顯示 password.forgotten 4 秒；下次開啟又會問。
+  - 「⋯」選單有 password.forgetMenu：只在這份文件有記住的密碼時出現（包括這次是輸入後勾選記住的，那時沒有提示列）。
+  - 設定頁的「記住的密碼」區：顯示 settings.passwords.count（沒有時 settings.passwords.none）與上限 settings.passwords.limit，達到上限時加一行 settings.passwords.full；說明 settings.passwords.note（密碼存在 Windows 認證管理員，同一個 Windows 帳號的其他程式讀得到；**沒有逐項列表**，因為條目裡沒有檔名，單一文件從它的「⋯」選單忘記）。「全部忘記…」先問（settings.passwords.confirmTitle／confirmText，焦點預設在「取消」），確認後刪除全部、顯示 settings.passwords.forgotAll，已開啟的文件同時失去提示列與選單項目。沒有記住的密碼時按鈕停用。無法使用認證管理員時顯示 settings.passwords.failed。
+  - 同一個密碼用在很多檔案時，每個檔案要各記一次（每個檔案的鹽值不同）：這是為了不讓任何 worker 看到不屬於它的密碼。
 - **單頁渲染失敗**（MVP-07）：該頁占位框內顯示「這一頁無法顯示」與「重試」，其他頁面不受影響。
 
 ## 3. 搜尋
@@ -255,7 +264,7 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
 - 檔案在那之後被其他程式修改過時（recovery.stale），不能還原，只能捨棄或稍後再決定。
 - 上次做過「插入其他檔案的頁面」時，日誌放不下那個檔案：提示列說明插入與之後的變更無法還原，之前的變更可以還原（recovery.partial，有「還原變更」）；沒有之前的變更時只能捨棄或稍後再決定（recovery.lost）。
 - 處理失敗時狀態列提示 recovery.failed。
-- 以密碼開啟的文件，worker 崩潰後再輸入密碼時，變更自動重新套用，不顯示提示列。
+- 以密碼開啟的文件，worker 崩潰後再輸入密碼時，變更自動重新套用，不顯示提示列。有記住密碼的文件連密碼都不必再輸入：分頁自己重新開啟，變更照樣補回（B2-26）。
 
 ### 註解（B2-07）
 
@@ -619,11 +628,31 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | 鍵 | 文字 |
 |---|---|
 | password.title | 這份文件受密碼保護 |
-| password.description | 輸入密碼以開啟「<檔名>」。密碼只用來開啟這份文件，不會被儲存。 |
+| password.description | 輸入密碼以開啟「<檔名>」。密碼只用來開啟這份文件；除非你勾選下方的「記住」，否則不會被儲存。 |
 | password.label | 密碼 |
 | password.submit | 解鎖 |
 | password.cancel | 取消 |
 | password.wrong | 密碼不正確，請再試一次。 |
+| password.remember | 記住這份文件的密碼（存在 Windows 認證管理員） |
+| password.rememberNote | 之後開啟這份文件（搬移或改名後的複本也一樣）就不必再輸入。同一個 Windows 帳號的其他程式讀得到認證管理員裡的密碼。 |
+| password.cannotRemember | 這份文件不能記住密碼：它的加密資料沒有可以用來查找的部分。 |
+| password.rememberedFailed | 記住的密碼打不開這份文件，可能已經改過了。請輸入目前的密碼；勾選「記住」會取代舊的。 |
+| password.notRemembered.noKey | 沒有記住密碼：這份文件的加密資料沒有可以用來查找的部分。 |
+| password.notRemembered.full | 沒有記住密碼：記住的密碼已達上限。請先到「設定」忘記一些。 |
+| password.notRemembered.unsuitable | 沒有記住密碼：密碼是空的或太長。 |
+| password.notRemembered.unavailable | 沒有記住密碼：無法使用 Windows 認證管理員。 |
+| password.recalled.label／text | 記住的密碼／已用記住的密碼開啟這份文件。 |
+| password.recalled.forget／dismiss | 忘記／關閉這則說明 |
+| password.forgetMenu | 忘記這份文件的密碼 |
+| password.forgotten | 已忘記這份文件的密碼。 |
+| settings.passwords.title | 記住的密碼 |
+| settings.passwords.count／none | 已記住 N 份文件的密碼／沒有記住的密碼。 |
+| settings.passwords.limit／full | 最多記住 N 份；滿了就不再記新的，要先忘記一些。／已達上限：要記住新的密碼，請先忘記一些。 |
+| settings.passwords.note | 密碼存在 Windows 認證管理員，不在 app 的資料夾，也不在 PDF 檔案裡；同一個 Windows 帳號的其他程式讀得到。條目裡沒有檔名，所以這裡沒有清單；單一文件的密碼從該文件的「⋯」選單忘記。 |
+| settings.passwords.forgetAll／confirmTitle | 全部忘記…／忘記全部記住的密碼？ |
+| settings.passwords.confirmText | 會刪除 Windows 認證管理員裡 N 份文件的密碼；之後開啟這些文件要重新輸入。 |
+| settings.passwords.confirm／cancel／forgotAll／failed | 全部忘記／取消／已忘記 N 份文件的密碼。／無法使用 Windows 認證管理員。 |
+| error.messages.credentialsUnavailable | 無法使用 Windows 認證管理員，請稍後再試。 |
 
 ### 列印（MVP-17）
 

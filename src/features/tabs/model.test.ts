@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { initialTabs, isUnsaved, reduceTabs, shellState, type TabsAction, type TabsState } from "@/features/tabs/model";
+import {
+  initialTabs,
+  isUnsaved,
+  reduceTabs,
+  shellState,
+  toShellDocument,
+  type TabsAction,
+  type TabsState,
+} from "@/features/tabs/model";
 import type { DocumentInfo, OpenEvent } from "@/ipc/generated/contract";
 
 const info = (doc: number, displayName: string): DocumentInfo => ({
@@ -56,12 +64,39 @@ describe("tabs", () => {
     expect(state.active).toBe(3);
   });
 
+  it("a tab asking for a password carries whether it may be remembered, and the document what became of it (B2-26)", () => {
+    const asking = run([
+      event({ kind: "opening", tab: 1, displayName: "機密.pdf" }),
+      event({ kind: "passwordNeeded", tab: 1, displayName: "機密.pdf", wrong: false, canRemember: true, rememberedFailed: true }),
+    ]);
+    expect(shellState(asking.tabs[0]!)).toEqual({
+      kind: "password",
+      displayName: "機密.pdf",
+      wrong: false,
+      canRemember: true,
+      rememberedFailed: true,
+    });
+    const document = toShellDocument({ ...info(9, "機密.pdf"), passwordRemembered: true, passwordRecalled: true });
+    expect(document.passwordRemembered).toBe(true);
+    expect(document.passwordRecalled).toBe(true);
+    // That the password was not kept as asked is a notice, shown and dismissed like the others.
+    const told = reduceTabs(asking, { type: "notRemembered", reason: "unavailable" });
+    expect(told.notice).toEqual({ kind: "notRemembered", reason: "unavailable" });
+    expect(reduceTabs(told, { type: "dismissNotice" }).notice).toBeNull();
+  });
+
   it("an encrypted file's tab asks for the password, again after a wrong one", () => {
     const asking = run([
       event({ kind: "opening", tab: 1, displayName: "機密.pdf" }),
       event({ kind: "passwordNeeded", tab: 1, displayName: "機密.pdf", wrong: false, canRemember: false, rememberedFailed: false }),
     ]);
-    expect(shellState(asking.tabs[0]!)).toEqual({ kind: "password", displayName: "機密.pdf", wrong: false });
+    expect(shellState(asking.tabs[0]!)).toEqual({
+      kind: "password",
+      displayName: "機密.pdf",
+      wrong: false,
+      canRemember: false,
+      rememberedFailed: false,
+    });
     const wrong = run(
       [
         event({ kind: "opening", tab: 1, displayName: "機密.pdf" }),
@@ -69,7 +104,12 @@ describe("tabs", () => {
       ],
       asking,
     );
-    expect(wrong.tabs[0]!.content).toEqual({ kind: "password", wrong: true });
+    expect(wrong.tabs[0]!.content).toEqual({
+      kind: "password",
+      wrong: true,
+      canRemember: false,
+      rememberedFailed: false,
+    });
     expect(run([event({ kind: "opened", tab: 1, info: info(9, "機密.pdf") })], wrong).tabs[0]!.content.kind).toBe("open");
   });
 

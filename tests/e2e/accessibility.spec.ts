@@ -8,7 +8,8 @@ import { createRequire } from "node:module";
 import type { Page } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
-import { corpus, expect, launchAgain, test } from "./app";
+import { corpus, dataDir, expect, launchAgain, quit, test } from "./app";
+import { leaveNothing, SAMPLE } from "./passwords";
 
 const axeSource = readFileSync(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8");
 
@@ -207,6 +208,53 @@ test("the text box dialog, with a problem shown, and the toolbar of a text box o
   await page.keyboard.press("Enter");
   await expect(page.getByRole("dialog", { name: t.textBoxDialog.editTitle })).toBeVisible();
   await inBothThemes(page, (theme) => noProblems(page, `text box changed, ${theme}`));
+});
+
+test("the password form that can remember, the notice of a remembered password, and the remembered passwords in the settings (B2-26)", async ({
+  launch,
+}) => {
+  const sample = SAMPLE;
+  const t = strings.password;
+  const s = strings.settings.passwords;
+  let page = await launch(sample);
+  const data = dataDir(page);
+  try {
+    // The form, with the box that asks to remember (off) and the note under it.
+    await expect(page.getByRole("heading", { name: t.title })).toBeVisible();
+    await expect(page.getByRole("checkbox", { name: new RegExp(t.remember) })).not.toBeChecked();
+    await inBothThemes(page, (theme) => noProblems(page, `password form, ${theme}`));
+    await page.getByRole("checkbox", { name: new RegExp(t.remember) }).check();
+    const field = page.getByLabel(t.label, { exact: true });
+    await field.fill("user");
+    await field.press("Enter");
+    await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
+    await quit(page);
+
+    // The next start: the file opens by itself, and the notice says so.
+    page = await launch(sample, { dataDir: data });
+    const notice = page.getByRole("region", { name: t.recalled.label });
+    await expect(notice).toBeVisible();
+    await inBothThemes(page, (theme) => noProblems(page, `notice of a remembered password, ${theme}`));
+
+    // The settings count them, and ask before forgetting all of them.
+    await chooseFromMenu(page, strings.menu.settings);
+    const dialog = page.getByRole("dialog", { name: strings.settings.title });
+    await expect(dialog).toContainText(/已記住 \d+ 份/);
+    await inBothThemes(page, (theme) => noProblems(page, `settings with remembered passwords, ${theme}`));
+    await dialog.getByRole("button", { name: s.forgetAll }).click();
+    await expect(dialog.getByRole("group", { name: s.confirmTitle })).toBeVisible();
+    await inBothThemes(page, (theme) => noProblems(page, `the question before forgetting all, ${theme}`));
+    // Not this one: only this test's own password is forgotten, from the notice.
+    await dialog.getByRole("button", { name: s.cancel }).click();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await notice.getByRole("button", { name: t.recalled.forget }).click();
+    await expect(notice).toHaveCount(0);
+    await quit(page);
+  } finally {
+    // Whatever happened, the sample's password is not left in the Credential Manager.
+    await leaveNothing(launch, page, data);
+  }
 });
 
 test("the licences of what the app is made of, a view of the About dialog", async ({ launch }) => {
