@@ -57,7 +57,7 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 | `addInk { page, strokes, color, width }` | 手繪：`strokes` 的每一筆（頁面空間的點）一起成為一個 `Ink` 註解，所以一次復原取消整張圖 | 至少一筆、每筆至少一個點；最多 `LIMITS.maxInkStrokes`（256）筆、全部最多 `LIMITS.maxInkPoints`（20,000）個點，座標都是有限值且不超過頁面大小的上限 |
 | `addStamp { page, rect, stamp }` | 在 `rect` 蓋上標準印章 | `rect` 是正的，每邊至少 `LIMITS.minAnnotationSidePt`（8 pt），座標都是有限值 |
 | `addImageStamp { page, rect, image }` | 在 `rect` 蓋上使用者自己的圖片印章；`image` 是 `pick_stamp_image` 回的編號（見上一節與下一節） | 同 `addStamp`；圖片必須是這份文件目前有的（主行程找不到時拒絕） |
-| `addTextBox { page, rect, model, style }` | 在 `rect` 放一個文字方塊（FreeText 註解，B2-28，見 [text-box-engine.md](text-box-engine.md)）；`model` 是 `prepare_text_box` 回的號碼（文字與字型已經準備好），`style`：大小、顏色、對齊；粗體與斜體是同一家族的另一個字型，不是欄位 | 同 `addStamp`，大小在 4 到 288 點；文字在準備時驗證（不可全是空白，最多 `LIMITS.maxTextBoxBytes`（4,096 bytes），除了 `\n` 不能有控制字元與看不見的格式字元）。**主行程尚未接上**（B2-29）：現在回 `invalidArgument` |
+| `addTextBox { page, rect, model, style }` | 在 `rect` 放一個文字方塊（FreeText 註解，B2-28，見 [text-box-engine.md](text-box-engine.md)）；`model` 是 `prepare_text_box` 回的號碼（文字與字型已經準備好），`style`：大小、顏色、對齊；粗體與斜體是同一家族的另一個字型，不是欄位 | 同 `addStamp`，大小在 4 到 288 點；文字在準備時驗證（不可全是空白，最多 `LIMITS.maxTextBoxBytes`（4,096 bytes），除了 `\n` 不能有控制字元與看不見的格式字元）。文字與字型先經 `prepare_text_box` 準備（見 [text-box-engine.md](text-box-engine.md)）；準備好的文字在這份文件的編輯歷史裡一直保管到不再被用到 |
 | `setAnnotationRect { page, annotation, rect }` | 移動並縮放手繪或印章，`rect` 是列出的範圍（見下方）的新位置 | 同上；只能是手繪或印章 |
 
 - 座標是頁面空間（PDF 點，頁面左上角為原點，y 向下），與文字選取、搜尋結果的四邊形相同；worker 交給 MuPDF 換算成 PDF 的座標。

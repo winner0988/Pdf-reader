@@ -51,6 +51,7 @@
     "allow-encrypt-copy",
     "allow-get-ocr-languages",
     "allow-get-fonts",
+    "allow-prepare-text-box",
     "allow-import-ocr-language",
     "allow-remove-ocr-language",
     "allow-start-ocr",
