@@ -327,11 +327,12 @@ fn read(file: &Path, path: &Path) -> Option<(Stored, ReadPictures)> {
         && stored.edits.len() <= MAX_UNDO_EDITS as usize
         && stored.lost <= MAX_UNDO_EDITS
         && stored.edits.len() + stored.lost as usize <= MAX_UNDO_EDITS as usize
-        // The journal cannot keep another file: it never has an edit that takes its pages.
-        && stored
-            .edits
-            .iter()
-            .all(|edit| !matches!(edit, Edit::InsertPages { .. }) && edit.validate().is_ok());
+        // The journal cannot keep another file, or a font: it never has an edit that takes the
+        // pages of the one, or sets a text box (B2-28; B2-29 keeps a subset of the font).
+        && stored.edits.iter().all(|edit| {
+            !matches!(edit, Edit::InsertPages { .. } | Edit::AddTextBox { .. })
+                && edit.validate().is_ok()
+        });
     if !valid {
         return None;
     }
@@ -810,6 +811,11 @@ mod tests {
         let bad = [
             // The pages of another file cannot be in a journal: it cannot keep the file.
             journal(r#"[{"kind":"insertPages","at":1,"source":3}]"#, 0),
+            // Nor a text box: its font is up to 64 MiB (B2-28; B2-29 keeps a subset).
+            journal(
+                r#"[{"kind":"addTextBox","page":0,"rect":{"x0":72.0,"y0":72.0,"x1":372.0,"y1":132.0},"model":7,"style":{"size":12.0,"color":{"r":0,"g":0,"b":0},"align":"left"}}]"#,
+                0,
+            ),
             // More left out than a document has edits.
             journal(&format!("[{delete}]"), MAX_UNDO_EDITS),
             journal("[]", MAX_UNDO_EDITS + 1),

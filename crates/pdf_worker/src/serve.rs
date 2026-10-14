@@ -21,11 +21,14 @@ use ipc_contract::types::{
     RequestId, Restrictions,
 };
 use ipc_contract::worker::{
-    FileHandle, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument, Raster, WorkerEdit,
-    WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
+    FileHandle, FontData, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument, Raster,
+    WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
 };
 
-use crate::engine::{EngineError, OcrKnown, OutlineTarget, PdfDocument, prepare_stamp_picture};
+use crate::engine::{
+    EngineError, OcrKnown, OutlineTarget, PdfDocument, TextBoxFont, prepare_stamp_picture,
+    prepare_text_box,
+};
 use crate::handle;
 use crate::ocr::OcrError;
 use crate::ocr_worker::{Job, OcrWorker};
@@ -337,6 +340,11 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
             WorkerRequest::PrepareStampImage { request, file } => {
                 Some(prepare_stamp_image(request, file))
             }
+            WorkerRequest::PrepareTextBox {
+                request,
+                font,
+                text,
+            } => Some(prepare_text(request, &font, &text)),
             WorkerRequest::SavePages {
                 request,
                 doc,
@@ -546,8 +554,30 @@ fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineErro
         WorkerEdit::AddImageStamp { page, rect, png } => {
             document.add_image_stamp(*page, *rect, png)?;
         }
+        WorkerEdit::PlaceTextBox {
+            page,
+            rect,
+            model,
+            style,
+        } => {
+            document.place_text_box(*page, *rect, model, style)?;
+        }
     }
     Ok(())
+}
+
+/// Makes `text` in the font `font` (not trusted) into the model of a text box (B2-28): or says
+/// why the font or the text cannot be used.
+fn prepare_text(request: RequestId, font: &FontData, text: &str) -> WorkerResponse {
+    let font = TextBoxFont {
+        bytes: &font.bytes,
+        face: font.face,
+        name: &font.name,
+    };
+    match prepare_text_box(&font, text) {
+        Ok(model) => WorkerResponse::TextBoxPrepared { request, model },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
 }
 
 /// Makes the picture behind the read-only handle `file` into what a stamp is made of (B2-08).
@@ -789,12 +819,12 @@ fn engine_error(
         EngineError::PageOutOfRange(_) => WorkerErrorCode::PageOutOfRange,
         EngineError::NoArea => WorkerErrorCode::Corrupted,
         EngineError::NotAllowed(_) => WorkerErrorCode::NotAllowed,
+        EngineError::Font(refusal) => WorkerErrorCode::Font(*refusal),
+        EngineError::UnsupportedText => WorkerErrorCode::UnsupportedText,
         EngineError::InvalidScale
         | EngineError::InvalidRotation
         | EngineError::InvalidEdit(_)
         | EngineError::InvalidPicture(_)
-        | EngineError::Font(_)
-        | EngineError::UnsupportedText
         | EngineError::NoPageLeft
         | EngineError::EncryptedCopy => WorkerErrorCode::InvalidRequest,
         EngineError::TooLarge { .. }

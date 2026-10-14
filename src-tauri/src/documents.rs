@@ -1615,6 +1615,7 @@ fn pages_after(
         | Edit::AddInk { page, .. }
         | Edit::AddStamp { page, .. }
         | Edit::AddImageStamp { page, .. }
+        | Edit::AddTextBox { page, .. }
         | Edit::SetAnnotationRect { page, .. } => Some(vec![*page]),
         _ => None,
     };
@@ -1709,6 +1710,7 @@ fn pages_after(
         | Edit::AddInk { .. }
         | Edit::AddStamp { .. }
         | Edit::AddImageStamp { .. }
+        | Edit::AddTextBox { .. }
         | Edit::SetAnnotationRect { .. }
         | Edit::SetFieldValue { .. }
         | Edit::FlattenForm => Ok(page_count),
@@ -1716,12 +1718,13 @@ fn pages_after(
 }
 
 /// What the crash recovery journal keeps of the edits a document has (B2-06): those before the
-/// first that takes the pages of another file, which it cannot keep, and how many edits are
-/// left out (that one, and those after it, which are made on the pages it put in).
+/// first that takes the pages of another file, which it cannot keep, or sets a text box (its font
+/// is up to 64 MiB: B2-29 puts a subset in the journal instead), and how many edits are left out
+/// (that one, and those after it, which are made on what it put in).
 fn journalled(applied: &[Edit]) -> (&[Edit], u32) {
     let kept = applied
         .iter()
-        .position(|edit| matches!(edit, Edit::InsertPages { .. }))
+        .position(|edit| matches!(edit, Edit::InsertPages { .. } | Edit::AddTextBox { .. }))
         .unwrap_or(applied.len());
     (
         &applied[..kept],
@@ -1783,10 +1786,14 @@ fn worker_edit(
         edit,
         |source| sources.bytes(source),
         |image| pictures.png(image),
+        // A text box is not made from here yet: B2-29 keeps the prepared words of a document, and
+        // undo and the journal with them (docs/architecture/text-box-engine.md).
+        |_| None,
     )
     .map_err(|unknown| match unknown {
         UnknownFile::Source => invalid_argument("no such source file"),
         UnknownFile::Picture => invalid_argument("no such picture"),
+        UnknownFile::TextBox => invalid_argument("text boxes cannot be added yet"),
     })
 }
 
@@ -2416,7 +2423,8 @@ mod with_worker {
     use ipc_contract::limits::MAX_RASTER_PIXELS;
     use ipc_contract::types::{
         AnnotationId, AnnotationKind, FieldId, HighlightColor, HighlightMark, InkColor, InkWidth,
-        Point, Quad, Rect, RequestId, Rotation, StampImageId, StampName,
+        Point, Quad, Rect, RequestId, Rgb, Rotation, StampImageId, StampName, TextAlign,
+        TextBoxModelId, TextBoxStyle,
     };
 
     use super::*;
@@ -4707,6 +4715,75 @@ mod with_worker {
                 .code,
             ErrorCode::InvalidArgument
         );
+    }
+
+    fn text_box() -> Edit {
+        text_box_on(0)
+    }
+
+    fn text_box_on(page: u32) -> Edit {
+        Edit::AddTextBox {
+            page,
+            rect: Rect {
+                x0: 72.0,
+                y0: 72.0,
+                x1: 372.0,
+                y1: 132.0,
+            },
+            model: TextBoxModelId(1),
+            style: TextBoxStyle {
+                size: 12.0,
+                color: Rgb { r: 0, g: 0, b: 0 },
+                align: TextAlign::Left,
+            },
+        }
+    }
+
+    #[test]
+    fn the_journal_stops_before_a_text_box_as_it_does_before_the_pages_of_another_file() {
+        let edits = [turn(0), text_box(), turn(1)];
+        let (kept, lost) = journalled(&edits);
+        assert_eq!((kept, lost), (&edits[..1], 2));
+        let (kept, lost) = journalled(&edits[2..]);
+        assert_eq!((kept.len(), lost), (1, 0));
+    }
+
+    #[test]
+    fn a_text_box_is_checked_as_an_annotation_and_is_not_made_from_here_yet() {
+        // The author's permission to annotate, and the page, are checked first.
+        let documents = Documents::new(worker());
+        let (_, forbidden) = unlocked(&documents, &corpus_path("benign/encrypted-rc4-40.pdf"));
+        assert!(!forbidden.permissions.annotate);
+        let error = documents
+            .apply_edit(&EditArgs {
+                doc: forbidden.doc,
+                edit: text_box(),
+            })
+            .unwrap_err();
+        assert!(error.message.contains("author"), "{}", error.message);
+        let (documents, info, path) = open("text-box-not-yet", 1);
+        assert_eq!(
+            documents
+                .apply_edit(&EditArgs {
+                    doc: info.doc,
+                    edit: text_box_on(5)
+                })
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        // Fonts are kept and replayed by B2-29: until then the edit is refused, and nothing
+        // is changed.
+        let error = documents
+            .apply_edit(&EditArgs {
+                doc: info.doc,
+                edit: text_box(),
+            })
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidArgument);
+        assert!(error.message.contains("text boxes"), "{}", error.message);
+        assert_eq!(documents.unsaved_tabs(), Vec::<TabId>::new());
+        std::fs::remove_file(path).ok();
     }
 
     /// The picture of the corpus file `name`, opened as the one the user chose is (B2-08).

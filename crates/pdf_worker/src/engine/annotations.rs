@@ -420,6 +420,9 @@ fn entry(annotation: &PdfAnnotation) -> Result<Option<PageAnnotation>, Error> {
         PdfAnnotationType::Text => AnnotationKind::Note,
         PdfAnnotationType::Ink => AnnotationKind::Ink,
         PdfAnnotationType::Stamp => AnnotationKind::Stamp,
+        PdfAnnotationType::FreeText if super::text_box::is_text_box(annotation) => {
+            AnnotationKind::TextBox
+        }
         _ => AnnotationKind::Other,
     };
     let Ok(number) = u32::try_from(annotation.xref()?) else {
@@ -447,7 +450,7 @@ fn entry(annotation: &PdfAnnotation) -> Result<Option<PageAnnotation>, Error> {
         _ => None,
     };
     let text = match kind {
-        AnnotationKind::Note => annotation
+        AnnotationKind::Note | AnnotationKind::TextBox => annotation
             .contents()
             .ok()
             .flatten()

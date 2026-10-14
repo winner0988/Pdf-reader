@@ -523,6 +523,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::PageText { request, .. }
         | WorkerResponse::Png { request, .. }
         | WorkerResponse::StampImage { request, .. }
+        | WorkerResponse::TextBoxPrepared { request, .. }
         | WorkerResponse::Jpeg { request, .. }
         | WorkerResponse::PageSearched { request, .. }
         | WorkerResponse::Edited { request, .. }

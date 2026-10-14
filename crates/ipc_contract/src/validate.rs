@@ -14,10 +14,10 @@ use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text, is_no
 use crate::types::{
     DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs, ExportFormat, FindingKind, FormField,
     IpcError, LinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult,
-    PageAnnotation, PageLink, PageSize, PageText, Password, Point, Quad, RecentFile, Rect,
-    RemoveLanguageArgs, RenderPageArgs, Rotation, SearchArgs, SearchHit, SecurityReport, Settings,
-    SignatureInfo, SignatureReport, SignatureStatus, TextBoxStyle, TextLine, UndoArgs, UnlockArgs,
-    UnlockSourceArgs,
+    PageAnnotation, PageLink, PageSize, PageText, Password, Point, PrepareTextBoxArgs, Quad,
+    RecentFile, Rect, RemoveLanguageArgs, RenderPageArgs, Rotation, SearchArgs, SearchHit,
+    SecurityReport, Settings, SignatureInfo, SignatureReport, SignatureStatus, TextBoxStyle,
+    TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs,
 };
 use crate::worker::{
     OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerError, WorkerErrorCode, WorkerResponse,
@@ -421,6 +421,7 @@ impl Validate for WorkerResponse {
             }
             WorkerResponse::PageText { text, .. } => text.validate(),
             WorkerResponse::Signatures { report, .. } => report.validate(),
+            WorkerResponse::TextBoxPrepared { model, .. } => model.validate(),
             WorkerResponse::StampImage {
                 png, width, height, ..
             } => {
@@ -871,6 +872,13 @@ impl Validate for Edit {
                 }
                 Ok(())
             }
+            Edit::AddTextBox {
+                page, rect, style, ..
+            } => {
+                check_annotated_page(*page)?;
+                check_annotation_rect(rect)?;
+                style.validate()
+            }
             Edit::AddStamp { page, rect, .. }
             | Edit::AddImageStamp { page, rect, .. }
             | Edit::SetAnnotationRect { page, rect, .. } => {
@@ -946,6 +954,12 @@ pub fn check_text_box_text(text: &str) -> Result<(), ValidationError> {
         });
     }
     Ok(())
+}
+
+impl Validate for PrepareTextBoxArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_text_box_text(&self.text)
+    }
 }
 
 impl Validate for TextBoxStyle {
@@ -1300,9 +1314,9 @@ mod tests {
     use super::*;
     use crate::types::{
         AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, ErrorCode,
-        FieldId, FieldKind, FieldOption, HighlightColor, HighlightMark, InkColor, InkWidth, LinkId,
-        RecentId, Recovery, RequestId, Restrictions, Rgb, Rotation, SecurityFinding, StampImageId,
-        StampName, TabId, TextAlign, UnverifiableReason,
+        FieldId, FieldKind, FieldOption, FontId, HighlightColor, HighlightMark, InkColor, InkWidth,
+        LinkId, RecentId, Recovery, RequestId, Restrictions, Rgb, Rotation, SecurityFinding,
+        StampImageId, StampName, TabId, TextAlign, TextBoxModelId, UnverifiableReason,
     };
     use crate::worker::{ModelGlyph, WorkerErrorCode};
 
@@ -2302,6 +2316,147 @@ mod tests {
         ] {
             assert!(serde_json::from_value::<TextBoxStyle>(bad).is_err());
         }
+    }
+
+    #[test]
+    fn text_boxes_have_a_place_a_style_and_prepared_words() {
+        let rect = Rect {
+            x0: 72.0,
+            y0: 72.0,
+            x1: 372.0,
+            y1: 132.0,
+        };
+        let style = |size: f32| TextBoxStyle {
+            size,
+            color: Rgb { r: 0, g: 0, b: 0 },
+            align: TextAlign::Left,
+        };
+        let text_box = |size: f32, rect: Rect| Edit::AddTextBox {
+            page: 0,
+            rect,
+            model: TextBoxModelId(3),
+            style: style(size),
+        };
+        assert!(text_box(12.0, rect).validate().is_ok());
+        assert!(
+            text_box(MIN_TEXT_BOX_SIZE, rect).validate().is_ok()
+                && text_box(MAX_TEXT_BOX_SIZE, rect).validate().is_ok()
+        );
+        for bad in [
+            0.0,
+            MIN_TEXT_BOX_SIZE - 0.5,
+            MAX_TEXT_BOX_SIZE + 0.5,
+            f32::NAN,
+            f32::INFINITY,
+            -12.0,
+        ] {
+            assert!(text_box(bad, rect).validate().is_err(), "{bad}");
+        }
+        // The place is checked as any annotation's is.
+        assert!(
+            text_box(12.0, Rect { x1: 75.0, ..rect })
+                .validate()
+                .is_err()
+        );
+        assert!(
+            text_box(
+                12.0,
+                Rect {
+                    y1: f32::NAN,
+                    ..rect
+                }
+            )
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Edit::AddTextBox {
+                page: MAX_PAGE_COUNT,
+                rect,
+                model: TextBoxModelId(3),
+                style: style(12.0),
+            }
+            .validate()
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn the_words_to_prepare_are_something_to_see_within_the_limit_and_only_text() {
+        let args = |text: &str| PrepareTextBoxArgs {
+            doc: DocumentId(1),
+            text: text.to_owned(),
+            font: FontId(7),
+        };
+        assert!(args("Hello").validate().is_ok());
+        assert!(args("中文\nsecond line").validate().is_ok());
+        assert!(args(&"x".repeat(MAX_TEXT_BOX_BYTES)).validate().is_ok());
+        assert!(
+            args(&"x".repeat(MAX_TEXT_BOX_BYTES + 1))
+                .validate()
+                .is_err()
+        );
+        for bad in [
+            "",
+            " \n  ",
+            "a\u{0}b",
+            "a\u{7}b",
+            "a\tb",
+            "a\u{202e}b",
+            "a\u{200b}b",
+            "a\rb",
+        ] {
+            assert!(args(bad).validate().is_err(), "{bad:?}");
+        }
+        let parsed: PrepareTextBoxArgs =
+            serde_json::from_value(serde_json::json!({"doc": 4, "text": "你好", "font": 7}))
+                .unwrap();
+        assert_eq!((parsed.doc, parsed.font), (DocumentId(4), FontId(7)));
+        // Nothing but the document, the words and the font: no path, no bytes.
+        assert!(
+            serde_json::from_value::<PrepareTextBoxArgs>(
+                serde_json::json!({"doc": 4, "text": "x", "font": 7, "path": "C:/x.ttf"})
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn a_text_box_edit_has_the_form_the_page_sends() {
+        let edit: Edit = serde_json::from_value(serde_json::json!({
+            "kind": "addTextBox", "page": 2,
+            "rect": {"x0": 72.0, "y0": 72.0, "x1": 372.0, "y1": 132.0},
+            "model": 5,
+            "style": {"size": 14.0, "color": {"r": 26, "g": 51, "b": 153}, "align": "center"}
+        }))
+        .unwrap();
+        assert_eq!(
+            edit,
+            Edit::AddTextBox {
+                page: 2,
+                rect: Rect {
+                    x0: 72.0,
+                    y0: 72.0,
+                    x1: 372.0,
+                    y1: 132.0
+                },
+                model: TextBoxModelId(5),
+                style: TextBoxStyle {
+                    size: 14.0,
+                    color: Rgb {
+                        r: 26,
+                        g: 51,
+                        b: 153
+                    },
+                    align: TextAlign::Center,
+                },
+            }
+        );
+        assert!(edit.validate().is_ok());
+        // The words are not in the edit, nor the font: only the number they were prepared under.
+        let json = serde_json::to_value(&edit).unwrap();
+        assert!(json.get("text").is_none() && json.get("font").is_none());
+        assert_eq!(json["model"], 5);
     }
 
     #[test]
