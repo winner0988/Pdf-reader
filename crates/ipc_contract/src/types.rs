@@ -354,6 +354,10 @@ pub enum ExportFormat {
     /// PDF files of `count` pages each (the last one of what is left), one after the other in a
     /// folder: the pages split into pieces (B2-06).
     PdfEvery { count: u32 },
+    /// One Word document (`.docx`) of the pages (B3-02): their text, with the font, size, weight,
+    /// slant and colour of each run, and their pictures, in the order MuPDF reads them. The
+    /// layout of the pages (columns, tables, where a picture is) is not kept.
+    Docx,
 }
 
 /// Arguments of `export_pages` (B2-04): what to export, never where; the main process asks the

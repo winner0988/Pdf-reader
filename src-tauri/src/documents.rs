@@ -1029,6 +1029,56 @@ impl Documents {
         })
     }
 
+    /// Writes the pages `pages` (0-based, no repeats, in this order) of `doc` to `destination` as
+    /// a Word document (B3-02, docs/architecture/docx-export.md): made by the document's worker
+    /// from the document as it is now, edits included. The document and its file are not changed.
+    /// An encrypted document is exported as its text is: it is open, and the author's permission
+    /// to copy is what matters. Refused for the document's own file.
+    pub fn docx_export(
+        &self,
+        doc: DocumentId,
+        pages: &[u32],
+        destination: &Path,
+    ) -> Result<(), IpcError> {
+        self.with_document(doc, |document| {
+            if !document.info.permissions.copy {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "the document's author does not allow copying its content".to_owned(),
+                });
+            }
+            if same_file(&document.path, destination) {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "a Word document never replaces the document's own file".to_owned(),
+                });
+            }
+            let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+            let mut seen = std::collections::HashSet::new();
+            for &page in pages {
+                check_page_index(page, page_count).map_err(invalid_argument)?;
+                if !seen.insert(page) {
+                    return Err(invalid_argument("a page appears twice"));
+                }
+            }
+            if pages.is_empty() {
+                return Err(invalid_argument("no pages to export"));
+            }
+            saving::check_writable(destination)?;
+            let mut temporary = Temporary::new(destination)?;
+            let worker_doc = live_worker(document)?;
+            let response = document
+                .host
+                .export_docx(worker_doc, pages, temporary.file())
+                .map_err(|error| lost_on(document, &error))?;
+            let WorkerResponse::Saved { bytes, .. } = response else {
+                return Err(unexpected("ExportDocx"));
+            };
+            temporary.check_zip(bytes)?;
+            temporary.replace(destination)
+        })
+    }
+
     /// Whether `path` is the file of the open document `doc` (the privacy export may not write
     /// there).
     pub fn is_document_file(&self, doc: DocumentId, path: &Path) -> bool {
@@ -3759,7 +3809,7 @@ mod with_worker {
         };
         documents.load(tab, &report);
         documents
-            .unlock(tab, Password::new("user".to_owned()), &report)
+            .unlock(tab, Password::new("user".to_owned()), false, &report)
             .unwrap();
         let Some(OpenEvent::Opened { info, .. }) = events.borrow().last().cloned() else {
             panic!("opened")
@@ -3783,6 +3833,119 @@ mod with_worker {
         assert_ne!(error.code, ErrorCode::Internal, "{error:?}");
         assert!(!copy.exists());
         std::fs::remove_file(path).ok();
+    }
+
+    /// What a Word document the worker made holds: the names of its files, and its text.
+    fn docx_files(path: &Path) -> Vec<String> {
+        let bytes = std::fs::read(path).unwrap();
+        assert_eq!(&bytes[..4], b"PK\x03\x04");
+        let end = bytes.len() - 22;
+        let count = usize::from(u16::from_le_bytes([bytes[end + 10], bytes[end + 11]]));
+        let mut at = u32::from_le_bytes(bytes[end + 16..end + 20].try_into().unwrap()) as usize;
+        let mut names = Vec::new();
+        for _ in 0..count {
+            let name_length = usize::from(u16::from_le_bytes([bytes[at + 28], bytes[at + 29]]));
+            names.push(String::from_utf8(bytes[at + 46..at + 46 + name_length].to_vec()).unwrap());
+            at += 46 + name_length;
+        }
+        names
+    }
+
+    #[test]
+    fn a_word_document_has_the_pages_asked_for_edits_included_and_leaves_the_document_alone() {
+        let sample = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/mixed-text-zh-en.pdf");
+        let (documents, info, path) = open_bytes("docx-export", &std::fs::read(sample).unwrap());
+        // An edit that is not saved is in the document, as in any export.
+        let edited = opened_info(documents.apply_edit(&rotate(info.doc, vec![0])).unwrap());
+        let before = std::fs::read(&path).unwrap();
+        let identity = FileIdentity::of(&path);
+        let word = path.with_file_name("docx-export-copy.docx");
+        std::fs::remove_file(&word).ok();
+
+        documents.docx_export(edited.doc, &[0], &word).unwrap();
+        let names = docx_files(&word);
+        assert!(names.contains(&"word/document.xml".to_owned()), "{names:?}");
+        // The page, turned, is a section of its own size.
+        let bytes = std::fs::read(&word).unwrap();
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("Privacy-first PDF Reader"));
+        assert!(
+            text.contains("w:orient=\"landscape\""),
+            "the page was turned"
+        );
+        // The document, its edit and its file are as they were.
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(FileIdentity::of(&path), identity);
+        assert_eq!(documents.unsaved_tabs().len(), 1);
+
+        // Never over the document's own file, however the dialog spells it; nor with no pages, a
+        // page that is not there, or one twice.
+        let shouted = PathBuf::from(path.to_string_lossy().to_uppercase());
+        for destination in [&path, &shouted] {
+            assert_eq!(
+                documents
+                    .docx_export(edited.doc, &[0], destination)
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidArgument
+            );
+        }
+        for pages in [&[][..], &[3][..], &[0, 0][..]] {
+            assert_eq!(
+                documents
+                    .docx_export(edited.doc, pages, &word)
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidArgument,
+                "{pages:?}"
+            );
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        std::fs::remove_file(word).ok();
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_word_document_follows_the_authors_permission_to_copy_and_works_for_an_encrypted_one() {
+        let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign");
+        let word =
+            std::env::temp_dir().join(format!("pdf-reader-docx-{}.docx", std::process::id()));
+        std::fs::remove_file(&word).ok();
+        // The author forbids copying: no export, as for the text.
+        let (documents, info, path) = open_bytes(
+            "docx-no-copy",
+            &std::fs::read(corpus.join("restricted-no-copy-no-print.pdf")).unwrap(),
+        );
+        assert!(!info.permissions.copy);
+        assert_eq!(
+            documents
+                .docx_export(info.doc, &[0], &word)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        assert!(!word.exists());
+        std::fs::remove_file(path).ok();
+
+        // An encrypted document that may be copied is exported as its text is: it is open.
+        let documents = Documents::new(worker());
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let [tab] = documents.add(&[corpus.join("encrypted-aes256.pdf")], &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(tab, &report);
+        documents
+            .unlock(tab, Password::new("user".to_owned()), false, &report)
+            .unwrap();
+        let Some(OpenEvent::Opened { info, .. }) = events.borrow().last().cloned() else {
+            panic!("opened")
+        };
+        assert!(info.encrypted && info.permissions.copy);
+        documents.docx_export(info.doc, &[0], &word).unwrap();
+        assert!(docx_files(&word).contains(&"word/document.xml".to_owned()));
+        std::fs::remove_file(word).ok();
     }
 
     fn password(text: &str) -> Password {

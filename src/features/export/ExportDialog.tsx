@@ -35,8 +35,8 @@ type Problem = "invalid" | "tooMany" | "perFile" | "tooManyFiles" | "failed";
 const RESOLUTIONS = [72, 150, 300];
 
 /**
- * Chooses what to export (B2-04, #111, B2-06): the text, page images (PNG or JPG) or PDF files
- * (the pages as one file, or so many pages to a file), and which pages. The main process then
+ * Chooses what to export (B2-04, #111, B2-06, B3-02): the text, a Word document, page images (PNG
+ * or JPG) or PDF files (the pages as one file, or so many pages to a file), and which pages. The main process then
  * asks where, in the system's dialog, and writes the files; this dialog shows the progress.
  */
 export function ExportDialog({
@@ -146,7 +146,7 @@ export function ExportDialog({
         setProgress(null);
         if (errorCodeOf(error) === "cancelled") {
           onOpenChange(false);
-          onFinished(t.stopped(kind === "text" ? 0 : written.current));
+          onFinished(t.stopped(kind === "text" || kind === "docx" ? 0 : written.current));
         } else {
           setProblem("failed");
         }
@@ -183,6 +183,11 @@ export function ExportDialog({
               <input type="radio" name="format" checked={kind === "text"} onChange={() => setKind("text")} />
               {t.text}
             </label>
+            <label className="flex items-center gap-2">
+              <input type="radio" name="format" checked={kind === "docx"} onChange={() => setKind("docx")} />
+              {t.docx}
+            </label>
+            {kind === "docx" && <p className="pl-6 text-xs text-muted-foreground">{t.docxNote}</p>}
             <label className="flex items-center gap-2">
               <input type="radio" name="format" checked={kind === "png"} onChange={() => setKind("png")} />
               {t.png}

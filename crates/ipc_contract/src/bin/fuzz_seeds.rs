@@ -818,6 +818,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             quality: ImageQuality::Low,
             max_side: None,
         },
+        WorkerRequest::ExportDocx {
+            request,
+            doc,
+            pages: vec![0, 2, 1],
+            file: FileHandle(0x1f8),
+        },
         WorkerRequest::Cancel { target: request },
         WorkerRequest::Close { doc },
         WorkerRequest::Shutdown,

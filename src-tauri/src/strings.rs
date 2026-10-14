@@ -55,6 +55,9 @@ pub const LANGUAGE_FILTER_NAME: &str = "Tesseract 語言資料（.traineddata）
 
 /// Export (B2-04): where the text goes, and the folder the page images go to.
 pub const EXPORT_TEXT_DIALOG_TITLE: &str = "匯出純文字";
+/// The Word document (B3-02): where it goes.
+pub const EXPORT_DOCX_DIALOG_TITLE: &str = "匯出 Word 文件";
+pub const DOCX_FILTER_NAME: &str = "Word 文件（.docx）";
 pub const TEXT_FILTER_NAME: &str = "純文字檔";
 pub const EXPORT_IMAGES_DIALOG_TITLE: &str = "選擇匯出頁面圖片的資料夾";
 /// The dialog for the picture of a custom stamp (B2-08).

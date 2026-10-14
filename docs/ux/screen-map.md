@@ -184,10 +184,11 @@
 ### 匯出（B2-04）
 
 - 「⋯」→「匯出…」開啟匯出對話框（沒有開啟文件時停用；作者禁止複製時停用並標示 permissions.notAllowed）。
-- **格式**：純文字（.txt，預設），或頁面圖片：PNG 或 JPG（#111），每頁一個檔案；解析度 72／150（預設）／300 dpi，兩種圖片共用，只有選圖片時可用。還有兩種 PDF 格式（B2-06，見 [split.md](../architecture/split.md)）：export.pdf（選的頁面存成一個新檔案）與 export.pdfEvery（每幾頁存成一個檔案，旁邊的輸入框填頁數，預設 10；在輸入框打字就選了這一種）。加密的文件停用兩種 PDF 格式並顯示 export.encryptedNote。
+- **格式**：純文字（.txt，預設）、Word 文件（export.docx，B3-02；選了之後下面多一行說明 export.docxNote：保留文字與圖片、不保留版面）、或頁面圖片：PNG 或 JPG（#111），每頁一個檔案；解析度 72／150（預設）／300 dpi，兩種圖片共用，只有選圖片時可用。還有兩種 PDF 格式（B2-06，見 [split.md](../architecture/split.md)）：export.pdf（選的頁面存成一個新檔案）與 export.pdfEvery（每幾頁存成一個檔案，旁邊的輸入框填頁數，預設 10；在輸入框打字就選了這一種）。加密的文件停用兩種 PDF 格式並顯示 export.encryptedNote。
 - **頁面**：與列印相同的範圍（全部、目前頁、頁碼）；文字與圖片一次最多 1,000 頁，超過時顯示 export.tooMany；PDF 格式可以是整份文件的頁數。每個檔案的頁數不是 1 以上的整數時顯示 export.perFileInvalid，拆出的檔案超過 1,000 個時顯示 export.tooManyFiles。
 - **匯出…**：主行程顯示系統的對話框：
   - 純文字：另存新檔，建議檔名 `<原檔名>.txt`，已存在時由對話框詢問是否取代；
+  - Word 文件：另存新檔（標題 EXPORT_DOCX_DIALOG_TITLE），建議檔名 `<原檔名>.docx`；選到文件自己的檔案時以訊息方塊說明、可以再選；
   - 圖片：選擇資料夾，檔名是 `<原檔名>-p<頁碼>.png` 或 `.jpg`，已有同名檔案時以訊息方塊詢問是否覆寫；
   - 一個 PDF 檔案：另存新檔（標題「將選取的頁面另存為新檔」），建議檔名 `<原檔名>-p2-4.pdf`（頁面不連續時 `<原檔名>（選取的頁面）.pdf`）；選到文件自己的檔案時以訊息方塊說明、可以再選；
   - 每幾頁一個檔案：選擇資料夾，檔名 `<原檔名>-p1-10.pdf`…（頁面不連續時 `<原檔名>-01.pdf`…），已有同名檔案時詢問是否覆寫。
@@ -691,6 +692,8 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | export.note | 檔案只在這台電腦上產生；按「匯出…」後選擇存放的位置。 |
 | export.format | 格式 |
 | export.text | 純文字（.txt） |
+| export.docx | Word 文件（.docx，文字與圖片，不保留版面） |
+| export.docxNote | 只匯出頁面上的文字（保留字型、大小、粗體、斜體與顏色）與圖片，依閱讀順序排成段落，每一頁一節；欄位、表格與圖片的位置不會保留，要原樣請存成 PDF。 |
 | export.png | 頁面圖片（PNG，每頁一個檔案） |
 | export.jpg | 頁面圖片（JPG，每頁一個檔案，檔案較小） |
 | export.pdf | PDF 檔案（選的頁面存成一個新檔案） |
@@ -712,6 +715,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | export.stopped | 已停止，已匯出 <n> 頁。 |
 | export.failed | 匯出失敗，請再試一次。 |
 | EXPORT_TEXT_DIALOG_TITLE（主行程） | 匯出純文字 |
+| EXPORT_DOCX_DIALOG_TITLE／DOCX_FILTER_NAME（主行程） | 匯出 Word 文件／Word 文件（.docx） |
 | TEXT_FILTER_NAME（主行程） | 純文字檔 |
 | EXPORT_IMAGES_DIALOG_TITLE（主行程） | 選擇匯出頁面圖片的資料夾 |
 | SPLIT_DIALOG_TITLE（主行程） | 將選取的頁面另存為新檔 |

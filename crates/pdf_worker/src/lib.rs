@@ -22,3 +22,4 @@ pub mod serve;
 mod signatures;
 pub mod text_layer;
 mod unlink;
+mod zip;

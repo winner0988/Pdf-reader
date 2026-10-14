@@ -90,6 +90,39 @@ describe("export (B2-04)", () => {
     await waitFor(() => expect(statusText()).toContain(t.stopped(1)));
   });
 
+  it("exports the pages chosen as a Word document, and says what it keeps (B3-02)", async () => {
+    const fake = fakeExportApi();
+    const { user } = renderShell(fake.api);
+    const dialog = await openExport(user);
+    expect(within(dialog).queryByText(t.docxNote)).toBeNull();
+
+    await user.click(within(dialog).getByRole("radio", { name: t.docx }));
+    // What it keeps and what it does not is said before anything is written; the resolution is for
+    // images only.
+    expect(within(dialog).getByText(t.docxNote)).toBeInTheDocument();
+    expect(within(dialog).getByRole("combobox", { name: t.resolution })).toBeDisabled();
+    await user.type(within(dialog).getByRole("textbox", { name: strings.print.pages }), "3, 1");
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+    expect(fake.api.exportPages).toHaveBeenCalledWith(5, [0, 2], { kind: "docx" }, expect.any(Function));
+
+    await fake.progress(2, 2);
+    await fake.finish(true);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(statusText()).toContain(t.done(2));
+  });
+
+  it("stopped, a Word document has no pages written: it is made whole or not at all (B3-02)", async () => {
+    const fake = fakeExportApi();
+    const { user } = renderShell(fake.api);
+    const dialog = await openExport(user);
+    await user.click(within(dialog).getByRole("radio", { name: t.docx }));
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+    await fake.progress(0, demoDocument.pages.length);
+    await user.click(within(dialog).getByRole("button", { name: t.stop }));
+    await fake.fail({ code: "cancelled", message: "cancelled" });
+    await waitFor(() => expect(statusText()).toContain(t.stopped(0)));
+  });
+
   it("exports pages as JPG at the resolution the images share (#111)", async () => {
     const fake = fakeExportApi();
     const { user } = renderShell(fake.api);

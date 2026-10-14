@@ -9,6 +9,7 @@ import type { Page } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
 import { answerFileDialog, corpus, expect, test } from "./app";
+import { storedFiles } from "./zip";
 
 const t = strings.export;
 
@@ -44,6 +45,52 @@ test.describe("export", () => {
     expect(text.endsWith("\f")).toBe(true);
     // Written whole: no temporary file is left behind.
     expect(readdirSync(folder)).toEqual(["exported.txt"]);
+  });
+
+  test("a Word document goes to the file chosen: a package with the words of the page in well-formed XML (B3-02)", async ({
+    launch,
+  }) => {
+    const page = await launch(corpus("benign/mixed-text-zh-en.pdf"));
+    const dialog = await openExport(page);
+    await dialog.getByRole("radio", { name: t.docx }).check();
+    // What it keeps and what it does not is said before anything is written.
+    await expect(dialog).toContainText(t.docxNote);
+    await dialog.getByRole("button", { name: t.start }).click();
+
+    const file = path.join(folder, "exported.docx");
+    const dialogReport = await answerFileDialog(page, { path: file });
+    await expect(page.getByRole("contentinfo")).toContainText(t.done(1));
+    expect(existsSync(file), `${dialogReport}
+the folder holds: ${readdirSync(folder).join(", ")}`).toBe(true);
+    // Written whole: no temporary file is left behind.
+    expect(readdirSync(folder)).toEqual(["exported.docx"]);
+
+    const parts = storedFiles(readFileSync(file));
+    expect(Object.keys(parts)).toEqual([
+      "[Content_Types].xml",
+      "_rels/.rels",
+      "word/document.xml",
+      "word/styles.xml",
+      "word/_rels/document.xml.rels",
+    ]);
+    // Every part is XML the browser's own parser takes, and the words are in the document, in both
+    // scripts, in the paragraphs of one section.
+    const report = await page.evaluate((texts: Record<string, string>) => {
+      const problems: string[] = [];
+      for (const [name, text] of Object.entries(texts)) {
+        const document = new DOMParser().parseFromString(text, "application/xml");
+        if (document.getElementsByTagName("parsererror").length > 0) problems.push(name);
+      }
+      const main = new DOMParser().parseFromString(texts["word/document.xml"]!, "application/xml");
+      const w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+      const paragraphs = [...main.getElementsByTagNameNS(w, "p")].map((paragraph) =>
+        [...paragraph.getElementsByTagNameNS(w, "t")].map((run) => run.textContent).join(""),
+      );
+      return { problems, paragraphs, sections: main.getElementsByTagNameNS(w, "sectPr").length };
+    }, Object.fromEntries(Object.entries(parts).map(([name, data]) => [name, data.toString("utf8")])));
+    expect(report.problems).toEqual([]);
+    expect(report.paragraphs).toEqual(["Privacy-first PDF Reader", "隱私優先的 PDF 閱讀器"]);
+    expect(report.sections).toBe(1);
   });
 
   test("page images go to the chosen folder, one PNG per page at the chosen resolution", async ({ launch }) => {

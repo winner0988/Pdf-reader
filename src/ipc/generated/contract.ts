@@ -275,7 +275,7 @@ export type RemoveLanguageArgs = { code: string, };
 /**
  * What an export writes (B2-04).
  */
-export type ExportFormat = { "kind": "text" } | { "kind": "png", dpi: number, } | { "kind": "jpg", dpi: number, } | { "kind": "pdf" } | { "kind": "pdfEvery", count: number, };
+export type ExportFormat = { "kind": "text" } | { "kind": "png", dpi: number, } | { "kind": "jpg", dpi: number, } | { "kind": "pdf" } | { "kind": "pdfEvery", count: number, } | { "kind": "docx" };
 
 /**
  * Arguments of `export_pages` (B2-04): what to export, never where; the main process asks the

@@ -29,6 +29,7 @@ use crate::text_layer::TextLayerBuilder;
 use thiserror::Error;
 
 mod annotations;
+mod docx;
 mod forms;
 mod ocr;
 
@@ -111,6 +112,8 @@ pub enum EngineError {
     SubsetTooLarge,
     #[error("the picture is too large")]
     PictureTooLarge,
+    #[error("the result is larger than it may be")]
+    OutputTooLarge,
     #[error("MuPDF: {0}")]
     MuPdf(#[from] mupdf::Error),
 }
