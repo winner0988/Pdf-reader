@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-remove-sensitive-file"
+description = "Enables the remove_sensitive_file command without any pre-configured scope."
+commands.allow = ["remove_sensitive_file"]
+
+[[permission]]
+identifier = "deny-remove-sensitive-file"
+description = "Denies the remove_sensitive_file command without any pre-configured scope."
+commands.deny = ["remove_sensitive_file"]

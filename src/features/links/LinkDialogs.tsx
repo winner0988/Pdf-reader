@@ -45,6 +45,8 @@ type ConfirmProps = {
   /** Resolves once the system has the link; rejects if it could not be opened. */
   onOpen: () => Promise<void>;
   onClose: () => void;
+  /** How "copy" puts text on the clipboard: kept out of its history for a sensitive document (B3-05). */
+  copyText?: (text: string) => void;
 };
 
 /**
@@ -52,7 +54,7 @@ type ConfirmProps = {
  * that will be contacted, warnings for look-alike names and hidden characters, and the full
  * URL. Cancel has the focus; there is no "always trust" option.
  */
-export function LinkConfirmDialog({ preview, onOpen, onClose }: ConfirmProps) {
+export function LinkConfirmDialog({ preview, onOpen, onClose, copyText = copy }: ConfirmProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [failed, setFailed] = useState(false);
   return (
@@ -79,7 +81,7 @@ export function LinkConfirmDialog({ preview, onOpen, onClose }: ConfirmProps) {
           </p>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => copy(preview.opens)}>
+          <Button variant="outline" onClick={() => copyText(preview.opens)}>
             {t.copy}
           </Button>
           <Button ref={cancelRef} variant="outline" onClick={onClose}>
@@ -103,10 +105,12 @@ type BlockedProps = {
   /** What the PDF gave (already reduced to plain text by the worker), if anything. */
   content: string | null;
   onClose: () => void;
+  /** As for `LinkConfirmDialog`. */
+  copyText?: (text: string) => void;
 };
 
 /** Why a link is not opened, and what it contains, for reading only. Nothing can open it. */
-export function BlockedLinkDialog({ action, content, onClose }: BlockedProps) {
+export function BlockedLinkDialog({ action, content, onClose, copyText = copy }: BlockedProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -118,7 +122,7 @@ export function BlockedLinkDialog({ action, content, onClose }: BlockedProps) {
         <FullText label={t.blockedContent} text={content === null ? t.blockedNoContent : revealHidden(content)} />
         <DialogFooter>
           {content !== null && (
-            <Button variant="outline" onClick={() => copy(content)}>
+            <Button variant="outline" onClick={() => copyText(content)}>
               {t.blockedCopy}
             </Button>
           )}

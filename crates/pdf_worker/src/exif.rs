@@ -27,22 +27,19 @@ use crate::jpeg;
 /// prepress system, and applications' private data and when they changed it.
 const PICTURE_ENTRIES: [&str; 4] = ["Metadata", "OPI", "PieceInfo", "LastModified"];
 
-/// The filters a JPEG may be stored behind and still be read through: those that lose nothing,
-/// by their names and by the short names MuPDF reads as well.
-const LOSSLESS: [&[u8]; 12] = [
-    b"FlateDecode",
-    b"Fl",
-    b"LZWDecode",
-    b"LZW",
-    b"ASCIIHexDecode",
-    b"AHx",
-    b"ASCII85Decode",
-    b"A85",
-    b"RunLengthDecode",
-    b"RL",
-    b"BrotliDecode",
-    b"Br",
-];
+/// The short PDF filter name for a filter a JPEG may be stored behind and still be read through:
+/// those that lose nothing, by their full names and by the short names MuPDF reads as well.
+fn short_lossless(name: &[u8]) -> Option<&'static str> {
+    match name {
+        b"FlateDecode" | b"Fl" => Some("Fl"),
+        b"LZWDecode" | b"LZW" => Some("LZW"),
+        b"ASCIIHexDecode" | b"AHx" => Some("AHx"),
+        b"ASCII85Decode" | b"A85" => Some("A85"),
+        b"RunLengthDecode" | b"RL" => Some("RL"),
+        b"BrotliDecode" | b"Br" => Some("Br"),
+        _ => None,
+    }
+}
 
 /// The JPEG filter, by its name or its short name.
 fn is_jpeg_filter(name: &[u8]) -> bool {
@@ -111,9 +108,10 @@ fn clean_picture(
     };
     // The JPEG is the last thing the filters undo, and what comes before it loses nothing.
     if at + 1 != filters.len()
+        || at > 4
         || !filters[..at]
             .iter()
-            .all(|name| LOSSLESS.contains(&name.as_slice()))
+            .all(|name| short_lossless(name).is_some())
     {
         return Err(EngineError::PictureNotCleaned);
     }
@@ -124,10 +122,13 @@ fn clean_picture(
         // No picture, and nothing written about one.
         return Ok(changed);
     }
+    if stored.len() > ipc_contract::limits::MAX_JPEG_BYTES {
+        return Err(EngineError::PictureNotCleaned);
+    }
     let data = if at == 0 {
         stored
     } else {
-        read_through(doc, &object, &filters[..at], &stored)?
+        read_through(&object, &filters[..at], &stored)?
     };
     // What the filters hold is a JPEG this reads through to its picture, or nothing is made.
     let cleaned = jpeg::clean(&data).ok_or(EngineError::PictureNotCleaned)?;
@@ -136,7 +137,7 @@ fn clean_picture(
     }
     if at > 0 {
         // Stored as the JPEG it is: the filters before it are not needed any more.
-        let own = jpeg_parameters(&object, at)?;
+        let own = jpeg_parameters(doc, &object, at)?;
         object.dict_put("Filter", PdfObject::new_name("DCTDecode")?)?;
         match own {
             Some(parameters) => object.dict_put("DecodeParms", parameters)?,
@@ -148,58 +149,113 @@ fn clean_picture(
 }
 
 /// The JPEG that the lossless `filters`, the first ones of `object`, hold in `stored`: MuPDF
-/// undoes them on a stream of its own, made for this and removed again.
+/// undoes them on a stream in a scratch document so `object` and its document are not mutated.
 fn read_through(
-    doc: &mut PdfDocument,
     object: &PdfObject,
     filters: &[Vec<u8>],
     stored: &[u8],
 ) -> Result<Vec<u8>, EngineError> {
-    let mut dictionary = doc.new_dict()?;
-    let mut names = doc.new_array()?;
+    let mut scratch = PdfDocument::new();
+    let mut dictionary = scratch.new_dict()?;
+    dictionary.dict_put("Subtype", scratch.new_name("Image")?)?;
+    dictionary.dict_put("Width", PdfObject::new_int(1)?)?;
+    dictionary.dict_put("Height", PdfObject::new_int(1)?)?;
+    dictionary.dict_put("ColorSpace", scratch.new_name("DeviceGray")?)?;
+    dictionary.dict_put("BitsPerComponent", PdfObject::new_int(8)?)?;
+    let mut names = scratch.new_array()?;
     for name in filters {
-        let name = std::str::from_utf8(name).map_err(|_| EngineError::PictureNotCleaned)?;
-        names.array_push(doc.new_name(name)?)?;
+        let short = short_lossless(name).ok_or(EngineError::PictureNotCleaned)?;
+        names.array_push(scratch.new_name(short)?)?;
     }
     dictionary.dict_put("Filter", names)?;
     // A list of parameters goes with a list of filters, one each; MuPDF reads nothing else.
     if let Some(all) = object.get_dict("DecodeParms")?
         && all.is_array()?
     {
-        let mut parameters = doc.new_array()?;
+        let mut parameters = scratch.new_array()?;
         for index in 0..filters.len() {
             let own = i32::try_from(index)
                 .ok()
                 .and_then(|index| all.get_array(index).ok().flatten());
-            parameters.array_push(own.unwrap_or_else(|| doc.new_null()))?;
+            let sanitized = match own {
+                Some(entry) => lossless_parameters(&scratch, &entry)?,
+                None => None,
+            };
+            parameters.array_push(sanitized.unwrap_or_else(|| scratch.new_null()))?;
         }
         dictionary.dict_put("DecodeParms", parameters)?;
     }
-    let stream = doc.add_stream(&Buffer::from_bytes(stored)?, Some(&dictionary), true)?;
-    let number = stream.as_indirect()?;
-    let read = stream.read_stream();
-    drop(stream);
-    doc.delete_object(number)?;
-    read.map_err(|_| EngineError::PictureNotCleaned)
+    let stream = scratch.add_stream(&Buffer::from_bytes(stored)?, Some(&dictionary), true)?;
+    stream
+        .read_stream()
+        .map_err(|_| EngineError::PictureNotCleaned)
 }
 
-/// The JPEG filter's own parameters: the entry `at` of the list of `object`'s `/DecodeParms`,
-/// when it is a dictionary.
-fn jpeg_parameters(object: &PdfObject, at: usize) -> Result<Option<PdfObject>, EngineError> {
+/// Copies only bounded integer parameters that MuPDF's lossless filters read (`Predictor`,
+/// `Columns`, `Colors`, `BitsPerComponent`, `EarlyChange`) into a fresh dictionary in `scratch`,
+/// avoiding `parent_num` mutation on `object` and rejecting oversized predictor strides.
+fn lossless_parameters(
+    scratch: &PdfDocument,
+    own: &PdfObject,
+) -> Result<Option<PdfObject>, EngineError> {
+    if !own.is_dict()? {
+        return Ok(None);
+    }
+    let mut dict = scratch.new_dict()?;
+    let mut any = false;
+    for key in [
+        "Predictor",
+        "Columns",
+        "Colors",
+        "BitsPerComponent",
+        "EarlyChange",
+    ] {
+        if let Some(val) = own.get_dict(key)?
+            && val.is_int()?
+        {
+            let n = val.as_int()?;
+            if key == "Columns" && n > 16_384 {
+                return Err(EngineError::PictureNotCleaned);
+            }
+            dict.dict_put(key, PdfObject::new_int(n)?)?;
+            any = true;
+        }
+    }
+    Ok(any.then_some(dict))
+}
+
+/// The JPEG filter's own parameters: from entry `at` of the list of `object`'s `/DecodeParms`,
+/// copies only `/ColorTransform` when it is an integer into a fresh dictionary, avoiding
+/// direct-object cycles when `/DecodeParms` references a container or indirect dictionary.
+fn jpeg_parameters(
+    doc: &PdfDocument,
+    object: &PdfObject,
+    at: usize,
+) -> Result<Option<PdfObject>, EngineError> {
     let Some(all) = object.get_dict("DecodeParms")? else {
         return Ok(None);
     };
     if !all.is_array()? {
         return Ok(None);
-    }
+    };
     let Some(own) = all.get_array(i32::try_from(at).unwrap_or(i32::MAX))? else {
         return Ok(None);
     };
-    Ok(if own.is_dict()? {
-        Some(own.copy_dict()?)
-    } else {
-        None
-    })
+    if !own.is_dict()? {
+        return Ok(None);
+    }
+    let Some(color_transform) = own.get_dict("ColorTransform")? else {
+        return Ok(None);
+    };
+    if !color_transform.is_int()? {
+        return Ok(None);
+    }
+    let mut dict = doc.new_dict()?;
+    dict.dict_put(
+        "ColorTransform",
+        PdfObject::new_int(color_transform.as_int()?)?,
+    )?;
+    Ok(Some(dict))
 }
 
 #[cfg(test)]
@@ -603,5 +659,69 @@ mod tests {
         for private in PRIVATE {
             assert!(!contains(&after, private));
         }
+    }
+
+    #[test]
+    fn self_referential_decode_parms_does_not_create_direct_cycle_or_leak_metadata() {
+        let mut doc = PdfDocument::new();
+        let metadata = doc
+            .add_stream(
+                &Buffer::from_bytes(b"<?xpacket begin=''?><x:xmpmeta>Canon EOS</x:xmpmeta>")
+                    .unwrap(),
+                None,
+                false,
+            )
+            .unwrap();
+        let dictionary = doc
+            .new_object_from_str(
+                "<< /Type /XObject /Subtype /Image /Width 64 /Height 32 \
+                 /ColorSpace /DeviceRGB /BitsPerComponent 8 \
+                 /Filter [/FlateDecode /DCTDecode] /ColorTransform 1 >>",
+            )
+            .unwrap();
+        let mut picture = doc
+            .add_stream(
+                &Buffer::from_bytes(&zlib_stored(&camera_jpeg())).unwrap(),
+                Some(&dictionary),
+                true,
+            )
+            .unwrap();
+        picture.dict_put("Metadata", metadata).unwrap();
+        let mut parms = doc.new_array().unwrap();
+        parms.array_push(doc.new_null()).unwrap();
+        parms.array_push(picture.clone()).unwrap();
+        picture.dict_put("DecodeParms", parms).unwrap();
+        doc.catalog().unwrap().dict_put("Probe", picture).unwrap();
+
+        let report = clean_pictures(&mut doc).expect("cleaned");
+        assert_eq!((report.pictures, report.cleaned), (1, 1));
+        let after = written(&doc);
+        for private in PRIVATE {
+            assert!(!contains(&after, private));
+        }
+    }
+
+    #[test]
+    fn oversized_predictor_columns_in_decode_parms_is_rejected() {
+        let mut doc = PdfDocument::new();
+        let dictionary = doc
+            .new_object_from_str(
+                "<< /Type /XObject /Subtype /Image /Width 64 /Height 32 \
+                 /ColorSpace /DeviceRGB /BitsPerComponent 8 \
+                 /Filter [/FlateDecode /DCTDecode] \
+                 /DecodeParms [<< /Predictor 12 /Columns 100000000 >> null] >>",
+            )
+            .unwrap();
+        let picture = doc
+            .add_stream(
+                &Buffer::from_bytes(&zlib_stored(&camera_jpeg())).unwrap(),
+                Some(&dictionary),
+                true,
+            )
+            .unwrap();
+        doc.catalog().unwrap().dict_put("Probe", picture).unwrap();
+
+        let err = clean_pictures(&mut doc).expect_err("oversized predictor columns rejected");
+        assert!(matches!(err, EngineError::PictureNotCleaned));
     }
 }

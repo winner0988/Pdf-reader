@@ -12,8 +12,9 @@ use crate::types::{
     AnnotationId, CreateKind, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId,
     FontRefusal, FormField, HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth,
     OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Point, Rect, RequestId,
-    Restrictions, Rotation, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageId,
-    StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle,
+    Restrictions, Rgb, Rotation, SearchHit, SecurityReport, SignatureReport, SourceId,
+    StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle, Watermark,
+    WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -126,6 +127,62 @@ mod hex_when_text {
             .map(|&[high, low]| Some(digit(high)? << 4 | digit(low)?))
             .collect::<Option<Vec<u8>>>()
             .ok_or_else(|| D::Error::custom("not lowercase hex"))
+    }
+}
+
+/// A watermark as the worker takes it (B3-04). The frontend's form is [`Watermark`], whose
+/// content postcard cannot carry (it is tagged for JSON); this one is the same, field by field.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkerWatermark {
+    pub content: WorkerWatermarkContent,
+    pub opacity: u8,
+    pub diagonal: bool,
+    pub place: WatermarkPlace,
+    pub pages: WatermarkPages,
+}
+
+/// What a watermark is, as the worker takes it (see [`WorkerWatermark`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum WorkerWatermarkContent {
+    Text { text: String, size: f32, color: Rgb },
+    Picture { width_pt: f32 },
+}
+
+impl From<Watermark> for WorkerWatermark {
+    fn from(watermark: Watermark) -> Self {
+        Self {
+            content: match watermark.content {
+                WatermarkContent::Text { text, size, color } => {
+                    WorkerWatermarkContent::Text { text, size, color }
+                }
+                WatermarkContent::Picture { width_pt } => {
+                    WorkerWatermarkContent::Picture { width_pt }
+                }
+            },
+            opacity: watermark.opacity,
+            diagonal: watermark.diagonal,
+            place: watermark.place,
+            pages: watermark.pages,
+        }
+    }
+}
+
+impl From<WorkerWatermark> for Watermark {
+    fn from(watermark: WorkerWatermark) -> Self {
+        Self {
+            content: match watermark.content {
+                WorkerWatermarkContent::Text { text, size, color } => {
+                    WatermarkContent::Text { text, size, color }
+                }
+                WorkerWatermarkContent::Picture { width_pt } => {
+                    WatermarkContent::Picture { width_pt }
+                }
+            },
+            opacity: watermark.opacity,
+            diagonal: watermark.diagonal,
+            place: watermark.place,
+            pages: watermark.pages,
+        }
     }
 }
 
@@ -510,6 +567,17 @@ pub enum WorkerRequest {
         owner_password: Password,
         restrictions: Restrictions,
     },
+    /// Writes to `file` (as for `Save`) a copy of the document, edits included, with `watermark`
+    /// on its pages (B3-04, docs/architecture/watermark.md). `picture` is the PNG of a picture
+    /// watermark (a stamp picture, B2-08), and nothing for words. The open document is not
+    /// changed. Answered by `Saved`, never appended. Refused for an encrypted document.
+    WatermarkCopy {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
+        watermark: WorkerWatermark,
+        picture: Option<Vec<u8>>,
+    },
     /// Opens the document again from the bytes it was opened from, and applies `edits` in
     /// order (undo, ADR 0013). Answered by `Edited`; the document is replaced only once every
     /// edit is applied. Refused for a document opened with a password, whose bytes are not
@@ -529,6 +597,19 @@ pub enum WorkerRequest {
         request: RequestId,
         doc: DocumentId,
         file: FileHandle,
+    },
+    /// Writes to `file` (as for `Save`) the file `doc` was opened from or last saved to, with the
+    /// app's document identifier put into its metadata (`identifier`), or taken out (`None`), by
+    /// an incremental update (B3-05, ADR 0010): the file's bytes, then the update. The open
+    /// document is not changed. Refused for a signed document, for an encrypted one without its
+    /// permissions password, and for a file that cannot be appended to (MuPDF repaired it).
+    /// The password is wiped once used. Answered by `Saved`, always appended.
+    WriteIdentifier {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
+        identifier: Option<[u8; 16]>,
+        password: Option<Password>,
     },
     /// Makes the picture `file` (read-only; a PNG or JPEG) into what a stamp is made of: its
     /// pixels, in a PNG file, shrunk to `MAX_STAMP_SIDE_PX` at most. Nothing else of the file
@@ -835,6 +916,12 @@ pub struct OpenedDocument {
     pub permissions: DocumentPermissions,
     /// Encrypted (MVP-16), with a password or with permissions only.
     pub encrypted: bool,
+    /// Signed: its form says signatures exist, or a signature field has a value. Writing the
+    /// sensitive mark into the file is refused (B3-05, ADR 0010).
+    pub signed: bool,
+    /// The app's document identifier in the file's metadata (ADR 0010; not a `DocumentId`): the
+    /// file is marked as sensitive (B3-05, ADR 0004).
+    pub identifier: Option<[u8; 16]>,
 }
 
 /// A rendered page: opaque RGBA8 (alpha is always 255), rows top to bottom, no padding.
@@ -903,6 +990,8 @@ pub enum WorkerErrorCode {
     DiskFull,
     /// Saving: the file could not be written for another reason.
     Unwritable,
+    /// The document is signed, and the request would write into its file (B3-05, ADR 0010).
+    Signed,
     /// A text box cannot be set in the font (B2-28).
     Font(FontRefusal),
     /// A text box cannot be set in the text: it needs a script the worker does not set (B2-28).
@@ -929,6 +1018,7 @@ impl From<WorkerErrorCode> for ErrorCode {
             WorkerErrorCode::Cancelled => ErrorCode::Cancelled,
             WorkerErrorCode::DiskFull => ErrorCode::DiskFull,
             WorkerErrorCode::Unwritable => ErrorCode::Unwritable,
+            WorkerErrorCode::Signed => ErrorCode::Signed,
             WorkerErrorCode::Font(refusal) => match refusal {
                 FontRefusal::NotAFont => ErrorCode::FontInvalid,
                 FontRefusal::NotTrueType => ErrorCode::FontNotTrueType,
@@ -1095,6 +1185,89 @@ mod tests {
             postcard::from_bytes::<WorkerRequest>(&bytes).unwrap(),
             request
         );
+    }
+
+    #[test]
+    fn writing_the_identifier_carries_it_and_hides_the_password() {
+        let request = WorkerRequest::WriteIdentifier {
+            request: RequestId(4),
+            doc: DocumentId(5),
+            file: FileHandle(0x40),
+            identifier: Some([0x3c; 16]),
+            password: Some(Password::new("owner secret".to_owned())),
+        };
+        assert!(!format!("{request:?}").contains("owner secret"));
+        let bytes = postcard::to_allocvec(&request).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerRequest>(&bytes).unwrap(),
+            request
+        );
+        let opened = OpenedDocument {
+            pages: vec![PageSize {
+                width_pt: 612.0,
+                height_pt: 792.0,
+            }],
+            has_outline: false,
+            has_form: false,
+            security: SecurityReport::default(),
+            permissions: DocumentPermissions::ALL,
+            encrypted: false,
+            signed: true,
+            identifier: Some([0xc3; 16]),
+        };
+        let bytes = postcard::to_allocvec(&opened).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<OpenedDocument>(&bytes).unwrap(),
+            opened
+        );
+        let bytes = postcard::to_allocvec(&WorkerErrorCode::Signed).unwrap();
+        let code = postcard::from_bytes::<WorkerErrorCode>(&bytes).unwrap();
+        assert_eq!(ErrorCode::from(code), ErrorCode::Signed);
+    }
+
+    #[test]
+    fn a_watermark_crosses_to_the_worker_as_it_was_given() {
+        use crate::types::{Watermark, WatermarkContent, WatermarkPages, WatermarkPlace};
+        for content in [
+            WatermarkContent::Text {
+                text: "機密 CONFIDENTIAL".to_owned(),
+                size: 48.0,
+                color: Rgb { r: 9, g: 8, b: 7 },
+            },
+            WatermarkContent::Picture { width_pt: 120.5 },
+        ] {
+            let watermark = Watermark {
+                content,
+                opacity: 30,
+                diagonal: true,
+                place: WatermarkPlace::Bottom,
+                pages: WatermarkPages::AllButFirst,
+            };
+            // Postcard cannot carry the page's form (tagged for JSON); the worker's is the same.
+            assert!(
+                postcard::to_allocvec(&watermark).is_err() || {
+                    let bytes = postcard::to_allocvec(&watermark).unwrap();
+                    postcard::from_bytes::<Watermark>(&bytes).is_err()
+                }
+            );
+            let request = WorkerRequest::WatermarkCopy {
+                request: RequestId(5),
+                doc: DocumentId(6),
+                file: FileHandle(7),
+                watermark: watermark.clone().into(),
+                picture: Some(vec![1, 2, 3]),
+            };
+            let bytes = postcard::to_allocvec(&request).unwrap();
+            let back = postcard::from_bytes::<WorkerRequest>(&bytes).unwrap();
+            assert_eq!(back, request);
+            let WorkerRequest::WatermarkCopy {
+                watermark: crossed, ..
+            } = back
+            else {
+                panic!("{back:?}");
+            };
+            assert_eq!(Watermark::from(crossed), watermark);
+        }
     }
 
     #[test]

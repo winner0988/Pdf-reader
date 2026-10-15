@@ -21,7 +21,7 @@ use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
     AnnotationId, BatchOperation, BlockedAction, CompressResult, CreateKind, CreateResult,
     DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode, FormField,
-    ImageQuality, IpcError, LinkArgs, LinkPreview, LinkTarget, NotRemembered, OpenEvent,
+    ImageQuality, IpcError, LinkArgs, LinkPreview, LinkTarget, MarkCheck, NotRemembered, OpenEvent,
     OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource,
     Password, PreparedTextBox, Recovery, RememberedPasswords, RenderPageArgs, Restrictions,
     SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageInfo, TabId,
@@ -163,6 +163,12 @@ struct OpenDocument {
     text_boxes: TextBoxes,
     /// What is known of the file's password (B2-25); the key only for a file opened with one.
     password: PasswordFacts,
+    /// The file is signed, as the worker said when it opened it: the sensitive mark is not
+    /// written into it (B3-05, ADR 0010).
+    signed: bool,
+    /// The app's document identifier in the file (ADR 0010): the file is marked as sensitive
+    /// (B3-05), and `info.sensitive` says so.
+    identifier: Option<[u8; 16]>,
 }
 
 impl Documents {
@@ -321,7 +327,7 @@ impl Documents {
                 ipc_error(&error)
             })?;
             let doc = DocumentId(self.next_id());
-            let mut info = document_info(doc, display_name.clone(), response)?;
+            let (mut info, facts_of_file) = document_info(doc, display_name.clone(), response)?;
             let info_has_form = info.has_form;
             let security_in_file = info.security.clone();
             // Only now, so that a password that did not open the file is not kept.
@@ -352,6 +358,8 @@ impl Documents {
                 pictures: Pictures::default(),
                 text_boxes: TextBoxes::default(),
                 password: facts,
+                signed: facts_of_file.signed,
+                identifier: facts_of_file.identifier,
             };
             self.recover_on_open(&tab, &mut document);
             Ok(document)
@@ -828,6 +836,104 @@ impl Documents {
             // Undo starts from the file now: the worker keeps its bytes instead (ADR 0013).
             rebase(document);
             Ok(SaveResult { incremental })
+        })
+    }
+
+    /// What writing the sensitive mark into the file of `doc`, or taking it out, would do (B3-05,
+    /// ADR 0010): asked before the user confirms. The first reason it cannot be done, the one that
+    /// lasts longest first; or that it can, with the permissions password for an encrypted file.
+    pub fn mark_check(&self, doc: DocumentId) -> Result<MarkCheck, IpcError> {
+        self.with_document(doc, |document| {
+            Ok(if document.signed {
+                MarkCheck::Signed
+            } else if saving::check_writable(&document.path).is_err() {
+                MarkCheck::ReadOnly
+            } else if !unchanged_on_disk(document) {
+                MarkCheck::ChangedOnDisk
+            } else if unsaved_anywhere(document) {
+                MarkCheck::Unsaved
+            } else if document.info.encrypted {
+                MarkCheck::NeedsPassword
+            } else {
+                MarkCheck::Ready
+            })
+        })
+    }
+
+    /// Writes the sensitive mark into the file of `doc` (a new random identifier), or takes it out
+    /// (B3-05, ADR 0010), once the user confirmed: appended to the file by its worker, through a
+    /// temporary file that then takes the file's place (ADR 0013); on any failure the file stays
+    /// as it was. `password` is the permissions password of an encrypted file; it goes to the
+    /// worker and is not kept. Refused for a signed file, with changes not saved, or when another
+    /// program changed the file. The worker then keeps the file's new bytes and opens the
+    /// document again from them, so that a later save keeps the mark. Returns the identifier
+    /// written or taken out, and the tab's new state.
+    pub fn set_sensitive(
+        &self,
+        doc: DocumentId,
+        sensitive: bool,
+        password: Option<Password>,
+    ) -> Result<([u8; 16], OpenEvent), IpcError> {
+        let mut fresh = [0u8; 16];
+        getrandom::fill(&mut fresh).map_err(|_| IpcError {
+            code: ErrorCode::Internal,
+            message: "no random bytes for the document identifier".to_owned(),
+        })?;
+        self.change_document(doc, |document| {
+            if document.signed {
+                return Err(IpcError {
+                    code: ErrorCode::Signed,
+                    message: "a signed file is not written to".to_owned(),
+                });
+            }
+            let identifier = match (sensitive, document.identifier) {
+                (true, None) => fresh,
+                (false, Some(identifier)) => identifier,
+                _ => return Err(invalid_argument("the file is marked so already")),
+            };
+            if unsaved_anywhere(document) {
+                return Err(invalid_argument(
+                    "the document has changes not saved: they would go into the file too",
+                ));
+            }
+            if !unchanged_on_disk(document) {
+                return Err(IpcError {
+                    code: ErrorCode::ChangedOnDisk,
+                    message: "another program changed the file after it was read".to_owned(),
+                });
+            }
+            let path = document.path.clone();
+            saving::check_writable(&path)?;
+            let mut temporary = Temporary::new(&path)?;
+            let worker_doc = live_worker(document)?;
+            // Opening the document again afterwards needs it as well.
+            let again = password.clone();
+            let response = document
+                .host
+                .write_identifier(
+                    worker_doc,
+                    temporary.file(),
+                    sensitive.then_some(identifier),
+                    password,
+                )
+                .map_err(|error| lost_on(document, &error))?;
+            let WorkerResponse::Saved { bytes, .. } = response else {
+                return Err(unexpected("WriteIdentifier"));
+            };
+            temporary.check(bytes)?;
+            temporary.replace(&path)?;
+            document.identity = FileIdentity::of(&path);
+            document.identifier = sensitive.then_some(identifier);
+            document.info.sensitive = sensitive;
+            // The worker keeps the file's bytes now, and opens the document from them: its own
+            // copy has the mark, as a later save must.
+            rebase(document);
+            if !document.lost && revert_in_worker(document, Vec::new(), again).is_err() {
+                document.lost = true;
+            }
+            // The worker's document is another one now, if with the same pages (as after undo).
+            document.info.doc = DocumentId(self.next_id());
+            Ok(identifier)
         })
     }
 
@@ -1741,6 +1847,22 @@ impl Documents {
         self.tab(tab).map(|found| lock(&found.path).clone())
     }
 
+    /// The app's document identifier in the file of `tab` (B3-05, ADR 0010), if it is open and
+    /// marked as sensitive.
+    pub fn tab_identifier(&self, tab: TabId) -> Option<[u8; 16]> {
+        let found = self.tab(tab)?;
+        let document = lock(&found.document);
+        document.as_ref()?.identifier
+    }
+
+    /// The identifiers in the files of the open tabs that are marked as sensitive (B3-05).
+    pub fn open_identifiers(&self) -> Vec<[u8; 16]> {
+        let tabs = self.lock().tabs.clone();
+        tabs.iter()
+            .filter_map(|tab| lock(&tab.document).as_ref()?.identifier)
+            .collect()
+    }
+
     /// What the frontend was told about the open document `doc` (its name, pages, permissions).
     pub fn document_info(&self, doc: DocumentId) -> Option<DocumentInfo> {
         let tabs = self.lock().tabs.clone();
@@ -2457,6 +2579,24 @@ fn rebase(document: &mut OpenDocument) {
     }
 }
 
+/// Whether the file of `document` is as it was when it was read or last written.
+fn unchanged_on_disk(document: &OpenDocument) -> bool {
+    matches!(
+        (document.identity, FileIdentity::of(&document.path)),
+        (Some(then), Some(now)) if then == now
+    )
+}
+
+/// Whether `document` has changes not in its file: its own, or those an earlier run left that the
+/// user has not answered for (B2-13).
+fn unsaved_anywhere(document: &OpenDocument) -> bool {
+    document.history.unsaved()
+        || matches!(
+            document.info.recovery,
+            Recovery::Available | Recovery::Partial
+        )
+}
+
 fn not_allowed() -> IpcError {
     IpcError {
         code: ErrorCode::InvalidArgument,
@@ -2488,7 +2628,9 @@ fn reopen(document: &mut OpenDocument) -> Result<DocumentId, IpcError> {
         .host
         .open(&document.path)
         .map_err(|error| ipc_error(&error))?;
-    let mut pages = document_info(doc, document.info.display_name.clone(), response)?.pages;
+    let mut pages = document_info(doc, document.info.display_name.clone(), response)?
+        .0
+        .pages;
     for edit in document.history.applied() {
         let edit = worker_edit(
             &document.sources,
@@ -2696,16 +2838,26 @@ pub fn ipc_error(error: &HostError) -> IpcError {
     }
 }
 
+/// What the worker said of the file itself when it opened it, which the frontend is not told.
+struct FileFacts {
+    signed: bool,
+    identifier: Option<[u8; 16]>,
+}
+
 fn document_info(
     doc: DocumentId,
     display_name: String,
     response: WorkerResponse,
-) -> Result<DocumentInfo, IpcError> {
+) -> Result<(DocumentInfo, FileFacts), IpcError> {
     let WorkerResponse::Opened { document, .. } = response else {
         return Err(IpcError {
             code: ErrorCode::ProtocolViolation,
             message: "unexpected response to Open".to_owned(),
         });
+    };
+    let facts = FileFacts {
+        signed: document.signed,
+        identifier: document.identifier,
     };
     let info = DocumentInfo {
         doc,
@@ -2722,12 +2874,13 @@ fn document_info(
         recovery: Recovery::None,
         password_remembered: false,
         password_recalled: false,
+        sensitive: facts.identifier.is_some(),
     };
     info.validate().map_err(|error| IpcError {
         code: ErrorCode::Internal,
         message: format!("invalid document info: {error}"),
     })?;
-    Ok(info)
+    Ok((info, facts))
 }
 
 impl Documents {
@@ -4338,6 +4491,188 @@ mod with_worker {
             pages: vec![page],
             by: Rotation::Cw90,
         }
+    }
+
+    /// What writing the sensitive mark into the file of `doc` would do (B3-05).
+    fn sensitive_check_of(documents: &Documents, doc: DocumentId) -> MarkCheck {
+        documents.mark_check(doc).unwrap()
+    }
+
+    #[test]
+    fn the_sensitive_mark_is_appended_and_goes_with_the_file_wherever_it_is() {
+        let folder = folder("b305-mark");
+        let path = folder.join("合約.pdf");
+        std::fs::write(&path, letter_pdf(2)).unwrap();
+        let original = std::fs::read(&path).unwrap();
+        let documents = Documents::new(worker());
+        let info = open_in(&documents, &path);
+        assert!(!info.sensitive);
+        assert_eq!(sensitive_check_of(&documents, info.doc), MarkCheck::Ready);
+        assert!(documents.open_identifiers().is_empty());
+
+        let (identifier, event) = documents.set_sensitive(info.doc, true, None).unwrap();
+        let marked = opened_info(event);
+        assert!(marked.sensitive);
+        // The worker's document is opened again from the file: another id, the same pages.
+        assert_ne!(marked.doc, info.doc);
+        assert_eq!(marked.pages, info.pages);
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(&bytes[..original.len()], &original[..]);
+        assert_eq!(documents.open_identifiers(), vec![identifier]);
+        let tab = tab_of(&documents, marked.doc);
+        assert_eq!(documents.tab_identifier(tab), Some(identifier));
+        // The document goes on as before.
+        assert!(documents.page_text(marked.doc, 0).is_ok());
+        // Marked already: refused, and the file stays as it is.
+        let again = documents.set_sensitive(marked.doc, true, None).unwrap_err();
+        assert_eq!(again.code, ErrorCode::InvalidArgument);
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        // No temporary file is left next to it.
+        assert_eq!(names_in(&folder), ["合約.pdf"]);
+
+        // Copied elsewhere under another name (as a move would leave it): still sensitive.
+        let elsewhere = folder.join("renamed elsewhere.pdf");
+        std::fs::copy(&path, &elsewhere).unwrap();
+        let other = Documents::new(worker());
+        assert!(open_in(&other, &elsewhere).sensitive);
+        assert_eq!(other.open_identifiers(), vec![identifier]);
+
+        // An edit saved keeps the mark; the privacy export drops it (ADR 0004).
+        let mut doc = marked.doc;
+        edited_pages(&documents, &mut doc, turn(0));
+        let (_, saved) = documents.save(doc, None).unwrap();
+        let saved = opened_info(saved);
+        assert!(saved.sensitive);
+        assert!(open_in(&Documents::new(worker()), &path).sensitive);
+        let exported = folder.join("exported.pdf");
+        documents.privacy_export(saved.doc, &exported).unwrap();
+        assert!(!open_in(&Documents::new(worker()), &exported).sensitive);
+
+        // Taken out: appended too, and the file opens as any other.
+        let before = std::fs::read(&path).unwrap();
+        let (removed, event) = documents.set_sensitive(saved.doc, false, None).unwrap();
+        assert_eq!(removed, identifier);
+        assert!(!opened_info(event).sensitive);
+        assert_eq!(&std::fs::read(&path).unwrap()[..before.len()], &before[..]);
+        assert!(!open_in(&Documents::new(worker()), &path).sensitive);
+        assert!(documents.open_identifiers().is_empty());
+        drop((documents, other));
+        std::fs::remove_dir_all(&folder).ok();
+    }
+
+    #[test]
+    fn the_sensitive_mark_is_not_written_where_it_should_not_be() {
+        let folder = folder("b305-refused");
+        let documents = Documents::new(worker());
+
+        // Signed: refused, whatever else.
+        for name in ["signed.pdf", "signed-docmdp-p1.pdf"] {
+            let path = folder.join(name);
+            std::fs::copy(corpus_path(&format!("benign/{name}")), &path).unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+            let info = open_in(&documents, &path);
+            assert_eq!(sensitive_check_of(&documents, info.doc), MarkCheck::Signed);
+            let error = documents.set_sensitive(info.doc, true, None).unwrap_err();
+            assert_eq!(error.code, ErrorCode::Signed, "{name}");
+            assert_eq!(std::fs::read(&path).unwrap(), bytes, "{name}");
+        }
+
+        // Changes not saved would go into the file too.
+        let path = folder.join("edited.pdf");
+        std::fs::write(&path, letter_pdf(2)).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let mut doc = open_in(&documents, &path).doc;
+        edited_pages(&documents, &mut doc, turn(1));
+        assert_eq!(sensitive_check_of(&documents, doc), MarkCheck::Unsaved);
+        let error = documents.set_sensitive(doc, true, None).unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidArgument);
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+
+        // Another program changed the file.
+        let path = folder.join("changed.pdf");
+        std::fs::write(&path, letter_pdf(2)).unwrap();
+        let doc = open_in(&documents, &path).doc;
+        std::fs::write(&path, letter_pdf(3)).unwrap();
+        assert_eq!(
+            sensitive_check_of(&documents, doc),
+            MarkCheck::ChangedOnDisk
+        );
+        let error = documents.set_sensitive(doc, true, None).unwrap_err();
+        assert_eq!(error.code, ErrorCode::ChangedOnDisk);
+        assert_eq!(std::fs::read(&path).unwrap(), letter_pdf(3));
+
+        // A read-only file.
+        let path = folder.join("read-only.pdf");
+        std::fs::write(&path, letter_pdf(1)).unwrap();
+        let doc = open_in(&documents, &path).doc;
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&path, permissions.clone()).unwrap();
+        assert_eq!(sensitive_check_of(&documents, doc), MarkCheck::ReadOnly);
+        let error = documents.set_sensitive(doc, true, None).unwrap_err();
+        assert_eq!(error.code, ErrorCode::ReadOnly);
+        // Windows only (the crate does not build elsewhere): no world-writable file results.
+        #[allow(clippy::permissions_set_readonly_false)]
+        permissions.set_readonly(false);
+        std::fs::set_permissions(&path, permissions).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), letter_pdf(1));
+
+        // Nothing written anywhere, nothing left behind.
+        assert_eq!(
+            names_in(&folder),
+            [
+                "changed.pdf",
+                "edited.pdf",
+                "read-only.pdf",
+                "signed-docmdp-p1.pdf",
+                "signed.pdf"
+            ]
+        );
+        drop(documents);
+        std::fs::remove_dir_all(&folder).ok();
+    }
+
+    #[test]
+    fn an_encrypted_file_is_marked_only_with_its_permissions_password() {
+        let folder = folder("b305-encrypted");
+        let path = folder.join("locked.pdf");
+        std::fs::copy(corpus_path("benign/restricted-open-password.pdf"), &path).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let documents = Documents::new(worker());
+        let (_, info) = unlocked(&documents, &path);
+        assert_eq!(
+            sensitive_check_of(&documents, info.doc),
+            MarkCheck::NeedsPassword
+        );
+        for (password, code) in [
+            (None, ErrorCode::Encrypted),
+            (Some("wrong"), ErrorCode::Encrypted),
+            (Some("user"), ErrorCode::NotAllowed),
+        ] {
+            let error = documents
+                .set_sensitive(
+                    info.doc,
+                    true,
+                    password.map(|password| Password::new(password.to_owned())),
+                )
+                .unwrap_err();
+            assert_eq!(error.code, code, "{password:?}");
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        }
+        let (_, event) = documents
+            .set_sensitive(info.doc, true, Some(Password::new("owner".to_owned())))
+            .unwrap();
+        let marked = opened_info(event);
+        assert!(marked.sensitive && marked.encrypted);
+        // What the author restricts stays restricted here: the permissions are as before.
+        assert_eq!(marked.permissions, info.permissions);
+        assert!(documents.page_text(marked.doc, 0).is_ok());
+        // Opened again with the open password: sensitive, still encrypted.
+        let other = Documents::new(worker());
+        let (_, again) = unlocked(&other, &path);
+        assert!(again.sensitive && again.encrypted);
+        drop((documents, other));
+        std::fs::remove_dir_all(&folder).ok();
     }
 
     #[test]

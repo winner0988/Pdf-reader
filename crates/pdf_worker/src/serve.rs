@@ -12,14 +12,16 @@ use ipc_contract::frame::{self, FrameError};
 use ipc_contract::limits::{
     MAX_CREATE_SOURCES, MAX_DOCUMENT_BYTES, MAX_ERROR_MESSAGE_BYTES, MAX_LINKS_PER_PAGE,
     MAX_OCR_PAGE_MILLIS, MAX_OUTLINE_DEPTH, MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_PAGE_TEXT_CHARS,
-    MAX_SEARCH_HITS, MAX_SOURCE_BYTES, MAX_STAMP_SOURCE_BYTES, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
+    MAX_SEARCH_HITS, MAX_SOURCE_BYTES, MAX_STAMP_PNG_BYTES, MAX_STAMP_SOURCE_BYTES, MAX_TEXT_BYTES,
+    MAX_UNDO_EDITS,
 };
 use ipc_contract::ocr::{check_language_data, is_language_name};
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
     DocumentId, ImageQuality, LinkId, LinkTarget, OutlineItem, OutlineResult, PageLink, PageSize,
-    Password, Rect, RequestId, Restrictions, TextBoxInfo,
+    Password, Rect, RequestId, Restrictions, TextBoxInfo, Watermark,
 };
+use ipc_contract::validate::stamp_png_size;
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument,
     Raster, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
@@ -314,6 +316,26 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     "unknown document",
                 )
             }),
+            WorkerRequest::WriteIdentifier {
+                request,
+                doc,
+                file,
+                identifier,
+                password,
+            } => Some(match originals.get(&doc) {
+                Some(bytes) if documents.contains_key(&doc) => write_identifier(
+                    bytes,
+                    request,
+                    file,
+                    identifier.as_ref(),
+                    password.as_ref().map(Password::as_str),
+                ),
+                _ => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+            }),
             WorkerRequest::Save { request, doc, file } => Some(match documents.get(&doc) {
                 None => error(
                     request,
@@ -379,6 +401,26 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     open_password.as_ref().map(Password::as_str),
                     owner_password.as_str(),
                     restrictions,
+                ),
+            }),
+            WorkerRequest::WatermarkCopy {
+                request,
+                doc,
+                file,
+                watermark,
+                picture,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => watermark_copy(
+                    document,
+                    request,
+                    file,
+                    &watermark.into(),
+                    picture.as_deref(),
                 ),
             }),
             WorkerRequest::PrepareSource {
@@ -505,6 +547,8 @@ fn open(
     let security = document.active_content(ScanBudget::default());
     let permissions = document.permissions();
     let encrypted = document.is_encrypted();
+    let signed = document.is_signed();
+    let identifier = document.identifier();
     documents.insert(doc, document);
     originals.insert(doc, bytes);
     WorkerResponse::Opened {
@@ -516,6 +560,8 @@ fn open(
             security,
             permissions,
             encrypted,
+            signed,
+            identifier,
         },
     }
 }
@@ -697,6 +743,33 @@ fn save(document: &PdfDocument, request: RequestId, file: FileHandle) -> WorkerR
     }
 }
 
+/// Writes `bytes`, the file a document was opened from or last saved to, to `file` (a handle like
+/// `save`'s) with the app's document identifier put into its metadata or taken out (B3-05, ADR
+/// 0010): appended, the file's own bytes first. The open document is not changed.
+fn write_identifier(
+    bytes: &[u8],
+    request: RequestId,
+    file: FileHandle,
+    identifier: Option<&[u8; 16]>,
+    password: Option<&str>,
+) -> WorkerResponse {
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match crate::engine::write_identifier(bytes, password, identifier, &mut file) {
+        Ok(bytes) => WorkerResponse::Saved {
+            request,
+            bytes,
+            incremental: true,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
 /// Writes the privacy export of `document` (B2-03) to `file`, a handle like `save`'s.
 fn encrypted_copy(
     document: &PdfDocument,
@@ -714,6 +787,41 @@ fn encrypted_copy(
         );
     };
     match document.encrypted_copy(open_password, owner_password, restrictions, &mut file) {
+        Ok(bytes) => WorkerResponse::Saved {
+            request,
+            bytes,
+            incremental: false,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
+/// Writes a copy of `document` with `watermark` on its pages (B3-04) to `file`, a handle like
+/// `save`'s. A picture watermark's PNG is checked as a stamp's is before anything is decoded.
+fn watermark_copy(
+    document: &PdfDocument,
+    request: RequestId,
+    file: FileHandle,
+    watermark: &Watermark,
+    picture: Option<&[u8]>,
+) -> WorkerResponse {
+    if let Some(png) = picture
+        && (png.len() > MAX_STAMP_PNG_BYTES || stamp_png_size(png).is_err())
+    {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "not a stamp picture",
+        );
+    }
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match document.watermark_copy(watermark, picture, &mut file) {
         Ok(bytes) => WorkerResponse::Saved {
             request,
             bytes,
@@ -1019,7 +1127,8 @@ fn engine_error(
         | EngineError::InvalidPicture(_)
         | EngineError::NoPageLeft
         | EngineError::EncryptedCopy => WorkerErrorCode::InvalidRequest,
-        EngineError::InvalidSource(_) => WorkerErrorCode::Corrupted,
+        EngineError::InvalidSource(_) | EngineError::NotAppendable => WorkerErrorCode::Corrupted,
+        EngineError::Signed => WorkerErrorCode::Signed,
         EngineError::TooLarge { .. }
         | EngineError::TooComplex
         | EngineError::TooManyPages

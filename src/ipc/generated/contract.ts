@@ -119,6 +119,38 @@ openPassword: Password | null,
 permissionsPassword: Password | null, restrictions: Restrictions, };
 
 /**
+ * What a watermark is (B3-04, docs/architecture/watermark.md).
+ */
+export type WatermarkContent = { "kind": "text", text: string, size: number, color: Rgb, } | { "kind": "picture", widthPt: number, };
+
+/**
+ * Where on each page a watermark is (B3-04): in the middle, or at the top or the bottom, as the
+ * page is shown (a turned page included).
+ */
+export type WatermarkPlace = "center" | "top" | "bottom";
+
+/**
+ * Which pages get a watermark (B3-04): the same for every file of a batch, however many pages
+ * each has.
+ */
+export type WatermarkPages = "all" | "first" | "allButFirst";
+
+/**
+ * A watermark (B3-04): drawn on the pages of a copy as page content, over what is there, so that
+ * every reader shows it and it is not an annotation a click takes off.
+ */
+export type Watermark = { content: WatermarkContent, 
+/**
+ * How much of it shows, in percent: `MIN_WATERMARK_OPACITY` to 100.
+ */
+opacity: number, 
+/**
+ * Turned to run from the bottom left corner of the page towards the top right one; level
+ * otherwise.
+ */
+diagonal: boolean, place: WatermarkPlace, pages: WatermarkPages, };
+
+/**
  * What a batch does to each of its files (B3-04, ADR 0005, docs/architecture/batch.md): a copy of
  * each is written to the folder the user chooses; no file is changed.
  */
@@ -164,6 +196,40 @@ displayName: string, };
  * files list. Any other field is rejected.
  */
 export type FileRecordingArgs = { doc: DocumentId, record: boolean, };
+
+/**
+ * An entry of the list of files the user marked as sensitive on this computer (B3-05, ADR 0004),
+ * valid while the app runs. The mark itself is in each file (the app's document identifier, ADR
+ * 0010); the list keeps only that identifier and the file's name, never a path.
+ */
+export type SensitiveId = number;
+
+/**
+ * A file of that list as the frontend sees it: its name when it was marked, or when it was last
+ * opened.
+ */
+export type SensitiveFile = { id: SensitiveId, 
+/**
+ * File name for display only (no directory components).
+ */
+displayName: string, 
+/**
+ * The file is open in a tab now: its mark can be taken off there.
+ */
+open: boolean, };
+
+/**
+ * What writing the sensitive mark into the open document's file, or taking it out, would do
+ * (B3-05, ADR 0010), asked before the user confirms.
+ */
+export type MarkCheck = "ready" | "needsPassword" | "signed" | "readOnly" | "unsaved" | "changedOnDisk";
+
+/**
+ * Arguments of `set_sensitive` (B3-05): mark the open document's file as sensitive, or take the
+ * mark out, once the user confirmed. `password` is the permissions password of an encrypted
+ * document (ADR 0010); it is not kept. Any other field is rejected.
+ */
+export type SensitiveArgs = { doc: DocumentId, sensitive: boolean, password: Password | null, };
 
 /**
  * Which colours the app uses (B2-12): the system's light or dark mode, or always one of them.
@@ -823,7 +889,13 @@ passwordRemembered: boolean,
 /**
  * The file was opened with the remembered password, without the user typing one.
  */
-passwordRecalled: boolean, };
+passwordRecalled: boolean, 
+/**
+ * The file is marked as sensitive (B3-05, ADR 0004): it carries the app's document identifier
+ * (ADR 0010). Text copied from it stays out of Windows' clipboard history and cloud
+ * clipboard, and the file is not on the recent files list.
+ */
+sensitive: boolean, };
 
 /**
  * Arguments of the `render_page` command.
@@ -947,7 +1019,7 @@ edges: Array<number>, };
 /**
  * Error codes the frontend maps to localized messages.
  */
-export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "credentialsUnavailable" | "pictureNotCleaned" | "internal";
+export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "signed" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "credentialsUnavailable" | "pictureNotCleaned" | "internal";
 
 /**
  * Rejection value of every command. `message` is for logs and must not contain paths or
@@ -986,6 +1058,8 @@ export const LIMITS = {
   maxDisplayNameBytes: 1024,
   maxTabs: 20,
   maxRecentFiles: 20,
+  maxSensitiveFiles: 1000,
+  maxClipboardTextBytes: 16777216,
   maxExportPages: 1000,
   maxBatchFiles: 500,
   maxSplitFiles: 1000,

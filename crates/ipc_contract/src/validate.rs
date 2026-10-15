@@ -16,9 +16,9 @@ use crate::types::{
     ExportFormat, FindingKind, FormField, IpcError, LinkTarget, OcrLanguages, OcrProgress,
     OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
     Point, PrepareTextBoxArgs, Quad, RecentFile, Rect, RemoveLanguageArgs, RenderPageArgs,
-    Restrictions, Rotation, SearchArgs, SearchHit, SecurityReport, Settings, SignatureInfo,
-    SignatureReport, SignatureStatus, TextBoxInfo, TextBoxStyle, TextLine, UndoArgs, UnlockArgs,
-    UnlockSourceArgs,
+    Restrictions, Rotation, SearchArgs, SearchHit, SecurityReport, SensitiveArgs, SensitiveFile,
+    Settings, SignatureInfo, SignatureReport, SignatureStatus, TextBoxInfo, TextBoxStyle, TextLine,
+    UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
     OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerError, WorkerErrorCode, WorkerResponse,
@@ -646,6 +646,49 @@ impl Validate for EncryptArgs {
             self.permissions_password.as_ref(),
             self.restrictions,
         )
+    }
+}
+
+impl Validate for Watermark {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if !(MIN_WATERMARK_OPACITY..=100).contains(&self.opacity) {
+            return Err(ValidationError::OutOfRange {
+                what: "watermark opacity",
+            });
+        }
+        match &self.content {
+            WatermarkContent::Text { text, size, .. } => {
+                check_coordinate("watermark size", *size)?;
+                if !(MIN_WATERMARK_SIZE_PT..=MAX_WATERMARK_SIZE_PT).contains(size) {
+                    return Err(ValidationError::OutOfRange {
+                        what: "watermark size",
+                    });
+                }
+                let chars = text.chars().count();
+                if text.trim().is_empty() || chars > MAX_WATERMARK_CHARS {
+                    return Err(ValidationError::Invalid {
+                        what: "watermark words",
+                        reason: "empty or too long",
+                    });
+                }
+                // One line of plain words: no line breaks, controls or invisible formatting.
+                if !is_clean_display_text(text) || text.contains(['\n', '\r']) {
+                    return Err(ValidationError::Invalid {
+                        what: "watermark words",
+                        reason: "not one line of plain words",
+                    });
+                }
+            }
+            WatermarkContent::Picture { width_pt } => {
+                check_coordinate("watermark width", *width_pt)?;
+                if !(MIN_WATERMARK_WIDTH_PT..=MAX_WATERMARK_WIDTH_PT).contains(width_pt) {
+                    return Err(ValidationError::OutOfRange {
+                        what: "watermark width",
+                    });
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1328,6 +1371,45 @@ impl Validate for [RecentFile] {
     }
 }
 
+impl Validate for SensitiveFile {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_display_name(&self.display_name)
+    }
+}
+
+/// The list of files marked as sensitive on this computer that the frontend gets (B3-05).
+impl Validate for [SensitiveFile] {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_count("sensitive files", self.len(), MAX_SENSITIVE_FILES)?;
+        self.iter().try_for_each(SensitiveFile::validate)
+    }
+}
+
+impl Validate for SensitiveArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.password.as_ref().map_or(Ok(()), check_password)
+    }
+}
+
+/// Text the page copies from a sensitive document (B3-05), which the main process puts on the
+/// clipboard: some, bounded, and without NUL, where the clipboard's text would end.
+pub fn check_clipboard_text(text: &str) -> Result<(), ValidationError> {
+    if text.is_empty() {
+        return Err(ValidationError::Invalid {
+            what: "clipboard text",
+            reason: "empty",
+        });
+    }
+    check_text("clipboard text", text, MAX_CLIPBOARD_TEXT_BYTES)?;
+    if text.contains('\u{0}') {
+        return Err(ValidationError::Invalid {
+            what: "clipboard text",
+            reason: "contains a NUL character",
+        });
+    }
+    Ok(())
+}
+
 impl Validate for DocumentInfo {
     fn validate(&self) -> Result<(), ValidationError> {
         check_display_name(&self.display_name)?;
@@ -1504,6 +1586,8 @@ mod tests {
             security: SecurityReport::default(),
             permissions: DocumentPermissions::ALL,
             encrypted: false,
+            signed: false,
+            identifier: None,
         };
         assert!(doc(vec![page(612.0, 792.0)]).validate().is_ok());
         assert!(doc(vec![]).validate().is_err());
@@ -1997,6 +2081,65 @@ mod tests {
             claimed_time: Some("2026-09-24 12:00:00 UTC+08:00".to_owned()),
             certification: None,
         }
+    }
+
+    #[test]
+    fn a_watermark_is_one_line_of_words_or_a_picture_that_can_be_seen() {
+        use crate::types::{Watermark, WatermarkContent, WatermarkPages, WatermarkPlace};
+        let words = |text: &str, size: f32, opacity: u8| Watermark {
+            content: WatermarkContent::Text {
+                text: text.to_owned(),
+                size,
+                color: Rgb { r: 0, g: 0, b: 0 },
+            },
+            opacity,
+            diagonal: true,
+            place: WatermarkPlace::Center,
+            pages: WatermarkPages::All,
+        };
+        assert!(words("機密 CONFIDENTIAL", 48.0, 30).validate().is_ok());
+        assert!(
+            words("x", MIN_WATERMARK_SIZE_PT, MIN_WATERMARK_OPACITY)
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            words(&"a".repeat(MAX_WATERMARK_CHARS), MAX_WATERMARK_SIZE_PT, 100)
+                .validate()
+                .is_ok()
+        );
+        for wrong in [
+            words("", 48.0, 30),
+            words("   ", 48.0, 30),
+            words(&"a".repeat(MAX_WATERMARK_CHARS + 1), 48.0, 30),
+            words("two\nlines", 48.0, 30),
+            words("a\u{202e}b", 48.0, 30),
+            words("x", MIN_WATERMARK_SIZE_PT - 1.0, 30),
+            words("x", MAX_WATERMARK_SIZE_PT + 1.0, 30),
+            words("x", f32::NAN, 30),
+            words("x", 48.0, MIN_WATERMARK_OPACITY - 1),
+            words("x", 48.0, 101),
+        ] {
+            assert!(wrong.validate().is_err(), "{wrong:?}");
+        }
+        let picture = |width_pt: f32| Watermark {
+            content: WatermarkContent::Picture { width_pt },
+            ..words("x", 48.0, 50)
+        };
+        assert!(picture(120.0).validate().is_ok());
+        for width in [
+            MIN_WATERMARK_WIDTH_PT - 1.0,
+            MAX_WATERMARK_WIDTH_PT + 1.0,
+            f32::INFINITY,
+        ] {
+            assert!(picture(width).validate().is_err(), "{width}");
+        }
+        // What the page sends, and nothing else.
+        let json = r#"{"content":{"kind":"picture","widthPt":100},"opacity":40,"diagonal":false,"place":"bottom","pages":"allButFirst"}"#;
+        let parsed: Watermark = serde_json::from_str(json).expect("a watermark");
+        assert!(parsed.validate().is_ok());
+        let more = r#"{"content":{"kind":"text","text":"x","size":20,"color":{"r":0,"g":0,"b":0}},"opacity":40,"diagonal":false,"place":"top","pages":"all","font":"C:/x.ttf"}"#;
+        assert!(serde_json::from_str::<Watermark>(more).is_err());
     }
 
     #[test]
@@ -3245,6 +3388,58 @@ mod tests {
     }
 
     #[test]
+    fn the_sensitive_mark_takes_a_password_only_as_an_unlock_one_and_nothing_else() {
+        use crate::types::{SensitiveArgs, SensitiveFile, SensitiveId};
+        let args = |password: Option<&str>| SensitiveArgs {
+            doc: DocumentId(1),
+            sensitive: true,
+            password: password.map(|password| Password::new(password.to_owned())),
+        };
+        assert!(args(None).validate().is_ok());
+        assert!(args(Some("owner")).validate().is_ok());
+        assert!(args(Some("")).validate().is_err());
+        assert!(args(Some("a\u{0}b")).validate().is_err());
+        assert_eq!(
+            serde_json::from_value::<SensitiveArgs>(
+                serde_json::json!({ "doc": 1, "sensitive": true, "password": "owner" })
+            )
+            .unwrap(),
+            args(Some("owner"))
+        );
+        // A path or an identifier of the page's choosing is no argument.
+        for value in [
+            serde_json::json!({ "doc": 1, "sensitive": true, "path": "C:/a.pdf" }),
+            serde_json::json!({ "doc": 1, "sensitive": true, "identifier": [0, 0, 0, 0] }),
+        ] {
+            assert!(serde_json::from_value::<SensitiveArgs>(value).is_err());
+        }
+
+        // The list: names only, bounded.
+        let file = |name: &str| SensitiveFile {
+            id: SensitiveId(1),
+            display_name: name.to_owned(),
+            open: false,
+        };
+        assert!(file("機密.pdf").validate().is_ok());
+        assert!(file("C:\\secret\\a.pdf").validate().is_err());
+        let full = vec![file("a.pdf"); MAX_SENSITIVE_FILES as usize];
+        assert!(full.as_slice().validate().is_ok());
+        let more = vec![file("a.pdf"); MAX_SENSITIVE_FILES as usize + 1];
+        assert!(more.as_slice().validate().is_err());
+    }
+
+    #[test]
+    fn clipboard_text_is_some_bounded_and_whole() {
+        assert!(check_clipboard_text("機密\nline two").is_ok());
+        assert!(check_clipboard_text("").is_err());
+        assert!(check_clipboard_text("before\u{0}after").is_err());
+        let most = "a".repeat(MAX_CLIPBOARD_TEXT_BYTES as usize);
+        assert!(check_clipboard_text(&most).is_ok());
+        let more = "a".repeat(MAX_CLIPBOARD_TEXT_BYTES as usize + 1);
+        assert!(check_clipboard_text(&more).is_err());
+    }
+
+    #[test]
     fn page_management_names_pages_once_and_places_within_bounds() {
         let edit = |edit: Edit| EditArgs {
             doc: DocumentId(1),
@@ -3391,6 +3586,7 @@ mod tests {
             recovery: Recovery::None,
             password_remembered: false,
             password_recalled: false,
+            sensitive: false,
         };
         assert!(info("報告.pdf").validate().is_ok());
         assert!(info(r"C:\Users\someone\報告.pdf").validate().is_err());

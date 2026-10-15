@@ -32,14 +32,17 @@ mod annotations;
 mod create;
 mod docx;
 mod forms;
+mod identifier;
 mod ocr;
 
 pub use create::{Created, PdfBuilder};
+pub use identifier::write_identifier;
 pub use ocr::OcrKnown;
 
 mod signatures;
 mod stamp_image;
 mod text_box;
+mod watermark;
 
 pub use signatures::{SignatureField, SignatureFields};
 pub use stamp_image::{StampPicture, prepare_stamp_picture};
@@ -123,6 +126,15 @@ pub enum EngineError {
     /// changing the picture (B3-04, [`crate::exif`]): its copy is not made.
     #[error("a picture's metadata cannot be taken out of it")]
     PictureNotCleaned,
+    /// The document is signed, and its file was to be written to (B3-05, ADR 0010).
+    #[error(
+        "the document is signed: writing to its file would show in every check of its signatures"
+    )]
+    Signed,
+    /// The file could not be opened as it is, only repaired, so nothing can be appended to it
+    /// (B3-05, ADR 0010).
+    #[error("the file was repaired to be opened: nothing can be appended to it")]
+    NotAppendable,
     #[error("MuPDF: {0}")]
     MuPdf(#[from] mupdf::Error),
 }
