@@ -29,6 +29,18 @@ impl Batches {
         }
     }
 
+    /// Stops every running batch before its next file (the notification area icon's menu, B3-04).
+    pub fn cancel_all(&self) {
+        for stop in self.lock().values() {
+            stop.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// Whether any batch is running.
+    pub fn any_running(&self) -> bool {
+        !self.lock().is_empty()
+    }
+
     /// Marks `request` as running until the guard is dropped, and gives what stops it.
     pub fn start(&self, request: RequestId) -> Running<'_> {
         let stop = Arc::new(AtomicBool::new(false));
@@ -172,5 +184,17 @@ mod tests {
         // Stopping one that is not running does nothing.
         batches.cancel(RequestId(4));
         assert!(batches.lock().is_empty());
+    }
+
+    #[test]
+    fn every_running_batch_can_be_stopped_at_once() {
+        let batches = Batches::default();
+        assert!(!batches.any_running());
+        let (one, two) = (batches.start(RequestId(1)), batches.start(RequestId(2)));
+        assert!(batches.any_running());
+        batches.cancel_all();
+        assert!(one.stop().load(Ordering::SeqCst) && two.stop().load(Ordering::SeqCst));
+        drop((one, two));
+        assert!(!batches.any_running());
     }
 }

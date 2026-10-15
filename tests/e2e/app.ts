@@ -529,6 +529,34 @@ export async function closeAppWindow(page: Page): Promise<void> {
   await promisify(execFile)("powershell", ["-NoProfile", "-NonInteractive", "-Command", script], { timeout: 30_000 });
 }
 
+/**
+ * Whether the app behind `page` shows its window: not while a batch goes on with it closed (B3-04).
+ * The process's other top-level windows (the single-instance lock's, the event loop's) count as
+ * visible to Windows though nobody sees them, so `MainWindowHandle` cannot tell: this looks at
+ * the app's own window, of the class Tauri gives it.
+ */
+export async function appWindowShown(page: Page): Promise<boolean> {
+  const script = [
+    `Add-Type -Namespace E2e -Name Shown -MemberDefinition '[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern System.IntPtr FindWindowEx(System.IntPtr parent, System.IntPtr after, string className, string title); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(System.IntPtr window, out uint process); [DllImport("user32.dll")] public static extern bool IsWindowVisible(System.IntPtr window);'`,
+    "$window = [System.IntPtr]::Zero",
+    "$shown = $false",
+    `do { $window = [E2e.Shown]::FindWindowEx([System.IntPtr]::Zero, $window, 'Tauri Window', [NullString]::Value); if ($window -ne [System.IntPtr]::Zero) { $process = [uint32]0; [void][E2e.Shown]::GetWindowThreadProcessId($window, [ref]$process); if ($process -eq ${appProcessId(page)} -and [E2e.Shown]::IsWindowVisible($window)) { $shown = $true } } } while ($window -ne [System.IntPtr]::Zero)`,
+    "$shown",
+  ].join("; ");
+  const { stdout } = await promisify(execFile)("powershell", ["-NoProfile", "-NonInteractive", "-Command", script], {
+    timeout: 30_000,
+  });
+  return stdout.trim() === "True";
+}
+
+/**
+ * Closes the message box the app behind `page` shows (B3-04: a batch done with the window
+ * closed), as its Esc key does, through file-dialog.ps1. Returns what the script saw of it.
+ */
+export async function closeMessageBox(page: Page): Promise<string> {
+  return answerFileDialog(page, "cancel");
+}
+
 /** Whether the app process behind `page` is still running. */
 export function appRunning(page: Page): boolean {
   return apps.get(page)?.child.exitCode === null;

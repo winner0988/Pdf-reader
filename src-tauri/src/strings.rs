@@ -1,6 +1,8 @@
 //! User-visible text shown by the main process itself (native dialogs). Keep in sync with the
 //! string table in docs/ux/screen-map.md, section 8; the WebView's text is in src/i18n/.
 
+use ipc_contract::types::{BatchOperation, BatchOutcome, ErrorCode};
+
 pub const OPEN_DIALOG_TITLE: &str = "開啟 PDF 檔案";
 
 /// The window title: the open document's file name, so windows and taskbar buttons can be told
@@ -89,6 +91,76 @@ pub const SPLIT_FOLDER_DIALOG_TITLE: &str = "選擇存放拆分後檔案的資�
 /// A batch (B3-04): the files it is done to, and the folder its copies go to.
 pub const BATCH_FILES_DIALOG_TITLE: &str = "選擇要批次處理的 PDF 檔案";
 pub const BATCH_FOLDER_DIALOG_TITLE: &str = "選擇存放批次處理結果的資料夾";
+
+/// A batch with the window closed (B3-04, ADR 0005): the notification area icon (it says what
+/// it is and that it ends with the batch), its menu, the report in the batch's folder and the
+/// message once the batch is done.
+pub fn batch_tray_tooltip(done: u32, total: u32) -> String {
+    format!("PDF Reader：批次處理中（{done}／{total}），完成後就會結束")
+}
+pub const BATCH_TRAY_SHOW: &str = "顯示視窗";
+pub const BATCH_TRAY_STOP: &str = "停止批次處理";
+pub const BATCH_DONE_TITLE: &str = "批次處理完成";
+pub fn batch_done_message(summary: &str, report: Option<&str>) -> String {
+    match report {
+        Some(path) => format!("{summary}\n\n每個檔案的結果寫在：\n{path}"),
+        None => format!("{summary}\n\n報告無法寫進資料夾。"),
+    }
+}
+pub const BATCH_REPORT_FILE_NAME: &str = "批次處理報告.txt";
+pub const BATCH_REPORT_TITLE: &str = "PDF Reader 批次處理報告";
+pub fn batch_report_operation(operation: &str) -> String {
+    format!("要做的事：{operation}")
+}
+pub fn batch_report_folder(folder: &str) -> String {
+    format!("資料夾：{folder}")
+}
+/// What a batch did, as its report says (never with its passwords).
+pub fn batch_operation_name(operation: &BatchOperation) -> &'static str {
+    match operation {
+        BatchOperation::RemoveMetadata => "清除中繼資料",
+        BatchOperation::Encrypt { .. } => "加密",
+    }
+}
+/// How many files were done, failed and skipped: the parts that are not none.
+pub fn batch_summary(done: u32, failed: u32, skipped: u32) -> String {
+    let mut parts = vec![format!("完成 {done} 個")];
+    if failed > 0 {
+        parts.push(format!("失敗 {failed} 個"));
+    }
+    if skipped > 0 {
+        parts.push(format!("略過 {skipped} 個"));
+    }
+    format!("{}。", parts.join("，"))
+}
+pub const BATCH_NOT_DONE: &str = "沒有處理";
+/// How one file of a batch went, as the report says (the batch dialog says the same).
+pub fn batch_outcome(outcome: &BatchOutcome) -> String {
+    match outcome {
+        BatchOutcome::Done { output } => format!("完成：{output}"),
+        BatchOutcome::Failed { error } => format!("失敗：{}", batch_reason(*error)),
+        BatchOutcome::Skipped => "略過（已停止）".to_owned(),
+    }
+}
+fn batch_reason(code: ErrorCode) -> &'static str {
+    match code {
+        ErrorCode::Encrypted => "有密碼的檔案，批次處理不詢問密碼",
+        ErrorCode::InvalidArgument => "這個檔案不能這樣處理，例如有數位簽章的文件不能加密",
+        ErrorCode::NotPdf => "不是 PDF 檔案",
+        ErrorCode::Corrupted => "檔案已損毀",
+        ErrorCode::UnsupportedEncryption => "使用本程式不支援的加密方式",
+        ErrorCode::Unreadable => "無法讀取這個檔案",
+        ErrorCode::TooLarge => "檔案太大",
+        ErrorCode::LimitExceeded => "內容超過可處理的上限",
+        ErrorCode::WorkerCrashed | ErrorCode::WorkerTimeout | ErrorCode::ProtocolViolation => {
+            "PDF 引擎處理這個檔案時出錯"
+        }
+        ErrorCode::ReadOnly => "資料夾是唯讀的，無法寫入",
+        ErrorCode::DiskFull => "磁碟空間不足",
+        ErrorCode::FileInUse | ErrorCode::Unwritable => "無法寫入副本",
+        _ => "發生未預期的錯誤",
+    }
+}
 /// The name suggested for a file of some pages of a document (B2-06): the pages' numbers when
 /// they follow one another, else only that they were chosen.
 pub fn split_file_name(stem: &str, pages: &[u32]) -> String {

@@ -30,8 +30,7 @@ import { CreatePdfDialog } from "@/features/create/CreatePdfDialog";
 import type { ExportApi } from "@/features/export/api";
 import { ExportDialog } from "@/features/export/ExportDialog";
 import { CompressDialog } from "@/features/saving/CompressDialog";
-import type { BatchApi } from "@/features/batch/api";
-import { BatchDialog } from "@/features/batch/BatchDialog";
+import { useOpenBatch } from "@/features/batch/useOpenBatch";
 import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
@@ -135,7 +134,6 @@ type ReaderShellProps = {
   /** Saves the document (B2-02); without it (demo data, tests) nothing can be. */
   savingApi?: SavingApi;
   /** Does one thing to many files (B3-04); without it (demo data, tests) nothing can be. */
-  batchApi?: BatchApi;
   /** Makes a PDF of files (B3-03); without it (demo data, tests) nothing can be. */
   createApi?: CreateApi;
   /** Page management in the thumbnails (B2-05); without it (demo data, tests) pages stay as they are. */
@@ -214,7 +212,6 @@ export function ReaderShell({
   recentApi,
   exportApi,
   savingApi,
-  batchApi,
   createApi,
   editingApi,
   updatesApi,
@@ -257,6 +254,8 @@ export function ReaderShell({
   const [fitPercent, setFitPercent] = useState(100);
   const [rotation, setRotation] = useState<Rotation>(0);
   const [currentPage, setCurrentPage] = useState(1);
+  // The batch dialog is the app's (BatchHost): a batch outlives this screen.
+  const openBatch = useOpenBatch();
   const [dialog, setDialog] = useState<
 | "shortcuts"
     | "about"
@@ -267,7 +266,6 @@ export function ReaderShell({
     | "privacyExport"
     | "encrypt"
     | "compress"
-    | "batch"
     | "create"
     | null
   >(
@@ -848,7 +846,7 @@ export function ReaderShell({
           onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}
           privacyExportBlocked={savable && document_?.encrypted === true}
           onEncryptCopy={savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined}
-          onBatch={batchApi ? () => setDialog("batch") : undefined}
+          onBatch={openBatch}
           encryptCopyBlocked={savable && document_?.encrypted === true}
           onForgetPassword={document_?.passwordRemembered ? forgetPassword : undefined}
           onCompressImages={savable && !document_?.encrypted ? () => setDialog("compress") : undefined}
@@ -1213,9 +1211,6 @@ export function ReaderShell({
           onExport={() => savingApi.privacyExport(doc)}
           onFinished={showHint}
         />
-      )}
-      {batchApi && (
-        <BatchDialog open={dialog === "batch"} onOpenChange={(open) => setDialog(open ? "batch" : null)} api={batchApi} />
       )}
       {savable && (
         <EncryptDialog
