@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { demoDocument } from "@/features/shell/demo";
-import type { DocumentPermissions, ShellState } from "@/features/shell/model";
+import type { SensitiveApi } from "@/features/sensitive/api";
+import type { DocumentPermissions, ShellDocument, ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { SearchApi } from "@/features/search/useSearch";
 import { strings } from "@/i18n/zh-TW";
@@ -26,6 +27,17 @@ function renderShell(state: ShellState, props: Partial<Parameters<typeof ReaderS
 }
 
 const statusText = () => screen.getByRole("contentinfo").textContent ?? "";
+
+/** The main process's side of sensitive documents (B3-05): every file can be marked. */
+function fakeSensitiveApi() {
+  return {
+    check: vi.fn((): Promise<"ready"> => Promise.resolve("ready")),
+    set: vi.fn((): Promise<void> => Promise.resolve()),
+    list: vi.fn(() => Promise.resolve([])),
+    remove: vi.fn(() => Promise.resolve([])),
+    copy: vi.fn((): Promise<void> => Promise.resolve()),
+  } satisfies SensitiveApi;
+}
 
 describe("states", () => {
   it("empty: offers to open a file and states the privacy promise", async () => {
@@ -575,11 +587,18 @@ describe("selecting and copying text (MVP-15)", () => {
     };
   };
 
-  async function setup(permissions: DocumentPermissions = demoDocument.permissions) {
+  async function setup(
+    permissions: DocumentPermissions = demoDocument.permissions,
+    document: Partial<ShellDocument> = {},
+    props: Partial<Parameters<typeof ReaderShell>[0]> = {},
+  ) {
     const textApi = {
       getPageText: vi.fn((_doc: number, page: number) => Promise.resolve(page === 0 ? hello : scanned)),
     } satisfies TextApi;
-    const utils = renderShell({ kind: "open", document: { ...demoDocument, doc: 5, permissions } }, { textApi });
+    const utils = renderShell(
+      { kind: "open", document: { ...demoDocument, doc: 5, permissions, ...document } },
+      { textApi, ...props },
+    );
     // The clipboard stub lives as long as the window: start every test from something known.
     await navigator.clipboard.writeText("before");
     // 100%: a page point is 4/3 CSS pixels.
@@ -605,6 +624,47 @@ describe("selecting and copying text (MVP-15)", () => {
     selectHello();
     await user.keyboard("{Control>}c{/Control}");
     await waitFor(async () => expect(await navigator.clipboard.readText()).toBe("Hello"));
+  });
+
+  it("a sensitive document's text goes on the clipboard through the main process, not the page (B3-05)", async () => {
+    const sensitiveApi = fakeSensitiveApi();
+    const { user, pages, selectHello } = await setup(demoDocument.permissions, { sensitive: true }, { sensitiveApi });
+    expect(statusText()).toContain(strings.sensitive.badge);
+    selectHello();
+    await user.keyboard("{Control>}c{/Control}");
+    await waitFor(() => expect(sensitiveApi.copy).toHaveBeenCalledWith("Hello"));
+    // The right-click menu's "copy" too.
+    fireEvent.contextMenu(pages, at(0, 80, 106));
+    await user.click(await screen.findByRole("menuitem", { name: /複製/ }));
+    await waitFor(() => expect(sensitiveApi.copy).toHaveBeenCalledTimes(2));
+    await act(async () => {});
+    expect(await navigator.clipboard.readText()).toBe("before");
+  });
+
+  it("says so when the clipboard would not take a sensitive document's text", async () => {
+    const sensitiveApi = fakeSensitiveApi();
+    sensitiveApi.copy.mockRejectedValue({ code: "fileInUse", message: "x" });
+    const { user, selectHello } = await setup(demoDocument.permissions, { sensitive: true }, { sensitiveApi });
+    selectHello();
+    await user.keyboard("{Control>}c{/Control}");
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(strings.sensitive.copyFailed));
+    expect(await navigator.clipboard.readText()).toBe("before");
+  });
+
+  it("what the WebView itself would copy or cut is taken over while a sensitive document is shown", async () => {
+    const sensitiveApi = fakeSensitiveApi();
+    const { user } = await setup(demoDocument.permissions, { sensitive: true }, { sensitiveApi });
+    await user.keyboard("{Control>}f{/Control}");
+    const field = await screen.findByRole("textbox", { name: strings.search.placeholder });
+    await user.type(field, "合約 secret");
+    (field as HTMLInputElement).setSelectionRange(3, 9);
+    fireEvent.copy(field);
+    expect(sensitiveApi.copy).toHaveBeenLastCalledWith("secret");
+    expect(field).toHaveValue("合約 secret");
+    fireEvent.cut(field);
+    expect(sensitiveApi.copy).toHaveBeenCalledTimes(2);
+    // Cut: the field lost what was cut, as typing would have done.
+    await waitFor(() => expect(field).toHaveValue("合約 "));
   });
 
   it("Ctrl+C in a text field copies the field's text, not the page's", async () => {
@@ -855,6 +915,34 @@ describe("recently opened files (#73)", () => {
     await user.click(item);
     expect(recentApi.setRecorded).toHaveBeenCalledWith(5, false);
     await waitFor(() => expect(item).toHaveAttribute("aria-checked", "true"));
+  });
+
+  it("a sensitive file is never recorded: the menu offers to take its mark out instead (B3-05)", async () => {
+    const recentApi = fakeRecentApi([]);
+    const sensitiveApi = fakeSensitiveApi();
+    const { user } = renderShell(
+      { kind: "open", document: { ...demoDocument, doc: 5, sensitive: true } },
+      { recentApi, sensitiveApi },
+    );
+    await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    const unmark = await screen.findByRole("menuitem", { name: strings.menu.unmarkSensitive });
+    expect(screen.queryByRole("menuitemcheckbox", { name: strings.menu.dontRecord })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: strings.menu.markSensitive })).toBeNull();
+    await user.click(unmark);
+    expect(await screen.findByRole("dialog", { name: strings.sensitive.unmarkTitle })).toBeInTheDocument();
+    expect(sensitiveApi.check).toHaveBeenCalledWith(5);
+  });
+
+  it("an ordinary file can be marked as sensitive from the menu (B3-05)", async () => {
+    const sensitiveApi = fakeSensitiveApi();
+    const { user } = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { sensitiveApi });
+    expect(statusText()).not.toContain(strings.sensitive.badge);
+    await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    await user.click(await screen.findByRole("menuitem", { name: strings.menu.markSensitive }));
+    const dialog = await screen.findByRole("dialog", { name: strings.sensitive.markTitle });
+    await user.click(await within(dialog).findByRole("button", { name: strings.sensitive.mark }));
+    expect(sensitiveApi.set).toHaveBeenCalledWith(5, true, null);
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(strings.sensitive.marked));
   });
 
   it("demo data has no recent files to record", async () => {

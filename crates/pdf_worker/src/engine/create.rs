@@ -250,6 +250,21 @@ fn convert(bytes: &[u8], kind: CreateKind) -> Result<MuPdfDocument, EngineError>
     } else {
         bytes
     };
+    if bytes.starts_with(b"PK")
+        || bytes[bytes.len().saturating_sub(22 + 65_535)..]
+            .windows(4)
+            .any(|w| w == b"PK\x05\x06")
+        || (matches!(
+            kind,
+            CreateKind::Epub
+                | CreateKind::Xps
+                | CreateKind::Docx
+                | CreateKind::Xlsx
+                | CreateKind::Pptx
+        ) && !bytes.starts_with(b"%PDF-"))
+    {
+        check_zip_limits(bytes)?;
+    }
     let unreadable = |_| EngineError::InvalidSource("MuPDF cannot read this file");
     let _one = ONE_AT_A_TIME
         .lock()
@@ -273,7 +288,187 @@ fn convert(bytes: &[u8], kind: CreateKind) -> Result<MuPdfDocument, EngineError>
     if u32::try_from(pages).unwrap_or(u32::MAX) > MAX_PAGE_COUNT {
         return Err(EngineError::TooManyPages);
     }
+    // Pre-validate every page into a display list before calling `convert_to_pdf`:
+    // `mupdf_convert_to_pdf_internal` leaves its stack `fz_page *page` uninitialized and leaks
+    // `pdfout` if `fz_load_page` or `fz_run_page` throws midway through the loop.
+    for index in 0..pages {
+        let page = document.load_page(index).map_err(unreadable)?;
+        let bounds = page.bounds().map_err(unreadable)?;
+        let (width, height) = (bounds.x1 - bounds.x0, bounds.y1 - bounds.y0);
+        if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+            return Err(EngineError::InvalidSource("MuPDF cannot read this file"));
+        }
+        let _ = page.to_display_list(true).map_err(unreadable)?;
+    }
     document.convert_to_pdf(0, pages - 1, 0).map_err(unreadable)
+}
+
+/// Checks a ZIP container (EPUB, XPS, DOCX, XLSX, PPTX) before handing it to MuPDF's zip reader:
+/// MuPDF allocates the declared uncompressed size of an entry up front (`fz_malloc(ctx, usize)`)
+/// and only rejects negative 32-bit signed integers (`usize > 0x7FFF_FFFF`), so a 1.5 GiB declared
+/// size in a tiny file would immediately exhaust the fuzzer's or worker's memory limit.
+fn check_zip_limits(bytes: &[u8]) -> Result<(), EngineError> {
+    const MAX_ZIP_ENTRIES: usize = 4_096;
+    const MAX_ZIP_UNPACKED_BYTES: u64 = 64 * 1024 * 1024;
+    const MAX_ZIP_RATIO: u64 = 200;
+
+    let bad = || EngineError::InvalidSource("MuPDF cannot read this file");
+    if bytes.len() < 22 {
+        return Err(bad());
+    }
+    let search_start = bytes.len().saturating_sub(22 + 65_535);
+    let mut found_eocd = false;
+    for pos in (search_start..=bytes.len() - 22).rev() {
+        if &bytes[pos..pos + 4] != b"PK\x05\x06" {
+            continue;
+        }
+        found_eocd = true;
+        let count = usize::from(u16::from_le_bytes([bytes[pos + 10], bytes[pos + 11]]));
+        let cdir_size = usize::from_le_bytes([
+            bytes[pos + 12],
+            bytes[pos + 13],
+            bytes[pos + 14],
+            bytes[pos + 15],
+            0,
+            0,
+            0,
+            0,
+        ]);
+        let start_offset = usize::from_le_bytes([
+            bytes[pos + 16],
+            bytes[pos + 17],
+            bytes[pos + 18],
+            bytes[pos + 19],
+            0,
+            0,
+            0,
+            0,
+        ]);
+        if count > MAX_ZIP_ENTRIES || count == 0xFFFF || start_offset == 0xFFFF_FFFF {
+            return Err(bad());
+        }
+        let Some(cdir_end) = start_offset.checked_add(cdir_size) else {
+            return Err(bad());
+        };
+        if cdir_end > pos {
+            return Err(bad());
+        }
+        let mut offset = start_offset;
+        let mut total_unpacked: u64 = 0;
+        for _ in 0..count {
+            let Some(header_end) = offset.checked_add(46) else {
+                return Err(bad());
+            };
+            if header_end > pos || &bytes[offset..offset + 4] != b"PK\x01\x02" {
+                return Err(bad());
+            }
+            let flags = u16::from_le_bytes([bytes[offset + 8], bytes[offset + 9]]);
+            let csize = u64::from(u32::from_le_bytes([
+                bytes[offset + 20],
+                bytes[offset + 21],
+                bytes[offset + 22],
+                bytes[offset + 23],
+            ]));
+            let usize_val = u64::from(u32::from_le_bytes([
+                bytes[offset + 24],
+                bytes[offset + 25],
+                bytes[offset + 26],
+                bytes[offset + 27],
+            ]));
+            let namesize =
+                usize::from(u16::from_le_bytes([bytes[offset + 28], bytes[offset + 29]]));
+            let metasize =
+                usize::from(u16::from_le_bytes([bytes[offset + 30], bytes[offset + 31]]));
+            let commentsize =
+                usize::from(u16::from_le_bytes([bytes[offset + 32], bytes[offset + 33]]));
+            let local_offset = usize::from_le_bytes([
+                bytes[offset + 42],
+                bytes[offset + 43],
+                bytes[offset + 44],
+                bytes[offset + 45],
+                0,
+                0,
+                0,
+                0,
+            ]);
+            let Some(local_header_end) = local_offset.checked_add(30) else {
+                return Err(bad());
+            };
+            if local_header_end > start_offset
+                || &bytes[local_offset..local_offset + 4] != b"PK\x03\x04"
+            {
+                return Err(bad());
+            }
+            let local_flags =
+                u16::from_le_bytes([bytes[local_offset + 6], bytes[local_offset + 7]]);
+            let method = u16::from_le_bytes([bytes[local_offset + 8], bytes[local_offset + 9]]);
+            if (flags & 1) != 0 || (local_flags & 1) != 0 {
+                return Err(bad());
+            }
+            let local_csize = u64::from(u32::from_le_bytes([
+                bytes[local_offset + 18],
+                bytes[local_offset + 19],
+                bytes[local_offset + 20],
+                bytes[local_offset + 21],
+            ]));
+            let local_usize = u64::from(u32::from_le_bytes([
+                bytes[local_offset + 22],
+                bytes[local_offset + 23],
+                bytes[local_offset + 24],
+                bytes[local_offset + 25],
+            ]));
+            let local_name = usize::from(u16::from_le_bytes([
+                bytes[local_offset + 26],
+                bytes[local_offset + 27],
+            ]));
+            let local_extra = usize::from(u16::from_le_bytes([
+                bytes[local_offset + 28],
+                bytes[local_offset + 29],
+            ]));
+            let Some(data_start) = local_header_end
+                .checked_add(local_name)
+                .and_then(|v| v.checked_add(local_extra))
+            else {
+                return Err(bad());
+            };
+            if csize == 0xFFFF_FFFF
+                || usize_val == 0xFFFF_FFFF
+                || local_csize == 0xFFFF_FFFF
+                || local_usize == 0xFFFF_FFFF
+            {
+                return Err(bad());
+            }
+            let effective_csize = local_csize.max(csize);
+            let effective_usize = local_usize.max(usize_val);
+            let Some(data_end) = data_start.checked_add(effective_csize as usize) else {
+                return Err(bad());
+            };
+            if data_end > start_offset {
+                return Err(bad());
+            }
+            if method == 0 && effective_usize != effective_csize {
+                return Err(bad());
+            }
+            if effective_usize > 1024 * 1024
+                && effective_usize > effective_csize.saturating_mul(MAX_ZIP_RATIO)
+            {
+                return Err(bad());
+            }
+            total_unpacked = total_unpacked.saturating_add(effective_usize);
+            if total_unpacked > MAX_ZIP_UNPACKED_BYTES {
+                return Err(bad());
+            }
+            offset = header_end
+                .checked_add(namesize)
+                .and_then(|v| v.checked_add(metasize))
+                .and_then(|v| v.checked_add(commentsize))
+                .ok_or_else(bad)?;
+        }
+    }
+    if !found_eocd {
+        return Err(bad());
+    }
+    Ok(())
 }
 
 /// The text of a file as UTF-8 without a byte order mark: UTF-8 as it is, UTF-16 (with its mark)

@@ -84,6 +84,14 @@ pub const MAX_TABS: u32 = 20;
 /// Maximum number of recently opened files kept and listed (#73, spec §3).
 pub const MAX_RECENT_FILES: u32 = 20;
 
+/// Most files kept on the list of files marked as sensitive on this computer (B3-05, ADR 0004).
+/// Marking one more drops the oldest entry from the list; the mark stays in its file.
+pub const MAX_SENSITIVE_FILES: u32 = 1_000;
+
+/// Most text one copy from a sensitive document puts on the clipboard (B3-05), in UTF-8 bytes:
+/// the main process writes it, so it crosses the IPC. About five million Chinese characters.
+pub const MAX_CLIPBOARD_TEXT_BYTES: u32 = 16 * 1024 * 1024;
+
 /// Most edits kept for undo between two saves (B2-05); another one is refused until the
 /// document is saved. Also bounds the edits of one `WorkerRequest::Revert`.
 pub const MAX_UNDO_EDITS: u32 = 1_000;
@@ -91,6 +99,19 @@ pub const MAX_UNDO_EDITS: u32 = 1_000;
 /// Maximum number of pages one export writes (B2-04).
 pub const MAX_EXPORT_PAGES: u32 = 1_000;
 
+/// Most characters of a watermark's words (B3-04).
+pub const MAX_WATERMARK_CHARS: usize = 100;
+
+/// Smallest and largest size of a watermark's words, in points (B3-04).
+pub const MIN_WATERMARK_SIZE_PT: f32 = 8.0;
+pub const MAX_WATERMARK_SIZE_PT: f32 = 200.0;
+
+/// Narrowest and widest a watermark's picture is drawn, in points (B3-04).
+pub const MIN_WATERMARK_WIDTH_PT: f32 = 16.0;
+pub const MAX_WATERMARK_WIDTH_PT: f32 = 1_200.0;
+
+/// Least opacity of a watermark, in percent (B3-04): fainter than this, it would not be seen.
+pub const MIN_WATERMARK_OPACITY: u8 = 5;
 /// Most files one batch takes (B3-04).
 pub const MAX_BATCH_FILES: u32 = 500;
 

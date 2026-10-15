@@ -792,6 +792,54 @@ pub enum ImageQuality {
     Low,
 }
 
+/// What a watermark is (B3-04, docs/architecture/watermark.md).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum WatermarkContent {
+    /// One line of words, `size` points high, in `color`, set in the font the app carries for
+    /// Chinese (Droid Sans Fallback, which has Latin letters too).
+    Text { text: String, size: f32, color: Rgb },
+    /// A picture the user chose (a PNG or JPEG made into its pixels alone, as a stamp's is,
+    /// B2-08), `widthPt` points wide; it keeps its shape.
+    #[serde(rename_all = "camelCase")]
+    Picture { width_pt: f32 },
+}
+
+/// Where on each page a watermark is (B3-04): in the middle, or at the top or the bottom, as the
+/// page is shown (a turned page included).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum WatermarkPlace {
+    Center,
+    Top,
+    Bottom,
+}
+
+/// Which pages get a watermark (B3-04): the same for every file of a batch, however many pages
+/// each has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum WatermarkPages {
+    All,
+    First,
+    AllButFirst,
+}
+
+/// A watermark (B3-04): drawn on the pages of a copy as page content, over what is there, so that
+/// every reader shows it and it is not an annotation a click takes off.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Watermark {
+    pub content: WatermarkContent,
+    /// How much of it shows, in percent: `MIN_WATERMARK_OPACITY` to 100.
+    pub opacity: u8,
+    /// Turned to run from the bottom left corner of the page towards the top right one; level
+    /// otherwise.
+    pub diagonal: bool,
+    pub place: WatermarkPlace,
+    pub pages: WatermarkPages,
+}
+
 /// Arguments of `compress_images` (B3-01): the open document is written, its pictures encoded
 /// again, to a file the user chooses next. Any other field is rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -868,6 +916,56 @@ pub struct CreateResult {
 pub struct FileRecordingArgs {
     pub doc: DocumentId,
     pub record: bool,
+}
+
+/// An entry of the list of files the user marked as sensitive on this computer (B3-05, ADR 0004),
+/// valid while the app runs. The mark itself is in each file (the app's document identifier, ADR
+/// 0010); the list keeps only that identifier and the file's name, never a path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct SensitiveId(pub u32);
+
+/// A file of that list as the frontend sees it: its name when it was marked, or when it was last
+/// opened.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SensitiveFile {
+    pub id: SensitiveId,
+    /// File name for display only (no directory components).
+    pub display_name: String,
+    /// The file is open in a tab now: its mark can be taken off there.
+    pub open: bool,
+}
+
+/// What writing the sensitive mark into the open document's file, or taking it out, would do
+/// (B3-05, ADR 0010), asked before the user confirms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum MarkCheck {
+    /// It can be written: appended to the end of the file, whose modification time changes.
+    Ready,
+    /// The document is encrypted: its permissions password is needed first.
+    NeedsPassword,
+    /// The document is signed: refused, as every check of its signatures would then say it was
+    /// changed after signing.
+    Signed,
+    /// The file is read-only, or its folder cannot be written.
+    ReadOnly,
+    /// The document has changes not saved yet, or an earlier run left some (B2-13): they would go
+    /// into the file too.
+    Unsaved,
+    /// Another program changed the file after it was opened or saved.
+    ChangedOnDisk,
+}
+
+/// Arguments of `set_sensitive` (B3-05): mark the open document's file as sensitive, or take the
+/// mark out, once the user confirmed. `password` is the permissions password of an encrypted
+/// document (ADR 0010); it is not kept. Any other field is rejected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SensitiveArgs {
+    pub doc: DocumentId,
+    pub sensitive: bool,
+    pub password: Option<Password>,
 }
 
 /// Caller-chosen id used to correlate and cancel a request.
@@ -1204,6 +1302,10 @@ pub struct DocumentInfo {
     pub password_remembered: bool,
     /// The file was opened with the remembered password, without the user typing one.
     pub password_recalled: bool,
+    /// The file is marked as sensitive (B3-05, ADR 0004): it carries the app's document identifier
+    /// (ADR 0010). Text copied from it stays out of Windows' clipboard history and cloud
+    /// clipboard, and the file is not on the recent files list.
+    pub sensitive: bool,
 }
 
 /// Changes to a file that an earlier run of the app made but neither saved nor discarded: it
@@ -1522,6 +1624,9 @@ pub enum ErrorCode {
     ChangedOnDisk,
     /// Saving: the file could not be written for another reason.
     Unwritable,
+    /// The document is signed, and what was asked would write into its file (the sensitive mark,
+    /// B3-05, ADR 0010): every check of the signatures would then say it was changed.
+    Signed,
     /// A text box (B2-28, ADR 0018): the font the user chose is not on the computer any more, or
     /// its file cannot be read.
     FontUnavailable,
