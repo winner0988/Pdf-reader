@@ -1,4 +1,4 @@
-import { LockKeyhole, ScanText } from "lucide-react";
+import { LockKeyhole, ScanText, ShieldCheck } from "lucide-react";
 
 import { formatZoom } from "@/features/shell/format";
 import type { Zoom } from "@/features/shell/model";
@@ -16,14 +16,22 @@ type StatusBarProps = {
   ocr?: { text: string; onStop: () => void };
   /** The page shown has text that was recognised from its picture, and may be wrong (B2-10). */
   ocrNote?: string | null;
+  /** The document is marked as sensitive (B3-05): its copied text stays out of the clipboard history. */
+  sensitive?: boolean;
 };
 
-export function StatusBar({ document, hoverTarget, hint, restriction, ocr, ocrNote }: StatusBarProps) {
+export function StatusBar({ document, hoverTarget, hint, restriction, ocr, ocrNote, sensitive }: StatusBarProps) {
   return (
     <footer className="flex h-7 shrink-0 items-center gap-4 border-t bg-muted/60 px-3 text-xs text-muted-foreground">
       {document && (
         <>
           <span className="truncate">{document.displayName}</span>
+          {sensitive && (
+            <span className="flex shrink-0 items-center gap-1" title={strings.sensitive.badgeNote}>
+              <ShieldCheck aria-hidden className="size-3" />
+              {strings.sensitive.badge}
+            </span>
+          )}
           {restriction && (
             <span className="flex shrink-0 items-center gap-1">
               <LockKeyhole aria-hidden className="size-3" />

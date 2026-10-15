@@ -32,9 +32,11 @@ mod annotations;
 mod create;
 mod docx;
 mod forms;
+mod identifier;
 mod ocr;
 
 pub use create::{Created, PdfBuilder};
+pub use identifier::write_identifier;
 pub use ocr::OcrKnown;
 
 mod signatures;
@@ -120,6 +122,15 @@ pub enum EngineError {
     /// A file a PDF is to be made of that MuPDF cannot read, or that has nothing in it (B3-03).
     #[error("cannot make a PDF of this file: {0}")]
     InvalidSource(&'static str),
+    /// The document is signed, and its file was to be written to (B3-05, ADR 0010).
+    #[error(
+        "the document is signed: writing to its file would show in every check of its signatures"
+    )]
+    Signed,
+    /// The file could not be opened as it is, only repaired, so nothing can be appended to it
+    /// (B3-05, ADR 0010).
+    #[error("the file was repaired to be opened: nothing can be appended to it")]
+    NotAppendable,
     #[error("MuPDF: {0}")]
     MuPdf(#[from] mupdf::Error),
 }
