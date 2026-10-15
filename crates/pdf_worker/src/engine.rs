@@ -41,6 +41,7 @@ pub use ocr::OcrKnown;
 mod signatures;
 mod stamp_image;
 mod text_box;
+mod watermark;
 
 pub use signatures::{SignatureField, SignatureFields};
 pub use stamp_image::{StampPicture, prepare_stamp_picture};

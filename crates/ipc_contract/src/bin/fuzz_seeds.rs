@@ -14,11 +14,12 @@ use ipc_contract::types::{
     PictureView, Point, Quad, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb,
     Rotation, SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport,
     SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason,
+    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, ModelGlyph, OcrFinished, OcrOutcome, OcrPageState,
     OpenedDocument, PasswordKey, Raster, TextBoxModel, WorkerEdit, WorkerError, WorkerErrorCode,
-    WorkerRequest, WorkerResponse,
+    WorkerRequest, WorkerResponse, WorkerWatermark,
 };
 
 /// The words of a text box, as a worker would prepare them (a small one).
@@ -857,6 +858,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             file: FileHandle(0x1f8),
             quality: ImageQuality::Low,
             max_side: None,
+        },
+        WorkerRequest::WatermarkCopy {
+            request,
+            doc,
+            file: FileHandle(0x2b4),
+            watermark: WorkerWatermark::from(Watermark {
+                content: WatermarkContent::Text {
+                    text: "機密 Confidential".to_owned(),
+                    size: 48.0,
+                    color: Rgb { r: 200, g: 0, b: 0 },
+                },
+                opacity: 30,
+                diagonal: true,
+                place: WatermarkPlace::Center,
+                pages: WatermarkPages::All,
+            }),
+            picture: None,
+        },
+        WorkerRequest::WatermarkCopy {
+            request,
+            doc,
+            file: FileHandle(0x2b8),
+            watermark: WorkerWatermark::from(Watermark {
+                content: WatermarkContent::Picture { width_pt: 120.0 },
+                opacity: 100,
+                diagonal: false,
+                place: WatermarkPlace::Bottom,
+                pages: WatermarkPages::First,
+            }),
+            picture: Some(stamp_png()),
         },
         WorkerRequest::ExportDocx {
             request,
