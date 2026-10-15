@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use ipc_contract::frame::{self, FrameError};
 use ipc_contract::types::{
-    CreateKind, DocumentId, ErrorCode, ImageQuality, Password, RequestId, Restrictions,
+    CreateKind, DocumentId, ErrorCode, ImageQuality, Password, RequestId, Restrictions, Watermark,
 };
 use ipc_contract::validate::Validate;
 use ipc_contract::worker::{CreateSource, FileHandle, WorkerError, WorkerRequest, WorkerResponse};
@@ -450,6 +450,33 @@ impl WorkerHost {
             open_password,
             owner_password,
             restrictions,
+        })
+    }
+
+    /// Writes to `file`, as [`save`](Self::save) does, a copy of `doc` with `watermark` on its
+    /// pages (B3-04); `picture` is the stamp picture (a PNG) of a picture watermark. `doc` itself
+    /// is not changed. Returns `Saved`.
+    pub fn watermark_copy(
+        &mut self,
+        doc: DocumentId,
+        file: &File,
+        watermark: Watermark,
+        picture: Option<Vec<u8>>,
+    ) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_write_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::WatermarkCopy {
+            request,
+            doc,
+            file: FileHandle(handle),
+            watermark: watermark.into(),
+            picture,
         })
     }
 
