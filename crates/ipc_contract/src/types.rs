@@ -918,6 +918,56 @@ pub struct FileRecordingArgs {
     pub record: bool,
 }
 
+/// An entry of the list of files the user marked as sensitive on this computer (B3-05, ADR 0004),
+/// valid while the app runs. The mark itself is in each file (the app's document identifier, ADR
+/// 0010); the list keeps only that identifier and the file's name, never a path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct SensitiveId(pub u32);
+
+/// A file of that list as the frontend sees it: its name when it was marked, or when it was last
+/// opened.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SensitiveFile {
+    pub id: SensitiveId,
+    /// File name for display only (no directory components).
+    pub display_name: String,
+    /// The file is open in a tab now: its mark can be taken off there.
+    pub open: bool,
+}
+
+/// What writing the sensitive mark into the open document's file, or taking it out, would do
+/// (B3-05, ADR 0010), asked before the user confirms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum MarkCheck {
+    /// It can be written: appended to the end of the file, whose modification time changes.
+    Ready,
+    /// The document is encrypted: its permissions password is needed first.
+    NeedsPassword,
+    /// The document is signed: refused, as every check of its signatures would then say it was
+    /// changed after signing.
+    Signed,
+    /// The file is read-only, or its folder cannot be written.
+    ReadOnly,
+    /// The document has changes not saved yet, or an earlier run left some (B2-13): they would go
+    /// into the file too.
+    Unsaved,
+    /// Another program changed the file after it was opened or saved.
+    ChangedOnDisk,
+}
+
+/// Arguments of `set_sensitive` (B3-05): mark the open document's file as sensitive, or take the
+/// mark out, once the user confirmed. `password` is the permissions password of an encrypted
+/// document (ADR 0010); it is not kept. Any other field is rejected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SensitiveArgs {
+    pub doc: DocumentId,
+    pub sensitive: bool,
+    pub password: Option<Password>,
+}
+
 /// Caller-chosen id used to correlate and cancel a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 pub struct RequestId(pub u32);
@@ -1252,6 +1302,10 @@ pub struct DocumentInfo {
     pub password_remembered: bool,
     /// The file was opened with the remembered password, without the user typing one.
     pub password_recalled: bool,
+    /// The file is marked as sensitive (B3-05, ADR 0004): it carries the app's document identifier
+    /// (ADR 0010). Text copied from it stays out of Windows' clipboard history and cloud
+    /// clipboard, and the file is not on the recent files list.
+    pub sensitive: bool,
 }
 
 /// Changes to a file that an earlier run of the app made but neither saved nor discarded: it
@@ -1570,6 +1624,9 @@ pub enum ErrorCode {
     ChangedOnDisk,
     /// Saving: the file could not be written for another reason.
     Unwritable,
+    /// The document is signed, and what was asked would write into its file (the sensitive mark,
+    /// B3-05, ADR 0010): every check of the signatures would then say it was changed.
+    Signed,
     /// A text box (B2-28, ADR 0018): the font the user chose is not on the computer any more, or
     /// its file cannot be read.
     FontUnavailable,

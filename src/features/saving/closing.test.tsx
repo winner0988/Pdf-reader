@@ -56,6 +56,7 @@ const info = (doc: number, displayName: string, unsaved: boolean): DocumentInfo 
   recovery: "none",
   passwordRemembered: false,
   passwordRecalled: false,
+  sensitive: false,
 });
 
 function open(push: (event: OpenEvent) => void, tab: number, doc: number, name: string, unsaved: boolean) {

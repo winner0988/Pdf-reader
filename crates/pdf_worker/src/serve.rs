@@ -316,6 +316,26 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     "unknown document",
                 )
             }),
+            WorkerRequest::WriteIdentifier {
+                request,
+                doc,
+                file,
+                identifier,
+                password,
+            } => Some(match originals.get(&doc) {
+                Some(bytes) if documents.contains_key(&doc) => write_identifier(
+                    bytes,
+                    request,
+                    file,
+                    identifier.as_ref(),
+                    password.as_ref().map(Password::as_str),
+                ),
+                _ => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+            }),
             WorkerRequest::Save { request, doc, file } => Some(match documents.get(&doc) {
                 None => error(
                     request,
@@ -517,6 +537,8 @@ fn open(
     let security = document.active_content(ScanBudget::default());
     let permissions = document.permissions();
     let encrypted = document.is_encrypted();
+    let signed = document.is_signed();
+    let identifier = document.identifier();
     documents.insert(doc, document);
     originals.insert(doc, bytes);
     WorkerResponse::Opened {
@@ -528,6 +550,8 @@ fn open(
             security,
             permissions,
             encrypted,
+            signed,
+            identifier,
         },
     }
 }
@@ -704,6 +728,33 @@ fn save(document: &PdfDocument, request: RequestId, file: FileHandle) -> WorkerR
             request,
             bytes,
             incremental,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
+/// Writes `bytes`, the file a document was opened from or last saved to, to `file` (a handle like
+/// `save`'s) with the app's document identifier put into its metadata or taken out (B3-05, ADR
+/// 0010): appended, the file's own bytes first. The open document is not changed.
+fn write_identifier(
+    bytes: &[u8],
+    request: RequestId,
+    file: FileHandle,
+    identifier: Option<&[u8; 16]>,
+    password: Option<&str>,
+) -> WorkerResponse {
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match crate::engine::write_identifier(bytes, password, identifier, &mut file) {
+        Ok(bytes) => WorkerResponse::Saved {
+            request,
+            bytes,
+            incremental: true,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
@@ -1044,7 +1095,8 @@ fn engine_error(
         | EngineError::InvalidPicture(_)
         | EngineError::NoPageLeft
         | EngineError::EncryptedCopy => WorkerErrorCode::InvalidRequest,
-        EngineError::InvalidSource(_) => WorkerErrorCode::Corrupted,
+        EngineError::InvalidSource(_) | EngineError::NotAppendable => WorkerErrorCode::Corrupted,
+        EngineError::Signed => WorkerErrorCode::Signed,
         EngineError::TooLarge { .. }
         | EngineError::TooComplex
         | EngineError::TooManyPages
