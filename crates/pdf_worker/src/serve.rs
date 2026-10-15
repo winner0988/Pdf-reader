@@ -12,14 +12,16 @@ use ipc_contract::frame::{self, FrameError};
 use ipc_contract::limits::{
     MAX_CREATE_SOURCES, MAX_DOCUMENT_BYTES, MAX_ERROR_MESSAGE_BYTES, MAX_LINKS_PER_PAGE,
     MAX_OCR_PAGE_MILLIS, MAX_OUTLINE_DEPTH, MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_PAGE_TEXT_CHARS,
-    MAX_SEARCH_HITS, MAX_SOURCE_BYTES, MAX_STAMP_SOURCE_BYTES, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
+    MAX_SEARCH_HITS, MAX_SOURCE_BYTES, MAX_STAMP_PNG_BYTES, MAX_STAMP_SOURCE_BYTES, MAX_TEXT_BYTES,
+    MAX_UNDO_EDITS,
 };
 use ipc_contract::ocr::{check_language_data, is_language_name};
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
     DocumentId, ImageQuality, LinkId, LinkTarget, OutlineItem, OutlineResult, PageLink, PageSize,
-    Password, Rect, RequestId, Restrictions, TextBoxInfo,
+    Password, Rect, RequestId, Restrictions, TextBoxInfo, Watermark,
 };
+use ipc_contract::validate::stamp_png_size;
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument,
     Raster, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
@@ -391,6 +393,26 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     restrictions,
                 ),
             }),
+            WorkerRequest::WatermarkCopy {
+                request,
+                doc,
+                file,
+                watermark,
+                picture,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => watermark_copy(
+                    document,
+                    request,
+                    file,
+                    &watermark.into(),
+                    picture.as_deref(),
+                ),
+            }),
             WorkerRequest::PrepareSource {
                 request,
                 file,
@@ -755,6 +777,41 @@ fn encrypted_copy(
         );
     };
     match document.encrypted_copy(open_password, owner_password, restrictions, &mut file) {
+        Ok(bytes) => WorkerResponse::Saved {
+            request,
+            bytes,
+            incremental: false,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
+/// Writes a copy of `document` with `watermark` on its pages (B3-04) to `file`, a handle like
+/// `save`'s. A picture watermark's PNG is checked as a stamp's is before anything is decoded.
+fn watermark_copy(
+    document: &PdfDocument,
+    request: RequestId,
+    file: FileHandle,
+    watermark: &Watermark,
+    picture: Option<&[u8]>,
+) -> WorkerResponse {
+    if let Some(png) = picture
+        && (png.len() > MAX_STAMP_PNG_BYTES || stamp_png_size(png).is_err())
+    {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "not a stamp picture",
+        );
+    }
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match document.watermark_copy(watermark, picture, &mut file) {
         Ok(bytes) => WorkerResponse::Saved {
             request,
             bytes,

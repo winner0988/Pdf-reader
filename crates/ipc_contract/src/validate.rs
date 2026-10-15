@@ -18,7 +18,7 @@ use crate::types::{
     Point, PrepareTextBoxArgs, Quad, RecentFile, Rect, RemoveLanguageArgs, RenderPageArgs,
     Restrictions, Rotation, SearchArgs, SearchHit, SecurityReport, SensitiveArgs, SensitiveFile,
     Settings, SignatureInfo, SignatureReport, SignatureStatus, TextBoxInfo, TextBoxStyle, TextLine,
-    UndoArgs, UnlockArgs, UnlockSourceArgs,
+    UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
     OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerError, WorkerErrorCode, WorkerResponse,
@@ -628,6 +628,49 @@ impl Validate for EncryptArgs {
             self.permissions_password.as_ref(),
             self.restrictions,
         )
+    }
+}
+
+impl Validate for Watermark {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if !(MIN_WATERMARK_OPACITY..=100).contains(&self.opacity) {
+            return Err(ValidationError::OutOfRange {
+                what: "watermark opacity",
+            });
+        }
+        match &self.content {
+            WatermarkContent::Text { text, size, .. } => {
+                check_coordinate("watermark size", *size)?;
+                if !(MIN_WATERMARK_SIZE_PT..=MAX_WATERMARK_SIZE_PT).contains(size) {
+                    return Err(ValidationError::OutOfRange {
+                        what: "watermark size",
+                    });
+                }
+                let chars = text.chars().count();
+                if text.trim().is_empty() || chars > MAX_WATERMARK_CHARS {
+                    return Err(ValidationError::Invalid {
+                        what: "watermark words",
+                        reason: "empty or too long",
+                    });
+                }
+                // One line of plain words: no line breaks, controls or invisible formatting.
+                if !is_clean_display_text(text) || text.contains(['\n', '\r']) {
+                    return Err(ValidationError::Invalid {
+                        what: "watermark words",
+                        reason: "not one line of plain words",
+                    });
+                }
+            }
+            WatermarkContent::Picture { width_pt } => {
+                check_coordinate("watermark width", *width_pt)?;
+                if !(MIN_WATERMARK_WIDTH_PT..=MAX_WATERMARK_WIDTH_PT).contains(width_pt) {
+                    return Err(ValidationError::OutOfRange {
+                        what: "watermark width",
+                    });
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -2020,6 +2063,65 @@ mod tests {
             claimed_time: Some("2026-09-24 12:00:00 UTC+08:00".to_owned()),
             certification: None,
         }
+    }
+
+    #[test]
+    fn a_watermark_is_one_line_of_words_or_a_picture_that_can_be_seen() {
+        use crate::types::{Watermark, WatermarkContent, WatermarkPages, WatermarkPlace};
+        let words = |text: &str, size: f32, opacity: u8| Watermark {
+            content: WatermarkContent::Text {
+                text: text.to_owned(),
+                size,
+                color: Rgb { r: 0, g: 0, b: 0 },
+            },
+            opacity,
+            diagonal: true,
+            place: WatermarkPlace::Center,
+            pages: WatermarkPages::All,
+        };
+        assert!(words("機密 CONFIDENTIAL", 48.0, 30).validate().is_ok());
+        assert!(
+            words("x", MIN_WATERMARK_SIZE_PT, MIN_WATERMARK_OPACITY)
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            words(&"a".repeat(MAX_WATERMARK_CHARS), MAX_WATERMARK_SIZE_PT, 100)
+                .validate()
+                .is_ok()
+        );
+        for wrong in [
+            words("", 48.0, 30),
+            words("   ", 48.0, 30),
+            words(&"a".repeat(MAX_WATERMARK_CHARS + 1), 48.0, 30),
+            words("two\nlines", 48.0, 30),
+            words("a\u{202e}b", 48.0, 30),
+            words("x", MIN_WATERMARK_SIZE_PT - 1.0, 30),
+            words("x", MAX_WATERMARK_SIZE_PT + 1.0, 30),
+            words("x", f32::NAN, 30),
+            words("x", 48.0, MIN_WATERMARK_OPACITY - 1),
+            words("x", 48.0, 101),
+        ] {
+            assert!(wrong.validate().is_err(), "{wrong:?}");
+        }
+        let picture = |width_pt: f32| Watermark {
+            content: WatermarkContent::Picture { width_pt },
+            ..words("x", 48.0, 50)
+        };
+        assert!(picture(120.0).validate().is_ok());
+        for width in [
+            MIN_WATERMARK_WIDTH_PT - 1.0,
+            MAX_WATERMARK_WIDTH_PT + 1.0,
+            f32::INFINITY,
+        ] {
+            assert!(picture(width).validate().is_err(), "{width}");
+        }
+        // What the page sends, and nothing else.
+        let json = r#"{"content":{"kind":"picture","widthPt":100},"opacity":40,"diagonal":false,"place":"bottom","pages":"allButFirst"}"#;
+        let parsed: Watermark = serde_json::from_str(json).expect("a watermark");
+        assert!(parsed.validate().is_ok());
+        let more = r#"{"content":{"kind":"text","text":"x","size":20,"color":{"r":0,"g":0,"b":0}},"opacity":40,"diagonal":false,"place":"top","pages":"all","font":"C:/x.ttf"}"#;
+        assert!(serde_json::from_str::<Watermark>(more).is_err());
     }
 
     #[test]
