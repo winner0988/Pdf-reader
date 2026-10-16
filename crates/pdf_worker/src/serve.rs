@@ -776,6 +776,7 @@ fn write_identifier(
             request,
             bytes,
             incremental: true,
+            redaction: None,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
