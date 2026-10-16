@@ -123,6 +123,7 @@
     - 「辨識的語言」：下拉選單，第一項是 app 的選擇（ocr.settings.automatic：繁體中文的資料，也認得英文與數字），其後是安裝的語言（名稱與代碼，例如「English（eng）」）；沒有安裝的語言當成第一項；
     - 「匯入語言資料…」：主行程顯示開啟對話框，選一個 Tesseract 的 `.traineddata`（app 不下載任何東西）。成功顯示 ocr.settings.imported，被拒絕時顯示原因（ocr.settings.refused.*：讀不到、太大、不是語言資料、檔名不合、內附的語言不能取代、匯入太多）；
     - 匯入的語言列在「匯入的語言」下，各有一個「移除」按鈕（內附的沒有）；移除目前選的語言時，改回 app 的選擇。
+  - **機敏文件**（B3-05）：sensitive.listTitle 下列出在這台電腦上標記的檔名（沒有時 sensitive.listNone），開著的標示 sensitive.listOpen，每筆有「移除」（名稱 sensitive.listRemove）：只是不再列出，檔案仍是機敏文件。下方說明 sensitive.listNote（要取消標記，開啟該檔案從「⋯」選單）。讀不到清單時顯示 sensitive.listFailed。
   - **這台電腦上保存的資料**：列出 settings.dataItems 與 settings.dataLocation。
   - 設定寫不進檔案時顯示 settings.saveFailed：仍然套用，但重新啟動後會回到之前的設定。
   - 保存方式見 [local-data.md](../architecture/local-data.md)。
@@ -234,6 +235,19 @@
 - 選的檔案不能一起（圖片與別的種類、或兩個以上不是圖片的檔案、不支援的副檔名）時，在對話框顯示 create.failures.invalidArgument，沒有檔案被留下。
 - 進行中顯示 create.running（`role="status"`），「選擇檔案…」與「取消」停用，`Esc` 不關閉對話框。關閉任一個系統對話框時回到這個對話框，可以再試；失敗時顯示 create.failures 中該錯誤碼的說明（沒有的錯誤碼用一般的錯誤訊息，都沒有則 create.failed）。
 - 完成後關閉對話框，新的 PDF 在新分頁開啟並成為目前的分頁；在有文件的視窗，狀態列顯示 create.done 4 秒。新的檔案和任何開啟的檔案一樣，依設定記錄在最近開啟的檔案。
+
+### 機敏文件（B3-05）
+
+- 「⋯」選單有 menu.markSensitive（機敏文件是 menu.unmarkSensitive），在「不記錄此檔案」的位置之前；機敏文件沒有「不記錄此檔案」（一律不記錄）。沒有開啟文件時沒有這一項。
+- **對話框**（標題 sensitive.markTitle／unmarkTitle）：先說明（標記：sensitive.whatItDoes 的三點；取消：sensitive.whatUnmarkDoes），再顯示 sensitive.checking，主行程檢查檔案之後：
+  - 可以寫入：sensitive.ready，按鈕「取消」與 sensitive.mark（取消標記時 sensitive.unmark）；
+  - 加密的文件：再加 sensitive.needsPassword 與密碼欄（sensitive.passwordLabel，`type="password"`，送出後清空，不保留）；沒有輸入時按鈕停用；
+  - 不能寫入：只說原因（sensitive.signed、readOnly、unsaved、changedOnDisk），只有一個按鈕 sensitive.close；
+  - 檢查失敗：sensitive.checkFailed。
+- 寫入時顯示 sensitive.running，對話框不能關閉。成功時關閉，狀態列顯示 sensitive.marked／unmarked 4 秒；失敗時在對話框中說明（sensitive.wrongPassword、notOwnerPassword、fileInUse、repaired、failed 或上面的原因），檔案沒有改變，可以再試。
+- **狀態列**：機敏文件在檔名後顯示 sensitive.badge（盾牌圖示，滑鼠停留時 sensitive.badgeNote）。
+- **複製**：機敏文件的 `Ctrl+C`、右鍵「複製」、連結對話框的「複製」，以及欄位裡的複製與剪下，都由主行程寫入剪貼簿，不進 Windows 的剪貼簿歷程與雲端剪貼簿；剪貼簿被占用時狀態列顯示 sensitive.copyFailed，選取太多時 sensitive.copyTooLarge。
+- 做法見 [sensitive-files.md](../architecture/sensitive-files.md)。
 
 ### 隱私匯出（B2-03）
 
@@ -465,6 +479,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | recent.failed | 無法開啟這個檔案，請再試一次。 |
 | recent.note | 清單只顯示檔名；完整路徑只存在這台電腦上的 app 資料中。 |
 | menu.dontRecord | 不記錄此檔案 |
+| menu.markSensitive／unmarkSensitive | 標記為機敏…／取消機敏標記… |
 | loading | 正在開啟 <檔名>… |
 | pageStatus | 第 <n> / <N> 頁 · <縮放>% |
 | pageOutOfRange | 頁碼需介於 1 與 <N> 之間 |
@@ -491,6 +506,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | workerCrashed | PDF 引擎發生錯誤，已重新啟動。 |
 | workerTimeout | PDF 引擎沒有回應，已重新啟動。 |
 | protocolViolation | PDF 引擎回傳了無效的資料，已停止處理這份文件。 |
+| signed | 這份文件有數位簽章，不能寫入檔案。 |
 | internal | 發生未預期的錯誤。 |
 
 ### 搜尋
@@ -653,6 +669,36 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | text.copy | 複製 |
 | text.noTextLayer | 這一頁沒有文字層，無法選取文字。 |
 | shortcuts.descriptions.copy | 複製選取的文字 |
+
+### 機敏文件（B3-05）
+
+| 鍵 | 文字 |
+|---|---|
+| sensitive.markTitle／unmarkTitle | 標記為機敏／取消機敏標記 |
+| sensitive.whatItDoes | 從這份文件複製的文字不會進入 Windows 的剪貼簿歷程（Win+V），也不會同步到雲端剪貼簿／不會記錄在最近開啟的檔案／標記寫在檔案本身：搬移、改名、複製檔案都仍是機敏；隱私匯出的副本不是 |
+| sensitive.whatUnmarkDoes | 取消後，這份文件複製的文字會像其他文件一樣進入剪貼簿歷程，檔案也會記錄在最近開啟的檔案。 |
+| sensitive.checking／checkFailed | 正在檢查這個檔案…／無法檢查這個檔案，請再試一次。 |
+| sensitive.ready | 會修改這個檔案：在檔案結尾附加一筆紀錄，檔案原本的內容不變，但修改時間會改變。 |
+| sensitive.needsPassword／passwordLabel | 這份文件有加密：要寫入檔案，需要它的權限密碼（不是開啟密碼）。／權限密碼 |
+| sensitive.signed | 這份文件有數位簽章，不能標記：寫入任何東西都會讓簽章驗證顯示「簽署後已被修改」，禁止修改的認證簽章更會失效。 |
+| sensitive.readOnly | 這個檔案是唯讀的，或所在的資料夾不能寫入，所以無法標記。 |
+| sensitive.unsaved | 這份文件有尚未儲存的變更：請先儲存或復原，否則它們會一起寫進檔案。 |
+| sensitive.changedOnDisk | 其他程式在開啟後修改了這個檔案：請關閉分頁、重新開啟後再試。 |
+| sensitive.mark／unmark／cancel／close | 標記為機敏／取消標記／取消／確定 |
+| sensitive.running | 正在寫入檔案… |
+| sensitive.marked／unmarked | 已標記為機敏文件。／已取消機敏標記。 |
+| sensitive.wrongPassword／notOwnerPassword | 密碼不正確。／這是開啟用的密碼：寫入檔案需要權限密碼。 |
+| sensitive.fileInUse | 其他程式正在使用這個檔案：請關閉它再試一次。 |
+| sensitive.repaired | 這個檔案的結構有誤，開啟時經過修復，無法只在結尾附加：請先另存新檔，再標記新的檔案。 |
+| sensitive.failed | 無法寫入檔案，檔案沒有改變。 |
+| sensitive.badge／badgeNote | 機敏文件／複製的文字不會進入剪貼簿歷程 |
+| sensitive.copyFailed | 無法複製：剪貼簿正被其他程式使用，請再試一次。 |
+| sensitive.copyTooLarge | 選取的文字太多，無法複製。請分段選取。 |
+| sensitive.listTitle／listNone | 機敏文件／沒有在這台電腦上標記的文件。 |
+| sensitive.listNote | 標記寫在檔案本身，這裡只列出在這台電腦上標記過的檔名（不含路徑）。要取消標記，請開啟該檔案，在「⋯」選單選「取消機敏標記」。從清單移除不會改變檔案。 |
+| sensitive.listOpen／listRemoveShort | 已開啟／移除 |
+| sensitive.listRemove | 從清單移除 <檔名> |
+| sensitive.listFailed | 無法讀取機敏文件的清單。 |
 
 ### 需要密碼（MVP-16）
 

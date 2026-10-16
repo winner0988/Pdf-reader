@@ -53,6 +53,7 @@ const info = (doc: number, displayName: string, pages = 10): DocumentInfo => ({
   recovery: "none",
   passwordRemembered: false,
   passwordRecalled: false,
+  sensitive: false,
 });
 
 const opening = (tab: number, displayName: string): OpenEvent => ({ kind: "opening", tab, displayName });

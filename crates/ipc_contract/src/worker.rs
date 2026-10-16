@@ -587,6 +587,19 @@ pub enum WorkerRequest {
         doc: DocumentId,
         file: FileHandle,
     },
+    /// Writes to `file` (as for `Save`) the file `doc` was opened from or last saved to, with the
+    /// app's document identifier put into its metadata (`identifier`), or taken out (`None`), by
+    /// an incremental update (B3-05, ADR 0010): the file's bytes, then the update. The open
+    /// document is not changed. Refused for a signed document, for an encrypted one without its
+    /// permissions password, and for a file that cannot be appended to (MuPDF repaired it).
+    /// The password is wiped once used. Answered by `Saved`, always appended.
+    WriteIdentifier {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
+        identifier: Option<[u8; 16]>,
+        password: Option<Password>,
+    },
     /// Makes the picture `file` (read-only; a PNG or JPEG) into what a stamp is made of: its
     /// pixels, in a PNG file, shrunk to `MAX_STAMP_SIDE_PX` at most. Nothing else of the file
     /// survives (EXIF, GPS position, camera, text chunks, color profile). Answered by
@@ -884,6 +897,12 @@ pub struct OpenedDocument {
     pub permissions: DocumentPermissions,
     /// Encrypted (MVP-16), with a password or with permissions only.
     pub encrypted: bool,
+    /// Signed: its form says signatures exist, or a signature field has a value. Writing the
+    /// sensitive mark into the file is refused (B3-05, ADR 0010).
+    pub signed: bool,
+    /// The app's document identifier in the file's metadata (ADR 0010; not a `DocumentId`): the
+    /// file is marked as sensitive (B3-05, ADR 0004).
+    pub identifier: Option<[u8; 16]>,
 }
 
 /// A rendered page: opaque RGBA8 (alpha is always 255), rows top to bottom, no padding.
@@ -952,6 +971,8 @@ pub enum WorkerErrorCode {
     DiskFull,
     /// Saving: the file could not be written for another reason.
     Unwritable,
+    /// The document is signed, and the request would write into its file (B3-05, ADR 0010).
+    Signed,
     /// A text box cannot be set in the font (B2-28).
     Font(FontRefusal),
     /// A text box cannot be set in the text: it needs a script the worker does not set (B2-28).
@@ -976,6 +997,7 @@ impl From<WorkerErrorCode> for ErrorCode {
             WorkerErrorCode::Cancelled => ErrorCode::Cancelled,
             WorkerErrorCode::DiskFull => ErrorCode::DiskFull,
             WorkerErrorCode::Unwritable => ErrorCode::Unwritable,
+            WorkerErrorCode::Signed => ErrorCode::Signed,
             WorkerErrorCode::Font(refusal) => match refusal {
                 FontRefusal::NotAFont => ErrorCode::FontInvalid,
                 FontRefusal::NotTrueType => ErrorCode::FontNotTrueType,
@@ -1141,6 +1163,44 @@ mod tests {
             postcard::from_bytes::<WorkerRequest>(&bytes).unwrap(),
             request
         );
+    }
+
+    #[test]
+    fn writing_the_identifier_carries_it_and_hides_the_password() {
+        let request = WorkerRequest::WriteIdentifier {
+            request: RequestId(4),
+            doc: DocumentId(5),
+            file: FileHandle(0x40),
+            identifier: Some([0x3c; 16]),
+            password: Some(Password::new("owner secret".to_owned())),
+        };
+        assert!(!format!("{request:?}").contains("owner secret"));
+        let bytes = postcard::to_allocvec(&request).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerRequest>(&bytes).unwrap(),
+            request
+        );
+        let opened = OpenedDocument {
+            pages: vec![PageSize {
+                width_pt: 612.0,
+                height_pt: 792.0,
+            }],
+            has_outline: false,
+            has_form: false,
+            security: SecurityReport::default(),
+            permissions: DocumentPermissions::ALL,
+            encrypted: false,
+            signed: true,
+            identifier: Some([0xc3; 16]),
+        };
+        let bytes = postcard::to_allocvec(&opened).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<OpenedDocument>(&bytes).unwrap(),
+            opened
+        );
+        let bytes = postcard::to_allocvec(&WorkerErrorCode::Signed).unwrap();
+        let code = postcard::from_bytes::<WorkerErrorCode>(&bytes).unwrap();
+        assert_eq!(ErrorCode::from(code), ErrorCode::Signed);
     }
 
     #[test]

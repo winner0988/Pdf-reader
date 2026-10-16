@@ -51,12 +51,15 @@ windows = { version = "0.62", features = [
 # the update check the user asks for, the app's one network request (src/update_check.rs, #64,
 # ADR 0009); the Credential Manager, for the passwords the user asks to remember
 # (src/credentials.rs, ADR 0017); the registry's list of the installed fonts, read only
-# (src/fonts.rs, ADR 0018).
+# (src/fonts.rs, ADR 0018); the clipboard, for text copied from a sensitive document, which
+# Windows is told to keep out of its clipboard history (src/clipboard.rs, B3-05).
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Networking_WinHttp",
     "Win32_Security_Credentials",
     "Win32_Storage_FileSystem",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
     "Win32_System_Registry",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",

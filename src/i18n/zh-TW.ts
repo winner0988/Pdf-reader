@@ -61,6 +61,7 @@ export const strings = {
       fileInUse: "檔案正被其他程式使用，無法寫入。",
       changedOnDisk: "檔案在開啟後被其他程式修改過；為了不覆寫那些修改，沒有儲存。",
       unwritable: "無法寫入檔案。",
+      signed: "這份文件有數位簽章，不能寫入檔案。",
       notAllowed: "這份文件的作者不允許這個動作。",
       networkFailed: "無法從 GitHub 取得最新版本的資訊。",
       fontUnavailable: "找不到這個字型（可能已被解除安裝），請選擇另一個字型。",
@@ -378,6 +379,7 @@ export const strings = {
       "應用程式的私有資料、頁面縮圖與修改時間",
       "註解的作者與日期（註解本身保留）",
       "文件識別碼：換成新的亂數",
+      "機敏標記：副本不是機敏文件",
     ],
     keptTitle: "不會清除（分享前請自行檢查）",
     kept: [
@@ -731,7 +733,60 @@ export const strings = {
     batch: "批次處理…",
     createPdf: "從檔案建立 PDF…",
     dontRecord: "不記錄此檔案",
+    markSensitive: "標記為機敏…",
+    unmarkSensitive: "取消機敏標記…",
     settings: "設定…",
+  },
+  /** Sensitive documents (B3-05, ADR 0004, ADR 0010). */
+  sensitive: {
+    markTitle: "標記為機敏",
+    unmarkTitle: "取消機敏標記",
+    whatItDoes: [
+      "從這份文件複製的文字不會進入 Windows 的剪貼簿歷程（Win+V），也不會同步到雲端剪貼簿",
+      "不會記錄在最近開啟的檔案",
+      "標記寫在檔案本身：搬移、改名、複製檔案都仍是機敏；隱私匯出的副本不是",
+    ],
+    whatUnmarkDoes: "取消後，這份文件複製的文字會像其他文件一樣進入剪貼簿歷程，檔案也會記錄在最近開啟的檔案。",
+    checking: "正在檢查這個檔案…",
+    checkFailed: "無法檢查這個檔案，請再試一次。",
+    /** What happens to the file (ADR 0010): said before the user confirms. */
+    ready: "會修改這個檔案：在檔案結尾附加一筆紀錄，檔案原本的內容不變，但修改時間會改變。",
+    needsPassword: "這份文件有加密：要寫入檔案，需要它的權限密碼（不是開啟密碼）。",
+    passwordLabel: "權限密碼",
+    signed:
+      "這份文件有數位簽章，不能標記：寫入任何東西都會讓簽章驗證顯示「簽署後已被修改」，禁止修改的認證簽章更會失效。",
+    readOnly: "這個檔案是唯讀的，或所在的資料夾不能寫入，所以無法標記。",
+    unsaved: "這份文件有尚未儲存的變更：請先儲存或復原，否則它們會一起寫進檔案。",
+    changedOnDisk: "其他程式在開啟後修改了這個檔案：請關閉分頁、重新開啟後再試。",
+    mark: "標記為機敏",
+    unmark: "取消標記",
+    cancel: "取消",
+    /** The only button when the file cannot be written (the dialog's own close button is "關閉"). */
+    close: "確定",
+    running: "正在寫入檔案…",
+    marked: "已標記為機敏文件。",
+    unmarked: "已取消機敏標記。",
+    /** Why writing failed; the file is as it was. */
+    wrongPassword: "密碼不正確。",
+    notOwnerPassword: "這是開啟用的密碼：寫入檔案需要權限密碼。",
+    fileInUse: "其他程式正在使用這個檔案：請關閉它再試一次。",
+    repaired: "這個檔案的結構有誤，開啟時經過修復，無法只在結尾附加：請先另存新檔，再標記新的檔案。",
+    failed: "無法寫入檔案，檔案沒有改變。",
+    /** In the status bar while the document shown is sensitive. */
+    badge: "機敏文件",
+    badgeNote: "複製的文字不會進入剪貼簿歷程",
+    /** Copying from a sensitive document. */
+    copyFailed: "無法複製：剪貼簿正被其他程式使用，請再試一次。",
+    copyTooLarge: "選取的文字太多，無法複製。請分段選取。",
+    /** The settings' list of files marked on this computer. */
+    listTitle: "機敏文件",
+    listNone: "沒有在這台電腦上標記的文件。",
+    listNote:
+      "標記寫在檔案本身，這裡只列出在這台電腦上標記過的檔名（不含路徑）。要取消標記，請開啟該檔案，在「⋯」選單選「取消機敏標記」。從清單移除不會改變檔案。",
+    listOpen: "已開啟",
+    listRemove: (name: string) => `從清單移除 ${name}`,
+    listRemoveShort: "移除",
+    listFailed: "無法讀取機敏文件的清單。",
   },
   /** Recognising the text of scanned pages (B2-10). */
   ocr: {
@@ -813,6 +868,7 @@ export const strings = {
     dataItems: [
       "最近開啟的檔案：完整路徑，只在這台電腦上；畫面只顯示檔名",
       "設定：外觀、是否記錄最近開啟的檔案、掃描頁的文字辨識",
+      "機敏文件：在這台電腦上標記為機敏的檔名，不含路徑（標記本身在檔案裡）",
       "OCR 語言資料：你匯入的 .traineddata 檔案（內附的在安裝資料夾）",
       "畫面元件（WebView2）的暫存資料",
     ],

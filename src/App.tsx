@@ -18,6 +18,7 @@ import { tauriSearchApi, type SearchApi } from "@/features/search/useSearch";
 import { tauriOutlineApi, useOutline, type OutlineApi } from "@/features/outline/useOutline";
 import { tauriRecentApi, type RecentApi } from "@/features/recent/api";
 import { tauriSavingApi, type SavingApi } from "@/features/saving/api";
+import { tauriSensitiveApi, type SensitiveApi } from "@/features/sensitive/api";
 import { UnsavedDialog } from "@/features/saving/UnsavedDialog";
 import { tauriSettingsApi, type SettingsApi } from "@/features/settings/api";
 import { SettingsProvider } from "@/features/settings/SettingsProvider";
@@ -53,6 +54,7 @@ type AppProps = {
   savingApi?: SavingApi;
   batchApi?: BatchApi;
   createApi?: CreateApi;
+  sensitiveApi?: SensitiveApi;
   editingApi?: EditingApi;
   updatesApi?: UpdatesApi;
   ocrApi?: OcrApi;
@@ -75,6 +77,7 @@ export default function App({
   savingApi = tauriSavingApi,
   batchApi = tauriBatchApi,
   createApi = tauriCreateApi,
+  sensitiveApi = tauriSensitiveApi,
   editingApi = tauriEditingApi,
   updatesApi = tauriUpdatesApi,
   ocrApi = tauriOcrApi,
@@ -166,6 +169,7 @@ export default function App({
                 ocrApi={demo ? undefined : ocrApi}
                 passwordsApi={demo ? undefined : api}
                 createApi={demo ? undefined : createApi}
+                sensitiveApi={demo ? undefined : sensitiveApi}
                 onOpen={open}
                 onClose={() => setDemo(null)}
               />
@@ -189,6 +193,7 @@ export default function App({
                   exportApi={exportApi}
                   savingApi={savingApi}
                   createApi={createApi}
+                  sensitiveApi={sensitiveApi}
                   editingApi={editingApi}
                   updatesApi={updatesApi}
                   ocrApi={ocrApi}
@@ -255,6 +260,7 @@ type TabPaneProps = {
   exportApi: ExportApi;
   savingApi: SavingApi;
   createApi: CreateApi;
+  sensitiveApi: SensitiveApi;
   editingApi: EditingApi;
   updatesApi: UpdatesApi;
   ocrApi: OcrApi;

@@ -13,18 +13,20 @@ use ipc_contract::types::{
     AnnotationId, BatchArgs, BatchEvent, BatchReport, CompressArgs, CompressResult, CreateResult,
     DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat,
     FileRecordingArgs, FontInfo, FormField, IpcError, LanguageImport, LinkArgs, LinkPreview,
-    OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation,
-    PageLink, PageText, PagesSource, Password, PrepareTextBoxArgs, PreparedTextBox, RecentFile,
-    RecentId, RememberedPasswords, RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult,
-    SearchArgs, SearchEvent, Settings, SignatureReport, StampImageInfo, TabId, TextBoxInfo,
-    UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
+    MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult,
+    PageAnnotation, PageLink, PageText, PagesSource, Password, PrepareTextBoxArgs, PreparedTextBox,
+    RecentFile, RecentId, RememberedPasswords, RemoveLanguageArgs, RenderPageArgs, RequestId,
+    SaveResult, SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings,
+    SignatureReport, StampImageInfo, TabId, TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome,
+    UnlockSourceArgs, UpdateCheck,
 };
-use ipc_contract::validate::{Validate, check_page_index};
+use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
 
 use crate::background;
 use crate::batch::{self, Batches};
+use crate::clipboard;
 use crate::create_pdf;
 use crate::documents::{self, Documents};
 use crate::events::OpenEvents;
@@ -34,6 +36,7 @@ use crate::ocr::Ocr;
 use crate::recent::RecentFiles;
 use crate::render::Renderer;
 use crate::search::{self, Searches};
+use crate::sensitive::SensitiveFiles;
 use crate::settings::SettingsStore;
 use crate::strings;
 
@@ -296,6 +299,108 @@ pub async fn clear_recent_exclusions(app: AppHandle) -> Result<(), IpcError> {
         Ok(())
     })
     .await
+}
+
+/// What writing the sensitive mark into an open document's file, or taking it out, would do
+/// (B3-05, ADR 0010): asked before the user confirms.
+#[tauri::command]
+pub async fn check_sensitive_mark(app: AppHandle, doc: DocumentId) -> Result<MarkCheck, IpcError> {
+    blocking(move || app.state::<Documents>().mark_check(doc)).await
+}
+
+/// Writes the sensitive mark into an open document's file, or takes it out (B3-05, ADR 0004, ADR
+/// 0010), once the user confirmed: appended to the file. The list of files marked on this
+/// computer follows; a marked file leaves the recent files list, and one no longer marked goes
+/// on it like a file that opens. The tab's new state arrives on the open-events channel.
+#[tauri::command]
+pub async fn set_sensitive(app: AppHandle, args: SensitiveArgs) -> Result<(), IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    blocking(move || {
+        let SensitiveArgs {
+            doc,
+            sensitive,
+            password,
+        } = args;
+        let (identifier, event) = app
+            .state::<Documents>()
+            .set_sensitive(doc, sensitive, password)?;
+        let list = app.state::<SensitiveFiles>();
+        match (&event, sensitive) {
+            (OpenEvent::Opened { info, .. }, true) => list.add(identifier, &info.display_name),
+            _ => list.remove_identifier(&identifier),
+        }
+        report(&app, event);
+        Ok(())
+    })
+    .await
+}
+
+/// The files marked as sensitive on this computer (B3-05), most recently marked first: their
+/// names, and whether each is open in a tab.
+#[tauri::command]
+pub async fn get_sensitive_files(app: AppHandle) -> Result<Vec<SensitiveFile>, IpcError> {
+    blocking(move || sensitive_files(&app)).await
+}
+
+/// Takes a file off the list of files marked as sensitive on this computer (B3-05) and returns
+/// the list. The file stays marked: the mark is in the file.
+#[tauri::command]
+pub async fn remove_sensitive_file(
+    app: AppHandle,
+    id: SensitiveId,
+) -> Result<Vec<SensitiveFile>, IpcError> {
+    blocking(move || {
+        app.state::<SensitiveFiles>()
+            .remove(id)
+            .map_err(|_| IpcError {
+                code: ErrorCode::InvalidArgument,
+                message: "no such file on the list".to_owned(),
+            })?;
+        sensitive_files(&app)
+    })
+    .await
+}
+
+fn sensitive_files(app: &AppHandle) -> Result<Vec<SensitiveFile>, IpcError> {
+    let open = app.state::<Documents>().open_identifiers();
+    let list: Vec<SensitiveFile> = app
+        .state::<SensitiveFiles>()
+        .list()
+        .into_iter()
+        .map(|file| SensitiveFile {
+            id: file.id,
+            open: open.contains(&file.identifier),
+            display_name: file.name,
+        })
+        .collect();
+    list.validate().map_err(|error| IpcError {
+        code: ErrorCode::Internal,
+        message: format!("invalid list of sensitive files: {error}"),
+    })?;
+    Ok(list)
+}
+
+/// Puts text the page copied from a sensitive document on the clipboard (B3-05, ADR 0004), with
+/// the formats that keep it out of Windows' clipboard history and cloud clipboard. The text is the
+/// page's to copy anyway (`navigator.clipboard` writes it for any other document): nothing is
+/// read from the clipboard, and nothing else is written.
+#[tauri::command]
+pub async fn copy_protected_text(window: WebviewWindow, text: String) -> Result<(), IpcError> {
+    check_clipboard_text(&text).map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let owner = window
+        .hwnd()
+        .map_err(|_| IpcError {
+            code: ErrorCode::Internal,
+            message: "the window has no handle".to_owned(),
+        })?
+        .0 as isize;
+    blocking(move || clipboard::write_protected(owner as _, &text)).await
 }
 
 /// The user's settings (B2-12).
@@ -1398,19 +1503,30 @@ pub fn open_paths(app: &AppHandle, paths: Vec<PathBuf>) {
 }
 
 /// Sends an open outcome to the frontend. A file that opened goes first on the recent files
-/// list (#73), unless the user asked not to record it, or not to record any file (B2-12).
+/// list (#73), unless the user asked not to record it, or not to record any file (B2-12). A file
+/// marked as sensitive (B3-05) is never on it, and the list of marked files gets its name as it
+/// is now (it may have been renamed).
 fn report(app: &AppHandle, event: OpenEvent) {
     let recording = app
         .try_state::<SettingsStore>()
         .is_some_and(|settings| settings.get().record_recent_files);
-    if let OpenEvent::Opened { tab, .. } = &event
-        && recording
+    if let OpenEvent::Opened { tab, info } = &event
         && let (Some(path), Some(recent)) = (
             app.state::<Documents>().tab_path(*tab),
             app.try_state::<RecentFiles>(),
         )
     {
-        recent.record(&path);
+        if info.sensitive {
+            recent.forget(&path);
+            if let (Some(identifier), Some(list)) = (
+                app.state::<Documents>().tab_identifier(*tab),
+                app.try_state::<SensitiveFiles>(),
+            ) {
+                list.rename(&identifier, &info.display_name);
+            }
+        } else if recording {
+            recent.record(&path);
+        }
     }
     app.state::<OpenEvents>().send(event);
 }

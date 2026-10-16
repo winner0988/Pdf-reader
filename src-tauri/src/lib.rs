@@ -8,6 +8,7 @@ compile_error!(
 mod background;
 mod batch;
 mod cli;
+mod clipboard;
 mod commands;
 mod create_pdf;
 mod credentials;
@@ -28,6 +29,7 @@ mod recovery;
 mod render;
 mod saving;
 mod search;
+mod sensitive;
 mod settings;
 mod sources;
 mod strings;
@@ -51,6 +53,7 @@ use crate::recent::RecentFiles;
 use crate::recovery::Journals;
 use crate::render::{DEFAULT_CACHE_BYTES, Renderer};
 use crate::search::Searches;
+use crate::sensitive::SensitiveFiles;
 use crate::settings::SettingsStore;
 
 pub fn run() {
@@ -134,6 +137,11 @@ pub fn run() {
             commands::get_settings,
             commands::set_settings,
             commands::clear_recent_exclusions,
+            commands::check_sensitive_mark,
+            commands::set_sensitive,
+            commands::get_sensitive_files,
+            commands::remove_sensitive_file,
+            commands::copy_protected_text,
             commands::export_pages,
             commands::apply_edit,
             commands::undo_edit,
@@ -172,6 +180,9 @@ pub fn run() {
             ))));
             app.manage(RecentFiles::new(
                 data.as_ref().map(|dir| dir.join(recent::FILE_NAME)),
+            ));
+            app.manage(SensitiveFiles::new(
+                data.as_ref().map(|dir| dir.join(sensitive::FILE_NAME)),
             ));
             app.state::<Documents>().set_journals(Journals::new(
                 data.map(|dir| dir.join(recovery::FOLDER_NAME)),
