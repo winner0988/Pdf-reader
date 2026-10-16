@@ -22,6 +22,7 @@ const info: DocumentInfo = {
   recovery: "none",
   passwordRemembered: false,
   passwordRecalled: false,
+  sensitive: false,
 };
 
 function setup(onOcr?: (event: OcrEvent) => void, unlocked: UnlockOutcome = { notRemembered: null }) {

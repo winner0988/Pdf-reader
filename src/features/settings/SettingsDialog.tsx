@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import type { OcrApi } from "@/features/ocr/api";
 import { OcrSection } from "@/features/ocr/OcrSection";
 import type { RecentApi } from "@/features/recent/api";
+import { SensitiveSection, type SensitiveListApi } from "@/features/sensitive/SensitiveSection";
 import { PasswordsSection, type PasswordsApi } from "@/features/settings/PasswordsSection";
 import type { UpdatesApi } from "@/features/settings/updates";
 import { UpdatesSection } from "@/features/settings/UpdatesSection";
@@ -23,6 +24,8 @@ type SettingsDialogProps = {
   ocrApi?: OcrApi;
   /** The passwords the app remembers (B2-26); without it (demo data, tests) they are not shown. */
   passwordsApi?: PasswordsApi;
+  /** The files marked as sensitive here (B3-05); without it (demo data, tests) they are not shown. */
+  sensitiveApi?: SensitiveListApi;
 };
 
 const THEMES: ThemePreference[] = ["system", "light", "dark"];
@@ -39,6 +42,7 @@ export function SettingsDialog({
   updatesApi,
   ocrApi,
   passwordsApi,
+  sensitiveApi,
 }: SettingsDialogProps) {
   const t = strings.settings;
   const shared = useSettings();
@@ -130,6 +134,8 @@ export function SettingsDialog({
         {ocrApi && <OcrSection api={ocrApi} />}
 
         {passwordsApi && <PasswordsSection api={passwordsApi} />}
+
+        {sensitiveApi && <SensitiveSection api={sensitiveApi} />}
 
         {updatesApi && <UpdatesSection api={updatesApi} />}
 

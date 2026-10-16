@@ -216,6 +216,35 @@ impl WorkerHost {
         })
     }
 
+    /// Writes to `file`, as [`save`](Self::save) does, the file `doc` was opened from or last
+    /// saved to, with the app's document identifier put into its metadata, or taken out (`None`),
+    /// by an incremental update (B3-05, ADR 0010). `password` is the permissions password of an
+    /// encrypted document; it is wiped once sent. Returns `Saved`. The document itself does not
+    /// change.
+    pub fn write_identifier(
+        &mut self,
+        doc: DocumentId,
+        file: &File,
+        identifier: Option<[u8; 16]>,
+        password: Option<Password>,
+    ) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_write_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::WriteIdentifier {
+            request,
+            doc,
+            file: FileHandle(handle),
+            identifier,
+            password,
+        })
+    }
+
     /// Writes the pages `pages` of the open document `doc` to `file` as a document of their own
     /// (B2-06), as [`save`](Self::save) writes `doc`: the worker gets a write-only handle, never a
     /// path. Returns `Saved`. The document itself does not change.

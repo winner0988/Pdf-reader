@@ -71,6 +71,11 @@ flowchart LR
 | `get_file_recording` | `{ doc: DocumentId }` | `boolean`：這份文件的檔案可不可以記錄（「不記錄此檔案」沒有勾選） | 否 | #73 |
 | `set_file_recording` | `{ args: FileRecordingArgs }`（`{ doc, record }`，其他欄位一律拒絕） | 無；不記錄時從清單移除並記下加鹽的雜湊值 | 否 | #73 |
 | `clear_recent_exclusions` | 無 | 無；忘記「不記錄此檔案」的選擇 | 否 | B2-12 |
+| `check_sensitive_mark` | `{ doc }` | `MarkCheck`：寫入（或取出）機敏標記會怎樣：`ready`、`needsPassword`（加密，需要權限密碼）、`signed`、`readOnly`、`unsaved`、`changedOnDisk`（ADR 0010，見 [sensitive-files.md](sensitive-files.md)） | 否 | B3-05 |
+| `set_sensitive` | `{ args: SensitiveArgs }`（`{ doc, sensitive, password }`，其他欄位一律拒絕；沒有路徑，也沒有識別碼：主行程產生） | 無；文件自己的 worker 以增量更新把文件識別碼寫進檔案（或取出），經暫存檔取代原檔；文件的新狀態（`sensitive`）走開檔頻道。已簽章回 `signed`，加密檔案沒有權限密碼回 `encrypted`／`notAllowed`，有未儲存的變更回 `invalidArgument` | 否 | B3-05 |
+| `get_sensitive_files` | 無 | `SensitiveFile[]`（`id`、`displayName`、`open`）：在這台電腦上標記的檔案，只有檔名（最多 `LIMITS.maxSensitiveFiles` 筆） | 否 | B3-05 |
+| `remove_sensitive_file` | `{ id: SensitiveId }` | 新的清單；檔案本身的標記不變 | 否 | B3-05 |
+| `copy_protected_text` | `{ text }`（最多 `LIMITS.maxClipboardTextBytes`，不含 NUL） | 無；主行程以 Win32 剪貼簿寫入文字，並帶 `CanIncludeInClipboardHistory`＝0、`CanUploadToCloudClipboard`＝0、`ExcludeClipboardContentFromMonitorProcessing`。不讀剪貼簿；剪貼簿被占用回 `fileInUse` | 否 | B3-05 |
 | `get_settings` | 無 | `Settings`：`theme`（`system`／`light`／`dark`）、`recordRecentFiles`（見 [local-data.md](local-data.md)）、`ocrAuto`（開啟文件時自動辨識掃描頁的文字）、`ocrLanguage`（辨識用的語言代碼，`null` 表示由 app 依介面語言決定，見 [ocr.md](ocr.md)） | 否 | B2-12、B2-10 |
 | `set_settings` | `{ settings: Settings }`（完整的一組，其他欄位一律拒絕） | 無；立即套用並寫入 `settings.json`，寫不進去時回傳 `unreadable`（仍然套用）；關閉最近開啟的檔案時一併清除清單 | 否 | B2-12 |
 | `export_pages` | `{ args: ExportArgs, onEvent: Channel<ExportEvent> }`：`request`、`doc`、`pages`（最多 `LIMITS.maxExportPages`）、`format`（`text`；`docx`，B3-02；`png`／`jpg` 與 `dpi`；`pdf`；`pdfEvery` 與 `count`，B2-06）；`pdf` 與 `pdfEvery` 的 `pages` 可以到 `LIMITS.maxPageCount`，`pdfEvery` 最多 `LIMITS.maxSplitFiles` 個檔案；不含路徑，其他欄位一律拒絕 | `boolean`：`false` 表示使用者關閉了系統的對話框；進度走頻道；以 `cancel(args.request)` 停止。作者禁止複製時拒絕（見 [export.md](export.md)） | 是 | B2-04 |
@@ -251,6 +256,7 @@ flowchart LR
 | `Edit` | `request`, `doc`, `edit`（`WorkerEdit`：`RotatePages { pages, degrees }`、`DeletePages { pages }`、`MovePages { pages, before }`、`InsertBlankPage { at, like }`、`InsertPages { at, source }`：`source` 是 `PrepareSource` 做出來的檔案，B2-06，見 [merge.md](merge.md)） | `Edited`（套用後的 `pages`）或 `Error`；只改記憶體中的文件（B2-02） |
 | `Revert` | `request`, `doc`, `edits`（`WorkerEdit` 的清單，最多 `MAX_UNDO_EDITS` 個）, `password`（以密碼開啟的文件才有，用完即清除） | `Edited`（套用後的 `pages`）或 `Error`；從保留的位元組重新開啟並依序套用，全部成功才取代文件（復原，B2-05） |
 | `Rebase` | `request`, `doc`, `file`（唯讀 handle：剛存好的檔案） | `Rebased`；之後復原從這個檔案的位元組重新開啟。不解析檔案，不需要密碼 |
+| `WriteIdentifier` | `request`, `doc`, `file`（只能寫入的新暫存檔）, `identifier: Option<[u8; 16]>`, `password`（加密檔案的權限密碼，用完即清除） | `Saved`（一定是 `incremental`）或 `Error`：把文件開啟（或上次存檔）時的檔案位元組另外開啟一次，在文件資訊字典放入（或取出）文件識別碼，以增量更新寫出：原本的位元組在前、不變。開著的文件不變。已簽章是 `Signed`；加密而不是權限密碼是 `NotAllowed`；MuPDF 修復過的檔案是 `Corrupted`（B3-05，ADR 0010） |
 | `Save` | `request`, `doc`, `file`（**只能寫入**的 handle，指向主行程建立的新暫存檔） | `Saved`（`bytes`、`incremental`）或 `Error`（`DiskFull`、`Unwritable`、`LimitExceeded` 等）；逾時 5 分鐘，見 [saving.md](saving.md) |
 | `EncryptedCopy` | `request`, `doc`, `file`（同 `Save`）, `open_password`（可以沒有）, `owner_password`, `restrictions` | `Saved`（`incremental` 一律為 false）或 `Error`（已加密或有簽章的文件、不能有的密碼：`InvalidRequest`）；兩個密碼的處理同 `Open`（送出後清除、worker 收到後清除）；開著的文件不變（B2-15） |
 | `CompressedCopy` | `request`, `doc`, `file`（同 `Save`）, `quality`, `max_side`（可以沒有） | `Compressed`（`bytes`、`before`、`images`、`changed`、`partial`）或 `Error`（加密或有簽章的文件、不是尺寸的上限：`InvalidRequest`；太多物件：`LimitExceeded`）；寫出圖片重新編碼的副本，worker 中的文件不變（B3-01，見 [compress-images.md](compress-images.md)） |
@@ -269,7 +275,7 @@ flowchart LR
 | `Close` | `doc` | 無 |
 | `Shutdown` | — | worker 結束 |
 
-`FileHandle` 是主行程複製進 worker 行程的 handle 值（ADR 0008）：`Open`、`Rebase` 與 `PrepareStampImage` 是唯讀開啟的檔案，`Save`、`PrivacyCopy`、`CompressedCopy` 與 `ExportDocx` 是只能寫入的新暫存檔（B2-02、B2-03、B3-01、B3-02、B2-08）。**worker 永遠拿不到路徑**；交付方式記錄在 `docs/architecture/worker-sandbox.md`。
+`FileHandle` 是主行程複製進 worker 行程的 handle 值（ADR 0008）：`Open`、`Rebase` 與 `PrepareStampImage` 是唯讀開啟的檔案，`Save`、`PrivacyCopy`、`CompressedCopy`、`ExportDocx` 與 `WriteIdentifier` 是只能寫入的新暫存檔（B2-02、B2-03、B3-01、B3-02、B2-08、B3-05）。**worker 永遠拿不到路徑**；交付方式記錄在 `docs/architecture/worker-sandbox.md`。
 
 `WorkerResponse` 的每個值在使用前都要通過 `Validate`：頁數、頁面尺寸、座標是否為有限數且在範圍內、點陣圖大小與像素長度是否一致、字串與清單長度、目錄是否為合法的前序結構、連結 id 是否屬於回報的頁面等。
 
@@ -303,6 +309,7 @@ flowchart LR
 | `fileInUse` | 存檔：其他程式開著檔案而不允許取代 |
 | `changedOnDisk` | 存檔：檔案在開啟後被其他程式修改過，不覆寫 |
 | `unwritable` | 存檔：其他寫入失敗 |
+| `signed` | 文件有數位簽章，而要求的動作會寫進它的檔案（機敏標記，B3-05，ADR 0010） |
 | `networkFailed` | 檢查更新：GitHub 沒有給出可用的回答（離線、被擋，或不是預期的回應）（#64） |
 | `fontUnavailable` | 文字方塊（B2-28）：選的字型已不在這台電腦，或讀不到它的檔案 |
 | `fontInvalid` | 文字方塊：字型檔不是 worker 讀得懂的字型 |
@@ -339,6 +346,8 @@ worker 端的 `WorkerErrorCode` 以 `From` 轉換對應到上表。
 | 每頁文字（選取與複製） | 100,000 字元 | 超過時 worker 截斷並設 `truncated`（MVP-15） |
 | 錯誤訊息／顯示名稱 | 1,024 bytes | |
 | 分頁 | 20 | 每個分頁一個 worker（MVP-14，ADR 0012） |
+| 在這台電腦上標記的機敏文件清單 | 1,000 筆 | 再標記一份時，最舊的一筆離開清單，檔案的標記不變（B3-05） |
+| 從機敏文件複製一次的文字 | 16 MiB（UTF-8） | 由主行程寫入剪貼簿，所以經過 IPC（B3-05） |
 
 ## 座標系統
 

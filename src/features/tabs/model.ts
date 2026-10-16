@@ -73,6 +73,7 @@ export function toShellDocument(info: DocumentInfo): ShellDocument {
     hasForm: info.hasForm,
     passwordRemembered: info.passwordRemembered,
     passwordRecalled: info.passwordRecalled,
+    sensitive: info.sensitive,
   };
 }
 

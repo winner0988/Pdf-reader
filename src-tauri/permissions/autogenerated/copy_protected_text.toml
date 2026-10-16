@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-copy-protected-text"
+description = "Enables the copy_protected_text command without any pre-configured scope."
+commands.allow = ["copy_protected_text"]
+
+[[permission]]
+identifier = "deny-copy-protected-text"
+description = "Denies the copy_protected_text command without any pre-configured scope."
+commands.deny = ["copy_protected_text"]
