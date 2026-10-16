@@ -97,6 +97,7 @@ pub fn bindings() -> String {
         AnnotationKind,
         PictureView,
         PageAnnotation,
+        RedactionSummary,
         FieldId,
         FieldKind,
         FieldOption,

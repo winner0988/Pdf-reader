@@ -34,6 +34,7 @@ mod docx;
 mod forms;
 mod identifier;
 mod ocr;
+mod redaction;
 
 pub use create::{Created, PdfBuilder};
 pub use identifier::write_identifier;

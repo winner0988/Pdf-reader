@@ -11,9 +11,9 @@ use ipc_contract::types::{
     DocumentPermissions, FieldId, FieldKind, FieldOption, FindingKind, FontRefusal, FormField,
     HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, LinkTarget,
     OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
-    PictureView, Point, Quad, Rect, RequestId, Restrictions, Rgb, Rotation, SearchHit,
-    SecurityFinding, SecurityReport, SignatureInfo, SignatureReport, SignatureStatus, StampName,
-    TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason, Watermark,
+    PictureView, Point, Quad, Rect, RedactionSummary, RequestId, Restrictions, Rgb, Rotation,
+    SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport, SignatureStatus,
+    StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason, Watermark,
     WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
@@ -136,6 +136,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     })
                     .collect(),
                 truncated: true,
+            },
+        },
+        WorkerResponse::RedactionSummary {
+            request,
+            summary: RedactionSummary {
+                marks: 3,
+                pages: 2,
+                annotations: 1,
+                fields: 1,
             },
         },
         WorkerResponse::Signatures {
@@ -629,6 +638,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             doc,
             edit: WorkerEdit::FlattenForm,
         },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddRedaction {
+                page: 0,
+                rect: Rect {
+                    x0: 60.0,
+                    y0: 120.0,
+                    x1: 330.0,
+                    y1: 150.0,
+                },
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::ApplyRedactions,
+        },
+        WorkerRequest::SummariseRedactions { request, doc },
         WorkerRequest::Edit {
             request,
             doc,

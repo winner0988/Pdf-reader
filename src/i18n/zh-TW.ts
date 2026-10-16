@@ -257,6 +257,8 @@ export const strings = {
       ink: "手繪線條",
       stamp: "印章",
       textBox: "文字方塊",
+      /** An area marked to be redacted (B2-19, ADR 0016): removed only when the marks are applied. */
+      redaction: "待遮蔽的範圍",
       other: "註解",
     },
     textBoxSaying: (text: string) => `文字方塊：${text}`,

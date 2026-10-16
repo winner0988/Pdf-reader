@@ -27,6 +27,7 @@ export function annotationLabel(annotation: PageAnnotation): string {
       return annotation.text ? t.textBoxSaying(annotation.text) : t.kind.textBox;
     case "ink":
     case "stamp":
+    case "redaction":
     case "other":
       return t.kind[annotation.kind];
   }
