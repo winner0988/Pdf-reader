@@ -43,6 +43,11 @@ export type ShellDocument = {
   /** The file was opened with the remembered password, without the user typing one. */
   passwordRecalled?: boolean;
   /**
+   * The file is marked as sensitive (B3-05, ADR 0004): copied text stays out of Windows' clipboard
+   * history, and the file is not on the recent files list.
+   */
+  sensitive?: boolean;
+  /**
    * The same while the tab shows the file it opened, through edits and saving (which give the
    * document a new `doc`, B2-02); a new one when a file is opened. Absent for demo data.
    */

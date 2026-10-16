@@ -27,6 +27,8 @@ import type { OcrTab } from "@/features/ocr/model";
 import { useOcrView } from "@/features/ocr/useOcrView";
 import type { CreateApi } from "@/features/create/api";
 import { CreatePdfDialog } from "@/features/create/CreatePdfDialog";
+import { fitsClipboard, type SensitiveApi } from "@/features/sensitive/api";
+import { SensitiveDialog } from "@/features/sensitive/SensitiveDialog";
 import type { ExportApi } from "@/features/export/api";
 import { ExportDialog } from "@/features/export/ExportDialog";
 import { CompressDialog } from "@/features/saving/CompressDialog";
@@ -88,6 +90,7 @@ import type {
   SaveResult,
   StampName,
 } from "@/ipc/generated/contract";
+import { LIMITS } from "@/ipc/generated/contract";
 
 /**
  * A link dialog that is open: the confirmation of a web link (with how to open it: by the
@@ -138,6 +141,12 @@ type ReaderShellProps = {
   batchApi?: BatchApi;
   /** Makes a PDF of files (B3-03); without it (demo data, tests) nothing can be. */
   createApi?: CreateApi;
+  /**
+   * Sensitive documents (B3-05): the mark in the file, the settings' list, and the clipboard that
+   * keeps their copied text out of Windows' clipboard history. Without it (demo data, tests) there
+   * is no mark to write, and text is copied as from any document.
+   */
+  sensitiveApi?: SensitiveApi;
   /** Page management in the thumbnails (B2-05); without it (demo data, tests) pages stay as they are. */
   editingApi?: EditingApi;
   /** The update check in the settings (#64); without it (demo data, tests) it is not offered. */
@@ -216,6 +225,7 @@ export function ReaderShell({
   savingApi,
   batchApi,
   createApi,
+  sensitiveApi,
   editingApi,
   updatesApi,
   ocrApi,
@@ -269,6 +279,7 @@ export function ReaderShell({
     | "compress"
     | "batch"
     | "create"
+    | "sensitive"
     | null
   >(
     null,
@@ -332,7 +343,8 @@ export function ReaderShell({
       dialog === "export" ||
       dialog === "privacyExport" ||
       dialog === "encrypt" ||
-      dialog === "compress"
+      dialog === "compress" ||
+      dialog === "sensitive"
     ) {
       setDialog(null);
     }
@@ -365,6 +377,57 @@ export function ReaderShell({
     return () => window.clearTimeout(timer);
   }, [searchOpen, ocrView.versionTotal]);
 
+  // Text copied from a sensitive document (B3-05) goes on the clipboard through the main process,
+  // which keeps it out of Windows' clipboard history and cloud clipboard; from any other document
+  // the page writes it, as before.
+  const sensitive = document_?.sensitive === true && sensitiveApi !== undefined;
+  const copyText = (text: string) => {
+    if (!sensitive) {
+      navigator.clipboard?.writeText(text).catch(() => {});
+      return;
+    }
+    if (!fitsClipboard(text, LIMITS.maxClipboardTextBytes)) {
+      showHint(strings.sensitive.copyTooLarge);
+      return;
+    }
+    sensitiveApi.copy(text).catch(() => showHint(strings.sensitive.copyFailed));
+  };
+  // What the WebView itself would copy or cut (a form field, a dialog's text) is taken over too,
+  // while a sensitive document is shown.
+  const copyTextRef = useRef(copyText);
+  useEffect(() => {
+    copyTextRef.current = copyText;
+  });
+  useEffect(() => {
+    if (!active || !sensitive) return;
+    const takeOver = (event: ClipboardEvent) => {
+      event.preventDefault();
+      const field = document.activeElement;
+      const editable =
+        (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) &&
+        field.selectionStart !== null &&
+        field.selectionEnd !== null
+          ? field
+          : null;
+      const text = editable
+        ? editable.value.slice(editable.selectionStart ?? 0, editable.selectionEnd ?? 0)
+        : (window.getSelection()?.toString() ?? "");
+      if (text === "") return;
+      copyTextRef.current(text);
+      if (event.type === "cut" && editable && !editable.readOnly && !editable.disabled) {
+        editable.setRangeText("", editable.selectionStart ?? 0, editable.selectionEnd ?? 0, "end");
+        // As typing would: a controlled field hears of it.
+        editable.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    };
+    document.addEventListener("copy", takeOver, true);
+    document.addEventListener("cut", takeOver, true);
+    return () => {
+      document.removeEventListener("copy", takeOver, true);
+      document.removeEventListener("cut", takeOver, true);
+    };
+  }, [active, sensitive]);
+
   /**
    * Copies the selected text (MVP-15), unless the author forbids it (MVP-19). False when none is
    * selected: the key does what it usually does.
@@ -377,7 +440,7 @@ export function ReaderShell({
       return true;
     }
     void view.selectedText().then((text) => {
-      if (text) navigator.clipboard?.writeText(text).catch(() => {});
+      if (text) copyText(text);
     });
     return true;
   };
@@ -905,7 +968,13 @@ export function ReaderShell({
               : undefined
           }
           onMoreMenuOpen={askRecording}
-          recording={recording ? { recorded, onChange: setRecording } : undefined}
+          // A sensitive file is never on the recent files list: there is nothing to choose (B3-05).
+          recording={recording && document_?.sensitive !== true ? { recorded, onChange: setRecording } : undefined}
+          sensitive={
+            sensitiveApi && doc !== undefined
+              ? { marked: document_?.sensitive === true, onClick: () => setDialog("sensitive") }
+              : undefined
+          }
         />
         <div className="relative flex min-h-0 flex-1">
           {sidebarOpen && document_ && (
@@ -1130,6 +1199,7 @@ export function ReaderShell({
           restriction={document_ ? restrictionSummary(permissions) : null}
           ocr={ocrView.status}
           ocrNote={ocrView.note}
+          sensitive={document_?.sensitive === true}
         />
       </div>
       {linkDialog?.kind === "confirm" && (
@@ -1138,6 +1208,7 @@ export function ReaderShell({
           preview={linkDialog.preview}
           onOpen={linkDialog.open}
           onClose={() => setLinkDialog(null)}
+          copyText={copyText}
         />
       )}
       {linkDialog?.kind === "blocked" && (
@@ -1145,6 +1216,7 @@ export function ReaderShell({
           action={linkDialog.action}
           content={linkDialog.content}
           onClose={() => setLinkDialog(null)}
+          copyText={copyText}
         />
       )}
       {flattenOpen && <FlattenDialog onConfirm={flatten} onCancel={() => setFlattenOpen(false)} />}
@@ -1216,6 +1288,16 @@ export function ReaderShell({
           onFinished={showHint}
         />
       )}
+      {sensitiveApi && doc !== undefined && (
+        <SensitiveDialog
+          open={dialog === "sensitive"}
+          onOpenChange={(open) => setDialog(open ? "sensitive" : null)}
+          doc={doc}
+          sensitive={document_?.sensitive === true}
+          api={sensitiveApi}
+          onFinished={showHint}
+        />
+      )}
       {savable && (
         <PrivacyExportDialog
           open={dialog === "privacyExport"}
@@ -1273,6 +1355,7 @@ export function ReaderShell({
         updatesApi={updatesApi}
         ocrApi={ocrApi}
         passwordsApi={passwordsApi}
+        sensitiveApi={sensitiveApi}
       />
       <AboutDialog
         open={dialog === "about"}

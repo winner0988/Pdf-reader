@@ -100,6 +100,17 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-get-settings", "B2-12: the user's settings (theme, whether to record recent files)"],
   ["allow-set-settings", "B2-12: replace the user's settings; typed, no other field accepted"],
   ["allow-clear-recent-exclusions", "B2-12: forget which files the user asked not to record"],
+  ["allow-check-sensitive-mark", "B3-05, ADR 0010: what writing the sensitive mark into an open document's file would do"],
+  [
+    "allow-set-sensitive",
+    "B3-05, ADR 0010: append the sensitive mark to an open document's file, or take it out, after the user confirmed; no path from the page",
+  ],
+  ["allow-get-sensitive-files", "B3-05: the files marked as sensitive on this computer, as names and ids; no paths"],
+  ["allow-remove-sensitive-file", "B3-05: take a file off the list of marked files by its id; the file is not changed"],
+  [
+    "allow-copy-protected-text",
+    "B3-05, ADR 0004: put text copied from a sensitive document on the clipboard, kept out of the clipboard history; never reads it",
+  ],
   ["allow-export-pages", "B2-04: export pages as text or PNG; the main process asks where and writes the files"],
   ["allow-apply-edit", "B2-02: a typed edit of an open document, applied in its worker; validated, no PDF objects"],
   ["allow-undo-edit", "B2-05: undo the last edit of an open document; its worker opens the kept bytes again"],

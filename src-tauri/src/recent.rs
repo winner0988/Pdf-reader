@@ -136,6 +136,19 @@ impl RecentFiles {
         });
     }
 
+    /// Takes the file at `path` off the list, if it is there, and keeps nothing of it: a file
+    /// marked as sensitive (B3-05) is never recorded, which its mark says each time it opens.
+    pub fn forget(&self, path: &Path) {
+        self.with(|state| {
+            let same = key(path);
+            let before = state.entries.len();
+            state.entries.retain(|entry| key(&entry.path) != same);
+            if state.entries.len() != before {
+                self.save(state);
+            }
+        });
+    }
+
     /// Takes a file off the list; it is recorded again the next time it opens.
     pub fn remove(&self, id: RecentId) -> Result<Vec<RecentFile>, UnknownEntry> {
         self.with(|state| {
@@ -408,6 +421,27 @@ mod tests {
         recent.clear();
         assert!(recent.list().is_empty());
         assert!(!file.exists(), "an empty list leaves no file");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_sensitive_file_leaves_the_list_and_nothing_of_it_is_kept() {
+        let dir = folder("forget");
+        let file = dir.join(FILE_NAME);
+        let recent = RecentFiles::new(Some(file.clone()));
+        recent.record(&pdf("機密"));
+        recent.record(&pdf("plain"));
+        recent.forget(&PathBuf::from(r"C:\USERS\someone\文件\機密.PDF"));
+        assert_eq!(names(&recent), ["plain.pdf"]);
+        let json = fs::read_to_string(&file).unwrap();
+        assert!(!json.contains("機密"), "{json}");
+        // Not an exclusion: a file no longer marked is recorded as any other.
+        assert!(recent.is_recorded(&pdf("機密")));
+        recent.record(&pdf("機密"));
+        assert_eq!(names(&recent), ["機密.pdf", "plain.pdf"]);
+        // A file not on the list changes nothing.
+        recent.forget(&pdf("elsewhere"));
+        assert_eq!(names(&recent), ["機密.pdf", "plain.pdf"]);
         let _ = fs::remove_dir_all(dir);
     }
 

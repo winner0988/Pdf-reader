@@ -171,6 +171,7 @@ mod tests {
             recovery: Recovery::None,
             password_remembered: false,
             password_recalled: false,
+            sensitive: false,
         };
         let (channel, received) = recording_channel();
         events.subscribe(channel, || {
