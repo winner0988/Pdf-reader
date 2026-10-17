@@ -22,7 +22,8 @@ export type Tool =
   | { kind: "pen"; color: InkColor; width: InkWidth }
   | { kind: "stamp"; stamp: StampName }
   | { kind: "picture"; picture: StampImageInfo }
-  | { kind: "textBox" };
+  | { kind: "textBox" }
+  | { kind: "redaction" };
 
 export const INK_COLORS: InkColor[] = ["black", "red", "blue", "green"];
 export const INK_WIDTHS: InkWidth[] = ["thin", "medium", "thick"];
@@ -115,6 +116,15 @@ export const TEXT_BOX_HEIGHT_PT = 48;
 /** The rectangle a text box takes when put down at `at` (page space), inside the page. */
 export function textBoxRectAt(at: Point, page: PageSize): Rect {
   return rectAround(at, page, Math.min(TEXT_BOX_WIDTH_PT, page.widthPt), Math.min(TEXT_BOX_HEIGHT_PT, page.heightPt));
+}
+
+/** A default redaction box is put down 140 points wide and 24 high. */
+export const REDACTION_WIDTH_PT = 140;
+export const REDACTION_HEIGHT_PT = 24;
+
+/** The rectangle a redaction mark takes when put down at `at` (page space), inside the page. */
+export function redactionRectAt(at: Point, page: PageSize): Rect {
+  return rectAround(at, page, Math.min(REDACTION_WIDTH_PT, page.widthPt), Math.min(REDACTION_HEIGHT_PT, page.heightPt));
 }
 
 /** The longer side of a picture stamp when it is put down, in points. */
