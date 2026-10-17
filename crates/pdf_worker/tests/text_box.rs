@@ -3,6 +3,7 @@
 //! Chinese letters. Pages are Letter size; a box is given in page space (from the top left).
 
 use ipc_contract::types::{FontRefusal, Rect, Rgb, TextAlign, TextBoxStyle};
+use ipc_contract::validate::Validate;
 use mupdf::pdf::PdfDocument as MuPdf;
 use pdf_worker::engine::{
     EngineError, PdfDocument, RenderedPage, TextBoxFont, TextBoxMade, TextBoxSpec, prepare_text_box,
@@ -1196,4 +1197,50 @@ fn the_copies_a_document_makes_carry_its_text_boxes_with_their_font_and_colour()
     )
     .expect("encrypted copy");
     carries(&encrypted, Some("pw-open-7Qz"), "the encrypted copy");
+}
+
+#[test]
+fn malformed_freetext_rect_geometry_is_safely_ignored_and_does_not_crash_page_text() {
+    let mut doc = blank();
+    doc.add_text_box(0, BOX, &spec("Hello"), &font(droid()))
+        .expect("box");
+    let bytes = saved(&mut doc);
+
+    let corrupt_rect = |rect_vals: [f32; 4]| {
+        let raw = MuPdf::from_bytes(&bytes).expect("open");
+        let page = raw.load_pdf_page(0).expect("page");
+        let annotation = page.annotations().next().expect("an annotation");
+        let mut rect = raw.new_array().expect("array");
+        for v in rect_vals {
+            rect.array_push(raw.new_real(v).expect("real"))
+                .expect("push");
+        }
+        annotation.object().dict_put("Rect", rect).expect("put");
+        let mut out = Vec::new();
+        raw.write_to(&mut out).expect("write");
+        out
+    };
+
+    for bad_rect in [
+        [500.0, 500.0, 100.0, 100.0],
+        [100.0, 100.0, 100.0, 200.0],
+        [100.0, 100.0, 200.0, 100.0],
+        [100.0, 500.0, 200.0, 100.0],
+        [500.0, 100.0, 100.0, 200.0],
+    ] {
+        let pdf_bytes = corrupt_rect(bad_rect);
+        let opened = PdfDocument::from_bytes(&pdf_bytes).expect("open");
+        let text = opened
+            .page_text(0, 1_000)
+            .expect("page_text succeeds without crash or NaN");
+        for line in &text.lines {
+            line.validate().expect("text line must be valid");
+        }
+        let search = opened
+            .search_page(0, "hello", false, 10)
+            .expect("search succeeds");
+        for hit in &search.hits {
+            hit.validate().expect("search hit must be valid");
+        }
+    }
 }
