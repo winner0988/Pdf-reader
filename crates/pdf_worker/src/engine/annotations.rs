@@ -460,6 +460,8 @@ fn entry(annotation: &PdfAnnotation, page_rotation: i32) -> Result<Option<PageAn
     if [rect.x0, rect.y0, rect.x1, rect.y1]
         .iter()
         .any(|value| !value.is_finite() || value.abs() > MAX_PAGE_SIDE_PT)
+        || rect.x0 > rect.x1
+        || rect.y0 > rect.y1
     {
         return Ok(None);
     }
