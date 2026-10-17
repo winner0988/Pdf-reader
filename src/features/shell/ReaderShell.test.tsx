@@ -358,6 +358,27 @@ describe("shortcuts", () => {
     expect(screen.getByRole("main")).toHaveFocus();
   });
 
+  it("places the search bar inside the canvas container below banners (#281)", async () => {
+    const { user } = renderShell({
+      kind: "open",
+      document: {
+        ...demoDocument,
+        findings: [{ kind: "javaScript", count: 1 }],
+      },
+    });
+
+    const banner = screen.getByRole("region", { name: strings.banner.label });
+    expect(banner).toBeInTheDocument();
+
+    await user.keyboard("{Control>}f{/Control}");
+    const searchBar = screen.getByRole("search");
+    const main = screen.getByRole("main");
+
+    // The search bar and <main> share a canvas container positioned as a sibling below banners
+    expect(searchBar.parentElement?.parentElement).toBe(main.parentElement);
+    expect(banner.parentElement).not.toBe(main.parentElement);
+  });
+
   it("Enter searches, hits are marked on the pages, F3 steps through them, closing clears the marks", async () => {
     let emit: (event: SearchEvent) => void = () => {};
     const searchApi = {

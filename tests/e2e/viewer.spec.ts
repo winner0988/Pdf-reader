@@ -59,3 +59,34 @@ test("fitted pages leave no horizontal scroll bar at 150% display scaling (#83)"
   await page.getByRole("combobox", { name: strings.toolbar.zoomLevel }).selectOption("400");
   await expect.poll(scrollBarHeight).toBeGreaterThan(0);
 });
+
+test("the search bar stays below the security banner and does not cover its buttons (#281)", async ({ launch }) => {
+  const page = await launch(corpus("malicious/openaction-js.pdf"));
+  const banner = page.getByRole("region", { name: strings.banner.label });
+  await expect(banner).toBeVisible();
+
+  // Open the search bar with Ctrl+F
+  await page.keyboard.press("Control+f");
+  const searchBar = page.getByRole("search");
+  await expect(searchBar).toBeVisible();
+
+  // The search bar is below the banner: its bounding box top is >= banner's bottom
+  const bannerBox = await banner.boundingBox();
+  const searchBox = await searchBar.boundingBox();
+  expect(bannerBox).not.toBeNull();
+  expect(searchBox).not.toBeNull();
+  if (bannerBox && searchBox) {
+    expect(searchBox.y).toBeGreaterThanOrEqual(bannerBox.y + bannerBox.height);
+  }
+
+  // The banner's buttons are clickable without the search bar intercepting pointer events
+  const detailsButton = banner.getByRole("button", { name: strings.banner.details });
+  await detailsButton.click();
+  const detailsPanel = page.getByRole("complementary", { name: strings.banner.detailsTitle });
+  await expect(detailsPanel).toBeVisible();
+
+  // Closing the details panel also works
+  const closeButton = detailsPanel.getByRole("button", { name: strings.banner.detailsClose });
+  await closeButton.click();
+  await expect(detailsPanel).toBeHidden();
+});
