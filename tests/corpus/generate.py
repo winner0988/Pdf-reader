@@ -1540,6 +1540,53 @@ def benign_photo_exif() -> bytes:
     return doc.build()
 
 
+REDACTION_SECRET = "SECRET-ALPHA-123"
+
+
+def benign_redaction_sample() -> bytes:
+    """A page with secret text, note, field, link, bookmark and title for redaction testing (B2-22)."""
+    doc = Document("redaction-sample")
+    doc.reserve_pages(1)
+    note = doc.pdf.add(
+        f"<< /Type /Annot /Subtype /Text /Rect [100 645 120 665] /Contents ({REDACTION_SECRET} in a note) "
+        f"/Name /Note /F 4 /P {doc.page_nums[0]} 0 R >>"
+    )
+    widget = doc.pdf.add(
+        f"<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /V ({REDACTION_SECRET} in a field) "
+        f"/Rect [200 640 320 670] /F 4 /P {doc.page_nums[0]} 0 R /DA (/F1 12 Tf 0 g) >>"
+    )
+    link_annot = doc.pdf.add(
+        f"<< /Type /Annot /Subtype /Link /Rect [70 640 200 670] "
+        f"/A << /S /URI /URI (https://secret-alpha-123.example/) >> /F 4 >>"
+    )
+    image = doc.pdf.add_stream(
+        "/Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceGray /BitsPerComponent 8",
+        b"@" * 16,
+    )
+    outline_root = doc.pdf.reserve()
+    item = doc.pdf.add(
+        f"<< /Title ({REDACTION_SECRET} bookmark) /Parent {outline_root} 0 R /Dest [{doc.page_nums[0]} 0 R /Fit] >>"
+    )
+    doc.pdf.set(outline_root, f"<< /Type /Outlines /First {item} 0 R /Last {item} 0 R /Count 1 >>")
+    doc.catalog_extra = f" /Outlines {outline_root} 0 R /AcroForm << /Fields [{widget} 0 R] /DA (/F1 0 Tf 0 g) >>"
+    info = doc.pdf.add(f"<< /Title ({REDACTION_SECRET} title) /Author (Jane Public) >>")
+
+    extra_content = (
+        f"BT /F1 18 Tf 72 700 Td (Public line one) Tj ET\n"
+        f"BT /F1 18 Tf 72 650 Td ({REDACTION_SECRET} inside) Tj ET\n"
+        f"BT /F1 18 Tf 72 600 Td (Public line two) Tj ET\n"
+        f"q 120 0 0 120 250 560 cm /Im1 Do Q\n"
+        f"0.1 0.3 0.9 rg 280 630 60 30 re f\n"
+    ).encode("latin-1")
+
+    doc.set_page(0, Page(
+        extra_content=extra_content,
+        annots=[note, widget, link_annot],
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    ))
+    return doc.build(info=info)
+
+
 @dataclass
 class Sample:
     path: str
@@ -1635,6 +1682,12 @@ SAMPLES = [
            "Certification signature with DocMDP P=1 (no changes allowed), same test certificate.",
            "Opens; the app must never write to it: a document identifier would break the certification "
            "(ADR 0010).", 1, text=[CERTIFIED_TEXT]),
+    Sample("benign/redaction-sample.pdf", benign_redaction_sample,
+           f"A page with '{REDACTION_SECRET}' in visible text, a sticky note, a text field, a link, a bookmark and the "
+           "document title; an image and a vector rectangle reach into the area (ADR 0016, B2-22).",
+           "Opens; 1 page; redacting the secret removes the line, note, field and link without the secret string remaining; "
+           "the bookmark and title stay outside the redaction area.", 1,
+           text=["Public line one", f"{REDACTION_SECRET} inside", "Public line two"]),
     # malicious
     Sample("malicious/js-document-level.pdf", malicious_js_document, "Document-level JavaScript in the names tree.",
            "No script runs; finding reported.", 1, ["javaScript"]),

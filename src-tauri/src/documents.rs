@@ -4661,6 +4661,44 @@ mod with_worker {
         assert!(pages_after(&elsewhere, 1, DocumentPermissions::ALL, &|_| None).is_err());
     }
 
+    #[test]
+    fn redaction_is_refused_for_restricted_corpus_document() {
+        let documents = Documents::new(worker());
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/encrypted-rc4-40.pdf");
+        let (_, info) = unlocked(&documents, &path);
+        assert!(!info.permissions.modify);
+        let area = Rect {
+            x0: 10.0,
+            y0: 10.0,
+            x1: 50.0,
+            y1: 50.0,
+        };
+        assert_eq!(
+            documents
+                .apply_edit(&EditArgs {
+                    doc: info.doc,
+                    edit: Edit::AddRedaction {
+                        page: 0,
+                        rect: area
+                    },
+                })
+                .unwrap_err()
+                .message,
+            not_allowed().message
+        );
+        assert_eq!(
+            documents
+                .apply_edit(&EditArgs {
+                    doc: info.doc,
+                    edit: Edit::ApplyRedactions,
+                })
+                .unwrap_err()
+                .message,
+            not_allowed().message
+        );
+    }
+
     /// What writing the sensitive mark into the file of `doc` would do (B3-05).
     fn sensitive_check_of(documents: &Documents, doc: DocumentId) -> MarkCheck {
         documents.mark_check(doc).unwrap()
