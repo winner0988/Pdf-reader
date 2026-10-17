@@ -1197,3 +1197,48 @@ fn the_copies_a_document_makes_carry_its_text_boxes_with_their_font_and_colour()
     .expect("encrypted copy");
     carries(&encrypted, Some("pw-open-7Qz"), "the encrypted copy");
 }
+
+#[test]
+fn malformed_or_inverted_rect_in_freetext_does_not_produce_nan_and_validates() {
+    use ipc_contract::validate::Validate;
+
+    let mut doc = blank();
+    doc.add_text_box(0, BOX, &spec("Hello World"), &font(droid()))
+        .expect("box");
+    let bytes = saved(&mut doc);
+
+    for bad_rect_str in [
+        "[500 500 100 100]",
+        "[100 500 500 100]",
+        "[500 100 100 500]",
+        "[0 0 0 0]",
+        "[-100 -100 -500 -500]",
+    ] {
+        let tampered = {
+            let raw = MuPdf::from_bytes(&bytes).expect("open");
+            let page = raw.load_pdf_page(0).expect("page");
+            let annotation = page.annotations().next().expect("an annotation");
+            let mut obj = annotation.object();
+            let rect_obj = raw.new_object_from_str(bad_rect_str).expect("rect obj");
+            obj.dict_put("Rect", rect_obj).expect("dict_put");
+            let mut out = Vec::new();
+            raw.write_to(&mut out).expect("write");
+            out
+        };
+
+        let app = PdfDocument::from_bytes(&tampered).expect("open");
+
+        let text = app.page_text(0, 1_000).expect("page_text");
+        text.validate().expect("page_text must pass IPC validate");
+
+        let search = app.search_page(0, "Hello", false, 10).expect("search");
+        for hit in &search.hits {
+            hit.validate().expect("hit must pass IPC validate");
+        }
+
+        let annots = app.page_annotations(0).expect("annotations");
+        for annot in &annots {
+            annot.validate().expect("annotation must pass IPC validate");
+        }
+    }
+}

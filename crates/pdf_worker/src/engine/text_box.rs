@@ -16,7 +16,7 @@ mod font;
 mod layout;
 mod pdf;
 
-use ipc_contract::limits::MIN_ANNOTATION_SIDE_PT;
+use ipc_contract::limits::{MAX_PAGE_SIDE_PT, MIN_ANNOTATION_SIDE_PT};
 use ipc_contract::types::{
     AnnotationId, FontRefusal, Point, Quad, Rect, Rgb, TextAlign, TextBoxStyle,
 };
@@ -286,6 +286,15 @@ impl PdfDocument {
     fn text_box_rect(&self, index: u32, id: AnnotationId) -> Result<Rect, EngineError> {
         let page = self.pdf_page(index)?;
         let bounds = find(&page, id)?.bounds()?;
+        if !bounds.x0.is_finite()
+            || !bounds.y0.is_finite()
+            || !bounds.x1.is_finite()
+            || !bounds.y1.is_finite()
+            || bounds.x1 <= bounds.x0
+            || bounds.y1 <= bounds.y0
+        {
+            return Err(EngineError::InvalidEdit("the rectangle of a text box"));
+        }
         Ok(Rect {
             x0: bounds.x0,
             y0: bounds.y0,
@@ -303,6 +312,12 @@ impl PdfDocument {
         id: AnnotationId,
         rect: Rect,
     ) -> Result<(), EngineError> {
+        if !finite(rect)
+            || rect.x1 - rect.x0 < MIN_ANNOTATION_SIDE_PT
+            || rect.y1 - rect.y0 < MIN_ANNOTATION_SIDE_PT
+        {
+            return Err(EngineError::InvalidEdit("the rectangle of a text box"));
+        }
         let (model, style, _) = self.text_box(index, id)?;
         let old = self.text_box_rect(index, id)?;
         if !same_length(old.x1 - old.x0, rect.x1 - rect.x0)
@@ -310,9 +325,6 @@ impl PdfDocument {
         {
             self.replace_text_box(index, id, rect, &model, &style)?;
             return Ok(());
-        }
-        if !finite(rect) {
-            return Err(EngineError::InvalidEdit("the rectangle of a text box"));
         }
         let (_, inverse) = self.page_to_pdf(index)?;
         let at = binding_rect(rect).transform(&inverse);
@@ -382,6 +394,19 @@ impl PdfDocument {
             let Ok(bounds) = annotation.bounds() else {
                 continue;
             };
+            if !bounds.x0.is_finite()
+                || !bounds.y0.is_finite()
+                || !bounds.x1.is_finite()
+                || !bounds.y1.is_finite()
+                || bounds.x1 <= bounds.x0
+                || bounds.y1 <= bounds.y0
+                || bounds.x0.abs() > MAX_PAGE_SIDE_PT
+                || bounds.y0.abs() > MAX_PAGE_SIDE_PT
+                || bounds.x1.abs() > MAX_PAGE_SIDE_PT
+                || bounds.y1.abs() > MAX_PAGE_SIDE_PT
+            {
+                continue;
+            }
             let Ok(Some(entry)) = annotation.object().get_dict(pdf::KEY) else {
                 continue;
             };
@@ -404,18 +429,29 @@ impl PdfDocument {
                 let mut line = Vec::with_capacity(glyphs.len());
                 for glyph in glyphs {
                     let right = left + glyph.advance * style.size;
-                    line.push((
-                        glyph.ch,
-                        Quad {
-                            ul: at(left, baseline + above),
-                            ur: at(right, baseline + above),
-                            ll: at(left, baseline + below),
-                            lr: at(right, baseline + below),
-                        },
-                    ));
+                    let quad = Quad {
+                        ul: at(left, baseline + above),
+                        ur: at(right, baseline + above),
+                        ll: at(left, baseline + below),
+                        lr: at(right, baseline + below),
+                    };
+                    if !quad.ul.x.is_finite()
+                        || !quad.ul.y.is_finite()
+                        || !quad.ur.x.is_finite()
+                        || !quad.ur.y.is_finite()
+                        || !quad.ll.x.is_finite()
+                        || !quad.ll.y.is_finite()
+                        || !quad.lr.x.is_finite()
+                        || !quad.lr.y.is_finite()
+                    {
+                        continue;
+                    }
+                    line.push((glyph.ch, quad));
                     left = right;
                 }
-                lines.push(line);
+                if !line.is_empty() {
+                    lines.push(line);
+                }
             }
         }
         lines

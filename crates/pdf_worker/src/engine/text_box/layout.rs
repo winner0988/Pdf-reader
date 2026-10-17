@@ -149,6 +149,9 @@ pub(super) fn lay_out(
     style: &TextBoxStyle,
     (width, height): (f32, f32),
 ) -> Option<Laid> {
+    if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+        return None;
+    }
     let glyphs = glyphs(model)?;
     let wrapped = wrap(&glyphs, style.size, width - 2.0 * PADDING);
     let ascent = (model.ascent as f32 / 1000.0).max(0.8) * style.size;
@@ -167,6 +170,9 @@ pub(super) fn lay_out(
             TextAlign::Center => (width - used) / 2.0,
             TextAlign::Right => width - PADDING - used,
         };
+        if !x.is_finite() || !y.is_finite() {
+            return None;
+        }
         let hex: String = line
             .iter()
             .map(|glyph| format!("{:04X}", glyph.cid))
@@ -274,6 +280,69 @@ mod tests {
             'a', 'Z', '7', ' ', 'é', 'Ω', 'Ж', '你', '體', 'か', 'カ', '한', '。', '€', '¥',
         ] {
             assert!(!needs_layout(fine), "{fine:?}");
+        }
+    }
+
+    #[test]
+    fn lay_out_rejects_non_finite_and_non_positive_dimensions() {
+        use ipc_contract::types::Rgb;
+        use ipc_contract::worker::ModelGlyph;
+
+        let model = TextBoxModel {
+            text: "Hello".to_string(),
+            font: "Test".to_string(),
+            face: 0,
+            view_only: false,
+            base: "ABCDEF+Test".to_string(),
+            ascent: 800,
+            descent: -200,
+            cap_height: 700,
+            step: 1000,
+            bbox: [0, -200, 1000, 800],
+            glyphs: vec![
+                ModelGlyph {
+                    ch: 'H',
+                    cid: 1,
+                    advance: 600,
+                },
+                ModelGlyph {
+                    ch: 'e',
+                    cid: 2,
+                    advance: 500,
+                },
+                ModelGlyph {
+                    ch: 'l',
+                    cid: 3,
+                    advance: 300,
+                },
+                ModelGlyph {
+                    ch: 'o',
+                    cid: 4,
+                    advance: 500,
+                },
+            ],
+            subset: vec![1, 2, 3, 4],
+        };
+        let style = TextBoxStyle {
+            size: 12.0,
+            color: Rgb { r: 0, g: 0, b: 0 },
+            align: TextAlign::Left,
+        };
+
+        for (w, h) in [
+            (f32::NAN, 100.0),
+            (100.0, f32::NAN),
+            (-50.0, 100.0),
+            (100.0, -20.0),
+            (0.0, 100.0),
+            (100.0, 0.0),
+            (f32::INFINITY, 100.0),
+            (100.0, f32::NEG_INFINITY),
+        ] {
+            assert!(
+                lay_out(&model, &style, (w, h)).is_none(),
+                "should reject ({w}, {h})"
+            );
         }
     }
 }
