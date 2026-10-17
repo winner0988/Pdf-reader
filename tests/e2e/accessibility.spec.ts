@@ -133,6 +133,28 @@ test("a document with something active in it: the banner and its details", async
   await inBothThemes(page, (theme) => noProblems(page, theme));
 });
 
+test("the search bar does not cover the banner's buttons (#281)", async ({ launch }) => {
+  const page = await launch(corpus("malicious/openaction-js.pdf"));
+  const banner = page.getByRole("region", { name: strings.banner.label });
+  await expect(banner).toBeVisible();
+
+  await page.keyboard.press("Control+f");
+  const searchBar = page.getByRole("search", { name: strings.search.label });
+  await expect(searchBar).toBeVisible();
+
+  const detailsBtn = page.getByRole("button", { name: strings.banner.details });
+  await expect(detailsBtn).toBeVisible();
+
+  const btnBox = await detailsBtn.boundingBox();
+  const searchBox = await searchBar.boundingBox();
+  expect(btnBox).not.toBeNull();
+  expect(searchBox).not.toBeNull();
+  expect(searchBox!.y).toBeGreaterThanOrEqual(btnBox!.y + btnBox!.height);
+
+  await detailsBtn.click();
+  await expect(page.getByText(strings.banner.detailsNote)).toBeVisible();
+});
+
 test("a signed document: the signature banner and its panel", async ({ launch }) => {
   const page = await launch(corpus("benign/signed.pdf"));
   await expect(page.getByRole("region", { name: strings.signatures.label })).toBeVisible();
