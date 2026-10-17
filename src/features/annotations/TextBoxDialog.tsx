@@ -179,11 +179,14 @@ export function TextBoxDialog({ mode, fonts, start, lastFamily, onSave, onCancel
                   className="h-8 min-w-48 flex-1 rounded-md border bg-background px-2"
                 >
                   {start && !own && <option value="">{t.fontMissing(start.font)}</option>}
-                  {all.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
+                  {all.map((name) => {
+                    const isImported = fonts.some((f) => f.family === name && f.source === "imported");
+                    return (
+                      <option key={name} value={name}>
+                        {name}{isImported ? ` ${t.importedBadge}` : ""}
+                      </option>
+                    );
+                  })}
                 </select>
                 <Button
                   type="button"

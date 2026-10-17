@@ -18,6 +18,7 @@
 | `settings.json` | 外觀、是否記錄最近開啟的檔案、掃描頁的文字辨識（自動或手動、語言） | 主行程 | 本頁「設定」 |
 | `sensitive.json` | 在這台電腦上標記為機敏的檔案：文件識別碼與**檔名**（沒有路徑），最多 1,000 筆。標記本身寫在每個檔案裡，這份清單只給設定頁顯示 | 主行程 | [sensitive-files.md](sensitive-files.md) |
 | `tessdata\` | 使用者匯入的 OCR 語言資料（`<代碼>.traineddata`，每個最多 64 MiB，最多 20 個）。內附的 `eng`、`chi_tra` 不在這裡，在安裝資料夾的 `tessdata\` | 主行程 | [ocr.md](ocr.md) |
+| `fonts\` | 使用者匯入的自訂字型檔（`<雜湊值>.ttf` 或 `.ttc`，每個最多 64 MiB，最多 50 個）與其名稱索引 `metadata.json` | 主行程 | [text-boxes.md](text-boxes.md) |
 | `recovery\` | 崩潰復原日誌：有未儲存變更的文件，每份一個，含檔案的**完整路徑**、大小與修改時間，以及還沒存檔的編輯。正常存檔、不儲存或關閉時刪除，只有 app 沒有正常結束時才會留下 | 主行程 | [crash-recovery.md](crash-recovery.md) |
 | `EBWebView\` | 畫面元件（WebView2）的暫存資料 | WebView2 | 本頁「WebView2」 |
 

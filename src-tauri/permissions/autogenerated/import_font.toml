@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-import-font"
+description = "Enables the import_font command without any pre-configured scope."
+commands.allow = ["import_font"]
+
+[[permission]]
+identifier = "deny-import-font"
+description = "Denies the import_font command without any pre-configured scope."
+commands.deny = ["import_font"]

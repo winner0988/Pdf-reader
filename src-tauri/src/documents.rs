@@ -29,8 +29,8 @@ use ipc_contract::types::{
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
-    FontData, OcrFinished, OcrPageState, PasswordKey, UnknownFile, WorkerEdit, WorkerErrorCode,
-    WorkerRequest, WorkerResponse,
+    FontData, InspectedFont, OcrFinished, OcrPageState, PasswordKey, UnknownFile, WorkerEdit,
+    WorkerErrorCode, WorkerRequest, WorkerResponse,
 };
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
@@ -1316,6 +1316,22 @@ impl Documents {
         temporary.check(bytes)?;
         temporary.replace(destination)?;
         Ok(CreateResult { pages, kind })
+    }
+
+    /// Checks the bytes of a font file to be imported (B2-32, ADR 0018).
+    pub fn inspect_font(&self, bytes: &[u8]) -> Result<Vec<InspectedFont>, IpcError> {
+        let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
+        let response = host
+            .inspect_font(bytes)
+            .map_err(|error| ipc_error(&error))?;
+        let WorkerResponse::FontInspected { faces, .. } = response else {
+            return Err(unexpected("InspectFont"));
+        };
+        faces
+            .iter()
+            .try_for_each(|face| face.validate())
+            .map_err(|_| unexpected("InspectFont"))?;
+        Ok(faces)
     }
 
     /// Whether `path` is the file of the open document `doc` (the privacy export may not write
@@ -3322,6 +3338,7 @@ mod with_worker {
     fn open_in(documents: &Documents, path: &Path) -> DocumentInfo {
         let opened = std::cell::RefCell::new(None);
         let report = |event: OpenEvent| {
+            eprintln!("EVENT: {event:?}");
             if let OpenEvent::Opened { info, .. } = event {
                 *opened.borrow_mut() = Some(info);
             }

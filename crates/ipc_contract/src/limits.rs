@@ -239,6 +239,9 @@ pub const MAX_FONT_NAME_BYTES: usize = 128;
 /// Most fonts the list holds (B2-27). A Windows with many families has a few hundred.
 pub const MAX_FONTS: usize = 4_096;
 
+/// Most fonts the user may import (B2-32, ADR 0018): each is up to `MAX_FONT_BYTES` in the app's data folder.
+pub const MAX_IMPORTED_FONTS: usize = 50;
+
 /// Longest name of a language for recognising text, such as `eng` or `chi_tra` (B2-10).
 pub const MAX_LANGUAGE_NAME_BYTES: usize = 32;
 

@@ -295,7 +295,7 @@ export type FontId = number;
 /**
  * Where a font comes from.
  */
-export type FontSource = "installed";
+export type FontSource = "installed" | "imported";
 
 /**
  * One font of the list `get_fonts` gives.
@@ -309,6 +309,21 @@ name: string,
  * The name without `Bold`, `Italic` and the like: the faces of one family share it.
  */
 family: string, bold: boolean, italic: boolean, source: FontSource, };
+
+/**
+ * Why importing a font was refused (B2-32, ADR 0018).
+ */
+export type FontImportRefusal = "unreadable" | "tooLarge" | "badExtension" | "tooMany" | "notAFont" | "notTrueType" | "variable" | "colour" | "notEmbeddable";
+
+/**
+ * What `import_font` came to (B2-32).
+ */
+export type FontImport = { "kind": "imported", fonts: Array<FontInfo>, } | { "kind": "cancelled" } | { "kind": "refused", reason: FontImportRefusal, };
+
+/**
+ * Arguments of `remove_font` (B2-32).
+ */
+export type RemoveFontArgs = { id: FontId, };
 
 /**
  * Why importing a language was refused (B2-10).
@@ -1117,6 +1132,7 @@ export const LIMITS = {
   maxFieldOptions: 1000,
   maxLanguageDataBytes: 67108864,
   maxImportedLanguages: 20,
+  maxImportedFonts: 50,
   protocolVersion: 0,
 } as const;
 

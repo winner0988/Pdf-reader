@@ -44,6 +44,16 @@ impl std::fmt::Debug for FontData {
     }
 }
 
+/// One face of a font file the worker inspected (B2-32, ADR 0018).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InspectedFont {
+    pub face: u32,
+    pub name: String,
+    pub family: String,
+    pub bold: bool,
+    pub italic: bool,
+}
+
 /// One character of the words of a text box: the glyph the font has for it, numbered in the
 /// subset, and how far it moves the pen (B2-28).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -714,6 +724,13 @@ pub enum WorkerRequest {
         file: FileHandle,
         password: Option<Password>,
     },
+    /// Checks the bytes of a font file the user wants to import (B2-32, ADR 0018): TrueType
+    /// outlines (`glyf`/`loca`), charmap, licence (OS/2 `fsType`) and names. Answered by
+    /// `FontInspected`, or by `WorkerError` with `Font` if the font cannot be used.
+    InspectFont {
+        request: RequestId,
+        bytes: Vec<u8>,
+    },
     /// Best effort: the worker drops the target request if it has not finished yet.
     Cancel {
         target: RequestId,
@@ -782,6 +799,11 @@ pub enum WorkerResponse {
     TextBoxPrepared {
         request: RequestId,
         model: TextBoxModel,
+    },
+    /// The faces of `InspectFont`: their family, style and face index.
+    FontInspected {
+        request: RequestId,
+        faces: Vec<InspectedFont>,
     },
     /// The picture of `PrepareStampImage`: a PNG file of `width` x `height` pixels.
     StampImage {

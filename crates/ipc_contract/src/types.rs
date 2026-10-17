@@ -1776,6 +1776,8 @@ pub struct FontId(pub u32);
 pub enum FontSource {
     /// Windows has it installed, for everyone or for this user (ADR 0018, the first version).
     Installed,
+    /// The user imported the font file into the app (ADR 0018, the second stage).
+    Imported,
 }
 
 /// One font of the list `get_fonts` gives.
@@ -1790,6 +1792,64 @@ pub struct FontInfo {
     pub bold: bool,
     pub italic: bool,
     pub source: FontSource,
+}
+
+/// Why importing a font was refused (B2-32, ADR 0018).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum FontImportRefusal {
+    /// The file could not be read.
+    Unreadable,
+    /// It is larger than `LIMITS.maxFontBytes`.
+    TooLarge,
+    /// Not a `.ttf` or `.ttc` extension.
+    BadExtension,
+    /// `LIMITS.maxImportedFonts` fonts are imported already.
+    TooMany,
+    /// The bytes are not a TrueType font or collection.
+    NotAFont,
+    /// OpenType with CFF outlines or not TrueType outlines.
+    NotTrueType,
+    /// A variable font.
+    Variable,
+    /// A colour font (colour layers, bitmaps or SVG).
+    Colour,
+    /// Its licence (OS/2 `fsType`) forbids embedding.
+    NotEmbeddable,
+}
+
+impl From<FontRefusal> for FontImportRefusal {
+    fn from(refusal: FontRefusal) -> Self {
+        match refusal {
+            FontRefusal::NotAFont | FontRefusal::MissingGlyphs => FontImportRefusal::NotAFont,
+            FontRefusal::NotTrueType => FontImportRefusal::NotTrueType,
+            FontRefusal::Variable => FontImportRefusal::Variable,
+            FontRefusal::Colour => FontImportRefusal::Colour,
+            FontRefusal::NotEmbeddable => FontImportRefusal::NotEmbeddable,
+        }
+    }
+}
+
+/// What `import_font` came to (B2-32).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum FontImport {
+    /// The font is imported; these are all there are now.
+    Imported {
+        fonts: Vec<FontInfo>,
+    },
+    /// The user closed the dialog.
+    Cancelled,
+    Refused {
+        reason: FontImportRefusal,
+    },
+}
+
+/// Arguments of `remove_font` (B2-32).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RemoveFontArgs {
+    pub id: FontId,
 }
 
 #[cfg(test)]

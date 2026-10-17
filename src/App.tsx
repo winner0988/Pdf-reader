@@ -22,6 +22,7 @@ import { tauriSensitiveApi, type SensitiveApi } from "@/features/sensitive/api";
 import { UnsavedDialog } from "@/features/saving/UnsavedDialog";
 import { tauriSettingsApi, type SettingsApi } from "@/features/settings/api";
 import { SettingsProvider } from "@/features/settings/SettingsProvider";
+import { tauriFontsApi, type FontsApi } from "@/features/settings/fontsApi";
 import type { PasswordsApi } from "@/features/settings/PasswordsSection";
 import { tauriUpdatesApi, type UpdatesApi } from "@/features/settings/updates";
 import { DevDemoSwitcher } from "@/features/shell/DevDemoSwitcher";
@@ -57,6 +58,7 @@ type AppProps = {
   sensitiveApi?: SensitiveApi;
   editingApi?: EditingApi;
   updatesApi?: UpdatesApi;
+  fontsApi?: FontsApi;
   ocrApi?: OcrApi;
 };
 
@@ -80,6 +82,7 @@ export default function App({
   sensitiveApi = tauriSensitiveApi,
   editingApi = tauriEditingApi,
   updatesApi = tauriUpdatesApi,
+  fontsApi = tauriFontsApi,
   ocrApi = tauriOcrApi,
 }: AppProps) {
   // How recognising the text of each tab's scanned pages goes arrives with the open events (B2-10).
@@ -196,6 +199,7 @@ export default function App({
                   sensitiveApi={sensitiveApi}
                   editingApi={editingApi}
                   updatesApi={updatesApi}
+                  fontsApi={fontsApi}
                   ocrApi={ocrApi}
                   passwordsApi={api}
                   ocr={ocr.state.get(tab.tab)}
@@ -263,6 +267,7 @@ type TabPaneProps = {
   sensitiveApi: SensitiveApi;
   editingApi: EditingApi;
   updatesApi: UpdatesApi;
+  fontsApi: FontsApi;
   ocrApi: OcrApi;
   passwordsApi: PasswordsApi;
   ocr: OcrTab | undefined;
