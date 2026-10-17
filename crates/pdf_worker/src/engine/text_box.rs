@@ -16,7 +16,7 @@ mod font;
 mod layout;
 mod pdf;
 
-use ipc_contract::limits::MIN_ANNOTATION_SIDE_PT;
+use ipc_contract::limits::{MAX_PAGE_SIDE_PT, MIN_ANNOTATION_SIDE_PT};
 use ipc_contract::types::{
     AnnotationId, FontRefusal, Point, Quad, Rect, Rgb, TextAlign, TextBoxStyle,
 };
@@ -118,6 +118,20 @@ fn finite(rect: Rect) -> bool {
     [rect.x0, rect.y0, rect.x1, rect.y1]
         .iter()
         .all(|edge| edge.is_finite())
+}
+
+/// Whether `bounds` is finite, upright, and within page coordinate limits.
+fn valid_bounds(bounds: &mupdf::Rect) -> bool {
+    bounds.x0.is_finite()
+        && bounds.y0.is_finite()
+        && bounds.x1.is_finite()
+        && bounds.y1.is_finite()
+        && bounds.x1 > bounds.x0
+        && bounds.y1 > bounds.y0
+        && bounds.x0.abs() <= MAX_PAGE_SIDE_PT
+        && bounds.y0.abs() <= MAX_PAGE_SIDE_PT
+        && bounds.x1.abs() <= MAX_PAGE_SIDE_PT
+        && bounds.y1.abs() <= MAX_PAGE_SIDE_PT
 }
 
 /// Most text boxes of a page whose words go into its text layer.
@@ -286,6 +300,9 @@ impl PdfDocument {
     fn text_box_rect(&self, index: u32, id: AnnotationId) -> Result<Rect, EngineError> {
         let page = self.pdf_page(index)?;
         let bounds = find(&page, id)?.bounds()?;
+        if !valid_bounds(&bounds) {
+            return Err(EngineError::InvalidEdit("the rectangle of a text box"));
+        }
         Ok(Rect {
             x0: bounds.x0,
             y0: bounds.y0,
@@ -382,6 +399,9 @@ impl PdfDocument {
             let Ok(bounds) = annotation.bounds() else {
                 continue;
             };
+            if !valid_bounds(&bounds) {
+                continue;
+            }
             let Ok(Some(entry)) = annotation.object().get_dict(pdf::KEY) else {
                 continue;
             };
@@ -404,18 +424,21 @@ impl PdfDocument {
                 let mut line = Vec::with_capacity(glyphs.len());
                 for glyph in glyphs {
                     let right = left + glyph.advance * style.size;
-                    line.push((
-                        glyph.ch,
-                        Quad {
-                            ul: at(left, baseline + above),
-                            ur: at(right, baseline + above),
-                            ll: at(left, baseline + below),
-                            lr: at(right, baseline + below),
-                        },
-                    ));
+                    let quad = Quad {
+                        ul: at(left, baseline + above),
+                        ur: at(right, baseline + above),
+                        ll: at(left, baseline + below),
+                        lr: at(right, baseline + below),
+                    };
+                    if quad.validate().is_err() {
+                        continue;
+                    }
+                    line.push((glyph.ch, quad));
                     left = right;
                 }
-                lines.push(line);
+                if !line.is_empty() {
+                    lines.push(line);
+                }
             }
         }
         lines
