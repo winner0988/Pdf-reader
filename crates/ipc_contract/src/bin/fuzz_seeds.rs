@@ -11,10 +11,10 @@ use ipc_contract::types::{
     DocumentPermissions, FieldId, FieldKind, FieldOption, FindingKind, FontRefusal, FormField,
     HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, LinkTarget,
     OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
-    PictureView, Point, Quad, Rect, RedactionSummary, RequestId, Restrictions, Rgb, Rotation,
-    SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport, SignatureStatus,
-    StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason, Watermark,
-    WatermarkContent, WatermarkPages, WatermarkPlace,
+    PictureView, Point, Quad, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb,
+    Rotation, SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport,
+    SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason,
+    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, ModelGlyph, OcrFinished, OcrOutcome, OcrPageState,
@@ -403,6 +403,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             bytes: 4096,
             incremental: true,
+            redaction: None,
+        },
+        WorkerResponse::Saved {
+            request,
+            bytes: 8192,
+            incremental: false,
+            redaction: Some(RedactionCheck { places: 2 }),
         },
         WorkerResponse::Compressed {
             request,

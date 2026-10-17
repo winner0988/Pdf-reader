@@ -12,9 +12,9 @@ use crate::types::{
     AnnotationId, CreateKind, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId,
     FontRefusal, FormField, HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth,
     OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Point, Rect,
-    RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SearchHit, SecurityReport,
-    SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle,
-    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SearchHit,
+    SecurityReport, SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo,
+    TextBoxModelId, TextBoxStyle, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -813,11 +813,14 @@ pub enum WorkerResponse {
         security: SecurityReport,
     },
     /// The document was written: `bytes` long, appended to the original (`incremental`, for a
-    /// signed document) or rewritten.
+    /// signed document) or rewritten. `redaction`: what reading the written bytes again found,
+    /// when redactions were applied since the last save (B2-20); `None` otherwise, and for the
+    /// copies.
     Saved {
         request: RequestId,
         bytes: u64,
         incremental: bool,
+        redaction: Option<RedactionCheck>,
     },
     /// `CompressedCopy` is done: the copy is `bytes` long; with its pictures as they were it
     /// would have been `before` long. `images` pictures were looked at, `changed` of them were

@@ -318,6 +318,11 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 match read_limited(handle::take_file(file), MAX_DOCUMENT_BYTES) {
                     Ok(bytes) => {
                         originals.insert(doc, bytes);
+                        // The file that was checked has taken the document's file's place: what
+                        // the redactions removed is not needed any more (B2-20).
+                        if let Some(document) = documents.get_mut(&doc) {
+                            document.forget_removed();
+                        }
                         WorkerResponse::Rebased { request }
                     }
                     Err(response) => response(request),
@@ -738,11 +743,12 @@ fn save(document: &PdfDocument, request: RequestId, file: FileHandle) -> WorkerR
             "invalid file handle",
         );
     };
-    match document.save(&mut file) {
-        Ok((bytes, incremental)) => WorkerResponse::Saved {
+    match document.save_checked(&mut file) {
+        Ok(written) => WorkerResponse::Saved {
             request,
-            bytes,
-            incremental,
+            bytes: written.bytes,
+            incremental: written.incremental,
+            redaction: written.redaction,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
@@ -770,6 +776,7 @@ fn write_identifier(
             request,
             bytes,
             incremental: true,
+            redaction: None,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
@@ -796,6 +803,7 @@ fn encrypted_copy(
             request,
             bytes,
             incremental: false,
+            redaction: None,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
@@ -831,6 +839,7 @@ fn watermark_copy(
             request,
             bytes,
             incremental: false,
+            redaction: None,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
@@ -882,6 +891,7 @@ fn privacy_copy(
             request,
             bytes,
             incremental: false,
+            redaction: None,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
@@ -907,6 +917,7 @@ fn export_docx(
             request,
             bytes,
             incremental: false,
+            redaction: None,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
@@ -969,6 +980,7 @@ fn save_pages(
             request,
             bytes,
             incremental: false,
+            redaction: None,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }

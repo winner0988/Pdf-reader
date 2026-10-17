@@ -807,6 +807,20 @@ pub struct SaveResult {
     /// Appended to the file instead of rewriting it, to keep its signatures valid: content that
     /// was removed may still be in the file.
     pub incremental: bool,
+    /// What reading the written file again found, when redactions were applied since the
+    /// document was last saved (B2-20, ADR 0016); otherwise `null`.
+    pub redaction: Option<RedactionCheck>,
+}
+
+/// What the document's worker found when it read the file it had just written again, after
+/// redactions were applied (B2-20, ADR 0016). It checks text only: pictures and vector graphics
+/// rest on the options redaction is applied with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RedactionCheck {
+    /// Redacted areas that still have text in the written file, and removed words that the
+    /// file's text still has anywhere: 0 when the redaction holds ("已遮蔽並驗證").
+    pub places: u32,
 }
 
 /// How hard the pictures of a compressed copy are squeezed (B3-01,

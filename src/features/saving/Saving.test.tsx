@@ -13,8 +13,8 @@ const t = strings.saving;
 
 function fakeSavingApi(overrides: Partial<SavingApi> = {}) {
   return {
-    save: vi.fn<SavingApi["save"]>(() => Promise.resolve({ incremental: false })),
-    saveAs: vi.fn<SavingApi["saveAs"]>(() => Promise.resolve({ incremental: false })),
+    save: vi.fn<SavingApi["save"]>(() => Promise.resolve({ incremental: false, redaction: null })),
+    saveAs: vi.fn<SavingApi["saveAs"]>(() => Promise.resolve({ incremental: false, redaction: null })),
     closeWindow: vi.fn<SavingApi["closeWindow"]>(() => Promise.resolve()),
     privacyExport: vi.fn<SavingApi["privacyExport"]>(() => Promise.resolve(true)),
     encryptCopy: vi.fn<SavingApi["encryptCopy"]>(() => Promise.resolve(true)),
@@ -61,11 +61,24 @@ describe("saving (B2-02)", () => {
   });
 
   it("says when a signed document's changes were appended", async () => {
-    const api = fakeSavingApi({ save: vi.fn(() => Promise.resolve({ incremental: true })) });
+    const api = fakeSavingApi({ save: vi.fn(() => Promise.resolve({ incremental: true, redaction: null })) });
     const { user } = renderShell(api, true);
 
     await user.keyboard("{Control>}s{/Control}");
     await waitFor(() => expect(statusText()).toContain(t.savedIncremental));
+  });
+
+  it.each([
+    [0, t.redactionVerified],
+    [2, t.redactionFailed(2)],
+  ])("after redacting, says the file was verified only when reading it again found nothing (%i places, B2-20)", async (places, message) => {
+    const api = fakeSavingApi({
+      save: vi.fn(() => Promise.resolve({ incremental: false, redaction: { places } })),
+    });
+    const { user } = renderShell(api, true);
+    await user.keyboard("{Control>}s{/Control}");
+    await waitFor(() => expect(statusText()).toContain(message));
+    expect(statusText()).not.toContain(t.saved);
   });
 
   it("saves as another file from the menu and Ctrl+Shift+S; a closed dialog changes nothing", async () => {
@@ -82,7 +95,7 @@ describe("saving (B2-02)", () => {
 
     await user.keyboard("{Control>}{Shift>}s{/Shift}{/Control}");
     expect(api.saveAs).toHaveBeenCalledTimes(2);
-    await act(() => answer({ incremental: false }));
+    await act(() => answer({ incremental: false, redaction: null }));
     expect(statusText()).toContain(t.saved);
   });
 
