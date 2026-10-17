@@ -128,6 +128,27 @@ describe("a batch (B3-04)", () => {
     expect(within(dialog).getByLabelText(e.openPassword)).toHaveValue("");
   });
 
+  it("takes the EXIF out of the pictures, and says what that is and is not", async () => {
+    const { api, state } = fakeBatchApi();
+    const { user } = renderShell(api);
+    const dialog = await openDialog(user);
+    expect(dialog).not.toHaveTextContent(t.exifNote);
+    await user.click(within(dialog).getByRole("radio", { name: t.removeExif }));
+    expect(dialog).toHaveTextContent(t.exifNote);
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+    expect(api.run.mock.calls[0]![0]).toEqual({ kind: "removeExif" });
+    act(() => state.onEvent({ kind: "started", files: ["photo.pdf", "signed.pdf", "odd.pdf"] }));
+    act(() => {
+      state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "photo（已清除 EXIF）.pdf" } });
+      state.onEvent({ kind: "file", index: 1, outcome: { kind: "failed", error: "invalidArgument" } });
+      state.onEvent({ kind: "file", index: 2, outcome: { kind: "failed", error: "pictureNotCleaned" } });
+    });
+    const list = within(dialog).getByRole("list", { name: t.filesLabel });
+    expect(list).toHaveTextContent(t.done("photo（已清除 EXIF）.pdf"));
+    expect(list).toHaveTextContent(t.failedFile(t.reasons.invalidArgument!));
+    expect(list).toHaveTextContent(t.failedFile(strings.error.messages.pictureNotCleaned));
+  });
+
   it("stops before the next file when asked", async () => {
     const { api, state } = fakeBatchApi();
     const { user } = renderShell(api);

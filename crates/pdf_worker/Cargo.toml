@@ -26,7 +26,7 @@ mupdf-sys = { version = "=0.8.0", default-features = false }
 mupdf-fonts-droid = "=0.8.0"
 # Read and cut the font of a text box (src/engine/text_box.rs, ADR 0018): both are pure Rust and
 # without unsafe code, which matters, as the font is untrusted input. MIT or Apache-2.0.
-skrifa = "0.42.1"
+skrifa = "0.48.0"
 subsetter = "0.2.6"
 # The key a remembered password is looked up by (src/password_key.rs, ADR 0017). Already in the
 # workspace through the main program.

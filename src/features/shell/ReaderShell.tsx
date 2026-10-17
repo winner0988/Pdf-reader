@@ -514,7 +514,17 @@ export function ReaderShell({
   const doc = document_?.doc;
   const savable = doc !== undefined && savingApi !== undefined;
   const saved = (result: SaveResult | null) => {
-    if (result) showHint(result.incremental ? strings.saving.savedIncremental : strings.saving.saved);
+    if (!result) return;
+    // After redacting (B2-20): only a file read again without what was removed is said to be done.
+    if (result.redaction) {
+      showHint(
+        result.redaction.places === 0
+          ? strings.saving.redactionVerified
+          : strings.saving.redactionFailed(result.redaction.places),
+      );
+    } else {
+      showHint(result.incremental ? strings.saving.savedIncremental : strings.saving.saved);
+    }
   };
   // A value still being typed in a field of the form is part of what is saved (B2-09), and the
   // edit that sent it gave the document a new id: saving looks at the document as it is then.

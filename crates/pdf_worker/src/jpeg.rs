@@ -4,10 +4,18 @@
 //! them out without touching the picture (no new encoding, so no loss), and reads the one thing
 //! of them that changes how the picture is to be shown: which way up it was taken.
 //!
-//! Kept are the segments the picture's colours depend on: the JFIF header (`APP0`), the ICC
-//! profile (`APP2`) and Adobe's marker (`APP14`, which says how the components are to be read).
-//! Everything else that is only information is dropped: the EXIF and XMP of `APP1`, the IPTC and
-//! Photoshop blocks of `APP13`, the other applications' `APPn`, and comments.
+//! Kept are the segments the picture's colours depend on: the JFIF header (`APP0`, without the
+//! thumbnail it may carry), the ICC profile (`APP2`) and Adobe's marker (`APP14`, which says how
+//! the components are to be read). Everything else that is only information is dropped: the EXIF
+//! and XMP of `APP1`, the IPTC and Photoshop blocks of `APP13`, the other applications' `APPn`
+//! and comments, wherever they are (a progressive picture has segments between its scans too),
+//! and whatever follows the end of the picture (a camera's second picture, a phone's video).
+//!
+//! The pictures of a PDF are cleaned the same way (B3-04, [`crate::engine::exif`]).
+
+/// The JFIF header's own part of its segment: the identifier, the version, the units, the two
+/// densities and the size of the thumbnail that may follow.
+const JFIF_HEADER: usize = 14;
 
 /// A JPEG without its metadata, and the way up its EXIF said the picture is.
 #[derive(Debug, PartialEq, Eq)]
@@ -29,6 +37,7 @@ pub fn clean(data: &[u8]) -> Option<Cleaned> {
     let mut at = 2;
     let mut orientation = 1;
     let mut frame = false;
+    let mut scanned = false;
     loop {
         // A marker is 0xFF and its code, possibly after fill bytes of 0xFF.
         if *data.get(at)? != 0xFF {
@@ -40,18 +49,15 @@ pub fn clean(data: &[u8]) -> Option<Cleaned> {
         }
         let code = data[code_at];
         match code {
-            // The start of the scan: it, the scan and whatever follows are the picture.
-            0xDA => {
-                if !frame {
-                    return None;
-                }
-                out.extend_from_slice(&data[code_at - 1..]);
+            // The end of the picture, after its scans: what follows is no part of it.
+            0xD9 if scanned => {
+                out.extend_from_slice(&[0xFF, 0xD9]);
                 return Some(Cleaned {
                     bytes: out,
                     orientation,
                 });
             }
-            // The end, or a marker that has no length and has no business before the scan.
+            // The end before any scan, or a marker that has no length and has no business here.
             0x00 | 0x01 | 0xD0..=0xD9 => return None,
             _ => {}
         }
@@ -72,11 +78,56 @@ pub fn clean(data: &[u8]) -> Option<Cleaned> {
         {
             orientation = found;
         }
-        if keeps(code, payload) {
+        if code == 0xDA {
+            // A scan: its header, then its coded data up to the next marker.
+            if !frame {
+                return None;
+            }
+            let coded_end = coded_data_end(data, end);
+            out.extend_from_slice(&data[code_at - 1..coded_end]);
+            scanned = true;
+            if coded_end == data.len() {
+                // Cut off before its end: the picture is what there is of it.
+                return Some(Cleaned {
+                    bytes: out,
+                    orientation,
+                });
+            }
+            at = coded_end;
+            continue;
+        }
+        if code == 0xE0 && payload.starts_with(b"JFIF\0") && payload.len() >= JFIF_HEADER {
+            // The header without the thumbnail it may carry: a small copy of the picture as it
+            // was taken, which cropping or painting over the picture does not change.
+            out.extend_from_slice(&[0xFF, 0xE0]);
+            out.extend_from_slice(&(JFIF_HEADER as u16 + 2).to_be_bytes());
+            out.extend_from_slice(&payload[..JFIF_HEADER - 2]);
+            out.extend_from_slice(&[0, 0]);
+        } else if keeps(code, payload) {
             out.extend_from_slice(&data[code_at - 1..end]);
         }
         at = end;
     }
+}
+
+/// Where the coded data of a scan that starts at `from` ends: at the first marker that is neither
+/// a stuffed byte (0xFF 0x00) nor a restart (0xFF 0xD0 to 0xD7), before the fill bytes it may
+/// have; at the end of `data` if there is none.
+fn coded_data_end(data: &[u8], from: usize) -> usize {
+    let mut at = from;
+    while let Some(offset) = data[at..].iter().position(|&byte| byte == 0xFF) {
+        let marker = at + offset;
+        let mut code_at = marker + 1;
+        while data.get(code_at) == Some(&0xFF) {
+            code_at += 1;
+        }
+        match data.get(code_at) {
+            None => return data.len(),
+            Some(0x00 | 0xD0..=0xD7) => at = code_at + 1,
+            Some(_) => return marker,
+        }
+    }
+    data.len()
 }
 
 /// Whether the segment with this marker `code` and `payload` stays: all that is not information
@@ -346,5 +397,97 @@ mod tests {
         filled.extend_from_slice(&[0xFF, 0xFF, 0xFF]);
         filled.extend_from_slice(&original[3..]);
         assert!(clean(&filled).is_some());
+    }
+
+    /// Where the scan of `bytes` starts, and where its end marker is.
+    fn scan_and_end(bytes: &[u8]) -> (usize, usize) {
+        let scan = bytes.windows(2).position(|w| w == [0xFF, 0xDA]).unwrap();
+        let end = bytes.windows(2).rposition(|w| w == [0xFF, 0xD9]).unwrap();
+        (scan, end)
+    }
+
+    #[test]
+    fn what_follows_the_end_of_the_picture_goes_and_so_does_a_thumbnail() {
+        let picture = with(&[]);
+        // A JFIF header with a thumbnail of 8 x 1 pixels (24 bytes), and a second picture after
+        // the end of the first, as a camera or a phone appends one.
+        let mut jfif = b"JFIF\0\x01\x02\x01\0\x48\0\x48\x08\x01".to_vec();
+        jfif.extend_from_slice(b"Uncropped thumbnail data");
+        let mut jpeg = with(&[segment(0xE0, &jfif)]);
+        jpeg.extend_from_slice(b"\xFF\xD8 a second picture \xFF\xD9 and a video");
+        let cleaned = clean(&jpeg).expect("a JPEG").bytes;
+        let has = |needle: &[u8]| cleaned.windows(needle.len()).any(|w| w == needle);
+        assert!(!has(b"Uncropped") && !has(b"second picture") && !has(b"video"));
+        // The header stays, with its densities, and says it has no thumbnail.
+        assert!(has(&segment(0xE0, b"JFIF\0\x01\x02\x01\0\x48\0\x48\0\0")));
+        // The picture ends with its end marker, and is the picture it was.
+        assert!(cleaned.ends_with(&[0xFF, 0xD9]));
+        let (scan, _) = scan_and_end(&cleaned);
+        let (original_scan, original_end) = scan_and_end(&picture);
+        assert_eq!(cleaned[scan..], picture[original_scan..original_end + 2]);
+        let (a, b) = (
+            Image::from_bytes(&picture).unwrap().to_pixmap().unwrap(),
+            Image::from_bytes(&cleaned).unwrap().to_pixmap().unwrap(),
+        );
+        assert_eq!(a.samples(), b.samples());
+        // A JFIF header too short to have a thumbnail is kept as it is.
+        let short = segment(0xE0, b"JFIF\0\x01\x02");
+        assert!(
+            clean(&with(std::slice::from_ref(&short)))
+                .unwrap()
+                .bytes
+                .windows(short.len())
+                .any(|w| w == short)
+        );
+    }
+
+    #[test]
+    fn segments_between_scans_go_and_the_scans_stay_as_they_are() {
+        // A progressive picture has segments after its first scan: tables for the next one, and
+        // possibly anything else. A comment and an application's segment are put after the scan
+        // here, with a table that stays.
+        let picture = with(&[]);
+        let (_, end) = scan_and_end(&picture);
+        let table = segment(0xDD, &[0, 0]);
+        let mut jpeg = picture[..end].to_vec();
+        jpeg.extend(segment(0xFE, b"a comment between the scans"));
+        jpeg.extend(table.clone());
+        jpeg.extend(segment(0xE1, b"Exif\0\0 between the scans"));
+        jpeg.extend_from_slice(&picture[end..]);
+        let cleaned = clean(&jpeg).expect("a JPEG").bytes;
+        let mut expected = picture[..end].to_vec();
+        expected.extend(table);
+        expected.extend_from_slice(&[0xFF, 0xD9]);
+        assert_eq!(cleaned, expected);
+    }
+
+    #[test]
+    fn the_coded_data_of_a_scan_runs_to_its_next_marker() {
+        // Stuffed bytes and restarts are part of it; fill bytes belong to the marker after it.
+        let data = [
+            0x12, 0xFF, 0x00, 0x34, 0xFF, 0xD3, 0x56, 0xFF, 0xFF, 0xFE, 0x00, 0x02,
+        ];
+        assert_eq!(coded_data_end(&data, 0), 7);
+        assert_eq!(coded_data_end(&data, 7), 7);
+        // No marker after it, or a 0xFF at the very end: it runs to the end.
+        assert_eq!(coded_data_end(&data[..7], 0), 7);
+        assert_eq!(coded_data_end(&[0x12, 0xFF], 0), 2);
+        assert_eq!(coded_data_end(&[0x12, 0xFF, 0xFF], 0), 3);
+        assert_eq!(coded_data_end(&[], 0), 0);
+    }
+
+    #[test]
+    fn a_picture_cut_off_in_its_scan_is_what_there_is_of_it() {
+        let picture = with(&[segment(0xE1, &exif(true, &[(0x010F, 3)]))]);
+        let (scan, end) = scan_and_end(&picture);
+        let cut = &picture[..scan + (end - scan) / 2];
+        let cleaned = clean(cut).expect("as much as there is").bytes;
+        assert!(!cleaned.windows(4).any(|w| w == b"Exif"));
+        let (clean_scan, _) = scan_and_end(&[cleaned.as_slice(), &[0xFF, 0xD9]].concat());
+        assert_eq!(cleaned[clean_scan..], cut[scan..]);
+        // A marker with no length after the scan, other than the end, is not a JPEG this reads.
+        let mut odd = picture[..end].to_vec();
+        odd.extend_from_slice(&[0xFF, 0x01, 0xFF, 0xD9]);
+        assert_eq!(clean(&odd), None);
     }
 }

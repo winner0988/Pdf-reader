@@ -11,10 +11,10 @@ use ipc_contract::types::{
     DocumentPermissions, FieldId, FieldKind, FieldOption, FindingKind, FontRefusal, FormField,
     HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, LinkTarget,
     OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
-    PictureView, Point, Quad, Rect, RequestId, Restrictions, Rgb, Rotation, SearchHit,
-    SecurityFinding, SecurityReport, SignatureInfo, SignatureReport, SignatureStatus, StampName,
-    TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason, Watermark,
-    WatermarkContent, WatermarkPages, WatermarkPlace,
+    PictureView, Point, Quad, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb,
+    Rotation, SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport,
+    SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason,
+    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, ModelGlyph, OcrFinished, OcrOutcome, OcrPageState,
@@ -136,6 +136,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     })
                     .collect(),
                 truncated: true,
+            },
+        },
+        WorkerResponse::RedactionSummary {
+            request,
+            summary: RedactionSummary {
+                marks: 3,
+                pages: 2,
+                annotations: 1,
+                fields: 1,
             },
         },
         WorkerResponse::Signatures {
@@ -394,6 +403,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             bytes: 4096,
             incremental: true,
+            redaction: None,
+        },
+        WorkerResponse::Saved {
+            request,
+            bytes: 8192,
+            incremental: false,
+            redaction: Some(RedactionCheck { places: 2 }),
         },
         WorkerResponse::Compressed {
             request,
@@ -402,6 +418,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             images: 7,
             changed: 5,
             partial: false,
+        },
+        WorkerResponse::ExifCleaned {
+            request,
+            bytes: 4096,
+            pictures: 3,
+            cleaned: 2,
         },
         WorkerResponse::Created {
             request,
@@ -459,6 +481,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             error: WorkerError {
                 code: WorkerErrorCode::UnsupportedText,
                 detail: "a script that a text box cannot set".to_owned(),
+                password_key: None,
+            },
+        },
+        WorkerResponse::Error {
+            request: Some(request),
+            error: WorkerError {
+                code: WorkerErrorCode::PictureNotCleaned,
+                detail: "a picture's metadata cannot be taken out of it".to_owned(),
                 password_key: None,
             },
         },
@@ -629,6 +659,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             doc,
             edit: WorkerEdit::FlattenForm,
         },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddRedaction {
+                page: 0,
+                rect: Rect {
+                    x0: 60.0,
+                    y0: 120.0,
+                    x1: 330.0,
+                    y1: 150.0,
+                },
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::ApplyRedactions,
+        },
+        WorkerRequest::SummariseRedactions { request, doc },
         WorkerRequest::Edit {
             request,
             doc,
@@ -839,6 +888,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             file: FileHandle(0x1f8),
             quality: ImageQuality::Low,
             max_side: None,
+        },
+        WorkerRequest::ExifCleanCopy {
+            request,
+            doc,
+            file: FileHandle(0x1f8),
         },
         WorkerRequest::WatermarkCopy {
             request,

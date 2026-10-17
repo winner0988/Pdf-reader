@@ -11,10 +11,10 @@ use crate::PROTOCOL_VERSION;
 use crate::types::{
     AnnotationId, CreateKind, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId,
     FontRefusal, FormField, HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth,
-    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Point, Rect, RequestId,
-    Restrictions, Rgb, Rotation, SearchHit, SecurityReport, SignatureReport, SourceId,
-    StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle, Watermark,
-    WatermarkContent, WatermarkPages, WatermarkPlace,
+    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Point, Rect,
+    RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SearchHit,
+    SecurityReport, SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo,
+    TextBoxModelId, TextBoxStyle, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -239,6 +239,10 @@ pub enum WorkerEdit {
     },
     /// As [`Edit::FlattenForm`].
     FlattenForm,
+    /// As [`Edit::AddRedaction`].
+    AddRedaction { page: u32, rect: Rect },
+    /// As [`Edit::ApplyRedactions`].
+    ApplyRedactions,
     /// As [`Edit::AddInk`].
     AddInk {
         page: u32,
@@ -363,6 +367,11 @@ impl WorkerEdit {
                 value: value.clone(),
             },
             Edit::FlattenForm => WorkerEdit::FlattenForm,
+            Edit::AddRedaction { page, rect } => WorkerEdit::AddRedaction {
+                page: *page,
+                rect: *rect,
+            },
+            Edit::ApplyRedactions => WorkerEdit::ApplyRedactions,
             Edit::AddInk {
                 page,
                 strokes,
@@ -475,6 +484,12 @@ pub enum WorkerRequest {
         request: RequestId,
         doc: DocumentId,
     },
+    /// What applying the redaction marks of `doc` would do besides removing what their areas
+    /// reach (B2-19, ADR 0016). Answered by `RedactionSummary`.
+    SummariseRedactions {
+        request: RequestId,
+        doc: DocumentId,
+    },
     /// One page as a PNG file, unturned, for exporting (B2-04).
     RenderPng {
         request: RequestId,
@@ -541,6 +556,17 @@ pub enum WorkerRequest {
         file: FileHandle,
         quality: ImageQuality,
         max_side: Option<u32>,
+    },
+    /// Writes to `file` (as for `Save`) a copy of the document, edits included, whose pictures
+    /// carry nothing but themselves: what a camera or a program wrote into them (EXIF, XMP and
+    /// the rest) is taken out without encoding them again (B3-04, docs/architecture/batch.md).
+    /// The open document is not changed. Answered by `ExifCleaned`, never appended. Refused for
+    /// an encrypted document, for a signed one (its signatures would not hold), and with
+    /// `PictureNotCleaned` when a picture is stored in a way its metadata cannot be taken out of.
+    ExifCleanCopy {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
     },
     /// Writes to `file` (as for `Save`) a copy of the document, edits included, encrypted with
     /// AES-256 (B2-15, docs/architecture/encrypt-copy.md). The open document is not changed.
@@ -737,6 +763,11 @@ pub enum WorkerResponse {
         request: RequestId,
         report: SignatureReport,
     },
+    /// `SummariseRedactions` is answered.
+    RedactionSummary {
+        request: RequestId,
+        summary: RedactionSummary,
+    },
     PageText {
         request: RequestId,
         page_index: u32,
@@ -793,11 +824,14 @@ pub enum WorkerResponse {
         security: SecurityReport,
     },
     /// The document was written: `bytes` long, appended to the original (`incremental`, for a
-    /// signed document) or rewritten.
+    /// signed document) or rewritten. `redaction`: what reading the written bytes again found,
+    /// when redactions were applied since the last save (B2-20); `None` otherwise, and for the
+    /// copies.
     Saved {
         request: RequestId,
         bytes: u64,
         incremental: bool,
+        redaction: Option<RedactionCheck>,
     },
     /// `CompressedCopy` is done: the copy is `bytes` long; with its pictures as they were it
     /// would have been `before` long. `images` pictures were looked at, `changed` of them were
@@ -809,6 +843,14 @@ pub enum WorkerResponse {
         images: u32,
         changed: u32,
         partial: bool,
+    },
+    /// `ExifCleanCopy` is done: the copy is `bytes` long; `pictures` pictures (and other JPEG
+    /// streams) were looked at, and `cleaned` of them had something taken out.
+    ExifCleaned {
+        request: RequestId,
+        bytes: u64,
+        pictures: u32,
+        cleaned: u32,
     },
     /// `CreatePdf` is done: the PDF is `bytes` long and has `pages` pages.
     Created {
@@ -977,6 +1019,8 @@ pub enum WorkerErrorCode {
     Font(FontRefusal),
     /// A text box cannot be set in the text: it needs a script the worker does not set (B2-28).
     UnsupportedText,
+    /// A picture is stored in a way its metadata cannot be taken out of (B3-04).
+    PictureNotCleaned,
     Internal,
 }
 
@@ -1007,6 +1051,7 @@ impl From<WorkerErrorCode> for ErrorCode {
                 FontRefusal::MissingGlyphs => ErrorCode::FontMissingGlyphs,
             },
             WorkerErrorCode::UnsupportedText => ErrorCode::TextNotSupported,
+            WorkerErrorCode::PictureNotCleaned => ErrorCode::PictureNotCleaned,
             WorkerErrorCode::Internal => ErrorCode::Internal,
         }
     }
@@ -1162,6 +1207,43 @@ mod tests {
         assert_eq!(
             postcard::from_bytes::<WorkerRequest>(&bytes).unwrap(),
             request
+        );
+    }
+
+    #[test]
+    fn redaction_edits_and_their_summary_cross_the_boundary() {
+        for edit in [
+            WorkerEdit::AddRedaction {
+                page: 2,
+                rect: Rect {
+                    x0: 1.0,
+                    y0: 2.0,
+                    x1: 30.0,
+                    y1: 40.0,
+                },
+            },
+            WorkerEdit::ApplyRedactions,
+        ] {
+            let bytes = postcard::to_allocvec(&edit).unwrap();
+            assert_eq!(postcard::from_bytes::<WorkerEdit>(&bytes).unwrap(), edit);
+        }
+        assert_eq!(
+            WorkerEdit::of(&Edit::ApplyRedactions, |_| None, |_| None, |_| None).unwrap(),
+            WorkerEdit::ApplyRedactions
+        );
+        let response = WorkerResponse::RedactionSummary {
+            request: RequestId(9),
+            summary: RedactionSummary {
+                marks: 3,
+                pages: 2,
+                annotations: 1,
+                fields: 0,
+            },
+        };
+        let bytes = postcard::to_allocvec(&response).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerResponse>(&bytes).unwrap(),
+            response
         );
     }
 
@@ -1328,6 +1410,24 @@ mod tests {
         assert_eq!(
             ErrorCode::from(WorkerErrorCode::UnsupportedText),
             ErrorCode::TextNotSupported
+        );
+    }
+
+    #[test]
+    fn a_picture_that_cannot_be_cleaned_reaches_the_frontend_as_its_own_code() {
+        assert_eq!(
+            ErrorCode::from(WorkerErrorCode::PictureNotCleaned),
+            ErrorCode::PictureNotCleaned
+        );
+        let request = WorkerRequest::ExifCleanCopy {
+            request: RequestId(1),
+            doc: DocumentId(2),
+            file: FileHandle(3),
+        };
+        let bytes = postcard::to_stdvec(&request).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerRequest>(&bytes).unwrap(),
+            request
         );
     }
 

@@ -23,9 +23,9 @@ use ipc_contract::types::{
     DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode, FormField,
     ImageQuality, IpcError, LinkArgs, LinkPreview, LinkTarget, MarkCheck, NotRemembered, OpenEvent,
     OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource,
-    Password, PreparedTextBox, Recovery, RememberedPasswords, RenderPageArgs, Restrictions,
-    SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageInfo, TabId,
-    TextBoxInfo, UnlockOutcome,
+    Password, PreparedTextBox, Recovery, RedactionSummary, RememberedPasswords, RenderPageArgs,
+    Restrictions, SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageInfo,
+    TabId, TextBoxInfo, UnlockOutcome,
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
@@ -782,7 +782,10 @@ impl Documents {
                 Some(destination) => destination,
                 // Nothing to write.
                 None if !document.history.unsaved() => {
-                    return Ok(SaveResult { incremental: false });
+                    return Ok(SaveResult {
+                        incremental: false,
+                        redaction: None,
+                    });
                 }
                 None => {
                     match (document.identity, FileIdentity::of(&document.path)) {
@@ -806,7 +809,10 @@ impl Documents {
                 .save(worker_doc, temporary.file())
                 .map_err(|error| lost_on(document, &error))?;
             let WorkerResponse::Saved {
-                bytes, incremental, ..
+                bytes,
+                incremental,
+                redaction,
+                ..
             } = response
             else {
                 return Err(unexpected("Save"));
@@ -835,7 +841,10 @@ impl Documents {
             self.keep_journal(document);
             // Undo starts from the file now: the worker keeps its bytes instead (ADR 0013).
             rebase(document);
-            Ok(SaveResult { incremental })
+            Ok(SaveResult {
+                incremental,
+                redaction,
+            })
         })
     }
 
@@ -1241,9 +1250,12 @@ impl Documents {
                     *restrictions,
                 )
             }
+            BatchOperation::RemoveExif => host.exif_clean_copy(doc, temporary.file()),
         }
         .map_err(|error| ipc_error(&error))?;
-        let WorkerResponse::Saved { bytes, .. } = response else {
+        let (WorkerResponse::Saved { bytes, .. } | WorkerResponse::ExifCleaned { bytes, .. }) =
+            response
+        else {
             return Err(unexpected("a batch copy"));
         };
         temporary.check(bytes)?;
@@ -1612,6 +1624,21 @@ impl Documents {
                 return Err(unexpected("VerifySignatures"));
             };
             Ok(report)
+        })
+    }
+
+    /// What applying the redaction marks of `doc` would do besides removing what their areas
+    /// reach (B2-19, ADR 0016): the marks and their pages, and the other annotations and form
+    /// fields that would be deleted with them. Asked of the document's worker, as it is now.
+    pub fn redaction_summary(&self, doc: DocumentId) -> Result<RedactionSummary, IpcError> {
+        self.with_document(doc, |document| {
+            let response = request(document, |request, doc| {
+                WorkerRequest::SummariseRedactions { request, doc }
+            })?;
+            let WorkerResponse::RedactionSummary { summary, .. } = response else {
+                return Err(unexpected("SummariseRedactions"));
+            };
+            Ok(summary)
         })
     }
 
@@ -2314,6 +2341,24 @@ fn pages_after(
         | Edit::SetPictureAngle { page, .. } => Some(vec![*page]),
         _ => None,
     };
+    // Redaction (B2-19, ADR 0016) changes what the pages say, marks included: the author's
+    // permission to change the document covers it. The worker refuses a signed document.
+    match edit {
+        Edit::AddRedaction { page, .. } => {
+            if !permissions.modify {
+                return Err(not_allowed());
+            }
+            check_page_index(*page, page_count).map_err(invalid_argument)?;
+            return Ok(page_count);
+        }
+        Edit::ApplyRedactions => {
+            if !permissions.modify {
+                return Err(not_allowed());
+            }
+            return Ok(page_count);
+        }
+        _ => {}
+    }
     if let Some(pages) = annotated {
         if !permissions.annotate {
             return Err(not_allowed());
@@ -2410,7 +2455,9 @@ fn pages_after(
         | Edit::SetAnnotationRect { .. }
         | Edit::SetPictureAngle { .. }
         | Edit::SetFieldValue { .. }
-        | Edit::FlattenForm => Ok(page_count),
+        | Edit::FlattenForm
+        | Edit::AddRedaction { .. }
+        | Edit::ApplyRedactions => Ok(page_count),
     }
 }
 
@@ -4490,6 +4537,130 @@ mod with_worker {
         }
     }
 
+    /// A page with a secret line between two public ones (B2-19).
+    fn redaction_sample() -> Vec<u8> {
+        let content = "BT /F1 18 Tf 72 700 Td (Public line one) Tj ET\n\
+                       BT /F1 18 Tf 72 650 Td (SECRET-ALPHA-123 inside) Tj ET\n\
+                       BT /F1 18 Tf 72 600 Td (Public line two) Tj ET\n";
+        pdf_objects(&[
+            "<< /Type /Catalog /Pages 2 0 R >>".into(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".into(),
+            format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".into(),
+        ])
+    }
+
+    /// What page 0 of `doc` says.
+    fn first_page_says(documents: &Documents, doc: DocumentId) -> String {
+        documents
+            .page_text(doc, 0)
+            .unwrap()
+            .lines
+            .into_iter()
+            .map(|line| line.text)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn a_redaction_is_marked_applied_undone_and_saved_without_what_it_removed() {
+        let (documents, info, path) = open_bytes("b219-redact", &redaction_sample());
+        let mut doc = info.doc;
+        let area = Rect {
+            x0: 60.0,
+            y0: 120.0,
+            x1: 330.0,
+            y1: 150.0,
+        };
+        edited_pages(
+            &documents,
+            &mut doc,
+            Edit::AddRedaction {
+                page: 0,
+                rect: area,
+            },
+        );
+        let summary = documents.redaction_summary(doc).unwrap();
+        assert_eq!((summary.marks, summary.pages), (1, 1));
+        assert!(first_page_says(&documents, doc).contains("SECRET"));
+
+        edited_pages(&documents, &mut doc, Edit::ApplyRedactions);
+        let said = first_page_says(&documents, doc);
+        assert!(
+            !said.contains("SECRET") && said.contains("Public line two"),
+            "{said}"
+        );
+        assert_eq!(documents.redaction_summary(doc).unwrap().marks, 0);
+
+        // Undone (ADR 0013): the text, and the mark, are back; done again, they go again.
+        let undone = opened_info(documents.undo(doc, None).unwrap());
+        doc = undone.doc;
+        assert!(first_page_says(&documents, doc).contains("SECRET"));
+        assert_eq!(documents.redaction_summary(doc).unwrap().marks, 1);
+        let redone = opened_info(documents.redo(doc).unwrap());
+        doc = redone.doc;
+        assert!(!first_page_says(&documents, doc).contains("SECRET"));
+
+        // Saved: the file is rewritten whole, has none of it, and the worker says so after
+        // reading it again (B2-20).
+        let (result, event) = documents.save(doc, None).unwrap();
+        assert_eq!(
+            result.redaction,
+            Some(ipc_contract::types::RedactionCheck { places: 0 })
+        );
+        doc = opened_info(event).doc;
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(!bytes.windows(6).any(|window| window == b"SECRET"));
+        // The file took the document's place: what was removed is forgotten, and the next save
+        // has nothing to check.
+        edited_pages(&documents, &mut doc, turn(0));
+        assert_eq!(documents.save(doc, None).unwrap().0.redaction, None);
+        let again = open_in(&Documents::new(worker()), &path);
+        assert_eq!(again.pages.len(), 1);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn redaction_needs_the_authors_permission_to_change_the_document() {
+        let mark = Edit::AddRedaction {
+            page: 0,
+            rect: Rect {
+                x0: 10.0,
+                y0: 10.0,
+                x1: 50.0,
+                y1: 50.0,
+            },
+        };
+        let only_annotating = DocumentPermissions {
+            modify: false,
+            ..DocumentPermissions::ALL
+        };
+        for edit in [&mark, &Edit::ApplyRedactions] {
+            assert_eq!(
+                pages_after(edit, 1, only_annotating, &|_| None)
+                    .unwrap_err()
+                    .message,
+                not_allowed().message
+            );
+            assert_eq!(
+                pages_after(edit, 1, DocumentPermissions::ALL, &|_| None).unwrap(),
+                1
+            );
+        }
+        // A mark on a page the document does not have.
+        let elsewhere = Edit::AddRedaction {
+            page: 3,
+            rect: Rect {
+                x0: 10.0,
+                y0: 10.0,
+                x1: 50.0,
+                y1: 50.0,
+            },
+        };
+        assert!(pages_after(&elsewhere, 1, DocumentPermissions::ALL, &|_| None).is_err());
+    }
+
     /// What writing the sensitive mark into the file of `doc` would do (B3-05).
     fn sensitive_check_of(documents: &Documents, doc: DocumentId) -> MarkCheck {
         documents.mark_check(doc).unwrap()
@@ -6209,6 +6380,63 @@ mod with_worker {
         assert!(*asked.borrow());
         let (_, info) = unlocked(&documents, &copy);
         assert_eq!(info.pages.len(), 10);
+        std::fs::remove_dir_all(&out).ok();
+    }
+
+    #[test]
+    fn a_batch_takes_out_what_cameras_wrote_into_the_pictures_and_keeps_the_rest() {
+        use ipc_contract::types::{BatchEvent, BatchOutcome};
+
+        let documents = Documents::new(worker());
+        let out = batch_folder("exif");
+        let files = [
+            corpus_path("benign/photo-exif.pdf"),
+            corpus_path("benign/signed.pdf"),
+            corpus_path("benign/metadata-full.pdf"),
+        ];
+        let (report, events) =
+            run_batch(&documents, &files, &out, &BatchOperation::RemoveExif, false);
+        assert_eq!((report.done, report.failed), (2, 1));
+        // A signed document's pictures cannot change: its signatures would not hold.
+        assert!(events.contains(&BatchEvent::File {
+            index: 1,
+            outcome: BatchOutcome::Failed {
+                error: ErrorCode::InvalidArgument
+            }
+        }));
+        assert_eq!(
+            names_in(&out),
+            [
+                "metadata-full（已清除 EXIF）.pdf",
+                "photo-exif（已清除 EXIF）.pdf"
+            ]
+        );
+        let has = |bytes: &[u8], needle: &[u8]| {
+            bytes.windows(needle.len()).any(|window| window == needle)
+        };
+        let photo = std::fs::read(out.join("photo-exif（已清除 EXIF）.pdf")).unwrap();
+        for private in [&b"Canon"[..], b"Exif", b"Jane Q. Private-Author"] {
+            assert!(
+                !has(&photo, private),
+                "{}",
+                String::from_utf8_lossy(private)
+            );
+        }
+        // The same page, opened as a document.
+        let info = open_in(&documents, &out.join("photo-exif（已清除 EXIF）.pdf"));
+        assert_eq!(info.pages.len(), 1);
+        // Only the pictures': the document's own metadata is the privacy export's (B2-03), and
+        // stays. The picture of that sample loses its XMP.
+        let metadata = std::fs::read(out.join("metadata-full（已清除 EXIF）.pdf")).unwrap();
+        assert!(has(&metadata, b"SecretWriter 9.1"));
+        assert_eq!(
+            metadata
+                .windows(b"<x:xmpmeta".len())
+                .filter(|window| window == b"<x:xmpmeta")
+                .count(),
+            2,
+            "the catalog's and the page's XMP stay, the picture's goes"
+        );
         std::fs::remove_dir_all(&out).ok();
     }
 

@@ -154,7 +154,7 @@ fn masks_of(doc: &PdfDocument, count: usize) -> HashSet<i32> {
 }
 
 /// A stream whose `/Subtype` is `/Image`.
-fn is_image(object: &PdfObject) -> bool {
+pub(crate) fn is_image(object: &PdfObject) -> bool {
     named(object, "Subtype").as_deref() == Some(b"Image".as_slice())
         && object.is_stream().unwrap_or(false)
 }
@@ -247,7 +247,7 @@ fn read_picture(object: &PdfObject) -> Result<Option<Picture>, mupdf::Error> {
 
 /// The names of the filters of `object`, in the order they are undone; none when it has none or
 /// they are not names.
-fn filters(object: &PdfObject) -> Result<Option<Vec<Vec<u8>>>, mupdf::Error> {
+pub(crate) fn filters(object: &PdfObject) -> Result<Option<Vec<Vec<u8>>>, mupdf::Error> {
     let Some(entry) = object.get_dict("Filter")? else {
         return Ok(Some(Vec::new()));
     };

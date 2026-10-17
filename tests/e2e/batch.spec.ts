@@ -92,6 +92,35 @@ test.describe("a batch", () => {
     ]);
   });
 
+  test("what a camera wrote into the pictures goes, and a signed file is left alone", async ({ launch }) => {
+    const page = await launch();
+    const picked = files([
+      ["benign/photo-exif.pdf", "photo.pdf"],
+      ["benign/signed.pdf", "signed.pdf"],
+    ]);
+    const before = picked.map(sha256);
+    const dialog = await openDialog(page);
+    await dialog.getByRole("radio", { name: t.removeExif }).check();
+    await expect(dialog).toContainText(t.exifNote);
+    await dialog.getByRole("button", { name: t.start }).click();
+    await answerFileDialog(page, { path: picked.map((file) => `"${file}"`).join(" ") });
+    await answerFileDialog(page, { path: out });
+
+    await expect(dialog.getByRole("status")).toHaveText(t.summary(1, 1, 0));
+    const list = dialog.getByRole("list", { name: t.filesLabel });
+    await expect(list).toContainText(t.done("photo（已清除 EXIF）.pdf"));
+    await expect(list).toContainText(t.failedFile(t.reasons.invalidArgument!));
+    expect(readdirSync(out)).toEqual(["photo（已清除 EXIF）.pdf"]);
+    const copy = readFileSync(path.join(out, "photo（已清除 EXIF）.pdf"));
+    expect(copy.subarray(0, 5).toString()).toBe("%PDF-");
+    // The camera (EXIF), the author (XMP, IPTC, the comment) and the thumbnail are gone.
+    for (const gone of ["Canon", "Exif", "Uncropped thumbnail data", "Photoshop 3.0"]) {
+      expect(copy.includes(Buffer.from(gone)), gone).toBe(false);
+    }
+    expect(copy.includes(AUTHOR)).toBe(false);
+    expect(picked.map(sha256)).toEqual(before);
+  });
+
   /** Starts a batch that removes the metadata of `picked` into `out`; returns the dialog. */
   async function startBatch(page: import("@playwright/test").Page, picked: string[]) {
     const dialog = await openDialog(page);

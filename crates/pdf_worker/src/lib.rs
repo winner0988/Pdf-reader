@@ -8,6 +8,7 @@
 mod compress;
 mod crypt;
 pub mod engine;
+mod exif;
 mod handle;
 mod jpeg;
 mod leftovers;

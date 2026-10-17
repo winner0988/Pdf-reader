@@ -15,10 +15,10 @@ use ipc_contract::types::{
     FileRecordingArgs, FontInfo, FormField, IpcError, LanguageImport, LinkArgs, LinkPreview,
     MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult,
     PageAnnotation, PageLink, PageText, PagesSource, Password, PrepareTextBoxArgs, PreparedTextBox,
-    RecentFile, RecentId, RememberedPasswords, RemoveLanguageArgs, RenderPageArgs, RequestId,
-    SaveResult, SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings,
-    SignatureReport, StampImageInfo, TabId, TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome,
-    UnlockSourceArgs, UpdateCheck,
+    RecentFile, RecentId, RedactionSummary, RememberedPasswords, RemoveLanguageArgs,
+    RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile,
+    SensitiveId, Settings, SignatureReport, StampImageInfo, TabId, TextBoxInfo, UndoArgs,
+    UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use tauri::ipc::{Channel, Response};
@@ -708,6 +708,17 @@ pub async fn get_page_fields(
 #[tauri::command]
 pub async fn get_signatures(app: AppHandle, doc: DocumentId) -> Result<SignatureReport, IpcError> {
     blocking(move || app.state::<Documents>().signatures(doc)).await
+}
+
+/// What applying the redaction marks of an open document would do besides removing what their
+/// areas reach (B2-19, ADR 0016): how many marks on how many pages, and how many other annotations
+/// and form fields would be deleted with them. The confirmation says it before anything goes.
+#[tauri::command]
+pub async fn get_redaction_summary(
+    app: AppHandle,
+    doc: DocumentId,
+) -> Result<RedactionSummary, IpcError> {
+    blocking(move || app.state::<Documents>().redaction_summary(doc)).await
 }
 
 /// The links of one page (MVP-12): where they are and where they point. Opening a web link

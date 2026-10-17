@@ -34,6 +34,7 @@ mod docx;
 mod forms;
 mod identifier;
 mod ocr;
+mod redaction;
 
 pub use create::{Created, PdfBuilder};
 pub use identifier::write_identifier;
@@ -122,6 +123,10 @@ pub enum EngineError {
     /// A file a PDF is to be made of that MuPDF cannot read, or that has nothing in it (B3-03).
     #[error("cannot make a PDF of this file: {0}")]
     InvalidSource(&'static str),
+    /// A picture of the document is stored in a way the metadata cannot be taken out of without
+    /// changing the picture (B3-04, [`crate::exif`]): its copy is not made.
+    #[error("a picture's metadata cannot be taken out of it")]
+    PictureNotCleaned,
     /// The document is signed, and its file was to be written to (B3-05, ADR 0010).
     #[error(
         "the document is signed: writing to its file would show in every check of its signatures"
@@ -191,6 +196,9 @@ pub struct PdfDocument {
     owner: bool,
     /// The text read from pages that are only a picture (B2-10).
     ocr: ocr::OcrPages,
+    /// What applying redactions removed since the document was last saved (B2-20): kept only
+    /// here, to check the file written next, and wiped once that file has taken its place.
+    removed: redaction::Removed,
 }
 
 impl PdfDocument {
@@ -222,6 +230,7 @@ impl PdfDocument {
             doc: MuPdfDocument::try_from(doc)?,
             owner,
             ocr: ocr::OcrPages::new(),
+            removed: redaction::Removed::default(),
         })
     }
 
@@ -875,6 +884,14 @@ impl PdfDocument {
     /// as it was. Returns the bytes written and whether they were appended; stops with
     /// `Write(FileTooLarge)` beyond `MAX_DOCUMENT_BYTES`.
     pub fn save(&self, out: &mut impl Write) -> Result<(u64, bool), EngineError> {
+        self.save_checked(out)
+            .map(|written| (written.bytes, written.incremental))
+    }
+
+    /// As [`save`](Self::save), and when redactions were applied since the document was last
+    /// saved, the bytes are read again before they go to `out`: whether any text is left in a
+    /// redacted area, or any removed words in the document's text (B2-20, ADR 0016).
+    pub fn save_checked(&self, out: &mut impl Write) -> Result<Written, EngineError> {
         let incremental = self.is_signed() && self.doc.can_be_saved_incrementally();
         let mut options = PdfWriteOptions::default();
         if incremental {
@@ -882,7 +899,22 @@ impl PdfDocument {
         } else {
             options.set_garbage(true);
         }
-        Ok((write_limited(&self.doc, out, options)?, incremental))
+        if self.removed.is_empty() {
+            return Ok(Written {
+                bytes: write_limited(&self.doc, out, options)?,
+                incremental,
+                redaction: None,
+            });
+        }
+        let mut written = Vec::new();
+        write_limited(&self.doc, &mut written, options)?;
+        let check = self.check_removed(&written)?;
+        out.write_all(&written).map_err(EngineError::Write)?;
+        Ok(Written {
+            bytes: written.len() as u64,
+            incremental,
+            redaction: Some(check),
+        })
     }
 
     /// Whether the document is encrypted (MVP-16), with a password or only with permissions.
@@ -973,6 +1005,16 @@ impl PdfDocument {
     }
 }
 
+/// What saving wrote (see [`PdfDocument::save_checked`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Written {
+    pub bytes: u64,
+    /// Appended to the original, for a signed document.
+    pub incremental: bool,
+    /// What reading the bytes again found, when redactions were applied since the last save.
+    pub redaction: Option<ipc_contract::types::RedactionCheck>,
+}
+
 /// What a compressed copy came to (B3-01).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CompressedCopy {
@@ -1045,6 +1087,54 @@ impl PdfDocument {
             report,
         })
     }
+
+    /// Writes to `out` a copy of the document, edits included, whose pictures carry nothing but
+    /// themselves (B3-04, [`crate::exif`]): what a camera or a program wrote into a JPEG (EXIF,
+    /// XMP, IPTC, comments, thumbnails) is taken out without encoding the picture again, and a
+    /// picture's own XMP and private data go. The copy is rewritten whole, without the objects
+    /// nothing uses any more. The open document is not touched.
+    ///
+    /// Refused for an encrypted document (as the privacy export: the worker keeps no password),
+    /// for a signed one (its signatures would not hold), and with `PictureNotCleaned` when a
+    /// picture is stored in a way this cannot take its metadata out of.
+    pub fn exif_clean_copy(&self, out: &mut impl Write) -> Result<ExifCleanCopy, EngineError> {
+        if self.is_encrypted() {
+            return Err(EngineError::EncryptedCopy);
+        }
+        if self.is_signed() {
+            return Err(EngineError::InvalidEdit(
+                "a signed document's pictures cannot be cleaned: its signatures would not hold",
+            ));
+        }
+        let plain = || {
+            let mut options = PdfWriteOptions::default();
+            options.set_garbage(true);
+            options
+        };
+        let mut bytes = Vec::new();
+        write_limited(&self.doc, &mut bytes, plain())?;
+        let copy = Document::from_bytes(&bytes, "application/pdf").map_err(open_error)?;
+        drop(bytes);
+        let mut copy = MuPdfDocument::try_from(copy)?;
+        let report = crate::exif::clean_pictures(&mut copy)?;
+        let bytes = write_limited(&copy, out, plain())?;
+        Ok(ExifCleanCopy {
+            bytes,
+            pictures: report.pictures,
+            cleaned: report.cleaned,
+        })
+    }
+}
+
+/// What a copy without the pictures' metadata came to (B3-04).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExifCleanCopy {
+    /// The bytes written.
+    pub bytes: u64,
+    /// The pictures of the document, and its other JPEG streams.
+    pub pictures: u32,
+    /// Those that had something taken out.
+    pub cleaned: u32,
 }
 
 /// What the readers of a copy may do: everything but what `restrictions` take away, and always
@@ -1989,6 +2079,49 @@ mod tests {
             doc.privacy_copy(&[1; 16], &mut Vec::new()),
             Err(EngineError::EncryptedCopy)
         ));
+    }
+
+    #[test]
+    fn a_copy_without_the_pictures_metadata_leaves_the_document_as_it_was() {
+        let sample = corpus("benign/photo-exif.pdf");
+        let doc = PdfDocument::from_bytes(&sample).unwrap();
+        let before = doc.render(0, 1.0, 0).unwrap();
+        let mut copy = Vec::new();
+        let made = doc.exif_clean_copy(&mut copy).unwrap();
+        assert_eq!(
+            (made.bytes, made.pictures, made.cleaned),
+            (copy.len() as u64, 1, 1)
+        );
+        assert!(!contains(&copy, b"Canon"));
+        // The open document still has its picture as it was, and saves it as it was.
+        assert_eq!(doc.render(0, 1.0, 0).unwrap(), before);
+        let mut saved = Vec::new();
+        doc.save(&mut saved).unwrap();
+        assert!(contains(&saved, b"Canon"));
+        // The copy draws the same page.
+        assert_eq!(
+            PdfDocument::from_bytes(&copy)
+                .unwrap()
+                .render(0, 1.0, 0)
+                .unwrap(),
+            before
+        );
+
+        // Encrypted: the worker keeps no password to encrypt the copy again. Signed: the
+        // signatures would not hold.
+        let encrypted =
+            PdfDocument::open(&corpus("benign/encrypted-aes256.pdf"), Some("user")).unwrap();
+        assert!(matches!(
+            encrypted.exif_clean_copy(&mut Vec::new()),
+            Err(EngineError::EncryptedCopy)
+        ));
+        let signed = PdfDocument::from_bytes(&corpus("benign/signed.pdf")).unwrap();
+        let mut out = Vec::new();
+        assert!(matches!(
+            signed.exif_clean_copy(&mut out),
+            Err(EngineError::InvalidEdit(_))
+        ));
+        assert!(out.is_empty(), "nothing was written");
     }
 
     #[test]

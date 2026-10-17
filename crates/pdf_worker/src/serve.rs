@@ -196,6 +196,19 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     ),
                 })
             }
+            WorkerRequest::SummariseRedactions { request, doc } => {
+                Some(match documents.get(&doc) {
+                    None => error(
+                        request,
+                        WorkerErrorCode::UnknownDocument,
+                        "unknown document",
+                    ),
+                    Some(document) => match document.redaction_summary() {
+                        Ok(summary) => WorkerResponse::RedactionSummary { request, summary },
+                        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                    },
+                })
+            }
             WorkerRequest::RenderPng {
                 request,
                 doc,
@@ -305,6 +318,11 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 match read_limited(handle::take_file(file), MAX_DOCUMENT_BYTES) {
                     Ok(bytes) => {
                         originals.insert(doc, bytes);
+                        // The file that was checked has taken the document's file's place: what
+                        // the redactions removed is not needed any more (B2-20).
+                        if let Some(document) = documents.get_mut(&doc) {
+                            document.forget_removed();
+                        }
                         WorkerResponse::Rebased { request }
                     }
                     Err(response) => response(request),
@@ -371,6 +389,16 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => compressed_copy(document, request, file, quality, max_side),
             }),
+            WorkerRequest::ExifCleanCopy { request, doc, file } => {
+                Some(match documents.get(&doc) {
+                    None => error(
+                        request,
+                        WorkerErrorCode::UnknownDocument,
+                        "unknown document",
+                    ),
+                    Some(document) => exif_clean_copy(document, request, file),
+                })
+            }
             WorkerRequest::EncryptedCopy {
                 request,
                 doc,
@@ -642,6 +670,8 @@ fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineErro
             document.set_field_value(*page, *field, value)?;
         }
         WorkerEdit::FlattenForm => document.flatten_form()?,
+        WorkerEdit::AddRedaction { page, rect } => document.add_redaction(*page, *rect)?,
+        WorkerEdit::ApplyRedactions => document.apply_redactions()?,
         WorkerEdit::AddInk {
             page,
             strokes,
@@ -723,11 +753,12 @@ fn save(document: &PdfDocument, request: RequestId, file: FileHandle) -> WorkerR
             "invalid file handle",
         );
     };
-    match document.save(&mut file) {
-        Ok((bytes, incremental)) => WorkerResponse::Saved {
+    match document.save_checked(&mut file) {
+        Ok(written) => WorkerResponse::Saved {
             request,
-            bytes,
-            incremental,
+            bytes: written.bytes,
+            incremental: written.incremental,
+            redaction: written.redaction,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
@@ -755,6 +786,7 @@ fn write_identifier(
             request,
             bytes,
             incremental: true,
+            redaction: None,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
@@ -781,6 +813,7 @@ fn encrypted_copy(
             request,
             bytes,
             incremental: false,
+            redaction: None,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
@@ -816,6 +849,7 @@ fn watermark_copy(
             request,
             bytes,
             incremental: false,
+            redaction: None,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
@@ -849,6 +883,27 @@ fn compressed_copy(
     }
 }
 
+/// Writes the copy of `document` whose pictures carry nothing but themselves (B3-04) to `file`, a
+/// handle like `save`'s.
+fn exif_clean_copy(document: &PdfDocument, request: RequestId, file: FileHandle) -> WorkerResponse {
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match document.exif_clean_copy(&mut file) {
+        Ok(copy) => WorkerResponse::ExifCleaned {
+            request,
+            bytes: copy.bytes,
+            pictures: copy.pictures,
+            cleaned: copy.cleaned,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
 fn privacy_copy(
     document: &PdfDocument,
     request: RequestId,
@@ -867,6 +922,7 @@ fn privacy_copy(
             request,
             bytes,
             incremental: false,
+            redaction: None,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
@@ -892,6 +948,7 @@ fn export_docx(
             request,
             bytes,
             incremental: false,
+            redaction: None,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
@@ -954,6 +1011,7 @@ fn save_pages(
             request,
             bytes,
             incremental: false,
+            redaction: None,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
@@ -1089,6 +1147,7 @@ fn engine_error(
         EngineError::NotAllowed(_) => WorkerErrorCode::NotAllowed,
         EngineError::Font(refusal) => WorkerErrorCode::Font(*refusal),
         EngineError::UnsupportedText => WorkerErrorCode::UnsupportedText,
+        EngineError::PictureNotCleaned => WorkerErrorCode::PictureNotCleaned,
         EngineError::InvalidScale
         | EngineError::InvalidRotation
         | EngineError::InvalidEdit(_)

@@ -54,8 +54,8 @@ type PageAnnotationsProps = {
   onEditTextBox?: (page: number, annotation: PageAnnotation) => void;
 };
 
-/** The kinds that can be moved and resized. */
-const MOVABLE = new Set(["ink", "stamp", "textBox"]);
+/** The kinds that can be moved and resized; a redaction mark is only an area until it is applied (B2-19). */
+const MOVABLE = new Set(["ink", "stamp", "textBox", "redaction"]);
 
 export function PageAnnotations({
   source,
@@ -299,7 +299,10 @@ function AnnotationToolbar({
           )}
         </>
       )}
-      {(annotation.kind === "ink" || annotation.kind === "stamp" || annotation.kind === "other") && (
+      {(annotation.kind === "ink" ||
+        annotation.kind === "stamp" ||
+        annotation.kind === "redaction" ||
+        annotation.kind === "other") && (
         <span className="px-1">{t.kind[annotation.kind]}</span>
       )}
       {onTurn && (

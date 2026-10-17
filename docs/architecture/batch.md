@@ -10,13 +10,41 @@
 |---|---|---|
 | 清除中繼資料（`removeMetadata`） | `<檔名>（隱私匯出）.pdf` | 一份文件的「隱私匯出」（B2-03，[privacy-export.md](privacy-export.md)） |
 | 加密（`encrypt`） | `<檔名>（已加密）.pdf` | 一份文件的「加密並另存新檔」（B2-15，[encrypt-copy.md](encrypt-copy.md)），每個檔案用同樣的密碼與限制 |
+| 清除圖片的 EXIF（`removeExif`） | `<檔名>（已清除 EXIF）.pdf` | 只有批次處理有：見下方「清除圖片的 EXIF」 |
 
 工作卡的其餘部分分開做：
 
+<<<<<<< HEAD
 - **浮水印**：新的 worker 操作，文字或圖片、位置、透明度、頁面範圍。
 - **EXIF 清除**：要用到 B3-03 的 `jpeg.rs`（[#275](https://github.com/winner0988/Pdf-reader/pull/275)）。
+=======
+- **浮水印**：worker 的操作在 [#269](https://github.com/winner0988/Pdf-reader/pull/269)，批次的選項接在它之後。
+- **背景執行與系統列圖示**（ADR 0005）：新增依賴與 capability，要審查。
+>>>>>>> origin/main
 
 批次處理中可以關閉視窗，批次在系統列繼續（ADR 0005）：見下方「背景執行」。
+
+## 清除圖片的 EXIF
+
+JPEG 放進 PDF 時是**整個檔案原樣**放進去（`/DCTDecode`），相機與之後的程式寫在裡面的東西也一起進去。這個操作把它們拿掉，**圖片不重新編碼**（不損失畫質，畫出來每個像素都一樣）：
+
+| 拿掉 | 位置 |
+|---|---|
+| EXIF：相機廠牌與型號、拍攝時間、GPS 位置、EXIF 裡的縮圖 | JPEG 的 `APP1` |
+| XMP（作者、程式、地點……） | JPEG 的 `APP1`，以及圖片字典的 `/Metadata` |
+| IPTC 與 Photoshop 區塊（作者、說明、關鍵字） | JPEG 的 `APP13` |
+| 其他程式的區段（例如 Multi-Picture 索引）、註解 | 其他 `APPn`、`COM`，不論在掃描之前或之間（漸進式 JPEG） |
+| JFIF 標頭裡的縮圖（裁切或塗掉之前的樣子） | `APP0` 只留標頭本身 |
+| 圖片結束之後的資料（相機的第二張圖、手機的動態相片影片） | `EOI` 之後 |
+| 原圖的路徑（印前系統用）、程式的私有資料 | 圖片字典的 `/OPI`、`/PieceInfo`、`/LastModified` |
+
+- **留下**決定顏色的區段：JFIF 標頭、ICC 色彩描述檔（`APP2`，裡面有描述檔的名稱與版權，例如「Display P3」）、Adobe 標記（`APP14`）。EXIF 的方向不需要：PDF 閱讀器畫 PDF 裡的 JPEG 時不依 EXIF 轉向（MuPDF、PDFium、pdf.js 都是），拿掉之後畫法不變。
+- **藏在無損濾鏡後面的 JPEG**（`[/FlateDecode /DCTDecode]`、ASCII85、ASCIIHex、LZW、RunLength、Brotli，包括簡寫）：由 MuPDF 解開前面的濾鏡（在 worker 裡另建一個暫時的串流，用完刪掉），清除後存成單純的 `/DCTDecode`，DCT 自己的參數（`/ColorTransform`）保留。
+- **沒辦法安全清除時不做副本**：JPEG 前面是會失真或不認得的濾鏡、JPEG 不是最後一個濾鏡、內容讀不到畫面（不是 JPEG、在掃描之前就截斷），這個檔案就失敗（`pictureNotCleaned`），不會產生一份「看起來清過但其實沒有」的副本。空的串流沒有東西可清。
+- **找哪裡**：檔案裡每一個串流：圖片（`/Subtype /Image`，包括遮罩），以及其他以 JPEG 儲存的串流（例如頁面的縮圖 `/Thumb`）。
+- **不處理**：寫在頁面內容裡的圖片（inline image，小而少見）、JPEG 2000（`/JPXDecode`，多半是掃描）自己的資訊框、附加的檔案。文件本身的中繼資料（`/Info`、目錄的 XMP 等）也不在其中，那是「清除中繼資料」（隱私匯出）的事；兩件事要分開做。
+- **拒絕**：有數位簽章的文件（改了圖片簽章就失效，`invalidArgument`）與有密碼的文件（批次處理本來就略過）。
+- worker：`crates/pdf_worker/src/exif.rs`（找串流、解開濾鏡、換回去）與 `jpeg.rs`（切掉區段，與「從檔案建立 PDF」共用）；副本與隱私匯出一樣，先寫進記憶體再開成第二份文件來改，原本的文件不動，最後完整重寫（不用的物件不寫出）。
 
 ## 規則
 
@@ -47,8 +75,8 @@ sequenceDiagram
   M-->>F: started { files: [檔名...] }
   loop 每個檔案
     M->>W: 新的 worker：Open（唯讀 handle）
-    M->>W: PrivacyCopy 或 EncryptedCopy（只能寫入的 handle，指向資料夾裡的臨時檔）
-    W-->>M: Saved
+    M->>W: PrivacyCopy、EncryptedCopy 或 ExifCleanCopy（只能寫入的 handle，指向資料夾裡的臨時檔）
+    W-->>M: Saved 或 ExifCleaned
     M->>M: 檢查臨時檔，取一個沒人用的名稱；worker 結束
     M-->>F: file { index, outcome: done { output } | failed { error } | skipped }
   end
@@ -79,19 +107,26 @@ sequenceDiagram
 
 ## 測試
 
-- `ipc_contract`：`a_batch_is_checked_as_its_operation_is`（加密的規則與 `EncryptArgs` 相同；JSON 的形式；多的欄位，例如路徑，被拒絕）。
+- `ipc_contract`：`a_batch_is_checked_as_its_operation_is`（加密的規則與 `EncryptArgs` 相同；JSON 的形式；多的欄位，例如路徑，被拒絕）；`ExifCleaned` 的大小與張數有界；`PictureNotCleaned` 到前端是自己的錯誤碼。
+- worker：
+  - `jpeg.rs`：只拿掉資訊、留下決定顏色的區段；結束之後的資料與 JFIF 縮圖拿掉；掃描之間的區段拿掉、表格留下；掃描的資料到下一個標記為止（填充位元組、重新開始標記）；截斷在掃描中的圖片。
+  - `exif.rs`：相機的 JPEG 在 PDF 裡清完後頁面畫出來每個像素都一樣，再做一次沒有東西可清；三種無損濾鏡的組合讀得穿，存成單純的 JPEG 並留下自己的參數；讀不穿的六種情況拒絕；圖片字典的四個項目拿掉、文件的 XMP 留著；沒有東西可清的圖片（包括空的與藏在濾鏡後的）原樣不動；不是頁面圖片的 JPEG（縮圖）也清。
+  - `engine.rs`：副本畫出來與原本相同，開著的文件仍是原樣、存檔仍有原本的圖片；加密與有簽章的文件拒絕。
+  - `tests/exif_clean.rs`（真正的 worker、真正的沙盒）：語料 `benign/photo-exif.pdf` 的副本沒有任何一項私密資訊、畫出來相同，再做一次大小相同，副本的副本沒有東西可清；有簽章的文件拒絕而 worker 繼續服務。
 - 主行程：
   - `batch.rs`：名稱與編號；停止；全部一起停止、有沒有批次在跑。
   - `background.rs`：記錄每個檔案的結果與進度；報告的內容（每個檔案與結果，沒有密碼）；報告不取代任何檔案、名稱被用時編號、資料夾不在時是錯誤。
   - `saving.rs`：`place_new` 不取代已有的檔案。
-  - `documents.rs`（真的 worker）：四個檔案裡有一個加密的、一個損毀的，另外兩個做好，原檔不變，沒有臨時檔；再做一次時名稱加上 (2)；一開始就停止則全部略過；加密的副本要密碼才打得開，也打得開。
+  - `documents.rs`（真的 worker）：四個檔案裡有一個加密的、一個損毀的，另外兩個做好，原檔不變，沒有臨時檔；再做一次時名稱加上 (2)；一開始就停止則全部略過；加密的副本要密碼才打得開，也打得開；清除 EXIF 時照片的副本沒有相機與作者、能開啟，有簽章的文件失敗，另一個檔案只少了圖片的 XMP（文件的中繼資料還在）。
   - `file_dialog.rs`：選檔對話框可以多選，不加入最近使用的項目。
-- 前端：`Batch.test.tsx`（選單、兩種操作、密碼只送一次且不留、進度與每個檔案的結果、停止、關閉系統對話框、無法開始），`App.test.tsx`（批次進行時第一個文件在起始畫面上開啟，對話框與進度都還在），axe。
-- E2E（`tests/e2e/batch.spec.ts`，真正的 app，系統對話框以 UI Automation 回答）：三個檔案（其中一個加密）清除中繼資料；加密兩個檔案；**十個檔案（九個各要約 1.5 秒）做到一半關閉視窗**：視窗隱藏、程式還在，批次做完後資料夾有報告（每個檔案的結果）、跳出訊息，按掉後程式結束，九份副本都在；**再啟動一次程式就把視窗顯示出來**：關閉的動作取消，對話框繼續顯示、做完後說結果，程式不結束，沒有報告。
+- 前端：`Batch.test.tsx`（選單、三種操作、清除 EXIF 的說明、密碼只送一次且不留、進度與每個檔案的結果、停止、關閉系統對話框、無法開始），`App.test.tsx`（批次進行時第一個文件在起始畫面上開啟，對話框與進度都還在），axe。
+- E2E（`tests/e2e/batch.spec.ts`，真正的 app，系統對話框以 UI Automation 回答）：三個檔案（其中一個加密）清除中繼資料；加密兩個檔案；照片與有簽章的檔案清除 EXIF（照片的副本沒有相機、作者與縮圖，簽章檔失敗，原檔不變）；**十個檔案（九個各要約 1.5 秒）做到一半關閉視窗**：視窗隱藏、程式還在，批次做完後資料夾有報告（每個檔案的結果）、跳出訊息，按掉後程式結束，九份副本都在；**再啟動一次程式就把視窗顯示出來**：關閉的動作取消，對話框繼續顯示、做完後說結果，程式不結束，沒有報告。
+- fuzz：`exif_clean`（任意的 PDF 位元組跑整個流程，見 [fuzzing.md](../security/fuzzing.md)）。
 
 ## 已知限制
 
-- 浮水印與 EXIF 清除是別的 PR（見上）。
+- 浮水印是別的 PR（見上）。
+- 清除 EXIF 不處理的部分見上方「清除圖片的 EXIF」。
 - 視窗隱藏時，程式只有圖示與批次：不能開新文件（要開就先顯示視窗）。
 - 結束時的訊息是 Windows 的訊息方塊，不是系統通知（那要再加一個外掛與權限）；它沒有擁有者視窗，Windows 的前景限制可能讓它出現在別的視窗後面、工作列閃爍。
 - 有密碼的 PDF 一律略過。

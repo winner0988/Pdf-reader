@@ -15,10 +15,10 @@ use crate::types::{
     BatchArgs, BatchOperation, CompressArgs, DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs,
     ExportFormat, FindingKind, FormField, IpcError, LinkTarget, OcrLanguages, OcrProgress,
     OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
-    Point, PrepareTextBoxArgs, Quad, RecentFile, Rect, RemoveLanguageArgs, RenderPageArgs,
-    Restrictions, Rotation, SearchArgs, SearchHit, SecurityReport, SensitiveArgs, SensitiveFile,
-    Settings, SignatureInfo, SignatureReport, SignatureStatus, TextBoxInfo, TextBoxStyle, TextLine,
-    UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
+    Point, PrepareTextBoxArgs, Quad, RecentFile, Rect, RedactionSummary, RemoveLanguageArgs,
+    RenderPageArgs, Restrictions, Rotation, SearchArgs, SearchHit, SecurityReport, SensitiveArgs,
+    SensitiveFile, Settings, SignatureInfo, SignatureReport, SignatureStatus, TextBoxInfo,
+    TextBoxStyle, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
     OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerError, WorkerErrorCode, WorkerResponse,
@@ -422,6 +422,7 @@ impl Validate for WorkerResponse {
             }
             WorkerResponse::PageText { text, .. } => text.validate(),
             WorkerResponse::Signatures { report, .. } => report.validate(),
+            WorkerResponse::RedactionSummary { summary, .. } => summary.validate(),
             WorkerResponse::TextBoxPrepared { model, .. } => model.validate(),
             WorkerResponse::TextBox { info, .. } => info.validate(),
             WorkerResponse::StampImage {
@@ -467,6 +468,24 @@ impl Validate for WorkerResponse {
                 if *changed > *images || *images > MAX_IMAGES_PER_DOCUMENT {
                     return Err(ValidationError::OutOfRange {
                         what: "compressed picture count",
+                    });
+                }
+                Ok(())
+            }
+            WorkerResponse::ExifCleaned {
+                bytes,
+                pictures,
+                cleaned,
+                ..
+            } => {
+                if *bytes == 0 || *bytes > MAX_DOCUMENT_BYTES {
+                    return Err(ValidationError::OutOfRange {
+                        what: "cleaned copy size",
+                    });
+                }
+                if *cleaned > *pictures || *pictures > MAX_IMAGES_PER_DOCUMENT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "cleaned picture count",
                     });
                 }
                 Ok(())
@@ -677,7 +696,7 @@ impl Validate for Watermark {
 impl Validate for BatchArgs {
     fn validate(&self) -> Result<(), ValidationError> {
         match &self.operation {
-            BatchOperation::RemoveMetadata => Ok(()),
+            BatchOperation::RemoveMetadata | BatchOperation::RemoveExif => Ok(()),
             BatchOperation::Encrypt {
                 open_password,
                 permissions_password,
@@ -1012,7 +1031,31 @@ impl Validate for Edit {
                 check_annotated_page(*page)?;
                 check_angle(*degrees)
             }
+            Edit::AddRedaction { page, rect } => {
+                check_annotated_page(*page)?;
+                check_annotation_rect(rect)
+            }
+            Edit::ApplyRedactions => Ok(()),
         }
+    }
+}
+
+/// What applying the redaction marks would do (B2-19): no more marks than a document's pages can
+/// list, nor more pages than a document has, nor more of the others than the marks' pages list.
+impl Validate for RedactionSummary {
+    fn validate(&self) -> Result<(), ValidationError> {
+        let per_page = u64::from(MAX_ANNOTATIONS_PER_PAGE) * u64::from(MAX_PAGE_COUNT);
+        if self.pages > MAX_PAGE_COUNT
+            || self.pages > self.marks
+            || u64::from(self.marks) > per_page
+            || u64::from(self.annotations) > per_page
+            || u64::from(self.fields) > u64::from(MAX_FIELDS_PER_PAGE) * u64::from(MAX_PAGE_COUNT)
+        {
+            return Err(ValidationError::OutOfRange {
+                what: "redaction summary",
+            });
+        }
+        Ok(())
     }
 }
 
@@ -2131,6 +2174,7 @@ mod tests {
             operation,
         };
         assert!(batch(BatchOperation::RemoveMetadata).validate().is_ok());
+        assert!(batch(BatchOperation::RemoveExif).validate().is_ok());
         // The rules of one encrypted copy, for each file of a batch.
         for (open, permissions, restrictions, ok) in [
             (password("open"), None, [false; 3], true),
@@ -3073,6 +3117,38 @@ mod tests {
         };
         assert!(on_page(MAX_PAGE_COUNT).validate().is_err());
 
+        // A redaction mark (B2-19) is an area like a stamp's; applying takes nothing.
+        let mark = |rect: Rect| Edit::AddRedaction { page: 0, rect };
+        let area = |x0: f32, y0: f32, x1: f32, y1: f32| Rect { x0, y0, x1, y1 };
+        assert!(mark(area(60.0, 120.0, 330.0, 150.0)).validate().is_ok());
+        for wrong in [
+            area(60.0, 150.0, 330.0, 120.0),
+            area(60.0, 120.0, 60.0 + MIN_ANNOTATION_SIDE_PT / 2.0, 150.0),
+            area(f32::NAN, 120.0, 330.0, 150.0),
+            area(60.0, 120.0, f32::INFINITY, 150.0),
+        ] {
+            assert!(mark(wrong).validate().is_err(), "{wrong:?}");
+        }
+        assert!(
+            Edit::AddRedaction {
+                page: MAX_PAGE_COUNT,
+                rect: area(60.0, 120.0, 330.0, 150.0),
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(Edit::ApplyRedactions.validate().is_ok());
+        assert_eq!(
+            serde_json::from_str::<Edit>(r#"{"kind":"applyRedactions"}"#).unwrap(),
+            Edit::ApplyRedactions
+        );
+        assert!(
+            serde_json::from_str::<Edit>(
+                r#"{"kind":"addRedaction","page":0,"rect":{"x0":1,"y0":2,"x1":30,"y1":40}}"#
+            )
+            .is_ok()
+        );
+
         let side = MIN_ANNOTATION_SIDE_PT;
         let rect = |x0: f32, y0: f32, x1: f32, y1: f32| Rect { x0, y0, x1, y1 };
         let stamp = |rect: Rect| Edit::AddStamp {
@@ -3369,6 +3445,29 @@ mod tests {
     }
 
     #[test]
+    fn a_redaction_summary_counts_what_a_document_can_have() {
+        use crate::types::RedactionSummary;
+        let summary = |marks: u32, pages: u32, annotations: u32, fields: u32| RedactionSummary {
+            marks,
+            pages,
+            annotations,
+            fields,
+        };
+        assert!(summary(0, 0, 0, 0).validate().is_ok());
+        assert!(summary(3, 2, 1, 1).validate().is_ok());
+        // More pages with marks than marks, or than a document has; counts beyond any document.
+        for wrong in [
+            summary(1, 2, 0, 0),
+            summary(u32::MAX, MAX_PAGE_COUNT + 1, 0, 0),
+            summary(u32::MAX, 1, 0, 0),
+            summary(1, 1, u32::MAX, 0),
+            summary(1, 1, 0, u32::MAX),
+        ] {
+            assert!(wrong.validate().is_err(), "{wrong:?}");
+        }
+    }
+
+    #[test]
     fn the_sensitive_mark_takes_a_password_only_as_an_unlock_one_and_nothing_else() {
         use crate::types::{SensitiveArgs, SensitiveFile, SensitiveId};
         let args = |password: Option<&str>| SensitiveArgs {
@@ -3481,6 +3580,7 @@ mod tests {
             request: RequestId(1),
             bytes,
             incremental: false,
+            redaction: None,
         };
         let created = |bytes: u64, pages: u32| WorkerResponse::Created {
             request: RequestId(1),
@@ -3495,6 +3595,22 @@ mod tests {
         assert!(saved(1_234).validate().is_ok());
         assert!(saved(0).validate().is_err());
         assert!(saved(MAX_DOCUMENT_BYTES + 1).validate().is_err());
+        let cleaned = |bytes: u64, pictures: u32, cleaned: u32| WorkerResponse::ExifCleaned {
+            request: RequestId(1),
+            bytes,
+            pictures,
+            cleaned,
+        };
+        assert!(cleaned(1_234, 3, 2).validate().is_ok());
+        assert!(cleaned(1_234, 0, 0).validate().is_ok());
+        assert!(cleaned(0, 3, 2).validate().is_err());
+        assert!(cleaned(MAX_DOCUMENT_BYTES + 1, 3, 2).validate().is_err());
+        assert!(cleaned(1_234, 2, 3).validate().is_err());
+        assert!(
+            cleaned(1_234, MAX_IMAGES_PER_DOCUMENT + 1, 0)
+                .validate()
+                .is_err()
+        );
     }
 
     #[test]

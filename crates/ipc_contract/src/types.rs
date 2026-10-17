@@ -160,6 +160,10 @@ pub enum BatchOperation {
         permissions_password: Option<Password>,
         restrictions: Restrictions,
     },
+    /// A copy whose pictures carry nothing but themselves: what a camera or a program wrote into
+    /// them (EXIF with the camera, the time and the place, XMP, IPTC, comments, thumbnails) is
+    /// taken out without encoding them again, so they look the same.
+    RemoveExif,
 }
 
 /// Arguments of `run_batch` (B3-04): what to do, never to which files or where; the main process
@@ -555,6 +559,31 @@ pub enum Edit {
     /// Turns the form into the page content it draws: no field can be filled in afterwards
     /// (B2-09).
     FlattenForm,
+    /// Marks `rect` (page space) of page `page` to be redacted (B2-19, ADR 0016): a `Redact`
+    /// annotation, which shows the area and can be moved, resized and removed like the other
+    /// annotations. Nothing is removed until `ApplyRedactions`.
+    AddRedaction { page: u32, rect: Rect },
+    /// Applies every redaction mark of the document (B2-19, ADR 0016): what each area reaches is
+    /// removed from its page (text, seen or not and in form objects too; the pixels of pictures;
+    /// the vector graphics it touches) and a black box drawn there; the other annotations and
+    /// form fields that reach into an area are deleted; the marks go. Refused for a signed
+    /// document. It can be undone until the document is saved (ADR 0013).
+    ApplyRedactions,
+}
+
+/// What applying the redaction marks of a document would do besides removing what their areas
+/// reach (B2-19, ADR 0016): the confirmation says it before anything is removed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RedactionSummary {
+    /// The marks, on all the pages.
+    pub marks: u32,
+    /// The pages that have marks.
+    pub pages: u32,
+    /// The other annotations (notes, highlights, drawings…) that reach into an area: deleted.
+    pub annotations: u32,
+    /// The form fields that reach into an area: deleted, with their values.
+    pub fields: u32,
 }
 
 /// A form field of an open document: the number of its widget in the document, which stays the
@@ -703,6 +732,9 @@ pub enum AnnotationKind {
     /// A text box the app made (`FreeText` with the app's own entry, B2-28): it can be removed;
     /// moving, resizing and changing it follow (B2-29).
     TextBox,
+    /// A redaction mark (`Redact`, B2-19, ADR 0016): what its area reaches is removed when the
+    /// marks are applied; until then it can be moved, resized and removed.
+    Redaction,
     /// Any other kind (a comment box, a shape): it can only be removed.
     Other,
 }
@@ -779,6 +811,20 @@ pub struct SaveResult {
     /// Appended to the file instead of rewriting it, to keep its signatures valid: content that
     /// was removed may still be in the file.
     pub incremental: bool,
+    /// What reading the written file again found, when redactions were applied since the
+    /// document was last saved (B2-20, ADR 0016); otherwise `null`.
+    pub redaction: Option<RedactionCheck>,
+}
+
+/// What the document's worker found when it read the file it had just written again, after
+/// redactions were applied (B2-20, ADR 0016). It checks text only: pictures and vector graphics
+/// rest on the options redaction is applied with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RedactionCheck {
+    /// Redacted areas that still have text in the written file, and removed words that the
+    /// file's text still has anywhere: 0 when the redaction holds ("已遮蔽並驗證").
+    pub places: u32,
 }
 
 /// How hard the pictures of a compressed copy are squeezed (B3-01,
@@ -1651,6 +1697,9 @@ pub enum ErrorCode {
     /// Windows' Credential Manager cannot be used (B2-25, ADR 0017): forgetting or counting the
     /// remembered passwords failed.
     CredentialsUnavailable,
+    /// A picture of the document is stored in a way its metadata (EXIF) cannot be taken out of
+    /// without changing it (B3-04): no copy was made.
+    PictureNotCleaned,
     Internal,
 }
 
