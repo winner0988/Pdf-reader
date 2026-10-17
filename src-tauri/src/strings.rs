@@ -124,6 +124,7 @@ pub fn batch_report_folder(folder: &str) -> String {
 pub fn batch_operation_name(operation: &BatchOperation) -> &'static str {
     match operation {
         BatchOperation::RemoveMetadata => "清除中繼資料",
+        BatchOperation::RemoveExif => "清除圖片的 EXIF",
         BatchOperation::Encrypt { .. } => "加密",
     }
 }
