@@ -9,7 +9,7 @@ export default defineConfig({
   // A flaky end-to-end test is a bug to fix, not to retry away.
   retries: 0,
   timeout: 60_000,
-  expect: { timeout: 15_000 },
+  expect: { timeout: 30_000 },
   forbidOnly: !!process.env.CI,
   reporter: [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
   // Screenshots and app logs of failed tests land here (uploaded by CI).

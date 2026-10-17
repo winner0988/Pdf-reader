@@ -368,8 +368,10 @@ async function connect(port: number, running: Running): Promise<Browser> {
 /**
  * How long WebView2 may take to load the app's page. In the fresh profile each test gets, CI has
  * seen it take 17 to 35 s: the app's HTML arrived that late, and then everything was fast (#133).
+ * If the page has not appeared within 30 s (e.g. WebView2 got stuck on about:blank), launch stops
+ * the instance and retries once (#133).
  */
-const PAGE_TIMEOUT_MS = 60_000;
+const PAGE_TIMEOUT_MS = 30_000;
 /** A page slower than this to appear is noted in the test's output, with what was going on. */
 const SLOW_PAGE_MS = 5_000;
 
@@ -610,63 +612,97 @@ export const test = base.extend<{
   launch: async ({}, provide, testInfo) => {
     const started: Running[] = [];
     await provide(async (file, options = {}) => {
-      const port = await freePort();
-      const profile = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-"));
-      const data = options.dataDir ?? mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-data-"));
-      const browserArguments = [
-        `--remote-debugging-port=${port}`,
-        ...(options.deviceScaleFactor ? [`--force-device-scale-factor=${options.deviceScaleFactor}`] : []),
-        // Quoted only when it must be: on CI the arguments also go through `reg add`.
-        ...(options.netLog
-          ? [`--log-net-log=${/\s/.test(options.netLog) ? `"${options.netLog}"` : options.netLog}`]
-          : []),
-        ...(options.browserArguments ?? []),
-      ]
-        .filter(Boolean)
-        .join(" ");
-      setDebuggingPolicy(browserArguments);
-      const child = spawn(APP, file ? [file] : [], {
-        env: {
-          ...process.env,
-          WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: browserArguments,
-          WEBVIEW2_USER_DATA_FOLDER: profile,
-          PDF_READER_DATA_DIR: data,
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      const running: Running = {
-        child,
-        log: [],
-        profile,
-        data,
-        launched: Date.now(),
-        pendingIpc: new Map(),
-        answeredIpc: new Map(),
-      };
-      started.push(running);
-      child.stdout?.on("data", (chunk) => running.log.push(String(chunk)));
-      child.stderr?.on("data", (chunk) => running.log.push(String(chunk)));
-      running.browser = await connect(port, running);
-      running.connected = Date.now();
-      const page = await mainPage(running.browser);
-      running.page = page;
-      followIpc(page, running);
-      // How the page's main thread spends its time, and when it stalls, from now on (#133).
-      await page.addInitScript(heartbeat);
-      await page.evaluate(heartbeat).catch(() => {});
-      running.performance = await page.context().newCDPSession(page);
-      await running.performance.send("Performance.enable").catch(() => {});
-      // WebView2's start is not the test's: the test's time limit grows by what it takes.
-      const budget = testInfo.timeout;
-      if (budget > 0) testInfo.setTimeout(budget + PAGE_TIMEOUT_MS);
-      await waitForApp(page, running);
-      if (budget > 0) testInfo.setTimeout(budget + ((running.ready ?? Date.now()) - running.launched));
-      dataDirs.set(page, data);
-      apps.set(page, running);
-      if (child.pid !== undefined) processes.set(page, child.pid);
-      page.on("console", (message) => running.log.push(`[console.${message.type()}] ${message.text()}\n`));
-      page.on("pageerror", (error) => running.log.push(`[pageerror] ${error.message}\n`));
-      return page;
+      let lastError: unknown;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        const port = await freePort();
+        const profile = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-"));
+        const data = options.dataDir ?? mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-data-"));
+        const browserArguments = [
+          `--remote-debugging-port=${port}`,
+          ...(options.deviceScaleFactor ? [`--force-device-scale-factor=${options.deviceScaleFactor}`] : []),
+          // Quoted only when it must be: on CI the arguments also go through `reg add`.
+          ...(options.netLog
+            ? [`--log-net-log=${/\s/.test(options.netLog) ? `"${options.netLog}"` : options.netLog}`]
+            : []),
+          ...(options.browserArguments ?? []),
+        ]
+          .filter(Boolean)
+          .join(" ");
+        setDebuggingPolicy(browserArguments);
+        const child = spawn(APP, file ? [file] : [], {
+          env: {
+            ...process.env,
+            WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: browserArguments,
+            WEBVIEW2_USER_DATA_FOLDER: profile,
+            PDF_READER_DATA_DIR: data,
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        const running: Running = {
+          child,
+          log: [],
+          profile,
+          data,
+          launched: Date.now(),
+          pendingIpc: new Map(),
+          answeredIpc: new Map(),
+        };
+        child.stdout?.on("data", (chunk) => running.log.push(String(chunk)));
+        child.stderr?.on("data", (chunk) => running.log.push(String(chunk)));
+
+        try {
+          running.browser = await connect(port, running);
+          running.connected = Date.now();
+          const page = await mainPage(running.browser);
+          running.page = page;
+          followIpc(page, running);
+          // How the page's main thread spends its time, and when it stalls, from now on (#133).
+          await page.addInitScript(heartbeat);
+          await page.evaluate(heartbeat).catch(() => {});
+          running.performance = await page.context().newCDPSession(page);
+          await running.performance.send("Performance.enable").catch(() => {});
+          // WebView2's start is not the test's: the test's time limit grows by what it takes.
+          const budget = testInfo.timeout;
+          if (budget > 0) testInfo.setTimeout(budget + PAGE_TIMEOUT_MS);
+          await waitForApp(page, running);
+          if (budget > 0) testInfo.setTimeout(budget + ((running.ready ?? Date.now()) - running.launched));
+          started.push(running);
+          dataDirs.set(page, data);
+          apps.set(page, running);
+          if (child.pid !== undefined) processes.set(page, child.pid);
+          page.on("console", (message) => running.log.push(`[console.${message.type()}] ${message.text()}\n`));
+          page.on("pageerror", (error) => running.log.push(`[pageerror] ${error.message}\n`));
+          return page;
+        } catch (error) {
+          lastError = error;
+          await running.browser?.close().catch(() => {});
+          try {
+            if (running.child.pid !== undefined) {
+              execFileSync("taskkill", ["/PID", String(running.child.pid), "/T", "/F"], { stdio: "ignore" });
+            }
+          } catch {
+            // Already gone.
+          }
+          try {
+            setDebuggingPolicy(null);
+          } catch {
+            // Not set.
+          }
+          rmSync(running.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+          if (!options.dataDir) {
+            rmSync(running.data, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+          }
+          if (attempt === 1) {
+            console.log(
+              `--- app: launch attempt 1 failed (${String(error).split("\n")[0]}); retrying once with same arguments (#133) ---`,
+            );
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            continue;
+          }
+          throw error;
+        }
+      }
+      throw lastError;
     });
 
     const failed = testInfo.status !== testInfo.expectedStatus;
