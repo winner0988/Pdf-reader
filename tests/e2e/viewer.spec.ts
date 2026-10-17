@@ -59,3 +59,36 @@ test("fitted pages leave no horizontal scroll bar at 150% display scaling (#83)"
   await page.getByRole("combobox", { name: strings.toolbar.zoomLevel }).selectOption("400");
   await expect.poll(scrollBarHeight).toBeGreaterThan(0);
 });
+
+test("the search bar does not overlap the banner and its buttons (#281)", async ({ launch }) => {
+  const page = await launch(corpus("malicious/openaction-js.pdf"));
+  await expect(page.getByRole("region", { name: strings.banner.label })).toBeVisible();
+
+  // Open the search bar.
+  await page.keyboard.press("Control+f");
+  const searchBar = page.getByRole("search", { name: strings.search.label });
+  await expect(searchBar).toBeVisible();
+
+  // The banner's details button and close button must not intersect with the search bar.
+  const banner = page.getByRole("region", { name: strings.banner.label });
+  const detailsButton = banner.getByRole("button", { name: strings.banner.details });
+  const dismissButton = banner.getByRole("button", { name: strings.banner.dismiss });
+
+  const searchBox = (await searchBar.boundingBox())!;
+  const detailsBox = (await detailsButton.boundingBox())!;
+  const dismissBox = (await dismissButton.boundingBox())!;
+
+  // The search bar must be positioned strictly below the banner buttons.
+  expect(searchBox.y).toBeGreaterThanOrEqual(detailsBox.y + detailsBox.height);
+  expect(searchBox.y).toBeGreaterThanOrEqual(dismissBox.y + dismissBox.height);
+
+  // The buttons must be clickable and not intercepted by the search bar.
+  await detailsButton.click();
+  await expect(page.getByText(strings.banner.detailsNote)).toBeVisible();
+
+  // The search bar must also not overlap the details panel's close button.
+  const detailsClose = page.getByRole("button", { name: strings.banner.detailsClose });
+  const detailsCloseBox = (await detailsClose.boundingBox())!;
+  expect(searchBox.x + searchBox.width).toBeLessThanOrEqual(detailsCloseBox.x);
+});
+
