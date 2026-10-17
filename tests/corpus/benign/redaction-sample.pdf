@@ -1,0 +1,69 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /Outlines 9 0 R /AcroForm << /Fields [6 0 R] /DA (/F1 0 Tf 0 g) >> >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> /XObject << /Im1 8 0 R >> >> /Contents 12 0 R /Annots [5 0 R 6 0 R 7 0 R] >>
+endobj
+5 0 obj
+<< /Type /Annot /Subtype /Text /Rect [100 645 120 665] /Contents (SECRET-ALPHA-123 in a note) /Name /Note /F 4 /P 4 0 R >>
+endobj
+6 0 obj
+<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /V (SECRET-ALPHA-123 in a field) /Rect [200 640 320 670] /F 4 /P 4 0 R /DA (/F1 12 Tf 0 g) >>
+endobj
+7 0 obj
+<< /Type /Annot /Subtype /Link /Rect [70 640 200 670] /A << /S /URI /URI (https://secret-alpha-123.example/) >> /F 4 >>
+endobj
+8 0 obj
+<< /Type /XObject /Subtype /Image /Width 4 /Height 4 /ColorSpace /DeviceGray /BitsPerComponent 8 /Length 16 >>
+stream
+@@@@@@@@@@@@@@@@
+endstream
+endobj
+9 0 obj
+<< /Type /Outlines /First 10 0 R /Last 10 0 R /Count 1 >>
+endobj
+10 0 obj
+<< /Title (SECRET-ALPHA-123 bookmark) /Parent 9 0 R /Dest [4 0 R /Fit] >>
+endobj
+11 0 obj
+<< /Title (SECRET-ALPHA-123 title) /Author (Jane Public) >>
+endobj
+12 0 obj
+<<  /Length 218 >>
+stream
+BT /F1 18 Tf 72 700 Td (Public line one) Tj ET
+BT /F1 18 Tf 72 650 Td (SECRET-ALPHA-123 inside) Tj ET
+BT /F1 18 Tf 72 600 Td (Public line two) Tj ET
+q 120 0 0 120 250 560 cm /Im1 Do Q
+0.1 0.3 0.9 rg 280 630 60 30 re f
+
+endstream
+endobj
+xref
+0 13
+0000000000 65535 f 
+0000000015 00000 n 
+0000000131 00000 n 
+0000000188 00000 n 
+0000000285 00000 n 
+0000000466 00000 n 
+0000000604 00000 n 
+0000000764 00000 n 
+0000000899 00000 n 
+0000001059 00000 n 
+0000001132 00000 n 
+0000001222 00000 n 
+0000001298 00000 n 
+trailer
+<< /Size 13 /Root 1 0 R /ID [<A4AA86A1E93879B52EBC678F69844604> <A4AA86A1E93879B52EBC678F69844604>] /Info 11 0 R >>
+startxref
+1569
+%%EOF

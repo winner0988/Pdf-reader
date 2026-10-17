@@ -260,6 +260,21 @@
       "sha256": "ed14d6c030f828ebc8d7a4fcc11748e56a5956f6e9a046929c983e9d4784be9f"
     },
     {
+      "path": "benign/redaction-sample.pdf",
+      "category": "benign",
+      "purpose": "A page with 'SECRET-ALPHA-123' in visible text, a sticky note, a text field, a link, a bookmark and the document title; an image and a vector rectangle reach into the area (ADR 0016, B2-22).",
+      "expected": "Opens; 1 page; redacting the secret removes the line, note, field and link without the secret string remaining; the bookmark and title stay outside the redaction area.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Public line one",
+        "SECRET-ALPHA-123 inside",
+        "Public line two"
+      ],
+      "bytes": 1984,
+      "sha256": "7c4da64a07624b130bbc81ac3b7c6061815939abdb61ff887cfd57defa7bbc7f"
+    },
+    {
       "path": "malicious/js-document-level.pdf",
       "category": "malicious",
       "purpose": "Document-level JavaScript in the names tree.",

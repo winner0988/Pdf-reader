@@ -393,13 +393,108 @@ fn marks_can_be_moved_and_removed_before_they_are_applied() {
 
 #[test]
 fn a_signed_document_is_neither_marked_nor_redacted() {
-    let signed = std::fs::read(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/corpus/benign/signed.pdf"),
-    )
-    .expect("corpus");
+    let signed = corpus_bytes("benign/signed.pdf");
     let mut doc = PdfDocument::from_bytes(&signed).expect("open");
     assert!(doc.add_redaction(0, AREA).is_err());
     assert!(doc.apply_redactions().is_err());
     assert!(doc.page_annotations(0).unwrap().is_empty());
+}
+
+fn corpus_bytes(name: &str) -> Vec<u8> {
+    std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/corpus")
+            .join(name),
+    )
+    .expect("corpus")
+}
+
+#[test]
+fn a_docmdp_signed_document_is_neither_marked_nor_redacted() {
+    let docmdp = corpus_bytes("benign/signed-docmdp-p1.pdf");
+    let mut doc = PdfDocument::from_bytes(&docmdp).expect("open");
+    assert!(doc.add_redaction(0, AREA).is_err());
+    assert!(doc.apply_redactions().is_err());
+    assert!(doc.page_annotations(0).unwrap().is_empty());
+}
+
+#[test]
+fn a_scanned_page_loses_its_pixels_in_the_redacted_area() {
+    let scan = corpus_bytes("benign/scanned-text.pdf");
+    let unmarked = PdfDocument::from_bytes(&scan).expect("open");
+    let rendered_unmarked = unmarked.render(0, 1.0, 0).expect("render");
+    drop(unmarked);
+
+    // In scanned-text.pdf (Letter size 612x792), "SECRET PAPER" is the second line (y: 200..260).
+    let secret_area = Rect {
+        x0: 40.0,
+        y0: 200.0,
+        x1: 350.0,
+        y1: 260.0,
+    };
+    let mut doc = marked(&scan, secret_area);
+    doc.apply_redactions().expect("apply");
+
+    // Inside the redacted area, the pixels are now covered by black box [0, 0, 0].
+    assert_eq!(pixel(&doc, 100, 220), [0, 0, 0]);
+
+    // Outside the redacted area (the first line "PRIVACY FIRST" at y=150), pixels are preserved.
+    let top_line_pixel = pixel(&doc, 100, 150);
+    let at_unmarked = (150 * rendered_unmarked.width as usize + 100) * 4;
+    assert_eq!(
+        top_line_pixel,
+        [
+            rendered_unmarked.rgba[at_unmarked],
+            rendered_unmarked.rgba[at_unmarked + 1],
+            rendered_unmarked.rgba[at_unmarked + 2]
+        ]
+    );
+
+    // When saved, the rewritten file re-opens and keeps the blacked out area.
+    let bytes = saved(&doc);
+    let again = PdfDocument::from_bytes(&bytes).expect("reopen");
+    assert_eq!(pixel(&again, 100, 220), [0, 0, 0]);
+}
+
+#[test]
+fn redaction_sample_from_corpus_has_all_elements_removed_except_out_of_scope() {
+    let sample_pdf = corpus_bytes("benign/redaction-sample.pdf");
+    let mut doc = marked(&sample_pdf, AREA);
+    assert_eq!(
+        doc.redaction_summary().expect("summary"),
+        RedactionSummary {
+            marks: 1,
+            pages: 1,
+            annotations: 1,
+            fields: 1,
+        }
+    );
+    doc.apply_redactions().expect("apply");
+    let text = text_of(&doc, 0);
+    assert!(!text.contains(SECRET), "{text}");
+    assert!(
+        text.contains("Public line one") && text.contains("Public line two"),
+        "{text}"
+    );
+    assert!(
+        doc.search_page(0, SECRET, false, 8)
+            .unwrap()
+            .hits
+            .is_empty()
+    );
+    assert!(doc.page_fields(0).unwrap().is_empty());
+
+    let bytes = saved(&doc);
+    for gone in [
+        "SECRET-ALPHA-123 inside",
+        "SECRET-ALPHA-123 in a note",
+        "SECRET-ALPHA-123 in a field",
+        "secret-alpha-123.example",
+    ] {
+        assert!(!has(&bytes, gone), "{gone} is still in the file");
+    }
+    // Out-of-scope items (bookmark and title) remain as specified in ADR 0016.
+    for kept in ["SECRET-ALPHA-123 bookmark", "SECRET-ALPHA-123 title"] {
+        assert!(has(&bytes, kept), "{kept}");
+    }
 }
