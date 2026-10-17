@@ -3,12 +3,20 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
+import type { BatchApi } from "@/features/batch/api";
 import type { OpenApi } from "@/features/open/api";
 import type { OutlineApi } from "@/features/outline/useOutline";
 import type { RenderApi } from "@/features/viewer/renderer";
 import { tabPanelId } from "@/features/tabs/model";
 import { strings } from "@/i18n/zh-TW";
-import { LIMITS, type DocumentInfo, type ErrorCode, type OpenEvent } from "@/ipc/generated/contract";
+import {
+  LIMITS,
+  type BatchEvent,
+  type BatchReport,
+  type DocumentInfo,
+  type ErrorCode,
+  type OpenEvent,
+} from "@/ipc/generated/contract";
 
 /** Stands in for the main process: records commands and pushes open events. */
 function fakeMainProcess() {
@@ -63,7 +71,7 @@ const idleRenderApi: RenderApi = {
   cancel: () => Promise.resolve(),
 };
 
-function renderApp() {
+function renderApp(batchApi?: BatchApi) {
   const main = fakeMainProcess();
   const outlineApi = {
     getOutline: vi.fn(() =>
@@ -73,7 +81,7 @@ function renderApp() {
       }),
     ),
   } satisfies OutlineApi;
-  render(<App api={main.api} renderApi={idleRenderApi} outlineApi={outlineApi} />);
+  render(<App api={main.api} renderApi={idleRenderApi} outlineApi={outlineApi} batchApi={batchApi} />);
   return { ...main, outlineApi, user: userEvent.setup() };
 }
 
@@ -297,5 +305,41 @@ describe("App", () => {
     push(opened(1, info(9, "a.pdf")));
     expect(screen.getByText(strings.sidebar.outlineEmpty)).toBeInTheDocument();
     expect(outlineApi.getOutline).not.toHaveBeenCalled();
+  });
+
+  it("keeps the batch dialog, and how the batch is going, when a document opens over the start screen", async () => {
+    // A batch goes on in the main process while the window is closed and shown again by a second
+    // launch that hands it a file (B3-04): the start screen gives way to the document's tab, and
+    // the dialog must not go with it.
+    let onEvent: (event: BatchEvent) => void = () => {};
+    let finish: (report: BatchReport | null) => void = () => {};
+    const batchApi = {
+      run: vi.fn<BatchApi["run"]>((_operation, handler) => {
+        onEvent = handler;
+        return { request: 7, done: new Promise<BatchReport | null>((resolve) => (finish = resolve)) };
+      }),
+      cancel: vi.fn<BatchApi["cancel"]>(() => Promise.resolve()),
+    } satisfies BatchApi;
+    const { push, user } = renderApp(batchApi);
+
+    await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    await user.click(await screen.findByRole("menuitem", { name: strings.menu.batch }));
+    const dialog = await screen.findByRole("dialog", { name: strings.batch.title });
+    await user.click(within(dialog).getByRole("button", { name: strings.batch.start }));
+    act(() => onEvent({ kind: "started", files: ["a.pdf", "b.pdf"] }));
+    act(() => onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "a（隱私匯出）.pdf" } }));
+
+    push(opening(1, "c.pdf"));
+    push(opened(1, info(9, "c.pdf")));
+    // Behind the modal dialog, so out of the accessibility tree: asked for as hidden.
+    expect(screen.getByRole("tab", { name: /c\.pdf/, hidden: true })).toBeInTheDocument();
+    // The same dialog, with what it knew, and what comes next.
+    const still = screen.getByRole("dialog", { name: strings.batch.title });
+    expect(within(still).getByRole("list", { name: strings.batch.filesLabel })).toHaveTextContent(
+      strings.batch.done("a（隱私匯出）.pdf"),
+    );
+    act(() => onEvent({ kind: "file", index: 1, outcome: { kind: "done", output: "b（隱私匯出）.pdf" } }));
+    await act(async () => finish({ done: 2, failed: 0, skipped: 0 }));
+    expect(within(still).getByRole("status")).toHaveTextContent(strings.batch.summary(2, 0, 0));
   });
 });

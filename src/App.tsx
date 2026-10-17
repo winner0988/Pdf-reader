@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { tauriBatchApi, type BatchApi } from "@/features/batch/api";
+import { BatchHost } from "@/features/batch/BatchHost";
 import { tauriCreateApi, type CreateApi } from "@/features/create/api";
 import { tauriExportApi, type ExportApi } from "@/features/export/api";
 import { tauriOpenApi, type OpenApi } from "@/features/open/api";
@@ -145,99 +146,99 @@ export default function App({
 
   return (
     <SettingsProvider api={settingsApi}>
-      <div className="flex h-screen flex-col">
-        {state.tabs.length > 0 && !demo && (
-          <TabBar
-            tabs={state.tabs}
-            active={state.active}
-            onActivate={tabs.activate}
-            onClose={requestClose}
-            onOpen={open}
-          />
-        )}
-        <div className="min-h-0 flex-1">
-          {state.tabs.length === 0 || demo ? (
-            <ReaderShell
-              state={demo ?? { kind: "empty" }}
-              dropActive={state.dragActive}
-              renderer={renderer}
-              systemApi={systemApi}
-              recentApi={demo ? undefined : recentApi}
-              updatesApi={demo ? undefined : updatesApi}
-              ocrApi={demo ? undefined : ocrApi}
-              passwordsApi={demo ? undefined : api}
-              batchApi={demo ? undefined : batchApi}
-              createApi={demo ? undefined : createApi}
-              sensitiveApi={demo ? undefined : sensitiveApi}
+      <BatchHost api={demo ? undefined : batchApi}>
+        <div className="flex h-screen flex-col">
+          {state.tabs.length > 0 && !demo && (
+            <TabBar
+              tabs={state.tabs}
+              active={state.active}
+              onActivate={tabs.activate}
+              onClose={requestClose}
               onOpen={open}
-              onClose={() => setDemo(null)}
             />
-          ) : (
-            state.tabs.map((tab) => (
-              <TabPane
-                key={tab.tab}
-                tab={tab}
-                active={tab.tab === state.active}
+          )}
+          <div className="min-h-0 flex-1">
+            {state.tabs.length === 0 || demo ? (
+              <ReaderShell
+                state={demo ?? { kind: "empty" }}
                 dropActive={state.dragActive}
                 renderer={renderer}
-                outlineApi={outlineApi}
-                searchApi={searchApi}
-                linksApi={linksApi}
-                textApi={textApi}
-                annotationsApi={annotationsApi}
-                formsApi={formsApi}
-                signaturesApi={signaturesApi}
                 systemApi={systemApi}
-                recentApi={recentApi}
-                exportApi={exportApi}
-                savingApi={savingApi}
-                batchApi={batchApi}
-                createApi={createApi}
-                sensitiveApi={sensitiveApi}
-                editingApi={editingApi}
-                updatesApi={updatesApi}
-                ocrApi={ocrApi}
-                passwordsApi={api}
-                ocr={ocr.state.get(tab.tab)}
-                fieldEdits={fieldEdits}
-                latestInfo={tabs.latestInfo}
+                recentApi={demo ? undefined : recentApi}
+                updatesApi={demo ? undefined : updatesApi}
+                ocrApi={demo ? undefined : ocrApi}
+                passwordsApi={demo ? undefined : api}
+                createApi={demo ? undefined : createApi}
+                sensitiveApi={demo ? undefined : sensitiveApi}
                 onOpen={open}
-                onClose={requestClose}
-                onRetry={tabs.retry}
-                onUnlock={tabs.unlock}
-                onForgetPassword={tabs.forgetPassword}
+                onClose={() => setDemo(null)}
               />
-            ))
-          )}
+            ) : (
+              state.tabs.map((tab) => (
+                <TabPane
+                  key={tab.tab}
+                  tab={tab}
+                  active={tab.tab === state.active}
+                  dropActive={state.dragActive}
+                  renderer={renderer}
+                  outlineApi={outlineApi}
+                  searchApi={searchApi}
+                  linksApi={linksApi}
+                  textApi={textApi}
+                  annotationsApi={annotationsApi}
+                  formsApi={formsApi}
+                  signaturesApi={signaturesApi}
+                  systemApi={systemApi}
+                  recentApi={recentApi}
+                  exportApi={exportApi}
+                  savingApi={savingApi}
+                  createApi={createApi}
+                  sensitiveApi={sensitiveApi}
+                  editingApi={editingApi}
+                  updatesApi={updatesApi}
+                  ocrApi={ocrApi}
+                  passwordsApi={api}
+                  ocr={ocr.state.get(tab.tab)}
+                  fieldEdits={fieldEdits}
+                  latestInfo={tabs.latestInfo}
+                  onOpen={open}
+                  onClose={requestClose}
+                  onRetry={tabs.retry}
+                  onUnlock={tabs.unlock}
+                  onForgetPassword={tabs.forgetPassword}
+                />
+              ))
+            )}
+          </div>
+          {state.notice && <OpenNotice notice={state.notice} onDismiss={tabs.dismissNotice} />}
+          <UnsavedDialog
+            names={closingTab ? [closingTab.displayName] : null}
+            onSave={async () => {
+              if (!closingTab) return;
+              await saveAll([closingTab]);
+              tabs.close(closingTab.tab);
+              setClosing(null);
+            }}
+            onDiscard={() => {
+              if (closingTab) tabs.close(closingTab.tab);
+              setClosing(null);
+            }}
+            onCancel={() => setClosing(null)}
+          />
+          <UnsavedDialog
+            names={closeRequest.length > 0 ? closeRequest.map((tab) => tab.displayName) : null}
+            onSave={async () => {
+              await saveAll(closeRequest);
+              await savingApi.closeWindow(false);
+            }}
+            onDiscard={() => {
+              savingApi.closeWindow(true).catch(() => {});
+            }}
+            onCancel={tabs.dismissCloseRequest}
+          />
+          {import.meta.env.DEV && <DevDemoSwitcher onChange={setDemo} />}
         </div>
-        {state.notice && <OpenNotice notice={state.notice} onDismiss={tabs.dismissNotice} />}
-        <UnsavedDialog
-          names={closingTab ? [closingTab.displayName] : null}
-          onSave={async () => {
-            if (!closingTab) return;
-            await saveAll([closingTab]);
-            tabs.close(closingTab.tab);
-            setClosing(null);
-          }}
-          onDiscard={() => {
-            if (closingTab) tabs.close(closingTab.tab);
-            setClosing(null);
-          }}
-          onCancel={() => setClosing(null)}
-        />
-        <UnsavedDialog
-          names={closeRequest.length > 0 ? closeRequest.map((tab) => tab.displayName) : null}
-          onSave={async () => {
-            await saveAll(closeRequest);
-            await savingApi.closeWindow(false);
-          }}
-          onDiscard={() => {
-            savingApi.closeWindow(true).catch(() => {});
-          }}
-          onCancel={tabs.dismissCloseRequest}
-        />
-        {import.meta.env.DEV && <DevDemoSwitcher onChange={setDemo} />}
-      </div>
+      </BatchHost>
     </SettingsProvider>
   );
 }
@@ -258,7 +259,6 @@ type TabPaneProps = {
   recentApi: RecentApi;
   exportApi: ExportApi;
   savingApi: SavingApi;
-  batchApi: BatchApi;
   createApi: CreateApi;
   sensitiveApi: SensitiveApi;
   editingApi: EditingApi;

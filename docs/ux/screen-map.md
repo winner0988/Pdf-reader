@@ -217,6 +217,7 @@
 
 ### 批次處理（B3-04）
 
+- 批次進行中關閉視窗：視窗隱藏、系統列出現圖示（提示 batch tray 文字，選單「顯示視窗」「停止批次處理」），批次做完後在資料夾寫報告、跳出訊息方塊（標題「批次處理完成」）、按「確定」後程式結束；見 [batch.md](../architecture/batch.md)「背景執行」。
 - 「⋯」→「批次處理…」（在「加密並另存新檔…」之後），沒有開啟文件時也能用。示範資料（沒有主行程）時停用。做法見 [batch.md](../architecture/batch.md)。
 - **對話框**：batch.description；「要做的事」三個選項：batch.removeMetadata（預設）、batch.removeExif、batch.encrypt。選清除 EXIF 時下方出現 batch.exifNote。選加密時出現與「加密並另存新檔」相同的欄位（開啟密碼、限制、權限密碼，各輸入兩次），規則與提示也相同；有問題時「選擇檔案並開始…」停用，狀態列說明。下方列出 batch.notes。
 - **選擇檔案並開始…**：主行程依序顯示系統的開啟對話框（可多選 PDF，標題 BATCH_FILES_DIALOG_TITLE）與資料夾對話框（BATCH_FOLDER_DIALOG_TITLE）。關閉任一個時回到這個對話框，可以再試。
@@ -921,7 +922,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | batch.removeMetadata／batch.encrypt | 清除中繼資料（與「隱私匯出」相同）／加密（AES-256，與「加密並另存新檔」相同） |
 | batch.removeExif | 清除圖片的 EXIF（相機、拍攝時間與地點等） |
 | batch.exifNote | 只清除圖片裡的資訊：相機型號、拍攝時間、GPS 位置、縮圖與其他程式寫進去的說明。圖片不重新編碼，看起來完全一樣。文件本身的中繼資料（作者、標題等）不在其中，請另外用「清除中繼資料」。 |
-| batch.notes(limit) | 一次最多 <limit> 個檔案，一個接一個處理；一個失敗不影響其他的。／有密碼的 PDF 會略過：批次處理不詢問密碼。／處理中請不要關閉視窗：關閉會停止批次處理。 |
+| batch.notes(limit) | 一次最多 <limit> 個檔案，一個接一個處理；一個失敗不影響其他的。／有密碼的 PDF 會略過：批次處理不詢問密碼。／處理中可以關閉視窗：批次處理會在系統列繼續，做完後跳出結果、在資料夾留一份報告，然後程式結束。 |
 | batch.start／batch.cancel／batch.stop／batch.close | 選擇檔案並開始…／取消／停止／完成 |
 | batch.filesLabel | 檔案 |
 | batch.running(done, total) | 正在處理…（<done>／<total>） |
@@ -935,6 +936,13 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | batch.failed | 無法開始批次處理，請再試一次。 |
 | BATCH_FILES_DIALOG_TITLE（主行程） | 選擇要批次處理的 PDF 檔案 |
 | BATCH_FOLDER_DIALOG_TITLE（主行程） | 選擇存放批次處理結果的資料夾 |
+| batch_tray_tooltip(done, total)（主行程，系統列圖示） | PDF Reader：批次處理中（<done>／<total>），完成後就會結束 |
+| BATCH_TRAY_SHOW／BATCH_TRAY_STOP（主行程，圖示的選單） | 顯示視窗／停止批次處理 |
+| BATCH_DONE_TITLE（主行程，訊息方塊） | 批次處理完成 |
+| batch_done_message(summary, report)（主行程） | <完成 N 個，失敗 N 個，略過 N 個。>＋空一行＋每個檔案的結果寫在：<報告的路徑>（報告寫不進資料夾時：報告無法寫進資料夾。） |
+| BATCH_REPORT_FILE_NAME（主行程） | 批次處理報告.txt |
+| BATCH_REPORT_TITLE／batch_report_operation／batch_report_folder／BATCH_NOT_DONE（主行程，寫在報告中） | PDF Reader 批次處理報告／要做的事：<清除中繼資料或加密>／資料夾：<路徑>／沒有處理 |
+| batch_outcome(outcome)（主行程，報告每個檔案的結果） | 完成：<副本檔名>／失敗：<原因，與 batch.reasons 相同的說法>／略過（已停止） |
 
 ### 從檔案建立 PDF（B3-03）
 

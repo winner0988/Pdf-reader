@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { BatchApi } from "@/features/batch/api";
+import { BatchHost } from "@/features/batch/BatchHost";
 import { describeOutcome, reasonFor } from "@/features/batch/messages";
 import { demoDocument } from "@/features/shell/demo";
 import type { ShellState } from "@/features/shell/model";
@@ -39,7 +40,11 @@ function fakeBatchApi() {
 function renderShell(api?: BatchApi) {
   const state: ShellState = { kind: "open", document: { ...demoDocument, doc: 5 } };
   const user = userEvent.setup();
-  render(<ReaderShell state={state} onOpen={vi.fn()} loadingDelayMs={0} batchApi={api} />);
+  render(
+    <BatchHost api={api}>
+      <ReaderShell state={state} onOpen={vi.fn()} loadingDelayMs={0} />
+    </BatchHost>,
+  );
   return { user };
 }
 

@@ -5,6 +5,7 @@ compile_error!(
     "PDF Reader supports Windows only for now (ADR 0007): the worker sandbox is Windows-specific."
 );
 
+mod background;
 mod batch;
 mod cli;
 mod clipboard;
@@ -41,6 +42,7 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, Manager};
 
+use crate::background::Background;
 use crate::batch::Batches;
 use crate::documents::Documents;
 use crate::events::OpenEvents;
@@ -95,6 +97,7 @@ pub fn run() {
         .manage(Searches::default())
         .manage(Exports::default())
         .manage(Batches::default())
+        .manage(Background::default())
         .manage(fonts::Fonts::default())
         .invoke_handler(tauri::generate_handler![
             commands::subscribe_open_events,
@@ -265,10 +268,8 @@ impl ocr::Tabs for OcrTabs {
     }
 }
 
-/// Brings the window to the front, e.g. after a second launch handed it a file.
+/// Brings the window to the front, e.g. after a second launch handed it a file: shown again too,
+/// when it was hidden while a batch goes on (B3-04).
 fn show_window(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-    }
+    background::show_window(app);
 }

@@ -2,6 +2,7 @@
 //! Paths never cross into the WebView: the dialog runs here, and results arrive as
 //! [`OpenEvent`]s carrying only a `TabId`, a `DocumentId` and a file name.
 
+use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,6 +24,7 @@ use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
 
+use crate::background;
 use crate::batch::{self, Batches};
 use crate::clipboard;
 use crate::create_pdf;
@@ -1131,16 +1133,31 @@ pub async fn run_batch(
     let report = blocking(move || {
         let batches = app.state::<Batches>();
         let running = batches.start(args.request);
-        Ok(batch::run(
+        // For the notification area icon and the report, if the window is closed meanwhile.
+        let record = RefCell::new(background::Record::default());
+        let report = batch::run(
             &app.state::<Documents>(),
             &files,
             &folder,
             &args.operation,
             running.stop(),
             &|event| {
+                record.borrow_mut().hear(&event);
+                background::progress(&app, &record);
                 let _ = on_event.send(event);
             },
-        ))
+        );
+        drop(running);
+        background::batch_ended(
+            &app,
+            background::Ended {
+                operation: strings::batch_operation_name(&args.operation),
+                folder,
+                record: record.into_inner(),
+                report,
+            },
+        );
+        Ok(report)
     })
     .await?;
     Ok(Some(report))
@@ -1384,6 +1401,11 @@ pub async fn close_window(
             message: "documents have unsaved changes".to_owned(),
         });
     }
+    // While a batch runs, the window is only hidden, and closes when the batch is done (B3-04,
+    // ADR 0005): the changes are kept until then, for the user may show it again.
+    if background::hide_while_batching(&app, discard) {
+        return Ok(());
+    }
     // The changes are discarded: nothing is left to recover them from (B2-13).
     documents.discard_unsaved();
     // Unlike `close`, `destroy` does not ask again (see `on_window_event`).
@@ -1425,6 +1447,7 @@ fn close_if_unanswered(window: Window) {
                 .state::<Documents>()
                 .unsaved_tabs()
                 .is_empty()
+            && !background::hide_while_batching(window.app_handle(), false)
         {
             // `destroy`, not `close`: `close` would ask again (see `on_window_event`).
             let _ = window.destroy();
