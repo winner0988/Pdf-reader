@@ -472,6 +472,24 @@ impl Validate for WorkerResponse {
                 }
                 Ok(())
             }
+            WorkerResponse::ExifCleaned {
+                bytes,
+                pictures,
+                cleaned,
+                ..
+            } => {
+                if *bytes == 0 || *bytes > MAX_DOCUMENT_BYTES {
+                    return Err(ValidationError::OutOfRange {
+                        what: "cleaned copy size",
+                    });
+                }
+                if *cleaned > *pictures || *pictures > MAX_IMAGES_PER_DOCUMENT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "cleaned picture count",
+                    });
+                }
+                Ok(())
+            }
             WorkerResponse::Created { bytes, pages, .. } => {
                 if *bytes == 0 || *bytes > MAX_DOCUMENT_BYTES {
                     return Err(ValidationError::OutOfRange {
@@ -678,7 +696,7 @@ impl Validate for Watermark {
 impl Validate for BatchArgs {
     fn validate(&self) -> Result<(), ValidationError> {
         match &self.operation {
-            BatchOperation::RemoveMetadata => Ok(()),
+            BatchOperation::RemoveMetadata | BatchOperation::RemoveExif => Ok(()),
             BatchOperation::Encrypt {
                 open_password,
                 permissions_password,
@@ -2156,6 +2174,7 @@ mod tests {
             operation,
         };
         assert!(batch(BatchOperation::RemoveMetadata).validate().is_ok());
+        assert!(batch(BatchOperation::RemoveExif).validate().is_ok());
         // The rules of one encrypted copy, for each file of a batch.
         for (open, permissions, restrictions, ok) in [
             (password("open"), None, [false; 3], true),
@@ -3576,6 +3595,22 @@ mod tests {
         assert!(saved(1_234).validate().is_ok());
         assert!(saved(0).validate().is_err());
         assert!(saved(MAX_DOCUMENT_BYTES + 1).validate().is_err());
+        let cleaned = |bytes: u64, pictures: u32, cleaned: u32| WorkerResponse::ExifCleaned {
+            request: RequestId(1),
+            bytes,
+            pictures,
+            cleaned,
+        };
+        assert!(cleaned(1_234, 3, 2).validate().is_ok());
+        assert!(cleaned(1_234, 0, 0).validate().is_ok());
+        assert!(cleaned(0, 3, 2).validate().is_err());
+        assert!(cleaned(MAX_DOCUMENT_BYTES + 1, 3, 2).validate().is_err());
+        assert!(cleaned(1_234, 2, 3).validate().is_err());
+        assert!(
+            cleaned(1_234, MAX_IMAGES_PER_DOCUMENT + 1, 0)
+                .validate()
+                .is_err()
+        );
     }
 
     #[test]

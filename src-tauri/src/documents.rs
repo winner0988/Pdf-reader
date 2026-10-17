@@ -1250,9 +1250,12 @@ impl Documents {
                     *restrictions,
                 )
             }
+            BatchOperation::RemoveExif => host.exif_clean_copy(doc, temporary.file()),
         }
         .map_err(|error| ipc_error(&error))?;
-        let WorkerResponse::Saved { bytes, .. } = response else {
+        let (WorkerResponse::Saved { bytes, .. } | WorkerResponse::ExifCleaned { bytes, .. }) =
+            response
+        else {
             return Err(unexpected("a batch copy"));
         };
         temporary.check(bytes)?;
@@ -6377,6 +6380,63 @@ mod with_worker {
         assert!(*asked.borrow());
         let (_, info) = unlocked(&documents, &copy);
         assert_eq!(info.pages.len(), 10);
+        std::fs::remove_dir_all(&out).ok();
+    }
+
+    #[test]
+    fn a_batch_takes_out_what_cameras_wrote_into_the_pictures_and_keeps_the_rest() {
+        use ipc_contract::types::{BatchEvent, BatchOutcome};
+
+        let documents = Documents::new(worker());
+        let out = batch_folder("exif");
+        let files = [
+            corpus_path("benign/photo-exif.pdf"),
+            corpus_path("benign/signed.pdf"),
+            corpus_path("benign/metadata-full.pdf"),
+        ];
+        let (report, events) =
+            run_batch(&documents, &files, &out, &BatchOperation::RemoveExif, false);
+        assert_eq!((report.done, report.failed), (2, 1));
+        // A signed document's pictures cannot change: its signatures would not hold.
+        assert!(events.contains(&BatchEvent::File {
+            index: 1,
+            outcome: BatchOutcome::Failed {
+                error: ErrorCode::InvalidArgument
+            }
+        }));
+        assert_eq!(
+            names_in(&out),
+            [
+                "metadata-full（已清除 EXIF）.pdf",
+                "photo-exif（已清除 EXIF）.pdf"
+            ]
+        );
+        let has = |bytes: &[u8], needle: &[u8]| {
+            bytes.windows(needle.len()).any(|window| window == needle)
+        };
+        let photo = std::fs::read(out.join("photo-exif（已清除 EXIF）.pdf")).unwrap();
+        for private in [&b"Canon"[..], b"Exif", b"Jane Q. Private-Author"] {
+            assert!(
+                !has(&photo, private),
+                "{}",
+                String::from_utf8_lossy(private)
+            );
+        }
+        // The same page, opened as a document.
+        let info = open_in(&documents, &out.join("photo-exif（已清除 EXIF）.pdf"));
+        assert_eq!(info.pages.len(), 1);
+        // Only the pictures': the document's own metadata is the privacy export's (B2-03), and
+        // stays. The picture of that sample loses its XMP.
+        let metadata = std::fs::read(out.join("metadata-full（已清除 EXIF）.pdf")).unwrap();
+        assert!(has(&metadata, b"SecretWriter 9.1"));
+        assert_eq!(
+            metadata
+                .windows(b"<x:xmpmeta".len())
+                .filter(|window| window == b"<x:xmpmeta")
+                .count(),
+            2,
+            "the catalog's and the page's XMP stay, the picture's goes"
+        );
         std::fs::remove_dir_all(&out).ok();
     }
 

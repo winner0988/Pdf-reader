@@ -154,7 +154,7 @@ diagonal: boolean, place: WatermarkPlace, pages: WatermarkPages, };
  * What a batch does to each of its files (B3-04, ADR 0005, docs/architecture/batch.md): a copy of
  * each is written to the folder the user chooses; no file is changed.
  */
-export type BatchOperation = { "kind": "removeMetadata" } | { "kind": "encrypt", openPassword: Password | null, permissionsPassword: Password | null, restrictions: Restrictions, };
+export type BatchOperation = { "kind": "removeMetadata" } | { "kind": "encrypt", openPassword: Password | null, permissionsPassword: Password | null, restrictions: Restrictions, } | { "kind": "removeExif" };
 
 /**
  * Arguments of `run_batch` (B3-04): what to do, never to which files or where; the main process
@@ -1058,7 +1058,7 @@ edges: Array<number>, };
 /**
  * Error codes the frontend maps to localized messages.
  */
-export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "signed" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "credentialsUnavailable" | "internal";
+export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "signed" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "credentialsUnavailable" | "pictureNotCleaned" | "internal";
 
 /**
  * Rejection value of every command. `message` is for logs and must not contain paths or

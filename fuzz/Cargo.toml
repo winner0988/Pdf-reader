@@ -62,3 +62,10 @@ path = "fuzz_targets/create_pdf.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "exif_clean"
+path = "fuzz_targets/exif_clean.rs"
+test = false
+doc = false
+bench = false

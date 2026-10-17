@@ -45,6 +45,11 @@ pub const COMPRESSED_COPY_DIALOG_TITLE: &str = "壓縮圖片並另存新檔：�
 pub fn compressed_copy_file_name(stem: &str) -> String {
     format!("{stem}（已壓縮）.pdf")
 }
+
+/// The name of a batch's copy whose pictures' metadata was taken out (B3-04).
+pub fn exif_cleaned_file_name(stem: &str) -> String {
+    format!("{stem}（已清除 EXIF）.pdf")
+}
 pub const COMPRESSED_COPY_SAME_FILE_TITLE: &str = "請選擇其他檔案";
 pub const COMPRESSED_COPY_SAME_FILE_MESSAGE: &str =
     "壓縮會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";

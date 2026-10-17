@@ -73,6 +73,7 @@ export const strings = {
       fontMissingGlyphs: "這個字型沒有文字中的某些字，請選擇另一個字型。",
       textNotSupported: "文字含有目前無法排版的文字（例如阿拉伯文、希伯來文、印度系文字），請移除這些字。",
       credentialsUnavailable: "無法使用 Windows 認證管理員，請稍後再試。",
+      pictureNotCleaned: "有一張圖片的儲存方式無法安全清除它的 EXIF，所以沒有建立副本。",
       internal: "發生未預期的錯誤。",
     } satisfies Record<ErrorCode, string>,
   },
@@ -481,6 +482,9 @@ export const strings = {
     operation: "要做的事",
     removeMetadata: "清除中繼資料（與「隱私匯出」相同）",
     encrypt: "加密（AES-256，與「加密並另存新檔」相同）",
+    removeExif: "清除圖片的 EXIF（相機、拍攝時間與地點等）",
+    exifNote:
+      "只清除圖片裡的資訊：相機型號、拍攝時間、GPS 位置、縮圖與其他程式寫進去的說明。圖片不重新編碼，看起來完全一樣。文件本身的中繼資料（作者、標題等）不在其中，請另外用「清除中繼資料」。",
     notes: (limit: number) => [
       `一次最多 ${limit} 個檔案，一個接一個處理；一個失敗不影響其他的。`,
       "有密碼的 PDF 會略過：批次處理不詢問密碼。",
@@ -504,7 +508,7 @@ export const strings = {
     /** Why a file failed, for the codes that mean something here; any other code has its general text. */
     reasons: {
       encrypted: "有密碼的檔案，批次處理不詢問密碼",
-      invalidArgument: "這個檔案不能這樣處理，例如有數位簽章的文件不能加密",
+      invalidArgument: "這個檔案不能這樣處理，例如有數位簽章的文件不能加密或清除 EXIF（簽章會失效）",
       notPdf: "不是 PDF 檔案",
       corrupted: "檔案已損毀",
     } as Partial<Record<ErrorCode, string>>,

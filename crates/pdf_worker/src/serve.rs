@@ -389,6 +389,16 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => compressed_copy(document, request, file, quality, max_side),
             }),
+            WorkerRequest::ExifCleanCopy { request, doc, file } => {
+                Some(match documents.get(&doc) {
+                    None => error(
+                        request,
+                        WorkerErrorCode::UnknownDocument,
+                        "unknown document",
+                    ),
+                    Some(document) => exif_clean_copy(document, request, file),
+                })
+            }
             WorkerRequest::EncryptedCopy {
                 request,
                 doc,
@@ -873,6 +883,27 @@ fn compressed_copy(
     }
 }
 
+/// Writes the copy of `document` whose pictures carry nothing but themselves (B3-04) to `file`, a
+/// handle like `save`'s.
+fn exif_clean_copy(document: &PdfDocument, request: RequestId, file: FileHandle) -> WorkerResponse {
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match document.exif_clean_copy(&mut file) {
+        Ok(copy) => WorkerResponse::ExifCleaned {
+            request,
+            bytes: copy.bytes,
+            pictures: copy.pictures,
+            cleaned: copy.cleaned,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
 fn privacy_copy(
     document: &PdfDocument,
     request: RequestId,
@@ -1116,6 +1147,7 @@ fn engine_error(
         EngineError::NotAllowed(_) => WorkerErrorCode::NotAllowed,
         EngineError::Font(refusal) => WorkerErrorCode::Font(*refusal),
         EngineError::UnsupportedText => WorkerErrorCode::UnsupportedText,
+        EngineError::PictureNotCleaned => WorkerErrorCode::PictureNotCleaned,
         EngineError::InvalidScale
         | EngineError::InvalidRotation
         | EngineError::InvalidEdit(_)

@@ -194,6 +194,19 @@
       "sha256": "fb2d0f4f78ca55aab5cd12b145302609f31ebe8461fa00a869e75a972f051c30"
     },
     {
+      "path": "benign/photo-exif.pdf",
+      "category": "benign",
+      "purpose": "A page with a photograph stored as the JPEG it is (/DCTDecode), carrying what a camera and the programs after it wrote: EXIF with the camera 'Canon EOS 5D Mark IV', the time '2023:07:04 12:34:56' and a GPS position, XMP and IPTC naming 'Jane Q. Private-Author', a comment, a JFIF thumbnail, a Multi-Picture index and a second picture after the end of the first; the picture's dictionary has XMP of its own.",
+      "expected": "Opens like an ordinary document. The batch's copy without EXIF (B3-04) draws the same page and has none of 'Canon', '2023:07:04 12:34:56', 'Jane Q. Private-Author', 'Exif' or the thumbnail.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Photo sample: the picture carries what the camera wrote"
+      ],
+      "bytes": 3464,
+      "sha256": "4595b8a45c695c74fc1e036188be69b12b31e2ae72c5dd2181c115f5cfc4ae60"
+    },
+    {
       "path": "benign/form-fields.pdf",
       "category": "benign",
       "purpose": "One page with a text field with a value, a multi-line one, one with a 5-character limit, a read-only and a required one, a check box, a radio group of three, a combo box and a list box; no script.",

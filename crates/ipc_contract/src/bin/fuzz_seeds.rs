@@ -419,6 +419,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             changed: 5,
             partial: false,
         },
+        WorkerResponse::ExifCleaned {
+            request,
+            bytes: 4096,
+            pictures: 3,
+            cleaned: 2,
+        },
         WorkerResponse::Created {
             request,
             bytes: 8192,
@@ -475,6 +481,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             error: WorkerError {
                 code: WorkerErrorCode::UnsupportedText,
                 detail: "a script that a text box cannot set".to_owned(),
+                password_key: None,
+            },
+        },
+        WorkerResponse::Error {
+            request: Some(request),
+            error: WorkerError {
+                code: WorkerErrorCode::PictureNotCleaned,
+                detail: "a picture's metadata cannot be taken out of it".to_owned(),
                 password_key: None,
             },
         },
@@ -874,6 +888,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             file: FileHandle(0x1f8),
             quality: ImageQuality::Low,
             max_side: None,
+        },
+        WorkerRequest::ExifCleanCopy {
+            request,
+            doc,
+            file: FileHandle(0x1f8),
         },
         WorkerRequest::WatermarkCopy {
             request,

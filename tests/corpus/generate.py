@@ -1493,6 +1493,53 @@ def stamp_png_huge() -> bytes:
     ])
 
 
+# --------------------------------------------------------------------------- a photograph (B3-04)
+# A JPEG goes into a PDF as the file it is, and so does what a camera and the programs after it
+# wrote into it. The batch's copy without EXIF must keep the picture and lose all of that.
+
+PHOTO_TEXT = "Photo sample: the picture carries what the camera wrote"
+PHOTO_THUMBNAIL = b"Uncropped thumbnail data"
+PHOTO_COMMENT = f"Taken by {PRIVATE_AUTHOR_NAME}"
+
+
+def photo_jpeg() -> bytes:
+    """The stamp picture as a camera and the programs after it leave it: a JFIF header with a
+    thumbnail, EXIF (make, model, time, GPS), XMP naming the author with a GPS position, a
+    Multi-Picture index, IPTC naming the author, a comment, and a second picture (with EXIF of its
+    own) after the end of the first."""
+    jpeg = dc_only_jpeg(64, 32, stamp_picture)
+    assert len(PHOTO_THUMBNAIL) == 8 * 1 * 3
+    jfif = jpeg_segment(0xE0, b"JFIF\x00\x01\x01\x01\x00\x48\x00\x48\x08\x01" + PHOTO_THUMBNAIL)
+    xmp = jpeg_segment(0xE1, b"http://ns.adobe.com/xap/1.0/\x00" + xmp_packet(PRIVATE_AUTHOR_NAME, PRIVATE_MODEL))
+    mpf = jpeg_segment(0xE2, b"MPF\x00MM\x00*\x00\x00\x00\x08\x00\x00")
+    author = PRIVATE_AUTHOR_NAME.encode()
+    iptc = b"\x1c\x02\x50" + struct.pack(">H", len(author)) + author
+    iptc += b"\x00" * (len(iptc) % 2)
+    photoshop = jpeg_segment(0xED, b"Photoshop 3.0\x00" + b"8BIM" + struct.pack(">HHI", 0x0404, 0, len(iptc)) + iptc)
+    comment = jpeg_segment(0xFE, PHOTO_COMMENT.encode())
+    second = dc_only_jpeg(8, 8, stamp_picture)
+    second = second[:2] + exif_app1() + second[2:]
+    return jpeg[:2] + jfif + exif_app1() + xmp + mpf + photoshop + comment + jpeg[2:] + second
+
+
+def benign_photo_exif() -> bytes:
+    """A page with the photograph, stored as the JPEG it is (/DCTDecode), with XMP of its own."""
+    doc = Document("photo-exif")
+    doc.reserve_pages(1)
+    picture_xmp = doc.pdf.add_stream("/Type /Metadata /Subtype /XML", xmp_packet(PRIVATE_AUTHOR_NAME, PRIVATE_MODEL))
+    image = doc.pdf.add_stream(
+        "/Type /XObject /Subtype /Image /Width 64 /Height 32 /ColorSpace /DeviceRGB /BitsPerComponent 8"
+        f" /Filter /DCTDecode /Metadata {picture_xmp} 0 R",
+        photo_jpeg(),
+    )
+    doc.set_page(0, Page(
+        lines=[(72, 720, 16, PHOTO_TEXT)],
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+        extra_content=b"\nq 256 0 0 128 72 560 cm /Im1 Do Q\n",
+    ))
+    return doc.build()
+
+
 @dataclass
 class Sample:
     path: str
@@ -1561,6 +1608,14 @@ SAMPLES = [
            "a sticky note's author and dates.",
            "Opens like an ordinary document (B2-03). Its privacy export has none of these, a new /ID, and renders "
            f"the same; the bytes '{PRIVATE_AUTHOR}' appear nowhere in it.", 1, text=[METADATA_TEXT]),
+    Sample("benign/photo-exif.pdf", benign_photo_exif,
+           "A page with a photograph stored as the JPEG it is (/DCTDecode), carrying what a camera and the programs "
+           f"after it wrote: EXIF with the camera '{PRIVATE_MODEL}', the time '{PRIVATE_TIME}' and a GPS position, XMP "
+           f"and IPTC naming '{PRIVATE_AUTHOR_NAME}', a comment, a JFIF thumbnail, a Multi-Picture index and a second "
+           "picture after the end of the first; the picture's dictionary has XMP of its own.",
+           "Opens like an ordinary document. The batch's copy without EXIF (B3-04) draws the same page and has none "
+           f"of '{PRIVATE_MAKE}', '{PRIVATE_TIME}', '{PRIVATE_AUTHOR_NAME}', 'Exif' or the thumbnail.", 1,
+           text=[PHOTO_TEXT]),
     Sample("benign/form-fields.pdf", benign_form_fields,
            "One page with a text field with a value, a multi-line one, one with a 5-character limit, a read-only "
            "and a required one, a check box, a radio group of three, a combo box and a list box; no script.",
