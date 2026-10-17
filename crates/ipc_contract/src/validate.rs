@@ -13,15 +13,17 @@ use crate::ocr::is_language_name;
 use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text, is_note_text};
 use crate::types::{
     BatchArgs, BatchOperation, CompressArgs, DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs,
-    ExportFormat, FindingKind, FormField, IpcError, LinkTarget, OcrLanguages, OcrProgress,
-    OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
-    Point, PrepareTextBoxArgs, Quad, RecentFile, Rect, RedactionSummary, RemoveLanguageArgs,
-    RenderPageArgs, Restrictions, Rotation, SearchArgs, SearchHit, SecurityReport, SensitiveArgs,
-    SensitiveFile, Settings, SignatureInfo, SignatureReport, SignatureStatus, TextBoxInfo,
-    TextBoxStyle, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
+    ExportFormat, FindingKind, FontImport, FontInfo, FormField, IpcError, LinkTarget, OcrLanguages,
+    OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize,
+    PageText, Password, Point, PrepareTextBoxArgs, Quad, RecentFile, Rect, RedactionSummary,
+    RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation, SearchArgs,
+    SearchHit, SecurityReport, SensitiveArgs, SensitiveFile, Settings, SignatureInfo,
+    SignatureReport, SignatureStatus, TextBoxInfo, TextBoxStyle, TextLine, UndoArgs, UnlockArgs,
+    UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
-    OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerError, WorkerErrorCode, WorkerResponse,
+    InspectedFont, OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerError, WorkerErrorCode,
+    WorkerResponse,
 };
 
 /// Maximum length of the worker version string in `Hello`.
@@ -424,6 +426,16 @@ impl Validate for WorkerResponse {
             WorkerResponse::Signatures { report, .. } => report.validate(),
             WorkerResponse::RedactionSummary { summary, .. } => summary.validate(),
             WorkerResponse::TextBoxPrepared { model, .. } => model.validate(),
+            WorkerResponse::FontInspected { faces, .. } => {
+                if faces.is_empty() {
+                    return Err(ValidationError::Invalid {
+                        what: "inspected faces",
+                        reason: "no faces in font",
+                    });
+                }
+                check_count("inspected faces", faces.len(), 1000)?;
+                faces.iter().try_for_each(InspectedFont::validate)
+            }
             WorkerResponse::TextBox { info, .. } => info.validate(),
             WorkerResponse::StampImage {
                 png, width, height, ..
@@ -1152,6 +1164,65 @@ impl Validate for TextBoxInfo {
 impl Validate for PrepareTextBoxArgs {
     fn validate(&self) -> Result<(), ValidationError> {
         check_text_box_text(&self.text)
+    }
+}
+
+impl Validate for RemoveFontArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
+    }
+}
+
+impl Validate for FontInfo {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.name.is_empty() || self.name.len() >= MAX_FONT_NAME_BYTES {
+            return Err(ValidationError::Invalid {
+                what: "font name",
+                reason: "is empty or too long",
+            });
+        }
+        if self.family.is_empty() || self.family.len() >= MAX_FONT_NAME_BYTES {
+            return Err(ValidationError::Invalid {
+                what: "font family",
+                reason: "is empty or too long",
+            });
+        }
+        Ok(())
+    }
+}
+
+impl Validate for FontImport {
+    fn validate(&self) -> Result<(), ValidationError> {
+        match self {
+            FontImport::Imported { fonts } => {
+                check_count("imported fonts", fonts.len(), MAX_FONTS as u32)?;
+                fonts.iter().try_for_each(FontInfo::validate)
+            }
+            FontImport::Cancelled | FontImport::Refused { .. } => Ok(()),
+        }
+    }
+}
+
+impl Validate for InspectedFont {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.name.is_empty() || self.name.len() >= MAX_FONT_NAME_BYTES {
+            return Err(ValidationError::Invalid {
+                what: "font name",
+                reason: "is empty or too long",
+            });
+        }
+        if self.family.is_empty() || self.family.len() >= MAX_FONT_NAME_BYTES {
+            return Err(ValidationError::Invalid {
+                what: "font family",
+                reason: "is empty or too long",
+            });
+        }
+        if self.face > 1000 {
+            return Err(ValidationError::OutOfRange {
+                what: "font face index",
+            });
+        }
+        Ok(())
     }
 }
 

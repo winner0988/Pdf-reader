@@ -57,5 +57,22 @@
 - **fuzz**（`fuzz/fuzz_targets/text_box_font.rs`，見 [fuzzing.md](../security/fuzzing.md)）：字型的位元組經 `skrifa` 讀、`subsetter` 裁、放上頁面、渲染、存檔、重新開啟、搜尋的整條路；種子是 worker 附帶的 Droid Sans Fallback 與 runner 上的 TrueType 字型；每週 20 分鐘，修改相關檔案的 PR 跑 2 分鐘。
 - 為了不把字型放進 repo（AGENTS.md 原則 7），測試只用這台電腦與 CI 的 Windows 已有的字型；單元測試與整合測試用 worker 附帶的 Droid Sans Fallback（本來就在 repo 的相依套件裡）。
 
+## 匯入自訂字型（B2-32，#229）
+
+依 [ADR 0018](../adr/0018-text-boxes-and-fonts.md) 第二階段：使用者可以在「設定」的「自訂字型」區塊匯入自己擁有的 TrueType 字型檔（`.ttf`、`.ttc`），不受限於這台 Windows 電腦已安裝的字型。
+
+- **安全邊界與儲存**：
+  - 主行程只做粗檢（副檔名、檔案大小上限 64 MiB、TrueType / TTC 4 位元組標頭、最多匯入 50 個）；
+  - 字型的位元組交給沙盒內的 `pdf_worker` 執行 `InspectFont` 驗證；主行程不解析複雜字型結構（原則 4 引擎隔離）；
+  - worker 透過 `skrifa` 嚴格檢查輪廓為 TrueType（有 `glyf` 與 `loca`，拒絕 CFF）、不是可變字型（無 `fvar`）、不是彩色字型（無 `COLR`/`CBDT`/`sbix`/`SVG`）、授權不是受限（OS/2 `fsType` 不含受限嵌入 `0x0002`）、包含字元對映表與合法名稱。合法的字型抽取清理後的純文字名稱、家族與樣式；
+  - 驗證通過後，主行程以內容的 SHA-256 雜湊值為檔名原子存入 `%LOCALAPPDATA%\io.github.winner0988.pdfreader\fonts\`，並在 `metadata.json` 記錄原始檔名與顯示名稱；
+  - 相同的字型不會重複儲存；
+  - 前端與畫面永遠拿不到字型檔案路徑，只拿到不透明的 `FontId` 與 `FontSource::Imported`。
+- **使用與管理**：
+  - 文字方塊字型選單中，匯入的字型排在最前面，並標記「（已匯入）」（`importedBadge`）；
+  - 設定對話框中列出所有已匯入的字型，顯示原始檔名、字型家族與樣式，可個別移除或「清除全部…」（彈出確認對話框）；
+  - 移除已匯入的字型時，主行程同時刪除檔案與更新 `metadata.json`；如果目前開啟的文件中有文字方塊使用已被移除的字型，重新編輯時會被視為找不到該字型，提示使用者改選其他字型。
+
 ## 尚未實作
-已做：worker 的字型子集、排版與外觀、契約（B2-28，見 [text-box-engine.md](text-box-engine.md)）；`prepare_text_box`、模型庫、復原與日誌（B2-29 第一部分）。移動、縮放、改字與樣式（B2-29 第二部分）。搜尋與選取（B2-29 第三部分）。畫面與輸入法（B2-30）。端對端與 fuzz（B2-31）。尚未：匯入字型檔（B2-32）。
+已做：worker 的字型子集、排版與外觀、契約（B2-28，見 [text-box-engine.md](text-box-engine.md)）；`prepare_text_box`、模型庫、復原與日誌（B2-29 第一部分）。移動、縮放、改字與樣式（B2-29 第二部分）。搜尋與選取（B2-29 第三部分）。畫面與輸入法（B2-30）。端對端與 fuzz（B2-31）。匯入字型檔（B2-32，#229）。
+

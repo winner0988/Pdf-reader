@@ -129,6 +129,12 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-get-text-box", "B2-29: what a text box says of itself (words, font name, style), to fill in the dialog that changes it"],
   ["allow-prepare-text-box", "B2-29: the words of a text box, made into a small subset of a font by id (the page gets no path and no font bytes)"],
   [
+    "allow-import-font",
+    "B2-32: the main process asks for a .ttf/.ttc file, checks its header and size, the worker checks its TrueType outlines, and copies it into the app's data folder; the path stays there",
+  ],
+  ["allow-remove-font", "B2-32: remove an imported font by its id; the installed Windows fonts stay"],
+  ["allow-remove-all-fonts", "B2-32: remove all imported fonts from the app's data folder; the installed Windows fonts stay"],
+  [
     "allow-import-ocr-language",
     "B2-10: the main process asks for a .traineddata file, checks its name, size and format, and copies it into the app's data folder; the path stays there",
   ],

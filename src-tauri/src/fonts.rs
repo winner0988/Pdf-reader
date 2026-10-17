@@ -22,9 +22,11 @@ use std::path::{Component, Path, PathBuf, Prefix};
 use std::ptr::{null, null_mut};
 use std::sync::Mutex;
 
-use ipc_contract::limits::{MAX_FONT_BYTES, MAX_FONT_NAME_BYTES, MAX_FONTS};
+use ipc_contract::limits::{MAX_FONT_BYTES, MAX_FONT_NAME_BYTES, MAX_FONTS, MAX_IMPORTED_FONTS};
 use ipc_contract::text::clean_display_text;
-use ipc_contract::types::{FontId, FontInfo, FontSource};
+use ipc_contract::types::{ErrorCode, FontId, FontImportRefusal, FontInfo, FontSource};
+use ipc_contract::worker::InspectedFont;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use windows_sys::Win32::Foundation::{ERROR_MORE_DATA, ERROR_NO_MORE_ITEMS, ERROR_SUCCESS};
 use windows_sys::Win32::System::Registry::{
@@ -32,7 +34,13 @@ use windows_sys::Win32::System::Registry::{
     RegEnumValueW, RegOpenKeyExW,
 };
 
+use crate::documents::Documents;
+
 const FONTS_KEY: &str = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts";
+
+/// The folder of imported fonts, in the app's local data folder.
+pub const FOLDER_NAME: &str = "fonts";
+pub const METADATA_FILE: &str = "metadata.json";
 
 /// Which of the two keys a registration is from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +83,56 @@ pub enum FontError {
     TooLarge,
     /// The file could not be read.
     Unreadable,
+}
+
+/// Whether `bytes` start with a TrueType font, TrueType collection, or OpenType header.
+pub fn check_font_header(bytes: &[u8]) -> bool {
+    bytes.starts_with(&[0, 1, 0, 0])
+        || bytes.starts_with(b"true")
+        || bytes.starts_with(b"ttcf")
+        || bytes.starts_with(b"OTTO")
+}
+
+/// Whether `bytes` start with a header valid for importing (B2-32: 00 01 00 00, true, or ttcf).
+pub fn check_import_header(bytes: &[u8]) -> bool {
+    bytes.starts_with(&[0, 1, 0, 0]) || bytes.starts_with(b"true") || bytes.starts_with(b"ttcf")
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ImportedMetadata {
+    #[serde(default)]
+    fonts: Vec<ImportedFontRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ImportedFontRecord {
+    file: String,
+    hash: String,
+    faces: Vec<InspectedFont>,
+}
+
+fn read_metadata(folder: &Path) -> ImportedMetadata {
+    let path = folder.join(METADATA_FILE);
+    let Some(bytes) = crate::local_data::read(&path, 512 * 1024) else {
+        return ImportedMetadata::default();
+    };
+    serde_json::from_slice(&bytes).unwrap_or_default()
+}
+
+fn write_metadata(folder: &Path, metadata: &ImportedMetadata) {
+    let path = folder.join(METADATA_FILE);
+    if let Ok(bytes) = serde_json::to_vec_pretty(metadata) {
+        let _ = crate::local_data::write(&path, &bytes);
+    }
+}
+
+fn hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write;
+        let _ = write!(&mut out, "{byte:02x}");
+    }
+    out
 }
 
 /// What a name says of the font's style, and the rest of it: the family.
@@ -314,9 +372,15 @@ fn fonts_folder() -> PathBuf {
 }
 
 /// The fonts of the last list, to read the file of the one the user chooses.
-#[derive(Default)]
 pub struct Fonts {
+    imported_folder: Option<PathBuf>,
     listed: Mutex<Listed>,
+}
+
+impl Default for Fonts {
+    fn default() -> Self {
+        Self::new(None)
+    }
 }
 
 #[derive(Default)]
@@ -327,19 +391,207 @@ struct Listed {
 }
 
 impl Fonts {
-    /// The installed fonts, read from Windows every time: one installed a moment ago is in it.
+    pub fn new(imported_folder: Option<PathBuf>) -> Self {
+        Self {
+            imported_folder,
+            listed: Mutex::new(Listed::default()),
+        }
+    }
+
+    /// The installed and imported fonts. Read again every time, so that a font installed or
+    /// imported a moment ago is in it.
     pub fn list(&self) -> Vec<FontInfo> {
-        let fonts = list(&installed(), &fonts_folder());
+        let installed_fonts = list(&installed(), &fonts_folder());
+        let mut imported_fonts: Vec<(FontInfo, Located)> = Vec::new();
+        if let Some(folder) = &self.imported_folder {
+            let metadata = read_metadata(folder);
+            for record in metadata.fonts {
+                let path = folder.join(&record.file);
+                if !path.is_file() {
+                    continue;
+                }
+                let Ok(file) = std::fs::File::open(&path) else {
+                    continue;
+                };
+                let Ok(meta) = file.metadata() else {
+                    continue;
+                };
+                if meta.len() > MAX_FONT_BYTES as u64 || meta.len() < 12 {
+                    continue;
+                }
+                let mut header = [0u8; 12];
+                if file.take(12).read_exact(&mut header).is_err() || !check_import_header(&header) {
+                    continue;
+                }
+                for face in record.faces {
+                    let info = FontInfo {
+                        id: FontId(0),
+                        name: face.name,
+                        family: face.family,
+                        bold: face.bold,
+                        italic: face.italic,
+                        source: FontSource::Imported,
+                    };
+                    let located = Located {
+                        path: path.clone(),
+                        face: face.face,
+                    };
+                    imported_fonts.push((info, located));
+                }
+            }
+        }
+
+        // Imported fonts come first so if there is an installed font with the same name, the user's
+        // imported font takes precedence.
+        let mut all_fonts = Vec::with_capacity(imported_fonts.len() + installed_fonts.len());
+        all_fonts.extend(imported_fonts);
+        all_fonts.extend(installed_fonts);
+
+        let mut seen = std::collections::HashSet::new();
+        all_fonts.retain(|(info, _)| seen.insert(info.name.to_lowercase()));
+        all_fonts.truncate(MAX_FONTS);
+        all_fonts.sort_by_key(|(info, _)| {
+            (
+                info.family.to_lowercase(),
+                info.bold,
+                info.italic,
+                info.name.to_lowercase(),
+            )
+        });
+
+        let mut taken = std::collections::HashSet::new();
         let mut listed = self.lock();
         listed.located.clear();
         listed.names.clear();
-        let mut infos = Vec::with_capacity(fonts.len());
-        for (info, place) in fonts {
+        let mut infos = Vec::with_capacity(all_fonts.len());
+        for (mut info, place) in all_fonts {
+            info.id = id_of(&info.name, &place, &mut taken);
             listed.located.insert(info.id, place);
             listed.names.insert(info.id, info.name.clone());
             infos.push(info);
         }
         infos
+    }
+
+    /// Imports `source` into the app's data folder (B2-32, ADR 0018): checks extension, count,
+    /// size, header, and has the worker inspect it with `skrifa`. Copies it under its SHA-256
+    /// hash. Returns the updated font list.
+    pub fn import(
+        &self,
+        source: &Path,
+        documents: &Documents,
+    ) -> Result<Vec<FontInfo>, FontImportRefusal> {
+        let extension = source
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase())
+            .ok_or(FontImportRefusal::BadExtension)?;
+        if extension != "ttf" && extension != "ttc" {
+            return Err(FontImportRefusal::BadExtension);
+        }
+        let folder = self
+            .imported_folder
+            .as_ref()
+            .ok_or(FontImportRefusal::Unreadable)?;
+
+        let mut metadata = read_metadata(folder);
+        metadata
+            .fonts
+            .retain(|record| folder.join(&record.file).is_file());
+
+        let file = std::fs::File::open(source).map_err(|_| FontImportRefusal::Unreadable)?;
+        let length = file
+            .metadata()
+            .map_err(|_| FontImportRefusal::Unreadable)?
+            .len();
+        if length > MAX_FONT_BYTES as u64 {
+            return Err(FontImportRefusal::TooLarge);
+        }
+        let mut bytes = Vec::with_capacity(length as usize);
+        file.take(MAX_FONT_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| FontImportRefusal::Unreadable)?;
+        if bytes.len() > MAX_FONT_BYTES {
+            return Err(FontImportRefusal::TooLarge);
+        }
+        if bytes.len() < 12 {
+            return Err(FontImportRefusal::NotAFont);
+        }
+        if !check_import_header(&bytes) {
+            if bytes.starts_with(b"OTTO") {
+                return Err(FontImportRefusal::NotTrueType);
+            }
+            return Err(FontImportRefusal::NotAFont);
+        }
+
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        let hash = hex(&hasher.finalize());
+
+        let already_has = metadata.fonts.iter().any(|r| r.hash == hash);
+        if !already_has && metadata.fonts.len() >= MAX_IMPORTED_FONTS {
+            return Err(FontImportRefusal::TooMany);
+        }
+
+        let faces = documents
+            .inspect_font(&bytes)
+            .map_err(|error| match error.code {
+                ErrorCode::FontInvalid => FontImportRefusal::NotAFont,
+                ErrorCode::FontNotTrueType => FontImportRefusal::NotTrueType,
+                ErrorCode::FontVariable => FontImportRefusal::Variable,
+                ErrorCode::FontColour => FontImportRefusal::Colour,
+                ErrorCode::FontNotEmbeddable => FontImportRefusal::NotEmbeddable,
+                _ => FontImportRefusal::Unreadable,
+            })?;
+        if faces.is_empty() {
+            return Err(FontImportRefusal::NotAFont);
+        }
+
+        let file_name = format!("{hash}.{extension}");
+        let dest = folder.join(&file_name);
+        crate::local_data::write(&dest, &bytes).map_err(|_| FontImportRefusal::Unreadable)?;
+
+        metadata.fonts.retain(|r| r.hash != hash);
+        metadata.fonts.push(ImportedFontRecord {
+            file: file_name,
+            hash,
+            faces,
+        });
+        write_metadata(folder, &metadata);
+
+        Ok(self.list())
+    }
+
+    /// Removes an imported font by its `id` (B2-32): deletes the font file from the data folder
+    /// and updates metadata. Returns the updated font list.
+    pub fn remove(&self, id: FontId) -> Result<Vec<FontInfo>, ()> {
+        let Some(folder) = &self.imported_folder else {
+            return Err(());
+        };
+        let located = self.lock().located.get(&id).cloned().ok_or(())?;
+        if !located.path.starts_with(folder) {
+            return Err(());
+        }
+        let _ = std::fs::remove_file(&located.path);
+        let mut metadata = read_metadata(folder);
+        if let Some(file_name) = located.path.file_name().and_then(|f| f.to_str()) {
+            metadata.fonts.retain(|r| r.file != file_name);
+            write_metadata(folder, &metadata);
+        }
+        Ok(self.list())
+    }
+
+    /// Removes all imported fonts from the app's data folder (B2-32). Returns the updated font list.
+    pub fn remove_all(&self) -> Result<Vec<FontInfo>, ()> {
+        let Some(folder) = &self.imported_folder else {
+            return Err(());
+        };
+        let metadata = read_metadata(folder);
+        for record in metadata.fonts {
+            let _ = std::fs::remove_file(folder.join(record.file));
+        }
+        write_metadata(folder, &ImportedMetadata::default());
+        Ok(self.list())
     }
 
     /// The file of a font of the last list.
@@ -732,5 +984,180 @@ mod tests {
         );
         let names: Vec<_> = found.iter().map(|(info, _)| info.name.as_str()).collect();
         assert_eq!(names, ["Valid Disk Font"]);
+    }
+
+    #[test]
+    fn import_header_checks() {
+        assert!(check_import_header(&[0, 1, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7]));
+        assert!(check_import_header(b"true\0\0\0\0\0\0\0\0"));
+        assert!(check_import_header(b"ttcf\0\0\0\0\0\0\0\0"));
+        assert!(!check_import_header(b"OTTO\0\0\0\0\0\0\0\0"));
+        assert!(!check_import_header(b"wOFF\0\0\0\0\0\0\0\0"));
+        assert!(!check_import_header(b"bad header!!"));
+    }
+
+    #[test]
+    fn import_refuses_bad_extension_unreadable_and_too_large() {
+        let temp =
+            std::env::temp_dir().join(format!("pdf-reader-font-test-{}", std::process::id()));
+        let imported = temp.join("imported");
+        std::fs::create_dir_all(&imported).unwrap();
+        let fonts = Fonts::new(Some(imported.clone()));
+        let documents = Documents::new(PathBuf::from("dummy-worker.exe"));
+
+        // Bad extension (.otf or .txt)
+        let txt = temp.join("test.txt");
+        std::fs::write(&txt, b"hello").unwrap();
+        assert_eq!(
+            fonts.import(&txt, &documents),
+            Err(FontImportRefusal::BadExtension)
+        );
+
+        let otf = temp.join("test.otf");
+        std::fs::write(&otf, b"OTTO").unwrap();
+        assert_eq!(
+            fonts.import(&otf, &documents),
+            Err(FontImportRefusal::BadExtension)
+        );
+
+        // Missing file
+        let missing = temp.join("missing.ttf");
+        assert_eq!(
+            fonts.import(&missing, &documents),
+            Err(FontImportRefusal::Unreadable)
+        );
+
+        // Header check: starts with OTTO
+        let fake_otto = temp.join("fake_cff.ttf");
+        std::fs::write(&fake_otto, b"OTTO12345678").unwrap();
+        assert_eq!(
+            fonts.import(&fake_otto, &documents),
+            Err(FontImportRefusal::NotTrueType)
+        );
+
+        // Header check: random bytes
+        let fake_bad = temp.join("fake_bad.ttf");
+        std::fs::write(&fake_bad, b"badheader123").unwrap();
+        assert_eq!(
+            fonts.import(&fake_bad, &documents),
+            Err(FontImportRefusal::NotAFont)
+        );
+
+        // Too large
+        let big = temp.join("big.ttf");
+        let f = std::fs::File::create(&big).unwrap();
+        f.set_len(MAX_FONT_BYTES as u64 + 1).unwrap();
+        drop(f);
+        assert_eq!(
+            fonts.import(&big, &documents),
+            Err(FontImportRefusal::TooLarge)
+        );
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn metadata_round_trip_and_font_lifecycle() {
+        let temp =
+            std::env::temp_dir().join(format!("pdf-reader-font-lifecycle-{}", std::process::id()));
+        let imported = temp.join("imported");
+        std::fs::create_dir_all(&imported).unwrap();
+        let fonts = Fonts::new(Some(imported.clone()));
+
+        // Initially no imported fonts
+        let initial_metadata = read_metadata(&imported);
+        assert!(initial_metadata.fonts.is_empty());
+
+        // Write a fake imported font record
+        let record = ImportedFontRecord {
+            file: "fakehash.ttf".to_owned(),
+            hash: "fakehash".to_owned(),
+            faces: vec![InspectedFont {
+                face: 0,
+                name: "Custom Font".to_owned(),
+                family: "Custom Font".to_owned(),
+                bold: false,
+                italic: false,
+            }],
+        };
+        std::fs::write(
+            imported.join("fakehash.ttf"),
+            [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        )
+        .unwrap();
+        let metadata = ImportedMetadata {
+            fonts: vec![record],
+        };
+        write_metadata(&imported, &metadata);
+
+        let read_back = read_metadata(&imported);
+        assert_eq!(read_back.fonts.len(), 1);
+        assert_eq!(read_back.fonts[0].file, "fakehash.ttf");
+
+        // Listed fonts should include Custom Font with Source::Imported
+        let list = fonts.list();
+        let custom = list
+            .iter()
+            .find(|f| f.name == "Custom Font")
+            .expect("Custom Font in list");
+        assert_eq!(custom.source, FontSource::Imported);
+
+        // Remove by id
+        let after_remove = fonts.remove(custom.id).expect("remove succeeded");
+        assert!(after_remove.iter().all(|f| f.name != "Custom Font"));
+        assert!(!imported.join("fakehash.ttf").exists());
+
+        let meta_after = read_metadata(&imported);
+        assert!(meta_after.fonts.is_empty());
+
+        // Test remove_all
+        std::fs::write(
+            imported.join("fake1.ttf"),
+            [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        )
+        .unwrap();
+        std::fs::write(
+            imported.join("fake2.ttf"),
+            [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        )
+        .unwrap();
+        let multi_meta = ImportedMetadata {
+            fonts: vec![
+                ImportedFontRecord {
+                    file: "fake1.ttf".to_owned(),
+                    hash: "h1".to_owned(),
+                    faces: vec![InspectedFont {
+                        face: 0,
+                        name: "Font 1".to_owned(),
+                        family: "Font 1".to_owned(),
+                        bold: false,
+                        italic: false,
+                    }],
+                },
+                ImportedFontRecord {
+                    file: "fake2.ttf".to_owned(),
+                    hash: "h2".to_owned(),
+                    faces: vec![InspectedFont {
+                        face: 0,
+                        name: "Font 2".to_owned(),
+                        family: "Font 2".to_owned(),
+                        bold: false,
+                        italic: false,
+                    }],
+                },
+            ],
+        };
+        write_metadata(&imported, &multi_meta);
+        let list_multi = fonts.list();
+        assert!(list_multi.iter().any(|f| f.name == "Font 1"));
+        assert!(list_multi.iter().any(|f| f.name == "Font 2"));
+
+        fonts.remove_all().expect("remove all succeeded");
+        assert!(!imported.join("fake1.ttf").exists());
+        assert!(!imported.join("fake2.ttf").exists());
+        let meta_empty = read_metadata(&imported);
+        assert!(meta_empty.fonts.is_empty());
+
+        let _ = std::fs::remove_dir_all(&temp);
     }
 }

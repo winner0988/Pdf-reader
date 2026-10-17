@@ -98,7 +98,6 @@ pub fn run() {
         .manage(Exports::default())
         .manage(Batches::default())
         .manage(Background::default())
-        .manage(fonts::Fonts::default())
         .invoke_handler(tauri::generate_handler![
             commands::subscribe_open_events,
             commands::open_document_dialog,
@@ -159,6 +158,9 @@ pub fn run() {
             commands::get_fonts,
             commands::prepare_text_box,
             commands::get_text_box,
+            commands::import_font,
+            commands::remove_font,
+            commands::remove_all_fonts,
             commands::import_ocr_language,
             commands::remove_ocr_language,
             commands::start_ocr,
@@ -179,6 +181,9 @@ pub fn run() {
                 data.as_ref()
                     .map(|dir| dir.join(ocr_languages::FOLDER_NAME)),
             ))));
+            app.manage(fonts::Fonts::new(
+                data.as_ref().map(|dir| dir.join(fonts::FOLDER_NAME)),
+            ));
             app.manage(RecentFiles::new(
                 data.as_ref().map(|dir| dir.join(recent::FILE_NAME)),
             ));

@@ -326,3 +326,21 @@ fn a_text_box_is_read_moved_restyled_and_given_other_words_and_stays_the_same_an
         "and it stayed where it was put"
     );
 }
+
+#[test]
+fn a_font_inspected_through_the_worker_gives_its_faces_and_refuses_bad_fonts() {
+    let mut host = host();
+    let answer = host
+        .inspect_font(&droid().bytes)
+        .expect("inspect Droid font");
+    let WorkerResponse::FontInspected { faces, .. } = answer else {
+        panic!("unexpected response: {answer:?}");
+    };
+    assert_eq!(faces.len(), 1);
+    assert_eq!(faces[0].family, "Droid Sans Fallback");
+    assert_eq!(faces[0].name, "Droid Sans Fallback");
+    assert_eq!(faces[0].face, 0);
+
+    let bad = host.inspect_font(b"not a font");
+    assert_eq!(refusal(bad), WorkerErrorCode::Font(FontRefusal::NotAFont));
+}

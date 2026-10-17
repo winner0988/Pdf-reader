@@ -6,6 +6,7 @@ import type { OcrApi } from "@/features/ocr/api";
 import { OcrSection } from "@/features/ocr/OcrSection";
 import type { RecentApi } from "@/features/recent/api";
 import { SensitiveSection, type SensitiveListApi } from "@/features/sensitive/SensitiveSection";
+import { FontsSection, type FontsApi } from "@/features/settings/FontsSection";
 import { PasswordsSection, type PasswordsApi } from "@/features/settings/PasswordsSection";
 import type { UpdatesApi } from "@/features/settings/updates";
 import { UpdatesSection } from "@/features/settings/UpdatesSection";
@@ -22,6 +23,8 @@ type SettingsDialogProps = {
   updatesApi?: UpdatesApi;
   /** Recognising the text of scanned pages (B2-10); without it (demo data, tests) it is not shown. */
   ocrApi?: OcrApi;
+  /** Custom imported fonts for text boxes (B2-32); without it (demo data, tests) they are not shown. */
+  fontsApi?: FontsApi;
   /** The passwords the app remembers (B2-26); without it (demo data, tests) they are not shown. */
   passwordsApi?: PasswordsApi;
   /** The files marked as sensitive here (B3-05); without it (demo data, tests) they are not shown. */
@@ -41,6 +44,7 @@ export function SettingsDialog({
   recentApi,
   updatesApi,
   ocrApi,
+  fontsApi,
   passwordsApi,
   sensitiveApi,
 }: SettingsDialogProps) {
@@ -132,6 +136,8 @@ export function SettingsDialog({
         )}
 
         {ocrApi && <OcrSection api={ocrApi} />}
+
+        {fontsApi && <FontsSection api={fontsApi} />}
 
         {passwordsApi && <PasswordsSection api={passwordsApi} />}
 

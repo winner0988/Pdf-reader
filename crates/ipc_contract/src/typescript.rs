@@ -75,6 +75,9 @@ pub fn bindings() -> String {
         FontId,
         FontSource,
         FontInfo,
+        FontImportRefusal,
+        FontImport,
+        RemoveFontArgs,
         LanguageRefusal,
         LanguageImport,
         OcrRun,
@@ -156,7 +159,7 @@ pub fn bindings() -> String {
         OpenEvent,
     );
 
-    let limits: [(&str, String); 42] = [
+    let limits: [(&str, String); 43] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -204,6 +207,7 @@ pub fn bindings() -> String {
         ("maxFieldOptions", MAX_FIELD_OPTIONS.to_string()),
         ("maxLanguageDataBytes", MAX_LANGUAGE_DATA_BYTES.to_string()),
         ("maxImportedLanguages", MAX_IMPORTED_LANGUAGES.to_string()),
+        ("maxImportedFonts", MAX_IMPORTED_FONTS.to_string()),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];
     out.push_str(
