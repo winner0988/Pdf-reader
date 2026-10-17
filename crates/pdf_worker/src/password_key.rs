@@ -25,6 +25,10 @@ pub fn of(bytes: &[u8]) -> Option<PasswordKey> {
     let pdf = MuPdfDocument::try_from(document).ok()?;
     let trailer = pdf.trailer().ok()?;
     let encrypt = trailer.get_dict("Encrypt").ok()??;
+    let filter = encrypt.get_dict("Filter").ok()??;
+    if filter.as_name().ok()? != b"Standard" {
+        return None;
+    }
     let revision = encrypt.get_dict("R").ok()??.as_int().ok()?;
     let verifier = encrypt.get_dict("U").ok()??.as_bytes().ok()?;
     derive(revision, &verifier)
