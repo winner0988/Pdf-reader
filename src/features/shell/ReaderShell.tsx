@@ -1051,137 +1051,139 @@ export function ReaderShell({
                 }}
               />
             )}
-            <main
-              ref={canvasRef}
-              aria-label={strings.canvas.label}
-              data-region="canvas"
-              data-drop-active={dropActive || undefined}
-              // In the Tab order after the sidebar (docs/ux/screen-map.md), which also lets the
-              // keyboard scroll the page area when nothing in it can be focused.
-              tabIndex={0}
-              // The scroll bar's space is always kept: otherwise a fitted page just taller than the
-              // canvas makes the scroll bar appear, which narrows the canvas, which shrinks the page,
-              // which hides the scroll bar again, forever (#46).
-              className="relative min-h-0 flex-1 overflow-auto bg-muted outline-none [scrollbar-gutter:stable] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-primary data-drop-active:outline-2 data-drop-active:-outline-offset-4 data-drop-active:outline-primary data-drop-active:outline-dashed"
-              onPointerDown={() => {
-                // A floating sidebar closes when the user goes back to the page.
-                if (sidebarOpen && isNarrowWindow()) setSidebarOpen(false);
-              }}
-            >
-              {state.kind === "empty" && (
-                <EmptyState
-                  onOpen={onOpen}
-                  onCreate={createApi ? () => setDialog("create") : undefined}
-                  recent={recentApi}
-                />
-              )}
-              {state.kind === "loading" && (
-                <LoadingState displayName={state.displayName} delayMs={loadingDelayMs} />
-              )}
-              {state.kind === "password" && (
-                <PasswordState
-                  displayName={state.displayName}
-                  wrong={state.wrong}
-                  canRemember={state.canRemember}
-                  rememberedFailed={state.rememberedFailed}
-                  remember={rememberPassword}
-                  onRememberChange={setRememberPassword}
-                  onUnlock={(password, remember) => onUnlock?.(password, remember)}
-                  onCancel={() => onClose?.()}
-                />
-              )}
-              {state.kind === "error" && (
-                <ErrorState code={state.code} displayName={state.displayName} onOpen={onOpen} onRetry={onRetry} />
-              )}
-              {document_ && (
-                // Right-clicking the document shows the app's own menu, not the WebView's.
-                <ContextMenu>
-                  <ContextMenuTrigger
-                    className="min-h-full"
-                    onContextMenu={(event) => annotations.contextMenuAt(event.clientX, event.clientY)}
-                  >
-                    <DocumentView
-                      ref={viewRef}
-                      pages={document_.pages}
-                      zoom={zoom}
-                      rotation={rotation}
-                      scrollContainer={canvasRef}
-                      doc={document_.doc}
-                      renderer={renderer}
-                      onCurrentPageChange={setCurrentPage}
-                      onEffectiveZoomChange={setFitPercent}
-                      onZoomStep={(direction) => setZoom((z) => stepZoom(z, direction, fitPercent))}
-                      highlights={searchOpen && hits.length > 0 ? { hits, current } : undefined}
-                      links={linkSource}
-                      onLinkHover={setLinkHover}
-                      onLinkActivate={(link) => activateLink(link)}
-                      text={textSource}
-                      onSelectionChange={setTextSelected}
-                      onNoText={ocrView.noText}
-                      textVersions={ocrView.textVersions}
-                      onRecognised={ocrView.onRecognised}
-                      annotations={annotationSource}
-                      onAnnotationEdit={annotations.edit}
-                      onEditNote={annotations.editNote}
-                      onEditTextBox={annotations.editTextBox}
-                      onNewTextBox={annotations.newTextBox}
-                      tool={toolOn ?? undefined}
-                      onToolDone={() => setTool(null)}
-                      forms={formSource}
-                      onFieldEdit={fillForms ? editField : undefined}
-                      onFieldScript={() => showHint(strings.forms.scriptNotRun)}
-                    />
-                  </ContextMenuTrigger>
-                  <ContextMenuContent>
-                    <ContextMenuItem disabled={!textSelected || !permissions.copy} onClick={() => copySelection()}>
-                      {strings.text.copy}
-                      <ContextMenuShortcut>{permissions.copy ? "Ctrl+C" : strings.permissions.notAllowed}</ContextMenuShortcut>
-                    </ContextMenuItem>
-                    {editingApi !== undefined && (
-                      <>
-                        <ContextMenuSeparator />
-                        <ContextMenuSub>
-                          <ContextMenuSubTrigger disabled={!textSelected || !annotations.enabled}>
-                            {strings.annotations.highlight}
-                          </ContextMenuSubTrigger>
-                          <ContextMenuSubContent>
-                            {HIGHLIGHT_COLORS.map((color) => (
-                              <ContextMenuItem key={color} onClick={() => annotations.highlight(color)}>
-                                <span
-                                  aria-hidden
-                                  className="size-3 rounded-full border border-black/20"
-                                  style={{ backgroundColor: SWATCH[color] }}
-                                />
-                                {strings.annotations.colors[color]}
-                              </ContextMenuItem>
-                            ))}
-                          </ContextMenuSubContent>
-                        </ContextMenuSub>
-                        <ContextMenuItem disabled={!annotations.enabled} onClick={() => annotations.newNote()}>
-                          {strings.annotations.addNote}
-                          {!permissions.annotate && (
-                            <ContextMenuShortcut>{strings.permissions.notAllowed}</ContextMenuShortcut>
-                          )}
-                        </ContextMenuItem>
-                        {annotationsApi?.prepareTextBox && (
-                          <ContextMenuItem disabled={!annotations.textBoxes} onClick={() => annotations.newTextBoxAtMenu()}>
-                            {strings.annotations.addTextBox}
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <main
+                ref={canvasRef}
+                aria-label={strings.canvas.label}
+                data-region="canvas"
+                data-drop-active={dropActive || undefined}
+                // In the Tab order after the sidebar (docs/ux/screen-map.md), which also lets the
+                // keyboard scroll the page area when nothing in it can be focused.
+                tabIndex={0}
+                // The scroll bar's space is always kept: otherwise a fitted page just taller than the
+                // canvas makes the scroll bar appear, which narrows the canvas, which shrinks the page,
+                // which hides the scroll bar again, forever (#46).
+                className="relative min-h-0 flex-1 overflow-auto bg-muted outline-none [scrollbar-gutter:stable] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-primary data-drop-active:outline-2 data-drop-active:-outline-offset-4 data-drop-active:outline-primary data-drop-active:outline-dashed"
+                onPointerDown={() => {
+                  // A floating sidebar closes when the user goes back to the page.
+                  if (sidebarOpen && isNarrowWindow()) setSidebarOpen(false);
+                }}
+              >
+                {state.kind === "empty" && (
+                  <EmptyState
+                    onOpen={onOpen}
+                    onCreate={createApi ? () => setDialog("create") : undefined}
+                    recent={recentApi}
+                  />
+                )}
+                {state.kind === "loading" && (
+                  <LoadingState displayName={state.displayName} delayMs={loadingDelayMs} />
+                )}
+                {state.kind === "password" && (
+                  <PasswordState
+                    displayName={state.displayName}
+                    wrong={state.wrong}
+                    canRemember={state.canRemember}
+                    rememberedFailed={state.rememberedFailed}
+                    remember={rememberPassword}
+                    onRememberChange={setRememberPassword}
+                    onUnlock={(password, remember) => onUnlock?.(password, remember)}
+                    onCancel={() => onClose?.()}
+                  />
+                )}
+                {state.kind === "error" && (
+                  <ErrorState code={state.code} displayName={state.displayName} onOpen={onOpen} onRetry={onRetry} />
+                )}
+                {document_ && (
+                  // Right-clicking the document shows the app's own menu, not the WebView's.
+                  <ContextMenu>
+                    <ContextMenuTrigger
+                      className="min-h-full"
+                      onContextMenu={(event) => annotations.contextMenuAt(event.clientX, event.clientY)}
+                    >
+                      <DocumentView
+                        ref={viewRef}
+                        pages={document_.pages}
+                        zoom={zoom}
+                        rotation={rotation}
+                        scrollContainer={canvasRef}
+                        doc={document_.doc}
+                        renderer={renderer}
+                        onCurrentPageChange={setCurrentPage}
+                        onEffectiveZoomChange={setFitPercent}
+                        onZoomStep={(direction) => setZoom((z) => stepZoom(z, direction, fitPercent))}
+                        highlights={searchOpen && hits.length > 0 ? { hits, current } : undefined}
+                        links={linkSource}
+                        onLinkHover={setLinkHover}
+                        onLinkActivate={(link) => activateLink(link)}
+                        text={textSource}
+                        onSelectionChange={setTextSelected}
+                        onNoText={ocrView.noText}
+                        textVersions={ocrView.textVersions}
+                        onRecognised={ocrView.onRecognised}
+                        annotations={annotationSource}
+                        onAnnotationEdit={annotations.edit}
+                        onEditNote={annotations.editNote}
+                        onEditTextBox={annotations.editTextBox}
+                        onNewTextBox={annotations.newTextBox}
+                        tool={toolOn ?? undefined}
+                        onToolDone={() => setTool(null)}
+                        forms={formSource}
+                        onFieldEdit={fillForms ? editField : undefined}
+                        onFieldScript={() => showHint(strings.forms.scriptNotRun)}
+                      />
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem disabled={!textSelected || !permissions.copy} onClick={() => copySelection()}>
+                        {strings.text.copy}
+                        <ContextMenuShortcut>{permissions.copy ? "Ctrl+C" : strings.permissions.notAllowed}</ContextMenuShortcut>
+                      </ContextMenuItem>
+                      {editingApi !== undefined && (
+                        <>
+                          <ContextMenuSeparator />
+                          <ContextMenuSub>
+                            <ContextMenuSubTrigger disabled={!textSelected || !annotations.enabled}>
+                              {strings.annotations.highlight}
+                            </ContextMenuSubTrigger>
+                            <ContextMenuSubContent>
+                              {HIGHLIGHT_COLORS.map((color) => (
+                                <ContextMenuItem key={color} onClick={() => annotations.highlight(color)}>
+                                  <span
+                                    aria-hidden
+                                    className="size-3 rounded-full border border-black/20"
+                                    style={{ backgroundColor: SWATCH[color] }}
+                                  />
+                                  {strings.annotations.colors[color]}
+                                </ContextMenuItem>
+                              ))}
+                            </ContextMenuSubContent>
+                          </ContextMenuSub>
+                          <ContextMenuItem disabled={!annotations.enabled} onClick={() => annotations.newNote()}>
+                            {strings.annotations.addNote}
                             {!permissions.annotate && (
                               <ContextMenuShortcut>{strings.permissions.notAllowed}</ContextMenuShortcut>
                             )}
                           </ContextMenuItem>
-                        )}
-                      </>
-                    )}
-                  </ContextMenuContent>
-                </ContextMenu>
+                          {annotationsApi?.prepareTextBox && (
+                            <ContextMenuItem disabled={!annotations.textBoxes} onClick={() => annotations.newTextBoxAtMenu()}>
+                              {strings.annotations.addTextBox}
+                              {!permissions.annotate && (
+                                <ContextMenuShortcut>{strings.permissions.notAllowed}</ContextMenuShortcut>
+                              )}
+                            </ContextMenuItem>
+                          )}
+                        </>
+                      )}
+                    </ContextMenuContent>
+                  </ContextMenu>
+                )}
+              </main>
+              {document_ && searchOpen && (
+                <div className="pointer-events-none absolute inset-x-0 top-0 *:pointer-events-auto">
+                  <SearchBar search={search} pageCount={pageCount} inputRef={searchInputRef} onClose={closeSearch} />
+                </div>
               )}
-            </main>
-            {document_ && searchOpen && (
-              <div className="pointer-events-none absolute inset-x-0 top-0 *:pointer-events-auto">
-                <SearchBar search={search} pageCount={pageCount} inputRef={searchInputRef} onClose={closeSearch} />
-              </div>
-            )}
+            </div>
           </div>
           {bannerShown && detailsOpen && (
             <SecurityDetails id={detailsId} findings={findings} scanComplete={scanComplete} onClose={closeDetails} />
