@@ -27,6 +27,8 @@ import { TabBar } from "@/features/tabs/TabBar";
 import { MovePagesDialog } from "@/features/thumbnails/MovePagesDialog";
 import { SourcePasswordDialog } from "@/features/thumbnails/SourcePasswordDialog";
 import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
+import { RedactionConfirmDialog } from "@/features/redaction/RedactionConfirmDialog";
+import { RedactionPanel } from "@/features/redaction/RedactionPanel";
 import { strings } from "@/i18n/zh-TW";
 import type { BatchEvent, BlockedAction, FontInfo, LinkPreview, OutlineItem } from "@/ipc/generated/contract";
 import { expectAccessible } from "@/test/axe";
@@ -76,6 +78,24 @@ describe("dialogs", () => {
 
   it("flattening the form", async () => {
     render(<FlattenDialog onConfirm={vi.fn()} onCancel={vi.fn()} />);
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("redaction confirmation dialog", async () => {
+    render(
+      <RedactionConfirmDialog
+        open={true}
+        summary={{
+          marks: 3,
+          pages: 2,
+          annotations: 1,
+          fields: 2,
+        }}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
     await screen.findByRole("dialog");
     await expectAccessible(everything());
   });
@@ -361,6 +381,34 @@ describe("what the window shows", () => {
     render(<OutlineTree items={items} currentPage={1} onJumpToPage={vi.fn()} onOpenLink={vi.fn()} />);
     await expectAccessible(everything(), {
       skip: { region: "the tree is shown without the sidebar that has it in the window" },
+    });
+  });
+
+  it("the redaction panel", async () => {
+    const marks = [
+      {
+        page: 0,
+        annotation: {
+          id: 1,
+          kind: "redaction" as const,
+          rect: { x0: 10, y0: 10, x1: 100, y1: 100 },
+          color: null,
+          text: null,
+          picture: null,
+        },
+      },
+    ];
+    render(
+      <RedactionPanel
+        marks={marks}
+        onDeleteMark={vi.fn()}
+        onDeleteAll={vi.fn()}
+        onApply={vi.fn()}
+        onJumpToPage={vi.fn()}
+      />,
+    );
+    await expectAccessible(everything(), {
+      skip: { region: "the panel is shown without the sidebar that has it in the window" },
     });
   });
 });

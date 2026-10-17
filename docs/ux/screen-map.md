@@ -381,6 +381,34 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
 - 填寫失敗時，欄位回到原來的值，狀態列顯示 forms.failed；未儲存的變更太多時顯示 pages.saveFirst。
 - **扁平化**：「⋯」→ forms.flatten（只在文件有表單時出現）；對話框 forms.flattenDialog.title 說明欄位會成為頁面的一部分、可以復原；按 forms.flattenDialog.confirm 後立刻顯示另存新檔的對話框（原檔不變）。有簽章的文件不能扁平化（forms.flattenFailed）。扁平化之後頁面上沒有欄位，選單裡也不再有這個項目。
 
+### 安全遮蔽（B2-21）
+
+安全遮蔽（Redaction）用於將機敏內容從檔案中徹底移除（ADR 0016）。
+
+- **標記工具**：
+  - 工具列的橡皮擦按鈕（redaction.tool），狀態列顯示 redaction.toolOn；在頁面上按住並拖曳框選任意矩形範圍，放開即加入待遮蔽標記；在頁面上按一下放置預設大小方塊（200 × 50 pt）；或在工具開著時按 `Enter` 放在目前頁面中央（給不能使用滑鼠的人）；`Esc` 或再按一次按鈕結束。
+  - 選取文字後，右鍵功能表的「標記為待遮蔽」（redaction.markSelection），自動將選取文字的外框轉換為待遮蔽標記。
+  - 待遮蔽標記以紅色外框、半透明底色顯示，標籤為「待遮蔽」（redaction.markLabel）。
+  - **選取、移動、縮放與刪除**沿用註解的操作：`Tab` 或點一下選取，周圍有八個控制點可以自由縮放，拖曳本體移動；選取後方向鍵移動 1 點、加 `Shift` 移動 10 點；`Delete` 刪除。
+- **側欄面板**：側欄分頁有「遮蔽」（redaction.tab）。
+  - 標題與說明（redaction.panelTitle、panelDescription）。
+  - 沒有標記時顯示 redaction.noMarks。
+  - 有標記時顯示標記總數與頁數摘要（redaction.marksSummary），下方依頁碼分組列出（redaction.pageMarks），點擊可跳到該頁並提供單筆刪除按鈕。
+  - 「全部刪除」（redaction.deleteAll）一鍵清空所有待遮蔽標記。
+  - 「套用遮蔽…」（redaction.apply）開啟確認對話框；沒有標記時停用。
+- **套用遮蔽確認對話框**（redaction.dialog.title）：
+  - 說明即將套用之頁面數與標記數（redaction.dialog.summary）。
+  - 4 項聲明：
+    1. 刪除範圍內註解與表單欄位及數量（redaction.dialog.reachingDeletions / reachingNone）；
+    2. 不會自動處理的 5 項範圍外內容（redaction.dialog.scopeCaveatsTitle / scopeCaveats）；
+    3. 復原只到存檔為止（redaction.dialog.undoCaveat）；
+    4. 舊位元組不會在磁碟抹除（redaction.dialog.diskCaveat）。
+  - 按鈕「取消」與「確認套用」；確認套用後呼叫 `apply_redactions`。
+- **存檔與驗證報告**：
+  - 套用後在狀態列顯示 redaction.applied 4 秒；存檔時由 worker 進行全文件重寫與二次光柵化驗證，狀態列顯示 saving.savedRedaction（「已遮蔽並驗證」）。
+- **停用條件**：
+  - 已簽署的文件（數位簽章），或文件作者不允許修改時，工具按鈕與右鍵項目停用，並說明原因（redaction.signedDocument、redaction.notAllowed）。
+
 ### 數位簽章（B2-14）
 
 文件有數位簽章時，畫布上方顯示簽章提示列（與安全警示橫幅並列），說明這些簽章合起來是什麼狀況。驗證在這台電腦上離線進行，不連網；做法與限制見 [signatures.md](../architecture/signatures.md)。
@@ -1113,6 +1141,36 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | signatures.certificationLevel.fillForms | 簽署者只允許簽署之後填寫表單與簽署 |
 | signatures.certificationLevel.fillFormsAndAnnotate | 簽署者只允許簽署之後填寫表單、簽署與加註解 |
 | signatures.certificationBroken | 這是認證簽章，不允許簽署之後有任何變更，但文件有變更。 |
+
+### 安全遮蔽（B2-21）
+
+| 鍵 | 文字 |
+|---|---|
+| redaction.tool | 安全遮蔽 |
+| redaction.toolOn | 遮蔽已開啟：在頁面上拖曳框選待遮蔽的範圍，按 Esc 結束。 |
+| redaction.markSelection | 標記為待遮蔽 |
+| redaction.markLabel | 待遮蔽 |
+| redaction.tab | 遮蔽 |
+| redaction.panelTitle | 安全遮蔽 |
+| redaction.panelDescription | 將敏感內容從檔案中徹底移除。標記範圍後確認套用，存檔時將整份重寫。 |
+| redaction.noMarks | 這份文件沒有待遮蔽的標記。 |
+| redaction.marksSummary(marks, pages) | 待遮蔽標記：共 <marks> 處（<pages> 頁） |
+| redaction.pageMarks(page, count) | 第 <page> 頁（<count> 處） |
+| redaction.marksListLabel | 待遮蔽標記清單 |
+| redaction.deleteAll | 全部刪除 |
+| redaction.apply | 套用遮蔽… |
+| redaction.applied | 已套用遮蔽。請在儲存檔案後檢查驗證結果。 |
+| redaction.signedDocument | 已簽署的文件無法遮蔽 |
+| redaction.notAllowed | 文件作者不允許變更此文件 |
+| redaction.dialog.title | 套用安全遮蔽 |
+| redaction.dialog.summary(marks, pages) | 即將套用 <pages> 個頁面上的 <marks> 處遮蔽標記。 |
+| redaction.dialog.reachingDeletions(annotations, fields) | 遮蔽範圍內的其他項目將一併刪除：<annotations> 個註解、<fields> 個表單欄位（包含其填寫的值）。 |
+| redaction.dialog.reachingNone | 遮蔽範圍內沒有其他註解或表單欄位會被刪除。 |
+| redaction.dialog.scopeCaveatsTitle | 以下項目不會自動處理，請另行確認： |
+| redaction.dialog.scopeCaveats | 1. 書籤標題與頁面標籤<br>2. 縮圖與內嵌的檔案<br>3. 標記結構的替代文字（ActualText）<br>4. 文件資訊與 XMP 中繼資料（請使用「隱私匯出」清除）<br>5. 內嵌字型子集中的字形外框 |
+| redaction.dialog.undoCaveat | 套用後可透過復原（Ctrl+Z）取消，但僅能復原到存檔為止；一旦存檔，檔案中的內容將徹底移除，無法復原。 |
+| redaction.dialog.diskCaveat | 存檔不會抹除磁碟上舊檔案的位元組；若要避免在磁碟殘留舊資料，請「另存新檔」存成新檔案，再自行以安全抹除工具處理原檔案。 |
+| redaction.dialog.cancel／confirm | 取消／確認套用 |
 
 ### 掃描頁的文字辨識（B2-10）
 

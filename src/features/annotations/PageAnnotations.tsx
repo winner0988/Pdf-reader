@@ -160,8 +160,11 @@ export function PageAnnotations({
                 movable ? (annotation.picture ? t.moveTurnHint : t.moveHint) : undefined
               }
               data-annotation={annotation.kind}
+              title={annotation.kind === "redaction" ? t.kind.redaction : undefined}
               // The pointer goes through: a click is found by position (DocumentView).
-              className="absolute rounded-[2px] outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary aria-pressed:outline-2 aria-pressed:outline-primary aria-pressed:outline-dashed"
+              className={`absolute rounded-[2px] outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary aria-pressed:outline-2 aria-pressed:outline-primary aria-pressed:outline-dashed ${
+                annotation.kind === "redaction" ? "border border-red-500/80 bg-red-500/15" : ""
+              }`}
               style={{ left: area.left, top: area.top, width: area.width, height: area.height }}
               onFocus={() => onChoose(annotation.id)}
               onKeyDown={keys(annotation, area)}
