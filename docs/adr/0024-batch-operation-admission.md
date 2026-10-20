@@ -1,9 +1,9 @@
 # ADR 0024：批次處理的操作改為開放清單，依固定的准入規則加入
 
 ## 狀態
-提議中
+已接受
 
-（工作卡 B3-19（#308），B3 擴充 E5，見 `docs/planning/2026-10-20-plan-to-nov-20.md`。修改規格 §7「批次處理佇列」的「範圍固定為四項操作」；不改 ADR 0005 與 CONTEXT.md「批次處理背景服務」的範圍。負責人決定選項。）
+（負責人於 2026-10-21 接受選項 B〔[#308 的留言](https://github.com/winner0988/Pdf-reader/issues/308#issuecomment-6303088465)〕。工作卡 B3-19（[#308](https://github.com/winner0988/Pdf-reader/issues/308)），B3 擴充 E5，見 `docs/planning/2026-10-20-plan-to-nov-20.md`。修改規格 §7「批次處理佇列」的「範圍固定為四項操作」；不改 ADR 0005 與 CONTEXT.md「批次處理背景服務」的範圍。）
 
 ## 背景
 - 規格 §7：批次處理「範圍固定為中繼資料清除、EXIF 清除、浮水印加註、加密四項操作」。B3-04（#235）照這四項做：`BatchOperation` 是 `RemoveMetadata`、`Encrypt`、`RemoveExif`，浮水印接在 #269 之後。

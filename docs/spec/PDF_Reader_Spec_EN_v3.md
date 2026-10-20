@@ -8,7 +8,7 @@ This version folds the decisions resolved during the grilling process back into 
 - New "Document ID" mechanism, used by sensitive-file marking (password remembering first used it too, and was later changed to key on the file's own password-verification data, see ADR 0017)
 - Sensitive-file protection scope is confirmed as opt-in (manually marked files only), with the mark stored in the PDF's own metadata (ADR 0004)
 - New password-remembering feature, delegated to the OS credential store (ADR 0006; keyed on the file's own `/Encrypt` data, ADR 0017)
-- Batch processing scope is confirmed at four operations, and can keep running in the background/system tray (ADR 0005)
+- Batch processing scope is confirmed at four operations, and can keep running in the background/system tray (ADR 0005); later made an open list with admission rules by ADR 0024
 - OCR language packs are user-selectable; crash recovery now saves on every edit action
 
 ---
@@ -59,4 +59,4 @@ This version folds the decisions resolved during the grilling process back into 
 ## 7. Format Conversion & Batch Processing
 - **Format Export**: Support exporting PDF content to common formats such as Word (.docx), plain text (.txt), and images (PNG/JPG, page-by-page export) for content reuse.
 - **Format Import / PDF Creation**: Support converting common document formats (Office files, images) directly into PDF via local conversion, replacing the "upload-then-convert" flow common to cloud conversion services and keeping document content from ever leaving the machine.
-- **Batch Processing Queue**: Scope is fixed at four operations — metadata stripping, EXIF scrubbing, watermarking, and encryption — supporting multi-file selection queued for batch execution, with a completion report. Once started, the queue can keep running in the background/system tray after the main window is closed; this background execution is strictly limited to an actively running, user-initiated batch job — it ends automatically once the queue is empty, never auto-starts with the OS, and doesn't conflict with the zero-telemetry principle (see ADR 0005).
+- **Batch Processing Queue**: The operations are an open list: a single-document operation joins when it meets ADR 0024's admission rules (at first metadata stripping, EXIF scrubbing, watermarking and encryption; later e.g. compression, cleaning before sharing, page numbers and Bates numbers continuing across files) — supporting multi-file selection queued for batch execution, with a completion report. Once started, the queue can keep running in the background/system tray after the main window is closed; this background execution is strictly limited to an actively running, user-initiated batch job — it ends automatically once the queue is empty, never auto-starts with the OS, and doesn't conflict with the zero-telemetry principle (see ADR 0005).

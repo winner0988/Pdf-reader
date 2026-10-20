@@ -29,7 +29,7 @@
 | [0021](0021-form-scripts-in-worker.md) | 表單腳本以 MuPDF 內建的 mujs 在文件自己的 worker 中執行，只跑欄位的按鍵、格式、驗證與計算 | 已接受 |
 | [0022](0022-remote-resources-never-loaded.md) | 遠端資源永遠不由 app 載入；使用者確認完整網址後可以交給系統瀏覽器開啟 | 已接受 |
 | [0023](0023-sensitive-capture-protection.md) | 開著機敏文件時，主視窗排除在螢幕擷取之外 | 已接受 |
-| [0024](0024-batch-operation-admission.md) | 批次處理的操作改為開放清單，依固定的准入規則加入 | 提議中 |
+| [0024](0024-batch-operation-admission.md) | 批次處理的操作改為開放清單，依固定的准入規則加入 | 已接受 |
 
 ## 規則
 
