@@ -30,7 +30,7 @@
 | [0022](0022-remote-resources-never-loaded.md) | 遠端資源永遠不由 app 載入；使用者確認完整網址後可以交給系統瀏覽器開啟 | 已接受 |
 | [0023](0023-sensitive-capture-protection.md) | 開著機敏文件時，主視窗排除在螢幕擷取之外 | 已接受 |
 | [0024](0024-batch-operation-admission.md) | 批次處理的操作改為開放清單，依固定的准入規則加入 | 已接受 |
-| [0025](0025-attachments-save-only.md) | 附件（內嵌檔案）只列出與另存，永遠不由 app 開啟；另存的檔案標記為來自網際網路 | 提議中 |
+| [0025](0025-attachments-save-only.md) | 附件（內嵌檔案）只列出與另存，永遠不由 app 開啟；另存的檔案標記為來自網際網路 | 已接受 |
 
 ## 規則
 

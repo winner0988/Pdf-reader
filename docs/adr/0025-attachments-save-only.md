@@ -1,9 +1,9 @@
 # ADR 0025：附件（內嵌檔案）只列出與另存，永遠不由 app 開啟；另存的檔案標記為來自網際網路
 
 ## 狀態
-提議中
+已接受
 
-（工作卡 B3-20（#310），B3 擴充 E7，見 `docs/planning/2026-10-20-plan-to-nov-20.md`。延伸 AGENTS.md 原則 3「主動內容預設封鎖」。負責人決定選項。）
+（負責人於 2026-10-21 接受選項 B〔[#310 的留言](https://github.com/winner0988/Pdf-reader/issues/310#issuecomment-6303088864)〕。工作卡 B3-20（[#310](https://github.com/winner0988/Pdf-reader/issues/310)），B3 擴充 E7，見 `docs/planning/2026-10-20-plan-to-nov-20.md`。延伸 AGENTS.md 原則 3「主動內容預設封鎖」。）
 
 ## 背景
 - PDF 可以夾帶任意檔案：文件層級的 `/Names /EmbeddedFiles`，以及頁面上的附件註解（`/FileAttachment`），兩者都是帶 `/EF` 的檔案規格。主動內容掃描（MVP-11，`scan.rs`）每個 `/EF` 算一個 `embeddedFile`，安全橫幅說「文件夾帶的其他檔案（不會自動開啟）」；`/GoToE`（跳到附件裡的 PDF）是封鎖的動作。除此之外，使用者**拿不到**附件。
