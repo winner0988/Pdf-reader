@@ -37,7 +37,7 @@ import {
 import { annotationAt } from "@/features/annotations/model";
 import { PageAnnotations } from "@/features/annotations/PageAnnotations";
 import { PageDrawing } from "@/features/annotations/PageDrawing";
-import { pictureRectAt, stampRectAt, type Tool } from "@/features/annotations/tools";
+import { pictureRectAt, redactionRectAt, stampRectAt, type Tool } from "@/features/annotations/tools";
 import type { AnnotationSource } from "@/features/annotations/source";
 import { PageFields } from "@/features/forms/PageFields";
 import type { FormSource } from "@/features/forms/source";
@@ -526,6 +526,12 @@ export function DocumentView({
               onAnnotationEdit({ kind: "addInk", page, strokes: [points], color: tool.color, width: tool.width });
             }
           }}
+          onRect={(page, rect) => {
+            if (tool.kind === "redaction") {
+              onAnnotationEdit({ kind: "addRedaction", page, rect });
+            }
+            onToolDone?.();
+          }}
           onPlace={(page, at) => {
             if (tool.kind === "stamp") {
               onAnnotationEdit({ kind: "addStamp", page, rect: stampRectAt(at, pages[page]!), stamp: tool.stamp });
@@ -538,6 +544,8 @@ export function DocumentView({
               });
             } else if (tool.kind === "textBox") {
               onNewTextBox?.(page, at);
+            } else if (tool.kind === "redaction") {
+              onAnnotationEdit({ kind: "addRedaction", page, rect: redactionRectAt(at, pages[page]!) });
             } else {
               return;
             }

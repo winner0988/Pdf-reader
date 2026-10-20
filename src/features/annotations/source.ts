@@ -13,6 +13,7 @@ import type {
   PreparedTextBox,
   StampImageInfo,
   TextBoxInfo,
+  RedactionSummary,
 } from "@/ipc/generated/contract";
 
 export type AnnotationsApi = {
@@ -40,6 +41,8 @@ export type AnnotationsApi = {
   prepareTextBox?(doc: DocumentId, text: string, font: FontId): Promise<PreparedTextBox>;
   /** What text box `annotation` of a page says of itself, to fill in the dialog that changes it. */
   getTextBox?(doc: DocumentId, pageIndex: number, annotation: AnnotationId): Promise<TextBoxInfo>;
+  /** What applying the redaction marks of an open document would do (B2-19, ADR 0016). */
+  getRedactionSummary?(doc: DocumentId): Promise<RedactionSummary>;
 };
 
 export const tauriAnnotationsApi: AnnotationsApi = {
@@ -50,6 +53,7 @@ export const tauriAnnotationsApi: AnnotationsApi = {
     invoke<PreparedTextBox>("prepare_text_box", { args: { doc, text, font } }),
   getTextBox: (doc, pageIndex, annotation) =>
     invoke<TextBoxInfo>("get_text_box", { doc, pageIndex, annotation }),
+  getRedactionSummary: (doc) => invoke<RedactionSummary>("get_redaction_summary", { doc }),
 };
 
 export type AnnotationSource = {

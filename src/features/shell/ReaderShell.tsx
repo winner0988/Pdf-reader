@@ -16,8 +16,10 @@ import { HIGHLIGHT_COLORS, SWATCH } from "@/features/annotations/model";
 import { NoteDialog } from "@/features/annotations/NoteDialog";
 import { TextBoxDialog } from "@/features/annotations/TextBoxDialog";
 import { createAnnotationSource, type AnnotationsApi } from "@/features/annotations/source";
-import { pictureRectAt, stampRectAt, type Tool } from "@/features/annotations/tools";
+import { pictureRectAt, redactionRectAt, stampRectAt, type Tool } from "@/features/annotations/tools";
 import { useAnnotations } from "@/features/annotations/useAnnotations";
+import { RedactionConfirmDialog } from "@/features/redaction/RedactionConfirmDialog";
+import { rectOfQuad, type RedactionMarkItem } from "@/features/redaction/model";
 import { FieldEdits, until } from "@/features/forms/edits";
 import { FlattenDialog } from "@/features/forms/FlattenDialog";
 import { createFormSource, type FormsApi } from "@/features/forms/source";
@@ -77,6 +79,7 @@ import { errorCodeOf, type PageRenderer } from "@/features/viewer/renderer";
 import type { OutlineView } from "@/features/outline/tree";
 import { strings } from "@/i18n/zh-TW";
 import type {
+  AnnotationId,
   BlockedAction,
   InkColor,
   InkWidth,
@@ -86,6 +89,7 @@ import type {
   LinkTarget,
   PageLink,
   PagesSource,
+  RedactionSummary,
   SaveResult,
   StampName,
 } from "@/ipc/generated/contract";
@@ -290,6 +294,10 @@ export function ReaderShell({
   const [tool, setTool] = useState<Tool | null>(null);
   /** Whether the document's file may be on the recent files list (#73); null until asked. */
   const [recorded, setRecorded] = useState<boolean | null>(null);
+  /** Security redaction (B2-21, ADR 0016). */
+  const [redactionSummary, setRedactionSummary] = useState<RedactionSummary | null>(null);
+  const [redactionMarks, setRedactionMarks] = useState<RedactionMarkItem[]>([]);
+  const [redactionConfirmOpen, setRedactionConfirmOpen] = useState(false);
   const pageInputRef = useRef<HTMLInputElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLElement>(null);
@@ -336,6 +344,9 @@ export function ReaderShell({
     setTool(null);
     setHint(null);
     setRecorded(null);
+    setRedactionSummary(null);
+    setRedactionMarks([]);
+    setRedactionConfirmOpen(false);
     if (
       dialog === "print" ||
       dialog === "export" ||
@@ -678,6 +689,15 @@ export function ReaderShell({
       showHint(strings.annotations.textBoxOn);
     }
   };
+  // The security redaction tool (B2-21, ADR 0016).
+  const toggleRedaction = () => {
+    if (tool?.kind === "redaction") {
+      setTool(null);
+    } else {
+      setTool({ kind: "redaction" });
+      showHint(strings.redaction.toolOn);
+    }
+  };
   const inkStyle = (change: Partial<{ color: InkColor; width: InkWidth }>) => {
     const next = { ...ink, ...change };
     setInk(next);
@@ -729,7 +749,7 @@ export function ReaderShell({
       const here =
         !(target instanceof Element) ||
         target === document.body ||
-        target.closest('[data-region="canvas"], [data-stamp-button], [data-text-box-button]') !== null;
+        target.closest('[data-region="canvas"], [data-stamp-button], [data-text-box-button], [data-redact-button]') !== null;
       // A form field on the page (B2-09) keeps its Enter.
       const typing = target instanceof Element && target.closest("input, textarea, select") !== null;
       if (!here || typing) return;
@@ -739,6 +759,12 @@ export function ReaderShell({
         annotations.newTextBox(currentPage - 1, middle);
       } else if (tool.kind === "stamp") {
         edit({ kind: "addStamp", page: currentPage - 1, rect: stampRectAt(middle, chosenPage), stamp: tool.stamp });
+      } else if (tool.kind === "redaction") {
+        edit({
+          kind: "addRedaction",
+          page: currentPage - 1,
+          rect: redactionRectAt(middle, chosenPage),
+        });
       } else {
         edit({
           kind: "addImageStamp",
@@ -876,6 +902,107 @@ export function ReaderShell({
     signaturesButtonRef.current?.focus();
   };
 
+  // Security redaction (B2-21, ADR 0016).
+  useEffect(() => {
+    if (!annotationsApi?.getRedactionSummary || !annotationSource || doc === undefined) {
+      return;
+    }
+    let current = true;
+    annotationsApi.getRedactionSummary(doc).then(
+      (summary) => {
+        if (!current) return;
+        setRedactionSummary(summary);
+        if (summary.marks === 0) {
+          setRedactionMarks([]);
+          return;
+        }
+        const promises = Array.from({ length: pageCount }, (_, i) =>
+          annotationSource.annotations(doc, i),
+        );
+        Promise.all(promises).then(
+          (pagesAnnots) => {
+            if (!current) return;
+            const items: RedactionMarkItem[] = [];
+            pagesAnnots.forEach((annots, pageIndex) => {
+              for (const a of annots) {
+                if (a.kind === "redaction") {
+                  items.push({ page: pageIndex, annotation: a });
+                }
+              }
+            });
+            setRedactionMarks(items);
+          },
+          () => {},
+        );
+      },
+      () => {
+        if (current) {
+          setRedactionSummary(null);
+          setRedactionMarks([]);
+        }
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [doc, pageCount, annotationsApi, annotationSource]);
+
+  const isSigned = signatureReport !== null && signatureReport.signatures.length > 0;
+  const redactionAllowed = !isSigned && permissions.modify;
+  const redactionDisabledReason = isSigned
+    ? strings.redaction.signedDocument
+    : !permissions.modify
+      ? strings.redaction.notAllowed
+      : undefined;
+
+  const deleteAllRedactions = async () => {
+    if (!editingApi || doc === undefined || redactionMarks.length === 0) return;
+    for (const item of redactionMarks) {
+      await editingApi.applyEdit(latestDocument()?.doc ?? doc, {
+        kind: "deleteAnnotation",
+        page: item.page,
+        annotation: item.annotation.id,
+      });
+    }
+  };
+
+  const deleteRedactionMark = async (page: number, annotationId: AnnotationId) => {
+    if (!editingApi || doc === undefined) return;
+    await editingApi.applyEdit(latestDocument()?.doc ?? doc, {
+      kind: "deleteAnnotation",
+      page,
+      annotation: annotationId,
+    });
+  };
+
+  const confirmApplyRedactions = async () => {
+    setRedactionConfirmOpen(false);
+    if (!editingApi || doc === undefined) return;
+    try {
+      await editingApi.applyEdit(latestDocument()?.doc ?? doc, {
+        kind: "applyRedactions",
+      });
+      showHint(strings.redaction.applied);
+    } catch {
+      showHint(strings.annotations.failed);
+    }
+  };
+
+  const markSelectionAsRedaction = async () => {
+    if (!viewRef.current || !editingApi || doc === undefined || !redactionAllowed) return;
+    const marks = await viewRef.current.highlightMarks();
+    if (marks.length === 0) return;
+    for (const mark of marks) {
+      for (const quad of mark.quads) {
+        await editingApi.applyEdit(latestDocument()?.doc ?? doc, {
+          kind: "addRedaction",
+          page: mark.page,
+          rect: rectOfQuad(quad),
+        });
+      }
+    }
+  };
+
   return (
     <TooltipProvider>
       <div ref={shellRef} className="flex h-full flex-col bg-background text-foreground">
@@ -955,6 +1082,15 @@ export function ReaderShell({
               ? { active: toolOn?.kind === "textBox", onToggle: annotations.textBoxes ? toggleTextBox : undefined }
               : undefined
           }
+          redact={
+            editingApi !== undefined && doc !== undefined
+              ? {
+                  active: toolOn?.kind === "redaction",
+                  onToggle: redactionAllowed ? toggleRedaction : undefined,
+                  disabledReason: redactionDisabledReason,
+                }
+              : undefined
+          }
           stamp={
             editingApi !== undefined && doc !== undefined
               ? {
@@ -988,6 +1124,17 @@ export function ReaderShell({
               onOpenLink={openOutlineLink}
               pageEditing={pageEditing}
               savePages={savePages}
+              redaction={{
+                marks: redactionMarks,
+                summary: redactionSummary,
+                allowed: redactionAllowed,
+                disabledReason: redactionDisabledReason,
+                signed: isSigned,
+                onJumpToPage: goToPage,
+                onDeleteAll: deleteAllRedactions,
+                onDeleteMark: deleteRedactionMark,
+                onApply: () => setRedactionConfirmOpen(true),
+              }}
             />
           )}
           <div className="flex min-w-0 flex-1 flex-col">
@@ -1172,6 +1319,15 @@ export function ReaderShell({
                             )}
                           </ContextMenuItem>
                         )}
+                        <ContextMenuItem
+                          disabled={!textSelected || !redactionAllowed}
+                          onClick={() => void markSelectionAsRedaction()}
+                        >
+                          {strings.redaction.markSelection}
+                          {!redactionAllowed && (
+                            <ContextMenuShortcut>{redactionDisabledReason}</ContextMenuShortcut>
+                          )}
+                        </ContextMenuItem>
                       </>
                     )}
                   </ContextMenuContent>
@@ -1220,6 +1376,12 @@ export function ReaderShell({
         />
       )}
       {flattenOpen && <FlattenDialog onConfirm={flatten} onCancel={() => setFlattenOpen(false)} />}
+      <RedactionConfirmDialog
+        open={redactionConfirmOpen}
+        summary={redactionSummary}
+        onConfirm={() => void confirmApplyRedactions()}
+        onCancel={() => setRedactionConfirmOpen(false)}
+      />
       {annotations.note && (
         <NoteDialog
           initial={annotations.note.kind === "edit" ? (annotations.note.annotation.text ?? "") : null}

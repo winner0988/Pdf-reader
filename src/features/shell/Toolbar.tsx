@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   ChevronLeft,
+  Eraser,
   FolderOpen,
   Minus,
   MoreHorizontal,
@@ -127,6 +128,12 @@ export type ToolbarProps = {
    */
   textBox?: { active: boolean; onToggle?: () => void };
   /**
+   * The security redaction tool (B2-21, ADR 0016): turned on or off with its button; a drag on a
+   * page marks an area to be redacted. Without a toggle (the author forbids modifying or the
+   * document is signed) the button is disabled and explains why.
+   */
+  redact?: { active: boolean; onToggle?: () => void; disabledReason?: string };
+  /**
    * Turns the form of the open document into page content (B2-09); given only for a document
    * with a form. Without a click handler (the author does not allow filling in forms) the item
    * says so.
@@ -241,6 +248,18 @@ export function Toolbar(props: ToolbarProps) {
             data-text-box-button=""
           >
             <Type />
+          </IconButton>
+        )}
+        {document && props.redact && (
+          <IconButton
+            label={strings.redaction.tool}
+            shortcut={props.redact.onToggle ? undefined : props.redact.disabledReason}
+            pressed={props.redact.active}
+            disabled={!props.redact.onToggle}
+            onClick={props.redact.onToggle}
+            data-redact-button=""
+          >
+            <Eraser />
           </IconButton>
         )}
         {document && (

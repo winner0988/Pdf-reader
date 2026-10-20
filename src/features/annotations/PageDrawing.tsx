@@ -8,7 +8,8 @@ import { useRef, useState, type PointerEvent } from "react";
 import { INK_SWATCH, INK_WIDTH_PT, keptPointOnPage, strokePoints, type Tool } from "@/features/annotations/tools";
 import type { PageSize, Rotation } from "@/features/shell/model";
 import { boxToPage, displayedSize, type PageBox } from "@/features/viewer/layout";
-import type { Point } from "@/ipc/generated/contract";
+import { rectOfPoints } from "@/features/redaction/model";
+import type { Point, Rect } from "@/ipc/generated/contract";
 
 type PageDrawingProps = {
   tool: Tool;
@@ -21,9 +22,11 @@ type PageDrawingProps = {
   onStroke: (index: number, points: Point[]) => void;
   /** The pointer was released on the page, to put a stamp down there (page space). */
   onPlace: (index: number, at: Point) => void;
+  /** An arbitrary rectangular area was dragged on the page (for redaction, B2-21). */
+  onRect?: (index: number, rect: Rect) => void;
 };
 
-export function PageDrawing({ tool, index, page, rotation, box, left, onStroke, onPlace }: PageDrawingProps) {
+export function PageDrawing({ tool, index, page, rotation, box, left, onStroke, onPlace, onRect }: PageDrawingProps) {
   const layer = useRef<HTMLDivElement>(null);
   /** The pointer that is drawing, and where it has been, in CSS pixels of the page's box. */
   const pointer = useRef<number | null>(null);
@@ -59,9 +62,19 @@ export function PageDrawing({ tool, index, page, rotation, box, left, onStroke, 
     pointer.current = null;
     const end = inBox(event);
     const points = [...trail.current, end];
+    const start = trail.current[0];
     follow([]);
-    if (tool.kind === "pen") onStroke(index, strokePoints(points.map(onPage)));
-    else onPlace(index, onPage(end));
+    if (tool.kind === "pen") {
+      onStroke(index, strokePoints(points.map(onPage)));
+    } else if (tool.kind === "redaction") {
+      if (start && Math.hypot(end.x - start.x, end.y - start.y) >= 4 && onRect) {
+        onRect(index, rectOfPoints(onPage(start), onPage(end)));
+      } else {
+        onPlace(index, onPage(end));
+      }
+    } else {
+      onPlace(index, onPage(end));
+    }
   };
   const cancel = (event: PointerEvent<HTMLDivElement>) => {
     if (event.pointerId !== pointer.current) return;
@@ -106,6 +119,31 @@ export function PageDrawing({ tool, index, page, rotation, box, left, onStroke, 
               fill={INK_SWATCH[tool.color]}
             />
           )}
+        </svg>
+      )}
+      {tool.kind === "redaction" && shown.length >= 2 && (
+        <svg width={box.width} height={box.height} className="pointer-events-none absolute inset-0" aria-hidden>
+          {(() => {
+            const start = shown[0]!;
+            const current = shown[shown.length - 1]!;
+            const left = Math.min(start.x, current.x);
+            const top = Math.min(start.y, current.y);
+            const width = Math.abs(current.x - start.x);
+            const height = Math.abs(current.y - start.y);
+            return (
+              <rect
+                data-redaction-preview=""
+                x={left}
+                y={top}
+                width={width}
+                height={height}
+                fill="rgba(239, 68, 68, 0.2)"
+                stroke="rgb(239, 68, 68)"
+                strokeWidth={2}
+                strokeDasharray="4 2"
+              />
+            );
+          })()}
         </svg>
       )}
     </div>
