@@ -70,13 +70,10 @@ const APPLICATION = { "page-has-heading-one": "an application window, not a page
  * What axe says about a window that has tabs, and is not a problem of the window:
  * - `region`: axe counts a labelled element (the tab panel, which `aria-labelledby` names after its
  *   tab) as content and does not look inside it for the landmarks it holds; the landmarks are
- *   there, and no text is outside them (checked by walking the page's text);
- * - `aria-required-children`: the close buttons of the tabs are in the tablist, which needs a
- *   decision: #188.
+ *   there, and no text is outside them (checked by walking the page's text).
  */
 const TABS = {
   region: "axe does not look inside a labelled tab panel for its landmarks",
-  "aria-required-children": "the close buttons of the tabs are in the tablist: #188",
 };
 
 async function chooseFromMenu(page: Page, name: string) {
