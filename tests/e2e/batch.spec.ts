@@ -121,6 +121,40 @@ test.describe("a batch", () => {
     expect(picked.map(sha256)).toEqual(before);
   });
 
+  test("a watermark is drawn on each page of each file, and no file is changed", async ({ launch }) => {
+    const page = await launch();
+    const picked = files([
+      ["benign/multi-page-10.pdf", "doc.pdf"],
+      ["benign/single-page.pdf", "single.pdf"],
+    ]);
+    const before = picked.map(sha256);
+    const dialog = await openDialog(page);
+    await dialog.getByRole("radio", { name: t.watermark }).check();
+    const textInput = dialog.getByLabel(t.watermarkTextInput);
+    await textInput.fill("CONFIDENTIAL");
+    await dialog.getByRole("button", { name: t.start }).click();
+    await answerFileDialog(page, { path: picked.map((file) => `"${file}"`).join(" ") });
+    await answerFileDialog(page, { path: out });
+
+    await expect(dialog.getByRole("status")).toHaveText(t.summary(2, 0, 0));
+    const list = dialog.getByRole("list", { name: t.filesLabel });
+    await expect(list).toContainText(t.done("doc（浮水印）.pdf"));
+    await expect(list).toContainText(t.done("single（浮水印）.pdf"));
+    expect(readdirSync(out).sort()).toEqual(["doc（浮水印）.pdf", "single（浮水印）.pdf"]);
+
+    const copyDoc = readFileSync(path.join(out, "doc（浮水印）.pdf"));
+    expect(copyDoc.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(copyDoc.includes(Buffer.from("CONFIDENTIAL"))).toBe(true);
+    expect(copyDoc.includes(Buffer.from("/PdfReaderWatermark"))).toBe(true);
+
+    const copySingle = readFileSync(path.join(out, "single（浮水印）.pdf"));
+    expect(copySingle.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(copySingle.includes(Buffer.from("CONFIDENTIAL"))).toBe(true);
+    expect(copySingle.includes(Buffer.from("/PdfReaderWatermark"))).toBe(true);
+
+    expect(picked.map(sha256)).toEqual(before);
+  });
+
   /** Starts a batch that removes the metadata of `picked` into `out`; returns the dialog. */
   async function startBatch(page: import("@playwright/test").Page, picked: string[]) {
     const dialog = await openDialog(page);
