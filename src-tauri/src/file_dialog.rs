@@ -60,6 +60,8 @@ enum Kind {
     PickFolder { title: &'static str },
     /// One file of language data for recognising text (B2-10).
     OpenLanguageData,
+    /// A font file to import for text boxes (B2-32): one TTF or TTC file.
+    OpenFont,
     /// The picture of a custom stamp (B2-08): one PNG or JPEG file.
     OpenImage,
     /// The files a PDF is made of (B3-03): several can be picked.
@@ -189,6 +191,13 @@ pub async fn pick_language_data(window: &WebviewWindow) -> Result<Option<PathBuf
         .and_then(|mut paths| paths.pop()))
 }
 
+/// Asks for one font file to import for text boxes (`.ttf` or `.ttc`, B2-32).
+pub async fn pick_font(window: &WebviewWindow) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::OpenFont)
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
 /// Asks for the PDF file whose pages are put into a document (B2-06): one file. `None` if the user
 /// cancelled.
 pub async fn pick_pages_source(window: &WebviewWindow) -> Result<Option<PathBuf>, IpcError> {
@@ -244,7 +253,7 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
         | Kind::SplitPdf { .. }
         | Kind::SaveCreatedPdf { .. } => common | FOS_OVERWRITEPROMPT,
         Kind::PickFolder { .. } => common | FOS_PICKFOLDERS,
-        Kind::OpenLanguageData | Kind::OpenPagesSource | Kind::OpenImage => common,
+        Kind::OpenLanguageData | Kind::OpenFont | Kind::OpenPagesSource | Kind::OpenImage => common,
     }
 }
 
@@ -308,6 +317,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
             | Kind::OpenPagesSource
             | Kind::PickFolder { .. }
             | Kind::OpenLanguageData
+            | Kind::OpenFont
             | Kind::OpenImage
             | Kind::OpenSources => {
                 CoCreateInstance::<_, IFileOpenDialog>(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?
@@ -390,6 +400,10 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
         Kind::OpenLanguageData => (
             strings::LANGUAGE_DIALOG_TITLE,
             one(strings::LANGUAGE_FILTER_NAME, "*.traineddata"),
+        ),
+        Kind::OpenFont => (
+            strings::FONT_DIALOG_TITLE,
+            one(strings::FONT_FILTER_NAME, "*.ttf;*.ttc"),
         ),
         Kind::OpenImage => (
             strings::STAMP_IMAGE_DIALOG_TITLE,
@@ -534,6 +548,13 @@ mod tests {
             "nothing picked goes on the recent items"
         );
         assert!(!language(FOS_ALLOWMULTISELECT), "one file");
+
+        let font = options_of(Kind::OpenFont);
+        assert!(
+            font(FOS_DONTADDTORECENT) && font(FOS_FORCEFILESYSTEM),
+            "nothing picked goes on the recent items"
+        );
+        assert!(!font(FOS_ALLOWMULTISELECT), "one file");
 
         // One file whose pages go into the document (B2-06), not several.
         let source = options_of(Kind::OpenPagesSource);

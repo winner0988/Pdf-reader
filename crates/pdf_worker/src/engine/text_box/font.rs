@@ -4,10 +4,11 @@
 
 use std::collections::BTreeMap;
 
-use ipc_contract::limits::{MAX_TEXT_BOX_BYTES, MAX_TEXT_BOX_SUBSET_BYTES};
+use ipc_contract::limits::{MAX_FONT_NAME_BYTES, MAX_TEXT_BOX_BYTES, MAX_TEXT_BOX_SUBSET_BYTES};
+use ipc_contract::text::clean_display_text;
 use ipc_contract::types::FontRefusal;
 use ipc_contract::validate::Validate;
-use ipc_contract::worker::{ModelGlyph, TextBoxModel};
+use ipc_contract::worker::{InspectedFont, ModelGlyph, TextBoxModel};
 use skrifa::instance::{LocationRef, Size};
 use skrifa::raw::TableProvider;
 use skrifa::raw::types::Tag;
@@ -220,6 +221,101 @@ pub(super) fn clean_subset(model: &TextBoxModel) -> Option<Vec<u8>> {
     (cut.len() <= MAX_TEXT_BOX_SUBSET_BYTES).then_some(cut)
 }
 
+/// Inspects the bytes of a font file to be imported (B2-32, ADR 0018): TrueType outlines,
+/// charmap, embeddable licence, and name. Returns the faces found, or says why it cannot be used.
+pub fn inspect_font(bytes: &[u8]) -> Result<Vec<InspectedFont>, FontRefusal> {
+    if bytes.len() < 12 {
+        return Err(FontRefusal::NotAFont);
+    }
+    let num_faces = if bytes.starts_with(b"ttcf") {
+        let count = u32::from_be_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
+        if count == 0 || count > 1000 {
+            return Err(FontRefusal::NotAFont);
+        }
+        count
+    } else if bytes.starts_with(&[0, 1, 0, 0]) || bytes.starts_with(b"true") {
+        1
+    } else if bytes.starts_with(b"OTTO") {
+        return Err(FontRefusal::NotTrueType);
+    } else {
+        return Err(FontRefusal::NotAFont);
+    };
+
+    let mut faces = Vec::with_capacity(num_faces as usize);
+    for face_index in 0..num_faces {
+        let face = open_face(&TextBoxFont {
+            bytes,
+            face: face_index,
+            name: "",
+        })?;
+        if face.font.charmap().mappings().next().is_none() {
+            return Err(FontRefusal::NotAFont);
+        }
+        let family_raw: String = face
+            .font
+            .localized_strings(StringId::TYPOGRAPHIC_FAMILY_NAME)
+            .english_or_first()
+            .or_else(|| {
+                face.font
+                    .localized_strings(StringId::FAMILY_NAME)
+                    .english_or_first()
+            })
+            .map(|s| s.chars().collect())
+            .unwrap_or_default();
+        let family = clean_display_text(&family_raw, MAX_FONT_NAME_BYTES);
+        if family.is_empty() {
+            return Err(FontRefusal::NotAFont);
+        }
+
+        let full_raw: String = face
+            .font
+            .localized_strings(StringId::FULL_NAME)
+            .english_or_first()
+            .map(|s| s.chars().collect())
+            .unwrap_or_default();
+        let sub_raw: String = face
+            .font
+            .localized_strings(StringId::TYPOGRAPHIC_SUBFAMILY_NAME)
+            .english_or_first()
+            .or_else(|| {
+                face.font
+                    .localized_strings(StringId::SUBFAMILY_NAME)
+                    .english_or_first()
+            })
+            .map(|s| s.chars().collect())
+            .unwrap_or_default();
+
+        let sub_lower = sub_raw.to_ascii_lowercase();
+        let full_lower = full_raw.to_ascii_lowercase();
+        let bold = sub_lower.contains("bold") || full_lower.split_whitespace().any(|w| w == "bold");
+        let italic = sub_lower.contains("italic")
+            || sub_lower.contains("oblique")
+            || full_lower
+                .split_whitespace()
+                .any(|w| w == "italic" || w == "oblique");
+
+        let name = match (bold, italic) {
+            (false, false) => family.clone(),
+            (true, false) => format!("{family} Bold"),
+            (false, true) => format!("{family} Italic"),
+            (true, true) => format!("{family} Bold Italic"),
+        };
+        let name = clean_display_text(&name, MAX_FONT_NAME_BYTES);
+        if name.is_empty() {
+            return Err(FontRefusal::NotAFont);
+        }
+
+        faces.push(InspectedFont {
+            face: face_index,
+            name,
+            family,
+            bold,
+            italic,
+        });
+    }
+    Ok(faces)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,5 +334,31 @@ mod tests {
         assert_eq!(thousandths(512.0, 1024.0), 500);
         assert_eq!(thousandths(1000.0, 1000.0), 1000);
         assert_eq!(thousandths(-210.0, 2048.0), -103);
+    }
+
+    #[test]
+    fn inspects_a_valid_truetype_font_and_extracts_faces() {
+        let droid = mupdf_fonts_droid::find_by_name("Droid Sans Fallback", false, false)
+            .expect("droid font")
+            .data;
+        let faces = inspect_font(droid).unwrap();
+        assert_eq!(faces.len(), 1);
+        assert_eq!(faces[0].face, 0);
+        assert_eq!(faces[0].family, "Droid Sans Fallback");
+        assert_eq!(faces[0].name, "Droid Sans Fallback");
+        assert!(!faces[0].bold);
+        assert!(!faces[0].italic);
+    }
+
+    #[test]
+    fn inspect_rejects_bad_headers_and_invalid_bytes() {
+        assert_eq!(inspect_font(b"too short"), Err(FontRefusal::NotAFont));
+        assert_eq!(
+            inspect_font(b"random bytes that are long enough"),
+            Err(FontRefusal::NotAFont)
+        );
+        let mut cff_header = [0u8; 100];
+        cff_header[..4].copy_from_slice(b"OTTO");
+        assert_eq!(inspect_font(&cff_header), Err(FontRefusal::NotTrueType));
     }
 }

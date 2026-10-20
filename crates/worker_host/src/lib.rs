@@ -328,6 +328,16 @@ impl WorkerHost {
         })
     }
 
+    /// Checks the bytes of a font file the user wants to import (B2-32, ADR 0018): TrueType
+    /// outlines (`glyf`/`loca`), charmap, licence (OS/2 `fsType`) and names. Returns
+    /// `FontInspected`.
+    pub fn inspect_font(&mut self, bytes: &[u8]) -> Result<WorkerResponse, HostError> {
+        self.request(|request| WorkerRequest::InspectFont {
+            request,
+            bytes: bytes.to_vec(),
+        })
+    }
+
     /// Has the worker make the plain copy of the PDF in `file` (a file the main process opened),
     /// whose pages are to go into a document (B2-06): the worker reads it through a read-only
     /// handle, as it reads a document, and never gets a path. `password` is for an encrypted
@@ -691,6 +701,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::Png { request, .. }
         | WorkerResponse::StampImage { request, .. }
         | WorkerResponse::TextBoxPrepared { request, .. }
+        | WorkerResponse::FontInspected { request, .. }
         | WorkerResponse::TextBox { request, .. }
         | WorkerResponse::Jpeg { request, .. }
         | WorkerResponse::PageSearched { request, .. }

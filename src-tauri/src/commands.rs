@@ -12,13 +12,13 @@ use ipc_contract::limits::MAX_BATCH_FILES;
 use ipc_contract::types::{
     AnnotationId, BatchArgs, BatchEvent, BatchReport, CompressArgs, CompressResult, CreateResult,
     DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat,
-    FileRecordingArgs, FontInfo, FormField, IpcError, LanguageImport, LinkArgs, LinkPreview,
-    MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult,
-    PageAnnotation, PageLink, PageText, PagesSource, Password, PrepareTextBoxArgs, PreparedTextBox,
-    RecentFile, RecentId, RedactionSummary, RememberedPasswords, RemoveLanguageArgs,
-    RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile,
-    SensitiveId, Settings, SignatureReport, StampImageInfo, TabId, TextBoxInfo, UndoArgs,
-    UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
+    FileRecordingArgs, FontImport, FontInfo, FormField, IpcError, LanguageImport, LinkArgs,
+    LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs,
+    OutlineResult, PageAnnotation, PageLink, PageText, PagesSource, Password, PrepareTextBoxArgs,
+    PreparedTextBox, RecentFile, RecentId, RedactionSummary, RememberedPasswords, RemoveFontArgs,
+    RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent,
+    SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignatureReport, StampImageInfo, TabId,
+    TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use tauri::ipc::{Channel, Response};
@@ -491,6 +491,71 @@ pub async fn get_text_box(
     blocking(move || {
         app.state::<Documents>()
             .text_box(doc, page_index, annotation)
+    })
+    .await
+}
+
+/// Set while the font dialog is showing.
+static FONT_DIALOG_SHOWING: AtomicBool = AtomicBool::new(false);
+
+/// Asks for a `.ttf` or `.ttc` file in a dialog of the main process (the path stays here) and
+/// imports it as a font (B2-32, ADR 0018): its name, size and format are checked, TrueType outlines
+/// and metrics are verified by the worker, and a file that fails is refused with the reason.
+/// Nothing is downloaded.
+#[tauri::command]
+pub async fn import_font(app: AppHandle, window: WebviewWindow) -> Result<FontImport, IpcError> {
+    if FONT_DIALOG_SHOWING.swap(true, Ordering::SeqCst) {
+        return Ok(FontImport::Cancelled);
+    }
+    struct Showing;
+    impl Drop for Showing {
+        fn drop(&mut self) {
+            FONT_DIALOG_SHOWING.store(false, Ordering::SeqCst);
+        }
+    }
+    let _showing = Showing;
+    let Some(file) = file_dialog::pick_font(&window).await? else {
+        return Ok(FontImport::Cancelled);
+    };
+    blocking(move || {
+        let fonts = app.state::<crate::fonts::Fonts>();
+        let documents = app.state::<Documents>();
+        Ok(match fonts.import(&file, &documents) {
+            Ok(fonts) => FontImport::Imported { fonts },
+            Err(reason) => FontImport::Refused { reason },
+        })
+    })
+    .await
+}
+
+/// Removes a font the user imported (B2-32); installed Windows fonts stay. Returns
+/// the fonts there are now.
+#[tauri::command]
+pub async fn remove_font(app: AppHandle, args: RemoveFontArgs) -> Result<Vec<FontInfo>, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    blocking(move || {
+        let fonts = app.state::<crate::fonts::Fonts>();
+        fonts.remove(args.id).map_err(|_| IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "font could not be removed".to_owned(),
+        })
+    })
+    .await
+}
+
+/// Removes all fonts the user imported (B2-32); installed Windows fonts stay. Returns
+/// the fonts there are now.
+#[tauri::command]
+pub async fn remove_all_fonts(app: AppHandle) -> Result<Vec<FontInfo>, IpcError> {
+    blocking(move || {
+        let fonts = app.state::<crate::fonts::Fonts>();
+        fonts.remove_all().map_err(|_| IpcError {
+            code: ErrorCode::Internal,
+            message: "imported fonts could not be removed".to_owned(),
+        })
     })
     .await
 }

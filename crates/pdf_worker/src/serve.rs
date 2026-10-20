@@ -28,7 +28,7 @@ use ipc_contract::worker::{
 };
 
 use crate::engine::{
-    EngineError, OcrKnown, OutlineTarget, PdfBuilder, PdfDocument, TextBoxFont,
+    EngineError, OcrKnown, OutlineTarget, PdfBuilder, PdfDocument, TextBoxFont, inspect_font,
     prepare_stamp_picture, prepare_text_box,
 };
 use crate::handle;
@@ -454,6 +454,9 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 font,
                 text,
             } => Some(prepare_text(request, &font, &text)),
+            WorkerRequest::InspectFont { request, bytes } => {
+                Some(inspect_font_request(request, &bytes))
+            }
             WorkerRequest::SavePages {
                 request,
                 doc,
@@ -723,6 +726,18 @@ fn prepare_text(request: RequestId, font: &FontData, text: &str) -> WorkerRespon
     match prepare_text_box(&font, text) {
         Ok(model) => WorkerResponse::TextBoxPrepared { request, model },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
+/// Inspects the bytes of a font file to be imported (B2-32, ADR 0018).
+fn inspect_font_request(request: RequestId, bytes: &[u8]) -> WorkerResponse {
+    match inspect_font(bytes) {
+        Ok(faces) => WorkerResponse::FontInspected { request, faces },
+        Err(refusal) => engine_error(
+            request,
+            &EngineError::Font(refusal),
+            WorkerErrorCode::Internal,
+        ),
     }
 }
 

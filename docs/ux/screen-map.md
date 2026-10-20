@@ -124,6 +124,12 @@
     - 「匯入語言資料…」：主行程顯示開啟對話框，選一個 Tesseract 的 `.traineddata`（app 不下載任何東西）。成功顯示 ocr.settings.imported，被拒絕時顯示原因（ocr.settings.refused.*：讀不到、太大、不是語言資料、檔名不合、內附的語言不能取代、匯入太多）；
     - 匯入的語言列在「匯入的語言」下，各有一個「移除」按鈕（內附的沒有）；移除目前選的語言時，改回 app 的選擇。
   - **機敏文件**（B3-05）：sensitive.listTitle 下列出在這台電腦上標記的檔名（沒有時 sensitive.listNone），開著的標示 sensitive.listOpen，每筆有「移除」（名稱 sensitive.listRemove）：只是不再列出，檔案仍是機敏文件。下方說明 sensitive.listNote（要取消標記，開啟該檔案從「⋯」選單）。讀不到清單時顯示 sensitive.listFailed。
+  - **自訂字型**（B2-32，#229，ADR 0018）：
+    - 標題 settings.fonts.title 與版權提醒說明（settings.fonts.licenseNote）；
+    - 「匯入字型檔…」（settings.fonts.importButton）：開啟對話框選一個 TrueType 字型檔（`.ttf`、`.ttc`）；成功顯示 settings.fonts.importSuccess，被拒絕時顯示原因（settings.fonts.refused.*：讀不到、太大、不是字型檔、已匯入過、達到上限、不是 TrueType、可變字型、彩色字型、受限授權、沒有字元等）；
+    - 匯入的字型列在下方，顯示原始檔名、字型家族與樣式，每筆有「移除」（settings.fonts.removeButton）；
+    - 有匯入字型時顯示「清除全部…」（settings.fonts.removeAllButton），點擊後跳出二次確認對話框（settings.fonts.removeAllConfirmTitle / Description），確認後清除全部匯入字型；
+    - 文字方塊編輯對話框中的字型選單會包含已匯入字型，並附註「（已匯入）」。
   - **這台電腦上保存的資料**：列出 settings.dataItems 與 settings.dataLocation。
   - 設定寫不進檔案時顯示 settings.saveFailed：仍然套用，但重新啟動後會回到之前的設定。
   - 保存方式見 [local-data.md](../architecture/local-data.md)。
@@ -353,7 +359,7 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
   - 頁面上按右鍵，功能表的「annotations.addTextBox」，放在按右鍵的地方。
 - **對話框**（新增：annotations.textBoxDialog.addTitle，改：annotations.textBoxDialog.editTitle）：
   - 文字（多行；`Enter` 換行，`Ctrl+Enter` 儲存）；用輸入法組字時，`Enter`、`Ctrl+Enter` 與其他按鍵都是輸入法的，不儲存，也不觸發應用程式的快捷鍵（全域的快捷鍵遇到組字中的按鍵一律不作用）；
-  - 字型：下拉選單列出已安裝字型的**家族**（每次開啟對話框都重新讀清單），旁邊的「粗體」「斜體」是同一家族的另一個字型；家族沒有那個變體時，說明 annotations.textBoxDialog.noBold／noItalic，按鈕不變，**不模擬**；換成沒有粗體或斜體的家族時，粗體或斜體會取消並同樣說明；選單下方一行說明 annotations.textBoxDialog.fontsHelp（找不到字型就先在 Windows 安裝它）；新的方塊一開始用上次的家族，沒有就用能顯示中日文的字型（微軟正黑體等），再沒有就用清單的第一個；
+  - 字型：下拉選單列出已安裝與已匯入字型的**家族**（每次開啟對話框都重新讀清單，匯入的字型排在最前並標示 annotations.textBoxDialog.importedBadge），旁邊的「粗體」「斜體」是同一家族的另一個字型；家族沒有那個變體時，說明 annotations.textBoxDialog.noBold／noItalic，按鈕不變，**不模擬**；換成沒有粗體或斜體的家族時，粗體或斜體會取消並同樣說明；選單下方一行說明 annotations.textBoxDialog.fontsHelp（可在設定匯入字型檔或在 Windows 安裝字型）；新的方塊一開始用上次的家族，沒有就用能顯示中日文的字型（微軟正黑體等），再沒有就用清單的第一個；
   - 大小（點，4 到 288）、顏色（七個顏色與自訂顏色）、對齊（靠左、置中、靠右）；
   - 儲存時畫面先請主行程準備文字與字型；字型不能用、字型沒有文字裡的某個字、文字需要字形變化（阿拉伯文、希伯來文、印度系文字、組合記號）、字型已不在，都在對話框裡顯示原因（錯誤碼的訊息：fontInvalid、fontNotTrueType、fontVariable、fontColour、fontNotEmbeddable、fontMissingGlyphs、textNotSupported、fontUnavailable），對話框不關，可以換字型再試；
   - 字型的授權只允許檢視與列印時，方塊照樣加上，狀態列顯示 annotations.textBoxViewOnly；

@@ -45,6 +45,7 @@ import type { SavingApi } from "@/features/saving/api";
 import { saveAsHelps } from "@/features/saving/messages";
 import { SaveFailedDialog } from "@/features/saving/SaveFailedDialog";
 import { useSearch, type SearchApi } from "@/features/search/useSearch";
+import type { FontsApi } from "@/features/settings/FontsSection";
 import type { PasswordsApi } from "@/features/settings/PasswordsSection";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
 import { useSettings } from "@/features/settings/useSettings";
@@ -153,6 +154,8 @@ type ReaderShellProps = {
   editingApi?: EditingApi;
   /** The update check in the settings (#64); without it (demo data, tests) it is not offered. */
   updatesApi?: UpdatesApi;
+  /** Custom imported fonts for text boxes (B2-32); without it (demo data, tests) they are not offered. */
+  fontsApi?: FontsApi;
   /** Recognising the text of scanned pages (B2-10); without it (demo data, tests) it is not offered. */
   ocrApi?: OcrApi;
   /** How it goes for this tab's document: the latest progress, and which pages' text is new. */
@@ -229,6 +232,7 @@ export function ReaderShell({
   sensitiveApi,
   editingApi,
   updatesApi,
+  fontsApi,
   ocrApi,
   ocr,
   latest,
@@ -1513,6 +1517,7 @@ export function ReaderShell({
         recentApi={recentApi}
         updatesApi={updatesApi}
         ocrApi={ocrApi}
+        fontsApi={fontsApi}
         passwordsApi={passwordsApi}
         sensitiveApi={sensitiveApi}
       />

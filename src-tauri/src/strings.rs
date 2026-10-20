@@ -78,6 +78,10 @@ pub const CREATE_PDF_SAME_FILE_MESSAGE: &str =
 pub const LANGUAGE_DIALOG_TITLE: &str = "匯入 OCR 語言資料";
 pub const LANGUAGE_FILTER_NAME: &str = "Tesseract 語言資料（.traineddata）";
 
+/// Importing a font file for text boxes (B2-32, ADR 0018).
+pub const FONT_DIALOG_TITLE: &str = "匯入字型檔";
+pub const FONT_FILTER_NAME: &str = "字型檔（.ttf、.ttc）";
+
 /// Export (B2-04): where the text goes, and the folder the page images go to.
 pub const EXPORT_TEXT_DIALOG_TITLE: &str = "匯出純文字";
 /// The Word document (B3-02): where it goes.
