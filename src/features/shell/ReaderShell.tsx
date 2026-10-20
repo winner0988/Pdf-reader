@@ -1051,8 +1051,9 @@ export function ReaderShell({
                 }}
               />
             )}
-            <main
-              ref={canvasRef}
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <main
+                ref={canvasRef}
               aria-label={strings.canvas.label}
               data-region="canvas"
               data-drop-active={dropActive || undefined}
@@ -1182,6 +1183,7 @@ export function ReaderShell({
                 <SearchBar search={search} pageCount={pageCount} inputRef={searchInputRef} onClose={closeSearch} />
               </div>
             )}
+            </div>
           </div>
           {bannerShown && detailsOpen && (
             <SecurityDetails id={detailsId} findings={findings} scanComplete={scanComplete} onClose={closeDetails} />
