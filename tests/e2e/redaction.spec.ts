@@ -42,12 +42,17 @@ test.describe("security redaction (ADR 0016, B2-22)", () => {
     const hitBox = (await hit.boundingBox())!;
     await page.keyboard.press("Escape");
 
-    // 2. Select text and right-click to mark via context menu.
-    await page.mouse.dblclick(hitBox.x + hitBox.width / 2, hitBox.y + hitBox.height / 2);
-    await page.mouse.click(hitBox.x + hitBox.width / 2, hitBox.y + hitBox.height / 2, { button: "right" });
-    const markMenuItem = page.getByRole("menuitem", { name: strings.redaction.markSelection });
-    await expect(markMenuItem).toBeVisible();
-    await markMenuItem.click();
+    // 2. Mark it with the redaction tool: drag a box over what search found. A link, a note and a
+    // field lie on the same line (redacting the line must remove them too), so a right click there
+    // lands on the link, not the page; the context menu is tested on a page without them below.
+    const redactBtn = page.locator("[data-redact-button]");
+    await redactBtn.click();
+    await expect(page.getByRole("contentinfo")).toContainText(strings.redaction.toolOn);
+    await page.mouse.move(hitBox.x - 2, hitBox.y - 2);
+    await page.mouse.down();
+    await page.mouse.move(hitBox.x + hitBox.width + 2, hitBox.y + hitBox.height + 2, { steps: 5 });
+    await page.mouse.up();
+    await page.keyboard.press("Escape");
 
     // The redaction mark is placed on the page.
     await expect(marks(page)).toHaveCount(1);
@@ -123,7 +128,26 @@ test.describe("security redaction (ADR 0016, B2-22)", () => {
     await reopenSearch.fill("SECRET-ALPHA-123");
     await reopenSearch.press("Enter");
     const searchStatus = reopened.getByRole("search").getByRole("status");
-    await expect(searchStatus).toHaveText(strings.search.count(0, 0));
+    await expect(searchStatus).toHaveText(strings.search.noResults("SECRET-ALPHA-123"));
+  });
+
+  test("selected text is marked from the context menu", async ({ launch }) => {
+    const page = await launch(corpus("benign/mixed-text-zh-en.pdf"));
+    await expect(firstPage(page)).toHaveAttribute("data-state", "ready");
+
+    await page.keyboard.press("Control+f");
+    const searchInput = page.getByRole("textbox", { name: strings.search.placeholder });
+    await searchInput.fill("Privacy");
+    await searchInput.press("Enter");
+    const hit = page.locator("[data-highlights] polygon:not([data-current])");
+    await expect(hit).toHaveCount(1);
+    const hitBox = (await hit.boundingBox())!;
+    await page.keyboard.press("Escape");
+
+    await page.mouse.dblclick(hitBox.x + hitBox.width / 2, hitBox.y + hitBox.height / 2);
+    await page.mouse.click(hitBox.x + hitBox.width / 2, hitBox.y + hitBox.height / 2, { button: "right" });
+    await page.getByRole("menuitem", { name: strings.redaction.markSelection }).click();
+    await expect(marks(page)).toHaveCount(1);
   });
 
   test("redaction is disabled on a signed document", async ({ launch }) => {
@@ -141,7 +165,7 @@ test.describe("security redaction (ADR 0016, B2-22)", () => {
   });
 
   test("redaction is disabled on a document whose author forbids modifications", async ({ launch }) => {
-    const page = await launch(corpus("benign/restricted-no-copy-no-print.pdf"));
+    const page = await launch(corpus("benign/restricted-no-modify.pdf"));
     await expect(firstPage(page)).toHaveAttribute("data-state", "ready");
 
     // The toolbar button is disabled.
