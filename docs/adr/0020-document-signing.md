@@ -1,9 +1,9 @@
 # ADR 0020：簽署文件時私鑰只在主行程，以 Windows CryptoAPI 簽署；憑證來自 .pfx 或 Windows 憑證存放區
 
 ## 狀態
-提議中
+已接受
 
-（工作卡 #237〔B3-06〕。負責人決定選項後才實作；接受前由實作 agent 做下面的 POC。）
+（負責人於 2026-10-21 接受選項 B：`.pfx`／`.p12` 與 Windows 憑證存放區，含自然人憑證等智慧卡〔[#237 的留言](https://github.com/winner0988/Pdf-reader/issues/237#issuecomment-6303085444)〕。工作卡 [#237](https://github.com/winner0988/Pdf-reader/issues/237)〔B3-06〕。實作前由實作 agent 做下面的 POC。）
 
 ## 背景
 - 規格 §3「本地數位簽章」：載入本機的憑證檔（`.pfx`、`.p12`）簽署文件，完全離線。驗證已由 ADR 0014 做到（在 worker 中以 Windows CryptoAPI 離線驗證）。
