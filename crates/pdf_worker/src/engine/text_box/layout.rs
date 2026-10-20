@@ -149,6 +149,9 @@ pub(super) fn lay_out(
     style: &TextBoxStyle,
     (width, height): (f32, f32),
 ) -> Option<Laid> {
+    if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
+        return None;
+    }
     let glyphs = glyphs(model)?;
     let wrapped = wrap(&glyphs, style.size, width - 2.0 * PADDING);
     let ascent = (model.ascent as f32 / 1000.0).max(0.8) * style.size;
@@ -274,6 +277,45 @@ mod tests {
             'a', 'Z', '7', ' ', 'é', 'Ω', 'Ж', '你', '體', 'か', 'カ', '한', '。', '€', '¥',
         ] {
             assert!(!needs_layout(fine), "{fine:?}");
+        }
+    }
+
+    #[test]
+    fn invalid_or_non_finite_dimensions_make_no_layout() {
+        let model = TextBoxModel {
+            text: "Hello".to_owned(),
+            font: "Droid".to_owned(),
+            face: 0,
+            view_only: false,
+            base: String::new(),
+            glyphs: vec![ipc_contract::worker::ModelGlyph {
+                ch: 'H',
+                cid: 1,
+                advance: 500,
+            }],
+            subset: Vec::new(),
+            ascent: 800,
+            descent: -200,
+            cap_height: 700,
+            step: 1000,
+            bbox: [0, -200, 500, 800],
+        };
+        let style = TextBoxStyle {
+            size: 12.0,
+            color: ipc_contract::types::Rgb { r: 0, g: 0, b: 0 },
+            align: TextAlign::Left,
+        };
+        for (w, h) in [
+            (f32::NAN, 100.0),
+            (100.0, f32::NAN),
+            (f32::INFINITY, 100.0),
+            (100.0, f32::NEG_INFINITY),
+            (-50.0, 100.0),
+            (100.0, -50.0),
+            (0.0, 100.0),
+            (100.0, 0.0),
+        ] {
+            assert!(lay_out(&model, &style, (w, h)).is_none(), "({w}, {h})");
         }
     }
 }
