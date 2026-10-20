@@ -1,9 +1,9 @@
 # ADR 0023：開著機敏文件時，主視窗排除在螢幕擷取之外
 
 ## 狀態
-提議中
+已接受
 
-（工作卡 B3-13（#301），B3 擴充 E1，見 `docs/planning/2026-10-20-plan-to-nov-20.md`。擴充 ADR 0004 的保護範圍。負責人決定選項。）
+（負責人於 2026-10-21 接受選項 B〔[#301 的留言](https://github.com/winner0988/Pdf-reader/issues/301#issuecomment-6303087881)〕。工作卡 B3-13（[#301](https://github.com/winner0988/Pdf-reader/issues/301)），B3 擴充 E1，見 `docs/planning/2026-10-20-plan-to-nov-20.md`。擴充 ADR 0004 的保護範圍。）
 
 ## 背景
 - ADR 0004（已接受）：系統層級外洩防護只套用在使用者手動標記為「機敏」的文件。目前做到的是剪貼簿保護、縮圖與最近使用的檔案（B3-05）。
