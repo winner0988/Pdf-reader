@@ -13,6 +13,49 @@ import { cn } from "@/lib/utils";
 
 const t = strings.tabs;
 
+/** Shared sizing and geometry for each tab slot so visual and overlay layers stay aligned (#188). */
+const tabSlotClass = "flex h-8 max-w-56 min-w-28 shrink-0 items-center rounded-t-md border border-b-0 text-sm";
+const tabInnerClass = "flex h-full min-w-0 flex-1 items-center gap-1.5 pr-8 pl-3";
+
+type TabLabelProps = {
+  tab: Tab;
+  /** Whether to render sr-only descriptions (loading, locked, failed, unsaved). Defaults to true. */
+  includeSrOnly?: boolean;
+};
+
+/** Inner contents of a tab button (status icon, unsaved dot, truncated display name). */
+function TabLabel({ tab, includeSrOnly = true }: TabLabelProps) {
+  return (
+    <>
+      {tab.content.kind === "loading" && (
+        <>
+          <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden />
+          {includeSrOnly && <span className="sr-only">{t.loading}</span>}
+        </>
+      )}
+      {tab.content.kind === "password" && (
+        <>
+          <LockKeyhole className="size-3.5 shrink-0" aria-hidden />
+          {includeSrOnly && <span className="sr-only">{t.locked}</span>}
+        </>
+      )}
+      {tab.content.kind === "error" && (
+        <>
+          <TriangleAlert className="size-3.5 shrink-0 text-destructive" aria-hidden />
+          {includeSrOnly && <span className="sr-only">{t.failed}</span>}
+        </>
+      )}
+      {isUnsaved(tab) && (
+        <span aria-hidden className="shrink-0 font-bold">
+          •
+        </span>
+      )}
+      <span className="truncate">{tab.displayName}</span>
+      {includeSrOnly && isUnsaved(tab) && <span className="sr-only">{t.unsaved}</span>}
+    </>
+  );
+}
+
 type TabBarProps = {
   tabs: Tab[];
   active: TabId | null;
@@ -65,7 +108,7 @@ export function TabBar({ tabs, active, onActivate, onClose, onOpen }: TabBarProp
                   role="presentation"
                   data-selected={selected || undefined}
                   className={cn(
-                    "flex h-8 max-w-56 min-w-28 shrink-0 items-center rounded-t-md border border-b-0 text-sm",
+                    tabSlotClass,
                     selected ? "bg-background text-foreground" : "bg-muted text-muted-foreground hover:bg-background/70",
                   )}
                   onAuxClick={(event) => {
@@ -88,35 +131,14 @@ export function TabBar({ tabs, active, onActivate, onClose, onOpen }: TabBarProp
                     aria-controls={tabPanelId(tab.tab)}
                     tabIndex={selected ? 0 : -1}
                     title={tab.displayName}
-                    className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-t-md pr-8 pl-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className={cn(
+                      tabInnerClass,
+                      "rounded-t-md outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    )}
                     onClick={() => onActivate(tab.tab)}
                     onKeyDown={(event) => onKeyDown(event, index)}
                   >
-                    {tab.content.kind === "loading" && (
-                      <>
-                        <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden />
-                        <span className="sr-only">{t.loading}</span>
-                      </>
-                    )}
-                    {tab.content.kind === "password" && (
-                      <>
-                        <LockKeyhole className="size-3.5 shrink-0" aria-hidden />
-                        <span className="sr-only">{t.locked}</span>
-                      </>
-                    )}
-                    {tab.content.kind === "error" && (
-                      <>
-                        <TriangleAlert className="size-3.5 shrink-0 text-destructive" aria-hidden />
-                        <span className="sr-only">{t.failed}</span>
-                      </>
-                    )}
-                    {isUnsaved(tab) && (
-                      <span aria-hidden className="shrink-0 font-bold">
-                        •
-                      </span>
-                    )}
-                    <span className="truncate">{tab.displayName}</span>
-                    {isUnsaved(tab) && <span className="sr-only">{t.unsaved}</span>}
+                    <TabLabel tab={tab} />
                   </button>
                 </div>
               );
@@ -130,15 +152,11 @@ export function TabBar({ tabs, active, onActivate, onClose, onOpen }: TabBarProp
               return (
                 <div
                   key={tab.tab}
-                  className="relative flex h-8 max-w-56 min-w-28 shrink-0 items-center rounded-t-md border border-b-0 border-transparent text-sm"
+                  className={cn(tabSlotClass, "relative border-transparent")}
                 >
                   {/* Invisible sizing counterpart matching tab content to guarantee identical width */}
-                  <div aria-hidden="true" className="invisible flex h-full min-w-0 flex-1 items-center gap-1.5 pr-8 pl-3">
-                    {tab.content.kind === "loading" && <span className="size-3.5 shrink-0" />}
-                    {tab.content.kind === "password" && <span className="size-3.5 shrink-0" />}
-                    {tab.content.kind === "error" && <span className="size-3.5 shrink-0" />}
-                    {isUnsaved(tab) && <span className="shrink-0 font-bold">•</span>}
-                    <span className="truncate">{tab.displayName}</span>
+                  <div aria-hidden="true" className={cn(tabInnerClass, "invisible")}>
+                    <TabLabel tab={tab} includeSrOnly={false} />
                   </div>
                   <Button
                     variant="ghost"
