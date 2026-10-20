@@ -26,6 +26,7 @@
 | [0018](0018-text-boxes-and-fonts.md) | 文字方塊是頁面上的 FreeText 註解，外觀由 worker 以所選字型的子集自己產生 | 已接受 |
 | [0019](0019-merge-app-annotations.md) | 合併檔案頁面時以「提取純淨資料、重新建立」攜帶 app 支援的註解 | 提議中 |
 | [0020](0020-document-signing.md) | 簽署文件時私鑰只在主行程，以 Windows CryptoAPI 簽署；憑證來自 .pfx 或 Windows 憑證存放區 | 提議中 |
+| [0021](0021-form-scripts-in-worker.md) | 表單腳本以 MuPDF 內建的 mujs 在文件自己的 worker 中執行，只跑欄位的按鍵、格式、驗證與計算 | 提議中 |
 
 ## 規則
 
