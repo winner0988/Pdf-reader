@@ -170,6 +170,27 @@ fn a_file_says_its_key_whatever_made_it_and_a_file_that_does_not_has_none() {
         with_encrypt("/Filter /Standard /V 1 /U <00> /P -4"),
         with_encrypt(""),
         with_encrypt("/Filter /Adobe.PubSec /SubFilter /adbe.pkcs7.s5 /V 4"),
+        with_encrypt(&format!(
+            "/Filter /Adobe.PubSec /V 4 /R 4 /O {} /U {} /P -4",
+            hex(32),
+            hex(32)
+        )),
+        with_encrypt(&format!(
+            "/Filter /Crypt /V 4 /R 4 /O {} /U {} /P -4",
+            hex(32),
+            hex(32)
+        )),
+        with_encrypt(&format!("/V 1 /R 2 /O {} /U {} /P -4", hex(32), hex(32))),
+        with_encrypt(&format!(
+            "/Filter (Standard) /V 1 /R 2 /O {} /U {} /P -4",
+            hex(32),
+            hex(32)
+        )),
+        with_encrypt(&format!(
+            "/Filter 42 /V 1 /R 2 /O {} /U {} /P -4",
+            hex(32),
+            hex(32)
+        )),
         corpus("benign/single-page.pdf"),
         corpus("malformed/not-a-pdf.pdf"),
         corpus("malformed/page-tree-cycle.pdf"),
