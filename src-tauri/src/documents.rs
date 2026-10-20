@@ -6582,6 +6582,25 @@ mod with_worker {
         );
         let single = std::fs::read(out.join("single-page（浮水印）.pdf")).unwrap();
         assert!(single.starts_with(b"%PDF-"));
+        let single_wm_count = single
+            .windows(b"/PdfReaderWatermark".len())
+            .filter(|w| *w == b"/PdfReaderWatermark")
+            .count();
+        assert!(
+            single_wm_count >= 1,
+            "single page copy has /PdfReaderWatermark"
+        );
+
+        let multi = std::fs::read(out.join("multi-page-10（浮水印）.pdf")).unwrap();
+        let multi_wm_count = multi
+            .windows(b"/PdfReaderWatermark".len())
+            .filter(|w| *w == b"/PdfReaderWatermark")
+            .count();
+        assert!(
+            multi_wm_count >= 10,
+            "all 10 pages have /PdfReaderWatermark"
+        );
+
         let orig = std::fs::read(corpus_path("benign/single-page.pdf")).unwrap();
         assert!(
             !orig
@@ -6589,7 +6608,41 @@ mod with_worker {
                 .any(|w| w == b"CONFIDENTIAL")
         );
 
-        // Picture watermark with prepare_watermark_picture
+        // Reopen copies through worker and verify text layer and search
+        let single_info = open_in(&documents, &out.join("single-page（浮水印）.pdf"));
+        let single_text = documents.page_text(single_info.doc, 0).expect("page text");
+        assert!(
+            single_text
+                .lines
+                .iter()
+                .any(|line| line.text.contains("CONFIDENTIAL")),
+            "single-page copy text layer has CONFIDENTIAL"
+        );
+        let single_search = documents
+            .search_page(single_info.doc, 0, "CONFIDENTIAL", false, 10)
+            .expect("search");
+        assert!(!single_search.hits.is_empty());
+
+        let multi_info = open_in(&documents, &out.join("multi-page-10（浮水印）.pdf"));
+        assert_eq!(multi_info.pages.len(), 10);
+        for page in 0..10 {
+            let page_text = documents
+                .page_text(multi_info.doc, page)
+                .expect("page text");
+            assert!(
+                page_text
+                    .lines
+                    .iter()
+                    .any(|line| line.text.contains("CONFIDENTIAL")),
+                "page {page} text layer has CONFIDENTIAL"
+            );
+            let page_search = documents
+                .search_page(multi_info.doc, page, "CONFIDENTIAL", false, 10)
+                .expect("search");
+            assert!(!page_search.hits.is_empty(), "page {page} search has hits");
+        }
+
+        // Picture watermark with prepare_watermark_picture, applied only to First page
         let picture_png = documents
             .prepare_watermark_picture(&corpus_path("images/stamp-exif.jpg"))
             .expect("prepare picture");
@@ -6606,14 +6659,41 @@ mod with_worker {
         };
         let (pic_report, _) = run_batch_with_picture(
             &documents,
-            &[corpus_path("benign/single-page.pdf")],
+            &[corpus_path("benign/multi-page-10.pdf")],
             &pic_out,
             &pic_op,
             Some(&picture_png),
             false,
         );
         assert_eq!(pic_report.done, 1);
-        assert_eq!(names_in(&pic_out), ["single-page（浮水印）.pdf"]);
+        assert_eq!(names_in(&pic_out), ["multi-page-10（浮水印）.pdf"]);
+
+        let pic_bytes = std::fs::read(pic_out.join("multi-page-10（浮水印）.pdf")).unwrap();
+        let pic_wm_count = pic_bytes
+            .windows(b"/PdfReaderWatermark".len())
+            .filter(|w| *w == b"/PdfReaderWatermark")
+            .count();
+        assert_eq!(
+            pic_wm_count, 1,
+            "only the first page has /PdfReaderWatermark"
+        );
+
+        let pic_info = open_in(&documents, &pic_out.join("multi-page-10（浮水印）.pdf"));
+        let orig_multi_info = open_in(&documents, &corpus_path("benign/multi-page-10.pdf"));
+        let pic_p0 = documents
+            .render(&args(pic_info.doc, 0, 0.5, Rotation::None))
+            .unwrap();
+        let orig_p0 = documents
+            .render(&args(orig_multi_info.doc, 0, 0.5, Rotation::None))
+            .unwrap();
+        assert_ne!(pic_p0, orig_p0, "page 0 has watermark picture");
+        let pic_p1 = documents
+            .render(&args(pic_info.doc, 1, 0.5, Rotation::None))
+            .unwrap();
+        let orig_p1 = documents
+            .render(&args(orig_multi_info.doc, 1, 0.5, Rotation::None))
+            .unwrap();
+        assert_eq!(pic_p1, orig_p1, "page 1 has no watermark picture");
 
         std::fs::remove_dir_all(&out).ok();
         std::fs::remove_dir_all(&pic_out).ok();

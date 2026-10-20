@@ -176,11 +176,14 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
                 <EncryptFields form={form} onChange={(changes) => setForm((now) => ({ ...now, ...changes }))} disabled={active} />
               )}
               {kind === "watermark" && (
-                <WatermarkFields
-                  form={watermarkForm}
-                  onChange={(changes) => setWatermarkForm((now) => ({ ...now, ...changes }))}
-                  disabled={active}
-                />
+                <>
+                  <WatermarkFields
+                    form={watermarkForm}
+                    onChange={(changes) => setWatermarkForm((now) => ({ ...now, ...changes }))}
+                    disabled={active}
+                  />
+                  <p className="text-sm">{t.watermarkSignatureNote}</p>
+                </>
               )}
               {kind === "removeExif" && <p className="text-sm">{t.exifNote}</p>}
               <ul id={operationId} className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">

@@ -142,15 +142,16 @@ test.describe("a batch", () => {
     await expect(list).toContainText(t.done("single（浮水印）.pdf"));
     expect(readdirSync(out).sort()).toEqual(["doc（浮水印）.pdf", "single（浮水印）.pdf"]);
 
+    const countWatermarks = (buf: Buffer) => buf.toString("latin1").split("/PdfReaderWatermark").length - 1;
+
     const copyDoc = readFileSync(path.join(out, "doc（浮水印）.pdf"));
     expect(copyDoc.subarray(0, 5).toString()).toBe("%PDF-");
-    expect(copyDoc.includes(Buffer.from("CONFIDENTIAL"))).toBe(true);
-    expect(copyDoc.includes(Buffer.from("/PdfReaderWatermark"))).toBe(true);
+    // Streams are compressed so word bytes are encoded, but /PdfReaderWatermark appears in each page's resources
+    expect(countWatermarks(copyDoc)).toBeGreaterThanOrEqual(10);
 
     const copySingle = readFileSync(path.join(out, "single（浮水印）.pdf"));
     expect(copySingle.subarray(0, 5).toString()).toBe("%PDF-");
-    expect(copySingle.includes(Buffer.from("CONFIDENTIAL"))).toBe(true);
-    expect(copySingle.includes(Buffer.from("/PdfReaderWatermark"))).toBe(true);
+    expect(countWatermarks(copySingle)).toBeGreaterThanOrEqual(1);
 
     expect(picked.map(sha256)).toEqual(before);
   });

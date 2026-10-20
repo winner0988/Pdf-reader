@@ -550,6 +550,7 @@ export const strings = {
       widthOutOfRange: "圖片寬度必須在 16 到 1200 點之間",
       opacityOutOfRange: "不透明度必須在 5% 到 100% 之間",
     },
+    watermarkSignatureNote: "有數位簽章的檔案，副本裡的簽章不會成立。",
     exifNote:
       "只清除圖片裡的資訊：相機型號、拍攝時間、GPS 位置、縮圖與其他程式寫進去的說明。圖片不重新編碼，看起來完全一樣。文件本身的中繼資料（作者、標題等）不在其中，請另外用「清除中繼資料」。",
     notes: (limit: number) => [

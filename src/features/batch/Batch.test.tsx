@@ -154,6 +154,7 @@ describe("a batch (B3-04)", () => {
     const { user } = renderShell(api);
     const dialog = await openDialog(user);
     await user.click(within(dialog).getByRole("radio", { name: t.watermark }));
+    expect(dialog).toHaveTextContent(t.watermarkSignatureNote);
 
     // Config options
     const textInput = within(dialog).getByLabelText(t.watermarkTextInput);
@@ -196,6 +197,7 @@ describe("a batch (B3-04)", () => {
     const { user } = renderShell(api);
     const dialog = await openDialog(user);
     await user.click(within(dialog).getByRole("radio", { name: t.watermark }));
+    expect(dialog).toHaveTextContent(t.watermarkSignatureNote);
 
     const textInput = within(dialog).getByLabelText(t.watermarkTextInput);
     await user.clear(textInput);
@@ -220,6 +222,7 @@ describe("a batch (B3-04)", () => {
     const { user } = renderShell(api);
     const dialog = await openDialog(user);
     await user.click(within(dialog).getByRole("radio", { name: t.watermark }));
+    expect(dialog).toHaveTextContent(t.watermarkSignatureNote);
     await user.click(within(dialog).getByRole("radio", { name: t.watermarkPicture }));
 
     expect(dialog).toHaveTextContent(t.watermarkPictureNote);
