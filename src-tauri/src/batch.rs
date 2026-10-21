@@ -85,6 +85,7 @@ pub fn copy_name(display_name: &str, operation: &BatchOperation) -> String {
         BatchOperation::RemoveMetadata => strings::privacy_export_file_name(&stem),
         BatchOperation::Encrypt { .. } => strings::encrypted_copy_file_name(&stem),
         BatchOperation::RemoveExif => strings::exif_cleaned_file_name(&stem),
+        BatchOperation::Watermark { .. } => strings::watermark_file_name(&stem),
     }
 }
 
@@ -107,6 +108,7 @@ pub fn run(
     files: &[PathBuf],
     folder: &Path,
     operation: &BatchOperation,
+    picture: Option<&[u8]>,
     stop: &AtomicBool,
     report: &dyn Fn(BatchEvent),
 ) -> BatchReport {
@@ -123,7 +125,13 @@ pub fn run(
             summary.skipped += 1;
             BatchOutcome::Skipped
         } else {
-            match documents.batch_copy(path, folder, &copy_name(name, operation), operation) {
+            match documents.batch_copy(
+                path,
+                folder,
+                &copy_name(name, operation),
+                operation,
+                picture,
+            ) {
                 Ok(output) => {
                     summary.done += 1;
                     BatchOutcome::Done { output }
@@ -163,6 +171,23 @@ mod tests {
         assert_eq!(
             copy_name("相片.pdf", &BatchOperation::RemoveExif),
             "相片（已清除 EXIF）.pdf"
+        );
+        let watermark = BatchOperation::Watermark {
+            watermark: ipc_contract::types::Watermark {
+                content: ipc_contract::types::WatermarkContent::Text {
+                    text: "機密".to_owned(),
+                    size: 40.0,
+                    color: ipc_contract::types::Rgb { r: 200, g: 0, b: 0 },
+                },
+                opacity: 50,
+                diagonal: true,
+                place: ipc_contract::types::WatermarkPlace::Center,
+                pages: ipc_contract::types::WatermarkPages::All,
+            },
+        };
+        assert_eq!(
+            copy_name("機密文件.pdf", &watermark),
+            "機密文件（浮水印）.pdf"
         );
         assert_eq!(numbered("a.pdf", 1), "a.pdf");
         assert_eq!(numbered("a.pdf", 2), "a (2).pdf");

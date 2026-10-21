@@ -64,6 +64,8 @@ enum Kind {
     OpenFont,
     /// The picture of a custom stamp (B2-08): one PNG or JPEG file.
     OpenImage,
+    /// The picture of a watermark (B3-04): one PNG or JPEG file.
+    OpenWatermarkImage,
     /// The files a PDF is made of (B3-03): several can be picked.
     OpenSources,
     /// Where to save a PDF made of files (B3-03), suggesting `file_name`.
@@ -152,6 +154,14 @@ pub async fn compressed_copy_file(
 /// cancelled.
 pub async fn pick_image(window: &WebviewWindow) -> Result<Option<PathBuf>, IpcError> {
     Ok(run(window, Kind::OpenImage)
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
+/// Asks for the picture of a watermark (B3-04): one PNG or JPEG file. `None` if the user
+/// cancelled.
+pub async fn pick_watermark_image(window: &WebviewWindow) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::OpenWatermarkImage)
         .await?
         .and_then(|mut paths| paths.pop()))
 }
@@ -253,7 +263,11 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
         | Kind::SplitPdf { .. }
         | Kind::SaveCreatedPdf { .. } => common | FOS_OVERWRITEPROMPT,
         Kind::PickFolder { .. } => common | FOS_PICKFOLDERS,
-        Kind::OpenLanguageData | Kind::OpenFont | Kind::OpenPagesSource | Kind::OpenImage => common,
+        Kind::OpenLanguageData
+        | Kind::OpenFont
+        | Kind::OpenPagesSource
+        | Kind::OpenImage
+        | Kind::OpenWatermarkImage => common,
     }
 }
 
@@ -319,6 +333,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
             | Kind::OpenLanguageData
             | Kind::OpenFont
             | Kind::OpenImage
+            | Kind::OpenWatermarkImage
             | Kind::OpenSources => {
                 CoCreateInstance::<_, IFileOpenDialog>(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
@@ -407,6 +422,10 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
         ),
         Kind::OpenImage => (
             strings::STAMP_IMAGE_DIALOG_TITLE,
+            one(strings::IMAGE_FILTER_NAME, "*.png;*.jpg;*.jpeg"),
+        ),
+        Kind::OpenWatermarkImage => (
+            strings::WATERMARK_IMAGE_DIALOG_TITLE,
             one(strings::IMAGE_FILTER_NAME, "*.png;*.jpg;*.jpeg"),
         ),
         Kind::OpenSources => (strings::CREATE_SOURCES_DIALOG_TITLE, source_filters()),
@@ -576,6 +595,15 @@ mod tests {
             image(FOS_DONTADDTORECENT) && image(FOS_FORCEFILESYSTEM) && image(FOS_FILEMUSTEXIST)
         );
         assert!(!image(FOS_ALLOWMULTISELECT));
+
+        // One picture for a watermark (B3-04), not several.
+        let watermark_image = options_of(Kind::OpenWatermarkImage);
+        assert!(
+            watermark_image(FOS_DONTADDTORECENT)
+                && watermark_image(FOS_FORCEFILESYSTEM)
+                && watermark_image(FOS_FILEMUSTEXIST)
+        );
+        assert!(!watermark_image(FOS_ALLOWMULTISELECT));
 
         // Several files a PDF is made of (B3-03), and where the PDF goes.
         let sources = options_of(Kind::OpenSources);

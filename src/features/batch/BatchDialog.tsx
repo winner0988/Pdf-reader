@@ -16,7 +16,23 @@ import {
 } from "@/components/ui/dialog";
 import type { BatchApi, BatchJob } from "@/features/batch/api";
 import { describeOutcome } from "@/features/batch/messages";
-import { batchEncryptionOf, describeProblem, EMPTY_FORM, problemWith, type EncryptForm } from "@/features/saving/encrypt";
+import {
+  batchWatermarkOf,
+  DEFAULT_WATERMARK_FORM,
+  describeWatermarkProblem,
+  watermarkProblemWith,
+  type WatermarkForm,
+  type WatermarkProblem,
+} from "@/features/batch/watermark";
+import { WatermarkFields } from "@/features/batch/WatermarkFields";
+import {
+  batchEncryptionOf,
+  describeProblem,
+  EMPTY_FORM,
+  problemWith,
+  type EncryptForm,
+  type Problem,
+} from "@/features/saving/encrypt";
 import { EncryptFields } from "@/features/saving/EncryptFields";
 import { strings } from "@/i18n/zh-TW";
 import { LIMITS, type BatchEvent, type BatchOperation, type BatchOutcome, type BatchReport } from "@/ipc/generated/contract";
@@ -41,6 +57,7 @@ type Run = {
 export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
   const [kind, setKind] = useState<Kind>("removeMetadata");
   const [form, setForm] = useState<EncryptForm>(EMPTY_FORM);
+  const [watermarkForm, setWatermarkForm] = useState<WatermarkForm>(DEFAULT_WATERMARK_FORM);
   /** From "選擇檔案並開始…" until the batch ends (the system's dialogs come first). */
   const [active, setActive] = useState(false);
   const [run, setRun] = useState<Run | null>(null);
@@ -53,11 +70,13 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
   if (open !== wasOpen) {
     setWasOpen(open);
     setForm(EMPTY_FORM);
+    setWatermarkForm(DEFAULT_WATERMARK_FORM);
     setRun(null);
     setFailed(false);
   }
 
-  const problem = kind === "encrypt" ? problemWith(form) : null;
+  const problem =
+    kind === "encrypt" ? problemWith(form) : kind === "watermark" ? watermarkProblemWith(watermarkForm) : null;
   const finished = run?.report != null;
   const doneCount = run ? run.outcomes.filter((outcome) => outcome !== null).length : 0;
 
@@ -77,7 +96,13 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
     event.preventDefault();
     if (problem !== null || active) return;
     const operation: BatchOperation =
-      kind === "encrypt" ? batchEncryptionOf(form) : kind === "removeExif" ? { kind: "removeExif" } : { kind: "removeMetadata" };
+      kind === "encrypt"
+        ? batchEncryptionOf(form)
+        : kind === "removeExif"
+          ? { kind: "removeExif" }
+          : kind === "watermark"
+            ? batchWatermarkOf(watermarkForm)
+            : { kind: "removeMetadata" };
     setActive(true);
     setFailed(false);
     setRun(null);
@@ -90,6 +115,7 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
         // Null: the user closed one of the system's dialogs; the dialog stays for another try.
         if (report === null) return;
         setForm(EMPTY_FORM);
+        setWatermarkForm(DEFAULT_WATERMARK_FORM);
         setRun((now) => (now ? { ...now, report } : { files: [], outcomes: [], report, stopping: false }));
       },
       () => {
@@ -112,7 +138,11 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
     if (finished && run?.report) return t.summary(run.report.done, run.report.failed, run.report.skipped);
     if (run?.stopping) return t.stopping;
     if (run && active) return t.running(doneCount, run.files.length);
-    if (problem !== null) return describeProblem(problem);
+    if (problem !== null) {
+      return kind === "encrypt"
+        ? describeProblem(problem as Problem)
+        : describeWatermarkProblem(problem as WatermarkProblem);
+    }
     return "";
   })();
 
@@ -128,7 +158,7 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
             <>
               <fieldset className="grid gap-2 text-sm" aria-describedby={operationId}>
                 <legend className="mb-1 font-medium">{t.operation}</legend>
-                {(["removeMetadata", "removeExif", "encrypt"] as const).map((choice) => (
+                {(["removeMetadata", "removeExif", "encrypt", "watermark"] as const).map((choice) => (
                   <label key={choice} className="flex items-center gap-2">
                     <input
                       type="radio"
@@ -144,6 +174,16 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
               </fieldset>
               {kind === "encrypt" && (
                 <EncryptFields form={form} onChange={(changes) => setForm((now) => ({ ...now, ...changes }))} disabled={active} />
+              )}
+              {kind === "watermark" && (
+                <>
+                  <WatermarkFields
+                    form={watermarkForm}
+                    onChange={(changes) => setWatermarkForm((now) => ({ ...now, ...changes }))}
+                    disabled={active}
+                  />
+                  <p className="text-sm">{t.watermarkSignatureNote}</p>
+                </>
               )}
               {kind === "removeExif" && <p className="text-sm">{t.exifNote}</p>}
               <ul id={operationId} className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
