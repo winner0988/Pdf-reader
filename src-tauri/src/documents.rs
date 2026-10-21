@@ -1070,7 +1070,6 @@ impl Documents {
             temporary.replace(destination)
         })
     }
-    }
 
     /// Writes to `destination` a copy of `doc`, edits included, whose pictures are encoded again
     /// at `quality` and shrunk to `max_side` pixels on their longer side (B3-01,

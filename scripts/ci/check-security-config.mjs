@@ -167,6 +167,10 @@ const ALLOWED_PERMISSIONS = new Map([
     "B3-01: a copy whose pictures are encoded again, smaller; the main process asks where, never the document's own file, and the worker decodes the pictures as it does for any page",
   ],
   [
+    "allow-page-marks-copy",
+    "B3-16: a copy with page numbers, Bates numbers, headers and footers drawn on its pages; the main process asks where, never the document's own file",
+  ],
+  [
     "allow-sanitize-copy",
     "B3-15: a copy without active content, attachments and hidden data, checked by the active-content scan before it is written; the main process asks where, never the document's own file",
   ],
