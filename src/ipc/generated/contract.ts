@@ -1209,6 +1209,10 @@ export type AttachmentId = number;
 
 /**
  * Where an attachment is attached: at the document level or on a specific page (B3-20, ADR 0025).
+ *
+ * Serialized with a `type` tag in JSON (for the frontend), but externally tagged in binary
+ * formats: postcard, used between the main process and the worker, cannot decode internally
+ * tagged enums. See [`attachment_source_serde`].
  */
 export type AttachmentSource = { "type": "document" } | { "type": "page", page: number, };
 

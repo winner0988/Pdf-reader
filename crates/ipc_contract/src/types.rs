@@ -2083,13 +2083,91 @@ pub enum AnnotationSummaryOutcome {
 pub struct AttachmentId(pub u32);
 
 /// Where an attachment is attached: at the document level or on a specific page (B3-20, ADR 0025).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase", tag = "type")]
+///
+/// Serialized with a `type` tag in JSON (for the frontend), but externally tagged in binary
+/// formats: postcard, used between the main process and the worker, cannot decode internally
+/// tagged enums. See [`attachment_source_serde`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, TS)]
+#[ts(tag = "type", rename_all = "camelCase")]
 pub enum AttachmentSource {
     /// Attached at the document level (/Names /EmbeddedFiles).
     Document,
     /// Attached as a page annotation (/FileAttachment).
     Page { page: u32 },
+}
+
+mod attachment_source_serde {
+    use super::*;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(tag = "type", rename_all = "camelCase")]
+    enum Tagged {
+        Document,
+        Page { page: u32 },
+    }
+
+    #[derive(Serialize, Deserialize)]
+    enum Compact {
+        Document,
+        Page { page: u32 },
+    }
+
+    impl From<AttachmentSource> for Tagged {
+        fn from(source: AttachmentSource) -> Self {
+            match source {
+                AttachmentSource::Document => Tagged::Document,
+                AttachmentSource::Page { page } => Tagged::Page { page },
+            }
+        }
+    }
+
+    impl From<AttachmentSource> for Compact {
+        fn from(source: AttachmentSource) -> Self {
+            match source {
+                AttachmentSource::Document => Compact::Document,
+                AttachmentSource::Page { page } => Compact::Page { page },
+            }
+        }
+    }
+
+    impl From<Tagged> for AttachmentSource {
+        fn from(source: Tagged) -> Self {
+            match source {
+                Tagged::Document => AttachmentSource::Document,
+                Tagged::Page { page } => AttachmentSource::Page { page },
+            }
+        }
+    }
+
+    impl From<Compact> for AttachmentSource {
+        fn from(source: Compact) -> Self {
+            match source {
+                Compact::Document => AttachmentSource::Document,
+                Compact::Page { page } => AttachmentSource::Page { page },
+            }
+        }
+    }
+
+    impl Serialize for AttachmentSource {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            if serializer.is_human_readable() {
+                Tagged::from(*self).serialize(serializer)
+            } else {
+                Compact::from(*self).serialize(serializer)
+            }
+        }
+    }
+
+    impl<'de> Deserialize<'de> for AttachmentSource {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            if deserializer.is_human_readable() {
+                Tagged::deserialize(deserializer).map(Into::into)
+            } else {
+                Compact::deserialize(deserializer).map(Into::into)
+            }
+        }
+    }
 }
 
 /// Information about one attachment shown to the user (B3-20, ADR 0025).

@@ -80,7 +80,7 @@ fn attachments_list_and_write_match_and_worker_stays_healthy() {
             doc,
             page_index: 0,
             scale: 1.0,
-            rotation: ipc_contract::types::Rotation::Degrees0,
+            rotation: ipc_contract::types::Rotation::None,
         })
         .expect("render page");
     assert!(matches!(render_resp, WorkerResponse::Rendered { .. }));
@@ -131,7 +131,7 @@ fn decompression_bomb_attachment_fails_leaves_no_file_and_worker_stays_healthy()
             doc,
             page_index: 0,
             scale: 1.0,
-            rotation: ipc_contract::types::Rotation::Degrees0,
+            rotation: ipc_contract::types::Rotation::None,
         })
         .expect("render page after bomb refusal");
     assert!(matches!(render_resp, WorkerResponse::Rendered { .. }));
