@@ -1367,6 +1367,87 @@ def large_1000_pages(path: Path) -> None:
     path.write_bytes(doc.build())
 
 
+CJK_CORPUS_LINES = [
+    "隱私優先的 PDF 閱讀器，完全離線且注重使用者資料安全。",
+    "本文件用於測試大量文字的搜尋效能與記憶體快取命中率。",
+    "架構設計包含主行程與低權限子行程之間的訊息通訊與沙盒隔離機制。",
+    "全文搜尋支援中英文混合文字層，並能正確處理字元位置與高亮方塊。",
+    "任何改變頁面或文字的編輯操作皆會使受影響的快取資料立即失效。",
+    "所有文字索引僅保留於記憶體中，不寫入磁碟亦不記錄於崩潰復原日誌。",
+    "渲染優先原則確保在背景執行搜尋時，使用者捲動與縮放操作維持流暢。",
+    "當快取容量超出限制上限時，系統將自動停止快取並維持逐頁擷取機制。",
+]
+
+EN_CORPUS_LINES = [
+    "Privacy-first offline PDF reader for desktop environments.",
+    "This document is generated for benchmarking text search performance.",
+    "The application isolates the PDF rendering engine inside a secure sandbox.",
+    "Full-text search operates on folded character layers with quad coordinates.",
+    "Document modifications immediately invalidate stale cache entries.",
+    "All search indices remain strictly in-memory and are never persisted to disk.",
+    "Background search queries yield immediately to user rendering operations.",
+    "Memory budgets protect against resource exhaustion on very large documents.",
+]
+
+
+def large_text_1000_pages(path: Path) -> None:
+    """~4 MB: 1000 pages, each with ~40 lines of mixed English and Chinese searchable text."""
+    doc = Document("large-text-1000-pages")
+    doc.reserve_pages(1000)
+
+    all_cjk = set("".join(CJK_CORPUS_LINES) + "第頁隱私優先閱讀器大量文字測試： 0123456789")
+    codes = sorted({ord(ch) for ch in all_cjk})
+    bfchars = "\n".join(f"<{c:04X}> <{c:04X}>" for c in codes)
+    to_unicode = (
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n"
+        "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
+        "/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n"
+        "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n"
+        f"{len(codes)} beginbfchar\n{bfchars}\nendbfchar\n"
+        "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n"
+    ).encode("latin-1")
+    cmap = doc.pdf.add_stream("", to_unicode)
+    descriptor = doc.pdf.add(
+        "<< /Type /FontDescriptor /FontName /MingLiU /Flags 6 /FontBBox [0 -200 1000 900]"
+        " /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 880 /StemV 93 >>"
+    )
+    cid_font = doc.pdf.add(
+        "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /MingLiU"
+        " /CIDSystemInfo << /Registry (Adobe) /Ordering (CNS1) /Supplement 0 >>"
+        f" /FontDescriptor {descriptor} 0 R >>"
+    )
+    cjk_font = doc.pdf.add(
+        "<< /Type /Font /Subtype /Type0 /BaseFont /MingLiU /Encoding /UniCNS-UCS2-H"
+        f" /DescendantFonts [{cid_font} 0 R] /ToUnicode {cmap} 0 R >>"
+    )
+
+    for i in range(1000):
+        lines: list[tuple[int, int, int, str]] = []
+        cjk_ops: list[str] = []
+        for line_idx in range(40):
+            y = 720 - line_idx * 14
+            if line_idx == 0:
+                lines.append((72, y, 10, f"Page {i + 1} of 1000 - privacy target: needle-{i + 1:04d}"))
+            elif line_idx == 1:
+                zh = f"第 {i + 1} 頁：隱私優先的 PDF 閱讀器大量文字測試"
+                zh_hex = zh.encode("utf-16-be").hex().upper()
+                cjk_ops.append(f"BT /F2 10 Tf 72 {y} Td <{zh_hex}> Tj ET\n")
+            elif line_idx % 2 == 0:
+                en = EN_CORPUS_LINES[(line_idx // 2) % len(EN_CORPUS_LINES)]
+                lines.append((72, y, 10, en))
+            else:
+                zh = CJK_CORPUS_LINES[((line_idx - 1) // 2) % len(CJK_CORPUS_LINES)]
+                zh_hex = zh.encode("utf-16-be").hex().upper()
+                cjk_ops.append(f"BT /F2 10 Tf 72 {y} Td <{zh_hex}> Tj ET\n")
+
+        doc.set_page(i, Page(
+            lines=lines,
+            extra_content="".join(cjk_ops).encode("latin-1"),
+            fonts=f"/F2 {cjk_font} 0 R ",
+        ))
+    path.write_bytes(doc.build())
+
+
 def outline_100k(path: Path) -> None:
     """100,000 top-level outline items (exceeds the 10,000 item limit; must be truncated)."""
     entries = [(f"Item {n}", 0, 0) for n in range(100_000)]
@@ -1831,6 +1912,9 @@ ON_DEMAND = [
     ("large/output/large-1000-pages.pdf", large_1000_pages,
      "About 200 MB: 1000 pages with a 256 x 256 RGB image and searchable text each (MVP-07, MVP-10).",
      "Opens; memory stays bounded while scrolling; 'needle-0500' finds one hit on page 500.", 1000),
+    ("large/output/large-text-1000-pages.pdf", large_text_1000_pages,
+     "About 4 MB: 1000 pages with about 40 lines of mixed English and Chinese text each (MVP-10, Issue #242).",
+     "Opens; fast text search benchmarking with memory caching; 'needle-0500' finds one hit on page 500.", 1000),
     ("large/output/outline-100k-items.pdf", outline_100k,
      "100,000 outline items (MVP-09).", "Outline truncated at the limit and flagged; no hang.", 1),
 ]

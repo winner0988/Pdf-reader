@@ -104,6 +104,7 @@ Windows-first · Tauri 2 + Rust · React + TypeScript + Vite · Tailwind + shadc
 
 | 文件 | 用途 |
 |---|---|
+| [使用手冊](docs/user/README.md) | 給使用者：安裝、閱讀、編輯、匯出、安全與隱私、快捷鍵、常見問題 |
 | [規格書（繁中）](docs/spec/PDF_Reader_Spec_ZH_v3.md)／[Spec (EN)](docs/spec/PDF_Reader_Spec_EN_v3.md) | 完整產品需求 |
 | [CONTEXT.md](CONTEXT.md) | 專案詞彙表 |
 | [docs/adr/](docs/adr/README.md) | 架構決策紀錄 |

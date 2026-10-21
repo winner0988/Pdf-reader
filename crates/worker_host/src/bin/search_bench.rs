@@ -43,44 +43,58 @@ mod bench {
         };
         let pages = document.pages.len() as u32;
 
-        let started = Instant::now();
-        let (mut hits, mut first_hit, mut at_500) = (0u32, None::<Duration>, None::<Duration>);
-        for page_index in 0..pages {
-            let response = host
-                .request(|request| WorkerRequest::SearchPage {
-                    request,
-                    doc,
-                    page_index,
-                    query: query.clone(),
-                    case_sensitive,
-                    max_hits: MAX_SEARCH_HITS - hits,
-                })
-                .map_err(|error| format!("page {}: {error}", page_index + 1))?;
-            let WorkerResponse::PageSearched { hits: found, .. } = response else {
-                return Err("unexpected response to SearchPage".into());
-            };
-            if !found.is_empty() && first_hit.is_none() {
-                first_hit = Some(started.elapsed());
-            }
-            hits += found.len() as u32;
-            if page_index + 1 == 500 {
-                at_500 = Some(started.elapsed());
-            }
-            if hits >= MAX_SEARCH_HITS {
-                break;
-            }
-        }
-        let total = started.elapsed();
         let ms = |duration: Option<Duration>| {
             duration.map_or("-".to_owned(), |d| {
                 format!("{:.0} ms", d.as_secs_f64() * 1000.0)
             })
         };
+
         println!("{pages} pages, query {query:?}, case sensitive: {case_sensitive}");
-        println!("hits              {hits}");
-        println!("first hit         {}", ms(first_hit));
-        println!("first 500 pages   {}", ms(at_500));
-        println!("all pages         {}", ms(Some(total)));
+
+        let run_search = |host: &mut WorkerHost| -> Result<_, String> {
+            let started = Instant::now();
+            let (mut hits, mut first_hit, mut at_500) = (0u32, None::<Duration>, None::<Duration>);
+            for page_index in 0..pages {
+                let response = host
+                    .request(|request| WorkerRequest::SearchPage {
+                        request,
+                        doc,
+                        page_index,
+                        query: query.clone(),
+                        case_sensitive,
+                        max_hits: MAX_SEARCH_HITS - hits,
+                    })
+                    .map_err(|error| format!("page {}: {error}", page_index + 1))?;
+                let WorkerResponse::PageSearched { hits: found, .. } = response else {
+                    return Err("unexpected response to SearchPage".into());
+                };
+                if !found.is_empty() && first_hit.is_none() {
+                    first_hit = Some(started.elapsed());
+                }
+                hits += found.len() as u32;
+                if page_index + 1 == 500 {
+                    at_500 = Some(started.elapsed());
+                }
+                if hits >= MAX_SEARCH_HITS {
+                    break;
+                }
+            }
+            Ok((hits, first_hit, at_500, started.elapsed()))
+        };
+
+        let (hits1, first1, at_500_1, total1) = run_search(&mut host)?;
+        println!("first search (cold):");
+        println!("  hits            {hits1}");
+        println!("  first hit       {}", ms(first1));
+        println!("  first 500 pages {}", ms(at_500_1));
+        println!("  all pages       {}", ms(Some(total1)));
+
+        let (hits2, first2, at_500_2, total2) = run_search(&mut host)?;
+        println!("second search (warm):");
+        println!("  hits            {hits2}");
+        println!("  first hit       {}", ms(first2));
+        println!("  first 500 pages {}", ms(at_500_2));
+        println!("  all pages       {}", ms(Some(total2)));
         Ok(())
     }
 }

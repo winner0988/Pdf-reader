@@ -46,6 +46,15 @@ worker 的 MuPDF 不含 CJK 字型（見 [mupdf-binding.md](mupdf-binding.md)）
 
 有內嵌字型、或有 ToUnicode 的文件，中文搜尋正常（`searches_chinese_text_from_the_to_unicode_map`）。字型來源是 DEC-03（#31）的決策；決定後補上這個檔案的端對端測試。
 
+## 單一文件文字快取（Issue #242，D1 選 A）
+
+為加速大文件的後續搜尋，worker 在搜尋時會將每頁擷取出的文字層（包含 MuPDF 頁面文字、OCR 辨識文字與文字方塊文字）保存在該文件 worker 的記憶體中（`crates/pdf_worker/src/text_cache.rs`）：
+
+- **記憶體上限**：整份文件快取上限為 `MAX_TEXT_CACHE_BYTES`（64 MiB，定義於 `crates/ipc_contract/src/limits.rs`）。64 MiB 足以容納數千頁大量文字的頁面文字層；若超過上限，worker 自動停止快取後續頁面並回退至逐頁擷取，保護子行程不耗盡記憶體。
+- **純記憶體、不持久化**：不寫入磁碟、不進崩潰復原日誌、不留一般日誌；文件關閉或 worker 結束時即釋放。
+- **失效規則**：任何改變頁面或文字的編輯（頁面增刪移轉、遮蔽套用、文字方塊新增或修改、表單展平、OCR 結果改變、復原／重做）讓受影響的頁面或整份快取失效；寧可整份清掉也不保留舊文字。
+- **不預先建立的決定**：worker 一次只處理一個請求。開檔時背景預先建立會佔用 worker 處理渲染的資源，若使用者不搜尋則徒增 CPU 與記憶體開銷。量測顯示首次搜尋第一筆命中僅需數毫秒，整份 1000 頁文字也僅需約 650 ms；而第二次搜尋透過快取可大幅降至 112~120 ms（前 500 頁僅 26~31 ms），完全符合驗收標準，因此決定採「搜尋過就快取（lazy cache）」策略。
+
 ## 量測
 
 `crates/worker_host/src/bin/search_bench.rs` 在沙盒中開啟文件，以主行程相同的方式逐頁搜尋。
@@ -53,6 +62,7 @@ worker 的 MuPDF 不含 CJK 字型（見 [mupdf-binding.md](mupdf-binding.md)）
 ```bash
 cargo build --release -p pdf_worker -p worker_host
 target/release/search_bench.exe tests/corpus/large/output/large-1000-pages.pdf privacy
+target/release/search_bench.exe tests/corpus/large/output/large-text-1000-pages.pdf privacy
 ```
 
 開發者電腦（Windows 11）、release 建置、QA-01 `large-1000-pages.pdf`（197 MB，每頁一行可搜尋的文字）：
@@ -62,6 +72,26 @@ target/release/search_bench.exe tests/corpus/large/output/large-1000-pages.pdf p
 | `privacy`（每頁都有） | 1000 | 4 ms | 75 ms | 145 ms | 第一筆 < 1 s、500 頁 < 5 s |
 | `needle-0500`（只在第 500 頁） | 1 | 68 ms | 68 ms | 143 ms | |
 | `PRIVACY`（區分大小寫） | 0 | — | 61 ms | 122 ms | |
+
+### 大量文字文件量測（Issue #242，1000 頁、每頁約 40 行中英文混合，約 5.3 MB）
+
+改動前（每次搜尋皆需呼叫 MuPDF 擷取文字層）：
+
+| 查詢 | 命中 | 第一筆（第一次 / 第二次） | 前 500 頁（第一次 / 第二次） | 全部 1000 頁（第一次 / 第二次） |
+|---|---|---|---|---|
+| `privacy`（每頁約 3 筆） | 3000 | 5 ms / 0 ms | 321 ms / 242 ms | 590 ms / 488 ms |
+| `needle-0500`（只在第 500 頁） | 1 | 265 ms / 242 ms | 265 ms / 242 ms | 520 ms / 473 ms |
+| `PRIVACY`（區分大小寫） | 0 | — / — | 241 ms / 244 ms | 485 ms / 528 ms |
+| `隱私`（中文關鍵字，每頁約 3 筆） | 3000 | 6 ms / 0 ms | 254 ms / 259 ms | 514 ms / 518 ms |
+
+改動後（導入記憶體文字快取，第二次搜尋直接命中快取）：
+
+| 查詢 | 命中 | 第一筆（冷搜尋 / 快取命中） | 前 500 頁（冷搜尋 / 快取命中） | 全部 1000 頁（冷搜尋 / 快取命中） | 預算 |
+|---|---|---|---|---|---|
+| `privacy`（每頁約 3 筆） | 3000 | 6 ms / 0 ms | 350 ms / 26 ms | 678 ms / 112 ms | 第二次整份 ≤ 300 ms |
+| `needle-0500`（只在第 500 頁） | 1 | 365 ms / 30 ms | 365 ms / 30 ms | 711 ms / 117 ms | 第二次整份 ≤ 300 ms |
+| `PRIVACY`（區分大小寫） | 0 | — / — | 334 ms / 24 ms | 691 ms / 112 ms | 第二次整份 ≤ 300 ms |
+| `隱私`（中文關鍵字，每頁約 3 筆） | 3000 | 6 ms / 0 ms | 326 ms / 31 ms | 649 ms / 120 ms | 第二次整份 ≤ 300 ms |
 
 以上是 worker 端的時間。經過主行程排程與前端之後的時間見下一節。
 
