@@ -199,6 +199,8 @@ pub struct PdfDocument {
     /// What applying redactions removed since the document was last saved (B2-20): kept only
     /// here, to check the file written next, and wiped once that file has taken its place.
     removed: redaction::Removed,
+    /// In-memory text cache for search (Issue #242, D1 Option A).
+    text_cache: crate::text_cache::TextCache,
 }
 
 impl PdfDocument {
@@ -231,6 +233,7 @@ impl PdfDocument {
             owner,
             ocr: ocr::OcrPages::new(),
             removed: redaction::Removed::default(),
+            text_cache: crate::text_cache::TextCache::new(),
         })
     }
 
@@ -620,38 +623,70 @@ impl PdfDocument {
 
     /// Searches one page's text layer for `query` (MVP-10); coordinates are page points with
     /// the origin at the top left, like the page size.
+    ///
+    /// Subsequent searches reuse the in-memory cached text layer for this page if present,
+    /// skipping MuPDF page loading and structured text extraction.
     pub fn search_page(
-        &self,
+        &mut self,
         index: u32,
         query: &str,
         case_sensitive: bool,
         max_hits: usize,
     ) -> Result<PageSearch, EngineError> {
+        let mut text = PageText::new(case_sensitive);
+        if let Some(cached) = self.text_cache.get(index) {
+            cached.populate(&mut text);
+            return Ok(text.search(query, max_hits));
+        }
+
         let text_page = self
             .load_page(index)?
             .to_text_page(TextPageFlags::empty())?;
-        let mut text = PageText::new(case_sensitive);
+        let mut cached = crate::text_cache::CachedPageText::new();
         for block in text_page.blocks() {
             for line in block.lines() {
-                text.push_line(
+                cached.push_line(
                     line.chars()
                         .filter_map(|ch| ch.char().map(|c| (c, contract_quad(ch.quad())))),
                 );
             }
         }
         // A page that is only a picture has the text that was read from it (B2-10).
-        if !text.has_text()
+        if !cached.has_text()
             && let Some(recognised) = self.ocr_text(index)
         {
             for line in &recognised.lines {
-                text.push_line(ocr::char_quads(line));
+                cached.push_line(ocr::char_quads(line));
             }
         }
         // The words of the text boxes (B2-29): annotations are not in MuPDF's text.
         for line in self.text_box_lines(index) {
-            text.push_line(line);
+            cached.push_line(line);
         }
-        Ok(text.search(query, max_hits))
+        cached.populate(&mut text);
+        let result = text.search(query, max_hits);
+        self.text_cache.insert(index, cached);
+        Ok(result)
+    }
+
+    /// Clears the in-memory text search cache for all pages (e.g. after edits).
+    pub fn clear_text_cache(&mut self) {
+        self.text_cache.clear();
+    }
+
+    /// Invalidates the text cache for a single page (e.g. OCR update for that page).
+    pub fn invalidate_page_text_cache(&mut self, page: u32) {
+        self.text_cache.invalidate_page(page);
+    }
+
+    /// Number of pages currently in the in-memory text cache.
+    pub fn text_cache_len(&self) -> usize {
+        self.text_cache.len()
+    }
+
+    /// Approximate bytes used by the in-memory text cache.
+    pub fn text_cache_bytes(&self) -> usize {
+        self.text_cache.bytes_used()
     }
 
     /// One page's text for selecting and copying (MVP-15): the lines of the same text layer
@@ -734,6 +769,7 @@ impl PdfDocument {
             }
         }
         self.ocr_turned(pages);
+        self.clear_text_cache();
         Ok(())
     }
 
@@ -765,6 +801,7 @@ impl PdfDocument {
         let selection: Vec<usize> = pages.iter().map(|&page| page as usize).collect();
         self.doc.delete_pages(PageSelection::Pages(selection))?;
         self.ocr_forget(removed.iter().copied());
+        self.clear_text_cache();
         gone.extend(&removed);
         crate::unlink::unlink(&self.doc, &gone)
     }
@@ -800,6 +837,7 @@ impl PdfDocument {
             }
             done.push((from, to));
         }
+        self.clear_text_cache();
         Ok(())
     }
 
@@ -816,6 +854,7 @@ impl PdfDocument {
         let size = self.page_size(like)?;
         self.doc.new_page_at(at as i32, size)?;
         self.ocr_forget_page(at);
+        self.clear_text_cache();
         Ok(())
     }
 
@@ -1286,6 +1325,7 @@ impl PdfDocument {
                 ..InsertPdfOptions::default()
             },
         )?;
+        self.clear_text_cache();
         crate::scrub::scrub_pages(&self.doc, at, inserted, first_new)
     }
 }
@@ -1605,7 +1645,7 @@ mod tests {
 
     #[test]
     fn searches_the_text_layer() {
-        let doc = PdfDocument::from_bytes(&two_page_pdf()).unwrap();
+        let mut doc = PdfDocument::from_bytes(&two_page_pdf()).unwrap();
         let found = doc.search_page(0, "mupdf", false, 10).unwrap();
         assert!(found.has_text);
         assert_eq!(found.hits.len(), 1);
@@ -1629,6 +1669,60 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn text_cache_hits_and_invalidates_on_edit() {
+        let mut doc = PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
+        assert_eq!(doc.text_cache_len(), 0);
+
+        // Page 6 (0-indexed, 7th page) contains "needle"
+        let found = doc.search_page(6, "needle", false, 10).expect("search");
+        assert_eq!(found.hits.len(), 1);
+        assert_eq!(doc.text_cache_len(), 1);
+
+        // Second search on page 6 hits cache and returns identical results
+        let cached_found = doc.search_page(6, "needle", false, 10).expect("cached search");
+        assert_eq!(cached_found.hits, found.hits);
+        assert_eq!(doc.text_cache_len(), 1);
+
+        // Edit: delete page 0
+        doc.delete_pages(&[0]).expect("delete page 0");
+        assert_eq!(doc.text_cache_len(), 0); // cache cleared
+
+        // Now page 5 has the keyword
+        let new_found = doc.search_page(5, "needle", false, 10).expect("search after delete");
+        assert_eq!(new_found.hits.len(), 1);
+        assert_eq!(doc.text_cache_len(), 1);
+
+        // Former page 6 is now page 5, new page 6 does not have "needle"
+        let page6_found = doc.search_page(6, "needle", false, 10).expect("search page 6");
+        assert!(page6_found.hits.is_empty());
+    }
+
+    #[test]
+    fn text_cache_invalidates_on_redaction() {
+        let mut doc = PdfDocument::from_bytes(&two_page_pdf()).unwrap();
+        // Page 0 has "Hello MuPDF"
+        let found = doc.search_page(0, "mupdf", false, 10).unwrap();
+        assert_eq!(found.hits.len(), 1);
+        assert_eq!(doc.text_cache_len(), 1);
+
+        // Add redaction over the hit area and apply it
+        let hit_quad = found.hits[0].quads[0];
+        let rect = Rect {
+            x0: hit_quad.ul.x - 5.0,
+            y0: hit_quad.ul.y - 5.0,
+            x1: hit_quad.lr.x + 5.0,
+            y1: hit_quad.lr.y + 5.0,
+        };
+        doc.add_redaction(0, rect).unwrap();
+        doc.apply_redactions().unwrap();
+        assert_eq!(doc.text_cache_len(), 0);
+
+        // Redacted word cannot be found
+        let found_after = doc.search_page(0, "mupdf", false, 10).unwrap();
+        assert!(found_after.hits.is_empty());
+    }
+
     /// Helvetica draws "AB", but the ToUnicode map says the text is 隱私 (U+96B1 U+79C1).
     fn to_unicode_pdf() -> Vec<u8> {
         let cmap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap
@@ -1650,7 +1744,7 @@ mod tests {
     #[test]
     fn searches_chinese_text_from_the_to_unicode_map() {
         // Search reads the text layer, not the glyphs, and needs no CJK font.
-        let doc = PdfDocument::from_bytes(&to_unicode_pdf()).unwrap();
+        let mut doc = PdfDocument::from_bytes(&to_unicode_pdf()).unwrap();
         assert_eq!(doc.search_page(0, "隱私", false, 10).unwrap().hits.len(), 1);
         assert_eq!(doc.search_page(0, "私", false, 10).unwrap().hits.len(), 1);
         assert!(doc.search_page(0, "AB", false, 10).unwrap().hits.is_empty());
@@ -1660,7 +1754,7 @@ mod tests {
     fn gives_the_text_of_a_page_line_by_line() {
         use ipc_contract::validate::Validate;
 
-        let doc = PdfDocument::from_bytes(&two_page_pdf()).unwrap();
+        let mut doc = PdfDocument::from_bytes(&two_page_pdf()).unwrap();
         let text = doc.page_text(0, 1000).unwrap();
         text.validate().unwrap();
         assert!(!text.truncated);
@@ -2859,7 +2953,7 @@ endstream",
     #[test]
     fn some_pages_are_a_document_of_their_own_in_the_order_of_the_document() {
         let doc = PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
-        let (copy, bytes) = pages_of(&doc, &[3, 1, 2]);
+        let (mut copy, bytes) = pages_of(&doc, &[3, 1, 2]);
         assert_eq!(copy.page_count().expect("count"), 3);
         // However they were named, they keep the order they have in the document.
         assert_eq!(page_titles(&copy), titles(&[2, 3, 4]));
@@ -2874,7 +2968,7 @@ endstream",
         assert_eq!(doc.page_count().expect("count"), 10);
         assert_eq!(page_titles(&doc), titles(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
         // The page that has the keyword, copied alone, has it.
-        let (seven, _) = pages_of(&doc, &[6]);
+        let (mut seven, _) = pages_of(&doc, &[6]);
         assert_eq!(
             seven
                 .search_page(0, "needle", false, 10)

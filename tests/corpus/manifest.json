@@ -645,6 +645,16 @@
       "onDemand": true
     },
     {
+      "path": "large/output/large-text-1000-pages.pdf",
+      "category": "large",
+      "purpose": "About 4 MB: 1000 pages with about 40 lines of mixed English and Chinese text each (MVP-10, Issue #242).",
+      "expected": "Opens; fast text search benchmarking with memory caching; 'needle-0500' finds one hit on page 500.",
+      "pages": 1000,
+      "findings": [],
+      "text": [],
+      "onDemand": true
+    },
+    {
       "path": "large/output/outline-100k-items.pdf",
       "category": "large",
       "purpose": "100,000 outline items (MVP-09).",

@@ -125,6 +125,7 @@ impl PdfDocument {
             return Err(EngineError::InvalidEdit("nothing is marked to be redacted"));
         }
         self.ocr_turned(&redacted);
+        self.clear_text_cache();
         Ok(())
     }
 
@@ -605,7 +606,7 @@ mod tests {
             PdfDocument::open(&written, None),
             Ok(_) | Err(EngineError::Encrypted)
         ));
-        let again = PdfDocument::open(&written, Some("owner")).expect("reopen");
+        let mut again = PdfDocument::open(&written, Some("owner")).expect("reopen");
         assert!(
             again
                 .search_page(0, "no printing", true, 4)
