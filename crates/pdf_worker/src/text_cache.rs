@@ -3,7 +3,7 @@
 //! Holds the extracted text lines (including OCR and app text boxes) of searched pages in the
 //! worker's memory so subsequent searches skip MuPDF text extraction.
 //!
-//! - Bounded by `MAX_TEXT_CACHE_BYTES` (64 MiB per document). When the limit is reached,
+//! - Bounded by `MAX_TEXT_CACHE_BYTES` (256 MiB per document). When the limit is reached,
 //!   further pages are not cached and fall back to on-demand extraction.
 //! - In-memory only: not written to disk, not written to crash recovery journals, not logged.
 //!   Discarded when the document is closed or the worker process terminates.
@@ -46,6 +46,13 @@ impl CachedPageText {
     /// Whether any line added so far has a character that is not whitespace or control.
     pub fn has_text(&self) -> bool {
         self.has_text
+    }
+
+    /// Shrinks internal vectors to fit actual length, ensuring `memory_bytes()` reflects actual usage.
+    pub fn shrink_to_fit(&mut self) {
+        self.chars.shrink_to_fit();
+        self.quads.shrink_to_fit();
+        self.line_starts.shrink_to_fit();
     }
 
     /// Approximate heap memory in bytes.
@@ -108,7 +115,8 @@ impl TextCache {
     /// Inserts a page's text into the cache if within the memory limit.
     /// If the memory limit would be exceeded, the page is not cached and falls back to
     /// on-demand extraction without failing the search.
-    pub fn insert(&mut self, page_index: u32, cached: CachedPageText) {
+    pub fn insert(&mut self, page_index: u32, mut cached: CachedPageText) {
+        cached.shrink_to_fit();
         let size = cached.memory_bytes();
         if let Some(old) = self.pages.remove(&page_index) {
             self.bytes_used = self.bytes_used.saturating_sub(old.memory_bytes());
@@ -201,6 +209,7 @@ mod tests {
         let mut cache = TextCache::with_limit(1000);
         let mut page1 = CachedPageText::new();
         page1.push_line(vec![('a', dummy_quad())]);
+        page1.shrink_to_fit();
         let size1 = page1.memory_bytes();
         assert!(size1 < 1000);
 
@@ -214,6 +223,7 @@ mod tests {
         for _ in 0..100 {
             big_page.push_line(vec![('x', dummy_quad()); 20]);
         }
+        big_page.shrink_to_fit();
         let big_size = big_page.memory_bytes();
         assert!(cache.bytes_used() + big_size > 1000);
 
@@ -244,5 +254,21 @@ mod tests {
         cache.clear();
         assert_eq!(cache.len(), 0);
         assert_eq!(cache.bytes_used(), 0);
+    }
+
+    #[test]
+    fn cache_holds_1000_pages_of_2000_chars_under_default_limit() {
+        let mut cache = TextCache::new();
+        assert_eq!(cache.max_bytes(), MAX_TEXT_CACHE_BYTES);
+        for page_idx in 0..1000 {
+            let mut page = CachedPageText::new();
+            // 2000 characters: 50 lines of 40 characters
+            for _ in 0..50 {
+                page.push_line((0..40).map(|_| ('a', dummy_quad())));
+            }
+            cache.insert(page_idx, page);
+        }
+        assert_eq!(cache.len(), 1000);
+        assert!(cache.bytes_used() < MAX_TEXT_CACHE_BYTES);
     }
 }

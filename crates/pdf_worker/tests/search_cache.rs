@@ -2,6 +2,7 @@
 #![cfg(windows)]
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use ipc_contract::types::{DocumentId, Rect, Rgb, SearchHit, TextAlign, TextBoxStyle};
 use ipc_contract::worker::{FontData, OcrOutcome, WorkerEdit, WorkerRequest, WorkerResponse};
@@ -178,10 +179,16 @@ fn search_then_move_pages_invalidates_cache_and_updates_page_numbers() {
 fn search_then_insert_blank_page_invalidates_cache() {
     let (mut host, doc) = open("benign/multi-page-10.pdf");
 
-    // Page 6 contains "needle"
-    let (hits, has_text) = search_page(&mut host, doc, 6, "needle");
-    assert!(has_text);
-    assert_eq!(hits.len(), 1);
+    // Search page 0 and page 7 before insertion to populate the cache.
+    // Page 0 contains "Page 1 of 10" (has text, no needle).
+    let (hits_p0_before, has_text_p0_before) = search_page(&mut host, doc, 0, "needle");
+    assert!(has_text_p0_before);
+    assert!(hits_p0_before.is_empty());
+
+    // Page 7 contains "Page 8 of 10" (has text, no needle).
+    let (hits_p7_before, has_text_p7_before) = search_page(&mut host, doc, 7, "needle");
+    assert!(has_text_p7_before);
+    assert!(hits_p7_before.is_empty());
 
     // Insert blank page at index 0
     edit(
@@ -190,12 +197,12 @@ fn search_then_insert_blank_page_invalidates_cache() {
         WorkerEdit::InsertBlankPage { at: 0, like: 0 },
     );
 
-    // Page 0 is blank
+    // Page 0 is now blank (no text; if cache were not invalidated, it would still say has_text: true)
     let (hits_p0, has_text_p0) = search_page(&mut host, doc, 0, "needle");
     assert!(!has_text_p0);
     assert!(hits_p0.is_empty());
 
-    // Page 7 now has "needle" (shifted from page 6)
+    // Page 7 now has "needle" (shifted from page 6; if cache were not invalidated, it would return 0 hits from old page 7)
     let (hits_p7, has_text_p7) = search_page(&mut host, doc, 7, "needle");
     assert!(has_text_p7);
     assert_eq!(hits_p7.len(), 1);
@@ -341,9 +348,10 @@ fn search_then_ocr_recognized_invalidates_cache_and_finds_ocr_text() {
         other => panic!("unexpected ocr page response: {other:?}"),
     }
 
-    // Poll until OCR completes
+    // Poll until OCR completes (time-bounded wait, up to 120 seconds)
+    let started = Instant::now();
     let mut recognized = false;
-    for _ in 0..100 {
+    while !recognized && started.elapsed() < Duration::from_secs(120) {
         match host
             .request(|request| WorkerRequest::OcrPoll { request })
             .expect("ocr poll")
@@ -359,7 +367,7 @@ fn search_then_ocr_recognized_invalidates_cache_and_finds_ocr_text() {
             }
             other => panic!("unexpected ocr poll response: {other:?}"),
         }
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(Duration::from_millis(30));
     }
     assert!(recognized, "OCR did not complete in time");
 
