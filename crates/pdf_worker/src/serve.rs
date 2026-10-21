@@ -209,6 +209,19 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     },
                 })
             }
+            WorkerRequest::FindPersonalData { request, doc, query } => {
+                Some(match documents.get(&doc) {
+                    None => error(
+                        request,
+                        WorkerErrorCode::UnknownDocument,
+                        "unknown document",
+                    ),
+                    Some(document) => match document.find_personal_data(&query) {
+                        Ok(matches) => WorkerResponse::PersonalDataMatches { request, matches },
+                        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                    },
+                })
+            }
             WorkerRequest::RenderPng {
                 request,
                 doc,
