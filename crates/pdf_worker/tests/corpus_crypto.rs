@@ -81,6 +81,10 @@ fn restricted_samples_open_without_a_password() {
             "benign/restricted-low-res-print.pdf",
             "Restricted sample: low-resolution printing only (owner password: owner)",
         ),
+        (
+            "benign/restricted-no-modify.pdf",
+            "Restricted sample: no changes (owner password: owner)",
+        ),
     ] {
         let bytes = corpus(name);
         // The empty user password opens them: MuPDF does not ask.
