@@ -125,6 +125,7 @@ impl PdfDocument {
             return Err(EngineError::InvalidEdit("nothing is marked to be redacted"));
         }
         self.ocr_turned(&redacted);
+        self.clear_text_cache();
         Ok(())
     }
 
