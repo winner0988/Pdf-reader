@@ -141,6 +141,8 @@ describe("dialogs", () => {
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("radio", { name: strings.batch.encrypt }));
     await expectAccessible(everything());
+    await user.click(within(dialog).getByRole("radio", { name: strings.batch.watermark }));
+    await expectAccessible(everything());
     await user.click(within(dialog).getByRole("radio", { name: strings.batch.removeMetadata }));
     await user.click(within(dialog).getByRole("button", { name: strings.batch.start }));
     act(() => {

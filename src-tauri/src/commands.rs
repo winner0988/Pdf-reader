@@ -10,15 +10,16 @@ use std::time::Duration;
 
 use ipc_contract::limits::MAX_BATCH_FILES;
 use ipc_contract::types::{
-    AnnotationId, BatchArgs, BatchEvent, BatchReport, CompressArgs, CompressResult, CreateResult,
-    DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent, ExportFormat,
-    FileRecordingArgs, FontImport, FontInfo, FormField, IpcError, LanguageImport, LinkArgs,
-    LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs,
-    OutlineResult, PageAnnotation, PageLink, PageText, PagesSource, Password, PrepareTextBoxArgs,
-    PreparedTextBox, RecentFile, RecentId, RedactionSummary, RememberedPasswords, RemoveFontArgs,
-    RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent,
-    SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignatureReport, StampImageInfo, TabId,
-    TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
+    AnnotationId, BatchArgs, BatchEvent, BatchOperation, BatchReport, CompressArgs, CompressResult,
+    CreateResult, DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent,
+    ExportFormat, FileRecordingArgs, FontImport, FontInfo, FormField, IpcError, LanguageImport,
+    LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent,
+    OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText, PagesSource, Password,
+    PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
+    RememberedPasswords, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult,
+    SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignatureReport,
+    StampImageInfo, TabId, TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs,
+    UpdateCheck, WatermarkContent,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use tauri::ipc::{Channel, Response};
@@ -1181,6 +1182,25 @@ pub async fn run_batch(
         code: ErrorCode::InvalidArgument,
         message: error.to_string(),
     })?;
+    let picture = match &args.operation {
+        BatchOperation::Watermark { watermark } => match &watermark.content {
+            WatermarkContent::Picture { .. } => {
+                let Some(path) = file_dialog::pick_watermark_image(&window).await? else {
+                    return Ok(None);
+                };
+                let docs_app = app.clone();
+                let png = blocking(move || {
+                    docs_app
+                        .state::<Documents>()
+                        .prepare_watermark_picture(&path)
+                })
+                .await?;
+                Some(png)
+            }
+            WatermarkContent::Text { .. } => None,
+        },
+        _ => None,
+    };
     let Some(files) = file_dialog::pick_batch_files(&window).await? else {
         return Ok(None);
     };
@@ -1205,6 +1225,7 @@ pub async fn run_batch(
             &files,
             &folder,
             &args.operation,
+            picture.as_deref(),
             running.stop(),
             &|event| {
                 record.borrow_mut().hear(&event);

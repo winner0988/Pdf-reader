@@ -1209,6 +1209,7 @@ impl Documents {
         folder: &Path,
         name: &str,
         operation: &BatchOperation,
+        picture: Option<&[u8]>,
     ) -> Result<String, IpcError> {
         check_file(source)?;
         let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
@@ -1251,6 +1252,12 @@ impl Documents {
                 )
             }
             BatchOperation::RemoveExif => host.exif_clean_copy(doc, temporary.file()),
+            BatchOperation::Watermark { watermark } => host.watermark_copy(
+                doc,
+                temporary.file(),
+                watermark.clone(),
+                picture.map(|p| p.to_vec()),
+            ),
         }
         .map_err(|error| ipc_error(&error))?;
         let (WorkerResponse::Saved { bytes, .. } | WorkerResponse::ExifCleaned { bytes, .. }) =
@@ -1700,6 +1707,27 @@ impl Documents {
                 height,
             })
         })
+    }
+
+    /// Makes the picture in `path` (a PNG or JPEG the user chose) into the PNG bytes of a picture
+    /// watermark (B3-04, docs/architecture/watermark.md). A sandboxed worker does the reading and
+    /// conversion: only pixels are kept.
+    pub fn prepare_watermark_picture(&self, path: &Path) -> Result<Vec<u8>, IpcError> {
+        let file = open_picture(path)?;
+        let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
+        let response = host
+            .prepare_stamp_image(&file)
+            .map_err(|error| ipc_error(&error))?;
+        let WorkerResponse::StampImage {
+            png, width, height, ..
+        } = response
+        else {
+            return Err(unexpected("PrepareStampImage"));
+        };
+        if stamp_png_size(&png).map_err(|_| unexpected("PrepareStampImage"))? != (width, height) {
+            return Err(unexpected("PrepareStampImage"));
+        }
+        Ok(png)
     }
 
     /// Makes `text` in the font `font` (its name, and the bytes of its file, which the caller
@@ -6261,11 +6289,31 @@ mod with_worker {
         ipc_contract::types::BatchReport,
         Vec<ipc_contract::types::BatchEvent>,
     ) {
+        run_batch_with_picture(documents, files, folder, operation, None, stop)
+    }
+
+    fn run_batch_with_picture(
+        documents: &Documents,
+        files: &[PathBuf],
+        folder: &Path,
+        operation: &BatchOperation,
+        picture: Option<&[u8]>,
+        stop: bool,
+    ) -> (
+        ipc_contract::types::BatchReport,
+        Vec<ipc_contract::types::BatchEvent>,
+    ) {
         let stop = std::sync::atomic::AtomicBool::new(stop);
         let events = std::cell::RefCell::new(Vec::new());
-        let report = crate::batch::run(documents, files, folder, operation, &stop, &|event| {
-            events.borrow_mut().push(event)
-        });
+        let report = crate::batch::run(
+            documents,
+            files,
+            folder,
+            operation,
+            picture,
+            &stop,
+            &|event| events.borrow_mut().push(event),
+        );
         (report, events.into_inner())
     }
 
@@ -6493,6 +6541,162 @@ mod with_worker {
             "the catalog's and the page's XMP stay, the picture's goes"
         );
         std::fs::remove_dir_all(&out).ok();
+    }
+
+    #[test]
+    fn a_batch_draws_a_watermark_on_copies_of_files() {
+        use ipc_contract::types::{
+            BatchEvent, BatchOutcome, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+        };
+
+        let documents = Documents::new(worker());
+        let out = batch_folder("watermark");
+        let files = [
+            corpus_path("benign/single-page.pdf"),
+            corpus_path("benign/encrypted-aes256.pdf"),
+            corpus_path("benign/multi-page-10.pdf"),
+        ];
+        let watermark = Watermark {
+            content: WatermarkContent::Text {
+                text: "CONFIDENTIAL".to_owned(),
+                size: 40.0,
+                color: Rgb { r: 200, g: 0, b: 0 },
+            },
+            opacity: 50,
+            diagonal: true,
+            place: WatermarkPlace::Center,
+            pages: WatermarkPages::All,
+        };
+        let operation = BatchOperation::Watermark { watermark };
+        let (report, events) = run_batch(&documents, &files, &out, &operation, false);
+        assert_eq!((report.done, report.failed, report.skipped), (2, 1, 0));
+        assert!(events.contains(&BatchEvent::File {
+            index: 1,
+            outcome: BatchOutcome::Failed {
+                error: ErrorCode::Encrypted
+            }
+        }));
+        assert_eq!(
+            names_in(&out),
+            ["multi-page-10（浮水印）.pdf", "single-page（浮水印）.pdf"]
+        );
+        let single = std::fs::read(out.join("single-page（浮水印）.pdf")).unwrap();
+        assert!(single.starts_with(b"%PDF-"));
+        let single_wm_count = single
+            .windows(b"/PdfReaderWatermark".len())
+            .filter(|w| *w == b"/PdfReaderWatermark")
+            .count();
+        assert!(
+            single_wm_count >= 1,
+            "single page copy has /PdfReaderWatermark"
+        );
+
+        let multi = std::fs::read(out.join("multi-page-10（浮水印）.pdf")).unwrap();
+        let multi_wm_count = multi
+            .windows(b"/PdfReaderWatermark".len())
+            .filter(|w| *w == b"/PdfReaderWatermark")
+            .count();
+        assert!(
+            multi_wm_count >= 10,
+            "all 10 pages have /PdfReaderWatermark"
+        );
+
+        let orig = std::fs::read(corpus_path("benign/single-page.pdf")).unwrap();
+        assert!(
+            !orig
+                .windows(b"CONFIDENTIAL".len())
+                .any(|w| w == b"CONFIDENTIAL")
+        );
+
+        // Reopen copies through worker and verify text layer and search
+        let single_info = open_in(&documents, &out.join("single-page（浮水印）.pdf"));
+        let single_text = documents.page_text(single_info.doc, 0).expect("page text");
+        assert!(
+            single_text
+                .lines
+                .iter()
+                .any(|line| line.text.contains("CONFIDENTIAL")),
+            "single-page copy text layer has CONFIDENTIAL"
+        );
+        let single_search = documents
+            .search_page(single_info.doc, 0, "CONFIDENTIAL", false, 10)
+            .expect("search");
+        assert!(!single_search.hits.is_empty());
+
+        let multi_info = open_in(&documents, &out.join("multi-page-10（浮水印）.pdf"));
+        assert_eq!(multi_info.pages.len(), 10);
+        for page in 0..10 {
+            let page_text = documents
+                .page_text(multi_info.doc, page)
+                .expect("page text");
+            assert!(
+                page_text
+                    .lines
+                    .iter()
+                    .any(|line| line.text.contains("CONFIDENTIAL")),
+                "page {page} text layer has CONFIDENTIAL"
+            );
+            let page_search = documents
+                .search_page(multi_info.doc, page, "CONFIDENTIAL", false, 10)
+                .expect("search");
+            assert!(!page_search.hits.is_empty(), "page {page} search has hits");
+        }
+
+        // Picture watermark with prepare_watermark_picture, applied only to First page
+        let picture_png = documents
+            .prepare_watermark_picture(&corpus_path("images/stamp-exif.jpg"))
+            .expect("prepare picture");
+        let picture_watermark = Watermark {
+            content: WatermarkContent::Picture { width_pt: 150.0 },
+            opacity: 50,
+            diagonal: false,
+            place: WatermarkPlace::Center,
+            pages: WatermarkPages::First,
+        };
+        let pic_out = batch_folder("watermark_pic");
+        let pic_op = BatchOperation::Watermark {
+            watermark: picture_watermark,
+        };
+        let (pic_report, _) = run_batch_with_picture(
+            &documents,
+            &[corpus_path("benign/multi-page-10.pdf")],
+            &pic_out,
+            &pic_op,
+            Some(&picture_png),
+            false,
+        );
+        assert_eq!(pic_report.done, 1);
+        assert_eq!(names_in(&pic_out), ["multi-page-10（浮水印）.pdf"]);
+
+        let pic_bytes = std::fs::read(pic_out.join("multi-page-10（浮水印）.pdf")).unwrap();
+        let pic_wm_count = pic_bytes
+            .windows(b"/PdfReaderWatermark".len())
+            .filter(|w| *w == b"/PdfReaderWatermark")
+            .count();
+        assert_eq!(
+            pic_wm_count, 1,
+            "only the first page has /PdfReaderWatermark"
+        );
+
+        let pic_info = open_in(&documents, &pic_out.join("multi-page-10（浮水印）.pdf"));
+        let orig_multi_info = open_in(&documents, &corpus_path("benign/multi-page-10.pdf"));
+        let pic_p0 = documents
+            .render(&args(pic_info.doc, 0, 0.5, Rotation::None))
+            .unwrap();
+        let orig_p0 = documents
+            .render(&args(orig_multi_info.doc, 0, 0.5, Rotation::None))
+            .unwrap();
+        assert_ne!(pic_p0, orig_p0, "page 0 has watermark picture");
+        let pic_p1 = documents
+            .render(&args(pic_info.doc, 1, 0.5, Rotation::None))
+            .unwrap();
+        let orig_p1 = documents
+            .render(&args(orig_multi_info.doc, 1, 0.5, Rotation::None))
+            .unwrap();
+        assert_eq!(pic_p1, orig_p1, "page 1 has no watermark picture");
+
+        std::fs::remove_dir_all(&out).ok();
+        std::fs::remove_dir_all(&pic_out).ok();
     }
 
     #[test]

@@ -149,6 +149,101 @@ describe("a batch (B3-04)", () => {
     expect(list).toHaveTextContent(t.failedFile(strings.error.messages.pictureNotCleaned));
   });
 
+  it("draws a text watermark with configured options on each file", async () => {
+    const { api, state } = fakeBatchApi();
+    const { user } = renderShell(api);
+    const dialog = await openDialog(user);
+    await user.click(within(dialog).getByRole("radio", { name: t.watermark }));
+    expect(dialog).toHaveTextContent(t.watermarkSignatureNote);
+
+    // Config options
+    const textInput = within(dialog).getByLabelText(t.watermarkTextInput);
+    await user.clear(textInput);
+    await user.type(textInput, "DRAFT");
+
+    const sizeInput = within(dialog).getByLabelText(t.watermarkSize);
+    await user.clear(sizeInput);
+    await user.type(sizeInput, "50");
+
+    const opacityInput = within(dialog).getByLabelText(t.watermarkOpacity);
+    await user.clear(opacityInput);
+    await user.type(opacityInput, "60");
+
+    await user.click(within(dialog).getByRole("radio", { name: t.watermarkHorizontal }));
+    await user.click(within(dialog).getByRole("radio", { name: t.watermarkPlaceTop }));
+    await user.click(within(dialog).getByRole("radio", { name: t.watermarkPagesFirst }));
+
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+    expect(api.run).toHaveBeenCalledOnce();
+    expect(api.run.mock.calls[0]![0]).toEqual({
+      kind: "watermark",
+      watermark: {
+        content: { kind: "text", text: "DRAFT", size: 50, color: { r: 200, g: 0, b: 0 } },
+        opacity: 60,
+        diagonal: false,
+        place: "top",
+        pages: "first",
+      },
+    });
+
+    act(() => state.onEvent({ kind: "started", files: ["doc.pdf"] }));
+    act(() => state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "doc（浮水印）.pdf" } }));
+    const list = within(dialog).getByRole("list", { name: t.filesLabel });
+    expect(list).toHaveTextContent(t.done("doc（浮水印）.pdf"));
+  });
+
+  it("validates watermark options before starting", async () => {
+    const { api } = fakeBatchApi();
+    const { user } = renderShell(api);
+    const dialog = await openDialog(user);
+    await user.click(within(dialog).getByRole("radio", { name: t.watermark }));
+    expect(dialog).toHaveTextContent(t.watermarkSignatureNote);
+
+    const textInput = within(dialog).getByLabelText(t.watermarkTextInput);
+    await user.clear(textInput);
+    expect(within(dialog).getByRole("button", { name: t.start })).toBeDisabled();
+    expect(within(dialog).getByRole("status")).toHaveTextContent(t.watermarkProblem.emptyText);
+
+    // Invalid opacity
+    const opacityInput = within(dialog).getByLabelText(t.watermarkOpacity);
+    await user.clear(opacityInput);
+    await user.type(opacityInput, "3");
+    expect(within(dialog).getByRole("button", { name: t.start })).toBeDisabled();
+    expect(within(dialog).getByRole("status")).toHaveTextContent(t.watermarkProblem.opacityOutOfRange);
+
+    await user.clear(opacityInput);
+    await user.type(opacityInput, "50");
+    await user.type(textInput, "CONFIDENTIAL");
+    expect(within(dialog).getByRole("button", { name: t.start })).toBeEnabled();
+  });
+
+  it("draws a picture watermark with configured width", async () => {
+    const { api } = fakeBatchApi();
+    const { user } = renderShell(api);
+    const dialog = await openDialog(user);
+    await user.click(within(dialog).getByRole("radio", { name: t.watermark }));
+    expect(dialog).toHaveTextContent(t.watermarkSignatureNote);
+    await user.click(within(dialog).getByRole("radio", { name: t.watermarkPicture }));
+
+    expect(dialog).toHaveTextContent(t.watermarkPictureNote);
+    const widthInput = within(dialog).getByLabelText(t.watermarkPictureWidth);
+    await user.clear(widthInput);
+    await user.type(widthInput, "200");
+
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+    expect(api.run).toHaveBeenCalledOnce();
+    expect(api.run.mock.calls[0]![0]).toEqual({
+      kind: "watermark",
+      watermark: {
+        content: { kind: "picture", widthPt: 200 },
+        opacity: 50,
+        diagonal: true,
+        place: "center",
+        pages: "all",
+      },
+    });
+  });
+
   it("stops before the next file when asked", async () => {
     const { api, state } = fakeBatchApi();
     const { user } = renderShell(api);
