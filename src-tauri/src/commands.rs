@@ -12,14 +12,14 @@ use ipc_contract::limits::MAX_BATCH_FILES;
 use ipc_contract::types::{
     AnnotationId, BatchArgs, BatchEvent, BatchOperation, BatchReport, CompressArgs, CompressResult,
     CreateResult, DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent,
-    ExportFormat, FileRecordingArgs, FontImport, FontInfo, FormField, IpcError, LanguageImport,
-    LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent,
-    OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText, PagesSource, Password,
-    PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
-    RememberedPasswords, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult,
-    SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignatureReport,
-    StampImageInfo, TabId, TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs,
-    UpdateCheck, WatermarkContent,
+    ExportFormat, FileRecordingArgs, FindPersonalDataQuery, FontImport, FontInfo, FormField,
+    IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs,
+    OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText,
+    PagesSource, Password, PersonalDataMatches, PrepareTextBoxArgs, PreparedTextBox, RecentFile,
+    RecentId, RedactionSummary, RememberedPasswords, RemoveFontArgs, RemoveLanguageArgs,
+    RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile,
+    SensitiveId, Settings, SignatureReport, StampImageInfo, TabId, TextBoxInfo, UndoArgs,
+    UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use tauri::ipc::{Channel, Response};
@@ -785,6 +785,16 @@ pub async fn get_redaction_summary(
     doc: DocumentId,
 ) -> Result<RedactionSummary, IpcError> {
     blocking(move || app.state::<Documents>().redaction_summary(doc)).await
+}
+
+/// Finds personal data matching `query` in `doc` (Issue #302).
+#[tauri::command]
+pub async fn find_personal_data(
+    app: AppHandle,
+    doc: DocumentId,
+    query: FindPersonalDataQuery,
+) -> Result<PersonalDataMatches, IpcError> {
+    blocking(move || app.state::<Documents>().find_personal_data(doc, query)).await
 }
 
 /// The links of one page (MVP-12): where they are and where they point. Opening a web link

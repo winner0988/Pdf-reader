@@ -14,6 +14,8 @@ import type {
   StampImageInfo,
   TextBoxInfo,
   RedactionSummary,
+  FindPersonalDataQuery,
+  PersonalDataMatches,
 } from "@/ipc/generated/contract";
 
 export type AnnotationsApi = {
@@ -43,6 +45,8 @@ export type AnnotationsApi = {
   getTextBox?(doc: DocumentId, pageIndex: number, annotation: AnnotationId): Promise<TextBoxInfo>;
   /** What applying the redaction marks of an open document would do (B2-19, ADR 0016). */
   getRedactionSummary?(doc: DocumentId): Promise<RedactionSummary>;
+  /** Finds personal data in the document (Issue #302). */
+  findPersonalData?(doc: DocumentId, query: FindPersonalDataQuery): Promise<PersonalDataMatches>;
 };
 
 export const tauriAnnotationsApi: AnnotationsApi = {
@@ -54,6 +58,7 @@ export const tauriAnnotationsApi: AnnotationsApi = {
   getTextBox: (doc, pageIndex, annotation) =>
     invoke<TextBoxInfo>("get_text_box", { doc, pageIndex, annotation }),
   getRedactionSummary: (doc) => invoke<RedactionSummary>("get_redaction_summary", { doc }),
+  findPersonalData: (doc, query) => invoke<PersonalDataMatches>("find_personal_data", { doc, query }),
 };
 
 export type AnnotationSource = {

@@ -697,6 +697,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::PageFields { request, .. }
         | WorkerResponse::Signatures { request, .. }
         | WorkerResponse::RedactionSummary { request, .. }
+        | WorkerResponse::PersonalDataMatches { request, .. }
         | WorkerResponse::PageText { request, .. }
         | WorkerResponse::Png { request, .. }
         | WorkerResponse::StampImage { request, .. }

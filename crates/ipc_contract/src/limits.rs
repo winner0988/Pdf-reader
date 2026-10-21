@@ -264,3 +264,14 @@ pub const MAX_OCR_PAGE_MILLIS: u32 = 5 * 60 * 1000;
 /// Most languages the user can import for recognising text (B2-10), besides those that come with
 /// the app: each is up to `MAX_LANGUAGE_DATA_BYTES` in the app's data folder.
 pub const MAX_IMPORTED_LANGUAGES: u32 = 20;
+
+/// Most personal data matches reported across the document (Issue #302). A document with
+/// thousands of matches could overwhelm IPC buffers and UI rendering; 1,000 matches is plenty
+/// for a user to review and batch redact. If exceeded, `has_more` is true.
+pub const MAX_PERSONAL_DATA_MATCHES: u32 = 1_000;
+
+/// Longest custom keyword for personal data matching (Issue #302), in UTF-8 bytes.
+pub const MAX_PERSONAL_DATA_KEYWORD_BYTES: usize = 1_024;
+
+/// Longest masked preview string sent for one personal data match (Issue #302), in UTF-8 bytes.
+pub const MAX_PERSONAL_DATA_PREVIEW_BYTES: usize = 128;
