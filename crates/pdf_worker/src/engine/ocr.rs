@@ -224,12 +224,12 @@ impl PdfDocument {
         match text {
             Some(text) => {
                 self.ocr.text.insert(key, text);
-                self.text_cache.invalidate_page(index);
             }
             None => {
                 self.ocr.failed.insert(key);
             }
         }
+        self.text_cache.invalidate_page(index);
         Some(index)
     }
 
