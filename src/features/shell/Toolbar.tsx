@@ -77,9 +77,9 @@ export type ToolbarProps = {
   onExport?: () => void;
   /** The document's author forbids copying, which covers exporting (MVP-19). */
   exportBlocked?: boolean;
-  /** Exports a summary of annotations (Issue #306); without it the menu item is disabled. */
+  /** Writes a summary of the annotations (B3-18); without it the menu item is disabled. */
   onExportAnnotations?: () => void;
-  /** The document's author forbids copying, which covers exporting annotations (Issue #306). */
+  /** The document's author forbids copying, which covers the text a summary lists (B3-18). */
   exportAnnotationsBlocked?: boolean;
   /** Writes a copy without metadata (B2-03); without it the menu item is disabled. */
   onPrivacyExport?: () => void;

@@ -103,9 +103,15 @@ pub async fn save_annotation_summary_file(
     file_name: String,
     markdown: bool,
 ) -> Result<Option<PathBuf>, IpcError> {
-    Ok(run(window, Kind::SaveAnnotationSummary { file_name, markdown })
-        .await?
-        .and_then(|mut paths| paths.pop()))
+    Ok(run(
+        window,
+        Kind::SaveAnnotationSummary {
+            file_name,
+            markdown,
+        },
+    )
+    .await?
+    .and_then(|mut paths| paths.pop()))
 }
 
 /// Asks where to save a document as another file, suggesting `file_name`. The dialog itself
@@ -492,7 +498,9 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
                 Kind::SaveText { .. } => "txt",
                 Kind::SaveDocx { .. } => "docx",
                 Kind::SaveAnnotationSummary { markdown: true, .. } => "md",
-                Kind::SaveAnnotationSummary { markdown: false, .. } => "txt",
+                Kind::SaveAnnotationSummary {
+                    markdown: false, ..
+                } => "txt",
                 _ => "pdf",
             };
             dialog.SetDefaultExtension(&HSTRING::from(extension))?;
@@ -567,7 +575,9 @@ mod tests {
             markdown: true,
         });
         assert!(
-            summary(FOS_DONTADDTORECENT) && summary(FOS_OVERWRITEPROMPT) && summary(FOS_FORCEFILESYSTEM)
+            summary(FOS_DONTADDTORECENT)
+                && summary(FOS_OVERWRITEPROMPT)
+                && summary(FOS_FORCEFILESYSTEM)
         );
 
         let save_as = options_of(Kind::SavePdf {

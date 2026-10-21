@@ -1,169 +1,123 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ExportApi } from "@/features/export/api";
+import { demoDocument } from "@/features/shell/demo";
+import type { DocumentPermissions, ShellState } from "@/features/shell/model";
+import { ReaderShell } from "@/features/shell/ReaderShell";
 import { strings } from "@/i18n/zh-TW";
-import type { AnnotationSummary, DocumentId } from "@/ipc/generated/contract";
-import { AnnotationSummaryDialog } from "./AnnotationSummaryDialog";
+import type { AnnotationSummaryOutcome } from "@/ipc/generated/contract";
 
 const t = strings.exportAnnotations;
 
-describe("AnnotationSummaryDialog", () => {
-  const mockDoc = 1 as DocumentId;
-  const mockDocTitle = "測試文件.pdf";
-  const mockSummary: AnnotationSummary = {
-    items: [
-      {
-        pageIndex: 0,
-        kind: "highlight",
-        rect: { x0: 10, y0: 10, x1: 50, y1: 50 },
-        text: "重點文字",
-      },
-      {
-        pageIndex: 1,
-        kind: "note",
-        rect: { x0: 20, y0: 20, x1: 40, y1: 40 },
-        text: "附註說明",
-      },
-    ],
-    truncated: false,
+function fakeExportApi(outcome: AnnotationSummaryOutcome | Error = { kind: "written", count: 3, truncated: false }) {
+  return {
+    exportPages: vi.fn<ExportApi["exportPages"]>(),
+    cancel: vi.fn<ExportApi["cancel"]>(() => Promise.resolve()),
+    exportAnnotationSummary: vi.fn<NonNullable<ExportApi["exportAnnotationSummary"]>>(() =>
+      outcome instanceof Error ? Promise.reject(outcome) : Promise.resolve(outcome),
+    ),
+  } satisfies ExportApi;
+}
+
+function renderShell(exportApi: ExportApi, permissions?: DocumentPermissions) {
+  const state: ShellState = {
+    kind: "open",
+    document: { ...demoDocument, doc: 5, ...(permissions ? { permissions } : {}) },
   };
+  const user = userEvent.setup();
+  render(<ReaderShell state={state} onOpen={vi.fn()} loadingDelayMs={0} exportApi={exportApi} />);
+  return { user };
+}
 
-  function createMockApi(overrides?: Partial<ExportApi>): ExportApi {
-    return {
-      exportPages: vi.fn(),
-      cancel: vi.fn(),
-      getAnnotationSummary: vi.fn().mockResolvedValue(mockSummary),
-      exportAnnotationSummary: vi.fn().mockResolvedValue(true),
-      ...overrides,
-    };
-  }
+const menuItem = () => screen.findByRole("menuitem", { name: new RegExp(`^${strings.menu.exportAnnotations}`) });
 
-  it("renders format options and title checkbox", () => {
-    const api = createMockApi();
-    render(
-      <AnnotationSummaryDialog
-        open={true}
-        onOpenChange={vi.fn()}
-        doc={mockDoc}
-        docTitle={mockDocTitle}
-        api={api}
-        onFinished={vi.fn()}
-      />,
-    );
+async function openSummary(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+  await user.click(await menuItem());
+  return screen.findByRole("dialog", { name: t.title });
+}
 
-    expect(screen.getByRole("heading", { name: t.title })).toBeInTheDocument();
-    expect(screen.getByText(t.description)).toBeInTheDocument();
+const statusText = () => screen.getByRole("contentinfo").textContent ?? "";
 
-    const textRadio = screen.getByRole("radio", { name: t.text });
-    const mdRadio = screen.getByRole("radio", { name: t.markdown });
-    const titleCheckbox = screen.getByRole("checkbox", { name: t.includeTitle });
+describe("annotation summary (B3-18)", () => {
+  it("asks for plain text starting with the file name by default, and says how many it lists", async () => {
+    const api = fakeExportApi();
+    const { user } = renderShell(api);
+    const dialog = await openSummary(user);
+    expect(within(dialog).getByRole("radio", { name: t.text })).toBeChecked();
+    expect(within(dialog).getByRole("checkbox", { name: t.includeName })).toBeChecked();
 
-    expect(textRadio).toBeChecked();
-    expect(mdRadio).not.toBeChecked();
-    expect(titleCheckbox).toBeChecked();
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+    // Only what kind of file: the main process makes it.
+    expect(api.exportAnnotationSummary).toHaveBeenCalledWith({ doc: 5, format: "text", includeName: true });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(statusText()).toContain(t.done(3));
   });
 
-  it("exports as plain text with title included by default", async () => {
-    const user = userEvent.setup();
-    const api = createMockApi();
-    const onOpenChange = vi.fn();
-    const onFinished = vi.fn();
+  it("asks for Markdown without the file name, and says when the summary stopped before the end", async () => {
+    const api = fakeExportApi({ kind: "written", count: 10000, truncated: true });
+    const { user } = renderShell(api);
+    const dialog = await openSummary(user);
+    await user.click(within(dialog).getByRole("radio", { name: t.markdown }));
+    await user.click(within(dialog).getByRole("checkbox", { name: t.includeName }));
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
 
-    render(
-      <AnnotationSummaryDialog
-        open={true}
-        onOpenChange={onOpenChange}
-        doc={mockDoc}
-        docTitle={mockDocTitle}
-        api={api}
-        onFinished={onFinished}
-      />,
-    );
-
-    const submitBtn = screen.getByRole("button", { name: t.start });
-    await user.click(submitBtn);
-
-    await waitFor(() => {
-      expect(api.getAnnotationSummary).toHaveBeenCalledWith(mockDoc);
-      expect(api.exportAnnotationSummary).toHaveBeenCalledWith(
-        expect.objectContaining({
-          doc: mockDoc,
-          format: "text",
-          content: expect.stringContaining("測試文件.pdf"),
-        }),
-      );
-      expect(onOpenChange).toHaveBeenCalledWith(false);
-      expect(onFinished).toHaveBeenCalledWith(t.done);
-    });
+    expect(api.exportAnnotationSummary).toHaveBeenCalledWith({ doc: 5, format: "markdown", includeName: false });
+    await waitFor(() => expect(statusText()).toContain(t.truncated(10000)));
   });
 
-  it("exports as Markdown and excludes title when unchecked", async () => {
-    const user = userEvent.setup();
-    const api = createMockApi();
-    const onOpenChange = vi.fn();
-    const onFinished = vi.fn();
-
-    render(
-      <AnnotationSummaryDialog
-        open={true}
-        onOpenChange={onOpenChange}
-        doc={mockDoc}
-        docTitle={mockDocTitle}
-        api={api}
-        onFinished={onFinished}
-      />,
-    );
-
-    const mdRadio = screen.getByRole("radio", { name: t.markdown });
-    await user.click(mdRadio);
-
-    const titleCheckbox = screen.getByRole("checkbox", { name: t.includeTitle });
-    await user.click(titleCheckbox);
-
-    const submitBtn = screen.getByRole("button", { name: t.start });
-    await user.click(submitBtn);
-
-    await waitFor(() => {
-      expect(api.exportAnnotationSummary).toHaveBeenCalledWith(
-        expect.objectContaining({
-          doc: mockDoc,
-          format: "markdown",
-          content: expect.not.stringContaining("# 測試文件.pdf"),
-        }),
-      );
-      expect(onOpenChange).toHaveBeenCalledWith(false);
-      expect(onFinished).toHaveBeenCalledWith(t.done);
-    });
+  it("says when there is nothing to list, and stays open when the save dialog is closed", async () => {
+    const empty = fakeExportApi({ kind: "empty" });
+    const first = renderShell(empty);
+    let dialog = await openSummary(first.user);
+    await first.user.click(within(dialog).getByRole("button", { name: t.start }));
+    expect(await within(dialog).findByRole("status")).toHaveTextContent(t.empty);
+    await first.user.click(within(dialog).getByRole("button", { name: t.cancel }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    // Opened again, it starts afresh.
+    dialog = await openSummary(first.user);
+    expect(within(dialog).queryByRole("status")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: t.text })).toBeChecked();
   });
 
-  it("displays error message when export fails", async () => {
-    const user = userEvent.setup();
-    const api = createMockApi({
-      exportAnnotationSummary: vi.fn().mockRejectedValue(new Error("fail")),
+  it("keeps the dialog when the save dialog is closed, and says when writing fails", async () => {
+    const cancelled = fakeExportApi({ kind: "cancelled" });
+    const { user } = renderShell(cancelled);
+    const dialog = await openSummary(user);
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: t.start })).toBeEnabled());
+    expect(screen.getByRole("dialog", { name: t.title })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+
+    cancelled.exportAnnotationSummary.mockRejectedValueOnce(new Error("unwritable"));
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(t.failed);
+  });
+
+  it("is not offered when the author forbids copying (MVP-19)", async () => {
+    const { user } = renderShell(fakeExportApi(), {
+      copy: false,
+      print: true,
+      printHighQuality: true,
+      modify: true,
+      assemble: true,
+      annotate: true,
+      fillForms: true,
     });
-    const onOpenChange = vi.fn();
-    const onFinished = vi.fn();
+    await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    const blocked = await menuItem();
+    expect(blocked).toHaveAttribute("data-disabled");
+    expect(blocked).toHaveTextContent(strings.permissions.notAllowed);
+  });
 
-    render(
-      <AnnotationSummaryDialog
-        open={true}
-        onOpenChange={onOpenChange}
-        doc={mockDoc}
-        docTitle={mockDocTitle}
-        api={api}
-        onFinished={onFinished}
-      />,
-    );
-
-    const submitBtn = screen.getByRole("button", { name: t.start });
-    await user.click(submitBtn);
-
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(t.failed);
-      expect(onOpenChange).not.toHaveBeenCalled();
-      expect(onFinished).not.toHaveBeenCalled();
-    });
+  it("is disabled without the summary in the export API", async () => {
+    const { exportPages, cancel } = fakeExportApi();
+    const { user } = renderShell({ exportPages, cancel });
+    await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    const item = await menuItem();
+    expect(item).toHaveAttribute("data-disabled");
+    expect(item).not.toHaveTextContent(strings.permissions.notAllowed);
   });
 });

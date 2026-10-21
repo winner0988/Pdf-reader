@@ -157,14 +157,12 @@ pub fn bindings() -> String {
         ErrorCode,
         IpcError,
         OpenEvent,
-        AnnotationSummaryKind,
-        AnnotationSummaryItem,
-        AnnotationSummary,
         AnnotationSummaryFormat,
         ExportAnnotationSummaryArgs,
+        AnnotationSummaryOutcome,
     );
 
-    let limits: [(&str, String); 46] = [
+    let limits: [(&str, String); 43] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -213,18 +211,6 @@ pub fn bindings() -> String {
         ("maxLanguageDataBytes", MAX_LANGUAGE_DATA_BYTES.to_string()),
         ("maxImportedLanguages", MAX_IMPORTED_LANGUAGES.to_string()),
         ("maxImportedFonts", MAX_IMPORTED_FONTS.to_string()),
-        (
-            "maxAnnotationSummaryItems",
-            MAX_ANNOTATION_SUMMARY_ITEMS.to_string(),
-        ),
-        (
-            "maxAnnotationSummaryTextBytes",
-            MAX_ANNOTATION_SUMMARY_TEXT_BYTES.to_string(),
-        ),
-        (
-            "maxAnnotationSummaryTotalBytes",
-            MAX_ANNOTATION_SUMMARY_TOTAL_BYTES.to_string(),
-        ),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];
     out.push_str(

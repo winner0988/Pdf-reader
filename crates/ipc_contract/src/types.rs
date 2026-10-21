@@ -1858,10 +1858,10 @@ pub struct RemoveFontArgs {
 }
 
 // ---------------------------------------------------------------------------
-// Annotation summary export (B3-18, Issue #306)
+// Annotation summary (B3-18, docs/architecture/annotation-summary.md)
 // ---------------------------------------------------------------------------
 
-/// The kinds of annotations listed in an annotation summary (B3-18).
+/// The kinds of annotations a summary lists (B3-18).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum AnnotationSummaryKind {
@@ -1872,28 +1872,33 @@ pub enum AnnotationSummaryKind {
     Stamp,
 }
 
-/// One item in an annotation summary (B3-18).
+/// One annotation in a summary (B3-18).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AnnotationSummaryItem {
-    /// 0-based page index.
+    /// 0-based.
     pub page_index: u32,
     pub kind: AnnotationSummaryKind,
     /// Where it is on the page (page space).
     pub rect: Rect,
-    /// The text: underlying words for a highlight; note/text box contents; summary for ink/stamp.
+    /// What a highlighter mark covers, as display text (empty when it covers none of the page's
+    /// text); what a note or text box says, as a note's text; empty for a drawing or a stamp,
+    /// which are listed by kind only.
     pub text: String,
 }
 
-/// Complete summary of the annotations in an open document (B3-18).
+/// The annotations of a document (B3-18), page by page and on a page as it is read: from the top
+/// down, then from the left.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AnnotationSummary {
     pub items: Vec<AnnotationSummaryItem>,
+    /// The document has more than `LIMITS.maxAnnotationSummaryItems` annotations, or more text
+    /// than `LIMITS.maxAnnotationSummaryTotalBytes`: the rest was left out.
     pub truncated: bool,
 }
 
-/// The format of an exported annotation summary file (B3-18).
+/// The kind of file an annotation summary is written as (B3-18).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum AnnotationSummaryFormat {
@@ -1901,15 +1906,30 @@ pub enum AnnotationSummaryFormat {
     Markdown,
 }
 
-/// Arguments to export an annotation summary to a text or Markdown file (B3-18).
+/// Writes a summary of the annotations of document `doc` (B3-18) as a UTF-8 file of `format`
+/// where the user says in the system's save dialog. The main process makes the file; no text of
+/// the document passes through the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExportAnnotationSummaryArgs {
     pub doc: DocumentId,
     pub format: AnnotationSummaryFormat,
-    pub content: String,
+    /// The file starts with the document's file name.
+    pub include_name: bool,
 }
 
+/// What came of exporting an annotation summary (B3-18).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum AnnotationSummaryOutcome {
+    /// The document has no annotations a summary lists: nothing was asked or written.
+    Empty,
+    /// The user closed the save dialog: nothing was written.
+    Cancelled,
+    /// The file lists `count` annotations; `truncated`: the document has more (see
+    /// [`AnnotationSummary::truncated`]), and the file says so.
+    Written { count: u32, truncated: bool },
+}
 
 #[cfg(test)]
 mod tests {

@@ -8,14 +8,14 @@ use std::path::PathBuf;
 use ipc_contract::frame::encode;
 use ipc_contract::types::{
     AnnotationId, AnnotationKind, AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind,
-    BlockedAction, Certification, CreateKind, DocumentId,
-    DocumentPermissions, FieldId, FieldKind, FieldOption, FindingKind, FontRefusal, FormField,
-    HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, LinkTarget,
-    OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
-    PictureView, Point, Quad, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb,
-    Rotation, SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport,
-    SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason,
-    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    BlockedAction, Certification, CreateKind, DocumentId, DocumentPermissions, FieldId, FieldKind,
+    FieldOption, FindingKind, FontRefusal, FormField, HighlightColor, HighlightMark, ImageQuality,
+    InkColor, InkWidth, LinkId, LinkTarget, OutlineItem, OutlineResult, PageAnnotation, PageLink,
+    PageSize, PageText, Password, PictureView, Point, Quad, Rect, RedactionCheck, RedactionSummary,
+    RequestId, Restrictions, Rgb, Rotation, SearchHit, SecurityFinding, SecurityReport,
+    SignatureInfo, SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo,
+    TextBoxStyle, TextLine, UnverifiableReason, Watermark, WatermarkContent, WatermarkPages,
+    WatermarkPlace,
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, ModelGlyph, OcrFinished, OcrOutcome, OcrPageState,

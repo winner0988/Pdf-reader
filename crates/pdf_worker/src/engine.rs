@@ -1490,8 +1490,9 @@ fn percent_encode(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use ipc_contract::types::{
-        AnnotationId, AnnotationKind, AnnotationSummaryKind, FieldId, FieldKind, FieldOption, FormField, HighlightColor,
-        HighlightMark, InkColor, InkWidth, PageAnnotation, Rect, StampName,
+        AnnotationId, AnnotationKind, AnnotationSummaryKind, FieldId, FieldKind, FieldOption,
+        FormField, HighlightColor, HighlightMark, InkColor, InkWidth, PageAnnotation, Rect,
+        StampName,
     };
 
     use super::*;
@@ -2526,6 +2527,186 @@ mod tests {
         assert!(annotations.iter().any(|dict| {
             dict.get_dict("QuadPoints").unwrap().is_some() && dict.get_dict("AP").unwrap().is_some()
         }));
+    }
+
+    /// The line of `layer` that starts with `start`.
+    fn line_starting<'a>(layer: &'a TextLayer, start: &str) -> &'a ipc_contract::types::TextLine {
+        layer
+            .lines
+            .iter()
+            .find(|line| line.text.starts_with(start))
+            .unwrap_or_else(|| panic!("no line starting {start:?} in {:?}", layer.lines))
+    }
+
+    /// The quad of `part` of `line`, a line written across the page, as the text selection
+    /// makes it.
+    fn quad_of(line: &ipc_contract::types::TextLine, part: &str) -> Quad {
+        let byte = line.text.find(part).expect("part of the line");
+        let from = line.text[..byte].chars().count();
+        let to = from + part.chars().count();
+        let q = line.quad;
+        assert!(
+            (q.ul.y - q.ur.y).abs() < 0.01,
+            "a line across the page: {q:?}"
+        );
+        let x = |at: usize| q.ul.x + line.edges[at];
+        Quad {
+            ul: Point {
+                x: x(from),
+                y: q.ul.y,
+            },
+            ur: Point {
+                x: x(to),
+                y: q.ur.y,
+            },
+            ll: Point {
+                x: x(from),
+                y: q.ll.y,
+            },
+            lr: Point {
+                x: x(to),
+                y: q.lr.y,
+            },
+        }
+    }
+
+    #[test]
+    fn an_annotation_summary_lists_annotations_as_the_page_is_read_with_the_text_marks_cover() {
+        let mut doc =
+            PdfDocument::from_bytes(&corpus("benign/mixed-text-zh-en.pdf")).expect("open");
+        let layer = doc.page_text(0, 10_000).expect("text");
+        let english = line_starting(&layer, "Privacy-first").clone();
+        let chinese = line_starting(&layer, "隱私").clone();
+        let mark = |quads: Vec<Quad>| HighlightMark { page: 0, quads };
+        // From the end of one line to the start of the next, added first.
+        doc.add_highlights(
+            &[mark(vec![
+                quad_of(&english, "Reader"),
+                quad_of(&chinese, "隱私優先"),
+            ])],
+            HighlightColor::Yellow,
+        )
+        .expect("across two lines");
+        // Further left on the same line, added after.
+        doc.add_highlights(
+            &[mark(vec![quad_of(&english, "PDF")])],
+            HighlightColor::Green,
+        )
+        .expect("on one line");
+        doc.add_ink(
+            0,
+            &[vec![
+                Point { x: 100.0, y: 600.0 },
+                Point { x: 200.0, y: 650.0 },
+            ]],
+            InkColor::Black,
+            InkWidth::Thin,
+        )
+        .expect("drawing");
+        doc.add_stamp(
+            0,
+            Rect {
+                x0: 300.0,
+                y0: 400.0,
+                x1: 400.0,
+                y1: 450.0,
+            },
+            StampName::Draft,
+        )
+        .expect("stamp");
+        doc.add_note(0, Point { x: 400.0, y: 10.0 }, "第一行\nsecond\tline")
+            .expect("note");
+
+        let summary = doc.annotation_summary().expect("summary");
+        let listed: Vec<(u32, AnnotationSummaryKind, &str)> = summary
+            .items
+            .iter()
+            .map(|item| (item.page_index, item.kind, item.text.as_str()))
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                (0, AnnotationSummaryKind::Note, "第一行\nsecond line"),
+                (0, AnnotationSummaryKind::Highlight, "PDF"),
+                (0, AnnotationSummaryKind::Highlight, "Reader隱私優先"),
+                (0, AnnotationSummaryKind::Stamp, ""),
+                (0, AnnotationSummaryKind::Ink, ""),
+            ]
+        );
+        assert!(!summary.truncated);
+        // What the main process accepts.
+        ipc_contract::validate::Validate::validate(&summary).expect("valid");
+
+        // Links, fields, shapes and pop-ups are not listed.
+        let others = PdfDocument::from_bytes(&annotated_pdf()).expect("open");
+        let kinds: Vec<AnnotationSummaryKind> = others
+            .annotation_summary()
+            .expect("summary")
+            .items
+            .iter()
+            .map(|item| item.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                AnnotationSummaryKind::Highlight,
+                AnnotationSummaryKind::Note,
+                AnnotationSummaryKind::Note,
+            ]
+        );
+        let empty = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
+        assert_eq!(
+            empty.annotation_summary().expect("summary").items,
+            Vec::new()
+        );
+    }
+
+    #[test]
+    fn an_annotation_summary_reads_a_turned_page_as_it_is_shown() {
+        let mut doc = PdfDocument::from_bytes(&corpus("benign/rotated-page.pdf")).expect("open");
+        let layer = doc.page_text(1, 10_000).expect("text");
+        // As shown, the text of the turned page runs across it.
+        let line = line_starting(&layer, "Page 2").clone();
+        doc.add_highlights(
+            &[HighlightMark {
+                page: 1,
+                quads: vec![line.quad],
+            }],
+            HighlightColor::Yellow,
+        )
+        .expect("highlight");
+        // One note above the line at the right, one below it at the left: read top down.
+        let (width, _) = doc.page_size(1).expect("size");
+        let above = (line.quad.ul.y - 40.0).max(0.0);
+        doc.add_note(
+            1,
+            Point {
+                x: width - 40.0,
+                y: above,
+            },
+            "above",
+        )
+        .expect("note above");
+        doc.add_note(
+            1,
+            Point {
+                x: 10.0,
+                y: line.quad.ll.y + 40.0,
+            },
+            "below",
+        )
+        .expect("note below");
+
+        let summary = doc.annotation_summary().expect("summary");
+        let listed: Vec<(u32, &str)> = summary
+            .items
+            .iter()
+            .map(|item| (item.page_index, item.text.as_str()))
+            .collect();
+        assert_eq!(
+            listed,
+            [(1, "above"), (1, line.text.as_str()), (1, "below")]
+        );
     }
 
     #[test]

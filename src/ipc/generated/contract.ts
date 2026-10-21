@@ -1090,41 +1090,25 @@ export type IpcError = { code: ErrorCode, message: string, };
 export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, canRemember: boolean, rememberedFailed: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, } | { "kind": "closeRequested", tabs: Array<TabId>, } | { "kind": "ocr", tab: TabId, progress: OcrProgress, } | { "kind": "ocrPage", tab: TabId, doc: DocumentId, pageIndex: number, };
 
 /**
- * The kinds of annotations listed in an annotation summary (B3-18).
- */
-export type AnnotationSummaryKind = "highlight" | "note" | "textBox" | "ink" | "stamp";
-
-/**
- * One item in an annotation summary (B3-18).
- */
-export type AnnotationSummaryItem = { 
-/**
- * 0-based page index.
- */
-pageIndex: number, kind: AnnotationSummaryKind, 
-/**
- * Where it is on the page (page space).
- */
-rect: Rect, 
-/**
- * The text: underlying words for a highlight; note/text box contents; summary for ink/stamp.
- */
-text: string, };
-
-/**
- * Complete summary of the annotations in an open document (B3-18).
- */
-export type AnnotationSummary = { items: Array<AnnotationSummaryItem>, truncated: boolean, };
-
-/**
- * The format of an exported annotation summary file (B3-18).
+ * The kind of file an annotation summary is written as (B3-18).
  */
 export type AnnotationSummaryFormat = "text" | "markdown";
 
 /**
- * Arguments to export an annotation summary to a text or Markdown file (B3-18).
+ * Writes a summary of the annotations of document `doc` (B3-18) as a UTF-8 file of `format`
+ * where the user says in the system's save dialog. The main process makes the file; no text of
+ * the document passes through the page.
  */
-export type ExportAnnotationSummaryArgs = { doc: DocumentId, format: AnnotationSummaryFormat, content: string, };
+export type ExportAnnotationSummaryArgs = { doc: DocumentId, format: AnnotationSummaryFormat, 
+/**
+ * The file starts with the document's file name.
+ */
+includeName: boolean, };
+
+/**
+ * What came of exporting an annotation summary (B3-18).
+ */
+export type AnnotationSummaryOutcome = { "kind": "empty" } | { "kind": "cancelled" } | { "kind": "written", count: number, truncated: boolean, };
 
 /** Limits enforced by the main process (crates/ipc_contract/src/limits.rs). */
 export const LIMITS = {
@@ -1170,9 +1154,6 @@ export const LIMITS = {
   maxLanguageDataBytes: 67108864,
   maxImportedLanguages: 20,
   maxImportedFonts: 50,
-  maxAnnotationSummaryItems: 10000,
-  maxAnnotationSummaryTextBytes: 32768,
-  maxAnnotationSummaryTotalBytes: 16777216,
   protocolVersion: 0,
 } as const;
 

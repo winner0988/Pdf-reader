@@ -5,7 +5,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 import type {
-  AnnotationSummary,
+  AnnotationSummaryOutcome,
   DocumentId,
   ExportAnnotationSummaryArgs,
   ExportArgs,
@@ -21,13 +21,6 @@ export type ExportJob = {
   done: Promise<boolean>;
 };
 
-export type AnnotationSummaryApi = {
-  /** Retrieves all user-facing annotations summary for the document (Issue #306). */
-  getAnnotationSummary(doc: DocumentId): Promise<AnnotationSummary>;
-  /** Exports the annotation summary text/markdown via system save dialog (Issue #306). */
-  exportAnnotationSummary(args: ExportAnnotationSummaryArgs): Promise<boolean>;
-};
-
 export type ExportApi = {
   exportPages(
     doc: DocumentId,
@@ -37,13 +30,17 @@ export type ExportApi = {
   ): ExportJob;
   /** Stops an export before its next page; the pages already written stay. */
   cancel(request: RequestId): Promise<void>;
-  /** Retrieves all user-facing annotations summary for the document (Issue #306). */
-  getAnnotationSummary?: (doc: DocumentId) => Promise<AnnotationSummary>;
-  /** Exports the annotation summary text/markdown via system save dialog (Issue #306). */
-  exportAnnotationSummary?: (args: ExportAnnotationSummaryArgs) => Promise<boolean>;
+  /**
+   * Writes a summary of the document's annotations as a text or Markdown file (B3-18): the main
+   * process makes it and asks where. Without it, the menu item is disabled.
+   */
+  exportAnnotationSummary?: (args: ExportAnnotationSummaryArgs) => Promise<AnnotationSummaryOutcome>;
 };
 
-export const tauriExportApi: ExportApi & AnnotationSummaryApi = {
+/** What the annotation summary dialog needs (B3-18). */
+export type AnnotationSummaryApi = Required<Pick<ExportApi, "exportAnnotationSummary">>;
+
+export const tauriExportApi: ExportApi = {
   exportPages(doc, pages, format, onProgress) {
     const request = nextRequestId();
     const channel = new Channel<ExportEvent>();
@@ -52,6 +49,5 @@ export const tauriExportApi: ExportApi & AnnotationSummaryApi = {
     return { request, done: invoke<boolean>("export_pages", { args, onEvent: channel }) };
   },
   cancel: (request) => invoke<void>("cancel", { request }),
-  getAnnotationSummary: (doc) => invoke<AnnotationSummary>("get_annotation_summary", { doc }),
-  exportAnnotationSummary: (args) => invoke<boolean>("export_annotation_summary", { args }),
+  exportAnnotationSummary: (args) => invoke<AnnotationSummaryOutcome>("export_annotation_summary", { args }),
 };

@@ -181,7 +181,7 @@ fn is_wide(c: char) -> bool {
 /// are joined with a space: not where there is one already, nor between Chinese letters, nor
 /// after the hyphen that breaks a word across two lines (the hyphen stays: a compound word has
 /// one, and a reader sees through the other).
-fn space_between(last: char, next: char) -> bool {
+pub(super) fn space_between(last: char, next: char) -> bool {
     !(last.is_whitespace()
         || next.is_whitespace()
         || is_wide(last)

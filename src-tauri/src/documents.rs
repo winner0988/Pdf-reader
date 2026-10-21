@@ -19,13 +19,13 @@ use ipc_contract::limits::{
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
-    AnnotationId, AnnotationSummary, BatchOperation, BlockedAction, CompressResult, CreateKind, CreateResult,
-    DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode, FormField,
-    ImageQuality, IpcError, LinkArgs, LinkPreview, LinkTarget, MarkCheck, NotRemembered, OpenEvent,
-    OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource,
-    Password, PreparedTextBox, Recovery, RedactionSummary, RememberedPasswords, RenderPageArgs,
-    Restrictions, SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageInfo,
-    TabId, TextBoxInfo, UnlockOutcome,
+    AnnotationId, AnnotationSummary, BatchOperation, BlockedAction, CompressResult, CreateKind,
+    CreateResult, DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
+    FormField, ImageQuality, IpcError, LinkArgs, LinkPreview, LinkTarget, MarkCheck, NotRemembered,
+    OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageSize, PageText,
+    PagesSource, Password, PreparedTextBox, Recovery, RedactionSummary, RememberedPasswords,
+    RenderPageArgs, Restrictions, SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId,
+    StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
@@ -1348,14 +1348,6 @@ impl Documents {
             .unwrap_or(false)
     }
 
-    /// Whether any open document is opened from `path`.
-    pub fn is_open_file(&self, path: &Path) -> bool {
-        self.lock()
-            .tabs
-            .iter()
-            .any(|tab| same_file(&lock(&tab.path), path))
-    }
-
     /// Every tab as the frontend last heard about it, in tab order: all a reloaded page needs.
     pub fn snapshot(&self) -> Vec<OpenEvent> {
         let tabs = self.lock().tabs.clone();
@@ -1843,17 +1835,22 @@ impl Documents {
         })
     }
 
-    /// Returns a summary of all annotations in the document (Issue #306).
+    /// The annotations of every page of `doc` for a summary (B3-18). Reading every page may take
+    /// as long as saving.
     pub fn annotation_summary(&self, doc: DocumentId) -> Result<AnnotationSummary, IpcError> {
         self.with_document(doc, |document| {
-            let response = request(document, |request, doc| WorkerRequest::AnnotationSummary {
-                request,
-                doc,
+            let response = request_long(document, |request, doc| {
+                WorkerRequest::AnnotationSummary { request, doc }
             })?;
             let WorkerResponse::AnnotationSummary { summary, .. } = response else {
                 return Err(unexpected("AnnotationSummary"));
             };
-            summary.validate().map_err(invalid_argument)?;
+            // The worker's answer is checked already (`WorkerResponse::validate`); its pages
+            // must also be the document's.
+            let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+            for item in &summary.items {
+                check_page_index(item.page_index, page_count).map_err(invalid_argument)?;
+            }
             Ok(summary)
         })
     }

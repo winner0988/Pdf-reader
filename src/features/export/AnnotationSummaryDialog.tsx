@@ -1,4 +1,6 @@
-// Annotation summary export dialog (Issue #306, B3-18).
+// The annotation summary (B3-18, docs/architecture/annotation-summary.md). The page only says what
+// kind of file and whether it starts with the file name; the main process makes the file from what
+// the worker found and asks where to save it. No text of the document passes through the page.
 import { useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -10,136 +12,88 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { ExportApi } from "@/features/export/api";
-import { formatAnnotationSummary } from "@/features/export/markdown";
+import type { AnnotationSummaryApi } from "@/features/export/api";
 import { strings } from "@/i18n/zh-TW";
 import type { AnnotationSummaryFormat, DocumentId } from "@/ipc/generated/contract";
 
 const t = strings.exportAnnotations;
 
-export type AnnotationSummaryDialogProps = {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+type AnnotationSummaryDialogProps = {
   doc: DocumentId;
-  docTitle: string;
-  api: ExportApi;
+  api: AnnotationSummaryApi;
+  onClose: () => void;
+  /** The file was written: what to tell the user (how many annotations it lists). */
   onFinished: (message: string) => void;
 };
 
-export function AnnotationSummaryDialog({
-  open,
-  onOpenChange,
-  doc,
-  docTitle,
-  api,
-  onFinished,
-}: AnnotationSummaryDialogProps) {
+export function AnnotationSummaryDialog({ doc, api, onClose, onFinished }: AnnotationSummaryDialogProps) {
   const [format, setFormat] = useState<AnnotationSummaryFormat>("text");
-  const [includeTitle, setIncludeTitle] = useState(true);
-  const [running, setRunning] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [includeName, setIncludeName] = useState(true);
+  const [state, setState] = useState<"idle" | "running" | "empty" | "failed">("idle");
+  const running = state === "running";
 
-  // Reset state when opened
-  const [wasOpen, setWasOpen] = useState(open);
-  if (open !== wasOpen) {
-    setWasOpen(open);
-    if (open) {
-      setFormat("text");
-      setIncludeTitle(true);
-      setFailed(false);
-      setRunning(false);
-    }
-  }
-
-  const handleSubmit = async (e?: FormEvent) => {
-    if (e) e.preventDefault();
-    if (!api.getAnnotationSummary || !api.exportAnnotationSummary) return;
-    setRunning(true);
-    setFailed(false);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setState("running");
     try {
-      const summary = await api.getAnnotationSummary(doc);
-      const content = formatAnnotationSummary(summary, {
-        format,
-        includeTitle,
-        docTitle,
-      });
-      const exported = await api.exportAnnotationSummary({
-        doc,
-        format,
-        content,
-      });
-      setRunning(false);
-      if (exported) {
-        onOpenChange(false);
-        onFinished(t.done);
+      const outcome = await api.exportAnnotationSummary({ doc, format, includeName });
+      if (outcome.kind === "written") {
+        onClose();
+        onFinished(outcome.truncated ? t.truncated(outcome.count) : t.done(outcome.count));
+      } else {
+        // Nothing to list: say so here. The save dialog closed: choose again or cancel.
+        setState(outcome.kind === "empty" ? "empty" : "idle");
       }
     } catch {
-      setRunning(false);
-      setFailed(true);
+      setState("failed");
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !running && onOpenChange(next)}>
-      <DialogContent className="max-h-[90vh] overflow-auto sm:max-w-md">
-        <form onSubmit={handleSubmit} className="grid gap-4">
-          <DialogHeader>
-            <DialogTitle>{t.title}</DialogTitle>
-            <DialogDescription>{t.description}</DialogDescription>
-          </DialogHeader>
-
-          <fieldset className="grid gap-2 text-sm">
-            <legend className="mb-1 font-medium">{t.format}</legend>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="annotation-summary-format"
-                value="text"
-                disabled={running}
-                checked={format === "text"}
-                onChange={() => setFormat("text")}
-              />
+    <Dialog open onOpenChange={(open) => !open && !running && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t.title}</DialogTitle>
+          <DialogDescription>{t.description}</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <fieldset disabled={running} className="space-y-2 text-sm">
+            <legend className="font-medium">{t.format}</legend>
+            <label className="flex items-center gap-2">
+              <input type="radio" name="format" checked={format === "text"} onChange={() => setFormat("text")} />
               {t.text}
             </label>
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className="flex items-center gap-2">
               <input
                 type="radio"
-                name="annotation-summary-format"
-                value="markdown"
-                disabled={running}
+                name="format"
                 checked={format === "markdown"}
                 onChange={() => setFormat("markdown")}
               />
               {t.markdown}
             </label>
           </fieldset>
-
-          <div className="pt-1">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                name="annotation-summary-include-title"
-                disabled={running}
-                checked={includeTitle}
-                onChange={(e) => setIncludeTitle(e.target.checked)}
-              />
-              {t.includeTitle}
-            </label>
-          </div>
-
-          {failed && (
-            <p role="alert" className="text-sm text-destructive font-medium">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              disabled={running}
+              checked={includeName}
+              onChange={(event) => setIncludeName(event.target.checked)}
+            />
+            {t.includeName}
+          </label>
+          {state === "empty" && (
+            <p role="status" className="text-sm text-muted-foreground">
+              {t.empty}
+            </p>
+          )}
+          {state === "failed" && (
+            <p role="alert" className="text-sm text-destructive">
               {t.failed}
             </p>
           )}
-
           <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={running}
-            >
+            <Button type="button" variant="outline" onClick={onClose} disabled={running}>
               {t.cancel}
             </Button>
             <Button type="submit" disabled={running}>

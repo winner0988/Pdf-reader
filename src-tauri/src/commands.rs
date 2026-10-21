@@ -10,12 +10,13 @@ use std::time::Duration;
 
 use ipc_contract::limits::MAX_BATCH_FILES;
 use ipc_contract::types::{
-    AnnotationId, AnnotationSummary, AnnotationSummaryFormat, BatchArgs, BatchEvent, BatchOperation, BatchReport, CompressArgs, CompressResult,
-    CreateResult, DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs, ExportArgs, ExportEvent,
-    ExportFormat, FileRecordingArgs, FontImport, FontInfo, FormField, IpcError, LanguageImport,
-    LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent,
-    OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText, PagesSource, Password,
-    PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
+    AnnotationId, AnnotationSummaryFormat, AnnotationSummaryOutcome, BatchArgs, BatchEvent,
+    BatchOperation, BatchReport, CompressArgs, CompressResult, CreateResult, DocumentId,
+    DocumentInfo, EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs, ExportArgs,
+    ExportEvent, ExportFormat, FileRecordingArgs, FontImport, FontInfo, FormField, IpcError,
+    LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages,
+    OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText, PagesSource,
+    Password, PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
     RememberedPasswords, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult,
     SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignatureReport,
     StampImageInfo, TabId, TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs,
@@ -1004,12 +1005,55 @@ async fn tell_same_file(window: &WebviewWindow) {
         .await;
 }
 
-/// Returns the summary of annotations in document `doc` (Issue #306).
+/// Writes a summary of the annotations of document `doc` (B3-18,
+/// docs/architecture/annotation-summary.md) where the user says in the system's save dialog,
+/// never over the document's own file. The summary lists the text the marks cover, so the
+/// author's permission to copy covers it (MVP-19). The main process makes the file from what the
+/// worker found: no text of the document passes through the page.
 #[tauri::command]
-pub async fn get_annotation_summary(
+pub async fn export_annotation_summary(
     app: AppHandle,
-    doc: DocumentId,
-) -> Result<AnnotationSummary, IpcError> {
+    window: WebviewWindow,
+    args: ExportAnnotationSummaryArgs,
+) -> Result<AnnotationSummaryOutcome, IpcError> {
+    let ExportAnnotationSummaryArgs {
+        doc,
+        format,
+        include_name,
+    } = args;
+    let info = copy_allowed(&app, doc)?;
+    let worker_app = app.clone();
+    let summary = blocking(move || worker_app.state::<Documents>().annotation_summary(doc)).await?;
+    if summary.items.is_empty() && !summary.truncated {
+        return Ok(AnnotationSummaryOutcome::Empty);
+    }
+    let markdown = format == AnnotationSummaryFormat::Markdown;
+    let content = export::annotation_summary_file(
+        &summary,
+        markdown,
+        include_name.then_some(info.display_name.as_str()),
+    );
+    let name = strings::annotation_summary_file_name(&export::stem(&info.display_name), markdown);
+    let destination = loop {
+        let Some(path) =
+            file_dialog::save_annotation_summary_file(&window, name.clone(), markdown).await?
+        else {
+            return Ok(AnnotationSummaryOutcome::Cancelled);
+        };
+        if !app.state::<Documents>().is_document_file(doc, &path) {
+            break path;
+        }
+        tell_same_file(&window).await;
+    };
+    blocking(move || export::write_annotation_summary(&destination, &content)).await?;
+    Ok(AnnotationSummaryOutcome::Written {
+        count: u32::try_from(summary.items.len()).unwrap_or(u32::MAX),
+        truncated: summary.truncated,
+    })
+}
+
+/// The open document `doc`, if its author allows copying its content (MVP-19).
+fn copy_allowed(app: &AppHandle, doc: DocumentId) -> Result<DocumentInfo, IpcError> {
     let info = app
         .state::<Documents>()
         .document_info(doc)
@@ -1023,60 +1067,7 @@ pub async fn get_annotation_summary(
             message: "the document's author does not allow copying its content".to_owned(),
         });
     }
-    app.state::<Documents>().annotation_summary(doc)
-}
-
-/// Exports the annotation summary text to a plain text or Markdown file chosen via native save dialog (Issue #306).
-#[tauri::command]
-pub async fn export_annotation_summary(
-    app: AppHandle,
-    window: WebviewWindow,
-    args: ExportAnnotationSummaryArgs,
-) -> Result<bool, IpcError> {
-    args.validate().map_err(|error| IpcError {
-        code: ErrorCode::InvalidArgument,
-        message: error.to_string(),
-    })?;
-    let documents = app.state::<Documents>();
-    let info = documents.document_info(args.doc).ok_or_else(|| IpcError {
-        code: ErrorCode::UnknownDocument,
-        message: "no such open document".to_owned(),
-    })?;
-    if !info.permissions.copy {
-        return Err(IpcError {
-            code: ErrorCode::InvalidArgument,
-            message: "the document's author does not allow copying its content".to_owned(),
-        });
-    }
-
-    let stem = export::stem(&info.display_name);
-    let is_markdown = matches!(args.format, AnnotationSummaryFormat::Markdown);
-    let ext = if is_markdown { "md" } else { "txt" };
-    let suggested_name = format!("{stem}（註解摘要）.{ext}");
-
-    let destination = loop {
-        let Some(path) =
-            file_dialog::save_annotation_summary_file(&window, suggested_name.clone(), is_markdown)
-                .await?
-        else {
-            return Ok(false);
-        };
-        if !documents.is_document_file(args.doc, &path) && !documents.is_open_file(&path) {
-            break path;
-        }
-        tell_same_file(&window).await;
-    };
-
-    let content = args.content;
-    blocking(move || {
-        export::write_whole(&destination, content.as_bytes()).map_err(|e| IpcError {
-            code: ErrorCode::Internal,
-            message: format!("failed to write annotation summary: {e}"),
-        })
-    })
-    .await?;
-
-    Ok(true)
+    Ok(info)
 }
 
 /// Writes a copy of the document without its metadata (B2-03, docs/architecture/privacy-export.md)

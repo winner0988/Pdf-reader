@@ -1,7 +1,7 @@
 //! User-visible text shown by the main process itself (native dialogs). Keep in sync with the
 //! string table in docs/ux/screen-map.md, section 8; the WebView's text is in src/i18n/.
 
-use ipc_contract::types::{BatchOperation, BatchOutcome, ErrorCode};
+use ipc_contract::types::{AnnotationSummaryKind, BatchOperation, BatchOutcome, ErrorCode};
 
 pub const OPEN_DIALOG_TITLE: &str = "開啟 PDF 檔案";
 
@@ -89,9 +89,29 @@ pub const FONT_FILTER_NAME: &str = "字型檔（.ttf、.ttc）";
 
 /// Export (B2-04): where the text goes, and the folder the page images go to.
 pub const EXPORT_TEXT_DIALOG_TITLE: &str = "匯出純文字";
-/// Export annotation summary (Issue #306).
+/// The annotation summary (B3-18): where it goes, and what it is called at first.
 pub const EXPORT_ANNOTATIONS_DIALOG_TITLE: &str = "匯出註解摘要";
-pub const MARKDOWN_FILTER_NAME: &str = "Markdown 文件";
+pub const MARKDOWN_FILTER_NAME: &str = "Markdown 文件（.md）";
+pub fn annotation_summary_file_name(stem: &str, markdown: bool) -> String {
+    let extension = if markdown { "md" } else { "txt" };
+    format!("{stem}（註解摘要）.{extension}")
+}
+/// What the summary file calls each kind of annotation, as the page lists them.
+pub fn annotation_kind_name(kind: AnnotationSummaryKind) -> &'static str {
+    match kind {
+        AnnotationSummaryKind::Highlight => "螢光筆標示",
+        AnnotationSummaryKind::Note => "附註",
+        AnnotationSummaryKind::TextBox => "文字方塊",
+        AnnotationSummaryKind::Ink => "手繪線條",
+        AnnotationSummaryKind::Stamp => "印章",
+    }
+}
+/// The page an annotation is on, counted from 1.
+pub fn annotation_summary_page(page: u32) -> String {
+    format!("第 {page} 頁")
+}
+/// The end of a summary that stopped before the document's last annotation.
+pub const ANNOTATION_SUMMARY_TRUNCATED: &str = "（註解太多，其餘沒有列出。）";
 /// The Word document (B3-02): where it goes.
 pub const EXPORT_DOCX_DIALOG_TITLE: &str = "匯出 Word 文件";
 pub const DOCX_FILTER_NAME: &str = "Word 文件（.docx）";
@@ -234,7 +254,19 @@ PDF Reader 不會自行下載任何東西。";
 
 #[cfg(test)]
 mod tests {
-    use super::{split_file_name, split_part_name, window_title};
+    use super::{annotation_summary_file_name, split_file_name, split_part_name, window_title};
+
+    #[test]
+    fn an_annotation_summary_is_named_after_the_document_and_its_kind() {
+        assert_eq!(
+            annotation_summary_file_name("報告", true),
+            "報告（註解摘要）.md"
+        );
+        assert_eq!(
+            annotation_summary_file_name("報告", false),
+            "報告（註解摘要）.txt"
+        );
+    }
 
     #[test]
     fn split_files_are_named_by_their_pages_or_by_their_number() {

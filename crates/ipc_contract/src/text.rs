@@ -9,7 +9,7 @@ use crate::types::{BlockedAction, LinkTarget};
 /// Characters that change how surrounding text is displayed without being visible themselves:
 /// bidirectional embeddings, overrides and isolates (U+202E can make "exe.txt" read as "txt.exe"),
 /// directional marks, zero-width characters and the byte order mark.
-pub fn is_invisible_format(c: char) -> bool {
+fn is_invisible_format(c: char) -> bool {
     matches!(
         c,
         '\u{061C}'

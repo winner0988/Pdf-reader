@@ -514,6 +514,11 @@ export function ReaderShell({
   // Exporting needs the worker's pages and the main process (not demo data); the author's
   // permission to copy covers it (MVP-19).
   const exportable = document_?.doc !== undefined && exportApi !== undefined;
+  /** The annotation summary (B3-18), where the app has it. */
+  const summaryApi =
+    document_?.doc !== undefined && exportApi?.exportAnnotationSummary
+      ? { exportAnnotationSummary: exportApi.exportAnnotationSummary }
+      : undefined;
   /** Pages chosen in the thumbnails to be saved as a file of their own (B2-06). */
   const [exportPreset, setExportPreset] = useState<number[] | null>(null);
   const savePages: SavePages | undefined =
@@ -1050,13 +1055,9 @@ export function ReaderShell({
           }
           exportBlocked={exportable && !permissions.copy}
           onExportAnnotations={
-            exportable && permissions.copy
-              ? () => {
-                  setDialog("exportAnnotations");
-                }
-              : undefined
+            summaryApi && permissions.copy ? () => setDialog("exportAnnotations") : undefined
           }
-          exportAnnotationsBlocked={exportable && !permissions.copy}
+          exportAnnotationsBlocked={summaryApi !== undefined && !permissions.copy}
           onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}
           privacyExportBlocked={savable && document_?.encrypted === true}
           onEncryptCopy={savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined}
@@ -1512,13 +1513,11 @@ export function ReaderShell({
           onFinished={showHint}
         />
       )}
-      {exportable && (
+      {dialog === "exportAnnotations" && summaryApi && document_?.doc !== undefined && (
         <AnnotationSummaryDialog
-          open={dialog === "exportAnnotations"}
-          onOpenChange={(open) => setDialog(open ? "exportAnnotations" : null)}
-          doc={document_.doc!}
-          docTitle={document_.displayName}
-          api={exportApi}
+          doc={document_.doc}
+          api={summaryApi}
+          onClose={() => setDialog(null)}
           onFinished={showHint}
         />
       )}

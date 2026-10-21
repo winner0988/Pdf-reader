@@ -12,14 +12,15 @@ use crate::limits::*;
 use crate::ocr::is_language_name;
 use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text, is_note_text};
 use crate::types::{
-    AnnotationSummary, AnnotationSummaryItem, BatchArgs, BatchOperation, CompressArgs, DocumentInfo, Edit, EditArgs, EncryptArgs, ExportAnnotationSummaryArgs, ExportArgs,
-    ExportFormat, FindingKind, FontImport, FontInfo, FormField, IpcError, LinkTarget, OcrLanguages,
-    OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize,
-    PageText, Password, Point, PrepareTextBoxArgs, Quad, RecentFile, Rect, RedactionSummary,
-    RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation, SearchArgs,
-    SearchHit, SecurityReport, SensitiveArgs, SensitiveFile, Settings, SignatureInfo,
-    SignatureReport, SignatureStatus, TextBoxInfo, TextBoxStyle, TextLine, UndoArgs, UnlockArgs,
-    UnlockSourceArgs, Watermark, WatermarkContent,
+    AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind, BatchArgs, BatchOperation,
+    CompressArgs, DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs, ExportFormat, FindingKind,
+    FontImport, FontInfo, FormField, IpcError, LinkTarget, OcrLanguages, OcrProgress, OpenEvent,
+    OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Point,
+    PrepareTextBoxArgs, Quad, RecentFile, Rect, RedactionSummary, RemoveFontArgs,
+    RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation, SearchArgs, SearchHit,
+    SecurityReport, SensitiveArgs, SensitiveFile, Settings, SignatureInfo, SignatureReport,
+    SignatureStatus, TextBoxInfo, TextBoxStyle, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs,
+    Watermark, WatermarkContent,
 };
 use crate::worker::{
     InspectedFont, OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerError, WorkerErrorCode,
@@ -83,6 +84,23 @@ fn check_text(what: &'static str, text: &str, max: u32) -> Result<(), Validation
             what,
             len: text.len(),
             max: max as usize,
+        });
+    }
+    Ok(())
+}
+
+/// Text from a note in the PDF, as `clean_note_text` makes it: lines of display text (or empty
+/// ones).
+fn check_cleaned_note(what: &'static str, text: &str, max: u32) -> Result<(), ValidationError> {
+    check_text(what, text, max)?;
+    if !is_note_text(text)
+        || text
+            .split('\n')
+            .any(|line| !line.is_empty() && !is_clean_display_text(line))
+    {
+        return Err(ValidationError::Invalid {
+            what,
+            reason: "not cleaned",
         });
     }
     Ok(())
@@ -904,17 +922,6 @@ impl Validate for ExportArgs {
     }
 }
 
-impl Validate for ExportAnnotationSummaryArgs {
-    fn validate(&self) -> Result<(), ValidationError> {
-        check_text(
-            "annotation summary export content",
-            &self.content,
-            MAX_ANNOTATION_SUMMARY_TOTAL_BYTES,
-        )?;
-        Ok(())
-    }
-}
-
 impl Validate for AnnotationSummary {
     fn validate(&self) -> Result<(), ValidationError> {
         check_count(
@@ -922,37 +929,46 @@ impl Validate for AnnotationSummary {
             self.items.len(),
             MAX_ANNOTATION_SUMMARY_ITEMS,
         )?;
-        let mut total_bytes = 0usize;
+        let mut bytes = 0usize;
         for item in &self.items {
             item.validate()?;
-            total_bytes = total_bytes.saturating_add(item.text.len());
+            bytes += item.text.len();
         }
-        if total_bytes > MAX_ANNOTATION_SUMMARY_TOTAL_BYTES as usize {
-            return Err(ValidationError::TooLong {
-                what: "annotation summary total text",
-                len: total_bytes,
-                max: MAX_ANNOTATION_SUMMARY_TOTAL_BYTES as usize,
-            });
-        }
-        Ok(())
+        check_count(
+            "annotation summary text bytes",
+            bytes,
+            MAX_ANNOTATION_SUMMARY_TOTAL_BYTES,
+        )
     }
 }
 
 impl Validate for AnnotationSummaryItem {
     fn validate(&self) -> Result<(), ValidationError> {
         if self.page_index >= MAX_PAGE_COUNT {
-            return Err(ValidationError::Invalid {
-                what: "annotation summary page index",
-                reason: "out of range",
+            return Err(ValidationError::OutOfRange {
+                what: "annotation summary page",
             });
         }
         self.rect.validate()?;
-        check_text(
-            "annotation summary item text",
-            &self.text,
-            MAX_ANNOTATION_SUMMARY_TEXT_BYTES,
-        )?;
-        Ok(())
+        let max = MAX_ANNOTATION_SUMMARY_TEXT_BYTES;
+        match self.kind {
+            AnnotationSummaryKind::Highlight => {
+                check_text("highlighted text", &self.text, max)?;
+                check_clean("highlighted text", &self.text)
+            }
+            AnnotationSummaryKind::Note | AnnotationSummaryKind::TextBox => {
+                check_cleaned_note("annotation summary note", &self.text, max)
+            }
+            AnnotationSummaryKind::Ink | AnnotationSummaryKind::Stamp if self.text.is_empty() => {
+                Ok(())
+            }
+            AnnotationSummaryKind::Ink | AnnotationSummaryKind::Stamp => {
+                Err(ValidationError::Invalid {
+                    what: "drawing or stamp in a summary",
+                    reason: "has text",
+                })
+            }
+        }
     }
 }
 
@@ -1460,17 +1476,7 @@ impl Validate for PageAnnotation {
             }
         }
         if let Some(text) = &self.text {
-            check_text("note text", text, MAX_NOTE_TEXT_BYTES)?;
-            if !is_note_text(text)
-                || text
-                    .split('\n')
-                    .any(|line| !line.is_empty() && !is_clean_display_text(line))
-            {
-                return Err(ValidationError::Invalid {
-                    what: "note text",
-                    reason: "not cleaned",
-                });
-            }
+            check_cleaned_note("note text", text, MAX_NOTE_TEXT_BYTES)?;
         }
         Ok(())
     }
@@ -3857,6 +3863,80 @@ mod tests {
     fn page_index_is_checked_against_the_page_count() {
         assert!(check_page_index(0, 1).is_ok());
         assert!(check_page_index(1, 1).is_err());
+    }
+
+    #[test]
+    fn an_annotation_summary_holds_cleaned_text_within_its_limits() {
+        let item = |kind: AnnotationSummaryKind, text: &str| AnnotationSummaryItem {
+            page_index: 0,
+            kind,
+            rect: Rect {
+                x0: 72.0,
+                y0: 72.0,
+                x1: 200.0,
+                y1: 90.0,
+            },
+            text: text.to_owned(),
+        };
+        let summary = |items: Vec<AnnotationSummaryItem>| AnnotationSummary {
+            items,
+            truncated: false,
+        };
+        assert!(
+            summary(vec![
+                item(AnnotationSummaryKind::Highlight, "Privacy-first PDF Reader"),
+                item(AnnotationSummaryKind::Highlight, ""),
+                item(AnnotationSummaryKind::Note, "第一行\nsecond line"),
+                item(AnnotationSummaryKind::TextBox, "A box"),
+                item(AnnotationSummaryKind::Ink, ""),
+                item(AnnotationSummaryKind::Stamp, ""),
+            ])
+            .validate()
+            .is_ok()
+        );
+        for wrong in [
+            // A highlighter mark's text is one line of display text.
+            item(AnnotationSummaryKind::Highlight, "two\nlines"),
+            item(AnnotationSummaryKind::Highlight, "bidi \u{202E}txt.exe"),
+            item(AnnotationSummaryKind::Highlight, " padded"),
+            item(AnnotationSummaryKind::Note, "tab\there"),
+            item(AnnotationSummaryKind::TextBox, "bell\u{7}"),
+            // Drawings and stamps are listed by kind only.
+            item(AnnotationSummaryKind::Ink, "第 1 頁有手繪"),
+            item(AnnotationSummaryKind::Stamp, "Draft"),
+            item(
+                AnnotationSummaryKind::Note,
+                &"x".repeat(MAX_ANNOTATION_SUMMARY_TEXT_BYTES as usize + 1),
+            ),
+            AnnotationSummaryItem {
+                page_index: MAX_PAGE_COUNT,
+                ..item(AnnotationSummaryKind::Ink, "")
+            },
+            AnnotationSummaryItem {
+                rect: Rect {
+                    x0: f32::NAN,
+                    y0: 0.0,
+                    x1: 1.0,
+                    y1: 1.0,
+                },
+                ..item(AnnotationSummaryKind::Ink, "")
+            },
+        ] {
+            assert!(
+                summary(vec![wrong.clone()]).validate().is_err(),
+                "{wrong:?}"
+            );
+        }
+        let too_many =
+            vec![item(AnnotationSummaryKind::Ink, ""); MAX_ANNOTATION_SUMMARY_ITEMS as usize + 1];
+        assert!(summary(too_many).validate().is_err());
+        let line = "x".repeat(MAX_ANNOTATION_SUMMARY_TEXT_BYTES as usize);
+        let count = MAX_ANNOTATION_SUMMARY_TOTAL_BYTES / MAX_ANNOTATION_SUMMARY_TEXT_BYTES;
+        let full = vec![item(AnnotationSummaryKind::Highlight, &line); count as usize];
+        assert!(summary(full.clone()).validate().is_ok());
+        let mut over = full;
+        over.push(item(AnnotationSummaryKind::Highlight, "x"));
+        assert!(summary(over).validate().is_err());
     }
 
     #[test]
