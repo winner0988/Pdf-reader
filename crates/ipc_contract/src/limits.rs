@@ -275,4 +275,3 @@ pub const MAX_PERSONAL_DATA_KEYWORD_BYTES: usize = 1_024;
 
 /// Longest masked preview string sent for one personal data match (Issue #302), in UTF-8 bytes.
 pub const MAX_PERSONAL_DATA_PREVIEW_BYTES: usize = 128;
-

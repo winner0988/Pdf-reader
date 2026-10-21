@@ -1676,12 +1676,10 @@ impl Documents {
             message: e.to_string(),
         })?;
         self.with_document(doc, |document| {
-            let response = request(document, |request, doc| {
-                WorkerRequest::FindPersonalData {
-                    request,
-                    doc,
-                    query: query.clone(),
-                }
+            let response = request(document, |request, doc| WorkerRequest::FindPersonalData {
+                request,
+                doc,
+                query: query.clone(),
             })?;
             let WorkerResponse::PersonalDataMatches { matches, .. } = response else {
                 return Err(unexpected("FindPersonalData"));
@@ -4729,7 +4727,14 @@ mod with_worker {
         // Adding redactions from matches
         for m in &matches.matches {
             for rect in &m.rects {
-                edited_pages(&documents, &mut doc, Edit::AddRedaction { page: m.page, rect: *rect });
+                edited_pages(
+                    &documents,
+                    &mut doc,
+                    Edit::AddRedaction {
+                        page: m.page,
+                        rect: *rect,
+                    },
+                );
             }
         }
         let summary = documents.redaction_summary(doc).unwrap();

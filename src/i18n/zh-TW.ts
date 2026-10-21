@@ -403,7 +403,7 @@ export const strings = {
     findPersonalData: "找出個資…",
     findPersonalDataDialog: {
       title: "找出個資並標記遮蔽",
-      description: "在文件中搜尋符合規則的敏感資料或自訂關鍵字。找到的內容僅在記憶體中比對，完整內容不會傳出後台或寫入記錄。",
+      description: "在文件中找出符合規則的個資或自訂關鍵字。比對只在這台電腦的記憶體中進行；清單只顯示遮住一部分的預覽，完整內容不會寫入任何記錄。",
       categoriesLabel: "搜尋類別",
       categories: {
         taiwanId: "身分證字號／新式居留證",
@@ -412,6 +412,16 @@ export const strings = {
         email: "電子郵件",
         creditCard: "信用卡卡號",
         unifiedBusinessNumber: "統一編號",
+      },
+      /** The short label of each found item's category in the list. */
+      badges: {
+        taiwanId: "身分證／居留證",
+        mobilePhone: "手機",
+        landlinePhone: "市話",
+        email: "電子郵件",
+        creditCard: "信用卡",
+        unifiedBusinessNumber: "統編",
+        keyword: "關鍵字",
       },
       customKeywordLabel: "自訂關鍵字",
       customKeywordPlaceholder: "輸入欲搜尋的關鍵字…",
@@ -427,6 +437,7 @@ export const strings = {
       cancel: "取消",
       close: "關閉",
       failed: "搜尋個資失敗，請稍後再試。",
+      markFailed: "標記遮蔽失敗，部分項目可能沒有標記；請在遮蔽清單確認。",
       markedSuccess: (count: number) => `已將 ${count} 筆項目新增為待遮蔽標記。`,
     },
   },

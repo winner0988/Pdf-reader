@@ -291,7 +291,7 @@
       "path": "benign/personal-data.pdf",
       "category": "benign",
       "purpose": "Synthetic personal data patterns (valid and invalid checksums, multi-line) for Issue #302.",
-      "expected": "Opens; 1 page; personal data patterns detected without error.",
+      "expected": "Opens; 1 page; 11 valid items found (3 IDs, the last wrapped over two lines; 2 mobile; 2 landline; 1 email; 1 card; 2 business numbers); wrong check digits, lengths and the tail of a longer number are not.",
       "pages": 1,
       "findings": [],
       "text": [

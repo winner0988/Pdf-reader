@@ -1010,19 +1010,23 @@ export function ReaderShell({
     }
   };
 
+  // Each edit gives the document a new id, so every mark goes to the document as it is then.
   const addRedactionsFromPersonalData = async (matches: PersonalDataMatch[]) => {
     if (!editingApi || doc === undefined || !redactionAllowed) return;
-    const targetDoc = latestDocument()?.doc ?? doc;
-    for (const match of matches) {
-      for (const rect of match.rects) {
-        await editingApi.applyEdit(targetDoc, {
-          kind: "addRedaction",
-          page: match.page,
-          rect,
-        });
+    try {
+      for (const match of matches) {
+        for (const rect of match.rects) {
+          await editingApi.applyEdit(latestDocument()?.doc ?? doc, {
+            kind: "addRedaction",
+            page: match.page,
+            rect,
+          });
+        }
       }
+      showHint(strings.redaction.findPersonalDataDialog.markedSuccess(matches.length));
+    } catch {
+      showHint(strings.redaction.findPersonalDataDialog.markFailed);
     }
-    showHint(strings.redaction.findPersonalDataDialog.markedSuccess(matches.length));
   };
 
   return (
@@ -1405,14 +1409,17 @@ export function ReaderShell({
         onConfirm={() => void confirmApplyRedactions()}
         onCancel={() => setRedactionConfirmOpen(false)}
       />
-      <FindPersonalDataDialog
-        open={findPersonalDataOpen}
-        onOpenChange={setFindPersonalDataOpen}
-        doc={doc}
-        annotationsApi={annotationsApi}
-        onAddRedactions={addRedactionsFromPersonalData}
-        onJumpToPage={goToPage}
-      />
+      {/* Mounted only while open: results found before an edit could point at moved pages. */}
+      {findPersonalDataOpen && (
+        <FindPersonalDataDialog
+          open
+          onOpenChange={setFindPersonalDataOpen}
+          doc={doc}
+          annotationsApi={annotationsApi}
+          onAddRedactions={addRedactionsFromPersonalData}
+          onJumpToPage={goToPage}
+        />
+      )}
       {annotations.note && (
         <NoteDialog
           initial={annotations.note.kind === "edit" ? (annotations.note.annotation.text ?? "") : null}

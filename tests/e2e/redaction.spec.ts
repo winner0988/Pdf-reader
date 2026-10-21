@@ -178,42 +178,58 @@ test.describe("security redaction (ADR 0016, B2-22)", () => {
     await expect(panel.getByText(strings.redaction.notAllowed)).toBeVisible();
   });
 
-  test("find personal data, mark for redaction, apply, and save", async ({ launch }) => {
+  test("find personal data, mark it, apply, save, and reopen without it (#302)", async ({ launch }) => {
+    const find = strings.redaction.findPersonalDataDialog;
     const file = path.join(folder, "personal-data.pdf");
     copyFileSync(corpus("benign/personal-data.pdf"), file);
     const page = await launch(file);
     await expect(firstPage(page)).toHaveAttribute("data-state", "ready");
     await expect(marks(page)).toHaveCount(0);
 
-    // Open redaction tab in sidebar
     await page.getByRole("tab", { name: strings.redaction.tab }).click();
     const panel = page.getByRole("tabpanel", { name: strings.redaction.tab });
-    await expect(panel).toBeVisible();
+    await panel.getByRole("button", { name: strings.redaction.findPersonalData }).click();
 
-    // Click find personal data button
-    const findBtn = panel.getByRole("button", { name: strings.redaction.findPersonalData });
-    await expect(findBtn).toBeVisible();
-    await findBtn.click();
-
-    // Dialog opens
     const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByText(strings.redaction.findPersonalDataDialog.title)).toBeVisible();
+    await expect(dialog.getByText(find.title)).toBeVisible();
+    await dialog.getByRole("button", { name: find.startSearch }).click();
 
-    // Trigger search
-    const searchBtn = dialog.getByRole("button", { name: strings.redaction.findPersonalDataDialog.startSearch });
-    await searchBtn.click();
+    // Every category but the keyword is on by default. The sample has 11 valid items; the ones
+    // with a wrong check digit or length are left out. Only masked previews are listed.
+    await expect(dialog.getByText(find.matchesFound(11))).toBeVisible();
+    await expect(dialog.getByText("A12****789")).toHaveCount(2);
+    await expect(dialog.getByText("a***e@example.com")).toBeVisible();
+    await expect(dialog.getByText("A123456789")).toHaveCount(0);
 
-    // Results found
-    await expect(dialog.getByText(/找到 \d+ 筆符合項目/)).toBeVisible();
+    // One mark per line of each item: the ID wrapped over two lines takes two.
+    await dialog.getByRole("button", { name: find.markSelected(11) }).click();
+    await expect(dialog).toBeHidden();
+    await expect(marks(page)).toHaveCount(12);
 
-    // Click mark selected
-    const markBtn = dialog.getByRole("button", { name: /標記勾選項目/ });
-    await expect(markBtn).toBeEnabled();
-    await markBtn.click();
+    await panel.getByRole("button", { name: strings.redaction.apply }).click();
+    await expect(dialog.getByText(strings.redaction.dialog.title)).toBeVisible();
+    await dialog.getByRole("button", { name: strings.redaction.dialog.confirm }).click();
+    await expect(dialog).toBeHidden();
+    await expect(marks(page)).toHaveCount(0);
 
-    // Dialog closes and marks are placed on the page
-    await expect(dialog).not.toBeVisible();
-    await expect(marks(page)).not.toHaveCount(0);
+    // Saving checks the redaction (ADR 0016); the reopened file no longer has the found text.
+    await page.keyboard.press("Control+s");
+    await expect(page.getByRole("contentinfo")).toContainText(strings.saving.redactionVerified);
+    await quit(page);
+
+    const reopened = await launch(file);
+    await expect(firstPage(reopened)).toHaveAttribute("data-state", "ready");
+    await reopened.keyboard.press("Control+f");
+    const searchInput = reopened.getByRole("textbox", { name: strings.search.placeholder });
+    const searchStatus = reopened.getByRole("search").getByRole("status");
+    for (const gone of ["0912-345-678", "alice.sample@example.com", "4111-1111-1111-1111"]) {
+      await searchInput.fill(gone);
+      await searchInput.press("Enter");
+      await expect(searchStatus).toHaveText(strings.search.noResults(gone));
+    }
+    // What was not found stays: the card number that fails the Luhn check.
+    await searchInput.fill("4111-1111-1111-1112");
+    await searchInput.press("Enter");
+    await expect(searchStatus).toHaveText(strings.search.count(1, 1));
   });
 });

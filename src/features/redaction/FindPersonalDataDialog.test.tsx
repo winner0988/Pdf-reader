@@ -62,7 +62,15 @@ describe("FindPersonalDataDialog", () => {
     await userEvent.click(searchBtn);
 
     expect(findPersonalData).toHaveBeenCalledWith(42, {
-      categories: ["taiwanId", "mobilePhone", "landlinePhone", "email", "creditCard", "unifiedBusinessNumber"],
+      categories: [
+        "taiwanId",
+        "mobilePhone",
+        "landlinePhone",
+        "email",
+        "creditCard",
+        "unifiedBusinessNumber",
+        "keyword",
+      ],
       keyword: "Confidential",
     });
 

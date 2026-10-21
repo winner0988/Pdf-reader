@@ -8,13 +8,14 @@ use std::path::PathBuf;
 use ipc_contract::frame::encode;
 use ipc_contract::types::{
     AnnotationId, AnnotationKind, BlockedAction, Certification, CreateKind, DocumentId,
-    DocumentPermissions, FieldId, FieldKind, FieldOption, FindingKind, FontRefusal, FormField,
-    HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, LinkTarget,
-    OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
-    PictureView, Point, Quad, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb,
-    Rotation, SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport,
-    SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason,
-    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    DocumentPermissions, FieldId, FieldKind, FieldOption, FindPersonalDataQuery, FindingKind,
+    FontRefusal, FormField, HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth,
+    LinkId, LinkTarget, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText,
+    Password, PersonalDataCategory, PersonalDataMatch, PersonalDataMatches, PictureView, Point,
+    Quad, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation,
+    SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport, SignatureStatus,
+    StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason, Watermark,
+    WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, ModelGlyph, OcrFinished, OcrOutcome, OcrPageState,
@@ -145,6 +146,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 pages: 2,
                 annotations: 1,
                 fields: 1,
+            },
+        },
+        WorkerResponse::PersonalDataMatches {
+            request,
+            matches: PersonalDataMatches {
+                matches: vec![PersonalDataMatch {
+                    category: PersonalDataCategory::TaiwanId,
+                    page: 0,
+                    rects: vec![Rect {
+                        x0: 72.0,
+                        y0: 100.0,
+                        x1: 160.0,
+                        y1: 114.0,
+                    }],
+                    preview: "A12****789".to_owned(),
+                }],
+                has_more: true,
             },
         },
         WorkerResponse::Signatures {
@@ -560,6 +578,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             page_index: 0,
         },
         WorkerRequest::VerifySignatures { request, doc },
+        WorkerRequest::FindPersonalData {
+            request,
+            doc,
+            query: FindPersonalDataQuery {
+                categories: vec![
+                    PersonalDataCategory::TaiwanId,
+                    PersonalDataCategory::CreditCard,
+                    PersonalDataCategory::Keyword,
+                ],
+                keyword: Some("needle 中文".to_owned()),
+            },
+        },
         WorkerRequest::SearchPage {
             request,
             doc,

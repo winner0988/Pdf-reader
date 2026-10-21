@@ -40,24 +40,6 @@ const CATEGORY_ITEMS: { id: PersonalDataCategory; label: string }[] = [
   { id: "unifiedBusinessNumber", label: t.categories.unifiedBusinessNumber },
 ];
 
-function categoryBadgeLabel(category: PersonalDataCategory): string {
-  switch (category) {
-    case "taiwanId":
-      return "身分證／居留證";
-    case "mobilePhone":
-      return "手機";
-    case "landlinePhone":
-      return "市話";
-    case "email":
-      return "Email";
-    case "creditCard":
-      return "信用卡";
-    case "unifiedBusinessNumber":
-      return "統編";
-    case "keyword":
-      return "關鍵字";
-  }
-}
 
 /** Dialog for scanning and finding personal data or custom keywords in memory (Issue #302). */
 export function FindPersonalDataDialog({
@@ -99,12 +81,11 @@ export function FindPersonalDataDialog({
     setSearching(true);
     setError(null);
     try {
-      const categories: PersonalDataCategory[] = [];
-      for (const item of CATEGORY_ITEMS) {
-        if (selectedCats[item.id]) {
-          categories.push(item.id);
-        }
-      }
+      const categories: PersonalDataCategory[] = CATEGORY_ITEMS.filter((item) => selectedCats[item.id]).map(
+        (item) => item.id,
+      );
+      // The worker looks for the keyword only when its category is asked for.
+      if (hasKeyword) categories.push("keyword");
       const query: FindPersonalDataQuery = {
         categories,
         keyword: hasKeyword ? keyword.trim() : null,
@@ -198,7 +179,7 @@ export function FindPersonalDataDialog({
                 <input
                   type="checkbox"
                   checked={keywordEnabled}
-                  onChange={(e) => setKeywordEnabled(e.target.value === "true" || e.target.checked)}
+                  onChange={(e) => setKeywordEnabled(e.target.checked)}
                   disabled={searching || marking}
                   className="rounded border-input text-primary focus:ring-1 focus:ring-primary"
                 />
@@ -308,7 +289,7 @@ export function FindPersonalDataDialog({
                             className="rounded border-input text-primary focus:ring-1 focus:ring-primary"
                           />
                           <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                            {categoryBadgeLabel(match.category)}
+                            {t.badges[match.category]}
                           </span>
                           <span className="font-mono text-xs bg-muted/60 px-1.5 py-0.5 rounded text-foreground truncate select-all">
                             {match.preview}

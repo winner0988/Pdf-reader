@@ -17,10 +17,20 @@
 //! middle characters masked (e.g. `A12****789`). Marking a match for redaction produces
 //! standard `Edit::AddRedaction` edits carrying bounding rectangles only.
 
-use ipc_contract::limits::{MAX_PERSONAL_DATA_MATCHES, MIN_ANNOTATION_SIDE_PT};
+use ipc_contract::limits::{
+    MAX_PERSONAL_DATA_MATCHES, MAX_PERSONAL_DATA_PREVIEW_BYTES, MAX_QUADS_PER_HIT,
+    MIN_ANNOTATION_SIDE_PT,
+};
 use ipc_contract::types::{
     FindPersonalDataQuery, PersonalDataCategory, PersonalDataMatch, PersonalDataMatches, Quad, Rect,
 };
+
+/// Longest address `match_email` accepts (RFC 5321 path limit).
+const MAX_EMAIL_CHARS: usize = 254;
+
+/// Longest email domain shown unmasked in a preview; longer domains are masked so a
+/// preview always fits `MAX_PERSONAL_DATA_PREVIEW_BYTES`.
+const MAX_PREVIEW_DOMAIN_CHARS: usize = 64;
 
 /// Character with its page geometry and line index.
 #[derive(Clone, Copy, Debug)]
@@ -61,6 +71,7 @@ pub fn normalize_char(c: char) -> char {
 /// The second character (first digit) must be:
 /// - `1` (male citizen) or `2` (female citizen)
 /// - `8` (male foreigner, new ARC) or `9` (female foreigner, new ARC)
+///
 /// Check digit calculation uses the standard weighted checksum mod 10.
 pub fn is_valid_taiwan_id(s: &str) -> bool {
     let bytes = s.as_bytes();
@@ -69,10 +80,32 @@ pub fn is_valid_taiwan_id(s: &str) -> bool {
     }
     let first = bytes[0] as char;
     let letter_val: u32 = match first {
-        'A' => 10, 'B' => 11, 'C' => 12, 'D' => 13, 'E' => 14, 'F' => 15, 'G' => 16,
-        'H' => 17, 'I' => 34, 'J' => 18, 'K' => 19, 'L' => 20, 'M' => 21, 'N' => 22,
-        'O' => 35, 'P' => 23, 'Q' => 24, 'R' => 25, 'S' => 26, 'T' => 27, 'U' => 28,
-        'V' => 29, 'W' => 32, 'X' => 30, 'Y' => 31, 'Z' => 33,
+        'A' => 10,
+        'B' => 11,
+        'C' => 12,
+        'D' => 13,
+        'E' => 14,
+        'F' => 15,
+        'G' => 16,
+        'H' => 17,
+        'I' => 34,
+        'J' => 18,
+        'K' => 19,
+        'L' => 20,
+        'M' => 21,
+        'N' => 22,
+        'O' => 35,
+        'P' => 23,
+        'Q' => 24,
+        'R' => 25,
+        'S' => 26,
+        'T' => 27,
+        'U' => 28,
+        'V' => 29,
+        'W' => 32,
+        'X' => 30,
+        'Y' => 31,
+        'Z' => 33,
         _ => return false,
     };
     let d1 = bytes[1];
@@ -81,7 +114,7 @@ pub fn is_valid_taiwan_id(s: &str) -> bool {
     }
     let x1 = letter_val / 10;
     let x2 = letter_val % 10;
-    let mut sum = x1 * 1 + x2 * 9;
+    let mut sum = x1 + x2 * 9;
     for (i, &b) in bytes[1..9].iter().enumerate() {
         if !b.is_ascii_digit() {
             return false;
@@ -95,7 +128,7 @@ pub fn is_valid_taiwan_id(s: &str) -> bool {
     }
     let d9 = (bytes[9] - b'0') as u32;
     sum += d9;
-    sum % 10 == 0
+    sum.is_multiple_of(10)
 }
 
 /// Checks whether `digits` passes the Luhn (mod 10) algorithm for credit card numbers.
@@ -120,7 +153,7 @@ pub fn is_valid_luhn(digits: &str) -> bool {
         }
         double = !double;
     }
-    sum % 10 == 0
+    sum.is_multiple_of(10)
 }
 
 /// Checks whether `s` is an 8-digit Taiwan Unified Business Number (UBN) under the old rule
@@ -161,13 +194,11 @@ fn validate_ubn(s: &str, divisor: u32) -> bool {
     let d7 = (bytes[6] - b'0') as u32;
     if d7 == 7 {
         // 7 * 4 = 28 -> 2 + 8 = 10 -> either 1 or 0
-        let s1 = other_sum + 1;
-        let s2 = other_sum + 0;
-        (s1 % divisor == 0) || (s2 % divisor == 0)
+        (other_sum + 1).is_multiple_of(divisor) || other_sum.is_multiple_of(divisor)
     } else {
         let p7 = d7 * 4;
         let s7 = (p7 / 10) + (p7 % 10);
-        (other_sum + s7) % divisor == 0
+        (other_sum + s7).is_multiple_of(divisor)
     }
 }
 
@@ -193,26 +224,20 @@ pub fn is_valid_landline(raw_text: &str, digits: &str) -> bool {
     if !has_delim {
         return false;
     }
+    // Whole lengths with the area code: Taipei (02) and Nantou (049) have 8- and 7-digit local
+    // numbers, Taichung and Changhua (04) both 8 and 7, and every other area 9 in all.
     let d_len = digits.len();
-    if digits.starts_with("0826") || digits.starts_with("0836") {
-        return d_len >= 8 && d_len <= 10;
+    if digits.starts_with("02") || digits.starts_with("049") {
+        return d_len == 10;
     }
-    if digits.starts_with("037")
-        || digits.starts_with("049")
-        || digits.starts_with("082")
-        || digits.starts_with("089")
-    {
+    if digits.starts_with("04") {
         return d_len == 9 || d_len == 10;
     }
-    if digits.starts_with("02")
-        || digits.starts_with("03")
-        || digits.starts_with("04")
-        || digits.starts_with("05")
-        || digits.starts_with("06")
-        || digits.starts_with("07")
-        || digits.starts_with("08")
+    if ["03", "05", "06", "07", "08"]
+        .iter()
+        .any(|code| digits.starts_with(code))
     {
-        return d_len == 9 || d_len == 10;
+        return d_len == 9;
     }
     false
 }
@@ -250,7 +275,9 @@ pub fn is_valid_email(s: &str) -> bool {
             }
         }
         // TLD (last label) must be at least 2 ASCII letters
-        if i == domain_labels.len() - 1 && (label.len() < 2 || !label.chars().all(|c| c.is_ascii_alphabetic())) {
+        if i == domain_labels.len() - 1
+            && (label.len() < 2 || !label.chars().all(|c| c.is_ascii_alphabetic()))
+        {
             return false;
         }
     }
@@ -266,6 +293,17 @@ pub fn mask_preview(category: PersonalDataCategory, original: &str) -> String {
         .map(normalize_char)
         .filter(|c| !c.is_whitespace())
         .collect();
+    let preview = mask_by_category(category, &s);
+    // The host rejects a whole response whose preview is too long, so fall back to the
+    // short generic mask rather than ever sending one.
+    if preview.len() > MAX_PERSONAL_DATA_PREVIEW_BYTES {
+        mask_generic(&s)
+    } else {
+        preview
+    }
+}
+
+fn mask_by_category(category: PersonalDataCategory, s: &str) -> String {
     match category {
         PersonalDataCategory::TaiwanId => {
             let chars: Vec<char> = s.chars().collect();
@@ -274,7 +312,7 @@ pub fn mask_preview(category: PersonalDataCategory, original: &str) -> String {
                 let last3: String = chars[7..].iter().collect();
                 format!("{first3}****{last3}")
             } else {
-                mask_generic(&s)
+                mask_generic(s)
             }
         }
         PersonalDataCategory::MobilePhone => {
@@ -284,7 +322,7 @@ pub fn mask_preview(category: PersonalDataCategory, original: &str) -> String {
                 let last2 = &digits[8..];
                 format!("{first4}****{last2}")
             } else {
-                mask_generic(&s)
+                mask_generic(s)
             }
         }
         PersonalDataCategory::LandlinePhone => {
@@ -305,7 +343,7 @@ pub fn mask_preview(category: PersonalDataCategory, original: &str) -> String {
                 let last2 = &digits[digits.len() - 2..];
                 format!("({prefix})****{last2}")
             } else {
-                mask_generic(&s)
+                mask_generic(s)
             }
         }
         PersonalDataCategory::CreditCard => {
@@ -315,7 +353,7 @@ pub fn mask_preview(category: PersonalDataCategory, original: &str) -> String {
                 let last4 = &digits[digits.len() - 4..];
                 format!("{first4} **** **** {last4}")
             } else {
-                mask_generic(&s)
+                mask_generic(s)
             }
         }
         PersonalDataCategory::UnifiedBusinessNumber => {
@@ -325,7 +363,7 @@ pub fn mask_preview(category: PersonalDataCategory, original: &str) -> String {
                 let last2 = &digits[6..];
                 format!("{first2}****{last2}")
             } else {
-                mask_generic(&s)
+                mask_generic(s)
             }
         }
         PersonalDataCategory::Email => {
@@ -337,12 +375,17 @@ pub fn mask_preview(category: PersonalDataCategory, original: &str) -> String {
                     let last = &local[local.len() - 1..];
                     format!("{first}***{last}")
                 };
-                format!("{masked_local}@{domain}")
+                let shown_domain = if domain.len() <= MAX_PREVIEW_DOMAIN_CHARS {
+                    domain.to_string()
+                } else {
+                    mask_generic(domain)
+                };
+                format!("{masked_local}@{shown_domain}")
             } else {
-                mask_generic(&s)
+                mask_generic(s)
             }
         }
-        PersonalDataCategory::Keyword => mask_generic(&s),
+        PersonalDataCategory::Keyword => mask_generic(s),
     }
 }
 
@@ -412,8 +455,39 @@ fn rects_of_chars(slice: &[PageChar]) -> Vec<Rect> {
         }
     }
     flush_line(&line_quads, &mut rects);
-    rects
+    cap_rects(rects)
 }
+
+/// Keeps a match within `MAX_QUADS_PER_HIT` rectangles (a keyword can wrap over many
+/// short lines) by joining neighbouring line rectangles. Joined rectangles cover at
+/// least the same area, so nothing in the match is left out of the redaction.
+fn cap_rects(rects: Vec<Rect>) -> Vec<Rect> {
+    let max = MAX_QUADS_PER_HIT as usize;
+    if rects.len() <= max {
+        return rects;
+    }
+    let group = rects.len().div_ceil(max);
+    rects
+        .chunks(group)
+        .map(|chunk| Rect {
+            x0: chunk.iter().map(|r| r.x0).fold(f32::INFINITY, f32::min),
+            y0: chunk.iter().map(|r| r.y0).fold(f32::INFINITY, f32::min),
+            x1: chunk.iter().map(|r| r.x1).fold(f32::NEG_INFINITY, f32::max),
+            y1: chunk.iter().map(|r| r.y1).fold(f32::NEG_INFINITY, f32::max),
+        })
+        .collect()
+}
+
+/// The order categories are tried in at each position: the first that matches wins.
+const SCAN_ORDER: [PersonalDataCategory; 7] = [
+    PersonalDataCategory::TaiwanId,
+    PersonalDataCategory::MobilePhone,
+    PersonalDataCategory::LandlinePhone,
+    PersonalDataCategory::CreditCard,
+    PersonalDataCategory::UnifiedBusinessNumber,
+    PersonalDataCategory::Email,
+    PersonalDataCategory::Keyword,
+];
 
 /// Scans a single page's characters for the requested personal data categories.
 pub fn scan_page(
@@ -428,159 +502,92 @@ pub fn scan_page(
         if matches.len() >= max_matches {
             return true;
         }
-
-        // Try Taiwan ID / New ARC
-        if query.categories.contains(&PersonalDataCategory::TaiwanId)
-            && chars[i].norm.is_ascii_alphabetic()
-            && (i == 0 || !chars[i - 1].norm.is_ascii_alphanumeric())
-        {
-            if let Some(end) = match_taiwan_id(chars, i) {
+        let found = SCAN_ORDER
+            .into_iter()
+            .filter(|category| query.categories.contains(category))
+            .find_map(|category| {
+                let end = match_category(category, chars, i, query)?;
                 let rects = rects_of_chars(&chars[i..end]);
-                if !rects.is_empty() {
-                    let orig_str: String = chars[i..end].iter().map(|c| c.orig).collect();
-                    matches.push(PersonalDataMatch {
-                        category: PersonalDataCategory::TaiwanId,
-                        page: page_idx,
-                        rects,
-                        preview: mask_preview(PersonalDataCategory::TaiwanId, &orig_str),
-                    });
-                    i = end;
-                    continue;
-                }
-            }
+                (!rects.is_empty()).then_some((category, end, rects))
+            });
+        if let Some((category, end, rects)) = found {
+            let orig_str: String = chars[i..end].iter().map(|c| c.orig).collect();
+            matches.push(PersonalDataMatch {
+                category,
+                page: page_idx,
+                rects,
+                preview: mask_preview(category, &orig_str),
+            });
+            i = end;
+        } else {
+            i += 1;
         }
-
-        // Try Mobile Phone
-        if query.categories.contains(&PersonalDataCategory::MobilePhone)
-            && chars[i].norm == '0'
-            && i + 1 < chars.len()
-            && chars[i + 1].norm == '9'
-            && (i == 0 || (!chars[i - 1].norm.is_ascii_digit() && chars[i - 1].norm != '+'))
-        {
-            if let Some(end) = match_mobile(chars, i) {
-                let rects = rects_of_chars(&chars[i..end]);
-                if !rects.is_empty() {
-                    let orig_str: String = chars[i..end].iter().map(|c| c.orig).collect();
-                    matches.push(PersonalDataMatch {
-                        category: PersonalDataCategory::MobilePhone,
-                        page: page_idx,
-                        rects,
-                        preview: mask_preview(PersonalDataCategory::MobilePhone, &orig_str),
-                    });
-                    i = end;
-                    continue;
-                }
-            }
-        }
-
-        // Try Landline Phone
-        if query.categories.contains(&PersonalDataCategory::LandlinePhone)
-            && (chars[i].norm == '(' || chars[i].norm == '0')
-            && (i == 0 || (!chars[i - 1].norm.is_ascii_digit() && chars[i - 1].norm != '+'))
-        {
-            if let Some(end) = match_landline(chars, i) {
-                let rects = rects_of_chars(&chars[i..end]);
-                if !rects.is_empty() {
-                    let orig_str: String = chars[i..end].iter().map(|c| c.orig).collect();
-                    matches.push(PersonalDataMatch {
-                        category: PersonalDataCategory::LandlinePhone,
-                        page: page_idx,
-                        rects,
-                        preview: mask_preview(PersonalDataCategory::LandlinePhone, &orig_str),
-                    });
-                    i = end;
-                    continue;
-                }
-            }
-        }
-
-        // Try Credit Card (13..=19 digits)
-        if query.categories.contains(&PersonalDataCategory::CreditCard)
-            && chars[i].norm.is_ascii_digit()
-            && (i == 0 || !chars[i - 1].norm.is_ascii_digit())
-        {
-            if let Some(end) = match_credit_card(chars, i) {
-                let rects = rects_of_chars(&chars[i..end]);
-                if !rects.is_empty() {
-                    let orig_str: String = chars[i..end].iter().map(|c| c.orig).collect();
-                    matches.push(PersonalDataMatch {
-                        category: PersonalDataCategory::CreditCard,
-                        page: page_idx,
-                        rects,
-                        preview: mask_preview(PersonalDataCategory::CreditCard, &orig_str),
-                    });
-                    i = end;
-                    continue;
-                }
-            }
-        }
-
-        // Try Unified Business Number (8 digits)
-        if query.categories.contains(&PersonalDataCategory::UnifiedBusinessNumber)
-            && chars[i].norm.is_ascii_digit()
-            && (i == 0 || !chars[i - 1].norm.is_ascii_alphanumeric())
-        {
-            if let Some(end) = match_ubn(chars, i) {
-                let rects = rects_of_chars(&chars[i..end]);
-                if !rects.is_empty() {
-                    let orig_str: String = chars[i..end].iter().map(|c| c.orig).collect();
-                    matches.push(PersonalDataMatch {
-                        category: PersonalDataCategory::UnifiedBusinessNumber,
-                        page: page_idx,
-                        rects,
-                        preview: mask_preview(PersonalDataCategory::UnifiedBusinessNumber, &orig_str),
-                    });
-                    i = end;
-                    continue;
-                }
-            }
-        }
-
-        // Try Email
-        if query.categories.contains(&PersonalDataCategory::Email)
-            && (chars[i].norm.is_ascii_alphanumeric() || chars[i].norm == '_' || chars[i].norm == '+')
-            && (i == 0 || !is_email_char(chars[i - 1].norm))
-        {
-            if let Some(end) = match_email(chars, i) {
-                let rects = rects_of_chars(&chars[i..end]);
-                if !rects.is_empty() {
-                    let orig_str: String = chars[i..end].iter().map(|c| c.orig).collect();
-                    matches.push(PersonalDataMatch {
-                        category: PersonalDataCategory::Email,
-                        page: page_idx,
-                        rects,
-                        preview: mask_preview(PersonalDataCategory::Email, &orig_str),
-                    });
-                    i = end;
-                    continue;
-                }
-            }
-        }
-
-        // Try User Keyword
-        if query.categories.contains(&PersonalDataCategory::Keyword)
-            && let Some(ref kw) = query.keyword
-            && !kw.trim().is_empty()
-        {
-            if let Some(end) = match_keyword(chars, i, kw) {
-                let rects = rects_of_chars(&chars[i..end]);
-                if !rects.is_empty() {
-                    let orig_str: String = chars[i..end].iter().map(|c| c.orig).collect();
-                    matches.push(PersonalDataMatch {
-                        category: PersonalDataCategory::Keyword,
-                        page: page_idx,
-                        rects,
-                        preview: mask_preview(PersonalDataCategory::Keyword, &orig_str),
-                    });
-                    i = end;
-                    continue;
-                }
-            }
-        }
-
-        i += 1;
     }
     matches.len() >= max_matches
+}
+
+/// Where a match of `category` starting at `i` ends, if one does: each category may only start
+/// where a word or number does.
+fn match_category(
+    category: PersonalDataCategory,
+    chars: &[PageChar],
+    i: usize,
+    query: &FindPersonalDataQuery,
+) -> Option<usize> {
+    let c = chars[i].norm;
+    let before = i.checked_sub(1).map(|j| chars[j].norm);
+    let after_digit_or_plus = before.is_some_and(|b| b.is_ascii_digit() || b == '+');
+    match category {
+        PersonalDataCategory::TaiwanId => {
+            let starts =
+                c.is_ascii_alphabetic() && !before.is_some_and(|b| b.is_ascii_alphanumeric());
+            if starts {
+                match_taiwan_id(chars, i)
+            } else {
+                None
+            }
+        }
+        PersonalDataCategory::MobilePhone => {
+            let starts = c == '0'
+                && chars.get(i + 1).is_some_and(|next| next.norm == '9')
+                && !after_digit_or_plus
+                && !number_goes_on_before(chars, i);
+            if starts { match_mobile(chars, i) } else { None }
+        }
+        PersonalDataCategory::LandlinePhone => {
+            let starts =
+                (c == '(' || c == '0') && !after_digit_or_plus && !number_goes_on_before(chars, i);
+            if starts {
+                match_landline(chars, i)
+            } else {
+                None
+            }
+        }
+        PersonalDataCategory::CreditCard => {
+            let starts = c.is_ascii_digit() && !number_goes_on_before(chars, i);
+            if starts {
+                match_credit_card(chars, i)
+            } else {
+                None
+            }
+        }
+        PersonalDataCategory::UnifiedBusinessNumber => {
+            let starts = c.is_ascii_digit()
+                && !before.is_some_and(|b| b.is_ascii_alphanumeric())
+                && !number_goes_on_before(chars, i);
+            if starts { match_ubn(chars, i) } else { None }
+        }
+        PersonalDataCategory::Email => {
+            let starts = (c.is_ascii_alphanumeric() || c == '_' || c == '+')
+                && !before.is_some_and(is_email_char);
+            if starts { match_email(chars, i) } else { None }
+        }
+        PersonalDataCategory::Keyword => query
+            .keyword
+            .as_deref()
+            .filter(|keyword| !keyword.trim().is_empty())
+            .and_then(|keyword| match_keyword(chars, i, keyword)),
+    }
 }
 
 impl super::PdfDocument {
@@ -607,16 +614,7 @@ impl super::PdfDocument {
 
             for block in text_page.blocks() {
                 for line in block.lines() {
-                    if let Some(last) = page_chars.last() {
-                        if last.norm != ' ' && last.norm != '\n' {
-                            page_chars.push(PageChar {
-                                orig: '\n',
-                                norm: '\n',
-                                quad: None,
-                                line_idx: current_line_idx,
-                            });
-                        }
-                    }
+                    push_line_break(&mut page_chars, current_line_idx);
                     current_line_idx += 1;
                     for ch in line.chars() {
                         if let Some(c) = ch.char() {
@@ -637,16 +635,7 @@ impl super::PdfDocument {
                 && let Some(recognised) = self.ocr_text(page_idx)
             {
                 for line in &recognised.lines {
-                    if let Some(last) = page_chars.last() {
-                        if last.norm != ' ' && last.norm != '\n' {
-                            page_chars.push(PageChar {
-                                orig: '\n',
-                                norm: '\n',
-                                quad: None,
-                                line_idx: current_line_idx,
-                            });
-                        }
-                    }
+                    push_line_break(&mut page_chars, current_line_idx);
                     current_line_idx += 1;
                     for (c, quad) in super::ocr::char_quads(line) {
                         page_chars.push(PageChar {
@@ -661,16 +650,7 @@ impl super::PdfDocument {
 
             // Include text boxes
             for line in self.text_box_lines(page_idx) {
-                if let Some(last) = page_chars.last() {
-                    if last.norm != ' ' && last.norm != '\n' {
-                        page_chars.push(PageChar {
-                            orig: '\n',
-                            norm: '\n',
-                            quad: None,
-                            line_idx: current_line_idx,
-                        });
-                    }
-                }
+                push_line_break(&mut page_chars, current_line_idx);
                 current_line_idx += 1;
                 for (c, quad) in line {
                     page_chars.push(PageChar {
@@ -695,6 +675,22 @@ impl super::PdfDocument {
         }
 
         Ok(PersonalDataMatches { matches, has_more })
+    }
+}
+
+/// Ends a line of `chars` so that matches can go on over it but words on two lines do not run
+/// together; nothing to do when the line already ended in a space.
+fn push_line_break(chars: &mut Vec<PageChar>, line_idx: u32) {
+    if chars
+        .last()
+        .is_some_and(|last| last.norm != ' ' && last.norm != '\n')
+    {
+        chars.push(PageChar {
+            orig: '\n',
+            norm: '\n',
+            quad: None,
+            line_idx,
+        });
     }
 }
 
@@ -746,7 +742,7 @@ fn match_mobile(chars: &[PageChar], start: usize) -> Option<usize> {
         }
     }
     if digits.len() == 10 && is_valid_mobile(&digits) {
-        if j < chars.len() && chars[j].norm.is_ascii_digit() {
+        if number_continues_at(chars, j) {
             return None;
         }
         return Some(j);
@@ -772,7 +768,7 @@ fn match_landline(chars: &[PageChar], start: usize) -> Option<usize> {
         }
     }
     if is_valid_landline(&raw, &digits) {
-        if j < chars.len() && chars[j].norm.is_ascii_digit() {
+        if number_continues_at(chars, j) {
             return None;
         }
         return Some(j);
@@ -795,7 +791,7 @@ fn match_credit_card(chars: &[PageChar], start: usize) -> Option<usize> {
         }
     }
     if digits.len() >= 13 && is_valid_luhn(&digits) {
-        if j < chars.len() && chars[j].norm.is_ascii_digit() {
+        if number_continues_at(chars, j) {
             return None;
         }
         return Some(j);
@@ -803,31 +799,60 @@ fn match_credit_card(chars: &[PageChar], start: usize) -> Option<usize> {
     None
 }
 
+/// A Unified Business Number is written as eight digits in a row.
 fn match_ubn(chars: &[PageChar], start: usize) -> Option<usize> {
-    let mut digits = String::with_capacity(8);
-    let mut j = start;
-    while j < chars.len() && digits.len() < 8 {
-        let c = chars[j].norm;
-        if c.is_ascii_digit() {
-            digits.push(c);
-            j += 1;
-        } else if c == ' ' || c == '-' || c == '\n' {
-            j += 1;
-        } else {
-            break;
-        }
+    let end = start + 8;
+    if end > chars.len() || !chars[start..end].iter().all(|c| c.norm.is_ascii_digit()) {
+        return None;
     }
-    if digits.len() == 8 && is_valid_ubn(&digits) {
-        if j < chars.len() && chars[j].norm.is_ascii_alphanumeric() {
-            return None;
-        }
-        return Some(j);
+    let digits: String = chars[start..end].iter().map(|c| c.norm).collect();
+    if !is_valid_ubn(&digits) {
+        return None;
     }
-    None
+    if end < chars.len() && chars[end].norm.is_ascii_alphanumeric() {
+        return None;
+    }
+    if number_continues_at(chars, end) {
+        return None;
+    }
+    Some(end)
+}
+
+/// Whether a longer number joined by `-`, `.` or `/` goes on at `at` (`1111-1112`): a match must
+/// not start or end in the middle of one.
+fn number_continues_at(chars: &[PageChar], at: usize) -> bool {
+    match chars.get(at).map(|c| c.norm) {
+        Some(c) if c.is_ascii_digit() => true,
+        Some(c) if is_number_joiner(c) => {
+            chars.get(at + 1).is_some_and(|n| n.norm.is_ascii_digit())
+        }
+        _ => false,
+    }
+}
+
+/// Whether the number starting at `start` is the tail of a longer one (see `number_continues_at`).
+fn number_goes_on_before(chars: &[PageChar], start: usize) -> bool {
+    match start.checked_sub(1).map(|i| chars[i].norm) {
+        Some(c) if c.is_ascii_digit() => true,
+        Some(c) if is_number_joiner(c) => start
+            .checked_sub(2)
+            .is_some_and(|i| chars[i].norm.is_ascii_digit()),
+        _ => false,
+    }
+}
+
+fn is_number_joiner(c: char) -> bool {
+    c == '-' || c == '.' || c == '/'
 }
 
 fn is_email_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '%' || c == '+' || c == '-' || c == '@'
+    c.is_ascii_alphanumeric()
+        || c == '.'
+        || c == '_'
+        || c == '%'
+        || c == '+'
+        || c == '-'
+        || c == '@'
 }
 
 fn match_email(chars: &[PageChar], start: usize) -> Option<usize> {
@@ -836,6 +861,9 @@ fn match_email(chars: &[PageChar], start: usize) -> Option<usize> {
     while j < chars.len() {
         let c = chars[j].norm;
         if is_email_char(c) {
+            if candidate.len() == MAX_EMAIL_CHARS {
+                return None;
+            }
             candidate.push(c);
             j += 1;
         } else {
@@ -854,7 +882,11 @@ fn match_email(chars: &[PageChar], start: usize) -> Option<usize> {
 }
 
 fn match_keyword(chars: &[PageChar], start: usize, keyword: &str) -> Option<usize> {
-    let kw_norm: Vec<char> = keyword.chars().map(normalize_char).map(|c| c.to_ascii_lowercase()).collect();
+    let kw_norm: Vec<char> = keyword
+        .chars()
+        .map(normalize_char)
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
     if kw_norm.is_empty() {
         return None;
     }
@@ -872,11 +904,7 @@ fn match_keyword(chars: &[PageChar], start: usize, keyword: &str) -> Option<usiz
             return None;
         }
     }
-    if k == kw_norm.len() {
-        Some(j)
-    } else {
-        None
-    }
+    if k == kw_norm.len() { Some(j) } else { None }
 }
 
 #[cfg(test)]
@@ -965,6 +993,14 @@ mod tests {
         assert!(is_valid_landline("(02) 2345-6789", "0223456789"));
         assert!(is_valid_landline("04-2345-6789", "0423456789"));
         assert!(is_valid_landline("037-123456", "037123456"));
+        assert!(is_valid_landline("04-723-4567", "047234567"));
+        assert!(is_valid_landline("049-223-4567", "0492234567"));
+        assert!(is_valid_landline("07-123-4567", "071234567"));
+        // Too long for the area: 08, 03, 05, 06 and 07 numbers have 9 digits in all.
+        assert!(!is_valid_landline("0812-345-678", "0812345678"));
+        assert!(!is_valid_landline("07-1234-5678", "0712345678"));
+        // Too short for Taipei.
+        assert!(!is_valid_landline("02-234-5678", "022345678"));
         // Without delimiter: not valid landline to avoid false positives
         assert!(!is_valid_landline("0223456789", "0223456789"));
         // Starting with 09: not landline
@@ -1025,15 +1061,72 @@ mod tests {
         );
     }
 
+    #[test]
+    fn long_email_domains_are_masked_and_overlong_addresses_are_skipped() {
+        let label = "a".repeat(60);
+        let domain = format!("{label}.{label}.{label}.example.com");
+        let address = format!("someone@{domain}");
+        assert!(address.len() <= MAX_EMAIL_CHARS);
+        let preview = mask_preview(PersonalDataCategory::Email, &address);
+        assert!(
+            preview.len() <= MAX_PERSONAL_DATA_PREVIEW_BYTES,
+            "{preview}"
+        );
+        assert!(!preview.contains(&label), "{preview}");
+
+        let chars: Vec<PageChar> = address
+            .chars()
+            .enumerate()
+            .map(|(i, c)| dummy_char(c, 0, i as f32 * 5.0))
+            .collect();
+        assert_eq!(match_email(&chars, 0), Some(chars.len()));
+
+        let overlong = format!("someone@{}.example.com", "b".repeat(MAX_EMAIL_CHARS));
+        let chars: Vec<PageChar> = overlong
+            .chars()
+            .enumerate()
+            .map(|(i, c)| dummy_char(c, 0, i as f32 * 5.0))
+            .collect();
+        assert_eq!(match_email(&chars, 0), None);
+    }
+
+    #[test]
+    fn matches_over_many_lines_stay_within_the_rect_limit() {
+        let rects: Vec<Rect> = (0..200)
+            .map(|i| Rect {
+                x0: 10.0,
+                y0: i as f32 * 12.0,
+                x1: 20.0,
+                y1: i as f32 * 12.0 + 10.0,
+            })
+            .collect();
+        let capped = cap_rects(rects);
+        assert!(capped.len() <= MAX_QUADS_PER_HIT as usize);
+        assert_eq!(capped.first().map(|r| r.y0), Some(0.0));
+        assert_eq!(capped.last().map(|r| r.y1), Some(199.0 * 12.0 + 10.0));
+    }
+
     fn dummy_char(orig: char, line: u32, x: f32) -> PageChar {
         PageChar {
             orig,
             norm: normalize_char(orig),
             quad: Some(Quad {
-                ul: Point { x, y: line as f32 * 20.0 },
-                ur: Point { x: x + 10.0, y: line as f32 * 20.0 },
-                ll: Point { x, y: line as f32 * 20.0 + 10.0 },
-                lr: Point { x: x + 10.0, y: line as f32 * 20.0 + 10.0 },
+                ul: Point {
+                    x,
+                    y: line as f32 * 20.0,
+                },
+                ur: Point {
+                    x: x + 10.0,
+                    y: line as f32 * 20.0,
+                },
+                ll: Point {
+                    x,
+                    y: line as f32 * 20.0 + 10.0,
+                },
+                lr: Point {
+                    x: x + 10.0,
+                    y: line as f32 * 20.0 + 10.0,
+                },
             }),
             line_idx: line,
         }
@@ -1091,6 +1184,27 @@ mod tests {
         let mut matches = Vec::new();
         scan_page(0, &chars, &query, &mut matches, 100);
         assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn numbers_inside_longer_joined_numbers_are_not_matched() {
+        // The tail of a card number that fails Luhn is not a business number, and a business
+        // number is eight digits in a row, not split by a dash.
+        let mut chars = Vec::new();
+        for (i, c) in "4111-1111-1111-1112 1045-8575".chars().enumerate() {
+            chars.push(dummy_char(c, 0, i as f32 * 10.0));
+        }
+        let query = FindPersonalDataQuery {
+            categories: vec![
+                PersonalDataCategory::CreditCard,
+                PersonalDataCategory::UnifiedBusinessNumber,
+                PersonalDataCategory::LandlinePhone,
+            ],
+            keyword: None,
+        };
+        let mut matches = Vec::new();
+        scan_page(0, &chars, &query, &mut matches, 100);
+        assert!(matches.is_empty(), "{matches:?}");
     }
 
     #[test]

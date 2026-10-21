@@ -13,13 +13,13 @@ use ipc_contract::types::{
     AnnotationId, BatchArgs, BatchEvent, BatchOperation, BatchReport, CompressArgs, CompressResult,
     CreateResult, DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent,
     ExportFormat, FileRecordingArgs, FindPersonalDataQuery, FontImport, FontInfo, FormField,
-    IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages,
-    OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText, PagesSource,
-    Password, PersonalDataMatches, PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId,
-    RedactionSummary, RememberedPasswords, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
-    RequestId, SaveResult, SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId,
-    Settings, SignatureReport, StampImageInfo, TabId, TextBoxInfo, UndoArgs, UnlockArgs,
-    UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
+    IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs,
+    OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText,
+    PagesSource, Password, PersonalDataMatches, PrepareTextBoxArgs, PreparedTextBox, RecentFile,
+    RecentId, RedactionSummary, RememberedPasswords, RemoveFontArgs, RemoveLanguageArgs,
+    RenderPageArgs, RequestId, SaveResult, SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile,
+    SensitiveId, Settings, SignatureReport, StampImageInfo, TabId, TextBoxInfo, UndoArgs,
+    UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use tauri::ipc::{Channel, Response};

@@ -1803,7 +1803,8 @@ SAMPLES = [
            text=["Public line one", f"{REDACTION_SECRET} inside", "Public line two"]),
     Sample("benign/personal-data.pdf", benign_personal_data,
            "Synthetic personal data patterns (valid and invalid checksums, multi-line) for Issue #302.",
-           "Opens; 1 page; personal data patterns detected without error.", 1,
+           "Opens; 1 page; 11 valid items found (3 IDs, the last wrapped over two lines; 2 mobile; 2 landline; "
+           "1 email; 1 card; 2 business numbers); wrong check digits, lengths and the tail of a longer number are not.", 1,
            text=["Personal Data Redaction Test Document", "A123456789", "0912-345-678"]),
     # malicious
     Sample("malicious/js-document-level.pdf", malicious_js_document, "Document-level JavaScript in the names tree.",
