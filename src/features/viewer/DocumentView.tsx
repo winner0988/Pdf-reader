@@ -624,6 +624,7 @@ function PageSlot({ index, box, left, doc, renderer, scale, paused, rotation, re
 
   return (
     <div
+      id={`page-${index + 1}`}
       role="img"
       aria-label={strings.canvas.page(index + 1)}
       data-state={state.kind}

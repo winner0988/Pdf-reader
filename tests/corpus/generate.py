@@ -30,6 +30,7 @@ LARGE_OUTPUT = ROOT / "large" / "output"
 LETTER = (612, 792)
 A4 = (595, 842)
 A3_LANDSCAPE = (1191, 842)
+A0 = (2384, 3370)
 
 
 # --------------------------------------------------------------------------- PDF writer
@@ -1458,6 +1459,38 @@ def outline_100k(path: Path) -> None:
     path.write_bytes(doc.build())
 
 
+def large_a0_poster(path: Path) -> None:
+    """An A0 poster (2384 x 3370 pt, 841 x 1189 mm) for testing large-format rendering (T5)."""
+    doc = Document("large-a0-poster")
+    doc.reserve_pages(1)
+    lines = [
+        (144, 3100, 72, "A0 Research Poster"),
+        (144, 2980, 36, "High-Resolution Rendering and Viewing Targets"),
+        (144, 2860, 24, "Author: Privacy-First PDF Reader Engineering Team"),
+        (144, 2740, 18, "Section 1: Architecture and Virtualization"),
+        (144, 2680, 14, "This document tests the performance of rendering very large physical pages at high zoom levels."),
+        (144, 2640, 14, "At 200% zoom, an A0 page spans thousands of display pixels, requiring bounded memory and responsive scaling."),
+        (144, 2520, 18, "Section 2: Measurement Targets (T1 - T7)"),
+        (144, 2460, 14, "T1: Open to first page <= 1.0 s."),
+        (144, 2420, 14, "T2: Normal scrolling blank time = 0 ms."),
+        (144, 2380, 14, "T3: Fast scroll stop to ready <= 500 ms."),
+        (144, 2340, 14, "T4: Zoom bitmap immediate <= 1 frame; crisp new raster <= 400 ms."),
+        (144, 2300, 14, "T5: Large A0 page rendered <= 1.5 s, memory < 1 GB."),
+        (144, 2260, 14, "T6: Fast scroll 10 s memory < 1 GB."),
+        (144, 2220, 14, "T7: Idle 10 s CPU < 1%."),
+        (144, 2100, 18, "Section 3: Search Verification"),
+        (144, 2040, 14, "Search target: poster-needle-a0-2026 for verifying text extraction and indexing."),
+    ]
+    extra = (
+        b"q 0.85 0.90 0.95 rg 72 72 2240 3226 re f Q\n"
+        b"q 0.20 0.40 0.70 rg 120 2900 2144 350 re f Q\n"
+        b"q 0.95 0.95 0.95 rg 144 2000 2096 850 re f Q\n"
+        b"q 0.95 0.95 0.95 rg 144 1000 2096 900 re f Q\n"
+    )
+    doc.set_page(0, Page(size=A0, lines=lines, extra_content=extra))
+    path.write_bytes(doc.build())
+
+
 # --------------------------------------------------------------------------- corpus
 
 
@@ -1943,6 +1976,9 @@ ON_DEMAND = [
      "Opens; fast text search benchmarking with memory caching; 'needle-0500' finds one hit on page 500.", 1000),
     ("large/output/outline-100k-items.pdf", outline_100k,
      "100,000 outline items (MVP-09).", "Outline truncated at the limit and flagged; no hang.", 1),
+    ("large/output/large-a0-poster.pdf", large_a0_poster,
+     "A0 poster page (2384 x 3370 pt, 841 x 1189 mm) for testing large-format rendering (T5).",
+     "Opens; renders under fit_scale without memory exceeding limits.", 1),
 ]
 
 

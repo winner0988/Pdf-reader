@@ -1,21 +1,77 @@
-// Development-only measurement for MVP-07 (docs/architecture/rendering.md#端對端量測). Never
-// shipped. It drives a release build that the developer started by hand with WebView2 remote
-// debugging on a local port, and talks only to that port on 127.0.0.1 (Chrome DevTools
-// Protocol). It opens nothing on the network.
+// Development-only measurement for MVP-07 and issue #240 (docs/architecture/rendering.md#端對端量測).
+// Never shipped. It drives a release build that the developer started by hand with WebView2 remote
+// debugging on a local port, and talks only to that port on 127.0.0.1 (Chrome DevTools Protocol).
+// It opens nothing on the network.
 //
+// Usage:
 //   python tests/corpus/generate.py --large
+//   $env:CARGO_TARGET_DIR="C:/Users/UserB/AppData/Local/Temp/target-240"
 //   cargo build --release -p pdf_worker && pnpm tauri build --no-bundle
-//   WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9240 //     target/release/pdf-reader.exe tests/corpus/large/output/large-1000-pages.pdf
-//   node scripts/perf/viewer-perf.mjs 9240 <folder for screenshots>
+//   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9240"
+//   $env:CARGO_TARGET_DIR/release/pdf-reader.exe tests/corpus/large/output/large-1000-pages.pdf
+//   node scripts/perf/viewer-perf.mjs 9240 <folder for screenshots> <appExe> <a0Pdf>
 //
-// Measures: open to first page (warm, and with the worker killed first), how long pages are on
-// screen while still blank during normal scrolling, main process + worker memory during 10 s of
-// very fast scrolling, the last page and back, and recovery after killing the worker.
+// Measures targets T1 - T7:
+//   T1: Open to first page (large-1000-pages.pdf) <= 1.0 s
+//   T2: Normal scrolling blank time = 0 ms
+//   T3: Fast scroll stop to all visible pages rendered <= 500 ms
+//   T4: Zoom (100% -> 200%): old bitmap <= 1 frame; new crisp raster <= 400 ms
+//   T5: Large page (A0 poster, 200% zoom): render <= 1.5 s; main + worker memory < 1 GB
+//   T6: Fast scroll 10s memory < 1 GB
+//   T7: Document idle 10s CPU < 1%
 import { spawn, execFileSync } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 
-const [port = "9240", outDir = "."] = process.argv.slice(2);
+const [
+  port = "9240",
+  outDir = ".",
+  appExe = "target/release/pdf-reader.exe",
+  a0Path = "tests/corpus/large/output/large-a0-poster.pdf",
+] = process.argv.slice(2);
+
 fs.mkdirSync(outDir, { recursive: true });
+
+function killOurWorker() {
+  try {
+    execFileSync("powershell.exe", ["-NoProfile", "-Command", `
+      $conn = Get-NetTCPConnection -LocalPort ${port} -ErrorAction SilentlyContinue | Select-Object -First 1
+      if ($conn) {
+        $wvPid = $conn.OwningProcess
+        $wv = Get-CimInstance Win32_Process -Filter "ProcessId = $wvPid" -ErrorAction SilentlyContinue
+        $readerPid = if ($wv) { $wv.ParentProcessId } else { $null }
+        if ($readerPid) {
+          $workers = Get-CimInstance Win32_Process -Filter "Name = 'pdf_worker.exe'" | Where-Object { $_.ParentProcessId -eq $readerPid }
+          foreach ($w in $workers) {
+            Stop-Process -Id $w.ProcessId -Force -ErrorAction SilentlyContinue
+          }
+        }
+      }
+    `], { stdio: "ignore" });
+  } catch {}
+}
+
+function sampleOurMemoryMB() {
+  try {
+    const out = execFileSync("powershell.exe", ["-NoProfile", "-Command", `
+      $conn = Get-NetTCPConnection -LocalPort ${port} -ErrorAction SilentlyContinue | Select-Object -First 1
+      $readerPid = if ($conn) { (Get-CimInstance Win32_Process -Filter "ProcessId = $($conn.OwningProcess)").ParentProcessId } else { $null }
+      $procs = @()
+      if ($readerPid) {
+        $procs += Get-Process -Id $readerPid -ErrorAction SilentlyContinue
+        $workers = Get-CimInstance Win32_Process -Filter "Name = 'pdf_worker.exe'" | Where-Object { $_.ParentProcessId -eq $readerPid }
+        foreach ($w in $workers) { $procs += Get-Process -Id $w.ProcessId -ErrorAction SilentlyContinue }
+      }
+      if (-not $procs) { $procs = Get-Process pdf-reader, pdf_worker -ErrorAction SilentlyContinue }
+      $m = ($procs | Measure-Object PrivateMemorySize64 -Sum).Sum
+      [math]::Round($m / 1MB)
+    `], { encoding: "utf8" });
+    return parseInt(out.trim(), 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
 let page;
 for (let i = 0; i < 120 && !page; i++) {
   try {
@@ -24,6 +80,11 @@ for (let i = 0; i < 120 && !page; i++) {
   } catch {}
   if (!page) await new Promise((r) => setTimeout(r, 500));
 }
+if (!page) {
+  console.error(`Could not connect to WebView2 on port ${port}`);
+  process.exit(1);
+}
+
 const ws = new WebSocket(page.webSocketDebuggerUrl);
 await new Promise((r) => (ws.onopen = r));
 let id = 0;
@@ -70,7 +131,7 @@ await evaluate(`(() => {
     for (const e of entries) if (e.isIntersecting && !perf.visibleAt.has(e.target)) perf.visibleAt.set(e.target, performance.now());
   }, { root: document.querySelector('main') });
   const note = (el) => {
-    if (!(el instanceof HTMLElement) || el.getAttribute('role') !== 'img' || !el.id.startsWith('page-')) return;
+    if (!(el instanceof HTMLElement) || el.getAttribute('role') !== 'img' || !el.id?.startsWith('page-')) return;
     if (el.dataset.state === 'loading' && !perf.mounted.has(el)) { perf.mounted.set(el, performance.now()); io.observe(el); }
     if (el.dataset.state === 'ready' && perf.mounted.has(el)) {
       const now = performance.now();
@@ -93,36 +154,49 @@ await evaluate(`(() => {
 
 const results = {};
 
-// 1. Open -> first page, warm worker and cold worker (killed first).
-async function timeOpen() {
-  return evaluate(`(async () => {
-    const before = document.querySelector('footer').innerText;
-    const t0 = performance.now();
-    await window.__TAURI_INTERNALS__.invoke('retry_open');
-    // Wait until the reopened document's first page has been drawn.
-    while (true) {
-      await new Promise((r) => requestAnimationFrame(r));
+// 1. T1: Open -> first page, warm worker and cold worker.
+async function timeOpenTab() {
+  const activeBefore = await evaluate(`document.querySelector('button[role="tab"][id^="tab-"][aria-selected="true"]')?.id ?? ''`);
+  const t0 = performance.now();
+  execFileSync(appExe, [path.resolve("tests/corpus/large/output/large-1000-pages.pdf")], { stdio: "ignore" });
+  while (true) {
+    await sleep(20);
+    const ready = await evaluate(`(() => {
+      const active = document.querySelector('button[role="tab"][id^="tab-"][aria-selected="true"]')?.id;
+      if (!active || active === "${activeBefore}") return false;
       const p = document.getElementById('page-1');
-      if (p && p.dataset.state === 'ready' && performance.now() - t0 > 5) {
-        const canvas = p.querySelector('canvas');
-        if (canvas.width > 1) return Math.round(performance.now() - t0);
+      if (p && p.dataset.state === 'ready') {
+        const c = p.querySelector('canvas');
+        return Boolean(c && c.width > 1);
       }
-      if (performance.now() - t0 > 20000) return -1;
+      return false;
+    })()`);
+    if (ready) return Math.round(performance.now() - t0);
+    if (performance.now() - t0 > 20000) return -1;
+  }
+}
+
+async function closeActiveTab() {
+  await evaluate(`(async () => {
+    const active = document.querySelector('button[role="tab"][id^="tab-"][aria-selected="true"]');
+    if (active) {
+      const tabId = Number(active.id.replace('tab-', ''));
+      await window.__TAURI_INTERNALS__.invoke('close_tab', { tab: tabId });
     }
   })()`);
+  await sleep(500);
 }
-// Scroll far away first so page 1 is not mounted (and thus not "ready" from before).
-await evaluate(`window.__scroller.scrollTop = window.__scroller.scrollHeight / 2`);
-await sleep(300);
-results.openWarmMs = await timeOpen();
-await evaluate(`window.__scroller.scrollTop = window.__scroller.scrollHeight / 2`);
-await sleep(300);
-try { execFileSync("taskkill", ["/IM", "pdf_worker.exe", "/F"], { stdio: "ignore" }); } catch {}
-await sleep(300);
-results.openColdMs = await timeOpen();
+
+results.openWarmMs = await timeOpenTab();
+await closeActiveTab();
+
+killOurWorker();
+await sleep(500);
+results.openColdMs = await timeOpenTab();
+await closeActiveTab();
 await shot("07b-first-page");
 
-// 2. Normal-speed scrolling: 200 px every 100 ms (about 2 pages a second) for 10 s.
+// 2. T2: Normal-speed scrolling: 200 px every 100 ms (about 2 pages a second) for 10 s.
 await evaluate(`window.__perf.blank.length = 0; window.__scroller.scrollTop = 0`);
 await sleep(500);
 await evaluate(`window.__perf.blank.length = 0; window.__perf.visibleBlank.length = 0`);
@@ -139,12 +213,107 @@ results.normalScroll = {
   visibleBlankMsP50: pct(visible, 0.5), visibleBlankMsP95: pct(visible, 0.95), visibleBlankMsMax: pct(visible, 1),
 };
 
-// 3. Fast scrolling for 10 s (3000 px every 16 ms) while sampling memory once a second.
+// 3. T3: Fast scroll stop to all visible pages rendered (target <= 500 ms).
+results.fastScrollStopMs = await evaluate(`(async () => {
+  const s = window.__scroller;
+  // Jump to an unrendered section in the middle of the document
+  const target = Math.round(s.scrollHeight * 0.45);
+  for (let step = 1; step <= 5; step++) {
+    s.scrollTop = target - (5 - step) * 2000;
+    await new Promise((r) => setTimeout(r, 16));
+  }
+  s.scrollTop = target;
+  const t0 = performance.now();
+  while (true) {
+    await new Promise((r) => requestAnimationFrame(r));
+    const scrollerRect = s.getBoundingClientRect();
+    const visibleSlots = [...document.querySelectorAll('[id^=page-]')].filter((el) => {
+      const r = el.getBoundingClientRect();
+      return r.bottom > scrollerRect.top && r.top < scrollerRect.bottom;
+    });
+    if (visibleSlots.length > 0 && visibleSlots.every((el) => el.dataset.state === 'ready')) {
+      return Math.round(performance.now() - t0);
+    }
+    if (performance.now() - t0 > 10000) return -1;
+  }
+})()`);
+
+// 4. T4: Zoom 100% -> 200% (target: old bitmap <= 1 frame, new bitmap <= 400 ms).
+results.zoom = await evaluate(`(async () => {
+  const s = window.__scroller;
+  s.scrollTop = 0;
+  const select = document.querySelector('select[aria-label="縮放比例"]') || document.querySelector('header select');
+  if (select && select.value !== "100") {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+    setter.call(select, "100");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  while (!window.__ready(1)) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  await new Promise((r) => setTimeout(r, 400));
+
+  const page1 = document.getElementById('page-1');
+  const canvas = page1.querySelector('canvas');
+  const initialCanvasWidth = canvas.width;
+  const initialClientWidth = canvas.getBoundingClientRect().width;
+
+  let oldBitmapFrames = -1;
+  let frameCount = 0;
+  let newBitmapMs = -1;
+
+  const t0 = performance.now();
+  if (select) {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+    setter.call(select, "200");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  } else {
+    const zoomIn = document.querySelector('button[aria-label="放大"]');
+    if (zoomIn) zoomIn.click();
+  }
+
+  while (performance.now() - t0 < 5000) {
+    await new Promise((r) => requestAnimationFrame(r));
+    frameCount++;
+    const currentClientWidth = canvas.getBoundingClientRect().width;
+    if (oldBitmapFrames === -1 && currentClientWidth > initialClientWidth * 1.5) {
+      oldBitmapFrames = frameCount;
+    }
+    if (canvas.width > initialCanvasWidth * 1.5) {
+      newBitmapMs = Math.round(performance.now() - t0);
+      break;
+    }
+  }
+
+  // Restore to fitWidth
+  if (select) {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+    setter.call(select, "fitWidth");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  return {
+    oldBitmapFrames: oldBitmapFrames === -1 ? 0 : oldBitmapFrames,
+    newBitmapMs,
+  };
+})()`);
+await sleep(300);
+await shot("07b-zoom-200");
+
+// 5. T6: Fast scrolling for 10 s (3000 px every 16 ms) while sampling memory.
 const sampler = spawn("powershell.exe", ["-NoProfile", "-Command", `
+  $conn = Get-NetTCPConnection -LocalPort ${port} -ErrorAction SilentlyContinue | Select-Object -First 1
+  $readerPid = if ($conn) { (Get-CimInstance Win32_Process -Filter "ProcessId = $($conn.OwningProcess)").ParentProcessId } else { $null }
   for ($i = 0; $i -lt 13; $i++) {
-    $m = Get-Process pdf-reader, pdf_worker -ErrorAction SilentlyContinue | Measure-Object PrivateMemorySize64 -Sum
-    $w = Get-Process pdf_worker -ErrorAction SilentlyContinue | Measure-Object PrivateMemorySize64 -Sum
-    "{0} {1}" -f [math]::Round($m.Sum/1MB), [math]::Round($w.Sum/1MB)
+    $procs = @()
+    if ($readerPid) {
+      $procs += Get-Process -Id $readerPid -ErrorAction SilentlyContinue
+      $workers = Get-CimInstance Win32_Process -Filter "Name = 'pdf_worker.exe'" | Where-Object { $_.ParentProcessId -eq $readerPid }
+      foreach ($w in $workers) { $procs += Get-Process -Id $w.ProcessId -ErrorAction SilentlyContinue }
+    }
+    if (-not $procs) { $procs = Get-Process pdf-reader, pdf_worker -ErrorAction SilentlyContinue }
+    $m = ($procs | Measure-Object PrivateMemorySize64 -Sum).Sum
+    $w = ($procs | Where-Object { $_.ProcessName -eq 'pdf_worker' } | Measure-Object PrivateMemorySize64 -Sum).Sum
+    "{0} {1}" -f [math]::Round($m / 1MB), [math]::Round($w / 1MB)
     Start-Sleep -Milliseconds 1000
   }`]);
 let samples = "";
@@ -163,7 +332,7 @@ results.fastScroll = {
   maxMainPlusWorkerMB: Math.max(...mem.map((m) => m[0])),
 };
 
-// 4. Last page, then back to the first.
+// 6. Last page, then back to the first.
 await evaluate(`window.__scroller.scrollTop = window.__scroller.scrollHeight`);
 for (let i = 0; i < 80 && !(await evaluate(`window.__ready(1000)`)); i++) await sleep(100);
 results.lastPageReady = await evaluate(`window.__ready(1000)`);
@@ -174,10 +343,38 @@ for (let i = 0; i < 80 && !(await evaluate(`window.__ready(1)`)); i++) await sle
 results.backToFirstReady = await evaluate(`window.__ready(1)`);
 results.backToFirstStatus = await evaluate(`document.querySelector('footer').innerText`);
 
-// 5. Worker crash: kill it, then scroll to pages that were never rendered.
+// 7. T7: Document idle for 10 s, measure CPU usage (< 1%).
+await sleep(1000);
+results.idle10sCpuPercent = await new Promise((resolve) => {
+  const p = spawn("powershell.exe", ["-NoProfile", "-Command", `
+    $cores = [System.Environment]::ProcessorCount
+    $conn = Get-NetTCPConnection -LocalPort ${port} -ErrorAction SilentlyContinue | Select-Object -First 1
+    $readerPid = if ($conn) { (Get-CimInstance Win32_Process -Filter "ProcessId = $($conn.OwningProcess)").ParentProcessId } else { $null }
+    function Get-TargetProcs {
+      $procs = @()
+      if ($readerPid) {
+        $procs += Get-Process -Id $readerPid -ErrorAction SilentlyContinue
+        $workers = Get-CimInstance Win32_Process -Filter "Name = 'pdf_worker.exe'" | Where-Object { $_.ParentProcessId -eq $readerPid }
+        foreach ($w in $workers) { $procs += Get-Process -Id $w.ProcessId -ErrorAction SilentlyContinue }
+      }
+      if (-not $procs) { $procs = Get-Process pdf-reader, pdf_worker -ErrorAction SilentlyContinue }
+      return $procs
+    }
+    $t1 = ((Get-TargetProcs) | Measure-Object TotalProcessorTime -Sum).Sum.TotalSeconds
+    Start-Sleep -Seconds 10
+    $t2 = ((Get-TargetProcs) | Measure-Object TotalProcessorTime -Sum).Sum.TotalSeconds
+    $pct = [math]::Round((($t2 - $t1) / (10 * $cores)) * 100, 2)
+    "$pct"
+  `]);
+  let out = "";
+  p.stdout.on("data", (d) => (out += d));
+  p.on("close", () => resolve(parseFloat(out.trim()) || 0));
+});
+
+// 8. Worker crash recovery: kill our worker, scroll to pages never rendered.
 await evaluate(`window.__scroller.scrollTop = window.__scroller.scrollHeight * 0.7`);
 await sleep(1500);
-try { execFileSync("taskkill", ["/IM", "pdf_worker.exe", "/F"], { stdio: "ignore" }); } catch {}
+killOurWorker();
 await sleep(300);
 await evaluate(`window.__scroller.scrollTop = window.__scroller.scrollHeight * 0.3`);
 await sleep(2500);
@@ -199,5 +396,59 @@ await evaluate(`window.__scroller.scrollTop += 5000`);
 await sleep(1500);
 results.renderingAfterCrash = await evaluate(`[...document.querySelectorAll('[id^=page-]')].map((s) => s.dataset.state).join(',')`);
 
+// 9. T5: Large A0 Poster (2384 x 3370 pt, 200% zoom).
+if (fs.existsSync(a0Path) && fs.existsSync(appExe)) {
+  try {
+    const activeBefore = await evaluate(`document.querySelector('button[role="tab"][id^="tab-"][aria-selected="true"]')?.id ?? ''`);
+    execFileSync(appExe, [path.resolve(a0Path)], { stdio: "ignore" });
+    for (let i = 0; i < 60; i++) {
+      const activeNow = await evaluate(`document.querySelector('button[role="tab"][id^="tab-"][aria-selected="true"]')?.id ?? ''`);
+      if (activeNow && activeNow !== activeBefore) break;
+      await sleep(250);
+    }
+    await sleep(500);
+
+    results.a0Poster = await evaluate(`(async () => {
+      const select = document.querySelector('select[aria-label="縮放比例"]') || document.querySelector('header select');
+      const t0 = performance.now();
+      if (select && select.value !== "200") {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+        setter.call(select, "200");
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      while (true) {
+        await new Promise((r) => requestAnimationFrame(r));
+        const p = document.getElementById('page-1');
+        if (p && p.dataset.state === 'ready') {
+          return { renderMs: Math.round(performance.now() - t0) };
+        }
+        if (performance.now() - t0 > 15000) return { renderMs: -1 };
+      }
+    })()`);
+    results.a0Poster.memoryMB = sampleOurMemoryMB();
+    await shot("07b-a0-poster");
+  } catch (err) {
+    results.a0PosterError = String(err);
+  }
+}
+
+console.log("\n==================== MEASUREMENT RESULTS ====================");
 console.log(JSON.stringify(results, null, 2));
+
+console.log("\n==================== TARGETS SUMMARY (T1 - T7) ====================");
+console.log(`T1 Open warm / cold:        ${results.openWarmMs} ms / ${results.openColdMs} ms (target <= 1000 ms)`);
+console.log(`T2 Normal scroll blank:     ${results.normalScroll.visibleBlankMsMax} ms (target 0 ms)`);
+console.log(`T3 Fast scroll stop ready:  ${results.fastScrollStopMs} ms (target <= 500 ms)`);
+if (results.zoom) {
+  console.log(`T4 Zoom old bitmap frames:  ${results.zoom.oldBitmapFrames} frame(s) (target <= 1 frame)`);
+  console.log(`T4 Zoom new crisp bitmap:   ${results.zoom.newBitmapMs} ms (target <= 400 ms)`);
+}
+if (results.a0Poster) {
+  console.log(`T5 A0 poster 200% render:   ${results.a0Poster.renderMs} ms (target <= 1500 ms)`);
+  console.log(`T5 A0 poster memory:        ${results.a0Poster.memoryMB} MB (target < 1000 MB)`);
+}
+console.log(`T6 Fast scroll max memory:  ${results.fastScroll.maxMainPlusWorkerMB} MB (target < 1000 MB)`);
+console.log(`T7 Idle 10s CPU usage:      ${results.idle10sCpuPercent}% (target < 1%)`);
+console.log("===================================================================\n");
+
 ws.close();

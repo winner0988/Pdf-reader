@@ -706,6 +706,16 @@
       "findings": [],
       "text": [],
       "onDemand": true
+    },
+    {
+      "path": "large/output/large-a0-poster.pdf",
+      "category": "large",
+      "purpose": "A0 poster page (2384 x 3370 pt, 841 x 1189 mm) for testing large-format rendering (T5).",
+      "expected": "Opens; renders under fit_scale without memory exceeding limits.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "onDemand": true
     }
   ],
   "images": [
