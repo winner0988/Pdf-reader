@@ -431,10 +431,10 @@ if (fs.existsSync(a0Path) && fs.existsSync(appExe)) {
       }
       while (true) {
         await new Promise((r) => requestAnimationFrame(r));
-        if (canvas.width > initialWidth * 1.5) {
-          return { renderMs: Math.round(performance.now() - t0) };
+        if (canvas.width !== initialWidth && page1.dataset.state === 'ready') {
+          return { renderMs: Math.round(performance.now() - t0), width: canvas.width, initialWidth };
         }
-        if (performance.now() - t0 > 15000) return { renderMs: -1 };
+        if (performance.now() - t0 > 15000) return { renderMs: -1, width: canvas.width, initialWidth };
       }
     })()`);
     results.a0Poster.memoryMB = sampleOurMemoryMB();
