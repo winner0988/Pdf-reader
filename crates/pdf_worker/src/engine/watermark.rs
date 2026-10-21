@@ -15,7 +15,7 @@ use ipc_contract::validate::{Validate, stamp_png_size};
 use mupdf::pdf::{PdfObject, PdfWriteOptions};
 use mupdf::{Buffer, Image, Matrix};
 
-use super::text_box::{TextBoxFont, line_form};
+use super::page_overlay::{attach_form_to_page, droid_sans_line_form};
 use super::{EngineError, PdfDocument, write_limited};
 
 /// The name the watermark has in the resources of a page: one no document has.
@@ -25,8 +25,6 @@ const NAME: &str = "PdfReaderWatermark";
 const FIT: f32 = 0.9;
 /// How far from the top or the bottom of the page a watermark there is, in points.
 const MARGIN_PT: f32 = 36.0;
-/// The font of the words.
-const FONT_NAME: &str = "Droid Sans Fallback";
 
 impl PdfDocument {
     /// Writes to `out` a copy of the document, edits included, with `watermark` on its pages
@@ -78,14 +76,7 @@ impl PdfDocument {
     ) -> Result<(PdfObject, f32, f32), EngineError> {
         let (inner, width, height) = match (&watermark.content, picture) {
             (WatermarkContent::Text { text, size, color }, None) => {
-                let font = mupdf_fonts_droid::find_by_name(FONT_NAME, false, false)
-                    .ok_or(EngineError::InvalidEdit("no font for the words"))?;
-                let font = TextBoxFont {
-                    bytes: font.data,
-                    face: 0,
-                    name: FONT_NAME,
-                };
-                line_form(&mut self.doc, &font, text, *size, *color)?
+                droid_sans_line_form(&mut self.doc, text, *size, *color)?
             }
             (WatermarkContent::Picture { width_pt }, Some(png)) => {
                 let (pixels_wide, pixels_high) = stamp_png_size(png)
@@ -172,54 +163,7 @@ impl PdfDocument {
         matrix.concat(Matrix::new_translate(x, y));
         matrix.concat(inverse);
 
-        // The page's resources, its own: a page that takes them from its parent gets a copy.
-        let mut resources = match page.get_dict("Resources")? {
-            Some(resources) => resources,
-            None => {
-                let inherited = match page.get_dict_inheritable("Resources")? {
-                    Some(inherited) => inherited.copy_dict()?,
-                    None => self.doc.new_dict()?,
-                };
-                page.dict_put("Resources", inherited)?;
-                page.get_dict("Resources")?
-                    .ok_or(EngineError::InvalidEdit("the page has no resources"))?
-            }
-        };
-        let mut xobjects = match resources.get_dict("XObject")? {
-            Some(xobjects) => xobjects,
-            None => {
-                resources.dict_put("XObject", self.doc.new_dict()?)?;
-                resources
-                    .get_dict("XObject")?
-                    .ok_or(EngineError::InvalidEdit("the page has no resources"))?
-            }
-        };
-        xobjects.dict_put(NAME, mark.try_clone()?)?;
-
-        let before = self
-            .doc
-            .add_stream(&Buffer::from_bytes(b"q\n")?, None, false)?;
-        let draw = format!(
-            "\nQ\nq {:.5} {:.5} {:.5} {:.5} {:.3} {:.3} cm /{NAME} Do Q\n",
-            matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f,
-        );
-        let after = self
-            .doc
-            .add_stream(&Buffer::from_bytes(draw.as_bytes())?, None, false)?;
-        let mut contents = self.doc.new_array()?;
-        contents.array_push(before)?;
-        match page.get_dict("Contents")? {
-            Some(existing) if existing.is_array()? => {
-                for part in existing.array_iter()? {
-                    contents.array_push(part?)?;
-                }
-            }
-            Some(existing) => contents.array_push(existing)?,
-            None => {}
-        }
-        contents.array_push(after)?;
-        page.dict_put("Contents", contents)?;
-        Ok(())
+        attach_form_to_page(&mut self.doc, &mut page, NAME, mark, &matrix)
     }
 }
 

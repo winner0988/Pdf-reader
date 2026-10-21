@@ -39,6 +39,8 @@ mod docx;
 mod forms;
 mod identifier;
 mod ocr;
+mod page_marks;
+mod page_overlay;
 mod personal_data;
 mod redaction;
 mod sanitize;
