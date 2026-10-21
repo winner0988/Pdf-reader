@@ -108,7 +108,7 @@ async function choose(page: Page) {
 /** Fits the whole page on the screen: its text is at the top, the rest is white, where stamps go. */
 async function fitPage(page: Page): Promise<Box> {
   await page.keyboard.press("Control+0");
-  await expect.poll(async () => (await boxOf(firstPage(page))).height).toBeLessThan(700);
+  await expect.poll(async () => (await firstPage(page).boundingBox())?.height ?? Infinity).toBeLessThan(700);
   return boxOf(firstPage(page));
 }
 

@@ -32,6 +32,12 @@ async function boxOf(locator: Locator): Promise<Box> {
  */
 const placeOf = (locator: Locator) => locator.first().boundingBox();
 
+/** How many pixels inside `locator` (one annotation) are `hue`, or 0 while it is not on screen. */
+async function pixelsIn(page: Page, locator: Locator, hue: "red" | "blue"): Promise<number> {
+  const box = await locator.boundingBox();
+  return box ? pixelsOf(page, box, hue) : 0;
+}
+
 /** How many pixels of the first page as drawn (its canvas) inside `box` of the screen are `hue`. */
 async function pixelsOf(page: Page, box: Box, hue: "red" | "blue"): Promise<number> {
   return firstPage(page)
@@ -80,7 +86,7 @@ test("a line drawn with the pen and a stamp put down are in the saved copy, as s
     // The whole page on the screen. Its text is at the top: the rest is white, where the pen and
     // the stamps go.
     await page.keyboard.press("Control+0");
-    await expect.poll(async () => (await boxOf(firstPage(page))).height).toBeLessThan(700);
+    await expect.poll(async () => (await firstPage(page).boundingBox())?.height ?? Infinity).toBeLessThan(700);
     const sheet = await boxOf(firstPage(page));
     const at = (across: number, down: number): [number, number] => [
       sheet.x + sheet.width * across,
@@ -174,8 +180,8 @@ test("a line drawn with the pen and a stamp put down are in the saved copy, as s
     await expect(firstPage(reopened)).toHaveAttribute("data-state", "ready");
     await expect(inks(reopened)).toHaveCount(1);
     await expect(stamps(reopened)).toHaveCount(1);
-    await expect.poll(async () => pixelsOf(reopened, await boxOf(inks(reopened).first()), "blue")).toBeGreaterThan(50);
-    await expect.poll(async () => pixelsOf(reopened, await boxOf(stamps(reopened).first()), "red")).toBeGreaterThan(100);
+    await expect.poll(() => pixelsIn(reopened, inks(reopened).first(), "blue")).toBeGreaterThan(50);
+    await expect.poll(() => pixelsIn(reopened, stamps(reopened).first(), "red")).toBeGreaterThan(100);
     // Taking the line away with Delete leaves the stamp.
     await inks(reopened).first().focus();
     await reopened.keyboard.press("Delete");
@@ -253,7 +259,7 @@ test("a picture of the user's own is a stamp: the copy has its pixels and nothin
     const page = await launch(file);
     await expect(firstPage(page)).toHaveAttribute("data-state", "ready");
     await page.keyboard.press("Control+0");
-    await expect.poll(async () => (await boxOf(firstPage(page))).height).toBeLessThan(700);
+    await expect.poll(async () => (await firstPage(page).boundingBox())?.height ?? Infinity).toBeLessThan(700);
     const sheet = await boxOf(firstPage(page));
 
     // The last item of the stamp menu asks for the picture in the system's dialog.
@@ -302,7 +308,7 @@ test("a picture of the user's own is a stamp: the copy has its pixels and nothin
     await expect(banner).toContainText(strings.recovery.available);
     await banner.getByRole("button", { name: strings.recovery.restore }).click();
     await expect(stamps(again)).toHaveCount(1);
-    await expect.poll(async () => pixelsOf(again, await boxOf(stamps(again)), "blue")).toBeGreaterThan(100);
+    await expect.poll(() => pixelsIn(again, stamps(again), "blue")).toBeGreaterThan(100);
     // Undone and made again from the picture the journal had.
     await again.keyboard.press("Control+z");
     await expect(stamps(again)).toHaveCount(0);
@@ -323,7 +329,7 @@ test("a picture of the user's own is a stamp: the copy has its pixels and nothin
     const reopened = await launch(copy);
     await expect(firstPage(reopened)).toHaveAttribute("data-state", "ready");
     await expect(stamps(reopened)).toHaveCount(1);
-    await expect.poll(async () => pixelsOf(reopened, await boxOf(stamps(reopened)), "red")).toBeGreaterThan(100);
+    await expect.poll(() => pixelsIn(reopened, stamps(reopened), "red")).toBeGreaterThan(100);
   } finally {
     rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
