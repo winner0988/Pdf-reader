@@ -3790,7 +3790,11 @@ mod tests {
         assert!(add_bm("Chapter 1", 0, 0).validate().is_ok());
         assert!(add_bm("", 0, 0).validate().is_err());
         assert!(add_bm("   ", 0, 0).validate().is_err());
-        assert!(add_bm(&"x".repeat(MAX_TEXT_BYTES as usize + 1), 0, 0).validate().is_err());
+        assert!(
+            add_bm(&"x".repeat(MAX_TEXT_BYTES as usize + 1), 0, 0)
+                .validate()
+                .is_err()
+        );
         assert!(add_bm("bad\u{0}title", 0, 0).validate().is_err());
         assert!(add_bm("ok", MAX_PAGE_COUNT, 0).validate().is_err());
         assert!(add_bm("ok", 0, MAX_OUTLINE_ITEMS + 1).validate().is_err());
@@ -3801,8 +3805,16 @@ mod tests {
         assert!(rename_bm("New Title").validate().is_ok());
         assert!(rename_bm("").validate().is_err());
         assert!(rename_bm(" \t ").validate().is_err());
-        assert!(rename_bm(&"x".repeat(MAX_TEXT_BYTES as usize + 1)).validate().is_err());
-        assert!(Edit::DeleteBookmark { id: BookmarkId(5) }.validate().is_ok());
+        assert!(
+            rename_bm(&"x".repeat(MAX_TEXT_BYTES as usize + 1))
+                .validate()
+                .is_err()
+        );
+        assert!(
+            Edit::DeleteBookmark { id: BookmarkId(5) }
+                .validate()
+                .is_ok()
+        );
         let move_bm = |parent: Option<BookmarkId>, index: u32| Edit::MoveBookmark {
             id: BookmarkId(5),
             parent,

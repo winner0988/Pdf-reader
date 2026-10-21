@@ -583,14 +583,9 @@ pub enum Edit {
         page: u32,
     },
     /// Renames the bookmark `id` to `title` (B3-17).
-    RenameBookmark {
-        id: BookmarkId,
-        title: String,
-    },
+    RenameBookmark { id: BookmarkId, title: String },
     /// Removes the bookmark `id` and all of its descendants (B3-17).
-    DeleteBookmark {
-        id: BookmarkId,
-    },
+    DeleteBookmark { id: BookmarkId },
     /// Moves the bookmark `id` (and its descendants) to be the `index`-th child of `parent`
     /// (`None` for top-level) (B3-17). Moving up/down within the same parent and promoting/demoting
     /// between levels are all expressed through this.

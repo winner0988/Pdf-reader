@@ -50,11 +50,11 @@ pub use create::{Created, PdfBuilder};
 pub use identifier::write_identifier;
 pub use ocr::OcrKnown;
 
+mod outline;
 mod signatures;
 mod stamp_image;
 mod text_box;
 mod watermark;
-mod outline;
 
 pub use signatures::{SignatureField, SignatureFields};
 pub use stamp_image::{StampPicture, prepare_stamp_picture};

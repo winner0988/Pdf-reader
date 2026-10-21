@@ -472,14 +472,9 @@ pub enum WorkerEdit {
         page: u32,
     },
     /// As [`Edit::RenameBookmark`] (B3-17).
-    RenameBookmark {
-        id: BookmarkId,
-        title: String,
-    },
+    RenameBookmark { id: BookmarkId, title: String },
     /// As [`Edit::DeleteBookmark`] (B3-17).
-    DeleteBookmark {
-        id: BookmarkId,
-    },
+    DeleteBookmark { id: BookmarkId },
     /// As [`Edit::MoveBookmark`] (B3-17).
     MoveBookmark {
         id: BookmarkId,
@@ -1590,12 +1585,8 @@ mod tests {
                 },
             ),
             (
-                Edit::DeleteBookmark {
-                    id: BookmarkId(12),
-                },
-                WorkerEdit::DeleteBookmark {
-                    id: BookmarkId(12),
-                },
+                Edit::DeleteBookmark { id: BookmarkId(12) },
+                WorkerEdit::DeleteBookmark { id: BookmarkId(12) },
             ),
             (
                 Edit::MoveBookmark {

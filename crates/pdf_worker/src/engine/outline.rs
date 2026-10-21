@@ -36,7 +36,9 @@ impl PdfDocument {
 
         let current_total = total_items(&self.doc)?;
         if current_total >= MAX_OUTLINE_ITEMS as usize {
-            return Err(EngineError::InvalidEdit("maximum number of bookmarks reached"));
+            return Err(EngineError::InvalidEdit(
+                "maximum number of bookmarks reached",
+            ));
         }
 
         let (mut parent_obj, depth) = match parent {
@@ -153,7 +155,9 @@ impl PdfDocument {
                 }
                 let p = self.doc.new_indirect(parent_id.0 as i32, 0)?;
                 if !p.is_dict()? {
-                    return Err(EngineError::InvalidEdit("destination parent does not exist"));
+                    return Err(EngineError::InvalidEdit(
+                        "destination parent does not exist",
+                    ));
                 }
                 p
             }
@@ -205,10 +209,10 @@ impl PdfDocument {
 /// Ensures the catalog has an `/Outlines` dictionary, creating one if absent.
 fn ensure_outlines_root(doc: &mut MuPdfDocument) -> Result<PdfObject, EngineError> {
     let mut catalog = doc.catalog()?;
-    if let Some(root) = catalog.get_dict("Outlines")? {
-        if root.is_dict()? {
-            return Ok(root);
-        }
+    if let Some(root) = catalog.get_dict("Outlines")?
+        && root.is_dict()?
+    {
+        return Ok(root);
     }
     let mut outlines = doc.new_dict()?;
     outlines.dict_put("Type", PdfObject::new_name("Outlines")?)?;
@@ -253,8 +257,16 @@ fn set_children(parent: &mut PdfObject, children: &mut [PdfObject]) -> Result<()
 
     let len = children.len();
     for i in 0..len {
-        let prev = if i > 0 { Some(children[i - 1].clone()) } else { None };
-        let next = if i + 1 < len { Some(children[i + 1].clone()) } else { None };
+        let prev = if i > 0 {
+            Some(children[i - 1].clone())
+        } else {
+            None
+        };
+        let next = if i + 1 < len {
+            Some(children[i + 1].clone())
+        } else {
+            None
+        };
         let child = &mut children[i];
         child.dict_put("Parent", parent.clone())?;
 
@@ -360,10 +372,10 @@ fn is_descendant_of(
 
 /// Recursively collects all indirect object numbers within `node`'s subtree (including `node`).
 fn collect_subtree_objects(node: &PdfObject, gone: &mut HashSet<i32>) -> Result<(), EngineError> {
-    if let Ok(num) = node.as_indirect() {
-        if !gone.insert(num) {
-            return Ok(());
-        }
+    if let Ok(num) = node.as_indirect()
+        && !gone.insert(num)
+    {
+        return Ok(());
     }
     for child in children_of(node)? {
         collect_subtree_objects(&child, gone)?;
@@ -430,7 +442,7 @@ fn recompute_node_count(node: &mut PdfObject) -> Result<(usize, bool), EngineErr
     let was_closed = node
         .get_dict("Count")?
         .and_then(|c| c.as_int().ok())
-        .map_or(false, |c| c < 0);
+        .is_some_and(|c| c < 0);
 
     let mut total_descendants_if_open = 0;
     for child in &mut children {

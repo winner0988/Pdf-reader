@@ -959,9 +959,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         WorkerRequest::Edit {
             request,
             doc,
-            edit: WorkerEdit::DeleteBookmark {
-                id: BookmarkId(12),
-            },
+            edit: WorkerEdit::DeleteBookmark { id: BookmarkId(12) },
         },
         WorkerRequest::Edit {
             request,

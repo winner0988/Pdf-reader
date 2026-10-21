@@ -44,16 +44,8 @@ fn get_outline(host: &mut WorkerHost, doc: DocumentId) -> OutlineResult {
     }
 }
 
-fn apply_edit(
-    host: &mut WorkerHost,
-    doc: DocumentId,
-    edit: WorkerEdit,
-) -> Result<(), HostError> {
-    let resp = host.request(|request| WorkerRequest::Edit {
-        request,
-        doc,
-        edit,
-    })?;
+fn apply_edit(host: &mut WorkerHost, doc: DocumentId, edit: WorkerEdit) -> Result<(), HostError> {
+    let resp = host.request(|request| WorkerRequest::Edit { request, doc, edit })?;
     match resp {
         WorkerResponse::Edited { .. } => Ok(()),
         other => panic!("expected Edited response, got {other:?}"),
@@ -148,15 +140,17 @@ fn add_child_rename_and_delete_bookmarks() {
     assert_eq!(outline.items[1].title, "1.1 Introduction");
 
     // 4. Renaming to blank is rejected
-    assert!(apply_edit(
-        &mut t.host,
-        t.doc,
-        WorkerEdit::RenameBookmark {
-            id: sec11_id,
-            title: "   ".into(),
-        },
-    )
-    .is_err());
+    assert!(
+        apply_edit(
+            &mut t.host,
+            t.doc,
+            WorkerEdit::RenameBookmark {
+                id: sec11_id,
+                title: "   ".into(),
+            },
+        )
+        .is_err()
+    );
 
     // 5. Delete Section 1.1 (leaf)
     apply_edit(
@@ -264,16 +258,18 @@ fn move_bookmark_reorders_and_prevents_cycles() {
     assert_eq!(outline.items[2].depth, 1);
 
     // Attempting to move A into B (into its own descendant) must fail
-    assert!(apply_edit(
-        &mut t.host,
-        t.doc,
-        WorkerEdit::MoveBookmark {
-            id: a_id,
-            parent: Some(b_id),
-            index: 0,
-        },
-    )
-    .is_err());
+    assert!(
+        apply_edit(
+            &mut t.host,
+            t.doc,
+            WorkerEdit::MoveBookmark {
+                id: a_id,
+                parent: Some(b_id),
+                index: 0,
+            },
+        )
+        .is_err()
+    );
 }
 
 #[test]
