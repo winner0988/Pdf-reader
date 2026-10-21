@@ -258,3 +258,6 @@ pub const MAX_OCR_PAGE_MILLIS: u32 = 5 * 60 * 1000;
 /// Most languages the user can import for recognising text (B2-10), besides those that come with
 /// the app: each is up to `MAX_LANGUAGE_DATA_BYTES` in the app's data folder.
 pub const MAX_IMPORTED_LANGUAGES: u32 = 20;
+
+/// Most items of any category a sanitized copy reports having removed (B3-15).
+pub const MAX_SANITIZED_ITEMS: u32 = 10_000_000;

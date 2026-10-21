@@ -12,7 +12,8 @@ use ipc_contract::types::{
     HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, LinkTarget,
     OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
     PictureView, Point, Quad, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb,
-    Rotation, SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport,
+    Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityFinding, SecurityReport,
+    SignatureInfo, SignatureReport,
     SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason,
     Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
@@ -424,6 +425,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             bytes: 4096,
             pictures: 3,
             cleaned: 2,
+        },
+        WorkerResponse::Sanitized {
+            request,
+            bytes: 4096,
+            report: SanitizeReport {
+                actions: 1,
+                links: 1,
+                attachments: 1,
+                form_scripts: 0,
+                xfa: 0,
+                rich_media: 0,
+                hidden_data: 2,
+                annotations: 1,
+            },
         },
         WorkerResponse::Created {
             request,
@@ -893,6 +908,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             doc,
             file: FileHandle(0x1f8),
+        },
+        WorkerRequest::SanitizedCopy {
+            request,
+            doc,
+            file: FileHandle(0x2b8),
+            id: [0x5b; 16],
+            options: SanitizeOptions::default(),
         },
         WorkerRequest::WatermarkCopy {
             request,

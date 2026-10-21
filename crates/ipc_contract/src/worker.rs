@@ -12,9 +12,10 @@ use crate::types::{
     AnnotationId, CreateKind, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId,
     FontRefusal, FormField, HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth,
     OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Point, Rect,
-    RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SearchHit,
-    SecurityReport, SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo,
-    TextBoxModelId, TextBoxStyle, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions,
+    SanitizeReport, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageId, StampName,
+    TextBoxInfo, TextBoxModelId, TextBoxStyle, Watermark, WatermarkContent, WatermarkPages,
+    WatermarkPlace,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -578,6 +579,17 @@ pub enum WorkerRequest {
         doc: DocumentId,
         file: FileHandle,
     },
+    /// Writes to `file` (as for `Save`) a copy of the document, edits included, sanitized
+    /// according to `options` and with `id` as its identifier (B3-15). The open document
+    /// is not changed. Answered by `Sanitized`, never appended. Refused for an encrypted
+    /// document and for a signed one.
+    SanitizedCopy {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
+        id: [u8; 16],
+        options: SanitizeOptions,
+    },
     /// Writes to `file` (as for `Save`) a copy of the document, edits included, encrypted with
     /// AES-256 (B2-15, docs/architecture/encrypt-copy.md). The open document is not changed.
     /// Answered by `Saved`, never appended. Refused for a signed document (its signatures would
@@ -873,6 +885,12 @@ pub enum WorkerResponse {
         bytes: u64,
         pictures: u32,
         cleaned: u32,
+    },
+    /// `SanitizedCopy` is done: the copy is `bytes` long and `report` details what was removed.
+    Sanitized {
+        request: RequestId,
+        bytes: u64,
+        report: SanitizeReport,
     },
     /// `CreatePdf` is done: the PDF is `bytes` long and has `pages` pages.
     Created {

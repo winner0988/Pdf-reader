@@ -922,6 +922,80 @@ pub struct CompressResult {
     pub partial: bool,
 }
 
+/// What to do with annotations when saving a sanitized copy (B3-15).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SanitizeAnnotations {
+    /// Leaves annotations as they are.
+    #[default]
+    Keep,
+    /// Removes every annotation other than form fields and links.
+    Remove,
+    /// Bakes annotations into the page graphics, without form fields.
+    Flatten,
+}
+
+/// Which items to take out when saving a sanitized copy of a document (B3-15).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SanitizeOptions {
+    pub actions: bool,
+    pub attachments: bool,
+    pub form_scripts: bool,
+    pub xfa: bool,
+    pub rich_media: bool,
+    pub hidden_data: bool,
+    pub keep_web_links: bool,
+    pub annotations: SanitizeAnnotations,
+}
+
+impl Default for SanitizeOptions {
+    fn default() -> Self {
+        Self {
+            actions: true,
+            attachments: true,
+            form_scripts: true,
+            xfa: true,
+            rich_media: true,
+            hidden_data: true,
+            keep_web_links: true,
+            annotations: SanitizeAnnotations::Keep,
+        }
+    }
+}
+
+/// Tally of items removed from a sanitized copy (B3-15).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SanitizeReport {
+    pub actions: u32,
+    pub links: u32,
+    pub attachments: u32,
+    pub form_scripts: u32,
+    pub xfa: u32,
+    pub rich_media: u32,
+    pub hidden_data: u32,
+    pub annotations: u32,
+}
+
+/// Arguments of `sanitize_copy` (B3-15): the open document is sanitized according to `options`
+/// and written to a file the user chooses. Any other field is rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SanitizeArgs {
+    pub doc: DocumentId,
+    pub options: SanitizeOptions,
+}
+
+/// What `sanitize_copy` did (B3-15), for the page to show what was taken out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SanitizeResult {
+    #[ts(type = "number")]
+    pub bytes: u64,
+    pub report: SanitizeReport,
+}
+
 /// What a file is that a PDF is made of (B3-03, docs/architecture/create-pdf.md), which tells
 /// MuPDF how to read it. The main process decides it from the file's extension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
