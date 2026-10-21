@@ -95,11 +95,16 @@ describe("SanitizeDialog (B3-15)", () => {
     for (const kept of t.kept) {
       expect(screen.getByText(kept)).toBeInTheDocument();
     }
+
+    // The sensitive mark is document information: kept when hidden data is not cleared.
+    await userEvent.click(screen.getByRole("checkbox", { name: t.hiddenData }));
+    expect(screen.getByText(t.sensitiveKeptNote)).toBeInTheDocument();
+    expect(screen.queryByText(t.sensitiveNote)).not.toBeInTheDocument();
   });
 
   it("submits configured options to onSanitize", async () => {
     const user = userEvent.setup();
-    const onSanitize = vi.fn((_args) =>
+    const onSanitize = vi.fn<NonNullable<SavingApi["sanitizeCopy"]>>(() =>
       Promise.resolve<SanitizeResult | null>({
         bytes: 500,
         report: { ...emptyReport, actions: 3, links: 1 },
@@ -144,7 +149,7 @@ describe("SanitizeDialog (B3-15)", () => {
 
   it("displays no items removed when report counts are zero", async () => {
     const user = userEvent.setup();
-    const onSanitize = vi.fn((_args) =>
+    const onSanitize = vi.fn<NonNullable<SavingApi["sanitizeCopy"]>>(() =>
       Promise.resolve<SanitizeResult | null>({ bytes: 200, report: emptyReport }),
     );
     render(
@@ -167,7 +172,7 @@ describe("SanitizeDialog (B3-15)", () => {
 
   it("displays error message on failure", async () => {
     const user = userEvent.setup();
-    const onSanitize = vi.fn((_args) => Promise.reject(new Error("failed")));
+    const onSanitize = vi.fn<NonNullable<SavingApi["sanitizeCopy"]>>(() => Promise.reject(new Error("failed")));
     render(
       <SanitizeDialog
         open={true}

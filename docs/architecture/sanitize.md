@@ -1,6 +1,6 @@
 # 分享前淨化（B3-15）
 
-> 機敏標記（B3-05）是文件資訊字典的一項：淨化副本清除該項目，因此淨化後的副本不是機敏文件，原本的檔案不變（ADR 0004，見 [sensitive-files.md](sensitive-files.md)）。
+> 機敏標記（B3-05）是文件資訊字典的一項：勾選「隱藏資料」時淨化副本清除整個資訊字典，因此淨化後的副本不是機敏文件，原本的檔案不變（ADR 0004，見 [sensitive-files.md](sensitive-files.md)）。
 
 工作卡 [#303](https://github.com/winner0988/Pdf-reader/issues/303)；規格「分享前淨化：拿掉主動內容與隱藏資料的副本」。「⋯」→「分享前淨化…」另存一份拿掉主動內容（JavaScript、開啟動作、危險連結、表單腳本、附件、XFA、多媒體）與隱藏資料（中繼資料、縮圖、私有應用程式資料）的副本，避免外流或執行惡意程式碼；**原本的檔案、開著的文件與它未儲存的變更都不受影響**。
 
@@ -22,7 +22,9 @@ sequenceDiagram
     M->>W: SanitizedCopy { doc, 只能寫入的 handle, id, options }
     W->>W: 檢查是否加密或已簽章（拒絕則返回錯誤）
     W->>W: 把文件（含未存的編輯）寫進記憶體，重新開成副本
-    W->>W: 依 options 走訪與清除各類主動內容與隱藏資料
+    W->>W: 第一階段：依 options 清 trailer、catalog、書籤、頁面與註解
+    W->>W: 以 garbage collection 寫進記憶體再開啟（拿掉的東西不再存在）
+    W->>W: 第二階段：走訪剩下的每個物件，清殘留的主動內容與隱藏資料
     W->>W: 以主動內容掃描（MVP-11）檢查副本；若勾選類別仍有殘留則中止不寫檔
     W->>W: 完整重寫（garbage collection）寫入 handle
     W-->>M: Sanitized { bytes, report }
@@ -33,6 +35,8 @@ sequenceDiagram
 ```
 
 - **worker 開著的文件完全不變**：淨化只在副本上做。副本是把目前的文件（包含尚未儲存的編輯）寫進記憶體後重新開啟的另一份文件。
+- **兩個階段**：第一階段處理有固定位置的東西（文件目錄、名稱樹、頁面註解、書籤、表單欄位）；之後副本再以 garbage collection 存進記憶體並重新開啟，第一階段切斷的物件（例如附件的檔案描述、名稱樹裡的腳本）就不存在了；第二階段才走訪剩下的每一個物件。這樣同一個東西不會被算兩次，報告的數字就是使用者文件裡真正拿掉的項目數。
+- **動作串列有上限**：`/Next` 串起的動作最多看 256 個（`MAX_CHAIN_ACTIONS`）；更長的串列或繞回自己的循環一律當成危險整串移除，不會無限遞迴讓 worker 當掉。
 - **寫檔安全**：沿用存檔（B2-02，[saving.md](saving.md)）的做法：worker 只拿到新暫存檔的只寫 handle，主行程檢查 `%PDF-` 與 `%%EOF` 後才取代成目的檔名；失敗時目的檔不會出現半個檔案。
 - **寫出前再檢查（雙重防線）**：在 worker 內部寫檔前，使用主動內容掃描引擎（MVP-11）檢查處理後的副本；勾選的類別若有任何一項掃描非零，整個操作失敗拒絕輸出（不會輸出只淨化一半的檔案）。
 - **不能覆寫原檔**：主行程以系統解析後的路徑比對；對話框選到原檔時彈出提示並要求重選。
@@ -44,11 +48,11 @@ sequenceDiagram
 |---|---|---|
 | **動作與 JavaScript** (`actions`) | • Catalog 的 `/OpenAction`<br>• Catalog、Page、Annot、Field 的 `/AA`（所有 Additional Actions）<br>• `/Names` 字典的 `/JavaScript`<br>• 各物件（連結、書籤、widget 等）類型為 `JavaScript`、`Launch`、`SubmitForm`、`ImportData`、`GoToR`、`GoToE`、`ResetForm`、`Rendition`、`RichMediaExecute` 的動作，包含 `/Next` 串起的後續動作 | 移除動作字典與鍵；串列中的子動作遞迴處理。若連結註解只剩被移除的動作且無 Destination，則刪除整個連結註解。計入 `actions`。 |
 | **網址連結** (`keep_web_links`) | • 連結註解中的 `/S /URI`<br>• 書籤與其他項目的 URI 動作 | 若 `keep_web_links` 為 true，僅保留 `http`、`https`、`mailto`；其餘危險 scheme（`file:`、`smb:`、`javascript:`、UNC 路徑、`ms-` 等）一律移除（原則 5）。若為 false，所有 URI 連結皆移除。移除計入 `links`。 |
-| **內嵌檔案與附件** (`attachments`) | • `/Names` 的 `/EmbeddedFiles`<br>• `/Subtype /FileAttachment` 註解<br>• 任何字典的 `/AF`（關聯檔案陣列）<br>• Catalog 的 `/Collection`<br>• 串流字典的外部參照 `/F` | 移除目錄、參照與附件註解。計入 `attachments`。 |
+| **內嵌檔案與附件** (`attachments`) | • `/Names` 的 `/EmbeddedFiles`<br>• `/Subtype /FileAttachment` 註解<br>• 任何字典的 `/AF`（關聯檔案陣列）<br>• Catalog 的 `/Collection`<br>• 串流字典的外部參照 `/F` | 移除目錄、參照與附件註解。計入 `attachments`：**每個檔案只算一次**（同一個檔案描述常同時出現在附件清單與附件註解）；`/Collection`（PDF 組合的版面）本身不是檔案，不計。 |
 | **表單腳本** (`form_scripts`) | • 表單欄位的 `/AA`<br>• AcroForm 字典的 `/CO`（計算順序陣列） | 移除腳本鍵與計算陣列；**保留欄位的值（`/V`）與外觀（`/AP`）**。計入 `form_scripts`。 |
 | **XFA 動態表單** (`xfa`) | • AcroForm 的 `/XFA`<br>• Catalog 的 `/NeedsRendering` | 移除鍵，使文件回退為標準靜態 PDF 表單。計入 `xfa`。 |
 | **多媒體內容** (`rich_media`) | • `/Subtype` 為 `RichMedia`、`Screen`、`Movie`、`Sound`、`3D` 的註解 | 移除註解字典與頁面 `/Annots` 參照。計入 `rich_media`。 |
-| **隱藏資料** (`hidden_data`) | • Trailer 的 `/Info`<br>• 各物件的 `/Metadata`（XMP）<br>• 各物件的 `/PieceInfo`（私有資料）<br>• 各物件的 `/LastModified`<br>• 頁面的 `/Thumb`（縮圖）<br>• 註解的 `/T`（作者）、`/M`、`/CreationDate`<br>• Trailer 的 `/ID` 替換為全新 16 bytes 亂數 | 與隱私匯出相同的走訪清除邏輯。計入 `hidden_data`。 |
+| **隱藏資料** (`hidden_data`) | • Trailer 的 `/Info`<br>• 各物件的 `/Metadata`（XMP）<br>• 各物件的 `/PieceInfo`（私有資料）<br>• 各物件的 `/LastModified`<br>• 頁面的 `/Thumb`（縮圖）<br>• 註解的 `/T`（作者）、`/M`、`/CreationDate`<br>• Trailer 的 `/ID` 替換為全新 16 bytes 亂數 | 與隱私匯出相同的走訪清除邏輯。計入 `hidden_data`；`/ID` 是替換不是拿掉，不計（沒有任何隱藏資料的文件報告 0）。 |
 | **註解處理** (`annotations`) | • `Keep`：保留所有非多媒體、非附件註解。<br>• `Remove`：移除所有非 Widget、非 Link 的註解（如高亮、筆跡、便利貼、幾何圖形等）。<br>• `Flatten`：呼叫 MuPDF 的 `PdfDocument::bake(true, false)` 將註解平面化為頁面內容，不可再編輯，表單欄位不烤。 | `Remove` 或 `Flatten` 時計入 `annotations`。 |
 
 ## 不拿掉的東西
@@ -63,7 +67,7 @@ sequenceDiagram
 1. **已簽章的文件**：
    - 淨化重寫文件會破壞數位簽章，使簽章驗證失效；
    - 工具列「⋯」選單停用並以捷徑文字提示「已簽章的文件不適用」；
-   - 主行程與 worker 均主動檢查並拒絕已簽章文件（`InvalidArgument`）。
+   - worker 檢查並拒絕（`Signed` 錯誤，主行程原樣傳回）；主行程在建立暫存檔之後才知道，拒絕時暫存檔會刪掉，不留下任何檔案。
 2. **加密的文件**：
    - worker 開檔後不保留密碼，無法重新加密；且未加密副本會使原作者的安全限制失效；
    - 工具列「⋯」選單停用並提示「加密的文件不適用」；
@@ -75,7 +79,9 @@ sequenceDiagram
   - 語料庫 `tests/corpus/malicious/` 的每一份文件，全勾淨化後：
     - 主動內容掃描（`active_content`）結果為 0 findings；
     - 輸出副本可正常被 MuPDF 開啟；
-    - 回報的移除項目數量大於 0。
+    - 掃描原本有發現的，回報的移除項目數量大於 0（只是 https 連結的樣本，例如相似網域，保留網址時可以是 0）。
+  - 每一項只算一次：組合樣本的附件 1、腳本 1；只有內嵌檔案的樣本附件 1；沒有東西可拿的文件報告全部是 0。
+  - 循環的 `/Next`（指回自己、或經由陣列指回自己並接到腳本）整串移除，不會當掉；兩個跳頁串在一起的無害連結保留。
   - 語料庫 `tests/corpus/benign/` 中所有非簽章、非加密文件，淨化後（保留註解）：
     - 每一頁渲染出的 RGBA 點陣圖與原本逐像素完全相同。
   - `Flatten` 模式測試：平面化後無殘留標記註解，表單欄位保留，畫面渲染差異小於 1%（僅有些微抗鋸齒差異）。

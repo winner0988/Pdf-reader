@@ -1013,14 +1013,12 @@ impl PdfDocument {
         if self.is_signed() {
             return Err(EngineError::Signed);
         }
-        let mut write_options = PdfWriteOptions::default();
-        write_options.set_garbage(true);
-        let mut bytes = Vec::new();
-        write_limited(&self.doc, &mut bytes, write_options)?;
-        let copy = Document::from_bytes(&bytes, "application/pdf").map_err(open_error)?;
-        drop(bytes);
-        let mut copy = MuPdfDocument::try_from(copy)?;
-        let report = sanitize::sanitize(&mut copy, id, options)?;
+        let mut copy = collected_copy(&self.doc)?;
+        let mut report = sanitize::remove_structures(&mut copy, id, options)?;
+        // What the first phase cut off is no longer used: saved again with garbage collection it
+        // is gone, so the last pass sees, and counts, only what the copy still has.
+        let copy = collected_copy(&copy)?;
+        sanitize::clean_remaining(&copy, options, &mut report)?;
 
         let check = crate::scan::scan(copy.catalog()?, ScanBudget::default());
         if !check.scan_complete {
@@ -1035,6 +1033,17 @@ impl PdfDocument {
         let written = write_limited(&copy, out, write_options)?;
         Ok((written, report))
     }
+}
+
+/// `doc` saved into memory with garbage collection and opened again: a separate document without
+/// the objects nothing uses.
+fn collected_copy(doc: &MuPdfDocument) -> Result<MuPdfDocument, EngineError> {
+    let mut write_options = PdfWriteOptions::default();
+    write_options.set_garbage(true);
+    let mut bytes = Vec::new();
+    write_limited(doc, &mut bytes, write_options)?;
+    let copy = Document::from_bytes(&bytes, "application/pdf").map_err(open_error)?;
+    Ok(MuPdfDocument::try_from(copy)?)
 }
 
 impl PdfDocument {

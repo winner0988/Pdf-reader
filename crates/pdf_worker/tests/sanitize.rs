@@ -18,7 +18,7 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use ipc_contract::limits::MAX_LINKS_PER_PAGE;
-use ipc_contract::types::{SanitizeAnnotations, SanitizeOptions};
+use ipc_contract::types::{SanitizeAnnotations, SanitizeOptions, SanitizeReport};
 use pdf_worker::engine::{EngineError, PdfDocument};
 use pdf_worker::scan::ScanBudget;
 
@@ -74,6 +74,10 @@ fn every_malicious_sample_scans_zero_and_opens_after_sanitize() {
             continue;
         };
 
+        let had_findings = !document
+            .active_content(ScanBudget::default())
+            .findings
+            .is_empty();
         let mut out = Vec::new();
         let id = [1u8; 16];
         let (bytes_written, report) = document
@@ -106,7 +110,9 @@ fn every_malicious_sample_scans_zero_and_opens_after_sanitize() {
             sec_report.findings
         );
 
-        // Sanity check: at least something was removed for malicious files
+        // What the scan found was removed, and reported. (A sample whose only trick is an
+        // https link, a look-alike domain or right-to-left text, may report nothing: keeping web
+        // links keeps it, and the link dialog shows its whole address when clicked.)
         let total_removed = report.actions
             + report.links
             + report.attachments
@@ -116,8 +122,8 @@ fn every_malicious_sample_scans_zero_and_opens_after_sanitize() {
             + report.hidden_data
             + report.annotations;
         assert!(
-            total_removed > 0,
-            "{}: expected removals in malicious file, got 0",
+            !had_findings || total_removed > 0,
+            "{}: the scan found active content but nothing was reported removed",
             sample.path
         );
 
@@ -233,8 +239,10 @@ fn annotation_flatten_and_remove_modes() {
     // Tolerance: baked annotations match within negligible antialiasing differences (<= 1% pixel diff)
     let diff_count = orig_rendered
         .rgba
-        .as_chunks::<4>().0.iter()
-        .zip(flat_rendered.rgba.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(flat_rendered.rgba.as_chunks::<4>().0)
         .filter(|(p1, p2)| p1 != p2)
         .count();
     let total_pixels = (orig_rendered.width * orig_rendered.height) as usize;
@@ -388,4 +396,67 @@ fn original_document_in_worker_is_unaffected_and_can_be_sanitized_again() {
 
     assert_eq!(written1, written2);
     assert_eq!(rep1, rep2);
+}
+
+fn sanitized(bytes: &[u8]) -> (Vec<u8>, SanitizeReport) {
+    let document = PdfDocument::from_bytes(bytes).unwrap();
+    let mut out = Vec::new();
+    let (_, report) = document
+        .sanitized_copy(&[8; 16], DEFAULT_OPTIONS, &mut out)
+        .unwrap();
+    (out, report)
+}
+
+#[test]
+fn each_removed_item_is_counted_once() {
+    // The composite sample's attachment is named both by the list of embedded files and by an
+    // attachment annotation; the document-level script is an action reachable from the names
+    // tree only.
+    for (path, actions, attachments) in [
+        ("malicious/composite-sanitize.pdf", 1, 1),
+        ("malicious/embedded-file.pdf", 0, 1),
+        ("malicious/js-document-level.pdf", 1, 0),
+        ("malicious/openaction-js.pdf", 1, 0),
+    ] {
+        let (_, report) = sanitized(&std::fs::read(corpus().join(path)).unwrap());
+        assert_eq!(
+            (report.actions, report.attachments),
+            (actions, attachments),
+            "{path}: {report:?}"
+        );
+    }
+
+    // Nothing to take out: nothing reported (the identifier is replaced, not counted).
+    let (_, report) = sanitized(&common::one_page("BT /F1 12 Tf 72 720 Td (Plain) Tj ET"));
+    assert_eq!(report, SanitizeReport::default());
+}
+
+#[test]
+fn looping_action_chains_are_removed_without_hanging() {
+    let bytes = common::build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R 5 0 R 6 0 R] >>"
+            .into(),
+        // Its action goes on to itself.
+        "<< /Type /Annot /Subtype /Link /Rect [72 700 200 720] /A 7 0 R >>".into(),
+        // Its action goes on to itself and to a script.
+        "<< /Type /Annot /Subtype /Link /Rect [72 650 200 670] /A 8 0 R >>".into(),
+        // Two jumps in a row: harmless, kept.
+        "<< /Type /Annot /Subtype /Link /Rect [72 600 200 620] /A 10 0 R >>".into(),
+        "<< /S /GoTo /D [3 0 R /Fit] /Next 7 0 R >>".into(),
+        "<< /S /GoTo /D [3 0 R /Fit] /Next [8 0 R 9 0 R] >>".into(),
+        "<< /S /JavaScript /JS (app.alert(1)) >>".into(),
+        "<< /S /GoTo /D [3 0 R /Fit] /Next << /S /GoTo /D [3 0 R /Fit] >> >>".into(),
+    ]);
+    let (out, report) = sanitized(&bytes);
+    assert_eq!(report.actions, 2, "{report:?}");
+    let copy = PdfDocument::from_bytes(&out).unwrap();
+    assert!(
+        copy.active_content(ScanBudget::default())
+            .findings
+            .is_empty()
+    );
+    let links = copy.page_links(0, MAX_LINKS_PER_PAGE as usize).unwrap();
+    assert_eq!(links.len(), 1, "{links:?}");
 }

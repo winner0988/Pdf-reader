@@ -268,7 +268,7 @@
 ### 分享前淨化（B3-15）
 
 - 「⋯」→「分享前淨化…」（在「隱私匯出…」之後）開啟選項對話框。沒有開啟文件時停用；加密的文件停用並標示 sanitize.encrypted；已簽章的文件停用並標示 sanitize.signatures。
-- **對話框**：sanitize.description，包含各類別勾選框（sanitize.categoriesTitle，預設全勾）、保留一般網址連結勾選（sanitize.keepWebLinks，預設勾）、註解處理單選（sanitize.annotationsTitle，保留／移除／平面化，預設保留）、列出不會清除的項目（sanitize.keptTitle、sanitize.kept），若為機敏文件則說明副本不是機敏文件（sanitize.sensitiveNote）。
+- **對話框**：sanitize.description，包含各類別勾選框（sanitize.categoriesTitle，預設全勾）、保留一般網址連結勾選（sanitize.keepWebLinks，預設勾）、註解處理單選（sanitize.annotationsTitle，保留／移除／平面化，預設保留）、列出不會清除的項目（sanitize.keptTitle、sanitize.kept），若為機敏文件則說明副本是否還帶機敏標記：勾選隱藏資料時不帶（sanitize.sensitiveNote），沒勾時仍帶（sanitize.sensitiveKeptNote）。
 - **選擇位置並淨化…**：主行程顯示系統的另存對話框，建議檔名 `<原檔名>（淨化副本）.pdf`，已存在時由對話框詢問是否取代。
   - 選到原本的檔案時，以訊息方塊說明（SANITIZED_COPY_SAME_FILE_MESSAGE），再顯示一次另存對話框；
   - 關閉系統對話框時回到選項對話框，可以再試；處理失敗時在對話框中顯示 sanitize.failed。

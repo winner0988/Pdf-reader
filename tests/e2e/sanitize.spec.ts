@@ -58,6 +58,11 @@ test.describe("sanitize copy", () => {
     await page.keyboard.press("Control+o");
     await answerFileDialog(page, { path: copy });
     await expect(page.getByRole("tab", { name: /sanitized\.pdf/ })).toHaveAttribute("aria-selected", "true");
+    // The banner is decided when the document opens: once the copy's page is drawn, it would show.
+    await expect(page.getByRole("img", { name: strings.canvas.page(1) }).last()).toHaveAttribute(
+      "data-state",
+      "ready",
+    );
     await expect(page.getByRole("region", { name: strings.banner.label })).toHaveCount(0);
   });
 });

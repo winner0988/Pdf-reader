@@ -4210,7 +4210,11 @@ mod with_worker {
             panic!("opened")
         };
         assert!(info.encrypted);
-        let copy = encrypted_path.with_file_name("encrypted-sanitize-copy.pdf");
+        // Never beside the corpus files: a refused copy still makes its temporary file first.
+        let copy = std::env::temp_dir().join(format!(
+            "pdf-reader-{}-refused-sanitize-copy.pdf",
+            std::process::id()
+        ));
         let options = SanitizeOptions {
             actions: true,
             attachments: true,
@@ -4232,7 +4236,8 @@ mod with_worker {
         // Signed document
         let signed_path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign/signed.pdf");
-        let (documents, info, _) = open_bytes("signed-doc", &std::fs::read(signed_path).unwrap());
+        let (documents, info, path) =
+            open_bytes("signed-doc", &std::fs::read(signed_path).unwrap());
         assert_eq!(
             documents
                 .sanitize_copy(info.doc, &copy, options)
@@ -4240,6 +4245,8 @@ mod with_worker {
                 .code,
             ErrorCode::Signed
         );
+        assert!(!copy.exists());
+        std::fs::remove_file(path).ok();
     }
 
     #[test]

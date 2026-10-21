@@ -29,7 +29,7 @@ export type SanitizeForm = {
   annotations: "keep" | "remove" | "flatten";
 };
 
-export const DEFAULT_SANITIZE_FORM: SanitizeForm = {
+const DEFAULT_SANITIZE_FORM: SanitizeForm = {
   actions: true,
   attachments: true,
   formScripts: true,
@@ -40,7 +40,7 @@ export const DEFAULT_SANITIZE_FORM: SanitizeForm = {
   annotations: "keep",
 };
 
-export function formToOptions(form: SanitizeForm): SanitizeOptions {
+function formToOptions(form: SanitizeForm): SanitizeOptions {
   return {
     actions: form.actions,
     attachments: form.attachments,
@@ -240,7 +240,11 @@ export function SanitizeDialog({ open, onOpenChange, doc, sensitive, onSanitize 
               </ul>
             </section>
 
-            {sensitive && <p className="text-sm text-muted-foreground">{t.sensitiveNote}</p>}
+            {sensitive && (
+              <p className="text-sm text-muted-foreground">
+                {form.hiddenData ? t.sensitiveNote : t.sensitiveKeptNote}
+              </p>
+            )}
 
             <p role="status" className="min-h-5 text-sm text-muted-foreground">
               {running ? t.running : ""}

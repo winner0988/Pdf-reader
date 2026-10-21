@@ -466,7 +466,9 @@ export const strings = {
       "圖片本身的 EXIF 中繼資料（如相片中的 GPS 位置）",
       "隱藏圖層（選用內容群組 OCG）中的內容",
     ],
-    sensitiveNote: "若原檔標記為機敏文件，淨化後的副本不會帶有機敏標記。",
+    sensitiveNote: "這份文件標記為機敏文件；清除隱藏資料時，淨化後的副本不會帶有機敏標記。",
+    /** The same, when hidden data is not cleared: the mark is part of the document information. */
+    sensitiveKeptNote: "這份文件標記為機敏文件；沒有清除隱藏資料時，副本仍會帶有機敏標記。",
     signatures: "已簽章的文件不適用",
     encrypted: "加密的文件不適用",
     start: "選擇位置並淨化…",
@@ -477,7 +479,7 @@ export const strings = {
     doneDescription: "已成功匯出淨化副本，以下為各項目清除數量：",
     report: {
       actions: (count: number) => `動作與腳本：${count} 個`,
-      links: (count: number) => `危險連結：${count} 個`,
+      links: (count: number) => `連結：${count} 個`,
       attachments: (count: number) => `附件檔案：${count} 個`,
       formScripts: (count: number) => `表單腳本：${count} 個`,
       xfa: (count: number) => `XFA 項目：${count} 個`,

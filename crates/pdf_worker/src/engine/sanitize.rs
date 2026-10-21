@@ -33,33 +33,74 @@ const DANGEROUS_ACTION_TYPES: [&[u8]; 9] = [
 /// Media annotation subtypes.
 const MEDIA_SUBTYPES: [&[u8]; 5] = [b"RichMedia", b"Screen", b"Movie", b"Sound", b"3D"];
 
-/// Sanitizes `doc` in place according to `options`, replacing trailer `/ID` with `id`
-/// if `options.hidden_data` is set.
-pub fn sanitize(
+/// Most actions looked at in one `/Next` chain: a longer chain, or one that loops back on
+/// itself, is treated as dangerous and removed whole.
+const MAX_CHAIN_ACTIONS: usize = 256;
+
+/// First phase of sanitizing `doc` in place according to `options`: the trailer (with `id` as
+/// the new identifier if `options.hidden_data` is set), the catalog, the bookmarks, the pages and
+/// their annotations. The caller then saves with garbage collection, so that what this phase cut
+/// off is gone, and runs [`clean_remaining`] on what is left.
+pub fn remove_structures(
     doc: &mut PdfDocument,
     id: &[u8; 16],
     options: SanitizeOptions,
 ) -> Result<SanitizeReport, EngineError> {
     let mut report = SanitizeReport::default();
+    let mut attachments = Attachments::default();
 
     // Step 1: Trailer & Catalog & Names & AcroForm
-    clean_trailer_and_catalog(doc, id, options, &mut report)?;
+    clean_trailer_and_catalog(doc, id, options, &mut report, &mut attachments)?;
 
     // Step 2: Bookmarks / Outlines
     clean_outlines(doc, options, &mut report)?;
 
     // Step 3: Page annotations and links
-    clean_pages(doc, options, &mut report)?;
+    clean_pages(doc, options, &mut report, &mut attachments)?;
 
     // Step 4: Annotation flattening (if requested)
     if options.annotations == SanitizeAnnotations::Flatten {
         flatten_annotations(doc, &mut report)?;
     }
 
-    // Step 5: Walk all objects for hidden data, external streams, lingering active content
-    clean_all_objects(doc, options, &mut report)?;
-
+    report.attachments += attachments.count();
     Ok(report)
+}
+
+/// Second phase: every object the copy still uses, for hidden data, external streams and active
+/// content left anywhere else. Run on the copy saved with garbage collection after
+/// [`remove_structures`], so nothing already removed is looked at, or counted, again.
+pub fn clean_remaining(
+    doc: &PdfDocument,
+    options: SanitizeOptions,
+    report: &mut SanitizeReport,
+) -> Result<(), EngineError> {
+    clean_all_objects(doc, options, report)
+}
+
+/// Attachments taken out, each file counted once however many places name it (the document's
+/// list of embedded files and an attachment annotation usually name the same file).
+#[derive(Default)]
+struct Attachments {
+    files: HashSet<i32>,
+    direct: u32,
+}
+
+impl Attachments {
+    fn add(&mut self, spec: &PdfObject) -> Result<(), EngineError> {
+        if spec.is_indirect()? {
+            self.files.insert(spec.as_indirect()?);
+        } else {
+            self.direct += 1;
+        }
+        Ok(())
+    }
+
+    fn count(&self) -> u32 {
+        u32::try_from(self.files.len())
+            .unwrap_or(u32::MAX)
+            .saturating_add(self.direct)
+    }
 }
 
 fn clean_trailer_and_catalog(
@@ -67,6 +108,7 @@ fn clean_trailer_and_catalog(
     id: &[u8; 16],
     options: SanitizeOptions,
     report: &mut SanitizeReport,
+    attachments: &mut Attachments,
 ) -> Result<(), EngineError> {
     // Trailer
     if options.hidden_data {
@@ -80,7 +122,6 @@ fn clean_trailer_and_catalog(
         identifier.array_push(doc.new_string(&hex)?)?;
         identifier.array_push(doc.new_string(&hex)?)?;
         trailer.dict_put("ID", identifier)?;
-        report.hidden_data += 1;
     }
 
     let mut catalog = doc.catalog()?;
@@ -88,10 +129,11 @@ fn clean_trailer_and_catalog(
     // Catalog OpenAction
     if options.actions {
         if let Some(open_action) = catalog.get_dict("OpenAction")?
-            && (open_action.is_dict()? || open_action.is_array()?) {
-                report.actions += 1;
-                catalog.dict_delete("OpenAction")?;
-            }
+            && (open_action.is_dict()? || open_action.is_array()?)
+        {
+            report.actions += 1;
+            catalog.dict_delete("OpenAction")?;
+        }
         if let Some(aa) = catalog.get_dict("AA")? {
             report.actions += count_dict_entries(&aa)?;
             catalog.dict_delete("AA")?;
@@ -101,30 +143,37 @@ fn clean_trailer_and_catalog(
     // Catalog Names tree
     if let Some(mut names) = catalog.get_dict("Names")? {
         if options.actions
-            && let Some(js) = names.get_dict("JavaScript")? {
-                report.actions += count_tree_leaf_entries(&js)?.max(1);
-                names.dict_delete("JavaScript")?;
-            }
+            && let Some(js) = names.get_dict("JavaScript")?
+        {
+            report.actions += u32::try_from(tree_values(js)?.len().max(1)).unwrap_or(u32::MAX);
+            names.dict_delete("JavaScript")?;
+        }
         if options.attachments
-            && let Some(ef) = names.get_dict("EmbeddedFiles")? {
-                report.attachments += count_tree_leaf_entries(&ef)?.max(1);
-                names.dict_delete("EmbeddedFiles")?;
+            && let Some(ef) = names.get_dict("EmbeddedFiles")?
+        {
+            for spec in tree_values(ef)? {
+                attachments.add(&spec)?;
             }
+            names.dict_delete("EmbeddedFiles")?;
+        }
     }
 
     // Catalog AF (Associated Files) & Collection
     if options.attachments {
         if let Some(af) = catalog.get_dict("AF")? {
-            let count = if af.is_array()? {
-                af.len()?.max(1) as u32
+            if af.is_array()? {
+                for index in 0..af.len()? {
+                    if let Some(spec) = af.get_array(i32::try_from(index).unwrap_or(i32::MAX))? {
+                        attachments.add(&spec)?;
+                    }
+                }
             } else {
-                1
-            };
-            report.attachments += count;
+                attachments.add(&af)?;
+            }
             catalog.dict_delete("AF")?;
         }
+        // A portfolio's layout: no file of its own (its files are in the list above).
         if catalog.get_dict("Collection")?.is_some() {
-            report.attachments += 1;
             catalog.dict_delete("Collection")?;
         }
     }
@@ -176,29 +225,32 @@ fn clean_form_fields(
             continue;
         }
         if let Some(kids) = field.get_dict("Kids")?
-            && kids.is_array()? {
-                for idx in 0..kids.len()? {
-                    if let Some(kid) = kids.get_array(i32::try_from(idx).unwrap_or(i32::MAX))? {
-                        stack.push(kid);
-                    }
+            && kids.is_array()?
+        {
+            for idx in 0..kids.len()? {
+                if let Some(kid) = kids.get_array(i32::try_from(idx).unwrap_or(i32::MAX))? {
+                    stack.push(kid);
                 }
             }
+        }
         if let Some(aa) = field.get_dict("AA")?
-            && (options.form_scripts || options.actions) {
-                let count = count_dict_entries(&aa)?;
-                if options.form_scripts {
-                    report.form_scripts += count;
-                } else {
-                    report.actions += count;
-                }
-                field.dict_delete("AA")?;
+            && (options.form_scripts || options.actions)
+        {
+            let count = count_dict_entries(&aa)?;
+            if options.form_scripts {
+                report.form_scripts += count;
+            } else {
+                report.actions += count;
             }
+            field.dict_delete("AA")?;
+        }
         if options.actions
             && let Some(action) = field.get_dict("A")?
-                && is_dangerous_action(&action)? {
-                    report.actions += 1;
-                    field.dict_delete("A")?;
-                }
+            && is_dangerous_action(&action)?
+        {
+            report.actions += 1;
+            field.dict_delete("A")?;
+        }
     }
     Ok(())
 }
@@ -256,16 +308,18 @@ fn clean_pages(
     doc: &mut PdfDocument,
     options: SanitizeOptions,
     report: &mut SanitizeReport,
+    attachments: &mut Attachments,
 ) -> Result<(), EngineError> {
     for page_idx in 0..doc.page_count()? {
         let mut page = doc.find_page(page_idx)?;
 
         // Page /AA
         if options.actions
-            && let Some(aa) = page.get_dict("AA")? {
-                report.actions += count_dict_entries(&aa)?;
-                page.dict_delete("AA")?;
-            }
+            && let Some(aa) = page.get_dict("AA")?
+        {
+            report.actions += count_dict_entries(&aa)?;
+            page.dict_delete("AA")?;
+        }
 
         // Page /Annots
         let Some(annots) = page.get_dict("Annots")? else {
@@ -293,7 +347,10 @@ fn clean_pages(
 
             // Attachment check
             if options.attachments && subtype == b"FileAttachment" {
-                report.attachments += 1;
+                match annot.get_dict("FS")? {
+                    Some(spec) => attachments.add(&spec)?,
+                    None => attachments.direct += 1,
+                }
                 continue;
             }
 
@@ -337,21 +394,23 @@ fn clean_pages(
             // Widget annotation
             if subtype == b"Widget" {
                 if let Some(aa) = annot.get_dict("AA")?
-                    && (options.form_scripts || options.actions) {
-                        let count = count_dict_entries(&aa)?;
-                        if options.form_scripts {
-                            report.form_scripts += count;
-                        } else {
-                            report.actions += count;
-                        }
-                        annot.dict_delete("AA")?;
+                    && (options.form_scripts || options.actions)
+                {
+                    let count = count_dict_entries(&aa)?;
+                    if options.form_scripts {
+                        report.form_scripts += count;
+                    } else {
+                        report.actions += count;
                     }
+                    annot.dict_delete("AA")?;
+                }
                 if options.actions
                     && let Some(action) = annot.get_dict("A")?
-                        && is_dangerous_action(&action)? {
-                            report.actions += 1;
-                            annot.dict_delete("A")?;
-                        }
+                    && is_dangerous_action(&action)?
+                {
+                    report.actions += 1;
+                    annot.dict_delete("A")?;
+                }
                 retained.array_push(annot)?;
                 continue;
             }
@@ -405,16 +464,17 @@ fn flatten_annotations(
     for page_idx in 0..doc.page_count()? {
         let page = doc.find_page(page_idx)?;
         if let Some(annots) = page.get_dict("Annots")?
-            && annots.is_array()? {
-                for i in 0..annots.len()? {
-                    if let Some(annot) = annots.get_array(i32::try_from(i).unwrap_or(i32::MAX))? {
-                        let subtype = name_of(&annot, "Subtype")?.unwrap_or_default();
-                        if subtype != b"Widget" && subtype != b"Link" {
-                            count += 1;
-                        }
+            && annots.is_array()?
+        {
+            for i in 0..annots.len()? {
+                if let Some(annot) = annots.get_array(i32::try_from(i).unwrap_or(i32::MAX))? {
+                    let subtype = name_of(&annot, "Subtype")?.unwrap_or_default();
+                    if subtype != b"Widget" && subtype != b"Link" {
+                        count += 1;
                     }
                 }
             }
+        }
     }
     report.annotations += count;
     doc.bake(true, false)?;
@@ -435,20 +495,22 @@ fn clean_all_objects(
                 }
             }
             if name_of(dict, "Type")?.as_deref() == Some(b"Page")
-                && dict.get_dict("Thumb")?.is_some() {
-                    dict.dict_delete("Thumb")?;
-                    report.hidden_data += 1;
-                }
+                && dict.get_dict("Thumb")?.is_some()
+            {
+                dict.dict_delete("Thumb")?;
+                report.hidden_data += 1;
+            }
         }
 
         if options.attachments {
             if let Some(f_val) = dict.get_dict("F")?
-                && !f_val.is_number().unwrap_or(false) {
-                    dict.dict_delete("F")?;
-                    dict.dict_delete("FFilter")?;
-                    dict.dict_delete("FDecodeParms")?;
-                    report.attachments += 1;
-                }
+                && !f_val.is_number().unwrap_or(false)
+            {
+                dict.dict_delete("F")?;
+                dict.dict_delete("FFilter")?;
+                dict.dict_delete("FDecodeParms")?;
+                report.attachments += 1;
+            }
             if name_of(dict, "FS")?.as_deref() == Some(b"URL") {
                 dict.dict_delete("FS")?;
                 dict.dict_delete("F")?;
@@ -492,25 +554,45 @@ fn count_dict_entries(dict: &PdfObject) -> Result<u32, EngineError> {
     Ok(count)
 }
 
-fn count_tree_leaf_entries(node: &PdfObject) -> Result<u32, EngineError> {
-    if !node.is_dict()? {
-        return Ok(0);
-    }
-    if let Some(names) = node.get_dict("Names")?
-        && names.is_array()? {
-            return Ok((names.len()? / 2) as u32);
+/// The values of the name tree under `root` (each leaf's `/Names` holds key and value pairs),
+/// each node visited once however the tree loops back on itself.
+fn tree_values(root: PdfObject) -> Result<Vec<PdfObject>, EngineError> {
+    let mut values = Vec::new();
+    let mut seen = HashSet::new();
+    let mut pending = vec![root];
+    let mut visited = 0usize;
+    while let Some(node) = pending.pop() {
+        visited += 1;
+        if visited > privacy::MAX_NODES {
+            return Err(EngineError::TooComplex);
         }
-    if let Some(kids) = node.get_dict("Kids")?
-        && kids.is_array()? {
-            let mut total = 0u32;
-            for i in 0..kids.len()? {
-                if let Some(kid) = kids.get_array(i32::try_from(i).unwrap_or(i32::MAX))? {
-                    total += count_tree_leaf_entries(&kid)?;
+        if node.is_indirect()? && !seen.insert(node.as_indirect()?) {
+            continue;
+        }
+        if !node.is_dict()? {
+            continue;
+        }
+        if let Some(names) = node.get_dict("Names")?
+            && names.is_array()?
+        {
+            // Key and value pairs: the values are the odd items.
+            for index in (1..names.len()?).step_by(2) {
+                if let Some(value) = names.get_array(i32::try_from(index).unwrap_or(i32::MAX))? {
+                    values.push(value);
                 }
             }
-            return Ok(total);
         }
-    Ok(1)
+        if let Some(kids) = node.get_dict("Kids")?
+            && kids.is_array()?
+        {
+            for index in 0..kids.len()? {
+                if let Some(kid) = kids.get_array(i32::try_from(index).unwrap_or(i32::MAX))? {
+                    pending.push(kid);
+                }
+            }
+        }
+    }
+    Ok(values)
 }
 
 fn is_uri_action(action: &PdfObject) -> Result<bool, EngineError> {
@@ -522,10 +604,11 @@ fn is_uri_action(action: &PdfObject) -> Result<bool, EngineError> {
 
 fn get_uri_string(action: &PdfObject) -> Result<String, EngineError> {
     if let Some(uri_obj) = action.get_dict("URI")?
-        && uri_obj.is_string()? {
-            let bytes = uri_obj.as_bytes()?;
-            return Ok(String::from_utf8_lossy(&bytes).to_string());
-        }
+        && uri_obj.is_string()?
+    {
+        let bytes = uri_obj.as_bytes()?;
+        return Ok(String::from_utf8_lossy(&bytes).to_string());
+    }
     Ok(String::new())
 }
 
@@ -547,6 +630,17 @@ fn is_allowed_web_link(uri: &str, keep_web_links: bool) -> bool {
 }
 
 fn is_dangerous_action(action: &PdfObject) -> Result<bool, EngineError> {
+    let mut budget = MAX_CHAIN_ACTIONS;
+    dangerous_within(action, &mut budget)
+}
+
+/// Whether `action` or any action after it is dangerous, looking at no more than `budget`
+/// actions: past that the chain counts as dangerous.
+fn dangerous_within(action: &PdfObject, budget: &mut usize) -> Result<bool, EngineError> {
+    if *budget == 0 {
+        return Ok(true);
+    }
+    *budget -= 1;
     if !action.is_dict()? {
         return Ok(false);
     }
@@ -554,48 +648,66 @@ fn is_dangerous_action(action: &PdfObject) -> Result<bool, EngineError> {
         return Ok(true);
     }
     if let Some(s) = name_of(action, "S")?
-        && DANGEROUS_ACTION_TYPES.contains(&s.as_slice()) {
-            return Ok(true);
-        }
+        && DANGEROUS_ACTION_TYPES.contains(&s.as_slice())
+    {
+        return Ok(true);
+    }
     if let Some(next) = action.get_dict("Next")? {
-        if next.is_dict()? && is_dangerous_action(&next)? {
+        if next.is_dict()? && dangerous_within(&next, budget)? {
             return Ok(true);
         }
         if next.is_array()? {
             for i in 0..next.len()? {
                 if let Some(sub) = next.get_array(i32::try_from(i).unwrap_or(i32::MAX))?
-                    && is_dangerous_action(&sub)? {
-                        return Ok(true);
-                    }
+                    && dangerous_within(&sub, budget)?
+                {
+                    return Ok(true);
+                }
             }
         }
     }
     Ok(false)
 }
 
+/// Removes the dangerous actions that follow `action` (its `/Next`), keeping the others; how
+/// many were removed.
 fn clean_action_next(
     doc: &mupdf::pdf::PdfDocument,
     action: &mut PdfObject,
 ) -> Result<u32, EngineError> {
-    let mut removed = 0u32;
+    let mut budget = MAX_CHAIN_ACTIONS;
+    clean_next_within(doc, action, &mut budget)
+}
+
+fn clean_next_within(
+    doc: &mupdf::pdf::PdfDocument,
+    action: &mut PdfObject,
+    budget: &mut usize,
+) -> Result<u32, EngineError> {
     let Some(mut next) = action.get_dict("Next")? else {
         return Ok(0);
     };
+    if *budget == 0 {
+        action.dict_delete("Next")?;
+        return Ok(1);
+    }
+    *budget -= 1;
+    let mut removed = 0u32;
     if next.is_dict()? {
-        if is_dangerous_action(&next)? {
+        if dangerous_within(&next, budget)? {
             removed += 1;
             action.dict_delete("Next")?;
         } else {
-            removed += clean_action_next(doc, &mut next)?;
+            removed += clean_next_within(doc, &mut next, budget)?;
         }
     } else if next.is_array()? {
         let mut retained = doc.new_array()?;
         for i in 0..next.len()? {
             if let Some(mut sub) = next.get_array(i32::try_from(i).unwrap_or(i32::MAX))? {
-                if is_dangerous_action(&sub)? {
+                if dangerous_within(&sub, budget)? {
                     removed += 1;
                 } else {
-                    removed += clean_action_next(doc, &mut sub)?;
+                    removed += clean_next_within(doc, &mut sub, budget)?;
                     retained.array_push(sub)?;
                 }
             }
