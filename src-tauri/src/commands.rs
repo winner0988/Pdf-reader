@@ -16,10 +16,10 @@ use ipc_contract::types::{
     LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent,
     OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText, PagesSource, Password,
     PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
-    RememberedPasswords, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, RequestId, SaveResult,
-    SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignatureReport,
-    StampImageInfo, TabId, TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs,
-    UpdateCheck, WatermarkContent,
+    RememberedPasswords, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, RequestId,
+    SanitizeArgs, SanitizeResult, SaveResult, SearchArgs, SearchEvent, SensitiveArgs,
+    SensitiveFile, SensitiveId, Settings, SignatureReport, StampImageInfo, TabId, TextBoxInfo,
+    UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use tauri::ipc::{Channel, Response};
@@ -1045,6 +1045,58 @@ pub async fn privacy_export(
     };
     blocking(move || app.state::<Documents>().privacy_export(doc, &destination)).await?;
     Ok(true)
+}
+
+/// Writes a sanitized copy of the document without active content or hidden data (B3-15)
+/// where the user says in the system's save dialog, never over the document's own file.
+/// `None` when the user closes the dialog; else what was done. The document itself does not change.
+#[tauri::command]
+pub async fn sanitize_copy(
+    app: AppHandle,
+    window: WebviewWindow,
+    args: SanitizeArgs,
+) -> Result<Option<SanitizeResult>, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let doc = args.doc;
+    let info = app
+        .state::<Documents>()
+        .document_info(doc)
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        })?;
+    if info.encrypted {
+        return Err(IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "an encrypted document has no sanitized copy".to_owned(),
+        });
+    }
+    let file_name = strings::sanitized_copy_file_name(&export::stem(&info.display_name));
+    let destination = loop {
+        let Some(path) = file_dialog::sanitized_copy_file(&window, file_name.clone()).await? else {
+            return Ok(None);
+        };
+        if !app.state::<Documents>().is_document_file(doc, &path) {
+            break path;
+        }
+        rfd::AsyncMessageDialog::new()
+            .set_level(rfd::MessageLevel::Info)
+            .set_title(strings::SANITIZED_COPY_SAME_FILE_TITLE)
+            .set_description(strings::SANITIZED_COPY_SAME_FILE_MESSAGE)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .set_parent(&window)
+            .show()
+            .await;
+    };
+    let result = blocking(move || {
+        app.state::<Documents>()
+            .sanitize_copy(doc, &destination, args.options)
+    })
+    .await?;
+    Ok(Some(result))
 }
 
 /// Writes a copy of the document whose pictures are encoded again, smaller (B3-01,

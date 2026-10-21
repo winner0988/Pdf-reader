@@ -24,8 +24,8 @@ use ipc_contract::types::{
     ImageQuality, IpcError, LinkArgs, LinkPreview, LinkTarget, MarkCheck, NotRemembered, OpenEvent,
     OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource,
     Password, PreparedTextBox, Recovery, RedactionSummary, RememberedPasswords, RenderPageArgs,
-    Restrictions, SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageInfo,
-    TabId, TextBoxInfo, UnlockOutcome,
+    Restrictions, SanitizeOptions, SanitizeResult, SaveResult, SearchHit, SecurityReport,
+    SignatureReport, SourceId, StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
@@ -981,6 +981,50 @@ impl Documents {
             };
             temporary.check(bytes)?;
             temporary.replace(destination)
+        })
+    }
+
+    /// Writes to `destination` a copy of `doc`, edits included, with active content and hidden
+    /// data removed according to `options` (B3-15): made by the document's worker.
+    /// The document, its edits and its file are not changed. Refused for an encrypted document,
+    /// a signed document (signatures would be invalidated), and for the document's own file.
+    pub fn sanitize_copy(
+        &self,
+        doc: DocumentId,
+        destination: &Path,
+        options: SanitizeOptions,
+    ) -> Result<SanitizeResult, IpcError> {
+        let mut id = [0u8; 16];
+        getrandom::fill(&mut id).map_err(|_| IpcError {
+            code: ErrorCode::Internal,
+            message: "no random bytes for the new document id".to_owned(),
+        })?;
+        self.with_document(doc, |document| {
+            if document.info.encrypted {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "an encrypted document has no sanitized copy".to_owned(),
+                });
+            }
+            if same_file(&document.path, destination) {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "the sanitized copy never replaces the document's own file".to_owned(),
+                });
+            }
+            saving::check_writable(destination)?;
+            let mut temporary = Temporary::new(destination)?;
+            let worker_doc = live_worker(document)?;
+            let response = document
+                .host
+                .sanitized_copy(worker_doc, temporary.file(), id, options)
+                .map_err(|error| lost_on(document, &error))?;
+            let WorkerResponse::Sanitized { bytes, report, .. } = response else {
+                return Err(unexpected("SanitizedCopy"));
+            };
+            temporary.check(bytes)?;
+            temporary.replace(destination)?;
+            Ok(SanitizeResult { bytes, report })
         })
     }
 
@@ -4099,6 +4143,103 @@ mod with_worker {
         assert_eq!(std::fs::read(&path).unwrap(), before);
         std::fs::remove_file(copy).ok();
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn the_sanitize_copy_writes_a_clean_copy_and_leaves_the_document_alone() {
+        let sample = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/malicious/composite-sanitize.pdf");
+        let (documents, info, path) = open_bytes("sanitize-copy", &std::fs::read(sample).unwrap());
+        assert!(!info.encrypted);
+        let before = std::fs::read(&path).unwrap();
+        let identity = FileIdentity::of(&path);
+        let copy = path.with_file_name("sanitize-copy-clean.pdf");
+        std::fs::remove_file(&copy).ok();
+
+        let options = SanitizeOptions {
+            actions: true,
+            attachments: true,
+            form_scripts: true,
+            xfa: true,
+            rich_media: true,
+            hidden_data: true,
+            keep_web_links: true,
+            annotations: ipc_contract::types::SanitizeAnnotations::Keep,
+        };
+
+        let result = documents.sanitize_copy(info.doc, &copy, options).unwrap();
+        assert!(result.bytes > 0);
+        let written = std::fs::read(&copy).unwrap();
+        assert!(written.starts_with(b"%PDF-"));
+
+        // The document and its file are as they were.
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(FileIdentity::of(&path), identity);
+        assert!(documents.unsaved_tabs().is_empty());
+
+        // Never over the document's own file.
+        let shouted = PathBuf::from(path.to_string_lossy().to_uppercase());
+        assert!(documents.is_document_file(info.doc, &shouted));
+        assert_eq!(
+            documents
+                .sanitize_copy(info.doc, &shouted, options)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+
+        std::fs::remove_file(copy).ok();
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn an_encrypted_or_signed_document_has_no_sanitized_copy() {
+        let documents = Documents::new(worker());
+        let encrypted_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/encrypted-aes256.pdf");
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let [tab] = documents.add(std::slice::from_ref(&encrypted_path), &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(tab, &report);
+        documents
+            .unlock(tab, Password::new("user".to_owned()), false, &report)
+            .unwrap();
+        let Some(OpenEvent::Opened { info, .. }) = events.borrow().last().cloned() else {
+            panic!("opened")
+        };
+        assert!(info.encrypted);
+        let copy = encrypted_path.with_file_name("encrypted-sanitize-copy.pdf");
+        let options = SanitizeOptions {
+            actions: true,
+            attachments: true,
+            form_scripts: true,
+            xfa: true,
+            rich_media: true,
+            hidden_data: true,
+            keep_web_links: true,
+            annotations: ipc_contract::types::SanitizeAnnotations::Keep,
+        };
+        assert_eq!(
+            documents
+                .sanitize_copy(info.doc, &copy, options)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+
+        // Signed document
+        let signed_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign/signed.pdf");
+        let (documents, info, _) = open_bytes("signed-doc", &std::fs::read(signed_path).unwrap());
+        assert_eq!(
+            documents
+                .sanitize_copy(info.doc, &copy, options)
+                .unwrap_err()
+                .code,
+            ErrorCode::Signed
+        );
     }
 
     #[test]

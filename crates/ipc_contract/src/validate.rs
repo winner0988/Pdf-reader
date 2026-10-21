@@ -16,11 +16,11 @@ use crate::types::{
     ExportFormat, FindingKind, FontImport, FontInfo, FormField, IpcError, LinkTarget, OcrLanguages,
     OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize,
     PageText, Password, Point, PrepareTextBoxArgs, Quad, RecentFile, Rect, RedactionSummary,
-    RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation, SearchArgs,
-    SearchHit, SecurityReport, SensitiveArgs, SensitiveFile, Settings, SignatureInfo,
-    SignatureReport, SignatureStatus, TextBoxInfo, TextBoxStyle, TextLine, UndoArgs, UnlockArgs,
-    UnlockSourceArgs, Watermark, WatermarkContent, SanitizeArgs, SanitizeOptions, SanitizeReport,
-    SanitizeResult,
+    RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation, SanitizeArgs,
+    SanitizeOptions, SanitizeReport, SanitizeResult, SearchArgs, SearchHit, SecurityReport,
+    SensitiveArgs, SensitiveFile, Settings, SignatureInfo, SignatureReport, SignatureStatus,
+    TextBoxInfo, TextBoxStyle, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark,
+    WatermarkContent,
 };
 use crate::worker::{
     InspectedFont, OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerError, WorkerErrorCode,

@@ -15,6 +15,7 @@ import { CreatePdfDialog } from "@/features/create/CreatePdfDialog";
 import { CompressDialog } from "@/features/saving/CompressDialog";
 import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
+import { SanitizeDialog } from "@/features/saving/SanitizeDialog";
 import { SaveFailedDialog } from "@/features/saving/SaveFailedDialog";
 import { SensitiveDialog } from "@/features/sensitive/SensitiveDialog";
 import { SensitiveSection } from "@/features/sensitive/SensitiveSection";
@@ -122,6 +123,20 @@ describe("dialogs", () => {
   it("the privacy export", async () => {
     render(
       <PrivacyExportDialog open onOpenChange={vi.fn()} onExport={() => Promise.resolve(false)} onFinished={vi.fn()} />,
+    );
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("the sanitized copy dialog", async () => {
+    render(
+      <SanitizeDialog
+        open
+        onOpenChange={vi.fn()}
+        doc={1}
+        sensitive
+        onSanitize={() => Promise.resolve(null)}
+      />,
     );
     await screen.findByRole("dialog");
     await expectAccessible(everything());

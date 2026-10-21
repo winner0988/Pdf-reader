@@ -13,9 +13,9 @@ use ipc_contract::types::{
     OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
     PictureView, Point, Quad, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb,
     Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityFinding, SecurityReport,
-    SignatureInfo, SignatureReport,
-    SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason,
-    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    SignatureInfo, SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo,
+    TextBoxStyle, TextLine, UnverifiableReason, Watermark, WatermarkContent, WatermarkPages,
+    WatermarkPlace,
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, ModelGlyph, OcrFinished, OcrOutcome, OcrPageState,

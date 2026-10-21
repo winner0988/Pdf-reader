@@ -37,6 +37,7 @@ import { CompressDialog } from "@/features/saving/CompressDialog";
 import { useOpenBatch } from "@/features/batch/useOpenBatch";
 import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
+import { SanitizeDialog } from "@/features/saving/SanitizeDialog";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
 import { ALL_PERMISSIONS, restrictionSummary } from "@/features/permissions/permissions";
 import type { RecentApi } from "@/features/recent/api";
@@ -282,6 +283,7 @@ export function ReaderShell({
     | "print"
     | "export"
     | "privacyExport"
+    | "sanitize"
     | "encrypt"
     | "compress"
     | "create"
@@ -355,6 +357,7 @@ export function ReaderShell({
       dialog === "print" ||
       dialog === "export" ||
       dialog === "privacyExport" ||
+      dialog === "sanitize" ||
       dialog === "encrypt" ||
       dialog === "compress" ||
       dialog === "sensitive"
@@ -1049,6 +1052,20 @@ export function ReaderShell({
           exportBlocked={exportable && !permissions.copy}
           onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}
           privacyExportBlocked={savable && document_?.encrypted === true}
+          onSanitizeCopy={
+            savable && !document_?.encrypted && !isSigned
+              ? () => setDialog("sanitize")
+              : undefined
+          }
+          sanitizeCopyBlocked={
+            !savable
+              ? undefined
+              : document_?.encrypted
+                ? strings.sanitize.encrypted
+                : isSigned
+                  ? strings.sanitize.signatures
+                  : undefined
+          }
           onEncryptCopy={savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined}
           onBatch={openBatch}
           encryptCopyBlocked={savable && document_?.encrypted === true}
@@ -1470,6 +1487,17 @@ export function ReaderShell({
           onOpenChange={(open) => setDialog(open ? "privacyExport" : null)}
           onExport={() => savingApi.privacyExport(doc)}
           onFinished={showHint}
+        />
+      )}
+      {savable && (
+        <SanitizeDialog
+          open={dialog === "sanitize"}
+          onOpenChange={(open) => setDialog(open ? "sanitize" : null)}
+          doc={doc}
+          sensitive={document_?.sensitive === true}
+          onSanitize={(args) =>
+            savingApi.sanitizeCopy ? savingApi.sanitizeCopy(args) : Promise.resolve(null)
+          }
         />
       )}
       {savable && (

@@ -13,7 +13,7 @@ use ipc_contract::limits::{
 };
 use ipc_contract::types::{
     BlockedAction, DocumentPermissions, ImageQuality, PageText as TextLayer, Point, Quad,
-    Restrictions, SecurityReport,
+    Restrictions, SanitizeOptions, SanitizeReport, SecurityReport,
 };
 use mupdf::pdf::{
     Encryption, InsertPdfOptions, InsertPosition, PageSelection, PdfDocument as MuPdfDocument,
@@ -35,6 +35,7 @@ mod forms;
 mod identifier;
 mod ocr;
 mod redaction;
+mod sanitize;
 
 pub use create::{Created, PdfBuilder};
 pub use identifier::write_identifier;
@@ -136,6 +137,8 @@ pub enum EngineError {
     /// (B3-05, ADR 0010).
     #[error("the file was repaired to be opened: nothing can be appended to it")]
     NotAppendable,
+    #[error("the active-content check found remaining items after sanitization")]
+    SanitizeCheckFailed,
     #[error("MuPDF: {0}")]
     MuPdf(#[from] mupdf::Error),
 }
@@ -949,6 +952,45 @@ impl PdfDocument {
         let mut options = PdfWriteOptions::default();
         options.set_garbage(true);
         write_limited(&copy, out, options)
+    }
+
+    /// Writes to `out` a copy of the document, edits included, sanitized according to `options`
+    /// and with `id` as its identifier (B3-15). The copy is rewritten whole with garbage collection.
+    /// The open document is not changed.
+    /// Refused for an encrypted document and for a signed one.
+    pub fn sanitized_copy(
+        &self,
+        id: &[u8; 16],
+        options: SanitizeOptions,
+        out: &mut impl Write,
+    ) -> Result<(u64, SanitizeReport), EngineError> {
+        if self.is_encrypted() {
+            return Err(EngineError::EncryptedCopy);
+        }
+        if self.is_signed() {
+            return Err(EngineError::Signed);
+        }
+        let mut write_options = PdfWriteOptions::default();
+        write_options.set_garbage(true);
+        let mut bytes = Vec::new();
+        write_limited(&self.doc, &mut bytes, write_options)?;
+        let copy = Document::from_bytes(&bytes, "application/pdf").map_err(open_error)?;
+        drop(bytes);
+        let mut copy = MuPdfDocument::try_from(copy)?;
+        let report = sanitize::sanitize(&mut copy, id, options)?;
+
+        let check = crate::scan::scan(copy.catalog()?, ScanBudget::default());
+        if !check.scan_complete {
+            return Err(EngineError::TooComplex);
+        }
+        if sanitize::check_failed(&check, options) {
+            return Err(EngineError::SanitizeCheckFailed);
+        }
+
+        let mut write_options = PdfWriteOptions::default();
+        write_options.set_garbage(true);
+        let written = write_limited(&copy, out, write_options)?;
+        Ok((written, report))
     }
 }
 

@@ -17,7 +17,8 @@ use std::time::Duration;
 
 use ipc_contract::frame::{self, FrameError};
 use ipc_contract::types::{
-    CreateKind, DocumentId, ErrorCode, ImageQuality, Password, RequestId, Restrictions, Watermark,
+    CreateKind, DocumentId, ErrorCode, ImageQuality, Password, RequestId, Restrictions,
+    SanitizeOptions, Watermark,
 };
 use ipc_contract::validate::Validate;
 use ipc_contract::worker::{CreateSource, FileHandle, WorkerError, WorkerRequest, WorkerResponse};
@@ -435,6 +436,32 @@ impl WorkerHost {
         })
     }
 
+    /// Writes to `file`, as [`save`](Self::save) does, a sanitized copy of `doc` according to
+    /// `options` and with `id` as its identifier; `doc` itself is not changed. Returns `Sanitized`.
+    pub fn sanitized_copy(
+        &mut self,
+        doc: DocumentId,
+        file: &File,
+        id: [u8; 16],
+        options: SanitizeOptions,
+    ) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_write_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::SanitizedCopy {
+            request,
+            doc,
+            file: FileHandle(handle),
+            id,
+            options,
+        })
+    }
+
     /// Writes to `file`, as [`save`](Self::save) does, a copy of `doc` whose pictures are encoded
     /// again at `quality` and shrunk to `max_side` pixels on their longer side (B3-01); `doc`
     /// itself is not changed. Returns `Compressed`.
@@ -713,6 +740,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::OcrStopped { request }
         | WorkerResponse::Source { request, .. }
         | WorkerResponse::Saved { request, .. }
+        | WorkerResponse::Sanitized { request, .. }
         | WorkerResponse::Compressed { request, .. }
         | WorkerResponse::ExifCleaned { request, .. }
         | WorkerResponse::Created { request, .. } => Some(*request),
