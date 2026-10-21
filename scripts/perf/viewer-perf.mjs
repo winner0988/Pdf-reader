@@ -124,12 +124,13 @@ for (let i = 0; i < 120; i++) {
 }
 
 // Instrumentation: when each page slot appears and when it becomes ready.
-await evaluate(`(() => {
+const initPerfScript = `(() => {
   const perf = (window.__perf = { mounted: new Map(), visibleAt: new Map(), blank: [], visibleBlank: [] });
+  const getScroller = () => document.querySelector('div[role="tabpanel"]:not([hidden]) main') || document.querySelector('main');
   // Time a page is actually on screen while still blank.
   const io = new IntersectionObserver((entries) => {
     for (const e of entries) if (e.isIntersecting && !perf.visibleAt.has(e.target)) perf.visibleAt.set(e.target, performance.now());
-  }, { root: document.querySelector('main') });
+  }, { root: getScroller() });
   const note = (el) => {
     if (!(el instanceof HTMLElement) || el.getAttribute('role') !== 'img' || !el.id?.startsWith('page-')) return;
     if (el.dataset.state === 'loading' && !perf.mounted.has(el)) { perf.mounted.set(el, performance.now()); io.observe(el); }
@@ -147,16 +148,19 @@ await evaluate(`(() => {
       r.addedNodes.forEach((n) => note(n));
     }
   }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-state'] });
-  window.__scroller = document.querySelector('main');
-  window.__ready = (n) => document.getElementById('page-' + n)?.dataset.state === 'ready';
+  window.__scroller = getScroller;
+  window.__ready = (n) => (document.querySelector('div[role="tabpanel"]:not([hidden]) #page-' + n) || document.getElementById('page-' + n))?.dataset.state === 'ready';
   return true;
-})()`);
+})()`;
+
+await evaluate(initPerfScript);
 
 const results = {};
 
 // 1. T1: Open -> first page, warm worker and cold worker.
 async function timeOpenTab() {
   const activeBefore = await evaluate(`document.querySelector('button[role="tab"][id^="tab-"][aria-selected="true"]')?.id ?? ''`);
+  const docBefore = await evaluate(`(document.querySelector('div[role="tabpanel"]:not([hidden]) #page-1') || document.getElementById('page-1'))?.dataset.doc ?? ''`);
   const t0 = performance.now();
   execFileSync(appExe, [path.resolve("tests/corpus/large/output/large-1000-pages.pdf")], { stdio: "ignore" });
   while (true) {
@@ -164,8 +168,8 @@ async function timeOpenTab() {
     const ready = await evaluate(`(() => {
       const active = document.querySelector('button[role="tab"][id^="tab-"][aria-selected="true"]')?.id;
       if (!active || active === "${activeBefore}") return false;
-      const p = document.getElementById('page-1');
-      if (p && p.dataset.state === 'ready') {
+      const p = document.querySelector('div[role="tabpanel"]:not([hidden]) #page-1') || document.getElementById('page-1');
+      if (p && p.dataset.doc && p.dataset.doc !== "${docBefore}" && p.dataset.state === 'ready') {
         const c = p.querySelector('canvas');
         return Boolean(c && c.width > 1);
       }
@@ -177,14 +181,16 @@ async function timeOpenTab() {
 }
 
 async function closeActiveTab() {
-  await evaluate(`(async () => {
-    const active = document.querySelector('button[role="tab"][id^="tab-"][aria-selected="true"]');
-    if (active) {
-      const tabId = Number(active.id.replace('tab-', ''));
-      await window.__TAURI_INTERNALS__.invoke('close_tab', { tab: tabId });
-    }
+  await evaluate(`(() => {
+    const btn = Array.from(document.querySelectorAll('button')).find((b) => b.getAttribute('aria-label')?.startsWith('關閉') && b.tabIndex === 0);
+    btn?.click();
   })()`);
-  await sleep(500);
+  for (let i = 0; i < 50; i++) {
+    const active = await evaluate(`document.querySelector('button[role="tab"][id^="tab-"][aria-selected="true"]')?.id`);
+    if (active === "tab-1") break;
+    await sleep(100);
+  }
+  await sleep(300);
 }
 
 results.openWarmMs = await timeOpenTab();
@@ -196,12 +202,17 @@ results.openColdMs = await timeOpenTab();
 await closeActiveTab();
 await shot("07b-first-page");
 
+// Re-initialize instrumentation for tab 1
+await evaluate(initPerfScript);
+await evaluate(`(() => { const m = document.querySelector('main'); if (m) m.scrollTop = 0; })()`);
+for (let i = 0; i < 50 && !(await evaluate(`window.__ready(1)`)); i++) await sleep(100);
+
 // 2. T2: Normal-speed scrolling: 200 px every 100 ms (about 2 pages a second) for 10 s.
-await evaluate(`window.__perf.blank.length = 0; window.__scroller.scrollTop = 0`);
+await evaluate(`(() => { window.__perf.blank.length = 0; window.__perf.visibleBlank.length = 0; const m = document.querySelector('main'); if (m) m.scrollTop = 0; })()`);
 await sleep(500);
 await evaluate(`window.__perf.blank.length = 0; window.__perf.visibleBlank.length = 0`);
 for (let i = 0; i < 100; i++) {
-  await evaluate(`window.__scroller.scrollTop += 200`);
+  await evaluate(`document.querySelector('main').scrollTop += 200`);
   await sleep(100);
 }
 await sleep(500);
@@ -215,7 +226,7 @@ results.normalScroll = {
 
 // 3. T3: Fast scroll stop to all visible pages rendered (target <= 500 ms).
 results.fastScrollStopMs = await evaluate(`(async () => {
-  const s = window.__scroller;
+  const s = document.querySelector('main');
   // Jump to an unrendered section in the middle of the document
   const target = Math.round(s.scrollHeight * 0.45);
   for (let step = 1; step <= 5; step++) {
@@ -240,21 +251,22 @@ results.fastScrollStopMs = await evaluate(`(async () => {
 
 // 4. T4: Zoom 100% -> 200% (target: old bitmap <= 1 frame, new bitmap <= 400 ms).
 results.zoom = await evaluate(`(async () => {
-  const s = window.__scroller;
+  const s = document.querySelector('main');
   s.scrollTop = 0;
+  for (let i = 0; i < 50 && !window.__ready(1); i++) await new Promise((r) => setTimeout(r, 50));
   const select = document.querySelector('select[aria-label="縮放比例"]') || document.querySelector('header select');
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
   if (select && select.value !== "100") {
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
     setter.call(select, "100");
     select.dispatchEvent(new Event("change", { bubbles: true }));
   }
-  while (!window.__ready(1)) {
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  await new Promise((r) => setTimeout(r, 400));
+  // Wait for 100% render to settle
+  await new Promise((r) => setTimeout(r, 1000));
+  for (let i = 0; i < 50 && !window.__ready(1); i++) await new Promise((r) => setTimeout(r, 50));
 
-  const page1 = document.getElementById('page-1');
-  const canvas = page1.querySelector('canvas');
+  const page1 = document.querySelector('div[role="tabpanel"]:not([hidden]) #page-1') || document.getElementById('page-1');
+  const canvas = page1 ? page1.querySelector('canvas') : null;
+  if (!canvas) return { error: "page-1 canvas not found" };
   const initialCanvasWidth = canvas.width;
   const initialClientWidth = canvas.getBoundingClientRect().width;
 
@@ -264,7 +276,6 @@ results.zoom = await evaluate(`(async () => {
 
   const t0 = performance.now();
   if (select) {
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
     setter.call(select, "200");
     select.dispatchEvent(new Event("change", { bubbles: true }));
   } else {
@@ -287,7 +298,6 @@ results.zoom = await evaluate(`(async () => {
 
   // Restore to fitWidth
   if (select) {
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
     setter.call(select, "fitWidth");
     select.dispatchEvent(new Event("change", { bubbles: true }));
   }
@@ -321,7 +331,7 @@ sampler.stdout.on("data", (d) => (samples += d));
 await evaluate(`window.__perf.blank.length = 0`);
 const started = Date.now();
 while (Date.now() - started < 10_000) {
-  await evaluate(`(() => { const s = window.__scroller; s.scrollTop = (s.scrollTop + 3000) % (s.scrollHeight - s.clientHeight); })()`);
+  await evaluate(`(() => { const s = document.querySelector('main'); if (s) s.scrollTop = (s.scrollTop + 3000) % (s.scrollHeight - s.clientHeight); })()`);
   await sleep(16);
 }
 await new Promise((r) => sampler.on("close", r));
@@ -333,12 +343,12 @@ results.fastScroll = {
 };
 
 // 6. Last page, then back to the first.
-await evaluate(`window.__scroller.scrollTop = window.__scroller.scrollHeight`);
+await evaluate(`(() => { const s = document.querySelector('main'); if (s) s.scrollTop = s.scrollHeight; })()`);
 for (let i = 0; i < 80 && !(await evaluate(`window.__ready(1000)`)); i++) await sleep(100);
 results.lastPageReady = await evaluate(`window.__ready(1000)`);
 results.lastPageStatus = await evaluate(`document.querySelector('footer').innerText`);
 await shot("07b-last-page");
-await evaluate(`window.__scroller.scrollTop = 0`);
+await evaluate(`(() => { const s = document.querySelector('main'); if (s) s.scrollTop = 0; })()`);
 for (let i = 0; i < 80 && !(await evaluate(`window.__ready(1)`)); i++) await sleep(100);
 results.backToFirstReady = await evaluate(`window.__ready(1)`);
 results.backToFirstStatus = await evaluate(`document.querySelector('footer').innerText`);
@@ -372,11 +382,11 @@ results.idle10sCpuPercent = await new Promise((resolve) => {
 });
 
 // 8. Worker crash recovery: kill our worker, scroll to pages never rendered.
-await evaluate(`window.__scroller.scrollTop = window.__scroller.scrollHeight * 0.7`);
+await evaluate(`(() => { const s = document.querySelector('main'); if (s) s.scrollTop = s.scrollHeight * 0.7; })()`);
 await sleep(1500);
 killOurWorker();
 await sleep(300);
-await evaluate(`window.__scroller.scrollTop = window.__scroller.scrollHeight * 0.3`);
+await evaluate(`(() => { const s = document.querySelector('main'); if (s) s.scrollTop = s.scrollHeight * 0.3; })()`);
 await sleep(2500);
 results.afterCrash = await evaluate(`(() => {
   const slots = [...document.querySelectorAll('[id^=page-]')];
@@ -392,7 +402,7 @@ const retried = await evaluate(`(async () => {
   return slot.id + ' ' + slot.dataset.state;
 })()`);
 results.retryAfterCrash = retried;
-await evaluate(`window.__scroller.scrollTop += 5000`);
+await evaluate(`(() => { const s = document.querySelector('main'); if (s) s.scrollTop += 5000; })()`);
 await sleep(1500);
 results.renderingAfterCrash = await evaluate(`[...document.querySelectorAll('[id^=page-]')].map((s) => s.dataset.state).join(',')`);
 
@@ -406,10 +416,13 @@ if (fs.existsSync(a0Path) && fs.existsSync(appExe)) {
       if (activeNow && activeNow !== activeBefore) break;
       await sleep(250);
     }
-    await sleep(500);
+    await sleep(1000);
 
     results.a0Poster = await evaluate(`(async () => {
       const select = document.querySelector('select[aria-label="縮放比例"]') || document.querySelector('header select');
+      const page1 = document.querySelector('div[role="tabpanel"]:not([hidden]) #page-1') || document.getElementById('page-1');
+      const canvas = page1.querySelector('canvas');
+      const initialWidth = canvas.width;
       const t0 = performance.now();
       if (select && select.value !== "200") {
         const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
@@ -418,8 +431,7 @@ if (fs.existsSync(a0Path) && fs.existsSync(appExe)) {
       }
       while (true) {
         await new Promise((r) => requestAnimationFrame(r));
-        const p = document.getElementById('page-1');
-        if (p && p.dataset.state === 'ready') {
+        if (canvas.width > initialWidth * 1.5) {
           return { renderMs: Math.round(performance.now() - t0) };
         }
         if (performance.now() - t0 > 15000) return { renderMs: -1 };

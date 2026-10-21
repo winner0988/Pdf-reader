@@ -592,6 +592,7 @@ type PageSlotProps = {
 
 function PageSlot({ index, box, left, doc, renderer, scale, paused, rotation, requestDelayMs, overlay }: PageSlotProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const lastRenderedScale = useRef<number | null>(null);
   const [state, setState] = useState<SlotState>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
 
@@ -603,6 +604,7 @@ function PageSlot({ index, box, left, doc, renderer, scale, paused, rotation, re
       job.result.then(
         (raster) => {
           drawRaster(canvasRef.current, raster);
+          lastRenderedScale.current = scale;
           setState({ kind: "ready" });
         },
         (error: unknown) => {
@@ -613,7 +615,11 @@ function PageSlot({ index, box, left, doc, renderer, scale, paused, rotation, re
         },
       );
     };
-    const timer = requestDelayMs > 0 ? window.setTimeout(start, requestDelayMs) : undefined;
+    // Pages already rendered re-render immediately on scale change without waiting for request delay;
+    // newly mounted pages waiting for scroll to stop keep the request delay.
+    const isRerender = lastRenderedScale.current !== null && lastRenderedScale.current !== scale;
+    const delay = isRerender ? 0 : requestDelayMs;
+    const timer = delay > 0 ? window.setTimeout(start, delay) : undefined;
     if (timer === undefined) start();
     // Leaving the rendered range, or a new scale or rotation, cancels the old request.
     return () => {

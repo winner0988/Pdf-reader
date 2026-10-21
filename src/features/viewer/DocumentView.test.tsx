@@ -256,6 +256,51 @@ describe("DocumentView", () => {
     }
   });
 
+  it("re-renders without request delay when zooming an already-rendered page", async () => {
+    vi.useFakeTimers();
+    try {
+      const { renderer, calls } = fakeRenderer();
+      function Delayed({ zoom = 100 }: { zoom?: Zoom }) {
+        const scroller = useRef<HTMLElement>(null);
+        return (
+          <main ref={scroller} data-testid="scroller">
+            <DocumentView
+              pages={[LETTER]}
+              zoom={zoom}
+              rotation={0}
+              scrollContainer={scroller}
+              doc={7}
+              renderer={renderer}
+              requestDelayMs={100}
+            />
+          </main>
+        );
+      }
+      const { rerender } = render(<Delayed zoom={100} />);
+      // Initial render: waits requestDelayMs (100ms)
+      expect(calls).toHaveLength(0);
+      act(() => vi.advanceTimersByTime(100));
+      expect(calls).toHaveLength(1);
+      // Fulfill the first render job
+      await act(async () => {
+        calls[0]!.resolve(raster());
+      });
+
+      // Now zoom to 200%
+      rerender(<Delayed zoom={200} />);
+      // Before RESCALE_DELAY_MS (150ms), scale has not settled
+      act(() => vi.advanceTimersByTime(140));
+      expect(calls).toHaveLength(1);
+
+      // Once scale settles at 150ms, it should immediately dispatch call 2 without waiting for requestDelayMs
+      act(() => vi.advanceTimersByTime(15));
+      expect(calls).toHaveLength(2);
+      expect(calls[1]!.args.scale).toBe(2.667);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reports the page being read and scrolls to a page on request", () => {
     const onPage = vi.fn();
     const view = createRef<DocumentViewHandle>();
