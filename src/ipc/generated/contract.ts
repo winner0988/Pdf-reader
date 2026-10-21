@@ -151,6 +151,67 @@ opacity: number,
 diagonal: boolean, place: WatermarkPlace, pages: WatermarkPages, };
 
 /**
+ * Where on each page a page mark (header, footer, page number, Bates number) is placed (B3-16).
+ * There are six positions corresponding to the header and footer slots.
+ */
+export type PageMarkPosition = "topLeft" | "topCenter" | "topRight" | "bottomLeft" | "bottomCenter" | "bottomRight";
+
+/**
+ * The format of a page number mark (B3-16).
+ */
+export type PageNumberFormat = { "kind": "number" } | { "kind": "page" } | { "kind": "pageOfTotal" } | { "kind": "custom", prefix: string, suffix: string, };
+
+/**
+ * Page number mark specification (B3-16).
+ */
+export type PageNumberMark = { format: PageNumberFormat, start: number, position: PageMarkPosition, };
+
+/**
+ * Bates numbering mark specification (B3-16).
+ */
+export type BatesMark = { 
+/**
+ * Up to 32 characters.
+ */
+prefix: string, 
+/**
+ * Number of digits: 1 to 12.
+ */
+digits: number, 
+/**
+ * Starting number.
+ */
+start: number, position: PageMarkPosition, };
+
+/**
+ * Header and footer text marks for the six slots (B3-16).
+ */
+export type HeaderFooterMarks = { headerLeft: string | null, headerCenter: string | null, headerRight: string | null, footerLeft: string | null, footerCenter: string | null, footerRight: string | null, };
+
+/**
+ * Which pages receive page marks (B3-16).
+ */
+export type PageMarkPages = { "kind": "all" } | { "kind": "allButFirst" } | { "kind": "custom", pages: Array<number>, };
+
+/**
+ * Page marks to draw on a copy of a document (B3-16).
+ */
+export type PageMarks = { pageNumber: PageNumberMark | null, bates: BatesMark | null, headerFooter: HeaderFooterMarks | null, 
+/**
+ * Font size in points: 6 to 72 pt.
+ */
+fontSize: number, color: Rgb, 
+/**
+ * Margin from the page edge in points: 0 to 144 pt.
+ */
+marginPt: number, pages: PageMarkPages, };
+
+/**
+ * Arguments of `page_marks_copy` (B3-16).
+ */
+export type PageMarksCopyArgs = { doc: DocumentId, marks: PageMarks, };
+
+/**
  * What a batch does to each of its files (B3-04, ADR 0005, docs/architecture/batch.md): a copy of
  * each is written to the folder the user chooses; no file is changed.
  */
@@ -1308,6 +1369,15 @@ export const LIMITS = {
   maxLanguageDataBytes: 67108864,
   maxImportedLanguages: 20,
   maxImportedFonts: 50,
+  minPageMarkSizePt: 6,
+  maxPageMarkSizePt: 72,
+  minPageMarkMarginPt: 0,
+  maxPageMarkMarginPt: 144,
+  maxPageMarkChars: 100,
+  maxBatesPrefixChars: 32,
+  minBatesDigits: 1,
+  maxBatesDigits: 12,
+  maxPageMarkPages: 10000,
   maxPersonalDataMatches: 1000,
   maxPersonalDataKeywordBytes: 1024,
   maxPersonalDataPreviewBytes: 128,

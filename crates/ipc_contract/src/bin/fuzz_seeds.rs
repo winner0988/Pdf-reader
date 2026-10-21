@@ -8,21 +8,22 @@ use std::path::PathBuf;
 use ipc_contract::frame::encode;
 use ipc_contract::types::{
     AnnotationId, AnnotationKind, AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind,
-    AttachmentId, AttachmentSource, BlockedAction, Certification, CreateKind, DocumentId,
-    DocumentPermissions, FieldId, FieldKind, FieldOption, FindPersonalDataQuery, FindingKind,
-    FontRefusal, FormField, HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth,
-    LinkId, LinkTarget, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText,
-    Password, PersonalDataCategory, PersonalDataMatch, PersonalDataMatches, PictureView, Point,
-    Quad, RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb,
-    Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityFinding, SecurityReport,
-    SignatureInfo, SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo,
-    TextBoxStyle, TextLine, UnverifiableReason, Watermark, WatermarkContent, WatermarkPages,
-    WatermarkPlace,
+    AttachmentId, AttachmentSource, BatesMark, BlockedAction, Certification, CreateKind,
+    DocumentId, DocumentPermissions, FieldId, FieldKind, FieldOption, FindPersonalDataQuery,
+    FindingKind, FontRefusal, FormField, HeaderFooterMarks, HighlightColor, HighlightMark,
+    ImageQuality, InkColor, InkWidth, LinkId, LinkTarget, OutlineItem, OutlineResult,
+    PageAnnotation, PageLink, PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat,
+    PageNumberMark, PageSize, PageText, Password, PersonalDataCategory, PersonalDataMatch,
+    PersonalDataMatches, PictureView, Point, Quad, RasterRegion, Rect, RedactionCheck,
+    RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions, SanitizeReport,
+    SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport, SignatureStatus,
+    StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason, Watermark,
+    WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, ModelGlyph, OcrFinished, OcrOutcome, OcrPageState,
     OpenedDocument, PasswordKey, Raster, TextBoxModel, WorkerAttachment, WorkerEdit, WorkerError,
-    WorkerErrorCode, WorkerRequest, WorkerResponse, WorkerWatermark,
+    WorkerErrorCode, WorkerPageMarks, WorkerRequest, WorkerResponse, WorkerWatermark,
 };
 
 /// The words of a text box, as a worker would prepare them (a small one).
@@ -1020,6 +1021,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 pages: WatermarkPages::First,
             }),
             picture: Some(stamp_png()),
+        },
+        WorkerRequest::PageMarksCopy {
+            request,
+            doc,
+            file: FileHandle(0x2bc),
+            marks: WorkerPageMarks::from(PageMarks {
+                page_number: Some(PageNumberMark {
+                    format: PageNumberFormat::PageOfTotal,
+                    start: 1,
+                    position: PageMarkPosition::BottomCenter,
+                }),
+                bates: None,
+                header_footer: Some(HeaderFooterMarks {
+                    header_left: Some("CONFIDENTIAL".to_owned()),
+                    header_center: None,
+                    header_right: Some("DRAFT".to_owned()),
+                    footer_left: None,
+                    footer_center: None,
+                    footer_right: None,
+                }),
+                font_size: 10.0,
+                color: Rgb { r: 50, g: 50, b: 50 },
+                margin_pt: 36.0,
+                pages: PageMarkPages::All,
+            }),
+        },
+        WorkerRequest::PageMarksCopy {
+            request,
+            doc,
+            file: FileHandle(0x2c0),
+            marks: WorkerPageMarks::from(PageMarks {
+                page_number: None,
+                bates: Some(BatesMark {
+                    prefix: "ABC-".to_owned(),
+                    digits: 6,
+                    start: 1,
+                    position: PageMarkPosition::BottomRight,
+                }),
+                header_footer: None,
+                font_size: 12.0,
+                color: Rgb { r: 0, g: 0, b: 0 },
+                margin_pt: 24.0,
+                pages: PageMarkPages::Custom { pages: vec![0, 1] },
+            }),
         },
         WorkerRequest::ExportDocx {
             request,

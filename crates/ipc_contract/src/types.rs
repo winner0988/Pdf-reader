@@ -948,6 +948,109 @@ pub struct Watermark {
     pub pages: WatermarkPages,
 }
 
+/// Where on each page a page mark (header, footer, page number, Bates number) is placed (B3-16).
+/// There are six positions corresponding to the header and footer slots.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum PageMarkPosition {
+    TopLeft,
+    TopCenter,
+    TopRight,
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
+}
+
+/// The format of a page number mark (B3-16).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum PageNumberFormat {
+    /// Just the number "{n}".
+    Number,
+    /// "第 {n} 頁".
+    Page,
+    /// "第 {n} 頁／共 {total} 頁".
+    PageOfTotal,
+    /// Prefix and suffix around "{n}".
+    Custom { prefix: String, suffix: String },
+}
+
+/// Page number mark specification (B3-16).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageNumberMark {
+    pub format: PageNumberFormat,
+    pub start: u32,
+    pub position: PageMarkPosition,
+}
+
+/// Bates numbering mark specification (B3-16).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BatesMark {
+    /// Up to 32 characters.
+    pub prefix: String,
+    /// Number of digits: 1 to 12.
+    pub digits: u8,
+    /// Starting number.
+    #[ts(type = "number")]
+    pub start: u64,
+    pub position: PageMarkPosition,
+}
+
+/// Header and footer text marks for the six slots (B3-16).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HeaderFooterMarks {
+    #[serde(default)]
+    pub header_left: Option<String>,
+    #[serde(default)]
+    pub header_center: Option<String>,
+    #[serde(default)]
+    pub header_right: Option<String>,
+    #[serde(default)]
+    pub footer_left: Option<String>,
+    #[serde(default)]
+    pub footer_center: Option<String>,
+    #[serde(default)]
+    pub footer_right: Option<String>,
+}
+
+/// Which pages receive page marks (B3-16).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum PageMarkPages {
+    All,
+    AllButFirst,
+    Custom { pages: Vec<u32> },
+}
+
+/// Page marks to draw on a copy of a document (B3-16).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageMarks {
+    #[serde(default)]
+    pub page_number: Option<PageNumberMark>,
+    #[serde(default)]
+    pub bates: Option<BatesMark>,
+    #[serde(default)]
+    pub header_footer: Option<HeaderFooterMarks>,
+    /// Font size in points: 6 to 72 pt.
+    pub font_size: f32,
+    pub color: Rgb,
+    /// Margin from the page edge in points: 0 to 144 pt.
+    pub margin_pt: f32,
+    pub pages: PageMarkPages,
+}
+
+/// Arguments of `page_marks_copy` (B3-16).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageMarksCopyArgs {
+    pub doc: DocumentId,
+    pub marks: PageMarks,
+}
+
 /// Arguments of `compress_images` (B3-01): the open document is written, its pictures encoded
 /// again, to a file the user chooses next. Any other field is rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
