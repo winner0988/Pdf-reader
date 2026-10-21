@@ -8,21 +8,22 @@ import type {
   PageNumberFormat,
   Rgb,
 } from "@/ipc/generated/contract";
+import { strings } from "@/i18n/zh-TW";
 
 export const POSITIONS: PageMarkPosition[] = [
-  "TopLeft",
-  "TopCenter",
-  "TopRight",
-  "BottomLeft",
-  "BottomCenter",
-  "BottomRight",
+  "topLeft",
+  "topCenter",
+  "topRight",
+  "bottomLeft",
+  "bottomCenter",
+  "bottomRight",
 ];
 
 export const PRESET_COLORS: { label: string; color: Rgb }[] = [
-  { label: "黑色", color: { r: 0, g: 0, b: 0 } },
-  { label: "灰色", color: { r: 100, g: 100, b: 100 } },
-  { label: "紅色", color: { r: 200, g: 0, b: 0 } },
-  { label: "藍色", color: { r: 0, g: 70, b: 180 } },
+  { label: strings.pageMarks.colorBlack, color: { r: 0, g: 0, b: 0 } },
+  { label: strings.pageMarks.colorGray, color: { r: 100, g: 100, b: 100 } },
+  { label: strings.pageMarks.colorRed, color: { r: 200, g: 0, b: 0 } },
+  { label: strings.pageMarks.colorBlue, color: { r: 0, g: 70, b: 180 } },
 ];
 
 export type PageMarksForm = {
@@ -70,13 +71,13 @@ export const DEFAULT_PAGE_MARKS_FORM: PageMarksForm = {
   customPrefix: "",
   customSuffix: "",
   pageNumberStart: 1,
-  pageNumberPosition: "BottomCenter",
+  pageNumberPosition: "bottomCenter",
 
   enableBates: false,
   batesPrefix: "",
   batesDigits: 6,
   batesStart: 1,
-  batesPosition: "BottomRight",
+  batesPosition: "bottomRight",
 
   enableHeaderFooter: false,
   headerLeft: "",
@@ -95,17 +96,17 @@ export function formatPageNumber(
   total: number,
   format: PageNumberFormat,
 ): string {
-  if (format === "Number") {
+  if (format.kind === "number") {
     return `${n}`;
   }
-  if (format === "Page") {
+  if (format.kind === "page") {
     return `第 ${n} 頁`;
   }
-  if (format === "PageOfTotal") {
+  if (format.kind === "pageOfTotal") {
     return `第 ${n} 頁／共 ${total} 頁`;
   }
-  if (typeof format === "object" && "Custom" in format) {
-    return `${format.Custom.prefix}${n}${format.Custom.suffix}`;
+  if (format.kind === "custom") {
+    return `${format.prefix}${n}${format.suffix}`;
   }
   return `${n}`;
 }
@@ -122,6 +123,11 @@ export function formatBates(
   return `${prefix}${padded}`;
 }
 
+/** Header or footer words as the worker takes them: one line, single spaces, none at the ends. */
+export function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 /**
  * Parses user input page range string (e.g. "1-5, 8, 11-13") into sorted 0-based page indices.
  * Returns null if the string is invalid or any page number exceeds `totalPages`.
@@ -133,7 +139,10 @@ export function parsePageRanges(
   const trimmed = input.trim();
   if (!trimmed) return null;
 
-  const parts = trimmed.split(/[,，\s]+/).filter(Boolean);
+  const parts = trimmed
+    .replace(/\s*([-~～])\s*/g, "$1")
+    .split(/[,，\s]+/)
+    .filter(Boolean);
   if (parts.length === 0) return null;
 
   const indices = new Set<number>();
@@ -143,17 +152,15 @@ export function parsePageRanges(
       const page = parseInt(part, 10);
       if (page < 1 || page > totalPages) return null;
       indices.add(page - 1);
-    } else if (/^(\d+)\s*[-~～]\s*(\d+)$/.test(part)) {
-      const match = part.match(/^(\d+)\s*[-~～]\s*(\d+)$/);
-      if (!match) return null;
-      const start = parseInt(match[1], 10);
-      const end = parseInt(match[2], 10);
+    } else {
+      const [, first, last] = /^(\d+)[-~～](\d+)$/.exec(part) ?? [];
+      if (first === undefined || last === undefined) return null;
+      const start = parseInt(first, 10);
+      const end = parseInt(last, 10);
       if (start < 1 || end < start || end > totalPages) return null;
       for (let p = start; p <= end; p++) {
         indices.add(p - 1);
       }
-    } else {
-      return null;
     }
   }
 
@@ -185,12 +192,12 @@ export function getMarkedPageIndices(
  */
 export function findPositionConflicts(form: PageMarksForm): PageMarkPosition[] {
   const counts: Record<PageMarkPosition, number> = {
-    TopLeft: 0,
-    TopCenter: 0,
-    TopRight: 0,
-    BottomLeft: 0,
-    BottomCenter: 0,
-    BottomRight: 0,
+    topLeft: 0,
+    topCenter: 0,
+    topRight: 0,
+    bottomLeft: 0,
+    bottomCenter: 0,
+    bottomRight: 0,
   };
 
   if (form.enablePageNumber) {
@@ -202,12 +209,12 @@ export function findPositionConflicts(form: PageMarksForm): PageMarkPosition[] {
   }
 
   if (form.enableHeaderFooter) {
-    if (form.headerLeft.trim()) counts.TopLeft++;
-    if (form.headerCenter.trim()) counts.TopCenter++;
-    if (form.headerRight.trim()) counts.TopRight++;
-    if (form.footerLeft.trim()) counts.BottomLeft++;
-    if (form.footerCenter.trim()) counts.BottomCenter++;
-    if (form.footerRight.trim()) counts.BottomRight++;
+    if (form.headerLeft.trim()) counts.topLeft++;
+    if (form.headerCenter.trim()) counts.topCenter++;
+    if (form.headerRight.trim()) counts.topRight++;
+    if (form.footerLeft.trim()) counts.bottomLeft++;
+    if (form.footerCenter.trim()) counts.bottomCenter++;
+    if (form.footerRight.trim()) counts.bottomRight++;
   }
 
   return POSITIONS.filter((pos) => counts[pos] > 1);
@@ -248,15 +255,14 @@ export function calculatePreview(
   const formatPn = (seq: number): string => {
     const n = Math.max(1, form.pageNumberStart) + seq;
     const total = Math.max(1, form.pageNumberStart) + markedCount - 1;
-    let fmt: PageNumberFormat = "Number";
-    if (form.pageNumberFormatType === "Page") fmt = "Page";
-    else if (form.pageNumberFormatType === "PageOfTotal") fmt = "PageOfTotal";
+    let fmt: PageNumberFormat = { kind: "number" };
+    if (form.pageNumberFormatType === "Page") fmt = { kind: "page" };
+    else if (form.pageNumberFormatType === "PageOfTotal") fmt = { kind: "pageOfTotal" };
     else if (form.pageNumberFormatType === "Custom") {
       fmt = {
-        Custom: {
-          prefix: form.customPrefix,
-          suffix: form.customSuffix,
-        },
+        kind: "custom",
+        prefix: form.customPrefix,
+        suffix: form.customSuffix,
       };
     }
     return formatPageNumber(n, total, fmt);
@@ -269,21 +275,21 @@ export function calculatePreview(
 
   const buildSlots = (seq: number): PagePreviewSlots => {
     const slots: PagePreviewSlots = {
-      TopLeft: null,
-      TopCenter: null,
-      TopRight: null,
-      BottomLeft: null,
-      BottomCenter: null,
-      BottomRight: null,
+      topLeft: null,
+      topCenter: null,
+      topRight: null,
+      bottomLeft: null,
+      bottomCenter: null,
+      bottomRight: null,
     };
 
     if (form.enableHeaderFooter) {
-      if (form.headerLeft.trim()) slots.TopLeft = form.headerLeft.trim();
-      if (form.headerCenter.trim()) slots.TopCenter = form.headerCenter.trim();
-      if (form.headerRight.trim()) slots.TopRight = form.headerRight.trim();
-      if (form.footerLeft.trim()) slots.BottomLeft = form.footerLeft.trim();
-      if (form.footerCenter.trim()) slots.BottomCenter = form.footerCenter.trim();
-      if (form.footerRight.trim()) slots.BottomRight = form.footerRight.trim();
+      if (form.headerLeft.trim()) slots.topLeft = form.headerLeft.trim();
+      if (form.headerCenter.trim()) slots.topCenter = form.headerCenter.trim();
+      if (form.headerRight.trim()) slots.topRight = form.headerRight.trim();
+      if (form.footerLeft.trim()) slots.bottomLeft = form.footerLeft.trim();
+      if (form.footerCenter.trim()) slots.bottomCenter = form.footerCenter.trim();
+      if (form.footerRight.trim()) slots.bottomRight = form.footerRight.trim();
     }
 
     if (form.enablePageNumber) {
@@ -297,14 +303,16 @@ export function calculatePreview(
     return slots;
   };
 
+  const first = markedIndices[0] ?? 0;
+  const last = markedIndices[markedCount - 1] ?? first;
   return {
     markedCount,
     firstPage: {
-      pageNumber: markedIndices[0] + 1,
+      pageNumber: first + 1,
       slots: buildSlots(0),
     },
     lastPage: {
-      pageNumber: markedIndices[markedCount - 1] + 1,
+      pageNumber: last + 1,
       slots: buildSlots(markedCount - 1),
     },
   };
@@ -348,27 +356,26 @@ export function buildPageMarksPayload(
     return null;
   }
 
-  let pages: PageMarkPages = "All";
+  let pages: PageMarkPages = { kind: "all" };
   if (form.pagesType === "AllButFirst") {
-    pages = "AllButFirst";
+    pages = { kind: "allButFirst" };
   } else if (form.pagesType === "Custom") {
-    pages = { Custom: { pages: markedIndices } };
+    pages = { kind: "custom", pages: markedIndices };
   }
 
   const pageNumber = form.enablePageNumber
     ? {
         format:
           form.pageNumberFormatType === "Number"
-            ? ("Number" as const)
+            ? ({ kind: "number" } as const)
             : form.pageNumberFormatType === "Page"
-            ? ("Page" as const)
+            ? ({ kind: "page" } as const)
             : form.pageNumberFormatType === "PageOfTotal"
-            ? ("PageOfTotal" as const)
+            ? ({ kind: "pageOfTotal" } as const)
             : {
-                Custom: {
-                  prefix: form.customPrefix,
-                  suffix: form.customSuffix,
-                },
+                kind: "custom" as const,
+                prefix: form.customPrefix,
+                suffix: form.customSuffix,
               },
         start: Math.max(1, form.pageNumberStart),
         position: form.pageNumberPosition,
@@ -386,12 +393,12 @@ export function buildPageMarksPayload(
 
   const headerFooter: HeaderFooterMarks | null = form.enableHeaderFooter
     ? {
-        header_left: form.headerLeft.trim() || null,
-        header_center: form.headerCenter.trim() || null,
-        header_right: form.headerRight.trim() || null,
-        footer_left: form.footerLeft.trim() || null,
-        footer_center: form.footerCenter.trim() || null,
-        footer_right: form.footerRight.trim() || null,
+        headerLeft: oneLine(form.headerLeft) || null,
+        headerCenter: oneLine(form.headerCenter) || null,
+        headerRight: oneLine(form.headerRight) || null,
+        footerLeft: oneLine(form.footerLeft) || null,
+        footerCenter: oneLine(form.footerCenter) || null,
+        footerRight: oneLine(form.footerRight) || null,
       }
     : null;
 
@@ -402,8 +409,8 @@ export function buildPageMarksPayload(
     color: form.color,
     marginPt: Math.min(144, Math.max(0, form.marginPt)),
     pages,
-    page_number: pageNumber,
+    pageNumber,
     bates,
-    header_footer: headerFooter,
+    headerFooter,
   };
 }

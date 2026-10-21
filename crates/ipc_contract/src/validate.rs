@@ -10,7 +10,9 @@ use thiserror::Error;
 
 use crate::limits::*;
 use crate::ocr::is_language_name;
-use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text, is_note_text};
+use crate::text::{
+    classify_uri, is_clean_copy_text, is_clean_display_text, is_invisible_format, is_note_text,
+};
 use crate::types::{
     AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind, AttachmentInfo,
     AttachmentSource, BatchArgs, BatchOperation, CompressArgs, DocumentInfo, Edit, EditArgs,
@@ -828,7 +830,7 @@ impl Validate for PageMarks {
                         reason: "too long",
                     });
                 }
-                let bad = |s: &str| s.chars().any(|c| c.is_control() || c == '\n' || c == '\r');
+                let bad = |s: &str| s.chars().any(|c| c.is_control() || is_invisible_format(c));
                 if bad(prefix) || bad(suffix) {
                     return Err(ValidationError::Invalid {
                         what: "page number custom format",
@@ -858,8 +860,11 @@ impl Validate for PageMarks {
                     reason: "too long",
                 });
             }
-            if !bates.prefix.is_empty()
-                && (!is_clean_display_text(&bates.prefix) || bates.prefix.contains(['\n', '\r']))
+            // Spaces are kept as typed ("ABC 000001"); what is not seen is not.
+            if bates
+                .prefix
+                .chars()
+                .any(|c| c.is_control() || is_invisible_format(c))
             {
                 return Err(ValidationError::Invalid {
                     what: "bates prefix",
@@ -874,7 +879,12 @@ impl Validate for PageMarks {
             }
             if let PageMarkPages::Custom { pages } = &self.pages {
                 let count = pages.len() as u64;
-                if count > 0 && bates.start.checked_add(count - 1).map_or(true, |end| end >= max_val) {
+                if count > 0
+                    && bates
+                        .start
+                        .checked_add(count - 1)
+                        .is_none_or(|end| end >= max_val)
+                {
                     return Err(ValidationError::OutOfRange {
                         what: "bates number overflow",
                     });
@@ -2063,12 +2073,11 @@ impl Validate for SaveAttachmentResult {
 mod tests {
     use super::*;
     use crate::types::{
-        AnnotationId, AnnotationKind, BlockedAction, DocumentId, DocumentPermissions, ErrorCode,
-        FieldId, FieldKind, FieldOption, FontId, HighlightColor, HighlightMark, InkColor, InkWidth,
-        LinkId, PictureView, RecentId, Recovery, RequestId, Restrictions, Rgb, Rotation,
-        SecurityFinding, StampImageId, StampName, TabId, TextAlign, TextBoxInfo, TextBoxModelId,
-        UnverifiableReason, WatermarkPages, WatermarkPlace, BatesMark, HeaderFooterMarks,
-        PageNumberMark,
+        AnnotationId, AnnotationKind, BatesMark, BlockedAction, DocumentId, DocumentPermissions,
+        ErrorCode, FieldId, FieldKind, FieldOption, FontId, HeaderFooterMarks, HighlightColor,
+        HighlightMark, InkColor, InkWidth, LinkId, PageNumberMark, PictureView, RecentId, Recovery,
+        RequestId, Restrictions, Rgb, Rotation, SecurityFinding, StampImageId, StampName, TabId,
+        TextAlign, TextBoxInfo, TextBoxModelId, UnverifiableReason, WatermarkPages, WatermarkPlace,
     };
     use crate::worker::{ModelGlyph, WorkerErrorCode};
 

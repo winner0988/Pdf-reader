@@ -9,11 +9,21 @@ use ipc_contract::types::Rgb;
 use mupdf::pdf::{PdfDocument as MuPdfDocument, PdfObject};
 use mupdf::{Buffer, Matrix};
 
-use super::text_box::{TextBoxFont, line_form};
 use super::EngineError;
+use super::text_box::{LineFont, TextBoxFont, line_font, line_form};
 
-/// The embedded font name for Chinese and Latin text.
-pub const FONT_NAME: &str = "Droid Sans Fallback";
+/// The built-in font of the words: it has Chinese and Latin letters.
+const FONT_NAME: &str = "Droid Sans Fallback";
+
+fn droid_sans() -> Result<TextBoxFont<'static>, EngineError> {
+    let font = mupdf_fonts_droid::find_by_name(FONT_NAME, false, false)
+        .ok_or(EngineError::InvalidEdit("no font for the words"))?;
+    Ok(TextBoxFont {
+        bytes: font.data,
+        face: 0,
+        name: FONT_NAME,
+    })
+}
 
 /// Creates a Form XObject stream containing `text` on one line in the embedded font,
 /// returning the stream object and its width and height in points.
@@ -23,14 +33,16 @@ pub fn droid_sans_line_form(
     size: f32,
     color: Rgb,
 ) -> Result<(PdfObject, f32, f32), EngineError> {
-    let font = mupdf_fonts_droid::find_by_name(FONT_NAME, false, false)
-        .ok_or(EngineError::InvalidEdit("no font for the words"))?;
-    let font = TextBoxFont {
-        bytes: font.data,
-        face: 0,
-        name: FONT_NAME,
-    };
-    line_form(doc, &font, text, size, color)
+    line_form(doc, &droid_sans()?, text, size, color)
+}
+
+/// Writes into `doc` one subset of the embedded font with the glyphs of `characters`, for many
+/// lines set with `text_box::line_form_in`.
+pub fn droid_sans_line_font(
+    doc: &mut MuPdfDocument,
+    characters: &str,
+) -> Result<LineFont, EngineError> {
+    line_font(doc, &droid_sans()?, characters)
 }
 
 /// Attaches multiple Form XObjects with their transformation matrices to `page`.

@@ -1052,7 +1052,8 @@ impl Documents {
             if same_file(&document.path, destination) {
                 return Err(IpcError {
                     code: ErrorCode::InvalidArgument,
-                    message: "the page marks copy never replaces the document's own file".to_owned(),
+                    message: "the page marks copy never replaces the document's own file"
+                        .to_owned(),
                 });
             }
             saving::check_writable(destination)?;

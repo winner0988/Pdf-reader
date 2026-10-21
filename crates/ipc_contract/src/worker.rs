@@ -1624,7 +1624,11 @@ mod tests {
                 footer_right: None,
             }),
             font_size: 10.0,
-            color: Rgb { r: 10, g: 20, b: 30 },
+            color: Rgb {
+                r: 10,
+                g: 20,
+                b: 30,
+            },
             margin_pt: 36.0,
             pages: PageMarkPages::Custom {
                 pages: vec![0, 2, 4],

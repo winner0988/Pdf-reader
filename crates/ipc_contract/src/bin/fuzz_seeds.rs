@@ -1042,7 +1042,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     footer_right: None,
                 }),
                 font_size: 10.0,
-                color: Rgb { r: 50, g: 50, b: 50 },
+                color: Rgb {
+                    r: 50,
+                    g: 50,
+                    b: 50,
+                },
                 margin_pt: 36.0,
                 pages: PageMarkPages::All,
             }),

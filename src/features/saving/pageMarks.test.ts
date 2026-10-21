@@ -14,11 +14,11 @@ import {
 
 describe("pageMarks formatting and calculations", () => {
   it("formats page numbers in all 4 formats", () => {
-    expect(formatPageNumber(1, 10, "Number")).toBe("1");
-    expect(formatPageNumber(5, 10, "Page")).toBe("第 5 頁");
-    expect(formatPageNumber(2, 9, "PageOfTotal")).toBe("第 2 頁／共 9 頁");
+    expect(formatPageNumber(1, 10, { kind: "number" })).toBe("1");
+    expect(formatPageNumber(5, 10, { kind: "page" })).toBe("第 5 頁");
+    expect(formatPageNumber(2, 9, { kind: "pageOfTotal" })).toBe("第 2 頁／共 9 頁");
     expect(
-      formatPageNumber(3, 10, { Custom: { prefix: "[Doc ", suffix: "]" } }),
+      formatPageNumber(3, 10, { kind: "custom", prefix: "[Doc ", suffix: "]" }),
     ).toBe("[Doc 3]");
   });
 
@@ -43,6 +43,7 @@ describe("pageMarks formatting and calculations", () => {
     expect(parsePageRanges("1, 3-5, 8", 10)).toEqual([0, 2, 3, 4, 7]);
     expect(parsePageRanges("10", 10)).toEqual([9]);
     expect(parsePageRanges("1-3, 2-4", 10)).toEqual([0, 1, 2, 3]);
+    expect(parsePageRanges("1 - 3，5～6", 10)).toEqual([0, 1, 2, 4, 5]);
 
     // Invalid formats or out of bounds
     expect(parsePageRanges("", 10)).toBeNull();
@@ -56,16 +57,16 @@ describe("pageMarks formatting and calculations", () => {
     const form: PageMarksForm = {
       ...DEFAULT_PAGE_MARKS_FORM,
       enablePageNumber: true,
-      pageNumberPosition: "BottomCenter",
+      pageNumberPosition: "bottomCenter",
       enableBates: true,
-      batesPosition: "BottomCenter", // Collision!
+      batesPosition: "bottomCenter", // Collision!
     };
-    expect(findPositionConflicts(form)).toEqual(["BottomCenter"]);
+    expect(findPositionConflicts(form)).toEqual(["bottomCenter"]);
 
     // Distinct positions -> no collision
     const noCollision: PageMarksForm = {
       ...form,
-      batesPosition: "BottomRight",
+      batesPosition: "bottomRight",
     };
     expect(findPositionConflicts(noCollision)).toEqual([]);
 
@@ -75,7 +76,7 @@ describe("pageMarks formatting and calculations", () => {
       enableHeaderFooter: true,
       footerRight: "CONFIDENTIAL", // Collision with Bates at BottomRight!
     };
-    expect(findPositionConflicts(hfCollision)).toEqual(["BottomRight"]);
+    expect(findPositionConflicts(hfCollision)).toEqual(["bottomRight"]);
   });
 
   it("calculates preview text for first and last marked pages", () => {
@@ -89,12 +90,12 @@ describe("pageMarks formatting and calculations", () => {
       enablePageNumber: true,
       pageNumberFormatType: "PageOfTotal",
       pageNumberStart: 1,
-      pageNumberPosition: "BottomCenter",
+      pageNumberPosition: "bottomCenter",
       enableBates: true,
       batesPrefix: "BATES-",
       batesDigits: 5,
       batesStart: 100,
-      batesPosition: "BottomRight",
+      batesPosition: "bottomRight",
       enableHeaderFooter: true,
       headerLeft: "TOP SECRET",
     };
@@ -106,33 +107,33 @@ describe("pageMarks formatting and calculations", () => {
 
     // First marked page is page 2 (1-based)
     expect(preview.firstPage?.pageNumber).toBe(2);
-    expect(preview.firstPage?.slots.BottomCenter).toBe("第 1 頁／共 9 頁");
-    expect(preview.firstPage?.slots.BottomRight).toBe("BATES-00100");
-    expect(preview.firstPage?.slots.TopLeft).toBe("TOP SECRET");
+    expect(preview.firstPage?.slots.bottomCenter).toBe("第 1 頁／共 9 頁");
+    expect(preview.firstPage?.slots.bottomRight).toBe("BATES-00100");
+    expect(preview.firstPage?.slots.topLeft).toBe("TOP SECRET");
 
     // Last marked page is page 10 (1-based)
     expect(preview.lastPage?.pageNumber).toBe(10);
-    expect(preview.lastPage?.slots.BottomCenter).toBe("第 9 頁／共 9 頁");
-    expect(preview.lastPage?.slots.BottomRight).toBe("BATES-00108");
-    expect(preview.lastPage?.slots.TopLeft).toBe("TOP SECRET");
+    expect(preview.lastPage?.slots.bottomCenter).toBe("第 9 頁／共 9 頁");
+    expect(preview.lastPage?.slots.bottomRight).toBe("BATES-00108");
+    expect(preview.lastPage?.slots.topLeft).toBe("TOP SECRET");
   });
 
   it("builds payload only when valid and without conflicts", () => {
     const validForm: PageMarksForm = {
       ...DEFAULT_PAGE_MARKS_FORM,
       enablePageNumber: true,
-      pageNumberPosition: "BottomCenter",
+      pageNumberPosition: "bottomCenter",
     };
     const payload = buildPageMarksPayload(validForm, 5);
     expect(payload).not.toBeNull();
-    expect(payload?.pages).toBe("All");
-    expect(payload?.page_number?.position).toBe("BottomCenter");
+    expect(payload?.pages).toEqual({ kind: "all" });
+    expect(payload?.pageNumber?.position).toBe("bottomCenter");
 
     // Conflict returns null
     const conflictForm: PageMarksForm = {
       ...validForm,
       enableBates: true,
-      batesPosition: "BottomCenter",
+      batesPosition: "bottomCenter",
     };
     expect(buildPageMarksPayload(conflictForm, 5)).toBeNull();
 
@@ -143,7 +144,7 @@ describe("pageMarks formatting and calculations", () => {
       enableBates: true,
       batesDigits: 1,
       batesStart: 1,
-      batesPosition: "BottomRight",
+      batesPosition: "bottomRight",
     };
     expect(buildPageMarksPayload(overflowForm, 10)).toBeNull();
   });

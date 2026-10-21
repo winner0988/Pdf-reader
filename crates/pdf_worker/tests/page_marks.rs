@@ -152,7 +152,10 @@ fn refused_operations_do_not_kill_worker() {
     // 1. Encrypted document is refused
     let enc_path = corpus("benign/encrypted-rc4-40.pdf");
     let (enc_doc, _) = host
-        .open_with_password(&enc_path, ipc_contract::types::Password::new("user".to_owned()))
+        .open_with_password(
+            &enc_path,
+            ipc_contract::types::Password::new("user".to_owned()),
+        )
         .expect("open");
     let marks = PageMarks {
         font_size: 12.0,

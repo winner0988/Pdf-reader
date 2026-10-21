@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -58,10 +58,10 @@ describe("PageMarksDialog", () => {
     // Change Bates position to BottomCenter (same as page number)
     const selects = screen.getAllByRole("combobox");
     const batesPosSelect = selects.find(
-      (sel) => (sel as HTMLSelectElement).value === "BottomRight",
+      (sel) => (sel as HTMLSelectElement).value === "bottomRight",
     );
     expect(batesPosSelect).toBeDefined();
-    await user.selectOptions(batesPosSelect!, "BottomCenter");
+    await user.selectOptions(batesPosSelect!, "bottomCenter");
 
     // Collision should be detected and confirm button disabled!
     expect(screen.getByText(new RegExp(t.conflictError))).toBeInTheDocument();
@@ -118,11 +118,11 @@ describe("PageMarksDialog", () => {
       expect.objectContaining({
         doc: 42,
         marks: expect.objectContaining({
-          pages: "All",
-          page_number: expect.objectContaining({
-            format: "PageOfTotal",
+          pages: { kind: "all" },
+          pageNumber: expect.objectContaining({
+            format: { kind: "pageOfTotal" },
             start: 1,
-            position: "BottomCenter",
+            position: "bottomCenter",
           }),
         }),
       }),

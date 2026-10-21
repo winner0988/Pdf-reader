@@ -1268,7 +1268,11 @@ pub async fn page_marks_copy(
             .show()
             .await;
     };
-    blocking(move || app.state::<Documents>().page_marks_copy(doc, &destination, marks)).await?;
+    blocking(move || {
+        app.state::<Documents>()
+            .page_marks_copy(doc, &destination, marks)
+    })
+    .await?;
     Ok(true)
 }
 

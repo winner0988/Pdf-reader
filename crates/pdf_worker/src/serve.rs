@@ -520,12 +520,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     WorkerErrorCode::UnknownDocument,
                     "unknown document",
                 ),
-                Some(document) => page_marks_copy(
-                    document,
-                    request,
-                    file,
-                    &marks.into(),
-                ),
+                Some(document) => page_marks_copy(document, request, file, &marks.into()),
             }),
             WorkerRequest::PrepareSource {
                 request,

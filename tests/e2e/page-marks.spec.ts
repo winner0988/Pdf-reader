@@ -64,11 +64,20 @@ test.describe("page marks and Bates numbering", () => {
       "ready",
     );
 
-    // Search for page mark / Bates number in the copy
+    // Every page of the copy has its page number and its Bates number, found by search: the
+    // sample's own text is "Page n of 10", so these words are the marks'.
     await page.keyboard.press("Control+f");
-    const searchInput = page.getByPlaceholder(strings.search.placeholder);
-    await expect(searchInput).toBeVisible();
-    await searchInput.fill("000001");
-    await expect(page.getByText(/1 \/ 1/)).toBeVisible();
+    const search = page.getByRole("search", { name: strings.search.label });
+    const searchInput = search.getByRole("textbox", { name: strings.search.placeholder });
+    const searchStatus = search.getByRole("status");
+    for (const [words, found] of [
+      ["共 10 頁", 10],
+      ["第 7 頁", 1],
+      ["0000", 10],
+      ["000010", 1],
+    ] as const) {
+      await searchInput.fill(words);
+      await expect(searchStatus).toHaveText(strings.search.count(1, found));
+    }
   });
 });

@@ -5,18 +5,20 @@
 //! the copy is the document saved to memory and read again, as the watermark's is.
 //!
 //! The words are set in a subset of Droid Sans Fallback, which has Chinese and Latin letters,
-//! with ToUnicode mappings so that search and copy-paste work.
+//! with ToUnicode mappings so that search and copy-paste work. One subset, written once, has every
+//! character the marks can use: a number on each of thousands of pages adds a few hundred bytes a
+//! page, not a font.
 
+use std::collections::BTreeSet;
 use std::io::Write;
 
-use ipc_contract::types::{
-    PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat,
-};
+use ipc_contract::types::{PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat};
 use ipc_contract::validate::Validate;
 use mupdf::pdf::{PdfObject, PdfWriteOptions};
-use mupdf::Matrix;
+use mupdf::{Matrix, Rect};
 
-use super::page_overlay::{attach_forms_to_page, droid_sans_line_form};
+use super::page_overlay::{attach_forms_to_page, droid_sans_line_font};
+use super::text_box::line_form_in;
 use super::{EngineError, PdfDocument, write_limited};
 
 /// Returns the Form XObject name for `position`.
@@ -35,7 +37,7 @@ fn slot_name(position: PageMarkPosition) -> &'static str {
 /// `(width, height)` at `position`, taking page `bounds` and `margin` into account.
 fn slot_center(
     position: PageMarkPosition,
-    bounds: &mupdf::Rect,
+    bounds: &Rect,
     margin: f32,
     width: f32,
     height: f32,
@@ -64,6 +66,62 @@ fn slot_center(
     (x, y)
 }
 
+/// Where a form `width` by `height` at `position` goes on a page whose displayed bounds are
+/// `bounds`: level as the page is shown, mapped to the page's own space by `inverse`.
+fn placement(
+    position: PageMarkPosition,
+    bounds: &Rect,
+    margin: f32,
+    (width, height): (f32, f32),
+    inverse: &Matrix,
+) -> Matrix {
+    let (x, y) = slot_center(position, bounds, margin, width, height);
+    let mut matrix = Matrix::new_translate(-width / 2.0, -height / 2.0);
+    matrix.concat(Matrix::new_scale(1.0, -1.0));
+    matrix.concat(Matrix::new_translate(x, y));
+    matrix.concat(inverse.clone());
+    matrix
+}
+
+/// The words of page number `n` of `total`.
+fn page_number_text(format: &PageNumberFormat, n: u32, total: u32) -> String {
+    match format {
+        PageNumberFormat::Number => format!("{n}"),
+        PageNumberFormat::Page => format!("第 {n} 頁"),
+        PageNumberFormat::PageOfTotal => format!("第 {n} 頁／共 {total} 頁"),
+        PageNumberFormat::Custom { prefix, suffix } => format!("{prefix}{n}{suffix}"),
+    }
+}
+
+/// Every character the marks can have: their fixed words and the ten digits.
+fn characters(marks: &PageMarks) -> String {
+    let mut all = BTreeSet::new();
+    if let Some(number) = &marks.page_number {
+        all.extend(page_number_text(&number.format, 0, 0).chars());
+        all.extend('0'..='9');
+    }
+    if let Some(bates) = &marks.bates {
+        all.extend(bates.prefix.chars());
+        all.extend('0'..='9');
+    }
+    if let Some(words) = &marks.header_footer {
+        for text in [
+            &words.header_left,
+            &words.header_center,
+            &words.header_right,
+            &words.footer_left,
+            &words.footer_center,
+            &words.footer_right,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            all.extend(text.chars());
+        }
+    }
+    all.into_iter().collect()
+}
+
 impl PdfDocument {
     /// Writes to `out` a copy of the document, edits included, with `marks` on its pages
     /// (B3-16).
@@ -86,7 +144,7 @@ impl PdfDocument {
             return Err(EngineError::NoPageLeft);
         }
 
-        // Determine which 0-based page indices are marked.
+        // The 0-based indices of the pages marked, in order.
         let marked_pages: Vec<u32> = match &marks.pages {
             PageMarkPages::All => (0..total_pages).collect(),
             PageMarkPages::AllButFirst => (1..total_pages).collect(),
@@ -94,30 +152,29 @@ impl PdfDocument {
                 let mut sorted = pages.clone();
                 sorted.sort_unstable();
                 sorted.dedup();
-                for &p in &sorted {
-                    if p >= total_pages {
-                        return Err(EngineError::PageOutOfRange(p));
-                    }
+                if let Some(&past) = sorted.iter().find(|&&page| page >= total_pages) {
+                    return Err(EngineError::PageOutOfRange(past));
                 }
                 sorted
             }
         };
-
+        // "All but the first" of a one-page document.
+        if marked_pages.is_empty() {
+            return Err(EngineError::InvalidEdit("no page to mark"));
+        }
         let marked_count = marked_pages.len() as u64;
 
-        // Check Bates number range and overflow.
+        // The last Bates number must fit its digits.
         if let Some(bates) = &marks.bates {
-            if marked_count > 0 {
-                let last_bates = bates
-                    .start
-                    .checked_add(marked_count - 1)
-                    .ok_or(EngineError::InvalidEdit("bates number overflow"))?;
-                let max_allowed = 10_u64
-                    .checked_pow(bates.digits as u32)
-                    .ok_or(EngineError::InvalidEdit("bates number overflow"))?;
-                if last_bates >= max_allowed {
-                    return Err(EngineError::InvalidEdit("bates number overflow"));
-                }
+            let last = bates
+                .start
+                .checked_add(marked_count - 1)
+                .ok_or(EngineError::InvalidEdit("bates number overflow"))?;
+            let past_digits = 10_u64
+                .checked_pow(u32::from(bates.digits))
+                .ok_or(EngineError::InvalidEdit("bates number overflow"))?;
+            if last >= past_digits {
+                return Err(EngineError::InvalidEdit("bates number overflow"));
             }
         }
 
@@ -128,101 +185,80 @@ impl PdfDocument {
         let mut copy = PdfDocument::from_bytes(&bytes)?;
         drop(bytes);
 
-        // Pre-create line forms for headers/footers as they are constant across all pages.
-        let mut header_footer_forms = Vec::new();
-        if let Some(hf) = &marks.header_footer {
-            let slots = [
-                (PageMarkPosition::TopLeft, hf.header_left.as_deref()),
-                (PageMarkPosition::TopCenter, hf.header_center.as_deref()),
-                (PageMarkPosition::TopRight, hf.header_right.as_deref()),
-                (PageMarkPosition::BottomLeft, hf.footer_left.as_deref()),
-                (PageMarkPosition::BottomCenter, hf.footer_center.as_deref()),
-                (PageMarkPosition::BottomRight, hf.footer_right.as_deref()),
-            ];
-            for (pos, text) in slots {
-                if let Some(text) = text {
-                    if !text.is_empty() {
-                        let (form, w, h) = droid_sans_line_form(
-                            &mut copy.doc,
-                            text,
-                            marks.font_size,
-                            marks.color,
-                        )?;
-                        header_footer_forms.push((pos, form, w, h));
-                    }
+        let font = droid_sans_line_font(&mut copy.doc, &characters(marks))?;
+        let line = |copy: &mut PdfDocument, text: &str| {
+            line_form_in(&mut copy.doc, &font, text, marks.font_size, marks.color)
+        };
+
+        // Headers and footers are the same on every page: one form each.
+        let mut header_footer = Vec::new();
+        if let Some(words) = &marks.header_footer {
+            for (position, text) in [
+                (PageMarkPosition::TopLeft, &words.header_left),
+                (PageMarkPosition::TopCenter, &words.header_center),
+                (PageMarkPosition::TopRight, &words.header_right),
+                (PageMarkPosition::BottomLeft, &words.footer_left),
+                (PageMarkPosition::BottomCenter, &words.footer_center),
+                (PageMarkPosition::BottomRight, &words.footer_right),
+            ] {
+                if let Some(text) = text.as_deref().filter(|text| !text.is_empty()) {
+                    let (form, width, height) = line(&mut copy, text)?;
+                    header_footer.push((position, form, (width, height)));
                 }
             }
         }
 
-        // Apply marks to each marked page.
-        for (page_seq, &page_index) in marked_pages.iter().enumerate() {
+        let last_number = marks.page_number.as_ref().map_or(0, |number| {
+            number.start.saturating_add((marked_count - 1) as u32)
+        });
+        for (sequence, &page_index) in marked_pages.iter().enumerate() {
             let (mut page_object, inverse) = copy.page_to_pdf(page_index)?;
             let bounds = copy.load_page(page_index)?.bounds()?;
-            let (page_width, page_height) = (bounds.x1 - bounds.x0, bounds.y1 - bounds.y0);
-            if !(page_width > 0.0 && page_height > 0.0) {
+            if !(bounds.x1 - bounds.x0 > 0.0 && bounds.y1 - bounds.y0 > 0.0) {
                 continue;
             }
 
-            let mut page_forms_data: Vec<(&'static str, PdfObject, Matrix)> = Vec::new();
-
-            // 1. Static header/footer marks
-            for (pos, form, w, h) in &header_footer_forms {
-                let (x, y) = slot_center(*pos, &bounds, marks.margin_pt, *w, *h);
-                let mut matrix = Matrix::new_translate(-w / 2.0, -h / 2.0);
-                matrix.concat(Matrix::new_scale(1.0, -1.0));
-                matrix.concat(Matrix::new_translate(x, y));
-                matrix.concat(inverse.clone());
-                page_forms_data.push((slot_name(*pos), form.try_clone()?, matrix));
+            let mut forms: Vec<(&'static str, PdfObject, Matrix)> = Vec::new();
+            for (position, form, size) in &header_footer {
+                let matrix = placement(*position, &bounds, marks.margin_pt, *size, &inverse);
+                forms.push((slot_name(*position), form.try_clone()?, matrix));
             }
-
-            // 2. Page number
-            if let Some(pn) = &marks.page_number {
-                let n = pn.start.saturating_add(page_seq as u32);
-                let total = pn.start.saturating_add(marked_count as u32 - 1);
-                let text = match &pn.format {
-                    PageNumberFormat::Number => format!("{n}"),
-                    PageNumberFormat::Page => format!("第 {n} 頁"),
-                    PageNumberFormat::PageOfTotal => format!("第 {n} 頁／共 {total} 頁"),
-                    PageNumberFormat::Custom { prefix, suffix } => format!("{prefix}{n}{suffix}"),
-                };
-                let (form, w, h) = droid_sans_line_form(
-                    &mut copy.doc,
-                    &text,
-                    marks.font_size,
-                    marks.color,
-                )?;
-                let (x, y) = slot_center(pn.position, &bounds, marks.margin_pt, w, h);
-                let mut matrix = Matrix::new_translate(-w / 2.0, -h / 2.0);
-                matrix.concat(Matrix::new_scale(1.0, -1.0));
-                matrix.concat(Matrix::new_translate(x, y));
-                matrix.concat(inverse.clone());
-                page_forms_data.push((slot_name(pn.position), form, matrix));
+            if let Some(number) = &marks.page_number {
+                let n = number.start.saturating_add(sequence as u32);
+                let text = page_number_text(&number.format, n, last_number);
+                let (form, width, height) = line(&mut copy, &text)?;
+                let matrix = placement(
+                    number.position,
+                    &bounds,
+                    marks.margin_pt,
+                    (width, height),
+                    &inverse,
+                );
+                forms.push((slot_name(number.position), form, matrix));
             }
-
-            // 3. Bates number
             if let Some(bates) = &marks.bates {
-                let n = bates.start.saturating_add(page_seq as u64);
-                let text = format!("{}{:0>width$}", bates.prefix, n, width = bates.digits as usize);
-                let (form, w, h) = droid_sans_line_form(
-                    &mut copy.doc,
-                    &text,
-                    marks.font_size,
-                    marks.color,
-                )?;
-                let (x, y) = slot_center(bates.position, &bounds, marks.margin_pt, w, h);
-                let mut matrix = Matrix::new_translate(-w / 2.0, -h / 2.0);
-                matrix.concat(Matrix::new_scale(1.0, -1.0));
-                matrix.concat(Matrix::new_translate(x, y));
-                matrix.concat(inverse.clone());
-                page_forms_data.push((slot_name(bates.position), form, matrix));
+                let n = bates.start + sequence as u64;
+                let text = format!(
+                    "{}{n:0>width$}",
+                    bates.prefix,
+                    width = usize::from(bates.digits)
+                );
+                let (form, width, height) = line(&mut copy, &text)?;
+                let matrix = placement(
+                    bates.position,
+                    &bounds,
+                    marks.margin_pt,
+                    (width, height),
+                    &inverse,
+                );
+                forms.push((slot_name(bates.position), form, matrix));
             }
 
-            let forms_refs: Vec<(&str, &PdfObject, &Matrix)> = page_forms_data
+            let forms: Vec<(&str, &PdfObject, &Matrix)> = forms
                 .iter()
                 .map(|(name, form, matrix)| (*name, form, matrix))
                 .collect();
-
-            attach_forms_to_page(&mut copy.doc, &mut page_object, &forms_refs)?;
+            attach_forms_to_page(&mut copy.doc, &mut page_object, &forms)?;
         }
 
         let mut options = PdfWriteOptions::default();
@@ -370,9 +406,7 @@ mod tests {
 
         // Out of bounds page index is rejected
         let oob = PageMarks {
-            pages: PageMarkPages::Custom {
-                pages: vec![0, 10],
-            },
+            pages: PageMarkPages::Custom { pages: vec![0, 10] },
             page_number: Some(PageNumberMark {
                 format: PageNumberFormat::Number,
                 start: 1,
@@ -563,5 +597,65 @@ mod tests {
             encrypted.page_marks_copy(&marks, &mut out),
             Err(EngineError::EncryptedCopy)
         ));
+    }
+
+    #[test]
+    fn one_font_serves_every_mark_of_every_page() {
+        let doc = PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).unwrap();
+        let marks = PageMarks {
+            page_number: Some(PageNumberMark {
+                format: PageNumberFormat::PageOfTotal,
+                start: 1,
+                position: PageMarkPosition::BottomCenter,
+            }),
+            bates: Some(BatesMark {
+                prefix: "案號 ".to_owned(),
+                digits: 6,
+                start: 1,
+                position: PageMarkPosition::BottomRight,
+            }),
+            header_footer: Some(HeaderFooterMarks {
+                header_left: Some("機密文件".to_owned()),
+                ..HeaderFooterMarks::default()
+            }),
+            ..default_marks()
+        };
+        let mut out = Vec::new();
+        doc.page_marks_copy(&marks, &mut out).unwrap();
+        // The sample embeds no font of its own.
+        let fonts = out
+            .windows(b"/FontFile2".len())
+            .filter(|window| *window == b"/FontFile2")
+            .count();
+        assert_eq!(fonts, 1);
+
+        let copy = PdfDocument::from_bytes(&out).unwrap();
+        for page in [0, 9] {
+            let words = text_of(&copy, page);
+            let n = page + 1;
+            assert!(words.contains(&format!("第 {n} 頁／共 10 頁")), "{words}");
+            assert!(words.contains(&format!("案號 {n:06}")), "{words}");
+            assert!(words.contains("機密文件"), "{words}");
+        }
+    }
+
+    #[test]
+    fn all_but_the_first_page_of_one_page_is_refused() {
+        let doc = PdfDocument::from_bytes(&corpus("benign/single-page.pdf")).unwrap();
+        let marks = PageMarks {
+            pages: PageMarkPages::AllButFirst,
+            page_number: Some(PageNumberMark {
+                format: PageNumberFormat::Number,
+                start: 1,
+                position: PageMarkPosition::BottomCenter,
+            }),
+            ..default_marks()
+        };
+        let mut out = Vec::new();
+        assert!(matches!(
+            doc.page_marks_copy(&marks, &mut out),
+            Err(EngineError::InvalidEdit(_))
+        ));
+        assert!(out.is_empty());
     }
 }

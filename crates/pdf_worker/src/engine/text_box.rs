@@ -42,8 +42,50 @@ pub(super) fn line_form(
     size: f32,
     color: Rgb,
 ) -> Result<(PdfObject, f32, f32), EngineError> {
-    let model = prepare_text_box(font, text)?;
-    let words = || EngineError::InvalidEdit("the words of a watermark");
+    let font = line_font(doc, font, text)?;
+    line_form_in(doc, &font, text, size, color)
+}
+
+/// A subset of a font written once into a document, for the lines of [`line_form_in`]: page
+/// marks (B3-16) set a number on every page, and one subset serves them all.
+pub(super) struct LineFont {
+    /// The glyphs of the subset; its bytes are in the document, not here.
+    model: TextBoxModel,
+    object_number: i32,
+}
+
+/// Writes into `doc` a subset of `font` with the glyphs of the characters of `characters`.
+pub(super) fn line_font(
+    doc: &mut mupdf::pdf::PdfDocument,
+    font: &TextBoxFont,
+    characters: &str,
+) -> Result<LineFont, EngineError> {
+    let mut model = prepare_text_box(font, characters)?;
+    let subset = font::clean_subset(&model).ok_or(EngineError::Font(FontRefusal::NotAFont))?;
+    let (font_object, _) = pdf::write_font(doc, &model, &subset)?;
+    model.subset = Vec::new();
+    Ok(LineFont {
+        model,
+        object_number: pdf::object_number(&font_object)?,
+    })
+}
+
+/// [`line_form`] with a font already in the document, which has the glyphs of `text`.
+pub(super) fn line_form_in(
+    doc: &mut mupdf::pdf::PdfDocument,
+    font: &LineFont,
+    text: &str,
+    size: f32,
+    color: Rgb,
+) -> Result<(PdfObject, f32, f32), EngineError> {
+    let words = || EngineError::InvalidEdit("the words of a line");
+    if text.trim().is_empty() {
+        return Err(words());
+    }
+    let model = TextBoxModel {
+        text: text.to_owned(),
+        ..font.model.clone()
+    };
     let glyphs = layout::glyphs(&model).ok_or_else(words)?;
     let line: f32 = glyphs.iter().map(|glyph| glyph.advance * size).sum();
     // As `layout::lay_out` sets a line: its baseline the ascent below the top, and room for what
@@ -59,14 +101,12 @@ pub(super) fn line_form(
     };
     // A little wider than the line, so that rounding never breaks it in two.
     let laid = layout::lay_out(&model, &style, (width + 1.0, height)).ok_or_else(words)?;
-    let subset = font::clean_subset(&model).ok_or(EngineError::Font(FontRefusal::NotAFont))?;
-    let (font_object, _) = pdf::write_font(doc, &model, &subset)?;
     let form = pdf::parse(
         doc,
         &format!(
             "<< /Type /XObject /Subtype /Form /BBox [0 0 {width:.3} {height:.3}] \
              /Resources << /Font << /F0 {} 0 R >> >> >>",
-            pdf::object_number(&font_object)?,
+            font.object_number,
         ),
     )?;
     let stream = doc.add_stream(

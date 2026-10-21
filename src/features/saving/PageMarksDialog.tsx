@@ -19,6 +19,7 @@ import {
   isBatesOverflow,
   POSITIONS,
   PRESET_COLORS,
+  type MarksPreview,
   type PageMarksForm,
 } from "@/features/saving/pageMarks";
 import { strings } from "@/i18n/zh-TW";
@@ -113,17 +114,17 @@ export function PageMarksDialog({
 
   const posLabel = (pos: PageMarkPosition): string => {
     switch (pos) {
-      case "TopLeft":
+      case "topLeft":
         return t.posTopLeft;
-      case "TopCenter":
+      case "topCenter":
         return t.posTopCenter;
-      case "TopRight":
+      case "topRight":
         return t.posTopRight;
-      case "BottomLeft":
+      case "bottomLeft":
         return t.posBottomLeft;
-      case "BottomCenter":
+      case "bottomCenter":
         return t.posBottomCenter;
-      case "BottomRight":
+      case "bottomRight":
         return t.posBottomRight;
     }
   };
@@ -241,7 +242,7 @@ export function PageMarksDialog({
                         onChange={(e) =>
                           setForm({ ...form, customPrefix: e.target.value })
                         }
-                        placeholder="第 "
+                        placeholder={t.customPrefixPlaceholder}
                         className="mt-1 w-full rounded-md border p-1.5 text-sm"
                       />
                     </div>
@@ -255,7 +256,7 @@ export function PageMarksDialog({
                         onChange={(e) =>
                           setForm({ ...form, customSuffix: e.target.value })
                         }
-                        placeholder=" 頁"
+                        placeholder={t.customSuffixPlaceholder}
                         className="mt-1 w-full rounded-md border p-1.5 text-sm"
                       />
                     </div>
@@ -637,133 +638,8 @@ export function PageMarksDialog({
             )}
 
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              {/* First Marked Page Preview Box */}
-              <div className="rounded border bg-muted/20 p-2.5">
-                <div className="mb-1.5 text-xs font-medium text-muted-foreground">
-                  {t.firstPagePreview}
-                  {preview.firstPage && `（第 ${preview.firstPage.pageNumber} 頁）`}
-                </div>
-                <div className="relative flex h-36 flex-col justify-between rounded border bg-background p-2 text-[11px] shadow-sm">
-                  {/* Top row */}
-                  <div className="flex justify-between gap-1 overflow-hidden">
-                    <span
-                      className={`truncate max-w-[32%] ${
-                        conflicts.includes("TopLeft") ? "text-destructive font-bold" : ""
-                      }`}
-                    >
-                      {preview.firstPage?.slots.TopLeft ?? " "}
-                    </span>
-                    <span
-                      className={`truncate max-w-[32%] text-center ${
-                        conflicts.includes("TopCenter") ? "text-destructive font-bold" : ""
-                      }`}
-                    >
-                      {preview.firstPage?.slots.TopCenter ?? " "}
-                    </span>
-                    <span
-                      className={`truncate max-w-[32%] text-right ${
-                        conflicts.includes("TopRight") ? "text-destructive font-bold" : ""
-                      }`}
-                    >
-                      {preview.firstPage?.slots.TopRight ?? " "}
-                    </span>
-                  </div>
-
-                  {/* Middle watermark / placeholder */}
-                  <div className="text-center text-xs text-muted-foreground/30 select-none">
-                    PDF 頁面內容
-                  </div>
-
-                  {/* Bottom row */}
-                  <div className="flex justify-between gap-1 overflow-hidden">
-                    <span
-                      className={`truncate max-w-[32%] ${
-                        conflicts.includes("BottomLeft") ? "text-destructive font-bold" : ""
-                      }`}
-                    >
-                      {preview.firstPage?.slots.BottomLeft ?? " "}
-                    </span>
-                    <span
-                      className={`truncate max-w-[32%] text-center ${
-                        conflicts.includes("BottomCenter") ? "text-destructive font-bold" : ""
-                      }`}
-                    >
-                      {preview.firstPage?.slots.BottomCenter ?? " "}
-                    </span>
-                    <span
-                      className={`truncate max-w-[32%] text-right ${
-                        conflicts.includes("BottomRight") ? "text-destructive font-bold" : ""
-                      }`}
-                    >
-                      {preview.firstPage?.slots.BottomRight ?? " "}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Last Marked Page Preview Box */}
-              <div className="rounded border bg-muted/20 p-2.5">
-                <div className="mb-1.5 text-xs font-medium text-muted-foreground">
-                  {t.lastPagePreview}
-                  {preview.lastPage && `（第 ${preview.lastPage.pageNumber} 頁）`}
-                </div>
-                <div className="relative flex h-36 flex-col justify-between rounded border bg-background p-2 text-[11px] shadow-sm">
-                  {/* Top row */}
-                  <div className="flex justify-between gap-1 overflow-hidden">
-                    <span
-                      className={`truncate max-w-[32%] ${
-                        conflicts.includes("TopLeft") ? "text-destructive font-bold" : ""
-                      }`}
-                    >
-                      {preview.lastPage?.slots.TopLeft ?? " "}
-                    </span>
-                    <span
-                      className={`truncate max-w-[32%] text-center ${
-                        conflicts.includes("TopCenter") ? "text-destructive font-bold" : ""
-                      }`}
-                    >
-                      {preview.lastPage?.slots.TopCenter ?? " "}
-                    </span>
-                    <span
-                      className={`truncate max-w-[32%] text-right ${
-                        conflicts.includes("TopRight") ? "text-destructive font-bold" : ""
-                      }`}
-                    >
-                      {preview.lastPage?.slots.TopRight ?? " "}
-                    </span>
-                  </div>
-
-                  {/* Middle placeholder */}
-                  <div className="text-center text-xs text-muted-foreground/30 select-none">
-                    PDF 頁面內容
-                  </div>
-
-                  {/* Bottom row */}
-                  <div className="flex justify-between gap-1 overflow-hidden">
-                    <span
-                      className={`truncate max-w-[32%] ${
-                        conflicts.includes("BottomLeft") ? "text-destructive font-bold" : ""
-                      }`}
-                    >
-                      {preview.lastPage?.slots.BottomLeft ?? " "}
-                    </span>
-                    <span
-                      className={`truncate max-w-[32%] text-center ${
-                        conflicts.includes("BottomCenter") ? "text-destructive font-bold" : ""
-                      }`}
-                    >
-                      {preview.lastPage?.slots.BottomCenter ?? " "}
-                    </span>
-                    <span
-                      className={`truncate max-w-[32%] text-right ${
-                        conflicts.includes("BottomRight") ? "text-destructive font-bold" : ""
-                      }`}
-                    >
-                      {preview.lastPage?.slots.BottomRight ?? " "}
-                    </span>
-                  </div>
-                </div>
-              </div>
+              <PreviewPage label={t.firstPagePreview} page={preview.firstPage} conflicts={conflicts} />
+              <PreviewPage label={t.lastPagePreview} page={preview.lastPage} conflicts={conflicts} />
             </div>
           </section>
 
@@ -793,5 +669,49 @@ export function PageMarksDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** One page of the preview: the marks in their six places, and in red a place two marks want. */
+function PreviewPage({
+  label,
+  page,
+  conflicts,
+}: {
+  label: string;
+  page: MarksPreview["firstPage"];
+  conflicts: PageMarkPosition[];
+}) {
+  const slot = (position: PageMarkPosition, align: string) => (
+    <span
+      className={`max-w-[32%] truncate ${align} ${
+        conflicts.includes(position) ? "font-bold text-destructive" : ""
+      }`}
+    >
+      {page?.slots[position] ?? " "}
+    </span>
+  );
+  return (
+    <div className="rounded border bg-muted/20 p-2.5">
+      <div className="mb-1.5 text-xs font-medium text-muted-foreground">
+        {label}
+        {page && t.previewPageNumber(page.pageNumber)}
+      </div>
+      <div className="relative flex h-36 flex-col justify-between rounded border bg-background p-2 text-[11px] shadow-sm">
+        <div className="flex justify-between gap-1 overflow-hidden">
+          {slot("topLeft", "")}
+          {slot("topCenter", "text-center")}
+          {slot("topRight", "text-right")}
+        </div>
+        <div className="select-none text-center text-xs text-muted-foreground/30">
+          {t.previewPageContent}
+        </div>
+        <div className="flex justify-between gap-1 overflow-hidden">
+          {slot("bottomLeft", "")}
+          {slot("bottomCenter", "text-center")}
+          {slot("bottomRight", "text-right")}
+        </div>
+      </div>
+    </div>
   );
 }

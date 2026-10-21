@@ -1044,6 +1044,23 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | pageMarks.done | 已另存加上頁碼的副本。 |
 | pageMarks.failed | 儲存副本失敗，請再試一次。 |
 | pageMarks.encrypted | 加密的文件不適用 |
+| pageMarks.previewTitle／firstPagePreview／lastPagePreview | 效果預覽／第一頁標記效果／最後一頁標記效果 |
+| pageMarks.previewPageNumber(page)／previewPageContent | （第 <page> 頁）／PDF 頁面內容（預覽中頁面的位置） |
+| pageMarks.pageNumberTitle／format | 頁碼（也是勾選框）／格式 |
+| pageMarks.formatNumber／formatPage／formatPageOfTotal／formatCustom | 純數字（1）／第 N 頁（第 1 頁）／第 N 頁／共 Total 頁（第 1 頁／共 10 頁）／自訂前後綴 |
+| pageMarks.customPrefix／customSuffix／customPrefixPlaceholder／customSuffixPlaceholder | 前綴／後綴／「第 」／「 頁」 |
+| pageMarks.startNumber／position | 起始號碼／位置 |
+| pageMarks.batesTitle／batesPrefix／batesPrefixHint | Bates 編號（也是勾選框）／前綴／最多 32 個字元 |
+| pageMarks.batesDigits／batesDigitsHint／batesStart／batesOverflow | 位數／1 至 12 位（自動補零）／起始號碼／起始號碼加上頁數超出位數可表示範圍 |
+| pageMarks.headerFooterTitle | 頁首與頁尾（也是勾選框） |
+| pageMarks.headerLeft／headerCenter／headerRight／footerLeft／footerCenter／footerRight | 頁首左側／頁首中央／頁首右側／頁尾左側／頁尾中央／頁尾右側 |
+| pageMarks.textLimitHint | 每格最多 100 個字元，不支援換行 |
+| pageMarks.posTopLeft／posTopCenter／posTopRight／posBottomLeft／posBottomCenter／posBottomRight | 上左／上中／上右／下左／下中／下右 |
+| pageMarks.conflictError／noMarksError | 有多個標記放在同一個位置：／請至少啟用一項標記（頁碼、Bates 編號或頁首頁尾） |
+| pageMarks.commonTitle／fontSize／color／marginPt | 外觀與範圍／字級（點）／文字顏色／邊距（點） |
+| pageMarks.colorBlack／colorGray／colorRed／colorBlue | 黑色／灰色／紅色／藍色 |
+| pageMarks.pages／pagesAll／pagesAllButFirst／pagesCustom | 頁面範圍／全部頁面／第一頁以外／自訂範圍 |
+| pageMarks.pagesCustomPlaceholder／pagesCustomError | 例如：1-5, 8, 11-13／頁面範圍格式無效或超出文件總頁數 |
 | PAGE_MARKS_DIALOG_TITLE（主行程） | 頁碼與 Bates 編號：選擇副本的位置 |
 | page_marks_file_name（主行程） | <原檔名>（頁碼與 Bates）.pdf |
 | PAGE_MARKS_SAME_FILE_TITLE（主行程） | 請選擇其他檔案 |
