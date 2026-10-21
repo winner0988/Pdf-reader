@@ -20,6 +20,12 @@ unsafe_code = "deny"
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 
+# Full debug info made the dev build output huge (PDB files of 140+ MB per binary, a shared
+# target folder of 168 GB). Line tables keep file and line numbers in backtraces; a debugger
+# can still step through code but cannot show local variables.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.release]
 codegen-units = 1
 lto = true
