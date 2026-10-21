@@ -272,7 +272,7 @@
 - **選擇位置並淨化…**：主行程顯示系統的另存對話框，建議檔名 `<原檔名>（淨化副本）.pdf`，已存在時由對話框詢問是否取代。
   - 選到原本的檔案時，以訊息方塊說明（SANITIZED_COPY_SAME_FILE_MESSAGE），再顯示一次另存對話框；
   - 關閉系統對話框時回到選項對話框，可以再試；處理失敗時在對話框中顯示 sanitize.failed。
-- **完成**：顯示完成標題（sanitize.doneTitle）與各類清除數量清單（sanitize.report.*）；按「關閉」結束。分頁仍然是原本的文件，副本不加入最近開啟的檔案。
+- **完成**：顯示完成標題（sanitize.doneTitle）與各類清除數量清單（sanitize.report.*）；按「完成」（sanitize.close）結束。分頁仍然是原本的文件，副本不加入最近開啟的檔案。
 - 做法與限制見 [sanitize.md](../architecture/sanitize.md)。
 
 ### 儲存（B2-02）

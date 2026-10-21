@@ -473,7 +473,8 @@ export const strings = {
     encrypted: "加密的文件不適用",
     start: "選擇位置並淨化…",
     cancel: "取消",
-    close: "關閉",
+    /** Not "關閉": the dialog's corner button already has that name. */
+    close: "完成",
     running: "正在淨化副本…",
     doneTitle: "淨化完成",
     doneDescription: "已成功匯出淨化副本，以下為各項目清除數量：",
