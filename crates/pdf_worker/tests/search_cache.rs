@@ -184,7 +184,11 @@ fn search_then_insert_blank_page_invalidates_cache() {
     assert_eq!(hits.len(), 1);
 
     // Insert blank page at index 0
-    edit(&mut host, doc, WorkerEdit::InsertBlankPage { at: 0, like: 0 });
+    edit(
+        &mut host,
+        doc,
+        WorkerEdit::InsertBlankPage { at: 0, like: 0 },
+    );
 
     // Page 0 is blank
     let (hits_p0, has_text_p0) = search_page(&mut host, doc, 0, "needle");
@@ -229,11 +233,7 @@ fn search_then_place_text_box_finds_new_text() {
     // Place text box on page 0
     let style = TextBoxStyle {
         size: 14.0,
-        color: Rgb {
-            r: 0,
-            g: 0,
-            b: 0,
-        },
+        color: Rgb { r: 0, g: 0, b: 0 },
         align: TextAlign::Left,
     };
     let rect = Rect {
@@ -349,7 +349,10 @@ fn search_then_ocr_recognized_invalidates_cache_and_finds_ocr_text() {
             .expect("ocr poll")
         {
             WorkerResponse::OcrPolled { finished, .. } => {
-                if finished.iter().any(|f| matches!(f.outcome, OcrOutcome::Recognised { .. })) {
+                if finished
+                    .iter()
+                    .any(|f| matches!(f.outcome, OcrOutcome::Recognised { .. }))
+                {
                     recognized = true;
                     break;
                 }

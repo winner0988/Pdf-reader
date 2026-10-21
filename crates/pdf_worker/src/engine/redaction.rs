@@ -606,7 +606,7 @@ mod tests {
             PdfDocument::open(&written, None),
             Ok(_) | Err(EngineError::Encrypted)
         ));
-        let mut again = PdfDocument::open(&written, Some("owner")).expect("reopen");
+        let again = PdfDocument::open(&written, Some("owner")).expect("reopen");
         assert!(
             again
                 .search_page(0, "no printing", true, 4)

@@ -69,12 +69,7 @@ impl CachedPageText {
             };
             let line_chars = &self.chars[start..end];
             let line_quads = &self.quads[start..end];
-            text.push_line(
-                line_chars
-                    .iter()
-                    .copied()
-                    .zip(line_quads.iter().copied()),
-            );
+            text.push_line(line_chars.iter().copied().zip(line_quads.iter().copied()));
         }
     }
 }
@@ -163,10 +158,7 @@ mod tests {
             ul: Point { x: 0.0, y: 0.0 },
             ur: Point { x: 10.0, y: 0.0 },
             ll: Point { x: 0.0, y: 10.0 },
-            lr: Point {
-                x: 10.0,
-                y: 10.0,
-            },
+            lr: Point { x: 10.0, y: 10.0 },
         }
     }
 
@@ -174,19 +166,34 @@ mod tests {
     fn cached_page_text_populates_page_text_identically() {
         let mut cached = CachedPageText::new();
         cached.push_line(vec![('H', dummy_quad()), ('i', dummy_quad())]);
-        cached.push_line(vec![('W', dummy_quad()), ('o', dummy_quad()), ('r', dummy_quad()), ('l', dummy_quad()), ('d', dummy_quad())]);
+        cached.push_line(vec![
+            ('W', dummy_quad()),
+            ('o', dummy_quad()),
+            ('r', dummy_quad()),
+            ('l', dummy_quad()),
+            ('d', dummy_quad()),
+        ]);
         assert!(cached.has_text());
 
         let mut direct = PageText::new(false);
         direct.push_line(vec![('H', dummy_quad()), ('i', dummy_quad())]);
-        direct.push_line(vec![('W', dummy_quad()), ('o', dummy_quad()), ('r', dummy_quad()), ('l', dummy_quad()), ('d', dummy_quad())]);
+        direct.push_line(vec![
+            ('W', dummy_quad()),
+            ('o', dummy_quad()),
+            ('r', dummy_quad()),
+            ('l', dummy_quad()),
+            ('d', dummy_quad()),
+        ]);
 
         let mut from_cached = PageText::new(false);
         cached.populate(&mut from_cached);
 
         assert_eq!(direct.has_text(), from_cached.has_text());
         assert_eq!(direct.search("world", 10), from_cached.search("world", 10));
-        assert_eq!(direct.search("hi world", 10), from_cached.search("hi world", 10));
+        assert_eq!(
+            direct.search("hi world", 10),
+            from_cached.search("hi world", 10)
+        );
     }
 
     #[test]
