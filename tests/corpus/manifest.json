@@ -308,7 +308,9 @@
       "purpose": "A document with a plain text attachment (/Names /EmbeddedFiles).",
       "expected": "Opens; attachment list shows 'sample.txt' (.txt); can be saved to disk.",
       "pages": 1,
-      "findings": [],
+      "findings": [
+        "embeddedFile"
+      ],
       "text": [],
       "bytes": 1120,
       "sha256": "4eebdb5c7e6278217aec464f86070d965a7f881cc02d58fcf3659d848e67c24d"
@@ -319,7 +321,9 @@
       "purpose": "A document with an embedded file having empty /F and /UF names.",
       "expected": "Opens; attachment name falls back to '附件 1'; can be saved.",
       "pages": 1,
-      "findings": [],
+      "findings": [
+        "embeddedFile"
+      ],
       "text": [],
       "bytes": 1082,
       "sha256": "8c7b3b882593aa4b32cac5764b4ca3fa76ea8cc712c186cca0149f0bdc8bbb18"
