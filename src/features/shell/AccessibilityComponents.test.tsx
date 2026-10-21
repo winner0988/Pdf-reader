@@ -336,9 +336,7 @@ describe("what the window shows", () => {
         ))}
       </>,
     );
-    await expectAccessible(everything(), {
-      skip: { "aria-required-children": "the close buttons are in the tablist: #188" },
-    });
+    await expectAccessible(everything());
   });
 
   it("the status bar, with a hint, a restriction and the recognition of text", async () => {
