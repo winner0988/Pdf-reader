@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use ipc_contract::limits::MAX_BATCH_FILES;
 use ipc_contract::types::{
-    AnnotationId, BatchArgs, BatchEvent, BatchOperation, BatchReport, CompressArgs, CompressResult,
-    CreateResult, DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent,
+    AnnotationId, AnnotationSummary, AnnotationSummaryFormat, BatchArgs, BatchEvent, BatchOperation, BatchReport, CompressArgs, CompressResult,
+    CreateResult, DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs, ExportArgs, ExportEvent,
     ExportFormat, FileRecordingArgs, FontImport, FontInfo, FormField, IpcError, LanguageImport,
     LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent,
     OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText, PagesSource, Password,
@@ -1002,6 +1002,81 @@ async fn tell_same_file(window: &WebviewWindow) {
         .set_parent(window)
         .show()
         .await;
+}
+
+/// Returns the summary of annotations in document `doc` (Issue #306).
+#[tauri::command]
+pub async fn get_annotation_summary(
+    app: AppHandle,
+    doc: DocumentId,
+) -> Result<AnnotationSummary, IpcError> {
+    let info = app
+        .state::<Documents>()
+        .document_info(doc)
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        })?;
+    if !info.permissions.copy {
+        return Err(IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "the document's author does not allow copying its content".to_owned(),
+        });
+    }
+    app.state::<Documents>().annotation_summary(doc)
+}
+
+/// Exports the annotation summary text to a plain text or Markdown file chosen via native save dialog (Issue #306).
+#[tauri::command]
+pub async fn export_annotation_summary(
+    app: AppHandle,
+    window: WebviewWindow,
+    args: ExportAnnotationSummaryArgs,
+) -> Result<bool, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let documents = app.state::<Documents>();
+    let info = documents.document_info(args.doc).ok_or_else(|| IpcError {
+        code: ErrorCode::UnknownDocument,
+        message: "no such open document".to_owned(),
+    })?;
+    if !info.permissions.copy {
+        return Err(IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "the document's author does not allow copying its content".to_owned(),
+        });
+    }
+
+    let stem = export::stem(&info.display_name);
+    let is_markdown = matches!(args.format, AnnotationSummaryFormat::Markdown);
+    let ext = if is_markdown { "md" } else { "txt" };
+    let suggested_name = format!("{stem}（註解摘要）.{ext}");
+
+    let destination = loop {
+        let Some(path) =
+            file_dialog::save_annotation_summary_file(&window, suggested_name.clone(), is_markdown)
+                .await?
+        else {
+            return Ok(false);
+        };
+        if !documents.is_document_file(args.doc, &path) && !documents.is_open_file(&path) {
+            break path;
+        }
+        tell_same_file(&window).await;
+    };
+
+    let content = args.content;
+    blocking(move || {
+        export::write_whole(&destination, content.as_bytes()).map_err(|e| IpcError {
+            code: ErrorCode::Internal,
+            message: format!("failed to write annotation summary: {e}"),
+        })
+    })
+    .await?;
+
+    Ok(true)
 }
 
 /// Writes a copy of the document without its metadata (B2-03, docs/architecture/privacy-export.md)

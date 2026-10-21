@@ -19,7 +19,7 @@ use ipc_contract::limits::{
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
-    AnnotationId, BatchOperation, BlockedAction, CompressResult, CreateKind, CreateResult,
+    AnnotationId, AnnotationSummary, BatchOperation, BlockedAction, CompressResult, CreateKind, CreateResult,
     DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode, FormField,
     ImageQuality, IpcError, LinkArgs, LinkPreview, LinkTarget, MarkCheck, NotRemembered, OpenEvent,
     OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource,
@@ -1348,6 +1348,14 @@ impl Documents {
             .unwrap_or(false)
     }
 
+    /// Whether any open document is opened from `path`.
+    pub fn is_open_file(&self, path: &Path) -> bool {
+        self.lock()
+            .tabs
+            .iter()
+            .any(|tab| same_file(&lock(&tab.path), path))
+    }
+
     /// Every tab as the frontend last heard about it, in tab order: all a reloaded page needs.
     pub fn snapshot(&self) -> Vec<OpenEvent> {
         let tabs = self.lock().tabs.clone();
@@ -1832,6 +1840,21 @@ impl Documents {
                 });
             }
             Ok(annotations)
+        })
+    }
+
+    /// Returns a summary of all annotations in the document (Issue #306).
+    pub fn annotation_summary(&self, doc: DocumentId) -> Result<AnnotationSummary, IpcError> {
+        self.with_document(doc, |document| {
+            let response = request(document, |request, doc| WorkerRequest::AnnotationSummary {
+                request,
+                doc,
+            })?;
+            let WorkerResponse::AnnotationSummary { summary, .. } = response else {
+                return Err(unexpected("AnnotationSummary"));
+            };
+            summary.validate().map_err(invalid_argument)?;
+            Ok(summary)
         })
     }
 

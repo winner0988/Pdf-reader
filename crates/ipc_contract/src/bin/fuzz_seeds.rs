@@ -7,7 +7,8 @@ use std::path::PathBuf;
 
 use ipc_contract::frame::encode;
 use ipc_contract::types::{
-    AnnotationId, AnnotationKind, BlockedAction, Certification, CreateKind, DocumentId,
+    AnnotationId, AnnotationKind, AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind,
+    BlockedAction, Certification, CreateKind, DocumentId,
     DocumentPermissions, FieldId, FieldKind, FieldOption, FindingKind, FontRefusal, FormField,
     HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, LinkTarget,
     OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
@@ -429,6 +430,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             bytes: 8192,
             pages: 3,
+        },
+        WorkerResponse::AnnotationSummary {
+            request,
+            summary: AnnotationSummary {
+                items: vec![AnnotationSummaryItem {
+                    page_index: 0,
+                    kind: AnnotationSummaryKind::Highlight,
+                    rect: Rect {
+                        x0: 72.0,
+                        y0: 72.0,
+                        x1: 200.0,
+                        y1: 90.0,
+                    },
+                    text: "Privacy".to_owned(),
+                }],
+                truncated: false,
+            },
         },
         WorkerResponse::Error {
             request: Some(request),
@@ -946,6 +964,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         WorkerRequest::Cancel { target: request },
         WorkerRequest::Close { doc },
+        WorkerRequest::AnnotationSummary { request, doc },
         WorkerRequest::Shutdown,
     ];
 

@@ -77,6 +77,10 @@ export type ToolbarProps = {
   onExport?: () => void;
   /** The document's author forbids copying, which covers exporting (MVP-19). */
   exportBlocked?: boolean;
+  /** Exports a summary of annotations (Issue #306); without it the menu item is disabled. */
+  onExportAnnotations?: () => void;
+  /** The document's author forbids copying, which covers exporting annotations (Issue #306). */
+  exportAnnotationsBlocked?: boolean;
   /** Writes a copy without metadata (B2-03); without it the menu item is disabled. */
   onPrivacyExport?: () => void;
   /** An encrypted document has no privacy export (B2-03): the menu item says so. */
@@ -479,6 +483,12 @@ function MoreMenu(props: ToolbarProps) {
         <DropdownMenuItem disabled={!props.onExport} onClick={props.onExport}>
           {menu.export}
           {props.exportBlocked && <DropdownMenuShortcut>{strings.permissions.notAllowed}</DropdownMenuShortcut>}
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!props.onExportAnnotations} onClick={props.onExportAnnotations}>
+          {menu.exportAnnotations}
+          {props.exportAnnotationsBlocked && (
+            <DropdownMenuShortcut>{strings.permissions.notAllowed}</DropdownMenuShortcut>
+          )}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={!props.onPrivacyExport} onClick={props.onPrivacyExport}>
           {menu.privacyExport}

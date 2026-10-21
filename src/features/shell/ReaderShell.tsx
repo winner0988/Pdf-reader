@@ -32,6 +32,7 @@ import { CreatePdfDialog } from "@/features/create/CreatePdfDialog";
 import { fitsClipboard, type SensitiveApi } from "@/features/sensitive/api";
 import { SensitiveDialog } from "@/features/sensitive/SensitiveDialog";
 import type { ExportApi } from "@/features/export/api";
+import { AnnotationSummaryDialog } from "@/features/export/AnnotationSummaryDialog";
 import { ExportDialog } from "@/features/export/ExportDialog";
 import { CompressDialog } from "@/features/saving/CompressDialog";
 import { useOpenBatch } from "@/features/batch/useOpenBatch";
@@ -281,6 +282,7 @@ export function ReaderShell({
     | "setDefaultFailed"
     | "print"
     | "export"
+    | "exportAnnotations"
     | "privacyExport"
     | "encrypt"
     | "compress"
@@ -1047,6 +1049,14 @@ export function ReaderShell({
               : undefined
           }
           exportBlocked={exportable && !permissions.copy}
+          onExportAnnotations={
+            exportable && permissions.copy
+              ? () => {
+                  setDialog("exportAnnotations");
+                }
+              : undefined
+          }
+          exportAnnotationsBlocked={exportable && !permissions.copy}
           onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}
           privacyExportBlocked={savable && document_?.encrypted === true}
           onEncryptCopy={savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined}
@@ -1498,6 +1508,16 @@ export function ReaderShell({
           currentPage={currentPage}
           encrypted={document_.encrypted === true}
           preset={exportPreset}
+          api={exportApi}
+          onFinished={showHint}
+        />
+      )}
+      {exportable && (
+        <AnnotationSummaryDialog
+          open={dialog === "exportAnnotations"}
+          onOpenChange={(open) => setDialog(open ? "exportAnnotations" : null)}
+          doc={document_.doc!}
+          docTitle={document_.displayName}
           api={exportApi}
           onFinished={showHint}
         />

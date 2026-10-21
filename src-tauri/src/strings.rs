@@ -89,6 +89,9 @@ pub const FONT_FILTER_NAME: &str = "字型檔（.ttf、.ttc）";
 
 /// Export (B2-04): where the text goes, and the folder the page images go to.
 pub const EXPORT_TEXT_DIALOG_TITLE: &str = "匯出純文字";
+/// Export annotation summary (Issue #306).
+pub const EXPORT_ANNOTATIONS_DIALOG_TITLE: &str = "匯出註解摘要";
+pub const MARKDOWN_FILTER_NAME: &str = "Markdown 文件";
 /// The Word document (B3-02): where it goes.
 pub const EXPORT_DOCX_DIALOG_TITLE: &str = "匯出 Word 文件";
 pub const DOCX_FILTER_NAME: &str = "Word 文件（.docx）";

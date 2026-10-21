@@ -9,16 +9,19 @@
 use std::collections::HashSet;
 
 use ipc_contract::limits::{
-    MAX_ANNOTATIONS_PER_PAGE, MAX_INK_POINTS, MAX_NOTE_TEXT_BYTES, MAX_PAGE_SIDE_PT,
+    MAX_ANNOTATION_SUMMARY_ITEMS, MAX_ANNOTATION_SUMMARY_TEXT_BYTES,
+    MAX_ANNOTATION_SUMMARY_TOTAL_BYTES, MAX_ANNOTATIONS_PER_PAGE, MAX_INK_POINTS,
+    MAX_NOTE_TEXT_BYTES, MAX_PAGE_SIDE_PT,
 };
-use ipc_contract::text::clean_note_text;
+use ipc_contract::text::{clean_note_text, is_invisible_format};
 use ipc_contract::types::{
-    AnnotationId, AnnotationKind, HighlightColor, HighlightMark, InkColor, InkWidth,
+    AnnotationId, AnnotationKind, AnnotationSummary, AnnotationSummaryItem,
+    AnnotationSummaryKind, HighlightColor, HighlightMark, InkColor, InkWidth,
     PageAnnotation, Point, Quad, Rect, StampName,
 };
-use mupdf::Error;
 use mupdf::color::AnnotationColor;
 use mupdf::pdf::{PdfAnnotation, PdfAnnotationType, PdfPage};
+use mupdf::{Error, TextPage, TextPageFlags};
 
 use super::{EngineError, PdfDocument};
 
@@ -330,6 +333,147 @@ impl PdfDocument {
         Ok(())
     }
 
+    /// Returns a summary of all user-facing annotations in the document (Issue #306).
+    /// Items are sorted primarily by page index, then top-to-bottom and left-to-right
+    /// based on their displayed coordinates (respecting page rotation).
+    /// Truncated if item count reaches MAX_ANNOTATION_SUMMARY_ITEMS or total text bytes
+    /// exceeds MAX_ANNOTATION_SUMMARY_TOTAL_BYTES.
+    pub fn annotation_summary(&self) -> Result<AnnotationSummary, EngineError> {
+        let count = self.page_count()?;
+        let mut items = Vec::new();
+        let mut total_bytes = 0usize;
+        let mut truncated = false;
+
+        'outer: for page_index in 0..count {
+            let page = self.pdf_page(page_index)?;
+            let rotation = page.rotation().unwrap_or(0);
+            let bounds = page.bounds()?;
+            let page_w = bounds.x1 - bounds.x0;
+            let page_h = bounds.y1 - bounds.y0;
+
+            struct Candidate {
+                annotation: PdfAnnotation,
+                id: AnnotationId,
+                kind: AnnotationSummaryKind,
+                rect: Rect,
+                disp_top: f32,
+                disp_left: f32,
+            }
+
+            let mut candidates = Vec::new();
+            for annotation in page.annotations() {
+                let Some(kind) = (match annotation.r#type() {
+                    Ok(PdfAnnotationType::Highlight) => Some(AnnotationSummaryKind::Highlight),
+                    Ok(PdfAnnotationType::Text) => Some(AnnotationSummaryKind::Note),
+                    Ok(PdfAnnotationType::Ink) => Some(AnnotationSummaryKind::Ink),
+                    Ok(PdfAnnotationType::Stamp) => Some(AnnotationSummaryKind::Stamp),
+                    Ok(PdfAnnotationType::FreeText) if super::text_box::is_text_box(&annotation) => {
+                        Some(AnnotationSummaryKind::TextBox)
+                    }
+                    _ => None,
+                }) else {
+                    continue;
+                };
+
+                let Ok(number) = u32::try_from(annotation.xref().unwrap_or(0)) else {
+                    continue;
+                };
+                if number == 0 {
+                    continue;
+                }
+                let id = AnnotationId(number);
+
+                let Ok(b) = annotation.bounds() else {
+                    continue;
+                };
+                let rect = Rect {
+                    x0: b.x0,
+                    y0: b.y0,
+                    x1: b.x1,
+                    y1: b.y1,
+                };
+                if [rect.x0, rect.y0, rect.x1, rect.y1]
+                    .iter()
+                    .any(|value| !value.is_finite() || value.abs() > MAX_PAGE_SIDE_PT)
+                {
+                    continue;
+                }
+
+                let (disp_left, disp_top) = displayed_top_left(&rect, page_w, page_h, rotation);
+                candidates.push(Candidate {
+                    annotation,
+                    id,
+                    kind,
+                    rect,
+                    disp_top,
+                    disp_left,
+                });
+            }
+
+            candidates.sort_by(|a, b| {
+                a.disp_top
+                    .total_cmp(&b.disp_top)
+                    .then_with(|| a.disp_left.total_cmp(&b.disp_left))
+                    .then_with(|| a.id.0.cmp(&b.id.0))
+            });
+
+            let has_highlights = candidates
+                .iter()
+                .any(|c| c.kind == AnnotationSummaryKind::Highlight);
+            let text_page = if has_highlights {
+                page.to_text_page(TextPageFlags::empty()).ok()
+            } else {
+                None
+            };
+
+            for candidate in candidates {
+                let text = match candidate.kind {
+                    AnnotationSummaryKind::Highlight => {
+                        let quads = candidate.annotation.quads().unwrap_or_default();
+                        let fallback_rect = mupdf::Rect {
+                            x0: candidate.rect.x0,
+                            y0: candidate.rect.y0,
+                            x1: candidate.rect.x1,
+                            y1: candidate.rect.y1,
+                        };
+                        extract_highlight_text_from_page(
+                            text_page.as_ref(),
+                            &quads,
+                            &fallback_rect,
+                        )
+                    }
+                    AnnotationSummaryKind::Note | AnnotationSummaryKind::TextBox => candidate
+                        .annotation
+                        .contents()
+                        .ok()
+                        .flatten()
+                        .map(|s| clean_note_text(&s, MAX_ANNOTATION_SUMMARY_TEXT_BYTES as usize))
+                        .unwrap_or_default(),
+                    AnnotationSummaryKind::Ink => format!("第 {} 頁有手繪", page_index + 1),
+                    AnnotationSummaryKind::Stamp => format!("第 {} 頁有印章", page_index + 1),
+                };
+
+                if items.len() >= MAX_ANNOTATION_SUMMARY_ITEMS as usize
+                    || total_bytes.saturating_add(text.len())
+                        > MAX_ANNOTATION_SUMMARY_TOTAL_BYTES as usize
+                {
+                    truncated = true;
+                    break 'outer;
+                }
+
+                total_bytes += text.len();
+                items.push(AnnotationSummaryItem {
+                    page_index,
+                    kind: candidate.kind,
+                    rect: candidate.rect,
+                    text,
+                });
+            }
+        }
+
+        Ok(AnnotationSummary { items, truncated })
+    }
+
     pub(super) fn pdf_page(&self, index: u32) -> Result<PdfPage, EngineError> {
         if index >= self.page_count()? {
             return Err(EngineError::PageOutOfRange(index));
@@ -487,4 +631,132 @@ fn entry(annotation: &PdfAnnotation, page_rotation: i32) -> Result<Option<PageAn
         text,
         picture,
     }))
+}
+
+/// Where an annotation rectangle ends up in displayed coordinates (left, top)
+/// after accounting for clockwise page rotation (0, 90, 180, 270).
+pub(super) fn displayed_top_left(
+    rect: &Rect,
+    page_w: f32,
+    page_h: f32,
+    rotation: i32,
+) -> (f32, f32) {
+    let rot = ((rotation % 360) + 360) % 360;
+    let map = |x: f32, y: f32| -> (f32, f32) {
+        match rot {
+            90 => (page_h - y, x),
+            180 => (page_w - x, page_h - y),
+            270 => (y, page_w - x),
+            _ => (x, y),
+        }
+    };
+    let c0 = map(rect.x0, rect.y0);
+    let c1 = map(rect.x1, rect.y0);
+    let c2 = map(rect.x0, rect.y1);
+    let c3 = map(rect.x1, rect.y1);
+    let min_x = c0.0.min(c1.0).min(c2.0).min(c3.0);
+    let min_y = c0.1.min(c1.1).min(c2.1).min(c3.1);
+    (min_x, min_y)
+}
+
+/// Checks whether a point (px, py) is inside a quadrilateral quad.
+pub(super) fn point_in_quad((px, py): (f32, f32), quad: &mupdf::Quad) -> bool {
+    let min_x = quad.ul.x.min(quad.ur.x).min(quad.ll.x).min(quad.lr.x);
+    let max_x = quad.ul.x.max(quad.ur.x).max(quad.ll.x).max(quad.lr.x);
+    let min_y = quad.ul.y.min(quad.ur.y).min(quad.ll.y).min(quad.lr.y);
+    let max_y = quad.ul.y.max(quad.ur.y).max(quad.ll.y).max(quad.lr.y);
+
+    if px < min_x - 0.5 || px > max_x + 0.5 || py < min_y - 0.5 || py > max_y + 0.5 {
+        return false;
+    }
+
+    let is_axis_aligned = (quad.ul.y - quad.ur.y).abs() < 0.1
+        && (quad.ll.y - quad.lr.y).abs() < 0.1
+        && (quad.ul.x - quad.ll.x).abs() < 0.1
+        && (quad.ur.x - quad.lr.x).abs() < 0.1;
+    if is_axis_aligned {
+        return true;
+    }
+
+    let poly = [
+        (quad.ul.x, quad.ul.y),
+        (quad.ur.x, quad.ur.y),
+        (quad.lr.x, quad.lr.y),
+        (quad.ll.x, quad.ll.y),
+    ];
+    let mut inside = false;
+    let mut j = poly.len() - 1;
+    for i in 0..poly.len() {
+        let (xi, yi) = poly[i];
+        let (xj, yj) = poly[j];
+        let intersect =
+            ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+        if intersect {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Extracts text under highlight quads (or bounding rect fallback) from a page's text page.
+/// Words across lines are joined by a space; bounded by MAX_ANNOTATION_SUMMARY_TEXT_BYTES.
+fn extract_highlight_text_from_page(
+    text_page: Option<&TextPage>,
+    quads: &[mupdf::Quad],
+    fallback_rect: &mupdf::Rect,
+) -> String {
+    let Some(text_page) = text_page else {
+        return String::new();
+    };
+    let mut text = String::new();
+    for block in text_page.blocks() {
+        for line in block.lines() {
+            let mut in_line = false;
+            for ch in line.chars() {
+                let Some(c) = ch.char() else {
+                    continue;
+                };
+                if is_invisible_format(c) {
+                    continue;
+                }
+                let q = ch.quad();
+                let cx = (q.ul.x + q.ur.x + q.ll.x + q.lr.x) / 4.0;
+                let cy = (q.ul.y + q.ur.y + q.ll.y + q.lr.y) / 4.0;
+
+                let hit = if quads.is_empty() {
+                    fallback_rect.x0 <= cx
+                        && cx <= fallback_rect.x1
+                        && fallback_rect.y0 <= cy
+                        && cy <= fallback_rect.y1
+                } else {
+                    quads.iter().any(|quad| point_in_quad((cx, cy), quad))
+                };
+
+                if hit {
+                    if c.is_whitespace() {
+                        if !text.is_empty() && !text.ends_with(' ') {
+                            text.push(' ');
+                        }
+                    } else {
+                        if !in_line && !text.is_empty() && !text.ends_with(' ') {
+                            text.push(' ');
+                        }
+                        in_line = true;
+                        text.push(c);
+                    }
+                    if text.len() >= MAX_ANNOTATION_SUMMARY_TEXT_BYTES as usize {
+                        break;
+                    }
+                }
+            }
+            if text.len() >= MAX_ANNOTATION_SUMMARY_TEXT_BYTES as usize {
+                break;
+            }
+        }
+        if text.len() >= MAX_ANNOTATION_SUMMARY_TEXT_BYTES as usize {
+            break;
+        }
+    }
+    text.trim().to_string()
 }

@@ -1857,6 +1857,60 @@ pub struct RemoveFontArgs {
     pub id: FontId,
 }
 
+// ---------------------------------------------------------------------------
+// Annotation summary export (B3-18, Issue #306)
+// ---------------------------------------------------------------------------
+
+/// The kinds of annotations listed in an annotation summary (B3-18).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum AnnotationSummaryKind {
+    Highlight,
+    Note,
+    TextBox,
+    Ink,
+    Stamp,
+}
+
+/// One item in an annotation summary (B3-18).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnotationSummaryItem {
+    /// 0-based page index.
+    pub page_index: u32,
+    pub kind: AnnotationSummaryKind,
+    /// Where it is on the page (page space).
+    pub rect: Rect,
+    /// The text: underlying words for a highlight; note/text box contents; summary for ink/stamp.
+    pub text: String,
+}
+
+/// Complete summary of the annotations in an open document (B3-18).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnotationSummary {
+    pub items: Vec<AnnotationSummaryItem>,
+    pub truncated: bool,
+}
+
+/// The format of an exported annotation summary file (B3-18).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum AnnotationSummaryFormat {
+    Text,
+    Markdown,
+}
+
+/// Arguments to export an annotation summary to a text or Markdown file (B3-18).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExportAnnotationSummaryArgs {
+    pub doc: DocumentId,
+    pub format: AnnotationSummaryFormat,
+    pub content: String,
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

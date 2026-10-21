@@ -67,7 +67,7 @@ fn not_written(error: io::Error) -> IpcError {
 
 /// Writes `file` whole: the content goes to a new temporary file next to it, which then takes its
 /// place, so an interrupted export never leaves half a file under the real name.
-fn write_whole(file: &Path, content: &[u8]) -> io::Result<()> {
+pub(crate) fn write_whole(file: &Path, content: &[u8]) -> io::Result<()> {
     let (temporary, mut writer) = new_temporary_file(file)?;
     let written = writer.write_all(content);
     drop(writer);

@@ -1446,7 +1446,7 @@ fn percent_encode(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use ipc_contract::types::{
-        AnnotationId, AnnotationKind, FieldId, FieldKind, FieldOption, FormField, HighlightColor,
+        AnnotationId, AnnotationKind, AnnotationSummaryKind, FieldId, FieldKind, FieldOption, FormField, HighlightColor,
         HighlightMark, InkColor, InkWidth, PageAnnotation, Rect, StampName,
     };
 

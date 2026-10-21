@@ -12,7 +12,7 @@ use crate::limits::*;
 use crate::ocr::is_language_name;
 use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text, is_note_text};
 use crate::types::{
-    BatchArgs, BatchOperation, CompressArgs, DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs,
+    AnnotationSummary, AnnotationSummaryItem, BatchArgs, BatchOperation, CompressArgs, DocumentInfo, Edit, EditArgs, EncryptArgs, ExportAnnotationSummaryArgs, ExportArgs,
     ExportFormat, FindingKind, FontImport, FontInfo, FormField, IpcError, LinkTarget, OcrLanguages,
     OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize,
     PageText, Password, Point, PrepareTextBoxArgs, Quad, RecentFile, Rect, RedactionSummary,
@@ -425,6 +425,7 @@ impl Validate for WorkerResponse {
             WorkerResponse::PageText { text, .. } => text.validate(),
             WorkerResponse::Signatures { report, .. } => report.validate(),
             WorkerResponse::RedactionSummary { summary, .. } => summary.validate(),
+            WorkerResponse::AnnotationSummary { summary, .. } => summary.validate(),
             WorkerResponse::TextBoxPrepared { model, .. } => model.validate(),
             WorkerResponse::FontInspected { faces, .. } => {
                 if faces.is_empty() {
@@ -899,6 +900,58 @@ impl Validate for ExportArgs {
             let files = self.pages.len().div_ceil(count as usize);
             check_count("split files", files, MAX_SPLIT_FILES)?;
         }
+        Ok(())
+    }
+}
+
+impl Validate for ExportAnnotationSummaryArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_text(
+            "annotation summary export content",
+            &self.content,
+            MAX_ANNOTATION_SUMMARY_TOTAL_BYTES,
+        )?;
+        Ok(())
+    }
+}
+
+impl Validate for AnnotationSummary {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_count(
+            "annotation summary items",
+            self.items.len(),
+            MAX_ANNOTATION_SUMMARY_ITEMS,
+        )?;
+        let mut total_bytes = 0usize;
+        for item in &self.items {
+            item.validate()?;
+            total_bytes = total_bytes.saturating_add(item.text.len());
+        }
+        if total_bytes > MAX_ANNOTATION_SUMMARY_TOTAL_BYTES as usize {
+            return Err(ValidationError::TooLong {
+                what: "annotation summary total text",
+                len: total_bytes,
+                max: MAX_ANNOTATION_SUMMARY_TOTAL_BYTES as usize,
+            });
+        }
+        Ok(())
+    }
+}
+
+impl Validate for AnnotationSummaryItem {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.page_index >= MAX_PAGE_COUNT {
+            return Err(ValidationError::Invalid {
+                what: "annotation summary page index",
+                reason: "out of range",
+            });
+        }
+        self.rect.validate()?;
+        check_text(
+            "annotation summary item text",
+            &self.text,
+            MAX_ANNOTATION_SUMMARY_TEXT_BYTES,
+        )?;
         Ok(())
     }
 }

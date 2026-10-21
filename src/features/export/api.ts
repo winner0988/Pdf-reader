@@ -4,13 +4,28 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 
-import type { DocumentId, ExportArgs, ExportEvent, ExportFormat, RequestId } from "@/ipc/generated/contract";
+import type {
+  AnnotationSummary,
+  DocumentId,
+  ExportAnnotationSummaryArgs,
+  ExportArgs,
+  ExportEvent,
+  ExportFormat,
+  RequestId,
+} from "@/ipc/generated/contract";
 import { nextRequestId } from "@/ipc/requests";
 
 export type ExportJob = {
   request: RequestId;
   /** True once the files are written; false if the user closed a dialog; rejects on failure. */
   done: Promise<boolean>;
+};
+
+export type AnnotationSummaryApi = {
+  /** Retrieves all user-facing annotations summary for the document (Issue #306). */
+  getAnnotationSummary(doc: DocumentId): Promise<AnnotationSummary>;
+  /** Exports the annotation summary text/markdown via system save dialog (Issue #306). */
+  exportAnnotationSummary(args: ExportAnnotationSummaryArgs): Promise<boolean>;
 };
 
 export type ExportApi = {
@@ -22,9 +37,13 @@ export type ExportApi = {
   ): ExportJob;
   /** Stops an export before its next page; the pages already written stay. */
   cancel(request: RequestId): Promise<void>;
+  /** Retrieves all user-facing annotations summary for the document (Issue #306). */
+  getAnnotationSummary?: (doc: DocumentId) => Promise<AnnotationSummary>;
+  /** Exports the annotation summary text/markdown via system save dialog (Issue #306). */
+  exportAnnotationSummary?: (args: ExportAnnotationSummaryArgs) => Promise<boolean>;
 };
 
-export const tauriExportApi: ExportApi = {
+export const tauriExportApi: ExportApi & AnnotationSummaryApi = {
   exportPages(doc, pages, format, onProgress) {
     const request = nextRequestId();
     const channel = new Channel<ExportEvent>();
@@ -33,4 +52,6 @@ export const tauriExportApi: ExportApi = {
     return { request, done: invoke<boolean>("export_pages", { args, onEvent: channel }) };
   },
   cancel: (request) => invoke<void>("cancel", { request }),
+  getAnnotationSummary: (doc) => invoke<AnnotationSummary>("get_annotation_summary", { doc }),
+  exportAnnotationSummary: (args) => invoke<boolean>("export_annotation_summary", { args }),
 };
