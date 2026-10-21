@@ -105,6 +105,7 @@ pub fn bindings() -> String {
         StampImageId,
         StampImageInfo,
         AnnotationId,
+        BookmarkId,
         AnnotationKind,
         PictureView,
         PageAnnotation,
