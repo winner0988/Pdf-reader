@@ -209,6 +209,7 @@ impl PdfDocument {
     /// The recogniser is told to stop: nothing is waiting any more.
     pub fn ocr_stopped(&mut self) {
         self.ocr.waiting.clear();
+        self.clear_text_cache();
     }
 
     /// Takes what the recogniser made of page `key`, as it was when the pages were as in
@@ -228,6 +229,7 @@ impl PdfDocument {
                 self.ocr.failed.insert(key);
             }
         }
+        self.invalidate_page_text_cache(index);
         Some(index)
     }
 

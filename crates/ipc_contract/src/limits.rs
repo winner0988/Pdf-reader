@@ -64,6 +64,12 @@ pub const MAX_QUERY_BYTES: u32 = 1_024;
 /// Search stops after this many hits and reports `truncated`.
 pub const MAX_SEARCH_HITS: u32 = 10_000;
 
+/// Largest memory one document's text cache may hold in the worker (Issue #242, D1 Option A).
+/// 64 MiB is enough for hundreds of thousands of lines of extracted page text across thousands
+/// of pages; if exceeded, the worker stops caching further pages and falls back to on-demand
+/// page-by-page extraction without exhausting worker memory.
+pub const MAX_TEXT_CACHE_BYTES: usize = 64 * 1024 * 1024;
+
 /// Maximum quads for one hit (a hit spanning several lines has one quad per line).
 pub const MAX_QUADS_PER_HIT: u32 = 64;
 
