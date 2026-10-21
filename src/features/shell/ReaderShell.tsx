@@ -1178,6 +1178,7 @@ export function ReaderShell({
               onOpenLink={openOutlineLink}
               pageEditing={pageEditing}
               savePages={savePages}
+              isSensitive={document_.sensitive === true}
               redaction={{
                 marks: redactionMarks,
                 summary: redactionSummary,
