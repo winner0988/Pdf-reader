@@ -1287,6 +1287,126 @@ def malicious_composite_sanitize() -> bytes:
     )
 
 
+def attachment_sample(name: str, filename_spec: str, data_bytes: bytes,
+                      claimed_size: int | None = None,
+                      desc: str | None = None,
+                      stream_filter: str | None = None,
+                      name_tree_key: str = "att") -> bytes:
+    doc = single_page_doc(name, [(72, 720, 14, f"Document with attachment: {name}")])
+    dict_parts = ["/Type /EmbeddedFile /Subtype /text#2Fplain"]
+    if stream_filter:
+        dict_parts.append(f"/Filter {stream_filter}")
+    if claimed_size is not None:
+        dict_parts.append(f"/Params << /Size {claimed_size} >>")
+    data = doc.pdf.add_stream(" ".join(dict_parts), data_bytes)
+    spec_parts = ["/Type /Filespec", filename_spec, f"/EF << /F {data} 0 R /UF {data} 0 R >>"]
+    if desc:
+        spec_parts.append(f"/Desc {pdf_string(desc)}")
+    spec = doc.pdf.add(f"<< {' '.join(spec_parts)} >>")
+    doc.catalog_extra = f" /Names << /EmbeddedFiles << /Names [({name_tree_key}) {spec} 0 R] >> >>"
+    return doc.build()
+
+
+def benign_attachment_text() -> bytes:
+    data = b"This is a benign text file attachment.\n"
+    return attachment_sample(
+        "attachment-text",
+        "/F (sample.txt) /UF (sample.txt)",
+        data,
+        claimed_size=len(data),
+        desc="A plain text file attachment",
+        name_tree_key="sample.txt",
+    )
+
+
+def malicious_attachment_exe() -> bytes:
+    data = b"MZ\x90\x00\x03fake-executable-payload"
+    return attachment_sample(
+        "attachment-exe",
+        "/F (payload.exe) /UF (payload.exe)",
+        data,
+        claimed_size=len(data),
+        desc="An executable attachment",
+        name_tree_key="payload.exe",
+    )
+
+
+def malicious_attachment_rlo() -> bytes:
+    data = b"RLO disguised executable payload"
+    # RLO character U+202E in UTF-8 is \xe2\x80\xae
+    return attachment_sample(
+        "attachment-rlo",
+        "/F (invoice\xe2\x80\xaeexe.pdf) /UF (invoice\xe2\x80\xaeexe.pdf)",
+        data,
+        claimed_size=len(data),
+        desc="Attachment with RLO override in filename",
+        name_tree_key="invoice-rlo",
+    )
+
+
+def malicious_attachment_path() -> bytes:
+    data = b"Path traversal payload"
+    return attachment_sample(
+        "attachment-path",
+        r"/F (..\..\Windows\System32\calc.exe) /UF (..\..\Windows\System32\calc.exe)",
+        data,
+        claimed_size=len(data),
+        desc="Attachment with directory traversal in filename",
+        name_tree_key="path-traversal",
+    )
+
+
+def malicious_attachment_device_name() -> bytes:
+    data = b"Reserved device name payload"
+    return attachment_sample(
+        "attachment-device-name",
+        "/F (CON.txt) /UF (CON.txt)",
+        data,
+        claimed_size=len(data),
+        desc="Attachment with Windows reserved device name",
+        name_tree_key="CON.txt",
+    )
+
+
+def benign_attachment_no_name() -> bytes:
+    data = b"Unnamed attachment payload"
+    return attachment_sample(
+        "attachment-no-name",
+        "/F () /UF ()",
+        data,
+        claimed_size=len(data),
+        desc="Attachment with empty filename",
+        name_tree_key="",
+    )
+
+
+def malicious_attachment_size_mismatch() -> bytes:
+    data = b"actual payload is only 30 bytes"
+    return attachment_sample(
+        "attachment-size-mismatch",
+        "/F (mismatch.bin) /UF (mismatch.bin)",
+        data,
+        claimed_size=100_000_000,
+        desc="Attachment with declared size mismatching actual size",
+        name_tree_key="mismatch.bin",
+    )
+
+
+def malicious_attachment_decompression_bomb() -> bytes:
+    uncompressed_len = 513 * 1024 * 1024
+    compressed = zlib.compress(b"\x00" * uncompressed_len, 9)
+    return attachment_sample(
+        "attachment-decompression-bomb",
+        "/F (bomb.bin) /UF (bomb.bin)",
+        compressed,
+        claimed_size=uncompressed_len,
+        desc="Attachment compression bomb exceeding 512 MiB limit",
+        stream_filter="/FlateDecode",
+        name_tree_key="bomb.bin",
+    )
+    )
+
+
 def link_scheme_sample(name: str, uri: bytes, label: str) -> bytes:
     return link_sample(name, label, uri_action(uri))
 
@@ -1884,6 +2004,12 @@ SAMPLES = [
            "Opens; 1 page; 11 valid items found (3 IDs, the last wrapped over two lines; 2 mobile; 2 landline; "
            "1 email; 1 card; 2 business numbers); wrong check digits, lengths and the tail of a longer number are not.", 1,
            text=["Personal Data Redaction Test Document", "A123456789", "0912-345-678"]),
+    Sample("benign/attachment-text.pdf", benign_attachment_text,
+           "A document with a plain text attachment (/Names /EmbeddedFiles).",
+           "Opens; attachment list shows 'sample.txt' (.txt); can be saved to disk.", 1),
+    Sample("benign/attachment-no-name.pdf", benign_attachment_no_name,
+           "A document with an embedded file having empty /F and /UF names.",
+           "Opens; attachment name falls back to '附件 1'; can be saved.", 1),
     # malicious
     Sample("malicious/js-document-level.pdf", malicious_js_document, "Document-level JavaScript in the names tree.",
            "No script runs; finding reported.", 1, ["javaScript"]),
@@ -1918,6 +2044,30 @@ SAMPLES = [
            "Composite sample with thumbnail, PieceInfo, metadata, attachment, OpenAction JS, and multiple annotations.",
            "Sanitizing removes active content and hidden data while preserving web links and form values.", 1,
            ["embeddedFile", "javaScript", "openAction"]),
+    Sample("malicious/attachment-exe.pdf", malicious_attachment_exe,
+           "An embedded file with executable name (payload.exe).",
+           "App flags as dangerous type (.exe); asks extra confirmation before saving; finding reported.", 1,
+           ["embeddedFile"]),
+    Sample("malicious/attachment-rlo.pdf", malicious_attachment_rlo,
+           "An embedded file with bidirectional override (U+202E) in its name.",
+           "App strips RLO character and displays true extension; finding reported.", 1,
+           ["embeddedFile"]),
+    Sample("malicious/attachment-path.pdf", malicious_attachment_path,
+           "An embedded file with relative path traversal in its name.",
+           "App strips path segments keeping only the basename; finding reported.", 1,
+           ["embeddedFile"]),
+    Sample("malicious/attachment-device-name.pdf", malicious_attachment_device_name,
+           "An embedded file with Windows reserved device name (CON.txt).",
+           "App prefixes name with underscore (_CON.txt); finding reported.", 1,
+           ["embeddedFile"]),
+    Sample("malicious/attachment-size-mismatch.pdf", malicious_attachment_size_mismatch,
+           "An embedded file whose declared /Params /Size (100 MB) does not match stream size.",
+           "Attachment is handled safely; finding reported.", 1,
+           ["embeddedFile"]),
+    Sample("malicious/attachment-decompression-bomb.pdf", malicious_attachment_decompression_bomb,
+           "A compressed attachment stream expanding to > 512 MiB (MAX_DOCUMENT_BYTES).",
+           "Worker aborts decoding upon exceeding 512 MiB limit; no file remains; worker stays healthy; finding reported.", 1,
+           ["embeddedFile"]),
     Sample("malicious/link-javascript-scheme.pdf",
            lambda: link_scheme_sample("link-javascript-scheme", b"javascript:app.alert(1)", "javascript: URI"),
            "URI link with the javascript: scheme.", "Blocked with an explanation; nothing runs.", 1),

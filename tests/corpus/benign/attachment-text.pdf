@@ -1,0 +1,46 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names [(sample.txt) 7 0 R] >> >> >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<<  /Length 73 >>
+stream
+BT /F1 14 Tf 72 720 Td (Document with attachment: attachment-text) Tj ET
+
+endstream
+endobj
+6 0 obj
+<< /Type /EmbeddedFile /Subtype /text#2Fplain /Params << /Size 39 >> /Length 39 >>
+stream
+This is a benign text file attachment.
+
+endstream
+endobj
+7 0 obj
+<< /Type /Filespec /F (sample.txt) /UF (sample.txt) /EF << /F 6 0 R /UF 6 0 R >> /Desc (A plain text file attachment) >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000126 00000 n 
+0000000183 00000 n 
+0000000280 00000 n 
+0000000406 00000 n 
+0000000530 00000 n 
+0000000685 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R /ID [<7D3C702AABB300676A2F516CED4D955F> <7D3C702AABB300676A2F516CED4D955F>] >>
+startxref
+821
+%%EOF
