@@ -13,11 +13,11 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
 endobj
 5 0 obj
-<<  /Length 974 >>
+<<  /Length 975 >>
 stream
 BT /F1 14 Tf 72 720 Td (Personal Data Redaction Test Document) Tj ET
 BT /F1 12 Tf 72 690 Td (Valid Citizen ID: A123456789 and Valid New ARC: A800000014) Tj ET
-BT /F1 12 Tf 72 670 Td (Invalid ID Checksum: A123456780 and Short ID: A1234) Tj ET
+BT /F1 12 Tf 72 670 Td (Invalid ID Checksum: B123456785 and Short ID: B12345) Tj ET
 BT /F1 12 Tf 72 640 Td (Valid Mobile: 0912-345-678 and Plain Mobile: 0987654321) Tj ET
 BT /F1 12 Tf 72 620 Td (Invalid Mobile Prefix: 0812-345-678 and Short Mobile: 09123456) Tj ET
 BT /F1 12 Tf 72 590 Td (Valid Landline: 02-1234-5678 and 04-2345-6789) Tj ET
@@ -41,5 +41,5 @@ xref
 trailer
 << /Size 6 /Root 1 0 R /ID [<FE4C4D1229D049404C4E445307AA06EF> <FE4C4D1229D049404C4E445307AA06EF>] >>
 startxref
-1370
+1371
 %%EOF

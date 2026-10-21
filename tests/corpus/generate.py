@@ -1681,7 +1681,9 @@ def benign_personal_data() -> bytes:
     lines = [
         (72, 720, 14, "Personal Data Redaction Test Document"),
         (72, 690, 12, "Valid Citizen ID: A123456789 and Valid New ARC: A800000014"),
-        (72, 670, 12, "Invalid ID Checksum: A123456780 and Short ID: A1234"),
+        # What stays must not contain a removed piece ("A1234", "56789" below): the check after
+        # saving a redaction looks for every removed piece anywhere in the file.
+        (72, 670, 12, "Invalid ID Checksum: B123456785 and Short ID: B12345"),
         (72, 640, 12, "Valid Mobile: 0912-345-678 and Plain Mobile: 0987654321"),
         (72, 620, 12, "Invalid Mobile Prefix: 0812-345-678 and Short Mobile: 09123456"),
         (72, 590, 12, "Valid Landline: 02-1234-5678 and 04-2345-6789"),
