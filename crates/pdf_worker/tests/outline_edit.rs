@@ -3,10 +3,9 @@
 
 mod common;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use ipc_contract::limits::MAX_OUTLINE_DEPTH;
-use ipc_contract::types::{BookmarkId, DocumentId, LinkTarget, OutlineResult};
+use ipc_contract::types::{DocumentId, LinkTarget, OutlineResult};
 use ipc_contract::worker::{WorkerEdit, WorkerRequest, WorkerResponse};
 use worker_host::{HostConfig, HostError, WorkerHost};
 
@@ -16,12 +15,23 @@ fn worker() -> &'static Path {
     Path::new(env!("CARGO_BIN_EXE_pdf_worker"))
 }
 
-fn open_test_pdf(pdf: &[u8]) -> (WorkerHost, DocumentId, tempfile::TempPath) {
+struct TestDoc {
+    host: WorkerHost,
+    doc: DocumentId,
+    path: PathBuf,
+}
+
+impl Drop for TestDoc {
+    fn drop(&mut self) {
+        std::fs::remove_file(&self.path).ok();
+    }
+}
+
+fn open_test_pdf(pdf: &[u8]) -> TestDoc {
     let path = temp_pdf("outline-edit", pdf);
     let mut host = WorkerHost::new(worker(), HostConfig::default());
     let (doc, _) = host.open(&path).expect("open");
-    let temp_path = path.into_temp_path();
-    (host, doc, temp_path)
+    TestDoc { host, doc, path }
 }
 
 fn get_outline(host: &mut WorkerHost, doc: DocumentId) -> OutlineResult {
@@ -52,13 +62,13 @@ fn apply_edit(
 
 #[test]
 fn add_first_bookmark_to_empty_document() {
-    let (mut host, doc, _temp) = open_test_pdf(&one_page(""));
-    let initial = get_outline(&mut host, doc);
+    let mut t = open_test_pdf(&one_page(""));
+    let initial = get_outline(&mut t.host, t.doc);
     assert_eq!(initial.items.len(), 0);
 
     apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::AddBookmark {
             parent: None,
             index: 0,
@@ -68,7 +78,7 @@ fn add_first_bookmark_to_empty_document() {
     )
     .expect("add bookmark");
 
-    let outline = get_outline(&mut host, doc);
+    let outline = get_outline(&mut t.host, t.doc);
     assert_eq!(outline.items.len(), 1);
     assert_eq!(outline.items[0].title, "Chapter 1");
     assert_eq!(outline.items[0].depth, 0);
@@ -84,12 +94,12 @@ fn add_first_bookmark_to_empty_document() {
 
 #[test]
 fn add_child_rename_and_delete_bookmarks() {
-    let (mut host, doc, _temp) = open_test_pdf(&one_page(""));
+    let mut t = open_test_pdf(&one_page(""));
 
     // 1. Add Chapter 1
     apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::AddBookmark {
             parent: None,
             index: 0,
@@ -99,13 +109,13 @@ fn add_child_rename_and_delete_bookmarks() {
     )
     .expect("add chap 1");
 
-    let outline = get_outline(&mut host, doc);
+    let outline = get_outline(&mut t.host, t.doc);
     let chap1_id = outline.items[0].id;
 
     // 2. Add Section 1.1 under Chapter 1
     apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::AddBookmark {
             parent: Some(chap1_id),
             index: 0,
@@ -115,7 +125,7 @@ fn add_child_rename_and_delete_bookmarks() {
     )
     .expect("add sec 1.1");
 
-    let outline = get_outline(&mut host, doc);
+    let outline = get_outline(&mut t.host, t.doc);
     assert_eq!(outline.items.len(), 2);
     assert_eq!(outline.items[0].title, "Chapter 1");
     assert_eq!(outline.items[0].depth, 0);
@@ -125,8 +135,8 @@ fn add_child_rename_and_delete_bookmarks() {
 
     // 3. Rename Section 1.1
     apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::RenameBookmark {
             id: sec11_id,
             title: "1.1 Introduction".into(),
@@ -134,13 +144,13 @@ fn add_child_rename_and_delete_bookmarks() {
     )
     .expect("rename sec 1.1");
 
-    let outline = get_outline(&mut host, doc);
+    let outline = get_outline(&mut t.host, t.doc);
     assert_eq!(outline.items[1].title, "1.1 Introduction");
 
     // 4. Renaming to blank is rejected
     assert!(apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::RenameBookmark {
             id: sec11_id,
             title: "   ".into(),
@@ -150,36 +160,36 @@ fn add_child_rename_and_delete_bookmarks() {
 
     // 5. Delete Section 1.1 (leaf)
     apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::DeleteBookmark { id: sec11_id },
     )
     .expect("delete sec 1.1");
 
-    let outline = get_outline(&mut host, doc);
+    let outline = get_outline(&mut t.host, t.doc);
     assert_eq!(outline.items.len(), 1);
     assert_eq!(outline.items[0].title, "Chapter 1");
 
     // 6. Delete Chapter 1 (becomes empty)
     apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::DeleteBookmark { id: chap1_id },
     )
     .expect("delete chap 1");
 
-    let outline = get_outline(&mut host, doc);
+    let outline = get_outline(&mut t.host, t.doc);
     assert_eq!(outline.items.len(), 0);
 }
 
 #[test]
 fn move_bookmark_reorders_and_prevents_cycles() {
-    let (mut host, doc, _temp) = open_test_pdf(&one_page(""));
+    let mut t = open_test_pdf(&one_page(""));
 
     // Create Chapter 1, Chapter 2, Chapter 3
     apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::AddBookmark {
             parent: None,
             index: 0,
@@ -189,8 +199,8 @@ fn move_bookmark_reorders_and_prevents_cycles() {
     )
     .expect("A");
     apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::AddBookmark {
             parent: None,
             index: 1,
@@ -200,8 +210,8 @@ fn move_bookmark_reorders_and_prevents_cycles() {
     )
     .expect("B");
     apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::AddBookmark {
             parent: None,
             index: 2,
@@ -211,15 +221,15 @@ fn move_bookmark_reorders_and_prevents_cycles() {
     )
     .expect("C");
 
-    let outline = get_outline(&mut host, doc);
+    let outline = get_outline(&mut t.host, t.doc);
     let a_id = outline.items[0].id;
     let b_id = outline.items[1].id;
     let c_id = outline.items[2].id;
 
     // Move C to index 0: should become C, A, B
     apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::MoveBookmark {
             id: c_id,
             parent: None,
@@ -228,14 +238,14 @@ fn move_bookmark_reorders_and_prevents_cycles() {
     )
     .expect("move C to 0");
 
-    let outline = get_outline(&mut host, doc);
+    let outline = get_outline(&mut t.host, t.doc);
     let titles: Vec<&str> = outline.items.iter().map(|it| it.title.as_str()).collect();
     assert_eq!(titles, ["C", "A", "B"]);
 
     // Demote B under A: should become C, A (depth 0), with B (depth 1)
     apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::MoveBookmark {
             id: b_id,
             parent: Some(a_id),
@@ -244,7 +254,7 @@ fn move_bookmark_reorders_and_prevents_cycles() {
     )
     .expect("demote B under A");
 
-    let outline = get_outline(&mut host, doc);
+    let outline = get_outline(&mut t.host, t.doc);
     assert_eq!(outline.items.len(), 3);
     assert_eq!(outline.items[0].title, "C");
     assert_eq!(outline.items[0].depth, 0);
@@ -255,8 +265,8 @@ fn move_bookmark_reorders_and_prevents_cycles() {
 
     // Attempting to move A into B (into its own descendant) must fail
     assert!(apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::MoveBookmark {
             id: a_id,
             parent: Some(b_id),
@@ -268,7 +278,7 @@ fn move_bookmark_reorders_and_prevents_cycles() {
 
 #[test]
 fn replay_edits_through_revert_restores_identical_outline() {
-    let (mut host, doc, _temp) = open_test_pdf(&one_page(""));
+    let mut t = open_test_pdf(&one_page(""));
 
     let edits = vec![
         WorkerEdit::AddBookmark {
@@ -286,24 +296,25 @@ fn replay_edits_through_revert_restores_identical_outline() {
     ];
 
     for edit in &edits {
-        apply_edit(&mut host, doc, edit.clone()).expect("apply");
+        apply_edit(&mut t.host, t.doc, edit.clone()).expect("apply");
     }
 
-    let before = get_outline(&mut host, doc);
+    let before = get_outline(&mut t.host, t.doc);
     assert_eq!(before.items.len(), 2);
 
     // Replay edits via WorkerRequest::Revert
-    let reverted = host
+    let reverted = t
+        .host
         .request(|request| WorkerRequest::Revert {
             request,
-            doc,
+            doc: t.doc,
             edits,
             password: None,
         })
         .expect("revert");
     assert!(matches!(reverted, WorkerResponse::Edited { .. }));
 
-    let after = get_outline(&mut host, doc);
+    let after = get_outline(&mut t.host, t.doc);
     assert_eq!(after.items.len(), 2);
     assert_eq!(after.items[0].title, "Chapter 1");
     assert_eq!(after.items[1].title, "Chapter 2");
@@ -311,11 +322,11 @@ fn replay_edits_through_revert_restores_identical_outline() {
 
 #[test]
 fn deleting_parent_removes_entire_subtree() {
-    let (mut host, doc, _temp) = open_test_pdf(&one_page(""));
+    let mut t = open_test_pdf(&one_page(""));
 
     apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::AddBookmark {
             parent: None,
             index: 0,
@@ -325,12 +336,12 @@ fn deleting_parent_removes_entire_subtree() {
     )
     .expect("Parent");
 
-    let outline = get_outline(&mut host, doc);
+    let outline = get_outline(&mut t.host, t.doc);
     let parent_id = outline.items[0].id;
 
     apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::AddBookmark {
             parent: Some(parent_id),
             index: 0,
@@ -340,12 +351,12 @@ fn deleting_parent_removes_entire_subtree() {
     )
     .expect("Child 1");
 
-    let outline = get_outline(&mut host, doc);
+    let outline = get_outline(&mut t.host, t.doc);
     let child1_id = outline.items[1].id;
 
     apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::AddBookmark {
             parent: Some(child1_id),
             index: 0,
@@ -355,17 +366,17 @@ fn deleting_parent_removes_entire_subtree() {
     )
     .expect("Grandchild");
 
-    let outline = get_outline(&mut host, doc);
+    let outline = get_outline(&mut t.host, t.doc);
     assert_eq!(outline.items.len(), 3);
 
     // Deleting Parent should remove Parent, Child 1, and Grandchild
     apply_edit(
-        &mut host,
-        doc,
+        &mut t.host,
+        t.doc,
         WorkerEdit::DeleteBookmark { id: parent_id },
     )
     .expect("delete parent");
 
-    let outline = get_outline(&mut host, doc);
+    let outline = get_outline(&mut t.host, t.doc);
     assert_eq!(outline.items.len(), 0);
 }
