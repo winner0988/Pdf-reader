@@ -74,6 +74,8 @@ enum Kind {
     OpenSources,
     /// Where to save a PDF made of files (B3-03), suggesting `file_name`.
     SaveCreatedPdf { file_name: String },
+    /// Where to save an attachment from a document (B3-20, ADR 0025), suggesting `file_name`.
+    SaveAttachment { file_name: String, extension: Option<String> },
 }
 
 /// Shows the open dialog (PDF files only; several can be picked) over `window` and returns the
@@ -226,6 +228,18 @@ pub async fn save_created_pdf_file(
         .and_then(|mut paths| paths.pop()))
 }
 
+/// Asks where to save an attachment from a document (B3-20, ADR 0025), suggesting `file_name` and
+/// optional `extension`. The dialog asks before replacing an existing file.
+pub async fn save_attachment_file(
+    window: &WebviewWindow,
+    file_name: String,
+    extension: Option<String>,
+) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::SaveAttachment { file_name, extension })
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
 /// Asks for one file of language data for recognising text (`.traineddata`, B2-10).
 pub async fn pick_language_data(window: &WebviewWindow) -> Result<Option<PathBuf>, IpcError> {
     Ok(run(window, Kind::OpenLanguageData)
@@ -295,7 +309,8 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
         | Kind::EncryptedCopy { .. }
         | Kind::CompressedCopy { .. }
         | Kind::SplitPdf { .. }
-        | Kind::SaveCreatedPdf { .. } => common | FOS_OVERWRITEPROMPT,
+        | Kind::SaveCreatedPdf { .. }
+        | Kind::SaveAttachment { .. } => common | FOS_OVERWRITEPROMPT,
         Kind::PickFolder { .. } => common | FOS_PICKFOLDERS,
         Kind::OpenLanguageData
         | Kind::OpenFont
@@ -358,7 +373,8 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
             | Kind::EncryptedCopy { .. }
             | Kind::CompressedCopy { .. }
             | Kind::SplitPdf { .. }
-            | Kind::SaveCreatedPdf { .. } => {
+            | Kind::SaveCreatedPdf { .. }
+            | Kind::SaveAttachment { .. } => {
                 CoCreateInstance::<_, IFileSaveDialog>(&FileSaveDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
             }
@@ -460,6 +476,16 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             strings::CREATE_PDF_DIALOG_TITLE,
             one(strings::PDF_FILTER_NAME, "*.pdf"),
         ),
+        Kind::SaveAttachment { extension, .. } => {
+            let filters = match extension {
+                Some(ext) if !ext.is_empty() => vec![
+                    (strings::ALL_FILES_FILTER_NAME, "*.*".to_owned()),
+                    ("原始副檔名", format!("*.{ext}")),
+                ],
+                _ => vec![(strings::ALL_FILES_FILTER_NAME, "*.*".to_owned())],
+            };
+            (strings::SAVE_ATTACHMENT_DIALOG_TITLE, filters)
+        }
         Kind::OpenPagesSource => (
             strings::PAGES_SOURCE_DIALOG_TITLE,
             one(strings::PDF_FILTER_NAME, "*.pdf"),
@@ -524,6 +550,14 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
                 _ => "pdf",
             };
             dialog.SetDefaultExtension(&HSTRING::from(extension))?;
+            dialog.SetFileName(&HSTRING::from(file_name.as_str()))?;
+        }
+        if let Kind::SaveAttachment { file_name, extension } = kind {
+            if let Some(ext) = extension {
+                if !ext.is_empty() {
+                    dialog.SetDefaultExtension(&HSTRING::from(ext.as_str()))?;
+                }
+            }
             dialog.SetFileName(&HSTRING::from(file_name.as_str()))?;
         }
     }

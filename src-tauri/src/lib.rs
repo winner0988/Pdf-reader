@@ -5,6 +5,7 @@ compile_error!(
     "PDF Reader supports Windows only for now (ADR 0007): the worker sandbox is Windows-specific."
 );
 
+mod attachments;
 mod background;
 mod batch;
 mod cli;
@@ -113,6 +114,8 @@ pub fn run() {
             commands::render_page,
             commands::cancel,
             commands::get_outline,
+            commands::get_attachments,
+            commands::save_attachment,
             commands::get_page_links,
             commands::get_page_annotations,
             commands::get_page_fields,

@@ -18,6 +18,8 @@
     "allow-render-page",
     "allow-cancel",
     "allow-get-outline",
+    "allow-get-attachments",
+    "allow-save-attachment",
     "allow-get-page-links",
     "allow-get-page-annotations",
     "allow-get-page-fields",
