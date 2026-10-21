@@ -1,10 +1,8 @@
-import { Plus } from "lucide-react";
 import type { ComponentProps } from "react";
 
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AttachmentsPanel } from "@/features/attachments/AttachmentsPanel";
-import { OutlineTree, type OutlineEditing } from "@/features/outline/OutlineTree";
+import { AddFirstBookmark, OutlineTree, type OutlineEditing } from "@/features/outline/OutlineTree";
 import type { OutlineView } from "@/features/outline/tree";
 import type { PageSize } from "@/features/shell/model";
 import { RedactionPanel, type RedactionPanelProps } from "@/features/redaction/RedactionPanel";
@@ -74,24 +72,7 @@ export function Sidebar({
           {(outline.status === "none" || (outline.status === "ready" && outline.items.length === 0)) && (
             <div className="flex flex-col items-start gap-2 px-2 py-4">
               <p className="text-sm text-muted-foreground">{t.outlineEmpty}</p>
-              {outlineEditing?.allowed && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    void outlineEditing.apply({
-                      kind: "addBookmark",
-                      parent: null,
-                      index: 0,
-                      title: t.defaultBookmarkTitle(currentPage),
-                      page: currentPage - 1,
-                    });
-                  }}
-                >
-                  <Plus className="mr-1 size-4" />
-                  {t.addBookmark}
-                </Button>
-              )}
+              {outlineEditing?.allowed && <AddFirstBookmark currentPage={currentPage} editing={outlineEditing} />}
             </div>
           )}
           {outline.status === "ready" && outline.items.length > 0 && (

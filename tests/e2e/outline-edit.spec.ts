@@ -1,5 +1,5 @@
-// Outline (bookmark) editing (B3-17) in the real app: add, rename, move, delete, undo, redo,
-// save to disk, and verify structure upon re-opening.
+// Bookmark (outline) editing (B3-17) in the real app: add, rename, move, delete, undo and redo,
+// then save, open the file again and find the same outline.
 import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,97 +17,73 @@ async function openOutline(page: Page): Promise<Locator> {
   return page.getByRole("tree", { name: strings.sidebar.outlineTab });
 }
 
-/** Waits until the document shown is a new one: an edit gives it a new id (B2-02). */
-async function edited(page: Page, before: string | null) {
+/** Does `act`, an edit, and waits until the document shown is the new one: an edit gives it a new id (B2-02). */
+async function edit(page: Page, act: () => Promise<void>) {
+  const before = await pageSlot(page, 1).getAttribute("data-doc");
+  await act();
   await expect(pageSlot(page, 1)).not.toHaveAttribute("data-doc", before ?? "");
 }
 
-test("bookmarks added, renamed, moved, deleted, undone/redone and saved persist upon re-open (B3-17)", async ({
-  launch,
-}) => {
+/** The titles of the bookmarks shown, in order. */
+const titles = (tree: Locator) => tree.getByRole("treeitem").allTextContents();
+
+test("bookmarks edited and saved are the outline of the file opened again (B3-17)", async ({ launch }) => {
   const folder = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-outline-"));
   try {
     const file = path.join(folder, "test-outline.pdf");
     copyFileSync(corpus("benign/outline-3-levels.pdf"), file);
 
-    // 1. Launch app with document
     let page = await launch(file);
     await expect(pageSlot(page, 1)).toHaveAttribute("data-state", "ready");
     const tree = await openOutline(page);
-    await expect(tree).toBeVisible();
+    await expect(tree.getByRole("treeitem", { name: "Chapter 1" })).toBeVisible();
 
-    const initialDoc = await pageSlot(page, 1).getAttribute("data-doc");
-    const firstItem = tree.getByRole("treeitem").first();
-    await firstItem.click();
-
-    // 2. Add bookmark via Ctrl+B
-    await page.keyboard.press("Control+b");
-    await edited(page, initialDoc);
-
-    // 3. Rename with F2
-    const docAfterAdd = await pageSlot(page, 1).getAttribute("data-doc");
-    await page.keyboard.press("F2");
+    // Ctrl+B adds a bookmark after Chapter 1, at its level, and starts renaming it.
+    await tree.getByRole("treeitem", { name: "Chapter 1" }).click();
+    await edit(page, () => page.keyboard.press("Control+b"));
     const input = page.getByLabel(strings.sidebar.renameInputLabel);
-    await expect(input).toBeVisible();
-    await input.fill("Renamed Bookmark");
-    await input.press("Enter");
-    await edited(page, docAfterAdd);
-    await expect(tree.getByText("Renamed Bookmark")).toBeVisible();
+    await expect(input).toBeFocused();
+    await edit(page, async () => {
+      await input.fill("Renamed Bookmark");
+      await input.press("Enter");
+    });
+    const renamed = tree.getByRole("treeitem", { name: "Renamed Bookmark" });
+    await expect(renamed).toBeFocused();
 
-    // 4. Move bookmark down with Alt+ArrowDown
-    const docAfterRename = await pageSlot(page, 1).getAttribute("data-doc");
-    await tree.getByText("Renamed Bookmark").click();
-    await page.keyboard.press("Alt+ArrowDown");
-    await edited(page, docAfterRename);
+    // Alt+↓ puts it after Chapter 2; focus stays on it.
+    await edit(page, () => page.keyboard.press("Alt+ArrowDown"));
+    await expect(renamed).toBeFocused();
+    const moved = await titles(tree);
+    expect(moved.indexOf("Renamed Bookmark")).toBe(moved.indexOf("Chapter 2") + 2);
 
-    // 5. Delete bookmark
-    const docAfterMove = await pageSlot(page, 1).getAttribute("data-doc");
-    await tree.getByText("Renamed Bookmark").click();
-    await page.keyboard.press("Delete");
-    // If confirmation dialog appears, confirm it
-    const confirmBtn = page.getByRole("button", { name: strings.sidebar.deleteConfirmConfirm });
-    if (await confirmBtn.isVisible({ timeout: 500 }).catch(() => false)) {
-      await confirmBtn.click();
-    }
-    await edited(page, docAfterMove);
-    await expect(tree.getByText("Renamed Bookmark")).toHaveCount(0);
+    // Delete takes a bookmark with nothing under it at once; undo and redo.
+    await edit(page, () => page.keyboard.press("Delete"));
+    await expect(renamed).toHaveCount(0);
+    await edit(page, () => page.keyboard.press("Control+z"));
+    await expect(renamed).toBeVisible();
+    await edit(page, () => page.keyboard.press("Control+y"));
+    await expect(renamed).toHaveCount(0);
 
-    // 6. Undo the deletion
-    const docAfterDelete = await pageSlot(page, 1).getAttribute("data-doc");
-    await page.keyboard.press("Control+z");
-    await edited(page, docAfterDelete);
-    await expect(tree.getByText("Renamed Bookmark")).toBeVisible();
+    // One more, kept, under Chapter 2 (Alt+→ puts it under the item before it).
+    await tree.getByRole("treeitem", { name: "Chapter 2" }).click();
+    await edit(page, () => page.keyboard.press("Control+b"));
+    await edit(page, async () => {
+      await input.fill("Persisted New Bookmark");
+      await input.press("Enter");
+    });
+    await edit(page, () => page.keyboard.press("Alt+ArrowRight"));
+    const before = await titles(tree);
+    expect(before).toContain("Persisted New Bookmark");
 
-    // 7. Redo the deletion
-    const docAfterUndo = await pageSlot(page, 1).getAttribute("data-doc");
-    await page.keyboard.press("Control+y");
-    await edited(page, docAfterUndo);
-    await expect(tree.getByText("Renamed Bookmark")).toHaveCount(0);
-
-    // 8. Add a new bookmark to save
-    const docBeforeSaveAdd = await pageSlot(page, 1).getAttribute("data-doc");
-    await firstItem.click();
-    await page.keyboard.press("Control+b");
-    await edited(page, docBeforeSaveAdd);
-
-    const docBeforeSaveRename = await pageSlot(page, 1).getAttribute("data-doc");
-    await page.keyboard.press("F2");
-    const inputSave = page.getByLabel(strings.sidebar.renameInputLabel);
-    await inputSave.fill("Persisted New Bookmark");
-    await inputSave.press("Enter");
-    await edited(page, docBeforeSaveRename);
-
-    // 9. Save file
     await page.keyboard.press("Control+s");
     await expect(page.getByText(strings.saving.saved)).toBeVisible();
-
-    // 10. Close and re-open to verify persisted outline
     await quit(page);
 
     page = await launch(file);
     await expect(pageSlot(page, 1)).toHaveAttribute("data-state", "ready");
-    const reloadedTree = await openOutline(page);
-    await expect(reloadedTree.getByText("Persisted New Bookmark")).toBeVisible();
+    const reopened = await openOutline(page);
+    await expect(reopened.getByRole("treeitem", { name: "Persisted New Bookmark" })).toBeVisible();
+    expect(await titles(reopened)).toEqual(before);
     await quit(page);
   } finally {
     rmSync(folder, { recursive: true, force: true });

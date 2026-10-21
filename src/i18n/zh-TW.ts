@@ -152,6 +152,7 @@ export const strings = {
     promote: "升級",
     demote: "降級",
     defaultBookmarkTitle: (page: number) => `第 ${page} 頁`,
+    bookmarkFailed: "無法變更書籤。目錄結構有問題的文件不能編輯書籤；其他原因請再試一次。",
     deleteConfirmTitle: "刪除書籤",
     deleteConfirmDescription: "這個書籤包含子項目，確定要一併刪除嗎？",
     deleteConfirmConfirm: "刪除",

@@ -138,144 +138,155 @@ describe("OutlineTree", () => {
 });
 
 describe("Bookmark editing (B3-17)", () => {
-  it("inline rename with F2, Enter confirms, Esc cancels, blank disallowed", async () => {
-    const apply = vi.fn().mockResolvedValue(undefined);
+  /** The tree with editing; `rerender` gives it the outline the main process sends after an edit. */
+  function renderEditing(apply = vi.fn().mockResolvedValue(undefined), currentPage = 1) {
     const editing: OutlineEditing = { allowed: true, apply };
-    const { user } = renderTree({ editing });
+    const tree = (shownItems: OutlineItem[]) => (
+      <OutlineTree items={shownItems} currentPage={currentPage} onJumpToPage={vi.fn()} editing={editing} />
+    );
+    const { rerender } = render(tree(items));
+    return { apply, user: userEvent.setup(), outlineAfterEdit: (next: OutlineItem[]) => rerender(tree(next)) };
+  }
 
-    await user.tab();
+  const into = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+    await user.click(item(name));
+    expect(item(name)).toHaveFocus();
+  };
+
+  it("renames in place with F2: Enter applies a clean title, Esc cancels", async () => {
+    const { apply, user, outlineAfterEdit } = renderEditing();
+    await into(user, "Chapter 1");
+
+    await user.keyboard("{F2}");
+    const input = screen.getByLabelText(strings.sidebar.renameInputLabel);
+    expect(input).toHaveValue("Chapter 1");
+    expect(input).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByLabelText(strings.sidebar.renameInputLabel)).toBeNull();
     expect(item("Chapter 1")).toHaveFocus();
 
-    // Trigger rename with F2
+    // A blank title changes nothing.
     await user.keyboard("{F2}");
-    const input = screen.getByLabelText(strings.sidebar.renameInputLabel) as HTMLInputElement;
-    expect(input).toHaveValue("Chapter 1");
-
-    // Typing empty title does not submit
-    await user.clear(input);
+    await user.clear(screen.getByLabelText(strings.sidebar.renameInputLabel));
     await user.keyboard("{Enter}");
     expect(apply).not.toHaveBeenCalled();
 
-    // Escape cancels
-    await user.keyboard("{Escape}");
-    expect(screen.queryByLabelText(strings.sidebar.renameInputLabel)).toBeNull();
-    expect(apply).not.toHaveBeenCalled();
-
-    // Re-trigger and rename successfully
     await user.keyboard("{F2}");
-    const input2 = screen.getByLabelText(strings.sidebar.renameInputLabel);
-    await user.clear(input2);
-    await user.type(input2, "Introduction{Enter}");
-    expect(apply).toHaveBeenCalledWith({
-      kind: "renameBookmark",
-      id: 1,
-      title: "Introduction",
-    });
+    await user.clear(screen.getByLabelText(strings.sidebar.renameInputLabel));
+    await user.type(screen.getByLabelText(strings.sidebar.renameInputLabel), "  Intro​   duction {Enter}");
+    expect(apply).toHaveBeenCalledWith({ kind: "renameBookmark", id: 1, title: "Intro duction" });
+
+    // The outline after the edit: the item keeps focus.
+    outlineAfterEdit(items.map((one) => (one.id === 1 ? { ...one, title: "Intro duction" } : one)));
+    expect(item("Intro duction")).toHaveFocus();
   });
 
-  it("deleting a leaf bookmark deletes directly without dialog", async () => {
-    const apply = vi.fn().mockResolvedValue(undefined);
-    const editing: OutlineEditing = { allowed: true, apply };
-    const { user } = renderTree({ editing });
-
-    await user.tab();
-    await user.keyboard("{End}"); // Move to Appendix (leaf)
-    expect(item("Appendix")).toHaveFocus();
+  it("deletes a bookmark with nothing under it at once, and gives focus to the next one", async () => {
+    const { apply, user, outlineAfterEdit } = renderEditing();
+    await into(user, "Section 2.1");
 
     await user.keyboard("{Delete}");
-    expect(apply).toHaveBeenCalledWith({
-      kind: "deleteBookmark",
-      id: 6,
-    });
+    expect(apply).toHaveBeenCalledWith({ kind: "deleteBookmark", id: 5 });
     expect(screen.queryByText(strings.sidebar.deleteConfirmTitle)).toBeNull();
+
+    outlineAfterEdit(items.filter((one) => one.id !== 5));
+    expect(item("Appendix")).toHaveFocus();
   });
 
-  it("deleting a bookmark with children confirms first", async () => {
-    const apply = vi.fn().mockResolvedValue(undefined);
-    const editing: OutlineEditing = { allowed: true, apply };
-    const { user } = renderTree({ editing });
-
-    await user.tab();
-    expect(item("Chapter 1")).toHaveFocus(); // Has children
+  it("asks before deleting a bookmark with bookmarks under it", async () => {
+    const { apply, user } = renderEditing();
+    await into(user, "Chapter 1");
 
     await user.keyboard("{Delete}");
     expect(screen.getByText(strings.sidebar.deleteConfirmTitle)).toBeInTheDocument();
     expect(apply).not.toHaveBeenCalled();
 
-    // Confirm dialog
     await user.click(screen.getByRole("button", { name: strings.sidebar.deleteConfirmConfirm }));
-    expect(apply).toHaveBeenCalledWith({
-      kind: "deleteBookmark",
-      id: 1,
-    });
+    expect(apply).toHaveBeenCalledWith({ kind: "deleteBookmark", id: 1 });
   });
 
-  it("adds a bookmark via Ctrl+B", async () => {
-    const apply = vi.fn().mockResolvedValue(undefined);
-    const editing: OutlineEditing = { allowed: true, apply };
-    const { user } = renderTree({ editing, currentPage: 2 });
-
-    await user.tab();
-    expect(item("Chapter 1")).toHaveFocus();
+  it("adds a bookmark for the page being read next to the item, then renames it", async () => {
+    const { apply, user, outlineAfterEdit } = renderEditing(undefined, 2);
+    await into(user, "Chapter 1");
 
     await user.keyboard("{Control>}b{/Control}");
     expect(apply).toHaveBeenCalledWith({
       kind: "addBookmark",
-      parent: 1,
-      index: 1, // Chapter 1 has 1 child (Section 1.1)
+      parent: null,
+      index: 1,
       title: strings.sidebar.defaultBookmarkTitle(2),
-      page: 1, // 0-based page index
+      page: 1,
+    });
+
+    const added = { id: 7, title: strings.sidebar.defaultBookmarkTitle(2), depth: 0, target: page(1) };
+    outlineAfterEdit([...items.slice(0, 3), added, ...items.slice(3)]);
+    const input = screen.getByLabelText(strings.sidebar.renameInputLabel);
+    expect(input).toHaveValue(strings.sidebar.defaultBookmarkTitle(2));
+    expect(input).toHaveFocus();
+  });
+
+  it("adds from the button next to the bookmark of the page being read", async () => {
+    const { apply, user } = renderEditing(undefined, 2);
+    await user.click(screen.getByRole("button", { name: strings.sidebar.addBookmark }));
+    // Page 2 is Section 1.1's: the new one comes after it, under Chapter 1.
+    expect(apply).toHaveBeenCalledWith({
+      kind: "addBookmark",
+      parent: 1,
+      index: 1,
+      title: strings.sidebar.defaultBookmarkTitle(2),
+      page: 1,
     });
   });
 
-  it("moves bookmark up, down, promote, demote via Alt+arrows", async () => {
-    const apply = vi.fn().mockResolvedValue(undefined);
-    const editing: OutlineEditing = { allowed: true, apply };
-    const { user } = renderTree({ editing });
-
-    await user.tab();
-    // Focus Chapter 1 (index 0). Cannot move up (first child of root).
+  it("moves with Alt and the arrows, one edit at a time, keeping focus on the item moved", async () => {
+    const { apply, user, outlineAfterEdit } = renderEditing();
+    await into(user, "Chapter 1");
+    // The first item cannot go up.
     await user.keyboard("{Alt>}{ArrowUp}{/Alt}");
     expect(apply).not.toHaveBeenCalled();
 
-    // Move to Chapter 2 (next top-level item)
     await user.keyboard("{ArrowDown}{ArrowDown}");
     expect(item("Chapter 2")).toHaveFocus();
-
-    // Alt+Up moves Chapter 2 before Chapter 1
     await user.keyboard("{Alt>}{ArrowUp}{/Alt}");
-    expect(apply).toHaveBeenLastCalledWith({
-      kind: "moveBookmark",
-      id: 4,
-      parent: null,
-      index: 0,
-    });
-
-    // Alt+Down moves Chapter 2 after Appendix
+    expect(apply).toHaveBeenLastCalledWith({ kind: "moveBookmark", id: 4, parent: null, index: 0 });
+    // Until the outline after it arrives, no other edit is made.
     await user.keyboard("{Alt>}{ArrowDown}{/Alt}");
-    expect(apply).toHaveBeenLastCalledWith({
-      kind: "moveBookmark",
-      id: 4,
-      parent: null,
-      index: 2,
-    });
+    expect(apply).toHaveBeenCalledTimes(1);
+
+    const moved = [items[3]!, items[4]!, items[0]!, items[1]!, items[2]!, items[5]!];
+    outlineAfterEdit(moved);
+    expect(shown()[0]).toBe("Chapter 2");
+    expect(item("Chapter 2")).toHaveFocus();
+
+    // Appendix goes under Chapter 1, the item before it.
+    await user.keyboard("{End}");
+    await user.keyboard("{Alt>}{ArrowRight}{/Alt}");
+    expect(apply).toHaveBeenLastCalledWith({ kind: "moveBookmark", id: 6, parent: 1, index: 1 });
   });
 
-  it("editing shortcuts are ignored when editing is not allowed", async () => {
-    const apply = vi.fn().mockResolvedValue(undefined);
-    const editing: OutlineEditing = { allowed: false, apply };
-    const { user } = renderTree({ editing });
+  it("says when an edit fails, and takes the next one", async () => {
+    const apply = vi.fn().mockRejectedValueOnce({ code: "invalidArgument" }).mockResolvedValue(undefined);
+    const { user } = renderEditing(apply);
+    await into(user, "Appendix");
 
-    await user.tab();
-    expect(item("Chapter 1")).toHaveFocus();
+    await user.keyboard("{Delete}");
+    expect(await screen.findByRole("alert")).toHaveTextContent(strings.sidebar.bookmarkFailed);
+    await user.keyboard("{Delete}");
+    expect(apply).toHaveBeenCalledTimes(2);
+  });
+
+  it("has no editing when the document's author does not allow changes", async () => {
+    const apply = vi.fn().mockResolvedValue(undefined);
+    render(<OutlineTree items={items} currentPage={1} onJumpToPage={vi.fn()} editing={{ allowed: false, apply }} />);
+    const user = userEvent.setup();
+    expect(screen.queryByRole("button", { name: strings.sidebar.addBookmark })).toBeNull();
+    await into(user, "Chapter 1");
 
     await user.keyboard("{F2}");
     expect(screen.queryByLabelText(strings.sidebar.renameInputLabel)).toBeNull();
-
     await user.keyboard("{Delete}");
-    expect(apply).not.toHaveBeenCalled();
-
     await user.keyboard("{Control>}b{/Control}");
+    await user.keyboard("{Alt>}{ArrowDown}{/Alt}");
     expect(apply).not.toHaveBeenCalled();
   });
 });

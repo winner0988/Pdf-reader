@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  addAfter,
   canDemote,
   canMoveDown,
   canMoveUp,
   canPromote,
   childrenCount,
+  cleanTitle,
   currentItem,
   getMoveParams,
   hasChildren,
   initiallyExpanded,
+  keyOf,
   nextSibling,
   pageOf,
   parentOf,
@@ -104,5 +107,28 @@ describe("outline tree", () => {
     // Demote Chapter 2 (index 3) under Chapter 1 (index 0)
     expect(canDemote(items, 3)).toBe(true);
     expect(getMoveParams(items, 3, "demote")).toEqual({ id: 13, parent: 10, index: 1 });
+  });
+});
+
+describe("bookmark editing (B3-17)", () => {
+  it("knows an item by its bookmark id, or by its place when it has none", () => {
+    expect(keyOf(items[1]!, 1)).toBe(11);
+    expect(keyOf({ ...items[1]!, id: 0 }, 1)).toBe(-2);
+    expect(keyOf({ ...items[0]!, id: 0 }, 0)).not.toBe(keyOf({ ...items[1]!, id: 0 }, 1));
+  });
+
+  it("adds next to an item at its level, or first at the top level", () => {
+    // After Section 1.1: under Chapter 1, second.
+    expect(addAfter(items, 1)).toEqual({ parent: 10, index: 1 });
+    // After Chapter 2: at the top level, after it.
+    expect(addAfter(items, 3)).toEqual({ parent: null, index: 2 });
+    expect(addAfter(items, -1)).toEqual({ parent: null, index: 0 });
+  });
+
+  it("cleans a title as the main process takes it", () => {
+    expect(cleanTitle("  Chapter\t1\n\nIntro  ")).toBe("Chapter 1 Intro");
+    // Bidirectional controls and zero-width characters are dropped.
+    expect(cleanTitle("\u202Eevil\u200B.txt\uFEFF")).toBe("evil.txt");
+    expect(cleanTitle(" \u200B ")).toBe("");
   });
 });

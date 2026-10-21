@@ -12,26 +12,39 @@ export const tauriOutlineApi: OutlineApi = {
   getOutline: (doc) => invoke<OutlineResult>("get_outline", { doc }),
 };
 
-/** Loads the outline of `doc` when it has one; answers for other documents are ignored. */
-export function useOutline(api: OutlineApi, doc: DocumentId | null, hasOutline: boolean): OutlineView {
-  const [loaded, setLoaded] = useState<{ doc: DocumentId; view: OutlineView } | null>(null);
+/**
+ * Loads the outline of `doc` when it has one; answers for other documents are ignored. An edit
+ * gives the document a new `doc` (B2-02): while the outline after it loads, the one before stays
+ * shown for the same file (`session`), so that the tree keeps its place and its focus (B3-17).
+ */
+export function useOutline(
+  api: OutlineApi,
+  doc: DocumentId | null,
+  hasOutline: boolean,
+  session?: number,
+): OutlineView {
+  const [loaded, setLoaded] = useState<{ doc: DocumentId; session?: number; view: OutlineView } | null>(null);
 
   useEffect(() => {
     if (doc === null || !hasOutline) return;
     let current = true;
     api.getOutline(doc).then(
       (outline) => {
-        if (current) setLoaded({ doc, view: { status: "ready", items: outline.items, truncated: outline.truncated } });
+        if (current) {
+          setLoaded({ doc, session, view: { status: "ready", items: outline.items, truncated: outline.truncated } });
+        }
       },
       () => {
-        if (current) setLoaded({ doc, view: { status: "failed" } });
+        if (current) setLoaded({ doc, session, view: { status: "failed" } });
       },
     );
     return () => {
       current = false;
     };
-  }, [api, doc, hasOutline]);
+  }, [api, doc, hasOutline, session]);
 
   if (doc === null || !hasOutline) return { status: "none" };
-  return loaded?.doc === doc ? loaded.view : { status: "loading" };
+  if (loaded?.doc === doc) return loaded.view;
+  if (session !== undefined && loaded?.session === session && loaded.view.status === "ready") return loaded.view;
+  return { status: "loading" };
 }

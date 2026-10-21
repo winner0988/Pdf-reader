@@ -336,31 +336,28 @@
 
 ### 書籤編輯（B3-17）
 
-在側欄的「目錄」中操作；存檔後才寫入檔案。
+在側欄的「目錄」中操作；存檔後才寫入檔案。文件作者不允許修改時（`permissions.modify` 為 false），沒有新增按鈕、右鍵選單與編輯快捷鍵。
 
-- **新增**：
-  - 目錄為空時，側欄顯示 sidebar.outlineEmpty 與「新增書籤」按鈕；按下後為目前閱讀的頁面建立第一個書籤，預設標題為 sidebar.defaultBookmarkTitle（例如「第 1 頁」）。
-  - 目錄項目具有焦點時，按 `Ctrl+B` 或在項目上按右鍵選 sidebar.addBookmark：在該項目之下新增子書籤，預設指向目前閱讀的頁面（顯式頁面目的地 `[page /XYZ 0 height 0]`，不含主動腳本或外部動作）。
+- **新增**：新書籤指向目前閱讀的頁面（該頁顯示時的左上角），標題預設為 sidebar.defaultBookmarkTitle（例如「第 1 頁」），加入後立刻進入改名。
+  - 目錄為空時，側欄顯示 sidebar.outlineEmpty 與按鈕 sidebar.addBookmark，按下後建立第一個書籤。
+  - 目錄上方的按鈕 sidebar.addBookmark：放在目前頁面所屬書籤的後面、同一層；沒有這樣的書籤時放在最前面。
+  - 項目有焦點時按 `Ctrl+B`，或在項目上按右鍵選 sidebar.addBookmark：放在該項目的後面、同一層（要放進去當子項目，再按 `Alt+→`）。
 - **重新命名**：
-  - 項目有焦點時按 `F2`，或在右鍵功能表選 sidebar.renameBookmark：切換為行內文字輸入框（sidebar.renameInputLabel），自動全選原有文字。
-  - `Enter` 或失焦確認變更，`Esc` 取消。
-  - 不接受空白標題；輸入空白時不套用變更並退出編輯模式。
-  - 完成或取消後焦點自動回到該目錄項目。
+  - 項目有焦點時按 `F2`，或右鍵選 sidebar.renameBookmark：變成行內輸入框（sidebar.renameInputLabel），原有文字全選。
+  - `Enter` 或離開輸入框時套用，`Esc` 取消；`Enter`、`Esc` 後焦點回到該項目。
+  - 換行、連續空白收成一個空白，看不見的格式字元（雙向文字控制、零寬字元）去掉；結果是空的就不改。
 - **刪除**：
   - 項目有焦點時按 `Delete`，或右鍵選 sidebar.deleteBookmark。
-  - 若該書籤為葉節點（無子項目），直接刪除。
-  - 若該書籤包含子項目，彈出確認對話框（sidebar.deleteConfirmTitle、sidebar.deleteConfirmDescription），確認後一併刪除該項目及其所有子孫節點。
-- **移動與重排**：
-  - 同層上移：`Alt+↑` 或右鍵 sidebar.moveUp（若為同層第一個則停用）。
-  - 同層下移：`Alt+↓` 或右鍵 sidebar.moveDown（若為同層最後一個則停用）。
-  - 升級（Promote）：`Alt+←` 或右鍵 sidebar.promote，移到父項目的後一個兄弟（若已在最頂層則停用）。
-  - 降級（Demote）：`Alt+→` 或右鍵 sidebar.demote，移入前一個兄弟項目的最後一個子項（若沒有前一個兄弟則停用）。
-  - 禁止環狀移動（不可移動到自身或其子孫節點之下）。
-- **作者權限與唯讀**：
-  - 文件作者不允許修改時（`permissions.modify` 為 false），右鍵選單項目皆停用，快捷鍵不作用。
-- **復原／重做與崩潰復原**：
-  - 每次編輯產生一筆型別化的 `Edit` 動作（`AddBookmark`、`RenameBookmark`、`DeleteBookmark`、`MoveBookmark`），支援 `Ctrl+Z` 復原與 `Ctrl+Y` 重做，並寫入崩潰復原日誌。
-  - 做法與架構見 [outline-editing.md](../architecture/outline-editing.md)。
+  - 沒有子項目的書籤直接刪除；有子項目時先出現確認對話框（sidebar.deleteConfirmTitle、sidebar.deleteConfirmDescription），確定後連同底下的書籤一起刪除。
+  - 刪除後焦點移到下一個顯示的項目（沒有就前一個）。
+- **移動**：焦點留在移動的書籤上；移進收合的項目時，該項目會展開。
+  - 同層上移：`Alt+↑` 或右鍵 sidebar.moveUp（同層第一個時停用）。
+  - 同層下移：`Alt+↓` 或右鍵 sidebar.moveDown（同層最後一個時停用）。
+  - 升級：`Alt+←` 或右鍵 sidebar.promote，放到原本父項目的後面（已在最上層時停用）。
+  - 降級：`Alt+→` 或右鍵 sidebar.demote，成為前一個同層項目的最後一個子項目（沒有前一個時停用）。
+- **一次一個**：一個編輯送出後，到新的目錄出現之前，其他編輯不作用（目錄標示忙碌中）。
+- **失敗**：目錄上方顯示 sidebar.bookmarkFailed（未儲存的變更太多時是 pages.saveFirst）。目錄結構有問題的文件（例如目錄項目其實是頁面、層數或數量超過上限）不能編輯書籤，但照樣可以看。
+- **復原／重做**：每個動作是一筆編輯（`AddBookmark`、`RenameBookmark`、`DeleteBookmark`、`MoveBookmark`），`Ctrl+Z`／`Ctrl+Y` 復原與重做，也寫進崩潰復原的日誌。做法見 [outline-editing.md](../architecture/outline-editing.md)。
 
 ### 崩潰復原（B2-13）
 
@@ -647,6 +644,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | promote | 升級 |
 | demote | 降級 |
 | defaultBookmarkTitle | 第 <n> 頁 |
+| bookmarkFailed | 無法變更書籤。目錄結構有問題的文件不能編輯書籤；其他原因請再試一次。 |
 | deleteConfirmTitle | 刪除書籤 |
 | deleteConfirmDescription | 這個書籤包含子項目，確定要一併刪除嗎？ |
 | deleteConfirmConfirm | 刪除 |

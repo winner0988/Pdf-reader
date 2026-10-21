@@ -376,3 +376,49 @@ fn deleting_parent_removes_entire_subtree() {
     let outline = get_outline(&mut t.host, t.doc);
     assert_eq!(outline.items.len(), 0);
 }
+
+#[test]
+fn only_a_bookmark_shown_can_be_edited_and_the_worker_stays() {
+    let mut t = open_test_pdf(&one_page(""));
+    apply_edit(
+        &mut t.host,
+        t.doc,
+        WorkerEdit::AddBookmark {
+            parent: None,
+            index: 0,
+            title: "A".into(),
+            page: 0,
+        },
+    )
+    .expect("add A");
+    let a = get_outline(&mut t.host, t.doc).items[0].id;
+
+    // Every other object number (the catalog, the pages, the page, the outline root) is refused.
+    for number in (0..=20).chain([u32::MAX]).filter(|&number| number != a.0) {
+        let id = ipc_contract::types::BookmarkId(number);
+        let edits = [
+            WorkerEdit::RenameBookmark {
+                id,
+                title: "X".into(),
+            },
+            WorkerEdit::DeleteBookmark { id },
+            WorkerEdit::MoveBookmark {
+                id,
+                parent: None,
+                index: 0,
+            },
+            WorkerEdit::MoveBookmark {
+                id: a,
+                parent: Some(id),
+                index: 0,
+            },
+        ];
+        for edit in edits {
+            assert!(apply_edit(&mut t.host, t.doc, edit).is_err(), "{number}");
+        }
+    }
+
+    let outline = get_outline(&mut t.host, t.doc);
+    assert_eq!(outline.items.len(), 1);
+    assert_eq!(outline.items[0].title, "A");
+}

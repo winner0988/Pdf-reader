@@ -24,6 +24,15 @@ export function parentOf(items: OutlineItem[], index: number): number {
   return -1;
 }
 
+/**
+ * What stands for an item through edits (B3-17): its bookmark id, which an edit does not change,
+ * so that what is open and what has focus stay with the item when the outline is read again.
+ * An item the worker gives no id (0) has one from its place.
+ */
+export function keyOf(item: OutlineItem, index: number): number {
+  return item.id !== 0 ? item.id : -1 - index;
+}
+
 /** Items shown when only the items in `expanded` have their children visible. */
 export function visibleItems(items: OutlineItem[], expanded: ReadonlySet<number>): number[] {
   const visible: number[] = [];
@@ -173,4 +182,26 @@ export function getMoveParams(
       return { id: item.id, parent: prevItem.id, index: count };
     }
   }
+}
+
+/**
+ * Where a bookmark added after item `index` goes: next to it, at its level. With no item (-1),
+ * first at the top level.
+ */
+export function addAfter(items: OutlineItem[], index: number): { parent: number | null; index: number } {
+  if (items[index] === undefined) return { parent: null, index: 0 };
+  const parent = parentOf(items, index);
+  return { parent: parent >= 0 ? items[parent]!.id : null, index: siblingIndex(items, index) + 1 };
+}
+
+/**
+ * A title as the main process takes it (`clean_display_text`): invisible formatting characters
+ * (bidirectional controls, zero-width characters) removed, line breaks, other control characters
+ * and runs of spaces made one space, no space at either end.
+ */
+export function cleanTitle(text: string): string {
+  return text
+    .replace(/[\u061C\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/gu, "")
+    .replace(/[\s\p{Cc}]+/gu, " ")
+    .trim();
 }

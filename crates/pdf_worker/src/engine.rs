@@ -1617,7 +1617,7 @@ mod tests {
     use super::*;
 
     /// Builds a PDF with a correct xref table from object bodies (object n = body n-1).
-    fn build_pdf(objects: &[&str]) -> Vec<u8> {
+    pub(super) fn build_pdf(objects: &[&str]) -> Vec<u8> {
         let mut out = b"%PDF-1.7\n".to_vec();
         let mut offsets = Vec::new();
         for (index, body) in objects.iter().enumerate() {
@@ -1663,7 +1663,7 @@ mod tests {
 
     /// A PDF whose outline is given as (title, depth, target page) in reading order; object
     /// numbers: 1 catalog, 2 pages, 3..3+pages page objects, then the outline root and items.
-    fn outline_pdf(pages: usize, items: &[(&str, u16, Option<usize>)]) -> Vec<u8> {
+    pub(super) fn outline_pdf(pages: usize, items: &[(&str, u16, Option<usize>)]) -> Vec<u8> {
         let first_page = 3;
         let root = first_page + pages;
         let item_obj = |index: usize| root + 1 + index;

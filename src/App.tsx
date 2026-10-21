@@ -296,7 +296,12 @@ function TabPane({
   onForgetPassword,
   ...shell
 }: TabPaneProps) {
-  const outline = useOutline(outlineApi, docOf(tab), tab.content.kind === "open" && tab.content.hasOutline);
+  const outline = useOutline(
+    outlineApi,
+    docOf(tab),
+    tab.content.kind === "open" && tab.content.hasOutline,
+    tab.content.kind === "open" ? tab.content.document.session : undefined,
+  );
   const signatures = useSignatures(
     signaturesApi,
     docOf(tab),
