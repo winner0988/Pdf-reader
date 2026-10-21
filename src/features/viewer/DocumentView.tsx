@@ -10,6 +10,7 @@ import {
   type Ref,
   type RefObject,
 } from "react";
+import { flushSync } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import type { PageSize, Rotation, Zoom } from "@/features/shell/model";
@@ -600,7 +601,7 @@ export function DocumentView({
 
 type SlotState =
   | { kind: "loading" }
-  | { kind: "ready"; scale: number; rotation: ContractRotation }
+  | { kind: "ready"; doc: DocumentId; scale: number; rotation: ContractRotation }
   | { kind: "failed"; message: string };
 
 /** A part of a page drawn sharp over the whole page (B3-09): `region` of the raster `whole`. */
@@ -672,7 +673,7 @@ function PageSlot({
         (raster) => {
           drawRaster(canvasRef.current, raster);
           drawnAt.current = { doc, scale: wholeAt, rotation };
-          setState({ kind: "ready", scale: wholeAt, rotation });
+          setState({ kind: "ready", doc, scale: wholeAt, rotation });
         },
         (error: unknown) => {
           const code = errorCodeOf(error);
@@ -684,8 +685,8 @@ function PageSlot({
       );
     };
     // A page on screen is drawn again at once after zooming or turning: the delay is for pages
-    // that only flash by while scrolling.
-    const delay = drawn ? redrawDelayMs : requestDelayMs;
+    // that only flash by while scrolling. A page of another document is new.
+    const delay = drawn?.doc === doc ? redrawDelayMs : requestDelayMs;
     const timer = delay > 0 ? window.setTimeout(start, delay) : undefined;
     if (timer === undefined) start();
     // Leaving the rendered range, or a new scale or rotation, cancels the old request.
@@ -718,7 +719,8 @@ function PageSlot({
   const stale = asked !== null && (asked.doc !== doc || asked.scale !== scale || asked.rotation !== rotation);
   // Right after zooming, at once; while scrolling, once the view rests.
   const scrolling = asked !== null && !stale;
-  const detailDelay = scrolling ? DETAIL_DELAY_MS : state.kind === "ready" ? 0 : requestDelayMs;
+  const drawnHere = state.kind === "ready" && state.doc === doc;
+  const detailDelay = scrolling ? DETAIL_DELAY_MS : drawnHere ? 0 : requestDelayMs;
   useEffect(() => {
     if (!wantedKey) return;
     const timer = window.setTimeout(() => setAsked(JSON.parse(wantedKey) as Detail), detailDelay);
@@ -737,10 +739,12 @@ function PageSlot({
     job.result.then(
       (raster) => {
         if (!live) return;
+        // Moved into place first, in the same task: no frame shows it where the old part was.
+        flushSync(() => setDetail(asked));
         drawRaster(detailRef.current, raster);
-        setDetail(asked);
       },
-      // Failed or cancelled: the whole page underneath stays.
+      // Failed or cancelled: the whole page underneath stays until the view leaves this part or
+      // the zoom changes. Asking again at once would loop on an error that stays.
       () => {},
     );
     return () => {
@@ -749,7 +753,7 @@ function PageSlot({
     };
   }, [renderer, index, asked, stale]);
 
-  const wholeSharp = state.kind === "ready" && state.scale === scale && state.rotation === rotation;
+  const wholeSharp = drawnHere && state.scale === scale && state.rotation === rotation;
   // Shown while zoomed far in, and after zooming out until the whole page is drawn sharp.
   const shownDetail =
     detail !== null && detail.doc === doc && detail.rotation === rotation && (baseScale !== null || !wholeSharp)

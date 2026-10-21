@@ -578,17 +578,18 @@ impl PdfDocument {
 
         let mut ctm = Matrix::new_scale(scale, scale);
         ctm.concat(Matrix::new_rotate(f32::from(rotation.degrees())));
-        // Where MuPDF puts the whole page (`fz_new_pixmap_from_page`), and the region in it. The
-        // region is at most 2^20 pixels from the page's corner, so all of it fits an i32.
+        // Where MuPDF puts the whole page (`fz_new_pixmap_from_page`), and the region in it.
+        // MuPDF puts a page's corner at the origin; one out at the edge of an i32 is refused
+        // rather than wrapped around.
         let whole = bounds.transform(&ctm).round();
-        let offset = |at: u32| i32::try_from(at).map_err(|_| EngineError::InvalidRegion);
-        let (x0, y0) = (whole.x0 + offset(region.x)?, whole.y0 + offset(region.y)?);
-        let area = IRect::new(
-            x0,
-            y0,
-            x0 + offset(region.width)?,
-            y0 + offset(region.height)?,
-        );
+        let past = |from: i32, by: u32| {
+            i32::try_from(by)
+                .ok()
+                .and_then(|by| from.checked_add(by))
+                .ok_or(EngineError::InvalidRegion)
+        };
+        let (x0, y0) = (past(whole.x0, region.x)?, past(whole.y0, region.y)?);
+        let area = IRect::new(x0, y0, past(x0, region.width)?, past(y0, region.height)?);
         let mut pixmap = Pixmap::new_with_rect(&Colorspace::device_rgb(), area, false)?;
         // Opaque white under the page, as for a whole page; then the page with its annotations
         // and form fields (`fz_run_page`), as `to_pixmap` draws it with the extras.

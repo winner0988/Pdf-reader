@@ -354,6 +354,72 @@ describe("DocumentView", () => {
       expect(calls.length).toBe(before + 2);
       expect(detail.hidden).toBe(true);
       expect(page.hasAttribute("data-sharp")).toBe(true);
+
+      // Back at 400%, the part cancelled then is asked for again at once.
+      rerender(<Harness pages={pages} renderer={renderer} zoom={400} />);
+      act(() => element.dispatchEvent(new Event("scroll")));
+      act(() => vi.advanceTimersByTime(150));
+      expect(calls.length).toBe(before + 3);
+      const again = calls[before + 2]!;
+      expect(again.args).toEqual(calls[before + 1]!.args);
+
+      // The new part is moved into place before it is drawn, never shown where the old one was.
+      let drawnAt: string | null = null;
+      putImageData.mockImplementation(() => {
+        drawnAt = detail.style.top;
+      });
+      const next = again.args.region!;
+      await act(async () =>
+        again.resolve({
+          width: next.width,
+          height: next.height,
+          pixels: new Uint8ClampedArray(next.width * next.height * 4),
+        }),
+      );
+      expect(drawnAt).toBe(`${(next.y / 4224) * 100}%`);
+      expect(page.hasAttribute("data-sharp")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not take a page drawn for the document before as drawn (B3-09)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { renderer, calls } = fakeRenderer();
+      const pages: PageSize[] = Array(3).fill(LETTER);
+      function Switching({ doc }: { doc: number }) {
+        const scroller = useRef<HTMLElement>(null);
+        return (
+          <main ref={scroller} data-testid="scroller">
+            <DocumentView
+              pages={pages}
+              zoom={100}
+              rotation={0}
+              scrollContainer={scroller}
+              doc={doc}
+              renderer={renderer}
+            />
+          </main>
+        );
+      }
+      const { rerender } = render(<Switching doc={7} />);
+      const element = sizeScroller(900);
+      scrollTo(element, 0);
+      act(() => vi.advanceTimersByTime(250)); // REQUEST_DELAY_MS + NEARBY_EXTRA_DELAY_MS
+      await act(async () => calls.forEach((call) => call.resolve(raster())));
+      const page = screen.getByRole("img", { name: strings.canvas.page(1) });
+      expect(page.hasAttribute("data-sharp")).toBe(true);
+      const before = calls.length;
+
+      // Another document in the same view: its pages are not sharp until drawn, and wait like
+      // any page just shown.
+      rerender(<Switching doc={8} />);
+      expect(page.hasAttribute("data-sharp")).toBe(false);
+      act(() => vi.advanceTimersByTime(99));
+      expect(calls.length).toBe(before);
+      act(() => vi.advanceTimersByTime(1)); // REQUEST_DELAY_MS
+      expect(calls.slice(before).map((call) => [call.args.doc, call.args.pageIndex])).toEqual([[8, 0]]);
     } finally {
       vi.useRealTimers();
     }
