@@ -14,8 +14,9 @@ use ipc_contract::limits::{
 };
 use ipc_contract::raster::check_region;
 use ipc_contract::types::{
-    BlockedAction, DocumentPermissions, ImageQuality, PageSize, PageText as TextLayer, Point, Quad,
-    RasterRegion, Restrictions, Rotation, SanitizeOptions, SanitizeReport, SecurityReport,
+    BlockedAction, BookmarkId, DocumentPermissions, ImageQuality, PageSize, PageText as TextLayer,
+    Point, Quad, RasterRegion, Restrictions, Rotation, SanitizeOptions, SanitizeReport,
+    SecurityReport,
 };
 use mupdf::pdf::{
     Encryption, InsertPdfOptions, InsertPosition, PageSelection, PdfDocument as MuPdfDocument,
@@ -53,6 +54,7 @@ mod signatures;
 mod stamp_image;
 mod text_box;
 mod watermark;
+mod outline;
 
 pub use signatures::{SignatureField, SignatureFields};
 pub use stamp_image::{StampPicture, prepare_stamp_picture};
@@ -199,6 +201,7 @@ pub enum OutlineTarget {
 /// One outline entry, in reading order (a parent before its children).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutlineEntry {
+    pub id: BookmarkId,
     /// Raw title from the PDF; the caller cleans it before showing it.
     pub title: String,
     pub depth: u16,
@@ -384,7 +387,14 @@ impl PdfDocument {
             }
             let title = text(node.get_dict("Title")).unwrap_or_default();
             let target = self.action_target(&node);
+            let id = BookmarkId(
+                node.as_indirect()
+                    .ok()
+                    .and_then(|n| u32::try_from(n).ok())
+                    .unwrap_or(0),
+            );
             outline.entries.push(OutlineEntry {
+                id,
                 title,
                 depth,
                 target,
