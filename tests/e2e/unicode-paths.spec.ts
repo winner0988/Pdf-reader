@@ -23,7 +23,7 @@ const firstPage = (page: Page) => page.getByRole("img", { name: strings.canvas.p
 /** Whether page 1 is drawn wider than tall: turned a quarter. */
 const landscape = (page: Page) =>
   firstPage(page)
-    .locator("canvas")
+    .locator("canvas:not([data-detail])")
     .evaluate((canvas: HTMLCanvasElement) => canvas.width > canvas.height);
 
 /** Turns page 1 through the app's IPC, in the document whose pages are shown. */

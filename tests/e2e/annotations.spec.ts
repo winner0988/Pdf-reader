@@ -36,7 +36,7 @@ type Box = { x: number; y: number; width: number; height: number };
  */
 async function pixelsIn(page: Page, box: Box): Promise<number[][]> {
   return firstPage(page)
-    .locator("canvas")
+    .locator("canvas:not([data-detail])")
     .evaluate((canvas: HTMLCanvasElement, area) => {
       const bounds = canvas.getBoundingClientRect();
       const context = canvas.getContext("2d")!;

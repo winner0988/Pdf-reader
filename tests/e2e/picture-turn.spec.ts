@@ -32,7 +32,7 @@ const placeOf = (locator: Locator) => locator.first().boundingBox();
 /** How many pixels of the first page as drawn (its canvas) inside `box` of the screen are `hue`. */
 async function pixelsOf(page: Page, box: Box, hue: "red" | "blue"): Promise<number> {
   return firstPage(page)
-    .locator("canvas")
+    .locator("canvas:not([data-detail])")
     .evaluate(
       (canvas: HTMLCanvasElement, args) => {
         const bounds = canvas.getBoundingClientRect();

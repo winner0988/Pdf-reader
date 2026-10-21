@@ -39,7 +39,7 @@ async function boxOf(locator: Locator): Promise<Box> {
  */
 async function inkOf(page: Page, box: Box): Promise<number> {
   return firstPage(page)
-    .locator("canvas")
+    .locator("canvas:not([data-detail])")
     .evaluate((canvas: HTMLCanvasElement, area) => {
       const bounds = canvas.getBoundingClientRect();
       const scaleX = canvas.width / bounds.width;

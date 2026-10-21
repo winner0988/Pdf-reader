@@ -80,7 +80,7 @@ const inkOf = (page: Page) =>
   page
     .getByRole("img", { name: strings.canvas.page(1) })
     .last()
-    .locator("canvas")
+    .locator("canvas:not([data-detail])")
     .evaluate((canvas: HTMLCanvasElement) => {
       const { width, height } = canvas;
       const data = canvas.getContext("2d")!.getImageData(0, 0, width, height).data;
