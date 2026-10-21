@@ -399,6 +399,27 @@ describe("what the window shows", () => {
     });
   });
 
+  it("the outline with bookmark editing: renaming, and the question before deleting (B3-17)", async () => {
+    const page = (pageIndex: number) => ({ kind: "page" as const, pageIndex, x: null, y: null });
+    const items: OutlineItem[] = [
+      { id: 1, title: "第一章", depth: 0, target: page(0) },
+      { id: 2, title: "第一節", depth: 1, target: page(1) },
+    ];
+    const editing = { allowed: true, apply: vi.fn().mockResolvedValue(undefined) };
+    render(<OutlineTree items={items} currentPage={1} onJumpToPage={vi.fn()} editing={editing} />);
+    const user = userEvent.setup();
+    const skip = { region: "the tree is shown without the sidebar that has it in the window" };
+
+    await user.click(screen.getByRole("treeitem", { name: "第一節" }));
+    await user.keyboard("{F2}");
+    await expectAccessible(everything(), { skip });
+
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("treeitem", { name: /第一章/ }));
+    await user.keyboard("{Delete}");
+    await expectAccessible(everything(), { skip });
+  });
+
   it("the redaction panel", async () => {
     const marks = [
       {
