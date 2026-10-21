@@ -120,19 +120,19 @@ describe("FindPersonalDataDialog", () => {
     // Uncheck first match checkbox
     const matchCheckboxes = screen.getAllByRole("checkbox");
     // Find checkboxes for matches (the last two)
-    const firstMatchCheckbox = matchCheckboxes[matchCheckboxes.length - 2];
+    const firstMatchCheckbox = matchCheckboxes[matchCheckboxes.length - 2]!;
     await userEvent.click(firstMatchCheckbox);
 
     // Mark selected (now 1)
     const markBtn = screen.getByRole("button", { name: t.markSelected(1) });
     await userEvent.click(markBtn);
 
-    expect(onAddRedactions).toHaveBeenCalledWith([sampleMatches.matches[1]]);
+    expect(onAddRedactions).toHaveBeenCalledWith([sampleMatches.matches[1]!]);
   });
 
   it("shows caveat banner when hasMore is true", async () => {
     const matchesWithMore: PersonalDataMatches = {
-      matches: [sampleMatches.matches[0]],
+      matches: [sampleMatches.matches[0]!],
       hasMore: true,
     };
     const findPersonalData = vi.fn().mockResolvedValue(matchesWithMore);
