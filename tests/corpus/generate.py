@@ -636,11 +636,13 @@ def r6_hash(password: bytes, salt: bytes, udata: bytes) -> bytes:
 
 AES_TEXT = "Encrypted sample, AES-256 (user password: user)"
 NO_COPY_TEXT = "Restricted sample: no copying, no printing (owner password: owner)"
+NO_MODIFY_TEXT = "Restricted sample: no changes (owner password: owner)"
 LOW_RES_TEXT = "Restricted sample: low-resolution printing only (owner password: owner)"
 OPEN_PASSWORD_TEXT = "Restricted sample with an open password (user: user, owner: owner)"
 
 # Permission bits of /P (ISO 32000-2, table 22), 1-based bit n is 1 << (n - 1).
 PERM_PRINT = 1 << 2
+PERM_MODIFY = 1 << 3
 PERM_COPY = 1 << 4
 PERM_PRINT_HQ = 1 << 11
 ALL_PERMISSIONS = -4
@@ -689,6 +691,12 @@ def benign_restricted_no_copy() -> bytes:
     """No open password, but the author forbids copying and printing (MVP-19)."""
     permissions = ALL_PERMISSIONS & ~PERM_COPY & ~PERM_PRINT & ~PERM_PRINT_HQ
     return aes256_document("restricted-no-copy-no-print", b"", b"owner", permissions, NO_COPY_TEXT)
+
+
+def benign_restricted_no_modify() -> bytes:
+    """No open password; the author forbids changing the document, so redaction is off (B2-22)."""
+    permissions = ALL_PERMISSIONS & ~PERM_MODIFY
+    return aes256_document("restricted-no-modify", b"", b"owner", permissions, NO_MODIFY_TEXT)
 
 
 def benign_restricted_low_res_print() -> bytes:
@@ -1721,6 +1729,11 @@ SAMPLES = [
            "AES-256 (R6) with an empty user password and owner password 'owner'; /P forbids copying and printing.",
            "Opens without a password (MVP-19): text can be selected but not copied, and the document cannot be "
            "printed.", 1, text=[NO_COPY_TEXT]),
+    Sample("benign/restricted-no-modify.pdf", benign_restricted_no_modify,
+           "AES-256 (R6) with an empty user password and owner password 'owner'; /P forbids changing the "
+           "document (bit 4).",
+           "Opens without a password (B2-22): the redaction tool is disabled and the redaction panel says the "
+           "author does not allow changes.", 1, text=[NO_MODIFY_TEXT]),
     Sample("benign/restricted-low-res-print.pdf", benign_restricted_low_res_print,
            "AES-256 (R6) with an empty user password and owner password 'owner'; /P allows printing but not at "
            "high quality.",

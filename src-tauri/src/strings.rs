@@ -52,6 +52,11 @@ pub fn compressed_copy_file_name(stem: &str) -> String {
 pub fn exif_cleaned_file_name(stem: &str) -> String {
     format!("{stem}（已清除 EXIF）.pdf")
 }
+
+/// The name of a batch's copy with a watermark on its pages (B3-04).
+pub fn watermark_file_name(stem: &str) -> String {
+    format!("{stem}（浮水印）.pdf")
+}
 pub const COMPRESSED_COPY_SAME_FILE_TITLE: &str = "請選擇其他檔案";
 pub const COMPRESSED_COPY_SAME_FILE_MESSAGE: &str =
     "壓縮會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
@@ -91,6 +96,8 @@ pub const TEXT_FILTER_NAME: &str = "純文字檔";
 pub const EXPORT_IMAGES_DIALOG_TITLE: &str = "選擇匯出頁面圖片的資料夾";
 /// The dialog for the picture of a custom stamp (B2-08).
 pub const STAMP_IMAGE_DIALOG_TITLE: &str = "選擇印章要用的圖片";
+/// The dialog for the picture of a watermark (B3-04).
+pub const WATERMARK_IMAGE_DIALOG_TITLE: &str = "選擇浮水印要用的圖片";
 pub const IMAGE_FILTER_NAME: &str = "圖片（PNG、JPEG）";
 pub const SPLIT_DIALOG_TITLE: &str = "將選取的頁面另存為新檔";
 pub const SPLIT_SAME_FILE_TITLE: &str = "請選擇其他檔案";
@@ -130,6 +137,7 @@ pub fn batch_operation_name(operation: &BatchOperation) -> &'static str {
         BatchOperation::RemoveMetadata => "清除中繼資料",
         BatchOperation::RemoveExif => "清除圖片的 EXIF",
         BatchOperation::Encrypt { .. } => "加密",
+        BatchOperation::Watermark { .. } => "浮水印",
     }
 }
 /// How many files were done, failed and skipped: the parts that are not none.

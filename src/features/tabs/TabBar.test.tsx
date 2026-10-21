@@ -60,4 +60,28 @@ describe("TabBar", () => {
     await user.click(screen.getByRole("button", { name: strings.tabs.open }));
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps close buttons outside the tablist and reaches the active one via Tab", async () => {
+    const { user } = renderBar(2);
+    const list = screen.getByRole("tablist", { name: strings.tabs.label });
+    // The tablist contains no buttons, only tabs.
+    expect(within(list).queryAllByRole("button")).toHaveLength(0);
+    expect(within(list).queryAllByRole("tab")).toHaveLength(3);
+
+    // Tabbing from the active tab focuses its close button, then the open button.
+    const activeTab = screen.getByRole("tab", { selected: true });
+    activeTab.focus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: strings.tabs.close("b.pdf") })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: strings.tabs.open })).toHaveFocus();
+  });
+
+  it("closes the focused tab when pressing Delete", async () => {
+    const { onClose, user } = renderBar(2);
+    const activeTab = screen.getByRole("tab", { selected: true });
+    activeTab.focus();
+    await user.keyboard("{Delete}");
+    expect(onClose).toHaveBeenCalledWith(2);
+  });
 });

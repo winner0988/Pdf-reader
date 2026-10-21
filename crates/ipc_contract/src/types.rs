@@ -146,7 +146,7 @@ pub struct EncryptArgs {
 
 /// What a batch does to each of its files (B3-04, ADR 0005, docs/architecture/batch.md): a copy of
 /// each is written to the folder the user chooses; no file is changed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum BatchOperation {
     /// The privacy export (B2-03): a copy without the document's metadata.
@@ -164,11 +164,16 @@ pub enum BatchOperation {
     /// them (EXIF with the camera, the time and the place, XMP, IPTC, comments, thumbnails) is
     /// taken out without encoding them again, so they look the same.
     RemoveExif,
+    /// A copy with a watermark on its pages (B3-04, docs/architecture/watermark.md): words or a
+    /// picture, at an opacity, level or along the diagonal, in the middle, top or bottom, on all
+    /// pages, the first or all but the first.
+    #[serde(rename_all = "camelCase")]
+    Watermark { watermark: Watermark },
 }
 
 /// Arguments of `run_batch` (B3-04): what to do, never to which files or where; the main process
 /// asks the user in the system's dialogs. Any other field is rejected.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BatchArgs {
     /// Stops the batch with `cancel`, before its next file.

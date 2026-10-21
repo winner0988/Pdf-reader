@@ -157,6 +157,19 @@
       "sha256": "6d78d869bd1dbb347b27fcd6f30f52ac50ee4111fb4e309e9d484495959f1a04"
     },
     {
+      "path": "benign/restricted-no-modify.pdf",
+      "category": "benign",
+      "purpose": "AES-256 (R6) with an empty user password and owner password 'owner'; /P forbids changing the document (bit 4).",
+      "expected": "Opens without a password (B2-22): the redaction tool is disabled and the redaction panel says the author does not allow changes.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Restricted sample: no changes (owner password: owner)"
+      ],
+      "bytes": 1392,
+      "sha256": "aee2bdac1f9c7c0c943bd671bad7dad0b23819f5d6b428a04f767da169c906ba"
+    },
+    {
       "path": "benign/restricted-low-res-print.pdf",
       "category": "benign",
       "purpose": "AES-256 (R6) with an empty user password and owner password 'owner'; /P allows printing but not at high quality.",

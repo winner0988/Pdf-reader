@@ -718,6 +718,7 @@ impl Validate for BatchArgs {
                 permissions_password.as_ref(),
                 *restrictions,
             ),
+            BatchOperation::Watermark { watermark } => watermark.validate(),
         }
     }
 }
@@ -1630,7 +1631,7 @@ mod tests {
         FieldId, FieldKind, FieldOption, FontId, HighlightColor, HighlightMark, InkColor, InkWidth,
         LinkId, PictureView, RecentId, Recovery, RequestId, Restrictions, Rgb, Rotation,
         SecurityFinding, StampImageId, StampName, TabId, TextAlign, TextBoxInfo, TextBoxModelId,
-        UnverifiableReason,
+        UnverifiableReason, WatermarkPages, WatermarkPlace,
     };
     use crate::worker::{ModelGlyph, WorkerErrorCode};
 
@@ -2269,10 +2270,44 @@ mod tests {
             assert_eq!(batch(operation).validate().is_ok(), ok);
             assert_eq!(args.validate().is_ok(), ok);
         }
+        // Watermark operation: words or picture.
+        let watermark = Watermark {
+            content: WatermarkContent::Text {
+                text: "CONFIDENTIAL".to_owned(),
+                size: 40.0,
+                color: Rgb { r: 200, g: 0, b: 0 },
+            },
+            opacity: 50,
+            diagonal: true,
+            place: WatermarkPlace::Center,
+            pages: WatermarkPages::All,
+        };
+        assert!(
+            batch(BatchOperation::Watermark {
+                watermark: watermark.clone()
+            })
+            .validate()
+            .is_ok()
+        );
+
+        let mut invalid_watermark = watermark.clone();
+        invalid_watermark.opacity = 2; // below 5
+        assert!(
+            batch(BatchOperation::Watermark {
+                watermark: invalid_watermark
+            })
+            .validate()
+            .is_err()
+        );
+
         // What the page sends, and nothing else.
         let json = r#"{"request":3,"operation":{"kind":"encrypt","openPassword":"pw","permissionsPassword":null,"restrictions":{"print":false,"copy":false,"modify":false}}}"#;
         let args: BatchArgs = serde_json::from_str(json).expect("batch args");
         assert!(args.validate().is_ok());
+        let watermark_json = r#"{"request":4,"operation":{"kind":"watermark","watermark":{"content":{"kind":"text","text":"DRAFT","size":20.0,"color":{"r":0,"g":0,"b":0}},"opacity":50,"diagonal":false,"place":"center","pages":"all"}}}"#;
+        let watermark_args: BatchArgs =
+            serde_json::from_str(watermark_json).expect("batch watermark args");
+        assert!(watermark_args.validate().is_ok());
         let more = r#"{"request":3,"operation":{"kind":"removeMetadata"},"files":["C:/x.pdf"]}"#;
         assert!(serde_json::from_str::<BatchArgs>(more).is_err());
     }
