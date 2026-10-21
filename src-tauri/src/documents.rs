@@ -1627,7 +1627,7 @@ impl Documents {
             let WorkerResponse::AttachmentWritten { bytes, .. } = response else {
                 return Err(unexpected("WriteAttachment"));
             };
-            temporary.check(bytes)?;
+            temporary.check_length(bytes)?;
             temporary.replace(destination)?;
             Ok(SaveAttachmentResult {
                 bytes,
@@ -8077,6 +8077,60 @@ mod with_worker {
     }
 
     /// Recognising the text of scanned pages (B2-10), through the real worker.
+    #[test]
+    fn an_attachment_is_saved_as_it_is_and_marked_as_from_the_internet() {
+        let sample = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/attachment-text.pdf");
+        let (documents, info, path) =
+            open_bytes("attachment-save", &std::fs::read(sample).unwrap());
+        let listed = documents.attachments(info.doc).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].name, "sample.txt");
+        assert_eq!(listed[0].extension, ".txt");
+        assert!(!listed[0].is_dangerous);
+
+        // A text file, not a PDF: saved as the worker decoded it.
+        let saved = path.with_file_name("attachment-save-sample.txt");
+        std::fs::remove_file(&saved).ok();
+        let result = documents
+            .save_attachment(info.doc, listed[0].id, &saved)
+            .unwrap();
+        assert_eq!(result.bytes, 39);
+        assert!(result.marked, "the temporary folder is on NTFS");
+        assert_eq!(
+            std::fs::read(&saved).unwrap(),
+            b"This is a benign text file attachment.\n"
+        );
+        let mut zone = saved.as_os_str().to_os_string();
+        zone.push(":Zone.Identifier");
+        assert_eq!(
+            std::fs::read(&zone).unwrap(),
+            b"[ZoneTransfer]\r\nZoneId=3\r\n"
+        );
+
+        // An id the list does not have writes nothing, and the document's own file is refused.
+        let other = path.with_file_name("attachment-save-other.bin");
+        std::fs::remove_file(&other).ok();
+        assert!(
+            documents
+                .save_attachment(info.doc, AttachmentId(1), &other)
+                .is_err()
+        );
+        assert!(!other.exists());
+        let before = std::fs::read(&path).unwrap();
+        assert_eq!(
+            documents
+                .save_attachment(info.doc, listed[0].id, &path)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+
+        std::fs::remove_file(saved).ok();
+        std::fs::remove_file(path).ok();
+    }
+
     mod ocr {
         use std::time::{Duration, Instant};
 
