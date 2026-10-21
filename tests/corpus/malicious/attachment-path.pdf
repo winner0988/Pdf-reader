@@ -26,7 +26,7 @@ Path traversal payload
 endstream
 endobj
 7 0 obj
-<< /Type /Filespec /F (..\..\Windows\System32\calc.exe) /UF (..\..\Windows\System32\calc.exe) /EF << /F 6 0 R /UF 6 0 R >> /Desc (Attachment with directory traversal in filename) >>
+<< /Type /Filespec /F (../../Windows/System32/calc.exe) /UF (..\\..\\Windows\\System32\\calc.exe) /EF << /F 6 0 R /UF 6 0 R >> /Desc (Attachment with directory traversal in filename) >>
 endobj
 xref
 0 8
@@ -41,5 +41,5 @@ xref
 trailer
 << /Size 8 /Root 1 0 R /ID [<E372284F7C84B7A78F35AA1EBA7603CF> <E372284F7C84B7A78F35AA1EBA7603CF>] >>
 startxref
-869
+873
 %%EOF

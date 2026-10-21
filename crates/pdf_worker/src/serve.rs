@@ -585,24 +585,17 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 documents.values_mut().for_each(PdfDocument::ocr_stopped);
                 Some(WorkerResponse::OcrStopped { request })
             }
-            WorkerRequest::GetAttachments { request, doc } => {
-                Some(match documents.get(&doc) {
-                    None => error(
-                        request,
-                        WorkerErrorCode::UnknownDocument,
-                        "unknown document",
-                    ),
-                    Some(document) => match document.list_attachments() {
-                        Ok(attachments) => WorkerResponse::Attachments {
-                            request,
-                            attachments,
-                        },
-                        Err(engine) => {
-                            engine_error(request, &engine, WorkerErrorCode::Corrupted)
-                        }
-                    },
-                })
-            }
+            WorkerRequest::GetAttachments { request, doc } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => WorkerResponse::Attachments {
+                    request,
+                    attachments: document.list_attachments(),
+                },
+            }),
             WorkerRequest::WriteAttachment {
                 request,
                 doc,
@@ -879,6 +872,8 @@ fn save(document: &PdfDocument, request: RequestId, file: FileHandle) -> WorkerR
     }
 }
 
+/// Writes attachment `attachment` of `document`, decoded, to `file` (a write-only handle to a new
+/// file of the main process, ADR 0025). An id the document does not list is refused.
 fn write_attachment(
     document: &PdfDocument,
     request: RequestId,
@@ -894,7 +889,8 @@ fn write_attachment(
     };
     match document.write_attachment(attachment, &mut file) {
         Ok(bytes) => WorkerResponse::AttachmentWritten { request, bytes },
-        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+        // MuPDF could not decode it: damaged, or a compression bomb.
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
     }
 }
 

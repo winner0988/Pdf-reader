@@ -305,4 +305,3 @@ pub const MAX_ATTACHMENT_NAME_BYTES: u32 = 255;
 
 /// Longest cleaned description of an attachment (B3-20, ADR 0025), in UTF-8 bytes.
 pub const MAX_ATTACHMENT_DESC_BYTES: u32 = 1_024;
-

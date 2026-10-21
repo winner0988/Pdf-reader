@@ -12,11 +12,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, TryLockError};
 
+use ipc_contract::attachments::{attachment_extension, clean_attachment_name};
 use ipc_contract::limits::{
     MAX_CREATE_SOURCES, MAX_DISPLAY_NAME_BYTES, MAX_PAGE_COUNT, MAX_SOURCE_BYTES,
     MAX_STAMP_SOURCE_BYTES, MAX_TABS, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
 };
-use ipc_contract::attachments::attachment_extension;
 use ipc_contract::raster::{check_region, encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
@@ -30,8 +30,6 @@ use ipc_contract::types::{
     SaveAttachmentResult, SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId,
     StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
 };
-    StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
-};
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
     FontData, InspectedFont, OcrFinished, OcrPageState, PasswordKey, UnknownFile, WorkerEdit,
@@ -39,10 +37,7 @@ use ipc_contract::worker::{
 };
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
-use crate::attachments::{
-    is_dangerous_attachment, sanitize_attachment_name, write_zone_identifier,
-};
-
+use crate::attachments::{is_dangerous_attachment, mark_from_internet};
 use crate::credentials::{CredentialError, Credentials};
 use crate::export::ImageKind;
 use crate::history::History;
@@ -1564,11 +1559,9 @@ impl Documents {
         }
     }
 
-    /// Returns the attachments of `doc` (B3-20, ADR 0025).
-    ///
-    /// The names are cleaned once more in the main process, dangerous file types are identified
-    /// via `is_dangerous_attachment`, and true file extensions are extracted.
-    pub fn get_attachments(&self, doc: DocumentId) -> Result<Vec<AttachmentInfo>, IpcError> {
+    /// The attachments of `doc` (B3-20, ADR 0025): their names cleaned once more, with their real
+    /// extension and whether their type is dangerous.
+    pub fn attachments(&self, doc: DocumentId) -> Result<Vec<AttachmentInfo>, IpcError> {
         self.with_document(doc, |document| {
             let response = request(document, |request, doc| WorkerRequest::GetAttachments {
                 request,
@@ -1577,47 +1570,55 @@ impl Documents {
             let WorkerResponse::Attachments { attachments, .. } = response else {
                 return Err(unexpected("GetAttachments"));
             };
-            let page_count = document.info.pages.len() as u32;
-            let mut result = Vec::with_capacity(attachments.len());
-            for (idx, att) in attachments.into_iter().enumerate() {
-                if let AttachmentSource::Page { page } = att.source {
-                    if page >= page_count {
+            let pages = document.info.pages.len() as u32;
+            attachments
+                .into_iter()
+                .enumerate()
+                .map(|(index, attachment)| {
+                    if let AttachmentSource::Page { page } = attachment.source
+                        && page >= pages
+                    {
                         return Err(IpcError {
                             code: ErrorCode::ProtocolViolation,
-                            message: "attachment source page out of bounds".to_owned(),
+                            message: "an attachment on a page the document does not have"
+                                .to_owned(),
                         });
                     }
-                }
-                let name = sanitize_attachment_name(&att.name, idx + 1);
-                let extension = attachment_extension(&name);
-                let is_dangerous = is_dangerous_attachment(&name);
-
-                result.push(AttachmentInfo {
-                    id: att.id,
-                    name,
-                    size: att.size,
-                    description: att.description,
-                    source: att.source,
-                    is_dangerous,
-                    extension,
-                });
-            }
-            Ok(result)
+                    let name = clean_attachment_name(&attachment.name, index + 1);
+                    Ok(AttachmentInfo {
+                        id: attachment.id,
+                        extension: attachment_extension(&name),
+                        is_dangerous: is_dangerous_attachment(&name),
+                        name,
+                        size: attachment.size,
+                        description: attachment.description,
+                        source: attachment.source,
+                    })
+                })
+                .collect()
         })
     }
 
-    /// Decodes attachment `attachment` of `doc` and writes it to `destination` (B3-20, ADR 0025).
-    /// Enforces the 512 MiB limit. Writes Mark of the Web (`Zone.Identifier`).
-    /// Logs count and result only (NEVER attachment name).
+    /// Writes attachment `attachment` of `doc`, decoded by the document's worker, to
+    /// `destination`, then marks it as from the internet (B3-20, ADR 0025). The file stays when
+    /// the mark cannot be written (a file system without streams, such as FAT32): the result says
+    /// so. Refused for the document's own file. Nothing is logged: the name says what the
+    /// document holds.
     pub fn save_attachment(
         &self,
         doc: DocumentId,
         attachment: AttachmentId,
-        destination: PathBuf,
+        destination: &Path,
     ) -> Result<SaveAttachmentResult, IpcError> {
         self.with_document(doc, |document| {
-            saving::check_writable(&destination)?;
-            let temporary = Temporary::new(&destination)?;
+            if same_file(&document.path, destination) {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "an attachment never replaces the document's own file".to_owned(),
+                });
+            }
+            saving::check_writable(destination)?;
+            let mut temporary = Temporary::new(destination)?;
             let worker_doc = live_worker(document)?;
             let response = document
                 .host
@@ -1626,27 +1627,11 @@ impl Documents {
             let WorkerResponse::AttachmentWritten { bytes, .. } = response else {
                 return Err(unexpected("WriteAttachment"));
             };
-
-            let file = temporary.file();
-            file.sync_all().map_err(|err| saving::write_error(&err))?;
-            let len = file.metadata().map_err(|err| saving::write_error(&err))?.len();
-            if len != bytes {
-                return Err(IpcError {
-                    code: ErrorCode::Unwritable,
-                    message: "the written attachment is incomplete".to_owned(),
-                });
-            }
-
-            temporary.replace(&destination)?;
-
-            let motw_applied = match write_zone_identifier(&destination) {
-                Ok(()) => true,
-                Err(_) => false,
-            };
-
+            temporary.check(bytes)?;
+            temporary.replace(destination)?;
             Ok(SaveAttachmentResult {
                 bytes,
-                motw_applied,
+                marked: mark_from_internet(destination).is_ok(),
             })
         })
     }

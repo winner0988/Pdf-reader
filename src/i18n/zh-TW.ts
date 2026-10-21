@@ -1198,7 +1198,7 @@ export const strings = {
       cancel: "取消",
     },
     sensitiveWarning: "存下來的檔案不在機敏保護內。",
-    motwFailedNotice: "這個檔案沒有『來自網際網路』的標記，Windows 不會在開啟前額外檢查。",
+    notMarked: "這個檔案沒有『來自網際網路』的標記，Windows 不會在開啟前額外檢查。",
   },
   about: {
     title: "關於 PDF Reader",

@@ -173,7 +173,6 @@ pub fn bindings() -> String {
         AttachmentId,
         AttachmentSource,
         AttachmentInfo,
-        SaveAttachmentArgs,
         SaveAttachmentResult,
     );
 

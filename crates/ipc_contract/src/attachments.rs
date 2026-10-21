@@ -1,115 +1,92 @@
-//! Attachment name cleaning and helpers (B3-20, ADR 0025).
+//! Attachment names (B3-20, ADR 0025).
 //!
-//! Attachment names originate from untrusted PDF files and may contain path traversal,
-//! control characters, bidirectional override tricks (such as RLO), illegal filesystem
-//! characters, or reserved device names. Both worker and main process sanitize names
-//! using these rules.
+//! An attachment's name comes from an untrusted PDF: it may hold a path, control characters,
+//! bidirectional overrides (U+202E can make "exe.txt" read as "txt.exe"), characters Windows does
+//! not allow, or a device name. The worker and the main process both clean it with these rules.
 
 use crate::limits::MAX_ATTACHMENT_NAME_BYTES;
+use crate::text::is_invisible_format;
 
-/// Returns true if character changes direction or invisible text formatting.
-fn is_bidi_or_invisible(c: char) -> bool {
-    matches!(
-        c,
-        '\u{061C}'
-            | '\u{200B}'..='\u{200F}'
-            | '\u{202A}'..='\u{202E}'
-            | '\u{2060}'..='\u{2069}'
-            | '\u{FEFF}'
-    )
-}
+/// Longest extension kept when a long name is cut, dot included.
+const MAX_KEPT_EXTENSION_BYTES: usize = 16;
 
-/// Returns true if character is prohibited in Windows file names or paths.
+/// Characters Windows does not allow in a file name.
 fn is_windows_prohibited(c: char) -> bool {
     matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
 }
 
-/// Checks if a filename stem matches a reserved Windows device name (case-insensitive).
+/// Whether `stem` (the name before its first dot) is a Windows device name: `CON`, `PRN`, `AUX`,
+/// `NUL`, `CONIN$`, `CONOUT$`, and `COM`/`LPT` with a digit from 0 to 9 or a superscript 1 to 3.
+/// Windows ignores spaces after the device name, so they are too.
 pub fn is_reserved_device_name(stem: &str) -> bool {
-    let s = stem.trim();
-    if s.len() == 3 {
-        let upper = s.to_ascii_uppercase();
-        if matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL") {
-            return true;
-        }
-    } else if s.len() == 4 {
-        let upper = s.to_ascii_uppercase();
-        let prefix = &upper[..3];
-        let suffix = upper.as_bytes()[3];
-        if (prefix == "COM" || prefix == "LPT") && (b'1'..=b'9').contains(&suffix) {
-            return true;
-        }
+    let upper = stem.trim_end_matches(' ').to_ascii_uppercase();
+    if matches!(
+        upper.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) {
+        return true;
     }
-    false
+    let (Some(prefix), Some(number)) = (upper.get(..3), upper.get(3..)) else {
+        return false;
+    };
+    matches!(prefix, "COM" | "LPT")
+        && (matches!(number, "¹" | "²" | "³")
+            || (number.len() == 1 && number.as_bytes()[0].is_ascii_digit()))
 }
 
-/// Sanitizes an attachment filename according to ADR 0025:
-/// 1. Takes only the final path segment (strips Unix and Windows paths).
-/// 2. Removes control characters, bidi controls (U+202A–U+202E, U+2066–U+2069, U+200E, U+200F),
-///    and Windows prohibited characters (`< > : " / \ | ? *`).
-/// 3. Removes trailing dots and whitespace.
-/// 4. Adds leading `_` if the stem matches a Windows device name (`CON`, `NUL`, `COM1`, etc.).
-/// 5. Replaces empty names with "附件 n" (1-based index).
-/// 6. Enforces length limit (`MAX_ATTACHMENT_NAME_BYTES`).
-pub fn clean_attachment_name(raw: &str, index: usize) -> String {
-    // 1. Take only the last path component
-    let path_cleaned = raw
-        .split(['/', '\\'])
-        .filter(|segment| !segment.is_empty())
-        .last()
-        .unwrap_or("");
-
-    // 2. Filter out control characters, bidi controls, and prohibited characters
-    let mut filtered = String::with_capacity(path_cleaned.len());
-    for c in path_cleaned.chars() {
-        if c.is_control() || is_bidi_or_invisible(c) || is_windows_prohibited(c) {
-            continue;
-        }
-        filtered.push(c);
+/// Cuts `name` to at most `max` bytes at a character boundary, keeping a short extension, so that
+/// a long name keeps its type.
+fn shorten(name: &str, max: usize) -> String {
+    if name.len() <= max {
+        return name.to_owned();
     }
-
-    // 3. Strip trailing dots and whitespace
-    let mut trimmed = filtered.as_str();
-    while trimmed.ends_with('.') || trimmed.ends_with(' ') || trimmed.ends_with('\t') {
-        trimmed = trimmed.trim_end_matches(['.', ' ', '\t']);
-    }
-
-    // 4. Enforce max byte length if needed
-    let mut result = if trimmed.len() > MAX_ATTACHMENT_NAME_BYTES as usize {
-        let mut end = MAX_ATTACHMENT_NAME_BYTES as usize;
-        while end > 0 && !trimmed.is_char_boundary(end) {
-            end -= 1;
-        }
-        let truncated = &trimmed[..end];
-        truncated.trim_end_matches(['.', ' ', '\t']).to_owned()
-    } else {
-        trimmed.to_owned()
+    let keep_from = match name.rfind('.') {
+        Some(dot) if dot > 0 && name.len() - dot <= MAX_KEPT_EXTENSION_BYTES => dot,
+        _ => name.len(),
     };
+    let mut end = max.saturating_sub(name.len() - keep_from).min(keep_from);
+    while !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    let stem = name[..end].trim_end_matches(['.', ' ']);
+    format!("{stem}{}", &name[keep_from..])
+}
 
-    // 5. If empty, fall back to "附件 n"
-    if result.is_empty() {
+/// Cleans an attachment's name (ADR 0025):
+/// 1. only the last part of a path is kept;
+/// 2. control characters, invisible formatting characters (bidirectional controls, marks,
+///    zero-width characters) and characters Windows does not allow are removed;
+/// 3. dots and spaces at the end are removed;
+/// 4. a device name (`CON`, `NUL`, `COM1`…) gets `_` in front;
+/// 5. the name is cut to `MAX_ATTACHMENT_NAME_BYTES`, keeping a short extension;
+/// 6. an empty name becomes "附件 n" (`index` counts from 1).
+pub fn clean_attachment_name(raw: &str, index: usize) -> String {
+    let last = raw
+        .rsplit(['/', '\\'])
+        .find(|part| !part.is_empty())
+        .unwrap_or("");
+    let kept: String = last
+        .chars()
+        .filter(|&c| !(c.is_control() || is_invisible_format(c) || is_windows_prohibited(c)))
+        .collect();
+    let mut name = kept.trim_end_matches(['.', ' ']).to_owned();
+    if name.is_empty() {
         return format!("附件 {index}");
     }
-
-    // 6. Check for reserved device name (stem before first dot, or entire name)
-    let stem = result.split('.').next().unwrap_or("");
+    let stem = name.split('.').next().unwrap_or("");
     if is_reserved_device_name(stem) {
-        result.insert(0, '_');
+        name.insert(0, '_');
     }
-
-    result
+    shorten(&name, MAX_ATTACHMENT_NAME_BYTES as usize)
 }
 
-/// Extracts the genuine extension including leading dot in lowercase (e.g. `".pdf"`, `".exe"`),
-/// or returns an empty string if there is no extension.
+/// The extension of `name` with its dot, in lowercase (".pdf", ".exe"), or "" when it has none.
+/// A name that only starts with a dot (".hidden") has none.
 pub fn attachment_extension(name: &str) -> String {
-    let trimmed = name.trim();
-    if let Some(pos) = trimmed.rfind('.') {
-        if pos > 0 && pos < trimmed.len() - 1 {
-            return trimmed[pos..].to_ascii_lowercase();
-        }
+    match name.rfind('.') {
+        Some(dot) if dot > 0 && dot < name.len() - 1 => name[dot..].to_lowercase(),
+        _ => String::new(),
     }
-    String::new()
 }
 
 #[cfg(test)]
@@ -117,62 +94,93 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_plain_name() {
+    fn a_plain_name_stays() {
         assert_eq!(clean_attachment_name("document.pdf", 1), "document.pdf");
-        assert_eq!(attachment_extension("document.pdf"), ".pdf");
+        assert_eq!(
+            clean_attachment_name(" leading space.txt", 1),
+            " leading space.txt"
+        );
     }
 
     #[test]
-    fn test_path_traversal() {
+    fn only_the_last_part_of_a_path_is_kept() {
         assert_eq!(clean_attachment_name("../../etc/passwd", 1), "passwd");
-        assert_eq!(clean_attachment_name("C:\\Windows\\notepad.exe", 1), "notepad.exe");
-        assert_eq!(clean_attachment_name("foo/bar/baz.txt", 1), "baz.txt");
+        assert_eq!(
+            clean_attachment_name("C:\\Windows\\notepad.exe", 1),
+            "notepad.exe"
+        );
+        assert_eq!(clean_attachment_name("foo/bar/baz.txt/", 1), "baz.txt");
+        assert_eq!(
+            clean_attachment_name("\\\\server\\share\\a.doc", 1),
+            "a.doc"
+        );
         assert_eq!(clean_attachment_name("///", 1), "附件 1");
     }
 
     #[test]
-    fn test_control_and_bidi_characters() {
-        // RLO: U+202E
-        let rlo = "invoice\u{202E}fdp.exe";
-        assert_eq!(clean_attachment_name(rlo, 1), "invoicefdp.exe");
-        assert_eq!(attachment_extension("invoicefdp.exe"), ".exe");
-
-        // Other bidi controls: LRE, RLE, PDF, LRO, LRI, RLI, FSI, PDI, LRM, RLM
+    fn control_and_invisible_characters_are_removed() {
+        assert_eq!(
+            clean_attachment_name("invoice\u{202E}fdp.exe", 1),
+            "invoicefdp.exe"
+        );
         let bidi = "test\u{202A}\u{202B}\u{202C}\u{202D}\u{2066}\u{2067}\u{2068}\u{2069}\u{200E}\u{200F}.txt";
         assert_eq!(clean_attachment_name(bidi, 1), "test.txt");
-
-        // Control characters: \0, \r, \n, \t
-        assert_eq!(clean_attachment_name("a\x00b\rc\nd\te.txt", 1), "abcde.txt");
+        assert_eq!(
+            clean_attachment_name("zero\u{200B}width\u{FEFF}.txt", 1),
+            "zerowidth.txt"
+        );
+        assert_eq!(
+            clean_attachment_name("a\x00b\rc\nd\te\u{85}f.txt", 1),
+            "abcdef.txt"
+        );
     }
 
     #[test]
-    fn test_prohibited_characters() {
-        let prohibited = "file<name>:with\"quotes\"/and\\slashes|and?stars*.doc";
-        // slashes split the path, so last segment is "and\slashes|and?stars*.doc" -> "slashes|and?stars*.doc"
-        // Then prohibited chars stripped:
-        assert_eq!(clean_attachment_name(prohibited, 1), "slashesandstars.doc");
+    fn characters_windows_does_not_allow_are_removed() {
+        assert_eq!(clean_attachment_name("file<1>:*?\"|.txt", 1), "file1.txt");
+        // No alternate data stream can be named.
+        assert_eq!(
+            clean_attachment_name("report.txt:hidden", 1),
+            "report.txthidden"
+        );
     }
 
     #[test]
-    fn test_trailing_dots_and_spaces() {
+    fn dots_and_spaces_at_the_end_are_removed() {
         assert_eq!(clean_attachment_name("file.txt...   ", 1), "file.txt");
         assert_eq!(clean_attachment_name("report.   .  ", 1), "report");
+        assert_eq!(clean_attachment_name("evil.exe\u{202E}. ", 1), "evil.exe");
     }
 
     #[test]
-    fn test_reserved_device_names() {
-        assert_eq!(clean_attachment_name("CON.txt", 1), "_CON.txt");
-        assert_eq!(clean_attachment_name("con.tar.gz", 1), "_con.tar.gz");
-        assert_eq!(clean_attachment_name("NUL", 1), "_NUL");
-        assert_eq!(clean_attachment_name("aux.dat", 1), "_aux.dat");
-        assert_eq!(clean_attachment_name("COM1.pdf", 1), "_COM1.pdf");
-        assert_eq!(clean_attachment_name("lpt9.log", 1), "_lpt9.log");
-        // Already prefixed with underscore should not add another underscore
-        assert_eq!(clean_attachment_name("_CON.txt", 1), "_CON.txt");
+    fn device_names_get_an_underscore() {
+        for name in [
+            "CON.txt",
+            "con.tar.gz",
+            "NUL",
+            "aux.dat",
+            "COM1.pdf",
+            "lpt9.log",
+            "COM0",
+            "LPT¹.txt",
+            "CONOUT$.log",
+            "nul .txt",
+        ] {
+            assert_eq!(clean_attachment_name(name, 1), format!("_{name}"), "{name}");
+        }
+        for name in [
+            "_CON.txt",
+            "CONSOLE.txt",
+            "COM10.txt",
+            "COMA.txt",
+            "nullable.txt",
+        ] {
+            assert_eq!(clean_attachment_name(name, 1), name, "{name}");
+        }
     }
 
     #[test]
-    fn test_empty_and_fallback() {
+    fn an_empty_name_is_numbered() {
         assert_eq!(clean_attachment_name("", 1), "附件 1");
         assert_eq!(clean_attachment_name("   ", 2), "附件 2");
         assert_eq!(clean_attachment_name("....", 3), "附件 3");
@@ -180,9 +188,32 @@ mod tests {
     }
 
     #[test]
-    fn test_attachment_extension() {
+    fn a_long_name_is_cut_and_keeps_its_extension() {
+        let max = MAX_ATTACHMENT_NAME_BYTES as usize;
+        let cleaned = clean_attachment_name(&format!("{}.exe", "a".repeat(400)), 1);
+        assert_eq!(cleaned.len(), max);
+        assert!(cleaned.ends_with("a.exe"));
+
+        // Cut at a character boundary, within the limit.
+        let cleaned = clean_attachment_name(&format!("{}.pdf", "字".repeat(200)), 1);
+        assert!(
+            cleaned.len() <= max && cleaned.ends_with("字.pdf"),
+            "{cleaned}"
+        );
+
+        // With the underscore of a device name, still within the limit.
+        let cleaned = clean_attachment_name(&format!("CON.{}", "x".repeat(400)), 1);
+        assert!(cleaned.starts_with("_CON.") && cleaned.len() == max);
+
+        // A long "extension" is not a type to keep: the end is cut.
+        let cleaned = clean_attachment_name(&format!("name.{}", "e".repeat(300)), 1);
+        assert_eq!(cleaned.len(), max);
+    }
+
+    #[test]
+    fn the_extension_is_the_part_after_the_last_dot() {
         assert_eq!(attachment_extension("test.PDF"), ".pdf");
-        assert_eq!(attachment_extension("payload.exe"), ".exe");
+        assert_eq!(attachment_extension("archive.tar.GZ"), ".gz");
         assert_eq!(attachment_extension("no_extension"), "");
         assert_eq!(attachment_extension(".hidden"), "");
         assert_eq!(attachment_extension("ending_with_dot."), "");

@@ -1233,9 +1233,9 @@ name: string,
  */
 extension: string, 
 /**
- * Declared size in bytes (/Params /Size), if provided.
+ * Declared size in bytes (/Params /Size), if provided: the file says it, so it may be wrong.
  */
-size: bigint | null, 
+size: number | null, 
 /**
  * Cleaned description (/Desc), if provided.
  */
@@ -1250,26 +1250,18 @@ source: AttachmentSource,
 isDangerous: boolean, };
 
 /**
- * Arguments to save an attachment (B3-20, ADR 0025).
- */
-export type SaveAttachmentArgs = { doc: DocumentId, attachment: AttachmentId, 
-/**
- * True if the user confirmed saving a dangerous attachment type.
- */
-confirmedDangerous: boolean, };
-
-/**
  * The result of saving an attachment to disk (B3-20, ADR 0025).
  */
 export type SaveAttachmentResult = { 
 /**
  * Bytes written to disk.
  */
-bytes: bigint, 
+bytes: number, 
 /**
- * Whether Mark of the Web (Zone.Identifier) was successfully written.
+ * Whether it was marked as from the internet (the `Zone.Identifier` stream): not on a file
+ * system without streams, such as FAT32.
  */
-motwApplied: boolean, };
+marked: boolean, };
 
 /** Limits enforced by the main process (crates/ipc_contract/src/limits.rs). */
 export const LIMITS = {

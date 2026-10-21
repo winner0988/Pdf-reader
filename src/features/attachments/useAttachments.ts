@@ -7,22 +7,19 @@ export type AttachmentsState =
   | { status: "failed" }
   | { status: "ready"; items: AttachmentInfo[] };
 
+/** Loads the attachments of `doc`; answers for other documents are ignored. */
 export function useAttachments(api: AttachmentsApi, doc: DocumentId | undefined): AttachmentsState {
-  const [state, setState] = useState<AttachmentsState>({ status: "loading" });
+  const [loaded, setLoaded] = useState<{ doc: DocumentId; state: AttachmentsState } | null>(null);
 
   useEffect(() => {
-    if (doc === undefined) {
-      setState({ status: "ready", items: [] });
-      return;
-    }
+    if (doc === undefined) return;
     let current = true;
-    setState({ status: "loading" });
     api.getAttachments(doc).then(
       (items) => {
-        if (current) setState({ status: "ready", items });
+        if (current) setLoaded({ doc, state: { status: "ready", items } });
       },
       () => {
-        if (current) setState({ status: "failed" });
+        if (current) setLoaded({ doc, state: { status: "failed" } });
       },
     );
     return () => {
@@ -30,5 +27,6 @@ export function useAttachments(api: AttachmentsApi, doc: DocumentId | undefined)
     };
   }, [api, doc]);
 
-  return state;
+  if (doc === undefined) return { status: "ready", items: [] };
+  return loaded?.doc === doc ? loaded.state : { status: "loading" };
 }

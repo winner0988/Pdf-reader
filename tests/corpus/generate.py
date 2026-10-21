@@ -1333,10 +1333,13 @@ def malicious_attachment_exe() -> bytes:
 
 def malicious_attachment_rlo() -> bytes:
     data = b"RLO disguised executable payload"
-    # RLO character U+202E in UTF-8 is \xe2\x80\xae
+    # U+202E (right-to-left override) makes "invoice\u202eexe.pdf" read as "invoicefdp.exe". A
+    # text string with it is UTF-16BE with a byte order mark: a literal string is read as
+    # PDFDocEncoding, where its UTF-8 bytes are other characters.
+    name = hex_string("\ufeffinvoice\u202eexe.pdf".encode("utf-16-be"))
     return attachment_sample(
         "attachment-rlo",
-        "/F (invoice\xe2\x80\xaeexe.pdf) /UF (invoice\xe2\x80\xaeexe.pdf)",
+        f"/F {name} /UF {name}",
         data,
         claimed_size=len(data),
         desc="Attachment with RLO override in filename",
@@ -1348,7 +1351,8 @@ def malicious_attachment_path() -> bytes:
     data = b"Path traversal payload"
     return attachment_sample(
         "attachment-path",
-        r"/F (..\..\Windows\System32\calc.exe) /UF (..\..\Windows\System32\calc.exe)",
+        # In a literal string a backslash escapes the next character, so each one is doubled.
+        r"/F (../../Windows/System32/calc.exe) /UF (..\\..\\Windows\\System32\\calc.exe)",
         data,
         claimed_size=len(data),
         desc="Attachment with directory traversal in filename",

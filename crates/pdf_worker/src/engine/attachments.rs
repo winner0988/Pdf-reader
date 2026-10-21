@@ -1,14 +1,14 @@
-//! Embedded file attachments (B3-20, ADR 0025).
+//! Attachments: files embedded in a document (B3-20, ADR 0025).
 //!
-//! PDF files can carry attachments at document level (/Names /EmbeddedFiles) and as page
-//! annotations (/Subtype /FileAttachment). Attachments are never opened or executed by
-//! the app; they can only be listed and saved to disk with Mark of the Web.
+//! A PDF carries them at the document level (/Names /EmbeddedFiles) and in file attachment
+//! annotations on its pages (/Subtype /FileAttachment). The app never opens them: it lists them,
+//! and writes one, decoded, to a handle the main process gives.
 
 use std::collections::HashSet;
 use std::io::Write;
 
 use ipc_contract::attachments::clean_attachment_name;
-use ipc_contract::limits::{MAX_ATTACHMENTS, MAX_ATTACHMENT_DESC_BYTES, MAX_DOCUMENT_BYTES};
+use ipc_contract::limits::{MAX_ATTACHMENT_DESC_BYTES, MAX_ATTACHMENTS, MAX_DOCUMENT_BYTES};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{AttachmentId, AttachmentSource};
 use ipc_contract::worker::WorkerAttachment;
@@ -16,239 +16,213 @@ use mupdf::pdf::{PdfAnnotationType, PdfObject};
 
 use super::{EngineError, PdfDocument, text};
 
+/// Deepest name tree walked: a real one is a few levels deep; a made-up one could be deep enough
+/// to overflow the stack.
+const MAX_NAME_TREE_DEPTH: usize = 32;
+
+/// An attachment found in the document: what the list says, and its embedded file stream.
+struct Found {
+    listed: WorkerAttachment,
+    stream: PdfObject,
+}
+
 impl PdfDocument {
-    /// Lists the attachments of the document (ADR 0025): from /Names /EmbeddedFiles and
-    /// page annotations (/Subtype /FileAttachment). At most `MAX_ATTACHMENTS` (1,000).
-    pub fn list_attachments(&self) -> Result<Vec<WorkerAttachment>, EngineError> {
-        let mut attachments = Vec::new();
-        let mut seen_ids = HashSet::new();
-        let mut counter = 1usize;
-
-        // 1. Document-level attachments: /Root /Names /EmbeddedFiles
-        if let Ok(catalog) = self.doc.catalog() {
-            if let Ok(Some(names)) = catalog.get_dict("Names") {
-                if let Ok(Some(embedded_files)) = names.get_dict("EmbeddedFiles") {
-                    let mut visited = HashSet::new();
-                    let mut entries = Vec::new();
-                    let _ = walk_name_tree(&embedded_files, &mut visited, &mut entries, MAX_ATTACHMENTS as usize);
-                    for (key, filespec) in entries {
-                        if attachments.len() >= MAX_ATTACHMENTS as usize {
-                            break;
-                        }
-                        if let Ok(Some(item)) = parse_filespec(
-                            &filespec,
-                            AttachmentSource::Document,
-                            counter,
-                            key,
-                            &mut seen_ids,
-                        ) {
-                            attachments.push(item);
-                            counter += 1;
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. Page-level attachments: /Subtype /FileAttachment annotations
-        let page_count = self.page_count().unwrap_or(0);
-        for page_idx in 0..page_count {
-            if attachments.len() >= MAX_ATTACHMENTS as usize {
-                break;
-            }
-            let Ok(page) = self.pdf_page(page_idx) else {
-                continue;
-            };
-            for annot in page.annotations() {
-                if attachments.len() >= MAX_ATTACHMENTS as usize {
-                    break;
-                }
-                if annot.r#type().ok() != Some(PdfAnnotationType::FileAttachment) {
-                    continue;
-                }
-                let annot_obj = annot.object();
-                let Ok(Some(fs)) = annot_obj.get_dict("FS") else {
-                    continue;
-                };
-                let extra_desc = annot.contents().ok().flatten();
-                if let Ok(Some(mut item)) = parse_filespec(
-                    &fs,
-                    AttachmentSource::Page { page: page_idx },
-                    counter,
-                    None,
-                    &mut seen_ids,
-                ) {
-                    if item.description.is_none() && extra_desc.is_some() {
-                        item.description = extra_desc
-                            .map(|desc| clean_display_text(&desc, MAX_ATTACHMENT_DESC_BYTES as usize));
-                    }
-                    attachments.push(item);
-                    counter += 1;
-                }
-            }
-        }
-
-        Ok(attachments)
+    /// The attachments of the document (ADR 0025): those of /Names /EmbeddedFiles first, then
+    /// those of the pages' file attachment annotations, at most `MAX_ATTACHMENTS`. An attachment
+    /// is known by the object number of its embedded file stream, so one attached twice (for
+    /// example in the names and on a page) is listed once.
+    pub fn list_attachments(&self) -> Vec<WorkerAttachment> {
+        self.attachments()
+            .into_iter()
+            .map(|found| found.listed)
+            .collect()
     }
 
-    /// Decodes attachment `id` and writes its uncompressed bytes to `out` (ADR 0025).
-    /// Enforces the 512 MiB limit (`MAX_DOCUMENT_BYTES`).
+    /// Writes attachment `id`, decoded, to `out` and returns its length; at most
+    /// `MAX_DOCUMENT_BYTES` (ADR 0025). Only an attachment the list has can be written: `id` is
+    /// not a way to read any other object of the file.
+    ///
+    /// MuPDF decodes the whole stream into memory first. It stops a compression bomb itself
+    /// (`fz_read_best`: past about 600 times the stream's length, and at least 100 MiB), and the
+    /// worker's memory limit stops the rest; what decodes to more than the limit is refused.
     pub fn write_attachment(
         &self,
         id: AttachmentId,
         out: &mut impl Write,
     ) -> Result<u64, EngineError> {
-        let Ok(xref) = i32::try_from(id.0) else {
-            return Err(EngineError::InvalidEdit("invalid attachment id"));
-        };
-        let obj = self.doc.new_indirect(xref, 0)?;
-        let stream = if obj.is_stream()? {
-            obj
-        } else if obj.is_dict()? {
-            let ef = obj.get_dict("EF")?.ok_or(EngineError::InvalidEdit("filespec has no EF"))?;
-            let stream = ef
-                .get_dict("UF")?
-                .or(ef.get_dict("F")?)
-                .or(ef.get_dict("DOS")?)
-                .or(ef.get_dict("Mac")?)
-                .or(ef.get_dict("Unix")?)
-                .ok_or(EngineError::InvalidEdit("EF has no stream"))?;
-            if !stream.is_stream()? {
-                return Err(EngineError::InvalidEdit("EF target is not a stream"));
-            }
-            stream
-        } else {
-            return Err(EngineError::InvalidEdit("attachment is neither stream nor filespec"));
-        };
-
-        let decoded = stream.read_stream()?;
-        if decoded.len() as u64 > MAX_DOCUMENT_BYTES {
+        let found = self
+            .attachments()
+            .into_iter()
+            .find(|found| found.listed.id == id)
+            .ok_or(EngineError::InvalidEdit("no such attachment"))?;
+        let decoded = found.stream.read_stream()?;
+        let length = decoded.len() as u64;
+        if length > MAX_DOCUMENT_BYTES {
             return Err(EngineError::OutputTooLarge);
         }
-
         out.write_all(&decoded).map_err(EngineError::Write)?;
         out.flush().map_err(EngineError::Write)?;
-        Ok(decoded.len() as u64)
+        Ok(length)
+    }
+
+    fn attachments(&self) -> Vec<Found> {
+        let limit = MAX_ATTACHMENTS as usize;
+        let mut found = Vec::new();
+        let mut streams = HashSet::new();
+        let mut add = |filespec: &PdfObject,
+                       source: AttachmentSource,
+                       key: Option<String>,
+                       found: &mut Vec<Found>| {
+            if found.len() < limit
+                && let Some(item) = attachment(filespec, source, key, found.len() + 1, &mut streams)
+            {
+                found.push(item);
+            }
+        };
+
+        let names = self
+            .doc
+            .catalog()
+            .ok()
+            .and_then(|catalog| catalog.get_dict("Names").ok().flatten())
+            .and_then(|names| names.get_dict("EmbeddedFiles").ok().flatten());
+        if let Some(tree) = names {
+            let mut entries = Vec::new();
+            walk_name_tree(&tree, 0, &mut HashSet::new(), &mut entries, limit);
+            for (key, filespec) in entries {
+                add(&filespec, AttachmentSource::Document, key, &mut found);
+            }
+        }
+
+        let pages = self.page_count().unwrap_or(0);
+        for page in 0..pages {
+            if found.len() >= limit {
+                break;
+            }
+            let Ok(pdf_page) = self.pdf_page(page) else {
+                continue;
+            };
+            for annotation in pdf_page.annotations() {
+                if annotation.r#type().ok() != Some(PdfAnnotationType::FileAttachment) {
+                    continue;
+                }
+                let Ok(Some(filespec)) = annotation.object().get_dict("FS") else {
+                    continue;
+                };
+                let before = found.len();
+                add(&filespec, AttachmentSource::Page { page }, None, &mut found);
+                // Without a description of its own, the annotation's text says what it is.
+                if found.len() > before
+                    && let Some(item) = found.last_mut()
+                    && item.listed.description.is_none()
+                {
+                    item.listed.description = annotation
+                        .contents()
+                        .ok()
+                        .flatten()
+                        .map(|contents| {
+                            clean_display_text(contents, MAX_ATTACHMENT_DESC_BYTES as usize)
+                        })
+                        .filter(|contents| !contents.is_empty());
+                }
+            }
+        }
+        found
     }
 }
 
-/// Recursively walks a PDF NameTree for /EmbeddedFiles, with cycle detection.
+/// Collects the (key, value) pairs of a name tree, at most `limit`, ignoring a node met twice.
 fn walk_name_tree(
     node: &PdfObject,
+    depth: usize,
     visited: &mut HashSet<i32>,
     entries: &mut Vec<(Option<String>, PdfObject)>,
     limit: usize,
-) -> Result<(), mupdf::Error> {
-    if entries.len() >= limit {
-        return Ok(());
+) {
+    if entries.len() >= limit || depth > MAX_NAME_TREE_DEPTH {
+        return;
     }
-    if let Ok(xref) = node.as_indirect() {
-        if xref > 0 && !visited.insert(xref) {
-            return Ok(()); // cycle detected
+    if let Ok(number) = node.as_indirect()
+        && number > 0
+        && !visited.insert(number)
+    {
+        return;
+    }
+    if let Ok(Some(kids)) = node.get_dict("Kids") {
+        let Ok(kids) = kids.array_iter() else {
+            return;
+        };
+        for kid in kids.flatten() {
+            if entries.len() >= limit {
+                return;
+            }
+            walk_name_tree(&kid, depth + 1, visited, entries, limit);
         }
-    }
-    if let Some(kids) = node.get_dict("Kids")? {
-        if kids.is_array()? {
-            for kid in kids.array_iter()? {
-                if entries.len() >= limit {
-                    break;
-                }
-                walk_name_tree(&kid?, visited, entries, limit)?;
+    } else if let Ok(Some(names)) = node.get_dict("Names") {
+        let Ok(names) = names.array_iter() else {
+            return;
+        };
+        let mut key = None;
+        for item in names.flatten() {
+            if entries.len() >= limit {
+                return;
+            }
+            match key.take() {
+                None => key = Some(text(Ok(Some(item)))),
+                Some(name) => entries.push((name, item)),
             }
         }
-    } else if let Some(names) = node.get_dict("Names")? {
-        if names.is_array()? {
-            let mut key = None;
-            for item in names.array_iter()? {
-                let item = item?;
-                if entries.len() >= limit {
-                    break;
-                }
-                if key.is_none() {
-                    key = text(Ok(Some(item)));
-                } else {
-                    entries.push((key.take(), item));
-                }
-            }
-        }
     }
-    Ok(())
 }
 
-/// Parses a filespec dictionary into a [`WorkerAttachment`].
-fn parse_filespec(
+/// The attachment a file specification embeds, if it embeds one not already found: its stream
+/// must be an indirect object (as PDF requires), which then identifies it.
+fn attachment(
     filespec: &PdfObject,
     source: AttachmentSource,
-    counter: usize,
-    key_name: Option<String>,
-    seen_ids: &mut HashSet<u32>,
-) -> Result<Option<WorkerAttachment>, mupdf::Error> {
-    if !filespec.is_dict()? {
-        return Ok(None);
+    key: Option<String>,
+    index: usize,
+    streams: &mut HashSet<i32>,
+) -> Option<Found> {
+    if !filespec.is_dict().ok()? {
+        return None;
     }
-    let Some(ef) = filespec.get_dict("EF")? else {
-        return Ok(None);
-    };
-    if !ef.is_dict()? {
-        return Ok(None);
+    let files = filespec.get_dict("EF").ok()??;
+    let stream = ["UF", "F", "DOS", "Mac", "Unix"]
+        .into_iter()
+        .find_map(|key| files.get_dict(key).ok().flatten())?;
+    if !stream.is_stream().ok()? {
+        return None;
     }
-    let stream = ef
-        .get_dict("UF")?
-        .or(ef.get_dict("F")?)
-        .or(ef.get_dict("DOS")?)
-        .or(ef.get_dict("Mac")?)
-        .or(ef.get_dict("Unix")?);
-    let Some(stream) = stream else {
-        return Ok(None);
-    };
-    if !stream.is_stream()? {
-        return Ok(None);
+    let number = stream.as_indirect().ok().filter(|&number| number > 0)?;
+    if !streams.insert(number) {
+        return None;
     }
 
-    let stream_xref = stream.as_indirect().unwrap_or(0);
-    let filespec_xref = filespec.as_indirect().unwrap_or(0);
-
-    let id_num = if stream_xref > 0 && !seen_ids.contains(&(stream_xref as u32)) {
-        stream_xref as u32
-    } else if filespec_xref > 0 && !seen_ids.contains(&(filespec_xref as u32)) {
-        filespec_xref as u32
-    } else {
-        // Fallback to synthetic unique id
-        let mut synth = (counter as u32) + 100_000;
-        while seen_ids.contains(&synth) {
-            synth += 1;
-        }
-        synth
-    };
-    seen_ids.insert(id_num);
-
-    let raw_name = text(filespec.get_dict("UF"))
-        .or_else(|| text(filespec.get_dict("F")))
-        .or_else(|| text(filespec.get_dict("DOS")))
-        .or_else(|| text(filespec.get_dict("Mac")))
-        .or_else(|| text(filespec.get_dict("Unix")))
-        .or(key_name)
+    let raw_name = ["UF", "F", "DOS", "Mac", "Unix"]
+        .into_iter()
+        .find_map(|key| text(filespec.get_dict(key)))
+        .or(key)
         .unwrap_or_default();
+    let size = stream
+        .get_dict("Params")
+        .ok()
+        .flatten()
+        .and_then(|params| params.get_dict("Size").ok().flatten())
+        .and_then(|size| size.as_int().ok())
+        .and_then(|size| u64::try_from(size).ok());
+    let description = text(filespec.get_dict("Desc"))
+        .map(|description| clean_display_text(&description, MAX_ATTACHMENT_DESC_BYTES as usize))
+        .filter(|description| !description.is_empty());
 
-    let clean_name = clean_attachment_name(&raw_name, counter);
-
-    let size = stream.get_dict("Params")?.and_then(|params| {
-        params.get_dict("Size").ok().flatten().and_then(|s| {
-            s.as_int()
-                .ok()
-                .and_then(|val| if val >= 0 { Some(val as u64) } else { None })
-        })
-    });
-
-    let description = text(filespec.get_dict("Desc")).map(|desc| {
-        clean_display_text(&desc, MAX_ATTACHMENT_DESC_BYTES as usize)
-    });
-
-    Ok(Some(WorkerAttachment {
-        id: AttachmentId(id_num),
-        name: clean_name,
-        size,
-        description,
-        source,
-    }))
+    Some(Found {
+        listed: WorkerAttachment {
+            id: AttachmentId(number.unsigned_abs()),
+            name: clean_attachment_name(&raw_name, index),
+            size,
+            description,
+            source,
+        },
+        stream,
+    })
 }

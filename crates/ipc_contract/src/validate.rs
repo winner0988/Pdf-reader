@@ -19,10 +19,10 @@ use crate::types::{
     OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, PersonalDataMatch,
     PersonalDataMatches, Point, PrepareTextBoxArgs, Quad, RasterRegion, RecentFile, Rect,
     RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation,
-    SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult, SaveAttachmentArgs,
-    SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs,
-    SensitiveFile, Settings, SignatureInfo, SignatureReport, SignatureStatus, TextBoxInfo,
-    TextBoxStyle, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
+    SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult, SaveAttachmentResult, SearchArgs,
+    SearchHit, SecurityReport, SensitiveArgs, SensitiveFile, Settings, SignatureInfo,
+    SignatureReport, SignatureStatus, TextBoxInfo, TextBoxStyle, TextLine, UndoArgs, UnlockArgs,
+    UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
     InspectedFont, OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerAttachment, WorkerError,
@@ -1853,10 +1853,10 @@ impl Validate for WorkerAttachment {
         if let Some(desc) = &self.description {
             check_text("attachment description", desc, MAX_ATTACHMENT_DESC_BYTES)?;
         }
-        if let AttachmentSource::Page { page } = self.source {
-            if page >= MAX_PAGE_COUNT {
-                return Err(ValidationError::OutOfRange { what: "page index" });
-            }
+        if let AttachmentSource::Page { page } = self.source
+            && page >= MAX_PAGE_COUNT
+        {
+            return Err(ValidationError::OutOfRange { what: "page index" });
         }
         Ok(())
     }
@@ -1873,17 +1873,11 @@ impl Validate for AttachmentInfo {
         if let Some(desc) = &self.description {
             check_text("attachment description", desc, MAX_ATTACHMENT_DESC_BYTES)?;
         }
-        if let AttachmentSource::Page { page } = self.source {
-            if page >= MAX_PAGE_COUNT {
-                return Err(ValidationError::OutOfRange { what: "page index" });
-            }
+        if let AttachmentSource::Page { page } = self.source
+            && page >= MAX_PAGE_COUNT
+        {
+            return Err(ValidationError::OutOfRange { what: "page index" });
         }
-        Ok(())
-    }
-}
-
-impl Validate for SaveAttachmentArgs {
-    fn validate(&self) -> Result<(), ValidationError> {
         Ok(())
     }
 }

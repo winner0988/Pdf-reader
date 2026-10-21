@@ -619,7 +619,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | dangerConfirmTitle | 另存可執行檔案 |
 | dangerConfirmMessage | 這是可以執行的檔案類型（<ext>）。它來自 PDF，可能有害。只在你信任寄件者時才開啟它。 |
 | sensitiveWarning | 存下來的檔案不在機敏保護內。 |
-| motwFailedNotice | 這個檔案沒有『來自網際網路』的標記，Windows 不會在開啟前額外檢查。 |
+| notMarked | 這個檔案沒有『來自網際網路』的標記，Windows 不會在開啟前額外檢查。 |
 
 ### 連結
 

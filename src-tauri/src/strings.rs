@@ -21,8 +21,10 @@ pub const PAGES_SOURCE_DIALOG_TITLE: &str = "選擇要插入頁面的 PDF 檔案
 /// Saving a document as another file (B2-02).
 pub const SAVE_AS_DIALOG_TITLE: &str = "另存新檔";
 
-/// Saving an attachment from a document (B3-20, ADR 0025).
+/// Saving an attachment of a document (B3-20, ADR 0025): the dialog's title, and its filters for
+/// the attachment's own type and for any file.
 pub const SAVE_ATTACHMENT_DIALOG_TITLE: &str = "另存附件";
+pub const ATTACHMENT_TYPE_FILTER_NAME: &str = "附件的類型";
 pub const ALL_FILES_FILTER_NAME: &str = "所有檔案";
 
 /// The privacy export (B2-03): where the copy goes, what it is called at first, and why the

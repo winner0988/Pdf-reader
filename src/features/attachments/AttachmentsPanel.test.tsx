@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AttachmentInfo, DocumentId } from "@/ipc/generated/contract";
-import { AttachmentsPanel, formatFileSize } from "./AttachmentsPanel";
+import { AttachmentsPanel } from "./AttachmentsPanel";
+import { formatFileSize } from "./size";
 import type { AttachmentsApi } from "./api";
 
 const mockAttachments: AttachmentInfo[] = [
@@ -11,26 +12,26 @@ const mockAttachments: AttachmentInfo[] = [
     name: "document.pdf",
     size: 2048,
     description: "Sample PDF document",
-    source: { type: "Document" },
-    is_dangerous: false,
-    extension: "pdf",
+    source: { type: "document" },
+    isDangerous: false,
+    extension: ".pdf",
   },
   {
     id: 2,
     name: "payload.exe",
     size: 1048576,
     description: null,
-    source: { type: "Page", page: 0 },
-    is_dangerous: true,
-    extension: "exe",
+    source: { type: "page", page: 0 },
+    isDangerous: true,
+    extension: ".exe",
   },
   {
     id: 3,
     name: "README",
     size: null,
     description: "No extension file",
-    source: { type: "Document" },
-    is_dangerous: true,
+    source: { type: "document" },
+    isDangerous: true,
     extension: "",
   },
 ];
@@ -104,7 +105,7 @@ describe("AttachmentsPanel", () => {
   });
 
   it("saves safe attachment directly without dangerous confirmation dialog", async () => {
-    const saveAttachment = vi.fn().mockResolvedValue({ bytes: 2048, motw_applied: true });
+    const saveAttachment = vi.fn().mockResolvedValue({ bytes: 2048, marked: true });
     const api: AttachmentsApi = {
       getAttachments: vi.fn().mockResolvedValue(mockAttachments),
       saveAttachment,
@@ -117,7 +118,7 @@ describe("AttachmentsPanel", () => {
     });
 
     const saveButtons = screen.getAllByTestId("save-attachment-button");
-    fireEvent.click(saveButtons[0]);
+    fireEvent.click(saveButtons[0]!);
 
     await waitFor(() => {
       expect(saveAttachment).toHaveBeenCalledWith(1, 1);
@@ -126,7 +127,7 @@ describe("AttachmentsPanel", () => {
   });
 
   it("requires confirmation before saving a dangerous attachment", async () => {
-    const saveAttachment = vi.fn().mockResolvedValue({ bytes: 1048576, motw_applied: true });
+    const saveAttachment = vi.fn().mockResolvedValue({ bytes: 1048576, marked: true });
     const api: AttachmentsApi = {
       getAttachments: vi.fn().mockResolvedValue(mockAttachments),
       saveAttachment,
@@ -140,7 +141,7 @@ describe("AttachmentsPanel", () => {
 
     const saveButtons = screen.getAllByTestId("save-attachment-button");
     // Click on payload.exe's save button
-    fireEvent.click(saveButtons[1]);
+    fireEvent.click(saveButtons[1]!);
 
     // Danger confirm dialog must appear
     await waitFor(() => {
@@ -161,8 +162,8 @@ describe("AttachmentsPanel", () => {
     });
   });
 
-  it("displays notice when MOTW (Zone.Identifier) fails to apply", async () => {
-    const saveAttachment = vi.fn().mockResolvedValue({ bytes: 2048, motw_applied: false });
+  it("says so when the saved file could not be marked as from the internet", async () => {
+    const saveAttachment = vi.fn().mockResolvedValue({ bytes: 2048, marked: false });
     const api: AttachmentsApi = {
       getAttachments: vi.fn().mockResolvedValue(mockAttachments),
       saveAttachment,
@@ -175,7 +176,7 @@ describe("AttachmentsPanel", () => {
     });
 
     const saveButtons = screen.getAllByTestId("save-attachment-button");
-    fireEvent.click(saveButtons[0]);
+    fireEvent.click(saveButtons[0]!);
 
     await waitFor(() => {
       expect(

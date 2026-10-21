@@ -1,4 +1,4 @@
-import { AlertTriangle, File, Paperclip } from "lucide-react";
+import { AlertTriangle, Paperclip } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -13,13 +13,8 @@ import {
 import { strings } from "@/i18n/zh-TW";
 import type { AttachmentInfo, DocumentId } from "@/ipc/generated/contract";
 import { type AttachmentsApi, tauriAttachmentsApi } from "./api";
+import { formatFileSize } from "./size";
 import { useAttachments } from "./useAttachments";
-
-export function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 export type AttachmentsPanelProps = {
   doc?: DocumentId;
@@ -47,9 +42,9 @@ export function AttachmentsPanel({
     try {
       const result = await api.saveAttachment(doc, item.id);
       if (result) {
-        if (!result.motw_applied) {
+        if (!result.marked) {
           setIsErrorNotice(true);
-          setNotice(t.motwFailedNotice);
+          setNotice(t.notMarked);
         } else {
           setIsErrorNotice(false);
           setNotice(t.saveSuccess);
@@ -64,7 +59,7 @@ export function AttachmentsPanel({
   };
 
   const handleSaveClick = (item: AttachmentInfo) => {
-    if (item.is_dangerous) {
+    if (item.isDangerous) {
       setConfirmItem(item);
     } else {
       void performSave(item);
@@ -116,10 +111,10 @@ export function AttachmentsPanel({
       <ul className="flex flex-col gap-2" role="list">
         {state.items.map((item) => {
           const isSaving = savingId === item.id;
-          const extDisplay = item.extension ? `.${item.extension}` : t.noExtension;
+          const extDisplay = item.extension || t.noExtension;
           const sizeText = item.size !== null ? t.claimedSize(formatFileSize(item.size)) : t.unknownSize;
           const sourceText =
-            item.source.type === "Document" ? t.sourceDocument : t.sourcePage(item.source.page + 1);
+            item.source.type === "document" ? t.sourceDocument : t.sourcePage(item.source.page + 1);
 
           return (
             <li
@@ -155,7 +150,7 @@ export function AttachmentsPanel({
                 </p>
               )}
 
-              {item.is_dangerous && (
+              {item.isDangerous && (
                 <div
                   data-testid="attachment-dangerous"
                   className="flex items-center gap-1 text-[11px] font-medium text-destructive"
@@ -188,7 +183,7 @@ export function AttachmentsPanel({
             <DialogHeader>
               <DialogTitle>{t.dangerConfirm.title}</DialogTitle>
               <DialogDescription>
-                {t.dangerConfirm.message(confirmItem.extension ? `.${confirmItem.extension}` : t.noExtension)}
+                {t.dangerConfirm.message(confirmItem.extension || t.noExtension)}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="gap-2 sm:gap-0">

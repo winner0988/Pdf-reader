@@ -41,6 +41,7 @@ test.describe("attachments", () => {
     const dest = path.join(folder, "sample.txt");
     await page.getByTestId("save-attachment-button").click();
     await answerFileDialog(page, { path: dest });
+    await expect(page.getByTestId("attachments-notice")).toHaveText(t.saveSuccess);
 
     // Verify saved content
     const content = readFileSync(dest, "utf-8");
@@ -81,6 +82,7 @@ test.describe("attachments", () => {
     const dest = path.join(folder, "payload.exe");
     await dialog.getByTestId("danger-confirm-button").click();
     await answerFileDialog(page, { path: dest });
+    await expect(page.getByTestId("attachments-notice")).toHaveText(t.saveSuccess);
 
     // Verify saved file has Zone.Identifier
     const zoneContent = readFileSync(`${dest}:Zone.Identifier`, "utf-8");

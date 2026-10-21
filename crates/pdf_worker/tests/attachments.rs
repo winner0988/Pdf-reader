@@ -1,12 +1,13 @@
-//! Attachments handling through the real worker in the real sandbox (B3-20, ADR 0025).
+//! Attachments through the real worker in the real sandbox (B3-20, ADR 0025): listed with clean
+//! names, written decoded to a handle, and nothing else of the file written.
 #![cfg(windows)]
 
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
 
-use ipc_contract::types::DocumentId;
-use ipc_contract::worker::{WorkerRequest, WorkerResponse};
-use worker_host::{HostConfig, WorkerHost};
+use ipc_contract::types::{AttachmentId, AttachmentSource, DocumentId, Rotation};
+use ipc_contract::worker::{WorkerAttachment, WorkerErrorCode, WorkerRequest, WorkerResponse};
+use worker_host::{HostConfig, HostError, WorkerHost};
 
 fn host() -> WorkerHost {
     WorkerHost::new(
@@ -21,118 +22,165 @@ fn corpus(name: &str) -> PathBuf {
         .join(name)
 }
 
-fn opened(host: &mut WorkerHost, path: &Path) -> DocumentId {
-    match host.open(path).expect("open") {
+fn open(host: &mut WorkerHost, name: &str) -> DocumentId {
+    match host.open(&corpus(name)).expect("open") {
         (doc, WorkerResponse::Opened { .. }) => doc,
         other => panic!("expected Opened, got {other:?}"),
     }
 }
 
-fn new_temp_file(prefix: &str) -> (PathBuf, File) {
-    let path =
-        std::env::temp_dir().join(format!("test-attachment-{}-{prefix}.tmp", std::process::id()));
+fn list(host: &mut WorkerHost, doc: DocumentId) -> Vec<WorkerAttachment> {
+    match host.request(|request| WorkerRequest::GetAttachments { request, doc }) {
+        Ok(WorkerResponse::Attachments { attachments, .. }) => attachments,
+        other => panic!("expected Attachments, got {other:?}"),
+    }
+}
+
+/// A new, empty file to write into, as the main process creates it.
+fn new_file(name: &str) -> (PathBuf, File) {
+    let path = std::env::temp_dir().join(format!(
+        "pdf-worker-{}-attachment-{name}",
+        std::process::id()
+    ));
     let _ = fs::remove_file(&path);
     let file = OpenOptions::new()
-        .read(true)
         .write(true)
         .create_new(true)
         .open(&path)
-        .expect("create new temp file");
+        .expect("create");
     (path, file)
 }
 
-#[test]
-fn attachments_list_and_write_match_and_worker_stays_healthy() {
-    let mut host = host();
-    let doc = opened(&mut host, &corpus("benign/attachment-text.pdf"));
-
-    // 1. List attachments
-    let response = host
-        .request(|request| WorkerRequest::GetAttachments { request, doc })
-        .expect("get attachments request");
-    let WorkerResponse::Attachments { attachments, .. } = response else {
-        panic!("expected Attachments, got {response:?}");
-    };
-    assert_eq!(attachments.len(), 1);
-    let att = &attachments[0];
-    assert_eq!(att.name, "sample.txt");
-    assert_eq!(att.size, Some(39));
-
-    // 2. Write attachment to write-only handle
-    let (path, file) = new_temp_file("text");
-    let written_resp = host
-        .write_attachment(doc, att.id, &file)
-        .expect("write attachment");
-    let WorkerResponse::AttachmentWritten { bytes, .. } = written_resp else {
-        panic!("expected AttachmentWritten, got {written_resp:?}");
-    };
-    drop(file);
-
-    assert_eq!(bytes, 39);
-    let disk_content = fs::read(&path).expect("read written file");
-    assert_eq!(disk_content, b"This is a benign text file attachment.\n");
-    let _ = fs::remove_file(&path);
-
-    // 3. Worker continues to serve subsequent requests
-    let render_resp = host
-        .request(|request| WorkerRequest::Render {
-            request,
-            doc,
-            page_index: 0,
-            scale: 1.0,
-            rotation: ipc_contract::types::Rotation::None,
-        })
-        .expect("render page");
-    assert!(matches!(render_resp, WorkerResponse::Rendered { .. }));
+/// The worker is still there and still has the document.
+fn still_serves(host: &mut WorkerHost, doc: DocumentId) {
+    let rendered = host.request(|request| WorkerRequest::Render {
+        request,
+        doc,
+        page_index: 0,
+        scale: 1.0,
+        rotation: Rotation::None,
+    });
+    assert!(
+        matches!(rendered, Ok(WorkerResponse::Rendered { .. })),
+        "{rendered:?}"
+    );
 }
 
 #[test]
-fn decompression_bomb_attachment_fails_leaves_no_file_and_worker_stays_healthy() {
+fn an_attachment_is_listed_and_written_decoded() {
     let mut host = host();
-    let doc = opened(
-        &mut host,
-        &corpus("malicious/attachment-decompression-bomb.pdf"),
+    let doc = open(&mut host, "benign/attachment-text.pdf");
+
+    let attachments = list(&mut host, doc);
+    assert_eq!(attachments.len(), 1, "/EF /F and /EF /UF name one stream");
+    let attachment = &attachments[0];
+    assert_eq!(attachment.name, "sample.txt");
+    assert_eq!(attachment.size, Some(39));
+    assert_eq!(
+        attachment.description.as_deref(),
+        Some("A plain text file attachment")
     );
+    assert_eq!(attachment.source, AttachmentSource::Document);
 
-    // 1. List attachments
-    let response = host
-        .request(|request| WorkerRequest::GetAttachments { request, doc })
-        .expect("get attachments request");
-    let WorkerResponse::Attachments { attachments, .. } = response else {
-        panic!("expected Attachments, got {response:?}");
-    };
-    assert_eq!(attachments.len(), 1);
-    let att = &attachments[0];
-
-    // 2. Attempt to write decompression bomb
-    let (path, file) = new_temp_file("bomb");
-    let written_resp = host.write_attachment(doc, att.id, &file);
-
-    // Should return an error (OutputTooLarge / Internal error) because decoded exceeds 512 MiB
-    match written_resp {
-        Ok(WorkerResponse::Error { .. }) | Err(_) => {
-            // As expected, decoding bomb was refused
-        }
-        Ok(WorkerResponse::AttachmentWritten { .. }) => {
-            panic!("decompression bomb exceeding 512 MiB should have been refused");
-        }
-        other => panic!("unexpected response for bomb: {other:?}"),
-    }
-
-    // Main process deletes temp file on failure
+    let (path, file) = new_file("text");
+    let written = host
+        .write_attachment(doc, attachment.id, &file)
+        .expect("written");
     drop(file);
-    let _ = fs::remove_file(&path);
-    assert!(!path.exists(), "temp file should not remain on disk");
+    assert!(
+        matches!(written, WorkerResponse::AttachmentWritten { bytes: 39, .. }),
+        "{written:?}"
+    );
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        b"This is a benign text file attachment.\n"
+    );
+    fs::remove_file(&path).unwrap();
+}
 
-    // 3. Worker continues to serve subsequent requests
-    let render_resp = host
-        .request(|request| WorkerRequest::Render {
-            request,
-            doc,
-            page_index: 0,
-            scale: 1.0,
-            rotation: ipc_contract::types::Rotation::None,
-        })
-        .expect("render page after bomb refusal");
-    assert!(matches!(render_resp, WorkerResponse::Rendered { .. }));
+#[test]
+fn untrusted_names_are_cleaned() {
+    let mut host = host();
+    for (sample, name) in [
+        ("malicious/attachment-rlo.pdf", "invoiceexe.pdf"),
+        ("malicious/attachment-path.pdf", "calc.exe"),
+        ("malicious/attachment-device-name.pdf", "_CON.txt"),
+        ("malicious/attachment-exe.pdf", "payload.exe"),
+        ("benign/attachment-no-name.pdf", "附件 1"),
+    ] {
+        let doc = open(&mut host, sample);
+        let attachments = list(&mut host, doc);
+        assert_eq!(attachments.len(), 1, "{sample}");
+        assert_eq!(attachments[0].name, name, "{sample}");
+    }
+}
+
+#[test]
+fn the_size_a_file_claims_is_only_shown() {
+    let mut host = host();
+    let doc = open(&mut host, "malicious/attachment-size-mismatch.pdf");
+    let attachment = list(&mut host, doc).remove(0);
+    assert_eq!(attachment.size, Some(100_000_000));
+
+    let (path, file) = new_file("mismatch");
+    let written = host
+        .write_attachment(doc, attachment.id, &file)
+        .expect("written");
+    drop(file);
+    assert!(
+        matches!(written, WorkerResponse::AttachmentWritten { bytes: 31, .. }),
+        "{written:?}"
+    );
+    assert_eq!(fs::read(&path).unwrap(), b"actual payload is only 30 bytes");
+    fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn only_a_listed_attachment_is_written() {
+    let mut host = host();
+    let doc = open(&mut host, "benign/attachment-text.pdf");
+    let listed = list(&mut host, doc)[0].id;
+
+    // Other object numbers of the same file (its pages, its fonts, its content streams), and
+    // numbers it does not have.
+    let (path, file) = new_file("unlisted");
+    for number in (1..40).chain([100_000, u32::MAX]) {
+        if AttachmentId(number) == listed {
+            continue;
+        }
+        match host.write_attachment(doc, AttachmentId(number), &file) {
+            Err(HostError::Worker(error)) => {
+                assert_eq!(error.code, WorkerErrorCode::InvalidRequest, "{number}")
+            }
+            other => panic!("object {number}: {other:?}"),
+        }
+    }
+    drop(file);
+    assert_eq!(fs::metadata(&path).unwrap().len(), 0, "nothing was written");
+    fs::remove_file(&path).unwrap();
+    still_serves(&mut host, doc);
+}
+
+#[test]
+fn a_compression_bomb_is_refused_and_the_worker_stays() {
+    let mut host = host();
+    let doc = open(&mut host, "malicious/attachment-decompression-bomb.pdf");
+    let attachment = list(&mut host, doc).remove(0);
+
+    let (path, file) = new_file("bomb");
+    match host.write_attachment(doc, attachment.id, &file) {
+        Err(HostError::Worker(error)) => assert!(
+            matches!(
+                error.code,
+                WorkerErrorCode::Corrupted | WorkerErrorCode::LimitExceeded
+            ),
+            "{error:?}"
+        ),
+        other => panic!("the bomb was not refused: {other:?}"),
+    }
+    drop(file);
+    // The main process deletes its temporary file; the worker wrote nothing into it.
+    assert_eq!(fs::metadata(&path).unwrap().len(), 0);
+    fs::remove_file(&path).unwrap();
+    still_serves(&mut host, doc);
 }

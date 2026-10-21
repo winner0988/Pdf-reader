@@ -2180,7 +2180,8 @@ pub struct AttachmentInfo {
     pub name: String,
     /// Genuine extension (e.g. ".pdf", ".exe"), or empty if none.
     pub extension: String,
-    /// Declared size in bytes (/Params /Size), if provided.
+    /// Declared size in bytes (/Params /Size), if provided: the file says it, so it may be wrong.
+    #[ts(type = "number | null")]
     pub size: Option<u64>,
     /// Cleaned description (/Desc), if provided.
     pub description: Option<String>,
@@ -2190,24 +2191,16 @@ pub struct AttachmentInfo {
     pub is_dangerous: bool,
 }
 
-/// Arguments to save an attachment (B3-20, ADR 0025).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SaveAttachmentArgs {
-    pub doc: DocumentId,
-    pub attachment: AttachmentId,
-    /// True if the user confirmed saving a dangerous attachment type.
-    pub confirmed_dangerous: bool,
-}
-
 /// The result of saving an attachment to disk (B3-20, ADR 0025).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveAttachmentResult {
     /// Bytes written to disk.
+    #[ts(type = "number")]
     pub bytes: u64,
-    /// Whether Mark of the Web (Zone.Identifier) was successfully written.
-    pub motw_applied: bool,
+    /// Whether it was marked as from the internet (the `Zone.Identifier` stream): not on a file
+    /// system without streams, such as FAT32.
+    pub marked: bool,
 }
 
 #[cfg(test)]

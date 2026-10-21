@@ -737,17 +737,18 @@ pub async fn get_outline(app: AppHandle, doc: DocumentId) -> Result<OutlineResul
     blocking(move || app.state::<Documents>().outline(doc)).await
 }
 
-/// Returns the attachments of an open document (B3-20, ADR 0025).
+/// The attachments of an open document (B3-20, ADR 0025).
 #[tauri::command]
 pub async fn get_attachments(
     app: AppHandle,
     doc: DocumentId,
 ) -> Result<Vec<AttachmentInfo>, IpcError> {
-    blocking(move || app.state::<Documents>().get_attachments(doc)).await
+    blocking(move || app.state::<Documents>().attachments(doc)).await
 }
 
-/// Asks the user where to save an attachment, then decodes it and writes it with Mark of the Web
-/// (B3-20, ADR 0025). Returns `None` if the user cancelled the dialog.
+/// Asks where to save attachment `attachment` of `doc`, suggesting its cleaned name, then writes
+/// it there marked as from the internet (B3-20, ADR 0025). `None`: the user cancelled. The page
+/// asks first for a dangerous type; the app never opens an attachment.
 #[tauri::command]
 pub async fn save_attachment(
     app: AppHandle,
@@ -757,32 +758,28 @@ pub async fn save_attachment(
 ) -> Result<Option<SaveAttachmentResult>, IpcError> {
     let attachments = blocking({
         let app = app.clone();
-        move || app.state::<Documents>().get_attachments(doc)
+        move || app.state::<Documents>().attachments(doc)
     })
     .await?;
     let found = attachments
         .into_iter()
-        .find(|att| att.id == attachment)
+        .find(|listed| listed.id == attachment)
         .ok_or_else(|| IpcError {
             code: ErrorCode::InvalidArgument,
-            message: "no such attachment in document".to_owned(),
+            message: "the document has no such attachment".to_owned(),
         })?;
-
-    let ext = if found.extension.is_empty() {
-        None
-    } else {
-        Some(found.extension.trim_start_matches('.').to_owned())
-    };
-
+    let extension = found.extension.strip_prefix('.').map(str::to_owned);
     let Some(destination) =
-        file_dialog::save_attachment_file(&window, found.name, ext).await?
+        file_dialog::save_attachment_file(&window, found.name, extension).await?
     else {
         return Ok(None);
     };
-
-    blocking(move || app.state::<Documents>().save_attachment(doc, attachment, destination))
-        .await
-        .map(Some)
+    blocking(move || {
+        app.state::<Documents>()
+            .save_attachment(doc, attachment, &destination)
+    })
+    .await
+    .map(Some)
 }
 
 /// One page's text for selecting and copying (MVP-15): its lines and where their characters

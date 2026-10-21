@@ -75,7 +75,10 @@ enum Kind {
     /// Where to save a PDF made of files (B3-03), suggesting `file_name`.
     SaveCreatedPdf { file_name: String },
     /// Where to save an attachment from a document (B3-20, ADR 0025), suggesting `file_name`.
-    SaveAttachment { file_name: String, extension: Option<String> },
+    SaveAttachment {
+        file_name: String,
+        extension: Option<String>,
+    },
 }
 
 /// Shows the open dialog (PDF files only; several can be picked) over `window` and returns the
@@ -235,9 +238,15 @@ pub async fn save_attachment_file(
     file_name: String,
     extension: Option<String>,
 ) -> Result<Option<PathBuf>, IpcError> {
-    Ok(run(window, Kind::SaveAttachment { file_name, extension })
-        .await?
-        .and_then(|mut paths| paths.pop()))
+    Ok(run(
+        window,
+        Kind::SaveAttachment {
+            file_name,
+            extension,
+        },
+    )
+    .await?
+    .and_then(|mut paths| paths.pop()))
 }
 
 /// Asks for one file of language data for recognising text (`.traineddata`, B2-10).
@@ -477,13 +486,15 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             one(strings::PDF_FILTER_NAME, "*.pdf"),
         ),
         Kind::SaveAttachment { extension, .. } => {
-            let filters = match extension {
-                Some(ext) if !ext.is_empty() => vec![
-                    (strings::ALL_FILES_FILTER_NAME, "*.*".to_owned()),
-                    ("原始副檔名", format!("*.{ext}")),
-                ],
-                _ => vec![(strings::ALL_FILES_FILTER_NAME, "*.*".to_owned())],
-            };
+            // Its own type first, so that the name keeps its extension.
+            let mut filters = Vec::new();
+            if let Some(extension) = extension {
+                filters.push((
+                    strings::ATTACHMENT_TYPE_FILTER_NAME,
+                    format!("*.{extension}"),
+                ));
+            }
+            filters.push((strings::ALL_FILES_FILTER_NAME, "*.*".to_owned()));
             (strings::SAVE_ATTACHMENT_DIALOG_TITLE, filters)
         }
         Kind::OpenPagesSource => (
@@ -552,11 +563,13 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             dialog.SetDefaultExtension(&HSTRING::from(extension))?;
             dialog.SetFileName(&HSTRING::from(file_name.as_str()))?;
         }
-        if let Kind::SaveAttachment { file_name, extension } = kind {
-            if let Some(ext) = extension {
-                if !ext.is_empty() {
-                    dialog.SetDefaultExtension(&HSTRING::from(ext.as_str()))?;
-                }
+        if let Kind::SaveAttachment {
+            file_name,
+            extension,
+        } = kind
+        {
+            if let Some(extension) = extension {
+                dialog.SetDefaultExtension(&HSTRING::from(extension.as_str()))?;
             }
             dialog.SetFileName(&HSTRING::from(file_name.as_str()))?;
         }
@@ -668,6 +681,15 @@ mod tests {
             file_name: "報告-p2-4.pdf".to_owned(),
         });
         assert!(split(FOS_DONTADDTORECENT) && split(FOS_OVERWRITEPROMPT));
+
+        // An attachment (B3-20) with an extension, and one without.
+        for extension in [Some("txt".to_owned()), None] {
+            let attachment = options_of(Kind::SaveAttachment {
+                file_name: "附件 1".to_owned(),
+                extension,
+            });
+            assert!(attachment(FOS_DONTADDTORECENT) && attachment(FOS_OVERWRITEPROMPT));
+        }
 
         let language = options_of(Kind::OpenLanguageData);
         assert!(
