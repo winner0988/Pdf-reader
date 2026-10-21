@@ -296,3 +296,13 @@ pub const MAX_PERSONAL_DATA_KEYWORD_BYTES: usize = 1_024;
 
 /// Longest masked preview string sent for one personal data match (Issue #302), in UTF-8 bytes.
 pub const MAX_PERSONAL_DATA_PREVIEW_BYTES: usize = 128;
+
+/// Most attachments reported for one document (B3-20, ADR 0025).
+pub const MAX_ATTACHMENTS: u32 = 1_000;
+
+/// Longest cleaned name of an attachment (B3-20, ADR 0025), in UTF-8 bytes.
+pub const MAX_ATTACHMENT_NAME_BYTES: u32 = 255;
+
+/// Longest cleaned description of an attachment (B3-20, ADR 0025), in UTF-8 bytes.
+pub const MAX_ATTACHMENT_DESC_BYTES: u32 = 1_024;
+

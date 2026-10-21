@@ -12,20 +12,21 @@ use crate::limits::*;
 use crate::ocr::is_language_name;
 use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text, is_note_text};
 use crate::types::{
-    AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind, BatchArgs, BatchOperation,
-    CompressArgs, DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs, ExportFormat,
-    FindPersonalDataQuery, FindingKind, FontImport, FontInfo, FormField, IpcError, LinkTarget,
-    OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink,
-    PageSize, PageText, Password, PersonalDataMatch, PersonalDataMatches, Point,
-    PrepareTextBoxArgs, Quad, RasterRegion, RecentFile, Rect, RedactionSummary, RemoveFontArgs,
-    RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation, SanitizeArgs, SanitizeOptions,
-    SanitizeReport, SanitizeResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs,
+    AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind, AttachmentInfo,
+    AttachmentSource, BatchArgs, BatchOperation, CompressArgs, DocumentInfo, Edit, EditArgs,
+    EncryptArgs, ExportArgs, ExportFormat, FindPersonalDataQuery, FindingKind, FontImport,
+    FontInfo, FormField, IpcError, LinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem,
+    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, PersonalDataMatch,
+    PersonalDataMatches, Point, PrepareTextBoxArgs, Quad, RasterRegion, RecentFile, Rect,
+    RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation,
+    SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult, SaveAttachmentArgs,
+    SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs,
     SensitiveFile, Settings, SignatureInfo, SignatureReport, SignatureStatus, TextBoxInfo,
     TextBoxStyle, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
-    InspectedFont, OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerError, WorkerErrorCode,
-    WorkerResponse,
+    InspectedFont, OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerAttachment, WorkerError,
+    WorkerErrorCode, WorkerResponse,
 };
 
 /// Maximum length of the worker version string in `Hello`.
@@ -583,6 +584,28 @@ impl Validate for WorkerResponse {
                     });
                 }
                 security.validate()
+            }
+            WorkerResponse::Attachments { attachments, .. } => {
+                check_count("attachments", attachments.len(), MAX_ATTACHMENTS)?;
+                let mut ids = HashSet::new();
+                for attachment in attachments {
+                    if !ids.insert(attachment.id) {
+                        return Err(ValidationError::Invalid {
+                            what: "attachments",
+                            reason: "an attachment appears twice",
+                        });
+                    }
+                    attachment.validate()?;
+                }
+                Ok(())
+            }
+            WorkerResponse::AttachmentWritten { bytes, .. } => {
+                if *bytes > MAX_DOCUMENT_BYTES {
+                    return Err(ValidationError::OutOfRange {
+                        what: "attachment bytes written",
+                    });
+                }
+                Ok(())
             }
             WorkerResponse::Error { error, .. } => error.validate(),
         }
@@ -1821,6 +1844,58 @@ impl Validate for OpenEvent {
                 error.validate()
             }
         }
+    }
+}
+
+impl Validate for WorkerAttachment {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_text("attachment name", &self.name, MAX_ATTACHMENT_NAME_BYTES)?;
+        if let Some(desc) = &self.description {
+            check_text("attachment description", desc, MAX_ATTACHMENT_DESC_BYTES)?;
+        }
+        if let AttachmentSource::Page { page } = self.source {
+            if page >= MAX_PAGE_COUNT {
+                return Err(ValidationError::OutOfRange { what: "page index" });
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Validate for AttachmentInfo {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_text("attachment name", &self.name, MAX_ATTACHMENT_NAME_BYTES)?;
+        check_text(
+            "attachment extension",
+            &self.extension,
+            MAX_ATTACHMENT_NAME_BYTES,
+        )?;
+        if let Some(desc) = &self.description {
+            check_text("attachment description", desc, MAX_ATTACHMENT_DESC_BYTES)?;
+        }
+        if let AttachmentSource::Page { page } = self.source {
+            if page >= MAX_PAGE_COUNT {
+                return Err(ValidationError::OutOfRange { what: "page index" });
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Validate for SaveAttachmentArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
+    }
+}
+
+impl Validate for SaveAttachmentResult {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.bytes > MAX_DOCUMENT_BYTES {
+            return Err(ValidationError::OutOfRange {
+                what: "attachment bytes",
+            });
+        }
+        Ok(())
     }
 }
 

@@ -9,14 +9,25 @@ use serde::{Deserialize, Serialize};
 
 use crate::PROTOCOL_VERSION;
 use crate::types::{
-    AnnotationId, AnnotationSummary, CreateKind, DocumentId, DocumentPermissions, Edit, ErrorCode,
-    FieldId, FindPersonalDataQuery, FontRefusal, FormField, HighlightColor, HighlightMark,
-    ImageQuality, InkColor, InkWidth, OutlineResult, PageAnnotation, PageLink, PageSize, PageText,
-    Password, PersonalDataMatches, Point, RasterRegion, Rect, RedactionCheck, RedactionSummary,
-    RequestId, Restrictions, Rgb, Rotation, SanitizeOptions, SanitizeReport, SearchHit,
-    SecurityReport, SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo,
-    TextBoxModelId, TextBoxStyle, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    AnnotationId, AnnotationSummary, AttachmentId, AttachmentSource, CreateKind, DocumentId,
+    DocumentPermissions, Edit, ErrorCode, FieldId, FindPersonalDataQuery, FontRefusal, FormField,
+    HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, OutlineResult, PageAnnotation,
+    PageLink, PageSize, PageText, Password, PersonalDataMatches, Point, RasterRegion, Rect,
+    RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions,
+    SanitizeReport, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageId, StampName,
+    TextBoxInfo, TextBoxModelId, TextBoxStyle, Watermark, WatermarkContent, WatermarkPages,
+    WatermarkPlace,
 };
+
+/// An attachment of a document as reported by the worker (B3-20, ADR 0025).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerAttachment {
+    pub id: AttachmentId,
+    pub name: String,
+    pub size: Option<u64>,
+    pub description: Option<String>,
+    pub source: AttachmentSource,
+}
 
 /// A file handle that the main process duplicated into the worker process: read-only for
 /// `Open`, write-only for `Save`. The value is only meaningful inside the worker; the worker
@@ -759,6 +770,19 @@ pub enum WorkerRequest {
         request: RequestId,
         bytes: Vec<u8>,
     },
+    /// Lists the attachments of the document (B3-20, ADR 0025). Answered by `Attachments`.
+    GetAttachments {
+        request: RequestId,
+        doc: DocumentId,
+    },
+    /// Decodes attachment `attachment` and writes its bytes to `file` (write-only handle,
+    /// max 512 MiB, B3-20, ADR 0025). Answered by `AttachmentWritten`.
+    WriteAttachment {
+        request: RequestId,
+        doc: DocumentId,
+        attachment: AttachmentId,
+        file: FileHandle,
+    },
     /// Best effort: the worker drops the target request if it has not finished yet.
     Cancel {
         target: RequestId,
@@ -945,6 +969,16 @@ pub enum WorkerResponse {
     AnnotationSummary {
         request: RequestId,
         summary: AnnotationSummary,
+    },
+    /// Attachments of the document (`GetAttachments`, B3-20, ADR 0025).
+    Attachments {
+        request: RequestId,
+        attachments: Vec<WorkerAttachment>,
+    },
+    /// Attachment was written to `file` (`WriteAttachment`, B3-20, ADR 0025).
+    AttachmentWritten {
+        request: RequestId,
+        bytes: u64,
     },
     Error {
         request: Option<RequestId>,

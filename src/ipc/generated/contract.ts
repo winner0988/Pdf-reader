@@ -1202,6 +1202,71 @@ includeName: boolean, };
  */
 export type AnnotationSummaryOutcome = { "kind": "empty" } | { "kind": "cancelled" } | { "kind": "written", count: number, truncated: boolean, };
 
+/**
+ * An attachment of a document, identified by an opaque number (B3-20, ADR 0025).
+ */
+export type AttachmentId = number;
+
+/**
+ * Where an attachment is attached: at the document level or on a specific page (B3-20, ADR 0025).
+ */
+export type AttachmentSource = { "type": "document" } | { "type": "page", page: number, };
+
+/**
+ * Information about one attachment shown to the user (B3-20, ADR 0025).
+ */
+export type AttachmentInfo = { 
+/**
+ * Opaque token identifying the attachment within this document worker.
+ */
+id: AttachmentId, 
+/**
+ * Cleaned filename (basename only, sanitized).
+ */
+name: string, 
+/**
+ * Genuine extension (e.g. ".pdf", ".exe"), or empty if none.
+ */
+extension: string, 
+/**
+ * Declared size in bytes (/Params /Size), if provided.
+ */
+size: bigint | null, 
+/**
+ * Cleaned description (/Desc), if provided.
+ */
+description: string | null, 
+/**
+ * Source location (document level or page annotation).
+ */
+source: AttachmentSource, 
+/**
+ * Whether this attachment type is dangerous (executable, script, macro, etc.).
+ */
+isDangerous: boolean, };
+
+/**
+ * Arguments to save an attachment (B3-20, ADR 0025).
+ */
+export type SaveAttachmentArgs = { doc: DocumentId, attachment: AttachmentId, 
+/**
+ * True if the user confirmed saving a dangerous attachment type.
+ */
+confirmedDangerous: boolean, };
+
+/**
+ * The result of saving an attachment to disk (B3-20, ADR 0025).
+ */
+export type SaveAttachmentResult = { 
+/**
+ * Bytes written to disk.
+ */
+bytes: bigint, 
+/**
+ * Whether Mark of the Web (Zone.Identifier) was successfully written.
+ */
+motwApplied: boolean, };
+
 /** Limits enforced by the main process (crates/ipc_contract/src/limits.rs). */
 export const LIMITS = {
   maxPageCount: 100000,
@@ -1250,6 +1315,9 @@ export const LIMITS = {
   maxPersonalDataMatches: 1000,
   maxPersonalDataKeywordBytes: 1024,
   maxPersonalDataPreviewBytes: 128,
+  maxAttachments: 1000,
+  maxAttachmentNameBytes: 255,
+  maxAttachmentDescBytes: 1024,
   protocolVersion: 0,
 } as const;
 

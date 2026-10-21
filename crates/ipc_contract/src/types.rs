@@ -2078,6 +2078,60 @@ pub enum AnnotationSummaryOutcome {
     Written { count: u32, truncated: bool },
 }
 
+/// An attachment of a document, identified by an opaque number (B3-20, ADR 0025).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+pub struct AttachmentId(pub u32);
+
+/// Where an attachment is attached: at the document level or on a specific page (B3-20, ADR 0025).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", tag = "type")]
+pub enum AttachmentSource {
+    /// Attached at the document level (/Names /EmbeddedFiles).
+    Document,
+    /// Attached as a page annotation (/FileAttachment).
+    Page { page: u32 },
+}
+
+/// Information about one attachment shown to the user (B3-20, ADR 0025).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentInfo {
+    /// Opaque token identifying the attachment within this document worker.
+    pub id: AttachmentId,
+    /// Cleaned filename (basename only, sanitized).
+    pub name: String,
+    /// Genuine extension (e.g. ".pdf", ".exe"), or empty if none.
+    pub extension: String,
+    /// Declared size in bytes (/Params /Size), if provided.
+    pub size: Option<u64>,
+    /// Cleaned description (/Desc), if provided.
+    pub description: Option<String>,
+    /// Source location (document level or page annotation).
+    pub source: AttachmentSource,
+    /// Whether this attachment type is dangerous (executable, script, macro, etc.).
+    pub is_dangerous: bool,
+}
+
+/// Arguments to save an attachment (B3-20, ADR 0025).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SaveAttachmentArgs {
+    pub doc: DocumentId,
+    pub attachment: AttachmentId,
+    /// True if the user confirmed saving a dangerous attachment type.
+    pub confirmed_dangerous: bool,
+}
+
+/// The result of saving an attachment to disk (B3-20, ADR 0025).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveAttachmentResult {
+    /// Bytes written to disk.
+    pub bytes: u64,
+    /// Whether Mark of the Web (Zone.Identifier) was successfully written.
+    pub motw_applied: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
