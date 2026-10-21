@@ -177,4 +177,43 @@ test.describe("security redaction (ADR 0016, B2-22)", () => {
     const panel = page.getByRole("tabpanel", { name: strings.redaction.tab });
     await expect(panel.getByText(strings.redaction.notAllowed)).toBeVisible();
   });
+
+  test("find personal data, mark for redaction, apply, and save", async ({ launch }) => {
+    const file = path.join(folder, "personal-data.pdf");
+    copyFileSync(corpus("benign/personal-data.pdf"), file);
+    const page = await launch(file);
+    await expect(firstPage(page)).toHaveAttribute("data-state", "ready");
+    await expect(marks(page)).toHaveCount(0);
+
+    // Open redaction tab in sidebar
+    await page.getByRole("tab", { name: strings.redaction.tab }).click();
+    const panel = page.getByRole("tabpanel", { name: strings.redaction.tab });
+    await expect(panel).toBeVisible();
+
+    // Click find personal data button
+    const findBtn = panel.getByRole("button", { name: strings.redaction.findPersonalData });
+    await expect(findBtn).toBeVisible();
+    await findBtn.click();
+
+    // Dialog opens
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(strings.redaction.findPersonalDataDialog.title)).toBeVisible();
+
+    // Trigger search
+    const searchBtn = dialog.getByRole("button", { name: strings.redaction.findPersonalDataDialog.startSearch });
+    await searchBtn.click();
+
+    // Results found
+    await expect(dialog.getByText(/找到 \d+ 筆符合項目/)).toBeVisible();
+
+    // Click mark selected
+    const markBtn = dialog.getByRole("button", { name: /標記勾選項目/ });
+    await expect(markBtn).toBeEnabled();
+    await markBtn.click();
+
+    // Dialog closes and marks are placed on the page
+    await expect(dialog).not.toBeVisible();
+    await expect(marks(page)).not.toHaveCount(0);
+  });
 });

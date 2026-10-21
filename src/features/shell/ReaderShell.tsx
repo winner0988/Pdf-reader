@@ -19,6 +19,7 @@ import { createAnnotationSource, type AnnotationsApi } from "@/features/annotati
 import { pictureRectAt, redactionRectAt, stampRectAt, type Tool } from "@/features/annotations/tools";
 import { useAnnotations } from "@/features/annotations/useAnnotations";
 import { RedactionConfirmDialog } from "@/features/redaction/RedactionConfirmDialog";
+import { FindPersonalDataDialog } from "@/features/redaction/FindPersonalDataDialog";
 import { rectOfQuad, type RedactionMarkItem } from "@/features/redaction/model";
 import { FieldEdits, until } from "@/features/forms/edits";
 import { FlattenDialog } from "@/features/forms/FlattenDialog";
@@ -90,6 +91,7 @@ import type {
   LinkTarget,
   PageLink,
   PagesSource,
+  PersonalDataMatch,
   RedactionSummary,
   SaveResult,
   StampName,
@@ -302,6 +304,7 @@ export function ReaderShell({
   const [redactionSummary, setRedactionSummary] = useState<RedactionSummary | null>(null);
   const [redactionMarks, setRedactionMarks] = useState<RedactionMarkItem[]>([]);
   const [redactionConfirmOpen, setRedactionConfirmOpen] = useState(false);
+  const [findPersonalDataOpen, setFindPersonalDataOpen] = useState(false);
   const pageInputRef = useRef<HTMLInputElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLElement>(null);
@@ -1007,6 +1010,21 @@ export function ReaderShell({
     }
   };
 
+  const addRedactionsFromPersonalData = async (matches: PersonalDataMatch[]) => {
+    if (!editingApi || doc === undefined || !redactionAllowed) return;
+    const targetDoc = latestDocument()?.doc ?? doc;
+    for (const match of matches) {
+      for (const rect of match.rects) {
+        await editingApi.applyEdit(targetDoc, {
+          kind: "addRedaction",
+          page: match.page,
+          rect,
+        });
+      }
+    }
+    showHint(strings.redaction.findPersonalDataDialog.markedSuccess(matches.length));
+  };
+
   return (
     <TooltipProvider>
       <div ref={shellRef} className="flex h-full flex-col bg-background text-foreground">
@@ -1138,6 +1156,7 @@ export function ReaderShell({
                 onDeleteAll: deleteAllRedactions,
                 onDeleteMark: deleteRedactionMark,
                 onApply: () => setRedactionConfirmOpen(true),
+                onOpenFindPersonalData: () => setFindPersonalDataOpen(true),
               }}
             />
           )}
@@ -1385,6 +1404,14 @@ export function ReaderShell({
         summary={redactionSummary}
         onConfirm={() => void confirmApplyRedactions()}
         onCancel={() => setRedactionConfirmOpen(false)}
+      />
+      <FindPersonalDataDialog
+        open={findPersonalDataOpen}
+        onOpenChange={setFindPersonalDataOpen}
+        doc={doc}
+        annotationsApi={annotationsApi}
+        onAddRedactions={addRedactionsFromPersonalData}
+        onJumpToPage={goToPage}
       />
       {annotations.note && (
         <NoteDialog

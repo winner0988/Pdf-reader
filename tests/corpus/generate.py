@@ -1595,6 +1595,25 @@ def benign_redaction_sample() -> bytes:
     return doc.build(info=info)
 
 
+def benign_personal_data() -> bytes:
+    """Synthetic document with personal data patterns (valid & invalid) for redaction testing (#302)."""
+    lines = [
+        (72, 720, 14, "Personal Data Redaction Test Document"),
+        (72, 690, 12, "Valid Citizen ID: A123456789 and Valid New ARC: A800000014"),
+        (72, 670, 12, "Invalid ID Checksum: A123456780 and Short ID: A1234"),
+        (72, 640, 12, "Valid Mobile: 0912-345-678 and Plain Mobile: 0987654321"),
+        (72, 620, 12, "Invalid Mobile Prefix: 0812-345-678 and Short Mobile: 09123456"),
+        (72, 590, 12, "Valid Landline: 02-1234-5678 and 04-2345-6789"),
+        (72, 560, 12, "Valid Email: alice.sample@example.com and Invalid: not-an-email@"),
+        (72, 530, 12, "Valid Credit Card: 4111-1111-1111-1111 and Invalid Luhn: 4111-1111-1111-1112"),
+        (72, 500, 12, "Valid UBN Old & New: 10458575 and New-rule Only: 04595252"),
+        (72, 480, 12, "Invalid UBN Checksum: 12345679"),
+        (72, 450, 12, "Wrapped Taiwan ID Part One: A1234"),
+        (72, 435, 12, "56789 Wrapped Part Two"),
+    ]
+    return single_page_doc("personal-data", lines).build()
+
+
 @dataclass
 class Sample:
     path: str
@@ -1701,6 +1720,10 @@ SAMPLES = [
            "Opens; 1 page; redacting the secret removes the line, note, field and link without the secret string remaining; "
            "the bookmark and title stay outside the redaction area.", 1,
            text=["Public line one", f"{REDACTION_SECRET} inside", "Public line two"]),
+    Sample("benign/personal-data.pdf", benign_personal_data,
+           "Synthetic personal data patterns (valid and invalid checksums, multi-line) for Issue #302.",
+           "Opens; 1 page; personal data patterns detected without error.", 1,
+           text=["Personal Data Redaction Test Document", "A123456789", "0912-345-678"]),
     # malicious
     Sample("malicious/js-document-level.pdf", malicious_js_document, "Document-level JavaScript in the names tree.",
            "No script runs; finding reported.", 1, ["javaScript"]),
