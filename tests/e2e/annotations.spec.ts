@@ -9,21 +9,15 @@ import type { Page } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
 import { answerFileDialog, corpus, expect, quit, test } from "./app";
+import { findOnScreen } from "./search";
 
 const t = strings.annotations;
 
 const firstPage = (page: Page) => page.getByRole("img", { name: strings.canvas.page(1) });
 
-/** Searches for `query` and returns where its only hit is on screen. */
+/** Searches for `query` and returns where its only hit is on screen, with the search bar closed. */
 async function find(page: Page, query: string) {
-  await page.keyboard.press("Control+f");
-  const input = page.getByRole("textbox", { name: strings.search.placeholder });
-  await input.fill(query);
-  await input.press("Enter");
-  const hit = page.locator("[data-highlights] polygon:not([data-current])");
-  await expect(hit).toHaveCount(1);
-  const box = await hit.boundingBox();
-  if (!box) throw new Error(`${query} is not on screen`);
+  const box = await findOnScreen(page, query);
   await page.keyboard.press("Escape");
   return box;
 }
