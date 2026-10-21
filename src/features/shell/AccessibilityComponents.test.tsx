@@ -387,11 +387,11 @@ describe("what the window shows", () => {
   it("the outline", async () => {
     const page = (pageIndex: number) => ({ kind: "page" as const, pageIndex, x: null, y: null });
     const items: OutlineItem[] = [
-      { title: "第一章", depth: 0, target: page(0) },
-      { title: "第一節", depth: 1, target: page(1) },
-      { title: "第二章", depth: 0, target: page(3) },
-      { title: "網站", depth: 0, target: { kind: "uri", uri: "https://example.invalid/" } },
-      { title: "已封鎖", depth: 0, target: { kind: "blocked", action: "launch", target: "calc.exe" } },
+      { id: 1, title: "第一章", depth: 0, target: page(0) },
+      { id: 2, title: "第一節", depth: 1, target: page(1) },
+      { id: 3, title: "第二章", depth: 0, target: page(3) },
+      { id: 4, title: "網站", depth: 0, target: { kind: "uri", uri: "https://example.invalid/" } },
+      { id: 5, title: "已封鎖", depth: 0, target: { kind: "blocked", action: "launch", target: "calc.exe" } },
     ];
     render(<OutlineTree items={items} currentPage={1} onJumpToPage={vi.fn()} onOpenLink={vi.fn()} />);
     await expectAccessible(everything(), {

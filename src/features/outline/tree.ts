@@ -70,3 +70,107 @@ export function visibleAncestor(items: OutlineItem[], visible: readonly number[]
   while (at >= 0 && !visible.includes(at)) at = parentOf(items, at);
   return at;
 }
+
+/** 0-based index of item among its siblings (items sharing the same parent and depth). */
+export function siblingIndex(items: OutlineItem[], index: number): number {
+  const parent = parentOf(items, index);
+  const depth = items[index]!.depth;
+  let count = 0;
+  for (let i = 0; i < index; i++) {
+    if (parentOf(items, i) === parent && items[i]!.depth === depth) {
+      count++;
+    }
+  }
+  return count;
+}
+
+/** Index of the previous sibling, or -1 if `index` is the first child. */
+export function prevSibling(items: OutlineItem[], index: number): number {
+  const parent = parentOf(items, index);
+  const depth = items[index]!.depth;
+  for (let i = index - 1; i >= 0; i--) {
+    if (items[i]!.depth < depth) return -1;
+    if (items[i]!.depth === depth && parentOf(items, i) === parent) return i;
+  }
+  return -1;
+}
+
+/** Index of the next sibling, or -1 if `index` is the last child. */
+export function nextSibling(items: OutlineItem[], index: number): number {
+  const parent = parentOf(items, index);
+  const depth = items[index]!.depth;
+  for (let i = index + 1; i < items.length; i++) {
+    if (items[i]!.depth < depth) return -1;
+    if (items[i]!.depth === depth && parentOf(items, i) === parent) return i;
+  }
+  return -1;
+}
+
+/** Number of immediate children under `index`. */
+export function childrenCount(items: OutlineItem[], index: number): number {
+  let count = 0;
+  for (let i = index + 1; i < items.length; i++) {
+    if (items[i]!.depth <= items[index]!.depth) break;
+    if (parentOf(items, i) === index) count++;
+  }
+  return count;
+}
+
+export function canMoveUp(items: OutlineItem[], index: number): boolean {
+  return prevSibling(items, index) >= 0;
+}
+
+export function canMoveDown(items: OutlineItem[], index: number): boolean {
+  return nextSibling(items, index) >= 0;
+}
+
+export function canPromote(items: OutlineItem[], index: number): boolean {
+  return items[index]!.depth > 0;
+}
+
+export function canDemote(items: OutlineItem[], index: number): boolean {
+  return prevSibling(items, index) >= 0;
+}
+
+export type MoveDirection = "up" | "down" | "promote" | "demote";
+
+/**
+ * Computes destination `(id, parent, index)` for moving an outline item (B3-17).
+ * Reuses the same "move to parent's index-th child" model for up, down, promote, demote.
+ */
+export function getMoveParams(
+  items: OutlineItem[],
+  index: number,
+  direction: MoveDirection,
+): { id: number; parent: number | null; index: number } | null {
+  const item = items[index];
+  if (!item) return null;
+  const currentParentIdx = parentOf(items, index);
+  const currentParentId = currentParentIdx >= 0 ? items[currentParentIdx]!.id : null;
+  const currentSibIdx = siblingIndex(items, index);
+
+  switch (direction) {
+    case "up": {
+      if (!canMoveUp(items, index)) return null;
+      return { id: item.id, parent: currentParentId, index: currentSibIdx - 1 };
+    }
+    case "down": {
+      if (!canMoveDown(items, index)) return null;
+      return { id: item.id, parent: currentParentId, index: currentSibIdx + 1 };
+    }
+    case "promote": {
+      if (!canPromote(items, index)) return null;
+      const grandParentIdx = parentOf(items, currentParentIdx);
+      const grandParentId = grandParentIdx >= 0 ? items[grandParentIdx]!.id : null;
+      const parentSibIdx = siblingIndex(items, currentParentIdx);
+      return { id: item.id, parent: grandParentId, index: parentSibIdx + 1 };
+    }
+    case "demote": {
+      if (!canDemote(items, index)) return null;
+      const prev = prevSibling(items, index);
+      const prevItem = items[prev]!;
+      const count = childrenCount(items, prev);
+      return { id: item.id, parent: prevItem.id, index: count };
+    }
+  }
+}

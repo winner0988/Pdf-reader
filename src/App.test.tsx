@@ -76,7 +76,7 @@ function renderApp(batchApi?: BatchApi) {
   const outlineApi = {
     getOutline: vi.fn(() =>
       Promise.resolve({
-        items: [{ title: "第 1 章", depth: 0, target: { kind: "page" as const, pageIndex: 2, x: null, y: null } }],
+        items: [{ id: 1, title: "第 1 章", depth: 0, target: { kind: "page" as const, pageIndex: 2, x: null, y: null } }],
         truncated: false,
       }),
     ),
