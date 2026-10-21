@@ -73,6 +73,16 @@ pub fn exif_cleaned_file_name(stem: &str) -> String {
 pub fn watermark_file_name(stem: &str) -> String {
     format!("{stem}（浮水印）.pdf")
 }
+
+/// The page marks export (B3-16): where the copy goes, what it is called at first, and why the
+/// document's own file cannot be chosen.
+pub const PAGE_MARKS_DIALOG_TITLE: &str = "頁碼與 Bates 編號：選擇副本的位置";
+pub fn page_marks_file_name(stem: &str) -> String {
+    format!("{stem}（頁碼與 Bates）.pdf")
+}
+pub const PAGE_MARKS_SAME_FILE_TITLE: &str = "請選擇其他檔案";
+pub const PAGE_MARKS_SAME_FILE_MESSAGE: &str =
+    "頁碼與 Bates 編號會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
 pub const COMPRESSED_COPY_SAME_FILE_TITLE: &str = "請選擇其他檔案";
 pub const COMPRESSED_COPY_SAME_FILE_MESSAGE: &str =
     "壓縮會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";

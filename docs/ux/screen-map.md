@@ -285,6 +285,17 @@
 - **完成**：顯示完成標題（sanitize.doneTitle）與各類清除數量清單（sanitize.report.*）；按「完成」（sanitize.close）結束。分頁仍然是原本的文件，副本不加入最近開啟的檔案。
 - 做法與限制見 [sanitize.md](../architecture/sanitize.md)。
 
+### 頁碼與 Bates 編號（B3-16）
+
+- 「⋯」→「頁碼與 Bates 編號…」（在「隱私匯出…」之後）開啟對話框。沒有開啟文件時停用；加密的文件停用，並標示 pageMarks.encrypted。
+- **對話框**：
+  - 頁碼、Bates 編號、頁首頁尾三區各自可開關；
+  - 字級（6～72 點）、顏色、離邊（0～144 點）、頁面範圍（全部、第一頁以外、自訂範圍）；
+  - **預覽**：頁面外框標出六格位置，並顯示第一個與最後一個要標的頁面會印出的文字；
+  - 同一格放兩樣東西時顯示衝突錯誤並停用確定按鈕；起始號碼加上頁數超過 Bates 位數能表示的範圍時顯示錯誤並停用確定按鈕。
+- **另存副本**：主行程顯示系統另存對話框，建議檔名 `<原檔名>（頁碼與 Bates）.pdf`；不能選原檔；暫存檔取代；不加入最近開啟。
+- 做法與細節見 [page-marks.md](../architecture/page-marks.md)。
+
 ### 儲存（B2-02）
 
 - 「⋯」→「儲存」（`Ctrl+S`）：沒有未儲存的變更時停用；「另存新檔…」（`Ctrl+Shift+S`）：有開啟的文件就可以用。沒有文件時 `Ctrl+S` 也不會讓 WebView 儲存網頁。
@@ -1018,6 +1029,25 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | PRIVACY_EXPORT_SAME_FILE_MESSAGE（主行程） | 隱私匯出會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
 | overwrite_message（主行程） | 這個資料夾已經有 <N> 個同名的檔案。要覆寫嗎？ |
 | NO_TEXT_LAYER_PAGE（主行程，寫在文字檔中） | （此頁沒有文字層） |
+
+### 頁碼與 Bates 編號（B3-16）
+
+| 鍵 | 文字 |
+|---|---|
+| menu.pageMarks | 頁碼與 Bates 編號… |
+| pageMarks.title | 頁碼與 Bates 編號 |
+| pageMarks.description | 在副本的頁面加上頁碼、Bates 編號或頁首頁尾。目前的文件與它的檔案不會改變。 |
+| pageMarks.signatures | 副本中的數位簽章會失效。 |
+| pageMarks.start | 選擇位置並另存新檔… |
+| pageMarks.cancel | 取消 |
+| pageMarks.running | 正在建立副本… |
+| pageMarks.done | 已另存加上頁碼的副本。 |
+| pageMarks.failed | 儲存副本失敗，請再試一次。 |
+| pageMarks.encrypted | 加密的文件不適用 |
+| PAGE_MARKS_DIALOG_TITLE（主行程） | 頁碼與 Bates 編號：選擇副本的位置 |
+| page_marks_file_name（主行程） | <原檔名>（頁碼與 Bates）.pdf |
+| PAGE_MARKS_SAME_FILE_TITLE（主行程） | 請選擇其他檔案 |
+| PAGE_MARKS_SAME_FILE_MESSAGE（主行程） | 頁碼與 Bates 編號會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
 
 ### 批次處理（B3-04）
 

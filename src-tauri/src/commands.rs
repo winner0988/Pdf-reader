@@ -16,12 +16,13 @@ use ipc_contract::types::{
     ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs, FindPersonalDataQuery, FontImport,
     FontInfo, FormField, IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs,
     OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation,
-    PageLink, PageText, PagesSource, Password, PersonalDataMatches, PrepareTextBoxArgs,
-    PreparedTextBox, RecentFile, RecentId, RedactionSummary, RememberedPasswords, RemoveFontArgs,
-    RemoveLanguageArgs, RenderPageArgs, RequestId, SanitizeArgs, SanitizeResult,
-    SaveAttachmentResult, SaveResult, SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile,
-    SensitiveId, Settings, SignatureReport, StampImageInfo, TabId, TextBoxInfo, UndoArgs,
-    UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
+    PageLink, PageMarksCopyArgs, PageText, PagesSource, Password, PersonalDataMatches,
+    PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
+    RememberedPasswords, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, RequestId,
+    SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult, SearchArgs, SearchEvent,
+    SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignatureReport, StampImageInfo, TabId,
+    TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
+    WatermarkContent,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use tauri::ipc::{Channel, Response};
@@ -1219,6 +1220,56 @@ pub async fn sanitize_copy(
     })
     .await?;
     Ok(Some(result))
+}
+
+/// Writes a copy of the document with page marks (page numbers, Bates numbers, headers and
+/// footers) (B3-16, docs/architecture/page-marks.md) where the user says in the system's save
+/// dialog, never over the document's own file. `false` when the user closes the dialog; `true`
+/// when saved. The document itself does not change.
+#[tauri::command]
+pub async fn page_marks_copy(
+    app: AppHandle,
+    window: WebviewWindow,
+    args: PageMarksCopyArgs,
+) -> Result<bool, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let doc = args.doc;
+    let marks = args.marks;
+    let info = app
+        .state::<Documents>()
+        .document_info(doc)
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        })?;
+    if info.encrypted {
+        return Err(IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "an encrypted document has no page marks copy".to_owned(),
+        });
+    }
+    let file_name = strings::page_marks_file_name(&export::stem(&info.display_name));
+    let destination = loop {
+        let Some(path) = file_dialog::page_marks_file(&window, file_name.clone()).await? else {
+            return Ok(false);
+        };
+        if !app.state::<Documents>().is_document_file(doc, &path) {
+            break path;
+        }
+        rfd::AsyncMessageDialog::new()
+            .set_level(rfd::MessageLevel::Info)
+            .set_title(strings::PAGE_MARKS_SAME_FILE_TITLE)
+            .set_description(strings::PAGE_MARKS_SAME_FILE_MESSAGE)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .set_parent(&window)
+            .show()
+            .await;
+    };
+    blocking(move || app.state::<Documents>().page_marks_copy(doc, &destination, marks)).await?;
+    Ok(true)
 }
 
 /// Writes a copy of the document whose pictures are encoded again, smaller (B3-01,

@@ -1032,6 +1032,45 @@ impl Documents {
         })
     }
 
+    /// Writes to `destination` a copy of `doc`, edits included, with page marks (page numbers,
+    /// Bates numbers, headers and footers) (B3-16): made by the document's worker. The document,
+    /// its edits and its file are not changed. Refused for an encrypted document (its copy could
+    /// not be encrypted again), and for the document's own file.
+    pub fn page_marks_copy(
+        &self,
+        doc: DocumentId,
+        destination: &Path,
+        marks: ipc_contract::types::PageMarks,
+    ) -> Result<(), IpcError> {
+        self.with_document(doc, |document| {
+            if document.info.encrypted {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "an encrypted document has no page marks copy".to_owned(),
+                });
+            }
+            if same_file(&document.path, destination) {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "the page marks copy never replaces the document's own file".to_owned(),
+                });
+            }
+            saving::check_writable(destination)?;
+            let mut temporary = Temporary::new(destination)?;
+            let worker_doc = live_worker(document)?;
+            let response = document
+                .host
+                .page_marks_copy(worker_doc, temporary.file(), marks)
+                .map_err(|error| lost_on(document, &error))?;
+            let WorkerResponse::Saved { bytes, .. } = response else {
+                return Err(unexpected("PageMarksCopy"));
+            };
+            temporary.check(bytes)?;
+            temporary.replace(destination)
+        })
+    }
+    }
+
     /// Writes to `destination` a copy of `doc`, edits included, whose pictures are encoded again
     /// at `quality` and shrunk to `max_side` pixels on their longer side (B3-01,
     /// docs/architecture/compress-images.md): made by the document's worker. The document, its
@@ -4361,6 +4400,65 @@ mod with_worker {
         assert_eq!(
             documents
                 .sanitize_copy(info.doc, &shouted, options)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+
+        std::fs::remove_file(copy).ok();
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_copy_with_page_marks_writes_the_marks_and_leaves_the_document_alone() {
+        use ipc_contract::types::{
+            BatesMark, PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat,
+            PageNumberMark, Rgb,
+        };
+
+        let sample =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign/multi-page-10.pdf");
+        let (documents, info, path) = open_bytes("page-marks", &std::fs::read(sample).unwrap());
+        let before = std::fs::read(&path).unwrap();
+        let identity = FileIdentity::of(&path);
+        let copy = path.with_file_name("page-marks-copy.pdf");
+        std::fs::remove_file(&copy).ok();
+
+        let marks = PageMarks {
+            font_size: 12.0,
+            color: Rgb { r: 0, g: 0, b: 0 },
+            margin_pt: 36.0,
+            pages: PageMarkPages::All,
+            page_number: Some(PageNumberMark {
+                format: PageNumberFormat::PageOfTotal,
+                start: 1,
+                position: PageMarkPosition::BottomCenter,
+            }),
+            bates: Some(BatesMark {
+                prefix: "BATES_DOC_".to_string(),
+                digits: 4,
+                start: 1,
+                position: PageMarkPosition::BottomRight,
+            }),
+            header_footer: None,
+        };
+
+        documents
+            .page_marks_copy(info.doc, &copy, marks.clone())
+            .unwrap();
+        let written = std::fs::read(&copy).unwrap();
+        assert!(written.starts_with(b"%PDF-"));
+
+        // The document and its file are as they were.
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(FileIdentity::of(&path), identity);
+        assert!(documents.unsaved_tabs().is_empty());
+
+        // Same file is rejected
+        let shouted = PathBuf::from(path.to_string_lossy().to_uppercase());
+        assert_eq!(
+            documents
+                .page_marks_copy(info.doc, &shouted, marks)
                 .unwrap_err()
                 .code,
             ErrorCode::InvalidArgument

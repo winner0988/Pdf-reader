@@ -89,6 +89,10 @@ export type ToolbarProps = {
   onSanitizeCopy?: () => void;
   /** An encrypted or signed document has no sanitized copy (B3-15): the menu item says why. */
   sanitizeCopyBlocked?: string;
+  /** Writes a copy with page marks (B3-16); without it the menu item is disabled. */
+  onPageMarks?: () => void;
+  /** An encrypted document has no page marks copy (B3-16): the menu item says so. */
+  pageMarksBlocked?: boolean;
   /** Writes an encrypted copy (B2-15); without it the menu item is disabled. */
   onEncryptCopy?: () => void;
   /** Does one thing to many files (B3-04); without it (demo data, tests) the menu item is disabled. */
@@ -504,6 +508,12 @@ function MoreMenu(props: ToolbarProps) {
           {menu.sanitizeCopy}
           {props.sanitizeCopyBlocked && (
             <DropdownMenuShortcut>{props.sanitizeCopyBlocked}</DropdownMenuShortcut>
+          )}
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!props.onPageMarks} onClick={props.onPageMarks}>
+          {menu.pageMarks}
+          {props.pageMarksBlocked && (
+            <DropdownMenuShortcut>{strings.pageMarks.encrypted}</DropdownMenuShortcut>
           )}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={!props.onEncryptCopy} onClick={props.onEncryptCopy}>
