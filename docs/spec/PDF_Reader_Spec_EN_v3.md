@@ -51,7 +51,7 @@ This version folds the decisions resolved during the grilling process back into 
 - **Local Image Compression**: Image encoding and compression must be processed entirely locally without relying on any cloud compression services.
 
 ## 6. Reading, Markup & Interaction Module
-- **Basic Reading & Management**: Zoom in/out, bookmark navigation, full-text search (local indexing, including the hidden text layer produced by OCR), and dark mode. Support for inserting, deleting, rotating, splitting, and merging pages.
+- **Basic Reading & Management**: Zoom in/out, bookmark navigation, full-text search (local indexing, including the hidden text layer produced by OCR; the cross-document index is off by default, holds only files opened in the app, is encrypted on this computer, and never includes sensitive files or password-protected PDFs — see ADR 0026), and dark mode. Support for inserting, deleting, rotating, splitting, and merging pages.
 - **Printing**: Print the current document on any printer available to the computer, with a page range, number of copies, and portrait or landscape orientation; the view's rotation and zoom are not applied. Print data is processed locally and never sent over the network (network printers are handled by the operating system).
 - **Markup & Annotations**: Provide basic tools like highlighters, freehand drawing, and custom stamps.
 - **AcroForm Filling**: Support reading and filling standard PDF forms containing text boxes and checkboxes. Allow users to "flatten" the form, locking the data into uneditable static content.

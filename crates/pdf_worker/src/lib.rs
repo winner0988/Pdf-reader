@@ -22,6 +22,7 @@ mod scrub;
 pub mod search;
 pub mod serve;
 mod signatures;
+pub mod text_cache;
 pub mod text_layer;
 mod unlink;
 mod zip;
