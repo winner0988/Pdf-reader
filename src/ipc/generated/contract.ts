@@ -1039,7 +1039,18 @@ export type RenderPageArgs = { request: RequestId, doc: DocumentId, pageIndex: n
 /**
  * 1.0 = one PDF point per pixel. Includes the device pixel ratio.
  */
-scale: number, rotation: Rotation, };
+scale: number, rotation: Rotation, 
+/**
+ * Only this part of the page (B3-09), at `scale` exactly; without it, the whole page, at a
+ * lower scale if it does not fit the raster limits.
+ */
+region?: RasterRegion, };
+
+/**
+ * A rectangle of a page's raster, in pixels from its top left corner (B3-09): the page at a
+ * render scale and rotation, of which only this part is drawn, for zooming far in.
+ */
+export type RasterRegion = { x: number, y: number, width: number, height: number, };
 
 /**
  * Actions that are recognised but never performed.
@@ -1199,6 +1210,7 @@ export const LIMITS = {
   maxRenderScale: 64,
   maxRasterSidePx: 8192,
   maxRasterPixels: 16777216,
+  maxRegionPageSidePx: 1048576,
   maxOutlineItems: 10000,
   maxOutlineDepth: 64,
   maxLinksPerPage: 2000,

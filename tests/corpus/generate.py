@@ -1460,34 +1460,33 @@ def outline_100k(path: Path) -> None:
 
 
 def large_a0_poster(path: Path) -> None:
-    """An A0 poster (2384 x 3370 pt, 841 x 1189 mm) for testing large-format rendering (T5)."""
+    """An A0 poster (2384 x 3370 pt): a 1600 x 1200 photo, a chart of 5000 line segments and 360
+    lines of small text, to time drawing one very large page at high zoom (B3-09)."""
+    rng = random.Random(2384)
     doc = Document("large-a0-poster")
     doc.reserve_pages(1)
-    lines = [
-        (144, 3100, 72, "A0 Research Poster"),
-        (144, 2980, 36, "High-Resolution Rendering and Viewing Targets"),
-        (144, 2860, 24, "Author: Privacy-First PDF Reader Engineering Team"),
-        (144, 2740, 18, "Section 1: Architecture and Virtualization"),
-        (144, 2680, 14, "This document tests the performance of rendering very large physical pages at high zoom levels."),
-        (144, 2640, 14, "At 200% zoom, an A0 page spans thousands of display pixels, requiring bounded memory and responsive scaling."),
-        (144, 2520, 18, "Section 2: Measurement Targets (T1 - T7)"),
-        (144, 2460, 14, "T1: Open to first page <= 1.0 s."),
-        (144, 2420, 14, "T2: Normal scrolling blank time = 0 ms."),
-        (144, 2380, 14, "T3: Fast scroll stop to ready <= 500 ms."),
-        (144, 2340, 14, "T4: Zoom bitmap immediate <= 1 frame; crisp new raster <= 400 ms."),
-        (144, 2300, 14, "T5: Large A0 page rendered <= 1.5 s, memory < 1 GB."),
-        (144, 2260, 14, "T6: Fast scroll 10 s memory < 1 GB."),
-        (144, 2220, 14, "T7: Idle 10 s CPU < 1%."),
-        (144, 2100, 18, "Section 3: Search Verification"),
-        (144, 2040, 14, "Search target: poster-needle-a0-2026 for verifying text extraction and indexing."),
-    ]
-    extra = (
-        b"q 0.85 0.90 0.95 rg 72 72 2240 3226 re f Q\n"
-        b"q 0.20 0.40 0.70 rg 120 2900 2144 350 re f Q\n"
-        b"q 0.95 0.95 0.95 rg 144 2000 2096 850 re f Q\n"
-        b"q 0.95 0.95 0.95 rg 144 1000 2096 900 re f Q\n"
+    photo = doc.pdf.add_stream(
+        "/Type /XObject /Subtype /Image /Width 1600 /Height 1200 /ColorSpace /DeviceRGB /BitsPerComponent 8",
+        rng.randbytes(1600 * 1200 * 3),
     )
-    doc.set_page(0, Page(size=A0, lines=lines, extra_content=extra))
+    chart = ["q 0.20 0.40 0.70 RG 1.5 w 144 1550 m"]
+    for i in range(1, 5000):
+        x = 144 + i * 2096 / 5000
+        y = 1550 + 250 * (((i // 50) % 2) * 2 - 1) * (i % 50) / 50 + rng.uniform(-30, 30)
+        chart.append(f"{x:.2f} {y:.2f} l")
+    chart.append("S Q")
+    lines = [(144, 3180, 72, "A0 poster: drawing one very large page")]
+    for column in range(3):
+        for row in range(120):
+            n = column * 120 + row + 1
+            lines.append((144 + column * 720, 1180 - row * 9, 8,
+                          f"Line {n:03d}: offline reading of a large page; search target poster-{n:03d}."))
+    doc.set_page(0, Page(
+        size=A0,
+        lines=lines,
+        extra_content=b"q 2096 0 0 1150 144 1950 cm /Im1 Do Q\n" + "\n".join(chart).encode("latin-1") + b"\n",
+        resources=f"/XObject << /Im1 {photo} 0 R >> ",
+    ))
     path.write_bytes(doc.build())
 
 
@@ -1977,8 +1976,8 @@ ON_DEMAND = [
     ("large/output/outline-100k-items.pdf", outline_100k,
      "100,000 outline items (MVP-09).", "Outline truncated at the limit and flagged; no hang.", 1),
     ("large/output/large-a0-poster.pdf", large_a0_poster,
-     "A0 poster page (2384 x 3370 pt, 841 x 1189 mm) for testing large-format rendering (T5).",
-     "Opens; renders under fit_scale without memory exceeding limits.", 1),
+     "About 6 MB: one A0 page (2384 x 3370 pt) with a photo, a detailed chart and small text (B3-09).",
+     "Opens; at 200% the page is drawn within the raster limit and memory stays bounded.", 1),
 ]
 
 

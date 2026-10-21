@@ -14,8 +14,10 @@
 //! The frontend decoder lives in `src/ipc/raster.ts` and reads these constants from the
 //! generated bindings.
 
-use crate::limits::{MAX_RASTER_PIXELS, MAX_RASTER_SIDE_PX, MIN_RENDER_SCALE};
-use crate::types::{PageSize, Rotation};
+use crate::limits::{
+    MAX_RASTER_PIXELS, MAX_RASTER_SIDE_PX, MAX_REGION_PAGE_SIDE_PX, MIN_RENDER_SCALE,
+};
+use crate::types::{PageSize, RasterRegion, Rotation};
 use crate::validate::{Validate, ValidationError, check_raster_size, check_scale};
 use crate::worker::Raster;
 
@@ -43,15 +45,7 @@ pub fn raster_dimensions(
     scale: f32,
     rotation: Rotation,
 ) -> Result<(u32, u32), ValidationError> {
-    page.validate()?;
-    check_scale(scale)?;
-    let to_px = |points: f32| (f64::from(points) * f64::from(scale)).ceil().max(1.0);
-    let (width, height) = (to_px(page.width_pt), to_px(page.height_pt));
-    let (width, height) = if rotation.is_quarter_turn() {
-        (height, width)
-    } else {
-        (width, height)
-    };
+    let (width, height) = whole_raster(page, scale, rotation)?;
     if width > f64::from(u32::MAX) || height > f64::from(u32::MAX) {
         return Err(ValidationError::OutOfRange {
             what: "raster size",
@@ -60,6 +54,51 @@ pub fn raster_dimensions(
     let (width, height) = (width as u32, height as u32);
     check_raster_size(width, height)?;
     Ok((width, height))
+}
+
+/// Pixel size of `page` at `scale` and `rotation`, whatever the raster limits: each side is the
+/// side in points times the scale, rounded up, at least one pixel.
+fn whole_raster(
+    page: PageSize,
+    scale: f32,
+    rotation: Rotation,
+) -> Result<(f64, f64), ValidationError> {
+    page.validate()?;
+    check_scale(scale)?;
+    let to_px = |points: f32| (f64::from(points) * f64::from(scale)).ceil().max(1.0);
+    let (width, height) = (to_px(page.width_pt), to_px(page.height_pt));
+    Ok(if rotation.is_quarter_turn() {
+        (height, width)
+    } else {
+        (width, height)
+    })
+}
+
+/// Checks that `region` (B3-09) is a part of `page` rendered at `scale` and `rotation`: the
+/// region within the raster limits, the whole page within `MAX_REGION_PAGE_SIDE_PX`. Both
+/// processes use this, as they do `raster_dimensions`.
+pub fn check_region(
+    page: PageSize,
+    scale: f32,
+    rotation: Rotation,
+    region: RasterRegion,
+) -> Result<(), ValidationError> {
+    region.validate()?;
+    let (width, height) = whole_raster(page, scale, rotation)?;
+    let side = f64::from(MAX_REGION_PAGE_SIDE_PX);
+    if width > side || height > side {
+        return Err(ValidationError::OutOfRange {
+            what: "page raster size",
+        });
+    }
+    let right = f64::from(region.x) + f64::from(region.width);
+    let bottom = f64::from(region.y) + f64::from(region.height);
+    if right > width || bottom > height {
+        return Err(ValidationError::OutOfRange {
+            what: "raster region",
+        });
+    }
+    Ok(())
 }
 
 /// The largest scale not above `scale` at which `page` fits the raster limits
@@ -210,5 +249,45 @@ mod tests {
             height_pt: 792.0,
         };
         assert!(fit_scale(letter, f32::INFINITY).is_err());
+    }
+
+    #[test]
+    fn a_region_lies_within_its_page_however_large_the_page() {
+        let letter = PageSize {
+            width_pt: 612.0,
+            height_pt: 792.0,
+        };
+        let region = |x, y, width, height| RasterRegion {
+            x,
+            y,
+            width,
+            height,
+        };
+        // Letter at 16x: 9792 x 12672 pixels, beyond the raster limits; parts of it are fine.
+        assert!(raster_dimensions(letter, 16.0, Rotation::None).is_err());
+        assert!(check_region(letter, 16.0, Rotation::None, region(0, 0, 2400, 1600)).is_ok());
+        assert!(
+            check_region(
+                letter,
+                16.0,
+                Rotation::None,
+                region(7392, 11072, 2400, 1600)
+            )
+            .is_ok()
+        );
+        // Not past the page's right or bottom edge, turned or not.
+        assert!(check_region(letter, 16.0, Rotation::None, region(7393, 0, 2400, 1600)).is_err());
+        assert!(check_region(letter, 16.0, Rotation::None, region(0, 11073, 2400, 1600)).is_err());
+        assert!(check_region(letter, 16.0, Rotation::Cw90, region(10272, 0, 2400, 1600)).is_ok());
+        assert!(check_region(letter, 16.0, Rotation::Cw90, region(0, 8193, 2400, 1600)).is_err());
+        // The region within the raster limits, the page within the largest page raster.
+        assert!(check_region(letter, 16.0, Rotation::None, region(0, 0, 4097, 4096)).is_err());
+        let huge = PageSize {
+            width_pt: 100_000.0,
+            height_pt: 100_000.0,
+        };
+        assert!(check_region(huge, 10.0, Rotation::None, region(0, 0, 100, 100)).is_ok());
+        assert!(check_region(huge, 11.0, Rotation::None, region(0, 0, 100, 100)).is_err());
+        assert!(check_region(letter, f32::NAN, Rotation::None, region(0, 0, 100, 100)).is_err());
     }
 }

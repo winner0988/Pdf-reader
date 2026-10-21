@@ -1519,6 +1519,22 @@ pub struct RenderPageArgs {
     /// 1.0 = one PDF point per pixel. Includes the device pixel ratio.
     pub scale: f32,
     pub rotation: Rotation,
+    /// Only this part of the page (B3-09), at `scale` exactly; without it, the whole page, at a
+    /// lower scale if it does not fit the raster limits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub region: Option<RasterRegion>,
+}
+
+/// A rectangle of a page's raster, in pixels from its top left corner (B3-09): the page at a
+/// render scale and rotation, of which only this part is drawn, for zooming far in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RasterRegion {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
 }
 
 /// Actions that are recognised but never performed.

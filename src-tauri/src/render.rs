@@ -9,19 +9,23 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
-use ipc_contract::types::{DocumentId, ErrorCode, IpcError, RenderPageArgs, RequestId, Rotation};
+use ipc_contract::types::{
+    DocumentId, ErrorCode, IpcError, RasterRegion, RenderPageArgs, RequestId, Rotation,
+};
 use tokio::sync::oneshot;
 
 /// Initial cache budget for rendered pages.
 pub const DEFAULT_CACHE_BYTES: usize = 256 * 1024 * 1024;
 
-/// Identifies one rendering of a page. Scales are compared to 1/1000.
+/// Identifies one rendering of a page, or of a region of it (B3-09). Scales are compared to
+/// 1/1000.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CacheKey {
     doc: DocumentId,
     page_index: u32,
     rotation: Rotation,
     scale_milli: u32,
+    region: Option<RasterRegion>,
 }
 
 impl CacheKey {
@@ -31,6 +35,7 @@ impl CacheKey {
             page_index: args.page_index,
             rotation: args.rotation,
             scale_milli: (f64::from(args.scale) * 1000.0).round() as u32,
+            region: args.region,
         }
     }
 }
@@ -298,7 +303,11 @@ fn serve(shared: &Shared, render: &dyn Fn(&RenderPageArgs) -> Result<Vec<u8>, Ip
             Some(bytes) => Ok(bytes),
             None => render(&job.args).map(Arc::new),
         };
-        if let Ok(bytes) = &result {
+        // A region (B3-09) follows the scroll position and is seldom asked for again; caching it
+        // would only push whole pages out.
+        if let Ok(bytes) = &result
+            && job.args.region.is_none()
+        {
             shared.lock().cache.insert(key, bytes.clone());
         }
         let _ = job.reply.send(result);
@@ -322,6 +331,7 @@ mod tests {
             page_index,
             scale: 1.5,
             rotation: Rotation::None,
+            region: None,
         }
     }
 
@@ -338,6 +348,19 @@ mod tests {
         let mut zoomed = args(1, 1, 0);
         zoomed.scale = 1.501;
         assert_ne!(CacheKey::of(&zoomed), CacheKey::of(&args(1, 1, 0)));
+        // A region is another rendering than the whole page, or another region (B3-09).
+        let part = |x| RenderPageArgs {
+            region: Some(RasterRegion {
+                x,
+                y: 0,
+                width: 100,
+                height: 100,
+            }),
+            ..args(1, 1, 0)
+        };
+        assert_ne!(CacheKey::of(&part(0)), CacheKey::of(&args(1, 1, 0)));
+        assert_ne!(CacheKey::of(&part(0)), CacheKey::of(&part(1)));
+        assert_eq!(CacheKey::of(&part(0)), CacheKey::of(&part(0)));
     }
 
     #[test]
@@ -423,6 +446,26 @@ mod tests {
         assert_eq!(first, again);
         assert_eq!(gate.calls(), 1);
         assert_eq!(renderer.cached_bytes(), 16);
+    }
+
+    #[test]
+    fn regions_are_not_cached() {
+        let (renderer, gate) = gated_renderer();
+        gate.release();
+        gate.release();
+        let part = |request| RenderPageArgs {
+            region: Some(RasterRegion {
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 2,
+            }),
+            ..args(request, 1, 3)
+        };
+        assert!(block_on(renderer.render(part(1))).is_ok());
+        assert!(block_on(renderer.render(part(2))).is_ok());
+        assert_eq!(gate.calls(), 2);
+        assert_eq!(renderer.cached_bytes(), 0);
     }
 
     #[test]

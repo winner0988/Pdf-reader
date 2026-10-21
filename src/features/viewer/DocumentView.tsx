@@ -54,6 +54,15 @@ import {
   type Highlights,
   type PageOverlay,
 } from "@/features/viewer/highlights";
+import {
+  covers,
+  detailBaseScale,
+  detailRegion,
+  rasterSize,
+  visiblePart,
+  type BoxRect,
+  type RasterSize,
+} from "@/features/viewer/detail";
 import { drawRaster, errorCodeOf, type PageRenderer, type RenderJob } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
 import type {
@@ -65,6 +74,7 @@ import type {
   PageLink,
   PageText,
   Point,
+  RasterRegion,
   Rotation as ContractRotation,
 } from "@/ipc/generated/contract";
 
@@ -157,6 +167,11 @@ const REQUEST_DELAY_MS = 100;
  * first-in, first-out render queue first (large zooms take long per page).
  */
 const NEARBY_EXTRA_DELAY_MS = 150;
+/**
+ * A page zoomed far in is drawn sharp only around the part on screen (B3-09); after scrolling
+ * out of that part, the next one is asked for once the view rests this long.
+ */
+const DETAIL_DELAY_MS = 100;
 /** Wheel distance (in pixels) for one zoom step; a mouse notch is about 100. */
 const WHEEL_STEP_PX = 50;
 /** How far a press may move and still be a click, not a text selection (B2-07). */
@@ -398,39 +413,47 @@ export function DocumentView({
 
   // The first renders use the measured scale right away. After that, a new resolution is
   // rendered only once the scale settles; meanwhile the old bitmap is stretched to the new size.
-  const scale = renderScale(factor, window.devicePixelRatio);
-  const [settledScale, setSettledScale] = useState<number | null>(null);
+  const ratio = window.devicePixelRatio;
+  const scale = renderScale(factor, ratio);
+  const [settled, setSettled] = useState<{ scale: number; factor: number } | null>(null);
   const hasViewport = measured !== null;
   useEffect(() => {
-    if (!hasViewport || scale === settledScale) return;
-    const delay = settledScale === null ? 0 : RESCALE_DELAY_MS;
-    const timer = window.setTimeout(() => setSettledScale(scale), delay);
+    if (!hasViewport || scale === settled?.scale) return;
+    const delay = settled === null ? 0 : RESCALE_DELAY_MS;
+    const timer = window.setTimeout(() => setSettled({ scale, factor }), delay);
     return () => window.clearTimeout(timer);
-  }, [hasViewport, scale, settledScale]);
-  const renderAt = settledScale ?? scale;
+  }, [hasViewport, scale, factor, settled]);
+  const renderAt = settled?.scale ?? scale;
+  const renderFactor = settled?.factor ?? factor;
+  // The screen in device pixels, against which a page counts as zoomed far in (B3-09).
+  const deviceRatio = Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+  const screenPixels = { width: viewport.width * deviceRatio, height: viewport.height * deviceRatio };
+  const contractRotation = CONTRACT_ROTATION[rotation];
 
   const slots = [];
   for (let index = range.first; index <= range.last; index++) {
     const box = layout.boxes[index]!;
     const left = pageLeft(box, width);
-    const delay =
-      requestDelayMs > 0 && (index < onScreen.first || index > onScreen.last)
-        ? requestDelayMs + NEARBY_EXTRA_DELAY_MS
-        : requestDelayMs;
+    const nearby = requestDelayMs > 0 && (index < onScreen.first || index > onScreen.last);
+    const delay = nearby ? requestDelayMs + NEARBY_EXTRA_DELAY_MS : requestDelayMs;
     slots.push(
       <PageSlot
         key={index}
         index={index}
+        page={pages[index]!}
         box={box}
         left={left}
+        view={visiblePart(box, left, shown)}
+        baseScale={detailBaseScale(pages[index]!, contractRotation, renderFactor, ratio, screenPixels)}
         overlay={highlights ? pageOverlay(highlights, index, pages[index]!, rotation, box) : null}
         doc={doc}
         renderer={renderer}
         scale={renderAt}
         // While zooming, nothing new is requested: the scale is about to change again.
         paused={scale !== renderAt}
-        rotation={CONTRACT_ROTATION[rotation]}
+        rotation={contractRotation}
         requestDelayMs={delay}
+        redrawDelayMs={nearby ? NEARBY_EXTRA_DELAY_MS : 0}
       />,
     );
     if (text && doc !== undefined) {
@@ -575,50 +598,94 @@ export function DocumentView({
   );
 }
 
-type SlotState = { kind: "loading" } | { kind: "ready" } | { kind: "failed"; message: string };
+type SlotState =
+  | { kind: "loading" }
+  | { kind: "ready"; scale: number; rotation: ContractRotation }
+  | { kind: "failed"; message: string };
+
+/** A part of a page drawn sharp over the whole page (B3-09): `region` of the raster `whole`. */
+type Detail = {
+  doc: DocumentId;
+  scale: number;
+  rotation: ContractRotation;
+  region: RasterRegion;
+  whole: RasterSize;
+};
 
 type PageSlotProps = {
   index: number;
+  page: PageSize;
   box: PageBox;
   left: number;
+  /** The part of the page on screen, in its box's pixels; null when none of it is. */
+  view: BoxRect | null;
   doc?: DocumentId;
   renderer?: PageRenderer;
   scale: number;
+  /**
+   * For a page zoomed far in (B3-09), the scale of the whole page underneath the part drawn
+   * sharp at `scale`; null when the whole page is drawn at `scale`.
+   */
+  baseScale: number | null;
   paused: boolean;
   rotation: ContractRotation;
+  /** Wait before the first render of a newly mounted page. */
   requestDelayMs: number;
+  /** Wait before a page already drawn is drawn again at a new scale or rotation. */
+  redrawDelayMs: number;
   overlay: PageOverlay | null;
 };
 
-function PageSlot({ index, box, left, doc, renderer, scale, paused, rotation, requestDelayMs, overlay }: PageSlotProps) {
+function PageSlot({
+  index,
+  page,
+  box,
+  left,
+  view,
+  doc,
+  renderer,
+  scale,
+  baseScale,
+  paused,
+  rotation,
+  requestDelayMs,
+  redrawDelayMs,
+  overlay,
+}: PageSlotProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const lastRenderedScale = useRef<number | null>(null);
+  // What the canvas has in it, which is stretched until the next one comes; null after a failure.
+  const drawnAt = useRef<{ doc: DocumentId; scale: number; rotation: ContractRotation } | null>(null);
   const [state, setState] = useState<SlotState>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
 
+  // The whole page: at `scale`, or underneath the part drawn sharp at a lower one.
+  const wholeAt = baseScale ?? scale;
   useEffect(() => {
     if (!renderer || doc === undefined || paused) return;
+    // Already drawn so, such as at the zoom the view had before zooming in far.
+    const drawn = drawnAt.current;
+    if (drawn && drawn.doc === doc && drawn.scale === wholeAt && drawn.rotation === rotation) return;
     let job: RenderJob | null = null;
     const start = () => {
-      job = renderer.render({ doc, pageIndex: index, scale, rotation });
+      job = renderer.render({ doc, pageIndex: index, scale: wholeAt, rotation });
       job.result.then(
         (raster) => {
           drawRaster(canvasRef.current, raster);
-          lastRenderedScale.current = scale;
-          setState({ kind: "ready" });
+          drawnAt.current = { doc, scale: wholeAt, rotation };
+          setState({ kind: "ready", scale: wholeAt, rotation });
         },
         (error: unknown) => {
           const code = errorCodeOf(error);
           // Cancelled: the page left the view or the view changed. Unknown document: it was closed.
           if (code === "cancelled" || code === "unknownDocument") return;
+          drawnAt.current = null;
           setState({ kind: "failed", message: strings.canvas.pageRenderFailed });
         },
       );
     };
-    // Pages already rendered re-render immediately on scale change without waiting for request delay;
-    // newly mounted pages waiting for scroll to stop keep the request delay.
-    const isRerender = lastRenderedScale.current !== null && lastRenderedScale.current !== scale;
-    const delay = isRerender ? 0 : requestDelayMs;
+    // A page on screen is drawn again at once after zooming or turning: the delay is for pages
+    // that only flash by while scrolling.
+    const delay = drawn ? redrawDelayMs : requestDelayMs;
     const timer = delay > 0 ? window.setTimeout(start, delay) : undefined;
     if (timer === undefined) start();
     // Leaving the rendered range, or a new scale or rotation, cancels the old request.
@@ -626,19 +693,100 @@ function PageSlot({ index, box, left, doc, renderer, scale, paused, rotation, re
       window.clearTimeout(timer);
       (job as RenderJob | null)?.cancel();
     };
-  }, [renderer, doc, index, scale, paused, rotation, attempt, requestDelayMs]);
+  }, [renderer, doc, index, wholeAt, paused, rotation, attempt, requestDelayMs, redrawDelayMs]);
+
+  // Zoomed far in (B3-09): the part on screen, sharp, over the whole page. A new part is asked
+  // for when the view leaves the one asked for last; it replaces the old one once drawn.
+  const detailRef = useRef<HTMLCanvasElement>(null);
+  const [asked, setAsked] = useState<Detail | null>(null);
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const whole = rasterSize(page, rotation, scale);
+  const onScreen = baseScale !== null && view ? detailRegion(view, box, whole, 0) : null;
+  const sharpIn = (part: Detail | null) =>
+    part !== null &&
+    part.doc === doc &&
+    part.scale === scale &&
+    part.rotation === rotation &&
+    onScreen !== null &&
+    covers(part.region, onScreen);
+  const region = !paused && onScreen && view && !sharpIn(asked) ? detailRegion(view, box, whole) : null;
+  const wanted: Detail | null =
+    region && doc !== undefined ? { doc, scale, rotation, region, whole } : null;
+  // Comparable between renders, so that only a new part restarts the wait.
+  const wantedKey = wanted && JSON.stringify(wanted);
+  // A part asked for at another zoom or turn is no longer wanted once the view has settled.
+  const stale = asked !== null && (asked.doc !== doc || asked.scale !== scale || asked.rotation !== rotation);
+  // Right after zooming, at once; while scrolling, once the view rests.
+  const scrolling = asked !== null && !stale;
+  const detailDelay = scrolling ? DETAIL_DELAY_MS : state.kind === "ready" ? 0 : requestDelayMs;
+  useEffect(() => {
+    if (!wantedKey) return;
+    const timer = window.setTimeout(() => setAsked(JSON.parse(wantedKey) as Detail), detailDelay);
+    return () => window.clearTimeout(timer);
+  }, [wantedKey, detailDelay]);
+  useEffect(() => {
+    if (!renderer || !asked || stale) return;
+    let live = true;
+    const job = renderer.render({
+      doc: asked.doc,
+      pageIndex: index,
+      scale: asked.scale,
+      rotation: asked.rotation,
+      region: asked.region,
+    });
+    job.result.then(
+      (raster) => {
+        if (!live) return;
+        drawRaster(detailRef.current, raster);
+        setDetail(asked);
+      },
+      // Failed or cancelled: the whole page underneath stays.
+      () => {},
+    );
+    return () => {
+      live = false;
+      job.cancel();
+    };
+  }, [renderer, index, asked, stale]);
+
+  const wholeSharp = state.kind === "ready" && state.scale === scale && state.rotation === rotation;
+  // Shown while zoomed far in, and after zooming out until the whole page is drawn sharp.
+  const shownDetail =
+    detail !== null && detail.doc === doc && detail.rotation === rotation && (baseScale !== null || !wholeSharp)
+      ? detail
+      : null;
+  const sharp = !paused && (baseScale === null ? wholeSharp : sharpIn(detail));
+  const percent = (part: number, of: number) => `${(part / of) * 100}%`;
 
   return (
     <div
-      id={`page-${index + 1}`}
       role="img"
       aria-label={strings.canvas.page(index + 1)}
       data-state={state.kind}
       data-doc={doc}
+      // For measuring (scripts/perf): the part on screen is drawn at the current zoom.
+      data-sharp={sharp ? "" : undefined}
       className="absolute flex items-center justify-center overflow-hidden bg-white text-sm text-neutral-400 shadow-sm ring-1 ring-black/10"
       style={{ top: box.top, left, width: box.width, height: box.height }}
     >
       <canvas ref={canvasRef} aria-hidden className="absolute inset-0 size-full" />
+      <canvas
+        ref={detailRef}
+        aria-hidden
+        data-detail
+        hidden={shownDetail === null}
+        className="absolute"
+        style={
+          shownDetail
+            ? {
+                left: percent(shownDetail.region.x, shownDetail.whole.width),
+                top: percent(shownDetail.region.y, shownDetail.whole.height),
+                width: percent(shownDetail.region.width, shownDetail.whole.width),
+                height: percent(shownDetail.region.height, shownDetail.whole.height),
+              }
+            : undefined
+        }
+      />
       {overlay && (
         // Multiplied like a highlighter pen: the text under a hit stays readable.
         <svg

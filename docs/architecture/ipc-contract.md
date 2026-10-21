@@ -213,6 +213,8 @@ flowchart LR
 
 主行程會把縮放比例降到點陣圖上限以內（`fit_scale`），所以回傳的寬高可能小於「頁面尺寸 × 縮放」；前端一律以回傳的寬高解碼，再縮放到頁面的顯示尺寸。排程、取消與快取見 [rendering.md](rendering.md)。
 
+`RenderPageArgs` 帶 `region`（`RasterRegion`：`x`、`y`、`width`、`height`，B3-09）時，只畫頁面在這個縮放與旋轉下的點陣圖中的那一塊，縮放比例照要求、不降低，回傳的寬高就是區塊的寬高。區塊本身要符合點陣圖上限、落在頁面內，整頁在這個比例下的邊長不超過 `MAX_REGION_PAGE_SIDE_PX`（2^20 px）；否則是 `invalidArgument`。兩個行程以同一個 `raster::check_region` 檢查。
+
 選擇理由：
 
 | 方案 | 優點 | 缺點 | 結論 |
@@ -221,7 +223,7 @@ flowchart LR
 | 自訂 URI scheme（`<img src="pdfpage://…">`） | 瀏覽器自帶快取與解碼 | 繞過 capability、頁面內任何內容都能請求、無法取消、需放寬 CSP `img-src`、每張都要編碼 PNG | ✗ |
 | JSON 內 base64 | 最簡單 | 體積 +33%、編解碼成本高 | ✗ |
 
-像素選 RGBA8 而非 PNG：canvas 的 `ImageData` 直接吃 RGBA，省去編碼與解碼。代價是傳輸量大（A4 在 150% 為 893 × 1263 px，約 4.5 MB）。**量測計畫（MVP-07）**：在負責人的電腦上量測 1× 與 2× 縮放時 worker 渲染、跨行程傳輸、前端繪製各自的時間；若傳輸佔比過高，改評估分塊（tile）或壓縮，並更新本節。
+像素選 RGBA8 而非 PNG：canvas 的 `ImageData` 直接吃 RGBA，省去編碼與解碼。代價是傳輸量大（A4 在 150% 為 893 × 1263 px，約 4.5 MB）。B3-09 量到傳輸確實是大頁面的主要成本（每 MB 約 9 ms，比 worker 渲染還久），所以放得很大時只傳看得到的那一塊（`region`），見 [rendering.md](rendering.md) 的〈效能目標〉。
 
 ## 主行程 ↔ `pdf_worker`
 
@@ -246,6 +248,7 @@ flowchart LR
 |---|---|---|
 | `Open` | `request`, `doc`, `file: FileHandle`, `password: Option<Password>` | `Opened` 或 `Error`；加密文件沒有密碼時是 `Encrypted`（`WorkerError.password_key` 帶著查找記住的密碼用的鍵，ADR 0017，B2-23），密碼不對時是 `WrongPassword`（MVP-16） |
 | `Render` | `request`, `doc`, `page_index`, `scale`, `rotation` | `Rendered` 或 `Error` |
+| `RenderRegion` | `request`, `doc`, `page_index`, `scale`, `rotation`, `region: RasterRegion` | `Rendered`（大小等於 `region`，主行程檢查）或 `Error`；只畫頁面點陣圖中的那一塊，整頁可以超過點陣圖上限（B3-09，見 [rendering.md](rendering.md)） |
 | `GetOutline` | `request`, `doc` | `Outline` 或 `Error` |
 | `GetPageLinks` | `request`, `doc`, `page_index` | `PageLinks` 或 `Error` |
 | `GetPageText` | `request`, `doc`, `page_index` | `PageText`（`lines`、`truncated`、`recognised`）或 `Error`；沒有文字的掃描頁在辨識之後回傳辨識出的文字，`recognised` 為 true（B2-10） |

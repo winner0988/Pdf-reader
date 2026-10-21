@@ -12,15 +12,18 @@ use ipc_contract::limits::{
     MAX_DOCUMENT_BYTES, MAX_JPEG_BYTES, MAX_NEW_PASSWORD_BYTES, MAX_PAGE_COUNT, MAX_PNG_BYTES,
     MAX_SOURCE_BYTES,
 };
+use ipc_contract::raster::check_region;
 use ipc_contract::types::{
-    BlockedAction, DocumentPermissions, ImageQuality, PageText as TextLayer, Point, Quad,
-    Restrictions, SanitizeOptions, SanitizeReport, SecurityReport,
+    BlockedAction, DocumentPermissions, ImageQuality, PageSize, PageText as TextLayer, Point, Quad,
+    RasterRegion, Restrictions, Rotation, SanitizeOptions, SanitizeReport, SecurityReport,
 };
 use mupdf::pdf::{
     Encryption, InsertPdfOptions, InsertPosition, PageSelection, PdfDocument as MuPdfDocument,
     PdfObject, PdfWriteOptions, Permission,
 };
-use mupdf::{Colorspace, Document, ImageFormat, Matrix, Page, Pixmap, TextPageFlags};
+use mupdf::{
+    Colorspace, Device, Document, IRect, ImageFormat, Matrix, Page, Pixmap, TextPageFlags,
+};
 
 use crate::compress;
 use crate::owner_password;
@@ -95,6 +98,8 @@ pub enum EngineError {
     TooManyPages,
     #[error("a {width} x {height} render exceeds the raster limit")]
     TooLarge { width: u64, height: u64 },
+    #[error("the region is not a part of the page within the raster limits")]
+    InvalidRegion,
     #[error("could not write the file: {0}")]
     Write(io::Error),
     #[error("could not encode the image: {0}")]
@@ -151,6 +156,26 @@ pub struct RenderedPage {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
+}
+
+/// A pixmap without alpha as the opaque RGBA rows of the raster contract.
+fn opaque_rgba(pixmap: &Pixmap) -> RenderedPage {
+    let (width, height) = (pixmap.width(), pixmap.height());
+    let channels = usize::from(pixmap.n());
+    let stride = usize::try_from(pixmap.stride()).unwrap_or(0);
+    let row_bytes = width as usize * channels;
+    let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
+    for row in pixmap.samples().chunks_exact(stride.max(1)) {
+        for pixel in row[..row_bytes].chunks_exact(channels) {
+            rgba.extend_from_slice(&pixel[..3]);
+            rgba.push(255);
+        }
+    }
+    RenderedPage {
+        width,
+        height,
+        rgba,
+    }
 }
 
 /// Where an outline entry points.
@@ -528,23 +553,51 @@ impl PdfDocument {
         scale: f32,
         rotation: u16,
     ) -> Result<RenderedPage, EngineError> {
-        let pixmap = self.pixmap(index, scale, rotation)?;
-        let (width, height) = (pixmap.width(), pixmap.height());
-        let channels = usize::from(pixmap.n());
-        let stride = usize::try_from(pixmap.stride()).unwrap_or(0);
-        let row_bytes = width as usize * channels;
-        let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
-        for row in pixmap.samples().chunks_exact(stride.max(1)) {
-            for pixel in row[..row_bytes].chunks_exact(channels) {
-                rgba.extend_from_slice(&pixel[..3]);
-                rgba.push(255);
-            }
+        Ok(opaque_rgba(&self.pixmap(index, scale, rotation)?))
+    }
+
+    /// Renders only `region` of the page at `scale` and `rotation` (B3-09): the pixels the whole
+    /// page would have there, however large the whole page would be.
+    pub fn render_region(
+        &self,
+        index: u32,
+        scale: f32,
+        rotation: Rotation,
+        region: RasterRegion,
+    ) -> Result<RenderedPage, EngineError> {
+        if !scale.is_finite() || !(MIN_RENDER_SCALE..=MAX_RENDER_SCALE).contains(&scale) {
+            return Err(EngineError::InvalidScale);
         }
-        Ok(RenderedPage {
-            width,
-            height,
-            rgba,
-        })
+        let page = self.load_page(index)?;
+        let bounds = page.bounds()?;
+        let size = PageSize {
+            width_pt: bounds.x1 - bounds.x0,
+            height_pt: bounds.y1 - bounds.y0,
+        };
+        check_region(size, scale, rotation, region).map_err(|_| EngineError::InvalidRegion)?;
+
+        let mut ctm = Matrix::new_scale(scale, scale);
+        ctm.concat(Matrix::new_rotate(f32::from(rotation.degrees())));
+        // Where MuPDF puts the whole page (`fz_new_pixmap_from_page`), and the region in it. The
+        // region is at most 2^20 pixels from the page's corner, so all of it fits an i32.
+        let whole = bounds.transform(&ctm).round();
+        let offset = |at: u32| i32::try_from(at).map_err(|_| EngineError::InvalidRegion);
+        let (x0, y0) = (whole.x0 + offset(region.x)?, whole.y0 + offset(region.y)?);
+        let area = IRect::new(
+            x0,
+            y0,
+            x0 + offset(region.width)?,
+            y0 + offset(region.height)?,
+        );
+        let mut pixmap = Pixmap::new_with_rect(&Colorspace::device_rgb(), area, false)?;
+        // Opaque white under the page, as for a whole page; then the page with its annotations
+        // and form fields (`fz_run_page`), as `to_pixmap` draws it with the extras.
+        pixmap.clear_with(255)?;
+        {
+            let device = Device::from_pixmap(&pixmap)?;
+            page.run(&device, &ctm)?;
+        }
+        Ok(opaque_rgba(&pixmap))
     }
 
     /// The page as a PNG file, unturned, for exporting (B2-04). MuPDF encodes it; the worker never
@@ -2396,6 +2449,100 @@ mod tests {
         assert!(matches!(
             doc.render(0, 64.0, 0),
             Err(EngineError::TooLarge { .. })
+        ));
+    }
+
+    /// A region of a page (B3-09) has the pixels the whole page has there, upright or turned:
+    /// text and graphics exactly; a picture within a few levels, as MuPDF resamples only the
+    /// part of it that is drawn.
+    #[test]
+    fn a_region_is_that_part_of_the_whole_page() {
+        let region = |x, y, width, height| RasterRegion {
+            x,
+            y,
+            width,
+            height,
+        };
+        for (bytes, tolerance) in [(two_page_pdf(), 0), (corpus("benign/image-only.pdf"), 8)] {
+            let doc = PdfDocument::from_bytes(&bytes).unwrap();
+            for rotation in [
+                Rotation::None,
+                Rotation::Cw90,
+                Rotation::Cw180,
+                Rotation::Cw270,
+            ] {
+                let whole = doc.render(0, 1.5, rotation.degrees()).unwrap();
+                for (x, y) in [(0, 0), (37, 81), (whole.width - 300, whole.height - 211)] {
+                    let part = doc
+                        .render_region(0, 1.5, rotation, region(x, y, 300, 211))
+                        .unwrap();
+                    assert_eq!((part.width, part.height), (300, 211));
+                    for row in 0..211 {
+                        let at = |page: &RenderedPage, x: u32, y: u32| {
+                            ((y * page.width + x) * 4) as usize
+                        };
+                        let from = at(&whole, x, y + row);
+                        let expected = &whole.rgba[from..from + 300 * 4];
+                        let actual = &part.rgba[at(&part, 0, row)..at(&part, 0, row + 1)];
+                        let off = expected
+                            .iter()
+                            .zip(actual)
+                            .map(|(a, b)| a.abs_diff(*b))
+                            .max();
+                        assert!(
+                            off <= Some(tolerance),
+                            "{rotation:?} at ({x}, {y}), row {row}: {off:?} levels off"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Far in, only a region can be drawn: the whole page would exceed the raster limits.
+    #[test]
+    fn a_region_of_a_page_too_large_to_render_whole() {
+        let doc = PdfDocument::from_bytes(&two_page_pdf()).unwrap();
+        assert!(matches!(
+            doc.render(0, 20.0, 0),
+            Err(EngineError::TooLarge { .. })
+        ));
+        // The square's middle, (200, 592) at 1:1.
+        let square = RasterRegion {
+            x: 3900,
+            y: 11740,
+            width: 200,
+            height: 200,
+        };
+        let part = doc.render_region(0, 20.0, Rotation::None, square).unwrap();
+        assert_eq!(pixel(&part, 100, 100), [0, 0, 0, 255]);
+
+        let refused = |page, scale, region| doc.render_region(page, scale, Rotation::None, region);
+        let past_the_edge = RasterRegion {
+            x: 612 * 20 - 199,
+            ..square
+        };
+        assert!(matches!(
+            refused(0, 20.0, past_the_edge),
+            Err(EngineError::InvalidRegion)
+        ));
+        let too_large = RasterRegion {
+            x: 0,
+            y: 0,
+            width: 4097,
+            height: 4096,
+        };
+        assert!(matches!(
+            refused(0, 20.0, too_large),
+            Err(EngineError::InvalidRegion)
+        ));
+        assert!(matches!(
+            refused(0, f32::NAN, square),
+            Err(EngineError::InvalidScale)
+        ));
+        assert!(matches!(
+            refused(2, 20.0, square),
+            Err(EngineError::PageOutOfRange(2))
         ));
     }
 

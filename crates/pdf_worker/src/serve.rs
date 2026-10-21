@@ -89,6 +89,33 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
                 },
             }),
+            WorkerRequest::RenderRegion {
+                request,
+                doc,
+                page_index,
+                scale,
+                rotation,
+                region,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => {
+                    match document.render_region(page_index, scale, rotation, region) {
+                        Ok(page) => WorkerResponse::Rendered {
+                            request,
+                            raster: Raster {
+                                width: page.width,
+                                height: page.height,
+                                pixels: page.rgba,
+                            },
+                        },
+                        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+                    }
+                }
+            }),
             WorkerRequest::GetOutline { request, doc } => Some(match documents.get(&doc) {
                 None => error(
                     request,
@@ -1230,6 +1257,7 @@ fn engine_error(
         EngineError::PictureNotCleaned => WorkerErrorCode::PictureNotCleaned,
         EngineError::InvalidScale
         | EngineError::InvalidRotation
+        | EngineError::InvalidRegion
         | EngineError::InvalidEdit(_)
         | EngineError::InvalidPicture(_)
         | EngineError::NoPageLeft
