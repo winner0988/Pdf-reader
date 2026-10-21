@@ -33,6 +33,7 @@ use crate::text_layer::TextLayerBuilder;
 use thiserror::Error;
 
 mod annotations;
+mod attachments;
 mod create;
 mod docx;
 mod forms;

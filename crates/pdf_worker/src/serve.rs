@@ -18,8 +18,9 @@ use ipc_contract::limits::{
 use ipc_contract::ocr::{check_language_data, is_language_name};
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
-    DocumentId, ImageQuality, LinkId, LinkTarget, OutlineItem, OutlineResult, PageLink, PageSize,
-    Password, Rect, RequestId, Restrictions, SanitizeOptions, TextBoxInfo, Watermark,
+    AttachmentId, DocumentId, ImageQuality, LinkId, LinkTarget, OutlineItem, OutlineResult,
+    PageLink, PageSize, Password, Rect, RequestId, Restrictions, SanitizeOptions, TextBoxInfo,
+    Watermark,
 };
 use ipc_contract::validate::stamp_png_size;
 use ipc_contract::worker::{
@@ -584,6 +585,37 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 documents.values_mut().for_each(PdfDocument::ocr_stopped);
                 Some(WorkerResponse::OcrStopped { request })
             }
+            WorkerRequest::GetAttachments { request, doc } => {
+                Some(match documents.get(&doc) {
+                    None => error(
+                        request,
+                        WorkerErrorCode::UnknownDocument,
+                        "unknown document",
+                    ),
+                    Some(document) => match document.list_attachments() {
+                        Ok(attachments) => WorkerResponse::Attachments {
+                            request,
+                            attachments,
+                        },
+                        Err(engine) => {
+                            engine_error(request, &engine, WorkerErrorCode::Corrupted)
+                        }
+                    },
+                })
+            }
+            WorkerRequest::WriteAttachment {
+                request,
+                doc,
+                attachment,
+                file,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => write_attachment(document, request, attachment, file),
+            }),
             // Requests are handled one at a time, so there is nothing in flight to cancel.
             WorkerRequest::Cancel { .. } => None,
             WorkerRequest::Close { doc } => {
@@ -843,6 +875,25 @@ fn save(document: &PdfDocument, request: RequestId, file: FileHandle) -> WorkerR
             incremental: written.incremental,
             redaction: written.redaction,
         },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
+fn write_attachment(
+    document: &PdfDocument,
+    request: RequestId,
+    attachment: AttachmentId,
+    file: FileHandle,
+) -> WorkerResponse {
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match document.write_attachment(attachment, &mut file) {
+        Ok(bytes) => WorkerResponse::AttachmentWritten { request, bytes },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
 }
