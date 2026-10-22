@@ -62,6 +62,8 @@ flowchart LR
 | `open_link` | `{ args: LinkArgs }` | 無；主行程從 worker 重新取得該連結、再次檢查後交給系統 | 否 | MVP-12 |
 | `describe_outline_link` | `{ args: OutlineLinkArgs }`（`{ doc, item }`：目錄中的位置，其他欄位一律拒絕） | `LinkPreview` | 否 | #49 |
 | `open_outline_link` | `{ args: OutlineLinkArgs }` | 無；主行程從 worker 重新取得目錄、再次檢查後交給系統 | 否 | #49 |
+| `describe_remote_address` | `{ args: RemoteAddressArgs }`（`{ doc, index }`：`DocumentInfo.security.remoteAddresses` 中的位置，其他欄位一律拒絕） | `LinkPreview`；只有 `http`／`https` | 否 | B3-08 |
+| `open_remote_address` | `{ args: RemoteAddressArgs }` | 無；主行程從交給前端的報告取出網址、再次檢查後交給系統的瀏覽器。app 不載入它（ADR 0022） | 否 | B3-08 |
 | `search` | `{ args: SearchArgs, onEvent: Channel<SearchEvent> }` | 無（結果走頻道：`hits`、`progress`，最後一個 `done`，含 `noTextLayer`）；以 `cancel(args.request)` 取消 | 是 | MVP-10 |
 | `cancel` | `{ request: RequestId }` | 無（只取消還在佇列中的請求，見 [rendering.md](rendering.md#取消)） | — | MVP-07 |
 | `get_recent_files` | 無 | `RecentFile[]`：`id` 與 `displayName`，最新的在前，最多 `LIMITS.maxRecentFiles`（20）筆；路徑留在主行程（見 [recent-files.md](recent-files.md)） | 否 | #73 |

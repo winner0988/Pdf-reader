@@ -442,6 +442,12 @@ describe("shortcuts", () => {
       host: "example.invalid",
       asciiHost: null,
     };
+    const beacon: LinkPreview = {
+      uri: "https://img.example.invalid/beacon.png",
+      opens: "https://img.example.invalid/beacon.png",
+      host: "img.example.invalid",
+      asciiHost: null,
+    };
     const setup = () => {
       const linksApi = {
         getPageLinks: vi.fn((_doc: number, pageIndex: number) => Promise.resolve(pageIndex === 0 ? pageLinks : [])),
@@ -449,6 +455,8 @@ describe("shortcuts", () => {
         openLink: vi.fn(() => Promise.resolve()),
         describeOutlineLink: vi.fn(() => Promise.resolve(preview)),
         openOutlineLink: vi.fn(() => Promise.resolve()),
+        describeRemoteAddress: vi.fn(() => Promise.resolve(beacon)),
+        openRemoteAddress: vi.fn(() => Promise.resolve()),
       } satisfies LinksApi;
       const outline: OutlineView = {
         status: "ready",
@@ -520,6 +528,29 @@ describe("shortcuts", () => {
       const blocked = await screen.findByRole("dialog", { name: strings.links.blockedTitle });
       expect(blocked).toHaveTextContent(strings.links.blocked.launch.description);
       expect(linksApi.describeOutlineLink).toHaveBeenCalledTimes(1);
+    });
+
+    it("a remote reference's web address opens in the browser only after confirmation, by its position (B3-08)", async () => {
+      const { user, linksApi } = setup();
+
+      await user.click(screen.getByRole("button", { name: strings.banner.details }));
+      const panel = screen.getByRole("complementary", { name: strings.banner.detailsTitle });
+      const addresses = within(panel).getByRole("region", { name: strings.banner.addressesTitle });
+      expect(addresses).toHaveTextContent("https://img.example.invalid/beacon.png");
+      const open = within(addresses).getByRole("button", { name: strings.banner.openAddress });
+      expect(open).toHaveAccessibleDescription("https://img.example.invalid/beacon.png");
+      await user.click(open);
+      const dialog = await screen.findByRole("dialog", { name: strings.links.confirmTitle });
+      expect(linksApi.describeRemoteAddress).toHaveBeenCalledWith(5, 0);
+      expect(within(dialog).getByLabelText(strings.links.confirmFullUrl)).toHaveTextContent(
+        "https://img.example.invalid/beacon.png",
+      );
+      // Nothing is opened until the user says so.
+      expect(linksApi.openRemoteAddress).not.toHaveBeenCalled();
+      await user.click(within(dialog).getByRole("button", { name: strings.links.open }));
+      expect(linksApi.openRemoteAddress).toHaveBeenCalledWith(5, 0);
+      expect(linksApi.openLink).not.toHaveBeenCalled();
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     });
 
     it("a blocked link only explains why, with nothing to open it", async () => {

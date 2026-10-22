@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import type { LinksApi } from "@/features/links/source";
 import { demoDocument } from "@/features/shell/demo";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
@@ -123,6 +124,29 @@ describe("the window's panels and the dialogs of its menu", () => {
   it("the details of what was blocked", async () => {
     shell({ kind: "open", document: demoDocument });
     await user.click(screen.getByRole("button", { name: strings.banner.details }));
+    await expectAccessible(document.body);
+  });
+
+  it("the details of what was blocked, with web addresses to open in the browser (B3-08)", async () => {
+    const linksApi = {
+      getPageLinks: vi.fn(() => Promise.resolve([])),
+      describeLink: vi.fn(),
+      openLink: vi.fn(),
+      describeOutlineLink: vi.fn(),
+      openOutlineLink: vi.fn(),
+      describeRemoteAddress: vi.fn(),
+      openRemoteAddress: vi.fn(),
+    } satisfies LinksApi;
+    const opened = {
+      ...demoDocument,
+      doc: 1,
+      remoteAddresses: ["https://img.example.invalid/beacon.png", "https://a.example.invalid/‮gnp.exe"],
+    };
+    render(
+      <ReaderShell state={{ kind: "open", document: opened }} onOpen={vi.fn()} loadingDelayMs={0} linksApi={linksApi} />,
+    );
+    await user.click(screen.getByRole("button", { name: strings.banner.details }));
+    expect(screen.getAllByRole("button", { name: strings.banner.openAddress })).toHaveLength(2);
     await expectAccessible(document.body);
   });
 

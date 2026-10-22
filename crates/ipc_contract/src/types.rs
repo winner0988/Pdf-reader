@@ -1447,6 +1447,11 @@ pub struct SecurityReport {
     pub findings: Vec<SecurityFinding>,
     /// False when the scan hit its time or size budget before finishing.
     pub scan_complete: bool,
+    /// The `http` and `https` addresses of remote references (`/FS /URL` file specifications,
+    /// and `GoToR` to a URL), exactly as the PDF has them (hidden characters included, as for
+    /// links), each once, at most `MAX_REMOTE_ADDRESSES` (B3-08). They are never loaded; the user
+    /// may open one in the browser after confirming it (ADR 0022), named by its position here.
+    pub remote_addresses: Vec<String>,
 }
 
 /// What the document's author allows (MVP-19). An encrypted PDF can forbid copying its text and
@@ -1796,6 +1801,15 @@ pub struct LinkArgs {
 pub struct OutlineLinkArgs {
     pub doc: DocumentId,
     pub item: u32,
+}
+
+/// Arguments of `describe_remote_address` and `open_remote_address` (B3-08, ADR 0022): a remote
+/// reference by its position in the document's `SecurityReport::remote_addresses`, never a URI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RemoteAddressArgs {
+    pub doc: DocumentId,
+    pub index: u32,
 }
 
 /// What the confirmation shows about a web link before it is opened (MVP-12).

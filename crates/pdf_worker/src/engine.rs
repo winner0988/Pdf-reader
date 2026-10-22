@@ -287,6 +287,7 @@ impl PdfDocument {
             Err(_) => SecurityReport {
                 findings: Vec::new(),
                 scan_complete: false,
+                remote_addresses: Vec::new(),
             },
         }
     }
@@ -1549,11 +1550,15 @@ fn text(value: Result<Option<PdfObject>, mupdf::Error>) -> Option<String> {
 }
 
 /// The file an action refers to (/F as a string, or a file specification with /UF or /F).
+/// A URI string (see [`uri_string`]), or nothing if the value is missing or not a string.
+fn uri_text(value: Result<Option<PdfObject>, mupdf::Error>) -> Option<String> {
+    uri_string(&value.ok()??)
+}
+
 /// A URI string. PDF says it is ASCII, but IRIs are commonly stored as raw UTF-8, which the
 /// PDFDocEncoding of ordinary text strings would garble (and so hide a look-alike host name).
 /// UTF-16 with a byte order mark and valid UTF-8 are decoded as such; other bytes one to one.
-fn uri_text(value: Result<Option<PdfObject>, mupdf::Error>) -> Option<String> {
-    let value = value.ok()??;
+pub(crate) fn uri_string(value: &PdfObject) -> Option<String> {
     if !value.is_string().ok()? {
         return None;
     }

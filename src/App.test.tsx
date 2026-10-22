@@ -44,7 +44,7 @@ const info = (doc: number, displayName: string, pages = 10): DocumentInfo => ({
   pages: Array.from({ length: pages }, () => ({ widthPt: 612, heightPt: 792 })),
   hasOutline: false,
   hasForm: false,
-  security: { findings: [], scanComplete: true },
+  security: { findings: [], scanComplete: true, remoteAddresses: [] },
   permissions: { copy: true, print: true, printHighQuality: true, modify: true, assemble: true, annotate: true, fillForms: true },
   unsaved: false,
   encrypted: false,
@@ -182,7 +182,7 @@ describe("App", () => {
     const { push, user } = renderApp();
     const risky = (doc: number, name: string): DocumentInfo => ({
       ...info(doc, name),
-      security: { findings: [{ kind: "javaScript", count: 1 }], scanComplete: true },
+      security: { findings: [{ kind: "javaScript", count: 1 }], scanComplete: true, remoteAddresses: [] },
     });
     push(opening(1, "a.pdf"));
     push(opened(1, risky(9, "a.pdf")));

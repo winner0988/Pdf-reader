@@ -943,7 +943,14 @@ export type SecurityReport = { findings: Array<SecurityFinding>,
 /**
  * False when the scan hit its time or size budget before finishing.
  */
-scanComplete: boolean, };
+scanComplete: boolean, 
+/**
+ * The `http` and `https` addresses of remote references (`/FS /URL` file specifications,
+ * and `GoToR` to a URL), exactly as the PDF has them (hidden characters included, as for
+ * links), each once, at most `MAX_REMOTE_ADDRESSES` (B3-08). They are never loaded; the user
+ * may open one in the browser after confirming it (ADR 0022), named by its position here.
+ */
+remoteAddresses: Array<string>, };
 
 /**
  * What the document's author allows (MVP-19). An encrypted PDF can forbid copying its text and
@@ -1148,6 +1155,12 @@ export type LinkArgs = { doc: DocumentId, link: LinkId, };
 export type OutlineLinkArgs = { doc: DocumentId, item: number, };
 
 /**
+ * Arguments of `describe_remote_address` and `open_remote_address` (B3-08, ADR 0022): a remote
+ * reference by its position in the document's `SecurityReport::remote_addresses`, never a URI.
+ */
+export type RemoteAddressArgs = { doc: DocumentId, index: number, };
+
+/**
  * What the confirmation shows about a web link before it is opened (MVP-12).
  */
 export type LinkPreview = { 
@@ -1337,6 +1350,7 @@ export const LIMITS = {
   maxOutlineDepth: 64,
   maxLinksPerPage: 2000,
   maxUriBytes: 32768,
+  maxRemoteAddresses: 32,
   maxTextBytes: 1024,
   maxQueryBytes: 1024,
   maxPasswordBytes: 1024,

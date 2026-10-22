@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use ipc_contract::limits::MAX_SOURCES_BYTES;
+use ipc_contract::limits::{MAX_REMOTE_ADDRESSES, MAX_SOURCES_BYTES};
 use ipc_contract::types::{Edit, SecurityFinding, SecurityReport, SourceId};
 
 /// Most files one document keeps copies of.
@@ -90,7 +90,9 @@ impl Sources {
     }
 
     /// What the files that `applied` (the edits the document has) took pages from had that is
-    /// active, added to `base` (what the document's own file has): what the banner says.
+    /// active, added to `base` (what the document's own file has): what the banner says. Their
+    /// web addresses come after the document's own, in the order of the edits, so an address
+    /// keeps its place while edits are made and undone (it is named by its place, B3-08).
     pub fn security(&self, base: &SecurityReport, applied: &[Edit]) -> SecurityReport {
         let mut report = base.clone();
         let mut seen: Vec<SourceId> = Vec::new();
@@ -105,6 +107,13 @@ impl Sources {
             report.scan_complete &= source.security.scan_complete;
             for finding in &source.security.findings {
                 add_finding(&mut report.findings, finding);
+            }
+            for address in &source.security.remote_addresses {
+                if report.remote_addresses.len() < MAX_REMOTE_ADDRESSES as usize
+                    && !report.remote_addresses.contains(address)
+                {
+                    report.remote_addresses.push(address.clone());
+                }
             }
         }
         report
@@ -135,6 +144,7 @@ mod tests {
                     .map(|&(kind, count)| SecurityFinding { kind, count })
                     .collect(),
                 scan_complete: true,
+                remote_addresses: Vec::new(),
             },
         }
     }
@@ -205,6 +215,7 @@ mod tests {
                 count: 1,
             }],
             scan_complete: true,
+            remote_addresses: Vec::new(),
         };
         // Nothing taken: the file's own.
         assert_eq!(sources.security(&own, &[]), own);
@@ -226,5 +237,51 @@ mod tests {
         unfinished.security.scan_complete = false;
         let c = sources.add(unfinished, &[taking(a), taking(b)]).unwrap();
         assert!(!sources.security(&own, &[taking(c)]).scan_complete);
+    }
+
+    #[test]
+    fn web_addresses_of_the_files_taken_from_come_after_the_documents_own() {
+        let with = |addresses: &[&str]| {
+            let mut source = file(1, 1, &[(FindingKind::RemoteFileSpec, 1)]);
+            source.security.remote_addresses = addresses
+                .iter()
+                .map(|address| (*address).to_owned())
+                .collect();
+            source
+        };
+        let mut sources = Sources::default();
+        let a = sources
+            .add(with(&["https://a.example/", "https://own.example/"]), [])
+            .unwrap();
+        let b = sources
+            .add(with(&["https://b.example/"]), &[taking(a)])
+            .unwrap();
+        let own = SecurityReport {
+            findings: vec![],
+            scan_complete: true,
+            remote_addresses: vec!["https://own.example/".to_owned()],
+        };
+        let report = sources.security(&own, &[taking(a), taking(b)]);
+        assert_eq!(
+            report.remote_addresses,
+            [
+                "https://own.example/",
+                "https://a.example/",
+                "https://b.example/"
+            ]
+        );
+        // The last edit undone: the others keep their places.
+        let undone = sources.security(&own, &[taking(a)]);
+        assert_eq!(undone.remote_addresses, report.remote_addresses[..2]);
+
+        // No more than a document lists.
+        let many: Vec<String> = (0..MAX_REMOTE_ADDRESSES)
+            .map(|index| format!("https://many.example/{index}"))
+            .collect();
+        let many: Vec<&str> = many.iter().map(String::as_str).collect();
+        let c = sources.add(with(&many), &[taking(a), taking(b)]).unwrap();
+        let full = sources.security(&own, &[taking(a), taking(b), taking(c)]);
+        assert_eq!(full.remote_addresses.len(), MAX_REMOTE_ADDRESSES as usize);
+        assert_eq!(full.remote_addresses[..3], report.remote_addresses);
     }
 }

@@ -17,7 +17,7 @@ const info = (doc: number, displayName: string): DocumentInfo => ({
   pages: [{ widthPt: 612, heightPt: 792 }],
   hasOutline: true,
   hasForm: false,
-  security: { findings: [], scanComplete: true },
+  security: { findings: [], scanComplete: true, remoteAddresses: [] },
   permissions: { copy: true, print: true, printHighQuality: true, modify: true, assemble: true, annotate: true, fillForms: true },
   unsaved: false,
   encrypted: false,

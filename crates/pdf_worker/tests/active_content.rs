@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use ipc_contract::limits::MAX_REMOTE_ADDRESSES;
 use ipc_contract::types::{FindingKind, SecurityFinding, SecurityReport};
 use pdf_worker::engine::PdfDocument;
 use pdf_worker::scan::ScanBudget;
@@ -58,7 +59,8 @@ fn an_ordinary_document_has_no_findings() {
         report,
         SecurityReport {
             findings: vec![],
-            scan_complete: true
+            scan_complete: true,
+            remote_addresses: vec![],
         }
     );
 }
@@ -164,6 +166,101 @@ fn a_submit_address_is_part_of_the_submit_action() {
         ],
     ));
     assert_eq!(findings(&report), [(FindingKind::SubmitForm, 1)]);
+    // Where a form would be sent is not a page to look at (ADR 0022).
+    assert!(report.remote_addresses.is_empty());
+}
+
+fn sorted(report: &SecurityReport) -> Vec<&str> {
+    let mut addresses: Vec<&str> = report.remote_addresses.iter().map(String::as_str).collect();
+    addresses.sort_unstable();
+    addresses
+}
+
+/// An image whose data is at `url` (a URL file specification), as object `n`'s body.
+fn remote_image(url: &str) -> String {
+    format!(
+        "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 /F << /FS /URL /F ({url}) >> /Length 0 >>\nstream\n\nendstream"
+    )
+}
+
+#[test]
+fn web_addresses_of_remote_references_are_listed_once_each() {
+    let report = scan(&document(
+        "",
+        "/Annots [4 0 R 5 0 R 6 0 R] /Resources << /XObject << /Im1 7 0 R /Im2 8 0 R /Im3 9 0 R /Im4 10 0 R >> >>",
+        &[
+            // GoToR to a URL file specification, and to a URL written as a plain file name.
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] /A << /S /GoToR /F << /FS /URL /F (https://docs.example.invalid/other.pdf) >> /D [0 /Fit] >> >>",
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] /A << /S /GoToR /F (http://docs.example.invalid/plain.pdf) /D [0 /Fit] >> >>",
+            // A GoToR to a file on this computer has no address.
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] /A << /S /GoToR /F (other.pdf) /D [0 /Fit] >> >>",
+            &remote_image("https://img.example.invalid/beacon.png"),
+            // The same address again is listed once.
+            &remote_image("https://img.example.invalid/beacon.png"),
+            // Not http or https: never offered.
+            &remote_image("mailto:someone@example.invalid"),
+            &remote_image("file://server/share/x.png"),
+        ],
+    ));
+    assert_eq!(
+        findings(&report),
+        [
+            (FindingKind::RemoteGoTo, 3),
+            (FindingKind::RemoteFileSpec, 4),
+            (FindingKind::UncReference, 1),
+        ]
+    );
+    assert_eq!(
+        sorted(&report),
+        [
+            "http://docs.example.invalid/plain.pdf",
+            "https://docs.example.invalid/other.pdf",
+            "https://img.example.invalid/beacon.png",
+        ]
+    );
+}
+
+#[test]
+fn an_address_keeps_what_the_pdf_has_hidden_in_it() {
+    // UTF-16 with a byte order mark: "https://a.example.invalid/" then U+202E, as the PDF has it.
+    let utf16: String = "\u{FEFF}https://a.example.invalid/\u{202E}gnp.exe"
+        .encode_utf16()
+        .map(|unit| format!("{unit:04X}"))
+        .collect();
+    let report = scan(&document(
+        "",
+        "/Resources << /XObject << /Im1 4 0 R >> >>",
+        &[&format!(
+            "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 /F << /FS /URL /F <{utf16}> >> /Length 0 >>\nstream\n\nendstream"
+        )],
+    ));
+    assert_eq!(
+        report.remote_addresses,
+        ["https://a.example.invalid/\u{202E}gnp.exe"]
+    );
+}
+
+#[test]
+fn at_most_so_many_addresses_are_listed() {
+    let count = MAX_REMOTE_ADDRESSES as usize + 8;
+    let names: Vec<String> = (0..count)
+        .map(|i| format!("/Im{i} {} 0 R", i + 4))
+        .collect();
+    let images: Vec<String> = (0..count)
+        .map(|i| remote_image(&format!("https://img.example.invalid/{i}.png")))
+        .collect();
+    let images: Vec<&str> = images.iter().map(String::as_str).collect();
+    let report = scan(&document(
+        "",
+        &format!("/Resources << /XObject << {} >> >>", names.join(" ")),
+        &images,
+    ));
+    // Every one is counted; the list stops at the limit.
+    assert_eq!(
+        findings(&report),
+        [(FindingKind::RemoteFileSpec, count as u32)]
+    );
+    assert_eq!(report.remote_addresses.len(), MAX_REMOTE_ADDRESSES as usize);
 }
 
 #[test]
@@ -357,6 +454,14 @@ fn the_sandboxed_worker_reports_them_when_a_malicious_sample_opens() {
         };
         assert_eq!(kinds(&document.security), sample.expected, "{path}");
         assert!(document.security.scan_complete, "{path}");
+        // The one sample with a web address of a remote resource lists it, through the IPC
+        // boundary and its validation; a form's submit address is not one (ADR 0022).
+        let addresses: &[&str] = if path == "malicious/remote-filespec.pdf" {
+            &["https://img.example.invalid/beacon.png"]
+        } else {
+            &[]
+        };
+        assert_eq!(document.security.remote_addresses, addresses, "{path}");
         checked += 1;
     }
     assert!(

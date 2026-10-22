@@ -96,6 +96,8 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-open-link", "MVP-12: open a confirmed http/https/mailto link by its id"],
   ["allow-describe-outline-link", "#49: the same confirmation for an outline item"],
   ["allow-open-outline-link", "#49: open a confirmed outline link by its position"],
+  ["allow-describe-remote-address", "B3-08: the same confirmation for a remote reference's web address"],
+  ["allow-open-remote-address", "B3-08: hand a confirmed remote address to the browser by its position"],
   ["allow-open-default-apps-settings", "REL-03: open the fixed default-apps page of Windows Settings"],
   [
     "allow-check-for-updates",

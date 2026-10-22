@@ -127,6 +127,8 @@ pub fn run() {
             commands::open_link,
             commands::describe_outline_link,
             commands::open_outline_link,
+            commands::describe_remote_address,
+            commands::open_remote_address,
             commands::search,
             commands::open_default_apps_settings,
             commands::check_for_updates,

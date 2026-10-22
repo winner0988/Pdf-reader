@@ -2,7 +2,8 @@
 //!
 //! Nothing found here is ever run or followed: MuPDF is built without JavaScript, and the viewer
 //! performs no PDF actions except jumps inside the document. The scan only tells the user what
-//! was blocked.
+//! was blocked, and lists the web addresses of remote references, which the user may open in the
+//! browser one at a time after confirming each (B3-08, ADR 0022).
 //!
 //! It walks every object reachable from the catalog with an explicit stack, so deep nesting
 //! cannot overflow the stack. Each indirect object is visited once, which also ends cycles. No
@@ -12,9 +13,12 @@
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use ipc_contract::text::is_network_path;
+use ipc_contract::limits::MAX_REMOTE_ADDRESSES;
+use ipc_contract::text::{is_network_path, is_web_address};
 use ipc_contract::types::{FindingKind, SecurityFinding, SecurityReport};
 use mupdf::pdf::PdfObject;
+
+use crate::engine::uri_string;
 
 /// Limits of one scan. The scan runs while a document opens, so it must not hold it up for long.
 #[derive(Debug, Clone, Copy)]
@@ -46,13 +50,17 @@ const MEDIA_SUBTYPES: [&[u8]; 5] = [b"RichMedia", b"Screen", b"Movie", b"Sound",
 enum Role {
     Any,
     /// The file of an action that is reported as that action (a form's submit address, for
-    /// example): it is not reported again as a remote file.
+    /// example): it is not reported again as a remote file, and its address is not one to open.
     ActionFile,
+    /// The file a `GoToR` opens: reported as that action, but a web address of it is a document
+    /// the user may want to look at in the browser (ADR 0022).
+    RemoteDocument,
 }
 
 #[derive(Default)]
 struct Tally {
     counts: [u32; FindingKind::ALL.len()],
+    addresses: Vec<String>,
 }
 
 impl Tally {
@@ -62,6 +70,17 @@ impl Tally {
             .position(|candidate| *candidate == kind)
             .unwrap_or_default();
         self.counts[index] = self.counts[index].saturating_add(count);
+    }
+
+    /// Lists `uri` if it is a web address that is not listed yet, up to the limit.
+    fn address(&mut self, uri: Option<String>) {
+        if let Some(uri) = uri
+            && is_web_address(&uri)
+            && self.addresses.len() < MAX_REMOTE_ADDRESSES as usize
+            && !self.addresses.contains(&uri)
+        {
+            self.addresses.push(uri);
+        }
     }
 
     fn report(&self, scan_complete: bool) -> SecurityReport {
@@ -74,6 +93,7 @@ impl Tally {
         SecurityReport {
             findings,
             scan_complete,
+            remote_addresses: self.addresses.clone(),
         }
     }
 }
@@ -144,15 +164,14 @@ fn visit(
         let (key, value) = entry?;
         entries.push((key.as_name()?, value));
     }
-    let owns_file = classify(&entries, role, tally)?;
+    let file_role = classify(&entries, role, tally)?;
     for (key, value) in entries {
         if !may_contain_more(&value)? {
             continue;
         }
-        let role = if owns_file && key == b"F" {
-            Role::ActionFile
-        } else {
-            Role::Any
+        let role = match file_role {
+            Some(file_role) if key == b"F" => file_role,
+            _ => Role::Any,
         };
         stack.push((value, role));
     }
@@ -164,13 +183,13 @@ fn may_contain_more(object: &PdfObject) -> Result<bool, mupdf::Error> {
     Ok(object.is_indirect()? || object.is_dict()? || object.is_array()?)
 }
 
-/// Records what a dictionary with these entries is. Returns true for an action whose /F is part
-/// of that action.
+/// Records what a dictionary with these entries is. Returns the role of its /F for an action
+/// whose /F is part of that action.
 fn classify(
     entries: &[(Vec<u8>, PdfObject)],
     role: Role,
     tally: &mut Tally,
-) -> Result<bool, mupdf::Error> {
+) -> Result<Option<Role>, mupdf::Error> {
     let get = |key: &[u8]| {
         entries
             .iter()
@@ -178,22 +197,29 @@ fn classify(
             .map(|(_, value)| value)
     };
     let action = name(get(b"S"))?;
-    let mut owns_file = false;
-    let mut action_kind = |kind: FindingKind, file: bool| {
+    let mut file_role = None;
+    let mut action_kind = |kind: FindingKind, file: Option<Role>| {
         tally.add(kind, 1);
-        owns_file = file;
+        file_role = file;
     };
     match action.as_deref() {
-        Some(b"JavaScript") => action_kind(FindingKind::JavaScript, false),
-        Some(b"Launch") => action_kind(FindingKind::Launch, true),
-        Some(b"SubmitForm") => action_kind(FindingKind::SubmitForm, true),
-        Some(b"ImportData") => action_kind(FindingKind::ImportData, true),
-        Some(b"GoToR") => action_kind(FindingKind::RemoteGoTo, true),
-        Some(b"GoToE") => action_kind(FindingKind::EmbeddedGoTo, true),
-        Some(b"RichMediaExecute") => action_kind(FindingKind::RichMedia, false),
+        Some(b"JavaScript") => action_kind(FindingKind::JavaScript, None),
+        Some(b"Launch") => action_kind(FindingKind::Launch, Some(Role::ActionFile)),
+        Some(b"SubmitForm") => action_kind(FindingKind::SubmitForm, Some(Role::ActionFile)),
+        Some(b"ImportData") => action_kind(FindingKind::ImportData, Some(Role::ActionFile)),
+        Some(b"GoToR") => action_kind(FindingKind::RemoteGoTo, Some(Role::RemoteDocument)),
+        Some(b"GoToE") => action_kind(FindingKind::EmbeddedGoTo, Some(Role::ActionFile)),
+        Some(b"RichMediaExecute") => action_kind(FindingKind::RichMedia, None),
         // Other actions (a rendition, for example) may carry a script too.
-        _ if get(b"JS").is_some() => action_kind(FindingKind::JavaScript, false),
+        _ if get(b"JS").is_some() => action_kind(FindingKind::JavaScript, None),
         _ => {}
+    }
+    // A GoToR whose file is a plain string that is a web address (PDF says a file name, but
+    // some files put the document's URL there).
+    if file_role == Some(Role::RemoteDocument)
+        && let Some(file) = get(b"F")
+    {
+        tally.address(uri_string(file));
     }
 
     // Triggers of the document, a page, an annotation or a form field: one per entry.
@@ -221,8 +247,12 @@ fn classify(
     if get(b"EF").is_some() {
         tally.add(FindingKind::EmbeddedFile, 1);
     }
-    if role == Role::Any && name(get(b"FS"))?.as_deref() == Some(b"URL") {
-        tally.add(FindingKind::RemoteFileSpec, 1);
+    if role != Role::ActionFile && name(get(b"FS"))?.as_deref() == Some(b"URL") {
+        if role == Role::Any {
+            tally.add(FindingKind::RemoteFileSpec, 1);
+        }
+        let url = get(b"F").or_else(|| get(b"UF"));
+        tally.address(url.and_then(uri_string));
     }
     for (key, value) in entries {
         if FILE_NAME_KEYS.contains(&key.as_slice())
@@ -233,7 +263,7 @@ fn classify(
             break;
         }
     }
-    Ok(owns_file)
+    Ok(file_role)
 }
 
 fn name(object: Option<&PdfObject>) -> Result<Option<Vec<u8>>, mupdf::Error> {

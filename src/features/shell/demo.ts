@@ -30,6 +30,7 @@ export const demoDocument: ShellDocument = {
     { kind: "remoteFileSpec", count: 1 },
   ],
   scanComplete: true,
+  remoteAddresses: ["https://img.example.invalid/beacon.png"],
   permissions: ALL_PERMISSIONS,
 };
 

@@ -64,6 +64,7 @@ export function toShellDocument(info: DocumentInfo): ShellDocument {
     pages: info.pages,
     findings: info.security.findings,
     scanComplete: info.security.scanComplete,
+    remoteAddresses: info.security.remoteAddresses,
     permissions: info.permissions,
     unsaved: info.unsaved,
     encrypted: info.encrypted,
