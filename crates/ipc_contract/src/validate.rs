@@ -964,6 +964,7 @@ impl Validate for BatchArgs {
                 *restrictions,
             ),
             BatchOperation::Watermark { watermark } => watermark.validate(),
+            BatchOperation::CompressImages { max_side, .. } => check_compress_side(*max_side),
         }
     }
 }
@@ -1001,14 +1002,7 @@ fn check_encryption(
 
 impl Validate for CompressArgs {
     fn validate(&self) -> Result<(), ValidationError> {
-        if let Some(side) = self.max_side
-            && !(MIN_COMPRESS_SIDE_PX..=MAX_COMPRESS_SIDE_PX).contains(&side)
-        {
-            return Err(ValidationError::OutOfRange {
-                what: "picture side limit",
-            });
-        }
-        Ok(())
+        check_compress_side(self.max_side)
     }
 }
 
@@ -1053,6 +1047,18 @@ impl Validate for SanitizeResult {
         }
         self.report.validate()
     }
+}
+
+/// How long a picture's longer side may stay (B3-01), for one document or a batch (B3-19).
+fn check_compress_side(max_side: Option<u32>) -> Result<(), ValidationError> {
+    if let Some(side) = max_side
+        && !(MIN_COMPRESS_SIDE_PX..=MAX_COMPRESS_SIDE_PX).contains(&side)
+    {
+        return Err(ValidationError::OutOfRange {
+            what: "picture side limit",
+        });
+    }
+    Ok(())
 }
 
 impl Validate for UnlockSourceArgs {
@@ -2127,10 +2133,10 @@ mod tests {
     use crate::types::{
         AnnotationId, AnnotationKind, BatesMark, BlockedAction, BookmarkId, DocumentId,
         DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption, FontId, HeaderFooterMarks,
-        HighlightColor, HighlightMark, InkColor, InkWidth, LinkId, PageNumberMark, PictureView,
-        RecentId, Recovery, RequestId, Restrictions, Rgb, Rotation, SecurityFinding, StampImageId,
-        StampName, TabId, TextAlign, TextBoxInfo, TextBoxModelId, UnverifiableReason,
-        WatermarkPages, WatermarkPlace,
+        HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, PageNumberMark,
+        PictureView, RecentId, Recovery, RequestId, Restrictions, Rgb, Rotation, SecurityFinding,
+        StampImageId, StampName, TabId, TextAlign, TextBoxInfo, TextBoxModelId,
+        UnverifiableReason, WatermarkPages, WatermarkPlace,
     };
     use crate::worker::{ModelGlyph, WorkerErrorCode};
 
@@ -2810,6 +2816,41 @@ mod tests {
         assert!(watermark_args.validate().is_ok());
         let more = r#"{"request":3,"operation":{"kind":"removeMetadata"},"files":["C:/x.pdf"]}"#;
         assert!(serde_json::from_str::<BatchArgs>(more).is_err());
+
+        // Compressing the pictures (B3-19): the rules of one document's compressed copy.
+        for (max_side, ok) in [
+            (None, true),
+            (Some(MIN_COMPRESS_SIDE_PX), true),
+            (Some(2_000), true),
+            (Some(MAX_COMPRESS_SIDE_PX), true),
+            (Some(MIN_COMPRESS_SIDE_PX - 1), false),
+            (Some(MAX_COMPRESS_SIDE_PX + 1), false),
+        ] {
+            let operation = BatchOperation::CompressImages {
+                quality: ImageQuality::Medium,
+                max_side,
+            };
+            assert_eq!(batch(operation).validate().is_ok(), ok, "{max_side:?}");
+        }
+        let compress =
+            r#"{"request":5,"operation":{"kind":"compressImages","quality":"low","maxSide":null}}"#;
+        let args: BatchArgs = serde_json::from_str(compress).expect("batch compress args");
+        assert_eq!(
+            args.operation,
+            BatchOperation::CompressImages {
+                quality: ImageQuality::Low,
+                max_side: None
+            }
+        );
+        assert!(args.validate().is_ok());
+        // Nothing but what the page sends: no file, no folder, no quality of its own.
+        for more in [
+            r#"{"request":5,"operation":{"kind":"compressImages","quality":"low","maxSide":null,"folder":"C:/x"}}"#,
+            r#"{"request":5,"operation":{"kind":"encrypt","openPassword":"pw","permissionsPassword":null,"restrictions":{"print":false,"copy":false,"modify":false},"file":"C:/x.pdf"}}"#,
+            r#"{"request":5,"operation":{"kind":"compressImages","quality":"lossless","maxSide":null}}"#,
+        ] {
+            assert!(serde_json::from_str::<BatchArgs>(more).is_err(), "{more}");
+        }
     }
 
     #[test]

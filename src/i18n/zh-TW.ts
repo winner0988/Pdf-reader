@@ -693,6 +693,9 @@ export const strings = {
     encrypt: "加密（AES-256，與「加密並另存新檔」相同）",
     removeExif: "清除圖片的 EXIF（相機、拍攝時間與地點等）",
     watermark: "浮水印（在每頁畫上文字或圖片）",
+    compressImages: "壓縮圖片（與「壓縮圖片並另存新檔」相同）",
+    compressNote:
+      "只有變小的圖片才會換掉，重新編碼的圖片不帶相機的資料。有數位簽章的檔案會失敗：壓縮後簽章不會成立。一個檔案的圖片太多、時間不夠時，其餘的圖片保持原樣。",
     watermarkType: "類型",
     watermarkText: "文字",
     watermarkPicture: "圖片",
@@ -746,7 +749,7 @@ export const strings = {
     /** Why a file failed, for the codes that mean something here; any other code has its general text. */
     reasons: {
       encrypted: "有密碼的檔案，批次處理不詢問密碼",
-      invalidArgument: "這個檔案不能這樣處理，例如有數位簽章的文件不能加密或清除 EXIF（簽章會失效）",
+      invalidArgument: "這個檔案不能這樣處理，例如有數位簽章的文件不能加密、清除 EXIF 或壓縮圖片（簽章會失效）",
       notPdf: "不是 PDF 檔案",
       corrupted: "檔案已損毀",
     } as Partial<Record<ErrorCode, string>>,

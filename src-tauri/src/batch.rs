@@ -86,6 +86,7 @@ pub fn copy_name(display_name: &str, operation: &BatchOperation) -> String {
         BatchOperation::Encrypt { .. } => strings::encrypted_copy_file_name(&stem),
         BatchOperation::RemoveExif => strings::exif_cleaned_file_name(&stem),
         BatchOperation::Watermark { .. } => strings::watermark_file_name(&stem),
+        BatchOperation::CompressImages { .. } => strings::compressed_copy_file_name(&stem),
     }
 }
 
@@ -189,6 +190,11 @@ mod tests {
             copy_name("機密文件.pdf", &watermark),
             "機密文件（浮水印）.pdf"
         );
+        let compress = BatchOperation::CompressImages {
+            quality: ipc_contract::types::ImageQuality::Medium,
+            max_side: Some(2_000),
+        };
+        assert_eq!(copy_name("掃描.pdf", &compress), "掃描（已壓縮）.pdf");
         assert_eq!(numbered("a.pdf", 1), "a.pdf");
         assert_eq!(numbered("a.pdf", 2), "a (2).pdf");
         assert_eq!(

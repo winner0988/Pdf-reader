@@ -149,6 +149,39 @@ describe("a batch (B3-04)", () => {
     expect(list).toHaveTextContent(t.failedFile(strings.error.messages.pictureNotCleaned));
   });
 
+  it("compresses the pictures of each file with the same choices as one document (B3-19)", async () => {
+    const { api, state } = fakeBatchApi();
+    const { user } = renderShell(api);
+    let dialog = await openDialog(user);
+    expect(dialog).not.toHaveTextContent(t.compressNote);
+    await user.click(within(dialog).getByRole("radio", { name: t.compressImages }));
+    expect(dialog).toHaveTextContent(t.compressNote);
+    // One document's choices, and what it starts with.
+    const c = strings.compress;
+    expect(within(dialog).getByRole("radio", { name: c.quality.medium })).toBeChecked();
+    expect(within(dialog).getByRole("radio", { name: c.size(2000) })).toBeChecked();
+    await user.click(within(dialog).getByRole("radio", { name: c.quality.low }));
+    await user.click(within(dialog).getByRole("radio", { name: c.sizeNone }));
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+    expect(api.run.mock.calls[0]![0]).toEqual({ kind: "compressImages", quality: "low", maxSide: null });
+    act(() => state.onEvent({ kind: "started", files: ["scan.pdf", "signed.pdf"] }));
+    act(() => {
+      state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "scan（已壓縮）.pdf" } });
+      state.onEvent({ kind: "file", index: 1, outcome: { kind: "failed", error: "invalidArgument" } });
+    });
+    const list = within(dialog).getByRole("list", { name: t.filesLabel });
+    expect(list).toHaveTextContent(t.done("scan（已壓縮）.pdf"));
+    expect(list).toHaveTextContent(t.failedFile(t.reasons.invalidArgument!));
+    await act(async () => state.finish({ done: 1, failed: 1, skipped: 0 }));
+    await user.click(within(dialog).getByRole("button", { name: t.close }));
+
+    // Opened again, it starts over.
+    dialog = await openDialog(user);
+    await user.click(within(dialog).getByRole("radio", { name: t.compressImages }));
+    expect(within(dialog).getByRole("radio", { name: c.quality.medium })).toBeChecked();
+    expect(within(dialog).getByRole("radio", { name: c.size(2000) })).toBeChecked();
+  });
+
   it("draws a text watermark with configured options on each file", async () => {
     const { api, state } = fakeBatchApi();
     const { user } = renderShell(api);
