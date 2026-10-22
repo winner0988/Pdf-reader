@@ -20,6 +20,7 @@
 pub mod attachments;
 pub mod frame;
 pub mod limits;
+pub mod matching;
 pub mod ocr;
 pub mod raster;
 pub mod text;

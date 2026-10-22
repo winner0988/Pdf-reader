@@ -288,6 +288,10 @@ pub struct Settings {
     /// The language scanned pages are recognised in: the code of an installed one, or none to
     /// let the app choose by the language of its interface.
     pub ocr_language: Option<String>,
+    /// Whether the text of the files that open is kept, encrypted, in a text index on this
+    /// computer, to find which document has some words (B3-21, ADR 0026). Off unless the user
+    /// turns it on; only while the recent files list is kept too.
+    pub text_index: bool,
 }
 
 impl Default for Settings {
@@ -297,6 +301,7 @@ impl Default for Settings {
             record_recent_files: true,
             ocr_auto: true,
             ocr_language: None,
+            text_index: false,
         }
     }
 }
@@ -2057,6 +2062,83 @@ pub enum SearchEvent {
     },
 }
 
+/// A document of the text index in the results of a search of it (B3-21, ADR 0026), valid until
+/// the next search. The main process keeps the document's path; the frontend only ever gets this
+/// number and the file name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct IndexEntryId(pub u32);
+
+/// Arguments of the `search_text_index` command: the documents of the text index are searched for
+/// `query`, matched as in one document. Results arrive on a Tauri channel as
+/// [`IndexSearchEvent`]s; `cancel` with `request` stops the search.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct IndexSearchArgs {
+    pub request: RequestId,
+    pub query: String,
+    pub case_sensitive: bool,
+}
+
+/// Where a hit is on its page: some text before it, the words found, and some text after it, as
+/// plain display text. The text around is cut to `LIMITS.maxIndexSnippetChars` characters.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexSnippet {
+    pub before: String,
+    pub matched: String,
+    pub after: String,
+}
+
+/// A page of a document of the text index with hits: how many, and the first of them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexPageHits {
+    pub page_index: u32,
+    pub hits: u32,
+    pub snippet: IndexSnippet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum IndexSearchEvent {
+    /// A document with hits, the documents opened last first. No path: only the file name.
+    #[serde(rename_all = "camelCase")]
+    Found {
+        entry: IndexEntryId,
+        display_name: String,
+        /// Hits in the whole document, at most `LIMITS.maxSearchHits`.
+        total_hits: u32,
+        /// The first pages with hits, in page order, at most `LIMITS.maxIndexPagesPerDocument`.
+        pages: Vec<IndexPageHits>,
+        /// How many pages have hits, the ones not listed too.
+        pages_with_hits: u32,
+        /// Only the first pages of the document are in the index (it has more text than the
+        /// index keeps of one document), or not all of them are there yet.
+        partial: bool,
+    },
+    /// The search is over: `documents` were searched, and `found` had hits.
+    #[serde(rename_all = "camelCase")]
+    Done { documents: u32, found: u32 },
+}
+
+/// Arguments of `open_indexed_document`: the document of a result of the last search of the
+/// text index. The page to show is the frontend's to go to once the tab has the document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OpenIndexedArgs {
+    pub entry: IndexEntryId,
+}
+
+/// What the text index keeps on this computer (B3-21), for the settings page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TextIndexStatus {
+    pub documents: u32,
+    /// Encrypted, on disk.
+    #[ts(type = "number")]
+    pub bytes: u64,
+}
+
 /// One page's text for selecting and copying (MVP-15): its lines in reading order, from the
 /// same text layer that search looks at.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
@@ -2532,6 +2614,7 @@ mod tests {
             record_recent_files: false,
             ocr_auto: false,
             ocr_language: Some("eng".to_owned()),
+            text_index: true,
         };
         let json = serde_json::to_value(&settings).unwrap();
         assert_eq!(
@@ -2540,12 +2623,14 @@ mod tests {
                 "theme": "dark",
                 "recordRecentFiles": false,
                 "ocrAuto": false,
-                "ocrLanguage": "eng"
+                "ocrLanguage": "eng",
+                "textIndex": true
             })
         );
         let with = |name: &str, value: serde_json::Value| {
             let mut json = serde_json::json!({
-                "theme": "dark", "recordRecentFiles": false, "ocrAuto": true, "ocrLanguage": null
+                "theme": "dark", "recordRecentFiles": false, "ocrAuto": true, "ocrLanguage": null,
+                "textIndex": false
             });
             json[name] = value;
             json
@@ -2558,5 +2643,10 @@ mod tests {
         assert!(Settings::default().record_recent_files);
         assert!(Settings::default().ocr_auto);
         assert_eq!(Settings::default().ocr_language, None);
+        // The text index is the user's choice (ADR 0026).
+        assert!(!Settings::default().text_index);
+        let mut without = with("theme", "dark".into());
+        without.as_object_mut().unwrap().remove("textIndex");
+        assert!(serde_json::from_value::<Settings>(without).is_err());
     }
 }

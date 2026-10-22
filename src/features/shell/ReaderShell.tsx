@@ -54,6 +54,7 @@ import { useSearch, type SearchApi } from "@/features/search/useSearch";
 import type { FontsApi } from "@/features/settings/FontsSection";
 import type { PasswordsApi } from "@/features/settings/PasswordsSection";
 import { SettingsDialog } from "@/features/settings/SettingsDialog";
+import { useTextIndex } from "@/features/textIndex/useTextIndex";
 import { useSettings } from "@/features/settings/useSettings";
 import { RecalledBanner } from "@/features/passwords/RecalledBanner";
 import { RecoveryBanner } from "@/features/recovery/RecoveryBanner";
@@ -182,6 +183,12 @@ type ReaderShellProps = {
   active?: boolean;
   /** Whether the window is kept out of screen captures (B3-13): for the status bar. */
   captureProtection?: CaptureProtection;
+  /**
+   * A page (1-based) to show once the document is open: a result of the search of every
+   * document (B3-21) was opened in this tab. `onJumped` says it was shown.
+   */
+  jumpToPage?: number;
+  onJumped?: () => void;
   version?: string;
   /** Delay before the loading state appears; tests pass 0. */
   loadingDelayMs?: number;
@@ -252,6 +259,8 @@ export function ReaderShell({
   fieldEdits,
   active = true,
   captureProtection,
+  jumpToPage,
+  onJumped,
   version = "0.1.0",
   loadingDelayMs,
 }: ReaderShellProps) {
@@ -288,6 +297,10 @@ export function ReaderShell({
   const [currentPage, setCurrentPage] = useState(1);
   // The batch dialog is the app's (BatchHost): a batch outlives this screen.
   const openBatch = useOpenBatch();
+  // So is the search of every document (B3-21): what it opens is a new tab.
+  const textIndex = useTextIndex();
+  const settingsNow = useSettings()?.settings;
+  const textIndexOn = settingsNow !== undefined && settingsNow.textIndex && settingsNow.recordRecentFiles;
   const [dialog, setDialog] = useState<
 | "shortcuts"
     | "about"
@@ -485,6 +498,15 @@ export function ReaderShell({
     setCurrentPage(clamped);
     viewRef.current?.scrollToPage(clamped);
   };
+
+  // A result of the search of every document was opened here (B3-21): its page, once it is open.
+  // The view says which page it shows once it is there.
+  const documentOpen = document_ !== null;
+  useEffect(() => {
+    if (jumpToPage === undefined || !documentOpen) return;
+    viewRef.current?.scrollToPage(Math.min(Math.max(jumpToPage, 1), pageCount));
+    onJumped?.();
+  }, [jumpToPage, documentOpen, pageCount, onJumped]);
 
   // "不記錄此檔案" (#73): asked for whenever the menu opens, so it is never stale. Not offered when
   // the settings say not to record any file (B2-12).
@@ -877,6 +899,7 @@ export function ReaderShell({
     nextRegion: () => focusRegion(shellRef.current, 1),
     previousRegion: () => focusRegion(shellRef.current, -1),
     help: () => setDialog("shortcuts"),
+    searchAll: () => textIndex?.openSearchAll(),
   }, active);
 
   /**
@@ -1143,6 +1166,7 @@ export function ReaderShell({
           pageMarksBlocked={savable && document_?.encrypted === true}
           onEncryptCopy={savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined}
           onBatch={openBatch}
+          onSearchAll={textIndex?.openSearchAll}
           encryptCopyBlocked={savable && document_?.encrypted === true}
           onForgetPassword={document_?.passwordRemembered ? forgetPassword : undefined}
           onCompressImages={savable && !document_?.encrypted ? () => setDialog("compress") : undefined}
@@ -1322,6 +1346,7 @@ export function ReaderShell({
                 <EmptyState
                   onOpen={onOpen}
                   onCreate={createApi ? () => setDialog("create") : undefined}
+                  onSearchAll={textIndexOn ? textIndex?.openSearchAll : undefined}
                   recent={recentApi}
                 />
               )}

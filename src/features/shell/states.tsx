@@ -11,11 +11,14 @@ import { strings } from "@/i18n/zh-TW";
 export function EmptyState({
   onOpen,
   onCreate,
+  onSearchAll,
   recent,
 }: {
   onOpen: () => void;
   /** Makes a PDF of files (B3-03); without it (demo data, tests) it is not offered. */
   onCreate?: () => void;
+  /** Searches every document opened before (B3-21); offered only while the text index is on. */
+  onSearchAll?: () => void;
   recent?: RecentApi;
 }) {
   const t = strings.empty;
@@ -27,10 +30,19 @@ export function EmptyState({
         {t.openButton}
       </Button>
       <p className="text-sm text-muted-foreground">{t.dropHint}</p>
-      {onCreate && (
-        <Button variant="outline" onClick={onCreate}>
-          {t.createButton}
-        </Button>
+      {(onCreate || onSearchAll) && (
+        <div className="flex flex-wrap justify-center gap-2">
+          {onCreate && (
+            <Button variant="outline" onClick={onCreate}>
+              {t.createButton}
+            </Button>
+          )}
+          {onSearchAll && (
+            <Button variant="outline" onClick={onSearchAll}>
+              {t.searchAllButton}
+            </Button>
+          )}
+        </div>
       )}
       {recent && <RecentFiles api={recent} />}
       <p className="mt-6 rounded-md bg-muted px-4 py-2 text-xs text-muted-foreground">{t.privacyNote}</p>

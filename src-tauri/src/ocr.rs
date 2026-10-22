@@ -541,6 +541,13 @@ impl Ocr {
         lock(&self.session(tab)).set_focus(page_index);
     }
 
+    /// Whether the text of `tab`'s scanned pages is being recognised: the text index (B3-21)
+    /// waits for it, so that it keeps the text.
+    pub fn is_reading(&self, tab: TabId) -> bool {
+        let session = lock(&self.sessions).get(&tab).cloned();
+        session.is_some_and(|session| lock(&session).is_reading())
+    }
+
     /// Where recognising is, in every tab that has been told: for a page that subscribes later.
     pub fn snapshot(&self) -> Vec<OpenEvent> {
         let sessions = lock(&self.sessions);

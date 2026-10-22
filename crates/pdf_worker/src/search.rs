@@ -1,12 +1,14 @@
 //! Text search over one page's characters (MVP-10). Independent of MuPDF so it can be tested
 //! directly; `engine` feeds it the characters of a page's text layer.
 //!
-//! Matching works on "folded" text: every kind of whitespace becomes one space, runs of spaces
-//! collapse, lines are joined with a space (so a phrase can wrap), and letters are lowercased
-//! unless the search is case sensitive. The search is linear (Knuth-Morris-Pratt), so a page with
-//! a huge amount of text cannot make it quadratic.
+//! Matching works on "folded" text (`ipc_contract::matching`, which the text index of the main
+//! process uses too): every kind of whitespace becomes one space, runs of spaces collapse, lines
+//! are joined with a space (so a phrase can wrap), and letters are lowercased unless the search is
+//! case sensitive. The search is linear (Knuth-Morris-Pratt), so a page with a huge amount of text
+//! cannot make it quadratic.
 
 use ipc_contract::limits::MAX_QUADS_PER_HIT;
+use ipc_contract::matching::{find, fold, normalize_query};
 use ipc_contract::types::{Quad, SearchHit};
 
 /// One page's text, folded for matching, with where each character came from.
@@ -24,21 +26,6 @@ pub struct PageText {
 pub struct PageSearch {
     pub hits: Vec<SearchHit>,
     pub has_text: bool,
-}
-
-fn fold(c: char, case_sensitive: bool) -> char {
-    if c.is_whitespace() || c.is_control() {
-        return ' ';
-    }
-    if case_sensitive {
-        return c;
-    }
-    // Only one-to-one mappings keep characters and quads aligned; the rest stay as they are.
-    let mut lower = c.to_lowercase();
-    match (lower.next(), lower.next()) {
-        (Some(single), None) => single,
-        _ => c,
-    }
 }
 
 impl PageText {
@@ -111,59 +98,6 @@ impl PageText {
         }
         (!quads.is_empty()).then_some(SearchHit { quads })
     }
-}
-
-/// The query as it is matched: folded like the page text and trimmed.
-pub fn normalize_query(query: &str, case_sensitive: bool) -> Vec<char> {
-    let mut out: Vec<char> = Vec::with_capacity(query.len());
-    for c in query.chars() {
-        let folded = fold(c, case_sensitive);
-        if folded == ' ' && out.last().is_none_or(|&last| last == ' ') {
-            continue;
-        }
-        out.push(folded);
-    }
-    while out.last() == Some(&' ') {
-        out.pop();
-    }
-    out
-}
-
-/// Start and end of up to `max` non-overlapping occurrences of `pattern` in `text` (KMP).
-pub fn find(text: &[char], pattern: &[char], max: usize) -> Vec<(usize, usize)> {
-    let mut found = Vec::new();
-    if pattern.is_empty() || max == 0 {
-        return found;
-    }
-    // failure[i]: length of the longest proper prefix of pattern[..=i] that is also a suffix.
-    let mut failure = vec![0usize; pattern.len()];
-    let mut length = 0;
-    for i in 1..pattern.len() {
-        while length > 0 && pattern[i] != pattern[length] {
-            length = failure[length - 1];
-        }
-        if pattern[i] == pattern[length] {
-            length += 1;
-        }
-        failure[i] = length;
-    }
-    let mut matched = 0;
-    for (i, &c) in text.iter().enumerate() {
-        while matched > 0 && c != pattern[matched] {
-            matched = failure[matched - 1];
-        }
-        if c == pattern[matched] {
-            matched += 1;
-        }
-        if matched == pattern.len() {
-            found.push((i + 1 - pattern.len(), i + 1));
-            if found.len() == max {
-                break;
-            }
-            matched = 0; // non-overlapping
-        }
-    }
-    found
 }
 
 #[cfg(test)]

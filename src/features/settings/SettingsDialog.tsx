@@ -11,6 +11,8 @@ import { PasswordsSection, type PasswordsApi } from "@/features/settings/Passwor
 import type { UpdatesApi } from "@/features/settings/updates";
 import { UpdatesSection } from "@/features/settings/UpdatesSection";
 import { useSettings } from "@/features/settings/useSettings";
+import { TextIndexSection } from "@/features/textIndex/TextIndexSection";
+import { useTextIndex } from "@/features/textIndex/useTextIndex";
 import { useTheme, type ThemePreference } from "@/features/theme/useTheme";
 import { strings } from "@/i18n/zh-TW";
 
@@ -34,8 +36,8 @@ type SettingsDialogProps = {
 const THEMES: ThemePreference[] = ["system", "light", "dark"];
 
 /**
- * The settings (B2-12): appearance, the recent files list, the update check (#64), and what the
- * app keeps on this computer. Every change applies and is saved at once; there is nothing to
+ * The settings (B2-12): appearance, the recent files list and the text index (B3-21), the update
+ * check (#64), and what the app keeps on this computer. Every change applies and is saved at once; there is nothing to
  * confirm.
  */
 export function SettingsDialog({
@@ -50,6 +52,7 @@ export function SettingsDialog({
 }: SettingsDialogProps) {
   const t = strings.settings;
   const shared = useSettings();
+  const textIndex = useTextIndex();
   const [theme, setTheme] = useTheme();
   const [notice, setNotice] = useState<string | null>(null);
   const appearanceId = useId();
@@ -134,6 +137,8 @@ export function SettingsDialog({
             </p>
           </section>
         )}
+
+        {recentApi && textIndex && <TextIndexSection api={textIndex.api} />}
 
         {ocrApi && <OcrSection api={ocrApi} />}
 

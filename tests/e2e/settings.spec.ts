@@ -25,7 +25,7 @@ test("settings survive a restart, and a closed recent files list records nothing
   const settingsFile = path.join(folder, "settings.json");
   await expect
     .poll(() => (existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, "utf8")) : null))
-    .toEqual({ version: 1, theme: "dark", recordRecentFiles: false, ocrAuto: true, ocrLanguage: null });
+    .toEqual({ version: 1, theme: "dark", recordRecentFiles: false, ocrAuto: true, ocrLanguage: null, textIndex: false });
 
   // Ended at once, with nothing saved on the way out; started again with the same data folder.
   await quit(page);

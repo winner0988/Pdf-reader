@@ -387,12 +387,25 @@ export function DocumentView({
     if (measured) onZoomChange.current?.(Math.round(factor * 100));
   }, [factor, measured]);
 
+  // A page asked for before the view knew its size (a document that just opened at a page,
+  // B3-21): shown once it does, when the layout has its real size.
+  const pendingPage = useRef<number | null>(null);
+  const unmeasured = measured === null;
+  useEffect(() => {
+    const element = scrollContainer.current;
+    if (unmeasured || !element || pendingPage.current === null) return;
+    scrollElement(element, { top: scrollTopFor(layout, pendingPage.current) });
+    pendingPage.current = null;
+  }, [unmeasured, layout, scrollContainer]);
+
   useImperativeHandle(
     ref,
     () => ({
       scrollToPage(page) {
         const element = scrollContainer.current;
-        if (element) scrollElement(element, { top: scrollTopFor(layout, page) });
+        if (!element) return;
+        if (unmeasured) pendingPage.current = page;
+        else scrollElement(element, { top: scrollTopFor(layout, page) });
       },
       revealHit(hit) {
         const element = scrollContainer.current;
@@ -409,7 +422,7 @@ export function DocumentView({
     }),
     // `locate` reads the layout and the view's position, both already listed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [layout, scrollContainer, pages, rotation, width, textSelection.hasSelection, textSelection.selectedText, textSelection.selectedQuads],
+    [layout, scrollContainer, unmeasured, pages, rotation, width, textSelection.hasSelection, textSelection.selectedText, textSelection.selectedQuads],
   );
 
   // The first renders use the measured scale right away. After that, a new resolution is

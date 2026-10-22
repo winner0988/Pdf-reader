@@ -30,6 +30,9 @@ struct Stored {
     ocr_auto: bool,
     #[serde(default)]
     ocr_language: Option<String>,
+    /// Added with the text index (B3-21, ADR 0026): off in a file written before it.
+    #[serde(default)]
+    text_index: bool,
 }
 
 fn default_ocr_auto() -> bool {
@@ -58,6 +61,7 @@ impl SettingsStore {
                 ocr_auto: stored.ocr_auto,
                 // Only what could be a language's code is taken from a file.
                 ocr_language: stored.ocr_language.filter(|code| is_language_name(code)),
+                text_index: stored.text_index,
             });
         Self {
             file,
@@ -85,6 +89,7 @@ impl SettingsStore {
             record_recent_files: settings.record_recent_files,
             ocr_auto: settings.ocr_auto,
             ocr_language: settings.ocr_language,
+            text_index: settings.text_index,
         };
         let json = serde_json::to_vec_pretty(&stored).map_err(io::Error::other)?;
         local_data::write(file, &json)
@@ -116,6 +121,7 @@ mod tests {
             record_recent_files: false,
             ocr_auto: false,
             ocr_language: Some("chi_tra".to_owned()),
+            text_index: true,
         };
         store.set(dark.clone()).unwrap();
         assert_eq!(store.get(), dark);
@@ -138,6 +144,7 @@ mod tests {
         assert!(!settings.record_recent_files);
         assert!(settings.ocr_auto);
         assert_eq!(settings.ocr_language, None);
+        assert!(!settings.text_index);
 
         // A language that is not a code is not taken.
         fs::write(

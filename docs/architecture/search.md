@@ -30,6 +30,9 @@ sequenceDiagram
 
 ## 比對方式（`crates/pdf_worker/src/search.rs`）
 
+摺疊與比對的規則在 `crates/ipc_contract/src/matching.rs`，主行程的本機全文索引（「在所有文件中搜尋」，B3-21）用同一份，見 [text-index.md](text-index.md)。
+
+
 - 從 MuPDF 的文字層（structured text）逐行取出字元與其四邊形位置。
 - 比對前「摺疊」：
   - 各種空白與控制字元都當成一個空格，連續空格合併；

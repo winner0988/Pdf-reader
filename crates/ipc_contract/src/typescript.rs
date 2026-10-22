@@ -185,6 +185,13 @@ pub fn bindings() -> String {
         SearchArgs,
         SearchHit,
         SearchEvent,
+        IndexEntryId,
+        IndexSearchArgs,
+        IndexSnippet,
+        IndexPageHits,
+        IndexSearchEvent,
+        OpenIndexedArgs,
+        TextIndexStatus,
         PageText,
         TextLine,
         ErrorCode,
@@ -199,7 +206,7 @@ pub fn bindings() -> String {
         SaveAttachmentResult,
     );
 
-    let limits: [(&str, String); 61] = [
+    let limits: [(&str, String); 64] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -223,6 +230,12 @@ pub fn bindings() -> String {
         ("maxDisplayNameBytes", MAX_DISPLAY_NAME_BYTES.to_string()),
         ("maxTabs", MAX_TABS.to_string()),
         ("maxRecentFiles", MAX_RECENT_FILES.to_string()),
+        ("maxIndexDocuments", MAX_INDEX_DOCUMENTS.to_string()),
+        (
+            "maxIndexPagesPerDocument",
+            MAX_INDEX_PAGES_PER_DOCUMENT.to_string(),
+        ),
+        ("maxIndexSnippetChars", MAX_INDEX_SNIPPET_CHARS.to_string()),
         ("maxSensitiveFiles", MAX_SENSITIVE_FILES.to_string()),
         (
             "maxClipboardTextBytes",

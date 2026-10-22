@@ -29,7 +29,7 @@
 |---|---|---|
 | ![空狀態](wireframes/empty-state.svg) | ![載入中](wireframes/loading-state.svg) | ![錯誤](wireframes/error-state.svg) |
 
-- **空狀態**：①「選擇檔案…（Ctrl+O）」是主要按鈕，啟動後焦點預設在它上面；拖放提示下方有次要按鈕「從檔案建立 PDF…」（B3-03，見第 7 節）。② 隱私說明固定顯示。整個畫布都是拖放目標；拖曳進入時畫布邊框以強調色虛線標示。
+- **空狀態**：①「選擇檔案…（Ctrl+O）」是主要按鈕，啟動後焦點預設在它上面；拖放提示下方有次要按鈕「從檔案建立 PDF…」（B3-03，見第 7 節）；本機全文索引開著時旁邊多一個「在所有文件中搜尋…」（B3-21，見第 3 節）。② 隱私說明固定顯示。整個畫布都是拖放目標；拖曳進入時畫布邊框以強調色虛線標示。
 - **最近開啟的檔案**（#73）：空狀態的拖放提示下方列出最近開啟的檔案，最新的在前，最多 20 筆；沒有時不顯示這一區。
   - 每一筆只顯示**檔名**（不顯示資料夾），按下以新分頁開啟；右側的 × 從清單移除。
   - 「清除清單」一鍵清除全部。
@@ -66,6 +66,18 @@
 - `Aa` 切換區分大小寫（預設不區分）。
 - 開始新搜尋、改文字、關閉搜尋列（`Esc`、✕）都會取消進行中的搜尋；關閉時清除標示，焦點回到畫布。輸入法組字中不搜尋。
 - 查詢超過 1,024 bytes（UTF-8）時輸入框不接受更多字元（`LIMITS.maxQueryBytes`）。
+
+### 在所有文件中搜尋（B3-21）
+
+本機全文索引開啟時（設定，第 6 節；ADR 0026），在使用者開過的文件中找一段文字。做法見 [text-index.md](../architecture/text-index.md)。
+
+- 入口：「⋯」→「在所有文件中搜尋…」（menu.searchAll，在「批次處理…」之前）、`Ctrl+Shift+F`，以及索引開著時空狀態的次要按鈕（empty.searchAllButton）。示範資料（沒有主行程）時不提供。
+- 對話框（標題 textIndex.title，說明 textIndex.description）：輸入框（名稱 textIndex.label）與 `Aa`（textIndex.caseSensitive）。輸入停止 250 ms 後搜尋，`Enter` 立即搜尋；改字、切換大小寫、關閉對話框都取消進行中的搜尋。每次打開都清空上一次的結果。
+- 索引沒有開啟時，說明改為 textIndex.off，輸入框停用。
+- 狀態（role="status"）：textIndex.searching，完成後 textIndex.found；什麼都沒找到時 textIndex.noResults，索引中還沒有文件時 textIndex.empty，失敗時 textIndex.failed。
+- 結果清單（名稱 textIndex.results）依最近開啟的順序，每份文件一項：檔名（**不顯示路徑**）、textIndex.hits，只收錄前面的頁面時加 textIndex.partial；下面是有命中的頁（最多 20 頁），每頁一個按鈕：textIndex.page 與找到處前後的幾個字，找到的字以 `<mark>` 標示。超過 20 頁時加一行 textIndex.morePages。
+- 按頁的按鈕：關閉對話框，以新分頁開啟那份文件，開好後跳到那一頁。檔案已不在原處或已變更時，那一項從結果移除並顯示 textIndex.gone；其他失敗顯示 textIndex.openFailed。
+- 查詢的長度上限與單一文件的搜尋相同（`LIMITS.maxQueryBytes`）。
 
 ## 4. 連結
 
@@ -119,6 +131,11 @@
     - settings.updatesNote 說明只在按下時查詢、不會自動下載或安裝，以及 GitHub 會看到 IP 位址與時間；
     - 「檢查更新」：每按一次向 GitHub 查詢一次，查詢期間停用。結果顯示在下方：settings.upToDate、settings.available、settings.noRelease 或 settings.checkFailed；
     - 有新版本時多一個「前往下載頁…」：與文件中的外部連結一樣，先顯示確認對話框（第 4 節）與完整網址，使用者確認後才交給瀏覽器開啟；網址固定為本專案的 GitHub Releases 頁面。
+  - **本機全文索引**（B3-21，ADR 0026）：
+    - 「建立本機全文索引」（settings.textIndex.enable，預設關閉）與說明 settings.textIndex.note。「記錄最近開啟的檔案」關閉時勾選框停用，加一行 settings.textIndex.needsRecent；
+    - 開著時顯示 settings.textIndex.status（收錄的文件數與大小）；讀不到時 settings.textIndex.failed；
+    - 「清除索引」（settings.textIndex.clear）：刪除整個索引，完成後顯示 settings.textIndex.cleared。開關仍然開著時，之後開啟的文件再收錄；
+    - 關閉這個選項、關閉「記錄最近開啟的檔案」或清除最近開啟的檔案清單，也立即刪除整個索引。
   - **文字辨識（OCR）**（B2-10，ADR 0015）：
     - 「開啟文件時自動辨識掃描頁的文字」（預設開啟，ocr.settings.auto 與 ocr.settings.autoNote）：關閉時只在使用者要求時辨識（「⋯」→「辨識此文件的文字」）；
     - 「辨識的語言」：下拉選單，第一項是 app 的選擇（ocr.settings.automatic：繁體中文的資料，也認得英文與數字），其後是安裝的語言（名稱與代碼，例如「English（eng）」）；沒有安裝的語言當成第一項；
@@ -528,6 +545,7 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
 | 列印 | `Ctrl+P` |
 | 下一個／上一個分頁 | `Ctrl+Tab`（或 `Ctrl+PageDown`）／`Ctrl+Shift+Tab`（或 `Ctrl+PageUp`）；焦點在分頁列時用 `←`／`→`、`Home`／`End` |
 | 搜尋 | `Ctrl+F` |
+| 在所有文件中搜尋 | `Ctrl+Shift+F`（本機全文索引開著時，B3-21） |
 | 下一筆／上一筆結果 | `Enter`／`Shift+Enter`（搜尋列中）；`F3`／`Shift+F3`（任何時候） |
 | 放大／縮小 | `Ctrl+=`（或 `Ctrl++`）／`Ctrl+-`；`Ctrl+滾輪` |
 | 符合頁面／實際大小（100%）／符合寬度 | `Ctrl+0`／`Ctrl+1`／`Ctrl+2` |
@@ -586,6 +604,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | emptyOpenButton | 選擇檔案…（Ctrl+O） |
 | emptyDropHint | 或將檔案拖放到這個視窗 |
 | empty.createButton | 從檔案建立 PDF… |
+| empty.searchAllButton | 在所有文件中搜尋… |
 | privacyNote | 所有處理都在這台電腦上完成：不會自行連網、不收集任何資料。 |
 | recent.title | 最近開啟的檔案 |
 | recent.remove | 從清單移除「<檔名>」 |
@@ -636,6 +655,31 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | searchTruncated | 結果超過 <上限> 筆，只顯示前 <上限> 筆 |
 | searchFailed | 搜尋失敗，請再試一次。 |
 | searchCaseSensitive | 區分大小寫 |
+
+### 在所有文件中搜尋（B3-21）
+
+| 鍵 | 文字 |
+|---|---|
+| menu.searchAll | 在所有文件中搜尋… |
+| textIndex.title | 在所有文件中搜尋 |
+| textIndex.description | 搜尋你開過的文件的文字。結果只顯示檔名、頁碼與找到處前後的幾個字。 |
+| textIndex.label | 要在所有文件中找的文字 |
+| textIndex.placeholder | 要找的文字 |
+| textIndex.caseSensitive | 區分大小寫 |
+| textIndex.off | 本機全文索引沒有開啟。可以在「設定」的「本機全文索引」開啟，之後開啟的文件才會收錄。 |
+| textIndex.searching | 搜尋中… |
+| textIndex.found(found, documents) | 搜尋了 <documents> 份文件，<found> 份找到 |
+| textIndex.empty | 索引中還沒有文件。開啟過的文件會在背景收錄。 |
+| textIndex.noResults(query) | 找不到「<查詢>」 |
+| textIndex.failed | 搜尋失敗，請再試一次。 |
+| textIndex.results | 搜尋結果 |
+| textIndex.hits(hits, pages) | <hits> 處，在 <pages> 頁 |
+| textIndex.partial | 只收錄前面的頁面 |
+| textIndex.page(page) | 第 <page> 頁 |
+| textIndex.morePages(count) | 還有 <count> 頁也有，開啟文件後可以用「搜尋」找 |
+| textIndex.gone(name) | 「<檔名>」已不在原處或已變更，已從索引移除。 |
+| textIndex.openFailed | 無法開啟這個文件，請再試一次。 |
+| shortcuts.descriptions.searchAll | 在所有文件中搜尋 |
 
 ### 目錄與側欄
 
@@ -785,16 +829,24 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | settings.description | 變更會立即套用並儲存在這台電腦上。 |
 | settings.recent | 最近開啟的檔案 |
 | settings.record | 記錄最近開啟的檔案 |
-| settings.recordNote | 關閉時也會清除目前的清單，之後開啟的檔案都不會記錄。 |
+| settings.recordNote | 關閉時也會清除目前的清單與本機全文索引，之後開啟的檔案都不會記錄。 |
 | settings.clearList | 清除清單 |
-| settings.listCleared | 已清除最近開啟的檔案。 |
+| settings.listCleared | 已清除最近開啟的檔案，本機全文索引也一併清除。 |
 | settings.clearExclusions | 清除「不記錄此檔案」的選擇 |
 | settings.exclusionsCleared | 之前選擇不記錄的檔案，之後開啟時會再記錄。 |
 | settings.failed | 無法完成，請再試一次。 |
 | settings.dataTitle | 這台電腦上保存的資料 |
-| settings.dataItems | 最近開啟的檔案：完整路徑，只在這台電腦上；畫面只顯示檔名／設定：外觀、是否記錄最近開啟的檔案／畫面元件（WebView2）的暫存資料 |
+| settings.dataItems | 最近開啟的檔案：完整路徑，只在這台電腦上；畫面只顯示檔名／設定：外觀、是否記錄最近開啟的檔案、本機全文索引、掃描頁的文字辨識／本機全文索引（開啟時才有）：開過的檔案的文字，加密保存，只有你的 Windows 帳號讀得到／機敏文件：在這台電腦上標記為機敏的檔名，不含路徑（標記本身在檔案裡）／OCR 語言資料：你匯入的 .traineddata 檔案（內附的在安裝資料夾）／自訂字型：你匯入的 .ttf 與 .ttc 字型檔／畫面元件（WebView2）的暫存資料 |
 | settings.dataLocation | 全部都在 %LOCALAPPDATA%\io.github.winner0988.pdfreader 資料夾中，不會同步到其他電腦，也不會上傳。關閉 app 後可以直接刪除這個資料夾。 |
 | settings.saveFailed | 設定無法儲存：目前已套用，但重新啟動後會回到之前的設定。 |
+| settings.textIndex.title | 本機全文索引 |
+| settings.textIndex.enable | 建立本機全文索引 |
+| settings.textIndex.note | 用來在所有文件中搜尋。索引是文件文字的副本，加密存在這台電腦上，只有你的 Windows 帳號讀得到。機敏文件與有密碼的 PDF 不會進索引；選了「不記錄此檔案」的檔案，以及隨身碟、光碟、網路位置上的檔案也不會。關閉時立即刪除索引。 |
+| settings.textIndex.needsRecent | 要先開啟「記錄最近開啟的檔案」才能使用。 |
+| settings.textIndex.status(documents, megabytes) | 已收錄 <documents> 份文件，約 <megabytes> MB |
+| settings.textIndex.clear | 清除索引 |
+| settings.textIndex.cleared | 已清除本機全文索引。 |
+| settings.textIndex.failed | 無法讀取索引的狀態。 |
 | settings.updates | 更新 |
 | settings.updatesNote | 只在你按下時向 GitHub 查詢最新的版本號碼，不會自動下載或安裝。GitHub 會看到你的 IP 位址與查詢的時間。 |
 | settings.checkUpdates | 檢查更新 |

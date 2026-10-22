@@ -323,7 +323,13 @@ ocrAuto: boolean,
  * The language scanned pages are recognised in: the code of an installed one, or none to
  * let the app choose by the language of its interface.
  */
-ocrLanguage: string | null, };
+ocrLanguage: string | null, 
+/**
+ * Whether the text of the files that open is kept, encrypted, in a text index on this
+ * computer, to find which document has some words (B3-21, ADR 0026). Off unless the user
+ * turns it on; only while the recent files list is kept too.
+ */
+textIndex: boolean, };
 
 /**
  * A language that scanned pages can be recognised in (B2-10).
@@ -1318,6 +1324,65 @@ export type SearchHit = { quads: Array<Quad>, };
 export type SearchEvent = { "kind": "hits", pageIndex: number, hits: Array<SearchHit>, } | { "kind": "progress", pagesSearched: number, } | { "kind": "done", totalHits: number, truncated: boolean, noTextLayer: boolean, };
 
 /**
+ * A document of the text index in the results of a search of it (B3-21, ADR 0026), valid until
+ * the next search. The main process keeps the document's path; the frontend only ever gets this
+ * number and the file name.
+ */
+export type IndexEntryId = number;
+
+/**
+ * Arguments of the `search_text_index` command: the documents of the text index are searched for
+ * `query`, matched as in one document. Results arrive on a Tauri channel as
+ * [`IndexSearchEvent`]s; `cancel` with `request` stops the search.
+ */
+export type IndexSearchArgs = { request: RequestId, query: string, caseSensitive: boolean, };
+
+/**
+ * Where a hit is on its page: some text before it, the words found, and some text after it, as
+ * plain display text. The text around is cut to `LIMITS.maxIndexSnippetChars` characters.
+ */
+export type IndexSnippet = { before: string, matched: string, after: string, };
+
+/**
+ * A page of a document of the text index with hits: how many, and the first of them.
+ */
+export type IndexPageHits = { pageIndex: number, hits: number, snippet: IndexSnippet, };
+
+export type IndexSearchEvent = { "kind": "found", entry: IndexEntryId, displayName: string, 
+/**
+ * Hits in the whole document, at most `LIMITS.maxSearchHits`.
+ */
+totalHits: number, 
+/**
+ * The first pages with hits, in page order, at most `LIMITS.maxIndexPagesPerDocument`.
+ */
+pages: Array<IndexPageHits>, 
+/**
+ * How many pages have hits, the ones not listed too.
+ */
+pagesWithHits: number, 
+/**
+ * Only the first pages of the document are in the index (it has more text than the
+ * index keeps of one document), or not all of them are there yet.
+ */
+partial: boolean, } | { "kind": "done", documents: number, found: number, };
+
+/**
+ * Arguments of `open_indexed_document`: the document of a result of the last search of the
+ * text index. The page to show is the frontend's to go to once the tab has the document.
+ */
+export type OpenIndexedArgs = { entry: IndexEntryId, };
+
+/**
+ * What the text index keeps on this computer (B3-21), for the settings page.
+ */
+export type TextIndexStatus = { documents: number, 
+/**
+ * Encrypted, on disk.
+ */
+bytes: number, };
+
+/**
  * One page's text for selecting and copying (MVP-15): its lines in reading order, from the
  * same text layer that search looks at.
  */
@@ -1476,6 +1541,9 @@ export const LIMITS = {
   maxDisplayNameBytes: 1024,
   maxTabs: 20,
   maxRecentFiles: 20,
+  maxIndexDocuments: 2000,
+  maxIndexPagesPerDocument: 20,
+  maxIndexSnippetChars: 40,
   maxSensitiveFiles: 1000,
   maxClipboardTextBytes: 16777216,
   maxExportPages: 1000,

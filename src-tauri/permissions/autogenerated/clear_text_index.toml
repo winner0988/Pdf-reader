@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clear-text-index"
+description = "Enables the clear_text_index command without any pre-configured scope."
+commands.allow = ["clear_text_index"]
+
+[[permission]]
+identifier = "deny-clear-text-index"
+description = "Denies the clear_text_index command without any pre-configured scope."
+commands.deny = ["clear_text_index"]

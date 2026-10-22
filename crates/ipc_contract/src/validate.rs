@@ -26,6 +26,7 @@ use crate::types::{
     SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult, SaveAttachmentResult, SearchArgs,
     SearchHit, SecurityReport, SensitiveArgs, SensitiveFile, Settings, SignArgs, SignatureInfo,
     SignatureReport, SignatureStatus, SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle,
+    IndexSearchArgs, IndexSearchEvent, IndexSnippet,
     TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
@@ -2204,13 +2205,119 @@ impl Validate for SaveAttachmentResult {
     }
 }
 
+/// A search of the text index (B3-21) takes the same queries as a search of one document.
+impl Validate for IndexSearchArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.query.is_empty() {
+            return Err(ValidationError::Invalid {
+                what: "search query",
+                reason: "empty",
+            });
+        }
+        check_text("search query", &self.query, MAX_QUERY_BYTES)
+    }
+}
+
+/// A piece of a snippet: text as it is copied, its spaces collapsed, of at most `max` characters.
+fn check_snippet_text(what: &'static str, text: &str, max: u32) -> Result<(), ValidationError> {
+    let len = text.chars().count();
+    if len > max as usize {
+        return Err(ValidationError::TooLong {
+            what,
+            len,
+            max: max as usize,
+        });
+    }
+    if !is_clean_copy_text(text) || text.contains("  ") {
+        return Err(ValidationError::Invalid {
+            what,
+            reason: "not plain text",
+        });
+    }
+    Ok(())
+}
+
+impl Validate for IndexSnippet {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_snippet_text("text before a hit", &self.before, MAX_INDEX_SNIPPET_CHARS)?;
+        check_snippet_text("text after a hit", &self.after, MAX_INDEX_SNIPPET_CHARS)?;
+        // As many characters as the query, at most, which has no more characters than bytes.
+        check_snippet_text("words found", &self.matched, MAX_QUERY_BYTES)?;
+        if self.matched.is_empty() {
+            return Err(ValidationError::Invalid {
+                what: "words found",
+                reason: "empty",
+            });
+        }
+        Ok(())
+    }
+}
+
+/// What a search of the text index sends the frontend (B3-21): a file name and no path, a bounded
+/// list of pages in order, and snippets of plain text.
+impl Validate for IndexSearchEvent {
+    fn validate(&self) -> Result<(), ValidationError> {
+        let IndexSearchEvent::Found {
+            display_name,
+            total_hits,
+            pages,
+            pages_with_hits,
+            ..
+        } = self
+        else {
+            return Ok(());
+        };
+        check_display_name(display_name)?;
+        check_count("pages with hits", pages.len(), MAX_INDEX_PAGES_PER_DOCUMENT)?;
+        if *total_hits > MAX_SEARCH_HITS {
+            return Err(ValidationError::OutOfRange { what: "hits" });
+        }
+        if pages.is_empty() || (*pages_with_hits as usize) < pages.len() {
+            return Err(ValidationError::Invalid {
+                what: "pages with hits",
+                reason: "not as many as listed",
+            });
+        }
+        if !pages
+            .windows(2)
+            .all(|pair| pair[0].page_index < pair[1].page_index)
+        {
+            return Err(ValidationError::Invalid {
+                what: "pages with hits",
+                reason: "not in page order",
+            });
+        }
+        let mut listed: u64 = 0;
+        for page in pages {
+            if page.hits == 0 {
+                return Err(ValidationError::Invalid {
+                    what: "page with hits",
+                    reason: "has none",
+                });
+            }
+            check_page_index(page.page_index, MAX_PAGE_COUNT)?;
+            page.snippet.validate()?;
+            listed += u64::from(page.hits);
+        }
+        if listed > u64::from(*total_hits) {
+            return Err(ValidationError::Invalid {
+                what: "hits",
+                reason: "more on the pages than in the document",
+            });
+        }
+        Ok(())
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::{
         AnnotationId, AnnotationKind, BatesMark, BlockedAction, BookmarkId, DocumentId,
         DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption, FontId, HeaderFooterMarks,
-        HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, PageNumberMark,
+        HighlightColor, HighlightMark, ImageQuality, IndexEntryId, IndexPageHits, InkColor,
+        InkWidth, LinkId, PageNumberMark,
         PictureView, RecentId, Recovery, RequestId, Restrictions, Rgb, Rotation, SecurityFinding,
         StampImageId, StampName, TabId, TextAlign, TextBoxInfo, TextBoxModelId,
         UnverifiableReason, WatermarkPages, WatermarkPlace,
@@ -5033,4 +5140,120 @@ mod tests {
         };
         assert!(args.validate().is_ok());
     }
+
+    #[test]
+    fn an_index_search_needs_a_query_of_bounded_text() {
+        let args = |query: &str| IndexSearchArgs {
+            request: RequestId(1),
+            query: query.to_owned(),
+            case_sensitive: false,
+        };
+        assert!(args("harbour bridge").validate().is_ok());
+        assert!(args("").validate().is_err());
+        assert!(
+            args(&"x".repeat(MAX_QUERY_BYTES as usize + 1))
+                .validate()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn an_index_snippet_is_plain_text_of_bounded_length() {
+        let snippet = |before: &str, matched: &str, after: &str| IndexSnippet {
+            before: before.to_owned(),
+            matched: matched.to_owned(),
+            after: after.to_owned(),
+        };
+        let max = MAX_INDEX_SNIPPET_CHARS as usize;
+        assert!(snippet("the ", "harbour", " bridge").validate().is_ok());
+        assert!(snippet("", "harbour", "").validate().is_ok());
+        assert!(
+            snippet(&"字".repeat(max), "x", &"字".repeat(max))
+                .validate()
+                .is_ok()
+        );
+        assert!(snippet("the ", "", "").validate().is_err());
+        assert!(snippet("a\nb ", "x", "").validate().is_err());
+        assert!(snippet("a  b ", "x", "").validate().is_err());
+        assert!(snippet("", "x", "\u{202E}").validate().is_err());
+        assert!(snippet(&"字".repeat(max + 1), "x", "").validate().is_err());
+        assert!(snippet("", "x", &"a".repeat(max + 1)).validate().is_err());
+        assert!(
+            snippet("", &"x".repeat(MAX_QUERY_BYTES as usize + 1), "")
+                .validate()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn an_index_result_has_a_file_name_and_a_bounded_list_of_pages_in_order() {
+        let page = |page_index, hits| IndexPageHits {
+            page_index,
+            hits,
+            snippet: IndexSnippet {
+                before: "the ".to_owned(),
+                matched: "harbour".to_owned(),
+                after: " bridge".to_owned(),
+            },
+        };
+        let found =
+            |pages: Vec<IndexPageHits>, total_hits, pages_with_hits| IndexSearchEvent::Found {
+                entry: IndexEntryId(1),
+                display_name: "report.pdf".to_owned(),
+                total_hits,
+                pages,
+                pages_with_hits,
+                partial: false,
+            };
+        assert!(found(vec![page(0, 1), page(3, 2)], 3, 2).validate().is_ok());
+        // More hits and pages than listed.
+        assert!(found(vec![page(0, 1), page(3, 2)], 9, 5).validate().is_ok());
+        let done = IndexSearchEvent::Done {
+            documents: 0,
+            found: 0,
+        };
+        assert!(done.validate().is_ok());
+
+        assert!(found(vec![], 1, 1).validate().is_err());
+        assert!(
+            found(vec![page(3, 1), page(0, 1)], 2, 2)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            found(vec![page(0, 1), page(0, 1)], 2, 2)
+                .validate()
+                .is_err()
+        );
+        assert!(found(vec![page(0, 0)], 1, 1).validate().is_err());
+        assert!(found(vec![page(0, 2)], 1, 1).validate().is_err());
+        assert!(
+            found(vec![page(0, 1), page(1, 1)], 2, 1)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            found(vec![page(0, 1)], MAX_SEARCH_HITS + 1, 1)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            found(vec![page(MAX_PAGE_COUNT, 1)], 1, 1)
+                .validate()
+                .is_err()
+        );
+        let many = (0..=MAX_INDEX_PAGES_PER_DOCUMENT)
+            .map(|page_index| page(page_index, 1))
+            .collect();
+        let pages = MAX_INDEX_PAGES_PER_DOCUMENT + 1;
+        assert!(found(many, pages, pages).validate().is_err());
+
+        // A path is not a file name.
+        let mut path = found(vec![page(0, 1)], 1, 1);
+        if let IndexSearchEvent::Found { display_name, .. } = &mut path {
+            *display_name = r"C:\Users\someone\report.pdf".to_owned();
+        }
+        assert!(path.validate().is_err());
+    }
+
 }
