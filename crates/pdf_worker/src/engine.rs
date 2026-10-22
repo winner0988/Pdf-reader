@@ -14,7 +14,7 @@ use ipc_contract::limits::{
 };
 use ipc_contract::types::{
     BlockedAction, DocumentPermissions, ImageQuality, PageText as TextLayer, Point, Quad,
-    Restrictions, SecurityReport,
+    Restrictions, SanitizeOptions, SanitizeReport, SecurityReport,
 };
 use mupdf::pdf::{
     Encryption, InsertPdfOptions, InsertPosition, PageSelection, PdfDocument as MuPdfDocument,
@@ -37,6 +37,7 @@ mod identifier;
 mod ocr;
 mod personal_data;
 mod redaction;
+mod sanitize;
 
 pub use create::{Created, PdfBuilder};
 pub use identifier::write_identifier;
@@ -138,6 +139,8 @@ pub enum EngineError {
     /// (B3-05, ADR 0010).
     #[error("the file was repaired to be opened: nothing can be appended to it")]
     NotAppendable,
+    #[error("the active-content check found remaining items after sanitization")]
+    SanitizeCheckFailed,
     #[error("MuPDF: {0}")]
     MuPdf(#[from] mupdf::Error),
 }
@@ -994,6 +997,54 @@ impl PdfDocument {
         options.set_garbage(true);
         write_limited(&copy, out, options)
     }
+
+    /// Writes to `out` a copy of the document, edits included, sanitized according to `options`
+    /// and with `id` as its identifier (B3-15). The copy is rewritten whole with garbage collection.
+    /// The open document is not changed.
+    /// Refused for an encrypted document and for a signed one.
+    pub fn sanitized_copy(
+        &self,
+        id: &[u8; 16],
+        options: SanitizeOptions,
+        out: &mut impl Write,
+    ) -> Result<(u64, SanitizeReport), EngineError> {
+        if self.is_encrypted() {
+            return Err(EngineError::EncryptedCopy);
+        }
+        if self.is_signed() {
+            return Err(EngineError::Signed);
+        }
+        let mut copy = collected_copy(&self.doc)?;
+        let mut report = sanitize::remove_structures(&mut copy, id, options)?;
+        // What the first phase cut off is no longer used: saved again with garbage collection it
+        // is gone, so the last pass sees, and counts, only what the copy still has.
+        let copy = collected_copy(&copy)?;
+        sanitize::clean_remaining(&copy, options, &mut report)?;
+
+        let check = crate::scan::scan(copy.catalog()?, ScanBudget::default());
+        if !check.scan_complete {
+            return Err(EngineError::TooComplex);
+        }
+        if sanitize::check_failed(&check, options) {
+            return Err(EngineError::SanitizeCheckFailed);
+        }
+
+        let mut write_options = PdfWriteOptions::default();
+        write_options.set_garbage(true);
+        let written = write_limited(&copy, out, write_options)?;
+        Ok((written, report))
+    }
+}
+
+/// `doc` saved into memory with garbage collection and opened again: a separate document without
+/// the objects nothing uses.
+fn collected_copy(doc: &MuPdfDocument) -> Result<MuPdfDocument, EngineError> {
+    let mut write_options = PdfWriteOptions::default();
+    write_options.set_garbage(true);
+    let mut bytes = Vec::new();
+    write_limited(doc, &mut bytes, write_options)?;
+    let copy = Document::from_bytes(&bytes, "application/pdf").map_err(open_error)?;
+    Ok(MuPdfDocument::try_from(copy)?)
 }
 
 impl PdfDocument {

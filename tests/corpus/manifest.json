@@ -476,6 +476,21 @@
       "sha256": "9fa194e402189a7609ba0b28d04618535aa208ac44b4f98145e120cb84c5bb55"
     },
     {
+      "path": "malicious/composite-sanitize.pdf",
+      "category": "malicious",
+      "purpose": "Composite sample with thumbnail, PieceInfo, metadata, attachment, OpenAction JS, and multiple annotations.",
+      "expected": "Sanitizing removes active content and hidden data while preserving web links and form values.",
+      "pages": 1,
+      "findings": [
+        "embeddedFile",
+        "javaScript",
+        "openAction"
+      ],
+      "text": [],
+      "bytes": 3111,
+      "sha256": "7dc09164a2db81f635b924785dc479c20b902e0cfb125e7e2d149718281e68b8"
+    },
+    {
       "path": "malicious/link-javascript-scheme.pdf",
       "category": "malicious",
       "purpose": "URI link with the javascript: scheme.",

@@ -19,7 +19,7 @@ use ipc_contract::ocr::{check_language_data, is_language_name};
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{
     DocumentId, ImageQuality, LinkId, LinkTarget, OutlineItem, OutlineResult, PageLink, PageSize,
-    Password, Rect, RequestId, Restrictions, TextBoxInfo, Watermark,
+    Password, Rect, RequestId, Restrictions, SanitizeOptions, TextBoxInfo, Watermark,
 };
 use ipc_contract::validate::stamp_png_size;
 use ipc_contract::worker::{
@@ -400,6 +400,20 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     "unknown document",
                 ),
                 Some(document) => privacy_copy(document, request, file, &id),
+            }),
+            WorkerRequest::SanitizedCopy {
+                request,
+                doc,
+                file,
+                id,
+                options,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => sanitized_copy(document, request, file, &id, options),
             }),
             WorkerRequest::CompressedCopy {
                 request,
@@ -970,6 +984,30 @@ fn privacy_copy(
     }
 }
 
+fn sanitized_copy(
+    document: &PdfDocument,
+    request: RequestId,
+    file: FileHandle,
+    id: &[u8; 16],
+    options: SanitizeOptions,
+) -> WorkerResponse {
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match document.sanitized_copy(id, options, &mut file) {
+        Ok((bytes, report)) => WorkerResponse::Sanitized {
+            request,
+            bytes,
+            report,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
 /// Writes the pages `pages` of `document` as a Word document (B3-02) to `file`, a handle like
 /// `save`'s.
 fn export_docx(
@@ -1196,7 +1234,9 @@ fn engine_error(
         | EngineError::InvalidPicture(_)
         | EngineError::NoPageLeft
         | EngineError::EncryptedCopy => WorkerErrorCode::InvalidRequest,
-        EngineError::InvalidSource(_) | EngineError::NotAppendable => WorkerErrorCode::Corrupted,
+        EngineError::InvalidSource(_)
+        | EngineError::NotAppendable
+        | EngineError::SanitizeCheckFailed => WorkerErrorCode::Corrupted,
         EngineError::Signed => WorkerErrorCode::Signed,
         EngineError::TooLarge { .. }
         | EngineError::TooComplex

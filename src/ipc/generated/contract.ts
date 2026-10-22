@@ -717,6 +717,32 @@ changed: number,
 partial: boolean, };
 
 /**
+ * What to do with annotations when saving a sanitized copy (B3-15).
+ */
+export type SanitizeAnnotations = "keep" | "remove" | "flatten";
+
+/**
+ * Which items to take out when saving a sanitized copy of a document (B3-15).
+ */
+export type SanitizeOptions = { actions: boolean, attachments: boolean, formScripts: boolean, xfa: boolean, richMedia: boolean, hiddenData: boolean, keepWebLinks: boolean, annotations: SanitizeAnnotations, };
+
+/**
+ * Tally of items removed from a sanitized copy (B3-15).
+ */
+export type SanitizeReport = { actions: number, links: number, attachments: number, formScripts: number, xfa: number, richMedia: number, hiddenData: number, annotations: number, };
+
+/**
+ * Arguments of `sanitize_copy` (B3-15): the open document is sanitized according to `options`
+ * and written to a file the user chooses. Any other field is rejected.
+ */
+export type SanitizeArgs = { doc: DocumentId, options: SanitizeOptions, };
+
+/**
+ * What `sanitize_copy` did (B3-15), for the page to show what was taken out.
+ */
+export type SanitizeResult = { bytes: number, report: SanitizeReport, };
+
+/**
  * What a file is that a PDF is made of (B3-03, docs/architecture/create-pdf.md), which tells
  * MuPDF how to read it. The main process decides it from the file's extension.
  */

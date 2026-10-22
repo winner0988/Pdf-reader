@@ -8,15 +8,15 @@ use crate::engine::EngineError;
 
 /// Entries removed from every dictionary: XMP metadata streams, applications' private data and
 /// modification dates.
-const PRIVATE_ENTRIES: [&str; 3] = ["Metadata", "PieceInfo", "LastModified"];
+pub(crate) const PRIVATE_ENTRIES: [&str; 3] = ["Metadata", "PieceInfo", "LastModified"];
 
 /// Entries of an annotation that name or date whoever made it. A form field's widget is left
 /// alone: its /T is the field's name.
-const AUTHOR_ENTRIES: [&str; 3] = ["T", "M", "CreationDate"];
+pub(crate) const AUTHOR_ENTRIES: [&str; 3] = ["T", "M", "CreationDate"];
 
 /// Most dictionaries and arrays looked at; a document needing more is refused rather than half
 /// cleaned.
-const MAX_NODES: usize = 20_000_000;
+pub const MAX_NODES: usize = 20_000_000;
 
 /// Removes the metadata of `doc` in place and gives it the identifier `id`: no document
 /// information dictionary, none of [`PRIVATE_ENTRIES`] on any object, no page thumbnail, no
@@ -37,6 +37,17 @@ pub fn strip(doc: &PdfDocument, id: &[u8; 16]) -> Result<(), EngineError> {
     // Every object of the file, and the dictionaries and arrays written directly inside each
     // (an annotation or a property list can be one); references lead to objects visited on
     // their own turn.
+    walk_objects(doc, |dict| {
+        clean_dictionary(dict)?;
+        Ok(())
+    })
+}
+
+/// Walks every object of `doc`, and the dictionaries and arrays written directly inside each.
+pub fn walk_objects(
+    doc: &PdfDocument,
+    mut visit_dict: impl FnMut(&mut PdfObject) -> Result<(), EngineError>,
+) -> Result<(), EngineError> {
     let mut nodes = 0usize;
     for number in 1..doc.xref_len()? {
         let Some(object) = doc.xref_object(i32::try_from(number).unwrap_or(i32::MAX))? else {
@@ -49,7 +60,7 @@ pub fn strip(doc: &PdfDocument, id: &[u8; 16]) -> Result<(), EngineError> {
                 return Err(EngineError::TooComplex);
             }
             if node.is_dict()? {
-                clean_dictionary(&mut node)?;
+                visit_dict(&mut node)?;
                 for index in 0..node.dict_len()? {
                     if let Some(value) = node.get_dict_val(index_i32(index))? {
                         push_direct(&mut pending, value)?;
@@ -79,7 +90,7 @@ fn push_direct(pending: &mut Vec<PdfObject>, value: PdfObject) -> Result<(), Eng
     Ok(())
 }
 
-fn clean_dictionary(dict: &mut PdfObject) -> Result<(), EngineError> {
+pub(crate) fn clean_dictionary(dict: &mut PdfObject) -> Result<(), EngineError> {
     for key in PRIVATE_ENTRIES {
         dict.dict_delete(key)?;
     }
@@ -96,7 +107,7 @@ fn clean_dictionary(dict: &mut PdfObject) -> Result<(), EngineError> {
 
 /// An annotation other than a form field's widget: a /Subtype and a /Rect, and a /Type of
 /// /Annot if it says. Fonts, images and forms have a /Subtype too, but no /Rect.
-fn is_annotation(dict: &PdfObject) -> Result<bool, EngineError> {
+pub(crate) fn is_annotation(dict: &PdfObject) -> Result<bool, EngineError> {
     let Some(subtype) = name_of(dict, "Subtype")? else {
         return Ok(false);
     };
@@ -110,7 +121,7 @@ fn is_annotation(dict: &PdfObject) -> Result<bool, EngineError> {
 }
 
 /// The name under `key`, if there is one.
-fn name_of(dict: &PdfObject, key: &str) -> Result<Option<Vec<u8>>, EngineError> {
+pub(crate) fn name_of(dict: &PdfObject, key: &str) -> Result<Option<Vec<u8>>, EngineError> {
     match dict.get_dict(key)? {
         Some(value) if value.is_name()? => Ok(Some(value.as_name()?)),
         _ => Ok(None),

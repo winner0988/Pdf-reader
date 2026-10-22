@@ -482,6 +482,55 @@ export const strings = {
     /** In the menu, in place of the shortcut, when it does not apply. */
     encrypted: "加密的文件不適用",
   },
+  /** Sanitizing a copy (B3-15). */
+  sanitize: {
+    title: "分享前淨化",
+    description: "另存一份清除主動內容與隱藏資料的副本，避免外流或執行未預期的腳本。原本的檔案不會改變。",
+    categoriesTitle: "要清除的項目",
+    actions: "動作與 JavaScript（開啟事件、欄位動作、外部執行等）",
+    attachments: "內嵌檔案與附件",
+    formScripts: "表單腳本（計算與驗證；保留欄位內容與外觀）",
+    xfa: "XFA 動態表單（僅保留標準 PDF 內容）",
+    richMedia: "多媒體內容（影片、聲音、3D）",
+    hiddenData: "隱藏資料（中繼資料、縮圖、私有應用程式資料、註解作者）",
+    keepWebLinks: "保留一般網址連結（http、https、mailto；其他危險 scheme 一律移除）",
+    annotationsTitle: "註解處理",
+    annotations: {
+      keep: "保留註解（不修改註解）",
+      remove: "移除註解（清除所有非連結、非表單欄位的註解）",
+      flatten: "平面化註解（將註解繪製成頁面內容，不可再編輯）",
+    },
+    keptTitle: "不會清除（分享前請自行檢查）",
+    kept: [
+      "頁面上的文字與圖片內容",
+      "圖片本身的 EXIF 中繼資料（如相片中的 GPS 位置）",
+      "隱藏圖層（選用內容群組 OCG）中的內容",
+    ],
+    sensitiveNote: "這份文件標記為機敏文件；清除隱藏資料時，淨化後的副本不會帶有機敏標記。",
+    /** The same, when hidden data is not cleared: the mark is part of the document information. */
+    sensitiveKeptNote: "這份文件標記為機敏文件；沒有清除隱藏資料時，副本仍會帶有機敏標記。",
+    signatures: "已簽章的文件不適用",
+    encrypted: "加密的文件不適用",
+    start: "選擇位置並淨化…",
+    cancel: "取消",
+    /** Not "關閉": the dialog's corner button already has that name. */
+    close: "完成",
+    running: "正在淨化副本…",
+    doneTitle: "淨化完成",
+    doneDescription: "已成功匯出淨化副本，以下為各項目清除數量：",
+    report: {
+      actions: (count: number) => `動作與腳本：${count} 個`,
+      links: (count: number) => `連結：${count} 個`,
+      attachments: (count: number) => `附件檔案：${count} 個`,
+      formScripts: (count: number) => `表單腳本：${count} 個`,
+      xfa: (count: number) => `XFA 項目：${count} 個`,
+      richMedia: (count: number) => `多媒體物件：${count} 個`,
+      hiddenData: (count: number) => `隱藏資料項目：${count} 個`,
+      annotations: (count: number) => `註解：${count} 個`,
+    },
+    noItemsRemoved: "未發現需要清除的項目。",
+    failed: "淨化失敗，未寫出檔案。請檢查檔案是否損毀或仍包含受限主動內容。",
+  },
   /** Encrypting a copy (B2-15). */
   encryption: {
     title: "加密並另存新檔",
@@ -864,6 +913,7 @@ export const strings = {
     export: "匯出…",
     exportAnnotations: "匯出註解摘要…",
     privacyExport: "隱私匯出…",
+    sanitizeCopy: "分享前淨化…",
     encryptCopy: "加密並另存新檔…",
     compressImages: "壓縮圖片並另存新檔…",
     batch: "批次處理…",

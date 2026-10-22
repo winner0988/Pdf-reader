@@ -1242,6 +1242,50 @@ def malicious_embedded_file() -> bytes:
     return doc.build()
 
 
+def malicious_composite_sanitize() -> bytes:
+    doc = Document("composite-sanitize")
+    doc.reserve_pages(1)
+    xmp_meta = doc.pdf.add_stream("/Type /Metadata /Subtype /XML", xmp_packet(PRIVATE_AUTHOR, PRIVATE_TOOL))
+    piece_info = doc.pdf.add(
+        f"<< /SecretWriter << /LastModified (D:20260102030405Z) /Private {pdf_string(PRIVATE_AUTHOR)} >> >>"
+    )
+    thumbnail = doc.pdf.add_stream(
+        "/Width 2 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 8", bytes([0, 255, 255, 0])
+    )
+    data = doc.pdf.add_stream("/Type /EmbeddedFile /Subtype /text#2Fplain", b"composite attachment\n")
+    spec = doc.pdf.add(f"<< /Type /Filespec /F (composite.txt) /UF (composite.txt) /EF << /F {data} 0 R >> >>")
+    file_annot = doc.pdf.add(
+        f"<< /Type /Annot /Subtype /FileAttachment /Rect [200 600 220 620] /FS {spec} 0 R /Contents (Attachment) >>"
+    )
+    note = doc.pdf.add(
+        "<< /Type /Annot /Subtype /Text /Rect [72 600 92 620] /Contents (A sticky note)"
+        f" /T {pdf_string(PRIVATE_AUTHOR)} /M (D:20260102030405Z) /CreationDate (D:20260101000000Z) >>"
+    )
+    square = doc.pdf.add(
+        "<< /Type /Annot /Subtype /Square /Rect [100 500 150 550] /C [1 0 0] /Contents (A square) >>"
+    )
+    link = doc.pdf.add(
+        "<< /Type /Annot /Subtype /Link /Rect [72 400 200 420] /A << /S /URI /URI (https://example.invalid/) >> >>"
+    )
+    field = doc.pdf.add(
+        "<< /Type /Annot /Subtype /Widget /FT /Tx /T (UserName) /V (TestUser) /Rect [72 300 200 320] >>"
+    )
+    doc.set_page(0, Page(
+        lines=[(72, 720, 16, "Composite malicious sample for sanitization")],
+        annots=[note, square, link, file_annot, field],
+        extra=f"/Thumb {thumbnail} 0 R /PieceInfo {piece_info} 0 R",
+    ))
+    doc.catalog_extra = (
+        f" /Metadata {xmp_meta} 0 R /PieceInfo {piece_info} 0 R"
+        f" /OpenAction << /S /JavaScript /JS (app.alert(1)) >>"
+        f" /Names << /EmbeddedFiles << /Names [(composite.txt) {spec} 0 R] >> >>"
+        f" /AcroForm << /Fields [{field} 0 R] >>"
+    )
+    return doc.build(
+        info=f"/Author {pdf_string(PRIVATE_AUTHOR)} /Creator {pdf_string(PRIVATE_TOOL)}",
+    )
+
+
 def link_scheme_sample(name: str, uri: bytes, label: str) -> bytes:
     return link_sample(name, label, uri_action(uri))
 
@@ -1838,6 +1882,10 @@ SAMPLES = [
            "XFA is ignored; finding reported.", 1, ["xfa"]),
     Sample("malicious/embedded-file.pdf", malicious_embedded_file, "Document with an embedded file.",
            "The attachment is never opened or extracted automatically; finding reported.", 1, ["embeddedFile"]),
+    Sample("malicious/composite-sanitize.pdf", malicious_composite_sanitize,
+           "Composite sample with thumbnail, PieceInfo, metadata, attachment, OpenAction JS, and multiple annotations.",
+           "Sanitizing removes active content and hidden data while preserving web links and form values.", 1,
+           ["embeddedFile", "javaScript", "openAction"]),
     Sample("malicious/link-javascript-scheme.pdf",
            lambda: link_scheme_sample("link-javascript-scheme", b"javascript:app.alert(1)", "javascript: URI"),
            "URI link with the javascript: scheme.", "Blocked with an explanation; nothing runs.", 1),

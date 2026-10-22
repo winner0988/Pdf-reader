@@ -8,6 +8,8 @@ import type {
   CompressResult,
   DocumentId,
   EncryptArgs,
+  SanitizeArgs,
+  SanitizeResult,
   SaveResult,
 } from "@/ipc/generated/contract";
 
@@ -36,6 +38,12 @@ export type SavingApi = {
    * closed, else what was done. The document itself does not change.
    */
   compressImages(args: CompressArgs): Promise<CompressResult | null>;
+  /**
+   * Writes a copy of the document without active content or hidden data (B3-15) where the user
+   * says in the system's save dialog, never over its own file: `null` if the dialog was closed,
+   * else what was removed. The document itself does not change.
+   */
+  sanitizeCopy?(args: SanitizeArgs): Promise<SanitizeResult | null>;
 };
 
 export const tauriSavingApi: SavingApi = {
@@ -45,4 +53,5 @@ export const tauriSavingApi: SavingApi = {
   privacyExport: (doc) => invoke<boolean>("privacy_export", { doc }),
   encryptCopy: (args) => invoke<boolean>("encrypt_copy", { args }),
   compressImages: (args) => invoke<CompressResult | null>("compress_images", { args }),
+  sanitizeCopy: (args) => invoke<SanitizeResult | null>("sanitize_copy", { args }),
 };
