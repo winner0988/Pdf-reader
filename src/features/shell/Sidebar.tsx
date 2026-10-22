@@ -28,6 +28,8 @@ type SidebarProps = {
   outlineEditing?: OutlineEditing;
   /** Saving the selected pages as a file of their own (B2-06). */
   savePages?: SavePages;
+  /** A sensitive document (B3-05): its thumbnails are not rendered (B3-10). */
+  sensitive?: boolean;
   /** Whether the document is marked sensitive (B3-05). */
   isSensitive?: boolean;
   /** Security redaction panel (B2-21). */
@@ -50,7 +52,8 @@ export function Sidebar({
   pageEditing,
   outlineEditing,
   savePages,
-  isSensitive,
+  sensitive,
+  isSensitive = sensitive,
   redaction,
 }: SidebarProps) {
   return (
@@ -101,6 +104,7 @@ export function Sidebar({
             onJumpToPage={onJumpToPage}
             editing={pageEditing}
             savePages={savePages}
+            sensitive={sensitive}
           />
         </TabsContent>
         <TabsContent value="attachments" className="min-h-0 flex-1 overflow-auto px-2 pb-2">

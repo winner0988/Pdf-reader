@@ -1195,6 +1195,7 @@ export function ReaderShell({
               pageEditing={pageEditing}
               outlineEditing={outlineEditing}
               savePages={savePages}
+              sensitive={document_.sensitive === true}
               isSensitive={document_.sensitive === true}
               redaction={{
                 marks: redactionMarks,

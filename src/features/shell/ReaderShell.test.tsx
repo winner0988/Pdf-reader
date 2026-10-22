@@ -969,6 +969,36 @@ describe("recently opened files (#73)", () => {
     expect(sensitiveApi.check).toHaveBeenCalledWith(5);
   });
 
+  it("a sensitive file's thumbnails are page frames, never its pages drawn small (B3-10)", async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    const renderer = {
+      render: vi.fn<PageRenderer["render"]>(() => ({ result: new Promise(() => {}), cancel: vi.fn() })),
+    } satisfies PageRenderer;
+    const { user } = renderShell(
+      { kind: "open", document: { ...demoDocument, doc: 5, sensitive: true } },
+      { renderer, sensitiveApi: fakeSensitiveApi() },
+    );
+    await user.click(screen.getByRole("tab", { name: strings.sidebar.thumbnailsTab }));
+    const sidebar = screen.getByRole("complementary", { name: strings.sidebar.label });
+    expect(within(sidebar).getByRole("note")).toHaveTextContent(strings.sidebar.thumbnailsSensitive);
+    const list = within(sidebar).getByRole("listbox", { name: strings.sidebar.thumbnailsTab });
+    expect(within(list).getAllByRole("option").length).toBeGreaterThan(0);
+    expect(list.querySelector("canvas")).toBeNull();
+  });
+
+  it("an ordinary file's thumbnails are its pages drawn small", async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    const renderer = {
+      render: vi.fn<PageRenderer["render"]>(() => ({ result: new Promise(() => {}), cancel: vi.fn() })),
+    } satisfies PageRenderer;
+    const { user } = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { renderer });
+    await user.click(screen.getByRole("tab", { name: strings.sidebar.thumbnailsTab }));
+    const sidebar = screen.getByRole("complementary", { name: strings.sidebar.label });
+    expect(within(sidebar).queryByText(strings.sidebar.thumbnailsSensitive)).toBeNull();
+    const list = within(sidebar).getByRole("listbox", { name: strings.sidebar.thumbnailsTab });
+    expect(list.querySelector("canvas")).not.toBeNull();
+  });
+
   it("an ordinary file can be marked as sensitive from the menu (B3-05)", async () => {
     const sensitiveApi = fakeSensitiveApi();
     const { user } = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { sensitiveApi });

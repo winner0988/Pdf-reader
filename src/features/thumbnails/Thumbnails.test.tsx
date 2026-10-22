@@ -113,6 +113,34 @@ describe("Thumbnails", () => {
     await act(async () => {});
     expect(first).toHaveFocus();
   });
+
+  it("never renders a sensitive document's pages small, and still goes to them (B3-10)", async () => {
+    const { user, onJumpToPage, rerender, list, renderer, pages } = setup();
+    const cancels = renderer.render.mock.results.map((result) => result.value.cancel);
+    expect(cancels.length).toBeGreaterThan(0);
+    expect(list.querySelectorAll("canvas").length).toBe(cancels.length);
+    renderer.render.mockClear();
+
+    // Marked while open: what was drawn goes, the renders on their way stop, and none follows.
+    rerender(
+      <div style={{ height: 600 }}>
+        <Thumbnails pages={pages} doc={4} renderer={renderer} currentPage={1} onJumpToPage={onJumpToPage} requestDelayMs={0} sensitive />
+      </div>,
+    );
+    expect(renderer.render).not.toHaveBeenCalled();
+    expect(cancels.every((cancel) => cancel.mock.calls.length > 0)).toBe(true);
+    expect(list.querySelector("canvas")).toBeNull();
+    expect(screen.getByRole("note")).toHaveTextContent(strings.sidebar.thumbnailsSensitive);
+
+    // Every page is still there to go to.
+    expect(screen.getAllByRole("option").length).toBe(cancels.length);
+    await user.click(screen.getByRole("option", { name: strings.canvas.page(3) }));
+    expect(onJumpToPage).toHaveBeenCalledWith(3);
+    const scroller = list.parentElement!;
+    scroller.scrollTop = 2000;
+    act(() => scroller.dispatchEvent(new Event("scroll")));
+    expect(renderer.render).not.toHaveBeenCalled();
+  });
 });
 
 describe("page management in the thumbnails (B2-05)", () => {

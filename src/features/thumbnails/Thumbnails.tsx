@@ -9,6 +9,8 @@ import {
   type PointerEvent,
 } from "react";
 
+import { FileLock2 } from "lucide-react";
+
 import {
   ContextMenu,
   ContextMenuContent,
@@ -81,6 +83,11 @@ type ThumbnailsProps = {
   editing?: PageEditing;
   /** Saving the selected pages as a file of their own (B2-06); not offered without it. */
   savePages?: SavePages;
+  /**
+   * A sensitive document (B3-05, B3-10): no thumbnail is rendered, so none of its pages is drawn
+   * small or kept; each is a blank page with an icon. Going to, selecting and moving pages work.
+   */
+  sensitive?: boolean;
   /** Delay before a thumbnail that came into view asks for a render; tests pass 0. */
   requestDelayMs?: number;
 };
@@ -110,6 +117,8 @@ function dropBefore(layout: ThumbLayout, y: number): number {
  *
  * Page management (B2-05): Ctrl and Shift select several; the context menu turns, deletes and
  * inserts pages and moves them to a page number; dragging moves them; Delete deletes them.
+ *
+ * A sensitive document's thumbnails are never rendered (B3-10).
  */
 export function Thumbnails({
   pages,
@@ -119,6 +128,7 @@ export function Thumbnails({
   onJumpToPage,
   editing,
   savePages,
+  sensitive = false,
   requestDelayMs = REQUEST_DELAY_MS,
 }: ThumbnailsProps) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -362,6 +372,7 @@ export function Thumbnails({
         page={pages[index]!}
         doc={doc}
         renderer={renderer}
+        sensitive={sensitive}
         current={index === currentPage - 1}
         selected={selected.includes(index)}
         tabbable={index === active}
@@ -400,6 +411,11 @@ export function Thumbnails({
 
   return (
     <div className="flex h-full flex-col">
+      {sensitive && (
+        <p role="note" className="mx-2 mb-1 rounded-md bg-muted px-2 py-1.5 text-xs text-muted-foreground">
+          {strings.sidebar.thumbnailsSensitive}
+        </p>
+      )}
       {selected.length > 1 && (
         <p className="px-3 pt-1 text-xs text-muted-foreground">{t.selected(selected.length)}</p>
       )}
@@ -506,6 +522,8 @@ type ThumbnailProps = {
   page: PageSize;
   doc?: DocumentId;
   renderer?: PageRenderer;
+  /** Not rendered: a blank page with an icon (B3-10). */
+  sensitive: boolean;
   current: boolean;
   selected: boolean;
   /** The list's Tab stop. */
@@ -522,6 +540,7 @@ function Thumbnail({
   page,
   doc,
   renderer,
+  sensitive,
   current,
   selected,
   tabbable,
@@ -534,7 +553,7 @@ function Thumbnail({
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    if (!renderer || doc === undefined) return;
+    if (sensitive || !renderer || doc === undefined) return;
     // Sharp on the screen: as many device pixels as the thumbnail covers.
     const scale = renderScale(box.width / (page.widthPt * CSS_PX_PER_PT), window.devicePixelRatio);
     let job: RenderJob | null = null;
@@ -554,7 +573,7 @@ function Thumbnail({
       window.clearTimeout(timer);
       (job as RenderJob | null)?.cancel();
     };
-  }, [renderer, doc, index, box.width, page.widthPt, delayMs]);
+  }, [sensitive, renderer, doc, index, box.width, page.widthPt, delayMs]);
 
   return (
     <div
@@ -575,7 +594,13 @@ function Thumbnail({
         className="rounded-sm bg-white shadow-sm ring-1 ring-black/10 group-hover:ring-2 group-hover:ring-primary/50 group-aria-[current=page]:ring-3 group-aria-[current=page]:ring-primary"
         style={{ width: box.width, height: box.height }}
       >
-        <canvas ref={canvasRef} aria-hidden className="size-full rounded-sm" />
+        {sensitive ? (
+          <div aria-hidden className="flex size-full items-center justify-center text-muted-foreground">
+            <FileLock2 className="size-8" />
+          </div>
+        ) : (
+          <canvas ref={canvasRef} aria-hidden className="size-full rounded-sm" />
+        )}
       </div>
       <span aria-hidden className="mt-1 text-xs text-muted-foreground">
         {index + 1}
