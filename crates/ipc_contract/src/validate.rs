@@ -13,9 +13,10 @@ use crate::ocr::is_language_name;
 use crate::text::{classify_uri, is_clean_copy_text, is_clean_display_text, is_note_text};
 use crate::types::{
     AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind, BatchArgs, BatchOperation,
-    CompressArgs, DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs, ExportFormat, FindingKind,
-    FontImport, FontInfo, FormField, IpcError, LinkTarget, OcrLanguages, OcrProgress, OpenEvent,
-    OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Point,
+    CompressArgs, DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs, ExportFormat,
+    FindPersonalDataQuery, FindingKind, FontImport, FontInfo, FormField, IpcError, LinkTarget,
+    OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink,
+    PageSize, PageText, Password, PersonalDataMatch, PersonalDataMatches, Point,
     PrepareTextBoxArgs, Quad, RecentFile, Rect, RedactionSummary, RemoveFontArgs,
     RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation, SearchArgs, SearchHit,
     SecurityReport, SensitiveArgs, SensitiveFile, Settings, SignatureInfo, SignatureReport,
@@ -444,6 +445,7 @@ impl Validate for WorkerResponse {
             WorkerResponse::Signatures { report, .. } => report.validate(),
             WorkerResponse::RedactionSummary { summary, .. } => summary.validate(),
             WorkerResponse::AnnotationSummary { summary, .. } => summary.validate(),
+            WorkerResponse::PersonalDataMatches { matches, .. } => matches.validate(),
             WorkerResponse::TextBoxPrepared { model, .. } => model.validate(),
             WorkerResponse::FontInspected { faces, .. } => {
                 if faces.is_empty() {
@@ -1138,6 +1140,78 @@ impl Validate for RedactionSummary {
             });
         }
         Ok(())
+    }
+}
+
+impl Validate for FindPersonalDataQuery {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_count("personal data categories", self.categories.len(), 10)?;
+        // The keyword is looked for only under its own category: one without the other would
+        // quietly find nothing.
+        let wants_keyword = self
+            .categories
+            .contains(&crate::types::PersonalDataCategory::Keyword);
+        if wants_keyword != self.keyword.is_some() {
+            return Err(ValidationError::Invalid {
+                what: "personal data keyword",
+                reason: "keyword and its category must come together",
+            });
+        }
+        if let Some(ref keyword) = self.keyword {
+            if keyword.trim().is_empty() {
+                return Err(ValidationError::Invalid {
+                    what: "personal data keyword",
+                    reason: "empty",
+                });
+            }
+            check_text(
+                "personal data keyword",
+                keyword,
+                MAX_PERSONAL_DATA_KEYWORD_BYTES as u32,
+            )?;
+        }
+        Ok(())
+    }
+}
+
+impl Validate for PersonalDataMatch {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.page >= MAX_PAGE_COUNT {
+            return Err(ValidationError::OutOfRange {
+                what: "personal data match page",
+            });
+        }
+        if self.rects.is_empty() {
+            return Err(ValidationError::Invalid {
+                what: "personal data match",
+                reason: "no rects",
+            });
+        }
+        check_count(
+            "personal data match rects",
+            self.rects.len(),
+            MAX_QUADS_PER_HIT,
+        )?;
+        self.rects.iter().try_for_each(Rect::validate)?;
+        check_text(
+            "personal data match preview",
+            &self.preview,
+            MAX_PERSONAL_DATA_PREVIEW_BYTES as u32,
+        )?;
+        Ok(())
+    }
+}
+
+impl Validate for PersonalDataMatches {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_count(
+            "personal data matches",
+            self.matches.len(),
+            MAX_PERSONAL_DATA_MATCHES,
+        )?;
+        self.matches
+            .iter()
+            .try_for_each(PersonalDataMatch::validate)
     }
 }
 
@@ -3630,6 +3704,65 @@ mod tests {
         ] {
             assert!(wrong.validate().is_err(), "{wrong:?}");
         }
+    }
+
+    #[test]
+    fn personal_data_query_and_matches_are_checked() {
+        use crate::types::PersonalDataCategory;
+        let valid_query = FindPersonalDataQuery {
+            categories: vec![
+                PersonalDataCategory::TaiwanId,
+                PersonalDataCategory::MobilePhone,
+                PersonalDataCategory::Keyword,
+            ],
+            keyword: Some("needle".to_owned()),
+        };
+        assert!(valid_query.validate().is_ok());
+
+        let keyword_without_category = FindPersonalDataQuery {
+            categories: vec![PersonalDataCategory::TaiwanId],
+            keyword: Some("needle".to_owned()),
+        };
+        assert!(keyword_without_category.validate().is_err());
+
+        let category_without_keyword = FindPersonalDataQuery {
+            categories: vec![PersonalDataCategory::Keyword],
+            keyword: None,
+        };
+        assert!(category_without_keyword.validate().is_err());
+
+        let empty_kw_query = FindPersonalDataQuery {
+            categories: vec![PersonalDataCategory::Keyword],
+            keyword: Some("   ".to_owned()),
+        };
+        assert!(empty_kw_query.validate().is_err());
+
+        let valid_match = PersonalDataMatch {
+            category: PersonalDataCategory::TaiwanId,
+            page: 0,
+            rects: vec![Rect {
+                x0: 10.0,
+                y0: 10.0,
+                x1: 100.0,
+                y1: 30.0,
+            }],
+            preview: "A12****789".to_owned(),
+        };
+        assert!(valid_match.validate().is_ok());
+
+        let no_rects = PersonalDataMatch {
+            category: PersonalDataCategory::TaiwanId,
+            page: 0,
+            rects: vec![],
+            preview: "A12****789".to_owned(),
+        };
+        assert!(no_rects.validate().is_err());
+
+        let matches = PersonalDataMatches {
+            matches: vec![valid_match],
+            has_more: false,
+        };
+        assert!(matches.validate().is_ok());
     }
 
     #[test]

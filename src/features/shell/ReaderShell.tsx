@@ -19,6 +19,7 @@ import { createAnnotationSource, type AnnotationsApi } from "@/features/annotati
 import { pictureRectAt, redactionRectAt, stampRectAt, type Tool } from "@/features/annotations/tools";
 import { useAnnotations } from "@/features/annotations/useAnnotations";
 import { RedactionConfirmDialog } from "@/features/redaction/RedactionConfirmDialog";
+import { FindPersonalDataDialog } from "@/features/redaction/FindPersonalDataDialog";
 import { rectOfQuad, type RedactionMarkItem } from "@/features/redaction/model";
 import { FieldEdits, until } from "@/features/forms/edits";
 import { FlattenDialog } from "@/features/forms/FlattenDialog";
@@ -91,6 +92,7 @@ import type {
   LinkTarget,
   PageLink,
   PagesSource,
+  PersonalDataMatch,
   RedactionSummary,
   SaveResult,
   StampName,
@@ -304,6 +306,7 @@ export function ReaderShell({
   const [redactionSummary, setRedactionSummary] = useState<RedactionSummary | null>(null);
   const [redactionMarks, setRedactionMarks] = useState<RedactionMarkItem[]>([]);
   const [redactionConfirmOpen, setRedactionConfirmOpen] = useState(false);
+  const [findPersonalDataOpen, setFindPersonalDataOpen] = useState(false);
   const pageInputRef = useRef<HTMLInputElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLElement>(null);
@@ -1014,6 +1017,25 @@ export function ReaderShell({
     }
   };
 
+  // Each edit gives the document a new id, so every mark goes to the document as it is then.
+  const addRedactionsFromPersonalData = async (matches: PersonalDataMatch[]) => {
+    if (!editingApi || doc === undefined || !redactionAllowed) return;
+    try {
+      for (const match of matches) {
+        for (const rect of match.rects) {
+          await editingApi.applyEdit(latestDocument()?.doc ?? doc, {
+            kind: "addRedaction",
+            page: match.page,
+            rect,
+          });
+        }
+      }
+      showHint(strings.redaction.findPersonalDataDialog.markedSuccess(matches.length));
+    } catch {
+      showHint(strings.redaction.findPersonalDataDialog.markFailed);
+    }
+  };
+
   return (
     <TooltipProvider>
       <div ref={shellRef} className="flex h-full flex-col bg-background text-foreground">
@@ -1149,6 +1171,7 @@ export function ReaderShell({
                 onDeleteAll: deleteAllRedactions,
                 onDeleteMark: deleteRedactionMark,
                 onApply: () => setRedactionConfirmOpen(true),
+                onOpenFindPersonalData: () => setFindPersonalDataOpen(true),
               }}
             />
           )}
@@ -1397,6 +1420,17 @@ export function ReaderShell({
         onConfirm={() => void confirmApplyRedactions()}
         onCancel={() => setRedactionConfirmOpen(false)}
       />
+      {/* Mounted only while open: results found before an edit could point at moved pages. */}
+      {findPersonalDataOpen && (
+        <FindPersonalDataDialog
+          open
+          onOpenChange={setFindPersonalDataOpen}
+          doc={doc}
+          annotationsApi={annotationsApi}
+          onAddRedactions={addRedactionsFromPersonalData}
+          onJumpToPage={goToPage}
+        />
+      )}
       {annotations.note && (
         <NoteDialog
           initial={annotations.note.kind === "edit" ? (annotations.note.annotation.text ?? "") : null}

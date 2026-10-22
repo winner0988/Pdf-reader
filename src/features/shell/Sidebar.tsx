@@ -103,6 +103,7 @@ export function Sidebar({
               onDeleteAll={redaction.onDeleteAll}
               onDeleteMark={redaction.onDeleteMark}
               onApply={redaction.onApply}
+              onOpenFindPersonalData={redaction.onOpenFindPersonalData}
             />
           )}
         </TabsContent>

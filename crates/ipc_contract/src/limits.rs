@@ -276,3 +276,14 @@ pub const MAX_ANNOTATION_SUMMARY_TEXT_BYTES: u32 = 32 * 1024;
 /// Most text in a summary of annotations in all (B3-18), in UTF-8 bytes; the summary says it
 /// stops there.
 pub const MAX_ANNOTATION_SUMMARY_TOTAL_BYTES: u32 = 4 * 1024 * 1024;
+
+/// Most personal data matches reported across the document (Issue #302). A document with
+/// thousands of matches could overwhelm IPC buffers and UI rendering; 1,000 matches is plenty
+/// for a user to review and batch redact. If exceeded, `has_more` is true.
+pub const MAX_PERSONAL_DATA_MATCHES: u32 = 1_000;
+
+/// Longest custom keyword for personal data matching (Issue #302), in UTF-8 bytes.
+pub const MAX_PERSONAL_DATA_KEYWORD_BYTES: usize = 1_024;
+
+/// Longest masked preview string sent for one personal data match (Issue #302), in UTF-8 bytes.
+pub const MAX_PERSONAL_DATA_PREVIEW_BYTES: usize = 128;

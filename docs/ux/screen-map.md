@@ -411,6 +411,12 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
   - 沒有標記時顯示 redaction.noMarks。
   - 有標記時顯示標記總數與頁數摘要（redaction.marksSummary），下方依頁碼分組列出（redaction.pageMarks），點擊可跳到該頁並提供單筆刪除按鈕。
   - 「全部刪除」（redaction.deleteAll）一鍵清空所有待遮蔽標記。
+  - 「找出個資…」（redaction.findPersonalData）開啟「找出個資並標記遮蔽」對話框（redaction.findPersonalDataDialog.*）：
+    - 可勾選搜尋身分證字號／新式居留證、手機號碼、市話號碼、電子郵件、信用卡卡號、統一編號，亦可輸入自訂關鍵字；
+    - 點擊「開始搜尋」後在 worker 記憶體中搜尋比對（上限 1,000 筆，超過時提示 redaction.findPersonalDataDialog.hasMoreCaveat）；
+    - 結果清單顯示類別、頁碼（點擊跳至該頁）、遮蔽預覽；支援全選／取消全選；
+    - 點擊「標記勾選項目」將選取的項目批次新增為待遮蔽標記（Edit::AddRedaction，每一行一個標記），不自動套用；完成後狀態列顯示 redaction.findPersonalDataDialog.markedSuccess，失敗時顯示 markFailed。
+    - 對話框每次打開都是新的：上一次的結果不保留（之後的編輯可能已經移動頁面）。
   - 「套用遮蔽…」（redaction.apply）開啟確認對話框；沒有標記時停用。
 - **套用遮蔽確認對話框**（redaction.dialog.title）：
   - 說明即將套用之頁面數與標記數（redaction.dialog.summary）。
@@ -1210,6 +1216,31 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | redaction.dialog.undoCaveat | 套用後可透過復原（Ctrl+Z）取消，但僅能復原到存檔為止；一旦存檔，檔案中的內容將徹底移除，無法復原。 |
 | redaction.dialog.diskCaveat | 存檔不會抹除磁碟上舊檔案的位元組；若要避免在磁碟殘留舊資料，請「另存新檔」存成新檔案，再自行以安全抹除工具處理原檔案。 |
 | redaction.dialog.cancel／confirm | 取消／確認套用 |
+| redaction.findPersonalData | 找出個資… |
+| redaction.findPersonalDataDialog.title | 找出個資並標記遮蔽 |
+| redaction.findPersonalDataDialog.description | 在文件中找出符合規則的個資或自訂關鍵字。比對只在這台電腦的記憶體中進行；清單只顯示遮住一部分的預覽，完整內容不會寫入任何記錄。 |
+| redaction.findPersonalDataDialog.categoriesLabel | 搜尋類別 |
+| redaction.findPersonalDataDialog.categories.taiwanId | 身分證字號／新式居留證 |
+| redaction.findPersonalDataDialog.categories.mobilePhone | 手機號碼（09 開頭） |
+| redaction.findPersonalDataDialog.categories.landlinePhone | 市話號碼 |
+| redaction.findPersonalDataDialog.categories.email | 電子郵件 |
+| redaction.findPersonalDataDialog.categories.creditCard | 信用卡卡號 |
+| redaction.findPersonalDataDialog.categories.unifiedBusinessNumber | 統一編號 |
+| redaction.findPersonalDataDialog.badges.taiwanId／mobilePhone／landlinePhone／email／creditCard／unifiedBusinessNumber／keyword | 身分證／居留證、手機、市話、電子郵件、信用卡、統編、關鍵字（結果清單每一筆的類別） |
+| redaction.findPersonalDataDialog.customKeywordLabel | 自訂關鍵字 |
+| redaction.findPersonalDataDialog.customKeywordPlaceholder | 輸入欲搜尋的關鍵字… |
+| redaction.findPersonalDataDialog.startSearch | 開始搜尋 |
+| redaction.findPersonalDataDialog.searching | 搜尋中… |
+| redaction.findPersonalDataDialog.noMatches | 未找到符合的個資或關鍵字。 |
+| redaction.findPersonalDataDialog.matchesFound(count) | 找到 <count> 筆符合項目 |
+| redaction.findPersonalDataDialog.hasMoreCaveat | 結果已達 1,000 筆上限，可能有更多符合項目未列出。 |
+| redaction.findPersonalDataDialog.selectAll／deselectAll | 全選／取消全選 |
+| redaction.findPersonalDataDialog.pageLabel(page) | 第 <page> 頁 |
+| redaction.findPersonalDataDialog.markSelected(count) | 標記勾選項目（<count>） |
+| redaction.findPersonalDataDialog.cancel／close | 取消／關閉 |
+| redaction.findPersonalDataDialog.failed | 搜尋個資失敗，請稍後再試。 |
+| redaction.findPersonalDataDialog.markedSuccess(count) | 已將 <count> 筆項目新增為待遮蔽標記。 |
+| redaction.findPersonalDataDialog.markFailed | 標記遮蔽失敗，部分項目可能沒有標記；請在遮蔽清單確認。 |
 
 ### 掃描頁的文字辨識（B2-10）
 

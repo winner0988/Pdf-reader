@@ -10,11 +10,12 @@ use serde::{Deserialize, Serialize};
 use crate::PROTOCOL_VERSION;
 use crate::types::{
     AnnotationId, AnnotationSummary, CreateKind, DocumentId, DocumentPermissions, Edit, ErrorCode,
-    FieldId, FontRefusal, FormField, HighlightColor, HighlightMark, ImageQuality, InkColor,
-    InkWidth, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, Point, Rect,
-    RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SearchHit,
-    SecurityReport, SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo,
-    TextBoxModelId, TextBoxStyle, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    FieldId, FindPersonalDataQuery, FontRefusal, FormField, HighlightColor, HighlightMark,
+    ImageQuality, InkColor, InkWidth, OutlineResult, PageAnnotation, PageLink, PageSize, PageText,
+    Password, PersonalDataMatches, Point, Rect, RedactionCheck, RedactionSummary, RequestId,
+    Restrictions, Rgb, Rotation, SearchHit, SecurityReport, SignatureReport, SourceId,
+    StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle, Watermark,
+    WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -500,6 +501,12 @@ pub enum WorkerRequest {
         request: RequestId,
         doc: DocumentId,
     },
+    /// Finds personal data matching `query` in `doc` (Issue #302). Answered by `PersonalDataMatches`.
+    FindPersonalData {
+        request: RequestId,
+        doc: DocumentId,
+        query: FindPersonalDataQuery,
+    },
     /// One page as a PNG file, unturned, for exporting (B2-04).
     RenderPng {
         request: RequestId,
@@ -789,6 +796,11 @@ pub enum WorkerResponse {
     RedactionSummary {
         request: RequestId,
         summary: RedactionSummary,
+    },
+    /// `FindPersonalData` is answered (Issue #302).
+    PersonalDataMatches {
+        request: RequestId,
+        matches: PersonalDataMatches,
     },
     PageText {
         request: RequestId,
