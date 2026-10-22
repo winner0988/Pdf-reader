@@ -32,14 +32,14 @@ use windows_sys::Win32::Security::Cryptography::{
     CERT_NAME_SIMPLE_DISPLAY_TYPE, CERT_NCRYPT_KEY_SPEC, CERT_NON_REPUDIATION_KEY_USAGE,
     CMSG_CONTENT_PARAM, CMSG_DETACHED_FLAG, CMSG_SIGNED, CMSG_SIGNED_ENCODE_INFO,
     CMSG_SIGNER_ENCODE_INFO, CMSG_SIGNER_ENCODE_INFO_0, CRYPT_ACQUIRE_ALLOW_NCRYPT_KEY_FLAG,
-    CRYPT_ACQUIRE_SILENT_FLAG, CRYPT_ALGORITHM_IDENTIFIER, CRYPT_ATTRIBUTE, CRYPT_INTEGER_BLOB,
-    CertCloseStore, CertFindCertificateInStore, CertFreeCertificateChain,
-    CertFreeCertificateContext, CertGetCertificateChain, CertGetIntendedKeyUsage,
-    CertGetNameStringW, CertVerifyTimeValidity, CryptAcquireCertificatePrivateKey,
-    CryptEncodeObject, CryptMsgClose, CryptMsgGetParam, CryptMsgOpenToEncode, CryptMsgUpdate,
-    CryptReleaseContext, HCERTSTORE, NCryptFreeObject, PFXImportCertStore, PKCS_7_ASN_ENCODING,
-    PKCS12_ALWAYS_CNG_KSP, PKCS12_NO_PERSIST_KEY, X509_ASN_ENCODING, szOID_COMMON_NAME,
-    szOID_NIST_sha256, szOID_RSA_signingTime,
+    CRYPT_ACQUIRE_CACHE_FLAG, CRYPT_ACQUIRE_SILENT_FLAG, CRYPT_ALGORITHM_IDENTIFIER,
+    CRYPT_ATTRIBUTE, CRYPT_INTEGER_BLOB, CertCloseStore, CertFindCertificateInStore,
+    CertFreeCertificateChain, CertFreeCertificateContext, CertGetCertificateChain,
+    CertGetIntendedKeyUsage, CertGetNameStringW, CertVerifyTimeValidity,
+    CryptAcquireCertificatePrivateKey, CryptEncodeObject, CryptMsgClose, CryptMsgGetParam,
+    CryptMsgOpenToEncode, CryptMsgUpdate, CryptReleaseContext, HCERTSTORE, NCryptFreeObject,
+    PFXImportCertStore, PKCS_7_ASN_ENCODING, PKCS12_ALWAYS_CNG_KSP, PKCS12_NO_PERSIST_KEY,
+    X509_ASN_ENCODING, szOID_COMMON_NAME, szOID_NIST_sha256, szOID_RSA_signingTime,
 };
 use zeroize::Zeroizing;
 
@@ -284,11 +284,15 @@ impl Signer {
         let mut spec = 0;
         let mut release = 0;
         // SAFETY: a live certificate context, and three places for what the call gives. Silent:
-        // a key from a file needs no PIN, and nothing is shown.
+        // a key from a file needs no PIN, and nothing is shown. Cached: a key kept only in memory
+        // is on the certificate as its key context (it has no provider to open it by), which
+        // Windows gives only to a caller that takes the cached key; the certificate frees it.
         let acquired = unsafe {
             CryptAcquireCertificatePrivateKey(
                 certificate.0,
-                CRYPT_ACQUIRE_ALLOW_NCRYPT_KEY_FLAG | CRYPT_ACQUIRE_SILENT_FLAG,
+                CRYPT_ACQUIRE_CACHE_FLAG
+                    | CRYPT_ACQUIRE_ALLOW_NCRYPT_KEY_FLAG
+                    | CRYPT_ACQUIRE_SILENT_FLAG,
                 null(),
                 &mut handle,
                 &mut spec,
