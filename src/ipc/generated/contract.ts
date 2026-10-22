@@ -1062,6 +1062,59 @@ export type UnverifiableReason = "unsupportedFormat" | "unsupportedAlgorithm" | 
 export type Certification = "noChanges" | "fillForms" | "fillFormsAndAnnotate";
 
 /**
+ * Whether the document shown can be signed (B3-06, ADR 0020, docs/architecture/signing.md):
+ * asked when the dialog opens. The first reason it cannot be, or that it can.
+ */
+export type SignCheck = "ready" | "encrypted" | "unsaved" | "certified";
+
+/**
+ * A corner of a page, as the page is shown (B3-06).
+ */
+export type PageCorner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
+
+/**
+ * Where a visible signature goes (B3-06): a box with the signer, the date and the reason, in a
+ * corner of a page.
+ */
+export type SignaturePlace = { pageIndex: number, corner: PageCorner, };
+
+/**
+ * The certificate file chosen for signing (B3-06, ADR 0020): its number and its name, for
+ * display. The main process keeps the file; the page never gets its path.
+ */
+export type SigningFile = { file: number, name: string, };
+
+/**
+ * Arguments of `sign_document` (B3-06, ADR 0020).
+ */
+export type SignArgs = { doc: DocumentId, 
+/**
+ * The certificate file chosen last (`SigningFile::file`).
+ */
+file: number, 
+/**
+ * The certificate file's password: it goes to Windows once, and is wiped.
+ */
+password: Password, 
+/**
+ * Where a visible signature goes; none: the signature is seen on no page.
+ */
+place: SignaturePlace | null, 
+/**
+ * Why the document is signed, as the signer says; none: not said.
+ */
+reason: string | null, 
+/**
+ * The computer's time zone, in minutes east of UTC, for the time the signature gives.
+ */
+utcOffsetMinutes: number, };
+
+/**
+ * What `sign_document` did (B3-06): the name of the signed copy, which opens in a tab of its own.
+ */
+export type SignResult = { name: string, };
+
+/**
  * An open document as the frontend sees it.
  */
 export type DocumentInfo = { doc: DocumentId, 
@@ -1253,7 +1306,7 @@ edges: Array<number>, };
 /**
  * Error codes the frontend maps to localized messages.
  */
-export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "signed" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "credentialsUnavailable" | "pictureNotCleaned" | "internal";
+export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "signed" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "credentialsUnavailable" | "pictureNotCleaned" | "certificateUnreadable" | "certificateExpired" | "certificateNotYetValid" | "certificateNotForSigning" | "signatureTooLarge" | "signatureNotValid" | "internal";
 
 /**
  * Rejection value of every command. `message` is for logs and must not contain paths or
@@ -1412,6 +1465,7 @@ export const LIMITS = {
   maxAttachments: 1000,
   maxAttachmentNameBytes: 255,
   maxAttachmentDescBytes: 1024,
+  maxSigningReasonBytes: 256,
   protocolVersion: 0,
 } as const;
 

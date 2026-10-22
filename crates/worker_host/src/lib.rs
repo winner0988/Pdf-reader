@@ -21,7 +21,9 @@ use ipc_contract::types::{
     Restrictions, SanitizeOptions, Watermark,
 };
 use ipc_contract::validate::Validate;
-use ipc_contract::worker::{CreateSource, FileHandle, WorkerError, WorkerRequest, WorkerResponse};
+use ipc_contract::worker::{
+    CreateSource, FileHandle, NewSignature, WorkerError, WorkerRequest, WorkerResponse,
+};
 use sandbox::{SandboxConfig, Sandboxed};
 use thiserror::Error;
 
@@ -267,6 +269,32 @@ impl WorkerHost {
             file: FileHandle(handle),
             identifier,
             password,
+        })
+    }
+
+    /// Writes to `file`, as [`save`](Self::save) does, the file `doc` was opened from or last
+    /// saved to, with a signature field that says `signature` and keeps room for the signature
+    /// (B3-06, ADR 0020). Returns `SignaturePrepared`: where the room is. The document itself
+    /// does not change.
+    pub fn prepare_signature(
+        &mut self,
+        doc: DocumentId,
+        file: &File,
+        signature: NewSignature,
+    ) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_write_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::PrepareSignature {
+            request,
+            doc,
+            file: FileHandle(handle),
+            signature,
         })
     }
 
@@ -792,6 +820,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::Saved { request, .. }
         | WorkerResponse::Sanitized { request, .. }
         | WorkerResponse::Compressed { request, .. }
+        | WorkerResponse::SignaturePrepared { request, .. }
         | WorkerResponse::ExifCleaned { request, .. }
         | WorkerResponse::Created { request, .. }
         | WorkerResponse::Attachments { request, .. }

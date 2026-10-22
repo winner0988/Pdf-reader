@@ -24,7 +24,7 @@ use crate::types::{
     PersonalDataMatches, Point, PrepareTextBoxArgs, Quad, RasterRegion, RecentFile, Rect,
     RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation,
     SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult, SaveAttachmentResult, SearchArgs,
-    SearchHit, SecurityReport, SensitiveArgs, SensitiveFile, Settings, SignatureInfo,
+    SearchHit, SecurityReport, SensitiveArgs, SensitiveFile, Settings, SignArgs, SignatureInfo,
     SignatureReport, SignatureStatus, TextBoxInfo, TextBoxStyle, TextLine, UndoArgs, UnlockArgs,
     UnlockSourceArgs, Watermark, WatermarkContent,
 };
@@ -507,6 +507,27 @@ impl Validate for WorkerResponse {
                 if *bytes == 0 || *bytes > MAX_DOCUMENT_BYTES {
                     return Err(ValidationError::OutOfRange {
                         what: "saved file size",
+                    });
+                }
+                Ok(())
+            }
+            // The room for the signature is as large as the main process asked, and inside the
+            // file, with something before it and after it: the rest of the dictionary.
+            WorkerResponse::SignaturePrepared {
+                bytes,
+                contents_start,
+                contents_end,
+                ..
+            } => {
+                let room = 2 * u64::from(SIGNATURE_RESERVE_BYTES) + 2;
+                if *bytes == 0
+                    || *bytes > MAX_DOCUMENT_BYTES
+                    || *contents_start == 0
+                    || contents_end.checked_sub(*contents_start) != Some(room)
+                    || *contents_end >= *bytes
+                {
+                    return Err(ValidationError::OutOfRange {
+                        what: "room for the signature",
                     });
                 }
                 Ok(())
@@ -1967,6 +1988,35 @@ impl Validate for SensitiveArgs {
     fn validate(&self) -> Result<(), ValidationError> {
         self.password.as_ref().map_or(Ok(()), check_password)
     }
+}
+
+/// The farthest a time zone is from UTC, in minutes (UTC+14:00; the farthest west is -12:00).
+const MAX_UTC_OFFSET_MINUTES: i16 = 14 * 60;
+
+impl Validate for SignArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_password(&self.password)?;
+        if let Some(reason) = &self.reason {
+            check_signing_text("signing reason", reason, MAX_SIGNING_REASON_BYTES)?;
+        }
+        if !(-MAX_UTC_OFFSET_MINUTES..=MAX_UTC_OFFSET_MINUTES).contains(&self.utc_offset_minutes) {
+            return Err(ValidationError::OutOfRange { what: "time zone" });
+        }
+        Ok(())
+    }
+}
+
+/// Words a signature gives (B3-06): its reason, or its signer as the certificate names them. One
+/// line of plain words: some, bounded, without line breaks, controls or invisible formatting.
+pub fn check_signing_text(what: &'static str, text: &str, max: u32) -> Result<(), ValidationError> {
+    check_text(what, text, max)?;
+    if text.trim().is_empty() || !is_clean_display_text(text) || text.contains(['\n', '\r']) {
+        return Err(ValidationError::Invalid {
+            what,
+            reason: "not one line of plain words",
+        });
+    }
+    Ok(())
 }
 
 /// Text the page copies from a sensitive document (B3-05), which the main process puts on the
@@ -4632,6 +4682,66 @@ mod tests {
         let mut over = full;
         over.push(item(AnnotationSummaryKind::Highlight, "x"));
         assert!(summary(over).validate().is_err());
+    }
+
+    #[test]
+    fn signing_takes_a_password_one_line_of_reason_and_a_time_zone() {
+        let args = |password: &str, reason: Option<&str>, utc_offset_minutes: i16| SignArgs {
+            doc: DocumentId(1),
+            file: 1,
+            password: Password::new(password.to_owned()),
+            place: None,
+            reason: reason.map(str::to_owned),
+            utc_offset_minutes,
+        };
+        assert!(args("secret", None, 480).validate().is_ok());
+        assert!(args("secret", Some("同意本合約"), -720).validate().is_ok());
+        assert!(args("secret", Some("x"), 840).validate().is_ok());
+        assert!(args("", None, 0).validate().is_err());
+        assert!(args("a\0b", None, 0).validate().is_err());
+        for reason in [
+            "",
+            "  ",
+            "line\nbreak",
+            "\u{202E}reversed",
+            &"x".repeat(257),
+        ] {
+            assert!(
+                args("secret", Some(reason), 0).validate().is_err(),
+                "{reason:?}"
+            );
+        }
+        assert!(args("secret", None, 841).validate().is_err());
+        assert!(args("secret", None, -841).validate().is_err());
+        // The page sends nothing else: no path of a certificate, no signer.
+        let json = r#"{"doc":1,"file":1,"password":"p","place":{"pageIndex":0,"corner":"bottomRight"},"reason":null,"utcOffsetMinutes":0}"#;
+        assert!(serde_json::from_str::<SignArgs>(json).is_ok());
+        let more = r#"{"doc":1,"file":1,"password":"p","place":null,"reason":null,"utcOffsetMinutes":0,"path":"C:/x.pfx"}"#;
+        assert!(serde_json::from_str::<SignArgs>(more).is_err());
+        let corner = r#"{"doc":1,"file":1,"password":"p","place":{"pageIndex":0,"corner":"middle"},"reason":null,"utcOffsetMinutes":0}"#;
+        assert!(serde_json::from_str::<SignArgs>(corner).is_err());
+    }
+
+    #[test]
+    fn the_room_for_a_signature_is_as_large_as_asked_and_inside_the_file() {
+        let room = 2 * u64::from(SIGNATURE_RESERVE_BYTES) + 2;
+        let prepared = |bytes: u64, contents_start: u64, contents_end: u64| {
+            WorkerResponse::SignaturePrepared {
+                request: RequestId(1),
+                bytes,
+                contents_start,
+                contents_end,
+            }
+            .validate()
+        };
+        assert!(prepared(room + 1_000, 500, 500 + room).is_ok());
+        assert!(prepared(room + 1_000, 500, 501 + room).is_err());
+        assert!(prepared(room + 1_000, 500, 499 + room).is_err());
+        assert!(prepared(room + 1_000, 0, room).is_err());
+        assert!(prepared(room + 500, 500, 500 + room).is_err());
+        assert!(prepared(room + 1_000, 1_000, 1_000 + room).is_err());
+        assert!(prepared(MAX_DOCUMENT_BYTES + 1, 500, 500 + room).is_err());
+        assert!(prepared(10, u64::MAX - 1, 5).is_err());
     }
 
     #[test]

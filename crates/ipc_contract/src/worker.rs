@@ -12,9 +12,9 @@ use crate::types::{
     AnnotationId, AnnotationSummary, AttachmentId, AttachmentSource, BatesMark, BookmarkId,
     CreateKind, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FindPersonalDataQuery,
     FontRefusal, FormField, HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality,
-    InkColor, InkWidth, OutlineResult, PageAnnotation, PageLink, PageMarkPages, PageMarkPosition,
-    PageMarks, PageNumberFormat, PageNumberMark, PageSize, PageText, Password, PersonalDataMatches,
-    Point,
+    InkColor, InkWidth, OutlineResult, PageAnnotation, PageCorner, PageLink, PageMarkPages,
+    PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark, PageSize, PageText, Password,
+    PersonalDataMatches, Point,
     RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation,
     SanitizeOptions, SanitizeReport, SearchHit, SecurityReport, SignatureReport, SourceId,
     StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle, Watermark,
@@ -152,6 +152,42 @@ mod hex_when_text {
             .collect::<Option<Vec<u8>>>()
             .ok_or_else(|| D::Error::custom("not lowercase hex"))
     }
+}
+
+/// What a signed copy says of its signature, besides the room for it (B3-06, ADR 0020).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewSignature {
+    /// Who signs, as their certificate names them (its common name): `/Name`.
+    pub signer: String,
+    /// Why, as the signer says: `/Reason`.
+    pub reason: Option<String>,
+    /// When, on the computer's clock: `/M`.
+    pub time: SigningTime,
+    /// A box on a page that shows the signature; none: it is seen on no page.
+    pub visible: Option<VisibleSignature>,
+}
+
+/// A time on the computer's clock, in its time zone (B3-06): what a signature's `/M` says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SigningTime {
+    pub year: u16,
+    /// 1 to 12.
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+    pub second: u8,
+    /// Minutes east of UTC.
+    pub utc_offset_minutes: i16,
+}
+
+/// The box that shows a signature on a page (B3-06): in a corner of page `page_index` as it is
+/// shown, with `lines` in it (the signer, the date, the reason; the main process words them).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VisibleSignature {
+    pub page_index: u32,
+    pub corner: PageCorner,
+    pub lines: Vec<String>,
 }
 
 /// A watermark as the worker takes it (B3-04). The frontend's form is [`Watermark`], whose
@@ -847,6 +883,19 @@ pub enum WorkerRequest {
         file: FileHandle,
         marks: WorkerPageMarks,
     },
+    /// Writes to `file` (as for `Save`) the file `doc` was opened from or last saved to, with a
+    /// signature field added by an incremental update (B3-06, ADR 0020): its signature dictionary
+    /// says `signature`, keeps room for the signature (`/Contents`, hexadecimal zeros) and has a
+    /// `/ByteRange` that covers every other byte. The main process then writes the signature
+    /// into that room. The open document is not changed. Refused for an encrypted document, for
+    /// one certified to allow no change, and for a file that cannot be appended to. Answered by
+    /// `SignaturePrepared`.
+    PrepareSignature {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
+        signature: NewSignature,
+    },
     /// Opens the document again from the bytes it was opened from, and applies `edits` in
     /// order (undo, ADR 0013). Answered by `Edited`; the document is replaced only once every
     /// edit is applied. Refused for a document opened with a password, whose bytes are not
@@ -1121,6 +1170,15 @@ pub enum WorkerResponse {
         bytes: u64,
         incremental: bool,
         redaction: Option<RedactionCheck>,
+    },
+    /// `PrepareSignature` is done: the copy is `bytes` long, and its `/Contents`, `<` and `>`
+    /// included, is the bytes from `contents_start` up to `contents_end`: hexadecimal zeros for
+    /// the main process to fill. The copy's `/ByteRange` covers the rest of it.
+    SignaturePrepared {
+        request: RequestId,
+        bytes: u64,
+        contents_start: u64,
+        contents_end: u64,
     },
     /// `CompressedCopy` is done: the copy is `bytes` long; with its pictures as they were it
     /// would have been `before` long. `images` pictures were looked at, `changed` of them were

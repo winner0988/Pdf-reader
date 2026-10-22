@@ -254,6 +254,17 @@ pub const MAX_SIGNATURE_CONTENTS_BYTES: usize = 1024 * 1024;
 /// UTF-8 bytes.
 pub const MAX_SIGNATURE_TEXT_BYTES: u32 = 256;
 
+/// The room a signed copy keeps for its signature (B3-06, ADR 0020): `/Contents` holds this many
+/// bytes, written as twice as many hexadecimal digits. A signature that needs more is refused,
+/// never cut.
+pub const SIGNATURE_RESERVE_BYTES: u32 = 32 * 1024;
+
+/// Longest reason a signer gives for signing (B3-06), in UTF-8 bytes.
+pub const MAX_SIGNING_REASON_BYTES: u32 = 256;
+
+/// Largest certificate file read for signing (B3-06): a PKCS #12 file is a few kilobytes.
+pub const MAX_CERTIFICATE_FILE_BYTES: u64 = 1024 * 1024;
+
 /// Maximum size of one exported PNG page (B2-04); below the frame limit.
 pub const MAX_PNG_BYTES: usize = 64 * 1024 * 1024;
 

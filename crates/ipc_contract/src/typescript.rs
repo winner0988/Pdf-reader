@@ -157,6 +157,12 @@ pub fn bindings() -> String {
         SignatureStatus,
         UnverifiableReason,
         Certification,
+        SignCheck,
+        PageCorner,
+        SignaturePlace,
+        SigningFile,
+        SignArgs,
+        SignResult,
         DocumentInfo,
         RenderPageArgs,
         RasterRegion,
@@ -267,6 +273,10 @@ pub fn bindings() -> String {
         (
             "maxAttachmentDescBytes",
             MAX_ATTACHMENT_DESC_BYTES.to_string(),
+        ),
+        (
+            "maxSigningReasonBytes",
+            MAX_SIGNING_REASON_BYTES.to_string(),
         ),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];
