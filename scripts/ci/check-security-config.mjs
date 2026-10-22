@@ -116,6 +116,10 @@ const ALLOWED_PERMISSIONS = new Map([
     "B3-05, ADR 0004: put text copied from a sensitive document on the clipboard, kept out of the clipboard history; never reads it",
   ],
   ["allow-export-pages", "B2-04: export pages as text or PNG; the main process asks where and writes the files"],
+  [
+    "allow-export-annotation-summary",
+    "B3-18: a summary of an open document's annotations as a text or Markdown file, by document id; the main process makes it, asks where, never the document's own file; refused when the author forbids copying",
+  ],
   ["allow-apply-edit", "B2-02: a typed edit of an open document, applied in its worker; validated, no PDF objects"],
   ["allow-undo-edit", "B2-05: undo the last edit of an open document; its worker opens the kept bytes again"],
   ["allow-redo-edit", "B2-05: make the last undone edit of an open document again"],

@@ -166,6 +166,9 @@ pub fn bindings() -> String {
         ErrorCode,
         IpcError,
         OpenEvent,
+        AnnotationSummaryFormat,
+        ExportAnnotationSummaryArgs,
+        AnnotationSummaryOutcome,
     );
 
     let limits: [(&str, String); 46] = [

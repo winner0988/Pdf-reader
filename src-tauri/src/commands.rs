@@ -10,10 +10,11 @@ use std::time::Duration;
 
 use ipc_contract::limits::MAX_BATCH_FILES;
 use ipc_contract::types::{
-    AnnotationId, BatchArgs, BatchEvent, BatchOperation, BatchReport, CompressArgs, CompressResult,
-    CreateResult, DocumentId, EditArgs, EncryptArgs, ErrorCode, ExportArgs, ExportEvent,
-    ExportFormat, FileRecordingArgs, FindPersonalDataQuery, FontImport, FontInfo, FormField,
-    IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs,
+    AnnotationId, AnnotationSummaryFormat, AnnotationSummaryOutcome, BatchArgs, BatchEvent,
+    BatchOperation, BatchReport, CompressArgs, CompressResult, CreateResult, DocumentId,
+    DocumentInfo, EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs, ExportArgs,
+    ExportEvent, ExportFormat, FileRecordingArgs, FindPersonalDataQuery, FontImport, FontInfo,
+    FormField, IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs,
     OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText,
     PagesSource, Password, PersonalDataMatches, PrepareTextBoxArgs, PreparedTextBox, RecentFile,
     RecentId, RedactionSummary, RememberedPasswords, RemoveFontArgs, RemoveLanguageArgs,
@@ -1013,6 +1014,71 @@ async fn tell_same_file(window: &WebviewWindow) {
         .set_parent(window)
         .show()
         .await;
+}
+
+/// Writes a summary of the annotations of document `doc` (B3-18,
+/// docs/architecture/annotation-summary.md) where the user says in the system's save dialog,
+/// never over the document's own file. The summary lists the text the marks cover, so the
+/// author's permission to copy covers it (MVP-19). The main process makes the file from what the
+/// worker found: no text of the document passes through the page.
+#[tauri::command]
+pub async fn export_annotation_summary(
+    app: AppHandle,
+    window: WebviewWindow,
+    args: ExportAnnotationSummaryArgs,
+) -> Result<AnnotationSummaryOutcome, IpcError> {
+    let ExportAnnotationSummaryArgs {
+        doc,
+        format,
+        include_name,
+    } = args;
+    let info = copy_allowed(&app, doc)?;
+    let worker_app = app.clone();
+    let summary = blocking(move || worker_app.state::<Documents>().annotation_summary(doc)).await?;
+    if summary.items.is_empty() && !summary.truncated {
+        return Ok(AnnotationSummaryOutcome::Empty);
+    }
+    let markdown = format == AnnotationSummaryFormat::Markdown;
+    let content = export::annotation_summary_file(
+        &summary,
+        markdown,
+        include_name.then_some(info.display_name.as_str()),
+    );
+    let name = strings::annotation_summary_file_name(&export::stem(&info.display_name), markdown);
+    let destination = loop {
+        let Some(path) =
+            file_dialog::save_annotation_summary_file(&window, name.clone(), markdown).await?
+        else {
+            return Ok(AnnotationSummaryOutcome::Cancelled);
+        };
+        if !app.state::<Documents>().is_document_file(doc, &path) {
+            break path;
+        }
+        tell_same_file(&window).await;
+    };
+    blocking(move || export::write_annotation_summary(&destination, &content)).await?;
+    Ok(AnnotationSummaryOutcome::Written {
+        count: u32::try_from(summary.items.len()).unwrap_or(u32::MAX),
+        truncated: summary.truncated,
+    })
+}
+
+/// The open document `doc`, if its author allows copying its content (MVP-19).
+fn copy_allowed(app: &AppHandle, doc: DocumentId) -> Result<DocumentInfo, IpcError> {
+    let info = app
+        .state::<Documents>()
+        .document_info(doc)
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        })?;
+    if !info.permissions.copy {
+        return Err(IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "the document's author does not allow copying its content".to_owned(),
+        });
+    }
+    Ok(info)
 }
 
 /// Writes a copy of the document without its metadata (B2-03, docs/architecture/privacy-export.md)

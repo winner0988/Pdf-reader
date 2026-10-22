@@ -33,6 +33,7 @@ import { CreatePdfDialog } from "@/features/create/CreatePdfDialog";
 import { fitsClipboard, type SensitiveApi } from "@/features/sensitive/api";
 import { SensitiveDialog } from "@/features/sensitive/SensitiveDialog";
 import type { ExportApi } from "@/features/export/api";
+import { AnnotationSummaryDialog } from "@/features/export/AnnotationSummaryDialog";
 import { ExportDialog } from "@/features/export/ExportDialog";
 import { CompressDialog } from "@/features/saving/CompressDialog";
 import { useOpenBatch } from "@/features/batch/useOpenBatch";
@@ -284,6 +285,7 @@ export function ReaderShell({
     | "setDefaultFailed"
     | "print"
     | "export"
+    | "exportAnnotations"
     | "privacyExport"
     | "sanitize"
     | "encrypt"
@@ -518,6 +520,11 @@ export function ReaderShell({
   // Exporting needs the worker's pages and the main process (not demo data); the author's
   // permission to copy covers it (MVP-19).
   const exportable = document_?.doc !== undefined && exportApi !== undefined;
+  /** The annotation summary (B3-18), where the app has it. */
+  const summaryApi =
+    document_?.doc !== undefined && exportApi?.exportAnnotationSummary
+      ? { exportAnnotationSummary: exportApi.exportAnnotationSummary }
+      : undefined;
   /** Pages chosen in the thumbnails to be saved as a file of their own (B2-06). */
   const [exportPreset, setExportPreset] = useState<number[] | null>(null);
   const savePages: SavePages | undefined =
@@ -1072,6 +1079,10 @@ export function ReaderShell({
               : undefined
           }
           exportBlocked={exportable && !permissions.copy}
+          onExportAnnotations={
+            summaryApi && permissions.copy ? () => setDialog("exportAnnotations") : undefined
+          }
+          exportAnnotationsBlocked={summaryApi !== undefined && !permissions.copy}
           onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}
           privacyExportBlocked={savable && document_?.encrypted === true}
           onSanitizeCopy={
@@ -1561,6 +1572,14 @@ export function ReaderShell({
           encrypted={document_.encrypted === true}
           preset={exportPreset}
           api={exportApi}
+          onFinished={showHint}
+        />
+      )}
+      {dialog === "exportAnnotations" && summaryApi && document_?.doc !== undefined && (
+        <AnnotationSummaryDialog
+          doc={document_.doc}
+          api={summaryApi}
+          onClose={() => setDialog(null)}
           onFinished={showHint}
         />
       )}

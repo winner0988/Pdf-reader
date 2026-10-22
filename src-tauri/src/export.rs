@@ -13,7 +13,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use ipc_contract::types::{DocumentId, ErrorCode, ExportEvent, IpcError, PageText, RequestId};
+use ipc_contract::types::{
+    AnnotationSummary, DocumentId, ErrorCode, ExportEvent, IpcError, PageText, RequestId,
+};
 use tauri::async_runtime::block_on;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
@@ -371,6 +373,109 @@ pub fn write_text(
     write_whole(file, text_file(&texts).as_bytes()).map_err(not_written)
 }
 
+/// A summary of annotations (B3-18) as a file: plain text with the page and kind on each line,
+/// or Markdown with a heading for each page and a list item for each annotation; first the
+/// document's `name`, if given, and last a note if the summary stopped before the end. A drawing,
+/// a stamp, or a mark that covers no text is listed by its kind alone. Lines end in `\n`.
+pub fn annotation_summary_file(
+    summary: &AnnotationSummary,
+    markdown: bool,
+    name: Option<&str>,
+) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    if let Some(name) = name {
+        lines.push(if markdown {
+            format!("# {}", escape_markdown(name))
+        } else {
+            name.to_owned()
+        });
+    }
+    let mut page = None;
+    for item in &summary.items {
+        if page != Some(item.page_index) {
+            page = Some(item.page_index);
+            if !lines.is_empty() {
+                lines.push(String::new());
+            }
+            if markdown {
+                lines.push(format!(
+                    "## {}",
+                    strings::annotation_summary_page(item.page_index + 1)
+                ));
+                lines.push(String::new());
+            }
+        }
+        let kind = strings::annotation_kind_name(item.kind);
+        let mut text = item.text.split('\n');
+        let first = text.next().filter(|line| !line.is_empty());
+        if markdown {
+            let mut entry = match first {
+                Some(first) => format!("- **{kind}**：{}", escape_markdown(first)),
+                None => format!("- **{kind}**"),
+            };
+            // The lines of a note stay lines (a hard break), in the same list item; an empty
+            // one would end the item.
+            for line in text.filter(|line| !line.is_empty()) {
+                entry.push_str("\\\n  ");
+                entry.push_str(&escape_markdown(line));
+            }
+            lines.push(entry);
+        } else {
+            let page = strings::annotation_summary_page(item.page_index + 1);
+            lines.push(match first {
+                Some(first) => format!("{page}｜{kind}：{first}"),
+                None => format!("{page}｜{kind}"),
+            });
+            lines.extend(text.map(|line| {
+                if line.is_empty() {
+                    String::new()
+                } else {
+                    format!("  {line}")
+                }
+            }));
+        }
+    }
+    if summary.truncated {
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        lines.push(strings::ANNOTATION_SUMMARY_TRUNCATED.to_owned());
+    }
+    let mut file = lines.join("\n");
+    file.push('\n');
+    file
+}
+
+/// `text` (one line) as Markdown that reads as the text itself: each character Markdown gives a
+/// meaning to is escaped, and so is what would start a list, a heading or a quote at the start
+/// of a line.
+fn escape_markdown(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() * 2);
+    for c in text.chars() {
+        if matches!(
+            c,
+            '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '|' | '~' | '#' | '&'
+        ) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    let digits = out.chars().take_while(char::is_ascii_digit).count();
+    if out.starts_with(['-', '+', '=']) {
+        out.insert(0, '\\');
+    } else if digits > 0 && out[digits..].starts_with(['.', ')']) {
+        out.insert(digits, '\\');
+    }
+    out
+}
+
+/// Writes the annotation summary `content` (B3-18) to `file`, whole, with Windows line ends as
+/// the text export has.
+pub fn write_annotation_summary(file: &Path, content: &str) -> Result<(), IpcError> {
+    let content = content.replace("\r\n", "\n").replace('\n', "\r\n");
+    write_whole(file, content.as_bytes()).map_err(not_written)
+}
+
 /// Writes each of `pages` of `doc` as an image file of `kind` at `dpi` to its target. Pages
 /// written before a cancel or a failure stay.
 #[allow(clippy::too_many_arguments)]
@@ -397,7 +502,9 @@ pub fn write_images(
 
 #[cfg(test)]
 mod tests {
-    use ipc_contract::types::{Point, Quad, TextLine};
+    use ipc_contract::types::{
+        AnnotationSummaryItem, AnnotationSummaryKind, Point, Quad, Rect, TextLine,
+    };
 
     use super::*;
 
@@ -514,6 +621,124 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, ["報告.txt", "報告.txt.tmp"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_annotation_summary_lists_each_annotation_with_its_page_and_kind() {
+        let item =
+            |page_index: u32, kind: AnnotationSummaryKind, text: &str| AnnotationSummaryItem {
+                page_index,
+                kind,
+                rect: Rect {
+                    x0: 72.0,
+                    y0: 72.0,
+                    x1: 200.0,
+                    y1: 90.0,
+                },
+                text: text.to_owned(),
+            };
+        let summary = AnnotationSummary {
+            items: vec![
+                item(0, AnnotationSummaryKind::Note, "第一行\n\n- second *line*"),
+                item(
+                    0,
+                    AnnotationSummaryKind::Highlight,
+                    "Privacy-first PDF Reader",
+                ),
+                item(0, AnnotationSummaryKind::Highlight, ""),
+                item(
+                    2,
+                    AnnotationSummaryKind::TextBox,
+                    "1. <b>#1</b> [x](y) a_b \\ c|d",
+                ),
+                item(2, AnnotationSummaryKind::Ink, ""),
+                item(2, AnnotationSummaryKind::Stamp, ""),
+            ],
+            truncated: false,
+        };
+        assert_eq!(
+            annotation_summary_file(&summary, false, Some("報告.pdf")),
+            "報告.pdf\n\
+             \n\
+             第 1 頁｜附註：第一行\n\
+             \n\
+             \x20 - second *line*\n\
+             第 1 頁｜螢光筆標示：Privacy-first PDF Reader\n\
+             第 1 頁｜螢光筆標示\n\
+             \n\
+             第 3 頁｜文字方塊：1. <b>#1</b> [x](y) a_b \\ c|d\n\
+             第 3 頁｜手繪線條\n\
+             第 3 頁｜印章\n"
+        );
+        assert_eq!(
+            annotation_summary_file(&summary, true, Some("報告_v2.pdf")),
+            "# 報告\\_v2.pdf\n\
+             \n\
+             ## 第 1 頁\n\
+             \n\
+             - **附註**：第一行\\\n\
+             \x20 \\- second \\*line\\*\n\
+             - **螢光筆標示**：Privacy-first PDF Reader\n\
+             - **螢光筆標示**\n\
+             \n\
+             ## 第 3 頁\n\
+             \n\
+             - **文字方塊**：1\\. \\<b\\>\\#1\\</b\\> \\[x\\](y) a\\_b \\\\ c\\|d\n\
+             - **手繪線條**\n\
+             - **印章**\n"
+        );
+        // Without the name, and a summary that stopped before the end says so.
+        let cut = AnnotationSummary {
+            items: vec![item(4, AnnotationSummaryKind::Ink, "")],
+            truncated: true,
+        };
+        assert_eq!(
+            annotation_summary_file(&cut, false, None),
+            format!(
+                "第 5 頁｜手繪線條\n\n{}\n",
+                strings::ANNOTATION_SUMMARY_TRUNCATED
+            )
+        );
+        assert_eq!(
+            annotation_summary_file(&cut, true, None),
+            format!(
+                "## 第 5 頁\n\n- **手繪線條**\n\n{}\n",
+                strings::ANNOTATION_SUMMARY_TRUNCATED
+            )
+        );
+    }
+
+    #[test]
+    fn markdown_escapes_leave_ordinary_text_alone() {
+        assert_eq!(
+            escape_markdown("隱私優先的 PDF 閱讀器"),
+            "隱私優先的 PDF 閱讀器"
+        );
+        assert_eq!(escape_markdown("+1 = 2"), "\\+1 = 2");
+        assert_eq!(escape_markdown("=== title"), "\\=== title");
+        assert_eq!(escape_markdown("2024) done"), "2024\\) done");
+        assert_eq!(escape_markdown("2024 done."), "2024 done.");
+        assert_eq!(escape_markdown("> quote"), "\\> quote");
+        assert_eq!(escape_markdown("&amp;"), "\\&amp;");
+    }
+
+    #[test]
+    fn an_annotation_summary_is_written_whole_with_windows_line_ends() {
+        let dir = std::env::temp_dir().join(format!("pdf-reader-summary-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("報告（註解摘要）.md");
+        write_annotation_summary(&file, "# 報告\n\n- **螢光筆**：重點\r\n").unwrap();
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            "# 報告\r\n\r\n- **螢光筆**：重點\r\n"
+        );
+        let names: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["報告（註解摘要）.md"]);
         fs::remove_dir_all(&dir).unwrap();
     }
 

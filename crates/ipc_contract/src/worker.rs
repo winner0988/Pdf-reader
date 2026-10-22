@@ -9,13 +9,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::PROTOCOL_VERSION;
 use crate::types::{
-    AnnotationId, CreateKind, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId,
-    FindPersonalDataQuery, FontRefusal, FormField, HighlightColor, HighlightMark, ImageQuality,
-    InkColor, InkWidth, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password,
-    PersonalDataMatches, Point, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions,
-    Rgb, Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityReport, SignatureReport,
-    SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle, Watermark,
-    WatermarkContent, WatermarkPages, WatermarkPlace,
+    AnnotationId, AnnotationSummary, CreateKind, DocumentId, DocumentPermissions, Edit, ErrorCode,
+    FieldId, FindPersonalDataQuery, FontRefusal, FormField, HighlightColor, HighlightMark,
+    ImageQuality, InkColor, InkWidth, OutlineResult, PageAnnotation, PageLink, PageSize, PageText,
+    Password, PersonalDataMatches, Point, Rect, RedactionCheck, RedactionSummary, RequestId,
+    Restrictions, Rgb, Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityReport,
+    SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle,
+    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -756,6 +756,11 @@ pub enum WorkerRequest {
     Close {
         doc: DocumentId,
     },
+    /// Collects an annotation summary across all pages, sorted by page and displayed direction (B3-18).
+    AnnotationSummary {
+        request: RequestId,
+        doc: DocumentId,
+    },
     Shutdown,
 }
 
@@ -925,6 +930,11 @@ pub enum WorkerResponse {
     },
     OcrStopped {
         request: RequestId,
+    },
+    /// The annotation summary of `AnnotationSummary`.
+    AnnotationSummary {
+        request: RequestId,
+        summary: AnnotationSummary,
     },
     Error {
         request: Option<RequestId>,

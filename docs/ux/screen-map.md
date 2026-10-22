@@ -206,6 +206,16 @@
 - **從縮圖**：選好頁面（`Ctrl`／`Shift` 多選）後右鍵「pages.saveSelected」：開啟匯出對話框，格式是 PDF 檔案，頁面是選好的（例如「2-4, 6」）；作者禁止複製時停用並標示 permissions.notAllowed，加密的文件沒有這個項目。
 - 做法與限制見 [export.md](../architecture/export.md)。
 
+### 註解摘要（B3-18）
+
+- 「⋯」→「匯出註解摘要…」（在「匯出…」之後）開啟對話框（沒有開啟文件時停用；作者禁止複製時停用並標示 permissions.notAllowed）。
+- **格式**：純文字（.txt，預設）或 Markdown（.md）；**exportAnnotations.includeName**（預設勾選）：檔案開頭加上檔名。
+- **匯出…**：
+  - 文件沒有可以列出的註解時，對話框裡顯示 exportAnnotations.empty，不開另存對話框；
+  - 否則主行程顯示系統的另存對話框（標題 EXPORT_ANNOTATIONS_DIALOG_TITLE），建議檔名 `<原檔名>（註解摘要）.txt` 或 `.md`；選到文件自己的檔案時以訊息方塊說明、可以再選；關閉時回到這個對話框。
+- 結束後關閉對話框，狀態列顯示 exportAnnotations.done，摘要因為註解太多而沒有列完時顯示 exportAnnotations.truncated。失敗時對話框裡顯示 exportAnnotations.failed。
+- 檔案的內容與順序見 [annotation-summary.md](../architecture/annotation-summary.md)。
+
 ### 加密並另存新檔（B2-15）
 
 - 「⋯」→「加密並另存新檔…」（在「隱私匯出…」之後）開啟對話框。沒有開啟文件時停用；加密的文件停用，並標示 encryption.encrypted。做法見 [encrypt-copy.md](../architecture/encrypt-copy.md)。
@@ -840,6 +850,29 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | SPLIT_FOLDER_DIALOG_TITLE（主行程） | 選擇存放拆分後檔案的資料夾 |
 | SPLIT_SAME_FILE_TITLE／SPLIT_SAME_FILE_MESSAGE（主行程） | 請選擇其他檔案／拆分出的頁面是一份新的檔案，不會取代原本的檔案。請選擇原檔以外的位置或檔名。 |
 | OVERWRITE_TITLE（主行程） | 檔案已經存在 |
+
+### 註解摘要（B3-18）
+
+| 鍵 | 文字 |
+|---|---|
+| menu.exportAnnotations | 匯出註解摘要… |
+| exportAnnotations.title | 匯出註解摘要 |
+| exportAnnotations.description | 依頁碼與位置列出這份文件的註解：螢光筆標示的文字、附註與文字方塊的內容；手繪線條與印章只列出在第幾頁。存成純文字或 Markdown 檔。 |
+| exportAnnotations.format | 格式 |
+| exportAnnotations.text | 純文字（.txt） |
+| exportAnnotations.markdown | Markdown（.md） |
+| exportAnnotations.includeName | 開頭加上檔名 |
+| exportAnnotations.start | 匯出… |
+| exportAnnotations.cancel | 取消 |
+| exportAnnotations.running | 正在匯出… |
+| exportAnnotations.empty | 這份文件沒有可以匯出的註解。 |
+| exportAnnotations.failed | 匯出失敗，請再試一次。 |
+| exportAnnotations.done | 已匯出 <N> 個註解的摘要。 |
+| exportAnnotations.truncated | 已匯出前 <N> 個註解的摘要；註解太多，其餘沒有列出。 |
+| EXPORT_ANNOTATIONS_DIALOG_TITLE／MARKDOWN_FILTER_NAME（主行程） | 匯出註解摘要／Markdown 文件（.md） |
+| annotation_kind_name（主行程，檔案裡的種類） | 螢光筆標示／附註／文字方塊／手繪線條／印章 |
+| annotation_summary_page（主行程，檔案裡的頁碼） | 第 <n> 頁 |
+| ANNOTATION_SUMMARY_TRUNCATED（主行程，檔案的最後一行） | （註解太多，其餘沒有列出。） |
 
 ### 頁面管理（B2-05）
 

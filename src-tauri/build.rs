@@ -47,6 +47,7 @@ fn main() {
         "remove_sensitive_file",
         "copy_protected_text",
         "export_pages",
+        "export_annotation_summary",
         "apply_edit",
         "undo_edit",
         "redo_edit",

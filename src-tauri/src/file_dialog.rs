@@ -41,6 +41,8 @@ enum Kind {
     OpenPagesSource,
     /// Where to save exported text (B2-04), suggesting `file_name`.
     SaveText { file_name: String },
+    /// Where to save exported annotation summary (Issue #306), suggesting `file_name`.
+    SaveAnnotationSummary { file_name: String, markdown: bool },
     /// Where to save a document as another file (B2-02), suggesting `file_name`.
     SavePdf { file_name: String },
     /// Where to save some pages as a Word document (B3-02), suggesting `file_name`.
@@ -95,6 +97,23 @@ pub async fn save_text_file(
     Ok(run(window, Kind::SaveText { file_name })
         .await?
         .and_then(|mut paths| paths.pop()))
+}
+
+/// Asks where to save an exported annotation summary (Issue #306), suggesting `file_name`.
+pub async fn save_annotation_summary_file(
+    window: &WebviewWindow,
+    file_name: String,
+    markdown: bool,
+) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(
+        window,
+        Kind::SaveAnnotationSummary {
+            file_name,
+            markdown,
+        },
+    )
+    .await?
+    .and_then(|mut paths| paths.pop()))
 }
 
 /// Asks where to save a document as another file, suggesting `file_name`. The dialog itself
@@ -268,6 +287,7 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
     match kind {
         Kind::OpenPdfs | Kind::OpenBatchFiles | Kind::OpenSources => common | FOS_ALLOWMULTISELECT,
         Kind::SaveText { .. }
+        | Kind::SaveAnnotationSummary { .. }
         | Kind::SavePdf { .. }
         | Kind::SaveDocx { .. }
         | Kind::PrivacyExport { .. }
@@ -330,6 +350,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
     unsafe {
         match kind {
             Kind::SaveText { .. }
+            | Kind::SaveAnnotationSummary { .. }
             | Kind::SavePdf { .. }
             | Kind::SaveDocx { .. }
             | Kind::PrivacyExport { .. }
@@ -394,6 +415,19 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             strings::EXPORT_TEXT_DIALOG_TITLE,
             one(strings::TEXT_FILTER_NAME, "*.txt"),
         ),
+        Kind::SaveAnnotationSummary { markdown, .. } => {
+            if *markdown {
+                (
+                    strings::EXPORT_ANNOTATIONS_DIALOG_TITLE,
+                    one(strings::MARKDOWN_FILTER_NAME, "*.md"),
+                )
+            } else {
+                (
+                    strings::EXPORT_ANNOTATIONS_DIALOG_TITLE,
+                    one(strings::TEXT_FILTER_NAME, "*.txt"),
+                )
+            }
+        }
         Kind::SavePdf { .. } => (
             strings::SAVE_AS_DIALOG_TITLE,
             one(strings::PDF_FILTER_NAME, "*.pdf"),
@@ -470,6 +504,7 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             dialog.SetFileTypes(&specs)?;
         }
         if let Kind::SaveText { file_name }
+        | Kind::SaveAnnotationSummary { file_name, .. }
         | Kind::SavePdf { file_name }
         | Kind::SaveDocx { file_name }
         | Kind::PrivacyExport { file_name }
@@ -482,6 +517,10 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             let extension = match kind {
                 Kind::SaveText { .. } => "txt",
                 Kind::SaveDocx { .. } => "docx",
+                Kind::SaveAnnotationSummary { markdown: true, .. } => "md",
+                Kind::SaveAnnotationSummary {
+                    markdown: false, ..
+                } => "txt",
                 _ => "pdf",
             };
             dialog.SetDefaultExtension(&HSTRING::from(extension))?;
@@ -549,6 +588,16 @@ mod tests {
         });
         assert!(
             save(FOS_DONTADDTORECENT) && save(FOS_OVERWRITEPROMPT) && save(FOS_FORCEFILESYSTEM)
+        );
+
+        let summary = options_of(Kind::SaveAnnotationSummary {
+            file_name: "註解.md".to_owned(),
+            markdown: true,
+        });
+        assert!(
+            summary(FOS_DONTADDTORECENT)
+                && summary(FOS_OVERWRITEPROMPT)
+                && summary(FOS_FORCEFILESYSTEM)
         );
 
         let save_as = options_of(Kind::SavePdf {

@@ -1170,6 +1170,27 @@ export type IpcError = { code: ErrorCode, message: string, };
  */
 export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, canRemember: boolean, rememberedFailed: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, } | { "kind": "closeRequested", tabs: Array<TabId>, } | { "kind": "ocr", tab: TabId, progress: OcrProgress, } | { "kind": "ocrPage", tab: TabId, doc: DocumentId, pageIndex: number, };
 
+/**
+ * The kind of file an annotation summary is written as (B3-18).
+ */
+export type AnnotationSummaryFormat = "text" | "markdown";
+
+/**
+ * Writes a summary of the annotations of document `doc` (B3-18) as a UTF-8 file of `format`
+ * where the user says in the system's save dialog. The main process makes the file; no text of
+ * the document passes through the page.
+ */
+export type ExportAnnotationSummaryArgs = { doc: DocumentId, format: AnnotationSummaryFormat, 
+/**
+ * The file starts with the document's file name.
+ */
+includeName: boolean, };
+
+/**
+ * What came of exporting an annotation summary (B3-18).
+ */
+export type AnnotationSummaryOutcome = { "kind": "empty" } | { "kind": "cancelled" } | { "kind": "written", count: number, truncated: boolean, };
+
 /** Limits enforced by the main process (crates/ipc_contract/src/limits.rs). */
 export const LIMITS = {
   maxPageCount: 100000,

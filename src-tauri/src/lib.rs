@@ -144,6 +144,7 @@ pub fn run() {
             commands::remove_sensitive_file,
             commands::copy_protected_text,
             commands::export_pages,
+            commands::export_annotation_summary,
             commands::apply_edit,
             commands::undo_edit,
             commands::redo_edit,

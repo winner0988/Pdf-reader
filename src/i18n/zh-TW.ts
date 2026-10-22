@@ -737,6 +737,23 @@ export const strings = {
     stopped: (pages: number) => `已停止，已匯出 ${pages} 頁。`,
     failed: "匯出失敗，請再試一次。",
   },
+  /** The annotation summary (B3-18). What the file itself says is in src-tauri/src/strings.rs. */
+  exportAnnotations: {
+    title: "匯出註解摘要",
+    description:
+      "依頁碼與位置列出這份文件的註解：螢光筆標示的文字、附註與文字方塊的內容；手繪線條與印章只列出在第幾頁。存成純文字或 Markdown 檔。",
+    format: "格式",
+    text: "純文字（.txt）",
+    markdown: "Markdown（.md）",
+    includeName: "開頭加上檔名",
+    start: "匯出…",
+    cancel: "取消",
+    running: "正在匯出…",
+    empty: "這份文件沒有可以匯出的註解。",
+    failed: "匯出失敗，請再試一次。",
+    done: (count: number) => `已匯出 ${count} 個註解的摘要。`,
+    truncated: (count: number) => `已匯出前 ${count} 個註解的摘要；註解太多，其餘沒有列出。`,
+  },
   text: {
     copy: "複製",
     noTextLayer: "這一頁沒有文字層，無法選取文字。",
@@ -894,6 +911,7 @@ export const strings = {
     setDefault: "設為預設 PDF 閱讀器",
     print: "列印…",
     export: "匯出…",
+    exportAnnotations: "匯出註解摘要…",
     privacyExport: "隱私匯出…",
     sanitizeCopy: "分享前淨化…",
     encryptCopy: "加密並另存新檔…",

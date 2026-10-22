@@ -265,6 +265,18 @@ pub const MAX_OCR_PAGE_MILLIS: u32 = 5 * 60 * 1000;
 /// the app: each is up to `MAX_LANGUAGE_DATA_BYTES` in the app's data folder.
 pub const MAX_IMPORTED_LANGUAGES: u32 = 20;
 
+/// Most annotations a summary of a document's annotations lists (B3-18); the summary of a
+/// document with more says it stops there.
+pub const MAX_ANNOTATION_SUMMARY_ITEMS: u32 = 10_000;
+
+/// Longest text of one annotation in a summary (B3-18), in UTF-8 bytes: what a highlighter mark
+/// covers, or what a note or text box says.
+pub const MAX_ANNOTATION_SUMMARY_TEXT_BYTES: u32 = 32 * 1024;
+
+/// Most text in a summary of annotations in all (B3-18), in UTF-8 bytes; the summary says it
+/// stops there.
+pub const MAX_ANNOTATION_SUMMARY_TOTAL_BYTES: u32 = 4 * 1024 * 1024;
+
 /// Most items of any category a sanitized copy reports having removed (B3-15).
 pub const MAX_SANITIZED_ITEMS: u32 = 10_000_000;
 

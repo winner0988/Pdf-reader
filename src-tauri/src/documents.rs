@@ -19,8 +19,8 @@ use ipc_contract::limits::{
 use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
-    AnnotationId, BatchOperation, BlockedAction, CompressResult, CreateKind, CreateResult,
-    DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
+    AnnotationId, AnnotationSummary, BatchOperation, BlockedAction, CompressResult, CreateKind,
+    CreateResult, DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
     FindPersonalDataQuery, FormField, ImageQuality, IpcError, LinkArgs, LinkPreview, LinkTarget,
     MarkCheck, NotRemembered, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink,
     PageSize, PageText, PagesSource, Password, PersonalDataMatches, PreparedTextBox, Recovery,
@@ -1900,6 +1900,26 @@ impl Documents {
                 });
             }
             Ok(annotations)
+        })
+    }
+
+    /// The annotations of every page of `doc` for a summary (B3-18). Reading every page may take
+    /// as long as saving.
+    pub fn annotation_summary(&self, doc: DocumentId) -> Result<AnnotationSummary, IpcError> {
+        self.with_document(doc, |document| {
+            let response = request_long(document, |request, doc| {
+                WorkerRequest::AnnotationSummary { request, doc }
+            })?;
+            let WorkerResponse::AnnotationSummary { summary, .. } = response else {
+                return Err(unexpected("AnnotationSummary"));
+            };
+            // The worker's answer is checked already (`WorkerResponse::validate`); its pages
+            // must also be the document's.
+            let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+            for item in &summary.items {
+                check_page_index(item.page_index, page_count).map_err(invalid_argument)?;
+            }
+            Ok(summary)
         })
     }
 

@@ -7,15 +7,16 @@ use std::path::PathBuf;
 
 use ipc_contract::frame::encode;
 use ipc_contract::types::{
-    AnnotationId, AnnotationKind, BlockedAction, Certification, CreateKind, DocumentId,
-    DocumentPermissions, FieldId, FieldKind, FieldOption, FindPersonalDataQuery, FindingKind,
-    FontRefusal, FormField, HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth,
-    LinkId, LinkTarget, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageSize, PageText,
-    Password, PersonalDataCategory, PersonalDataMatch, PersonalDataMatches, PictureView, Point,
-    Quad, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation,
-    SanitizeOptions, SanitizeReport, SearchHit, SecurityFinding, SecurityReport, SignatureInfo,
-    SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine,
-    UnverifiableReason, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    AnnotationId, AnnotationKind, AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind,
+    BlockedAction, Certification, CreateKind, DocumentId, DocumentPermissions, FieldId, FieldKind,
+    FieldOption, FindPersonalDataQuery, FindingKind, FontRefusal, FormField, HighlightColor,
+    HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, LinkTarget, OutlineItem,
+    OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, PersonalDataCategory,
+    PersonalDataMatch, PersonalDataMatches, PictureView, Point, Quad, Rect, RedactionCheck,
+    RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions, SanitizeReport,
+    SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport, SignatureStatus,
+    StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason, Watermark,
+    WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, ModelGlyph, OcrFinished, OcrOutcome, OcrPageState,
@@ -461,6 +462,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             bytes: 8192,
             pages: 3,
+        },
+        WorkerResponse::AnnotationSummary {
+            request,
+            summary: AnnotationSummary {
+                items: vec![AnnotationSummaryItem {
+                    page_index: 0,
+                    kind: AnnotationSummaryKind::Highlight,
+                    rect: Rect {
+                        x0: 72.0,
+                        y0: 72.0,
+                        x1: 200.0,
+                        y1: 90.0,
+                    },
+                    text: "Privacy".to_owned(),
+                }],
+                truncated: false,
+            },
         },
         WorkerResponse::Error {
             request: Some(request),
@@ -997,6 +1015,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         WorkerRequest::Cancel { target: request },
         WorkerRequest::Close { doc },
+        WorkerRequest::AnnotationSummary { request, doc },
         WorkerRequest::Shutdown,
     ];
 
