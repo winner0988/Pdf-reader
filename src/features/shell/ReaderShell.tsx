@@ -85,6 +85,7 @@ import { strings } from "@/i18n/zh-TW";
 import type {
   AnnotationId,
   BlockedAction,
+  CaptureProtection,
   InkColor,
   InkWidth,
   DocumentId,
@@ -174,6 +175,8 @@ type ReaderShellProps = {
   fieldEdits?: FieldEdits;
   /** Whether this shell is the one shown (MVP-14): a hidden tab shell handles no keys. */
   active?: boolean;
+  /** Whether the window is kept out of screen captures (B3-13): for the status bar. */
+  captureProtection?: CaptureProtection;
   version?: string;
   /** Delay before the loading state appears; tests pass 0. */
   loadingDelayMs?: number;
@@ -242,6 +245,7 @@ export function ReaderShell({
   latest,
   fieldEdits,
   active = true,
+  captureProtection,
   version = "0.1.0",
   loadingDelayMs,
 }: ReaderShellProps) {
@@ -1412,6 +1416,7 @@ export function ReaderShell({
           ocr={ocrView.status}
           ocrNote={ocrView.note}
           sensitive={document_?.sensitive === true}
+          capture={captureProtection}
         />
       </div>
       {linkDialog?.kind === "confirm" && (

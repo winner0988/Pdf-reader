@@ -255,13 +255,14 @@
 ### 機敏文件（B3-05）
 
 - 「⋯」選單有 menu.markSensitive（機敏文件是 menu.unmarkSensitive），在「不記錄此檔案」的位置之前；機敏文件沒有「不記錄此檔案」（一律不記錄）。沒有開啟文件時沒有這一項。
-- **對話框**（標題 sensitive.markTitle／unmarkTitle）：先說明（標記：sensitive.whatItDoes 的三點；取消：sensitive.whatUnmarkDoes），再顯示 sensitive.checking，主行程檢查檔案之後：
+- **對話框**（標題 sensitive.markTitle／unmarkTitle）：先說明（標記：sensitive.whatItDoes 的四點；取消：sensitive.whatUnmarkDoes），再顯示 sensitive.checking，主行程檢查檔案之後：
   - 可以寫入：sensitive.ready，按鈕「取消」與 sensitive.mark（取消標記時 sensitive.unmark）；
   - 加密的文件：再加 sensitive.needsPassword 與密碼欄（sensitive.passwordLabel，`type="password"`，送出後清空，不保留）；沒有輸入時按鈕停用；
   - 不能寫入：只說原因（sensitive.signed、readOnly、unsaved、changedOnDisk），只有一個按鈕 sensitive.close；
   - 檢查失敗：sensitive.checkFailed。
 - 寫入時顯示 sensitive.running，對話框不能關閉。成功時關閉，狀態列顯示 sensitive.marked／unmarked 4 秒；失敗時在對話框中說明（sensitive.wrongPassword、notOwnerPassword、fileInUse、repaired、failed 或上面的原因），檔案沒有改變，可以再試。
 - **狀態列**：機敏文件在檔名後顯示 sensitive.badge（盾牌圖示，滑鼠停留時 sensitive.badgeNote）。
+- **防截圖**（B3-13，ADR 0023）：只要有一個分頁開著機敏文件，整個視窗排除在螢幕擷取之外，**每個分頁**的狀態列（在 sensitive.badge 之後）都顯示 sensitive.captureOn（螢幕關閉圖示，滑鼠停留時 sensitive.captureOnNote）；Windows 不肯時改顯示 sensitive.captureFailed（警告圖示、紅字，滑鼠停留時 sensitive.captureFailedNote），文件照常開啟。最後一個機敏分頁關閉或取消標記後消失。
 - **複製**：機敏文件的 `Ctrl+C`、右鍵「複製」、連結對話框的「複製」，以及欄位裡的複製與剪下，都由主行程寫入剪貼簿，不進 Windows 的剪貼簿歷程與雲端剪貼簿；剪貼簿被占用時狀態列顯示 sensitive.copyFailed，選取太多時 sensitive.copyTooLarge。
 - 做法見 [sensitive-files.md](../architecture/sensitive-files.md)。
 
@@ -760,8 +761,8 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | 鍵 | 文字 |
 |---|---|
 | sensitive.markTitle／unmarkTitle | 標記為機敏／取消機敏標記 |
-| sensitive.whatItDoes | 從這份文件複製的文字不會進入 Windows 的剪貼簿歷程（Win+V），也不會同步到雲端剪貼簿／不會記錄在最近開啟的檔案／標記寫在檔案本身：搬移、改名、複製檔案都仍是機敏；隱私匯出的副本不是 |
-| sensitive.whatUnmarkDoes | 取消後，這份文件複製的文字會像其他文件一樣進入剪貼簿歷程，檔案也會記錄在最近開啟的檔案。 |
+| sensitive.whatItDoes | 從這份文件複製的文字不會進入 Windows 的剪貼簿歷程（Win+V），也不會同步到雲端剪貼簿／不會記錄在最近開啟的檔案／開著它時，截圖、錄影、螢幕分享與遠端協助都看不到 app 的視窗／標記寫在檔案本身：搬移、改名、複製檔案都仍是機敏；隱私匯出的副本不是 |
+| sensitive.whatUnmarkDoes | 取消後，這份文件複製的文字會像其他文件一樣進入剪貼簿歷程，檔案也會記錄在最近開啟的檔案，也不再阻擋螢幕擷取。 |
 | sensitive.checking／checkFailed | 正在檢查這個檔案…／無法檢查這個檔案，請再試一次。 |
 | sensitive.ready | 會修改這個檔案：在檔案結尾附加一筆紀錄，檔案原本的內容不變，但修改時間會改變。 |
 | sensitive.needsPassword／passwordLabel | 這份文件有加密：要寫入檔案，需要它的權限密碼（不是開啟密碼）。／權限密碼 |
@@ -777,6 +778,8 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | sensitive.repaired | 這個檔案的結構有誤，開啟時經過修復，無法只在結尾附加：請先另存新檔，再標記新的檔案。 |
 | sensitive.failed | 無法寫入檔案，檔案沒有改變。 |
 | sensitive.badge／badgeNote | 機敏文件／複製的文字不會進入剪貼簿歷程 |
+| sensitive.captureOn／captureOnNote | 防截圖：開／開著機敏文件時，截圖、錄影、螢幕分享與遠端協助都看不到這個視窗，其他分頁也一樣；擋不住用手機拍螢幕。關閉機敏文件或取消標記後恢復。 |
+| sensitive.captureFailed／captureFailedNote | 這台電腦無法阻擋螢幕擷取／Windows 沒有讓這個視窗排除在螢幕擷取之外（需要 Windows 10 2004 以後的版本）。文件照常開啟，但截圖與螢幕分享看得到它。 |
 | sensitive.copyFailed | 無法複製：剪貼簿正被其他程式使用，請再試一次。 |
 | sensitive.copyTooLarge | 選取的文字太多，無法複製。請分段選取。 |
 | sensitive.listTitle／listNone | 機敏文件／沒有在這台電腦上標記的文件。 |

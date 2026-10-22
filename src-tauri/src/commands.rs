@@ -11,7 +11,8 @@ use std::time::Duration;
 use ipc_contract::limits::MAX_BATCH_FILES;
 use ipc_contract::types::{
     AnnotationId, AnnotationSummaryFormat, AnnotationSummaryOutcome, AttachmentId, AttachmentInfo,
-    BatchArgs, BatchEvent, BatchOperation, BatchReport, CompressArgs, CompressResult, CreateResult,
+    BatchArgs, BatchEvent, BatchOperation, BatchReport, CaptureProtection, CompressArgs,
+    CompressResult, CreateResult,
     DocumentId, DocumentInfo, EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs,
     ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs, FindPersonalDataQuery, FontImport,
     FontInfo, FormField, IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs,
@@ -29,6 +30,7 @@ use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEven
 
 use crate::background;
 use crate::batch::{self, Batches};
+use crate::capture::{self, CaptureGuard};
 use crate::clipboard;
 use crate::create_pdf;
 use crate::documents::{self, Documents};
@@ -52,8 +54,13 @@ pub async fn subscribe_open_events(
     blocking(move || {
         let documents = app.state::<Documents>();
         let ocr = app.state::<Arc<Ocr>>();
+        let capture = app.state::<CaptureGuard>().state();
         app.state::<OpenEvents>().subscribe(on_event, || {
-            let mut events = documents.snapshot();
+            let mut events = Vec::new();
+            if capture != CaptureProtection::Off {
+                events.push(OpenEvent::CaptureProtection { state: capture });
+            }
+            events.extend(documents.snapshot());
             events.extend(ocr.snapshot());
             events
         });
@@ -1776,8 +1783,10 @@ pub fn open_paths(app: &AppHandle, paths: Vec<PathBuf>) {
 /// Sends an open outcome to the frontend. A file that opened goes first on the recent files
 /// list (#73), unless the user asked not to record it, or not to record any file (B2-12). A file
 /// marked as sensitive (B3-05) is never on it, and the list of marked files gets its name as it
-/// is now (it may have been renamed).
+/// is now (it may have been renamed). The window is kept out of screen captures before the
+/// frontend hears of a sensitive document (B3-13).
 fn report(app: &AppHandle, event: OpenEvent) {
+    guard_captures(app);
     let recording = app
         .try_state::<SettingsStore>()
         .is_some_and(|settings| settings.get().record_recent_files);
@@ -1816,11 +1825,26 @@ fn show_active_in_title(app: &AppHandle) {
 }
 
 /// After a tab opened, failed or closed: frees cached pages and queued renders of documents
-/// that are no longer open, and keeps the window title in step.
+/// that are no longer open, and keeps the window title and its capture protection in step.
 fn after_tabs_changed(app: &AppHandle) {
     let open = app.state::<Documents>().open_documents();
     app.state::<Renderer>().retain_documents(&open);
     show_active_in_title(app);
+    guard_captures(app);
+}
+
+/// Keeps the window out of screen captures while a tab shows a sensitive document, and lets it
+/// back in once none does (B3-13, ADR 0023); the frontend hears when that changes.
+fn guard_captures(app: &AppHandle) {
+    let window = app.get_webview_window("main");
+    let changed = app.state::<CaptureGuard>().update(
+        || !app.state::<Documents>().open_identifiers().is_empty(),
+        window.as_ref().map(|window| window as &dyn capture::Window),
+    );
+    if let Some(state) = changed {
+        app.state::<OpenEvents>()
+            .send(OpenEvent::CaptureProtection { state });
+    }
 }
 
 /// Runs `work` on the blocking pool: worker requests can take seconds.

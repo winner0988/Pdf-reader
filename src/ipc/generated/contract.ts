@@ -225,6 +225,13 @@ open: boolean, };
 export type MarkCheck = "ready" | "needsPassword" | "signed" | "readOnly" | "unsaved" | "changedOnDisk";
 
 /**
+ * Whether the window is kept out of screen captures (B3-13, ADR 0023): it is while a tab shows a
+ * sensitive document. Windows still draws it on the screen; PrintScreen, the Snipping Tool,
+ * recordings and screen sharing get nothing of it.
+ */
+export type CaptureProtection = "off" | "on" | "failed";
+
+/**
  * Arguments of `set_sensitive` (B3-05): mark the open document's file as sensitive, or take the
  * mark out, once the user confirmed. `password` is the permissions password of an encrypted
  * document (ADR 0010); it is not kept. Any other field is rejected.
@@ -1179,7 +1186,7 @@ export type IpcError = { code: ErrorCode, message: string, };
  * the app. Every file gets its own tab (MVP-14): `Opening` adds it, then `Opened` or `Failed`
  * says how it went.
  */
-export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, canRemember: boolean, rememberedFailed: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, } | { "kind": "closeRequested", tabs: Array<TabId>, } | { "kind": "ocr", tab: TabId, progress: OcrProgress, } | { "kind": "ocrPage", tab: TabId, doc: DocumentId, pageIndex: number, };
+export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, canRemember: boolean, rememberedFailed: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, } | { "kind": "closeRequested", tabs: Array<TabId>, } | { "kind": "ocr", tab: TabId, progress: OcrProgress, } | { "kind": "ocrPage", tab: TabId, doc: DocumentId, pageIndex: number, } | { "kind": "captureProtection", state: CaptureProtection, };
 
 /**
  * The kind of file an annotation summary is written as (B3-18).

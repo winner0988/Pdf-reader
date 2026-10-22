@@ -231,6 +231,21 @@ describe("open document", () => {
     expect(screen.queryByRole("region", { name: strings.banner.label })).not.toBeInTheDocument();
   });
 
+  it("says in the status bar while the window is kept out of screen captures, or cannot be (B3-13)", () => {
+    const { rerender } = renderShell(openState);
+    expect(statusText()).not.toContain(strings.sensitive.captureOn);
+    // Any tab's sensitive document keeps the whole window out: this document need not be one.
+    rerender(<ReaderShell state={openState} onOpen={() => {}} loadingDelayMs={0} captureProtection="on" />);
+    expect(statusText()).toContain(strings.sensitive.captureOn);
+    expect(screen.getByText(strings.sensitive.captureOn).closest("[title]")).toHaveAttribute(
+      "title",
+      strings.sensitive.captureOnNote,
+    );
+    rerender(<ReaderShell state={openState} onOpen={() => {}} loadingDelayMs={0} captureProtection="failed" />);
+    expect(statusText()).not.toContain(strings.sensitive.captureOn);
+    expect(statusText()).toContain(strings.sensitive.captureFailed);
+  });
+
   it("has no banner when nothing was blocked", () => {
     renderShell({ kind: "open", document: { ...demoDocument, findings: [] } });
     expect(screen.queryByRole("region", { name: strings.banner.label })).not.toBeInTheDocument();
