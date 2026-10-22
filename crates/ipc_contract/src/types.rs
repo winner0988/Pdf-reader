@@ -1657,15 +1657,75 @@ pub struct SigningFile {
     pub name: String,
 }
 
+/// A certificate of the user's own store (the current user's "Personal" store) with a private
+/// key, in Windows or on a smart card (B3-06, ADR 0020): what the signing dialog lists. The page
+/// gets its number and what to show; the main process keeps the certificate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct StoreCertificate {
+    /// Its number in the list given last; a list given again numbers them anew.
+    pub certificate: u32,
+    /// Whom it names: the common name of its subject, or the name Windows shows for it.
+    pub subject: String,
+    /// Who issued it, named the same way.
+    pub issuer: String,
+    /// The last day it is valid, in UTC.
+    pub expires: CertificateDate,
+    /// Why it cannot sign; none: it can.
+    pub problem: Option<CertificateProblem>,
+}
+
+/// A day of a certificate's validity (B3-06), in UTC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CertificateDate {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+}
+
+/// Why a certificate of the user's store cannot sign (B3-06).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum CertificateProblem {
+    Expired,
+    NotYetValid,
+    /// Its key usage leaves out signatures.
+    NotForSigning,
+}
+
+/// What signs (B3-06, ADR 0020): a certificate file with its password, or a certificate of the
+/// user's store, whose key stays in Windows or on its smart card.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SigningKey {
+    File(SigningFileKey),
+    Store(SigningStoreKey),
+}
+
+/// The certificate file chosen last (`SigningFile::file`), and its password: it goes to Windows
+/// once, and is wiped.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SigningFileKey {
+    pub file: u32,
+    pub password: Password,
+}
+
+/// A certificate of the list given last (`StoreCertificate::certificate`). Windows, or the
+/// card's own software, asks for its PIN if it has one; the app never sees it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SigningStoreKey {
+    pub certificate: u32,
+}
+
 /// Arguments of `sign_document` (B3-06, ADR 0020).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SignArgs {
     pub doc: DocumentId,
-    /// The certificate file chosen last (`SigningFile::file`).
-    pub file: u32,
-    /// The certificate file's password: it goes to Windows once, and is wiped.
-    pub password: Password,
+    pub key: SigningKey,
     /// Where a visible signature goes; none: the signature is seen on no page.
     pub place: Option<SignaturePlace>,
     /// Why the document is signed, as the signer says; none: not said.
@@ -2103,6 +2163,9 @@ pub enum ErrorCode {
     SignatureTooLarge,
     /// Signing: the signed copy did not verify as valid, so it was not kept.
     SignatureNotValid,
+    /// Signing: the certificate of the store chosen is no longer there, or its key cannot be
+    /// reached (its smart card was taken out).
+    CertificateUnavailable,
     Internal,
 }
 

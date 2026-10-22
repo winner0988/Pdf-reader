@@ -1207,7 +1207,8 @@ impl Documents {
     /// docs/architecture/signing.md). The document's worker appends to the file it was opened
     /// from or last saved to a signature field that says `signature` and keeps room for the
     /// signature, in a temporary file next to `destination`; the room is checked, `signer` signs
-    /// every other byte at `unix_seconds`, and the signature is written into the room. A new
+    /// every other byte at `unix_seconds` (with the document free: a smart card's PIN may take
+    /// the user a while), and the signature is written into the room. A new
     /// worker then opens the copy and verifies it (ADR 0014): it takes `destination`'s place only
     /// if its new signature is valid and covers the whole file. The document, its edits and its
     /// file are not changed. Refused for what [`sign_check`](Self::sign_check) refuses but a
@@ -1220,45 +1221,47 @@ impl Documents {
         signature: NewSignature,
         unix_seconds: i64,
     ) -> Result<(), IpcError> {
-        let temporary = self.with_document(doc, |document| {
-            if sign_check_of(document) != SignCheck::Ready {
-                return Err(IpcError {
-                    code: ErrorCode::InvalidArgument,
-                    message: "the document cannot be signed as it is".to_owned(),
-                });
-            }
-            if same_file(&document.path, destination) {
-                return Err(IpcError {
-                    code: ErrorCode::InvalidArgument,
-                    message: "the signed copy never replaces the document's own file".to_owned(),
-                });
-            }
-            saving::check_writable(destination)?;
-            let mut temporary = Temporary::new(destination)?;
-            let worker_doc = live_worker(document)?;
-            let response = document
-                .host
-                .prepare_signature(worker_doc, temporary.file(), signature)
-                .map_err(|error| lost_on(document, &error))?;
-            let WorkerResponse::SignaturePrepared {
-                bytes,
-                contents_start,
-                contents_end,
-                ..
-            } = response
-            else {
-                return Err(unexpected("PrepareSignature"));
-            };
-            temporary.check(bytes)?;
-            sign_prepared(
-                &mut temporary,
-                bytes,
-                contents_start,
-                contents_end,
-                |parts| signer.sign(parts, unix_seconds),
-            )?;
-            Ok(temporary)
-        })?;
+        let (mut temporary, bytes, contents_start, contents_end) =
+            self.with_document(doc, |document| {
+                if sign_check_of(document) != SignCheck::Ready {
+                    return Err(IpcError {
+                        code: ErrorCode::InvalidArgument,
+                        message: "the document cannot be signed as it is".to_owned(),
+                    });
+                }
+                if same_file(&document.path, destination) {
+                    return Err(IpcError {
+                        code: ErrorCode::InvalidArgument,
+                        message: "the signed copy never replaces the document's own file"
+                            .to_owned(),
+                    });
+                }
+                saving::check_writable(destination)?;
+                let mut temporary = Temporary::new(destination)?;
+                let worker_doc = live_worker(document)?;
+                let response = document
+                    .host
+                    .prepare_signature(worker_doc, temporary.file(), signature)
+                    .map_err(|error| lost_on(document, &error))?;
+                let WorkerResponse::SignaturePrepared {
+                    bytes,
+                    contents_start,
+                    contents_end,
+                    ..
+                } = response
+                else {
+                    return Err(unexpected("PrepareSignature"));
+                };
+                temporary.check(bytes)?;
+                Ok((temporary, bytes, contents_start, contents_end))
+            })?;
+        sign_prepared(
+            &mut temporary,
+            bytes,
+            contents_start,
+            contents_end,
+            |parts| signer.sign(parts, unix_seconds),
+        )?;
         let report = self.verify_file(temporary.path())?;
         if !report
             .signatures

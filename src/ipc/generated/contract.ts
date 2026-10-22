@@ -1085,17 +1085,64 @@ export type SignaturePlace = { pageIndex: number, corner: PageCorner, };
 export type SigningFile = { file: number, name: string, };
 
 /**
+ * A certificate of the user's own store (the current user's "Personal" store) with a private
+ * key, in Windows or on a smart card (B3-06, ADR 0020): what the signing dialog lists. The page
+ * gets its number and what to show; the main process keeps the certificate.
+ */
+export type StoreCertificate = { 
+/**
+ * Its number in the list given last; a list given again numbers them anew.
+ */
+certificate: number, 
+/**
+ * Whom it names: the common name of its subject, or the name Windows shows for it.
+ */
+subject: string, 
+/**
+ * Who issued it, named the same way.
+ */
+issuer: string, 
+/**
+ * The last day it is valid, in UTC.
+ */
+expires: CertificateDate, 
+/**
+ * Why it cannot sign; none: it can.
+ */
+problem: CertificateProblem | null, };
+
+/**
+ * A day of a certificate's validity (B3-06), in UTC.
+ */
+export type CertificateDate = { year: number, month: number, day: number, };
+
+/**
+ * Why a certificate of the user's store cannot sign (B3-06).
+ */
+export type CertificateProblem = "expired" | "notYetValid" | "notForSigning";
+
+/**
+ * What signs (B3-06, ADR 0020): a certificate file with its password, or a certificate of the
+ * user's store, whose key stays in Windows or on its smart card.
+ */
+export type SigningKey = { "kind": "file" } & SigningFileKey | { "kind": "store" } & SigningStoreKey;
+
+/**
+ * The certificate file chosen last (`SigningFile::file`), and its password: it goes to Windows
+ * once, and is wiped.
+ */
+export type SigningFileKey = { file: number, password: Password, };
+
+/**
+ * A certificate of the list given last (`StoreCertificate::certificate`). Windows, or the
+ * card's own software, asks for its PIN if it has one; the app never sees it.
+ */
+export type SigningStoreKey = { certificate: number, };
+
+/**
  * Arguments of `sign_document` (B3-06, ADR 0020).
  */
-export type SignArgs = { doc: DocumentId, 
-/**
- * The certificate file chosen last (`SigningFile::file`).
- */
-file: number, 
-/**
- * The certificate file's password: it goes to Windows once, and is wiped.
- */
-password: Password, 
+export type SignArgs = { doc: DocumentId, key: SigningKey, 
 /**
  * Where a visible signature goes; none: the signature is seen on no page.
  */
@@ -1306,7 +1353,7 @@ edges: Array<number>, };
 /**
  * Error codes the frontend maps to localized messages.
  */
-export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "signed" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "credentialsUnavailable" | "pictureNotCleaned" | "certificateUnreadable" | "certificateExpired" | "certificateNotYetValid" | "certificateNotForSigning" | "signatureTooLarge" | "signatureNotValid" | "internal";
+export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "signed" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "credentialsUnavailable" | "pictureNotCleaned" | "certificateUnreadable" | "certificateExpired" | "certificateNotYetValid" | "certificateNotForSigning" | "signatureTooLarge" | "signatureNotValid" | "certificateUnavailable" | "internal";
 
 /**
  * Rejection value of every command. `message` is for logs and must not contain paths or

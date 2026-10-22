@@ -192,10 +192,32 @@ describe("dialogs", () => {
     const api = {
       check: vi.fn(() => Promise.resolve("ready" as const)),
       chooseFile: vi.fn(() => Promise.resolve({ file: 1, name: "憑證.pfx" })),
+      listCertificates: vi.fn(() =>
+        Promise.resolve([
+          {
+            certificate: 1,
+            subject: "王小明",
+            issuer: "內政部憑證管理中心",
+            expires: { year: 2030, month: 5, day: 14 },
+            problem: null,
+          },
+          {
+            certificate: 2,
+            subject: "舊憑證",
+            issuer: "測試",
+            expires: { year: 2020, month: 1, day: 1 },
+            problem: "expired" as const,
+          },
+        ]),
+      ),
       sign: vi.fn(() => Promise.reject({ code: "certificateUnreadable", message: "" })),
     };
     const user = userEvent.setup();
     const { unmount } = render(<SignDialog open onOpenChange={vi.fn()} doc={5} page={1} api={api} />);
+    // This computer's certificates, one of them expired.
+    await screen.findByText("王小明");
+    await expectAccessible(everything());
+    await user.click(screen.getByRole("radio", { name: strings.signing.sourceFile }));
     await user.click(await screen.findByRole("button", { name: strings.signing.chooseFile }));
     await screen.findByText("憑證.pfx");
     await expectAccessible(everything());

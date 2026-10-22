@@ -98,7 +98,8 @@ flowchart LR
 | `compress_images` | `{ args: CompressArgs }`：`doc`、`quality`（`high`、`medium`、`low`）、`maxSide`（`null` 或 256 到 16,384 的像素數）；其他欄位一律拒絕。**沒有路徑**：主行程顯示另存對話框，不能選原檔 | `CompressResult \| null`：`null` 表示使用者關閉了對話框；否則 `before`（不換圖片時副本的位元組數）、`after`（副本的位元組數）、`images`（文件的圖片數）、`changed`（重新編碼的張數）、`partial`（時間不夠，剩下的原樣）。文件已加密或有數位簽章、參數不合規則時是錯誤。見 [compress-images.md](compress-images.md) | 否 | B3-01 |
 | `check_signing` | `{ doc: DocumentId }` | `SignCheck`：`ready`，或不能簽署的原因：`encrypted`、`unsaved`（有還沒儲存的變更，包含崩潰復原留下的）、`certified`（認證簽章不允許任何變更）。簽署對話框一開啟就問，不能簽時不問使用者任何事。見 [signing.md](signing.md) | 否 | B3-06 |
 | `choose_signing_file` | 無（不含路徑：主行程顯示開啟對話框，只列 `.pfx`、`.p12`） | `SigningFile`（`file`：號碼、`name`：檔名）或 `null`（使用者關閉了對話框）。檔案的位元組（最多 1 MiB，`MAX_CERTIFICATE_FILE_BYTES`）留在主行程的記憶體，直到選了另一個或 app 結束；只有最後選的號碼有效。不能讀取、空的、太大時是 `certificateUnreadable` | 否 | B3-06 |
-| `sign_document` | `{ args: SignArgs }`：`doc`、`file`（`choose_signing_file` 的號碼）、`password`、`place`（`null` 或 `{ pageIndex, corner }`：`topLeft`、`topRight`、`bottomLeft`、`bottomRight`）、`reason`（`null` 或最多 `LIMITS.maxSigningReasonBytes` 的一行文字）、`utcOffsetMinutes`（這台電腦的時區）；其他欄位一律拒絕。**沒有路徑**：主行程先載入憑證檔，再顯示另存對話框，不能選原檔 | `SignResult`（`name`：副本的檔名）或 `null`（使用者關閉了對話框）；副本同時在新分頁開啟。密碼在主行程用一次就清除。憑證檔的問題在另存對話框之前就拒絕：`certificateUnreadable`（密碼不對或不是憑證，不分辨是哪一個）、`certificateExpired`、`certificateNotYetValid`、`certificateNotForSigning`；簽章放不進預留的空間是 `signatureTooLarge`，副本沒通過新 worker 的驗證是 `signatureNotValid`，都沒有留下檔案。見 [signing.md](signing.md) | 否 | B3-06 |
+| `list_signing_certificates` | 無 | `StoreCertificate[]`：目前使用者的「個人」存放區裡有私鑰的憑證（包含卡片上的），可以簽署的在前，最多 `MAX_STORE_CERTIFICATES`（100）張；每張有 `certificate`（號碼）、`subject`、`issuer`、`expires`（`{ year, month, day }`，UTC）、`problem`（`null` 或 `expired`、`notYetValid`、`notForSigning`）。只讀存放區，不開金鑰、不碰卡片；號碼換掉上一次列出的。見 [signing.md](signing.md) | 否 | B3-06 |
+| `sign_document` | `{ args: SignArgs }`：`doc`、`key`（`{ kind: "file", file, password }`：`choose_signing_file` 的號碼與密碼；或 `{ kind: "store", certificate }`：`list_signing_certificates` 的號碼，不帶密碼或 PIN）、`place`（`null` 或 `{ pageIndex, corner }`：`topLeft`、`topRight`、`bottomLeft`、`bottomRight`）、`reason`（`null` 或最多 `LIMITS.maxSigningReasonBytes` 的一行文字）、`utcOffsetMinutes`（這台電腦的時區）；其他欄位一律拒絕。**沒有路徑**：主行程先載入憑證檔，再顯示另存對話框，不能選原檔 | `SignResult`（`name`：副本的檔名）或 `null`（使用者關閉了對話框）；副本同時在新分頁開啟。密碼在主行程用一次就清除。憑證檔的問題在另存對話框之前就拒絕：`certificateUnreadable`（密碼不對或不是憑證，不分辨是哪一個）、`certificateExpired`、`certificateNotYetValid`、`certificateNotForSigning`、`certificateUnavailable`（這台電腦的憑證已不在、私鑰拿不到）；使用者關閉了詢問 PIN 的視窗是 `cancelled`；簽章放不進預留的空間是 `signatureTooLarge`，副本沒通過新 worker 的驗證是 `signatureNotValid`，都沒有留下檔案。見 [signing.md](signing.md) | 否 | B3-06 |
 | `privacy_export` | `{ doc: DocumentId }`（不含路徑：主行程顯示另存對話框，不能選原檔） | `boolean`：`false` 表示使用者關閉了對話框。寫出清除中繼資料的副本，文件與原檔不變；加密的文件拒絕（見 [privacy-export.md](privacy-export.md)） | 否 | B2-03 |
 | `get_ocr_languages` | 無 | `OcrLanguages`：`languages`（`code`、`bundled`、`bytes`；內附的在前，匯入的在後）與 `automatic`（`ocrLanguage: null` 代表的語言，沒有任何語言時為 `null`） | 否 | B2-10 |
 | `import_ocr_language` | 無（不含路徑：主行程顯示開啟對話框，只能選一個 `.traineddata`） | `LanguageImport`：`imported`（帶最新的 `languages`）、`cancelled`，或 `refused`（`reason`：`unreadable`、`tooLarge`、`notLanguageData`、`badName`、`nameTaken`、`tooMany`）；檢查名稱、大小（`LIMITS.maxLanguageDataBytes`）與格式後複製到 app 的資料資料夾，什麼都不下載 | 否 | B2-10 |
@@ -336,6 +337,7 @@ flowchart LR
 | `certificateNotForSigning` | 簽署：憑證檔裡沒有私鑰，或憑證的金鑰用途不含數位簽章 |
 | `signatureTooLarge` | 簽署：簽章比文件預留的空間（`SIGNATURE_RESERVE_BYTES`）大，沒有做副本 |
 | `signatureNotValid` | 簽署：簽好的副本沒有通過新 worker 的驗證，沒有存檔 |
+| `certificateUnavailable` | 簽署：這台電腦的憑證已不在存放區，或它的私鑰拿不到（卡片拔出） |
 | `internal` | 其他內部錯誤 |
 
 worker 端的 `WorkerErrorCode` 以 `From` 轉換對應到上表。
@@ -367,6 +369,7 @@ worker 端的 `WorkerErrorCode` 以 `From` 轉換對應到上表。
 | 從機敏文件複製一次的文字 | 16 MiB（UTF-8） | 由主行程寫入剪貼簿，所以經過 IPC（B3-05） |
 | 簽署用的憑證檔 | 1 MiB | `.pfx`／`.p12`，由主行程讀進記憶體（B3-06） |
 | 簽署的原因 | 256 bytes（UTF-8） | 一行，不能有控制字元（B3-06） |
+| 列出的這台電腦的憑證 | 100 張 | 可以簽署的在前，其餘不列（B3-06） |
 | 簽章的預留空間 | 32 KiB | `/Contents` 的十六進位 0，放得下 CMS 簽章與一般的憑證鏈；放不下時 `signatureTooLarge`（B3-06） |
 
 ## 座標系統

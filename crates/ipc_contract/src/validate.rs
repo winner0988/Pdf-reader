@@ -25,8 +25,8 @@ use crate::types::{
     RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation,
     SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult, SaveAttachmentResult, SearchArgs,
     SearchHit, SecurityReport, SensitiveArgs, SensitiveFile, Settings, SignArgs, SignatureInfo,
-    SignatureReport, SignatureStatus, TextBoxInfo, TextBoxStyle, TextLine, UndoArgs, UnlockArgs,
-    UnlockSourceArgs, Watermark, WatermarkContent,
+    SignatureReport, SignatureStatus, SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle,
+    TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
     InspectedFont, OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerAttachment, WorkerError,
@@ -1995,7 +1995,9 @@ const MAX_UTC_OFFSET_MINUTES: i16 = 14 * 60;
 
 impl Validate for SignArgs {
     fn validate(&self) -> Result<(), ValidationError> {
-        check_password(&self.password)?;
+        if let SigningKey::File(SigningFileKey { password, .. }) = &self.key {
+            check_password(password)?;
+        }
         if let Some(reason) = &self.reason {
             check_signing_text("signing reason", reason, MAX_SIGNING_REASON_BYTES)?;
         }
@@ -4688,8 +4690,10 @@ mod tests {
     fn signing_takes_a_password_one_line_of_reason_and_a_time_zone() {
         let args = |password: &str, reason: Option<&str>, utc_offset_minutes: i16| SignArgs {
             doc: DocumentId(1),
-            file: 1,
-            password: Password::new(password.to_owned()),
+            key: SigningKey::File(SigningFileKey {
+                file: 1,
+                password: Password::new(password.to_owned()),
+            }),
             place: None,
             reason: reason.map(str::to_owned),
             utc_offset_minutes,
@@ -4714,12 +4718,37 @@ mod tests {
         assert!(args("secret", None, 841).validate().is_err());
         assert!(args("secret", None, -841).validate().is_err());
         // The page sends nothing else: no path of a certificate, no signer.
-        let json = r#"{"doc":1,"file":1,"password":"p","place":{"pageIndex":0,"corner":"bottomRight"},"reason":null,"utcOffsetMinutes":0}"#;
+        let json = r#"{"doc":1,"key":{"kind":"file","file":1,"password":"p"},"place":{"pageIndex":0,"corner":"bottomRight"},"reason":null,"utcOffsetMinutes":0}"#;
         assert!(serde_json::from_str::<SignArgs>(json).is_ok());
-        let more = r#"{"doc":1,"file":1,"password":"p","place":null,"reason":null,"utcOffsetMinutes":0,"path":"C:/x.pfx"}"#;
+        let more = r#"{"doc":1,"key":{"kind":"file","file":1,"password":"p"},"place":null,"reason":null,"utcOffsetMinutes":0,"path":"C:/x.pfx"}"#;
         assert!(serde_json::from_str::<SignArgs>(more).is_err());
-        let corner = r#"{"doc":1,"file":1,"password":"p","place":{"pageIndex":0,"corner":"middle"},"reason":null,"utcOffsetMinutes":0}"#;
+        let corner = r#"{"doc":1,"key":{"kind":"file","file":1,"password":"p"},"place":{"pageIndex":0,"corner":"middle"},"reason":null,"utcOffsetMinutes":0}"#;
         assert!(serde_json::from_str::<SignArgs>(corner).is_err());
+    }
+
+    #[test]
+    fn a_certificate_of_the_store_is_named_by_its_number_alone() {
+        let store = |key: &str| {
+            serde_json::from_str::<SignArgs>(&format!(
+                r#"{{"doc":1,"key":{key},"place":null,"reason":null,"utcOffsetMinutes":480}}"#
+            ))
+        };
+        let args = store(r#"{"kind":"store","certificate":2}"#).unwrap();
+        assert_eq!(
+            args.key,
+            SigningKey::Store(crate::types::SigningStoreKey { certificate: 2 })
+        );
+        // No password, PIN or thumbprint: Windows asks for what the key needs.
+        assert!(args.validate().is_ok());
+        for key in [
+            r#"{"kind":"store","certificate":2,"password":"p"}"#,
+            r#"{"kind":"store","certificate":2,"pin":"1234"}"#,
+            r#"{"kind":"store","thumbprint":"00"}"#,
+            r#"{"kind":"file","file":1}"#,
+            r#"{"kind":"card","certificate":2}"#,
+        ] {
+            assert!(store(key).is_err(), "{key}");
+        }
     }
 
     #[test]

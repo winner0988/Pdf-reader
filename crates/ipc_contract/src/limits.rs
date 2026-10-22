@@ -265,6 +265,9 @@ pub const MAX_SIGNING_REASON_BYTES: u32 = 256;
 /// Largest certificate file read for signing (B3-06): a PKCS #12 file is a few kilobytes.
 pub const MAX_CERTIFICATE_FILE_BYTES: u64 = 1024 * 1024;
 
+/// Most certificates of the user's store listed for signing (B3-06); the rest are not listed.
+pub const MAX_STORE_CERTIFICATES: usize = 100;
+
 /// Maximum size of one exported PNG page (B2-04); below the frame limit.
 pub const MAX_PNG_BYTES: usize = 64 * 1024 * 1024;
 
