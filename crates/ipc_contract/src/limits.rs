@@ -36,6 +36,10 @@ pub const MAX_RASTER_SIDE_PX: u32 = 8192;
 /// Largest raster area in pixels (4096 x 4096, i.e. 64 MiB of RGBA).
 pub const MAX_RASTER_PIXELS: u32 = 4096 * 4096;
 
+/// Largest side, in pixels, of a whole page at the scale of a region drawn from it (B3-09): far
+/// beyond the raster limits, which bound the region, while MuPDF's coordinates stay exact.
+pub const MAX_REGION_PAGE_SIDE_PX: u32 = 1 << 20;
+
 /// Outline limits. Longer outlines are truncated by the worker and flagged as such.
 pub const MAX_OUTLINE_ITEMS: u32 = 10_000;
 pub const MAX_OUTLINE_DEPTH: u16 = 64;

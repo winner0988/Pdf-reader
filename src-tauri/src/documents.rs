@@ -16,7 +16,7 @@ use ipc_contract::limits::{
     MAX_CREATE_SOURCES, MAX_DISPLAY_NAME_BYTES, MAX_PAGE_COUNT, MAX_SOURCE_BYTES,
     MAX_STAMP_SOURCE_BYTES, MAX_TABS, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
 };
-use ipc_contract::raster::{encode_raster, fit_scale};
+use ipc_contract::raster::{check_region, encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
     AnnotationId, AnnotationSummary, BatchOperation, BlockedAction, CompressResult, CreateKind,
@@ -1411,34 +1411,55 @@ impl Documents {
     }
 
     /// Renders a page and returns it in the `render_page` wire format (ipc_contract::raster).
-    /// Pages too large for the raster limits come back at a lower resolution. If the worker
-    /// dies while rendering, this page fails; the next render reopens the file in a new worker.
+    /// Pages too large for the raster limits come back at a lower resolution. With a region
+    /// (B3-09), only that part of the page, at the scale asked for. If the worker dies while
+    /// rendering, this page fails; the next render reopens the file in a new worker.
     pub fn render(&self, args: &RenderPageArgs) -> Result<Vec<u8>, IpcError> {
         args.validate().map_err(invalid_argument)?;
         self.with_document(args.doc, |document| {
             let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
             check_page_index(args.page_index, page_count).map_err(invalid_argument)?;
             let page = document.info.pages[args.page_index as usize];
-            let scale = fit_scale(page, args.scale).map_err(|error| IpcError {
-                code: ErrorCode::LimitExceeded,
-                message: format!("page too large to render: {error}"),
-            })?;
-            let rendered = request(document, |request, doc| WorkerRequest::Render {
-                request,
-                doc,
-                page_index: args.page_index,
-                scale,
-                rotation: args.rotation,
-            })?;
-            match rendered {
-                WorkerResponse::Rendered { raster, .. } => {
-                    encode_raster(&raster).map_err(|error| IpcError {
-                        code: ErrorCode::ProtocolViolation,
-                        message: format!("invalid raster: {error}"),
-                    })
+            let rendered = match args.region {
+                Some(region) => {
+                    check_region(page, args.scale, args.rotation, region)
+                        .map_err(invalid_argument)?;
+                    request(document, |request, doc| WorkerRequest::RenderRegion {
+                        request,
+                        doc,
+                        page_index: args.page_index,
+                        scale: args.scale,
+                        rotation: args.rotation,
+                        region,
+                    })?
                 }
-                _ => Err(unexpected("Render")),
+                None => {
+                    let scale = fit_scale(page, args.scale).map_err(|error| IpcError {
+                        code: ErrorCode::LimitExceeded,
+                        message: format!("page too large to render: {error}"),
+                    })?;
+                    request(document, |request, doc| WorkerRequest::Render {
+                        request,
+                        doc,
+                        page_index: args.page_index,
+                        scale,
+                        rotation: args.rotation,
+                    })?
+                }
+            };
+            let WorkerResponse::Rendered { raster, .. } = rendered else {
+                return Err(unexpected("Render"));
+            };
+            let invalid = |error: &dyn std::fmt::Display| IpcError {
+                code: ErrorCode::ProtocolViolation,
+                message: format!("invalid raster: {error}"),
+            };
+            if let Some(region) = args.region
+                && (raster.width, raster.height) != (region.width, region.height)
+            {
+                return Err(invalid(&"not the size of the region"));
             }
+            encode_raster(&raster).map_err(|error| invalid(&error))
         })
     }
 
@@ -3501,6 +3522,7 @@ mod with_worker {
             page_index,
             scale,
             rotation,
+            region: None,
         }
     }
 
@@ -3542,6 +3564,38 @@ mod with_worker {
             width > 612 * 5,
             "still as sharp as the limit allows: {width}"
         );
+        std::fs::remove_file(path).ok();
+    }
+
+    /// Far in, a region of the page at the scale asked for, however large the whole page would
+    /// be (B3-09); never past the page's edge or the raster limits.
+    #[test]
+    fn regions_render_at_the_requested_scale() {
+        use ipc_contract::types::RasterRegion;
+
+        let (documents, info, path) = open("region", 1);
+        let region = |x, y, width, height| RenderPageArgs {
+            region: Some(RasterRegion {
+                x,
+                y,
+                width,
+                height,
+            }),
+            ..args(info.doc, 0, 16.0, Rotation::Cw90)
+        };
+        // Letter at 16x, turned: 12672 x 9792 pixels, beyond the raster limits.
+        let corner = documents.render(&region(10272, 8192, 2400, 1600)).unwrap();
+        assert_eq!(size(&corner), (2400, 1600));
+        let code = |args| documents.render(&args).unwrap_err().code;
+        assert_eq!(
+            code(region(10273, 0, 2400, 1600)),
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(
+            code(region(0, 8193, 2400, 1600)),
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(code(region(0, 0, 4097, 4096)), ErrorCode::InvalidArgument);
         std::fs::remove_file(path).ok();
     }
 

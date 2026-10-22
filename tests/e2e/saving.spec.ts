@@ -22,7 +22,7 @@ const firstPage = (page: Page) => page.getByRole("img", { name: strings.canvas.p
 /** Whether page 1 is drawn wider than tall: turned a quarter. */
 const landscape = (page: Page) =>
   firstPage(page)
-    .locator("canvas")
+    .locator("canvas:not([data-detail])")
     .evaluate((canvas: HTMLCanvasElement) => canvas.width > canvas.height);
 
 /** The tab of the edited document, marked as having unsaved changes. */

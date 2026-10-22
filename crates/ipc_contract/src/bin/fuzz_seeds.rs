@@ -12,11 +12,11 @@ use ipc_contract::types::{
     FieldOption, FindPersonalDataQuery, FindingKind, FontRefusal, FormField, HighlightColor,
     HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, LinkTarget, OutlineItem,
     OutlineResult, PageAnnotation, PageLink, PageSize, PageText, Password, PersonalDataCategory,
-    PersonalDataMatch, PersonalDataMatches, PictureView, Point, Quad, Rect, RedactionCheck,
-    RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions, SanitizeReport,
-    SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport, SignatureStatus,
-    StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason, Watermark,
-    WatermarkContent, WatermarkPages, WatermarkPlace,
+    PersonalDataMatch, PersonalDataMatches, PictureView, Point, Quad, RasterRegion, Rect,
+    RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions,
+    SanitizeReport, SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport,
+    SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason,
+    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, ModelGlyph, OcrFinished, OcrOutcome, OcrPageState,
@@ -562,6 +562,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             page_index: 0,
             scale: 1.5,
             rotation: Rotation::Cw90,
+        },
+        WorkerRequest::RenderRegion {
+            request,
+            doc,
+            page_index: 0,
+            scale: 16.0,
+            rotation: Rotation::Cw90,
+            region: RasterRegion {
+                x: 4000,
+                y: 2000,
+                width: 2400,
+                height: 1600,
+            },
         },
         WorkerRequest::RenderPng {
             request,

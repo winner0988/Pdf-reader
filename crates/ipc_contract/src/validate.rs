@@ -17,7 +17,7 @@ use crate::types::{
     FindPersonalDataQuery, FindingKind, FontImport, FontInfo, FormField, IpcError, LinkTarget,
     OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink,
     PageSize, PageText, Password, PersonalDataMatch, PersonalDataMatches, Point,
-    PrepareTextBoxArgs, Quad, RecentFile, Rect, RedactionSummary, RemoveFontArgs,
+    PrepareTextBoxArgs, Quad, RasterRegion, RecentFile, Rect, RedactionSummary, RemoveFontArgs,
     RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation, SanitizeArgs, SanitizeOptions,
     SanitizeReport, SanitizeResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs,
     SensitiveFile, Settings, SignatureInfo, SignatureReport, SignatureStatus, TextBoxInfo,
@@ -638,7 +638,24 @@ impl Validate for SignatureReport {
 
 impl Validate for RenderPageArgs {
     fn validate(&self) -> Result<(), ValidationError> {
-        check_scale(self.scale)
+        check_scale(self.scale)?;
+        self.region.as_ref().map_or(Ok(()), Validate::validate)
+    }
+}
+
+/// Within the raster limits, and within the largest page raster a region is drawn from. Whether
+/// it lies within its page is `raster::check_region`.
+impl Validate for RasterRegion {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_raster_size(self.width, self.height)?;
+        let right = u64::from(self.x) + u64::from(self.width);
+        let bottom = u64::from(self.y) + u64::from(self.height);
+        if right.max(bottom) > u64::from(MAX_REGION_PAGE_SIDE_PX) {
+            return Err(ValidationError::OutOfRange {
+                what: "raster region",
+            });
+        }
+        Ok(())
     }
 }
 
@@ -2706,11 +2723,38 @@ mod tests {
             page_index: 0,
             scale,
             rotation: Rotation::None,
+            region: None,
         };
         assert!(args(1.0).validate().is_ok());
         assert!(args(0.0).validate().is_err());
         assert!(args(f32::NAN).validate().is_err());
         assert!(args(MAX_RENDER_SCALE * 2.0).validate().is_err());
+
+        // A region (B3-09): not empty, within the raster limits and the largest page raster.
+        let region = |x, y, width, height| RenderPageArgs {
+            region: Some(RasterRegion {
+                x,
+                y,
+                width,
+                height,
+            }),
+            ..args(8.0)
+        };
+        assert!(region(5000, 9000, 2400, 1600).validate().is_ok());
+        assert!(region(0, 0, 0, 1600).validate().is_err());
+        assert!(region(0, 0, MAX_RASTER_SIDE_PX + 1, 1).validate().is_err());
+        assert!(region(0, 0, 4097, 4096).validate().is_err());
+        assert!(
+            region(MAX_REGION_PAGE_SIDE_PX - 10, 0, 10, 10)
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            region(MAX_REGION_PAGE_SIDE_PX - 10, 0, 11, 10)
+                .validate()
+                .is_err()
+        );
+        assert!(region(0, u32::MAX, 10, 10).validate().is_err());
     }
 
     #[test]

@@ -30,6 +30,7 @@ LARGE_OUTPUT = ROOT / "large" / "output"
 LETTER = (612, 792)
 A4 = (595, 842)
 A3_LANDSCAPE = (1191, 842)
+A0 = (2384, 3370)
 
 
 # --------------------------------------------------------------------------- PDF writer
@@ -1458,6 +1459,37 @@ def outline_100k(path: Path) -> None:
     path.write_bytes(doc.build())
 
 
+def large_a0_poster(path: Path) -> None:
+    """An A0 poster (2384 x 3370 pt): a 1600 x 1200 photo, a chart of 5000 line segments and 360
+    lines of small text, to time drawing one very large page at high zoom (B3-09)."""
+    rng = random.Random(2384)
+    doc = Document("large-a0-poster")
+    doc.reserve_pages(1)
+    photo = doc.pdf.add_stream(
+        "/Type /XObject /Subtype /Image /Width 1600 /Height 1200 /ColorSpace /DeviceRGB /BitsPerComponent 8",
+        rng.randbytes(1600 * 1200 * 3),
+    )
+    chart = ["q 0.20 0.40 0.70 RG 1.5 w 144 1550 m"]
+    for i in range(1, 5000):
+        x = 144 + i * 2096 / 5000
+        y = 1550 + 250 * (((i // 50) % 2) * 2 - 1) * (i % 50) / 50 + rng.uniform(-30, 30)
+        chart.append(f"{x:.2f} {y:.2f} l")
+    chart.append("S Q")
+    lines = [(144, 3180, 72, "A0 poster: drawing one very large page")]
+    for column in range(3):
+        for row in range(120):
+            n = column * 120 + row + 1
+            lines.append((144 + column * 720, 1180 - row * 9, 8,
+                          f"Line {n:03d}: offline reading of a large page; search target poster-{n:03d}."))
+    doc.set_page(0, Page(
+        size=A0,
+        lines=lines,
+        extra_content=b"q 2096 0 0 1150 144 1950 cm /Im1 Do Q\n" + "\n".join(chart).encode("latin-1") + b"\n",
+        resources=f"/XObject << /Im1 {photo} 0 R >> ",
+    ))
+    path.write_bytes(doc.build())
+
+
 # --------------------------------------------------------------------------- corpus
 
 
@@ -1943,6 +1975,9 @@ ON_DEMAND = [
      "Opens; fast text search benchmarking with memory caching; 'needle-0500' finds one hit on page 500.", 1000),
     ("large/output/outline-100k-items.pdf", outline_100k,
      "100,000 outline items (MVP-09).", "Outline truncated at the limit and flagged; no hang.", 1),
+    ("large/output/large-a0-poster.pdf", large_a0_poster,
+     "About 6 MB: one A0 page (2384 x 3370 pt) with a photo, a detailed chart and small text (B3-09).",
+     "Opens; at 200% the page is drawn within the raster limit and memory stays bounded.", 1),
 ]
 
 

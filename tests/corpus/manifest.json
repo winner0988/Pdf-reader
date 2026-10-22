@@ -706,6 +706,16 @@
       "findings": [],
       "text": [],
       "onDemand": true
+    },
+    {
+      "path": "large/output/large-a0-poster.pdf",
+      "category": "large",
+      "purpose": "About 6 MB: one A0 page (2384 x 3370 pt) with a photo, a detailed chart and small text (B3-09).",
+      "expected": "Opens; at 200% the page is drawn within the raster limit and memory stays bounded.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "onDemand": true
     }
   ],
   "images": [

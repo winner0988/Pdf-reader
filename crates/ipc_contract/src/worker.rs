@@ -12,10 +12,10 @@ use crate::types::{
     AnnotationId, AnnotationSummary, CreateKind, DocumentId, DocumentPermissions, Edit, ErrorCode,
     FieldId, FindPersonalDataQuery, FontRefusal, FormField, HighlightColor, HighlightMark,
     ImageQuality, InkColor, InkWidth, OutlineResult, PageAnnotation, PageLink, PageSize, PageText,
-    Password, PersonalDataMatches, Point, Rect, RedactionCheck, RedactionSummary, RequestId,
-    Restrictions, Rgb, Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityReport,
-    SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle,
-    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    Password, PersonalDataMatches, Point, RasterRegion, Rect, RedactionCheck, RedactionSummary,
+    RequestId, Restrictions, Rgb, Rotation, SanitizeOptions, SanitizeReport, SearchHit,
+    SecurityReport, SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo,
+    TextBoxModelId, TextBoxStyle, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -466,6 +466,16 @@ pub enum WorkerRequest {
         page_index: u32,
         scale: f32,
         rotation: Rotation,
+    },
+    /// Only `region` of the page at `scale` (B3-09), answered with `Rendered`: a raster of the
+    /// region's size. The page as a whole may be larger than the raster limits.
+    RenderRegion {
+        request: RequestId,
+        doc: DocumentId,
+        page_index: u32,
+        scale: f32,
+        rotation: Rotation,
+        region: RasterRegion,
     },
     GetOutline {
         request: RequestId,
