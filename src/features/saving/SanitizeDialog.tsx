@@ -2,7 +2,7 @@
 // what to strip is asked for here, then the main process asks where the copy goes.
 // What came of it is said in the dialog itself: how many items of each category were removed.
 
-import { useId, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,45 +13,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DEFAULT_SANITIZE_FORM, sanitizeOptionsOf, type SanitizeForm } from "@/features/saving/sanitize";
+import { SanitizeFields } from "@/features/saving/SanitizeFields";
 import { strings } from "@/i18n/zh-TW";
-import type { DocumentId, SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult } from "@/ipc/generated/contract";
+import type { DocumentId, SanitizeArgs, SanitizeReport, SanitizeResult } from "@/ipc/generated/contract";
 
 const t = strings.sanitize;
-
-export type SanitizeForm = {
-  actions: boolean;
-  attachments: boolean;
-  formScripts: boolean;
-  xfa: boolean;
-  richMedia: boolean;
-  hiddenData: boolean;
-  keepWebLinks: boolean;
-  annotations: "keep" | "remove" | "flatten";
-};
-
-const DEFAULT_SANITIZE_FORM: SanitizeForm = {
-  actions: true,
-  attachments: true,
-  formScripts: true,
-  xfa: true,
-  richMedia: true,
-  hiddenData: true,
-  keepWebLinks: true,
-  annotations: "keep",
-};
-
-function formToOptions(form: SanitizeForm): SanitizeOptions {
-  return {
-    actions: form.actions,
-    attachments: form.attachments,
-    formScripts: form.formScripts,
-    xfa: form.xfa,
-    richMedia: form.richMedia,
-    hiddenData: form.hiddenData,
-    keepWebLinks: form.keepWebLinks,
-    annotations: form.annotations,
-  };
-}
 
 type SanitizeDialogProps = {
   open: boolean;
@@ -67,9 +34,6 @@ export function SanitizeDialog({ open, onOpenChange, doc, sensitive, onSanitize 
   const [running, setRunning] = useState(false);
   const [failed, setFailed] = useState(false);
   const [result, setResult] = useState<SanitizeResult | null>(null);
-
-  const annotRadioName = useId();
-  const keptId = useId();
 
   // Every time it opens, it starts over.
   const [wasOpen, setWasOpen] = useState(open);
@@ -87,7 +51,7 @@ export function SanitizeDialog({ open, onOpenChange, doc, sensitive, onSanitize 
     if (running) return;
     setRunning(true);
     setFailed(false);
-    onSanitize({ doc, options: formToOptions(form) }).then(
+    onSanitize({ doc, options: sanitizeOptionsOf(form) }).then(
       (done) => {
         setRunning(false);
         // Null: the user closed the system's dialog; this one stays for another try.
@@ -146,99 +110,11 @@ export function SanitizeDialog({ open, onOpenChange, doc, sensitive, onSanitize 
               <DialogDescription>{t.description}</DialogDescription>
             </DialogHeader>
 
-            <fieldset className="grid gap-2 text-sm">
-              <legend className="mb-1 font-medium">{t.categoriesTitle}</legend>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  disabled={running}
-                  checked={form.actions}
-                  onChange={(e) => setForm((now) => ({ ...now, actions: e.target.checked }))}
-                />
-                {t.actions}
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  disabled={running}
-                  checked={form.keepWebLinks}
-                  onChange={(e) => setForm((now) => ({ ...now, keepWebLinks: e.target.checked }))}
-                />
-                {t.keepWebLinks}
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  disabled={running}
-                  checked={form.attachments}
-                  onChange={(e) => setForm((now) => ({ ...now, attachments: e.target.checked }))}
-                />
-                {t.attachments}
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  disabled={running}
-                  checked={form.formScripts}
-                  onChange={(e) => setForm((now) => ({ ...now, formScripts: e.target.checked }))}
-                />
-                {t.formScripts}
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  disabled={running}
-                  checked={form.xfa}
-                  onChange={(e) => setForm((now) => ({ ...now, xfa: e.target.checked }))}
-                />
-                {t.xfa}
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  disabled={running}
-                  checked={form.richMedia}
-                  onChange={(e) => setForm((now) => ({ ...now, richMedia: e.target.checked }))}
-                />
-                {t.richMedia}
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  disabled={running}
-                  checked={form.hiddenData}
-                  onChange={(e) => setForm((now) => ({ ...now, hiddenData: e.target.checked }))}
-                />
-                {t.hiddenData}
-              </label>
-            </fieldset>
-
-            <fieldset className="grid gap-2 text-sm">
-              <legend className="mb-1 font-medium">{t.annotationsTitle}</legend>
-              {(["keep", "remove", "flatten"] as const).map((mode) => (
-                <label key={mode} className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name={annotRadioName}
-                    disabled={running}
-                    checked={form.annotations === mode}
-                    onChange={() => setForm((now) => ({ ...now, annotations: mode }))}
-                  />
-                  {t.annotations[mode]}
-                </label>
-              ))}
-            </fieldset>
-
-            <section aria-labelledby={keptId} className="space-y-1 text-sm">
-              <h3 id={keptId} className="font-medium">
-                {t.keptTitle}
-              </h3>
-              <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-                {t.kept.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </section>
+            <SanitizeFields
+              form={form}
+              onChange={(changes) => setForm((now) => ({ ...now, ...changes }))}
+              disabled={running}
+            />
 
             {sensitive && (
               <p className="text-sm text-muted-foreground">

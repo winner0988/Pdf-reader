@@ -182,6 +182,46 @@ describe("a batch (B3-04)", () => {
     expect(within(dialog).getByRole("radio", { name: c.size(2000) })).toBeChecked();
   });
 
+  it("sanitizes each file with the options of one document's sanitized copy (B3-19)", async () => {
+    const s = strings.sanitize;
+    const { api, state } = fakeBatchApi();
+    const { user } = renderShell(api);
+    const dialog = await openDialog(user);
+    expect(within(dialog).queryByRole("checkbox", { name: s.actions })).toBeNull();
+    await user.click(within(dialog).getByRole("radio", { name: t.sanitize }));
+    expect(dialog).toHaveTextContent(t.sanitizeNote);
+    for (const item of s.kept) expect(dialog).toHaveTextContent(item);
+    // The same choices and defaults as one document's.
+    for (const name of [s.actions, s.keepWebLinks, s.attachments, s.formScripts, s.xfa, s.richMedia, s.hiddenData]) {
+      expect(within(dialog).getByRole("checkbox", { name })).toBeChecked();
+    }
+    expect(within(dialog).getByRole("radio", { name: s.annotations.keep })).toBeChecked();
+    await user.click(within(dialog).getByRole("checkbox", { name: s.hiddenData }));
+    await user.click(within(dialog).getByRole("radio", { name: s.annotations.flatten }));
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+    expect(api.run.mock.calls[0]![0]).toEqual({
+      kind: "sanitize",
+      options: {
+        actions: true,
+        attachments: true,
+        formScripts: true,
+        xfa: true,
+        richMedia: true,
+        hiddenData: false,
+        keepWebLinks: true,
+        annotations: "flatten",
+      },
+    });
+    act(() => state.onEvent({ kind: "started", files: ["a.pdf", "signed.pdf"] }));
+    act(() => {
+      state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "a（淨化副本）.pdf" } });
+      state.onEvent({ kind: "file", index: 1, outcome: { kind: "failed", error: "signed" } });
+    });
+    const list = within(dialog).getByRole("list", { name: t.filesLabel });
+    expect(list).toHaveTextContent(t.done("a（淨化副本）.pdf"));
+    expect(list).toHaveTextContent(t.failedFile(t.reasons.signed!));
+  });
+
   it("draws a text watermark with configured options on each file", async () => {
     const { api, state } = fakeBatchApi();
     const { user } = renderShell(api);
@@ -315,6 +355,7 @@ describe("a batch (B3-04)", () => {
 describe("what a batch says of a file", () => {
   it("has a reason for each code, special or general", () => {
     expect(reasonFor("encrypted")).toBe(t.reasons.encrypted);
+    expect(reasonFor("signed")).toBe(t.reasons.signed);
     expect(reasonFor("diskFull")).toBe(strings.error.messages.diskFull);
     expect(reasonFor("cancelled")).toBe(strings.error.messages.internal);
     expect(describeOutcome(null)).toBe(t.waiting);

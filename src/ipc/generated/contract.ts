@@ -216,7 +216,7 @@ export type PageMarksCopyArgs = { doc: DocumentId, marks: PageMarks, };
  * each is written to the folder the user chooses; no file is changed. An operation with fields
  * has those only: any other field is rejected.
  */
-export type BatchOperation = { "kind": "removeMetadata" } | { "kind": "encrypt", openPassword: Password | null, permissionsPassword: Password | null, restrictions: Restrictions, } | { "kind": "removeExif" } | { "kind": "watermark", watermark: Watermark, } | { "kind": "compressImages", quality: ImageQuality, maxSide: number | null, };
+export type BatchOperation = { "kind": "removeMetadata" } | { "kind": "encrypt", openPassword: Password | null, permissionsPassword: Password | null, restrictions: Restrictions, } | { "kind": "removeExif" } | { "kind": "watermark", watermark: Watermark, } | { "kind": "compressImages", quality: ImageQuality, maxSide: number | null, } | { "kind": "sanitize", options: SanitizeOptions, };
 
 /**
  * Arguments of `run_batch` (B3-04): what to do, never to which files or where; the main process

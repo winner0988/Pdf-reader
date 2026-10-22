@@ -1010,6 +1010,7 @@ impl Validate for BatchArgs {
             ),
             BatchOperation::Watermark { watermark } => watermark.validate(),
             BatchOperation::CompressImages { max_side, .. } => check_compress_side(*max_side),
+            BatchOperation::Sanitize { options } => options.validate(),
         }
     }
 }
@@ -3078,6 +3079,41 @@ mod tests {
             r#"{"request":5,"operation":{"kind":"compressImages","quality":"low","maxSide":null,"folder":"C:/x"}}"#,
             r#"{"request":5,"operation":{"kind":"encrypt","openPassword":"pw","permissionsPassword":null,"restrictions":{"print":false,"copy":false,"modify":false},"file":"C:/x.pdf"}}"#,
             r#"{"request":5,"operation":{"kind":"compressImages","quality":"lossless","maxSide":null}}"#,
+        ] {
+            assert!(serde_json::from_str::<BatchArgs>(more).is_err(), "{more}");
+        }
+
+        // Sanitizing (B3-19): the options of one document's sanitized copy, as the page sends them.
+        let sanitize = r#"{"request":6,"operation":{"kind":"sanitize","options":{"actions":true,"attachments":false,"formScripts":true,"xfa":true,"richMedia":true,"hiddenData":false,"keepWebLinks":false,"annotations":"flatten"}}}"#;
+        let args: BatchArgs = serde_json::from_str(sanitize).expect("batch sanitize args");
+        assert_eq!(
+            args.operation,
+            BatchOperation::Sanitize {
+                options: SanitizeOptions {
+                    attachments: false,
+                    hidden_data: false,
+                    keep_web_links: false,
+                    annotations: crate::types::SanitizeAnnotations::Flatten,
+                    ..SanitizeOptions::default()
+                }
+            }
+        );
+        assert!(args.validate().is_ok());
+        assert!(
+            batch(BatchOperation::Sanitize {
+                options: SanitizeOptions::default()
+            })
+            .validate()
+            .is_ok()
+        );
+        // Nothing but what the page sends: no file or folder, no option one document lacks, every
+        // option given.
+        for more in [
+            r#"{"request":6,"operation":{"kind":"sanitize","options":{"actions":true,"attachments":true,"formScripts":true,"xfa":true,"richMedia":true,"hiddenData":true,"keepWebLinks":true,"annotations":"keep"},"folder":"C:/x"}}"#,
+            r#"{"request":6,"operation":{"kind":"sanitize","options":{"actions":true,"attachments":true,"formScripts":true,"xfa":true,"richMedia":true,"hiddenData":true,"keepWebLinks":true,"annotations":"keep","signatures":true}}}"#,
+            r#"{"request":6,"operation":{"kind":"sanitize","options":{"actions":true,"attachments":true,"formScripts":true,"xfa":true,"richMedia":true,"hiddenData":true,"annotations":"keep"}}}"#,
+            r#"{"request":6,"operation":{"kind":"sanitize","options":{"actions":true,"attachments":true,"formScripts":true,"xfa":true,"richMedia":true,"hiddenData":true,"keepWebLinks":true,"annotations":"redact"}}}"#,
+            r#"{"request":6,"operation":{"kind":"sanitize"}}"#,
         ] {
             assert!(serde_json::from_str::<BatchArgs>(more).is_err(), "{more}");
         }

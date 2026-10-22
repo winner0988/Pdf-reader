@@ -36,6 +36,8 @@ import {
   type Problem,
 } from "@/features/saving/encrypt";
 import { EncryptFields } from "@/features/saving/EncryptFields";
+import { batchSanitizeOf, DEFAULT_SANITIZE_FORM, type SanitizeForm } from "@/features/saving/sanitize";
+import { SanitizeFields } from "@/features/saving/SanitizeFields";
 import { strings } from "@/i18n/zh-TW";
 import { LIMITS, type BatchEvent, type BatchOperation, type BatchOutcome, type BatchReport } from "@/ipc/generated/contract";
 
@@ -61,6 +63,7 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
   const [form, setForm] = useState<EncryptForm>(EMPTY_FORM);
   const [watermarkForm, setWatermarkForm] = useState<WatermarkForm>(DEFAULT_WATERMARK_FORM);
   const [compressForm, setCompressForm] = useState<CompressForm>(DEFAULT_COMPRESS_FORM);
+  const [sanitizeForm, setSanitizeForm] = useState<SanitizeForm>(DEFAULT_SANITIZE_FORM);
   /** From "選擇檔案並開始…" until the batch ends (the system's dialogs come first). */
   const [active, setActive] = useState(false);
   const [run, setRun] = useState<Run | null>(null);
@@ -75,6 +78,7 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
     setForm(EMPTY_FORM);
     setWatermarkForm(DEFAULT_WATERMARK_FORM);
     setCompressForm(DEFAULT_COMPRESS_FORM);
+    setSanitizeForm(DEFAULT_SANITIZE_FORM);
     setRun(null);
     setFailed(false);
   }
@@ -108,6 +112,8 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
             ? batchWatermarkOf(watermarkForm)
             : kind === "compressImages"
               ? { kind: "compressImages", quality: compressForm.quality, maxSide: compressForm.maxSide }
+              : kind === "sanitize"
+                ? batchSanitizeOf(sanitizeForm)
               : { kind: "removeMetadata" };
     setActive(true);
     setFailed(false);
@@ -164,7 +170,7 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
             <>
               <fieldset className="grid gap-2 text-sm" aria-describedby={operationId}>
                 <legend className="mb-1 font-medium">{t.operation}</legend>
-                {(["removeMetadata", "removeExif", "compressImages", "encrypt", "watermark"] as const).map((choice) => (
+                {(["removeMetadata", "removeExif", "compressImages", "sanitize", "encrypt", "watermark"] as const).map((choice) => (
                   <label key={choice} className="flex items-center gap-2">
                     <input
                       type="radio"
@@ -200,6 +206,16 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
                     disabled={active}
                   />
                   <p className="text-sm">{t.compressNote}</p>
+                </>
+              )}
+              {kind === "sanitize" && (
+                <>
+                  <SanitizeFields
+                    form={sanitizeForm}
+                    onChange={(changes) => setSanitizeForm((now) => ({ ...now, ...changes }))}
+                    disabled={active}
+                  />
+                  <p className="text-sm">{t.sanitizeNote}</p>
                 </>
               )}
               <ul id={operationId} className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
