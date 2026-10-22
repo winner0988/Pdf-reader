@@ -1368,6 +1368,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let before = key_files();
+        let mut put_in = Vec::new();
         // A key in a CNG key store, then one kept by an older provider: as an import or a
         // smart card's driver can leave either (ADR 0020, POC 3).
         for cng in [true, false] {
@@ -1375,6 +1376,7 @@ mod tests {
             assert_eq!(signing.older, !cng, "the key is where it was put");
             let expired = InStore::put("expired.pfx", cng);
             let encryption_only = InStore::put("encryption-only.pfx", cng);
+            put_in.extend([&signing, &expired, &encryption_only].map(|it| it.encoded.clone()));
 
             let listed = store_certificates();
             let problem = |wanted: &InStore| {
@@ -1439,11 +1441,33 @@ mod tests {
             Signer::from_store(b"not a certificate", 0).err(),
             Some(SigningError::Unavailable)
         );
+        // Every certificate put in has left the store, and every key is deleted. On the CI
+        // runner, Windows kept the store's files of the certificates (and one of their keys'
+        // identifiers) after they had left it: those files are not compared.
+        for encoded in &put_in {
+            assert_eq!(
+                Signer::from_store(encoded, 0).err(),
+                Some(SigningError::Unavailable),
+                "taken out of the store"
+            );
+        }
         assert_eq!(
-            key_files(),
-            before,
-            "every key and certificate put in was taken out"
+            without_certificates(key_files()),
+            without_certificates(before),
+            "every key put in was deleted"
         );
+    }
+
+    /// `files` (of `key_files`) less those of the user's certificate stores.
+    fn without_certificates(files: Vec<std::path::PathBuf>) -> Vec<std::path::PathBuf> {
+        files
+            .into_iter()
+            .filter(|file| {
+                !file
+                    .components()
+                    .any(|part| part.as_os_str() == "SystemCertificates")
+            })
+            .collect()
     }
 
     #[test]
