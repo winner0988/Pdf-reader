@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sign-document"
+description = "Enables the sign_document command without any pre-configured scope."
+commands.allow = ["sign_document"]
+
+[[permission]]
+identifier = "deny-sign-document"
+description = "Denies the sign_document command without any pre-configured scope."
+commands.deny = ["sign_document"]

@@ -81,6 +81,9 @@
     "allow-set-ocr-focus",
     "allow-pick-stamp-image",
     "allow-run-batch",
-    "allow-create-pdf"
+    "allow-create-pdf",
+    "allow-check-signing",
+    "allow-choose-signing-file",
+    "allow-sign-document"
   ]
 }
