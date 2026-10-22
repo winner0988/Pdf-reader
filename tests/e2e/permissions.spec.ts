@@ -6,6 +6,7 @@ import type { Page } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
 import { corpus, expect, test } from "./app";
+import { findOnScreen } from "./search";
 
 type Recorded = { copied: string[]; printed: number };
 
@@ -33,14 +34,7 @@ async function open(launch: (file?: string) => Promise<Page>, file: string, pass
 
 /** Selects the word "Restricted" by double-clicking where search finds it. */
 async function selectWord(page: Page) {
-  await page.keyboard.press("Control+f");
-  const input = page.getByRole("textbox", { name: strings.search.placeholder });
-  await input.fill("Restricted");
-  await input.press("Enter");
-  const hit = page.locator("[data-highlights] polygon:not([data-current])");
-  await expect(hit).toHaveCount(1);
-  const box = await hit.boundingBox();
-  if (!box) throw new Error("the word is not on screen");
+  const box = await findOnScreen(page, "Restricted");
   await page.keyboard.press("Escape");
   await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
   await expect(page.locator("[data-selection] polygon")).toHaveCount(1);

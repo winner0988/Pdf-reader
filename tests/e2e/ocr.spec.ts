@@ -11,6 +11,7 @@ import type { Page } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
 import { answerFileDialog, corpus, dataDir, ROOT, expect, test } from "./app";
+import { hitOnScreen } from "./search";
 
 const t = strings.ocr;
 const SCAN = corpus("benign/scanned-text.pdf");
@@ -58,10 +59,7 @@ test("a scanned page is read in the background, and then it has text: marked, fo
   // The text is the picture's, in the page's own space: search finds a word and marks it.
   const status = await search(page, "secret");
   await expect(status).toHaveText(strings.search.count(1, 1), { timeout: 15_000 });
-  const hit = page.locator("[data-highlights] polygon:not([data-current])");
-  await expect(hit).toHaveCount(1);
-  const box = await hit.boundingBox();
-  if (!box) throw new Error("the hit is not on screen");
+  const box = await hitOnScreen(page);
 
   // And it can be selected and copied like any text.
   await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);

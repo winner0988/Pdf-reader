@@ -15,6 +15,7 @@ import type { Page } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
 import { answerFileDialog, corpus, dataDir, expect, test } from "./app";
+import { findOnScreen } from "./search";
 
 const t = strings.sensitive;
 
@@ -144,13 +145,7 @@ test.describe("sensitive documents", () => {
     });
 
     // "Privacy", found and double-clicked as in text.spec.ts.
-    await page.keyboard.press("Control+f");
-    const input = page.getByRole("textbox", { name: strings.search.placeholder });
-    await input.fill("Privacy");
-    await input.press("Enter");
-    const hit = page.locator("[data-highlights] polygon:not([data-current])");
-    await expect(hit).toHaveCount(1);
-    const box = (await hit.boundingBox())!;
+    const box = await findOnScreen(page, "Privacy");
     await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
     await page.keyboard.press("Control+c");
 
