@@ -142,7 +142,7 @@ export function SignDialog({ open, onOpenChange, doc, page, api }: SignDialogPro
             </p>
             <DialogFooter>
               <Button type="button" onClick={close}>
-                {t.close}
+                {t.done}
               </Button>
             </DialogFooter>
           </div>

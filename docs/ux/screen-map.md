@@ -238,7 +238,7 @@
 - **開啟時**先檢查文件（signing.checking）：已加密、有尚未儲存的變更、認證簽章不允許變更時，只顯示原因（signing.encrypted／unsaved／certified，`role="alert"`）與「關閉」，不問任何事。檢查失敗時顯示 signing.checkFailed。
 - **對話框**：signing.description；「憑證檔」：「選擇憑證檔…」開啟系統的開啟對話框（只列 `.pfx`、`.p12`），選好後顯示檔名，還沒選時顯示 signing.noFile；「憑證檔的密碼」；「簽章的外觀」兩個單選按鈕：顯示在目前這一頁的角落（預設；「位置」選單選四個角之一，預設右下角），或不顯示在頁面上；「原因（選填）」，太長時顯示 signing.reasonTooLong；signing.note。沒有選憑證檔、沒有密碼或原因太長時，「選擇位置並簽署…」停用。
 - **選擇位置並簽署…**：主行程先載入憑證檔。密碼不對或不是憑證、過期、還沒生效、不能用來簽署時，在另存對話框出現之前就顯示原因（`role="alert"`），密碼欄清空，選的檔案留著。接著顯示系統的另存對話框，建議檔名 `<原檔名>（已簽署）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（SIGNED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，密碼還在，可以再試。簽署中顯示 signing.running，欄位與按鈕停用，不能關閉對話框。
-- **結果**：成功後對話框換成結果（標題 signing.resultTitle，`role="status"`）：signing.result。簽好的副本已在新分頁開啟，它的簽章提示列說明簽章的狀況（B2-14）。按「關閉」關閉。
+- **結果**：成功後對話框換成結果（標題 signing.resultTitle，`role="status"`）：signing.result。簽好的副本已在新分頁開啟，它的簽章提示列說明簽章的狀況（B2-14）。按「完成」（signing.done）關閉。
 - 失敗、完成或關閉對話框時，密碼欄位清空；app 不記住憑證檔或密碼。
 
 ### 批次處理（B3-04）
@@ -1274,6 +1274,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | signing.start／signing.cancel／signing.close | 選擇位置並簽署…／取消／關閉 |
 | signing.running／signing.failed | 正在簽署…／無法簽署這份文件，請再試一次。 |
 | signing.resultTitle | 已簽署並存成新檔 |
+| signing.done | 完成 |
 | signing.result(name) | 已存成「<name>」，並在新分頁開啟。 |
 | signing.encryptedShort | 已加密的文件不適用（選單中，取代快捷鍵的位置） |
 | error.messages.certificateUnreadable | 密碼不對，或檔案不是憑證。 |

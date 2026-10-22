@@ -193,7 +193,7 @@ pub fn bindings() -> String {
         SaveAttachmentResult,
     );
 
-    let limits: [(&str, String); 60] = [
+    let limits: [(&str, String); 61] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),

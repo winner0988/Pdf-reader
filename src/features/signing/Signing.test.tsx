@@ -145,6 +145,9 @@ describe("the signing dialog (B3-06)", () => {
     expect(Object.keys(args).sort()).toEqual(["doc", "file", "password", "place", "reason", "utcOffsetMinutes"]);
     expect(await within(dialog).findByRole("status")).toHaveTextContent(t.result("報告（已簽署）.pdf"));
     expect(screen.getByRole("dialog", { name: t.resultTitle })).toBeInTheDocument();
+    // Its own name: the dialog's corner button is the one called "關閉".
+    await user.click(within(dialog).getByRole("button", { name: t.done }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("signs without a box, or with it in another corner", async () => {

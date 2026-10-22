@@ -72,8 +72,10 @@ test.describe("signing a document", () => {
 
     const copy = path.join(folder, "contract（已簽署）.pdf");
     await answerFileDialog(page, { path: copy });
-    await expect(dialog.getByRole("status")).toContainText(t.result("contract（已簽署）.pdf"));
-    await dialog.getByRole("button", { name: t.close }).click();
+    // Signed, the dialog says so in its title: it is found by that one.
+    const done = page.getByRole("dialog", { name: t.resultTitle });
+    await expect(done.getByRole("status")).toContainText(t.result("contract（已簽署）.pdf"));
+    await done.getByRole("button", { name: t.done }).click();
 
     // The copy opened in a tab of its own, and its signature holds; nobody vouches for a test signer.
     await expect(page.getByRole("tab", { name: /contract（已簽署）\.pdf/ })).toHaveAttribute("aria-selected", "true");

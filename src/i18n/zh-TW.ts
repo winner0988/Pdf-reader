@@ -729,6 +729,8 @@ export const strings = {
     failed: "無法簽署這份文件，請再試一次。",
     resultTitle: "已簽署並存成新檔",
     result: (name: string) => `已存成「${name}」，並在新分頁開啟。`,
+    /** Not "關閉": the dialog's corner button already has that name. */
+    done: "完成",
     /** In the menu, in place of the shortcut, when it does not apply. */
     encryptedShort: "已加密的文件不適用",
   },
