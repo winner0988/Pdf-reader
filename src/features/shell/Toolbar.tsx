@@ -105,6 +105,10 @@ export type ToolbarProps = {
   onCompressImages?: () => void;
   /** An encrypted document has no compressed copy (B3-01): the menu item says so. */
   compressImagesBlocked?: boolean;
+  /** Signs the document into a copy (B3-06); without it the menu item is disabled. */
+  onSign?: () => void;
+  /** An encrypted document is not signed (B3-06): the menu item says so. */
+  signBlocked?: boolean;
   /**
    * Marks the selected text with the highlighter in the color it used last (B2-07); without a
    * click handler (no text is selected, or the author does not allow annotating) the button is
@@ -529,6 +533,10 @@ function MoreMenu(props: ToolbarProps) {
         <DropdownMenuItem disabled={!props.onCompressImages} onClick={props.onCompressImages}>
           {menu.compressImages}
           {props.compressImagesBlocked && <DropdownMenuShortcut>{strings.compress.encrypted}</DropdownMenuShortcut>}
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!props.onSign} onClick={props.onSign}>
+          {menu.sign}
+          {props.signBlocked && <DropdownMenuShortcut>{strings.signing.encryptedShort}</DropdownMenuShortcut>}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={!props.onPrint} onClick={props.onPrint}>
           {menu.print}

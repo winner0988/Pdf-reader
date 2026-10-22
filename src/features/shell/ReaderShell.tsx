@@ -32,6 +32,8 @@ import type { CreateApi } from "@/features/create/api";
 import { CreatePdfDialog } from "@/features/create/CreatePdfDialog";
 import { fitsClipboard, type SensitiveApi } from "@/features/sensitive/api";
 import { SensitiveDialog } from "@/features/sensitive/SensitiveDialog";
+import type { SigningApi } from "@/features/signing/api";
+import { SignDialog } from "@/features/signing/SignDialog";
 import type { ExportApi } from "@/features/export/api";
 import { AnnotationSummaryDialog } from "@/features/export/AnnotationSummaryDialog";
 import { ExportDialog } from "@/features/export/ExportDialog";
@@ -156,6 +158,8 @@ type ReaderShellProps = {
    * is no mark to write, and text is copied as from any document.
    */
   sensitiveApi?: SensitiveApi;
+  /** Signing the document into a copy (B3-06); without it the menu item is disabled. */
+  signingApi?: SigningApi;
   /** Page management in the thumbnails (B2-05); without it (demo data, tests) pages stay as they are. */
   editingApi?: EditingApi;
   /** The update check in the settings (#64); without it (demo data, tests) it is not offered. */
@@ -238,6 +242,7 @@ export function ReaderShell({
   savingApi,
   createApi,
   sensitiveApi,
+  signingApi,
   editingApi,
   updatesApi,
   fontsApi,
@@ -298,6 +303,7 @@ export function ReaderShell({
     | "compress"
     | "create"
     | "sensitive"
+    | "sign"
     | null
   >(
     null,
@@ -372,7 +378,8 @@ export function ReaderShell({
       dialog === "pageMarks" ||
       dialog === "encrypt" ||
       dialog === "compress" ||
-      dialog === "sensitive"
+      dialog === "sensitive" ||
+      dialog === "sign"
     ) {
       setDialog(null);
     }
@@ -1140,6 +1147,8 @@ export function ReaderShell({
           onForgetPassword={document_?.passwordRemembered ? forgetPassword : undefined}
           onCompressImages={savable && !document_?.encrypted ? () => setDialog("compress") : undefined}
           compressImagesBlocked={savable && document_?.encrypted === true}
+          onSign={signingApi && doc !== undefined && !document_?.encrypted ? () => setDialog("sign") : undefined}
+          signBlocked={signingApi !== undefined && doc !== undefined && document_?.encrypted === true}
           ocr={ocrView.menu}
           flatten={
             document_?.hasForm && editingApi !== undefined
@@ -1560,6 +1569,15 @@ export function ReaderShell({
           onOpenChange={(open) => setDialog(open ? "create" : null)}
           api={createApi}
           onFinished={showHint}
+        />
+      )}
+      {signingApi && doc !== undefined && (
+        <SignDialog
+          open={dialog === "sign"}
+          onOpenChange={(open) => setDialog(open ? "sign" : null)}
+          doc={doc}
+          page={currentPage}
+          api={signingApi}
         />
       )}
       {sensitiveApi && doc !== undefined && (
