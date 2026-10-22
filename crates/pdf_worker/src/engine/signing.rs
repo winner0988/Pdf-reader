@@ -532,8 +532,10 @@ mod tests {
         let mut found = Vec::new();
         for (index, (old, new)) in before
             .rgba
-            .chunks_exact(4)
-            .zip(after.rgba.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(after.rgba.as_chunks::<4>().0)
             .enumerate()
         {
             if old != new && new[0] < 128 {
