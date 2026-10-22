@@ -65,10 +65,12 @@ pub const MAX_QUERY_BYTES: u32 = 1_024;
 pub const MAX_SEARCH_HITS: u32 = 10_000;
 
 /// Largest memory one document's text cache may hold in the worker (Issue #242, D1 Option A).
-/// 64 MiB is enough for hundreds of thousands of lines of extracted page text across thousands
-/// of pages; if exceeded, the worker stops caching further pages and falls back to on-demand
-/// page-by-page extraction without exhausting worker memory.
-pub const MAX_TEXT_CACHE_BYTES: usize = 64 * 1024 * 1024;
+/// Each character takes ~36 bytes (`char` 4 + `Quad` 32); in `large-text-1000-pages.pdf`, each page
+/// has ~2,000 characters (~72 KB). Each document has its own worker process (job limit 2 GiB), so
+/// 256 MiB is the extra usage budget for a single worker, which easily holds all 1,000 pages (and
+/// even a 1,000-page document with ~5,000 characters per page). If exceeded, the worker stops caching
+/// further pages and falls back to on-demand page-by-page extraction without exhausting worker memory.
+pub const MAX_TEXT_CACHE_BYTES: usize = 256 * 1024 * 1024;
 
 /// Maximum quads for one hit (a hit spanning several lines has one quad per line).
 pub const MAX_QUADS_PER_HIT: u32 = 64;

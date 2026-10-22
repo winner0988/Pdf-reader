@@ -295,7 +295,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 query,
                 case_sensitive,
                 max_hits,
-            } => Some(match documents.get_mut(&doc) {
+            } => Some(match documents.get(&doc) {
                 None => error(
                     request,
                     WorkerErrorCode::UnknownDocument,
