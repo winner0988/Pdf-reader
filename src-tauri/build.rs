@@ -58,6 +58,7 @@ fn main() {
         "privacy_export",
         "encrypt_copy",
         "compress_images",
+        "sanitize_copy",
         "get_ocr_languages",
         "get_fonts",
         "prepare_text_box",

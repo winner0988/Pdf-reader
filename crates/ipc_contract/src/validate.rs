@@ -17,10 +17,10 @@ use crate::types::{
     LinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation,
     PageLink, PageSize, PageText, Password, PersonalDataMatch, PersonalDataMatches, Point,
     PrepareTextBoxArgs, Quad, RecentFile, Rect, RedactionSummary, RemoveFontArgs,
-    RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation, SearchArgs, SearchHit,
-    SecurityReport, SensitiveArgs, SensitiveFile, Settings, SignatureInfo, SignatureReport,
-    SignatureStatus, TextBoxInfo, TextBoxStyle, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs,
-    Watermark, WatermarkContent,
+    RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation, SanitizeArgs, SanitizeOptions,
+    SanitizeReport, SanitizeResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs,
+    SensitiveFile, Settings, SignatureInfo, SignatureReport, SignatureStatus, TextBoxInfo,
+    TextBoxStyle, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
     InspectedFont, OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerError, WorkerErrorCode,
@@ -504,6 +504,14 @@ impl Validate for WorkerResponse {
                 }
                 Ok(())
             }
+            WorkerResponse::Sanitized { bytes, report, .. } => {
+                if *bytes == 0 || *bytes > MAX_DOCUMENT_BYTES {
+                    return Err(ValidationError::OutOfRange {
+                        what: "sanitized file size",
+                    });
+                }
+                report.validate()
+            }
             WorkerResponse::Created { bytes, pages, .. } => {
                 if *bytes == 0 || *bytes > MAX_DOCUMENT_BYTES {
                     return Err(ValidationError::OutOfRange {
@@ -766,6 +774,49 @@ impl Validate for CompressArgs {
             });
         }
         Ok(())
+    }
+}
+
+impl Validate for SanitizeOptions {
+    fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
+    }
+}
+
+impl Validate for SanitizeReport {
+    fn validate(&self) -> Result<(), ValidationError> {
+        for (count, what) in [
+            (self.actions, "removed actions"),
+            (self.links, "removed links"),
+            (self.attachments, "removed attachments"),
+            (self.form_scripts, "removed form scripts"),
+            (self.xfa, "removed xfa"),
+            (self.rich_media, "removed rich media"),
+            (self.hidden_data, "removed hidden data"),
+            (self.annotations, "removed annotations"),
+        ] {
+            if count > MAX_SANITIZED_ITEMS {
+                return Err(ValidationError::OutOfRange { what });
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Validate for SanitizeArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.options.validate()
+    }
+}
+
+impl Validate for SanitizeResult {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.bytes == 0 || self.bytes > MAX_DOCUMENT_BYTES {
+            return Err(ValidationError::OutOfRange {
+                what: "sanitized file size",
+            });
+        }
+        self.report.validate()
     }
 }
 

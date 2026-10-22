@@ -265,6 +265,9 @@ pub const MAX_OCR_PAGE_MILLIS: u32 = 5 * 60 * 1000;
 /// the app: each is up to `MAX_LANGUAGE_DATA_BYTES` in the app's data folder.
 pub const MAX_IMPORTED_LANGUAGES: u32 = 20;
 
+/// Most items of any category a sanitized copy reports having removed (B3-15).
+pub const MAX_SANITIZED_ITEMS: u32 = 10_000_000;
+
 /// Most personal data matches reported across the document (Issue #302). A document with
 /// thousands of matches could overwhelm IPC buffers and UI rendering; 1,000 matches is plenty
 /// for a user to review and batch redact. If exceeded, `has_more` is true.
