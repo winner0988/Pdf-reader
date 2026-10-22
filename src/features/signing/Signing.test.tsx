@@ -31,6 +31,13 @@ function renderShell(api?: SigningApi, encrypted = false) {
   return { user };
 }
 
+/** What the dialog sent to sign, the first time. */
+function sent(api: ReturnType<typeof fakeApi>) {
+  const call = api.sign.mock.calls[0];
+  if (!call) throw new Error("nothing was signed");
+  return call[0];
+}
+
 async function menuItem(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
   return screen.findByRole("menuitem", { name: new RegExp(strings.menu.sign) });
@@ -127,7 +134,7 @@ describe("the signing dialog (B3-06)", () => {
     await user.click(start);
 
     expect(api.sign).toHaveBeenCalledTimes(1);
-    const args = api.sign.mock.calls[0][0];
+    const args = sent(api);
     expect(args).toMatchObject({
       doc: 5,
       file: 3,
@@ -147,7 +154,7 @@ describe("the signing dialog (B3-06)", () => {
     await fillIn(user, dialog);
     await user.selectOptions(within(dialog).getByLabelText(t.cornerLabel), t.corners.topLeft);
     await user.click(within(dialog).getByRole("button", { name: t.start }));
-    expect(api.sign.mock.calls[0][0].place).toEqual({ pageIndex: 0, corner: "topLeft" });
+    expect(sent(api).place).toEqual({ pageIndex: 0, corner: "topLeft" });
   });
 
   it("can sign so that nothing shows on the page", async () => {
@@ -158,7 +165,7 @@ describe("the signing dialog (B3-06)", () => {
     await user.click(within(dialog).getByRole("radio", { name: t.invisible }));
     expect(within(dialog).queryByLabelText(t.cornerLabel)).toBeNull();
     await user.click(within(dialog).getByRole("button", { name: t.start }));
-    expect(api.sign.mock.calls[0][0].place).toBeNull();
+    expect(sent(api).place).toBeNull();
   });
 
   it("forgets the password when signing fails, and never shows it", async () => {

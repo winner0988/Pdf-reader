@@ -96,6 +96,9 @@ flowchart LR
 | `run_batch` | `{ args: BatchArgs, onEvent: Channel<BatchEvent> }`：`request`、`operation`（`removeMetadata`、`removeExif`；`encrypt` 帶 `openPassword`、`permissionsPassword`、`restrictions`，規則同 `encrypt_copy`；`watermark` 帶 `watermark`；`compressImages` 帶 `quality` 與 `maxSide`，規則同 `compress_images`，B3-19）；其他欄位一律拒絕，有欄位的操作裡多的欄位也是。**沒有路徑**：主行程顯示選檔（多選 PDF，最多 `LIMITS.maxBatchFiles`）與資料夾對話框 | `BatchReport`（`done`、`failed`、`skipped`）或 `null`（使用者關閉了對話框）；頻道先送 `started { files }`（檔名），再為每個檔案送 `file { index, outcome }`（`done { output }`、`failed { error }`、`skipped`）。`cancel(request)` 在下一個檔案之前停止。見 [batch.md](batch.md) | 否 | B3-04 |
 | `encrypt_copy` | `{ args: EncryptArgs }`：`doc`、`openPassword`、`permissionsPassword`（都可以是 `null`）、`restrictions`（`print`、`copy`、`modify`）；其他欄位一律拒絕。**沒有路徑**：主行程顯示另存對話框，不能選原檔 | `boolean`：`false` 表示使用者關閉了對話框；文件已加密、有數位簽章、參數不合規則時是錯誤。見 [encrypt-copy.md](encrypt-copy.md) | 否 | B2-15 |
 | `compress_images` | `{ args: CompressArgs }`：`doc`、`quality`（`high`、`medium`、`low`）、`maxSide`（`null` 或 256 到 16,384 的像素數）；其他欄位一律拒絕。**沒有路徑**：主行程顯示另存對話框，不能選原檔 | `CompressResult \| null`：`null` 表示使用者關閉了對話框；否則 `before`（不換圖片時副本的位元組數）、`after`（副本的位元組數）、`images`（文件的圖片數）、`changed`（重新編碼的張數）、`partial`（時間不夠，剩下的原樣）。文件已加密或有數位簽章、參數不合規則時是錯誤。見 [compress-images.md](compress-images.md) | 否 | B3-01 |
+| `check_signing` | `{ doc: DocumentId }` | `SignCheck`：`ready`，或不能簽署的原因：`encrypted`、`unsaved`（有還沒儲存的變更，包含崩潰復原留下的）、`certified`（認證簽章不允許任何變更）。簽署對話框一開啟就問，不能簽時不問使用者任何事。見 [signing.md](signing.md) | 否 | B3-06 |
+| `choose_signing_file` | 無（不含路徑：主行程顯示開啟對話框，只列 `.pfx`、`.p12`） | `SigningFile`（`file`：號碼、`name`：檔名）或 `null`（使用者關閉了對話框）。檔案的位元組（最多 1 MiB，`MAX_CERTIFICATE_FILE_BYTES`）留在主行程的記憶體，直到選了另一個或 app 結束；只有最後選的號碼有效。不能讀取、空的、太大時是 `certificateUnreadable` | 否 | B3-06 |
+| `sign_document` | `{ args: SignArgs }`：`doc`、`file`（`choose_signing_file` 的號碼）、`password`、`place`（`null` 或 `{ pageIndex, corner }`：`topLeft`、`topRight`、`bottomLeft`、`bottomRight`）、`reason`（`null` 或最多 `LIMITS.maxSigningReasonBytes` 的一行文字）、`utcOffsetMinutes`（這台電腦的時區）；其他欄位一律拒絕。**沒有路徑**：主行程先載入憑證檔，再顯示另存對話框，不能選原檔 | `SignResult`（`name`：副本的檔名）或 `null`（使用者關閉了對話框）；副本同時在新分頁開啟。密碼在主行程用一次就清除。憑證檔的問題在另存對話框之前就拒絕：`certificateUnreadable`（密碼不對或不是憑證，不分辨是哪一個）、`certificateExpired`、`certificateNotYetValid`、`certificateNotForSigning`；簽章放不進預留的空間是 `signatureTooLarge`，副本沒通過新 worker 的驗證是 `signatureNotValid`，都沒有留下檔案。見 [signing.md](signing.md) | 否 | B3-06 |
 | `privacy_export` | `{ doc: DocumentId }`（不含路徑：主行程顯示另存對話框，不能選原檔） | `boolean`：`false` 表示使用者關閉了對話框。寫出清除中繼資料的副本，文件與原檔不變；加密的文件拒絕（見 [privacy-export.md](privacy-export.md)） | 否 | B2-03 |
 | `get_ocr_languages` | 無 | `OcrLanguages`：`languages`（`code`、`bundled`、`bytes`；內附的在前，匯入的在後）與 `automatic`（`ocrLanguage: null` 代表的語言，沒有任何語言時為 `null`） | 否 | B2-10 |
 | `import_ocr_language` | 無（不含路徑：主行程顯示開啟對話框，只能選一個 `.traineddata`） | `LanguageImport`：`imported`（帶最新的 `languages`）、`cancelled`，或 `refused`（`reason`：`unreadable`、`tooLarge`、`notLanguageData`、`badName`、`nameTaken`、`tooMany`）；檢查名稱、大小（`LIMITS.maxLanguageDataBytes`）與格式後複製到 app 的資料資料夾，什麼都不下載 | 否 | B2-10 |
@@ -266,6 +269,7 @@ flowchart LR
 | `EncryptedCopy` | `request`, `doc`, `file`（同 `Save`）, `open_password`（可以沒有）, `owner_password`, `restrictions` | `Saved`（`incremental` 一律為 false）或 `Error`（已加密或有簽章的文件、不能有的密碼：`InvalidRequest`）；兩個密碼的處理同 `Open`（送出後清除、worker 收到後清除）；開著的文件不變（B2-15） |
 | `CompressedCopy` | `request`, `doc`, `file`（同 `Save`）, `quality`, `max_side`（可以沒有） | `Compressed`（`bytes`、`before`、`images`、`changed`、`partial`）或 `Error`（加密或有簽章的文件、不是尺寸的上限：`InvalidRequest`；太多物件：`LimitExceeded`）；寫出圖片重新編碼的副本，worker 中的文件不變（B3-01，見 [compress-images.md](compress-images.md)） |
 | `ExifCleanCopy` | `request`, `doc`, `file`（同 `Save`） | `ExifCleaned`（`bytes`、`pictures`、`cleaned`）或 `Error`（加密或有簽章的文件：`InvalidRequest`；有圖片的儲存方式無法安全清除：`PictureNotCleaned`）；寫出清除圖片 EXIF 的副本，圖片不重新編碼，worker 中的文件不變（B3-04，見 [batch.md](batch.md)） |
+| `PrepareSignature` | `request`, `doc`, `file`（同 `Save`）, `signature`（`NewSignature`：`signer`、`reason`、`time`（`SigningTime`，帶時區）、`visible`（`null` 或 `VisibleSignature`：`page_index`、`corner`、`lines`：方框裡的字）） | `SignaturePrepared`（`bytes`、`contents_start`、`contents_end`：`/Contents` 的 `<…>` 在檔案裡的位置，正好是 `SIGNATURE_RESERVE_BYTES` 個十六進位 0 加上兩個角括號）或 `Error`（加密的文件、認證簽章不允許任何變更：`NotAllowed`；MuPDF 修復過的檔案：`Corrupted`）；把文件開啟（或上次存檔）時的檔案位元組另外開啟，加上簽章欄位與預留的空間，以增量更新寫出：原本的位元組在前、不變，`/ByteRange` 涵蓋空間以外的每一個位元組。開著的文件不變。簽章由主行程填入，副本由另一個新的 worker 驗證（B3-06，見 [signing.md](signing.md)） |
 | `PrivacyCopy` | `request`, `doc`, `file`（同 `Save`）, `id`（16 bytes，主行程產生的亂數） | `Saved`（`incremental` 一律為 false）或 `Error`（加密的文件：`InvalidRequest`；太多物件：`LimitExceeded`）；寫出清除中繼資料的副本，worker 中的文件不變（B2-03，見 [privacy-export.md](privacy-export.md)） |
 | `PrepareSource` | `request`, `file`（**唯讀** handle：使用者選的 PDF）, `password`（加密的檔案才有，用完即清除） | `Source`（`bytes`：乾淨、沒有加密的 PDF，最多 `MAX_SOURCE_BYTES`；`pages`；`security`：這個檔案的主動內容掃描）或 `Error`（要密碼：`Encrypted`；密碼不對：`WrongPassword`；作者不允許取出頁面：`NotAllowed`；太大：`LimitExceeded`）；worker 不保留任何東西（B2-06，見 [merge.md](merge.md)） |
 | `PrepareStampImage` | `request`, `file`（唯讀 handle：使用者選的圖片，PNG 或 JPEG） | `StampImage`（`png`：只含像素的 PNG，最多 `MAX_STAMP_PNG_BYTES`；`width`、`height`，每邊最多 `MAX_STAMP_SIDE_PX`；主行程檢查簽名、標頭與它們一致）或 `Error`（不是可用的圖片：`InvalidRequest`；太大：`LimitExceeded`）；自訂圖片印章用，見 [annotations.md](annotations.md)（B2-08） |
@@ -281,7 +285,7 @@ flowchart LR
 | `Close` | `doc` | 無 |
 | `Shutdown` | — | worker 結束 |
 
-`FileHandle` 是主行程複製進 worker 行程的 handle 值（ADR 0008）：`Open`、`Rebase` 與 `PrepareStampImage` 是唯讀開啟的檔案，`Save`、`PrivacyCopy`、`CompressedCopy`、`ExifCleanCopy`、`ExportDocx` 與 `WriteIdentifier` 是只能寫入的新暫存檔（B2-02、B2-03、B3-01、B3-04、B3-02、B2-08、B3-05）。**worker 永遠拿不到路徑**；交付方式記錄在 `docs/architecture/worker-sandbox.md`。
+`FileHandle` 是主行程複製進 worker 行程的 handle 值（ADR 0008）：`Open`、`Rebase` 與 `PrepareStampImage` 是唯讀開啟的檔案，`Save`、`PrivacyCopy`、`CompressedCopy`、`ExifCleanCopy`、`ExportDocx`、`WriteIdentifier` 與 `PrepareSignature` 是只能寫入的新暫存檔（B2-02、B2-03、B3-01、B3-04、B3-02、B2-08、B3-05、B3-06）。**worker 永遠拿不到路徑**；交付方式記錄在 `docs/architecture/worker-sandbox.md`。
 
 `WorkerResponse` 的每個值在使用前都要通過 `Validate`：頁數、頁面尺寸、座標是否為有限數且在範圍內、點陣圖大小與像素長度是否一致、字串與清單長度、目錄是否為合法的前序結構、連結 id 是否屬於回報的頁面等。
 
@@ -326,6 +330,12 @@ flowchart LR
 | `fontMissingGlyphs` | 文字方塊：字型沒有文字中某個字元的字形 |
 | `textNotSupported` | 文字方塊：文字需要字形變化（阿拉伯文、希伯來文、印度系文字、組合記號、方向控制字元） |
 | `pictureNotCleaned` | 批次處理的清除 EXIF（B3-04）：有一張圖片的儲存方式無法在不改變它的情況下拿掉資訊，沒有做副本 |
+| `certificateUnreadable` | 簽署（B3-06）：憑證檔的密碼不對，或檔案不是憑證；刻意不分辨是哪一個 |
+| `certificateExpired` | 簽署：憑證已經過期 |
+| `certificateNotYetValid` | 簽署：憑證還沒生效 |
+| `certificateNotForSigning` | 簽署：憑證檔裡沒有私鑰，或憑證的金鑰用途不含數位簽章 |
+| `signatureTooLarge` | 簽署：簽章比文件預留的空間（`SIGNATURE_RESERVE_BYTES`）大，沒有做副本 |
+| `signatureNotValid` | 簽署：簽好的副本沒有通過新 worker 的驗證，沒有存檔 |
 | `internal` | 其他內部錯誤 |
 
 worker 端的 `WorkerErrorCode` 以 `From` 轉換對應到上表。
@@ -355,6 +365,9 @@ worker 端的 `WorkerErrorCode` 以 `From` 轉換對應到上表。
 | 分頁 | 20 | 每個分頁一個 worker（MVP-14，ADR 0012） |
 | 在這台電腦上標記的機敏文件清單 | 1,000 筆 | 再標記一份時，最舊的一筆離開清單，檔案的標記不變（B3-05） |
 | 從機敏文件複製一次的文字 | 16 MiB（UTF-8） | 由主行程寫入剪貼簿，所以經過 IPC（B3-05） |
+| 簽署用的憑證檔 | 1 MiB | `.pfx`／`.p12`，由主行程讀進記憶體（B3-06） |
+| 簽署的原因 | 256 bytes（UTF-8） | 一行，不能有控制字元（B3-06） |
+| 簽章的預留空間 | 32 KiB | `/Contents` 的十六進位 0，放得下 CMS 簽章與一般的憑證鏈；放不下時 `signatureTooLarge`（B3-06） |
 
 ## 座標系統
 
