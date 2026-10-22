@@ -288,6 +288,21 @@
       "sha256": "7c4da64a07624b130bbc81ac3b7c6061815939abdb61ff887cfd57defa7bbc7f"
     },
     {
+      "path": "benign/personal-data.pdf",
+      "category": "benign",
+      "purpose": "Synthetic personal data patterns (valid and invalid checksums, multi-line) for Issue #302.",
+      "expected": "Opens; 1 page; 11 valid items found (3 IDs, the last wrapped over two lines; 2 mobile; 2 landline; 1 email; 1 card; 2 business numbers); wrong check digits, lengths and the tail of a longer number are not.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Personal Data Redaction Test Document",
+        "A123456789",
+        "0912-345-678"
+      ],
+      "bytes": 1631,
+      "sha256": "82d7931bbb98b08a3be465b390e6cfd196a4c492ecb3266cda8a79e62f62b932"
+    },
+    {
       "path": "malicious/js-document-level.pdf",
       "category": "malicious",
       "purpose": "Document-level JavaScript in the names tree.",

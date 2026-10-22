@@ -591,6 +591,63 @@ pub struct RedactionSummary {
     pub fields: u32,
 }
 
+/// Category of personal data detected in the document (Issue #302).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum PersonalDataCategory {
+    /// Taiwan National ID or New Alien Resident Certificate (ARC) number.
+    TaiwanId,
+    /// Mobile phone number (09xx).
+    MobilePhone,
+    /// Landline phone number with area code.
+    LandlinePhone,
+    /// Email address.
+    Email,
+    /// Credit card number passing Luhn algorithm.
+    CreditCard,
+    /// Taiwan Unified Business Number (8-digit tax ID).
+    UnifiedBusinessNumber,
+    /// User-specified custom keyword.
+    Keyword,
+}
+
+/// Query parameters for finding personal data in a document (Issue #302).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FindPersonalDataQuery {
+    /// Which categories of personal data to search for.
+    pub categories: Vec<PersonalDataCategory>,
+    /// Optional user-specified keyword (exact match).
+    pub keyword: Option<String>,
+}
+
+/// One personal data match found in the document (Issue #302).
+///
+/// Sensitive text is NEVER exposed in full: `preview` is masked (e.g. `A12****789`),
+/// and the bounding rectangles (`rects`) allow marking redaction without persisting text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalDataMatch {
+    /// Category of the personal data detected.
+    pub category: PersonalDataCategory,
+    /// 0-based page index.
+    pub page: u32,
+    /// Bounding rectangles of the match on the page (one per line spanned).
+    pub rects: Vec<Rect>,
+    /// Masked preview of the detected item (e.g. `A12****789`). Full string never leaves worker.
+    pub preview: String,
+}
+
+/// Results of scanning a document for personal data (Issue #302).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalDataMatches {
+    /// Detected matches up to `MAX_PERSONAL_DATA_MATCHES`.
+    pub matches: Vec<PersonalDataMatch>,
+    /// Whether more matches existed beyond `MAX_PERSONAL_DATA_MATCHES`.
+    pub has_more: bool,
+}
+
 /// A form field of an open document: the number of its widget in the document, which stays the
 /// same through edits and saving (B2-09).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]

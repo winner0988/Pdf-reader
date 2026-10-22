@@ -79,6 +79,10 @@ const ALLOWED_PERMISSIONS = new Map([
     "allow-get-redaction-summary",
     "B2-19, ADR 0016: how many redaction marks, pages, annotations and form fields applying would touch; counts only, by document id",
   ],
+  [
+    "allow-find-personal-data",
+    "#302: scan open document for personal data patterns to mark for redaction; counts and masked previews only, by document id",
+  ],
   ["allow-get-page-text", "MVP-15: a page's text and where its characters are, for selecting and copying"],
   ["allow-describe-link", "MVP-12: what the confirmation dialog shows, checked in the main process"],
   ["allow-open-link", "MVP-12: open a confirmed http/https/mailto link by its id"],

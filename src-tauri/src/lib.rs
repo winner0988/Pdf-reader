@@ -118,6 +118,7 @@ pub fn run() {
             commands::get_page_fields,
             commands::get_signatures,
             commands::get_redaction_summary,
+            commands::find_personal_data,
             commands::get_page_text,
             commands::describe_link,
             commands::open_link,

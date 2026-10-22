@@ -1,4 +1,4 @@
-import { Ban, ShieldAlert, Trash2 } from "lucide-react";
+import { Ban, Search, ShieldAlert, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { groupMarksByPage, type RedactionMarkItem } from "@/features/redaction/model";
@@ -17,6 +17,7 @@ export type RedactionPanelProps = {
   onDeleteAll: () => void;
   onDeleteMark?: (page: number, markId: AnnotationId) => void;
   onApply: () => void;
+  onOpenFindPersonalData?: () => void;
 };
 
 /** Redaction side panel: list marks, delete all, and apply (B2-21, ADR 0016). */
@@ -30,6 +31,7 @@ export function RedactionPanel({
   onDeleteAll,
   onDeleteMark,
   onApply,
+  onOpenFindPersonalData,
 }: RedactionPanelProps) {
   const groups = groupMarksByPage(marks);
   const totalMarks = summary?.marks ?? marks.length;
@@ -64,6 +66,19 @@ export function RedactionPanel({
           <Ban className="size-4 shrink-0" />
           <span>{disabledReason ?? t.notAllowed}</span>
         </div>
+      )}
+
+      {onOpenFindPersonalData && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full text-xs"
+          disabled={!canEdit}
+          onClick={onOpenFindPersonalData}
+        >
+          <Search className="mr-1 size-3.5" />
+          {t.findPersonalData}
+        </Button>
       )}
 
       <div className="flex gap-2">

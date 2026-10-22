@@ -20,12 +20,13 @@ use ipc_contract::raster::{encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
     AnnotationId, BatchOperation, BlockedAction, CompressResult, CreateKind, CreateResult,
-    DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode, FormField,
-    ImageQuality, IpcError, LinkArgs, LinkPreview, LinkTarget, MarkCheck, NotRemembered, OpenEvent,
-    OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource,
-    Password, PreparedTextBox, Recovery, RedactionSummary, RememberedPasswords, RenderPageArgs,
-    Restrictions, SanitizeOptions, SanitizeResult, SaveResult, SearchHit, SecurityReport,
-    SignatureReport, SourceId, StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
+    DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
+    FindPersonalDataQuery, FormField, ImageQuality, IpcError, LinkArgs, LinkPreview, LinkTarget,
+    MarkCheck, NotRemembered, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink,
+    PageSize, PageText, PagesSource, Password, PersonalDataMatches, PreparedTextBox, Recovery,
+    RedactionSummary, RememberedPasswords, RenderPageArgs, Restrictions, SanitizeOptions,
+    SanitizeResult, SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId,
+    StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
@@ -1706,6 +1707,29 @@ impl Documents {
                 return Err(unexpected("SummariseRedactions"));
             };
             Ok(summary)
+        })
+    }
+
+    /// Finds personal data matching `query` in `doc` (Issue #302).
+    pub fn find_personal_data(
+        &self,
+        doc: DocumentId,
+        query: FindPersonalDataQuery,
+    ) -> Result<PersonalDataMatches, IpcError> {
+        query.validate().map_err(|e| IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: e.to_string(),
+        })?;
+        self.with_document(doc, |document| {
+            let response = request(document, |request, doc| WorkerRequest::FindPersonalData {
+                request,
+                doc,
+                query: query.clone(),
+            })?;
+            let WorkerResponse::PersonalDataMatches { matches, .. } = response else {
+                return Err(unexpected("FindPersonalData"));
+            };
+            Ok(matches)
         })
     }
 
@@ -4811,6 +4835,68 @@ mod with_worker {
         assert_eq!(documents.save(doc, None).unwrap().0.redaction, None);
         let again = open_in(&Documents::new(worker()), &path);
         assert_eq!(again.pages.len(), 1);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn personal_data_can_be_found_and_marked_for_redaction() {
+        use ipc_contract::types::PersonalDataCategory;
+        let content = "BT /F1 18 Tf 72 700 Td (Citizen ID: A123456789 Phone: 0912-345-678) Tj ET\n\
+                       BT /F1 18 Tf 72 650 Td (Tax: 10458575 Email: test@example.com) Tj ET\n";
+        let bytes = pdf_objects(&[
+            "<< /Type /Catalog /Pages 2 0 R >>".into(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".into(),
+            format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".into(),
+        ]);
+        let (documents, info, path) = open_bytes("personal-data-test", &bytes);
+        let mut doc = info.doc;
+
+        let query = FindPersonalDataQuery {
+            categories: vec![
+                PersonalDataCategory::TaiwanId,
+                PersonalDataCategory::MobilePhone,
+                PersonalDataCategory::UnifiedBusinessNumber,
+                PersonalDataCategory::Email,
+            ],
+            keyword: None,
+        };
+        let matches = documents.find_personal_data(doc, query).unwrap();
+        assert_eq!(matches.matches.len(), 4);
+        assert!(!matches.has_more);
+
+        // Previews are properly masked and never expose full strings
+        let previews: Vec<&str> = matches.matches.iter().map(|m| m.preview.as_str()).collect();
+        assert!(previews.contains(&"A12****789"));
+        assert!(previews.contains(&"0912****78"));
+        assert!(previews.contains(&"10****75"));
+        assert!(previews.contains(&"t***t@example.com"));
+
+        // Adding redactions from matches
+        for m in &matches.matches {
+            for rect in &m.rects {
+                edited_pages(
+                    &documents,
+                    &mut doc,
+                    Edit::AddRedaction {
+                        page: m.page,
+                        rect: *rect,
+                    },
+                );
+            }
+        }
+        let summary = documents.redaction_summary(doc).unwrap();
+        assert_eq!(summary.marks, 4);
+
+        // Apply and verify text is gone
+        edited_pages(&documents, &mut doc, Edit::ApplyRedactions);
+        let said = first_page_says(&documents, doc);
+        assert!(!said.contains("A123456789"));
+        assert!(!said.contains("0912-345-678"));
+        assert!(!said.contains("10458575"));
+        assert!(!said.contains("test@example.com"));
+
         std::fs::remove_file(path).ok();
     }
 

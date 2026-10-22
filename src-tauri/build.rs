@@ -21,6 +21,7 @@ fn main() {
         "get_page_fields",
         "get_signatures",
         "get_redaction_summary",
+        "find_personal_data",
         "get_page_text",
         "describe_link",
         "open_link",

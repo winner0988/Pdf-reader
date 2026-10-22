@@ -256,4 +256,23 @@ describe("RedactionPanel", () => {
     await userEvent.click(applyButton);
     expect(onApply).toHaveBeenCalledTimes(1);
   });
+
+  it("calls onOpenFindPersonalData when find personal data button is clicked", async () => {
+    const onOpenFindPersonalData = vi.fn();
+    render(
+      <RedactionPanel
+        marks={[]}
+        onDeleteMark={vi.fn()}
+        onDeleteAll={vi.fn()}
+        onApply={vi.fn()}
+        onJumpToPage={vi.fn()}
+        onOpenFindPersonalData={onOpenFindPersonalData}
+      />,
+    );
+
+    const findButton = screen.getByRole("button", { name: strings.redaction.findPersonalData });
+    expect(findButton).toBeEnabled();
+    await userEvent.click(findButton);
+    expect(onOpenFindPersonalData).toHaveBeenCalledTimes(1);
+  });
 });

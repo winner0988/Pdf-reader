@@ -517,6 +517,61 @@ annotations: number,
 fields: number, };
 
 /**
+ * Category of personal data detected in the document (Issue #302).
+ */
+export type PersonalDataCategory = "taiwanId" | "mobilePhone" | "landlinePhone" | "email" | "creditCard" | "unifiedBusinessNumber" | "keyword";
+
+/**
+ * Query parameters for finding personal data in a document (Issue #302).
+ */
+export type FindPersonalDataQuery = { 
+/**
+ * Which categories of personal data to search for.
+ */
+categories: Array<PersonalDataCategory>, 
+/**
+ * Optional user-specified keyword (exact match).
+ */
+keyword: string | null, };
+
+/**
+ * One personal data match found in the document (Issue #302).
+ *
+ * Sensitive text is NEVER exposed in full: `preview` is masked (e.g. `A12****789`),
+ * and the bounding rectangles (`rects`) allow marking redaction without persisting text.
+ */
+export type PersonalDataMatch = { 
+/**
+ * Category of the personal data detected.
+ */
+category: PersonalDataCategory, 
+/**
+ * 0-based page index.
+ */
+page: number, 
+/**
+ * Bounding rectangles of the match on the page (one per line spanned).
+ */
+rects: Array<Rect>, 
+/**
+ * Masked preview of the detected item (e.g. `A12****789`). Full string never leaves worker.
+ */
+preview: string, };
+
+/**
+ * Results of scanning a document for personal data (Issue #302).
+ */
+export type PersonalDataMatches = { 
+/**
+ * Detected matches up to `MAX_PERSONAL_DATA_MATCHES`.
+ */
+matches: Array<PersonalDataMatch>, 
+/**
+ * Whether more matches existed beyond `MAX_PERSONAL_DATA_MATCHES`.
+ */
+hasMore: boolean, };
+
+/**
  * A form field of an open document: the number of its widget in the document, which stays the
  * same through edits and saving (B2-09).
  */
@@ -1159,6 +1214,9 @@ export const LIMITS = {
   maxLanguageDataBytes: 67108864,
   maxImportedLanguages: 20,
   maxImportedFonts: 50,
+  maxPersonalDataMatches: 1000,
+  maxPersonalDataKeywordBytes: 1024,
+  maxPersonalDataPreviewBytes: 128,
   protocolVersion: 0,
 } as const;
 

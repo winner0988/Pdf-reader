@@ -267,3 +267,14 @@ pub const MAX_IMPORTED_LANGUAGES: u32 = 20;
 
 /// Most items of any category a sanitized copy reports having removed (B3-15).
 pub const MAX_SANITIZED_ITEMS: u32 = 10_000_000;
+
+/// Most personal data matches reported across the document (Issue #302). A document with
+/// thousands of matches could overwhelm IPC buffers and UI rendering; 1,000 matches is plenty
+/// for a user to review and batch redact. If exceeded, `has_more` is true.
+pub const MAX_PERSONAL_DATA_MATCHES: u32 = 1_000;
+
+/// Longest custom keyword for personal data matching (Issue #302), in UTF-8 bytes.
+pub const MAX_PERSONAL_DATA_KEYWORD_BYTES: usize = 1_024;
+
+/// Longest masked preview string sent for one personal data match (Issue #302), in UTF-8 bytes.
+pub const MAX_PERSONAL_DATA_PREVIEW_BYTES: usize = 128;

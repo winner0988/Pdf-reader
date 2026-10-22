@@ -35,6 +35,7 @@ mod docx;
 mod forms;
 mod identifier;
 mod ocr;
+mod personal_data;
 mod redaction;
 mod sanitize;
 
@@ -1471,7 +1472,7 @@ fn open_error(error: mupdf::Error) -> EngineError {
     }
 }
 
-fn contract_quad(quad: mupdf::Quad) -> Quad {
+pub(crate) fn contract_quad(quad: mupdf::Quad) -> Quad {
     let point = |p: mupdf::Point| Point { x: p.x, y: p.y };
     Quad {
         ul: point(quad.ul),

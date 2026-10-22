@@ -510,6 +510,39 @@ mod tests {
         ..APPLY
     };
 
+    /// Everything found as personal data (#302), marked and applied, is gone from the saved file:
+    /// the check after saving (B2-20) finds none of it, the pieces of an ID wrapped over two lines
+    /// included.
+    #[test]
+    fn found_personal_data_is_removed_and_the_check_after_saving_holds() {
+        use ipc_contract::types::{FindPersonalDataQuery, PersonalDataCategory};
+
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/corpus/benign/personal-data.pdf");
+        let mut doc = PdfDocument::from_bytes(&std::fs::read(path).expect("corpus")).expect("open");
+        let found = doc
+            .find_personal_data(&FindPersonalDataQuery {
+                categories: vec![
+                    PersonalDataCategory::TaiwanId,
+                    PersonalDataCategory::MobilePhone,
+                    PersonalDataCategory::LandlinePhone,
+                    PersonalDataCategory::Email,
+                    PersonalDataCategory::CreditCard,
+                    PersonalDataCategory::UnifiedBusinessNumber,
+                ],
+                keyword: None,
+            })
+            .expect("find");
+        assert_eq!(found.matches.len(), 11);
+        for found in &found.matches {
+            for rect in &found.rects {
+                doc.add_redaction(found.page, *rect).expect("mark");
+            }
+        }
+        doc.apply_redactions().expect("apply");
+        assert_eq!(places(&doc), Some(0));
+    }
+
     #[test]
     fn a_saved_redaction_is_read_again_and_holds() {
         let mut doc = PdfDocument::from_bytes(&pages(&[SECRET])).expect("open");

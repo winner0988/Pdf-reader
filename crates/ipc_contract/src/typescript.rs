@@ -101,6 +101,10 @@ pub fn bindings() -> String {
         PictureView,
         PageAnnotation,
         RedactionSummary,
+        PersonalDataCategory,
+        FindPersonalDataQuery,
+        PersonalDataMatch,
+        PersonalDataMatches,
         FieldId,
         FieldKind,
         FieldOption,
@@ -164,7 +168,7 @@ pub fn bindings() -> String {
         OpenEvent,
     );
 
-    let limits: [(&str, String); 43] = [
+    let limits: [(&str, String); 46] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -213,6 +217,18 @@ pub fn bindings() -> String {
         ("maxLanguageDataBytes", MAX_LANGUAGE_DATA_BYTES.to_string()),
         ("maxImportedLanguages", MAX_IMPORTED_LANGUAGES.to_string()),
         ("maxImportedFonts", MAX_IMPORTED_FONTS.to_string()),
+        (
+            "maxPersonalDataMatches",
+            MAX_PERSONAL_DATA_MATCHES.to_string(),
+        ),
+        (
+            "maxPersonalDataKeywordBytes",
+            MAX_PERSONAL_DATA_KEYWORD_BYTES.to_string(),
+        ),
+        (
+            "maxPersonalDataPreviewBytes",
+            MAX_PERSONAL_DATA_PREVIEW_BYTES.to_string(),
+        ),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];
     out.push_str(
