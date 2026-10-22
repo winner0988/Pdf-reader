@@ -17,11 +17,17 @@ async function openOutline(page: Page): Promise<Locator> {
   return page.getByRole("tree", { name: strings.sidebar.outlineTab });
 }
 
+/**
+ * A page on the screen, which has the id of the document shown. Any one will do: every page shown
+ * has the same id, and a bookmark that goes to another page scrolls page 1 away.
+ */
+const shownPage = (page: Page) => page.getByRole("main").locator("[data-doc]").first();
+
 /** Does `act`, an edit, and waits until the document shown is the new one: an edit gives it a new id (B2-02). */
 async function edit(page: Page, act: () => Promise<void>) {
-  const before = await pageSlot(page, 1).getAttribute("data-doc");
+  const before = await shownPage(page).getAttribute("data-doc");
   await act();
-  await expect(pageSlot(page, 1)).not.toHaveAttribute("data-doc", before ?? "");
+  await expect(shownPage(page)).not.toHaveAttribute("data-doc", before ?? "");
 }
 
 /** The titles of the bookmarks shown, in order. */
