@@ -136,6 +136,8 @@ export const strings = {
     outlineTab: "目錄",
     thumbnailsTab: "縮圖",
     attachmentsTab: "附件",
+    /** A sensitive document's pages are never drawn small (B3-10). */
+    thumbnailsSensitive: "機敏文件不顯示縮圖：每一頁只以頁框與頁碼表示，不會為縮圖畫出頁面的內容。",
     outlineEmpty: "這份文件沒有目錄",
     outlineLoading: "正在讀取目錄…",
     outlineFailed: "無法讀取這份文件的目錄",

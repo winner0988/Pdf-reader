@@ -121,6 +121,13 @@ describe("the window's panels and the dialogs of its menu", () => {
     await expectAccessible(document.body);
   });
 
+  it("the thumbnails of a sensitive document (B3-10)", async () => {
+    shell({ kind: "open", document: { ...demoDocument, sensitive: true } });
+    await user.click(screen.getByRole("tab", { name: strings.sidebar.thumbnailsTab }));
+    expect(screen.getByText(strings.sidebar.thumbnailsSensitive)).toBeInTheDocument();
+    await expectAccessible(document.body);
+  });
+
   it("the details of what was blocked", async () => {
     shell({ kind: "open", document: demoDocument });
     await user.click(screen.getByRole("button", { name: strings.banner.details }));
