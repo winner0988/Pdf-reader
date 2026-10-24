@@ -7,7 +7,7 @@
 // test takes the first one the dialog offers. A script none of whose families is installed is a
 // failure that lists what the dialog offers, not a test that quietly does less.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -55,12 +55,6 @@ async function inkOf(page: Page, box: Box): Promise<number> {
       }
       return count;
     }, box);
-}
-
-/** The text box on the first page, as it is now: its place on the screen, and how much ink it shows. */
-async function shown(page: Page, index = 0) {
-  const box = await boxOf(boxes(page).nth(index));
-  return { box, ink: await inkOf(page, box) };
 }
 
 /** Enough blue pixels to be words in a 24 point font, and not a stray antialiased edge. */
@@ -117,7 +111,7 @@ async function fillIn(dialog: Locator, filling: Filling): Promise<string> {
 async function ready(page: Page) {
   await expect(firstPage(page)).toHaveAttribute("data-state", "ready");
   await page.keyboard.press("Control+0");
-  await expect.poll(async () => (await boxOf(firstPage(page))).height).toBeLessThan(700);
+  await expect.poll(async () => (await firstPage(page).boundingBox())?.height ?? Infinity).toBeLessThan(700);
 }
 
 /** Where, as a share of the first page's width and height, on the screen. */
@@ -245,7 +239,7 @@ for (const script of SCRIPTS) {
       await ready(reopened);
       await expect(boxes(reopened)).toHaveCount(1);
       await expect(boxes(reopened).first()).toHaveAccessibleName(t.textBoxSaying(script.words));
-      await expect.poll(async () => (await shown(reopened)).ink).toBeGreaterThan(SHOWS_WORDS);
+      await expect.poll(() => inkNow(reopened)).toBeGreaterThan(SHOWS_WORDS);
       const again = await find(reopened, script.query);
       expect(inside(again, await boxOf(boxes(reopened).first()))).toBe(true);
     } finally {
@@ -369,7 +363,7 @@ test("a text box is moved, resized, re-worded, deleted and brought back, and the
     for (const side of ["x", "y", "width", "height"] as const) {
       expect(Math.abs(again[side] - ended[side]), `${side} after saving`).toBeLessThan(2);
     }
-    await expect.poll(async () => (await shown(reopened)).ink).toBeGreaterThan(SHOWS_WORDS);
+    await expect.poll(() => inkNow(reopened)).toBeGreaterThan(SHOWS_WORDS);
     await boxes(reopened).first().focus();
     await reopened.keyboard.press("Enter");
     const dialog = reopened.getByRole("dialog", { name: d.editTitle });
@@ -401,7 +395,8 @@ test("a text box that was not saved comes back after a crash, from a small subse
     // (hex text): the glyphs the box uses, a few kilobytes, where the font is megabytes.
     const data = dataDir(page);
     const recovery = path.join(data, "recovery");
-    await expect.poll(() => readdirSync(recovery).length).toBe(1);
+    // The folder is made with the first journal.
+    await expect.poll(() => (existsSync(recovery) ? readdirSync(recovery).length : 0)).toBe(1);
     const [name] = readdirSync(recovery);
     const journal = path.join(recovery, name!);
     const kept = JSON.parse(readFileSync(journal, "utf8")) as {
@@ -435,7 +430,7 @@ test("a text box that was not saved comes back after a crash, from a small subse
     const reopened = await launch(copy);
     await ready(reopened);
     await expect(boxes(reopened)).toHaveCount(1);
-    await expect.poll(async () => (await shown(reopened)).ink).toBeGreaterThan(SHOWS_WORDS);
+    await expect.poll(() => inkNow(reopened)).toBeGreaterThan(SHOWS_WORDS);
   } finally {
     removeFolder(folder);
   }
@@ -621,7 +616,7 @@ test("a font that is gone says so: under the open dialog, and in a document that
     await ready(there);
     await expect(boxes(there)).toHaveCount(1);
     // Shown as it was: the font is in the file.
-    await expect.poll(async () => (await shown(there)).ink).toBeGreaterThan(SHOWS_WORDS);
+    await expect.poll(() => inkNow(there)).toBeGreaterThan(SHOWS_WORDS);
     await boxes(there).first().focus();
     await there.keyboard.press("Enter");
     const editing = there.getByRole("dialog", { name: d.editTitle });

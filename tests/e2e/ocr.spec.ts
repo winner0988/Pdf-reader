@@ -128,13 +128,15 @@ test("a language is imported from a file the main process asks for, checked, and
   expect(readFileSync(path.join(imported, "deu.traineddata")).length).toBe(readFileSync(german).length);
 
   await language.selectOption("deu");
+  // The app writes its settings the first time one changes: until then there is no file.
   const settingsFile = path.join(dataDir(page), "settings.json");
-  await expect.poll(() => JSON.parse(readFileSync(settingsFile, "utf8")).ocrLanguage).toBe("deu");
+  const ocrLanguage = () => (existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, "utf8")).ocrLanguage : undefined);
+  await expect.poll(ocrLanguage).toBe("deu");
 
   // Removing it leaves the choice to the app again.
   await dialog.getByRole("button", { name: s.remove("Deutsch（deu）") }).click();
   await expect(dialog.getByText(s.removed)).toBeVisible();
   await expect(language).toHaveValue("");
   expect(existsSync(path.join(imported, "deu.traineddata"))).toBe(false);
-  await expect.poll(() => JSON.parse(readFileSync(settingsFile, "utf8")).ocrLanguage).toBe(null);
+  await expect.poll(ocrLanguage).toBe(null);
 });
