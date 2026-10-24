@@ -1408,7 +1408,6 @@ def malicious_attachment_decompression_bomb() -> bytes:
         stream_filter="/FlateDecode",
         name_tree_key="bomb.bin",
     )
-    )
 
 
 def link_scheme_sample(name: str, uri: bytes, label: str) -> bytes:
