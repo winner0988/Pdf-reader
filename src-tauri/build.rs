@@ -66,6 +66,7 @@ fn main() {
         "sanitize_copy",
         "check_signing",
         "choose_signing_file",
+        "list_signing_certificates",
         "sign_document",
         "get_ocr_languages",
         "get_fonts",

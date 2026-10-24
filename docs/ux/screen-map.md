@@ -236,8 +236,12 @@
 
 - 「⋯」→「簽署…」（在「壓縮圖片並另存新檔…」之後）開啟對話框。沒有開啟文件時停用；加密的文件停用，並標示 signing.encryptedShort。做法見 [signing.md](../architecture/signing.md)。
 - **開啟時**先檢查文件（signing.checking）：已加密、有尚未儲存的變更、認證簽章不允許變更時，只顯示原因（signing.encrypted／unsaved／certified，`role="alert"`）與「關閉」，不問任何事。檢查失敗時顯示 signing.checkFailed。
-- **對話框**：signing.description；「憑證檔」：「選擇憑證檔…」開啟系統的開啟對話框（只列 `.pfx`、`.p12`），選好後顯示檔名，還沒選時顯示 signing.noFile；「憑證檔的密碼」；「簽章的外觀」兩個單選按鈕：顯示在目前這一頁的角落（預設；「位置」選單選四個角之一，預設右下角），或不顯示在頁面上；「原因（選填）」，太長時顯示 signing.reasonTooLong；signing.note。沒有選憑證檔、沒有密碼或原因太長時，「選擇位置並簽署…」停用。
-- **選擇位置並簽署…**：主行程先載入憑證檔。密碼不對或不是憑證、過期、還沒生效、不能用來簽署時，在另存對話框出現之前就顯示原因（`role="alert"`），密碼欄清空，選的檔案留著。接著顯示系統的另存對話框，建議檔名 `<原檔名>（已簽署）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（SIGNED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，密碼還在，可以再試。簽署中顯示 signing.running，欄位與按鈕停用，不能關閉對話框。
+- **對話框**：signing.description；「簽署用的憑證」兩個單選按鈕：
+  - **這台電腦的憑證**（signing.sourceStore）：列出 `list_signing_certificates` 給的憑證，每張一個單選按鈕，名稱是主旨，說明是 signing.certificateDetail（簽發者與有效到哪一天）；不能用的停用，說明後面加上原因（signing.problems.*）。預設選第一張可以簽署的。讀取中顯示 signing.listing，失敗顯示 signing.listFailed（`role="alert"`），沒有可以簽署的顯示 signing.noCertificates。「重新整理」再讀一次（插入卡片之後）。最後是 signing.pinNote。不需要密碼；
+  - **憑證檔**（signing.sourceFile）：「選擇憑證檔…」開啟系統的開啟對話框（只列 `.pfx`、`.p12`），選好後顯示檔名，還沒選時顯示 signing.noFile；「憑證檔的密碼」。
+  - 有可以簽署的這台電腦的憑證時預設用它，否則預設用憑證檔；
+- 接著：「簽章的外觀」兩個單選按鈕：顯示在目前這一頁的角落（預設；「位置」選單選四個角之一，預設右下角），或不顯示在頁面上；「原因（選填）」，太長時顯示 signing.reasonTooLong；signing.note。沒有可以用的憑證、沒有選憑證檔或沒有密碼、原因太長時，「選擇位置並簽署…」停用。
+- **選擇位置並簽署…**：主行程先取得憑證與私鑰。密碼不對或不是憑證、過期、還沒生效、不能用來簽署、這台電腦的憑證已不在或私鑰拿不到（卡片拔出）時，在另存對話框出現之前就顯示原因（`role="alert"`），密碼欄清空，選的檔案留著。接著顯示系統的另存對話框，建議檔名 `<原檔名>（已簽署）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（SIGNED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，密碼還在，可以再試。簽署中顯示 signing.running，欄位與按鈕停用，不能關閉對話框。卡片要 PIN 時，由 Windows 或卡片的程式在 app 的視窗上詢問；使用者在那裡取消時，對話框不顯示錯誤，可以再試。
 - **結果**：成功後對話框換成結果（標題 signing.resultTitle，`role="status"`）：signing.result。簽好的副本已在新分頁開啟，它的簽章提示列說明簽章的狀況（B2-14）。按「完成」（signing.done）關閉。
 - 失敗、完成或關閉對話框時，密碼欄位清空；app 不記住憑證檔或密碼。
 
@@ -1256,13 +1260,21 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 |---|---|
 | menu.sign | 簽署… |
 | signing.title | 簽署文件 |
-| signing.description | 用你的憑證檔簽署這份文件，存成另一個檔案；目前的文件與它的檔案不會改變。全部在這台電腦上完成，不連網。 |
+| signing.description | 用你的憑證簽署這份文件，存成另一個檔案；目前的文件與它的檔案不會改變。全部在這台電腦上完成，不連網。 |
 | signing.checking／signing.checkFailed | 正在檢查這份文件…／無法檢查這份文件，請再試一次。 |
 | signing.encrypted | 已加密的文件目前不能簽署。 |
 | signing.unsaved | 這份文件有尚未儲存的變更。簽署的是檔案本身，請先儲存再簽署。 |
 | signing.certified | 這份文件的認證簽章不允許任何變更，也不允許再加上簽章。 |
 | signing.repaired | 這個檔案要修復才能開啟；簽署會改到它原本的內容，所以不能簽署。 |
-| signing.chooseAgain | 請確認文件已儲存，並重新選擇憑證檔再試一次。 |
+| signing.chooseAgain | 請確認文件已儲存，並重新選擇憑證再試一次。 |
+| signing.sourceTitle | 簽署用的憑證 |
+| signing.sourceStore／signing.sourceFile | 這台電腦的憑證（包含讀卡機裡的自然人憑證等卡片）／憑證檔（.pfx 或 .p12） |
+| signing.listing／signing.listFailed | 正在讀取這台電腦的憑證…／無法讀取這台電腦的憑證，請再試一次。 |
+| signing.noCertificates | 這台電腦沒有可以簽署的憑證。使用卡片時，請插入讀卡機後按「重新整理」；或改用憑證檔。 |
+| signing.refresh | 重新整理 |
+| signing.certificateDetail(issuer, expires) | 簽發者：<issuer>；有效到 <YYYY-MM-DD> |
+| signing.problems.expired／notYetValid／notForSigning | 已過期／還沒生效／不能用來簽署（加在說明後面的括號裡） |
+| signing.pinNote | 如果這張憑證要 PIN，會由 Windows 或卡片的程式詢問，app 不會看到 PIN。 |
 | signing.fileLabel／signing.chooseFile／signing.noFile | 憑證檔／選擇憑證檔…／尚未選擇（.pfx 或 .p12） |
 | signing.passwordLabel | 憑證檔的密碼 |
 | signing.appearanceTitle | 簽章的外觀 |
@@ -1282,6 +1294,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | error.messages.certificateNotForSigning | 這張憑證不能用來簽署：它的用途不含數位簽章，或檔案裡沒有私鑰。 |
 | error.messages.signatureTooLarge | 簽章比文件預留的空間大，所以沒有建立副本。 |
 | error.messages.signatureNotValid | 簽好的副本沒有通過驗證，所以沒有存檔。 |
+| error.messages.certificateUnavailable | 找不到這張憑證或它的私鑰：卡片可能已經拔出。請插入後按「重新整理」再試一次。 |
 | CERTIFICATE_DIALOG_TITLE／CERTIFICATE_FILTER_NAME（主行程） | 選擇簽署用的憑證檔／憑證檔（PKCS #12） |
 | SIGNED_COPY_DIALOG_TITLE（主行程） | 簽署並另存新檔：選擇已簽署副本的位置 |
 | signed_copy_file_name（主行程） | <原檔名>（已簽署）.pdf |

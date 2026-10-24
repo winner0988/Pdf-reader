@@ -194,8 +194,12 @@ const ALLOWED_PERMISSIONS = new Map([
     "B3-06: a certificate file (PKCS #12) to sign with; the main process asks in its open dialog and keeps the file, the page gets a number and the file's name",
   ],
   [
+    "allow-list-signing-certificates",
+    "B3-06, ADR 0020: the certificates of the user's own store that have a private key (in Windows or on a smart card), read only; the page gets numbers, names and dates, and no key is opened",
+  ],
+  [
     "allow-sign-document",
-    "B3-06, ADR 0020: a signed copy of an open document's file; the password goes to Windows once, the private key stays in the main process and in memory, the main process asks where, never the document's own file, and a new worker verifies the copy",
+    "B3-06, ADR 0020: a signed copy of an open document's file, with a certificate file (the password goes to Windows once, the private key stays in the main process and in memory) or a certificate of the user's store (its key stays in Windows or on the card, which asks for its PIN); the main process asks where, never the document's own file, and a new worker verifies the copy",
   ],
 ]);
 

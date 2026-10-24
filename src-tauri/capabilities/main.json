@@ -84,6 +84,7 @@
     "allow-create-pdf",
     "allow-check-signing",
     "allow-choose-signing-file",
+    "allow-list-signing-certificates",
     "allow-sign-document"
   ]
 }

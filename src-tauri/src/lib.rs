@@ -103,6 +103,7 @@ pub fn run() {
         .manage(Batches::default())
         .manage(Background::default())
         .manage(signing::ChosenCertificate::default())
+        .manage(signing::ListedCertificates::default())
         .invoke_handler(tauri::generate_handler![
             commands::subscribe_open_events,
             commands::open_document_dialog,
@@ -169,6 +170,7 @@ pub fn run() {
             commands::compress_images,
             commands::check_signing,
             commands::choose_signing_file,
+            commands::list_signing_certificates,
             commands::sign_document,
             commands::get_ocr_languages,
             commands::get_fonts,

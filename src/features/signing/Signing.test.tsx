@@ -9,17 +9,35 @@ import { demoDocument } from "@/features/shell/demo";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { SigningApi } from "@/features/signing/api";
-import { argsOf, DEFAULT_FORM, failure, reasonFits } from "@/features/signing/signing";
+import { argsOf, dateOf, DEFAULT_FORM, failure, reasonFits, usable } from "@/features/signing/signing";
 import { strings } from "@/i18n/zh-TW";
-import { LIMITS, type SignCheck, type SignResult } from "@/ipc/generated/contract";
+import { LIMITS, type SignCheck, type SignResult, type StoreCertificate } from "@/ipc/generated/contract";
 
 const t = strings.signing;
 const PASSWORD = "correct horse";
 
-function fakeApi(check: SignCheck = "ready", sign?: SigningApi["sign"]) {
+/** A natural person's certificate on a card, and an older one that has expired. */
+const CARD: StoreCertificate = {
+  certificate: 7,
+  subject: "王小明",
+  issuer: "內政部憑證管理中心",
+  expires: { year: 2030, month: 5, day: 14 },
+  problem: null,
+};
+const EXPIRED: StoreCertificate = {
+  certificate: 8,
+  subject: "王小明（舊卡）",
+  issuer: "內政部憑證管理中心",
+  expires: { year: 2024, month: 1, day: 2 },
+  problem: "expired",
+};
+
+/** The main process, with no certificate on this computer unless `listed` says so. */
+function fakeApi(check: SignCheck = "ready", sign?: SigningApi["sign"], listed: StoreCertificate[] = []) {
   return {
     check: vi.fn<SigningApi["check"]>(() => Promise.resolve(check)),
     chooseFile: vi.fn<SigningApi["chooseFile"]>(() => Promise.resolve({ file: 3, name: "我的憑證.pfx" })),
+    listCertificates: vi.fn<SigningApi["listCertificates"]>(() => Promise.resolve(listed)),
     sign: vi.fn<SigningApi["sign"]>(sign ?? (() => Promise.resolve({ name: "報告（已簽署）.pdf" }))),
   } satisfies SigningApi;
 }
@@ -58,22 +76,29 @@ async function fillIn(user: ReturnType<typeof userEvent.setup>, dialog: HTMLElem
 describe("what is sent to sign (B3-06)", () => {
   it("sends the page shown as an index, a reason only if there is one, and this computer's time zone", () => {
     const now = new Date();
-    expect(argsOf(5, 3, PASSWORD, DEFAULT_FORM, 2, now)).toEqual({
+    const file = { kind: "file", file: 3, password: PASSWORD } as const;
+    expect(argsOf(5, file, DEFAULT_FORM, 2, now)).toEqual({
       doc: 5,
-      file: 3,
-      password: PASSWORD,
+      key: file,
       place: { pageIndex: 1, corner: "bottomRight" },
       reason: null,
       utcOffsetMinutes: -now.getTimezoneOffset(),
     });
-    expect(argsOf(5, 3, PASSWORD, { corner: null, reason: "  同意  " }, 2, now)).toMatchObject({
+    expect(argsOf(5, file, { corner: null, reason: "  同意  " }, 2, now)).toMatchObject({
       place: null,
       reason: "同意",
     });
-    expect(argsOf(5, 3, PASSWORD, { corner: "topLeft", reason: "   " }, 1, now)).toMatchObject({
+    expect(argsOf(5, { kind: "store", certificate: 7 }, { corner: "topLeft", reason: "   " }, 1, now)).toMatchObject({
+      key: { kind: "store", certificate: 7 },
       place: { pageIndex: 0, corner: "topLeft" },
       reason: null,
     });
+  });
+
+  it("offers the certificates that can sign, and writes their day as dates are written here", () => {
+    expect(usable([EXPIRED, CARD])).toEqual([CARD]);
+    expect(dateOf(CARD.expires)).toBe("2030-05-14");
+    expect(dateOf({ year: 2036, month: 12, day: 31 })).toBe("2036-12-31");
   });
 
   it("takes a reason as long as the main process does, counted in UTF-8", () => {
@@ -89,8 +114,11 @@ describe("what is sent to sign (B3-06)", () => {
     expect(failure("certificateExpired")).toBe(strings.error.messages.certificateExpired);
     expect(failure("certificateNotForSigning")).toBe(strings.error.messages.certificateNotForSigning);
     expect(failure("signatureNotValid")).toBe(strings.error.messages.signatureNotValid);
+    expect(failure("certificateUnavailable")).toBe(strings.error.messages.certificateUnavailable);
     expect(failure("notAllowed")).toBe(t.certified);
     expect(failure("workerCrashed")).toBe(t.failed);
+    // The user closed the window that asked for the PIN: nothing to say.
+    expect(failure("cancelled")).toBeNull();
   });
 });
 
@@ -137,12 +165,11 @@ describe("the signing dialog (B3-06)", () => {
     const args = sent(api);
     expect(args).toMatchObject({
       doc: 5,
-      file: 3,
-      password: PASSWORD,
+      key: { kind: "file", file: 3, password: PASSWORD },
       place: { pageIndex: 0, corner: "bottomRight" },
       reason: "同意本合約",
     });
-    expect(Object.keys(args).sort()).toEqual(["doc", "file", "password", "place", "reason", "utcOffsetMinutes"]);
+    expect(Object.keys(args).sort()).toEqual(["doc", "key", "place", "reason", "utcOffsetMinutes"]);
     expect(await within(dialog).findByRole("status")).toHaveTextContent(t.result("報告（已簽署）.pdf"));
     expect(screen.getByRole("dialog", { name: t.resultTitle })).toBeInTheDocument();
     // Its own name: the dialog's corner button is the one called "關閉".
@@ -222,5 +249,91 @@ describe("the signing dialog (B3-06)", () => {
     expect(await within(dialog).findByLabelText(t.passwordLabel)).toHaveValue("");
     expect(within(dialog).getByText(t.noFile)).toBeInTheDocument();
     expect(api.check).toHaveBeenCalledTimes(2);
+    expect(api.listCertificates).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("signing with a certificate of this computer (B3-06)", () => {
+  it("signs with the certificate on a card by its number alone, and asks for no password", async () => {
+    const api = fakeApi("ready", undefined, [CARD, EXPIRED]);
+    const { user } = renderShell(api);
+    const dialog = await openDialog(user);
+    // This computer's certificates come first when one can sign, and it is chosen.
+    expect(await within(dialog).findByRole("radio", { name: CARD.subject })).toBeChecked();
+    expect(within(dialog).getByRole("radio", { name: t.sourceStore })).toBeChecked();
+    expect(within(dialog).queryByLabelText(t.passwordLabel)).toBeNull();
+    expect(within(dialog).getByText(t.pinNote)).toBeInTheDocument();
+    expect(within(dialog).getByText(t.certificateDetail(CARD.issuer, "2030-05-14"))).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+
+    const args = sent(api);
+    expect(args.key).toEqual({ kind: "store", certificate: 7 });
+    expect(JSON.stringify(args)).not.toMatch(/password|pin/i);
+    expect(await within(dialog).findByRole("status")).toHaveTextContent(t.result("報告（已簽署）.pdf"));
+  });
+
+  it("shows why a certificate cannot sign, and does not let it be chosen", async () => {
+    const api = fakeApi("ready", undefined, [CARD, EXPIRED]);
+    const { user } = renderShell(api);
+    const dialog = await openDialog(user);
+    const expired = await within(dialog).findByRole("radio", { name: EXPIRED.subject });
+    expect(expired).toBeDisabled();
+    expect(expired).toHaveAccessibleDescription(
+      `${t.certificateDetail(EXPIRED.issuer, "2024-01-02")}（${t.problems.expired}）`,
+    );
+  });
+
+  it("turns to a certificate file when this computer has no certificate that signs", async () => {
+    const api = fakeApi("ready", undefined, [EXPIRED]);
+    const { user } = renderShell(api);
+    const dialog = await openDialog(user);
+    expect(await within(dialog).findByRole("button", { name: t.chooseFile })).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: t.sourceFile })).toBeChecked();
+    // Asked for: what there is, and why none of it signs.
+    await user.click(within(dialog).getByRole("radio", { name: t.sourceStore }));
+    expect(within(dialog).getByText(t.noCertificates)).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: EXPIRED.subject })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: t.start })).toBeDisabled();
+  });
+
+  it("lists the certificates again when asked, after a card is put in", async () => {
+    const api = fakeApi("ready");
+    api.listCertificates.mockResolvedValueOnce([]).mockResolvedValueOnce([CARD]);
+    const { user } = renderShell(api);
+    const dialog = await openDialog(user);
+    await user.click(await within(dialog).findByRole("radio", { name: t.sourceStore }));
+    await user.click(within(dialog).getByRole("button", { name: t.refresh }));
+    expect(await within(dialog).findByRole("radio", { name: CARD.subject })).toBeChecked();
+    expect(api.listCertificates).toHaveBeenCalledTimes(2);
+    expect(within(dialog).getByRole("button", { name: t.start })).toBeEnabled();
+  });
+
+  it("says nothing when the PIN was not given, and says so when the card was taken out", async () => {
+    const api = fakeApi("ready", () => Promise.reject({ code: "cancelled", message: "" }), [CARD]);
+    const { user } = renderShell(api);
+    const dialog = await openDialog(user);
+    const start = await within(dialog).findByRole("button", { name: t.start });
+    await waitFor(() => expect(start).toBeEnabled());
+    await user.click(start);
+    expect(api.sign).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(start).toBeEnabled());
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+
+    api.sign.mockRejectedValueOnce({ code: "certificateUnavailable", message: "" });
+    await user.click(start);
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      strings.error.messages.certificateUnavailable,
+    );
+  });
+
+  it("reads the certificates once more, and says so, when that failed", async () => {
+    const api = fakeApi("ready");
+    api.listCertificates.mockRejectedValueOnce({ code: "internal", message: "" });
+    const { user } = renderShell(api);
+    const dialog = await openDialog(user);
+    await user.click(await within(dialog).findByRole("radio", { name: t.sourceStore }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(t.listFailed);
+    await user.click(within(dialog).getByRole("button", { name: t.refresh }));
+    expect(await within(dialog).findByText(t.noCertificates)).toBeInTheDocument();
   });
 });

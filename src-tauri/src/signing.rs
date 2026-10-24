@@ -4,7 +4,10 @@
 //! A certificate file the user chose (PKCS #12: `.pfx`, `.p12`) is imported with
 //! `PFXImportCertStore` into a store that lives in memory only: its key is not persisted
 //! (`PKCS12_NO_PERSIST_KEY`) and cannot be exported (no `CRYPT_EXPORTABLE`), and both go when the
-//! [`Signer`] is dropped. The password goes to Windows once and is wiped. A signature is a
+//! [`Signer`] is dropped. The password goes to Windows once and is wiped. A certificate of the
+//! user's own store (the current user's "Personal" store) is used where it is: its key stays in
+//! the user's key store or on a smart card, and Windows, or the card's own software, asks for its
+//! PIN; nothing is imported or copied. A signature is a
 //! detached CMS `SignedData` over the two parts of a file that the worker prepared, with SHA-256,
 //! the time of signing, and the signer's certificate with the chain this computer can build
 //! without fetching anything. No PDF is parsed here: what is signed is bytes, and the worker said
@@ -21,25 +24,37 @@ use std::path::Path;
 use std::ptr::{null, null_mut};
 use std::sync::Mutex;
 
-use ipc_contract::limits::MAX_CERTIFICATE_FILE_BYTES;
-use ipc_contract::types::{ErrorCode, IpcError};
+use ipc_contract::limits::{
+    MAX_CERTIFICATE_FILE_BYTES, MAX_SIGNATURE_TEXT_BYTES, MAX_STORE_CERTIFICATES,
+};
+use ipc_contract::text::clean_display_text;
+use ipc_contract::types::{CertificateDate, CertificateProblem, ErrorCode, IpcError};
 use ipc_contract::worker::SigningTime;
-use windows_sys::Win32::Foundation::{FILETIME, GetLastError};
+use windows_sys::Win32::Foundation::{
+    ERROR_CANCELLED, FILETIME, GetLastError, NTE_USER_CANCELLED, SCARD_E_CANCELLED,
+    SCARD_E_NO_READERS_AVAILABLE, SCARD_E_NO_SMARTCARD, SCARD_E_READER_UNAVAILABLE,
+    SCARD_W_CANCELLED_BY_USER, SCARD_W_REMOVED_CARD,
+};
 use windows_sys::Win32::Security::Cryptography::{
     CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL, CERT_CHAIN_CONTEXT,
     CERT_CHAIN_DISABLE_AUTH_ROOT_AUTO_UPDATE, CERT_CHAIN_PARA, CERT_CONTEXT,
-    CERT_DIGITAL_SIGNATURE_KEY_USAGE, CERT_FIND_HAS_PRIVATE_KEY, CERT_INFO, CERT_NAME_ATTR_TYPE,
+    CERT_DIGITAL_SIGNATURE_KEY_USAGE, CERT_FIND_EXISTING, CERT_FIND_HAS_PRIVATE_KEY, CERT_INFO,
+    CERT_KEY_PROV_INFO_PROP_ID, CERT_NAME_ATTR_TYPE, CERT_NAME_ISSUER_FLAG,
     CERT_NAME_SIMPLE_DISPLAY_TYPE, CERT_NCRYPT_KEY_SPEC, CERT_NON_REPUDIATION_KEY_USAGE,
-    CMSG_CONTENT_PARAM, CMSG_DETACHED_FLAG, CMSG_SIGNED, CMSG_SIGNED_ENCODE_INFO,
-    CMSG_SIGNER_ENCODE_INFO, CMSG_SIGNER_ENCODE_INFO_0, CRYPT_ACQUIRE_ALLOW_NCRYPT_KEY_FLAG,
-    CRYPT_ACQUIRE_CACHE_FLAG, CRYPT_ACQUIRE_SILENT_FLAG, CRYPT_ALGORITHM_IDENTIFIER,
-    CRYPT_ATTRIBUTE, CRYPT_INTEGER_BLOB, CertCloseStore, CertFindCertificateInStore,
-    CertFreeCertificateChain, CertFreeCertificateContext, CertGetCertificateChain,
-    CertGetIntendedKeyUsage, CertGetNameStringW, CertVerifyTimeValidity,
-    CryptAcquireCertificatePrivateKey, CryptEncodeObject, CryptMsgClose, CryptMsgGetParam,
-    CryptMsgOpenToEncode, CryptMsgUpdate, CryptReleaseContext, HCERTSTORE, NCryptFreeObject,
-    PFXImportCertStore, PKCS_7_ASN_ENCODING, PKCS12_ALWAYS_CNG_KSP, PKCS12_NO_PERSIST_KEY,
-    X509_ASN_ENCODING, szOID_COMMON_NAME, szOID_NIST_sha256, szOID_RSA_signingTime,
+    CERT_STORE_OPEN_EXISTING_FLAG, CERT_STORE_PROV_SYSTEM_W, CERT_STORE_READONLY_FLAG,
+    CERT_SYSTEM_STORE_CURRENT_USER, CMSG_CONTENT_PARAM, CMSG_DETACHED_FLAG, CMSG_SIGNED,
+    CMSG_SIGNED_ENCODE_INFO, CMSG_SIGNER_ENCODE_INFO, CMSG_SIGNER_ENCODE_INFO_0,
+    CRYPT_ACQUIRE_ALLOW_NCRYPT_KEY_FLAG, CRYPT_ACQUIRE_CACHE_FLAG,
+    CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG, CRYPT_ACQUIRE_SILENT_FLAG,
+    CRYPT_ACQUIRE_WINDOW_HANDLE_FLAG, CRYPT_ALGORITHM_IDENTIFIER, CRYPT_ATTRIBUTE,
+    CRYPT_INTEGER_BLOB, CertCloseStore, CertCreateCertificateContext, CertEnumCertificatesInStore,
+    CertFindCertificateInStore, CertFreeCertificateChain, CertFreeCertificateContext,
+    CertGetCertificateChain, CertGetCertificateContextProperty, CertGetIntendedKeyUsage,
+    CertGetNameStringW, CertOpenStore, CertVerifyTimeValidity, CryptAcquireCertificatePrivateKey,
+    CryptEncodeObject, CryptMsgClose, CryptMsgGetParam, CryptMsgOpenToEncode, CryptMsgUpdate,
+    CryptReleaseContext, HCERTSTORE, NCryptFreeObject, PFXImportCertStore, PKCS_7_ASN_ENCODING,
+    PKCS12_ALWAYS_CNG_KSP, PKCS12_NO_PERSIST_KEY, X509_ASN_ENCODING, szOID_COMMON_NAME,
+    szOID_NIST_sha256, szOID_RSA_signingTime,
 };
 use zeroize::Zeroizing;
 
@@ -59,8 +74,23 @@ pub enum SigningError {
     NotYetValid,
     /// The certificate is not for signatures (its key usage), or comes without its private key.
     NotForSigning,
+    /// The certificate of the store is no longer there, or its key cannot be reached: its smart
+    /// card was taken out.
+    Unavailable,
+    /// The user closed the window that asked for the PIN.
+    Cancelled,
     /// Windows did not make the signature.
     Failed,
+}
+
+impl From<CertificateProblem> for SigningError {
+    fn from(problem: CertificateProblem) -> Self {
+        match problem {
+            CertificateProblem::Expired => Self::Expired,
+            CertificateProblem::NotYetValid => Self::NotYetValid,
+            CertificateProblem::NotForSigning => Self::NotForSigning,
+        }
+    }
 }
 
 impl From<SigningError> for IpcError {
@@ -79,6 +109,11 @@ impl From<SigningError> for IpcError {
                 ErrorCode::CertificateNotForSigning,
                 "the certificate is not for signing",
             ),
+            SigningError::Unavailable => (
+                ErrorCode::CertificateUnavailable,
+                "the certificate or its key cannot be reached",
+            ),
+            SigningError::Cancelled => (ErrorCode::Cancelled, "the PIN was not given"),
             SigningError::Failed => (ErrorCode::Internal, "Windows did not sign"),
         };
         IpcError {
@@ -123,6 +158,55 @@ impl ChosenCertificate {
     }
 }
 
+/// The certificates of the user's store listed last for signing (B3-06), by number: what
+/// `sign_document` finds a number in. They are public; a list given again replaces them, and its
+/// numbers are new, so a number from an older list finds nothing.
+#[derive(Default)]
+pub struct ListedCertificates {
+    listed: Mutex<Listed>,
+}
+
+#[derive(Default)]
+struct Listed {
+    /// The number given last.
+    last: u32,
+    /// Each certificate of the list given last, with its number.
+    kept: Vec<(u32, Vec<u8>)>,
+}
+
+impl ListedCertificates {
+    /// Keeps `encoded` in place of the list before; gives the number of each, in order.
+    pub fn list(&self, encoded: Vec<Vec<u8>>) -> Vec<u32> {
+        let mut listed = self
+            .listed
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Listed { last, kept } = &mut *listed;
+        kept.clear();
+        encoded
+            .into_iter()
+            .map(|certificate| {
+                *last = last.wrapping_add(1).max(1);
+                kept.push((*last, certificate));
+                *last
+            })
+            .collect()
+    }
+
+    /// The DER of certificate `number`, if the list given last has it.
+    pub fn get(&self, number: u32) -> Option<Vec<u8>> {
+        let listed = self
+            .listed
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        listed
+            .kept
+            .iter()
+            .find(|(kept, _)| *kept == number)
+            .map(|(_, certificate)| certificate.clone())
+    }
+}
+
 /// Reads the certificate file at `path`, which is at most `MAX_CERTIFICATE_FILE_BYTES` long (a
 /// PKCS #12 file is a few kilobytes): its content is for Windows to read.
 pub fn read_certificate_file(path: &Path) -> Result<Zeroizing<Vec<u8>>, IpcError> {
@@ -153,14 +237,15 @@ impl Drop for Certificate {
     }
 }
 
-/// The store a certificate file was imported into; closed when dropped, which ends its key.
+/// The store a certificate file was imported into, which ends its key when closed, or the
+/// user's own; closed when dropped.
 struct Store(HCERTSTORE);
 
 impl Drop for Store {
     fn drop(&mut self) {
         if !self.0.is_null() {
-            // SAFETY: the store came from `PFXImportCertStore` and is closed once. Contexts still
-            // open keep it until they are freed.
+            // SAFETY: the store came from `PFXImportCertStore` or `CertOpenStore` and is closed
+            // once. Contexts still open keep it until they are freed.
             unsafe { CertCloseStore(self.0, 0) };
         }
     }
@@ -269,31 +354,90 @@ impl Signer {
         if certificate.0.is_null() {
             return Err(SigningError::NotForSigning);
         }
-        // SAFETY: a live certificate context, whose `pCertInfo` lives as long as it does.
-        let info = unsafe { (*certificate.0).pCertInfo };
-        // SAFETY: no time means now; `info` is live.
-        match unsafe { CertVerifyTimeValidity(null(), info) } {
-            0 => {}
-            before if before < 0 => return Err(SigningError::NotYetValid),
-            _ => return Err(SigningError::Expired),
+        // Silent: a key from a file needs no PIN, and nothing is shown. Cached: a key kept only
+        // in memory is on the certificate as its key context (it has no provider to open it by),
+        // which Windows gives only to a caller that takes the cached key; the certificate frees it.
+        Self::with_key(
+            certificate,
+            store,
+            CRYPT_ACQUIRE_CACHE_FLAG
+                | CRYPT_ACQUIRE_ALLOW_NCRYPT_KEY_FLAG
+                | CRYPT_ACQUIRE_SILENT_FLAG,
+            null(),
+            SigningError::NotForSigning,
+        )
+    }
+
+    /// Takes the certificate `encoded` (one of [`store_certificates`]) from the user's own store,
+    /// with its private key where Windows keeps it: in the user's key store, or on a smart card.
+    /// Nothing is imported or copied. Windows, or the card's own software, may ask for a PIN in a
+    /// window that `window` owns, now or when signing; the app never sees it. Refused: a
+    /// certificate no longer in the store, or whose key cannot be reached (`Unavailable`: its
+    /// card was taken out), and one that has expired, is not valid yet, or is not for
+    /// signatures.
+    pub fn from_store(encoded: &[u8], window: isize) -> Result<Self, SigningError> {
+        let store = personal_store().ok_or(SigningError::Unavailable)?;
+        let length = u32::try_from(encoded.len()).map_err(|_| SigningError::Unavailable)?;
+        // SAFETY: `length` live bytes that Windows only reads (it keeps a copy); the context
+        // made is freed by `Certificate`.
+        let wanted = Certificate(unsafe {
+            CertCreateCertificateContext(ENCODING, encoded.as_ptr(), length)
+        });
+        if wanted.0.is_null() {
+            return Err(SigningError::Unavailable);
         }
-        if !for_signing(info) {
-            return Err(SigningError::NotForSigning);
+        // SAFETY: a live store and a live context to look for; the context found is the store's
+        // own, with the properties that say where its key is, and is freed by `Certificate`.
+        let certificate = Certificate(unsafe {
+            CertFindCertificateInStore(
+                store.0,
+                ENCODING,
+                0,
+                CERT_FIND_EXISTING,
+                wanted.0.cast(),
+                null(),
+            )
+        });
+        drop(wanted);
+        if certificate.0.is_null() {
+            return Err(SigningError::Unavailable);
+        }
+        let owner = window as *mut c_void;
+        // Not silent: a card's key may need its PIN. CNG first: a key that an older provider
+        // keeps is then opened by its key store where it can be, which signs with SHA-256.
+        Self::with_key(
+            certificate,
+            store,
+            CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG | CRYPT_ACQUIRE_WINDOW_HANDLE_FLAG,
+            std::ptr::from_ref(&owner).cast(),
+            SigningError::Unavailable,
+        )
+    }
+
+    /// The signer of `certificate`, which is in `store`, once it is valid now and for
+    /// signatures, and its private key is at hand: asked for with `flags` and `parameter` as
+    /// `CryptAcquireCertificatePrivateKey` takes them, or `missing` when it is not.
+    fn with_key(
+        certificate: Certificate,
+        store: Store,
+        flags: u32,
+        parameter: *const c_void,
+        missing: SigningError,
+    ) -> Result<Self, SigningError> {
+        // SAFETY: a live certificate context, whose `pCertInfo` lives as long as it does.
+        if let Some(problem) = problem_of(unsafe { (*certificate.0).pCertInfo }) {
+            return Err(problem.into());
         }
         let mut handle = 0;
         let mut spec = 0;
         let mut release = 0;
-        // SAFETY: a live certificate context, and three places for what the call gives. Silent:
-        // a key from a file needs no PIN, and nothing is shown. Cached: a key kept only in memory
-        // is on the certificate as its key context (it has no provider to open it by), which
-        // Windows gives only to a caller that takes the cached key; the certificate frees it.
+        // SAFETY: a live certificate context, the parameter its flags ask for (a window handle
+        // that lives through the call, or none), and three places for what the call gives.
         let acquired = unsafe {
             CryptAcquireCertificatePrivateKey(
                 certificate.0,
-                CRYPT_ACQUIRE_CACHE_FLAG
-                    | CRYPT_ACQUIRE_ALLOW_NCRYPT_KEY_FLAG
-                    | CRYPT_ACQUIRE_SILENT_FLAG,
-                null(),
+                flags,
+                parameter,
                 &mut handle,
                 &mut spec,
                 &mut release,
@@ -305,7 +449,10 @@ impl Signer {
             release: release != 0,
         };
         if acquired == 0 {
-            return Err(SigningError::NotForSigning);
+            return Err(match last_failure() {
+                SigningError::Cancelled => SigningError::Cancelled,
+                _ => missing,
+            });
         }
         Ok(Self {
             key,
@@ -317,16 +464,7 @@ impl Signer {
     /// Who signs: the common name of the certificate's subject, or, if it has none, the name
     /// Windows displays for it.
     pub fn signer_name(&self) -> String {
-        let common = name_of(
-            &self.certificate,
-            CERT_NAME_ATTR_TYPE,
-            szOID_COMMON_NAME.cast(),
-        );
-        if common.trim().is_empty() {
-            name_of(&self.certificate, CERT_NAME_SIMPLE_DISPLAY_TYPE, null())
-        } else {
-            common
-        }
+        display_name(self.certificate.0, 0)
     }
 
     /// The DER of a detached CMS `SignedData` over `parts`, in order, as if they were one: signed
@@ -393,7 +531,7 @@ impl Signer {
             )
         });
         if message.0.is_null() {
-            return Err(SigningError::Failed);
+            return Err(last_failure());
         }
         for (index, part) in parts.iter().enumerate() {
             let length = u32::try_from(part.len()).map_err(failed)?;
@@ -407,8 +545,9 @@ impl Signer {
                     i32::from(index == parts.len() - 1),
                 )
             };
+            // A card's key signs here, and its PIN may be asked for.
             if updated == 0 {
-                return Err(SigningError::Failed);
+                return Err(last_failure());
             }
         }
         let mut size = 0;
@@ -500,6 +639,136 @@ fn chain_certificates(chain: &Chain, signer: &Certificate) -> Vec<CRYPT_INTEGER_
     certificates
 }
 
+/// A certificate of the user's store that the signing dialog lists (B3-06).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListedCertificate {
+    /// Its DER, which finds it in the store again.
+    pub encoded: Vec<u8>,
+    pub subject: String,
+    pub issuer: String,
+    pub expires: CertificateDate,
+    pub problem: Option<CertificateProblem>,
+}
+
+/// The certificates of the current user's Personal store that have a private key: in the
+/// user's key store, or on a smart card Windows knows of (Windows puts a card's certificates
+/// there while it is in). Those that can sign come first; at most `MAX_STORE_CERTIFICATES`.
+/// Only the store is read: no key is opened, no card is touched, and nothing is asked.
+pub fn store_certificates() -> Vec<ListedCertificate> {
+    let Some(store) = personal_store() else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    let mut context: *const CERT_CONTEXT = null();
+    loop {
+        // SAFETY: a live store, and the context it gave last (or none, to begin): the call frees
+        // that one and gives the next, or null at the end.
+        context = unsafe { CertEnumCertificatesInStore(store.0, context) };
+        if context.is_null() {
+            break;
+        }
+        if has_private_key(context) {
+            found.push(listed(context));
+        }
+    }
+    found.sort_by_key(|certificate| certificate.problem.is_some());
+    found.truncate(MAX_STORE_CERTIFICATES);
+    found
+}
+
+/// What the signing dialog shows of the live certificate `context`.
+fn listed(context: *const CERT_CONTEXT) -> ListedCertificate {
+    // SAFETY: a live context: its encoded bytes have the length it gives, and they and its
+    // information live as long as it does.
+    let (encoded, info) = unsafe {
+        let encoded =
+            std::slice::from_raw_parts((*context).pbCertEncoded, (*context).cbCertEncoded as usize);
+        (encoded.to_vec(), (*context).pCertInfo)
+    };
+    // SAFETY: as above.
+    let not_after = unsafe { (*info).NotAfter };
+    ListedCertificate {
+        encoded,
+        subject: display_name(context, 0),
+        issuer: display_name(context, CERT_NAME_ISSUER_FLAG),
+        expires: date_of(&not_after),
+        problem: problem_of(info),
+    }
+}
+
+/// Whether Windows knows where the key of the live certificate `context` is (a key store, an
+/// older provider, a card's driver). The key itself is not opened.
+fn has_private_key(context: *const CERT_CONTEXT) -> bool {
+    let mut size = 0;
+    // SAFETY: a live context; with no buffer the call only says whether the property is there.
+    unsafe {
+        CertGetCertificateContextProperty(
+            context,
+            CERT_KEY_PROV_INFO_PROP_ID,
+            null_mut(),
+            &mut size,
+        ) != 0
+    }
+}
+
+/// The current user's Personal store ("MY"), to read; none if it cannot be opened.
+fn personal_store() -> Option<Store> {
+    let name: Vec<u16> = "MY".encode_utf16().chain(Some(0)).collect();
+    // SAFETY: the system store provider takes the store's name as a NUL-terminated UTF-16
+    // string, which outlives the call; the store is closed by `Store`.
+    let store = Store(unsafe {
+        CertOpenStore(
+            CERT_STORE_PROV_SYSTEM_W,
+            0,
+            0,
+            CERT_SYSTEM_STORE_CURRENT_USER
+                | CERT_STORE_READONLY_FLAG
+                | CERT_STORE_OPEN_EXISTING_FLAG,
+            name.as_ptr().cast(),
+        )
+    });
+    (!store.0.is_null()).then_some(store)
+}
+
+/// Why the certificate `info` cannot sign now: it has expired, is not valid yet, or is not for
+/// signatures; none if it can.
+fn problem_of(info: *const CERT_INFO) -> Option<CertificateProblem> {
+    // SAFETY: no time means now; `info` is a live certificate's.
+    match unsafe { CertVerifyTimeValidity(null(), info) } {
+        0 => {}
+        before if before < 0 => return Some(CertificateProblem::NotYetValid),
+        _ => return Some(CertificateProblem::Expired),
+    }
+    (!for_signing(info)).then_some(CertificateProblem::NotForSigning)
+}
+
+/// Why Windows did not sign, as the last error of this thread says: the user closed the window
+/// that asked for the PIN (`Cancelled`), the card is not in (`Unavailable`), or anything else.
+fn last_failure() -> SigningError {
+    // SAFETY: reads this thread's last error, which the call that failed set.
+    failure_of(unsafe { GetLastError() })
+}
+
+fn failure_of(code: u32) -> SigningError {
+    let is = |hresult: i32| code == hresult as u32;
+    if code == ERROR_CANCELLED
+        || code == 0x8007_0000 | ERROR_CANCELLED
+        || is(SCARD_W_CANCELLED_BY_USER)
+        || is(SCARD_E_CANCELLED)
+        || is(NTE_USER_CANCELLED)
+    {
+        SigningError::Cancelled
+    } else if is(SCARD_W_REMOVED_CARD)
+        || is(SCARD_E_NO_SMARTCARD)
+        || is(SCARD_E_READER_UNAVAILABLE)
+        || is(SCARD_E_NO_READERS_AVAILABLE)
+    {
+        SigningError::Unavailable
+    } else {
+        SigningError::Failed
+    }
+}
+
 /// Whether the certificate may sign: its key usage includes digital signatures or
 /// non-repudiation, or it says nothing of its key usage.
 fn for_signing(info: *const CERT_INFO) -> bool {
@@ -514,15 +783,37 @@ fn for_signing(info: *const CERT_INFO) -> bool {
     u32::from(usage) & (CERT_DIGITAL_SIGNATURE_KEY_USAGE | CERT_NON_REPUDIATION_KEY_USAGE) != 0
 }
 
-fn name_of(certificate: &Certificate, kind: u32, parameter: *const c_void) -> String {
+/// Whom the live certificate `context` names (with `CERT_NAME_ISSUER_FLAG`: who issued it): the
+/// common name, or, if there is none, the name Windows displays; plain words, bounded.
+fn display_name(context: *const CERT_CONTEXT, flags: u32) -> String {
+    let common = name_of(
+        context,
+        CERT_NAME_ATTR_TYPE,
+        flags,
+        szOID_COMMON_NAME.cast(),
+    );
+    let name = if common.trim().is_empty() {
+        name_of(context, CERT_NAME_SIMPLE_DISPLAY_TYPE, flags, null())
+    } else {
+        common
+    };
+    clean_display_text(&name, MAX_SIGNATURE_TEXT_BYTES as usize)
+}
+
+fn name_of(
+    context: *const CERT_CONTEXT,
+    kind: u32,
+    flags: u32,
+    parameter: *const c_void,
+) -> String {
     let mut name = [0u16; NAME_UNITS];
     // SAFETY: a live certificate context, a parameter the kind of name takes (an attribute's
     // object identifier, or none), and a buffer of the length given.
     let length = unsafe {
         CertGetNameStringW(
-            certificate.0,
+            context,
             kind,
-            0,
+            flags,
             parameter,
             name.as_mut_ptr(),
             NAME_UNITS as u32,
@@ -566,6 +857,29 @@ fn encode_signing_time(time: &FILETIME) -> Result<Vec<u8>, SigningError> {
     }
     encoded.truncate(size as usize);
     Ok(encoded)
+}
+
+/// The day of `time` in UTC, as a certificate's validity is shown; 9999-12-31, the last day a
+/// certificate can name, for a time beyond it.
+fn date_of(time: &FILETIME) -> CertificateDate {
+    let ticks = u64::from(time.dwHighDateTime) << 32 | u64::from(time.dwLowDateTime);
+    let unix_seconds = (i128::from(ticks) - i128::from(UNIX_EPOCH_AS_FILETIME)) / 10_000_000;
+    i64::try_from(unix_seconds)
+        .ok()
+        .and_then(|seconds| local_time(seconds, 0))
+        .filter(|day| day.year <= 9999)
+        .map_or(
+            CertificateDate {
+                year: 9999,
+                month: 12,
+                day: 31,
+            },
+            |day| CertificateDate {
+                year: day.year,
+                month: day.month,
+                day: day.day,
+            },
+        )
 }
 
 /// `unix_seconds` as Windows counts time; none before 1970.
@@ -638,7 +952,10 @@ mod tests {
     use super::*;
 
     use windows_sys::Win32::Security::Cryptography::{
-        CRYPT_VERIFY_MESSAGE_PARA, CryptVerifyDetachedMessageSignature,
+        CERT_STORE_ADD_REPLACE_EXISTING, CRYPT_DELETEKEYSET, CRYPT_KEY_PROV_INFO,
+        CRYPT_VERIFY_MESSAGE_PARA, CertAddCertificateContextToStore,
+        CertDeleteCertificateFromStore, CryptAcquireContextW, CryptVerifyDetachedMessageSignature,
+        NCryptDeleteKey, NCryptOpenKey, NCryptOpenStorageProvider,
     };
 
     #[test]
@@ -701,6 +1018,76 @@ mod tests {
     }
 
     #[test]
+    fn a_certificate_listed_is_found_by_its_number_in_the_last_list_alone() {
+        let listed = ListedCertificates::default();
+        assert_eq!(listed.get(1), None);
+        let first = listed.list(vec![b"one".to_vec(), b"two".to_vec()]);
+        assert_eq!(first.len(), 2);
+        assert_ne!(first[0], first[1]);
+        assert_eq!(listed.get(first[1]), Some(b"two".to_vec()));
+        // Listed again: new numbers, and the old ones find nothing.
+        let second = listed.list(vec![b"two".to_vec()]);
+        assert!(!first.contains(&second[0]));
+        assert_eq!(listed.get(first[1]), None);
+        assert_eq!(listed.get(second[0]), Some(b"two".to_vec()));
+        assert_eq!(listed.get(0), None);
+        assert!(listed.list(Vec::new()).is_empty());
+        assert_eq!(listed.get(second[0]), None);
+    }
+
+    #[test]
+    fn a_pin_not_given_and_a_card_taken_out_are_told_from_other_failures() {
+        for code in [
+            ERROR_CANCELLED,
+            0x8007_04C7,
+            SCARD_W_CANCELLED_BY_USER as u32,
+            SCARD_E_CANCELLED as u32,
+            NTE_USER_CANCELLED as u32,
+        ] {
+            assert_eq!(failure_of(code), SigningError::Cancelled, "{code:#x}");
+        }
+        for code in [
+            SCARD_W_REMOVED_CARD as u32,
+            SCARD_E_NO_SMARTCARD as u32,
+            SCARD_E_READER_UNAVAILABLE as u32,
+        ] {
+            assert_eq!(failure_of(code), SigningError::Unavailable, "{code:#x}");
+        }
+        assert_eq!(failure_of(0), SigningError::Failed);
+        assert_eq!(failure_of(0x8009_0008), SigningError::Failed);
+        // Not given, the PIN is no error to show; a card taken out says so.
+        assert_eq!(
+            IpcError::from(SigningError::Cancelled).code,
+            ErrorCode::Cancelled
+        );
+        assert_eq!(
+            IpcError::from(SigningError::Unavailable).code,
+            ErrorCode::CertificateUnavailable
+        );
+    }
+
+    #[test]
+    fn a_certificate_lasts_to_a_day_in_utc() {
+        let at = |unix_seconds: u64| {
+            let ticks = unix_seconds * 10_000_000 + UNIX_EPOCH_AS_FILETIME;
+            date_of(&FILETIME {
+                dwLowDateTime: ticks as u32,
+                dwHighDateTime: (ticks >> 32) as u32,
+            })
+        };
+        let day = |year, month, day| CertificateDate { year, month, day };
+        // 2036-01-01 00:00:00 UTC, and the second before it.
+        assert_eq!(at(2_082_758_400), day(2036, 1, 1));
+        assert_eq!(at(2_082_758_399), day(2035, 12, 31));
+        assert_eq!(at(0), day(1970, 1, 1));
+        let last = FILETIME {
+            dwLowDateTime: u32::MAX,
+            dwHighDateTime: u32::MAX,
+        };
+        assert_eq!(date_of(&last).year, 9999);
+    }
+
+    #[test]
     fn a_time_is_counted_from_windows_epoch() {
         let time = filetime(0).unwrap();
         let ticks = u64::from(time.dwHighDateTime) << 32 | u64::from(time.dwLowDateTime);
@@ -722,6 +1109,169 @@ mod tests {
     }
 
     const PASSWORD: &str = "corpus-test-password";
+
+    /// The tests that change what Windows keeps for the user take turns: one of them counts the
+    /// files of the user's keys and certificates.
+    static WINDOWS_KEYS: Mutex<()> = Mutex::new(());
+
+    /// A test certificate put in the user's Personal store with its key kept by Windows, as an
+    /// import or a smart card's driver leaves one: in a CNG key store (`cng`), or by an older
+    /// provider. Taken out again, key and all, when dropped.
+    struct InStore {
+        context: *const CERT_CONTEXT,
+        encoded: Vec<u8>,
+        /// Whether an older provider (not a CNG key store) keeps its key.
+        older: bool,
+    }
+
+    impl InStore {
+        fn put(name: &str, cng: bool) -> Self {
+            let pfx = certificate(name);
+            let blob = CRYPT_INTEGER_BLOB {
+                cbData: pfx.len() as u32,
+                pbData: pfx.as_ptr().cast_mut(),
+            };
+            let password: Vec<u16> = PASSWORD.encode_utf16().chain(Some(0)).collect();
+            let flags = if cng { PKCS12_ALWAYS_CNG_KSP } else { 0 };
+            // SAFETY: as in `Signer::from_pfx`, but the key is kept, so that the store's copy
+            // has one.
+            let imported = Store(unsafe { PFXImportCertStore(&blob, password.as_ptr(), flags) });
+            assert!(!imported.0.is_null(), "{name} imported");
+            // SAFETY: a live store; the context found is freed by `Certificate`.
+            let found = Certificate(unsafe {
+                CertFindCertificateInStore(
+                    imported.0,
+                    ENCODING,
+                    0,
+                    CERT_FIND_HAS_PRIVATE_KEY,
+                    null(),
+                    null(),
+                )
+            });
+            assert!(!found.0.is_null(), "{name} has its key");
+            let my: Vec<u16> = "MY".encode_utf16().chain(Some(0)).collect();
+            // SAFETY: as in `personal_store`, to write; the context added keeps the store open
+            // until it is deleted.
+            let personal = Store(unsafe {
+                CertOpenStore(
+                    CERT_STORE_PROV_SYSTEM_W,
+                    0,
+                    0,
+                    CERT_SYSTEM_STORE_CURRENT_USER,
+                    my.as_ptr().cast(),
+                )
+            });
+            assert!(!personal.0.is_null(), "the Personal store opens");
+            let mut context = null_mut();
+            // SAFETY: a live store and context; the store's copy, with the properties that say
+            // where the key is, is given back, and deleted when this is dropped.
+            let added = unsafe {
+                CertAddCertificateContextToStore(
+                    personal.0,
+                    found.0,
+                    CERT_STORE_ADD_REPLACE_EXISTING,
+                    &mut context,
+                )
+            };
+            assert!(added != 0, "{name} put in the store");
+            let older = key_provider(context).is_some_and(|(_, _, kind)| kind != 0);
+            Self {
+                context,
+                encoded: listed(context).encoded,
+                older,
+            }
+        }
+    }
+
+    impl Drop for InStore {
+        fn drop(&mut self) {
+            if let Some((container, provider, kind)) = key_provider(self.context) {
+                // SAFETY: the names are NUL-terminated and live through the calls; deleting a
+                // key frees its handle, and the key store's is freed.
+                unsafe {
+                    if kind == 0 {
+                        let mut store = 0;
+                        if NCryptOpenStorageProvider(&mut store, provider.as_ptr(), 0) == 0 {
+                            let mut key = 0;
+                            if NCryptOpenKey(store, &mut key, container.as_ptr(), 0, 0) == 0 {
+                                NCryptDeleteKey(key, 0);
+                            }
+                            NCryptFreeObject(store);
+                        }
+                    } else {
+                        let mut deleted = 0;
+                        CryptAcquireContextW(
+                            &mut deleted,
+                            container.as_ptr(),
+                            provider.as_ptr(),
+                            kind,
+                            CRYPT_DELETEKEYSET,
+                        );
+                    }
+                }
+            }
+            // SAFETY: the store's own copy, which the call deletes and frees.
+            unsafe { CertDeleteCertificateFromStore(self.context) };
+        }
+    }
+
+    /// Where the key of the live certificate `context` is: its container's name, its
+    /// provider's (both NUL-terminated), and the provider's type (0: a CNG key store).
+    fn key_provider(context: *const CERT_CONTEXT) -> Option<(Vec<u16>, Vec<u16>, u32)> {
+        let mut size = 0;
+        // SAFETY: a live context; with no buffer the call says how large the property is.
+        if unsafe {
+            CertGetCertificateContextProperty(
+                context,
+                CERT_KEY_PROV_INFO_PROP_ID,
+                null_mut(),
+                &mut size,
+            )
+        } == 0
+        {
+            return None;
+        }
+        let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
+        // SAFETY: a buffer of at least `size` bytes, aligned for the structure it is given.
+        if unsafe {
+            CertGetCertificateContextProperty(
+                context,
+                CERT_KEY_PROV_INFO_PROP_ID,
+                buffer.as_mut_ptr().cast(),
+                &mut size,
+            )
+        } == 0
+        {
+            return None;
+        }
+        // SAFETY: the buffer starts with the structure, whose names are NUL-terminated strings
+        // in the buffer.
+        unsafe {
+            let info = &*buffer.as_ptr().cast::<CRYPT_KEY_PROV_INFO>();
+            Some((
+                wide(info.pwszContainerName),
+                wide(info.pwszProvName),
+                info.dwProvType,
+            ))
+        }
+    }
+
+    /// The NUL-terminated string at `text`, with its NUL.
+    ///
+    /// # Safety
+    ///
+    /// `text` points at a live NUL-terminated UTF-16 string.
+    unsafe fn wide(text: *const u16) -> Vec<u16> {
+        let mut length = 0;
+        // SAFETY: the caller gives a live NUL-terminated string: every unit up to its NUL is
+        // there.
+        unsafe {
+            while *text.add(length) != 0 {
+                length += 1;
+            }
+            std::slice::from_raw_parts(text, length + 1).to_vec()
+        }
+    }
 
     fn certificate(name: &str) -> Vec<u8> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -786,6 +1336,9 @@ mod tests {
         if !may_import() {
             return;
         }
+        let _turn = WINDOWS_KEYS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let before = key_files();
         let signer = Signer::from_pfx(&certificate("signer.pfx"), PASSWORD).expect("imported");
         assert_eq!(
@@ -804,6 +1357,117 @@ mod tests {
         assert!(!holds([parts[1], parts[0]], &cms));
         drop(signer);
         assert_eq!(key_files(), before, "no key or certificate was stored");
+    }
+
+    #[test]
+    fn a_certificate_of_the_store_signs_with_its_key_where_windows_keeps_it() {
+        if !may_import() {
+            return;
+        }
+        let _turn = WINDOWS_KEYS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let before = key_files();
+        let mut put_in = Vec::new();
+        // A key in a CNG key store, then one kept by an older provider: as an import or a
+        // smart card's driver can leave either (ADR 0020, POC 3).
+        for cng in [true, false] {
+            let signing = InStore::put("signer.pfx", cng);
+            assert_eq!(signing.older, !cng, "the key is where it was put");
+            let expired = InStore::put("expired.pfx", cng);
+            let encryption_only = InStore::put("encryption-only.pfx", cng);
+            put_in.extend([&signing, &expired, &encryption_only].map(|it| it.encoded.clone()));
+
+            let listed = store_certificates();
+            let problem = |wanted: &InStore| {
+                listed
+                    .iter()
+                    .find(|certificate| certificate.encoded == wanted.encoded)
+                    .map(|certificate| certificate.problem)
+            };
+            assert_eq!(problem(&signing), Some(None), "listed, and it can sign");
+            assert_eq!(problem(&expired), Some(Some(CertificateProblem::Expired)));
+            assert_eq!(
+                problem(&encryption_only),
+                Some(Some(CertificateProblem::NotForSigning))
+            );
+            // Those that can sign come first.
+            let first_problem = listed
+                .iter()
+                .position(|certificate| certificate.problem.is_some())
+                .unwrap();
+            assert!(listed[first_problem..].iter().all(|c| c.problem.is_some()));
+            let shown = listed
+                .iter()
+                .find(|certificate| certificate.encoded == signing.encoded)
+                .unwrap();
+            assert_eq!(shown.subject, "PDF Reader test corpus signer (NOT TRUSTED)");
+            assert_eq!(shown.issuer, shown.subject, "it signed itself");
+            assert_eq!(
+                shown.expires,
+                CertificateDate {
+                    year: 2036,
+                    month: 1,
+                    day: 1
+                }
+            );
+
+            let signer = Signer::from_store(&signing.encoded, 0).expect("its key is at hand");
+            assert_eq!(
+                signer.signer_name(),
+                "PDF Reader test corpus signer (NOT TRUSTED)"
+            );
+            let parts: [&[u8]; 2] = [b"%PDF-1.7 the first part <", b"> the second part %%EOF"];
+            let cms = signer.sign(parts, 1_792_631_107).expect("signed");
+            assert!(holds(parts, &cms), "with a key cng={cng}");
+            assert!(!holds([parts[1], parts[0]], &cms));
+            drop(signer);
+            assert_eq!(
+                Signer::from_store(&expired.encoded, 0).err(),
+                Some(SigningError::Expired)
+            );
+            assert_eq!(
+                Signer::from_store(&encryption_only.encoded, 0).err(),
+                Some(SigningError::NotForSigning)
+            );
+        }
+        // Taken out of the store (a card taken out): what was listed of it finds nothing.
+        let gone = InStore::put("signer.pfx", true).encoded.clone();
+        assert_eq!(
+            Signer::from_store(&gone, 0).err(),
+            Some(SigningError::Unavailable)
+        );
+        assert_eq!(
+            Signer::from_store(b"not a certificate", 0).err(),
+            Some(SigningError::Unavailable)
+        );
+        // Every certificate put in has left the store, and every key is deleted. On the CI
+        // runner, Windows kept the store's files of the certificates (and one of their keys'
+        // identifiers) after they had left it: those files are not compared.
+        for encoded in &put_in {
+            assert_eq!(
+                Signer::from_store(encoded, 0).err(),
+                Some(SigningError::Unavailable),
+                "taken out of the store"
+            );
+        }
+        assert_eq!(
+            without_certificates(key_files()),
+            without_certificates(before),
+            "every key put in was deleted"
+        );
+    }
+
+    /// `files` (of `key_files`) less those of the user's certificate stores.
+    fn without_certificates(files: Vec<std::path::PathBuf>) -> Vec<std::path::PathBuf> {
+        files
+            .into_iter()
+            .filter(|file| {
+                !file
+                    .components()
+                    .any(|part| part.as_os_str() == "SystemCertificates")
+            })
+            .collect()
     }
 
     #[test]

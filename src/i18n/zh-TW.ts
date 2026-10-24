@@ -80,6 +80,7 @@ export const strings = {
       certificateNotForSigning: "這張憑證不能用來簽署：它的用途不含數位簽章，或檔案裡沒有私鑰。",
       signatureTooLarge: "簽章比文件預留的空間大，所以沒有建立副本。",
       signatureNotValid: "簽好的副本沒有通過驗證，所以沒有存檔。",
+      certificateUnavailable: "找不到這張憑證或它的私鑰：卡片可能已經拔出。請插入後按「重新整理」再試一次。",
       internal: "發生未預期的錯誤。",
     } satisfies Record<ErrorCode, string>,
   },
@@ -695,7 +696,7 @@ export const strings = {
   signing: {
     title: "簽署文件",
     description:
-      "用你的憑證檔簽署這份文件，存成另一個檔案；目前的文件與它的檔案不會改變。全部在這台電腦上完成，不連網。",
+      "用你的憑證簽署這份文件，存成另一個檔案；目前的文件與它的檔案不會改變。全部在這台電腦上完成，不連網。",
     checking: "正在檢查這份文件…",
     checkFailed: "無法檢查這份文件，請再試一次。",
     /** Why the document cannot be signed, said when the dialog opens. */
@@ -703,7 +704,23 @@ export const strings = {
     unsaved: "這份文件有尚未儲存的變更。簽署的是檔案本身，請先儲存再簽署。",
     certified: "這份文件的認證簽章不允許任何變更，也不允許再加上簽章。",
     repaired: "這個檔案要修復才能開啟；簽署會改到它原本的內容，所以不能簽署。",
-    chooseAgain: "請確認文件已儲存，並重新選擇憑證檔再試一次。",
+    chooseAgain: "請確認文件已儲存，並重新選擇憑證再試一次。",
+    sourceTitle: "簽署用的憑證",
+    sourceStore: "這台電腦的憑證（包含讀卡機裡的自然人憑證等卡片）",
+    sourceFile: "憑證檔（.pfx 或 .p12）",
+    listing: "正在讀取這台電腦的憑證…",
+    listFailed: "無法讀取這台電腦的憑證，請再試一次。",
+    noCertificates: "這台電腦沒有可以簽署的憑證。使用卡片時，請插入讀卡機後按「重新整理」；或改用憑證檔。",
+    refresh: "重新整理",
+    /** Below a certificate's name: who issued it, and its last day. */
+    certificateDetail: (issuer: string, expires: string) => `簽發者：${issuer}；有效到 ${expires}`,
+    /** Why a certificate of this computer cannot be chosen. */
+    problems: {
+      expired: "已過期",
+      notYetValid: "還沒生效",
+      notForSigning: "不能用來簽署",
+    },
+    pinNote: "如果這張憑證要 PIN，會由 Windows 或卡片的程式詢問，app 不會看到 PIN。",
     fileLabel: "憑證檔",
     chooseFile: "選擇憑證檔…",
     noFile: "尚未選擇（.pfx 或 .p12）",

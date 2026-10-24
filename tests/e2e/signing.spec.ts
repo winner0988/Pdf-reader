@@ -1,8 +1,9 @@
 // Signing a document (B3-06, ADR 0020) in the real app: the certificate file is chosen in the
 // system's open dialog and the signed copy's place in its save dialog (both answered through UI
-// Automation); the main process signs with the corpus's test certificate, a new worker verifies the
-// copy, and the copy opens in a tab of its own with its signature valid. The document's own file is
-// not touched, and the password shows nowhere.
+// Automation), or the certificate is one of this computer's store; the main process signs with the
+// corpus's test certificate, a new worker verifies the copy, and the copy opens in a tab of its own
+// with its signature valid. The document's own file is not touched, and the password shows nowhere.
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,9 +40,39 @@ async function openDialog(page: Page) {
 
 async function chooseCertificate(page: Page, name: string) {
   const dialog = page.getByRole("dialog", { name: t.title });
+  // This computer may have certificates of its own, which would come first.
+  await dialog.getByRole("radio", { name: t.sourceFile }).check();
   await dialog.getByRole("button", { name: t.chooseFile }).click();
   await answerFileDialog(page, { path: corpus(`certificates/${name}`) });
   await expect(dialog).toContainText(name);
+}
+
+/** Runs a PowerShell `script` and gives what it wrote. */
+function powerShell(script: string): string {
+  return execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+    encoding: "utf8",
+  }).trim();
+}
+
+/**
+ * Puts the corpus's signing certificate in the user's Personal store with its key kept by Windows,
+ * as an import or a smart card's driver leaves one; gives its thumbprint, to take it out again.
+ */
+function putInStore(): string {
+  return powerShell(
+    [
+      "$ErrorActionPreference = 'Stop'",
+      `$password = ConvertTo-SecureString -String '${PASSWORD}' -AsPlainText -Force`,
+      `(Import-PfxCertificate -FilePath '${corpus("certificates/signer.pfx")}' -CertStoreLocation Cert:\\CurrentUser\\My -Password $password).Thumbprint`,
+    ].join("; "),
+  );
+}
+
+/** Takes the certificate `thumbprint` out of the user's Personal store, key and all. */
+function takeOutOfStore(thumbprint: string) {
+  if (/^[0-9A-F]{40}$/.test(thumbprint)) {
+    powerShell(`Remove-Item -Path 'Cert:\\CurrentUser\\My\\${thumbprint}' -DeleteKey`);
+  }
 }
 
 test.describe("signing a document", () => {
@@ -93,6 +124,37 @@ test.describe("signing a document", () => {
     expect(signed.subarray(0, original.length).equals(original)).toBe(true);
     expect(signed.includes(PASSWORD)).toBe(false);
     expect(await page.content()).not.toContain(PASSWORD);
+  });
+
+  test("a certificate of this computer signs with no password: its key stays where Windows keeps it", async ({
+    launch,
+  }) => {
+    test.skip(!MAY_IMPORT, WHY_NOT);
+    const thumbprint = putInStore();
+    try {
+      const file = path.join(folder, "contract.pdf");
+      copyFileSync(corpus("benign/single-page.pdf"), file);
+      const page = await launch(file);
+      await expect(firstPage(page)).toHaveAttribute("data-state", "ready");
+
+      const dialog = await openDialog(page);
+      await expect(dialog.getByRole("radio", { name: t.sourceStore })).toBeChecked();
+      // The computer may have other certificates: this one is chosen by its name.
+      await dialog.getByRole("radio", { name: SIGNER, exact: true }).check();
+      await expect(dialog.getByLabel(t.passwordLabel, { exact: true })).toHaveCount(0);
+      await dialog.getByRole("button", { name: t.start }).click();
+
+      const copy = path.join(folder, "contract（已簽署）.pdf");
+      await answerFileDialog(page, { path: copy });
+      await expect(dialog.getByRole("status")).toContainText(t.result("contract（已簽署）.pdf"));
+      await dialog.getByRole("button", { name: t.close }).click();
+      await expect(page.getByRole("tab", { name: /contract（已簽署）\.pdf/ })).toHaveAttribute("aria-selected", "true");
+      const banner = page.getByRole("region", { name: strings.signatures.label });
+      await expect(banner).toHaveAttribute("data-signatures", "unconfirmed");
+      expect(readFileSync(copy).subarray(0, readFileSync(file).length).equals(readFileSync(file))).toBe(true);
+    } finally {
+      takeOutOfStore(thumbprint);
+    }
   });
 
   test("a wrong password says only that, and nothing is written", async ({ launch }) => {

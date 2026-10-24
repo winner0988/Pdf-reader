@@ -22,7 +22,8 @@ use ipc_contract::types::{
     RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
     RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult, SearchArgs,
     SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs, SignCheck,
-    SignResult, SignatureReport, SigningFile, StampImageInfo, TabId,
+    SignResult, SignatureReport, SigningFile, SigningFileKey, SigningKey, SigningStoreKey,
+    StampImageInfo, StoreCertificate, TabId,
     TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
     WatermarkContent,
 };
@@ -46,7 +47,7 @@ use crate::render::Renderer;
 use crate::search::{self, Searches};
 use crate::sensitive::SensitiveFiles;
 use crate::settings::SettingsStore;
-use crate::signing::{self, ChosenCertificate, Signer};
+use crate::signing::{self, ChosenCertificate, ListedCertificates, Signer};
 use crate::strings;
 
 /// Registers the frontend's channel for [`OpenEvent`]s.
@@ -1391,13 +1392,41 @@ pub async fn choose_signing_file(
     .await
 }
 
-/// Signs the document's file with the certificate file chosen last (B3-06, ADR 0020,
-/// docs/architecture/signing.md) and writes the signed copy where the user says in the system's
-/// save dialog, never over the document's own file; the copy then opens in a tab of its own.
-/// The password goes to Windows once, to import the certificate file, and is wiped; the private
-/// key stays in this process, in memory, and goes when the copy is written. The certificate is
-/// checked before the user is asked where: a wrong password, an expired certificate or one not
-/// for signing answers at once. `None` when the user closes the dialog.
+/// The certificates of the user's own store that can be chosen to sign with (B3-06, ADR 0020):
+/// those with a private key, in the user's key store or on a smart card, with why each cannot
+/// sign if it cannot. Only the store is read: no key is opened, no card is touched, and nothing
+/// is asked. Their numbers replace those of the list before.
+#[tauri::command]
+pub async fn list_signing_certificates(app: AppHandle) -> Result<Vec<StoreCertificate>, IpcError> {
+    let found = blocking(|| Ok(signing::store_certificates())).await?;
+    let numbers = app.state::<ListedCertificates>().list(
+        found
+            .iter()
+            .map(|certificate| certificate.encoded.clone())
+            .collect(),
+    );
+    Ok(found
+        .into_iter()
+        .zip(numbers)
+        .map(|(found, certificate)| StoreCertificate {
+            certificate,
+            subject: found.subject,
+            issuer: found.issuer,
+            expires: found.expires,
+            problem: found.problem,
+        })
+        .collect())
+}
+
+/// Signs the document's file (B3-06, ADR 0020, docs/architecture/signing.md) and writes the
+/// signed copy where the user says in the system's save dialog, never over the document's own
+/// file; the copy then opens in a tab of its own. With the certificate file chosen last, the
+/// password goes to Windows once, to import it, and is wiped; the private key stays in this
+/// process, in memory, and goes when the copy is written. With a certificate of the user's store,
+/// its key stays where Windows keeps it (on a smart card, too), and Windows or the card asks for
+/// its PIN. The certificate is checked before the user is asked where: a wrong password, an
+/// expired certificate or one not for signing answers at once. `None` when the user closes the
+/// dialog.
 #[tauri::command]
 pub async fn sign_document(
     app: AppHandle,
@@ -1410,8 +1439,7 @@ pub async fn sign_document(
     })?;
     let SignArgs {
         doc,
-        file,
-        password,
+        key,
         place,
         reason,
         utc_offset_minutes,
@@ -1423,19 +1451,41 @@ pub async fn sign_document(
             code: ErrorCode::UnknownDocument,
             message: "no such open document".to_owned(),
         })?;
-    let pfx = app
-        .state::<ChosenCertificate>()
-        .get(file)
-        .ok_or_else(|| IpcError {
-            code: ErrorCode::InvalidArgument,
-            message: "the certificate file is not the one chosen last".to_owned(),
-        })?;
-    let signer = blocking(move || {
-        let signer = Signer::from_pfx(&pfx, password.as_str());
-        drop(password);
-        signer.map_err(IpcError::from)
-    })
-    .await?;
+    let signer = match key {
+        SigningKey::File(SigningFileKey { file, password }) => {
+            let pfx = app
+                .state::<ChosenCertificate>()
+                .get(file)
+                .ok_or_else(|| IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "the certificate file is not the one chosen last".to_owned(),
+                })?;
+            blocking(move || {
+                let signer = Signer::from_pfx(&pfx, password.as_str());
+                drop(password);
+                signer.map_err(IpcError::from)
+            })
+            .await?
+        }
+        SigningKey::Store(SigningStoreKey { certificate }) => {
+            let encoded = app
+                .state::<ListedCertificates>()
+                .get(certificate)
+                .ok_or_else(|| IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "the certificate is not one listed last".to_owned(),
+                })?;
+            // A window handle is only a number to another thread; the window outlives signing.
+            let owner = window
+                .hwnd()
+                .map_err(|_| IpcError {
+                    code: ErrorCode::Internal,
+                    message: "the window has no handle".to_owned(),
+                })?
+                .0 as isize;
+            blocking(move || Signer::from_store(&encoded, owner).map_err(IpcError::from)).await?
+        }
+    };
     let unix_seconds = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .ok()
