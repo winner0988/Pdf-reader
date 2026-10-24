@@ -69,17 +69,17 @@ flowchart LR
 | `get_recent_files` | 無 | `RecentFile[]`：`id` 與 `displayName`，最新的在前，最多 `LIMITS.maxRecentFiles`（20）筆；路徑留在主行程（見 [recent-files.md](recent-files.md)） | 否 | #73 |
 | `open_recent_file` | `{ id: RecentId }` | 無；主行程以新分頁開啟，結果走開檔頻道。檔案已經不在時從清單移除並回傳 `unreadable` | 否 | #73 |
 | `remove_recent_file` | `{ id: RecentId }` | `RecentFile[]`：移除後的清單 | 否 | #73 |
-| `clear_recent_files` | 無 | 無；「不記錄此檔案」的選擇保留；一併刪除沒有分頁使用的復原日誌（B2-13） | 否 | #73 |
+| `clear_recent_files` | 無 | 無；「不記錄此檔案」的選擇保留；一併刪除沒有分頁使用的復原日誌（B2-13）與本機全文索引（B3-21） | 否 | #73 |
 | `get_file_recording` | `{ doc: DocumentId }` | `boolean`：這份文件的檔案可不可以記錄（「不記錄此檔案」沒有勾選） | 否 | #73 |
-| `set_file_recording` | `{ args: FileRecordingArgs }`（`{ doc, record }`，其他欄位一律拒絕） | 無；不記錄時從清單移除並記下加鹽的雜湊值 | 否 | #73 |
+| `set_file_recording` | `{ args: FileRecordingArgs }`（`{ doc, record }`，其他欄位一律拒絕） | 無；不記錄時從清單移除並記下加鹽的雜湊值，也立即從本機全文索引刪除（B3-21） | 否 | #73 |
 | `clear_recent_exclusions` | 無 | 無；忘記「不記錄此檔案」的選擇 | 否 | B2-12 |
 | `check_sensitive_mark` | `{ doc }` | `MarkCheck`：寫入（或取出）機敏標記會怎樣：`ready`、`needsPassword`（加密，需要權限密碼）、`signed`、`readOnly`、`unsaved`、`changedOnDisk`（ADR 0010，見 [sensitive-files.md](sensitive-files.md)） | 否 | B3-05 |
 | `set_sensitive` | `{ args: SensitiveArgs }`（`{ doc, sensitive, password }`，其他欄位一律拒絕；沒有路徑，也沒有識別碼：主行程產生） | 無；文件自己的 worker 以增量更新把文件識別碼寫進檔案（或取出），經暫存檔取代原檔；文件的新狀態（`sensitive`）走開檔頻道。已簽章回 `signed`，加密檔案沒有權限密碼回 `encrypted`／`notAllowed`，有未儲存的變更回 `invalidArgument` | 否 | B3-05 |
 | `get_sensitive_files` | 無 | `SensitiveFile[]`（`id`、`displayName`、`open`）：在這台電腦上標記的檔案，只有檔名（最多 `LIMITS.maxSensitiveFiles` 筆） | 否 | B3-05 |
 | `remove_sensitive_file` | `{ id: SensitiveId }` | 新的清單；檔案本身的標記不變 | 否 | B3-05 |
 | `copy_protected_text` | `{ text }`（最多 `LIMITS.maxClipboardTextBytes`，不含 NUL） | 無；主行程以 Win32 剪貼簿寫入文字，並帶 `CanIncludeInClipboardHistory`＝0、`CanUploadToCloudClipboard`＝0、`ExcludeClipboardContentFromMonitorProcessing`。不讀剪貼簿；剪貼簿被占用回 `fileInUse` | 否 | B3-05 |
-| `get_settings` | 無 | `Settings`：`theme`（`system`／`light`／`dark`）、`recordRecentFiles`（見 [local-data.md](local-data.md)）、`ocrAuto`（開啟文件時自動辨識掃描頁的文字）、`ocrLanguage`（辨識用的語言代碼，`null` 表示由 app 依介面語言決定，見 [ocr.md](ocr.md)） | 否 | B2-12、B2-10 |
-| `set_settings` | `{ settings: Settings }`（完整的一組，其他欄位一律拒絕） | 無；立即套用並寫入 `settings.json`，寫不進去時回傳 `unreadable`（仍然套用）；關閉最近開啟的檔案時一併清除清單 | 否 | B2-12 |
+| `get_settings` | 無 | `Settings`：`theme`（`system`／`light`／`dark`）、`recordRecentFiles`（見 [local-data.md](local-data.md)）、`ocrAuto`（開啟文件時自動辨識掃描頁的文字）、`ocrLanguage`（辨識用的語言代碼，`null` 表示由 app 依介面語言決定，見 [ocr.md](ocr.md)）、`textIndex`（本機全文索引，見 [text-index.md](text-index.md)） | 否 | B2-12、B2-10、B3-21 |
+| `set_settings` | `{ settings: Settings }`（完整的一組，其他欄位一律拒絕） | 無；立即套用並寫入 `settings.json`，寫不進去時回傳 `unreadable`（仍然套用）；關閉最近開啟的檔案時一併清除清單；關閉 `textIndex` 或最近開啟的檔案時刪除本機全文索引，開啟時把開著的文件加入 | 否 | B2-12、B3-21 |
 | `export_pages` | `{ args: ExportArgs, onEvent: Channel<ExportEvent> }`：`request`、`doc`、`pages`（最多 `LIMITS.maxExportPages`）、`format`（`text`；`docx`，B3-02；`png`／`jpg` 與 `dpi`；`pdf`；`pdfEvery` 與 `count`，B2-06）；`pdf` 與 `pdfEvery` 的 `pages` 可以到 `LIMITS.maxPageCount`，`pdfEvery` 最多 `LIMITS.maxSplitFiles` 個檔案；不含路徑，其他欄位一律拒絕 | `boolean`：`false` 表示使用者關閉了系統的對話框；進度走頻道；以 `cancel(args.request)` 停止。作者禁止複製時拒絕（見 [export.md](export.md)） | 是 | B2-04 |
 | `apply_edit` | `{ args: EditArgs }`：`doc`、`edit`（`Edit`：`rotatePages { pages, by }`、`deletePages { pages }`、`movePages { pages, before }`、`insertBlankPage { at, like }`，見 [page-management.md](page-management.md)；註解：`addHighlight { marks, color }`（`marks`：每頁的 `{ page, quads }`）、`addNote { page, at, text }`、`deleteAnnotation { page, annotation }`、`setHighlightColor { page, annotation, color }`、`setNoteText { page, annotation, text }`、`addInk { page, strokes, color, width }`、`addStamp { page, rect, stamp }`、`addImageStamp { page, rect, image }`、`addTextBox { page, rect, model, style }`、`setTextBox { page, annotation, model, style }`（見 [text-box-engine.md](text-box-engine.md)）、`setAnnotationRect { page, annotation, rect }`、`setPictureAngle { page, annotation, degrees }`，見 [annotations.md](annotations.md)）；表單：`setFieldValue { page, field, value }`、`flattenForm`，見 [forms.md](forms.md)；安全遮蔽：`addRedaction { page, rect }`、`applyRedactions`，見 [redaction.md](redaction.md)；其他欄位一律拒絕 | 無；文件換新的 `DocumentId`，分頁的新狀態（`opened`，`unsaved: true`）走開檔頻道。作者禁止時拒絕（見 [saving.md](saving.md)） | 否 | B2-02、B2-05 |
 | `undo_edit` | `{ args: UndoArgs }`：`doc`、`password`（以密碼開啟的文件才需要，否則 `null`；驗證同 `unlock_tab`；其他欄位一律拒絕） | 無；復原最後一個編輯，文件換新的 `DocumentId`，分頁的新狀態走開檔頻道。沒有可復原的編輯時拒絕；以密碼開啟的文件沒有帶密碼或密碼錯誤時回 `encrypted`（見 [page-management.md](page-management.md)） | 否 | B2-05 |
@@ -109,6 +109,10 @@ flowchart LR
 | `set_ocr_focus` | `{ args: OcrFocusArgs }`：`doc`、`pageIndex` | 無；使用者正在看的頁面，優先辨識（頁碼超出範圍時回 `invalidArgument`） | 否 | B2-10 |
 | `check_for_updates` | 無 | `UpdateCheck`：`upToDate`、`available`（`latest`）或 `noRelease`，都帶 `current`；主行程向固定的 GitHub 位址送出 app 唯一的網路請求，得不到可用的回答時回 `networkFailed`；查詢中再呼叫回 `invalidArgument`（見 [update-check.md](update-check.md)） | 否 | #64 |
 | `describe_releases_page` | 無 | `LinkPreview`：固定的 GitHub Releases 頁面 | 否 | #64 |
+| `search_text_index` | `{ args: IndexSearchArgs, onEvent: Channel<IndexSearchEvent> }`：`request`、`query`（同 `search` 的搜尋字串）、`caseSensitive`；其他欄位一律拒絕 | 無；有命中的文件依最近開啟的順序走頻道（`found`：`entry`（`IndexEntryId`，只在這次搜尋有效）、`displayName`、`totalHits`、`pagesWithHits`、`pages`（前 `LIMITS.maxIndexPagesPerDocument` 頁，各有 `pageIndex`、`hits` 與第一個命中前後的 `snippet`）、`partial`），**沒有路徑**；最後一個 `done`（`documents`、`found`）。檔案不在或改過的文件不送出，從索引刪除。索引關閉時只送 `done`。以 `cancel(args.request)` 停止，回 `cancelled`（見 [text-index.md](text-index.md)） | 否 | B3-21 |
+| `open_indexed_document` | `{ args: OpenIndexedArgs }`（`{ entry }`，其他欄位一律拒絕） | `TabId`：以新分頁開啟上一次搜尋的那個結果的文件，結果走開檔頻道；前端開好後跳到命中的頁。檔案不在或改過時從索引刪除並回 `unreadable`；不是上一次搜尋的結果或索引關閉時回 `invalidArgument` | 否 | B3-21 |
+| `get_text_index_status` | 無 | `TextIndexStatus`：`documents`（收錄的文件數）、`bytes`（加密後占用的大小） | 否 | B3-21 |
+| `clear_text_index` | 無 | 無；刪除整個本機全文索引，先刪金鑰。索引開著時，之後開啟的文件再收錄 | 否 | B3-21 |
 | `open_releases_page` | 無 | 無；把固定的 GitHub Releases 頁面交給系統瀏覽器（前端先顯示連結確認） | 否 | #64 |
 
 ### 開檔頻道（主行程 → 前端）
@@ -371,6 +375,10 @@ worker 端的 `WorkerErrorCode` 以 `From` 轉換對應到上表。
 | 簽署的原因 | 256 bytes（UTF-8） | 一行，不能有控制字元（B3-06） |
 | 列出的這台電腦的憑證 | 100 張 | 可以簽署的在前，其餘不列（B3-06） |
 | 簽章的預留空間 | 32 KiB | `/Contents` 的十六進位 0，放得下 CMS 簽章與一般的憑證鏈；放不下時 `signatureTooLarge`（B3-06） |
+| 本機全文索引的文件 | 2,000 份、加密後共 256 MiB | 超過時刪掉最久沒開的（B3-21，ADR 0026） |
+| 索引中一份文件的文字 | 16 MiB（UTF-8） | 超過時只收錄前面的頁面，結果帶 `partial` |
+| 索引搜尋一份文件列出的頁 | 20 | 頁數另外以 `pagesWithHits` 告知；命中數最多 10,000 |
+| 索引搜尋結果前後的文字 | 各 40 字元 | 純文字，沒有控制字元與看不見的格式字元 |
 
 ## 座標系統
 

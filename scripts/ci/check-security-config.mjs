@@ -79,6 +79,16 @@ const ALLOWED_PERMISSIONS = new Map([
     "B3-20, ADR 0025: save one listed attachment where the user says in the system's save dialog, marked as from the internet; by document and attachment id, never opened",
   ],
   ["allow-search", "MVP-10: full-text search, results on a channel"],
+  [
+    "allow-search-text-index",
+    "B3-21, ADR 0026: search the text index of the documents opened before, results on a channel; each gives a file name, page numbers and a little text, never a path",
+  ],
+  [
+    "allow-open-indexed-document",
+    "B3-21, ADR 0026: open the file of a result of the last index search by its number; the path stays in the main process, which checks the file has not changed",
+  ],
+  ["allow-get-text-index-status", "B3-21, ADR 0026: how many documents the text index has and how much room it takes"],
+  ["allow-clear-text-index", "B3-21, ADR 0026: delete the text index, its key first"],
   ["allow-get-page-links", "MVP-12: where a page's links are and where they point"],
   ["allow-get-page-annotations", "B2-07: list one page's annotations (highlights, notes and the document's own) to select and edit them"],
   ["allow-get-page-fields", "B2-09: list one page's form fields (values, options, whether they have scripts) to fill them in; nothing in them is run"],

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-indexed-document"
+description = "Enables the open_indexed_document command without any pre-configured scope."
+commands.allow = ["open_indexed_document"]
+
+[[permission]]
+identifier = "deny-open-indexed-document"
+description = "Denies the open_indexed_document command without any pre-configured scope."
+commands.deny = ["open_indexed_document"]

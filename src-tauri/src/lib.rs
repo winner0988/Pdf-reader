@@ -15,11 +15,13 @@ mod commands;
 mod create_pdf;
 mod credentials;
 mod documents;
+mod drives;
 mod events;
 mod export;
 mod file_dialog;
 mod fonts;
 mod history;
+mod index_crypto;
 mod links;
 mod local_data;
 mod ocr;
@@ -37,6 +39,7 @@ mod signing;
 mod sources;
 mod strings;
 mod text_boxes;
+mod text_index;
 mod update_check;
 
 use std::ffi::OsString;
@@ -58,6 +61,7 @@ use crate::render::{DEFAULT_CACHE_BYTES, Renderer};
 use crate::search::Searches;
 use crate::sensitive::SensitiveFiles;
 use crate::settings::SettingsStore;
+use crate::text_index::TextIndex;
 
 pub fn run() {
     // The installer does not install WebView2 (REL-02: webviewInstallMode is "skip"). Without it
@@ -135,6 +139,10 @@ pub fn run() {
             commands::describe_remote_address,
             commands::open_remote_address,
             commands::search,
+            commands::search_text_index,
+            commands::open_indexed_document,
+            commands::get_text_index_status,
+            commands::clear_text_index,
             commands::open_default_apps_settings,
             commands::check_for_updates,
             commands::describe_releases_page,
@@ -208,6 +216,16 @@ pub fn run() {
             app.manage(SensitiveFiles::new(
                 data.as_ref().map(|dir| dir.join(sensitive::FILE_NAME)),
             ));
+            // The text of the documents opened before, for searching them all (B3-21, ADR 0026).
+            // Off, nothing of it stays: an index left from before it was turned off goes now.
+            let text_index = Arc::new(TextIndex::new(
+                data.as_ref().map(|dir| dir.join(text_index::FOLDER_NAME)),
+            ));
+            let settings = app.state::<SettingsStore>().get();
+            if !(settings.text_index && settings.record_recent_files) {
+                text_index.clear();
+            }
+            app.manage(Arc::clone(&text_index));
             app.state::<Documents>().set_journals(Journals::new(
                 data.map(|dir| dir.join(recovery::FOLDER_NAME)),
             ));
@@ -233,6 +251,7 @@ pub fn run() {
                 move || settings.state::<SettingsStore>().get(),
                 move |event| events.state::<OpenEvents>().send(event),
             );
+            text_index.start(commands::IndexSource(app.app_handle().clone()));
             commands::open_paths(app.app_handle(), launch_documents);
             Ok(())
         })

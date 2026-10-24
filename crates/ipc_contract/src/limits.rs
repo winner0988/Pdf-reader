@@ -100,6 +100,21 @@ pub const MAX_TABS: u32 = 20;
 /// Maximum number of recently opened files kept and listed (#73, spec §3).
 pub const MAX_RECENT_FILES: u32 = 20;
 
+/// Most documents the text index keeps (B3-21, ADR 0026); the ones opened longest ago go first.
+pub const MAX_INDEX_DOCUMENTS: u32 = 2_000;
+
+/// Most bytes the text index takes on disk, encrypted (B3-21).
+pub const MAX_INDEX_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Most bytes of text the index keeps of one document; the pages after that are left out (B3-21).
+pub const MAX_INDEX_DOCUMENT_TEXT_BYTES: usize = 16 * 1024 * 1024;
+
+/// Most pages with hits a result of the text index lists for one document (B3-21).
+pub const MAX_INDEX_PAGES_PER_DOCUMENT: u32 = 20;
+
+/// Most characters of text shown before and after a hit in a result of the text index (B3-21).
+pub const MAX_INDEX_SNIPPET_CHARS: u32 = 40;
+
 /// Most files kept on the list of files marked as sensitive on this computer (B3-05, ADR 0004).
 /// Marking one more drops the oldest entry from the list; the mark stays in its file.
 pub const MAX_SENSITIVE_FILES: u32 = 1_000;

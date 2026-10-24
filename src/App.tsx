@@ -32,6 +32,8 @@ import { ReaderShell } from "@/features/shell/ReaderShell";
 import { useShortcuts } from "@/features/shortcuts/useShortcuts";
 import { tauriSystemApi, type SystemApi } from "@/features/system/defaultApp";
 import { tauriTextApi, type TextApi } from "@/features/text/source";
+import { tauriTextIndexApi, type TextIndexApi } from "@/features/textIndex/api";
+import { TextIndexHost } from "@/features/textIndex/TextIndexHost";
 import { docOf, isUnsaved, shellState, tabElementId, tabPanelId, type Tab } from "@/features/tabs/model";
 import { TabBar } from "@/features/tabs/TabBar";
 import { tauriEditingApi, type EditingApi } from "@/features/thumbnails/api";
@@ -62,6 +64,7 @@ type AppProps = {
   updatesApi?: UpdatesApi;
   fontsApi?: FontsApi;
   ocrApi?: OcrApi;
+  textIndexApi?: TextIndexApi;
 };
 
 export default function App({
@@ -87,6 +90,7 @@ export default function App({
   updatesApi = tauriUpdatesApi,
   fontsApi = tauriFontsApi,
   ocrApi = tauriOcrApi,
+  textIndexApi = tauriTextIndexApi,
 }: AppProps) {
   // How recognising the text of each tab's scanned pages goes arrives with the open events (B2-10).
   const ocr = useOcr();
@@ -104,6 +108,8 @@ export default function App({
   const renderer = useMemo(() => createPageRenderer(renderApi), [renderApi]);
   // Development only: fake states for working on the UI without the main process.
   const [demo, setDemo] = useState<ShellState | null>(null);
+  // A result of the search of every document opened in a new tab (B3-21): the page it is to show.
+  const [jump, setJump] = useState<{ tab: TabId; page: number } | null>(null);
 
   useShortcuts({
     nextTab: () => tabs.step(1),
@@ -152,6 +158,7 @@ export default function App({
 
   return (
     <SettingsProvider api={settingsApi}>
+      <TextIndexHost api={demo ? undefined : textIndexApi} onOpened={(tab, page) => setJump({ tab, page })}>
       <BatchHost api={demo ? undefined : batchApi}>
         <div className="flex h-screen flex-col">
           {state.tabs.length > 0 && !demo && (
@@ -209,6 +216,8 @@ export default function App({
                   ocr={ocr.state.get(tab.tab)}
                   fieldEdits={fieldEdits}
                   captureProtection={state.captureProtection}
+                  jumpToPage={jump?.tab === tab.tab ? jump.page : undefined}
+                  onJumped={() => setJump(null)}
                   latestInfo={tabs.latestInfo}
                   onOpen={open}
                   onClose={requestClose}
@@ -248,6 +257,7 @@ export default function App({
           {import.meta.env.DEV && <DevDemoSwitcher onChange={setDemo} />}
         </div>
       </BatchHost>
+      </TextIndexHost>
     </SettingsProvider>
   );
 }
@@ -279,6 +289,8 @@ type TabPaneProps = {
   ocr: OcrTab | undefined;
   fieldEdits: FieldEdits;
   captureProtection: CaptureProtection;
+  jumpToPage: number | undefined;
+  onJumped: () => void;
   latestInfo: (tab: TabId) => DocumentInfo | undefined;
   onOpen: () => void;
   onClose: (tab: TabId) => void;

@@ -38,13 +38,15 @@ impl Searches {
         }
     }
 
-    fn start(&self, request: RequestId) -> Arc<AtomicBool> {
+    /// A search starts: `cancel` with `request` sets the flag it gets. The text index (B3-21)
+    /// uses it too.
+    pub fn start(&self, request: RequestId) -> Arc<AtomicBool> {
         let flag = Arc::new(AtomicBool::new(false));
         self.lock().insert(request, flag.clone());
         flag
     }
 
-    fn finish(&self, request: RequestId) {
+    pub fn finish(&self, request: RequestId) {
         self.lock().remove(&request);
     }
 

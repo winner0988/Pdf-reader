@@ -23,4 +23,5 @@ export const DEFAULT_SETTINGS: Settings = {
   recordRecentFiles: true,
   ocrAuto: true,
   ocrLanguage: null,
+  textIndex: false,
 };

@@ -3,7 +3,7 @@
 //! [`OpenEvent`]s carrying only a `TabId`, a `DocumentId` and a file name.
 
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -12,19 +12,18 @@ use ipc_contract::limits::MAX_BATCH_FILES;
 use ipc_contract::types::{
     AnnotationId, AnnotationSummaryFormat, AnnotationSummaryOutcome, AttachmentId, AttachmentInfo,
     BatchArgs, BatchEvent, BatchOperation, BatchReport, CaptureProtection, CompressArgs,
-    CompressResult, CreateResult,
-    DocumentId, DocumentInfo, EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs,
-    ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs, FindPersonalDataQuery, FontImport,
-    FontInfo, FormField, IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs,
-    OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation,
-    PageLink, PageMarksCopyArgs, PageText, PagesSource, Password, PersonalDataMatches,
-    PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
-    RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
-    RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult, SearchArgs,
-    SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs, SignCheck,
-    SignResult, SignatureReport, SigningFile, SigningFileKey, SigningKey, SigningStoreKey,
-    StampImageInfo, StoreCertificate, TabId,
-    TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
+    CompressResult, CreateResult, DocumentId, DocumentInfo, EditArgs, EncryptArgs, ErrorCode,
+    ExportAnnotationSummaryArgs, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs,
+    FindPersonalDataQuery, FontImport, FontInfo, FormField, IndexSearchArgs, IndexSearchEvent,
+    IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages,
+    OpenEvent, OpenIndexedArgs, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink,
+    PageMarksCopyArgs, PageText, PagesSource, Password, PersonalDataMatches, PrepareTextBoxArgs,
+    PreparedTextBox, RecentFile, RecentId, RedactionSummary, RememberedPasswords, RemoteAddressArgs,
+    RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, RequestId, SanitizeArgs, SanitizeResult,
+    SaveAttachmentResult, SaveResult, SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile,
+    SensitiveId, Settings, SignArgs, SignCheck, SignResult, SignatureReport, SigningFile,
+    SigningFileKey, SigningKey, SigningStoreKey, StampImageInfo, StoreCertificate, TabId,
+    TextBoxInfo, TextIndexStatus, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
     WatermarkContent,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
@@ -49,6 +48,7 @@ use crate::sensitive::SensitiveFiles;
 use crate::settings::SettingsStore;
 use crate::signing::{self, ChosenCertificate, ListedCertificates, Signer};
 use crate::strings;
+use crate::text_index::{self, IndexFacts, Source as _, TextIndex};
 
 /// Registers the frontend's channel for [`OpenEvent`]s.
 #[tauri::command]
@@ -274,6 +274,8 @@ pub async fn clear_recent_files(app: AppHandle) -> Result<(), IpcError> {
         app.state::<RecentFiles>().clear();
         // With them, the unsaved changes earlier runs left (B2-13): they name the files too.
         app.state::<Documents>().clear_unused_journals();
+        // And the text index (B3-21, ADR 0026), which has the files' text: a larger trace still.
+        app.state::<Arc<TextIndex>>().clear();
         Ok(())
     })
     .await
@@ -301,7 +303,15 @@ pub async fn set_file_recording(app: AppHandle, args: FileRecordingArgs) -> Resu
             .map_err(|_| IpcError {
                 code: ErrorCode::Internal,
                 message: "no randomness for the list of files not to record".to_owned(),
-            })
+            })?;
+        // The text index follows (B3-21): a file not to record leaves it at once.
+        match app.state::<Documents>().tab_of(args.doc) {
+            Some(tab) if args.record => app
+                .state::<Arc<TextIndex>>()
+                .consider(&IndexSource(app.clone()), tab),
+            _ => app.state::<Arc<TextIndex>>().forget(&path),
+        }
+        Ok(())
     })
     .await
 }
@@ -434,10 +444,20 @@ pub async fn set_settings(app: AppHandle, settings: Settings) -> Result<(), IpcE
     })?;
     blocking(move || {
         let record_recent_files = settings.record_recent_files;
+        let index = settings.text_index && record_recent_files;
+        let was_indexing = IndexSource(app.clone()).enabled();
         let saved = app.state::<SettingsStore>().set(settings);
         if !record_recent_files {
             app.state::<RecentFiles>().clear();
             app.state::<Documents>().clear_unused_journals();
+        }
+        // The text index (B3-21, ADR 0026): turned off, it is deleted at once; turned on, the
+        // documents that are open go in.
+        let text_index = app.state::<Arc<TextIndex>>();
+        if !index {
+            text_index.clear();
+        } else if !was_indexing {
+            text_index.consider_all(&IndexSource(app.clone()));
         }
         saved.map_err(|_| IpcError {
             code: ErrorCode::Unreadable,
@@ -936,6 +956,123 @@ pub async fn search(
     on_event: Channel<SearchEvent>,
 ) -> Result<(), IpcError> {
     blocking(move || search::run(&app, args, on_event)).await
+}
+
+/// Searches the text index for the documents that have some words (B3-21, ADR 0026): each that
+/// has them arrives on `on_event` with its file name, its pages with hits and a little text
+/// around the first hit of each, never its path; then `done`. `cancel(args.request)` stops it.
+#[tauri::command]
+pub async fn search_text_index(
+    app: AppHandle,
+    args: IndexSearchArgs,
+    on_event: Channel<IndexSearchEvent>,
+) -> Result<(), IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    blocking(move || {
+        let searches = app.state::<Searches>();
+        let stop = searches.start(args.request);
+        let result = app.state::<Arc<TextIndex>>().search(
+            &IndexSource(app.clone()),
+            &args,
+            &stop,
+            &mut |event| on_event.send(event).is_ok(),
+        );
+        searches.finish(args.request);
+        result
+    })
+    .await
+}
+
+/// Opens the document of a result of the last search of the text index (B3-21) in a new tab,
+/// and answers which, for the page to go to the page of the hit once it is open. A file that is
+/// gone, or has changed since its text was taken, leaves the index and answers `unreadable`.
+#[tauri::command]
+pub async fn open_indexed_document(
+    app: AppHandle,
+    args: OpenIndexedArgs,
+) -> Result<TabId, IpcError> {
+    blocking(move || {
+        if !IndexSource(app.clone()).enabled() {
+            return Err(IpcError {
+                code: ErrorCode::InvalidArgument,
+                message: "the text index is off".to_owned(),
+            });
+        }
+        let path = app.state::<Arc<TextIndex>>().file_of(args.entry)?;
+        open_paths(&app, vec![path])
+            .first()
+            .copied()
+            .ok_or_else(|| IpcError {
+                code: ErrorCode::InvalidArgument,
+                message: "no tab can be added".to_owned(),
+            })
+    })
+    .await
+}
+
+/// How many documents the text index has, and how much room it takes (B3-21), for the settings.
+#[tauri::command]
+pub async fn get_text_index_status(app: AppHandle) -> Result<TextIndexStatus, IpcError> {
+    blocking(move || Ok(app.state::<Arc<TextIndex>>().status())).await
+}
+
+/// Deletes the text index (B3-21): its key first. Documents opened from now on go in again while
+/// it is on.
+#[tauri::command]
+pub async fn clear_text_index(app: AppHandle) -> Result<(), IpcError> {
+    blocking(move || {
+        app.state::<Arc<TextIndex>>().clear();
+        Ok(())
+    })
+    .await
+}
+
+/// The app as the text index sees it (B3-21).
+pub struct IndexSource(pub AppHandle);
+
+impl text_index::Source for IndexSource {
+    fn enabled(&self) -> bool {
+        self.0.try_state::<SettingsStore>().is_some_and(|settings| {
+            let settings = settings.get();
+            settings.text_index && settings.record_recent_files
+        })
+    }
+
+    fn recorded(&self, path: &Path) -> bool {
+        self.0
+            .try_state::<RecentFiles>()
+            .is_some_and(|recent| recent.is_recorded(path))
+    }
+
+    fn tabs(&self) -> Vec<TabId> {
+        crate::ocr::Tabs::tabs(&*self.0.state::<Documents>())
+    }
+
+    fn facts(&self, tab: TabId) -> Option<IndexFacts> {
+        self.0.state::<Documents>().index_facts(tab)
+    }
+
+    fn ocr_busy(&self, tab: TabId) -> bool {
+        self.0.state::<Arc<Ocr>>().is_reading(tab)
+    }
+
+    fn page_text(&self, doc: DocumentId, page_index: u32) -> Result<String, IpcError> {
+        let handle = self.0.clone();
+        let text = tauri::async_runtime::block_on(
+            self.0
+                .state::<Renderer>()
+                .in_background(move || handle.state::<Documents>().page_text(doc, page_index)),
+        )
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::Cancelled,
+            message: "cancelled".to_owned(),
+        })??;
+        let lines: Vec<&str> = text.lines.iter().map(|line| line.text.as_str()).collect();
+        Ok(lines.join("\n"))
+    }
 }
 
 /// Exports pages of an open document as text or PNG files (B2-04). The WebView says what to
@@ -1874,6 +2011,12 @@ pub async fn discard_recovered_edits(app: AppHandle, doc: DocumentId) -> Result<
 pub async fn save_document(app: AppHandle, doc: DocumentId) -> Result<SaveResult, IpcError> {
     blocking(move || {
         let (result, event) = app.state::<Documents>().save(doc, None)?;
+        // The file changed: what the text index had of it goes at once, and is taken again
+        // (B3-21, ADR 0026).
+        if let OpenEvent::Opened { tab, .. } = &event {
+            app.state::<Arc<TextIndex>>()
+                .consider(&IndexSource(app.clone()), *tab);
+        }
         app.state::<OpenEvents>().send(event);
         show_active_in_title(&app);
         Ok(result)
@@ -2026,14 +2169,14 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
 
 /// Gives each of `paths` a tab and opens them off the main thread, each in a worker of its own
 /// (MVP-14, ADR 0012). The outcomes arrive on the open-events channel.
-pub fn open_paths(app: &AppHandle, paths: Vec<PathBuf>) {
+pub fn open_paths(app: &AppHandle, paths: Vec<PathBuf>) -> Vec<TabId> {
     if paths.is_empty() {
-        return;
+        return Vec::new();
     }
     let tabs = app
         .state::<Documents>()
         .add(&paths, &|event| report(app, event));
-    for tab in tabs {
+    for &tab in &tabs {
         let app = app.clone();
         tauri::async_runtime::spawn_blocking(move || {
             app.state::<Documents>()
@@ -2041,6 +2184,7 @@ pub fn open_paths(app: &AppHandle, paths: Vec<PathBuf>) {
             after_tabs_changed(&app);
         });
     }
+    tabs
 }
 
 /// Sends an open outcome to the frontend. A file that opened goes first on the recent files
@@ -2070,6 +2214,13 @@ fn report(app: &AppHandle, event: OpenEvent) {
         } else if recording {
             recent.record(&path);
         }
+    }
+    // The text index follows what the file is now (B3-21, ADR 0026): a sensitive one, or one that
+    // needed a password, leaves it at once; another goes in.
+    if let OpenEvent::Opened { tab, .. } = &event
+        && let Some(index) = app.try_state::<Arc<TextIndex>>()
+    {
+        index.consider(&IndexSource(app.clone()), *tab);
     }
     app.state::<OpenEvents>().send(event);
 }

@@ -15,11 +15,12 @@
 | 檔案或資料夾 | 內容 | 誰寫入 | 說明 |
 |---|---|---|---|
 | `recent.json` | 最近開啟的檔案的**完整路徑**（最多 20 筆）；「不記錄此檔案」的加鹽雜湊值 | 主行程 | [recent-files.md](recent-files.md) |
-| `settings.json` | 外觀、是否記錄最近開啟的檔案、掃描頁的文字辨識（自動或手動、語言） | 主行程 | 本頁「設定」 |
+| `settings.json` | 外觀、是否記錄最近開啟的檔案、掃描頁的文字辨識（自動或手動、語言）、本機全文索引的開關 | 主行程 | 本頁「設定」 |
 | `sensitive.json` | 在這台電腦上標記為機敏的檔案：文件識別碼與**檔名**（沒有路徑），最多 1,000 筆。標記本身寫在每個檔案裡，這份清單只給設定頁顯示 | 主行程 | [sensitive-files.md](sensitive-files.md) |
 | `tessdata\` | 使用者匯入的 OCR 語言資料（`<代碼>.traineddata`，每個最多 64 MiB，最多 20 個）。內附的 `eng`、`chi_tra` 不在這裡，在安裝資料夾的 `tessdata\` | 主行程 | [ocr.md](ocr.md) |
 | `fonts\` | 使用者匯入的自訂字型檔（`<雜湊值>.ttf` 或 `.ttc`，每個最多 64 MiB，最多 50 個）與其名稱索引 `metadata.json` | 主行程 | [text-boxes.md](text-boxes.md) |
 | `recovery\` | 崩潰復原日誌：有未儲存變更的文件，每份一個，含檔案的**完整路徑**、大小與修改時間，以及還沒存檔的編輯。正常存檔、不儲存或關閉時刪除，只有 app 沒有正常結束時才會留下 | 主行程 | [crash-recovery.md](crash-recovery.md) |
+| `index\` | 本機全文索引（預設關閉）：開啟過的文件的文字與檔案的**完整路徑**，以 AES-256-GCM 加密；金鑰以 DPAPI 保護，只有目前的 Windows 使用者解得開。最多 2,000 份、共 256 MiB | 主行程 | [text-index.md](text-index.md) |
 | `EBWebView\` | 畫面元件（WebView2）的暫存資料 | WebView2 | 本頁「WebView2」 |
 
 另外，worker 的 AppContainer profile 在 `%LOCALAPPDATA%\Packages\` 底下，解除安裝時由安裝程式刪除（`src-tauri/windows/installer-hooks.nsh`）。
@@ -29,7 +30,7 @@
 - **只有主行程**讀寫這些檔案。前端只能透過型別化的命令取得或修改已定義的項目，拿不到路徑，也不能寫入任意內容。
 - **寫入**：先寫到旁邊的暫存檔，再改名取代，當機時不會留下半個檔案。
 - **讀取**：
-  - 有大小上限（`recent.json` 512 KiB、`settings.json` 64 KiB、`sensitive.json` 2 MiB、每個復原日誌 4 MiB）；
+  - 有大小上限（`recent.json` 512 KiB、`settings.json` 64 KiB、`sensitive.json` 2 MiB、每個復原日誌 4 MiB；索引的金鑰 4 KiB，目錄與每份文件 32 MiB）；
   - 超過上限、不是 JSON、版本不對或有未知欄位時，當成沒有這個檔案，使用預設值；下次變更時覆寫。
 
 ## 設定（`src-tauri/src/settings.rs`）
@@ -40,9 +41,10 @@
 | `recordRecentFiles` | `true` | 關閉時清除目前的清單，之後開啟的檔案都不記錄；「⋯」選單也不再提供「不記錄此檔案」 |
 | `ocrAuto` | `true` | 開啟文件時自動辨識掃描頁的文字；關閉時只在使用者要求時辨識（B2-10） |
 | `ocrLanguage` | `null` | 辨識用的語言代碼；`null` 表示 app 決定（繁體中文的資料，也認得英文與數字）。沒有安裝的語言當成 `null` |
+| `textIndex` | `false` | 本機全文索引（B3-21，ADR 0026）。`recordRecentFiles` 也開著時才有效；關閉時刪除整個索引 |
 
 - 啟動時就讀取，因為視窗一開始就需要外觀。
-- 前端送回**完整的一組設定**（`Settings`，`deny_unknown_fields`；`ocrLanguage` 要像語言代碼）。有新項目之前寫的檔案沒有 `ocrAuto` 與 `ocrLanguage`，用預設值。
+- 前端送回**完整的一組設定**（`Settings`，`deny_unknown_fields`；`ocrLanguage` 要像語言代碼）。有新項目之前寫的檔案沒有 `ocrAuto`、`ocrLanguage` 或 `textIndex`，用預設值。
 - 變更立即套用；檔案寫不進去時仍然套用，畫面說明「重新啟動後會回到之前的設定」。
 - 所有分頁共用同一組設定（前端的 `SettingsProvider`）。
 
@@ -55,5 +57,6 @@ WebView2 在 `EBWebView\` 保存它自己的資料（快取等）。
 
 ## 刪除
 
-- 設定頁可以清除最近開啟的檔案，以及「不記錄此檔案」的選擇；機敏文件的清單可以逐筆移除（檔案的標記不變，見 [sensitive-files.md](sensitive-files.md)）。清除最近開啟的檔案（或關閉記錄）時，一併刪除目前沒有分頁使用的復原日誌。
+- 設定頁可以清除最近開啟的檔案，以及「不記錄此檔案」的選擇；機敏文件的清單可以逐筆移除（檔案的標記不變，見 [sensitive-files.md](sensitive-files.md)）。清除最近開啟的檔案（或關閉記錄）時，一併刪除目前沒有分頁使用的復原日誌與整個本機全文索引。
+- 本機全文索引可以在設定頁單獨清除；先刪金鑰，刪不掉的檔案沒有金鑰也讀不出來（[text-index.md](text-index.md)）。
 - 關閉 app 後，可以直接刪除整個資料夾：下次啟動時一切回到預設值。

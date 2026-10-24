@@ -48,6 +48,7 @@ use crate::saving::{self, FileIdentity, Temporary};
 use crate::signing::{self, Signer};
 use crate::sources::{Full as SourcesFull, Source, Sources};
 use crate::text_boxes::{Full as TextBoxesFull, TextBoxes};
+use crate::text_index::IndexFacts;
 
 /// Display name used when a path has no file name component.
 const FALLBACK_NAME: &str = "PDF";
@@ -2284,6 +2285,23 @@ impl Documents {
         let found = self.tab(tab)?;
         let document = lock(&found.document);
         document.as_ref()?.identifier
+    }
+
+    /// What the text index (B3-21, ADR 0026) needs to know of `tab`'s document, if it is open.
+    pub fn index_facts(&self, tab: TabId) -> Option<IndexFacts> {
+        let found = self.tab(tab)?;
+        let document = lock(&found.document);
+        let document = document.as_ref()?;
+        Some(IndexFacts {
+            doc: document.info.doc,
+            path: document.path.clone(),
+            display_name: document.info.display_name.clone(),
+            sensitive: document.info.sensitive,
+            protected: document.protected,
+            unsaved: document.info.unsaved,
+            pages: u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX),
+            identity: document.identity,
+        })
     }
 
     /// The identifiers in the files of the open tabs that are marked as sensitive (B3-05).
