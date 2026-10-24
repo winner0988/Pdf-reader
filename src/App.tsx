@@ -36,7 +36,7 @@ import { TabBar } from "@/features/tabs/TabBar";
 import { tauriEditingApi, type EditingApi } from "@/features/thumbnails/api";
 import { useTabs } from "@/features/tabs/useTabs";
 import { createPageRenderer, tauriRenderApi, type PageRenderer, type RenderApi } from "@/features/viewer/renderer";
-import type { DocumentInfo, TabId } from "@/ipc/generated/contract";
+import type { CaptureProtection, DocumentInfo, TabId } from "@/ipc/generated/contract";
 
 type AppProps = {
   api?: OpenApi;
@@ -204,6 +204,7 @@ export default function App({
                   passwordsApi={api}
                   ocr={ocr.state.get(tab.tab)}
                   fieldEdits={fieldEdits}
+                  captureProtection={state.captureProtection}
                   latestInfo={tabs.latestInfo}
                   onOpen={open}
                   onClose={requestClose}
@@ -272,6 +273,7 @@ type TabPaneProps = {
   passwordsApi: PasswordsApi;
   ocr: OcrTab | undefined;
   fieldEdits: FieldEdits;
+  captureProtection: CaptureProtection;
   latestInfo: (tab: TabId) => DocumentInfo | undefined;
   onOpen: () => void;
   onClose: (tab: TabId) => void;

@@ -2,7 +2,15 @@
 // Pure, so it is tested without IPC.
 
 import type { ShellDocument, ShellState } from "@/features/shell/model";
-import type { DocumentId, DocumentInfo, ErrorCode, NotRemembered, OpenEvent, TabId } from "@/ipc/generated/contract";
+import type {
+  CaptureProtection,
+  DocumentId,
+  DocumentInfo,
+  ErrorCode,
+  NotRemembered,
+  OpenEvent,
+  TabId,
+} from "@/ipc/generated/contract";
 
 export type TabContent =
   | { kind: "loading" }
@@ -36,6 +44,8 @@ export type TabsState = {
   /** Files are being dragged over the window. */
   dragActive: boolean;
   notice: TabsNotice | null;
+  /** Whether the window is kept out of screen captures, while a sensitive document is open (B3-13). */
+  captureProtection: CaptureProtection;
 };
 
 export type TabsAction =
@@ -55,6 +65,7 @@ export const initialTabs: TabsState = {
   closed: [],
   dragActive: false,
   notice: null,
+  captureProtection: "off",
 };
 
 export function toShellDocument(info: DocumentInfo): ShellDocument {
@@ -204,6 +215,8 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsState {
       return { ...state, notice: { kind: "tabLimit", ignoredFiles: event.ignoredFiles } };
     case "closeRequested":
       return { ...state, closeRequest: event.tabs };
+    case "captureProtection":
+      return { ...state, captureProtection: event.state };
     // How recognising the text of scanned pages goes (B2-10) is told apart before the tabs
     // hear of it (useTabs): it is not about the tabs themselves.
     case "ocr":

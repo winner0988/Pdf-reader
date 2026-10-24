@@ -190,6 +190,15 @@ describe("tabs", () => {
     expect(session(reopened)).toBe(15);
   });
 
+  it("keeps whether the window is out of screen captures, whatever the tabs do (B3-13)", () => {
+    expect(initialTabs.captureProtection).toBe("off");
+    const on = run([event({ kind: "captureProtection", state: "on" }), event({ kind: "opened", tab: 1, info: info(5, "a.pdf") })]);
+    expect(on.captureProtection).toBe("on");
+    expect(run([{ type: "closed", tab: 1 }], on).captureProtection).toBe("on");
+    expect(run([event({ kind: "captureProtection", state: "failed" })], on).captureProtection).toBe("failed");
+    expect(run([event({ kind: "captureProtection", state: "off" })], on).captureProtection).toBe("off");
+  });
+
   it("keeps the window's close request until it is answered (B2-02)", () => {
     const asked = run([event({ kind: "closeRequested", tabs: [1, 2] })]);
     expect(asked.closeRequest).toEqual([1, 2]);

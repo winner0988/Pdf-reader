@@ -1267,6 +1267,22 @@ pub enum MarkCheck {
     ChangedOnDisk,
 }
 
+/// Whether the window is kept out of screen captures (B3-13, ADR 0023): it is while a tab shows a
+/// sensitive document. Windows still draws it on the screen; PrintScreen, the Snipping Tool,
+/// recordings and screen sharing get nothing of it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum CaptureProtection {
+    /// No sensitive document is open: the window can be captured.
+    #[default]
+    Off,
+    /// A sensitive document is open: the window is kept out of captures.
+    On,
+    /// A sensitive document is open, but Windows would not keep the window out of captures (an
+    /// older Windows): the document is shown all the same.
+    Failed,
+}
+
 /// Arguments of `set_sensitive` (B3-05): mark the open document's file as sensitive, or take the
 /// mark out, once the user confirmed. `password` is the permissions password of an encrypted
 /// document (ADR 0010); it is not kept. Any other field is rejected.
@@ -2044,6 +2060,10 @@ pub enum OpenEvent {
         doc: DocumentId,
         page_index: u32,
     },
+    /// Whether the window is kept out of screen captures changed (B3-13, ADR 0023); sent before
+    /// the `Opened` of the sensitive document that turned it on, and to a page that subscribes
+    /// while it is on.
+    CaptureProtection { state: CaptureProtection },
 }
 
 /// A font on this computer that the user can set the text of a text box in (ADR 0018, B2-27).

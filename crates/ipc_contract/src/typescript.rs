@@ -75,6 +75,7 @@ pub fn bindings() -> String {
         SensitiveId,
         SensitiveFile,
         MarkCheck,
+        CaptureProtection,
         SensitiveArgs,
         ThemePreference,
         Settings,

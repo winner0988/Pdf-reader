@@ -8,6 +8,7 @@ compile_error!(
 mod attachments;
 mod background;
 mod batch;
+mod capture;
 mod cli;
 mod clipboard;
 mod commands;
@@ -95,6 +96,7 @@ pub fn run() {
         }))
         .manage(Documents::new(worker))
         .manage(OpenEvents::default())
+        .manage(capture::CaptureGuard::default())
         .manage(Searches::default())
         .manage(Exports::default())
         .manage(Batches::default())

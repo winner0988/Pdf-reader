@@ -2051,7 +2051,9 @@ impl Validate for OcrProgress {
 impl Validate for OpenEvent {
     fn validate(&self) -> Result<(), ValidationError> {
         match self {
-            OpenEvent::DragHover { .. } | OpenEvent::TabLimit { .. } => Ok(()),
+            OpenEvent::DragHover { .. }
+            | OpenEvent::TabLimit { .. }
+            | OpenEvent::CaptureProtection { .. } => Ok(()),
             OpenEvent::Ocr { progress, .. } => progress.validate(),
             OpenEvent::OcrPage { page_index, .. } => {
                 if *page_index >= MAX_PAGE_COUNT {

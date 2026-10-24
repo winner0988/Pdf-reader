@@ -1012,9 +1012,11 @@ export const strings = {
     whatItDoes: [
       "從這份文件複製的文字不會進入 Windows 的剪貼簿歷程（Win+V），也不會同步到雲端剪貼簿",
       "不會記錄在最近開啟的檔案",
+      "開著它時，截圖、錄影、螢幕分享與遠端協助都看不到 app 的視窗",
       "標記寫在檔案本身：搬移、改名、複製檔案都仍是機敏；隱私匯出的副本不是",
     ],
-    whatUnmarkDoes: "取消後，這份文件複製的文字會像其他文件一樣進入剪貼簿歷程，檔案也會記錄在最近開啟的檔案。",
+    whatUnmarkDoes:
+      "取消後，這份文件複製的文字會像其他文件一樣進入剪貼簿歷程，檔案也會記錄在最近開啟的檔案，也不再阻擋螢幕擷取。",
     checking: "正在檢查這個檔案…",
     checkFailed: "無法檢查這個檔案，請再試一次。",
     /** What happens to the file (ADR 0010): said before the user confirms. */
@@ -1043,6 +1045,12 @@ export const strings = {
     /** In the status bar while the document shown is sensitive. */
     badge: "機敏文件",
     badgeNote: "複製的文字不會進入剪貼簿歷程",
+    /** In the status bar while a sensitive document is open in any tab (B3-13, ADR 0023). */
+    captureOn: "防截圖：開",
+    captureOnNote:
+      "開著機敏文件時，截圖、錄影、螢幕分享與遠端協助都看不到這個視窗，其他分頁也一樣；擋不住用手機拍螢幕。關閉機敏文件或取消標記後恢復。",
+    captureFailed: "這台電腦無法阻擋螢幕擷取",
+    captureFailedNote: "Windows 沒有讓這個視窗排除在螢幕擷取之外（需要 Windows 10 2004 以後的版本）。文件照常開啟，但截圖與螢幕分享看得到它。",
     /** Copying from a sensitive document. */
     copyFailed: "無法複製：剪貼簿正被其他程式使用，請再試一次。",
     copyTooLarge: "選取的文字太多，無法複製。請分段選取。",

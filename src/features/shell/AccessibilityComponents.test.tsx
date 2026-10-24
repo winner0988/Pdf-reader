@@ -364,6 +364,18 @@ describe("what the window shows", () => {
         ocr={{ text: strings.ocr.running(3, 8), onStop: vi.fn() }}
         ocrNote={strings.ocr.pageNote}
         sensitive
+        capture="on"
+      />,
+    );
+    await expectAccessible(everything());
+  });
+
+  it("the status bar, when Windows would not keep the window out of screen captures (B3-13)", async () => {
+    render(
+      <StatusBar
+        document={{ displayName: "報告.pdf", currentPage: 2, pageCount: 10, zoom: "fitWidth" }}
+        sensitive
+        capture="failed"
       />,
     );
     await expectAccessible(everything());
