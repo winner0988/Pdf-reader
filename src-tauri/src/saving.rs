@@ -7,7 +7,7 @@
 #![allow(unsafe_code)]
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -119,6 +119,36 @@ impl Temporary {
     /// The file, open for writing (the worker gets a write-only duplicate) and reading.
     pub fn file(&self) -> &File {
         self.file.as_ref().expect("open until replaced")
+    }
+
+    /// Where the file is: for a new worker to open what was written and check it (B3-06).
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// The file's bytes, which [`check`](Self::check) said are `bytes` long.
+    pub fn read_all(&mut self, bytes: u64) -> Result<Vec<u8>, IpcError> {
+        let file = self.file.as_mut().expect("open until replaced");
+        let mut all = Vec::with_capacity(usize::try_from(bytes).unwrap_or_default());
+        file.seek(SeekFrom::Start(0))
+            .and_then(|_| Read::by_ref(file).take(bytes).read_to_end(&mut all))
+            .map_err(|error| write_error(&error))?;
+        if all.len() as u64 != bytes {
+            return Err(IpcError {
+                code: ErrorCode::Unwritable,
+                message: "the written file is not complete".to_owned(),
+            });
+        }
+        Ok(all)
+    }
+
+    /// Writes `bytes` over the file's own from `offset` on, and makes sure they are on disk.
+    pub fn write_at(&mut self, offset: u64, bytes: &[u8]) -> Result<(), IpcError> {
+        let file = self.file.as_mut().expect("open until replaced");
+        file.seek(SeekFrom::Start(offset))
+            .and_then(|_| file.write_all(bytes))
+            .and_then(|()| file.sync_all())
+            .map_err(|error| write_error(&error))
     }
 
     /// Makes sure the `bytes` the worker reports writing are on disk, and that they look like a

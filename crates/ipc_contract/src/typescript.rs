@@ -157,6 +157,12 @@ pub fn bindings() -> String {
         SignatureStatus,
         UnverifiableReason,
         Certification,
+        SignCheck,
+        PageCorner,
+        SignaturePlace,
+        SigningFile,
+        SignArgs,
+        SignResult,
         DocumentInfo,
         RenderPageArgs,
         RasterRegion,
@@ -187,7 +193,7 @@ pub fn bindings() -> String {
         SaveAttachmentResult,
     );
 
-    let limits: [(&str, String); 60] = [
+    let limits: [(&str, String); 61] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -267,6 +273,10 @@ pub fn bindings() -> String {
         (
             "maxAttachmentDescBytes",
             MAX_ATTACHMENT_DESC_BYTES.to_string(),
+        ),
+        (
+            "maxSigningReasonBytes",
+            MAX_SIGNING_REASON_BYTES.to_string(),
         ),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];

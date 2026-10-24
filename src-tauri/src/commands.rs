@@ -21,12 +21,13 @@ use ipc_contract::types::{
     PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
     RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
     RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult, SearchArgs,
-    SearchEvent,
-    SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignatureReport, StampImageInfo, TabId,
+    SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs, SignCheck,
+    SignResult, SignatureReport, SigningFile, StampImageInfo, TabId,
     TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
     WatermarkContent,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
+use ipc_contract::worker::{NewSignature, VisibleSignature};
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
 
@@ -45,6 +46,7 @@ use crate::render::Renderer;
 use crate::search::{self, Searches};
 use crate::sensitive::SensitiveFiles;
 use crate::settings::SettingsStore;
+use crate::signing::{self, ChosenCertificate, Signer};
 use crate::strings;
 
 /// Registers the frontend's channel for [`OpenEvent`]s.
@@ -1357,6 +1359,140 @@ pub async fn compress_images(
     })
     .await?;
     Ok(Some(result))
+}
+
+/// Whether the document can be signed (B3-06, ADR 0020, docs/architecture/signing.md): asked
+/// when the signing dialog opens.
+#[tauri::command]
+pub async fn check_signing(app: AppHandle, doc: DocumentId) -> Result<SignCheck, IpcError> {
+    blocking(move || app.state::<Documents>().sign_check(doc)).await
+}
+
+/// Asks for the certificate file to sign with (B3-06, ADR 0020): one PKCS #12 file (`.pfx`,
+/// `.p12`) in the system's open dialog. The main process reads it and keeps it, in memory, until
+/// another is chosen; the page gets a number and the file's name, never its path. `None` when the
+/// user closes the dialog.
+#[tauri::command]
+pub async fn choose_signing_file(
+    app: AppHandle,
+    window: WebviewWindow,
+) -> Result<Option<SigningFile>, IpcError> {
+    let Some(path) = file_dialog::pick_certificate(&window).await? else {
+        return Ok(None);
+    };
+    blocking(move || {
+        let bytes = signing::read_certificate_file(&path)?;
+        let file = app.state::<ChosenCertificate>().choose(bytes);
+        Ok(Some(SigningFile {
+            file,
+            name: documents::display_name(&path),
+        }))
+    })
+    .await
+}
+
+/// Signs the document's file with the certificate file chosen last (B3-06, ADR 0020,
+/// docs/architecture/signing.md) and writes the signed copy where the user says in the system's
+/// save dialog, never over the document's own file; the copy then opens in a tab of its own.
+/// The password goes to Windows once, to import the certificate file, and is wiped; the private
+/// key stays in this process, in memory, and goes when the copy is written. The certificate is
+/// checked before the user is asked where: a wrong password, an expired certificate or one not
+/// for signing answers at once. `None` when the user closes the dialog.
+#[tauri::command]
+pub async fn sign_document(
+    app: AppHandle,
+    window: WebviewWindow,
+    args: SignArgs,
+) -> Result<Option<SignResult>, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let SignArgs {
+        doc,
+        file,
+        password,
+        place,
+        reason,
+        utc_offset_minutes,
+    } = args;
+    let info = app
+        .state::<Documents>()
+        .document_info(doc)
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        })?;
+    let pfx = app
+        .state::<ChosenCertificate>()
+        .get(file)
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "the certificate file is not the one chosen last".to_owned(),
+        })?;
+    let signer = blocking(move || {
+        let signer = Signer::from_pfx(&pfx, password.as_str());
+        drop(password);
+        signer.map_err(IpcError::from)
+    })
+    .await?;
+    let unix_seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|since| i64::try_from(since.as_secs()).ok());
+    let Some(time) = unix_seconds.and_then(|now| signing::local_time(now, utc_offset_minutes))
+    else {
+        return Err(IpcError {
+            code: ErrorCode::Internal,
+            message: "the computer's clock cannot be read".to_owned(),
+        });
+    };
+    let signer_name = ipc_contract::text::clean_display_text(
+        &signer.signer_name(),
+        ipc_contract::limits::MAX_SIGNATURE_TEXT_BYTES as usize,
+    );
+    if signer_name.trim().is_empty() {
+        return Err(signing::SigningError::Unreadable.into());
+    }
+    let signature = NewSignature {
+        visible: place.map(|place| VisibleSignature {
+            page_index: place.page_index,
+            corner: place.corner,
+            lines: strings::signature_lines(&signer_name, &time, reason.as_deref()),
+        }),
+        signer: signer_name,
+        reason,
+        time,
+    };
+    let file_name = strings::signed_copy_file_name(&export::stem(&info.display_name));
+    let destination = loop {
+        let Some(path) = file_dialog::signed_copy_file(&window, file_name.clone()).await? else {
+            return Ok(None);
+        };
+        if !app.state::<Documents>().is_document_file(doc, &path) {
+            break path;
+        }
+        rfd::AsyncMessageDialog::new()
+            .set_level(rfd::MessageLevel::Info)
+            .set_title(strings::SIGNED_COPY_SAME_FILE_TITLE)
+            .set_description(strings::SIGNED_COPY_SAME_FILE_MESSAGE)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .set_parent(&window)
+            .show()
+            .await;
+    };
+    let name = documents::display_name(&destination);
+    {
+        let (app, destination) = (app.clone(), destination.clone());
+        let now = unix_seconds.unwrap_or_default();
+        blocking(move || {
+            app.state::<Documents>()
+                .sign_copy(doc, &destination, &signer, signature, now)
+        })
+        .await?;
+    }
+    open_paths(&app, vec![destination]);
+    Ok(Some(SignResult { name }))
 }
 
 /// Writes a copy of the document encrypted with AES-256 (B2-15, docs/architecture/encrypt-copy.md)

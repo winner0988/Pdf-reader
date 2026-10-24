@@ -31,6 +31,8 @@ fuzz/corpus/
 !.env.example
 *.pfx
 *.p12
+# The corpus's test certificates (tests/corpus/README.md): generated, with a public test key.
+!tests/corpus/certificates/*.pfx
 *.pem
 *.key
 

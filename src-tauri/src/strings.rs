@@ -87,6 +87,46 @@ pub const COMPRESSED_COPY_SAME_FILE_TITLE: &str = "請選擇其他檔案";
 pub const COMPRESSED_COPY_SAME_FILE_MESSAGE: &str =
     "壓縮會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
 
+/// Signing a document (B3-06, ADR 0020): the open dialog for the certificate file and its filter,
+/// the save dialog for the signed copy and what the copy is called at first, and why the copy
+/// cannot go over the document's own file.
+pub const CERTIFICATE_DIALOG_TITLE: &str = "選擇簽署用的憑證檔";
+pub const CERTIFICATE_FILTER_NAME: &str = "憑證檔（PKCS #12）";
+pub const SIGNED_COPY_DIALOG_TITLE: &str = "簽署並另存新檔：選擇已簽署副本的位置";
+pub fn signed_copy_file_name(stem: &str) -> String {
+    format!("{stem}（已簽署）.pdf")
+}
+pub const SIGNED_COPY_SAME_FILE_TITLE: &str = "請選擇其他檔案";
+pub const SIGNED_COPY_SAME_FILE_MESSAGE: &str =
+    "簽署會產生一份已簽署的副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
+
+/// The lines in the box of a visible signature (B3-06): who signs, when, and why if they said.
+pub fn signature_lines(
+    signer: &str,
+    time: &ipc_contract::worker::SigningTime,
+    reason: Option<&str>,
+) -> Vec<String> {
+    let offset = time.utc_offset_minutes;
+    let mut lines = vec![
+        format!("數位簽署：{signer}"),
+        format!(
+            "日期：{:04}-{:02}-{:02} {:02}:{:02}（UTC{}{:02}:{:02}）",
+            time.year,
+            time.month,
+            time.day,
+            time.hour,
+            time.minute,
+            if offset < 0 { '-' } else { '+' },
+            offset.unsigned_abs() / 60,
+            offset.unsigned_abs() % 60,
+        ),
+    ];
+    if let Some(reason) = reason {
+        lines.push(format!("原因：{reason}"));
+    }
+    lines
+}
+
 /// Making a PDF of files (B3-03): the dialog for the files and its filters, the one for where the
 /// PDF goes and what it is called at first, and why the PDF cannot go over one of the files.
 pub const CREATE_SOURCES_DIALOG_TITLE: &str = "選擇要建立 PDF 的檔案";

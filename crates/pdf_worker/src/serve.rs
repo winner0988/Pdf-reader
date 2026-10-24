@@ -24,8 +24,9 @@ use ipc_contract::types::{
 };
 use ipc_contract::validate::stamp_png_size;
 use ipc_contract::worker::{
-    CreateSource, FileHandle, FontData, OcrFinished, OcrOutcome, OcrPageState, OpenedDocument,
-    Raster, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest, WorkerResponse,
+    CreateSource, FileHandle, FontData, NewSignature, OcrFinished, OcrOutcome, OcrPageState,
+    OpenedDocument, Raster, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest,
+    WorkerResponse,
 };
 
 use crate::engine::{
@@ -402,6 +403,21 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     identifier.as_ref(),
                     password.as_ref().map(Password::as_str),
                 ),
+                _ => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+            }),
+            WorkerRequest::PrepareSignature {
+                request,
+                doc,
+                file,
+                signature,
+            } => Some(match originals.get(&doc) {
+                Some(bytes) if documents.contains_key(&doc) => {
+                    prepare_signature(bytes, request, file, &signature)
+                }
                 _ => error(
                     request,
                     WorkerErrorCode::UnknownDocument,
@@ -947,6 +963,32 @@ fn write_identifier(
             bytes,
             incremental: true,
             redaction: None,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
+/// Writes to `file`, a handle like `save`'s, the saved file `bytes` with a signature field that
+/// keeps room for the signature (B3-06, ADR 0020).
+fn prepare_signature(
+    bytes: &[u8],
+    request: RequestId,
+    file: FileHandle,
+    signature: &NewSignature,
+) -> WorkerResponse {
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match crate::engine::prepare_signature(bytes, signature, &mut file) {
+        Ok(prepared) => WorkerResponse::SignaturePrepared {
+            request,
+            bytes: prepared.bytes,
+            contents_start: prepared.contents_start,
+            contents_end: prepared.contents_end,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }

@@ -21,19 +21,19 @@ use ipc_contract::raster::{check_region, encode_raster, fit_scale};
 use ipc_contract::text::{clean_display_text, is_web_address};
 use ipc_contract::types::{
     AnnotationId, AnnotationSummary, AttachmentId, AttachmentInfo, AttachmentSource, BatchOperation,
-    BlockedAction, CompressResult, CreateKind, CreateResult, DocumentId, DocumentInfo,
+    BlockedAction, Certification, CompressResult, CreateKind, CreateResult, DocumentId, DocumentInfo,
     DocumentPermissions, Edit, EditArgs, ErrorCode, FindPersonalDataQuery, FormField, ImageQuality,
     IpcError, LinkArgs, LinkPreview, LinkTarget, MarkCheck, NotRemembered, OpenEvent,
     OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource,
     Password, PersonalDataMatches, PreparedTextBox, Recovery, RedactionSummary,
     RememberedPasswords, RemoteAddressArgs, RenderPageArgs, Restrictions, SanitizeOptions,
-    SanitizeResult, SaveAttachmentResult, SaveResult, SearchHit, SecurityReport, SignatureReport,
-    SourceId, StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
+    SanitizeResult, SaveAttachmentResult, SaveResult, SearchHit, SecurityReport, SignCheck,
+    SignatureReport, SignatureStatus, SourceId, StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
-    FontData, InspectedFont, OcrFinished, OcrPageState, PasswordKey, UnknownFile, WorkerEdit,
-    WorkerErrorCode, WorkerRequest, WorkerResponse,
+    FontData, InspectedFont, NewSignature, OcrFinished, OcrPageState, PasswordKey, UnknownFile,
+    WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
 };
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
@@ -45,6 +45,7 @@ use crate::ocr::{OcrLink, PAGE_MILLIS, Tabs};
 use crate::pictures::{Full, Pictures};
 use crate::recovery::{Found, JournalId, Journals, Named, TooLarge};
 use crate::saving::{self, FileIdentity, Temporary};
+use crate::signing::{self, Signer};
 use crate::sources::{Full as SourcesFull, Source, Sources};
 use crate::text_boxes::{Full as TextBoxesFull, TextBoxes};
 
@@ -1180,6 +1181,111 @@ impl Documents {
             temporary.check(bytes)?;
             temporary.replace(destination)
         })
+    }
+
+    /// Whether `doc` can be signed (B3-06, ADR 0020): asked when the dialog opens. The first
+    /// reason it cannot be, or that it can. A certifying signature that allows no change is
+    /// found by the worker's check of the signatures (B2-14).
+    pub fn sign_check(&self, doc: DocumentId) -> Result<SignCheck, IpcError> {
+        let check = self.with_document(doc, |document| Ok(sign_check_of(document)))?;
+        if check != SignCheck::Ready {
+            return Ok(check);
+        }
+        let certified = self
+            .signatures(doc)?
+            .signatures
+            .iter()
+            .any(|signature| signature.certification == Some(Certification::NoChanges));
+        Ok(if certified {
+            SignCheck::Certified
+        } else {
+            SignCheck::Ready
+        })
+    }
+
+    /// Writes to `destination` a signed copy of the file of `doc` (B3-06, ADR 0020,
+    /// docs/architecture/signing.md). The document's worker appends to the file it was opened
+    /// from or last saved to a signature field that says `signature` and keeps room for the
+    /// signature, in a temporary file next to `destination`; the room is checked, `signer` signs
+    /// every other byte at `unix_seconds`, and the signature is written into the room. A new
+    /// worker then opens the copy and verifies it (ADR 0014): it takes `destination`'s place only
+    /// if its new signature is valid and covers the whole file. The document, its edits and its
+    /// file are not changed. Refused for what [`sign_check`](Self::sign_check) refuses but a
+    /// certifying signature (the worker refuses that one), and for the document's own file.
+    pub fn sign_copy(
+        &self,
+        doc: DocumentId,
+        destination: &Path,
+        signer: &Signer,
+        signature: NewSignature,
+        unix_seconds: i64,
+    ) -> Result<(), IpcError> {
+        let temporary = self.with_document(doc, |document| {
+            if sign_check_of(document) != SignCheck::Ready {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "the document cannot be signed as it is".to_owned(),
+                });
+            }
+            if same_file(&document.path, destination) {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "the signed copy never replaces the document's own file".to_owned(),
+                });
+            }
+            saving::check_writable(destination)?;
+            let mut temporary = Temporary::new(destination)?;
+            let worker_doc = live_worker(document)?;
+            let response = document
+                .host
+                .prepare_signature(worker_doc, temporary.file(), signature)
+                .map_err(|error| lost_on(document, &error))?;
+            let WorkerResponse::SignaturePrepared {
+                bytes,
+                contents_start,
+                contents_end,
+                ..
+            } = response
+            else {
+                return Err(unexpected("PrepareSignature"));
+            };
+            temporary.check(bytes)?;
+            sign_prepared(
+                &mut temporary,
+                bytes,
+                contents_start,
+                contents_end,
+                |parts| signer.sign(parts, unix_seconds),
+            )?;
+            Ok(temporary)
+        })?;
+        let report = self.verify_file(temporary.path())?;
+        if !report
+            .signatures
+            .iter()
+            .any(|signature| signature.status == SignatureStatus::Valid)
+        {
+            return Err(IpcError {
+                code: ErrorCode::SignatureNotValid,
+                message: "the signed copy did not verify".to_owned(),
+            });
+        }
+        temporary.replace(destination)
+    }
+
+    /// The signatures of the file at `path`, as a new worker of its own verifies them (B3-06):
+    /// one that never saw the document the file was made from.
+    fn verify_file(&self, path: &Path) -> Result<SignatureReport, IpcError> {
+        let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
+        let (doc, _) = host.open(path).map_err(|error| ipc_error(&error))?;
+        let response = host
+            .request(|request| WorkerRequest::VerifySignatures { request, doc })
+            .map_err(|error| ipc_error(&error))?;
+        host.stop();
+        let WorkerResponse::Signatures { report, .. } = response else {
+            return Err(unexpected("VerifySignatures"));
+        };
+        Ok(report)
     }
 
     /// Writes the pages `pages` (0-based, no repeats, in this order) of `doc` to `destination` as a
@@ -2951,6 +3057,46 @@ fn unchanged_on_disk(document: &OpenDocument) -> bool {
     )
 }
 
+/// Whether `document` can be signed, as far as the main process knows (B3-06): not encrypted, and
+/// with no change that is not in its file.
+fn sign_check_of(document: &OpenDocument) -> SignCheck {
+    if document.info.encrypted {
+        SignCheck::Encrypted
+    } else if unsaved_anywhere(document) {
+        SignCheck::Unsaved
+    } else {
+        SignCheck::Ready
+    }
+}
+
+/// Signs the copy the worker prepared in `temporary` (B3-06, ADR 0020): `bytes` long, with room
+/// for the signature from `start` up to `end`. The room must be `<`, hexadecimal zeros and `>`;
+/// `sign` signs the bytes before it and after it, and the signature is written into it. Nothing
+/// of the copy is parsed.
+fn sign_prepared(
+    temporary: &mut Temporary,
+    bytes: u64,
+    start: u64,
+    end: u64,
+    sign: impl FnOnce([&[u8]; 2]) -> Result<Vec<u8>, signing::SigningError>,
+) -> Result<(), IpcError> {
+    let mut copy = temporary.read_all(bytes)?;
+    let (Ok(start), Ok(end)) = (usize::try_from(start), usize::try_from(end)) else {
+        return Err(unexpected("PrepareSignature"));
+    };
+    if !(start < end && end < copy.len()) || !signing::is_room(&copy[start..end]) {
+        return Err(unexpected("PrepareSignature"));
+    }
+    let signature = sign([&copy[..start], &copy[end..]])?;
+    if !signing::fill_room(&mut copy[start..end], &signature) {
+        return Err(IpcError {
+            code: ErrorCode::SignatureTooLarge,
+            message: "the signature needs more room than the copy keeps".to_owned(),
+        });
+    }
+    temporary.write_at(start as u64, &copy[start..end])
+}
+
 /// Whether `document` has changes not in its file: its own, or those an earlier run left that the
 /// user has not answered for (B2-13).
 fn unsaved_anywhere(document: &OpenDocument) -> bool {
@@ -4692,6 +4838,229 @@ mod with_worker {
             .unwrap_err();
         assert_ne!(error.code, ErrorCode::Internal, "{error:?}");
         assert!(!copy.exists());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_prepared_copy_is_signed_in_its_room_and_nowhere_else() {
+        let destination = std::env::temp_dir().join(format!(
+            "pdf-reader-sign-prepared-{}.pdf",
+            std::process::id()
+        ));
+        let content = b"%PDF-1.7 head <0000000000> tail %%EOF\n";
+        let (start, end) = (14u64, 26u64);
+        let length = content.len() as u64;
+        let mut temporary = Temporary::new(&destination).unwrap();
+        temporary.write_at(0, content).unwrap();
+
+        let mut signed = Vec::new();
+        sign_prepared(&mut temporary, length, start, end, |parts| {
+            signed = parts.concat();
+            Ok(vec![0xAB, 0xCD])
+        })
+        .unwrap();
+        assert_eq!(signed, b"%PDF-1.7 head  tail %%EOF\n");
+        assert_eq!(
+            temporary.read_all(length).unwrap(),
+            b"%PDF-1.7 head <ABCD000000> tail %%EOF\n"
+        );
+
+        // A signature larger than the room: refused, and the room is as it was.
+        let mut temporary = Temporary::new(&destination).unwrap();
+        temporary.write_at(0, content).unwrap();
+        let error =
+            sign_prepared(&mut temporary, length, start, end, |_| Ok(vec![1; 6])).unwrap_err();
+        assert_eq!(error.code, ErrorCode::SignatureTooLarge);
+        assert_eq!(temporary.read_all(length).unwrap(), content);
+
+        // A room that is not one, or not inside the file: nothing is signed.
+        for (start, end) in [(13, 26), (14, 25), (14, 27), (0, 12), (26, 14), (14, 40)] {
+            let mut asked = false;
+            assert!(
+                sign_prepared(&mut temporary, length, start, end, |_| {
+                    asked = true;
+                    Ok(Vec::new())
+                })
+                .is_err(),
+                "{start}..{end}"
+            );
+            assert!(!asked, "{start}..{end}");
+        }
+        assert!(
+            !destination.exists(),
+            "the copy only takes its place once verified"
+        );
+    }
+
+    #[test]
+    fn what_cannot_be_signed_is_said_before_the_user_is_asked_anything() {
+        let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign");
+        let (documents, info, path) = open_bytes(
+            "sign-check-ready",
+            &std::fs::read(corpus.join("single-page.pdf")).unwrap(),
+        );
+        assert_eq!(documents.sign_check(info.doc).unwrap(), SignCheck::Ready);
+        // An edit not saved: what is signed is the file, which does not have it.
+        let edited = opened_info(documents.apply_edit(&rotate(info.doc, vec![0])).unwrap());
+        assert_eq!(
+            documents.sign_check(edited.doc).unwrap(),
+            SignCheck::Unsaved
+        );
+        std::fs::remove_file(path).ok();
+
+        let (documents, info, path) = open_bytes(
+            "sign-check-certified",
+            &std::fs::read(corpus.join("signed-docmdp-p1.pdf")).unwrap(),
+        );
+        assert_eq!(
+            documents.sign_check(info.doc).unwrap(),
+            SignCheck::Certified
+        );
+        std::fs::remove_file(path).ok();
+        // A signed document that allows another signature can be signed again.
+        let (documents, info, path) = open_bytes(
+            "sign-check-signed",
+            &std::fs::read(corpus.join("signed.pdf")).unwrap(),
+        );
+        assert_eq!(documents.sign_check(info.doc).unwrap(), SignCheck::Ready);
+        std::fs::remove_file(path).ok();
+
+        let documents = Documents::new(worker());
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let [tab] = documents.add(&[corpus.join("encrypted-aes256.pdf")], &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(tab, &report);
+        documents
+            .unlock(tab, Password::new("user".to_owned()), false, &report)
+            .unwrap();
+        let Some(OpenEvent::Opened { info, .. }) = events.borrow().last().cloned() else {
+            panic!("opened")
+        };
+        assert_eq!(
+            documents.sign_check(info.doc).unwrap(),
+            SignCheck::Encrypted
+        );
+    }
+
+    /// Importing a certificate file adds it to Windows' own key machinery: only on a runner that
+    /// is thrown away (CI), or when asked for with `PDF_READER_TEST_SIGNING=1`.
+    fn test_signer() -> Option<Signer> {
+        if std::env::var_os("CI").is_none()
+            && std::env::var("PDF_READER_TEST_SIGNING").as_deref() != Ok("1")
+        {
+            eprintln!("skipped: it imports a test certificate (PDF_READER_TEST_SIGNING=1)");
+            return None;
+        }
+        let pfx = std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/certificates/signer.pfx"),
+        )
+        .unwrap();
+        Some(Signer::from_pfx(&pfx, "corpus-test-password").expect("the test certificate"))
+    }
+
+    fn new_signature(visible: bool) -> NewSignature {
+        let time = crate::signing::local_time(1_792_631_107, 480).unwrap();
+        NewSignature {
+            signer: "PDF Reader test corpus signer (NOT TRUSTED)".to_owned(),
+            reason: Some("測試".to_owned()),
+            visible: visible.then(|| ipc_contract::worker::VisibleSignature {
+                page_index: 0,
+                corner: ipc_contract::types::PageCorner::BottomRight,
+                lines: crate::strings::signature_lines("測試簽署人", &time, Some("測試")),
+            }),
+            time,
+        }
+    }
+
+    #[test]
+    fn a_signed_copy_verifies_and_one_changed_byte_breaks_it() {
+        let Some(signer) = test_signer() else {
+            return;
+        };
+        let sample =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign/single-page.pdf");
+        let original = std::fs::read(sample).unwrap();
+        let (documents, info, path) = open_bytes("sign-copy", &original);
+        let copy = path.with_file_name(format!("sign-copy-{}（已簽署）.pdf", std::process::id()));
+        std::fs::remove_file(&copy).ok();
+        for visible in [false, true] {
+            documents
+                .sign_copy(
+                    info.doc,
+                    &copy,
+                    &signer,
+                    new_signature(visible),
+                    1_792_631_107,
+                )
+                .unwrap();
+            let written = std::fs::read(&copy).unwrap();
+            assert!(written.starts_with(&original), "appended to the file");
+
+            let reader = Documents::new(worker());
+            let opened = open_in(&reader, &copy);
+            let report = reader.signatures(opened.doc).unwrap();
+            assert_eq!(report.signatures.len(), 1);
+            let signature = &report.signatures[0];
+            assert_eq!(signature.status, SignatureStatus::Valid);
+            assert!(!signature.signer_trusted, "a test certificate");
+            assert_eq!(
+                signature.signer.as_deref(),
+                Some("PDF Reader test corpus signer (NOT TRUSTED)")
+            );
+            assert_eq!(
+                signature.claimed_time.as_deref(),
+                Some("2026-10-22 09:05:07 UTC+08:00")
+            );
+            assert_eq!(reader.sign_check(opened.doc).unwrap(), SignCheck::Ready);
+            drop(reader);
+
+            // One byte of the signed part changed: the signature no longer holds.
+            let mut changed = written.clone();
+            changed[original.len() + 10] ^= 0x01;
+            std::fs::write(&copy, &changed).unwrap();
+            let reader = Documents::new(worker());
+            let opened = open_in(&reader, &copy);
+            let report = reader.signatures(opened.doc).unwrap();
+            assert_ne!(report.signatures[0].status, SignatureStatus::Valid);
+            drop(reader);
+            std::fs::remove_file(&copy).ok();
+        }
+        // The document and its file are as they were, and the copy never replaces the file.
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert_eq!(
+            documents
+                .sign_copy(
+                    info.doc,
+                    &path,
+                    &signer,
+                    new_signature(false),
+                    1_792_631_107
+                )
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        // A document certified to allow no change: the worker refuses, and nothing is written.
+        let sample = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/signed-docmdp-p1.pdf");
+        let (documents, info, certified) =
+            open_bytes("sign-certified", &std::fs::read(sample).unwrap());
+        assert!(
+            documents
+                .sign_copy(
+                    info.doc,
+                    &copy,
+                    &signer,
+                    new_signature(false),
+                    1_792_631_107
+                )
+                .is_err()
+        );
+        assert!(!copy.exists());
+        std::fs::remove_file(certified).ok();
         std::fs::remove_file(path).ok();
     }
 

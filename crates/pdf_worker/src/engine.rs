@@ -52,11 +52,13 @@ pub use ocr::OcrKnown;
 
 mod outline;
 mod signatures;
+mod signing;
 mod stamp_image;
 mod text_box;
 mod watermark;
 
 pub use signatures::{SignatureField, SignatureFields};
+pub use signing::{PreparedSignature, prepare_signature};
 pub use stamp_image::{StampPicture, prepare_stamp_picture};
 pub use text_box::{TextBoxFont, TextBoxMade, TextBoxSpec, inspect_font, prepare_text_box};
 

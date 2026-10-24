@@ -188,6 +188,15 @@ const ALLOWED_PERMISSIONS = new Map([
     "allow-create-pdf",
     "B3-03: a PDF made of files the user picks; the main process asks for the files and for where the PDF goes, a sandboxed worker reads them through read-only handles, and the paths stay there",
   ],
+  ["allow-check-signing", "B3-06: whether an open document can be signed, by document id"],
+  [
+    "allow-choose-signing-file",
+    "B3-06: a certificate file (PKCS #12) to sign with; the main process asks in its open dialog and keeps the file, the page gets a number and the file's name",
+  ],
+  [
+    "allow-sign-document",
+    "B3-06, ADR 0020: a signed copy of an open document's file; the password goes to Windows once, the private key stays in the main process and in memory, the main process asks where, never the document's own file, and a new worker verifies the copy",
+  ],
 ]);
 
 /** Plugin permission prefixes that are never granted to the frontend, allowlist or not. */

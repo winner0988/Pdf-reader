@@ -19,6 +19,7 @@ import { SanitizeDialog } from "@/features/saving/SanitizeDialog";
 import { SaveFailedDialog } from "@/features/saving/SaveFailedDialog";
 import { SensitiveDialog } from "@/features/sensitive/SensitiveDialog";
 import { SensitiveSection } from "@/features/sensitive/SensitiveSection";
+import { SignDialog } from "@/features/signing/SignDialog";
 import { UnsavedDialog } from "@/features/saving/UnsavedDialog";
 import { demoDocument } from "@/features/shell/demo";
 import { SetDefaultFailedDialog } from "@/features/shell/dialogs";
@@ -184,6 +185,29 @@ describe("dialogs", () => {
     render(<CompressDialog open onOpenChange={vi.fn()} doc={5} onCompress={() => Promise.resolve(done)} />);
     await userEvent.setup().click(await screen.findByRole("button", { name: strings.compress.start }));
     await screen.findByRole("button", { name: strings.compress.close });
+    await expectAccessible(everything());
+  });
+
+  it("signing a document: ready, with its error, and refused (B3-06)", async () => {
+    const api = {
+      check: vi.fn(() => Promise.resolve("ready" as const)),
+      chooseFile: vi.fn(() => Promise.resolve({ file: 1, name: "憑證.pfx" })),
+      sign: vi.fn(() => Promise.reject({ code: "certificateUnreadable", message: "" })),
+    };
+    const user = userEvent.setup();
+    const { unmount } = render(<SignDialog open onOpenChange={vi.fn()} doc={5} page={1} api={api} />);
+    await user.click(await screen.findByRole("button", { name: strings.signing.chooseFile }));
+    await screen.findByText("憑證.pfx");
+    await expectAccessible(everything());
+    await user.type(screen.getByLabelText(strings.signing.passwordLabel), "x");
+    await user.click(screen.getByRole("button", { name: strings.signing.start }));
+    await screen.findByRole("alert");
+    await expectAccessible(everything());
+    unmount();
+
+    const refused = { ...api, check: vi.fn(() => Promise.resolve("unsaved" as const)) };
+    render(<SignDialog open onOpenChange={vi.fn()} doc={5} page={1} api={refused} />);
+    await screen.findByText(strings.signing.unsaved);
     await expectAccessible(everything());
   });
 

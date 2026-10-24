@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-choose-signing-file"
+description = "Enables the choose_signing_file command without any pre-configured scope."
+commands.allow = ["choose_signing_file"]
+
+[[permission]]
+identifier = "deny-choose-signing-file"
+description = "Denies the choose_signing_file command without any pre-configured scope."
+commands.deny = ["choose_signing_file"]

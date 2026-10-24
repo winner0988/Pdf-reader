@@ -74,6 +74,12 @@ export const strings = {
       textNotSupported: "文字含有目前無法排版的文字（例如阿拉伯文、希伯來文、印度系文字），請移除這些字。",
       credentialsUnavailable: "無法使用 Windows 認證管理員，請稍後再試。",
       pictureNotCleaned: "有一張圖片的儲存方式無法安全清除它的 EXIF，所以沒有建立副本。",
+      certificateUnreadable: "密碼不對，或檔案不是憑證。",
+      certificateExpired: "這張憑證已經過期，不能用來簽署。",
+      certificateNotYetValid: "這張憑證還沒生效，不能用來簽署。",
+      certificateNotForSigning: "這張憑證不能用來簽署：它的用途不含數位簽章，或檔案裡沒有私鑰。",
+      signatureTooLarge: "簽章比文件預留的空間大，所以沒有建立副本。",
+      signatureNotValid: "簽好的副本沒有通過驗證，所以沒有存檔。",
       internal: "發生未預期的錯誤。",
     } satisfies Record<ErrorCode, string>,
   },
@@ -685,6 +691,49 @@ export const strings = {
     /** In the menu, in place of the shortcut, when it does not apply. */
     encrypted: "已加密的文件不適用",
   },
+  /** Signing a document (B3-06, ADR 0020). */
+  signing: {
+    title: "簽署文件",
+    description:
+      "用你的憑證檔簽署這份文件，存成另一個檔案；目前的文件與它的檔案不會改變。全部在這台電腦上完成，不連網。",
+    checking: "正在檢查這份文件…",
+    checkFailed: "無法檢查這份文件，請再試一次。",
+    /** Why the document cannot be signed, said when the dialog opens. */
+    encrypted: "已加密的文件目前不能簽署。",
+    unsaved: "這份文件有尚未儲存的變更。簽署的是檔案本身，請先儲存再簽署。",
+    certified: "這份文件的認證簽章不允許任何變更，也不允許再加上簽章。",
+    repaired: "這個檔案要修復才能開啟；簽署會改到它原本的內容，所以不能簽署。",
+    chooseAgain: "請確認文件已儲存，並重新選擇憑證檔再試一次。",
+    fileLabel: "憑證檔",
+    chooseFile: "選擇憑證檔…",
+    noFile: "尚未選擇（.pfx 或 .p12）",
+    passwordLabel: "憑證檔的密碼",
+    appearanceTitle: "簽章的外觀",
+    /** The box with the signer, the date and the reason, on the page shown. */
+    visible: (page: number) => `顯示在目前這一頁（第 ${page} 頁）的角落`,
+    cornerLabel: "位置",
+    corners: {
+      topLeft: "左上角",
+      topRight: "右上角",
+      bottomLeft: "左下角",
+      bottomRight: "右下角",
+    },
+    invisible: "不顯示在頁面上",
+    reasonLabel: "原因（選填）",
+    reasonTooLong: "原因太長了，請縮短。",
+    note: "簽署時間是這台電腦的時間，沒有時間戳記。簽好的副本會先由另一個程序驗證，有效才存檔，並在新分頁開啟。app 不會記住憑證檔或密碼。",
+    start: "選擇位置並簽署…",
+    cancel: "取消",
+    close: "關閉",
+    running: "正在簽署…",
+    failed: "無法簽署這份文件，請再試一次。",
+    resultTitle: "已簽署並存成新檔",
+    result: (name: string) => `已存成「${name}」，並在新分頁開啟。`,
+    /** Not "關閉": the dialog's corner button already has that name. */
+    done: "完成",
+    /** In the menu, in place of the shortcut, when it does not apply. */
+    encryptedShort: "已加密的文件不適用",
+  },
   /** A batch (B3-04): one operation done to many files. */
   batch: {
     title: "批次處理",
@@ -1007,6 +1056,7 @@ export const strings = {
     pageMarks: "頁碼與 Bates 編號…",
     encryptCopy: "加密並另存新檔…",
     compressImages: "壓縮圖片並另存新檔…",
+    sign: "簽署…",
     batch: "批次處理…",
     createPdf: "從檔案建立 PDF…",
     dontRecord: "不記錄此檔案",

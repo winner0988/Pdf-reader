@@ -14,7 +14,7 @@
 
 mod font;
 mod layout;
-mod pdf;
+pub(super) mod pdf;
 
 use ipc_contract::limits::{MAX_PAGE_SIDE_PT, MIN_ANNOTATION_SIDE_PT};
 use ipc_contract::types::{

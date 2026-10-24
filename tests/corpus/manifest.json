@@ -921,5 +921,31 @@
       "bytes": 2516,
       "sha256": "b47c8d7bb3e1d4d75cd58063d579bd4e264b705a55b5b10bcb3a0527623239dc"
     }
+  ],
+  "certificates": [
+    {
+      "path": "certificates/signer.pfx",
+      "category": "certificates",
+      "purpose": "The test key and its self-signed certificate (CN=PDF Reader test corpus signer (NOT TRUSTED), valid 2026 to 2036, for signing), password 'corpus-test-password'.",
+      "expected": "Signs a document: the copy's signature is valid, its signer not trusted (B3-06).",
+      "bytes": 2477,
+      "sha256": "fa3bc68171a3d0244fd061b1ea92b252e722fabde79240ccd1235744cebacfa1"
+    },
+    {
+      "path": "certificates/expired.pfx",
+      "category": "certificates",
+      "purpose": "The test key with a certificate that was valid in 2020 only (CN=PDF Reader test corpus signer, expired (NOT TRUSTED)), password 'corpus-test-password'.",
+      "expected": "Refused for signing: the certificate has expired (B3-06).",
+      "bytes": 2495,
+      "sha256": "18b243476568723b441733653131d14f9f94d5e03901f7601ac149bd343079c4"
+    },
+    {
+      "path": "certificates/encryption-only.pfx",
+      "category": "certificates",
+      "purpose": "The test key with a certificate whose key usage is key encipherment only (CN=PDF Reader test corpus key for encryption only (NOT TRUSTED)), password 'corpus-test-password'.",
+      "expected": "Refused for signing: the certificate is not for signatures (B3-06).",
+      "bytes": 2511,
+      "sha256": "d98051a47814531f7ae7f464ea3093c1cbc00e5d50215913f0c65b60dbf8552e"
+    }
   ]
 }

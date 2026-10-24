@@ -33,6 +33,7 @@ mod saving;
 mod search;
 mod sensitive;
 mod settings;
+mod signing;
 mod sources;
 mod strings;
 mod text_boxes;
@@ -101,6 +102,7 @@ pub fn run() {
         .manage(Exports::default())
         .manage(Batches::default())
         .manage(Background::default())
+        .manage(signing::ChosenCertificate::default())
         .invoke_handler(tauri::generate_handler![
             commands::subscribe_open_events,
             commands::open_document_dialog,
@@ -165,6 +167,9 @@ pub fn run() {
             commands::sanitize_copy,
             commands::encrypt_copy,
             commands::compress_images,
+            commands::check_signing,
+            commands::choose_signing_file,
+            commands::sign_document,
             commands::get_ocr_languages,
             commands::get_fonts,
             commands::prepare_text_box,

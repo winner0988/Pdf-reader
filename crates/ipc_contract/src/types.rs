@@ -1612,6 +1612,75 @@ pub enum Certification {
     FillFormsAndAnnotate,
 }
 
+/// Whether the document shown can be signed (B3-06, ADR 0020, docs/architecture/signing.md):
+/// asked when the dialog opens. The first reason it cannot be, or that it can.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SignCheck {
+    /// It can be: the signed copy is a file of its own.
+    Ready,
+    /// The document is encrypted: not signed in this version.
+    Encrypted,
+    /// The document has changes not saved yet, or an earlier run left some (B2-13): what is
+    /// signed is the file, which does not have them.
+    Unsaved,
+    /// A certifying signature of the document allows no change, not even another signature
+    /// (DocMDP `/P` 1).
+    Certified,
+}
+
+/// A corner of a page, as the page is shown (B3-06).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum PageCorner {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+/// Where a visible signature goes (B3-06): a box with the signer, the date and the reason, in a
+/// corner of a page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SignaturePlace {
+    pub page_index: u32,
+    pub corner: PageCorner,
+}
+
+/// The certificate file chosen for signing (B3-06, ADR 0020): its number and its name, for
+/// display. The main process keeps the file; the page never gets its path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SigningFile {
+    pub file: u32,
+    pub name: String,
+}
+
+/// Arguments of `sign_document` (B3-06, ADR 0020).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SignArgs {
+    pub doc: DocumentId,
+    /// The certificate file chosen last (`SigningFile::file`).
+    pub file: u32,
+    /// The certificate file's password: it goes to Windows once, and is wiped.
+    pub password: Password,
+    /// Where a visible signature goes; none: the signature is seen on no page.
+    pub place: Option<SignaturePlace>,
+    /// Why the document is signed, as the signer says; none: not said.
+    pub reason: Option<String>,
+    /// The computer's time zone, in minutes east of UTC, for the time the signature gives.
+    pub utc_offset_minutes: i16,
+}
+
+/// What `sign_document` did (B3-06): the name of the signed copy, which opens in a tab of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SignResult {
+    pub name: String,
+}
+
 /// An open document as the frontend sees it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -2020,6 +2089,20 @@ pub enum ErrorCode {
     /// A picture of the document is stored in a way its metadata (EXIF) cannot be taken out of
     /// without changing it (B3-04): no copy was made.
     PictureNotCleaned,
+    /// Signing (B3-06, ADR 0020): the password of the certificate file is wrong, or the file is
+    /// not a certificate with its private key (PKCS #12).
+    CertificateUnreadable,
+    /// Signing: the certificate has expired.
+    CertificateExpired,
+    /// Signing: the certificate is not valid yet.
+    CertificateNotYetValid,
+    /// Signing: the certificate is not for signatures (its key usage), or comes without its
+    /// private key.
+    CertificateNotForSigning,
+    /// Signing: the signature needs more room than the copy keeps for it.
+    SignatureTooLarge,
+    /// Signing: the signed copy did not verify as valid, so it was not kept.
+    SignatureNotValid,
     Internal,
 }
 

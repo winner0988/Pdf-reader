@@ -28,7 +28,7 @@ pub(super) fn object_number(object: &PdfObject) -> Result<i32, EngineError> {
 }
 
 /// `text` as a PDF text string: UTF-16 with a byte order mark, in hexadecimal.
-pub(super) fn utf16_hex(text: &str) -> String {
+pub(in crate::engine) fn utf16_hex(text: &str) -> String {
     let units: String = text
         .encode_utf16()
         .map(|unit| format!("{unit:04X}"))

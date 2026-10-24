@@ -232,6 +232,15 @@
 - **選擇位置並壓縮…**：主行程顯示系統的另存對話框，建議檔名 `<原檔名>（已壓縮）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（COMPRESSED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，可以再試；失敗（有數位簽章、檔案不能寫入等）時顯示 compress.failed，沒有檔案被留下。壓縮中顯示 compress.running，選項與按鈕停用，不能關閉對話框。
 - **結果**：成功後對話框換成結果（標題 compress.resultTitle，`role="status"`）：副本的大小、不壓縮圖片時的大小與少了多少百分比、重新編碼了幾張圖片（共幾張）；沒有圖片、或都沒有變小時照實說；時間不夠時加上 compress.result.partial。按「完成」（compress.close）關閉；對話框不會自己消失，因為數字要讀。分頁仍然是原本的文件，副本不加入最近開啟的檔案。
 
+### 簽署文件（B3-06）
+
+- 「⋯」→「簽署…」（在「壓縮圖片並另存新檔…」之後）開啟對話框。沒有開啟文件時停用；加密的文件停用，並標示 signing.encryptedShort。做法見 [signing.md](../architecture/signing.md)。
+- **開啟時**先檢查文件（signing.checking）：已加密、有尚未儲存的變更、認證簽章不允許變更時，只顯示原因（signing.encrypted／unsaved／certified，`role="alert"`）與「關閉」，不問任何事。檢查失敗時顯示 signing.checkFailed。
+- **對話框**：signing.description；「憑證檔」：「選擇憑證檔…」開啟系統的開啟對話框（只列 `.pfx`、`.p12`），選好後顯示檔名，還沒選時顯示 signing.noFile；「憑證檔的密碼」；「簽章的外觀」兩個單選按鈕：顯示在目前這一頁的角落（預設；「位置」選單選四個角之一，預設右下角），或不顯示在頁面上；「原因（選填）」，太長時顯示 signing.reasonTooLong；signing.note。沒有選憑證檔、沒有密碼或原因太長時，「選擇位置並簽署…」停用。
+- **選擇位置並簽署…**：主行程先載入憑證檔。密碼不對或不是憑證、過期、還沒生效、不能用來簽署時，在另存對話框出現之前就顯示原因（`role="alert"`），密碼欄清空，選的檔案留著。接著顯示系統的另存對話框，建議檔名 `<原檔名>（已簽署）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（SIGNED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，密碼還在，可以再試。簽署中顯示 signing.running，欄位與按鈕停用，不能關閉對話框。
+- **結果**：成功後對話框換成結果（標題 signing.resultTitle，`role="status"`）：signing.result。簽好的副本已在新分頁開啟，它的簽章提示列說明簽章的狀況（B2-14）。按「完成」（signing.done）關閉。
+- 失敗、完成或關閉對話框時，密碼欄位清空；app 不記住憑證檔或密碼。
+
 ### 批次處理（B3-04）
 
 - 批次進行中關閉視窗：視窗隱藏、系統列出現圖示（提示 batch tray 文字，選單「顯示視窗」「停止批次處理」），批次做完後在資料夾寫報告、跳出訊息方塊（標題「批次處理完成」）、按「確定」後程式結束；見 [batch.md](../architecture/batch.md)「背景執行」。
@@ -1240,6 +1249,44 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | COMPRESSED_COPY_DIALOG_TITLE（主行程） | 壓縮圖片並另存新檔：選擇副本的位置 |
 | compressed_copy_file_name（主行程） | <原檔名>（已壓縮）.pdf |
 | COMPRESSED_COPY_SAME_FILE_TITLE／MESSAGE（主行程） | 請選擇其他檔案／壓縮會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
+
+### 簽署文件（B3-06）
+
+| 鍵 | 文字 |
+|---|---|
+| menu.sign | 簽署… |
+| signing.title | 簽署文件 |
+| signing.description | 用你的憑證檔簽署這份文件，存成另一個檔案；目前的文件與它的檔案不會改變。全部在這台電腦上完成，不連網。 |
+| signing.checking／signing.checkFailed | 正在檢查這份文件…／無法檢查這份文件，請再試一次。 |
+| signing.encrypted | 已加密的文件目前不能簽署。 |
+| signing.unsaved | 這份文件有尚未儲存的變更。簽署的是檔案本身，請先儲存再簽署。 |
+| signing.certified | 這份文件的認證簽章不允許任何變更，也不允許再加上簽章。 |
+| signing.repaired | 這個檔案要修復才能開啟；簽署會改到它原本的內容，所以不能簽署。 |
+| signing.chooseAgain | 請確認文件已儲存，並重新選擇憑證檔再試一次。 |
+| signing.fileLabel／signing.chooseFile／signing.noFile | 憑證檔／選擇憑證檔…／尚未選擇（.pfx 或 .p12） |
+| signing.passwordLabel | 憑證檔的密碼 |
+| signing.appearanceTitle | 簽章的外觀 |
+| signing.visible(page) | 顯示在目前這一頁（第 <page> 頁）的角落 |
+| signing.cornerLabel／signing.corners.topLeft／topRight／bottomLeft／bottomRight | 位置／左上角／右上角／左下角／右下角 |
+| signing.invisible | 不顯示在頁面上 |
+| signing.reasonLabel／signing.reasonTooLong | 原因（選填）／原因太長了，請縮短。 |
+| signing.note | 簽署時間是這台電腦的時間，沒有時間戳記。簽好的副本會先由另一個程序驗證，有效才存檔，並在新分頁開啟。app 不會記住憑證檔或密碼。 |
+| signing.start／signing.cancel／signing.close | 選擇位置並簽署…／取消／關閉 |
+| signing.running／signing.failed | 正在簽署…／無法簽署這份文件，請再試一次。 |
+| signing.resultTitle | 已簽署並存成新檔 |
+| signing.done | 完成 |
+| signing.result(name) | 已存成「<name>」，並在新分頁開啟。 |
+| signing.encryptedShort | 已加密的文件不適用（選單中，取代快捷鍵的位置） |
+| error.messages.certificateUnreadable | 密碼不對，或檔案不是憑證。 |
+| error.messages.certificateExpired／certificateNotYetValid | 這張憑證已經過期，不能用來簽署。／這張憑證還沒生效，不能用來簽署。 |
+| error.messages.certificateNotForSigning | 這張憑證不能用來簽署：它的用途不含數位簽章，或檔案裡沒有私鑰。 |
+| error.messages.signatureTooLarge | 簽章比文件預留的空間大，所以沒有建立副本。 |
+| error.messages.signatureNotValid | 簽好的副本沒有通過驗證，所以沒有存檔。 |
+| CERTIFICATE_DIALOG_TITLE／CERTIFICATE_FILTER_NAME（主行程） | 選擇簽署用的憑證檔／憑證檔（PKCS #12） |
+| SIGNED_COPY_DIALOG_TITLE（主行程） | 簽署並另存新檔：選擇已簽署副本的位置 |
+| signed_copy_file_name（主行程） | <原檔名>（已簽署）.pdf |
+| SIGNED_COPY_SAME_FILE_TITLE／MESSAGE（主行程） | 請選擇其他檔案／簽署會產生一份已簽署的副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
+| signature_lines（主行程，頁面上的方框） | 數位簽署：<簽署者>／日期：<YYYY-MM-DD HH:MM>（UTC+08:00）／原因：<原因>（有填才有這一行） |
 
 ### 儲存（B2-02）
 

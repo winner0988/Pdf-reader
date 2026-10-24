@@ -81,6 +81,10 @@ enum Kind {
         file_name: String,
         extension: Option<String>,
     },
+    /// The certificate file to sign with (B3-06): one PKCS #12 file.
+    OpenCertificate,
+    /// Where to write the signed copy of a document (B3-06), suggesting `file_name`.
+    SignedCopy { file_name: String },
 }
 
 /// Shows the open dialog (PDF files only; several can be picked) over `window` and returns the
@@ -196,6 +200,21 @@ pub async fn page_marks_file(
     file_name: String,
 ) -> Result<Option<PathBuf>, IpcError> {
     Ok(run(window, Kind::PageMarks { file_name })
+/// Asks for the certificate file to sign with (B3-06): one PKCS #12 file (`.pfx`, `.p12`). `None`
+/// if the user cancelled.
+pub async fn pick_certificate(window: &WebviewWindow) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::OpenCertificate)
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
+/// Asks where to write the signed copy of a document (B3-06), suggesting `file_name`. The dialog
+/// itself asks before replacing an existing file.
+pub async fn signed_copy_file(
+    window: &WebviewWindow,
+    file_name: String,
+) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::SignedCopy { file_name })
         .await?
         .and_then(|mut paths| paths.pop()))
 }
@@ -333,13 +352,15 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
         | Kind::PageMarks { .. }
         | Kind::SplitPdf { .. }
         | Kind::SaveCreatedPdf { .. }
-        | Kind::SaveAttachment { .. } => common | FOS_OVERWRITEPROMPT,
+        | Kind::SaveAttachment { .. }
+        | Kind::SignedCopy { .. } => common | FOS_OVERWRITEPROMPT,
         Kind::PickFolder { .. } => common | FOS_PICKFOLDERS,
         Kind::OpenLanguageData
         | Kind::OpenFont
         | Kind::OpenPagesSource
         | Kind::OpenImage
-        | Kind::OpenWatermarkImage => common,
+        | Kind::OpenWatermarkImage
+        | Kind::OpenCertificate => common,
     }
 }
 
@@ -399,6 +420,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
             | Kind::SplitPdf { .. }
             | Kind::SaveCreatedPdf { .. }
             | Kind::SaveAttachment { .. } => {
+            | Kind::SignedCopy { .. } => {
                 CoCreateInstance::<_, IFileSaveDialog>(&FileSaveDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
             }
@@ -410,7 +432,8 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
             | Kind::OpenFont
             | Kind::OpenImage
             | Kind::OpenWatermarkImage
-            | Kind::OpenSources => {
+            | Kind::OpenSources
+            | Kind::OpenCertificate => {
                 CoCreateInstance::<_, IFileOpenDialog>(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
             }
@@ -538,6 +561,14 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             one(strings::IMAGE_FILTER_NAME, "*.png;*.jpg;*.jpeg"),
         ),
         Kind::OpenSources => (strings::CREATE_SOURCES_DIALOG_TITLE, source_filters()),
+        Kind::OpenCertificate => (
+            strings::CERTIFICATE_DIALOG_TITLE,
+            one(strings::CERTIFICATE_FILTER_NAME, "*.pfx;*.p12"),
+        ),
+        Kind::SignedCopy { .. } => (
+            strings::SIGNED_COPY_DIALOG_TITLE,
+            one(strings::PDF_FILTER_NAME, "*.pdf"),
+        ),
     };
     let title = HSTRING::from(title);
     let texts: Vec<(HSTRING, HSTRING)> = filters
@@ -569,7 +600,8 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
         | Kind::CompressedCopy { file_name }
         | Kind::PageMarks { file_name }
         | Kind::SplitPdf { file_name }
-        | Kind::SaveCreatedPdf { file_name } = kind
+        | Kind::SaveCreatedPdf { file_name }
+        | Kind::SignedCopy { file_name } = kind
         {
             let extension = match kind {
                 Kind::SaveText { .. } => "txt",
@@ -702,14 +734,8 @@ mod tests {
         });
         assert!(split(FOS_DONTADDTORECENT) && split(FOS_OVERWRITEPROMPT));
 
-        // An attachment (B3-20) with an extension, and one without.
-        for extension in [Some("txt".to_owned()), None] {
-            let attachment = options_of(Kind::SaveAttachment {
-                file_name: "附件 1".to_owned(),
-                extension,
-            });
-            assert!(attachment(FOS_DONTADDTORECENT) && attachment(FOS_OVERWRITEPROMPT));
-        }
+        | Kind::SaveAttachment { .. }
+        | Kind::SignedCopy { .. } => common | FOS_OVERWRITEPROMPT,
 
         let language = options_of(Kind::OpenLanguageData);
         assert!(

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-check-signing"
+description = "Enables the check_signing command without any pre-configured scope."
+commands.allow = ["check_signing"]
+
+[[permission]]
+identifier = "deny-check-signing"
+description = "Denies the check_signing command without any pre-configured scope."
+commands.deny = ["check_signing"]

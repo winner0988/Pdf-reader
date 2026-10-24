@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import json
 import random
 import struct
@@ -855,11 +856,12 @@ def is_probable_prime(n: int) -> bool:
 
 
 _SIGNING_KEY: tuple[int, int, int] | None = None
+_SIGNING_PRIMES: tuple[int, int] | None = None
 
 
 def test_signing_key() -> tuple[int, int, int]:
     """(n, e, d) of the corpus's RSA-2048 test key, derived from a fixed seed."""
-    global _SIGNING_KEY
+    global _SIGNING_KEY, _SIGNING_PRIMES
     if _SIGNING_KEY is None:
         stream = DeterministicBytes(b"Pdf-reader corpus test signing key (never trust it)")
         e = 65537
@@ -872,7 +874,17 @@ def test_signing_key() -> tuple[int, int, int]:
         p, q = primes
         phi = (p - 1) * (q - 1)
         _SIGNING_KEY = (p * q, e, pow(e, -1, phi))
+        _SIGNING_PRIMES = (p, q)
     return _SIGNING_KEY
+
+
+def test_private_key_info() -> bytes:
+    """The test key as a PKCS #8 PrivateKeyInfo (RFC 5208) over an RSAPrivateKey (RFC 8017)."""
+    n, e, d = test_signing_key()
+    assert _SIGNING_PRIMES is not None
+    p, q = _SIGNING_PRIMES
+    rsa_key = der_seq(*(der_int(value) for value in (0, n, e, d, p, q, d % (p - 1), d % (q - 1), pow(q, -1, p))))
+    return der_seq(der_int(0), der_algorithm(OID_RSA), der(0x04, rsa_key))
 
 
 def rsa_sign(key: tuple[int, int, int], message: bytes) -> bytes:
@@ -889,21 +901,28 @@ def rsa_sign(key: tuple[int, int, int], message: bytes) -> bytes:
 
 def test_certificate(key: tuple[int, int, int]) -> tuple[bytes, bytes]:
     """A self-signed X.509 v3 certificate for the test key, and its subject (= issuer) name."""
+    # keyUsage: digitalSignature and nonRepudiation.
+    return self_signed_certificate(key, SIGNER_SERIAL, SIGNER_NAME, b"260101000000Z", b"360101000000Z", b"\x06\xc0")
+
+
+def self_signed_certificate(key: tuple[int, int, int], serial: int, common_name: str, valid_from: bytes,
+                            valid_until: bytes, key_usage_bits: bytes) -> tuple[bytes, bytes]:
+    """A self-signed X.509 v3 certificate for `key`, valid between the two UTCTimes, with a critical
+    keyUsage of `key_usage_bits` (a BIT STRING's content), and its subject (= issuer) name."""
     n, e, _ = key
 
     def rdn(oid: str, value: str) -> bytes:
         return der_set(der_seq(der_oid(oid), der(0x0C, value.encode("utf-8"))))
 
-    name = der_seq(rdn("2.5.4.10", SIGNER_ORGANIZATION), rdn("2.5.4.3", SIGNER_NAME))
+    name = der_seq(rdn("2.5.4.10", SIGNER_ORGANIZATION), rdn("2.5.4.3", common_name))
     public_key = der_seq(der_algorithm(OID_RSA), der(0x03, b"\x00" + der_seq(der_int(n), der_int(e))))
-    # keyUsage (critical): digitalSignature and nonRepudiation.
-    key_usage = der_seq(der_oid("2.5.29.15"), der(0x01, b"\xff"), der(0x04, der(0x03, b"\x06\xc0")))
+    key_usage = der_seq(der_oid("2.5.29.15"), der(0x01, b"\xff"), der(0x04, der(0x03, key_usage_bits)))
     tbs = der_seq(
         der(0xA0, der_int(2)),
-        der_int(SIGNER_SERIAL),
+        der_int(serial),
         der_algorithm(OID_SHA256_RSA),
         name,
-        der_seq(der(0x17, b"260101000000Z"), der(0x17, b"360101000000Z")),
+        der_seq(der(0x17, valid_from), der(0x17, valid_until)),
         name,
         public_key,
         der(0xA3, der_seq(key_usage)),
@@ -983,6 +1002,103 @@ def signed_sample(name: str, text: str, certify: bool) -> bytes:
 
 
 SIGNED_TEXT = "Signed sample (test certificate: never trust it)"
+
+
+# --------------------------------------------------------------------------- certificates (B3-06)
+# PKCS #12 files (RFC 7292) of the corpus's test key, for signing documents (ADR 0020): the key
+# encrypted with PBES2 (PBKDF2 with HMAC-SHA-256, AES-256-CBC, RFC 8018), the whole checked with
+# an HMAC-SHA-256 under the PKCS #12 key derivation, as Windows 10 1709 and later import them.
+
+# The password of every certificate file in the corpus: a test value, public like the key.
+TEST_PFX_PASSWORD = "corpus-test-password"
+PFX_ITERATIONS = 2048
+OID_PBES2 = "1.2.840.113549.1.5.13"
+OID_PBKDF2 = "1.2.840.113549.1.5.12"
+OID_HMAC_SHA256 = "1.2.840.113549.2.9"
+OID_AES256_CBC = "2.16.840.1.101.3.4.1.42"
+OID_SHROUDED_KEY_BAG = "1.2.840.113549.1.12.10.1.2"
+OID_CERT_BAG = "1.2.840.113549.1.12.10.1.3"
+OID_X509_CERTIFICATE = "1.2.840.113549.1.9.22.1"
+OID_LOCAL_KEY_ID = "1.2.840.113549.1.9.21"
+EXPIRED_SIGNER_NAME = "PDF Reader test corpus signer, expired (NOT TRUSTED)"
+ENCRYPTION_ONLY_NAME = "PDF Reader test corpus key for encryption only (NOT TRUSTED)"
+
+
+def pkcs12_kdf(digest, password: str, salt: bytes, purpose: int, iterations: int, size: int) -> bytes:
+    """The key derivation of RFC 7292, appendix B.2 (`purpose` 3: the key of the MAC)."""
+    u, v = digest().digest_size, digest().block_size
+
+    def fill(data: bytes) -> bytes:
+        length = v * ((len(data) + v - 1) // v)
+        return (data * (length // len(data) + 1))[:length] if data else b""
+
+    diversifier = bytes([purpose]) * v
+    block = fill(salt) + fill(password.encode("utf-16-be") + b"\x00\x00")
+    out = b""
+    while len(out) < size:
+        a = digest(diversifier + block).digest()
+        for _ in range(iterations - 1):
+            a = digest(a).digest()
+        out += a
+        b = int.from_bytes((a * (v // u + 1))[:v], "big") + 1
+        block = b"".join(
+            ((int.from_bytes(block[j:j + v], "big") + b) % (1 << (8 * v))).to_bytes(v, "big")
+            for j in range(0, len(block), v)
+        )
+    return out[:size]
+
+
+def check_pkcs12_kdf() -> None:
+    """A published vector of the RFC 7292 derivation (Bouncy Castle's, SHA-1)."""
+    derived = pkcs12_kdf(hashlib.sha1, "smeg", bytes.fromhex("0A58CF64530D823F"), 1, 1, 24)
+    if derived.hex().upper() != "8AAAE6297B6CB04642AB5B077851284EB7128F1A2A7FBCA3":
+        raise AssertionError("the PKCS #12 key derivation does not match its test vector")
+
+
+def pkcs12_file(name: str, certificate: bytes) -> bytes:
+    """A PKCS #12 file of `certificate` and the test key, under TEST_PFX_PASSWORD."""
+    stream = DeterministicBytes(b"Pdf-reader corpus PKCS #12 " + name.encode("ascii"))
+    salt, iv, mac_salt = stream.take(16), stream.take(16), stream.take(16)
+    # Ties the key to its certificate, as importers expect.
+    attributes = der_set(der_seq(der_oid(OID_LOCAL_KEY_ID), der_set(der(0x04, hashlib.sha1(certificate).digest()))))
+    cert_bag = der_seq(
+        der_oid(OID_CERT_BAG),
+        der(0xA0, der_seq(der_oid(OID_X509_CERTIFICATE), der(0xA0, der(0x04, certificate)))),
+        attributes,
+    )
+    key = hashlib.pbkdf2_hmac("sha256", TEST_PFX_PASSWORD.encode("utf-8"), salt, PFX_ITERATIONS, 32)
+    encrypted_key = aes_cbc_encrypt(key, iv, pkcs7_pad(test_private_key_info()))
+    pbes2 = der_seq(der_oid(OID_PBES2), der_seq(
+        der_seq(der_oid(OID_PBKDF2), der_seq(der(0x04, salt), der_int(PFX_ITERATIONS), der_algorithm(OID_HMAC_SHA256))),
+        der_seq(der_oid(OID_AES256_CBC), der(0x04, iv)),
+    ))
+    key_bag = der_seq(der_oid(OID_SHROUDED_KEY_BAG), der(0xA0, der_seq(pbes2, der(0x04, encrypted_key))), attributes)
+    authenticated_safe = der_seq(
+        der_seq(der_oid(OID_DATA), der(0xA0, der(0x04, der_seq(cert_bag)))),
+        der_seq(der_oid(OID_DATA), der(0xA0, der(0x04, der_seq(key_bag)))),
+    )
+    mac_key = pkcs12_kdf(hashlib.sha256, TEST_PFX_PASSWORD, mac_salt, 3, PFX_ITERATIONS, 32)
+    mac = hmac.new(mac_key, authenticated_safe, hashlib.sha256).digest()
+    mac_data = der_seq(der_seq(der_algorithm(OID_SHA256), der(0x04, mac)), der(0x04, mac_salt), der_int(PFX_ITERATIONS))
+    return der_seq(der_int(3), der_seq(der_oid(OID_DATA), der(0xA0, der(0x04, authenticated_safe))), mac_data)
+
+
+def certificate_signer() -> bytes:
+    certificate, _ = test_certificate(test_signing_key())
+    return pkcs12_file("signer", certificate)
+
+
+def certificate_expired() -> bytes:
+    certificate, _ = self_signed_certificate(test_signing_key(), SIGNER_SERIAL + 1, EXPIRED_SIGNER_NAME,
+                                             b"200101000000Z", b"210101000000Z", b"\x06\xc0")
+    return pkcs12_file("expired", certificate)
+
+
+def certificate_encryption_only() -> bytes:
+    # keyUsage: keyEncipherment only.
+    certificate, _ = self_signed_certificate(test_signing_key(), SIGNER_SERIAL + 2, ENCRYPTION_ONLY_NAME,
+                                             b"260101000000Z", b"360101000000Z", b"\x05\x20")
+    return pkcs12_file("encryption-only", certificate)
 CERTIFIED_TEXT = "Certified sample: no changes allowed (DocMDP P=1)"
 
 
@@ -2396,6 +2512,24 @@ def source_pptx() -> bytes:
     ])
 
 
+# Certificate files for signing (B3-06, ADR 0020), not PDFs: listed under "certificates" in the
+# manifest. Every one holds the corpus's test key, under TEST_PFX_PASSWORD.
+CERTIFICATE_SAMPLES = [
+    ("certificates/signer.pfx", certificate_signer,
+     f"The test key and its self-signed certificate (CN={SIGNER_NAME}, valid 2026 to 2036, for signing), "
+     f"password '{TEST_PFX_PASSWORD}'.",
+     "Signs a document: the copy's signature is valid, its signer not trusted (B3-06)."),
+    ("certificates/expired.pfx", certificate_expired,
+     f"The test key with a certificate that was valid in 2020 only (CN={EXPIRED_SIGNER_NAME}), "
+     f"password '{TEST_PFX_PASSWORD}'.",
+     "Refused for signing: the certificate has expired (B3-06)."),
+    ("certificates/encryption-only.pfx", certificate_encryption_only,
+     f"The test key with a certificate whose key usage is key encipherment only (CN={ENCRYPTION_ONLY_NAME}), "
+     f"password '{TEST_PFX_PASSWORD}'.",
+     "Refused for signing: the certificate is not for signatures (B3-06)."),
+]
+
+
 # Files to make a PDF of, not PDFs: listed under "sources" in the manifest.
 SOURCE_SAMPLES = [
     ("sources/text.txt", source_text,
@@ -2429,6 +2563,7 @@ def main() -> int:
     parser.add_argument("--large", action="store_true", help="also generate the on-demand files")
     args = parser.parse_args()
     check_aes()
+    check_pkcs12_kdf()
 
     manifest = {
         "version": 1,
@@ -2483,6 +2618,22 @@ def main() -> int:
         manifest["sources"].append({
             "path": path,
             "category": "sources",
+            "purpose": purpose,
+            "expected": expected,
+            "bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        })
+    manifest["certificates"] = []
+    for path, build, purpose, expected in CERTIFICATE_SAMPLES:
+        data = build()
+        if data != build():
+            raise AssertionError(f"{path} is not deterministic")
+        target = ROOT / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        manifest["certificates"].append({
+            "path": path,
+            "category": "certificates",
             "purpose": purpose,
             "expected": expected,
             "bytes": len(data),

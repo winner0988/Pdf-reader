@@ -19,6 +19,7 @@ import { tauriOutlineApi, useOutline, type OutlineApi } from "@/features/outline
 import { tauriRecentApi, type RecentApi } from "@/features/recent/api";
 import { tauriSavingApi, type SavingApi } from "@/features/saving/api";
 import { tauriSensitiveApi, type SensitiveApi } from "@/features/sensitive/api";
+import { tauriSigningApi, type SigningApi } from "@/features/signing/api";
 import { UnsavedDialog } from "@/features/saving/UnsavedDialog";
 import { tauriSettingsApi, type SettingsApi } from "@/features/settings/api";
 import { SettingsProvider } from "@/features/settings/SettingsProvider";
@@ -56,6 +57,7 @@ type AppProps = {
   batchApi?: BatchApi;
   createApi?: CreateApi;
   sensitiveApi?: SensitiveApi;
+  signingApi?: SigningApi;
   editingApi?: EditingApi;
   updatesApi?: UpdatesApi;
   fontsApi?: FontsApi;
@@ -80,6 +82,7 @@ export default function App({
   batchApi = tauriBatchApi,
   createApi = tauriCreateApi,
   sensitiveApi = tauriSensitiveApi,
+  signingApi = tauriSigningApi,
   editingApi = tauriEditingApi,
   updatesApi = tauriUpdatesApi,
   fontsApi = tauriFontsApi,
@@ -197,6 +200,7 @@ export default function App({
                   savingApi={savingApi}
                   createApi={createApi}
                   sensitiveApi={sensitiveApi}
+                  signingApi={signingApi}
                   editingApi={editingApi}
                   updatesApi={updatesApi}
                   fontsApi={fontsApi}
@@ -266,6 +270,7 @@ type TabPaneProps = {
   savingApi: SavingApi;
   createApi: CreateApi;
   sensitiveApi: SensitiveApi;
+  signingApi: SigningApi;
   editingApi: EditingApi;
   updatesApi: UpdatesApi;
   fontsApi: FontsApi;
