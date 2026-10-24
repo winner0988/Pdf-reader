@@ -917,6 +917,25 @@ export function ReaderShell({
     }
   };
 
+  /**
+   * The same for the web address of a remote reference, from the blocked-content details
+   * (B3-08, ADR 0022): the app never loads it, and the browser opens it only once confirmed.
+   */
+  const openRemoteAddress = (index: number) => {
+    if (!linksApi || document_?.doc === undefined) return;
+    const doc = document_.doc;
+    linksApi.describeRemoteAddress(doc, index).then(
+      (preview) =>
+        setLinkDialog({
+          kind: "confirm",
+          key: `remote:${index}`,
+          preview,
+          open: () => linksApi.openRemoteAddress(doc, index),
+        }),
+      () => {},
+    );
+  };
+
   const findings = document_?.findings ?? [];
   const scanComplete = document_?.scanComplete ?? true;
   const bannerSays = JSON.stringify([findings, scanComplete]);
@@ -1415,7 +1434,14 @@ export function ReaderShell({
             </div>
           </div>
           {bannerShown && detailsOpen && (
-            <SecurityDetails id={detailsId} findings={findings} scanComplete={scanComplete} onClose={closeDetails} />
+            <SecurityDetails
+              id={detailsId}
+              findings={findings}
+              scanComplete={scanComplete}
+              addresses={document_?.remoteAddresses}
+              onOpenAddress={linksApi && document_?.doc !== undefined ? openRemoteAddress : undefined}
+              onClose={closeDetails}
+            />
           )}
           {signaturesShown && signaturesOpen && (
             <SignatureDetails id={signaturesId} report={signatureReport} onClose={closeSignatures} />

@@ -166,6 +166,7 @@ pub fn bindings() -> String {
         PageLink,
         LinkArgs,
         OutlineLinkArgs,
+        RemoteAddressArgs,
         LinkPreview,
         OutlineItem,
         OutlineResult,
@@ -186,7 +187,7 @@ pub fn bindings() -> String {
         SaveAttachmentResult,
     );
 
-    let limits: [(&str, String); 59] = [
+    let limits: [(&str, String); 60] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -198,6 +199,7 @@ pub fn bindings() -> String {
         ("maxOutlineDepth", MAX_OUTLINE_DEPTH.to_string()),
         ("maxLinksPerPage", MAX_LINKS_PER_PAGE.to_string()),
         ("maxUriBytes", MAX_URI_BYTES.to_string()),
+        ("maxRemoteAddresses", MAX_REMOTE_ADDRESSES.to_string()),
         ("maxTextBytes", MAX_TEXT_BYTES.to_string()),
         ("maxQueryBytes", MAX_QUERY_BYTES.to_string()),
         ("maxPasswordBytes", MAX_PASSWORD_BYTES.to_string()),

@@ -2,6 +2,7 @@ import { TriangleAlert, X } from "lucide-react";
 import { useEffect, useId, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
+import { revealHidden } from "@/features/links/text";
 import { LEAKY_KINDS, orderedFindings } from "@/features/security-banner/summary";
 import { strings } from "@/i18n/zh-TW";
 import type { SecurityFinding } from "@/ipc/generated/contract";
@@ -13,16 +14,30 @@ type SecurityDetailsProps = {
   id: string;
   findings: SecurityFinding[];
   scanComplete: boolean;
+  /** Web addresses of remote references (B3-08, ADR 0022), as the PDF has them. */
+  addresses?: readonly string[];
+  /** Asks to open the address at `index` in the browser; the confirmation comes first. */
+  onOpenAddress?: (index: number) => void;
   onClose: () => void;
 };
 
 /**
  * The blocked-content details panel (docs/ux/screen-map.md, section 5): one row per kind with
- * its name, what it is and how many were found. Nothing here can allow or run any of it.
+ * its name, what it is and how many were found. Nothing here can allow or run any of it; the web
+ * addresses of remote references can only be handed to the browser, one at a time, after the
+ * user confirms each (ADR 0022).
  */
-export function SecurityDetails({ id, findings, scanComplete, onClose }: SecurityDetailsProps) {
+export function SecurityDetails({
+  id,
+  findings,
+  scanComplete,
+  addresses = [],
+  onOpenAddress,
+  onClose,
+}: SecurityDetailsProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
+  const addressesId = useId();
   // Opening the panel moves focus into it.
   useEffect(() => {
     closeRef.current?.focus();
@@ -68,6 +83,36 @@ export function SecurityDetails({ id, findings, scanComplete, onClose }: Securit
             );
           })}
         </ul>
+        {addresses.length > 0 && onOpenAddress && (
+          <section aria-labelledby={addressesId} className="mt-3 border-t pt-3">
+            <h3 id={addressesId} className="text-sm font-medium">
+              {t.addressesTitle}
+            </h3>
+            <p className="mt-1 text-sm text-muted-foreground">{t.addressesNote}</p>
+            <ul className="mt-2 space-y-2">
+              {addresses.map((address, index) => (
+                <li key={address} data-address className="rounded-md border p-2">
+                  <p
+                    id={`${addressesId}-${index}`}
+                    dir="ltr"
+                    className="line-clamp-3 font-mono text-xs break-all select-text"
+                  >
+                    {revealHidden(address)}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    aria-describedby={`${addressesId}-${index}`}
+                    onClick={() => onOpenAddress(index)}
+                  >
+                    {t.openAddress}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {!scanComplete && (
           <p
             role="note"

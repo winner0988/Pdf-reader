@@ -104,6 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         count: 2,
                     }],
                     scan_complete: false,
+                    remote_addresses: vec!["https://img.example.invalid/beacon.png".to_owned()],
                 },
                 permissions: DocumentPermissions {
                     copy: false,
@@ -419,6 +420,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     count: 2,
                 }],
                 scan_complete: true,
+                remote_addresses: Vec::new(),
             },
         },
         WorkerResponse::Saved {

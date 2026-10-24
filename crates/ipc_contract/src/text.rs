@@ -182,6 +182,16 @@ pub fn classify_uri(uri: &str) -> LinkTarget {
     }
 }
 
+/// Whether `uri` is the web address of a remote reference that may be offered for the browser
+/// (B3-08, ADR 0022): an `http` or `https` URI, no longer than a link's. Unlike a link, never
+/// `mailto`: a remote reference is something to load, not a message to write.
+pub fn is_web_address(uri: &str) -> bool {
+    let scheme = uri
+        .split_once(':')
+        .map(|(scheme, _)| scheme.to_ascii_lowercase());
+    matches!(scheme.as_deref(), Some("http" | "https")) && uri.len() <= MAX_URI_BYTES as usize
+}
+
 /// A file name or URI that reaches another computer: a UNC path (`\\server\share`, also written
 /// with forward slashes), `file://server/...` or `smb:`. On Windows, opening one can send the
 /// user's account hash to that server (SMB/NTLM).
@@ -390,6 +400,31 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn only_http_and_https_are_web_addresses_of_remote_references() {
+        for uri in [
+            "https://img.example.invalid/beacon.png",
+            "HTTP://example.com/",
+            "https://example.com/\u{202E}gpj.exe",
+        ] {
+            assert!(is_web_address(uri), "{uri}");
+        }
+        for uri in [
+            "mailto:someone@example.com",
+            "file://server/share/x.png",
+            "\\\\server\\share\\x.png",
+            "smb://server/share",
+            "javascript:alert(1)",
+            " https://example.com/",
+            "img.example.invalid/beacon.png",
+            "",
+        ] {
+            assert!(!is_web_address(uri), "{uri}");
+        }
+        let too_long = format!("https://example.com/{}", "a".repeat(MAX_URI_BYTES as usize));
+        assert!(!is_web_address(&too_long));
     }
 
     #[test]

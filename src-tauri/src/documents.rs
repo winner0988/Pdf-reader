@@ -18,7 +18,7 @@ use ipc_contract::limits::{
     MAX_STAMP_SOURCE_BYTES, MAX_TABS, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
 };
 use ipc_contract::raster::{check_region, encode_raster, fit_scale};
-use ipc_contract::text::clean_display_text;
+use ipc_contract::text::{clean_display_text, is_web_address};
 use ipc_contract::types::{
     AnnotationId, AnnotationSummary, AttachmentId, AttachmentInfo, AttachmentSource, BatchOperation,
     BlockedAction, CompressResult, CreateKind, CreateResult, DocumentId, DocumentInfo,
@@ -26,9 +26,9 @@ use ipc_contract::types::{
     IpcError, LinkArgs, LinkPreview, LinkTarget, MarkCheck, NotRemembered, OpenEvent,
     OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource,
     Password, PersonalDataMatches, PreparedTextBox, Recovery, RedactionSummary,
-    RememberedPasswords, RenderPageArgs, Restrictions, SanitizeOptions, SanitizeResult,
-    SaveAttachmentResult, SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId,
-    StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
+    RememberedPasswords, RemoteAddressArgs, RenderPageArgs, Restrictions, SanitizeOptions,
+    SanitizeResult, SaveAttachmentResult, SaveResult, SearchHit, SecurityReport, SignatureReport,
+    SourceId, StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
@@ -1678,6 +1678,21 @@ impl Documents {
                 marked: mark_from_internet(destination).is_ok(),
             })
         })
+    }
+
+    /// What the confirmation shows about the web address of a remote reference (B3-08,
+    /// ADR 0022), named by its place in the security report the frontend was given: the
+    /// address is never loaded by the app, only handed to the browser once the user confirms.
+    pub fn remote_address_preview(&self, args: RemoteAddressArgs) -> Result<LinkPreview, IpcError> {
+        let info = self.document_info(args.doc).ok_or_else(unknown_document)?;
+        match info.security.remote_addresses.get(args.index as usize) {
+            // Checked again here: only http and https, never mailto (ADR 0022).
+            Some(address) if is_web_address(address) => crate::links::preview(address),
+            _ => Err(IpcError {
+                code: ErrorCode::InvalidArgument,
+                message: "no remote reference with a web address there".to_owned(),
+            }),
+        }
     }
 
     /// The links of one page (MVP-12). The worker's answer must be about that page, with one id

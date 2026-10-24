@@ -79,6 +79,16 @@ sequenceDiagram
   - 內容：原因說明，以及 PDF 提供的內容（worker 已整理成純文字，僅供檢視）。
   - 只有「複製內容」與「關閉」兩個按鈕。
 
+## 遠端引用的網址（B3-08）
+
+[ADR 0022](../adr/0022-remote-resources-never-loaded.md)：app 永遠不載入 PDF 引用的遠端資源，但使用者可以把有 `http`／`https` 網址的遠端引用交給瀏覽器開啟。
+
+- 網址由 worker 的掃描收集（`SecurityReport.remoteAddresses`，見 [active-content.md](active-content.md#遠端引用的網址b3-08adr-0022)），隨 `DocumentInfo` 交給前端顯示。
+- 以位置指名：`RemoteAddressArgs { doc, index }`，同樣拒絕其他欄位。
+- `describe_remote_address`／`open_remote_address`：主行程從它最後交給前端的 `DocumentInfo` 取出第 `index` 個網址，再檢查一次只有 `http`／`https`（`is_web_address`，不允許 `mailto`），然後走與頁面連結相同的 `links::preview` 與開啟方式。
+- 前端：已封鎖內容明細的「可以在瀏覽器開啟的網址」，每個網址一個「在瀏覽器開啟…」，開啟與連結相同的確認對話框；一次一個，沒有「全部開啟」。
+- 位置的穩定：文件開著時，清單只在插入其他檔案的頁面時在後面加長、復原時從後面縮短（`Sources::security`），所以確認期間位置不會指到別的網址。
+
 ## 目錄中的外部連結（#49）
 
 - 目錄項目不屬於任何頁面，沒有 `LinkId`，改以它在目錄中的位置指名：`OutlineLinkArgs { doc, item }`，同樣拒絕其他欄位。

@@ -50,6 +50,10 @@ pub const MAX_LINKS_PER_PAGE: u32 = 2_000;
 /// Maximum length of a URI taken from a PDF (UTF-8 bytes).
 pub const MAX_URI_BYTES: u32 = 32_768;
 
+/// Most web addresses of remote references one document lists (B3-08, ADR 0022). They are
+/// opened one at a time by hand, so a longer list would only be longer.
+pub const MAX_REMOTE_ADDRESSES: u32 = 32;
+
 /// Maximum length of short text taken from a PDF: outline titles, blocked action targets.
 pub const MAX_TEXT_BYTES: u32 = 1_024;
 

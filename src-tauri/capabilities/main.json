@@ -31,6 +31,8 @@
     "allow-open-link",
     "allow-describe-outline-link",
     "allow-open-outline-link",
+    "allow-describe-remote-address",
+    "allow-open-remote-address",
     "allow-search",
     "allow-open-default-apps-settings",
     "allow-check-for-updates",

@@ -168,6 +168,8 @@ describe("drawing with the pen (B2-08)", () => {
       openLink: vi.fn(),
       describeOutlineLink: vi.fn(),
       openOutlineLink: vi.fn(),
+      describeRemoteAddress: vi.fn(),
+      openRemoteAddress: vi.fn(),
     } satisfies LinksApi;
     const { layer, penButton, user } = await setup(ALL_PERMISSIONS, [drawing, stamp], linksApi);
     await user.click(penButton());

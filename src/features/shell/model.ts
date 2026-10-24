@@ -25,6 +25,11 @@ export type ShellDocument = {
   findings: SecurityFinding[];
   /** False when the worker's scan stopped at its budget: there may be more than `findings`. */
   scanComplete: boolean;
+  /**
+   * Web addresses of remote references (B3-08, ADR 0022), as the PDF has them: never loaded,
+   * but each can be opened in the browser after the user confirms it, by its position here.
+   */
+  remoteAddresses?: string[];
   /** What the document's author allows (MVP-19). */
   permissions: DocumentPermissions;
   /** Changed since it was opened or last saved (B2-02). */

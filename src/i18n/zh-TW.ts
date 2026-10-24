@@ -961,6 +961,10 @@ export const strings = {
     detailsCount: (count: number) => `${count.toLocaleString("en-US")} 項`,
     detailsClose: "關閉已封鎖的內容",
     scanIncomplete: "文件太大，掃描未完成；可能還有未列出的項目。",
+    addressesTitle: "可以在瀏覽器開啟的網址",
+    addressesNote:
+      "本程式不會載入這些網址。要看它們的內容，可以一個一個交給瀏覽器開啟：會先顯示完整網址，確認後才開啟。開啟後，那個網站會知道你的 IP 位址與開啟的時間。",
+    openAddress: "在瀏覽器開啟…",
   },
   findings: {
     javaScript: { name: "JavaScript 腳本", description: "文件內嵌的程式碼" },

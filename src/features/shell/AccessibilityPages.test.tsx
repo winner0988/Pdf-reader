@@ -100,6 +100,8 @@ describe("the page", () => {
       openLink: vi.fn(),
       describeOutlineLink: vi.fn(),
       openOutlineLink: vi.fn(),
+      describeRemoteAddress: vi.fn(),
+      openRemoteAddress: vi.fn(),
     } satisfies LinksApi;
     await showFirstPage({ linksApi });
     await waitFor(() => expect(document.querySelectorAll("[data-link]")).toHaveLength(3));

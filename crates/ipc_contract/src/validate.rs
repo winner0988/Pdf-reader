@@ -12,6 +12,7 @@ use crate::limits::*;
 use crate::ocr::is_language_name;
 use crate::text::{
     classify_uri, is_clean_copy_text, is_clean_display_text, is_invisible_format, is_note_text,
+    is_web_address,
 };
 use crate::types::{
     AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind, AttachmentInfo,
@@ -187,6 +188,28 @@ impl Validate for SecurityReport {
                 return Err(ValidationError::Invalid {
                     what: "security findings",
                     reason: "duplicate kind",
+                });
+            }
+        }
+        check_count(
+            "remote addresses",
+            self.remote_addresses.len(),
+            MAX_REMOTE_ADDRESSES,
+        )?;
+        let mut addresses = HashSet::new();
+        for address in &self.remote_addresses {
+            check_text("remote address", address, MAX_URI_BYTES)?;
+            // Only http and https may ever be offered for the browser (ADR 0022).
+            if !is_web_address(address) {
+                return Err(ValidationError::Invalid {
+                    what: "remote address",
+                    reason: "not an http or https URI",
+                });
+            }
+            if !addresses.insert(address) {
+                return Err(ValidationError::Invalid {
+                    what: "remote addresses",
+                    reason: "duplicate address",
                 });
             }
         }
@@ -2206,8 +2229,54 @@ mod tests {
         let report = SecurityReport {
             findings: vec![finding, finding],
             scan_complete: true,
+            remote_addresses: Vec::new(),
         };
         assert!(report.validate().is_err());
+    }
+
+    #[test]
+    fn remote_addresses_are_http_or_https_each_once_and_not_too_many() {
+        let report = |addresses: &[&str]| SecurityReport {
+            findings: vec![SecurityFinding {
+                kind: FindingKind::RemoteFileSpec,
+                count: 1,
+            }],
+            scan_complete: true,
+            remote_addresses: addresses
+                .iter()
+                .map(|address| (*address).to_owned())
+                .collect(),
+        };
+        assert!(
+            report(&["https://img.example.invalid/a.png", "http://example.com/"])
+                .validate()
+                .is_ok()
+        );
+        for bad in [
+            "mailto:someone@example.com",
+            "file://server/share/x.png",
+            "\\\\server\\share\\x.png",
+            "",
+        ] {
+            assert!(report(&[bad]).validate().is_err(), "{bad}");
+        }
+        let long = format!("https://example.com/{}", "a".repeat(MAX_URI_BYTES as usize));
+        assert!(report(&[&long]).validate().is_err());
+        assert!(
+            report(&["https://example.com/", "https://example.com/"])
+                .validate()
+                .is_err()
+        );
+        let many: Vec<String> = (0..=MAX_REMOTE_ADDRESSES)
+            .map(|index| format!("https://example.com/{index}"))
+            .collect();
+        let many: Vec<&str> = many.iter().map(String::as_str).collect();
+        assert!(
+            report(&many[..MAX_REMOTE_ADDRESSES as usize])
+                .validate()
+                .is_ok()
+        );
+        assert!(report(&many).validate().is_err());
     }
 
     #[test]
@@ -4386,6 +4455,7 @@ mod tests {
                 20
             ],
             scan_complete: true,
+            remote_addresses: Vec::new(),
         };
         assert!(
             WorkerResponse::Source {

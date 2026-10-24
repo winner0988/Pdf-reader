@@ -29,6 +29,8 @@ fn main() {
         "open_link",
         "describe_outline_link",
         "open_outline_link",
+        "describe_remote_address",
+        "open_remote_address",
         "search",
         "open_default_apps_settings",
         "check_for_updates",

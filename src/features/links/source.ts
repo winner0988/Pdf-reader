@@ -10,6 +10,7 @@ import type {
   LinkPreview,
   OutlineLinkArgs,
   PageLink,
+  RemoteAddressArgs,
 } from "@/ipc/generated/contract";
 
 export type LinksApi = {
@@ -24,6 +25,12 @@ export type LinksApi = {
   /** The same for the web link of an outline item, named by its position in the outline (#49). */
   describeOutlineLink(doc: DocumentId, item: number): Promise<LinkPreview>;
   openOutlineLink(doc: DocumentId, item: number): Promise<void>;
+  /**
+   * The same for the web address of a remote reference (B3-08, ADR 0022), named by its position
+   * in the document's `remoteAddresses`. The app never loads it; the browser opens it.
+   */
+  describeRemoteAddress(doc: DocumentId, index: number): Promise<LinkPreview>;
+  openRemoteAddress(doc: DocumentId, index: number): Promise<void>;
 };
 
 export const tauriLinksApi: LinksApi = {
@@ -33,6 +40,10 @@ export const tauriLinksApi: LinksApi = {
   describeOutlineLink: (doc, item) =>
     invoke<LinkPreview>("describe_outline_link", { args: { doc, item } satisfies OutlineLinkArgs }),
   openOutlineLink: (doc, item) => invoke<void>("open_outline_link", { args: { doc, item } satisfies OutlineLinkArgs }),
+  describeRemoteAddress: (doc, index) =>
+    invoke<LinkPreview>("describe_remote_address", { args: { doc, index } satisfies RemoteAddressArgs }),
+  openRemoteAddress: (doc, index) =>
+    invoke<void>("open_remote_address", { args: { doc, index } satisfies RemoteAddressArgs }),
 };
 
 export type LinkSource = {

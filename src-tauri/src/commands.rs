@@ -19,8 +19,9 @@ use ipc_contract::types::{
     OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation,
     PageLink, PageMarksCopyArgs, PageText, PagesSource, Password, PersonalDataMatches,
     PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
-    RememberedPasswords, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, RequestId,
-    SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult, SearchArgs, SearchEvent,
+    RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
+    RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult, SearchArgs,
+    SearchEvent,
     SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignatureReport, StampImageInfo, TabId,
     TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
     WatermarkContent,
@@ -899,6 +900,27 @@ pub async fn open_outline_link(app: AppHandle, args: OutlineLinkArgs) -> Result<
     let preview = {
         let app = app.clone();
         blocking(move || app.state::<Documents>().outline_link_preview(args)).await?
+    };
+    crate::opener::open(&app, preview.opens).await
+}
+
+/// What the confirmation shows about the web address of a remote reference (B3-08, ADR 0022),
+/// named by its place in the document's security report.
+#[tauri::command]
+pub async fn describe_remote_address(
+    app: AppHandle,
+    args: RemoteAddressArgs,
+) -> Result<LinkPreview, IpcError> {
+    blocking(move || app.state::<Documents>().remote_address_preview(args)).await
+}
+
+/// Hands the web address of a remote reference to the browser after the user confirmed it
+/// (B3-08, ADR 0022), with the same checks as `open_link`. The app itself never loads it.
+#[tauri::command]
+pub async fn open_remote_address(app: AppHandle, args: RemoteAddressArgs) -> Result<(), IpcError> {
+    let preview = {
+        let app = app.clone();
+        blocking(move || app.state::<Documents>().remote_address_preview(args)).await?
     };
     crate::opener::open(&app, preview.opens).await
 }

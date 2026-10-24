@@ -13,7 +13,7 @@ const info: DocumentInfo = {
   pages: [{ widthPt: 612, heightPt: 792 }],
   hasOutline: false,
   hasForm: false,
-  security: { findings: [], scanComplete: true },
+  security: { findings: [], scanComplete: true, remoteAddresses: [] },
   permissions: ALL_PERMISSIONS,
   unsaved: false,
   encrypted: false,
