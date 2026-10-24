@@ -70,6 +70,14 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-render-page", "MVP-07: render a page of an open document"],
   ["allow-cancel", "MVP-07, MVP-10: cancel a queued render or a running search by request id"],
   ["allow-get-outline", "MVP-09: read the checked outline"],
+  [
+    "allow-get-attachments",
+    "B3-20, ADR 0025: list the files a document carries (cleaned names, claimed sizes, whether the type is dangerous); by document id, nothing is opened",
+  ],
+  [
+    "allow-save-attachment",
+    "B3-20, ADR 0025: save one listed attachment where the user says in the system's save dialog, marked as from the internet; by document and attachment id, never opened",
+  ],
   ["allow-search", "MVP-10: full-text search, results on a channel"],
   ["allow-get-page-links", "MVP-12: where a page's links are and where they point"],
   ["allow-get-page-annotations", "B2-07: list one page's annotations (highlights, notes and the document's own) to select and edit them"],

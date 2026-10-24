@@ -303,6 +303,32 @@
       "sha256": "82d7931bbb98b08a3be465b390e6cfd196a4c492ecb3266cda8a79e62f62b932"
     },
     {
+      "path": "benign/attachment-text.pdf",
+      "category": "benign",
+      "purpose": "A document with a plain text attachment (/Names /EmbeddedFiles).",
+      "expected": "Opens; attachment list shows 'sample.txt' (.txt); can be saved to disk.",
+      "pages": 1,
+      "findings": [
+        "embeddedFile"
+      ],
+      "text": [],
+      "bytes": 1120,
+      "sha256": "4eebdb5c7e6278217aec464f86070d965a7f881cc02d58fcf3659d848e67c24d"
+    },
+    {
+      "path": "benign/attachment-no-name.pdf",
+      "category": "benign",
+      "purpose": "A document with an embedded file having empty /F and /UF names.",
+      "expected": "Opens; attachment name falls back to '附件 1'; can be saved.",
+      "pages": 1,
+      "findings": [
+        "embeddedFile"
+      ],
+      "text": [],
+      "bytes": 1082,
+      "sha256": "8c7b3b882593aa4b32cac5764b4ca3fa76ea8cc712c186cca0149f0bdc8bbb18"
+    },
+    {
       "path": "malicious/js-document-level.pdf",
       "category": "malicious",
       "purpose": "Document-level JavaScript in the names tree.",
@@ -489,6 +515,84 @@
       "text": [],
       "bytes": 3111,
       "sha256": "7dc09164a2db81f635b924785dc479c20b902e0cfb125e7e2d149718281e68b8"
+    },
+    {
+      "path": "malicious/attachment-exe.pdf",
+      "category": "malicious",
+      "purpose": "An embedded file with executable name (payload.exe).",
+      "expected": "App flags as dangerous type (.exe); asks extra confirmation before saving; finding reported.",
+      "pages": 1,
+      "findings": [
+        "embeddedFile"
+      ],
+      "text": [],
+      "bytes": 1107,
+      "sha256": "ba5e452c2fec35a831de3f503c2b8d543bc03b6e92be77740c50250108ff1c23"
+    },
+    {
+      "path": "malicious/attachment-rlo.pdf",
+      "category": "malicious",
+      "purpose": "An embedded file with bidirectional override (U+202E) in its name.",
+      "expected": "App strips RLO character and displays true extension; finding reported.",
+      "pages": 1,
+      "findings": [
+        "embeddedFile"
+      ],
+      "text": [],
+      "bytes": 1233,
+      "sha256": "c0f4abf2da862e170737fb14c8d7976122fa0e6b42070e93ebe26296854cafdd"
+    },
+    {
+      "path": "malicious/attachment-path.pdf",
+      "category": "malicious",
+      "purpose": "An embedded file with relative path traversal in its name.",
+      "expected": "App strips path segments keeping only the basename; finding reported.",
+      "pages": 1,
+      "findings": [
+        "embeddedFile"
+      ],
+      "text": [],
+      "bytes": 1172,
+      "sha256": "39fb5ba9d04d5d178d5dba2954178ff7c430f572fbb52b5cea0ca80ba72cee7a"
+    },
+    {
+      "path": "malicious/attachment-device-name.pdf",
+      "category": "malicious",
+      "purpose": "An embedded file with Windows reserved device name (CON.txt).",
+      "expected": "App prefixes name with underscore (_CON.txt); finding reported.",
+      "pages": 1,
+      "findings": [
+        "embeddedFile"
+      ],
+      "text": [],
+      "bytes": 1123,
+      "sha256": "55e561ae90692700a9603f4039ca71d4b04346f88202022dcdfec9bd2862949a"
+    },
+    {
+      "path": "malicious/attachment-size-mismatch.pdf",
+      "category": "malicious",
+      "purpose": "An embedded file whose declared /Params /Size (100 MB) does not match stream size.",
+      "expected": "Attachment is handled safely; finding reported.",
+      "pages": 1,
+      "findings": [
+        "embeddedFile"
+      ],
+      "text": [],
+      "bytes": 1159,
+      "sha256": "e16822c8f1820652e2de4d2029c56cf575b26238190f0d8ec9242686096d3990"
+    },
+    {
+      "path": "malicious/attachment-decompression-bomb.pdf",
+      "category": "malicious",
+      "purpose": "A compressed attachment stream expanding to > 512 MiB (MAX_DOCUMENT_BYTES).",
+      "expected": "Worker aborts decoding upon exceeding 512 MiB limit; no file remains; worker stays healthy; finding reported.",
+      "pages": 1,
+      "findings": [
+        "embeddedFile"
+      ],
+      "text": [],
+      "bytes": 523997,
+      "sha256": "8be78ba8c0a0c5b71a74d41062c78979523f25835cf60ab1f90e8f0b6a020835"
     },
     {
       "path": "malicious/link-javascript-scheme.pdf",

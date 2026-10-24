@@ -1,6 +1,7 @@
 import type { ComponentProps } from "react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AttachmentsPanel } from "@/features/attachments/AttachmentsPanel";
 import { OutlineTree } from "@/features/outline/OutlineTree";
 import type { OutlineView } from "@/features/outline/tree";
 import type { PageSize } from "@/features/shell/model";
@@ -25,6 +26,8 @@ type SidebarProps = {
   pageEditing?: PageEditing;
   /** Saving the selected pages as a file of their own (B2-06). */
   savePages?: SavePages;
+  /** Whether the document is marked sensitive (B3-05). */
+  isSensitive?: boolean;
   /** Security redaction panel (B2-21). */
   redaction?: RedactionPanelProps;
 };
@@ -44,6 +47,7 @@ export function Sidebar({
   onOpenLink,
   pageEditing,
   savePages,
+  isSensitive,
   redaction,
 }: SidebarProps) {
   return (
@@ -56,6 +60,7 @@ export function Sidebar({
         <TabsList className="m-2 w-[calc(100%-1rem)]">
           <TabsTrigger value="outline">{t.outlineTab}</TabsTrigger>
           <TabsTrigger value="thumbnails">{t.thumbnailsTab}</TabsTrigger>
+          <TabsTrigger value="attachments">{t.attachmentsTab}</TabsTrigger>
           <TabsTrigger value="redactions">{strings.redaction.tab}</TabsTrigger>
         </TabsList>
         <TabsContent value="outline" className="min-h-0 flex-1 overflow-auto px-2 pb-2">
@@ -90,6 +95,9 @@ export function Sidebar({
             editing={pageEditing}
             savePages={savePages}
           />
+        </TabsContent>
+        <TabsContent value="attachments" className="min-h-0 flex-1 overflow-auto px-2 pb-2">
+          <AttachmentsPanel doc={doc} isSensitive={isSensitive} />
         </TabsContent>
         <TabsContent value="redactions" className="min-h-0 flex-1 overflow-auto px-2 pb-2">
           {redaction && (

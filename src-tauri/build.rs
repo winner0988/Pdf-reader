@@ -16,6 +16,8 @@ fn main() {
         "render_page",
         "cancel",
         "get_outline",
+        "get_attachments",
+        "save_attachment",
         "get_page_links",
         "get_page_annotations",
         "get_page_fields",

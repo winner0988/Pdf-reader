@@ -1,0 +1,45 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names [(path-traversal) 7 0 R] >> >> >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<<  /Length 73 >>
+stream
+BT /F1 14 Tf 72 720 Td (Document with attachment: attachment-path) Tj ET
+
+endstream
+endobj
+6 0 obj
+<< /Type /EmbeddedFile /Subtype /text#2Fplain /Params << /Size 22 >> /Length 22 >>
+stream
+Path traversal payload
+endstream
+endobj
+7 0 obj
+<< /Type /Filespec /F (../../Windows/System32/calc.exe) /UF (..\\..\\Windows\\System32\\calc.exe) /EF << /F 6 0 R /UF 6 0 R >> /Desc (Attachment with directory traversal in filename) >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000130 00000 n 
+0000000187 00000 n 
+0000000284 00000 n 
+0000000410 00000 n 
+0000000534 00000 n 
+0000000672 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R /ID [<E372284F7C84B7A78F35AA1EBA7603CF> <E372284F7C84B7A78F35AA1EBA7603CF>] >>
+startxref
+873
+%%EOF

@@ -17,6 +17,7 @@
 //! - There is no message to read an arbitrary file, run a command or open an arbitrary URL.
 //! - Every collection and string coming from the worker has an upper bound in [`limits`].
 
+pub mod attachments;
 pub mod frame;
 pub mod limits;
 pub mod ocr;

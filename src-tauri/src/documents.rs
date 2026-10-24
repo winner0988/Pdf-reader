@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, TryLockError};
 
+use ipc_contract::attachments::{attachment_extension, clean_attachment_name};
 use ipc_contract::limits::{
     MAX_CREATE_SOURCES, MAX_DISPLAY_NAME_BYTES, MAX_PAGE_COUNT, MAX_SOURCE_BYTES,
     MAX_STAMP_SOURCE_BYTES, MAX_TABS, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
@@ -19,13 +20,14 @@ use ipc_contract::limits::{
 use ipc_contract::raster::{check_region, encode_raster, fit_scale};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
-    AnnotationId, AnnotationSummary, BatchOperation, BlockedAction, CompressResult, CreateKind,
-    CreateResult, DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
-    FindPersonalDataQuery, FormField, ImageQuality, IpcError, LinkArgs, LinkPreview, LinkTarget,
-    MarkCheck, NotRemembered, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink,
-    PageSize, PageText, PagesSource, Password, PersonalDataMatches, PreparedTextBox, Recovery,
-    RedactionSummary, RememberedPasswords, RenderPageArgs, Restrictions, SanitizeOptions,
-    SanitizeResult, SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId,
+    AnnotationId, AnnotationSummary, AttachmentId, AttachmentInfo, AttachmentSource, BatchOperation,
+    BlockedAction, CompressResult, CreateKind, CreateResult, DocumentId, DocumentInfo,
+    DocumentPermissions, Edit, EditArgs, ErrorCode, FindPersonalDataQuery, FormField, ImageQuality,
+    IpcError, LinkArgs, LinkPreview, LinkTarget, MarkCheck, NotRemembered, OpenEvent,
+    OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource,
+    Password, PersonalDataMatches, PreparedTextBox, Recovery, RedactionSummary,
+    RememberedPasswords, RenderPageArgs, Restrictions, SanitizeOptions, SanitizeResult,
+    SaveAttachmentResult, SaveResult, SearchHit, SecurityReport, SignatureReport, SourceId,
     StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
@@ -35,6 +37,7 @@ use ipc_contract::worker::{
 };
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
+use crate::attachments::{is_dangerous_attachment, mark_from_internet};
 use crate::credentials::{CredentialError, Credentials};
 use crate::export::ImageKind;
 use crate::history::History;
@@ -1554,6 +1557,83 @@ impl Documents {
                 message: "no outline item with a web link there".to_owned(),
             }),
         }
+    }
+
+    /// The attachments of `doc` (B3-20, ADR 0025): their names cleaned once more, with their real
+    /// extension and whether their type is dangerous.
+    pub fn attachments(&self, doc: DocumentId) -> Result<Vec<AttachmentInfo>, IpcError> {
+        self.with_document(doc, |document| {
+            let response = request(document, |request, doc| WorkerRequest::GetAttachments {
+                request,
+                doc,
+            })?;
+            let WorkerResponse::Attachments { attachments, .. } = response else {
+                return Err(unexpected("GetAttachments"));
+            };
+            let pages = document.info.pages.len() as u32;
+            attachments
+                .into_iter()
+                .enumerate()
+                .map(|(index, attachment)| {
+                    if let AttachmentSource::Page { page } = attachment.source
+                        && page >= pages
+                    {
+                        return Err(IpcError {
+                            code: ErrorCode::ProtocolViolation,
+                            message: "an attachment on a page the document does not have"
+                                .to_owned(),
+                        });
+                    }
+                    let name = clean_attachment_name(&attachment.name, index + 1);
+                    Ok(AttachmentInfo {
+                        id: attachment.id,
+                        extension: attachment_extension(&name),
+                        is_dangerous: is_dangerous_attachment(&name),
+                        name,
+                        size: attachment.size,
+                        description: attachment.description,
+                        source: attachment.source,
+                    })
+                })
+                .collect()
+        })
+    }
+
+    /// Writes attachment `attachment` of `doc`, decoded by the document's worker, to
+    /// `destination`, then marks it as from the internet (B3-20, ADR 0025). The file stays when
+    /// the mark cannot be written (a file system without streams, such as FAT32): the result says
+    /// so. Refused for the document's own file. Nothing is logged: the name says what the
+    /// document holds.
+    pub fn save_attachment(
+        &self,
+        doc: DocumentId,
+        attachment: AttachmentId,
+        destination: &Path,
+    ) -> Result<SaveAttachmentResult, IpcError> {
+        self.with_document(doc, |document| {
+            if same_file(&document.path, destination) {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "an attachment never replaces the document's own file".to_owned(),
+                });
+            }
+            saving::check_writable(destination)?;
+            let mut temporary = Temporary::new(destination)?;
+            let worker_doc = live_worker(document)?;
+            let response = document
+                .host
+                .write_attachment(worker_doc, attachment, temporary.file())
+                .map_err(|error| lost_on(document, &error))?;
+            let WorkerResponse::AttachmentWritten { bytes, .. } = response else {
+                return Err(unexpected("WriteAttachment"));
+            };
+            temporary.check_length(bytes)?;
+            temporary.replace(destination)?;
+            Ok(SaveAttachmentResult {
+                bytes,
+                marked: mark_from_internet(destination).is_ok(),
+            })
+        })
     }
 
     /// The links of one page (MVP-12). The worker's answer must be about that page, with one id
@@ -7997,6 +8077,60 @@ mod with_worker {
     }
 
     /// Recognising the text of scanned pages (B2-10), through the real worker.
+    #[test]
+    fn an_attachment_is_saved_as_it_is_and_marked_as_from_the_internet() {
+        let sample = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/attachment-text.pdf");
+        let (documents, info, path) =
+            open_bytes("attachment-save", &std::fs::read(sample).unwrap());
+        let listed = documents.attachments(info.doc).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].name, "sample.txt");
+        assert_eq!(listed[0].extension, ".txt");
+        assert!(!listed[0].is_dangerous);
+
+        // A text file, not a PDF: saved as the worker decoded it.
+        let saved = path.with_file_name("attachment-save-sample.txt");
+        std::fs::remove_file(&saved).ok();
+        let result = documents
+            .save_attachment(info.doc, listed[0].id, &saved)
+            .unwrap();
+        assert_eq!(result.bytes, 39);
+        assert!(result.marked, "the temporary folder is on NTFS");
+        assert_eq!(
+            std::fs::read(&saved).unwrap(),
+            b"This is a benign text file attachment.\n"
+        );
+        let mut zone = saved.as_os_str().to_os_string();
+        zone.push(":Zone.Identifier");
+        assert_eq!(
+            std::fs::read(&zone).unwrap(),
+            b"[ZoneTransfer]\r\nZoneId=3\r\n"
+        );
+
+        // An id the list does not have writes nothing, and the document's own file is refused.
+        let other = path.with_file_name("attachment-save-other.bin");
+        std::fs::remove_file(&other).ok();
+        assert!(
+            documents
+                .save_attachment(info.doc, AttachmentId(1), &other)
+                .is_err()
+        );
+        assert!(!other.exists());
+        let before = std::fs::read(&path).unwrap();
+        assert_eq!(
+            documents
+                .save_attachment(info.doc, listed[0].id, &path)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+
+        std::fs::remove_file(saved).ok();
+        std::fs::remove_file(path).ok();
+    }
+
     mod ocr {
         use std::time::{Duration, Instant};
 

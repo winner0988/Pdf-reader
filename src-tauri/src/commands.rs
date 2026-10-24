@@ -10,18 +10,18 @@ use std::time::Duration;
 
 use ipc_contract::limits::MAX_BATCH_FILES;
 use ipc_contract::types::{
-    AnnotationId, AnnotationSummaryFormat, AnnotationSummaryOutcome, BatchArgs, BatchEvent,
-    BatchOperation, BatchReport, CompressArgs, CompressResult, CreateResult, DocumentId,
-    DocumentInfo, EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs, ExportArgs,
-    ExportEvent, ExportFormat, FileRecordingArgs, FindPersonalDataQuery, FontImport, FontInfo,
-    FormField, IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs,
-    OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageText,
-    PagesSource, Password, PersonalDataMatches, PrepareTextBoxArgs, PreparedTextBox, RecentFile,
-    RecentId, RedactionSummary, RememberedPasswords, RemoveFontArgs, RemoveLanguageArgs,
-    RenderPageArgs, RequestId, SanitizeArgs, SanitizeResult, SaveResult, SearchArgs, SearchEvent,
-    SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignatureReport, StampImageInfo, TabId,
-    TextBoxInfo, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
-    WatermarkContent,
+    AnnotationId, AnnotationSummaryFormat, AnnotationSummaryOutcome, AttachmentId, AttachmentInfo,
+    BatchArgs, BatchEvent, BatchOperation, BatchReport, CompressArgs, CompressResult, CreateResult,
+    DocumentId, DocumentInfo, EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs,
+    ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs, FindPersonalDataQuery, FontImport,
+    FontInfo, FormField, IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs,
+    OcrFocusArgs, OcrLanguages, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation,
+    PageLink, PageText, PagesSource, Password, PersonalDataMatches, PrepareTextBoxArgs,
+    PreparedTextBox, RecentFile, RecentId, RedactionSummary, RememberedPasswords, RemoveFontArgs,
+    RemoveLanguageArgs, RenderPageArgs, RequestId, SanitizeArgs, SanitizeResult,
+    SaveAttachmentResult, SaveResult, SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile,
+    SensitiveId, Settings, SignatureReport, StampImageInfo, TabId, TextBoxInfo, UndoArgs,
+    UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use tauri::ipc::{Channel, Response};
@@ -735,6 +735,51 @@ pub async fn render_page(app: AppHandle, args: RenderPageArgs) -> Result<Respons
 #[tauri::command]
 pub async fn get_outline(app: AppHandle, doc: DocumentId) -> Result<OutlineResult, IpcError> {
     blocking(move || app.state::<Documents>().outline(doc)).await
+}
+
+/// The attachments of an open document (B3-20, ADR 0025).
+#[tauri::command]
+pub async fn get_attachments(
+    app: AppHandle,
+    doc: DocumentId,
+) -> Result<Vec<AttachmentInfo>, IpcError> {
+    blocking(move || app.state::<Documents>().attachments(doc)).await
+}
+
+/// Asks where to save attachment `attachment` of `doc`, suggesting its cleaned name, then writes
+/// it there marked as from the internet (B3-20, ADR 0025). `None`: the user cancelled. The page
+/// asks first for a dangerous type; the app never opens an attachment.
+#[tauri::command]
+pub async fn save_attachment(
+    app: AppHandle,
+    window: WebviewWindow,
+    doc: DocumentId,
+    attachment: AttachmentId,
+) -> Result<Option<SaveAttachmentResult>, IpcError> {
+    let attachments = blocking({
+        let app = app.clone();
+        move || app.state::<Documents>().attachments(doc)
+    })
+    .await?;
+    let found = attachments
+        .into_iter()
+        .find(|listed| listed.id == attachment)
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "the document has no such attachment".to_owned(),
+        })?;
+    let extension = found.extension.strip_prefix('.').map(str::to_owned);
+    let Some(destination) =
+        file_dialog::save_attachment_file(&window, found.name, extension).await?
+    else {
+        return Ok(None);
+    };
+    blocking(move || {
+        app.state::<Documents>()
+            .save_attachment(doc, attachment, &destination)
+    })
+    .await
+    .map(Some)
 }
 
 /// One page's text for selecting and copying (MVP-15): its lines and where their characters

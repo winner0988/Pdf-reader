@@ -178,6 +178,22 @@ impl Temporary {
         Ok(())
     }
 
+    /// As [`check`](Self::check), for a file of any type (an attachment, B3-20, ADR 0025): only
+    /// that the `bytes` the worker reports writing are on disk. The file's content is not looked
+    /// at: an attachment can be anything, empty included.
+    pub fn check_length(&mut self, bytes: u64) -> Result<(), IpcError> {
+        let file = self.file.as_mut().expect("open until replaced");
+        file.sync_all().map_err(|error| write_error(&error))?;
+        let len = file.metadata().map_err(|error| write_error(&error))?.len();
+        if len != bytes {
+            return Err(IpcError {
+                code: ErrorCode::Unwritable,
+                message: "the written file is not complete".to_owned(),
+            });
+        }
+        Ok(())
+    }
+
     /// Gives the file the name `destination`, which must not be taken: no file is ever replaced
     /// (the copies a batch makes, B3-04). `Ok(false)` when a file has that name; the temporary
     /// file is then still this one's, for another name.
@@ -403,6 +419,26 @@ mod tests {
         bytes.extend_from_slice(b"PK\x05\x06");
         bytes.extend_from_slice(&[0; 18]);
         bytes
+    }
+
+    #[test]
+    fn a_file_of_any_type_is_checked_by_its_size_only() {
+        let dir = folder("length");
+        let destination = dir.join("附件.txt");
+        for content in [b"plain text, not a PDF".to_vec(), Vec::new()] {
+            let mut temporary = written(&destination, &content);
+            // Not what the worker said it wrote.
+            assert_eq!(
+                temporary
+                    .check_length(content.len() as u64 + 1)
+                    .unwrap_err()
+                    .code,
+                ErrorCode::Unwritable
+            );
+            temporary.check_length(content.len() as u64).unwrap();
+            temporary.replace(&destination).unwrap();
+            assert_eq!(fs::read(&destination).unwrap(), content);
+        }
     }
 
     #[test]

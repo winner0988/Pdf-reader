@@ -17,8 +17,8 @@ use std::time::Duration;
 
 use ipc_contract::frame::{self, FrameError};
 use ipc_contract::types::{
-    CreateKind, DocumentId, ErrorCode, ImageQuality, Password, RequestId, Restrictions,
-    SanitizeOptions, Watermark,
+    AttachmentId, CreateKind, DocumentId, ErrorCode, ImageQuality, Password, RequestId,
+    Restrictions, SanitizeOptions, Watermark,
 };
 use ipc_contract::validate::Validate;
 use ipc_contract::worker::{CreateSource, FileHandle, WorkerError, WorkerRequest, WorkerResponse};
@@ -213,6 +213,30 @@ impl WorkerHost {
         self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::Save {
             request,
             doc,
+            file: FileHandle(handle),
+        })
+    }
+
+    /// Decodes attachment `attachment` of `doc` and writes it to `file` (a write-only handle,
+    /// B3-20, ADR 0025). Returns `AttachmentWritten`.
+    pub fn write_attachment(
+        &mut self,
+        doc: DocumentId,
+        attachment: AttachmentId,
+        file: &File,
+    ) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_write_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::WriteAttachment {
+            request,
+            doc,
+            attachment,
             file: FileHandle(handle),
         })
     }
@@ -745,7 +769,9 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::Sanitized { request, .. }
         | WorkerResponse::Compressed { request, .. }
         | WorkerResponse::ExifCleaned { request, .. }
-        | WorkerResponse::Created { request, .. } => Some(*request),
+        | WorkerResponse::Created { request, .. }
+        | WorkerResponse::Attachments { request, .. }
+        | WorkerResponse::AttachmentWritten { request, .. } => Some(*request),
         WorkerResponse::Error { request, .. } => *request,
     }
 }

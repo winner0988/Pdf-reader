@@ -170,9 +170,13 @@ pub fn bindings() -> String {
         AnnotationSummaryFormat,
         ExportAnnotationSummaryArgs,
         AnnotationSummaryOutcome,
+        AttachmentId,
+        AttachmentSource,
+        AttachmentInfo,
+        SaveAttachmentResult,
     );
 
-    let limits: [(&str, String); 46] = [
+    let limits: [(&str, String); 50] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -233,6 +237,15 @@ pub fn bindings() -> String {
         (
             "maxPersonalDataPreviewBytes",
             MAX_PERSONAL_DATA_PREVIEW_BYTES.to_string(),
+        ),
+        ("maxAttachments", MAX_ATTACHMENTS.to_string()),
+        (
+            "maxAttachmentNameBytes",
+            MAX_ATTACHMENT_NAME_BYTES.to_string(),
+        ),
+        (
+            "maxAttachmentDescBytes",
+            MAX_ATTACHMENT_DESC_BYTES.to_string(),
         ),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];
