@@ -157,6 +157,7 @@ pub fn run() {
             commands::save_document_as,
             commands::close_window,
             commands::privacy_export,
+            commands::page_marks_copy,
             commands::sanitize_copy,
             commands::encrypt_copy,
             commands::compress_images,

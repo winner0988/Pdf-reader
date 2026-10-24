@@ -56,6 +56,8 @@ enum Kind {
     /// Where to write a copy of a document with its pictures compressed (B3-01), suggesting
     /// `file_name`.
     CompressedCopy { file_name: String },
+    /// Where to write a copy of a document with page marks (B3-16), suggesting `file_name`.
+    PageMarks { file_name: String },
     /// Where to save some pages of a document as a file of their own (B2-06), suggesting
     /// `file_name`.
     SplitPdf { file_name: String },
@@ -183,6 +185,17 @@ pub async fn compressed_copy_file(
     file_name: String,
 ) -> Result<Option<PathBuf>, IpcError> {
     Ok(run(window, Kind::CompressedCopy { file_name })
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
+/// Asks where to write a copy of a document with page marks (B3-16), suggesting
+/// `file_name`. The dialog itself asks before replacing an existing file.
+pub async fn page_marks_file(
+    window: &WebviewWindow,
+    file_name: String,
+) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::PageMarks { file_name })
         .await?
         .and_then(|mut paths| paths.pop()))
 }
@@ -317,6 +330,7 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
         | Kind::SanitizedCopy { .. }
         | Kind::EncryptedCopy { .. }
         | Kind::CompressedCopy { .. }
+        | Kind::PageMarks { .. }
         | Kind::SplitPdf { .. }
         | Kind::SaveCreatedPdf { .. }
         | Kind::SaveAttachment { .. } => common | FOS_OVERWRITEPROMPT,
@@ -381,6 +395,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
             | Kind::SanitizedCopy { .. }
             | Kind::EncryptedCopy { .. }
             | Kind::CompressedCopy { .. }
+            | Kind::PageMarks { .. }
             | Kind::SplitPdf { .. }
             | Kind::SaveCreatedPdf { .. }
             | Kind::SaveAttachment { .. } => {
@@ -477,6 +492,10 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             strings::COMPRESSED_COPY_DIALOG_TITLE,
             one(strings::PDF_FILTER_NAME, "*.pdf"),
         ),
+        Kind::PageMarks { .. } => (
+            strings::PAGE_MARKS_DIALOG_TITLE,
+            one(strings::PDF_FILTER_NAME, "*.pdf"),
+        ),
         Kind::SplitPdf { .. } => (
             strings::SPLIT_DIALOG_TITLE,
             one(strings::PDF_FILTER_NAME, "*.pdf"),
@@ -548,6 +567,7 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
         | Kind::SanitizedCopy { file_name }
         | Kind::EncryptedCopy { file_name }
         | Kind::CompressedCopy { file_name }
+        | Kind::PageMarks { file_name }
         | Kind::SplitPdf { file_name }
         | Kind::SaveCreatedPdf { file_name } = kind
         {

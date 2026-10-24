@@ -8,6 +8,7 @@ import type {
   CompressResult,
   DocumentId,
   EncryptArgs,
+  PageMarksCopyArgs,
   SanitizeArgs,
   SanitizeResult,
   SaveResult,
@@ -26,6 +27,12 @@ export type SavingApi = {
    * document itself does not change.
    */
   privacyExport(doc: DocumentId): Promise<boolean>;
+  /**
+   * Writes a copy of the document with page marks (B3-16) where the user says in the
+   * system's save dialog, never over its own file: `false` if the dialog was closed. The
+   * document itself does not change.
+   */
+  pageMarksCopy(args: PageMarksCopyArgs): Promise<boolean>;
   /**
    * Writes a copy of the document encrypted with AES-256 (B2-15) where the user says in the
    * system's save dialog, never over its own file: `false` if the dialog was closed. The
@@ -51,6 +58,7 @@ export const tauriSavingApi: SavingApi = {
   saveAs: (doc) => invoke<SaveResult | null>("save_document_as", { doc }),
   closeWindow: (discard) => invoke<void>("close_window", { discard }),
   privacyExport: (doc) => invoke<boolean>("privacy_export", { doc }),
+  pageMarksCopy: (args) => invoke<boolean>("page_marks_copy", { args }),
   encryptCopy: (args) => invoke<boolean>("encrypt_copy", { args }),
   compressImages: (args) => invoke<CompressResult | null>("compress_images", { args }),
   sanitizeCopy: (args) => invoke<SanitizeResult | null>("sanitize_copy", { args }),

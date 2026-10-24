@@ -124,6 +124,27 @@ pub const MAX_WATERMARK_WIDTH_PT: f32 = 1_200.0;
 
 /// Least opacity of a watermark, in percent (B3-04): fainter than this, it would not be seen.
 pub const MIN_WATERMARK_OPACITY: u8 = 5;
+
+/// Smallest and largest size of page marks, in points (B3-16).
+pub const MIN_PAGE_MARK_SIZE_PT: f32 = 6.0;
+pub const MAX_PAGE_MARK_SIZE_PT: f32 = 72.0;
+
+/// Smallest and largest margin from the page edge for page marks, in points (B3-16).
+pub const MIN_PAGE_MARK_MARGIN_PT: f32 = 0.0;
+pub const MAX_PAGE_MARK_MARGIN_PT: f32 = 144.0;
+
+/// Most characters of a header, footer, or page number custom prefix/suffix (B3-16).
+pub const MAX_PAGE_MARK_CHARS: usize = 100;
+
+/// Most characters of a Bates prefix (B3-16).
+pub const MAX_BATES_PREFIX_CHARS: usize = 32;
+
+/// Smallest and largest number of digits in a Bates number (B3-16).
+pub const MIN_BATES_DIGITS: u8 = 1;
+pub const MAX_BATES_DIGITS: u8 = 12;
+
+/// Maximum number of pages in a custom page mark range (B3-16).
+pub const MAX_PAGE_MARK_PAGES: usize = 10_000;
 /// Most files one batch takes (B3-04).
 pub const MAX_BATCH_FILES: u32 = 500;
 

@@ -38,6 +38,7 @@ import { ExportDialog } from "@/features/export/ExportDialog";
 import { CompressDialog } from "@/features/saving/CompressDialog";
 import { useOpenBatch } from "@/features/batch/useOpenBatch";
 import { EncryptDialog } from "@/features/saving/EncryptDialog";
+import { PageMarksDialog } from "@/features/saving/PageMarksDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
 import { SanitizeDialog } from "@/features/saving/SanitizeDialog";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
@@ -288,6 +289,7 @@ export function ReaderShell({
     | "exportAnnotations"
     | "privacyExport"
     | "sanitize"
+    | "pageMarks"
     | "encrypt"
     | "compress"
     | "create"
@@ -363,6 +365,7 @@ export function ReaderShell({
       dialog === "export" ||
       dialog === "privacyExport" ||
       dialog === "sanitize" ||
+      dialog === "pageMarks" ||
       dialog === "encrypt" ||
       dialog === "compress" ||
       dialog === "sensitive"
@@ -1099,6 +1102,8 @@ export function ReaderShell({
                   ? strings.sanitize.signatures
                   : undefined
           }
+          onPageMarks={savable && !document_?.encrypted ? () => setDialog("pageMarks") : undefined}
+          pageMarksBlocked={savable && document_?.encrypted === true}
           onEncryptCopy={savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined}
           onBatch={openBatch}
           encryptCopyBlocked={savable && document_?.encrypted === true}
@@ -1544,6 +1549,16 @@ export function ReaderShell({
           onSanitize={(args) =>
             savingApi.sanitizeCopy ? savingApi.sanitizeCopy(args) : Promise.resolve(null)
           }
+        />
+      )}
+      {savable && (
+        <PageMarksDialog
+          open={dialog === "pageMarks"}
+          onOpenChange={(open) => setDialog(open ? "pageMarks" : null)}
+          doc={doc}
+          totalPages={document_?.pages.length ?? 0}
+          onPageMarksCopy={(args) => savingApi.pageMarksCopy(args)}
+          onFinished={showHint}
         />
       )}
       {savable && (

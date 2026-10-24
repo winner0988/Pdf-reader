@@ -593,6 +593,30 @@ impl WorkerHost {
         })
     }
 
+    /// Writes a copy of `doc` with page marks (page numbers, Bates numbers, headers and footers)
+    /// to `file` (B3-16). `doc` itself is not changed. Returns `Saved`.
+    pub fn page_marks_copy(
+        &mut self,
+        doc: DocumentId,
+        file: &File,
+        marks: ipc_contract::types::PageMarks,
+    ) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_write_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::PageMarksCopy {
+            request,
+            doc,
+            file: FileHandle(handle),
+            marks: marks.into(),
+        })
+    }
+
     /// Sends a request built by `make` (which receives a fresh request id) and returns the
     /// validated response. Worker-reported errors come back as [`HostError::Worker`].
     pub fn request(

@@ -9,14 +9,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::PROTOCOL_VERSION;
 use crate::types::{
-    AnnotationId, AnnotationSummary, AttachmentId, AttachmentSource, CreateKind, DocumentId,
-    DocumentPermissions, Edit, ErrorCode, FieldId, FindPersonalDataQuery, FontRefusal, FormField,
-    HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, OutlineResult, PageAnnotation,
-    PageLink, PageSize, PageText, Password, PersonalDataMatches, Point, RasterRegion, Rect,
-    RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions,
-    SanitizeReport, SearchHit, SecurityReport, SignatureReport, SourceId, StampImageId, StampName,
-    TextBoxInfo, TextBoxModelId, TextBoxStyle, Watermark, WatermarkContent, WatermarkPages,
-    WatermarkPlace,
+    AnnotationId, AnnotationSummary, AttachmentId, AttachmentSource, BatesMark, CreateKind,
+    DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FindPersonalDataQuery, FontRefusal,
+    FormField, HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth,
+    OutlineResult, PageAnnotation, PageLink, PageMarkPages, PageMarkPosition, PageMarks,
+    PageNumberFormat, PageNumberMark, PageSize, PageText, Password, PersonalDataMatches, Point,
+    RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation,
+    SanitizeOptions, SanitizeReport, SearchHit, SecurityReport, SignatureReport, SourceId,
+    StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle, Watermark,
+    WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 
 /// An attachment of a document as reported by the worker (B3-20, ADR 0025).
@@ -204,6 +205,161 @@ impl From<WorkerWatermark> for Watermark {
             diagonal: watermark.diagonal,
             place: watermark.place,
             pages: watermark.pages,
+        }
+    }
+}
+
+/// Page marks as the worker takes them (B3-16). The frontend's form is [`PageMarks`], whose
+/// tagged enums postcard cannot carry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkerPageMarks {
+    pub page_number: Option<WorkerPageNumberMark>,
+    pub bates: Option<WorkerBatesMark>,
+    pub header_footer: Option<HeaderFooterMarks>,
+    pub font_size: f32,
+    pub color: Rgb,
+    pub margin_pt: f32,
+    pub pages: WorkerPageMarkPages,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerPageNumberMark {
+    pub format: WorkerPageNumberFormat,
+    pub start: u32,
+    pub position: PageMarkPosition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkerPageNumberFormat {
+    Number,
+    Page,
+    PageOfTotal,
+    Custom { prefix: String, suffix: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerBatesMark {
+    pub prefix: String,
+    pub digits: u8,
+    pub start: u64,
+    pub position: PageMarkPosition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkerPageMarkPages {
+    All,
+    AllButFirst,
+    Custom { pages: Vec<u32> },
+}
+
+impl From<PageNumberFormat> for WorkerPageNumberFormat {
+    fn from(format: PageNumberFormat) -> Self {
+        match format {
+            PageNumberFormat::Number => Self::Number,
+            PageNumberFormat::Page => Self::Page,
+            PageNumberFormat::PageOfTotal => Self::PageOfTotal,
+            PageNumberFormat::Custom { prefix, suffix } => Self::Custom { prefix, suffix },
+        }
+    }
+}
+
+impl From<WorkerPageNumberFormat> for PageNumberFormat {
+    fn from(format: WorkerPageNumberFormat) -> Self {
+        match format {
+            WorkerPageNumberFormat::Number => Self::Number,
+            WorkerPageNumberFormat::Page => Self::Page,
+            WorkerPageNumberFormat::PageOfTotal => Self::PageOfTotal,
+            WorkerPageNumberFormat::Custom { prefix, suffix } => Self::Custom { prefix, suffix },
+        }
+    }
+}
+
+impl From<PageNumberMark> for WorkerPageNumberMark {
+    fn from(mark: PageNumberMark) -> Self {
+        Self {
+            format: mark.format.into(),
+            start: mark.start,
+            position: mark.position,
+        }
+    }
+}
+
+impl From<WorkerPageNumberMark> for PageNumberMark {
+    fn from(mark: WorkerPageNumberMark) -> Self {
+        Self {
+            format: mark.format.into(),
+            start: mark.start,
+            position: mark.position,
+        }
+    }
+}
+
+impl From<BatesMark> for WorkerBatesMark {
+    fn from(mark: BatesMark) -> Self {
+        Self {
+            prefix: mark.prefix,
+            digits: mark.digits,
+            start: mark.start,
+            position: mark.position,
+        }
+    }
+}
+
+impl From<WorkerBatesMark> for BatesMark {
+    fn from(mark: WorkerBatesMark) -> Self {
+        Self {
+            prefix: mark.prefix,
+            digits: mark.digits,
+            start: mark.start,
+            position: mark.position,
+        }
+    }
+}
+
+impl From<PageMarkPages> for WorkerPageMarkPages {
+    fn from(pages: PageMarkPages) -> Self {
+        match pages {
+            PageMarkPages::All => Self::All,
+            PageMarkPages::AllButFirst => Self::AllButFirst,
+            PageMarkPages::Custom { pages } => Self::Custom { pages },
+        }
+    }
+}
+
+impl From<WorkerPageMarkPages> for PageMarkPages {
+    fn from(pages: WorkerPageMarkPages) -> Self {
+        match pages {
+            WorkerPageMarkPages::All => Self::All,
+            WorkerPageMarkPages::AllButFirst => Self::AllButFirst,
+            WorkerPageMarkPages::Custom { pages } => Self::Custom { pages },
+        }
+    }
+}
+
+impl From<PageMarks> for WorkerPageMarks {
+    fn from(marks: PageMarks) -> Self {
+        Self {
+            page_number: marks.page_number.map(Into::into),
+            bates: marks.bates.map(Into::into),
+            header_footer: marks.header_footer,
+            font_size: marks.font_size,
+            color: marks.color,
+            margin_pt: marks.margin_pt,
+            pages: marks.pages.into(),
+        }
+    }
+}
+
+impl From<WorkerPageMarks> for PageMarks {
+    fn from(marks: WorkerPageMarks) -> Self {
+        Self {
+            page_number: marks.page_number.map(Into::into),
+            bates: marks.bates.map(Into::into),
+            header_footer: marks.header_footer,
+            font_size: marks.font_size,
+            color: marks.color,
+            margin_pt: marks.margin_pt,
+            pages: marks.pages.into(),
         }
     }
 }
@@ -641,6 +797,16 @@ pub enum WorkerRequest {
         file: FileHandle,
         watermark: WorkerWatermark,
         picture: Option<Vec<u8>>,
+    },
+    /// Writes to `file` (as for `Save`) a copy of the document, edits included, with `marks`
+    /// (page numbers, Bates numbers, headers, and footers) on its pages (B3-16). The open
+    /// document is not changed. Answered by `Saved`, never appended. Refused for an encrypted
+    /// document.
+    PageMarksCopy {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
+        marks: WorkerPageMarks,
     },
     /// Opens the document again from the bytes it was opened from, and applies `edits` in
     /// order (undo, ADR 0013). Answered by `Edited`; the document is replaced only once every
@@ -1433,6 +1599,62 @@ mod tests {
             };
             assert_eq!(Watermark::from(crossed), watermark);
         }
+    }
+
+    #[test]
+    fn page_marks_cross_to_the_worker_as_they_were_given() {
+        let marks = PageMarks {
+            page_number: Some(PageNumberMark {
+                format: PageNumberFormat::PageOfTotal,
+                start: 1,
+                position: PageMarkPosition::BottomCenter,
+            }),
+            bates: Some(BatesMark {
+                prefix: "BATES-".to_owned(),
+                digits: 6,
+                start: 100,
+                position: PageMarkPosition::BottomRight,
+            }),
+            header_footer: Some(HeaderFooterMarks {
+                header_left: Some("CONFIDENTIAL".to_owned()),
+                header_center: None,
+                header_right: Some("DRAFT".to_owned()),
+                footer_left: None,
+                footer_center: None,
+                footer_right: None,
+            }),
+            font_size: 10.0,
+            color: Rgb {
+                r: 10,
+                g: 20,
+                b: 30,
+            },
+            margin_pt: 36.0,
+            pages: PageMarkPages::Custom {
+                pages: vec![0, 2, 4],
+            },
+        };
+        // Postcard cannot carry tagged enums of PageMarks directly.
+        assert!(
+            postcard::to_allocvec(&marks).is_err() || {
+                let bytes = postcard::to_allocvec(&marks).unwrap();
+                postcard::from_bytes::<PageMarks>(&bytes).is_err()
+            }
+        );
+
+        let request = WorkerRequest::PageMarksCopy {
+            request: RequestId(5),
+            doc: DocumentId(6),
+            file: FileHandle(7),
+            marks: marks.clone().into(),
+        };
+        let bytes = postcard::to_allocvec(&request).unwrap();
+        let back = postcard::from_bytes::<WorkerRequest>(&bytes).unwrap();
+        assert_eq!(back, request);
+        let WorkerRequest::PageMarksCopy { marks: crossed, .. } = back else {
+            panic!("{back:?}");
+        };
+        assert_eq!(PageMarks::from(crossed), marks);
     }
 
     #[test]

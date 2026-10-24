@@ -509,6 +509,19 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     picture.as_deref(),
                 ),
             }),
+            WorkerRequest::PageMarksCopy {
+                request,
+                doc,
+                file,
+                marks,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => page_marks_copy(document, request, file, &marks.into()),
+            }),
             WorkerRequest::PrepareSource {
                 request,
                 file,
@@ -975,6 +988,31 @@ fn watermark_copy(
         );
     };
     match document.watermark_copy(watermark, picture, &mut file) {
+        Ok(bytes) => WorkerResponse::Saved {
+            request,
+            bytes,
+            incremental: false,
+            redaction: None,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
+/// Writes a copy of `document` with page marks (B3-16) to `file`, a handle like `save`'s.
+fn page_marks_copy(
+    document: &PdfDocument,
+    request: RequestId,
+    file: FileHandle,
+    marks: &ipc_contract::types::PageMarks,
+) -> WorkerResponse {
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match document.page_marks_copy(marks, &mut file) {
         Ok(bytes) => WorkerResponse::Saved {
             request,
             bytes,

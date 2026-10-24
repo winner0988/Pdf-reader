@@ -57,6 +57,14 @@ pub fn bindings() -> String {
         WatermarkPlace,
         WatermarkPages,
         Watermark,
+        PageMarkPosition,
+        PageNumberFormat,
+        PageNumberMark,
+        BatesMark,
+        HeaderFooterMarks,
+        PageMarkPages,
+        PageMarks,
+        PageMarksCopyArgs,
         BatchOperation,
         BatchArgs,
         BatchOutcome,
@@ -176,7 +184,7 @@ pub fn bindings() -> String {
         SaveAttachmentResult,
     );
 
-    let limits: [(&str, String); 50] = [
+    let limits: [(&str, String); 59] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -226,6 +234,15 @@ pub fn bindings() -> String {
         ("maxLanguageDataBytes", MAX_LANGUAGE_DATA_BYTES.to_string()),
         ("maxImportedLanguages", MAX_IMPORTED_LANGUAGES.to_string()),
         ("maxImportedFonts", MAX_IMPORTED_FONTS.to_string()),
+        ("minPageMarkSizePt", MIN_PAGE_MARK_SIZE_PT.to_string()),
+        ("maxPageMarkSizePt", MAX_PAGE_MARK_SIZE_PT.to_string()),
+        ("minPageMarkMarginPt", MIN_PAGE_MARK_MARGIN_PT.to_string()),
+        ("maxPageMarkMarginPt", MAX_PAGE_MARK_MARGIN_PT.to_string()),
+        ("maxPageMarkChars", MAX_PAGE_MARK_CHARS.to_string()),
+        ("maxBatesPrefixChars", MAX_BATES_PREFIX_CHARS.to_string()),
+        ("minBatesDigits", MIN_BATES_DIGITS.to_string()),
+        ("maxBatesDigits", MAX_BATES_DIGITS.to_string()),
+        ("maxPageMarkPages", MAX_PAGE_MARK_PAGES.to_string()),
         (
             "maxPersonalDataMatches",
             MAX_PERSONAL_DATA_MATCHES.to_string(),
