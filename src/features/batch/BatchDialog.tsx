@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { BatchApi, BatchJob } from "@/features/batch/api";
+import { CompressFields } from "@/features/batch/CompressFields";
 import { describeOutcome } from "@/features/batch/messages";
 import {
   batchWatermarkOf,
@@ -25,6 +26,7 @@ import {
   type WatermarkProblem,
 } from "@/features/batch/watermark";
 import { WatermarkFields } from "@/features/batch/WatermarkFields";
+import { DEFAULT_FORM as DEFAULT_COMPRESS_FORM, type CompressForm } from "@/features/saving/compress";
 import {
   batchEncryptionOf,
   describeProblem,
@@ -58,6 +60,7 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
   const [kind, setKind] = useState<Kind>("removeMetadata");
   const [form, setForm] = useState<EncryptForm>(EMPTY_FORM);
   const [watermarkForm, setWatermarkForm] = useState<WatermarkForm>(DEFAULT_WATERMARK_FORM);
+  const [compressForm, setCompressForm] = useState<CompressForm>(DEFAULT_COMPRESS_FORM);
   /** From "選擇檔案並開始…" until the batch ends (the system's dialogs come first). */
   const [active, setActive] = useState(false);
   const [run, setRun] = useState<Run | null>(null);
@@ -71,6 +74,7 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
     setWasOpen(open);
     setForm(EMPTY_FORM);
     setWatermarkForm(DEFAULT_WATERMARK_FORM);
+    setCompressForm(DEFAULT_COMPRESS_FORM);
     setRun(null);
     setFailed(false);
   }
@@ -102,7 +106,9 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
           ? { kind: "removeExif" }
           : kind === "watermark"
             ? batchWatermarkOf(watermarkForm)
-            : { kind: "removeMetadata" };
+            : kind === "compressImages"
+              ? { kind: "compressImages", quality: compressForm.quality, maxSide: compressForm.maxSide }
+              : { kind: "removeMetadata" };
     setActive(true);
     setFailed(false);
     setRun(null);
@@ -158,7 +164,7 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
             <>
               <fieldset className="grid gap-2 text-sm" aria-describedby={operationId}>
                 <legend className="mb-1 font-medium">{t.operation}</legend>
-                {(["removeMetadata", "removeExif", "encrypt", "watermark"] as const).map((choice) => (
+                {(["removeMetadata", "removeExif", "compressImages", "encrypt", "watermark"] as const).map((choice) => (
                   <label key={choice} className="flex items-center gap-2">
                     <input
                       type="radio"
@@ -186,6 +192,16 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
                 </>
               )}
               {kind === "removeExif" && <p className="text-sm">{t.exifNote}</p>}
+              {kind === "compressImages" && (
+                <>
+                  <CompressFields
+                    form={compressForm}
+                    onChange={(changes) => setCompressForm((now) => ({ ...now, ...changes }))}
+                    disabled={active}
+                  />
+                  <p className="text-sm">{t.compressNote}</p>
+                </>
+              )}
               <ul id={operationId} className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
                 {t.notes(LIMITS.maxBatchFiles).map((note) => (
                   <li key={note}>{note}</li>

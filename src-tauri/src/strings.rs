@@ -187,6 +187,7 @@ pub fn batch_operation_name(operation: &BatchOperation) -> &'static str {
         BatchOperation::RemoveExif => "清除圖片的 EXIF",
         BatchOperation::Encrypt { .. } => "加密",
         BatchOperation::Watermark { .. } => "浮水印",
+        BatchOperation::CompressImages { .. } => "壓縮圖片",
     }
 }
 /// How many files were done, failed and skipped: the parts that are not none.
@@ -212,7 +213,9 @@ pub fn batch_outcome(outcome: &BatchOutcome) -> String {
 fn batch_reason(code: ErrorCode) -> &'static str {
     match code {
         ErrorCode::Encrypted => "有密碼的檔案，批次處理不詢問密碼",
-        ErrorCode::InvalidArgument => "這個檔案不能這樣處理，例如有數位簽章的文件不能加密",
+        ErrorCode::InvalidArgument => {
+            "這個檔案不能這樣處理，例如有數位簽章的文件不能加密或壓縮圖片（簽章會失效）"
+        }
         ErrorCode::NotPdf => "不是 PDF 檔案",
         ErrorCode::Corrupted => "檔案已損毀",
         ErrorCode::UnsupportedEncryption => "使用本程式不支援的加密方式",

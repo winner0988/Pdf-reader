@@ -121,6 +121,33 @@ test.describe("a batch", () => {
     expect(picked.map(sha256)).toEqual(before);
   });
 
+  test("the pictures of each file are compressed, and a signed file is left alone (B3-19)", async ({ launch }) => {
+    const page = await launch();
+    const picked = files([
+      ["benign/image-only.pdf", "scan.pdf"],
+      ["benign/signed.pdf", "signed.pdf"],
+    ]);
+    const before = picked.map(sha256);
+    const dialog = await openDialog(page);
+    await dialog.getByRole("radio", { name: t.compressImages }).check();
+    await expect(dialog).toContainText(t.compressNote);
+    await dialog.getByRole("radio", { name: strings.compress.quality.low }).check();
+    await dialog.getByRole("button", { name: t.start }).click();
+    await answerFileDialog(page, { path: picked.map((file) => `"${file}"`).join(" ") });
+    await answerFileDialog(page, { path: out });
+
+    await expect(dialog.getByRole("status")).toHaveText(t.summary(1, 1, 0));
+    const list = dialog.getByRole("list", { name: t.filesLabel });
+    await expect(list).toContainText(t.done("scan（已壓縮）.pdf"));
+    await expect(list).toContainText(t.failedFile(t.reasons.invalidArgument!));
+    expect(readdirSync(out)).toEqual(["scan（已壓縮）.pdf"]);
+    const copy = readFileSync(path.join(out, "scan（已壓縮）.pdf"));
+    expect(copy.subarray(0, 5).toString()).toBe("%PDF-");
+    // The page is one large picture: its copy is much smaller.
+    expect(copy.length).toBeLessThan(readFileSync(picked[0]!).length / 2);
+    expect(picked.map(sha256)).toEqual(before);
+  });
+
   test("a watermark is drawn on each page of each file, and no file is changed", async ({ launch }) => {
     const page = await launch();
     const picked = files([

@@ -213,9 +213,10 @@ export type PageMarksCopyArgs = { doc: DocumentId, marks: PageMarks, };
 
 /**
  * What a batch does to each of its files (B3-04, ADR 0005, docs/architecture/batch.md): a copy of
- * each is written to the folder the user chooses; no file is changed.
+ * each is written to the folder the user chooses; no file is changed. An operation with fields
+ * has those only: any other field is rejected.
  */
-export type BatchOperation = { "kind": "removeMetadata" } | { "kind": "encrypt", openPassword: Password | null, permissionsPassword: Password | null, restrictions: Restrictions, } | { "kind": "removeExif" } | { "kind": "watermark", watermark: Watermark, };
+export type BatchOperation = { "kind": "removeMetadata" } | { "kind": "encrypt", openPassword: Password | null, permissionsPassword: Password | null, restrictions: Restrictions, } | { "kind": "removeExif" } | { "kind": "watermark", watermark: Watermark, } | { "kind": "compressImages", quality: ImageQuality, maxSide: number | null, };
 
 /**
  * Arguments of `run_batch` (B3-04): what to do, never to which files or where; the main process

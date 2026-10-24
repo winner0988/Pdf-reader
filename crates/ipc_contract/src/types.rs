@@ -145,9 +145,10 @@ pub struct EncryptArgs {
 }
 
 /// What a batch does to each of its files (B3-04, ADR 0005, docs/architecture/batch.md): a copy of
-/// each is written to the folder the user chooses; no file is changed.
+/// each is written to the folder the user chooses; no file is changed. An operation with fields
+/// has those only: any other field is rejected.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum BatchOperation {
     /// The privacy export (B2-03): a copy without the document's metadata.
     RemoveMetadata,
@@ -169,6 +170,14 @@ pub enum BatchOperation {
     /// pages, the first or all but the first.
     #[serde(rename_all = "camelCase")]
     Watermark { watermark: Watermark },
+    /// A copy whose pictures are encoded again at `quality` and shrunk to `max_side` pixels on
+    /// their longer side (B3-01, B3-19, docs/architecture/compress-images.md): the same request
+    /// and the same rules as `compress_images` for one document.
+    #[serde(rename_all = "camelCase")]
+    CompressImages {
+        quality: ImageQuality,
+        max_side: Option<u32>,
+    },
 }
 
 /// Arguments of `run_batch` (B3-04): what to do, never to which files or where; the main process

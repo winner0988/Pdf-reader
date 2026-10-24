@@ -1350,10 +1350,16 @@ impl Documents {
                 watermark.clone(),
                 picture.map(|p| p.to_vec()),
             ),
+            // The worker refuses a signed file, as for one document (its signatures would not
+            // hold); when its time for the pictures runs out, the rest stay as they are.
+            BatchOperation::CompressImages { quality, max_side } => {
+                host.compressed_copy(doc, temporary.file(), *quality, *max_side)
+            }
         }
         .map_err(|error| ipc_error(&error))?;
-        let (WorkerResponse::Saved { bytes, .. } | WorkerResponse::ExifCleaned { bytes, .. }) =
-            response
+        let (WorkerResponse::Saved { bytes, .. }
+        | WorkerResponse::ExifCleaned { bytes, .. }
+        | WorkerResponse::Compressed { bytes, .. }) = response
         else {
             return Err(unexpected("a batch copy"));
         };
@@ -7069,6 +7075,82 @@ mod with_worker {
             "the catalog's and the page's XMP stay, the picture's goes"
         );
         std::fs::remove_dir_all(&out).ok();
+    }
+
+    #[test]
+    fn a_batch_compresses_the_pictures_of_each_file_and_refuses_a_signed_one() {
+        use ipc_contract::types::{BatchEvent, BatchOutcome};
+
+        let documents = Documents::new(worker());
+        let sources = batch_folder("compress-sources");
+        let broken = sources.join("broken.pdf");
+        std::fs::write(&broken, b"%PDF-1.7 not really").unwrap();
+        let files = [
+            corpus_path("benign/image-only.pdf"),
+            corpus_path("benign/signed.pdf"),
+            corpus_path("benign/encrypted-aes256.pdf"),
+            broken,
+            corpus_path("benign/photo-exif.pdf"),
+        ];
+        let before: Vec<Vec<u8>> = files
+            .iter()
+            .map(|file| std::fs::read(file).unwrap())
+            .collect();
+        let out = batch_folder("compress");
+        let operation = BatchOperation::CompressImages {
+            quality: ImageQuality::Low,
+            max_side: Some(1_000),
+        };
+        let (report, events) = run_batch(&documents, &files, &out, &operation, false);
+        assert_eq!((report.done, report.failed, report.skipped), (2, 3, 0));
+        let outcome = |index: u32| {
+            events
+                .iter()
+                .find_map(|event| match event {
+                    BatchEvent::File { index: at, outcome } if *at == index => {
+                        Some(outcome.clone())
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+        // A signed file: its signatures would not hold, as for one document (ADR 0024, rule 4).
+        assert_eq!(
+            outcome(1),
+            BatchOutcome::Failed {
+                error: ErrorCode::InvalidArgument
+            }
+        );
+        // An encrypted file: a batch asks for no password.
+        assert_eq!(
+            outcome(2),
+            BatchOutcome::Failed {
+                error: ErrorCode::Encrypted
+            }
+        );
+        assert!(matches!(outcome(3), BatchOutcome::Failed { .. }));
+        // The copies, named as one document's compressed copy is, and nothing else.
+        assert_eq!(
+            names_in(&out),
+            ["image-only（已壓縮）.pdf", "photo-exif（已壓縮）.pdf"]
+        );
+        // Each copy is the same document; the page that is a large picture got much smaller.
+        for (name, source) in [
+            ("image-only（已壓縮）.pdf", &files[0]),
+            ("photo-exif（已壓縮）.pdf", &files[4]),
+        ] {
+            let original = open_in(&documents, source);
+            let compressed = open_in(&documents, &out.join(name));
+            assert_eq!(compressed.pages, original.pages, "{name}");
+        }
+        let size = |path: &Path| std::fs::metadata(path).unwrap().len();
+        assert!(size(&out.join("image-only（已壓縮）.pdf")) < size(&files[0]) / 2);
+        // The files themselves are as they were.
+        for (file, bytes) in files.iter().zip(&before) {
+            assert_eq!(&std::fs::read(file).unwrap(), bytes);
+        }
+        std::fs::remove_dir_all(&out).ok();
+        std::fs::remove_dir_all(&sources).ok();
     }
 
     #[test]
