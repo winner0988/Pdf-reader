@@ -1465,11 +1465,23 @@ impl Documents {
             BatchOperation::CompressImages { quality, max_side } => {
                 host.compressed_copy(doc, temporary.file(), *quality, *max_side)
             }
+            // The worker refuses a signed file (`Signed`), as for one document: its signatures
+            // would not hold. The new /ID is random, as one document's sanitized copy's.
+            BatchOperation::Sanitize { options } => {
+                let mut id = [0u8; 16];
+                getrandom::fill(&mut id).map_err(|_| IpcError {
+                    code: ErrorCode::Internal,
+                    message: "no random bytes for the new document id".to_owned(),
+                })?;
+                host.sanitized_copy(doc, temporary.file(), id, *options)
+            }
+            }
         }
         .map_err(|error| ipc_error(&error))?;
         let (WorkerResponse::Saved { bytes, .. }
         | WorkerResponse::ExifCleaned { bytes, .. }
-        | WorkerResponse::Compressed { bytes, .. }) = response
+        | WorkerResponse::Compressed { bytes, .. }
+        | WorkerResponse::Sanitized { bytes, .. }) = response
         else {
             return Err(unexpected("a batch copy"));
         };
@@ -7697,6 +7709,108 @@ mod with_worker {
 
         std::fs::remove_dir_all(&out).ok();
         std::fs::remove_dir_all(&pic_out).ok();
+    }
+
+    #[test]
+    fn a_batch_sanitizes_copies_of_files_with_the_options_given_and_refuses_a_signed_one() {
+        use ipc_contract::types::{BatchEvent, BatchOutcome, SanitizeOptions};
+
+        let documents = Documents::new(worker());
+        let sources = batch_folder("sanitize-sources");
+        let broken = sources.join("broken.pdf");
+        std::fs::write(&broken, b"%PDF-1.7 not really").unwrap();
+        let files = [
+            corpus_path("malicious/composite-sanitize.pdf"),
+            corpus_path("benign/signed.pdf"),
+            corpus_path("benign/encrypted-aes256.pdf"),
+            broken,
+            corpus_path("malicious/openaction-js.pdf"),
+            corpus_path("benign/metadata-full.pdf"),
+        ];
+        let before: Vec<Vec<u8>> = files
+            .iter()
+            .map(|file| std::fs::read(file).unwrap())
+            .collect();
+        let out = batch_folder("sanitize");
+        let operation = BatchOperation::Sanitize {
+            options: SanitizeOptions::default(),
+        };
+        let (report, events) = run_batch(&documents, &files, &out, &operation, false);
+        assert_eq!((report.done, report.failed, report.skipped), (3, 3, 0));
+        let outcome = |index: u32| {
+            events
+                .iter()
+                .find_map(|event| match event {
+                    BatchEvent::File { index: at, outcome } if *at == index => {
+                        Some(outcome.clone())
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+        // A signed file: its signatures would not hold, as for one document (ADR 0024, rule 4).
+        assert_eq!(
+            outcome(1),
+            BatchOutcome::Failed {
+                error: ErrorCode::Signed
+            }
+        );
+        // An encrypted file: a batch asks for no password.
+        assert_eq!(
+            outcome(2),
+            BatchOutcome::Failed {
+                error: ErrorCode::Encrypted
+            }
+        );
+        assert!(matches!(outcome(3), BatchOutcome::Failed { .. }));
+        // The copies, named as one document's sanitized copy is, and nothing else.
+        assert_eq!(
+            names_in(&out),
+            [
+                "composite-sanitize（淨化副本）.pdf",
+                "metadata-full（淨化副本）.pdf",
+                "openaction-js（淨化副本）.pdf"
+            ]
+        );
+        // What the scan found in the files is not in their copies, which have the same pages.
+        for (name, source) in [
+            ("composite-sanitize（淨化副本）.pdf", &files[0]),
+            ("openaction-js（淨化副本）.pdf", &files[4]),
+        ] {
+            let original = open_in(&documents, source);
+            let clean = open_in(&documents, &out.join(name));
+            assert!(!original.security.findings.is_empty(), "{name}");
+            assert!(clean.security.findings.is_empty(), "{name}");
+            assert_eq!(clean.pages, original.pages, "{name}");
+        }
+        let has = |bytes: &[u8], needle: &[u8]| {
+            bytes.windows(needle.len()).any(|window| window == needle)
+        };
+        let private = b"SecretWriter 9.1";
+        assert!(has(&before[5], private));
+        let cleaned = std::fs::read(out.join("metadata-full（淨化副本）.pdf")).unwrap();
+        assert!(!has(&cleaned, private));
+
+        // The options are the batch's: without hidden data, the metadata stays.
+        let kept = batch_folder("sanitize-kept");
+        let operation = BatchOperation::Sanitize {
+            options: SanitizeOptions {
+                hidden_data: false,
+                ..SanitizeOptions::default()
+            },
+        };
+        let (report, _) = run_batch(&documents, &files[5..], &kept, &operation, false);
+        assert_eq!(report.done, 1);
+        let copy = std::fs::read(kept.join("metadata-full（淨化副本）.pdf")).unwrap();
+        assert!(has(&copy, private));
+
+        // The files themselves are as they were.
+        for (file, bytes) in files.iter().zip(&before) {
+            assert_eq!(&std::fs::read(file).unwrap(), bytes);
+        }
+        std::fs::remove_dir_all(&out).ok();
+        std::fs::remove_dir_all(&kept).ok();
+        std::fs::remove_dir_all(&sources).ok();
     }
 
     #[test]

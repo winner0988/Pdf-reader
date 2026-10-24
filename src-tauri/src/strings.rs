@@ -228,6 +228,7 @@ pub fn batch_operation_name(operation: &BatchOperation) -> &'static str {
         BatchOperation::Encrypt { .. } => "加密",
         BatchOperation::Watermark { .. } => "浮水印",
         BatchOperation::CompressImages { .. } => "壓縮圖片",
+        BatchOperation::Sanitize { .. } => "分享前淨化",
     }
 }
 /// How many files were done, failed and skipped: the parts that are not none.
@@ -256,6 +257,7 @@ fn batch_reason(code: ErrorCode) -> &'static str {
         ErrorCode::InvalidArgument => {
             "這個檔案不能這樣處理，例如有數位簽章的文件不能加密或壓縮圖片（簽章會失效）"
         }
+        ErrorCode::Signed => "有數位簽章的檔案，這樣處理會讓簽章失效",
         ErrorCode::NotPdf => "不是 PDF 檔案",
         ErrorCode::Corrupted => "檔案已損毀",
         ErrorCode::UnsupportedEncryption => "使用本程式不支援的加密方式",
@@ -323,7 +325,10 @@ PDF Reader 不會自行下載任何東西。";
 
 #[cfg(test)]
 mod tests {
-    use super::{annotation_summary_file_name, split_file_name, split_part_name, window_title};
+    use super::{
+        BatchOperation, BatchOutcome, ErrorCode, annotation_summary_file_name,
+        batch_operation_name, batch_outcome, split_file_name, split_part_name, window_title,
+    };
 
     #[test]
     fn an_annotation_summary_is_named_after_the_document_and_its_kind() {
@@ -360,5 +365,19 @@ mod tests {
             "• report.pdf — PDF Reader"
         );
         assert_eq!(window_title(None, false), "PDF Reader");
+    }
+
+    #[test]
+    fn a_batch_says_that_a_signed_file_would_lose_its_signatures() {
+        let sanitize = BatchOperation::Sanitize {
+            options: Default::default(),
+        };
+        assert_eq!(batch_operation_name(&sanitize), "分享前淨化");
+        assert_eq!(
+            batch_outcome(&BatchOutcome::Failed {
+                error: ErrorCode::Signed
+            }),
+            "失敗：有數位簽章的檔案，這樣處理會讓簽章失效"
+        );
     }
 }

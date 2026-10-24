@@ -178,6 +178,10 @@ pub enum BatchOperation {
         quality: ImageQuality,
         max_side: Option<u32>,
     },
+    /// A copy without active content or hidden data (B3-15, B3-19, docs/architecture/sanitize.md):
+    /// the same request and the same options and rules as `sanitize_copy` for one document.
+    #[serde(rename_all = "camelCase")]
+    Sanitize { options: SanitizeOptions },
 }
 
 /// Arguments of `run_batch` (B3-04): what to do, never to which files or where; the main process

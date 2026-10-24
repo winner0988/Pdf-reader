@@ -87,6 +87,7 @@ pub fn copy_name(display_name: &str, operation: &BatchOperation) -> String {
         BatchOperation::RemoveExif => strings::exif_cleaned_file_name(&stem),
         BatchOperation::Watermark { .. } => strings::watermark_file_name(&stem),
         BatchOperation::CompressImages { .. } => strings::compressed_copy_file_name(&stem),
+        BatchOperation::Sanitize { .. } => strings::sanitized_copy_file_name(&stem),
     }
 }
 
@@ -195,6 +196,10 @@ mod tests {
             max_side: Some(2_000),
         };
         assert_eq!(copy_name("掃描.pdf", &compress), "掃描（已壓縮）.pdf");
+        let sanitize = BatchOperation::Sanitize {
+            options: ipc_contract::types::SanitizeOptions::default(),
+        };
+        assert_eq!(copy_name("合約.pdf", &sanitize), "合約（淨化副本）.pdf");
         assert_eq!(numbered("a.pdf", 1), "a.pdf");
         assert_eq!(numbered("a.pdf", 2), "a (2).pdf");
         assert_eq!(

@@ -761,6 +761,9 @@ export const strings = {
     removeMetadata: "清除中繼資料（與「隱私匯出」相同）",
     encrypt: "加密（AES-256，與「加密並另存新檔」相同）",
     removeExif: "清除圖片的 EXIF（相機、拍攝時間與地點等）",
+    sanitize: "分享前淨化（清除主動內容與隱藏資料，與「分享前淨化」相同）",
+    sanitizeNote:
+      "有數位簽章的檔案會失敗：淨化後簽章不會成立。結果只說每個檔案是否完成，不列出各項目清除了幾個。清除隱藏資料時，機敏文件的副本不再是機敏文件。",
     watermark: "浮水印（在每頁畫上文字或圖片）",
     compressImages: "壓縮圖片（與「壓縮圖片並另存新檔」相同）",
     compressNote:
@@ -821,6 +824,7 @@ export const strings = {
       invalidArgument: "這個檔案不能這樣處理，例如有數位簽章的文件不能加密、清除 EXIF 或壓縮圖片（簽章會失效）",
       notPdf: "不是 PDF 檔案",
       corrupted: "檔案已損毀",
+      signed: "有數位簽章的檔案，這樣處理會讓簽章失效",
     } as Partial<Record<ErrorCode, string>>,
     failed: "無法開始批次處理，請再試一次。",
   },

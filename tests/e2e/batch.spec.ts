@@ -21,6 +21,7 @@ import {
 
 const t = strings.batch;
 const e = strings.encryption;
+const s = strings.sanitize;
 /** The author the metadata sample names everywhere (tests/corpus/generate.py). */
 const AUTHOR = Buffer.from("Jane Q. Private-Author");
 
@@ -146,6 +147,49 @@ test.describe("a batch", () => {
     // The page is one large picture: its copy is much smaller.
     expect(copy.length).toBeLessThan(readFileSync(picked[0]!).length / 2);
     expect(picked.map(sha256)).toEqual(before);
+  });
+
+  test("each file is sanitized as one document is, a signed file fails, and no file is changed", async ({ launch }) => {
+    const page = await launch();
+    const picked = files([
+      ["malicious/openaction-js.pdf", "script.pdf"],
+      ["benign/metadata-full.pdf", "notes.pdf"],
+      ["benign/signed.pdf", "signed.pdf"],
+    ]);
+    const before = picked.map(sha256);
+    const dialog = await openDialog(page);
+    await dialog.getByRole("radio", { name: t.sanitize }).check();
+    await expect(dialog).toContainText(t.sanitizeNote);
+    // The options of one document's sanitized copy, with its defaults.
+    await expect(dialog.getByRole("checkbox", { name: s.actions })).toBeChecked();
+    await expect(dialog.getByRole("checkbox", { name: s.hiddenData })).toBeChecked();
+    await expect(dialog.getByRole("radio", { name: s.annotations.keep })).toBeChecked();
+    await dialog.getByRole("button", { name: t.start }).click();
+    await answerFileDialog(page, { path: picked.map((file) => `"${file}"`).join(" ") });
+    await answerFileDialog(page, { path: out });
+
+    await expect(dialog.getByRole("status")).toHaveText(t.summary(2, 1, 0));
+    const list = dialog.getByRole("list", { name: t.filesLabel });
+    await expect(list).toContainText(t.done("script（淨化副本）.pdf"));
+    await expect(list).toContainText(t.failedFile(t.reasons.signed!));
+    expect(readdirSync(out).sort()).toEqual(["notes（淨化副本）.pdf", "script（淨化副本）.pdf"]);
+    // The hidden data goes: the author the metadata sample names everywhere is not in its copy.
+    const notes = readFileSync(path.join(out, "notes（淨化副本）.pdf"));
+    expect(notes.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(notes.includes(AUTHOR)).toBe(false);
+    expect(picked.map(sha256)).toEqual(before);
+
+    // The copy of the file with a script opens without the active content banner.
+    await dialog.getByRole("button", { name: t.close }).click();
+    await page.keyboard.press("Control+o");
+    await answerFileDialog(page, { path: path.join(out, "script（淨化副本）.pdf") });
+    await expect(page.getByRole("tab", { name: /script（淨化副本）\.pdf/ })).toHaveAttribute("aria-selected", "true");
+    // The banner is decided when the document opens: once the copy's page is drawn, it would show.
+    await expect(page.getByRole("img", { name: strings.canvas.page(1) }).last()).toHaveAttribute(
+      "data-state",
+      "ready",
+    );
+    await expect(page.getByRole("region", { name: strings.banner.label })).toHaveCount(0);
   });
 
   test("a watermark is drawn on each page of each file, and no file is changed", async ({ launch }) => {
