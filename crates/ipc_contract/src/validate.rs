@@ -1387,6 +1387,58 @@ impl Validate for Edit {
                 check_annotation_rect(rect)
             }
             Edit::ApplyRedactions => Ok(()),
+            Edit::AddBookmark {
+                parent: _,
+                index,
+                title,
+                page,
+            } => {
+                if *index > MAX_OUTLINE_ITEMS {
+                    return Err(ValidationError::OutOfRange {
+                        what: "bookmark index",
+                    });
+                }
+                if *page >= MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "bookmark page",
+                    });
+                }
+                check_text("bookmark title", title, MAX_TEXT_BYTES)?;
+                check_clean("bookmark title", title)?;
+                if title.trim().is_empty() {
+                    return Err(ValidationError::Invalid {
+                        what: "bookmark title",
+                        reason: "is blank",
+                    });
+                }
+                Ok(())
+            }
+            Edit::RenameBookmark { id: _, title } => {
+                check_text("bookmark title", title, MAX_TEXT_BYTES)?;
+                check_clean("bookmark title", title)?;
+                if title.trim().is_empty() {
+                    return Err(ValidationError::Invalid {
+                        what: "bookmark title",
+                        reason: "is blank",
+                    });
+                }
+                Ok(())
+            }
+            Edit::DeleteBookmark { id: _ } => Ok(()),
+            Edit::MoveBookmark { id, parent, index } => {
+                if *index > MAX_OUTLINE_ITEMS {
+                    return Err(ValidationError::OutOfRange {
+                        what: "bookmark index",
+                    });
+                }
+                if *parent == Some(*id) {
+                    return Err(ValidationError::Invalid {
+                        what: "bookmark move",
+                        reason: "cannot be parent of itself",
+                    });
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -2073,11 +2125,12 @@ impl Validate for SaveAttachmentResult {
 mod tests {
     use super::*;
     use crate::types::{
-        AnnotationId, AnnotationKind, BatesMark, BlockedAction, DocumentId, DocumentPermissions,
-        ErrorCode, FieldId, FieldKind, FieldOption, FontId, HeaderFooterMarks, HighlightColor,
-        HighlightMark, InkColor, InkWidth, LinkId, PageNumberMark, PictureView, RecentId, Recovery,
-        RequestId, Restrictions, Rgb, Rotation, SecurityFinding, StampImageId, StampName, TabId,
-        TextAlign, TextBoxInfo, TextBoxModelId, UnverifiableReason, WatermarkPages, WatermarkPlace,
+        AnnotationId, AnnotationKind, BatesMark, BlockedAction, BookmarkId, DocumentId,
+        DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption, FontId, HeaderFooterMarks,
+        HighlightColor, HighlightMark, InkColor, InkWidth, LinkId, PageNumberMark, PictureView,
+        RecentId, Recovery, RequestId, Restrictions, Rgb, Rotation, SecurityFinding, StampImageId,
+        StampName, TabId, TextAlign, TextBoxInfo, TextBoxModelId, UnverifiableReason,
+        WatermarkPages, WatermarkPlace,
     };
     use crate::worker::{ModelGlyph, WorkerErrorCode};
 
@@ -2100,6 +2153,7 @@ mod tests {
 
     fn outline_item(depth: u16) -> OutlineItem {
         OutlineItem {
+            id: BookmarkId(1),
             title: "Chapter".to_owned(),
             depth,
             target: Some(LinkTarget::Page {
@@ -3726,6 +3780,61 @@ mod tests {
                 r#"{"kind":"addRedaction","page":0,"rect":{"x0":1,"y0":2,"x1":30,"y1":40}}"#
             )
             .is_ok()
+        );
+        let add_bm = |title: &str, page: u32, index: u32| Edit::AddBookmark {
+            parent: None,
+            index,
+            title: title.to_owned(),
+            page,
+        };
+        assert!(add_bm("Chapter 1", 0, 0).validate().is_ok());
+        assert!(add_bm("", 0, 0).validate().is_err());
+        assert!(add_bm("   ", 0, 0).validate().is_err());
+        assert!(
+            add_bm(&"x".repeat(MAX_TEXT_BYTES as usize + 1), 0, 0)
+                .validate()
+                .is_err()
+        );
+        assert!(add_bm("bad\u{0}title", 0, 0).validate().is_err());
+        assert!(add_bm("ok", MAX_PAGE_COUNT, 0).validate().is_err());
+        assert!(add_bm("ok", 0, MAX_OUTLINE_ITEMS + 1).validate().is_err());
+        let rename_bm = |title: &str| Edit::RenameBookmark {
+            id: BookmarkId(5),
+            title: title.to_owned(),
+        };
+        assert!(rename_bm("New Title").validate().is_ok());
+        assert!(rename_bm("").validate().is_err());
+        assert!(rename_bm(" \t ").validate().is_err());
+        assert!(
+            rename_bm(&"x".repeat(MAX_TEXT_BYTES as usize + 1))
+                .validate()
+                .is_err()
+        );
+        assert!(
+            Edit::DeleteBookmark { id: BookmarkId(5) }
+                .validate()
+                .is_ok()
+        );
+        let move_bm = |parent: Option<BookmarkId>, index: u32| Edit::MoveBookmark {
+            id: BookmarkId(5),
+            parent,
+            index,
+        };
+        assert!(move_bm(None, 0).validate().is_ok());
+        assert!(move_bm(Some(BookmarkId(2)), 1).validate().is_ok());
+        assert!(move_bm(Some(BookmarkId(5)), 0).validate().is_err());
+        assert!(move_bm(None, MAX_OUTLINE_ITEMS + 1).validate().is_err());
+        assert_eq!(
+            serde_json::from_str::<Edit>(
+                r#"{"kind":"addBookmark","parent":null,"index":0,"title":"Ch1","page":2}"#
+            )
+            .unwrap(),
+            Edit::AddBookmark {
+                parent: None,
+                index: 0,
+                title: "Ch1".to_owned(),
+                page: 2,
+            }
         );
 
         let side = MIN_ANNOTATION_SIDE_PT;

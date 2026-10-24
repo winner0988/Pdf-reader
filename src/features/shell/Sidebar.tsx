@@ -2,7 +2,7 @@ import type { ComponentProps } from "react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AttachmentsPanel } from "@/features/attachments/AttachmentsPanel";
-import { OutlineTree } from "@/features/outline/OutlineTree";
+import { AddFirstBookmark, OutlineTree, type OutlineEditing } from "@/features/outline/OutlineTree";
 import type { OutlineView } from "@/features/outline/tree";
 import type { PageSize } from "@/features/shell/model";
 import { RedactionPanel, type RedactionPanelProps } from "@/features/redaction/RedactionPanel";
@@ -24,6 +24,8 @@ type SidebarProps = {
   onOpenLink?: ComponentProps<typeof OutlineTree>["onOpenLink"];
   /** Page management in the thumbnails (B2-05). */
   pageEditing?: PageEditing;
+  /** Bookmark editing in the outline (B3-17). */
+  outlineEditing?: OutlineEditing;
   /** Saving the selected pages as a file of their own (B2-06). */
   savePages?: SavePages;
   /** Whether the document is marked sensitive (B3-05). */
@@ -46,6 +48,7 @@ export function Sidebar({
   onJumpToPage,
   onOpenLink,
   pageEditing,
+  outlineEditing,
   savePages,
   isSensitive,
   redaction,
@@ -67,7 +70,10 @@ export function Sidebar({
           {outline.status === "loading" && <Message>{t.outlineLoading}</Message>}
           {outline.status === "failed" && <Message>{t.outlineFailed}</Message>}
           {(outline.status === "none" || (outline.status === "ready" && outline.items.length === 0)) && (
-            <Message>{t.outlineEmpty}</Message>
+            <div className="flex flex-col items-start gap-2 px-2 py-4">
+              <p className="text-sm text-muted-foreground">{t.outlineEmpty}</p>
+              {outlineEditing?.allowed && <AddFirstBookmark currentPage={currentPage} editing={outlineEditing} />}
+            </div>
           )}
           {outline.status === "ready" && outline.items.length > 0 && (
             <>
@@ -81,6 +87,7 @@ export function Sidebar({
                 currentPage={currentPage}
                 onJumpToPage={onJumpToPage}
                 onOpenLink={onOpenLink}
+                editing={outlineEditing}
               />
             </>
           )}

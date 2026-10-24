@@ -9,11 +9,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::PROTOCOL_VERSION;
 use crate::types::{
-    AnnotationId, AnnotationSummary, AttachmentId, AttachmentSource, BatesMark, CreateKind,
-    DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FindPersonalDataQuery, FontRefusal,
-    FormField, HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth,
-    OutlineResult, PageAnnotation, PageLink, PageMarkPages, PageMarkPosition, PageMarks,
-    PageNumberFormat, PageNumberMark, PageSize, PageText, Password, PersonalDataMatches, Point,
+    AnnotationId, AnnotationSummary, AttachmentId, AttachmentSource, BatesMark, BookmarkId,
+    CreateKind, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FindPersonalDataQuery,
+    FontRefusal, FormField, HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality,
+    InkColor, InkWidth, OutlineResult, PageAnnotation, PageLink, PageMarkPages, PageMarkPosition,
+    PageMarks, PageNumberFormat, PageNumberMark, PageSize, PageText, Password, PersonalDataMatches,
+    Point,
     RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation,
     SanitizeOptions, SanitizeReport, SearchHit, SecurityReport, SignatureReport, SourceId,
     StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle, Watermark,
@@ -463,6 +464,23 @@ pub enum WorkerEdit {
         model: TextBoxModel,
         style: TextBoxStyle,
     },
+    /// As [`Edit::AddBookmark`] (B3-17).
+    AddBookmark {
+        parent: Option<BookmarkId>,
+        index: u32,
+        title: String,
+        page: u32,
+    },
+    /// As [`Edit::RenameBookmark`] (B3-17).
+    RenameBookmark { id: BookmarkId, title: String },
+    /// As [`Edit::DeleteBookmark`] (B3-17).
+    DeleteBookmark { id: BookmarkId },
+    /// As [`Edit::MoveBookmark`] (B3-17).
+    MoveBookmark {
+        id: BookmarkId,
+        parent: Option<BookmarkId>,
+        index: u32,
+    },
 }
 
 /// An edit names something its document does not have: a file whose pages it takes (B2-06), the
@@ -612,6 +630,27 @@ impl WorkerEdit {
                 page: *page,
                 annotation: *annotation,
                 degrees: *degrees,
+            },
+            Edit::AddBookmark {
+                parent,
+                index,
+                title,
+                page,
+            } => WorkerEdit::AddBookmark {
+                parent: *parent,
+                index: *index,
+                title: title.clone(),
+                page: *page,
+            },
+            Edit::RenameBookmark { id, title } => WorkerEdit::RenameBookmark {
+                id: *id,
+                title: title.clone(),
+            },
+            Edit::DeleteBookmark { id } => WorkerEdit::DeleteBookmark { id: *id },
+            Edit::MoveBookmark { id, parent, index } => WorkerEdit::MoveBookmark {
+                id: *id,
+                parent: *parent,
+                index: *index,
             },
         })
     }
@@ -1331,7 +1370,7 @@ impl From<WorkerErrorCode> for ErrorCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{BlockedAction, LinkTarget, OutlineItem};
+    use crate::types::{BlockedAction, BookmarkId, LinkTarget, OutlineItem};
 
     fn targets() -> Vec<LinkTarget> {
         vec![
@@ -1502,6 +1541,72 @@ mod tests {
             WorkerEdit::of(&Edit::ApplyRedactions, |_| None, |_| None, |_| None).unwrap(),
             WorkerEdit::ApplyRedactions
         );
+    }
+
+    #[test]
+    fn bookmark_edits_cross_the_boundary() {
+        let edits = [
+            (
+                Edit::AddBookmark {
+                    parent: None,
+                    index: 0,
+                    title: "Chapter 1".to_owned(),
+                    page: 3,
+                },
+                WorkerEdit::AddBookmark {
+                    parent: None,
+                    index: 0,
+                    title: "Chapter 1".to_owned(),
+                    page: 3,
+                },
+            ),
+            (
+                Edit::AddBookmark {
+                    parent: Some(BookmarkId(10)),
+                    index: 2,
+                    title: "Section 1.1".to_owned(),
+                    page: 4,
+                },
+                WorkerEdit::AddBookmark {
+                    parent: Some(BookmarkId(10)),
+                    index: 2,
+                    title: "Section 1.1".to_owned(),
+                    page: 4,
+                },
+            ),
+            (
+                Edit::RenameBookmark {
+                    id: BookmarkId(12),
+                    title: "Renamed Chapter".to_owned(),
+                },
+                WorkerEdit::RenameBookmark {
+                    id: BookmarkId(12),
+                    title: "Renamed Chapter".to_owned(),
+                },
+            ),
+            (
+                Edit::DeleteBookmark { id: BookmarkId(12) },
+                WorkerEdit::DeleteBookmark { id: BookmarkId(12) },
+            ),
+            (
+                Edit::MoveBookmark {
+                    id: BookmarkId(12),
+                    parent: Some(BookmarkId(5)),
+                    index: 1,
+                },
+                WorkerEdit::MoveBookmark {
+                    id: BookmarkId(12),
+                    parent: Some(BookmarkId(5)),
+                    index: 1,
+                },
+            ),
+        ];
+        for (frontend_edit, worker_edit) in edits {
+            let made = WorkerEdit::of(&frontend_edit, |_| None, |_| None, |_| None).unwrap();
+            assert_eq!(made, worker_edit);
+            let bytes = postcard::to_allocvec(&made).unwrap();
+            assert_eq!(postcard::from_bytes::<WorkerEdit>(&bytes).unwrap(), made);
+        }
         let response = WorkerResponse::RedactionSummary {
             request: RequestId(9),
             summary: RedactionSummary {
@@ -1811,7 +1916,9 @@ mod tests {
             outline: OutlineResult {
                 items: targets()
                     .into_iter()
-                    .map(|target| OutlineItem {
+                    .enumerate()
+                    .map(|(index, target)| OutlineItem {
+                        id: BookmarkId(index as u32 + 1),
                         title: "t".to_owned(),
                         depth: 0,
                         target: Some(target),

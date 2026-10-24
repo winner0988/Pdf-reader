@@ -474,7 +474,7 @@ export type ExportEvent = { "kind": "progress", pagesDone: number, total: number
  * A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
  * those of the document as it is before the edit.
  */
-export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "addTextBox", page: number, rect: Rect, model: TextBoxModelId, style: TextBoxStyle, } | { "kind": "setTextBox", page: number, annotation: AnnotationId, model: TextBoxModelId | null, style: TextBoxStyle, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setPictureAngle", page: number, annotation: AnnotationId, degrees: number, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" } | { "kind": "addRedaction", page: number, rect: Rect, } | { "kind": "applyRedactions" };
+export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "addTextBox", page: number, rect: Rect, model: TextBoxModelId, style: TextBoxStyle, } | { "kind": "setTextBox", page: number, annotation: AnnotationId, model: TextBoxModelId | null, style: TextBoxStyle, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setPictureAngle", page: number, annotation: AnnotationId, degrees: number, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" } | { "kind": "addRedaction", page: number, rect: Rect, } | { "kind": "applyRedactions" } | { "kind": "addBookmark", parent: BookmarkId | null, index: number, title: string, page: number, } | { "kind": "renameBookmark", id: BookmarkId, title: string, } | { "kind": "deleteBookmark", id: BookmarkId, } | { "kind": "moveBookmark", id: BookmarkId, parent: BookmarkId | null, index: number, };
 
 /**
  * The highlighter's colors (B2-07).
@@ -520,6 +520,12 @@ export type StampImageInfo = { image: StampImageId, width: number, height: numbe
  * the same through edits until the document is saved (B2-07).
  */
 export type AnnotationId = number;
+
+/**
+ * A bookmark (outline item) of an open document: the number of its object in the document, which stays
+ * the same through edits until the document is saved (B3-17).
+ */
+export type BookmarkId = number;
 
 /**
  * What an annotation of a page is, as far as the app edits it (B2-07).
@@ -1173,7 +1179,7 @@ asciiHost: string | null, };
 /**
  * One outline entry, in pre-order; `depth` 0 is the top level.
  */
-export type OutlineItem = { title: string, depth: number, target: LinkTarget | null, };
+export type OutlineItem = { id: BookmarkId, title: string, depth: number, target: LinkTarget | null, };
 
 export type OutlineResult = { items: Array<OutlineItem>, 
 /**

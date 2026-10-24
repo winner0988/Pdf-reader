@@ -16,12 +16,12 @@ export const demoDocument: ShellDocument = {
     status: "ready",
     truncated: false,
     items: [
-      { title: "第 1 章 簡介", depth: 0, target: page(0) },
-      { title: "第 1.1 節 背景", depth: 1, target: page(1) },
-      { title: "第 1.2 節 目標", depth: 1, target: page(2) },
-      { title: "第 2 章 方法", depth: 0, target: page(4) },
-      { title: "第 2.1 節 資料", depth: 1, target: page(5) },
-      { title: "附錄", depth: 0, target: page(10) },
+      { id: 1, title: "第 1 章 簡介", depth: 0, target: page(0) },
+      { id: 2, title: "第 1.1 節 背景", depth: 1, target: page(1) },
+      { id: 3, title: "第 1.2 節 目標", depth: 1, target: page(2) },
+      { id: 4, title: "第 2 章 方法", depth: 0, target: page(4) },
+      { id: 5, title: "第 2.1 節 資料", depth: 1, target: page(5) },
+      { id: 6, title: "附錄", depth: 0, target: page(10) },
     ],
   },
   findings: [

@@ -148,6 +148,8 @@ struct OpenDocument {
     history: History,
     /// The file has a form (B2-09); `info.has_form` is that, unless the form is flattened.
     form_in_file: bool,
+    /// The file has an outline in its original state (B3-17).
+    outline_in_file: bool,
     /// The crash recovery journal of the edits applied (B2-13): there while some are.
     journal: Option<JournalId>,
     /// Edits an earlier run left for the file (B2-13), until the user makes them again or
@@ -333,6 +335,7 @@ impl Documents {
             let doc = DocumentId(self.next_id());
             let (mut info, facts_of_file) = document_info(doc, display_name.clone(), response)?;
             let info_has_form = info.has_form;
+            let info_has_outline = info.has_outline;
             let security_in_file = info.security.clone();
             // Only now, so that a password that did not open the file is not kept.
             if let Some(typed) = &to_remember {
@@ -354,6 +357,7 @@ impl Documents {
                 identity,
                 history: History::default(),
                 form_in_file: info_has_form,
+                outline_in_file: info_has_outline,
                 journal: None,
                 recovered: None,
                 sources: Sources::default(),
@@ -839,6 +843,7 @@ impl Documents {
             }
             // The file has the form as it is now: flattened, or not.
             document.form_in_file = document.info.has_form;
+            document.outline_in_file = document.info.has_outline;
             document.history.saved();
             document.sources.clear();
             show_history(document);
@@ -2629,6 +2634,19 @@ fn pages_after(
             }
             return Ok(page_count);
         }
+        Edit::AddBookmark { page, .. } => {
+            if !permissions.modify {
+                return Err(not_allowed());
+            }
+            check_page_index(*page, page_count).map_err(invalid_argument)?;
+            return Ok(page_count);
+        }
+        Edit::RenameBookmark { .. } | Edit::DeleteBookmark { .. } | Edit::MoveBookmark { .. } => {
+            if !permissions.modify {
+                return Err(not_allowed());
+            }
+            return Ok(page_count);
+        }
         _ => {}
     }
     if let Some(pages) = annotated {
@@ -2729,7 +2747,11 @@ fn pages_after(
         | Edit::SetFieldValue { .. }
         | Edit::FlattenForm
         | Edit::AddRedaction { .. }
-        | Edit::ApplyRedactions => Ok(page_count),
+        | Edit::ApplyRedactions
+        | Edit::AddBookmark { .. }
+        | Edit::RenameBookmark { .. }
+        | Edit::DeleteBookmark { .. }
+        | Edit::MoveBookmark { .. } => Ok(page_count),
     }
 }
 
@@ -2871,6 +2893,11 @@ fn show_history(document: &mut OpenDocument) {
         .iter()
         .any(|edit| matches!(edit, Edit::FlattenForm));
     document.info.has_form = document.form_in_file && !flattened;
+    let has_added_bookmark = history
+        .applied()
+        .iter()
+        .any(|edit| matches!(edit, Edit::AddBookmark { .. }));
+    document.info.has_outline = document.outline_in_file || has_added_bookmark;
     document.info.unsaved = history.unsaved();
     document.info.can_undo = history.can_undo();
     document.info.can_redo = history.can_redo();

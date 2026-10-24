@@ -628,6 +628,13 @@ export function ReaderShell({
           insertFrom: editingApi.pickPagesSource ? insertFrom : undefined,
         }
       : undefined;
+  const outlineEditing =
+    doc !== undefined && editingApi !== undefined
+      ? {
+          allowed: permissions.modify,
+          apply: (edit: Edit) => editingApi.applyEdit(doc, edit),
+        }
+      : undefined;
   // Undo and redo (B2-05). A document opened with a password needs it again to undo (#94): the
   // first try, without one, fails with `encrypted`, and the password is asked for.
   const undoable = pageEditing !== undefined && document_?.canUndo === true;
@@ -1182,6 +1189,7 @@ export function ReaderShell({
               onJumpToPage={goToPage}
               onOpenLink={openOutlineLink}
               pageEditing={pageEditing}
+              outlineEditing={outlineEditing}
               savePages={savePages}
               isSensitive={document_.sensitive === true}
               redaction={{

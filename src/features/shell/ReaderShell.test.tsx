@@ -454,9 +454,9 @@ describe("shortcuts", () => {
         status: "ready",
         truncated: false,
         items: [
-          { title: "第 1 章", depth: 0, target: { kind: "page", pageIndex: 0, x: null, y: null } },
-          { title: "官方網站", depth: 0, target: { kind: "uri", uri: "https://example.invalid/docs" } },
-          { title: "執行程式", depth: 0, target: { kind: "blocked", action: "launch", target: "calc.exe" } },
+          { id: 1, title: "第 1 章", depth: 0, target: { kind: "page", pageIndex: 0, x: null, y: null } },
+          { id: 2, title: "官方網站", depth: 0, target: { kind: "uri", uri: "https://example.invalid/docs" } },
+          { id: 3, title: "執行程式", depth: 0, target: { kind: "blocked", action: "launch", target: "calc.exe" } },
         ],
       };
       const utils = renderShell({ kind: "open", document: { ...demoDocument, doc: 5 } }, { linksApi, outline });

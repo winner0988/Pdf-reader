@@ -574,6 +574,26 @@ pub enum Edit {
     /// form fields that reach into an area are deleted; the marks go. Refused for a signed
     /// document. It can be undone until the document is saved (ADR 0013).
     ApplyRedactions,
+    /// Adds a new bookmark pointing to page `page` (0-based) (B3-17). If `parent` is `None`,
+    /// added to the top-level outline; `index` is the 0-based insertion position among siblings.
+    AddBookmark {
+        parent: Option<BookmarkId>,
+        index: u32,
+        title: String,
+        page: u32,
+    },
+    /// Renames the bookmark `id` to `title` (B3-17).
+    RenameBookmark { id: BookmarkId, title: String },
+    /// Removes the bookmark `id` and all of its descendants (B3-17).
+    DeleteBookmark { id: BookmarkId },
+    /// Moves the bookmark `id` (and its descendants) to be the `index`-th child of `parent`
+    /// (`None` for top-level) (B3-17). Moving up/down within the same parent and promoting/demoting
+    /// between levels are all expressed through this.
+    MoveBookmark {
+        id: BookmarkId,
+        parent: Option<BookmarkId>,
+        index: u32,
+    },
 }
 
 /// What applying the redaction marks of a document would do besides removing what their areas
@@ -778,6 +798,11 @@ pub struct StampImageInfo {
 /// the same through edits until the document is saved (B2-07).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 pub struct AnnotationId(pub u32);
+
+/// A bookmark (outline item) of an open document: the number of its object in the document, which stays
+/// the same through edits until the document is saved (B3-17).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct BookmarkId(pub u32);
 
 /// What an annotation of a page is, as far as the app edits it (B2-07).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -1817,6 +1842,7 @@ pub struct LinkPreview {
 /// One outline entry, in pre-order; `depth` 0 is the top level.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct OutlineItem {
+    pub id: BookmarkId,
     pub title: String,
     pub depth: u16,
     pub target: Option<LinkTarget>,

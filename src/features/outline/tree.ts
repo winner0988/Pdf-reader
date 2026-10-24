@@ -24,6 +24,15 @@ export function parentOf(items: OutlineItem[], index: number): number {
   return -1;
 }
 
+/**
+ * What stands for an item through edits (B3-17): its bookmark id, which an edit does not change,
+ * so that what is open and what has focus stay with the item when the outline is read again.
+ * An item the worker gives no id (0) has one from its place.
+ */
+export function keyOf(item: OutlineItem, index: number): number {
+  return item.id !== 0 ? item.id : -1 - index;
+}
+
 /** Items shown when only the items in `expanded` have their children visible. */
 export function visibleItems(items: OutlineItem[], expanded: ReadonlySet<number>): number[] {
   const visible: number[] = [];
@@ -69,4 +78,130 @@ export function visibleAncestor(items: OutlineItem[], visible: readonly number[]
   let at = index;
   while (at >= 0 && !visible.includes(at)) at = parentOf(items, at);
   return at;
+}
+
+/** 0-based index of item among its siblings (items sharing the same parent and depth). */
+export function siblingIndex(items: OutlineItem[], index: number): number {
+  const parent = parentOf(items, index);
+  const depth = items[index]!.depth;
+  let count = 0;
+  for (let i = 0; i < index; i++) {
+    if (parentOf(items, i) === parent && items[i]!.depth === depth) {
+      count++;
+    }
+  }
+  return count;
+}
+
+/** Index of the previous sibling, or -1 if `index` is the first child. */
+export function prevSibling(items: OutlineItem[], index: number): number {
+  const parent = parentOf(items, index);
+  const depth = items[index]!.depth;
+  for (let i = index - 1; i >= 0; i--) {
+    if (items[i]!.depth < depth) return -1;
+    if (items[i]!.depth === depth && parentOf(items, i) === parent) return i;
+  }
+  return -1;
+}
+
+/** Index of the next sibling, or -1 if `index` is the last child. */
+export function nextSibling(items: OutlineItem[], index: number): number {
+  const parent = parentOf(items, index);
+  const depth = items[index]!.depth;
+  for (let i = index + 1; i < items.length; i++) {
+    if (items[i]!.depth < depth) return -1;
+    if (items[i]!.depth === depth && parentOf(items, i) === parent) return i;
+  }
+  return -1;
+}
+
+/** Number of immediate children under `index`. */
+export function childrenCount(items: OutlineItem[], index: number): number {
+  let count = 0;
+  for (let i = index + 1; i < items.length; i++) {
+    if (items[i]!.depth <= items[index]!.depth) break;
+    if (parentOf(items, i) === index) count++;
+  }
+  return count;
+}
+
+export function canMoveUp(items: OutlineItem[], index: number): boolean {
+  return prevSibling(items, index) >= 0;
+}
+
+export function canMoveDown(items: OutlineItem[], index: number): boolean {
+  return nextSibling(items, index) >= 0;
+}
+
+export function canPromote(items: OutlineItem[], index: number): boolean {
+  return items[index]!.depth > 0;
+}
+
+export function canDemote(items: OutlineItem[], index: number): boolean {
+  return prevSibling(items, index) >= 0;
+}
+
+export type MoveDirection = "up" | "down" | "promote" | "demote";
+
+/**
+ * Computes destination `(id, parent, index)` for moving an outline item (B3-17).
+ * Reuses the same "move to parent's index-th child" model for up, down, promote, demote.
+ */
+export function getMoveParams(
+  items: OutlineItem[],
+  index: number,
+  direction: MoveDirection,
+): { id: number; parent: number | null; index: number } | null {
+  const item = items[index];
+  if (!item) return null;
+  const currentParentIdx = parentOf(items, index);
+  const currentParentId = currentParentIdx >= 0 ? items[currentParentIdx]!.id : null;
+  const currentSibIdx = siblingIndex(items, index);
+
+  switch (direction) {
+    case "up": {
+      if (!canMoveUp(items, index)) return null;
+      return { id: item.id, parent: currentParentId, index: currentSibIdx - 1 };
+    }
+    case "down": {
+      if (!canMoveDown(items, index)) return null;
+      return { id: item.id, parent: currentParentId, index: currentSibIdx + 1 };
+    }
+    case "promote": {
+      if (!canPromote(items, index)) return null;
+      const grandParentIdx = parentOf(items, currentParentIdx);
+      const grandParentId = grandParentIdx >= 0 ? items[grandParentIdx]!.id : null;
+      const parentSibIdx = siblingIndex(items, currentParentIdx);
+      return { id: item.id, parent: grandParentId, index: parentSibIdx + 1 };
+    }
+    case "demote": {
+      if (!canDemote(items, index)) return null;
+      const prev = prevSibling(items, index);
+      const prevItem = items[prev]!;
+      const count = childrenCount(items, prev);
+      return { id: item.id, parent: prevItem.id, index: count };
+    }
+  }
+}
+
+/**
+ * Where a bookmark added after item `index` goes: next to it, at its level. With no item (-1),
+ * first at the top level.
+ */
+export function addAfter(items: OutlineItem[], index: number): { parent: number | null; index: number } {
+  if (items[index] === undefined) return { parent: null, index: 0 };
+  const parent = parentOf(items, index);
+  return { parent: parent >= 0 ? items[parent]!.id : null, index: siblingIndex(items, index) + 1 };
+}
+
+/**
+ * A title as the main process takes it (`clean_display_text`): invisible formatting characters
+ * (bidirectional controls, zero-width characters) removed, line breaks, other control characters
+ * and runs of spaces made one space, no space at either end.
+ */
+export function cleanTitle(text: string): string {
+  return text
+    .replace(/[\u061C\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/gu, "")
+    .replace(/[\s\p{Cc}]+/gu, " ")
+    .trim();
 }

@@ -334,6 +334,31 @@
 - 失敗時在縮圖上方顯示 pages.failed；未儲存的變更太多（最多 1,000 個編輯，崩潰復原日誌最大 4 MiB）時顯示 pages.saveFirst。
 - **復原／重做**：`Ctrl+Z`／`Ctrl+Y`（或 `Ctrl+Shift+Z`），「⋯」→ menu.undo／menu.redo（不能用時停用）。回到存檔時的狀態後，分頁不再標示未儲存；存檔後不能復原到存檔之前。以密碼開啟的文件復原時，對話框 pages.undoPassword.title 再要一次密碼（pages.undoPassword.description）；密碼錯誤時顯示 pages.undoPassword.wrong，取消則不復原；重做不需要密碼。焦點在文字欄位時，這些鍵留給欄位。做法見 [page-management.md](../architecture/page-management.md)。
 
+### 書籤編輯（B3-17）
+
+在側欄的「目錄」中操作；存檔後才寫入檔案。文件作者不允許修改時（`permissions.modify` 為 false），沒有新增按鈕、右鍵選單與編輯快捷鍵。
+
+- **新增**：新書籤指向目前閱讀的頁面（該頁顯示時的左上角），標題預設為 sidebar.defaultBookmarkTitle（例如「第 1 頁」），加入後立刻進入改名。
+  - 目錄為空時，側欄顯示 sidebar.outlineEmpty 與按鈕 sidebar.addBookmark，按下後建立第一個書籤。
+  - 目錄上方的按鈕 sidebar.addBookmark：放在目前頁面所屬書籤的後面、同一層；沒有這樣的書籤時放在最前面。
+  - 項目有焦點時按 `Ctrl+B`，或在項目上按右鍵選 sidebar.addBookmark：放在該項目的後面、同一層（要放進去當子項目，再按 `Alt+→`）。
+- **重新命名**：
+  - 項目有焦點時按 `F2`，或右鍵選 sidebar.renameBookmark：變成行內輸入框（sidebar.renameInputLabel），原有文字全選。
+  - `Enter` 或離開輸入框時套用，`Esc` 取消；`Enter`、`Esc` 後焦點回到該項目。
+  - 換行、連續空白收成一個空白，看不見的格式字元（雙向文字控制、零寬字元）去掉；結果是空的就不改。
+- **刪除**：
+  - 項目有焦點時按 `Delete`，或右鍵選 sidebar.deleteBookmark。
+  - 沒有子項目的書籤直接刪除；有子項目時先出現確認對話框（sidebar.deleteConfirmTitle、sidebar.deleteConfirmDescription），確定後連同底下的書籤一起刪除。
+  - 刪除後焦點移到下一個顯示的項目（沒有就前一個）。
+- **移動**：焦點留在移動的書籤上；移進收合的項目時，該項目會展開。
+  - 同層上移：`Alt+↑` 或右鍵 sidebar.moveUp（同層第一個時停用）。
+  - 同層下移：`Alt+↓` 或右鍵 sidebar.moveDown（同層最後一個時停用）。
+  - 升級：`Alt+←` 或右鍵 sidebar.promote，放到原本父項目的後面（已在最上層時停用）。
+  - 降級：`Alt+→` 或右鍵 sidebar.demote，成為前一個同層項目的最後一個子項目（沒有前一個時停用）。
+- **一次一個**：一個編輯送出後，到新的目錄出現之前，其他編輯不作用（目錄標示忙碌中）。
+- **失敗**：目錄上方顯示 sidebar.bookmarkFailed（未儲存的變更太多時是 pages.saveFirst）。目錄結構有問題的文件（例如目錄項目其實是頁面、層數或數量超過上限）不能編輯書籤，但照樣可以看。
+- **復原／重做**：每個動作是一筆編輯（`AddBookmark`、`RenameBookmark`、`DeleteBookmark`、`MoveBookmark`），`Ctrl+Z`／`Ctrl+Y` 復原與重做，也寫進崩潰復原的日誌。做法見 [outline-editing.md](../architecture/outline-editing.md)。
+
 ### 崩潰復原（B2-13）
 
 app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個檔案會出現提示列（主視窗 3a）。做法見 [crash-recovery.md](../architecture/crash-recovery.md)。
@@ -494,8 +519,12 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
 | 順時針／逆時針旋轉 | `Ctrl+]`／`Ctrl+[` |
 | 跳到頁碼 | `Ctrl+G`（焦點移到頁碼輸入框） |
 | 第一頁／最後一頁 | `Home`／`End`（焦點在縮圖時：第一張／最後一張縮圖） |
-| 刪除選取的頁面 | `Delete`（焦點在縮圖時） |
+| 刪除選取的項目 | `Delete`（焦點在縮圖時刪除頁面；焦點在目錄項目時刪除書籤） |
 | 全選頁面 | `Ctrl+A`（焦點在縮圖時） |
+| 新增書籤 | `Ctrl+B`（焦點在目錄時） |
+| 重新命名書籤 | `F2`（焦點在目錄項目時） |
+| 上移／下移書籤 | `Alt+↑`／`Alt+↓`（焦點在目錄項目時） |
+| 升級／降級書籤 | `Alt+←`／`Alt+→`（焦點在目錄項目時） |
 | 開關側欄 | `F4` |
 | 在區域間移動焦點 | `F6`／`Shift+F6`（工具列 → 橫幅 → 側欄 → 畫布） |
 | 關閉對話框、面板、搜尋列 | `Esc` |
@@ -607,6 +636,20 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | outlineExpand／outlineCollapse | 展開／收合（展開鈕的可讀名稱） |
 | outlineExternalLink | 外部連結（指向網址的目錄項目上的圖示） |
 | outlineBlockedAction | 已封鎖的動作（指向其他檔案、程式或腳本的目錄項目上的圖示） |
+| addBookmark | 新增書籤 |
+| renameBookmark | 重新命名 |
+| deleteBookmark | 刪除 |
+| moveUp | 上移 |
+| moveDown | 下移 |
+| promote | 升級 |
+| demote | 降級 |
+| defaultBookmarkTitle | 第 <n> 頁 |
+| bookmarkFailed | 無法變更書籤。目錄結構有問題的文件不能編輯書籤；其他原因請再試一次。 |
+| deleteConfirmTitle | 刪除書籤 |
+| deleteConfirmDescription | 這個書籤包含子項目，確定要一併刪除嗎？ |
+| deleteConfirmConfirm | 刪除 |
+| deleteConfirmCancel | 取消 |
+| renameInputLabel | 書籤名稱 |
 
 ### 附件（B3-20, ADR 0025）
 

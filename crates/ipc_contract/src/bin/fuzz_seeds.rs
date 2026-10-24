@@ -8,17 +8,17 @@ use std::path::PathBuf;
 use ipc_contract::frame::encode;
 use ipc_contract::types::{
     AnnotationId, AnnotationKind, AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind,
-    AttachmentId, AttachmentSource, BatesMark, BlockedAction, Certification, CreateKind,
-    DocumentId, DocumentPermissions, FieldId, FieldKind, FieldOption, FindPersonalDataQuery,
-    FindingKind, FontRefusal, FormField, HeaderFooterMarks, HighlightColor, HighlightMark,
-    ImageQuality, InkColor, InkWidth, LinkId, LinkTarget, OutlineItem, OutlineResult,
-    PageAnnotation, PageLink, PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat,
-    PageNumberMark, PageSize, PageText, Password, PersonalDataCategory, PersonalDataMatch,
-    PersonalDataMatches, PictureView, Point, Quad, RasterRegion, Rect, RedactionCheck,
-    RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions, SanitizeReport,
-    SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport, SignatureStatus,
-    StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason, Watermark,
-    WatermarkContent, WatermarkPages, WatermarkPlace,
+    AttachmentId, AttachmentSource, BatesMark, BlockedAction, BookmarkId, Certification,
+    CreateKind, DocumentId, DocumentPermissions, FieldId, FieldKind, FieldOption,
+    FindPersonalDataQuery, FindingKind, FontRefusal, FormField, HeaderFooterMarks, HighlightColor,
+    HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, LinkTarget, OutlineItem,
+    OutlineResult, PageAnnotation, PageLink, PageMarkPages, PageMarkPosition, PageMarks,
+    PageNumberFormat, PageNumberMark, PageSize, PageText, Password, PersonalDataCategory,
+    PersonalDataMatch, PersonalDataMatches, PictureView, Point, Quad, RasterRegion, Rect,
+    RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions,
+    SanitizeReport, SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport,
+    SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason,
+    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, ModelGlyph, OcrFinished, OcrOutcome, OcrPageState,
@@ -134,6 +134,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .iter()
                     .enumerate()
                     .map(|(depth, target)| OutlineItem {
+                        id: BookmarkId(depth as u32 + 1),
                         title: format!("Chapter {depth}"),
                         depth: depth as u16,
                         target: Some(target.clone()),
@@ -935,6 +936,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     },
                     align: TextAlign::Center,
                 },
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddBookmark {
+                parent: None,
+                index: 0,
+                title: "Chapter 1".to_owned(),
+                page: 0,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::RenameBookmark {
+                id: BookmarkId(12),
+                title: "Section 1.1".to_owned(),
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::DeleteBookmark { id: BookmarkId(12) },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::MoveBookmark {
+                id: BookmarkId(12),
+                parent: Some(BookmarkId(10)),
+                index: 1,
             },
         },
         WorkerRequest::SavePages {

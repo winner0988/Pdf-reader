@@ -1,11 +1,23 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  addAfter,
+  canDemote,
+  canMoveDown,
+  canMoveUp,
+  canPromote,
+  childrenCount,
+  cleanTitle,
   currentItem,
+  getMoveParams,
   hasChildren,
   initiallyExpanded,
+  keyOf,
+  nextSibling,
   pageOf,
   parentOf,
+  prevSibling,
+  siblingIndex,
   visibleAncestor,
   visibleItems,
 } from "@/features/outline/tree";
@@ -15,12 +27,12 @@ const page = (pageIndex: number) => ({ kind: "page" as const, pageIndex, x: null
 
 // The QA-01 three-level sample: Chapter 1 > Section 1.1 > Subsection 1.1.1, Chapter 2 > 2.1, Appendix.
 const items: OutlineItem[] = [
-  { title: "Chapter 1", depth: 0, target: page(0) },
-  { title: "Section 1.1", depth: 1, target: page(1) },
-  { title: "Subsection 1.1.1", depth: 2, target: page(2) },
-  { title: "Chapter 2", depth: 0, target: page(3) },
-  { title: "Section 2.1", depth: 1, target: page(4) },
-  { title: "Appendix", depth: 0, target: page(5) },
+  { id: 10, title: "Chapter 1", depth: 0, target: page(0) },
+  { id: 11, title: "Section 1.1", depth: 1, target: page(1) },
+  { id: 12, title: "Subsection 1.1.1", depth: 2, target: page(2) },
+  { id: 13, title: "Chapter 2", depth: 0, target: page(3) },
+  { id: 14, title: "Section 2.1", depth: 1, target: page(4) },
+  { id: 15, title: "Appendix", depth: 0, target: page(5) },
 ];
 
 describe("outline tree", () => {
@@ -47,7 +59,7 @@ describe("outline tree", () => {
     expect(currentItem(items, 3)).toBe(2);
     expect(currentItem(items, 5)).toBe(4);
     expect(currentItem(items, 99)).toBe(5);
-    expect(currentItem([{ title: "Later", depth: 0, target: page(4) }], 1)).toBe(-1);
+    expect(currentItem([{ id: 99, title: "Later", depth: 0, target: page(4) }], 1)).toBe(-1);
   });
 
   it("marks the closest visible ancestor when the current item is hidden", () => {
@@ -59,8 +71,64 @@ describe("outline tree", () => {
 
   it("only page targets jump", () => {
     expect(pageOf(items[1]!)).toBe(1);
-    expect(pageOf({ title: "Web", depth: 0, target: { kind: "uri", uri: "https://example.invalid/" } })).toBeNull();
-    expect(pageOf({ title: "Run", depth: 0, target: { kind: "blocked", action: "launch", target: "calc.exe" } })).toBeNull();
-    expect(pageOf({ title: "None", depth: 0, target: null })).toBeNull();
+    expect(pageOf({ id: 1, title: "Web", depth: 0, target: { kind: "uri", uri: "https://example.invalid/" } })).toBeNull();
+    expect(pageOf({ id: 2, title: "Run", depth: 0, target: { kind: "blocked", action: "launch", target: "calc.exe" } })).toBeNull();
+    expect(pageOf({ id: 3, title: "None", depth: 0, target: null })).toBeNull();
+  });
+
+  it("handles outline item navigation and moving", () => {
+    // Siblings of top level: [0, 3, 5]
+    expect(siblingIndex(items, 0)).toBe(0);
+    expect(siblingIndex(items, 3)).toBe(1);
+    expect(siblingIndex(items, 5)).toBe(2);
+    // Prev / Next siblings
+    expect(prevSibling(items, 0)).toBe(-1);
+    expect(nextSibling(items, 0)).toBe(3);
+    expect(prevSibling(items, 3)).toBe(0);
+    expect(nextSibling(items, 3)).toBe(5);
+    expect(nextSibling(items, 5)).toBe(-1);
+
+    // Section 1.1 (index 1) is the only child of Chapter 1
+    expect(childrenCount(items, 0)).toBe(1);
+    expect(canMoveUp(items, 1)).toBe(false);
+    expect(canMoveDown(items, 1)).toBe(false);
+    expect(canPromote(items, 1)).toBe(true);
+    expect(canDemote(items, 1)).toBe(false);
+
+    // Move up / down top-level items
+    expect(canMoveUp(items, 0)).toBe(false);
+    expect(canMoveDown(items, 0)).toBe(true);
+    expect(getMoveParams(items, 0, "down")).toEqual({ id: 10, parent: null, index: 1 });
+    expect(getMoveParams(items, 3, "up")).toEqual({ id: 13, parent: null, index: 0 });
+
+    // Promote Section 1.1 (index 1) to top level after Chapter 1
+    expect(getMoveParams(items, 1, "promote")).toEqual({ id: 11, parent: null, index: 1 });
+
+    // Demote Chapter 2 (index 3) under Chapter 1 (index 0)
+    expect(canDemote(items, 3)).toBe(true);
+    expect(getMoveParams(items, 3, "demote")).toEqual({ id: 13, parent: 10, index: 1 });
+  });
+});
+
+describe("bookmark editing (B3-17)", () => {
+  it("knows an item by its bookmark id, or by its place when it has none", () => {
+    expect(keyOf(items[1]!, 1)).toBe(11);
+    expect(keyOf({ ...items[1]!, id: 0 }, 1)).toBe(-2);
+    expect(keyOf({ ...items[0]!, id: 0 }, 0)).not.toBe(keyOf({ ...items[1]!, id: 0 }, 1));
+  });
+
+  it("adds next to an item at its level, or first at the top level", () => {
+    // After Section 1.1: under Chapter 1, second.
+    expect(addAfter(items, 1)).toEqual({ parent: 10, index: 1 });
+    // After Chapter 2: at the top level, after it.
+    expect(addAfter(items, 3)).toEqual({ parent: null, index: 2 });
+    expect(addAfter(items, -1)).toEqual({ parent: null, index: 0 });
+  });
+
+  it("cleans a title as the main process takes it", () => {
+    expect(cleanTitle("  Chapter\t1\n\nIntro  ")).toBe("Chapter 1 Intro");
+    // Bidirectional controls and zero-width characters are dropped.
+    expect(cleanTitle("\u202Eevil\u200B.txt\uFEFF")).toBe("evil.txt");
+    expect(cleanTitle(" \u200B ")).toBe("");
   });
 });

@@ -816,6 +816,23 @@ fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineErro
             annotation,
             degrees,
         } => document.set_picture_angle(*page, *annotation, *degrees)?,
+        WorkerEdit::AddBookmark {
+            parent,
+            index,
+            title,
+            page,
+        } => {
+            document.add_bookmark(*parent, *index, title, *page)?;
+        }
+        WorkerEdit::RenameBookmark { id, title } => {
+            document.rename_bookmark(*id, title)?;
+        }
+        WorkerEdit::DeleteBookmark { id } => {
+            document.delete_bookmark(*id)?;
+        }
+        WorkerEdit::MoveBookmark { id, parent, index } => {
+            document.move_bookmark(*id, *parent, *index)?;
+        }
     }
     document.clear_text_cache();
     Ok(())
@@ -1268,6 +1285,7 @@ fn outline(document: &PdfDocument) -> Result<OutlineResult, EngineError> {
         .entries
         .into_iter()
         .map(|entry| OutlineItem {
+            id: entry.id,
             title: clean_display_text(&entry.title, MAX_TEXT_BYTES as usize),
             depth: entry.depth,
             target: contract_target(entry.target, page_count),

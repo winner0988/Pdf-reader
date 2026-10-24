@@ -14,8 +14,9 @@ use ipc_contract::limits::{
 };
 use ipc_contract::raster::check_region;
 use ipc_contract::types::{
-    BlockedAction, DocumentPermissions, ImageQuality, PageSize, PageText as TextLayer, Point, Quad,
-    RasterRegion, Restrictions, Rotation, SanitizeOptions, SanitizeReport, SecurityReport,
+    BlockedAction, BookmarkId, DocumentPermissions, ImageQuality, PageSize, PageText as TextLayer,
+    Point, Quad, RasterRegion, Restrictions, Rotation, SanitizeOptions, SanitizeReport,
+    SecurityReport,
 };
 use mupdf::pdf::{
     Encryption, InsertPdfOptions, InsertPosition, PageSelection, PdfDocument as MuPdfDocument,
@@ -49,6 +50,7 @@ pub use create::{Created, PdfBuilder};
 pub use identifier::write_identifier;
 pub use ocr::OcrKnown;
 
+mod outline;
 mod signatures;
 mod stamp_image;
 mod text_box;
@@ -199,6 +201,7 @@ pub enum OutlineTarget {
 /// One outline entry, in reading order (a parent before its children).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutlineEntry {
+    pub id: BookmarkId,
     /// Raw title from the PDF; the caller cleans it before showing it.
     pub title: String,
     pub depth: u16,
@@ -384,7 +387,14 @@ impl PdfDocument {
             }
             let title = text(node.get_dict("Title")).unwrap_or_default();
             let target = self.action_target(&node);
+            let id = BookmarkId(
+                node.as_indirect()
+                    .ok()
+                    .and_then(|n| u32::try_from(n).ok())
+                    .unwrap_or(0),
+            );
             outline.entries.push(OutlineEntry {
+                id,
                 title,
                 depth,
                 target,
@@ -1607,7 +1617,7 @@ mod tests {
     use super::*;
 
     /// Builds a PDF with a correct xref table from object bodies (object n = body n-1).
-    fn build_pdf(objects: &[&str]) -> Vec<u8> {
+    pub(super) fn build_pdf(objects: &[&str]) -> Vec<u8> {
         let mut out = b"%PDF-1.7\n".to_vec();
         let mut offsets = Vec::new();
         for (index, body) in objects.iter().enumerate() {
@@ -1653,7 +1663,7 @@ mod tests {
 
     /// A PDF whose outline is given as (title, depth, target page) in reading order; object
     /// numbers: 1 catalog, 2 pages, 3..3+pages page objects, then the outline root and items.
-    fn outline_pdf(pages: usize, items: &[(&str, u16, Option<usize>)]) -> Vec<u8> {
+    pub(super) fn outline_pdf(pages: usize, items: &[(&str, u16, Option<usize>)]) -> Vec<u8> {
         let first_page = 3;
         let root = first_page + pages;
         let item_obj = |index: usize| root + 1 + index;
