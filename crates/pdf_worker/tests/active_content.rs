@@ -259,6 +259,8 @@ struct Sample {
     path: String,
     file: PathBuf,
     expected: BTreeSet<String>,
+    /// One of the large files generated on demand.
+    on_demand: bool,
 }
 
 /// The samples of `tests/corpus/manifest.json` that are present (large files are generated on
@@ -279,17 +281,14 @@ fn samples() -> Vec<Sample> {
                 .map(|kind| kind.as_str().unwrap().to_owned())
                 .collect();
             let on_demand = entry["onDemand"].as_bool() == Some(true);
-            (
-                Sample {
-                    file: corpus().join(&path),
-                    path,
-                    expected,
-                },
+            Sample {
+                file: corpus().join(&path),
+                path,
+                expected,
                 on_demand,
-            )
+            }
         })
-        .filter(|(sample, on_demand)| !on_demand || sample.file.exists())
-        .map(|(sample, _)| sample)
+        .filter(|sample| !sample.on_demand || sample.file.exists())
         .collect()
 }
 
@@ -315,7 +314,18 @@ fn every_corpus_sample_reports_the_findings_in_its_manifest() {
             );
             continue;
         };
-        let report = document.active_content(ScanBudget::default());
+        // The time an opening document gives the scan is wall-clock time. A large sample (the
+        // 100,000-item outline) takes a debug build about that long, more on a busy machine, so
+        // it has more time here; its scan must still finish (#337).
+        let budget = if sample.on_demand {
+            ScanBudget {
+                max_time: Duration::from_secs(60),
+                ..ScanBudget::default()
+            }
+        } else {
+            ScanBudget::default()
+        };
+        let report = document.active_content(budget);
         assert_eq!(kinds(&report), sample.expected, "{path}");
         assert!(report.scan_complete, "{path}: scan incomplete");
         checked += 1;
