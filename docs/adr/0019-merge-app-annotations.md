@@ -1,9 +1,9 @@
 # ADR 0019：合併檔案頁面時以「提取純淨資料、重新建立」攜帶 app 支援的註解
 
 ## 狀態
-提議中
+已接受
 
-（工作卡 [#253](https://github.com/winner0988/Pdf-reader/issues/253)〔B2-33〕。關聯：[#95](https://github.com/winner0988/Pdf-reader/issues/95)〔B2-06〕、ADR 0008、ADR 0013、ADR 0018。）
+（負責人於 2026-10-28 接受選項 A〔[#253 的留言](https://github.com/winner0988/Pdf-reader/issues/253#issuecomment-6455198533)〕。實作是工作卡 B3-23（[#338](https://github.com/winner0988/Pdf-reader/issues/338)）。原工作卡 [#253](https://github.com/winner0988/Pdf-reader/issues/253)〔B2-33〕。關聯：[#95](https://github.com/winner0988/Pdf-reader/issues/95)〔B2-06〕、ADR 0008、ADR 0013、ADR 0018。）
 
 ## 背景
 - 規格 §6「拆分／合併 PDF」；[merge.md](../architecture/merge.md)。
@@ -20,7 +20,7 @@
 | C. 維持現狀（B2-06），不攜帶任何註解 | 維持目前行為，合併只複製頁面視覺內容串流與資源，註解一律丟棄 | 使用者體驗差，合併編輯過的文件會遺失所有筆記、手繪與文字方塊 |
 
 ## 決定
-我們提議採取**選項 A**：以「提取純淨資料、重新建立」的方式，讓合併頁面攜帶 app 支援的註解。
+採取**選項 A**：以「提取純淨資料、重新建立」的方式，讓合併頁面攜帶 app 支援的註解。
 
 ### 1. 純淨資料模型
 - 在來源檔準備階段（`prepare_source`）或合併插入時，由 worker 逐頁解析來源頁面上的註解。
