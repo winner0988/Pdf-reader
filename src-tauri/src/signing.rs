@@ -952,10 +952,11 @@ mod tests {
     use super::*;
 
     use windows_sys::Win32::Security::Cryptography::{
-        CERT_STORE_ADD_REPLACE_EXISTING, CRYPT_DELETEKEYSET, CRYPT_KEY_PROV_INFO,
-        CRYPT_VERIFY_MESSAGE_PARA, CertAddCertificateContextToStore,
-        CertDeleteCertificateFromStore, CryptAcquireContextW, CryptVerifyDetachedMessageSignature,
-        NCryptDeleteKey, NCryptOpenKey, NCryptOpenStorageProvider,
+        CERT_STORE_ADD_REPLACE_EXISTING, CERT_STORE_DEFER_CLOSE_UNTIL_LAST_FREE_FLAG,
+        CRYPT_DELETEKEYSET, CRYPT_KEY_PROV_INFO, CRYPT_VERIFY_MESSAGE_PARA,
+        CertAddCertificateContextToStore, CertDeleteCertificateFromStore, CryptAcquireContextW,
+        CryptVerifyDetachedMessageSignature, NCryptDeleteKey, NCryptOpenKey,
+        NCryptOpenStorageProvider,
     };
 
     #[test]
@@ -1150,14 +1151,15 @@ mod tests {
             });
             assert!(!found.0.is_null(), "{name} has its key");
             let my: Vec<u16> = "MY".encode_utf16().chain(Some(0)).collect();
-            // SAFETY: as in `personal_store`, to write; the context added keeps the store open
-            // until it is deleted.
+            // SAFETY: as in `personal_store`, to write. The flag keeps the store open until the
+            // context added is deleted: closed when this returns, it would no longer write to the
+            // user's files, and the certificate would stay in the store after it is deleted.
             let personal = Store(unsafe {
                 CertOpenStore(
                     CERT_STORE_PROV_SYSTEM_W,
                     0,
                     0,
-                    CERT_SYSTEM_STORE_CURRENT_USER,
+                    CERT_SYSTEM_STORE_CURRENT_USER | CERT_STORE_DEFER_CLOSE_UNTIL_LAST_FREE_FLAG,
                     my.as_ptr().cast(),
                 )
             });
@@ -1441,9 +1443,15 @@ mod tests {
             Signer::from_store(b"not a certificate", 0).err(),
             Some(SigningError::Unavailable)
         );
-        // Every certificate put in has left the store, and every key is deleted. On the CI
-        // runner, Windows kept the store's files of the certificates (and one of their keys'
-        // identifiers) after they had left it: those files are not compared.
+        // Every certificate put in has left the store, and every key is deleted. The store keeps
+        // a file named after the identifier of their key (they share one) once they have left
+        // it: that file alone is not compared.
+        assert!(
+            !store_certificates()
+                .iter()
+                .any(|certificate| put_in.contains(&certificate.encoded)),
+            "no certificate put in is listed any more"
+        );
         for encoded in &put_in {
             assert_eq!(
                 Signer::from_store(encoded, 0).err(),
@@ -1452,20 +1460,22 @@ mod tests {
             );
         }
         assert_eq!(
-            without_certificates(key_files()),
-            without_certificates(before),
-            "every key put in was deleted"
+            without_key_identifiers(key_files()),
+            without_key_identifiers(before),
+            "every key and certificate put in was deleted"
         );
     }
 
-    /// `files` (of `key_files`) less those of the user's certificate stores.
-    fn without_certificates(files: Vec<std::path::PathBuf>) -> Vec<std::path::PathBuf> {
+    /// `files` (of `key_files`) less those where a certificate store keeps the identifiers of
+    /// its certificates' keys.
+    fn without_key_identifiers(files: Vec<std::path::PathBuf>) -> Vec<std::path::PathBuf> {
         files
             .into_iter()
             .filter(|file| {
-                !file
-                    .components()
-                    .any(|part| part.as_os_str() == "SystemCertificates")
+                !(file.parent().is_some_and(|folder| folder.ends_with("Keys"))
+                    && file
+                        .components()
+                        .any(|part| part.as_os_str() == "SystemCertificates"))
             })
             .collect()
     }

@@ -47,10 +47,14 @@ async function chooseCertificate(page: Page, name: string) {
   await expect(dialog).toContainText(name);
 }
 
-/** Runs a PowerShell `script` and gives what it wrote. */
+/** Runs a Windows PowerShell `script` and gives what it wrote. */
 function powerShell(script: string): string {
   return execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
     encoding: "utf8",
+    // PowerShell 7 runs the tests on CI, and the module path it hands down finds its own modules
+    // first, which Windows PowerShell cannot load (`ConvertTo-SecureString`, the `Cert:` drive).
+    // With no module path, Windows PowerShell finds its own.
+    env: Object.fromEntries(Object.entries(process.env).filter(([name]) => name.toLowerCase() !== "psmodulepath")),
   }).trim();
 }
 
