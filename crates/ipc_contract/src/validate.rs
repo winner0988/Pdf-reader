@@ -18,16 +18,16 @@ use crate::types::{
     AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind, AttachmentInfo,
     AttachmentSource, BatchArgs, BatchOperation, CompressArgs, DocumentInfo, Edit, EditArgs,
     EncryptArgs, ExportArgs, ExportFormat, FindPersonalDataQuery, FindingKind, FontImport,
-    FontInfo, FormField, IpcError, LinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem,
-    OutlineResult, PageAnnotation, PageLink, PageMarkPages, PageMarkPosition, PageMarks,
-    PageMarksCopyArgs, PageNumberFormat, PageSize, PageText, Password, PersonalDataMatch,
-    PersonalDataMatches, Point, PrepareTextBoxArgs, Quad, RasterRegion, RecentFile, Rect,
-    RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation,
-    SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult, SaveAttachmentResult, SearchArgs,
-    SearchHit, SecurityReport, SensitiveArgs, SensitiveFile, Settings, SignArgs, SignatureInfo,
-    SignatureReport, SignatureStatus, SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle,
-    IndexSearchArgs, IndexSearchEvent, IndexSnippet,
-    TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
+    FontInfo, FormField, IndexSearchArgs, IndexSearchEvent, IndexSnippet, IpcError, LinkTarget,
+    OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink,
+    PageMarkPages, PageMarkPosition, PageMarks, PageMarksCopyArgs, PageNumberFormat, PageSize,
+    PageText, Password, PersonalDataMatch, PersonalDataMatches, Point, PrepareTextBoxArgs, Quad,
+    RasterRegion, RecentFile, Rect, RedactionSummary, RemoveFontArgs, RemoveLanguageArgs,
+    RenderPageArgs, Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport,
+    SanitizeResult, SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs,
+    SensitiveFile, Settings, SignArgs, SignatureInfo, SignatureReport, SignatureStatus,
+    SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle, TextLine, UndoArgs, UnlockArgs,
+    UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
     InspectedFont, OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerAttachment, WorkerError,
@@ -2310,7 +2310,6 @@ impl Validate for IndexSearchEvent {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2318,10 +2317,9 @@ mod tests {
         AnnotationId, AnnotationKind, BatesMark, BlockedAction, BookmarkId, DocumentId,
         DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption, FontId, HeaderFooterMarks,
         HighlightColor, HighlightMark, ImageQuality, IndexEntryId, IndexPageHits, InkColor,
-        InkWidth, LinkId, PageNumberMark,
-        PictureView, RecentId, Recovery, RequestId, Restrictions, Rgb, Rotation, SecurityFinding,
-        StampImageId, StampName, TabId, TextAlign, TextBoxInfo, TextBoxModelId,
-        UnverifiableReason, WatermarkPages, WatermarkPlace,
+        InkWidth, LinkId, PageNumberMark, PictureView, RecentId, Recovery, RequestId, Restrictions,
+        Rgb, Rotation, SecurityFinding, StampImageId, StampName, TabId, TextAlign, TextBoxInfo,
+        TextBoxModelId, UnverifiableReason, WatermarkPages, WatermarkPlace,
     };
     use crate::worker::{ModelGlyph, WorkerErrorCode};
 
@@ -5291,5 +5289,4 @@ mod tests {
         }
         assert!(path.validate().is_err());
     }
-
 }
