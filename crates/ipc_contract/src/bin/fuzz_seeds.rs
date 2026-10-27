@@ -769,6 +769,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         WorkerRequest::Edit {
             request,
             doc,
+            edit: WorkerEdit::AddRedactionGroup {
+                page: 0,
+                rects: vec![
+                    Rect {
+                        x0: 60.0,
+                        y0: 120.0,
+                        x1: 330.0,
+                        y1: 150.0,
+                    },
+                    Rect {
+                        x0: 60.0,
+                        y0: 160.0,
+                        x1: 330.0,
+                        y1: 190.0,
+                    },
+                ],
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
             edit: WorkerEdit::ApplyRedactions,
         },
         WorkerRequest::SummariseRedactions { request, doc },

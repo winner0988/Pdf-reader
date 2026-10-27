@@ -345,6 +345,10 @@ pub const MAX_SANITIZED_ITEMS: u32 = 10_000_000;
 /// for a user to review and batch redact. If exceeded, `has_more` is true.
 pub const MAX_PERSONAL_DATA_MATCHES: u32 = 1_000;
 
+/// Most rectangles one redaction group may have (B3-14, Issue #330): one per line a single
+/// sensitive item (such as an ID or phone number) wraps across.
+pub const MAX_REDACTION_GROUP_RECTS: usize = 16;
+
 /// Longest custom keyword for personal data matching (Issue #302), in UTF-8 bytes.
 pub const MAX_PERSONAL_DATA_KEYWORD_BYTES: usize = 1_024;
 

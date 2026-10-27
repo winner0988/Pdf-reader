@@ -15,7 +15,9 @@ import type { TextApi } from "@/features/text/source";
 import type { PageRenderer } from "@/features/viewer/renderer";
 import { contentWidth, layoutPages, pageLeft } from "@/features/viewer/layout";
 import type { OutlineView } from "@/features/outline/tree";
-import type { LinkPreview, PageLink, PageText, RecentFile, SearchEvent } from "@/ipc/generated/contract";
+import type { EditingApi } from "@/features/thumbnails/api";
+import type { AnnotationsApi } from "@/features/annotations/source";
+import type { LinkPreview, PageLink, PageText, PersonalDataMatches, RecentFile, SearchEvent } from "@/ipc/generated/contract";
 import { mediaQuery } from "@/test/setup";
 
 const openState: ShellState = { kind: "open", document: demoDocument };
@@ -1145,5 +1147,79 @@ describe("theme", () => {
 
     const dialog = await screen.findByRole("dialog", { name: strings.defaultApp.failedTitle });
     expect(within(dialog).getByText(strings.defaultApp.failedHelp)).toBeInTheDocument();
+  });
+
+  it("marking found personal data sends an addRedactionGroup edit for each match with all its rects", async () => {
+    const applyEdit = vi.fn().mockResolvedValue(undefined);
+    const editingApi: Partial<EditingApi> = {
+      applyEdit,
+      undo: vi.fn(),
+      redo: vi.fn(),
+      recover: vi.fn(),
+      discardRecovered: vi.fn(),
+    };
+    const sampleMatches: PersonalDataMatches = {
+      matches: [
+        {
+          category: "taiwanId",
+          page: 0,
+          rects: [
+            { x0: 10, y0: 10, x1: 50, y1: 20 },
+            { x0: 10, y0: 25, x1: 60, y1: 35 },
+          ],
+          preview: "A12****789",
+        },
+        {
+          category: "mobilePhone",
+          page: 0,
+          rects: [{ x0: 100, y0: 100, x1: 200, y1: 120 }],
+          preview: "0912****78",
+        },
+      ],
+      hasMore: false,
+    };
+    const annotationsApi: Partial<AnnotationsApi> = {
+      findPersonalData: vi.fn().mockResolvedValue(sampleMatches),
+      getPageAnnotations: vi.fn().mockResolvedValue([]),
+    };
+
+    const { user } = renderShell(
+      { kind: "open", document: { ...demoDocument, doc: 5 } },
+      {
+        editingApi: editingApi as EditingApi,
+        annotationsApi: annotationsApi as AnnotationsApi,
+      },
+    );
+
+    // Switch to redaction tab
+    await user.click(screen.getByRole("tab", { name: strings.redaction.tab }));
+    // Open find personal data dialog
+    await user.click(screen.getByRole("button", { name: strings.redaction.findPersonalData }));
+
+    expect(await screen.findByRole("dialog", { name: strings.redaction.findPersonalDataDialog.title })).toBeInTheDocument();
+
+    // Search
+    await user.click(screen.getByRole("button", { name: strings.redaction.findPersonalDataDialog.startSearch }));
+    await screen.findByText(strings.redaction.findPersonalDataDialog.matchesFound(2));
+
+    // Mark selected (all 2 selected by default)
+    await user.click(screen.getByRole("button", { name: strings.redaction.findPersonalDataDialog.markSelected(2) }));
+
+    expect(applyEdit).toHaveBeenCalledTimes(2);
+    // First match has 2 rects, sent together in one addRedactionGroup edit
+    expect(applyEdit).toHaveBeenNthCalledWith(1, 5, {
+      kind: "addRedactionGroup",
+      page: 0,
+      rects: [
+        { x0: 10, y0: 10, x1: 50, y1: 20 },
+        { x0: 10, y0: 25, x1: 60, y1: 35 },
+      ],
+    });
+    // Second match has 1 rect, also sent as an addRedactionGroup edit
+    expect(applyEdit).toHaveBeenNthCalledWith(2, 5, {
+      kind: "addRedactionGroup",
+      page: 0,
+      rects: [{ x0: 100, y0: 100, x1: 200, y1: 120 }],
+    });
   });
 });

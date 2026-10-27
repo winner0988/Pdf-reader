@@ -288,7 +288,9 @@ impl PdfDocument {
     pub fn delete_annotation(&mut self, index: u32, id: AnnotationId) -> Result<(), EngineError> {
         let mut page = self.pdf_page(index)?;
         let annotation = find(&page, id)?;
-        let mut gone = HashSet::from([annotation.xref()?]);
+        let xref = annotation.xref()?;
+        self.redaction_groups.by_xref.remove(&xref);
+        let mut gone = HashSet::from([xref]);
         if let Some(popup) = annotation.object().get_dict("Popup")?
             && let Ok(number) = popup.as_indirect()
             && number > 0

@@ -239,6 +239,9 @@ pub struct PdfDocument {
     removed: redaction::Removed,
     /// In-memory text cache for search (Issue #242, D1 Option A).
     text_cache: RefCell<crate::text_cache::TextCache>,
+    /// Which redaction marks belong to the same personal data item (Issue #330): kept only in
+    /// memory, never written into the PDF.
+    redaction_groups: redaction::RedactionGroups,
 }
 
 impl PdfDocument {
@@ -272,6 +275,7 @@ impl PdfDocument {
             ocr: ocr::OcrPages::new(),
             removed: redaction::Removed::default(),
             text_cache: RefCell::new(crate::text_cache::TextCache::new()),
+            redaction_groups: redaction::RedactionGroups::default(),
         })
     }
 
