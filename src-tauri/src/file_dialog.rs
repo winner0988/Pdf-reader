@@ -200,6 +200,10 @@ pub async fn page_marks_file(
     file_name: String,
 ) -> Result<Option<PathBuf>, IpcError> {
     Ok(run(window, Kind::PageMarks { file_name })
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
 /// Asks for the certificate file to sign with (B3-06): one PKCS #12 file (`.pfx`, `.p12`). `None`
 /// if the user cancelled.
 pub async fn pick_certificate(window: &WebviewWindow) -> Result<Option<PathBuf>, IpcError> {
@@ -419,7 +423,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
             | Kind::PageMarks { .. }
             | Kind::SplitPdf { .. }
             | Kind::SaveCreatedPdf { .. }
-            | Kind::SaveAttachment { .. } => {
+            | Kind::SaveAttachment { .. }
             | Kind::SignedCopy { .. } => {
                 CoCreateInstance::<_, IFileSaveDialog>(&FileSaveDialog, None, CLSCTX_INPROC_SERVER)?
                     .cast()
@@ -734,8 +738,14 @@ mod tests {
         });
         assert!(split(FOS_DONTADDTORECENT) && split(FOS_OVERWRITEPROMPT));
 
-        | Kind::SaveAttachment { .. }
-        | Kind::SignedCopy { .. } => common | FOS_OVERWRITEPROMPT,
+        // An attachment (B3-20) with an extension, and one without.
+        for extension in [Some("txt".to_owned()), None] {
+            let attachment = options_of(Kind::SaveAttachment {
+                file_name: "附件 1".to_owned(),
+                extension,
+            });
+            assert!(attachment(FOS_DONTADDTORECENT) && attachment(FOS_OVERWRITEPROMPT));
+        }
 
         let language = options_of(Kind::OpenLanguageData);
         assert!(

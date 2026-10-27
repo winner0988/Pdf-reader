@@ -20,15 +20,16 @@ use ipc_contract::limits::{
 use ipc_contract::raster::{check_region, encode_raster, fit_scale};
 use ipc_contract::text::{clean_display_text, is_web_address};
 use ipc_contract::types::{
-    AnnotationId, AnnotationSummary, AttachmentId, AttachmentInfo, AttachmentSource, BatchOperation,
-    BlockedAction, Certification, CompressResult, CreateKind, CreateResult, DocumentId, DocumentInfo,
-    DocumentPermissions, Edit, EditArgs, ErrorCode, FindPersonalDataQuery, FormField, ImageQuality,
-    IpcError, LinkArgs, LinkPreview, LinkTarget, MarkCheck, NotRemembered, OpenEvent,
-    OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageSize, PageText, PagesSource,
-    Password, PersonalDataMatches, PreparedTextBox, Recovery, RedactionSummary,
-    RememberedPasswords, RemoteAddressArgs, RenderPageArgs, Restrictions, SanitizeOptions,
-    SanitizeResult, SaveAttachmentResult, SaveResult, SearchHit, SecurityReport, SignCheck,
-    SignatureReport, SignatureStatus, SourceId, StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
+    AnnotationId, AnnotationSummary, AttachmentId, AttachmentInfo, AttachmentSource,
+    BatchOperation, BlockedAction, Certification, CompressResult, CreateKind, CreateResult,
+    DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
+    FindPersonalDataQuery, FormField, ImageQuality, IpcError, LinkArgs, LinkPreview, LinkTarget,
+    MarkCheck, NotRemembered, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink,
+    PageSize, PageText, PagesSource, Password, PersonalDataMatches, PreparedTextBox, Recovery,
+    RedactionSummary, RememberedPasswords, RemoteAddressArgs, RenderPageArgs, Restrictions,
+    SanitizeOptions, SanitizeResult, SaveAttachmentResult, SaveResult, SearchHit, SecurityReport,
+    SignCheck, SignatureReport, SignatureStatus, SourceId, StampImageInfo, TabId, TextBoxInfo,
+    UnlockOutcome,
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
