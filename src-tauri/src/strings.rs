@@ -392,7 +392,7 @@ mod tests {
             "失敗：有數位簽章的檔案，這樣處理會讓簽章失效"
         );
         let page_marks = BatchOperation::PageMarks {
-            marks: ipc_contract::types::PageMarks {
+            marks: Box::new(ipc_contract::types::PageMarks {
                 page_number: None,
                 bates: None,
                 header_footer: None,
@@ -400,10 +400,13 @@ mod tests {
                 color: ipc_contract::types::Rgb { r: 0, g: 0, b: 0 },
                 margin_pt: 36.0,
                 pages: ipc_contract::types::PageMarkPages::All,
-            },
+            }),
         };
         assert_eq!(batch_operation_name(&page_marks), "頁碼與 Bates 編號");
-        assert_eq!(super::bates_range("CASE-", 6, 1, 10), "CASE-000001～CASE-000010");
+        assert_eq!(
+            super::bates_range("CASE-", 6, 1, 10),
+            "CASE-000001～CASE-000010"
+        );
         assert_eq!(super::bates_range("ABC", 4, 5, 5), "ABC0005");
     }
 }

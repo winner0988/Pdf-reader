@@ -3088,7 +3088,7 @@ mod tests {
         assert_eq!(
             args.operation,
             BatchOperation::PageMarks {
-                marks: PageMarks {
+                marks: Box::new(PageMarks {
                     page_number: Some(PageNumberMark {
                         format: PageNumberFormat::Number,
                         start: 1,
@@ -3100,7 +3100,7 @@ mod tests {
                     color: Rgb { r: 0, g: 0, b: 0 },
                     margin_pt: 36.0,
                     pages: PageMarkPages::All,
-                }
+                })
             }
         );
         assert!(args.validate().is_ok());
@@ -3117,7 +3117,7 @@ mod tests {
         };
         assert!(
             batch(BatchOperation::PageMarks {
-                marks: invalid_marks
+                marks: Box::new(invalid_marks)
             })
             .validate()
             .is_err()

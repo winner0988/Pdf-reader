@@ -1429,7 +1429,9 @@ impl Documents {
         if document.signed && matches!(operation, BatchOperation::PageMarks { .. }) {
             return Err(IpcError {
                 code: ErrorCode::Signed,
-                message: "a signed file cannot have page marks in a batch: its signatures would not hold".to_owned(),
+                message:
+                    "a signed file cannot have page marks in a batch: its signatures would not hold"
+                        .to_owned(),
             });
         }
         let total_pages = document.pages.len() as u32;
@@ -1497,7 +1499,7 @@ impl Documents {
                     }
                 };
                 marked_count = marked_pages.len() as u64;
-                host.page_marks_copy(doc, temporary.file(), marks.clone())
+                host.page_marks_copy(doc, temporary.file(), (**marks).clone())
             }
         }
         .map_err(|error| ipc_error(&error))?;
@@ -7860,7 +7862,7 @@ mod with_worker {
             .collect();
         let out = batch_folder("page-marks");
         let operation = BatchOperation::PageMarks {
-            marks: PageMarks {
+            marks: Box::new(PageMarks {
                 page_number: Some(PageNumberMark {
                     format: PageNumberFormat::PageOfTotal,
                     start: 1,
@@ -7875,7 +7877,7 @@ mod with_worker {
                 color: Rgb { r: 0, g: 0, b: 0 },
                 margin_pt: 36.0,
                 pages: PageMarkPages::All,
-            },
+            }),
         };
         let (report, events) = run_batch(&documents, &files, &out, &operation, false);
         assert_eq!((report.done, report.failed, report.skipped), (2, 3, 0));
@@ -7935,8 +7937,18 @@ mod with_worker {
         // Searching text in the copies finds the drawn marks.
         let multi_doc = open_in(&documents, &out.join("multi-page-10（頁碼與 Bates）.pdf"));
         let p0_text = documents.page_text(multi_doc.doc, 0).unwrap();
-        assert!(p0_text.lines.iter().any(|l| l.text.contains("第 1 頁／共 10 頁")));
-        assert!(p0_text.lines.iter().any(|l| l.text.contains("CONFIDENTIAL")));
+        assert!(
+            p0_text
+                .lines
+                .iter()
+                .any(|l| l.text.contains("第 1 頁／共 10 頁"))
+        );
+        assert!(
+            p0_text
+                .lines
+                .iter()
+                .any(|l| l.text.contains("CONFIDENTIAL"))
+        );
 
         // The original files are untouched.
         for (file, bytes) in files.iter().zip(&before) {
@@ -7968,7 +7980,7 @@ mod with_worker {
             .collect();
         let out = batch_folder("bates");
         let operation = BatchOperation::PageMarks {
-            marks: PageMarks {
+            marks: Box::new(PageMarks {
                 page_number: None,
                 bates: Some(BatesMark {
                     prefix: "CASE-".to_string(),
@@ -7981,7 +7993,7 @@ mod with_worker {
                 color: Rgb { r: 0, g: 0, b: 0 },
                 margin_pt: 36.0,
                 pages: PageMarkPages::All,
-            },
+            }),
         };
         let (report, events) = run_batch(&documents, &files, &out, &operation, false);
         assert_eq!((report.done, report.failed, report.skipped), (2, 1, 0));
@@ -8028,7 +8040,7 @@ mod with_worker {
         // Test digit overflow: 10 pages with digits: 1, start: 1 -> needs up to 10 which exceeds 10^1.
         let overflow_out = batch_folder("bates-overflow");
         let overflow_operation = BatchOperation::PageMarks {
-            marks: PageMarks {
+            marks: Box::new(PageMarks {
                 page_number: None,
                 bates: Some(BatesMark {
                     prefix: "NUM-".to_string(),
@@ -8041,15 +8053,23 @@ mod with_worker {
                 color: Rgb { r: 0, g: 0, b: 0 },
                 margin_pt: 36.0,
                 pages: PageMarkPages::All,
-            },
+            }),
         };
         let overflow_files = [
             corpus_path("benign/multi-page-10.pdf"),
             corpus_path("benign/single-page.pdf"),
         ];
-        let (ov_report, ov_events) =
-            run_batch(&documents, &overflow_files, &overflow_out, &overflow_operation, false);
-        assert_eq!((ov_report.done, ov_report.failed, ov_report.skipped), (1, 1, 0));
+        let (ov_report, ov_events) = run_batch(
+            &documents,
+            &overflow_files,
+            &overflow_out,
+            &overflow_operation,
+            false,
+        );
+        assert_eq!(
+            (ov_report.done, ov_report.failed, ov_report.skipped),
+            (1, 1, 0)
+        );
         let ov_outcome = |index: u32| {
             ov_events
                 .iter()

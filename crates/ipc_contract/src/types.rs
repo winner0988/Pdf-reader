@@ -186,7 +186,7 @@ pub enum BatchOperation {
     /// docs/architecture/page-marks.md): the same request and the same rules as `page_marks_copy`
     /// for one document; Bates numbers continue across files (ADR 0024).
     #[serde(rename_all = "camelCase")]
-    PageMarks { marks: PageMarks },
+    PageMarks { marks: Box<PageMarks> },
 }
 
 /// Arguments of `run_batch` (B3-04): what to do, never to which files or where; the main process
