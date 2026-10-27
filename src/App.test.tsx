@@ -327,7 +327,7 @@ describe("App", () => {
     const dialog = await screen.findByRole("dialog", { name: strings.batch.title });
     await user.click(within(dialog).getByRole("button", { name: strings.batch.start }));
     act(() => onEvent({ kind: "started", files: ["a.pdf", "b.pdf"] }));
-    act(() => onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "a（隱私匯出）.pdf" } }));
+    act(() => onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "a（隱私匯出）.pdf", bates: null } }));
 
     push(opening(1, "c.pdf"));
     push(opened(1, info(9, "c.pdf")));
@@ -338,7 +338,7 @@ describe("App", () => {
     expect(within(still).getByRole("list", { name: strings.batch.filesLabel })).toHaveTextContent(
       strings.batch.done("a（隱私匯出）.pdf"),
     );
-    act(() => onEvent({ kind: "file", index: 1, outcome: { kind: "done", output: "b（隱私匯出）.pdf" } }));
+    act(() => onEvent({ kind: "file", index: 1, outcome: { kind: "done", output: "b（隱私匯出）.pdf", bates: null } }));
     await act(async () => finish({ done: 2, failed: 0, skipped: 0 }));
     expect(within(still).getByRole("status")).toHaveTextContent(strings.batch.summary(2, 0, 0));
   });

@@ -67,6 +67,7 @@ pub fn bindings() -> String {
         PageMarksCopyArgs,
         BatchOperation,
         BatchArgs,
+        BatesRange,
         BatchOutcome,
         BatchEvent,
         BatchReport,

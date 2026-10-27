@@ -75,6 +75,8 @@ export const strings = {
       textNotSupported: "文字含有目前無法排版的文字（例如阿拉伯文、希伯來文、印度系文字），請移除這些字。",
       credentialsUnavailable: "無法使用 Windows 認證管理員，請稍後再試。",
       pictureNotCleaned: "有一張圖片的儲存方式無法安全清除它的 EXIF，所以沒有建立副本。",
+      batesOverflow: "Bates 編號超出位數上限。",
+      noPageToMark: "這份文件沒有要加標記的頁面，或頁面範圍超出它的頁數。",
       certificateUnreadable: "密碼不對，或檔案不是憑證。",
       certificateExpired: "這張憑證已經過期，不能用來簽署。",
       certificateNotYetValid: "這張憑證還沒生效，不能用來簽署。",
@@ -768,6 +770,9 @@ export const strings = {
     compressImages: "壓縮圖片（與「壓縮圖片並另存新檔」相同）",
     compressNote:
       "只有變小的圖片才會換掉，重新編碼的圖片不帶相機的資料。有數位簽章的檔案會失敗：壓縮後簽章不會成立。一個檔案的圖片太多、時間不夠時，其餘的圖片保持原樣。",
+    pageMarks: "頁碼與 Bates 編號（與「頁碼與 Bates 編號」相同）",
+    pageMarksNote:
+      "有數位簽章的檔案會失敗：加上標記後簽章不會成立。Bates 編號跨檔案依序連號，失敗或略過的檔案不佔號碼；位數超出上限時該檔案會失敗。",
     watermarkType: "類型",
     watermarkText: "文字",
     watermarkPicture: "圖片",
@@ -815,7 +820,14 @@ export const strings = {
         .filter((part) => part !== "")
         .join("，") + "。",
     waiting: "等待中",
-    done: (output: string) => `完成：${output}`,
+    batesRange: (first: string, last: string) => (first === last ? first : `${first}～${last}`),
+    done: (output: string, bates?: { first: string; last: string } | null) => {
+      if (bates) {
+        const range = bates.first === bates.last ? bates.first : `${bates.first}～${bates.last}`;
+        return `完成：${output}（${range}）`;
+      }
+      return `完成：${output}`;
+    },
     failedFile: (reason: string) => `失敗：${reason}`,
     skipped: "略過（已停止）",
     /** Why a file failed, for the codes that mean something here; any other code has its general text. */
@@ -825,6 +837,8 @@ export const strings = {
       notPdf: "不是 PDF 檔案",
       corrupted: "檔案已損毀",
       signed: "有數位簽章的檔案，這樣處理會讓簽章失效",
+      batesOverflow: "這個檔案的 Bates 編號超出位數上限",
+      noPageToMark: "這個檔案沒有要加標記的頁面，或頁面範圍超出它的頁數",
     } as Partial<Record<ErrorCode, string>>,
     failed: "無法開始批次處理，請再試一次。",
   },

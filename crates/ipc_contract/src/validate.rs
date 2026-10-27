@@ -1011,6 +1011,7 @@ impl Validate for BatchArgs {
             BatchOperation::Watermark { watermark } => watermark.validate(),
             BatchOperation::CompressImages { max_side, .. } => check_compress_side(*max_side),
             BatchOperation::Sanitize { options } => options.validate(),
+            BatchOperation::PageMarks { marks } => marks.validate(),
         }
     }
 }
@@ -3077,6 +3078,56 @@ mod tests {
             r#"{"request":5,"operation":{"kind":"compressImages","quality":"low","maxSide":null,"folder":"C:/x"}}"#,
             r#"{"request":5,"operation":{"kind":"encrypt","openPassword":"pw","permissionsPassword":null,"restrictions":{"print":false,"copy":false,"modify":false},"file":"C:/x.pdf"}}"#,
             r#"{"request":5,"operation":{"kind":"compressImages","quality":"lossless","maxSide":null}}"#,
+        ] {
+            assert!(serde_json::from_str::<BatchArgs>(more).is_err(), "{more}");
+        }
+
+        // Page marks (B3-19): page numbers, Bates numbers, headers and footers.
+        let page_marks = r#"{"request":7,"operation":{"kind":"pageMarks","marks":{"fontSize":12.0,"color":{"r":0,"g":0,"b":0},"marginPt":36.0,"pages":{"kind":"all"},"pageNumber":{"format":{"kind":"number"},"start":1,"position":"bottomCenter"}}}}"#;
+        let args: BatchArgs = serde_json::from_str(page_marks).expect("batch page marks args");
+        assert_eq!(
+            args.operation,
+            BatchOperation::PageMarks {
+                marks: Box::new(PageMarks {
+                    page_number: Some(PageNumberMark {
+                        format: PageNumberFormat::Number,
+                        start: 1,
+                        position: PageMarkPosition::BottomCenter,
+                    }),
+                    bates: None,
+                    header_footer: None,
+                    font_size: 12.0,
+                    color: Rgb { r: 0, g: 0, b: 0 },
+                    margin_pt: 36.0,
+                    pages: PageMarkPages::All,
+                })
+            }
+        );
+        assert!(args.validate().is_ok());
+
+        // Invalid page marks rejected.
+        let invalid_marks = PageMarks {
+            page_number: None,
+            bates: None,
+            header_footer: None,
+            font_size: 5.0,
+            color: Rgb { r: 0, g: 0, b: 0 },
+            margin_pt: 36.0,
+            pages: PageMarkPages::All,
+        };
+        assert!(
+            batch(BatchOperation::PageMarks {
+                marks: Box::new(invalid_marks)
+            })
+            .validate()
+            .is_err()
+        );
+
+        // Unknown fields rejected in JSON.
+        for more in [
+            r#"{"request":7,"operation":{"kind":"pageMarks","marks":{"fontSize":12.0,"color":{"r":0,"g":0,"b":0},"marginPt":36.0,"pages":{"kind":"all"}},"folder":"C:/x"}}"#,
+            r#"{"request":7,"operation":{"kind":"pageMarks","marks":{"fontSize":12.0,"color":{"r":0,"g":0,"b":0},"marginPt":36.0,"pages":{"kind":"all"},"extra":true}}}"#,
+            r#"{"request":7,"operation":{"kind":"pageMarks"}}"#,
         ] {
             assert!(serde_json::from_str::<BatchArgs>(more).is_err(), "{more}");
         }

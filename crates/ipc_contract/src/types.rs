@@ -182,6 +182,11 @@ pub enum BatchOperation {
     /// the same request and the same options and rules as `sanitize_copy` for one document.
     #[serde(rename_all = "camelCase")]
     Sanitize { options: SanitizeOptions },
+    /// A copy with page marks (page numbers, Bates numbers, headers and footers) (B3-16, B3-19,
+    /// docs/architecture/page-marks.md): the same request and the same rules as `page_marks_copy`
+    /// for one document; Bates numbers continue across files (ADR 0024).
+    #[serde(rename_all = "camelCase")]
+    PageMarks { marks: Box<PageMarks> },
 }
 
 /// Arguments of `run_batch` (B3-04): what to do, never to which files or where; the main process
@@ -194,13 +199,27 @@ pub struct BatchArgs {
     pub operation: BatchOperation,
 }
 
+/// The first and last Bates numbers of a copy in a batch, formatted as they appear on the pages (ADR 0024).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BatesRange {
+    pub first: String,
+    pub last: String,
+}
+
 /// How one file of a batch went (B3-04).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum BatchOutcome {
-    /// Its copy is the file `output`, by name, in the folder the user chose.
-    Done { output: String },
+    /// Its copy is the file `output`, by name, in the folder the user chose; `bates` is its number
+    /// range when Bates numbers were drawn, else `None` (ADR 0024).
+    #[serde(rename_all = "camelCase")]
+    Done {
+        output: String,
+        bates: Option<BatesRange>,
+    },
     /// No copy was made, because of `error`; nothing was left behind.
+    #[serde(rename_all = "camelCase")]
     Failed { error: ErrorCode },
     /// The batch was stopped before this file.
     Skipped,
@@ -1041,6 +1060,25 @@ pub struct BatesMark {
     pub position: PageMarkPosition,
 }
 
+impl BatesMark {
+    /// Formats number `n` with this mark's prefix and zero-padded width.
+    pub fn format_number(&self, n: u64) -> String {
+        format!(
+            "{}{n:0>width$}",
+            self.prefix,
+            width = usize::from(self.digits)
+        )
+    }
+
+    /// Formats the range of numbers from `first` to `last`.
+    pub fn range(&self, first: u64, last: u64) -> BatesRange {
+        BatesRange {
+            first: self.format_number(first),
+            last: self.format_number(last),
+        }
+    }
+}
+
 /// Header and footer text marks for the six slots (B3-16).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -1084,6 +1122,73 @@ pub struct PageMarks {
     /// Margin from the page edge in points: 0 to 144 pt.
     pub margin_pt: f32,
     pub pages: PageMarkPages,
+}
+
+/// Why page marks cannot be drawn on a document of a given page count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageMarksError {
+    /// A custom page number is outside the document's pages (0-based index `past >= total_pages`).
+    PageOutOfRange(u32),
+    /// The marks have no page to be drawn on (for example, "all but the first" on a one-page document).
+    NoPageToMark,
+    /// The Bates number for the last marked page overflows the configured digits.
+    BatesOverflow,
+}
+
+impl std::fmt::Display for PageMarksError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PageOutOfRange(page) => write!(f, "page index {page} is out of range"),
+            Self::NoPageToMark => write!(f, "no page to mark"),
+            Self::BatesOverflow => write!(f, "bates number overflow"),
+        }
+    }
+}
+
+impl std::error::Error for PageMarksError {}
+
+impl PageMarks {
+    /// The 0-based page indices where marks will be drawn, in order, for a document with
+    /// `total_pages` pages.
+    ///
+    /// Custom page numbers are sorted and deduplicated. Rejects when a custom page is out of
+    /// range, when no pages are marked, or when the Bates numbering overflows the configured
+    /// number of digits.
+    pub fn marked_pages(&self, total_pages: u32) -> Result<Vec<u32>, PageMarksError> {
+        let marked: Vec<u32> = match &self.pages {
+            PageMarkPages::All => (0..total_pages).collect(),
+            PageMarkPages::AllButFirst => (1..total_pages).collect(),
+            PageMarkPages::Custom { pages } => {
+                let mut sorted = pages.clone();
+                sorted.sort_unstable();
+                sorted.dedup();
+                if let Some(&past) = sorted.iter().find(|&&page| page >= total_pages) {
+                    return Err(PageMarksError::PageOutOfRange(past));
+                }
+                sorted
+            }
+        };
+
+        if marked.is_empty() {
+            return Err(PageMarksError::NoPageToMark);
+        }
+
+        if let Some(bates) = &self.bates {
+            let marked_count = marked.len() as u64;
+            let last = bates
+                .start
+                .checked_add(marked_count - 1)
+                .ok_or(PageMarksError::BatesOverflow)?;
+            let past_digits = 10_u64
+                .checked_pow(u32::from(bates.digits))
+                .ok_or(PageMarksError::BatesOverflow)?;
+            if last >= past_digits {
+                return Err(PageMarksError::BatesOverflow);
+            }
+        }
+
+        Ok(marked)
+    }
 }
 
 /// Arguments of `page_marks_copy` (B3-16).
@@ -2235,6 +2340,10 @@ pub enum ErrorCode {
     /// A picture of the document is stored in a way its metadata (EXIF) cannot be taken out of
     /// without changing it (B3-04): no copy was made.
     PictureNotCleaned,
+    /// A batch copy with page marks: the Bates numbering overflows the configured digits for this file (B3-19).
+    BatesOverflow,
+    /// A batch copy with page marks: the file has no pages to mark or custom pages are out of range (B3-19).
+    NoPageToMark,
     /// Signing (B3-06, ADR 0020): the password of the certificate file is wrong, or the file is
     /// not a certificate with its private key (PKCS #12).
     CertificateUnreadable,
@@ -2652,5 +2761,87 @@ mod tests {
         let mut without = with("theme", "dark".into());
         without.as_object_mut().unwrap().remove("textIndex");
         assert!(serde_json::from_value::<Settings>(without).is_err());
+    }
+
+    #[test]
+    fn page_marks_marked_pages_and_bates_formatting_rules() {
+        let make_marks = |pages: PageMarkPages, bates: Option<BatesMark>| PageMarks {
+            page_number: None,
+            bates,
+            header_footer: None,
+            font_size: 10.0,
+            color: Rgb { r: 0, g: 0, b: 0 },
+            margin_pt: 36.0,
+            pages,
+        };
+
+        // All pages.
+        let all = make_marks(PageMarkPages::All, None);
+        assert_eq!(all.marked_pages(5), Ok(vec![0, 1, 2, 3, 4]));
+
+        // All but the first page.
+        let all_but_first = make_marks(PageMarkPages::AllButFirst, None);
+        assert_eq!(all_but_first.marked_pages(5), Ok(vec![1, 2, 3, 4]));
+        // A single-page document has no pages left to mark.
+        assert_eq!(
+            all_but_first.marked_pages(1),
+            Err(PageMarksError::NoPageToMark)
+        );
+
+        // Custom pages: sorted and deduplicated.
+        let custom = make_marks(
+            PageMarkPages::Custom {
+                pages: vec![4, 1, 4, 2, 1],
+            },
+            None,
+        );
+        assert_eq!(custom.marked_pages(10), Ok(vec![1, 2, 4]));
+
+        // Custom pages: out of bounds rejected.
+        let oob = make_marks(PageMarkPages::Custom { pages: vec![1, 5] }, None);
+        assert_eq!(oob.marked_pages(5), Err(PageMarksError::PageOutOfRange(5)));
+
+        // Bates overflow check: digits: 2 -> max is 99 (10^2 - 1).
+        let bates_2digits = |start: u64| {
+            Some(BatesMark {
+                prefix: "CASE-".to_string(),
+                digits: 2,
+                start,
+                position: PageMarkPosition::BottomRight,
+            })
+        };
+        // 10 pages marked (0..10), start: 90 -> last is 99 (10^2 - 1) -> Ok.
+        let fits = make_marks(PageMarkPages::All, bates_2digits(90));
+        assert!(fits.marked_pages(10).is_ok());
+        // 10 pages marked (0..10), start: 91 -> last is 100 (10^2) -> BatesOverflow.
+        let overflows = make_marks(PageMarkPages::All, bates_2digits(91));
+        assert_eq!(
+            overflows.marked_pages(10),
+            Err(PageMarksError::BatesOverflow)
+        );
+
+        // Bates number and range formatting.
+        let bates = BatesMark {
+            prefix: "DOC-".to_string(),
+            digits: 6,
+            start: 1,
+            position: PageMarkPosition::BottomRight,
+        };
+        assert_eq!(bates.format_number(1), "DOC-000001");
+        assert_eq!(bates.format_number(42), "DOC-000042");
+        assert_eq!(
+            bates.range(1, 10),
+            BatesRange {
+                first: "DOC-000001".to_string(),
+                last: "DOC-000010".to_string(),
+            }
+        );
+        assert_eq!(
+            bates.range(5, 5),
+            BatesRange {
+                first: "DOC-000005".to_string(),
+                last: "DOC-000005".to_string(),
+            }
+        );
     }
 }

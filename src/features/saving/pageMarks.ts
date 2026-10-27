@@ -1,12 +1,14 @@
 // Helpers and calculations for page marks and Bates numbering (B3-16).
 
-import type {
-  HeaderFooterMarks,
-  PageMarkPages,
-  PageMarkPosition,
-  PageMarks,
-  PageNumberFormat,
-  Rgb,
+import {
+  LIMITS,
+  type BatchOperation,
+  type HeaderFooterMarks,
+  type PageMarkPages,
+  type PageMarkPosition,
+  type PageMarks,
+  type PageNumberFormat,
+  type Rgb,
 } from "@/ipc/generated/contract";
 import { strings } from "@/i18n/zh-TW";
 
@@ -18,6 +20,24 @@ export const POSITIONS: PageMarkPosition[] = [
   "bottomCenter",
   "bottomRight",
 ];
+
+export function posLabel(pos: PageMarkPosition): string {
+  const t = strings.pageMarks;
+  switch (pos) {
+    case "topLeft":
+      return t.posTopLeft;
+    case "topCenter":
+      return t.posTopCenter;
+    case "topRight":
+      return t.posTopRight;
+    case "bottomLeft":
+      return t.posBottomLeft;
+    case "bottomCenter":
+      return t.posBottomCenter;
+    case "bottomRight":
+      return t.posBottomRight;
+  }
+}
 
 export const PRESET_COLORS: { label: string; color: Rgb }[] = [
   { label: strings.pageMarks.colorBlack, color: { r: 0, g: 0, b: 0 } },
@@ -135,6 +155,7 @@ export function oneLine(text: string): string {
 export function parsePageRanges(
   input: string,
   totalPages: number,
+  maxPages: number = LIMITS.maxPageMarkPages,
 ): number[] | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
@@ -164,7 +185,7 @@ export function parsePageRanges(
     }
   }
 
-  if (indices.size === 0 || indices.size > 10000) return null;
+  if (indices.size === 0 || indices.size > maxPages) return null;
 
   return Array.from(indices).sort((a, b) => a - b);
 }
@@ -333,36 +354,12 @@ export function isBatesOverflow(
 }
 
 /**
- * Builds the contract-compatible `PageMarks` object from form state.
+ * Builds the contract-compatible `PageMarks` payload from form state and resolved `pages`.
  */
-export function buildPageMarksPayload(
+export function buildPageMarks(
   form: PageMarksForm,
-  totalPages: number,
-): PageMarks | null {
-  const conflicts = findPositionConflicts(form);
-  if (conflicts.length > 0) return null;
-
-  const markedIndices = getMarkedPageIndices(
-    form.pagesType,
-    form.customPagesString,
-    totalPages,
-  );
-  if (markedIndices.length === 0) return null;
-
-  if (
-    form.enableBates &&
-    isBatesOverflow(form.batesStart, form.batesDigits, markedIndices.length)
-  ) {
-    return null;
-  }
-
-  let pages: PageMarkPages = { kind: "all" };
-  if (form.pagesType === "AllButFirst") {
-    pages = { kind: "allButFirst" };
-  } else if (form.pagesType === "Custom") {
-    pages = { kind: "custom", pages: markedIndices };
-  }
-
+  pages: PageMarkPages,
+): PageMarks {
   const pageNumber = form.enablePageNumber
     ? {
         format:
@@ -402,8 +399,6 @@ export function buildPageMarksPayload(
       }
     : null;
 
-  if (!pageNumber && !bates && !headerFooter) return null;
-
   return {
     fontSize: Math.min(72, Math.max(6, form.fontSize)),
     color: form.color,
@@ -412,5 +407,91 @@ export function buildPageMarksPayload(
     pageNumber,
     bates,
     headerFooter,
+  };
+}
+
+/**
+ * Builds the contract-compatible `PageMarks` object from form state for one document.
+ */
+export function buildPageMarksPayload(
+  form: PageMarksForm,
+  totalPages: number,
+): PageMarks | null {
+  if (pageMarksProblemWith(form) !== null) return null;
+
+  const markedIndices = getMarkedPageIndices(
+    form.pagesType,
+    form.customPagesString,
+    totalPages,
+  );
+  if (markedIndices.length === 0) return null;
+
+  if (
+    form.enableBates &&
+    isBatesOverflow(form.batesStart, form.batesDigits, markedIndices.length)
+  ) {
+    return null;
+  }
+
+  let pages: PageMarkPages = { kind: "all" };
+  if (form.pagesType === "AllButFirst") {
+    pages = { kind: "allButFirst" };
+  } else if (form.pagesType === "Custom") {
+    pages = { kind: "custom", pages: markedIndices };
+  }
+
+  return buildPageMarks(form, pages);
+}
+
+/** Checks if there is any problem with the form for page marks (shared between single document and batch). */
+export function pageMarksProblemWith(form: PageMarksForm): string | null {
+  const conflicts = findPositionConflicts(form);
+  if (conflicts.length > 0) {
+    return strings.pageMarks.conflictError;
+  }
+  const noMarks =
+    !form.enablePageNumber &&
+    !form.enableBates &&
+    (!form.enableHeaderFooter ||
+      (!form.headerLeft.trim() &&
+        !form.headerCenter.trim() &&
+        !form.headerRight.trim() &&
+        !form.footerLeft.trim() &&
+        !form.footerCenter.trim() &&
+        !form.footerRight.trim()));
+  if (noMarks) {
+    return strings.pageMarks.noMarksError;
+  }
+  if (form.pagesType === "Custom") {
+    const parsed = parsePageRanges(
+      form.customPagesString,
+      LIMITS.maxPageCount,
+      LIMITS.maxPageMarkPages,
+    );
+    if (!parsed || parsed.length === 0) {
+      return strings.pageMarks.pagesCustomError;
+    }
+  }
+  return null;
+}
+
+/** Builds the BatchOperation for page marks from form state. */
+export function batchPageMarksOf(form: PageMarksForm): BatchOperation {
+  let pages: PageMarkPages = { kind: "all" };
+  if (form.pagesType === "AllButFirst") {
+    pages = { kind: "allButFirst" };
+  } else if (form.pagesType === "Custom") {
+    const parsed =
+      parsePageRanges(
+        form.customPagesString,
+        LIMITS.maxPageCount,
+        LIMITS.maxPageMarkPages,
+      ) ?? [];
+    pages = { kind: "custom", pages: parsed };
+  }
+
+  return {
+    kind: "pageMarks",
+    marks: buildPageMarks(form, pages),
   };
 }

@@ -22,6 +22,7 @@ import {
 const t = strings.batch;
 const e = strings.encryption;
 const s = strings.sanitize;
+const pm = strings.pageMarks;
 /** The author the metadata sample names everywhere (tests/corpus/generate.py). */
 const AUTHOR = Buffer.from("Jane Q. Private-Author");
 
@@ -224,6 +225,43 @@ test.describe("a batch", () => {
     expect(copySingle.subarray(0, 5).toString()).toBe("%PDF-");
     expect(countWatermarks(copySingle)).toBeGreaterThanOrEqual(1);
 
+    expect(picked.map(sha256)).toEqual(before);
+  });
+
+  test("page marks and Bates numbers are added across files, continuing consecutively and refusing signed files (B3-19)", async ({
+    launch,
+  }) => {
+    const page = await launch();
+    const picked = files([
+      ["benign/single-page.pdf", "a.pdf"],
+      ["benign/signed.pdf", "signed.pdf"],
+      ["benign/multi-page-10.pdf", "b.pdf"],
+    ]);
+    const before = picked.map(sha256);
+    const dialog = await openDialog(page);
+    await dialog.getByRole("radio", { name: t.pageMarks }).check();
+    await expect(dialog).toContainText(t.pageMarksNote);
+    await dialog.getByRole("checkbox", { name: pm.batesTitle }).check();
+    await dialog.getByPlaceholder("CASE-").fill("DOC-");
+    await dialog.getByRole("button", { name: t.start }).click();
+    await answerFileDialog(page, { path: picked.map((file) => `"${file}"`).join(" ") });
+    await answerFileDialog(page, { path: out });
+
+    await expect(dialog.getByRole("status")).toHaveText(t.summary(2, 1, 0));
+    const list = dialog.getByRole("list", { name: t.filesLabel });
+    await expect(list).toContainText(
+      t.done("a（頁碼與 Bates）.pdf", { first: "DOC-000001", last: "DOC-000001" }),
+    );
+    await expect(list).toContainText(t.failedFile(t.reasons.signed!));
+    await expect(list).toContainText(
+      t.done("b（頁碼與 Bates）.pdf", { first: "DOC-000002", last: "DOC-000011" }),
+    );
+    expect(readdirSync(out).sort()).toEqual(["a（頁碼與 Bates）.pdf", "b（頁碼與 Bates）.pdf"]);
+
+    const copyA = readFileSync(path.join(out, "a（頁碼與 Bates）.pdf"));
+    expect(copyA.subarray(0, 5).toString()).toBe("%PDF-");
+    const copyB = readFileSync(path.join(out, "b（頁碼與 Bates）.pdf"));
+    expect(copyB.subarray(0, 5).toString()).toBe("%PDF-");
     expect(picked.map(sha256)).toEqual(before);
   });
 

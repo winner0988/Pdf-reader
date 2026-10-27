@@ -88,6 +88,7 @@ pub fn copy_name(display_name: &str, operation: &BatchOperation) -> String {
         BatchOperation::Watermark { .. } => strings::watermark_file_name(&stem),
         BatchOperation::CompressImages { .. } => strings::compressed_copy_file_name(&stem),
         BatchOperation::Sanitize { .. } => strings::sanitized_copy_file_name(&stem),
+        BatchOperation::PageMarks { .. } => strings::page_marks_file_name(&stem),
     }
 }
 
@@ -122,21 +123,47 @@ pub fn run(
         files: names.clone(),
     });
     let mut summary = BatchReport::default();
+    let mut current_bates_start = match operation {
+        BatchOperation::PageMarks { marks } => marks.bates.as_ref().map(|b| b.start),
+        _ => None,
+    };
     for (index, (path, name)) in files.iter().zip(&names).enumerate() {
         let outcome = if stop.load(Ordering::SeqCst) {
             summary.skipped += 1;
             BatchOutcome::Skipped
         } else {
+            let mut operation_for_file = operation.clone();
+            if let (BatchOperation::PageMarks { marks }, Some(start)) =
+                (&mut operation_for_file, current_bates_start)
+                && let Some(bates) = &mut marks.bates
+            {
+                bates.start = start;
+            }
             match documents.batch_copy(
                 path,
                 folder,
                 &copy_name(name, operation),
-                operation,
+                &operation_for_file,
                 picture,
             ) {
-                Ok(output) => {
+                Ok((output, count)) => {
                     summary.done += 1;
-                    BatchOutcome::Done { output }
+                    let bates = if let (BatchOperation::PageMarks { marks }, Some(start)) =
+                        (&operation_for_file, current_bates_start)
+                    {
+                        if let Some(bates) = &marks.bates {
+                            let first = start;
+                            let last = start + count.saturating_sub(1);
+                            let range = bates.range(first, last);
+                            current_bates_start = Some(last + 1);
+                            Some(range)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    BatchOutcome::Done { output, bates }
                 }
                 Err(error) => {
                     summary.failed += 1;
@@ -200,6 +227,21 @@ mod tests {
             options: ipc_contract::types::SanitizeOptions::default(),
         };
         assert_eq!(copy_name("合約.pdf", &sanitize), "合約（淨化副本）.pdf");
+        let page_marks = BatchOperation::PageMarks {
+            marks: Box::new(ipc_contract::types::PageMarks {
+                page_number: None,
+                bates: None,
+                header_footer: None,
+                font_size: 10.0,
+                color: ipc_contract::types::Rgb { r: 0, g: 0, b: 0 },
+                margin_pt: 36.0,
+                pages: ipc_contract::types::PageMarkPages::All,
+            }),
+        };
+        assert_eq!(
+            copy_name("公文.pdf", &page_marks),
+            "公文（頁碼與 Bates）.pdf"
+        );
         assert_eq!(numbered("a.pdf", 1), "a.pdf");
         assert_eq!(numbered("a.pdf", 2), "a (2).pdf");
         assert_eq!(

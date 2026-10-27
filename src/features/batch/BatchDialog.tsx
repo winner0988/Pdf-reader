@@ -38,6 +38,13 @@ import {
 import { EncryptFields } from "@/features/saving/EncryptFields";
 import { batchSanitizeOf, DEFAULT_SANITIZE_FORM, type SanitizeForm } from "@/features/saving/sanitize";
 import { SanitizeFields } from "@/features/saving/SanitizeFields";
+import {
+  batchPageMarksOf,
+  DEFAULT_PAGE_MARKS_FORM,
+  pageMarksProblemWith,
+  type PageMarksForm,
+} from "@/features/saving/pageMarks";
+import { PageMarksFields } from "@/features/saving/PageMarksFields";
 import { strings } from "@/i18n/zh-TW";
 import { LIMITS, type BatchEvent, type BatchOperation, type BatchOutcome, type BatchReport } from "@/ipc/generated/contract";
 
@@ -64,6 +71,7 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
   const [watermarkForm, setWatermarkForm] = useState<WatermarkForm>(DEFAULT_WATERMARK_FORM);
   const [compressForm, setCompressForm] = useState<CompressForm>(DEFAULT_COMPRESS_FORM);
   const [sanitizeForm, setSanitizeForm] = useState<SanitizeForm>(DEFAULT_SANITIZE_FORM);
+  const [pageMarksForm, setPageMarksForm] = useState<PageMarksForm>(DEFAULT_PAGE_MARKS_FORM);
   /** From "選擇檔案並開始…" until the batch ends (the system's dialogs come first). */
   const [active, setActive] = useState(false);
   const [run, setRun] = useState<Run | null>(null);
@@ -79,12 +87,19 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
     setWatermarkForm(DEFAULT_WATERMARK_FORM);
     setCompressForm(DEFAULT_COMPRESS_FORM);
     setSanitizeForm(DEFAULT_SANITIZE_FORM);
+    setPageMarksForm(DEFAULT_PAGE_MARKS_FORM);
     setRun(null);
     setFailed(false);
   }
 
   const problem =
-    kind === "encrypt" ? problemWith(form) : kind === "watermark" ? watermarkProblemWith(watermarkForm) : null;
+    kind === "encrypt"
+      ? problemWith(form)
+      : kind === "watermark"
+        ? watermarkProblemWith(watermarkForm)
+        : kind === "pageMarks"
+          ? pageMarksProblemWith(pageMarksForm)
+          : null;
   const finished = run?.report != null;
   const doneCount = run ? run.outcomes.filter((outcome) => outcome !== null).length : 0;
 
@@ -114,7 +129,9 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
               ? { kind: "compressImages", quality: compressForm.quality, maxSide: compressForm.maxSide }
               : kind === "sanitize"
                 ? batchSanitizeOf(sanitizeForm)
-              : { kind: "removeMetadata" };
+                : kind === "pageMarks"
+                  ? batchPageMarksOf(pageMarksForm)
+                  : { kind: "removeMetadata" };
     setActive(true);
     setFailed(false);
     setRun(null);
@@ -128,6 +145,9 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
         if (report === null) return;
         setForm(EMPTY_FORM);
         setWatermarkForm(DEFAULT_WATERMARK_FORM);
+        setCompressForm(DEFAULT_COMPRESS_FORM);
+        setSanitizeForm(DEFAULT_SANITIZE_FORM);
+        setPageMarksForm(DEFAULT_PAGE_MARKS_FORM);
         setRun((now) => (now ? { ...now, report } : { files: [], outcomes: [], report, stopping: false }));
       },
       () => {
@@ -153,7 +173,9 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
     if (problem !== null) {
       return kind === "encrypt"
         ? describeProblem(problem as Problem)
-        : describeWatermarkProblem(problem as WatermarkProblem);
+        : kind === "watermark"
+          ? describeWatermarkProblem(problem as WatermarkProblem)
+          : problem;
     }
     return "";
   })();
@@ -170,7 +192,7 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
             <>
               <fieldset className="grid gap-2 text-sm" aria-describedby={operationId}>
                 <legend className="mb-1 font-medium">{t.operation}</legend>
-                {(["removeMetadata", "removeExif", "compressImages", "sanitize", "encrypt", "watermark"] as const).map((choice) => (
+                {(["removeMetadata", "removeExif", "compressImages", "sanitize", "pageMarks", "encrypt", "watermark"] as const).map((choice) => (
                   <label key={choice} className="flex items-center gap-2">
                     <input
                       type="radio"
@@ -216,6 +238,16 @@ export function BatchDialog({ open, onOpenChange, api }: BatchDialogProps) {
                     disabled={active}
                   />
                   <p className="text-sm">{t.sanitizeNote}</p>
+                </>
+              )}
+              {kind === "pageMarks" && (
+                <>
+                  <PageMarksFields
+                    form={pageMarksForm}
+                    onChange={(changes) => setPageMarksForm((now) => ({ ...now, ...changes }))}
+                    disabled={active}
+                  />
+                  <p className="text-sm">{t.pageMarksNote}</p>
                 </>
               )}
               <ul id={operationId} className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">

@@ -12,7 +12,7 @@
 use std::collections::BTreeSet;
 use std::io::Write;
 
-use ipc_contract::types::{PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat};
+use ipc_contract::types::{PageMarkPosition, PageMarks, PageMarksError, PageNumberFormat};
 use ipc_contract::validate::Validate;
 use mupdf::pdf::{PdfObject, PdfWriteOptions};
 use mupdf::{Matrix, Rect};
@@ -144,39 +144,14 @@ impl PdfDocument {
             return Err(EngineError::NoPageLeft);
         }
 
-        // The 0-based indices of the pages marked, in order.
-        let marked_pages: Vec<u32> = match &marks.pages {
-            PageMarkPages::All => (0..total_pages).collect(),
-            PageMarkPages::AllButFirst => (1..total_pages).collect(),
-            PageMarkPages::Custom { pages } => {
-                let mut sorted = pages.clone();
-                sorted.sort_unstable();
-                sorted.dedup();
-                if let Some(&past) = sorted.iter().find(|&&page| page >= total_pages) {
-                    return Err(EngineError::PageOutOfRange(past));
-                }
-                sorted
-            }
-        };
-        // "All but the first" of a one-page document.
-        if marked_pages.is_empty() {
-            return Err(EngineError::InvalidEdit("no page to mark"));
-        }
+        let marked_pages = marks
+            .marked_pages(total_pages)
+            .map_err(|error| match error {
+                PageMarksError::PageOutOfRange(past) => EngineError::PageOutOfRange(past),
+                PageMarksError::NoPageToMark => EngineError::InvalidEdit("no page to mark"),
+                PageMarksError::BatesOverflow => EngineError::InvalidEdit("bates number overflow"),
+            })?;
         let marked_count = marked_pages.len() as u64;
-
-        // The last Bates number must fit its digits.
-        if let Some(bates) = &marks.bates {
-            let last = bates
-                .start
-                .checked_add(marked_count - 1)
-                .ok_or(EngineError::InvalidEdit("bates number overflow"))?;
-            let past_digits = 10_u64
-                .checked_pow(u32::from(bates.digits))
-                .ok_or(EngineError::InvalidEdit("bates number overflow"))?;
-            if last >= past_digits {
-                return Err(EngineError::InvalidEdit("bates number overflow"));
-            }
-        }
 
         let mut options = PdfWriteOptions::default();
         options.set_garbage(true);
@@ -238,11 +213,7 @@ impl PdfDocument {
             }
             if let Some(bates) = &marks.bates {
                 let n = bates.start + sequence as u64;
-                let text = format!(
-                    "{}{n:0>width$}",
-                    bates.prefix,
-                    width = usize::from(bates.digits)
-                );
+                let text = bates.format_number(n);
                 let (form, width, height) = line(&mut copy, &text)?;
                 let matrix = placement(
                     bates.position,

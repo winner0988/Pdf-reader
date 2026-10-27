@@ -25,11 +25,11 @@ use ipc_contract::types::{
     DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
     FindPersonalDataQuery, FormField, ImageQuality, IpcError, LinkArgs, LinkPreview, LinkTarget,
     MarkCheck, NotRemembered, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink,
-    PageSize, PageText, PagesSource, Password, PersonalDataMatches, PreparedTextBox, Recovery,
-    RedactionSummary, RememberedPasswords, RemoteAddressArgs, RenderPageArgs, Restrictions,
-    SanitizeOptions, SanitizeResult, SaveAttachmentResult, SaveResult, SearchHit, SecurityReport,
-    SignCheck, SignatureReport, SignatureStatus, SourceId, StampImageInfo, TabId, TextBoxInfo,
-    UnlockOutcome,
+    PageMarksError, PageSize, PageText, PagesSource, Password, PersonalDataMatches,
+    PreparedTextBox, Recovery, RedactionSummary, RememberedPasswords, RemoteAddressArgs,
+    RenderPageArgs, Restrictions, SanitizeOptions, SanitizeResult, SaveAttachmentResult,
+    SaveResult, SearchHit, SecurityReport, SignCheck, SignatureReport, SignatureStatus, SourceId,
+    StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
@@ -1405,7 +1405,7 @@ impl Documents {
     /// docs/architecture/batch.md) in `folder`, named `name`, or `name (2)`, `name (3)`, ... when a
     /// file has that name: no file is ever changed or replaced. The file is opened in a worker of
     /// its own, which ends when this returns; nothing of it is kept. An encrypted file is refused:
-    /// a batch asks for no password to open one. Returns the copy's name.
+    /// a batch asks for no password to open one. Returns the copy's name and how many pages were marked.
     pub fn batch_copy(
         &self,
         source: &Path,
@@ -1413,7 +1413,7 @@ impl Documents {
         name: &str,
         operation: &BatchOperation,
         picture: Option<&[u8]>,
-    ) -> Result<String, IpcError> {
+    ) -> Result<(String, u64), IpcError> {
         check_file(source)?;
         let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
         let (doc, opened) = host.open(source).map_err(|error| ipc_error(&error))?;
@@ -1425,6 +1425,35 @@ impl Documents {
                 code: ErrorCode::Encrypted,
                 message: "an encrypted file has no copy in a batch".to_owned(),
             });
+        }
+        if document.signed && matches!(operation, BatchOperation::PageMarks { .. }) {
+            return Err(IpcError {
+                code: ErrorCode::Signed,
+                message:
+                    "a signed file cannot have page marks in a batch: its signatures would not hold"
+                        .to_owned(),
+            });
+        }
+        let total_pages = document.pages.len() as u32;
+        let mut marked_count = 0u64;
+        if let BatchOperation::PageMarks { marks } = operation {
+            let marked_pages =
+                marks.marked_pages(total_pages).map_err(|error| {
+                    match error {
+                PageMarksError::PageOutOfRange(_) | PageMarksError::NoPageToMark => IpcError {
+                    code: ErrorCode::NoPageToMark,
+                    message: "no pages to mark or pages out of range for this file in a batch"
+                        .to_owned(),
+                },
+                PageMarksError::BatesOverflow => IpcError {
+                    code: ErrorCode::BatesOverflow,
+                    message:
+                        "bates numbering overflows the configured digits for this file in a batch"
+                            .to_owned(),
+                },
+            }
+                })?;
+            marked_count = marked_pages.len() as u64;
         }
         let mut temporary = Temporary::new(&folder.join(name))?;
         let response = match operation {
@@ -1476,6 +1505,9 @@ impl Documents {
                 })?;
                 host.sanitized_copy(doc, temporary.file(), id, *options)
             }
+            BatchOperation::PageMarks { marks } => {
+                host.page_marks_copy(doc, temporary.file(), (**marks).clone())
+            }
         }
         .map_err(|error| ipc_error(&error))?;
         let (WorkerResponse::Saved { bytes, .. }
@@ -1492,7 +1524,7 @@ impl Documents {
                 continue;
             }
             if temporary.place_new(&destination)? {
-                return Ok(display_name(&destination));
+                return Ok((display_name(&destination), marked_count));
             }
         }
         Err(IpcError {
@@ -7308,7 +7340,8 @@ mod with_worker {
         assert_eq!(
             outcomes[0],
             BatchOutcome::Done {
-                output: "metadata-full（隱私匯出）.pdf".to_owned()
+                output: "metadata-full（隱私匯出）.pdf".to_owned(),
+                bates: None,
             }
         );
         // An encrypted file asks for a password a batch does not have.
@@ -7325,7 +7358,8 @@ mod with_worker {
         assert_eq!(
             outcomes[3],
             BatchOutcome::Done {
-                output: "single-page（隱私匯出）.pdf".to_owned()
+                output: "single-page（隱私匯出）.pdf".to_owned(),
+                bates: None,
             }
         );
         // The copies, and nothing else: no file the copies were made in is left.
@@ -7811,6 +7845,565 @@ mod with_worker {
         std::fs::remove_dir_all(&out).ok();
         std::fs::remove_dir_all(&kept).ok();
         std::fs::remove_dir_all(&sources).ok();
+    }
+
+    #[test]
+    fn a_batch_draws_page_marks_on_copies_and_refuses_signed_and_encrypted_files() {
+        use ipc_contract::types::{
+            BatchEvent, BatchOutcome, HeaderFooterMarks, PageMarkPages, PageMarkPosition,
+            PageMarks, PageNumberFormat, PageNumberMark, Rgb,
+        };
+
+        let documents = Documents::new(worker());
+        let sources = batch_folder("page-marks-sources");
+        let broken = sources.join("broken.pdf");
+        std::fs::write(&broken, b"%PDF-1.7 not really").unwrap();
+        let files = [
+            corpus_path("benign/multi-page-10.pdf"),
+            corpus_path("benign/signed.pdf"),
+            corpus_path("benign/encrypted-aes256.pdf"),
+            broken,
+            corpus_path("benign/single-page.pdf"),
+        ];
+        let before: Vec<Vec<u8>> = files
+            .iter()
+            .map(|file| std::fs::read(file).unwrap())
+            .collect();
+        let out = batch_folder("page-marks");
+        let operation = BatchOperation::PageMarks {
+            marks: Box::new(PageMarks {
+                page_number: Some(PageNumberMark {
+                    format: PageNumberFormat::PageOfTotal,
+                    start: 1,
+                    position: PageMarkPosition::BottomCenter,
+                }),
+                bates: None,
+                header_footer: Some(HeaderFooterMarks {
+                    header_center: Some("CONFIDENTIAL".to_string()),
+                    ..Default::default()
+                }),
+                font_size: 10.0,
+                color: Rgb { r: 0, g: 0, b: 0 },
+                margin_pt: 36.0,
+                pages: PageMarkPages::All,
+            }),
+        };
+        let (report, events) = run_batch(&documents, &files, &out, &operation, false);
+        assert_eq!((report.done, report.failed, report.skipped), (2, 3, 0));
+        let outcome = |index: u32| {
+            events
+                .iter()
+                .find_map(|event| match event {
+                    BatchEvent::File { index: at, outcome } if *at == index => {
+                        Some(outcome.clone())
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+        assert_eq!(
+            outcome(0),
+            BatchOutcome::Done {
+                output: "multi-page-10（頁碼與 Bates）.pdf".to_owned(),
+                bates: None,
+            }
+        );
+        // A signed file fails because page marks invalidate signatures (ADR 0024, rule 4).
+        assert_eq!(
+            outcome(1),
+            BatchOutcome::Failed {
+                error: ErrorCode::Signed
+            }
+        );
+        // An encrypted file fails because batch does not ask for passwords.
+        assert_eq!(
+            outcome(2),
+            BatchOutcome::Failed {
+                error: ErrorCode::Encrypted
+            }
+        );
+        // A broken file fails with error.
+        assert!(matches!(outcome(3), BatchOutcome::Failed { .. }));
+        assert_eq!(
+            outcome(4),
+            BatchOutcome::Done {
+                output: "single-page（頁碼與 Bates）.pdf".to_owned(),
+                bates: None,
+            }
+        );
+
+        // Copies exist, start with %PDF-, and have the marks.
+        assert_eq!(
+            names_in(&out),
+            [
+                "multi-page-10（頁碼與 Bates）.pdf",
+                "single-page（頁碼與 Bates）.pdf"
+            ]
+        );
+        let multi_copy = std::fs::read(out.join("multi-page-10（頁碼與 Bates）.pdf")).unwrap();
+        assert!(multi_copy.starts_with(b"%PDF-"));
+        let single_copy = std::fs::read(out.join("single-page（頁碼與 Bates）.pdf")).unwrap();
+        assert!(single_copy.starts_with(b"%PDF-"));
+
+        // Searching text in the copies finds the drawn marks.
+        let multi_doc = open_in(&documents, &out.join("multi-page-10（頁碼與 Bates）.pdf"));
+        let p0_text = documents.page_text(multi_doc.doc, 0).unwrap();
+        assert!(
+            p0_text
+                .lines
+                .iter()
+                .any(|l| l.text.contains("第 1 頁／共 10 頁"))
+        );
+        assert!(
+            p0_text
+                .lines
+                .iter()
+                .any(|l| l.text.contains("CONFIDENTIAL"))
+        );
+
+        // The original files are untouched.
+        for (file, bytes) in files.iter().zip(&before) {
+            assert_eq!(&std::fs::read(file).unwrap(), bytes);
+        }
+
+        std::fs::remove_dir_all(&out).ok();
+        std::fs::remove_dir_all(&sources).ok();
+    }
+
+    #[test]
+    fn a_batch_continues_bates_numbers_across_files_and_skips_failed() {
+        use ipc_contract::types::{
+            BatchEvent, BatchOutcome, BatesMark, PageMarkPages, PageMarkPosition, PageMarks, Rgb,
+        };
+
+        let documents = Documents::new(worker());
+        let sources = batch_folder("bates-sources");
+        let broken = sources.join("broken.pdf");
+        std::fs::write(&broken, b"%PDF-1.7 corrupt file").unwrap();
+        let files = [
+            corpus_path("benign/multi-page-10.pdf"),
+            broken,
+            corpus_path("benign/single-page.pdf"),
+        ];
+        let before: Vec<Vec<u8>> = files
+            .iter()
+            .map(|file| std::fs::read(file).unwrap())
+            .collect();
+        let out = batch_folder("bates");
+        let operation = BatchOperation::PageMarks {
+            marks: Box::new(PageMarks {
+                page_number: None,
+                bates: Some(BatesMark {
+                    prefix: "CASE-".to_string(),
+                    digits: 6,
+                    start: 1,
+                    position: PageMarkPosition::BottomRight,
+                }),
+                header_footer: None,
+                font_size: 10.0,
+                color: Rgb { r: 0, g: 0, b: 0 },
+                margin_pt: 36.0,
+                pages: PageMarkPages::All,
+            }),
+        };
+        let (report, events) = run_batch(&documents, &files, &out, &operation, false);
+        assert_eq!((report.done, report.failed, report.skipped), (2, 1, 0));
+        let outcome = |index: u32| {
+            events
+                .iter()
+                .find_map(|event| match event {
+                    BatchEvent::File { index: at, outcome } if *at == index => {
+                        Some(outcome.clone())
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+
+        // File 0: 10 pages -> CASE-000001 to CASE-000010
+        assert_eq!(
+            outcome(0),
+            BatchOutcome::Done {
+                output: "multi-page-10（頁碼與 Bates）.pdf".to_owned(),
+                bates: Some(ipc_contract::types::BatesRange {
+                    first: "CASE-000001".to_owned(),
+                    last: "CASE-000010".to_owned(),
+                }),
+            }
+        );
+        // File 1: corrupt -> failed, does not consume Bates numbers
+        assert!(matches!(outcome(1), BatchOutcome::Failed { .. }));
+        // File 2: 1 page -> CASE-000011 (continues consecutive from 11)
+        assert_eq!(
+            outcome(2),
+            BatchOutcome::Done {
+                output: "single-page（頁碼與 Bates）.pdf".to_owned(),
+                bates: Some(ipc_contract::types::BatesRange {
+                    first: "CASE-000011".to_owned(),
+                    last: "CASE-000011".to_owned(),
+                }),
+            }
+        );
+
+        // Verify text in the copies.
+        let multi_doc = open_in(&documents, &out.join("multi-page-10（頁碼與 Bates）.pdf"));
+        let p0_text = documents.page_text(multi_doc.doc, 0).unwrap();
+        assert!(p0_text.lines.iter().any(|l| l.text.contains("CASE-000001")));
+        let p9_text = documents.page_text(multi_doc.doc, 9).unwrap();
+        assert!(p9_text.lines.iter().any(|l| l.text.contains("CASE-000010")));
+
+        let single_doc = open_in(&documents, &out.join("single-page（頁碼與 Bates）.pdf"));
+        let s0_text = documents.page_text(single_doc.doc, 0).unwrap();
+        assert!(s0_text.lines.iter().any(|l| l.text.contains("CASE-000011")));
+
+        // Test digit overflow: 10 pages with digits: 1, start: 1 -> needs up to 10 which exceeds 10^1.
+        let overflow_out = batch_folder("bates-overflow");
+        let overflow_operation = BatchOperation::PageMarks {
+            marks: Box::new(PageMarks {
+                page_number: None,
+                bates: Some(BatesMark {
+                    prefix: "NUM-".to_string(),
+                    digits: 1,
+                    start: 1,
+                    position: PageMarkPosition::BottomRight,
+                }),
+                header_footer: None,
+                font_size: 10.0,
+                color: Rgb { r: 0, g: 0, b: 0 },
+                margin_pt: 36.0,
+                pages: PageMarkPages::All,
+            }),
+        };
+        let overflow_files = [
+            corpus_path("benign/multi-page-10.pdf"),
+            corpus_path("benign/single-page.pdf"),
+        ];
+        let (ov_report, ov_events) = run_batch(
+            &documents,
+            &overflow_files,
+            &overflow_out,
+            &overflow_operation,
+            false,
+        );
+        assert_eq!(
+            (ov_report.done, ov_report.failed, ov_report.skipped),
+            (1, 1, 0)
+        );
+        let ov_outcome = |index: u32| {
+            ov_events
+                .iter()
+                .find_map(|event| match event {
+                    BatchEvent::File { index: at, outcome } if *at == index => {
+                        Some(outcome.clone())
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+        // The overflowing file fails with BatesOverflow.
+        assert_eq!(
+            ov_outcome(0),
+            BatchOutcome::Failed {
+                error: ErrorCode::BatesOverflow
+            }
+        );
+        // The subsequent file continues with unused start number 1.
+        assert_eq!(
+            ov_outcome(1),
+            BatchOutcome::Done {
+                output: "single-page（頁碼與 Bates）.pdf".to_owned(),
+                bates: Some(ipc_contract::types::BatesRange {
+                    first: "NUM-1".to_owned(),
+                    last: "NUM-1".to_owned(),
+                }),
+            }
+        );
+
+        // Original files untouched.
+        for (file, bytes) in files.iter().zip(&before) {
+            assert_eq!(&std::fs::read(file).unwrap(), bytes);
+        }
+
+        std::fs::remove_dir_all(&out).ok();
+        std::fs::remove_dir_all(&overflow_out).ok();
+        std::fs::remove_dir_all(&sources).ok();
+    }
+
+    #[test]
+    fn a_batch_page_marks_handles_bates_overflow_midway_custom_pages_and_all_but_first() {
+        use ipc_contract::types::{
+            BatchEvent, BatchOutcome, BatesMark, BatesRange, PageMarkPages, PageMarkPosition,
+            PageMarks, Rgb,
+        };
+
+        let documents = Documents::new(worker());
+
+        // 1. Digits 2, start 95:
+        // Single-page gets 95.
+        // 10-page document overflows (needs 96..105, which is >= 100) -> BatesOverflow, does not consume numbers.
+        // Another single-page gets 96.
+        // Failed files leave no temporary files, original files untouched.
+        {
+            let files = [
+                corpus_path("benign/single-page.pdf"),
+                corpus_path("benign/multi-page-10.pdf"),
+                corpus_path("benign/single-page.pdf"),
+            ];
+            let before: Vec<Vec<u8>> = files
+                .iter()
+                .map(|file| std::fs::read(file).unwrap())
+                .collect();
+            let out = batch_folder("bates-midway-overflow");
+            let operation = BatchOperation::PageMarks {
+                marks: Box::new(PageMarks {
+                    page_number: None,
+                    bates: Some(BatesMark {
+                        prefix: "".to_string(),
+                        digits: 2,
+                        start: 95,
+                        position: PageMarkPosition::BottomRight,
+                    }),
+                    header_footer: None,
+                    font_size: 10.0,
+                    color: Rgb { r: 0, g: 0, b: 0 },
+                    margin_pt: 36.0,
+                    pages: PageMarkPages::All,
+                }),
+            };
+            let (report, events) = run_batch(&documents, &files, &out, &operation, false);
+            assert_eq!((report.done, report.failed, report.skipped), (2, 1, 0));
+            let outcome = |index: u32| {
+                events
+                    .iter()
+                    .find_map(|event| match event {
+                        BatchEvent::File { index: at, outcome } if *at == index => {
+                            Some(outcome.clone())
+                        }
+                        _ => None,
+                    })
+                    .unwrap()
+            };
+
+            assert_eq!(
+                outcome(0),
+                BatchOutcome::Done {
+                    output: "single-page（頁碼與 Bates）.pdf".to_owned(),
+                    bates: Some(BatesRange {
+                        first: "95".to_owned(),
+                        last: "95".to_owned(),
+                    }),
+                }
+            );
+            assert_eq!(
+                outcome(1),
+                BatchOutcome::Failed {
+                    error: ErrorCode::BatesOverflow
+                }
+            );
+            assert_eq!(
+                outcome(2),
+                BatchOutcome::Done {
+                    output: "single-page（頁碼與 Bates） (2).pdf".to_owned(),
+                    bates: Some(BatesRange {
+                        first: "96".to_owned(),
+                        last: "96".to_owned(),
+                    }),
+                }
+            );
+
+            // Only the two done copies exist: no temporary files or failed files left.
+            assert_eq!(
+                names_in(&out),
+                [
+                    "single-page（頁碼與 Bates） (2).pdf",
+                    "single-page（頁碼與 Bates）.pdf"
+                ]
+            );
+
+            // Verify text in the copies.
+            let doc0 = open_in(&documents, &out.join("single-page（頁碼與 Bates）.pdf"));
+            let text0 = documents.page_text(doc0.doc, 0).unwrap();
+            assert!(text0.lines.iter().any(|l| l.text.contains("95")));
+
+            let doc2 = open_in(&documents, &out.join("single-page（頁碼與 Bates） (2).pdf"));
+            let text2 = documents.page_text(doc2.doc, 0).unwrap();
+            assert!(text2.lines.iter().any(|l| l.text.contains("96")));
+
+            for (file, bytes) in files.iter().zip(&before) {
+                assert_eq!(&std::fs::read(file).unwrap(), bytes);
+            }
+            std::fs::remove_dir_all(&out).ok();
+        }
+
+        // 2. Custom pages "1, 3" (0-based 0, 2): 10-page document consumes 2 numbers.
+        // Next file continues from the 3rd number.
+        {
+            let files = [
+                corpus_path("benign/multi-page-10.pdf"),
+                corpus_path("benign/multi-page-10.pdf"),
+            ];
+            let before: Vec<Vec<u8>> = files
+                .iter()
+                .map(|file| std::fs::read(file).unwrap())
+                .collect();
+            let out = batch_folder("bates-custom-pages");
+            let operation = BatchOperation::PageMarks {
+                marks: Box::new(PageMarks {
+                    page_number: None,
+                    bates: Some(BatesMark {
+                        prefix: "DOC-".to_string(),
+                        digits: 6,
+                        start: 1,
+                        position: PageMarkPosition::BottomRight,
+                    }),
+                    header_footer: None,
+                    font_size: 10.0,
+                    color: Rgb { r: 0, g: 0, b: 0 },
+                    margin_pt: 36.0,
+                    pages: PageMarkPages::Custom { pages: vec![0, 2] },
+                }),
+            };
+            let (report, events) = run_batch(&documents, &files, &out, &operation, false);
+            assert_eq!((report.done, report.failed, report.skipped), (2, 0, 0));
+            let outcome = |index: u32| {
+                events
+                    .iter()
+                    .find_map(|event| match event {
+                        BatchEvent::File { index: at, outcome } if *at == index => {
+                            Some(outcome.clone())
+                        }
+                        _ => None,
+                    })
+                    .unwrap()
+            };
+
+            assert_eq!(
+                outcome(0),
+                BatchOutcome::Done {
+                    output: "multi-page-10（頁碼與 Bates）.pdf".to_owned(),
+                    bates: Some(BatesRange {
+                        first: "DOC-000001".to_owned(),
+                        last: "DOC-000002".to_owned(),
+                    }),
+                }
+            );
+            assert_eq!(
+                outcome(1),
+                BatchOutcome::Done {
+                    output: "multi-page-10（頁碼與 Bates） (2).pdf".to_owned(),
+                    bates: Some(BatesRange {
+                        first: "DOC-000003".to_owned(),
+                        last: "DOC-000004".to_owned(),
+                    }),
+                }
+            );
+
+            assert_eq!(
+                names_in(&out),
+                [
+                    "multi-page-10（頁碼與 Bates） (2).pdf",
+                    "multi-page-10（頁碼與 Bates）.pdf"
+                ]
+            );
+
+            let doc0 = open_in(&documents, &out.join("multi-page-10（頁碼與 Bates）.pdf"));
+            let p0 = documents.page_text(doc0.doc, 0).unwrap();
+            assert!(p0.lines.iter().any(|l| l.text.contains("DOC-000001")));
+            let p1 = documents.page_text(doc0.doc, 1).unwrap();
+            assert!(!p1.lines.iter().any(|l| l.text.contains("DOC-")));
+            let p2 = documents.page_text(doc0.doc, 2).unwrap();
+            assert!(p2.lines.iter().any(|l| l.text.contains("DOC-000002")));
+
+            let doc1 = open_in(
+                &documents,
+                &out.join("multi-page-10（頁碼與 Bates） (2).pdf"),
+            );
+            let s0 = documents.page_text(doc1.doc, 0).unwrap();
+            assert!(s0.lines.iter().any(|l| l.text.contains("DOC-000003")));
+            let s2 = documents.page_text(doc1.doc, 2).unwrap();
+            assert!(s2.lines.iter().any(|l| l.text.contains("DOC-000004")));
+
+            for (file, bytes) in files.iter().zip(&before) {
+                assert_eq!(&std::fs::read(file).unwrap(), bytes);
+            }
+            std::fs::remove_dir_all(&out).ok();
+        }
+
+        // 3. "All but first" encounters single-page document -> NoPageToMark, does not consume number.
+        // Multi-page document follows and uses start number 1.
+        {
+            let files = [
+                corpus_path("benign/single-page.pdf"),
+                corpus_path("benign/multi-page-10.pdf"),
+            ];
+            let before: Vec<Vec<u8>> = files
+                .iter()
+                .map(|file| std::fs::read(file).unwrap())
+                .collect();
+            let out = batch_folder("bates-all-but-first");
+            let operation = BatchOperation::PageMarks {
+                marks: Box::new(PageMarks {
+                    page_number: None,
+                    bates: Some(BatesMark {
+                        prefix: "NUM-".to_string(),
+                        digits: 6,
+                        start: 1,
+                        position: PageMarkPosition::BottomRight,
+                    }),
+                    header_footer: None,
+                    font_size: 10.0,
+                    color: Rgb { r: 0, g: 0, b: 0 },
+                    margin_pt: 36.0,
+                    pages: PageMarkPages::AllButFirst,
+                }),
+            };
+            let (report, events) = run_batch(&documents, &files, &out, &operation, false);
+            assert_eq!((report.done, report.failed, report.skipped), (1, 1, 0));
+            let outcome = |index: u32| {
+                events
+                    .iter()
+                    .find_map(|event| match event {
+                        BatchEvent::File { index: at, outcome } if *at == index => {
+                            Some(outcome.clone())
+                        }
+                        _ => None,
+                    })
+                    .unwrap()
+            };
+
+            assert_eq!(
+                outcome(0),
+                BatchOutcome::Failed {
+                    error: ErrorCode::NoPageToMark
+                }
+            );
+            assert_eq!(
+                outcome(1),
+                BatchOutcome::Done {
+                    output: "multi-page-10（頁碼與 Bates）.pdf".to_owned(),
+                    bates: Some(BatesRange {
+                        first: "NUM-000001".to_owned(),
+                        last: "NUM-000009".to_owned(),
+                    }),
+                }
+            );
+
+            // No temporary file or file for the failed single-page document.
+            assert_eq!(names_in(&out), ["multi-page-10（頁碼與 Bates）.pdf"]);
+
+            let doc1 = open_in(&documents, &out.join("multi-page-10（頁碼與 Bates）.pdf"));
+            let p0 = documents.page_text(doc1.doc, 0).unwrap();
+            assert!(!p0.lines.iter().any(|l| l.text.contains("NUM-")));
+            let p1 = documents.page_text(doc1.doc, 1).unwrap();
+            assert!(p1.lines.iter().any(|l| l.text.contains("NUM-000001")));
+            let p9 = documents.page_text(doc1.doc, 9).unwrap();
+            assert!(p9.lines.iter().any(|l| l.text.contains("NUM-000009")));
+
+            for (file, bytes) in files.iter().zip(&before) {
+                assert_eq!(&std::fs::read(file).unwrap(), bytes);
+            }
+            std::fs::remove_dir_all(&out).ok();
+        }
     }
 
     #[test]

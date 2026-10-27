@@ -229,6 +229,15 @@ pub fn batch_operation_name(operation: &BatchOperation) -> &'static str {
         BatchOperation::Watermark { .. } => "浮水印",
         BatchOperation::CompressImages { .. } => "壓縮圖片",
         BatchOperation::Sanitize { .. } => "分享前淨化",
+        BatchOperation::PageMarks { .. } => "頁碼與 Bates 編號",
+    }
+}
+/// The number range of a file in a Bates batch (ADR 0024): `000001～000010`, or `000001` for one page.
+pub fn bates_range(first: &str, last: &str) -> String {
+    if first == last {
+        first.to_owned()
+    } else {
+        format!("{first}～{last}")
     }
 }
 /// How many files were done, failed and skipped: the parts that are not none.
@@ -246,7 +255,13 @@ pub const BATCH_NOT_DONE: &str = "沒有處理";
 /// How one file of a batch went, as the report says (the batch dialog says the same).
 pub fn batch_outcome(outcome: &BatchOutcome) -> String {
     match outcome {
-        BatchOutcome::Done { output } => format!("完成：{output}"),
+        BatchOutcome::Done { output, bates } => match bates {
+            Some(range) => format!(
+                "完成：{output}（{}）",
+                bates_range(&range.first, &range.last)
+            ),
+            None => format!("完成：{output}"),
+        },
         BatchOutcome::Failed { error } => format!("失敗：{}", batch_reason(*error)),
         BatchOutcome::Skipped => "略過（已停止）".to_owned(),
     }
@@ -258,6 +273,8 @@ fn batch_reason(code: ErrorCode) -> &'static str {
             "這個檔案不能這樣處理，例如有數位簽章的文件不能加密或壓縮圖片（簽章會失效）"
         }
         ErrorCode::Signed => "有數位簽章的檔案，這樣處理會讓簽章失效",
+        ErrorCode::BatesOverflow => "這個檔案的 Bates 編號超出位數上限",
+        ErrorCode::NoPageToMark => "這個檔案沒有要加標記的頁面，或頁面範圍超出它的頁數",
         ErrorCode::NotPdf => "不是 PDF 檔案",
         ErrorCode::Corrupted => "檔案已損毀",
         ErrorCode::UnsupportedEncryption => "使用本程式不支援的加密方式",
@@ -378,6 +395,62 @@ mod tests {
                 error: ErrorCode::Signed
             }),
             "失敗：有數位簽章的檔案，這樣處理會讓簽章失效"
+        );
+        let page_marks = BatchOperation::PageMarks {
+            marks: Box::new(ipc_contract::types::PageMarks {
+                page_number: None,
+                bates: None,
+                header_footer: None,
+                font_size: 10.0,
+                color: ipc_contract::types::Rgb { r: 0, g: 0, b: 0 },
+                margin_pt: 36.0,
+                pages: ipc_contract::types::PageMarkPages::All,
+            }),
+        };
+        assert_eq!(batch_operation_name(&page_marks), "頁碼與 Bates 編號");
+        assert_eq!(
+            super::bates_range("CASE-000001", "CASE-000010"),
+            "CASE-000001～CASE-000010"
+        );
+        assert_eq!(super::bates_range("ABC0005", "ABC0005"), "ABC0005");
+        assert_eq!(
+            batch_outcome(&BatchOutcome::Done {
+                output: "報告.pdf".to_owned(),
+                bates: Some(ipc_contract::types::BatesRange {
+                    first: "CASE-000001".to_owned(),
+                    last: "CASE-000010".to_owned(),
+                }),
+            }),
+            "完成：報告.pdf（CASE-000001～CASE-000010）"
+        );
+        assert_eq!(
+            batch_outcome(&BatchOutcome::Done {
+                output: "報告.pdf".to_owned(),
+                bates: Some(ipc_contract::types::BatesRange {
+                    first: "CASE-000001".to_owned(),
+                    last: "CASE-000001".to_owned(),
+                }),
+            }),
+            "完成：報告.pdf（CASE-000001）"
+        );
+        assert_eq!(
+            batch_outcome(&BatchOutcome::Done {
+                output: "報告.pdf".to_owned(),
+                bates: None,
+            }),
+            "完成：報告.pdf"
+        );
+        assert_eq!(
+            batch_outcome(&BatchOutcome::Failed {
+                error: ErrorCode::BatesOverflow
+            }),
+            "失敗：這個檔案的 Bates 編號超出位數上限"
+        );
+        assert_eq!(
+            batch_outcome(&BatchOutcome::Failed {
+                error: ErrorCode::NoPageToMark
+            }),
+            "失敗：這個檔案沒有要加標記的頁面，或頁面範圍超出它的頁數"
         );
     }
 }
