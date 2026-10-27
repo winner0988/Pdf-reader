@@ -3,6 +3,7 @@
 //   - the production CSP in src-tauri/tauri.conf.json
 //   - the dev-server CSP in vite.config.ts (Tauri does not apply its CSP to devUrl pages)
 //   - Tauri capabilities in src-tauri/capabilities/
+//   - command registration in src-tauri/src/lib.rs vs AppManifest::commands in src-tauri/build.rs (#327)
 // Rules only get stricter: loosening one requires the needs-security-review label.
 //
 // Usage: node scripts/ci/check-security-config.mjs
@@ -404,6 +405,178 @@ export function checkCapability(capability, fileName) {
   return problems;
 }
 
+/** Extracts the block inside tauri::generate_handler![ ... ] from lib.rs source. */
+function extractHandlerBlock(libSource) {
+  const match = libSource.match(/(?:tauri::)?generate_handler!\s*([\[({])/);
+  if (!match) return null;
+  const openChar = match[1];
+  const closeChar = openChar === "[" ? "]" : openChar === "(" ? ")" : "}";
+  const startIdx = match.index + match[0].length;
+  let depth = 1;
+  let inLineComment = false;
+  let inBlockComment = false;
+  for (let i = startIdx; i < libSource.length; i++) {
+    const ch = libSource[i];
+    const next = libSource[i + 1];
+    if (inLineComment) {
+      if (ch === "\n") inLineComment = false;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
+    if (ch === "/" && next === "/") {
+      inLineComment = true;
+      i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      i++;
+      continue;
+    }
+    if (ch === openChar) depth++;
+    else if (ch === closeChar) {
+      depth--;
+      if (depth === 0) {
+        return libSource.slice(startIdx, i);
+      }
+    }
+  }
+  return null;
+}
+
+/** Extracts the block inside AppManifest::new().commands(&[ ... ]) from build.rs source. */
+function extractManifestCommandsBlock(buildSource) {
+  const match = buildSource.match(
+    /(?:tauri_build::)?AppManifest(?:::new\(\))?\s*\.commands\s*\(\s*&?\s*(?:mut\s*)?\[/,
+  );
+  if (!match) return null;
+  const startIdx = match.index + match[0].length;
+  let depth = 1;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let inString = false;
+  let escape = false;
+
+  for (let i = startIdx; i < buildSource.length; i++) {
+    const ch = buildSource[i];
+    const next = buildSource[i + 1];
+
+    if (inString) {
+      if (escape) {
+        escape = false;
+      } else if (ch === "\\") {
+        escape = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (inLineComment) {
+      if (ch === "\n") inLineComment = false;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "/" && next === "/") {
+      inLineComment = true;
+      i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      i++;
+      continue;
+    }
+
+    if (ch === "[") depth++;
+    else if (ch === "]") {
+      depth--;
+      if (depth === 0) {
+        return buildSource.slice(startIdx, i);
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Checks that every command registered in generate_handler! is declared in AppManifest::commands,
+ * and vice-versa (#327, AGENTS.md principle 6).
+ */
+export function checkCommandManifest(
+  libSource,
+  buildSource,
+  { libPath = "src-tauri/src/lib.rs", buildPath = "src-tauri/build.rs" } = {},
+) {
+  const problems = [];
+
+  const handlerBlock = extractHandlerBlock(libSource);
+  if (handlerBlock === null) {
+    problems.push(`${libPath}: tauri::generate_handler! not found`);
+  }
+
+  const manifestBlock = extractManifestCommandsBlock(buildSource);
+  if (manifestBlock === null) {
+    problems.push(`${buildPath}: AppManifest::commands not found`);
+  }
+
+  if (handlerBlock === null || manifestBlock === null) {
+    return problems;
+  }
+
+  const cleanedHandler = handlerBlock
+    .replace(/\/\/.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  const libCmds = [
+    ...cleanedHandler.matchAll(/\bcommands::([a-zA-Z0-9_]+)\b/g),
+  ].map((m) => m[1]);
+
+  const cleanedManifest = manifestBlock
+    .replace(/\/\/.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  const buildCmds = [
+    ...cleanedManifest.matchAll(/(?:"([^"]+)"|r#"([^"#]+)"#)/g),
+  ].map((m) => m[1] ?? m[2]);
+
+  const libSet = new Set(libCmds);
+  const buildSet = new Set(buildCmds);
+
+  for (const cmd of [...libSet].sort()) {
+    if (!buildSet.has(cmd)) {
+      problems.push(
+        `${buildPath}: command "${cmd}" is registered in ${libPath} but missing from AppManifest::commands (add to ${buildPath})`,
+      );
+    }
+  }
+
+  for (const cmd of [...buildSet].sort()) {
+    if (!libSet.has(cmd)) {
+      problems.push(
+        `${libPath}: command "${cmd}" is listed in ${buildPath} but not registered in tauri::generate_handler! (add to ${libPath} or remove from ${buildPath})`,
+      );
+    }
+  }
+
+  return problems;
+}
+
 /** Runs every check against the repository at `root`. */
 export function checkRepository(root) {
   const problems = [];
@@ -423,6 +596,11 @@ export function checkRepository(root) {
     const capability = JSON.parse(readFileSync(join(capabilityDir, file), "utf8"));
     problems.push(...checkCapability(capability, `capabilities/${file}`));
   }
+
+  const libSource = readFileSync(join(root, "src-tauri/src/lib.rs"), "utf8");
+  const buildSource = readFileSync(join(root, "src-tauri/build.rs"), "utf8");
+  problems.push(...checkCommandManifest(libSource, buildSource));
+
   return problems;
 }
 
@@ -435,5 +613,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
     process.exit(1);
   }
-  console.log("OK: CSP, dev CSP, WebView2 arguments and capabilities are within policy.");
+  console.log(
+    "OK: CSP, dev CSP, WebView2 arguments, capabilities, and command manifest are within policy.",
+  );
 }
