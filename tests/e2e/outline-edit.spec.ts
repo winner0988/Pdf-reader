@@ -12,9 +12,11 @@ import { corpus, expect, quit, test } from "./app";
 const pageSlot = (page: Page, number: number) =>
   page.getByRole("img", { name: strings.canvas.page(number) }).first();
 
+const outlineTree = (page: Page) => page.getByRole("tree", { name: strings.sidebar.outlineTab });
+
 async function openOutline(page: Page): Promise<Locator> {
   await page.getByRole("tab", { name: strings.sidebar.outlineTab }).click();
-  return page.getByRole("tree", { name: strings.sidebar.outlineTab });
+  return outlineTree(page);
 }
 
 /**
@@ -23,11 +25,17 @@ async function openOutline(page: Page): Promise<Locator> {
  */
 const shownPage = (page: Page) => page.getByRole("main").locator("[data-doc]").first();
 
-/** Does `act`, an edit, and waits until the document shown is the new one: an edit gives it a new id (B2-02). */
+/**
+ * Does `act`, an edit, and waits until the document shown is the new one: an edit gives it a new id
+ * (B2-02). After an edit made in the tree, it also waits until the tree has that document's outline,
+ * which comes later: the tree is busy until then and takes no other edit, so a key pressed then
+ * would do nothing (#367).
+ */
 async function edit(page: Page, act: () => Promise<void>) {
   const before = await shownPage(page).getAttribute("data-doc");
   await act();
   await expect(shownPage(page)).not.toHaveAttribute("data-doc", before ?? "");
+  await expect(outlineTree(page)).toHaveAttribute("aria-busy", "false");
 }
 
 /** The titles of the bookmarks shown, in order. */
@@ -77,7 +85,11 @@ test("bookmarks edited and saved are the outline of the file opened again (B3-17
       await input.fill("Persisted New Bookmark");
       await input.press("Enter");
     });
+    const kept = tree.getByRole("treeitem", { name: "Persisted New Bookmark" });
+    await expect(kept).toBeFocused();
+    const level = Number(await kept.getAttribute("aria-level"));
     await edit(page, () => page.keyboard.press("Alt+ArrowRight"));
+    await expect(kept).toHaveAttribute("aria-level", String(level + 1));
     const before = await titles(tree);
     expect(before).toContain("Persisted New Bookmark");
 
