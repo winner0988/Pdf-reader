@@ -85,14 +85,14 @@ describe("a batch (B3-04)", () => {
     expect(within(dialog).getByRole("status")).toHaveTextContent(t.running(0, 3));
 
     act(() => {
-      state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "a（隱私匯出）.pdf" } });
+      state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "a（隱私匯出）.pdf", bates: null } });
       state.onEvent({ kind: "file", index: 1, outcome: { kind: "failed", error: "encrypted" } });
     });
     expect(list).toHaveTextContent(t.done("a（隱私匯出）.pdf"));
     expect(list).toHaveTextContent(t.failedFile(t.reasons.encrypted!));
     expect(within(dialog).getByRole("status")).toHaveTextContent(t.running(2, 3));
 
-    act(() => state.onEvent({ kind: "file", index: 2, outcome: { kind: "done", output: "c（隱私匯出）.pdf" } }));
+    act(() => state.onEvent({ kind: "file", index: 2, outcome: { kind: "done", output: "c（隱私匯出）.pdf", bates: null } }));
     await act(async () => state.finish({ done: 2, failed: 1, skipped: 0 }));
     expect(within(dialog).getByRole("status")).toHaveTextContent(t.summary(2, 1, 0));
     await user.click(within(dialog).getByRole("button", { name: t.close }));
@@ -118,7 +118,7 @@ describe("a batch (B3-04)", () => {
       restrictions: { print: false, copy: false, modify: false },
     });
     act(() => state.onEvent({ kind: "started", files: ["a.pdf"] }));
-    act(() => state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "a（已加密）.pdf" } }));
+    act(() => state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "a（已加密）.pdf", bates: null } }));
     await act(async () => state.finish({ done: 1, failed: 0, skipped: 0 }));
     await user.click(within(dialog).getByRole("button", { name: t.close }));
 
@@ -139,7 +139,7 @@ describe("a batch (B3-04)", () => {
     expect(api.run.mock.calls[0]![0]).toEqual({ kind: "removeExif" });
     act(() => state.onEvent({ kind: "started", files: ["photo.pdf", "signed.pdf", "odd.pdf"] }));
     act(() => {
-      state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "photo（已清除 EXIF）.pdf" } });
+      state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "photo（已清除 EXIF）.pdf", bates: null } });
       state.onEvent({ kind: "file", index: 1, outcome: { kind: "failed", error: "invalidArgument" } });
       state.onEvent({ kind: "file", index: 2, outcome: { kind: "failed", error: "pictureNotCleaned" } });
     });
@@ -166,7 +166,7 @@ describe("a batch (B3-04)", () => {
     expect(api.run.mock.calls[0]![0]).toEqual({ kind: "compressImages", quality: "low", maxSide: null });
     act(() => state.onEvent({ kind: "started", files: ["scan.pdf", "signed.pdf"] }));
     act(() => {
-      state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "scan（已壓縮）.pdf" } });
+      state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "scan（已壓縮）.pdf", bates: null } });
       state.onEvent({ kind: "file", index: 1, outcome: { kind: "failed", error: "invalidArgument" } });
     });
     const list = within(dialog).getByRole("list", { name: t.filesLabel });
@@ -214,7 +214,7 @@ describe("a batch (B3-04)", () => {
     });
     act(() => state.onEvent({ kind: "started", files: ["a.pdf", "signed.pdf"] }));
     act(() => {
-      state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "a（淨化副本）.pdf" } });
+      state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "a（淨化副本）.pdf", bates: null } });
       state.onEvent({ kind: "file", index: 1, outcome: { kind: "failed", error: "signed" } });
     });
     const list = within(dialog).getByRole("list", { name: t.filesLabel });
@@ -266,13 +266,33 @@ describe("a batch (B3-04)", () => {
 
     act(() => state.onEvent({ kind: "started", files: ["a.pdf", "b.pdf", "signed.pdf"] }));
     act(() => {
-      state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "a（頁碼與 Bates）.pdf（DOC-000001～DOC-000005）" } });
-      state.onEvent({ kind: "file", index: 1, outcome: { kind: "done", output: "b（頁碼與 Bates）.pdf（DOC-000006～DOC-000010）" } });
+      state.onEvent({
+        kind: "file",
+        index: 0,
+        outcome: {
+          kind: "done",
+          output: "a（頁碼與 Bates）.pdf",
+          bates: { first: "DOC-000001", last: "DOC-000005" },
+        },
+      });
+      state.onEvent({
+        kind: "file",
+        index: 1,
+        outcome: {
+          kind: "done",
+          output: "b（頁碼與 Bates）.pdf",
+          bates: { first: "DOC-000006", last: "DOC-000010" },
+        },
+      });
       state.onEvent({ kind: "file", index: 2, outcome: { kind: "failed", error: "signed" } });
     });
     const list = within(dialog).getByRole("list", { name: t.filesLabel });
-    expect(list).toHaveTextContent(t.done("a（頁碼與 Bates）.pdf（DOC-000001～DOC-000005）"));
-    expect(list).toHaveTextContent(t.done("b（頁碼與 Bates）.pdf（DOC-000006～DOC-000010）"));
+    expect(list).toHaveTextContent(
+      t.done("a（頁碼與 Bates）.pdf", { first: "DOC-000001", last: "DOC-000005" }),
+    );
+    expect(list).toHaveTextContent(
+      t.done("b（頁碼與 Bates）.pdf", { first: "DOC-000006", last: "DOC-000010" }),
+    );
     expect(list).toHaveTextContent(t.failedFile(t.reasons.signed!));
     await act(async () => state.finish({ done: 2, failed: 1, skipped: 0 }));
     await user.click(within(dialog).getByRole("button", { name: t.close }));
@@ -344,7 +364,7 @@ describe("a batch (B3-04)", () => {
     });
 
     act(() => state.onEvent({ kind: "started", files: ["doc.pdf"] }));
-    act(() => state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "doc（浮水印）.pdf" } }));
+    act(() => state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "doc（浮水印）.pdf", bates: null } }));
     const list = within(dialog).getByRole("list", { name: t.filesLabel });
     expect(list).toHaveTextContent(t.done("doc（浮水印）.pdf"));
   });
@@ -407,7 +427,7 @@ describe("a batch (B3-04)", () => {
     const dialog = await openDialog(user);
     await user.click(within(dialog).getByRole("button", { name: t.start }));
     act(() => state.onEvent({ kind: "started", files: FILES }));
-    act(() => state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "a（隱私匯出）.pdf" } }));
+    act(() => state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "a（隱私匯出）.pdf", bates: null } }));
     await user.click(within(dialog).getByRole("button", { name: t.stop }));
     expect(api.cancel).toHaveBeenCalledExactlyOnceWith(41);
     expect(within(dialog).getByRole("status")).toHaveTextContent(t.stopping);
@@ -440,11 +460,27 @@ describe("what a batch says of a file", () => {
   it("has a reason for each code, special or general", () => {
     expect(reasonFor("encrypted")).toBe(t.reasons.encrypted);
     expect(reasonFor("signed")).toBe(t.reasons.signed);
+    expect(reasonFor("batesOverflow")).toBe(t.reasons.batesOverflow);
+    expect(reasonFor("noPageToMark")).toBe(t.reasons.noPageToMark);
     expect(reasonFor("diskFull")).toBe(strings.error.messages.diskFull);
     expect(reasonFor("cancelled")).toBe(strings.error.messages.internal);
     expect(describeOutcome(null)).toBe(t.waiting);
     expect(describeOutcome({ kind: "skipped" })).toBe(t.skipped);
-    expect(describeOutcome({ kind: "done", output: "x.pdf" })).toBe(t.done("x.pdf"));
+    expect(describeOutcome({ kind: "done", output: "x.pdf", bates: null })).toBe(t.done("x.pdf"));
+    expect(
+      describeOutcome({
+        kind: "done",
+        output: "x.pdf",
+        bates: { first: "DOC-000001", last: "DOC-000001" },
+      }),
+    ).toBe("完成：x.pdf（DOC-000001）");
+    expect(
+      describeOutcome({
+        kind: "done",
+        output: "x.pdf",
+        bates: { first: "DOC-000001", last: "DOC-000005" },
+      }),
+    ).toBe("完成：x.pdf（DOC-000001～DOC-000005）");
     expect(t.summary(3, 0, 0)).toBe("完成 3 個。");
     expect(t.summary(1, 2, 3)).toBe("完成 1 個，失敗 2 個，略過 3 個。");
   });

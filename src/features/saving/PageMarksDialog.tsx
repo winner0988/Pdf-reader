@@ -17,6 +17,7 @@ import {
   DEFAULT_PAGE_MARKS_FORM,
   findPositionConflicts,
   isBatesOverflow,
+  pageMarksProblemWith,
   posLabel,
   type MarksPreview,
   type PageMarksForm,
@@ -58,22 +59,13 @@ export function PageMarksDialog({
   const batesOverflow =
     form.enableBates &&
     isBatesOverflow(form.batesStart, form.batesDigits, preview.markedCount);
-  const noMarks =
-    !form.enablePageNumber &&
-    !form.enableBates &&
-    (!form.enableHeaderFooter ||
-      (!form.headerLeft.trim() &&
-        !form.headerCenter.trim() &&
-        !form.headerRight.trim() &&
-        !form.footerLeft.trim() &&
-        !form.footerCenter.trim() &&
-        !form.footerRight.trim()));
+  const problem = pageMarksProblemWith(form);
+  const noMarks = problem === t.noMarksError;
 
   const canSubmit =
     !running &&
-    conflicts.length === 0 &&
+    problem === null &&
     !batesOverflow &&
-    !noMarks &&
     preview.markedCount > 0;
 
   // Reset state on open

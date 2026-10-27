@@ -249,9 +249,13 @@ test.describe("a batch", () => {
 
     await expect(dialog.getByRole("status")).toHaveText(t.summary(2, 1, 0));
     const list = dialog.getByRole("list", { name: t.filesLabel });
-    await expect(list).toContainText(t.done("a（頁碼與 Bates）.pdf（DOC-000001）"));
+    await expect(list).toContainText(
+      t.done("a（頁碼與 Bates）.pdf", { first: "DOC-000001", last: "DOC-000001" }),
+    );
     await expect(list).toContainText(t.failedFile(t.reasons.signed!));
-    await expect(list).toContainText(t.done("b（頁碼與 Bates）.pdf（DOC-000002～DOC-000011）"));
+    await expect(list).toContainText(
+      t.done("b（頁碼與 Bates）.pdf", { first: "DOC-000002", last: "DOC-000011" }),
+    );
     expect(readdirSync(out).sort()).toEqual(["a（頁碼與 Bates）.pdf", "b（頁碼與 Bates）.pdf"]);
 
     const copyA = readFileSync(path.join(out, "a（頁碼與 Bates）.pdf"));

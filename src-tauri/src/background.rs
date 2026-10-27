@@ -373,6 +373,7 @@ mod tests {
         for (index, outcome) in [
             BatchOutcome::Done {
                 output: "a（已加密）.pdf".to_owned(),
+                bates: None,
             },
             BatchOutcome::Failed {
                 error: ErrorCode::Encrypted,

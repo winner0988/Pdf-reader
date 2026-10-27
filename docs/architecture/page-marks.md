@@ -2,7 +2,7 @@
 
 工作卡 [#304](https://github.com/winner0988/Pdf-reader/issues/304)；規格 §7「另存副本與頁面標記」。
 
-這一部分提供將頁碼、Bates 編號、頁首頁尾畫在 PDF 副本頁面內容上的能力：包含 IPC 契約、前端介面與即時預覽、主行程暫存寫入保護，以及 worker 的 MuPDF 繪圖實作。
+這一部分提供將頁碼、Bates 編號、頁首頁尾畫在 PDF 副本頁面內容上的能力：包含 IPC 契約、前端介面與即時預覽、主行程暫存寫入保護，以及 worker 的 MuPDF 繪圖實作。批次處理多個檔案的頁碼與 Bates 跨檔連號見 [batch.md](batch.md)「頁碼與 Bates 編號」。
 
 ## 標記內容與規則
 

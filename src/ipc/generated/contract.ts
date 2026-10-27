@@ -229,9 +229,14 @@ export type BatchArgs = {
 request: RequestId, operation: BatchOperation, };
 
 /**
+ * The first and last Bates numbers of a copy in a batch, formatted as they appear on the pages (ADR 0024).
+ */
+export type BatesRange = { first: string, last: string, };
+
+/**
  * How one file of a batch went (B3-04).
  */
-export type BatchOutcome = { "kind": "done", output: string, } | { "kind": "failed", error: ErrorCode, } | { "kind": "skipped" };
+export type BatchOutcome = { "kind": "done", output: string, bates: BatesRange | null, } | { "kind": "failed", error: ErrorCode, } | { "kind": "skipped" };
 
 /**
  * Progress of `run_batch` on its channel (B3-04).
@@ -1418,7 +1423,7 @@ edges: Array<number>, };
 /**
  * Error codes the frontend maps to localized messages.
  */
-export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "signed" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "credentialsUnavailable" | "pictureNotCleaned" | "certificateUnreadable" | "certificateExpired" | "certificateNotYetValid" | "certificateNotForSigning" | "signatureTooLarge" | "signatureNotValid" | "certificateUnavailable" | "internal";
+export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "signed" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "credentialsUnavailable" | "pictureNotCleaned" | "batesOverflow" | "noPageToMark" | "certificateUnreadable" | "certificateExpired" | "certificateNotYetValid" | "certificateNotForSigning" | "signatureTooLarge" | "signatureNotValid" | "certificateUnavailable" | "internal";
 
 /**
  * Rejection value of every command. `message` is for logs and must not contain paths or

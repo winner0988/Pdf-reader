@@ -15,7 +15,7 @@ export function describeOutcome(outcome: BatchOutcome | null): string {
   if (outcome === null) return t.waiting;
   switch (outcome.kind) {
     case "done":
-      return t.done(outcome.output);
+      return t.done(outcome.output, outcome.bates);
     case "failed":
       return t.failedFile(reasonFor(outcome.error));
     case "skipped":

@@ -1,13 +1,14 @@
 // Helpers and calculations for page marks and Bates numbering (B3-16).
 
-import type {
-  BatchOperation,
-  HeaderFooterMarks,
-  PageMarkPages,
-  PageMarkPosition,
-  PageMarks,
-  PageNumberFormat,
-  Rgb,
+import {
+  LIMITS,
+  type BatchOperation,
+  type HeaderFooterMarks,
+  type PageMarkPages,
+  type PageMarkPosition,
+  type PageMarks,
+  type PageNumberFormat,
+  type Rgb,
 } from "@/ipc/generated/contract";
 import { strings } from "@/i18n/zh-TW";
 
@@ -154,6 +155,7 @@ export function oneLine(text: string): string {
 export function parsePageRanges(
   input: string,
   totalPages: number,
+  maxPages: number = LIMITS.maxPageMarkPages,
 ): number[] | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
@@ -183,7 +185,7 @@ export function parsePageRanges(
     }
   }
 
-  if (indices.size === 0 || indices.size > 10000) return null;
+  if (indices.size === 0 || indices.size > maxPages) return null;
 
   return Array.from(indices).sort((a, b) => a - b);
 }
@@ -352,14 +354,70 @@ export function isBatesOverflow(
 }
 
 /**
- * Builds the contract-compatible `PageMarks` object from form state.
+ * Builds the contract-compatible `PageMarks` payload from form state and resolved `pages`.
+ */
+export function buildPageMarks(
+  form: PageMarksForm,
+  pages: PageMarkPages,
+): PageMarks {
+  const pageNumber = form.enablePageNumber
+    ? {
+        format:
+          form.pageNumberFormatType === "Number"
+            ? ({ kind: "number" } as const)
+            : form.pageNumberFormatType === "Page"
+            ? ({ kind: "page" } as const)
+            : form.pageNumberFormatType === "PageOfTotal"
+            ? ({ kind: "pageOfTotal" } as const)
+            : {
+                kind: "custom" as const,
+                prefix: form.customPrefix,
+                suffix: form.customSuffix,
+              },
+        start: Math.max(1, form.pageNumberStart),
+        position: form.pageNumberPosition,
+      }
+    : null;
+
+  const bates = form.enableBates
+    ? {
+        prefix: form.batesPrefix,
+        digits: Math.min(12, Math.max(1, form.batesDigits)),
+        start: Math.max(0, form.batesStart),
+        position: form.batesPosition,
+      }
+    : null;
+
+  const headerFooter: HeaderFooterMarks | null = form.enableHeaderFooter
+    ? {
+        headerLeft: oneLine(form.headerLeft) || null,
+        headerCenter: oneLine(form.headerCenter) || null,
+        headerRight: oneLine(form.headerRight) || null,
+        footerLeft: oneLine(form.footerLeft) || null,
+        footerCenter: oneLine(form.footerCenter) || null,
+        footerRight: oneLine(form.footerRight) || null,
+      }
+    : null;
+
+  return {
+    fontSize: Math.min(72, Math.max(6, form.fontSize)),
+    color: form.color,
+    marginPt: Math.min(144, Math.max(0, form.marginPt)),
+    pages,
+    pageNumber,
+    bates,
+    headerFooter,
+  };
+}
+
+/**
+ * Builds the contract-compatible `PageMarks` object from form state for one document.
  */
 export function buildPageMarksPayload(
   form: PageMarksForm,
   totalPages: number,
 ): PageMarks | null {
-  const conflicts = findPositionConflicts(form);
-  if (conflicts.length > 0) return null;
+  if (pageMarksProblemWith(form) !== null) return null;
 
   const markedIndices = getMarkedPageIndices(
     form.pagesType,
@@ -382,59 +440,10 @@ export function buildPageMarksPayload(
     pages = { kind: "custom", pages: markedIndices };
   }
 
-  const pageNumber = form.enablePageNumber
-    ? {
-        format:
-          form.pageNumberFormatType === "Number"
-            ? ({ kind: "number" } as const)
-            : form.pageNumberFormatType === "Page"
-            ? ({ kind: "page" } as const)
-            : form.pageNumberFormatType === "PageOfTotal"
-            ? ({ kind: "pageOfTotal" } as const)
-            : {
-                kind: "custom" as const,
-                prefix: form.customPrefix,
-                suffix: form.customSuffix,
-              },
-        start: Math.max(1, form.pageNumberStart),
-        position: form.pageNumberPosition,
-      }
-    : null;
-
-  const bates = form.enableBates
-    ? {
-        prefix: form.batesPrefix,
-        digits: Math.min(12, Math.max(1, form.batesDigits)),
-        start: Math.max(0, form.batesStart),
-        position: form.batesPosition,
-      }
-    : null;
-
-  const headerFooter: HeaderFooterMarks | null = form.enableHeaderFooter
-    ? {
-        headerLeft: oneLine(form.headerLeft) || null,
-        headerCenter: oneLine(form.headerCenter) || null,
-        headerRight: oneLine(form.headerRight) || null,
-        footerLeft: oneLine(form.footerLeft) || null,
-        footerCenter: oneLine(form.footerCenter) || null,
-        footerRight: oneLine(form.footerRight) || null,
-      }
-    : null;
-
-  if (!pageNumber && !bates && !headerFooter) return null;
-
-  return {
-    fontSize: Math.min(72, Math.max(6, form.fontSize)),
-    color: form.color,
-    marginPt: Math.min(144, Math.max(0, form.marginPt)),
-    pages,
-    pageNumber,
-    bates,
-    headerFooter,
-  };
+  return buildPageMarks(form, pages);
 }
 
-/** Checks if there is any problem with the form for batch processing. */
+/** Checks if there is any problem with the form for page marks (shared between single document and batch). */
 export function pageMarksProblemWith(form: PageMarksForm): string | null {
   const conflicts = findPositionConflicts(form);
   if (conflicts.length > 0) {
@@ -454,7 +463,11 @@ export function pageMarksProblemWith(form: PageMarksForm): string | null {
     return strings.pageMarks.noMarksError;
   }
   if (form.pagesType === "Custom") {
-    const parsed = parsePageRanges(form.customPagesString, 10000);
+    const parsed = parsePageRanges(
+      form.customPagesString,
+      LIMITS.maxPageCount,
+      LIMITS.maxPageMarkPages,
+    );
     if (!parsed || parsed.length === 0) {
       return strings.pageMarks.pagesCustomError;
     }
@@ -468,59 +481,17 @@ export function batchPageMarksOf(form: PageMarksForm): BatchOperation {
   if (form.pagesType === "AllButFirst") {
     pages = { kind: "allButFirst" };
   } else if (form.pagesType === "Custom") {
-    const parsed = parsePageRanges(form.customPagesString, 10000) ?? [];
+    const parsed =
+      parsePageRanges(
+        form.customPagesString,
+        LIMITS.maxPageCount,
+        LIMITS.maxPageMarkPages,
+      ) ?? [];
     pages = { kind: "custom", pages: parsed };
   }
 
-  const pageNumber = form.enablePageNumber
-    ? {
-        format:
-          form.pageNumberFormatType === "Number"
-            ? ({ kind: "number" } as const)
-            : form.pageNumberFormatType === "Page"
-            ? ({ kind: "page" } as const)
-            : form.pageNumberFormatType === "PageOfTotal"
-            ? ({ kind: "pageOfTotal" } as const)
-            : {
-                kind: "custom" as const,
-                prefix: form.customPrefix,
-                suffix: form.customSuffix,
-              },
-        start: Math.max(1, form.pageNumberStart),
-        position: form.pageNumberPosition,
-      }
-    : null;
-
-  const bates = form.enableBates
-    ? {
-        prefix: form.batesPrefix,
-        digits: Math.min(12, Math.max(1, form.batesDigits)),
-        start: Math.max(0, form.batesStart),
-        position: form.batesPosition,
-      }
-    : null;
-
-  const headerFooter: HeaderFooterMarks | null = form.enableHeaderFooter
-    ? {
-        headerLeft: oneLine(form.headerLeft) || null,
-        headerCenter: oneLine(form.headerCenter) || null,
-        headerRight: oneLine(form.headerRight) || null,
-        footerLeft: oneLine(form.footerLeft) || null,
-        footerCenter: oneLine(form.footerCenter) || null,
-        footerRight: oneLine(form.footerRight) || null,
-      }
-    : null;
-
   return {
     kind: "pageMarks",
-    marks: {
-      fontSize: Math.min(72, Math.max(6, form.fontSize)),
-      color: form.color,
-      marginPt: Math.min(144, Math.max(0, form.marginPt)),
-      pages,
-      pageNumber,
-      bates,
-      headerFooter,
-    },
+    marks: buildPageMarks(form, pages),
   };
 }

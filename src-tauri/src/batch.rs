@@ -148,23 +148,22 @@ pub fn run(
             ) {
                 Ok((output, count)) => {
                     summary.done += 1;
-                    let output = if let (BatchOperation::PageMarks { marks }, Some(start)) =
+                    let bates = if let (BatchOperation::PageMarks { marks }, Some(start)) =
                         (&operation_for_file, current_bates_start)
                     {
                         if let Some(bates) = &marks.bates {
                             let first = start;
                             let last = start + count.saturating_sub(1);
-                            let range =
-                                strings::bates_range(&bates.prefix, bates.digits, first, last);
+                            let range = bates.range(first, last);
                             current_bates_start = Some(last + 1);
-                            format!("{output}（{range}）")
+                            Some(range)
                         } else {
-                            output
+                            None
                         }
                     } else {
-                        output
+                        None
                     };
-                    BatchOutcome::Done { output }
+                    BatchOutcome::Done { output, bates }
                 }
                 Err(error) => {
                     summary.failed += 1;

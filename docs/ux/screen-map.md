@@ -266,7 +266,7 @@
 
 - 批次進行中關閉視窗：視窗隱藏、系統列出現圖示（提示 batch tray 文字，選單「顯示視窗」「停止批次處理」），批次做完後在資料夾寫報告、跳出訊息方塊（標題「批次處理完成」）、按「確定」後程式結束；見 [batch.md](../architecture/batch.md)「背景執行」。
 - 「⋯」→「批次處理…」（在「加密並另存新檔…」之後），沒有開啟文件時也能用。示範資料（沒有主行程）時停用。做法見 [batch.md](../architecture/batch.md)。
-- **對話框**：batch.description；「要做的事」的選項：batch.removeMetadata（預設）、batch.removeExif、batch.compressImages、batch.sanitize、batch.encrypt、batch.watermark、batch.pageMarks。選清除 EXIF 時下方出現 batch.exifNote。選壓縮圖片時出現與「壓縮圖片並另存新檔」相同的品質與最大尺寸（compress.qualityTitle、compress.sizeTitle，預設「中」與長邊 2000 像素），下方是 batch.compressNote（B3-19）。選分享前淨化時出現與「分享前淨化」相同的清除項目、註解處理與不會清除的項目（sanitize.categoriesTitle、sanitize.annotationsTitle、sanitize.keptTitle，預設全部清除、保留一般網址、保留註解），下方是 batch.sanitizeNote（B3-19）。選頁碼與 Bates 編號時出現與「頁碼與 Bates 編號」相同的欄位（頁碼、Bates 編號、頁首頁尾與外觀範圍，預設啟用頁碼「第 N 頁／共 Total 頁」置於下中），下方是 batch.pageMarksNote（B3-19）。選加密時出現與「加密並另存新檔」相同的欄位（開啟密碼、限制、權限密碼，各輸入兩次），規則與提示也相同；有問題時「選擇檔案並開始…」停用，狀態列說明。下方列出 batch.notes。
+- **對話框**：batch.description；「要做的事」的選項：batch.removeMetadata（預設）、batch.removeExif、batch.compressImages、batch.sanitize、batch.pageMarks、batch.encrypt、batch.watermark。選清除 EXIF 時下方出現 batch.exifNote。選壓縮圖片時出現與「壓縮圖片並另存新檔」相同的品質與最大尺寸（compress.qualityTitle、compress.sizeTitle，預設「中」與長邊 2000 像素），下方是 batch.compressNote（B3-19）。選分享前淨化時出現與「分享前淨化」相同的清除項目、註解處理與不會清除的項目（sanitize.categoriesTitle、sanitize.annotationsTitle、sanitize.keptTitle，預設全部清除、保留一般網址、保留註解），下方是 batch.sanitizeNote（B3-19）。選頁碼與 Bates 編號時出現與「頁碼與 Bates 編號」相同的欄位（頁碼、Bates 編號、頁首頁尾與外觀範圍，預設啟用頁碼「第 N 頁／共 Total 頁」置於下中），下方是 batch.pageMarksNote（B3-19）。選加密時出現與「加密並另存新檔」相同的欄位（開啟密碼、限制、權限密碼，各輸入兩次），規則與提示也相同；有問題時「選擇檔案並開始…」停用，狀態列說明。下方列出 batch.notes。
 - **選擇檔案並開始…**：主行程依序顯示系統的開啟對話框（可多選 PDF，標題 BATCH_FILES_DIALOG_TITLE）與資料夾對話框（BATCH_FOLDER_DIALOG_TITLE）。關閉任一個時回到這個對話框，可以再試。
 - **處理中**：對話框改為列出每個檔案（`role="list"`，名稱 batch.filesLabel）：等待中、完成（副本的檔名）、失敗（原因，紅字）、略過；狀態列（`role="status"`）是 batch.running。「停止」在目前的檔案做完後停下（batch.stopping）。處理中不能關閉對話框，`Esc` 也不行。
 - **完成**：狀態列是 batch.summary（完成、失敗、略過各幾個），按「完成」關閉。加密的密碼欄位在開始時與關閉時清空，不留任何密碼。
@@ -1205,9 +1205,13 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | batch.running(done, total) | 正在處理…（<done>／<total>） |
 | batch.stopping | 目前的檔案完成後就會停止… |
 | batch.summary(done, failed, skipped) | 完成 <N> 個，失敗 <N> 個，略過 <N> 個。（是 0 的部分不說） |
-| batch.waiting／batch.done(output)／batch.failedFile(reason)／batch.skipped | 等待中／完成：<副本檔名>／失敗：<原因>／略過（已停止） |
+| batch.waiting／batch.done(output, bates)／batch.failedFile(reason)／batch.skipped | 等待中／完成：<副本檔名>（含 Bates 編號時附上號碼範圍，例如（DOC-000001～DOC-000010））／失敗：<原因>／略過（已停止） |
 | batch.reasons.encrypted | 有密碼的檔案，批次處理不詢問密碼 |
 | batch.reasons.invalidArgument | 這個檔案不能這樣處理，例如有數位簽章的文件不能加密、清除 EXIF 或壓縮圖片（簽章會失效） |
+| batch.reasons.batesOverflow | 這個檔案的 Bates 編號超出位數上限 |
+| batch.reasons.noPageToMark | 這個檔案沒有要加標記的頁，或指定的頁面超出檔案頁數 |
+| error.messages.batesOverflow | 這個檔案的 Bates 編號超出位數上限。 |
+| error.messages.noPageToMark | 這個檔案沒有要加標記的頁，或指定的頁面超出檔案頁數。 |
 | error.messages.pictureNotCleaned | 有一張圖片的儲存方式無法安全清除它的 EXIF，所以沒有建立副本。 |
 | batch.reasons.notPdf／corrupted | 不是 PDF 檔案／檔案已損毀（其他原因用一般的錯誤訊息） |
 | batch.reasons.signed | 有數位簽章的檔案，這樣處理會讓簽章失效 |
@@ -1220,7 +1224,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | batch_done_message(summary, report)（主行程） | <完成 N 個，失敗 N 個，略過 N 個。>＋空一行＋每個檔案的結果寫在：<報告的路徑>（報告寫不進資料夾時：報告無法寫進資料夾。） |
 | BATCH_REPORT_FILE_NAME（主行程） | 批次處理報告.txt |
 | BATCH_REPORT_TITLE／batch_report_operation／batch_report_folder／BATCH_NOT_DONE（主行程，寫在報告中） | PDF Reader 批次處理報告／要做的事：<清除中繼資料或加密>／資料夾：<路徑>／沒有處理 |
-| batch_outcome(outcome)（主行程，報告每個檔案的結果） | 完成：<副本檔名>／失敗：<原因，與 batch.reasons 相同的說法>／略過（已停止） |
+| batch_outcome(outcome)（主行程，報告每個檔案的結果） | 完成：<副本檔名>（含 Bates 編號時附上號碼範圍）／失敗：<原因，與 batch.reasons 相同的說法>／略過（已停止） |
 
 ### 從檔案建立 PDF（B3-03）
 
