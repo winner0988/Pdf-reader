@@ -24,7 +24,7 @@
 | [0016](0016-redaction.md) | 安全遮蔽是「標記範圍、套用、整份重寫」三步，只對沒有簽章的文件，並在存檔後驗證 | 已接受 |
 | [0017](0017-password-memory-key.md) | 加密檔案的密碼記憶以檔案自己的密碼驗證資料為查找鍵，不寫入文件識別碼 | 已接受 |
 | [0018](0018-text-boxes-and-fonts.md) | 文字方塊是頁面上的 FreeText 註解，外觀由 worker 以所選字型的子集自己產生 | 已接受 |
-| [0019](0019-merge-app-annotations.md) | 合併檔案頁面時以「提取純淨資料、重新建立」攜帶 app 支援的註解 | 提議中 |
+| [0019](0019-merge-app-annotations.md) | 合併檔案頁面時以「提取純淨資料、重新建立」攜帶 app 支援的註解 | 已接受 |
 | [0020](0020-document-signing.md) | 簽署文件時私鑰只在主行程，以 Windows CryptoAPI 簽署；憑證來自 .pfx 或 Windows 憑證存放區 | 已接受 |
 | [0021](0021-form-scripts-in-worker.md) | 表單腳本以 MuPDF 內建的 mujs 在文件自己的 worker 中執行，只跑欄位的按鍵、格式、驗證與計算 | 已接受 |
 | [0022](0022-remote-resources-never-loaded.md) | 遠端資源永遠不由 app 載入；使用者確認完整網址後可以交給系統瀏覽器開啟 | 已接受 |
