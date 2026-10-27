@@ -19,6 +19,9 @@ const indexFolder = (page: Page) => path.join(dataDir(page), "index");
 /** The files of the index: the key, the catalog, and one for each document whose text it has. */
 const indexFiles = (page: Page) => (existsSync(indexFolder(page)) ? readdirSync(indexFolder(page)) : []);
 
+/** The tabs of the open documents: the sidebar's panels, shown with a document, are tabs too. */
+const documentTabs = (page: Page) => page.getByRole("tablist", { name: strings.tabs.label }).getByRole("tab");
+
 async function ready(page: Page) {
   await expect(page.getByRole("img", { name: strings.canvas.page(1) }).first()).toHaveAttribute("data-state", "ready");
 }
@@ -69,7 +72,7 @@ test.describe("the text index", () => {
 
     // Turned on, the open document goes in, and so does the next one.
     launchAgain(notes);
-    await expect(page.getByRole("tab")).toHaveCount(2);
+    await expect(documentTabs(page)).toHaveCount(2);
     await ready(page);
     await expect.poll(() => indexFiles(page).filter((name) => /^d[0-9a-f]{16}$/.test(name)).length, { timeout: 30_000 }).toBe(2);
 
@@ -84,9 +87,9 @@ test.describe("the text index", () => {
 
     // Both closed: found by their words from the start screen, with no path on the page.
     await page.keyboard.press("Control+w");
-    await expect(page.getByRole("tab")).toHaveCount(1);
+    await expect(documentTabs(page)).toHaveCount(1);
     await page.keyboard.press("Control+w");
-    await expect(page.getByRole("tab")).toHaveCount(0);
+    await expect(documentTabs(page)).toHaveCount(0);
     await page.getByRole("button", { name: strings.empty.searchAllButton }).click();
     let dialog = page.getByRole("dialog", { name: t.title });
     await search(dialog, "needle");
@@ -98,7 +101,7 @@ test.describe("the text index", () => {
     // Opened from there: a new tab, at the page.
     await result(dialog, "report.pdf").getByRole("button", { name: new RegExp(t.page(7)) }).click();
     await expect(dialog).toHaveCount(0);
-    await expect(page.getByRole("tab")).toHaveCount(1);
+    await expect(documentTabs(page)).toHaveCount(1);
     await expect(page.getByRole("textbox", { name: strings.toolbar.pageNumber })).toHaveValue("7");
 
     // Marked as sensitive, a document leaves the index at once: only the other one is found.
