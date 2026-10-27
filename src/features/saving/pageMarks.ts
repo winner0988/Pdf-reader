@@ -1,6 +1,7 @@
 // Helpers and calculations for page marks and Bates numbering (B3-16).
 
 import type {
+  BatchOperation,
   HeaderFooterMarks,
   PageMarkPages,
   PageMarkPosition,
@@ -18,6 +19,24 @@ export const POSITIONS: PageMarkPosition[] = [
   "bottomCenter",
   "bottomRight",
 ];
+
+export function posLabel(pos: PageMarkPosition): string {
+  const t = strings.pageMarks;
+  switch (pos) {
+    case "topLeft":
+      return t.posTopLeft;
+    case "topCenter":
+      return t.posTopCenter;
+    case "topRight":
+      return t.posTopRight;
+    case "bottomLeft":
+      return t.posBottomLeft;
+    case "bottomCenter":
+      return t.posBottomCenter;
+    case "bottomRight":
+      return t.posBottomRight;
+  }
+}
 
 export const PRESET_COLORS: { label: string; color: Rgb }[] = [
   { label: strings.pageMarks.colorBlack, color: { r: 0, g: 0, b: 0 } },
@@ -412,5 +431,96 @@ export function buildPageMarksPayload(
     pageNumber,
     bates,
     headerFooter,
+  };
+}
+
+/** Checks if there is any problem with the form for batch processing. */
+export function pageMarksProblemWith(form: PageMarksForm): string | null {
+  const conflicts = findPositionConflicts(form);
+  if (conflicts.length > 0) {
+    return strings.pageMarks.conflictError;
+  }
+  const noMarks =
+    !form.enablePageNumber &&
+    !form.enableBates &&
+    (!form.enableHeaderFooter ||
+      (!form.headerLeft.trim() &&
+        !form.headerCenter.trim() &&
+        !form.headerRight.trim() &&
+        !form.footerLeft.trim() &&
+        !form.footerCenter.trim() &&
+        !form.footerRight.trim()));
+  if (noMarks) {
+    return strings.pageMarks.noMarksError;
+  }
+  if (form.pagesType === "Custom") {
+    const parsed = parsePageRanges(form.customPagesString, 10000);
+    if (!parsed || parsed.length === 0) {
+      return strings.pageMarks.pagesCustomError;
+    }
+  }
+  return null;
+}
+
+/** Builds the BatchOperation for page marks from form state. */
+export function batchPageMarksOf(form: PageMarksForm): BatchOperation {
+  let pages: PageMarkPages = { kind: "all" };
+  if (form.pagesType === "AllButFirst") {
+    pages = { kind: "allButFirst" };
+  } else if (form.pagesType === "Custom") {
+    const parsed = parsePageRanges(form.customPagesString, 10000) ?? [];
+    pages = { kind: "custom", pages: parsed };
+  }
+
+  const pageNumber = form.enablePageNumber
+    ? {
+        format:
+          form.pageNumberFormatType === "Number"
+            ? ({ kind: "number" } as const)
+            : form.pageNumberFormatType === "Page"
+            ? ({ kind: "page" } as const)
+            : form.pageNumberFormatType === "PageOfTotal"
+            ? ({ kind: "pageOfTotal" } as const)
+            : {
+                kind: "custom" as const,
+                prefix: form.customPrefix,
+                suffix: form.customSuffix,
+              },
+        start: Math.max(1, form.pageNumberStart),
+        position: form.pageNumberPosition,
+      }
+    : null;
+
+  const bates = form.enableBates
+    ? {
+        prefix: form.batesPrefix,
+        digits: Math.min(12, Math.max(1, form.batesDigits)),
+        start: Math.max(0, form.batesStart),
+        position: form.batesPosition,
+      }
+    : null;
+
+  const headerFooter: HeaderFooterMarks | null = form.enableHeaderFooter
+    ? {
+        headerLeft: oneLine(form.headerLeft) || null,
+        headerCenter: oneLine(form.headerCenter) || null,
+        headerRight: oneLine(form.headerRight) || null,
+        footerLeft: oneLine(form.footerLeft) || null,
+        footerCenter: oneLine(form.footerCenter) || null,
+        footerRight: oneLine(form.footerRight) || null,
+      }
+    : null;
+
+  return {
+    kind: "pageMarks",
+    marks: {
+      fontSize: Math.min(72, Math.max(6, form.fontSize)),
+      color: form.color,
+      marginPt: Math.min(144, Math.max(0, form.marginPt)),
+      pages,
+      pageNumber,
+      bates,
+      headerFooter,
+    },
   };
 }

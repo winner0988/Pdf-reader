@@ -182,6 +182,11 @@ pub enum BatchOperation {
     /// the same request and the same options and rules as `sanitize_copy` for one document.
     #[serde(rename_all = "camelCase")]
     Sanitize { options: SanitizeOptions },
+    /// A copy with page marks (page numbers, Bates numbers, headers and footers) (B3-16, B3-19,
+    /// docs/architecture/page-marks.md): the same request and the same rules as `page_marks_copy`
+    /// for one document; Bates numbers continue across files (ADR 0024).
+    #[serde(rename_all = "camelCase")]
+    PageMarks { marks: PageMarks },
 }
 
 /// Arguments of `run_batch` (B3-04): what to do, never to which files or where; the main process

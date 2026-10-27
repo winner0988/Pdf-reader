@@ -14,11 +14,10 @@ use crate::types::{
     FontRefusal, FormField, HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality,
     InkColor, InkWidth, OutlineResult, PageAnnotation, PageCorner, PageLink, PageMarkPages,
     PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark, PageSize, PageText, Password,
-    PersonalDataMatches, Point,
-    RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation,
-    SanitizeOptions, SanitizeReport, SearchHit, SecurityReport, SignatureReport, SourceId,
-    StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle, Watermark,
-    WatermarkContent, WatermarkPages, WatermarkPlace,
+    PersonalDataMatches, Point, RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId,
+    Restrictions, Rgb, Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityReport,
+    SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle,
+    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 
 /// An attachment of a document as reported by the worker (B3-20, ADR 0025).

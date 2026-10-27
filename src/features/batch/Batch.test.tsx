@@ -222,6 +222,90 @@ describe("a batch (B3-04)", () => {
     expect(list).toHaveTextContent(t.failedFile(t.reasons.signed!));
   });
 
+  it("adds page marks and Bates numbers to each file with the same options as one document (B3-19)", async () => {
+    const pm = strings.pageMarks;
+    const { api, state } = fakeBatchApi();
+    const { user } = renderShell(api);
+    let dialog = await openDialog(user);
+    expect(dialog).not.toHaveTextContent(t.pageMarksNote);
+    await user.click(within(dialog).getByRole("radio", { name: t.pageMarks }));
+    expect(dialog).toHaveTextContent(t.pageMarksNote);
+
+    // Initial defaults from one document:
+    expect(within(dialog).getByRole("checkbox", { name: pm.pageNumberTitle })).toBeChecked();
+    expect(within(dialog).getByRole("checkbox", { name: pm.batesTitle })).not.toBeChecked();
+
+    // Enable Bates numbering and customize
+    await user.click(within(dialog).getByRole("checkbox", { name: pm.batesTitle }));
+    const batesPrefixInput = within(dialog).getByPlaceholderText("CASE-");
+    await user.type(batesPrefixInput, "DOC-");
+
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+    expect(api.run).toHaveBeenCalledOnce();
+    expect(api.run.mock.calls[0]![0]).toEqual({
+      kind: "pageMarks",
+      marks: {
+        fontSize: 10,
+        color: { r: 0, g: 0, b: 0 },
+        marginPt: 36,
+        pages: { kind: "all" },
+        pageNumber: {
+          format: { kind: "pageOfTotal" },
+          start: 1,
+          position: "bottomCenter",
+        },
+        bates: {
+          prefix: "DOC-",
+          digits: 6,
+          start: 1,
+          position: "bottomRight",
+        },
+        headerFooter: null,
+      },
+    });
+
+    act(() => state.onEvent({ kind: "started", files: ["a.pdf", "b.pdf", "signed.pdf"] }));
+    act(() => {
+      state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "a（頁碼與 Bates）.pdf（DOC-000001～DOC-000005）" } });
+      state.onEvent({ kind: "file", index: 1, outcome: { kind: "done", output: "b（頁碼與 Bates）.pdf（DOC-000006～DOC-000010）" } });
+      state.onEvent({ kind: "file", index: 2, outcome: { kind: "failed", error: "signed" } });
+    });
+    const list = within(dialog).getByRole("list", { name: t.filesLabel });
+    expect(list).toHaveTextContent(t.done("a（頁碼與 Bates）.pdf（DOC-000001～DOC-000005）"));
+    expect(list).toHaveTextContent(t.done("b（頁碼與 Bates）.pdf（DOC-000006～DOC-000010）"));
+    expect(list).toHaveTextContent(t.failedFile(t.reasons.signed!));
+    await act(async () => state.finish({ done: 2, failed: 1, skipped: 0 }));
+    await user.click(within(dialog).getByRole("button", { name: t.close }));
+
+    // Reopening starts afresh
+    dialog = await openDialog(user);
+    await user.click(within(dialog).getByRole("radio", { name: t.pageMarks }));
+    expect(within(dialog).getByRole("checkbox", { name: pm.batesTitle })).not.toBeChecked();
+  });
+
+  it("validates page marks options before starting", async () => {
+    const pm = strings.pageMarks;
+    const { api } = fakeBatchApi();
+    const { user } = renderShell(api);
+    const dialog = await openDialog(user);
+    await user.click(within(dialog).getByRole("radio", { name: t.pageMarks }));
+    expect(within(dialog).getByRole("button", { name: t.start })).toBeEnabled();
+
+    // Disable page numbers -> no marks configured -> disabled
+    await user.click(within(dialog).getByRole("checkbox", { name: pm.pageNumberTitle }));
+    expect(within(dialog).getByRole("button", { name: t.start })).toBeDisabled();
+    expect(within(dialog).getByRole("status")).toHaveTextContent(pm.noMarksError);
+
+    // Re-enable page number
+    await user.click(within(dialog).getByRole("checkbox", { name: pm.pageNumberTitle }));
+    expect(within(dialog).getByRole("button", { name: t.start })).toBeEnabled();
+
+    // Select custom pages and clear it -> custom pages error
+    await user.click(within(dialog).getByRole("radio", { name: pm.pagesCustom }));
+    expect(within(dialog).getByRole("button", { name: t.start })).toBeDisabled();
+    expect(within(dialog).getByRole("status")).toHaveTextContent(pm.pagesCustomError);
+  });
+
   it("draws a text watermark with configured options on each file", async () => {
     const { api, state } = fakeBatchApi();
     const { user } = renderShell(api);

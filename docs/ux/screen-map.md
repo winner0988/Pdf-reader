@@ -266,7 +266,7 @@
 
 - 批次進行中關閉視窗：視窗隱藏、系統列出現圖示（提示 batch tray 文字，選單「顯示視窗」「停止批次處理」），批次做完後在資料夾寫報告、跳出訊息方塊（標題「批次處理完成」）、按「確定」後程式結束；見 [batch.md](../architecture/batch.md)「背景執行」。
 - 「⋯」→「批次處理…」（在「加密並另存新檔…」之後），沒有開啟文件時也能用。示範資料（沒有主行程）時停用。做法見 [batch.md](../architecture/batch.md)。
-- **對話框**：batch.description；「要做的事」的選項：batch.removeMetadata（預設）、batch.removeExif、batch.compressImages、batch.sanitize、batch.encrypt、batch.watermark。選清除 EXIF 時下方出現 batch.exifNote。選壓縮圖片時出現與「壓縮圖片並另存新檔」相同的品質與最大尺寸（compress.qualityTitle、compress.sizeTitle，預設「中」與長邊 2000 像素），下方是 batch.compressNote（B3-19）。選分享前淨化時出現與「分享前淨化」相同的清除項目、註解處理與不會清除的項目（sanitize.categoriesTitle、sanitize.annotationsTitle、sanitize.keptTitle，預設全部清除、保留一般網址、保留註解），下方是 batch.sanitizeNote（B3-19）。選加密時出現與「加密並另存新檔」相同的欄位（開啟密碼、限制、權限密碼，各輸入兩次），規則與提示也相同；有問題時「選擇檔案並開始…」停用，狀態列說明。下方列出 batch.notes。
+- **對話框**：batch.description；「要做的事」的選項：batch.removeMetadata（預設）、batch.removeExif、batch.compressImages、batch.sanitize、batch.encrypt、batch.watermark、batch.pageMarks。選清除 EXIF 時下方出現 batch.exifNote。選壓縮圖片時出現與「壓縮圖片並另存新檔」相同的品質與最大尺寸（compress.qualityTitle、compress.sizeTitle，預設「中」與長邊 2000 像素），下方是 batch.compressNote（B3-19）。選分享前淨化時出現與「分享前淨化」相同的清除項目、註解處理與不會清除的項目（sanitize.categoriesTitle、sanitize.annotationsTitle、sanitize.keptTitle，預設全部清除、保留一般網址、保留註解），下方是 batch.sanitizeNote（B3-19）。選頁碼與 Bates 編號時出現與「頁碼與 Bates 編號」相同的欄位（頁碼、Bates 編號、頁首頁尾與外觀範圍，預設啟用頁碼「第 N 頁／共 Total 頁」置於下中），下方是 batch.pageMarksNote（B3-19）。選加密時出現與「加密並另存新檔」相同的欄位（開啟密碼、限制、權限密碼，各輸入兩次），規則與提示也相同；有問題時「選擇檔案並開始…」停用，狀態列說明。下方列出 batch.notes。
 - **選擇檔案並開始…**：主行程依序顯示系統的開啟對話框（可多選 PDF，標題 BATCH_FILES_DIALOG_TITLE）與資料夾對話框（BATCH_FOLDER_DIALOG_TITLE）。關閉任一個時回到這個對話框，可以再試。
 - **處理中**：對話框改為列出每個檔案（`role="list"`，名稱 batch.filesLabel）：等待中、完成（副本的檔名）、失敗（原因，紅字）、略過；狀態列（`role="status"`）是 batch.running。「停止」在目前的檔案做完後停下（batch.stopping）。處理中不能關閉對話框，`Esc` 也不行。
 - **完成**：狀態列是 batch.summary（完成、失敗、略過各幾個），按「完成」關閉。加密的密碼欄位在開始時與關閉時清空，不留任何密碼。
@@ -1197,6 +1197,8 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | batch.exifNote | 只清除圖片裡的資訊：相機型號、拍攝時間、GPS 位置、縮圖與其他程式寫進去的說明。圖片不重新編碼，看起來完全一樣。文件本身的中繼資料（作者、標題等）不在其中，請另外用「清除中繼資料」。 |
 | batch.compressImages | 壓縮圖片（與「壓縮圖片並另存新檔」相同） |
 | batch.compressNote | 只有變小的圖片才會換掉，重新編碼的圖片不帶相機的資料。有數位簽章的檔案會失敗：壓縮後簽章不會成立。一個檔案的圖片太多、時間不夠時，其餘的圖片保持原樣。 |
+| batch.pageMarks | 頁碼與 Bates 編號（與「頁碼與 Bates 編號」相同） |
+| batch.pageMarksNote | 有數位簽章的檔案會失敗：加上標記後簽章不會成立。Bates 編號跨檔案依序連號，失敗或略過的檔案不佔號碼；位數超出上限時該檔案會失敗。 |
 | batch.notes(limit) | 一次最多 <limit> 個檔案，一個接一個處理；一個失敗不影響其他的。／有密碼的 PDF 會略過：批次處理不詢問密碼。／處理中可以關閉視窗：批次處理會在系統列繼續，做完後跳出結果、在資料夾留一份報告，然後程式結束。 |
 | batch.start／batch.cancel／batch.stop／batch.close | 選擇檔案並開始…／取消／停止／完成 |
 | batch.filesLabel | 檔案 |

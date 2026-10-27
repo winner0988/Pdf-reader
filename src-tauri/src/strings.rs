@@ -229,6 +229,18 @@ pub fn batch_operation_name(operation: &BatchOperation) -> &'static str {
         BatchOperation::Watermark { .. } => "浮水印",
         BatchOperation::CompressImages { .. } => "壓縮圖片",
         BatchOperation::Sanitize { .. } => "分享前淨化",
+        BatchOperation::PageMarks { .. } => "頁碼與 Bates 編號",
+    }
+}
+/// The number range of a file in a Bates batch (ADR 0024): `000001～000010`, or `000001` for one page.
+pub fn bates_range(prefix: &str, digits: u8, first: u64, last: u64) -> String {
+    let width = usize::from(digits);
+    let first_bates = format!("{prefix}{first:0>width$}");
+    let last_bates = format!("{prefix}{last:0>width$}");
+    if first == last {
+        first_bates
+    } else {
+        format!("{first_bates}～{last_bates}")
     }
 }
 /// How many files were done, failed and skipped: the parts that are not none.
@@ -379,5 +391,19 @@ mod tests {
             }),
             "失敗：有數位簽章的檔案，這樣處理會讓簽章失效"
         );
+        let page_marks = BatchOperation::PageMarks {
+            marks: ipc_contract::types::PageMarks {
+                page_number: None,
+                bates: None,
+                header_footer: None,
+                font_size: 10.0,
+                color: ipc_contract::types::Rgb { r: 0, g: 0, b: 0 },
+                margin_pt: 36.0,
+                pages: ipc_contract::types::PageMarkPages::All,
+            },
+        };
+        assert_eq!(batch_operation_name(&page_marks), "頁碼與 Bates 編號");
+        assert_eq!(super::bates_range("CASE-", 6, 1, 10), "CASE-000001～CASE-000010");
+        assert_eq!(super::bates_range("ABC", 4, 5, 5), "ABC0005");
     }
 }

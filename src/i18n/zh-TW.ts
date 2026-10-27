@@ -768,6 +768,9 @@ export const strings = {
     compressImages: "壓縮圖片（與「壓縮圖片並另存新檔」相同）",
     compressNote:
       "只有變小的圖片才會換掉，重新編碼的圖片不帶相機的資料。有數位簽章的檔案會失敗：壓縮後簽章不會成立。一個檔案的圖片太多、時間不夠時，其餘的圖片保持原樣。",
+    pageMarks: "頁碼與 Bates 編號（與「頁碼與 Bates 編號」相同）",
+    pageMarksNote:
+      "有數位簽章的檔案會失敗：加上標記後簽章不會成立。Bates 編號跨檔案依序連號，失敗或略過的檔案不佔號碼；位數超出上限時該檔案會失敗。",
     watermarkType: "類型",
     watermarkText: "文字",
     watermarkPicture: "圖片",

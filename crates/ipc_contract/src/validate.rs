@@ -18,16 +18,16 @@ use crate::types::{
     AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind, AttachmentInfo,
     AttachmentSource, BatchArgs, BatchOperation, CompressArgs, DocumentInfo, Edit, EditArgs,
     EncryptArgs, ExportArgs, ExportFormat, FindPersonalDataQuery, FindingKind, FontImport,
-    FontInfo, FormField, IpcError, LinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem,
-    OutlineResult, PageAnnotation, PageLink, PageMarkPages, PageMarkPosition, PageMarks,
-    PageMarksCopyArgs, PageNumberFormat, PageSize, PageText, Password, PersonalDataMatch,
-    PersonalDataMatches, Point, PrepareTextBoxArgs, Quad, RasterRegion, RecentFile, Rect,
-    RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation,
-    SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult, SaveAttachmentResult, SearchArgs,
-    SearchHit, SecurityReport, SensitiveArgs, SensitiveFile, Settings, SignArgs, SignatureInfo,
-    SignatureReport, SignatureStatus, SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle,
-    IndexSearchArgs, IndexSearchEvent, IndexSnippet,
-    TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
+    FontInfo, FormField, IndexSearchArgs, IndexSearchEvent, IndexSnippet, IpcError, LinkTarget,
+    OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink,
+    PageMarkPages, PageMarkPosition, PageMarks, PageMarksCopyArgs, PageNumberFormat, PageSize,
+    PageText, Password, PersonalDataMatch, PersonalDataMatches, Point, PrepareTextBoxArgs, Quad,
+    RasterRegion, RecentFile, Rect, RedactionSummary, RemoveFontArgs, RemoveLanguageArgs,
+    RenderPageArgs, Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport,
+    SanitizeResult, SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs,
+    SensitiveFile, Settings, SignArgs, SignatureInfo, SignatureReport, SignatureStatus,
+    SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle, TextLine, UndoArgs, UnlockArgs,
+    UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
     InspectedFont, OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerAttachment, WorkerError,
@@ -1011,6 +1011,7 @@ impl Validate for BatchArgs {
             BatchOperation::Watermark { watermark } => watermark.validate(),
             BatchOperation::CompressImages { max_side, .. } => check_compress_side(*max_side),
             BatchOperation::Sanitize { options } => options.validate(),
+            BatchOperation::PageMarks { marks } => marks.validate(),
         }
     }
 }
@@ -2310,7 +2311,6 @@ impl Validate for IndexSearchEvent {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2318,10 +2318,9 @@ mod tests {
         AnnotationId, AnnotationKind, BatesMark, BlockedAction, BookmarkId, DocumentId,
         DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption, FontId, HeaderFooterMarks,
         HighlightColor, HighlightMark, ImageQuality, IndexEntryId, IndexPageHits, InkColor,
-        InkWidth, LinkId, PageNumberMark,
-        PictureView, RecentId, Recovery, RequestId, Restrictions, Rgb, Rotation, SecurityFinding,
-        StampImageId, StampName, TabId, TextAlign, TextBoxInfo, TextBoxModelId,
-        UnverifiableReason, WatermarkPages, WatermarkPlace,
+        InkWidth, LinkId, PageNumberMark, PictureView, RecentId, Recovery, RequestId, Restrictions,
+        Rgb, Rotation, SecurityFinding, StampImageId, StampName, TabId, TextAlign, TextBoxInfo,
+        TextBoxModelId, UnverifiableReason, WatermarkPages, WatermarkPlace,
     };
     use crate::worker::{ModelGlyph, WorkerErrorCode};
 
@@ -3079,6 +3078,56 @@ mod tests {
             r#"{"request":5,"operation":{"kind":"compressImages","quality":"low","maxSide":null,"folder":"C:/x"}}"#,
             r#"{"request":5,"operation":{"kind":"encrypt","openPassword":"pw","permissionsPassword":null,"restrictions":{"print":false,"copy":false,"modify":false},"file":"C:/x.pdf"}}"#,
             r#"{"request":5,"operation":{"kind":"compressImages","quality":"lossless","maxSide":null}}"#,
+        ] {
+            assert!(serde_json::from_str::<BatchArgs>(more).is_err(), "{more}");
+        }
+
+        // Page marks (B3-19): page numbers, Bates numbers, headers and footers.
+        let page_marks = r#"{"request":7,"operation":{"kind":"pageMarks","marks":{"fontSize":12.0,"color":{"r":0,"g":0,"b":0},"marginPt":36.0,"pages":{"kind":"all"},"pageNumber":{"format":{"kind":"number"},"start":1,"position":"bottomCenter"}}}}"#;
+        let args: BatchArgs = serde_json::from_str(page_marks).expect("batch page marks args");
+        assert_eq!(
+            args.operation,
+            BatchOperation::PageMarks {
+                marks: PageMarks {
+                    page_number: Some(PageNumberMark {
+                        format: PageNumberFormat::Number,
+                        start: 1,
+                        position: PageMarkPosition::BottomCenter,
+                    }),
+                    bates: None,
+                    header_footer: None,
+                    font_size: 12.0,
+                    color: Rgb { r: 0, g: 0, b: 0 },
+                    margin_pt: 36.0,
+                    pages: PageMarkPages::All,
+                }
+            }
+        );
+        assert!(args.validate().is_ok());
+
+        // Invalid page marks rejected.
+        let invalid_marks = PageMarks {
+            page_number: None,
+            bates: None,
+            header_footer: None,
+            font_size: 5.0,
+            color: Rgb { r: 0, g: 0, b: 0 },
+            margin_pt: 36.0,
+            pages: PageMarkPages::All,
+        };
+        assert!(
+            batch(BatchOperation::PageMarks {
+                marks: invalid_marks
+            })
+            .validate()
+            .is_err()
+        );
+
+        // Unknown fields rejected in JSON.
+        for more in [
+            r#"{"request":7,"operation":{"kind":"pageMarks","marks":{"fontSize":12.0,"color":{"r":0,"g":0,"b":0},"marginPt":36.0,"pages":{"kind":"all"}},"folder":"C:/x"}}"#,
+            r#"{"request":7,"operation":{"kind":"pageMarks","marks":{"fontSize":12.0,"color":{"r":0,"g":0,"b":0},"marginPt":36.0,"pages":{"kind":"all"},"extra":true}}}"#,
+            r#"{"request":7,"operation":{"kind":"pageMarks"}}"#,
         ] {
             assert!(serde_json::from_str::<BatchArgs>(more).is_err(), "{more}");
         }
@@ -5291,5 +5340,4 @@ mod tests {
         }
         assert!(path.validate().is_err());
     }
-
 }
