@@ -38,9 +38,14 @@ pub fn one_page(content: &str) -> Vec<u8> {
     ])
 }
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
 /// Writes `bytes` to a uniquely named file in the temp directory and returns its path.
 pub fn temp_pdf(name: &str, bytes: &[u8]) -> std::path::PathBuf {
-    let path = std::env::temp_dir().join(format!("pdf-worker-{}-{name}.pdf", std::process::id()));
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let id = NEXT.fetch_add(1, Ordering::Relaxed);
+    let path =
+        std::env::temp_dir().join(format!("pdf-worker-{}-{id}-{name}.pdf", std::process::id()));
     std::fs::write(&path, bytes).unwrap();
     path
 }
