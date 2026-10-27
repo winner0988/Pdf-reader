@@ -422,3 +422,17 @@ fn only_a_bookmark_shown_can_be_edited_and_the_worker_stays() {
     assert_eq!(outline.items.len(), 1);
     assert_eq!(outline.items[0].title, "A");
 }
+
+#[test]
+fn temp_pdf_produces_distinct_files_for_the_same_name() {
+    let first = temp_pdf("same-name", b"first");
+    let second = temp_pdf("same-name", b"second");
+
+    assert_ne!(first, second);
+
+    std::fs::remove_file(&first).expect("remove first file");
+    assert!(second.exists());
+    assert_eq!(std::fs::read(&second).expect("read second"), b"second");
+
+    std::fs::remove_file(&second).ok();
+}
