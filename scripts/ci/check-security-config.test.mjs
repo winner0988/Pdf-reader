@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   checkBrowserArguments,
   checkCapability,
+  checkCommandManifest,
   checkCsp,
   checkRepository,
   checkTauriConfig,
@@ -165,4 +166,108 @@ test("capabilities only grant allowlisted, non-network permissions", () => {
     checkCapability({ permissions: [], remote: { urls: ["https://example.invalid"] } }, "main.json"),
     [],
   );
+});
+
+test("command manifest check passes when commands match", () => {
+  const libSource = `
+    tauri::Builder::default()
+      .invoke_handler(tauri::generate_handler![
+        commands::foo,
+        commands::bar,
+      ])
+  `;
+  const buildSource = `
+    let manifest = AppManifest::new().commands(&[
+      "foo",
+      "bar",
+    ]);
+  `;
+  assert.deepEqual(checkCommandManifest(libSource, buildSource), []);
+});
+
+test("command manifest check fails when manifest is missing a registered command", () => {
+  const libSource = `
+    .invoke_handler(tauri::generate_handler![
+      commands::foo,
+      commands::bar,
+    ])
+  `;
+  const buildSource = `
+    let manifest = AppManifest::new().commands(&[
+      "foo",
+    ]);
+  `;
+  const problems = checkCommandManifest(libSource, buildSource);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /\bbar\b/);
+  assert.match(problems[0], /src-tauri\/build\.rs/);
+});
+
+test("command manifest check fails when manifest has an unregistered command", () => {
+  const libSource = `
+    .invoke_handler(tauri::generate_handler![
+      commands::foo,
+    ])
+  `;
+  const buildSource = `
+    let manifest = AppManifest::new().commands(&[
+      "foo",
+      "stale_cmd",
+    ]);
+  `;
+  const problems = checkCommandManifest(libSource, buildSource);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /\bstale_cmd\b/);
+  assert.match(problems[0], /src-tauri\/src\/lib\.rs/);
+});
+
+test("command manifest check ignores comments, newlines, and trailing commas", () => {
+  const libSource = `
+    .invoke_handler(tauri::generate_handler![
+      // commands::commented_out_lib,
+      commands::foo, // inline comment
+      commands::bar,
+    ])
+  `;
+  const buildSource = `
+    let manifest = AppManifest::new().commands(&[
+      // "commented_out_build",
+      "foo", // comment
+      "bar",
+    ]);
+  `;
+  assert.deepEqual(checkCommandManifest(libSource, buildSource), []);
+});
+
+test("commands:: outside generate_handler! are ignored", () => {
+  const libSource = `
+    commands::open_paths(app, paths);
+    tauri::Builder::default()
+      .invoke_handler(tauri::generate_handler![
+        commands::foo,
+      ])
+      .on_window_event(commands::on_window_event);
+  `;
+  const buildSource = `
+    let manifest = AppManifest::new().commands(&[
+      "foo",
+    ]);
+  `;
+  assert.deepEqual(checkCommandManifest(libSource, buildSource), []);
+});
+
+test("command manifest check fails when generate_handler! or AppManifest is missing", () => {
+  const validLib = `.invoke_handler(tauri::generate_handler![ commands::foo ])`;
+  const validBuild = `AppManifest::new().commands(&["foo"])`;
+
+  const missingLib = checkCommandManifest("fn main() {}", validBuild);
+  assert.equal(missingLib.length, 1);
+  assert.match(missingLib[0], /generate_handler!/);
+
+  const missingBuild = checkCommandManifest(validLib, "fn main() {}");
+  assert.equal(missingBuild.length, 1);
+  assert.match(missingBuild[0], /AppManifest/);
+
+  const missingBoth = checkCommandManifest("fn main() {}", "fn main() {}");
+  assert.equal(missingBoth.length, 2);
 });
