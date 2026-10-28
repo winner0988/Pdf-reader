@@ -329,6 +329,35 @@
       "sha256": "8c7b3b882593aa4b32cac5764b4ca3fa76ea8cc712c186cca0149f0bdc8bbb18"
     },
     {
+      "path": "benign/contract-v1.pdf",
+      "category": "benign",
+      "purpose": "Two-page contract version 1 for text comparison testing (B3-24, E9).",
+      "expected": "Opens; 2 pages with standard contract clauses.",
+      "pages": 2,
+      "findings": [],
+      "text": [
+        "SERVICE AGREEMENT - VERSION 1",
+        "Alpha Corp and Beta LLC"
+      ],
+      "bytes": 1716,
+      "sha256": "520ba1059de2bf2f97efd849f7acb4ee8c2041b70d47e1f7a4a00609957f1902"
+    },
+    {
+      "path": "benign/contract-v2.pdf",
+      "category": "benign",
+      "purpose": "Two-page contract version 2 with additions, deletions, modifications, and cross-page changes (B3-24, E9).",
+      "expected": "Opens; 2 pages with updated contract clauses.",
+      "pages": 2,
+      "findings": [],
+      "text": [
+        "SERVICE AGREEMENT - VERSION 2",
+        "Alpha Corp and Gamma Inc",
+        "Clause 3A. Expenses"
+      ],
+      "bytes": 1874,
+      "sha256": "560bcd9ec03834bb89600ecc0e8814c41ef1a106867d16b933679d378bae5d4f"
+    },
+    {
       "path": "malicious/js-document-level.pdf",
       "category": "malicious",
       "purpose": "Document-level JavaScript in the names tree.",

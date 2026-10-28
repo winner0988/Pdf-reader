@@ -1,0 +1,53 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 5 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 6 0 R >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>
+endobj
+6 0 obj
+<<  /Length 542 >>
+stream
+BT /F1 16 Tf 72 740 Td (SERVICE AGREEMENT - VERSION 2) Tj ET
+BT /F1 12 Tf 72 700 Td (Clause 1. Parties: This Agreement is entered into between Alpha Corp and Gamma Inc.) Tj ET
+BT /F1 12 Tf 72 670 Td (Clause 2. Scope: The contractor shall provide software development services for twenty-four months.) Tj ET
+BT /F1 12 Tf 72 640 Td (Clause 3. Compensation: Client agrees to pay the contractor a monthly fee of $15,000 upon invoice.) Tj ET
+BT /F1 12 Tf 72 610 Td (Clause 3A. Expenses: Client shall reimburse all approved travel expenses.) Tj ET
+
+endstream
+endobj
+7 0 obj
+<<  /Length 452 >>
+stream
+BT /F1 16 Tf 72 740 Td (TERMS AND CONDITIONS) Tj ET
+BT /F1 12 Tf 72 700 Td (Clause 4. Term: This agreement commences on February 1, 2026 and continues until December 31, 2027.) Tj ET
+BT /F1 12 Tf 72 670 Td (Clause 5. Confidentiality: Each party shall maintain confidential information in strict confidence for five years.) Tj ET
+BT /F1 12 Tf 72 640 Td (Clause 7. Jurisdiction: Any disputes shall be submitted to binding arbitration in New York.) Tj ET
+
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000224 00000 n 
+0000000350 00000 n 
+0000000476 00000 n 
+0000001070 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R /ID [<827610B77703D13FCE43CCAE565F2350> <827610B77703D13FCE43CCAE565F2350>] >>
+startxref
+1574
+%%EOF

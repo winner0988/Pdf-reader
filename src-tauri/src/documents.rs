@@ -9938,4 +9938,60 @@ mod with_worker {
             assert!(documents.page_text(info.doc, 0).unwrap().recognised);
         }
     }
+
+    mod compare_tests {
+        use super::*;
+
+        #[test]
+        fn comparing_two_corpus_contracts_with_real_workers_reports_differences_and_pages() {
+            let documents = Documents::new(worker());
+            let info_v1 = open_in(&documents, &sample("contract-v1.pdf"));
+            let info_v2 = open_in(&documents, &sample("contract-v2.pdf"));
+
+            let result =
+                crate::compare::compare_documents(&documents, info_v1.doc, info_v2.doc).unwrap();
+            assert!(!result.identical);
+            assert!(!result.empty);
+            assert!(!result.items.is_empty());
+
+            // Check that diff items report correct pages
+            let has_page_0_diff =
+                result.items.iter().any(|item| item.page_a == 0 && item.page_b == 0);
+            let has_page_1_diff =
+                result.items.iter().any(|item| item.page_a == 1 && item.page_b == 1);
+            assert!(has_page_0_diff, "should detect page 0 changes");
+            assert!(has_page_1_diff, "should detect page 1 changes");
+
+            // Verify content differences
+            let found_parties_change = result.items.iter().any(|item| {
+                item.deleted.contains("Beta LLC") && item.inserted.contains("Gamma Inc")
+            });
+            assert!(
+                found_parties_change,
+                "should detect parties modification in clause 1"
+            );
+
+            let found_expenses_insertion = result
+                .items
+                .iter()
+                .any(|item| item.inserted.contains("approved travel expenses"));
+            assert!(found_expenses_insertion, "should detect expenses insertion");
+
+            let found_governing_law_change = result
+                .items
+                .iter()
+                .any(|item| item.deleted.contains("laws of California"));
+            assert!(found_governing_law_change, "should detect governing law change");
+        }
+
+        #[test]
+        fn comparing_a_restricted_document_without_copy_permission_is_rejected() {
+            let documents = Documents::new(worker());
+            let info_v1 = open_in(&documents, &sample("contract-v1.pdf"));
+            let info_restricted = open_in(&documents, &sample("restricted-no-copy-no-print.pdf"));
+
+            assert!(info_v1.permissions.copy);
+            assert!(!info_restricted.permissions.copy);
+        }
+    }
 }
