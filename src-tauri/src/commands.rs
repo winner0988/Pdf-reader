@@ -11,20 +11,21 @@ use std::time::Duration;
 use ipc_contract::limits::MAX_BATCH_FILES;
 use ipc_contract::types::{
     AnnotationId, AnnotationSummaryFormat, AnnotationSummaryOutcome, AttachmentId, AttachmentInfo,
-    BatchArgs, BatchEvent, BatchOperation, BatchReport, CaptureProtection, CompressArgs,
-    CompressResult, CreateResult, DocumentId, DocumentInfo, EditArgs, EncryptArgs, ErrorCode,
-    ExportAnnotationSummaryArgs, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs,
-    FindPersonalDataQuery, FontImport, FontInfo, FormField, IndexSearchArgs, IndexSearchEvent,
-    IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs,
-    OcrLanguages, OpenEvent, OpenIndexedArgs, OutlineLinkArgs, OutlineResult, PageAnnotation,
-    PageLink, PageMarksCopyArgs, PageText, PagesSource, Password, PersonalDataMatches,
-    PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
-    RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
-    RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult, SearchArgs,
-    SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs, SignCheck,
-    SignResult, SignatureReport, SigningFile, SigningFileKey, SigningKey, SigningStoreKey,
-    StampImageInfo, StoreCertificate, TabId, TextBoxInfo, TextIndexStatus, UndoArgs, UnlockArgs,
-    UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
+    BatchArgs, BatchEvent, BatchOperation, BatchReport, CaptureProtection, CompareExportFormat,
+    CompareTextArgs, CompareTextResult, CompressArgs, CompressResult, CreateResult, DocumentId,
+    DocumentInfo, EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs,
+    ExportCompareTextArgs, ExportCompareTextOutcome, ExportArgs, ExportEvent, ExportFormat,
+    FileRecordingArgs, FindPersonalDataQuery, FontImport, FontInfo, FormField, IndexSearchArgs,
+    IndexSearchEvent, IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs,
+    OcrFocusArgs, OcrLanguages, OpenEvent, OpenIndexedArgs, OutlineLinkArgs, OutlineResult,
+    PageAnnotation, PageLink, PageMarksCopyArgs, PageText, PagesSource, Password,
+    PersonalDataMatches, PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId,
+    RedactionSummary, RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs,
+    RenderPageArgs, RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult,
+    SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs,
+    SignCheck, SignResult, SignatureReport, SigningFile, SigningFileKey, SigningKey,
+    SigningStoreKey, StampImageInfo, StoreCertificate, TabId, TextBoxInfo, TextIndexStatus,
+    UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use ipc_contract::worker::{NewSignature, VisibleSignature};
@@ -35,6 +36,7 @@ use crate::background;
 use crate::batch::{self, Batches};
 use crate::capture::{self, CaptureGuard};
 use crate::clipboard;
+use crate::compare;
 use crate::create_pdf;
 use crate::documents::{self, Documents};
 use crate::events::OpenEvents;
@@ -1290,10 +1292,106 @@ fn copy_allowed(app: &AppHandle, doc: DocumentId) -> Result<DocumentInfo, IpcErr
     if !info.permissions.copy {
         return Err(IpcError {
             code: ErrorCode::InvalidArgument,
-            message: "the document's author does not allow copying its content".to_owned(),
+            message: format!(
+                "the document '{}' does not allow copying its content",
+                info.display_name
+            ),
         });
     }
     Ok(info)
+}
+
+/// Compares the text of two open documents `args.doc_a` and `args.doc_b` (B3-24, E9,
+/// docs/architecture/compare.md). Both documents must allow copying (MVP-19).
+#[tauri::command]
+pub async fn compare_text(
+    app: AppHandle,
+    args: CompareTextArgs,
+) -> Result<CompareTextResult, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let CompareTextArgs { doc_a, doc_b } = args;
+    let info_a = copy_allowed(&app, doc_a)?;
+    let info_b = copy_allowed(&app, doc_b)?;
+
+    let worker_app = app.clone();
+    let result = blocking(move || {
+        let documents = worker_app.state::<Documents>();
+        compare::compare_documents(&documents, doc_a, doc_b)
+    })
+    .await?;
+
+    app.state::<compare::CompareCache>().store(
+        doc_a,
+        doc_b,
+        info_a.display_name,
+        info_b.display_name,
+        result.clone(),
+    );
+
+    Ok(result)
+}
+
+/// Exports the comparison of two open documents `args.doc_a` and `args.doc_b` (B3-24, E9,
+/// docs/architecture/compare.md) as a UTF-8 file where the user says in the system's save dialog.
+/// Never over either document's own file.
+#[tauri::command]
+pub async fn export_compare_text(
+    app: AppHandle,
+    window: WebviewWindow,
+    args: ExportCompareTextArgs,
+) -> Result<ExportCompareTextOutcome, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let ExportCompareTextArgs {
+        doc_a,
+        doc_b,
+        format,
+    } = args;
+    let info_a = copy_allowed(&app, doc_a)?;
+    let info_b = copy_allowed(&app, doc_b)?;
+
+    let cache = app.state::<compare::CompareCache>();
+    let (result, name_a, name_b) = if let Some(cached) = cache.get(doc_a, doc_b) {
+        (cached.result, cached.name_a, cached.name_b)
+    } else {
+        let worker_app = app.clone();
+        let res = blocking(move || {
+            let documents = worker_app.state::<Documents>();
+            compare::compare_documents(&documents, doc_a, doc_b)
+        })
+        .await?;
+        (res, info_a.display_name.clone(), info_b.display_name.clone())
+    };
+
+    let markdown = format == CompareExportFormat::Markdown;
+    let content = export::compare_text_file(&result, markdown, &name_a, &name_b);
+    let stem_a = export::stem(&name_a);
+    let stem_b = export::stem(&name_b);
+    let file_name = strings::compare_file_name(&stem_a, &stem_b, markdown);
+
+    let destination = loop {
+        let Some(path) =
+            file_dialog::save_compare_text_file(&window, file_name.clone(), markdown).await?
+        else {
+            return Ok(ExportCompareTextOutcome::Cancelled);
+        };
+        let docs = app.state::<Documents>();
+        if !docs.is_document_file(doc_a, &path) && !docs.is_document_file(doc_b, &path) {
+            break path;
+        }
+        tell_same_file(&window).await;
+    };
+
+    blocking(move || export::write_compare_text(&destination, &content)).await?;
+    Ok(ExportCompareTextOutcome::Written {
+        count: u32::try_from(result.items.len()).unwrap_or(u32::MAX),
+        truncated: result.truncated,
+    })
 }
 
 /// Writes a copy of the document without its metadata (B2-03, docs/architecture/privacy-export.md)

@@ -12,6 +12,7 @@ mod capture;
 mod cli;
 mod clipboard;
 mod commands;
+pub mod compare;
 mod create_pdf;
 mod credentials;
 mod documents;
@@ -108,6 +109,7 @@ pub fn run() {
         .manage(Background::default())
         .manage(signing::ChosenCertificate::default())
         .manage(signing::ListedCertificates::default())
+        .manage(compare::CompareCache::default())
         .invoke_handler(tauri::generate_handler![
             commands::subscribe_open_events,
             commands::open_document_dialog,
@@ -163,6 +165,8 @@ pub fn run() {
             commands::copy_protected_text,
             commands::export_pages,
             commands::export_annotation_summary,
+            commands::compare_text,
+            commands::export_compare_text,
             commands::apply_edit,
             commands::undo_edit,
             commands::redo_edit,

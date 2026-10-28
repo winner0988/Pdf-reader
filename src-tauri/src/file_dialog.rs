@@ -43,6 +43,8 @@ enum Kind {
     SaveText { file_name: String },
     /// Where to save exported annotation summary (Issue #306), suggesting `file_name`.
     SaveAnnotationSummary { file_name: String, markdown: bool },
+    /// Where to save exported text comparison (B3-24, E9), suggesting `file_name`.
+    SaveCompareText { file_name: String, markdown: bool },
     /// Where to save a document as another file (B2-02), suggesting `file_name`.
     SavePdf { file_name: String },
     /// Where to save some pages as a Word document (B3-02), suggesting `file_name`.
@@ -119,6 +121,23 @@ pub async fn save_annotation_summary_file(
     Ok(run(
         window,
         Kind::SaveAnnotationSummary {
+            file_name,
+            markdown,
+        },
+    )
+    .await?
+    .and_then(|mut paths| paths.pop()))
+}
+
+/// Asks where to save an exported text comparison (B3-24, E9), suggesting `file_name`.
+pub async fn save_compare_text_file(
+    window: &WebviewWindow,
+    file_name: String,
+    markdown: bool,
+) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(
+        window,
+        Kind::SaveCompareText {
             file_name,
             markdown,
         },
@@ -347,6 +366,7 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
         Kind::OpenPdfs | Kind::OpenBatchFiles | Kind::OpenSources => common | FOS_ALLOWMULTISELECT,
         Kind::SaveText { .. }
         | Kind::SaveAnnotationSummary { .. }
+        | Kind::SaveCompareText { .. }
         | Kind::SavePdf { .. }
         | Kind::SaveDocx { .. }
         | Kind::PrivacyExport { .. }
@@ -414,6 +434,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
         match kind {
             Kind::SaveText { .. }
             | Kind::SaveAnnotationSummary { .. }
+            | Kind::SaveCompareText { .. }
             | Kind::SavePdf { .. }
             | Kind::SaveDocx { .. }
             | Kind::PrivacyExport { .. }
@@ -491,6 +512,19 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             } else {
                 (
                     strings::EXPORT_ANNOTATIONS_DIALOG_TITLE,
+                    one(strings::TEXT_FILTER_NAME, "*.txt"),
+                )
+            }
+        }
+        Kind::SaveCompareText { markdown, .. } => {
+            if *markdown {
+                (
+                    strings::EXPORT_COMPARE_DIALOG_TITLE,
+                    one(strings::MARKDOWN_FILTER_NAME, "*.md"),
+                )
+            } else {
+                (
+                    strings::EXPORT_COMPARE_DIALOG_TITLE,
                     one(strings::TEXT_FILTER_NAME, "*.txt"),
                 )
             }
@@ -596,6 +630,7 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
         }
         if let Kind::SaveText { file_name }
         | Kind::SaveAnnotationSummary { file_name, .. }
+        | Kind::SaveCompareText { file_name, .. }
         | Kind::SavePdf { file_name }
         | Kind::SaveDocx { file_name }
         | Kind::PrivacyExport { file_name }
@@ -610,8 +645,12 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             let extension = match kind {
                 Kind::SaveText { .. } => "txt",
                 Kind::SaveDocx { .. } => "docx",
-                Kind::SaveAnnotationSummary { markdown: true, .. } => "md",
+                Kind::SaveAnnotationSummary { markdown: true, .. }
+                | Kind::SaveCompareText { markdown: true, .. } => "md",
                 Kind::SaveAnnotationSummary {
+                    markdown: false, ..
+                }
+                | Kind::SaveCompareText {
                     markdown: false, ..
                 } => "txt",
                 _ => "pdf",
@@ -701,6 +740,16 @@ mod tests {
             summary(FOS_DONTADDTORECENT)
                 && summary(FOS_OVERWRITEPROMPT)
                 && summary(FOS_FORCEFILESYSTEM)
+        );
+
+        let compare = options_of(Kind::SaveCompareText {
+            file_name: "比較.md".to_owned(),
+            markdown: true,
+        });
+        assert!(
+            compare(FOS_DONTADDTORECENT)
+                && compare(FOS_OVERWRITEPROMPT)
+                && compare(FOS_FORCEFILESYSTEM)
         );
 
         let save_as = options_of(Kind::SavePdf {

@@ -14,7 +14,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use ipc_contract::types::{
-    AnnotationSummary, DocumentId, ErrorCode, ExportEvent, IpcError, PageText, RequestId,
+    AnnotationSummary, CompareTextResult, DocumentId, ErrorCode, ExportEvent, IpcError, PageText,
+    RequestId,
 };
 use tauri::async_runtime::block_on;
 use tauri::ipc::Channel;
@@ -476,6 +477,76 @@ pub fn write_annotation_summary(file: &Path, content: &str) -> Result<(), IpcErr
     write_whole(file, content.as_bytes()).map_err(not_written)
 }
 
+/// Formats a text comparison outcome as Plain text or Markdown (B3-24, E9).
+pub fn compare_text_file(
+    result: &CompareTextResult,
+    markdown: bool,
+    name_a: &str,
+    name_b: &str,
+) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    let title = format!("{name_a} 與 {name_b}（文字比較）");
+
+    if markdown {
+        lines.push(format!("# {}", escape_markdown(&title)));
+        lines.push(String::new());
+    } else {
+        lines.push(title);
+        lines.push(String::new());
+    }
+
+    if result.identical {
+        lines.push(strings::COMPARE_IDENTICAL.to_owned());
+    } else if result.empty {
+        lines.push(strings::COMPARE_EMPTY.to_owned());
+    } else {
+        for (i, item) in result.items.iter().enumerate() {
+            let page_a = item.page_a + 1;
+            let page_b = item.page_b + 1;
+            let header = format!("第 {page_a} 頁（{name_a}）/ 第 {page_b} 頁（{name_b}）");
+
+            if markdown {
+                lines.push(format!("## {}. {}", i + 1, escape_markdown(&header)));
+                lines.push(String::new());
+                if !item.deleted.is_empty() {
+                    let del = escape_markdown(&item.deleted);
+                    lines.push(format!("- **刪除**：~~{del}~~"));
+                }
+                if !item.inserted.is_empty() {
+                    let ins = escape_markdown(&item.inserted);
+                    lines.push(format!("- **新增**：{ins}"));
+                }
+                lines.push(String::new());
+            } else {
+                lines.push(format!("{}. {header}", i + 1));
+                if !item.deleted.is_empty() {
+                    lines.push(format!("  - 刪除：{}", item.deleted));
+                }
+                if !item.inserted.is_empty() {
+                    lines.push(format!("  + 新增：{}", item.inserted));
+                }
+                lines.push(String::new());
+            }
+        }
+    }
+
+    if result.truncated {
+        lines.push(strings::COMPARE_TRUNCATED.to_owned());
+    }
+    if result.recognised {
+        lines.push(strings::COMPARE_RECOGNISED_NOTE.to_owned());
+    }
+
+    lines.join("\n")
+}
+
+/// Writes the text comparison `content` (B3-24, E9) to `file`, whole, with Windows line ends.
+pub fn write_compare_text(file: &Path, content: &str) -> Result<(), IpcError> {
+    let content = content.replace("\r\n", "\n").replace('\n', "\r\n");
+    write_whole(file, content.as_bytes()).map_err(not_written)
+}
+
+
 /// Writes each of `pages` of `doc` as an image file of `kind` at `dpi` to its target. Pages
 /// written before a cancel or a failure stay.
 #[allow(clippy::too_many_arguments)]
@@ -770,5 +841,49 @@ mod tests {
                 strings::NO_TEXT_LAYER_PAGE
             )
         );
+    }
+
+    #[test]
+    fn compare_text_file_formatting_and_escapes() {
+        use ipc_contract::types::TextDiffItem;
+
+        let result = CompareTextResult {
+            items: vec![
+                TextDiffItem {
+                    page_a: 0,
+                    page_b: 0,
+                    deleted: "Party *Beta*".to_string(),
+                    inserted: "Party _Gamma_".to_string(),
+                    truncated: false,
+                },
+                TextDiffItem {
+                    page_a: 1,
+                    page_b: 2,
+                    deleted: "$100".to_string(),
+                    inserted: "$200".to_string(),
+                    truncated: false,
+                },
+            ],
+            identical: false,
+            empty: false,
+            recognised: true,
+            page_text_truncated: false,
+            truncated: false,
+        };
+
+        let txt = compare_text_file(&result, false, "v1.pdf", "v2.pdf");
+        assert!(txt.contains("v1.pdf 與 v2.pdf（文字比較）"));
+        assert!(txt.contains("1. 第 1 頁（v1.pdf）/ 第 1 頁（v2.pdf）"));
+        assert!(txt.contains("  - 刪除：Party *Beta*"));
+        assert!(txt.contains("  + 新增：Party _Gamma_"));
+        assert!(txt.contains("2. 第 2 頁（v1.pdf）/ 第 3 頁（v2.pdf）"));
+        assert!(txt.contains(strings::COMPARE_RECOGNISED_NOTE));
+
+        let md = compare_text_file(&result, true, "v1.pdf", "v2.pdf");
+        assert!(md.contains("# v1.pdf 與 v2.pdf（文字比較）"));
+        assert!(md.contains("## 1. 第 1 頁（v1.pdf）/ 第 1 頁（v2.pdf）"));
+        assert!(md.contains("- **刪除**：~~Party \\*Beta\\*~~"));
+        assert!(md.contains("- **新增**：Party \\_Gamma\\_"));
+        assert!(md.contains(strings::COMPARE_RECOGNISED_NOTE));
     }
 }

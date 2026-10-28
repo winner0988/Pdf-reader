@@ -178,6 +178,21 @@ pub fn annotation_summary_page(page: u32) -> String {
 }
 /// The end of a summary that stopped before the document's last annotation.
 pub const ANNOTATION_SUMMARY_TRUNCATED: &str = "（註解太多，其餘沒有列出。）";
+
+/// The dialog for saving the text comparison output (B3-24, E9).
+pub const EXPORT_COMPARE_DIALOG_TITLE: &str = "匯出文字比較結果";
+
+/// Default file name for text comparison export (B3-24, E9).
+pub fn compare_file_name(stem_a: &str, stem_b: &str, markdown: bool) -> String {
+    let extension = if markdown { "md" } else { "txt" };
+    format!("{stem_a} 與 {stem_b}（文字比較）.{extension}")
+}
+
+pub const COMPARE_IDENTICAL: &str = "兩份文件文字完全相同。";
+pub const COMPARE_EMPTY: &str = "兩份文件皆未包含可比較的文字。";
+pub const COMPARE_TRUNCATED: &str = "（差異過多，其餘未列出。）";
+pub const COMPARE_RECOGNISED_NOTE: &str = "（部分文字由光學字元辨識取得，可能有誤。）";
+
 /// The Word document (B3-02): where it goes.
 pub const EXPORT_DOCX_DIALOG_TITLE: &str = "匯出 Word 文件";
 pub const DOCX_FILTER_NAME: &str = "Word 文件（.docx）";
@@ -344,7 +359,8 @@ PDF Reader 不會自行下載任何東西。";
 mod tests {
     use super::{
         BatchOperation, BatchOutcome, ErrorCode, annotation_summary_file_name,
-        batch_operation_name, batch_outcome, split_file_name, split_part_name, window_title,
+        batch_operation_name, batch_outcome, compare_file_name, split_file_name, split_part_name,
+        window_title,
     };
 
     #[test]
@@ -356,6 +372,18 @@ mod tests {
         assert_eq!(
             annotation_summary_file_name("報告", false),
             "報告（註解摘要）.txt"
+        );
+    }
+
+    #[test]
+    fn compare_file_name_formats() {
+        assert_eq!(
+            compare_file_name("合約A", "合約B", true),
+            "合約A 與 合約B（文字比較）.md"
+        );
+        assert_eq!(
+            compare_file_name("合約A", "合約B", false),
+            "合約A 與 合約B（文字比較）.txt"
         );
     }
 
