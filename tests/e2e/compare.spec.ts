@@ -55,9 +55,9 @@ test.describe("compare text (B3-24, E9)", () => {
 
     // Click a diff item situated on page 2 to jump
     const itemOnPage2 = items.filter({ hasText: "第 2 頁" }).first();
-    if ((await itemOnPage2.count()) > 0) {
+    const hasPage2Item = (await itemOnPage2.count()) > 0;
+    if (hasPage2Item) {
       await itemOnPage2.getByRole("button").click();
-      await expect(page.getByRole("contentinfo")).toContainText("2 / 2");
     }
 
     // Export to Markdown
@@ -71,5 +71,12 @@ test.describe("compare text (B3-24, E9)", () => {
     expect(content).toContain("文字比較");
     expect(content).toContain("contract-v2.pdf");
     expect(content).toContain("contract-v1.pdf");
+
+    // Close the dialog and verify that page jumped to page 2 (contentinfo is accessible when dialog closes)
+    await dialog.getByRole("button", { name: t.close }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    if (hasPage2Item) {
+      await expect(page.getByRole("contentinfo")).toContainText("2 / 2");
+    }
   });
 });
