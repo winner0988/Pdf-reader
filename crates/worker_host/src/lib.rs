@@ -664,6 +664,11 @@ impl WorkerHost {
         self.request_within(SAVE_TIMEOUT, make)
     }
 
+    /// How many requests have been sent to the worker so far.
+    pub fn requests_sent(&self) -> u32 {
+        self.next_request.saturating_sub(1)
+    }
+
     fn request_within(
         &mut self,
         timeout: Duration,
@@ -806,6 +811,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::Png { request, .. }
         | WorkerResponse::StampImage { request, .. }
         | WorkerResponse::TextBoxPrepared { request, .. }
+        | WorkerResponse::TextBoxesPrepared { request, .. }
         | WorkerResponse::FontInspected { request, .. }
         | WorkerResponse::TextBox { request, .. }
         | WorkerResponse::Jpeg { request, .. }

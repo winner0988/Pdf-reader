@@ -344,3 +344,58 @@ fn a_font_inspected_through_the_worker_gives_its_faces_and_refuses_bad_fonts() {
     let bad = host.inspect_font(b"not a font");
     assert_eq!(refusal(bad), WorkerErrorCode::Font(FontRefusal::NotAFont));
 }
+
+#[test]
+fn prepare_text_boxes_batches_models_and_handles_failures() {
+    let mut host = host();
+    let texts = vec![
+        "Hello".to_owned(),
+        "你好，世界".to_owned(),
+        "   ".to_owned(),
+    ];
+
+    let answer = host
+        .request(|request| WorkerRequest::PrepareTextBoxes {
+            request,
+            font: droid(),
+            texts: texts.clone(),
+        })
+        .expect("batch request");
+
+    let WorkerResponse::TextBoxesPrepared { models, .. } = answer else {
+        panic!("unexpected response: {answer:?}");
+    };
+
+    assert_eq!(models.len(), 3);
+    assert!(models[0].is_some(), "Hello should be prepared");
+    assert_eq!(models[0].as_ref().unwrap().text, "Hello");
+    assert!(
+        models[1].is_some(),
+        "Chinese text in Droid should be prepared"
+    );
+    assert_eq!(models[1].as_ref().unwrap().text, "你好，世界");
+    assert!(models[2].is_none(), "Whitespace text should be None");
+
+    // Empty texts rejected by worker with InvalidRequest
+    let empty_res = host.request(|request| WorkerRequest::PrepareTextBoxes {
+        request,
+        font: droid(),
+        texts: Vec::new(),
+    });
+    match empty_res {
+        Err(HostError::Worker(err)) => assert_eq!(err.code, WorkerErrorCode::InvalidRequest),
+        other => panic!("expected InvalidRequest, got {other:?}"),
+    }
+
+    // Exceeding MAX_PREPARE_TEXT_BOXES rejected with InvalidRequest
+    let too_many = vec!["text".to_owned(); ipc_contract::limits::MAX_PREPARE_TEXT_BOXES + 1];
+    let too_many_res = host.request(|request| WorkerRequest::PrepareTextBoxes {
+        request,
+        font: droid(),
+        texts: too_many,
+    });
+    match too_many_res {
+        Err(HostError::Worker(err)) => assert_eq!(err.code, WorkerErrorCode::InvalidRequest),
+        other => panic!("expected InvalidRequest, got {other:?}"),
+    }
+}

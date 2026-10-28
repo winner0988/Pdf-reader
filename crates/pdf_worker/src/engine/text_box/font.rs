@@ -107,18 +107,17 @@ fn thousandths(units: f32, per_em: f32) -> i32 {
     (units * 1000.0 / per_em).round() as i32
 }
 
-/// Makes the model of `text` in `font`: the font read, its licence checked, a glyph found for
-/// each character, and the font cut to those glyphs. A font that cannot be used, or that lacks a
-/// glyph, makes no model (see [`FontRefusal`]); text that needs a script the worker does not set
-/// is refused too.
-pub fn prepare_text_box(font: &TextBoxFont, text: &str) -> Result<TextBoxModel, EngineError> {
+fn prepare_text_box_with_face(
+    font: &TextBoxFont,
+    face: &Face,
+    text: &str,
+) -> Result<TextBoxModel, EngineError> {
     if text.trim().is_empty() || text.len() > MAX_TEXT_BOX_BYTES {
         return Err(EngineError::InvalidEdit("the words of a text box"));
     }
     if text.chars().any(needs_layout) {
         return Err(EngineError::UnsupportedText);
     }
-    let face = open_face(font).map_err(EngineError::Font)?;
     let charmap = face.font.charmap();
     let metrics = face
         .font
@@ -169,7 +168,7 @@ pub fn prepare_text_box(font: &TextBoxFont, text: &str) -> Result<TextBoxModel, 
         font: font.name.to_owned(),
         face: font.face,
         view_only: face.view_only,
-        base: format!("{}+{}", tag(&subset), base_name(&face)),
+        base: format!("{}+{}", tag(&subset), base_name(face)),
         ascent: thousandths(font_metrics.ascent, face.per_em),
         descent: thousandths(font_metrics.descent, face.per_em),
         cap_height: thousandths(
@@ -198,6 +197,30 @@ pub fn prepare_text_box(font: &TextBoxFont, text: &str) -> Result<TextBoxModel, 
         return Err(EngineError::Font(FontRefusal::NotAFont));
     }
     Ok(model)
+}
+
+/// Makes the model of `text` in `font`: the font read, its licence checked, a glyph found for
+/// each character, and the font cut to those glyphs. A font that cannot be used, or that lacks a
+/// glyph, makes no model (see [`FontRefusal`]); text that needs a script the worker does not set
+/// is refused too.
+pub fn prepare_text_box(font: &TextBoxFont, text: &str) -> Result<TextBoxModel, EngineError> {
+    let face = open_face(font).map_err(EngineError::Font)?;
+    prepare_text_box_with_face(font, &face, text)
+}
+
+/// Makes models of each text in `texts` in `font` (B3-23, Issue #381).
+///
+/// Parses the font once for the entire batch. Returns a `Vec` with one entry per input text:
+/// `Some(model)` if the text was successfully shaped and subset, or `None` if the text could
+/// not be set in this font (or if the font itself is unusable).
+pub fn prepare_text_boxes(font: &TextBoxFont, texts: &[String]) -> Vec<Option<TextBoxModel>> {
+    let Ok(face) = open_face(font) else {
+        return vec![None; texts.len()];
+    };
+    texts
+        .iter()
+        .map(|text| prepare_text_box_with_face(font, &face, text).ok())
+        .collect()
 }
 
 /// The subset of `model`, cut again from itself: what is embedded is what `subsetter` writes from

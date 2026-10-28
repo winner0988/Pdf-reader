@@ -980,6 +980,16 @@ pub enum WorkerRequest {
         font: FontData,
         text: String,
     },
+    /// Makes each text of `texts` in the font `font` into a text box model (B3-23, Issue #381).
+    ///
+    /// The font is parsed once for all texts in the batch. Answered by `TextBoxesPrepared` with
+    /// one element per text (a model, or `None` if that text cannot be shaped or subset with this
+    /// font).
+    PrepareTextBoxes {
+        request: RequestId,
+        font: FontData,
+        texts: Vec<String>,
+    },
     /// What text box `annotation` of page `page_index` says of itself: its words, font, style and
     /// whether they fit. Answered by `TextBox` (B2-29).
     GetTextBox {
@@ -1149,6 +1159,14 @@ pub enum WorkerResponse {
     TextBoxPrepared {
         request: RequestId,
         model: TextBoxModel,
+    },
+    /// The models of `PrepareTextBoxes` (B3-23, Issue #381).
+    ///
+    /// Exactly one entry per requested text in the same order. `None` if the text could not be
+    /// prepared with the given font.
+    TextBoxesPrepared {
+        request: RequestId,
+        models: Vec<Option<TextBoxModel>>,
     },
     /// The faces of `InspectFont`: their family, style and face index.
     FontInspected {

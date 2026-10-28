@@ -34,7 +34,8 @@ use ipc_contract::types::{
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
     FontData, InsertedTextBox, InspectedFont, NewSignature, OcrFinished, OcrPageState, PasswordKey,
-    SourceTextBox, UnknownFile, WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
+    SourceTextBox, TextBoxModel, UnknownFile, WorkerEdit, WorkerErrorCode, WorkerRequest,
+    WorkerResponse,
 };
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
@@ -1956,35 +1957,71 @@ impl Documents {
         ];
 
         let available_fonts = fonts.list();
-        let mut inserted = Vec::new();
         let mut font_cache: std::collections::HashMap<
             ipc_contract::types::FontId,
             crate::fonts::FontFile,
         > = std::collections::HashMap::new();
 
-        for stb in source_boxes
+        struct PendingItem<'a> {
+            stb: &'a SourceTextBox,
+            candidate_families: Vec<&'a str>,
+            current_candidate_idx: usize,
+            model: Option<TextBoxModel>,
+        }
+
+        let mut pending: Vec<PendingItem> = source_boxes
             .iter()
             .take(ipc_contract::limits::MAX_SOURCE_TEXT_BOXES as usize)
-        {
-            if check_text_box_text(&stb.text).is_err() {
-                continue;
-            }
+            .filter(|stb| check_text_box_text(&stb.text).is_ok())
+            .map(|stb| {
+                let mut candidates = Vec::with_capacity(1 + FALLBACK_FAMILIES.len());
+                candidates.push(stb.font_family.as_str());
+                for &fallback in FALLBACK_FAMILIES {
+                    if !candidates.iter().any(|&c| c.eq_ignore_ascii_case(fallback)) {
+                        candidates.push(fallback);
+                    }
+                }
+                PendingItem {
+                    stb,
+                    candidate_families: candidates,
+                    current_candidate_idx: 0,
+                    model: None,
+                }
+            })
+            .collect();
 
-            let mut candidates = Vec::with_capacity(1 + FALLBACK_FAMILIES.len());
-            candidates.push(stb.font_family.as_str());
-            for &fallback in FALLBACK_FAMILIES {
-                if !candidates.iter().any(|&c| c.eq_ignore_ascii_case(fallback)) {
-                    candidates.push(fallback);
+        loop {
+            // Group unresolved items by their current candidate font family.
+            let mut groups: std::collections::BTreeMap<String, (String, Vec<usize>)> =
+                std::collections::BTreeMap::new();
+
+            for (idx, item) in pending.iter().enumerate() {
+                if item.model.is_none()
+                    && item.current_candidate_idx < item.candidate_families.len()
+                {
+                    let family = item.candidate_families[item.current_candidate_idx];
+                    let key = family.to_ascii_lowercase();
+                    groups
+                        .entry(key)
+                        .or_insert_with(|| (family.to_owned(), Vec::new()))
+                        .1
+                        .push(idx);
                 }
             }
 
-            let mut prepared_model = None;
-            for family in candidates {
+            if groups.is_empty() {
+                break;
+            }
+
+            for (_, (family_name, item_indices)) in groups {
                 let mut family_fonts: Vec<&FontInfo> = available_fonts
                     .iter()
-                    .filter(|f| f.family.eq_ignore_ascii_case(family))
+                    .filter(|f| f.family.eq_ignore_ascii_case(&family_name))
                     .collect();
                 if family_fonts.is_empty() {
+                    for &idx in &item_indices {
+                        pending[idx].current_candidate_idx += 1;
+                    }
                     continue;
                 }
                 family_fonts.sort_by_key(|f| (f.bold, f.italic));
@@ -1994,38 +2031,63 @@ impl Documents {
                     std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
                     std::collections::hash_map::Entry::Vacant(e) => {
                         let Ok(file) = fonts.read(chosen_font.id) else {
+                            for &idx in &item_indices {
+                                pending[idx].current_candidate_idx += 1;
+                            }
                             continue;
                         };
                         e.insert(file)
                     }
                 };
 
-                let font_data = FontData {
-                    bytes: font_file.bytes.clone(),
-                    face: font_file.face,
-                    name: chosen_font.name.clone(),
-                };
+                for chunk in item_indices.chunks(ipc_contract::limits::MAX_PREPARE_TEXT_BOXES) {
+                    let chunk_texts: Vec<String> =
+                        chunk.iter().map(|&i| pending[i].stb.text.clone()).collect();
+                    let font_data = FontData {
+                        bytes: font_file.bytes.clone(),
+                        face: font_file.face,
+                        name: chosen_font.name.clone(),
+                    };
 
-                let response = document
-                    .host
-                    .request(|request| WorkerRequest::PrepareTextBox {
-                        request,
-                        font: font_data,
-                        text: stb.text.clone(),
-                    });
+                    let response =
+                        document
+                            .host
+                            .request(|request| WorkerRequest::PrepareTextBoxes {
+                                request,
+                                font: font_data,
+                                texts: chunk_texts,
+                            });
 
-                if let Ok(WorkerResponse::TextBoxPrepared { model, .. }) = response {
-                    prepared_model = Some(model);
-                    break;
+                    match response {
+                        Ok(WorkerResponse::TextBoxesPrepared { models, .. })
+                            if models.len() == chunk.len() =>
+                        {
+                            for (&item_idx, model_opt) in chunk.iter().zip(models) {
+                                if let Some(model) = model_opt {
+                                    pending[item_idx].model = Some(model);
+                                } else {
+                                    pending[item_idx].current_candidate_idx += 1;
+                                }
+                            }
+                        }
+                        _ => {
+                            for &item_idx in chunk {
+                                pending[item_idx].current_candidate_idx += 1;
+                            }
+                        }
+                    }
                 }
             }
+        }
 
-            if let Some(model) = prepared_model {
+        let mut inserted = Vec::new();
+        for item in pending {
+            if let Some(model) = item.model {
                 inserted.push(InsertedTextBox {
-                    page: stb.page,
-                    rect: stb.rect,
+                    page: item.stb.page,
+                    rect: item.stb.rect,
                     model,
-                    style: stb.style,
+                    style: item.stb.style,
                 });
             }
         }
@@ -9023,53 +9085,157 @@ mod with_worker {
     }
 
     #[test]
-    fn benchmark_preparing_text_boxes_with_microsoft_jhenghei() {
-        let (documents, info, target_path) = open("merge-tb-bench", 1);
+    fn test_prepare_inserted_text_boxes_batches_requests_per_font_and_fallback() {
+        let (documents, info, target_path) = open("merge-tb-batch-req", 1);
         let fonts = documents.fonts();
-        let jhenghei_exists = fonts
+        let has_jhenghei = fonts
             .list()
             .iter()
             .any(|f| f.family.eq_ignore_ascii_case("Microsoft JhengHei"));
-        if !jhenghei_exists {
-            eprintln!("Microsoft JhengHei not found on this machine, skipping benchmark");
+        if !has_jhenghei {
             std::fs::remove_file(target_path).ok();
             return;
         }
+
         documents
             .with_document(info.doc, |document| {
-                let make_boxes = |count: usize| -> Vec<SourceTextBox> {
-                    (0..count)
-                        .map(|i| SourceTextBox {
-                            page: 0,
-                            rect: Rect {
-                                x0: 50.0,
-                                y0: 50.0 + (i % 500) as f32,
-                                x1: 200.0,
-                                y1: 80.0 + (i % 500) as f32,
-                            },
-                            text: format!("測試文字方塊 {i}"),
-                            font_family: "Microsoft JhengHei".to_owned(),
-                            style: TextBoxStyle {
-                                size: 14.0,
-                                color: Rgb { r: 0, g: 0, b: 0 },
-                                align: TextAlign::Left,
-                            },
-                        })
-                        .collect()
-                };
+                // Case 1: 3 text boxes all using "Arial" -> should send exactly 1 request
+                let boxes_same_font = vec![
+                    SourceTextBox {
+                        page: 0,
+                        rect: Rect {
+                            x0: 10.0,
+                            y0: 10.0,
+                            x1: 100.0,
+                            y1: 50.0,
+                        },
+                        text: "Arial 1".to_owned(),
+                        font_family: "Arial".to_owned(),
+                        style: TextBoxStyle {
+                            size: 12.0,
+                            color: Rgb { r: 0, g: 0, b: 0 },
+                            align: TextAlign::Left,
+                        },
+                    },
+                    SourceTextBox {
+                        page: 0,
+                        rect: Rect {
+                            x0: 10.0,
+                            y0: 60.0,
+                            x1: 100.0,
+                            y1: 100.0,
+                        },
+                        text: "Arial 2".to_owned(),
+                        font_family: "Arial".to_owned(),
+                        style: TextBoxStyle {
+                            size: 12.0,
+                            color: Rgb { r: 0, g: 0, b: 0 },
+                            align: TextAlign::Left,
+                        },
+                    },
+                    SourceTextBox {
+                        page: 0,
+                        rect: Rect {
+                            x0: 10.0,
+                            y0: 110.0,
+                            x1: 100.0,
+                            y1: 150.0,
+                        },
+                        text: "Arial 3".to_owned(),
+                        font_family: "Arial".to_owned(),
+                        style: TextBoxStyle {
+                            size: 12.0,
+                            color: Rgb { r: 0, g: 0, b: 0 },
+                            align: TextAlign::Left,
+                        },
+                    },
+                ];
 
-                for n in [10, 50, 100] {
-                    let boxes = make_boxes(n);
-                    let start = std::time::Instant::now();
-                    let prepared =
-                        Documents::prepare_inserted_text_boxes(document, &fonts, &boxes);
-                    let elapsed = start.elapsed();
-                    eprintln!(
-                        "[BENCHMARK] Prepared {n} text boxes with Microsoft JhengHei in {elapsed:?} (avg {:?} per box)",
-                        elapsed / n as u32
-                    );
-                    assert_eq!(prepared.len(), n);
-                }
+                let before_1 = document.host.requests_sent();
+                let prepared_1 =
+                    Documents::prepare_inserted_text_boxes(document, &fonts, &boxes_same_font);
+                let sent_1 = document.host.requests_sent() - before_1;
+                assert_eq!(prepared_1.len(), 3);
+                assert_eq!(
+                    sent_1, 1,
+                    "Expected exactly 1 request for 3 text boxes sharing Arial"
+                );
+
+                // Case 2: 2 English boxes + 1 Chinese box with "Arial"
+                // Arial can set English, but lacks Chinese glyphs so Chinese box must fall back to Microsoft JhengHei.
+                // Request 1: Arial batch of 3 texts -> 2 succeed, 1 fails.
+                // Request 2: Fallback (Microsoft JhengHei) with ONLY the 1 failed text.
+                // Total requests: exactly 2.
+                let boxes_mixed = vec![
+                    SourceTextBox {
+                        page: 0,
+                        rect: Rect {
+                            x0: 10.0,
+                            y0: 10.0,
+                            x1: 100.0,
+                            y1: 50.0,
+                        },
+                        text: "English 1".to_owned(),
+                        font_family: "Arial".to_owned(),
+                        style: TextBoxStyle {
+                            size: 12.0,
+                            color: Rgb { r: 0, g: 0, b: 0 },
+                            align: TextAlign::Left,
+                        },
+                    },
+                    SourceTextBox {
+                        page: 0,
+                        rect: Rect {
+                            x0: 10.0,
+                            y0: 60.0,
+                            x1: 100.0,
+                            y1: 100.0,
+                        },
+                        text: "English 2".to_owned(),
+                        font_family: "Arial".to_owned(),
+                        style: TextBoxStyle {
+                            size: 12.0,
+                            color: Rgb { r: 0, g: 0, b: 0 },
+                            align: TextAlign::Left,
+                        },
+                    },
+                    SourceTextBox {
+                        page: 0,
+                        rect: Rect {
+                            x0: 10.0,
+                            y0: 110.0,
+                            x1: 100.0,
+                            y1: 150.0,
+                        },
+                        text: "繁體中文測試".to_owned(),
+                        font_family: "Arial".to_owned(),
+                        style: TextBoxStyle {
+                            size: 12.0,
+                            color: Rgb { r: 0, g: 0, b: 0 },
+                            align: TextAlign::Left,
+                        },
+                    },
+                ];
+
+                let before_2 = document.host.requests_sent();
+                let prepared_2 =
+                    Documents::prepare_inserted_text_boxes(document, &fonts, &boxes_mixed);
+                let sent_2 = document.host.requests_sent() - before_2;
+                assert_eq!(prepared_2.len(), 3);
+                assert_eq!(
+                    sent_2, 2,
+                    "Expected exactly 2 requests: 1 for Arial, 1 for JhengHei fallback"
+                );
+                assert!(prepared_2[0].model.font.contains("Arial"));
+                assert!(prepared_2[1].model.font.contains("Arial"));
+                let fb_font = &prepared_2[2].model.font;
+                assert!(
+                    fb_font.contains("Microsoft JhengHei")
+                        || fb_font.contains("Microsoft YaHei")
+                        || fb_font.contains("Yu Gothic"),
+                    "Expected fallback font, got: {fb_font}"
+                );
+
                 Ok(())
             })
             .unwrap();

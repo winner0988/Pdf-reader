@@ -277,6 +277,8 @@ flowchart LR
 | `PrepareSignature` | `request`, `doc`, `file`（同 `Save`）, `signature`（`NewSignature`：`signer`、`reason`、`time`（`SigningTime`，帶時區）、`visible`（`null` 或 `VisibleSignature`：`page_index`、`corner`、`lines`：方框裡的字）） | `SignaturePrepared`（`bytes`、`contents_start`、`contents_end`：`/Contents` 的 `<…>` 在檔案裡的位置，正好是 `SIGNATURE_RESERVE_BYTES` 個十六進位 0 加上兩個角括號）或 `Error`（加密的文件、認證簽章不允許任何變更：`NotAllowed`；MuPDF 修復過的檔案：`Corrupted`）；把文件開啟（或上次存檔）時的檔案位元組另外開啟，加上簽章欄位與預留的空間，以增量更新寫出：原本的位元組在前、不變，`/ByteRange` 涵蓋空間以外的每一個位元組。開著的文件不變。簽章由主行程填入，副本由另一個新的 worker 驗證（B3-06，見 [signing.md](signing.md)） |
 | `PrivacyCopy` | `request`, `doc`, `file`（同 `Save`）, `id`（16 bytes，主行程產生的亂數） | `Saved`（`incremental` 一律為 false）或 `Error`（加密的文件：`InvalidRequest`；太多物件：`LimitExceeded`）；寫出清除中繼資料的副本，worker 中的文件不變（B2-03，見 [privacy-export.md](privacy-export.md)） |
 | `PrepareSource` | `request`, `file`（**唯讀** handle：使用者選的 PDF）, `password`（加密的檔案才有，用完即清除） | `Source`（`bytes`：乾淨、沒有加密的 PDF，最多 `MAX_SOURCE_BYTES`；`pages`；`security`：這個檔案的主動內容掃描；`text_boxes`：來源檔文字方塊清單，最多 `MAX_SOURCE_ANNOTATIONS` 個）或 `Error`（要密碼：`Encrypted`；密碼不對：`WrongPassword`；作者不允許取出頁面：`NotAllowed`；太大：`LimitExceeded`）；worker 不保留任何東西（B2-06、B3-23，見 [merge.md](merge.md)） |
+| `PrepareTextBox` | `request`, `font: FontData`, `text` | `TextBoxPrepared` 或 `Error`；將單一段文字排版並切出字型子集（B2-28） |
+| `PrepareTextBoxes` | `request`, `font: FontData`, `texts`（最多 `MAX_PREPARE_TEXT_BOXES` 個，文字總大小不超過 `MAX_PREPARE_TEXT_BOXES_TEXT_BYTES`） | `TextBoxesPrepared`（`models: Vec<Option<TextBoxModel>>`，段數與 `texts` 相同，子集總大小不超過 `MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES`）；同一字型批次排版，只解析一次字型（B3-23，Issue #381） |
 | `PrepareStampImage` | `request`, `file`（唯讀 handle：使用者選的圖片，PNG 或 JPEG） | `StampImage`（`png`：只含像素的 PNG，最多 `MAX_STAMP_PNG_BYTES`；`width`、`height`，每邊最多 `MAX_STAMP_SIDE_PX`；主行程檢查簽名、標頭與它們一致）或 `Error`（不是可用的圖片：`InvalidRequest`；太大：`LimitExceeded`）；自訂圖片印章用，見 [annotations.md](annotations.md)（B2-08） |
 | `ExportDocx` | `request`, `doc`, `pages`（不重複，檔案裡依給的順序）, `file`（**只能寫入**的 handle） | `Saved`（`incremental` 一律為 false）或 `Error`（沒有頁面或重複：`InvalidRequest`；頁碼不存在：`PageOutOfRange`；太大：`LimitExceeded`）；寫出這些頁面的文字與圖片組成的 Word 文件，worker 中的文件不變（B3-02，見 [docx-export.md](docx-export.md)） |
 | `WatermarkCopy` | `request`, `doc`, `file`（同 `Save`）, `watermark`（`WorkerWatermark`：與前端的 `Watermark` 同樣的欄位，postcard 帶得了的形式）, `picture`（圖片浮水印的印章 PNG，最多 1 MB；字的浮水印沒有） | `Saved`（`incremental` 一律為 false）或 `Error`（加密的文件、不能成立的浮水印、不是印章 PNG：`InvalidRequest`）；開著的文件不變（B3-04，見 [watermark.md](watermark.md)） |
@@ -370,6 +372,9 @@ worker 端的 `WorkerErrorCode` 以 `From` 轉換對應到上表。
 | 每筆結果的 quad | 64 | |
 | 一筆遮蔽群組的範圍數（MAX_REDACTION_GROUP_RECTS） | 16 | 一個號碼跨越的行數上限（Issue #330） |
 | 每頁文字（選取與複製） | 100,000 字元 | 超過時 worker 截斷並設 `truncated`（MVP-15） |
+| 批次準備文字方塊數量（MAX_PREPARE_TEXT_BOXES） | 200 段 | 單一請求準備多個文字方塊的段數上限（Issue #381） |
+| 批次準備文字總大小（MAX_PREPARE_TEXT_BOXES_TEXT_BYTES） | 800 KiB | 單一請求所有文字長度總和上限（Issue #381） |
+| 批次準備回應總大小（MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES） | 32 MiB | 單一請求所有子集位元組總和上限，遠低於 frame 限制（Issue #381） |
 | 錯誤訊息／顯示名稱 | 1,024 bytes | |
 | 分頁 | 20 | 每個分頁一個 worker（MVP-14，ADR 0012） |
 | 在這台電腦上標記的機敏文件清單 | 1,000 筆 | 再標記一份時，最舊的一筆離開清單，檔案的標記不變（B3-05） |
