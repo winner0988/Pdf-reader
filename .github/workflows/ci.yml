@@ -96,7 +96,7 @@ jobs:
       # Installs the exact toolchain and components pinned in rust-toolchain.toml.
       - name: Install Rust toolchain
         run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       # Debug builds load the frontend from devUrl, so the Tauri crate compiles without `dist/`.
       - name: Format
         run: cargo fmt --all --check
@@ -121,7 +121,7 @@ jobs:
           persist-credentials: false
       - name: Install Rust toolchain
         run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: e2e
           # The release build is the slow part; keep it even when a test fails.
