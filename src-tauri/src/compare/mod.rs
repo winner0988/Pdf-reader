@@ -13,9 +13,7 @@ use ipc_contract::limits::{
     MAX_COMPARE_CACHE_BYTES, MAX_COMPARE_DEADLINE_MILLIS, MAX_COMPARE_DIFF_ITEMS,
     MAX_COMPARE_PAGES, MAX_COMPARE_TEXT_BYTES, MAX_COMPARE_TOKENS,
 };
-use ipc_contract::types::{
-    CompareTextResult, DocumentId, ErrorCode, IpcError, TextDiffItem,
-};
+use ipc_contract::types::{CompareTextResult, DocumentId, ErrorCode, IpcError, TextDiffItem};
 use similar::{Algorithm, DiffOp};
 
 use crate::documents::Documents;
@@ -101,7 +99,7 @@ pub fn diff_tokens(
     deadline: Option<Instant>,
 ) -> (Vec<TextDiffItem>, bool) {
     let ops = similar::capture_diff_slices_deadline(Algorithm::Myers, tokens_a, tokens_b, deadline);
-    let timed_out = deadline.map_or(false, |d| Instant::now() >= d);
+    let timed_out = deadline.is_some_and(|d| Instant::now() >= d);
 
     let mut items: Vec<TextDiffItem> = Vec::new();
     let mut limit_hit = timed_out;
@@ -144,8 +142,7 @@ pub fn diff_tokens(
         let deleted_raw = tokenize::join_tokens(&tokens_a[hunk.old_start..hunk.old_end]);
         let inserted_raw = tokenize::join_tokens(&tokens_b[hunk.new_start..hunk.new_end]);
 
-        let (deleted, del_trunc) =
-            truncate_hunk_text(deleted_raw, MAX_COMPARE_TEXT_BYTES as usize);
+        let (deleted, del_trunc) = truncate_hunk_text(deleted_raw, MAX_COMPARE_TEXT_BYTES as usize);
         let (inserted, ins_trunc) =
             truncate_hunk_text(inserted_raw, MAX_COMPARE_TEXT_BYTES as usize);
 
@@ -163,11 +160,11 @@ pub fn diff_tokens(
     for op in ops {
         match op {
             DiffOp::Equal { .. } => {
-                if let Some(hunk) = current_hunk.take() {
-                    if flush_hunk(hunk, &mut items) {
-                        limit_hit = true;
-                        break;
-                    }
+                if let Some(hunk) = current_hunk.take()
+                    && flush_hunk(hunk, &mut items)
+                {
+                    limit_hit = true;
+                    break;
                 }
             }
             DiffOp::Delete {
@@ -269,10 +266,10 @@ pub fn diff_tokens(
         }
     }
 
-    if let Some(hunk) = current_hunk.take() {
-        if flush_hunk(hunk, &mut items) {
-            limit_hit = true;
-        }
+    if let Some(hunk) = current_hunk.take()
+        && flush_hunk(hunk, &mut items)
+    {
+        limit_hit = true;
     }
 
     (items, limit_hit)

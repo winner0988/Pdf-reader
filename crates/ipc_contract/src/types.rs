@@ -2667,7 +2667,6 @@ pub enum ExportCompareTextOutcome {
     Written { count: u32, truncated: bool },
 }
 
-
 /// An attachment of a document, identified by an opaque number (B3-20, ADR 0025).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
 pub struct AttachmentId(pub u32);

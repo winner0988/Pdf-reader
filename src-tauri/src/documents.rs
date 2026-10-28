@@ -9955,10 +9955,14 @@ mod with_worker {
             assert!(!result.items.is_empty());
 
             // Check that diff items report correct pages
-            let has_page_0_diff =
-                result.items.iter().any(|item| item.page_a == 0 && item.page_b == 0);
-            let has_page_1_diff =
-                result.items.iter().any(|item| item.page_a == 1 && item.page_b == 1);
+            let has_page_0_diff = result
+                .items
+                .iter()
+                .any(|item| item.page_a == 0 && item.page_b == 0);
+            let has_page_1_diff = result
+                .items
+                .iter()
+                .any(|item| item.page_a == 1 && item.page_b == 1);
             assert!(has_page_0_diff, "should detect page 0 changes");
             assert!(has_page_1_diff, "should detect page 1 changes");
 
@@ -9981,7 +9985,10 @@ mod with_worker {
                 .items
                 .iter()
                 .any(|item| item.deleted.contains("laws of California"));
-            assert!(found_governing_law_change, "should detect governing law change");
+            assert!(
+                found_governing_law_change,
+                "should detect governing law change"
+            );
         }
 
         #[test]

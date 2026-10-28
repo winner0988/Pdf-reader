@@ -36,6 +36,8 @@ import type { SigningApi } from "@/features/signing/api";
 import { SignDialog } from "@/features/signing/SignDialog";
 import type { ExportApi } from "@/features/export/api";
 import { AnnotationSummaryDialog } from "@/features/export/AnnotationSummaryDialog";
+import { CompareDialog, type CompareTabOption } from "@/features/compare/CompareDialog";
+import type { CompareApi } from "@/features/compare/api";
 import { ExportDialog } from "@/features/export/ExportDialog";
 import { CompressDialog } from "@/features/saving/CompressDialog";
 import { useOpenBatch } from "@/features/batch/useOpenBatch";
@@ -148,6 +150,10 @@ type ReaderShellProps = {
   recentApi?: RecentApi;
   /** Exports pages as text or PNG files (B2-04); without it (demo data, tests) nothing can be. */
   exportApi?: ExportApi;
+  /** Compares text with another open tab (B3-24, E9); without it the menu item is disabled. */
+  compareApi?: CompareApi;
+  /** Other open tabs available for comparison. */
+  otherTabs?: CompareTabOption[];
   /** Saves the document (B2-02); without it (demo data, tests) nothing can be. */
   savingApi?: SavingApi;
   /** Does one thing to many files (B3-04); without it (demo data, tests) nothing can be. */
@@ -246,6 +252,8 @@ export function ReaderShell({
   systemApi,
   recentApi,
   exportApi,
+  compareApi,
+  otherTabs,
   savingApi,
   createApi,
   sensitiveApi,
@@ -309,6 +317,7 @@ export function ReaderShell({
     | "print"
     | "export"
     | "exportAnnotations"
+    | "compare"
     | "privacyExport"
     | "sanitize"
     | "pageMarks"
@@ -1146,6 +1155,24 @@ export function ReaderShell({
             summaryApi && permissions.copy ? () => setDialog("exportAnnotations") : undefined
           }
           exportAnnotationsBlocked={summaryApi !== undefined && !permissions.copy}
+          onCompareText={
+            compareApi !== undefined &&
+            doc !== undefined &&
+            otherTabs !== undefined &&
+            otherTabs.length > 0 &&
+            permissions.copy
+              ? () => setDialog("compare")
+              : undefined
+          }
+          compareTextBlocked={
+            compareApi === undefined
+              ? undefined
+              : !permissions.copy
+                ? strings.permissions.notAllowed
+                : otherTabs === undefined || otherTabs.length === 0
+                  ? strings.compare.onlyOneTab
+                  : undefined
+          }
           onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}
           privacyExportBlocked={savable && document_?.encrypted === true}
           onSanitizeCopy={
@@ -1680,6 +1707,16 @@ export function ReaderShell({
           api={summaryApi}
           onClose={() => setDialog(null)}
           onFinished={showHint}
+        />
+      )}
+      {dialog === "compare" && compareApi && doc !== undefined && otherTabs && otherTabs.length > 0 && (
+        <CompareDialog
+          open
+          onOpenChange={(open) => setDialog(open ? "compare" : null)}
+          currentDoc={doc}
+          otherTabs={otherTabs}
+          api={compareApi}
+          onJumpToPage={goToPage}
         />
       )}
       {printPages && (

@@ -401,4 +401,3 @@ pub const MAX_COMPARE_DEADLINE_MILLIS: u64 = 10_000;
 /// Largest memory in bytes the main process keeps for caching the last comparison result (B3-24, E9).
 /// Sized to hold full diff structures and document names for native export without recomputation.
 pub const MAX_COMPARE_CACHE_BYTES: usize = 16 * 1024 * 1024;
-

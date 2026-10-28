@@ -16,19 +16,19 @@ use crate::text::{
 };
 use crate::types::{
     AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind, AttachmentInfo,
-    AttachmentSource, BatchArgs, BatchOperation, CompareTextArgs, CompareTextResult,
-    CompressArgs, DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs,
-    ExportCompareTextArgs, ExportFormat, FindPersonalDataQuery, FindingKind, FontImport,
-    FontInfo, FormField, IndexSearchArgs, IndexSearchEvent, IndexSnippet, IpcError, LinkTarget,
-    OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink,
-    PageMarkPages, PageMarkPosition, PageMarks, PageMarksCopyArgs, PageNumberFormat, PageSize,
-    PageText, Password, PersonalDataMatch, PersonalDataMatches, Point, PrepareTextBoxArgs, Quad,
-    RasterRegion, RecentFile, Rect, RedactionSummary, RemoveFontArgs, RemoveLanguageArgs,
-    RenderPageArgs, Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport,
-    SanitizeResult, SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs,
-    SensitiveFile, Settings, SignArgs, SignatureInfo, SignatureReport, SignatureStatus,
-    SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs,
-    UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
+    AttachmentSource, BatchArgs, BatchOperation, CompareTextArgs, CompareTextResult, CompressArgs,
+    DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs, ExportCompareTextArgs, ExportFormat,
+    FindPersonalDataQuery, FindingKind, FontImport, FontInfo, FormField, IndexSearchArgs,
+    IndexSearchEvent, IndexSnippet, IpcError, LinkTarget, OcrLanguages, OcrProgress, OpenEvent,
+    OutlineItem, OutlineResult, PageAnnotation, PageLink, PageMarkPages, PageMarkPosition,
+    PageMarks, PageMarksCopyArgs, PageNumberFormat, PageSize, PageText, Password,
+    PersonalDataMatch, PersonalDataMatches, Point, PrepareTextBoxArgs, Quad, RasterRegion,
+    RecentFile, Rect, RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
+    Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult,
+    SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs, SensitiveFile,
+    Settings, SignArgs, SignatureInfo, SignatureReport, SignatureStatus, SigningFileKey,
+    SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs, UnlockArgs,
+    UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
     InsertedTextBox, InspectedFont, OcrOutcome, OpenedDocument, Raster, SourceTextBox,
@@ -2421,12 +2421,11 @@ mod tests {
     use super::*;
     use crate::types::{
         AnnotationId, AnnotationKind, BatesMark, BlockedAction, BookmarkId, CompareExportFormat,
-        DocumentId,
-        DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption, FontId, HeaderFooterMarks,
-        HighlightColor, HighlightMark, ImageQuality, IndexEntryId, IndexPageHits, InkColor,
-        InkWidth, LinkId, PageNumberMark, PictureView, RecentId, Recovery, RequestId, Restrictions,
-        Rgb, Rotation, SecurityFinding, StampImageId, StampName, TabId, TextAlign, TextBoxInfo,
-        TextBoxModelId, UnverifiableReason, WatermarkPages, WatermarkPlace,
+        DocumentId, DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption, FontId,
+        HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, IndexEntryId,
+        IndexPageHits, InkColor, InkWidth, LinkId, PageNumberMark, PictureView, RecentId, Recovery,
+        RequestId, Restrictions, Rgb, Rotation, SecurityFinding, StampImageId, StampName, TabId,
+        TextAlign, TextBoxInfo, TextBoxModelId, UnverifiableReason, WatermarkPages, WatermarkPlace,
     };
     use crate::worker::{ModelGlyph, WorkerErrorCode};
 
@@ -5529,34 +5528,42 @@ mod tests {
     #[test]
     fn compare_text_arguments_and_results_are_validated() {
         // CompareTextArgs: same doc rejected, distinct docs accepted.
-        assert!(CompareTextArgs {
-            doc_a: DocumentId(1),
-            doc_b: DocumentId(1),
-        }
-        .validate()
-        .is_err());
-        assert!(CompareTextArgs {
-            doc_a: DocumentId(1),
-            doc_b: DocumentId(2),
-        }
-        .validate()
-        .is_ok());
+        assert!(
+            CompareTextArgs {
+                doc_a: DocumentId(1),
+                doc_b: DocumentId(1),
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            CompareTextArgs {
+                doc_a: DocumentId(1),
+                doc_b: DocumentId(2),
+            }
+            .validate()
+            .is_ok()
+        );
 
         // ExportCompareTextArgs: same doc rejected, distinct docs accepted.
-        assert!(ExportCompareTextArgs {
-            doc_a: DocumentId(1),
-            doc_b: DocumentId(1),
-            format: CompareExportFormat::Text,
-        }
-        .validate()
-        .is_err());
-        assert!(ExportCompareTextArgs {
-            doc_a: DocumentId(1),
-            doc_b: DocumentId(2),
-            format: CompareExportFormat::Markdown,
-        }
-        .validate()
-        .is_ok());
+        assert!(
+            ExportCompareTextArgs {
+                doc_a: DocumentId(1),
+                doc_b: DocumentId(1),
+                format: CompareExportFormat::Text,
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            ExportCompareTextArgs {
+                doc_a: DocumentId(1),
+                doc_b: DocumentId(2),
+                format: CompareExportFormat::Markdown,
+            }
+            .validate()
+            .is_ok()
+        );
 
         // TextDiffItem: pages out of bounds rejected.
         let valid_item = TextDiffItem {

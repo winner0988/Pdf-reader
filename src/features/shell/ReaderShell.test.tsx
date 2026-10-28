@@ -1222,4 +1222,53 @@ describe("theme", () => {
       rects: [{ x0: 100, y0: 100, x1: 200, y1: 120 }],
     });
   });
+
+  it("compare text: disabled when only one tab open or copy disallowed, opens dialog when available", async () => {
+    const compareApi = {
+      compareText: vi.fn(),
+      exportCompareText: vi.fn(),
+    };
+    const docState: ShellState = {
+      kind: "open",
+      document: { ...demoDocument, doc: 1 },
+    };
+
+    // 1. Only one tab open (otherTabs is empty):
+    const first = renderShell(docState, { compareApi, otherTabs: [] });
+    await first.user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    const blockedItem = await screen.findByRole("menuitem", { name: new RegExp(`^${strings.menu.compareText}`) });
+    expect(blockedItem).toHaveAttribute("data-disabled");
+    expect(blockedItem).toHaveTextContent(strings.compare.onlyOneTab);
+    first.unmount();
+
+    // 2. Copy disallowed:
+    const copyBlockedState: ShellState = {
+      kind: "open",
+      document: {
+        ...demoDocument,
+        doc: 1,
+        permissions: { ...demoDocument.permissions, copy: false },
+      },
+    };
+    const second = renderShell(copyBlockedState, {
+      compareApi,
+      otherTabs: [{ tab: 2, doc: 20, displayName: "other.pdf" }],
+    });
+    await second.user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    const permBlockedItem = await screen.findByRole("menuitem", { name: new RegExp(`^${strings.menu.compareText}`) });
+    expect(permBlockedItem).toHaveAttribute("data-disabled");
+    expect(permBlockedItem).toHaveTextContent(strings.permissions.notAllowed);
+    second.unmount();
+
+    // 3. Enabled with other tabs and copy permitted:
+    const third = renderShell(docState, {
+      compareApi,
+      otherTabs: [{ tab: 2, doc: 20, displayName: "other.pdf" }],
+    });
+    await third.user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    const readyItem = await screen.findByRole("menuitem", { name: new RegExp(`^${strings.menu.compareText}`) });
+    expect(readyItem).not.toHaveAttribute("data-disabled");
+    await third.user.click(readyItem);
+    expect(await screen.findByRole("dialog", { name: strings.compare.title })).toBeInTheDocument();
+  });
 });

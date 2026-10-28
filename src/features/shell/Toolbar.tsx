@@ -81,6 +81,10 @@ export type ToolbarProps = {
   onExportAnnotations?: () => void;
   /** The document's author forbids copying, which covers the text a summary lists (B3-18). */
   exportAnnotationsBlocked?: boolean;
+  /** Compares text with another open tab (B3-24, E9); without it the menu item is disabled. */
+  onCompareText?: () => void;
+  /** Why comparing text is blocked (e.g. only one tab open or copying forbidden). */
+  compareTextBlocked?: string;
   /** Writes a copy without metadata (B2-03); without it the menu item is disabled. */
   onPrivacyExport?: () => void;
   /** An encrypted document has no privacy export (B2-03): the menu item says so. */
@@ -502,6 +506,12 @@ function MoreMenu(props: ToolbarProps) {
           {menu.exportAnnotations}
           {props.exportAnnotationsBlocked && (
             <DropdownMenuShortcut>{strings.permissions.notAllowed}</DropdownMenuShortcut>
+          )}
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!props.onCompareText} onClick={props.onCompareText}>
+          {menu.compareText}
+          {props.compareTextBlocked && (
+            <DropdownMenuShortcut>{props.compareTextBlocked}</DropdownMenuShortcut>
           )}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={!props.onPrivacyExport} onClick={props.onPrivacyExport}>

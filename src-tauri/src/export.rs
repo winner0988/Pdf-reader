@@ -546,7 +546,6 @@ pub fn write_compare_text(file: &Path, content: &str) -> Result<(), IpcError> {
     write_whole(file, content.as_bytes()).map_err(not_written)
 }
 
-
 /// Writes each of `pages` of `doc` as an image file of `kind` at `dpi` to its target. Pages
 /// written before a cancel or a failure stay.
 #[allow(clippy::too_many_arguments)]

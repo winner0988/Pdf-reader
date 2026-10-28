@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { tauriBatchApi, type BatchApi } from "@/features/batch/api";
 import { BatchHost } from "@/features/batch/BatchHost";
+import { tauriCompareApi, type CompareApi } from "@/features/compare/api";
+import type { CompareTabOption } from "@/features/compare/CompareDialog";
 import { tauriCreateApi, type CreateApi } from "@/features/create/api";
 import { tauriExportApi, type ExportApi } from "@/features/export/api";
 import { tauriOpenApi, type OpenApi } from "@/features/open/api";
@@ -55,6 +57,7 @@ type AppProps = {
   recentApi?: RecentApi;
   settingsApi?: SettingsApi;
   exportApi?: ExportApi;
+  compareApi?: CompareApi;
   savingApi?: SavingApi;
   batchApi?: BatchApi;
   createApi?: CreateApi;
@@ -81,6 +84,7 @@ export default function App({
   recentApi = tauriRecentApi,
   settingsApi = tauriSettingsApi,
   exportApi = tauriExportApi,
+  compareApi = tauriCompareApi,
   savingApi = tauriSavingApi,
   batchApi = tauriBatchApi,
   createApi = tauriCreateApi,
@@ -106,6 +110,19 @@ export default function App({
   // The values filled into forms, on their way to the documents (B2-09): closing a tab waits for them.
   const [fieldEdits] = useState(() => new FieldEdits());
   const renderer = useMemo(() => createPageRenderer(renderApi), [renderApi]);
+  const openTabs = useMemo<CompareTabOption[]>(() => {
+    const list: CompareTabOption[] = [];
+    for (const item of state.tabs) {
+      if (item.content.kind === "open" && item.content.document.doc !== undefined) {
+        list.push({
+          tab: item.tab,
+          doc: item.content.document.doc,
+          displayName: item.displayName,
+        });
+      }
+    }
+    return list;
+  }, [state.tabs]);
   // Development only: fake states for working on the UI without the main process.
   const [demo, setDemo] = useState<ShellState | null>(null);
   // A result of the search of every document opened in a new tab (B3-21): the page it is to show.
@@ -204,6 +221,8 @@ export default function App({
                   systemApi={systemApi}
                   recentApi={recentApi}
                   exportApi={exportApi}
+                  compareApi={compareApi}
+                  otherTabs={openTabs.filter((t) => t.tab !== tab.tab)}
                   savingApi={savingApi}
                   createApi={createApi}
                   sensitiveApi={sensitiveApi}
@@ -277,6 +296,8 @@ type TabPaneProps = {
   systemApi: SystemApi;
   recentApi: RecentApi;
   exportApi: ExportApi;
+  compareApi?: CompareApi;
+  otherTabs?: CompareTabOption[];
   savingApi: SavingApi;
   createApi: CreateApi;
   sensitiveApi: SensitiveApi;
