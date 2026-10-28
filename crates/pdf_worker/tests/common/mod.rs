@@ -187,9 +187,7 @@ fn find_trailer_dict_bounds(pdf: &[u8], trailer_pos: usize) -> Result<(usize, us
                 return Ok((dict_start, dict_end));
             }
             pos += 2;
-        } else if pdf[pos] == b'<' {
-            skip_pdf_string(pdf, &mut pos)?;
-        } else if pdf[pos] == b'(' {
+        } else if pdf[pos] == b'<' || pdf[pos] == b'(' {
             skip_pdf_string(pdf, &mut pos)?;
         } else if pdf[pos] == b'%' {
             pos += 1;
