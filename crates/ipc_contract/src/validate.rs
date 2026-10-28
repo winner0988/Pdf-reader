@@ -16,8 +16,9 @@ use crate::text::{
 };
 use crate::types::{
     AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind, AttachmentInfo,
-    AttachmentSource, BatchArgs, BatchOperation, CompressArgs, DocumentInfo, Edit, EditArgs,
-    EncryptArgs, ExportArgs, ExportFormat, FindPersonalDataQuery, FindingKind, FontImport,
+    AttachmentSource, BatchArgs, BatchOperation, CompareTextArgs, CompareTextResult,
+    CompressArgs, DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs,
+    ExportCompareTextArgs, ExportFormat, FindPersonalDataQuery, FindingKind, FontImport,
     FontInfo, FormField, IndexSearchArgs, IndexSearchEvent, IndexSnippet, IpcError, LinkTarget,
     OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink,
     PageMarkPages, PageMarkPosition, PageMarks, PageMarksCopyArgs, PageNumberFormat, PageSize,
@@ -26,8 +27,8 @@ use crate::types::{
     RenderPageArgs, Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport,
     SanitizeResult, SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs,
     SensitiveFile, Settings, SignArgs, SignatureInfo, SignatureReport, SignatureStatus,
-    SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle, TextLine, UndoArgs, UnlockArgs,
-    UnlockSourceArgs, Watermark, WatermarkContent,
+    SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs,
+    UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
     InsertedTextBox, InspectedFont, OcrOutcome, OpenedDocument, Raster, SourceTextBox,
@@ -2363,11 +2364,64 @@ impl Validate for IndexSearchEvent {
     }
 }
 
+impl Validate for CompareTextArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.doc_a == self.doc_b {
+            return Err(ValidationError::Invalid {
+                what: "compare text arguments",
+                reason: "cannot compare a document with itself",
+            });
+        }
+        Ok(())
+    }
+}
+
+impl Validate for ExportCompareTextArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.doc_a == self.doc_b {
+            return Err(ValidationError::Invalid {
+                what: "export compare text arguments",
+                reason: "cannot compare a document with itself",
+            });
+        }
+        Ok(())
+    }
+}
+
+impl Validate for TextDiffItem {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.page_a >= MAX_PAGE_COUNT {
+            return Err(ValidationError::OutOfRange {
+                what: "diff item page_a",
+            });
+        }
+        if self.page_b >= MAX_PAGE_COUNT {
+            return Err(ValidationError::OutOfRange {
+                what: "diff item page_b",
+            });
+        }
+        check_text("diff deleted text", &self.deleted, MAX_COMPARE_TEXT_BYTES)?;
+        check_text("diff inserted text", &self.inserted, MAX_COMPARE_TEXT_BYTES)?;
+        Ok(())
+    }
+}
+
+impl Validate for CompareTextResult {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_count("diff items", self.items.len(), MAX_COMPARE_DIFF_ITEMS)?;
+        for item in &self.items {
+            item.validate()?;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::{
-        AnnotationId, AnnotationKind, BatesMark, BlockedAction, BookmarkId, DocumentId,
+        AnnotationId, AnnotationKind, BatesMark, BlockedAction, BookmarkId, CompareExportFormat,
+        DocumentId,
         DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption, FontId, HeaderFooterMarks,
         HighlightColor, HighlightMark, ImageQuality, IndexEntryId, IndexPageHits, InkColor,
         InkWidth, LinkId, PageNumberMark, PictureView, RecentId, Recovery, RequestId, Restrictions,
@@ -5470,5 +5524,95 @@ mod tests {
             *display_name = r"C:\Users\someone\report.pdf".to_owned();
         }
         assert!(path.validate().is_err());
+    }
+
+    #[test]
+    fn compare_text_arguments_and_results_are_validated() {
+        // CompareTextArgs: same doc rejected, distinct docs accepted.
+        assert!(CompareTextArgs {
+            doc_a: DocumentId(1),
+            doc_b: DocumentId(1),
+        }
+        .validate()
+        .is_err());
+        assert!(CompareTextArgs {
+            doc_a: DocumentId(1),
+            doc_b: DocumentId(2),
+        }
+        .validate()
+        .is_ok());
+
+        // ExportCompareTextArgs: same doc rejected, distinct docs accepted.
+        assert!(ExportCompareTextArgs {
+            doc_a: DocumentId(1),
+            doc_b: DocumentId(1),
+            format: CompareExportFormat::Text,
+        }
+        .validate()
+        .is_err());
+        assert!(ExportCompareTextArgs {
+            doc_a: DocumentId(1),
+            doc_b: DocumentId(2),
+            format: CompareExportFormat::Markdown,
+        }
+        .validate()
+        .is_ok());
+
+        // TextDiffItem: pages out of bounds rejected.
+        let valid_item = TextDiffItem {
+            page_a: 0,
+            page_b: 0,
+            deleted: "old".to_string(),
+            inserted: "new".to_string(),
+            truncated: false,
+        };
+        assert!(valid_item.validate().is_ok());
+
+        let oob_a = TextDiffItem {
+            page_a: MAX_PAGE_COUNT,
+            ..valid_item.clone()
+        };
+        assert!(oob_a.validate().is_err());
+
+        let oob_b = TextDiffItem {
+            page_b: MAX_PAGE_COUNT,
+            ..valid_item.clone()
+        };
+        assert!(oob_b.validate().is_err());
+
+        // TextDiffItem: text length limit.
+        let long_text = "a".repeat(MAX_COMPARE_TEXT_BYTES as usize + 1);
+        let too_long_deleted = TextDiffItem {
+            deleted: long_text.clone(),
+            ..valid_item.clone()
+        };
+        assert!(too_long_deleted.validate().is_err());
+
+        let too_long_inserted = TextDiffItem {
+            inserted: long_text,
+            ..valid_item.clone()
+        };
+        assert!(too_long_inserted.validate().is_err());
+
+        // CompareTextResult: items count limit.
+        let res_ok = CompareTextResult {
+            items: vec![valid_item.clone(); 10],
+            identical: false,
+            empty: false,
+            recognised: false,
+            page_text_truncated: false,
+            truncated: false,
+        };
+        assert!(res_ok.validate().is_ok());
+
+        let res_too_many = CompareTextResult {
+            items: vec![valid_item; MAX_COMPARE_DIFF_ITEMS as usize + 1],
+            identical: false,
+            empty: false,
+            recognised: false,
+            page_text_truncated: false,
+            truncated: false,
+        };
+        assert!(res_too_many.validate().is_err());
     }
 }

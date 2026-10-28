@@ -375,3 +375,30 @@ pub const MAX_ATTACHMENT_NAME_BYTES: u32 = 255;
 
 /// Longest cleaned description of an attachment (B3-20, ADR 0025), in UTF-8 bytes.
 pub const MAX_ATTACHMENT_DESC_BYTES: u32 = 1_024;
+
+/// Most pages compared between two documents in text diff (B3-24, E9).
+/// A 2,000-page document extraction takes ~2-4s in the background thread without overwhelming
+/// IPC channels or workers. Documents beyond this limit are capped and flagged as truncated.
+pub const MAX_COMPARE_PAGES: u32 = 2_000;
+
+/// Most token units held per document during text comparison (B3-24, E9).
+/// 500,000 tokens easily covers over 1,000 dense pages (~500 words/page) while Myers slice diffing
+/// finishes well within the time budget. Exceeding this marks the comparison as truncated.
+pub const MAX_COMPARE_TOKENS: u32 = 500_000;
+
+/// Most diff items reported to the frontend in a comparison result (B3-24, E9).
+/// Sized to bound serialized JSON message size (< 256 KB) and maintain smooth UI list scrolling.
+pub const MAX_COMPARE_DIFF_ITEMS: u32 = 2_000;
+
+/// Longest text kept for a single diff hunk's deleted or inserted segment (B3-24, E9), in UTF-8 bytes.
+/// Any hunk exceeding 4 KiB is truncated with an ellipsis indicator to prevent giant diffs from lagging IPC.
+pub const MAX_COMPARE_TEXT_BYTES: u32 = 4 * 1024;
+
+/// Maximum time in milliseconds allocated to the diffing algorithm before timing out (B3-24, E9).
+/// Prevents adversarial or worst-case Myers quadratic paths from stalling the background thread.
+pub const MAX_COMPARE_DEADLINE_MILLIS: u64 = 10_000;
+
+/// Largest memory in bytes the main process keeps for caching the last comparison result (B3-24, E9).
+/// Sized to hold full diff structures and document names for native export without recomputation.
+pub const MAX_COMPARE_CACHE_BYTES: usize = 16 * 1024 * 1024;
+

@@ -1461,6 +1461,82 @@ includeName: boolean, };
 export type AnnotationSummaryOutcome = { "kind": "empty" } | { "kind": "cancelled" } | { "kind": "written", count: number, truncated: boolean, };
 
 /**
+ * Compares the text of two open documents `doc_a` and `doc_b` (B3-24, E9).
+ */
+export type CompareTextArgs = { docA: DocumentId, docB: DocumentId, };
+
+/**
+ * One difference in text between two documents (B3-24, E9).
+ */
+export type TextDiffItem = { 
+/**
+ * 0-indexed page in document A where the deletion occurred or is situated.
+ */
+pageA: number, 
+/**
+ * 0-indexed page in document B where the insertion occurred or is situated.
+ */
+pageB: number, 
+/**
+ * Deleted text in document A. Empty if purely an addition in B.
+ */
+deleted: string, 
+/**
+ * Inserted text in document B. Empty if purely a deletion in A.
+ */
+inserted: string, 
+/**
+ * Whether either deleted or inserted text was truncated because it exceeded `MAX_COMPARE_TEXT_BYTES`.
+ */
+truncated: boolean, };
+
+/**
+ * The outcome of comparing text between two open documents (B3-24, E9).
+ */
+export type CompareTextResult = { 
+/**
+ * The differences found between the two documents.
+ */
+items: Array<TextDiffItem>, 
+/**
+ * Both documents have identical text.
+ */
+identical: boolean, 
+/**
+ * Neither document had any extractable text (e.g. scans without OCR).
+ */
+empty: boolean, 
+/**
+ * At least one page in either document was OCR-recognised text.
+ */
+recognised: boolean, 
+/**
+ * At least one page had text cut off by worker text length limits.
+ */
+pageTextTruncated: boolean, 
+/**
+ * The diff computation stopped before completion due to bounds or deadline.
+ */
+truncated: boolean, };
+
+/**
+ * Format of an exported text comparison file (B3-24, E9).
+ */
+export type CompareExportFormat = "text" | "markdown";
+
+/**
+ * Exports the text comparison of documents `doc_a` and `doc_b` (B3-24, E9) as a UTF-8 file
+ * where the user says in the system's save dialog. Content is generated directly in the main
+ * process; no document text passes through the WebView.
+ */
+export type ExportCompareTextArgs = { docA: DocumentId, docB: DocumentId, format: CompareExportFormat, };
+
+/**
+ * What came of exporting a text comparison (B3-24, E9).
+ */
+export type ExportCompareTextOutcome = { "kind": "cancelled" } | { "kind": "written", count: number, truncated: boolean, };
+
+/**
  * An attachment of a document, identified by an opaque number (B3-20, ADR 0025).
  */
 export type AttachmentId = number;
@@ -1588,6 +1664,11 @@ export const LIMITS = {
   maxAttachmentNameBytes: 255,
   maxAttachmentDescBytes: 1024,
   maxSigningReasonBytes: 256,
+  maxComparePages: 2000,
+  maxCompareTokens: 500000,
+  maxCompareDiffItems: 2000,
+  maxCompareTextBytes: 4096,
+  maxCompareDeadlineMillis: 10000,
   protocolVersion: 0,
 } as const;
 
