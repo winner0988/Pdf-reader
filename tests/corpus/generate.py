@@ -1403,6 +1403,63 @@ def malicious_composite_sanitize() -> bytes:
     )
 
 
+def malicious_annotations_action() -> bytes:
+    doc = Document("annotations-action")
+    doc.reserve_pages(1)
+
+    # 1. Highlight (clean)
+    hl = doc.pdf.add(
+        "<< /Type /Annot /Subtype /Highlight /Rect [72 650 200 670] "
+        "/QuadPoints [72 670 200 670 72 650 200 650] /C [1 0.941 0] /F 4 >>"
+    )
+
+    # 2. Sticky Note (clean)
+    note = doc.pdf.add(
+        "<< /Type /Annot /Subtype /Text /Rect [72 600 88 616] "
+        "/Contents (Clean note text from source) /F 4 >>"
+    )
+
+    # 3. Ink (clean)
+    ink = doc.pdf.add(
+        "<< /Type /Annot /Subtype /Ink /Rect [72 500 150 550] "
+        "/InkList [[72 500 100 520 150 550]] /C [0 0 0] /BS << /W 2 >> /F 4 >>"
+    )
+
+    # 4. Stamp (clean standard stamp)
+    stamp = doc.pdf.add(
+        "<< /Type /Annot /Subtype /Stamp /Rect [72 400 172 450] "
+        "/Name /Approved /F 4 >>"
+    )
+
+    # 5. Text Box (clean FreeText with PdfReaderTextBox)
+    tb_entry = doc.pdf.add(
+        "<< /Text (Merged Text Box) /Font (Arial) /Size 12 >>"
+    )
+    tb = doc.pdf.add(
+        f"<< /Type /Annot /Subtype /FreeText /Rect [72 300 272 360] "
+        f"/Contents (Merged Text Box) /PdfReaderTextBox {tb_entry} 0 R /F 4 >>"
+    )
+
+    # 6. Malicious Highlight carrying an /A action with JavaScript
+    action = doc.pdf.add(
+        "<< /S /JavaScript /JS (app.alert('malicious_annot_action')) >>"
+    )
+    malicious_hl = doc.pdf.add(
+        f"<< /Type /Annot /Subtype /Highlight /Rect [72 200 200 220] "
+        f"/QuadPoints [72 220 200 220 72 200 200 200] /C [1 0.941 0] /A {action} 0 R /F 4 >>"
+    )
+
+    doc.set_page(0, Page(
+        lines=[
+            (72, 720, 16, "Sample with five clean annotations and one malicious action"),
+            (72, 655, 12, "Highlightable text on the page"),
+            (72, 205, 12, "Text with malicious highlight"),
+        ],
+        annots=[hl, note, ink, stamp, tb, malicious_hl],
+    ))
+    return doc.build()
+
+
 def attachment_sample(name: str, filename_spec: str, data_bytes: bytes,
                       claimed_size: int | None = None,
                       desc: str | None = None,
@@ -2165,6 +2222,10 @@ SAMPLES = [
            "Composite sample with thumbnail, PieceInfo, metadata, attachment, OpenAction JS, and multiple annotations.",
            "Sanitizing removes active content and hidden data while preserving web links and form values.", 1,
            ["embeddedFile", "javaScript", "openAction"]),
+    Sample("malicious/annotations-action.pdf", malicious_annotations_action,
+           "Source file with five app annotations and an additional highlight carrying a malicious action.",
+           "Carried annotations are recreated cleanly without the malicious action; finding reported.", 1,
+           ["javaScript"]),
     Sample("malicious/attachment-exe.pdf", malicious_attachment_exe,
            "An embedded file with executable name (payload.exe).",
            "App flags as dangerous type (.exe); asks extra confirmation before saving; finding reported.", 1,

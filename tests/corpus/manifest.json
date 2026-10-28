@@ -517,6 +517,19 @@
       "sha256": "7dc09164a2db81f635b924785dc479c20b902e0cfb125e7e2d149718281e68b8"
     },
     {
+      "path": "malicious/annotations-action.pdf",
+      "category": "malicious",
+      "purpose": "Source file with five app annotations and an additional highlight carrying a malicious action.",
+      "expected": "Carried annotations are recreated cleanly without the malicious action; finding reported.",
+      "pages": 1,
+      "findings": [
+        "javaScript"
+      ],
+      "text": [],
+      "bytes": 2004,
+      "sha256": "b1e1af24a2d980cc6cc08ca6d62b052b84aebc5d7fc8e666f61576621677080d"
+    },
+    {
       "path": "malicious/attachment-exe.pdf",
       "category": "malicious",
       "purpose": "An embedded file with executable name (payload.exe).",
