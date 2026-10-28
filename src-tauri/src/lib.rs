@@ -207,9 +207,11 @@ pub fn run() {
                 data.as_ref()
                     .map(|dir| dir.join(ocr_languages::FOLDER_NAME)),
             ))));
-            app.manage(fonts::Fonts::new(
+            let fonts = fonts::Fonts::new(
                 data.as_ref().map(|dir| dir.join(fonts::FOLDER_NAME)),
-            ));
+            );
+            app.state::<Documents>().set_fonts(fonts.clone());
+            app.manage(fonts);
             app.manage(RecentFiles::new(
                 data.as_ref().map(|dir| dir.join(recent::FILE_NAME)),
             ));

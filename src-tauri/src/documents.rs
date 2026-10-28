@@ -23,9 +23,9 @@ use ipc_contract::types::{
     AnnotationId, AnnotationSummary, AttachmentId, AttachmentInfo, AttachmentSource,
     BatchOperation, BlockedAction, Certification, CompressResult, CreateKind, CreateResult,
     DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
-    FindPersonalDataQuery, FormField, ImageQuality, IpcError, LinkArgs, LinkPreview, LinkTarget,
-    MarkCheck, NotRemembered, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink,
-    PageMarksError, PageSize, PageText, PagesSource, Password, PersonalDataMatches,
+    FindPersonalDataQuery, FontInfo, FormField, ImageQuality, IpcError, LinkArgs, LinkPreview,
+    LinkTarget, MarkCheck, NotRemembered, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation,
+    PageLink, PageMarksError, PageSize, PageText, PagesSource, Password, PersonalDataMatches,
     PreparedTextBox, Recovery, RedactionSummary, RememberedPasswords, RemoteAddressArgs,
     RenderPageArgs, Restrictions, SanitizeOptions, SanitizeResult, SaveAttachmentResult,
     SaveResult, SearchHit, SecurityReport, SignCheck, SignatureReport, SignatureStatus, SourceId,
@@ -33,8 +33,8 @@ use ipc_contract::types::{
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
-    FontData, InspectedFont, NewSignature, OcrFinished, OcrPageState, PasswordKey, UnknownFile,
-    WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
+    FontData, InspectedFont, InsertedTextBox, NewSignature, OcrFinished, OcrPageState, PasswordKey,
+    SourceTextBox, UnknownFile, WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
 };
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
@@ -71,6 +71,8 @@ pub struct Documents {
     /// The passwords the user asked the app to remember (B2-25, ADR 0017). Set once at startup;
     /// without it nothing is remembered or recalled.
     credentials: OnceLock<Credentials>,
+    /// Where fonts come from to prepare text boxes on inserted pages. Set once at startup.
+    fonts: OnceLock<crate::fonts::Fonts>,
 }
 
 struct Inner {
@@ -192,6 +194,7 @@ impl Documents {
             reporter: OnceLock::new(),
             journals: OnceLock::new(),
             credentials: OnceLock::new(),
+            fonts: OnceLock::new(),
         }
     }
 
@@ -208,6 +211,15 @@ impl Documents {
     /// Where the remembered passwords are kept (see the field).
     pub fn set_credentials(&self, credentials: Credentials) {
         let _ = self.credentials.set(credentials);
+    }
+
+    /// Where fonts come from to prepare text boxes on inserted pages.
+    pub fn set_fonts(&self, fonts: crate::fonts::Fonts) {
+        let _ = self.fonts.set(fonts);
+    }
+
+    pub fn fonts(&self) -> crate::fonts::Fonts {
+        self.fonts.get_or_init(crate::fonts::Fonts::default).clone()
     }
 
     /// Adds a tab for each of `paths`, in order, and reports `Opening` for each. Files beyond
@@ -1925,6 +1937,87 @@ impl Documents {
         })
     }
 
+/// Prepares text box models for inserted pages (B3-23, ADR 0019 §3).
+///
+/// Tries the original font family first, then falls back through the default sequence
+/// ("Microsoft JhengHei", "Microsoft YaHei", "Yu Gothic", "Segoe UI", "Arial").
+/// If no candidate font can set the text, that text box is skipped.
+fn prepare_inserted_text_boxes(
+    document: &mut OpenDocument,
+    fonts: &crate::fonts::Fonts,
+    source_boxes: &[SourceTextBox],
+) -> Vec<InsertedTextBox> {
+    const FALLBACK_FAMILIES: &[&str] = &[
+        "Microsoft JhengHei",
+        "Microsoft YaHei",
+        "Yu Gothic",
+        "Segoe UI",
+        "Arial",
+    ];
+
+    let available_fonts = fonts.list();
+    let mut inserted = Vec::new();
+
+    for stb in source_boxes {
+        if check_text_box_text(&stb.text).is_err() {
+            continue;
+        }
+
+        let mut candidates = Vec::with_capacity(1 + FALLBACK_FAMILIES.len());
+        candidates.push(stb.font_family.as_str());
+        for &fallback in FALLBACK_FAMILIES {
+            if !candidates.iter().any(|&c| c.eq_ignore_ascii_case(fallback)) {
+                candidates.push(fallback);
+            }
+        }
+
+        let mut prepared_model = None;
+        for family in candidates {
+            let mut family_fonts: Vec<&FontInfo> = available_fonts
+                .iter()
+                .filter(|f| f.family.eq_ignore_ascii_case(family))
+                .collect();
+            if family_fonts.is_empty() {
+                continue;
+            }
+            family_fonts.sort_by_key(|f| (f.bold, f.italic));
+            let chosen_font = family_fonts[0];
+
+            let Ok(font_file) = fonts.read(chosen_font.id) else {
+                continue;
+            };
+
+            let font_data = FontData {
+                bytes: font_file.bytes,
+                face: font_file.face,
+                name: chosen_font.name.clone(),
+            };
+
+            let response = document.host.request(|request| WorkerRequest::PrepareTextBox {
+                request,
+                font: font_data,
+                text: stb.text.clone(),
+            });
+
+            if let Ok(WorkerResponse::TextBoxPrepared { model, .. }) = response {
+                prepared_model = Some(model);
+                break;
+            }
+        }
+
+        if let Some(model) = prepared_model {
+            inserted.push(InsertedTextBox {
+                page: stb.page,
+                rect: stb.rect,
+                model,
+                style: stb.style,
+            });
+        }
+    }
+
+    inserted
+}
+
     /// Makes the clean copy of the PDF at `path`, a file the user chose to take pages from
     /// (B2-06), and keeps it for `doc`. The document's own worker does the work, through a
     /// read-only handle, as it reads any file. `password` is for an encrypted file: without it, or
@@ -1936,6 +2029,7 @@ impl Documents {
         path: &Path,
         password: Option<Password>,
     ) -> Result<PagesSource, IpcError> {
+        let fonts = self.fonts();
         self.with_document(doc, |document| {
             let permissions = document.info.permissions;
             if !(permissions.assemble || permissions.modify) {
@@ -1959,11 +2053,14 @@ impl Documents {
                 bytes,
                 pages,
                 security,
+                text_boxes,
                 ..
             } = response
             else {
                 return Err(unexpected("PrepareSource"));
             };
+            let inserted_text_boxes =
+                Self::prepare_inserted_text_boxes(document, &fonts, &text_boxes);
             let source = document
                 .sources
                 .add(
@@ -1971,6 +2068,7 @@ impl Documents {
                         bytes,
                         pages,
                         security,
+                        text_boxes: inserted_text_boxes,
                     },
                     document.history.all(),
                 )
@@ -3020,7 +3118,7 @@ fn worker_edit(
 ) -> Result<WorkerEdit, IpcError> {
     WorkerEdit::of(
         edit,
-        |source| sources.bytes(source),
+        |source| sources.bytes_and_text_boxes(source),
         |image| pictures.png(image),
         |model| text_boxes.model(model),
     )
@@ -8748,6 +8846,143 @@ mod with_worker {
         // The document is as it was after any of it.
         assert_eq!(documents.document_info(info.doc).unwrap().pages.len(), 2);
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn merged_text_boxes_use_matching_font_or_fallback_or_skip() {
+        let (documents, info, target_path) = open("merge-tb-font", 2);
+
+        // 1. Prepare inserted text boxes directly via with_document
+        documents
+            .with_document(info.doc, |document| {
+                let fonts = documents.fonts();
+                let source_boxes = vec![
+                    // Direct match: Arial
+                    SourceTextBox {
+                        page: 0,
+                        rect: Rect {
+                            x0: 50.0,
+                            y0: 50.0,
+                            x1: 200.0,
+                            y1: 100.0,
+                        },
+                        text: "Direct Arial Box".to_owned(),
+                        font_family: "Arial".to_owned(),
+                        style: TextBoxStyle {
+                            size: 12.0,
+                            color: Rgb { r: 0, g: 0, b: 0 },
+                            align: TextAlign::Left,
+                        },
+                    },
+                    // Fallback font: NonExistentFontFamilyXYZ falls back to Microsoft JhengHei / Segoe UI / Arial
+                    SourceTextBox {
+                        page: 0,
+                        rect: Rect {
+                            x0: 50.0,
+                            y0: 150.0,
+                            x1: 200.0,
+                            y1: 200.0,
+                        },
+                        text: "Fallback Font Box".to_owned(),
+                        font_family: "NonExistentFontFamilyXYZ".to_owned(),
+                        style: TextBoxStyle {
+                            size: 14.0,
+                            color: Rgb {
+                                r: 255,
+                                g: 0,
+                                b: 0,
+                            },
+                            align: TextAlign::Center,
+                        },
+                    },
+                    // Skipped: unpermitted control character
+                    SourceTextBox {
+                        page: 0,
+                        rect: Rect {
+                            x0: 50.0,
+                            y0: 250.0,
+                            x1: 200.0,
+                            y1: 300.0,
+                        },
+                        text: "Bad\x01\x02Text".to_owned(),
+                        font_family: "Arial".to_owned(),
+                        style: TextBoxStyle {
+                            size: 12.0,
+                            color: Rgb { r: 0, g: 0, b: 0 },
+                            align: TextAlign::Left,
+                        },
+                    },
+                ];
+
+                let prepared =
+                    Documents::prepare_inserted_text_boxes(document, &fonts, &source_boxes);
+                assert_eq!(
+                    prepared.len(),
+                    2,
+                    "Expected 2 prepared text boxes (1 direct, 1 fallback, 1 skipped)"
+                );
+                assert!(prepared[0].model.font.contains("Arial"));
+                let fb_font = &prepared[1].model.font;
+                assert!(
+                    fb_font.contains("Microsoft JhengHei")
+                        || fb_font.contains("Microsoft YaHei")
+                        || fb_font.contains("Yu Gothic")
+                        || fb_font.contains("Segoe UI")
+                        || fb_font.contains("Arial"),
+                    "Expected fallback font, got: {fb_font}"
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        // 2. Test end-to-end with a source document created with a text box
+        let source_info = open_in(&documents, &corpus_path("benign/single-page.pdf"));
+        let prepared_tb = documents
+            .prepare_text_box(source_info.doc, "Source Box", arial())
+            .unwrap();
+        let edit_args = EditArgs {
+            doc: source_info.doc,
+            edit: text_box_with(0, prepared_tb.model),
+        };
+        let new_source_doc = match documents.apply_edit(&edit_args).unwrap() {
+            OpenEvent::Opened { info, .. } => info.doc,
+            other => panic!("{other:?}"),
+        };
+
+        let source_path =
+            std::env::temp_dir().join(format!("merge-tb-src-{}.pdf", std::process::id()));
+        let _ = documents
+            .save(new_source_doc, Some(source_path.clone()))
+            .unwrap();
+
+        let taken = documents
+            .prepare_pages_source(info.doc, &source_path, None)
+            .unwrap();
+        std::fs::remove_file(&source_path).ok();
+
+        // 3. Insert pages into target document
+        let mut target_doc = info.doc;
+        let pages = edited_pages(&documents, &mut target_doc, insert_pages(1, taken.source));
+        assert_eq!(pages.len(), 3);
+
+        // 4. Save target document: verify sources are cleared
+        let copy = std::env::temp_dir().join(format!("merge-tb-saved-{}.pdf", std::process::id()));
+        documents
+            .save(target_doc, Some(copy.clone()))
+            .unwrap();
+        documents
+            .with_document(target_doc, |d| {
+                assert!(
+                    d.sources.get(taken.source).is_none(),
+                    "Sources must be cleared after save"
+                );
+                Ok(())
+            })
+            .unwrap();
+
+        std::fs::remove_file(&copy).ok();
+        std::fs::remove_file(target_path).ok();
+        let _ = documents.close(tab_of(&documents, new_source_doc));
     }
 
     #[test]

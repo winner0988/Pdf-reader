@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf, Prefix};
 use std::ptr::{null, null_mut};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use ipc_contract::limits::{MAX_FONT_BYTES, MAX_FONT_NAME_BYTES, MAX_FONTS, MAX_IMPORTED_FONTS};
 use ipc_contract::text::clean_display_text;
@@ -372,9 +372,15 @@ fn fonts_folder() -> PathBuf {
 }
 
 /// The fonts of the last list, to read the file of the one the user chooses.
-pub struct Fonts {
+struct FontsInner {
     imported_folder: Option<PathBuf>,
     listed: Mutex<Listed>,
+}
+
+/// The fonts of the last list, to read the file of the one the user chooses.
+#[derive(Clone)]
+pub struct Fonts {
+    inner: Arc<FontsInner>,
 }
 
 impl Default for Fonts {
@@ -393,8 +399,10 @@ struct Listed {
 impl Fonts {
     pub fn new(imported_folder: Option<PathBuf>) -> Self {
         Self {
-            imported_folder,
-            listed: Mutex::new(Listed::default()),
+            inner: Arc::new(FontsInner {
+                imported_folder,
+                listed: Mutex::new(Listed::default()),
+            }),
         }
     }
 
@@ -403,7 +411,7 @@ impl Fonts {
     pub fn list(&self) -> Vec<FontInfo> {
         let installed_fonts = list(&installed(), &fonts_folder());
         let mut imported_fonts: Vec<(FontInfo, Located)> = Vec::new();
-        if let Some(folder) = &self.imported_folder {
+        if let Some(folder) = &self.inner.imported_folder {
             let metadata = read_metadata(folder);
             for record in metadata.fonts {
                 let path = folder.join(&record.file);
@@ -490,6 +498,7 @@ impl Fonts {
             return Err(FontImportRefusal::BadExtension);
         }
         let folder = self
+            .inner
             .imported_folder
             .as_ref()
             .ok_or(FontImportRefusal::Unreadable)?;
@@ -565,7 +574,7 @@ impl Fonts {
     /// Removes an imported font by its `id` (B2-32): deletes the font file from the data folder
     /// and updates metadata. Returns the updated font list.
     pub fn remove(&self, id: FontId) -> Result<Vec<FontInfo>, ()> {
-        let Some(folder) = &self.imported_folder else {
+        let Some(folder) = &self.inner.imported_folder else {
             return Err(());
         };
         let located = self.lock().located.get(&id).cloned().ok_or(())?;
@@ -583,7 +592,7 @@ impl Fonts {
 
     /// Removes all imported fonts from the app's data folder (B2-32). Returns the updated font list.
     pub fn remove_all(&self) -> Result<Vec<FontInfo>, ()> {
-        let Some(folder) = &self.imported_folder else {
+        let Some(folder) = &self.inner.imported_folder else {
             return Err(());
         };
         let metadata = read_metadata(folder);
@@ -626,7 +635,8 @@ impl Fonts {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Listed> {
-        self.listed
+        self.inner
+            .listed
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
