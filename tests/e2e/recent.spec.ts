@@ -7,7 +7,7 @@ import path from "node:path";
 import type { Page } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
-import { corpus, dataDir, expect, launchAgain, test } from "./app";
+import { corpus, dataDir, documentTabs, expect, launchAgain, test } from "./app";
 
 const SINGLE = corpus("benign/single-page.pdf");
 const TEN = corpus("benign/multi-page-10.pdf");
@@ -21,7 +21,7 @@ async function ready(page: Page) {
 
 /** Closes every tab: the start screen shows. */
 async function closeAll(page: Page) {
-  while ((await page.getByRole("tab").count()) > 0) await page.keyboard.press("Control+w");
+  while ((await documentTabs(page).count()) > 0) await page.keyboard.press("Control+w");
   await expect(page.getByRole("heading", { name: strings.empty.title })).toBeVisible();
 }
 
@@ -51,7 +51,13 @@ test("the list is most recent first, and one click clears it", async ({ launch }
   const page = await launch(SINGLE);
   await ready(page);
   launchAgain(TEN);
-  await expect(page.getByRole("tab")).toHaveCount(2);
+  // CI's window width is 1028 px (above the 960 px threshold), so the sidebar is shown once the
+  // active document is ready. Wait for the new document to become the active tab and for the
+  // sidebar to appear before counting document tabs, so the count does not rely on timing (with
+  // the sidebar visible, the old page.getByRole("tab") would count 6 tabs instead of 2).
+  await expect(page.getByRole("tab", { name: /multi-page-10\.pdf/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: strings.sidebar.thumbnailsTab })).toBeVisible();
+  await expect(documentTabs(page)).toHaveCount(2);
   await expect.poll(() => (existsSync(recentJson(page)) ? JSON.parse(stored(page)).files : [])).toEqual([TEN, SINGLE]);
 
   await closeAll(page);
@@ -103,7 +109,7 @@ test("a file that was deleted since says so, and goes off the list", async ({ la
     await button.click();
     await expect(page.getByRole("alert")).toHaveText(strings.recent.missing("gone.pdf"));
     // No tab was made for it, the list no longer has it, and the file that is stored does not either.
-    await expect(page.getByRole("tab")).toHaveCount(0);
+    await expect(documentTabs(page)).toHaveCount(0);
     expect(existsSync(recentJson(page)) ? JSON.parse(stored(page)).files : []).toEqual([]);
 
     // The app is fine: another file opens.

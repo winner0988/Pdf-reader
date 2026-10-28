@@ -1,7 +1,7 @@
 // First end-to-end tests (QA-02): starting, opening from the command line and with the open
 // dialog, damaged files.
 import { strings } from "../../src/i18n/zh-TW";
-import { answerFileDialog, corpus, expect, test } from "./app";
+import { answerFileDialog, corpus, documentTabs, expect, test } from "./app";
 
 test("starts with the empty state", async ({ launch }) => {
   const page = await launch();
@@ -44,7 +44,7 @@ test("the open dialog opens the picked file in a tab, and can be cancelled (#86)
   await answerFileDialog(page, "cancel");
   // Cancelled: no tab, and the start screen is still there.
   await page.waitForTimeout(500);
-  await expect(page.getByRole("tab")).toHaveCount(0);
+  await expect(documentTabs(page)).toHaveCount(0);
   await expect(page.getByRole("heading", { name: strings.empty.title })).toBeVisible();
 
   // The dialog can be shown again once closed.
