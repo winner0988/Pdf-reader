@@ -86,8 +86,22 @@ fn stamp_style(stamp: StampName) -> (&'static str, [f32; 3]) {
     }
 }
 
+pub(super) fn parse_stamp_name(name: &str) -> Option<StampName> {
+    match name {
+        "Approved" => Some(StampName::Approved),
+        "NotApproved" => Some(StampName::NotApproved),
+        "Draft" => Some(StampName::Draft),
+        "Final" => Some(StampName::Final),
+        "Confidential" => Some(StampName::Confidential),
+        "ForComment" => Some(StampName::ForComment),
+        "AsIs" => Some(StampName::AsIs),
+        "TopSecret" => Some(StampName::TopSecret),
+        _ => None,
+    }
+}
+
 /// Which of the highlighter's colors `color` is, if any.
-fn highlight_color(color: AnnotationColor) -> Option<HighlightColor> {
+pub(super) fn highlight_color(color: AnnotationColor) -> Option<HighlightColor> {
     let AnnotationColor::Rgb { red, green, blue } = color else {
         return None;
     };
@@ -104,6 +118,32 @@ fn highlight_color(color: AnnotationColor) -> Option<HighlightColor> {
             .zip([red, green, blue])
             .all(|(want, have)| (want - have).abs() <= COLOR_TOLERANCE)
     })
+}
+
+pub(super) fn parse_ink_color(color: AnnotationColor) -> Option<InkColor> {
+    let AnnotationColor::Rgb { red, green, blue } = color else {
+        return None;
+    };
+    [
+        InkColor::Black,
+        InkColor::Red,
+        InkColor::Blue,
+        InkColor::Green,
+    ]
+    .into_iter()
+    .find(|&candidate| {
+        ink_rgb(candidate)
+            .into_iter()
+            .zip([red, green, blue])
+            .all(|(want, have)| (want - have).abs() <= COLOR_TOLERANCE)
+    })
+}
+
+pub(super) fn parse_ink_width(width: f32) -> Option<InkWidth> {
+    const WIDTH_TOLERANCE: f32 = 0.5;
+    [InkWidth::Thin, InkWidth::Medium, InkWidth::Thick]
+        .into_iter()
+        .find(|&candidate| (ink_line_width(candidate) - width).abs() <= WIDTH_TOLERANCE)
 }
 
 fn binding_point(point: Point) -> mupdf::Point {

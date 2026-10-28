@@ -14,7 +14,7 @@ use mupdf::pdf::PdfObject;
 use super::EngineError;
 
 /// The entry of the annotation dictionary that says the app made it, and holds the model.
-pub(super) const KEY: &str = "PdfReaderTextBox";
+pub(in crate::engine) const KEY: &str = "PdfReaderTextBox";
 
 /// Version of the private entry.
 const VERSION: i32 = 1;
@@ -236,6 +236,23 @@ fn style_of(entry: &PdfObject) -> Result<TextBoxStyle, EngineError> {
         },
         align,
     })
+}
+
+/// The words, the font family and the style of a text box, read back from its private entry
+/// without its font file (B3-23, ADR 0019).
+pub(in crate::engine) fn read_source_text_box_info(
+    entry: &PdfObject,
+) -> Result<(String, String, TextBoxStyle), EngineError> {
+    let foreign = || EngineError::InvalidEdit("a text box that is not the app's");
+    if int(entry, "V")? != VERSION {
+        return Err(foreign());
+    }
+    let text = from_utf16(&field(entry, "Text")?.as_bytes()?).ok_or_else(foreign)?;
+    check_text_box_text(&text).map_err(|_| foreign())?;
+    let font = from_utf16(&field(entry, "Font")?.as_bytes()?).ok_or_else(foreign)?;
+    let style = style_of(entry)?;
+    style.validate().map_err(|_| foreign())?;
+    Ok((text, font, style))
 }
 
 /// The words, the glyph widths and the style of a text box, read back from its private entry

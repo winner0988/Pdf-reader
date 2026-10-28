@@ -30,8 +30,8 @@ use crate::types::{
     UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
-    InspectedFont, OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerAttachment, WorkerError,
-    WorkerErrorCode, WorkerPageMarks, WorkerResponse,
+    InsertedTextBox, InspectedFont, OcrOutcome, OpenedDocument, Raster, SourceTextBox,
+    TextBoxModel, WorkerAttachment, WorkerError, WorkerErrorCode, WorkerPageMarks, WorkerResponse,
 };
 
 /// Maximum length of the worker version string in `Hello`.
@@ -623,6 +623,7 @@ impl Validate for WorkerResponse {
                 bytes,
                 pages,
                 security,
+                text_boxes,
                 ..
             } => {
                 check_count("source file bytes", bytes.len(), MAX_SOURCE_BYTES as u32)?;
@@ -631,7 +632,17 @@ impl Validate for WorkerResponse {
                         what: "source page count",
                     });
                 }
-                security.validate()
+                security.validate()?;
+                check_count("source text boxes", text_boxes.len(), MAX_SOURCE_TEXT_BOXES)?;
+                for text_box in text_boxes {
+                    text_box.validate()?;
+                    if text_box.page >= *pages {
+                        return Err(ValidationError::OutOfRange {
+                            what: "source text box page",
+                        });
+                    }
+                }
+                Ok(())
             }
             WorkerResponse::Attachments { attachments, .. } => {
                 check_count("attachments", attachments.len(), MAX_ATTACHMENTS)?;
@@ -1606,7 +1617,7 @@ impl Validate for PersonalDataMatches {
 }
 
 /// An angle a picture is turned to (B3-01), in degrees: a number, within a full turn each way.
-fn check_angle(degrees: f32) -> Result<(), ValidationError> {
+pub fn check_angle(degrees: f32) -> Result<(), ValidationError> {
     if !degrees.is_finite() || degrees.abs() > MAX_PICTURE_ANGLE_DEGREES {
         return Err(ValidationError::OutOfRange {
             what: "picture angle",
@@ -1617,7 +1628,7 @@ fn check_angle(degrees: f32) -> Result<(), ValidationError> {
 
 /// A rectangle an annotation is put in or moved to (B2-08): finite, upright, and large enough to
 /// be seen and grabbed.
-fn check_annotation_rect(rect: &Rect) -> Result<(), ValidationError> {
+pub fn check_annotation_rect(rect: &Rect) -> Result<(), ValidationError> {
     rect.validate()?;
     if rect.x1 - rect.x0 < MIN_ANNOTATION_SIDE_PT || rect.y1 - rect.y0 < MIN_ANNOTATION_SIDE_PT {
         return Err(ValidationError::Invalid {
@@ -1630,7 +1641,7 @@ fn check_annotation_rect(rect: &Rect) -> Result<(), ValidationError> {
 
 /// The page an annotation edit is on: one a document can have; whether this document has it is
 /// checked by the caller ([`check_page_index`]).
-fn check_annotated_page(page: u32) -> Result<(), ValidationError> {
+pub fn check_annotated_page(page: u32) -> Result<(), ValidationError> {
     if page >= MAX_PAGE_COUNT {
         return Err(ValidationError::OutOfRange {
             what: "annotated page",
@@ -1640,7 +1651,7 @@ fn check_annotated_page(page: u32) -> Result<(), ValidationError> {
 }
 
 /// What a note says (B2-07): something, within the length limit, and only text.
-fn check_note_text(text: &str) -> Result<(), ValidationError> {
+pub fn check_note_text(text: &str) -> Result<(), ValidationError> {
     if text.trim().is_empty() {
         return Err(ValidationError::Invalid {
             what: "note text",
@@ -1869,6 +1880,29 @@ impl Validate for TextBoxModel {
             });
         }
         Ok(())
+    }
+}
+
+impl Validate for SourceTextBox {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.rect.validate()?;
+        check_text_box_text(&self.text)?;
+        if self.font_family.is_empty() || self.font_family.len() >= MAX_FONT_NAME_BYTES {
+            return Err(ValidationError::Invalid {
+                what: "font family",
+                reason: "is empty or too long",
+            });
+        }
+        check_clean("font family", &self.font_family)?;
+        self.style.validate()
+    }
+}
+
+impl Validate for InsertedTextBox {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.rect.validate()?;
+        self.model.validate()?;
+        self.style.validate()
     }
 }
 
@@ -4771,6 +4805,7 @@ mod tests {
             bytes: vec![0; len],
             pages,
             security: SecurityReport::default(),
+            text_boxes: Vec::new(),
         };
         assert!(source(1_000, 3).validate().is_ok());
         assert!(source(MAX_SOURCE_BYTES, 1).validate().is_ok());
@@ -4796,6 +4831,54 @@ mod tests {
                 bytes: Vec::new(),
                 pages: 1,
                 security: bad_report,
+                text_boxes: Vec::new(),
+            }
+            .validate()
+            .is_err()
+        );
+
+        let valid_box = SourceTextBox {
+            page: 0,
+            rect: Rect {
+                x0: 10.0,
+                y0: 20.0,
+                x1: 100.0,
+                y1: 50.0,
+            },
+            text: "Hello".to_owned(),
+            font_family: "Arial".to_owned(),
+            style: TextBoxStyle {
+                size: 12.0,
+                color: Rgb { r: 0, g: 0, b: 0 },
+                align: TextAlign::Left,
+            },
+        };
+        assert!(valid_box.validate().is_ok());
+
+        // Text box page beyond source page count is rejected.
+        assert!(
+            WorkerResponse::Source {
+                request: RequestId(1),
+                bytes: vec![0; 10],
+                pages: 1,
+                security: SecurityReport::default(),
+                text_boxes: vec![SourceTextBox {
+                    page: 1,
+                    ..valid_box.clone()
+                }],
+            }
+            .validate()
+            .is_err()
+        );
+
+        // Text boxes beyond limit are rejected.
+        assert!(
+            WorkerResponse::Source {
+                request: RequestId(1),
+                bytes: vec![0; 10],
+                pages: 10,
+                security: SecurityReport::default(),
+                text_boxes: vec![valid_box; MAX_SOURCE_TEXT_BOXES as usize + 1],
             }
             .validate()
             .is_err()

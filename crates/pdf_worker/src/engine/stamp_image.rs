@@ -153,7 +153,7 @@ impl PdfDocument {
         index: u32,
         rect: Rect,
         png: &[u8],
-    ) -> Result<(), EngineError> {
+    ) -> Result<AnnotationId, EngineError> {
         stamp_png_size(png).map_err(|_| EngineError::InvalidEdit("not a stamp picture"))?;
         let pixmap = Image::from_bytes(png)?.to_pixmap()?;
         let picture = Image::from_pixmap(&pixmap)?;
@@ -185,7 +185,8 @@ impl PdfDocument {
         annotation.object().dict_put("AP", appearance)?;
         annotation.set_rect(binding_rect(rect))?;
         annotation.update()?;
-        Ok(())
+        let id = u32::try_from(annotation.xref()?).map_err(|_| EngineError::TooComplex)?;
+        Ok(AnnotationId(id))
     }
 }
 
@@ -194,14 +195,14 @@ impl PdfDocument {
 /// the viewer fits the turned box to the annotation's rectangle. Lengths are in points, in the
 /// space of the PDF (the page's own, before its `/Rotate`).
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct Setting {
+pub(super) struct Setting {
     /// The picture when upright.
-    width: f32,
-    height: f32,
+    pub(super) width: f32,
+    pub(super) height: f32,
     /// Counter-clockwise in radians (the PDF's y axis points up).
-    angle: f32,
+    pub(super) angle: f32,
     /// `/Rect`, upright: x0, y0, x1, y1.
-    rect: [f32; 4],
+    pub(super) rect: [f32; 4],
 }
 
 /// How close to a quarter turn an angle has to be to count as one, in radians.
@@ -285,7 +286,7 @@ fn numbers<const N: usize>(object: Option<PdfObject>) -> Option<[f32; N]> {
 }
 
 /// What `key` of `object` is, followed through a reference.
-fn entry_of(object: &PdfObject, key: &str) -> Option<PdfObject> {
+pub(super) fn entry_of(object: &PdfObject, key: &str) -> Option<PdfObject> {
     object
         .get_dict(key)
         .ok()
@@ -336,7 +337,7 @@ fn draws_only_the_picture(content: &[u8]) -> bool {
 /// The setting of `annotation` and the reference to its picture, if it is a stamp made from a
 /// picture, as the app makes it and MuPDF keeps it: its appearance form draws one image, and
 /// nothing else (MuPDF names a stamp's image `I`).
-fn read_setting(annotation: &PdfAnnotation) -> Option<(Setting, PdfObject)> {
+pub(super) fn read_setting(annotation: &PdfAnnotation) -> Option<(Setting, PdfObject)> {
     let object = annotation.object();
     // The form as the annotation refers to it: a stream is only one through its reference.
     let form_ref = entry_of(&object, "AP")?.get_dict("N").ok().flatten()?;
@@ -1210,5 +1211,46 @@ mod tests {
         let turn_ = turn(100.0, 40.0, (100.0, 50.0), page, 90.0);
         assert!(near(turn_.rect[3] - turn_.rect[1], 100.0), "{turn_:?}");
         assert!(near(turn_.width / turn_.height, 2.5), "{turn_:?}");
+    }
+
+    #[test]
+    fn a_turned_picture_stamp_comes_along_when_its_page_is_inserted() {
+        let (mut source, id) = stamped("benign/multi-page-10.pdf");
+        source.set_picture_angle(0, id, 30.0).expect("turn");
+        let angle_of = |doc: &PdfDocument, page: u32| {
+            let page = doc.pdf_page(page).expect("page");
+            page.annotations()
+                .find_map(|annotation| read_setting(&annotation).map(|(setting, _)| setting.angle))
+        };
+        let before = angle_of(&source, 0).expect("a picture stamp in the source");
+        let rect_before = only(&source).rect;
+        let prepared = PdfDocument::prepare_source(&saved(&source), None).expect("prepare");
+        let mut doc = PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
+        doc.insert_pages(2, &prepared.bytes, &[]).expect("insert");
+        let found = doc.page_annotations(2).expect("annotations");
+        assert_eq!(
+            found.len(),
+            1,
+            "the picture stamp did not come along: {found:?}"
+        );
+        assert!(
+            found[0].picture.is_some(),
+            "not a picture stamp: {:?}",
+            found[0]
+        );
+        let after = angle_of(&doc, 2).expect("a picture stamp on the inserted page");
+        assert!(
+            (after - before).abs() < 1e-3,
+            "angle {before} became {after}"
+        );
+        let r = found[0].rect;
+        let near = |a: f32, b: f32| (a - b).abs() < 1.0;
+        assert!(
+            near(r.x0, rect_before.x0)
+                && near(r.y0, rect_before.y0)
+                && near(r.x1, rect_before.x1)
+                && near(r.y1, rect_before.y1),
+            "{rect_before:?} became {r:?}"
+        );
     }
 }

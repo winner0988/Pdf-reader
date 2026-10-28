@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use ipc_contract::limits::{MAX_REMOTE_ADDRESSES, MAX_SOURCES_BYTES};
 use ipc_contract::types::{Edit, SecurityFinding, SecurityReport, SourceId};
+use ipc_contract::worker::InsertedTextBox;
 
 /// Most files one document keeps copies of.
 pub const MAX_SOURCES: usize = 16;
@@ -27,6 +28,8 @@ pub struct Source {
     pub pages: u32,
     /// The active content the file had, which did not come along (MVP-11).
     pub security: SecurityReport,
+    /// The prepared text boxes for the inserted pages.
+    pub text_boxes: Vec<InsertedTextBox>,
 }
 
 /// The copies a document keeps.
@@ -51,12 +54,13 @@ impl Sources {
         self.get(id).map(|source| source.pages)
     }
 
-    /// The copy of file `id`, for the worker.
-    pub fn bytes(&self, id: SourceId) -> Option<Vec<u8>> {
-        self.get(id).map(|source| source.bytes.clone())
+    /// The copy of file `id` and its prepared text box models, for the worker.
+    pub fn bytes_and_text_boxes(&self, id: SourceId) -> Option<(Vec<u8>, Vec<InsertedTextBox>)> {
+        self.get(id)
+            .map(|source| (source.bytes.clone(), source.text_boxes.clone()))
     }
 
-    fn get(&self, id: SourceId) -> Option<&Arc<Source>> {
+    pub(crate) fn get(&self, id: SourceId) -> Option<&Arc<Source>> {
         self.kept
             .iter()
             .find(|(kept, _)| *kept == id)
@@ -74,8 +78,15 @@ impl Sources {
     ) -> Result<SourceId, Full> {
         let used: Vec<SourceId> = history.into_iter().filter_map(used_by).collect();
         self.kept.retain(|(id, _)| used.contains(id));
-        let bytes: usize = self.kept.iter().map(|(_, kept)| kept.bytes.len()).sum();
-        if self.kept.len() >= MAX_SOURCES || bytes + source.bytes.len() > MAX_SOURCES_BYTES {
+        let size_of = |s: &Source| {
+            s.bytes.len()
+                + s.text_boxes
+                    .iter()
+                    .map(|tb| tb.model.subset.len())
+                    .sum::<usize>()
+        };
+        let bytes: usize = self.kept.iter().map(|(_, kept)| size_of(kept)).sum();
+        if self.kept.len() >= MAX_SOURCES || bytes + size_of(&source) > MAX_SOURCES_BYTES {
             return Err(Full);
         }
         let id = SourceId(self.next);
@@ -146,6 +157,7 @@ mod tests {
                 scan_complete: true,
                 remote_addresses: Vec::new(),
             },
+            text_boxes: Vec::new(),
         }
     }
 
@@ -165,7 +177,10 @@ mod tests {
         let c = sources.add(file(10, 1, &[]), []).unwrap();
         assert_eq!((sources.pages(a), sources.pages(b)), (None, None));
         assert!(c.0 > b.0);
-        assert_eq!(sources.bytes(c), Some(vec![0; 10]));
+        assert_eq!(
+            sources.bytes_and_text_boxes(c),
+            Some((vec![0; 10], Vec::new()))
+        );
         sources.clear();
         assert_eq!(sources.pages(c), None);
     }
@@ -190,6 +205,42 @@ mod tests {
         let b = sources.add(file(big, 1, &[]), &history).unwrap();
         let history = [taking(a), taking(b)];
         assert_eq!(sources.add(file(1, 1, &[]), &history), Err(Full));
+
+        // Text box models count towards MAX_SOURCES_BYTES.
+        let mut sources = Sources::default();
+        let mut with_tb = file(big - 100, 1, &[]);
+        with_tb.text_boxes.push(InsertedTextBox {
+            page: 0,
+            rect: ipc_contract::types::Rect {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 100.0,
+                y1: 100.0,
+            },
+            model: ipc_contract::worker::TextBoxModel {
+                text: "hi".to_owned(),
+                font: "Arial".to_owned(),
+                face: 0,
+                view_only: false,
+                base: "ABCDEF+Arial".to_owned(),
+                ascent: 800,
+                descent: -200,
+                cap_height: 700,
+                step: 1000,
+                bbox: [0, -200, 1000, 800],
+                glyphs: Vec::new(),
+                subset: vec![0; 101],
+            },
+            style: ipc_contract::types::TextBoxStyle {
+                size: 12.0,
+                color: ipc_contract::types::Rgb { r: 0, g: 0, b: 0 },
+                align: ipc_contract::types::TextAlign::Left,
+            },
+        });
+        let a = sources.add(with_tb, []).unwrap();
+        let history = [taking(a)];
+        // The remaining room is big - 1, but we try to add big:
+        assert_eq!(sources.add(file(big, 1, &[]), &history), Err(Full));
     }
 
     #[test]

@@ -40,23 +40,70 @@ sequenceDiagram
 
 用 MuPDF 的 `insert_pdf`（graft）把來源檔的頁面放到第 `at` 頁之前（`at` 等於頁數時放在最後）。放進來的是**頁面上的內容**：內容串流與它用到的資源（字型、圖片、表單 XObject）。
 
-- **不會帶來的**：頁面的註解、連結與表單欄位（MuPDF 的 graft 不複製）；整份文件層級的東西：`/OpenAction`、文件的 JavaScript、`/AcroForm`、XFA、嵌入的檔案、書籤（目錄）、標籤。所以來源檔的書籤與連結不會出現在合併後的文件。
-- **主動內容與外部資料**：`scrub.rs` 再檢查一次放進來的頁面用到的所有物件（只看 graft 新做出來的物件，文件原有的絕不碰）：串流的資料在別的檔案或網址（`/F`、`/FFilter`、`/FDecodeParms`；`malicious/remote-filespec.pdf` 的圖片就是這樣）、顯示別的檔案的頁面的表單（`/Ref`）、動作的觸發（`/AA`）一律拿掉；頁面本身的 `/AA`、`/Annots`、`/B` 也拿掉（graft 本來就沒有做出它們，這是防止 graft 以後改變行為）。
+- **不會帶來的**：連結與表單欄位（MuPDF 的 graft 不複製；ADR 0019 §1）；整份文件層級的東西：`/OpenAction`、文件的 JavaScript、`/AcroForm`、XFA、嵌入的檔案、書籤（目錄）、標籤。所以來源檔的書籤與連結不會出現在合併後的文件。註解除了 app 支援的五種註解外，其他種類一律不帶。
+- **主動內容與外部資料**：`scrub.rs` 再檢查一次放進來的頁面用到的所有物件（只看 graft 新做出來的物件，文件原有的絕不碰）：串流的資料在別的檔案或網址（`/F`、`/FFilter`、`/FDecodeParms`；`malicious/remote-filespec.pdf` 的圖片就是這樣）、顯示別的檔案的頁面的表單（`/Ref`）、動作的觸發（`/AA`）一律拿掉；頁面本身的 `/AA`、`/Annots`、`/B` 也拿掉（graft 本來就沒有做出它們，這是防止 graft 以後改變行為）。原頁面的 `/Annots` 清除後，再以現有函式重建合法的五種 app 註解（見下節）。
 - 來源檔損毀、位置或頁數不合時文件維持原樣：先檢查，MuPDF 的 graft 在一個操作中完成，失敗就整個放棄。放進來之後檢查的物件太多（`TooComplex`，超過 200 萬個）而失敗時，文件已經多了這些頁面：回 `LimitExceeded`，主行程（與其他編輯中途失敗相同）把文件從檔案與編輯歷史重新開啟。
+
+## 帶著 app 的註解（B3-23，ADR 0019）
+
+當插入其他檔案的頁面時，保留並重建來源頁面上由本 app 資料模型支援的五種註解（ADR 0019）：螢光筆、附註、手繪、印章（標準印章與自訂圖片印章）以及文字方塊。
+
+1. **只在 worker 裡讀乾淨副本**：
+   - 讀取的對象是 `prepare_source` 做出的乾淨且未加密的副本，絕不直接讀取使用者選取的不受信任原始檔案。
+   - 只讀取 app 支援的欄位：
+     - **螢光筆**（Highlight）：四邊形頂點（`QuadPoints`）、色彩（轉成 app 色票中最接近的色彩）。
+     - **附註**（Text/Note）：位置範圍（`Rect`）、文字內容（`Contents`）、色彩。
+     - **手繪**（Ink）：筆畫清查（`InkList`）、線條粗細（`BS.W`）、色彩。
+     - **印章**（Stamp）：標準印章名稱（`Name`），或自訂圖片印章（從外觀串流中抽取出 PNG 像素資料）。
+     - **文字方塊**（FreeText 帶有 `/PdfReaderTextBox`）：位置範圍、文字內容、原始字型家族名稱、字型大小與樣式色彩。
+   - **不複製來源檔的物件**：完全不複製來源 PDF 中的字典、串流、外觀（`/AP`），亦不讀取 `/A`、`/AA`、`/Popup`、`/IRT` 等不支援欄位。
+   - **嚴格驗證與略過**：判斷能不能帶看欄位是否符合 app 的資料模型與 `Validate` 規則，不信任來源檔的 `/Producer`。幾何座標不合法、不在頁面邊界內、色彩不在色票內、印章名稱不認得、手繪點數超過 `MAX_INK_POINTS`、文字長度超出上限或含不允許字元（`check_note_text`、`check_text_box_text`）的項目，**一律直接略過**，其餘合法的註解照常帶入。
+2. **以現有的建立函式重建**：
+   - 在 graft 頁面放進來並經 `scrub_pages` 清除原有 `/Annots` 之後，在第 `at + i` 頁依序呼叫現有的重建函式：`add_highlights`、`add_note`、`add_ink`、`add_stamp`、`add_image_stamp`、`place_text_box`。
+   - 旋轉與 CropBox：來源頁與放進來的頁面維持同一個頁面空間，確保有旋轉（`/Rotate`）或 CropBox 不在原點時座標位置依舊精確。
+3. **文字方塊的字型由主行程協助準備**：
+   - worker 處於沙盒之中，無法存取作業系統已安裝的字型或自訂匯入字型。
+   - 在 `prepare_source` 階段，worker 回傳 `WorkerResponse::Source`，內含來源檔中解析出的文字方塊清單（`text_boxes: Vec<SourceTextBox>`）。
+   - 主行程（`documents.rs`）保管可用字型清單，為每個文字方塊準備排版模型（`prepare_text_box`）：
+     - 若目前電腦或已匯入字型中有相符的字型家族且排版無缺字，則採用該字型；
+     - 若無相符字型或排版缺字，則退回文字方塊預設字型清單（微軟正黑體、微軟雅黑、Yu Gothic、Segoe UI、Arial）依序嘗試；
+     - 若所有候選字型皆無法排版，則略過該文字方塊。
+   - 準備好的文字方塊模型（`InsertedTextBox`）算入 `MAX_SOURCES_BYTES` 保管上限，並隨 `WorkerEdit::InsertPages` 傳遞給 worker 進行放置。
+   - worker 抽取文字方塊與主行程驗證 `Source` 回應時，皆受 `MAX_SOURCE_TEXT_BOXES`（1,000）上限限制，超過的項目略過，避免 IPC 緩衝區暴增與介面卡頓；主行程在同一次準備中以字型 ID 快取讀取的字型檔，避免重複從磁碟讀取大型字型檔（如微軟正黑體約 21 MB）。
+4. **單一編輯操作與重播**：
+   - 整個插入操作（含頁面與所有重建的註解）依然是單一編輯（`WorkerEdit::InsertPages`）。
+   - 復原、重做與 worker 重啟（`WorkerEdit::of`）皆由主行程帶著保管的同一份來源副本與文字方塊排版模型，因此重播結果保證相同。崩潰復原日誌規則維持不變。
 
 ## 上限
 
 | 上限 | 值 | 在哪裡檢查 |
 |---|---|---|
 | 一個來源檔 | `MAX_SOURCE_BYTES`（64 MiB） | 主行程（檔案大小）與 worker（讀取與副本） |
-| 一份文件保管的來源 | `MAX_SOURCES_BYTES`（128 MiB） | 主行程 |
+| 一份文件保管的來源 | `MAX_SOURCES_BYTES`（128 MiB） | 主行程（含 PDF 副本與文字方塊模型資料） |
+| 來源檔註解數量 | `MAX_SOURCE_ANNOTATIONS`（10,000） | worker（抽取時檢查，超過的項目略過） |
+| 來源檔文字方塊數量 | `MAX_SOURCE_TEXT_BOXES`（1,000） | worker（抽取時檢查，超過的項目略過）與主行程（驗證 `Source` 回應與準備模型） |
 | 頁數 | 合併後最多 `MAX_PAGE_COUNT` | worker（`TooManyPages`） |
 
 ## 測試
 
-- worker 單元測試（`crates/pdf_worker/src/engine.rs`）：頁面放在指定的位置（中間、最前、最後）、頁面的大小與順序、存檔後重新開啟畫出來的與原來的頁面一樣；加密的檔案：沒有密碼、密碼不對、密碼正確（副本沒有加密、可以不用密碼開啟）；作者不允許取出頁面、擁有者密碼解除；**十三種惡意語料**（`malicious/` 的 `openaction-js`、`js-document-level`、`page-aa`、`field-aa`、`launch`、`submitform`、`importdata`、`gotor-unc`、`gotoe`、`xfa`、`embedded-file`、`remote-filespec`、`openaction-uri`）：掃描有發現、合併存檔後的檔案（串流資料以外）找不到對應的名稱（`/JavaScript`、`/OpenAction`、`/AA`、`/Launch`、`/FS`…），重新開啟再掃描沒有任何發現；來源檔不是 PDF、位置不存在時，文件不變。
-- 沙盒中的 worker（`crates/pdf_worker/tests/merge.rs`）：加密檔案以密碼做出乾淨副本、插入、再以 `Revert` 重做；不允許、不是 PDF、太大的來源被拒絕，worker 繼續運作；惡意來源的頁面插入、存檔後掃描沒有發現。
-- 合約（`crates/ipc_contract`）：`Source` 回應的驗證、模糊測試的種子。
+- worker 單元測試（`crates/pdf_worker/src/engine.rs`、`tests/merge.rs`）：
+  - 頁面放在指定的位置（中間、最前、最後）、頁面的大小與順序、存檔後重新開啟畫出來的與原來的頁面一樣；
+  - 插入時五種 app 註解（螢光筆、附註、手繪、印章、文字方塊）在新位置正確重建，顏色、筆畫、印章外觀與文字維持原樣；
+  - 惡意來源檔中的 `/A`、`/AA`、`/JavaScript`、`/Launch` 或帶動作的 `/Popup` 在重建時徹底拋棄，存檔後的二進位檔案找不到這些字典鍵；
+  - 幾何不合法、色票外顏色、文字超長或含禁止字元的項目被略過，合法項目照常帶入；
+  - 旋轉（`/Rotate`）與 CropBox 移動過的頁面，重建後的註解幾何位置維持正確；
+  - 復原、重做以及 worker 重啟後，重播得到的頁面與註解完全相同；
+  - 加密的檔案：沒有密碼、密碼不對、密碼正確（副本沒有加密、可以不用密碼開啟）；作者不允許取出頁面、擁有者密碼解除；
+  - 十三種惡意語料（`malicious/`）：掃描有發現、合併存檔後的檔案找不到對應名稱；
+  - 來源檔不是 PDF、位置不存在時，文件不變。
+- 主行程測試（`documents.rs`）：
+  - 文字方塊模型準備：有字型時採用原樣，缺字型或缺字時依序退回預設字型，全部無法排版時略過；
+  - 來源與文字方塊模型算入 `MAX_SOURCES_BYTES` 上限，存檔後跟隨來源副本一併清除；
+  - 插入、復原、重做、worker 重啟皆能正確重播。
+- 合約（`crates/ipc_contract`）：`Source` 與 `InsertPages` 攜帶文字方塊的驗證、上限與模糊測試種子。
+- 語料與端對端（`tests/corpus/`、`tests/e2e/merge.spec.ts`）：
+  - 語料產生含五種註解與惡意動作的測試樣本（`malicious/annotations-action.pdf`）；
+  - E2E 測試驗證插入後五種註解在新頁面上、文字方塊內容可全文搜尋與導航、存檔後檔案無惡意動作、重新開啟後註解與文字方塊依然完整呈現。
 
 ## 主行程（`src-tauri/src/sources.rs`、`documents.rs`、`recovery.rs`、`commands.rs`）
 

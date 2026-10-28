@@ -207,7 +207,7 @@ pub fn bindings() -> String {
         SaveAttachmentResult,
     );
 
-    let limits: [(&str, String); 64] = [
+    let limits: [(&str, String); 66] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -258,6 +258,8 @@ pub fn bindings() -> String {
             "maxAnnotationsPerPage",
             MAX_ANNOTATIONS_PER_PAGE.to_string(),
         ),
+        ("maxSourceAnnotations", MAX_SOURCE_ANNOTATIONS.to_string()),
+        ("maxSourceTextBoxes", MAX_SOURCE_TEXT_BOXES.to_string()),
         ("maxFieldsPerPage", MAX_FIELDS_PER_PAGE.to_string()),
         ("maxFieldValueBytes", MAX_FIELD_VALUE_BYTES.to_string()),
         ("maxFieldOptions", MAX_FIELD_OPTIONS.to_string()),

@@ -1,0 +1,68 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 13 0 R /Annots [5 0 R 6 0 R 7 0 R 8 0 R 10 0 R 12 0 R] >>
+endobj
+5 0 obj
+<< /Type /Annot /Subtype /Highlight /Rect [72 650 200 670] /QuadPoints [72 670 200 670 72 650 200 650] /C [1 0.92 0] /F 4 >>
+endobj
+6 0 obj
+<< /Type /Annot /Subtype /Text /Rect [72 600 88 616] /Contents (Clean note text from source) /F 4 >>
+endobj
+7 0 obj
+<< /Type /Annot /Subtype /Ink /Rect [72 500 150 550] /InkList [[72 500 100 520 150 550]] /C [0 0 0] /BS << /W 2 >> /F 4 >>
+endobj
+8 0 obj
+<< /Type /Annot /Subtype /Stamp /Rect [72 400 172 450] /Name /Approved /F 4 >>
+endobj
+9 0 obj
+<< /V 1 /Text <FEFF004D006500720067006500640020005400650078007400200042006F0078> /Font <FEFF0041007200690061006C> /Face 0 /Base /Arial /M [0 0 0 0 0 0 0 0] /G [] /S 12 /C [0 0 0] /A 0 /Over false /View false >>
+endobj
+10 0 obj
+<< /Type /Annot /Subtype /FreeText /Rect [72 300 272 360] /Contents (Merged Text Box) /DA (/F0 12 Tf 0 0 0 rg) /Q 0 /F 4 /IT /FreeTextTypeWriter /BS << /W 0 >> /PdfReaderTextBox 9 0 R >>
+endobj
+11 0 obj
+<< /S /JavaScript /JS (app.alert('malicious_annot_action')) >>
+endobj
+12 0 obj
+<< /Type /Annot /Subtype /Highlight /Rect [72 200 200 220] /QuadPoints [72 220 200 220 72 200 200 200] /C [1 0.92 0] /A 11 0 R /F 4 >>
+endobj
+13 0 obj
+<<  /Length 214 >>
+stream
+BT /F1 16 Tf 72 720 Td (Sample with five clean annotations and one malicious action) Tj ET
+BT /F1 12 Tf 72 655 Td (Highlightable text on the page) Tj ET
+BT /F1 12 Tf 72 205 Td (Text with malicious highlight) Tj ET
+
+endstream
+endobj
+xref
+0 14
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000393 00000 n 
+0000000533 00000 n 
+0000000649 00000 n 
+0000000787 00000 n 
+0000000881 00000 n 
+0000001107 00000 n 
+0000001310 00000 n 
+0000001389 00000 n 
+0000001540 00000 n 
+trailer
+<< /Size 14 /Root 1 0 R /ID [<0A5480F097E8A71D7CE811320E558D71> <0A5480F097E8A71D7CE811320E558D71>] >>
+startxref
+1807
+%%EOF

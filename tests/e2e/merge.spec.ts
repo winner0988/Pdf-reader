@@ -213,3 +213,72 @@ test("a crash after pages were taken from a file says they cannot be restored (B
     rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
+
+test("the pages of another file carry the app's five annotation kinds, text box is searchable, and malicious action is dropped (B3-23, ADR 0019)", async ({
+  launch,
+}) => {
+  const folder = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-merge-annots-"));
+  try {
+    const file = path.join(folder, "original.pdf");
+    copyFileSync(corpus("benign/multi-page-10.pdf"), file);
+    const page = await launch(file);
+    await expect(pageSlot(page, 1)).toHaveAttribute("data-state", "ready");
+    const list = await openThumbnails(page);
+
+    await takePagesAfter(page, list, 1);
+    await answerFileDialog(page, { path: corpus("malicious/annotations-action.pdf") });
+    await hasPages(page, 11);
+
+    const banner = page.getByRole("region", { name: strings.banner.label });
+    if (await banner.isVisible()) {
+      await banner.getByRole("button", { name: strings.banner.dismiss }).click();
+    }
+
+    // Search finds words in the inserted text box and navigates to the inserted page
+    await find(page, "Merged Text Box");
+    await showsPage(page, 2, 11);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("textbox", { name: strings.search.placeholder })).toBeHidden();
+
+    // The five supported annotation kinds are present on the inserted page
+    const page2Annots = page.locator("[data-page-annotations='2']");
+    await expect(page2Annots.locator("[data-annotation=highlight]")).toHaveCount(2);
+    await expect(page2Annots.locator("[data-annotation=note]")).toHaveCount(1);
+    await expect(page2Annots.locator("[data-annotation=ink]")).toHaveCount(1);
+    await expect(page2Annots.locator("[data-annotation=stamp]")).toHaveCount(1);
+    await expect(page2Annots.locator("[data-annotation=textBox]")).toHaveCount(1);
+
+    // Saving the merged document to a new file
+    const copy = path.join(folder, "merged-with-annots.pdf");
+    await page.keyboard.press("Control+Shift+S");
+    await answerFileDialog(page, { path: copy });
+    await expect(page.getByRole("contentinfo")).toContainText(strings.saving.saved);
+    await quit(page);
+
+    // The saved file drops malicious /A JavaScript actions
+    const saved = readFileSync(copy).toString("latin1");
+    expect(saved).not.toMatch(/\/JavaScript/);
+    expect(saved).not.toMatch(/malicious_annot_action/);
+
+    // Reopening the saved file preserves annotations and searchability
+    const reopened = await launch(copy);
+    await expect(pageSlot(reopened, 1)).toHaveAttribute("data-state", "ready");
+    await hasPages(reopened, 11);
+
+    await find(reopened, "Merged Text Box");
+    await showsPage(reopened, 2, 11);
+    await reopened.keyboard.press("Escape");
+    await expect(reopened.getByRole("textbox", { name: strings.search.placeholder })).toBeHidden();
+
+    const reopenedPage2 = reopened.locator("[data-page-annotations='2']");
+    await expect(reopenedPage2.locator("[data-annotation=highlight]")).toHaveCount(2);
+    await expect(reopenedPage2.locator("[data-annotation=note]")).toHaveCount(1);
+    await expect(reopenedPage2.locator("[data-annotation=ink]")).toHaveCount(1);
+    await expect(reopenedPage2.locator("[data-annotation=stamp]")).toHaveCount(1);
+    await expect(reopenedPage2.locator("[data-annotation=textBox]")).toHaveCount(1);
+    await quit(reopened);
+  } finally {
+    rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
