@@ -12,7 +12,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { chromium, test as base, type Browser, type CDPSession, type Page, type Request } from "@playwright/test";
+import { chromium, test as base, type Browser, type CDPSession, type Locator, type Page, type Request } from "@playwright/test";
+
+import { strings } from "../../src/i18n/zh-TW";
 
 export const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -587,6 +589,11 @@ export async function answerFileDialog(page: Page, answer: { path: string } | "c
  */
 export function launchAgain(file: string): void {
   execFileSync(APP, [file], { stdio: "ignore", timeout: STARTUP_TIMEOUT_MS });
+}
+
+/** The tabs of the open documents in the tab bar (ignoring any sidebar panel tabs). */
+export function documentTabs(page: Page): Locator {
+  return page.getByRole("tablist", { name: strings.tabs.label }).getByRole("tab");
 }
 
 export type LaunchOptions = {

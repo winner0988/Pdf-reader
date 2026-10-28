@@ -9,7 +9,7 @@ import path from "node:path";
 import type { Locator, Page } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
-import { corpus, dataDir, expect, launchAgain, test } from "./app";
+import { corpus, dataDir, documentTabs, expect, launchAgain, test } from "./app";
 
 const t = strings.textIndex;
 const s = strings.settings;
@@ -18,9 +18,6 @@ const indexFolder = (page: Page) => path.join(dataDir(page), "index");
 
 /** The files of the index: the key, the catalog, and one for each document whose text it has. */
 const indexFiles = (page: Page) => (existsSync(indexFolder(page)) ? readdirSync(indexFolder(page)) : []);
-
-/** The tabs of the open documents: the sidebar's panels, shown with a document, are tabs too. */
-const documentTabs = (page: Page) => page.getByRole("tablist", { name: strings.tabs.label }).getByRole("tab");
 
 async function ready(page: Page) {
   await expect(page.getByRole("img", { name: strings.canvas.page(1) }).first()).toHaveAttribute("data-state", "ready");

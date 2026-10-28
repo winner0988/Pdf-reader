@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { strings } from "../../src/i18n/zh-TW";
-import { answerFileDialog, corpus, expect, test } from "./app";
+import { answerFileDialog, corpus, documentTabs, expect, test } from "./app";
 
 const t = strings.create;
 
@@ -108,7 +108,7 @@ test.describe("making a PDF of files", () => {
     await answerFileDialog(page, "cancel");
     await expect(dialog.getByRole("button", { name: t.start })).toBeEnabled();
     expect(readdirSync(folder)).toEqual([]);
-    await expect(page.getByRole("tab")).toHaveCount(0);
+    await expect(documentTabs(page)).toHaveCount(0);
   });
 
   test("files that are no PDF's sources end in a sentence, and the app goes on", async ({ launch }) => {
