@@ -1212,4 +1212,45 @@ mod tests {
         assert!(near(turn_.rect[3] - turn_.rect[1], 100.0), "{turn_:?}");
         assert!(near(turn_.width / turn_.height, 2.5), "{turn_:?}");
     }
+
+    #[test]
+    fn a_turned_picture_stamp_comes_along_when_its_page_is_inserted() {
+        let (mut source, id) = stamped("benign/multi-page-10.pdf");
+        source.set_picture_angle(0, id, 30.0).expect("turn");
+        let angle_of = |doc: &PdfDocument, page: u32| {
+            let page = doc.pdf_page(page).expect("page");
+            page.annotations()
+                .find_map(|annotation| read_setting(&annotation).map(|(setting, _)| setting.angle))
+        };
+        let before = angle_of(&source, 0).expect("a picture stamp in the source");
+        let rect_before = only(&source).rect;
+        let prepared = PdfDocument::prepare_source(&saved(&source), None).expect("prepare");
+        let mut doc = PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
+        doc.insert_pages(2, &prepared.bytes, &[]).expect("insert");
+        let found = doc.page_annotations(2).expect("annotations");
+        assert_eq!(
+            found.len(),
+            1,
+            "the picture stamp did not come along: {found:?}"
+        );
+        assert!(
+            found[0].picture.is_some(),
+            "not a picture stamp: {:?}",
+            found[0]
+        );
+        let after = angle_of(&doc, 2).expect("a picture stamp on the inserted page");
+        assert!(
+            (after - before).abs() < 1e-3,
+            "angle {before} became {after}"
+        );
+        let r = found[0].rect;
+        let near = |a: f32, b: f32| (a - b).abs() < 1.0;
+        assert!(
+            near(r.x0, rect_before.x0)
+                && near(r.y0, rect_before.y0)
+                && near(r.x1, rect_before.x1)
+                && near(r.y1, rect_before.y1),
+            "{rect_before:?} became {r:?}"
+        );
+    }
 }

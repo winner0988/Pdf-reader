@@ -633,11 +633,7 @@ impl Validate for WorkerResponse {
                     });
                 }
                 security.validate()?;
-                check_count(
-                    "source text boxes",
-                    text_boxes.len(),
-                    MAX_SOURCE_ANNOTATIONS,
-                )?;
+                check_count("source text boxes", text_boxes.len(), MAX_SOURCE_TEXT_BOXES)?;
                 for text_box in text_boxes {
                     text_box.validate()?;
                     if text_box.page >= *pages {
@@ -1603,7 +1599,7 @@ impl Validate for PersonalDataMatches {
 }
 
 /// An angle a picture is turned to (B3-01), in degrees: a number, within a full turn each way.
-fn check_angle(degrees: f32) -> Result<(), ValidationError> {
+pub fn check_angle(degrees: f32) -> Result<(), ValidationError> {
     if !degrees.is_finite() || degrees.abs() > MAX_PICTURE_ANGLE_DEGREES {
         return Err(ValidationError::OutOfRange {
             what: "picture angle",
@@ -1614,7 +1610,7 @@ fn check_angle(degrees: f32) -> Result<(), ValidationError> {
 
 /// A rectangle an annotation is put in or moved to (B2-08): finite, upright, and large enough to
 /// be seen and grabbed.
-fn check_annotation_rect(rect: &Rect) -> Result<(), ValidationError> {
+pub fn check_annotation_rect(rect: &Rect) -> Result<(), ValidationError> {
     rect.validate()?;
     if rect.x1 - rect.x0 < MIN_ANNOTATION_SIDE_PT || rect.y1 - rect.y0 < MIN_ANNOTATION_SIDE_PT {
         return Err(ValidationError::Invalid {
@@ -1627,7 +1623,7 @@ fn check_annotation_rect(rect: &Rect) -> Result<(), ValidationError> {
 
 /// The page an annotation edit is on: one a document can have; whether this document has it is
 /// checked by the caller ([`check_page_index`]).
-fn check_annotated_page(page: u32) -> Result<(), ValidationError> {
+pub fn check_annotated_page(page: u32) -> Result<(), ValidationError> {
     if page >= MAX_PAGE_COUNT {
         return Err(ValidationError::OutOfRange {
             what: "annotated page",
@@ -4834,7 +4830,7 @@ mod tests {
                 bytes: vec![0; 10],
                 pages: 10,
                 security: SecurityReport::default(),
-                text_boxes: vec![valid_box; MAX_SOURCE_ANNOTATIONS as usize + 1],
+                text_boxes: vec![valid_box; MAX_SOURCE_TEXT_BOXES as usize + 1],
             }
             .validate()
             .is_err()

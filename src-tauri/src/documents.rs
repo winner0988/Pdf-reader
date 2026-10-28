@@ -1957,8 +1957,15 @@ impl Documents {
 
         let available_fonts = fonts.list();
         let mut inserted = Vec::new();
+        let mut font_cache: std::collections::HashMap<
+            ipc_contract::types::FontId,
+            crate::fonts::FontFile,
+        > = std::collections::HashMap::new();
 
-        for stb in source_boxes {
+        for stb in source_boxes
+            .iter()
+            .take(ipc_contract::limits::MAX_SOURCE_TEXT_BOXES as usize)
+        {
             if check_text_box_text(&stb.text).is_err() {
                 continue;
             }
@@ -1983,12 +1990,18 @@ impl Documents {
                 family_fonts.sort_by_key(|f| (f.bold, f.italic));
                 let chosen_font = family_fonts[0];
 
-                let Ok(font_file) = fonts.read(chosen_font.id) else {
-                    continue;
+                let font_file = match font_cache.entry(chosen_font.id) {
+                    std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        let Ok(file) = fonts.read(chosen_font.id) else {
+                            continue;
+                        };
+                        e.insert(file)
+                    }
                 };
 
                 let font_data = FontData {
-                    bytes: font_file.bytes,
+                    bytes: font_file.bytes.clone(),
                     face: font_file.face,
                     name: chosen_font.name.clone(),
                 };
@@ -8979,6 +8992,60 @@ mod with_worker {
         std::fs::remove_file(&copy).ok();
         std::fs::remove_file(target_path).ok();
         let _ = documents.close(tab_of(&documents, new_source_doc));
+    }
+
+    #[test]
+    fn benchmark_preparing_text_boxes_with_microsoft_jhenghei() {
+        let (documents, info, target_path) = open("merge-tb-bench", 1);
+        let fonts = documents.fonts();
+        let jhenghei_exists = fonts
+            .list()
+            .iter()
+            .any(|f| f.family.eq_ignore_ascii_case("Microsoft JhengHei"));
+        if !jhenghei_exists {
+            eprintln!("Microsoft JhengHei not found on this machine, skipping benchmark");
+            std::fs::remove_file(target_path).ok();
+            return;
+        }
+        documents
+            .with_document(info.doc, |document| {
+                let make_boxes = |count: usize| -> Vec<SourceTextBox> {
+                    (0..count)
+                        .map(|i| SourceTextBox {
+                            page: 0,
+                            rect: Rect {
+                                x0: 50.0,
+                                y0: 50.0 + (i % 500) as f32,
+                                x1: 200.0,
+                                y1: 80.0 + (i % 500) as f32,
+                            },
+                            text: format!("測試文字方塊 {i}"),
+                            font_family: "Microsoft JhengHei".to_owned(),
+                            style: TextBoxStyle {
+                                size: 14.0,
+                                color: Rgb { r: 0, g: 0, b: 0 },
+                                align: TextAlign::Left,
+                            },
+                        })
+                        .collect()
+                };
+
+                for n in [10, 50, 100] {
+                    let boxes = make_boxes(n);
+                    let start = std::time::Instant::now();
+                    let prepared =
+                        Documents::prepare_inserted_text_boxes(document, &fonts, &boxes);
+                    let elapsed = start.elapsed();
+                    eprintln!(
+                        "[BENCHMARK] Prepared {n} text boxes with Microsoft JhengHei in {elapsed:?} (avg {:?} per box)",
+                        elapsed / n as u32
+                    );
+                    assert_eq!(prepared.len(), n);
+                }
+                Ok(())
+            })
+            .unwrap();
+        std::fs::remove_file(target_path).ok();
     }
 
     #[test]

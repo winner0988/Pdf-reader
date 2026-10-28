@@ -21,9 +21,10 @@ use ipc_contract::types::{
     Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
-    CreateSource, FileHandle, FontData, ModelGlyph, OcrFinished, OcrOutcome, OcrPageState,
-    OpenedDocument, PasswordKey, Raster, TextBoxModel, WorkerAttachment, WorkerEdit, WorkerError,
-    WorkerErrorCode, WorkerPageMarks, WorkerRequest, WorkerResponse, WorkerWatermark,
+    CreateSource, FileHandle, FontData, InsertedTextBox, ModelGlyph, OcrFinished, OcrOutcome,
+    OcrPageState, OpenedDocument, PasswordKey, Raster, SourceTextBox, TextBoxModel,
+    WorkerAttachment, WorkerEdit, WorkerError, WorkerErrorCode, WorkerPageMarks, WorkerRequest,
+    WorkerResponse, WorkerWatermark,
 };
 
 /// The words of a text box, as a worker would prepare them (a small one).
@@ -423,6 +424,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 remote_addresses: Vec::new(),
             },
             text_boxes: Vec::new(),
+        },
+        WorkerResponse::Source {
+            request,
+            bytes: b"%PDF-1.7\n%%EOF\n".to_vec(),
+            pages: 1,
+            security: SecurityReport::default(),
+            text_boxes: vec![SourceTextBox {
+                page: 0,
+                rect: Rect {
+                    x0: 50.0,
+                    y0: 50.0,
+                    x1: 200.0,
+                    y1: 100.0,
+                },
+                text: "Hello 你好".to_owned(),
+                font_family: "Arial".to_owned(),
+                style: TextBoxStyle {
+                    size: 14.0,
+                    color: Rgb { r: 0, g: 0, b: 0 },
+                    align: TextAlign::Left,
+                },
+            }],
         },
         WorkerResponse::Saved {
             request,
@@ -874,6 +897,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 at: 1,
                 source: b"%PDF-1.7\n%%EOF\n".to_vec(),
                 text_boxes: Vec::new(),
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::InsertPages {
+                at: 1,
+                source: b"%PDF-1.7\n%%EOF\n".to_vec(),
+                text_boxes: vec![InsertedTextBox {
+                    page: 0,
+                    rect: Rect {
+                        x0: 50.0,
+                        y0: 50.0,
+                        x1: 200.0,
+                        y1: 100.0,
+                    },
+                    model: text_box_model(),
+                    style: TextBoxStyle {
+                        size: 14.0,
+                        color: Rgb { r: 0, g: 0, b: 0 },
+                        align: TextAlign::Left,
+                    },
+                }],
             },
         },
         WorkerRequest::Edit {

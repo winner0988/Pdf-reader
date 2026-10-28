@@ -526,8 +526,8 @@
         "javaScript"
       ],
       "text": [],
-      "bytes": 2004,
-      "sha256": "b1e1af24a2d980cc6cc08ca6d62b052b84aebc5d7fc8e666f61576621677080d"
+      "bytes": 2229,
+      "sha256": "701bba6a189be1f4a6eb4bddb9ff5b0a82e888115dc1f2a7f8ae6499f14bf2dd"
     },
     {
       "path": "malicious/attachment-exe.pdf",

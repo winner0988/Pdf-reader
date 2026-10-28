@@ -6,15 +6,18 @@
 //! discarded and never copied into the target document.
 
 use ipc_contract::limits::{
-    MAX_ANNOTATION_QUADS, MAX_INK_POINTS, MAX_NOTE_TEXT_BYTES, MAX_PAGE_SIDE_PT,
-    MAX_SOURCE_ANNOTATIONS, MAX_STAMP_PNG_BYTES, MAX_STAMP_SOURCE_PIXELS, MAX_STAMP_SOURCE_SIDE_PX,
-    MIN_ANNOTATION_SIDE_PT,
+    MAX_ANNOTATION_QUADS, MAX_INK_POINTS, MAX_INK_STROKES, MAX_NOTE_TEXT_BYTES, MAX_PAGE_SIDE_PT,
+    MAX_SOURCE_ANNOTATIONS, MAX_SOURCE_TEXT_BOXES, MAX_STAMP_PNG_BYTES, MAX_STAMP_SOURCE_PIXELS,
+    MAX_STAMP_SOURCE_SIDE_PX,
 };
 use ipc_contract::text::clean_note_text;
 use ipc_contract::types::{
-    HighlightColor, HighlightMark, InkColor, InkWidth, Point, Quad, Rect, StampName,
+    Edit, HighlightColor, HighlightMark, InkColor, InkWidth, Point, Quad, Rect, StampName,
 };
-use ipc_contract::validate::{Validate, check_note_text, stamp_png_size};
+use ipc_contract::validate::{
+    Validate, check_angle, check_annotated_page, check_annotation_rect, check_note_text,
+    stamp_png_size,
+};
 use ipc_contract::worker::{InsertedTextBox, SourceTextBox};
 use mupdf::pdf::{PdfAnnotationType, PdfObject};
 use mupdf::{Colorspace, ImageFormat, Pixmap};
@@ -39,18 +42,15 @@ pub(super) fn valid_bounds(bounds: &mupdf::Rect) -> bool {
         && bounds.y1.abs() <= MAX_PAGE_SIDE_PT
 }
 
-/// Whether `rect` has valid positive dimensions within page coordinate limits.
-pub(super) fn valid_rect(rect: Rect) -> bool {
-    rect.x0.is_finite()
-        && rect.y0.is_finite()
-        && rect.x1.is_finite()
-        && rect.y1.is_finite()
-        && rect.x1 - rect.x0 >= MIN_ANNOTATION_SIDE_PT
-        && rect.y1 - rect.y0 >= MIN_ANNOTATION_SIDE_PT
-        && rect.x0.abs() <= MAX_PAGE_SIDE_PT
-        && rect.y0.abs() <= MAX_PAGE_SIDE_PT
-        && rect.x1.abs() <= MAX_PAGE_SIDE_PT
-        && rect.y1.abs() <= MAX_PAGE_SIDE_PT
+/// Whether an annotation bounds intersects the page bounds. If there is no overlap, it is
+/// completely outside the page and must be skipped.
+pub(super) fn intersects_page(page_bounds: &mupdf::Rect, bounds: &mupdf::Rect) -> bool {
+    let min_x = page_bounds.x0.min(page_bounds.x1);
+    let max_x = page_bounds.x0.max(page_bounds.x1);
+    let min_y = page_bounds.y0.min(page_bounds.y1);
+    let max_y = page_bounds.y0.max(page_bounds.y1);
+
+    bounds.x1 > min_x && bounds.x0 < max_x && bounds.y1 > min_y && bounds.y0 < max_y
 }
 
 /// Determines if the colorspace is RGB or Grayscale (including /DeviceRGB, /DeviceGray, and /ICCBased).
@@ -258,6 +258,12 @@ pub(super) fn extract_source_annotations(
         let Ok(page) = doc.pdf_page(page_idx) else {
             continue;
         };
+        let Ok(page_bounds) = page.bounds() else {
+            continue;
+        };
+        if !valid_bounds(&page_bounds) {
+            continue;
+        }
 
         for annot in page.annotations() {
             if extracted.len() >= MAX_SOURCE_ANNOTATIONS as usize {
@@ -269,7 +275,7 @@ pub(super) fn extract_source_annotations(
             let Ok(bounds) = annot.bounds() else {
                 continue;
             };
-            if !valid_bounds(&bounds) {
+            if !valid_bounds(&bounds) || !intersects_page(&page_bounds, &bounds) {
                 continue;
             }
 
@@ -328,9 +334,19 @@ pub(super) fn extract_source_annotations(
                     {
                         continue;
                     }
+                    if annot.rect().is_ok_and(|r| r.x1 < r.x0 || r.y1 < r.y0) {
+                        continue;
+                    }
                     let r = annot.rect().ok().unwrap_or(bounds);
                     let at = Point { x: r.x0, y: r.y0 };
-                    if !at.x.is_finite() || !at.y.is_finite() {
+                    if at.validate().is_err() {
+                        continue;
+                    }
+                    if at.x < page_bounds.x0.min(page_bounds.x1)
+                        || at.x > page_bounds.x0.max(page_bounds.x1)
+                        || at.y < page_bounds.y0.min(page_bounds.y1)
+                        || at.y > page_bounds.y0.max(page_bounds.y1)
+                    {
                         continue;
                     }
                     extracted.push(ExtractedAnnotation::Note {
@@ -344,6 +360,7 @@ pub(super) fn extract_source_annotations(
                         continue;
                     };
                     if strokes.is_empty()
+                        || strokes.len() > MAX_INK_STROKES as usize
                         || strokes.iter().any(Vec::is_empty)
                         || strokes.iter().map(Vec::len).sum::<usize>() > MAX_INK_POINTS as usize
                     {
@@ -358,11 +375,7 @@ pub(super) fn extract_source_annotations(
                                 .collect()
                         })
                         .collect();
-                    if converted
-                        .iter()
-                        .flatten()
-                        .any(|p| !p.x.is_finite() || !p.y.is_finite() || p.validate().is_err())
-                    {
+                    if converted.iter().flatten().any(|p| p.validate().is_err()) {
                         continue;
                     }
                     let Some(color) = annot.color().ok().flatten().and_then(parse_ink_color) else {
@@ -391,8 +404,10 @@ pub(super) fn extract_source_annotations(
                                 x1: center_x + setting.width / 2.0,
                                 y1: center_y + setting.height / 2.0,
                             };
-                            if valid_rect(upright_rect) {
-                                let angle_degrees = -setting.angle.to_degrees();
+                            let angle_degrees = -setting.angle.to_degrees();
+                            if check_annotation_rect(&upright_rect).is_ok()
+                                && check_angle(angle_degrees).is_ok()
+                            {
                                 extracted.push(ExtractedAnnotation::PictureStamp {
                                     page: page_idx,
                                     upright_rect,
@@ -419,6 +434,9 @@ pub(super) fn extract_source_annotations(
                                     .map(ToOwned::to_owned)
                             });
                         if let Some(stamp) = name_str.as_deref().and_then(parse_stamp_name) {
+                            if annot.rect().is_ok_and(|r| r.x1 < r.x0 || r.y1 < r.y0) {
+                                continue;
+                            }
                             let r = annot.rect().ok().unwrap_or(bounds);
                             let rect = Rect {
                                 x0: r.x0,
@@ -426,7 +444,7 @@ pub(super) fn extract_source_annotations(
                                 x1: r.x1,
                                 y1: r.y1,
                             };
-                            if valid_rect(rect) {
+                            if check_annotation_rect(&rect).is_ok() {
                                 extracted.push(ExtractedAnnotation::Stamp {
                                     page: page_idx,
                                     rect,
@@ -452,15 +470,21 @@ pub(super) fn extract_source_text_boxes(
     let mut text_boxes = Vec::new();
 
     for page_idx in 0..page_count {
-        if text_boxes.len() >= MAX_SOURCE_ANNOTATIONS as usize {
+        if text_boxes.len() >= MAX_SOURCE_TEXT_BOXES as usize {
             break;
         }
         let Ok(page) = doc.pdf_page(page_idx) else {
             continue;
         };
+        let Ok(page_bounds) = page.bounds() else {
+            continue;
+        };
+        if !valid_bounds(&page_bounds) {
+            continue;
+        }
 
         for annot in page.annotations() {
-            if text_boxes.len() >= MAX_SOURCE_ANNOTATIONS as usize {
+            if text_boxes.len() >= MAX_SOURCE_TEXT_BOXES as usize {
                 break;
             }
             if annot.r#type().ok() != Some(PdfAnnotationType::FreeText) || !is_text_box(&annot) {
@@ -469,7 +493,10 @@ pub(super) fn extract_source_text_boxes(
             let Ok(bounds) = annot.bounds() else {
                 continue;
             };
-            if !valid_bounds(&bounds) {
+            if !valid_bounds(&bounds) || !intersects_page(&page_bounds, &bounds) {
+                continue;
+            }
+            if annot.rect().is_ok_and(|r| r.x1 < r.x0 || r.y1 < r.y0) {
                 continue;
             }
             let rect = Rect {
@@ -478,7 +505,7 @@ pub(super) fn extract_source_text_boxes(
                 x1: bounds.x1,
                 y1: bounds.y1,
             };
-            if !valid_rect(rect) {
+            if check_annotation_rect(&rect).is_err() {
                 continue;
             }
             let Ok(Some(entry)) = annot.object().get_dict(TEXT_BOX_KEY) else {
@@ -514,10 +541,23 @@ pub(super) fn recreate_annotations(
                     page: at + page,
                     quads: quads.clone(),
                 };
-                let _ = doc.add_highlights(&[mark], *color);
+                let edit = Edit::AddHighlight {
+                    marks: vec![mark.clone()],
+                    color: *color,
+                };
+                if edit.validate().is_ok() {
+                    let _ = doc.add_highlights(&[mark], *color);
+                }
             }
             ExtractedAnnotation::Note { page, at: pt, text } => {
-                let _ = doc.add_note(at + page, *pt, text);
+                let edit = Edit::AddNote {
+                    page: at + page,
+                    at: *pt,
+                    text: text.clone(),
+                };
+                if edit.validate().is_ok() {
+                    let _ = doc.add_note(at + page, *pt, text);
+                }
             }
             ExtractedAnnotation::Ink {
                 page,
@@ -525,10 +565,25 @@ pub(super) fn recreate_annotations(
                 color,
                 width,
             } => {
-                let _ = doc.add_ink(at + page, strokes, *color, *width);
+                let edit = Edit::AddInk {
+                    page: at + page,
+                    strokes: strokes.clone(),
+                    color: *color,
+                    width: *width,
+                };
+                if edit.validate().is_ok() {
+                    let _ = doc.add_ink(at + page, strokes, *color, *width);
+                }
             }
             ExtractedAnnotation::Stamp { page, rect, stamp } => {
-                let _ = doc.add_stamp(at + page, *rect, *stamp);
+                let edit = Edit::AddStamp {
+                    page: at + page,
+                    rect: *rect,
+                    stamp: *stamp,
+                };
+                if edit.validate().is_ok() {
+                    let _ = doc.add_stamp(at + page, *rect, *stamp);
+                }
             }
             ExtractedAnnotation::PictureStamp {
                 page,
@@ -536,6 +591,14 @@ pub(super) fn recreate_annotations(
                 png,
                 angle_degrees,
             } => {
+                if check_annotated_page(at + page).is_err()
+                    || check_annotation_rect(upright_rect).is_err()
+                    || check_angle(*angle_degrees).is_err()
+                    || png.len() > MAX_STAMP_PNG_BYTES
+                    || stamp_png_size(png).is_err()
+                {
+                    continue;
+                }
                 let Ok(id) = doc.add_image_stamp(at + page, *upright_rect, png) else {
                     continue;
                 };
@@ -547,7 +610,13 @@ pub(super) fn recreate_annotations(
     }
 
     for tb in text_boxes {
-        let _ = doc.place_text_box(at + tb.page, tb.rect, &tb.model, &tb.style);
+        if check_annotated_page(at + tb.page).is_ok()
+            && check_annotation_rect(&tb.rect).is_ok()
+            && tb.style.validate().is_ok()
+            && tb.model.validate().is_ok()
+        {
+            let _ = doc.place_text_box(at + tb.page, tb.rect, &tb.model, &tb.style);
+        }
     }
 
     Ok(())

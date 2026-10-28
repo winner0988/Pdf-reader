@@ -47,6 +47,10 @@ def hex_string(data: bytes) -> str:
     return f"<{data.hex().upper()}>"
 
 
+def utf16_hex(text: str) -> str:
+    return hex_string(b"\xfe\xff" + text.encode("utf-16-be"))
+
+
 class Pdf:
     """Minimal writer: numbered objects, classic xref table, deterministic output."""
 
@@ -1410,7 +1414,7 @@ def malicious_annotations_action() -> bytes:
     # 1. Highlight (clean)
     hl = doc.pdf.add(
         "<< /Type /Annot /Subtype /Highlight /Rect [72 650 200 670] "
-        "/QuadPoints [72 670 200 670 72 650 200 650] /C [1 0.941 0] /F 4 >>"
+        "/QuadPoints [72 670 200 670 72 650 200 650] /C [1 0.92 0] /F 4 >>"
     )
 
     # 2. Sticky Note (clean)
@@ -1433,11 +1437,14 @@ def malicious_annotations_action() -> bytes:
 
     # 5. Text Box (clean FreeText with PdfReaderTextBox)
     tb_entry = doc.pdf.add(
-        "<< /Text (Merged Text Box) /Font (Arial) /Size 12 >>"
+        f"<< /V 1 /Text {utf16_hex('Merged Text Box')} /Font {utf16_hex('Arial')} "
+        "/Face 0 /Base /Arial /M [0 0 0 0 0 0 0 0] /G [] /S 12 /C [0 0 0] /A 0 "
+        "/Over false /View false >>"
     )
     tb = doc.pdf.add(
         f"<< /Type /Annot /Subtype /FreeText /Rect [72 300 272 360] "
-        f"/Contents (Merged Text Box) /PdfReaderTextBox {tb_entry} 0 R /F 4 >>"
+        f"/Contents (Merged Text Box) /DA (/F0 12 Tf 0 0 0 rg) /Q 0 /F 4 "
+        f"/IT /FreeTextTypeWriter /BS << /W 0 >> /PdfReaderTextBox {tb_entry} 0 R >>"
     )
 
     # 6. Malicious Highlight carrying an /A action with JavaScript
@@ -1446,7 +1453,7 @@ def malicious_annotations_action() -> bytes:
     )
     malicious_hl = doc.pdf.add(
         f"<< /Type /Annot /Subtype /Highlight /Rect [72 200 200 220] "
-        f"/QuadPoints [72 220 200 220 72 200 200 200] /C [1 0.941 0] /A {action} 0 R /F 4 >>"
+        f"/QuadPoints [72 220 200 220 72 200 200 200] /C [1 0.92 0] /A {action} 0 R /F 4 >>"
     )
 
     doc.set_page(0, Page(

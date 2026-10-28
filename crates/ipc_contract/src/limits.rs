@@ -251,6 +251,13 @@ pub const MAX_ANNOTATIONS_PER_PAGE: u32 = 2_000;
 /// counts. Annotations beyond this limit are skipped.
 pub const MAX_SOURCE_ANNOTATIONS: u32 = 10_000;
 
+/// Most text boxes brought along when pages of another file are inserted (B3-23, ADR 0019):
+/// preparing text box models in the main process requires font shaping and font subsetting in the
+/// worker via IPC. Microsoft JhengHei (msjh.ttc) is ~21 MB, so preparing text boxes transfers font
+/// data across IPC. Bounding to 1,000 text boxes prevents IPC buffer bloat and UI stalls while
+/// allowing plenty of text boxes for real-world documents. Text boxes beyond this limit are skipped.
+pub const MAX_SOURCE_TEXT_BOXES: u32 = 1_000;
+
 /// Most form fields reported for one page (B2-09); the rest are not listed.
 pub const MAX_FIELDS_PER_PAGE: u32 = 5_000;
 

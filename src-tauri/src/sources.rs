@@ -54,12 +54,6 @@ impl Sources {
         self.get(id).map(|source| source.pages)
     }
 
-    /// The copy of file `id`, for the worker.
-    #[allow(dead_code)]
-    pub fn bytes(&self, id: SourceId) -> Option<Vec<u8>> {
-        self.get(id).map(|source| source.bytes.clone())
-    }
-
     /// The copy of file `id` and its prepared text box models, for the worker.
     pub fn bytes_and_text_boxes(&self, id: SourceId) -> Option<(Vec<u8>, Vec<InsertedTextBox>)> {
         self.get(id)
@@ -183,7 +177,10 @@ mod tests {
         let c = sources.add(file(10, 1, &[]), []).unwrap();
         assert_eq!((sources.pages(a), sources.pages(b)), (None, None));
         assert!(c.0 > b.0);
-        assert_eq!(sources.bytes(c), Some(vec![0; 10]));
+        assert_eq!(
+            sources.bytes_and_text_boxes(c),
+            Some((vec![0; 10], Vec::new()))
+        );
         sources.clear();
         assert_eq!(sources.pages(c), None);
     }

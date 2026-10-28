@@ -69,6 +69,7 @@ sequenceDiagram
      - 若無相符字型或排版缺字，則退回文字方塊預設字型清單（微軟正黑體、微軟雅黑、Yu Gothic、Segoe UI、Arial）依序嘗試；
      - 若所有候選字型皆無法排版，則略過該文字方塊。
    - 準備好的文字方塊模型（`InsertedTextBox`）算入 `MAX_SOURCES_BYTES` 保管上限，並隨 `WorkerEdit::InsertPages` 傳遞給 worker 進行放置。
+   - worker 抽取文字方塊與主行程驗證 `Source` 回應時，皆受 `MAX_SOURCE_TEXT_BOXES`（1,000）上限限制，超過的項目略過，避免 IPC 緩衝區暴增與介面卡頓；主行程在同一次準備中以字型 ID 快取讀取的字型檔，避免重複從磁碟讀取大型字型檔（如微軟正黑體約 21 MB）。
 4. **單一編輯操作與重播**：
    - 整個插入操作（含頁面與所有重建的註解）依然是單一編輯（`WorkerEdit::InsertPages`）。
    - 復原、重做與 worker 重啟（`WorkerEdit::of`）皆由主行程帶著保管的同一份來源副本與文字方塊排版模型，因此重播結果保證相同。崩潰復原日誌規則維持不變。
@@ -80,6 +81,7 @@ sequenceDiagram
 | 一個來源檔 | `MAX_SOURCE_BYTES`（64 MiB） | 主行程（檔案大小）與 worker（讀取與副本） |
 | 一份文件保管的來源 | `MAX_SOURCES_BYTES`（128 MiB） | 主行程（含 PDF 副本與文字方塊模型資料） |
 | 來源檔註解數量 | `MAX_SOURCE_ANNOTATIONS`（10,000） | worker（抽取時檢查，超過的項目略過） |
+| 來源檔文字方塊數量 | `MAX_SOURCE_TEXT_BOXES`（1,000） | worker（抽取時檢查，超過的項目略過）與主行程（驗證 `Source` 回應與準備模型） |
 | 頁數 | 合併後最多 `MAX_PAGE_COUNT` | worker（`TooManyPages`） |
 
 ## 測試
