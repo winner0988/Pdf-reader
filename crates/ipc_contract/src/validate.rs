@@ -1633,7 +1633,7 @@ fn check_annotated_page(page: u32) -> Result<(), ValidationError> {
 }
 
 /// What a note says (B2-07): something, within the length limit, and only text.
-fn check_note_text(text: &str) -> Result<(), ValidationError> {
+pub fn check_note_text(text: &str) -> Result<(), ValidationError> {
     if text.trim().is_empty() {
         return Err(ValidationError::Invalid {
             what: "note text",

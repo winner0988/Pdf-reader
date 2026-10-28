@@ -774,7 +774,11 @@ fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineErro
         WorkerEdit::DeletePages { pages } => document.delete_pages(pages)?,
         WorkerEdit::MovePages { pages, before } => document.move_pages(pages, *before)?,
         WorkerEdit::InsertBlankPage { at, like } => document.insert_blank_page(*at, *like)?,
-        WorkerEdit::InsertPages { at, source } => document.insert_pages(*at, source)?,
+        WorkerEdit::InsertPages {
+            at,
+            source,
+            text_boxes,
+        } => document.insert_pages(*at, source, text_boxes)?,
         WorkerEdit::AddHighlight { marks, color } => document.add_highlights(marks, *color)?,
         WorkerEdit::AddNote { page, at, text } => document.add_note(*page, *at, text)?,
         WorkerEdit::DeleteAnnotation { page, annotation } => {
@@ -1285,6 +1289,7 @@ fn prepare_source(
             bytes: source.bytes,
             pages: source.pages,
             security: source.security,
+            text_boxes: source.text_boxes,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
     }

@@ -7,8 +7,13 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use ipc_contract::limits::MAX_SOURCE_BYTES;
-use ipc_contract::types::{DocumentId, ErrorCode, PageSize, Password};
-use ipc_contract::worker::{WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse};
+use ipc_contract::types::{
+    AnnotationKind, DocumentId, ErrorCode, HighlightColor, HighlightMark, InkColor, InkWidth,
+    PageSize, Password, Point, Quad, Rect, Rgb, StampName, TextAlign, TextBoxStyle,
+};
+use ipc_contract::worker::{
+    FontData, InsertedTextBox, WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
+};
 use worker_host::{HostConfig, HostError, WorkerHost};
 
 fn host() -> WorkerHost {
@@ -22,6 +27,17 @@ fn corpus(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/corpus")
         .join(name)
+}
+
+fn droid() -> FontData {
+    FontData {
+        bytes: mupdf_fonts_droid::find_by_name("Droid Sans Fallback", false, false)
+            .expect("the bundled font")
+            .data
+            .to_vec(),
+        face: 0,
+        name: "Droid Sans Fallback".to_owned(),
+    }
 }
 
 fn opened(host: &mut WorkerHost, path: &Path) -> (DocumentId, Vec<PageSize>) {
@@ -81,6 +97,7 @@ fn the_pages_of_an_encrypted_file_go_into_a_document_by_a_plain_copy() {
             edit: WorkerEdit::InsertPages {
                 at: 2,
                 source: bytes.clone(),
+                text_boxes: Vec::new(),
             },
         })
         .expect("insert");
@@ -97,6 +114,7 @@ fn the_pages_of_an_encrypted_file_go_into_a_document_by_a_plain_copy() {
             edits: vec![WorkerEdit::InsertPages {
                 at: 2,
                 source: bytes,
+                text_boxes: Vec::new(),
             }],
             password: None,
         })
@@ -165,6 +183,7 @@ fn what_is_active_in_a_file_is_reported_and_stays_out_of_the_document() {
             edit: WorkerEdit::InsertPages {
                 at: 10,
                 source: bytes,
+                text_boxes: Vec::new(),
             },
         })
         .expect("insert");
@@ -189,4 +208,648 @@ fn what_is_active_in_a_file_is_reported_and_stays_out_of_the_document() {
     std::fs::remove_file(&path).ok();
     assert_eq!(resulting.pages.len() as u32, 10 + pages);
     assert!(resulting.security.findings.is_empty());
+}
+
+#[test]
+fn app_annotations_are_recreated_on_inserted_pages() {
+    let mut host = host();
+    // 1. Prepare a source document with the 5 supported annotation kinds.
+    let (source_doc, _) = opened(&mut host, &corpus("benign/single-page.pdf"));
+
+    // Highlight
+    let quad = Quad {
+        ul: Point { x: 72.0, y: 72.0 },
+        ur: Point { x: 144.0, y: 72.0 },
+        ll: Point { x: 72.0, y: 84.0 },
+        lr: Point { x: 144.0, y: 84.0 },
+    };
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddHighlight {
+            marks: vec![HighlightMark {
+                page: 0,
+                quads: vec![quad],
+            }],
+            color: HighlightColor::Yellow,
+        },
+    })
+    .expect("highlight");
+
+    // Note
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddNote {
+            page: 0,
+            at: Point { x: 100.0, y: 200.0 },
+            text: "Source Note".to_owned(),
+        },
+    })
+    .expect("note");
+
+    // Ink
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddInk {
+            page: 0,
+            strokes: vec![vec![Point { x: 50.0, y: 50.0 }, Point { x: 60.0, y: 60.0 }]],
+            color: InkColor::Red,
+            width: InkWidth::Medium,
+        },
+    })
+    .expect("ink");
+
+    // Standard Stamp
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddStamp {
+            page: 0,
+            rect: Rect {
+                x0: 200.0,
+                y0: 200.0,
+                x1: 300.0,
+                y1: 250.0,
+            },
+            stamp: StampName::Approved,
+        },
+    })
+    .expect("standard stamp");
+
+    // Picture Stamp
+    let pic_file = File::open(corpus("images/stamp-exif.jpg")).expect("pic file");
+    let png = match host.prepare_stamp_image(&pic_file).expect("prepare stamp") {
+        WorkerResponse::StampImage { png, .. } => png,
+        other => panic!("{other:?}"),
+    };
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddImageStamp {
+            page: 0,
+            rect: Rect {
+                x0: 300.0,
+                y0: 300.0,
+                x1: 400.0,
+                y1: 350.0,
+            },
+            png,
+        },
+    })
+    .expect("picture stamp");
+
+    // Text Box
+    let model = match host
+        .request(|request| WorkerRequest::PrepareTextBox {
+            request,
+            font: droid(),
+            text: "Source Text Box".to_owned(),
+        })
+        .expect("prepare text box")
+    {
+        WorkerResponse::TextBoxPrepared { model, .. } => model,
+        other => panic!("{other:?}"),
+    };
+    let tb_style = TextBoxStyle {
+        size: 14.0,
+        color: Rgb {
+            r: 26,
+            g: 51,
+            b: 153,
+        },
+        align: TextAlign::Left,
+    };
+    let tb_rect = Rect {
+        x0: 100.0,
+        y0: 400.0,
+        x1: 300.0,
+        y1: 460.0,
+    };
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::PlaceTextBox {
+            page: 0,
+            rect: tb_rect,
+            model: model.clone(),
+            style: tb_style,
+        },
+    })
+    .expect("text box");
+
+    // Save source document to a temp file
+    let source_path =
+        std::env::temp_dir().join(format!("pdf-worker-{}-annot-source.pdf", std::process::id()));
+    let _ = std::fs::remove_file(&source_path);
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&source_path)
+        .expect("create source file");
+    host.save(source_doc, &file).expect("save source doc");
+    drop(file);
+
+    // 2. Prepare source from the saved file
+    let file = File::open(&source_path).expect("open source file");
+    let (source_bytes, source_pages, source_tb) = match host.prepare_source(&file, None).expect("prepare source") {
+        WorkerResponse::Source {
+            bytes,
+            pages,
+            text_boxes,
+            ..
+        } => (bytes, pages, text_boxes),
+        other => panic!("{other:?}"),
+    };
+    std::fs::remove_file(&source_path).ok();
+    assert_eq!(source_pages, 1);
+    assert_eq!(source_tb.len(), 1);
+    assert_eq!(source_tb[0].text, "Source Text Box");
+
+    // 3. Open target doc (multi-page-10.pdf) and insert source at page 2
+    let (target_doc, _) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    let inserted_tb = InsertedTextBox {
+        page: 0,
+        rect: tb_rect,
+        model,
+        style: tb_style,
+    };
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: target_doc,
+        edit: WorkerEdit::InsertPages {
+            at: 2,
+            source: source_bytes.clone(),
+            text_boxes: vec![inserted_tb.clone()],
+        },
+    })
+    .expect("insert pages");
+
+    // 4. Check annotations on the newly inserted page (page 2)
+    let annots = match host
+        .request(|request| WorkerRequest::GetPageAnnotations {
+            request,
+            doc: target_doc,
+            page_index: 2,
+        })
+        .expect("page annots")
+    {
+        WorkerResponse::PageAnnotations { annotations, .. } => annotations,
+        other => panic!("{other:?}"),
+    };
+
+    // Expect 6 annotations: Highlight, Note, Ink, Standard Stamp, Picture Stamp, Text Box!
+    assert_eq!(annots.len(), 6, "Expected 6 annotations on inserted page, found: {annots:?}");
+    assert!(annots.iter().any(|a| a.kind == AnnotationKind::Highlight));
+    assert!(annots.iter().any(|a| a.kind == AnnotationKind::Note));
+    assert!(annots.iter().any(|a| a.kind == AnnotationKind::Ink));
+    assert!(annots.iter().any(|a| a.kind == AnnotationKind::Stamp && a.picture.is_none()));
+    assert!(annots.iter().any(|a| a.kind == AnnotationKind::Stamp && a.picture.is_some()));
+    assert!(annots.iter().any(|a| a.kind == AnnotationKind::TextBox));
+
+    // 5. Revert (undo/redo & crash recovery replay) with the same edit
+    let reverted = host
+        .request(|request| WorkerRequest::Revert {
+            request,
+            doc: target_doc,
+            edits: vec![WorkerEdit::InsertPages {
+                at: 2,
+                source: source_bytes.clone(),
+                text_boxes: vec![inserted_tb.clone()],
+            }],
+            password: None,
+        })
+        .expect("revert");
+    assert!(matches!(reverted, WorkerResponse::Edited { .. }));
+
+    let reverted_annots = match host
+        .request(|request| WorkerRequest::GetPageAnnotations {
+            request,
+            doc: target_doc,
+            page_index: 2,
+        })
+        .expect("page annots after revert")
+    {
+        WorkerResponse::PageAnnotations { annotations, .. } => annotations,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(reverted_annots.len(), 6);
+}
+
+#[test]
+fn malicious_actions_on_source_annotations_are_stripped() {
+    use mupdf::pdf::PdfObject;
+
+    let mut host = host();
+    // 1. Create a source file with an annotation
+    let (source_doc, _) = opened(&mut host, &corpus("benign/single-page.pdf"));
+    let quad = Quad {
+        ul: Point { x: 72.0, y: 72.0 },
+        ur: Point { x: 144.0, y: 72.0 },
+        ll: Point { x: 72.0, y: 84.0 },
+        lr: Point { x: 144.0, y: 84.0 },
+    };
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddHighlight {
+            marks: vec![HighlightMark {
+                page: 0,
+                quads: vec![quad],
+            }],
+            color: HighlightColor::Yellow,
+        },
+    })
+    .expect("add highlight");
+
+    let source_path = std::env::temp_dir().join(format!(
+        "pdf-worker-{}-malicious-annot.pdf",
+        std::process::id()
+    ));
+    let file = File::create(&source_path).expect("create file");
+    host.save(source_doc, &file).expect("save file");
+    drop(file);
+
+    // 2. Inject /A JavaScript action directly into the saved PDF's annotation
+    let modified_path = std::env::temp_dir().join(format!(
+        "pdf-worker-{}-malicious-annot-mod.pdf",
+        std::process::id()
+    ));
+    {
+        let doc =
+            mupdf::pdf::PdfDocument::open(source_path.to_str().unwrap()).expect("open mupdf");
+        let page = doc.load_pdf_page(0).expect("load page");
+        let annot = page.annotations().next().expect("annot");
+        let mut annot_obj = annot.object();
+        let mut action = doc.new_dict().expect("dict");
+        action
+            .dict_put("S", PdfObject::new_name("JavaScript").expect("name"))
+            .expect("put");
+        action
+            .dict_put(
+                "JS",
+                PdfObject::new_string("app.alert('evil_pwn')").expect("string"),
+            )
+            .expect("put");
+        annot_obj.dict_put("A", action).expect("put A");
+        doc.save_with_options(
+            modified_path.to_str().unwrap(),
+            mupdf::pdf::PdfWriteOptions::default(),
+        )
+        .expect("save");
+    }
+    std::fs::remove_file(&source_path).ok();
+
+    // 3. Prepare source from this modified file
+    let file = File::open(&modified_path).expect("open file");
+    let (source_bytes, _, _) = match host.prepare_source(&file, None).expect("prepare source") {
+        WorkerResponse::Source {
+            bytes,
+            pages,
+            text_boxes,
+            ..
+        } => (bytes, pages, text_boxes),
+        other => panic!("{other:?}"),
+    };
+    std::fs::remove_file(&modified_path).ok();
+
+    // 4. Insert into target document
+    let (target_doc, _) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: target_doc,
+        edit: WorkerEdit::InsertPages {
+            at: 2,
+            source: source_bytes,
+            text_boxes: Vec::new(),
+        },
+    })
+    .expect("insert pages");
+
+    // 5. Verify highlight was recreated on page 2
+    let annots = match host
+        .request(|request| WorkerRequest::GetPageAnnotations {
+            request,
+            doc: target_doc,
+            page_index: 2,
+        })
+        .expect("page annots")
+    {
+        WorkerResponse::PageAnnotations { annotations, .. } => annotations,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(annots.len(), 1);
+    assert_eq!(annots[0].kind, AnnotationKind::Highlight);
+
+    // 6. Save target doc and verify absence of evil strings
+    let merged_path =
+        std::env::temp_dir().join(format!("pdf-worker-{}-merged-evil.pdf", std::process::id()));
+    let file = File::create(&merged_path).expect("create");
+    host.save(target_doc, &file).expect("save");
+    drop(file);
+
+    let saved_bytes = std::fs::read(&merged_path).expect("read");
+    std::fs::remove_file(&merged_path).ok();
+
+    assert!(!saved_bytes.windows(8).any(|w| w == b"evil_pwn"));
+    assert!(!saved_bytes.windows(11).any(|w| w == b"/JavaScript"));
+    assert!(!saved_bytes.windows(7).any(|w| w == b"/Launch"));
+}
+
+#[test]
+fn invalid_annotations_are_skipped_while_valid_are_kept() {
+    use mupdf::pdf::PdfObject;
+
+    let mut host = host();
+    // 1. Create source file with valid highlight, note, stamp
+    let (source_doc, _) = opened(&mut host, &corpus("benign/single-page.pdf"));
+    let quad = Quad {
+        ul: Point { x: 72.0, y: 72.0 },
+        ur: Point { x: 144.0, y: 72.0 },
+        ll: Point { x: 72.0, y: 84.0 },
+        lr: Point { x: 144.0, y: 84.0 },
+    };
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddHighlight {
+            marks: vec![HighlightMark {
+                page: 0,
+                quads: vec![quad],
+            }],
+            color: HighlightColor::Yellow,
+        },
+    })
+    .expect("add valid highlight");
+
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddNote {
+            page: 0,
+            at: Point { x: 100.0, y: 200.0 },
+            text: "Valid Note".to_owned(),
+        },
+    })
+    .expect("add valid note");
+
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddStamp {
+            page: 0,
+            rect: Rect {
+                x0: 200.0,
+                y0: 200.0,
+                x1: 300.0,
+                y1: 250.0,
+            },
+            stamp: StampName::Approved,
+        },
+    })
+    .expect("add valid stamp");
+
+    let source_path = std::env::temp_dir().join(format!(
+        "pdf-worker-{}-invalid-annots.pdf",
+        std::process::id()
+    ));
+    let file = File::create(&source_path).expect("create file");
+    host.save(source_doc, &file).expect("save file");
+    drop(file);
+
+    // 2. Inject invalid annotations:
+    //    - invalid stamp with unrecognized Name
+    //    - invalid note with text exceeding MAX_NOTE_TEXT_BYTES
+    //    - invalid highlight with unrecognized color
+    let modified_path = std::env::temp_dir().join(format!(
+        "pdf-worker-{}-invalid-annots-mod.pdf",
+        std::process::id()
+    ));
+    {
+        let doc =
+            mupdf::pdf::PdfDocument::open(source_path.to_str().unwrap()).expect("open mupdf");
+        let mut page = doc.load_pdf_page(0).expect("load page");
+
+        // Invalid stamp
+        let invalid_stamp = page.create_annotation(mupdf::pdf::PdfAnnotationType::Stamp).expect("create stamp");
+        let mut stamp_obj = invalid_stamp.object();
+        stamp_obj.dict_put("Name", PdfObject::new_name("NotAnAppStampName").expect("name")).expect("put name");
+        let mut rect = doc.new_array().expect("array");
+        for v in [50.0, 50.0, 100.0, 100.0] {
+            rect.array_push(PdfObject::new_real(v).expect("real")).expect("push");
+        }
+        stamp_obj.dict_put("Rect", rect).expect("put rect");
+
+        // Invalid note (text exceeds MAX_NOTE_TEXT_BYTES)
+        let invalid_note = page.create_annotation(mupdf::pdf::PdfAnnotationType::Text).expect("create note");
+        let mut note_obj = invalid_note.object();
+        let long_text = "A".repeat(100_000);
+        note_obj.dict_put("Contents", PdfObject::new_string(&long_text).expect("string")).expect("put contents");
+        let mut rect = doc.new_array().expect("array");
+        for v in [60.0, 60.0, 80.0, 80.0] {
+            rect.array_push(PdfObject::new_real(v).expect("real")).expect("push");
+        }
+        note_obj.dict_put("Rect", rect).expect("put rect");
+
+        // Invalid highlight (unrecognized color [0.123, 0.456, 0.789])
+        let invalid_hl = page.create_annotation(mupdf::pdf::PdfAnnotationType::Highlight).expect("create hl");
+        let mut hl_obj = invalid_hl.object();
+        let mut color = doc.new_array().expect("array");
+        for v in [0.123, 0.456, 0.789] {
+            color.array_push(PdfObject::new_real(v).expect("real")).expect("push");
+        }
+        hl_obj.dict_put("C", color).expect("put color");
+        let mut qp = doc.new_array().expect("array");
+        for v in [10.0, 10.0, 50.0, 10.0, 10.0, 20.0, 50.0, 20.0] {
+            qp.array_push(PdfObject::new_real(v).expect("real")).expect("push");
+        }
+        hl_obj.dict_put("QuadPoints", qp).expect("put quad");
+        let mut rect = doc.new_array().expect("array");
+        for v in [10.0, 10.0, 50.0, 20.0] {
+            rect.array_push(PdfObject::new_real(v).expect("real")).expect("push");
+        }
+        hl_obj.dict_put("Rect", rect).expect("put rect");
+
+        doc.save_with_options(
+            modified_path.to_str().unwrap(),
+            mupdf::pdf::PdfWriteOptions::default(),
+        )
+        .expect("save");
+    }
+    std::fs::remove_file(&source_path).ok();
+
+    // 3. Prepare source from this modified file
+    let file = File::open(&modified_path).expect("open file");
+    let (source_bytes, _, _) = match host.prepare_source(&file, None).expect("prepare source") {
+        WorkerResponse::Source {
+            bytes,
+            pages,
+            text_boxes,
+            ..
+        } => (bytes, pages, text_boxes),
+        other => panic!("{other:?}"),
+    };
+    std::fs::remove_file(&modified_path).ok();
+
+    // 4. Insert into target document
+    let (target_doc, _) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: target_doc,
+        edit: WorkerEdit::InsertPages {
+            at: 2,
+            source: source_bytes,
+            text_boxes: Vec::new(),
+        },
+    })
+    .expect("insert pages");
+
+    // 5. Verify ONLY the 3 valid annotations are recreated on page 2!
+    let annots = match host
+        .request(|request| WorkerRequest::GetPageAnnotations {
+            request,
+            doc: target_doc,
+            page_index: 2,
+        })
+        .expect("page annots")
+    {
+        WorkerResponse::PageAnnotations { annotations, .. } => annotations,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(annots.len(), 3, "Expected only 3 valid annotations, got: {annots:?}");
+    assert!(annots.iter().any(|a| a.kind == AnnotationKind::Highlight));
+    assert!(annots.iter().any(|a| a.kind == AnnotationKind::Note && a.text.as_deref() == Some("Valid Note")));
+    assert!(annots.iter().any(|a| a.kind == AnnotationKind::Stamp));
+}
+
+#[test]
+fn rotated_source_page_preserves_annotation_geometry() {
+    let mut host = host();
+    // 1. Create a source file, rotate page by 90 degrees, and add a note & highlight
+    let (source_doc, _) = opened(&mut host, &corpus("benign/single-page.pdf"));
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::RotatePages {
+            pages: vec![0],
+            degrees: 90,
+        },
+    })
+    .expect("rotate source page");
+
+    let quad = Quad {
+        ul: Point { x: 100.0, y: 150.0 },
+        ur: Point { x: 200.0, y: 150.0 },
+        ll: Point { x: 100.0, y: 170.0 },
+        lr: Point { x: 200.0, y: 170.0 },
+    };
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddHighlight {
+            marks: vec![HighlightMark {
+                page: 0,
+                quads: vec![quad],
+            }],
+            color: HighlightColor::Yellow,
+        },
+    })
+    .expect("add highlight");
+
+    let note_at = Point { x: 120.0, y: 250.0 };
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddNote {
+            page: 0,
+            at: note_at,
+            text: "Rotated Page Note".to_owned(),
+        },
+    })
+    .expect("add note");
+
+    let source_annots = match host
+        .request(|request| WorkerRequest::GetPageAnnotations {
+            request,
+            doc: source_doc,
+            page_index: 0,
+        })
+        .expect("source page annots")
+    {
+        WorkerResponse::PageAnnotations { annotations, .. } => annotations,
+        other => panic!("{other:?}"),
+    };
+    let source_hl = source_annots
+        .iter()
+        .find(|a| a.kind == AnnotationKind::Highlight)
+        .expect("source hl")
+        .clone();
+    let source_note = source_annots
+        .iter()
+        .find(|a| a.kind == AnnotationKind::Note)
+        .expect("source note")
+        .clone();
+
+    let source_path = std::env::temp_dir().join(format!(
+        "pdf-worker-{}-rotated.pdf",
+        std::process::id()
+    ));
+    let file = File::create(&source_path).expect("create file");
+    host.save(source_doc, &file).expect("save file");
+    drop(file);
+
+    // 2. Prepare source from this file
+    let file = File::open(&source_path).expect("open file");
+    let (source_bytes, pages, _) = match host.prepare_source(&file, None).expect("prepare source") {
+        WorkerResponse::Source {
+            bytes,
+            pages,
+            text_boxes,
+            ..
+        } => (bytes, pages, text_boxes),
+        other => panic!("{other:?}"),
+    };
+    std::fs::remove_file(&source_path).ok();
+    assert_eq!(pages, 1);
+
+    // 3. Insert into target document
+    let (target_doc, _) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    let edited = host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: target_doc,
+        edit: WorkerEdit::InsertPages {
+            at: 2,
+            source: source_bytes,
+            text_boxes: Vec::new(),
+        },
+    })
+    .expect("insert pages");
+
+    let WorkerResponse::Edited { pages: all_pages, .. } = edited else {
+        panic!("{edited:?}");
+    };
+    // Check that inserted page retained 90 degree orientation (dimensions swapped)
+    assert_eq!(all_pages[2].width_pt, 792.0);
+    assert_eq!(all_pages[2].height_pt, 612.0);
+
+    // 4. Query annotations on the inserted page (index 2)
+    let annots = match host
+        .request(|request| WorkerRequest::GetPageAnnotations {
+            request,
+            doc: target_doc,
+            page_index: 2,
+        })
+        .expect("page annots")
+    {
+        WorkerResponse::PageAnnotations { annotations, .. } => annotations,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(annots.len(), 2);
+    let hl = annots.iter().find(|a| a.kind == AnnotationKind::Highlight).expect("highlight");
+    let note = annots.iter().find(|a| a.kind == AnnotationKind::Note).expect("note");
+
+    assert_eq!(note.text.as_deref(), Some("Rotated Page Note"));
+    assert_eq!(note.rect, source_note.rect);
+    assert_eq!(hl.rect, source_hl.rect);
 }

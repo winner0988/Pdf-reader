@@ -18,6 +18,7 @@ use ipc_contract::types::{
     Point, Quad, RasterRegion, Restrictions, Rotation, SanitizeOptions, SanitizeReport,
     SecurityReport,
 };
+use ipc_contract::worker::{InsertedTextBox, SourceTextBox};
 use mupdf::pdf::{
     Encryption, InsertPdfOptions, InsertPosition, PageSelection, PdfDocument as MuPdfDocument,
     PdfObject, PdfWriteOptions, Permission,
@@ -39,6 +40,7 @@ mod create;
 mod docx;
 mod forms;
 mod identifier;
+mod merge_annotations;
 mod ocr;
 mod page_marks;
 mod page_overlay;
@@ -1376,6 +1378,8 @@ pub struct PreparedSource {
     pub pages: u32,
     /// The active content the PDF has (MVP-11). None of it comes along with the pages.
     pub security: SecurityReport,
+    /// Text boxes found in the source file to recreate (B3-23, ADR 0019).
+    pub text_boxes: Vec<SourceTextBox>,
 }
 
 impl PdfDocument {
@@ -1408,10 +1412,13 @@ impl PdfDocument {
         options.set_encryption(Encryption::None);
         let mut plain = Vec::new();
         write_at_most(&source.doc, &mut plain, options, MAX_SOURCE_BYTES as u64)?;
+        let plain_doc = PdfDocument::from_bytes(&plain)?;
+        let text_boxes = merge_annotations::extract_source_text_boxes(&plain_doc)?;
         Ok(PreparedSource {
             bytes: plain,
             pages,
             security,
+            text_boxes,
         })
     }
 
@@ -1423,19 +1430,25 @@ impl PdfDocument {
     /// source as a whole (its `/OpenAction`, scripts, outline, embedded files). What a page
     /// does by itself (its `/AA`) is not taken either: see docs/architecture/merge.md. If it
     /// fails, the document is as it was.
-    pub fn insert_pages(&mut self, at: u32, source: &[u8]) -> Result<(), EngineError> {
+    pub fn insert_pages(
+        &mut self,
+        at: u32,
+        source: &[u8],
+        text_boxes: &[InsertedTextBox],
+    ) -> Result<(), EngineError> {
         let count = self.page_count()?;
         if at > count {
             return Err(EngineError::PageOutOfRange(at));
         }
-        let source = PdfDocument::from_bytes(source)?;
-        let inserted = source.page_count()?;
+        let source_doc = PdfDocument::from_bytes(source)?;
+        let inserted = source_doc.page_count()?;
         if inserted == 0 {
             return Err(EngineError::InvalidEdit("the source has no pages"));
         }
         if count.saturating_add(inserted) > MAX_PAGE_COUNT {
             return Err(EngineError::TooManyPages);
         }
+        let annotations = merge_annotations::extract_source_annotations(&source_doc)?;
         let target = if at == count {
             InsertPosition::Append
         } else {
@@ -1444,7 +1457,7 @@ impl PdfDocument {
         // Whatever the graft makes is numbered from here on.
         let first_new = self.doc.count_objects()?;
         self.doc.insert_pdf(
-            &source.doc,
+            &source_doc.doc,
             InsertPdfOptions {
                 source_pages: PageSelection::All,
                 target,
@@ -1452,7 +1465,9 @@ impl PdfDocument {
             },
         )?;
         self.clear_text_cache();
-        crate::scrub::scrub_pages(&self.doc, at, inserted, first_new)
+        crate::scrub::scrub_pages(&self.doc, at, inserted, first_new)?;
+        merge_annotations::recreate_annotations(self, at, &annotations, text_boxes)?;
+        Ok(())
     }
 }
 
@@ -4376,7 +4391,7 @@ endstream",
         assert_eq!(inserted.len(), 4);
 
         // After the third page.
-        doc.insert_pages(3, &source.bytes).expect("insert");
+        doc.insert_pages(3, &source.bytes, &[]).expect("insert");
         assert_eq!(doc.page_count().unwrap(), 14);
         let now = sizes(&doc);
         assert_eq!(&now[..3], &[letter; 3]);
@@ -4388,16 +4403,16 @@ endstream",
         assert_eq!(titles_now[7..], titles(&[4, 5, 6, 7, 8, 9, 10])[..]);
 
         // At the start and at the end (the page count).
-        doc.insert_pages(0, &source.bytes).expect("start");
+        doc.insert_pages(0, &source.bytes, &[]).expect("start");
         assert_eq!(sizes(&doc)[..4], inserted[..]);
         let count = doc.page_count().unwrap();
-        doc.insert_pages(count, &source.bytes).expect("end");
+        doc.insert_pages(count, &source.bytes, &[]).expect("end");
         assert_eq!(doc.page_count().unwrap(), count + 4);
         assert_eq!(sizes(&doc)[count as usize..], inserted[..]);
         // Beyond the end there is no place.
         let count = doc.page_count().unwrap();
         assert!(matches!(
-            doc.insert_pages(count + 1, &source.bytes),
+            doc.insert_pages(count + 1, &source.bytes, &[]),
             Err(EngineError::PageOutOfRange(_))
         ));
         assert_eq!(doc.page_count().unwrap(), count);
@@ -4415,7 +4430,7 @@ endstream",
             .map(|line| line.text.clone())
             .expect("a line");
         let mut doc = PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
-        doc.insert_pages(2, &source.bytes).expect("insert");
+        doc.insert_pages(2, &source.bytes, &[]).expect("insert");
         let (bytes, _) = saved(&doc);
         let reopened = PdfDocument::from_bytes(&bytes).expect("reopen");
         assert_eq!(reopened.page_count().unwrap(), 11);
@@ -4456,7 +4471,7 @@ endstream",
         assert!(!text.is_empty());
         // And its pages go into a document.
         let mut doc = PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
-        doc.insert_pages(1, &aes.bytes).expect("insert");
+        doc.insert_pages(1, &aes.bytes, &[]).expect("insert");
         assert_eq!(doc.page_count().unwrap(), 10 + aes.pages);
         assert!(!has_name(&saved(&doc).0, "Encrypt"));
     }
@@ -4505,7 +4520,7 @@ endstream",
                 PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).expect("open");
             let before = doc.active_content(ScanBudget::default());
             assert!(before.findings.is_empty());
-            doc.insert_pages(5, &source.bytes).expect("insert");
+            doc.insert_pages(5, &source.bytes, &[]).expect("insert");
             let (bytes, _) = saved(&doc);
             for forbidden in [
                 "JavaScript",
@@ -4545,11 +4560,11 @@ endstream",
             Err(EngineError::NotPdf)
         ));
         assert!(matches!(
-            doc.insert_pages(1, b"not a pdf at all"),
+            doc.insert_pages(1, b"not a pdf at all", &[]),
             Err(EngineError::NotPdf)
         ));
         let truncated = &corpus("benign/multi-page-10.pdf")[..200];
-        assert!(doc.insert_pages(1, truncated).is_err());
+        assert!(doc.insert_pages(1, truncated, &[]).is_err());
         assert_eq!(doc.page_count().unwrap(), 10);
         assert_eq!(page_titles(&doc), titles(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
     }
