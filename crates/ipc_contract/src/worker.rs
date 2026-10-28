@@ -112,6 +112,27 @@ pub struct TextBoxModel {
     pub subset: Vec<u8>,
 }
 
+/// A text box found in a source file prepared for inserting into a document (B3-23, ADR 0019).
+/// The worker reports its text, geometry and style so the main process can prepare a model in
+/// an available font (the worker has no fonts).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SourceTextBox {
+    pub page: u32,
+    pub rect: Rect,
+    pub text: String,
+    pub font_family: String,
+    pub style: TextBoxStyle,
+}
+
+/// A text box prepared by the main process to be placed on an inserted page (B3-23, ADR 0019).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InsertedTextBox {
+    pub page: u32,
+    pub rect: Rect,
+    pub model: TextBoxModel,
+    pub style: TextBoxStyle,
+}
+
 /// Bytes that are hex text in JSON and plain bytes in postcard.
 mod hex_when_text {
     use serde::de::Error;
@@ -420,10 +441,14 @@ pub enum WorkerEdit {
     /// As [`Edit::InsertBlankPage`].
     InsertBlankPage { at: u32, like: u32 },
     /// Puts the pages of `source` (a plain PDF file, as `PrepareSource` made it) into the
-    /// document from index `at` on, in their order (B2-06). Only what is on the pages comes
-    /// along: not their annotations, links and form fields, and nothing active (see
-    /// docs/architecture/merge.md).
-    InsertPages { at: u32, source: Vec<u8> },
+    /// document from index `at` on, in their order (B2-06), along with any text boxes prepared
+    /// for them (B3-23, ADR 0019). Only what is on the pages comes along: not other annotations,
+    /// links and form fields, and nothing active (see docs/architecture/merge.md).
+    InsertPages {
+        at: u32,
+        source: Vec<u8>,
+        text_boxes: Vec<InsertedTextBox>,
+    },
     /// As [`Edit::AddHighlight`].
     AddHighlight {
         marks: Vec<HighlightMark>,
@@ -537,7 +562,7 @@ impl WorkerEdit {
     /// gives the model of them (B2-28). The worker is sent them with the edit.
     pub fn of(
         edit: &Edit,
-        source: impl Fn(SourceId) -> Option<Vec<u8>>,
+        source: impl Fn(SourceId) -> Option<(Vec<u8>, Vec<InsertedTextBox>)>,
         picture: impl Fn(StampImageId) -> Option<Vec<u8>>,
         text_box: impl Fn(TextBoxModelId) -> Option<TextBoxModel>,
     ) -> Result<Self, UnknownFile> {
@@ -557,9 +582,13 @@ impl WorkerEdit {
                 at: *at,
                 like: *like,
             },
-            Edit::InsertPages { at, source: id } => WorkerEdit::InsertPages {
-                at: *at,
-                source: source(*id).ok_or(UnknownFile::Source)?,
+            Edit::InsertPages { at, source: id } => {
+                let (source, text_boxes) = source(*id).ok_or(UnknownFile::Source)?;
+                WorkerEdit::InsertPages {
+                    at: *at,
+                    source,
+                    text_boxes,
+                }
             },
             Edit::AddHighlight { marks, color } => WorkerEdit::AddHighlight {
                 marks: marks.clone(),
@@ -1153,12 +1182,13 @@ pub enum WorkerResponse {
     Rebased {
         request: RequestId,
     },
-    /// The copy of the file of `PrepareSource` (B2-06).
+    /// The copy of the file of `PrepareSource` (B2-06), with any text boxes it has (B3-23, ADR 0019).
     Source {
         request: RequestId,
         bytes: Vec<u8>,
         pages: u32,
         security: SecurityReport,
+        text_boxes: Vec<SourceTextBox>,
     },
     /// The document was written: `bytes` long, appended to the original (`incremental`, for a
     /// signed document) or rewritten. `redaction`: what reading the written bytes again found,
@@ -1574,6 +1604,52 @@ mod tests {
         assert_eq!(
             postcard::from_bytes::<WorkerRequest>(&bytes).unwrap(),
             request
+        );
+    }
+
+    #[test]
+    fn insert_pages_edit_carries_source_and_text_boxes() {
+        let edit = Edit::InsertPages {
+            at: 2,
+            source: SourceId(5),
+        };
+        let tb = InsertedTextBox {
+            page: 0,
+            rect: Rect {
+                x0: 10.0,
+                y0: 20.0,
+                x1: 100.0,
+                y1: 50.0,
+            },
+            model: sample_model(),
+            style: TextBoxStyle {
+                size: 14.0,
+                color: Rgb {
+                    r: 10,
+                    g: 20,
+                    b: 30,
+                },
+                align: crate::types::TextAlign::Center,
+            },
+        };
+        let source_fn = |id: SourceId| {
+            (id == SourceId(5)).then(|| (vec![1, 2, 3, 4], vec![tb.clone()]))
+        };
+        let made = WorkerEdit::of(&edit, source_fn, |_| None, |_| None).unwrap();
+        assert_eq!(
+            made,
+            WorkerEdit::InsertPages {
+                at: 2,
+                source: vec![1, 2, 3, 4],
+                text_boxes: vec![tb],
+            }
+        );
+        let bytes = postcard::to_allocvec(&made).unwrap();
+        assert_eq!(postcard::from_bytes::<WorkerEdit>(&bytes).unwrap(), made);
+
+        assert_eq!(
+            WorkerEdit::of(&edit, |_| None, |_| None, |_| None),
+            Err(UnknownFile::Source)
         );
     }
 

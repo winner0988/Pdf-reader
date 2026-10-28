@@ -422,6 +422,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 scan_complete: true,
                 remote_addresses: Vec::new(),
             },
+            text_boxes: Vec::new(),
         },
         WorkerResponse::Saved {
             request,
@@ -872,6 +873,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             edit: WorkerEdit::InsertPages {
                 at: 1,
                 source: b"%PDF-1.7\n%%EOF\n".to_vec(),
+                text_boxes: Vec::new(),
             },
         },
         WorkerRequest::Edit {

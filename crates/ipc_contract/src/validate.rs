@@ -30,8 +30,8 @@ use crate::types::{
     UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
-    InspectedFont, OcrOutcome, OpenedDocument, Raster, TextBoxModel, WorkerAttachment, WorkerError,
-    WorkerErrorCode, WorkerPageMarks, WorkerResponse,
+    InsertedTextBox, InspectedFont, OcrOutcome, OpenedDocument, Raster, SourceTextBox,
+    TextBoxModel, WorkerAttachment, WorkerError, WorkerErrorCode, WorkerPageMarks, WorkerResponse,
 };
 
 /// Maximum length of the worker version string in `Hello`.
@@ -623,6 +623,7 @@ impl Validate for WorkerResponse {
                 bytes,
                 pages,
                 security,
+                text_boxes,
                 ..
             } => {
                 check_count("source file bytes", bytes.len(), MAX_SOURCE_BYTES as u32)?;
@@ -631,7 +632,17 @@ impl Validate for WorkerResponse {
                         what: "source page count",
                     });
                 }
-                security.validate()
+                security.validate()?;
+                check_count("source text boxes", text_boxes.len(), MAX_SOURCE_ANNOTATIONS)?;
+                for text_box in text_boxes {
+                    text_box.validate()?;
+                    if text_box.page >= *pages {
+                        return Err(ValidationError::OutOfRange {
+                            what: "source text box page",
+                        });
+                    }
+                }
+                Ok(())
             }
             WorkerResponse::Attachments { attachments, .. } => {
                 check_count("attachments", attachments.len(), MAX_ATTACHMENTS)?;
@@ -1851,6 +1862,29 @@ impl Validate for TextBoxModel {
             });
         }
         Ok(())
+    }
+}
+
+impl Validate for SourceTextBox {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.rect.validate()?;
+        check_text_box_text(&self.text)?;
+        if self.font_family.is_empty() || self.font_family.len() >= MAX_FONT_NAME_BYTES {
+            return Err(ValidationError::Invalid {
+                what: "font family",
+                reason: "is empty or too long",
+            });
+        }
+        check_clean("font family", &self.font_family)?;
+        self.style.validate()
+    }
+}
+
+impl Validate for InsertedTextBox {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.rect.validate()?;
+        self.model.validate()?;
+        self.style.validate()
     }
 }
 
@@ -4723,6 +4757,7 @@ mod tests {
             bytes: vec![0; len],
             pages,
             security: SecurityReport::default(),
+            text_boxes: Vec::new(),
         };
         assert!(source(1_000, 3).validate().is_ok());
         assert!(source(MAX_SOURCE_BYTES, 1).validate().is_ok());
@@ -4748,6 +4783,54 @@ mod tests {
                 bytes: Vec::new(),
                 pages: 1,
                 security: bad_report,
+                text_boxes: Vec::new(),
+            }
+            .validate()
+            .is_err()
+        );
+
+        let valid_box = SourceTextBox {
+            page: 0,
+            rect: Rect {
+                x0: 10.0,
+                y0: 20.0,
+                x1: 100.0,
+                y1: 50.0,
+            },
+            text: "Hello".to_owned(),
+            font_family: "Arial".to_owned(),
+            style: TextBoxStyle {
+                size: 12.0,
+                color: Rgb { r: 0, g: 0, b: 0 },
+                align: TextAlign::Left,
+            },
+        };
+        assert!(valid_box.validate().is_ok());
+
+        // Text box page beyond source page count is rejected.
+        assert!(
+            WorkerResponse::Source {
+                request: RequestId(1),
+                bytes: vec![0; 10],
+                pages: 1,
+                security: SecurityReport::default(),
+                text_boxes: vec![SourceTextBox {
+                    page: 1,
+                    ..valid_box.clone()
+                }],
+            }
+            .validate()
+            .is_err()
+        );
+
+        // Text boxes beyond limit are rejected.
+        assert!(
+            WorkerResponse::Source {
+                request: RequestId(1),
+                bytes: vec![0; 10],
+                pages: 10,
+                security: SecurityReport::default(),
+                text_boxes: vec![valid_box; MAX_SOURCE_ANNOTATIONS as usize + 1],
             }
             .validate()
             .is_err()

@@ -1564,6 +1564,7 @@ export const LIMITS = {
   maxInkPoints: 20000,
   minAnnotationSidePt: 8,
   maxAnnotationsPerPage: 2000,
+  maxSourceAnnotations: 10000,
   maxFieldsPerPage: 5000,
   maxFieldValueBytes: 16384,
   maxFieldOptions: 1000,
