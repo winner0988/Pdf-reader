@@ -74,17 +74,16 @@ fn is_rgb_or_gray(colorspace: &PdfObject) -> Option<(bool, bool)> {
             return Some((false, true));
         }
         if first.as_deref() == Some(b"ICCBased") {
-            if let Some(stream_ref) = colorspace.get_array(1).ok().flatten() {
-                let stream_dict = stream_ref.resolve().ok().flatten().unwrap_or(stream_ref);
-                let n = entry_of(&stream_dict, "N")
-                    .and_then(|o| o.as_int().ok())
-                    .unwrap_or(0);
-                if n == 3 {
-                    return Some((true, false));
-                }
-                if n == 1 {
-                    return Some((false, true));
-                }
+            let stream_ref = colorspace.get_array(1).ok().flatten()?;
+            let stream_dict = stream_ref.resolve().ok().flatten().unwrap_or(stream_ref);
+            let n = entry_of(&stream_dict, "N")
+                .and_then(|o| o.as_int().ok())
+                .unwrap_or(0);
+            if n == 3 {
+                return Some((true, false));
+            }
+            if n == 1 {
+                return Some((false, true));
             }
         }
     }
@@ -146,7 +145,7 @@ fn extract_picture_png(picture_ref: &PdfObject) -> Option<Vec<u8>> {
             }
             alpha = sbytes;
         } else if s_bpc == 1 {
-            let row_bytes = (width as usize + 7) / 8;
+            let row_bytes = (width as usize).div_ceil(8);
             if sbytes.len() != row_bytes * (height as usize) {
                 return None;
             }
@@ -419,22 +418,20 @@ pub(super) fn extract_source_annotations(
                                     .and_then(|bytes| std::str::from_utf8(bytes).ok())
                                     .map(ToOwned::to_owned)
                             });
-                        if let Some(name_str) = name_str {
-                            if let Some(stamp) = parse_stamp_name(&name_str) {
-                                let r = annot.rect().ok().unwrap_or(bounds);
-                                let rect = Rect {
-                                    x0: r.x0,
-                                    y0: r.y0,
-                                    x1: r.x1,
-                                    y1: r.y1,
-                                };
-                                if valid_rect(rect) {
-                                    extracted.push(ExtractedAnnotation::Stamp {
-                                        page: page_idx,
-                                        rect,
-                                        stamp,
-                                    });
-                                }
+                        if let Some(stamp) = name_str.as_deref().and_then(parse_stamp_name) {
+                            let r = annot.rect().ok().unwrap_or(bounds);
+                            let rect = Rect {
+                                x0: r.x0,
+                                y0: r.y0,
+                                x1: r.x1,
+                                y1: r.y1,
+                            };
+                            if valid_rect(rect) {
+                                extracted.push(ExtractedAnnotation::Stamp {
+                                    page: page_idx,
+                                    rect,
+                                    stamp,
+                                });
                             }
                         }
                     }
@@ -539,10 +536,11 @@ pub(super) fn recreate_annotations(
                 png,
                 angle_degrees,
             } => {
-                if let Ok(id) = doc.add_image_stamp(at + page, *upright_rect, png) {
-                    if angle_degrees.abs() > 1e-3 {
-                        let _ = doc.set_picture_angle(at + page, id, *angle_degrees);
-                    }
+                let Ok(id) = doc.add_image_stamp(at + page, *upright_rect, png) else {
+                    continue;
+                };
+                if angle_degrees.abs() > 1e-3 {
+                    let _ = doc.set_picture_angle(at + page, id, *angle_degrees);
                 }
             }
         }
