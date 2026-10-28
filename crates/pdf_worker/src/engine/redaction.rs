@@ -88,21 +88,31 @@ impl PdfDocument {
         Ok(())
     }
 
-    /// Confirms whether the in-memory redaction groups still match the document's annotations.
-    /// If object numbers have changed (e.g. after saving to new bytes / Rebase or reopening)
-    /// such that any recorded xref is no longer a Redact annotation in the document, all groups
-    /// are dropped so that those marks fall back to checking segment by segment.
-    pub fn check_or_drop_groups(&mut self) {
+    /// Prunes recorded redaction group entries whose object numbers are no longer `Redact`
+    /// annotations in the document (for example, after marks or pages containing them are deleted).
+    ///
+    /// Only the mismatched xrefs are removed, leaving other groups intact. This is safe because:
+    /// 1. Within the same open worker document, MuPDF appends newly created objects to the end
+    ///    of the xref table and never reuses existing object numbers.
+    /// 2. Saving uses `set_garbage(true)` (MuPDF garbage collection level 1), which cleans
+    ///    unreferenced objects without renumbering existing objects.
+    /// 3. Rebase (`WorkerRequest::Rebase`) only updates `originals` with the saved bytes for future
+    ///    undo operations; it does not replace or reload the in-memory document.
+    /// 4. Undo and redo reopen the document afresh from bytes, and groups are reconstructed from
+    ///    replayed edits (`AddRedactionGroup`).
+    pub fn prune_groups(&mut self) {
         if self.redaction_groups.by_xref.is_empty() {
             return;
         }
-        let matches = self.all_group_xrefs_valid().unwrap_or(false);
-        if !matches {
-            self.redaction_groups = RedactionGroups::default();
-        }
+        let Ok(actual_redact_xrefs) = self.collect_redact_xrefs() else {
+            return;
+        };
+        self.redaction_groups
+            .by_xref
+            .retain(|xref, _| actual_redact_xrefs.contains(xref));
     }
 
-    fn all_group_xrefs_valid(&self) -> Result<bool, EngineError> {
+    fn collect_redact_xrefs(&self) -> Result<HashSet<i32>, EngineError> {
         let mut actual_redact_xrefs = HashSet::new();
         for index in 0..self.page_count()? {
             let page = self.pdf_page(index)?;
@@ -112,11 +122,7 @@ impl PdfDocument {
                 }
             }
         }
-        Ok(self
-            .redaction_groups
-            .by_xref
-            .keys()
-            .all(|xref| actual_redact_xrefs.contains(xref)))
+        Ok(actual_redact_xrefs)
     }
 
     /// What applying the marks would do besides removing what their areas reach: how many marks
@@ -159,7 +165,7 @@ impl PdfDocument {
         options: PdfRedactOptions,
     ) -> Result<(), EngineError> {
         self.refuse_signed()?;
-        self.check_or_drop_groups();
+        self.prune_groups();
         let mut redacted = Vec::new();
         for index in 0..self.page_count()? {
             let mut page = self.pdf_page(index)?;
@@ -175,7 +181,7 @@ impl PdfDocument {
             self.remove_reaching(&mut page, reaching)?;
             page.redact_with_options(options)?;
             for (item, text) in mark_items.into_iter().zip(before) {
-                let group = self.redaction_groups.by_xref.get(&item.xref).copied();
+                let group = self.redaction_groups.by_xref.remove(&item.xref);
                 self.removed.areas.push(RemovedArea {
                     page: number,
                     area: item.rect,
@@ -287,7 +293,7 @@ impl PdfDocument {
     /// document's file's place (B2-20).
     pub fn forget_removed(&mut self) {
         self.removed = Removed::default();
-        self.check_or_drop_groups();
+        self.prune_groups();
     }
 
     fn refuse_signed(&self) -> Result<(), EngineError> {
@@ -935,5 +941,52 @@ mod tests {
             }
         }
         assert_eq!(places(&replayed), Some(0));
+    }
+
+    #[test]
+    fn a_group_added_after_an_earlier_apply_is_still_checked_whole() {
+        let (mut doc, _) = make_lines_doc(&[
+            "ends with A1234",
+            "56789 begins line",
+            "wrong checksum A123456780",
+            "then ends with B9876",
+            "54321 begins line",
+            "wrong checksum B987654320",
+        ]);
+        let a1 = search_area_hit(&doc, 0, "A1234", 0);
+        let a2 = search_area_hit(&doc, 0, "56789", 0);
+        let b1 = search_area_hit(&doc, 0, "B9876", 0);
+        let b2 = search_area_hit(&doc, 0, "54321", 0);
+        doc.add_redaction_group(0, &[a1, a2]).expect("group a");
+        doc.apply_redactions().expect("apply a");
+        doc.add_redaction_group(0, &[b1, b2]).expect("group b");
+        doc.apply_redactions().expect("apply b");
+        assert_eq!(
+            places(&doc),
+            Some(0),
+            "second group fell back to piece by piece"
+        );
+    }
+
+    #[test]
+    fn deleting_a_page_with_a_group_keeps_the_other_groups() {
+        let (mut doc, _) = make_lines_doc(&[
+            "ends with A1234",
+            "56789 begins line",
+            "wrong checksum A123456780",
+        ]);
+        let a1 = search_area_hit(&doc, 0, "A1234", 0);
+        let a2 = search_area_hit(&doc, 0, "56789", 0);
+        doc.insert_blank_page(1, 0).expect("blank page");
+        doc.add_redaction_group(1, &[a1])
+            .expect("group on the blank page");
+        doc.delete_pages(&[1]).expect("delete the blank page");
+        doc.add_redaction_group(0, &[a1, a2]).expect("group a");
+        doc.apply_redactions().expect("apply");
+        assert_eq!(
+            places(&doc),
+            Some(0),
+            "group fell back to piece by piece after a page was deleted"
+        );
     }
 }
