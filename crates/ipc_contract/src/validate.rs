@@ -1439,6 +1439,24 @@ impl Validate for Edit {
                 check_annotated_page(*page)?;
                 check_annotation_rect(rect)
             }
+            Edit::AddRedactionGroup { page, rects } => {
+                check_annotated_page(*page)?;
+                if rects.is_empty() {
+                    return Err(ValidationError::Invalid {
+                        what: "redaction group",
+                        reason: "no rectangles",
+                    });
+                }
+                if rects.len() > MAX_REDACTION_GROUP_RECTS {
+                    return Err(ValidationError::OutOfRange {
+                        what: "redaction group rectangles",
+                    });
+                }
+                for rect in rects {
+                    check_annotation_rect(rect)?;
+                }
+                Ok(())
+            }
             Edit::ApplyRedactions => Ok(()),
             Edit::AddBookmark {
                 parent: _,
@@ -4134,6 +4152,36 @@ mod tests {
         assert!(
             serde_json::from_str::<Edit>(
                 r#"{"kind":"addRedaction","page":0,"rect":{"x0":1,"y0":2,"x1":30,"y1":40}}"#
+            )
+            .is_ok()
+        );
+        let invalid_area = area(60.0, 150.0, 330.0, 120.0);
+        let valid_area = area(60.0, 120.0, 330.0, 150.0);
+        let group = |rects: Vec<Rect>| Edit::AddRedactionGroup { page: 0, rects };
+        assert!(group(vec![valid_area]).validate().is_ok());
+        assert!(
+            group(vec![valid_area, area(60.0, 160.0, 330.0, 190.0)])
+                .validate()
+                .is_ok()
+        );
+        assert!(group(vec![]).validate().is_err());
+        assert!(
+            group(vec![valid_area; MAX_REDACTION_GROUP_RECTS + 1])
+                .validate()
+                .is_err()
+        );
+        assert!(group(vec![invalid_area]).validate().is_err());
+        assert!(
+            Edit::AddRedactionGroup {
+                page: MAX_PAGE_COUNT,
+                rects: vec![valid_area],
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<Edit>(
+                r#"{"kind":"addRedactionGroup","page":0,"rects":[{"x0":1,"y0":2,"x1":30,"y1":40}]}"#
             )
             .is_ok()
         );

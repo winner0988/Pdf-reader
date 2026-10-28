@@ -1084,17 +1084,17 @@ export function ReaderShell({
   };
 
   // Each edit gives the document a new id, so every mark goes to the document as it is then.
+  // Each found match is added as a single group edit, even if it has only one rect (Issue #330).
   const addRedactionsFromPersonalData = async (matches: PersonalDataMatch[]) => {
     if (!editingApi || doc === undefined || !redactionAllowed) return;
     try {
       for (const match of matches) {
-        for (const rect of match.rects) {
-          await editingApi.applyEdit(latestDocument()?.doc ?? doc, {
-            kind: "addRedaction",
-            page: match.page,
-            rect,
-          });
-        }
+        if (match.rects.length === 0) continue;
+        await editingApi.applyEdit(latestDocument()?.doc ?? doc, {
+          kind: "addRedactionGroup",
+          page: match.page,
+          rects: match.rects,
+        });
       }
       showHint(strings.redaction.findPersonalDataDialog.markedSuccess(matches.length));
     } catch {

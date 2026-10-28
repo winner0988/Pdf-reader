@@ -455,6 +455,8 @@ pub enum WorkerEdit {
     FlattenForm,
     /// As [`Edit::AddRedaction`].
     AddRedaction { page: u32, rect: Rect },
+    /// As [`Edit::AddRedactionGroup`].
+    AddRedactionGroup { page: u32, rects: Vec<Rect> },
     /// As [`Edit::ApplyRedactions`].
     ApplyRedactions,
     /// As [`Edit::AddInk`].
@@ -601,6 +603,10 @@ impl WorkerEdit {
             Edit::AddRedaction { page, rect } => WorkerEdit::AddRedaction {
                 page: *page,
                 rect: *rect,
+            },
+            Edit::AddRedactionGroup { page, rects } => WorkerEdit::AddRedactionGroup {
+                page: *page,
+                rects: rects.clone(),
             },
             Edit::ApplyRedactions => WorkerEdit::ApplyRedactions,
             Edit::AddInk {
@@ -1588,6 +1594,23 @@ mod tests {
                     x1: 30.0,
                     y1: 40.0,
                 },
+            },
+            WorkerEdit::AddRedactionGroup {
+                page: 2,
+                rects: vec![
+                    Rect {
+                        x0: 1.0,
+                        y0: 2.0,
+                        x1: 30.0,
+                        y1: 40.0,
+                    },
+                    Rect {
+                        x0: 1.0,
+                        y0: 42.0,
+                        x1: 30.0,
+                        y1: 80.0,
+                    },
+                ],
             },
             WorkerEdit::ApplyRedactions,
         ] {

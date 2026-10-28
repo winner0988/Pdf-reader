@@ -605,6 +605,11 @@ pub enum Edit {
     /// annotation, which shows the area and can be moved, resized and removed like the other
     /// annotations. Nothing is removed until `ApplyRedactions`.
     AddRedaction { page: u32, rect: Rect },
+    /// Marks `rects` (page space) of page `page` as a single redaction item, such as a number
+    /// that wraps across lines (B2-19, Issue #330). Each rectangle becomes a `Redact` annotation;
+    /// after saving, the removed text of all rectangles in the group is checked as one combined
+    /// string. Nothing is removed until `ApplyRedactions`.
+    AddRedactionGroup { page: u32, rects: Vec<Rect> },
     /// Applies every redaction mark of the document (B2-19, ADR 0016): what each area reaches is
     /// removed from its page (text, seen or not and in form objects too; the pixels of pictures;
     /// the vector graphics it touches) and a black box drawn there; the other annotations and

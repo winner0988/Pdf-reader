@@ -59,6 +59,72 @@ impl PdfDocument {
         Ok(())
     }
 
+    /// Marks `rects` (page space) of page `index` to be redacted as a single group (Issue #330):
+    /// one `Redact` annotation per rectangle. Their group association is kept in worker memory
+    /// only so that after saving, their removed text is checked as a single combined string.
+    pub fn add_redaction_group(&mut self, index: u32, rects: &[Rect]) -> Result<(), EngineError> {
+        self.refuse_signed()?;
+        if rects.is_empty() {
+            return Err(EngineError::InvalidEdit("redaction group cannot be empty"));
+        }
+        if rects.len() > ipc_contract::limits::MAX_REDACTION_GROUP_RECTS {
+            return Err(EngineError::InvalidEdit(
+                "too many rects in redaction group",
+            ));
+        }
+        let group_id = self.redaction_groups.next_id;
+        self.redaction_groups.next_id += 1;
+        let mut page = self.pdf_page(index)?;
+        for (seg_idx, &rect) in rects.iter().enumerate() {
+            let mut mark = page.add_redact_annotation(binding_rect(rect))?;
+            mark.set_color(MARK_RED)?;
+            mark.set_opacity(MARK_OPACITY)?;
+            mark.update()?;
+            let xref = mark.xref()?;
+            self.redaction_groups
+                .by_xref
+                .insert(xref, (group_id, seg_idx));
+        }
+        Ok(())
+    }
+
+    /// Prunes recorded redaction group entries whose object numbers are no longer `Redact`
+    /// annotations in the document (for example, after marks or pages containing them are deleted).
+    ///
+    /// Only the mismatched xrefs are removed, leaving other groups intact. This is safe because:
+    /// 1. Within the same open worker document, MuPDF appends newly created objects to the end
+    ///    of the xref table and never reuses existing object numbers.
+    /// 2. Saving uses `set_garbage(true)` (MuPDF garbage collection level 1), which cleans
+    ///    unreferenced objects without renumbering existing objects.
+    /// 3. Rebase (`WorkerRequest::Rebase`) only updates `originals` with the saved bytes for future
+    ///    undo operations; it does not replace or reload the in-memory document.
+    /// 4. Undo and redo reopen the document afresh from bytes, and groups are reconstructed from
+    ///    replayed edits (`AddRedactionGroup`).
+    pub fn prune_groups(&mut self) {
+        if self.redaction_groups.by_xref.is_empty() {
+            return;
+        }
+        let Ok(actual_redact_xrefs) = self.collect_redact_xrefs() else {
+            return;
+        };
+        self.redaction_groups
+            .by_xref
+            .retain(|xref, _| actual_redact_xrefs.contains(xref));
+    }
+
+    fn collect_redact_xrefs(&self) -> Result<HashSet<i32>, EngineError> {
+        let mut actual_redact_xrefs = HashSet::new();
+        for index in 0..self.page_count()? {
+            let page = self.pdf_page(index)?;
+            for annot in page.annotations() {
+                if annot.r#type()? == PdfAnnotationType::Redact {
+                    actual_redact_xrefs.insert(annot.xref()?);
+                }
+            }
+        }
+        Ok(actual_redact_xrefs)
+    }
+
     /// What applying the marks would do besides removing what their areas reach: how many marks
     /// on how many pages, and how many other annotations and form fields reach into an area.
     pub fn redaction_summary(&self) -> Result<RedactionSummary, EngineError> {
@@ -99,24 +165,28 @@ impl PdfDocument {
         options: PdfRedactOptions,
     ) -> Result<(), EngineError> {
         self.refuse_signed()?;
+        self.prune_groups();
         let mut redacted = Vec::new();
         for index in 0..self.page_count()? {
             let mut page = self.pdf_page(index)?;
-            let marks = marks_of(&page)?;
-            if marks.is_empty() {
+            let mark_items = mark_items_of(&page)?;
+            if mark_items.is_empty() {
                 continue;
             }
+            let marks: Vec<mupdf::Rect> = mark_items.iter().map(|item| item.rect).collect();
             // What the areas have before they are applied, for the check after saving.
             let number = page_number(&page)?;
             let before = text_in_areas(&page, &marks)?;
             let reaching = reaching(&page, &marks)?;
             self.remove_reaching(&mut page, reaching)?;
             page.redact_with_options(options)?;
-            for (area, text) in marks.into_iter().zip(before) {
+            for (item, text) in mark_items.into_iter().zip(before) {
+                let group = self.redaction_groups.by_xref.remove(&item.xref);
                 self.removed.areas.push(RemovedArea {
                     page: number,
-                    area,
+                    area: item.rect,
                     text,
+                    group,
                 });
             }
             redacted.push(index);
@@ -172,15 +242,50 @@ impl PdfDocument {
             all.push_str(&page_words(&page)?);
             all.push(' ');
         }
-        let all = Zeroizing::new(collapse(&all));
+        let all_collapsed = Zeroizing::new(collapse(&all));
+        let all_no_spaces: Zeroizing<String> =
+            Zeroizing::new(all.chars().filter(|c| !c.is_whitespace()).collect());
+
+        // Standalone marks: checked piece by piece against collapsed text.
         for removed in &self.removed.areas {
+            if removed.group.is_some() {
+                continue;
+            }
             let words = Zeroizing::new(collapse(&removed.text));
             if words.chars().filter(|c| !c.is_whitespace()).count() >= MIN_CHECKED_CHARS
-                && all.contains(words.as_str())
+                && all_collapsed.contains(words.as_str())
             {
                 places += 1;
             }
         }
+
+        // Grouped marks: segments joined in addition order, all whitespace stripped, checked as one.
+        let mut groups: HashMap<u64, Vec<(usize, &Zeroizing<String>)>> = HashMap::new();
+        for removed in &self.removed.areas {
+            if let Some((group_id, seg_idx)) = removed.group {
+                groups
+                    .entry(group_id)
+                    .or_default()
+                    .push((seg_idx, &removed.text));
+            }
+        }
+        for (_group_id, mut segments) in groups {
+            segments.sort_by_key(|(seg_idx, _)| *seg_idx);
+            let mut combined = Zeroizing::new(String::new());
+            for (_, text) in segments {
+                for c in text.chars() {
+                    if !c.is_whitespace() {
+                        combined.push(c);
+                    }
+                }
+            }
+            if combined.chars().count() >= MIN_CHECKED_CHARS
+                && all_no_spaces.contains(combined.as_str())
+            {
+                places += 1;
+            }
+        }
+
         Ok(RedactionCheck { places })
     }
 
@@ -188,6 +293,7 @@ impl PdfDocument {
     /// document's file's place (B2-20).
     pub fn forget_removed(&mut self) {
         self.removed = Removed::default();
+        self.prune_groups();
     }
 
     fn refuse_signed(&self) -> Result<(), EngineError> {
@@ -242,6 +348,15 @@ impl PdfDocument {
     }
 }
 
+/// Which marks belong to the same found personal data item (Issue #330).
+/// Stored in worker memory only, never written into the PDF.
+#[derive(Default, Clone)]
+pub(super) struct RedactionGroups {
+    pub(super) next_id: u64,
+    /// Maps annotation xref -> (group_id, segment_index)
+    pub(super) by_xref: HashMap<i32, (u64, usize)>,
+}
+
 /// What applying the redactions removed since the document was last saved (B2-20): only in the
 /// worker's memory, never in a journal, a log or an answer; the words are wiped when dropped.
 #[derive(Default)]
@@ -260,6 +375,7 @@ struct RemovedArea {
     page: i32,
     area: mupdf::Rect,
     text: Zeroizing<String>,
+    group: Option<(u64, usize)>,
 }
 
 /// Removed words shorter than this (not counting spaces) are not looked for in the whole text:
@@ -326,15 +442,30 @@ fn collapse(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The areas of the marks of `page`.
-fn marks_of(page: &PdfPage) -> Result<Vec<mupdf::Rect>, EngineError> {
+struct MarkItem {
+    xref: i32,
+    rect: mupdf::Rect,
+}
+
+fn mark_items_of(page: &PdfPage) -> Result<Vec<MarkItem>, EngineError> {
     let mut marks = Vec::new();
     for annotation in page.annotations() {
         if annotation.r#type()? == PdfAnnotationType::Redact {
-            marks.push(annotation.rect()?);
+            marks.push(MarkItem {
+                xref: annotation.xref()?,
+                rect: annotation.rect()?,
+            });
         }
     }
     Ok(marks)
+}
+
+/// The areas of the marks of `page`.
+fn marks_of(page: &PdfPage) -> Result<Vec<mupdf::Rect>, EngineError> {
+    Ok(mark_items_of(page)?
+        .into_iter()
+        .map(|item| item.rect)
+        .collect())
 }
 
 /// What of a page reaches into one of its marks: annotation and widget numbers.
@@ -646,6 +777,216 @@ mod tests {
                 .unwrap()
                 .hits
                 .is_empty()
+        );
+    }
+
+    fn search_area_hit(doc: &PdfDocument, page: u32, query: &str, hit_index: usize) -> Rect {
+        let hits = doc.search_page(page, query, true, 8).expect("search").hits;
+        assert!(
+            hits.len() > hit_index,
+            "query '{query}' hit {hit_index} on page {page}"
+        );
+        let points: Vec<_> = hits[hit_index]
+            .quads
+            .iter()
+            .flat_map(|quad| [quad.ul, quad.ur, quad.ll, quad.lr])
+            .collect();
+        Rect {
+            x0: points.iter().map(|p| p.x).fold(f32::MAX, f32::min) - 1.0,
+            y0: points.iter().map(|p| p.y).fold(f32::MAX, f32::min) - 1.0,
+            x1: points.iter().map(|p| p.x).fold(f32::MIN, f32::max) + 1.0,
+            y1: points.iter().map(|p| p.y).fold(f32::MIN, f32::max) + 1.0,
+        }
+    }
+
+    fn search_area(doc: &PdfDocument, page: u32, query: &str) -> Rect {
+        search_area_hit(doc, page, query, 0)
+    }
+
+    fn make_lines_doc(lines: &[&str]) -> (PdfDocument, Vec<u8>) {
+        let mut text = String::new();
+        let mut y = 700.0;
+        for content in lines {
+            text.push_str(&format!("BT /F1 18 Tf 72 {y} Td ({content}) Tj ET\n"));
+            y -= 50.0;
+        }
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".to_owned(),
+            format!("<< /Length {} >>\nstream\n{text}\nendstream", text.len()),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+        ];
+        let mut out = b"%PDF-1.7\n".to_vec();
+        let mut offsets = Vec::new();
+        for (index, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", index + 1).as_bytes());
+        }
+        let xref = out.len();
+        out.extend_from_slice(
+            format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes(),
+        );
+        for offset in offsets {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+                objects.len() + 1
+            )
+            .as_bytes(),
+        );
+        let doc = PdfDocument::from_bytes(&out).expect("open");
+        (doc, out)
+    }
+
+    fn wrapped_number_doc(extra_line: &str) -> (PdfDocument, Rect, Rect) {
+        let (doc, _) = make_lines_doc(&["ends with A1234", "56789 begins line", extra_line]);
+        let area1 = search_area(&doc, 0, "A1234");
+        let area2 = search_area(&doc, 0, "56789");
+        (doc, area1, area2)
+    }
+
+    #[test]
+    fn separate_marks_false_positive_on_wrapped_match_piece() {
+        // Line 3 has wrong checksum A123456780.
+        // Marking A1234 and 56789 with separate AddRedaction reports at least 1 place!
+        let (mut doc, area1, area2) = wrapped_number_doc("wrong checksum A123456780");
+        doc.add_redaction(0, area1).expect("mark 1");
+        doc.add_redaction(0, area2).expect("mark 2");
+        doc.apply_redactions().expect("apply");
+        let check_places = places(&doc);
+        assert_eq!(
+            check_places,
+            Some(1),
+            "separate marks falsely report piece A1234 found in A123456780"
+        );
+    }
+
+    #[test]
+    fn wrapped_personal_data_group_clears_false_positive() {
+        // Marking A1234 and 56789 as a single group checks the whole string A123456789
+        // without spaces. A123456780 does not match it, so 0 places are reported.
+        let (mut doc, area1, area2) = wrapped_number_doc("wrong checksum A123456780");
+        doc.add_redaction_group(0, &[area1, area2]).expect("group");
+        doc.apply_redactions().expect("apply");
+        assert_eq!(places(&doc), Some(0));
+    }
+
+    #[test]
+    fn true_residual_whole_number_unwrapped_elsewhere_is_reported() {
+        // The whole number A123456789 appears on line 3 without wrapping.
+        let (mut doc, area1, area2) = wrapped_number_doc("unwrapped A123456789 elsewhere");
+        doc.add_redaction_group(0, &[area1, area2]).expect("group");
+        doc.apply_redactions().expect("apply");
+        assert_eq!(places(&doc), Some(1));
+    }
+
+    #[test]
+    fn true_residual_wrapped_across_lines_elsewhere_is_reported() {
+        // The whole number wraps across line 3 and line 4 elsewhere in the document.
+        let (mut doc, _) = make_lines_doc(&[
+            "ends with A1234",
+            "56789 begins line",
+            "elsewhere also ends with A1234",
+            "56789 begins another line",
+        ]);
+        let area1 = search_area_hit(&doc, 0, "A1234", 0);
+        let area2 = search_area_hit(&doc, 0, "56789", 0);
+        doc.add_redaction_group(0, &[area1, area2]).expect("group");
+        doc.apply_redactions().expect("apply");
+        assert_eq!(places(&doc), Some(1));
+    }
+
+    #[test]
+    fn only_cover_option_reports_all_areas() {
+        // With ONLY_COVER, underlying text remains in the stream: both areas fail the
+        // in-area check, and the combined string is found in the text stream (total 3).
+        let (mut doc, area1, area2) = wrapped_number_doc("plain line without match");
+        doc.add_redaction_group(0, &[area1, area2]).expect("group");
+        doc.apply_redactions_with(ONLY_COVER).expect("apply");
+        assert_eq!(places(&doc), Some(3));
+    }
+
+    #[test]
+    fn undo_and_redo_rebuilds_group_and_still_checks_together() {
+        let (doc, raw_bytes) = make_lines_doc(&[
+            "ends with A1234",
+            "56789 begins line",
+            "wrong checksum A123456780",
+        ]);
+        let area1 = search_area_hit(&doc, 0, "A1234", 0);
+        let area2 = search_area_hit(&doc, 0, "56789", 0);
+
+        let edits = vec![
+            ipc_contract::worker::WorkerEdit::AddRedactionGroup {
+                page: 0,
+                rects: vec![area1, area2],
+            },
+            ipc_contract::worker::WorkerEdit::ApplyRedactions,
+        ];
+
+        // Replaying edits (revert) restores the group in memory.
+        let mut replayed = PdfDocument::open(&raw_bytes, None).expect("reopen");
+        for edit in &edits {
+            match edit {
+                ipc_contract::worker::WorkerEdit::AddRedactionGroup { page, rects } => {
+                    replayed.add_redaction_group(*page, rects).unwrap();
+                }
+                ipc_contract::worker::WorkerEdit::ApplyRedactions => {
+                    replayed.apply_redactions().unwrap();
+                }
+                _ => unreachable!(),
+            }
+        }
+        assert_eq!(places(&replayed), Some(0));
+    }
+
+    #[test]
+    fn a_group_added_after_an_earlier_apply_is_still_checked_whole() {
+        let (mut doc, _) = make_lines_doc(&[
+            "ends with A1234",
+            "56789 begins line",
+            "wrong checksum A123456780",
+            "then ends with B9876",
+            "54321 begins line",
+            "wrong checksum B987654320",
+        ]);
+        let a1 = search_area_hit(&doc, 0, "A1234", 0);
+        let a2 = search_area_hit(&doc, 0, "56789", 0);
+        let b1 = search_area_hit(&doc, 0, "B9876", 0);
+        let b2 = search_area_hit(&doc, 0, "54321", 0);
+        doc.add_redaction_group(0, &[a1, a2]).expect("group a");
+        doc.apply_redactions().expect("apply a");
+        doc.add_redaction_group(0, &[b1, b2]).expect("group b");
+        doc.apply_redactions().expect("apply b");
+        assert_eq!(
+            places(&doc),
+            Some(0),
+            "second group fell back to piece by piece"
+        );
+    }
+
+    #[test]
+    fn deleting_a_page_with_a_group_keeps_the_other_groups() {
+        let (mut doc, _) = make_lines_doc(&[
+            "ends with A1234",
+            "56789 begins line",
+            "wrong checksum A123456780",
+        ]);
+        let a1 = search_area_hit(&doc, 0, "A1234", 0);
+        let a2 = search_area_hit(&doc, 0, "56789", 0);
+        doc.insert_blank_page(1, 0).expect("blank page");
+        doc.add_redaction_group(1, &[a1])
+            .expect("group on the blank page");
+        doc.delete_pages(&[1]).expect("delete the blank page");
+        doc.add_redaction_group(0, &[a1, a2]).expect("group a");
+        doc.apply_redactions().expect("apply");
+        assert_eq!(
+            places(&doc),
+            Some(0),
+            "group fell back to piece by piece after a page was deleted"
         );
     }
 }

@@ -2813,7 +2813,7 @@ fn pages_after(
     // Redaction (B2-19, ADR 0016) changes what the pages say, marks included: the author's
     // permission to change the document covers it. The worker refuses a signed document.
     match edit {
-        Edit::AddRedaction { page, .. } => {
+        Edit::AddRedaction { page, .. } | Edit::AddRedactionGroup { page, .. } => {
             if !permissions.modify {
                 return Err(not_allowed());
             }
@@ -2939,6 +2939,7 @@ fn pages_after(
         | Edit::SetFieldValue { .. }
         | Edit::FlattenForm
         | Edit::AddRedaction { .. }
+        | Edit::AddRedactionGroup { .. }
         | Edit::ApplyRedactions
         | Edit::AddBookmark { .. }
         | Edit::RenameBookmark { .. }
@@ -5645,11 +5646,28 @@ mod with_worker {
                 y1: 50.0,
             },
         };
+        let group_mark = Edit::AddRedactionGroup {
+            page: 0,
+            rects: vec![
+                Rect {
+                    x0: 10.0,
+                    y0: 10.0,
+                    x1: 50.0,
+                    y1: 50.0,
+                },
+                Rect {
+                    x0: 10.0,
+                    y0: 55.0,
+                    x1: 50.0,
+                    y1: 95.0,
+                },
+            ],
+        };
         let only_annotating = DocumentPermissions {
             modify: false,
             ..DocumentPermissions::ALL
         };
-        for edit in [&mark, &Edit::ApplyRedactions] {
+        for edit in [&mark, &group_mark, &Edit::ApplyRedactions] {
             assert_eq!(
                 pages_after(edit, 1, only_annotating, &|_| None)
                     .unwrap_err()
@@ -5672,6 +5690,16 @@ mod with_worker {
             },
         };
         assert!(pages_after(&elsewhere, 1, DocumentPermissions::ALL, &|_| None).is_err());
+        let elsewhere_group = Edit::AddRedactionGroup {
+            page: 3,
+            rects: vec![Rect {
+                x0: 10.0,
+                y0: 10.0,
+                x1: 50.0,
+                y1: 50.0,
+            }],
+        };
+        assert!(pages_after(&elsewhere_group, 1, DocumentPermissions::ALL, &|_| None).is_err());
     }
 
     #[test]

@@ -795,6 +795,9 @@ fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineErro
         }
         WorkerEdit::FlattenForm => document.flatten_form()?,
         WorkerEdit::AddRedaction { page, rect } => document.add_redaction(*page, *rect)?,
+        WorkerEdit::AddRedactionGroup { page, rects } => {
+            document.add_redaction_group(*page, rects)?
+        }
         WorkerEdit::ApplyRedactions => document.apply_redactions()?,
         WorkerEdit::AddInk {
             page,

@@ -15,10 +15,10 @@
 //! are NEVER logged, never recorded in crash recovery journals, and never returned in
 //! full across the IPC boundary. Previews returned to the frontend have sensitive
 //! middle characters masked (e.g. `A12****789`). Marking a match for redaction produces
-//! standard `Edit::AddRedaction` edits carrying bounding rectangles only.
+//! standard `Edit::AddRedactionGroup` edits carrying bounding rectangles only.
 
 use ipc_contract::limits::{
-    MAX_PERSONAL_DATA_MATCHES, MAX_PERSONAL_DATA_PREVIEW_BYTES, MAX_QUADS_PER_HIT,
+    MAX_PERSONAL_DATA_MATCHES, MAX_PERSONAL_DATA_PREVIEW_BYTES, MAX_REDACTION_GROUP_RECTS,
     MIN_ANNOTATION_SIDE_PT,
 };
 use ipc_contract::types::{
@@ -458,11 +458,11 @@ fn rects_of_chars(slice: &[PageChar]) -> Vec<Rect> {
     cap_rects(rects)
 }
 
-/// Keeps a match within `MAX_QUADS_PER_HIT` rectangles (a keyword can wrap over many
+/// Keeps a match within `MAX_REDACTION_GROUP_RECTS` rectangles (a keyword can wrap over many
 /// short lines) by joining neighbouring line rectangles. Joined rectangles cover at
 /// least the same area, so nothing in the match is left out of the redaction.
 fn cap_rects(rects: Vec<Rect>) -> Vec<Rect> {
-    let max = MAX_QUADS_PER_HIT as usize;
+    let max = MAX_REDACTION_GROUP_RECTS;
     if rects.len() <= max {
         return rects;
     }
@@ -1101,7 +1101,7 @@ mod tests {
             })
             .collect();
         let capped = cap_rects(rects);
-        assert!(capped.len() <= MAX_QUADS_PER_HIT as usize);
+        assert!(capped.len() <= MAX_REDACTION_GROUP_RECTS);
         assert_eq!(capped.first().map(|r| r.y0), Some(0.0));
         assert_eq!(capped.last().map(|r| r.y1), Some(199.0 * 12.0 + 10.0));
     }
