@@ -4,6 +4,8 @@
 //! a file the main process created; the document itself is left as it was.
 #![cfg(windows)]
 
+mod common;
+
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
@@ -105,6 +107,13 @@ fn pdf_with_a_photograph() -> Vec<u8> {
     )
     .expect("put in");
     drop(page);
+    let mut trailer = doc.trailer().expect("trailer");
+    let mut identifier = doc.new_array().expect("array");
+    let id_str1 = doc.new_string("70F9B20F639ED3B2D69ABD8F6B6F3120").expect("id");
+    let id_str2 = doc.new_string("70F9B20F639ED3B2D69ABD8F6B6F3120").expect("id");
+    identifier.array_push(id_str1).expect("push");
+    identifier.array_push(id_str2).expect("push");
+    trailer.dict_put("ID", identifier).expect("put");
     let mut options = PdfWriteOptions::default();
     options.set_garbage(true);
     let mut bytes = Vec::new();
@@ -136,17 +145,18 @@ fn the_worker_writes_a_smaller_copy_of_the_pictures_and_the_document_is_as_it_wa
         panic!("{response:?}");
     };
     assert_eq!((images, changed, partial), (1, 1, false));
-    assert_eq!(bytes, std::fs::metadata(&path).expect("file").len());
+    let copy = std::fs::read(&path).expect("first compressed copy");
+    assert_eq!(bytes, copy.len() as u64);
     assert!(bytes * 3 < before, "{bytes} bytes from {before}");
 
     // The copy opens, in a worker of its own, with its page.
     let mut again = self::host();
-    let copy = open(&mut again, &path);
+    let copy_doc = open(&mut again, &path);
     assert!(matches!(
         again
             .request(|request| WorkerRequest::Render {
                 request,
-                doc: copy,
+                doc: copy_doc,
                 page_index: 0,
                 scale: 1.0,
                 rotation: Rotation::None,
@@ -164,7 +174,13 @@ fn the_worker_writes_a_smaller_copy_of_the_pictures_and_the_document_is_as_it_wa
     else {
         panic!("a compressed copy");
     };
-    assert_eq!(again_bytes, bytes);
+    drop(second_file);
+    let second_copy = std::fs::read(&second_path).expect("second compressed copy");
+    assert_eq!(again_bytes, second_copy.len() as u64);
+    assert_eq!(
+        common::without_trailer_id(&copy).expect("trailer /ID in first copy"),
+        common::without_trailer_id(&second_copy).expect("trailer /ID in second copy"),
+    );
     for file in [&input, &path, &second_path] {
         let _ = std::fs::remove_file(file);
     }
