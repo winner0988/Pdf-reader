@@ -224,7 +224,12 @@ fn trailer_without_id_detects_any_difference_outside_id() {
 
     // Difference in startxref offset
     let suffix_diff = b"\nstartxref\n51\n%%EOF\n";
-    let modified_suffix = [prefix.as_slice(), trailer.as_slice(), suffix_diff.as_slice()].concat();
+    let modified_suffix = [
+        prefix.as_slice(),
+        trailer.as_slice(),
+        suffix_diff.as_slice(),
+    ]
+    .concat();
     let stripped_suffix =
         common::without_trailer_id(&modified_suffix).expect("strip modified suffix");
     assert_ne!(stripped_orig, stripped_suffix);
@@ -268,7 +273,12 @@ fn trailer_without_id_fails_on_missing_or_malformed_id() {
     let suffix = b"\nstartxref\n50\n%%EOF\n";
 
     // 1. Missing /ID entry in trailer
-    let no_id = [prefix.as_slice(), b"<</Size 8/Root 1 0 R>>", suffix.as_slice()].concat();
+    let no_id = [
+        prefix.as_slice(),
+        b"<</Size 8/Root 1 0 R>>",
+        suffix.as_slice(),
+    ]
+    .concat();
     assert!(common::without_trailer_id(&no_id).is_err());
 
     // 2. Unterminated hex string

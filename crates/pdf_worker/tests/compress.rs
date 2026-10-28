@@ -109,8 +109,12 @@ fn pdf_with_a_photograph() -> Vec<u8> {
     drop(page);
     let mut trailer = doc.trailer().expect("trailer");
     let mut identifier = doc.new_array().expect("array");
-    let id_str1 = doc.new_string("70F9B20F639ED3B2D69ABD8F6B6F3120").expect("id");
-    let id_str2 = doc.new_string("70F9B20F639ED3B2D69ABD8F6B6F3120").expect("id");
+    let id_str1 = doc
+        .new_string("70F9B20F639ED3B2D69ABD8F6B6F3120")
+        .expect("id");
+    let id_str2 = doc
+        .new_string("70F9B20F639ED3B2D69ABD8F6B6F3120")
+        .expect("id");
     identifier.array_push(id_str1).expect("push");
     identifier.array_push(id_str2).expect("push");
     trailer.dict_put("ID", identifier).expect("put");
