@@ -24,16 +24,16 @@ use ipc_contract::types::{
     BatchOperation, BlockedAction, Certification, CompressResult, CreateKind, CreateResult,
     DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
     FindPersonalDataQuery, FontInfo, FormField, ImageQuality, IpcError, LinkArgs, LinkPreview,
-    LinkTarget, MarkCheck, NotRemembered, OpenEvent, OutlineLinkArgs, OutlineResult, PageAnnotation,
-    PageLink, PageMarksError, PageSize, PageText, PagesSource, Password, PersonalDataMatches,
-    PreparedTextBox, Recovery, RedactionSummary, RememberedPasswords, RemoteAddressArgs,
-    RenderPageArgs, Restrictions, SanitizeOptions, SanitizeResult, SaveAttachmentResult,
-    SaveResult, SearchHit, SecurityReport, SignCheck, SignatureReport, SignatureStatus, SourceId,
-    StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
+    LinkTarget, MarkCheck, NotRemembered, OpenEvent, OutlineLinkArgs, OutlineResult,
+    PageAnnotation, PageLink, PageMarksError, PageSize, PageText, PagesSource, Password,
+    PersonalDataMatches, PreparedTextBox, Recovery, RedactionSummary, RememberedPasswords,
+    RemoteAddressArgs, RenderPageArgs, Restrictions, SanitizeOptions, SanitizeResult,
+    SaveAttachmentResult, SaveResult, SearchHit, SecurityReport, SignCheck, SignatureReport,
+    SignatureStatus, SourceId, StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
 };
 use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
 use ipc_contract::worker::{
-    FontData, InspectedFont, InsertedTextBox, NewSignature, OcrFinished, OcrPageState, PasswordKey,
+    FontData, InsertedTextBox, InspectedFont, NewSignature, OcrFinished, OcrPageState, PasswordKey,
     SourceTextBox, UnknownFile, WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
 };
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
@@ -1937,86 +1937,88 @@ impl Documents {
         })
     }
 
-/// Prepares text box models for inserted pages (B3-23, ADR 0019 §3).
-///
-/// Tries the original font family first, then falls back through the default sequence
-/// ("Microsoft JhengHei", "Microsoft YaHei", "Yu Gothic", "Segoe UI", "Arial").
-/// If no candidate font can set the text, that text box is skipped.
-fn prepare_inserted_text_boxes(
-    document: &mut OpenDocument,
-    fonts: &crate::fonts::Fonts,
-    source_boxes: &[SourceTextBox],
-) -> Vec<InsertedTextBox> {
-    const FALLBACK_FAMILIES: &[&str] = &[
-        "Microsoft JhengHei",
-        "Microsoft YaHei",
-        "Yu Gothic",
-        "Segoe UI",
-        "Arial",
-    ];
+    /// Prepares text box models for inserted pages (B3-23, ADR 0019 §3).
+    ///
+    /// Tries the original font family first, then falls back through the default sequence
+    /// ("Microsoft JhengHei", "Microsoft YaHei", "Yu Gothic", "Segoe UI", "Arial").
+    /// If no candidate font can set the text, that text box is skipped.
+    fn prepare_inserted_text_boxes(
+        document: &mut OpenDocument,
+        fonts: &crate::fonts::Fonts,
+        source_boxes: &[SourceTextBox],
+    ) -> Vec<InsertedTextBox> {
+        const FALLBACK_FAMILIES: &[&str] = &[
+            "Microsoft JhengHei",
+            "Microsoft YaHei",
+            "Yu Gothic",
+            "Segoe UI",
+            "Arial",
+        ];
 
-    let available_fonts = fonts.list();
-    let mut inserted = Vec::new();
+        let available_fonts = fonts.list();
+        let mut inserted = Vec::new();
 
-    for stb in source_boxes {
-        if check_text_box_text(&stb.text).is_err() {
-            continue;
-        }
-
-        let mut candidates = Vec::with_capacity(1 + FALLBACK_FAMILIES.len());
-        candidates.push(stb.font_family.as_str());
-        for &fallback in FALLBACK_FAMILIES {
-            if !candidates.iter().any(|&c| c.eq_ignore_ascii_case(fallback)) {
-                candidates.push(fallback);
-            }
-        }
-
-        let mut prepared_model = None;
-        for family in candidates {
-            let mut family_fonts: Vec<&FontInfo> = available_fonts
-                .iter()
-                .filter(|f| f.family.eq_ignore_ascii_case(family))
-                .collect();
-            if family_fonts.is_empty() {
+        for stb in source_boxes {
+            if check_text_box_text(&stb.text).is_err() {
                 continue;
             }
-            family_fonts.sort_by_key(|f| (f.bold, f.italic));
-            let chosen_font = family_fonts[0];
 
-            let Ok(font_file) = fonts.read(chosen_font.id) else {
-                continue;
-            };
+            let mut candidates = Vec::with_capacity(1 + FALLBACK_FAMILIES.len());
+            candidates.push(stb.font_family.as_str());
+            for &fallback in FALLBACK_FAMILIES {
+                if !candidates.iter().any(|&c| c.eq_ignore_ascii_case(fallback)) {
+                    candidates.push(fallback);
+                }
+            }
 
-            let font_data = FontData {
-                bytes: font_file.bytes,
-                face: font_file.face,
-                name: chosen_font.name.clone(),
-            };
+            let mut prepared_model = None;
+            for family in candidates {
+                let mut family_fonts: Vec<&FontInfo> = available_fonts
+                    .iter()
+                    .filter(|f| f.family.eq_ignore_ascii_case(family))
+                    .collect();
+                if family_fonts.is_empty() {
+                    continue;
+                }
+                family_fonts.sort_by_key(|f| (f.bold, f.italic));
+                let chosen_font = family_fonts[0];
 
-            let response = document.host.request(|request| WorkerRequest::PrepareTextBox {
-                request,
-                font: font_data,
-                text: stb.text.clone(),
-            });
+                let Ok(font_file) = fonts.read(chosen_font.id) else {
+                    continue;
+                };
 
-            if let Ok(WorkerResponse::TextBoxPrepared { model, .. }) = response {
-                prepared_model = Some(model);
-                break;
+                let font_data = FontData {
+                    bytes: font_file.bytes,
+                    face: font_file.face,
+                    name: chosen_font.name.clone(),
+                };
+
+                let response = document
+                    .host
+                    .request(|request| WorkerRequest::PrepareTextBox {
+                        request,
+                        font: font_data,
+                        text: stb.text.clone(),
+                    });
+
+                if let Ok(WorkerResponse::TextBoxPrepared { model, .. }) = response {
+                    prepared_model = Some(model);
+                    break;
+                }
+            }
+
+            if let Some(model) = prepared_model {
+                inserted.push(InsertedTextBox {
+                    page: stb.page,
+                    rect: stb.rect,
+                    model,
+                    style: stb.style,
+                });
             }
         }
 
-        if let Some(model) = prepared_model {
-            inserted.push(InsertedTextBox {
-                page: stb.page,
-                rect: stb.rect,
-                model,
-                style: stb.style,
-            });
-        }
+        inserted
     }
-
-    inserted
-}
 
     /// Makes the clean copy of the PDF at `path`, a file the user chose to take pages from
     /// (B2-06), and keeps it for `doc`. The document's own worker does the work, through a
@@ -8887,11 +8889,7 @@ mod with_worker {
                         font_family: "NonExistentFontFamilyXYZ".to_owned(),
                         style: TextBoxStyle {
                             size: 14.0,
-                            color: Rgb {
-                                r: 255,
-                                g: 0,
-                                b: 0,
-                            },
+                            color: Rgb { r: 255, g: 0, b: 0 },
                             align: TextAlign::Center,
                         },
                     },
@@ -8967,9 +8965,7 @@ mod with_worker {
 
         // 4. Save target document: verify sources are cleared
         let copy = std::env::temp_dir().join(format!("merge-tb-saved-{}.pdf", std::process::id()));
-        documents
-            .save(target_doc, Some(copy.clone()))
-            .unwrap();
+        documents.save(target_doc, Some(copy.clone())).unwrap();
         documents
             .with_document(target_doc, |d| {
                 assert!(

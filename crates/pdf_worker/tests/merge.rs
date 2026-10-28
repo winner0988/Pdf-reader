@@ -340,8 +340,10 @@ fn app_annotations_are_recreated_on_inserted_pages() {
     .expect("text box");
 
     // Save source document to a temp file
-    let source_path =
-        std::env::temp_dir().join(format!("pdf-worker-{}-annot-source.pdf", std::process::id()));
+    let source_path = std::env::temp_dir().join(format!(
+        "pdf-worker-{}-annot-source.pdf",
+        std::process::id()
+    ));
     let _ = std::fs::remove_file(&source_path);
     let file = std::fs::OpenOptions::new()
         .write(true)
@@ -353,15 +355,16 @@ fn app_annotations_are_recreated_on_inserted_pages() {
 
     // 2. Prepare source from the saved file
     let file = File::open(&source_path).expect("open source file");
-    let (source_bytes, source_pages, source_tb) = match host.prepare_source(&file, None).expect("prepare source") {
-        WorkerResponse::Source {
-            bytes,
-            pages,
-            text_boxes,
-            ..
-        } => (bytes, pages, text_boxes),
-        other => panic!("{other:?}"),
-    };
+    let (source_bytes, source_pages, source_tb) =
+        match host.prepare_source(&file, None).expect("prepare source") {
+            WorkerResponse::Source {
+                bytes,
+                pages,
+                text_boxes,
+                ..
+            } => (bytes, pages, text_boxes),
+            other => panic!("{other:?}"),
+        };
     std::fs::remove_file(&source_path).ok();
     assert_eq!(source_pages, 1);
     assert_eq!(source_tb.len(), 1);
@@ -400,12 +403,24 @@ fn app_annotations_are_recreated_on_inserted_pages() {
     };
 
     // Expect 6 annotations: Highlight, Note, Ink, Standard Stamp, Picture Stamp, Text Box!
-    assert_eq!(annots.len(), 6, "Expected 6 annotations on inserted page, found: {annots:?}");
+    assert_eq!(
+        annots.len(),
+        6,
+        "Expected 6 annotations on inserted page, found: {annots:?}"
+    );
     assert!(annots.iter().any(|a| a.kind == AnnotationKind::Highlight));
     assert!(annots.iter().any(|a| a.kind == AnnotationKind::Note));
     assert!(annots.iter().any(|a| a.kind == AnnotationKind::Ink));
-    assert!(annots.iter().any(|a| a.kind == AnnotationKind::Stamp && a.picture.is_none()));
-    assert!(annots.iter().any(|a| a.kind == AnnotationKind::Stamp && a.picture.is_some()));
+    assert!(
+        annots
+            .iter()
+            .any(|a| a.kind == AnnotationKind::Stamp && a.picture.is_none())
+    );
+    assert!(
+        annots
+            .iter()
+            .any(|a| a.kind == AnnotationKind::Stamp && a.picture.is_some())
+    );
     assert!(annots.iter().any(|a| a.kind == AnnotationKind::TextBox));
 
     // 5. Revert (undo/redo & crash recovery replay) with the same edit
@@ -477,8 +492,7 @@ fn malicious_actions_on_source_annotations_are_stripped() {
         std::process::id()
     ));
     {
-        let doc =
-            mupdf::pdf::PdfDocument::open(source_path.to_str().unwrap()).expect("open mupdf");
+        let doc = mupdf::pdf::PdfDocument::open(source_path.to_str().unwrap()).expect("open mupdf");
         let page = doc.load_pdf_page(0).expect("load page");
         let annot = page.annotations().next().expect("annot");
         let mut annot_obj = annot.object();
@@ -627,47 +641,68 @@ fn invalid_annotations_are_skipped_while_valid_are_kept() {
         std::process::id()
     ));
     {
-        let doc =
-            mupdf::pdf::PdfDocument::open(source_path.to_str().unwrap()).expect("open mupdf");
+        let doc = mupdf::pdf::PdfDocument::open(source_path.to_str().unwrap()).expect("open mupdf");
         let mut page = doc.load_pdf_page(0).expect("load page");
 
         // Invalid stamp
-        let invalid_stamp = page.create_annotation(mupdf::pdf::PdfAnnotationType::Stamp).expect("create stamp");
+        let invalid_stamp = page
+            .create_annotation(mupdf::pdf::PdfAnnotationType::Stamp)
+            .expect("create stamp");
         let mut stamp_obj = invalid_stamp.object();
-        stamp_obj.dict_put("Name", PdfObject::new_name("NotAnAppStampName").expect("name")).expect("put name");
+        stamp_obj
+            .dict_put(
+                "Name",
+                PdfObject::new_name("NotAnAppStampName").expect("name"),
+            )
+            .expect("put name");
         let mut rect = doc.new_array().expect("array");
         for v in [50.0, 50.0, 100.0, 100.0] {
-            rect.array_push(PdfObject::new_real(v).expect("real")).expect("push");
+            rect.array_push(PdfObject::new_real(v).expect("real"))
+                .expect("push");
         }
         stamp_obj.dict_put("Rect", rect).expect("put rect");
 
         // Invalid note (text exceeds MAX_NOTE_TEXT_BYTES)
-        let invalid_note = page.create_annotation(mupdf::pdf::PdfAnnotationType::Text).expect("create note");
+        let invalid_note = page
+            .create_annotation(mupdf::pdf::PdfAnnotationType::Text)
+            .expect("create note");
         let mut note_obj = invalid_note.object();
         let long_text = "A".repeat(100_000);
-        note_obj.dict_put("Contents", PdfObject::new_string(&long_text).expect("string")).expect("put contents");
+        note_obj
+            .dict_put(
+                "Contents",
+                PdfObject::new_string(&long_text).expect("string"),
+            )
+            .expect("put contents");
         let mut rect = doc.new_array().expect("array");
         for v in [60.0, 60.0, 80.0, 80.0] {
-            rect.array_push(PdfObject::new_real(v).expect("real")).expect("push");
+            rect.array_push(PdfObject::new_real(v).expect("real"))
+                .expect("push");
         }
         note_obj.dict_put("Rect", rect).expect("put rect");
 
         // Invalid highlight (unrecognized color [0.123, 0.456, 0.789])
-        let invalid_hl = page.create_annotation(mupdf::pdf::PdfAnnotationType::Highlight).expect("create hl");
+        let invalid_hl = page
+            .create_annotation(mupdf::pdf::PdfAnnotationType::Highlight)
+            .expect("create hl");
         let mut hl_obj = invalid_hl.object();
         let mut color = doc.new_array().expect("array");
         for v in [0.123, 0.456, 0.789] {
-            color.array_push(PdfObject::new_real(v).expect("real")).expect("push");
+            color
+                .array_push(PdfObject::new_real(v).expect("real"))
+                .expect("push");
         }
         hl_obj.dict_put("C", color).expect("put color");
         let mut qp = doc.new_array().expect("array");
         for v in [10.0, 10.0, 50.0, 10.0, 10.0, 20.0, 50.0, 20.0] {
-            qp.array_push(PdfObject::new_real(v).expect("real")).expect("push");
+            qp.array_push(PdfObject::new_real(v).expect("real"))
+                .expect("push");
         }
         hl_obj.dict_put("QuadPoints", qp).expect("put quad");
         let mut rect = doc.new_array().expect("array");
         for v in [10.0, 10.0, 50.0, 20.0] {
-            rect.array_push(PdfObject::new_real(v).expect("real")).expect("push");
+            rect.array_push(PdfObject::new_real(v).expect("real"))
+                .expect("push");
         }
         hl_obj.dict_put("Rect", rect).expect("put rect");
 
@@ -717,9 +752,17 @@ fn invalid_annotations_are_skipped_while_valid_are_kept() {
         WorkerResponse::PageAnnotations { annotations, .. } => annotations,
         other => panic!("{other:?}"),
     };
-    assert_eq!(annots.len(), 3, "Expected only 3 valid annotations, got: {annots:?}");
+    assert_eq!(
+        annots.len(),
+        3,
+        "Expected only 3 valid annotations, got: {annots:?}"
+    );
     assert!(annots.iter().any(|a| a.kind == AnnotationKind::Highlight));
-    assert!(annots.iter().any(|a| a.kind == AnnotationKind::Note && a.text.as_deref() == Some("Valid Note")));
+    assert!(
+        annots
+            .iter()
+            .any(|a| a.kind == AnnotationKind::Note && a.text.as_deref() == Some("Valid Note"))
+    );
     assert!(annots.iter().any(|a| a.kind == AnnotationKind::Stamp));
 }
 
@@ -791,10 +834,8 @@ fn rotated_source_page_preserves_annotation_geometry() {
         .expect("source note")
         .clone();
 
-    let source_path = std::env::temp_dir().join(format!(
-        "pdf-worker-{}-rotated.pdf",
-        std::process::id()
-    ));
+    let source_path =
+        std::env::temp_dir().join(format!("pdf-worker-{}-rotated.pdf", std::process::id()));
     let file = File::create(&source_path).expect("create file");
     host.save(source_doc, &file).expect("save file");
     drop(file);
@@ -815,18 +856,22 @@ fn rotated_source_page_preserves_annotation_geometry() {
 
     // 3. Insert into target document
     let (target_doc, _) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
-    let edited = host.request(|request| WorkerRequest::Edit {
-        request,
-        doc: target_doc,
-        edit: WorkerEdit::InsertPages {
-            at: 2,
-            source: source_bytes,
-            text_boxes: Vec::new(),
-        },
-    })
-    .expect("insert pages");
+    let edited = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc: target_doc,
+            edit: WorkerEdit::InsertPages {
+                at: 2,
+                source: source_bytes,
+                text_boxes: Vec::new(),
+            },
+        })
+        .expect("insert pages");
 
-    let WorkerResponse::Edited { pages: all_pages, .. } = edited else {
+    let WorkerResponse::Edited {
+        pages: all_pages, ..
+    } = edited
+    else {
         panic!("{edited:?}");
     };
     // Check that inserted page retained 90 degree orientation (dimensions swapped)
@@ -846,8 +891,14 @@ fn rotated_source_page_preserves_annotation_geometry() {
         other => panic!("{other:?}"),
     };
     assert_eq!(annots.len(), 2);
-    let hl = annots.iter().find(|a| a.kind == AnnotationKind::Highlight).expect("highlight");
-    let note = annots.iter().find(|a| a.kind == AnnotationKind::Note).expect("note");
+    let hl = annots
+        .iter()
+        .find(|a| a.kind == AnnotationKind::Highlight)
+        .expect("highlight");
+    let note = annots
+        .iter()
+        .find(|a| a.kind == AnnotationKind::Note)
+        .expect("note");
 
     assert_eq!(note.text.as_deref(), Some("Rotated Page Note"));
     assert_eq!(note.rect, source_note.rect);

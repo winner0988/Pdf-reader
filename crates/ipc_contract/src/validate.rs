@@ -633,7 +633,11 @@ impl Validate for WorkerResponse {
                     });
                 }
                 security.validate()?;
-                check_count("source text boxes", text_boxes.len(), MAX_SOURCE_ANNOTATIONS)?;
+                check_count(
+                    "source text boxes",
+                    text_boxes.len(),
+                    MAX_SOURCE_ANNOTATIONS,
+                )?;
                 for text_box in text_boxes {
                     text_box.validate()?;
                     if text_box.page >= *pages {

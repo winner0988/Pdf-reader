@@ -258,10 +258,7 @@ pub fn bindings() -> String {
             "maxAnnotationsPerPage",
             MAX_ANNOTATIONS_PER_PAGE.to_string(),
         ),
-        (
-            "maxSourceAnnotations",
-            MAX_SOURCE_ANNOTATIONS.to_string(),
-        ),
+        ("maxSourceAnnotations", MAX_SOURCE_ANNOTATIONS.to_string()),
         ("maxFieldsPerPage", MAX_FIELDS_PER_PAGE.to_string()),
         ("maxFieldValueBytes", MAX_FIELD_VALUE_BYTES.to_string()),
         ("maxFieldOptions", MAX_FIELD_OPTIONS.to_string()),

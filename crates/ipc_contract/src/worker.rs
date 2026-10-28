@@ -589,7 +589,7 @@ impl WorkerEdit {
                     source,
                     text_boxes,
                 }
-            },
+            }
             Edit::AddHighlight { marks, color } => WorkerEdit::AddHighlight {
                 marks: marks.clone(),
                 color: *color,
@@ -1632,9 +1632,8 @@ mod tests {
                 align: crate::types::TextAlign::Center,
             },
         };
-        let source_fn = |id: SourceId| {
-            (id == SourceId(5)).then(|| (vec![1, 2, 3, 4], vec![tb.clone()]))
-        };
+        let source_fn =
+            |id: SourceId| (id == SourceId(5)).then(|| (vec![1, 2, 3, 4], vec![tb.clone()]));
         let made = WorkerEdit::of(&edit, source_fn, |_| None, |_| None).unwrap();
         assert_eq!(
             made,

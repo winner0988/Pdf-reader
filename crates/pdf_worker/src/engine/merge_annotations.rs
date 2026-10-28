@@ -75,11 +75,7 @@ fn is_rgb_or_gray(colorspace: &PdfObject) -> Option<(bool, bool)> {
         }
         if first.as_deref() == Some(b"ICCBased") {
             if let Some(stream_ref) = colorspace.get_array(1).ok().flatten() {
-                let stream_dict = stream_ref
-                    .resolve()
-                    .ok()
-                    .flatten()
-                    .unwrap_or(stream_ref);
+                let stream_dict = stream_ref.resolve().ok().flatten().unwrap_or(stream_ref);
                 let n = entry_of(&stream_dict, "N")
                     .and_then(|o| o.as_int().ok())
                     .unwrap_or(0);
@@ -97,7 +93,11 @@ fn is_rgb_or_gray(colorspace: &PdfObject) -> Option<(bool, bool)> {
 
 /// Decodes an image XObject into clean PNG bytes, safely validating sizes and combining soft masks.
 fn extract_picture_png(picture_ref: &PdfObject) -> Option<Vec<u8>> {
-    let image_dict = picture_ref.resolve().ok().flatten().unwrap_or_else(|| picture_ref.clone());
+    let image_dict = picture_ref
+        .resolve()
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| picture_ref.clone());
     let width = entry_of(&image_dict, "Width").and_then(|o| o.as_int().ok())? as u32;
     let height = entry_of(&image_dict, "Height").and_then(|o| o.as_int().ok())? as u32;
     if width == 0
@@ -125,14 +125,20 @@ fn extract_picture_png(picture_ref: &PdfObject) -> Option<Vec<u8>> {
     }
 
     let smask_samples = if let Some(smask_ref) = image_dict.get_dict("SMask").ok().flatten() {
-        let smask_dict = smask_ref.resolve().ok().flatten().unwrap_or_else(|| smask_ref.clone());
+        let smask_dict = smask_ref
+            .resolve()
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| smask_ref.clone());
         let sw = entry_of(&smask_dict, "Width").and_then(|o| o.as_int().ok())? as u32;
         let sh = entry_of(&smask_dict, "Height").and_then(|o| o.as_int().ok())? as u32;
         if sw != width || sh != height {
             return None;
         }
         let sbytes = smask_ref.read_stream().ok()?;
-        let s_bpc = entry_of(&smask_dict, "BitsPerComponent").and_then(|o| o.as_int().ok()).unwrap_or(8);
+        let s_bpc = entry_of(&smask_dict, "BitsPerComponent")
+            .and_then(|o| o.as_int().ok())
+            .unwrap_or(8);
         let mut alpha = Vec::with_capacity(pixel_count);
         if s_bpc == 8 {
             if sbytes.len() != pixel_count {
@@ -279,10 +285,22 @@ pub(super) fn extract_source_annotations(
                     let quads: Vec<Quad> = quads
                         .into_iter()
                         .map(|q| Quad {
-                            ul: Point { x: q.ul.x, y: q.ul.y },
-                            ur: Point { x: q.ur.x, y: q.ur.y },
-                            ll: Point { x: q.ll.x, y: q.ll.y },
-                            lr: Point { x: q.lr.x, y: q.lr.y },
+                            ul: Point {
+                                x: q.ul.x,
+                                y: q.ul.y,
+                            },
+                            ur: Point {
+                                x: q.ur.x,
+                                y: q.ur.y,
+                            },
+                            ll: Point {
+                                x: q.ll.x,
+                                y: q.ll.y,
+                            },
+                            lr: Point {
+                                x: q.lr.x,
+                                y: q.lr.y,
+                            },
                         })
                         .collect();
                     if quads.iter().any(|q| q.validate().is_err()) {
@@ -312,10 +330,7 @@ pub(super) fn extract_source_annotations(
                         continue;
                     }
                     let r = annot.rect().ok().unwrap_or(bounds);
-                    let at = Point {
-                        x: r.x0,
-                        y: r.y0,
-                    };
+                    let at = Point { x: r.x0, y: r.y0 };
                     if !at.x.is_finite() || !at.y.is_finite() {
                         continue;
                     }

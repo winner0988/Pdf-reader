@@ -62,7 +62,8 @@ impl Sources {
 
     /// The copy of file `id` and its prepared text box models, for the worker.
     pub fn bytes_and_text_boxes(&self, id: SourceId) -> Option<(Vec<u8>, Vec<InsertedTextBox>)> {
-        self.get(id).map(|source| (source.bytes.clone(), source.text_boxes.clone()))
+        self.get(id)
+            .map(|source| (source.bytes.clone(), source.text_boxes.clone()))
     }
 
     pub(crate) fn get(&self, id: SourceId) -> Option<&Arc<Source>> {
@@ -213,7 +214,12 @@ mod tests {
         let mut with_tb = file(big - 100, 1, &[]);
         with_tb.text_boxes.push(InsertedTextBox {
             page: 0,
-            rect: ipc_contract::types::Rect { x0: 0.0, y0: 0.0, x1: 100.0, y1: 100.0 },
+            rect: ipc_contract::types::Rect {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 100.0,
+                y1: 100.0,
+            },
             model: ipc_contract::worker::TextBoxModel {
                 text: "hi".to_owned(),
                 font: "Arial".to_owned(),
