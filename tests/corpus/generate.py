@@ -1564,6 +1564,44 @@ def benign_attachment_no_name() -> bytes:
     )
 
 
+def benign_contract_v1() -> bytes:
+    doc = Document("contract-v1")
+    p1 = Page(lines=[
+        (72, 740, 16, "SERVICE AGREEMENT - VERSION 1"),
+        (72, 700, 12, "Clause 1. Parties: This Agreement is entered into between Alpha Corp and Beta LLC."),
+        (72, 670, 12, "Clause 2. Scope: The contractor shall provide consulting services for twelve months."),
+        (72, 640, 12, "Clause 3. Compensation: Client agrees to pay the contractor a fixed fee of $10,000 upon delivery."),
+    ])
+    p2 = Page(lines=[
+        (72, 740, 16, "TERMS AND CONDITIONS"),
+        (72, 700, 12, "Clause 4. Term: This agreement commences on January 1, 2026 and continues until completion."),
+        (72, 670, 12, "Clause 5. Confidentiality: Each party shall maintain confidential information in strict confidence."),
+        (72, 640, 12, "Clause 6. Governing Law: This agreement is governed by the laws of California."),
+    ])
+    doc.add_pages([p1, p2])
+    return doc.build()
+
+
+def benign_contract_v2() -> bytes:
+    doc = Document("contract-v2")
+    p1 = Page(lines=[
+        (72, 740, 16, "SERVICE AGREEMENT - VERSION 2"),
+        (72, 700, 12, "Clause 1. Parties: This Agreement is entered into between Alpha Corp and Gamma Inc."),
+        (72, 670, 12, "Clause 2. Scope: The contractor shall provide software development services for twenty-four months."),
+        (72, 640, 12, "Clause 3. Compensation: Client agrees to pay the contractor a monthly fee of $15,000 upon invoice."),
+        (72, 610, 12, "Clause 3A. Expenses: Client shall reimburse all approved travel expenses."),
+    ])
+    p2 = Page(lines=[
+        (72, 740, 16, "TERMS AND CONDITIONS"),
+        (72, 700, 12, "Clause 4. Term: This agreement commences on February 1, 2026 and continues until December 31, 2027."),
+        (72, 670, 12, "Clause 5. Confidentiality: Each party shall maintain confidential information in strict confidence for five years."),
+        (72, 640, 12, "Clause 7. Jurisdiction: Any disputes shall be submitted to binding arbitration in New York."),
+    ])
+    doc.add_pages([p1, p2])
+    return doc.build()
+
+
+
 def malicious_attachment_size_mismatch() -> bytes:
     data = b"actual payload is only 30 bytes"
     return attachment_sample(
@@ -2195,6 +2233,14 @@ SAMPLES = [
            "A document with an embedded file having empty /F and /UF names.",
            "Opens; attachment name falls back to '附件 1'; can be saved.", 1,
            ["embeddedFile"]),
+    Sample("benign/contract-v1.pdf", benign_contract_v1,
+           "Two-page contract version 1 for text comparison testing (B3-24, E9).",
+           "Opens; 2 pages with standard contract clauses.", 2,
+           text=["SERVICE AGREEMENT - VERSION 1", "Alpha Corp and Beta LLC"]),
+    Sample("benign/contract-v2.pdf", benign_contract_v2,
+           "Two-page contract version 2 with additions, deletions, modifications, and cross-page changes (B3-24, E9).",
+           "Opens; 2 pages with updated contract clauses.", 2,
+           text=["SERVICE AGREEMENT - VERSION 2", "Alpha Corp and Gamma Inc", "Clause 3A. Expenses"]),
     # malicious
     Sample("malicious/js-document-level.pdf", malicious_js_document, "Document-level JavaScript in the names tree.",
            "No script runs; finding reported.", 1, ["javaScript"]),

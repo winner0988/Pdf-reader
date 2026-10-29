@@ -2596,6 +2596,81 @@ pub enum AnnotationSummaryOutcome {
     Written { count: u32, truncated: bool },
 }
 
+/// Compares the text of two open documents `doc_a` and `doc_b` (B3-24, E9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompareTextArgs {
+    pub doc_a: DocumentId,
+    pub doc_b: DocumentId,
+}
+
+/// One difference in text between two documents (B3-24, E9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TextDiffItem {
+    /// 0-indexed page in document A where the deletion occurred or is situated.
+    pub page_a: u32,
+    /// 0-indexed page in document B where the insertion occurred or is situated.
+    pub page_b: u32,
+    /// Deleted text in document A. Empty if purely an addition in B.
+    pub deleted: String,
+    /// Inserted text in document B. Empty if purely a deletion in A.
+    pub inserted: String,
+    /// Whether either deleted or inserted text was truncated because it exceeded `MAX_COMPARE_TEXT_BYTES`.
+    pub truncated: bool,
+}
+
+/// The outcome of comparing text between two open documents (B3-24, E9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompareTextResult {
+    /// The differences found between the two documents.
+    pub items: Vec<TextDiffItem>,
+    /// Both documents have identical text.
+    pub identical: bool,
+    /// Neither document had any extractable text (e.g. scans without OCR).
+    pub empty: bool,
+    /// Document A had no extractable text.
+    pub empty_a: bool,
+    /// Document B had no extractable text.
+    pub empty_b: bool,
+    /// At least one page in either document was OCR-recognised text.
+    pub recognised: bool,
+    /// At least one page had text cut off by worker text length limits.
+    pub page_text_truncated: bool,
+    /// The diff computation stopped before completion due to bounds or deadline.
+    pub truncated: bool,
+}
+
+/// Format of an exported text comparison file (B3-24, E9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum CompareExportFormat {
+    Text,
+    Markdown,
+}
+
+/// Exports the text comparison of documents `doc_a` and `doc_b` (B3-24, E9) as a UTF-8 file
+/// where the user says in the system's save dialog. Content is generated directly in the main
+/// process; no document text passes through the WebView.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExportCompareTextArgs {
+    pub doc_a: DocumentId,
+    pub doc_b: DocumentId,
+    pub format: CompareExportFormat,
+}
+
+/// What came of exporting a text comparison (B3-24, E9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ExportCompareTextOutcome {
+    /// The user closed the save dialog: nothing was written.
+    Cancelled,
+    /// The file was written with `count` diff items; `truncated` if limits were reached.
+    Written { count: u32, truncated: bool },
+}
+
 /// An attachment of a document, identified by an opaque number (B3-20, ADR 0025).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
 pub struct AttachmentId(pub u32);

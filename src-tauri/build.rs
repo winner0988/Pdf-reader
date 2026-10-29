@@ -56,6 +56,8 @@ fn main() {
         "copy_protected_text",
         "export_pages",
         "export_annotation_summary",
+        "compare_text",
+        "export_compare_text",
         "apply_edit",
         "undo_edit",
         "redo_edit",

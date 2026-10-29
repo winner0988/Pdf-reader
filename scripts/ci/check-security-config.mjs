@@ -141,6 +141,14 @@ const ALLOWED_PERMISSIONS = new Map([
     "allow-export-annotation-summary",
     "B3-18: a summary of an open document's annotations as a text or Markdown file, by document id; the main process makes it, asks where, never the document's own file; refused when the author forbids copying",
   ],
+  [
+    "allow-compare-text",
+    "B3-24, E9: compare text between two open documents by their document ids; runs on blocking pool; refused when either author forbids copying",
+  ],
+  [
+    "allow-export-compare-text",
+    "B3-24, E9: export text comparison as text or Markdown file; main process asks where, never either document's own file",
+  ],
   ["allow-apply-edit", "B2-02: a typed edit of an open document, applied in its worker; validated, no PDF objects"],
   ["allow-undo-edit", "B2-05: undo the last edit of an open document; its worker opens the kept bytes again"],
   ["allow-redo-edit", "B2-05: make the last undone edit of an open document again"],

@@ -11,9 +11,10 @@ use std::time::Duration;
 use ipc_contract::limits::MAX_BATCH_FILES;
 use ipc_contract::types::{
     AnnotationId, AnnotationSummaryFormat, AnnotationSummaryOutcome, AttachmentId, AttachmentInfo,
-    BatchArgs, BatchEvent, BatchOperation, BatchReport, CaptureProtection, CompressArgs,
-    CompressResult, CreateResult, DocumentId, DocumentInfo, EditArgs, EncryptArgs, ErrorCode,
-    ExportAnnotationSummaryArgs, ExportArgs, ExportEvent, ExportFormat, FileRecordingArgs,
+    BatchArgs, BatchEvent, BatchOperation, BatchReport, CaptureProtection, CompareExportFormat,
+    CompareTextArgs, CompareTextResult, CompressArgs, CompressResult, CreateResult, DocumentId,
+    DocumentInfo, EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs, ExportArgs,
+    ExportCompareTextArgs, ExportCompareTextOutcome, ExportEvent, ExportFormat, FileRecordingArgs,
     FindPersonalDataQuery, FontImport, FontInfo, FormField, IndexSearchArgs, IndexSearchEvent,
     IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs,
     OcrLanguages, OpenEvent, OpenIndexedArgs, OutlineLinkArgs, OutlineResult, PageAnnotation,
@@ -35,6 +36,7 @@ use crate::background;
 use crate::batch::{self, Batches};
 use crate::capture::{self, CaptureGuard};
 use crate::clipboard;
+use crate::compare;
 use crate::create_pdf;
 use crate::documents::{self, Documents};
 use crate::events::OpenEvents;
@@ -209,7 +211,11 @@ pub async fn unlock_pages_source(
 #[tauri::command]
 pub async fn close_tab(app: AppHandle, tab: TabId) -> Result<(), IpcError> {
     blocking(move || {
+        let doc = app.state::<Documents>().doc_of(tab);
         let result = app.state::<Documents>().close(tab);
+        if let Some(doc) = doc {
+            app.state::<compare::CompareCache>().invalidate_doc(doc);
+        }
         after_tabs_changed(&app);
         result
     })
@@ -1294,6 +1300,124 @@ fn copy_allowed(app: &AppHandle, doc: DocumentId) -> Result<DocumentInfo, IpcErr
         });
     }
     Ok(info)
+}
+
+/// Compares the text of two open documents `args.doc_a` and `args.doc_b` (B3-24, E9,
+/// docs/architecture/compare.md). Both documents must allow copying (MVP-19).
+#[tauri::command]
+pub async fn compare_text(
+    app: AppHandle,
+    args: CompareTextArgs,
+) -> Result<CompareTextResult, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let CompareTextArgs { doc_a, doc_b } = args;
+    let info_a = copy_allowed(&app, doc_a)?;
+    let info_b = copy_allowed(&app, doc_b)?;
+
+    let worker_app = app.clone();
+    let (edit_a, edit_b, result) = blocking(move || {
+        let documents = worker_app.state::<Documents>();
+        let edit_a = documents.edit_count(doc_a).unwrap_or(0);
+        let edit_b = documents.edit_count(doc_b).unwrap_or(0);
+        let result = compare::compare_documents(&documents, doc_a, doc_b)?;
+        Ok::<_, IpcError>((edit_a, edit_b, result))
+    })
+    .await?;
+
+    app.state::<compare::CompareCache>()
+        .store(compare::CachedComparison {
+            doc_a,
+            doc_b,
+            edit_count_a: edit_a,
+            edit_count_b: edit_b,
+            name_a: info_a.display_name,
+            name_b: info_b.display_name,
+            result: result.clone(),
+        });
+
+    Ok(result)
+}
+
+/// Exports the comparison of two open documents `args.doc_a` and `args.doc_b` (B3-24, E9,
+/// docs/architecture/compare.md) as a UTF-8 file where the user says in the system's save dialog.
+/// Never over either document's own file.
+#[tauri::command]
+pub async fn export_compare_text(
+    app: AppHandle,
+    window: WebviewWindow,
+    args: ExportCompareTextArgs,
+) -> Result<ExportCompareTextOutcome, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let ExportCompareTextArgs {
+        doc_a,
+        doc_b,
+        format,
+    } = args;
+    let info_a = copy_allowed(&app, doc_a)?;
+    let info_b = copy_allowed(&app, doc_b)?;
+
+    let worker_app = app.clone();
+    let name_a = info_a.display_name.clone();
+    let name_b = info_b.display_name.clone();
+    let (result, name_a, name_b) = blocking(move || {
+        let documents = worker_app.state::<Documents>();
+        let edit_a = documents.edit_count(doc_a).unwrap_or(0);
+        let edit_b = documents.edit_count(doc_b).unwrap_or(0);
+        let cache = worker_app.state::<compare::CompareCache>();
+        if let Some(cached) = cache.get(doc_a, doc_b)
+            && ((cached.doc_a == doc_a
+                && cached.edit_count_a == edit_a
+                && cached.edit_count_b == edit_b)
+                || (cached.doc_a == doc_b
+                    && cached.edit_count_a == edit_b
+                    && cached.edit_count_b == edit_a))
+        {
+            return Ok::<_, IpcError>((cached.result, cached.name_a, cached.name_b));
+        }
+        let res = compare::compare_documents(&documents, doc_a, doc_b)?;
+        cache.store(compare::CachedComparison {
+            doc_a,
+            doc_b,
+            edit_count_a: edit_a,
+            edit_count_b: edit_b,
+            name_a: name_a.clone(),
+            name_b: name_b.clone(),
+            result: res.clone(),
+        });
+        Ok((res, name_a, name_b))
+    })
+    .await?;
+
+    let markdown = format == CompareExportFormat::Markdown;
+    let content = export::compare_text_file(&result, markdown, &name_a, &name_b);
+    let stem_a = export::stem(&name_a);
+    let stem_b = export::stem(&name_b);
+    let file_name = strings::compare_file_name(&stem_a, &stem_b, markdown);
+
+    let destination = loop {
+        let Some(path) =
+            file_dialog::save_compare_text_file(&window, file_name.clone(), markdown).await?
+        else {
+            return Ok(ExportCompareTextOutcome::Cancelled);
+        };
+        let docs = app.state::<Documents>();
+        if !docs.is_document_file(doc_a, &path) && !docs.is_document_file(doc_b, &path) {
+            break path;
+        }
+        tell_same_file(&window).await;
+    };
+
+    blocking(move || export::write_compare_text(&destination, &content)).await?;
+    Ok(ExportCompareTextOutcome::Written {
+        count: u32::try_from(result.items.len()).unwrap_or(u32::MAX),
+        truncated: result.truncated,
+    })
 }
 
 /// Writes a copy of the document without its metadata (B2-03, docs/architecture/privacy-export.md)

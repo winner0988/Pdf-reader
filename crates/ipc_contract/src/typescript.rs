@@ -201,13 +201,19 @@ pub fn bindings() -> String {
         AnnotationSummaryFormat,
         ExportAnnotationSummaryArgs,
         AnnotationSummaryOutcome,
+        CompareTextArgs,
+        TextDiffItem,
+        CompareTextResult,
+        CompareExportFormat,
+        ExportCompareTextArgs,
+        ExportCompareTextOutcome,
         AttachmentId,
         AttachmentSource,
         AttachmentInfo,
         SaveAttachmentResult,
     );
 
-    let limits: [(&str, String); 69] = [
+    let limits: [(&str, String); 74] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -308,6 +314,14 @@ pub fn bindings() -> String {
         (
             "maxSigningReasonBytes",
             MAX_SIGNING_REASON_BYTES.to_string(),
+        ),
+        ("maxComparePages", MAX_COMPARE_PAGES.to_string()),
+        ("maxCompareTokens", MAX_COMPARE_TOKENS.to_string()),
+        ("maxCompareDiffItems", MAX_COMPARE_DIFF_ITEMS.to_string()),
+        ("maxCompareTextBytes", MAX_COMPARE_TEXT_BYTES.to_string()),
+        (
+            "maxCompareDeadlineMillis",
+            MAX_COMPARE_DEADLINE_MILLIS.to_string(),
         ),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];
