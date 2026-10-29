@@ -12,8 +12,13 @@ updates:
       - dependencies
       - needs-security-review
 
+  # fuzz/ is a separate workspace that uses pdf_worker and ipc_contract via
+  # path dependencies. When their dependencies are bumped, both lockfiles must
+  # be updated in the same PR (#382).
   - package-ecosystem: cargo
-    directory: /
+    directories:
+      - /
+      - /fuzz
     schedule:
       interval: weekly
     commit-message:
@@ -24,6 +29,8 @@ updates:
     groups:
       cargo-minor-patch:
         update-types: [minor, patch]
+      cargo-same-crate:
+        group-by: dependency-name
 
   - package-ecosystem: npm
     directory: /
