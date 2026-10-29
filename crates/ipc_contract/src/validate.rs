@@ -488,6 +488,7 @@ impl Validate for WorkerResponse {
                     models.len(),
                     MAX_PREPARE_TEXT_BOXES as u32,
                 )?;
+                check_prepared_text_boxes_deferred(models)?;
                 let mut total_response_bytes: usize = 0;
                 for outcome in models {
                     if let PreparedTextBoxModel::Prepared(m) = outcome {
@@ -1750,7 +1751,49 @@ pub fn check_prepare_text_boxes_request(texts: &[String]) -> Result<(), Validati
     Ok(())
 }
 
-/// Checks that a `TextBoxesPrepared` response matches the number of requested texts (Issue #381).
+/// Checks that the sequence of prepared text box models follows the deferred rules (Issue #391):
+/// - When `Deferred` appears, at least one `Prepared` must precede it.
+/// - Once the first `Deferred` appears, all subsequent models must also be `Deferred`.
+pub fn check_prepared_text_boxes_deferred(
+    models: &[PreparedTextBoxModel],
+) -> Result<(), ValidationError> {
+    let mut saw_prepared = false;
+    let mut saw_deferred = false;
+    for model in models {
+        match model {
+            PreparedTextBoxModel::Prepared(_) => {
+                if saw_deferred {
+                    return Err(ValidationError::Invalid {
+                        what: "prepared text box models",
+                        reason: "non-deferred text box appears after deferred",
+                    });
+                }
+                saw_prepared = true;
+            }
+            PreparedTextBoxModel::Refused => {
+                if saw_deferred {
+                    return Err(ValidationError::Invalid {
+                        what: "prepared text box models",
+                        reason: "non-deferred text box appears after deferred",
+                    });
+                }
+            }
+            PreparedTextBoxModel::Deferred => {
+                if !saw_prepared {
+                    return Err(ValidationError::Invalid {
+                        what: "prepared text box models",
+                        reason: "deferred text box appears before any prepared text box",
+                    });
+                }
+                saw_deferred = true;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Checks that a `TextBoxesPrepared` response matches the number of requested texts (Issue #381)
+/// and that any deferred text boxes follow progress and order rules (Issue #391).
 pub fn check_prepared_text_boxes_count(
     models: &[PreparedTextBoxModel],
     expected: usize,
@@ -1761,6 +1804,7 @@ pub fn check_prepared_text_boxes_count(
             reason: "count does not match requested texts",
         });
     }
+    check_prepared_text_boxes_deferred(models)?;
     Ok(())
 }
 
@@ -4966,7 +5010,7 @@ mod tests {
             models,
         };
 
-        // Valid responses (all Prepared, all Refused/Deferred, mixed)
+        // Valid responses (all Prepared, all Refused, mixed without Deferred, or Deferred preceded by Prepared)
         assert!(
             response(vec![PreparedTextBoxModel::Prepared(sample.clone())])
                 .validate()
@@ -4978,9 +5022,30 @@ mod tests {
                 .is_ok()
         );
         assert!(
-            response(vec![PreparedTextBoxModel::Deferred])
-                .validate()
-                .is_ok()
+            response(vec![
+                PreparedTextBoxModel::Refused,
+                PreparedTextBoxModel::Prepared(sample.clone()),
+            ])
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            response(vec![
+                PreparedTextBoxModel::Prepared(sample.clone()),
+                PreparedTextBoxModel::Deferred,
+            ])
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            response(vec![
+                PreparedTextBoxModel::Refused,
+                PreparedTextBoxModel::Prepared(sample.clone()),
+                PreparedTextBoxModel::Deferred,
+                PreparedTextBoxModel::Deferred,
+            ])
+            .validate()
+            .is_ok()
         );
         assert!(
             response(vec![
@@ -4990,6 +5055,33 @@ mod tests {
             ])
             .validate()
             .is_ok()
+        );
+
+        // Deferred rules violations (Issue #391)
+        // [Deferred] without preceding Prepared is rejected
+        assert!(
+            response(vec![PreparedTextBoxModel::Deferred])
+                .validate()
+                .is_err()
+        );
+        // [Refused, Deferred] without preceding Prepared is rejected
+        assert!(
+            response(vec![
+                PreparedTextBoxModel::Refused,
+                PreparedTextBoxModel::Deferred,
+            ])
+            .validate()
+            .is_err()
+        );
+        // [Prepared, Deferred, Prepared] where Prepared follows Deferred is rejected
+        assert!(
+            response(vec![
+                PreparedTextBoxModel::Prepared(sample.clone()),
+                PreparedTextBoxModel::Deferred,
+                PreparedTextBoxModel::Prepared(sample.clone()),
+            ])
+            .validate()
+            .is_err()
         );
 
         // Empty response is rejected
@@ -5039,6 +5131,28 @@ mod tests {
             .is_ok()
         );
         assert!(
+            check_prepared_text_boxes_count(
+                &[
+                    PreparedTextBoxModel::Prepared(sample.clone()),
+                    PreparedTextBoxModel::Deferred,
+                ],
+                2
+            )
+            .is_ok()
+        );
+        assert!(
+            check_prepared_text_boxes_count(
+                &[
+                    PreparedTextBoxModel::Refused,
+                    PreparedTextBoxModel::Prepared(sample.clone()),
+                    PreparedTextBoxModel::Deferred,
+                    PreparedTextBoxModel::Deferred,
+                ],
+                4
+            )
+            .is_ok()
+        );
+        assert!(
             check_prepared_text_boxes_count(&[PreparedTextBoxModel::Prepared(sample.clone())], 2)
                 .is_err()
         );
@@ -5049,6 +5163,32 @@ mod tests {
                     PreparedTextBoxModel::Deferred
                 ],
                 1
+            )
+            .is_err()
+        );
+        // Violating deferred rules in check_prepared_text_boxes_count (Issue #391)
+        assert!(
+            check_prepared_text_boxes_count(&[PreparedTextBoxModel::Deferred], 1)
+                .is_err()
+        );
+        assert!(
+            check_prepared_text_boxes_count(
+                &[
+                    PreparedTextBoxModel::Refused,
+                    PreparedTextBoxModel::Deferred,
+                ],
+                2
+            )
+            .is_err()
+        );
+        assert!(
+            check_prepared_text_boxes_count(
+                &[
+                    PreparedTextBoxModel::Prepared(sample.clone()),
+                    PreparedTextBoxModel::Deferred,
+                    PreparedTextBoxModel::Prepared(sample.clone()),
+                ],
+                3
             )
             .is_err()
         );

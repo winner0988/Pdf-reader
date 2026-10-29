@@ -232,6 +232,8 @@ pub fn prepare_text_boxes(font: &TextBoxFont, texts: &[String]) -> Vec<PreparedT
                 // which is well below MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES (32 MiB).
                 // If total_bytes == 0, the first item is guaranteed to be accepted so the batch
                 // always progresses. Once the limit is exceeded, defer this and all remaining texts.
+                // These rules ensure the main process makes progress on at least one box per round,
+                // preventing the worker from causing infinite resends (Issue #391).
                 if total_bytes > 0 && next_total > MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES {
                     models.push(PreparedTextBoxModel::Deferred);
                     models.resize(texts.len(), PreparedTextBoxModel::Deferred);
