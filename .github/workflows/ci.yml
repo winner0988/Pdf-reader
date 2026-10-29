@@ -107,7 +107,12 @@ jobs:
       # The fuzz targets (fuzz/, QA-03) are built by cargo-fuzz with nightly Rust in the Fuzz
       # workflow; here they only have to compile. Same target dir: MuPDF is not built twice.
       - name: Fuzz targets compile
-        run: cargo check --manifest-path fuzz/Cargo.toml --locked --target-dir target
+        shell: bash
+        run: |
+          if ! cargo check --manifest-path fuzz/Cargo.toml --locked --target-dir target; then
+            echo "::error::fuzz/Cargo.lock is out of date. Run 'cargo update --manifest-path fuzz/Cargo.toml --workspace', commit fuzz/Cargo.lock, and see docs/workflow.md."
+            exit 1
+          fi
 
   e2e:
     name: E2E (Windows)

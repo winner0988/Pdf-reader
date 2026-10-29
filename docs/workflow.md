@@ -46,6 +46,12 @@ flowchart LR
 | Security | `Dependency audit` | `cargo deny check`（弱點、禁用 crate、授權、來源）、`pnpm audit`；每週一排程 |
 | Fuzz | `Fuzz (worker_messages)`、`Fuzz (open_document)` | cargo-fuzz：IPC 解碼與以 MuPDF 開啟 PDF（見 [fuzzing.md](security/fuzzing.md)）；每週一排程，修改相關檔案的 PR 跑 2 分鐘 |
 
+### dependabot 的 PR 在 Fuzz targets compile 失敗時
+
+- **原因**：兩個 lockfile（#382）。`fuzz/` 是獨立的 Cargo workspace，有自己的 `fuzz/Cargo.lock`，透過 path 依賴使用 `crates/pdf_worker` 與 `crates/ipc_contract`。當 dependabot 升級這些 crate 的依賴時，只更新根目錄的 `Cargo.lock`，會導致 `fuzz/Cargo.lock` 不符合版本需求而在「Fuzz targets compile」檢查中失敗。
+- **步驟**：在該 PR 的分支跑 `cargo update --manifest-path fuzz/Cargo.toml --workspace`，只 commit `fuzz/Cargo.lock`，推上去，等 CI 全綠再合併。
+- **注意**：CI 沒有全綠的 PR 不要合併。
+
 「不連網、零遙測」的完整驗證方式（含發布前的手動檢查）見 [docs/security/offline-verification.md](security/offline-verification.md)。
 
 ## GitHub 設定（需在網頁上手動完成）
