@@ -1370,14 +1370,15 @@ pub async fn export_compare_text(
         let edit_a = documents.edit_count(doc_a).unwrap_or(0);
         let edit_b = documents.edit_count(doc_b).unwrap_or(0);
         let cache = worker_app.state::<compare::CompareCache>();
-        if let Some(cached) = cache.get(doc_a, doc_b) {
-            if (cached.doc_a == doc_a && cached.edit_count_a == edit_a && cached.edit_count_b == edit_b)
+        if let Some(cached) = cache.get(doc_a, doc_b)
+            && ((cached.doc_a == doc_a
+                && cached.edit_count_a == edit_a
+                && cached.edit_count_b == edit_b)
                 || (cached.doc_a == doc_b
                     && cached.edit_count_a == edit_b
-                    && cached.edit_count_b == edit_a)
-            {
-                return Ok::<_, IpcError>((cached.result, cached.name_a, cached.name_b));
-            }
+                    && cached.edit_count_b == edit_a))
+        {
+            return Ok::<_, IpcError>((cached.result, cached.name_a, cached.name_b));
         }
         let res = compare::compare_documents(&documents, doc_a, doc_b)?;
         cache.store(compare::CachedComparison {
