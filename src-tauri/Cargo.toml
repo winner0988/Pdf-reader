@@ -37,7 +37,8 @@ getrandom = "0.4"
 # contract crate and the worker).
 zeroize = "1.9"
 # Text diff algorithm for comparing text between open documents (B3-24, E9, src/compare/mod.rs).
-similar = { version = "3.2", default-features = false }
+# `std` gives the diff its deadline (MAX_COMPARE_DEADLINE_MILLIS): without it similar 3 ignores it.
+similar = { version = "3.2", default-features = false, features = ["std"] }
 
 [target.'cfg(windows)'.dependencies]
 # The system's file dialogs, with an option rfd cannot set (#86, B2-04, src/file_dialog.rs).
