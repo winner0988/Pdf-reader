@@ -1876,7 +1876,7 @@ dependencies = [
 
 [[package]]
 name = "ipc_contract"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "postcard",
  "serde",
@@ -2665,7 +2665,7 @@ dependencies = [
 
 [[package]]
 name = "pdf-reader"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "getrandom 0.4.3",
  "ipc_contract",
@@ -2687,7 +2687,7 @@ dependencies = [
 
 [[package]]
 name = "pdf_worker"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ipc_contract",
  "jpeg-encoder",
@@ -3175,7 +3175,7 @@ dependencies = [
 
 [[package]]
 name = "sandbox"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "windows-sys 0.61.2",
 ]
@@ -5038,7 +5038,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "worker_host"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ipc_contract",
  "sandbox",
