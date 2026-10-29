@@ -113,6 +113,10 @@ pub struct TextBoxModel {
 }
 
 /// The outcome of preparing a single text box within a batch request (B3-23, Issue #381).
+///
+/// When `Deferred` appears, at least one `Prepared` must precede it, and all subsequent
+/// items must also be `Deferred`. These two rules ensure the main process makes progress
+/// on at least one box per round, preventing the worker from causing infinite resends (Issue #391).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum PreparedTextBoxModel {
