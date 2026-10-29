@@ -5167,10 +5167,7 @@ mod tests {
             .is_err()
         );
         // Violating deferred rules in check_prepared_text_boxes_count (Issue #391)
-        assert!(
-            check_prepared_text_boxes_count(&[PreparedTextBoxModel::Deferred], 1)
-                .is_err()
-        );
+        assert!(check_prepared_text_boxes_count(&[PreparedTextBoxModel::Deferred], 1).is_err());
         assert!(
             check_prepared_text_boxes_count(
                 &[
