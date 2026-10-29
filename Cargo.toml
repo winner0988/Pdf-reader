@@ -16,6 +16,7 @@ tauri-build = "2.6"
 [workspace.lints.rust]
 # Unsafe code (MuPDF FFI, Windows sandboxing) must be opted into per module with a SAFETY comment.
 unsafe_code = "deny"
+deprecated = "allow"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -30,3 +31,10 @@ debug = "line-tables-only"
 codegen-units = 1
 lto = true
 strip = true
+
+# Only for the #238 POC (MuPDF 1.28.2 re-test). The real implementation must wait for a crates.io release.
+[patch.crates-io]
+mupdf = { git = "https://github.com/susiej/mupdf-rs", rev = "22a09869c788e28c9b20b31ae11fc657bdbfc57c" }
+mupdf-sys = { git = "https://github.com/susiej/mupdf-rs", rev = "22a09869c788e28c9b20b31ae11fc657bdbfc57c" }
+mupdf-fonts-droid = { git = "https://github.com/susiej/mupdf-rs", rev = "22a09869c788e28c9b20b31ae11fc657bdbfc57c" }
+

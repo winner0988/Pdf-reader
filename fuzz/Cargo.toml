@@ -77,3 +77,10 @@ test = false
 doc = false
 bench = false
 
+# Only for the #238 POC (MuPDF 1.28.2 re-test). The real implementation must wait for a crates.io release.
+[patch.crates-io]
+mupdf = { git = "https://github.com/susiej/mupdf-rs", rev = "22a09869c788e28c9b20b31ae11fc657bdbfc57c" }
+mupdf-sys = { git = "https://github.com/susiej/mupdf-rs", rev = "22a09869c788e28c9b20b31ae11fc657bdbfc57c" }
+mupdf-fonts-droid = { git = "https://github.com/susiej/mupdf-rs", rev = "22a09869c788e28c9b20b31ae11fc657bdbfc57c" }
+
+

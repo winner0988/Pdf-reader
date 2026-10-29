@@ -89,13 +89,19 @@ unsafe extern "C" fn doc_event_callback(
 }
 
 // Memory layout assertions for raw pointer access
+#[repr(C)]
+struct RawPdfObject {
+    inner: *mut pdf_obj,
+    owner: Option<*mut pdf_document>,
+}
+
 const _: () = {
     assert!(size_of::<mupdf::Document>() == size_of::<*mut fz_document>());
     assert!(align_of::<mupdf::Document>() == align_of::<*mut fz_document>());
     assert!(size_of::<mupdf::Context>() == size_of::<*mut fz_context>());
     assert!(align_of::<mupdf::Context>() == align_of::<*mut fz_context>());
-    assert!(size_of::<PdfObject>() == size_of::<*mut pdf_obj>());
-    assert!(align_of::<PdfObject>() == align_of::<*mut pdf_obj>());
+    assert!(size_of::<PdfObject>() == size_of::<RawPdfObject>());
+    assert!(align_of::<PdfObject>() == align_of::<RawPdfObject>());
 };
 
 /// Reads the raw underlying `pdf_document` pointer from a `MuPdfDocument`.

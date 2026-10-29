@@ -39,6 +39,7 @@ zeroize = "1.9"
 # Verifies the signatures of a document with Windows' own cryptography (ADR 0014, src/crypt.rs).
 # Already in the workspace; only the features it needs.
 [target.'cfg(windows)'.dependencies]
+mupdf = { version = "=0.8.0", default-features = false, features = ["tesseract"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
 
 [dev-dependencies]
