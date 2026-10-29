@@ -36,9 +36,9 @@ use ipc_contract::validate::{
     stamp_png_size,
 };
 use ipc_contract::worker::{
-    FontData, InsertedTextBox, InspectedFont, NewSignature, OcrFinished, OcrPageState, PasswordKey,
-    PreparedTextBoxModel, SourceTextBox, TextBoxModel, UnknownFile, WorkerEdit, WorkerErrorCode,
-    WorkerRequest, WorkerResponse,
+    FontData, InsertedTextBox, InspectedFont, NewSignature, OcrFinished, OcrOutcome, OcrPageState,
+    PasswordKey, PreparedTextBoxModel, SourceTextBox, TextBoxModel, UnknownFile, WorkerEdit,
+    WorkerErrorCode, WorkerRequest, WorkerResponse,
 };
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
@@ -155,7 +155,7 @@ struct OpenDocument {
     /// Edits since the file was read or last written, applied and undone (B2-05).
     /// `info.unsaved` while some are applied.
     history: History,
-    /// How many edits have been applied to this document since opening.
+    /// How many edits or OCR recognitions have changed this document's content since opening.
     edit_count: u64,
     /// The file has a form (B2-09); `info.has_form` is that, unless the form is flattened.
     form_in_file: bool,
@@ -2574,19 +2574,10 @@ impl Documents {
         })
     }
 
-    /// How many edits have been applied to `doc` since opening, if open.
+    /// How many edits or OCR recognitions have changed `doc`'s content since opening, if open.
+    /// Holds only `doc`'s document lock; requests for other tabs go on meanwhile.
     pub fn edit_count(&self, doc: DocumentId) -> Option<u64> {
-        let tabs = self.lock().tabs.clone();
-        tabs.iter().find_map(|tab| {
-            let doc_guard = lock(&tab.document);
-            doc_guard.as_ref().and_then(|d| {
-                if d.info.doc == doc {
-                    Some(d.edit_count)
-                } else {
-                    None
-                }
-            })
-        })
+        self.with_document(doc, |d| Ok(d.edit_count)).ok()
     }
 
     /// The document id currently associated with `tab`, if open.
@@ -3809,7 +3800,14 @@ impl OcrLink for Link<'_> {
         })? {
             WorkerResponse::OcrPolled {
                 finished, waiting, ..
-            } => Ok((finished, waiting)),
+            } => {
+                for page in &finished {
+                    if matches!(page.outcome, OcrOutcome::Recognised { .. }) {
+                        self.document.edit_count += 1;
+                    }
+                }
+                Ok((finished, waiting))
+            }
             _ => Err(unexpected("OcrPoll")),
         }
     }
@@ -10123,20 +10121,20 @@ mod with_worker {
         use crate::ocr::Ocr;
         use crate::ocr_languages::Languages;
 
-        fn corpus(name: &str) -> PathBuf {
+        pub(super) fn corpus(name: &str) -> PathBuf {
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../tests/corpus")
                 .join(name)
         }
 
-        fn ocr() -> Ocr {
+        pub(super) fn ocr() -> Ocr {
             Ocr::new(Languages::new(
                 Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/tessdata")),
                 None,
             ))
         }
 
-        fn english() -> Settings {
+        pub(super) fn english() -> Settings {
             Settings {
                 ocr_language: Some("eng".to_owned()),
                 ..Settings::default()
@@ -10152,7 +10150,7 @@ mod with_worker {
 
         /// Steps recognising until the latest progress is one `until` accepts; everything the
         /// page was told is returned.
-        fn run(
+        pub(super) fn run(
             documents: &Documents,
             ocr: &Ocr,
             settings: &Settings,
@@ -10175,7 +10173,7 @@ mod with_worker {
             }
         }
 
-        fn done(progress: &OcrProgress) -> bool {
+        pub(super) fn done(progress: &OcrProgress) -> bool {
             progress.run == OcrRun::Done
         }
 
@@ -10278,6 +10276,7 @@ mod with_worker {
     }
 
     mod compare_tests {
+        use super::ocr::*;
         use super::*;
 
         #[test]
@@ -10440,6 +10439,74 @@ mod with_worker {
             if let Some(c) = cache.get(info_v1.doc, info_v2.doc) {
                 assert_ne!(c.edit_count_a, new_edit_count);
             }
+        }
+
+        #[test]
+        fn ocr_recognition_invalidates_comparison_cache_so_export_uses_fresh_text() {
+            let documents = Documents::new(worker());
+            let info_scanned = open_in(&documents, &corpus("benign/scanned-text.pdf"));
+            let info_text = open_in(&documents, &sample("contract-v1.pdf"));
+
+            // Before OCR: scanned-text has no text
+            let initial_res =
+                crate::compare::compare_documents(&documents, info_scanned.doc, info_text.doc)
+                    .unwrap();
+            assert!(initial_res.empty_a, "side A has no text before OCR");
+            assert!(!initial_res.empty_b, "side B has text");
+
+            let edit_scanned_before = documents.edit_count(info_scanned.doc).unwrap();
+            let edit_text_before = documents.edit_count(info_text.doc).unwrap();
+            assert_eq!(edit_scanned_before, 0);
+
+            // Store in cache (as compare_text does)
+            let cache = crate::compare::CompareCache::default();
+            cache.store(crate::compare::CachedComparison {
+                doc_a: info_scanned.doc,
+                doc_b: info_text.doc,
+                edit_count_a: edit_scanned_before,
+                edit_count_b: edit_text_before,
+                name_a: info_scanned.display_name.clone(),
+                name_b: info_text.display_name.clone(),
+                result: initial_res.clone(),
+            });
+
+            // Run OCR on the scanned document
+            let events = run(&documents, &ocr(), &english(), |progress| {
+                progress.doc == info_scanned.doc && done(progress)
+            });
+            assert!(events.iter().any(|event| matches!(
+                event,
+                OpenEvent::OcrPage { doc, page_index: 0, .. } if *doc == info_scanned.doc
+            )));
+            assert!(documents.page_text(info_scanned.doc, 0).unwrap().recognised);
+
+            // Check edit_count and cache validity as done in export_compare_text
+            let edit_scanned_after = documents.edit_count(info_scanned.doc).unwrap();
+            let edit_text_after = documents.edit_count(info_text.doc).unwrap();
+
+            let cached = cache.get(info_scanned.doc, info_text.doc).unwrap();
+            assert_ne!(
+                cached.edit_count_a, edit_scanned_after,
+                "edit count of scanned document must change after OCR recognition"
+            );
+
+            let export_result = if (cached.doc_a == info_scanned.doc
+                && cached.edit_count_a == edit_scanned_after
+                && cached.edit_count_b == edit_text_after)
+                || (cached.doc_a == info_text.doc
+                    && cached.edit_count_a == edit_text_after
+                    && cached.edit_count_b == edit_scanned_after)
+            {
+                cached.result
+            } else {
+                crate::compare::compare_documents(&documents, info_scanned.doc, info_text.doc)
+                    .unwrap()
+            };
+
+            assert!(
+                !export_result.empty_a,
+                "exported result must not mark side A as empty after OCR has recognised text"
+            );
         }
     }
 }

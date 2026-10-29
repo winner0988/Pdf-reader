@@ -183,6 +183,47 @@ describe("CompareDialog (B3-24, E9)", () => {
     expect(await screen.findByText(t.noTextOneSide("Doc-A.pdf"))).toBeInTheDocument();
   });
 
+  it("shows localized fallback labels when display names are missing", async () => {
+    const user = userEvent.setup();
+    const resultBothEmpty: CompareTextResult = {
+      items: [
+        {
+          pageA: 0,
+          pageB: 0,
+          deleted: "",
+          inserted: "diff",
+          truncated: false,
+        },
+      ],
+      identical: false,
+      empty: false,
+      emptyA: true,
+      emptyB: true,
+      recognised: false,
+      pageTextTruncated: false,
+      truncated: false,
+    };
+    const api = createMockApi(resultBothEmpty);
+    const tabsWithoutName: CompareTabOption[] = [
+      { tab: 2, doc: 20, displayName: "", copyAllowed: true },
+    ];
+
+    render(
+      <CompareDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        currentDoc={10}
+        otherTabs={tabsWithoutName}
+        api={api}
+        onJumpToPage={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: t.start }));
+    expect(await screen.findByText(t.noTextOneSide(t.currentTab))).toBeInTheDocument();
+    expect(screen.getByText(t.noTextOneSide(t.targetTabDefault))).toBeInTheDocument();
+  });
+
   it("disables tabs that do not allow copying and shows explanation", async () => {
     const tabsWithRestrictions: CompareTabOption[] = [
       { tab: 2, doc: 20, displayName: "Doc-Allowed.pdf", copyAllowed: true },

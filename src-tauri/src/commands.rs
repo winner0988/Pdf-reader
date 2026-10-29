@@ -1317,14 +1317,13 @@ pub async fn compare_text(
     let info_a = copy_allowed(&app, doc_a)?;
     let info_b = copy_allowed(&app, doc_b)?;
 
-    let documents = app.state::<Documents>();
-    let edit_a = documents.edit_count(doc_a).unwrap_or(0);
-    let edit_b = documents.edit_count(doc_b).unwrap_or(0);
-
     let worker_app = app.clone();
-    let result = blocking(move || {
+    let (edit_a, edit_b, result) = blocking(move || {
         let documents = worker_app.state::<Documents>();
-        compare::compare_documents(&documents, doc_a, doc_b)
+        let edit_a = documents.edit_count(doc_a).unwrap_or(0);
+        let edit_b = documents.edit_count(doc_b).unwrap_or(0);
+        let result = compare::compare_documents(&documents, doc_a, doc_b)?;
+        Ok::<_, IpcError>((edit_a, edit_b, result))
     })
     .await?;
 
@@ -1363,44 +1362,36 @@ pub async fn export_compare_text(
     let info_a = copy_allowed(&app, doc_a)?;
     let info_b = copy_allowed(&app, doc_b)?;
 
-    let docs = app.state::<Documents>();
-    let edit_a = docs.edit_count(doc_a).unwrap_or(0);
-    let edit_b = docs.edit_count(doc_b).unwrap_or(0);
-
-    let cache = app.state::<compare::CompareCache>();
-    let (result, name_a, name_b) = if let Some(cached) = cache.get(doc_a, doc_b) {
-        if (cached.doc_a == doc_a && cached.edit_count_a == edit_a && cached.edit_count_b == edit_b)
-            || (cached.doc_a == doc_b
-                && cached.edit_count_a == edit_b
-                && cached.edit_count_b == edit_a)
-        {
-            (cached.result, cached.name_a, cached.name_b)
-        } else {
-            let worker_app = app.clone();
-            let res = blocking(move || {
-                let documents = worker_app.state::<Documents>();
-                compare::compare_documents(&documents, doc_a, doc_b)
-            })
-            .await?;
-            (
-                res,
-                info_a.display_name.clone(),
-                info_b.display_name.clone(),
-            )
+    let worker_app = app.clone();
+    let name_a = info_a.display_name.clone();
+    let name_b = info_b.display_name.clone();
+    let (result, name_a, name_b) = blocking(move || {
+        let documents = worker_app.state::<Documents>();
+        let edit_a = documents.edit_count(doc_a).unwrap_or(0);
+        let edit_b = documents.edit_count(doc_b).unwrap_or(0);
+        let cache = worker_app.state::<compare::CompareCache>();
+        if let Some(cached) = cache.get(doc_a, doc_b) {
+            if (cached.doc_a == doc_a && cached.edit_count_a == edit_a && cached.edit_count_b == edit_b)
+                || (cached.doc_a == doc_b
+                    && cached.edit_count_a == edit_b
+                    && cached.edit_count_b == edit_a)
+            {
+                return Ok::<_, IpcError>((cached.result, cached.name_a, cached.name_b));
+            }
         }
-    } else {
-        let worker_app = app.clone();
-        let res = blocking(move || {
-            let documents = worker_app.state::<Documents>();
-            compare::compare_documents(&documents, doc_a, doc_b)
-        })
-        .await?;
-        (
-            res,
-            info_a.display_name.clone(),
-            info_b.display_name.clone(),
-        )
-    };
+        let res = compare::compare_documents(&documents, doc_a, doc_b)?;
+        cache.store(compare::CachedComparison {
+            doc_a,
+            doc_b,
+            edit_count_a: edit_a,
+            edit_count_b: edit_b,
+            name_a: name_a.clone(),
+            name_b: name_b.clone(),
+            result: res.clone(),
+        });
+        Ok((res, name_a, name_b))
+    })
+    .await?;
 
     let markdown = format == CompareExportFormat::Markdown;
     let content = export::compare_text_file(&result, markdown, &name_a, &name_b);

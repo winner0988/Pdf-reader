@@ -214,14 +214,14 @@ export function CompareDialog({
                   {result.emptyA && (
                     <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-300">
                       <AlertCircle className="size-4 shrink-0" />
-                      <span>{t.noTextOneSide(currentDisplayName || "目前分頁")}</span>
+                      <span>{t.noTextOneSide(currentDisplayName || t.currentTab)}</span>
                     </div>
                   )}
 
                   {result.emptyB && (
                     <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-300">
                       <AlertCircle className="size-4 shrink-0" />
-                      <span>{t.noTextOneSide(selectedTab?.displayName || "對照分頁")}</span>
+                      <span>{t.noTextOneSide(selectedTab?.displayName || t.targetTabDefault)}</span>
                     </div>
                   )}
 

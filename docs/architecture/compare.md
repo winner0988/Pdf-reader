@@ -59,7 +59,8 @@ sequenceDiagram
 3. **快取重複利用與失效機制**：
    - 上一次比對成功的結果留存在主行程記憶體快取（`CompareCache`，受 `MAX_COMPARE_CACHE_BYTES` 限制）。
    - **文件關閉失效**：任一相關文件於分頁關閉（`close_tab`）時，立即從快取中移除該記錄（`invalidate_doc`）。
-   - **編輯重算檢驗**：快取中一併記錄比較時兩份文件的編輯次數（`edit_count_a`、`edit_count_b`）。使用者點擊匯出時，後端檢查兩份文件目前的 `edit_count` 是否與快取相符；若任一文件在比較之後又曾編輯過，則捨棄快取、重新執行比對以確保匯出內容最新。
+   - **編輯與文字變更重算檢驗**：快取中一併記錄比較時兩份文件的內容異動計數（`edit_count_a`、`edit_count_b`）。`edit_count` 在文件編輯（`apply_edit`、`undo`、`redo`、`reopen_found`）以及 OCR 文字辨識完成頁面（`Link::poll` 收到 `OcrOutcome::Recognised`）時遞增。使用者點擊匯出時，後端檢查兩份文件目前的 `edit_count` 是否與快取相符；若任一文件在比較之後曾進行編輯或完成 OCR 文字辨識，快取計數不符，後端會捨棄舊快取並重新比對，確保匯出內容包含最新辨識文字，不再顯示舊的「沒有文字」狀態。
+   - **細粒度鎖定與非同步保護**：`Documents::edit_count` 仿照 `with_document`，先依 `tab.event` 比對文件代號，僅鎖定目標文件本身，不依序鎖定其他分頁的 `document`，避免因其他分頁正在存檔或執行 OCR 而互相阻塞。`compare_text` 與 `export_compare_text` 皆在 Tokio `blocking` 執行緒池內部讀取 `edit_count`（`compare_text` 於提取文字前讀取），避免在非同步 async 主管行程中持有或等待文件鎖。
 
 ## 分詞規則（Tokenization）
 
