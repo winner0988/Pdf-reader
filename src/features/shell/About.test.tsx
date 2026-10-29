@@ -4,7 +4,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import { SOURCE_URL } from "@/features/shell/about";
 import { AboutDialog } from "@/features/shell/dialogs";
+import { APP_VERSION } from "@/features/shell/version";
 import { strings } from "@/i18n/zh-TW";
+import packageJson from "../../../package.json?raw";
 
 const t = strings.about;
 
@@ -23,6 +25,10 @@ describe("about (ADR 0011)", () => {
     expect(within(dialog).getByText(t.sourceTag("1.2.3"))).toHaveTextContent("v1.2.3");
     // Text, not a link: following one is the user's decision, through the link confirmation.
     expect(within(dialog).queryByRole("link")).toBeNull();
+  });
+
+  it("knows the app's version from package.json, where a release sets it (#398)", () => {
+    expect(APP_VERSION).toBe((JSON.parse(packageJson) as { version: string }).version);
   });
 
   it("shows the licences of the components, from the app's own files, and goes back", async () => {

@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { SOURCE_URL } from "../../src/features/shell/about";
 import { strings } from "../../src/i18n/zh-TW";
-import { corpus, dataDir, expect, quit, test } from "./app";
+import { corpus, dataDir, expect, quit, ROOT, test } from "./app";
 
 const t = strings.settings;
 
@@ -58,6 +58,10 @@ test("the settings offer to check for updates, and say what GitHub sees", async 
   // ADR 0011: the licence, where the source is, and the licences of what the app is made of.
   await expect(about).toContainText(strings.about.license);
   await expect(about).toContainText(SOURCE_URL);
+  // This build's version, and the tag of its source: package.json's, which a release sets (#398).
+  const { version } = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8")) as { version: string };
+  await expect(about).toContainText(strings.about.version(version));
+  await expect(about).toContainText(strings.about.sourceTag(version));
   await about.getByRole("button", { name: strings.about.thirdParty }).click();
   const licences = page.getByRole("region", { name: strings.licenses.textLabel });
   for (const part of ["MuPDF", "Tesseract", "GNU AFFERO GENERAL PUBLIC LICENSE", "tauri"]) {

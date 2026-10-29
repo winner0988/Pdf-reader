@@ -67,6 +67,7 @@ import { SignatureDetails } from "@/features/signatures/SignatureDetails";
 import type { SignatureView } from "@/features/signatures/useSignatures";
 import { hasBannerContent } from "@/features/security-banner/summary";
 import { AboutDialog, SetDefaultFailedDialog, ShortcutsDialog } from "@/features/shell/dialogs";
+import { APP_VERSION } from "@/features/shell/version";
 import { rotate, sameSession, stepZoom, type Rotation, type ShellState, type Zoom } from "@/features/shell/model";
 import { PrintDialog } from "@/features/print/PrintDialog";
 import { PrintPages } from "@/features/print/PrintPages";
@@ -195,7 +196,6 @@ type ReaderShellProps = {
    */
   jumpToPage?: number;
   onJumped?: () => void;
-  version?: string;
   /** Delay before the loading state appears; tests pass 0. */
   loadingDelayMs?: number;
 };
@@ -269,7 +269,6 @@ export function ReaderShell({
   captureProtection,
   jumpToPage,
   onJumped,
-  version = "0.1.0",
   loadingDelayMs,
 }: ReaderShellProps) {
   const [theme, setTheme] = useTheme();
@@ -1742,7 +1741,7 @@ export function ReaderShell({
       <AboutDialog
         open={dialog === "about"}
         onOpenChange={(open) => setDialog(open ? "about" : null)}
-        version={version}
+        version={APP_VERSION}
       />
     </TooltipProvider>
   );
