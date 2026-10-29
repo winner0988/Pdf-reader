@@ -21,12 +21,12 @@ use ipc_contract::types::FieldId;
 use ipc_contract::worker::{ChangedField, FormFieldEvent};
 use mupdf::pdf::{PdfDocument as MuPdfDocument, PdfObject};
 use mupdf_sys::{
-    fz_context, fz_document, fz_free, pdf_calculate_form, pdf_doc_event, pdf_document,
+    PDF_DOCUMENT_EVENT_ALERT, PDF_DOCUMENT_EVENT_EXEC_MENU_ITEM, PDF_DOCUMENT_EVENT_LAUNCH_URL,
+    PDF_DOCUMENT_EVENT_MAIL_DOC, PDF_DOCUMENT_EVENT_PRINT, PDF_DOCUMENT_EVENT_SUBMIT, fz_context,
+    fz_document, fz_free, pdf_calculate_form, pdf_doc_event, pdf_document,
     pdf_field_event_calculate, pdf_field_event_format, pdf_field_event_keystroke,
     pdf_field_event_validate, pdf_keystroke_event, pdf_obj, pdf_set_doc_event_callback,
-    pdf_set_field_value, PDF_DOCUMENT_EVENT_ALERT, PDF_DOCUMENT_EVENT_EXEC_MENU_ITEM,
-    PDF_DOCUMENT_EVENT_LAUNCH_URL, PDF_DOCUMENT_EVENT_MAIL_DOC, PDF_DOCUMENT_EVENT_PRINT,
-    PDF_DOCUMENT_EVENT_SUBMIT,
+    pdf_set_field_value,
 };
 
 use super::{EngineError, PdfDocument};
@@ -203,13 +203,7 @@ impl PdfDocument {
         unsafe {
             let ctx = raw_context(&ctx_handle);
             let pdoc = raw_doc(ctx, &self.doc);
-            pdf_set_doc_event_callback(
-                ctx,
-                pdoc,
-                Some(doc_event_callback),
-                None,
-                ptr::null_mut(),
-            );
+            pdf_set_doc_event_callback(ctx, pdoc, Some(doc_event_callback), None, ptr::null_mut());
         }
 
         Ok(())
@@ -305,7 +299,9 @@ impl PdfDocument {
 
                 if !ptr.is_null() {
                     // SAFETY: MuPDF allocated ptr with fz_strdup; we read it and free it.
-                    let s = unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned();
+                    let s = unsafe { CStr::from_ptr(ptr) }
+                        .to_string_lossy()
+                        .into_owned();
                     unsafe {
                         let ctx = raw_context(&ctx_handle);
                         fz_free(ctx, ptr.cast());

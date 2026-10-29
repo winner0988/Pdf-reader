@@ -295,7 +295,9 @@ fn script_total_size_over_1mb_is_rejected() {
         "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>".into(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R] >>".into(),
-        format!("<< /Type /Annot /Subtype /Widget /FT /Tx /T (f1) /V () /Rect [10 10 100 30] /AA << /C << /S /JavaScript /JS (/*{huge_comment}*/) >> >> >>"),
+        format!(
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (f1) /V () /Rect [10 10 100 30] /AA << /C << /S /JavaScript /JS (/*{huge_comment}*/) >> >> >>"
+        ),
     ]);
 
     let path = temp_pdf("huge-script", &pdf);
