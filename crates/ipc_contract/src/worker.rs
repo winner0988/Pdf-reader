@@ -112,6 +112,18 @@ pub struct TextBoxModel {
     pub subset: Vec<u8>,
 }
 
+/// The outcome of preparing a single text box within a batch request (B3-23, Issue #381).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum PreparedTextBoxModel {
+    /// The text was successfully shaped and subset into a model.
+    Prepared(TextBoxModel),
+    /// The font cannot shape or subset this text (e.g. missing glyphs, unsupported script, or font refusal).
+    Refused,
+    /// Not processed in this batch to keep the response within size limits.
+    Deferred,
+}
+
 /// A text box found in a source file prepared for inserting into a document (B3-23, ADR 0019).
 /// The worker reports its text, geometry and style so the main process can prepare a model in
 /// an available font (the worker has no fonts).
@@ -980,6 +992,16 @@ pub enum WorkerRequest {
         font: FontData,
         text: String,
     },
+    /// Makes each text of `texts` in the font `font` into a text box model (B3-23, Issue #381).
+    ///
+    /// The font is parsed once for all texts in the batch. Answered by `TextBoxesPrepared` with
+    /// one element per text (a model, or `Refused` if that text cannot be shaped or subset with this
+    /// font, or `Deferred` if it was postponed to keep the response within size limits).
+    PrepareTextBoxes {
+        request: RequestId,
+        font: FontData,
+        texts: Vec<String>,
+    },
     /// What text box `annotation` of page `page_index` says of itself: its words, font, style and
     /// whether they fit. Answered by `TextBox` (B2-29).
     GetTextBox {
@@ -1149,6 +1171,15 @@ pub enum WorkerResponse {
     TextBoxPrepared {
         request: RequestId,
         model: TextBoxModel,
+    },
+    /// The models of `PrepareTextBoxes` (B3-23, Issue #381).
+    ///
+    /// Exactly one entry per requested text in the same order. `Prepared` if the text was shaped
+    /// and subset; `Refused` if the font cannot be used or cannot shape the text; `Deferred` if
+    /// the text was deferred to a subsequent batch to keep the response within size limits.
+    TextBoxesPrepared {
+        request: RequestId,
+        models: Vec<PreparedTextBoxModel>,
     },
     /// The faces of `InspectFont`: their family, style and face index.
     FontInspected {
