@@ -268,6 +268,15 @@ pub const MAX_FIELD_VALUE_BYTES: u32 = 16 * 1024;
 /// Most choices of a combo box or list box (B2-09).
 pub const MAX_FIELD_OPTIONS: u32 = 1_000;
 
+/// Largest total bytes of scripts a document may have for scripts to be enabled (B3-07, ADR 0021).
+pub const MAX_SCRIPT_BYTES: usize = 1024 * 1024;
+
+/// Most form fields changed in response to one form field event (B3-07, ADR 0021).
+pub const MAX_CHANGED_FIELDS: usize = 10_000;
+
+/// Most blocked outward actions recorded during one form script execution (B3-07, ADR 0021).
+pub const MAX_BLOCKED_ACTIONS: usize = 1_000;
+
 /// Most signature fields one document has verified (B2-14, ADR 0014); the rest are not looked at,
 /// and the report says so.
 pub const MAX_SIGNATURES: u32 = 100;

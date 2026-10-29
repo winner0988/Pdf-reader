@@ -233,6 +233,22 @@
       "sha256": "d479b452e448c65d6b220fc969719c062df80b5508ca207df57c36ca223af053"
     },
     {
+      "path": "benign/form-calculation.pdf",
+      "category": "benign",
+      "purpose": "One page with two numeric fields and a total calculated by AFSimple_Calculate and formatted by AFNumber_Format.",
+      "expected": "Opens; fields calculate and format sum; saved values persist.",
+      "pages": 1,
+      "findings": [
+        "javaScript",
+        "additionalActions"
+      ],
+      "text": [
+        "Form with calculation scripts"
+      ],
+      "bytes": 1817,
+      "sha256": "6f124ceeb8a6f868c67c2c7f84b88a5dd9a4cf20c9f1740a2a57bcc9e7b95e7c"
+    },
+    {
       "path": "benign/tagged-form-two-pages.pdf",
       "category": "benign",
       "purpose": "Two tagged pages (a paragraph, then a figure with alt text), each with a filled text field.",
@@ -386,7 +402,7 @@
       "path": "malicious/field-aa.pdf",
       "category": "malicious",
       "purpose": "Form field keystroke/format scripts.",
-      "expected": "No script runs; findings reported.",
+      "expected": "Script runs only on input; app.alert has no effect; findings reported.",
       "pages": 1,
       "findings": [
         "javaScript",

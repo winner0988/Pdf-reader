@@ -121,7 +121,7 @@ impl PdfDocument {
     }
 }
 
-fn no_such_field() -> EngineError {
+pub(crate) fn no_such_field() -> EngineError {
     EngineError::InvalidEdit("no such field on the page")
 }
 

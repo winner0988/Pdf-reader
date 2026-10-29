@@ -1,8 +1,8 @@
 //! Safe wrapper around MuPDF for opening PDFs and rendering pages (MVP-03).
 //!
-//! MuPDF is built without its JavaScript engine (`FZ_ENABLE_JS=0`, see
-//! docs/architecture/mupdf-binding.md), so no PDF script can run even if something asked for it.
-//! Nothing in this crate may call `PdfDocument::enable_js`.
+//! Form field scripts run using MuPDF's built-in mujs engine inside the worker (ADR 0021 POC).
+//! Documents open with JavaScript disabled. JavaScript is enabled only on explicit request,
+//! executing only field Keystroke, Format, Validate, and Calculate events.
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -38,6 +38,7 @@ mod annotations;
 mod attachments;
 mod create;
 mod docx;
+mod form_scripts;
 mod forms;
 mod identifier;
 mod merge_annotations;
@@ -49,6 +50,7 @@ mod redaction;
 mod sanitize;
 
 pub use create::{Created, PdfBuilder};
+pub use form_scripts::FieldEventOutcome;
 pub use identifier::write_identifier;
 pub use ocr::OcrKnown;
 
@@ -2620,18 +2622,52 @@ mod tests {
         }
     }
 
-    /// The JavaScript engine is compiled out: even an explicit request cannot enable it.
-    /// (Test-only call; production code must never call `enable_js`.)
+    /// JavaScript is disabled upon opening: no scripts run automatically.
+    /// Before explicit enablement, `enable_js` has not been called and field events fail.
+    /// Once explicitly enabled, only field K, F, V, C events run; OpenAction scripts do not run.
     #[test]
     fn javascript_is_compiled_out() {
         let pdf = build_pdf(&[
-            "<< /Type /Catalog /Pages 2 0 R /OpenAction << /S /JavaScript /JS (app.alert\\(1\\)) >> >>",
+            "<< /Type /Catalog /Pages 2 0 R /OpenAction << /S /JavaScript /JS (app.alert\\(1\\)) >> /AcroForm << /Fields [4 0 R] >> >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R] >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (f1) /V (init) /Rect [10 10 100 30] /AA << /K << /S /JavaScript /JS (app.alert\\(2\\)) >> >> >>",
         ]);
-        let mut doc = mupdf::pdf::PdfDocument::from_bytes(&pdf).unwrap();
-        doc.enable_js().unwrap();
-        assert!(!doc.is_js_supported().unwrap());
+        let mut doc = PdfDocument::from_bytes(&pdf).expect("open pdf");
+        // 1. Opening the document did not enable JavaScript and executed no scripts.
+        assert!(!doc.doc.is_js_supported().unwrap());
+
+        // 2. Before enable_js is called, dispatching field events is rejected.
+        let err = doc
+            .dispatch_field_event(
+                0,
+                ipc_contract::types::FieldId(4),
+                &ipc_contract::worker::FormFieldEvent::Format,
+            )
+            .unwrap_err();
+        assert!(matches!(err, EngineError::InvalidEdit(_)));
+
+        // 3. Explicitly enable JavaScript. OpenAction script does not run.
+        doc.enable_js().expect("enable js");
+        assert!(doc.doc.is_js_supported().unwrap());
+
+        // 4. Only K, F, V, C field events can be dispatched. Document events like alert are intercepted.
+        let outcome = doc
+            .dispatch_field_event(
+                0,
+                ipc_contract::types::FieldId(4),
+                &ipc_contract::worker::FormFieldEvent::Keystroke {
+                    value: "a".into(),
+                    change: "b".into(),
+                    sel_start: 1,
+                    sel_end: 1,
+                    will_commit: false,
+                },
+            )
+            .expect("dispatch keystroke");
+        assert!(outcome.accepted);
+        // Alert was intercepted and blocked, recorded in blocked_actions
+        assert_eq!(outcome.blocked_actions, vec!["alert".to_string()]);
     }
 
     fn corpus(name: &str) -> Vec<u8> {

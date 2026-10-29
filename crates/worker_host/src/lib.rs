@@ -17,12 +17,13 @@ use std::time::Duration;
 
 use ipc_contract::frame::{self, FrameError};
 use ipc_contract::types::{
-    AttachmentId, CreateKind, DocumentId, ErrorCode, ImageQuality, Password, RequestId,
+    AttachmentId, CreateKind, DocumentId, ErrorCode, FieldId, ImageQuality, Password, RequestId,
     Restrictions, SanitizeOptions, Watermark,
 };
 use ipc_contract::validate::Validate;
 use ipc_contract::worker::{
-    CreateSource, FileHandle, NewSignature, WorkerError, WorkerRequest, WorkerResponse,
+    CreateSource, FileHandle, FormFieldEvent, NewSignature, WorkerError, WorkerRequest,
+    WorkerResponse,
 };
 use sandbox::{SandboxConfig, Sandboxed};
 use thiserror::Error;
@@ -564,6 +565,35 @@ impl WorkerHost {
         })
     }
 
+    /// Explicitly enables JavaScript for `doc` (B3-07, ADR 0021).
+    pub fn enable_js(&mut self, doc: DocumentId) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        self.request_within(Duration::from_secs(2), |request| WorkerRequest::EnableJs {
+            request,
+            doc,
+        })
+    }
+
+    /// Sends a form field event to `field` on `page` of `doc` (B3-07, ADR 0021).
+    pub fn form_field_event(
+        &mut self,
+        doc: DocumentId,
+        page: u32,
+        field: FieldId,
+        event: FormFieldEvent,
+    ) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        self.request_within(Duration::from_secs(2), |request| {
+            WorkerRequest::FormFieldEvent {
+                request,
+                doc,
+                page,
+                field,
+                event,
+            }
+        })
+    }
+
     /// Writes to `file`, as [`save`](Self::save) does, a copy of `doc` encrypted with AES-256
     /// (B2-15): `open_password` opens it (none: anyone can), `owner_password` lifts
     /// `restrictions`. Both go to the worker in this request only and are wiped once it is sent.
@@ -824,7 +854,9 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::ExifCleaned { request, .. }
         | WorkerResponse::Created { request, .. }
         | WorkerResponse::Attachments { request, .. }
-        | WorkerResponse::AttachmentWritten { request, .. } => Some(*request),
+        | WorkerResponse::AttachmentWritten { request, .. }
+        | WorkerResponse::JsEnabled { request, .. }
+        | WorkerResponse::FormFieldEventResult { request, .. } => Some(*request),
         WorkerResponse::Error { request, .. } => *request,
     }
 }

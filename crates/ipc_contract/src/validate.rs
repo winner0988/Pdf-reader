@@ -30,8 +30,9 @@ use crate::types::{
     UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
-    InsertedTextBox, InspectedFont, OcrOutcome, OpenedDocument, Raster, SourceTextBox,
-    TextBoxModel, WorkerAttachment, WorkerError, WorkerErrorCode, WorkerPageMarks, WorkerResponse,
+    ChangedField, FormFieldEvent, InsertedTextBox, InspectedFont, OcrOutcome, OpenedDocument,
+    Raster, SourceTextBox, TextBoxModel, WorkerAttachment, WorkerError, WorkerErrorCode,
+    WorkerPageMarks, WorkerResponse,
 };
 
 /// Maximum length of the worker version string in `Hello`.
@@ -663,6 +664,34 @@ impl Validate for WorkerResponse {
                     return Err(ValidationError::OutOfRange {
                         what: "attachment bytes written",
                     });
+                }
+                Ok(())
+            }
+            WorkerResponse::JsEnabled { .. } => Ok(()),
+            WorkerResponse::FormFieldEventResult {
+                value,
+                changed_fields,
+                blocked_actions,
+                ..
+            } => {
+                if let Some(val) = value {
+                    check_text("form field event value", val, MAX_FIELD_VALUE_BYTES)?;
+                }
+                check_count(
+                    "changed fields",
+                    changed_fields.len(),
+                    MAX_CHANGED_FIELDS as u32,
+                )?;
+                for field in changed_fields {
+                    field.validate()?;
+                }
+                check_count(
+                    "blocked actions",
+                    blocked_actions.len(),
+                    MAX_BLOCKED_ACTIONS as u32,
+                )?;
+                for action in blocked_actions {
+                    check_text("blocked action", action, 64)?;
                 }
                 Ok(())
             }
@@ -1944,6 +1973,28 @@ impl Validate for FormField {
             return Err(ValidationError::OutOfRange {
                 what: "field length limit",
             });
+        }
+        Ok(())
+    }
+}
+
+impl Validate for ChangedField {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_field_value(&self.value)
+    }
+}
+
+impl Validate for FormFieldEvent {
+    fn validate(&self) -> Result<(), ValidationError> {
+        match self {
+            FormFieldEvent::Keystroke { value, change, .. } => {
+                check_field_value(value)?;
+                check_field_value(change)?;
+            }
+            FormFieldEvent::Format | FormFieldEvent::Calculate => {}
+            FormFieldEvent::Validate { value } => {
+                check_field_value(value)?;
+            }
         }
         Ok(())
     }

@@ -1226,6 +1226,44 @@ def benign_form_fields() -> bytes:
     return doc.build()
 
 
+def benign_form_calculation() -> bytes:
+    """One page with two numeric fields and a total calculated by AFSimple_Calculate and formatted by AFNumber_Format."""
+    doc = Document("form-calculation")
+    doc.reserve_pages(1)
+    page = doc.page_nums[0]
+    helv = doc.pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+
+    def widget(rect: str, body: str) -> int:
+        return doc.pdf.add(
+            f"<< /Type /Annot /Subtype /Widget /Rect [{rect}] /F 4 /P {page} 0 R"
+            f" /MK << /BC [0] /BG [1] >> {body} >>"
+        )
+
+    num1 = widget("72 650 200 674", "/FT /Tx /T (num1) /TU (Number 1) /V (10)")
+    num2 = widget("72 600 200 624", "/FT /Tx /T (num2) /TU (Number 2) /V (20)")
+    calc_script = pdf_string('AFSimple_Calculate("SUM", new Array("num1", "num2"));')
+    format_script = pdf_string('AFNumber_Format(2, 0, 0, 0, "", false);')
+    total = widget(
+        "72 550 200 574",
+        f"/FT /Tx /T (total) /TU (Total) /V (30.00) /Ff 1"
+        f" /AA << /C << /S /JavaScript /JS {calc_script} >> /F << /S /JavaScript /JS {format_script} >> >>",
+    )
+    top_level = [num1, num2, total]
+    labels = [(20, 658, "Number 1"), (20, 608, "Number 2"), (20, 558, "Total")]
+    doc.set_page(
+        0,
+        Page(
+            lines=[(72, 740, 16, "Form with calculation scripts")] + [(x, y, 10, t) for x, y, t in labels],
+            annots=top_level,
+        ),
+    )
+    doc.catalog_extra = (
+        f" /AcroForm << /Fields [{num1} 0 R {num2} 0 R {total} 0 R] /CO [{total} 0 R] /NeedAppearances true"
+        f" /DA (/Helv 11 Tf 0 g) /DR << /Font << /Helv {helv} 0 R >> >> >>"
+    )
+    return doc.build()
+
+
 def benign_signed() -> bytes:
     return signed_sample("signed", SIGNED_TEXT, certify=False)
 
@@ -2162,6 +2200,11 @@ SAMPLES = [
            "and a required one, a check box, a radio group of three, a combo box and a list box; no script.",
            "Opens; 1 page; the fields can be filled in, saved, and flattened (B2-09).", 1,
            text=["Form with every kind of field"]),
+    Sample("benign/form-calculation.pdf", benign_form_calculation,
+           "One page with two numeric fields and a total calculated by AFSimple_Calculate and formatted by AFNumber_Format.",
+           "Opens; fields calculate and format sum; saved values persist.", 1,
+           findings=["javaScript", "additionalActions"],
+           text=["Form with calculation scripts"]),
     Sample("benign/tagged-form-two-pages.pdf", benign_tagged_form,
            "Two tagged pages (a paragraph, then a figure with alt text), each with a filled text field.",
            f"Opens; 2 pages. Once page two is deleted and the document saved, the file has neither "
@@ -2206,7 +2249,8 @@ SAMPLES = [
            "No script runs when the page is shown or hidden; findings reported.", 1,
            ["javaScript", "additionalActions"]),
     Sample("malicious/field-aa.pdf", malicious_field_aa, "Form field keystroke/format scripts.",
-           "No script runs; findings reported.", 1, ["javaScript", "additionalActions"]),
+           "Script runs only on input; app.alert has no effect; findings reported.", 1,
+           ["javaScript", "additionalActions"]),
     Sample("malicious/submitform.pdf", malicious_submitform, "Button submitting the form to a remote URL.",
            "Nothing is sent; finding reported.", 1, ["submitForm"]),
     Sample("malicious/importdata.pdf", malicious_importdata, "Button importing form data from a file.",

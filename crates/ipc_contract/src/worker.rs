@@ -1083,6 +1083,19 @@ pub enum WorkerRequest {
         request: RequestId,
         doc: DocumentId,
     },
+    /// Explicitly enables JavaScript for `doc` (B3-07, ADR 0021).
+    EnableJs {
+        request: RequestId,
+        doc: DocumentId,
+    },
+    /// Sends a form field event to `field` of `doc` (B3-07, ADR 0021).
+    FormFieldEvent {
+        request: RequestId,
+        doc: DocumentId,
+        page: u32,
+        field: FieldId,
+        event: FormFieldEvent,
+    },
     Shutdown,
 }
 
@@ -1278,10 +1291,46 @@ pub enum WorkerResponse {
         request: RequestId,
         bytes: u64,
     },
+    /// Answer to [`WorkerRequest::EnableJs`].
+    JsEnabled {
+        request: RequestId,
+    },
+    /// Answer to [`WorkerRequest::FormFieldEvent`].
+    FormFieldEventResult {
+        request: RequestId,
+        accepted: bool,
+        value: Option<String>,
+        changed_fields: Vec<ChangedField>,
+        blocked_actions: Vec<String>,
+    },
     Error {
         request: Option<RequestId>,
         error: WorkerError,
     },
+}
+
+/// A form field editing event (B3-07, ADR 0021).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FormFieldEvent {
+    Keystroke {
+        value: String,
+        change: String,
+        sel_start: i32,
+        sel_end: i32,
+        will_commit: bool,
+    },
+    Format,
+    Validate {
+        value: String,
+    },
+    Calculate,
+}
+
+/// A form field value changed by a script (B3-07, ADR 0021).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangedField {
+    pub id: FieldId,
+    pub value: String,
 }
 
 /// What `OcrPage` found out about a page (B2-10).

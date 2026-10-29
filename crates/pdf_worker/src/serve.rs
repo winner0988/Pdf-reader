@@ -638,6 +638,44 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => write_attachment(document, request, attachment, file),
             }),
+            WorkerRequest::EnableJs { request, doc } => Some(match documents.get_mut(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => match document.enable_js() {
+                    Ok(()) => WorkerResponse::JsEnabled { request },
+                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::InvalidRequest),
+                },
+            }),
+            WorkerRequest::FormFieldEvent {
+                request,
+                doc,
+                page,
+                field,
+                event,
+            } => Some(match documents.get_mut(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => {
+                    match document.dispatch_field_event(page, field, &event) {
+                        Ok(outcome) => WorkerResponse::FormFieldEventResult {
+                            request,
+                            accepted: outcome.accepted,
+                            value: outcome.value,
+                            changed_fields: outcome.changed_fields,
+                            blocked_actions: outcome.blocked_actions,
+                        },
+                        Err(engine) => {
+                            engine_error(request, &engine, WorkerErrorCode::InvalidRequest)
+                        }
+                    }
+                }
+            }),
             // Requests are handled one at a time, so there is nothing in flight to cancel.
             WorkerRequest::Cancel { .. } => None,
             WorkerRequest::Close { doc } => {
