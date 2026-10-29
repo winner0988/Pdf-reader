@@ -65,293 +65,295 @@ Rust crates
     The package has no licence file: this is the standard text of its licence.
 - anyhow 1.0.104 | MIT OR Apache-2.0 | https://github.com/dtolnay/anyhow | L20, L14
 - arrayvec 0.7.8 | MIT OR Apache-2.0 | https://github.com/bluss/arrayvec | L4, L21
-- base64 0.22.1 | MIT OR Apache-2.0 | https://github.com/marshallpierce/rust-base64 | L4, L22
-- base64 0.23.1 | MIT OR Apache-2.0 | https://github.com/marshallpierce/rust-base64 | L4, L23
-- bit-set 0.8.0 | Apache-2.0 OR MIT | https://github.com/contain-rs/bit-set | L4, L24
-- bit-vec 0.8.0 | Apache-2.0 OR MIT | https://github.com/contain-rs/bit-vec | L4, L24
-- bitflags 1.3.2 | MIT/Apache-2.0 | https://github.com/bitflags/bitflags | L4, L25
-- bitflags 2.13.2 | MIT OR Apache-2.0 | https://github.com/bitflags/bitflags | L4, L25
-- block-buffer 0.10.4 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils | L4, L26
-- block-buffer 0.12.1 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils | L4, L27
+- base64 0.23.1 | MIT OR Apache-2.0 | https://github.com/marshallpierce/rust-base64 | L4, L22
+- bit-set 0.8.0 | Apache-2.0 OR MIT | https://github.com/contain-rs/bit-set | L4, L23
+- bit-vec 0.8.0 | Apache-2.0 OR MIT | https://github.com/contain-rs/bit-vec | L4, L23
+- bitflags 1.3.2 | MIT/Apache-2.0 | https://github.com/bitflags/bitflags | L4, L24
+- bitflags 2.13.2 | MIT OR Apache-2.0 | https://github.com/bitflags/bitflags | L4, L24
+- block-buffer 0.10.4 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils | L4, L25
+- block-buffer 0.12.1 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils | L4, L26
 - brotli 9.0.0 | BSD-3-Clause AND MIT | https://github.com/dropbox/rust-brotli | L18, L2
 - brotli-decompressor 6.0.1 | BSD-3-Clause/MIT | https://github.com/dropbox/rust-brotli-decompressor | L18
-- bs58 0.5.1 | MIT/Apache-2.0 | https://github.com/Nullus157/bs58-rs | L4, L28
-- bytemuck 1.25.2 | Zlib OR Apache-2.0 OR MIT | https://github.com/Lokathor/bytemuck | L4, L29, L30
-- bytemuck_derive 1.12.1 | Zlib OR Apache-2.0 OR MIT | https://github.com/Lokathor/bytemuck | L4, L29, L30
+- bs58 0.5.1 | MIT/Apache-2.0 | https://github.com/Nullus157/bs58-rs | L4, L27
+- bytemuck 1.25.2 | Zlib OR Apache-2.0 OR MIT | https://github.com/Lokathor/bytemuck | L4, L28, L29
+- bytemuck_derive 1.12.1 | Zlib OR Apache-2.0 OR MIT | https://github.com/Lokathor/bytemuck | L4, L28, L29
 - byteorder 1.5.0 | Unlicense OR MIT | https://github.com/BurntSushi/byteorder | L15, L16, L17
-- bytes 1.12.1 | MIT | https://github.com/tokio-rs/bytes | L31
+- bytes 1.12.1 | MIT | https://github.com/tokio-rs/bytes | L30
 - camino 1.2.6 | MIT OR Apache-2.0 | https://github.com/camino-rs/camino | L4, L14
 - cargo_metadata 0.19.2 | MIT | https://github.com/oli-obk/cargo_metadata | L14
 - cargo-platform 0.1.9 | MIT OR Apache-2.0 | https://github.com/rust-lang/cargo | L13, L14
-- cfb 0.14.0 | MIT | https://github.com/mdsteele/rust-cfb | L32
-- cfg-if 1.0.5 | MIT OR Apache-2.0 | https://github.com/rust-lang/cfg-if | L4, L33
-- chrono 0.4.45 | MIT OR Apache-2.0 | https://github.com/chronotope/chrono | L34
-- cobs 0.3.0 | MIT OR Apache-2.0 | https://github.com/jamesmunns/cobs.rs | L35, L36
-- const-oid 0.10.2 | Apache-2.0 OR MIT | https://github.com/RustCrypto/formats | L4, L37
-- cookie 0.18.2 | MIT OR Apache-2.0 | https://github.com/SergioBenitez/cookie-rs | L38, L39
-- cpufeatures 0.2.17 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils | L4, L40
-- cpufeatures 0.3.1 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils | L4, L37
-- crc32fast 1.5.2 | MIT OR Apache-2.0 | https://github.com/srijs/rust-crc32fast | L35, L41
-- crossbeam-channel 0.5.17 | MIT OR Apache-2.0 | https://github.com/crossbeam-rs/crossbeam | L4, L42, L43
-- crossbeam-utils 0.8.23 | MIT OR Apache-2.0 | https://github.com/crossbeam-rs/crossbeam | L4, L42
-- crypto-common 0.1.7 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits | L4, L44
-- crypto-common 0.2.2 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits | L4, L45
-- cssparser 0.37.0 | MPL-2.0 | https://github.com/servo/rust-cssparser | L46
-- cssparser-macros 0.7.1 | MPL-2.0 | https://github.com/servo/rust-cssparser | L46
-- ctor 1.0.13 | Apache-2.0 OR MIT | https://github.com/mmastrac/linktime | L35, L14
-- darling 0.24.1 | MIT | https://github.com/TedDriggs/darling | L47
-- darling_core 0.24.1 | MIT | https://github.com/TedDriggs/darling | L47
-- darling_macro 0.24.1 | MIT | https://github.com/TedDriggs/darling | L47
-- defmt 1.1.1 | MIT OR Apache-2.0 | https://github.com/knurling-rs/defmt | L4, L48
-- defmt-macros 1.1.1 | MIT OR Apache-2.0 | https://github.com/knurling-rs/defmt | L4, L48
-- defmt-parser 1.0.0 | MIT OR Apache-2.0 | https://github.com/knurling-rs/defmt | L49
+- cfb 0.14.0 | MIT | https://github.com/mdsteele/rust-cfb | L31
+- cfg-if 1.0.5 | MIT OR Apache-2.0 | https://github.com/rust-lang/cfg-if | L4, L32
+- chrono 0.4.45 | MIT OR Apache-2.0 | https://github.com/chronotope/chrono | L33
+- cobs 0.3.0 | MIT OR Apache-2.0 | https://github.com/jamesmunns/cobs.rs | L34, L35
+- const-oid 0.10.2 | Apache-2.0 OR MIT | https://github.com/RustCrypto/formats | L4, L36
+- cookie 0.18.2 | MIT OR Apache-2.0 | https://github.com/SergioBenitez/cookie-rs | L37, L38
+- cpufeatures 0.2.17 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils | L4, L39
+- cpufeatures 0.3.1 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils | L4, L36
+- crc32fast 1.5.2 | MIT OR Apache-2.0 | https://github.com/srijs/rust-crc32fast | L34, L40
+- crossbeam-channel 0.5.17 | MIT OR Apache-2.0 | https://github.com/crossbeam-rs/crossbeam | L4, L41, L42
+- crossbeam-utils 0.8.23 | MIT OR Apache-2.0 | https://github.com/crossbeam-rs/crossbeam | L4, L41
+- crypto-common 0.1.7 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits | L4, L43
+- crypto-common 0.2.2 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits | L4, L44
+- cssparser 0.37.0 | MPL-2.0 | https://github.com/servo/rust-cssparser | L45
+- cssparser-macros 0.7.1 | MPL-2.0 | https://github.com/servo/rust-cssparser | L45
+- ctor 1.0.13 | Apache-2.0 OR MIT | https://github.com/mmastrac/linktime | L34, L14
+- darling 0.24.1 | MIT | https://github.com/TedDriggs/darling | L46
+- darling_core 0.24.1 | MIT | https://github.com/TedDriggs/darling | L46
+- darling_macro 0.24.1 | MIT | https://github.com/TedDriggs/darling | L46
+- defmt 1.1.1 | MIT OR Apache-2.0 | https://github.com/knurling-rs/defmt | L4, L47
+- defmt-macros 1.1.1 | MIT OR Apache-2.0 | https://github.com/knurling-rs/defmt | L4, L47
+- defmt-parser 1.0.0 | MIT OR Apache-2.0 | https://github.com/knurling-rs/defmt | L48
     The package has no licence file: this is the standard text of its licence.
-- deranged 0.5.8 | MIT OR Apache-2.0 | https://github.com/jhpratt/deranged | L50, L51
-- derive_more 2.1.1 | MIT | https://github.com/JelteF/derive_more | L52
-- derive_more-impl 2.1.1 | MIT | https://github.com/JelteF/derive_more | L52
-- digest 0.10.7 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits | L4, L53
-- digest 0.11.3 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits | L4, L54
-- dirs 7.0.0 | MIT OR Apache-2.0 | https://codeberg.org/dirs/dirs-rs | L55, L56
-- dirs-sys 0.5.0 | MIT OR Apache-2.0 | https://github.com/dirs-dev/dirs-sys-rs | L55, L56
+- deranged 0.5.8 | MIT OR Apache-2.0 | https://github.com/jhpratt/deranged | L49, L50
+- derive_more 2.1.1 | MIT | https://github.com/JelteF/derive_more | L51
+- derive_more-impl 2.1.1 | MIT | https://github.com/JelteF/derive_more | L51
+- digest 0.10.7 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits | L4, L52
+- digest 0.11.3 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits | L4, L53
+- dirs 7.0.0 | MIT OR Apache-2.0 | https://codeberg.org/dirs/dirs-rs | L54, L55
+- dirs-sys 0.5.0 | MIT OR Apache-2.0 | https://github.com/dirs-dev/dirs-sys-rs | L54, L55
 - displaydoc 0.2.7 | MIT OR Apache-2.0 | https://github.com/yaahc/displaydoc | L4, L14
-- dom_query 0.28.0 | MIT | https://github.com/niklak/dom_query | L57
-- dpi 0.1.2 | Apache-2.0 AND MIT | https://github.com/rust-windowing/winit | L35, L58
+- dom_query 0.28.0 | MIT | https://github.com/niklak/dom_query | L56
+- dpi 0.1.2 | Apache-2.0 AND MIT | https://github.com/rust-windowing/winit | L34, L57
 - dtoa 1.0.11 | MIT OR Apache-2.0 | https://github.com/dtolnay/dtoa | L20, L14
-- dtoa-short 0.3.5 | MPL-2.0 | https://github.com/upsuper/dtoa-short | L46
-- dunce 1.0.5 | CC0-1.0 OR MIT-0 OR Apache-2.0 | https://gitlab.com/kornelski/dunce | L59
+- dtoa-short 0.3.5 | MPL-2.0 | https://github.com/upsuper/dtoa-short | L45
+- dunce 1.0.5 | CC0-1.0 OR MIT-0 OR Apache-2.0 | https://gitlab.com/kornelski/dunce | L58
 - dyn-clone 1.0.20 | MIT OR Apache-2.0 | https://github.com/dtolnay/dyn-clone | L20, L14
-- embedded-io 0.4.0 | MIT OR Apache-2.0 | https://github.com/embassy-rs/embedded-io | L4, L60
-- embedded-io 0.6.1 | MIT OR Apache-2.0 | https://github.com/rust-embedded/embedded-hal | L4, L61
-- equivalent 1.0.2 | Apache-2.0 OR MIT | https://github.com/indexmap-rs/equivalent | L4, L62
+- embedded-io 0.4.0 | MIT OR Apache-2.0 | https://github.com/embassy-rs/embedded-io | L4, L59
+- embedded-io 0.6.1 | MIT OR Apache-2.0 | https://github.com/rust-embedded/embedded-hal | L4, L60
+- equivalent 1.0.2 | Apache-2.0 OR MIT | https://github.com/indexmap-rs/equivalent | L4, L61
 - erased-serde 0.4.10 | MIT OR Apache-2.0 | https://github.com/dtolnay/erased-serde | L20, L14
-- euclid 0.22.14 | MIT OR Apache-2.0 | https://github.com/servo/euclid | L63, L4, L64
+- euclid 0.22.14 | MIT OR Apache-2.0 | https://github.com/servo/euclid | L62, L4, L63
 - fastrand 2.5.0 | Apache-2.0 OR MIT | https://github.com/smol-rs/fastrand | L4, L14
-- fdeflate 0.3.7 | MIT OR Apache-2.0 | https://github.com/image-rs/fdeflate | L20, L65
-- flate2 1.1.10 | MIT OR Apache-2.0 | https://github.com/rust-lang/flate2-rs | L4, L66
-- fnv 1.0.7 | Apache-2.0 / MIT | https://github.com/servo/rust-fnv | L4, L67
-- foldhash 0.2.0 | Zlib | https://github.com/orlp/foldhash | L68
-- font-types 0.11.3 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L69, L70
-- form_urlencoded 1.2.2 | MIT OR Apache-2.0 | https://github.com/servo/rust-url | L4, L71
-- generic-array 0.14.7 | MIT | https://github.com/fizyk20/generic-array.git | L72
-- getrandom 0.3.4 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom | L73, L74
-- getrandom 0.4.3 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom | L73, L75
-- glob 0.3.4 | MIT OR Apache-2.0 | https://github.com/rust-lang/glob | L4, L25
-- hashbrown 0.12.3 | MIT OR Apache-2.0 | https://github.com/rust-lang/hashbrown | L4, L76
-- hashbrown 0.17.1 | MIT OR Apache-2.0 | https://github.com/rust-lang/hashbrown | L4, L76
-- heck 0.5.0 | MIT OR Apache-2.0 | https://github.com/withoutboats/heck | L4, L77
-- hex 0.4.3 | MIT OR Apache-2.0 | https://github.com/KokaKiwi/rust-hex | L35, L78
-- html5ever 0.39.0 | MIT OR Apache-2.0 | https://github.com/servo/html5ever | L4, L79
-- http 1.5.0 | MIT OR Apache-2.0 | https://github.com/hyperium/http | L80, L81
-- hybrid-array 0.4.15 | MIT OR Apache-2.0 | https://github.com/RustCrypto/hybrid-array | L4, L82
-- ico 0.5.0 | MIT | https://github.com/mdsteele/rust-ico | L83
-- icu_collections 2.3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- icu_locale_core 2.3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- icu_normalizer 2.3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- icu_normalizer_data 2.3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- icu_properties 2.3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- icu_properties_data 2.3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- icu_provider 2.3.1 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- ident_case 1.0.1 | MIT/Apache-2.0 | https://github.com/TedDriggs/ident_case | L65
-- idna 1.1.0 | MIT OR Apache-2.0 | https://github.com/servo/rust-url/ | L4, L85
-- idna_adapter 1.2.2 | Apache-2.0 OR MIT | https://github.com/hsivonen/idna_adapter | L4, L86
-- indexmap 1.9.3 | Apache-2.0 OR MIT | https://github.com/bluss/indexmap | L4, L87
-- indexmap 2.14.2 | Apache-2.0 OR MIT | https://github.com/indexmap-rs/indexmap | L4, L87
-- infer 0.22.0 | MIT | https://github.com/bojand/infer | L88
+- fdeflate 0.3.7 | MIT OR Apache-2.0 | https://github.com/image-rs/fdeflate | L20, L64
+- flate2 1.1.10 | MIT OR Apache-2.0 | https://github.com/rust-lang/flate2-rs | L4, L65
+- fnv 1.0.7 | Apache-2.0 / MIT | https://github.com/servo/rust-fnv | L4, L66
+- foldhash 0.2.0 | Zlib | https://github.com/orlp/foldhash | L67
+- font-types 0.11.3 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L68, L69
+- font-types 0.12.7 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L70, L71
+- form_urlencoded 1.2.2 | MIT OR Apache-2.0 | https://github.com/servo/rust-url | L4, L72
+- generic-array 0.14.7 | MIT | https://github.com/fizyk20/generic-array.git | L73
+- getrandom 0.3.4 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom | L74, L75
+- getrandom 0.4.3 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom | L74, L76
+- glob 0.3.4 | MIT OR Apache-2.0 | https://github.com/rust-lang/glob | L4, L24
+- hashbrown 0.12.3 | MIT OR Apache-2.0 | https://github.com/rust-lang/hashbrown | L4, L77
+- hashbrown 0.17.1 | MIT OR Apache-2.0 | https://github.com/rust-lang/hashbrown | L4, L77
+- heck 0.5.0 | MIT OR Apache-2.0 | https://github.com/withoutboats/heck | L4, L78
+- hex 0.4.3 | MIT OR Apache-2.0 | https://github.com/KokaKiwi/rust-hex | L34, L79
+- html5ever 0.39.0 | MIT OR Apache-2.0 | https://github.com/servo/html5ever | L4, L80
+- http 1.5.0 | MIT OR Apache-2.0 | https://github.com/hyperium/http | L81, L82
+- hybrid-array 0.4.15 | MIT OR Apache-2.0 | https://github.com/RustCrypto/hybrid-array | L4, L83
+- ico 0.6.0 | MIT | https://github.com/mdsteele/rust-ico | L84
+- icu_collections 2.3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- icu_locale_core 2.3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- icu_normalizer 2.3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- icu_normalizer_data 2.3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- icu_properties 2.3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- icu_properties_data 2.3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- icu_provider 2.3.1 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- ident_case 1.0.1 | MIT/Apache-2.0 | https://github.com/TedDriggs/ident_case | L64
+- idna 1.1.0 | MIT OR Apache-2.0 | https://github.com/servo/rust-url/ | L4, L86
+- idna_adapter 1.2.2 | Apache-2.0 OR MIT | https://github.com/hsivonen/idna_adapter | L4, L87
+- indexmap 1.9.3 | Apache-2.0 OR MIT | https://github.com/bluss/indexmap | L4, L88
+- indexmap 2.14.2 | Apache-2.0 OR MIT | https://github.com/indexmap-rs/indexmap | L4, L88
+- infer 0.22.0 | MIT | https://github.com/bojand/infer | L89
 - itoa 1.0.18 | MIT OR Apache-2.0 | https://github.com/dtolnay/itoa | L20, L14
 - jiff 0.2.37 | Unlicense OR MIT | https://github.com/BurntSushi/jiff | L15, L16, L17
 - jiff-core 0.1.1 | Unlicense OR MIT | https://github.com/BurntSushi/jiff | L15, L16, L17
 - jiff-tzdb 0.1.8 | Unlicense OR MIT | https://github.com/BurntSushi/jiff | L15, L16, L17
 - jiff-tzdb-platform 0.1.3 | Unlicense OR MIT | https://github.com/BurntSushi/jiff | L15, L16, L17
-- jpeg-encoder 0.7.1 | (MIT OR Apache-2.0) AND IJG | https://github.com/vstroebel/jpeg-encoder | L4, L89, L90
-- json-patch 4.2.0 | MIT/Apache-2.0 | https://github.com/idubrov/json-patch | L35, L91
-- jsonptr 0.7.1 | MIT OR Apache-2.0 | https://github.com/chanced/jsonptr | L92, L93
-- keyboard-types 0.8.3 | MIT OR Apache-2.0 | https://github.com/rust-windowing/keyboard-types | L4, L94
-- kurbo 0.13.1 | Apache-2.0 OR MIT | https://github.com/linebender/kurbo | L4, L95
-- libc 0.2.189 | MIT OR Apache-2.0 | https://github.com/rust-lang/libc | L20, L96
-- litemap 0.8.3 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- lock_api 0.4.14 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot | L4, L97
-- log 0.4.34 | MIT OR Apache-2.0 | https://github.com/rust-lang/log | L4, L25
-- markup5ever 0.39.0 | MIT OR Apache-2.0 | https://github.com/servo/html5ever | L4, L79
+- jpeg-encoder 0.7.1 | (MIT OR Apache-2.0) AND IJG | https://github.com/vstroebel/jpeg-encoder | L4, L90, L91
+- json-patch 4.2.0 | MIT/Apache-2.0 | https://github.com/idubrov/json-patch | L34, L92
+- jsonptr 0.7.1 | MIT OR Apache-2.0 | https://github.com/chanced/jsonptr | L93, L94
+- keyboard-types 0.8.3 | MIT OR Apache-2.0 | https://github.com/rust-windowing/keyboard-types | L4, L95
+- kurbo 0.13.1 | Apache-2.0 OR MIT | https://github.com/linebender/kurbo | L4, L96
+- libc 0.2.189 | MIT OR Apache-2.0 | https://github.com/rust-lang/libc | L20, L97
+- litemap 0.8.3 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- lock_api 0.4.14 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot | L4, L98
+- log 0.4.34 | MIT OR Apache-2.0 | https://github.com/rust-lang/log | L4, L24
+- markup5ever 0.39.0 | MIT OR Apache-2.0 | https://github.com/servo/html5ever | L4, L80
 - memchr 2.8.3 | Unlicense OR MIT | https://github.com/BurntSushi/memchr | L15, L16, L17
-- mime 0.3.17 | MIT OR Apache-2.0 | https://github.com/hyperium/mime | L4, L98
-- miniz_oxide 0.8.9 | MIT OR Zlib OR Apache-2.0 | https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide | L99, L20, L100
-- miniz_oxide 0.9.1 | MIT OR Zlib OR Apache-2.0 | https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide | L99, L20, L100
-- mio 1.2.3 | MIT | https://github.com/tokio-rs/mio | L101
-- muda 0.20.0 | Apache-2.0 OR MIT | https://github.com/tauri-apps/muda | L4, L102, L103
+- mime 0.3.17 | MIT OR Apache-2.0 | https://github.com/hyperium/mime | L4, L99
+- miniz_oxide 0.8.9 | MIT OR Zlib OR Apache-2.0 | https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide | L100, L20, L101
+- miniz_oxide 0.9.1 | MIT OR Zlib OR Apache-2.0 | https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide | L100, L20, L101
+- mio 1.2.3 | MIT | https://github.com/tokio-rs/mio | L102
+- muda 0.20.0 | Apache-2.0 OR MIT | https://github.com/tauri-apps/muda | L4, L103, L104
 - mupdf 0.8.0 | AGPL-3.0 | https://github.com/messense/mupdf-rs | L1
-- mupdf-fonts-droid 0.8.0 | Apache-2.0 | https://github.com/messense/mupdf-rs | L104
+- mupdf-fonts-droid 0.8.0 | Apache-2.0 | https://github.com/messense/mupdf-rs | L105
 - mupdf-sys 0.8.0 | AGPL-3.0 | https://github.com/messense/mupdf-rs | L1
     Bindings and build of MuPDF (above).
-- new_debug_unreachable 1.0.6 | MIT | https://github.com/mbrubeck/rust-debug-unreachable | L105
-- num-conv 0.2.2 | MIT OR Apache-2.0 | https://github.com/jhpratt/num-conv | L20, L106
-- num-traits 0.2.19 | MIT OR Apache-2.0 | https://github.com/rust-num/num-traits | L4, L25
+- new_debug_unreachable 1.0.6 | MIT | https://github.com/mbrubeck/rust-debug-unreachable | L106
+- num-conv 0.2.2 | MIT OR Apache-2.0 | https://github.com/jhpratt/num-conv | L20, L107
+- num-traits 0.2.19 | MIT OR Apache-2.0 | https://github.com/rust-num/num-traits | L4, L24
 - once_cell 1.21.4 | MIT OR Apache-2.0 | https://github.com/matklad/once_cell | L4, L14
-- option-ext 0.2.0 | MPL-2.0 | https://github.com/soc/option-ext.git | L107
-- parking_lot 0.12.5 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot | L4, L97
-- parking_lot_core 0.9.12 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot | L4, L97
-- percent-encoding 2.3.2 | MIT OR Apache-2.0 | https://github.com/servo/rust-url/ | L4, L85
-- phf 0.13.1 | MIT | https://github.com/rust-phf/rust-phf | L108
-- phf_generator 0.13.1 | MIT | https://github.com/rust-phf/rust-phf | L108
-- phf_macros 0.13.1 | MIT | https://github.com/rust-phf/rust-phf | L108
-- phf_shared 0.13.1 | MIT | https://github.com/rust-phf/rust-phf | L108
+- option-ext 0.2.0 | MPL-2.0 | https://github.com/soc/option-ext.git | L108
+- parking_lot 0.12.5 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot | L4, L98
+- parking_lot_core 0.9.12 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot | L4, L98
+- percent-encoding 2.3.2 | MIT OR Apache-2.0 | https://github.com/servo/rust-url/ | L4, L86
+- phf 0.13.1 | MIT | https://github.com/rust-phf/rust-phf | L109
+- phf_generator 0.13.1 | MIT | https://github.com/rust-phf/rust-phf | L109
+- phf_macros 0.13.1 | MIT | https://github.com/rust-phf/rust-phf | L109
+- phf_shared 0.13.1 | MIT | https://github.com/rust-phf/rust-phf | L109
 - pin-project-lite 0.2.17 | Apache-2.0 OR MIT | https://github.com/taiki-e/pin-project-lite | L20, L14
-- plist 1.10.1 | MIT | https://github.com/ebarnard/rust-plist/ | L109
-- png 0.17.16 | MIT OR Apache-2.0 | https://github.com/image-rs/image-png | L4, L110
-- png 0.18.1 | MIT OR Apache-2.0 | https://github.com/image-rs/image-png | L4, L110
-- polycool 0.4.0 | MIT OR Apache-2.0 | https://github.com/linebender/kurbo | L4, L95
-- postcard 1.1.3 | MIT OR Apache-2.0 | https://github.com/jamesmunns/postcard | L4, L111
-- potential_utf 0.1.6 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- powerfmt 0.2.0 | MIT OR Apache-2.0 | https://github.com/jhpratt/powerfmt | L112, L113
-- precomputed-hash 0.1.1 | MIT | https://github.com/emilio/precomputed-hash | L114
+- plist 1.10.1 | MIT | https://github.com/ebarnard/rust-plist/ | L110
+- png 0.18.1 | MIT OR Apache-2.0 | https://github.com/image-rs/image-png | L4, L111
+- polycool 0.4.0 | MIT OR Apache-2.0 | https://github.com/linebender/kurbo | L4, L96
+- postcard 1.1.3 | MIT OR Apache-2.0 | https://github.com/jamesmunns/postcard | L4, L112
+- potential_utf 0.1.6 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- powerfmt 0.2.0 | MIT OR Apache-2.0 | https://github.com/jhpratt/powerfmt | L113, L114
+- precomputed-hash 0.1.1 | MIT | https://github.com/emilio/precomputed-hash | L115
 - proc-macro2 1.0.107 | MIT OR Apache-2.0 | https://github.com/dtolnay/proc-macro2 | L20, L14
-- quick-xml 0.42.0 | MIT | https://github.com/tafia/quick-xml | L115
+- quick-xml 0.42.0 | MIT | https://github.com/tafia/quick-xml | L116
 - quote 1.0.47 | MIT OR Apache-2.0 | https://github.com/dtolnay/quote | L20, L14
-- raw-window-handle 0.6.2 | MIT OR Apache-2.0 OR Zlib | https://github.com/rust-windowing/raw-window-handle | L20, L116, L117
-- read-fonts 0.39.2 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L69, L70
+- raw-window-handle 0.6.2 | MIT OR Apache-2.0 OR Zlib | https://github.com/rust-windowing/raw-window-handle | L20, L117, L118
+- read-fonts 0.39.2 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L68, L69
+- read-fonts 0.46.0 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L70, L71
 - ref-cast 1.0.27 | MIT OR Apache-2.0 | https://github.com/dtolnay/ref-cast | L20, L14
 - ref-cast-impl 1.0.27 | MIT OR Apache-2.0 | https://github.com/dtolnay/ref-cast | L20, L14
-- regex 1.13.1 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex | L4, L25
-- regex-automata 0.4.18 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex | L4, L25
-- regex-syntax 0.8.11 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex | L4, L25
-- rfd 0.17.2 | MIT | https://github.com/PolyMeilex/rfd | L118
+- regex 1.13.1 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex | L4, L24
+- regex-automata 0.4.18 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex | L4, L24
+- regex-syntax 0.8.11 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex | L4, L24
+- rfd 0.17.2 | MIT | https://github.com/PolyMeilex/rfd | L119
 - rustc-hash 2.1.3 | Apache-2.0 OR MIT | https://github.com/rust-lang/rustc-hash | L20, L14
-- same-file 1.0.6 | Unlicense/MIT | https://github.com/BurntSushi/same-file | L15, L119, L17
-- schemars 0.8.22 | MIT | https://github.com/GREsau/schemars | L120
-- schemars 0.9.0 | MIT | https://github.com/GREsau/schemars | L120
-- schemars 1.2.2 | MIT | https://github.com/GREsau/schemars | L120
-- schemars_derive 0.8.22 | MIT | https://github.com/GREsau/schemars | L120
-- scopeguard 1.2.0 | MIT OR Apache-2.0 | https://github.com/bluss/scopeguard | L4, L121
-- selectors 0.38.0 | MPL-2.0 | https://github.com/servo/stylo | L46
+- same-file 1.0.6 | Unlicense/MIT | https://github.com/BurntSushi/same-file | L15, L120, L17
+- schemars 0.8.22 | MIT | https://github.com/GREsau/schemars | L121
+- schemars 0.9.0 | MIT | https://github.com/GREsau/schemars | L121
+- schemars 1.2.2 | MIT | https://github.com/GREsau/schemars | L121
+- schemars_derive 0.8.22 | MIT | https://github.com/GREsau/schemars | L121
+- scopeguard 1.2.0 | MIT OR Apache-2.0 | https://github.com/bluss/scopeguard | L4, L122
+- selectors 0.38.0 | MPL-2.0 | https://github.com/servo/stylo | L45
     The package has no licence file: this is the standard text of its licence.
 - semver 1.0.28 | MIT OR Apache-2.0 | https://github.com/dtolnay/semver | L20, L14
 - serde 1.0.229 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde | L20, L14
 - serde_core 1.0.229 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde | L20, L14
 - serde_derive 1.0.229 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde | L20, L14
 - serde_derive_internals 0.29.1 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde | L20, L14
-- serde_json 1.0.151 | MIT OR Apache-2.0 | https://github.com/serde-rs/json | L20, L14
+- serde_json 1.0.154 | MIT OR Apache-2.0 | https://github.com/serde-rs/json | L20, L14
 - serde_repr 0.1.21 | MIT OR Apache-2.0 | https://github.com/dtolnay/serde-repr | L20, L14
-- serde_spanned 1.1.1 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml | L35, L122
-- serde_with 3.23.0 | MIT OR Apache-2.0 | https://github.com/jonasbb/serde_with/ | L4, L123
-- serde_with_macros 3.23.0 | MIT OR Apache-2.0 | https://github.com/jonasbb/serde_with/ | L4, L123
+- serde_spanned 1.1.1 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml | L34, L123
+- serde_with 3.23.0 | MIT OR Apache-2.0 | https://github.com/jonasbb/serde_with/ | L4, L124
+- serde_with_macros 3.23.0 | MIT OR Apache-2.0 | https://github.com/jonasbb/serde_with/ | L4, L124
 - serde-untagged 0.1.9 | MIT OR Apache-2.0 | https://github.com/dtolnay/serde-untagged | L20, L14
-- serialize-to-javascript 0.1.2 | MIT OR Apache-2.0 | https://github.com/chippers/serialize-to-javascript | L4, L124
-- serialize-to-javascript-impl 0.1.2 | MIT OR Apache-2.0 | https://github.com/chippers/serialize-to-javascript | L4, L124
+- serialize-to-javascript 0.1.2 | MIT OR Apache-2.0 | https://github.com/chippers/serialize-to-javascript | L4, L125
+- serialize-to-javascript-impl 0.1.2 | MIT OR Apache-2.0 | https://github.com/chippers/serialize-to-javascript | L4, L125
 - servo_arc 0.4.3 | MIT OR Apache-2.0 | https://github.com/servo/stylo | L4, L14
-- sha2 0.10.9 | MIT OR Apache-2.0 | https://github.com/RustCrypto/hashes | L4, L125
-- sha2 0.11.0 | MIT OR Apache-2.0 | https://github.com/RustCrypto/hashes | L4, L126
-- simd-adler32 0.3.10 | MIT | https://github.com/mcountryman/simd-adler32 | L127
-- siphasher 1.0.3 | MIT/Apache-2.0 | https://github.com/jedisct1/rust-siphash | L128
-- skrifa 0.42.1 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L69, L70
-- smallvec 1.16.1 | MIT OR Apache-2.0 | https://github.com/servo/rust-smallvec | L4, L129
-- socket2 0.6.5 | MIT OR Apache-2.0 | https://github.com/rust-lang/socket2 | L4, L33
-- softbuffer 0.4.8 | MIT OR Apache-2.0 | https://github.com/rust-windowing/softbuffer | L130, L131
-- stable_deref_trait 1.2.1 | MIT OR Apache-2.0 | https://github.com/storyyeller/stable_deref_trait | L4, L132
-- string_cache 0.9.0 | MIT OR Apache-2.0 | https://github.com/servo/string-cache | L4, L64
-- strsim 0.11.1 | MIT | https://github.com/rapidfuzz/strsim-rs | L133
-- subsetter 0.2.6 | MIT OR Apache-2.0 | https://github.com/typst/subsetter | L20, L65, L134
+- sha2 0.10.9 | MIT OR Apache-2.0 | https://github.com/RustCrypto/hashes | L4, L126
+- sha2 0.11.1 | MIT OR Apache-2.0 | https://github.com/RustCrypto/hashes | L4, L127
+- simd-adler32 0.3.10 | MIT | https://github.com/mcountryman/simd-adler32 | L128
+- similar 2.7.0 | Apache-2.0 | https://github.com/mitsuhiko/similar | L4
+- siphasher 1.0.3 | MIT/Apache-2.0 | https://github.com/jedisct1/rust-siphash | L129
+- skrifa 0.42.1 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L68, L69
+- skrifa 0.49.0 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L70, L71
+- smallvec 1.16.1 | MIT OR Apache-2.0 | https://github.com/servo/rust-smallvec | L4, L130
+- socket2 0.6.5 | MIT OR Apache-2.0 | https://github.com/rust-lang/socket2 | L4, L32
+- softbuffer 0.4.8 | MIT OR Apache-2.0 | https://github.com/rust-windowing/softbuffer | L131, L132
+- stable_deref_trait 1.2.1 | MIT OR Apache-2.0 | https://github.com/storyyeller/stable_deref_trait | L4, L133
+- string_cache 0.9.0 | MIT OR Apache-2.0 | https://github.com/servo/string-cache | L4, L63
+- strsim 0.11.1 | MIT | https://github.com/rapidfuzz/strsim-rs | L134
+- subsetter 0.2.6 | MIT OR Apache-2.0 | https://github.com/typst/subsetter | L20, L64, L135
 - syn 2.0.119 | MIT OR Apache-2.0 | https://github.com/dtolnay/syn | L20, L14
 - syn 3.0.6 | MIT OR Apache-2.0 | https://github.com/dtolnay/syn | L20, L14
-- synstructure 0.14.0 | MIT | https://github.com/mystor/synstructure | L135
-- tao 0.37.1 | Apache-2.0 | https://github.com/tauri-apps/tao | L35, L136
-- tauri 2.12.1 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri | L20, L137
-- tauri-codegen 2.7.1 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri | L20, L137
-- tauri-macros 2.7.1 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri | L20, L137
-- tauri-plugin-single-instance 2.5.2 | Apache-2.0 OR MIT | https://github.com/tauri-apps/plugins-workspace | L138, L20, L139
-- tauri-runtime 2.12.1 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri | L20, L137
-- tauri-runtime-wry 2.12.1 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri | L20, L137
-- tauri-utils 2.10.1 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri | L20, L137
-- tendril 0.5.1 | MIT OR Apache-2.0 | https://github.com/servo/html5ever | L4, L140
+- synstructure 0.14.0 | MIT | https://github.com/mystor/synstructure | L136
+- tao 0.37.1 | Apache-2.0 | https://github.com/tauri-apps/tao | L34, L137
+- tauri 2.12.5 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri | L20, L138
+- tauri-codegen 2.7.4 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri | L20, L138
+- tauri-macros 2.7.4 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri | L20, L138
+- tauri-plugin-single-instance 2.5.4 | Apache-2.0 OR MIT | https://github.com/tauri-apps/plugins-workspace | L139, L20, L140
+- tauri-runtime 2.12.2 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri | L20, L138
+- tauri-runtime-wry 2.12.3 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri | L20, L138
+- tauri-utils 2.10.2 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri | L20, L138
+- tendril 0.5.1 | MIT OR Apache-2.0 | https://github.com/servo/html5ever | L4, L141
 - termcolor 1.4.1 | Unlicense OR MIT | https://github.com/BurntSushi/termcolor | L15, L16, L17
 - thiserror 2.0.21 | MIT OR Apache-2.0 | https://github.com/dtolnay/thiserror | L20, L14
 - thiserror-impl 2.0.21 | MIT OR Apache-2.0 | https://github.com/dtolnay/thiserror | L20, L14
-- time 0.3.55 | MIT OR Apache-2.0 | https://github.com/time-rs/time | L20, L141
-- time-core 0.1.9 | MIT OR Apache-2.0 | https://github.com/time-rs/time | L20, L141
-- time-macros 0.2.32 | MIT OR Apache-2.0 | https://github.com/time-rs/time | L20, L141
-- tinystr 0.8.4 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- tinyvec 1.13.3 | Zlib OR Apache-2.0 OR MIT | https://github.com/Lokathor/tinyvec | L4, L14, L30
-- tokio 1.53.2 | MIT | https://github.com/tokio-rs/tokio | L142
-- toml 1.1.6+spec-1.1.0 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml | L35, L122
-- toml_datetime 1.1.1+spec-1.1.0 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml | L35, L122
-- toml_parser 1.1.3+spec-1.1.0 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml | L35, L122
-- toml_writer 1.1.2+spec-1.1.0 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml | L35, L122
-- tracing 0.1.44 | MIT | https://github.com/tokio-rs/tracing | L143
-- tracing-attributes 0.1.31 | MIT | https://github.com/tokio-rs/tracing | L143
-- tracing-core 0.1.36 | MIT | https://github.com/tokio-rs/tracing | L143
-- tray-icon 0.25.1 | MIT OR Apache-2.0 | https://github.com/tauri-apps/tray-icon | L4, L102, L144
-- ts-rs 12.0.1 | MIT | https://github.com/Aleph-Alpha/ts-rs | L145
+- time 0.3.55 | MIT OR Apache-2.0 | https://github.com/time-rs/time | L20, L142
+- time-core 0.1.9 | MIT OR Apache-2.0 | https://github.com/time-rs/time | L20, L142
+- time-macros 0.2.32 | MIT OR Apache-2.0 | https://github.com/time-rs/time | L20, L142
+- tinystr 0.8.4 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- tinyvec 1.13.3 | Zlib OR Apache-2.0 OR MIT | https://github.com/Lokathor/tinyvec | L4, L14, L29
+- tokio 1.54.1 | MIT | https://github.com/tokio-rs/tokio | L143
+- toml 1.1.6+spec-1.1.0 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml | L34, L123
+- toml_datetime 1.1.1+spec-1.1.0 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml | L34, L123
+- toml_parser 1.1.3+spec-1.1.0 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml | L34, L123
+- toml_writer 1.1.2+spec-1.1.0 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml | L34, L123
+- tracing 0.1.44 | MIT | https://github.com/tokio-rs/tracing | L144
+- tracing-attributes 0.1.31 | MIT | https://github.com/tokio-rs/tracing | L144
+- tracing-core 0.1.36 | MIT | https://github.com/tokio-rs/tracing | L144
+- tray-icon 0.25.1 | MIT OR Apache-2.0 | https://github.com/tauri-apps/tray-icon | L4, L103, L145
+- ts-rs 12.0.1 | MIT | https://github.com/Aleph-Alpha/ts-rs | L146
     The package has no licence file: this is the standard text of its licence.
-- ts-rs-macros 12.0.1 | MIT | https://github.com/Aleph-Alpha/ts-rs | L145
+- ts-rs-macros 12.0.1 | MIT | https://github.com/Aleph-Alpha/ts-rs | L146
     The package has no licence file: this is the standard text of its licence.
 - typeid 1.0.3 | MIT OR Apache-2.0 | https://github.com/dtolnay/typeid | L20, L14
-- typenum 1.20.1 | MIT OR Apache-2.0 | https://github.com/paholg/typenum | L146, L147, L148
-- unicode-ident 1.0.26 | (MIT OR Apache-2.0) AND Unicode-3.0 | https://github.com/dtolnay/unicode-ident | L20, L14, L149
-- unicode-segmentation 1.13.3 | MIT OR Apache-2.0 | https://github.com/unicode-rs/unicode-segmentation | L63, L4, L77
-- url 2.5.8 | MIT OR Apache-2.0 | https://github.com/servo/rust-url | L4, L85
-- urlpattern 0.6.0 | MIT | https://github.com/denoland/rust-urlpattern | L150
-- utf8_iter 1.0.4 | Apache-2.0 OR MIT | https://github.com/hsivonen/utf8_iter | L151, L4, L152
-- uuid 1.26.1 | Apache-2.0 OR MIT | https://github.com/uuid-rs/uuid | L4, L153
+- typenum 1.20.1 | MIT OR Apache-2.0 | https://github.com/paholg/typenum | L147, L148, L149
+- unicode-ident 1.0.26 | (MIT OR Apache-2.0) AND Unicode-3.0 | https://github.com/dtolnay/unicode-ident | L20, L14, L150
+- unicode-segmentation 1.13.3 | MIT OR Apache-2.0 | https://github.com/unicode-rs/unicode-segmentation | L62, L4, L78
+- url 2.5.8 | MIT OR Apache-2.0 | https://github.com/servo/rust-url | L4, L86
+- urlpattern 0.6.0 | MIT | https://github.com/denoland/rust-urlpattern | L151
+- utf8_iter 1.0.4 | Apache-2.0 OR MIT | https://github.com/hsivonen/utf8_iter | L152, L4, L153
+- uuid 1.26.1 | Apache-2.0 OR MIT | https://github.com/uuid-rs/uuid | L4, L154
 - walkdir 2.5.0 | Unlicense/MIT | https://github.com/BurntSushi/walkdir | L15, L16, L17
-- web_atoms 0.2.6 | MIT OR Apache-2.0 | https://github.com/servo/html5ever | L4, L79
-- web-time 1.1.0 | MIT OR Apache-2.0 | https://github.com/daxpedda/web-time | L154, L155
-- webview2-com 0.39.1 | MIT | https://github.com/wravery/webview2-rs | L156
+- web_atoms 0.2.6 | MIT OR Apache-2.0 | https://github.com/servo/html5ever | L4, L80
+- web-time 1.1.0 | MIT OR Apache-2.0 | https://github.com/daxpedda/web-time | L155, L156
+- webview2-com 0.39.1 | MIT | https://github.com/wravery/webview2-rs | L157
     The package has no licence file: this is the standard text of its licence.
-- webview2-com-macros 0.8.1 | MIT | https://github.com/wravery/webview2-rs | L156
+- webview2-com-macros 0.8.1 | MIT | https://github.com/wravery/webview2-rs | L157
     The package has no licence file: this is the standard text of its licence.
-- webview2-com-sys 0.39.1 | MIT | https://github.com/wravery/webview2-rs | L156
+- webview2-com-sys 0.39.1 | MIT | https://github.com/wravery/webview2-rs | L157
     The package has no licence file: this is the standard text of its licence.
-- winapi-util 0.1.11 | Unlicense OR MIT | https://github.com/BurntSushi/winapi-util | L15, L119, L17
-- window-vibrancy 0.8.1 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri-plugin-vibrancy | L4, L157, L158
-- windows 0.62.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L159, L160
-- windows-collections 0.3.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L159, L160
-- windows-core 0.62.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L159, L160
-- windows-future 0.3.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L159, L160
-- windows-implement 0.60.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L159, L160
-- windows-interface 0.59.3 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L159, L160
-- windows-link 0.2.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L159, L160
-- windows-numerics 0.3.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L159, L160
-- windows-result 0.4.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L159, L160
-- windows-strings 0.5.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L159, L160
-- windows-sys 0.61.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L159, L160
-- windows-threading 0.2.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L159, L160
-- windows-version 0.1.7 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L159, L160
+- winapi-util 0.1.11 | Unlicense OR MIT | https://github.com/BurntSushi/winapi-util | L15, L120, L17
+- window-vibrancy 0.8.1 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri-plugin-vibrancy | L4, L158, L159
+- windows 0.62.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L160, L161
+- windows-collections 0.3.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L160, L161
+- windows-core 0.62.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L160, L161
+- windows-future 0.3.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L160, L161
+- windows-implement 0.60.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L160, L161
+- windows-interface 0.59.3 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L160, L161
+- windows-link 0.2.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L160, L161
+- windows-numerics 0.3.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L160, L161
+- windows-result 0.4.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L160, L161
+- windows-strings 0.5.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L160, L161
+- windows-sys 0.61.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L160, L161
+- windows-threading 0.2.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L160, L161
+- windows-version 0.1.7 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs | L160, L161
 - winnow 1.0.4 | MIT | https://github.com/winnow-rs/winnow | L14
-- write-fonts 0.48.1 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L69, L70
-- writeable 0.6.4 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- wry 0.57.0 | Apache-2.0 OR MIT | https://github.com/tauri-apps/wry | L4, L161, L162
-- yoke 0.8.3 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- yoke-derive 0.8.4 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- zerocopy 0.8.57 | BSD-2-Clause OR Apache-2.0 OR MIT | https://github.com/google/zerocopy | L163, L164, L165
-- zerocopy-derive 0.8.57 | BSD-2-Clause OR Apache-2.0 OR MIT | https://github.com/google/zerocopy | L163, L164, L165
-- zerofrom 0.1.8 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- zerofrom-derive 0.1.8 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- zeroize 1.9.0 | Apache-2.0 OR MIT | https://github.com/RustCrypto/utils | L4, L166
-- zerotrie 0.2.5 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- zerovec 0.11.8 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- zerovec-derive 0.11.6 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L84
-- zlib-rs 0.6.8 | Zlib | https://github.com/trifectatechfoundation/zlib-rs | L167
+- write-fonts 0.48.1 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L68, L69
+- writeable 0.6.4 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- wry 0.57.0 | Apache-2.0 OR MIT | https://github.com/tauri-apps/wry | L4, L162, L163
+- yoke 0.8.3 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- yoke-derive 0.8.4 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- zerocopy 0.8.57 | BSD-2-Clause OR Apache-2.0 OR MIT | https://github.com/google/zerocopy | L164, L165, L166
+- zerocopy-derive 0.8.57 | BSD-2-Clause OR Apache-2.0 OR MIT | https://github.com/google/zerocopy | L164, L165, L166
+- zerofrom 0.1.8 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- zerofrom-derive 0.1.8 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- zeroize 1.9.1 | Apache-2.0 OR MIT | https://github.com/RustCrypto/utils | L4, L167
+- zerotrie 0.2.5 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- zerovec 0.11.8 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- zerovec-derive 0.11.6 | Unicode-3.0 | https://github.com/unicode-org/icu4x | L85
+- zlib-rs 0.6.8 | Zlib | https://github.com/trifectatechfoundation/zlib-rs | L168
 - zmij 1.0.23 | MIT | https://github.com/dtolnay/zmij | L14
 
 ==============================================================================
 JavaScript packages
 ==============================================================================
-- @babel/runtime 7.29.7 | MIT | https://babel.dev/docs/en/next/babel-runtime | L168
-- @base-ui/react 1.8.0 | MIT | https://base-ui.com | L169
-- @base-ui/utils 0.4.0 | MIT | https://github.com/mui/base-ui#readme | L169
-- @floating-ui/core 1.8.0 | MIT | https://floating-ui.com | L170
-- @floating-ui/dom 1.8.0 | MIT | https://floating-ui.com | L170
-- @floating-ui/react-dom 2.1.9 | MIT | https://floating-ui.com/docs/react-dom | L170
-- @floating-ui/utils 0.2.12 | MIT | https://floating-ui.com | L170
-- @tauri-apps/api 2.12.1 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri#readme | L20, L137, L171
-- class-variance-authority 0.7.1 | Apache-2.0 | https://github.com/joe-bell/cva#readme | L172
-- clsx 2.1.1 | MIT | https://github.com/lukeed/clsx#readme | L173
-- lucide-react 1.52.0 | ISC | https://lucide.dev | L174
-- react 19.3.0 | MIT | https://react.dev/ | L175
-- react-dom 19.3.0 | MIT | https://react.dev/ | L175
-- reselect 5.3.0 | MIT | https://github.com/reduxjs/reselect#readme | L176
-- scheduler 0.28.0 | MIT | https://react.dev/ | L175
-- tailwind-merge 3.7.0 | MIT | https://github.com/dcastil/tailwind-merge | L177
-- tw-animate-css 1.4.0 | MIT | https://github.com/Wombosvideo/tw-animate-css#readme | L178
-- use-sync-external-store 1.7.0 | MIT | https://github.com/react/react#readme | L175
+- @babel/runtime 7.29.7 | MIT | https://babel.dev/docs/en/next/babel-runtime | L169
+- @base-ui/react 1.9.0 | MIT | https://base-ui.com | L170
+- @base-ui/utils 0.5.0 | MIT | https://github.com/mui/base-ui#readme | L170
+- @floating-ui/core 1.8.0 | MIT | https://floating-ui.com | L171
+- @floating-ui/dom 1.8.0 | MIT | https://floating-ui.com | L171
+- @floating-ui/react-dom 2.1.9 | MIT | https://floating-ui.com/docs/react-dom | L171
+- @floating-ui/utils 0.2.12 | MIT | https://floating-ui.com | L171
+- @tauri-apps/api 2.12.4 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri#readme | L20, L138, L172
+- class-variance-authority 0.7.1 | Apache-2.0 | https://github.com/joe-bell/cva#readme | L173
+- clsx 2.1.1 | MIT | https://github.com/lukeed/clsx#readme | L174
+- lucide-react 1.61.0 | ISC | https://lucide.dev | L175
+- react 19.3.1 | MIT | https://react.dev/ | L176
+- react-dom 19.3.1 | MIT | https://react.dev/ | L176
+- reselect 5.3.0 | MIT | https://github.com/reduxjs/reselect#readme | L177
+- scheduler 0.28.0 | MIT | https://react.dev/ | L176
+- tailwind-merge 3.7.0 | MIT | https://github.com/dcastil/tailwind-merge | L178
+- tw-animate-css 1.4.0 | MIT | https://github.com/Wombosvideo/tw-animate-css#readme | L179
+- use-sync-external-store 1.7.0 | MIT | https://github.com/react/react#readme | L176
 
 ==============================================================================
 Licence texts
@@ -1096,7 +1098,7 @@ builds) is in the public domain.
 --- end of LICENSE.TXT ---
 
 ----- L4 -----
-Used by: Gumbo, Tesseract OCR, Tesseract language data (tessdata_fast: eng, chi_tra), arrayvec 0.7.8, base64 0.22.1, base64 0.23.1, bit-set 0.8.0, bit-vec 0.8.0, bitflags 1.3.2, bitflags 2.13.2, block-buffer 0.10.4, block-buffer 0.12.1, bs58 0.5.1, bytemuck 1.25.2, bytemuck_derive 1.12.1, camino 1.2.6, cfg-if 1.0.5, const-oid 0.10.2, cpufeatures 0.2.17, cpufeatures 0.3.1, crossbeam-channel 0.5.17, crossbeam-utils 0.8.23, crypto-common 0.1.7, crypto-common 0.2.2, defmt 1.1.1, defmt-macros 1.1.1, digest 0.10.7, digest 0.11.3, displaydoc 0.2.7, embedded-io 0.4.0, embedded-io 0.6.1, equivalent 1.0.2, euclid 0.22.14, fastrand 2.5.0, flate2 1.1.10, fnv 1.0.7, form_urlencoded 1.2.2, glob 0.3.4, hashbrown 0.12.3, hashbrown 0.17.1, heck 0.5.0, html5ever 0.39.0, hybrid-array 0.4.15, idna 1.1.0, idna_adapter 1.2.2, indexmap 1.9.3, indexmap 2.14.2, jpeg-encoder 0.7.1, keyboard-types 0.8.3, kurbo 0.13.1, lock_api 0.4.14, log 0.4.34, markup5ever 0.39.0, mime 0.3.17, muda 0.20.0, num-traits 0.2.19, once_cell 1.21.4, parking_lot 0.12.5, parking_lot_core 0.9.12, percent-encoding 2.3.2, png 0.17.16, png 0.18.1, polycool 0.4.0, postcard 1.1.3, regex 1.13.1, regex-automata 0.4.18, regex-syntax 0.8.11, scopeguard 1.2.0, serde_with 3.23.0, serde_with_macros 3.23.0, serialize-to-javascript 0.1.2, serialize-to-javascript-impl 0.1.2, servo_arc 0.4.3, sha2 0.10.9, sha2 0.11.0, smallvec 1.16.1, socket2 0.6.5, stable_deref_trait 1.2.1, string_cache 0.9.0, tendril 0.5.1, tinyvec 1.13.3, tray-icon 0.25.1, unicode-segmentation 1.13.3, url 2.5.8, utf8_iter 1.0.4, uuid 1.26.1, web_atoms 0.2.6, window-vibrancy 0.8.1, wry 0.57.0, zeroize 1.9.0
+Used by: Gumbo, Tesseract OCR, Tesseract language data (tessdata_fast: eng, chi_tra), arrayvec 0.7.8, base64 0.23.1, bit-set 0.8.0, bit-vec 0.8.0, bitflags 1.3.2, bitflags 2.13.2, block-buffer 0.10.4, block-buffer 0.12.1, bs58 0.5.1, bytemuck 1.25.2, bytemuck_derive 1.12.1, camino 1.2.6, cfg-if 1.0.5, const-oid 0.10.2, cpufeatures 0.2.17, cpufeatures 0.3.1, crossbeam-channel 0.5.17, crossbeam-utils 0.8.23, crypto-common 0.1.7, crypto-common 0.2.2, defmt 1.1.1, defmt-macros 1.1.1, digest 0.10.7, digest 0.11.3, displaydoc 0.2.7, embedded-io 0.4.0, embedded-io 0.6.1, equivalent 1.0.2, euclid 0.22.14, fastrand 2.5.0, flate2 1.1.10, fnv 1.0.7, form_urlencoded 1.2.2, glob 0.3.4, hashbrown 0.12.3, hashbrown 0.17.1, heck 0.5.0, html5ever 0.39.0, hybrid-array 0.4.15, idna 1.1.0, idna_adapter 1.2.2, indexmap 1.9.3, indexmap 2.14.2, jpeg-encoder 0.7.1, keyboard-types 0.8.3, kurbo 0.13.1, lock_api 0.4.14, log 0.4.34, markup5ever 0.39.0, mime 0.3.17, muda 0.20.0, num-traits 0.2.19, once_cell 1.21.4, parking_lot 0.12.5, parking_lot_core 0.9.12, percent-encoding 2.3.2, png 0.18.1, polycool 0.4.0, postcard 1.1.3, regex 1.13.1, regex-automata 0.4.18, regex-syntax 0.8.11, scopeguard 1.2.0, serde_with 3.23.0, serde_with_macros 3.23.0, serialize-to-javascript 0.1.2, serialize-to-javascript-impl 0.1.2, servo_arc 0.4.3, sha2 0.10.9, sha2 0.11.1, similar 2.7.0, smallvec 1.16.1, socket2 0.6.5, stable_deref_trait 1.2.1, string_cache 0.9.0, tendril 0.5.1, tinyvec 1.13.3, tray-icon 0.25.1, unicode-segmentation 1.13.3, url 2.5.8, utf8_iter 1.0.4, uuid 1.26.1, web_atoms 0.2.6, window-vibrancy 0.8.1, wry 0.57.0, zeroize 1.9.1
 
 Apache License
                            Version 2.0, January 2004
@@ -1718,7 +1720,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ----- L14 -----
-Used by: adler2 2.0.1, anyhow 1.0.104, camino 1.2.6, cargo_metadata 0.19.2, cargo-platform 0.1.9, ctor 1.0.13, displaydoc 0.2.7, dtoa 1.0.11, dyn-clone 1.0.20, erased-serde 0.4.10, fastrand 2.5.0, itoa 1.0.18, once_cell 1.21.4, pin-project-lite 0.2.17, proc-macro2 1.0.107, quote 1.0.47, ref-cast 1.0.27, ref-cast-impl 1.0.27, rustc-hash 2.1.3, semver 1.0.28, serde 1.0.229, serde_core 1.0.229, serde_derive 1.0.229, serde_derive_internals 0.29.1, serde_json 1.0.151, serde_repr 0.1.21, serde-untagged 0.1.9, servo_arc 0.4.3, syn 2.0.119, syn 3.0.6, thiserror 2.0.21, thiserror-impl 2.0.21, tinyvec 1.13.3, typeid 1.0.3, unicode-ident 1.0.26, winnow 1.0.4, zmij 1.0.23
+Used by: adler2 2.0.1, anyhow 1.0.104, camino 1.2.6, cargo_metadata 0.19.2, cargo-platform 0.1.9, ctor 1.0.13, displaydoc 0.2.7, dtoa 1.0.11, dyn-clone 1.0.20, erased-serde 0.4.10, fastrand 2.5.0, itoa 1.0.18, once_cell 1.21.4, pin-project-lite 0.2.17, proc-macro2 1.0.107, quote 1.0.47, ref-cast 1.0.27, ref-cast-impl 1.0.27, rustc-hash 2.1.3, semver 1.0.28, serde 1.0.229, serde_core 1.0.229, serde_derive 1.0.229, serde_derive_internals 0.29.1, serde_json 1.0.154, serde_repr 0.1.21, serde-untagged 0.1.9, servo_arc 0.4.3, syn 2.0.119, syn 3.0.6, thiserror 2.0.21, thiserror-impl 2.0.21, tinyvec 1.13.3, typeid 1.0.3, unicode-ident 1.0.26, winnow 1.0.4, zmij 1.0.23
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -1851,7 +1853,7 @@ IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISI
 THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ----- L20 -----
-Used by: anyhow 1.0.104, dtoa 1.0.11, dyn-clone 1.0.20, erased-serde 0.4.10, fdeflate 0.3.7, itoa 1.0.18, libc 0.2.189, miniz_oxide 0.8.9, miniz_oxide 0.9.1, num-conv 0.2.2, pin-project-lite 0.2.17, proc-macro2 1.0.107, quote 1.0.47, raw-window-handle 0.6.2, ref-cast 1.0.27, ref-cast-impl 1.0.27, rustc-hash 2.1.3, semver 1.0.28, serde 1.0.229, serde_core 1.0.229, serde_derive 1.0.229, serde_derive_internals 0.29.1, serde_json 1.0.151, serde_repr 0.1.21, serde-untagged 0.1.9, subsetter 0.2.6, syn 2.0.119, syn 3.0.6, tauri 2.12.1, tauri-codegen 2.7.1, tauri-macros 2.7.1, tauri-plugin-single-instance 2.5.2, tauri-runtime 2.12.1, tauri-runtime-wry 2.12.1, tauri-utils 2.10.1, thiserror 2.0.21, thiserror-impl 2.0.21, time 0.3.55, time-core 0.1.9, time-macros 0.2.32, typeid 1.0.3, unicode-ident 1.0.26, @tauri-apps/api 2.12.1
+Used by: anyhow 1.0.104, dtoa 1.0.11, dyn-clone 1.0.20, erased-serde 0.4.10, fdeflate 0.3.7, itoa 1.0.18, libc 0.2.189, miniz_oxide 0.8.9, miniz_oxide 0.9.1, num-conv 0.2.2, pin-project-lite 0.2.17, proc-macro2 1.0.107, quote 1.0.47, raw-window-handle 0.6.2, ref-cast 1.0.27, ref-cast-impl 1.0.27, rustc-hash 2.1.3, semver 1.0.28, serde 1.0.229, serde_core 1.0.229, serde_derive 1.0.229, serde_derive_internals 0.29.1, serde_json 1.0.154, serde_repr 0.1.21, serde-untagged 0.1.9, subsetter 0.2.6, syn 2.0.119, syn 3.0.6, tauri 2.12.5, tauri-codegen 2.7.4, tauri-macros 2.7.4, tauri-plugin-single-instance 2.5.4, tauri-runtime 2.12.2, tauri-runtime-wry 2.12.3, tauri-utils 2.10.2, thiserror 2.0.21, thiserror-impl 2.0.21, time 0.3.55, time-core 0.1.9, time-macros 0.2.32, typeid 1.0.3, unicode-ident 1.0.26, @tauri-apps/api 2.12.4
 
 Apache License
                         Version 2.0, January 2004
@@ -2060,31 +2062,6 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ----- L22 -----
-Used by: base64 0.22.1
-
-The MIT License (MIT)
-
-Copyright (c) 2015 Alice Maz
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-
------ L23 -----
 Used by: base64 0.23.1
 
 The MIT License (MIT)
@@ -2109,7 +2086,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
------ L24 -----
+----- L23 -----
 Used by: bit-set 0.8.0, bit-vec 0.8.0
 
 Copyright (c) 2023 The Rust Project Developers
@@ -2138,7 +2115,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L25 -----
+----- L24 -----
 Used by: bitflags 1.3.2, bitflags 2.13.2, glob 0.3.4, log 0.4.34, num-traits 0.2.19, regex 1.13.1, regex-automata 0.4.18, regex-syntax 0.8.11
 
 Copyright (c) 2014 The Rust Project Developers
@@ -2167,7 +2144,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L26 -----
+----- L25 -----
 Used by: block-buffer 0.10.4
 
 Copyright (c) 2018-2019 The RustCrypto Project Developers
@@ -2196,7 +2173,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L27 -----
+----- L26 -----
 Used by: block-buffer 0.12.1
 
 Copyright (c) 2018-2025 The RustCrypto Project Developers
@@ -2225,7 +2202,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L28 -----
+----- L27 -----
 Used by: bs58 0.5.1
 
 MIT License
@@ -2249,7 +2226,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L29 -----
+----- L28 -----
 Used by: bytemuck 1.25.2, bytemuck_derive 1.12.1
 
 MIT License
@@ -2262,7 +2239,7 @@ The above copyright notice and this permission notice (including the next paragr
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
------ L30 -----
+----- L29 -----
 Used by: bytemuck 1.25.2, bytemuck_derive 1.12.1, tinyvec 1.13.3
 
 Copyright (c) 2019 Daniel "Lokathor" Gee.
@@ -2277,7 +2254,7 @@ Permission is granted to anyone to use this software for any purpose, including 
 
 3. This notice may not be removed or altered from any source distribution.
 
------ L31 -----
+----- L30 -----
 Used by: bytes 1.12.1
 
 Copyright (c) 2018 Carl Lerche
@@ -2306,7 +2283,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L32 -----
+----- L31 -----
 Used by: cfb 0.14.0
 
 MIT License
@@ -2331,7 +2308,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L33 -----
+----- L32 -----
 Used by: cfg-if 1.0.5, socket2 0.6.5
 
 Copyright (c) 2014 Alex Crichton
@@ -2360,7 +2337,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L34 -----
+----- L33 -----
 Used by: chrono 0.4.45
 
 Rust-chrono is dual-licensed under The MIT License [1] and
@@ -2603,7 +2580,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ~~~~
 
------ L35 -----
+----- L34 -----
 Used by: cobs 0.3.0, crc32fast 1.5.2, ctor 1.0.13, dpi 0.1.2, hex 0.4.3, json-patch 4.2.0, serde_spanned 1.1.1, tao 0.37.1, toml 1.1.6+spec-1.1.0, toml_datetime 1.1.1+spec-1.1.0, toml_parser 1.1.3+spec-1.1.0, toml_writer 1.1.2+spec-1.1.0
 
 Apache License
@@ -2808,7 +2785,7 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
------ L36 -----
+----- L35 -----
 Used by: cobs 0.3.0
 
 Copyright (c) 2015 The cobs.rs Developers
@@ -2831,7 +2808,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L37 -----
+----- L36 -----
 Used by: const-oid 0.10.2, cpufeatures 0.3.1
 
 Copyright (c) 2020-2026 The RustCrypto Project Developers
@@ -2860,7 +2837,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L38 -----
+----- L37 -----
 Used by: cookie 0.18.2
 
 Apache License
@@ -3066,7 +3043,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
------ L39 -----
+----- L38 -----
 Used by: cookie 0.18.2
 
 Copyright (c) 2017 Sergio Benitez
@@ -3096,7 +3073,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L40 -----
+----- L39 -----
 Used by: cpufeatures 0.2.17
 
 Copyright (c) 2020-2025 The RustCrypto Project Developers
@@ -3125,7 +3102,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L41 -----
+----- L40 -----
 Used by: crc32fast 1.5.2
 
 MIT License
@@ -3150,7 +3127,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L42 -----
+----- L41 -----
 Used by: crossbeam-channel 0.5.17, crossbeam-utils 0.8.23
 
 The MIT License (MIT)
@@ -3181,7 +3158,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L43 -----
+----- L42 -----
 Used by: crossbeam-channel 0.5.17
 
 ===============================================================================
@@ -3778,7 +3755,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
------ L44 -----
+----- L43 -----
 Used by: crypto-common 0.1.7
 
 Copyright (c) 2021 RustCrypto Developers
@@ -3807,7 +3784,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L45 -----
+----- L44 -----
 Used by: crypto-common 0.2.2
 
 Copyright (c) 2021-2026 RustCrypto Developers
@@ -3836,7 +3813,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L46 -----
+----- L45 -----
 Used by: cssparser 0.37.0, cssparser-macros 0.7.1, dtoa-short 0.3.5, selectors 0.38.0
 
 Mozilla Public License Version 2.0
@@ -4213,7 +4190,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
   This Source Code Form is "Incompatible With Secondary Licenses", as
   defined by the Mozilla Public License, v. 2.0.
 
------ L47 -----
+----- L46 -----
 Used by: darling 0.24.1, darling_core 0.24.1, darling_macro 0.24.1
 
 MIT License
@@ -4238,7 +4215,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L48 -----
+----- L47 -----
 Used by: defmt 1.1.1, defmt-macros 1.1.1
 
 Copyright (c) Ferrous Systems
@@ -4267,7 +4244,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L49 -----
+----- L48 -----
 Used by: defmt-parser 1.0.0
 
 MIT License
@@ -4289,7 +4266,7 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FO
 DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
 OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
------ L50 -----
+----- L49 -----
 Used by: deranged 0.5.8
 
 Apache License
@@ -4494,7 +4471,7 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
------ L51 -----
+----- L50 -----
 Used by: deranged 0.5.8
 
 Copyright (c) 2024 Jacob Pratt et al.
@@ -4517,7 +4494,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L52 -----
+----- L51 -----
 Used by: derive_more 2.1.1, derive_more-impl 2.1.1
 
 The MIT License (MIT)
@@ -4542,7 +4519,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L53 -----
+----- L52 -----
 Used by: digest 0.10.7
 
 Copyright (c) 2017 Artyom Pavlov
@@ -4571,7 +4548,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L54 -----
+----- L53 -----
 Used by: digest 0.11.3
 
 Copyright (c) 2017-2025 RustCrypto Developers
@@ -4601,7 +4578,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L55 -----
+----- L54 -----
 Used by: dirs 7.0.0, dirs-sys 0.5.0
 
 Apache License
@@ -4779,7 +4756,7 @@ TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
    incurred by, or claims asserted against, such Contributor by reason
    of your accepting any such warranty or additional liability.
 
------ L56 -----
+----- L55 -----
 Used by: dirs 7.0.0, dirs-sys 0.5.0
 
 Copyright (c) 2018-2019 dirs-rs contributors
@@ -4802,7 +4779,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L57 -----
+----- L56 -----
 Used by: dom_query 0.28.0
 
 MIT License
@@ -4833,7 +4810,7 @@ This project contains portions of code and architectural concepts originally
 derived from the "nipper" project (https://github.com/importcjj/nipper),
 developed by Chen Jiaju, licensed under the MIT License and the Apache License 2.0 (dual licensed).
 
------ L58 -----
+----- L57 -----
 Used by: dpi 0.1.2
 
 rust-lang/libm as a whole is available for use under the MIT license:
@@ -4888,7 +4865,7 @@ and labelled as such in comments in the individual source files. All
 have been licensed under extremely permissive terms.
 ------------------------------------------------------------------------------
 
------ L59 -----
+----- L58 -----
 Used by: dunce 1.0.5
 
 Creative Commons Legal Code
@@ -5013,7 +4990,7 @@ express Statement of Purpose.
     party to this document and has no duty or obligation with respect to
     this CC0 or use of the Work.
 
------ L60 -----
+----- L59 -----
 Used by: embedded-io 0.4.0
 
 Copyright (c) 2022 The embedded-io authors
@@ -5042,7 +5019,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L61 -----
+----- L60 -----
 Used by: embedded-io 0.6.1
 
 Copyright (c) 2023 The embedded-io authors
@@ -5071,7 +5048,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L62 -----
+----- L61 -----
 Used by: equivalent 1.0.2
 
 Copyright (c) 2016--2023
@@ -5100,7 +5077,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L63 -----
+----- L62 -----
 Used by: euclid 0.22.14, unicode-segmentation 1.13.3
 
 Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
@@ -5109,7 +5086,7 @@ http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
 option. All files in the project carrying such notice may not be
 copied, modified, or distributed except according to those terms.
 
------ L64 -----
+----- L63 -----
 Used by: euclid 0.22.14, string_cache 0.9.0
 
 Copyright (c) 2012-2013 Mozilla Foundation
@@ -5138,7 +5115,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L65 -----
+----- L64 -----
 Used by: fdeflate 0.3.7, ident_case 1.0.1, subsetter 0.2.6
 
 MIT License
@@ -5167,7 +5144,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L66 -----
+----- L65 -----
 Used by: flate2 1.1.10
 
 Copyright (c) 2014-2026 Alex Crichton
@@ -5196,7 +5173,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L67 -----
+----- L66 -----
 Used by: fnv 1.0.7
 
 Copyright (c) 2017 Contributors
@@ -5225,7 +5202,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L68 -----
+----- L67 -----
 Used by: foldhash 0.2.0
 
 Copyright (c) 2024 Orson Peters
@@ -5248,7 +5225,7 @@ the following restrictions:
 
 3. This notice may not be removed or altered from any source distribution.
 
------ L69 -----
+----- L68 -----
 Used by: font-types 0.11.3, read-fonts 0.39.2, skrifa 0.42.1, write-fonts 0.48.1
 
 Apache License
@@ -5319,7 +5296,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
------ L70 -----
+----- L69 -----
 Used by: font-types 0.11.3, read-fonts 0.39.2, skrifa 0.42.1, write-fonts 0.48.1
 
 Copyright (c) 2019 Colin Rothfels
@@ -5348,7 +5325,107 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
+----- L70 -----
+Used by: font-types 0.12.7, read-fonts 0.46.0, skrifa 0.49.0
+
+Apache License
+
+Version 2.0, January 2004
+
+http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+"License" shall mean the terms and conditions for use, reproduction, and distribution as defined by Sections 1 through 9 of this document.
+
+"Licensor" shall mean the copyright owner or entity authorized by the copyright owner that is granting the License.
+
+"Legal Entity" shall mean the union of the acting entity and all other entities that control, are controlled by, or are under common control with that entity. For the purposes of this definition, "control" means (i) the power, direct or indirect, to cause the direction or management of such entity, whether by contract or otherwise, or (ii) ownership of fifty percent (50%) or more of the outstanding shares, or (iii) beneficial ownership of such entity.
+
+"You" (or "Your") shall mean an individual or Legal Entity exercising permissions granted by this License.
+
+"Source" form shall mean the preferred form for making modifications, including but not limited to software source code, documentation source, and configuration files.
+
+"Object" form shall mean any form resulting from mechanical transformation or translation of a Source form, including but not limited to compiled object code, generated documentation, and conversions to other media types.
+
+"Work" shall mean the work of authorship, whether in Source or Object form, made available under the License, as indicated by a copyright notice that is included in or attached to the work (an example is provided in the Appendix below).
+
+"Derivative Works" shall mean any work, whether in Source or Object form, that is based on (or derived from) the Work and for which the editorial revisions, annotations, elaborations, or other modifications represent, as a whole, an original work of authorship. For the purposes of this License, Derivative Works shall not include works that remain separable from, or merely link (or bind by name) to the interfaces of, the Work and Derivative Works thereof.
+
+"Contribution" shall mean any work of authorship, including the original version of the Work and any modifications or additions to that Work or Derivative Works thereof, that is intentionally submitted to Licensor for inclusion in the Work by the copyright owner or by an individual or Legal Entity authorized to submit on behalf of the copyright owner. For the purposes of this definition, "submitted" means any form of electronic, verbal, or written communication sent to the Licensor or its representatives, including but not limited to communication on electronic mailing lists, source code control systems, and issue tracking systems that are managed by, or on behalf of, the Licensor for the purpose of discussing and improving the Work, but excluding communication that is conspicuously marked or otherwise designated in writing by the copyright owner as "Not a Contribution."
+
+"Contributor" shall mean Licensor and any individual or Legal Entity on behalf of whom a Contribution has been received by Licensor and subsequently incorporated within the Work.
+
+2. Grant of Copyright License. Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare Derivative Works of, publicly display, publicly perform, sublicense, and distribute the Work and such Derivative Works in Source or Object form.
+
+3. Grant of Patent License. Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable (except as stated in this section) patent license to make, have made, use, offer to sell, sell, import, and otherwise transfer the Work, where such license applies only to those patent claims licensable by such Contributor that are necessarily infringed by their Contribution(s) alone or by combination of their Contribution(s) with the Work to which such Contribution(s) was submitted. If You institute patent litigation against any entity (including a cross-claim or counterclaim in a lawsuit) alleging that the Work or a Contribution incorporated within the Work constitutes direct or contributory patent infringement, then any patent licenses granted to You under this License for that Work shall terminate as of the date such litigation is filed.
+
+4. Redistribution. You may reproduce and distribute copies of the Work or Derivative Works thereof in any medium, with or without modifications, and in Source or Object form, provided that You meet the following conditions:
+
+You must give any other recipients of the Work or Derivative Works a copy of this License; and
+You must cause any modified files to carry prominent notices stating that You changed the files; and
+You must retain, in the Source form of any Derivative Works that You distribute, all copyright, patent, trademark, and attribution notices from the Source form of the Work, excluding those notices that do not pertain to any part of the Derivative Works; and
+If the Work includes a "NOTICE" text file as part of its distribution, then any Derivative Works that You distribute must include a readable copy of the attribution notices contained within such NOTICE file, excluding those notices that do not pertain to any part of the Derivative Works, in at least one of the following places: within a NOTICE text file distributed as part of the Derivative Works; within the Source form or documentation, if provided along with the Derivative Works; or, within a display generated by the Derivative Works, if and wherever such third-party notices normally appear. The contents of the NOTICE file are for informational purposes only and do not modify the License. You may add Your own attribution notices within Derivative Works that You distribute, alongside or as an addendum to the NOTICE text from the Work, provided that such additional attribution notices cannot be construed as modifying the License.
+
+You may add Your own copyright statement to Your modifications and may provide additional or different license terms and conditions for use, reproduction, or distribution of Your modifications, or for any such Derivative Works as a whole, provided Your use, reproduction, and distribution of the Work otherwise complies with the conditions stated in this License.
+5. Submission of Contributions. Unless You explicitly state otherwise, any Contribution intentionally submitted for inclusion in the Work by You to the Licensor shall be under the terms and conditions of this License, without any additional terms or conditions. Notwithstanding the above, nothing herein shall supersede or modify the terms of any separate license agreement you may have executed with Licensor regarding such Contributions.
+
+6. Trademarks. This License does not grant permission to use the trade names, trademarks, service marks, or product names of the Licensor, except as required for reasonable and customary use in describing the origin of the Work and reproducing the content of the NOTICE file.
+
+7. Disclaimer of Warranty. Unless required by applicable law or agreed to in writing, Licensor provides the Work (and each Contributor provides its Contributions) on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied, including, without limitation, any warranties or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE. You are solely responsible for determining the appropriateness of using or redistributing the Work and assume any risks associated with Your exercise of permissions under this License.
+
+8. Limitation of Liability. In no event and under no legal theory, whether in tort (including negligence), contract, or otherwise, unless required by applicable law (such as deliberate and grossly negligent acts) or agreed to in writing, shall any Contributor be liable to You for damages, including any direct, indirect, special, incidental, or consequential damages of any character arising as a result of this License or out of the use or inability to use the Work (including but not limited to damages for loss of goodwill, work stoppage, computer failure or malfunction, or any and all other commercial damages or losses), even if such Contributor has been advised of the possibility of such damages.
+
+9. Accepting Warranty or Additional Liability. While redistributing the Work or Derivative Works thereof, You may choose to offer, and charge a fee for, acceptance of support, warranty, indemnity, or other liability obligations and/or rights consistent with this License. However, in accepting such obligations, You may act only on Your own behalf and on Your sole responsibility, not on behalf of any other Contributor, and only if You agree to indemnify, defend, and hold each Contributor harmless for any liability incurred by, or claims asserted against, such Contributor by reason of your accepting any such warranty or additional liability.
+
+END OF TERMS AND CONDITIONS
+
+Copyright 2019 Fontations Developers
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
 ----- L71 -----
+Used by: font-types 0.12.7, read-fonts 0.46.0, skrifa 0.49.0
+
+Copyright (c) 2019 Fontations Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+----- L72 -----
 Used by: form_urlencoded 1.2.2
 
 Copyright (c) 2013-2016 The rust-url developers
@@ -5377,7 +5454,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L72 -----
+----- L73 -----
 Used by: generic-array 0.14.7
 
 The MIT License (MIT)
@@ -5402,7 +5479,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L73 -----
+----- L74 -----
 Used by: getrandom 0.3.4, getrandom 0.4.3
 
 Apache License
@@ -5607,7 +5684,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
------ L74 -----
+----- L75 -----
 Used by: getrandom 0.3.4
 
 Copyright (c) 2018-2025 The rust-random Project Developers
@@ -5637,7 +5714,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L75 -----
+----- L76 -----
 Used by: getrandom 0.4.3
 
 Copyright (c) 2018-2026 The rust-random Project Developers
@@ -5667,7 +5744,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L76 -----
+----- L77 -----
 Used by: hashbrown 0.12.3, hashbrown 0.17.1
 
 Copyright (c) 2016 Amanieu d'Antras
@@ -5696,7 +5773,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L77 -----
+----- L78 -----
 Used by: heck 0.5.0, unicode-segmentation 1.13.3
 
 Copyright (c) 2015 The Rust Project Developers
@@ -5725,7 +5802,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L78 -----
+----- L79 -----
 Used by: hex 0.4.3
 
 Copyright (c) 2013-2014 The Rust Project Developers.
@@ -5749,7 +5826,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L79 -----
+----- L80 -----
 Used by: html5ever 0.39.0, markup5ever 0.39.0, web_atoms 0.2.6
 
 Copyright (c) 2014 The html5ever Project Developers
@@ -5778,7 +5855,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L80 -----
+----- L81 -----
 Used by: http 1.5.0
 
 Apache License
@@ -5983,7 +6060,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
------ L81 -----
+----- L82 -----
 Used by: http 1.5.0
 
 Copyright (c) 2017 http-rs authors
@@ -6012,7 +6089,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L82 -----
+----- L83 -----
 Used by: hybrid-array 0.4.15
 
 Copyright (c) 2022-2026 The RustCrypto Project Developers
@@ -6041,8 +6118,8 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L83 -----
-Used by: ico 0.5.0
+----- L84 -----
+Used by: ico 0.6.0
 
 MIT License
 
@@ -6066,7 +6143,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L84 -----
+----- L85 -----
 Used by: icu_collections 2.3.0, icu_locale_core 2.3.0, icu_normalizer 2.3.0, icu_normalizer_data 2.3.0, icu_properties 2.3.0, icu_properties_data 2.3.0, icu_provider 2.3.1, litemap 0.8.3, potential_utf 0.1.6, tinystr 0.8.4, writeable 0.6.4, yoke 0.8.3, yoke-derive 0.8.4, zerofrom 0.1.8, zerofrom-derive 0.1.8, zerotrie 0.2.5, zerovec 0.11.8, zerovec-derive 0.11.6
 
 UNICODE LICENSE V3
@@ -6116,7 +6193,7 @@ SPDX-License-Identifier: Unicode-3.0
 Portions of ICU4X may have been adapted from ICU4C and/or ICU4J.
 ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation and others.
 
------ L85 -----
+----- L86 -----
 Used by: idna 1.1.0, percent-encoding 2.3.2, url 2.5.8
 
 Copyright (c) 2013-2025 The rust-url developers
@@ -6145,7 +6222,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L86 -----
+----- L87 -----
 Used by: idna_adapter 1.2.2
 
 Copyright (c) The rust-url developers
@@ -6174,7 +6251,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L87 -----
+----- L88 -----
 Used by: indexmap 1.9.3, indexmap 2.14.2
 
 Copyright (c) 2016--2017
@@ -6203,7 +6280,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L88 -----
+----- L89 -----
 Used by: infer 0.22.0
 
 MIT License
@@ -6228,7 +6305,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L89 -----
+----- L90 -----
 Used by: jpeg-encoder 0.7.1
 
 jpeg-encoder IJG License
@@ -6301,7 +6378,7 @@ We specifically permit and encourage the use of this software as the basis of
 commercial products, provided that all warranty or liability claims are
 assumed by the product vendor.
 
------ L90 -----
+----- L91 -----
 Used by: jpeg-encoder 0.7.1
 
 Copyright (c) 2021 Volker Ströbel <volkerstroebel@mysurdity.de>
@@ -6330,7 +6407,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L91 -----
+----- L92 -----
 Used by: json-patch 4.2.0
 
 MIT License
@@ -6355,7 +6432,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L92 -----
+----- L93 -----
 Used by: jsonptr 0.7.1
 
 Apache License
@@ -6560,7 +6637,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
------ L93 -----
+----- L94 -----
 Used by: jsonptr 0.7.1
 
 MIT License
@@ -6585,7 +6662,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L94 -----
+----- L95 -----
 Used by: keyboard-types 0.8.3
 
 Copyright (c) 2017 Pyfisch
@@ -6608,7 +6685,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
------ L95 -----
+----- L96 -----
 Used by: kurbo 0.13.1, polycool 0.4.0
 
 Copyright (c) 2018 Raph Levien
@@ -6637,7 +6714,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L96 -----
+----- L97 -----
 Used by: libc 0.2.189
 
 Copyright (c) The Rust Project Developers
@@ -6666,7 +6743,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L97 -----
+----- L98 -----
 Used by: lock_api 0.4.14, parking_lot 0.12.5, parking_lot_core 0.9.12
 
 Copyright (c) 2016 The Rust Project Developers
@@ -6695,7 +6772,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L98 -----
+----- L99 -----
 Used by: mime 0.3.17
 
 Copyright (c) 2014 Sean McArthur
@@ -6718,7 +6795,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
------ L99 -----
+----- L100 -----
 Used by: miniz_oxide 0.8.9, miniz_oxide 0.9.1
 
 MIT License
@@ -6746,7 +6823,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L100 -----
+----- L101 -----
 Used by: miniz_oxide 0.8.9, miniz_oxide 0.9.1
 
 Copyright 2013-2014 RAD Game Tools and Valve Software
@@ -6764,7 +6841,7 @@ Permission is granted to anyone to use this software for any purpose, including 
 
 3. This notice may not be removed or altered from any source distribution.
 
------ L101 -----
+----- L102 -----
 Used by: mio 1.2.3
 
 Copyright (c) 2014 Carl Lerche and other MIO contributors
@@ -6787,7 +6864,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
------ L102 -----
+----- L103 -----
 Used by: muda 0.20.0, tray-icon 0.25.1
 
 MIT License
@@ -6812,7 +6889,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L103 -----
+----- L104 -----
 Used by: muda 0.20.0
 
 SPDXVersion: SPDX-2.1
@@ -6835,7 +6912,7 @@ PackageDownloadLocation: git+https://github.com/tauri-apps/muda.git
 PackageDownloadLocation: git+ssh://github.com/tauri-apps/muda.git
 Creator: Person: Daniel Thompson-Yvetot
 
------ L104 -----
+----- L105 -----
 Used by: mupdf-fonts-droid 0.8.0
 
 Copyright (c) 2005-2008, The Android Open Source Project
@@ -7027,7 +7104,7 @@ Copyright (c) 2005-2008, The Android Open Source Project
 
    END OF TERMS AND CONDITIONS
 
------ L105 -----
+----- L106 -----
 Used by: new_debug_unreachable 1.0.6
 
 Copyright (c) 2015 Jonathan Reem
@@ -7056,7 +7133,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L106 -----
+----- L107 -----
 Used by: num-conv 0.2.2
 
 Copyright (c) Jacob Pratt
@@ -7079,7 +7156,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L107 -----
+----- L108 -----
 Used by: option-ext 0.2.0
 
 Mozilla Public License Version 2.0
@@ -7456,7 +7533,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
   This Source Code Form is "Incompatible With Secondary Licenses", as
   defined by the Mozilla Public License, v. 2.0.
 
------ L108 -----
+----- L109 -----
 Used by: phf 0.13.1, phf_generator 0.13.1, phf_macros 0.13.1, phf_shared 0.13.1
 
 The MIT License (MIT)
@@ -7480,7 +7557,7 @@ COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
------ L109 -----
+----- L110 -----
 Used by: plist 1.10.1
 
 Copyright (c) 2015 Edward Barnard
@@ -7503,8 +7580,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L110 -----
-Used by: png 0.17.16, png 0.18.1
+----- L111 -----
+Used by: png 0.18.1
 
 Copyright (c) 2015 nwin
 
@@ -7532,7 +7609,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L111 -----
+----- L112 -----
 Used by: postcard 1.1.3
 
 Copyright (c) 2019 Anthony James Munns
@@ -7561,7 +7638,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L112 -----
+----- L113 -----
 Used by: powerfmt 0.2.0
 
 Apache License
@@ -7766,7 +7843,7 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
------ L113 -----
+----- L114 -----
 Used by: powerfmt 0.2.0
 
 Copyright (c) 2023 Jacob Pratt et al.
@@ -7789,7 +7866,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L114 -----
+----- L115 -----
 Used by: precomputed-hash 0.1.1
 
 MIT License
@@ -7814,7 +7891,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L115 -----
+----- L116 -----
 Used by: quick-xml 0.42.0
 
 The MIT License (MIT)
@@ -7841,7 +7918,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
------ L116 -----
+----- L117 -----
 Used by: raw-window-handle 0.6.2
 
 MIT License
@@ -7866,7 +7943,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L117 -----
+----- L118 -----
 Used by: raw-window-handle 0.6.2
 
 Copyright (c) 2020 Osspial
@@ -7881,7 +7958,7 @@ Permission is granted to anyone to use this software for any purpose, including 
 
 3. This notice may not be removed or altered from any source distribution.
 
------ L118 -----
+----- L119 -----
 Used by: rfd 0.17.2
 
 MIT License
@@ -7906,7 +7983,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L119 -----
+----- L120 -----
 Used by: same-file 1.0.6, winapi-util 0.1.11
 
 The MIT License (MIT)
@@ -7931,7 +8008,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
------ L120 -----
+----- L121 -----
 Used by: schemars 0.8.22, schemars 0.9.0, schemars 1.2.2, schemars_derive 0.8.22
 
 MIT License
@@ -7956,7 +8033,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L121 -----
+----- L122 -----
 Used by: scopeguard 1.2.0
 
 Copyright (c) 2016-2019 Ulrik Sverdrup "bluss" and scopeguard developers
@@ -7985,7 +8062,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L122 -----
+----- L123 -----
 Used by: serde_spanned 1.1.1, toml 1.1.6+spec-1.1.0, toml_datetime 1.1.1+spec-1.1.0, toml_parser 1.1.3+spec-1.1.0, toml_writer 1.1.2+spec-1.1.0
 
 Copyright (c) Individual contributors
@@ -8008,7 +8085,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L123 -----
+----- L124 -----
 Used by: serde_with 3.23.0, serde_with_macros 3.23.0
 
 Copyright (c) 2015
@@ -8037,7 +8114,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L124 -----
+----- L125 -----
 Used by: serialize-to-javascript 0.1.2, serialize-to-javascript-impl 0.1.2
 
 MIT License
@@ -8062,7 +8139,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L125 -----
+----- L126 -----
 Used by: sha2 0.10.9
 
 Copyright (c) 2006-2009 Graydon Hoare
@@ -8093,8 +8170,8 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L126 -----
-Used by: sha2 0.11.0
+----- L127 -----
+Used by: sha2 0.11.1
 
 Copyright (c) 2016-2026 The RustCrypto Project Developers
 Copyright (c) 2016 Artyom Pavlov
@@ -8125,7 +8202,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L127 -----
+----- L128 -----
 Used by: simd-adler32 0.3.10
 
 MIT License
@@ -8150,7 +8227,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L128 -----
+----- L129 -----
 Used by: siphasher 1.0.3
 
 Copyright 2012-2016 The Rust Project Developers.
@@ -8161,7 +8238,7 @@ http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
 <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 option.
 
------ L129 -----
+----- L130 -----
 Used by: smallvec 1.16.1
 
 Copyright (c) 2018 The Servo Project Developers
@@ -8190,7 +8267,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L130 -----
+----- L131 -----
 Used by: softbuffer 0.4.8
 
 Apache License
@@ -8395,7 +8472,7 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
------ L131 -----
+----- L132 -----
 Used by: softbuffer 0.4.8
 
 Copyright 2022 Kirill Chibisov
@@ -8418,7 +8495,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L132 -----
+----- L133 -----
 Used by: stable_deref_trait 1.2.1
 
 Copyright (c) 2017 Robert Grosse
@@ -8447,7 +8524,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L133 -----
+----- L134 -----
 Used by: strsim 0.11.1
 
 The MIT License (MIT)
@@ -8474,7 +8551,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L134 -----
+----- L135 -----
 Used by: subsetter 0.2.6
 
 # Code
@@ -9010,7 +9087,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L135 -----
+----- L136 -----
 Used by: synstructure 0.14.0
 
 Copyright 2016 Nika Layzell
@@ -9021,7 +9098,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
------ L136 -----
+----- L137 -----
 Used by: tao 0.37.1
 
 SPDXVersion: SPDX-2.1
@@ -9043,8 +9120,8 @@ PackageDownloadLocation: git+https://github.com/tauri-apps/tao.git
 PackageDownloadLocation: git+ssh://github.com/tauri-apps/tao.git
 Creator: Person: Daniel Thompson-Yvetot
 
------ L137 -----
-Used by: tauri 2.12.1, tauri-codegen 2.7.1, tauri-macros 2.7.1, tauri-runtime 2.12.1, tauri-runtime-wry 2.12.1, tauri-utils 2.10.1, @tauri-apps/api 2.12.1
+----- L138 -----
+Used by: tauri 2.12.5, tauri-codegen 2.7.4, tauri-macros 2.7.4, tauri-runtime 2.12.2, tauri-runtime-wry 2.12.3, tauri-utils 2.10.2, @tauri-apps/api 2.12.4
 
 MIT License
 
@@ -9068,8 +9145,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L138 -----
-Used by: tauri-plugin-single-instance 2.5.2
+----- L139 -----
+Used by: tauri-plugin-single-instance 2.5.4
 
 SPDXVersion: SPDX-2.1
 DataLicense: CC0-1.0
@@ -9092,8 +9169,8 @@ PackageDownloadLocation: git+https://github.com/tauri-apps/tauri.git
 PackageDownloadLocation: git+ssh://github.com/tauri-apps/tauri.git
 Creator: Person: Daniel Thompson-Yvetot
 
------ L139 -----
-Used by: tauri-plugin-single-instance 2.5.2
+----- L140 -----
+Used by: tauri-plugin-single-instance 2.5.4
 
 MIT License
 
@@ -9117,7 +9194,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L140 -----
+----- L141 -----
 Used by: tendril 0.5.1
 
 Copyright (c) 2015 Keegan McAllister
@@ -9146,7 +9223,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L141 -----
+----- L142 -----
 Used by: time 0.3.55, time-core 0.1.9, time-macros 0.2.32
 
 Copyright (c) Jacob Pratt et al.
@@ -9169,8 +9246,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L142 -----
-Used by: tokio 1.53.2
+----- L143 -----
+Used by: tokio 1.54.1
 
 MIT License
 
@@ -9194,7 +9271,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L143 -----
+----- L144 -----
 Used by: tracing 0.1.44, tracing-attributes 0.1.31, tracing-core 0.1.36
 
 Copyright (c) 2019 Tokio Contributors
@@ -9223,7 +9300,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L144 -----
+----- L145 -----
 Used by: tray-icon 0.25.1
 
 SPDXVersion: SPDX-2.1
@@ -9246,7 +9323,7 @@ PackageDownloadLocation: git+https://github.com/tauri-apps/tray-icon.git
 PackageDownloadLocation: git+ssh://github.com/tauri-apps/tray-icon.git
 Creator: Person: Daniel Thompson-Yvetot
 
------ L145 -----
+----- L146 -----
 Used by: ts-rs 12.0.1, ts-rs-macros 12.0.1
 
 MIT License
@@ -9268,12 +9345,12 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FO
 DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
 OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
------ L146 -----
+----- L147 -----
 Used by: typenum 1.20.1
 
 MIT OR Apache-2.0
 
------ L147 -----
+----- L148 -----
 Used by: typenum 1.20.1
 
 Apache License
@@ -9478,7 +9555,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
------ L148 -----
+----- L149 -----
 Used by: typenum 1.20.1
 
 The MIT License (MIT)
@@ -9503,7 +9580,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L149 -----
+----- L150 -----
 Used by: unicode-ident 1.0.26
 
 UNICODE LICENSE V3
@@ -9546,7 +9623,7 @@ not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
 
------ L150 -----
+----- L151 -----
 Used by: urlpattern 0.6.0
 
 MIT License
@@ -9571,7 +9648,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L151 -----
+----- L152 -----
 Used by: utf8_iter 1.0.4
 
 Copyright Mozilla Foundation
@@ -9617,7 +9694,7 @@ licensed under the Apache License, Version 2.0 <LICENSE-APACHE> or
 <http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
 <LICENSE-MIT> or <http://opensource.org/licenses/MIT>, at your option.
 
------ L152 -----
+----- L153 -----
 Used by: utf8_iter 1.0.4
 
 Copyright Mozilla Foundation
@@ -9646,7 +9723,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L153 -----
+----- L154 -----
 Used by: uuid 1.26.1
 
 Copyright (c) 2014 The Rust Project Developers
@@ -9676,7 +9753,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L154 -----
+----- L155 -----
 Used by: web-time 1.1.0
 
 Apache License
@@ -9881,7 +9958,7 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
------ L155 -----
+----- L156 -----
 Used by: web-time 1.1.0
 
 MIT License
@@ -9906,7 +9983,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L156 -----
+----- L157 -----
 Used by: webview2-com 0.39.1, webview2-com-macros 0.8.1, webview2-com-sys 0.39.1
 
 MIT License
@@ -9928,7 +10005,7 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FO
 DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
 OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
------ L157 -----
+----- L158 -----
 Used by: window-vibrancy 0.8.1
 
 MIT License
@@ -9953,7 +10030,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L158 -----
+----- L159 -----
 Used by: window-vibrancy 0.8.1
 
 SPDXVersion: SPDX-2.1
@@ -9976,7 +10053,7 @@ PackageDownloadLocation: git+https://github.com/tauri-apps/window-vibrancy.git
 PackageDownloadLocation: git+ssh://github.com/tauri-apps/window-vibrancy.git
 Creator: Person: Daniel Thompson-Yvetot
 
------ L159 -----
+----- L160 -----
 Used by: windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, windows-future 0.3.2, windows-implement 0.60.2, windows-interface 0.59.3, windows-link 0.2.1, windows-numerics 0.3.1, windows-result 0.4.1, windows-strings 0.5.1, windows-sys 0.61.2, windows-threading 0.2.1, windows-version 0.1.7
 
 Apache License
@@ -10181,7 +10258,7 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
------ L160 -----
+----- L161 -----
 Used by: windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, windows-future 0.3.2, windows-implement 0.60.2, windows-interface 0.59.3, windows-link 0.2.1, windows-numerics 0.3.1, windows-result 0.4.1, windows-strings 0.5.1, windows-sys 0.61.2, windows-threading 0.2.1, windows-version 0.1.7
 
 MIT License
@@ -10206,7 +10283,7 @@ MIT License
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE
 
------ L161 -----
+----- L162 -----
 Used by: wry 0.57.0
 
 MIT License
@@ -10231,7 +10308,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L162 -----
+----- L163 -----
 Used by: wry 0.57.0
 
 SPDXVersion: SPDX-2.1
@@ -10255,7 +10332,7 @@ PackageDownloadLocation: git+https://github.com/tauri-apps/wry.git
 PackageDownloadLocation: git+ssh://github.com/tauri-apps/wry.git
 Creator: Person: Daniel Thompson-Yvetot
 
------ L163 -----
+----- L164 -----
 Used by: zerocopy 0.8.57, zerocopy-derive 0.8.57
 
 Apache License
@@ -10460,7 +10537,7 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
------ L164 -----
+----- L165 -----
 Used by: zerocopy 0.8.57, zerocopy-derive 0.8.57
 
 Copyright 2019 The Fuchsia Authors.
@@ -10488,7 +10565,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
------ L165 -----
+----- L166 -----
 Used by: zerocopy 0.8.57, zerocopy-derive 0.8.57
 
 Copyright 2023 The Fuchsia Authors
@@ -10517,8 +10594,8 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L166 -----
-Used by: zeroize 1.9.0
+----- L167 -----
+Used by: zeroize 1.9.1
 
 Copyright (c) 2018-2026 The RustCrypto Project Developers
 
@@ -10546,7 +10623,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
------ L167 -----
+----- L168 -----
 Used by: zlib-rs 0.6.8
 
 (C) 2024 Trifecta Tech Foundation
@@ -10569,7 +10646,7 @@ freely, subject to the following restrictions:
 
 3. This notice may not be removed or altered from any source distribution.
 
------ L168 -----
+----- L169 -----
 Used by: @babel/runtime 7.29.7
 
 MIT License
@@ -10595,8 +10672,8 @@ LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
------ L169 -----
-Used by: @base-ui/react 1.8.0, @base-ui/utils 0.4.0
+----- L170 -----
+Used by: @base-ui/react 1.9.0, @base-ui/utils 0.5.0
 
 MIT License
 
@@ -10620,7 +10697,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L170 -----
+----- L171 -----
 Used by: @floating-ui/core 1.8.0, @floating-ui/dom 1.8.0, @floating-ui/react-dom 2.1.9, @floating-ui/utils 0.2.12
 
 MIT License
@@ -10644,8 +10721,8 @@ COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
------ L171 -----
-Used by: @tauri-apps/api 2.12.1
+----- L172 -----
+Used by: @tauri-apps/api 2.12.4
 
 SPDXVersion: SPDX-2.1
 DataLicense: CC0-1.0
@@ -10668,7 +10745,7 @@ PackageDownloadLocation: git+https://github.com/tauri-apps/tauri.git
 PackageDownloadLocation: git+ssh://github.com/tauri-apps/tauri.git
 Creator: Person: Daniel Thompson-Yvetot
 
------ L172 -----
+----- L173 -----
 Used by: class-variance-authority 0.7.1
 
 Apache License
@@ -10862,7 +10939,7 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
------ L173 -----
+----- L174 -----
 Used by: clsx 2.1.1
 
 MIT License
@@ -10875,8 +10952,8 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
------ L174 -----
-Used by: lucide-react 1.52.0
+----- L175 -----
+Used by: lucide-react 1.61.0
 
 ISC License
 
@@ -10922,8 +10999,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L175 -----
-Used by: react 19.3.0, react-dom 19.3.0, scheduler 0.28.0, use-sync-external-store 1.7.0
+----- L176 -----
+Used by: react 19.3.1, react-dom 19.3.1, scheduler 0.28.0, use-sync-external-store 1.7.0
 
 MIT License
 
@@ -10947,7 +11024,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L176 -----
+----- L177 -----
 Used by: reselect 5.3.0
 
 The MIT License (MIT)
@@ -10972,7 +11049,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L177 -----
+----- L178 -----
 Used by: tailwind-merge 3.7.0
 
 MIT License
@@ -10997,7 +11074,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
------ L178 -----
+----- L179 -----
 Used by: tw-animate-css 1.4.0
 
 MIT License
