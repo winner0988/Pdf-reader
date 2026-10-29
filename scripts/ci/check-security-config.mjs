@@ -544,9 +544,22 @@ export function checkCommandManifest(
   const cleanedHandler = handlerBlock
     .replace(/\/\/.*$/gm, "")
     .replace(/\/\*[\s\S]*?\*\//g, "");
-  const libCmds = [
-    ...cleanedHandler.matchAll(/\bcommands::([a-zA-Z0-9_]+)\b/g),
-  ].map((m) => m[1]);
+  const libCmds = [];
+  const RUST_PATH_PATTERN = /^(?:::)?(?:[a-zA-Z_][a-zA-Z0-9_]*)(?:::[a-zA-Z_][a-zA-Z0-9_]*)*$/;
+  for (const rawItem of cleanedHandler.split(",")) {
+    const item = rawItem.trim();
+    if (item === "") {
+      continue;
+    }
+    if (!RUST_PATH_PATTERN.test(item)) {
+      problems.push(
+        `${libPath}: "${item}" in tauri::generate_handler! is not a valid command path`,
+      );
+      continue;
+    }
+    const segments = item.split("::");
+    libCmds.push(segments[segments.length - 1]);
+  }
 
   const cleanedManifest = manifestBlock
     .replace(/\/\/.*$/gm, "")
