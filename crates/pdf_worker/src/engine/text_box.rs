@@ -25,7 +25,7 @@ use ipc_contract::worker::TextBoxModel;
 use mupdf::Buffer;
 use mupdf::pdf::{PdfAnnotation, PdfAnnotationType};
 
-pub use font::{inspect_font, prepare_text_box};
+pub use font::{inspect_font, prepare_text_box, prepare_text_boxes};
 
 use mupdf::pdf::PdfObject;
 

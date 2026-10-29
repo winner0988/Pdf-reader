@@ -81,7 +81,8 @@ sequenceDiagram
 | 一個來源檔 | `MAX_SOURCE_BYTES`（64 MiB） | 主行程（檔案大小）與 worker（讀取與副本） |
 | 一份文件保管的來源 | `MAX_SOURCES_BYTES`（128 MiB） | 主行程（含 PDF 副本與文字方塊模型資料） |
 | 來源檔註解數量 | `MAX_SOURCE_ANNOTATIONS`（10,000） | worker（抽取時檢查，超過的項目略過） |
-| 來源檔文字方塊數量 | `MAX_SOURCE_TEXT_BOXES`（1,000） | worker（抽取時檢查，超過的項目略過）與主行程（驗證 `Source` 回應與準備模型） |
+| 來源檔文字方塊數量 | `MAX_SOURCE_TEXT_BOXES`（1,000） | worker（抽取時檢查，超過的項目略過）與主行程（驗證 `Source` 回應與準備模型；依字型以 `MAX_PREPARE_TEXT_BOXES` 批次發送，最壞情況 6 種候選字型退回全失敗耗時約 2.7 秒，符合 10 秒介面流暢目標） |
+| 單次批次準備文字方塊數量 | `MAX_PREPARE_TEXT_BOXES`（200） | worker 與主行程（單一請求段數上限，耗時約 90 ms，遠低於 30 秒請求逾時） |
 | 頁數 | 合併後最多 `MAX_PAGE_COUNT` | worker（`TooManyPages`） |
 
 ## 測試
@@ -97,7 +98,7 @@ sequenceDiagram
   - 十三種惡意語料（`malicious/`）：掃描有發現、合併存檔後的檔案找不到對應名稱；
   - 來源檔不是 PDF、位置不存在時，文件不變。
 - 主行程測試（`documents.rs`）：
-  - 文字方塊模型準備：有字型時採用原樣，缺字型或缺字時依序退回預設字型，全部無法排版時略過；
+  - 文字方塊模型準備：同字型合併單一請求批次準備，缺字型或缺字時僅將排不出來的項目依序退回預設字型，全部無法排版時略過；
   - 來源與文字方塊模型算入 `MAX_SOURCES_BYTES` 上限，存檔後跟隨來源副本一併清除；
   - 插入、復原、重做、worker 重啟皆能正確重播。
 - 合約（`crates/ipc_contract`）：`Source` 與 `InsertPages` 攜帶文字方塊的驗證、上限與模糊測試種子。

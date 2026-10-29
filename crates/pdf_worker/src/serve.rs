@@ -22,7 +22,7 @@ use ipc_contract::types::{
     PageLink, PageSize, Password, Rect, RequestId, Restrictions, SanitizeOptions, TextBoxInfo,
     Watermark,
 };
-use ipc_contract::validate::stamp_png_size;
+use ipc_contract::validate::{check_prepare_text_boxes_request, stamp_png_size};
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, NewSignature, OcrFinished, OcrOutcome, OcrPageState,
     OpenedDocument, Raster, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest,
@@ -31,7 +31,7 @@ use ipc_contract::worker::{
 
 use crate::engine::{
     EngineError, OcrKnown, OutlineTarget, PdfBuilder, PdfDocument, TextBoxFont, inspect_font,
-    prepare_stamp_picture, prepare_text_box,
+    prepare_stamp_picture, prepare_text_box, prepare_text_boxes,
 };
 use crate::handle;
 use crate::ocr::OcrError;
@@ -551,6 +551,11 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 font,
                 text,
             } => Some(prepare_text(request, &font, &text)),
+            WorkerRequest::PrepareTextBoxes {
+                request,
+                font,
+                texts,
+            } => Some(prepare_texts(request, &font, &texts)),
             WorkerRequest::InspectFont { request, bytes } => {
                 Some(inspect_font_request(request, &bytes))
             }
@@ -907,6 +912,20 @@ fn prepare_text(request: RequestId, font: &FontData, text: &str) -> WorkerRespon
         Ok(model) => WorkerResponse::TextBoxPrepared { request, model },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
     }
+}
+
+/// Makes each text in `texts` in the font `font` into a text box model (B3-23, Issue #381).
+fn prepare_texts(request: RequestId, font: &FontData, texts: &[String]) -> WorkerResponse {
+    if let Err(err) = check_prepare_text_boxes_request(texts) {
+        return error(request, WorkerErrorCode::InvalidRequest, &err.to_string());
+    }
+    let font = TextBoxFont {
+        bytes: &font.bytes,
+        face: font.face,
+        name: &font.name,
+    };
+    let models = prepare_text_boxes(&font, texts);
+    WorkerResponse::TextBoxesPrepared { request, models }
 }
 
 /// Inspects the bytes of a font file to be imported (B2-32, ADR 0018).

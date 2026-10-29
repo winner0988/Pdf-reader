@@ -12,7 +12,8 @@ use ipc_contract::types::{
     AnnotationKind, DocumentId, ErrorCode, FontRefusal, Rect, Rgb, TextAlign, TextBoxStyle,
 };
 use ipc_contract::worker::{
-    FontData, TextBoxModel, WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
+    FontData, PreparedTextBoxModel, TextBoxModel, WorkerEdit, WorkerErrorCode, WorkerRequest,
+    WorkerResponse,
 };
 use worker_host::{HostConfig, HostError, WorkerHost};
 
@@ -343,4 +344,133 @@ fn a_font_inspected_through_the_worker_gives_its_faces_and_refuses_bad_fonts() {
 
     let bad = host.inspect_font(b"not a font");
     assert_eq!(refusal(bad), WorkerErrorCode::Font(FontRefusal::NotAFont));
+}
+
+#[test]
+fn prepare_text_boxes_batches_models_and_handles_failures() {
+    let mut host = host();
+    let texts = vec![
+        "Hello".to_owned(),
+        "你好，世界".to_owned(),
+        "مرحبا".to_owned(),
+    ];
+
+    let answer = host
+        .request(|request| WorkerRequest::PrepareTextBoxes {
+            request,
+            font: droid(),
+            texts: texts.clone(),
+        })
+        .expect("batch request");
+
+    let WorkerResponse::TextBoxesPrepared { models, .. } = answer else {
+        panic!("unexpected response: {answer:?}");
+    };
+
+    assert_eq!(models.len(), 3);
+    match &models[0] {
+        PreparedTextBoxModel::Prepared(model) => assert_eq!(model.text, "Hello"),
+        other => panic!("expected Hello to be Prepared, got {other:?}"),
+    }
+    match &models[1] {
+        PreparedTextBoxModel::Prepared(model) => assert_eq!(model.text, "你好，世界"),
+        other => panic!("expected Chinese text in Droid to be Prepared, got {other:?}"),
+    }
+    assert_eq!(
+        models[2],
+        PreparedTextBoxModel::Refused,
+        "Complex script text should be Refused by Droid"
+    );
+
+    // Whitespace text rejected upfront by check_prepare_text_boxes_request with InvalidRequest
+    let whitespace_res = host.request(|request| WorkerRequest::PrepareTextBoxes {
+        request,
+        font: droid(),
+        texts: vec!["   ".to_owned()],
+    });
+    match whitespace_res {
+        Err(HostError::Worker(err)) => assert_eq!(err.code, WorkerErrorCode::InvalidRequest),
+        other => panic!("expected InvalidRequest, got {other:?}"),
+    }
+
+    // Empty texts rejected by worker with InvalidRequest
+    let empty_res = host.request(|request| WorkerRequest::PrepareTextBoxes {
+        request,
+        font: droid(),
+        texts: Vec::new(),
+    });
+    match empty_res {
+        Err(HostError::Worker(err)) => assert_eq!(err.code, WorkerErrorCode::InvalidRequest),
+        other => panic!("expected InvalidRequest, got {other:?}"),
+    }
+
+    // Exceeding MAX_PREPARE_TEXT_BOXES rejected with InvalidRequest
+    let too_many = vec!["text".to_owned(); ipc_contract::limits::MAX_PREPARE_TEXT_BOXES + 1];
+    let too_many_res = host.request(|request| WorkerRequest::PrepareTextBoxes {
+        request,
+        font: droid(),
+        texts: too_many,
+    });
+    match too_many_res {
+        Err(HostError::Worker(err)) => assert_eq!(err.code, WorkerErrorCode::InvalidRequest),
+        other => panic!("expected InvalidRequest, got {other:?}"),
+    }
+}
+
+#[test]
+fn prepare_text_boxes_limits_response_to_max_response_bytes() {
+    let mut host = host();
+    let sample_text: String = (0x4E00u32..)
+        .filter_map(char::from_u32)
+        .take(1365)
+        .collect();
+    assert_eq!(sample_text.len(), 4095);
+
+    let texts = vec![sample_text; 200];
+    let answer = host
+        .request(|request| WorkerRequest::PrepareTextBoxes {
+            request,
+            font: droid(),
+            texts,
+        })
+        .expect("batch request should succeed within limits");
+
+    let WorkerResponse::TextBoxesPrepared { models, .. } = answer else {
+        panic!("unexpected response: {answer:?}");
+    };
+    assert_eq!(models.len(), 200);
+
+    let mut total_bytes = 0;
+    let mut prepared_count = 0;
+    let mut deferred_count = 0;
+    let mut saw_deferred = false;
+
+    for m in &models {
+        match m {
+            PreparedTextBoxModel::Prepared(model) => {
+                assert!(!saw_deferred, "Prepared model cannot follow Deferred");
+                total_bytes += model.subset.len();
+                prepared_count += 1;
+            }
+            PreparedTextBoxModel::Deferred => {
+                saw_deferred = true;
+                deferred_count += 1;
+            }
+            PreparedTextBoxModel::Refused => {
+                panic!("Droid should be able to shape all characters in sample_text");
+            }
+        }
+    }
+
+    assert!(
+        total_bytes <= ipc_contract::limits::MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES,
+        "Total subset bytes {total_bytes} exceeds limit {}",
+        ipc_contract::limits::MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES
+    );
+    assert!(prepared_count > 0, "At least one model must be prepared");
+    assert!(
+        deferred_count > 0,
+        "Some models must be deferred when batch exceeds response limit"
+    );
+    assert_eq!(prepared_count + deferred_count, 200);
 }

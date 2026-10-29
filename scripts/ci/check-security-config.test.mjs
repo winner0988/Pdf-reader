@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -270,4 +273,120 @@ test("command manifest check fails when generate_handler! or AppManifest is miss
 
   const missingBoth = checkCommandManifest("fn main() {}", "fn main() {}");
   assert.equal(missingBoth.length, 2);
+});
+
+test("command manifest check fails when command from another module is missing from manifest", () => {
+  const libSource = `
+    .invoke_handler(tauri::generate_handler![
+      commands::foo,
+      other::launch,
+    ])
+  `;
+  const buildSource = `
+    let manifest = AppManifest::new().commands(&[
+      "foo",
+    ]);
+  `;
+  const problems = checkCommandManifest(libSource, buildSource);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /\blaunch\b/);
+  assert.match(problems[0], /src-tauri\/build\.rs/);
+});
+
+test("command manifest check fails when bare function command is missing from manifest", () => {
+  const libSource = `
+    .invoke_handler(tauri::generate_handler![
+      commands::foo,
+      launch,
+    ])
+  `;
+  const buildSource = `
+    let manifest = AppManifest::new().commands(&[
+      "foo",
+    ]);
+  `;
+  const problems = checkCommandManifest(libSource, buildSource);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /\blaunch\b/);
+  assert.match(problems[0], /src-tauri\/build\.rs/);
+});
+
+test("command manifest check passes when module path and bare function commands match manifest", () => {
+  const libSource = `
+    .invoke_handler(tauri::generate_handler![
+      commands::foo,
+      other::launch,
+      bare_cmd,
+    ])
+  `;
+  const buildSource = `
+    let manifest = AppManifest::new().commands(&[
+      "foo",
+      "launch",
+      "bare_cmd",
+    ]);
+  `;
+  assert.deepEqual(checkCommandManifest(libSource, buildSource), []);
+});
+
+test("command manifest check reports problem for non-path items in generate_handler!", () => {
+  const libSource = `
+    .invoke_handler(tauri::generate_handler![
+      commands::foo,
+      invalid_item(),
+    ])
+  `;
+  const buildSource = `
+    let manifest = AppManifest::new().commands(&[
+      "foo",
+    ]);
+  `;
+  const problems = checkCommandManifest(libSource, buildSource);
+  assert.ok(problems.length >= 1);
+  assert.ok(
+    problems.some((p) => p.includes("invalid_item()")),
+    `expected problem mentioning invalid_item(), got: ${JSON.stringify(problems)}`,
+  );
+});
+
+test("checkRepository reports problem when manifest is missing a command", (t) => {
+  const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+  const tempDir = mkdtempSync(join(tmpdir(), "check-repo-"));
+  t.after(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  mkdirSync(join(tempDir, "src-tauri/capabilities"), { recursive: true });
+  mkdirSync(join(tempDir, "src-tauri/src"), { recursive: true });
+
+  copyFileSync(
+    join(repoRoot, "src-tauri/tauri.conf.json"),
+    join(tempDir, "src-tauri/tauri.conf.json"),
+  );
+  copyFileSync(
+    join(repoRoot, "vite.config.ts"),
+    join(tempDir, "vite.config.ts"),
+  );
+  copyFileSync(
+    join(repoRoot, "src-tauri/src/lib.rs"),
+    join(tempDir, "src-tauri/src/lib.rs"),
+  );
+
+  const capDir = join(repoRoot, "src-tauri/capabilities");
+  for (const file of readdirSync(capDir).filter((name) => name.endsWith(".json"))) {
+    copyFileSync(join(capDir, file), join(tempDir, "src-tauri/capabilities", file));
+  }
+
+  const buildSource = readFileSync(join(repoRoot, "src-tauri/build.rs"), "utf8");
+  const missingCmd = "subscribe_open_events";
+  const modifiedBuild = buildSource.replace(`"${missingCmd}",`, "");
+  assert.notEqual(buildSource, modifiedBuild, "command should have been removed");
+  writeFileSync(join(tempDir, "src-tauri/build.rs"), modifiedBuild, "utf8");
+
+  const problems = checkRepository(tempDir);
+  assert.ok(problems.length > 0);
+  assert.ok(
+    problems.some((p) => p.includes(missingCmd)),
+    `expected problem mentioning "${missingCmd}", got: ${JSON.stringify(problems)}`,
+  );
 });

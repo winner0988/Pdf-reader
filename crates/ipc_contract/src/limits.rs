@@ -197,6 +197,22 @@ pub const MAX_TEXT_BOX_SUBSET_BYTES: usize = 2 * 1024 * 1024;
 /// Most different characters in the text of a text box: one for each byte of the text, at most.
 pub const MAX_TEXT_BOX_GLYPHS: usize = MAX_TEXT_BOX_BYTES;
 
+/// Most text boxes prepared in one batch request (B3-23, Issue #381).
+///
+/// Bounding to 200 keeps each request's memory and execution time well below the 30-second worker
+/// timeout (~90 ms in release on Windows with Microsoft JhengHei) while keeping IPC overhead
+/// minimal.
+pub const MAX_PREPARE_TEXT_BOXES: usize = 200;
+
+/// Largest total text size across all text boxes in one batch request (Issue #381).
+///
+/// Equal to `MAX_PREPARE_TEXT_BOXES * MAX_TEXT_BOX_BYTES` (800 KiB).
+pub const MAX_PREPARE_TEXT_BOXES_TEXT_BYTES: usize = MAX_PREPARE_TEXT_BOXES * MAX_TEXT_BOX_BYTES;
+
+/// Largest total size of font subsets returned in one batch text box preparation response
+/// (Issue #381). Well below the 80 MiB frame limit.
+pub const MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
+
 /// Most strokes one pen drawing has (B2-08): a stroke is one press of the pen to its release.
 pub const MAX_INK_STROKES: u32 = 256;
 
@@ -251,11 +267,13 @@ pub const MAX_ANNOTATIONS_PER_PAGE: u32 = 2_000;
 /// counts. Annotations beyond this limit are skipped.
 pub const MAX_SOURCE_ANNOTATIONS: u32 = 10_000;
 
-/// Most text boxes brought along when pages of another file are inserted (B3-23, ADR 0019):
+/// Most text boxes brought along when pages of another file are inserted (B3-23, ADR 0019, Issue #381):
 /// preparing text box models in the main process requires font shaping and font subsetting in the
-/// worker via IPC. Microsoft JhengHei (msjh.ttc) is ~21 MB, so preparing text boxes transfers font
-/// data across IPC. Bounding to 1,000 text boxes prevents IPC buffer bloat and UI stalls while
-/// allowing plenty of text boxes for real-world documents. Text boxes beyond this limit are skipped.
+/// worker via IPC. Grouping text boxes by font into batch requests of up to `MAX_PREPARE_TEXT_BOXES` (200)
+/// transfers font data (e.g. ~21 MB for Microsoft JhengHei) once per batch instead of once per box.
+/// In release mode, preparing 200 text boxes in one request takes ~90 ms. With 1,000 text boxes
+/// and all 6 fallback fonts failing (worst-case 30 requests), total time is ~2.7 s, well within
+/// the 10-second responsiveness target. Text boxes beyond this limit are skipped.
 pub const MAX_SOURCE_TEXT_BOXES: u32 = 1_000;
 
 /// Most form fields reported for one page (B2-09); the rest are not listed.
