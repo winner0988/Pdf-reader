@@ -485,7 +485,7 @@ pub fn compare_text_file(
     name_b: &str,
 ) -> String {
     let mut lines: Vec<String> = Vec::new();
-    let title = format!("{name_a} 與 {name_b}（文字比較）");
+    let title = strings::compare_title(name_a, name_b);
 
     if markdown {
         lines.push(format!("# {}", escape_markdown(&title)));
@@ -500,30 +500,41 @@ pub fn compare_text_file(
     } else if result.empty {
         lines.push(strings::COMPARE_EMPTY.to_owned());
     } else {
+        if result.empty_a && !result.empty_b {
+            lines.push(strings::compare_no_text_one_side(name_a));
+            lines.push(String::new());
+        } else if !result.empty_a && result.empty_b {
+            lines.push(strings::compare_no_text_one_side(name_b));
+            lines.push(String::new());
+        }
+
+        let del_label = strings::COMPARE_LABEL_DELETED;
+        let ins_label = strings::COMPARE_LABEL_INSERTED;
+
         for (i, item) in result.items.iter().enumerate() {
             let page_a = item.page_a + 1;
             let page_b = item.page_b + 1;
-            let header = format!("第 {page_a} 頁（{name_a}）/ 第 {page_b} 頁（{name_b}）");
+            let header = strings::compare_item_header(page_a, name_a, page_b, name_b);
 
             if markdown {
                 lines.push(format!("## {}. {}", i + 1, escape_markdown(&header)));
                 lines.push(String::new());
                 if !item.deleted.is_empty() {
                     let del = escape_markdown(&item.deleted);
-                    lines.push(format!("- **刪除**：~~{del}~~"));
+                    lines.push(format!("- **{del_label}**：~~{del}~~"));
                 }
                 if !item.inserted.is_empty() {
                     let ins = escape_markdown(&item.inserted);
-                    lines.push(format!("- **新增**：{ins}"));
+                    lines.push(format!("- **{ins_label}**：{ins}"));
                 }
                 lines.push(String::new());
             } else {
                 lines.push(format!("{}. {header}", i + 1));
                 if !item.deleted.is_empty() {
-                    lines.push(format!("  - 刪除：{}", item.deleted));
+                    lines.push(format!("  - {del_label}：{}", item.deleted));
                 }
                 if !item.inserted.is_empty() {
-                    lines.push(format!("  + 新增：{}", item.inserted));
+                    lines.push(format!("  + {ins_label}：{}", item.inserted));
                 }
                 lines.push(String::new());
             }
@@ -532,6 +543,9 @@ pub fn compare_text_file(
 
     if result.truncated {
         lines.push(strings::COMPARE_TRUNCATED.to_owned());
+    }
+    if result.page_text_truncated {
+        lines.push(strings::COMPARE_PAGE_TEXT_TRUNCATED.to_owned());
     }
     if result.recognised {
         lines.push(strings::COMPARE_RECOGNISED_NOTE.to_owned());
@@ -865,20 +879,63 @@ mod tests {
             ],
             identical: false,
             empty: false,
+            empty_a: false,
+            empty_b: false,
             recognised: true,
-            page_text_truncated: false,
+            page_text_truncated: true,
             truncated: false,
         };
 
         let txt = compare_text_file(&result, false, "v1.pdf", "v2.pdf");
-        assert!(txt.contains("v1.pdf 與 v2.pdf（文字比較）"));
-        assert!(txt.contains("1. 第 1 頁（v1.pdf）/ 第 1 頁（v2.pdf）"));
-        assert!(txt.contains("  - 刪除：Party *Beta*"));
-        assert!(txt.contains("  + 新增：Party _Gamma_"));
-        assert!(txt.contains("2. 第 2 頁（v1.pdf）/ 第 3 頁（v2.pdf）"));
+        assert!(txt.contains(&strings::compare_title("v1.pdf", "v2.pdf")));
+        assert!(txt.contains(&format!(
+            "1. {}",
+            strings::compare_item_header(1, "v1.pdf", 1, "v2.pdf")
+        )));
+        assert!(txt.contains(&format!(
+            "  - {}：Party *Beta*",
+            strings::COMPARE_LABEL_DELETED
+        )));
+        assert!(txt.contains(&format!(
+            "  + {}：Party _Gamma_",
+            strings::COMPARE_LABEL_INSERTED
+        )));
+        assert!(txt.contains(&format!(
+            "2. {}",
+            strings::compare_item_header(2, "v1.pdf", 3, "v2.pdf")
+        )));
         assert!(txt.contains(strings::COMPARE_RECOGNISED_NOTE));
+        assert!(txt.contains(strings::COMPARE_PAGE_TEXT_TRUNCATED));
 
         let md = compare_text_file(&result, true, "v1.pdf", "v2.pdf");
+        assert!(md.contains(&format!(
+            "# {}",
+            escape_markdown(&strings::compare_title("v1.pdf", "v2.pdf"))
+        )));
+        assert!(md.contains(&format!(
+            "## 1. {}",
+            escape_markdown(&strings::compare_item_header(1, "v1.pdf", 1, "v2.pdf"))
+        )));
+        assert!(md.contains(&format!(
+            "- **{}**：~~Party \\*Beta\\*~~",
+            strings::COMPARE_LABEL_DELETED
+        )));
+        assert!(md.contains(&format!(
+            "- **{}**：Party \\_Gamma\\_",
+            strings::COMPARE_LABEL_INSERTED
+        )));
+        assert!(md.contains(strings::COMPARE_RECOGNISED_NOTE));
+        assert!(md.contains(strings::COMPARE_PAGE_TEXT_TRUNCATED));
+
+        // Test one side has no text notice
+        let one_side_empty = CompareTextResult {
+            empty_a: true,
+            empty_b: false,
+            page_text_truncated: false,
+            ..result
+        };
+        let txt_empty = compare_text_file(&one_side_empty, false, "v1.pdf", "v2.pdf");
+        assert!(txt_empty.contains(&strings::compare_no_text_one_side("v1.pdf")));
         assert!(md.contains("# v1.pdf 與 v2.pdf（文字比較）"));
         assert!(md.contains("## 1. 第 1 頁（v1.pdf）/ 第 1 頁（v2.pdf）"));
         assert!(md.contains("- **刪除**：~~Party \\*Beta\\*~~"));

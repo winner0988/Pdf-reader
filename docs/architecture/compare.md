@@ -55,8 +55,11 @@ sequenceDiagram
 
 依循 ADR 0008 與 E8（[annotation-summary.md](annotation-summary.md)）的既有模式：
 1. **防止文件內容跨 WebView 洩漏**：前端僅傳送格式選項（純文字或 Markdown）與文件識別代號，不經由前端傳輸匯出內容或檔案路徑。
-2. **原生系統檔案對話框整合**：主行程直接呼叫 Windows 原生 `IFileSaveDialog`，取得路徑後由後端安全寫入，並保證寫出格式為標準 UTF-8、換行符為 `\r\n`，以及 Markdown 特殊符號的完整安全跳脫。
-3. **快取重複利用**：上一次比對成功的結果留存在主行程記憶體快取（`CompareCache`，受 `MAX_COMPARE_CACHE_BYTES` 限制），使用者點擊匯出時直接格式化寫檔，若快取已過期或被逐出則自動重新比對。
+2. **原生系統檔案對話框整合**：主行程直接呼叫 Windows 原生 `IFileSaveDialog`，取得路徑後由後端安全寫入，並保證寫出格式為標準 UTF-8、換行符為 `\r\n`，以及 Markdown 特殊符號的完整安全跳脫。匯出檔的中文文字全數集中於 `src-tauri/src/strings.rs`。
+3. **快取重複利用與失效機制**：
+   - 上一次比對成功的結果留存在主行程記憶體快取（`CompareCache`，受 `MAX_COMPARE_CACHE_BYTES` 限制）。
+   - **文件關閉失效**：任一相關文件於分頁關閉（`close_tab`）時，立即從快取中移除該記錄（`invalidate_doc`）。
+   - **編輯重算檢驗**：快取中一併記錄比較時兩份文件的編輯次數（`edit_count_a`、`edit_count_b`）。使用者點擊匯出時，後端檢查兩份文件目前的 `edit_count` 是否與快取相符；若任一文件在比較之後又曾編輯過，則捨棄快取、重新執行比對以確保匯出內容最新。
 
 ## 分詞規則（Tokenization）
 
@@ -78,7 +81,7 @@ sequenceDiagram
 ## 外部相依套件
 
 - **`similar`**（`version = "2.7", default-features = false`）：
-  - 授權：Apache-2.0 / MIT（雙授權）。
+  - 授權：Apache-2.0。
   - 無任何傳遞相依（transitive dependencies），`Cargo.lock` 僅增加 `similar v2.7.0` 一個套件。
   - 符合 `cargo deny check` 的授權與安全性規則。
 

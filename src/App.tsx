@@ -99,7 +99,7 @@ export default function App({
   // How recognising the text of each tab's scanned pages goes arrives with the open events (B2-10).
   const ocr = useOcr();
   const tabs = useTabs(api, ocr.handle);
-  const { state } = tabs;
+  const { state, latestInfo } = tabs;
   // A closed tab's recognising is forgotten.
   const { state: ocrState, forget: forgetOcr } = ocr;
   useEffect(() => {
@@ -114,15 +114,18 @@ export default function App({
     const list: CompareTabOption[] = [];
     for (const item of state.tabs) {
       if (item.content.kind === "open" && item.content.document.doc !== undefined) {
+        const info = latestInfo(item.tab);
+        const copyAllowed = info?.permissions.copy ?? item.content.document.permissions.copy;
         list.push({
           tab: item.tab,
           doc: item.content.document.doc,
           displayName: item.displayName,
+          copyAllowed,
         });
       }
     }
     return list;
-  }, [state.tabs]);
+  }, [state.tabs, latestInfo]);
   // Development only: fake states for working on the UI without the main process.
   const [demo, setDemo] = useState<ShellState | null>(null);
   // A result of the search of every document opened in a new tab (B3-21): the page it is to show.

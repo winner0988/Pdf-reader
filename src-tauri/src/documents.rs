@@ -151,6 +151,8 @@ struct OpenDocument {
     /// Edits since the file was read or last written, applied and undone (B2-05).
     /// `info.unsaved` while some are applied.
     history: History,
+    /// How many edits have been applied to this document since opening.
+    edit_count: u64,
     /// The file has a form (B2-09); `info.has_form` is that, unless the form is flattened.
     form_in_file: bool,
     /// The file has an outline in its original state (B3-17).
@@ -371,6 +373,7 @@ impl Documents {
                 lost: false,
                 identity,
                 history: History::default(),
+                edit_count: 0,
                 form_in_file: info_has_form,
                 outline_in_file: info_has_outline,
                 journal: None,
@@ -637,6 +640,7 @@ impl Documents {
                 return Err(unexpected("Edit"));
             }
             document.history.push(args.edit.clone());
+            document.edit_count += 1;
             document.info.pages = pages;
             show_history(document);
             self.keep_journal(document);
@@ -688,6 +692,7 @@ impl Documents {
                 }
             })?;
             document.history.undone();
+            document.edit_count += 1;
             document.info.pages = pages;
             show_history(document);
             self.keep_journal(document);
@@ -719,6 +724,7 @@ impl Documents {
                 }
             })?;
             document.history.redone();
+            document.edit_count += 1;
             document.info.pages = pages;
             show_history(document);
             self.keep_journal(document);
@@ -767,6 +773,7 @@ impl Documents {
                 document.journal = Some(found.id);
             }
             document.info.recovery = Recovery::None;
+            document.edit_count += 1;
             self.keep_journal(document);
             document.info.doc = DocumentId(self.next_id());
             Ok(())
@@ -2476,6 +2483,32 @@ impl Documents {
             OpenEvent::Opened { info, .. } if info.doc == doc => Some(info.clone()),
             _ => None,
         })
+    }
+
+    /// How many edits have been applied to `doc` since opening, if open.
+    pub fn edit_count(&self, doc: DocumentId) -> Option<u64> {
+        let tabs = self.lock().tabs.clone();
+        tabs.iter().find_map(|tab| {
+            let doc_guard = lock(&tab.document);
+            doc_guard.as_ref().and_then(|d| {
+                if d.info.doc == doc {
+                    Some(d.edit_count)
+                } else {
+                    None
+                }
+            })
+        })
+    }
+
+    /// The document id currently associated with `tab`, if open.
+    pub fn doc_of(&self, tab: TabId) -> Option<DocumentId> {
+        let tabs = self.lock().tabs.clone();
+        tabs.iter()
+            .find(|open| open.id == tab)
+            .and_then(|tab| match &*lock(&tab.event) {
+                OpenEvent::Opened { info, .. } => Some(info.doc),
+                _ => None,
+            })
     }
 
     /// A page as a PNG (B2-04) or JPEG (#111) file at `dpi`, unturned, for exporting. Pages too
@@ -9999,6 +10032,109 @@ mod with_worker {
 
             assert!(info_v1.permissions.copy);
             assert!(!info_restricted.permissions.copy);
+        }
+
+        #[test]
+        fn comparing_when_only_one_side_has_no_text_marks_the_correct_side() {
+            let documents = Documents::new(worker());
+            let info_contract = open_in(&documents, &sample("contract-v1.pdf"));
+            let info_empty = open_in(&documents, &sample("image-only.pdf"));
+
+            // A has no text, B has text
+            let res_a_empty =
+                crate::compare::compare_documents(&documents, info_empty.doc, info_contract.doc)
+                    .unwrap();
+            assert!(!res_a_empty.empty, "not both empty");
+            assert!(res_a_empty.empty_a, "side A is empty");
+            assert!(!res_a_empty.empty_b, "side B has text");
+            assert!(
+                !res_a_empty.items.is_empty(),
+                "all B text is reported as inserted"
+            );
+
+            // A has text, B has no text
+            let res_b_empty =
+                crate::compare::compare_documents(&documents, info_contract.doc, info_empty.doc)
+                    .unwrap();
+            assert!(!res_b_empty.empty, "not both empty");
+            assert!(!res_b_empty.empty_a, "side A has text");
+            assert!(res_b_empty.empty_b, "side B is empty");
+            assert!(
+                !res_b_empty.items.is_empty(),
+                "all A text is reported as deleted"
+            );
+        }
+
+        #[test]
+        fn closing_a_document_invalidates_cache_and_editing_document_increments_edit_count() {
+            let documents = Documents::new(worker());
+            let info_v1 = open_in(&documents, &sample("contract-v1.pdf"));
+            let info_v2 = open_in(&documents, &sample("contract-v2.pdf"));
+
+            let cache = crate::compare::CompareCache::default();
+            let result =
+                crate::compare::compare_documents(&documents, info_v1.doc, info_v2.doc).unwrap();
+
+            let edit_count_1 = documents.edit_count(info_v1.doc).unwrap();
+            let edit_count_2 = documents.edit_count(info_v2.doc).unwrap();
+            assert_eq!(edit_count_1, 0);
+            assert_eq!(edit_count_2, 0);
+
+            cache.store(crate::compare::CachedComparison {
+                doc_a: info_v1.doc,
+                doc_b: info_v2.doc,
+                edit_count_a: edit_count_1,
+                edit_count_b: edit_count_2,
+                name_a: info_v1.display_name.clone(),
+                name_b: info_v2.display_name.clone(),
+                result: result.clone(),
+            });
+
+            // Cache has entry
+            assert!(cache.get(info_v1.doc, info_v2.doc).is_some());
+
+            // Invalidate on closing document 1
+            cache.invalidate_doc(info_v1.doc);
+            assert!(cache.get(info_v1.doc, info_v2.doc).is_none());
+
+            // Test clear() empties cache
+            cache.store(crate::compare::CachedComparison {
+                doc_a: info_v1.doc,
+                doc_b: info_v2.doc,
+                edit_count_a: edit_count_1,
+                edit_count_b: edit_count_2,
+                name_a: info_v1.display_name.clone(),
+                name_b: info_v2.display_name.clone(),
+                result: result.clone(),
+            });
+            assert!(cache.get(info_v1.doc, info_v2.doc).is_some());
+            cache.clear();
+            assert!(cache.get(info_v1.doc, info_v2.doc).is_none());
+
+            // Re-store and test editing increments edit_count
+            let result =
+                crate::compare::compare_documents(&documents, info_v1.doc, info_v2.doc).unwrap();
+            cache.store(crate::compare::CachedComparison {
+                doc_a: info_v1.doc,
+                doc_b: info_v2.doc,
+                edit_count_a: edit_count_1,
+                edit_count_b: edit_count_2,
+                name_a: info_v1.display_name.clone(),
+                name_b: info_v2.display_name.clone(),
+                result,
+            });
+
+            // Apply an edit to document 1 (turn page 0)
+            let edited = opened_info(documents.apply_edit(&rotate(info_v1.doc, vec![0])).unwrap());
+            let new_edit_count = documents.edit_count(edited.doc).unwrap();
+            assert_eq!(new_edit_count, 1, "edit count increments on edit");
+
+            // Cached comparison has old edit_count (0) which does not match new_edit_count (1)
+            let cached = cache.get(edited.doc, info_v2.doc);
+            assert!(cached.is_none());
+            if let Some(c) = cache.get(info_v1.doc, info_v2.doc) {
+                assert_ne!(c.edit_count_a, new_edit_count);
+            }
         }
     }
 }

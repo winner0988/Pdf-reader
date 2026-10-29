@@ -12,7 +12,7 @@ mod capture;
 mod cli;
 mod clipboard;
 mod commands;
-pub mod compare;
+mod compare;
 mod create_pdf;
 mod credentials;
 mod documents;

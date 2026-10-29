@@ -36,8 +36,8 @@ getrandom = "0.4"
 # Wipes the passwords of src/credentials.rs after use (already in the workspace through the
 # contract crate and the worker).
 zeroize = "1.9"
+# Text diff algorithm for comparing text between open documents (B3-24, E9, src/compare/mod.rs).
 similar = { version = "2.7", default-features = false }
-
 
 [target.'cfg(windows)'.dependencies]
 # The system's file dialogs, with an option rfd cannot set (#86, B2-04, src/file_dialog.rs).

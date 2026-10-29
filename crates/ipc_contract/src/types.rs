@@ -2630,6 +2630,10 @@ pub struct CompareTextResult {
     pub identical: bool,
     /// Neither document had any extractable text (e.g. scans without OCR).
     pub empty: bool,
+    /// Document A had no extractable text.
+    pub empty_a: bool,
+    /// Document B had no extractable text.
+    pub empty_b: bool,
     /// At least one page in either document was OCR-recognised text.
     pub recognised: bool,
     /// At least one page had text cut off by worker text length limits.

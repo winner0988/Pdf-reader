@@ -1507,6 +1507,14 @@ identical: boolean,
  */
 empty: boolean, 
 /**
+ * Document A had no extractable text.
+ */
+emptyA: boolean, 
+/**
+ * Document B had no extractable text.
+ */
+emptyB: boolean, 
+/**
  * At least one page in either document was OCR-recognised text.
  */
 recognised: boolean, 

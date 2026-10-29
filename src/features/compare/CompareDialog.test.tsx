@@ -10,8 +10,8 @@ import type { CompareTextResult, ExportCompareTextOutcome } from "@/ipc/generate
 const t = strings.compare;
 
 const mockTabs: CompareTabOption[] = [
-  { tab: 2, doc: 20, displayName: "Doc-B.pdf" },
-  { tab: 3, doc: 30, displayName: "Doc-C.pdf" },
+  { tab: 2, doc: 20, displayName: "Doc-B.pdf", copyAllowed: true },
+  { tab: 3, doc: 30, displayName: "Doc-C.pdf", copyAllowed: true },
 ];
 
 function createMockApi(
@@ -43,6 +43,8 @@ describe("CompareDialog (B3-24, E9)", () => {
       ],
       identical: false,
       empty: false,
+      emptyA: false,
+      emptyB: false,
       recognised: false,
       pageTextTruncated: false,
       truncated: false,
@@ -91,6 +93,8 @@ describe("CompareDialog (B3-24, E9)", () => {
       items: [],
       identical: true,
       empty: false,
+      emptyA: false,
+      emptyB: false,
       recognised: false,
       pageTextTruncated: false,
       truncated: false,
@@ -118,6 +122,8 @@ describe("CompareDialog (B3-24, E9)", () => {
       items: [],
       identical: false,
       empty: true,
+      emptyA: true,
+      emptyB: true,
       recognised: false,
       pageTextTruncated: false,
       truncated: false,
@@ -139,6 +145,106 @@ describe("CompareDialog (B3-24, E9)", () => {
     expect(await screen.findByText(t.noText)).toBeInTheDocument();
   });
 
+  it("shows notice when only one side has no text", async () => {
+    const user = userEvent.setup();
+    const resultAEmpty: CompareTextResult = {
+      items: [
+        {
+          pageA: 0,
+          pageB: 0,
+          deleted: "",
+          inserted: "New clauses",
+          truncated: false,
+        },
+      ],
+      identical: false,
+      empty: false,
+      emptyA: true,
+      emptyB: false,
+      recognised: false,
+      pageTextTruncated: false,
+      truncated: false,
+    };
+    const api = createMockApi(resultAEmpty);
+
+    render(
+      <CompareDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        currentDoc={10}
+        currentDisplayName="Doc-A.pdf"
+        otherTabs={mockTabs}
+        api={api}
+        onJumpToPage={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: t.start }));
+    expect(await screen.findByText(t.noTextOneSide("Doc-A.pdf"))).toBeInTheDocument();
+  });
+
+  it("disables tabs that do not allow copying and shows explanation", async () => {
+    const tabsWithRestrictions: CompareTabOption[] = [
+      { tab: 2, doc: 20, displayName: "Doc-Allowed.pdf", copyAllowed: true },
+      { tab: 3, doc: 30, displayName: "Doc-Restricted.pdf", copyAllowed: false },
+    ];
+    const api = createMockApi({
+      items: [],
+      identical: true,
+      empty: false,
+      emptyA: false,
+      emptyB: false,
+      recognised: false,
+      pageTextTruncated: false,
+      truncated: false,
+    });
+
+    render(
+      <CompareDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        currentDoc={10}
+        otherTabs={tabsWithRestrictions}
+        api={api}
+        onJumpToPage={vi.fn()}
+      />,
+    );
+
+    const restrictedOption = screen.getByRole("option", { name: /Doc-Restricted/ });
+    expect(restrictedOption).toBeDisabled();
+    expect(restrictedOption).toHaveTextContent(t.tabNoCopy);
+  });
+
+  it("disables comparison and explains why when all other tabs cannot be copied", async () => {
+    const tabsAllRestricted: CompareTabOption[] = [
+      { tab: 3, doc: 30, displayName: "Doc-Restricted.pdf", copyAllowed: false },
+    ];
+    const api = createMockApi({
+      items: [],
+      identical: true,
+      empty: false,
+      emptyA: false,
+      emptyB: false,
+      recognised: false,
+      pageTextTruncated: false,
+      truncated: false,
+    });
+
+    render(
+      <CompareDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        currentDoc={10}
+        otherTabs={tabsAllRestricted}
+        api={api}
+        onJumpToPage={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: t.start })).toBeDisabled();
+    expect(screen.getByText(t.allTabsNoCopy)).toBeInTheDocument();
+  });
+
   it("exports results to plain text and markdown", async () => {
     const user = userEvent.setup();
     const result: CompareTextResult = {
@@ -153,6 +259,8 @@ describe("CompareDialog (B3-24, E9)", () => {
       ],
       identical: false,
       empty: false,
+      emptyA: false,
+      emptyB: false,
       recognised: true,
       pageTextTruncated: true,
       truncated: true,
@@ -187,7 +295,13 @@ describe("CompareDialog (B3-24, E9)", () => {
 
   it("displays compare error when backend fails", async () => {
     const user = userEvent.setup();
-    const api = createMockApi(new Error("這份文件不允許複製文字"));
+    const api: CompareApi = {
+      compareText: vi.fn().mockRejectedValue({
+        code: "invalidArgument",
+        message: "the document's author does not allow copying its content",
+      }),
+      exportCompareText: vi.fn(),
+    };
 
     render(
       <CompareDialog
@@ -201,6 +315,6 @@ describe("CompareDialog (B3-24, E9)", () => {
     );
 
     await user.click(screen.getByRole("button", { name: t.start }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("這份文件不允許複製文字");
+    expect(await screen.findByRole("alert")).toHaveTextContent(t.copyNotAllowed);
   });
 });

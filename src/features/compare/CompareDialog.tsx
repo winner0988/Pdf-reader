@@ -29,12 +29,14 @@ export type CompareTabOption = {
   tab: TabId;
   doc: DocumentId;
   displayName: string;
+  copyAllowed: boolean;
 };
 
 export type CompareDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   currentDoc: DocumentId;
+  currentDisplayName?: string;
   otherTabs: CompareTabOption[];
   api: CompareApi;
   onJumpToPage: (page: number) => void;
@@ -44,11 +46,14 @@ export function CompareDialog({
   open,
   onOpenChange,
   currentDoc,
+  currentDisplayName,
   otherTabs,
   api,
   onJumpToPage,
 }: CompareDialogProps) {
-  const [selectedDoc, setSelectedDoc] = useState<DocumentId>(otherTabs[0]?.doc ?? 0);
+  const [selectedDoc, setSelectedDoc] = useState<DocumentId>(
+    () => otherTabs.find((t) => t.copyAllowed)?.doc ?? otherTabs[0]?.doc ?? 0,
+  );
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CompareTextResult | null>(null);
@@ -56,8 +61,27 @@ export function CompareDialog({
   const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  const selectedTab = otherTabs.find((t) => t.doc === selectedDoc);
+  const allOtherTabsDisabled = otherTabs.length > 0 && otherTabs.every((t) => !t.copyAllowed);
+  const selectedDisabled = !selectedTab || !selectedTab.copyAllowed;
+
+  const getErrorMessage = (err: unknown): string => {
+    const code =
+      typeof err === "object" && err !== null && "code" in err && typeof (err as { code: unknown }).code === "string"
+        ? (err as { code: string }).code
+        : undefined;
+    if (code === "invalidArgument" || code === "notAllowed") {
+      return t.copyNotAllowed;
+    }
+    if (code && code in strings.error.messages) {
+      const msg = strings.error.messages[code as keyof typeof strings.error.messages];
+      if (msg) return msg;
+    }
+    return t.failed;
+  };
+
   const handleCompare = async () => {
-    if (selectedDoc === undefined) return;
+    if (selectedDoc === undefined || selectedDisabled || allOtherTabsDisabled) return;
     setRunning(true);
     setError(null);
     setResult(null);
@@ -67,7 +91,7 @@ export function CompareDialog({
       const outcome = await api.compareText({ docA: currentDoc, docB: selectedDoc });
       setResult(outcome);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.failed);
+      setError(getErrorMessage(err));
     } finally {
       setRunning(false);
     }
@@ -124,19 +148,19 @@ export function CompareDialog({
                 setExportNotice(null);
                 setExportError(null);
               }}
-              disabled={running || exporting}
+              disabled={running || exporting || allOtherTabsDisabled}
               aria-label={t.chooseTab}
               className="flex-1 h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary disabled:opacity-50"
             >
               {otherTabs.map((tab) => (
-                <option key={tab.tab} value={tab.doc}>
-                  {tab.displayName}
+                <option key={tab.tab} value={tab.doc} disabled={!tab.copyAllowed}>
+                  {tab.displayName}{!tab.copyAllowed ? `（${t.tabNoCopy}）` : ""}
                 </option>
               ))}
             </select>
             <Button
               type="button"
-              disabled={running || exporting || selectedDoc === undefined}
+              disabled={running || exporting || selectedDoc === undefined || selectedDisabled || allOtherTabsDisabled}
               onClick={handleCompare}
               className="shrink-0"
             >
@@ -150,6 +174,20 @@ export function CompareDialog({
               )}
             </Button>
           </div>
+
+          {/* Explanation if all tabs cannot copy */}
+          {allOtherTabsDisabled && (
+            <p role="alert" className="text-sm text-destructive">
+              {t.allTabsNoCopy}
+            </p>
+          )}
+
+          {/* Explanation if currently selected tab cannot copy */}
+          {!allOtherTabsDisabled && selectedDisabled && (
+            <p className="text-xs text-muted-foreground">
+              {t.tabNoCopy}
+            </p>
+          )}
 
           {/* Error alert */}
           {error && (
@@ -173,6 +211,20 @@ export function CompareDialog({
                 </div>
               ) : (
                 <>
+                  {result.emptyA && (
+                    <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-300">
+                      <AlertCircle className="size-4 shrink-0" />
+                      <span>{t.noTextOneSide(currentDisplayName || "目前分頁")}</span>
+                    </div>
+                  )}
+
+                  {result.emptyB && (
+                    <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-300">
+                      <AlertCircle className="size-4 shrink-0" />
+                      <span>{t.noTextOneSide(selectedTab?.displayName || "對照分頁")}</span>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between text-sm font-medium text-foreground">
                     <span>{t.diffCount(result.items.length)}</span>
                   </div>

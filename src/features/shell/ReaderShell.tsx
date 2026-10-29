@@ -1714,6 +1714,7 @@ export function ReaderShell({
           open
           onOpenChange={(open) => setDialog(open ? "compare" : null)}
           currentDoc={doc}
+          currentDisplayName={document_?.displayName}
           otherTabs={otherTabs}
           api={compareApi}
           onJumpToPage={goToPage}

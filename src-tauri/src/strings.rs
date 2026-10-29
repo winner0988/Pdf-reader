@@ -188,9 +188,26 @@ pub fn compare_file_name(stem_a: &str, stem_b: &str, markdown: bool) -> String {
     format!("{stem_a} 與 {stem_b}（文字比較）.{extension}")
 }
 
+/// The title of the text comparison file (B3-24, E9).
+pub fn compare_title(name_a: &str, name_b: &str) -> String {
+    format!("{name_a} 與 {name_b}（文字比較）")
+}
+
+/// The page header for an item in the text comparison file (B3-24, E9).
+pub fn compare_item_header(page_a: u32, name_a: &str, page_b: u32, name_b: &str) -> String {
+    format!("第 {page_a} 頁（{name_a}）/ 第 {page_b} 頁（{name_b}）")
+}
+
+pub const COMPARE_LABEL_DELETED: &str = "刪除";
+pub const COMPARE_LABEL_INSERTED: &str = "新增";
+
 pub const COMPARE_IDENTICAL: &str = "兩份文件文字完全相同。";
 pub const COMPARE_EMPTY: &str = "兩份文件皆未包含可比較的文字。";
+pub fn compare_no_text_one_side(name: &str) -> String {
+    format!("（「{name}」未包含可比較的文字，建議先執行文字辨識。）")
+}
 pub const COMPARE_TRUNCATED: &str = "（差異過多，其餘未列出。）";
+pub const COMPARE_PAGE_TEXT_TRUNCATED: &str = "（部分頁面的文字過長已被截斷。）";
 pub const COMPARE_RECOGNISED_NOTE: &str = "（部分文字由光學字元辨識取得，可能有誤。）";
 
 /// The Word document (B3-02): where it goes.

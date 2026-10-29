@@ -211,7 +211,11 @@ pub async fn unlock_pages_source(
 #[tauri::command]
 pub async fn close_tab(app: AppHandle, tab: TabId) -> Result<(), IpcError> {
     blocking(move || {
+        let doc = app.state::<Documents>().doc_of(tab);
         let result = app.state::<Documents>().close(tab);
+        if let Some(doc) = doc {
+            app.state::<compare::CompareCache>().invalidate_doc(doc);
+        }
         after_tabs_changed(&app);
         result
     })
@@ -1292,10 +1296,7 @@ fn copy_allowed(app: &AppHandle, doc: DocumentId) -> Result<DocumentInfo, IpcErr
     if !info.permissions.copy {
         return Err(IpcError {
             code: ErrorCode::InvalidArgument,
-            message: format!(
-                "the document '{}' does not allow copying its content",
-                info.display_name
-            ),
+            message: "the document's author does not allow copying its content".to_owned(),
         });
     }
     Ok(info)
@@ -1316,6 +1317,10 @@ pub async fn compare_text(
     let info_a = copy_allowed(&app, doc_a)?;
     let info_b = copy_allowed(&app, doc_b)?;
 
+    let documents = app.state::<Documents>();
+    let edit_a = documents.edit_count(doc_a).unwrap_or(0);
+    let edit_b = documents.edit_count(doc_b).unwrap_or(0);
+
     let worker_app = app.clone();
     let result = blocking(move || {
         let documents = worker_app.state::<Documents>();
@@ -1323,13 +1328,16 @@ pub async fn compare_text(
     })
     .await?;
 
-    app.state::<compare::CompareCache>().store(
-        doc_a,
-        doc_b,
-        info_a.display_name,
-        info_b.display_name,
-        result.clone(),
-    );
+    app.state::<compare::CompareCache>()
+        .store(compare::CachedComparison {
+            doc_a,
+            doc_b,
+            edit_count_a: edit_a,
+            edit_count_b: edit_b,
+            name_a: info_a.display_name,
+            name_b: info_b.display_name,
+            result: result.clone(),
+        });
 
     Ok(result)
 }
@@ -1355,9 +1363,31 @@ pub async fn export_compare_text(
     let info_a = copy_allowed(&app, doc_a)?;
     let info_b = copy_allowed(&app, doc_b)?;
 
+    let docs = app.state::<Documents>();
+    let edit_a = docs.edit_count(doc_a).unwrap_or(0);
+    let edit_b = docs.edit_count(doc_b).unwrap_or(0);
+
     let cache = app.state::<compare::CompareCache>();
     let (result, name_a, name_b) = if let Some(cached) = cache.get(doc_a, doc_b) {
-        (cached.result, cached.name_a, cached.name_b)
+        if (cached.doc_a == doc_a && cached.edit_count_a == edit_a && cached.edit_count_b == edit_b)
+            || (cached.doc_a == doc_b
+                && cached.edit_count_a == edit_b
+                && cached.edit_count_b == edit_a)
+        {
+            (cached.result, cached.name_a, cached.name_b)
+        } else {
+            let worker_app = app.clone();
+            let res = blocking(move || {
+                let documents = worker_app.state::<Documents>();
+                compare::compare_documents(&documents, doc_a, doc_b)
+            })
+            .await?;
+            (
+                res,
+                info_a.display_name.clone(),
+                info_b.display_name.clone(),
+            )
+        }
     } else {
         let worker_app = app.clone();
         let res = blocking(move || {

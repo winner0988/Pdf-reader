@@ -24,6 +24,8 @@ use tokenize::Token;
 pub struct CachedComparison {
     pub doc_a: DocumentId,
     pub doc_b: DocumentId,
+    pub edit_count_a: u64,
+    pub edit_count_b: u64,
     pub name_a: String,
     pub name_b: String,
     pub result: CompareTextResult,
@@ -36,29 +38,17 @@ pub struct CompareCache {
 }
 
 impl CompareCache {
-    pub fn store(
-        &self,
-        doc_a: DocumentId,
-        doc_b: DocumentId,
-        name_a: String,
-        name_b: String,
-        result: CompareTextResult,
-    ) {
+    pub fn store(&self, entry: CachedComparison) {
         let mut lock = self.entry.lock().unwrap();
         // Keep memory within MAX_COMPARE_CACHE_BYTES
-        let approx_bytes = result
+        let approx_bytes = entry
+            .result
             .items
             .iter()
             .map(|i| i.deleted.len() + i.inserted.len() + 64)
             .sum::<usize>();
         if approx_bytes <= MAX_COMPARE_CACHE_BYTES {
-            *lock = Some(CachedComparison {
-                doc_a,
-                doc_b,
-                name_a,
-                name_b,
-                result,
-            });
+            *lock = Some(entry);
         } else {
             *lock = None;
         }
@@ -71,6 +61,23 @@ impl CompareCache {
                 (c.doc_a == doc_a && c.doc_b == doc_b) || (c.doc_a == doc_b && c.doc_b == doc_a)
             })
             .cloned()
+    }
+
+    /// Removes any cached comparison that involves `doc` (e.g. when the document is closed).
+    pub fn invalidate_doc(&self, doc: DocumentId) {
+        let mut lock = self.entry.lock().unwrap();
+        if let Some(c) = lock.as_ref()
+            && (c.doc_a == doc || c.doc_b == doc)
+        {
+            *lock = None;
+        }
+    }
+
+    /// Clears the entire comparison cache.
+    #[cfg(test)]
+    pub fn clear(&self) {
+        let mut lock = self.entry.lock().unwrap();
+        *lock = None;
     }
 }
 
@@ -348,12 +355,16 @@ pub fn compare_documents(
         }
     }
 
-    let empty = tokens_a.is_empty() && tokens_b.is_empty();
+    let empty_a = tokens_a.is_empty();
+    let empty_b = tokens_b.is_empty();
+    let empty = empty_a && empty_b;
     if empty {
         return Ok(CompareTextResult {
             items: Vec::new(),
             identical: false,
             empty: true,
+            empty_a: true,
+            empty_b: true,
             recognised,
             page_text_truncated,
             truncated,
@@ -369,6 +380,8 @@ pub fn compare_documents(
         items,
         identical,
         empty: false,
+        empty_a,
+        empty_b,
         recognised,
         page_text_truncated,
         truncated,

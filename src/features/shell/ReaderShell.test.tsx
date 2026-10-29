@@ -1252,7 +1252,7 @@ describe("theme", () => {
     };
     const second = renderShell(copyBlockedState, {
       compareApi,
-      otherTabs: [{ tab: 2, doc: 20, displayName: "other.pdf" }],
+      otherTabs: [{ tab: 2, doc: 20, displayName: "other.pdf", copyAllowed: true }],
     });
     await second.user.click(screen.getByRole("button", { name: strings.toolbar.more }));
     const permBlockedItem = await screen.findByRole("menuitem", { name: new RegExp(`^${strings.menu.compareText}`) });
@@ -1263,7 +1263,7 @@ describe("theme", () => {
     // 3. Enabled with other tabs and copy permitted:
     const third = renderShell(docState, {
       compareApi,
-      otherTabs: [{ tab: 2, doc: 20, displayName: "other.pdf" }],
+      otherTabs: [{ tab: 2, doc: 20, displayName: "other.pdf", copyAllowed: true }],
     });
     await third.user.click(screen.getByRole("button", { name: strings.toolbar.more }));
     const readyItem = await screen.findByRole("menuitem", { name: new RegExp(`^${strings.menu.compareText}`) });
