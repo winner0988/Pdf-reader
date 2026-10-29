@@ -55,26 +55,30 @@ unsafe extern "C" fn doc_event_callback(
         return;
     }
     // SAFETY: evt is valid for the duration of the callback as passed by MuPDF.
-    let event_type = unsafe { (*evt).type_ };
-    let name = match event_type {
-        PDF_DOCUMENT_EVENT_ALERT => {
-            // Intercept alert dialogs: provide default OK button press so the script continues
-            // without expecting user response.
-            // SAFETY: evt has type ALERT, so pdf_access_alert_event returns a valid pointer.
-            let alert = unsafe { mupdf_sys::pdf_access_alert_event(ctx, evt) };
-            if !alert.is_null() {
-                unsafe {
-                    (*alert).button_pressed = mupdf_sys::PDF_ALERT_BUTTON_OK;
-                }
+    let event_type = unsafe { (*evt).type_ } as u32;
+    let name = if event_type == PDF_DOCUMENT_EVENT_ALERT as u32 {
+        // Intercept alert dialogs: provide default OK button press so the script continues
+        // without expecting user response.
+        // SAFETY: evt has type ALERT, so pdf_access_alert_event returns a valid pointer.
+        let alert = unsafe { mupdf_sys::pdf_access_alert_event(ctx, evt) };
+        if !alert.is_null() {
+            unsafe {
+                (*alert).button_pressed = mupdf_sys::PDF_ALERT_BUTTON_OK as _;
             }
-            "alert"
         }
-        PDF_DOCUMENT_EVENT_PRINT => "print",
-        PDF_DOCUMENT_EVENT_LAUNCH_URL => "launchURL",
-        PDF_DOCUMENT_EVENT_MAIL_DOC => "mailDoc",
-        PDF_DOCUMENT_EVENT_SUBMIT => "submitForm",
-        PDF_DOCUMENT_EVENT_EXEC_MENU_ITEM => "execMenuItem",
-        _ => "unknown",
+        "alert"
+    } else if event_type == PDF_DOCUMENT_EVENT_PRINT as u32 {
+        "print"
+    } else if event_type == PDF_DOCUMENT_EVENT_LAUNCH_URL as u32 {
+        "launchURL"
+    } else if event_type == PDF_DOCUMENT_EVENT_MAIL_DOC as u32 {
+        "mailDoc"
+    } else if event_type == PDF_DOCUMENT_EVENT_SUBMIT as u32 {
+        "submitForm"
+    } else if event_type == PDF_DOCUMENT_EVENT_EXEC_MENU_ITEM as u32 {
+        "execMenuItem"
+    } else {
+        "unknown"
     };
     BLOCKED_ACTIONS.with(|cell| {
         let mut list = cell.borrow_mut();
