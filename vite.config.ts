@@ -1,8 +1,15 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
+
+// The app's version, which the About dialog shows with the tag of its source (ADR 0011): the
+// one in package.json, which a release sets (docs/release.md), rather than a copy in the code.
+const { version } = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "package.json"), "utf8")) as {
+  version: string;
+};
 
 // Tauri does not inject its CSP (tauri.conf.json) into pages served by this dev server,
 // so the dev server sends an equivalent policy itself. Keep the two in sync; the dev-only
@@ -30,6 +37,9 @@ export default defineConfig({
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),
     },
+  },
+  define: {
+    __APP_VERSION__: JSON.stringify(version),
   },
   clearScreen: false,
   server: {

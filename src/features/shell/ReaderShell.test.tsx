@@ -6,6 +6,7 @@ import { demoDocument } from "@/features/shell/demo";
 import type { SensitiveApi } from "@/features/sensitive/api";
 import type { DocumentPermissions, ShellDocument, ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
+import { APP_VERSION } from "@/features/shell/version";
 import type { SearchApi } from "@/features/search/useSearch";
 import { strings } from "@/i18n/zh-TW";
 import type { LinksApi } from "@/features/links/source";
@@ -1114,7 +1115,7 @@ describe("theme", () => {
     expect(document.documentElement).toHaveClass("dark");
   });
 
-  it("about states the privacy promise", async () => {
+  it("about states the privacy promise and the app's version", async () => {
     const { user } = renderShell(openState);
 
     await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
@@ -1123,6 +1124,9 @@ describe("theme", () => {
     for (const line of strings.about.privacy) {
       expect(within(dialog).getByText(line)).toBeInTheDocument();
     }
+    // This build's version, and the tag of its source (ADR 0011, #398).
+    expect(within(dialog).getByText(strings.about.version(APP_VERSION))).toBeInTheDocument();
+    expect(within(dialog).getByText(strings.about.sourceTag(APP_VERSION))).toBeInTheDocument();
     // Screen-reader text comes from the string table too.
     expect(within(dialog).getByRole("button", { name: strings.close })).toBeInTheDocument();
   });
