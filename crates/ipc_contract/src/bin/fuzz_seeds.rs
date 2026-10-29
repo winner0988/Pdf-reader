@@ -22,9 +22,9 @@ use ipc_contract::types::{
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, InsertedTextBox, ModelGlyph, OcrFinished, OcrOutcome,
-    OcrPageState, OpenedDocument, PasswordKey, Raster, SourceTextBox, TextBoxModel,
-    WorkerAttachment, WorkerEdit, WorkerError, WorkerErrorCode, WorkerPageMarks, WorkerRequest,
-    WorkerResponse, WorkerWatermark,
+    OcrPageState, OpenedDocument, PasswordKey, PreparedTextBoxModel, Raster, SourceTextBox,
+    TextBoxModel, WorkerAttachment, WorkerEdit, WorkerError, WorkerErrorCode, WorkerPageMarks,
+    WorkerRequest, WorkerResponse, WorkerWatermark,
 };
 
 /// The words of a text box, as a worker would prepare them (a small one).
@@ -543,6 +543,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             model: text_box_model(),
         },
+        WorkerResponse::TextBoxesPrepared {
+            request,
+            models: vec![
+                PreparedTextBoxModel::Prepared(text_box_model()),
+                PreparedTextBoxModel::Refused,
+                PreparedTextBoxModel::Deferred,
+            ],
+        },
         WorkerResponse::TextBox {
             request,
             info: TextBoxInfo {
@@ -985,6 +993,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 name: "Arial".to_owned(),
             },
             text: "Hello 你好".to_owned(),
+        },
+        WorkerRequest::PrepareTextBoxes {
+            request,
+            font: FontData {
+                bytes: vec![0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                face: 0,
+                name: "Arial".to_owned(),
+            },
+            texts: vec!["Hello 你好".to_owned(), "Second line".to_owned()],
         },
         WorkerRequest::Edit {
             request,

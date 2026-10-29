@@ -62,7 +62,9 @@ mod watermark;
 pub use signatures::{SignatureField, SignatureFields};
 pub use signing::{PreparedSignature, prepare_signature};
 pub use stamp_image::{StampPicture, prepare_stamp_picture};
-pub use text_box::{TextBoxFont, TextBoxMade, TextBoxSpec, inspect_font, prepare_text_box};
+pub use text_box::{
+    TextBoxFont, TextBoxMade, TextBoxSpec, inspect_font, prepare_text_box, prepare_text_boxes,
+};
 
 /// Most form fields looked at to find a signature (`PdfDocument::is_signed`).
 const MAX_FORM_FIELDS: usize = 10_000;

@@ -4,11 +4,14 @@
 
 use std::collections::BTreeMap;
 
-use ipc_contract::limits::{MAX_FONT_NAME_BYTES, MAX_TEXT_BOX_BYTES, MAX_TEXT_BOX_SUBSET_BYTES};
+use ipc_contract::limits::{
+    MAX_FONT_NAME_BYTES, MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES, MAX_TEXT_BOX_BYTES,
+    MAX_TEXT_BOX_SUBSET_BYTES,
+};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::FontRefusal;
 use ipc_contract::validate::Validate;
-use ipc_contract::worker::{InspectedFont, ModelGlyph, TextBoxModel};
+use ipc_contract::worker::{InspectedFont, ModelGlyph, PreparedTextBoxModel, TextBoxModel};
 use skrifa::instance::{LocationRef, Size};
 use skrifa::raw::TableProvider;
 use skrifa::raw::types::Tag;
@@ -107,18 +110,17 @@ fn thousandths(units: f32, per_em: f32) -> i32 {
     (units * 1000.0 / per_em).round() as i32
 }
 
-/// Makes the model of `text` in `font`: the font read, its licence checked, a glyph found for
-/// each character, and the font cut to those glyphs. A font that cannot be used, or that lacks a
-/// glyph, makes no model (see [`FontRefusal`]); text that needs a script the worker does not set
-/// is refused too.
-pub fn prepare_text_box(font: &TextBoxFont, text: &str) -> Result<TextBoxModel, EngineError> {
+fn prepare_text_box_with_face(
+    font: &TextBoxFont,
+    face: &Face,
+    text: &str,
+) -> Result<TextBoxModel, EngineError> {
     if text.trim().is_empty() || text.len() > MAX_TEXT_BOX_BYTES {
         return Err(EngineError::InvalidEdit("the words of a text box"));
     }
     if text.chars().any(needs_layout) {
         return Err(EngineError::UnsupportedText);
     }
-    let face = open_face(font).map_err(EngineError::Font)?;
     let charmap = face.font.charmap();
     let metrics = face
         .font
@@ -169,7 +171,7 @@ pub fn prepare_text_box(font: &TextBoxFont, text: &str) -> Result<TextBoxModel, 
         font: font.name.to_owned(),
         face: font.face,
         view_only: face.view_only,
-        base: format!("{}+{}", tag(&subset), base_name(&face)),
+        base: format!("{}+{}", tag(&subset), base_name(face)),
         ascent: thousandths(font_metrics.ascent, face.per_em),
         descent: thousandths(font_metrics.descent, face.per_em),
         cap_height: thousandths(
@@ -198,6 +200,52 @@ pub fn prepare_text_box(font: &TextBoxFont, text: &str) -> Result<TextBoxModel, 
         return Err(EngineError::Font(FontRefusal::NotAFont));
     }
     Ok(model)
+}
+
+/// Makes the model of `text` in `font`: the font read, its licence checked, a glyph found for
+/// each character, and the font cut to those glyphs. A font that cannot be used, or that lacks a
+/// glyph, makes no model (see [`FontRefusal`]); text that needs a script the worker does not set
+/// is refused too.
+pub fn prepare_text_box(font: &TextBoxFont, text: &str) -> Result<TextBoxModel, EngineError> {
+    let face = open_face(font).map_err(EngineError::Font)?;
+    prepare_text_box_with_face(font, &face, text)
+}
+
+/// Makes models of each text in `texts` in `font` (B3-23, Issue #381).
+///
+/// Parses the font once for the entire batch. Returns a `Vec` with one entry per input text:
+/// `Prepared(model)` if the text was successfully shaped and subset, `Refused` if the text could
+/// not be set in this font (or if the font itself is unusable), or `Deferred` if the cumulative
+/// response size would exceed `MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES`.
+pub fn prepare_text_boxes(font: &TextBoxFont, texts: &[String]) -> Vec<PreparedTextBoxModel> {
+    let Ok(face) = open_face(font) else {
+        return vec![PreparedTextBoxModel::Refused; texts.len()];
+    };
+    let mut models = Vec::with_capacity(texts.len());
+    let mut total_bytes: usize = 0;
+
+    for text in texts {
+        match prepare_text_box_with_face(font, &face, text) {
+            Ok(model) => {
+                let next_total = total_bytes.saturating_add(model.subset.len());
+                // A single text box subset is bounded by MAX_TEXT_BOX_SUBSET_BYTES (2 MiB),
+                // which is well below MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES (32 MiB).
+                // If total_bytes == 0, the first item is guaranteed to be accepted so the batch
+                // always progresses. Once the limit is exceeded, defer this and all remaining texts.
+                if total_bytes > 0 && next_total > MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES {
+                    models.push(PreparedTextBoxModel::Deferred);
+                    models.resize(texts.len(), PreparedTextBoxModel::Deferred);
+                    break;
+                }
+                total_bytes = next_total;
+                models.push(PreparedTextBoxModel::Prepared(model));
+            }
+            Err(_) => {
+                models.push(PreparedTextBoxModel::Refused);
+            }
+        }
+    }
+    models
 }
 
 /// The subset of `model`, cut again from itself: what is embedded is what `subsetter` writes from
