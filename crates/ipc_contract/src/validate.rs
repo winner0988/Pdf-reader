@@ -30,8 +30,9 @@ use crate::types::{
     UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
-    InsertedTextBox, InspectedFont, OcrOutcome, OpenedDocument, Raster, SourceTextBox,
-    TextBoxModel, WorkerAttachment, WorkerError, WorkerErrorCode, WorkerPageMarks, WorkerResponse,
+    InsertedTextBox, InspectedFont, OcrOutcome, OpenedDocument, PreparedTextBoxModel, Raster,
+    SourceTextBox, TextBoxModel, WorkerAttachment, WorkerError, WorkerErrorCode, WorkerPageMarks,
+    WorkerResponse,
 };
 
 /// Maximum length of the worker version string in `Hello`.
@@ -488,9 +489,11 @@ impl Validate for WorkerResponse {
                     MAX_PREPARE_TEXT_BOXES as u32,
                 )?;
                 let mut total_response_bytes: usize = 0;
-                for m in models.iter().flatten() {
-                    m.validate()?;
-                    total_response_bytes = total_response_bytes.saturating_add(m.subset.len());
+                for outcome in models {
+                    if let PreparedTextBoxModel::Prepared(m) = outcome {
+                        m.validate()?;
+                        total_response_bytes = total_response_bytes.saturating_add(m.subset.len());
+                    }
                 }
                 if total_response_bytes > MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES {
                     return Err(ValidationError::TooLong {
@@ -1749,7 +1752,7 @@ pub fn check_prepare_text_boxes_request(texts: &[String]) -> Result<(), Validati
 
 /// Checks that a `TextBoxesPrepared` response matches the number of requested texts (Issue #381).
 pub fn check_prepared_text_boxes_count(
-    models: &[Option<TextBoxModel>],
+    models: &[PreparedTextBoxModel],
     expected: usize,
 ) -> Result<(), ValidationError> {
     if models.len() != expected {
@@ -4958,18 +4961,35 @@ mod tests {
         let sample = sample_model();
 
         // 1. WorkerResponse::TextBoxesPrepared validation
-        let response = |models: Vec<Option<TextBoxModel>>| WorkerResponse::TextBoxesPrepared {
+        let response = |models: Vec<PreparedTextBoxModel>| WorkerResponse::TextBoxesPrepared {
             request: RequestId(1),
             models,
         };
 
-        // Valid responses (all Some, all None, mixed)
-        assert!(response(vec![Some(sample.clone())]).validate().is_ok());
-        assert!(response(vec![None]).validate().is_ok());
+        // Valid responses (all Prepared, all Refused/Deferred, mixed)
         assert!(
-            response(vec![Some(sample.clone()), None])
+            response(vec![PreparedTextBoxModel::Prepared(sample.clone())])
                 .validate()
                 .is_ok()
+        );
+        assert!(
+            response(vec![PreparedTextBoxModel::Refused])
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            response(vec![PreparedTextBoxModel::Deferred])
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            response(vec![
+                PreparedTextBoxModel::Prepared(sample.clone()),
+                PreparedTextBoxModel::Refused,
+                PreparedTextBoxModel::Deferred,
+            ])
+            .validate()
+            .is_ok()
         );
 
         // Empty response is rejected
@@ -4977,26 +4997,61 @@ mod tests {
 
         // Exceeding MAX_PREPARE_TEXT_BOXES count is rejected
         assert!(
-            response(vec![Some(sample.clone()); MAX_PREPARE_TEXT_BOXES + 1])
-                .validate()
-                .is_err()
+            response(vec![
+                PreparedTextBoxModel::Prepared(sample.clone());
+                MAX_PREPARE_TEXT_BOXES + 1
+            ])
+            .validate()
+            .is_err()
         );
 
         // Invalid inner model is rejected
         let mut bad_model = sample.clone();
         bad_model.step = 0;
-        assert!(response(vec![Some(bad_model)]).validate().is_err());
+        assert!(
+            response(vec![PreparedTextBoxModel::Prepared(bad_model)])
+                .validate()
+                .is_err()
+        );
 
         // Total response subset bytes exceeding limit is rejected
         let mut large_subset_model = sample.clone();
         large_subset_model.subset = vec![0; MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES + 1];
-        assert!(response(vec![Some(large_subset_model)]).validate().is_err());
+        assert!(
+            response(vec![PreparedTextBoxModel::Prepared(large_subset_model)])
+                .validate()
+                .is_err()
+        );
 
         // 2. check_prepared_text_boxes_count
-        assert!(check_prepared_text_boxes_count(&[Some(sample.clone())], 1).is_ok());
-        assert!(check_prepared_text_boxes_count(&[Some(sample.clone()), None], 2).is_ok());
-        assert!(check_prepared_text_boxes_count(&[Some(sample.clone())], 2).is_err());
-        assert!(check_prepared_text_boxes_count(&[Some(sample.clone()), None], 1).is_err());
+        assert!(
+            check_prepared_text_boxes_count(&[PreparedTextBoxModel::Prepared(sample.clone())], 1)
+                .is_ok()
+        );
+        assert!(
+            check_prepared_text_boxes_count(
+                &[
+                    PreparedTextBoxModel::Prepared(sample.clone()),
+                    PreparedTextBoxModel::Refused
+                ],
+                2
+            )
+            .is_ok()
+        );
+        assert!(
+            check_prepared_text_boxes_count(&[PreparedTextBoxModel::Prepared(sample.clone())], 2)
+                .is_err()
+        );
+        assert!(
+            check_prepared_text_boxes_count(
+                &[
+                    PreparedTextBoxModel::Prepared(sample.clone()),
+                    PreparedTextBoxModel::Deferred
+                ],
+                1
+            )
+            .is_err()
+        );
 
         // 3. check_prepare_text_boxes_request
         let valid_texts: Vec<String> = vec!["Hello".to_owned(), "測試".to_owned()];

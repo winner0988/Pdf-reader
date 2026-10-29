@@ -85,7 +85,6 @@ sequenceDiagram
 | 單次批次準備文字方塊數量 | `MAX_PREPARE_TEXT_BOXES`（200） | worker 與主行程（單一請求段數上限，耗時約 90 ms，遠低於 30 秒請求逾時） |
 | 頁數 | 合併後最多 `MAX_PAGE_COUNT` | worker（`TooManyPages`） |
 
-
 ## 測試
 
 - worker 單元測試（`crates/pdf_worker/src/engine.rs`、`tests/merge.rs`）：

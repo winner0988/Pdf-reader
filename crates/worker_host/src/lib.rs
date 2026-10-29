@@ -665,6 +665,8 @@ impl WorkerHost {
     }
 
     /// How many requests have been sent to the worker so far.
+    ///
+    /// Used in tests to assert the exact number of IPC requests sent across batching operations.
     pub fn requests_sent(&self) -> u32 {
         self.next_request.saturating_sub(1)
     }

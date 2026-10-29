@@ -31,11 +31,14 @@ use ipc_contract::types::{
     SaveAttachmentResult, SaveResult, SearchHit, SecurityReport, SignCheck, SignatureReport,
     SignatureStatus, SourceId, StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
 };
-use ipc_contract::validate::{Validate, check_page_index, check_text_box_text, stamp_png_size};
+use ipc_contract::validate::{
+    Validate, check_page_index, check_prepared_text_boxes_count, check_text_box_text,
+    stamp_png_size,
+};
 use ipc_contract::worker::{
     FontData, InsertedTextBox, InspectedFont, NewSignature, OcrFinished, OcrPageState, PasswordKey,
-    SourceTextBox, TextBoxModel, UnknownFile, WorkerEdit, WorkerErrorCode, WorkerRequest,
-    WorkerResponse,
+    PreparedTextBoxModel, SourceTextBox, TextBoxModel, UnknownFile, WorkerEdit, WorkerErrorCode,
+    WorkerRequest, WorkerResponse,
 };
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
@@ -1990,7 +1993,7 @@ impl Documents {
             })
             .collect();
 
-        loop {
+        'font_loop: loop {
             // Group unresolved items by their current candidate font family.
             let mut groups: std::collections::BTreeMap<String, (String, Vec<usize>)> =
                 std::collections::BTreeMap::new();
@@ -2060,17 +2063,41 @@ impl Documents {
 
                     match response {
                         Ok(WorkerResponse::TextBoxesPrepared { models, .. })
-                            if models.len() == chunk.len() =>
+                            if check_prepared_text_boxes_count(&models, chunk.len()).is_ok() =>
                         {
-                            for (&item_idx, model_opt) in chunk.iter().zip(models) {
-                                if let Some(model) = model_opt {
-                                    pending[item_idx].model = Some(model);
-                                } else {
-                                    pending[item_idx].current_candidate_idx += 1;
+                            let mut had_deferred = false;
+                            for (&item_idx, outcome) in chunk.iter().zip(models) {
+                                match outcome {
+                                    PreparedTextBoxModel::Prepared(model) => {
+                                        pending[item_idx].model = Some(model);
+                                    }
+                                    PreparedTextBoxModel::Refused => {
+                                        pending[item_idx].current_candidate_idx += 1;
+                                    }
+                                    PreparedTextBoxModel::Deferred => {
+                                        had_deferred = true;
+                                    }
                                 }
                             }
+                            if had_deferred {
+                                break;
+                            }
                         }
-                        _ => {
+                        Ok(_) => {
+                            for &item_idx in chunk {
+                                pending[item_idx].current_candidate_idx += 1;
+                            }
+                        }
+                        Err(error) => {
+                            if matches!(
+                                error,
+                                HostError::Crashed
+                                    | HostError::Timeout
+                                    | HostError::ProtocolViolation(_)
+                            ) {
+                                lost_on(document, &error);
+                                break 'font_loop;
+                            }
                             for &item_idx in chunk {
                                 pending[item_idx].current_candidate_idx += 1;
                             }
@@ -9239,6 +9266,118 @@ mod with_worker {
                 Ok(())
             })
             .unwrap();
+        std::fs::remove_file(target_path).ok();
+    }
+
+    #[test]
+    fn test_prepare_inserted_text_boxes_crashed_worker_marks_document_lost() {
+        let (documents, info, target_path) = open("merge-tb-crashed", 1);
+        let fonts = documents.fonts();
+        let pid = documents.worker_id(info.doc).expect("worker running");
+
+        let killed = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output()
+            .unwrap();
+        assert!(killed.status.success());
+
+        let boxes = vec![SourceTextBox {
+            page: 0,
+            rect: Rect {
+                x0: 10.0,
+                y0: 10.0,
+                x1: 100.0,
+                y1: 50.0,
+            },
+            text: "Hello".to_owned(),
+            font_family: "Arial".to_owned(),
+            style: TextBoxStyle {
+                size: 12.0,
+                color: Rgb { r: 0, g: 0, b: 0 },
+                align: TextAlign::Left,
+            },
+        }];
+
+        documents
+            .with_document(info.doc, |document| {
+                let prepared = Documents::prepare_inserted_text_boxes(document, &fonts, &boxes);
+                assert_eq!(prepared.len(), 0);
+                Ok(())
+            })
+            .unwrap();
+
+        let text = documents.page_text(info.doc, 0);
+        assert!(
+            text.is_ok(),
+            "page_text should succeed after worker crash during prepare_inserted_text_boxes, got: {text:?}"
+        );
+
+        std::fs::remove_file(target_path).ok();
+    }
+
+    #[test]
+    fn test_prepare_inserted_text_boxes_retries_deferred_with_same_font() {
+        let (documents, info, target_path) = open("merge-tb-deferred", 1);
+        let fonts = documents.fonts();
+        let has_jhenghei = fonts
+            .list()
+            .iter()
+            .any(|f| f.family.eq_ignore_ascii_case("Microsoft JhengHei"));
+        if !has_jhenghei {
+            std::fs::remove_file(target_path).ok();
+            return;
+        }
+
+        let sample_text: String = (0x4E00u32..)
+            .filter_map(char::from_u32)
+            .take(1365)
+            .collect();
+        assert_eq!(sample_text.len(), 4095);
+
+        // Microsoft JhengHei produces ~0.87 MiB per subset for this text.
+        // With 50 boxes, ~36 fit in the first 32 MiB batch and ~14 are deferred.
+        // The second batch completes the remaining 14 boxes, taking exactly 2 requests total.
+        let boxes: Vec<SourceTextBox> = (0..50)
+            .map(|i| SourceTextBox {
+                page: 0,
+                rect: Rect {
+                    x0: 10.0,
+                    y0: 10.0 + (i as f32) * 5.0,
+                    x1: 100.0,
+                    y1: 50.0 + (i as f32) * 5.0,
+                },
+                text: sample_text.clone(),
+                font_family: "Microsoft JhengHei".to_owned(),
+                style: TextBoxStyle {
+                    size: 12.0,
+                    color: Rgb { r: 0, g: 0, b: 0 },
+                    align: TextAlign::Left,
+                },
+            })
+            .collect();
+
+        documents
+            .with_document(info.doc, |document| {
+                let before = document.host.requests_sent();
+                let prepared = Documents::prepare_inserted_text_boxes(document, &fonts, &boxes);
+                let sent = document.host.requests_sent() - before;
+
+                assert_eq!(prepared.len(), 50);
+                assert_eq!(
+                    sent, 2,
+                    "Expected exactly 2 requests with Microsoft JhengHei (1st batch partially deferred, 2nd batch completed remaining)"
+                );
+                for p in &prepared {
+                    assert!(
+                        p.model.font.contains("Microsoft JhengHei"),
+                        "All boxes should be prepared with Microsoft JhengHei, got: {}",
+                        p.model.font
+                    );
+                }
+                Ok(())
+            })
+            .unwrap();
+
         std::fs::remove_file(target_path).ok();
     }
 

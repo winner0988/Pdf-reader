@@ -4,11 +4,14 @@
 
 use std::collections::BTreeMap;
 
-use ipc_contract::limits::{MAX_FONT_NAME_BYTES, MAX_TEXT_BOX_BYTES, MAX_TEXT_BOX_SUBSET_BYTES};
+use ipc_contract::limits::{
+    MAX_FONT_NAME_BYTES, MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES, MAX_TEXT_BOX_BYTES,
+    MAX_TEXT_BOX_SUBSET_BYTES,
+};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::FontRefusal;
 use ipc_contract::validate::Validate;
-use ipc_contract::worker::{InspectedFont, ModelGlyph, TextBoxModel};
+use ipc_contract::worker::{InspectedFont, ModelGlyph, PreparedTextBoxModel, TextBoxModel};
 use skrifa::instance::{LocationRef, Size};
 use skrifa::raw::TableProvider;
 use skrifa::raw::types::Tag;
@@ -211,16 +214,38 @@ pub fn prepare_text_box(font: &TextBoxFont, text: &str) -> Result<TextBoxModel, 
 /// Makes models of each text in `texts` in `font` (B3-23, Issue #381).
 ///
 /// Parses the font once for the entire batch. Returns a `Vec` with one entry per input text:
-/// `Some(model)` if the text was successfully shaped and subset, or `None` if the text could
-/// not be set in this font (or if the font itself is unusable).
-pub fn prepare_text_boxes(font: &TextBoxFont, texts: &[String]) -> Vec<Option<TextBoxModel>> {
+/// `Prepared(model)` if the text was successfully shaped and subset, `Refused` if the text could
+/// not be set in this font (or if the font itself is unusable), or `Deferred` if the cumulative
+/// response size would exceed `MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES`.
+pub fn prepare_text_boxes(font: &TextBoxFont, texts: &[String]) -> Vec<PreparedTextBoxModel> {
     let Ok(face) = open_face(font) else {
-        return vec![None; texts.len()];
+        return vec![PreparedTextBoxModel::Refused; texts.len()];
     };
-    texts
-        .iter()
-        .map(|text| prepare_text_box_with_face(font, &face, text).ok())
-        .collect()
+    let mut models = Vec::with_capacity(texts.len());
+    let mut total_bytes: usize = 0;
+
+    for text in texts {
+        match prepare_text_box_with_face(font, &face, text) {
+            Ok(model) => {
+                let next_total = total_bytes.saturating_add(model.subset.len());
+                // A single text box subset is bounded by MAX_TEXT_BOX_SUBSET_BYTES (2 MiB),
+                // which is well below MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES (32 MiB).
+                // If total_bytes == 0, the first item is guaranteed to be accepted so the batch
+                // always progresses. Once the limit is exceeded, defer this and all remaining texts.
+                if total_bytes > 0 && next_total > MAX_PREPARE_TEXT_BOXES_RESPONSE_BYTES {
+                    models.push(PreparedTextBoxModel::Deferred);
+                    models.resize(texts.len(), PreparedTextBoxModel::Deferred);
+                    break;
+                }
+                total_bytes = next_total;
+                models.push(PreparedTextBoxModel::Prepared(model));
+            }
+            Err(_) => {
+                models.push(PreparedTextBoxModel::Refused);
+            }
+        }
+    }
+    models
 }
 
 /// The subset of `model`, cut again from itself: what is embedded is what `subsetter` writes from

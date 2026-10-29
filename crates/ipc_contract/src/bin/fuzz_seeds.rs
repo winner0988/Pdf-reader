@@ -22,9 +22,9 @@ use ipc_contract::types::{
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, InsertedTextBox, ModelGlyph, OcrFinished, OcrOutcome,
-    OcrPageState, OpenedDocument, PasswordKey, Raster, SourceTextBox, TextBoxModel,
-    WorkerAttachment, WorkerEdit, WorkerError, WorkerErrorCode, WorkerPageMarks, WorkerRequest,
-    WorkerResponse, WorkerWatermark,
+    OcrPageState, OpenedDocument, PasswordKey, PreparedTextBoxModel, Raster, SourceTextBox,
+    TextBoxModel, WorkerAttachment, WorkerEdit, WorkerError, WorkerErrorCode, WorkerPageMarks,
+    WorkerRequest, WorkerResponse, WorkerWatermark,
 };
 
 /// The words of a text box, as a worker would prepare them (a small one).
@@ -545,7 +545,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         WorkerResponse::TextBoxesPrepared {
             request,
-            models: vec![Some(text_box_model()), None],
+            models: vec![
+                PreparedTextBoxModel::Prepared(text_box_model()),
+                PreparedTextBoxModel::Refused,
+                PreparedTextBoxModel::Deferred,
+            ],
         },
         WorkerResponse::TextBox {
             request,

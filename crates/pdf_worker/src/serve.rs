@@ -12,8 +12,8 @@ use ipc_contract::frame::{self, FrameError};
 use ipc_contract::limits::{
     MAX_CREATE_SOURCES, MAX_DOCUMENT_BYTES, MAX_ERROR_MESSAGE_BYTES, MAX_LINKS_PER_PAGE,
     MAX_OCR_PAGE_MILLIS, MAX_OUTLINE_DEPTH, MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_PAGE_TEXT_CHARS,
-    MAX_PREPARE_TEXT_BOXES, MAX_PREPARE_TEXT_BOXES_TEXT_BYTES, MAX_SEARCH_HITS, MAX_SOURCE_BYTES,
-    MAX_STAMP_PNG_BYTES, MAX_STAMP_SOURCE_BYTES, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
+    MAX_SEARCH_HITS, MAX_SOURCE_BYTES, MAX_STAMP_PNG_BYTES, MAX_STAMP_SOURCE_BYTES, MAX_TEXT_BYTES,
+    MAX_UNDO_EDITS,
 };
 use ipc_contract::ocr::{check_language_data, is_language_name};
 use ipc_contract::text::{classify_uri, clean_display_text};
@@ -22,7 +22,7 @@ use ipc_contract::types::{
     PageLink, PageSize, Password, Rect, RequestId, Restrictions, SanitizeOptions, TextBoxInfo,
     Watermark,
 };
-use ipc_contract::validate::stamp_png_size;
+use ipc_contract::validate::{check_prepare_text_boxes_request, stamp_png_size};
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, NewSignature, OcrFinished, OcrOutcome, OcrPageState,
     OpenedDocument, Raster, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest,
@@ -882,20 +882,8 @@ fn prepare_text(request: RequestId, font: &FontData, text: &str) -> WorkerRespon
 
 /// Makes each text in `texts` in the font `font` into a text box model (B3-23, Issue #381).
 fn prepare_texts(request: RequestId, font: &FontData, texts: &[String]) -> WorkerResponse {
-    if texts.is_empty() || texts.len() > MAX_PREPARE_TEXT_BOXES {
-        return error(
-            request,
-            WorkerErrorCode::InvalidRequest,
-            "empty or too many text boxes to prepare",
-        );
-    }
-    let total_bytes: usize = texts.iter().map(|t| t.len()).sum();
-    if total_bytes > MAX_PREPARE_TEXT_BOXES_TEXT_BYTES {
-        return error(
-            request,
-            WorkerErrorCode::LimitExceeded,
-            "texts to prepare too large",
-        );
+    if let Err(err) = check_prepare_text_boxes_request(texts) {
+        return error(request, WorkerErrorCode::InvalidRequest, &err.to_string());
     }
     let font = TextBoxFont {
         bytes: &font.bytes,
