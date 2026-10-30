@@ -110,19 +110,19 @@ THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.`);
   return null;
 }
 
-/** What `cargo metadata` knows of the crates that end up in the shipped programs (not this project's own). */
-export function rustPackages() {
-  const meta = JSON.parse(
-    execFileSync("cargo", ["metadata", "--format-version", "1", "--locked", "--filter-platform", TARGET], {
-      cwd: ROOT,
-      maxBuffer: 1 << 29,
-      encoding: "utf8",
-    }),
-  );
+/**
+ * What `cargo metadata` knows of the packages a build of the programs `shipped` (of the workspace in
+ * `dir`) compiles in, the programs among them. Cargo's resolve also lists an optional dependency
+ * that only a weak feature (`dep?/feature`) names, which is not compiled: a package is kept only
+ * if `cargo tree`, Cargo's own answer for a build, has it too (#397).
+ */
+export function compiledPackages(dir, shipped) {
+  const cargo = (args) => execFileSync("cargo", args, { cwd: dir, maxBuffer: 1 << 29, encoding: "utf8" });
+  const meta = JSON.parse(cargo(["metadata", "--format-version", "1", "--locked", "--filter-platform", TARGET]));
   const byId = new Map(meta.packages.map((p) => [p.id, p]));
   const nodes = new Map(meta.resolve.nodes.map((node) => [node.id, node]));
-  const roots = meta.packages.filter((p) => SHIPPED.includes(p.name)).map((p) => p.id);
-  if (roots.length !== SHIPPED.length) throw new Error("the shipped programs are not in `cargo metadata`");
+  const roots = meta.packages.filter((p) => shipped.includes(p.name)).map((p) => p.id);
+  if (roots.length !== shipped.length) throw new Error("the shipped programs are not in `cargo metadata`");
   const reached = new Set();
   const pending = [...roots];
   while (pending.length) {
@@ -132,8 +132,39 @@ export function rustPackages() {
     // Normal dependencies only (`kind: null`): what is compiled in, not the tools that built it.
     for (const dep of nodes.get(id).deps) if (dep.dep_kinds.some((kind) => kind.kind === null)) pending.push(dep.pkg);
   }
-  return [...reached]
-    .map((id) => byId.get(id))
+  // A line of the tree is a package, `name vX.Y.Z`, then maybe where it came from and `(*)`.
+  const tree = cargo([
+    "tree",
+    "--locked",
+    "--target",
+    TARGET,
+    "--edges",
+    "normal",
+    "--prefix",
+    "none",
+    "--format",
+    "{p}",
+    ...shipped.flatMap((name) => ["--package", name]),
+  ]);
+  const built = new Set();
+  for (const line of tree.split(/\r?\n/)) {
+    const found = /^(\S+) v(\S+)/.exec(line);
+    if (found) built.add(`${found[1]} ${found[2]}`);
+  }
+  const packages = [...reached].map((id) => byId.get(id));
+  // The walk has more than the tree, never less: a package only the tree has would be left out.
+  const known = new Set(packages.map((p) => `${p.name} ${p.version}`));
+  const unknown = [...built].filter((key) => !known.has(key));
+  if (unknown.length) throw new Error(`\`cargo tree\` has packages that \`cargo metadata\` does not: ${unknown.join(", ")}`);
+  if (packages.some((p) => shipped.includes(p.name) && !built.has(`${p.name} ${p.version}`))) {
+    throw new Error("the shipped programs are not in `cargo tree`");
+  }
+  return packages.filter((p) => built.has(`${p.name} ${p.version}`));
+}
+
+/** The crates that end up in the shipped programs (not this project's own). */
+export function rustPackages() {
+  return compiledPackages(ROOT, SHIPPED)
     .filter((p) => p.source !== null)
     .sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
 }
