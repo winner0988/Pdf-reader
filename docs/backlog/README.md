@@ -165,3 +165,8 @@ flowchart LR
 - 文字方塊與字型子集化（規格 §4）：ADR 0018 已接受，實作卡 [#224](https://github.com/winner0988/Pdf-reader/issues/224)–[#228](https://github.com/winner0988/Pdf-reader/issues/228)，第二階段（匯入字型檔）[#229](https://github.com/winner0988/Pdf-reader/issues/229)。插入圖片與 EXIF 清除（規格 §5）。
 - 簽署文件與載入 `.pfx`（B2-11 之後）；OCR：掃描頁的文字辨識（#142，ADR 0015 已接受）；檢查更新（#64，等 ADR 0009）。
 - 全文索引（規格 §6「建立本地索引」）；硬體加速（規格 §2）。
+
+## 第三批與第四批
+
+- 第三批（B3）：見[到 11-20 的計畫](../planning/2026-10-20-plan-to-nov-20.md)。
+- 第四批（B4，到 1.0）：見[第四批計畫](../planning/2026-10-30-plan-batch-4.md)。工作卡 B4-01～B4-11 是 [#409](https://github.com/winner0988/Pdf-reader/issues/409)–[#419](https://github.com/winner0988/Pdf-reader/issues/419)，負責人決定之後才開工。
