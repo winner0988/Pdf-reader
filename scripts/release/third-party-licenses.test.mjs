@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-import { commentBlock, normalise, render, standardText, textKey } from "./third-party-licenses.mjs";
+import { commentBlock, compiledPackages, normalise, render, standardText, textKey } from "./third-party-licenses.mjs";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 test("a text is compared without its white space, its BOM and its line ends", () => {
   assert.equal(normalise("﻿  MIT License  \r\nCopyright (c) x \r\n\r\n"), "MIT License\nCopyright (c) x");
@@ -51,4 +58,40 @@ test("a text many components share is written once, numbered in the order it is 
   assert.equal([...text.matchAll(/^----- L\d+ -----$/gm)].length, 2);
   assert.match(text, /----- L1 -----\nUsed by: alpha 1\.0\.0, beta 2\.0\.0, gamma\n\nMIT text A\n/);
   assert.ok(text.endsWith("\n") && !text.endsWith("\n\n"));
+});
+
+test("an optional dependency that only a weak feature names is not compiled in, one a feature turns on is (#397)", () => {
+  // app needs lib with its feature `std`, which is `weak?/std`: that turns on `std` of `weak` only
+  // if something else turns `weak` on, and nothing does. Lib's default feature turns `named` on.
+  const manifest = (name, rest) => `[package]\nname = "${name}"\nversion = "0.1.0"\nedition = "2021"\n\n${rest}\n`;
+  const files = {
+    "Cargo.toml": '[workspace]\nmembers = ["app"]\nresolver = "2"\n',
+    "app/Cargo.toml": manifest("app", '[dependencies]\nlib = { path = "../lib", features = ["std"] }'),
+    "app/src/main.rs": "fn main() {}\n",
+    "lib/Cargo.toml": manifest(
+      "lib",
+      '[dependencies]\nnamed = { path = "../named", optional = true }\nweak = { path = "../weak", optional = true }\n\n' +
+        '[features]\ndefault = ["named"]\nstd = ["weak?/std"]',
+    ),
+    "lib/src/lib.rs": "",
+    "named/Cargo.toml": manifest("named", ""),
+    "named/src/lib.rs": "",
+    "weak/Cargo.toml": manifest("weak", "[features]\nstd = []"),
+    "weak/src/lib.rs": "",
+  };
+  const dir = mkdtempSync(path.join(tmpdir(), "notices-"));
+  try {
+    for (const [name, text] of Object.entries(files)) {
+      mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+      writeFileSync(path.join(dir, name), text);
+    }
+    // The repository's toolchain, the one that is installed.
+    copyFileSync(path.join(ROOT, "rust-toolchain.toml"), path.join(dir, "rust-toolchain.toml"));
+    execFileSync("cargo", ["generate-lockfile", "--offline"], { cwd: dir, stdio: "ignore" });
+
+    const names = compiledPackages(dir, ["app"]).map((p) => p.name).sort();
+    assert.deepEqual(names, ["app", "lib", "named"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
