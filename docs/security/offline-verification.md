@@ -54,10 +54,10 @@ WebView2 預設會**自行連網**，與 app 的程式碼無關：
 `scripts/security/watch-connections.ps1` 每 200 ms 列出 `pdf-reader.exe`、`pdf_worker.exe` 及其子行程（WebView2 的 `msedgewebview2.exe`）擁有的 TCP 連線與 UDP 端點。
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/security/watch-connections.ps1 -Seconds 180
+powershell -ExecutionPolicy Bypass -File scripts/security/watch-connections.ps1 -Seconds 900
 ```
 
-在腳本執行期間依序操作下方「操作清單」。**預期結果**：
+在腳本執行期間依序操作下方「操作清單」，做完後等腳本自己結束：看到的端點會馬上印出來，但最後一行 `Done. Endpoints seen: N` 要等 `-Seconds` 的時間到才印，按 Ctrl+C 提早結束就沒有這一行。操作清單光是停留就有 150 秒（第 1 步 90 秒，第 7、8 步各 30 秒），還要一個個開 `malicious/` 的檔案，所以給 900 秒，不夠就再加。**預期結果**：
 
 - 除了第 8 步（檢查更新），沒有任何端點；
 - 第 8 步只出現一個 `pdf-reader` 的 TCP 連線，連到 GitHub（`api.github.com` 的位址）的 443 埠；有設定 WinHTTP proxy（`netsh winhttp`）時連到 proxy；
