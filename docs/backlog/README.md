@@ -169,4 +169,4 @@ flowchart LR
 ## 第三批與第四批
 
 - 第三批（B3）：見[到 11-20 的計畫](../planning/2026-10-20-plan-to-nov-20.md)。
-- 第四批（B4，到 1.0）：見[第四批計畫](../planning/2026-10-30-plan-batch-4.md)。工作卡 B4-01～B4-11 是 [#409](https://github.com/winner0988/Pdf-reader/issues/409)–[#419](https://github.com/winner0988/Pdf-reader/issues/419)，負責人決定之後才開工。
+- 第四批（B4，到 1.0）：見[第四批計畫](../planning/2026-10-30-plan-batch-4.md)。工作卡 B4-01～B4-11 是 [#409](https://github.com/winner0988/Pdf-reader/issues/409)–[#419](https://github.com/winner0988/Pdf-reader/issues/419)，負責人 10-30 已決定，可以開工（B4-08 有空才做）。
