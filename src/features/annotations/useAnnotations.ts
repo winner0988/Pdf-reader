@@ -3,7 +3,7 @@
 // note, and (B2-30) putting down and changing text boxes. Each is an edit of the document, sent as
 // any edit is; the tab's new state comes back on the open-events channel.
 
-import { useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 import type { AnnotationsApi } from "@/features/annotations/source";
 import type { TextBoxDraft, TextBoxStart } from "@/features/annotations/TextBoxDialog";
@@ -110,6 +110,22 @@ export function useAnnotations({
   const [lastFamily, setLastFamily] = useState<string | undefined>(undefined);
   const textBoxes = enabled && api?.getFonts !== undefined && api.prepareTextBox !== undefined;
 
+  // Where the focus was when a dialog opened: an annotation's outline, say, or a button of its
+  // toolbar. A dialog closes by going away, which leaves the focus nowhere; it goes back there,
+  // unless that is gone or the user has moved on (#402).
+  const focusBefore = useRef<Element | null>(null);
+  const opening = () => {
+    focusBefore.current = document.activeElement;
+  };
+  const dialogOpen = note !== null || textBox !== null;
+  useEffect(() => {
+    if (dialogOpen) return;
+    const before = focusBefore.current;
+    focusBefore.current = null;
+    const nowhere = document.activeElement === null || document.activeElement === document.body;
+    if (before instanceof HTMLElement && before.isConnected && nowhere) before.focus();
+  }, [dialogOpen]);
+
   const edit = (change: Edit) => {
     if (!enabled) return;
     editing.applyEdit(doc, change).catch((error: unknown) => {
@@ -122,7 +138,10 @@ export function useAnnotations({
     if (!textBoxes || !api?.getFonts) return;
     // The list is read again every time: a font installed a moment ago is in it.
     api.getFonts().then(
-      (fonts) => setTextBox({ kind: "add", page, at, fonts }),
+      (fonts) => {
+        opening();
+        setTextBox({ kind: "add", page, at, fonts });
+      },
       () => onProblem(strings.annotations.fontsFailed),
     );
   };
@@ -149,10 +168,13 @@ export function useAnnotations({
     },
     newNote() {
       const at = menuAt.current && view.current?.pageAt(menuAt.current.x, menuAt.current.y);
-      if (at) setNote({ kind: "add", page: at.page, at: at.point });
-      else onProblem(strings.annotations.notOnPage);
+      if (at) {
+        opening();
+        setNote({ kind: "add", page: at.page, at: at.point });
+      } else onProblem(strings.annotations.notOnPage);
     },
     editNote(page, annotation) {
+      opening();
       setNote({ kind: "edit", page, annotation });
     },
     note,
@@ -181,14 +203,16 @@ export function useAnnotations({
     editTextBox(page, annotation) {
       if (!textBoxes || !api?.getFonts || !api.getTextBox || doc === undefined) return;
       Promise.all([api.getFonts(), api.getTextBox(doc, page, annotation.id)]).then(
-        ([fonts, info]) =>
+        ([fonts, info]) => {
+          opening();
           setTextBox({
             kind: "edit",
             page,
             annotation,
             fonts,
             start: { text: info.text, font: info.font, style: info.style, overflow: info.overflow },
-          }),
+          });
+        },
         () => onProblem(strings.annotations.fontsFailed),
       );
     },

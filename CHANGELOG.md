@@ -2,6 +2,12 @@
 
 PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/)，版本號依[語意化版本](https://semver.org/lang/zh-TW/)；1.0 之前的版本之間不保證相容。每一節的標題 `## [x.y.z] - yyyy-mm-dd` 是發行流程認得的格式（[docs/release.md](docs/release.md)），那一節的內容就是發行說明的開頭。
 
+## [Unreleased]
+
+### 修正
+
+- 用鍵盤編輯註解之後（例如用方向鍵移動、在對話框改文字方塊），焦點留在同一個註解上，可以接著按下一個鍵；附註與文字方塊的對話框關掉之後（儲存或取消），焦點回到打開它的地方；用 `Delete` 刪除註解之後，焦點回到頁面區域，和按 `Esc` 一樣。之前焦點會不見：下一個按鍵沒有作用，按 `Tab` 也要從分頁列重新開始。
+
 ## [0.2.0] - 2026-10-30
 
 PDF Reader 是注重隱私、完全離線的 Windows 桌面 PDF 閱讀器，也能編輯、簽署與轉檔。這是第一個發布安裝檔的版本：0.1.0 只在原始碼中定了版、沒有發布，[它的功能](https://github.com/winner0988/Pdf-reader/blob/v0.2.0/CHANGELOG.md#010---2026-10-08)這個版本都有，下面是 0.1.0 之後加入與修正的部分。

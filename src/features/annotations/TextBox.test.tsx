@@ -386,12 +386,20 @@ describe("changing a text box (B2-30)", () => {
     const { editing, dialog, user } = await setup();
     const outline = await choose();
     // Enter asks for the words; the arrow keys move the box a point, ten with Shift; Delete removes it.
+    // The dialog gives the focus back to the box, closed or saved (#402).
     await user.keyboard("{Enter}");
     expect(within(await dialog()).getByRole("heading", { name: d.editTitle })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(outline).toHaveFocus());
+    await user.keyboard("{Enter}");
+    const size = within(await dialog()).getByLabelText(d.size);
+    await user.clear(size);
+    await user.type(size, "30{Enter}", { skipClick: true });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(lastEdit(editing)).toMatchObject({ kind: "setTextBox", annotation: 12, model: null, style: { size: 30 } });
+    await waitFor(() => expect(outline).toHaveFocus());
 
-    outline.focus();
     await user.keyboard("{ArrowRight}");
     expect(lastEdit(editing)).toMatchObject({
       kind: "setAnnotationRect",

@@ -8,7 +8,7 @@
 // to change what it says.
 
 import { Pencil, RotateCcw, RotateCw, Trash2 } from "lucide-react";
-import { Fragment, useEffect, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { annotationLabel, HIGHLIGHT_COLORS, SWATCH } from "@/features/annotations/model";
@@ -73,7 +73,14 @@ export function PageAnnotations({
   onEditNote,
   onEditTextBox,
 }: PageAnnotationsProps) {
+  // The annotations of the last document that answered. An edit gives the document a new id; the
+  // annotation the user is on keeps its outline, and with it the focus, until the new list arrives
+  // (#402).
   const [loaded, setLoaded] = useState<{ doc: DocumentId; annotations: PageAnnotation[] } | null>(null);
+  // The focus is on an outline or a toolbar of this page. It has left only when something else gets
+  // it: one taken off the page takes the focus to nowhere (WebView2 blurs it as it goes, with no
+  // element to go to), and so does the window losing it, and this stays true then.
+  const focusInside = useRef(false);
 
   useEffect(() => {
     let current = true;
@@ -94,22 +101,42 @@ export function PageAnnotations({
     };
   }, [source, doc, index, delayMs]);
 
-  const annotations = loaded?.doc === doc ? loaded.annotations : [];
+  // Whether the list is of the document the page shows, and not of the one before an edit.
+  const fresh = loaded?.doc === doc;
+  const annotations = loaded?.annotations ?? [];
   const chosenOne = chosen === null ? null : (annotations.find((annotation) => annotation.id === chosen) ?? null);
   // An edit (a new document) can take the chosen annotation away.
-  const gone = chosen !== null && loaded?.doc === doc && chosenOne === null;
+  const gone = chosen !== null && fresh && chosenOne === null;
   useEffect(() => {
-    if (gone) onChoose(null);
-  }, [gone, onChoose]);
+    if (!gone) return;
+    if (focusInside.current && (document.activeElement === null || document.activeElement === document.body)) {
+      // The focus went with it (Delete, say): the view gets it back, as with Esc.
+      focusInside.current = false;
+      onRelease();
+    } else onChoose(null);
+  }, [gone, onChoose, onRelease]);
 
   if (annotations.length === 0) return null;
+  // Nothing is changed from the list of the document before an edit, and no dialog starts from it:
+  // they wait for the new list.
+  const change = (edit: Edit) => {
+    if (fresh) onEdit?.(edit);
+  };
   const remove = (annotation: PageAnnotation) =>
-    onEdit?.({ kind: "deleteAnnotation", page: index, annotation: annotation.id });
+    change({ kind: "deleteAnnotation", page: index, annotation: annotation.id });
   const place = (annotation: PageAnnotation, rect: Rect) =>
-    onEdit?.({ kind: "setAnnotationRect", page: index, annotation: annotation.id, rect });
+    change({ kind: "setAnnotationRect", page: index, annotation: annotation.id, rect });
   // A picture is turned to an angle (B3-01), not by a step on top of what the page last heard.
   const turnTo = (annotation: PageAnnotation, degrees: number) =>
-    onEdit?.({ kind: "setPictureAngle", page: index, annotation: annotation.id, degrees: normalizeAngle(degrees) });
+    change({ kind: "setPictureAngle", page: index, annotation: annotation.id, degrees: normalizeAngle(degrees) });
+  const editNote = (annotation: PageAnnotation) => {
+    if (fresh) onEditNote?.(index, annotation);
+  };
+  const editTextBox =
+    onEditTextBox &&
+    ((annotation: PageAnnotation) => {
+      if (fresh) onEditTextBox(index, annotation);
+    });
   const pixelsPerPoint = box.width / displayedSize(page, rotation).widthPt;
   const keys = (annotation: PageAnnotation, area: Box) => (event: KeyboardEvent) => {
     if ((event.key === "Delete" || event.key === "Backspace") && onEdit) {
@@ -118,10 +145,10 @@ export function PageAnnotations({
     } else if (event.key === "Escape") {
       event.preventDefault();
       onRelease();
-    } else if (event.key === "Enter" && annotation.kind === "textBox" && onEdit && onEditTextBox) {
+    } else if (event.key === "Enter" && annotation.kind === "textBox" && onEdit && editTextBox) {
       // Enter changes what a text box says: the keyboard's way to the dialog.
       event.preventDefault();
-      if (!event.repeat) onEditTextBox(index, annotation);
+      if (!event.repeat) editTextBox(annotation);
     } else if ((event.key === "[" || event.key === "]") && onEdit && annotation.picture) {
       // A picture is turned a step at a time, the way the bracket points (B3-01).
       event.preventDefault();
@@ -142,8 +169,17 @@ export function PageAnnotations({
   return (
     <div
       data-page-annotations={index + 1}
+      // An edit was just made: these are the annotations before it, until the new list arrives.
+      aria-busy={fresh ? undefined : true}
       className="pointer-events-none absolute"
       style={{ top: box.top, left, width: box.width, height: box.height }}
+      onFocus={() => {
+        focusInside.current = true;
+      }}
+      onBlur={(event) => {
+        const to = event.relatedTarget;
+        if (to instanceof Node && !event.currentTarget.contains(to)) focusInside.current = false;
+      }}
     >
       {annotations.map((annotation) => {
         const area = rectToBox(annotation.rect, page, rotation, box);
@@ -169,7 +205,8 @@ export function PageAnnotations({
               onFocus={() => onChoose(annotation.id)}
               onKeyDown={keys(annotation, area)}
             />
-            {isChosen && movable && (
+            {/* The handles are for the annotation as the page shows it: not on the list before an edit. */}
+            {isChosen && movable && fresh && (
               <MoveResize
                 annotation={annotation}
                 page={page}
@@ -179,7 +216,7 @@ export function PageAnnotations({
                 onPlace={(rect) => place(annotation, rect)}
               />
             )}
-            {isChosen && movable && annotation.picture && (
+            {isChosen && movable && fresh && annotation.picture && (
               <PictureTurn
                 picture={annotation.picture}
                 rect={annotation.rect}
@@ -201,10 +238,10 @@ export function PageAnnotations({
                 left={Math.max(0, Math.min(area.left, box.width - 240))}
                 allowed={onEdit !== undefined}
                 onColor={(color) =>
-                  onEdit?.({ kind: "setHighlightColor", page: index, annotation: annotation.id, color })
+                  change({ kind: "setHighlightColor", page: index, annotation: annotation.id, color })
                 }
-                onEditNote={() => onEditNote?.(index, annotation)}
-                onEditTextBox={onEditTextBox ? () => onEditTextBox(index, annotation) : undefined}
+                onEditNote={() => editNote(annotation)}
+                onEditTextBox={editTextBox ? () => editTextBox(annotation) : undefined}
                 onTurn={
                   annotation.picture
                     ? (by) => turnTo(annotation, (annotation.picture?.angle ?? 0) + by)
