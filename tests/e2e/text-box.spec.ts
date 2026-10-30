@@ -617,6 +617,7 @@ test("a font that is gone says so: under the open dialog, and in a document that
     await expect(boxes(there)).toHaveCount(1);
     // Shown as it was: the font is in the file.
     await expect.poll(() => inkNow(there)).toBeGreaterThan(SHOWS_WORDS);
+    const opened = await firstPage(there).getAttribute("data-doc");
     await boxes(there).first().focus();
     await there.keyboard.press("Enter");
     const editing = there.getByRole("dialog", { name: d.editTitle });
@@ -628,9 +629,14 @@ test("a font that is gone says so: under the open dialog, and in a document that
     await editing.getByLabel(d.size, { exact: true }).fill("30");
     await editing.getByRole("button", { name: d.save, exact: true }).click();
     await expect(there.getByRole("dialog")).toHaveCount(0);
+    // The dialog closes before the box is set again. Then the page gets the new document and its
+    // box takes the old one's place: it is the new box that is chosen, not the old one on its way
+    // out, which would take the focus with it (#396).
+    await expect(firstPage(there)).not.toHaveAttribute("data-doc", opened ?? "");
     // New words need one: the dialog says to choose another, and a font that is here does it.
     await expect(boxes(there)).toHaveCount(1);
     await boxes(there).first().focus();
+    await expect(boxes(there).first()).toBeFocused();
     await there.keyboard.press("Enter");
     const again = there.getByRole("dialog", { name: d.editTitle });
     await expect(again.getByLabel(d.size, { exact: true })).toHaveValue("30");
