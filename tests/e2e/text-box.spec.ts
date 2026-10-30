@@ -682,10 +682,11 @@ test("a font that is gone says so: under the open dialog, and in a document that
     await editing.getByLabel(d.size, { exact: true }).fill("30");
     await editing.getByRole("button", { name: d.save, exact: true }).click();
     await expect(there.getByRole("dialog")).toHaveCount(0);
-    // The dialog closes before the box is set again. Then the page gets the new document and its
-    // box takes the old one's place: it is the new box that is chosen, not the old one on its way
-    // out, which would take the focus with it (#396).
+    // The dialog closes before the box is set again. Then the page gets the new document, and until
+    // the annotations of the new document come, the box is the one of the old, which takes no keys
+    // (#396, #402).
     await expect(firstPage(there)).not.toHaveAttribute("data-doc", opened ?? "");
+    await expect(there.locator("[data-page-annotations][aria-busy]")).toHaveCount(0);
     // New words need one: the dialog says to choose another, and a font that is here does it.
     await expect(boxes(there)).toHaveCount(1);
     await boxes(there).first().focus();
