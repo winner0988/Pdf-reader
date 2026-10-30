@@ -4,7 +4,7 @@
 
 ## 安裝
 
-1. 下載安裝檔 `PDF-Reader_<版本>_x64-setup.exe` 與同名的 `.sha256` 檔。
+1. 從 [Releases](https://github.com/winner0988/Pdf-reader/releases/latest) 頁面下載安裝檔 `PDF-Reader_<版本>_x64-setup.exe` 與同名的 `.sha256` 檔。
 2. **核對檔案沒有被調包**：在下載的資料夾開啟 PowerShell，執行
 
    ```powershell
