@@ -23,20 +23,20 @@ REL-04（[#198](https://github.com/winner0988/Pdf-reader/issues/198)）。怎麼
 ### 發行前
 
 - [ ] `main` 的 CI 全綠，沒有待處理的 `needs-security-review`。
-- [ ] 人工安全檢查（[manual-checks.md](security/manual-checks.md) 第 1、2 節）在要發行的建置上做過，結果寫進該文件最後的紀錄表。0.1.0 之前這個表還是「尚未執行」。
+- [ ] 人工安全檢查（[manual-checks.md](security/manual-checks.md) 第 1、2 節）在要發行的建置上做過，結果寫進該文件最後的紀錄表。
 - [ ] 離線驗證的手動檢查（[offline-verification.md](security/offline-verification.md#手動檢查每次發布前)，「每次發布前」）：方法 A（內建的 `scripts/security/watch-connections.ps1`）與方法 B（Process Monitor），在要發行的安裝檔上做；結果依該文件的「紀錄格式」附在發行 PR。
 - [ ] 版本：`package.json` 的 `version`、`Cargo.toml` 的 `[workspace.package]`、`Cargo.lock`（`cargo check` 會更新）是同一個版本；`CHANGELOG.md` 有 `## [x.y.z] - yyyy-mm-dd`，日期是發行當天，內容是使用者看得懂的變化。`node scripts/release/check-version.mjs v<版本>` 要通過。
 - [ ] 第三方元件聲明是最新的：`node scripts/release/third-party-licenses.mjs --check`。不是的話去掉 `--check` 重新產生並提交（依賴更新之後常會這樣）。
 - [ ] 以上的變更走一般的 PR（標題 `chore: release x.y.z`），合併後再繼續。
-- [ ] Actions 頁面手動執行 `Release`（選 `main`），全綠。
+- [ ] Actions 頁面手動執行 `Release`（選 `main`），全綠；記下那次 run 的 commit（run 頁面上的 SHA），打 tag 時要用。
 
 ### 發行
 
-- [ ] 在合併了發行 PR 的 `main` 上打 tag 並推上去：
+- [ ] 在演練過的那個 commit 上打 tag 並推上去，這樣之後 `main` 再合併了別的東西，也不會跟著發出去。不用切換分支或 `git pull`，不會碰到工作目錄裡還沒提交的修改：
 
   ```bash
-  git switch main && git pull
-  git tag -a v0.1.0 -m "PDF Reader 0.1.0"
+  git fetch origin
+  git tag -a v0.1.0 <演練那次 run 的 SHA> -m "PDF Reader 0.1.0"
   git push origin v0.1.0
   ```
 
@@ -47,7 +47,7 @@ REL-04（[#198](https://github.com/winner0988/Pdf-reader/issues/198)）。怎麼
 
 ### 發行後
 
-- [ ] README 的功能表與「**還沒有**」清單跟上 `CHANGELOG.md` 的這個版本（一個一般的 docs PR）。README 最上面的下載說明與 `SECURITY.md` 的「支援版本」連到最新發行的版本，沒寫版本號，不用改。
+- [ ] README 的功能表與「**還沒有**」清單要有 `CHANGELOG.md` 這個版本的每一項：功能表列的是 `main` 上的功能，功能 PR 漏了的，用一個一般的 docs PR 補上。README 最上面的下載說明與 `SECURITY.md` 的「支援版本」連到最新發行的版本，沒寫版本號，不用改。
 - [ ] 在 Windows 的舊版上按「檢查更新」，確認會看到新版本；新版上則顯示已是最新。
 
 ## 失敗的時候
