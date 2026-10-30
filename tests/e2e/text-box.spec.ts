@@ -376,6 +376,59 @@ test("a text box is moved, resized, re-worded, deleted and brought back, and the
   }
 });
 
+test("the keyboard stays on a text box through its edits: moved twice, changed and opened again, and the view has it once the box is deleted (#402)", async ({
+  launch,
+}) => {
+  test.setTimeout(120_000);
+  const folder = folderFor("text-box-keys");
+  try {
+    const file = path.join(folder, "original.pdf");
+    copyFileSync(corpus("benign/mixed-text-zh-en.pdf"), file);
+    const page = await launch(file);
+    await ready(page);
+    await putDown(page, await at(page, 0.5, 0.35), { words: "Keys", families: LATIN });
+    const box = boxes(page).first();
+    await expect(box).toHaveAccessibleName(t.textBoxSaying("Keys"));
+
+    // Chosen once with the keyboard, and never again: each edit leaves the focus on the box, and
+    // the next key goes to it.
+    await box.focus();
+    const start = await boxOf(box);
+    await page.keyboard.press("Shift+ArrowRight");
+    await expect.poll(async () => ((await placeOf(boxes(page)))?.x ?? start.x) - start.x).toBeGreaterThan(5);
+    await expect(box).toBeFocused();
+    const once = await boxOf(box);
+    await page.keyboard.press("Shift+ArrowRight");
+    await expect.poll(async () => ((await placeOf(boxes(page)))?.x ?? once.x) - once.x).toBeGreaterThan(5);
+    await expect(box).toBeFocused();
+
+    // Changed in its dialog: the box has the focus again, and Enter opens the dialog of the box as
+    // it is now. (The dialog closes before the edit is made: the page's new document says it is.)
+    const before = await firstPage(page).getAttribute("data-doc");
+    await page.keyboard.press("Enter");
+    const editing = page.getByRole("dialog", { name: d.editTitle });
+    await expect(editing).toBeVisible();
+    await editing.getByLabel(d.size, { exact: true }).fill("30");
+    await editing.getByLabel(d.text, { exact: true }).press("Control+Enter");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(firstPage(page)).not.toHaveAttribute("data-doc", before ?? "");
+    await expect(page.locator("[data-page-annotations][aria-busy]")).toHaveCount(0);
+    await expect(box).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(editing.getByLabel(d.size, { exact: true })).toHaveValue("30");
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(box).toBeFocused();
+
+    // Deleted: the box goes, and the focus goes back to the view, as with Esc, not to the window.
+    await page.keyboard.press("Delete");
+    await expect(boxes(page)).toHaveCount(0);
+    await expect(page.getByRole("main")).toBeFocused();
+  } finally {
+    removeFolder(folder);
+  }
+});
+
 test("a text box that was not saved comes back after a crash, from a small subset in the journal and not the font (B2-31)", async ({
   launch,
 }) => {
@@ -629,10 +682,11 @@ test("a font that is gone says so: under the open dialog, and in a document that
     await editing.getByLabel(d.size, { exact: true }).fill("30");
     await editing.getByRole("button", { name: d.save, exact: true }).click();
     await expect(there.getByRole("dialog")).toHaveCount(0);
-    // The dialog closes before the box is set again. Then the page gets the new document and its
-    // box takes the old one's place: it is the new box that is chosen, not the old one on its way
-    // out, which would take the focus with it (#396).
+    // The dialog closes before the box is set again. Then the page gets the new document, and until
+    // the annotations of the new document come, the box is the one of the old, which takes no keys
+    // (#396, #402).
     await expect(firstPage(there)).not.toHaveAttribute("data-doc", opened ?? "");
+    await expect(there.locator("[data-page-annotations][aria-busy]")).toHaveCount(0);
     // New words need one: the dialog says to choose another, and a font that is here does it.
     await expect(boxes(there)).toHaveCount(1);
     await boxes(there).first().focus();

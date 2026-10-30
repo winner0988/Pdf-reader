@@ -263,6 +263,8 @@ describe("the annotations a page has (B2-07)", () => {
     await waitFor(() =>
       expect(editing.applyEdit).toHaveBeenCalledWith(5, { kind: "setNoteText", page: 0, annotation: 5, text: "Changed" }),
     );
+    // The focus is back on the button the dialog was opened with (#402).
+    await waitFor(() => expect(within(toolbar).getByRole("button", { name: t.editNote })).toHaveFocus());
   });
 
   it("can only be looked at when the author forbids changing them", async () => {
@@ -317,5 +319,111 @@ describe("PageAnnotations", () => {
     mount(null, []);
     await act(async () => {});
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  const words: PageAnnotation = {
+    id: 7,
+    kind: "textBox",
+    rect: { x0: 100, y0: 400, x1: 260, y1: 440 },
+    color: null,
+    text: "Words",
+    picture: null,
+  };
+
+  /** On document 1, whose list is `list`; `edit()` makes it document 2, whose list `answer` gives. */
+  function mountEdited(list: PageAnnotation[], chosen: number) {
+    let resolveNext: (next: PageAnnotation[]) => void = () => {};
+    const source = createAnnotationSource({
+      getPageAnnotations: (doc) =>
+        doc === 1 ? Promise.resolve(list) : new Promise<PageAnnotation[]>((resolve) => (resolveNext = resolve)),
+    });
+    const callbacks = {
+      onChoose: vi.fn(),
+      onRelease: vi.fn(),
+      onEdit: vi.fn<(edit: Edit) => void>(),
+      onEditTextBox: vi.fn(),
+    };
+    const on = (doc: number) => (
+      <PageAnnotations
+        source={source}
+        doc={doc}
+        index={0}
+        page={page}
+        rotation={0}
+        box={box}
+        left={0}
+        delayMs={0}
+        chosen={chosen}
+        {...callbacks}
+      />
+    );
+    const { rerender } = render(on(1));
+    return {
+      ...callbacks,
+      edit: () => rerender(on(2)),
+      answer: (next: PageAnnotation[]) => act(async () => resolveNext(next)),
+    };
+  }
+
+  it("keeps an outline, and the focus on it, until the list of the document an edit made arrives (#402)", async () => {
+    const { onEdit, onEditTextBox, edit, answer } = mountEdited([words], 7);
+    const outline = await screen.findByRole("button", { name: annotationLabel(words) });
+    act(() => outline.focus());
+    const layer = outline.closest("[data-page-annotations]")!;
+    expect(layer.querySelector("[data-move-resize]")).not.toBeNull();
+    edit();
+    // The outline of the box before the edit, with the focus. Nothing is changed from it, and no
+    // dialog starts from it; the arrows do not scroll the page either. Its handles wait.
+    expect(screen.getByRole("button", { name: annotationLabel(words) })).toBe(outline);
+    expect(outline).toHaveFocus();
+    expect(layer).toHaveAttribute("aria-busy", "true");
+    expect(layer.querySelector("[data-move-resize]")).toBeNull();
+    expect(fireEvent.keyDown(outline, { key: "ArrowRight" })).toBe(false);
+    fireEvent.keyDown(outline, { key: "Delete" });
+    fireEvent.keyDown(outline, { key: "Enter" });
+    const toolbar = screen.getByRole("toolbar", { name: annotationLabel(words) });
+    fireEvent.click(within(toolbar).getByRole("button", { name: t.editTextBox }));
+    fireEvent.click(within(toolbar).getByRole("button", { name: t.delete }));
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(onEditTextBox).not.toHaveBeenCalled();
+    // The new list: the same outline, still with the focus, where the box is now; the keys work again.
+    const moved = { ...words, rect: { ...words.rect, x0: 110, x1: 270 } };
+    await answer([moved]);
+    expect(screen.getByRole("button", { name: annotationLabel(moved) })).toBe(outline);
+    expect(outline).toHaveFocus();
+    expect(layer).not.toHaveAttribute("aria-busy");
+    expect(layer.querySelector("[data-move-resize]")).not.toBeNull();
+    fireEvent.keyDown(outline, { key: "ArrowRight" });
+    expect(onEdit).toHaveBeenLastCalledWith(expect.objectContaining({ kind: "setAnnotationRect", page: 0, annotation: 7 }));
+    fireEvent.keyDown(outline, { key: "Enter" });
+    expect(onEditTextBox).toHaveBeenCalledWith(0, moved);
+  });
+
+  it("gives the focus back to the view when an edit takes away the annotation that has it (#402)", async () => {
+    const { onChoose, onRelease, edit, answer } = mountEdited([words, highlight], 7);
+    const outline = await screen.findByRole("button", { name: annotationLabel(words) });
+    act(() => outline.focus());
+    edit();
+    // WebView2 blurs an element as it takes it off the page, with no element to go to (jsdom does
+    // not); the window losing the focus blurs it the same way. Neither is the focus leaving.
+    fireEvent.blur(outline);
+    await answer([highlight]);
+    expect(outline).not.toBeInTheDocument();
+    expect(onRelease).toHaveBeenCalled();
+    expect(onChoose).not.toHaveBeenCalledWith(null);
+  });
+
+  it("leaves the focus where the user took it when an edit takes away the annotation chosen (#402)", async () => {
+    const { onChoose, onRelease, edit, answer } = mountEdited([words, highlight], 7);
+    const outline = await screen.findByRole("button", { name: annotationLabel(words) });
+    act(() => outline.focus());
+    const elsewhere = document.body.appendChild(document.createElement("input"));
+    act(() => elsewhere.focus());
+    edit();
+    await answer([highlight]);
+    expect(elsewhere).toHaveFocus();
+    expect(onChoose).toHaveBeenCalledWith(null);
+    expect(onRelease).not.toHaveBeenCalled();
+    elsewhere.remove();
   });
 });
