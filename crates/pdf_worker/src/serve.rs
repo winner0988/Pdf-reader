@@ -784,7 +784,11 @@ fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineErro
             source,
             text_boxes,
         } => document.insert_pages(*at, source, text_boxes)?,
-        WorkerEdit::AddHighlight { marks, color } => document.add_highlights(marks, *color)?,
+        WorkerEdit::AddHighlight {
+            mark_kind,
+            marks,
+            color,
+        } => document.add_text_marks(*mark_kind, marks, *color)?,
         WorkerEdit::AddNote { page, at, text } => document.add_note(*page, *at, text)?,
         WorkerEdit::DeleteAnnotation { page, annotation } => {
             document.delete_annotation(*page, *annotation)?;

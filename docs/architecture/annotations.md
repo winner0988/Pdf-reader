@@ -1,14 +1,17 @@
-# 註解：螢光筆、文字附註、手繪線條與印章（B2-07、B2-08）
+# 註解：螢光筆與文字標記、文字附註、手繪線條與印章（B2-07、B2-08、B4-04）
 
-工作卡 [#96](https://github.com/winner0988/Pdf-reader/issues/96)（螢光筆與附註）、[#97](https://github.com/winner0988/Pdf-reader/issues/97)（手繪線條與印章）；規格 §6「註解標記：螢光筆」。編輯的共通做法（指令、復原、存檔、崩潰復原）見 [ADR 0013](../adr/0013-editing-and-saving.md)、[page-management.md](page-management.md)、[saving.md](saving.md) 與 [crash-recovery.md](crash-recovery.md)。
+工作卡 [#96](https://github.com/winner0988/Pdf-reader/issues/96)（螢光筆與附註）、[#97](https://github.com/winner0988/Pdf-reader/issues/97)（手繪線條與印章）、[#412](https://github.com/winner0988/Pdf-reader/issues/412)（底線、刪除線與波浪線）；規格 §6「註解標記：螢光筆」。編輯的共通做法（指令、復原、存檔、崩潰復原）見 [ADR 0013](../adr/0013-editing-and-saving.md)、[page-management.md](page-management.md)、[saving.md](saving.md) 與 [crash-recovery.md](crash-recovery.md)。
 
-worker 與主行程的做法在前面各節；畫面（選取文字後的「螢光筆」、放置附註、選取與變更既有的註解）見「畫面」。
+worker 與主行程的做法在前面各節；畫面（選取文字後的「螢光筆」、「底線」、「刪除線」、「波浪線」、放置附註、選取與變更既有的註解）見「畫面」。
 
 ## 註解是標準的 PDF 註解
 
 | app 的動作 | PDF 中的註解 | 說明 |
 |---|---|---|
 | 螢光筆 | `Highlight`，`/QuadPoints` 是選取的文字的四邊形（每行一個），`/C` 是顏色 | 四種顏色：黃、綠、藍、粉紅 |
+| 底線（B4-04） | `Underline`，`/QuadPoints` 是選取的文字的四邊形，`/C` 是顏色 | 四種顏色：黃、綠、藍、粉紅 |
+| 刪除線（B4-04） | `StrikeOut`，`/QuadPoints` 是選取的文字的四邊形，`/C` 是顏色 | 四種顏色：黃、綠、藍、粉紅 |
+| 波浪線（B4-04） | `Squiggly`，`/QuadPoints` 是選取的文字的四邊形，`/C` 是顏色 | 四種顏色：黃、綠、藍、粉紅 |
 | 文字附註 | `Text`（附註圖示，20 × 20 pt），`/Contents` 是附註的文字 | MuPDF 另外加上一個彈出視窗（`Popup`） |
 | 手繪線條（B2-08） | `Ink`，`/InkList` 是每一筆的點（PDF 座標），`/C` 是顏色，`/BS` 的 `/W` 是粗細 | 四種顏色（黑、紅、藍、綠）、三種粗細（1、2.5、5 pt）；線條是圓頭圓角，只有一個點的一筆是一個圓點 |
 | 標準印章（B2-08） | `Stamp`，`/Name` 是標準名稱（`Approved`、`NotApproved`、`Draft`、`Final`、`Confidential`、`ForComment`、`AsIs`、`TopSecret`），`/C` 是顏色 | MuPDF 產生外觀：英文字、細邊框，略微傾斜，與其他閱讀器的同名印章相同；大小固定 190 : 50 的比例 |
@@ -49,10 +52,10 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 
 | `Edit` | 內容 | 驗證 |
 |---|---|---|
-| `addHighlight { marks, color }` | 標示螢光筆：`marks` 的每一頁（`{ page, quads }`）各一個 `Highlight` 註解。選取的文字跨頁時仍是一個編輯，一次復原全部取消 | 1 到 `LIMITS.maxHighlightPages`（100）頁，頁碼不重複，每頁至少一個四邊形，全部最多 `LIMITS.maxAnnotationQuads`（1,000）個，座標都是有限值且不超過頁面大小的上限；有一頁不符合時，任何一頁都不改變 |
+| `addHighlight { mark_kind, marks, color }` | 標示文字（螢光筆、底線、刪除線、波浪線）：`mark_kind` 預設為 `Highlight`（相容舊版日誌），`marks` 的每一頁（`{ page, quads }`）各建立一個對應型別的註解。選取的文字跨頁時仍是一個編輯，一次復原全部取消 | 1 到 `LIMITS.maxHighlightPages`（100）頁，頁碼不重複，每頁至少一個四邊形，全部最多 `LIMITS.maxAnnotationQuads`（1,000）個，座標都是有限值且不超過頁面大小的上限；有一頁不符合時，任何一頁都不改變 |
 | `addNote { page, at, text }` | 在 `at` 放一個附註 | 文字見下方 |
 | `deleteAnnotation { page, annotation }` | 移除一個註解（app 加的，或文件原有的） | 註解必須在那一頁 |
-| `setHighlightColor { page, annotation, color }` | 改變螢光筆的顏色 | 只能是螢光筆 |
+| `setHighlightColor { page, annotation, color }` | 改變文字標記（螢光筆、底線、刪除線、波浪線）的顏色 | 只能是螢光筆、底線、刪除線或波浪線 |
 | `setNoteText { page, annotation, text }` | 改變附註的文字 | 只能是附註；文字見下方 |
 | `addInk { page, strokes, color, width }` | 手繪：`strokes` 的每一筆（頁面空間的點）一起成為一個 `Ink` 註解，所以一次復原取消整張圖 | 至少一筆、每筆至少一個點；最多 `LIMITS.maxInkStrokes`（256）筆、全部最多 `LIMITS.maxInkPoints`（20,000）個點，座標都是有限值且不超過頁面大小的上限 |
 | `addStamp { page, rect, stamp }` | 在 `rect` 蓋上標準印章 | `rect` 是正的，每邊至少 `LIMITS.minAnnotationSidePt`（8 pt），座標都是有限值 |

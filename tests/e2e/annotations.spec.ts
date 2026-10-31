@@ -154,3 +154,67 @@ test("a note put on the page says what the user typed, and can be changed (B2-07
   await edit.getByRole("button", { name: t.noteDialog.save }).click();
   await expect(notes.first()).toHaveAccessibleName(t.noteSaying("Changed"));
 });
+
+test("text marked with underline is in the saved copy, can be recolored, and undone/redone (B4-04)", async ({
+  launch,
+}) => {
+  const folder = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-underline-"));
+  try {
+    const file = path.join(folder, "original.pdf");
+    copyFileSync(corpus("benign/mixed-text-zh-en.pdf"), file);
+    const page = await launch(file);
+    await expect(firstPage(page)).toHaveAttribute("data-state", "ready");
+    const underlineMarks = page.locator("[data-page-annotations] [data-annotation=underline]");
+    await expect(underlineMarks).toHaveCount(0);
+
+    // Select "Privacy" with a double click, and mark it blue with Underline from context menu.
+    const privacy = await find(page, "Privacy");
+    await page.mouse.dblclick(privacy.x + privacy.width / 2, privacy.y + privacy.height / 2);
+    await page.mouse.click(privacy.x + privacy.width / 2, privacy.y + privacy.height / 2, { button: "right" });
+    await page.getByRole("menuitem", { name: t.underline }).click();
+    await page.getByRole("menuitem", { name: t.colors.blue }).click();
+    await expect(underlineMarks).toHaveCount(1);
+    await expect(underlineMarks.first()).toHaveAccessibleName(t.underlineIn(t.colors.blue));
+
+    // The document has changes now.
+    await expect(page.getByRole("tab", { name: new RegExp(`^original\\.pdf\\s*${strings.tabs.unsaved}$`) })).toBeVisible();
+
+    // Undo takes it away, redo brings it back.
+    await page.keyboard.press("Control+z");
+    await expect(underlineMarks).toHaveCount(0);
+    await page.keyboard.press("Control+y");
+    await expect(underlineMarks).toHaveCount(1);
+
+    // Change color from its toolbar
+    await underlineMarks.first().focus();
+    await page.getByRole("toolbar", { name: t.underlineIn(t.colors.blue) }).getByRole("button", { name: t.colors.pink }).click();
+    await expect(underlineMarks.first()).toHaveAccessibleName(t.underlineIn(t.colors.pink));
+
+    const copy = path.join(folder, "underlined.pdf");
+    await page.keyboard.press("Control+Shift+S");
+    await answerFileDialog(page, { path: copy });
+    await expect(page.getByRole("contentinfo")).toContainText(strings.saving.saved);
+    await quit(page);
+
+    // A standard Underline annotation without author or date metadata
+    const saved = readFileSync(copy).toString("latin1");
+    expect(saved).toMatch(/\/Subtype\s*\/Underline/);
+    expect(saved).toMatch(/\/QuadPoints/);
+    expect(saved).not.toMatch(/\/T\s*[(<]/);
+    expect(saved).not.toMatch(/\/M\s*[(<]/);
+    expect(saved).not.toMatch(/\/(NM|CreationDate)\b/);
+
+    const reopened = await launch(copy);
+    await expect(firstPage(reopened)).toHaveAttribute("data-state", "ready");
+    const reopenedMarks = reopened.locator("[data-page-annotations] [data-annotation=underline]");
+    await expect(reopenedMarks).toHaveCount(1);
+    await expect(reopenedMarks.first()).toHaveAccessibleName(t.underlineIn(t.colors.pink));
+
+    // Removing it leaves no mark
+    await reopenedMarks.first().focus();
+    await reopened.getByRole("toolbar", { name: t.underlineIn(t.colors.pink) }).getByRole("button", { name: t.delete }).click();
+    await expect(reopenedMarks).toHaveCount(0);
+  } finally {
+    rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});

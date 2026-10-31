@@ -22,6 +22,7 @@ import {
   type PageAnnotation,
   type Point,
   type TextBoxStyle,
+  type TextMarkKind,
 } from "@/ipc/generated/contract";
 
 /** The note a dialog is open for: a new one at a place on a page, or what one already says. */
@@ -53,10 +54,12 @@ export type AnnotationActions = {
   enabled: boolean;
   /** The color the highlighter used last (yellow at first). */
   color: HighlightColor;
+  /** The last color used for each mark kind. */
+  markColor(kind: TextMarkKind): HighlightColor;
   /** Changes the document; without it (the author does not allow it) annotations are only shown. */
   edit: ((edit: Edit) => void) | undefined;
-  /** Marks the selected text; in `color`, or the last one used. */
-  highlight(color?: HighlightColor): void;
+  /** Marks the selected text; in `color`, or the last one used for that kind. */
+  highlight(color?: HighlightColor, markKind?: TextMarkKind): void;
   /** Remembers where the context menu opened, for `newNote`. */
   contextMenuAt(clientX: number, clientY: number): void;
   /** Opens the dialog for a new note where the context menu was opened. */
@@ -93,6 +96,13 @@ function sameStyle(one: TextBoxStyle, other: TextBoxStyle): boolean {
   );
 }
 
+const DEFAULT_MARK_COLORS: Record<TextMarkKind, HighlightColor> = {
+  highlight: "yellow",
+  underline: "blue",
+  strikeOut: "pink",
+  squiggly: "green",
+};
+
 export function useAnnotations({
   doc,
   api,
@@ -103,7 +113,7 @@ export function useAnnotations({
   onProblem,
 }: Options): AnnotationActions {
   const enabled = allowed && doc !== undefined && editing !== undefined;
-  const [color, setColor] = useState<HighlightColor>("yellow");
+  const [markColors, setMarkColors] = useState<Record<TextMarkKind, HighlightColor>>(DEFAULT_MARK_COLORS);
   const [note, setNote] = useState<NoteTarget | null>(null);
   const menuAt = useRef<{ x: number; y: number } | null>(null);
   const [textBox, setTextBox] = useState<TextBoxTarget | null>(null);
@@ -148,10 +158,14 @@ export function useAnnotations({
 
   return {
     enabled,
-    color,
+    color: markColors.highlight,
+    markColor(kind: TextMarkKind) {
+      return markColors[kind];
+    },
     edit: enabled ? edit : undefined,
-    highlight(use = color) {
+    highlight(useColor, markKind = "highlight") {
       if (!enabled) return;
+      const use = useColor ?? markColors[markKind];
       void view.current?.highlightMarks().then((marks) => {
         if (marks.length === 0) return;
         const quads = marks.reduce((total, mark) => total + mark.quads.length, 0);
@@ -159,8 +173,8 @@ export function useAnnotations({
           onProblem(strings.annotations.tooMuch);
           return;
         }
-        setColor(use);
-        edit({ kind: "addHighlight", marks, color: use });
+        setMarkColors((prev) => ({ ...prev, [markKind]: use }));
+        edit({ kind: "addHighlight", markKind, marks, color: use });
       });
     },
     contextMenuAt(clientX, clientY) {

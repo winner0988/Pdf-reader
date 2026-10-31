@@ -1639,7 +1639,7 @@ mod tests {
     use ipc_contract::types::{
         AnnotationId, AnnotationKind, AnnotationSummaryKind, FieldId, FieldKind, FieldOption,
         FormField, HighlightColor, HighlightMark, InkColor, InkWidth, PageAnnotation, Rect,
-        StampName,
+        StampName, TextMarkKind,
     };
 
     use super::*;
@@ -2770,6 +2770,114 @@ mod tests {
         }));
     }
 
+    #[test]
+    fn text_marks_underline_strikeout_squiggly_have_appearance_and_are_saved() {
+        let mut doc = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
+        let quad1 = Quad {
+            ul: Point { x: 72.0, y: 56.0 },
+            ur: Point { x: 300.0, y: 56.0 },
+            ll: Point { x: 72.0, y: 100.0 },
+            lr: Point { x: 300.0, y: 100.0 },
+        };
+        let quad2 = Quad {
+            ul: Point { x: 72.0, y: 120.0 },
+            ur: Point { x: 300.0, y: 120.0 },
+            ll: Point { x: 72.0, y: 140.0 },
+            lr: Point { x: 300.0, y: 140.0 },
+        };
+        let quad3 = Quad {
+            ul: Point { x: 72.0, y: 160.0 },
+            ur: Point { x: 300.0, y: 160.0 },
+            ll: Point { x: 72.0, y: 180.0 },
+            lr: Point { x: 300.0, y: 180.0 },
+        };
+        let mark = |quads: Vec<Quad>| HighlightMark { page: 0, quads };
+
+        doc.add_text_marks(
+            TextMarkKind::Underline,
+            &[mark(vec![quad1])],
+            HighlightColor::Blue,
+        )
+        .expect("underline");
+        doc.add_text_marks(
+            TextMarkKind::StrikeOut,
+            &[mark(vec![quad2])],
+            HighlightColor::Pink,
+        )
+        .expect("strikeout");
+        doc.add_text_marks(
+            TextMarkKind::Squiggly,
+            &[mark(vec![quad3])],
+            HighlightColor::Yellow,
+        )
+        .expect("squiggly");
+
+        let annots = doc.page_annotations(0).expect("annotations");
+        assert_eq!(annots.len(), 3);
+        assert_eq!(annots[0].kind, AnnotationKind::Underline);
+        assert_eq!(annots[0].color, Some(HighlightColor::Blue));
+        assert_eq!(annots[1].kind, AnnotationKind::StrikeOut);
+        assert_eq!(annots[1].color, Some(HighlightColor::Pink));
+        assert_eq!(annots[2].kind, AnnotationKind::Squiggly);
+        assert_eq!(annots[2].color, Some(HighlightColor::Yellow));
+
+        // Changing color works for all markup kinds
+        doc.set_highlight_color(0, annots[0].id, HighlightColor::Green)
+            .expect("color change");
+        assert_eq!(
+            doc.page_annotations(0).unwrap()[0].color,
+            Some(HighlightColor::Green)
+        );
+
+        // Save and reopen
+        let (bytes, _) = saved(&doc);
+        let reopened = PdfDocument::from_bytes(&bytes).expect("reopen");
+        let reopened_annots = reopened.page_annotations(0).expect("annotations");
+        assert_eq!(reopened_annots.len(), 3);
+        assert_eq!(reopened_annots[0].kind, AnnotationKind::Underline);
+        assert_eq!(reopened_annots[0].color, Some(HighlightColor::Green));
+        assert_eq!(reopened_annots[1].kind, AnnotationKind::StrikeOut);
+        assert_eq!(reopened_annots[1].color, Some(HighlightColor::Pink));
+        assert_eq!(reopened_annots[2].kind, AnnotationKind::Squiggly);
+        assert_eq!(reopened_annots[2].color, Some(HighlightColor::Yellow));
+
+        // Appearance streams exist for all 3 annotations
+        let dicts = every_dictionary(&reopened.doc);
+        let markup_dicts: Vec<_> = dicts
+            .into_iter()
+            .filter(|dict| {
+                dict.get_dict("Type")
+                    .ok()
+                    .flatten()
+                    .and_then(|n| n.as_name().ok())
+                    == Some(b"Annot".to_vec())
+            })
+            .collect();
+        assert!(markup_dicts.len() >= 3);
+        for dict in &markup_dicts {
+            assert!(
+                dict.get_dict("AP").unwrap().is_some(),
+                "missing AP appearance"
+            );
+            assert!(
+                dict.get_dict("QuadPoints").unwrap().is_some(),
+                "missing QuadPoints"
+            );
+            for key in ["T", "M", "CreationDate", "NM"] {
+                assert!(dict.get_dict(key).unwrap().is_none(), "/{key} in markup");
+            }
+        }
+
+        // Deleting removes the annotation
+        let mut doc = reopened;
+        doc.delete_annotation(0, reopened_annots[1].id)
+            .expect("delete");
+        let remaining = doc.page_annotations(0).expect("annotations");
+        assert_eq!(remaining.len(), 2);
+        assert_eq!(remaining[0].kind, AnnotationKind::Underline);
+        assert_eq!(remaining[1].kind, AnnotationKind::Squiggly);
+    }
+
     /// The line of `layer` that starts with `start`.
     fn line_starting<'a>(layer: &'a TextLayer, start: &str) -> &'a ipc_contract::types::TextLine {
         layer
@@ -2900,6 +3008,50 @@ mod tests {
             empty.annotation_summary().expect("summary").items,
             Vec::new()
         );
+    }
+
+    #[test]
+    fn an_annotation_summary_lists_underline_strikeout_squiggly_with_covered_text() {
+        let mut doc =
+            PdfDocument::from_bytes(&corpus("benign/mixed-text-zh-en.pdf")).expect("open");
+        let layer = doc.page_text(0, 10_000).expect("text");
+        let english = line_starting(&layer, "Privacy-first").clone();
+        let mark = |quads: Vec<Quad>| HighlightMark { page: 0, quads };
+
+        doc.add_text_marks(
+            TextMarkKind::Underline,
+            &[mark(vec![quad_of(&english, "Privacy")])],
+            HighlightColor::Blue,
+        )
+        .expect("underline");
+        doc.add_text_marks(
+            TextMarkKind::StrikeOut,
+            &[mark(vec![quad_of(&english, "first")])],
+            HighlightColor::Pink,
+        )
+        .expect("strikeout");
+        doc.add_text_marks(
+            TextMarkKind::Squiggly,
+            &[mark(vec![quad_of(&english, "PDF")])],
+            HighlightColor::Yellow,
+        )
+        .expect("squiggly");
+
+        let summary = doc.annotation_summary().expect("summary");
+        let listed: Vec<(AnnotationSummaryKind, &str)> = summary
+            .items
+            .iter()
+            .map(|item| (item.kind, item.text.as_str()))
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                (AnnotationSummaryKind::Underline, "Privacy"),
+                (AnnotationSummaryKind::StrikeOut, "first"),
+                (AnnotationSummaryKind::Squiggly, "PDF"),
+            ]
+        );
+        ipc_contract::validate::Validate::validate(&summary).expect("valid");
     }
 
     #[test]

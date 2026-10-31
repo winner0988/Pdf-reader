@@ -1316,7 +1316,10 @@ impl Validate for AnnotationSummaryItem {
         self.rect.validate()?;
         let max = MAX_ANNOTATION_SUMMARY_TEXT_BYTES;
         match self.kind {
-            AnnotationSummaryKind::Highlight => {
+            AnnotationSummaryKind::Highlight
+            | AnnotationSummaryKind::Underline
+            | AnnotationSummaryKind::StrikeOut
+            | AnnotationSummaryKind::Squiggly => {
                 check_text("highlighted text", &self.text, max)?;
                 check_clean("highlighted text", &self.text)
             }
@@ -2540,7 +2543,8 @@ mod tests {
         HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, IndexEntryId,
         IndexPageHits, InkColor, InkWidth, LinkId, PageNumberMark, PictureView, RecentId, Recovery,
         RequestId, Restrictions, Rgb, Rotation, SecurityFinding, StampImageId, StampName, TabId,
-        TextAlign, TextBoxInfo, TextBoxModelId, UnverifiableReason, WatermarkPages, WatermarkPlace,
+        TextAlign, TextBoxInfo, TextBoxModelId, TextMarkKind, UnverifiableReason, WatermarkPages,
+        WatermarkPlace,
     };
     use crate::worker::{ModelGlyph, WorkerErrorCode};
 
@@ -4177,6 +4181,7 @@ mod tests {
         };
         let mark = |page: u32, quads: Vec<Quad>| HighlightMark { page, quads };
         let highlight = |marks: Vec<HighlightMark>| Edit::AddHighlight {
+            mark_kind: TextMarkKind::Highlight,
             marks,
             color: HighlightColor::Yellow,
         };
@@ -4278,6 +4283,57 @@ mod tests {
                 color: HighlightColor::Pink,
             }
         );
+
+        // AddHighlight backward compatibility (no markKind defaults to Highlight, B4-04).
+        let legacy_json = serde_json::json!({
+            "kind": "addHighlight",
+            "marks": [{ "page": 0, "quads": [{ "ul": { "x": 1.0, "y": 10.0 }, "ur": { "x": 51.0, "y": 10.0 }, "ll": { "x": 1.0, "y": 22.0 }, "lr": { "x": 51.0, "y": 22.0 } }] }],
+            "color": "yellow"
+        });
+        let legacy_edit: Edit = serde_json::from_value(legacy_json).unwrap();
+        assert_eq!(
+            legacy_edit,
+            Edit::AddHighlight {
+                mark_kind: TextMarkKind::Highlight,
+                marks: vec![mark(0, vec![quad(1.0)])],
+                color: HighlightColor::Yellow,
+            }
+        );
+        assert!(legacy_edit.validate().is_ok());
+
+        // Underline, StrikeOut, Squiggly kinds.
+        for (str_kind, enum_kind) in [
+            ("underline", TextMarkKind::Underline),
+            ("strikeOut", TextMarkKind::StrikeOut),
+            ("squiggly", TextMarkKind::Squiggly),
+            ("highlight", TextMarkKind::Highlight),
+        ] {
+            let json = serde_json::json!({
+                "kind": "addHighlight",
+                "markKind": str_kind,
+                "marks": [{ "page": 0, "quads": [{ "ul": { "x": 1.0, "y": 10.0 }, "ur": { "x": 51.0, "y": 10.0 }, "ll": { "x": 1.0, "y": 22.0 }, "lr": { "x": 51.0, "y": 22.0 } }] }],
+                "color": "pink"
+            });
+            let edit: Edit = serde_json::from_value(json).unwrap();
+            assert_eq!(
+                edit,
+                Edit::AddHighlight {
+                    mark_kind: enum_kind,
+                    marks: vec![mark(0, vec![quad(1.0)])],
+                    color: HighlightColor::Pink,
+                }
+            );
+            assert!(edit.validate().is_ok());
+        }
+
+        // Invalid markKind is rejected.
+        let invalid_json = serde_json::json!({
+            "kind": "addHighlight",
+            "markKind": "unknown",
+            "marks": [{ "page": 0, "quads": [{ "ul": { "x": 1.0, "y": 10.0 }, "ur": { "x": 51.0, "y": 10.0 }, "ll": { "x": 1.0, "y": 22.0 }, "lr": { "x": 51.0, "y": 22.0 } }] }],
+            "color": "green"
+        });
+        assert!(serde_json::from_value::<Edit>(invalid_json).is_err());
     }
 
     #[test]

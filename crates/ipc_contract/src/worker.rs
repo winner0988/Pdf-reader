@@ -17,7 +17,7 @@ use crate::types::{
     PersonalDataMatches, Point, RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId,
     Restrictions, Rgb, Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityReport,
     SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle,
-    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    TextMarkKind, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 
 /// An attachment of a document as reported by the worker (B3-20, ADR 0025).
@@ -467,6 +467,8 @@ pub enum WorkerEdit {
     },
     /// As [`Edit::AddHighlight`].
     AddHighlight {
+        #[serde(default)]
+        mark_kind: TextMarkKind,
         marks: Vec<HighlightMark>,
         color: HighlightColor,
     },
@@ -608,7 +610,12 @@ impl WorkerEdit {
                     text_boxes,
                 }
             }
-            Edit::AddHighlight { marks, color } => WorkerEdit::AddHighlight {
+            Edit::AddHighlight {
+                mark_kind,
+                marks,
+                color,
+            } => WorkerEdit::AddHighlight {
+                mark_kind: *mark_kind,
                 marks: marks.clone(),
                 color: *color,
             },
