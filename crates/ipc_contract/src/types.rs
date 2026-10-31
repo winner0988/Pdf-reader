@@ -506,10 +506,13 @@ pub enum Edit {
     /// chose) into the document from index `at` on, in their order (B2-06). Only what is on the
     /// pages comes along (docs/architecture/merge.md).
     InsertPages { at: u32, source: SourceId },
-    /// Marks text with a highlighter in `color`: a `Highlight` annotation on each page of `marks`,
-    /// over its quads (B2-07). One edit however many pages the text spans, so that one undo
-    /// takes it all back.
+    /// Marks text with a text markup in `color`: a `Highlight`, `Underline`, `StrikeOut`, or
+    /// `Squiggly` annotation on each page of `marks`, over its quads (B2-07, B4-04). One edit
+    /// however many pages the text spans, so that one undo takes it all back.
+    #[serde(rename_all = "camelCase")]
     AddHighlight {
+        #[serde(default)]
+        mark_kind: TextMarkKind,
         marks: Vec<HighlightMark>,
         color: HighlightColor,
     },
@@ -777,6 +780,21 @@ pub struct HighlightMark {
     pub quads: Vec<Quad>,
 }
 
+/// The kind of text markup annotation (B2-07, B4-04).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum TextMarkKind {
+    /// A highlighter mark (`Highlight`).
+    #[default]
+    Highlight,
+    /// An underline (`Underline`).
+    Underline,
+    /// A strikeout / strikethrough line (`StrikeOut`).
+    StrikeOut,
+    /// A squiggly / wavy underline (`Squiggly`).
+    Squiggly,
+}
+
 /// The highlighter's colors (B2-07).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -852,6 +870,12 @@ pub struct BookmarkId(pub u32);
 pub enum AnnotationKind {
     /// A highlighter mark (`Highlight`): its color can be changed.
     Highlight,
+    /// An underline (`Underline`): its color can be changed.
+    Underline,
+    /// A strikeout / strikethrough line (`StrikeOut`): its color can be changed.
+    StrikeOut,
+    /// A squiggly / wavy underline (`Squiggly`): its color can be changed.
+    Squiggly,
     /// A note (`Text`): what it says can be changed.
     Note,
     /// A drawing of the pen (`Ink`, B2-08): it can be moved, resized and removed.
@@ -2531,6 +2555,9 @@ pub struct RemoveFontArgs {
 #[serde(rename_all = "camelCase")]
 pub enum AnnotationSummaryKind {
     Highlight,
+    Underline,
+    StrikeOut,
+    Squiggly,
     Note,
     TextBox,
     Ink,

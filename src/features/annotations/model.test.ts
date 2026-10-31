@@ -58,6 +58,24 @@ describe("annotations on a page", () => {
   it("is named for what it is, for the screen reader and the toolbar", () => {
     expect(annotationLabel(highlight)).toBe(strings.annotations.highlightIn(strings.annotations.colors.yellow));
     expect(annotationLabel({ ...highlight, color: null })).toBe(strings.annotations.kind.highlight);
+    expect(annotationLabel({ ...highlight, kind: "underline", color: "blue" })).toBe(
+      strings.annotations.underlineIn(strings.annotations.colors.blue),
+    );
+    expect(annotationLabel({ ...highlight, kind: "underline", color: null })).toBe(
+      strings.annotations.kind.underline,
+    );
+    expect(annotationLabel({ ...highlight, kind: "strikeOut", color: "pink" })).toBe(
+      strings.annotations.strikeOutIn(strings.annotations.colors.pink),
+    );
+    expect(annotationLabel({ ...highlight, kind: "strikeOut", color: null })).toBe(
+      strings.annotations.kind.strikeOut,
+    );
+    expect(annotationLabel({ ...highlight, kind: "squiggly", color: "green" })).toBe(
+      strings.annotations.squigglyIn(strings.annotations.colors.green),
+    );
+    expect(annotationLabel({ ...highlight, kind: "squiggly", color: null })).toBe(
+      strings.annotations.kind.squiggly,
+    );
     expect(annotationLabel(note)).toBe(strings.annotations.noteSaying("Existing note"));
     expect(annotationLabel({ ...note, text: null })).toBe(strings.annotations.kind.note);
     expect(annotationLabel({ ...note, kind: "other", text: null })).toBe(strings.annotations.kind.other);

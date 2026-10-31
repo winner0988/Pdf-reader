@@ -17,7 +17,7 @@ use ipc_contract::text::{clean_display_text, clean_note_text};
 use ipc_contract::types::{
     AnnotationId, AnnotationKind, AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind,
     HighlightColor, HighlightMark, InkColor, InkWidth, PageAnnotation, PageText as TextLayer,
-    Point, Quad, Rect, StampName,
+    Point, Quad, Rect, StampName, TextMarkKind,
 };
 use mupdf::Error;
 use mupdf::color::AnnotationColor;
@@ -190,17 +190,19 @@ impl PdfDocument {
         Ok(annotations)
     }
 
-    /// Marks text with the highlighter: a `Highlight` annotation on each page of `marks`, over
-    /// its quads (page space). Every page is checked first, so the document is unchanged when
-    /// one does not fit; MuPDF failing halfway leaves it to be opened again (see `Edit`).
-    pub fn add_highlights(
+    /// Marks text with a text markup (Highlight, Underline, StrikeOut, Squiggly, B4-04): an
+    /// annotation on each page of `marks`, over its quads (page space). Every page is checked
+    /// first, so the document is unchanged when one does not fit; MuPDF failing halfway leaves
+    /// it to be opened again (see `Edit`).
+    pub fn add_text_marks(
         &mut self,
+        kind: TextMarkKind,
         marks: &[HighlightMark],
         color: HighlightColor,
     ) -> Result<(), EngineError> {
         let count = self.page_count()?;
         if marks.is_empty() || marks.iter().any(|mark| mark.quads.is_empty()) {
-            return Err(EngineError::InvalidEdit("a highlight covers nothing"));
+            return Err(EngineError::InvalidEdit("a text mark covers nothing"));
         }
         if marks
             .iter()
@@ -217,11 +219,26 @@ impl PdfDocument {
         for mark in marks {
             let mut page = self.pdf_page(mark.page)?;
             let quads: Vec<mupdf::Quad> = mark.quads.iter().map(binding_quad).collect();
-            let mut annotation = page.add_highlight_annotation(quads)?;
+            let mut annotation = match kind {
+                TextMarkKind::Highlight => page.add_highlight_annotation(quads)?,
+                TextMarkKind::Underline => page.add_underline_annotation(quads)?,
+                TextMarkKind::StrikeOut => page.add_strikeout_annotation(quads)?,
+                TextMarkKind::Squiggly => page.add_squiggly_annotation(quads)?,
+            };
             annotation.set_color(annotation_color(color))?;
             annotation.update()?;
         }
         Ok(())
+    }
+
+    /// Marks text with the highlighter: a `Highlight` annotation on each page of `marks`, over
+    /// its quads (page space).
+    pub fn add_highlights(
+        &mut self,
+        marks: &[HighlightMark],
+        color: HighlightColor,
+    ) -> Result<(), EngineError> {
+        self.add_text_marks(TextMarkKind::Highlight, marks, color)
     }
 
     /// Puts a note saying `text` at `at` (page space) on page `index`.
@@ -350,8 +367,13 @@ impl PdfDocument {
     ) -> Result<(), EngineError> {
         let page = self.pdf_page(index)?;
         let mut annotation = find(&page, id)?;
-        if annotation.r#type()? != PdfAnnotationType::Highlight {
-            return Err(EngineError::InvalidEdit("not a highlighter mark"));
+        let kind = annotation.r#type()?;
+        if kind != PdfAnnotationType::Highlight
+            && kind != PdfAnnotationType::Underline
+            && kind != PdfAnnotationType::StrikeOut
+            && kind != PdfAnnotationType::Squiggly
+        {
+            return Err(EngineError::InvalidEdit("not a text markup annotation"));
         }
         annotation.set_color(annotation_color(color))?;
         annotation.update()?;
@@ -418,10 +440,18 @@ impl PdfDocument {
                     .then(a.number.cmp(&b.number))
             });
             // The text the user selects from (B2-10's recognised text on a scanned page), which
-            // is where a highlighter mark is made.
+            // is where a text mark is made.
             let layer = found
                 .iter()
-                .any(|(_, entry)| entry.kind == AnnotationSummaryKind::Highlight)
+                .any(|(_, entry)| {
+                    matches!(
+                        entry.kind,
+                        AnnotationSummaryKind::Highlight
+                            | AnnotationSummaryKind::Underline
+                            | AnnotationSummaryKind::StrikeOut
+                            | AnnotationSummaryKind::Squiggly
+                    )
+                })
                 .then(|| {
                     self.page_text(page_index, MAX_PAGE_TEXT_CHARS as usize)
                         .ok()
@@ -429,7 +459,10 @@ impl PdfDocument {
                 .flatten();
             for (annotation, entry) in found {
                 let text = match entry.kind {
-                    AnnotationSummaryKind::Highlight => match &layer {
+                    AnnotationSummaryKind::Highlight
+                    | AnnotationSummaryKind::Underline
+                    | AnnotationSummaryKind::StrikeOut
+                    | AnnotationSummaryKind::Squiggly => match &layer {
                         Some(layer) => match covered_text(layer, &entry, &mut work) {
                             Some(text) => text,
                             None => {
@@ -567,6 +600,9 @@ fn entry(annotation: &PdfAnnotation, page_rotation: i32) -> Result<Option<PageAn
     let kind = match annotation.r#type()? {
         PdfAnnotationType::Popup => return Ok(None),
         PdfAnnotationType::Highlight => AnnotationKind::Highlight,
+        PdfAnnotationType::Underline => AnnotationKind::Underline,
+        PdfAnnotationType::StrikeOut => AnnotationKind::StrikeOut,
+        PdfAnnotationType::Squiggly => AnnotationKind::Squiggly,
         PdfAnnotationType::Text => AnnotationKind::Note,
         PdfAnnotationType::Ink => AnnotationKind::Ink,
         PdfAnnotationType::Stamp => AnnotationKind::Stamp,
@@ -597,7 +633,10 @@ fn entry(annotation: &PdfAnnotation, page_rotation: i32) -> Result<Option<PageAn
         return Ok(None);
     }
     let color = match kind {
-        AnnotationKind::Highlight => annotation.color()?.and_then(highlight_color),
+        AnnotationKind::Highlight
+        | AnnotationKind::Underline
+        | AnnotationKind::StrikeOut
+        | AnnotationKind::Squiggly => annotation.color()?.and_then(highlight_color),
         _ => None,
     };
     let text = match kind {
@@ -646,6 +685,9 @@ struct SummaryEntry {
 fn summary_entry(annotation: &PdfAnnotation) -> Option<SummaryEntry> {
     let kind = match annotation.r#type().ok()? {
         PdfAnnotationType::Highlight => AnnotationSummaryKind::Highlight,
+        PdfAnnotationType::Underline => AnnotationSummaryKind::Underline,
+        PdfAnnotationType::StrikeOut => AnnotationSummaryKind::StrikeOut,
+        PdfAnnotationType::Squiggly => AnnotationSummaryKind::Squiggly,
         PdfAnnotationType::Text => AnnotationSummaryKind::Note,
         PdfAnnotationType::Ink => AnnotationSummaryKind::Ink,
         PdfAnnotationType::Stamp => AnnotationSummaryKind::Stamp,
@@ -670,15 +712,20 @@ fn summary_entry(annotation: &PdfAnnotation) -> Option<SummaryEntry> {
     {
         return None;
     }
+    let is_markup = matches!(
+        kind,
+        AnnotationSummaryKind::Highlight
+            | AnnotationSummaryKind::Underline
+            | AnnotationSummaryKind::StrikeOut
+            | AnnotationSummaryKind::Squiggly
+    );
     let quads: Vec<Quad> = match annotation.quad_count() {
-        Ok(count) if kind == AnnotationSummaryKind::Highlight && count <= MAX_ANNOTATION_QUADS => {
-            annotation
-                .quads()
-                .unwrap_or_default()
-                .into_iter()
-                .map(super::contract_quad)
-                .collect()
-        }
+        Ok(count) if is_markup && count <= MAX_ANNOTATION_QUADS => annotation
+            .quads()
+            .unwrap_or_default()
+            .into_iter()
+            .map(super::contract_quad)
+            .collect(),
         _ => Vec::new(),
     };
     let start = quads

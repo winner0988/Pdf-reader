@@ -296,7 +296,10 @@ function AnnotationToolbar({
       onClick={(event) => event.stopPropagation()}
       onKeyDown={onKeyDown}
     >
-      {annotation.kind === "highlight" &&
+      {(annotation.kind === "highlight" ||
+        annotation.kind === "underline" ||
+        annotation.kind === "strikeOut" ||
+        annotation.kind === "squiggly") &&
         HIGHLIGHT_COLORS.map((color) => (
           <button
             key={color}

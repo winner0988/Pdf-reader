@@ -4012,7 +4012,7 @@ mod with_worker {
     use ipc_contract::types::{
         AnnotationId, AnnotationKind, FieldId, HighlightColor, HighlightMark, InkColor, InkWidth,
         Point, Quad, Rect, RequestId, Rgb, Rotation, StampImageId, StampName, TextAlign,
-        TextBoxModelId, TextBoxStyle,
+        TextBoxModelId, TextBoxStyle, TextMarkKind,
     };
 
     use super::*;
@@ -6979,6 +6979,7 @@ mod with_worker {
         edit(
             &mut doc,
             Edit::AddHighlight {
+                mark_kind: TextMarkKind::Highlight,
                 marks: vec![HighlightMark {
                     page: 0,
                     quads: vec![quad(72.0)],
@@ -7065,6 +7066,91 @@ mod with_worker {
             documents.page_annotations(doc, 2).unwrap_err().code,
             ErrorCode::InvalidArgument
         );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn text_mark_annotations_underline_strikeout_squiggly_undo_and_redo() {
+        let (documents, info, path) = open("text_mark_annotations", 1);
+        let mut doc = info.doc;
+        let quad = Quad {
+            ul: Point { x: 72.0, y: 100.0 },
+            ur: Point { x: 172.0, y: 100.0 },
+            ll: Point { x: 72.0, y: 120.0 },
+            lr: Point { x: 172.0, y: 120.0 },
+        };
+        let edit = |doc: &mut DocumentId, edit: Edit| {
+            *doc = opened_info(documents.apply_edit(&EditArgs { doc: *doc, edit }).unwrap()).doc;
+        };
+
+        // Add Underline
+        edit(
+            &mut doc,
+            Edit::AddHighlight {
+                mark_kind: TextMarkKind::Underline,
+                marks: vec![HighlightMark {
+                    page: 0,
+                    quads: vec![quad],
+                }],
+                color: HighlightColor::Blue,
+            },
+        );
+        // Add StrikeOut
+        edit(
+            &mut doc,
+            Edit::AddHighlight {
+                mark_kind: TextMarkKind::StrikeOut,
+                marks: vec![HighlightMark {
+                    page: 0,
+                    quads: vec![quad],
+                }],
+                color: HighlightColor::Pink,
+            },
+        );
+        // Add Squiggly
+        edit(
+            &mut doc,
+            Edit::AddHighlight {
+                mark_kind: TextMarkKind::Squiggly,
+                marks: vec![HighlightMark {
+                    page: 0,
+                    quads: vec![quad],
+                }],
+                color: HighlightColor::Green,
+            },
+        );
+
+        let annots = documents.page_annotations(doc, 0).unwrap();
+        assert_eq!(annots.len(), 3);
+        assert_eq!(annots[0].kind, AnnotationKind::Underline);
+        assert_eq!(annots[0].color, Some(HighlightColor::Blue));
+        assert_eq!(annots[1].kind, AnnotationKind::StrikeOut);
+        assert_eq!(annots[1].color, Some(HighlightColor::Pink));
+        assert_eq!(annots[2].kind, AnnotationKind::Squiggly);
+        assert_eq!(annots[2].color, Some(HighlightColor::Green));
+
+        // Change color on underline
+        edit(
+            &mut doc,
+            Edit::SetHighlightColor {
+                page: 0,
+                annotation: annots[0].id,
+                color: HighlightColor::Yellow,
+            },
+        );
+        let annots = documents.page_annotations(doc, 0).unwrap();
+        assert_eq!(annots[0].color, Some(HighlightColor::Yellow));
+
+        // Undo color change
+        doc = opened_info(documents.undo(doc, None).unwrap()).doc;
+        let annots = documents.page_annotations(doc, 0).unwrap();
+        assert_eq!(annots[0].color, Some(HighlightColor::Blue));
+
+        // Redo color change
+        doc = opened_info(documents.redo(doc).unwrap()).doc;
+        let annots = documents.page_annotations(doc, 0).unwrap();
+        assert_eq!(annots[0].color, Some(HighlightColor::Yellow));
+
         std::fs::remove_file(path).ok();
     }
 

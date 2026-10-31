@@ -166,6 +166,9 @@ pub fn annotation_summary_file_name(stem: &str, markdown: bool) -> String {
 pub fn annotation_kind_name(kind: AnnotationSummaryKind) -> &'static str {
     match kind {
         AnnotationSummaryKind::Highlight => "螢光筆標示",
+        AnnotationSummaryKind::Underline => "底線標示",
+        AnnotationSummaryKind::StrikeOut => "刪除線標示",
+        AnnotationSummaryKind::Squiggly => "波浪線標示",
         AnnotationSummaryKind::Note => "附註",
         AnnotationSummaryKind::TextBox => "文字方塊",
         AnnotationSummaryKind::Ink => "手繪線條",

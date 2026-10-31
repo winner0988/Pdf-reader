@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   Eraser,
   FolderOpen,
+  LineSquiggle,
   Minus,
   MoreHorizontal,
   PanelLeft,
@@ -13,7 +14,9 @@ import {
   RotateCw,
   Search,
   Stamp,
+  Strikethrough,
   Type,
+  Underline,
 } from "lucide-react";
 import { useId, useState, type Ref } from "react";
 
@@ -121,6 +124,21 @@ export type ToolbarProps = {
    * disabled.
    */
   highlight?: { color: HighlightColor; onClick?: () => void };
+  /**
+   * Marks the selected text with an underline in the color it used last; without a click handler
+   * (no text is selected, or the author does not allow annotating) the button is disabled.
+   */
+  underline?: { color: HighlightColor; onClick?: () => void };
+  /**
+   * Marks the selected text with a strikeout in the color it used last; without a click handler
+   * (no text is selected, or the author does not allow annotating) the button is disabled.
+   */
+  strikeOut?: { color: HighlightColor; onClick?: () => void };
+  /**
+   * Marks the selected text with a squiggly line in the color it used last; without a click handler
+   * (no text is selected, or the author does not allow annotating) the button is disabled.
+   */
+  squiggly?: { color: HighlightColor; onClick?: () => void };
   /**
    * The pen (B2-08): turned on or off with its button, in the color and thickness the menu next
    * to it says. Without a toggle (the author does not allow annotating) the button is disabled.
@@ -255,6 +273,45 @@ export function Toolbar(props: ToolbarProps) {
             onClick={props.highlight.onClick}
           >
             <Highlighter />
+          </IconButton>
+        )}
+        {document && props.underline && (
+          <IconButton
+            label={
+              props.underline.onClick
+                ? t.underline(strings.annotations.colors[props.underline.color])
+                : t.underlineNeedsText
+            }
+            disabled={!props.underline.onClick}
+            onClick={props.underline.onClick}
+          >
+            <Underline />
+          </IconButton>
+        )}
+        {document && props.strikeOut && (
+          <IconButton
+            label={
+              props.strikeOut.onClick
+                ? t.strikeOut(strings.annotations.colors[props.strikeOut.color])
+                : t.strikeOutNeedsText
+            }
+            disabled={!props.strikeOut.onClick}
+            onClick={props.strikeOut.onClick}
+          >
+            <Strikethrough />
+          </IconButton>
+        )}
+        {document && props.squiggly && (
+          <IconButton
+            label={
+              props.squiggly.onClick
+                ? t.squiggly(strings.annotations.colors[props.squiggly.color])
+                : t.squigglyNeedsText
+            }
+            disabled={!props.squiggly.onClick}
+            onClick={props.squiggly.onClick}
+          >
+            <LineSquiggle />
           </IconButton>
         )}
         {document && props.pen && <PenControls pen={props.pen} />}

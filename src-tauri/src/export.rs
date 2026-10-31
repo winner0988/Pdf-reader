@@ -731,6 +731,9 @@ mod tests {
                     "Privacy-first PDF Reader",
                 ),
                 item(0, AnnotationSummaryKind::Highlight, ""),
+                item(0, AnnotationSummaryKind::Underline, "Underline text"),
+                item(0, AnnotationSummaryKind::StrikeOut, "StrikeOut text"),
+                item(0, AnnotationSummaryKind::Squiggly, "Squiggly text"),
                 item(
                     2,
                     AnnotationSummaryKind::TextBox,
@@ -750,6 +753,9 @@ mod tests {
              \x20 - second *line*\n\
              第 1 頁｜螢光筆標示：Privacy-first PDF Reader\n\
              第 1 頁｜螢光筆標示\n\
+             第 1 頁｜底線標示：Underline text\n\
+             第 1 頁｜刪除線標示：StrikeOut text\n\
+             第 1 頁｜波浪線標示：Squiggly text\n\
              \n\
              第 3 頁｜文字方塊：1. <b>#1</b> [x](y) a_b \\ c|d\n\
              第 3 頁｜手繪線條\n\
@@ -765,6 +771,9 @@ mod tests {
              \x20 \\- second \\*line\\*\n\
              - **螢光筆標示**：Privacy-first PDF Reader\n\
              - **螢光筆標示**\n\
+             - **底線標示**：Underline text\n\
+             - **刪除線標示**：StrikeOut text\n\
+             - **波浪線標示**：Squiggly text\n\
              \n\
              ## 第 3 頁\n\
              \n\

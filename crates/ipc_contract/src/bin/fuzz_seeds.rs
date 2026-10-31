@@ -17,8 +17,8 @@ use ipc_contract::types::{
     PersonalDataMatch, PersonalDataMatches, PictureView, Point, Quad, RasterRegion, Rect,
     RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions,
     SanitizeReport, SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport,
-    SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, UnverifiableReason,
-    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, TextMarkKind,
+    UnverifiableReason, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, InsertedTextBox, ModelGlyph, OcrFinished, OcrOutcome,
@@ -724,6 +724,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             doc,
             edit: WorkerEdit::AddHighlight {
+                mark_kind: TextMarkKind::Highlight,
                 marks: vec![HighlightMark {
                     page: 0,
                     quads: vec![Quad {
@@ -734,6 +735,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }],
                 }],
                 color: HighlightColor::Green,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddHighlight {
+                mark_kind: TextMarkKind::Underline,
+                marks: vec![HighlightMark {
+                    page: 0,
+                    quads: vec![Quad {
+                        ul: Point { x: 72.0, y: 110.0 },
+                        ur: Point { x: 300.0, y: 110.0 },
+                        ll: Point { x: 72.0, y: 125.0 },
+                        lr: Point { x: 300.0, y: 125.0 },
+                    }],
+                }],
+                color: HighlightColor::Blue,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddHighlight {
+                mark_kind: TextMarkKind::StrikeOut,
+                marks: vec![HighlightMark {
+                    page: 0,
+                    quads: vec![Quad {
+                        ul: Point { x: 72.0, y: 130.0 },
+                        ur: Point { x: 300.0, y: 130.0 },
+                        ll: Point { x: 72.0, y: 145.0 },
+                        lr: Point { x: 300.0, y: 145.0 },
+                    }],
+                }],
+                color: HighlightColor::Pink,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddHighlight {
+                mark_kind: TextMarkKind::Squiggly,
+                marks: vec![HighlightMark {
+                    page: 0,
+                    quads: vec![Quad {
+                        ul: Point { x: 72.0, y: 150.0 },
+                        ur: Point { x: 300.0, y: 150.0 },
+                        ll: Point { x: 72.0, y: 165.0 },
+                        lr: Point { x: 300.0, y: 165.0 },
+                    }],
+                }],
+                color: HighlightColor::Yellow,
             },
         },
         WorkerRequest::Edit {
