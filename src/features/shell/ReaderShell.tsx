@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
   ContextMenu,
@@ -86,6 +86,17 @@ import { SourcePasswordDialog } from "@/features/thumbnails/SourcePasswordDialog
 import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
 import { useTheme } from "@/features/theme/useTheme";
 import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
+import {
+  adjustHistoryForEdit,
+  canGoBack,
+  canGoForward,
+  clampHistoryToPageCount,
+  createNavigationHistory,
+  historyGoBack,
+  historyGoForward,
+  recordNavigation,
+  type NavigationLocation,
+} from "@/features/viewer/history";
 import { errorCodeOf, type PageRenderer } from "@/features/viewer/renderer";
 import type { OutlineView } from "@/features/outline/tree";
 import { strings } from "@/i18n/zh-TW";
@@ -302,6 +313,7 @@ export function ReaderShell({
   const [fitPercent, setFitPercent] = useState(100);
   const [rotation, setRotation] = useState<Rotation>(0);
   const [currentPage, setCurrentPage] = useState(1);
+  const [navHistory, setNavHistory] = useState(createNavigationHistory);
   // The batch dialog is the app's (BatchHost): a batch outlives this screen.
   const openBatch = useOpenBatch();
   // So is the search of every document (B3-21): what it opens is a new tab.
@@ -374,6 +386,7 @@ export function ReaderShell({
     setZoom("fitWidth");
     setRotation(0);
     setCurrentPage(1);
+    setNavHistory(createNavigationHistory());
     setBannerDismissed([]);
     setRecoveryDismissed(false);
     setRecalledDismissed(false);
@@ -501,10 +514,59 @@ export function ReaderShell({
     return true;
   };
 
+  const getCurrentLocation = useCallback(
+    (): NavigationLocation => ({
+      page: currentPage,
+      scrollTop: canvasRef.current?.scrollTop ?? 0,
+      zoom,
+    }),
+    [currentPage, zoom],
+  );
+
+  const recordCurrentNavigation = useCallback(() => {
+    if (!document_) return;
+    const current = getCurrentLocation();
+    setNavHistory((prev) => recordNavigation(prev, current));
+  }, [document_, getCurrentLocation]);
+
+  const restoreLocation = (target: NavigationLocation) => {
+    if (target.zoom !== zoom) setZoom(target.zoom);
+    const clamped = Math.min(Math.max(target.page, 1), pageCount);
+    setCurrentPage(clamped);
+    if (canvasRef.current) canvasRef.current.scrollTop = target.scrollTop;
+    viewRef.current?.scrollToLocation({ page: clamped, scrollTop: target.scrollTop });
+  };
+
+  const goBack = () => {
+    if (!document_) return;
+    const current = getCurrentLocation();
+    const result = historyGoBack(navHistory, current);
+    if (!result) return;
+    setNavHistory(result.nextHistory);
+    restoreLocation(result.target);
+  };
+
+  const goForward = () => {
+    if (!document_) return;
+    const current = getCurrentLocation();
+    const result = historyGoForward(navHistory, current);
+    if (!result) return;
+    setNavHistory(result.nextHistory);
+    restoreLocation(result.target);
+  };
+
   const goToPage = (page: number) => {
     const clamped = Math.min(Math.max(page, 1), pageCount);
     setCurrentPage(clamped);
     viewRef.current?.scrollToPage(clamped);
+  };
+
+  const jumpPage = (page: number) => {
+    const clamped = Math.min(Math.max(page, 1), pageCount);
+    if (clamped !== currentPage) {
+      recordCurrentNavigation();
+    }
+    goToPage(clamped);
   };
 
   // A result of the search of every document was opened here (B3-21): its page, once it is open.
@@ -512,9 +574,13 @@ export function ReaderShell({
   const documentOpen = document_ !== null;
   useEffect(() => {
     if (jumpToPage === undefined || !documentOpen) return;
-    viewRef.current?.scrollToPage(Math.min(Math.max(jumpToPage, 1), pageCount));
+    const target = Math.min(Math.max(jumpToPage, 1), pageCount);
+    if (target !== currentPage) {
+      queueMicrotask(() => recordCurrentNavigation());
+    }
+    viewRef.current?.scrollToPage(target);
     onJumped?.();
-  }, [jumpToPage, documentOpen, pageCount, onJumped]);
+  }, [jumpToPage, documentOpen, pageCount, onJumped, currentPage, recordCurrentNavigation]);
 
   // "不記錄此檔案" (#73): asked for whenever the menu opens, so it is never stale. Not offered when
   // the settings say not to record any file (B2-12).
@@ -548,9 +614,21 @@ export function ReaderShell({
   // Every newly selected hit is scrolled to a third of the way down the view.
   const { hits, current } = search.state;
   const currentHit = searchOpen ? hits[current] : undefined;
+  const previousHit = useRef<typeof currentHit>(undefined);
   useEffect(() => {
-    if (currentHit) viewRef.current?.revealHit(currentHit);
-  }, [currentHit]);
+    if (!currentHit) {
+      previousHit.current = undefined;
+      return;
+    }
+    if (currentHit !== previousHit.current) {
+      const hitPage = currentHit.pageIndex + 1;
+      if (hitPage !== currentPage) {
+        queueMicrotask(() => recordCurrentNavigation());
+      }
+      viewRef.current?.revealHit(currentHit);
+      previousHit.current = currentHit;
+    }
+  }, [currentHit, currentPage, recordCurrentNavigation]);
 
   // Printing needs the worker's pages: not for demo data. Without a document Ctrl+P still does
   // nothing, rather than the WebView printing the app itself.
@@ -665,7 +743,10 @@ export function ReaderShell({
     doc !== undefined && editingApi !== undefined
       ? {
           allowed: permissions.assemble || permissions.modify,
-          apply: (edit) => editingApi.applyEdit(doc, edit),
+          apply: async (edit) => {
+            await editingApi.applyEdit(doc, edit);
+            setNavHistory((prev) => adjustHistoryForEdit(prev, edit, pageCount));
+          },
           insertFrom: editingApi.pickPagesSource ? insertFrom : undefined,
         }
       : undefined;
@@ -867,6 +948,50 @@ export function ReaderShell({
   // Deleting pages can leave the page being read past the end.
   if (pageCount > 0 && currentPage > pageCount) setCurrentPage(pageCount);
 
+  // Drops history entries exceeding page count if page count changed from an imprecise edit or undo/redo
+  const prevPageCountRef = useRef(pageCount);
+  useEffect(() => {
+    if (pageCount !== prevPageCountRef.current) {
+      prevPageCountRef.current = pageCount;
+      setNavHistory((prev) => clampHistoryToPageCount(prev, pageCount));
+    }
+  }, [pageCount]);
+
+  // Mouse button 3 and 4 (back and forward).
+  // PreventDefault stops WebView2 from navigating the webview and reloading.
+  const goBackRef = useRef(goBack);
+  const goForwardRef = useRef(goForward);
+  useEffect(() => {
+    goBackRef.current = goBack;
+    goForwardRef.current = goForward;
+  });
+  useEffect(() => {
+    if (!active) return;
+    const onMouseDown = (event: MouseEvent) => {
+      if (event.button === 3 || event.button === 4) event.preventDefault();
+    };
+    const onMouseUp = (event: MouseEvent) => {
+      if (event.button === 3) {
+        event.preventDefault();
+        goBackRef.current();
+      } else if (event.button === 4) {
+        event.preventDefault();
+        goForwardRef.current();
+      }
+    };
+    const onAuxClick = (event: MouseEvent) => {
+      if (event.button === 3 || event.button === 4) event.preventDefault();
+    };
+    window.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("auxclick", onAuxClick);
+    return () => {
+      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("auxclick", onAuxClick);
+    };
+  }, [active]);
+
   useShortcuts({
     open: onOpen,
     // Always taken, even with nothing to save: the WebView would otherwise save the page.
@@ -903,6 +1028,14 @@ export function ReaderShell({
     lastPage: () => {
       if (document_) goToPage(pageCount);
     },
+    historyBack: () => {
+      goBack();
+      return true;
+    },
+    historyForward: () => {
+      goForward();
+      return true;
+    },
     toggleSidebar: () => setSidebarOpen((open) => !open),
     nextRegion: () => focusRegion(shellRef.current, 1),
     previousRegion: () => focusRegion(shellRef.current, -1),
@@ -917,7 +1050,7 @@ export function ReaderShell({
   const activateLink = (link: PageLink) => {
     const target = link.target;
     if (target.kind === "page") {
-      goToPage(target.pageIndex + 1);
+      jumpPage(target.pageIndex + 1);
     } else if (target.kind === "blocked") {
       setLinkDialog({ kind: "blocked", action: target.action, content: target.target });
     } else if (linksApi && document_?.doc !== undefined) {
@@ -1119,9 +1252,13 @@ export function ReaderShell({
           searchOpen={searchOpen}
           theme={theme}
           pageInputRef={pageInputRef}
+          canGoBack={canGoBack(navHistory)}
+          canGoForward={canGoForward(navHistory)}
+          onGoBack={goBack}
+          onGoForward={goForward}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
           onOpen={onOpen}
-          onGoToPage={goToPage}
+          onGoToPage={jumpPage}
           onZoomIn={() => setZoom((z) => stepZoom(z, 1, fitPercent))}
           onZoomOut={() => setZoom((z) => stepZoom(z, -1, fitPercent))}
           onZoomChange={setZoom}
@@ -1268,7 +1405,7 @@ export function ReaderShell({
               doc={document_.doc}
               renderer={renderer}
               currentPage={currentPage}
-              onJumpToPage={goToPage}
+              onJumpToPage={jumpPage}
               onOpenLink={openOutlineLink}
               pageEditing={pageEditing}
               outlineEditing={outlineEditing}
@@ -1281,7 +1418,7 @@ export function ReaderShell({
                 allowed: redactionAllowed,
                 disabledReason: redactionDisabledReason,
                 signed: isSigned,
-                onJumpToPage: goToPage,
+                onJumpToPage: jumpPage,
                 onDeleteAll: deleteAllRedactions,
                 onDeleteMark: deleteRedactionMark,
                 onApply: () => setRedactionConfirmOpen(true),
@@ -1551,7 +1688,7 @@ export function ReaderShell({
           doc={doc}
           annotationsApi={annotationsApi}
           onAddRedactions={addRedactionsFromPersonalData}
-          onJumpToPage={goToPage}
+          onJumpToPage={jumpPage}
         />
       )}
       {annotations.note && (

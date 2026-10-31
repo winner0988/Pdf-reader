@@ -122,6 +122,8 @@ export const strings = {
   toolbar: {
     toggleSidebar: "開關側欄",
     open: "開啟",
+    historyBack: "上一個位置",
+    historyForward: "下一個位置",
     pageNumber: "頁碼",
     pageCount: (total: number) => `/ ${total}`,
     pageOutOfRange: (total: number) => `頁碼需介於 1 與 ${total} 之間`,
@@ -1425,6 +1427,8 @@ export const strings = {
       goToPage: "跳到頁碼",
       firstPage: "第一頁",
       lastPage: "最後一頁",
+      historyBack: "回到上一個位置",
+      historyForward: "前往下一個位置",
       toggleSidebar: "開關側欄",
       nextRegion: "移到下一個區域",
       previousRegion: "移到上一個區域",
