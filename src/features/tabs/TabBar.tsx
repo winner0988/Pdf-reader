@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 const t = strings.tabs;
 
 /** Shared sizing and geometry for each tab slot so visual and overlay layers stay aligned (#188). */
-const tabSlotClass = "flex h-8 max-w-56 min-w-28 shrink-0 items-center rounded-t-md border border-b-0 text-sm";
+const tabSlotClass = "flex h-8 max-w-56 min-w-28 shrink-0 items-center rounded-t-md border-x border-t-2 border-b-0 text-sm";
 const tabInnerClass = "flex h-full min-w-0 flex-1 items-center gap-1.5 pr-8 pl-3";
 
 type TabLabelProps = {
@@ -109,7 +109,9 @@ export function TabBar({ tabs, active, onActivate, onClose, onOpen }: TabBarProp
                   data-selected={selected || undefined}
                   className={cn(
                     tabSlotClass,
-                    selected ? "bg-background text-foreground" : "bg-muted text-muted-foreground hover:bg-background/70",
+                    selected
+                      ? "border-t-primary bg-background text-foreground"
+                      : "border-t-transparent bg-muted text-muted-foreground hover:bg-background/70",
                   )}
                   onAuxClick={(event) => {
                     // Middle click closes a tab, as in a browser.

@@ -15,6 +15,7 @@
 | [docs/spec/PDF_Reader_Spec_ZH_v3.md](docs/spec/PDF_Reader_Spec_ZH_v3.md) | 完整產品規格（英文版同目錄） |
 | [docs/backlog/](docs/backlog/README.md) | 工作卡。你只做被指派的那一張 |
 | [docs/workflow.md](docs/workflow.md) | 分支、PR、CI 與合併流程 |
+| [docs/ux/visual-style.md](docs/ux/visual-style.md) | 畫面的顏色、圓角、圖示、動態的規則 |
 
 ## 不可違反的原則
 
