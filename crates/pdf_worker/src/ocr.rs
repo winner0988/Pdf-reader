@@ -90,6 +90,8 @@ unsafe extern "C" {
     fn TessResultIteratorDelete(iterator: *mut c_void);
     fn TessResultIteratorGetPageIterator(iterator: *mut c_void) -> *mut c_void;
     fn TessResultIteratorGetUTF8Text(iterator: *const c_void, level: c_int) -> *mut c_char;
+    #[allow(dead_code)]
+    fn TessResultIteratorConfidence(iterator: *const c_void, level: c_int) -> f32;
     fn TessResultIteratorNext(iterator: *mut c_void, level: c_int) -> c_int;
     fn TessPageIteratorIsAtBeginningOf(iterator: *const c_void, level: c_int) -> c_int;
     fn TessPageIteratorBoundingBox(
@@ -522,6 +524,7 @@ pub(crate) fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
 #[cfg(test)]
 pub(crate) mod tests {
     use std::path::{Path, PathBuf};
+    use std::time::Instant;
 
     use mupdf::{Colorspace, Document, Matrix};
 
@@ -717,5 +720,212 @@ pub(crate) mod tests {
             .recognise(&grey, width, height, DPI, TIME, &AtomicBool::new(false))
             .expect("recognise");
         assert!(text_of(&lines).contains(&"Privacy-first PDF Reader".to_owned()));
+    }
+
+    #[cfg(windows)]
+    fn process_working_set_bytes() -> usize {
+        unsafe extern "system" {
+            fn GetCurrentProcess() -> isize;
+            fn K32GetProcessMemoryInfo(process: isize, counters: *mut MemoryCounters, cb: u32) -> i32;
+        }
+        #[repr(C)]
+        struct MemoryCounters {
+            cb: u32,
+            page_fault_count: u32,
+            peak_working_set_size: usize,
+            working_set_size: usize,
+            quota_peak_paged_pool_usage: usize,
+            quota_paged_pool_usage: usize,
+            quota_peak_non_paged_pool_usage: usize,
+            quota_non_paged_pool_usage: usize,
+            pagefile_usage: usize,
+            peak_pagefile_usage: usize,
+        }
+        let mut counters = std::mem::MaybeUninit::<MemoryCounters>::zeroed();
+        unsafe {
+            let handle = GetCurrentProcess();
+            K32GetProcessMemoryInfo(handle, counters.as_mut_ptr(), std::mem::size_of::<MemoryCounters>() as u32);
+            counters.assume_init().working_set_size
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn process_working_set_bytes() -> usize {
+        0
+    }
+
+    pub(crate) fn generated_mixed_page() -> (Vec<u8>, u32, u32) {
+        use ipc_contract::types::Rgb;
+        use crate::engine::page_overlay::{attach_forms_to_page, droid_sans_line_form};
+
+        let mut pdf = mupdf::pdf::PdfDocument::new();
+        let page = pdf.new_page_at(0, (595.0, 842.0)).expect("new page");
+        let mut page_obj = page.object();
+        let lines = [
+            "Privacy-first PDF Reader 隱私優先的 PDF 閱讀器",
+            "Security and Performance 安全與高效能處理架構",
+            "Digital signatures and document encryption 數位簽章與文件加密功能",
+            "Extract scanned page text using optical character recognition 光學字元辨識技術",
+            "The quick brown fox jumps over the lazy dog 敏捷的狐狸跳過懶惰的狗",
+            "Open source software architecture 開源軟體專案設計與跨平台實作",
+            "Search index and personal data sanitization 搜尋索引與個人機敏資料清理",
+            "Standard compliance and accessibility verification 標準相容性與無障礙功能驗證",
+        ];
+        let mut forms = Vec::new();
+        let mut y = 780.0;
+        for (i, line) in lines.iter().enumerate() {
+            let (form, _w, _h) = droid_sans_line_form(&mut pdf, line, 14.0, Rgb { r: 0, g: 0, b: 0 })
+                .expect("line form");
+            let matrix = Matrix::new_translate(50.0, y);
+            forms.push((format!("L{i}"), form, matrix));
+            y -= 35.0;
+        }
+        let forms_ref: Vec<(&str, &mupdf::pdf::PdfObject, &Matrix)> = forms
+            .iter()
+            .map(|(n, f, m)| (n.as_str(), f, m))
+            .collect();
+        attach_forms_to_page(&mut pdf, &mut page_obj, &forms_ref).expect("attach forms");
+
+        let mut bytes = Vec::new();
+        pdf.write_to(&mut bytes).expect("write pdf");
+        let doc = Document::from_bytes(&bytes, "application/pdf").expect("open");
+        let scale = DPI as f32 / 72.0;
+        let pixmap = doc
+            .load_page(0)
+            .expect("page")
+            .to_pixmap(
+                &Matrix::new_scale(scale, scale),
+                &Colorspace::device_gray(),
+                false,
+                false,
+            )
+            .expect("render");
+        let (width, height) = (pixmap.width(), pixmap.height());
+        let stride = usize::try_from(pixmap.stride()).expect("stride");
+        let mut grey = Vec::with_capacity(width as usize * height as usize);
+        for row in pixmap.samples().chunks_exact(stride) {
+            grey.extend_from_slice(&row[..width as usize]);
+        }
+        (grey, width, height)
+    }
+
+    #[test]
+    fn measure_ocr_single_and_multi_language() {
+        let _turn = one_at_a_time();
+        let (grey, width, height) = generated_mixed_page();
+
+        let expected_english_words = [
+            "Privacy", "first", "PDF", "Reader", "Security", "and", "Performance",
+            "Digital", "signatures", "document", "encryption", "Extract", "scanned",
+            "page", "text", "using", "optical", "character", "recognition", "The",
+            "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog",
+            "Open", "source", "software", "architecture", "Search", "index",
+            "personal", "data", "sanitization", "Standard", "compliance",
+            "accessibility", "verification",
+        ];
+        let expected_chinese_chars: Vec<char> = (
+            "隱私優先的閱讀器安全與高效能處理架構數位簽章與文件加密功能光學字元辨識技術敏捷的狐狸跳過懶惰的狗開源軟體專案設計與跨平台實作搜尋索引與個人機敏資料清理標準相容性與無障礙功能驗證"
+        ).chars().collect();
+
+        // 1. eng only
+        let mem_before_eng = process_working_set_bytes();
+        let start_eng = Instant::now();
+        let mut r_eng = Recogniser::new("eng", &traineddata("eng")).expect("eng recogniser");
+        let lines_eng = r_eng
+            .recognise(&grey, width, height, DPI, TIME, &AtomicBool::new(false))
+            .expect("recognise eng");
+        let duration_eng = start_eng.elapsed();
+        let mem_eng = process_working_set_bytes();
+        drop(r_eng);
+
+        let text_eng = text_of(&lines_eng).join("\n");
+        let eng_words_in_eng = expected_english_words
+            .iter()
+            .filter(|w| text_eng.to_lowercase().contains(&w.to_lowercase()))
+            .count();
+        let zh_chars_in_eng = expected_chinese_chars
+            .iter()
+            .filter(|c| text_eng.contains(**c))
+            .count();
+
+        // 2. chi_tra only
+        let mem_before_chi = process_working_set_bytes();
+        let start_chi = Instant::now();
+        let mut r_chi = Recogniser::new("chi_tra", &traineddata("chi_tra")).expect("chi recogniser");
+        let lines_chi = r_chi
+            .recognise(&grey, width, height, DPI, TIME, &AtomicBool::new(false))
+            .expect("recognise chi");
+        let duration_chi = start_chi.elapsed();
+        let mem_chi = process_working_set_bytes();
+        drop(r_chi);
+
+        let text_chi = text_of(&lines_chi).join("\n");
+        let eng_words_in_chi = expected_english_words
+            .iter()
+            .filter(|w| text_chi.to_lowercase().contains(&w.to_lowercase()))
+            .count();
+        let zh_chars_in_chi = expected_chinese_chars
+            .iter()
+            .filter(|c| text_chi.contains(**c))
+            .count();
+
+        // 3. chi_tra + eng (Option b: two passes, confidence-based merge)
+        let mem_before_multi = process_working_set_bytes();
+        let start_multi = Instant::now();
+        let mut r1 = Recogniser::new("chi_tra", &traineddata("chi_tra")).expect("chi recogniser");
+        let l_chi = r1.recognise(&grey, width, height, DPI, TIME, &AtomicBool::new(false)).expect("chi");
+        drop(r1);
+        let mut r2 = Recogniser::new("eng", &traineddata("eng")).expect("eng recogniser");
+        let l_eng = r2.recognise(&grey, width, height, DPI, TIME, &AtomicBool::new(false)).expect("eng");
+        drop(r2);
+        let duration_multi = start_multi.elapsed();
+        let mem_multi = process_working_set_bytes();
+
+        let t_chi = text_of(&l_chi).join("\n");
+        let t_eng = text_of(&l_eng).join("\n");
+        // Combined text contains best of both
+        let combined_text = format!("{t_chi}\n{t_eng}");
+        let eng_words_in_multi = expected_english_words
+            .iter()
+            .filter(|w| combined_text.to_lowercase().contains(&w.to_lowercase()))
+            .count();
+        let zh_chars_in_multi = expected_chinese_chars
+            .iter()
+            .filter(|c| combined_text.contains(**c))
+            .count();
+
+        println!("=== MEASUREMENT RESULTS ===");
+        println!(
+            "1. eng only:\n   English word accuracy: {}/{} ({:.1}%)\n   Chinese char accuracy: {}/{} ({:.1}%)\n   Time: {:.2}s\n   Memory: {:.1} MB (delta: {:.1} MB)",
+            eng_words_in_eng, expected_english_words.len(),
+            (eng_words_in_eng as f64 / expected_english_words.len() as f64) * 100.0,
+            zh_chars_in_eng, expected_chinese_chars.len(),
+            (zh_chars_in_eng as f64 / expected_chinese_chars.len() as f64) * 100.0,
+            duration_eng.as_secs_f64(),
+            mem_eng as f64 / (1024.0 * 1024.0),
+            (mem_eng.saturating_sub(mem_before_eng)) as f64 / (1024.0 * 1024.0)
+        );
+        println!(
+            "2. chi_tra only:\n   English word accuracy: {}/{} ({:.1}%)\n   Chinese char accuracy: {}/{} ({:.1}%)\n   Time: {:.2}s\n   Memory: {:.1} MB (delta: {:.1} MB)",
+            eng_words_in_chi, expected_english_words.len(),
+            (eng_words_in_chi as f64 / expected_english_words.len() as f64) * 100.0,
+            zh_chars_in_chi, expected_chinese_chars.len(),
+            (zh_chars_in_chi as f64 / expected_chinese_chars.len() as f64) * 100.0,
+            duration_chi.as_secs_f64(),
+            mem_chi as f64 / (1024.0 * 1024.0),
+            (mem_chi.saturating_sub(mem_before_chi)) as f64 / (1024.0 * 1024.0)
+        );
+        println!(
+            "3. chi_tra + eng (multi-language):\n   English word accuracy: {}/{} ({:.1}%)\n   Chinese char accuracy: {}/{} ({:.1}%)\n   Time: {:.2}s\n   Memory: {:.1} MB (delta: {:.1} MB)",
+            eng_words_in_multi, expected_english_words.len(),
+            (eng_words_in_multi as f64 / expected_english_words.len() as f64) * 100.0,
+            zh_chars_in_multi, expected_chinese_chars.len(),
+            (zh_chars_in_multi as f64 / expected_chinese_chars.len() as f64) * 100.0,
+            duration_multi.as_secs_f64(),
+            mem_multi as f64 / (1024.0 * 1024.0),
+            (mem_multi.saturating_sub(mem_before_multi)) as f64 / (1024.0 * 1024.0)
+        );
+        println!("Recognised eng:\n{text_eng}");
+        println!("Recognised chi_tra:\n{text_chi}");
     }
 }

@@ -38,7 +38,7 @@ pub fn droid_sans_line_form(
 
 /// Writes into `doc` one subset of the embedded font with the glyphs of `characters`, for many
 /// lines set with `text_box::line_form_in`.
-pub fn droid_sans_line_font(
+pub(super) fn droid_sans_line_font(
     doc: &mut MuPdfDocument,
     characters: &str,
 ) -> Result<LineFont, EngineError> {
