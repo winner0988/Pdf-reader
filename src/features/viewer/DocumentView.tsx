@@ -924,7 +924,7 @@ function PageSelection({
       preserveAspectRatio="none"
     >
       {quads.map((quad, i) => (
-        <polygon key={i} points={quadPoints(quad, page, rotation, box)} className="fill-sky-500/35" />
+        <polygon key={i} points={quadPoints(quad, page, rotation, box)} className="fill-primary/35" />
       ))}
     </svg>
   );
