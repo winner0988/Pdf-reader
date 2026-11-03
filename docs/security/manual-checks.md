@@ -68,8 +68,37 @@
 
 開發時（MVP-12b，2026-09-24，release 建置）第 3 步已經以 CDP 點擊實際執行過一次：`ShellExecuteW` 回報成功，對話框隨之關閉。當時沒有確認瀏覽器畫面，仍需人工檢查一次。
 
+## 3. 1.0 發行之前（B4-11）
+
+**目的**：1.0 發行前，在真正的 Windows 上用 1.0 的安裝檔確認 [attack-surface.md](attack-surface.md) 裡自動化測試證明不了的部分。表中的「§」指 attack-surface.md 的章節。
+
+### 準備
+
+1. 在測試用的電腦（或另一個 Windows 使用者帳號）上，以 1.0 的安裝檔安裝：`pnpm bundle` 產出的 `target/release/bundle/nsis/*.exe`，或發行頁上的檔案。以下假設裝在預設的 `C:\Program Files\PDF Reader\`。
+2. 第 1 節的 Process Monitor，另外從 Microsoft 官方網站下載 Sysinternals **Process Explorer**（`https://learn.microsoft.com/sysinternals/downloads/process-explorer`）。兩者都只在測試用電腦上執行。
+3. 只用 repo 的 `tests/corpus/` 裡的檔案，不要用私人的 PDF 或真的憑證。app 資料夾是 `%LOCALAPPDATA%\io.github.winner0988.pdfreader\`。
+
+### 檢查
+
+| # | 檢查 | 做法 | 預期 | 對照 |
+|---|---|---|---|---|
+| 3.1 | 安裝版再做一次第 1、2 節 | 用安裝好的 app 照第 1、2 節做 | 同第 1、2 節 | §5、§7 |
+| 3.2 | worker 的沙盒 | 開一份 PDF。以系統管理員身分執行 Process Explorer，開 `pdf_worker.exe` 的 Properties：**Security** 分頁看 Integrity 與 AppContainer，**Job** 分頁看限制。再執行 `icacls "C:\Program Files\PDF Reader\pdf_worker.exe"` 與 `icacls "C:\Program Files\PDF Reader\pdf-reader.exe"` | `pdf_worker.exe` 在 `pdf-reader.exe` 底下；Integrity 是 Low（Process Explorer 可能顯示成 AppContainer），有 AppContainer 的 SID；Job 只允許 1 個行程，記憶體上限 2 GiB；兩個檔案的 ACL 一樣，app 沒有為 worker 改 ACL | §2.1 |
+| 3.3 | 只有按「檢查更新」才連網 | 第 1 節的 Process Monitor 設定，只看 Network 事件。啟動 app，開一份文件，放著 5 分鐘；再按「檢查更新」 | 按之前沒有任何事件；按之後只有 `pdf-reader.exe` 連到 `api.github.com` 的 443 port；`pdf_worker.exe` 與 `msedgewebview2.exe` 都沒有 | §5 |
+| 3.4 | 沒有除錯埠，也沒有開發人員工具 | PowerShell 執行 `Get-ChildItem Env:WEBVIEW2*`，確認沒有設定 WebView2 的環境變數。從開始功能表啟動 app，執行 `Get-NetTCPConnection -State Listen`，對照 Process Explorer 裡 `pdf-reader.exe` 底下各行程的 PID。在 app 裡按 `F12` 與 `Ctrl+Shift+I` | 沒有 WebView2 的環境變數；app 的行程沒有在聽任何 port；開發人員工具不會出現 | §4、§8 |
+| 3.5 | 附件只存不開 | 開 `tests/corpus/benign/attachment-text.pdf`，把附件另存，再執行 `Get-Content -Path <存好的檔案> -Stream Zone.Identifier`。開 `tests/corpus/malicious/attachment-exe.pdf`，試著另存它的附件 | 有 `ZoneId=3`；app 沒有開啟附件（Process Monitor 沒有 `Process Create`）；`.exe` 的附件先警告危險，確認之後才存 | §1.2 |
+| 3.6 | 機敏文件 | 把一份語料檔另存一份副本，標成機敏，開著它：按 `Win+Shift+S` 截圖；選取文字複製，按 `Win+V` 看剪貼簿歷程；關閉後看開始畫面的最近的檔案；文字索引開著時搜尋它的字 | 截圖裡 app 的視窗是黑的或空白；複製的文字不在剪貼簿歷程；文件不在最近的檔案，也搜尋不到 | §1.6 |
+| 3.7 | 記住的密碼 | 開 `tests/corpus/benign/encrypted-aes256.pdf`（密碼見 `tests/corpus/manifest.json`），勾選記住密碼。開 Windows 的認證管理員（控制台 → 認證管理員 → Windows 認證），或執行 `cmdkey /list`。再到 app 的設定忘記全部的密碼 | 項目名稱是 `PdfReader/password/v1/` 加一串雜湊，看不出檔名、路徑或內容；忘記之後項目全部消失 | §1.1、§3 |
+| 3.8 | 簽章不留下金鑰、不連網 | 記下 `%APPDATA%\Microsoft\Crypto\Keys` 與 `%APPDATA%\Microsoft\Crypto\RSA` 裡的檔案。Process Monitor 只看 Network 事件，用 `tests/corpus/certificates/signer.pfx`（密碼見 `tests/corpus/README.md`）簽一份語料檔 | 簽好的副本開成新分頁，簽章有效、簽署人不受信任；兩個資料夾沒有多出檔案；`certutil -user -store My` 沒有多出測試憑證；沒有任何網路事件 | §1.10、§3 |
+| 3.9 | 匯入字型與語言資料 | 匯入字型：一個改成 `.ttf` 的文字檔、一個空的 `.ttf`、一個大於 64 MiB 的檔案，最後一個正常的 TrueType 字型。語言資料照樣試三個壞的，最後把安裝資料夾 `tessdata\` 的 `eng.traineddata` 複製一份改名為 `test.traineddata` 匯入 | 壞的都被拒絕，app 資料夾的 `fonts\`、`tessdata\` 沒有多出檔案；正常的只複製到這兩個資料夾，原檔不變 | §1.11、§1.12、§3 |
+| 3.10 | 批次 | 對 3 個語料檔做「去除中繼資料」，執行中關閉視窗；完成後看選的資料夾；登出再登入 | 執行中通知區有圖示，關掉視窗後批次繼續；只有選的資料夾多了副本與報告，原檔不變；登入後 app 沒有自動啟動（工作管理員的「啟動應用程式」沒有它） | §1.9、§6 |
+| 3.11 | 正常關閉後沒有留下復原日誌 | 編輯一份文件、存檔、關閉 app；再開、編輯、不存檔，關閉時選不要儲存。每次關閉後看 app 資料夾的 `recovery\` | 兩次都沒有留下日誌 | §1.7、§6 |
+| 3.12 | 連結與 Windows 設定 | 在設定裡開啟「預設應用程式」；按「檢查更新」後開啟發行頁 | 前者開啟 Windows 設定的預設應用程式頁，app 列在裡面；後者先顯示確認，再以預設瀏覽器開啟發行頁 | §1.3、§7 |
+| 3.13 | 檔案關聯與解除安裝 | `reg query "HKLM\Software\Classes\PdfReader.Document\shell\open\command"`；解除安裝後看 `%LOCALAPPDATA%\Packages\pdfreader.worker`、app 資料夾，並再查一次登錄 | 命令是 `"C:\Program Files\PDF Reader\pdf-reader.exe" "%1"`，兩邊都有引號；解除安裝後 AppContainer 的資料夾與 HKLM 的登錄都沒有了；app 資料夾刪不刪和解除安裝畫面的選項一致，把結果寫進紀錄 | §6、§8 |
+
 ## 紀錄
 
 | 日期 | 版本（commit） | 執行者 | 結果 | 備註 |
 |---|---|---|---|---|
 | | | | 尚未執行 | MVP-11 合併前需由負責人執行一次 |
+| | | | 尚未執行 | 第 3 節（含 3.1 的第 1、2 節）：1.0 發行前由負責人以 1.0 的安裝檔執行一次 |
