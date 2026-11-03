@@ -86,10 +86,12 @@ test("the running app refuses commands it does not grant (#425)", async ({ launc
     expect(control.value).toBeDefined();
   }
 
-  // Built-in commands and non-existent commands must be rejected.
+  // Built-in commands and non-existent commands must be rejected with Tauri's ACL error message.
   for (const { command, args } of REFUSED_COMMANDS) {
     const outcome = await invokeCommand(page, command, args);
-    console.log(`[IPC refused ${command}]`, outcome);
     expect(outcome.status, `command "${command}" must be rejected`).toBe("rejected");
+    if (outcome.status === "rejected") {
+      expect(outcome.error).toBe(`Command ${command} not allowed by ACL`);
+    }
   }
 });
