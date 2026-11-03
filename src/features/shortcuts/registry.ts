@@ -16,6 +16,7 @@ export type Shortcut = {
 
 const ctrl = (event: KeyboardEvent) => event.ctrlKey && !event.altKey;
 const plain = (event: KeyboardEvent) => !event.ctrlKey && !event.altKey && !event.metaKey;
+const alt = (event: KeyboardEvent) => event.altKey && !event.ctrlKey && !event.metaKey;
 
 export const SHORTCUTS: Shortcut[] = [
   { id: "open", keys: ["Ctrl+O"], matches: (e) => ctrl(e) && e.key.toLowerCase() === "o" },
@@ -66,6 +67,16 @@ export const SHORTCUTS: Shortcut[] = [
   { id: "goToPage", keys: ["Ctrl+G"], matches: (e) => ctrl(e) && e.key.toLowerCase() === "g" },
   { id: "firstPage", keys: ["Home"], matches: (e) => plain(e) && e.key === "Home" },
   { id: "lastPage", keys: ["End"], matches: (e) => plain(e) && e.key === "End" },
+  {
+    id: "historyBack",
+    keys: ["Alt+←"],
+    matches: (e) => alt(e) && !e.shiftKey && e.key === "ArrowLeft",
+  },
+  {
+    id: "historyForward",
+    keys: ["Alt+→"],
+    matches: (e) => alt(e) && !e.shiftKey && e.key === "ArrowRight",
+  },
   { id: "toggleSidebar", keys: ["F4"], matches: (e) => plain(e) && e.key === "F4" },
   { id: "nextRegion", keys: ["F6"], matches: (e) => plain(e) && !e.shiftKey && e.key === "F6" },
   { id: "previousRegion", keys: ["Shift+F6"], matches: (e) => plain(e) && e.shiftKey && e.key === "F6" },
@@ -101,12 +112,12 @@ export function findShortcut(event: KeyboardEvent): Shortcut | undefined {
   if (
     shortcut &&
     isTextInput(event.target) &&
-    (shortcut.notInTextFields || (!event.ctrlKey && !isFunctionKey(event)))
+    (shortcut.notInTextFields || (!event.ctrlKey && !event.altKey && !isFunctionKey(event)))
   ) {
     return undefined;
   }
   // In a list of choices plain keys choose; Ctrl combinations (and undo) are still the app's.
-  if (shortcut && isChoiceList(event.target) && !event.ctrlKey && !isFunctionKey(event)) {
+  if (shortcut && isChoiceList(event.target) && !event.ctrlKey && !event.altKey && !isFunctionKey(event)) {
     return undefined;
   }
   return shortcut;

@@ -1,4 +1,6 @@
 import {
+  ArrowLeft,
+  ArrowRight,
   ChevronDown,
   ChevronLeft,
   Eraser,
@@ -49,6 +51,10 @@ export type ToolbarProps = {
   searchOpen: boolean;
   theme: ThemePreference;
   pageInputRef?: Ref<HTMLInputElement>;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  onGoBack?: () => void;
+  onGoForward?: () => void;
   onToggleSidebar: () => void;
   onOpen: () => void;
   onGoToPage: (page: number) => void;
@@ -217,6 +223,22 @@ export function Toolbar(props: ToolbarProps) {
 
         {document && (
           <>
+            <IconButton
+              label={t.historyBack}
+              shortcut="Alt+←"
+              disabled={!props.canGoBack}
+              onClick={props.onGoBack}
+            >
+              <ArrowLeft />
+            </IconButton>
+            <IconButton
+              label={t.historyForward}
+              shortcut="Alt+→"
+              disabled={!props.canGoForward}
+              onClick={props.onGoForward}
+            >
+              <ArrowRight />
+            </IconButton>
             <PageInput
               key={document.currentPage}
               pageCount={document.pageCount}

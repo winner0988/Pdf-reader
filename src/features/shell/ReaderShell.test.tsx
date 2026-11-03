@@ -1275,4 +1275,59 @@ describe("theme", () => {
     await third.user.click(readyItem);
     expect(await screen.findByRole("dialog", { name: strings.compare.title })).toBeInTheDocument();
   });
+
+  describe("navigation history (B4-01)", () => {
+    it("shows back and forward buttons in toolbar and navigates back and forward", async () => {
+      const { user } = renderShell(openState);
+
+      const backButton = screen.getByRole("button", { name: strings.toolbar.historyBack });
+      const forwardButton = screen.getByRole("button", { name: strings.toolbar.historyForward });
+
+      expect(backButton).toBeDisabled();
+      expect(forwardButton).toBeDisabled();
+
+      // Jump to page 5 via page input
+      const pageInput = screen.getByRole("textbox", { name: strings.toolbar.pageNumber });
+      await user.clear(pageInput);
+      await user.type(pageInput, "5{Enter}");
+
+      expect(pageInput).toHaveValue("5");
+      expect(backButton).toBeEnabled();
+      expect(forwardButton).toBeDisabled();
+
+      // Click back button
+      await user.click(backButton);
+      expect(screen.getByRole("textbox", { name: strings.toolbar.pageNumber })).toHaveValue("1");
+      expect(backButton).toBeDisabled();
+      expect(forwardButton).toBeEnabled();
+
+      // Click forward button
+      await user.click(forwardButton);
+      expect(screen.getByRole("textbox", { name: strings.toolbar.pageNumber })).toHaveValue("5");
+      expect(backButton).toBeEnabled();
+      expect(forwardButton).toBeDisabled();
+
+      // Navigate with Alt+ArrowLeft
+      fireEvent.keyDown(window, { key: "ArrowLeft", altKey: true });
+      expect(screen.getByRole("textbox", { name: strings.toolbar.pageNumber })).toHaveValue("1");
+      expect(backButton).toBeDisabled();
+      expect(forwardButton).toBeEnabled();
+
+      // Navigate with Alt+ArrowRight
+      fireEvent.keyDown(window, { key: "ArrowRight", altKey: true });
+      expect(screen.getByRole("textbox", { name: strings.toolbar.pageNumber })).toHaveValue("5");
+      expect(backButton).toBeEnabled();
+      expect(forwardButton).toBeDisabled();
+
+      // Navigate with mouse button 3 (back)
+      fireEvent.mouseDown(window, { button: 3 });
+      fireEvent.mouseUp(window, { button: 3 });
+      expect(screen.getByRole("textbox", { name: strings.toolbar.pageNumber })).toHaveValue("1");
+
+      // Navigate with mouse button 4 (forward)
+      fireEvent.mouseDown(window, { button: 4 });
+      fireEvent.mouseUp(window, { button: 4 });
+      expect(screen.getByRole("textbox", { name: strings.toolbar.pageNumber })).toHaveValue("5");
+    });
+  });
 });

@@ -90,3 +90,64 @@ test("the search bar stays below the security banner and does not cover its butt
   await closeButton.click();
   await expect(detailsPanel).toBeHidden();
 });
+
+test("navigation history: jumps and returns with Alt+Left, Alt+Right, and toolbar buttons (B4-01)", async ({ launch }) => {
+  const page = await launch(corpus("benign/internal-links.pdf"));
+  await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
+
+  const pageInput = page.getByRole("textbox", { name: strings.toolbar.pageNumber });
+  const backButton = page.getByRole("button", { name: strings.toolbar.historyBack });
+  const forwardButton = page.getByRole("button", { name: strings.toolbar.historyForward });
+
+  // Initially at page 1; both back and forward are disabled
+  await expect(pageInput).toHaveValue("1");
+  await expect(backButton).toBeDisabled();
+  await expect(forwardButton).toBeDisabled();
+
+  // Track unload to ensure WebView2 does not reload or navigate away
+  await page.evaluate(() => {
+    (window as unknown as { __unloaded?: boolean }).__unloaded = false;
+    window.addEventListener("beforeunload", () => {
+      (window as unknown as { __unloaded?: boolean }).__unloaded = true;
+    });
+  });
+
+  // Click the internal link on page 1 (which jumps to page 3)
+  const link = page.locator('[data-page-links="1"] [data-link]').first();
+  await expect(link).toBeVisible();
+  await link.click();
+
+  // Page is now 3; back button is enabled, forward is disabled
+  await expect(pageInput).toHaveValue("3");
+  await expect(backButton).toBeEnabled();
+  await expect(forwardButton).toBeDisabled();
+
+  // Press Alt+Left to go back to page 1
+  await page.keyboard.press("Alt+ArrowLeft");
+  await expect(pageInput).toHaveValue("1");
+  await expect(backButton).toBeDisabled();
+  await expect(forwardButton).toBeEnabled();
+
+  // Verify page did not reload
+  const unloaded = await page.evaluate(() => (window as unknown as { __unloaded?: boolean }).__unloaded);
+  expect(unloaded).toBe(false);
+
+  // Press Alt+Right to go forward to page 3
+  await page.keyboard.press("Alt+ArrowRight");
+  await expect(pageInput).toHaveValue("3");
+  await expect(backButton).toBeEnabled();
+  await expect(forwardButton).toBeDisabled();
+
+  // Click the back button directly
+  await backButton.click();
+  await expect(pageInput).toHaveValue("1");
+  await expect(backButton).toBeDisabled();
+  await expect(forwardButton).toBeEnabled();
+
+  // Click the forward button directly
+  await forwardButton.click();
+  await expect(pageInput).toHaveValue("3");
+  await expect(backButton).toBeEnabled();
+  await expect(forwardButton).toBeDisabled();
+});
+

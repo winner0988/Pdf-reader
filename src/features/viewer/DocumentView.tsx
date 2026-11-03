@@ -82,6 +82,8 @@ import type {
 export type DocumentViewHandle = {
   /** Scrolls so that the 1-based `page` is at the top. */
   scrollToPage(page: number): void;
+  /** Scrolls to a specific location (page and optional scrollTop). */
+  scrollToLocation(location: { page: number; scrollTop?: number }): void;
   /** Scrolls so that a search hit is a third of the way down the view. */
   revealHit(hit: Highlight): void;
   /** Whether any text is selected (MVP-15). */
@@ -390,12 +392,20 @@ export function DocumentView({
   // A page asked for before the view knew its size (a document that just opened at a page,
   // B3-21): shown once it does, when the layout has its real size.
   const pendingPage = useRef<number | null>(null);
+  const pendingLocation = useRef<{ page: number; scrollTop?: number } | null>(null);
   const unmeasured = measured === null;
   useEffect(() => {
     const element = scrollContainer.current;
-    if (unmeasured || !element || pendingPage.current === null) return;
-    scrollElement(element, { top: scrollTopFor(layout, pendingPage.current) });
-    pendingPage.current = null;
+    if (unmeasured || !element) return;
+    if (pendingLocation.current !== null) {
+      const { page, scrollTop } = pendingLocation.current;
+      const top = scrollTop !== undefined ? scrollTop : scrollTopFor(layout, page);
+      scrollElement(element, { top });
+      pendingLocation.current = null;
+    } else if (pendingPage.current !== null) {
+      scrollElement(element, { top: scrollTopFor(layout, pendingPage.current) });
+      pendingPage.current = null;
+    }
   }, [unmeasured, layout, scrollContainer]);
 
   useImperativeHandle(
@@ -406,6 +416,16 @@ export function DocumentView({
         if (!element) return;
         if (unmeasured) pendingPage.current = page;
         else scrollElement(element, { top: scrollTopFor(layout, page) });
+      },
+      scrollToLocation(location) {
+        const element = scrollContainer.current;
+        if (!element) return;
+        if (unmeasured) {
+          pendingLocation.current = location;
+        } else {
+          const top = location.scrollTop !== undefined ? location.scrollTop : scrollTopFor(layout, location.page);
+          scrollElement(element, { top });
+        }
       },
       revealHit(hit) {
         const element = scrollContainer.current;
