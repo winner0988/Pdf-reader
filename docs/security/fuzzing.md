@@ -42,8 +42,9 @@ repo 是公開的：Actions 的日誌任何人都能看，artifact 只要登入 
   - 崩潰時，`fuzz/artifacts/` 與 `fuzz.log` 以 [age](https://age-encryption.org/) 加密給 `.github/fuzz-recipient.txt` 中的公鑰，只有持有私鑰的負責人能解開。
   - age 從 Ubuntu 的套件庫安裝，而且只在失敗時安裝。
 - **沒有公鑰就不上傳**：
-  - `.github/fuzz-recipient.txt` 還沒有 `age1…` 公鑰時，workflow 只發出警告，不上傳任何東西。
+  - `.github/fuzz-recipient.txt` 沒有 `age1…` 公鑰時，workflow 只發出警告，不上傳任何東西。
   - 這時要在本機重現（見「在本機執行」）。
+  - 負責人的公鑰在 2026-11-04 才加入（#456）。在那之前找到的崩潰都沒有留下樣本，例如 2026-10-19 的 `text_box_font`，以及 10-26、11-02 的 `create_pdf`。
 
 #### 負責人的金鑰（只需做一次）
 
@@ -56,6 +57,11 @@ repo 是公開的：Actions 的日誌任何人都能看，artifact 只要登入 
    ```
 
 3. 把它印出的 `Public key: age1…` 中的 `age1…` 放進 `.github/fuzz-recipient.txt`，以 PR 提交。公鑰可以公開。**私鑰檔不得提交或傳給任何人**，請另外備份。
+4. 確認兩者相符：下面這個指令從私鑰檔算出公鑰，印出來的要和 `.github/fuzz-recipient.txt` 裡的那一行相同。
+
+   ```powershell
+   age-keygen -y "$env:USERPROFILE\.age\pdf-reader-fuzz.txt"
+   ```
 
 ## 在本機執行
 
