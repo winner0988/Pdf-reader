@@ -1,4 +1,5 @@
 # age recipient (public key) for encrypted fuzzing crash samples: .github/workflows/fuzz.yml,
 # docs/security/fuzzing.md, #57. Only the project owner holds the matching private key.
-# Put the owner's key (one line starting with "age1") below this comment. Until then the
-# workflow uploads nothing when the fuzzer finds a crash.
+# The workflow encrypts to the first line that is only an "age1" key; without one it uploads
+# nothing when the fuzzer finds a crash. A new key comes in by PR, like any other change here.
+age14wlge60x4rtmyxcdxx0hvygdmuhmcqns7crcgwwupwajgmp20qwqra70gg
