@@ -98,6 +98,14 @@ app 本身完全沒有為測試做任何修改：沒有測試專用的建置選�
 
 之後每張功能卡都可以在 `tests/e2e/` 加上自己的驗收情境。預期文字一律從 `src/i18n/zh-TW.ts` 取得，不要寫死。
 
+### 未自動化或無法以 E2E 模擬的情境：作業系統檔案拖放（#436）
+
+Windows 上的檔案拖放開檔（MVP-R1）由 Tauri 與 WebView2 在原生視窗層處理：
+- **原生層事件機制**：Tauri 依據視窗設定（`tauri.conf.json` 中 `dragDropEnabled` 預設為 `true`），在 Win32 視窗（HWND）層級向作業系統註冊 OLE `IDropTarget`。當使用者從 Windows 檔案總管拖曳檔案至視窗放下時，作業系統透過 OLE COM 介面傳送 `STGMEDIUM` / `HDROP` 檔案路徑，Tauri 原生事件迴圈接收後觸發 `WindowEvent::DragDrop`，由 `commands::on_window_event` 交給 `commands::open_paths`。
+- **Playwright CDP 的限制**：本專案採用方案 C，由 Playwright 透過 Chrome DevTools Protocol（CDP）連線至 WebView2 網頁。網頁 DOM 層級的 `dispatchEvent`、`DataTransfer` 模擬或 CDP 的 `Input.dispatchDragEvent` 僅在 Chromium 渲染引擎內部的 DOM 事件迴圈運作，無法觸發外部 Win32 HWND 的原生 OLE `IDropTarget` 回呼，因此 Tauri 的 `on_window_event` 永遠不會收到 `DragDropEvent`。
+- **外部模擬不可靠**：若嘗試由外部以 `SendInput`、UI Automation 或腳本操控 Windows 檔案總管跨視窗拖放，高度依賴桌面環境、視窗座標、動畫與時序，在無外接顯示器或負載重的 CI runner 上極易造成隨機失敗與不穩定。
+- **處理方式**：因此拖放開檔不在 E2E 中自動化，改列為 1.0 發行前的人工安全檢查（[manual-checks.md](../security/manual-checks.md) §3.14），驗證單檔、多檔、非 PDF 與資料夾的拖放行為。
+
 ## 在本機執行
 
 ```bash
