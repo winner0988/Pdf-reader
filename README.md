@@ -130,6 +130,7 @@ Windows-first · Tauri 2 + Rust · React + TypeScript + Vite · Tailwind + shadc
 | [docs/workflow.md](docs/workflow.md) | 開發流程、分支與 CI 規則、GitHub 設定步驟 |
 | [AGENTS.md](AGENTS.md) | AI coding agent 的工作規則 |
 | [docs/planning/](docs/planning/2026-09-23-kickoff-plan.md) | 專案啟動時的規劃紀錄 |
+| [Acrobat Pro 對照清單](docs/planning/acrobat-pro-parity.md) | 和 Adobe Acrobat Pro 逐項對照：有、部分、沒有、因隱私不做；1.0 之後從這裡規劃 |
 
 ## 開發流程
 
