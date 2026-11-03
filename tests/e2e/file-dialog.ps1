@@ -22,8 +22,6 @@ public static extern IntPtr SendValue(IntPtr window, uint message, IntPtr wParam
 public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 [DllImport("user32.dll")]
 public static extern bool IsWindow(IntPtr window);
-[DllImport("user32.dll")]
-public static extern IntPtr GetLastActivePopup(IntPtr window);
 "@
 
 $Element = [System.Windows.Automation.AutomationElement]
@@ -64,6 +62,7 @@ $WM_KEYUP = 0x0101
 $WM_CHAR = 0x0102
 $EM_SETSEL = 0x00B1
 $VK_BACK = 0x08
+$BM_CLICK = 0x00F5
 function Text-Of($window) {
     $text = New-Object System.Text.StringBuilder 2048
     [void][OpenDialog.Native]::GetText($window, $WM_GETTEXT, [IntPtr]2048, $text)
@@ -158,18 +157,40 @@ for ($attempt = 1; $attempt -le 3 -and [OpenDialog.Native]::IsWindow($dialogWind
     $deadline = (Get-Date).AddSeconds(5)
     while ([OpenDialog.Native]::IsWindow($dialogWindow) -and (Get-Date) -lt $deadline) {
         if (-not $Cancel) {
-            $popup = [OpenDialog.Native]::GetLastActivePopup($dialogWindow)
-            if ($popup -eq [IntPtr]::Zero -or $popup -eq $dialogWindow) {
-                foreach ($child in $Element::RootElement.FindAll($Scope::Children, $ofProcess)) {
-                    if ([IntPtr]$child.Current.NativeWindowHandle -ne $dialogWindow -and $child.Current.ClassName -eq "#32770") {
-                        $popup = [IntPtr]$child.Current.NativeWindowHandle
+            # An overwrite confirmation dialog may be shown (FOS_OVERWRITEPROMPT) when selecting
+            # an existing file. In Windows, this is a child #32770 dialog with a Yes button
+            # (AutomationId 'CommandButton_6', or name 'Yes').
+            $confirm = $dialog.FindFirst($Scope::Descendants, $isDialog)
+            if (-not $confirm) {
+                $popups = $Element::RootElement.FindAll($Scope::Descendants, (New-Object System.Windows.Automation.AndCondition(
+                    $ofProcess,
+                    $isDialog
+                )))
+                foreach ($p in $popups) {
+                    if ([IntPtr]$p.Current.NativeWindowHandle -ne $dialogWindow) {
+                        $confirm = $p
                         break
                     }
                 }
             }
-            if ($popup -ne [IntPtr]::Zero -and $popup -ne $dialogWindow) {
-                [void][OpenDialog.Native]::PostMessage($popup, 0x0111, [IntPtr]6, [IntPtr]::Zero)
-                [void][OpenDialog.Native]::PostMessage($popup, 0x0466, [IntPtr]6, [IntPtr]::Zero)
+            if ($confirm) {
+                $yesBtn = $confirm.FindFirst($Scope::Descendants, (New-Object System.Windows.Automation.OrCondition(
+                    (Property $Element::AutomationIdProperty "CommandButton_6"),
+                    (Property $Element::AutomationIdProperty "6"),
+                    (Property $Element::NameProperty "Yes")
+                )))
+                if (-not $yesBtn) {
+                    $yesBtn = $confirm.FindFirst($Scope::Descendants, (Property $Element::ClassNameProperty "CCPushButton"))
+                }
+                if (-not $yesBtn) {
+                    $yesBtn = $confirm.FindFirst($Scope::Descendants, (Property $Element::ClassNameProperty "Button"))
+                }
+                if ($yesBtn) {
+                    $btnHwnd = [IntPtr]$yesBtn.Current.NativeWindowHandle
+                    if ($btnHwnd -ne [IntPtr]::Zero) {
+                        [void][OpenDialog.Native]::SendValue($btnHwnd, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero)
+                    }
+                }
             }
         }
         Start-Sleep -Milliseconds 100
