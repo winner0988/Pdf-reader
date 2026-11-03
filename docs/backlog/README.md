@@ -170,3 +170,8 @@ flowchart LR
 
 - 第三批（B3）：見[到 11-20 的計畫](../planning/2026-10-20-plan-to-nov-20.md)。
 - 第四批（B4，到 1.0）：見[第四批計畫](../planning/2026-10-30-plan-batch-4.md)。工作卡 B4-01～B4-11 是 [#409](https://github.com/winner0988/Pdf-reader/issues/409)–[#419](https://github.com/winner0988/Pdf-reader/issues/419)，負責人 10-30 已決定，可以開工（B4-08 有空才做）。
+
+## 第五批
+
+- 第五批（B5）：工作卡 B5-01～B5-16 是 [#438](https://github.com/winner0988/Pdf-reader/issues/438)–[#453](https://github.com/winner0988/Pdf-reader/issues/453)，2026-11-03 開卡（來源：與 [pdfcraft](https://github.com/storytold/pdfcraft) 的比較），都還沒排程。
+- 1.0 之後從 [Acrobat Pro 對照清單](../planning/acrobat-pro-parity.md)的「缺口排名」挑卡，寫成那一批的計畫。
