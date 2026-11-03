@@ -2,7 +2,7 @@
 
 對應工作卡 UX-01。MVP-05～MVP-12 的前端工作都以本文件為準；**需經負責人核准**。
 
-- Wireframe 只呈現版面與文字，不代表視覺設計（顏色、圖示、字型之後再定）。
+- Wireframe 只呈現版面與文字，不代表視覺設計；顏色、圖示、字型與動態規則見 [視覺風格指南](visual-style.md)。
 - Wireframe 由 [`wireframes/make_wireframes.py`](wireframes/make_wireframes.py) 產生：修改畫面時改腳本後重新執行，不要直接編輯 SVG。
 - 所有使用者可見文字集中在「文字表」一節，實作時放進 `src/i18n/zh-TW.ts`，不得寫死在元件裡。
 
