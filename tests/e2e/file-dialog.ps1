@@ -22,6 +22,8 @@ public static extern IntPtr SendValue(IntPtr window, uint message, IntPtr wParam
 public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 [DllImport("user32.dll")]
 public static extern bool IsWindow(IntPtr window);
+[DllImport("user32.dll")]
+public static extern IntPtr GetLastActivePopup(IntPtr window);
 "@
 
 $Element = [System.Windows.Automation.AutomationElement]
@@ -155,6 +157,21 @@ for ($attempt = 1; $attempt -le 3 -and [OpenDialog.Native]::IsWindow($dialogWind
     [void][OpenDialog.Native]::PostMessage($dialogWindow, $WM_COMMAND, [IntPtr]$command, [IntPtr]::Zero)
     $deadline = (Get-Date).AddSeconds(5)
     while ([OpenDialog.Native]::IsWindow($dialogWindow) -and (Get-Date) -lt $deadline) {
+        if (-not $Cancel) {
+            $popup = [OpenDialog.Native]::GetLastActivePopup($dialogWindow)
+            if ($popup -eq [IntPtr]::Zero -or $popup -eq $dialogWindow) {
+                foreach ($child in $Element::RootElement.FindAll($Scope::Children, $ofProcess)) {
+                    if ([IntPtr]$child.Current.NativeWindowHandle -ne $dialogWindow -and $child.Current.ClassName -eq "#32770") {
+                        $popup = [IntPtr]$child.Current.NativeWindowHandle
+                        break
+                    }
+                }
+            }
+            if ($popup -ne [IntPtr]::Zero -and $popup -ne $dialogWindow) {
+                [void][OpenDialog.Native]::PostMessage($popup, 0x0111, [IntPtr]6, [IntPtr]::Zero)
+                [void][OpenDialog.Native]::PostMessage($popup, 0x0466, [IntPtr]6, [IntPtr]::Zero)
+            }
+        }
         Start-Sleep -Milliseconds 100
     }
 }
