@@ -21,6 +21,12 @@ export function annotationLabel(annotation: PageAnnotation): string {
   switch (annotation.kind) {
     case "highlight":
       return annotation.color ? t.highlightIn(t.colors[annotation.color]) : t.kind.highlight;
+    case "underline":
+      return annotation.color ? t.underlineIn(t.colors[annotation.color]) : t.kind.underline;
+    case "strikeOut":
+      return annotation.color ? t.strikeOutIn(t.colors[annotation.color]) : t.kind.strikeOut;
+    case "squiggly":
+      return annotation.color ? t.squigglyIn(t.colors[annotation.color]) : t.kind.squiggly;
     case "note":
       return annotation.text ? t.noteSaying(annotation.text) : t.kind.note;
     case "textBox":

@@ -13,6 +13,7 @@ use ipc_contract::limits::{
 use ipc_contract::text::clean_note_text;
 use ipc_contract::types::{
     Edit, HighlightColor, HighlightMark, InkColor, InkWidth, Point, Quad, Rect, StampName,
+    TextMarkKind,
 };
 use ipc_contract::validate::{
     Validate, check_angle, check_annotated_page, check_annotation_rect, check_note_text,
@@ -216,6 +217,7 @@ fn extract_picture_png(picture_ref: &PdfObject) -> Option<Vec<u8>> {
 /// A clean extracted annotation from a source document.
 pub(super) enum ExtractedAnnotation {
     Highlight {
+        kind: TextMarkKind,
         page: u32,
         quads: Vec<Quad>,
         color: HighlightColor,
@@ -280,7 +282,17 @@ pub(super) fn extract_source_annotations(
             }
 
             match kind {
-                PdfAnnotationType::Highlight => {
+                PdfAnnotationType::Highlight
+                | PdfAnnotationType::Underline
+                | PdfAnnotationType::StrikeOut
+                | PdfAnnotationType::Squiggly => {
+                    let mark_kind = match kind {
+                        PdfAnnotationType::Highlight => TextMarkKind::Highlight,
+                        PdfAnnotationType::Underline => TextMarkKind::Underline,
+                        PdfAnnotationType::StrikeOut => TextMarkKind::StrikeOut,
+                        PdfAnnotationType::Squiggly => TextMarkKind::Squiggly,
+                        _ => unreachable!(),
+                    };
                     let Ok(quads) = annot.quad_points() else {
                         continue;
                     };
@@ -315,6 +327,7 @@ pub(super) fn extract_source_annotations(
                         continue;
                     };
                     extracted.push(ExtractedAnnotation::Highlight {
+                        kind: mark_kind,
                         page: page_idx,
                         quads,
                         color,
@@ -536,17 +549,23 @@ pub(super) fn recreate_annotations(
 ) -> Result<(), EngineError> {
     for annot in annotations {
         match annot {
-            ExtractedAnnotation::Highlight { page, quads, color } => {
+            ExtractedAnnotation::Highlight {
+                kind,
+                page,
+                quads,
+                color,
+            } => {
                 let mark = HighlightMark {
                     page: at + page,
                     quads: quads.clone(),
                 };
                 let edit = Edit::AddHighlight {
+                    mark_kind: *kind,
                     marks: vec![mark.clone()],
                     color: *color,
                 };
                 if edit.validate().is_ok() {
-                    let _ = doc.add_highlights(&[mark], *color);
+                    let _ = doc.add_text_marks(*kind, &[mark], *color);
                 }
             }
             ExtractedAnnotation::Note { page, at: pt, text } => {

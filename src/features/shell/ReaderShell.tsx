@@ -1213,6 +1213,39 @@ export function ReaderShell({
                 }
               : undefined
           }
+          underline={
+            editingApi !== undefined && doc !== undefined
+              ? {
+                  color: annotations.markColor("underline"),
+                  onClick:
+                    annotations.enabled && textSelected
+                      ? () => annotations.highlight(undefined, "underline")
+                      : undefined,
+                }
+              : undefined
+          }
+          strikeOut={
+            editingApi !== undefined && doc !== undefined
+              ? {
+                  color: annotations.markColor("strikeOut"),
+                  onClick:
+                    annotations.enabled && textSelected
+                      ? () => annotations.highlight(undefined, "strikeOut")
+                      : undefined,
+                }
+              : undefined
+          }
+          squiggly={
+            editingApi !== undefined && doc !== undefined
+              ? {
+                  color: annotations.markColor("squiggly"),
+                  onClick:
+                    annotations.enabled && textSelected
+                      ? () => annotations.highlight(undefined, "squiggly")
+                      : undefined,
+                }
+              : undefined
+          }
           pen={
             editingApi !== undefined && doc !== undefined
               ? {
@@ -1448,6 +1481,57 @@ export function ReaderShell({
                           <ContextMenuSubContent>
                             {HIGHLIGHT_COLORS.map((color) => (
                               <ContextMenuItem key={color} onClick={() => annotations.highlight(color)}>
+                                <span
+                                  aria-hidden
+                                  className="size-3 rounded-full border border-black/20"
+                                  style={{ backgroundColor: SWATCH[color] }}
+                                />
+                                {strings.annotations.colors[color]}
+                              </ContextMenuItem>
+                            ))}
+                          </ContextMenuSubContent>
+                        </ContextMenuSub>
+                        <ContextMenuSub>
+                          <ContextMenuSubTrigger disabled={!textSelected || !annotations.enabled}>
+                            {strings.annotations.underline}
+                          </ContextMenuSubTrigger>
+                          <ContextMenuSubContent>
+                            {HIGHLIGHT_COLORS.map((color) => (
+                              <ContextMenuItem key={color} onClick={() => annotations.highlight(color, "underline")}>
+                                <span
+                                  aria-hidden
+                                  className="size-3 rounded-full border border-black/20"
+                                  style={{ backgroundColor: SWATCH[color] }}
+                                />
+                                {strings.annotations.colors[color]}
+                              </ContextMenuItem>
+                            ))}
+                          </ContextMenuSubContent>
+                        </ContextMenuSub>
+                        <ContextMenuSub>
+                          <ContextMenuSubTrigger disabled={!textSelected || !annotations.enabled}>
+                            {strings.annotations.strikeOut}
+                          </ContextMenuSubTrigger>
+                          <ContextMenuSubContent>
+                            {HIGHLIGHT_COLORS.map((color) => (
+                              <ContextMenuItem key={color} onClick={() => annotations.highlight(color, "strikeOut")}>
+                                <span
+                                  aria-hidden
+                                  className="size-3 rounded-full border border-black/20"
+                                  style={{ backgroundColor: SWATCH[color] }}
+                                />
+                                {strings.annotations.colors[color]}
+                              </ContextMenuItem>
+                            ))}
+                          </ContextMenuSubContent>
+                        </ContextMenuSub>
+                        <ContextMenuSub>
+                          <ContextMenuSubTrigger disabled={!textSelected || !annotations.enabled}>
+                            {strings.annotations.squiggly}
+                          </ContextMenuSubTrigger>
+                          <ContextMenuSubContent>
+                            {HIGHLIGHT_COLORS.map((color) => (
+                              <ContextMenuItem key={color} onClick={() => annotations.highlight(color, "squiggly")}>
                                 <span
                                   aria-hidden
                                   className="size-3 rounded-full border border-black/20"

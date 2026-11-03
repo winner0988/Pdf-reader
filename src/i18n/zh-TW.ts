@@ -136,6 +136,12 @@ export const strings = {
     search: "搜尋",
     highlight: (color: string) => `螢光筆（${color}）`,
     highlightNeedsText: "螢光筆：先選取文字",
+    underline: (color: string) => `底線（${color}）`,
+    underlineNeedsText: "底線：先選取文字",
+    strikeOut: (color: string) => `刪除線（${color}）`,
+    strikeOutNeedsText: "刪除線：先選取文字",
+    squiggly: (color: string) => `波浪線（${color}）`,
+    squigglyNeedsText: "波浪線：先選取文字",
     more: "更多",
   },
   statusBar: {
@@ -280,11 +286,20 @@ export const strings = {
   /** Highlighter marks and notes (B2-07). */
   annotations: {
     highlight: "螢光筆",
+    underline: "底線",
+    strikeOut: "刪除線",
+    squiggly: "波浪線",
     colors: { yellow: "黃色", green: "綠色", blue: "藍色", pink: "粉紅色" },
     highlightIn: (color: string) => `螢光筆標示（${color}）`,
+    underlineIn: (color: string) => `底線標示（${color}）`,
+    strikeOutIn: (color: string) => `刪除線標示（${color}）`,
+    squigglyIn: (color: string) => `波浪線標示（${color}）`,
     noteSaying: (text: string) => `附註：${text}`,
     kind: {
       highlight: "螢光筆標示",
+      underline: "底線標示",
+      strikeOut: "刪除線標示",
+      squiggly: "波浪線標示",
       note: "附註",
       ink: "手繪線條",
       stamp: "印章",

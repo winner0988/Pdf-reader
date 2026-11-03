@@ -99,6 +99,7 @@ pub fn bindings() -> String {
         ExportArgs,
         ExportEvent,
         Edit,
+        TextMarkKind,
         HighlightColor,
         HighlightMark,
         InkColor,

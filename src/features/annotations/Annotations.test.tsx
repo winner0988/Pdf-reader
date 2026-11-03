@@ -95,10 +95,25 @@ async function setup(permissions: DocumentPermissions = ALL_PERMISSIONS, onPage:
     fireEvent.mouseMove(window, at(0, 101, 106));
     fireEvent.mouseUp(window);
   };
-  // The toolbar's button, not the outlines of the page's marks (named "螢光筆標示…").
+  // The toolbar's buttons, not the outlines of the page's marks (named "螢光筆標示…").
   const highlightButton = () =>
     screen.getByRole("button", { name: new RegExp(`^${t.highlight}（.*）$|^${strings.toolbar.highlightNeedsText}$`) });
-  return { editing, pages, selectHello, highlightButton, user };
+  const underlineButton = () =>
+    screen.getByRole("button", { name: new RegExp(`^${t.underline}（.*）$|^${strings.toolbar.underlineNeedsText}$`) });
+  const strikeOutButton = () =>
+    screen.getByRole("button", { name: new RegExp(`^${t.strikeOut}（.*）$|^${strings.toolbar.strikeOutNeedsText}$`) });
+  const squigglyButton = () =>
+    screen.getByRole("button", { name: new RegExp(`^${t.squiggly}（.*）$|^${strings.toolbar.squigglyNeedsText}$`) });
+  return {
+    editing,
+    pages,
+    selectHello,
+    highlightButton,
+    underlineButton,
+    strikeOutButton,
+    squigglyButton,
+    user,
+  };
 }
 
 /** The edit `applyEdit` was last called with. */
@@ -115,6 +130,7 @@ describe("the highlighter (B2-07)", () => {
     await waitFor(() => expect(editing.applyEdit).toHaveBeenCalledTimes(1));
     expect(editing.applyEdit).toHaveBeenCalledWith(5, {
       kind: "addHighlight",
+      markKind: "highlight",
       color: "green",
       marks: [{ page: 0, quads: [expect.objectContaining({ ul: { x: 72, y: 100 }, lr: expect.objectContaining({ y: 112 }) })] }],
     });
@@ -164,6 +180,100 @@ describe("the highlighter (B2-07)", () => {
     editing.applyEdit.mockRejectedValueOnce({ code: "internal", message: "" });
     await user.click(highlightButton());
     expect(await screen.findByText(t.failed)).toBeInTheDocument();
+  });
+});
+
+describe("text markups: underline, strikeout, squiggly (B4-04)", () => {
+  it("marks the selected text with underline from toolbar and context menu", async () => {
+    const { editing, pages, selectHello, underlineButton, user } = await setup();
+    expect(underlineButton()).toBeDisabled();
+    expect(underlineButton()).toHaveAccessibleName(strings.toolbar.underlineNeedsText);
+
+    selectHello();
+    expect(underlineButton()).toBeEnabled();
+    expect(underlineButton()).toHaveAccessibleName(strings.toolbar.underline(t.colors.blue));
+
+    await user.click(underlineButton());
+    await waitFor(() => expect(editing.applyEdit).toHaveBeenCalledTimes(1));
+    expect(lastEdit(editing)).toMatchObject({ kind: "addHighlight", markKind: "underline", color: "blue" });
+
+    fireEvent.contextMenu(pages, at(0, 80, 106));
+    await user.click(await screen.findByRole("menuitem", { name: t.underline }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: t.colors.pink }));
+    await waitFor(() => expect(editing.applyEdit).toHaveBeenCalledTimes(2));
+    expect(lastEdit(editing)).toMatchObject({ kind: "addHighlight", markKind: "underline", color: "pink" });
+    expect(underlineButton()).toHaveAccessibleName(strings.toolbar.underline(t.colors.pink));
+  });
+
+  it("marks the selected text with strikeout from toolbar and context menu", async () => {
+    const { editing, pages, selectHello, strikeOutButton, user } = await setup();
+    expect(strikeOutButton()).toBeDisabled();
+    expect(strikeOutButton()).toHaveAccessibleName(strings.toolbar.strikeOutNeedsText);
+
+    selectHello();
+    expect(strikeOutButton()).toBeEnabled();
+    expect(strikeOutButton()).toHaveAccessibleName(strings.toolbar.strikeOut(t.colors.pink));
+
+    await user.click(strikeOutButton());
+    await waitFor(() => expect(editing.applyEdit).toHaveBeenCalledTimes(1));
+    expect(lastEdit(editing)).toMatchObject({ kind: "addHighlight", markKind: "strikeOut", color: "pink" });
+
+    fireEvent.contextMenu(pages, at(0, 80, 106));
+    await user.click(await screen.findByRole("menuitem", { name: t.strikeOut }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: t.colors.yellow }));
+    await waitFor(() => expect(editing.applyEdit).toHaveBeenCalledTimes(2));
+    expect(lastEdit(editing)).toMatchObject({ kind: "addHighlight", markKind: "strikeOut", color: "yellow" });
+    expect(strikeOutButton()).toHaveAccessibleName(strings.toolbar.strikeOut(t.colors.yellow));
+  });
+
+  it("marks the selected text with squiggly from toolbar and context menu", async () => {
+    const { editing, pages, selectHello, squigglyButton, user } = await setup();
+    expect(squigglyButton()).toBeDisabled();
+    expect(squigglyButton()).toHaveAccessibleName(strings.toolbar.squigglyNeedsText);
+
+    selectHello();
+    expect(squigglyButton()).toBeEnabled();
+    expect(squigglyButton()).toHaveAccessibleName(strings.toolbar.squiggly(t.colors.green));
+
+    await user.click(squigglyButton());
+    await waitFor(() => expect(editing.applyEdit).toHaveBeenCalledTimes(1));
+    expect(lastEdit(editing)).toMatchObject({ kind: "addHighlight", markKind: "squiggly", color: "green" });
+
+    fireEvent.contextMenu(pages, at(0, 80, 106));
+    await user.click(await screen.findByRole("menuitem", { name: t.squiggly }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: t.colors.blue }));
+    await waitFor(() => expect(editing.applyEdit).toHaveBeenCalledTimes(2));
+    expect(lastEdit(editing)).toMatchObject({ kind: "addHighlight", markKind: "squiggly", color: "blue" });
+    expect(squigglyButton()).toHaveAccessibleName(strings.toolbar.squiggly(t.colors.blue));
+  });
+
+  it("allows selecting, changing color and deleting underline annotations on the page", async () => {
+    const underlineAnnot: PageAnnotation = {
+      id: 10,
+      kind: "underline",
+      rect: { x0: 72, y0: 300, x1: 200, y1: 320 },
+      color: "blue",
+      text: null,
+      picture: null,
+    };
+    const { editing, user } = await setup(ALL_PERMISSIONS, [underlineAnnot]);
+    const mark = await screen.findByRole("button", { name: annotationLabel(underlineAnnot) });
+    act(() => mark.focus());
+    const toolbar = await screen.findByRole("toolbar", { name: annotationLabel(underlineAnnot) });
+    expect(within(toolbar).getByRole("button", { name: t.colors.blue })).toHaveAttribute("aria-pressed", "true");
+
+    await user.tab();
+    expect(within(toolbar).getByRole("button", { name: t.colors.yellow })).toHaveFocus();
+    await user.click(within(toolbar).getByRole("button", { name: t.colors.pink }));
+    expect(editing.applyEdit).toHaveBeenLastCalledWith(5, {
+      kind: "setHighlightColor",
+      page: 0,
+      annotation: 10,
+      color: "pink",
+    });
+
+    await user.click(within(toolbar).getByRole("button", { name: t.delete }));
+    expect(editing.applyEdit).toHaveBeenLastCalledWith(5, { kind: "deleteAnnotation", page: 0, annotation: 10 });
   });
 });
 

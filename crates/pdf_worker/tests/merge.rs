@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use ipc_contract::limits::{MAX_INK_STROKES, MAX_SOURCE_BYTES, MAX_SOURCE_TEXT_BOXES};
 use ipc_contract::types::{
     AnnotationKind, DocumentId, ErrorCode, HighlightColor, HighlightMark, InkColor, InkWidth,
-    PageSize, Password, Point, Quad, Rect, Rgb, StampName, TextAlign, TextBoxStyle,
+    PageSize, Password, Point, Quad, Rect, Rgb, StampName, TextAlign, TextBoxStyle, TextMarkKind,
 };
 use ipc_contract::worker::{
     FontData, InsertedTextBox, WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
@@ -227,6 +227,7 @@ fn app_annotations_are_recreated_on_inserted_pages() {
         request,
         doc: source_doc,
         edit: WorkerEdit::AddHighlight {
+            mark_kind: TextMarkKind::Highlight,
             marks: vec![HighlightMark {
                 page: 0,
                 quads: vec![quad],
@@ -469,6 +470,7 @@ fn malicious_actions_on_source_annotations_are_stripped() {
         request,
         doc: source_doc,
         edit: WorkerEdit::AddHighlight {
+            mark_kind: TextMarkKind::Highlight,
             marks: vec![HighlightMark {
                 page: 0,
                 quads: vec![quad],
@@ -640,6 +642,7 @@ fn invalid_annotations_are_skipped_while_valid_are_kept() {
         request,
         doc: source_doc,
         edit: WorkerEdit::AddHighlight {
+            mark_kind: TextMarkKind::Highlight,
             marks: vec![HighlightMark {
                 page: 0,
                 quads: vec![quad],
@@ -844,6 +847,7 @@ fn rotated_source_page_preserves_annotation_geometry() {
         request,
         doc: source_doc,
         edit: WorkerEdit::AddHighlight {
+            mark_kind: TextMarkKind::Highlight,
             marks: vec![HighlightMark {
                 page: 0,
                 quads: vec![quad],
@@ -1526,5 +1530,189 @@ fn source_text_boxes_beyond_limit_are_skipped() {
         text_boxes.len(),
         MAX_SOURCE_TEXT_BOXES as usize,
         "Text boxes beyond MAX_SOURCE_TEXT_BOXES must be skipped"
+    );
+}
+
+#[test]
+fn merge_carries_underline_strikeout_and_squiggly_annotations() {
+    let mut host = host();
+    // 1. Prepare a source document with Underline, StrikeOut, Squiggly annotations
+    let (source_doc, _) = opened(&mut host, &corpus("benign/single-page.pdf"));
+
+    // Underline
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddHighlight {
+            mark_kind: TextMarkKind::Underline,
+            marks: vec![HighlightMark {
+                page: 0,
+                quads: vec![Quad {
+                    ul: Point { x: 72.0, y: 90.0 },
+                    ur: Point { x: 144.0, y: 90.0 },
+                    ll: Point { x: 72.0, y: 102.0 },
+                    lr: Point { x: 144.0, y: 102.0 },
+                }],
+            }],
+            color: HighlightColor::Blue,
+        },
+    })
+    .expect("underline");
+
+    // StrikeOut
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddHighlight {
+            mark_kind: TextMarkKind::StrikeOut,
+            marks: vec![HighlightMark {
+                page: 0,
+                quads: vec![Quad {
+                    ul: Point { x: 72.0, y: 110.0 },
+                    ur: Point { x: 144.0, y: 110.0 },
+                    ll: Point { x: 72.0, y: 122.0 },
+                    lr: Point { x: 144.0, y: 122.0 },
+                }],
+            }],
+            color: HighlightColor::Pink,
+        },
+    })
+    .expect("strikeout");
+
+    // Squiggly
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddHighlight {
+            mark_kind: TextMarkKind::Squiggly,
+            marks: vec![HighlightMark {
+                page: 0,
+                quads: vec![Quad {
+                    ul: Point { x: 72.0, y: 130.0 },
+                    ur: Point { x: 144.0, y: 130.0 },
+                    ll: Point { x: 72.0, y: 142.0 },
+                    lr: Point { x: 144.0, y: 142.0 },
+                }],
+            }],
+            color: HighlightColor::Green,
+        },
+    })
+    .expect("squiggly");
+
+    // Save source document to a temp file
+    let source_path = std::env::temp_dir().join(format!(
+        "pdf-worker-{}-markup-source.pdf",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&source_path);
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&source_path)
+        .expect("create source file");
+    host.save(source_doc, &file).expect("save source doc");
+    drop(file);
+
+    // 2. Prepare source from the saved file
+    let file = File::open(&source_path).expect("open source file");
+    let (source_bytes, source_pages, _) =
+        match host.prepare_source(&file, None).expect("prepare source") {
+            WorkerResponse::Source {
+                bytes,
+                pages,
+                text_boxes,
+                ..
+            } => (bytes, pages, text_boxes),
+            other => panic!("{other:?}"),
+        };
+    std::fs::remove_file(&source_path).ok();
+    assert_eq!(source_pages, 1);
+
+    // 3. Open target doc and insert page
+    let (target_doc, _) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: target_doc,
+        edit: WorkerEdit::InsertPages {
+            at: 2,
+            source: source_bytes.clone(),
+            text_boxes: Vec::new(),
+        },
+    })
+    .expect("insert pages");
+
+    // 4. Check annotations on the inserted page (page 2)
+    let annots = match host
+        .request(|request| WorkerRequest::GetPageAnnotations {
+            request,
+            doc: target_doc,
+            page_index: 2,
+        })
+        .expect("page annots")
+    {
+        WorkerResponse::PageAnnotations { annotations, .. } => annotations,
+        other => panic!("{other:?}"),
+    };
+
+    assert_eq!(annots.len(), 3);
+    let underline = annots
+        .iter()
+        .find(|a| a.kind == AnnotationKind::Underline)
+        .expect("underline annot");
+    assert_eq!(underline.color, Some(HighlightColor::Blue));
+
+    let strikeout = annots
+        .iter()
+        .find(|a| a.kind == AnnotationKind::StrikeOut)
+        .expect("strikeout annot");
+    assert_eq!(strikeout.color, Some(HighlightColor::Pink));
+
+    let squiggly = annots
+        .iter()
+        .find(|a| a.kind == AnnotationKind::Squiggly)
+        .expect("squiggly annot");
+    assert_eq!(squiggly.color, Some(HighlightColor::Green));
+
+    // 5. Revert with the same edit (undo/redo & crash recovery replay)
+    let reverted = host
+        .request(|request| WorkerRequest::Revert {
+            request,
+            doc: target_doc,
+            edits: vec![WorkerEdit::InsertPages {
+                at: 2,
+                source: source_bytes.clone(),
+                text_boxes: Vec::new(),
+            }],
+            password: None,
+        })
+        .expect("revert");
+    assert!(matches!(reverted, WorkerResponse::Edited { .. }));
+
+    let reverted_annots = match host
+        .request(|request| WorkerRequest::GetPageAnnotations {
+            request,
+            doc: target_doc,
+            page_index: 2,
+        })
+        .expect("page annots after revert")
+    {
+        WorkerResponse::PageAnnotations { annotations, .. } => annotations,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(reverted_annots.len(), 3);
+    assert!(
+        reverted_annots
+            .iter()
+            .any(|a| a.kind == AnnotationKind::Underline)
+    );
+    assert!(
+        reverted_annots
+            .iter()
+            .any(|a| a.kind == AnnotationKind::StrikeOut)
+    );
+    assert!(
+        reverted_annots
+            .iter()
+            .any(|a| a.kind == AnnotationKind::Squiggly)
     );
 }
