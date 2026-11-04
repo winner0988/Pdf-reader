@@ -13,12 +13,90 @@ import { corpus, expect, quit, test } from "./app";
 const LOCAL = /^((https?|wss?):\/\/)?((ipc|tauri)\.localhost|localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/;
 
 /**
- * Every web address and host in a network log that is not local. Without their queries.
+ * Any external web address in the network log that was actually transmitted (sent HTTP request
+ * headers or connected to a remote server).
+ *
+ * In Chromium, setting `location.href` in JavaScript causes the network stack to create an initial
+ * `URL_REQUEST` entry in NetLog before WebView2's `NavigationStarting` event fires.
+ * When `on_navigation` blocks navigation (returning `false`), WebView2 immediately cancels the
+ * request (`ERR_ABORTED`, net_error = -3) before any HTTP transaction (`HTTP_TRANSACTION_SEND_REQUEST`)
+ * is created or any socket is connected.
  */
-function external(log: string): string[] {
-  const urls = [...log.matchAll(/"url":"((?:https?|wss?):\/\/[^"?]+)/g)].map((match) => match[1]!);
-  const hosts = [...log.matchAll(/"host":"([^"]+)"/g)].map((match) => match[1]!);
-  return [...new Set([...urls, ...hosts])].filter((address) => !LOCAL.test(address));
+function externalTransmitted(log: string): string[] {
+  const data = JSON.parse(log) as {
+    constants?: {
+      logEventTypes?: Record<string, number>;
+    };
+    events?: Array<{
+      source?: { id: number; type: number };
+      type?: number;
+      params?: Record<string, unknown>;
+    }>;
+  };
+
+  const sendHeaderType = data.constants?.logEventTypes?.HTTP_TRANSACTION_SEND_REQUEST_HEADERS;
+  const sendRequestType = data.constants?.logEventTypes?.HTTP_TRANSACTION_SEND_REQUEST;
+  const socketConnectType = data.constants?.logEventTypes?.TCP_CONNECT;
+
+  const requestUrls = new Map<number, string>();
+  for (const event of data.events ?? []) {
+    if (event.params?.url && typeof event.params.url === "string" && event.source?.id !== undefined) {
+      requestUrls.set(event.source.id, event.params.url);
+    }
+  }
+
+  const transmitted: string[] = [];
+  for (const event of data.events ?? []) {
+    if (
+      event.type !== undefined &&
+      (event.type === sendHeaderType || event.type === sendRequestType || event.type === socketConnectType)
+    ) {
+      const url = event.source?.id !== undefined ? requestUrls.get(event.source.id) : undefined;
+      if (url && !LOCAL.test(url)) {
+        transmitted.push(url);
+      }
+    }
+  }
+  return [...new Set(transmitted)];
+}
+
+/**
+ * Returns every external URL_REQUEST in the NetLog, along with whether it was aborted before sending.
+ */
+function externalRequestResults(log: string): { url: string; aborted: boolean }[] {
+  const data = JSON.parse(log) as {
+    constants?: {
+      netErrors?: Record<string, number>;
+    };
+    events?: Array<{
+      source?: { id: number; type: number };
+      params?: Record<string, unknown>;
+    }>;
+  };
+
+  const errAborted = data.constants?.netErrors?.ERR_ABORTED ?? -3;
+  const requests = new Map<number, { url: string; aborted: boolean }>();
+
+  for (const event of data.events ?? []) {
+    if (!event.source?.id) continue;
+    const id = event.source.id;
+
+    if (event.params?.url && typeof event.params.url === "string") {
+      const url = event.params.url;
+      if (!LOCAL.test(url)) {
+        requests.set(id, { url, aborted: requests.get(id)?.aborted ?? false });
+      }
+    }
+
+    if (event.params?.net_error === errAborted) {
+      const existing = requests.get(id);
+      if (existing) {
+        existing.aborted = true;
+      }
+    }
+  }
+
+  return [...requests.values()];
 }
 
 test("the WebView refuses navigation to external URLs and fake domains, and net log stays empty (#424)", async ({
@@ -59,9 +137,15 @@ test("the WebView refuses navigation to external URLs and fake domains, and net 
 
     const log = readFileSync(netLog, "utf8");
     expect(log).toContain("http://tauri.localhost/");
-    expect(external(log)).toEqual([]);
-    expect(log).not.toContain("example.invalid");
-    expect(log).not.toContain("evil.example");
+    // No external requests were transmitted
+    expect(externalTransmitted(log)).toEqual([]);
+
+    // External navigation attempts were captured and aborted before sending
+    const externalResults = externalRequestResults(log);
+    expect(externalResults.length).toBeGreaterThanOrEqual(2);
+    for (const req of externalResults) {
+      expect(req.aborted).toBe(true);
+    }
   } finally {
     rmSync(netLog, { force: true, maxRetries: 10, retryDelay: 200 });
   }
