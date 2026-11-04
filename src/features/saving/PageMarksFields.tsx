@@ -60,100 +60,100 @@ export function PageMarksFields({
           <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
             <div>
               <label className="block text-xs font-medium text-muted-foreground">
-                {t.format}
+                <span>{t.format}</span>
+                <select
+                  disabled={disabled}
+                  value={form.pageNumberFormatType}
+                  onChange={(e) =>
+                    onChange({
+                      pageNumberFormatType: e.target
+                        .value as PageMarksForm["pageNumberFormatType"],
+                    })
+                  }
+                  className="mt-1 w-full rounded-md border p-1.5 text-sm"
+                >
+                  <option value="PageOfTotal">{t.formatPageOfTotal}</option>
+                  <option value="Page">{t.formatPage}</option>
+                  <option value="Number">{t.formatNumber}</option>
+                  <option value="Custom">{t.formatCustom}</option>
+                </select>
               </label>
-              <select
-                disabled={disabled}
-                value={form.pageNumberFormatType}
-                onChange={(e) =>
-                  onChange({
-                    pageNumberFormatType: e.target
-                      .value as PageMarksForm["pageNumberFormatType"],
-                  })
-                }
-                className="mt-1 w-full rounded-md border p-1.5 text-sm"
-              >
-                <option value="PageOfTotal">{t.formatPageOfTotal}</option>
-                <option value="Page">{t.formatPage}</option>
-                <option value="Number">{t.formatNumber}</option>
-                <option value="Custom">{t.formatCustom}</option>
-              </select>
             </div>
 
             <div>
               <label className="block text-xs font-medium text-muted-foreground">
-                {t.position}
+                <span>{t.position}</span>
+                <select
+                  disabled={disabled}
+                  value={form.pageNumberPosition}
+                  onChange={(e) =>
+                    onChange({
+                      pageNumberPosition: e.target.value as PageMarkPosition,
+                    })
+                  }
+                  className="mt-1 w-full rounded-md border p-1.5 text-sm"
+                >
+                  {POSITIONS.map((pos) => (
+                    <option key={pos} value={pos}>
+                      {posLabel(pos)}
+                    </option>
+                  ))}
+                </select>
               </label>
-              <select
-                disabled={disabled}
-                value={form.pageNumberPosition}
-                onChange={(e) =>
-                  onChange({
-                    pageNumberPosition: e.target.value as PageMarkPosition,
-                  })
-                }
-                className="mt-1 w-full rounded-md border p-1.5 text-sm"
-              >
-                {POSITIONS.map((pos) => (
-                  <option key={pos} value={pos}>
-                    {posLabel(pos)}
-                  </option>
-                ))}
-              </select>
             </div>
 
             <div>
               <label className="block text-xs font-medium text-muted-foreground">
-                {t.startNumber}
+                <span>{t.startNumber}</span>
+                <input
+                  type="number"
+                  disabled={disabled}
+                  min={1}
+                  value={form.pageNumberStart}
+                  onChange={(e) =>
+                    onChange({
+                      pageNumberStart: Math.max(
+                        1,
+                        parseInt(e.target.value, 10) || 1,
+                      ),
+                    })
+                  }
+                  className="mt-1 w-full rounded-md border p-1.5 text-sm"
+                />
               </label>
-              <input
-                type="number"
-                disabled={disabled}
-                min={1}
-                value={form.pageNumberStart}
-                onChange={(e) =>
-                  onChange({
-                    pageNumberStart: Math.max(
-                      1,
-                      parseInt(e.target.value, 10) || 1,
-                    ),
-                  })
-                }
-                className="mt-1 w-full rounded-md border p-1.5 text-sm"
-              />
             </div>
 
             {form.pageNumberFormatType === "Custom" && (
               <div className="flex gap-2 sm:col-span-2">
                 <div className="flex-1">
                   <label className="block text-xs font-medium text-muted-foreground">
-                    {t.customPrefix}
+                    <span>{t.customPrefix}</span>
+                    <input
+                      type="text"
+                      disabled={disabled}
+                      value={form.customPrefix}
+                      onChange={(e) =>
+                        onChange({ customPrefix: e.target.value })
+                      }
+                      placeholder={t.customPrefixPlaceholder}
+                      className="mt-1 w-full rounded-md border p-1.5 text-sm"
+                    />
                   </label>
-                  <input
-                    type="text"
-                    disabled={disabled}
-                    value={form.customPrefix}
-                    onChange={(e) =>
-                      onChange({ customPrefix: e.target.value })
-                    }
-                    placeholder={t.customPrefixPlaceholder}
-                    className="mt-1 w-full rounded-md border p-1.5 text-sm"
-                  />
                 </div>
                 <div className="flex-1">
                   <label className="block text-xs font-medium text-muted-foreground">
-                    {t.customSuffix}
+                    <span>{t.customSuffix}</span>
+                    <input
+                      type="text"
+                      disabled={disabled}
+                      value={form.customSuffix}
+                      onChange={(e) =>
+                        onChange({ customSuffix: e.target.value })
+                      }
+                      placeholder={t.customSuffixPlaceholder}
+                      className="mt-1 w-full rounded-md border p-1.5 text-sm"
+                    />
                   </label>
-                  <input
-                    type="text"
-                    disabled={disabled}
-                    value={form.customSuffix}
-                    onChange={(e) =>
-                      onChange({ customSuffix: e.target.value })
-                    }
-                    placeholder={t.customSuffixPlaceholder}
-                    className="mt-1 w-full rounded-md border p-1.5 text-sm"
-                  />
                 </div>
               </div>
             )}
@@ -186,84 +186,84 @@ export function PageMarksFields({
           <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
             <div>
               <label className="block text-xs font-medium text-muted-foreground">
-                {t.batesPrefix}（{t.batesPrefixHint}）
+                <span>{t.batesPrefix}（{t.batesPrefixHint}）</span>
+                <input
+                  type="text"
+                  disabled={disabled}
+                  maxLength={32}
+                  value={form.batesPrefix}
+                  onChange={(e) =>
+                    onChange({ batesPrefix: e.target.value })
+                  }
+                  placeholder="CASE-"
+                  className="mt-1 w-full rounded-md border p-1.5 text-sm"
+                />
               </label>
-              <input
-                type="text"
-                disabled={disabled}
-                maxLength={32}
-                value={form.batesPrefix}
-                onChange={(e) =>
-                  onChange({ batesPrefix: e.target.value })
-                }
-                placeholder="CASE-"
-                className="mt-1 w-full rounded-md border p-1.5 text-sm"
-              />
             </div>
 
             <div>
               <label className="block text-xs font-medium text-muted-foreground">
-                {t.position}
+                <span>{t.position}</span>
+                <select
+                  disabled={disabled}
+                  value={form.batesPosition}
+                  onChange={(e) =>
+                    onChange({
+                      batesPosition: e.target.value as PageMarkPosition,
+                    })
+                  }
+                  className="mt-1 w-full rounded-md border p-1.5 text-sm"
+                >
+                  {POSITIONS.map((pos) => (
+                    <option key={pos} value={pos}>
+                      {posLabel(pos)}
+                    </option>
+                  ))}
+                </select>
               </label>
-              <select
-                disabled={disabled}
-                value={form.batesPosition}
-                onChange={(e) =>
-                  onChange({
-                    batesPosition: e.target.value as PageMarkPosition,
-                  })
-                }
-                className="mt-1 w-full rounded-md border p-1.5 text-sm"
-              >
-                {POSITIONS.map((pos) => (
-                  <option key={pos} value={pos}>
-                    {posLabel(pos)}
-                  </option>
-                ))}
-              </select>
             </div>
 
             <div>
               <label className="block text-xs font-medium text-muted-foreground">
-                {t.batesDigits}（{t.batesDigitsHint}）
+                <span>{t.batesDigits}（{t.batesDigitsHint}）</span>
+                <input
+                  type="number"
+                  disabled={disabled}
+                  min={1}
+                  max={12}
+                  value={form.batesDigits}
+                  onChange={(e) =>
+                    onChange({
+                      batesDigits: Math.min(
+                        12,
+                        Math.max(1, parseInt(e.target.value, 10) || 1),
+                      ),
+                    })
+                  }
+                  className="mt-1 w-full rounded-md border p-1.5 text-sm"
+                />
               </label>
-              <input
-                type="number"
-                disabled={disabled}
-                min={1}
-                max={12}
-                value={form.batesDigits}
-                onChange={(e) =>
-                  onChange({
-                    batesDigits: Math.min(
-                      12,
-                      Math.max(1, parseInt(e.target.value, 10) || 1),
-                    ),
-                  })
-                }
-                className="mt-1 w-full rounded-md border p-1.5 text-sm"
-              />
             </div>
 
             <div>
               <label className="block text-xs font-medium text-muted-foreground">
-                {t.batesStart}
+                <span>{t.batesStart}</span>
+                <input
+                  type="number"
+                  disabled={disabled}
+                  min={0}
+                  value={form.batesStart}
+                  onChange={(e) =>
+                    onChange({
+                      batesStart: Math.max(
+                        0,
+                        parseInt(e.target.value, 10) || 0,
+                      ),
+                    })
+                  }
+                  className="mt-1 w-full rounded-md border p-1.5 text-sm"
+                />
               </label>
-              <input
-                type="number"
-                disabled={disabled}
-                min={0}
-                value={form.batesStart}
-                onChange={(e) =>
-                  onChange({
-                    batesStart: Math.max(
-                      0,
-                      parseInt(e.target.value, 10) || 0,
-                    ),
-                  })
-                }
-                className="mt-1 w-full rounded-md border p-1.5 text-sm"
-              />
             </div>
 
             {batesOverflow && (
@@ -302,96 +302,96 @@ export function PageMarksFields({
             <div className="grid gap-2 sm:grid-cols-3">
               <div>
                 <label className="block text-xs font-medium text-muted-foreground">
-                  {t.headerLeft}
+                  <span>{t.headerLeft}</span>
+                  <input
+                    type="text"
+                    disabled={disabled}
+                    maxLength={100}
+                    value={form.headerLeft}
+                    onChange={(e) =>
+                      onChange({ headerLeft: e.target.value })
+                    }
+                    className="mt-1 w-full rounded-md border p-1.5 text-sm"
+                  />
                 </label>
-                <input
-                  type="text"
-                  disabled={disabled}
-                  maxLength={100}
-                  value={form.headerLeft}
-                  onChange={(e) =>
-                    onChange({ headerLeft: e.target.value })
-                  }
-                  className="mt-1 w-full rounded-md border p-1.5 text-sm"
-                />
               </div>
               <div>
                 <label className="block text-xs font-medium text-muted-foreground">
-                  {t.headerCenter}
+                  <span>{t.headerCenter}</span>
+                  <input
+                    type="text"
+                    disabled={disabled}
+                    maxLength={100}
+                    value={form.headerCenter}
+                    onChange={(e) =>
+                      onChange({ headerCenter: e.target.value })
+                    }
+                    className="mt-1 w-full rounded-md border p-1.5 text-sm"
+                  />
                 </label>
-                <input
-                  type="text"
-                  disabled={disabled}
-                  maxLength={100}
-                  value={form.headerCenter}
-                  onChange={(e) =>
-                    onChange({ headerCenter: e.target.value })
-                  }
-                  className="mt-1 w-full rounded-md border p-1.5 text-sm"
-                />
               </div>
               <div>
                 <label className="block text-xs font-medium text-muted-foreground">
-                  {t.headerRight}
+                  <span>{t.headerRight}</span>
+                  <input
+                    type="text"
+                    disabled={disabled}
+                    maxLength={100}
+                    value={form.headerRight}
+                    onChange={(e) =>
+                      onChange({ headerRight: e.target.value })
+                    }
+                    className="mt-1 w-full rounded-md border p-1.5 text-sm"
+                  />
                 </label>
-                <input
-                  type="text"
-                  disabled={disabled}
-                  maxLength={100}
-                  value={form.headerRight}
-                  onChange={(e) =>
-                    onChange({ headerRight: e.target.value })
-                  }
-                  className="mt-1 w-full rounded-md border p-1.5 text-sm"
-                />
               </div>
             </div>
 
             <div className="grid gap-2 sm:grid-cols-3">
               <div>
                 <label className="block text-xs font-medium text-muted-foreground">
-                  {t.footerLeft}
+                  <span>{t.footerLeft}</span>
+                  <input
+                    type="text"
+                    disabled={disabled}
+                    maxLength={100}
+                    value={form.footerLeft}
+                    onChange={(e) =>
+                      onChange({ footerLeft: e.target.value })
+                    }
+                    className="mt-1 w-full rounded-md border p-1.5 text-sm"
+                  />
                 </label>
-                <input
-                  type="text"
-                  disabled={disabled}
-                  maxLength={100}
-                  value={form.footerLeft}
-                  onChange={(e) =>
-                    onChange({ footerLeft: e.target.value })
-                  }
-                  className="mt-1 w-full rounded-md border p-1.5 text-sm"
-                />
               </div>
               <div>
                 <label className="block text-xs font-medium text-muted-foreground">
-                  {t.footerCenter}
+                  <span>{t.footerCenter}</span>
+                  <input
+                    type="text"
+                    disabled={disabled}
+                    maxLength={100}
+                    value={form.footerCenter}
+                    onChange={(e) =>
+                      onChange({ footerCenter: e.target.value })
+                    }
+                    className="mt-1 w-full rounded-md border p-1.5 text-sm"
+                  />
                 </label>
-                <input
-                  type="text"
-                  disabled={disabled}
-                  maxLength={100}
-                  value={form.footerCenter}
-                  onChange={(e) =>
-                    onChange({ footerCenter: e.target.value })
-                  }
-                  className="mt-1 w-full rounded-md border p-1.5 text-sm"
-                />
               </div>
               <div>
                 <label className="block text-xs font-medium text-muted-foreground">
-                  {t.footerRight}
+                  <span>{t.footerRight}</span>
+                  <input
+                    type="text"
+                    disabled={disabled}
+                    maxLength={100}
+                    value={form.footerRight}
+                    onChange={(e) =>
+                      onChange({ footerRight: e.target.value })
+                    }
+                    className="mt-1 w-full rounded-md border p-1.5 text-sm"
+                  />
                 </label>
-                <input
-                  type="text"
-                  disabled={disabled}
-                  maxLength={100}
-                  value={form.footerRight}
-                  onChange={(e) =>
-                    onChange({ footerRight: e.target.value })
-                  }
-                  className="mt-1 w-full rounded-md border p-1.5 text-sm"
-                />
               </div>
             </div>
           </div>
@@ -404,46 +404,46 @@ export function PageMarksFields({
         <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
           <div>
             <label className="block text-xs font-medium text-muted-foreground">
-              {t.fontSize}
+              <span>{t.fontSize}</span>
+              <input
+                type="number"
+                disabled={disabled}
+                min={6}
+                max={72}
+                value={form.fontSize}
+                onChange={(e) =>
+                  onChange({
+                    fontSize: Math.min(
+                      72,
+                      Math.max(6, parseInt(e.target.value, 10) || 10),
+                    ),
+                  })
+                }
+                className="mt-1 w-full rounded-md border p-1.5 text-sm"
+              />
             </label>
-            <input
-              type="number"
-              disabled={disabled}
-              min={6}
-              max={72}
-              value={form.fontSize}
-              onChange={(e) =>
-                onChange({
-                  fontSize: Math.min(
-                    72,
-                    Math.max(6, parseInt(e.target.value, 10) || 10),
-                  ),
-                })
-              }
-              className="mt-1 w-full rounded-md border p-1.5 text-sm"
-            />
           </div>
 
           <div>
             <label className="block text-xs font-medium text-muted-foreground">
-              {t.marginPt}
+              <span>{t.marginPt}</span>
+              <input
+                type="number"
+                disabled={disabled}
+                min={0}
+                max={144}
+                value={form.marginPt}
+                onChange={(e) =>
+                  onChange({
+                    marginPt: Math.min(
+                      144,
+                      Math.max(0, parseInt(e.target.value, 10) || 0),
+                    ),
+                  })
+                }
+                className="mt-1 w-full rounded-md border p-1.5 text-sm"
+              />
             </label>
-            <input
-              type="number"
-              disabled={disabled}
-              min={0}
-              max={144}
-              value={form.marginPt}
-              onChange={(e) =>
-                onChange({
-                  marginPt: Math.min(
-                    144,
-                    Math.max(0, parseInt(e.target.value, 10) || 0),
-                  ),
-                })
-              }
-              className="mt-1 w-full rounded-md border p-1.5 text-sm"
-            />
           </div>
 
           <div>
@@ -462,6 +462,7 @@ export function PageMarksFields({
                     type="button"
                     disabled={disabled}
                     title={label}
+                    aria-label={label}
                     onClick={() => onChange({ color })}
                     className={`h-6 w-6 rounded-full border ${
                       isSelected ? "ring-2 ring-primary ring-offset-1" : ""
@@ -476,9 +477,9 @@ export function PageMarksFields({
           </div>
 
           <div className="sm:col-span-3">
-            <label className="block text-xs font-medium text-muted-foreground">
+            <span className="block text-xs font-medium text-muted-foreground">
               {t.pages}
-            </label>
+            </span>
             <div className="mt-1 flex flex-wrap gap-4">
               <label className="flex items-center gap-1.5">
                 <input
@@ -517,6 +518,7 @@ export function PageMarksFields({
                 <input
                   type="text"
                   disabled={disabled}
+                  aria-label={t.pagesCustom}
                   value={form.customPagesString}
                   onChange={(e) =>
                     onChange({ customPagesString: e.target.value })

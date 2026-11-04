@@ -1,7 +1,12 @@
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { AnnotationSummaryDialog } from "@/features/export/AnnotationSummaryDialog";
+import { AttachmentsPanel } from "@/features/attachments/AttachmentsPanel";
+import { CompareDialog } from "@/features/compare/CompareDialog";
+import { DeleteBookmarkDialog } from "@/features/outline/DeleteBookmarkDialog";
+import { FindPersonalDataDialog } from "@/features/redaction/FindPersonalDataDialog";
 import { NoteDialog } from "@/features/annotations/NoteDialog";
 import { BatchDialog } from "@/features/batch/BatchDialog";
 import { TextBoxDialog } from "@/features/annotations/TextBoxDialog";
@@ -9,6 +14,7 @@ import { ExportDialog } from "@/features/export/ExportDialog";
 import { FlattenDialog } from "@/features/forms/FlattenDialog";
 import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
 import { OutlineTree } from "@/features/outline/OutlineTree";
+import { PageMarksDialog } from "@/features/saving/PageMarksDialog";
 import { PrintDialog } from "@/features/print/PrintDialog";
 import { RecoveryBanner } from "@/features/recovery/RecoveryBanner";
 import { CreatePdfDialog } from "@/features/create/CreatePdfDialog";
@@ -17,6 +23,7 @@ import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
 import { SanitizeDialog } from "@/features/saving/SanitizeDialog";
 import { SaveFailedDialog } from "@/features/saving/SaveFailedDialog";
+import { SearchAllDialog } from "@/features/textIndex/SearchAllDialog";
 import { SensitiveDialog } from "@/features/sensitive/SensitiveDialog";
 import { SensitiveSection } from "@/features/sensitive/SensitiveSection";
 import { SignDialog } from "@/features/signing/SignDialog";
@@ -324,6 +331,98 @@ describe("dialogs", () => {
     render(<SetDefaultFailedDialog open onOpenChange={vi.fn()} />);
     await screen.findByRole("dialog");
     await expectAccessible(everything());
+  });
+
+  it("the annotation summary", async () => {
+    const api = { exportAnnotationSummary: vi.fn() };
+    render(<AnnotationSummaryDialog doc={5} api={api} onClose={vi.fn()} onFinished={vi.fn()} />);
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("page marks and bates numbering", async () => {
+    render(
+      <PageMarksDialog
+        open
+        onOpenChange={vi.fn()}
+        doc={5}
+        totalPages={10}
+        onPageMarksCopy={vi.fn()}
+        onFinished={vi.fn()}
+      />,
+    );
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("search in all documents", async () => {
+    const api = { search: vi.fn(), cancel: vi.fn(), open: vi.fn(), status: vi.fn(), clear: vi.fn() };
+    render(<SearchAllDialog open onOpenChange={vi.fn()} api={api} onOpened={vi.fn()} />);
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("comparing text between tabs", async () => {
+    const api = { compareText: vi.fn(), exportCompareText: vi.fn() };
+    render(
+      <CompareDialog
+        open
+        onOpenChange={vi.fn()}
+        currentDoc={1}
+        otherTabs={[{ tab: 2, doc: 2, displayName: "合約2.pdf", copyAllowed: true }]}
+        api={api}
+        onJumpToPage={vi.fn()}
+      />,
+    );
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("find personal data dialog", async () => {
+    render(
+      <FindPersonalDataDialog
+        open
+        onOpenChange={vi.fn()}
+        doc={1}
+        annotationsApi={{ findPersonalData: vi.fn(), getPageAnnotations: vi.fn() }}
+        onAddRedactions={vi.fn()}
+        onJumpToPage={vi.fn()}
+      />,
+    );
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("deleting a bookmark with children", async () => {
+    render(<DeleteBookmarkDialog open onConfirm={vi.fn()} onCancel={vi.fn()} />);
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("the dangerous attachment warning dialog", async () => {
+    const item = {
+      id: 1,
+      name: "evil.exe",
+      size: 1024,
+      extension: ".exe",
+      isDangerous: true,
+      description: null,
+      source: { type: "document" as const },
+    };
+    const api = { getAttachments: vi.fn().mockResolvedValue([item]), saveAttachment: vi.fn() };
+    render(<AttachmentsPanel doc={1} api={api} />);
+    const saveBtn = await screen.findByTestId("save-attachment-button");
+    await userEvent.click(saveBtn);
+    await screen.findByTestId("danger-confirm-dialog");
+    await expectAccessible(everything());
+  });
+
+  it("dialog closes on Escape key", async () => {
+    const onCancel = vi.fn();
+    render(<DeleteBookmarkDialog open onConfirm={vi.fn()} onCancel={onCancel} />);
+    await screen.findByRole("dialog");
+    await userEvent.keyboard("{Escape}");
+    expect(onCancel).toHaveBeenCalled();
   });
 });
 
