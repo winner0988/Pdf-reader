@@ -13,7 +13,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ipc_contract::frame::{self, FrameError};
 use ipc_contract::types::{
@@ -710,25 +710,41 @@ impl WorkerHost {
         id: RequestId,
         timeout: Duration,
     ) -> Result<WorkerResponse, HostError> {
+        let deadline = Instant::now() + timeout;
         let connection = self.connection.as_mut().expect("running");
         // Wiped after writing: an Open request may carry a password (MVP-16).
         frame::send_wiped(&mut connection.stdin, request).map_err(|_| HostError::Crashed)?;
-        loop {
-            let response = receive(&connection.responses, timeout)?;
-            match response_request(&response) {
-                Some(request) if request == id => {}
-                // A late answer to an earlier (abandoned) request: ignore it.
-                Some(_) => continue,
-                None => {}
-            }
-            return match response {
-                WorkerResponse::Error { error, .. } => Err(HostError::Worker(error)),
-                WorkerResponse::Hello { .. } => {
-                    Err(HostError::ProtocolViolation("unexpected Hello".into()))
-                }
-                other => Ok(other),
-            };
+
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(HostError::Timeout);
         }
+        let response = receive(&connection.responses, remaining)?;
+        if matches!(response, WorkerResponse::Hello { .. }) {
+            return Err(HostError::ProtocolViolation("unexpected Hello".into()));
+        }
+        match response_request(&response) {
+            Some(req) if req == id => {}
+            Some(req) => {
+                return Err(HostError::ProtocolViolation(format!(
+                    "response request id {req:?} does not match expected {id:?}"
+                )));
+            }
+            None => {
+                return Err(HostError::ProtocolViolation(
+                    "unexpected response without matching request id".into(),
+                ));
+            }
+        }
+        if let WorkerResponse::Error { error, .. } = response {
+            return Err(HostError::Worker(error));
+        }
+        if !is_expected_response(request, &response) {
+            return Err(HostError::ProtocolViolation(format!(
+                "unexpected response {response:?} to request {request:?}"
+            )));
+        }
+        Ok(response)
     }
 
     fn ensure_running(&mut self) -> Result<(), HostError> {
@@ -834,5 +850,155 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::Attachments { request, .. }
         | WorkerResponse::AttachmentWritten { request, .. } => Some(*request),
         WorkerResponse::Error { request, .. } => *request,
+    }
+}
+
+/// Whether `response` is an expected response type for `request`.
+///
+/// Exhaustively matches [`WorkerRequest`] without wildcards so new requests require an explicit
+/// mapping. Worker-reported [`WorkerResponse::Error`] is always permitted.
+pub fn is_expected_response(request: &WorkerRequest, response: &WorkerResponse) -> bool {
+    if matches!(response, WorkerResponse::Error { .. }) {
+        return true;
+    }
+    match request {
+        WorkerRequest::Open { .. } => matches!(response, WorkerResponse::Opened { .. }),
+        WorkerRequest::Render { .. } | WorkerRequest::RenderRegion { .. } => {
+            matches!(response, WorkerResponse::Rendered { .. })
+        }
+        WorkerRequest::GetOutline { .. } => matches!(response, WorkerResponse::Outline { .. }),
+        WorkerRequest::GetPageLinks { .. } => {
+            matches!(response, WorkerResponse::PageLinks { .. })
+        }
+        WorkerRequest::GetPageAnnotations { .. } => {
+            matches!(response, WorkerResponse::PageAnnotations { .. })
+        }
+        WorkerRequest::GetPageFields { .. } => {
+            matches!(response, WorkerResponse::PageFields { .. })
+        }
+        WorkerRequest::VerifySignatures { .. } => {
+            matches!(response, WorkerResponse::Signatures { .. })
+        }
+        WorkerRequest::SummariseRedactions { .. } => {
+            matches!(response, WorkerResponse::RedactionSummary { .. })
+        }
+        WorkerRequest::FindPersonalData { .. } => {
+            matches!(response, WorkerResponse::PersonalDataMatches { .. })
+        }
+        WorkerRequest::RenderPng { .. } => matches!(response, WorkerResponse::Png { .. }),
+        WorkerRequest::RenderJpeg { .. } => matches!(response, WorkerResponse::Jpeg { .. }),
+        WorkerRequest::GetPageText { .. } => matches!(response, WorkerResponse::PageText { .. }),
+        WorkerRequest::SearchPage { .. } => {
+            matches!(response, WorkerResponse::PageSearched { .. })
+        }
+        WorkerRequest::Edit { .. } | WorkerRequest::Revert { .. } => {
+            matches!(response, WorkerResponse::Edited { .. })
+        }
+        WorkerRequest::Save { .. }
+        | WorkerRequest::PrivacyCopy { .. }
+        | WorkerRequest::EncryptedCopy { .. }
+        | WorkerRequest::WatermarkCopy { .. }
+        | WorkerRequest::PageMarksCopy { .. }
+        | WorkerRequest::WriteIdentifier { .. }
+        | WorkerRequest::SavePages { .. }
+        | WorkerRequest::ExportDocx { .. } => matches!(response, WorkerResponse::Saved { .. }),
+        WorkerRequest::CompressedCopy { .. } => {
+            matches!(response, WorkerResponse::Compressed { .. })
+        }
+        WorkerRequest::ExifCleanCopy { .. } => {
+            matches!(response, WorkerResponse::ExifCleaned { .. })
+        }
+        WorkerRequest::SanitizedCopy { .. } => {
+            matches!(response, WorkerResponse::Sanitized { .. })
+        }
+        WorkerRequest::PrepareSignature { .. } => {
+            matches!(response, WorkerResponse::SignaturePrepared { .. })
+        }
+        WorkerRequest::Rebase { .. } => matches!(response, WorkerResponse::Rebased { .. }),
+        WorkerRequest::PrepareStampImage { .. } => {
+            matches!(response, WorkerResponse::StampImage { .. })
+        }
+        WorkerRequest::PrepareTextBox { .. } => {
+            matches!(response, WorkerResponse::TextBoxPrepared { .. })
+        }
+        WorkerRequest::PrepareTextBoxes { .. } => {
+            matches!(response, WorkerResponse::TextBoxesPrepared { .. })
+        }
+        WorkerRequest::GetTextBox { .. } => matches!(response, WorkerResponse::TextBox { .. }),
+        WorkerRequest::CreatePdf { .. } => matches!(response, WorkerResponse::Created { .. }),
+        WorkerRequest::OcrLoad { .. } => matches!(response, WorkerResponse::OcrLoaded { .. }),
+        WorkerRequest::OcrPage { .. } => matches!(response, WorkerResponse::OcrChecked { .. }),
+        WorkerRequest::OcrPoll { .. } => matches!(response, WorkerResponse::OcrPolled { .. }),
+        WorkerRequest::OcrStop { .. } => matches!(response, WorkerResponse::OcrStopped { .. }),
+        WorkerRequest::PrepareSource { .. } => matches!(response, WorkerResponse::Source { .. }),
+        WorkerRequest::InspectFont { .. } => {
+            matches!(response, WorkerResponse::FontInspected { .. })
+        }
+        WorkerRequest::GetAttachments { .. } => {
+            matches!(response, WorkerResponse::Attachments { .. })
+        }
+        WorkerRequest::WriteAttachment { .. } => {
+            matches!(response, WorkerResponse::AttachmentWritten { .. })
+        }
+        WorkerRequest::AnnotationSummary { .. } => {
+            matches!(response, WorkerResponse::AnnotationSummary { .. })
+        }
+        WorkerRequest::Cancel { .. } | WorkerRequest::Close { .. } | WorkerRequest::Shutdown => {
+            false
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ipc_contract::worker::WorkerErrorCode;
+
+    #[test]
+    fn response_type_validation_allows_expected_and_errors() {
+        let req_id = RequestId(1);
+        let error_resp = WorkerResponse::Error {
+            request: Some(req_id),
+            error: WorkerError {
+                code: WorkerErrorCode::Internal,
+                detail: "failed".into(),
+                password_key: None,
+            },
+        };
+        let inspect_req = WorkerRequest::InspectFont {
+            request: req_id,
+            bytes: vec![],
+        };
+        let font_resp = WorkerResponse::FontInspected {
+            request: req_id,
+            faces: vec![],
+        };
+        let saved_resp = WorkerResponse::Saved {
+            request: req_id,
+            bytes: 10,
+            incremental: false,
+            redaction: None,
+        };
+
+        // Matching response
+        assert!(is_expected_response(&inspect_req, &font_resp));
+        // Error response is always allowed
+        assert!(is_expected_response(&inspect_req, &error_resp));
+        // Wrong variant is rejected
+        assert!(!is_expected_response(&inspect_req, &saved_resp));
+
+        let write_att = WorkerRequest::WriteAttachment {
+            request: req_id,
+            doc: DocumentId(1),
+            attachment: AttachmentId(1),
+            file: FileHandle(0),
+        };
+        let att_written = WorkerResponse::AttachmentWritten {
+            request: req_id,
+            bytes: 100,
+        };
+        assert!(is_expected_response(&write_att, &att_written));
+        assert!(is_expected_response(&write_att, &error_resp));
+        assert!(!is_expected_response(&write_att, &saved_resp));
     }
 }

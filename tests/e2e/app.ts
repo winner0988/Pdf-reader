@@ -481,6 +481,39 @@ export function webViewCommandLine(page: Page): string {
   return browserCommandLine(appProcessId(page));
 }
 
+/** The process IDs of every `pdf_worker.exe` under the app behind `page`. */
+export function pdfWorkerPids(page: Page): number[] {
+  const pid = appProcessId(page);
+  const script = [
+    "$all = Get-CimInstance Win32_Process",
+    `$tree = @(${pid})`,
+    "do { $more = $all | Where-Object { $tree -contains $_.ParentProcessId -and $tree -notcontains $_.ProcessId }; $tree += $more.ProcessId } while ($more)",
+    String.raw`$all | Where-Object { $tree -contains $_.ProcessId -and $_.Name -like 'pdf_worker*' } | ForEach-Object { $_.ProcessId }`,
+  ].join("; ");
+  try {
+    const output = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", script], {
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+    return output
+      .trim()
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter((s) => /^\d+$/.test(s))
+      .map((s) => Number.parseInt(s, 10));
+  } catch {
+    return [];
+  }
+}
+
+/** Stops a process by id (`Stop-Process -Id <pid> -Force`). */
+export function stopProcess(pid: number): void {
+  execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", `Stop-Process -Id ${pid} -Force`], {
+    stdio: "ignore",
+    timeout: 10_000,
+  });
+}
+
 function stop(running: Running) {
   try {
     // The whole tree: the app, its worker and its WebView2 processes.

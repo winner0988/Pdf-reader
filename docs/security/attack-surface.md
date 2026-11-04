@@ -53,7 +53,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 |---|---|---|---|---|
 | `subscribe_open_events` | 用 channel 接收開檔的結果（不開放 `core:event`） | 沒有參數 | — | `open.spec.ts` |
 | `open_document_dialog` | 主行程顯示開啟對話框，選到的每個 PDF 各開一個分頁 | 同時只開一個（`DIALOG_SHOWING`）；分頁 ≤ `MAX_TABS`（20）；檔案 ≤ `MAX_DOCUMENT_BYTES`（512 MiB） | 開啟對話框（`*.pdf`，可多選）；每個分頁啟動一個 worker；記入最近的檔案（§6） | `open.spec.ts`、`tabs.spec.ts`、`unicode-paths.spec.ts` |
-| `retry_open` | worker 失敗後，以分頁代號重新開啟那個分頁的檔案 | 分頁代號 | 新的 worker | worker `isolation.rs`（`killed_worker_is_reported_then_replaced`）；主行程這一側沒有（#432） |
+| `retry_open` | worker 失敗後，以分頁代號重新開啟那個分頁的檔案 | 分頁代號 | 新的 worker | `retry-open-and-cancel.spec.ts`；worker `isolation.rs`（`killed_worker_is_reported_then_replaced`） |
 | `unlock_tab` | 對加密文件的分頁試密碼；使用者要求時記住 | `UnlockArgs`：`check_password`（不得為空、不含 NUL、≤ `MAX_PASSWORD_BYTES` 1024 bytes） | 密碼只送到那個分頁的 worker；要記住時寫入認證管理員（§6） | `password.spec.ts`、`password-memory.spec.ts`；`credentials.rs` |
 | `forget_password` | 忘記某個分頁的檔案記住的密碼 | 分頁代號 | 刪除認證管理員裡的那一筆 | `password-memory.spec.ts` |
 | `forget_all_passwords` | 忘記全部記住的密碼，回傳原本有幾筆 | 沒有參數 | 刪除認證管理員裡 app 的全部項目 | `password-memory.spec.ts` |
@@ -68,7 +68,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 命令 | 做什麼 | 主行程的檢查與上限 | 對話框、寫入、行程 | 測試 |
 |---|---|---|---|---|
 | `render_page` | 渲染一頁，或一頁的一塊 | `RenderPageArgs`：`check_scale`（0.01–64）、`check_page_index`；區塊每邊 ≤ 8192 px、總像素 ≤ 4096²、座標在 2²⁰ 以內 | `Render`、`RenderRegion` | `viewer.spec.ts`、`thumbnails.spec.ts`；`documents.rs`（`regions_render_at_the_requested_scale`）；worker `isolation.rs`（`memory_limit_contains_a_huge_render`） |
-| `cancel` | 以請求代號取消排隊或進行中的工作（渲染、搜尋、匯出、批次、索引搜尋） | 請求代號 | 只在主行程裡取消；worker 的 `Cancel` 目前沒有送出（§2） | 前端的單元測試；主行程這一側沒有（#432） |
+| `cancel` | 以請求代號取消排隊或進行中的工作（渲染、搜尋、匯出、批次、索引搜尋） | 請求代號 | 只在主行程裡取消；worker 的 `Cancel` 目前沒有送出（§2） | `retry-open-and-cancel.spec.ts`；前端的單元測試 |
 | `get_outline` | 讀目錄（已檢查過） | 文件代號 | `GetOutline` | `outline-edit.spec.ts`；worker `outline.rs` |
 | `get_page_text` | 一頁的文字與每個字的位置（選取、複製） | `check_page_index` | `GetPageText` | `text.spec.ts`；worker `text.rs` |
 | `get_page_links` | 一頁的連結在哪裡、是哪一種 | `check_page_index` | `GetPageLinks` | worker `links.rs`；`links.rs` |
@@ -216,10 +216,10 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 - 每個 frame 先以 postcard 解碼，再經 `WorkerResponse::validate`（`crates/ipc_contract/src/validate.rs`，涵蓋每一種回應）。解碼失敗、驗證失敗、第一個 frame 不是相符的 `Hello`：停止 worker，回報 `protocolViolation`，下一個請求啟動新的 worker（`crates/worker_host/src/lib.rs`）。
 - 期限：握手 10 秒，一般請求 30 秒，存檔類 5 分鐘（`SAVE_TIMEOUT`）。worker 當掉、逾時、違反協定，都當成這份文件的 worker 遺失。
 - 文件的檔案 ≤ `MAX_DOCUMENT_BYTES`（512 MiB），在交給 worker 之前檢查。
-- 已知的缺口（#422，依程式碼）：
-  - 收到別的請求編號的回應時會重新計時，被控制的 worker 能讓一個請求永遠不結束；
-  - 回應的種類不對時（`documents.rs` 的 `unexpected`），只回錯誤，沒有停止 worker；
-  - `worker_host` 沒有測試證明協定違規會停止 worker。
+- 處理缺口（已在 #422 修正）：
+  - 期限從送出開始算，延遲或晚到的回應不會重新計時；
+  - 編號不相符（含 0、未來編號或過去編號）或種類不符（`is_expected_response`、`unexpected_on`）時視為協定違規，停止 worker 並將文件標記為 lost；
+  - `worker_host/tests/replies.rs` 以 `fake_worker` 完整測試協定違規（無效 frame、驗證失敗、編號 0、未來編號、延遲送不相符編號、種類不符、重複 Hello、逾時）會停止 worker 且下一個請求啟動新 worker 成功。
 - 測試：`crates/ipc_contract` 的驗證測試；worker `isolation.rs`（`worker_errors_are_reported_not_fatal`、`killed_worker_is_reported_then_replaced`、`slow_requests_time_out_and_the_worker_is_stopped`）；`documents.rs`（`test_prepare_inserted_text_boxes_crashed_worker_marks_document_lost`）。fuzz `worker_messages` 確認兩個方向的解碼與驗證不會 panic。
 
 ### 2.3 worker 裡解析不可信輸入的程式庫
@@ -406,7 +406,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 缺口 | Issue | 需要安全審查 |
 |---|---|---|
-| 被控制的 worker 能讓請求永遠不結束；回應的種類不對時沒有停止它；協定違規沒有測試（§2.2） | #422 | 是 |
+| 已在 #422 修正：請求期限從送出起算、不相符編號與種類不對時終止 worker 並標記 lost，以 fake_worker 測試協定違規（§2.2） | #422 | 是 |
 | 匯出純文字能取代文件自己的檔案（§1.8，已於 #423 修復） | #423 | 是（已修復） |
 | WebView 的導覽沒有限制（§4） | #424 | 是（提議，由負責人決定） |
 | 執行中的 app 會拒絕沒授權的命令（§4） | 已由 #425 補上測試（`refused-commands.spec.ts`） | 否 |
@@ -415,6 +415,6 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | fuzz 沒有走到圖章圖片與匯入字型的檢查（§2.4） | #428 | 是 |
 | 主行程自己解析的資料沒有 fuzz（§3） | #429 | 是 |
 | OCR 的語言資料與掃描頁沒有 fuzz（§2.3、§2.4） | #431 | 是 |
-| `retry_open`、`cancel` 在主行程這一側沒有測試（§1.1、§1.2） | #432 | 否 |
+| `retry_open`、`cancel` 在主行程這一側沒有測試（§1.1、§1.2；已由 #432 於 `retry-open-and-cancel.spec.ts` 測試） | #432 | 否 |
 | 拖放開檔列入人工檢查（manual-checks §3.14），`commands.rs` 註解已更正（§8） | #436（已完成） | 否 |
 | 這份清單與程式碼一致的 CI 檢查 | 已由 #430 實作（`check-security-config.mjs`） | 是 |
