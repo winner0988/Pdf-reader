@@ -3945,7 +3945,8 @@ endstream",
 
         // The square the document had (7) can now be moved (B4-05); what is not movable (note,
         // highlight) and what is not there are not moved.
-        doc.set_annotation_rect(0, AnnotationId(7), half).expect("move rectangle");
+        doc.set_annotation_rect(0, AnnotationId(7), half)
+            .expect("move rectangle");
         for other in [5, 4, 999] {
             assert!(
                 matches!(
@@ -4866,8 +4867,8 @@ endstream",
 
         // Moving them via set_annotation_rect fails
         let id = annots[0].id;
-        assert!(doc
-            .set_annotation_rect(
+        assert!(
+            doc.set_annotation_rect(
                 0,
                 id,
                 Rect {
@@ -4877,7 +4878,8 @@ endstream",
                     y1: 220.0,
                 }
             )
-            .is_err());
+            .is_err()
+        );
 
         // Deleting unsupported shapes is allowed
         doc.delete_annotation(0, id).expect("delete unsupported");

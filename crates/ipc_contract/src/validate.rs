@@ -1526,12 +1526,7 @@ impl Validate for Edit {
                 check_annotated_page(*page)?;
                 shape.validate()
             }
-            Edit::SetLineEnds {
-                page,
-                from,
-                to,
-                ..
-            } => {
+            Edit::SetLineEnds { page, from, to, .. } => {
                 check_annotated_page(*page)?;
                 from.validate()?;
                 to.validate()?;
@@ -3150,7 +3145,10 @@ mod tests {
         let nan_line = Edit::AddShape {
             page: 0,
             shape: Shape::Line {
-                from: Point { x: f32::NAN, y: 10.0 },
+                from: Point {
+                    x: f32::NAN,
+                    y: 10.0,
+                },
                 to: Point { x: 100.0, y: 100.0 },
                 arrow: false,
             },

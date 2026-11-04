@@ -15,9 +15,8 @@ use crate::types::{
     InkColor, InkWidth, OutlineResult, PageAnnotation, PageCorner, PageLink, PageMarkPages,
     PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark, PageSize, PageText, Password,
     PersonalDataMatches, Point, RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId,
-    Restrictions, Rgb, Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityReport,
-    Shape, SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId,
-    TextBoxStyle,
+    Restrictions, Rgb, Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityReport, Shape,
+    SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle,
     TextMarkKind, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 

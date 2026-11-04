@@ -21,7 +21,9 @@ use ipc_contract::types::{
 };
 use mupdf::Error;
 use mupdf::color::AnnotationColor;
-use mupdf::pdf::{AnnotationBorderStyle, LineEndingStyle, PdfAnnotation, PdfAnnotationType, PdfPage};
+use mupdf::pdf::{
+    AnnotationBorderStyle, LineEndingStyle, PdfAnnotation, PdfAnnotationType, PdfPage,
+};
 
 use super::{EngineError, PdfDocument};
 
@@ -341,7 +343,9 @@ impl PdfDocument {
         if annotation.r#type()? != PdfAnnotationType::Line
             || has_unsupported_shape_features(&annotation)?
         {
-            return Err(EngineError::InvalidEdit("not a supported line or arrow annotation"));
+            return Err(EngineError::InvalidEdit(
+                "not a supported line or arrow annotation",
+            ));
         }
         annotation.set_line(binding_point(line_ends.from), binding_point(line_ends.to))?;
         annotation.update()?;
@@ -694,13 +698,22 @@ pub(super) fn has_unsupported_shape_features(annotation: &PdfAnnotation) -> Resu
     if annotation.interior_color().ok().flatten().is_some() {
         return Ok(true);
     }
-    if annotation.border_dash_pattern().is_ok_and(|p| !p.is_empty()) {
+    if annotation
+        .border_dash_pattern()
+        .is_ok_and(|p| !p.is_empty())
+    {
         return Ok(true);
     }
-    if annotation.border_style().is_ok_and(|s| s == AnnotationBorderStyle::Dashed) {
+    if annotation
+        .border_style()
+        .is_ok_and(|s| s == AnnotationBorderStyle::Dashed)
+    {
         return Ok(true);
     }
-    if annotation.r#type().is_ok_and(|t| t == PdfAnnotationType::Line) {
+    if annotation
+        .r#type()
+        .is_ok_and(|t| t == PdfAnnotationType::Line)
+    {
         if let Ok((start, end)) = annotation.line_ending_styles() {
             if start != LineEndingStyle::None
                 || (end != LineEndingStyle::None && end != LineEndingStyle::OpenArrow)
@@ -746,10 +759,9 @@ fn entry(annotation: &PdfAnnotation, page_rotation: i32) -> Result<Option<PageAn
             if has_unsupported_shape_features(annotation)? {
                 AnnotationKind::Other
             } else {
-                let (_, end) = annotation.line_ending_styles().unwrap_or((
-                    LineEndingStyle::None,
-                    LineEndingStyle::None,
-                ));
+                let (_, end) = annotation
+                    .line_ending_styles()
+                    .unwrap_or((LineEndingStyle::None, LineEndingStyle::None));
                 if end == LineEndingStyle::OpenArrow {
                     AnnotationKind::Arrow
                 } else {
@@ -890,10 +902,9 @@ fn summary_entry(annotation: &PdfAnnotation) -> Option<SummaryEntry> {
             if has_unsupported_shape_features(annotation).unwrap_or(true) {
                 return None;
             }
-            let (_, end) = annotation.line_ending_styles().unwrap_or((
-                LineEndingStyle::None,
-                LineEndingStyle::None,
-            ));
+            let (_, end) = annotation
+                .line_ending_styles()
+                .unwrap_or((LineEndingStyle::None, LineEndingStyle::None));
             if end == LineEndingStyle::OpenArrow {
                 AnnotationSummaryKind::Arrow
             } else {

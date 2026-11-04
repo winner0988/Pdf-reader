@@ -243,11 +243,13 @@ test("shape annotations: rectangle and arrow can be drawn, recolored, undone/red
 
     const drawingLayer = page.locator("[data-page-drawing='1']");
     await expect(drawingLayer).toBeVisible();
+    const drawBox = await drawingLayer.boundingBox();
+    if (!drawBox) throw new Error("the drawing layer is not on screen");
 
     // Drag across drawing layer to draw rectangle
-    await page.mouse.move(box.x + 100, box.y + 100);
+    await page.mouse.move(drawBox.x + 100, drawBox.y + 100);
     await page.mouse.down();
-    await page.mouse.move(box.x + 200, box.y + 180);
+    await page.mouse.move(drawBox.x + 200, drawBox.y + 180, { steps: 5 });
     await page.mouse.up();
 
     await expect(rectangles).toHaveCount(1);
@@ -257,17 +259,21 @@ test("shape annotations: rectangle and arrow can be drawn, recolored, undone/red
     // 2. Switch shape kind to arrow and draw an arrow
     await page.getByRole("button", { name: t.shapeStyle }).click();
     await page.getByRole("menuitemradio", { name: t.shapeKinds.arrow }).click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect(drawingLayer).toBeVisible();
 
-    await page.mouse.move(box.x + 120, box.y + 250);
+    await page.mouse.move(drawBox.x + 120, drawBox.y + 250);
     await page.mouse.down();
-    await page.mouse.move(box.x + 220, box.y + 250);
+    await page.mouse.move(drawBox.x + 220, drawBox.y + 250, { steps: 5 });
     await page.mouse.up();
 
     await expect(arrows).toHaveCount(1);
     await expect(arrows.first()).toHaveAccessibleName(t.kind.arrow);
 
     // Turn off shape tool
-    await shapeBtn.click();
+    await page.keyboard.press("Escape");
+    await expect(drawingLayer).toHaveCount(0);
 
     // 3. Select rectangle, verify toolbar, and recolor to blue
     await rectangles.first().click();

@@ -555,10 +555,9 @@ pub(super) fn extract_source_annotations(
                     if from.validate().is_err() || to.validate().is_err() {
                         continue;
                     }
-                    let (_, end_style) = annot.line_ending_styles().unwrap_or((
-                        LineEndingStyle::None,
-                        LineEndingStyle::None,
-                    ));
+                    let (_, end_style) = annot
+                        .line_ending_styles()
+                        .unwrap_or((LineEndingStyle::None, LineEndingStyle::None));
                     let arrow = end_style == LineEndingStyle::OpenArrow;
                     let Some(color) = annot.color().ok().flatten().and_then(parse_ink_color) else {
                         continue;
