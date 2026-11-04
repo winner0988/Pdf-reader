@@ -1138,12 +1138,21 @@ pub async fn export_pages(
     } = args;
     match format {
         ExportFormat::Text => {
-            let Some(file) = file_dialog::save_text_file(&window, format!("{stem}.txt")).await?
-            else {
-                return Ok(false);
+            let destination = loop {
+                let Some(path) =
+                    file_dialog::save_text_file(&window, format!("{stem}.txt")).await?
+                else {
+                    return Ok(false);
+                };
+                if !app.state::<Documents>().is_document_file(doc, &path) {
+                    break path;
+                }
+                tell_same_file(&window).await;
             };
-            blocking(move || export::write_text(&app, request, doc, &pages, &file, &on_event))
-                .await?;
+            blocking(move || {
+                export::write_text(&app, request, doc, &pages, &destination, &on_event)
+            })
+            .await?;
         }
         ExportFormat::Docx => {
             let destination = loop {

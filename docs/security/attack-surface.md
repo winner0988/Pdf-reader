@@ -134,7 +134,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 命令 | 做什麼 | 主行程的檢查與上限 | 對話框、寫入、行程 | 測試 |
 |---|---|---|---|---|
-| `export_pages` | 匯出頁面：純文字、Word、PNG、JPEG、PDF（拆分） | `ExportArgs`：頁面不得為空、不重複、≤ 1000（PDF ≤ 100,000）；dpi 只能是 72、150、300；每 N 頁一個檔時 N > 0、≤ 1000 個檔；作者禁止複製時拒絕；加密文件不能拆成 PDF | 純文字：另存對話框，**沒有擋**文件自己的檔案（#423）。Word、PDF：另存對話框，擋文件自己的檔案。圖片、每 N 頁一個檔：選資料夾，已有的檔案要確認取代。`RenderPng`、`RenderJpeg`、`ExportDocx`、`SavePages` | `export.spec.ts`、`split.spec.ts`；`export.rs` 9 個；worker `docx.rs` |
+| `export_pages` | 匯出頁面：純文字、Word、PNG、JPEG、PDF（拆分） | `ExportArgs`：頁面不得為空、不重複、≤ 1000（PDF ≤ 100,000）；dpi 只能是 72、150、300；每 N 頁一個檔時 N > 0、≤ 1000 個檔；作者禁止複製時拒絕；加密文件不能拆成 PDF | 純文字、Word、PDF：另存對話框，擋文件自己的檔案（#423）。圖片、每 N 頁一個檔：選資料夾，已有的檔案要確認取代。`RenderPng`、`RenderJpeg`、`ExportDocx`、`SavePages` | `export.spec.ts`（含純文字不能取代原檔）、`split.spec.ts`；`export.rs` 9 個；worker `docx.rs` |
 | `export_annotation_summary` | 註解摘要寫成純文字或 Markdown | 作者禁止複製時拒絕 | 另存對話框，擋文件自己的檔案；`AnnotationSummary` | `annotation-summary.spec.ts`；`export.rs` |
 | `compare_text` | 比較兩份開著的文件的文字 | `CompareTextArgs`：不能和自己比；任一份的作者禁止複製時拒絕；期限 ≤ `MAX_COMPARE_DEADLINE_MILLIS`（10 秒） | 讀兩份文件的頁面文字 | `compare.spec.ts`；`src-tauri/src/compare/` |
 | `export_compare_text` | 比較結果寫成純文字或 Markdown | `ExportCompareTextArgs`：同上 | 另存對話框，兩份文件自己的檔案都擋 | `compare.spec.ts` |
@@ -396,7 +396,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 缺口 | Issue | 需要安全審查 |
 |---|---|---|
 | 被控制的 worker 能讓請求永遠不結束；回應的種類不對時沒有停止它；協定違規沒有測試（§2.2） | #422 | 是 |
-| 匯出純文字能取代文件自己的檔案（§1.8） | #423 | 是 |
+| 匯出純文字能取代文件自己的檔案（§1.8，已於 #423 修復） | #423 | 是（已修復） |
 | WebView 的導覽沒有限制（§4） | #424 | 是（提議，由負責人決定） |
 | 執行中的 app 會拒絕沒授權的命令（§4） | 已由 #425 補上測試（`refused-commands.spec.ts`） | 否 |
 | fuzz 沒有走到的讀取：註解、表單、文字方塊、頁面文字、個資、遮蔽摘要、註解摘要、附件、簽章欄位、以密碼開啟（§2.4） | #426 | 視做法 |
