@@ -371,7 +371,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 |---|---|---|
 | 命令列 | `src-tauri/src/cli.rs`：跳過 `-` 開頭的參數，其餘當成檔案路徑交給 `commands::open_paths`（開啟對話框也走這裡） | `cli.rs` 3 個；`open.spec.ts` |
 | 第二次啟動 | `tauri-plugin-single-instance` =2.5.4：mutex、`FindWindowW`、`WM_COPYDATA` 傳來參數與工作目錄，主行程以 `Path::new(&cwd).join(path)` 交給 `open_paths` | `batch.spec.ts`（第二次啟動把檔案交給視窗） |
-| 拖放 | 視窗的拖放事件把每個拖進來的檔案交給 `open_paths`（`commands.rs` 的註解寫只開第一個，已過時） | 沒有（#436） |
+| 拖放 | 視窗的拖放事件把每個拖進來的檔案交給 `open_paths`（每個檔案各開一個分頁；非 PDF 或資料夾則顯示錯誤分頁） | manual-checks §3.14（原生 OLE 拖放無法由 Playwright CDP 模擬，見 `docs/architecture/e2e.md`） |
 | 檔案關聯 | 安裝程式在 HKLM 登錄 `.pdf` 的開啟命令 | manual-checks §3 |
 | `PDF_READER_DATA_DIR` | 是絕對路徑時，取代 app 資料夾；正式版也讀（E2E 用它讓每次執行有自己的資料夾） | §9 |
 | WebView2 的環境變數 | `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`、`WEBVIEW2_USER_DATA_FOLDER` 等由 WebView2 自己讀；E2E 用前者打開 `--remote-debugging-port`（`docs/architecture/e2e.md`） | §9；manual-checks §3 |
@@ -405,5 +405,5 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 主行程自己解析的資料沒有 fuzz（§3） | #429 | 是 |
 | OCR 的語言資料與掃描頁沒有 fuzz（§2.3、§2.4） | #431 | 是 |
 | `retry_open`、`cancel` 在主行程這一側沒有測試（§1.1、§1.2） | #432 | 否 |
-| 拖放開檔沒有測試，`commands.rs` 的註解已過時（§8） | #436 | 否 |
+| 拖放開檔列入人工檢查（manual-checks §3.14），`commands.rs` 註解已更正（§8） | #436（已完成） | 否 |
 | 這份清單與程式碼一致的 CI 檢查（提議） | #430 | 是 |

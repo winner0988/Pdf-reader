@@ -2261,7 +2261,10 @@ fn close_if_unanswered(window: Window) {
     });
 }
 
-/// Drag and drop onto the window: only the first file is opened.
+/// Drag and drop onto the window: every dropped file gets a tab and is opened off the main
+/// thread in a worker of its own (via [`open_paths`]). Files that are not PDFs or are
+/// directories fail in the worker or in the pre-check and show an error in their tab; files
+/// beyond `MAX_TABS` are ignored and reported as `TabLimit`.
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     let app = window.app_handle();
     if let WindowEvent::CloseRequested { api, .. } = event {
