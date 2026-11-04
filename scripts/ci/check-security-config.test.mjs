@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  checkAttackSurface,
   checkBrowserArguments,
   checkCapability,
   checkCommandManifest,
@@ -13,6 +14,8 @@ import {
   checkRepository,
   checkTauriConfig,
   extractDevCsp,
+  extractHandlerCommands,
+  extractRustEnumVariants,
 } from "./check-security-config.mjs";
 
 const productionCsp = {
@@ -358,6 +361,8 @@ test("checkRepository reports problem when manifest is missing a command", (t) =
 
   mkdirSync(join(tempDir, "src-tauri/capabilities"), { recursive: true });
   mkdirSync(join(tempDir, "src-tauri/src"), { recursive: true });
+  mkdirSync(join(tempDir, "crates/ipc_contract/src"), { recursive: true });
+  mkdirSync(join(tempDir, "docs/security"), { recursive: true });
 
   copyFileSync(
     join(repoRoot, "src-tauri/tauri.conf.json"),
@@ -371,6 +376,14 @@ test("checkRepository reports problem when manifest is missing a command", (t) =
     join(repoRoot, "src-tauri/src/lib.rs"),
     join(tempDir, "src-tauri/src/lib.rs"),
   );
+  copyFileSync(
+    join(repoRoot, "crates/ipc_contract/src/worker.rs"),
+    join(tempDir, "crates/ipc_contract/src/worker.rs"),
+  );
+  copyFileSync(
+    join(repoRoot, "docs/security/attack-surface.md"),
+    join(tempDir, "docs/security/attack-surface.md"),
+  );
 
   const capDir = join(repoRoot, "src-tauri/capabilities");
   for (const file of readdirSync(capDir).filter((name) => name.endsWith(".json"))) {
@@ -382,6 +395,207 @@ test("checkRepository reports problem when manifest is missing a command", (t) =
   const modifiedBuild = buildSource.replace(`"${missingCmd}",`, "");
   assert.notEqual(buildSource, modifiedBuild, "command should have been removed");
   writeFileSync(join(tempDir, "src-tauri/build.rs"), modifiedBuild, "utf8");
+
+  const problems = checkRepository(tempDir);
+  assert.equal(problems.length, 1);
+  assert.ok(problems[0].includes(missingCmd));
+});
+
+const sampleLib = `
+  tauri::Builder::default()
+    .invoke_handler(tauri::generate_handler![
+      commands::cmd_a,
+      commands::cmd_b,
+      commands::cmd_c,
+    ])
+`;
+
+const sampleWorker = `
+  pub enum WorkerEdit {
+    EditOne,
+    EditTwo { param: u32 },
+  }
+
+  pub enum WorkerRequest {
+    ReqOne,
+    ReqTwo { id: u32 },
+  }
+`;
+
+const sampleMainCap = {
+  permissions: ["allow-cmd-a", "allow-cmd-b", "allow-cmd-c"],
+};
+
+const sampleAttackSurface = `
+# 攻擊面清單
+
+## 1. 前端能呼叫的命令（3 個）
+
+### 1.1 測試命令（3 個）
+
+| 命令 | 說明 |
+|---|---|
+| \`cmd_a\` | 做 A |
+| \`cmd_b\` | 做 B |
+| \`cmd_c\` | 做 C |
+
+## 2. worker
+
+### 2.4 worker 的請求（2 個）
+
+| 請求 | 說明 |
+|---|---|
+| \`ReqOne\` | 請求一 |
+| \`ReqTwo\` | 請求二 |
+
+### 2.5 編輯（\`WorkerEdit\`，2 種）
+
+| 編輯 | 說明 |
+|---|---|
+| \`EditOne\` | 編輯一 |
+| \`EditTwo\` | 編輯二 |
+
+## 4. WebView 的權限
+
+| 項目 | 設定 |
+|---|---|
+| capability | 3 個 \`allow-*\` |
+`;
+
+test("attack surface check passes when everything matches", () => {
+  assert.deepEqual(checkAttackSurface(sampleLib, sampleWorker, sampleMainCap, sampleAttackSurface), []);
+});
+
+test("attack surface check fails when a command is missing from attack-surface.md", () => {
+  const md = sampleAttackSurface
+    .replace("| `cmd_c` | 做 C |\n", "")
+    .replaceAll("（3 個）", "（2 個）");
+  const problems = checkAttackSurface(sampleLib, sampleWorker, sampleMainCap, md);
+  assert.ok(problems.some((p) => p.includes("`cmd_c`（generate_handler!）不在 attack-surface.md §1")));
+});
+
+test("attack surface check fails when attack-surface.md has a stale command", () => {
+  const md = sampleAttackSurface
+    .replace("| `cmd_c` | 做 C |\n", "| `cmd_c` | 做 C |\n| `cmd_stale` | 過時 |\n")
+    .replaceAll("（3 個）", "（4 個）");
+  const problems = checkAttackSurface(sampleLib, sampleWorker, sampleMainCap, md);
+  assert.equal(problems.length, 1);
+  assert.ok(problems[0].includes("`cmd_stale`（attack-surface.md §1）已不存在於 generate_handler!"));
+});
+
+test("attack surface check fails when a request is renamed", () => {
+  const workerWithRenamed = sampleWorker.replace("ReqTwo", "ReqRenamed");
+  const problems = checkAttackSurface(sampleLib, workerWithRenamed, sampleMainCap, sampleAttackSurface);
+  assert.equal(problems.length, 2);
+  assert.ok(problems.some((p) => p.includes("`ReqRenamed`（WorkerRequest）不在 attack-surface.md §2.4")));
+  assert.ok(problems.some((p) => p.includes("`ReqTwo`（attack-surface.md §2.4）已不存在於 WorkerRequest")));
+});
+
+test("attack surface check fails when heading quantity does not match table items", () => {
+  const mdWrongCount = sampleAttackSurface.replace("### 1.1 測試命令（3 個）", "### 1.1 測試命令（4 個）");
+  const problems = checkAttackSurface(sampleLib, sampleWorker, sampleMainCap, mdWrongCount);
+  assert.equal(problems.length, 1);
+  assert.ok(problems[0].includes("標題數量（4）與表格項目數（3）不符"));
+
+  const mdWrongSec1Count = sampleAttackSurface.replace("## 1. 前端能呼叫的命令（3 個）", "## 1. 前端能呼叫的命令（5 個）");
+  const problemsSec1 = checkAttackSurface(sampleLib, sampleWorker, sampleMainCap, mdWrongSec1Count);
+  assert.equal(problemsSec1.length, 1);
+  assert.ok(problemsSec1[0].includes("標題數量（5）與小節項目總數（3）不符"));
+});
+
+test("attack surface check fails when capability has a permission without a matching command", () => {
+  const capWithOrphan = {
+    permissions: [...sampleMainCap.permissions, "allow-orphan-cmd"],
+  };
+  const problems = checkAttackSurface(sampleLib, sampleWorker, capWithOrphan, sampleAttackSurface);
+  assert.equal(problems.length, 1);
+  assert.ok(problems[0].includes('權限 "allow-orphan-cmd"'));
+  assert.ok(problems[0].includes("`orphan_cmd` 不在 attack-surface.md §1"));
+});
+
+test("attack surface check handles multiple names in a single table cell", () => {
+  const mdTwoInCell = sampleAttackSurface.replace(
+    "| `ReqOne` | 請求一 |\n| `ReqTwo` | 請求二 |",
+    "| `ReqOne`、`ReqTwo` | 請求一與二 |",
+  );
+  assert.deepEqual(checkAttackSurface(sampleLib, sampleWorker, sampleMainCap, mdTwoInCell), []);
+});
+
+test("attack surface check verifies non-allow permissions in section 4", () => {
+  const capWithPlugin = {
+    permissions: [...sampleMainCap.permissions, "core:path:default"],
+  };
+  const problemsMissing = checkAttackSurface(sampleLib, sampleWorker, capWithPlugin, sampleAttackSurface);
+  assert.equal(problemsMissing.length, 1);
+  assert.ok(problemsMissing[0].includes('權限 "core:path:default"'));
+  assert.ok(problemsMissing[0].includes("不在 attack-surface.md §4"));
+
+  const mdWithPlugin = sampleAttackSurface.replace("3 個 `allow-*`", "3 個 `allow-*` 與 `core:path:default`");
+  assert.deepEqual(checkAttackSurface(sampleLib, sampleWorker, capWithPlugin, mdWithPlugin), []);
+});
+
+test("extractRustEnumVariants parses Rust enums correctly and handles empty enums", () => {
+  const src = `
+    #[derive(Debug)]
+    pub enum TestEnum {
+      /// Comment
+      #[serde(default)]
+      Alpha,
+      Beta { x: u32, y: String },
+      Gamma(u32),
+      Delta = 42,
+    }
+    enum EmptyEnum {}
+  `;
+  assert.deepEqual(extractRustEnumVariants(src, "TestEnum"), ["Alpha", "Beta", "Gamma", "Delta"]);
+  assert.deepEqual(extractRustEnumVariants(src, "EmptyEnum"), []);
+  assert.equal(extractRustEnumVariants(src, "NonExistent"), null);
+});
+
+test("checkRepository reports problem when attack surface is missing a command", (t) => {
+  const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+  const tempDir = mkdtempSync(join(tmpdir(), "check-repo-atk-"));
+  t.after(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  mkdirSync(join(tempDir, "src-tauri/capabilities"), { recursive: true });
+  mkdirSync(join(tempDir, "src-tauri/src"), { recursive: true });
+  mkdirSync(join(tempDir, "crates/ipc_contract/src"), { recursive: true });
+  mkdirSync(join(tempDir, "docs/security"), { recursive: true });
+
+  copyFileSync(
+    join(repoRoot, "src-tauri/tauri.conf.json"),
+    join(tempDir, "src-tauri/tauri.conf.json"),
+  );
+  copyFileSync(
+    join(repoRoot, "vite.config.ts"),
+    join(tempDir, "vite.config.ts"),
+  );
+  copyFileSync(
+    join(repoRoot, "src-tauri/src/lib.rs"),
+    join(tempDir, "src-tauri/src/lib.rs"),
+  );
+  copyFileSync(
+    join(repoRoot, "src-tauri/build.rs"),
+    join(tempDir, "src-tauri/build.rs"),
+  );
+  copyFileSync(
+    join(repoRoot, "crates/ipc_contract/src/worker.rs"),
+    join(tempDir, "crates/ipc_contract/src/worker.rs"),
+  );
+
+  const capDir = join(repoRoot, "src-tauri/capabilities");
+  for (const file of readdirSync(capDir).filter((name) => name.endsWith(".json"))) {
+    copyFileSync(join(capDir, file), join(tempDir, "src-tauri/capabilities", file));
+  }
+
+  const docSource = readFileSync(join(repoRoot, "docs/security/attack-surface.md"), "utf8");
+  const missingCmd = "subscribe_open_events";
+  // Remove line with missingCmd
+  const modifiedDoc = docSource.replace(`| \`${missingCmd}\` | 用 channel 接收開檔的結果（不開放 \`core:event\`） | 沒有參數 | — | \`open.spec.ts\` |\n`, "");
+  assert.notEqual(docSource, modifiedDoc, "command line should have been removed");
+  writeFileSync(join(tempDir, "docs/security/attack-surface.md"), modifiedDoc, "utf8");
 
   const problems = checkRepository(tempDir);
   assert.ok(problems.length > 0);
