@@ -52,18 +52,21 @@ test("when a tab's worker dies, the tab shows an error and can be retried while 
   // 2. Kill the first tab's worker process
   stopProcess(firstWorkerPid);
 
-  // Send a request from that tab: scroll down to page 2
-  const page2 = page.getByRole("img", { name: strings.canvas.page(2) });
-  await page2.scrollIntoViewIfNeeded();
+  // Send a request from that tab: jump to an unrendered page (page 10) via page number input,
+  // which forces a render request to the dead worker rather than relying on overscanned pages.
+  const pageInput = page.getByRole("textbox", { name: strings.toolbar.pageNumber });
+  await pageInput.fill("10");
+  await pageInput.press("Enter");
 
   // Confirm the page display fails with retry button
-  await expect(page2.getByRole("alert")).toContainText(strings.canvas.pageRenderFailed);
-  const retryButton = page2.getByRole("button", { name: strings.error.retry });
+  const page10 = page.getByRole("img", { name: strings.canvas.page(10) });
+  await expect(page10.getByRole("alert")).toContainText(strings.canvas.pageRenderFailed);
+  const retryButton = page10.getByRole("button", { name: strings.error.retry });
   await expect(retryButton).toBeVisible();
 
   // 3. Click retry: document recovers in a new worker
   await retryButton.click();
-  await expect(page2).toHaveAttribute("data-state", "ready");
+  await expect(page10).toHaveAttribute("data-state", "ready");
 
   // Confirm worker was replaced: still 2 workers, second is intact, first is replaced
   await expect.poll(() => pdfWorkerPids(page).length).toBe(2);
@@ -111,16 +114,20 @@ test("cancelling an ongoing export stops the job with no further progress (#432)
     const progress = dialog.getByRole("status");
     await expect(progress).toBeVisible();
 
-    // Cancel the ongoing export
-    await dialog.getByRole("button", { name: strings.export.cancel }).click();
+    // Cancel the ongoing export: while exporting, the button is "停止" (strings.export.stop)
+    const stopButton = dialog.getByRole("button", { name: strings.export.stop });
+    await expect(stopButton).toBeVisible();
+    await stopButton.click();
 
     // Dialog closes and status bar reports export was stopped
     await expect(dialog).toHaveCount(0);
+    const statusText = (await page.getByRole("contentinfo").textContent()) ?? "";
+    expect(statusText, "export finished before cancel could take effect").not.toContain(strings.export.done(10));
     await expect(page.getByRole("contentinfo")).toContainText(strings.export.stopped(0).slice(0, 4));
 
     // Pages written is fewer than total (10)
     const writtenCount = readdirSync(folder).length;
-    expect(writtenCount).toBeLessThan(10);
+    expect(writtenCount, "export completed all 10 pages before cancel took effect").toBeLessThan(10);
   } finally {
     rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
