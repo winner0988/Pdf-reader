@@ -12,6 +12,7 @@
 | `compress_images` | 以 MuPDF 開啟 PDF，寫出壓縮圖片的副本（B3-01）：MuPDF 解碼每張圖片、縮小、編碼成 JPEG、換回去、完整重寫（品質低、尺寸上限 256、時間 2 秒） | 同 `open_document`（複製過去） |
 | `create_pdf` | 「從檔案建立 PDF」（B3-03）：第一個位元組決定種類（圖片、網頁、純文字、EPUB、XPS、SVG、Word、Excel、PowerPoint），其餘是檔案；`PdfBuilder` 讀取、轉換、寫出（圖片會加兩次，試多頁的路徑） | `tests/corpus/sources/` 與 `tests/corpus/images/`，前面加種類的編號（CI 的 `Seed corpus` 步驟）；包含謊稱 3.5 GiB 的 Word 檔 |
 | `exif_clean` | 以 MuPDF 開啟 PDF，寫出清除圖片 EXIF 的副本（B3-04，批次處理）：每個 JPEG 串流（包括藏在無損濾鏡後面的）讀出來、切掉不是畫面的區段、換回去、完整重寫 | 同 `open_document`（複製過去），其中 `benign/photo-exif.pdf` 有相機與程式寫進去的各種資訊 |
+| `language_data` | 使用者匯入與 worker 接收的 Tesseract 語言資料（`.traineddata`）檔頭檢查（`check_language_data`，#429）：目錄項目數（23–64）、位移不可倒退或超出檔案、必須包含 LSTM 模型所需項目 | `fuzz_seeds` 產生的有效目錄樣本，加上安裝程式內附的 `eng.traineddata` 前 1 MiB（`head -c 1048576`） |
 
 - 對所有輸入，程式都必須正常接受或拒絕：不能 panic、不能無限制地配置記憶體、不能出現記憶體錯誤。
 - 任何一種都算崩潰，libFuzzer 會把觸發它的輸入存到 `fuzz/artifacts/<目標>/`。
@@ -112,6 +113,18 @@ mkdir -p fuzz/corpus/text_box_font && cp "$HOME"/.cargo/registry/src/*/mupdf-fon
 cargo +nightly fuzz run text_box_font fuzz/corpus/text_box_font -- -max_total_time=300 -max_len=5242880 -rss_limit_mb=4096
 ```
 
+`language_data` 的種子：`fuzz_seeds` 產生的目錄樣本，加上安裝程式內附的英文語言檔前 1 MiB：
+
+```bash
+mkdir -p fuzz/corpus/language_data
+cargo run --locked -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/language_data language_data
+head -c 1048576 src-tauri/resources/tessdata/eng.traineddata > fuzz/corpus/language_data/eng_1m.traineddata
+```
+
+```bash
+cargo +nightly fuzz run language_data fuzz/corpus/language_data -- -max_total_time=300 -max_len=1048576 -rss_limit_mb=4096
+```
+
 ### Windows
 
 - **ASan 執行階段**：
@@ -172,6 +185,42 @@ cargo +nightly fuzz run worker_messages fuzz/corpus/worker_messages -- -max_tota
 5. **加回迴歸測試**：修正後把縮小過的樣本變成測試。能公開的樣本放進 `tests/corpus/`（以產生器重現），不能公開的只留在私下的紀錄中。
 
 **崩潰樣本可能就是可利用的攻擊檔案：不得附在 Issue、PR、討論或任何公開位置。**
+
+## 主行程解析器測試（Property 與變異測試）
+
+主行程沒有沙盒，自己也解析一些不可信或半可信的資料（攻擊面清單 `docs/security/attack-surface.md` §3，#429）。
+
+### 為什麼不是 libFuzzer
+
+- `src-tauri` 包含 Windows 專屬的 API（WebView2、WinHTTP、Win32 API 等），原始碼標有 `compile_error!`，只能在 Windows 環境編譯；
+- CI 的 libFuzzer 工作（Linux runner）無法編譯或執行 `src-tauri`；
+- 在 Windows 本機上，MSVC 連結器欠缺 libFuzzer 所需的 section 符號，且 Windows MSBuild 建置的依賴沒有插樁。
+
+### 測試方式與位置
+
+在各模組的單元測試中，以真實有效的樣本為起點，進行全面的變異測試：
+1. **每一種截斷長度**：從 0 到樣本長度（較長者均勻採樣），確認不完整的輸入不會 panic；
+2. **每個位置變異一個位元組**：嘗試極端值（`0x00`、`0xff`、`0x7f`）與語法字元（`{`、`"`、`0`、`:` 等），確認損毀的格式不會 panic；
+3. **固定種子的偽隨機輸入**：測試內寫幾行 xorshift 產生數百組隨機長度與隨機內容的輸入，不新增 crate 依賴；
+4. **大小上限**：超過模組大小限制的輸入在解析前即被拒絕。
+
+各模組測試位置：
+- `src-tauri/src/update_check.rs`：`interpret_handles_arbitrary_and_mutated_inputs_without_panic`（HTTPS 回覆）
+- `src-tauri/src/recovery.rs`：`recovery_handles_arbitrary_and_mutated_inputs_without_panic`（復原日誌）
+- `src-tauri/src/settings.rs`：`settings_handles_arbitrary_and_mutated_inputs_without_panic`（`settings.json`）
+- `src-tauri/src/recent.rs`：`recent_handles_arbitrary_and_mutated_inputs_without_panic`（`recent.json`）
+- `src-tauri/src/sensitive.rs`：`sensitive_handles_arbitrary_and_mutated_inputs_without_panic`（`sensitive.json`）
+- `src-tauri/src/fonts.rs`：`font_headers_and_metadata_handle_arbitrary_and_mutated_inputs_without_panic`（字型檔頭與 `metadata.json`）
+- `src-tauri/src/local_data.rs`：`local_data_handles_arbitrary_and_mutated_inputs_without_panic`（大小上限檢查與讀寫）
+
+### 怎麼跑
+
+CI 的 `Rust (Windows)` 工作會在 Windows 上跑 `cargo test --workspace --locked`，每個測試都在數十毫秒至數秒內跑完。
+
+本機執行指令：
+```bash
+cargo test -p pdf-reader --locked
+```
 
 ## 驗證紀錄
 

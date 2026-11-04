@@ -60,4 +60,50 @@ mod tests {
         remove(&file);
         let _ = fs::remove_dir_all(folder);
     }
+
+    #[test]
+    fn local_data_handles_arbitrary_and_mutated_inputs_without_panic() {
+        struct XorShift64(u64);
+        impl XorShift64 {
+            fn next_u64(&mut self) -> u64 {
+                let mut x = self.0;
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                self.0 = x;
+                x
+            }
+            fn next_u8(&mut self) -> u8 {
+                self.next_u64() as u8
+            }
+        }
+
+        let folder =
+            std::env::temp_dir().join(format!("pdf-reader-local-data-fuzz-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&folder);
+        let file = folder.join("fuzz.bin");
+
+        let mut rng = XorShift64(0x123456789abcdef0);
+        for _ in 0..300 {
+            let len = (rng.next_u64() as usize) % 1024;
+            let mut buf = vec![0u8; len];
+            for b in &mut buf {
+                *b = rng.next_u8();
+            }
+            write(&file, &buf).unwrap();
+
+            // Test various limits: exact, smaller, larger, 0, large
+            for limit in [0, len.saturating_sub(1), len, len + 1, 10_000] {
+                let result = read(&file, limit as u64);
+                if (len as u64) <= (limit as u64) {
+                    assert_eq!(result.as_deref(), Some(&buf[..]));
+                } else {
+                    assert_eq!(result, None);
+                }
+            }
+        }
+
+        remove(&file);
+        let _ = fs::remove_dir_all(folder);
+    }
 }
