@@ -4,6 +4,10 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 ## [Unreleased]
 
+### 安全
+
+- 限制主視窗的 WebView 導覽與封鎖下載（#424）：WebView 設定 `on_navigation`，正式版僅允許 app 自身的 `http://tauri.localhost`（開發模式僅允許 `http://localhost:1420`），其餘所有網址與 scheme（包含 `https:`、`file:`、`data:`、`blob:`、`javascript:`、`about:`）一律拒絕；同時接上 `on_download` 封鎖所有檔案下載，被拒絕的導覽僅記錄 scheme 與 host，防止頁面被注入腳本時外傳文件資料或下載檔案。
+
 ### 新增
 
 - 文字標記（底線、刪除線、波浪線）：選取文字後可在右鍵選單或工具列加上底線、刪除線或波浪線標記，支援四種色彩（黃、綠、藍、粉紅），支援復原與重做。標記為標準 PDF 註解（`Underline`、`StrikeOut`、`Squiggly`），存檔後包含外觀串流且不含任何隱私或作者資訊；匯出註解摘要時也會包含這些標記與涵蓋的文字；插入頁面合併時可完整攜帶。

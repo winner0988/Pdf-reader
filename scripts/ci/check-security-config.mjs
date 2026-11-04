@@ -361,6 +361,13 @@ export function checkTauriConfig(config) {
   if (config?.app?.withGlobalTauri) {
     problems.push("tauri.conf.json: withGlobalTauri must stay false");
   }
+  for (const window of config?.app?.windows ?? []) {
+    if (window?.create !== false) {
+      problems.push(
+        `tauri.conf.json: window "${window?.label ?? "?"}" must set create: false so setup attaches security handlers`,
+      );
+    }
+  }
   problems.push(...checkBrowserArguments(config?.app?.windows));
   for (const plugin of Object.keys(config?.plugins ?? {})) {
     if (FORBIDDEN_PLUGINS.includes(plugin)) {
