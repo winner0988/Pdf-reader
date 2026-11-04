@@ -194,8 +194,10 @@ test("two-page view with cover page: jumps to page 5, highlights text on page 5,
   const markBox = await mark.first().boundingBox();
   expect(markBox).not.toBeNull();
   // 螢光筆落在第 5 頁內
-  expect(markBox!.x).toBeGreaterThanOrEqual(box5!.x - 1);
-  expect(markBox!.x + markBox!.width).toBeLessThanOrEqual(box5!.x + box5!.width + 1);
+  const box5After = await page5.boundingBox();
+  expect(box5After).not.toBeNull();
+  expect(markBox!.x).toBeGreaterThanOrEqual(box5After!.x - 1);
+  expect(markBox!.x + markBox!.width).toBeLessThanOrEqual(box5After!.x + box5After!.width + 1);
 
   // 3. 搜尋第 7 頁上的關鍵字：第 7 頁出現在畫面上
   // Keyword "needle" appears only on page 7

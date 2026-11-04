@@ -265,8 +265,8 @@ export function DocumentView({
   const [base, setBase] = useState<Snapshot | null>(null);
   /** A scroll position to move the scroll bar to (a new object for every move). */
   const [scrollIntent, setScrollIntent] = useState<{ top: number; left: number } | null>(null);
-  /** The target page when jumped to via scrollToPage or scrollToLocation. */
-  const [jumpedPage, setJumpedPage] = useState<number | null>(null);
+  /** The target page when jumped to via scrollToPage, scrollToLocation, or revealHit. */
+  const [jumped, setJumped] = useState<{ page: number; arrived: boolean } | null>(null);
   const zoomStep = useRef(onZoomStep);
   useEffect(() => {
     zoomStep.current = onZoomStep;
@@ -321,12 +321,18 @@ export function DocumentView({
   const shown = anchored ? { ...viewport, ...anchored } : viewport;
   const range = measured ? visibleRange(layout, shown) : { first: 0, last: -1 };
   const onScreen = measured ? visibleRange(layout, shown, 0) : { first: 0, last: -1 };
-  const jumpedRow = jumpedPage !== null ? rowForPage(layout, jumpedPage - 1) : null;
+  const jumpedRow = jumped !== null ? rowForPage(layout, jumped.page - 1) : null;
   const currentRow = currentRowAt(layout, shown);
-  const activeJumpedPage = jumpedRow !== null && jumpedRow === currentRow ? jumpedPage : null;
-  if (jumpedPage !== null && activeJumpedPage === null) {
-    setJumpedPage(null);
+  if (jumped !== null) {
+    if (jumpedRow === currentRow) {
+      if (!jumped.arrived) {
+        setJumped({ page: jumped.page, arrived: true });
+      }
+    } else if (jumped.arrived) {
+      setJumped(null);
+    }
   }
+  const activeJumpedPage = jumped !== null && jumpedRow === currentRow ? jumped.page : null;
   const currentPage = currentPageAt(layout, shown, activeJumpedPage ?? undefined);
 
   if (measured !== null && (base === null || layoutChanged || base.pages !== pages)) {
@@ -421,9 +427,13 @@ export function DocumentView({
       const { page, scrollTop } = pendingLocation.current;
       const top = scrollTop !== undefined ? scrollTop : scrollTopFor(layout, page);
       scrollElement(element, { top });
+      setMeasured((prev) => (prev ? { ...prev, top } : null));
       pendingLocation.current = null;
     } else if (pendingPage.current !== null) {
-      scrollElement(element, { top: scrollTopFor(layout, pendingPage.current) });
+      const page = pendingPage.current;
+      const top = scrollTopFor(layout, page);
+      scrollElement(element, { top });
+      setMeasured((prev) => (prev ? { ...prev, top } : null));
       pendingPage.current = null;
     }
   }, [unmeasured, layout, scrollContainer]);
@@ -434,25 +444,35 @@ export function DocumentView({
       scrollToPage(page) {
         const element = scrollContainer.current;
         if (!element) return;
-        setJumpedPage(page);
-        if (unmeasured) pendingPage.current = page;
-        else scrollElement(element, { top: scrollTopFor(layout, page) });
+        setJumped({ page, arrived: false });
+        if (unmeasured) {
+          pendingPage.current = page;
+        } else {
+          const top = scrollTopFor(layout, page);
+          scrollElement(element, { top });
+          setMeasured((prev) => (prev ? { ...prev, top } : null));
+        }
       },
       scrollToLocation(location) {
         const element = scrollContainer.current;
         if (!element) return;
-        setJumpedPage(location.page);
+        setJumped({ page: location.page, arrived: false });
         if (unmeasured) {
           pendingLocation.current = location;
         } else {
           const top = location.scrollTop !== undefined ? location.scrollTop : scrollTopFor(layout, location.page);
           scrollElement(element, { top });
+          setMeasured((prev) => (prev ? { ...prev, top } : null));
         }
       },
       revealHit(hit) {
         const element = scrollContainer.current;
         const position = element && revealScroll(hit, pages, rotation, layout, width, measure(element));
-        if (element && position) scrollElement(element, position);
+        if (element && position) {
+          setJumped({ page: hit.pageIndex + 1, arrived: false });
+          scrollElement(element, position);
+          setMeasured((prev) => (prev ? { ...prev, top: position.top, left: position.left ?? prev.left } : null));
+        }
       },
       hasSelection: textSelection.hasSelection,
       selectedText: textSelection.selectedText,

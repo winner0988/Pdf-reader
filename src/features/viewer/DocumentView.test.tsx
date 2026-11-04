@@ -461,6 +461,40 @@ describe("DocumentView", () => {
     expect(mountedPages()).toContain(10);
   });
 
+  it("keeps the right-hand page when jumped to in twoPageCover view until scrolled away", () => {
+    const onPage = vi.fn();
+    const view = createRef<DocumentViewHandle>();
+    render(
+      <Harness
+        pages={Array(10).fill(LETTER)}
+        layoutMode="twoPageCover"
+        onPage={onPage}
+        view={view}
+      />,
+    );
+    const scroller = sizeScroller(800);
+
+    // Jump to page 5 (right-hand page of row 2: pages 4 & 5).
+    act(() => {
+      view.current!.scrollToPage(5);
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    expect(onPage).toHaveBeenLastCalledWith(5);
+
+    // Scrolling within row 2 stays on page 5.
+    act(() => {
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    expect(onPage).toHaveBeenLastCalledWith(5);
+
+    // Scrolling to row 0 (top) switches back to row 0's page (page 1).
+    act(() => {
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    expect(onPage).toHaveBeenLastCalledWith(1);
+  });
+
   it("without a renderer (demo data) pages stay placeholders", () => {
     render(<Harness pages={[LETTER]} />);
     expect(screen.getByRole("img", { name: "第 1 頁" })).toHaveAttribute("data-state", "loading");

@@ -405,7 +405,13 @@ export function currentPageAt(
 ): number {
   const count = layout.boxes.length;
   if (count === 0) return 1;
-  if (viewport.top + viewport.height >= layout.totalHeight - 1 && viewport.top > 0) return count;
+  if (viewport.top + viewport.height >= layout.totalHeight - 1 && viewport.top > 0) {
+    if (preferredPage !== undefined && preferredPage >= 1 && preferredPage <= count) {
+      const prefRow = rowForPage(layout, preferredPage - 1);
+      if (prefRow === layout.rows.length - 1) return preferredPage;
+    }
+    return count;
+  }
   const rowIndex = currentRowAt(layout, viewport);
   const row = layout.rows[rowIndex]!;
   if (preferredPage !== undefined && preferredPage >= 1 && preferredPage <= count) {
