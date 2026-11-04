@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [worker_messages, open_document, text_box_font, compress_images, create_pdf, exif_clean]
+        target: [worker_messages, open_document, text_box_font, compress_images, create_pdf, exif_clean, ocr]
     env:
       FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '120' || '1200' }}
       # MuPDF and its C libraries get coverage and AddressSanitizer like the Rust code. Only
@@ -66,7 +66,8 @@ jobs:
           cargo install cargo-fuzz --version 0.13.2 --locked
       - name: Seed corpus
         run: |
-          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/text_box_font fuzz/corpus/compress_images fuzz/corpus/create_pdf fuzz/corpus/exif_clean
+          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/text_box_font fuzz/corpus/compress_images fuzz/corpus/create_pdf fuzz/corpus/exif_clean fuzz/corpus/ocr
+          echo -n "seed" > fuzz/corpus/ocr/seed
           env -u CC -u CXX -u CFLAGS cargo run --locked -q -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/worker_messages
           # The generated test corpus (QA-01); the 200 MB files are only made on demand.
           find tests/corpus -name '*.pdf' -not -path '*/large/*' -exec cp {} fuzz/corpus/open_document/ \;
@@ -131,7 +132,7 @@ jobs:
               echo
               echo "**The fuzzer found a crash.** Details are not shown here: they are only uploaded encrypted, as fuzz-crash-${{ matrix.target }} (docs/security/fuzzing.md)."
             fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       # Only the holder of the private key can read the samples. The recipient file is public;
       # the private key never leaves the owner's machine.
       - name: Encrypt crash samples
