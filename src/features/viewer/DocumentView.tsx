@@ -19,6 +19,7 @@ import {
   boxToPage,
   contentWidth,
   currentPageAt,
+  currentRowAt,
   fitsWidth,
   layoutPages,
   pageLeft,
@@ -26,12 +27,14 @@ import {
   rectToBox,
   renderScale,
   rotateAnchor,
+  rowForPage,
   scrollForAnchor,
   scrollTopFor,
   visibleRange,
   zoomFactor,
   type Layout,
   type PageBox,
+  type PageLayoutMode,
   type Viewport,
   type ViewportPoint,
 } from "@/features/viewer/layout";
@@ -153,6 +156,8 @@ type DocumentViewProps = {
   tool?: Tool;
   /** A stamp was put down: the tool is done. */
   onToolDone?: () => void;
+  /** Page layout arrangement: single, twoPage, or twoPageCover. */
+  layoutMode?: PageLayoutMode;
   /** Delay before a newly mounted page asks for a render; tests pass 0. */
   requestDelayMs?: number;
   ref?: Ref<DocumentViewHandle>;
@@ -202,7 +207,13 @@ function scrollElement(element: HTMLElement, position: { top: number; left?: num
 }
 
 /** What the view looked like at the last commit, to keep the reading position when it changes. */
-type Snapshot = { pages: PageSize[]; rotation: Rotation; layout: Layout; width: number };
+type Snapshot = {
+  pages: PageSize[];
+  rotation: Rotation;
+  layout: Layout;
+  width: number;
+  layoutMode?: PageLayoutMode;
+};
 
 /**
  * Virtualized pages: the content has the full document size, but only pages near the viewport
@@ -213,6 +224,7 @@ export function DocumentView({
   pages,
   zoom,
   rotation,
+  layoutMode = "single",
   scrollContainer,
   doc,
   renderer,
@@ -253,6 +265,8 @@ export function DocumentView({
   const [base, setBase] = useState<Snapshot | null>(null);
   /** A scroll position to move the scroll bar to (a new object for every move). */
   const [scrollIntent, setScrollIntent] = useState<{ top: number; left: number } | null>(null);
+  /** The target page when jumped to via scrollToPage or scrollToLocation. */
+  const [jumpedPage, setJumpedPage] = useState<number | null>(null);
   const zoomStep = useRef(onZoomStep);
   useEffect(() => {
     zoomStep.current = onZoomStep;
@@ -286,8 +300,8 @@ export function DocumentView({
     };
   }, [scrollContainer]);
 
-  const factor = zoomFactor(zoom, pages, rotation, viewport);
-  const layout = useMemo(() => layoutPages(pages, rotation, factor), [pages, rotation, factor]);
+  const factor = zoomFactor(zoom, pages, rotation, viewport, layoutMode);
+  const layout = useMemo(() => layoutPages(pages, rotation, factor, layoutMode), [pages, rotation, factor, layoutMode]);
   const width = contentWidth(layout, viewport.width);
 
   // Keep the reading position: when the layout changes for the same document (zoom, rotation,
@@ -295,7 +309,7 @@ export function DocumentView({
   // scroll position is worked out during render, and state is adjusted during render (React
   // then renders again before committing), so no commit ever pairs the new layout with the old
   // scroll position: the pages being read never unmount and keep their bitmaps.
-  const layoutChanged = base !== null && (base.layout !== layout || base.width !== width);
+  const layoutChanged = base !== null && (base.layout !== layout || base.width !== width || base.layoutMode !== layoutMode);
   let anchored: { top: number; left: number } | null = null;
   if (measured && base && layoutChanged && base.pages === pages) {
     const point = zoomPoint ?? { x: measured.width / 2, y: measured.height / 2 };
@@ -307,10 +321,16 @@ export function DocumentView({
   const shown = anchored ? { ...viewport, ...anchored } : viewport;
   const range = measured ? visibleRange(layout, shown) : { first: 0, last: -1 };
   const onScreen = measured ? visibleRange(layout, shown, 0) : { first: 0, last: -1 };
-  const currentPage = currentPageAt(layout, shown);
+  const jumpedRow = jumpedPage !== null ? rowForPage(layout, jumpedPage - 1) : null;
+  const currentRow = currentRowAt(layout, shown);
+  const activeJumpedPage = jumpedRow !== null && jumpedRow === currentRow ? jumpedPage : null;
+  if (jumpedPage !== null && activeJumpedPage === null) {
+    setJumpedPage(null);
+  }
+  const currentPage = currentPageAt(layout, shown, activeJumpedPage ?? undefined);
 
   if (measured !== null && (base === null || layoutChanged || base.pages !== pages)) {
-    setBase({ pages, rotation, layout, width });
+    setBase({ pages, rotation, layout, width, layoutMode });
     setZoomPoint(null);
     if (anchored) {
       // Our copy of the scroll position changes now; the scroll event arrives later, and another
@@ -332,7 +352,7 @@ export function DocumentView({
     const bounds = root.getBoundingClientRect();
     const x = clientX - bounds.left;
     const y = clientY - bounds.top;
-    const index = pageNear(layout, y);
+    const index = pageNear(layout, y, x, width);
     if (index === null) return null;
     const box = layout.boxes[index]!;
     const left = pageLeft(box, width);
@@ -414,12 +434,14 @@ export function DocumentView({
       scrollToPage(page) {
         const element = scrollContainer.current;
         if (!element) return;
+        setJumpedPage(page);
         if (unmeasured) pendingPage.current = page;
         else scrollElement(element, { top: scrollTopFor(layout, page) });
       },
       scrollToLocation(location) {
         const element = scrollContainer.current;
         if (!element) return;
+        setJumpedPage(location.page);
         if (unmeasured) {
           pendingLocation.current = location;
         } else {

@@ -1,6 +1,7 @@
 // Viewer layout in the real WebView (scroll bars do not exist in the unit tests' jsdom).
 import { strings } from "../../src/i18n/zh-TW";
 import { corpus, expect, test } from "./app";
+import { findOnScreen } from "./search";
 
 /** Letter pages are 792 x 612 pt; fit width adds 16 px of padding on each side (layout.ts). */
 const PAGE_RATIO = 792 / 612;
@@ -149,5 +150,57 @@ test("navigation history: jumps and returns with Alt+Left, Alt+Right, and toolba
   await expect(pageInput).toHaveValue("3");
   await expect(backButton).toBeEnabled();
   await expect(forwardButton).toBeDisabled();
+});
+
+test("two-page view with cover page: jumps to page 5, highlights text on page 5, and searches for page 7 (B4-02)", async ({
+  launch,
+}) => {
+  const page = await launch(corpus("benign/multi-page-10.pdf"));
+  await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
+
+  // 1. Switch to "雙頁（封面單獨）", input page 5
+  await page.getByRole("button", { name: strings.toolbar.more }).click();
+  await page.getByRole("menuitemradio", { name: strings.menu.layoutTwoPageCover }).click();
+
+  const pageInput = page.getByRole("textbox", { name: strings.toolbar.pageNumber });
+  await pageInput.fill("5");
+  await pageInput.press("Enter");
+
+  const page4 = page.getByRole("img", { name: strings.canvas.page(4) });
+  const page5 = page.getByRole("img", { name: strings.canvas.page(5) });
+  await expect(page4).toBeVisible();
+  await expect(page5).toBeVisible();
+
+  // 第 4、5 頁的上緣切齊，第 4 頁在左；頁碼欄位是 5
+  const box4 = await page4.boundingBox();
+  const box5 = await page5.boundingBox();
+  expect(box4).not.toBeNull();
+  expect(box5).not.toBeNull();
+  expect(Math.abs(box4!.y - box5!.y)).toBeLessThanOrEqual(1);
+  expect(box4!.x + box4!.width).toBeLessThan(box5!.x);
+  await expect(pageInput).toHaveValue("5");
+
+  // 2. 在第 5 頁選取文字、加螢光筆（照 annotations.spec.ts 的寫法）：螢光筆在第 5 頁
+  // Multi-page 10 has "Page 5 of 10" on page 5
+  const textHit = await findOnScreen(page, "Page 5");
+  await page.keyboard.press("Escape");
+  await page.mouse.dblclick(textHit.x + textHit.width / 4, textHit.y + textHit.height / 2);
+  await page.mouse.click(textHit.x + textHit.width / 4, textHit.y + textHit.height / 2, { button: "right" });
+  await page.getByRole("menuitem", { name: strings.annotations.highlight }).click();
+  await page.getByRole("menuitem", { name: strings.annotations.colors.yellow }).click();
+
+  const mark = page.locator("[data-page-annotations] [data-annotation=highlight]");
+  await expect(mark).toHaveCount(1);
+  const markBox = await mark.first().boundingBox();
+  expect(markBox).not.toBeNull();
+  // 螢光筆落在第 5 頁內
+  expect(markBox!.x).toBeGreaterThanOrEqual(box5!.x - 1);
+  expect(markBox!.x + markBox!.width).toBeLessThanOrEqual(box5!.x + box5!.width + 1);
+
+  // 3. 搜尋第 7 頁上的關鍵字：第 7 頁出現在畫面上
+  // Keyword "needle" appears only on page 7
+  await findOnScreen(page, "needle");
+  const page7 = page.getByRole("img", { name: strings.canvas.page(7) });
+  await expect(page7).toBeInViewport();
 });
 

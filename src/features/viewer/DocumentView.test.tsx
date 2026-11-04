@@ -16,6 +16,7 @@ import {
   layoutPages,
   pageLeft,
   pageToBox,
+  type PageLayoutMode,
 } from "@/features/viewer/layout";
 import type { PageRenderer, RenderJob } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
@@ -58,6 +59,7 @@ type HarnessProps = {
   pages: PageSize[];
   zoom?: Zoom;
   rotation?: Rotation;
+  layoutMode?: PageLayoutMode;
   renderer?: PageRenderer;
   onPage?: (page: number) => void;
   onZoomStep?: (direction: 1 | -1) => void;
@@ -75,6 +77,7 @@ function Harness({
   pages,
   zoom = 100,
   rotation = 0,
+  layoutMode,
   renderer,
   onPage,
   onZoomStep,
@@ -95,6 +98,7 @@ function Harness({
         pages={pages}
         zoom={zoom}
         rotation={rotation}
+        layoutMode={layoutMode}
         scrollContainer={scroller}
         doc={7}
         renderer={renderer}
@@ -199,6 +203,23 @@ describe("DocumentView", () => {
     expect(mountedPages()).toEqual([49, 50, 51, 52, 53]);
     for (const call of first) expect(call.cancel).toHaveBeenCalled();
     expect(active().map((call) => call.args.pageIndex).sort((a, b) => a - b)).toEqual([48, 49, 50, 51, 52]);
+  });
+
+  it("in two-page mode, mounts only the visible rows plus overscan rows", () => {
+    const { renderer, calls } = fakeRenderer();
+    render(<Harness pages={Array(100).fill(LETTER)} layoutMode="twoPage" renderer={renderer} />);
+    const scroller = sizeScroller(800);
+    scrollTo(screen.getByTestId("scroller"), 0);
+
+    // Row 0 is visible; rows 1 and 2 stay mounted as overscan.
+    // Rows 0, 1, 2 comprise pages 1 through 6.
+    expect(mountedPages()).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(calls.map((call) => call.args.pageIndex)).toEqual([0, 1, 2, 3, 4, 5]);
+
+    // Scroll down to row 10 (pages 21 and 22).
+    // In twoPage layout, rows 8, 9, 10, 11, 12 stay mounted (5 rows = 10 pages).
+    scrollTo(scroller, PAGE_PADDING_PX + PITCH * 10);
+    expect(mountedPages()).toEqual([17, 18, 19, 20, 21, 22, 23, 24, 25, 26]);
   });
 
   it("draws rendered pages at their native resolution", async () => {
