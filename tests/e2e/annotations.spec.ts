@@ -218,3 +218,105 @@ test("text marked with underline is in the saved copy, can be recolored, and und
     rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
+
+test("shape annotations: rectangle and arrow can be drawn, recolored, undone/redone, and saved (B4-05)", async ({
+  launch,
+}) => {
+  const folder = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-shapes-"));
+  try {
+    const file = path.join(folder, "original.pdf");
+    copyFileSync(corpus("benign/mixed-text-zh-en.pdf"), file);
+    const page = await launch(file);
+    await expect(firstPage(page)).toHaveAttribute("data-state", "ready");
+
+    const rectangles = page.locator("[data-page-annotations] [data-annotation=rectangle]");
+    const arrows = page.locator("[data-page-annotations] [data-annotation=arrow]");
+    await expect(rectangles).toHaveCount(0);
+    await expect(arrows).toHaveCount(0);
+
+    // 1. Draw a rectangle annotation
+    const shapeBtn = page.locator("[data-shape-button]");
+    await shapeBtn.click();
+
+    const box = await firstPage(page).boundingBox();
+    if (!box) throw new Error("the page is not on screen");
+
+    const drawingLayer = page.locator("[data-page-drawing='1']");
+    await expect(drawingLayer).toBeVisible();
+
+    // Drag across drawing layer to draw rectangle
+    await page.mouse.move(box.x + 100, box.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 200, box.y + 180);
+    await page.mouse.up();
+
+    await expect(rectangles).toHaveCount(1);
+    await expect(rectangles.first()).toHaveAccessibleName(t.kind.rectangle);
+    await expect(page.getByRole("tab", { name: new RegExp(`^original\\.pdf\\s*${strings.tabs.unsaved}$`) })).toBeVisible();
+
+    // 2. Switch shape kind to arrow and draw an arrow
+    await page.getByRole("button", { name: t.shapeStyle }).click();
+    await page.getByRole("menuitemradio", { name: t.shapeKinds.arrow }).click();
+
+    await page.mouse.move(box.x + 120, box.y + 250);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 220, box.y + 250);
+    await page.mouse.up();
+
+    await expect(arrows).toHaveCount(1);
+    await expect(arrows.first()).toHaveAccessibleName(t.kind.arrow);
+
+    // Turn off shape tool
+    await shapeBtn.click();
+
+    // 3. Select rectangle, verify toolbar, and recolor to blue
+    await rectangles.first().click();
+    const rectToolbar = page.getByRole("toolbar", {
+      name: t.kind.rectangle,
+    });
+    await expect(rectToolbar).toBeVisible();
+
+    await rectToolbar.getByRole("button", { name: t.inkColors.blue }).click();
+    await expect(rectangles.first()).toHaveAccessibleName(t.kind.rectangle);
+
+    // 4. Test Undo and Redo
+    await page.keyboard.press("Control+z"); // undo recolor
+    await expect(rectangles.first()).toHaveAccessibleName(t.kind.rectangle);
+
+    await page.keyboard.press("Control+z"); // undo arrow
+    await expect(arrows).toHaveCount(0);
+
+    await page.keyboard.press("Control+y"); // redo arrow
+    await expect(arrows).toHaveCount(1);
+
+    // 5. Save as copy and check PDF structure
+    const copy = path.join(folder, "shapes.pdf");
+    await page.keyboard.press("Control+Shift+S");
+    await answerFileDialog(page, { path: copy });
+    await expect(page.getByRole("contentinfo")).toContainText(strings.saving.saved);
+    await quit(page);
+
+    const saved = readFileSync(copy).toString("latin1");
+    expect(saved).toMatch(/\/Subtype\s*\/Square/);
+    expect(saved).toMatch(/\/Subtype\s*\/Line/);
+    expect(saved).toMatch(/\/LE\s*\[\s*\/None\s*\/OpenArrow\s*\]/);
+    expect(saved).not.toMatch(/\/T\s*[(<]/);
+    expect(saved).not.toMatch(/\/M\s*[(<]/);
+    expect(saved).not.toMatch(/\/(NM|CreationDate)\b/);
+
+    // 6. Reopen copy and verify annotations persist and can be deleted
+    const reopened = await launch(copy);
+    await expect(firstPage(reopened)).toHaveAttribute("data-state", "ready");
+    const reopenedArrows = reopened.locator("[data-page-annotations] [data-annotation=arrow]");
+    await expect(reopenedArrows).toHaveCount(1);
+
+    await reopenedArrows.first().click();
+    const arrowToolbar = reopened.getByRole("toolbar", {
+      name: t.kind.arrow,
+    });
+    await arrowToolbar.getByRole("button", { name: t.delete }).click();
+    await expect(reopenedArrows).toHaveCount(0);
+  } finally {
+    rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
