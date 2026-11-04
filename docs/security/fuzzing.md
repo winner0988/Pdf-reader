@@ -139,7 +139,7 @@ cargo +nightly fuzz run worker_messages fuzz/corpus/worker_messages -- -max_tota
 - `worker_messages`：31 秒 186 萬次；
 - `open_document`：91 秒 20,938 次（每秒約 230 次）；
 - `create_pdf`（B3-03，2026-10-14）：241 秒 12,507 次（每秒約 52 次，每次都真的產生 PDF），沒有崩潰；
-- `ocr`（#431，CI Linux smoke run）：120 秒 10,796 次（每秒約 89 次），peak memory 358 MB，沒有崩潰；
+- `ocr`（#431，CI Linux smoke run）：40 次（每秒約 10 次，覆蓋率 edges 15,596、features 18,987，peak memory 3793 MB，找到崩潰，照公開 repo 的保護私下處理）；
 - 兩者都沒有崩潰。
 
 ## 崩潰的處理
