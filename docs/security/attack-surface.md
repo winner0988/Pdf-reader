@@ -227,22 +227,22 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 請求 | 讀或寫什麼 | 程式碼（`crates/pdf_worker/src/`） | 測試 | fuzz |
 |---|---|---|---|---|
-| `Open` | PDF（唯讀代號）與可能的密碼；開啟時掃描主動內容 | `engine.rs`、`scan.rs`、`owner_password.rs` | worker `isolation.rs`、`encryption.rs`、`corpus_crypto.rs`、`active_content.rs`、`password_key.rs` | `open_document`（沒有密碼的路徑，#426） |
+| `Open` | PDF（唯讀代號）與可能的密碼；開啟時掃描主動內容 | `engine.rs`、`scan.rs`、`owner_password.rs` | worker `isolation.rs`、`encryption.rs`、`corpus_crypto.rs`、`active_content.rs`、`password_key.rs` | `open_document`（無密碼）；`read_document`（帶密碼路徑，#426） |
 | `Render`、`RenderRegion` | 頁面的內容 | `engine.rs` | worker `isolation.rs`；`viewer.spec.ts` | `open_document` |
 | `RenderPng`、`RenderJpeg` | 同上，再編成 PNG 或 JPEG | `engine.rs`、`jpeg.rs` | `export.spec.ts`；`jpeg.rs` | 渲染的部分：`open_document` |
 | `GetOutline` | 目錄 | `engine/outline.rs` | worker `outline.rs` | `open_document` |
 | `GetPageLinks` | 連結與它們的 URI | `engine.rs` | worker `links.rs` | `open_document` |
-| `GetPageAnnotations` | 註解 | `engine/annotations.rs` | worker `merge.rs`、`stamp_image.rs`、`text_box_worker.rs`；`annotations.spec.ts` | 沒有（#426） |
-| `GetPageFields` | 表單欄位 | `engine/forms.rs`（沒有單元測試） | `forms.spec.ts` | 沒有（#426） |
-| `VerifySignatures` | 簽章欄位、簽章字典、CMS | `engine/signatures.rs`、`signatures.rs`、`crypt.rs` | worker `signatures.rs`、`signature_poc.rs`；`signatures.spec.ts` | 沒有（#426） |
-| `SummariseRedactions` | 遮蔽標記會蓋到的東西 | `engine/redaction.rs` | `redaction.rs` 的單元測試；`redaction.spec.ts` | 沒有（#426） |
-| `FindPersonalData` | 頁面文字 | `engine/personal_data.rs` | worker `personal_data.rs` | 沒有（#426） |
-| `GetPageText` | 頁面文字 | `engine.rs`、`text_cache.rs` | worker `text.rs` | 沒有（#426） |
+| `GetPageAnnotations` | 註解 | `engine/annotations.rs` | worker `merge.rs`、`stamp_image.rs`、`text_box_worker.rs`；`annotations.spec.ts` | `read_document`（前兩頁，#426） |
+| `GetPageFields` | 表單欄位 | `engine/forms.rs`（沒有單元測試） | `forms.spec.ts` | `read_document`（前兩頁，#426） |
+| `VerifySignatures` | 簽章欄位、簽章字典、CMS | `engine/signatures.rs`、`signatures.rs`、`crypt.rs` | worker `signatures.rs`、`signature_poc.rs`；`signatures.spec.ts` | `read_document`（簽章欄位部分，#426） |
+| `SummariseRedactions` | 遮蔽標記會蓋到的東西 | `engine/redaction.rs` | `redaction.rs` 的單元測試；`redaction.spec.ts` | `read_document`（#426） |
+| `FindPersonalData` | 頁面文字 | `engine/personal_data.rs` | worker `personal_data.rs` | `read_document`（#426） |
+| `GetPageText` | 頁面文字 | `engine.rs`、`text_cache.rs` | worker `text.rs` | `read_document`（前兩頁，#426） |
 | `SearchPage` | 頁面文字 | `search.rs` | worker `search_cache.rs` | `open_document`（前兩頁） |
-| `AnnotationSummary` | 每一頁的註解，與註解蓋住的文字 | `engine.rs` | `engine.rs` 的單元測試；`annotation-summary.spec.ts` | 沒有（#426） |
-| `GetAttachments` | 附件清單 | `engine/attachments.rs`（沒有單元測試） | worker `attachments.rs` | 沒有（#426） |
-| `WriteAttachment` | 解碼附件（≤ 512 MiB），寫到只能寫的代號 | `engine/attachments.rs` | worker `attachments.rs` | 沒有（#426） |
-| `GetTextBox` | 文字方塊註解 | `engine/text_box.rs` | worker `text_box_worker.rs` | 沒有（#426） |
+| `AnnotationSummary` | 每一頁的註解，與註解蓋住的文字 | `engine.rs` | `engine.rs` 的單元測試；`annotation-summary.spec.ts` | `read_document`（#426） |
+| `GetAttachments` | 附件清單 | `engine/attachments.rs`（沒有單元測試） | worker `attachments.rs` | `read_document`（#426） |
+| `WriteAttachment` | 解碼附件（≤ 512 MiB），寫到只能寫的代號 | `engine/attachments.rs` | worker `attachments.rs` | `read_document`（至多前 2 個，上限 1 MiB，#426） |
+| `GetTextBox` | 文字方塊註解 | `engine/text_box.rs` | worker `text_box_worker.rs` | `read_document`（前兩頁，#426） |
 | `ExportDocx` | 頁面的文字與圖片，寫成 .docx | `engine/docx.rs` | worker `docx.rs` | `open_document` |
 | `Edit` | 26 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs` | 沒有（#427） |
 | `Revert` | 從保留的位元組重新開啟，再做一次編輯 | `engine.rs` | worker `saving.rs`、`merge.rs` | 沒有（#427） |
@@ -399,7 +399,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 匯出純文字能取代文件自己的檔案（§1.8，已於 #423 修復） | #423 | 是（已修復） |
 | WebView 的導覽沒有限制（§4） | #424 | 是（提議，由負責人決定） |
 | 執行中的 app 會拒絕沒授權的命令（§4） | 已由 #425 補上測試（`refused-commands.spec.ts`） | 否 |
-| fuzz 沒有走到的讀取：註解、表單、文字方塊、頁面文字、個資、遮蔽摘要、註解摘要、附件、簽章欄位、以密碼開啟（§2.4） | #426 | 視做法 |
+| 已由 #426 拆出 `read_document` 目標完成 fuzz（§2.4） | #426 | 是 |
 | fuzz 沒有走到的編輯、存檔、副本（§2.4、§2.5） | #427 | 是 |
 | fuzz 沒有走到圖章圖片與匯入字型的檢查（§2.4） | #428 | 是 |
 | 主行程自己解析的資料沒有 fuzz（§3） | #429 | 是 |
