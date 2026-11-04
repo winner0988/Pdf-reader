@@ -205,10 +205,10 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 - 每個 frame 先以 postcard 解碼，再經 `WorkerResponse::validate`（`crates/ipc_contract/src/validate.rs`，涵蓋每一種回應）。解碼失敗、驗證失敗、第一個 frame 不是相符的 `Hello`：停止 worker，回報 `protocolViolation`，下一個請求啟動新的 worker（`crates/worker_host/src/lib.rs`）。
 - 期限：握手 10 秒，一般請求 30 秒，存檔類 5 分鐘（`SAVE_TIMEOUT`）。worker 當掉、逾時、違反協定，都當成這份文件的 worker 遺失。
 - 文件的檔案 ≤ `MAX_DOCUMENT_BYTES`（512 MiB），在交給 worker 之前檢查。
-- 已知的缺口（#422，依程式碼）：
-  - 收到別的請求編號的回應時會重新計時，被控制的 worker 能讓一個請求永遠不結束；
-  - 回應的種類不對時（`documents.rs` 的 `unexpected`），只回錯誤，沒有停止 worker；
-  - `worker_host` 沒有測試證明協定違規會停止 worker。
+- 處理缺口（已在 #422 修正）：
+  - 期限從送出開始算，延遲或晚到的回應不會重新計時；
+  - 編號不相符（含 0、未來編號或過去編號）或種類不符（`is_expected_response`、`unexpected_on`）時視為協定違規，停止 worker 並將文件標記為 lost；
+  - `worker_host/tests/replies.rs` 以 `fake_worker` 完整測試協定違規（無效 frame、驗證失敗、編號 0、未來編號、延遲送不相符編號、種類不符、重複 Hello、逾時）會停止 worker 且下一個請求啟動新 worker 成功。
 - 測試：`crates/ipc_contract` 的驗證測試；worker `isolation.rs`（`worker_errors_are_reported_not_fatal`、`killed_worker_is_reported_then_replaced`、`slow_requests_time_out_and_the_worker_is_stopped`）；`documents.rs`（`test_prepare_inserted_text_boxes_crashed_worker_marks_document_lost`）。fuzz `worker_messages` 確認兩個方向的解碼與驗證不會 panic。
 
 ### 2.3 worker 裡解析不可信輸入的程式庫
@@ -395,7 +395,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 缺口 | Issue | 需要安全審查 |
 |---|---|---|
-| 被控制的 worker 能讓請求永遠不結束；回應的種類不對時沒有停止它；協定違規沒有測試（§2.2） | #422 | 是 |
+| 已在 #422 修正：請求期限從送出起算、不相符編號與種類不對時終止 worker 並標記 lost，以 fake_worker 測試協定違規（§2.2） | #422 | 是 |
 | 匯出純文字能取代文件自己的檔案（§1.8） | #423 | 是 |
 | WebView 的導覽沒有限制（§4） | #424 | 是（提議，由負責人決定） |
 | 沒有測試證明執行中的 app 會拒絕沒授權的命令（§4） | #425 | 否 |
