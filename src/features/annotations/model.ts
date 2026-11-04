@@ -35,6 +35,10 @@ export function annotationLabel(annotation: PageAnnotation): string {
     case "stamp":
     case "redaction":
     case "other":
+    case "rectangle":
+    case "ellipse":
+    case "line":
+    case "arrow":
       return t.kind[annotation.kind];
   }
 }
@@ -46,7 +50,13 @@ export function annotationAt(
 ): PageAnnotation | null {
   for (let index = annotations.length - 1; index >= 0; index--) {
     const { rect } = annotations[index]!;
-    if (point.x >= rect.x0 && point.x <= rect.x1 && point.y >= rect.y0 && point.y <= rect.y1) {
+    const minX = Math.min(rect.x0, rect.x1);
+    const maxX = Math.max(rect.x0, rect.x1);
+    const minY = Math.min(rect.y0, rect.y1);
+    const maxY = Math.max(rect.y0, rect.y1);
+    const padX = maxX - minX < 8 ? 4 : 0;
+    const padY = maxY - minY < 8 ? 4 : 0;
+    if (point.x >= minX - padX && point.x <= maxX + padX && point.y >= minY - padY && point.y <= maxY + padY) {
       return annotations[index]!;
     }
   }
