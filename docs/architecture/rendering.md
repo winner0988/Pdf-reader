@@ -235,3 +235,17 @@ worker 的記憶體大部分是整份檔案（197 MB，讀入記憶體後交給 
 devicePixelRatio 2 時，看得到的那一塊約 2040 × 1510 px（12 MB；dpr 1 時量到的是 1020 × 754）。照上表推算，200% 約 0.4 秒清晰，但沒有實際量過。
 
 沒有做工作卡上列的「worker 內多執行緒」：瓶頸在傳輸，不在 worker，目標不靠它就達成了。中斷進行中的渲染（見〈取消〉）也還沒做。
+
+## 全螢幕與簡報模式（B4-03）
+
+工作卡 #411 新增全螢幕檢視與簡報模式：
+- **全螢幕（IPC 命令）**：
+  - 不使用 Tauri 內建的 `core:window:allow-set-fullscreen`（維持攻擊面 `main.json` 不含任何 `core:*` 權限的設計），而是於主行程實作 `set_fullscreen(window, on: bool) -> Result<bool, IpcError>` 命令，並配置專用權限 `allow-set-fullscreen`。
+  - 在 Windows 下呼叫 `window.set_fullscreen(on)` 切換全螢幕。若為機敏文件，視窗已設定的擷取保護（`WDA_EXCLUDEFROMCAPTURE`）在全螢幕下依然有效且不被覆寫。
+  - 攔截 `F11`、`F5`、`Shift+F5` 的 `keydown` 預設行為（`preventDefault()`），防止 WebView2 預設的頁面重載。
+- **簡報模式渲染**：
+  - 不使用 HTML `requestFullscreen()`（避免 WebView2 / wry 0.57 全螢幕事件與焦點問題），而是由視窗進全螢幕並覆蓋純黑背景（`fixed inset-0 bg-black z-40`）。
+  - 複用既有渲染管線：根據目前視窗解析度與頁面點陣大小，以 `renderScale` 與 `displayedSize` 純函式計算等比例最適合大小（contain），透過 `renderer.render` 請求點陣圖繪製在 `<canvas>` 上。
+  - **預先載入**：目前頁繪製完成後，自動預先發送下一頁的渲染請求，命中主行程 LRU 快取，換頁時無縫呈現。
+  - **連結處理**：頁面上方覆蓋連結透明點擊區，點擊內部連結直接跳頁，點擊外部網址彈出 `LinkConfirmDialog`（`z-50` 覆蓋於黑底之上）。
+  - **結束還原**：退出簡報模式時完整還原進入前的目前頁碼、縮放比例與捲動位置；並依進入前的全螢幕狀態決定是否退出視窗全螢幕。

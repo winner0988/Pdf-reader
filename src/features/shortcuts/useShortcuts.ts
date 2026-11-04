@@ -26,6 +26,10 @@ export function useShortcuts(handlers: ShortcutHandlers, enabled = true): void {
       // two listeners of the same key press, so without this the next tab would close too.
       // It also leaves keys a focused control already used (arrows in the tab bar) alone.
       if (event.defaultPrevented || !latest.current.enabled) return;
+      // WebView2 defaults F5/Shift+F5 to reload the page and F11 to browser fullscreen:
+      if (event.key === "F5" || event.key === "F11") {
+        event.preventDefault();
+      }
       const shortcut = findShortcut(event);
       const handler = shortcut && latest.current.handlers[shortcut.id];
       if (handler && handler() !== false) event.preventDefault();

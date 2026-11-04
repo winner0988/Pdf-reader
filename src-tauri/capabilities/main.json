@@ -68,6 +68,7 @@
     "allow-save-document",
     "allow-save-document-as",
     "allow-close-window",
+    "allow-set-fullscreen",
     "allow-privacy-export",
     "allow-page-marks-copy",
     "allow-encrypt-copy",
