@@ -142,6 +142,11 @@ cargo +nightly fuzz run worker_messages fuzz/corpus/worker_messages -- -max_tota
 - `create_pdf`（B3-03，2026-10-14）：241 秒 12,507 次（每秒約 52 次，每次都真的產生 PDF），沒有崩潰；
 - 兩者都沒有崩潰。
 
+CI 結果（Linux runner，2026-11-05，#428，run 41884061447）：
+
+- `text_box_font`：併入 `inspect_font` 前 120 秒 3,843 次（每秒 31 次，run 41874594705）；併入後 120 秒 3,991 次（每秒 32 次），覆蓋率由 9,342 edges 增至 9,608 edges，沒有崩潰；
+- `stamp_image`（新目標）：120 秒 29,638 次（每秒約 244 次），覆蓋率 7,345 edges，沒有崩潰。
+
 ## 崩潰的處理
 
 1. **下載並解密**：從失敗的 workflow 下載 `fuzz-crash-<目標>`，在 repo 以外的資料夾解開（PowerShell；先解密成檔案再解壓縮，因為 PowerShell 5.1 的管線會破壞二進位資料）：
