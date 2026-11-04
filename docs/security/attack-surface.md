@@ -134,7 +134,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 命令 | 做什麼 | 主行程的檢查與上限 | 對話框、寫入、行程 | 測試 |
 |---|---|---|---|---|
-| `export_pages` | 匯出頁面：純文字、Word、PNG、JPEG、PDF（拆分） | `ExportArgs`：頁面不得為空、不重複、≤ 1000（PDF ≤ 100,000）；dpi 只能是 72、150、300；每 N 頁一個檔時 N > 0、≤ 1000 個檔；作者禁止複製時拒絕；加密文件不能拆成 PDF | 純文字：另存對話框，**沒有擋**文件自己的檔案（#423）。Word、PDF：另存對話框，擋文件自己的檔案。圖片、每 N 頁一個檔：選資料夾，已有的檔案要確認取代。`RenderPng`、`RenderJpeg`、`ExportDocx`、`SavePages` | `export.spec.ts`、`split.spec.ts`；`export.rs` 9 個；worker `docx.rs` |
+| `export_pages` | 匯出頁面：純文字、Word、PNG、JPEG、PDF（拆分） | `ExportArgs`：頁面不得為空、不重複、≤ 1000（PDF ≤ 100,000）；dpi 只能是 72、150、300；每 N 頁一個檔時 N > 0、≤ 1000 個檔；作者禁止複製時拒絕；加密文件不能拆成 PDF | 純文字、Word、PDF：另存對話框，擋文件自己的檔案（#423）。圖片、每 N 頁一個檔：選資料夾，已有的檔案要確認取代。`RenderPng`、`RenderJpeg`、`ExportDocx`、`SavePages` | `export.spec.ts`（含純文字不能取代原檔）、`split.spec.ts`；`export.rs` 9 個；worker `docx.rs` |
 | `export_annotation_summary` | 註解摘要寫成純文字或 Markdown | 作者禁止複製時拒絕 | 另存對話框，擋文件自己的檔案；`AnnotationSummary` | `annotation-summary.spec.ts`；`export.rs` |
 | `compare_text` | 比較兩份開著的文件的文字 | `CompareTextArgs`：不能和自己比；任一份的作者禁止複製時拒絕；期限 ≤ `MAX_COMPARE_DEADLINE_MILLIS`（10 秒） | 讀兩份文件的頁面文字 | `compare.spec.ts`；`src-tauri/src/compare/` |
 | `export_compare_text` | 比較結果寫成純文字或 Markdown | `ExportCompareTextArgs`：同上 | 另存對話框，兩份文件自己的檔案都擋 | `compare.spec.ts` |
@@ -309,7 +309,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 項目 | 設定 | 檢查 |
 |---|---|---|
-| capability | `src-tauri/capabilities/main.json`：只給 `main` 視窗；88 個 `allow-*`；沒有 `core:*`、`dialog`、`fs`；沒有 `remote`，外部網頁拿不到 IPC | `check-security-config.mjs`（靜態）；執行中的 app 會拒絕沒授權的命令，這件事沒有測試（#425） |
+| capability | `src-tauri/capabilities/main.json`：只給 `main` 視窗；88 個 `allow-*`；沒有 `core:*`、`dialog`、`fs`；沒有 `remote`，外部網頁拿不到 IPC | `check-security-config.mjs`（靜態）；`refused-commands.spec.ts`（#425） |
 | CSP | `default-src 'self'`、`script-src 'self'`、`style-src 'self'`、`img-src 'self' data: blob:`、`font-src 'self'`、`connect-src ipc: http://ipc.localhost`、`object-src`／`base-uri`／`form-action`／`frame-src` 都是 `'none'` | `check-security-config.mjs`（正式版與 `vite.config.ts` 的開發用 CSP）；`check-dist.mjs`（建置產物不引用外部資源） |
 | 全域 API | `withGlobalTauri: false` | — |
 | 開發人員工具 | `tauri` 沒有開 `devtools` 功能，正式版沒有開發人員工具 | 人工檢查（manual-checks §3） |
@@ -371,7 +371,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 |---|---|---|
 | 命令列 | `src-tauri/src/cli.rs`：跳過 `-` 開頭的參數，其餘當成檔案路徑交給 `commands::open_paths`（開啟對話框也走這裡） | `cli.rs` 3 個；`open.spec.ts` |
 | 第二次啟動 | `tauri-plugin-single-instance` =2.5.4：mutex、`FindWindowW`、`WM_COPYDATA` 傳來參數與工作目錄，主行程以 `Path::new(&cwd).join(path)` 交給 `open_paths` | `batch.spec.ts`（第二次啟動把檔案交給視窗） |
-| 拖放 | 視窗的拖放事件把每個拖進來的檔案交給 `open_paths`（`commands.rs` 的註解寫只開第一個，已過時） | 沒有（#436） |
+| 拖放 | 視窗的拖放事件把每個拖進來的檔案交給 `open_paths`（每個檔案各開一個分頁；非 PDF 或資料夾則顯示錯誤分頁） | manual-checks §3.14（原生 OLE 拖放無法由 Playwright CDP 模擬，見 `docs/architecture/e2e.md`） |
 | 檔案關聯 | 安裝程式在 HKLM 登錄 `.pdf` 的開啟命令 | manual-checks §3 |
 | `PDF_READER_DATA_DIR` | 是絕對路徑時，取代 app 資料夾；正式版也讀（E2E 用它讓每次執行有自己的資料夾） | §9 |
 | WebView2 的環境變數 | `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`、`WEBVIEW2_USER_DATA_FOLDER` 等由 WebView2 自己讀；E2E 用前者打開 `--remote-debugging-port`（`docs/architecture/e2e.md`） | §9；manual-checks §3 |
@@ -396,14 +396,14 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 缺口 | Issue | 需要安全審查 |
 |---|---|---|
 | 已在 #422 修正：請求期限從送出起算、不相符編號與種類不對時終止 worker 並標記 lost，以 fake_worker 測試協定違規（§2.2） | #422 | 是 |
-| 匯出純文字能取代文件自己的檔案（§1.8） | #423 | 是 |
+| 匯出純文字能取代文件自己的檔案（§1.8，已於 #423 修復） | #423 | 是（已修復） |
 | WebView 的導覽沒有限制（§4） | #424 | 是（提議，由負責人決定） |
-| 沒有測試證明執行中的 app 會拒絕沒授權的命令（§4） | #425 | 否 |
+| 執行中的 app 會拒絕沒授權的命令（§4） | 已由 #425 補上測試（`refused-commands.spec.ts`） | 否 |
 | fuzz 沒有走到的讀取：註解、表單、文字方塊、頁面文字、個資、遮蔽摘要、註解摘要、附件、簽章欄位、以密碼開啟（§2.4） | #426 | 視做法 |
 | fuzz 沒有走到的編輯、存檔、副本（§2.4、§2.5） | #427 | 是 |
 | fuzz 沒有走到圖章圖片與匯入字型的檢查（§2.4） | #428 | 是 |
 | 主行程自己解析的資料沒有 fuzz（§3） | #429 | 是 |
 | OCR 的語言資料與掃描頁沒有 fuzz（§2.3、§2.4） | #431 | 是 |
 | `retry_open`、`cancel` 在主行程這一側沒有測試（§1.1、§1.2） | #432 | 否 |
-| 拖放開檔沒有測試，`commands.rs` 的註解已過時（§8） | #436 | 否 |
+| 拖放開檔列入人工檢查（manual-checks §3.14），`commands.rs` 註解已更正（§8） | #436（已完成） | 否 |
 | 這份清單與程式碼一致的 CI 檢查（提議） | #430 | 是 |
