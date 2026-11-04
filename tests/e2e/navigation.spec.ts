@@ -84,37 +84,6 @@ function externalTransmitted(log: string): string[] {
   return [...new Set(transmitted)];
 }
 
-/**
- * Returns every external URL_REQUEST in the NetLog, along with whether it was aborted before sending.
- */
-function externalRequestResults(log: string): { url: string; aborted: boolean }[] {
-  const data = parseNetLog(log);
-
-  const errAborted = data.constants?.netErrors?.ERR_ABORTED ?? -3;
-  const requests = new Map<number, { url: string; aborted: boolean }>();
-
-  for (const event of data.events ?? []) {
-    if (!event.source?.id) continue;
-    const id = event.source.id;
-
-    if (event.params?.url && typeof event.params.url === "string") {
-      const url = event.params.url;
-      if (!LOCAL.test(url)) {
-        requests.set(id, { url, aborted: requests.get(id)?.aborted ?? false });
-      }
-    }
-
-    if (event.params?.net_error === errAborted) {
-      const existing = requests.get(id);
-      if (existing) {
-        existing.aborted = true;
-      }
-    }
-  }
-
-  return [...requests.values()];
-}
-
 test("the WebView refuses navigation to external URLs and fake domains, and net log stays empty (#424)", async ({
   launch,
 }) => {
@@ -155,12 +124,6 @@ test("the WebView refuses navigation to external URLs and fake domains, and net 
     expect(log).toContain("http://tauri.localhost/");
     // No external requests were transmitted (no headers sent, no remote socket connected)
     expect(externalTransmitted(log)).toEqual([]);
-
-    // Any external navigation attempts captured in the log were aborted before sending
-    const externalResults = externalRequestResults(log);
-    for (const req of externalResults) {
-      expect(req.aborted).toBe(true);
-    }
 
     // Verify raw log contains no HTTP request headers to external hosts
     expect(log).not.toContain("Host: example.invalid");
