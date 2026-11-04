@@ -12,6 +12,7 @@
 | `compress_images` | 以 MuPDF 開啟 PDF，寫出壓縮圖片的副本（B3-01）：MuPDF 解碼每張圖片、縮小、編碼成 JPEG、換回去、完整重寫（品質低、尺寸上限 256、時間 2 秒） | 同 `open_document`（複製過去） |
 | `create_pdf` | 「從檔案建立 PDF」（B3-03）：第一個位元組決定種類（圖片、網頁、純文字、EPUB、XPS、SVG、Word、Excel、PowerPoint），其餘是檔案；`PdfBuilder` 讀取、轉換、寫出（圖片會加兩次，試多頁的路徑） | `tests/corpus/sources/` 與 `tests/corpus/images/`，前面加種類的編號（CI 的 `Seed corpus` 步驟）；包含謊稱 3.5 GiB 的 Word 檔 |
 | `exif_clean` | 以 MuPDF 開啟 PDF，寫出清除圖片 EXIF 的副本（B3-04，批次處理）：每個 JPEG 串流（包括藏在無損濾鏡後面的）讀出來、切掉不是畫面的區段、換回去、完整重寫 | 同 `open_document`（複製過去），其中 `benign/photo-exif.pdf` 有相機與程式寫進去的各種資訊 |
+| `edit_document` | 對不可信文件套用 1～4 個編輯（#427，涵蓋 `WorkerEdit` 全部 26 種：`RotatePages`、`DeletePages`、`MovePages`、`InsertBlankPage`、`InsertPages`、`AddHighlight`〔含底線、刪除線、波浪線〕、`AddNote`、`DeleteAnnotation`、`SetHighlightColor`、`SetNoteText`、`SetFieldValue`、`FlattenForm`、`AddRedaction`、`AddRedactionGroup`、`ApplyRedactions`、`AddInk`、`AddStamp`、`SetAnnotationRect`、`SetPictureAngle`、`AddImageStamp`、`SetTextBox`、`PlaceTextBox`、`AddBookmark`、`RenameBookmark`、`DeleteBookmark`、`MoveBookmark`；參數經 `Validate` 檢查）、存檔（完整重寫；已簽章文件以增量更新）、重新開啟並渲染第一頁，並執行副動作（`SavePages`、`Revert`、`PrepareSource` 再 `InsertPages`，或 `PrivacyCopy`、`SanitizedCopy`、`EncryptedCopy`、`WatermarkCopy`、`PageMarksCopy`、`WriteIdentifier`、`PrepareSignature` 等 7 種副本） | 同 `open_document`，檔案前面加上 32 個位元組的動作與參數前綴（CI 的 `Seed corpus` 步驟輪流配置副動作與編輯種類） |
 
 - 對所有輸入，程式都必須正常接受或拒絕：不能 panic、不能無限制地配置記憶體、不能出現記憶體錯誤。
 - 任何一種都算崩潰，libFuzzer 會把觸發它的輸入存到 `fuzz/artifacts/<目標>/`。

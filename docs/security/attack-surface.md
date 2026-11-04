@@ -244,21 +244,21 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `WriteAttachment` | 解碼附件（≤ 512 MiB），寫到只能寫的代號 | `engine/attachments.rs` | worker `attachments.rs` | 沒有（#426） |
 | `GetTextBox` | 文字方塊註解 | `engine/text_box.rs` | worker `text_box_worker.rs` | 沒有（#426） |
 | `ExportDocx` | 頁面的文字與圖片，寫成 .docx | `engine/docx.rs` | worker `docx.rs` | `open_document` |
-| `Edit` | 26 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs` | 沒有（#427） |
-| `Revert` | 從保留的位元組重新開啟，再做一次編輯 | `engine.rs` | worker `saving.rs`、`merge.rs` | 沒有（#427） |
+| `Edit` | 26 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs` | `edit_document` |
+| `Revert` | 從保留的位元組重新開啟，再做一次編輯 | `engine.rs` | worker `saving.rs`、`merge.rs` | `edit_document` |
 | `Rebase` | 把剛存的檔案當成 undo 的起點；只保留位元組，不解析 | `serve.rs` | worker `saving.rs` | 不需要 |
-| `Save` | 寫出整份文件；已簽章的文件以增量更新 | `engine.rs` | worker `saving.rs`、`save_poc.rs` | 只有文字方塊那條路（`text_box_font`）；#427 |
-| `SavePages` | 只寫出某些頁 | `engine.rs` | worker `saving.rs`；`split.spec.ts` | 沒有（#427） |
-| `PrivacyCopy` | 不含中繼資料的副本 | `privacy.rs` | `privacy-export.spec.ts` | 沒有（#427） |
+| `Save` | 寫出整份文件；已簽章的文件以增量更新 | `engine.rs` | worker `saving.rs`、`save_poc.rs` | `text_box_font`、`edit_document` |
+| `SavePages` | 只寫出某些頁 | `engine.rs` | worker `saving.rs`；`split.spec.ts` | `edit_document` |
+| `PrivacyCopy` | 不含中繼資料的副本 | `privacy.rs` | `privacy-export.spec.ts` | `edit_document` |
 | `CompressedCopy` | 解碼圖片再重新編碼 | `compress.rs`、`jpeg.rs` | worker `compress.rs` | `compress_images` |
 | `ExifCleanCopy` | 拿掉圖片裡的中繼資料，不重新編碼 | `exif.rs` | worker `exif_clean.rs` | `exif_clean` |
-| `SanitizedCopy` | 清理過的副本 | `engine/sanitize.rs` | worker `sanitize.rs` | 沒有（#427） |
-| `EncryptedCopy` | 加密的副本；密碼用完即清除 | `engine.rs` | worker `encrypt_copy.rs` | 沒有（#427） |
-| `WatermarkCopy` | 加上文字或圖片浮水印的副本 | `engine/watermark.rs` | worker `watermark.rs` | 沒有（#427） |
-| `PageMarksCopy` | 加上頁面標記的副本 | `engine/page_marks.rs` | worker `page_marks.rs` | 沒有（#427） |
-| `WriteIdentifier` | 以增量更新寫入或拿掉 app 的文件識別碼（ADR 0010） | `engine/identifier.rs` | worker `sensitive.rs` | 沒有（#427） |
-| `PrepareSignature` | 以增量更新加上簽章欄位，留空位給 CMS | `engine/signing.rs` | `documents.rs`（`a_prepared_copy_is_signed_in_its_room_and_nowhere_else`）；`signing.spec.ts` | 沒有（#427） |
-| `PrepareSource` | 另一個 PDF（唯讀代號、可能的密碼）做成乾淨的副本 | `engine.rs` | worker `merge.rs` | 沒有（#427） |
+| `SanitizedCopy` | 清理過的副本 | `engine/sanitize.rs` | worker `sanitize.rs` | `edit_document` |
+| `EncryptedCopy` | 加密的副本；密碼用完即清除 | `engine.rs` | worker `encrypt_copy.rs` | `edit_document` |
+| `WatermarkCopy` | 加上文字或圖片浮水印的副本 | `engine/watermark.rs` | worker `watermark.rs` | `edit_document` |
+| `PageMarksCopy` | 加上頁面標記的副本 | `engine/page_marks.rs` | worker `page_marks.rs` | `edit_document` |
+| `WriteIdentifier` | 以增量更新寫入或拿掉 app 的文件識別碼（ADR 0010） | `engine/identifier.rs` | worker `sensitive.rs` | `edit_document` |
+| `PrepareSignature` | 以增量更新加上簽章欄位，留空位給 CMS | `engine/signing.rs` | `documents.rs`（`a_prepared_copy_is_signed_in_its_room_and_nowhere_else`）；`signing.spec.ts` | `edit_document` |
+| `PrepareSource` | 另一個 PDF（唯讀代號、可能的密碼）做成乾淨的副本 | `engine.rs` | worker `merge.rs` | `edit_document` |
 | `PrepareStampImage` | PNG 或 JPEG（≤ 16 MiB） | `engine/stamp_image.rs` | worker `stamp_image.rs`、`watermark.rs` | 沒有（#428） |
 | `PrepareTextBox`、`PrepareTextBoxes` | 字型檔（≤ 64 MiB） | `engine/text_box.rs`、`engine/text_box/` | worker `text_box_worker.rs`、`fonts.rs` | `text_box_font` |
 | `InspectFont` | 要匯入的字型檔 | `engine/text_box/font.rs` | worker `text_box_worker.rs` | 沒有（#428） |
@@ -287,7 +287,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `SetTextBox`、`PlaceTextBox` | 頁碼；矩形；樣式（`TextBoxStyle::validate`）；字是 `PrepareTextBox` 做好的模型 |
 | `AddBookmark`、`RenameBookmark`、`DeleteBookmark`、`MoveBookmark` | 位置 ≤ `MAX_OUTLINE_ITEMS`；頁碼；標題不得空白、≤ `MAX_TEXT_BYTES`、不含控制字元（`check_clean`） |
 
-測試：`documents.rs` 的編輯測試（`annotations_are_added_changed_removed_and_undone_like_any_edit`、`drawings_and_stamps_are_added_moved_removed_and_undone_like_any_annotation` 等）、`ipc_contract` 的驗證測試、worker 的整合測試與上面列的 E2E。fuzz：沒有（#427）。
+測試：`documents.rs` 的編輯測試（`annotations_are_added_changed_removed_and_undone_like_any_edit`、`drawings_and_stamps_are_added_moved_removed_and_undone_like_any_annotation` 等）、`ipc_contract` 的驗證測試、worker 的整合測試與上面列的 E2E。fuzz：`edit_document`。
 
 ## 3. 主行程自己解析的資料
 
@@ -400,7 +400,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | WebView 的導覽沒有限制（§4） | #424 | 是（提議，由負責人決定） |
 | 執行中的 app 會拒絕沒授權的命令（§4） | 已由 #425 補上測試（`refused-commands.spec.ts`） | 否 |
 | fuzz 沒有走到的讀取：註解、表單、文字方塊、頁面文字、個資、遮蔽摘要、註解摘要、附件、簽章欄位、以密碼開啟（§2.4） | #426 | 視做法 |
-| fuzz 沒有走到的編輯、存檔、副本（§2.4、§2.5） | #427 | 是 |
+| fuzz 沒有走到的編輯、存檔、副本（§2.4、§2.5；已由 #427 於 `edit_document` 目標測試） | #427 | 是 |
 | fuzz 沒有走到圖章圖片與匯入字型的檢查（§2.4） | #428 | 是 |
 | 主行程自己解析的資料沒有 fuzz（§3） | #429 | 是 |
 | OCR 的語言資料與掃描頁沒有 fuzz（§2.3、§2.4） | #431 | 是 |

@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [worker_messages, open_document, text_box_font, compress_images, create_pdf, exif_clean]
+        target: [worker_messages, open_document, text_box_font, compress_images, create_pdf, exif_clean, edit_document]
     env:
       FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '120' || '1200' }}
       # MuPDF and its C libraries get coverage and AddressSanitizer like the Rust code. Only
@@ -66,7 +66,7 @@ jobs:
           cargo install cargo-fuzz --version 0.13.2 --locked
       - name: Seed corpus
         run: |
-          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/text_box_font fuzz/corpus/compress_images fuzz/corpus/create_pdf fuzz/corpus/exif_clean
+          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/text_box_font fuzz/corpus/compress_images fuzz/corpus/create_pdf fuzz/corpus/exif_clean fuzz/corpus/edit_document
           env -u CC -u CXX -u CFLAGS cargo run --locked -q -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/worker_messages
           # The generated test corpus (QA-01); the 200 MB files are only made on demand.
           find tests/corpus -name '*.pdf' -not -path '*/large/*' -exec cp {} fuzz/corpus/open_document/ \;
@@ -85,6 +85,17 @@ jobs:
           seed 06 tests/corpus/sources/bomb-declared-size.docx
           seed 07 tests/corpus/sources/sheet.xlsx
           seed 08 tests/corpus/sources/slides.pptx
+          # Edits, saves and copies of an untrusted PDF (Issue #427):
+          # Prepend 32 bytes to each PDF, cycling secondary actions and edits across seeds.
+          action=0
+          edit=0
+          for file in fuzz/corpus/open_document/*; do
+            hex_action=$(printf '%02x' "$action")
+            hex_edit=$(printf '%02x' "$edit")
+            (printf "\x$hex_action\x01\x$hex_edit"; head -c 29 /dev/zero) | cat - "$file" > "fuzz/corpus/edit_document/$(basename "$file")"
+            action=$(( (action + 1) % 10 ))
+            edit=$(( (edit + 1) % 26 ))
+          done
       # Built separately so that compiler errors stay visible; the run step below prints nothing.
       - name: Build the fuzz target
         run: cargo +nightly fuzz build ${{ matrix.target }}
@@ -131,7 +142,7 @@ jobs:
               echo
               echo "**The fuzzer found a crash.** Details are not shown here: they are only uploaded encrypted, as fuzz-crash-${{ matrix.target }} (docs/security/fuzzing.md)."
             fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       # Only the holder of the private key can read the samples. The recipient file is public;
       # the private key never leaves the owner's machine.
       - name: Encrypt crash samples
