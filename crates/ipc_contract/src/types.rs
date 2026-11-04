@@ -496,8 +496,12 @@ pub struct LineEnds {
 }
 
 /// A geometric shape annotation on a page (B4-05): rectangle, ellipse, or line/arrow.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+///
+/// Serialized with a `kind` tag in JSON (for the frontend), but externally tagged in binary
+/// formats: postcard, used between the main process and the worker, cannot decode internally
+/// tagged enums. See [`shape_serde`].
+#[derive(Debug, Clone, PartialEq, TS)]
+#[ts(tag = "kind", rename_all = "camelCase")]
 pub enum Shape {
     /// A rectangle (`Square` annotation) bounded by `rect` in page space.
     Rectangle { rect: Rect },
@@ -505,6 +509,65 @@ pub enum Shape {
     Ellipse { rect: Rect },
     /// A straight line or arrow (`Line` annotation) from `from` to `to` in page space.
     Line { from: Point, to: Point, arrow: bool },
+}
+
+mod shape_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use super::{Point, Rect, Shape};
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(tag = "kind", rename_all = "camelCase")]
+    enum Tagged {
+        Rectangle { rect: Rect },
+        Ellipse { rect: Rect },
+        Line { from: Point, to: Point, arrow: bool },
+    }
+
+    #[derive(Serialize, Deserialize)]
+    enum Compact {
+        Rectangle { rect: Rect },
+        Ellipse { rect: Rect },
+        Line { from: Point, to: Point, arrow: bool },
+    }
+
+    macro_rules! convert {
+        ($from:ident => $to:ident) => {
+            impl From<$from> for $to {
+                fn from(shape: $from) -> Self {
+                    match shape {
+                        $from::Rectangle { rect } => $to::Rectangle { rect },
+                        $from::Ellipse { rect } => $to::Ellipse { rect },
+                        $from::Line { from, to, arrow } => $to::Line { from, to, arrow },
+                    }
+                }
+            }
+        };
+    }
+    convert!(Shape => Tagged);
+    convert!(Shape => Compact);
+    convert!(Tagged => Shape);
+    convert!(Compact => Shape);
+
+    impl Serialize for Shape {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            if serializer.is_human_readable() {
+                Tagged::from(self.clone()).serialize(serializer)
+            } else {
+                Compact::from(self.clone()).serialize(serializer)
+            }
+        }
+    }
+
+    impl<'de> Deserialize<'de> for Shape {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            if deserializer.is_human_readable() {
+                Tagged::deserialize(deserializer).map(Into::into)
+            } else {
+                Compact::deserialize(deserializer).map(Into::into)
+            }
+        }
+    }
 }
 
 /// A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are

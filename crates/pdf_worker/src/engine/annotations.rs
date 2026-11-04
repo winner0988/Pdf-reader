@@ -16,12 +16,12 @@ use ipc_contract::limits::{
 use ipc_contract::text::{clean_display_text, clean_note_text};
 use ipc_contract::types::{
     AnnotationId, AnnotationKind, AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind,
-    HighlightColor, HighlightMark, InkColor, InkWidth, PageAnnotation, PageText as TextLayer,
-    Point, Quad, Rect, StampName, TextMarkKind,
+    HighlightColor, HighlightMark, InkColor, InkWidth, LineEnds, PageAnnotation,
+    PageText as TextLayer, Point, Quad, Rect, Shape, StampName, TextMarkKind,
 };
 use mupdf::Error;
 use mupdf::color::AnnotationColor;
-use mupdf::pdf::{PdfAnnotation, PdfAnnotationType, PdfPage};
+use mupdf::pdf::{AnnotationBorderStyle, LineEndingStyle, PdfAnnotation, PdfAnnotationType, PdfPage};
 
 use super::{EngineError, PdfDocument};
 
@@ -298,10 +298,84 @@ impl PdfDocument {
         Ok(())
     }
 
-    /// Moves and resizes the drawing, stamp, text box or redaction mark `id` of page `index` to
-    /// `rect` (page space, as listed). A stamp keeps its shape inside the rectangle; a drawing keeps
-    /// the thickness of its line, and its points are laid out again in the rectangle; a text box
-    /// sets its words again.
+    /// Draws `shape` (page space) with the shape tool on page `index`: one `Square`, `Circle` or
+    /// `Line` annotation, in `color` and `width`.
+    pub fn add_shape(
+        &mut self,
+        index: u32,
+        shape: &Shape,
+        color: InkColor,
+        width: InkWidth,
+    ) -> Result<(), EngineError> {
+        let mut page = self.pdf_page(index)?;
+        let mut annotation = match shape {
+            Shape::Rectangle { rect } => page.add_rect_annotation(binding_rect(*rect))?,
+            Shape::Ellipse { rect } => page.add_circle_annotation(binding_rect(*rect))?,
+            Shape::Line { from, to, arrow } => {
+                let mut annot =
+                    page.add_line_annotation(binding_point(*from), binding_point(*to))?;
+                if *arrow {
+                    annot.set_line_ending_styles(
+                        LineEndingStyle::None,
+                        LineEndingStyle::OpenArrow,
+                    )?;
+                }
+                annot
+            }
+        };
+        annotation.set_color(annotation_rgb(ink_rgb(color)))?;
+        annotation.set_border_width(ink_line_width(width))?;
+        annotation.update()?;
+        Ok(())
+    }
+
+    /// Sets the endpoints of line or arrow annotation `id` on page `index` to `line_ends` (page space).
+    pub fn set_line_ends(
+        &mut self,
+        index: u32,
+        id: AnnotationId,
+        line_ends: LineEnds,
+    ) -> Result<(), EngineError> {
+        let page = self.pdf_page(index)?;
+        let mut annotation = find(&page, id)?;
+        if annotation.r#type()? != PdfAnnotationType::Line
+            || has_unsupported_shape_features(&annotation)?
+        {
+            return Err(EngineError::InvalidEdit("not a supported line or arrow annotation"));
+        }
+        annotation.set_line(binding_point(line_ends.from), binding_point(line_ends.to))?;
+        annotation.update()?;
+        Ok(())
+    }
+
+    /// Changes the color and line width of shape annotation `id` on page `index`.
+    pub fn set_shape_style(
+        &mut self,
+        index: u32,
+        id: AnnotationId,
+        color: InkColor,
+        width: InkWidth,
+    ) -> Result<(), EngineError> {
+        let page = self.pdf_page(index)?;
+        let mut annotation = find(&page, id)?;
+        let kind = annotation.r#type()?;
+        if !matches!(
+            kind,
+            PdfAnnotationType::Square | PdfAnnotationType::Circle | PdfAnnotationType::Line
+        ) || has_unsupported_shape_features(&annotation)?
+        {
+            return Err(EngineError::InvalidEdit("not a supported shape annotation"));
+        }
+        annotation.set_color(annotation_rgb(ink_rgb(color)))?;
+        annotation.set_border_width(ink_line_width(width))?;
+        annotation.update()?;
+        Ok(())
+    }
+
+    /// Moves and resizes the drawing, stamp, text box, rectangle, ellipse or redaction mark `id` of
+    /// page `index` to `rect` (page space, as listed). A stamp keeps its shape inside the rectangle;
+    /// a drawing keeps the thickness of its line, and its points are laid out again in the rectangle;
+    /// a text box sets its words again.
     pub fn set_annotation_rect(
         &mut self,
         index: u32,
@@ -326,13 +400,22 @@ impl PdfDocument {
                 annotation.set_rect(binding_rect(rect))?;
                 annotation.update()?;
             }
+            PdfAnnotationType::Square | PdfAnnotationType::Circle => {
+                if has_unsupported_shape_features(&annotation)? {
+                    return Err(EngineError::InvalidEdit(
+                        "cannot move or resize unsupported shape annotation",
+                    ));
+                }
+                annotation.set_rect(binding_rect(rect))?;
+                annotation.update()?;
+            }
             // Never through MuPDF's setters: they would draw the box black again.
             PdfAnnotationType::FreeText if super::text_box::is_text_box(&annotation) => {
                 self.move_text_box(index, id, rect)?;
             }
             _ => {
                 return Err(EngineError::InvalidEdit(
-                    "only a drawing, a stamp, a text box or a redaction mark can be moved",
+                    "only a drawing, a stamp, a text box, a shape or a redaction mark can be moved",
                 ));
             }
         }
@@ -481,7 +564,12 @@ impl PdfDocument {
                         })
                         .unwrap_or_default(),
                     // Listed by kind only: what they show is not text.
-                    AnnotationSummaryKind::Ink | AnnotationSummaryKind::Stamp => String::new(),
+                    AnnotationSummaryKind::Ink
+                    | AnnotationSummaryKind::Stamp
+                    | AnnotationSummaryKind::Rectangle
+                    | AnnotationSummaryKind::Ellipse
+                    | AnnotationSummaryKind::Line
+                    | AnnotationSummaryKind::Arrow => String::new(),
                 };
                 if !summary.push(AnnotationSummaryItem {
                     page_index,
@@ -594,6 +682,36 @@ pub(super) fn find(page: &PdfPage, id: AnnotationId) -> Result<PdfAnnotation, En
         .ok_or(EngineError::InvalidEdit("no such annotation on the page"))
 }
 
+/// Whether `annotation` has unsupported shape features (/Measure, /IT, /BE, /IC, dashed border,
+/// or non-standard line endings). Such shapes are treated as `Other`.
+pub(super) fn has_unsupported_shape_features(annotation: &PdfAnnotation) -> Result<bool, Error> {
+    let obj = annotation.object();
+    for key in ["Measure", "IT", "BE", "IC"] {
+        if obj.get_dict(key)?.is_some() {
+            return Ok(true);
+        }
+    }
+    if annotation.interior_color().ok().flatten().is_some() {
+        return Ok(true);
+    }
+    if annotation.border_dash_pattern().is_ok_and(|p| !p.is_empty()) {
+        return Ok(true);
+    }
+    if annotation.border_style().is_ok_and(|s| s == AnnotationBorderStyle::Dashed) {
+        return Ok(true);
+    }
+    if annotation.r#type().is_ok_and(|t| t == PdfAnnotationType::Line) {
+        if let Ok((start, end)) = annotation.line_ending_styles() {
+            if start != LineEndingStyle::None
+                || (end != LineEndingStyle::None && end != LineEndingStyle::OpenArrow)
+            {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
 /// What the app lists of `annotation`, on a page turned `page_rotation` degrees; `None` for a
 /// pop-up window, or one without a number.
 fn entry(annotation: &PdfAnnotation, page_rotation: i32) -> Result<Option<PageAnnotation>, Error> {
@@ -610,6 +728,35 @@ fn entry(annotation: &PdfAnnotation, page_rotation: i32) -> Result<Option<PageAn
             AnnotationKind::TextBox
         }
         PdfAnnotationType::Redact => AnnotationKind::Redaction,
+        PdfAnnotationType::Square => {
+            if has_unsupported_shape_features(annotation)? {
+                AnnotationKind::Other
+            } else {
+                AnnotationKind::Rectangle
+            }
+        }
+        PdfAnnotationType::Circle => {
+            if has_unsupported_shape_features(annotation)? {
+                AnnotationKind::Other
+            } else {
+                AnnotationKind::Ellipse
+            }
+        }
+        PdfAnnotationType::Line => {
+            if has_unsupported_shape_features(annotation)? {
+                AnnotationKind::Other
+            } else {
+                let (_, end) = annotation.line_ending_styles().unwrap_or((
+                    LineEndingStyle::None,
+                    LineEndingStyle::None,
+                ));
+                if end == LineEndingStyle::OpenArrow {
+                    AnnotationKind::Arrow
+                } else {
+                    AnnotationKind::Line
+                }
+            }
+        }
         _ => AnnotationKind::Other,
     };
     let Ok(number) = u32::try_from(annotation.xref()?) else {
@@ -651,6 +798,36 @@ fn entry(annotation: &PdfAnnotation, page_rotation: i32) -> Result<Option<PageAn
         AnnotationKind::Stamp => super::stamp_image::picture_view(annotation, page_rotation),
         _ => None,
     };
+    let line_ends = match kind {
+        AnnotationKind::Line | AnnotationKind::Arrow => {
+            if let Ok((start, end)) = annotation.line() {
+                Some(LineEnds {
+                    from: Point {
+                        x: start.x,
+                        y: start.y,
+                    },
+                    to: Point { x: end.x, y: end.y },
+                })
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+    let shape_color = match kind {
+        AnnotationKind::Rectangle
+        | AnnotationKind::Ellipse
+        | AnnotationKind::Line
+        | AnnotationKind::Arrow => annotation.color()?.and_then(parse_ink_color),
+        _ => None,
+    };
+    let shape_width = match kind {
+        AnnotationKind::Rectangle
+        | AnnotationKind::Ellipse
+        | AnnotationKind::Line
+        | AnnotationKind::Arrow => annotation.border_width().ok().and_then(parse_ink_width),
+        _ => None,
+    };
     Ok(Some(PageAnnotation {
         id: AnnotationId(number),
         kind,
@@ -658,6 +835,9 @@ fn entry(annotation: &PdfAnnotation, page_rotation: i32) -> Result<Option<PageAn
         color,
         text,
         picture,
+        line_ends,
+        shape_color,
+        shape_width,
     }))
 }
 
@@ -693,6 +873,32 @@ fn summary_entry(annotation: &PdfAnnotation) -> Option<SummaryEntry> {
         PdfAnnotationType::Stamp => AnnotationSummaryKind::Stamp,
         PdfAnnotationType::FreeText if super::text_box::is_text_box(annotation) => {
             AnnotationSummaryKind::TextBox
+        }
+        PdfAnnotationType::Square => {
+            if has_unsupported_shape_features(annotation).unwrap_or(true) {
+                return None;
+            }
+            AnnotationSummaryKind::Rectangle
+        }
+        PdfAnnotationType::Circle => {
+            if has_unsupported_shape_features(annotation).unwrap_or(true) {
+                return None;
+            }
+            AnnotationSummaryKind::Ellipse
+        }
+        PdfAnnotationType::Line => {
+            if has_unsupported_shape_features(annotation).unwrap_or(true) {
+                return None;
+            }
+            let (_, end) = annotation.line_ending_styles().unwrap_or((
+                LineEndingStyle::None,
+                LineEndingStyle::None,
+            ));
+            if end == LineEndingStyle::OpenArrow {
+                AnnotationSummaryKind::Arrow
+            } else {
+                AnnotationSummaryKind::Line
+            }
         }
         _ => return None,
     };

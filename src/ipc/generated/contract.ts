@@ -491,6 +491,10 @@ export type ExportEvent = { "kind": "progress", pagesDone: number, total: number
 
 /**
  * A geometric shape annotation on a page (B4-05): rectangle, ellipse, or line/arrow.
+ *
+ * Serialized with a `kind` tag in JSON (for the frontend), but externally tagged in binary
+ * formats: postcard, used between the main process and the worker, cannot decode internally
+ * tagged enums. See [`shape_serde`].
  */
 export type Shape = { "kind": "rectangle", rect: Rect, } | { "kind": "ellipse", rect: Rect, } | { "kind": "line", from: Point, to: Point, arrow: boolean, };
 
