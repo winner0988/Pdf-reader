@@ -12,6 +12,7 @@
 | `compress_images` | 以 MuPDF 開啟 PDF，寫出壓縮圖片的副本（B3-01）：MuPDF 解碼每張圖片、縮小、編碼成 JPEG、換回去、完整重寫（品質低、尺寸上限 256、時間 2 秒） | 同 `open_document`（複製過去） |
 | `create_pdf` | 「從檔案建立 PDF」（B3-03）：第一個位元組決定種類（圖片、網頁、純文字、EPUB、XPS、SVG、Word、Excel、PowerPoint），其餘是檔案；`PdfBuilder` 讀取、轉換、寫出（圖片會加兩次，試多頁的路徑） | `tests/corpus/sources/` 與 `tests/corpus/images/`，前面加種類的編號（CI 的 `Seed corpus` 步驟）；包含謊稱 3.5 GiB 的 Word 檔 |
 | `exif_clean` | 以 MuPDF 開啟 PDF，寫出清除圖片 EXIF 的副本（B3-04，批次處理）：每個 JPEG 串流（包括藏在無損濾鏡後面的）讀出來、切掉不是畫面的區段、換回去、完整重寫 | 同 `open_document`（複製過去），其中 `benign/photo-exif.pdf` 有相機與程式寫進去的各種資訊 |
+| `ocr` | OCR 語言資料（`.traineddata`，B2-10）與掃描頁的文字辨識（ADR 0015）：第一個位元組決定種類（0 為語言資料，1 為掃描頁）。(a) 語言資料通過 `check_language_data` 後由 `Recogniser::new` 載入，辨識 64×32 固定圖片；(b) 掃描頁開啟 PDF，對第 1 頁檢查 `ocr_is_scan`，若是掃描頁則渲染成灰階（上限 400 萬像素）、以 `eng` 資料辨識（逾時 500ms）並建立文字層（`page_text`） | `src-tauri/resources/tessdata/eng.traineddata`（前綴 00，輸入上限 5 MiB）、`tests/corpus/benign/scanned-text.pdf` 與 `image-only.pdf`（前綴 01） |
 
 - 對所有輸入，程式都必須正常接受或拒絕：不能 panic、不能無限制地配置記憶體、不能出現記憶體錯誤。
 - 任何一種都算崩潰，libFuzzer 會把觸發它的輸入存到 `fuzz/artifacts/<目標>/`。
@@ -25,6 +26,9 @@
 - **MuPDF 也被偵測**：
   - workflow 以 `CC=clang`、`CFLAGS=-fsanitize=fuzzer-no-link,address` 建置，MuPDF 與它的 C 函式庫也有覆蓋率回饋與 AddressSanitizer，不只 Rust 程式碼。
   - 只設 C 的旗標，因為 libFuzzer 本身是 C++，不能對自己插樁。
+- **Linux fuzz 建置包含 Tesseract**：
+  - Windows 上 `mupdf-sys` 0.8.0 透過 MSBuild 建置時無論 feature 為何都會包含 Tesseract，因此 app 的 OCR 正常運作。
+  - Linux 上以 make 建置時會遵循 Cargo feature（`mupdf-sys` 的 `build.rs` 的 `make_bool("tesseract", …)`）。`crates/pdf_worker/Cargo.toml` 未開啟 `tesseract`，因此只在 `fuzz/Cargo.toml` 顯式開啟 `mupdf-sys` 的 `tesseract` feature，由 Cargo 的 feature 合併機制在 Linux fuzz 建置中啟用 Tesseract 與 Leptonica，不改動 worker 的正式建置設定。
 - **摘要**：每個目標在 job 摘要列出執行次數、每秒次數、覆蓋率（edges）、features、語料數量與大小、記憶體高峰。
 - **崩潰時**：job 失敗。樣本與完整日誌**加密後**才上傳為 `fuzz-crash-<目標>` artifact，保留 7 天；見下方「公開 repo 的保護」。
 - **權限**：只有 `contents: read`。
@@ -135,6 +139,7 @@ cargo +nightly fuzz run worker_messages fuzz/corpus/worker_messages -- -max_tota
 - `worker_messages`：31 秒 186 萬次；
 - `open_document`：91 秒 20,938 次（每秒約 230 次）；
 - `create_pdf`（B3-03，2026-10-14）：241 秒 12,507 次（每秒約 52 次，每次都真的產生 PDF），沒有崩潰；
+- `ocr`（#431，CI Linux smoke run）：120 秒 10,796 次（每秒約 89 次），peak memory 358 MB，沒有崩潰；
 - 兩者都沒有崩潰。
 
 ## 崩潰的處理
