@@ -80,10 +80,12 @@ AppContainer 不影響這個流程：handle 在複製時就已帶著存取權限
 
 ## 通訊與失效處理
 
-- 啟動後第一個 frame 必須是版本相符的 `Hello`（逾時 10 秒），否則終止。
-- 請求依序處理；每個請求有逾時（預設 30 秒），逾時即終止 worker（`slow_requests_time_out_and_the_worker_is_stopped`）。
-- 每個回應都先經 `ipc_contract::validate`；解碼失敗或驗證失敗視為協定違規，立即終止 worker。
-- worker 崩潰或被終止 → 當次請求回報 `workerCrashed`，下一個請求自動啟動新的 worker；先前開啟的文件需要重新開啟（`killed_worker_is_reported_then_replaced`）。
+- 啟動後第一個 frame 必須是版本相符的 `Hello`（逾時 10 秒），否則終止；連線建立後若收到第二個 `Hello` 視為協定違規並立即終止。
+- 請求依序處理；每個請求有期限，從送出請求起算（預設 30 秒，存檔類 5 分鐘 `SAVE_TIMEOUT`），不會因為延遲或晚到的回應重新計時，逾時即終止 worker（`slow_requests_time_out_and_the_worker_is_stopped`、`slow_request_times_out_and_terminates_worker`）。
+- 請求與回應的 `RequestId` 必須嚴格相符；編號為 0、從沒發出過的編號或任何不符的編號皆視為協定違規，立即終止 worker。
+- 回應的種類必須符合該請求所允許的種類（`is_expected_response` 窮舉比對，`WorkerResponse::Error` 允許於所有請求）；種類不符視為協定違規，立即終止 worker，並將文件標記為 lost（`wrong_response_variant_terminates_worker_and_recovers`、`unexpected_on`）。
+- 每個回應都先經 `ipc_contract::validate`；解碼失敗或驗證失敗視為協定違規，立即終止 worker（`corrupted_frame_terminates_worker_and_recovers`、`validation_failure_terminates_worker_and_recovers`）。
+- worker 崩潰或被終止 → 當次請求回報 `workerCrashed`、`workerTimeout` 或 `protocolViolation`，下一個請求自動啟動新的 worker；先前開啟的文件需要重新開啟（`killed_worker_is_reported_then_replaced`）。
 - 文件錯誤（非 PDF、損毀、加密、頁碼錯誤）只回報錯誤，**不會**終止 worker（`worker_errors_are_reported_not_fatal`）。
 - worker 的 stderr 只作診斷，持續讀取避免阻塞，不轉給前端。
 

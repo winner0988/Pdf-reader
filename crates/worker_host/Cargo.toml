@@ -6,9 +6,30 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+autobins = true
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "fake_worker"
+path = "src/bin/fake_worker.rs"
+test = false
+
+[[bin]]
+name = "worker_smoke"
+path = "src/bin/worker_smoke.rs"
+test = false
+
+[[bin]]
+name = "render_bench"
+path = "src/bin/render_bench.rs"
+test = false
+
+[[bin]]
+name = "search_bench"
+path = "src/bin/search_bench.rs"
+test = false
 
 [dependencies]
 ipc_contract = { path = "../ipc_contract" }

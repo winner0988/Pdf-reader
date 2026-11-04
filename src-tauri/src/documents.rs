@@ -641,7 +641,7 @@ impl Documents {
                 }
             })?;
             if pages.len() != expected_pages as usize {
-                return Err(unexpected("Edit"));
+                return Err(unexpected_on(document, "Edit"));
             }
             document.history.push(args.edit.clone());
             document.edit_count += 1;
@@ -849,7 +849,7 @@ impl Documents {
                 ..
             } = response
             else {
-                return Err(unexpected("Save"));
+                return Err(unexpected_on(document, "Save"));
             };
             temporary.check(bytes)?;
             temporary.replace(&destination)?;
@@ -962,7 +962,7 @@ impl Documents {
                 )
                 .map_err(|error| lost_on(document, &error))?;
             let WorkerResponse::Saved { bytes, .. } = response else {
-                return Err(unexpected("WriteIdentifier"));
+                return Err(unexpected_on(document, "WriteIdentifier"));
             };
             temporary.check(bytes)?;
             temporary.replace(&path)?;
@@ -1012,7 +1012,7 @@ impl Documents {
                 .privacy_copy(worker_doc, temporary.file(), id)
                 .map_err(|error| lost_on(document, &error))?;
             let WorkerResponse::Saved { bytes, .. } = response else {
-                return Err(unexpected("PrivacyCopy"));
+                return Err(unexpected_on(document, "PrivacyCopy"));
             };
             temporary.check(bytes)?;
             temporary.replace(destination)
@@ -1055,7 +1055,7 @@ impl Documents {
                 .sanitized_copy(worker_doc, temporary.file(), id, options)
                 .map_err(|error| lost_on(document, &error))?;
             let WorkerResponse::Sanitized { bytes, report, .. } = response else {
-                return Err(unexpected("SanitizedCopy"));
+                return Err(unexpected_on(document, "SanitizedCopy"));
             };
             temporary.check(bytes)?;
             temporary.replace(destination)?;
@@ -1095,7 +1095,7 @@ impl Documents {
                 .page_marks_copy(worker_doc, temporary.file(), marks)
                 .map_err(|error| lost_on(document, &error))?;
             let WorkerResponse::Saved { bytes, .. } = response else {
-                return Err(unexpected("PageMarksCopy"));
+                return Err(unexpected_on(document, "PageMarksCopy"));
             };
             temporary.check(bytes)?;
             temporary.replace(destination)
@@ -1145,7 +1145,7 @@ impl Documents {
                 ..
             } = response
             else {
-                return Err(unexpected("CompressedCopy"));
+                return Err(unexpected_on(document, "CompressedCopy"));
             };
             temporary.check(bytes)?;
             temporary.replace(destination)?;
@@ -1201,7 +1201,7 @@ impl Documents {
                 )
                 .map_err(|error| lost_on(document, &error))?;
             let WorkerResponse::Saved { bytes, .. } = response else {
-                return Err(unexpected("EncryptedCopy"));
+                return Err(unexpected_on(document, "EncryptedCopy"));
             };
             temporary.check(bytes)?;
             temporary.replace(destination)
@@ -1275,7 +1275,7 @@ impl Documents {
                     ..
                 } = response
                 else {
-                    return Err(unexpected("PrepareSignature"));
+                    return Err(unexpected_on(document, "PrepareSignature"));
                 };
                 temporary.check(bytes)?;
                 Ok((temporary, bytes, contents_start, contents_end))
@@ -1367,7 +1367,7 @@ impl Documents {
                 .save_pages(worker_doc, pages, temporary.file())
                 .map_err(|error| lost_on(document, &error))?;
             let WorkerResponse::Saved { bytes, .. } = response else {
-                return Err(unexpected("SavePages"));
+                return Err(unexpected_on(document, "SavePages"));
             };
             temporary.check(bytes)?;
             temporary.replace(destination)
@@ -1417,7 +1417,7 @@ impl Documents {
                 .export_docx(worker_doc, pages, temporary.file())
                 .map_err(|error| lost_on(document, &error))?;
             let WorkerResponse::Saved { bytes, .. } = response else {
-                return Err(unexpected("ExportDocx"));
+                return Err(unexpected_on(document, "ExportDocx"));
             };
             temporary.check_zip(bytes)?;
             temporary.replace(destination)
@@ -1678,7 +1678,7 @@ impl Documents {
                 }
             };
             let WorkerResponse::Rendered { raster, .. } = rendered else {
-                return Err(unexpected("Render"));
+                return Err(unexpected_on(document, "Render"));
             };
             let invalid = |error: &dyn std::fmt::Display| IpcError {
                 code: ErrorCode::ProtocolViolation,
@@ -1732,7 +1732,7 @@ impl Documents {
                 } if answered == page_index && hits.len() <= max_hits as usize => {
                     Ok(PageFound { hits, has_text })
                 }
-                _ => Err(unexpected("SearchPage")),
+                _ => Err(unexpected_on(document, "SearchPage")),
             }
         })
     }
@@ -1745,7 +1745,7 @@ impl Documents {
                 doc,
             })?;
             let WorkerResponse::Outline { outline, .. } = response else {
-                return Err(unexpected("GetOutline"));
+                return Err(unexpected_on(document, "GetOutline"));
             };
             let page_count = document.info.pages.len();
             let in_range = outline.items.iter().all(|item| match &item.target {
@@ -1795,7 +1795,7 @@ impl Documents {
                 doc,
             })?;
             let WorkerResponse::Attachments { attachments, .. } = response else {
-                return Err(unexpected("GetAttachments"));
+                return Err(unexpected_on(document, "GetAttachments"));
             };
             let pages = document.info.pages.len() as u32;
             attachments
@@ -1852,7 +1852,7 @@ impl Documents {
                 .write_attachment(worker_doc, attachment, temporary.file())
                 .map_err(|error| lost_on(document, &error))?;
             let WorkerResponse::AttachmentWritten { bytes, .. } = response else {
-                return Err(unexpected("WriteAttachment"));
+                return Err(unexpected_on(document, "WriteAttachment"));
             };
             temporary.check_length(bytes)?;
             temporary.replace(destination)?;
@@ -1897,7 +1897,7 @@ impl Documents {
                     text,
                     ..
                 } if answered == page_index => Ok(text),
-                _ => Err(unexpected("GetPageText")),
+                _ => Err(unexpected_on(document, "GetPageText")),
             }
         })
     }
@@ -1923,7 +1923,7 @@ impl Documents {
                 ..
             } = response
             else {
-                return Err(unexpected("GetPageFields"));
+                return Err(unexpected_on(document, "GetPageFields"));
             };
             if answered != page_index {
                 return Err(IpcError {
@@ -2218,7 +2218,7 @@ impl Documents {
                 doc,
             })?;
             let WorkerResponse::Signatures { report, .. } = response else {
-                return Err(unexpected("VerifySignatures"));
+                return Err(unexpected_on(document, "VerifySignatures"));
             };
             Ok(report)
         })
@@ -2233,7 +2233,7 @@ impl Documents {
                 WorkerRequest::SummariseRedactions { request, doc }
             })?;
             let WorkerResponse::RedactionSummary { summary, .. } = response else {
-                return Err(unexpected("SummariseRedactions"));
+                return Err(unexpected_on(document, "SummariseRedactions"));
             };
             Ok(summary)
         })
@@ -2256,7 +2256,7 @@ impl Documents {
                 query: query.clone(),
             })?;
             let WorkerResponse::PersonalDataMatches { matches, .. } = response else {
-                return Err(unexpected("FindPersonalData"));
+                return Err(unexpected_on(document, "FindPersonalData"));
             };
             Ok(matches)
         })
@@ -2388,7 +2388,7 @@ impl Documents {
                 annotation,
             })?;
             let WorkerResponse::TextBox { info, .. } = response else {
-                return Err(unexpected("GetTextBox"));
+                return Err(unexpected_on(document, "GetTextBox"));
             };
             Ok(info)
         })
@@ -2415,7 +2415,7 @@ impl Documents {
                 ..
             } = response
             else {
-                return Err(unexpected("GetPageAnnotations"));
+                return Err(unexpected_on(document, "GetPageAnnotations"));
             };
             let mut ids = std::collections::HashSet::new();
             if answered != page_index
@@ -2440,7 +2440,7 @@ impl Documents {
                 WorkerRequest::AnnotationSummary { request, doc }
             })?;
             let WorkerResponse::AnnotationSummary { summary, .. } = response else {
-                return Err(unexpected("AnnotationSummary"));
+                return Err(unexpected_on(document, "AnnotationSummary"));
             };
             // The worker's answer is checked already (`WorkerResponse::validate`); its pages
             // must also be the document's.
@@ -2468,7 +2468,7 @@ impl Documents {
                 ..
             } = response
             else {
-                return Err(unexpected("GetPageLinks"));
+                return Err(unexpected_on(document, "GetPageLinks"));
             };
             let mut ids = std::collections::HashSet::new();
             let consistent = answered == page_index
@@ -2617,7 +2617,7 @@ impl Documents {
                         scale,
                     })? {
                         WorkerResponse::Png { png, .. } => Ok(png),
-                        _ => Err(unexpected("RenderPng")),
+                        _ => Err(unexpected_on(document, "RenderPng")),
                     }
                 }
                 ImageKind::Jpeg => {
@@ -2628,7 +2628,7 @@ impl Documents {
                         scale,
                     })? {
                         WorkerResponse::Jpeg { jpeg, .. } => Ok(jpeg),
-                        _ => Err(unexpected("RenderJpeg")),
+                        _ => Err(unexpected_on(document, "RenderJpeg")),
                     }
                 }
             }
@@ -3225,8 +3225,7 @@ fn replay(document: &mut OpenDocument, edits: &[Edit]) -> Result<(), IpcError> {
         })?;
     }
     if pages.len() != expected as usize {
-        document.lost = true;
-        return Err(unexpected("Edit"));
+        return Err(unexpected_on(document, "Edit"));
     }
     for edit in edits {
         document.history.push(edit.clone());
@@ -3274,7 +3273,7 @@ fn edit_in_worker(
         edit: edit.clone(),
     })? {
         WorkerResponse::Edited { pages, .. } => Ok(pages),
-        _ => Err(unexpected("Edit")),
+        _ => Err(unexpected_on(document, "Edit")),
     }
 }
 
@@ -3298,7 +3297,7 @@ fn revert_in_worker(
         password,
     })? {
         WorkerResponse::Edited { pages, .. } => Ok(pages),
-        _ => Err(unexpected("Revert")),
+        _ => Err(unexpected_on(document, "Revert")),
     }
 }
 
@@ -3422,6 +3421,17 @@ fn unexpected(request: &str) -> IpcError {
     }
 }
 
+/// Last line of defense if an unexpected worker response was received: marks the document lost
+/// and stops the worker so the frontend receives a protocol violation error and a fresh worker
+/// will be spawned.
+fn unexpected_on(document: &mut OpenDocument, request: &str) -> IpcError {
+    document.host.stop();
+    lost_on(
+        document,
+        &HostError::ProtocolViolation(format!("unexpected response to {request}")),
+    )
+}
+
 /// Opens the document's file again in a fresh worker and applies the edits not yet saved; it
 /// must then have the same pages as before.
 fn reopen(document: &mut OpenDocument) -> Result<DocumentId, IpcError> {
@@ -3449,7 +3459,7 @@ fn reopen(document: &mut OpenDocument) -> Result<DocumentId, IpcError> {
         };
         match response {
             Ok(WorkerResponse::Edited { pages: edited, .. }) => pages = edited,
-            Ok(_) => return Err(unexpected("Edit")),
+            Ok(_) => return Err(unexpected_on(document, "Edit")),
             Err(error) => return Err(ipc_error(&error)),
         }
     }
@@ -3778,7 +3788,7 @@ impl OcrLink for Link<'_> {
             data,
         })? {
             WorkerResponse::OcrLoaded { .. } => Ok(()),
-            _ => Err(unexpected("OcrLoad")),
+            _ => Err(unexpected_on(self.document, "OcrLoad")),
         }
     }
 
@@ -3790,7 +3800,7 @@ impl OcrLink for Link<'_> {
             max_millis: PAGE_MILLIS,
         })? {
             WorkerResponse::OcrChecked { state, .. } => Ok(state),
-            _ => Err(unexpected("OcrPage")),
+            _ => Err(unexpected_on(self.document, "OcrPage")),
         }
     }
 
@@ -3808,7 +3818,7 @@ impl OcrLink for Link<'_> {
                 }
                 Ok((finished, waiting))
             }
-            _ => Err(unexpected("OcrPoll")),
+            _ => Err(unexpected_on(self.document, "OcrPoll")),
         }
     }
 
@@ -3817,7 +3827,7 @@ impl OcrLink for Link<'_> {
             request,
         })? {
             WorkerResponse::OcrStopped { .. } => Ok(()),
-            _ => Err(unexpected("OcrStop")),
+            _ => Err(unexpected_on(self.document, "OcrStop")),
         }
     }
 
@@ -4145,6 +4155,23 @@ mod with_worker {
         let (width, height) = (read(8), read(12));
         assert_eq!(bytes.len(), 16 + width as usize * height as usize * 4);
         (width, height)
+    }
+
+    #[test]
+    fn unexpected_on_stops_worker_and_marks_document_lost() {
+        let (documents, info, path) = open("unexpected-lost", 1);
+        documents
+            .with_document(info.doc, |document| {
+                assert!(!document.lost);
+                assert!(document.host.is_running());
+                let err = unexpected_on(document, "Edit");
+                assert_eq!(err.code, ErrorCode::ProtocolViolation);
+                assert!(document.lost);
+                assert!(!document.host.is_running());
+                Ok(())
+            })
+            .unwrap();
+        std::fs::remove_file(path).ok();
     }
 
     #[test]
