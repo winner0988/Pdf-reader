@@ -5,12 +5,15 @@
 //! that is malformed is what would crash the worker there. A font that makes a model is therefore
 //! put on a page, drawn, saved, opened again and searched.
 //!
+//! The same input is also inspected as when importing a font (B2-32, `InspectFont`), extracting
+//! its faces, typographic names and styles.
+//!
 //! The sandbox contains a crash (ADR 0008), but it does not replace finding it.
 #![no_main]
 
 use ipc_contract::types::{Rect, Rgb, TextAlign, TextBoxStyle};
 use libfuzzer_sys::fuzz_target;
-use pdf_worker::engine::{PdfDocument, TextBoxFont, prepare_text_box};
+use pdf_worker::engine::{PdfDocument, TextBoxFont, inspect_font, prepare_text_box};
 
 /// A page to set the box on (Letter size).
 const PAGE: &[u8] = include_bytes!("../../tests/corpus/benign/single-page.pdf");
@@ -25,6 +28,9 @@ const WORDS: [&str; 4] = [
 ];
 
 fuzz_target!(|data: &[u8]| {
+    // Inspect the font bytes first, as when importing a font (B2-32).
+    let _ = inspect_font(data);
+
     // Face 1 of a collection as well as the first font: the same code, another table directory.
     for face in 0..2 {
         let font = TextBoxFont {
