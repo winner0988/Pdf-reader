@@ -1138,12 +1138,21 @@ pub async fn export_pages(
     } = args;
     match format {
         ExportFormat::Text => {
-            let Some(file) = file_dialog::save_text_file(&window, format!("{stem}.txt")).await?
-            else {
-                return Ok(false);
+            let destination = loop {
+                let Some(path) =
+                    file_dialog::save_text_file(&window, format!("{stem}.txt")).await?
+                else {
+                    return Ok(false);
+                };
+                if !app.state::<Documents>().is_document_file(doc, &path) {
+                    break path;
+                }
+                tell_same_file(&window).await;
             };
-            blocking(move || export::write_text(&app, request, doc, &pages, &file, &on_event))
-                .await?;
+            blocking(move || {
+                export::write_text(&app, request, doc, &pages, &destination, &on_event)
+            })
+            .await?;
         }
         ExportFormat::Docx => {
             let destination = loop {
@@ -2252,7 +2261,10 @@ fn close_if_unanswered(window: Window) {
     });
 }
 
-/// Drag and drop onto the window: only the first file is opened.
+/// Drag and drop onto the window: every dropped file gets a tab and is opened off the main
+/// thread in a worker of its own (via [`open_paths`]). Files that are not PDFs or are
+/// directories fail in the worker or in the pre-check and show an error in their tab; files
+/// beyond `MAX_TABS` are ignored and reported as `TabLimit`.
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     let app = window.app_handle();
     if let WindowEvent::CloseRequested { api, .. } = event {

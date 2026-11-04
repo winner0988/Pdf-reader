@@ -1,17 +1,19 @@
 // Exporting (B2-04, #111) in the real app. The page only says what to export; the main process
 // shows the system's save or folder dialog (answered here through UI Automation) and writes the
 // files.
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { Page } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
-import { answerFileDialog, corpus, expect, test } from "./app";
+import { answerFileDialog, closeMessageBox, corpus, expect, test } from "./app";
 import { storedFiles } from "./zip";
 
 const t = strings.export;
+const sha256 = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
 async function openExport(page: Page) {
   await expect(page.getByRole("img", { name: strings.canvas.page(1) }).first()).toHaveAttribute("data-state", "ready");
@@ -145,5 +147,26 @@ the folder holds: ${readdirSync(folder).join(", ")}`).toBe(true);
     // The export dialog stays for another try, and nothing was exported.
     await expect(dialog.getByRole("button", { name: t.start })).toBeEnabled();
     await expect(dialog.getByRole("status")).toHaveCount(0);
+  });
+
+  test("exporting as text cannot replace the document's own file (#423)", async ({ launch }) => {
+    const original = path.join(folder, "sample.pdf");
+    copyFileSync(corpus("benign/mixed-text-zh-en.pdf"), original);
+    const beforeHash = sha256(original);
+    const beforeSize = statSync(original).size;
+
+    const page = await launch(original);
+    const dialog = await openExport(page);
+    await dialog.getByRole("button", { name: t.start }).click();
+
+    // Selecting the document's own file in the save dialog is refused.
+    await answerFileDialog(page, { path: original });
+    const message = await closeMessageBox(page);
+    expect(message).toContain("請選擇其他檔案");
+
+    // The save dialog is shown again; cancelling it leaves the original file untouched.
+    await answerFileDialog(page, "cancel");
+    expect(statSync(original).size).toBe(beforeSize);
+    expect(sha256(original)).toBe(beforeHash);
   });
 });

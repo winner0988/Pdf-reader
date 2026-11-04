@@ -128,7 +128,7 @@ function followIpc(page: Page, running: Running) {
 const LOG_TAIL_CHARS = 3_000;
 
 /** `promise`'s outcome, or a note that there was none within `ms`: a stuck page must not stop the report. */
-async function within<T>(promise: Promise<T>, ms: number): Promise<T | string> {
+export async function within<T>(promise: Promise<T>, ms: number): Promise<T | string> {
   let timer: NodeJS.Timeout | undefined;
   return Promise.race([
     promise,

@@ -95,8 +95,17 @@ app 本身完全沒有為測試做任何修改：沒有測試專用的建置選�
 | 文字方塊（B2-31，`text-box.spec.ts`） | 用這台電腦真正的 Windows 字型：英文、繁體中文、簡體中文、日文各放一個方塊，頁面上看得到字、搜尋找得到、拖曳選取後複製得到、另存後只多了子集的大小、重新開啟後都還在；以鍵盤放置、移動、縮放、改字與換字型、刪除、復原與重做，焦點一直在方塊上（刪除後回到頁面區域）；沒存檔就結束後還原（日誌裡是子集不是字型）；缺字、可變字型與彩色字型被拒絕而且對話框不關。**只在 CI 上做**（要登錄一個使用者自己的字型，`E2E_REGISTER_FONT=1` 才在本機做，結束一定移除）：字型在對話框開著時消失、文件在沒有這個字型的電腦上開啟、受限授權、輪廓不是 TrueType、只准檢視與列印。字型的選擇與缺字時的處理見 [text-boxes.md](text-boxes.md) |
 | 簽署文件（B3-06，signing.spec.ts） | 有未儲存變更（以 pply_edit 旋轉第 1 頁）的文件，對話框說明原因、沒有簽署按鈕；已加密的文件停用選單項目並標示。**只在 CI 上做**（要讓 Windows 載入測試憑證，E2E_SIGNING=1 才在本機做）：以 PowerShell 把 certificates/signer.pfx 放進目前使用者的「個人」存放區，選這張憑證、不用密碼簽署，副本在新分頁開啟、簽章有效，結束時連同私鑰移除；系統的開啟與另存對話框由 UI Automation 回答，用 certificates/signer.pfx 檔案簽署，副本在新分頁開啟、簽章提示列說簽章有效但無法確認簽署者、面板列出測試憑證；原檔的雜湊不變、副本以原檔的位元組開頭、檔案與頁面裡都沒有密碼。密碼不對只說密碼不對或不是憑證、沒有寫出檔案；過期的憑證說明已經過期。做法見 [signing.md](signing.md) |
 | 在所有文件中搜尋（B3-21，	ext-index.spec.ts） | 本機全文索引一開始是關的，開檔不留下任何東西；在設定開啟後，開著的與再開的兩份文件（同樣的字）都收進索引，索引資料夾的每個檔案裡都沒有它們的字、檔名與資料夾名稱（UTF-8 與 UTF-16 都查）；兩份都關閉後，從開始畫面的按鈕搜尋找到兩份、頁面上沒有路徑，按其中一份的「第 7 頁」在新分頁開啟並跳到第 7 頁；把它標記為機敏後，Ctrl+Shift+F 再搜尋只找到另一份；在設定清除後索引資料夾不在了 |
+| 拒絕未授權的命令（#425，`refused-commands.spec.ts`） | 執行中的 app 拒絕未授權的 Tauri 內建命令（`plugin:event|listen`、`plugin:window|set_title`、`plugin:path|resolve_directory`、`plugin:app|version`、`plugin:webview|create_webview_window`）與不存在的命令（`read_file`）；對照組（`get_settings`）可正常呼叫 |
 
 之後每張功能卡都可以在 `tests/e2e/` 加上自己的驗收情境。預期文字一律從 `src/i18n/zh-TW.ts` 取得，不要寫死。
+
+### 未自動化或無法以 E2E 模擬的情境：作業系統檔案拖放（#436）
+
+Windows 上的檔案拖放開檔（MVP-R1）由 Tauri 與 WebView2 在原生視窗層處理：
+- **原生層事件機制**：Tauri 依據視窗設定（`tauri.conf.json` 中 `dragDropEnabled` 預設為 `true`），在 Win32 視窗（HWND）層級向作業系統註冊 OLE `IDropTarget`。當使用者從 Windows 檔案總管拖曳檔案至視窗放下時，作業系統透過 OLE COM 介面傳送 `STGMEDIUM` / `HDROP` 檔案路徑，Tauri 原生事件迴圈接收後觸發 `WindowEvent::DragDrop`，由 `commands::on_window_event` 交給 `commands::open_paths`。
+- **Playwright CDP 的限制**：本專案採用方案 C，由 Playwright 透過 Chrome DevTools Protocol（CDP）連線至 WebView2 網頁。網頁 DOM 層級的 `dispatchEvent`、`DataTransfer` 模擬或 CDP 的 `Input.dispatchDragEvent` 僅在 Chromium 渲染引擎內部的 DOM 事件迴圈運作，無法觸發外部 Win32 HWND 的原生 OLE `IDropTarget` 回呼，因此 Tauri 的 `on_window_event` 永遠不會收到 `DragDropEvent`。
+- **外部模擬不可靠**：若嘗試由外部以 `SendInput`、UI Automation 或腳本操控 Windows 檔案總管跨視窗拖放，高度依賴桌面環境、視窗座標、動畫與時序，在無外接顯示器或負載重的 CI runner 上極易造成隨機失敗與不穩定。
+- **處理方式**：因此拖放開檔不在 E2E 中自動化，改列為 1.0 發行前的人工安全檢查（[manual-checks.md](../security/manual-checks.md) §3.14），驗證單檔、多檔、非 PDF 與資料夾的拖放行為。
 
 ## 在本機執行
 
