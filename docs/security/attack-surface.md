@@ -309,7 +309,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 項目 | 設定 | 檢查 |
 |---|---|---|
-| capability | `src-tauri/capabilities/main.json`：只給 `main` 視窗；88 個 `allow-*`；沒有 `core:*`、`dialog`、`fs`；沒有 `remote`，外部網頁拿不到 IPC | `check-security-config.mjs`（靜態）；執行中的 app 會拒絕沒授權的命令，這件事沒有測試（#425） |
+| capability | `src-tauri/capabilities/main.json`：只給 `main` 視窗；88 個 `allow-*`；沒有 `core:*`、`dialog`、`fs`；沒有 `remote`，外部網頁拿不到 IPC | `check-security-config.mjs`（靜態）；`refused-commands.spec.ts`（#425） |
 | CSP | `default-src 'self'`、`script-src 'self'`、`style-src 'self'`、`img-src 'self' data: blob:`、`font-src 'self'`、`connect-src ipc: http://ipc.localhost`、`object-src`／`base-uri`／`form-action`／`frame-src` 都是 `'none'` | `check-security-config.mjs`（正式版與 `vite.config.ts` 的開發用 CSP）；`check-dist.mjs`（建置產物不引用外部資源） |
 | 全域 API | `withGlobalTauri: false` | — |
 | 開發人員工具 | `tauri` 沒有開 `devtools` 功能，正式版沒有開發人員工具 | 人工檢查（manual-checks §3） |
@@ -398,7 +398,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 被控制的 worker 能讓請求永遠不結束；回應的種類不對時沒有停止它；協定違規沒有測試（§2.2） | #422 | 是 |
 | 匯出純文字能取代文件自己的檔案（§1.8） | #423 | 是 |
 | WebView 的導覽沒有限制（§4） | #424 | 是（提議，由負責人決定） |
-| 沒有測試證明執行中的 app 會拒絕沒授權的命令（§4） | #425 | 否 |
+| 執行中的 app 會拒絕沒授權的命令（§4） | 已由 #425 補上測試（`refused-commands.spec.ts`） | 否 |
 | fuzz 沒有走到的讀取：註解、表單、文字方塊、頁面文字、個資、遮蔽摘要、註解摘要、附件、簽章欄位、以密碼開啟（§2.4） | #426 | 視做法 |
 | fuzz 沒有走到的編輯、存檔、副本（§2.4、§2.5） | #427 | 是 |
 | fuzz 沒有走到圖章圖片與匯入字型的檢查（§2.4） | #428 | 是 |
