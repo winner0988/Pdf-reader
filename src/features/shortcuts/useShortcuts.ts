@@ -5,6 +5,12 @@ import { findShortcut, type ShortcutId } from "@/features/shortcuts/registry";
 /** A handler that returns `false` did not use the key: the browser's default happens. */
 export type ShortcutHandlers = Partial<Record<ShortcutId, () => void | boolean>>;
 
+const SHORTCUT_HANDLED = Symbol("shortcutHandled");
+
+interface HandledKeyboardEvent extends KeyboardEvent {
+  [SHORTCUT_HANDLED]?: boolean;
+}
+
 /**
  * Calls the handler registered for a shortcut and suppresses the browser default. While not
  * `enabled` (a tab that is not shown, MVP-14) no key is handled.
@@ -21,18 +27,28 @@ export function useShortcuts(handlers: ShortcutHandlers, enabled = true): void {
   });
 
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
+    function onKeyDown(rawEvent: KeyboardEvent) {
+      const event = rawEvent as HandledKeyboardEvent;
       // A key is handled once. When closing a tab shows the next one, React re-renders between
       // two listeners of the same key press, so without this the next tab would close too.
+      if (event[SHORTCUT_HANDLED] || !latest.current.enabled) return;
+
+      const isBrowserOverrideKey = event.key === "F5" || event.key === "F11";
+
       // It also leaves keys a focused control already used (arrows in the tab bar) alone.
-      if (event.defaultPrevented || !latest.current.enabled) return;
+      if (event.defaultPrevented && !isBrowserOverrideKey) return;
+
       // WebView2 defaults F5/Shift+F5 to reload the page and F11 to browser fullscreen:
-      if (event.key === "F5" || event.key === "F11") {
+      if (isBrowserOverrideKey) {
         event.preventDefault();
       }
+
       const shortcut = findShortcut(event);
       const handler = shortcut && latest.current.handlers[shortcut.id];
-      if (handler && handler() !== false) event.preventDefault();
+      if (handler && handler() !== false) {
+        event.preventDefault();
+        event[SHORTCUT_HANDLED] = true;
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

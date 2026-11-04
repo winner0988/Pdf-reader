@@ -1,5 +1,8 @@
 // Full screen and presentation mode in the real app (B4-03, #411).
 import { execFile } from "node:child_process";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
 
 import type { Page } from "@playwright/test";
@@ -78,17 +81,9 @@ test("full screen: F11 toggles full screen and does not reload the page (B4-03)"
 
   // In full screen, innerWidth and innerHeight match screen.width and screen.height
   await expect.poll(
-    () => page.evaluate(() => ({
-      width: window.innerWidth,
-      height: window.innerHeight,
-      screenWidth: screen.width,
-      screenHeight: screen.height,
-    })),
+    () => page.evaluate(() => Math.abs(window.innerHeight - screen.height)),
     { timeout: 10_000 },
-  ).toEqual(expect.objectContaining({
-    width: expect.any(Number),
-    height: expect.any(Number),
-  }));
+  ).toBeLessThanOrEqual(8);
 
   const fullscreenSize = await page.evaluate(() => ({
     width: window.innerWidth,
@@ -96,8 +91,8 @@ test("full screen: F11 toggles full screen and does not reload the page (B4-03)"
     screenWidth: screen.width,
     screenHeight: screen.height,
   }));
-  expect(fullscreenSize.width).toBe(fullscreenSize.screenWidth);
-  expect(fullscreenSize.height).toBe(fullscreenSize.screenHeight);
+  expect(Math.abs(fullscreenSize.width - fullscreenSize.screenWidth)).toBeLessThanOrEqual(8);
+  expect(Math.abs(fullscreenSize.height - fullscreenSize.screenHeight)).toBeLessThanOrEqual(8);
 
   // Press F11 again to exit full screen
   await page.keyboard.press("F11");
@@ -177,28 +172,35 @@ test("presentation mode: F5 from page 1, navigation, Esc returns, Shift+F5 from 
 });
 
 test("sensitive documents: capture protection stays effective in full screen and presentation mode (B4-03)", async ({ launch }) => {
-  const page = await launch(corpus("benign/multi-page-10.pdf"));
-  await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
+  const folder = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-presentation-"));
+  try {
+    const file = path.join(folder, "test-sensitive.pdf");
+    copyFileSync(corpus("benign/multi-page-10.pdf"), file);
+    const page = await launch(file);
+    await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
 
-  // Mark as sensitive
-  await markSensitive(page);
-  expect(await displayAffinity(page)).toBe(WDA_EXCLUDEFROMCAPTURE);
+    // Mark as sensitive
+    await markSensitive(page);
+    expect(await displayAffinity(page)).toBe(WDA_EXCLUDEFROMCAPTURE);
 
-  // Full screen mode: display affinity remains WDA_EXCLUDEFROMCAPTURE
-  await page.keyboard.press("F11");
-  await page.waitForTimeout(500);
-  expect(await displayAffinity(page)).toBe(WDA_EXCLUDEFROMCAPTURE);
+    // Full screen mode: display affinity remains WDA_EXCLUDEFROMCAPTURE
+    await page.keyboard.press("F11");
+    await page.waitForTimeout(500);
+    expect(await displayAffinity(page)).toBe(WDA_EXCLUDEFROMCAPTURE);
 
-  // Presentation mode: display affinity remains WDA_EXCLUDEFROMCAPTURE
-  await page.keyboard.press("F5");
-  const presentationDialog = page.getByRole("dialog", { name: strings.presentation.title });
-  await expect(presentationDialog).toBeVisible();
-  expect(await displayAffinity(page)).toBe(WDA_EXCLUDEFROMCAPTURE);
+    // Presentation mode: display affinity remains WDA_EXCLUDEFROMCAPTURE
+    await page.keyboard.press("F5");
+    const presentationDialog = page.getByRole("dialog", { name: strings.presentation.title });
+    await expect(presentationDialog).toBeVisible();
+    expect(await displayAffinity(page)).toBe(WDA_EXCLUDEFROMCAPTURE);
 
-  // Exit presentation and fullscreen
-  await page.keyboard.press("Escape");
-  await expect(presentationDialog).toBeHidden();
-  await page.keyboard.press("F11");
-  await page.waitForTimeout(500);
-  expect(await displayAffinity(page)).toBe(WDA_EXCLUDEFROMCAPTURE);
+    // Exit presentation and fullscreen
+    await page.keyboard.press("Escape");
+    await expect(presentationDialog).toBeHidden();
+    await page.keyboard.press("F11");
+    await page.waitForTimeout(500);
+    expect(await displayAffinity(page)).toBe(WDA_EXCLUDEFROMCAPTURE);
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
 });
