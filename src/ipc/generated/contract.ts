@@ -490,10 +490,20 @@ pages: Array<number>, format: ExportFormat, };
 export type ExportEvent = { "kind": "progress", pagesDone: number, total: number, };
 
 /**
+ * A geometric shape annotation on a page (B4-05): rectangle, ellipse, or line/arrow.
+ */
+export type Shape = { "kind": "rectangle", rect: Rect, } | { "kind": "ellipse", rect: Rect, } | { "kind": "line", from: Point, to: Point, arrow: boolean, };
+
+/**
+ * The two endpoints of a line or arrow annotation in page space (B4-05).
+ */
+export type LineEnds = { from: Point, to: Point, };
+
+/**
  * A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
  * those of the document as it is before the edit.
  */
-export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", markKind: TextMarkKind, marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "addTextBox", page: number, rect: Rect, model: TextBoxModelId, style: TextBoxStyle, } | { "kind": "setTextBox", page: number, annotation: AnnotationId, model: TextBoxModelId | null, style: TextBoxStyle, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setPictureAngle", page: number, annotation: AnnotationId, degrees: number, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" } | { "kind": "addRedaction", page: number, rect: Rect, } | { "kind": "addRedactionGroup", page: number, rects: Array<Rect>, } | { "kind": "applyRedactions" } | { "kind": "addBookmark", parent: BookmarkId | null, index: number, title: string, page: number, } | { "kind": "renameBookmark", id: BookmarkId, title: string, } | { "kind": "deleteBookmark", id: BookmarkId, } | { "kind": "moveBookmark", id: BookmarkId, parent: BookmarkId | null, index: number, };
+export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", markKind: TextMarkKind, marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "addTextBox", page: number, rect: Rect, model: TextBoxModelId, style: TextBoxStyle, } | { "kind": "setTextBox", page: number, annotation: AnnotationId, model: TextBoxModelId | null, style: TextBoxStyle, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setPictureAngle", page: number, annotation: AnnotationId, degrees: number, } | { "kind": "addShape", page: number, shape: Shape, color: InkColor, width: InkWidth, } | { "kind": "setLineEnds", page: number, annotation: AnnotationId, from: Point, to: Point, } | { "kind": "setShapeStyle", page: number, annotation: AnnotationId, color: InkColor, width: InkWidth, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" } | { "kind": "addRedaction", page: number, rect: Rect, } | { "kind": "addRedactionGroup", page: number, rects: Array<Rect>, } | { "kind": "applyRedactions" } | { "kind": "addBookmark", parent: BookmarkId | null, index: number, title: string, page: number, } | { "kind": "renameBookmark", id: BookmarkId, title: string, } | { "kind": "deleteBookmark", id: BookmarkId, } | { "kind": "moveBookmark", id: BookmarkId, parent: BookmarkId | null, index: number, };
 
 /**
  * The kind of text markup annotation (B2-07, B4-04).
@@ -554,7 +564,7 @@ export type BookmarkId = number;
 /**
  * What an annotation of a page is, as far as the app edits it (B2-07).
  */
-export type AnnotationKind = "highlight" | "underline" | "strikeOut" | "squiggly" | "note" | "ink" | "stamp" | "textBox" | "redaction" | "other";
+export type AnnotationKind = "highlight" | "underline" | "strikeOut" | "squiggly" | "note" | "ink" | "stamp" | "textBox" | "redaction" | "rectangle" | "ellipse" | "line" | "arrow" | "other";
 
 /**
  * How a picture stamp is turned (B3-01), for the page to draw its outline: the picture is
@@ -583,7 +593,19 @@ color: HighlightColor | null, text: string | null,
 /**
  * A picture stamp of the user's own (B3-01): how it is turned, and what it measures.
  */
-picture: PictureView | null, };
+picture: PictureView | null, 
+/**
+ * The endpoints of a line or arrow annotation in page space (B4-05).
+ */
+lineEnds: LineEnds | null, 
+/**
+ * The color of a shape annotation (B4-05).
+ */
+shapeColor: InkColor | null, 
+/**
+ * The border width of a shape annotation (B4-05).
+ */
+shapeWidth: InkWidth | null, };
 
 /**
  * What applying the redaction marks of a document would do besides removing what their areas
