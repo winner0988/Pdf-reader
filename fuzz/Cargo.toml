@@ -14,6 +14,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4.13"
 ipc_contract = { path = "../crates/ipc_contract" }
 pdf_worker = { path = "../crates/pdf_worker" }
+mupdf-sys = { version = "=0.8.0", default-features = false, features = ["tesseract"] }
 
 [workspace]
 members = ["."]
@@ -73,6 +74,27 @@ bench = false
 [[bin]]
 name = "exif_clean"
 path = "fuzz_targets/exif_clean.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "stamp_image"
+path = "fuzz_targets/stamp_image.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "language_data"
+path = "fuzz_targets/language_data.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ocr"
+path = "fuzz_targets/ocr.rs"
 test = false
 doc = false
 bench = false

@@ -9,11 +9,14 @@
 | `worker_messages` | IPC 的兩端：主行程解碼並驗證 worker 的回應（`decode::<WorkerResponse>`、`check_hello`、`Validate`），worker 解碼主行程的請求，以及長度前綴的分框（`read_frame`） | `fuzz_seeds` 為每一種訊息寫一個有效的 payload |
 | `open_document` | 以 MuPDF 開啟 PDF，再做 worker 會做的每件事：頁面尺寸、渲染（0.1 倍、旋轉 90°）、連結、搜尋（前兩頁）、Word 文件（前兩頁，B3-02）、目錄、主動內容掃描 | `tests/corpus/` 的 PDF（QA-01，不含隨需產生的大型檔） |
 | `read_document` | 以 MuPDF 開啟 PDF（支援密碼開啟：試 `user`、`owner` 與錯誤密碼），讀取前兩頁的註解（`page_annotations`）、文字方塊（`text_box`）、表單欄位（`page_fields`）、頁面文字（`page_text`），以及文件層級的註解摘要（`annotation_summary`）、個資搜尋（`find_personal_data`）、遮蔽摘要（`redaction_summary`）、附件清單與解碼（`list_attachments`、`write_attachment`，上限 1 MiB）、簽章欄位（`signature_fields`，讀取 `/Contents`）（#426，由 `open_document` 拆出） | 同 `open_document`（複製過去） |
-| `text_box_font` | 字型檔（B2-31，[text-box-engine.md](../architecture/text-box-engine.md)）：以 `skrifa` 讀取、以 `subsetter` 裁成文字用到的字形，做成文字方塊的模型。做得出模型的字型再放進一頁、渲染（MuPDF 讀取裁出來的字型）、存檔、重新開啟、渲染與搜尋。每個輸入試第一個字型與字型集合的第二個字型，文字依輸入的長度在英文、帶重音的拉丁字母、中文、日文四組中選一組（不佔用字型的位元組） | 隨 worker 附帶的 Droid Sans Fallback，加上 runner 上的 TrueType 字型（至多 20 個、各在 2 MB 內）；這個目標的輸入上限是 5 MiB，其他目標是 1 MiB |
+| `text_box_font` | 字型檔（B2-31，[text-box-engine.md](../architecture/text-box-engine.md)）：先以 `inspect_font` 檢查字型檔的位元組並列出字體（B2-32，`InspectFont`）；再以 `skrifa` 讀取、以 `subsetter` 裁成文字用到的字形，做成文字方塊的模型。做得出模型的字型再放進一頁、渲染（MuPDF 讀取裁出來的字型）、存檔、重新開啟、渲染與搜尋。每個輸入試第一個字型與字型集合的第二個字型，文字依輸入的長度在英文、帶重音的拉丁字母、中文、日文四組中選一組（不佔用字型的位元組） | 隨 worker 附帶的 Droid Sans Fallback，加上 runner 上的 TrueType 字型（至多 20 個、各在 2 MB 內）；這個目標的輸入上限是 5 MiB，其他目標是 1 MiB |
 | `compress_images` | 以 MuPDF 開啟 PDF，寫出壓縮圖片的副本（B3-01）：MuPDF 解碼每張圖片、縮小、編碼成 JPEG、換回去、完整重寫（品質低、尺寸上限 256、時間 2 秒） | 同 `open_document`（複製過去） |
 | `create_pdf` | 「從檔案建立 PDF」（B3-03）：第一個位元組決定種類（圖片、網頁、純文字、EPUB、XPS、SVG、Word、Excel、PowerPoint），其餘是檔案；`PdfBuilder` 讀取、轉換、寫出（圖片會加兩次，試多頁的路徑） | `tests/corpus/sources/` 與 `tests/corpus/images/`，前面加種類的編號（CI 的 `Seed corpus` 步驟）；包含謊稱 3.5 GiB 的 Word 檔 |
 | `exif_clean` | 以 MuPDF 開啟 PDF，寫出清除圖片 EXIF 的副本（B3-04，批次處理）：每個 JPEG 串流（包括藏在無損濾鏡後面的）讀出來、切掉不是畫面的區段、換回去、完整重寫 | 同 `open_document`（複製過去），其中 `benign/photo-exif.pdf` 有相機與程式寫進去的各種資訊 |
-| `edit_document` | 對不可信文件套用 1～4 個編輯（#427，涵蓋 `WorkerEdit` 全部 26 種：`RotatePages`、`DeletePages`、`MovePages`、`InsertBlankPage`、`InsertPages`、`AddHighlight`〔含底線、刪除線、波浪線〕、`AddNote`、`DeleteAnnotation`、`SetHighlightColor`、`SetNoteText`、`SetFieldValue`、`FlattenForm`、`AddRedaction`、`AddRedactionGroup`、`ApplyRedactions`、`AddInk`、`AddStamp`、`SetAnnotationRect`、`SetPictureAngle`、`AddImageStamp`、`SetTextBox`、`PlaceTextBox`、`AddBookmark`、`RenameBookmark`、`DeleteBookmark`、`MoveBookmark`；參數經 `Validate` 檢查）、存檔（完整重寫；已簽章文件以增量更新）、重新開啟並渲染第一頁，並執行副動作（`SavePages`、`Revert`、`PrepareSource` 再 `InsertPages`，或 `PrivacyCopy`、`SanitizedCopy`、`EncryptedCopy`、`WatermarkCopy`、`PageMarksCopy`、`WriteIdentifier`、`PrepareSignature` 等 7 種副本） | 同 `open_document`，檔案前面加上 32 個位元組的動作與參數前綴（CI 的 `Seed corpus` 步驟輪流配置副動作與編輯種類） |
+| `stamp_image` | 自訂圖章與圖片浮水印的圖片（B2-08、B3-04，`PrepareStampImage`）：以 `prepare_stamp_picture` 解碼 PNG 或 JPEG（檢查檔頭與尺寸、MuPDF 解碼、縮小並重新編碼為只有像素的 PNG），成功時放上一頁作為圖章註解並渲染（0.5 倍） | `tests/corpus/images/`（PNG 與 JPEG 圖片） |
+| `language_data` | 使用者匯入與 worker 接收的 Tesseract 語言資料（`.traineddata`）檔頭檢查（`check_language_data`，#429）：目錄項目數（23–64）、位移不可倒退或超出檔案、必須包含 LSTM 模型所需項目 | `fuzz_seeds` 產生的有效目錄樣本，加上安裝程式內附的 `eng.traineddata` 前 1 MiB（`head -c 1048576`） |
+| `ocr` | OCR 語言資料（`.traineddata`，B2-10）與掃描頁的文字辨識（ADR 0015）：第一個位元組決定種類（0 為語言資料，1 為掃描頁）。(a) 語言資料通過 `check_language_data` 後由 `Recogniser::new` 載入，辨識 64×32 固定圖片；(b) 掃描頁開啟 PDF，對第 1 頁檢查 `ocr_is_scan`，若是掃描頁則渲染成灰階（上限 400 萬像素）、以 `eng` 資料辨識（逾時 500ms）並建立文字層（`page_text`） | `src-tauri/resources/tessdata/eng.traineddata`（前綴 00，輸入上限 5 MiB）、`tests/corpus/benign/scanned-text.pdf` 與 `image-only.pdf`（前綴 01） |
+| `edit_document` | 對不可信文件套用 1～4 個編輯（#427，涵蓋 `WorkerEdit` 29 種中的 26 種，#478 加的 `AddShape`、`SetLineEnds`、`SetShapeStyle` 還沒有：`RotatePages`、`DeletePages`、`MovePages`、`InsertBlankPage`、`InsertPages`、`AddHighlight`〔含底線、刪除線、波浪線〕、`AddNote`、`DeleteAnnotation`、`SetHighlightColor`、`SetNoteText`、`SetFieldValue`、`FlattenForm`、`AddRedaction`、`AddRedactionGroup`、`ApplyRedactions`、`AddInk`、`AddStamp`、`SetAnnotationRect`、`SetPictureAngle`、`AddImageStamp`、`SetTextBox`、`PlaceTextBox`、`AddBookmark`、`RenameBookmark`、`DeleteBookmark`、`MoveBookmark`；參數經 `Validate` 檢查）、存檔（完整重寫；已簽章文件以增量更新）、重新開啟並渲染第一頁，並執行副動作（`SavePages`、`Revert`、`PrepareSource` 再 `InsertPages`，或 `PrivacyCopy`、`SanitizedCopy`、`EncryptedCopy`、`WatermarkCopy`、`PageMarksCopy`、`WriteIdentifier`、`PrepareSignature` 等 7 種副本） | 同 `open_document`，檔案前面加上 32 個位元組的動作與參數前綴（CI 的 `Seed corpus` 步驟輪流配置副動作與編輯種類） |
 
 - 對所有輸入，程式都必須正常接受或拒絕：不能 panic、不能無限制地配置記憶體、不能出現記憶體錯誤。
 - 任何一種都算崩潰，libFuzzer 會把觸發它的輸入存到 `fuzz/artifacts/<目標>/`。
@@ -27,6 +30,9 @@
 - **MuPDF 也被偵測**：
   - workflow 以 `CC=clang`、`CFLAGS=-fsanitize=fuzzer-no-link,address` 建置，MuPDF 與它的 C 函式庫也有覆蓋率回饋與 AddressSanitizer，不只 Rust 程式碼。
   - 只設 C 的旗標，因為 libFuzzer 本身是 C++，不能對自己插樁。
+- **Linux fuzz 建置包含 Tesseract**：
+  - Windows 上 `mupdf-sys` 0.8.0 透過 MSBuild 建置時無論 feature 為何都會包含 Tesseract，因此 app 的 OCR 正常運作。
+  - Linux 上以 make 建置時會遵循 Cargo feature（`mupdf-sys` 的 `build.rs` 的 `make_bool("tesseract", …)`）。`crates/pdf_worker/Cargo.toml` 未開啟 `tesseract`，因此只在 `fuzz/Cargo.toml` 顯式開啟 `mupdf-sys` 的 `tesseract` feature，由 Cargo 的 feature 合併機制在 Linux fuzz 建置中啟用 Tesseract 與 Leptonica，不改動 worker 的正式建置設定。
 - **摘要**：每個目標在 job 摘要列出執行次數、每秒次數、覆蓋率（edges）、features、語料數量與大小、記憶體高峰。
 - **崩潰時**：job 失敗。樣本與完整日誌**加密後**才上傳為 `fuzz-crash-<目標>` artifact，保留 7 天；見下方「公開 repo 的保護」。
 - **權限**：只有 `contents: read`。
@@ -87,6 +93,10 @@ cargo run --locked -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/worker_messag
 mkdir -p fuzz/corpus/open_document && find tests/corpus -name '*.pdf' -not -path '*/large/*' -exec cp {} fuzz/corpus/open_document/ \;
 ```
 
+```bash
+mkdir -p fuzz/corpus/stamp_image && cp tests/corpus/images/* fuzz/corpus/stamp_image/
+```
+
 `create_pdf` 的種子：每個檔案前面加一個位元組，是種類的編號（圖片 0、網頁 1、純文字 2、EPUB 3、XPS 4、SVG 5、Word 6、Excel 7、PowerPoint 8；順序同 `fuzz/fuzz_targets/create_pdf.rs` 的 `KINDS`）。做法見 `.github/workflows/fuzz.yml` 的 `Seed corpus` 步驟；在本機（Git Bash）：
 
 ```bash
@@ -114,6 +124,18 @@ mkdir -p fuzz/corpus/text_box_font && cp "$HOME"/.cargo/registry/src/*/mupdf-fon
 cargo +nightly fuzz run text_box_font fuzz/corpus/text_box_font -- -max_total_time=300 -max_len=5242880 -rss_limit_mb=4096
 ```
 
+`language_data` 的種子：`fuzz_seeds` 產生的目錄樣本，加上安裝程式內附的英文語言檔前 1 MiB：
+
+```bash
+mkdir -p fuzz/corpus/language_data
+cargo run --locked -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/language_data language_data
+head -c 1048576 src-tauri/resources/tessdata/eng.traineddata > fuzz/corpus/language_data/eng_1m.traineddata
+```
+
+```bash
+cargo +nightly fuzz run language_data fuzz/corpus/language_data -- -max_total_time=300 -max_len=1048576 -rss_limit_mb=4096
+```
+
 ### Windows
 
 - **ASan 執行階段**：
@@ -137,6 +159,7 @@ cargo +nightly fuzz run worker_messages fuzz/corpus/worker_messages -- -max_tota
 - `worker_messages`：31 秒 186 萬次；
 - `open_document`：91 秒 20,938 次（每秒約 230 次）；
 - `create_pdf`（B3-03，2026-10-14）：241 秒 12,507 次（每秒約 52 次，每次都真的產生 PDF），沒有崩潰；
+- `ocr`（#431，CI Linux smoke run）：40 次（每秒約 10 次，覆蓋率 edges 15,596、features 18,987，peak memory 3793 MB，找到崩潰，照公開 repo 的保護私下處理）；
 - 兩者都沒有崩潰。
 
 CI 結果（Linux runner，2026-11-04，#426）：
@@ -146,6 +169,11 @@ CI 結果（Linux runner，2026-11-04，#426）：
   - `open_document`：120 秒 17,237 次（每秒 142 次）；
   - `read_document`：120 秒 13,802 次（每秒 114 次）；
 - 兩者都沒有崩潰。
+
+CI 結果（Linux runner，2026-11-05，#428，run 41884061447）：
+
+- `text_box_font`：併入 `inspect_font` 前 120 秒 3,843 次（每秒 31 次，run 41874594705）；併入後 120 秒 3,991 次（每秒 32 次），覆蓋率由 9,342 edges 增至 9,608 edges，沒有崩潰；
+- `stamp_image`（新目標）：120 秒 29,638 次（每秒約 244 次），覆蓋率 7,345 edges，沒有崩潰。
 
 ## 崩潰的處理
 
@@ -182,6 +210,42 @@ CI 結果（Linux runner，2026-11-04，#426）：
 5. **加回迴歸測試**：修正後把縮小過的樣本變成測試。能公開的樣本放進 `tests/corpus/`（以產生器重現），不能公開的只留在私下的紀錄中。
 
 **崩潰樣本可能就是可利用的攻擊檔案：不得附在 Issue、PR、討論或任何公開位置。**
+
+## 主行程解析器測試（Property 與變異測試）
+
+主行程沒有沙盒，自己也解析一些不可信或半可信的資料（攻擊面清單 `docs/security/attack-surface.md` §3，#429）。
+
+### 為什麼不是 libFuzzer
+
+- `src-tauri` 包含 Windows 專屬的 API（WebView2、WinHTTP、Win32 API 等），原始碼標有 `compile_error!`，只能在 Windows 環境編譯；
+- CI 的 libFuzzer 工作（Linux runner）無法編譯或執行 `src-tauri`；
+- 在 Windows 本機上，MSVC 連結器欠缺 libFuzzer 所需的 section 符號，且 Windows MSBuild 建置的依賴沒有插樁。
+
+### 測試方式與位置
+
+在各模組的單元測試中，以真實有效的樣本為起點，進行全面的變異測試：
+1. **每一種截斷長度**：從 0 到樣本長度（較長者均勻採樣），確認不完整的輸入不會 panic；
+2. **每個位置變異一個位元組**：嘗試極端值（`0x00`、`0xff`、`0x7f`）與語法字元（`{`、`"`、`0`、`:` 等），確認損毀的格式不會 panic；
+3. **固定種子的偽隨機輸入**：測試內寫幾行 xorshift 產生數百組隨機長度與隨機內容的輸入，不新增 crate 依賴；
+4. **大小上限**：超過模組大小限制的輸入在解析前即被拒絕。
+
+各模組測試位置：
+- `src-tauri/src/update_check.rs`：`interpret_handles_arbitrary_and_mutated_inputs_without_panic`（HTTPS 回覆）
+- `src-tauri/src/recovery.rs`：`recovery_handles_arbitrary_and_mutated_inputs_without_panic`（復原日誌）
+- `src-tauri/src/settings.rs`：`settings_handles_arbitrary_and_mutated_inputs_without_panic`（`settings.json`）
+- `src-tauri/src/recent.rs`：`recent_handles_arbitrary_and_mutated_inputs_without_panic`（`recent.json`）
+- `src-tauri/src/sensitive.rs`：`sensitive_handles_arbitrary_and_mutated_inputs_without_panic`（`sensitive.json`）
+- `src-tauri/src/fonts.rs`：`font_headers_and_metadata_handle_arbitrary_and_mutated_inputs_without_panic`（字型檔頭與 `metadata.json`）
+- `src-tauri/src/local_data.rs`：`local_data_handles_arbitrary_and_mutated_inputs_without_panic`（大小上限檢查與讀寫）
+
+### 怎麼跑
+
+CI 的 `Rust (Windows)` 工作會在 Windows 上跑 `cargo test --workspace --locked`，每個測試都在數十毫秒至數秒內跑完。
+
+本機執行指令：
+```bash
+cargo test -p pdf-reader --locked
+```
 
 ## 驗證紀錄
 

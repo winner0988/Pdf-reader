@@ -425,6 +425,7 @@ version = "0.0.0"
 dependencies = [
  "ipc_contract",
  "libfuzzer-sys",
+ "mupdf-sys",
  "pdf_worker",
 ]
 

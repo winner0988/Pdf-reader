@@ -111,11 +111,11 @@ describe("the page", () => {
 
 describe("marks and tools", () => {
   const marks: PageAnnotation[] = [
-    { id: 4, kind: "highlight", rect: { x0: 72, y0: 300, x1: 200, y1: 320 }, color: "yellow", text: null, picture: null },
-    { id: 5, kind: "note", rect: { x0: 300, y0: 300, x1: 320, y1: 320 }, color: null, text: "Existing note", picture: null },
-    { id: 6, kind: "ink", rect: { x0: 72, y0: 400, x1: 200, y1: 460 }, color: null, text: null, picture: null },
-    { id: 7, kind: "stamp", rect: { x0: 250, y0: 400, x1: 400, y1: 460 }, color: null, text: null, picture: null },
-    { id: 8, kind: "other", rect: { x0: 72, y0: 500, x1: 200, y1: 520 }, color: null, text: null, picture: null },
+    { id: 4, kind: "highlight", rect: { x0: 72, y0: 300, x1: 200, y1: 320 }, color: "yellow", text: null, picture: null, lineEnds: null, shapeColor: null, shapeWidth: null },
+    { id: 5, kind: "note", rect: { x0: 300, y0: 300, x1: 320, y1: 320 }, color: null, text: "Existing note", picture: null, lineEnds: null, shapeColor: null, shapeWidth: null },
+    { id: 6, kind: "ink", rect: { x0: 72, y0: 400, x1: 200, y1: 460 }, color: null, text: null, picture: null, lineEnds: null, shapeColor: null, shapeWidth: null },
+    { id: 7, kind: "stamp", rect: { x0: 250, y0: 400, x1: 400, y1: 460 }, color: null, text: null, picture: null, lineEnds: null, shapeColor: null, shapeWidth: null },
+    { id: 8, kind: "other", rect: { x0: 72, y0: 500, x1: 200, y1: 520 }, color: null, text: null, picture: null, lineEnds: null, shapeColor: null, shapeWidth: null },
   ];
   const annotationsApi = {
     getPageAnnotations: vi.fn((_doc: number, page: number) => Promise.resolve(page === 0 ? marks : [])),
@@ -140,6 +140,9 @@ describe("marks and tools", () => {
       color: null,
       text: null,
       picture: { angle: 20, width: 128, height: 64 },
+      lineEnds: null,
+      shapeColor: null,
+      shapeWidth: null,
     };
     const turnable = {
       getPageAnnotations: vi.fn((_doc: number, page: number) => Promise.resolve(page === 0 ? [picture] : [])),

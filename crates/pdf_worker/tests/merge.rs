@@ -9,7 +9,8 @@ use std::path::{Path, PathBuf};
 use ipc_contract::limits::{MAX_INK_STROKES, MAX_SOURCE_BYTES, MAX_SOURCE_TEXT_BOXES};
 use ipc_contract::types::{
     AnnotationKind, DocumentId, ErrorCode, HighlightColor, HighlightMark, InkColor, InkWidth,
-    PageSize, Password, Point, Quad, Rect, Rgb, StampName, TextAlign, TextBoxStyle, TextMarkKind,
+    PageSize, Password, Point, Quad, Rect, Rgb, Shape, StampName, TextAlign, TextBoxStyle,
+    TextMarkKind,
 };
 use ipc_contract::worker::{
     FontData, InsertedTextBox, WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
@@ -1715,4 +1716,198 @@ fn merge_carries_underline_strikeout_and_squiggly_annotations() {
             .iter()
             .any(|a| a.kind == AnnotationKind::Squiggly)
     );
+}
+
+#[test]
+fn merge_carries_shape_annotations() {
+    let mut host = host();
+
+    // 1. Open a blank page document as source
+    let (source_doc, _) = opened(&mut host, &corpus("benign/single-page.pdf"));
+
+    // Add Rectangle
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddShape {
+            page: 0,
+            shape: Shape::Rectangle {
+                rect: Rect {
+                    x0: 50.0,
+                    y0: 50.0,
+                    x1: 150.0,
+                    y1: 120.0,
+                },
+            },
+            color: InkColor::Red,
+            width: InkWidth::Thin,
+        },
+    })
+    .expect("add rectangle");
+
+    // Add Ellipse
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddShape {
+            page: 0,
+            shape: Shape::Ellipse {
+                rect: Rect {
+                    x0: 200.0,
+                    y0: 50.0,
+                    x1: 300.0,
+                    y1: 120.0,
+                },
+            },
+            color: InkColor::Blue,
+            width: InkWidth::Medium,
+        },
+    })
+    .expect("add ellipse");
+
+    // Add Line
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddShape {
+            page: 0,
+            shape: Shape::Line {
+                from: Point { x: 50.0, y: 150.0 },
+                to: Point { x: 150.0, y: 200.0 },
+                arrow: false,
+            },
+            color: InkColor::Green,
+            width: InkWidth::Thick,
+        },
+    })
+    .expect("add line");
+
+    // Add Arrow
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddShape {
+            page: 0,
+            shape: Shape::Line {
+                from: Point { x: 200.0, y: 150.0 },
+                to: Point { x: 300.0, y: 200.0 },
+                arrow: true,
+            },
+            color: InkColor::Black,
+            width: InkWidth::Medium,
+        },
+    })
+    .expect("add arrow");
+
+    // Save source document to a temp file
+    let source_path = std::env::temp_dir().join(format!(
+        "pdf-worker-{}-shapes-source.pdf",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&source_path);
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&source_path)
+        .expect("create source file");
+    host.save(source_doc, &file).expect("save source doc");
+    drop(file);
+
+    // 2. Prepare source from the saved file
+    let file = File::open(&source_path).expect("open source file");
+    let (source_bytes, source_pages, _) =
+        match host.prepare_source(&file, None).expect("prepare source") {
+            WorkerResponse::Source {
+                bytes,
+                pages,
+                text_boxes,
+                ..
+            } => (bytes, pages, text_boxes),
+            other => panic!("{other:?}"),
+        };
+    std::fs::remove_file(&source_path).ok();
+    assert_eq!(source_pages, 1);
+
+    // 3. Open target doc and insert page
+    let (target_doc, _) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: target_doc,
+        edit: WorkerEdit::InsertPages {
+            at: 2,
+            source: source_bytes.clone(),
+            text_boxes: Vec::new(),
+        },
+    })
+    .expect("insert pages");
+
+    // 4. Check annotations on the inserted page (page 2)
+    let annots = match host
+        .request(|request| WorkerRequest::GetPageAnnotations {
+            request,
+            doc: target_doc,
+            page_index: 2,
+        })
+        .expect("page annots")
+    {
+        WorkerResponse::PageAnnotations { annotations, .. } => annotations,
+        other => panic!("{other:?}"),
+    };
+
+    assert_eq!(annots.len(), 4);
+    let rect = annots
+        .iter()
+        .find(|a| a.kind == AnnotationKind::Rectangle)
+        .expect("rectangle");
+    assert_eq!(rect.shape_color, Some(InkColor::Red));
+    assert_eq!(rect.shape_width, Some(InkWidth::Thin));
+
+    let ellipse = annots
+        .iter()
+        .find(|a| a.kind == AnnotationKind::Ellipse)
+        .expect("ellipse");
+    assert_eq!(ellipse.shape_color, Some(InkColor::Blue));
+    assert_eq!(ellipse.shape_width, Some(InkWidth::Medium));
+
+    let line = annots
+        .iter()
+        .find(|a| a.kind == AnnotationKind::Line)
+        .expect("line");
+    assert_eq!(line.shape_color, Some(InkColor::Green));
+    assert_eq!(line.shape_width, Some(InkWidth::Thick));
+
+    let arrow = annots
+        .iter()
+        .find(|a| a.kind == AnnotationKind::Arrow)
+        .expect("arrow");
+    assert_eq!(arrow.shape_color, Some(InkColor::Black));
+    assert_eq!(arrow.shape_width, Some(InkWidth::Medium));
+
+    // 5. Revert with the same edit (undo/redo replay)
+    let reverted = host
+        .request(|request| WorkerRequest::Revert {
+            request,
+            doc: target_doc,
+            edits: vec![WorkerEdit::InsertPages {
+                at: 2,
+                source: source_bytes.clone(),
+                text_boxes: Vec::new(),
+            }],
+            password: None,
+        })
+        .expect("revert");
+    assert!(matches!(reverted, WorkerResponse::Edited { .. }));
+
+    let reverted_annots = match host
+        .request(|request| WorkerRequest::GetPageAnnotations {
+            request,
+            doc: target_doc,
+            page_index: 2,
+        })
+        .expect("page annots after revert")
+    {
+        WorkerResponse::PageAnnotations { annotations, .. } => annotations,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(reverted_annots.len(), 4);
 }

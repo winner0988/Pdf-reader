@@ -1669,8 +1669,8 @@ fn percent_encode(name: &str) -> String {
 mod tests {
     use ipc_contract::types::{
         AnnotationId, AnnotationKind, AnnotationSummaryKind, FieldId, FieldKind, FieldOption,
-        FormField, HighlightColor, HighlightMark, InkColor, InkWidth, PageAnnotation, Rect,
-        StampName, TextMarkKind,
+        FormField, HighlightColor, HighlightMark, InkColor, InkWidth, LineEnds, PageAnnotation,
+        Rect, Shape, StampName, TextMarkKind,
     };
 
     use super::*;
@@ -2725,7 +2725,7 @@ mod tests {
             [
                 (4, AnnotationKind::Highlight),
                 (5, AnnotationKind::Note),
-                (7, AnnotationKind::Other),
+                (7, AnnotationKind::Rectangle),
                 (10, AnnotationKind::Note),
             ]
         );
@@ -3032,6 +3032,7 @@ mod tests {
                 AnnotationSummaryKind::Highlight,
                 AnnotationSummaryKind::Note,
                 AnnotationSummaryKind::Note,
+                AnnotationSummaryKind::Rectangle,
             ]
         );
         let empty = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
@@ -3629,7 +3630,7 @@ endstream",
             [
                 AnnotationKind::Highlight,
                 AnnotationKind::Note,
-                AnnotationKind::Other,
+                AnnotationKind::Rectangle,
                 AnnotationKind::Note
             ]
         );
@@ -3973,8 +3974,11 @@ endstream",
             fitted
         ));
 
-        // The square the document had (7), and what is not there, are not moved.
-        for other in [7, 5, 4, 999] {
+        // The square the document had (7) can now be moved (B4-05); what is not movable (note,
+        // highlight) and what is not there are not moved.
+        doc.set_annotation_rect(0, AnnotationId(7), half)
+            .expect("move rectangle");
+        for other in [5, 4, 999] {
             assert!(
                 matches!(
                     doc.set_annotation_rect(0, AnnotationId(other), half),
@@ -4771,5 +4775,161 @@ endstream",
         let png = sample_stamp_png();
         assert!(!png.is_empty());
         assert!(png.starts_with(&ipc_contract::validate::PNG_SIGNATURE));
+    }
+
+    #[test]
+    fn shapes_can_be_added_moved_restyled_and_deleted() {
+        let mut doc = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
+
+        // 1. Add Rectangle
+        let rect_shape = Shape::Rectangle {
+            rect: Rect {
+                x0: 50.0,
+                y0: 60.0,
+                x1: 150.0,
+                y1: 160.0,
+            },
+        };
+        doc.add_shape(0, &rect_shape, InkColor::Red, InkWidth::Thin)
+            .expect("add rectangle");
+
+        // 2. Add Ellipse
+        let ellipse_shape = Shape::Ellipse {
+            rect: Rect {
+                x0: 200.0,
+                y0: 60.0,
+                x1: 300.0,
+                y1: 160.0,
+            },
+        };
+        doc.add_shape(0, &ellipse_shape, InkColor::Blue, InkWidth::Medium)
+            .expect("add ellipse");
+
+        // 3. Add Line
+        let line_shape = Shape::Line {
+            from: Point { x: 50.0, y: 200.0 },
+            to: Point { x: 150.0, y: 250.0 },
+            arrow: false,
+        };
+        doc.add_shape(0, &line_shape, InkColor::Green, InkWidth::Thick)
+            .expect("add line");
+
+        // 4. Add Arrow
+        let arrow_shape = Shape::Line {
+            from: Point { x: 200.0, y: 200.0 },
+            to: Point { x: 300.0, y: 250.0 },
+            arrow: true,
+        };
+        doc.add_shape(0, &arrow_shape, InkColor::Black, InkWidth::Medium)
+            .expect("add arrow");
+
+        let annots = doc.page_annotations(0).expect("annotations");
+        assert_eq!(annots.len(), 4);
+
+        let rect_annot = annots
+            .iter()
+            .find(|a| a.kind == AnnotationKind::Rectangle)
+            .expect("rectangle");
+        assert_eq!(rect_annot.shape_color, Some(InkColor::Red));
+        assert_eq!(rect_annot.shape_width, Some(InkWidth::Thin));
+
+        let ellipse_annot = annots
+            .iter()
+            .find(|a| a.kind == AnnotationKind::Ellipse)
+            .expect("ellipse");
+        assert_eq!(ellipse_annot.shape_color, Some(InkColor::Blue));
+        assert_eq!(ellipse_annot.shape_width, Some(InkWidth::Medium));
+
+        let line_annot = annots
+            .iter()
+            .find(|a| a.kind == AnnotationKind::Line)
+            .expect("line");
+        assert_eq!(line_annot.shape_color, Some(InkColor::Green));
+        assert_eq!(line_annot.shape_width, Some(InkWidth::Thick));
+        assert!(line_annot.line_ends.is_some());
+
+        let arrow_annot = annots
+            .iter()
+            .find(|a| a.kind == AnnotationKind::Arrow)
+            .expect("arrow");
+        assert_eq!(arrow_annot.shape_color, Some(InkColor::Black));
+        assert_eq!(arrow_annot.shape_width, Some(InkWidth::Medium));
+        assert!(arrow_annot.line_ends.is_some());
+
+        // Move rectangle
+        let moved_rect = Rect {
+            x0: 70.0,
+            y0: 80.0,
+            x1: 170.0,
+            y1: 180.0,
+        };
+        doc.set_annotation_rect(0, rect_annot.id, moved_rect)
+            .expect("move rectangle");
+
+        // Change line endpoints
+        let new_ends = LineEnds {
+            from: Point { x: 60.0, y: 210.0 },
+            to: Point { x: 160.0, y: 260.0 },
+        };
+        doc.set_line_ends(0, line_annot.id, new_ends)
+            .expect("set line ends");
+
+        // Change arrow style
+        doc.set_shape_style(0, arrow_annot.id, InkColor::Red, InkWidth::Thick)
+            .expect("set arrow style");
+
+        let updated_annots = doc.page_annotations(0).expect("annotations");
+        let updated_arrow = updated_annots
+            .iter()
+            .find(|a| a.id == arrow_annot.id)
+            .expect("arrow");
+        assert_eq!(updated_arrow.shape_color, Some(InkColor::Red));
+        assert_eq!(updated_arrow.shape_width, Some(InkWidth::Thick));
+
+        // Delete rectangle
+        doc.delete_annotation(0, rect_annot.id).expect("delete");
+        let remaining = doc.page_annotations(0).expect("annotations");
+        assert_eq!(remaining.len(), 3);
+        assert!(!remaining.iter().any(|a| a.id == rect_annot.id));
+    }
+
+    #[test]
+    fn shapes_with_unsupported_features_remain_other_and_reject_edits() {
+        // Build a PDF with a Square having /BE << /S /C >> (cloud) and /IC [1 0 0] (interior color)
+        let bytes = build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R 5 0 R 6 0 R] >>",
+            "<< /Type /Annot /Subtype /Square /Rect [100 100 200 200] /C [1 0 0] /IC [0 1 0] >>",
+            "<< /Type /Annot /Subtype /Square /Rect [100 300 200 400] /C [1 0 0] /BE << /S /C >> >>",
+            "<< /Type /Annot /Subtype /Line /Rect [100 500 200 600] /L [100 500 200 600] /Measure << /Type /Measure >> >>",
+        ]);
+        let mut doc = PdfDocument::from_bytes(&bytes).expect("open");
+        let annots = doc.page_annotations(0).expect("annotations");
+        assert_eq!(annots.len(), 3);
+        for a in &annots {
+            assert_eq!(a.kind, AnnotationKind::Other, "must be Other: {:?}", a.id);
+        }
+
+        // Moving them via set_annotation_rect fails
+        let id = annots[0].id;
+        assert!(
+            doc.set_annotation_rect(
+                0,
+                id,
+                Rect {
+                    x0: 120.0,
+                    y0: 120.0,
+                    x1: 220.0,
+                    y1: 220.0,
+                }
+            )
+            .is_err()
+        );
+
+        // Deleting unsupported shapes is allowed
+        doc.delete_annotation(0, id).expect("delete unsupported");
+        let remaining = doc.page_annotations(0).expect("annotations");
+        assert_eq!(remaining.len(), 2);
     }
 }

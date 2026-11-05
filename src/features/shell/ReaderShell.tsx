@@ -16,7 +16,7 @@ import { HIGHLIGHT_COLORS, SWATCH } from "@/features/annotations/model";
 import { NoteDialog } from "@/features/annotations/NoteDialog";
 import { TextBoxDialog } from "@/features/annotations/TextBoxDialog";
 import { createAnnotationSource, type AnnotationsApi } from "@/features/annotations/source";
-import { pictureRectAt, redactionRectAt, stampRectAt, type Tool } from "@/features/annotations/tools";
+import { pictureRectAt, redactionRectAt, stampRectAt, type ShapeToolKind, type Tool } from "@/features/annotations/tools";
 import { useAnnotations } from "@/features/annotations/useAnnotations";
 import { RedactionConfirmDialog } from "@/features/redaction/RedactionConfirmDialog";
 import { FindPersonalDataDialog } from "@/features/redaction/FindPersonalDataDialog";
@@ -87,6 +87,8 @@ import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
 import { useTheme } from "@/features/theme/useTheme";
 import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
 import type { PageLayoutMode } from "@/features/viewer/layout";
+import { PresentationMode } from "@/features/viewer/PresentationMode";
+import { tauriWindowApi, type WindowApi } from "@/features/window/api";
 import {
   adjustHistoryForEdit,
   canGoBack,
@@ -208,6 +210,8 @@ type ReaderShellProps = {
    */
   jumpToPage?: number;
   onJumped?: () => void;
+  /** Full-screen window commands (B4-03). */
+  windowApi?: WindowApi;
   /** Delay before the loading state appears; tests pass 0. */
   loadingDelayMs?: number;
 };
@@ -282,9 +286,14 @@ export function ReaderShell({
   jumpToPage,
   onJumped,
   loadingDelayMs,
+  windowApi = tauriWindowApi,
 }: ReaderShellProps) {
   const [theme, setTheme] = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(() => !isNarrowWindow());
+  const [fullscreen, setFullscreen] = useState(false);
+  const [presentation, setPresentation] = useState<{ page: number } | null>(null);
+  const wasAlreadyFullscreen = useRef(false);
+  const originalPageBeforePresentation = useRef(1);
   const [searchOpen, setSearchOpen] = useState(false);
   /**
    * What the banner said each time the user closed it: it comes back only with something it did
@@ -606,6 +615,44 @@ export function ReaderShell({
     if (document_) action();
   };
 
+  const toggleFullscreen = useCallback(() => {
+    const next = !fullscreen;
+    windowApi.setFullscreen(next).then(
+      (result) => setFullscreen(result),
+      () => {},
+    );
+  }, [fullscreen, windowApi]);
+
+  const startPresentation = useCallback(
+    (fromCurrentPage: boolean) => {
+      if (!document_) return;
+      const startPage = fromCurrentPage ? currentPage : 1;
+      wasAlreadyFullscreen.current = fullscreen;
+      originalPageBeforePresentation.current = currentPage;
+      if (!fullscreen) {
+        windowApi.setFullscreen(true).then(
+          (result) => setFullscreen(result),
+          () => {},
+        );
+      }
+      setPresentation({ page: startPage });
+    },
+    [document_, currentPage, fullscreen, windowApi],
+  );
+
+  const closePresentation = useCallback(() => {
+    setPresentation(null);
+    const orig = originalPageBeforePresentation.current;
+    setCurrentPage(orig);
+    viewRef.current?.scrollToPage(orig);
+    if (!wasAlreadyFullscreen.current) {
+      windowApi.setFullscreen(false).then(
+        (result) => setFullscreen(result),
+        () => {},
+      );
+    }
+  }, [windowApi]);
+
   const closeSearch = () => {
     search.clear();
     setSearchOpen(false);
@@ -855,6 +902,42 @@ export function ReaderShell({
       showHint(strings.redaction.toolOn);
     }
   };
+  // How the shape tool draws (B4-05).
+  const [shapeStyle, setShapeStyle] = useState<{ kind: ShapeToolKind; color: InkColor; width: InkWidth }>({
+    kind: "rectangle",
+    color: "black",
+    width: "medium",
+  });
+  const toggleShape = () => {
+    if (tool?.kind === "shape") {
+      setTool(null);
+    } else {
+      setTool({ kind: "shape", shapeKind: shapeStyle.kind, color: shapeStyle.color, width: shapeStyle.width });
+      showHint(strings.annotations.shapeOn(strings.annotations.shapeKinds[shapeStyle.kind]));
+    }
+  };
+  const changeShapeKind = (kind: ShapeToolKind) => {
+    const next = { ...shapeStyle, kind };
+    setShapeStyle(next);
+    if (tool?.kind === "shape") {
+      setTool({ kind: "shape", shapeKind: kind, color: next.color, width: next.width });
+      showHint(strings.annotations.shapeOn(strings.annotations.shapeKinds[kind]));
+    }
+  };
+  const changeShapeColor = (color: InkColor) => {
+    const next = { ...shapeStyle, color };
+    setShapeStyle(next);
+    if (tool?.kind === "shape") {
+      setTool({ kind: "shape", shapeKind: next.kind, color, width: next.width });
+    }
+  };
+  const changeShapeWidth = (width: InkWidth) => {
+    const next = { ...shapeStyle, width };
+    setShapeStyle(next);
+    if (tool?.kind === "shape") {
+      setTool({ kind: "shape", shapeKind: next.kind, color: next.color, width });
+    }
+  };
   const inkStyle = (change: Partial<{ color: InkColor; width: InkWidth }>) => {
     const next = { ...ink, ...change };
     setInk(next);
@@ -894,14 +977,17 @@ export function ReaderShell({
     if (!tool || !active) return;
     // Esc comes after an open menu has had it: that only closes the menu.
     const onEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setTool(null);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setTool(null);
+      }
     };
     // Enter is the stamp's (or the text box's) only where the user is looking at the page, or at
     // the tool's own button (which gets the focus back when its menu closes); elsewhere it does
     // what it does. It comes before the button sees it: Enter on the stamp's button would open its
     // menu.
     const onEnter = (event: KeyboardEvent) => {
-      if (event.key !== "Enter" || tool.kind === "pen" || !chosenPage || !edit) return;
+      if (event.key !== "Enter" || tool.kind === "pen" || tool.kind === "shape" || !chosenPage || !edit) return;
       const target = event.target;
       const here =
         !(target instanceof Element) ||
@@ -939,6 +1025,42 @@ export function ReaderShell({
       window.removeEventListener("keydown", onEnter, true);
     };
   }, [tool, active, chosenPage, currentPage, edit, annotations]);
+
+  // Esc exits fullscreen when no dialogs, menus, tools, or search are open (B4-03).
+  useEffect(() => {
+    if (!fullscreen || presentation !== null || !active) return;
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (
+        dialog !== null ||
+        linkDialog !== null ||
+        detailsOpen ||
+        signaturesOpen ||
+        searchOpen ||
+        tool !== null
+      ) {
+        return;
+      }
+      event.preventDefault();
+      windowApi.setFullscreen(false).then(
+        (result) => setFullscreen(result),
+        () => {},
+      );
+    };
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [
+    fullscreen,
+    presentation,
+    active,
+    dialog,
+    linkDialog,
+    detailsOpen,
+    signaturesOpen,
+    searchOpen,
+    tool,
+    windowApi,
+  ]);
   // Changes an earlier run of the app left for the file (B2-13): made again or discarded. The tab's
   // new state comes on the open-events channel.
   const recovery = document_?.recovery ?? "none";
@@ -1047,9 +1169,14 @@ export function ReaderShell({
     toggleSidebar: () => setSidebarOpen((open) => !open),
     nextRegion: () => focusRegion(shellRef.current, 1),
     previousRegion: () => focusRegion(shellRef.current, -1),
+    fullscreen: () => {
+      toggleFullscreen();
+    },
+    presentation: whenOpen(() => startPresentation(false)),
+    presentationCurrent: whenOpen(() => startPresentation(true)),
     help: () => setDialog("shortcuts"),
     searchAll: () => textIndex?.openSearchAll(),
-  }, active);
+  }, active && presentation === null);
 
   /**
    * Links inside the document jump right away. A web link is described by the main process
@@ -1275,6 +1402,8 @@ export function ReaderShell({
           onRotate={(direction) => setRotation((r) => rotate(r, direction))}
           onSearch={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
           onThemeChange={setTheme}
+          fullscreen={fullscreen}
+          onToggleFullscreen={toggleFullscreen}
           onShowShortcuts={() => setDialog("shortcuts")}
           onShowAbout={() => setDialog("about")}
           onShowSettings={() => setDialog("settings")}
@@ -1402,6 +1531,20 @@ export function ReaderShell({
                   onToggle: annotations.enabled ? togglePen : undefined,
                   onColor: (color) => inkStyle({ color }),
                   onWidth: (width) => inkStyle({ width }),
+                }
+              : undefined
+          }
+          shape={
+            editingApi !== undefined && doc !== undefined
+              ? {
+                  active: toolOn?.kind === "shape",
+                  kind: shapeStyle.kind,
+                  color: shapeStyle.color,
+                  width: shapeStyle.width,
+                  onToggle: annotations.enabled ? toggleShape : undefined,
+                  onKind: changeShapeKind,
+                  onColor: changeShapeColor,
+                  onWidth: changeShapeWidth,
                 }
               : undefined
           }
@@ -1750,6 +1893,19 @@ export function ReaderShell({
           sensitive={document_?.sensitive === true}
           capture={captureProtection}
         />
+        {presentation !== null && document_ !== null && renderer !== undefined && (
+          <PresentationMode
+            doc={document_.doc}
+            pages={document_.pages}
+            rotation={rotation}
+            page={presentation.page}
+            renderer={renderer}
+            links={linkSource}
+            onPageChange={(nextPage) => setPresentation({ page: nextPage })}
+            onClose={closePresentation}
+            onLinkActivate={activateLink}
+          />
+        )}
       </div>
       {linkDialog?.kind === "confirm" && (
         <LinkConfirmDialog

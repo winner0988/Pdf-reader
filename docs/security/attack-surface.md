@@ -24,7 +24,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 邊界 | 不可信的一方 | 通道 | 主要的防線 |
 |---|---|---|---|
-| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 88 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
+| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 89 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
 | worker → 主行程 | `pdf_worker`（假設已被惡意檔案控制） | worker 標準輸入、輸出上的 postcard frame，每個 ≤ `MAX_FRAME_BYTES`（80 MiB） | 沙盒（§2.1）；每個回應都先驗證（§2.2）；逾時 |
 | 檔案 → worker | PDF 與其他要讀的檔案 | 主行程開好的唯讀檔案代號，或主行程讀好的位元組 | 沙盒；程式庫見 §2.3 |
 | 檔案 → 主行程 | app 資料夾的檔案；使用者匯入的語言資料、字型、`.pfx` | 主行程自己讀 | 大小上限與格式檢查（§3） |
@@ -38,9 +38,9 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 3. 寫到使用者的檔案時，先寫同一個資料夾裡新建的暫存檔，寫完（存檔還要再檢查）才改名取代。批次只寫新的檔名，不取代任何檔案（§6）。
 4. 只有 `src-tauri/src/update_check.rs` 會連網，而且只在使用者按「檢查更新」時（ADR 0009，§5）。
 
-## 1. 前端能呼叫的命令（88 個）
+## 1. 前端能呼叫的命令（89 個）
 
-- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 88 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
+- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 89 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
 - **自由文字**：沒有命令接受路徑或 URI。會帶自由文字的只有這些參數：密碼、剪貼簿的文字、搜尋字串、個資的關鍵字、註解與文字方塊的文字、表單欄位的值、書籤標題、浮水印與頁面標記的文字、簽章的理由、設定、OCR 語言代碼。
 - **參數檢查**：參數先由 serde 解碼成固定的型別，型別不對就拒絕；再由 `crates/ipc_contract/src/validate.rs` 檢查（表中寫成 `XxxArgs`）。上限都在 `crates/ipc_contract/src/limits.rs`。主行程沒有另外限制一個 IPC 訊息的大小，參數整個解碼後才檢查（§9）。
 - **對話框**：都是 Windows 的 `IFileDialog`（`src-tauri/src/file_dialog.rs`），一律加 `FOS_FORCEFILESYSTEM | FOS_DONTADDTORECENT`，只能選真的檔案，也不記入 Windows 的最近使用。另存的對話框再加 `FOS_OVERWRITEPROMPT`。
@@ -63,7 +63,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `close_tab` | 關閉分頁，結束它的 worker | 分頁代號 | 清掉文字比較的快取 | `tabs.spec.ts` |
 | `set_active_tab` | 視窗顯示哪個分頁（給視窗標題用） | 分頁代號 | — | `tabs.spec.ts` |
 
-### 1.2 閱讀（12 個）
+### 1.2 閱讀（13 個）
 
 | 命令 | 做什麼 | 主行程的檢查與上限 | 對話框、寫入、行程 | 測試 |
 |---|---|---|---|---|
@@ -79,6 +79,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `find_personal_data` | 找個資，回傳數量與遮掉一部分的預覽 | `FindPersonalDataQuery`：類別 ≤ 10 個；關鍵字只能配它的類別，不得空白，≤ 1024 bytes | `FindPersonalData` | `redaction.spec.ts`；worker `personal_data.rs` |
 | `get_attachments` | 附件清單（清理過的名稱、宣稱的大小、類型是否危險） | 文件代號 | `GetAttachments` | `attachments.spec.ts`；worker `attachments.rs` |
 | `save_attachment` | 把一個附件存到使用者選的地方；app 從不開啟附件（ADR 0025） | 附件代號必須在清單裡；目的地不得是文件自己的檔案（`same_file`），而且要可寫（`check_writable`） | 另存對話框（附件的副檔名，加 `*.*`）；worker 以只能寫的代號寫到暫存檔，再改名；加上 `Zone.Identifier`（來自網際網路） | `attachments.spec.ts`；`documents.rs`（`an_attachment_is_saved_as_it_is_and_marked_as_from_the_internet`）；`attachments.rs` |
+| `set_fullscreen` | 設定視窗進出全螢幕（B4-03） | `on: bool` | — | `presentation.spec.ts` |
 
 ### 1.3 連結、外部網址與檢查更新（10 個）
 
@@ -226,9 +227,9 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 程式庫 | 解析什麼 | `unsafe` | fuzz |
 |---|---|---|---|
-| MuPDF 1.27.2（`mupdf` =0.8.0、`mupdf-sys` =0.8.0） | PDF（含內嵌的字型與圖片）、PNG、JPEG、EPUB、HTML、SVG、XPS、docx、xlsx、pptx、純文字 | C 程式庫；`owner_password.rs` 直接呼叫 C 函式 | `open_document`、`create_pdf`、`compress_images`、`exif_clean`；缺的見 #426、#427、#428 |
-| Tesseract、Leptonica（MuPDF 內建的 Artifex 版本） | `.traineddata`、掃描頁的像素 | C++、C；呼叫集中在 `ocr.rs` | 沒有（#431） |
-| skrifa 0.49、subsetter 0.2.6 | 文字方塊與匯入用的字型 | 純 Rust，沒有 `unsafe` | `text_box_font`（`InspectFont` 沒有，#428） |
+| MuPDF 1.27.2（`mupdf` =0.8.0、`mupdf-sys` =0.8.0） | PDF（含內嵌的字型與圖片）、PNG、JPEG、EPUB、HTML、SVG、XPS、docx、xlsx、pptx、純文字 | C 程式庫；`owner_password.rs` 直接呼叫 C 函式 | `open_document`、`create_pdf`、`compress_images`、`exif_clean`、`stamp_image`；缺的見 #426、#427 |
+| Tesseract、Leptonica（MuPDF 內建的 Artifex 版本） | `.traineddata`、掃描頁的像素 | C++、C；呼叫集中在 `ocr.rs` | `ocr`（#431） |
+| skrifa 0.49、subsetter 0.2.6 | 文字方塊與匯入用的字型 | 純 Rust，沒有 `unsafe` | `text_box_font`（含 `InspectFont`，#428） |
 | Windows CryptoAPI（`crypt.rs`） | 簽章的 CMS 與憑證；憑證鏈只用本機的快取 | Windows | 沒有：Linux 的 fuzz 跑不到（#426 只 fuzz 讀簽章欄位） |
 | jpeg-encoder 0.7.1 | 只編碼 worker 自己渲染的像素，不解析輸入 | 純 Rust（不開 `simd`） | 不需要 |
 
@@ -255,7 +256,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `WriteAttachment` | 解碼附件（≤ 512 MiB），寫到只能寫的代號 | `engine/attachments.rs` | worker `attachments.rs` | `read_document`（至多前 2 個，上限 1 MiB，#426） |
 | `GetTextBox` | 文字方塊註解 | `engine/text_box.rs` | worker `text_box_worker.rs` | `read_document`（前兩頁，#426） |
 | `ExportDocx` | 頁面的文字與圖片，寫成 .docx | `engine/docx.rs` | worker `docx.rs` | `open_document` |
-| `Edit` | 26 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs` | `edit_document` |
+| `Edit` | 29 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs` | `edit_document`（26 種；#478 加的 `AddShape`、`SetLineEnds`、`SetShapeStyle` 還沒有） |
 | `Revert` | 從保留的位元組重新開啟，再做一次編輯 | `engine.rs` | worker `saving.rs`、`merge.rs` | `edit_document` |
 | `Rebase` | 把剛存的檔案當成 undo 的起點；只保留位元組，不解析 | `serve.rs` | worker `saving.rs` | 不需要 |
 | `Save` | 寫出整份文件；已簽章的文件以增量更新 | `engine.rs` | worker `saving.rs`、`save_poc.rs` | `text_box_font`、`edit_document` |
@@ -270,17 +271,17 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `WriteIdentifier` | 以增量更新寫入或拿掉 app 的文件識別碼（ADR 0010） | `engine/identifier.rs` | worker `sensitive.rs` | `edit_document` |
 | `PrepareSignature` | 以增量更新加上簽章欄位，留空位給 CMS | `engine/signing.rs` | `documents.rs`（`a_prepared_copy_is_signed_in_its_room_and_nowhere_else`）；`signing.spec.ts` | `edit_document` |
 | `PrepareSource` | 另一個 PDF（唯讀代號、可能的密碼）做成乾淨的副本 | `engine.rs` | worker `merge.rs` | `edit_document` |
-| `PrepareStampImage` | PNG 或 JPEG（≤ 16 MiB） | `engine/stamp_image.rs` | worker `stamp_image.rs`、`watermark.rs` | 沒有（#428） |
+| `PrepareStampImage` | PNG 或 JPEG（≤ 16 MiB） | `engine/stamp_image.rs` | worker `stamp_image.rs`、`watermark.rs` | `stamp_image`（#428） |
 | `PrepareTextBox`、`PrepareTextBoxes` | 字型檔（≤ 64 MiB） | `engine/text_box.rs`、`engine/text_box/` | worker `text_box_worker.rs`、`fonts.rs` | `text_box_font` |
-| `InspectFont` | 要匯入的字型檔 | `engine/text_box/font.rs` | worker `text_box_worker.rs` | 沒有（#428） |
+| `InspectFont` | 要匯入的字型檔 | `engine/text_box/font.rs` | worker `text_box_worker.rs` | `text_box_font`（#428） |
 | `CreatePdf` | 圖片、HTML、純文字、EPUB、XPS、SVG、docx、xlsx、pptx（唯讀代號） | `engine/create.rs` | worker `create_pdf.rs` | `create_pdf` |
-| `OcrLoad` | `.traineddata`（≤ 64 MiB；worker 再跑一次 `check_language_data`） | `ocr.rs` | worker `ocr.rs` | 沒有（#431） |
-| `OcrPage`、`OcrPoll`、`OcrStop` | 掃描頁：判斷、渲染成灰階、辨識、做成文字層 | `engine/ocr.rs`、`ocr_worker.rs`、`text_layer.rs` | worker `ocr.rs`、`search_cache.rs` | 沒有（#431） |
+| `OcrLoad` | `.traineddata`（≤ 64 MiB；worker 再跑一次 `check_language_data`） | `ocr.rs` | worker `ocr.rs` | `ocr`（#431） |
+| `OcrPage`、`OcrPoll`、`OcrStop` | 掃描頁：判斷、渲染成灰階、辨識、做成文字層 | `engine/ocr.rs`、`ocr_worker.rs`、`text_layer.rs` | worker `ocr.rs`、`search_cache.rs` | `ocr`（#431） |
 | `Close` | 關閉文件 | `serve.rs` | `tabs.spec.ts` | `worker_messages` |
 | `Cancel` | 主行程目前不送；worker 收到也不處理 | `serve.rs` | — | `worker_messages` |
 | `Shutdown` | 主行程目前不送（直接結束 worker）；worker 收到就結束 | `serve.rs` | `crates/ipc_contract/src/frame.rs` | `worker_messages` |
 
-### 2.5 編輯（`WorkerEdit`，26 種）
+### 2.5 編輯（`WorkerEdit`，29 種）
 
 前端送的是 `Edit`，主行程檢查後轉成 `WorkerEdit`。插入的頁面來源與文字方塊的字型子集是主行程留著的，前端不能直接給位元組。
 
@@ -294,6 +295,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `SetFieldValue`、`FlattenForm` | 頁碼；值過 `check_field_value` |
 | `AddRedaction`、`AddRedactionGroup`、`ApplyRedactions` | 頁碼；矩形；一組 ≤ `MAX_REDACTION_GROUP_RECTS` |
 | `AddInk` | 頁碼；筆畫不得為空，≤ `MAX_INK_STROKES`；點數 ≤ `MAX_INK_POINTS`；顏色與筆寬是固定的選項 |
+| `AddShape`、`SetLineEnds`、`SetShapeStyle` | 頁碼；矩形或線段端點座標；形狀、箭頭、顏色與線寬是固定的選項 |
 | `AddStamp`、`AddImageStamp` | 頁碼；矩形；圖章名稱是固定的選項；圖片是 `PrepareStampImage` 做好的 PNG |
 | `SetTextBox`、`PlaceTextBox` | 頁碼；矩形；樣式（`TextBoxStyle::validate`）；字是 `PrepareTextBox` 做好的模型 |
 | `AddBookmark`、`RenameBookmark`、`DeleteBookmark`、`MoveBookmark` | 位置 ≤ `MAX_OUTLINE_ITEMS`；頁碼；標題不得空白、≤ `MAX_TEXT_BYTES`、不含控制字元（`check_clean`） |
@@ -307,11 +309,11 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 資料 | 從哪裡來 | 怎麼檢查 | 測試 | fuzz |
 |---|---|---|---|---|
 | `.pfx`、`.p12` | 使用者選的檔案（≤ 1 MiB） | Windows 的 `PFXImportCertStore`，加 `PKCS12_NO_PERSIST_KEY \| PKCS12_ALWAYS_CNG_KSP`：金鑰不存到磁碟、不能匯出。憑證鏈加 `CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL`、`CERT_CHAIN_DISABLE_AUTH_ROOT_AUTO_UPDATE`，不連網（ADR 0020） | `signing.rs` 11 個（`the_test_certificate_signs_two_parts_and_leaves_no_key_behind`、`a_wrong_password_or_a_file_that_is_no_certificate_says_only_that` 等） | 不做：Windows 的程式碼，ADR 0020 接受的設計（§9） |
-| `.traineddata` | 使用者匯入（≤ 64 MiB） | `check_language_data`：目錄的項目數 23–64，位移不倒退、不超出檔案，要有 LSTM 模型、字元集與 recoder | `crates/ipc_contract/src/ocr.rs` 8 個 | 沒有（#429） |
-| 字型 | 使用者匯入（≤ 64 MiB） | 副檔名、大小、`check_import_header`；之後由新的 worker 檢查（`InspectFont`） | `fonts.rs` 14 個（`unc_network_device_and_traversal_paths_are_strictly_rejected` 等） | 檔頭沒有（#429）；`InspectFont` 沒有（#428） |
-| 檢查更新的回覆 | 網路（§5） | ≤ 1 MiB；serde_json；只讀版本號 | `update_check.rs` 6 個（`reads_versions_and_nothing_else`、`anything_unexpected_is_a_failure` 等） | 沒有（#429） |
-| `settings.json`、`recent.json`、`sensitive.json`、`fonts\metadata.json` | app 資料夾 | 先限制大小（`local_data.rs`：`settings.json` 64 KiB、`recent.json` 512 KiB、`sensitive.json` 2 MiB），不是 app 寫的內容就當成沒有 | `local_data.rs`（`writes_whole_files_and_reads_them_back_within_a_limit`）、`settings.rs`（`a_file_the_app_did_not_write_gives_the_defaults`）、`recent.rs`、`sensitive.rs` | 沒有（#429） |
-| 復原日誌 | app 資料夾的 `recovery\`（每個 ≤ 4 MiB） | 當成不可信的資料檢查 | `recovery.rs`（`journals_are_checked_as_untrusted_data` 等 14 個） | 沒有（#429） |
+| `.traineddata` | 使用者匯入（≤ 64 MiB） | `check_language_data`：目錄的項目數 23–64，位移不倒退、不超出檔案，要有 LSTM 模型、字元集與 recoder | `crates/ipc_contract/src/ocr.rs` 8 個 | `language_data`（#429） |
+| 字型 | 使用者匯入（≤ 64 MiB） | 副檔名、大小、`check_import_header`；之後由新的 worker 檢查（`InspectFont`） | `fonts.rs` 15 個（含檔頭與中繼資料的截斷／變異測試） | 檔頭由單元變異測試驗證（#429）；`InspectFont` 有（`text_box_font`，#428） |
+| 檢查更新的回覆 | 網路（§5） | ≤ 1 MiB；serde_json；只讀版本號 | `update_check.rs` 7 個（含 `interpret` 的截斷／變異測試） | 由單元變異測試驗證（#429） |
+| `settings.json`、`recent.json`、`sensitive.json`、`fonts\metadata.json` | app 資料夾 | 先限制大小（`local_data.rs`：`settings.json` 64 KiB、`recent.json` 512 KiB、`sensitive.json` 2 MiB、`metadata.json` 512 KiB），不是 app 寫的內容就當成沒有 | `local_data.rs`、`settings.rs`、`recent.rs`、`sensitive.rs`、`fonts.rs`（各模組皆有截斷、變異與隨機輸入測試） | 由單元變異測試驗證（#429） |
+| 復原日誌 | app 資料夾的 `recovery\`（每個 ≤ 4 MiB） | 當成不可信的資料檢查 | `recovery.rs` 15 個（含截斷、變異與隨機輸入測試） | 由單元變異測試驗證（#429） |
 | 文字索引 | app 資料夾的 `index\`（金鑰 ≤ 4 KiB，目錄與文件 ≤ 32 MiB） | AES-256-GCM；金鑰以 DPAPI 保護。不是 app 寫的檔案在解析前就被拒絕 | `text_index.rs` 24 個（`nothing_on_the_disk_can_be_read_without_the_key` 等）、`index_crypto.rs` 3 個 | 不需要（先驗證才解析） |
 | 認證管理員裡的密碼 | app 自己寫的項目（`PdfReader/password/v1/<key>`） | 鍵是 worker 從檔案的加密資訊算出的雜湊（`PasswordKey`，ADR 0017）；項目裡沒有檔名、路徑或內容 | `credentials.rs` 7 個 | 不需要 |
 | 命令列、第二次啟動的參數 | 其他程式（§8） | 只當成檔案路徑 | `cli.rs` 3 個 | 不需要 |
@@ -320,7 +322,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 項目 | 設定 | 檢查 |
 |---|---|---|
-| capability | `src-tauri/capabilities/main.json`：只給 `main` 視窗；88 個 `allow-*`；沒有 `core:*`、`dialog`、`fs`；沒有 `remote`，外部網頁拿不到 IPC | `check-security-config.mjs`（靜態）；`refused-commands.spec.ts`（#425） |
+| capability | `src-tauri/capabilities/main.json`：只給 `main` 視窗；89 個 `allow-*`；沒有 `core:*`、`dialog`、`fs`；沒有 `remote`，外部網頁拿不到 IPC | `check-security-config.mjs`（靜態）；`refused-commands.spec.ts`（#425） |
 | CSP | `default-src 'self'`、`script-src 'self'`、`style-src 'self'`、`img-src 'self' data: blob:`、`font-src 'self'`、`connect-src ipc: http://ipc.localhost`、`object-src`／`base-uri`／`form-action`／`frame-src` 都是 `'none'` | `check-security-config.mjs`（正式版與 `vite.config.ts` 的開發用 CSP）；`check-dist.mjs`（建置產物不引用外部資源） |
 | 全域 API | `withGlobalTauri: false` | — |
 | 開發人員工具 | `tauri` 沒有開 `devtools` 功能，正式版沒有開發人員工具 | 人工檢查（manual-checks §3） |
@@ -413,9 +415,9 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 執行中的 app 會拒絕沒授權的命令（§4） | 已由 #425 補上測試（`refused-commands.spec.ts`） | 否 |
 | 已由 #426 拆出 `read_document` 目標完成 fuzz（§2.4） | #426 | 是 |
 | fuzz 沒有走到的編輯、存檔、副本（§2.4、§2.5；已由 #427 於 `edit_document` 目標測試） | #427 | 是 |
-| fuzz 沒有走到圖章圖片與匯入字型的檢查（§2.4） | #428 | 是 |
-| 主行程自己解析的資料沒有 fuzz（§3） | #429 | 是 |
-| OCR 的語言資料與掃描頁沒有 fuzz（§2.3、§2.4） | #431 | 是 |
+| 已在 #428 補上：圖章圖片（`PrepareStampImage`，新目標 `stamp_image`）與匯入字型（`InspectFont`，併入 `text_box_font`）的 fuzz（§2.4） | #428 | 是 |
+| 主行程自己解析的資料沒有 fuzz（§3；已由 #429 補上 language_data fuzz 目標與主行程解析器變異測試） | #429 | 是 |
+| OCR 的語言資料與掃描頁沒有 fuzz（§2.3、§2.4） | 已由 #431 補上目標（`ocr`） | 是 |
 | `retry_open`、`cancel` 在主行程這一側沒有測試（§1.1、§1.2；已由 #432 於 `retry-open-and-cancel.spec.ts` 測試） | #432 | 否 |
 | 拖放開檔列入人工檢查（manual-checks §3.14），`commands.rs` 註解已更正（§8） | #436（已完成） | 否 |
 | 這份清單與程式碼一致的 CI 檢查 | 已由 #430 實作（`check-security-config.mjs`） | 是 |

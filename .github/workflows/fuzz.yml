@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [worker_messages, open_document, read_document, text_box_font, compress_images, create_pdf, exif_clean, edit_document]
+        target: [worker_messages, open_document, read_document, text_box_font, compress_images, create_pdf, exif_clean, stamp_image, language_data, ocr, edit_document]
     env:
       FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '120' || '1200' }}
       # MuPDF and its C libraries get coverage and AddressSanitizer like the Rust code. Only
@@ -66,13 +66,16 @@ jobs:
           cargo install cargo-fuzz --version 0.13.2 --locked
       - name: Seed corpus
         run: |
-          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/read_document fuzz/corpus/text_box_font fuzz/corpus/compress_images fuzz/corpus/create_pdf fuzz/corpus/exif_clean fuzz/corpus/edit_document
+          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/read_document fuzz/corpus/text_box_font fuzz/corpus/compress_images fuzz/corpus/create_pdf fuzz/corpus/exif_clean fuzz/corpus/stamp_image fuzz/corpus/language_data fuzz/corpus/ocr fuzz/corpus/edit_document
           env -u CC -u CXX -u CFLAGS cargo run --locked -q -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/worker_messages
+          env -u CC -u CXX -u CFLAGS cargo run --locked -q -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/language_data language_data
+          head -c 1048576 src-tauri/resources/tessdata/eng.traineddata > fuzz/corpus/language_data/eng_1m.traineddata
           # The generated test corpus (QA-01); the 200 MB files are only made on demand.
           find tests/corpus -name '*.pdf' -not -path '*/large/*' -exec cp {} fuzz/corpus/open_document/ \;
           cp fuzz/corpus/open_document/* fuzz/corpus/read_document/
           cp fuzz/corpus/open_document/* fuzz/corpus/compress_images/
           cp fuzz/corpus/open_document/* fuzz/corpus/exif_clean/
+          cp tests/corpus/images/* fuzz/corpus/stamp_image/
           # Files to make a PDF of (B3-03): the first byte is the number of the kind of file, in the
           # order of KINDS in fuzz/fuzz_targets/create_pdf.rs.
           seed() { printf "\x$1" | cat - "$2" > "fuzz/corpus/create_pdf/$(basename "$2")"; }
@@ -86,6 +89,11 @@ jobs:
           seed 06 tests/corpus/sources/bomb-declared-size.docx
           seed 07 tests/corpus/sources/sheet.xlsx
           seed 08 tests/corpus/sources/slides.pptx
+          # OCR seeds (QA-03, #431): 00 for language data, 01 for scanned pages
+          seed_ocr() { printf "\x$1" | cat - "$2" > "fuzz/corpus/ocr/$(basename "$2")"; }
+          seed_ocr 00 src-tauri/resources/tessdata/eng.traineddata
+          seed_ocr 01 tests/corpus/benign/scanned-text.pdf
+          seed_ocr 01 tests/corpus/benign/image-only.pdf
           # Edits, saves and copies of an untrusted PDF (Issue #427):
           # Prepend 32 bytes to each PDF, cycling secondary actions and edits across seeds.
           action=0
@@ -122,7 +130,7 @@ jobs:
       - name: Fuzz
         run: |
           max_len=1048576
-          if [ "${{ matrix.target }}" = text_box_font ]; then max_len=5242880; fi
+          if [ "${{ matrix.target }}" = text_box_font ] || [ "${{ matrix.target }}" = ocr ]; then max_len=5242880; fi
           cargo +nightly fuzz run ${{ matrix.target }} fuzz/corpus/${{ matrix.target }} -- \
             -max_total_time="$FUZZ_SECONDS" -max_len="$max_len" -rss_limit_mb=4096 \
             -print_final_stats=1 > fuzz.log 2>&1

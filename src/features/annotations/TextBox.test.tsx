@@ -42,6 +42,9 @@ const box: PageAnnotation = {
   color: null,
   picture: null,
   text: "Hello 你好",
+  lineEnds: null,
+  shapeColor: null,
+  shapeWidth: null,
 };
 const INFO: TextBoxInfo = {
   text: "Hello 你好",

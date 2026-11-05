@@ -1084,4 +1084,62 @@ mod tests {
             .is_none()
         );
     }
+
+    #[test]
+    fn recovery_handles_arbitrary_and_mutated_inputs_without_panic() {
+        struct XorShift64(u64);
+        impl XorShift64 {
+            fn next_u64(&mut self) -> u64 {
+                let mut x = self.0;
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                self.0 = x;
+                x
+            }
+            fn next_u8(&mut self) -> u8 {
+                self.next_u64() as u8
+            }
+        }
+
+        let folder = Folder::new();
+        let dir = folder.0.join(FOLDER_NAME);
+        fs::create_dir_all(&dir).unwrap();
+        let journal_file = dir.join(format!("{:032x}.json", 1));
+
+        let valid_sample = encode(&file(), identity(1_000), &edits(), Named::default(), 0).unwrap();
+
+        // 1. Truncations of sample
+        for len in (0..=valid_sample.len()).step_by(4) {
+            fs::write(&journal_file, &valid_sample[..len]).unwrap();
+            let _ = read(&journal_file, &file());
+        }
+
+        // 2. Single-byte mutations at each position
+        for pos in (0..valid_sample.len()).step_by(2) {
+            for mutated_byte in [0x00, 0x7f, 0xff, b'{', b'"', b'0', b':', b','] {
+                let mut mutated = valid_sample.clone();
+                mutated[pos] = mutated_byte;
+                fs::write(&journal_file, &mutated).unwrap();
+                let _ = read(&journal_file, &file());
+            }
+        }
+
+        // 3. Pseudo-random inputs with fixed seed
+        let mut rng = XorShift64(0x123456789abcdef0);
+        for _ in 0..300 {
+            let len = (rng.next_u64() as usize) % 512;
+            let mut buf = vec![0u8; len];
+            for b in &mut buf {
+                *b = rng.next_u8();
+            }
+            fs::write(&journal_file, &buf).unwrap();
+            let _ = read(&journal_file, &file());
+        }
+
+        // 4. Over size limit (MAX_JOURNAL_BYTES = 4 MiB)
+        let oversized = vec![b'a'; MAX_JOURNAL_BYTES + 1024];
+        fs::write(&journal_file, &oversized).unwrap();
+        assert!(read(&journal_file, &file()).is_none());
+    }
 }

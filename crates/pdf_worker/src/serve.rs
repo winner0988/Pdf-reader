@@ -819,6 +819,31 @@ pub fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), Engine
             width,
         } => document.add_ink(*page, strokes, *color, *width)?,
         WorkerEdit::AddStamp { page, rect, stamp } => document.add_stamp(*page, *rect, *stamp)?,
+        WorkerEdit::AddShape {
+            page,
+            shape,
+            color,
+            width,
+        } => document.add_shape(*page, shape, *color, *width)?,
+        WorkerEdit::SetLineEnds {
+            page,
+            annotation,
+            from,
+            to,
+        } => document.set_line_ends(
+            *page,
+            *annotation,
+            ipc_contract::types::LineEnds {
+                from: *from,
+                to: *to,
+            },
+        )?,
+        WorkerEdit::SetShapeStyle {
+            page,
+            annotation,
+            color,
+            width,
+        } => document.set_shape_style(*page, *annotation, *color, *width)?,
         WorkerEdit::SetAnnotationRect {
             page,
             annotation,
