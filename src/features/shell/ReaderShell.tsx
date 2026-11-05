@@ -86,6 +86,7 @@ import { SourcePasswordDialog } from "@/features/thumbnails/SourcePasswordDialog
 import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
 import { useTheme } from "@/features/theme/useTheme";
 import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
+import type { PageLayoutMode } from "@/features/viewer/layout";
 import {
   adjustHistoryForEdit,
   canGoBack,
@@ -309,6 +310,7 @@ export function ReaderShell({
   /** A passing message in the status bar; `id` counts them, so the same one shows anew each time. */
   const [hint, setHint] = useState<{ text: string; id: number } | null>(null);
   const [zoom, setZoom] = useState<Zoom>("fitWidth");
+  const [layoutMode, setLayoutMode] = useState<PageLayoutMode>("single");
   /** What a fit mode currently shows, so zoom steps continue from there. */
   const [fitPercent, setFitPercent] = useState(100);
   const [rotation, setRotation] = useState<Rotation>(0);
@@ -384,6 +386,7 @@ export function ReaderShell({
   }
   if (viewedDocument !== document_ && !sameSession(viewedDocument, document_)) {
     setZoom("fitWidth");
+    setLayoutMode("single");
     setRotation(0);
     setCurrentPage(1);
     setNavHistory(createNavigationHistory());
@@ -519,8 +522,9 @@ export function ReaderShell({
       page: currentPage,
       scrollTop: canvasRef.current?.scrollTop ?? 0,
       zoom,
+      layoutMode,
     }),
-    [currentPage, zoom],
+    [currentPage, zoom, layoutMode],
   );
 
   const recordCurrentNavigation = useCallback(() => {
@@ -533,8 +537,12 @@ export function ReaderShell({
     if (target.zoom !== zoom) setZoom(target.zoom);
     const clamped = Math.min(Math.max(target.page, 1), pageCount);
     setCurrentPage(clamped);
-    if (canvasRef.current) canvasRef.current.scrollTop = target.scrollTop;
-    viewRef.current?.scrollToLocation({ page: clamped, scrollTop: target.scrollTop });
+    if (target.layoutMode !== undefined && target.layoutMode !== layoutMode) {
+      viewRef.current?.scrollToPage(clamped);
+    } else {
+      if (canvasRef.current) canvasRef.current.scrollTop = target.scrollTop;
+      viewRef.current?.scrollToLocation({ page: clamped, scrollTop: target.scrollTop });
+    }
   };
 
   const goBack = () => {
@@ -1251,6 +1259,8 @@ export function ReaderShell({
           sidebarOpen={sidebarOpen && document_ !== null}
           searchOpen={searchOpen}
           theme={theme}
+          layoutMode={layoutMode}
+          onLayoutModeChange={setLayoutMode}
           pageInputRef={pageInputRef}
           canGoBack={canGoBack(navHistory)}
           canGoForward={canGoForward(navHistory)}
@@ -1576,6 +1586,7 @@ export function ReaderShell({
                       pages={document_.pages}
                       zoom={zoom}
                       rotation={rotation}
+                      layoutMode={layoutMode}
                       scrollContainer={canvasRef}
                       doc={document_.doc}
                       renderer={renderer}

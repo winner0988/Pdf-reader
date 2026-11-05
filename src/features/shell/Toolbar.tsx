@@ -41,6 +41,7 @@ import { ZOOM_LEVELS, type Zoom } from "@/features/shell/model";
 import { INK_COLORS, INK_SWATCH, INK_WIDTHS, STAMPS } from "@/features/annotations/tools";
 import type { HighlightColor, InkColor, InkWidth, StampName } from "@/ipc/generated/contract";
 import type { ThemePreference } from "@/features/theme/useTheme";
+import type { PageLayoutMode } from "@/features/viewer/layout";
 import { strings } from "@/i18n/zh-TW";
 
 const t = strings.toolbar;
@@ -50,6 +51,8 @@ export type ToolbarProps = {
   sidebarOpen: boolean;
   searchOpen: boolean;
   theme: ThemePreference;
+  layoutMode?: PageLayoutMode;
+  onLayoutModeChange?: (mode: PageLayoutMode) => void;
   pageInputRef?: Ref<HTMLInputElement>;
   canGoBack?: boolean;
   canGoForward?: boolean;
@@ -532,6 +535,22 @@ function MoreMenu(props: ToolbarProps) {
         <MoreHorizontal />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
+        {props.onLayoutModeChange && (
+          <>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>{menu.pageLayout}</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                value={props.layoutMode ?? "single"}
+                onValueChange={(value) => props.onLayoutModeChange?.(value as PageLayoutMode)}
+              >
+                <DropdownMenuRadioItem value="single">{menu.layoutSingle}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="twoPage">{menu.layoutTwoPage}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="twoPageCover">{menu.layoutTwoPageCover}</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuGroup>
           <DropdownMenuLabel>{menu.appearance}</DropdownMenuLabel>
           <DropdownMenuRadioGroup
