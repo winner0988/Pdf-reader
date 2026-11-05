@@ -2221,6 +2221,19 @@ pub async fn close_window(
     })
 }
 
+/// Sets whether `window` is full-screen (B4-03). Returns the resulting state.
+#[tauri::command]
+pub async fn set_fullscreen(window: WebviewWindow, on: bool) -> Result<bool, IpcError> {
+    window.set_fullscreen(on).map_err(|e| IpcError {
+        code: ErrorCode::Internal,
+        message: format!("could not set fullscreen: {e}"),
+    })?;
+    window.is_fullscreen().map_err(|e| IpcError {
+        code: ErrorCode::Internal,
+        message: format!("could not query fullscreen: {e}"),
+    })
+}
+
 /// Cancels a queued `render_page` request (it then fails with `cancelled`), a running search or a
 /// running export.
 #[tauri::command]

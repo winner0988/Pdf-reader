@@ -1160,6 +1160,7 @@ export const strings = {
     themeSystem: "跟隨系統",
     themeLight: "淺色",
     themeDark: "深色",
+    fullscreen: "全螢幕",
     shortcuts: "快捷鍵",
     about: "關於",
     setDefault: "設為預設 PDF 閱讀器",
@@ -1451,8 +1452,15 @@ export const strings = {
       toggleSidebar: "開關側欄",
       nextRegion: "移到下一個區域",
       previousRegion: "移到上一個區域",
+      fullscreen: "全螢幕",
+      presentation: "簡報模式（從第一頁）",
+      presentationCurrent: "簡報模式（從目前頁）",
       help: "快捷鍵說明",
     },
+  },
+  presentation: {
+    title: "簡報模式",
+    pageAnnouncement: (current: number, total: number) => `第 ${current} 頁，共 ${total} 頁`,
   },
   attachments: {
     title: "附件",

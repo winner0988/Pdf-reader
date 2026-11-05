@@ -69,6 +69,9 @@ export type ToolbarProps = {
   onThemeChange: (theme: ThemePreference) => void;
   onShowShortcuts: () => void;
   onShowAbout: () => void;
+  /** Whether the window is in full-screen mode (B4-03). */
+  fullscreen?: boolean;
+  onToggleFullscreen?: () => void;
   /** Opens the settings (B2-12); without it the menu has no settings item. */
   onShowSettings?: () => void;
   onSetDefault: () => void;
@@ -561,6 +564,15 @@ function MoreMenu(props: ToolbarProps) {
             <DropdownMenuRadioItem value="light">{menu.themeLight}</DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="dark">{menu.themeDark}</DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
+          {props.onToggleFullscreen && (
+            <DropdownMenuCheckboxItem
+              checked={props.fullscreen ?? false}
+              onCheckedChange={props.onToggleFullscreen}
+            >
+              {menu.fullscreen}
+              <DropdownMenuShortcut>F11</DropdownMenuShortcut>
+            </DropdownMenuCheckboxItem>
+          )}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={!props.onUndo} onClick={props.onUndo}>
