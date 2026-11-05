@@ -1137,7 +1137,8 @@ fn quad_contains(quad: &Quad, point: Point) -> bool {
 #[cfg(test)]
 mod tests {
     use ipc_contract::types::{
-        AnnotationId, AnnotationSummaryItem, AnnotationSummaryKind, PageText, Point, Quad, Rect, TextLine,
+        AnnotationId, AnnotationSummaryItem, AnnotationSummaryKind, PageText, Point, Quad, Rect,
+        TextLine,
     };
 
     use super::{SummaryBuilder, SummaryEntry, covered_text, quad_contains};

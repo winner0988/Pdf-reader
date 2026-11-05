@@ -10,22 +10,22 @@ use std::time::Duration;
 
 use ipc_contract::limits::MAX_BATCH_FILES;
 use ipc_contract::types::{
-    AnnotationId, AnnotationSummary, AnnotationSummaryFormat, AnnotationSummaryOutcome, AttachmentId, AttachmentInfo,
-    BatchArgs, BatchEvent, BatchOperation, BatchReport, CaptureProtection, CompareExportFormat,
-    CompareTextArgs, CompareTextResult, CompressArgs, CompressResult, CreateResult, DocumentId,
-    DocumentInfo, EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs, ExportArgs,
-    ExportCompareTextArgs, ExportCompareTextOutcome, ExportEvent, ExportFormat, FileRecordingArgs,
-    FindPersonalDataQuery, FontImport, FontInfo, FormField, IndexSearchArgs, IndexSearchEvent,
-    IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs,
-    OcrLanguages, OpenEvent, OpenIndexedArgs, OutlineLinkArgs, OutlineResult, PageAnnotation,
-    PageLink, PageMarksCopyArgs, PageText, PagesSource, Password, PersonalDataMatches,
-    PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
-    RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
-    RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult, SearchArgs,
-    SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs, SignCheck,
-    SignResult, SignatureReport, SigningFile, SigningFileKey, SigningKey, SigningStoreKey,
-    StampImageInfo, StoreCertificate, TabId, TextBoxInfo, TextIndexStatus, UndoArgs, UnlockArgs,
-    UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
+    AnnotationId, AnnotationSummary, AnnotationSummaryFormat, AnnotationSummaryOutcome,
+    AttachmentId, AttachmentInfo, BatchArgs, BatchEvent, BatchOperation, BatchReport,
+    CaptureProtection, CompareExportFormat, CompareTextArgs, CompareTextResult, CompressArgs,
+    CompressResult, CreateResult, DocumentId, DocumentInfo, EditArgs, EncryptArgs, ErrorCode,
+    ExportAnnotationSummaryArgs, ExportArgs, ExportCompareTextArgs, ExportCompareTextOutcome,
+    ExportEvent, ExportFormat, FileRecordingArgs, FindPersonalDataQuery, FontImport, FontInfo,
+    FormField, IndexSearchArgs, IndexSearchEvent, IpcError, LanguageImport, LinkArgs, LinkPreview,
+    MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OpenIndexedArgs, OutlineLinkArgs,
+    OutlineResult, PageAnnotation, PageLink, PageMarksCopyArgs, PageText, PagesSource, Password,
+    PersonalDataMatches, PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId,
+    RedactionSummary, RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs,
+    RenderPageArgs, RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult,
+    SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs,
+    SignCheck, SignResult, SignatureReport, SigningFile, SigningFileKey, SigningKey,
+    SigningStoreKey, StampImageInfo, StoreCertificate, TabId, TextBoxInfo, TextIndexStatus,
+    UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use ipc_contract::worker::{NewSignature, VisibleSignature};
