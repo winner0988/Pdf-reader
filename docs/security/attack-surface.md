@@ -5,7 +5,18 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 - **範圍**：數的是 `main` 的 `da1c4c8`（2026-10-31），並確認到 `b19384e`（2026-11-03）為止，清單涉及的程式碼與設定都沒有改過。命令以 `src-tauri/src/lib.rs` 的 `generate_handler!` 為準，worker 的請求以 `crates/ipc_contract/src/worker.rs` 為準，都逐一數過。
 - **整理方式**：由 AI（Claude）讀程式碼整理。AI 的整理不能取代人工安全審查（AGENTS.md）。寫「依程式碼」的項目，是讀程式碼得到的，沒有在 app 裡實際操作過。
 - **怎麼用**：缺口與對應的 Issue 在 §10。1.0 之前要做的人工檢查在 [manual-checks.md](manual-checks.md) §3。
-- **怎麼更新**：新增或修改命令、worker 請求、capability、寫入的位置或啟動的行程時，在同一個 PR 更新對應的列。要不要讓 CI 檢查這份清單與程式碼一致，見 #430（提議）。
+- **怎麼更新**：新增或修改命令、worker 請求、capability、寫入的位置或啟動的行程時，在同一個 PR 更新對應的列。CI 會自動檢查一致性（見下方 CI 一致性檢查說明）。
+- **CI 一致性檢查**（#430）：由 `scripts/ci/check-security-config.mjs` 自動比對這份清單與程式碼：
+  - `src-tauri/src/lib.rs` 的 `generate_handler!` 裡的每個命令，必須與 §1 各小節表格第一欄完全一致（雙向比對）；
+  - `crates/ipc_contract/src/worker.rs` 的 `WorkerRequest` 變體，必須與 §2.4 表格第一欄完全一致（雙向比對）；
+  - `crates/ipc_contract/src/worker.rs` 的 `WorkerEdit` 變體，必須與 §2.5 表格第一欄完全一致（雙向比對）；
+  - `src-tauri/capabilities/main.json` 的每個 `allow-<名稱>` 權限必須對應 §1 的命令；非 `allow-*` 的權限必須出現在 §4；
+  - 各節與小節標題中的數量標記（如 `（88 個）`、`（46 個）`、`（26 種）`、`（11 個）`）必須等於表格中的項目數，§1 大標題的數量必須等於底下各小節命令總數。
+  - **失敗時怎麼修**：
+    - 若新增或刪除命令：在 §1 對應的小節表格加列或刪列，並同步更新該小節標題與 §1 大標題的數量標記；
+    - 若新增或修改 worker 請求或編輯：在 §2.4 或 §2.5 的表格加列或刪列，並更新標題的數量標記；
+    - 若新增 capability 權限：若是命令權限（`allow-*`）確認命令已在 §1，其他權限確認已寫入 §4；
+    - 修改後在本機執行 `node scripts/ci/check-security-config.mjs` 與 `node --test scripts/ci/*.test.mjs` 確認通過。
 
 相關文件：[worker-sandbox.md](../architecture/worker-sandbox.md)、[ipc-contract.md](../architecture/ipc-contract.md)、[local-data.md](../architecture/local-data.md)、[offline-verification.md](offline-verification.md)、[fuzzing.md](fuzzing.md)、[ADR 0008](../adr/0008-pdf-worker-isolation.md)、[ADR 0009](../adr/0009-default-network-policy.md)。
 
@@ -406,4 +417,4 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | OCR 的語言資料與掃描頁沒有 fuzz（§2.3、§2.4） | #431 | 是 |
 | `retry_open`、`cancel` 在主行程這一側沒有測試（§1.1、§1.2；已由 #432 於 `retry-open-and-cancel.spec.ts` 測試） | #432 | 否 |
 | 拖放開檔列入人工檢查（manual-checks §3.14），`commands.rs` 註解已更正（§8） | #436（已完成） | 否 |
-| 這份清單與程式碼一致的 CI 檢查（提議） | #430 | 是 |
+| 這份清單與程式碼一致的 CI 檢查 | 已由 #430 實作（`check-security-config.mjs`） | 是 |
