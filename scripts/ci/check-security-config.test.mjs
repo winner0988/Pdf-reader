@@ -100,7 +100,23 @@ const offlineBundle = { windows: { webviewInstallMode: { type: "skip" } } };
 
 const QUIET_ARGUMENTS =
   "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-networking --no-proxy-server --disable-component-update";
-const quietWindows = [{ label: "main", additionalBrowserArgs: QUIET_ARGUMENTS }];
+const quietWindows = [{ label: "main", additionalBrowserArgs: QUIET_ARGUMENTS, create: false }];
+
+test("windows must set create: false so setup attaches security handlers", () => {
+  const config = (windows) => ({
+    app: { security: { csp: productionCsp }, windows },
+    bundle: offlineBundle,
+  });
+  assert.deepEqual(checkTauriConfig(config(quietWindows)), []);
+  assert.notDeepEqual(
+    checkTauriConfig(config([{ label: "main", additionalBrowserArgs: QUIET_ARGUMENTS, create: true }])),
+    [],
+  );
+  assert.notDeepEqual(
+    checkTauriConfig(config([{ label: "main", additionalBrowserArgs: QUIET_ARGUMENTS }])),
+    [],
+  );
+});
 
 test("dangerous Tauri settings are rejected", () => {
   const config = (security, app = {}) => ({

@@ -325,7 +325,8 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 全域 API | `withGlobalTauri: false` | — |
 | 開發人員工具 | `tauri` 沒有開 `devtools` 功能，正式版沒有開發人員工具 | 人工檢查（manual-checks §3） |
 | WebView2 的參數 | `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-networking --no-proxy-server --disable-component-update` | `network.spec.ts`（#121） |
-| 導覽 | 沒有 `on_navigation`：被注入的程式碼可以把頁面導到外部網址（依程式碼） | 沒有（#424） |
+| 導覽 | 主視窗設定 `on_navigation`（`src-tauri/src/navigation.rs`）：只允許 app 自己的頁面（正式版 `http://tauri.localhost`，debug `http://localhost:1420`），其餘 scheme、外部網域、帶認證或不同 port 一律拒絕 | `navigation.rs` 7 個；`navigation.spec.ts`（#424） |
+| 下載 | 主視窗設定 `on_download`，一律回傳 `false`（WebView2 `DownloadStarting` 取消）：頁面無法透過 `<a download>`、`blob:`、`data:` 下載任何檔案 | `navigation.spec.ts`（#424） |
 | 新視窗 | 沒有處理函式時，wry 0.57 把 `NewWindowRequested` 設成已處理，不開視窗 | — |
 | 剪貼簿 | 頁面可以寫，不能讀 | `clipboard.spec.ts`（#209） |
 | 列印 | 頁面的 `window.print` 打開 WebView2 的列印對話框 | `print.spec.ts` |
@@ -345,7 +346,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 位置 | 怎麼做到 | 檢查 |
 |---|---|---|
 | worker | AppContainer 沒有網路的 capability；執行檔不匯入網路 API | `network_is_blocked_even_to_localhost`、`worker_binary_imports_no_networking` |
-| WebView | CSP；WebView2 的參數 | `network.spec.ts`（WebView 什麼都不連）、`remote-references.spec.ts`（遠端參照一律不載入，ADR 0022） |
+| WebView | CSP；WebView2 的參數；`on_navigation` 只允許 app 自己的網址，`on_download` 封鎖下載 | `network.spec.ts`（WebView 什麼都不連）、`remote-references.spec.ts`（遠端參照一律不載入，ADR 0022）、`navigation.spec.ts`（#424） |
 | 依賴與程式碼 | 不得有 HTTP client、更新器、遙測 | `scripts/ci/check-forbidden.sh`、`scripts/ci/forbidden-patterns.txt`、`cargo deny check` |
 | 整個 app | 實際執行時觀察 | [offline-verification.md](offline-verification.md)；manual-checks §1 |
 
@@ -408,7 +409,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 |---|---|---|
 | 已在 #422 修正：請求期限從送出起算、不相符編號與種類不對時終止 worker 並標記 lost，以 fake_worker 測試協定違規（§2.2） | #422 | 是 |
 | 匯出純文字能取代文件自己的檔案（§1.8，已於 #423 修復） | #423 | 是（已修復） |
-| WebView 的導覽沒有限制（§4） | #424 | 是（提議，由負責人決定） |
+| WebView 的導覽沒有限制（§4，已於 #424 加上 on_navigation 與 on_download） | #424 | 是（已修復） |
 | 執行中的 app 會拒絕沒授權的命令（§4） | 已由 #425 補上測試（`refused-commands.spec.ts`） | 否 |
 | fuzz 沒有走到的讀取：註解、表單、文字方塊、頁面文字、個資、遮蔽摘要、註解摘要、附件、簽章欄位、以密碼開啟（§2.4） | #426 | 視做法 |
 | fuzz 沒有走到的編輯、存檔、副本（§2.4、§2.5） | #427 | 是 |
