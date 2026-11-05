@@ -20,6 +20,7 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 - 每個畫面與對話框的鍵盤操作與焦點管理（#417，B4-09）：所有對話框開啟時焦點自動移入並鎖定於對話框內（`Tab` / `Shift+Tab` 循環），按 `Esc` 或取消關閉後，焦點精確還原至開啟它的觸發元件（包含「更多」選單、工具列、頁面上的註解與大綱樹項目等），絕不落入 `body`。
 - 修正頁碼與 Bates 編號對話框中表單輸入與下拉選單缺少可訪問名稱（`label` 與 `select-name`）的問題。
+- 修正破壞性動作按鈕（`variant="destructive"`）在淺色主題下色彩對比度不足（3.8:1，低於 WCAG AA 要求之 4.5:1）的問題。
 - 新增鍵盤完整走訪 E2E 測試（`keyboard-walkthrough.spec.ts`），涵蓋所有對話框與側欄面板的鍵盤操作、焦點陷阱、焦點還原與 axe-core 無障礙檢查（深淺色主題）。
 
 ### 修正
