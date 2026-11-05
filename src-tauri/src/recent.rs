@@ -516,4 +516,71 @@ mod tests {
         );
         let _ = fs::remove_dir_all(dir);
     }
+
+    #[test]
+    fn recent_handles_arbitrary_and_mutated_inputs_without_panic() {
+        struct XorShift64(u64);
+        impl XorShift64 {
+            fn next_u64(&mut self) -> u64 {
+                let mut x = self.0;
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                self.0 = x;
+                x
+            }
+            fn next_u8(&mut self) -> u8 {
+                self.next_u64() as u8
+            }
+        }
+
+        let dir = folder("fuzz-mutations");
+        let file = dir.join(FILE_NAME);
+        fs::create_dir_all(&dir).unwrap();
+
+        let valid_samples: [&[u8]; 3] = [
+            br#"{"version":1,"files":["C:\\Users\\user\\test.pdf"],"salt":"0123456789abcdef0123456789abcdef","excluded":["e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"]}"#,
+            br#"{"version":1,"files":[],"salt":"","excluded":[]}"#,
+            br#"{"version":1,"files":["C:\\a.pdf","C:\\b.pdf"]}"#,
+        ];
+
+        for sample in valid_samples {
+            // 1. Truncations of sample
+            for len in 0..=sample.len() {
+                fs::write(&file, &sample[..len]).unwrap();
+                let recent = RecentFiles::new(Some(file.clone()));
+                let _ = recent.list();
+            }
+            // 2. Single-byte mutations at each position
+            for pos in 0..sample.len() {
+                for mutated_byte in [0x00, 0x7f, 0xff, b'{', b'"', b'0', b':', b',', b'\\', b'/'] {
+                    let mut mutated = sample.to_vec();
+                    mutated[pos] = mutated_byte;
+                    fs::write(&file, &mutated).unwrap();
+                    let recent = RecentFiles::new(Some(file.clone()));
+                    let _ = recent.list();
+                }
+            }
+        }
+
+        // 3. Pseudo-random inputs with fixed seed
+        let mut rng = XorShift64(0x123456789abcdef0);
+        for _ in 0..300 {
+            let len = (rng.next_u64() as usize) % 512;
+            let mut buf = vec![0u8; len];
+            for b in &mut buf {
+                *b = rng.next_u8();
+            }
+            fs::write(&file, &buf).unwrap();
+            let recent = RecentFiles::new(Some(file.clone()));
+            let _ = recent.list();
+        }
+
+        // 4. Over size limit (MAX_FILE_BYTES = 512 KiB)
+        let oversized = vec![b'a'; (MAX_FILE_BYTES + 1024) as usize];
+        fs::write(&file, &oversized).unwrap();
+        assert!(RecentFiles::new(Some(file.clone())).list().is_empty());
+
+        let _ = fs::remove_dir_all(dir);
+    }
 }

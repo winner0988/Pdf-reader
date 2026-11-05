@@ -3033,7 +3033,10 @@ fn pages_after(
         | Edit::AddTextBox { page, .. }
         | Edit::SetTextBox { page, .. }
         | Edit::SetAnnotationRect { page, .. }
-        | Edit::SetPictureAngle { page, .. } => Some(vec![*page]),
+        | Edit::SetPictureAngle { page, .. }
+        | Edit::AddShape { page, .. }
+        | Edit::SetLineEnds { page, .. }
+        | Edit::SetShapeStyle { page, .. } => Some(vec![*page]),
         _ => None,
     };
     // Redaction (B2-19, ADR 0016) changes what the pages say, marks included: the author's
@@ -3162,6 +3165,9 @@ fn pages_after(
         | Edit::SetTextBox { .. }
         | Edit::SetAnnotationRect { .. }
         | Edit::SetPictureAngle { .. }
+        | Edit::AddShape { .. }
+        | Edit::SetLineEnds { .. }
+        | Edit::SetShapeStyle { .. }
         | Edit::SetFieldValue { .. }
         | Edit::FlattenForm
         | Edit::AddRedaction { .. }
@@ -4021,7 +4027,7 @@ mod with_worker {
     use ipc_contract::limits::MAX_RASTER_PIXELS;
     use ipc_contract::types::{
         AnnotationId, AnnotationKind, FieldId, HighlightColor, HighlightMark, InkColor, InkWidth,
-        Point, Quad, Rect, RequestId, Rgb, Rotation, StampImageId, StampName, TextAlign,
+        Point, Quad, Rect, RequestId, Rgb, Rotation, Shape, StampImageId, StampName, TextAlign,
         TextBoxModelId, TextBoxStyle, TextMarkKind,
     };
 
@@ -7419,6 +7425,24 @@ mod with_worker {
                 page: 0,
                 annotation: AnnotationId(5),
                 degrees: 30.0,
+            },
+            Edit::AddShape {
+                page: 0,
+                shape: Shape::Rectangle { rect },
+                color: InkColor::Black,
+                width: InkWidth::Thin,
+            },
+            Edit::SetLineEnds {
+                page: 0,
+                annotation: AnnotationId(5),
+                from: Point { x: 72.0, y: 72.0 },
+                to: Point { x: 100.0, y: 100.0 },
+            },
+            Edit::SetShapeStyle {
+                page: 0,
+                annotation: AnnotationId(5),
+                color: InkColor::Black,
+                width: InkWidth::Thin,
             },
         ] {
             assert_eq!(

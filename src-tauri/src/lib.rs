@@ -176,6 +176,7 @@ pub fn run() {
             commands::save_document,
             commands::save_document_as,
             commands::close_window,
+            commands::set_fullscreen,
             commands::privacy_export,
             commands::page_marks_copy,
             commands::sanitize_copy,

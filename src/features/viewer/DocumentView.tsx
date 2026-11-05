@@ -625,6 +625,9 @@ export function DocumentView({
               onAnnotationEdit({ kind: "addInk", page, strokes: [points], color: tool.color, width: tool.width });
             }
           }}
+          onShape={(page, shape, color, width) => {
+            onAnnotationEdit({ kind: "addShape", page, shape, color, width });
+          }}
           onRect={(page, rect) => {
             if (tool.kind === "redaction") {
               onAnnotationEdit({ kind: "addRedaction", page, rect });

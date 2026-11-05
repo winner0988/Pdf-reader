@@ -79,6 +79,20 @@ doc = false
 bench = false
 
 [[bin]]
+name = "stamp_image"
+path = "fuzz_targets/stamp_image.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "language_data"
+path = "fuzz_targets/language_data.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "ocr"
 path = "fuzz_targets/ocr.rs"
 test = false

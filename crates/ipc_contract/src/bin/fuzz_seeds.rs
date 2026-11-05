@@ -16,9 +16,9 @@ use ipc_contract::types::{
     PageNumberFormat, PageNumberMark, PageSize, PageText, Password, PersonalDataCategory,
     PersonalDataMatch, PersonalDataMatches, PictureView, Point, Quad, RasterRegion, Rect,
     RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions,
-    SanitizeReport, SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport,
-    SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, TextMarkKind,
-    UnverifiableReason, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    SanitizeReport, SearchHit, SecurityFinding, SecurityReport, Shape, SignatureInfo,
+    SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine,
+    TextMarkKind, UnverifiableReason, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, InsertedTextBox, ModelGlyph, OcrFinished, OcrOutcome,
@@ -63,13 +63,65 @@ fn stamp_png() -> Vec<u8> {
     png
 }
 
+fn write_language_data_seeds(dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    const LSTM: [usize; 6] = [17, 18, 19, 20, 21, 22];
+    fn data(count: usize, present: &[usize], size: usize) -> Vec<u8> {
+        let table_end = 4 + 8 * count;
+        let mut out = i32::try_from(count).unwrap().to_le_bytes().to_vec();
+        let mut at = table_end;
+        for index in 0..count {
+            let offset: i64 = if present.contains(&index) {
+                let here = at;
+                at += size;
+                i64::try_from(here).unwrap()
+            } else {
+                -1
+            };
+            out.extend_from_slice(&offset.to_le_bytes());
+        }
+        out.resize(at, 7);
+        out
+    }
+
+    let seeds = [
+        ("lstm-24-10.traineddata", data(24, &LSTM, 10)),
+        (
+            "lstm-24-empty.traineddata",
+            data(24, &[0, 17, 21, 22, 23], 0),
+        ),
+        ("lstm-23-min.traineddata", data(23, &[17, 21, 22], 3)),
+        ("lstm-64-max.traineddata", data(64, &LSTM, 16)),
+    ];
+    for (name, bytes) in &seeds {
+        std::fs::write(dir.join(name), bytes)?;
+    }
+    println!(
+        "wrote {} language_data seeds to {}",
+        seeds.len(),
+        dir.display()
+    );
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = PathBuf::from(
         std::env::args()
             .nth(1)
-            .ok_or("usage: fuzz_seeds <directory>")?,
+            .ok_or("usage: fuzz_seeds <directory> [target]")?,
     );
     std::fs::create_dir_all(&dir)?;
+
+    let target = std::env::args().nth(2).unwrap_or_else(|| {
+        if dir.file_name().and_then(|n| n.to_str()) == Some("language_data") {
+            "language_data".to_string()
+        } else {
+            "worker_messages".to_string()
+        }
+    });
+
+    if target == "language_data" {
+        return write_language_data_seeds(&dir);
+    }
     let (request, doc) = (RequestId(7), DocumentId(1));
     let page = PageSize {
         width_pt: 612.0,
@@ -274,6 +326,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     color: Some(HighlightColor::Yellow),
                     text: None,
                     picture: None,
+                    line_ends: None,
+                    shape_color: None,
+                    shape_width: None,
                 },
                 PageAnnotation {
                     id: AnnotationId(13),
@@ -287,6 +342,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     color: None,
                     text: Some("第一行\nsecond line".to_owned()),
                     picture: None,
+                    line_ends: None,
+                    shape_color: None,
+                    shape_width: None,
                 },
                 PageAnnotation {
                     id: AnnotationId(14),
@@ -304,6 +362,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         width: 128.0,
                         height: 64.0,
                     }),
+                    line_ends: None,
+                    shape_color: None,
+                    shape_width: None,
+                },
+                PageAnnotation {
+                    id: AnnotationId(15),
+                    kind: AnnotationKind::Arrow,
+                    rect: Rect {
+                        x0: 100.0,
+                        y0: 200.0,
+                        x1: 300.0,
+                        y1: 200.0,
+                    },
+                    color: None,
+                    text: None,
+                    picture: None,
+                    line_ends: Some(ipc_contract::types::LineEnds {
+                        from: Point { x: 100.0, y: 200.0 },
+                        to: Point { x: 300.0, y: 200.0 },
+                    }),
+                    shape_color: Some(InkColor::Red),
+                    shape_width: Some(InkWidth::Medium),
                 },
             ],
         },
@@ -929,6 +1009,88 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 page: 0,
                 annotation: AnnotationId(14),
                 degrees: -37.5,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddShape {
+                page: 0,
+                shape: Shape::Rectangle {
+                    rect: Rect {
+                        x0: 50.0,
+                        y0: 50.0,
+                        x1: 200.0,
+                        y1: 150.0,
+                    },
+                },
+                color: InkColor::Blue,
+                width: InkWidth::Thin,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddShape {
+                page: 0,
+                shape: Shape::Ellipse {
+                    rect: Rect {
+                        x0: 60.0,
+                        y0: 60.0,
+                        x1: 180.0,
+                        y1: 180.0,
+                    },
+                },
+                color: InkColor::Green,
+                width: InkWidth::Medium,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddShape {
+                page: 0,
+                shape: Shape::Line {
+                    from: Point { x: 72.0, y: 72.0 },
+                    to: Point { x: 288.0, y: 144.0 },
+                    arrow: false,
+                },
+                color: InkColor::Black,
+                width: InkWidth::Thick,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddShape {
+                page: 0,
+                shape: Shape::Line {
+                    from: Point { x: 100.0, y: 200.0 },
+                    to: Point { x: 300.0, y: 200.0 },
+                    arrow: true,
+                },
+                color: InkColor::Red,
+                width: InkWidth::Medium,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::SetLineEnds {
+                page: 0,
+                annotation: AnnotationId(15),
+                from: Point { x: 80.0, y: 80.0 },
+                to: Point { x: 250.0, y: 160.0 },
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::SetShapeStyle {
+                page: 0,
+                annotation: AnnotationId(15),
+                color: InkColor::Blue,
+                width: InkWidth::Thick,
             },
         },
         WorkerRequest::Revert {

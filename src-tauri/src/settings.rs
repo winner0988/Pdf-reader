@@ -192,4 +192,92 @@ mod tests {
         store.set(light.clone()).unwrap();
         assert_eq!(store.get(), light);
     }
+
+    #[test]
+    fn settings_handles_arbitrary_and_mutated_inputs_without_panic() {
+        struct XorShift64(u64);
+        impl XorShift64 {
+            fn next_u64(&mut self) -> u64 {
+                let mut x = self.0;
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                self.0 = x;
+                x
+            }
+            fn next_u8(&mut self) -> u8 {
+                self.next_u64() as u8
+            }
+        }
+
+        let dir = folder("fuzz-mutations");
+        let file = dir.join(FILE_NAME);
+        fs::create_dir_all(&dir).unwrap();
+
+        let valid_samples: [&[u8]; 3] = [
+            br#"{"version": 1, "theme": "dark", "recordRecentFiles": false, "ocrAuto": true, "ocrLanguage": "eng", "textIndex": false}"#,
+            br#"{"version": 1, "theme": "light", "recordRecentFiles": true, "ocrAuto": false, "ocrLanguage": null, "textIndex": true}"#,
+            br#"{"version": 1, "theme": "system", "recordRecentFiles": false}"#,
+        ];
+
+        for sample in valid_samples {
+            // 1. Truncations of sample
+            for len in 0..=sample.len() {
+                fs::write(&file, &sample[..len]).unwrap();
+                let settings = SettingsStore::load(Some(file.clone())).get();
+                let _ = (
+                    settings.theme,
+                    settings.record_recent_files,
+                    settings.ocr_auto,
+                    settings.ocr_language,
+                    settings.text_index,
+                );
+            }
+            // 2. Single-byte mutations at each position
+            for pos in 0..sample.len() {
+                for mutated_byte in [0x00, 0x7f, 0xff, b'{', b'"', b'0', b':', b','] {
+                    let mut mutated = sample.to_vec();
+                    mutated[pos] = mutated_byte;
+                    fs::write(&file, &mutated).unwrap();
+                    let settings = SettingsStore::load(Some(file.clone())).get();
+                    let _ = (
+                        settings.theme,
+                        settings.record_recent_files,
+                        settings.ocr_auto,
+                        settings.ocr_language,
+                        settings.text_index,
+                    );
+                }
+            }
+        }
+
+        // 3. Pseudo-random inputs with fixed seed
+        let mut rng = XorShift64(0x123456789abcdef0);
+        for _ in 0..300 {
+            let len = (rng.next_u64() as usize) % 512;
+            let mut buf = vec![0u8; len];
+            for b in &mut buf {
+                *b = rng.next_u8();
+            }
+            fs::write(&file, &buf).unwrap();
+            let settings = SettingsStore::load(Some(file.clone())).get();
+            let _ = (
+                settings.theme,
+                settings.record_recent_files,
+                settings.ocr_auto,
+                settings.ocr_language,
+                settings.text_index,
+            );
+        }
+
+        // 4. Over size limit (MAX_FILE_BYTES = 64 KiB)
+        let oversized = vec![b'a'; (MAX_FILE_BYTES + 1024) as usize];
+        fs::write(&file, &oversized).unwrap();
+        assert_eq!(
+            SettingsStore::load(Some(file.clone())).get(),
+            Settings::default()
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
 }

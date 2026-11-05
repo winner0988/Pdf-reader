@@ -66,6 +66,7 @@ fn main() {
         "save_document",
         "save_document_as",
         "close_window",
+        "set_fullscreen",
         "privacy_export",
         "page_marks_copy",
         "encrypt_copy",

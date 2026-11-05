@@ -402,6 +402,67 @@ mod tests {
     }
 
     #[test]
+    fn interpret_handles_arbitrary_and_mutated_inputs_without_panic() {
+        struct XorShift64(u64);
+        impl XorShift64 {
+            fn next_u64(&mut self) -> u64 {
+                let mut x = self.0;
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                self.0 = x;
+                x
+            }
+            fn next_u8(&mut self) -> u8 {
+                self.next_u64() as u8
+            }
+        }
+
+        let valid_samples = [
+            release("v0.2.0"),
+            release("v0.1.0"),
+            release("1.0.0"),
+            br#"{"message":"Not Found"}"#.to_vec(),
+        ];
+
+        for sample in &valid_samples {
+            // 1. Truncations of sample
+            for len in 0..=sample.len() {
+                for status in [200, 404, 500] {
+                    let _ = interpret(CURRENT, status, &sample[..len]);
+                }
+            }
+            // 2. Single-byte mutations at each position
+            for pos in 0..sample.len() {
+                for mutated_byte in [0x00, 0x7f, 0xff, b'{', b'"', b'0', b'v'] {
+                    let mut mutated = sample.clone();
+                    mutated[pos] = mutated_byte;
+                    for status in [200, 404, 500] {
+                        let _ = interpret(CURRENT, status, &mutated);
+                    }
+                }
+            }
+        }
+
+        // 3. Pseudo-random inputs with fixed seed
+        let mut rng = XorShift64(0x123456789abcdef0);
+        for _ in 0..300 {
+            let len = (rng.next_u64() as usize) % 512;
+            let mut buf = vec![0u8; len];
+            for b in &mut buf {
+                *b = rng.next_u8();
+            }
+            let status = match rng.next_u8() % 4 {
+                0 => 200,
+                1 => 404,
+                2 => 500,
+                _ => (rng.next_u64() as u32) % 600,
+            };
+            let _ = interpret(CURRENT, status, &buf);
+        }
+    }
+
+    #[test]
     fn only_the_fixed_address_is_ever_asked() {
         assert_eq!(
             (GITHUB.host, GITHUB.port, GITHUB.https, GITHUB.path),
