@@ -2689,10 +2689,11 @@ pub enum AnnotationSummaryKind {
     Arrow,
 }
 
-/// One annotation in a summary (B3-18).
+/// One annotation in a summary (B3-18, B4-06).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AnnotationSummaryItem {
+    pub id: AnnotationId,
     /// 0-based.
     pub page_index: u32,
     pub kind: AnnotationSummaryKind,

@@ -97,6 +97,8 @@ export type DocumentViewHandle = {
   highlightMarks(): Promise<HighlightMark[]>;
   /** The page under a pointer (client coordinates) and the point on it (page space); null off the pages. */
   pageAt(clientX: number, clientY: number): { page: number; point: Point } | null;
+  /** Chooses an annotation, setting it as chosen and focusing its outline once loaded (B4-06). */
+  chooseAnnotation(target: { page: number; id: AnnotationId }): void;
 };
 
 type DocumentViewProps = {
@@ -480,6 +482,9 @@ export function DocumentView({
       pageAt(clientX, clientY) {
         const at = locate(clientX, clientY);
         return at?.inside ? { page: at.page, point: at.point } : null;
+      },
+      chooseAnnotation(target) {
+        setChosen({ page: target.page, id: target.id });
       },
     }),
     // `locate` reads the layout and the view's position, both already listed.

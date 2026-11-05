@@ -20,6 +20,7 @@ fn main() {
         "save_attachment",
         "get_page_links",
         "get_page_annotations",
+        "get_annotation_summary",
         "get_page_fields",
         "get_signatures",
         "get_redaction_summary",

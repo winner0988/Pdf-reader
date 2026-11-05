@@ -61,7 +61,16 @@ sequenceDiagram
 
 ### 主行程的驗證
 
-`AnnotationSummary::validate`（`crates/ipc_contract/src/validate.rs`）：項目數與總位元組數在上限內；外框是有限數字；螢光筆標示的文字是單行的顯示文字；附註與文字方塊是清理過的附註文字；手繪線條與印章沒有文字。主行程另外檢查每一項的頁碼小於文件的頁數。
+`AnnotationSummary::validate`（`crates/ipc_contract/src/validate.rs`）：項目數與總位元組數在上限內；外框是有限數字；螢光筆標示的文字是單行的顯示文字；附註與文字方塊是清理過的附註文字；手繪線條與印章沒有文字；每個項目的 `id`（`AnnotationId`）必須大於 0。主行程另外檢查每一項的頁碼小於文件的頁數，以及所有項目的 `id` 在整份摘要中互不重複（違反時視為 `ProtocolViolation`）。
+
+## 前端註解清單（B4-06）
+
+除了匯出成檔案外，側欄的「註解」分頁也透過 `get_annotation_summary(doc)` 取得 `AnnotationSummary`：
+- 清單項目使用 `item.id` 辨識註解物件；當使用者在清單中選取項目時，前端透過 `chooseAnnotation({ page, id })` 導航並聚焦該註解。
+- 匯出檔案時（純文字與 Markdown）**不包含**物件識別碼 `id`。
+- **作者禁止複製時的差異**：
+  - `export_annotation_summary`：主行程直接拒絕，避免透過檔案匯出將文字轉出；
+  - `get_annotation_summary`：主行程允許呼叫並回傳摘要，但前端以 `select-none` 樣式禁止文字選取，並攔截 `copy` 事件阻擋複製，既滿足在側欄瀏覽與導航的需求，又維護文字防複製的保護。
 
 ## 檔案格式
 

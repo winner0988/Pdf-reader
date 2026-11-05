@@ -154,6 +154,7 @@ export const strings = {
     outlineTab: "目錄",
     thumbnailsTab: "縮圖",
     attachmentsTab: "附件",
+    annotationsTab: "註解",
     /** A sensitive document's pages are never drawn small (B3-10). */
     thumbnailsSensitive: "機敏文件不顯示縮圖：每一頁只以頁框與頁碼表示，不會為縮圖畫出頁面的內容。",
     outlineEmpty: "這份文件沒有目錄",
@@ -1502,6 +1503,26 @@ export const strings = {
     },
     sensitiveWarning: "存下來的檔案不在機敏保護內。",
     notMarked: "這個檔案沒有『來自網際網路』的標記，Windows 不會在開啟前額外檢查。",
+  },
+  annotationsList: {
+    title: "註解",
+    empty: "這份文件沒有註解",
+    truncated: "註解過多，只列出前面的一部分",
+    loading: "正在讀取註解…",
+    failed: "無法讀取這份文件的註解",
+    filterLabel: "篩選註解類型",
+    filter: {
+      all: "全部",
+      textMark: "文字標記",
+      note: "附註",
+      textBox: "文字方塊",
+      ink: "筆跡",
+      stamp: "印章",
+      shape: "圖形",
+    },
+    page: (page: number) => `第 ${page} 頁`,
+    itemLabel: (kind: string, page: number, text?: string) =>
+      text ? `第 ${page} 頁 · ${kind}：${text}` : `第 ${page} 頁 · ${kind}`,
   },
   about: {
     title: "關於 PDF Reader",

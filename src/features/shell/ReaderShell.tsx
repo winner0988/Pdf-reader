@@ -572,11 +572,14 @@ export function ReaderShell({
     restoreLocation(result.target);
   };
 
-  const goToPage = (page: number) => {
-    const clamped = Math.min(Math.max(page, 1), pageCount);
-    setCurrentPage(clamped);
-    viewRef.current?.scrollToPage(clamped);
-  };
+  const goToPage = useCallback(
+    (page: number) => {
+      const clamped = Math.min(Math.max(page, 1), pageCount);
+      setCurrentPage(clamped);
+      viewRef.current?.scrollToPage(clamped);
+    },
+    [pageCount],
+  );
 
   const jumpPage = (page: number) => {
     const clamped = Math.min(Math.max(page, 1), pageCount);
@@ -585,6 +588,16 @@ export function ReaderShell({
     }
     goToPage(clamped);
   };
+
+  const jumpToAnnotation = useCallback(
+    (pageIndex: number, id: AnnotationId) => {
+      const target = Math.min(Math.max(pageIndex + 1, 1), pageCount);
+      recordCurrentNavigation();
+      goToPage(target);
+      viewRef.current?.chooseAnnotation({ page: pageIndex, id });
+    },
+    [pageCount, recordCurrentNavigation, goToPage],
+  );
 
   // A result of the search of every document was opened here (B3-21): its page, once it is open.
   // The view says which page it shows once it is there.
@@ -1610,6 +1623,7 @@ export function ReaderShell({
                 onApply: () => setRedactionConfirmOpen(true),
                 onOpenFindPersonalData: () => setFindPersonalDataOpen(true),
               }}
+              onJumpToAnnotation={jumpToAnnotation}
             />
           )}
           <div className="flex min-w-0 flex-1 flex-col">

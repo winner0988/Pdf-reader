@@ -10,22 +10,22 @@ use std::time::Duration;
 
 use ipc_contract::limits::MAX_BATCH_FILES;
 use ipc_contract::types::{
-    AnnotationId, AnnotationSummaryFormat, AnnotationSummaryOutcome, AttachmentId, AttachmentInfo,
-    BatchArgs, BatchEvent, BatchOperation, BatchReport, CaptureProtection, CompareExportFormat,
-    CompareTextArgs, CompareTextResult, CompressArgs, CompressResult, CreateResult, DocumentId,
-    DocumentInfo, EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs, ExportArgs,
-    ExportCompareTextArgs, ExportCompareTextOutcome, ExportEvent, ExportFormat, FileRecordingArgs,
-    FindPersonalDataQuery, FontImport, FontInfo, FormField, IndexSearchArgs, IndexSearchEvent,
-    IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs,
-    OcrLanguages, OpenEvent, OpenIndexedArgs, OutlineLinkArgs, OutlineResult, PageAnnotation,
-    PageLink, PageMarksCopyArgs, PageText, PagesSource, Password, PersonalDataMatches,
-    PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
-    RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
-    RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult, SearchArgs,
-    SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs, SignCheck,
-    SignResult, SignatureReport, SigningFile, SigningFileKey, SigningKey, SigningStoreKey,
-    StampImageInfo, StoreCertificate, TabId, TextBoxInfo, TextIndexStatus, UndoArgs, UnlockArgs,
-    UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
+    AnnotationId, AnnotationSummary, AnnotationSummaryFormat, AnnotationSummaryOutcome,
+    AttachmentId, AttachmentInfo, BatchArgs, BatchEvent, BatchOperation, BatchReport,
+    CaptureProtection, CompareExportFormat, CompareTextArgs, CompareTextResult, CompressArgs,
+    CompressResult, CreateResult, DocumentId, DocumentInfo, EditArgs, EncryptArgs, ErrorCode,
+    ExportAnnotationSummaryArgs, ExportArgs, ExportCompareTextArgs, ExportCompareTextOutcome,
+    ExportEvent, ExportFormat, FileRecordingArgs, FindPersonalDataQuery, FontImport, FontInfo,
+    FormField, IndexSearchArgs, IndexSearchEvent, IpcError, LanguageImport, LinkArgs, LinkPreview,
+    MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OpenIndexedArgs, OutlineLinkArgs,
+    OutlineResult, PageAnnotation, PageLink, PageMarksCopyArgs, PageText, PagesSource, Password,
+    PersonalDataMatches, PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId,
+    RedactionSummary, RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs,
+    RenderPageArgs, RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult,
+    SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs,
+    SignCheck, SignResult, SignatureReport, SigningFile, SigningFileKey, SigningKey,
+    SigningStoreKey, StampImageInfo, StoreCertificate, TabId, TextBoxInfo, TextIndexStatus,
+    UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use ipc_contract::worker::{NewSignature, VisibleSignature};
@@ -840,6 +840,23 @@ pub async fn get_page_annotations(
     page_index: u32,
 ) -> Result<Vec<PageAnnotation>, IpcError> {
     blocking(move || app.state::<Documents>().page_annotations(doc, page_index)).await
+}
+
+/// The summary of the annotations of open document `doc` (B4-06), listed in reading order.
+/// Unlike `export_annotation_summary`, this does not refuse when the author forbids copying:
+/// the annotations are already shown on the page; copying is prevented in the UI.
+#[tauri::command]
+pub async fn get_annotation_summary(
+    app: AppHandle,
+    doc: DocumentId,
+) -> Result<AnnotationSummary, IpcError> {
+    if app.state::<Documents>().document_info(doc).is_none() {
+        return Err(IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        });
+    }
+    blocking(move || app.state::<Documents>().annotation_summary(doc)).await
 }
 
 /// The form fields of one page (B2-09): where they are, what they hold and what can be put in

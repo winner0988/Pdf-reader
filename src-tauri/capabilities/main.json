@@ -22,6 +22,7 @@
     "allow-save-attachment",
     "allow-get-page-links",
     "allow-get-page-annotations",
+    "allow-get-annotation-summary",
     "allow-get-page-fields",
     "allow-get-signatures",
     "allow-get-redaction-summary",

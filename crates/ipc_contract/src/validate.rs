@@ -1348,6 +1348,12 @@ impl Validate for AnnotationSummaryItem {
                 what: "annotation summary page",
             });
         }
+        if self.id.0 == 0 {
+            return Err(ValidationError::Invalid {
+                what: "annotation summary item",
+                reason: "zero id",
+            });
+        }
         self.rect.validate()?;
         let max = MAX_ANNOTATION_SUMMARY_TEXT_BYTES;
         match self.kind {
@@ -5742,6 +5748,7 @@ mod tests {
     #[test]
     fn an_annotation_summary_holds_cleaned_text_within_its_limits() {
         let item = |kind: AnnotationSummaryKind, text: &str| AnnotationSummaryItem {
+            id: AnnotationId(1),
             page_index: 0,
             kind,
             rect: Rect {
@@ -5784,6 +5791,10 @@ mod tests {
             ),
             AnnotationSummaryItem {
                 page_index: MAX_PAGE_COUNT,
+                ..item(AnnotationSummaryKind::Ink, "")
+            },
+            AnnotationSummaryItem {
+                id: AnnotationId(0),
                 ..item(AnnotationSummaryKind::Ink, "")
             },
             AnnotationSummaryItem {

@@ -24,7 +24,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 邊界 | 不可信的一方 | 通道 | 主要的防線 |
 |---|---|---|---|
-| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 89 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
+| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 90 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
 | worker → 主行程 | `pdf_worker`（假設已被惡意檔案控制） | worker 標準輸入、輸出上的 postcard frame，每個 ≤ `MAX_FRAME_BYTES`（80 MiB） | 沙盒（§2.1）；每個回應都先驗證（§2.2）；逾時 |
 | 檔案 → worker | PDF 與其他要讀的檔案 | 主行程開好的唯讀檔案代號，或主行程讀好的位元組 | 沙盒；程式庫見 §2.3 |
 | 檔案 → 主行程 | app 資料夾的檔案；使用者匯入的語言資料、字型、`.pfx` | 主行程自己讀 | 大小上限與格式檢查（§3） |
@@ -38,9 +38,9 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 3. 寫到使用者的檔案時，先寫同一個資料夾裡新建的暫存檔，寫完（存檔還要再檢查）才改名取代。批次只寫新的檔名，不取代任何檔案（§6）。
 4. 只有 `src-tauri/src/update_check.rs` 會連網，而且只在使用者按「檢查更新」時（ADR 0009，§5）。
 
-## 1. 前端能呼叫的命令（89 個）
+## 1. 前端能呼叫的命令（90 個）
 
-- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 89 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
+- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 90 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
 - **自由文字**：沒有命令接受路徑或 URI。會帶自由文字的只有這些參數：密碼、剪貼簿的文字、搜尋字串、個資的關鍵字、註解與文字方塊的文字、表單欄位的值、書籤標題、浮水印與頁面標記的文字、簽章的理由、設定、OCR 語言代碼。
 - **參數檢查**：參數先由 serde 解碼成固定的型別，型別不對就拒絕；再由 `crates/ipc_contract/src/validate.rs` 檢查（表中寫成 `XxxArgs`）。上限都在 `crates/ipc_contract/src/limits.rs`。主行程沒有另外限制一個 IPC 訊息的大小，參數整個解碼後才檢查（§9）。
 - **對話框**：都是 Windows 的 `IFileDialog`（`src-tauri/src/file_dialog.rs`），一律加 `FOS_FORCEFILESYSTEM | FOS_DONTADDTORECENT`，只能選真的檔案，也不記入 Windows 的最近使用。另存的對話框再加 `FOS_OVERWRITEPROMPT`。
@@ -63,7 +63,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `close_tab` | 關閉分頁，結束它的 worker | 分頁代號 | 清掉文字比較的快取 | `tabs.spec.ts` |
 | `set_active_tab` | 視窗顯示哪個分頁（給視窗標題用） | 分頁代號 | — | `tabs.spec.ts` |
 
-### 1.2 閱讀（13 個）
+### 1.2 閱讀（14 個）
 
 | 命令 | 做什麼 | 主行程的檢查與上限 | 對話框、寫入、行程 | 測試 |
 |---|---|---|---|---|
@@ -73,6 +73,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `get_page_text` | 一頁的文字與每個字的位置（選取、複製） | `check_page_index` | `GetPageText` | `text.spec.ts`；worker `text.rs` |
 | `get_page_links` | 一頁的連結在哪裡、是哪一種 | `check_page_index` | `GetPageLinks` | worker `links.rs`；`links.rs` |
 | `get_page_annotations` | 一頁的註解（不含連結、表單欄位與彈出視窗） | `check_page_index` | `GetPageAnnotations` | `annotations.spec.ts`、`ink-stamps.spec.ts` |
+| `get_annotation_summary` | 整份文件的註解摘要（依閱讀順序） | 文件代號 | `AnnotationSummary` | `annotations.spec.ts`；`documents.rs` |
 | `get_page_fields` | 一頁的表單欄位（值、選項、有沒有腳本；腳本一律不執行） | `check_page_index` | `GetPageFields` | `forms.spec.ts` |
 | `get_signatures` | 離線驗證文件的簽章 | 文件代號 | `VerifySignatures` | `signatures.spec.ts`；worker `signatures.rs` |
 | `get_redaction_summary` | 套用遮蔽會動到多少東西（只有數量） | 文件代號 | `SummariseRedactions` | `redaction.spec.ts` |

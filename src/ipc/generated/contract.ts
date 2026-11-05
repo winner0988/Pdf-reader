@@ -1492,6 +1492,41 @@ includeName: boolean, };
 export type AnnotationSummaryOutcome = { "kind": "empty" } | { "kind": "cancelled" } | { "kind": "written", count: number, truncated: boolean, };
 
 /**
+ * The kinds of annotations a summary lists (B3-18).
+ */
+export type AnnotationSummaryKind = "highlight" | "underline" | "strikeOut" | "squiggly" | "note" | "textBox" | "ink" | "stamp" | "rectangle" | "ellipse" | "line" | "arrow";
+
+/**
+ * One annotation in a summary (B3-18, B4-06).
+ */
+export type AnnotationSummaryItem = { id: AnnotationId, 
+/**
+ * 0-based.
+ */
+pageIndex: number, kind: AnnotationSummaryKind, 
+/**
+ * Where it is on the page (page space).
+ */
+rect: Rect, 
+/**
+ * What a highlighter mark covers, as display text (empty when it covers none of the page's
+ * text); what a note or text box says, as a note's text; empty for a drawing or a stamp,
+ * which are listed by kind only.
+ */
+text: string, };
+
+/**
+ * The annotations of a document (B3-18), page by page and on a page as it is read: from the top
+ * down, then from the left.
+ */
+export type AnnotationSummary = { items: Array<AnnotationSummaryItem>, 
+/**
+ * The document has more than `LIMITS.maxAnnotationSummaryItems` annotations, or more text
+ * than `LIMITS.maxAnnotationSummaryTotalBytes`: the rest was left out.
+ */
+truncated: boolean, };
+
+/**
  * Compares the text of two open documents `doc_a` and `doc_b` (B3-24, E9).
  */
 export type CompareTextArgs = { docA: DocumentId, docB: DocumentId, };

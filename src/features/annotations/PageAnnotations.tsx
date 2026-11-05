@@ -135,6 +135,17 @@ export function PageAnnotations({
     } else onChoose(null);
   }, [gone, onChoose, onRelease]);
 
+  // When an annotation is chosen (e.g. from the sidebar), focus its outline once the page's
+  // annotations are loaded (B4-06).
+  const chosenBtnRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (chosen !== null && chosenBtnRef.current && document.activeElement !== chosenBtnRef.current) {
+      if (!document.activeElement?.closest('[role="dialog"]')) {
+        chosenBtnRef.current.focus();
+      }
+    }
+  }, [chosen, loaded]);
+
   if (annotations.length === 0) return null;
   // Nothing is changed from the list of the document before an edit, and no dialog starts from it:
   // they wait for the new list.
@@ -228,6 +239,7 @@ export function PageAnnotations({
           // The chosen one's toolbar follows its outline, so that Tab goes from one to the other.
           <Fragment key={annotation.id}>
             <button
+              ref={isChosen ? chosenBtnRef : undefined}
               type="button"
               aria-label={annotationLabel(annotation)}
               aria-pressed={isChosen}
@@ -247,7 +259,11 @@ export function PageAnnotations({
                 annotation.kind === "redaction" ? "border border-red-500/80 bg-red-500/15" : ""
               }`}
               style={{ left: btnLeft, top: btnTop, width: btnWidth, height: btnHeight }}
-              onFocus={() => onChoose(annotation.id)}
+              onFocus={() => {
+                if (chosen !== annotation.id) {
+                  onChoose(annotation.id);
+                }
+              }}
               onKeyDown={keys(annotation, area)}
             />
             {/* The handles are for the annotation as the page shows it: not on the list before an edit. */}

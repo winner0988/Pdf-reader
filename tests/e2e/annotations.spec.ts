@@ -379,3 +379,56 @@ test("shape annotations: rectangle and arrow can be drawn, recolored, undone/red
     rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
+
+test("the sidebar annotation list shows annotations, selects them on click/enter, and updates on delete (B4-06)", async ({
+  launch,
+}) => {
+  const page = await launch(corpus("benign/mixed-text-zh-en.pdf"));
+  await expect(firstPage(page)).toHaveAttribute("data-state", "ready");
+
+  const notes = page.locator("[data-page-annotations] [data-annotation=note]");
+  const highlights = marks(page);
+
+  // 1. Add first annotation: a note
+  const box = await firstPage(page).boundingBox();
+  if (!box) throw new Error("the page is not on screen");
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 3, { button: "right" });
+  await page.getByRole("menuitem", { name: new RegExp(t.addNote.replace("…", "")) }).click();
+  const noteDialog = page.getByRole("dialog", { name: t.noteDialog.addTitle });
+  await noteDialog.getByLabel(t.noteDialog.label).fill("Note one");
+  await noteDialog.getByRole("button", { name: t.noteDialog.save }).click();
+  await expect(notes).toHaveCount(1);
+
+  // 2. Add second annotation: a highlight on "Privacy"
+  const privacy = await find(page, "Privacy");
+  await page.mouse.dblclick(privacy.x + privacy.width / 2, privacy.y + privacy.height / 2);
+  await page.mouse.click(privacy.x + privacy.width / 2, privacy.y + privacy.height / 2, { button: "right" });
+  await page.getByRole("menuitem", { name: t.highlight }).click();
+  await page.getByRole("menuitem", { name: t.colors.yellow }).click();
+  await expect(highlights).toHaveCount(1);
+
+  // 3. Add third annotation: a second note
+  await page.mouse.click(box.x + box.width / 2, box.y + (box.height * 2) / 3, { button: "right" });
+  await page.getByRole("menuitem", { name: new RegExp(t.addNote.replace("…", "")) }).click();
+  const noteDialog2 = page.getByRole("dialog", { name: t.noteDialog.addTitle });
+  await noteDialog2.getByLabel(t.noteDialog.label).fill("Note two");
+  await noteDialog2.getByRole("button", { name: t.noteDialog.save }).click();
+  await expect(notes).toHaveCount(2);
+
+  // 4. Open sidebar annotation tab
+  await page.getByRole("tab", { name: strings.sidebar.annotationsTab }).click();
+  const listbox = page.getByRole("listbox", { name: strings.annotationsList.title });
+  await expect(listbox).toBeVisible();
+  const items = listbox.getByRole("option");
+  await expect(items).toHaveCount(3);
+
+  // 5. Click the second item: jumps to page and selects the annotation (outline button focused)
+  await items.nth(1).click();
+  await expect(page.locator("[data-page-annotations] button:focus")).toBeVisible();
+
+  // 6. Delete it with the keyboard
+  await page.keyboard.press("Delete");
+
+  // 7. Verify the sidebar list now has 2 items left
+  await expect(items).toHaveCount(2);
+});

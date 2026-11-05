@@ -130,6 +130,7 @@ pub fn run() {
             commands::save_attachment,
             commands::get_page_links,
             commands::get_page_annotations,
+            commands::get_annotation_summary,
             commands::get_page_fields,
             commands::get_signatures,
             commands::get_redaction_summary,
