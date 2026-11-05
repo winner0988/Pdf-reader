@@ -2,6 +2,7 @@
 // Pure data structures and functions, tested without DOM or IPC.
 
 import type { Zoom } from "@/features/shell/model";
+import type { PageLayoutMode } from "@/features/viewer/layout";
 import type { Edit } from "@/ipc/generated/contract";
 
 export const MAX_HISTORY_ENTRIES = 100;
@@ -10,6 +11,7 @@ export type NavigationLocation = {
   page: number; // 1-based page number
   scrollTop: number;
   zoom: Zoom;
+  layoutMode?: PageLayoutMode;
 };
 
 export type NavigationHistory = {

@@ -17,6 +17,7 @@
 | Capability | 前端權限必須在白名單內；`http:`、`shell:`、`fs:`、`opener:` 等永遠不可授予；不得設定 `remote` | 同上 |
 | 前端 ESLint | 禁止 `fetch`、`XMLHttpRequest`、`WebSocket`、`EventSource`、`navigator.sendBeacon` | `eslint.config.js`（`Frontend`） |
 | 建置產物 | `dist/` 的 HTML／CSS 不得引用外部資源 | `scripts/ci/check-dist.mjs`（`Frontend`） |
+| 導覽與下載 | WebView 的 `on_navigation` 只允許 app 自己的網址（正式版 `http://tauri.localhost`，debug `http://localhost:1420`），`on_download` 封鎖下載；被擋下的導覽只記錄 scheme 與 host | `src-tauri/src/navigation.rs`（單元測試）、`tests/e2e/navigation.spec.ts`（`E2E (Windows)`） |
 
 > 為什麼開發模式也要 CSP：Tauri 只把 `tauri.conf.json` 的 CSP 套用到自己提供的頁面，**不會**套用到 `devUrl`（Vite dev server）。MVP-01 實測發現開發模式下外部請求真的會送出，因此改由 `vite.config.ts` 的 dev server 自行送出 CSP，並納入上述檢查。
 
@@ -40,6 +41,17 @@ WebView2 預設會**自行連網**，與 app 的程式碼無關：
 - #124 只加了前兩個參數：當時的觀察只有 33 秒，沒等到約 60 秒時的元件更新程式。
 - WebView2 更新版本後可能加入新的背景連線，所以除了 CI 的 `network.spec.ts`，發布前的手動檢查也要做。
 - 設定服務不一定每次啟動都會連：2026-09-30 同一台電腦上，早先每次啟動都看得到它，幾小時後即使用全新的 WebView2 資料夾也看不到。所以沒看到它，不代表參數有效。元件更新程式則在每一次觀察中都會詢問。
+
+## WebView 的導覽與下載防護（#424）
+
+WebView2 預設允許網頁頂層導覽到外部網址與下載檔案：
+
+- **導覽**：`src-tauri/src/navigation.rs` 的 `navigation_allowed` 嚴格比對 scheme、host 與 port。正式版只允許 `http://tauri.localhost`，debug 建置（`cfg!(debug_assertions)`）只允許 `http://localhost:1420`。其他網址（包含 `https:`、`file:`、`data:`、`blob:`、`javascript:`、`about:`、帳號密碼、非標準 port）一律拒絕。被拒絕的導覽僅將 scheme 與 host 印至標準錯誤輸出，不記錄完整路徑或查詢參數，遵守下方的日誌政策。
+- **下載**：`tauri.conf.json` 將主視窗設為 `"create": false`，在 `setup` 鉤子中以 `WebviewWindowBuilder::from_config` 建立主視窗並接上 `on_download`，一律回傳 `false`（設定 WebView2 的 `DownloadStarting` 事件為 `args.SetCancel(true)`），禁止任何透過 `<a download>`、`blob:`、`data:` 或外部 URL 觸發的下載。
+- **驗證方式**：
+  - 單元測試（`src-tauri/src/navigation.rs`）驗證允許清單各類 URL、外部偽造網域名稱與邊界條件；
+  - CI 檢查（`scripts/ci/check-security-config.mjs`）確認 `tauri.conf.json` 的主視窗維持 `"create": false`；
+  - E2E 測試（`tests/e2e/navigation.spec.ts`）在執行中的 app 內設定 `location.href` 為外部網址、偽造網域與 `file:` 網址，確認頁面維持在 app 原有畫面且 net log 無任何外部請求；並透過 `<a download>` 測試 `data:` 與 `blob:` 下載，確認磁碟 Downloads 資料夾未產生任何檔案。
 
 ## 手動檢查（每次發布前）
 

@@ -32,7 +32,7 @@ describe("layoutPages", () => {
   it("stacks pages with padding and gaps at the zoom factor", () => {
     const layout = layoutPages([LETTER, LANDSCAPE], 0, 1);
     const letterHeight = 792 * CSS_PX_PER_PT; // 1056 px
-    expect(layout.boxes[0]).toEqual({ top: PAGE_PADDING_PX, width: 816, height: letterHeight });
+    expect(layout.boxes[0]).toEqual({ top: PAGE_PADDING_PX, width: 816, height: letterHeight, dx: -408 });
     expect(layout.maxWidth).toBeCloseTo(842 * CSS_PX_PER_PT);
     expect(layout.boxes[1]!.top).toBe(PAGE_PADDING_PX + letterHeight + PAGE_GAP_PX);
     expect(layout.totalHeight).toBeCloseTo(2 * PAGE_PADDING_PX + letterHeight + PAGE_GAP_PX + 595 * CSS_PX_PER_PT);
@@ -45,7 +45,7 @@ describe("layoutPages", () => {
   });
 
   it("an empty document has no height", () => {
-    expect(layoutPages([], 0, 1)).toEqual({ boxes: [], totalHeight: 0, maxWidth: 0 });
+    expect(layoutPages([], 0, 1)).toEqual({ boxes: [], rows: [], totalHeight: 0, maxWidth: 0 });
   });
 });
 
@@ -293,5 +293,180 @@ describe("rectToBox", () => {
     expect(rectToBox(rect, page, 90, { width: 800, height: 600 })).toEqual({ left: 730, top: 100, width: 20, height: 200 });
     expect(rectToBox(rect, page, 180, { width: 600, height: 800 })).toEqual({ left: 300, top: 730, width: 200, height: 20 });
     expect(rectToBox(rect, page, 270, { width: 800, height: 600 })).toEqual({ left: 50, top: 300, width: 20, height: 200 });
+  });
+});
+
+describe("twoPage and twoPageCover layout", () => {
+  const A4 = { widthPt: 595, heightPt: 842 };
+  const A3_LANDSCAPE = { widthPt: 1191, heightPt: 842 };
+  const SQUARE = { widthPt: 200, heightPt: 200 };
+
+  it("handles 1 page documents", () => {
+    // twoPage: page 0 in col 0 (left column)
+    const two = layoutPages([LETTER], 0, 1, "twoPage");
+    expect(two.rows).toHaveLength(1);
+    expect(two.rows[0]).toEqual({ top: PAGE_PADDING_PX, height: 1056, firstPageIndex: 0, pageCount: 1 });
+    const colWidth = 612 * CSS_PX_PER_PT;
+    expect(two.boxes[0]!.dx).toBeCloseTo(-PAGE_GAP_PX / 2 - colWidth);
+
+    // twoPageCover: page 0 in col 1 (right column, cover alone)
+    const cover = layoutPages([LETTER], 0, 1, "twoPageCover");
+    expect(cover.rows).toHaveLength(1);
+    expect(cover.rows[0]).toEqual({ top: PAGE_PADDING_PX, height: 1056, firstPageIndex: 0, pageCount: 1 });
+    expect(cover.boxes[0]!.dx).toBeCloseTo(PAGE_GAP_PX / 2);
+  });
+
+  it("handles 2 pages (even count)", () => {
+    // twoPage: row 0 has [page 0 (left), page 1 (right)]
+    const two = layoutPages([LETTER, LETTER], 0, 1, "twoPage");
+    expect(two.rows).toHaveLength(1);
+    expect(two.rows[0]!.pageCount).toBe(2);
+    expect(two.boxes[0]!.dx).toBeLessThan(0); // left column
+    expect(two.boxes[1]!.dx).toBeGreaterThan(0); // right column
+    expect(two.boxes[0]!.top).toBe(two.boxes[1]!.top);
+
+    // twoPageCover: row 0 has [page 0 (right)]; row 1 has [page 1 (left)]
+    const cover = layoutPages([LETTER, LETTER], 0, 1, "twoPageCover");
+    expect(cover.rows).toHaveLength(2);
+    expect(cover.rows[0]).toEqual({ top: PAGE_PADDING_PX, height: 1056, firstPageIndex: 0, pageCount: 1 });
+    expect(cover.rows[1]!.firstPageIndex).toBe(1);
+    expect(cover.rows[1]!.pageCount).toBe(1);
+    expect(cover.boxes[0]!.dx).toBeGreaterThan(0); // right column (cover)
+    expect(cover.boxes[1]!.dx).toBeLessThan(0); // left column
+  });
+
+  it("handles 3 pages (odd count)", () => {
+    // twoPage: row 0 has [0, 1], row 1 has [2 (left)]
+    const two = layoutPages([LETTER, LETTER, LETTER], 0, 1, "twoPage");
+    expect(two.rows).toHaveLength(2);
+    expect(two.rows[0]!.pageCount).toBe(2);
+    expect(two.rows[1]!.pageCount).toBe(1);
+    expect(two.boxes[2]!.dx).toBeLessThan(0); // page 2 in left column
+
+    // twoPageCover: row 0 has [0 (right)], row 1 has [1 (left), 2 (right)]
+    const cover = layoutPages([LETTER, LETTER, LETTER], 0, 1, "twoPageCover");
+    expect(cover.rows).toHaveLength(2);
+    expect(cover.rows[0]!.pageCount).toBe(1);
+    expect(cover.rows[1]!.pageCount).toBe(2);
+    expect(cover.boxes[0]!.dx).toBeGreaterThan(0); // cover in right column
+    expect(cover.boxes[1]!.dx).toBeLessThan(0); // page 1 in left column
+    expect(cover.boxes[2]!.dx).toBeGreaterThan(0); // page 2 in right column
+  });
+
+  it("handles mixed page sizes and centers them horizontally and vertically", () => {
+    // 4 sizes from benign/mixed-page-sizes.pdf: A4, Letter, A3 landscape, 200x200
+    const pages = [A4, LETTER, A3_LANDSCAPE, SQUARE];
+    const layout = layoutPages(pages, 0, 1, "twoPage");
+    expect(layout.rows).toHaveLength(2);
+
+    const a3Width = 1191 * CSS_PX_PER_PT;
+    expect(layout.maxWidth).toBeCloseTo(2 * a3Width + PAGE_GAP_PX);
+
+    // Row 0 has A4 (595x842) and Letter (612x792)
+    // Row height is A4 height (842 pt = 1122.67 px)
+    const a4Height = 842 * CSS_PX_PER_PT;
+    const letterHeight = 792 * CSS_PX_PER_PT;
+    expect(layout.rows[0]!.height).toBeCloseTo(a4Height);
+    // A4 is full height in row 0
+    expect(layout.boxes[0]!.top).toBe(PAGE_PADDING_PX);
+    // Letter is vertically centered in row 0
+    expect(layout.boxes[1]!.top).toBeCloseTo(PAGE_PADDING_PX + (a4Height - letterHeight) / 2);
+
+    // Both pages are centered in their respective columns of width a3Width
+    const colCenterLeft = -(a3Width + PAGE_GAP_PX) / 2;
+    const colCenterRight = (a3Width + PAGE_GAP_PX) / 2;
+    expect(layout.boxes[0]!.dx! + layout.boxes[0]!.width / 2).toBeCloseTo(colCenterLeft);
+    expect(layout.boxes[1]!.dx! + layout.boxes[1]!.width / 2).toBeCloseTo(colCenterRight);
+
+    // Row 1 has A3 landscape and Square (200x200)
+    const squareHeight = 200 * CSS_PX_PER_PT;
+    expect(layout.rows[1]!.height).toBeCloseTo(a4Height); // A3 landscape is 842 pt high
+    // Square is vertically centered in row 1
+    expect(layout.boxes[3]!.top).toBeCloseTo(layout.rows[1]!.top + (a4Height - squareHeight) / 2);
+    // Square is horizontally centered in right column
+    expect(layout.boxes[3]!.dx! + layout.boxes[3]!.width / 2).toBeCloseTo(colCenterRight);
+  });
+
+  it("handles 90 degree rotation in twoPage layout", () => {
+    const layout = layoutPages([LETTER, LETTER], 90, 1, "twoPage");
+    // Rotated 90: width is 792 pt, height is 612 pt
+    const rotWidth = 792 * CSS_PX_PER_PT;
+    const rotHeight = 612 * CSS_PX_PER_PT;
+    expect(layout.boxes[0]!.width).toBeCloseTo(rotWidth);
+    expect(layout.boxes[0]!.height).toBeCloseTo(rotHeight);
+    expect(layout.maxWidth).toBeCloseTo(2 * rotWidth + PAGE_GAP_PX);
+  });
+
+  it("calculates zoomFactor for fitWidth and fitPage in two-page modes", () => {
+    const viewport = { top: 0, left: 0, width: 2000, height: 1000 };
+    const factor = zoomFactor("fitWidth", [LETTER], 0, viewport, "twoPage");
+    // (2 * 612 * CSS_PX_PER_PT * factor) + PAGE_GAP_PX == 2000 - 2 * PAGE_PADDING_PX
+    const expectedColWidth = (2000 - 2 * PAGE_PADDING_PX - PAGE_GAP_PX) / 2;
+    expect(612 * CSS_PX_PER_PT * factor).toBeCloseTo(expectedColWidth);
+
+    const fitPage = zoomFactor("fitPage", [LETTER], 0, viewport, "twoPage");
+    // Height is 792 pt: fits in 1000 - 2 * PAGE_PADDING_PX
+    expect(792 * CSS_PX_PER_PT * fitPage).toBeLessThanOrEqual(1000 - 2 * PAGE_PADDING_PX);
+  });
+
+  it("visibleRange overscans rows in twoPage mode", () => {
+    const pages = Array.from({ length: 20 }, () => LETTER);
+    const layout = layoutPages(pages, 0, 1, "twoPage");
+    // Top of view: row 0 visible, plus 2 rows overscan -> rows 0, 1, 2 -> pages 0 to 5 (6 pages)
+    const range = visibleRange(layout, { top: 0, height: 800 });
+    expect(range).toEqual({ first: 0, last: 5 });
+  });
+
+  it("scrollTopFor scrolls both pages in a row to the row's top", () => {
+    const pages = Array.from({ length: 6 }, () => LETTER);
+    const layout = layoutPages(pages, 0, 1, "twoPageCover");
+    // Page 1 (cover) in row 0
+    expect(scrollTopFor(layout, 1)).toBe(PAGE_PADDING_PX / 2);
+    // Page 2 & 3 in row 1
+    const row1Top = scrollTopFor(layout, 2);
+    expect(scrollTopFor(layout, 3)).toBe(row1Top);
+    expect(row1Top).toBeGreaterThan(0);
+    // Page 4 & 5 in row 2
+    const row2Top = scrollTopFor(layout, 4);
+    expect(scrollTopFor(layout, 5)).toBe(row2Top);
+    expect(row2Top).toBeGreaterThan(row1Top);
+  });
+
+  it("pageNear and anchorAt find the correct page using x", () => {
+    const pages = [LETTER, LETTER];
+    const layout = layoutPages(pages, 0, 1, "twoPage");
+    const width = contentWidth(layout, 2000);
+    const midX = width / 2;
+    const y = PAGE_PADDING_PX + 100;
+
+    // Pointer on the left of centerline finds page 0
+    expect(pageNear(layout, y, midX - 50, width)).toBe(0);
+    // Pointer on the right of centerline finds page 1
+    expect(pageNear(layout, y, midX + 50, width)).toBe(1);
+
+    // anchorAt finds the corresponding page and fractional offset
+    const anchorLeft = anchorAt(layout, width, { top: 0, left: 0 }, { x: midX - 50, y })!;
+    expect(anchorLeft.pageIndex).toBe(0);
+
+    const anchorRight = anchorAt(layout, width, { top: 0, left: 0 }, { x: midX + 50, y })!;
+    expect(anchorRight.pageIndex).toBe(1);
+  });
+
+  it("currentPageAt respects preferredPage on the same row, then updates on row change", () => {
+    const pages = Array.from({ length: 10 }, () => LETTER);
+    const layout = layoutPages(pages, 0, 1, "twoPageCover");
+    // Row 2 contains pages 4 and 5 (1-based: page 4 is col 0, page 5 is col 1)
+    const row2Top = scrollTopFor(layout, 5);
+    const viewport = { top: row2Top, height: 800 };
+
+    // Default without preferredPage: first page of row 2 (page 4)
+    expect(currentPageAt(layout, viewport)).toBe(4);
+
+    // After jumping to page 5: preferredPage 5 is in row 2, so it displays 5
+    expect(currentPageAt(layout, viewport, 5)).toBe(5);
+
+    // When scrolled to row 3 (pages 6 and 7): preferredPage 5 is not in row 3, so it displays 6
+    const row3Top = scrollTopFor(layout, 6);
+    expect(currentPageAt(layout, { top: row3Top, height: 800 }, 5)).toBe(6);
   });
 });
