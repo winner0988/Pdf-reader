@@ -4932,4 +4932,20 @@ endstream",
         let remaining = doc.page_annotations(0).expect("annotations");
         assert_eq!(remaining.len(), 2);
     }
+
+    #[test]
+    fn line_annotation_with_extreme_endpoints_is_omitted_while_others_remain() {
+        let bytes = build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R 5 0 R] >>",
+            "<< /Type /Annot /Subtype /Line /Rect [10 10 100 100] /L [0 0 2000000 2000000] >>",
+            "<< /Type /Annot /Subtype /Text /Rect [20 20 40 40] /Contents (still here) >>",
+        ]);
+        let doc = PdfDocument::from_bytes(&bytes).expect("open");
+        let annots = doc.page_annotations(0).expect("annotations");
+        assert_eq!(annots.len(), 1);
+        assert_eq!(annots[0].kind, AnnotationKind::Note);
+        assert_eq!(annots[0].text.as_deref(), Some("still here"));
+    }
 }

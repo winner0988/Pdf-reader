@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   dragged,
+  keepLineOnPage,
   keptOnPage,
   keptPointOnPage,
   moved,
@@ -149,6 +150,23 @@ describe("keeping a rectangle on its page", () => {
     expect(keptOnPage({ x0: -10, y0: 780, x1: 90, y1: 820 }, LETTER)).toEqual({ x0: 0, y0: 752, x1: 100, y1: 792 });
     expect(keptOnPage({ x0: 10, y0: 10, x1: 20, y1: 20 }, LETTER)).toEqual({ x0: 10, y0: 10, x1: 20, y1: 20 });
     expect(keptOnPage({ x0: -5, y0: 0, x1: 700, y1: 10 }, LETTER)).toEqual({ x0: -5, y0: 0, x1: 700, y1: 10 });
+  });
+});
+
+describe("keeping a line on its page", () => {
+  it("shifts both endpoints back in, keeping length and shape, and leaves one larger than the page alone", () => {
+    expect(keepLineOnPage({ x: -10, y: 10 }, { x: 50, y: 50 }, LETTER)).toEqual({
+      from: { x: 0, y: 10 },
+      to: { x: 60, y: 50 },
+    });
+    expect(keepLineOnPage({ x: 500, y: 700 }, { x: 622, y: 802 }, LETTER)).toEqual({
+      from: { x: 490, y: 690 },
+      to: { x: 612, y: 792 },
+    });
+    expect(keepLineOnPage({ x: 10, y: 10 }, { x: 20, y: 20 }, LETTER)).toEqual({
+      from: { x: 10, y: 10 },
+      to: { x: 20, y: 20 },
+    });
   });
 });
 

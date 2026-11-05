@@ -282,20 +282,56 @@ test("shape annotations: rectangle and arrow can be drawn, recolored, undone/red
     });
     await expect(rectToolbar).toBeVisible();
 
-    await rectToolbar.getByRole("button", { name: t.inkColors.blue }).click();
+    const docBeforeColor = await firstPage(page).getAttribute("data-doc");
+    const blueButton = rectToolbar.locator(`button[aria-label="${t.inkColors.blue}"]`);
+    await blueButton.click();
+    await expect(firstPage(page)).not.toHaveAttribute("data-doc", docBeforeColor ?? "");
+    await expect(page.locator("[data-page-annotations][aria-busy]")).toHaveCount(0);
     await expect(rectangles.first()).toHaveAccessibleName(t.kind.rectangle);
+    await expect(blueButton).toHaveAttribute("aria-pressed", "true");
+    await expect(rectToolbar.locator(`button[aria-label="${t.inkColors.black}"]`)).toHaveAttribute("aria-pressed", "false");
 
-    // 4. Test Undo and Redo
-    await page.keyboard.press("Control+z"); // undo recolor
-    await expect(rectangles.first()).toHaveAccessibleName(t.kind.rectangle);
+    // Move rectangle with arrow keys (focus annotation first; Shift+ArrowRight moves 10 points)
+    await rectangles.first().focus();
+    const preMoveRectBox = (await rectangles.first().boundingBox())!;
+    await page.keyboard.press("Shift+ArrowRight");
+    await expect
+      .poll(async () => ((await rectangles.first().boundingBox())?.x ?? preMoveRectBox.x) - preMoveRectBox.x)
+      .toBeGreaterThan(5);
+    await expect(page.locator("[data-page-annotations][aria-busy]")).toHaveCount(0);
 
-    await page.keyboard.press("Control+z"); // undo arrow
-    await expect(arrows).toHaveCount(0);
+    // 4. Select arrow, drag endpoint to move/resize
+    await arrows.first().focus();
+    const arrowToolbar = page.locator(`[role=toolbar][aria-label="${t.kind.arrow}"]`);
+    await expect(arrowToolbar).toBeVisible();
+    const preMoveArrowBox = (await arrows.first().boundingBox())!;
 
-    await page.keyboard.press("Control+y"); // redo arrow
-    await expect(arrows).toHaveCount(1);
+    const toHandle = page.locator("[data-line-handles] [data-handle=to]");
+    await expect(toHandle).toBeVisible();
+    const handleBox = (await toHandle.boundingBox())!;
+    await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(handleBox.x + handleBox.width / 2 + 50, handleBox.y + handleBox.height / 2 + 30, { steps: 5 });
+    await page.mouse.up();
 
-    // 5. Save as copy and check PDF structure
+    await expect.poll(async () => (await arrows.first().boundingBox())?.width).toBeGreaterThan(preMoveArrowBox.width);
+    await expect.poll(async () => (await arrows.first().boundingBox())?.height).toBeGreaterThan(preMoveArrowBox.height);
+    await expect(page.locator("[data-page-annotations][aria-busy]")).toHaveCount(0);
+
+    // 5. Test Undo and Redo
+    await page.keyboard.press("Control+z"); // undo arrow endpoint drag
+    await expect
+      .poll(async () => Math.abs(((await arrows.first().boundingBox())?.height ?? 0) - preMoveArrowBox.height))
+      .toBeLessThan(1);
+    await expect(page.locator("[data-page-annotations][aria-busy]")).toHaveCount(0);
+
+    await page.keyboard.press("Control+y"); // redo arrow endpoint drag
+    await expect
+      .poll(async () => ((await arrows.first().boundingBox())?.height ?? 0) - preMoveArrowBox.height)
+      .toBeGreaterThan(5);
+    await expect(page.locator("[data-page-annotations][aria-busy]")).toHaveCount(0);
+
+    // 6. Save as copy and check PDF structure
     const copy = path.join(folder, "shapes.pdf");
     await page.keyboard.press("Control+Shift+S");
     await answerFileDialog(page, { path: copy });
@@ -306,21 +342,38 @@ test("shape annotations: rectangle and arrow can be drawn, recolored, undone/red
     expect(saved).toMatch(/\/Subtype\s*\/Square/);
     expect(saved).toMatch(/\/Subtype\s*\/Line/);
     expect(saved).toMatch(/\/LE\s*\[\s*\/None\s*\/OpenArrow\s*\]/);
+    expect(saved).toMatch(/\/C\s*\[\s*0?\.1\s+0?\.3\s+0?\.85\s*\]/);
     expect(saved).not.toMatch(/\/T\s*[(<]/);
     expect(saved).not.toMatch(/\/M\s*[(<]/);
     expect(saved).not.toMatch(/\/(NM|CreationDate)\b/);
 
-    // 6. Reopen copy and verify annotations persist and can be deleted
+    // Confirm rectangle /Rect is the moved value
+    const squareMatch = saved.match(/\/Subtype\s*\/Square[\s\S]*?\/Rect\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\]/);
+    expect(squareMatch).not.toBeNull();
+    const [, sqX0] = squareMatch!.map(Number);
+    expect(sqX0).toBeGreaterThan(90);
+
+    // Confirm arrow /L is the moved value (drawn horizontally, dragged with vertical offset so y0 != y1)
+    const lineMatch = saved.match(/\/Subtype\s*\/Line[\s\S]*?\/L\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\]/);
+    expect(lineMatch).not.toBeNull();
+    const [, , lnY0, , lnY1] = lineMatch!.map(Number);
+    expect(lnY0).not.toBe(lnY1);
+
+    // 7. Reopen copy and verify annotations persist and can be deleted
     const reopened = await launch(copy);
     await expect(firstPage(reopened)).toHaveAttribute("data-state", "ready");
+    const reopenedRectangles = reopened.locator("[data-page-annotations] [data-annotation=rectangle]");
     const reopenedArrows = reopened.locator("[data-page-annotations] [data-annotation=arrow]");
+    await expect(reopenedRectangles).toHaveCount(1);
     await expect(reopenedArrows).toHaveCount(1);
 
+    await reopenedRectangles.first().focus();
+    const reopenedRectToolbar = reopened.locator(`[role=toolbar][aria-label="${t.kind.rectangle}"]`);
+    await expect(reopenedRectToolbar.locator(`button[aria-label="${t.inkColors.blue}"]`)).toHaveAttribute("aria-pressed", "true");
+
     await reopenedArrows.first().focus();
-    const arrowToolbar = reopened.getByRole("toolbar", {
-      name: t.kind.arrow,
-    });
-    await arrowToolbar.getByRole("button", { name: t.delete }).click();
+    const reopenedArrowToolbar = reopened.locator(`[role=toolbar][aria-label="${t.kind.arrow}"]`);
+    await reopenedArrowToolbar.locator(`button[aria-label="${t.delete}"]`).click();
     await expect(reopenedArrows).toHaveCount(0);
   } finally {
     rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });

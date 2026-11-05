@@ -24,7 +24,7 @@ import { annotationLabel, HIGHLIGHT_COLORS, SWATCH } from "@/features/annotation
 import { MoveResize } from "@/features/annotations/MoveResize";
 import { PictureTurn } from "@/features/annotations/PictureTurn";
 import { normalizeAngle, TURN_STEP_DEGREES } from "@/features/annotations/turn";
-import { INK_COLORS, INK_SWATCH, INK_WIDTHS, keptOnPage, moved, rectOfBox, type Box } from "@/features/annotations/tools";
+import { INK_COLORS, INK_SWATCH, INK_WIDTHS, keepLineOnPage, keptOnPage, moved, rectOfBox, type Box } from "@/features/annotations/tools";
 import type { AnnotationSource } from "@/features/annotations/source";
 import type { PageSize, Rotation } from "@/features/shell/model";
 import { boxToPage, displayedSize, pageToBox, rectToBox, type PageBox } from "@/features/viewer/layout";
@@ -193,7 +193,8 @@ export function PageAnnotations({
         const p2 = pageToBox(toPt, page, rotation, box);
         const nextFrom = boxToPage({ x: p1.x + dx * step, y: p1.y + dy * step }, page, rotation, box);
         const nextTo = boxToPage({ x: p2.x + dx * step, y: p2.y + dy * step }, page, rotation, box);
-        placeLine(annotation, nextFrom, nextTo);
+        const kept = keepLineOnPage(nextFrom, nextTo, page);
+        placeLine(annotation, kept.from, kept.to);
       } else {
         place(annotation, keptOnPage(rectOfBox(moved(area, dx * step, dy * step), page, rotation, box), page));
       }

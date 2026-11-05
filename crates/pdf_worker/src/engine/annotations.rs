@@ -824,6 +824,13 @@ fn entry(annotation: &PdfAnnotation, page_rotation: i32) -> Result<Option<PageAn
         }
         _ => None,
     };
+    if let Some(ends) = &line_ends
+        && [ends.from.x, ends.from.y, ends.to.x, ends.to.y]
+            .iter()
+            .any(|value| !value.is_finite() || value.abs() > MAX_PAGE_SIDE_PT)
+    {
+        return Ok(None);
+    }
     let shape_color = match kind {
         AnnotationKind::Rectangle
         | AnnotationKind::Ellipse
