@@ -80,6 +80,9 @@ export const SHORTCUTS: Shortcut[] = [
   { id: "toggleSidebar", keys: ["F4"], matches: (e) => plain(e) && e.key === "F4" },
   { id: "nextRegion", keys: ["F6"], matches: (e) => plain(e) && !e.shiftKey && e.key === "F6" },
   { id: "previousRegion", keys: ["Shift+F6"], matches: (e) => plain(e) && e.shiftKey && e.key === "F6" },
+  { id: "fullscreen", keys: ["F11"], matches: (e) => plain(e) && !e.shiftKey && e.key === "F11" },
+  { id: "presentation", keys: ["F5"], matches: (e) => plain(e) && !e.shiftKey && e.key === "F5" },
+  { id: "presentationCurrent", keys: ["Shift+F5"], matches: (e) => plain(e) && e.shiftKey && e.key === "F5" },
   { id: "help", keys: ["Ctrl+/"], matches: (e) => ctrl(e) && e.key === "/" },
 ];
 

@@ -93,4 +93,29 @@ describe("useShortcuts", () => {
     await shown;
     expect(redo).toHaveBeenCalledTimes(1);
   });
+
+  it("suppresses browser reload on F5 and F11 and still routes to listener that handles it", () => {
+    const nextTab = vi.fn();
+    const presentation = vi.fn();
+    render(
+      <>
+        {/* Like App.tsx: only has tab shortcuts */}
+        <Listener handlers={{ nextTab }} />
+        {/* Like ReaderShell.tsx: has presentation */}
+        <Listener handlers={{ presentation }} />
+      </>,
+    );
+    const event = new KeyboardEvent("keydown", { key: "F5", cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(nextTab).not.toHaveBeenCalled();
+    expect(presentation).toHaveBeenCalledTimes(1);
+  });
+
+  it("suppresses browser default for F11 even if no handler is registered", () => {
+    render(<Listener handlers={{}} />);
+    const event = new KeyboardEvent("keydown", { key: "F11", cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+  });
 });

@@ -15,7 +15,7 @@ use crate::types::{
     InkColor, InkWidth, OutlineResult, PageAnnotation, PageCorner, PageLink, PageMarkPages,
     PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark, PageSize, PageText, Password,
     PersonalDataMatches, Point, RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId,
-    Restrictions, Rgb, Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityReport,
+    Restrictions, Rgb, Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityReport, Shape,
     SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle,
     TextMarkKind, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
@@ -561,6 +561,27 @@ pub enum WorkerEdit {
         parent: Option<BookmarkId>,
         index: u32,
     },
+    /// As [`Edit::AddShape`] (B4-05).
+    AddShape {
+        page: u32,
+        shape: Shape,
+        color: InkColor,
+        width: InkWidth,
+    },
+    /// As [`Edit::SetLineEnds`] (B4-05).
+    SetLineEnds {
+        page: u32,
+        annotation: AnnotationId,
+        from: Point,
+        to: Point,
+    },
+    /// As [`Edit::SetShapeStyle`] (B4-05).
+    SetShapeStyle {
+        page: u32,
+        annotation: AnnotationId,
+        color: InkColor,
+        width: InkWidth,
+    },
 }
 
 /// An edit names something its document does not have: a file whose pages it takes (B2-06), the
@@ -744,6 +765,39 @@ impl WorkerEdit {
                 id: *id,
                 parent: *parent,
                 index: *index,
+            },
+            Edit::AddShape {
+                page,
+                shape,
+                color,
+                width,
+            } => WorkerEdit::AddShape {
+                page: *page,
+                shape: shape.clone(),
+                color: *color,
+                width: *width,
+            },
+            Edit::SetLineEnds {
+                page,
+                annotation,
+                from,
+                to,
+            } => WorkerEdit::SetLineEnds {
+                page: *page,
+                annotation: *annotation,
+                from: *from,
+                to: *to,
+            },
+            Edit::SetShapeStyle {
+                page,
+                annotation,
+                color,
+                width,
+            } => WorkerEdit::SetShapeStyle {
+                page: *page,
+                annotation: *annotation,
+                color: *color,
+                width: *width,
             },
         })
     }

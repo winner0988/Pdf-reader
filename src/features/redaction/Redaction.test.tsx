@@ -64,6 +64,9 @@ describe("redaction geometry and model helpers", () => {
         color: null,
         text: null,
         picture: null,
+        lineEnds: null,
+        shapeColor: null,
+        shapeWidth: null,
       },
     });
 
@@ -203,6 +206,9 @@ describe("RedactionPanel", () => {
           color: null,
           text: null,
           picture: null,
+          lineEnds: null,
+          shapeColor: null,
+          shapeWidth: null,
         },
       },
       {
@@ -214,6 +220,9 @@ describe("RedactionPanel", () => {
           color: null,
           text: null,
           picture: null,
+          lineEnds: null,
+          shapeColor: null,
+          shapeWidth: null,
         },
       },
     ];

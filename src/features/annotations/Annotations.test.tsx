@@ -37,6 +37,9 @@ const highlight: PageAnnotation = {
   color: "yellow",
   text: null,
   picture: null,
+  lineEnds: null,
+  shapeColor: null,
+  shapeWidth: null,
 };
 const note: PageAnnotation = {
   id: 5,
@@ -45,6 +48,9 @@ const note: PageAnnotation = {
   color: null,
   text: "Existing note",
   picture: null,
+  lineEnds: null,
+  shapeColor: null,
+  shapeWidth: null,
 };
 
 /** Client coordinates of a point on page `index`, in page points, at 100% (jsdom puts the view at 0, 0). */
@@ -255,6 +261,9 @@ describe("text markups: underline, strikeout, squiggly (B4-04)", () => {
       color: "blue",
       text: null,
       picture: null,
+      lineEnds: null,
+      shapeColor: null,
+      shapeWidth: null,
     };
     const { editing, user } = await setup(ALL_PERMISSIONS, [underlineAnnot]);
     const mark = await screen.findByRole("button", { name: annotationLabel(underlineAnnot) });
@@ -438,6 +447,9 @@ describe("PageAnnotations", () => {
     color: null,
     text: "Words",
     picture: null,
+    lineEnds: null,
+    shapeColor: null,
+    shapeWidth: null,
   };
 
   /** On document 1, whose list is `list`; `edit()` makes it document 2, whose list `answer` gives. */
@@ -535,5 +547,86 @@ describe("PageAnnotations", () => {
     expect(onChoose).toHaveBeenCalledWith(null);
     expect(onRelease).not.toHaveBeenCalled();
     elsewhere.remove();
+  });
+
+  it("allows selecting, recoloring, moving and deleting rectangle annotations (B4-05)", async () => {
+    const rectAnnot: PageAnnotation = {
+      id: 20,
+      kind: "rectangle",
+      rect: { x0: 50, y0: 50, x1: 150, y1: 120 },
+      color: null,
+      text: null,
+      picture: null,
+      lineEnds: null,
+      shapeColor: "black",
+      shapeWidth: "thin",
+    };
+    const { editing, user } = await setup(ALL_PERMISSIONS, [rectAnnot]);
+    const outline = await screen.findByRole("button", { name: annotationLabel(rectAnnot) });
+    expect(outline).toHaveAttribute("data-annotation", "rectangle");
+    act(() => outline.focus());
+
+    // Toolbar appears with color swatches and delete
+    const toolbar = await screen.findByRole("toolbar", { name: annotationLabel(rectAnnot) });
+    expect(toolbar).toBeInTheDocument();
+
+    // Recolor with red swatch
+    const redButton = within(toolbar).getByRole("button", { name: t.inkColors.red });
+    await user.click(redButton);
+    expect(lastEdit(editing)).toMatchObject({
+      kind: "setShapeStyle",
+      page: 0,
+      annotation: 20,
+      color: "red",
+    });
+
+    // Arrow keys move rectangle
+    fireEvent.keyDown(outline, { key: "ArrowRight" });
+    expect(lastEdit(editing)).toMatchObject({
+      kind: "setAnnotationRect",
+      page: 0,
+      annotation: 20,
+    });
+
+    // Delete
+    const deleteButton = within(toolbar).getByRole("button", { name: t.delete });
+    await user.click(deleteButton);
+    expect(lastEdit(editing)).toMatchObject({
+      kind: "deleteAnnotation",
+      page: 0,
+      annotation: 20,
+    });
+  });
+
+  it("allows selecting, moving endpoints and moving line/arrow annotations (B4-05)", async () => {
+    const arrowAnnot: PageAnnotation = {
+      id: 21,
+      kind: "arrow",
+      rect: { x0: 100, y0: 100, x1: 200, y1: 200 },
+      color: null,
+      text: null,
+      picture: null,
+      lineEnds: {
+        from: { x: 100, y: 100 },
+        to: { x: 200, y: 200 },
+      },
+      shapeColor: "red",
+      shapeWidth: "medium",
+    };
+    const { editing } = await setup(ALL_PERMISSIONS, [arrowAnnot]);
+    const outline = await screen.findByRole("button", { name: annotationLabel(arrowAnnot) });
+    expect(outline).toHaveAttribute("data-annotation", "arrow");
+    act(() => outline.focus());
+
+    // LineHandles should be rendered
+    expect(document.querySelector("[data-line-handles='21']")).toBeInTheDocument();
+
+    // Arrow keys move both endpoints
+    fireEvent.keyDown(outline, { key: "ArrowDown" });
+    expect(lastEdit(editing)).toMatchObject({
+      kind: "setLineEnds",
+      page: 0,
+      annotation: 21,
+    });
   });
 });

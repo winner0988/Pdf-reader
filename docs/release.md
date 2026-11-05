@@ -23,7 +23,7 @@ REL-04（[#198](https://github.com/winner0988/Pdf-reader/issues/198)）。怎麼
 ### 發行前
 
 - [ ] `main` 的 CI 全綠，沒有待處理的 `needs-security-review`。
-- [ ] 人工安全檢查（[manual-checks.md](security/manual-checks.md) 第 1、2 節）在要發行的建置上做過，結果寫進該文件最後的紀錄表。
+- [ ] 人工安全檢查（[manual-checks.md](security/manual-checks.md)）：每次發行做第 1、2 節；1.0 另外做[第 3 節「1.0 發行之前」](security/manual-checks.md#3-10-發行之前b4-11)；1.0 之後的發行若改到攻擊面（新的命令、worker 請求、權限、寫入的位置或啟動的行程），也再做第 3 節中相關的項目。在要發行的建置上做過，結果都寫進 manual-checks.md 最後的紀錄表。
 - [ ] 離線驗證的手動檢查（[offline-verification.md](security/offline-verification.md#手動檢查每次發布前)，「每次發布前」）：方法 A（內建的 `scripts/security/watch-connections.ps1`）與方法 B（Process Monitor），在要發行的安裝檔上做；結果依該文件的「紀錄格式」附在發行 PR。
 - [ ] 版本：`package.json` 的 `version`、`Cargo.toml` 的 `[workspace.package]`、`Cargo.lock`（`cargo check` 會更新）是同一個版本；`CHANGELOG.md` 有 `## [x.y.z] - yyyy-mm-dd`，日期是發行當天，內容是使用者看得懂的變化。`node scripts/release/check-version.mjs v<版本>` 要通過。
 - [ ] 第三方元件聲明是最新的：`node scripts/release/third-party-licenses.mjs --check`。不是的話去掉 `--check` 重新產生並提交（依賴更新之後常會這樣）。

@@ -173,6 +173,10 @@ pub fn annotation_kind_name(kind: AnnotationSummaryKind) -> &'static str {
         AnnotationSummaryKind::TextBox => "文字方塊",
         AnnotationSummaryKind::Ink => "手繪線條",
         AnnotationSummaryKind::Stamp => "印章",
+        AnnotationSummaryKind::Rectangle => "矩形",
+        AnnotationSummaryKind::Ellipse => "橢圓",
+        AnnotationSummaryKind::Line => "直線",
+        AnnotationSummaryKind::Arrow => "箭頭",
     }
 }
 /// The page an annotation is on, counted from 1.

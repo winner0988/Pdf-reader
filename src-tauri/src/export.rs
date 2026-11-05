@@ -741,6 +741,10 @@ mod tests {
                 ),
                 item(2, AnnotationSummaryKind::Ink, ""),
                 item(2, AnnotationSummaryKind::Stamp, ""),
+                item(2, AnnotationSummaryKind::Rectangle, ""),
+                item(2, AnnotationSummaryKind::Ellipse, ""),
+                item(2, AnnotationSummaryKind::Line, ""),
+                item(2, AnnotationSummaryKind::Arrow, ""),
             ],
             truncated: false,
         };
@@ -759,7 +763,11 @@ mod tests {
              \n\
              第 3 頁｜文字方塊：1. <b>#1</b> [x](y) a_b \\ c|d\n\
              第 3 頁｜手繪線條\n\
-             第 3 頁｜印章\n"
+             第 3 頁｜印章\n\
+             第 3 頁｜矩形\n\
+             第 3 頁｜橢圓\n\
+             第 3 頁｜直線\n\
+             第 3 頁｜箭頭\n"
         );
         assert_eq!(
             annotation_summary_file(&summary, true, Some("報告_v2.pdf")),
@@ -779,7 +787,11 @@ mod tests {
              \n\
              - **文字方塊**：1\\. \\<b\\>\\#1\\</b\\> \\[x\\](y) a\\_b \\\\ c\\|d\n\
              - **手繪線條**\n\
-             - **印章**\n"
+             - **印章**\n\
+             - **矩形**\n\
+             - **橢圓**\n\
+             - **直線**\n\
+             - **箭頭**\n"
         );
         // Without the name, and a summary that stopped before the end says so.
         let cut = AnnotationSummary {

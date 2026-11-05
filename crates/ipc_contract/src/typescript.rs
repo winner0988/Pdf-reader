@@ -98,6 +98,8 @@ pub fn bindings() -> String {
         ExportFormat,
         ExportArgs,
         ExportEvent,
+        Shape,
+        LineEnds,
         Edit,
         TextMarkKind,
         HighlightColor,

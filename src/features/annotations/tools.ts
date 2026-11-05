@@ -14,16 +14,19 @@ import {
   type StampName,
 } from "@/ipc/generated/contract";
 
+export type ShapeToolKind = "rectangle" | "ellipse" | "line" | "arrow";
+
 /**
  * What the pointer does on the pages: draws with the pen, or places a stamp (one of the standard
- * ones, or a picture of the user's own).
+ * ones, or a picture of the user's own), or draws a shape (rectangle, ellipse, line, arrow).
  */
 export type Tool =
   | { kind: "pen"; color: InkColor; width: InkWidth }
   | { kind: "stamp"; stamp: StampName }
   | { kind: "picture"; picture: StampImageInfo }
   | { kind: "textBox" }
-  | { kind: "redaction" };
+  | { kind: "redaction" }
+  | { kind: "shape"; shapeKind: ShapeToolKind; color: InkColor; width: InkWidth };
 
 export const INK_COLORS: InkColor[] = ["black", "red", "blue", "green"];
 export const INK_WIDTHS: InkWidth[] = ["thin", "medium", "thick"];
@@ -216,4 +219,46 @@ export function keptOnPage(rect: Rect, page: PageSize): Rect {
   const dx = shift(rect.x0, rect.x1, page.widthPt);
   const dy = shift(rect.y0, rect.y1, page.heightPt);
   return { x0: rect.x0 + dx, y0: rect.y0 + dy, x1: rect.x1 + dx, y1: rect.y1 + dy };
+}
+
+/**
+ * Calculates a rectangular area from start to current point, enforcing a 1:1 square ratio
+ * if shiftKey is true.
+ */
+export function shapeRect(start: Point, current: Point, shiftKey: boolean): Rect {
+  let curX = current.x;
+  let curY = current.y;
+  if (shiftKey) {
+    const side = Math.max(Math.abs(curX - start.x), Math.abs(curY - start.y));
+    curX = start.x + (curX >= start.x ? side : -side);
+    curY = start.y + (curY >= start.y ? side : -side);
+  }
+  return {
+    x0: Math.min(start.x, curX),
+    y0: Math.min(start.y, curY),
+    x1: Math.max(start.x, curX),
+    y1: Math.max(start.y, curY),
+  };
+}
+
+/**
+ * Calculates line endpoints from start to current point, snapping to the nearest 45° angle
+ * (horizontal, vertical, diagonal) if shiftKey is true.
+ */
+export function shapeLine(start: Point, current: Point, shiftKey: boolean): { from: Point; to: Point } {
+  let to = { ...current };
+  if (shiftKey) {
+    const dx = current.x - start.x;
+    const dy = current.y - start.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > 0) {
+      const angle = Math.atan2(dy, dx);
+      const snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+      to = {
+        x: Math.round((start.x + dist * Math.cos(snapped)) * 100) / 100,
+        y: Math.round((start.y + dist * Math.sin(snapped)) * 100) / 100,
+      };
+    }
+  }
+  return { from: start, to };
 }

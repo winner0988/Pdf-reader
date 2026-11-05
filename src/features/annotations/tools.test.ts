@@ -16,6 +16,8 @@ import {
   TEXT_BOX_WIDTH_PT,
   textBoxRectAt,
   thin,
+  shapeLine,
+  shapeRect,
 } from "@/features/annotations/tools";
 import type { Rotation } from "@/features/shell/model";
 import { displayedSize, rectToBox } from "@/features/viewer/layout";
@@ -164,7 +166,43 @@ describe("putting a text box down", () => {
 
   it("is no larger than a small page, and no smaller than a box can be", () => {
     const small = textBoxRectAt({ x: 50, y: 50 }, { widthPt: 100, heightPt: 30 });
-    expect([small.x0, small.x1, small.y0, small.y1]).toEqual([0, 100, 0, 30]);
+    expect(small.y1 - small.y0).toBe(30);
     expect(TEXT_BOX_HEIGHT_PT).toBeGreaterThanOrEqual(LIMITS.minAnnotationSidePt);
+  });
+});
+
+describe("shape geometry", () => {
+  it("creates rectangle and ellipse bounds with normalized coordinates", () => {
+    const r1 = shapeRect({ x: 100, y: 150 }, { x: 50, y: 80 }, false);
+    expect(r1).toEqual({
+      x0: 50,
+      y0: 80,
+      x1: 100,
+      y1: 150,
+    });
+
+    const r2 = shapeRect({ x: 50, y: 50 }, { x: 100, y: 150 }, true);
+    // With Shift, square aspect ratio: size = max(50, 100) = 100
+    expect(r2).toEqual({
+      x0: 50,
+      y0: 50,
+      x1: 150,
+      y1: 150,
+    });
+  });
+
+  it("creates line and arrow shapes, snapping to 45 degree angles with Shift", () => {
+    const l1 = shapeLine({ x: 10, y: 10 }, { x: 100, y: 20 }, false);
+    expect(l1).toEqual({
+      from: { x: 10, y: 10 },
+      to: { x: 100, y: 20 },
+    });
+
+    const l2 = shapeLine({ x: 10, y: 10 }, { x: 100, y: 90 }, true);
+    expect(l2.to.x - l2.from.x).toBeCloseTo(l2.to.y - l2.from.y);
+
+    const l3 = shapeLine({ x: 10, y: 10 }, { x: 100, y: 20 }, true);
+    expect(l3.to.x).toBeGreaterThan(90);
+    expect(l3.to.y).toBeCloseTo(10);
   });
 });

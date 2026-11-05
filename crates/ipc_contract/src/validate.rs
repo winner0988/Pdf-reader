@@ -26,7 +26,7 @@ use crate::types::{
     RecentFile, Rect, RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
     Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult,
     SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs, SensitiveFile,
-    Settings, SignArgs, SignatureInfo, SignatureReport, SignatureStatus, SigningFileKey,
+    Settings, Shape, SignArgs, SignatureInfo, SignatureReport, SignatureStatus, SigningFileKey,
     SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs, UnlockArgs,
     UnlockSourceArgs, Watermark, WatermarkContent,
 };
@@ -175,6 +175,34 @@ impl Validate for Quad {
             point.validate()?;
         }
         Ok(())
+    }
+}
+
+impl Validate for Shape {
+    fn validate(&self) -> Result<(), ValidationError> {
+        match self {
+            Shape::Rectangle { rect } | Shape::Ellipse { rect } => {
+                rect.validate()?;
+                if rect.x1 <= rect.x0 || rect.y1 <= rect.y0 {
+                    return Err(ValidationError::Invalid {
+                        what: "shape rectangle",
+                        reason: "empty or inverted",
+                    });
+                }
+                Ok(())
+            }
+            Shape::Line { from, to, .. } => {
+                from.validate()?;
+                to.validate()?;
+                if from == to {
+                    return Err(ValidationError::Invalid {
+                        what: "line",
+                        reason: "ends are the same point",
+                    });
+                }
+                Ok(())
+            }
+        }
     }
 }
 
@@ -1326,15 +1354,25 @@ impl Validate for AnnotationSummaryItem {
             AnnotationSummaryKind::Note | AnnotationSummaryKind::TextBox => {
                 check_cleaned_note("annotation summary note", &self.text, max)
             }
-            AnnotationSummaryKind::Ink | AnnotationSummaryKind::Stamp if self.text.is_empty() => {
+            AnnotationSummaryKind::Ink
+            | AnnotationSummaryKind::Stamp
+            | AnnotationSummaryKind::Rectangle
+            | AnnotationSummaryKind::Ellipse
+            | AnnotationSummaryKind::Line
+            | AnnotationSummaryKind::Arrow
+                if self.text.is_empty() =>
+            {
                 Ok(())
             }
-            AnnotationSummaryKind::Ink | AnnotationSummaryKind::Stamp => {
-                Err(ValidationError::Invalid {
-                    what: "drawing or stamp in a summary",
-                    reason: "has text",
-                })
-            }
+            AnnotationSummaryKind::Ink
+            | AnnotationSummaryKind::Stamp
+            | AnnotationSummaryKind::Rectangle
+            | AnnotationSummaryKind::Ellipse
+            | AnnotationSummaryKind::Line
+            | AnnotationSummaryKind::Arrow => Err(ValidationError::Invalid {
+                what: "drawing, stamp or shape in a summary",
+                reason: "has text",
+            }),
         }
     }
 }
@@ -1484,6 +1522,23 @@ impl Validate for Edit {
                 check_annotated_page(*page)?;
                 check_annotation_rect(rect)
             }
+            Edit::AddShape { page, shape, .. } => {
+                check_annotated_page(*page)?;
+                shape.validate()
+            }
+            Edit::SetLineEnds { page, from, to, .. } => {
+                check_annotated_page(*page)?;
+                from.validate()?;
+                to.validate()?;
+                if from == to {
+                    return Err(ValidationError::Invalid {
+                        what: "line",
+                        reason: "ends are the same point",
+                    });
+                }
+                Ok(())
+            }
+            Edit::SetShapeStyle { page, .. } => check_annotated_page(*page),
             Edit::AddRedactionGroup { page, rects } => {
                 check_annotated_page(*page)?;
                 if rects.is_empty() {
@@ -2972,6 +3027,9 @@ mod tests {
             color: None,
             text: None,
             picture,
+            line_ends: None,
+            shape_color: None,
+            shape_width: None,
         };
         let view = |angle: f32, width: f32, height: f32| {
             Some(PictureView {
@@ -2992,6 +3050,153 @@ mod tests {
         ] {
             assert!(stamp(wrong).validate().is_err(), "{wrong:?}");
         }
+    }
+
+    #[test]
+    fn shape_annotations_and_line_ends_are_validated() {
+        use crate::types::{AnnotationId, Edit, InkColor, InkWidth, Point, Rect, Shape};
+
+        let rect_shape = Edit::AddShape {
+            page: 0,
+            shape: Shape::Rectangle {
+                rect: Rect {
+                    x0: 10.0,
+                    y0: 10.0,
+                    x1: 100.0,
+                    y1: 100.0,
+                },
+            },
+            color: InkColor::Red,
+            width: InkWidth::Thin,
+        };
+        assert!(rect_shape.validate().is_ok());
+
+        // Inverted or empty rectangle
+        let empty_rect = Edit::AddShape {
+            page: 0,
+            shape: Shape::Rectangle {
+                rect: Rect {
+                    x0: 100.0,
+                    y0: 10.0,
+                    x1: 10.0,
+                    y1: 100.0,
+                },
+            },
+            color: InkColor::Red,
+            width: InkWidth::Thin,
+        };
+        assert!(empty_rect.validate().is_err());
+
+        // Zero-sized rectangle
+        let zero_rect = Edit::AddShape {
+            page: 0,
+            shape: Shape::Ellipse {
+                rect: Rect {
+                    x0: 50.0,
+                    y0: 50.0,
+                    x1: 50.0,
+                    y1: 50.0,
+                },
+            },
+            color: InkColor::Green,
+            width: InkWidth::Medium,
+        };
+        assert!(zero_rect.validate().is_err());
+
+        // Valid line and arrow
+        let line = Edit::AddShape {
+            page: 0,
+            shape: Shape::Line {
+                from: Point { x: 10.0, y: 10.0 },
+                to: Point { x: 100.0, y: 100.0 },
+                arrow: false,
+            },
+            color: InkColor::Black,
+            width: InkWidth::Thick,
+        };
+        assert!(line.validate().is_ok());
+
+        let arrow = Edit::AddShape {
+            page: 0,
+            shape: Shape::Line {
+                from: Point { x: 10.0, y: 10.0 },
+                to: Point { x: 100.0, y: 100.0 },
+                arrow: true,
+            },
+            color: InkColor::Blue,
+            width: InkWidth::Medium,
+        };
+        assert!(arrow.validate().is_ok());
+
+        // Line ends are the same point
+        let same_ends = Edit::AddShape {
+            page: 0,
+            shape: Shape::Line {
+                from: Point { x: 10.0, y: 10.0 },
+                to: Point { x: 10.0, y: 10.0 },
+                arrow: false,
+            },
+            color: InkColor::Black,
+            width: InkWidth::Thin,
+        };
+        assert!(same_ends.validate().is_err());
+
+        // Non-finite coordinate
+        let nan_line = Edit::AddShape {
+            page: 0,
+            shape: Shape::Line {
+                from: Point {
+                    x: f32::NAN,
+                    y: 10.0,
+                },
+                to: Point { x: 100.0, y: 100.0 },
+                arrow: false,
+            },
+            color: InkColor::Black,
+            width: InkWidth::Thin,
+        };
+        assert!(nan_line.validate().is_err());
+
+        // SetLineEnds
+        let set_ends = Edit::SetLineEnds {
+            page: 0,
+            annotation: AnnotationId(7),
+            from: Point { x: 20.0, y: 20.0 },
+            to: Point { x: 200.0, y: 80.0 },
+        };
+        assert!(set_ends.validate().is_ok());
+
+        let set_same = Edit::SetLineEnds {
+            page: 0,
+            annotation: AnnotationId(7),
+            from: Point { x: 20.0, y: 20.0 },
+            to: Point { x: 20.0, y: 20.0 },
+        };
+        assert!(set_same.validate().is_err());
+
+        // SetShapeStyle
+        let set_style = Edit::SetShapeStyle {
+            page: 0,
+            annotation: AnnotationId(7),
+            color: InkColor::Green,
+            width: InkWidth::Thick,
+        };
+        assert!(set_style.validate().is_ok());
+
+        let out_of_page = Edit::SetShapeStyle {
+            page: MAX_PAGE_COUNT,
+            annotation: AnnotationId(7),
+            color: InkColor::Green,
+            width: InkWidth::Thick,
+        };
+        assert!(out_of_page.validate().is_err());
+
+        // JSON roundtrip
+        let json = serde_json::to_string(&rect_shape).unwrap();
+        assert!(json.contains(r#""kind":"addShape""#));
+        assert!(json.contains(r#""shape":{"kind":"rectangle""#));
+        let deserialized: Edit = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, rect_shape);
     }
 
     fn unlock(password: &str) -> UnlockArgs {
@@ -4615,6 +4820,9 @@ mod tests {
             color: None,
             text: text.map(str::to_owned),
             picture: None,
+            line_ends: None,
+            shape_color: None,
+            shape_width: None,
         };
         let response = |annotations: Vec<PageAnnotation>| WorkerResponse::PageAnnotations {
             request: RequestId(1),

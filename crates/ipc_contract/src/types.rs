@@ -487,6 +487,89 @@ pub enum ExportEvent {
     Progress { pages_done: u32, total: u32 },
 }
 
+/// The two endpoints of a line or arrow annotation in page space (B4-05).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LineEnds {
+    pub from: Point,
+    pub to: Point,
+}
+
+/// A geometric shape annotation on a page (B4-05): rectangle, ellipse, or line/arrow.
+///
+/// Serialized with a `kind` tag in JSON (for the frontend), but externally tagged in binary
+/// formats: postcard, used between the main process and the worker, cannot decode internally
+/// tagged enums. See [`shape_serde`].
+#[derive(Debug, Clone, PartialEq, TS)]
+#[ts(tag = "kind", rename_all = "camelCase")]
+pub enum Shape {
+    /// A rectangle (`Square` annotation) bounded by `rect` in page space.
+    Rectangle { rect: Rect },
+    /// An ellipse / circle (`Circle` annotation) bounded by `rect` in page space.
+    Ellipse { rect: Rect },
+    /// A straight line or arrow (`Line` annotation) from `from` to `to` in page space.
+    Line { from: Point, to: Point, arrow: bool },
+}
+
+mod shape_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use super::{Point, Rect, Shape};
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(tag = "kind", rename_all = "camelCase")]
+    enum Tagged {
+        Rectangle { rect: Rect },
+        Ellipse { rect: Rect },
+        Line { from: Point, to: Point, arrow: bool },
+    }
+
+    #[derive(Serialize, Deserialize)]
+    enum Compact {
+        Rectangle { rect: Rect },
+        Ellipse { rect: Rect },
+        Line { from: Point, to: Point, arrow: bool },
+    }
+
+    macro_rules! convert {
+        ($from:ident => $to:ident) => {
+            impl From<$from> for $to {
+                fn from(shape: $from) -> Self {
+                    match shape {
+                        $from::Rectangle { rect } => $to::Rectangle { rect },
+                        $from::Ellipse { rect } => $to::Ellipse { rect },
+                        $from::Line { from, to, arrow } => $to::Line { from, to, arrow },
+                    }
+                }
+            }
+        };
+    }
+    convert!(Shape => Tagged);
+    convert!(Shape => Compact);
+    convert!(Tagged => Shape);
+    convert!(Compact => Shape);
+
+    impl Serialize for Shape {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            if serializer.is_human_readable() {
+                Tagged::from(self.clone()).serialize(serializer)
+            } else {
+                Compact::from(self.clone()).serialize(serializer)
+            }
+        }
+    }
+
+    impl<'de> Deserialize<'de> for Shape {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            if deserializer.is_human_readable() {
+                Tagged::deserialize(deserializer).map(Into::into)
+            } else {
+                Compact::deserialize(deserializer).map(Into::into)
+            }
+        }
+    }
+}
+
 /// A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
 /// those of the document as it is before the edit.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -592,6 +675,30 @@ pub enum Edit {
         page: u32,
         annotation: AnnotationId,
         degrees: f32,
+    },
+    /// Draws a geometric shape (rectangle, ellipse, line, or arrow) on page `page` (B4-05).
+    #[serde(rename_all = "camelCase")]
+    AddShape {
+        page: u32,
+        shape: Shape,
+        color: InkColor,
+        width: InkWidth,
+    },
+    /// Moves and resizes the line or arrow `annotation` of page `page` to connect `from` and `to` (B4-05).
+    #[serde(rename_all = "camelCase")]
+    SetLineEnds {
+        page: u32,
+        annotation: AnnotationId,
+        from: Point,
+        to: Point,
+    },
+    /// Gives the shape `annotation` of page `page` another color and border width (B4-05).
+    #[serde(rename_all = "camelCase")]
+    SetShapeStyle {
+        page: u32,
+        annotation: AnnotationId,
+        color: InkColor,
+        width: InkWidth,
     },
     /// Sets the value of form field `field` of page `page` (B2-09): the text of a text field, the
     /// chosen option of a combo box or list box, or `on_value` or `"Off"` for a check box (a
@@ -888,7 +995,15 @@ pub enum AnnotationKind {
     /// A redaction mark (`Redact`, B2-19, ADR 0016): what its area reaches is removed when the
     /// marks are applied; until then it can be moved, resized and removed.
     Redaction,
-    /// Any other kind (a comment box, a shape): it can only be removed.
+    /// A rectangle shape (`Square`, B4-05).
+    Rectangle,
+    /// An ellipse shape (`Circle`, B4-05).
+    Ellipse,
+    /// A straight line (`Line`, B4-05).
+    Line,
+    /// A line with an arrowhead (`Line`, B4-05).
+    Arrow,
+    /// Any other kind (a comment box): it can only be removed.
     Other,
 }
 
@@ -906,6 +1021,12 @@ pub struct PageAnnotation {
     pub text: Option<String>,
     /// A picture stamp of the user's own (B3-01): how it is turned, and what it measures.
     pub picture: Option<PictureView>,
+    /// The endpoints of a line or arrow annotation in page space (B4-05).
+    pub line_ends: Option<LineEnds>,
+    /// The color of a shape annotation (B4-05).
+    pub shape_color: Option<InkColor>,
+    /// The border width of a shape annotation (B4-05).
+    pub shape_width: Option<InkWidth>,
 }
 
 /// How a picture stamp is turned (B3-01), for the page to draw its outline: the picture is
@@ -2562,6 +2683,10 @@ pub enum AnnotationSummaryKind {
     TextBox,
     Ink,
     Stamp,
+    Rectangle,
+    Ellipse,
+    Line,
+    Arrow,
 }
 
 /// One annotation in a summary (B3-18).
