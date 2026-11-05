@@ -89,9 +89,9 @@ jobs:
           seed 06 tests/corpus/sources/bomb-declared-size.docx
           seed 07 tests/corpus/sources/sheet.xlsx
           seed 08 tests/corpus/sources/slides.pptx
-          # OCR seeds (QA-03, #431): 00 for language data, 01 for scanned pages
+          # OCR seeds (QA-03, #431, #486): 00 for fuzzed pictures, 01 for scanned pages
+          node fuzz/seed_ocr.mjs fuzz/corpus/ocr
           seed_ocr() { printf "\x$1" | cat - "$2" > "fuzz/corpus/ocr/$(basename "$2")"; }
-          seed_ocr 00 src-tauri/resources/tessdata/eng.traineddata
           seed_ocr 01 tests/corpus/benign/scanned-text.pdf
           seed_ocr 01 tests/corpus/benign/image-only.pdf
           # Edits, saves and copies of an untrusted PDF (Issue #427):
@@ -130,7 +130,7 @@ jobs:
       - name: Fuzz
         run: |
           max_len=1048576
-          if [ "${{ matrix.target }}" = text_box_font ] || [ "${{ matrix.target }}" = ocr ]; then max_len=5242880; fi
+          if [ "${{ matrix.target }}" = text_box_font ]; then max_len=5242880; fi
           cargo +nightly fuzz run ${{ matrix.target }} fuzz/corpus/${{ matrix.target }} -- \
             -max_total_time="$FUZZ_SECONDS" -max_len="$max_len" -rss_limit_mb=4096 \
             -print_final_stats=1 > fuzz.log 2>&1
