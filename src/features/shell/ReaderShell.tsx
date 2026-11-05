@@ -1921,17 +1921,19 @@ export function ReaderShell({
           onFinished={showHint}
         />
       )}
-      {dialog === "exportAnnotations" && summaryApi && document_?.doc !== undefined && (
+      {summaryApi && document_?.doc !== undefined && (
         <AnnotationSummaryDialog
+          open={dialog === "exportAnnotations"}
+          onOpenChange={(open) => setDialog(open ? "exportAnnotations" : null)}
           doc={document_.doc}
           api={summaryApi}
           onClose={() => setDialog(null)}
           onFinished={showHint}
         />
       )}
-      {dialog === "compare" && compareApi && doc !== undefined && otherTabs && otherTabs.length > 0 && (
+      {compareApi && doc !== undefined && otherTabs && otherTabs.length > 0 && (
         <CompareDialog
-          open
+          open={dialog === "compare"}
           onOpenChange={(open) => setDialog(open ? "compare" : null)}
           currentDoc={doc}
           currentDisplayName={document_?.displayName}

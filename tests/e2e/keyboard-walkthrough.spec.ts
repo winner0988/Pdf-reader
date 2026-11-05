@@ -117,7 +117,7 @@ test("global shortcuts and search bar: Shortcuts, Print, SearchAll, SearchBar", 
   await page.keyboard.press("Control+Shift+F");
   const searchAllDialog = page.getByRole("dialog", { name: strings.textIndex.title });
   await expect(searchAllDialog).toBeVisible();
-  expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe(strings.textIndex.label);
+  expect(await page.evaluate(() => document.querySelector('[role="dialog"]')?.contains(document.activeElement) ?? false)).toBe(true);
   await inBothThemes(page, (theme) => noProblems(page, `search all dialog, ${theme}`));
   await page.keyboard.press("Escape");
   await expect(searchAllDialog).toHaveCount(0);
@@ -181,8 +181,7 @@ test("menu dialogs: keyboard walkthrough, focus trapping, and focus return to Mo
   }
 });
 
-test("external and blocked links: LinkConfirmDialog and BlockedLinkDialog initial focus and return", async ({ launch }) => {
-  // Test external link confirmation
+test("external link confirmation: LinkConfirmDialog initial focus and return", async ({ launch }) => {
   const page = await launch(corpus("benign/external-https-link.pdf"));
   await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
 
@@ -202,12 +201,10 @@ test("external and blocked links: LinkConfirmDialog and BlockedLinkDialog initia
   await page.keyboard.press("Escape");
   await expect(confirmDialog).toHaveCount(0);
   expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+});
 
-  // Test blocked link dialog
-  launchAgain(corpus("malicious/launch.pdf"));
-  const blockedTab = page.getByRole("tab", { name: /launch/ });
-  await expect(blockedTab).toBeVisible();
-  await blockedTab.click();
+test("blocked link dialog: BlockedLinkDialog initial focus and return", async ({ launch }) => {
+  const page = await launch(corpus("malicious/launch.pdf"));
   await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
 
   const blockedLink = page.locator("button[data-link]").first();

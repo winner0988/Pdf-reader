@@ -19,18 +19,32 @@ import type { AnnotationSummaryFormat, DocumentId } from "@/ipc/generated/contra
 const t = strings.exportAnnotations;
 
 type AnnotationSummaryDialogProps = {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   doc: DocumentId;
   api: AnnotationSummaryApi;
-  onClose: () => void;
+  onClose?: () => void;
   /** The file was written: what to tell the user (how many annotations it lists). */
   onFinished: (message: string) => void;
 };
 
-export function AnnotationSummaryDialog({ doc, api, onClose, onFinished }: AnnotationSummaryDialogProps) {
+export function AnnotationSummaryDialog({
+  open = true,
+  onOpenChange,
+  doc,
+  api,
+  onClose,
+  onFinished,
+}: AnnotationSummaryDialogProps) {
   const [format, setFormat] = useState<AnnotationSummaryFormat>("text");
   const [includeName, setIncludeName] = useState(true);
   const [state, setState] = useState<"idle" | "running" | "empty" | "failed">("idle");
   const running = state === "running";
+
+  const close = () => {
+    onClose?.();
+    onOpenChange?.(false);
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -38,7 +52,7 @@ export function AnnotationSummaryDialog({ doc, api, onClose, onFinished }: Annot
     try {
       const outcome = await api.exportAnnotationSummary({ doc, format, includeName });
       if (outcome.kind === "written") {
-        onClose();
+        close();
         onFinished(outcome.truncated ? t.truncated(outcome.count) : t.done(outcome.count));
       } else {
         // Nothing to list: say so here. The save dialog closed: choose again or cancel.
@@ -50,7 +64,7 @@ export function AnnotationSummaryDialog({ doc, api, onClose, onFinished }: Annot
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !running && onClose()}>
+    <Dialog open={open} onOpenChange={(next) => !next && !running && close()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t.title}</DialogTitle>
