@@ -226,9 +226,9 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 程式庫 | 解析什麼 | `unsafe` | fuzz |
 |---|---|---|---|
-| MuPDF 1.27.2（`mupdf` =0.8.0、`mupdf-sys` =0.8.0） | PDF（含內嵌的字型與圖片）、PNG、JPEG、EPUB、HTML、SVG、XPS、docx、xlsx、pptx、純文字 | C 程式庫；`owner_password.rs` 直接呼叫 C 函式 | `open_document`、`create_pdf`、`compress_images`、`exif_clean`；缺的見 #426、#427、#428 |
+| MuPDF 1.27.2（`mupdf` =0.8.0、`mupdf-sys` =0.8.0） | PDF（含內嵌的字型與圖片）、PNG、JPEG、EPUB、HTML、SVG、XPS、docx、xlsx、pptx、純文字 | C 程式庫；`owner_password.rs` 直接呼叫 C 函式 | `open_document`、`create_pdf`、`compress_images`、`exif_clean`、`stamp_image`；缺的見 #426、#427 |
 | Tesseract、Leptonica（MuPDF 內建的 Artifex 版本） | `.traineddata`、掃描頁的像素 | C++、C；呼叫集中在 `ocr.rs` | 沒有（#431） |
-| skrifa 0.49、subsetter 0.2.6 | 文字方塊與匯入用的字型 | 純 Rust，沒有 `unsafe` | `text_box_font`（`InspectFont` 沒有，#428） |
+| skrifa 0.49、subsetter 0.2.6 | 文字方塊與匯入用的字型 | 純 Rust，沒有 `unsafe` | `text_box_font`（含 `InspectFont`，#428） |
 | Windows CryptoAPI（`crypt.rs`） | 簽章的 CMS 與憑證；憑證鏈只用本機的快取 | Windows | 沒有：Linux 的 fuzz 跑不到（#426 只 fuzz 讀簽章欄位） |
 | jpeg-encoder 0.7.1 | 只編碼 worker 自己渲染的像素，不解析輸入 | 純 Rust（不開 `simd`） | 不需要 |
 
@@ -270,9 +270,9 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `WriteIdentifier` | 以增量更新寫入或拿掉 app 的文件識別碼（ADR 0010） | `engine/identifier.rs` | worker `sensitive.rs` | 沒有（#427） |
 | `PrepareSignature` | 以增量更新加上簽章欄位，留空位給 CMS | `engine/signing.rs` | `documents.rs`（`a_prepared_copy_is_signed_in_its_room_and_nowhere_else`）；`signing.spec.ts` | 沒有（#427） |
 | `PrepareSource` | 另一個 PDF（唯讀代號、可能的密碼）做成乾淨的副本 | `engine.rs` | worker `merge.rs` | 沒有（#427） |
-| `PrepareStampImage` | PNG 或 JPEG（≤ 16 MiB） | `engine/stamp_image.rs` | worker `stamp_image.rs`、`watermark.rs` | 沒有（#428） |
+| `PrepareStampImage` | PNG 或 JPEG（≤ 16 MiB） | `engine/stamp_image.rs` | worker `stamp_image.rs`、`watermark.rs` | `stamp_image`（#428） |
 | `PrepareTextBox`、`PrepareTextBoxes` | 字型檔（≤ 64 MiB） | `engine/text_box.rs`、`engine/text_box/` | worker `text_box_worker.rs`、`fonts.rs` | `text_box_font` |
-| `InspectFont` | 要匯入的字型檔 | `engine/text_box/font.rs` | worker `text_box_worker.rs` | 沒有（#428） |
+| `InspectFont` | 要匯入的字型檔 | `engine/text_box/font.rs` | worker `text_box_worker.rs` | `text_box_font`（#428） |
 | `CreatePdf` | 圖片、HTML、純文字、EPUB、XPS、SVG、docx、xlsx、pptx（唯讀代號） | `engine/create.rs` | worker `create_pdf.rs` | `create_pdf` |
 | `OcrLoad` | `.traineddata`（≤ 64 MiB；worker 再跑一次 `check_language_data`） | `ocr.rs` | worker `ocr.rs` | 沒有（#431） |
 | `OcrPage`、`OcrPoll`、`OcrStop` | 掃描頁：判斷、渲染成灰階、辨識、做成文字層 | `engine/ocr.rs`、`ocr_worker.rs`、`text_layer.rs` | worker `ocr.rs`、`search_cache.rs` | 沒有（#431） |
@@ -308,7 +308,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 |---|---|---|---|---|
 | `.pfx`、`.p12` | 使用者選的檔案（≤ 1 MiB） | Windows 的 `PFXImportCertStore`，加 `PKCS12_NO_PERSIST_KEY \| PKCS12_ALWAYS_CNG_KSP`：金鑰不存到磁碟、不能匯出。憑證鏈加 `CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL`、`CERT_CHAIN_DISABLE_AUTH_ROOT_AUTO_UPDATE`，不連網（ADR 0020） | `signing.rs` 11 個（`the_test_certificate_signs_two_parts_and_leaves_no_key_behind`、`a_wrong_password_or_a_file_that_is_no_certificate_says_only_that` 等） | 不做：Windows 的程式碼，ADR 0020 接受的設計（§9） |
 | `.traineddata` | 使用者匯入（≤ 64 MiB） | `check_language_data`：目錄的項目數 23–64，位移不倒退、不超出檔案，要有 LSTM 模型、字元集與 recoder | `crates/ipc_contract/src/ocr.rs` 8 個 | 沒有（#429） |
-| 字型 | 使用者匯入（≤ 64 MiB） | 副檔名、大小、`check_import_header`；之後由新的 worker 檢查（`InspectFont`） | `fonts.rs` 14 個（`unc_network_device_and_traversal_paths_are_strictly_rejected` 等） | 檔頭沒有（#429）；`InspectFont` 沒有（#428） |
+| 字型 | 使用者匯入（≤ 64 MiB） | 副檔名、大小、`check_import_header`；之後由新的 worker 檢查（`InspectFont`） | `fonts.rs` 14 個（`unc_network_device_and_traversal_paths_are_strictly_rejected` 等） | 檔頭沒有（#429）；`InspectFont` 有（`text_box_font`，#428） |
 | 檢查更新的回覆 | 網路（§5） | ≤ 1 MiB；serde_json；只讀版本號 | `update_check.rs` 6 個（`reads_versions_and_nothing_else`、`anything_unexpected_is_a_failure` 等） | 沒有（#429） |
 | `settings.json`、`recent.json`、`sensitive.json`、`fonts\metadata.json` | app 資料夾 | 先限制大小（`local_data.rs`：`settings.json` 64 KiB、`recent.json` 512 KiB、`sensitive.json` 2 MiB），不是 app 寫的內容就當成沒有 | `local_data.rs`（`writes_whole_files_and_reads_them_back_within_a_limit`）、`settings.rs`（`a_file_the_app_did_not_write_gives_the_defaults`）、`recent.rs`、`sensitive.rs` | 沒有（#429） |
 | 復原日誌 | app 資料夾的 `recovery\`（每個 ≤ 4 MiB） | 當成不可信的資料檢查 | `recovery.rs`（`journals_are_checked_as_untrusted_data` 等 14 個） | 沒有（#429） |
@@ -413,7 +413,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 執行中的 app 會拒絕沒授權的命令（§4） | 已由 #425 補上測試（`refused-commands.spec.ts`） | 否 |
 | 已由 #426 拆出 `read_document` 目標完成 fuzz（§2.4） | #426 | 是 |
 | fuzz 沒有走到的編輯、存檔、副本（§2.4、§2.5） | #427 | 是 |
-| fuzz 沒有走到圖章圖片與匯入字型的檢查（§2.4） | #428 | 是 |
+| 已在 #428 補上：圖章圖片（`PrepareStampImage`，新目標 `stamp_image`）與匯入字型（`InspectFont`，併入 `text_box_font`）的 fuzz（§2.4） | #428 | 是 |
 | 主行程自己解析的資料沒有 fuzz（§3） | #429 | 是 |
 | OCR 的語言資料與掃描頁沒有 fuzz（§2.3、§2.4） | #431 | 是 |
 | `retry_open`、`cancel` 在主行程這一側沒有測試（§1.1、§1.2；已由 #432 於 `retry-open-and-cancel.spec.ts` 測試） | #432 | 否 |
