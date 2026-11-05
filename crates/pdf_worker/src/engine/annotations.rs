@@ -713,14 +713,12 @@ pub(super) fn has_unsupported_shape_features(annotation: &PdfAnnotation) -> Resu
     if annotation
         .r#type()
         .is_ok_and(|t| t == PdfAnnotationType::Line)
-    {
-        if let Ok((start, end)) = annotation.line_ending_styles() {
-            if start != LineEndingStyle::None
+        && annotation.line_ending_styles().is_ok_and(|(start, end)| {
+            start != LineEndingStyle::None
                 || (end != LineEndingStyle::None && end != LineEndingStyle::OpenArrow)
-            {
-                return Ok(true);
-            }
-        }
+        })
+    {
+        return Ok(true);
     }
     Ok(false)
 }

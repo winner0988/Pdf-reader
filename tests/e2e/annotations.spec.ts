@@ -276,7 +276,7 @@ test("shape annotations: rectangle and arrow can be drawn, recolored, undone/red
     await expect(drawingLayer).toHaveCount(0);
 
     // 3. Select rectangle, verify toolbar, and recolor to blue
-    await rectangles.first().click();
+    await rectangles.first().focus();
     const rectToolbar = page.getByRole("toolbar", {
       name: t.kind.rectangle,
     });
@@ -316,7 +316,7 @@ test("shape annotations: rectangle and arrow can be drawn, recolored, undone/red
     const reopenedArrows = reopened.locator("[data-page-annotations] [data-annotation=arrow]");
     await expect(reopenedArrows).toHaveCount(1);
 
-    await reopenedArrows.first().click();
+    await reopenedArrows.first().focus();
     const arrowToolbar = reopened.getByRole("toolbar", {
       name: t.kind.arrow,
     });
