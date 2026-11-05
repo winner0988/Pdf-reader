@@ -222,6 +222,26 @@ export function keptOnPage(rect: Rect, page: PageSize): Rect {
 }
 
 /**
+ * A line from `from` to `to` (page space) moved as a whole, keeping its shape and length, so that
+ * both endpoints lie inside `page` (like `keptOnPage` for rectangles).
+ */
+export function keepLineOnPage(from: Point, to: Point, page: PageSize): { from: Point; to: Point } {
+  const rect: Rect = {
+    x0: Math.min(from.x, to.x),
+    y0: Math.min(from.y, to.y),
+    x1: Math.max(from.x, to.x),
+    y1: Math.max(from.y, to.y),
+  };
+  const kept = keptOnPage(rect, page);
+  const dx = kept.x0 - rect.x0;
+  const dy = kept.y0 - rect.y0;
+  return {
+    from: { x: from.x + dx, y: from.y + dy },
+    to: { x: to.x + dx, y: to.y + dy },
+  };
+}
+
+/**
  * Calculates a rectangular area from start to current point, enforcing a 1:1 square ratio
  * if shiftKey is true.
  */

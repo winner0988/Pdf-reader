@@ -15,20 +15,20 @@ use crate::text::{
     is_web_address,
 };
 use crate::types::{
-    AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind, AttachmentInfo,
-    AttachmentSource, BatchArgs, BatchOperation, CompareTextArgs, CompareTextResult, CompressArgs,
-    DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs, ExportCompareTextArgs, ExportFormat,
-    FindPersonalDataQuery, FindingKind, FontImport, FontInfo, FormField, IndexSearchArgs,
-    IndexSearchEvent, IndexSnippet, IpcError, LinkTarget, OcrLanguages, OcrProgress, OpenEvent,
-    OutlineItem, OutlineResult, PageAnnotation, PageLink, PageMarkPages, PageMarkPosition,
-    PageMarks, PageMarksCopyArgs, PageNumberFormat, PageSize, PageText, Password,
-    PersonalDataMatch, PersonalDataMatches, Point, PrepareTextBoxArgs, Quad, RasterRegion,
-    RecentFile, Rect, RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
-    Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult,
-    SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs, SensitiveFile,
-    Settings, Shape, SignArgs, SignatureInfo, SignatureReport, SignatureStatus, SigningFileKey,
-    SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs, UnlockArgs,
-    UnlockSourceArgs, Watermark, WatermarkContent,
+    AnnotationKind, AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind,
+    AttachmentInfo, AttachmentSource, BatchArgs, BatchOperation, CompareTextArgs,
+    CompareTextResult, CompressArgs, DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs,
+    ExportCompareTextArgs, ExportFormat, FindPersonalDataQuery, FindingKind, FontImport, FontInfo,
+    FormField, IndexSearchArgs, IndexSearchEvent, IndexSnippet, IpcError, LineEnds, LinkTarget,
+    OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink,
+    PageMarkPages, PageMarkPosition, PageMarks, PageMarksCopyArgs, PageNumberFormat, PageSize,
+    PageText, Password, PersonalDataMatch, PersonalDataMatches, Point, PrepareTextBoxArgs, Quad,
+    RasterRegion, RecentFile, Rect, RedactionSummary, RemoveFontArgs, RemoveLanguageArgs,
+    RenderPageArgs, Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport,
+    SanitizeResult, SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs,
+    SensitiveFile, Settings, Shape, SignArgs, SignatureInfo, SignatureReport, SignatureStatus,
+    SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs,
+    UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
     InsertedTextBox, InspectedFont, OcrOutcome, OpenedDocument, PreparedTextBoxModel, Raster,
@@ -166,6 +166,13 @@ impl Validate for Rect {
             check_coordinate("rectangle coordinate", value)?;
         }
         Ok(())
+    }
+}
+
+impl Validate for LineEnds {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.from.validate()?;
+        self.to.validate()
     }
 }
 
@@ -2149,6 +2156,29 @@ impl Validate for PageAnnotation {
         }
         if let Some(text) = &self.text {
             check_cleaned_note("note text", text, MAX_NOTE_TEXT_BYTES)?;
+        }
+        if let Some(line_ends) = &self.line_ends {
+            if !matches!(self.kind, AnnotationKind::Line | AnnotationKind::Arrow) {
+                return Err(ValidationError::Invalid {
+                    what: "annotation line ends",
+                    reason: "only lines and arrows can have line ends",
+                });
+            }
+            line_ends.validate()?;
+        }
+        if (self.shape_color.is_some() || self.shape_width.is_some())
+            && !matches!(
+                self.kind,
+                AnnotationKind::Rectangle
+                    | AnnotationKind::Ellipse
+                    | AnnotationKind::Line
+                    | AnnotationKind::Arrow
+            )
+        {
+            return Err(ValidationError::Invalid {
+                what: "shape style",
+                reason: "only shapes can have shape color or width",
+            });
         }
         Ok(())
     }
@@ -4853,6 +4883,131 @@ mod tests {
             .validate()
             .is_err()
         );
+    }
+
+    #[test]
+    fn page_annotation_line_ends_and_shape_styles_are_validated() {
+        let base_shape = |kind: AnnotationKind| PageAnnotation {
+            id: AnnotationId(1),
+            kind,
+            rect: Rect {
+                x0: 10.0,
+                y0: 10.0,
+                x1: 50.0,
+                y1: 50.0,
+            },
+            color: None,
+            text: None,
+            picture: None,
+            line_ends: None,
+            shape_color: None,
+            shape_width: None,
+        };
+
+        // Normal lines and arrows with valid line_ends and shape style pass.
+        for kind in [AnnotationKind::Line, AnnotationKind::Arrow] {
+            let mut line = base_shape(kind);
+            line.line_ends = Some(LineEnds {
+                from: Point { x: 10.0, y: 10.0 },
+                to: Point { x: 50.0, y: 50.0 },
+            });
+            line.shape_color = Some(InkColor::Blue);
+            line.shape_width = Some(InkWidth::Medium);
+            assert!(line.validate().is_ok(), "{kind:?}");
+        }
+
+        // Normal rectangle and ellipse with shape style pass.
+        for kind in [AnnotationKind::Rectangle, AnnotationKind::Ellipse] {
+            let mut shape = base_shape(kind);
+            shape.shape_color = Some(InkColor::Red);
+            shape.shape_width = Some(InkWidth::Thin);
+            assert!(shape.validate().is_ok(), "{kind:?}");
+        }
+
+        // Rectangle with line_ends must be rejected.
+        let mut rect_with_ends = base_shape(AnnotationKind::Rectangle);
+        rect_with_ends.line_ends = Some(LineEnds {
+            from: Point { x: 10.0, y: 10.0 },
+            to: Point { x: 50.0, y: 50.0 },
+        });
+        assert!(rect_with_ends.validate().is_err());
+
+        // Note, Stamp, Highlight with line_ends or shape style must be rejected.
+        for kind in [
+            AnnotationKind::Note,
+            AnnotationKind::Stamp,
+            AnnotationKind::Highlight,
+        ] {
+            let mut annot_with_ends = base_shape(kind);
+            annot_with_ends.line_ends = Some(LineEnds {
+                from: Point { x: 10.0, y: 10.0 },
+                to: Point { x: 50.0, y: 50.0 },
+            });
+            assert!(annot_with_ends.validate().is_err(), "line_ends on {kind:?}");
+
+            let mut annot_with_style = base_shape(kind);
+            annot_with_style.shape_color = Some(InkColor::Green);
+            assert!(
+                annot_with_style.validate().is_err(),
+                "shape_color on {kind:?}"
+            );
+
+            let mut annot_with_width = base_shape(kind);
+            annot_with_width.shape_width = Some(InkWidth::Thick);
+            assert!(
+                annot_with_width.validate().is_err(),
+                "shape_width on {kind:?}"
+            );
+        }
+
+        // Non-finite endpoint must be rejected.
+        for bad_coord in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut line = base_shape(AnnotationKind::Line);
+            line.line_ends = Some(LineEnds {
+                from: Point {
+                    x: bad_coord,
+                    y: 10.0,
+                },
+                to: Point { x: 50.0, y: 50.0 },
+            });
+            assert!(line.validate().is_err(), "non-finite from: {bad_coord}");
+
+            let mut line2 = base_shape(AnnotationKind::Line);
+            line2.line_ends = Some(LineEnds {
+                from: Point { x: 10.0, y: 10.0 },
+                to: Point {
+                    x: 50.0,
+                    y: bad_coord,
+                },
+            });
+            assert!(line2.validate().is_err(), "non-finite to: {bad_coord}");
+        }
+
+        // Out-of-range endpoint must be rejected.
+        for out_of_range in [MAX_PAGE_SIDE_PT + 1.0, -MAX_PAGE_SIDE_PT - 1.0] {
+            let mut line = base_shape(AnnotationKind::Line);
+            line.line_ends = Some(LineEnds {
+                from: Point {
+                    x: out_of_range,
+                    y: 10.0,
+                },
+                to: Point { x: 50.0, y: 50.0 },
+            });
+            assert!(
+                line.validate().is_err(),
+                "out of range from: {out_of_range}"
+            );
+
+            let mut arrow = base_shape(AnnotationKind::Arrow);
+            arrow.line_ends = Some(LineEnds {
+                from: Point { x: 10.0, y: 10.0 },
+                to: Point {
+                    x: 50.0,
+                    y: out_of_range,
+                },
+            });
+            assert!(arrow.validate().is_err(), "out of range to: {out_of_range}");
+        }
     }
 
     #[test]

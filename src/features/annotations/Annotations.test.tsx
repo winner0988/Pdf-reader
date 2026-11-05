@@ -629,4 +629,33 @@ describe("PageAnnotations", () => {
       annotation: 21,
     });
   });
+
+  it("keeps a line within page boundaries when moving with arrow keys at the page edge", async () => {
+    const lineAtEdge: PageAnnotation = {
+      id: 22,
+      kind: "line",
+      rect: { x0: 0, y0: 100, x1: 50, y1: 150 },
+      color: null,
+      text: null,
+      picture: null,
+      lineEnds: {
+        from: { x: 0, y: 100 },
+        to: { x: 50, y: 150 },
+      },
+      shapeColor: "black",
+      shapeWidth: "thin",
+    };
+    const { editing } = await setup(ALL_PERMISSIONS, [lineAtEdge]);
+    const outline = await screen.findByRole("button", { name: annotationLabel(lineAtEdge) });
+    act(() => outline.focus());
+
+    // Pressing ArrowLeft at the left edge keeps endpoints >= 0 (does not move out of the page)
+    fireEvent.keyDown(outline, { key: "ArrowLeft" });
+    const edit = lastEdit(editing);
+    if (edit.kind !== "setLineEnds") throw new Error("expected setLineEnds");
+    expect(edit.from.x).toBeGreaterThanOrEqual(0);
+    expect(edit.to.x).toBeGreaterThanOrEqual(0);
+    expect(edit.from.x).toBeCloseTo(0);
+    expect(edit.to.x).toBeCloseTo(50);
+  });
 });
