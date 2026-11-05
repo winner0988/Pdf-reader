@@ -576,6 +576,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             summary: AnnotationSummary {
                 items: vec![AnnotationSummaryItem {
+                    id: AnnotationId(1),
                     page_index: 0,
                     kind: AnnotationSummaryKind::Highlight,
                     rect: Rect {

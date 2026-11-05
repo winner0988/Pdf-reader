@@ -93,6 +93,10 @@ const ALLOWED_PERMISSIONS = new Map([
   ["allow-clear-text-index", "B3-21, ADR 0026: delete the text index, its key first"],
   ["allow-get-page-links", "MVP-12: where a page's links are and where they point"],
   ["allow-get-page-annotations", "B2-07: list one page's annotations (highlights, notes and the document's own) to select and edit them"],
+  [
+    "allow-get-annotation-summary",
+    "B4-06: fetch a summary of an open document's annotations for the sidebar, by document id; runs on blocking pool; ui prevents copying",
+  ],
   ["allow-get-page-fields", "B2-09: list one page's form fields (values, options, whether they have scripts) to fill them in; nothing in them is run"],
   ["allow-get-signatures", "B2-14: the signatures of an open document, verified offline by its worker (whether each holds, who signed); by document id"],
   [

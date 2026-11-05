@@ -1,6 +1,6 @@
-# 註解：螢光筆與文字標記、文字附註、手繪線條、印章與幾何圖形（B2-07、B2-08、B4-04、B4-05）
+# 註解：螢光筆與文字標記、文字附註、手繪線條、印章、幾何圖形與清單側欄（B2-07、B2-08、B4-04、B4-05、B4-06）
 
-工作卡 [#96](https://github.com/winner0988/Pdf-reader/issues/96)（螢光筆與附註）、[#97](https://github.com/winner0988/Pdf-reader/issues/97)（手繪線條與印章）、[#412](https://github.com/winner0988/Pdf-reader/issues/412)（底線、刪除線與波浪線）、[#413](https://github.com/winner0988/Pdf-reader/issues/413)（矩形、橢圓、直線與箭頭）；規格 §6「註解標記：螢光筆」。編輯的共通做法（指令、復原、存檔、崩潰復原）見 [ADR 0013](../adr/0013-editing-and-saving.md)、[page-management.md](page-management.md)、[saving.md](saving.md) 與 [crash-recovery.md](crash-recovery.md)。
+工作卡 [#96](https://github.com/winner0988/Pdf-reader/issues/96)（螢光筆與附註）、[#97](https://github.com/winner0988/Pdf-reader/issues/97)（手繪線條與印章）、[#412](https://github.com/winner0988/Pdf-reader/issues/412)（底線、刪除線與波浪線）、[#413](https://github.com/winner0988/Pdf-reader/issues/413)（矩形、橢圓、直線與箭頭）、[#414](https://github.com/winner0988/Pdf-reader/issues/414)（註解清單側欄）；規格 §6「註解標記：螢光筆」。編輯的共通做法（指令、復原、存檔、崩潰復原）見 [ADR 0013](../adr/0013-editing-and-saving.md)、[page-management.md](page-management.md)、[saving.md](saving.md) 與 [crash-recovery.md](crash-recovery.md)。
 
 worker 與主行程的做法在前面各節；畫面（選取文字後的「螢光筆」、「底線」、「刪除線」、「波浪線」、放置附註、繪製圖形、選取與變更既有的註解）見「畫面」。
 
@@ -110,6 +110,18 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
   - 範圍不是有限值或超過頁面大小上限的註解不列出；
   - 每頁最多 `LIMITS.maxAnnotationsPerPage`（2,000）個；
   - 主行程再以 `validate` 檢查一次，並確認編號不重複、頁碼相符。
+
+## 註解清單側欄（B4-06）
+
+- 側欄的第 5 個分頁「註解」（`AnnotationsListPanel.tsx`）使用 IPC 指令 `get_annotation_summary(doc)` 取得全文件的註解清單（`AnnotationSummary`）。
+- 摘要清單中的每個 `AnnotationSummaryItem` 帶有 `id: AnnotationId`，指涉該註解在 PDF 中的物件編號。
+- 點擊或使用鍵盤 `Enter` 選取清單中的項目時：
+  1. 呼叫 `recordNavigation` 記錄跳轉前的檢視狀態（支援上一頁/下一頁返回）；
+  2. 導航至該頁面（`goToPage`）；
+  3. 透過 `DocumentView` 的 `chooseAnnotation({ page, id })` 選取該註解，待頁面註解載入完成後將焦點移至該註解的輪廓按鈕，便於直接按 `Delete` 刪除或按 `Tab` 進入工具列；若焦點正在對話框內則不搶焦點。
+- 註解清單的更新策略：當側欄「註解」分頁處於作用中時，在文件變更後 debounce 300 ms 重新呼叫 `get_annotation_summary`，並比對目前文件與請求時間捨棄過期的回應。
+- 安全性與權限：
+  - 作者禁止複製（`/P` 第 5 位元為 0）時，`get_annotation_summary` 仍會回傳摘要供清單顯示，但前端強制停用文字選取（`select-none`）並攔截 `copy` 事件。
 
 ## 移除註解不留下內容
 

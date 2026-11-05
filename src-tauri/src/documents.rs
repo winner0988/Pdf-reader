@@ -2445,8 +2445,15 @@ impl Documents {
             // The worker's answer is checked already (`WorkerResponse::validate`); its pages
             // must also be the document's.
             let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+            let mut ids = std::collections::HashSet::new();
             for item in &summary.items {
                 check_page_index(item.page_index, page_count).map_err(invalid_argument)?;
+                if item.id.0 == 0 || !ids.insert(item.id) {
+                    return Err(IpcError {
+                        code: ErrorCode::ProtocolViolation,
+                        message: "annotation summary items do not match the document".to_owned(),
+                    });
+                }
             }
             Ok(summary)
         })
@@ -7099,6 +7106,39 @@ mod with_worker {
             documents.page_annotations(doc, 2).unwrap_err().code,
             ErrorCode::InvalidArgument
         );
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn annotation_summary_validates_document_and_item_ids() {
+        let (documents, info, path) = open("summary_ids", 1);
+        let mut doc = info.doc;
+        assert_eq!(
+            documents
+                .annotation_summary(DocumentId(99999))
+                .unwrap_err()
+                .code,
+            ErrorCode::UnknownDocument
+        );
+
+        doc = opened_info(
+            documents
+                .apply_edit(&EditArgs {
+                    doc,
+                    edit: Edit::AddNote {
+                        page: 0,
+                        at: Point { x: 100.0, y: 100.0 },
+                        text: "hello".to_owned(),
+                    },
+                })
+                .unwrap(),
+        )
+        .doc;
+
+        let summary = documents.annotation_summary(doc).unwrap();
+        assert_eq!(summary.items.len(), 1);
+        assert_ne!(summary.items[0].id.0, 0);
+
         std::fs::remove_file(path).ok();
     }
 

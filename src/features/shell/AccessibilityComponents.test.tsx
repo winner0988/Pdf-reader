@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, vi } from "vitest";
 
 import { NoteDialog } from "@/features/annotations/NoteDialog";
+import { AnnotationsListPanel } from "@/features/annotations/AnnotationsListPanel";
 import { BatchDialog } from "@/features/batch/BatchDialog";
 import { TextBoxDialog } from "@/features/annotations/TextBoxDialog";
 import { ExportDialog } from "@/features/export/ExportDialog";
@@ -32,7 +33,7 @@ import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
 import { RedactionConfirmDialog } from "@/features/redaction/RedactionConfirmDialog";
 import { RedactionPanel } from "@/features/redaction/RedactionPanel";
 import { strings } from "@/i18n/zh-TW";
-import type { BatchEvent, BlockedAction, FontInfo, LinkPreview, OutlineItem } from "@/ipc/generated/contract";
+import type { BatchEvent, BlockedAction, DocumentId, FontInfo, LinkPreview, OutlineItem } from "@/ipc/generated/contract";
 import { expectAccessible } from "@/test/axe";
 
 /** The page, with whatever a dialog put outside the render container. */
@@ -506,6 +507,38 @@ describe("what the window shows", () => {
         onJumpToPage={vi.fn()}
       />,
     );
+    await expectAccessible(everything(), {
+      skip: { region: "the panel is shown without the sidebar that has it in the window" },
+    });
+  });
+
+  it("the annotations list panel", async () => {
+    render(
+      <AnnotationsListPanel
+        doc={1 as DocumentId}
+        api={{
+          getAnnotationSummary: vi.fn().mockResolvedValue({
+            items: [
+              {
+                id: 1,
+                page: 0,
+                kind: "text",
+                text: "附註內容",
+              },
+              {
+                id: 2,
+                page: 1,
+                kind: "highlight",
+                text: "高亮標記",
+              },
+            ],
+            truncated: false,
+          }),
+        }}
+        delayMs={0}
+      />,
+    );
+    await screen.findByRole("listbox");
     await expectAccessible(everything(), {
       skip: { region: "the panel is shown without the sidebar that has it in the window" },
     });

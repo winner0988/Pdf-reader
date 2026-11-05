@@ -576,6 +576,7 @@ impl PdfDocument {
                     | AnnotationSummaryKind::Arrow => String::new(),
                 };
                 if !summary.push(AnnotationSummaryItem {
+                    id: AnnotationId(entry.number),
                     page_index,
                     kind: entry.kind,
                     rect: entry.rect,
@@ -1136,7 +1137,7 @@ fn quad_contains(quad: &Quad, point: Point) -> bool {
 #[cfg(test)]
 mod tests {
     use ipc_contract::types::{
-        AnnotationSummaryItem, AnnotationSummaryKind, PageText, Point, Quad, Rect, TextLine,
+        AnnotationId, AnnotationSummaryItem, AnnotationSummaryKind, PageText, Point, Quad, Rect, TextLine,
     };
 
     use super::{SummaryBuilder, SummaryEntry, covered_text, quad_contains};
@@ -1297,6 +1298,7 @@ mod tests {
     #[test]
     fn a_summary_stops_at_its_limits_and_says_so() {
         let item = |text: &str| AnnotationSummaryItem {
+            id: AnnotationId(1),
             page_index: 0,
             kind: AnnotationSummaryKind::Note,
             rect: rect(0.0, 0.0, 20.0, 20.0),

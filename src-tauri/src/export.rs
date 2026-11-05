@@ -587,7 +587,7 @@ pub fn write_images(
 #[cfg(test)]
 mod tests {
     use ipc_contract::types::{
-        AnnotationSummaryItem, AnnotationSummaryKind, Point, Quad, Rect, TextLine,
+        AnnotationId, AnnotationSummaryItem, AnnotationSummaryKind, Point, Quad, Rect, TextLine,
     };
 
     use super::*;
@@ -712,6 +712,7 @@ mod tests {
     fn an_annotation_summary_lists_each_annotation_with_its_page_and_kind() {
         let item =
             |page_index: u32, kind: AnnotationSummaryKind, text: &str| AnnotationSummaryItem {
+                id: AnnotationId(1),
                 page_index,
                 kind,
                 rect: Rect {

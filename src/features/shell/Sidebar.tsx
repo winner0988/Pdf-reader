@@ -1,6 +1,8 @@
 import type { ComponentProps } from "react";
+import { useState } from "react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AnnotationsListPanel } from "@/features/annotations/AnnotationsListPanel";
 import { AttachmentsPanel } from "@/features/attachments/AttachmentsPanel";
 import { AddFirstBookmark, OutlineTree, type OutlineEditing } from "@/features/outline/OutlineTree";
 import type { OutlineView } from "@/features/outline/tree";
@@ -9,7 +11,7 @@ import { RedactionPanel, type RedactionPanelProps } from "@/features/redaction/R
 import { Thumbnails, type PageEditing, type SavePages } from "@/features/thumbnails/Thumbnails";
 import type { PageRenderer } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
-import type { DocumentId } from "@/ipc/generated/contract";
+import type { AnnotationId, DocumentId } from "@/ipc/generated/contract";
 
 const t = strings.sidebar;
 
@@ -34,6 +36,8 @@ type SidebarProps = {
   isSensitive?: boolean;
   /** Security redaction panel (B2-21). */
   redaction?: RedactionPanelProps;
+  /** Jumping to an annotation in the document view (B4-06). */
+  onJumpToAnnotation?: (pageIndex: number, id: AnnotationId) => void;
 };
 
 function Message({ children }: { children: string }) {
@@ -55,19 +59,28 @@ export function Sidebar({
   sensitive,
   isSensitive = sensitive,
   redaction,
+  onJumpToAnnotation,
 }: SidebarProps) {
+  const [activeTab, setActiveTab] = useState("outline");
+
   return (
     <aside
       aria-label={t.label}
       data-region="sidebar"
       className="flex w-[280px] shrink-0 flex-col border-r bg-muted/40 max-[959px]:absolute max-[959px]:inset-y-0 max-[959px]:left-0 max-[959px]:z-20 max-[959px]:bg-background max-[959px]:shadow-lg"
     >
-      <Tabs defaultValue="outline" className="flex min-h-0 flex-1 flex-col gap-0">
+      <Tabs
+        value={activeTab}
+        onValueChange={(val) => setActiveTab(val as string)}
+        defaultValue="outline"
+        className="flex min-h-0 flex-1 flex-col gap-0"
+      >
         <TabsList className="m-2 w-[calc(100%-1rem)]">
-          <TabsTrigger value="outline">{t.outlineTab}</TabsTrigger>
-          <TabsTrigger value="thumbnails">{t.thumbnailsTab}</TabsTrigger>
-          <TabsTrigger value="attachments">{t.attachmentsTab}</TabsTrigger>
-          <TabsTrigger value="redactions">{strings.redaction.tab}</TabsTrigger>
+          <TabsTrigger value="outline" className="px-1 text-xs sm:text-sm">{t.outlineTab}</TabsTrigger>
+          <TabsTrigger value="thumbnails" className="px-1 text-xs sm:text-sm">{t.thumbnailsTab}</TabsTrigger>
+          <TabsTrigger value="attachments" className="px-1 text-xs sm:text-sm">{t.attachmentsTab}</TabsTrigger>
+          <TabsTrigger value="redactions" className="px-1 text-xs sm:text-sm">{strings.redaction.tab}</TabsTrigger>
+          <TabsTrigger value="annotations" className="px-1 text-xs sm:text-sm">{t.annotationsTab}</TabsTrigger>
         </TabsList>
         <TabsContent value="outline" className="min-h-0 flex-1 overflow-auto px-2 pb-2">
           {outline.status === "loading" && <Message>{t.outlineLoading}</Message>}
@@ -125,6 +138,13 @@ export function Sidebar({
               onOpenFindPersonalData={redaction.onOpenFindPersonalData}
             />
           )}
+        </TabsContent>
+        <TabsContent value="annotations" className="min-h-0 flex-1 overflow-auto px-2 pb-2">
+          <AnnotationsListPanel
+            doc={doc}
+            active={activeTab === "annotations"}
+            onJumpToAnnotation={onJumpToAnnotation}
+          />
         </TabsContent>
       </Tabs>
     </aside>

@@ -2983,6 +2983,15 @@ mod tests {
             ]
         );
         assert!(!summary.truncated);
+        // Each item has an id matching the page's annotation id.
+        let page_annos = doc.page_annotations(0).expect("page annotations");
+        for item in &summary.items {
+            assert!(
+                page_annos.iter().any(|pa| pa.id == item.id),
+                "summary item id {:?} not found in page annotations",
+                item.id
+            );
+        }
         // What the main process accepts.
         ipc_contract::validate::Validate::validate(&summary).expect("valid");
 
@@ -3101,6 +3110,31 @@ mod tests {
             listed,
             [(1, "above"), (1, line.text.as_str()), (1, "below")]
         );
+    }
+
+    #[test]
+    fn summary_of_1000_annotations_has_matching_ids_and_measures_elapsed_time() {
+        let mut doc = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
+        for i in 0..1000 {
+            let x = (i % 20) as f32 * 20.0 + 10.0;
+            let y = (i / 20) as f32 * 12.0 + 10.0;
+            doc.add_note(0, Point { x, y }, "note").expect("add note");
+        }
+        let page_annos = doc.page_annotations(0).expect("page annotations");
+        assert_eq!(page_annos.len(), 1000);
+
+        let start = std::time::Instant::now();
+        let summary = doc.annotation_summary().expect("summary");
+        let elapsed = start.elapsed();
+        println!("[BENCHMARK] 1,000 annotations summary took: {:?}", elapsed);
+
+        assert_eq!(summary.items.len(), 1000);
+        assert!(!summary.truncated);
+
+        for item in &summary.items {
+            assert_ne!(item.id.0, 0);
+            assert!(page_annos.iter().any(|pa| pa.id == item.id));
+        }
     }
 
     #[test]
