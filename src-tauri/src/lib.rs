@@ -25,6 +25,7 @@ mod history;
 mod index_crypto;
 mod links;
 mod local_data;
+mod navigation;
 mod ocr;
 mod ocr_languages;
 mod opener;
@@ -175,6 +176,7 @@ pub fn run() {
             commands::save_document,
             commands::save_document_as,
             commands::close_window,
+            commands::set_fullscreen,
             commands::privacy_export,
             commands::page_marks_copy,
             commands::sanitize_copy,
@@ -202,6 +204,16 @@ pub fn run() {
         ])
         .on_window_event(commands::on_window_event)
         .setup(move |app| {
+            let window_config = app
+                .config()
+                .app
+                .windows
+                .first()
+                .expect("tauri.conf.json must declare the main window");
+            tauri::WebviewWindowBuilder::from_config(app.handle(), window_config)?
+                .on_navigation(move |url| navigation::check_navigation(url, cfg!(debug_assertions)))
+                .on_download(move |_webview, _event| false)
+                .build()?;
             let data = data_dir(app.app_handle());
             app.manage(SettingsStore::load(
                 data.as_ref().map(|dir| dir.join(settings::FILE_NAME)),

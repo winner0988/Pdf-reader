@@ -590,6 +590,9 @@ describe("what the window shows", () => {
           color: null,
           text: null,
           picture: null,
+          lineEnds: null,
+          shapeColor: null,
+          shapeWidth: null,
         },
       },
     ];

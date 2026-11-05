@@ -3,6 +3,7 @@ import {
   ArrowRight,
   ChevronDown,
   ChevronLeft,
+  Circle,
   Eraser,
   FolderOpen,
   LineSquiggle,
@@ -15,6 +16,7 @@ import {
   RotateCcw,
   RotateCw,
   Search,
+  Square,
   Stamp,
   Strikethrough,
   Type,
@@ -38,9 +40,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { IconButton } from "@/features/shell/IconButton";
 import { ZOOM_LEVELS, type Zoom } from "@/features/shell/model";
-import { INK_COLORS, INK_SWATCH, INK_WIDTHS, STAMPS } from "@/features/annotations/tools";
+import { INK_COLORS, INK_SWATCH, INK_WIDTHS, STAMPS, type ShapeToolKind } from "@/features/annotations/tools";
 import type { HighlightColor, InkColor, InkWidth, StampName } from "@/ipc/generated/contract";
 import type { ThemePreference } from "@/features/theme/useTheme";
+import type { PageLayoutMode } from "@/features/viewer/layout";
 import { strings } from "@/i18n/zh-TW";
 
 const t = strings.toolbar;
@@ -50,6 +53,8 @@ export type ToolbarProps = {
   sidebarOpen: boolean;
   searchOpen: boolean;
   theme: ThemePreference;
+  layoutMode?: PageLayoutMode;
+  onLayoutModeChange?: (mode: PageLayoutMode) => void;
   pageInputRef?: Ref<HTMLInputElement>;
   canGoBack?: boolean;
   canGoForward?: boolean;
@@ -66,6 +71,9 @@ export type ToolbarProps = {
   onThemeChange: (theme: ThemePreference) => void;
   onShowShortcuts: () => void;
   onShowAbout: () => void;
+  /** Whether the window is in full-screen mode (B4-03). */
+  fullscreen?: boolean;
+  onToggleFullscreen?: () => void;
   /** Opens the settings (B2-12); without it the menu has no settings item. */
   onShowSettings?: () => void;
   onSetDefault: () => void;
@@ -154,6 +162,19 @@ export type ToolbarProps = {
     color: InkColor;
     width: InkWidth;
     onToggle?: () => void;
+    onColor: (color: InkColor) => void;
+    onWidth: (width: InkWidth) => void;
+  };
+  /**
+   * The shape tool (B4-05): rectangle, ellipse, line, arrow.
+   */
+  shape?: {
+    active: boolean;
+    kind: ShapeToolKind;
+    color: InkColor;
+    width: InkWidth;
+    onToggle?: () => void;
+    onKind: (kind: ShapeToolKind) => void;
     onColor: (color: InkColor) => void;
     onWidth: (width: InkWidth) => void;
   };
@@ -337,6 +358,7 @@ export function Toolbar(props: ToolbarProps) {
           </IconButton>
         )}
         {document && props.pen && <PenControls pen={props.pen} />}
+        {document && props.shape && <ShapeControls shape={props.shape} />}
         {document && props.stamp && <StampMenu stamp={props.stamp} />}
         {document && props.textBox && (
           <IconButton
@@ -411,6 +433,86 @@ function PenControls({ pen }: { pen: NonNullable<ToolbarProps["pen"]> }) {
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
             <DropdownMenuRadioGroup value={pen.width} onValueChange={(value) => pen.onWidth(value as InkWidth)}>
+              {INK_WIDTHS.map((width) => (
+                <DropdownMenuRadioItem key={width} value={width}>
+                  {labels.inkWidths[width]}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  );
+}
+
+const SHAPE_ICONS: Record<ShapeToolKind, typeof Square> = {
+  rectangle: Square,
+  ellipse: Circle,
+  line: Minus,
+  arrow: ArrowRight,
+};
+
+/** The shape tool's button, and next to it the menu of shape kinds, colors, and line widths. */
+function ShapeControls({ shape }: { shape: NonNullable<ToolbarProps["shape"]> }) {
+  const labels = strings.annotations;
+  const Icon = SHAPE_ICONS[shape.kind];
+  return (
+    <>
+      <IconButton
+        label={`${labels.shape}（${labels.shapeKinds[shape.kind]}）`}
+        shortcut={shape.onToggle ? undefined : labels.notAllowed}
+        pressed={shape.active}
+        disabled={!shape.onToggle}
+        onClick={shape.onToggle}
+        data-shape-button=""
+      >
+        <Icon />
+      </IconButton>
+      <DropdownMenu>
+        <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={labels.shapeStyle} disabled={!shape.onToggle} />}>
+          <ChevronDown />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>{labels.shape}</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={shape.kind} onValueChange={(value) => shape.onKind(value as ShapeToolKind)}>
+              <DropdownMenuRadioItem value="rectangle">
+                <Square className="mr-2 size-4" />
+                {labels.shapeKinds.rectangle}
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="ellipse">
+                <Circle className="mr-2 size-4" />
+                {labels.shapeKinds.ellipse}
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="line">
+                <Minus className="mr-2 size-4" />
+                {labels.shapeKinds.line}
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="arrow">
+                <ArrowRight className="mr-2 size-4" />
+                {labels.shapeKinds.arrow}
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuRadioGroup value={shape.color} onValueChange={(value) => shape.onColor(value as InkColor)}>
+              {INK_COLORS.map((color) => (
+                <DropdownMenuRadioItem key={color} value={color}>
+                  <span
+                    aria-hidden
+                    className="mr-2 inline-block size-3 rounded-full border border-black/20"
+                    style={{ backgroundColor: INK_SWATCH[color] }}
+                  />
+                  {labels.inkColors[color]}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuRadioGroup value={shape.width} onValueChange={(value) => shape.onWidth(value as InkWidth)}>
               {INK_WIDTHS.map((width) => (
                 <DropdownMenuRadioItem key={width} value={width}>
                   {labels.inkWidths[width]}
@@ -532,6 +634,22 @@ function MoreMenu(props: ToolbarProps) {
         <MoreHorizontal />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
+        {props.onLayoutModeChange && (
+          <>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>{menu.pageLayout}</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                value={props.layoutMode ?? "single"}
+                onValueChange={(value) => props.onLayoutModeChange?.(value as PageLayoutMode)}
+              >
+                <DropdownMenuRadioItem value="single">{menu.layoutSingle}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="twoPage">{menu.layoutTwoPage}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="twoPageCover">{menu.layoutTwoPageCover}</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuGroup>
           <DropdownMenuLabel>{menu.appearance}</DropdownMenuLabel>
           <DropdownMenuRadioGroup
@@ -542,6 +660,15 @@ function MoreMenu(props: ToolbarProps) {
             <DropdownMenuRadioItem value="light">{menu.themeLight}</DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="dark">{menu.themeDark}</DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
+          {props.onToggleFullscreen && (
+            <DropdownMenuCheckboxItem
+              checked={props.fullscreen ?? false}
+              onCheckedChange={props.onToggleFullscreen}
+            >
+              {menu.fullscreen}
+              <DropdownMenuShortcut>F11</DropdownMenuShortcut>
+            </DropdownMenuCheckboxItem>
+          )}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={!props.onUndo} onClick={props.onUndo}>

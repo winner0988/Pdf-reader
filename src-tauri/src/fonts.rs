@@ -1170,4 +1170,103 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&temp);
     }
+
+    #[test]
+    fn font_headers_and_metadata_handle_arbitrary_and_mutated_inputs_without_panic() {
+        struct XorShift64(u64);
+        impl XorShift64 {
+            fn next_u64(&mut self) -> u64 {
+                let mut x = self.0;
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                self.0 = x;
+                x
+            }
+            fn next_u8(&mut self) -> u8 {
+                self.next_u64() as u8
+            }
+        }
+
+        // Part 1: check_import_header & check_font_header
+        let valid_headers: [&[u8]; 4] = [
+            &[0, 1, 0, 0, 0, 12, 0, 0],
+            b"true\x00\x01\x00\x00",
+            b"ttcf\x00\x01\x00\x00",
+            b"OTTO\x00\x01\x00\x00",
+        ];
+
+        for header in valid_headers {
+            for len in 0..=header.len() {
+                let _ = check_import_header(&header[..len]);
+                let _ = check_font_header(&header[..len]);
+            }
+            for pos in 0..header.len() {
+                for mutated_byte in [0x00, 0x7f, 0xff, b't', b'O', b'0'] {
+                    let mut mutated = header.to_vec();
+                    mutated[pos] = mutated_byte;
+                    let _ = check_import_header(&mutated);
+                    let _ = check_font_header(&mutated);
+                }
+            }
+        }
+
+        let mut rng = XorShift64(0x123456789abcdef0);
+        for _ in 0..300 {
+            let len = (rng.next_u64() as usize) % 128;
+            let mut buf = vec![0u8; len];
+            for b in &mut buf {
+                *b = rng.next_u8();
+            }
+            let _ = check_import_header(&buf);
+            let _ = check_font_header(&buf);
+        }
+
+        // Part 2: read_metadata
+        let temp =
+            std::env::temp_dir().join(format!("pdf-reader-font-meta-fuzz-{}", std::process::id()));
+        std::fs::create_dir_all(&temp).unwrap();
+        let meta_file = temp.join(METADATA_FILE);
+
+        let valid_meta_samples: [&[u8]; 2] = [
+            br#"{"fonts":[{"file":"custom.ttf","hash":"abcd","faces":[{"name":"Custom","family":"Custom","bold":false,"italic":false,"face":0}]}]}"#,
+            br#"{"fonts":[]}"#,
+        ];
+
+        for sample in valid_meta_samples {
+            for len in 0..=sample.len() {
+                std::fs::write(&meta_file, &sample[..len]).unwrap();
+                let meta = read_metadata(&temp);
+                let _ = meta.fonts.len();
+            }
+            for pos in 0..sample.len() {
+                for mutated_byte in [0x00, 0x7f, 0xff, b'{', b'"', b'0', b':', b','] {
+                    let mut mutated = sample.to_vec();
+                    mutated[pos] = mutated_byte;
+                    std::fs::write(&meta_file, &mutated).unwrap();
+                    let meta = read_metadata(&temp);
+                    let _ = meta.fonts.len();
+                }
+            }
+        }
+
+        for _ in 0..300 {
+            let len = (rng.next_u64() as usize) % 512;
+            let mut buf = vec![0u8; len];
+            for b in &mut buf {
+                *b = rng.next_u8();
+            }
+            std::fs::write(&meta_file, &buf).unwrap();
+            let meta = read_metadata(&temp);
+            let _ = meta.fonts.len();
+        }
+
+        // Over size limit (512 KiB)
+        let oversized = vec![b'a'; 512 * 1024 + 1024];
+        std::fs::write(&meta_file, &oversized).unwrap();
+        let meta = read_metadata(&temp);
+        assert!(meta.fonts.is_empty());
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
 }

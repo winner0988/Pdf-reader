@@ -43,6 +43,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "read_document"
+path = "fuzz_targets/read_document.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "text_box_font"
 path = "fuzz_targets/text_box_font.rs"
 test = false
@@ -66,6 +73,20 @@ bench = false
 [[bin]]
 name = "exif_clean"
 path = "fuzz_targets/exif_clean.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "stamp_image"
+path = "fuzz_targets/stamp_image.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "language_data"
+path = "fuzz_targets/language_data.rs"
 test = false
 doc = false
 bench = false

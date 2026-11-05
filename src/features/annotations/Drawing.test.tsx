@@ -22,6 +22,9 @@ const drawing: PageAnnotation = {
   color: null,
   text: null,
   picture: null,
+  lineEnds: null,
+  shapeColor: null,
+  shapeWidth: null,
 };
 const stamp: PageAnnotation = {
   id: 9,
@@ -30,6 +33,9 @@ const stamp: PageAnnotation = {
   color: null,
   text: null,
   picture: null,
+  lineEnds: null,
+  shapeColor: null,
+  shapeWidth: null,
 };
 
 /** The pointer on page 1, `x` and `y` in page points: 4 / 3 CSS pixels each at 100%, from the layer's corner. */
@@ -351,7 +357,17 @@ describe("moving and resizing a drawing or a stamp (B2-08)", () => {
   });
 
   it("has no handles on what is not a drawing or a stamp, nor when the author forbids annotating", async () => {
-    const note: PageAnnotation = { id: 5, kind: "note", rect: { x0: 10, y0: 10, x1: 30, y1: 30 }, color: null, text: "n", picture: null };
+    const note: PageAnnotation = {
+      id: 5,
+      kind: "note",
+      rect: { x0: 10, y0: 10, x1: 30, y1: 30 },
+      color: null,
+      text: "n",
+      picture: null,
+      lineEnds: null,
+      shapeColor: null,
+      shapeWidth: null,
+    };
     await setup(ALL_PERMISSIONS, [note]);
     act(() => screen.getByRole("button", { name: new RegExp(`^${t.noteSaying("n")}$`) }).focus());
     expect(document.querySelector("[data-move-resize]")).toBeNull();
@@ -493,5 +509,48 @@ describe("a picture of the user's own as a stamp (B2-08)", () => {
     const { stampButton, user } = await setup(ALL_PERMISSIONS, [], undefined, null);
     await user.click(stampButton());
     expect(await screen.findByRole("menuitem", { name: t.pickPicture })).toHaveAttribute("aria-disabled", "true");
+  });
+});
+
+describe("the shape tool (B4-05)", () => {
+  it("draws a rectangle with drag and sends Edit::AddShape", async () => {
+    const { editing, layer, user } = await setup(ALL_PERMISSIONS, []);
+    const shapeButton = screen.getByRole("button", { name: new RegExp(`^${t.shape}（`) });
+    await user.click(shapeButton);
+
+    expect(layer()).not.toBeNull();
+
+    // Drag from (100, 100) to (200, 180)
+    fireEvent.pointerDown(layer()!, pointer(100, 100));
+    fireEvent.pointerMove(layer()!, pointer(200, 180));
+    fireEvent.pointerUp(layer()!, pointer(200, 180));
+
+    expect(editing.applyEdit).toHaveBeenCalled();
+    const edit = lastEdit(editing);
+    expect(edit).toMatchObject({
+      kind: "addShape",
+      page: 0,
+      shape: {
+        kind: "rectangle",
+      },
+    });
+  });
+
+  it("draws a square with Shift held during drag", async () => {
+    const { editing, layer, user } = await setup(ALL_PERMISSIONS, []);
+    const shapeButton = screen.getByRole("button", { name: new RegExp(`^${t.shape}（`) });
+    await user.click(shapeButton);
+
+    expect(layer()).not.toBeNull();
+    // Drag from (100, 100) to (200, 150) with shiftKey: true
+    fireEvent.pointerDown(layer()!, { ...pointer(100, 100), shiftKey: true });
+    fireEvent.pointerMove(layer()!, { ...pointer(200, 150), shiftKey: true });
+    fireEvent.pointerUp(layer()!, { ...pointer(200, 150), shiftKey: true });
+
+    const edit = lastEdit(editing);
+    if (edit.kind !== "addShape" || edit.shape.kind !== "rectangle") throw new Error("not a rectangle shape");
+    const width = edit.shape.rect.x1 - edit.shape.rect.x0;
+    const height = edit.shape.rect.y1 - edit.shape.rect.y0;
+    expect(width).toBeCloseTo(height, 1);
   });
 });

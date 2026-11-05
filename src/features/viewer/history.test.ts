@@ -44,6 +44,20 @@ describe("navigation history model (B4-01)", () => {
     expect(result!.nextHistory.forward).toEqual([loc(5, 500)]);
   });
 
+  it("records layoutMode in NavigationLocation", () => {
+    let history = createNavigationHistory();
+    const locWithMode: NavigationLocation = {
+      page: 2,
+      scrollTop: 300,
+      zoom: "fitWidth",
+      layoutMode: "twoPage",
+    };
+    history = recordNavigation(history, locWithMode);
+    const result = historyGoBack(history, { page: 5, scrollTop: 800, zoom: "fitWidth", layoutMode: "twoPageCover" });
+    expect(result).not.toBeNull();
+    expect(result!.target.layoutMode).toBe("twoPage");
+  });
+
   it("allows going forward after going back", () => {
     let history = createNavigationHistory();
     history = recordNavigation(history, loc(1, 100));

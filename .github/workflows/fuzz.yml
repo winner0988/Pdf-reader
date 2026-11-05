@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [worker_messages, open_document, text_box_font, compress_images, create_pdf, exif_clean]
+        target: [worker_messages, open_document, read_document, text_box_font, compress_images, create_pdf, exif_clean, stamp_image, language_data]
     env:
       FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '120' || '1200' }}
       # MuPDF and its C libraries get coverage and AddressSanitizer like the Rust code. Only
@@ -66,12 +66,16 @@ jobs:
           cargo install cargo-fuzz --version 0.13.2 --locked
       - name: Seed corpus
         run: |
-          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/text_box_font fuzz/corpus/compress_images fuzz/corpus/create_pdf fuzz/corpus/exif_clean
+          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/read_document fuzz/corpus/text_box_font fuzz/corpus/compress_images fuzz/corpus/create_pdf fuzz/corpus/exif_clean fuzz/corpus/stamp_image fuzz/corpus/language_data
           env -u CC -u CXX -u CFLAGS cargo run --locked -q -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/worker_messages
+          env -u CC -u CXX -u CFLAGS cargo run --locked -q -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/language_data language_data
+          head -c 1048576 src-tauri/resources/tessdata/eng.traineddata > fuzz/corpus/language_data/eng_1m.traineddata
           # The generated test corpus (QA-01); the 200 MB files are only made on demand.
           find tests/corpus -name '*.pdf' -not -path '*/large/*' -exec cp {} fuzz/corpus/open_document/ \;
+          cp fuzz/corpus/open_document/* fuzz/corpus/read_document/
           cp fuzz/corpus/open_document/* fuzz/corpus/compress_images/
           cp fuzz/corpus/open_document/* fuzz/corpus/exif_clean/
+          cp tests/corpus/images/* fuzz/corpus/stamp_image/
           # Files to make a PDF of (B3-03): the first byte is the number of the kind of file, in the
           # order of KINDS in fuzz/fuzz_targets/create_pdf.rs.
           seed() { printf "\x$1" | cat - "$2" > "fuzz/corpus/create_pdf/$(basename "$2")"; }
@@ -131,7 +135,7 @@ jobs:
               echo
               echo "**The fuzzer found a crash.** Details are not shown here: they are only uploaded encrypted, as fuzz-crash-${{ matrix.target }} (docs/security/fuzzing.md)."
             fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       # Only the holder of the private key can read the samples. The recipient file is public;
       # the private key never leaves the owner's machine.
       - name: Encrypt crash samples
