@@ -282,18 +282,23 @@ test("shape annotations: rectangle and arrow can be drawn, recolored, undone/red
     });
     await expect(rectToolbar).toBeVisible();
 
+    const docBeforeColor = await firstPage(page).getAttribute("data-doc");
     const blueButton = rectToolbar.locator(`button[aria-label="${t.inkColors.blue}"]`);
     await blueButton.click();
+    await expect(firstPage(page)).not.toHaveAttribute("data-doc", docBeforeColor ?? "");
+    await expect(page.locator("[data-page-annotations][aria-busy]")).toHaveCount(0);
     await expect(rectangles.first()).toHaveAccessibleName(t.kind.rectangle);
     await expect(blueButton).toHaveAttribute("aria-pressed", "true");
     await expect(rectToolbar.locator(`button[aria-label="${t.inkColors.black}"]`)).toHaveAttribute("aria-pressed", "false");
 
-    // Move rectangle with arrow keys (ArrowRight 5 times)
+    // Move rectangle with arrow keys (focus annotation first; Shift+ArrowRight moves 10 points)
+    await rectangles.first().focus();
     const preMoveRectBox = (await rectangles.first().boundingBox())!;
-    for (let i = 0; i < 5; i++) {
-      await page.keyboard.press("ArrowRight");
-    }
-    await expect.poll(async () => (await rectangles.first().boundingBox())?.x).toBeGreaterThan(preMoveRectBox.x);
+    await page.keyboard.press("Shift+ArrowRight");
+    await expect
+      .poll(async () => ((await rectangles.first().boundingBox())?.x ?? preMoveRectBox.x) - preMoveRectBox.x)
+      .toBeGreaterThan(5);
+    await expect(page.locator("[data-page-annotations][aria-busy]")).toHaveCount(0);
 
     // 4. Select arrow, drag endpoint to move/resize
     await arrows.first().focus();
@@ -311,13 +316,20 @@ test("shape annotations: rectangle and arrow can be drawn, recolored, undone/red
 
     await expect.poll(async () => (await arrows.first().boundingBox())?.width).toBeGreaterThan(preMoveArrowBox.width);
     await expect.poll(async () => (await arrows.first().boundingBox())?.height).toBeGreaterThan(preMoveArrowBox.height);
+    await expect(page.locator("[data-page-annotations][aria-busy]")).toHaveCount(0);
 
     // 5. Test Undo and Redo
     await page.keyboard.press("Control+z"); // undo arrow endpoint drag
-    await expect.poll(async () => (await arrows.first().boundingBox())?.height).toBe(preMoveArrowBox.height);
+    await expect
+      .poll(async () => Math.abs(((await arrows.first().boundingBox())?.height ?? 0) - preMoveArrowBox.height))
+      .toBeLessThan(1);
+    await expect(page.locator("[data-page-annotations][aria-busy]")).toHaveCount(0);
 
     await page.keyboard.press("Control+y"); // redo arrow endpoint drag
-    await expect.poll(async () => (await arrows.first().boundingBox())?.height).toBeGreaterThan(preMoveArrowBox.height);
+    await expect
+      .poll(async () => ((await arrows.first().boundingBox())?.height ?? 0) - preMoveArrowBox.height)
+      .toBeGreaterThan(5);
+    await expect(page.locator("[data-page-annotations][aria-busy]")).toHaveCount(0);
 
     // 6. Save as copy and check PDF structure
     const copy = path.join(folder, "shapes.pdf");
