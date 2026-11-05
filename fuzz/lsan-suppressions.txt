@@ -1,0 +1,25 @@
+# LeakSanitizer suppressions for known unreleased upstream mupdf-sys leaks (Issue #485).
+#
+# Why:
+# In mupdf-sys 0.8.0 C wrapper functions (wrapper/*.c), an fz_buffer is allocated
+# before invoking MuPDF operations. When MuPDF encounters an error, fz_catch
+# records the error but fails to call fz_drop_buffer. On the Rust side, ffi_try!
+# detects the error and discards the returned pointer, causing the buffer to leak
+# on failure.
+#
+# Upstream fix:
+# Upstream commit ffaf28f fixed all four functions by adding fz_drop_buffer in fz_catch:
+# https://github.com/messense/mupdf-rs/commit/ffaf28f5a96c478661e228dd04564afdcf2477c6
+#
+# Scope:
+# LeakSanitizer matches the entire allocation call stack. Any memory leak allocated
+# under the call chain of these four functions will be suppressed, not just the buffer.
+#
+# Removal condition:
+# When mupdf / mupdf-sys is upgraded to a version containing commit ffaf28f, delete
+# this file and remove its configuration in .github/workflows/fuzz.yml in the same PR.
+
+leak:mupdf_pdf_write_document
+leak:mupdf_pixmap_get_image_data
+leak:mupdf_page_to_svg
+leak:mupdf_display_list_to_svg
