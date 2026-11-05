@@ -23,7 +23,7 @@ test("when a tab's worker dies, the tab shows an error and can be retried while 
   launch,
 }) => {
   // 1. Open two documents from corpus; each tab has its own worker.
-  const page = await launch(corpus("benign/multi-page-10.pdf"));
+  const page = await launch(corpus("benign/single-page.pdf"));
   await expect(documentTabs(page)).toHaveCount(1);
   await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
 
@@ -46,27 +46,27 @@ test("when a tab's worker dies, the tab shows an error and can be retried while 
   // Switch back to the first tab
   const tabs = documentTabs(page);
   await tabs.first().click();
-  await expect(page.getByRole("contentinfo")).toContainText("multi-page-10.pdf");
+  await expect(page.getByRole("contentinfo")).toContainText("single-page.pdf");
   await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
 
   // 2. Kill the first tab's worker process
   stopProcess(firstWorkerPid);
 
-  // Send a request from that tab: jump to an unrendered page (page 10) via page number input,
-  // which forces a render request to the dead worker rather than relying on overscanned pages.
-  const pageInput = page.getByRole("textbox", { name: strings.toolbar.pageNumber });
-  await pageInput.fill("10");
-  await pageInput.press("Enter");
+  // Send a request from that tab: rotate the page via toolbar button.
+  // Because the single-page document is already mounted and idle, text/links/annotations/fields
+  // hooks do not re-run on rotation; exactly one render request is dispatched to the dead worker,
+  // guaranteeing the failure is observed on this page rather than racing with other requests.
+  await page.getByRole("button", { name: strings.toolbar.rotateCw }).click();
 
   // Confirm the page display fails with retry button
-  const page10 = page.getByRole("img", { name: strings.canvas.page(10) });
-  await expect(page10.getByRole("alert")).toContainText(strings.canvas.pageRenderFailed);
-  const retryButton = page10.getByRole("button", { name: strings.error.retry });
+  const page1 = page.getByRole("img", { name: strings.canvas.page(1) });
+  await expect(page1.getByRole("alert")).toContainText(strings.canvas.pageRenderFailed);
+  const retryButton = page1.getByRole("button", { name: strings.error.retry });
   await expect(retryButton).toBeVisible();
 
   // 3. Click retry: document recovers in a new worker
   await retryButton.click();
-  await expect(page10).toHaveAttribute("data-state", "ready");
+  await expect(page1).toHaveAttribute("data-state", "ready");
 
   // Confirm worker was replaced: still 2 workers, second is intact, first is replaced
   await expect.poll(() => pdfWorkerPids(page).length).toBe(2);
