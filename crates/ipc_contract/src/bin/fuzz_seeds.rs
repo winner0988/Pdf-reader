@@ -63,13 +63,65 @@ fn stamp_png() -> Vec<u8> {
     png
 }
 
+fn write_language_data_seeds(dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    const LSTM: [usize; 6] = [17, 18, 19, 20, 21, 22];
+    fn data(count: usize, present: &[usize], size: usize) -> Vec<u8> {
+        let table_end = 4 + 8 * count;
+        let mut out = i32::try_from(count).unwrap().to_le_bytes().to_vec();
+        let mut at = table_end;
+        for index in 0..count {
+            let offset: i64 = if present.contains(&index) {
+                let here = at;
+                at += size;
+                i64::try_from(here).unwrap()
+            } else {
+                -1
+            };
+            out.extend_from_slice(&offset.to_le_bytes());
+        }
+        out.resize(at, 7);
+        out
+    }
+
+    let seeds = [
+        ("lstm-24-10.traineddata", data(24, &LSTM, 10)),
+        (
+            "lstm-24-empty.traineddata",
+            data(24, &[0, 17, 21, 22, 23], 0),
+        ),
+        ("lstm-23-min.traineddata", data(23, &[17, 21, 22], 3)),
+        ("lstm-64-max.traineddata", data(64, &LSTM, 16)),
+    ];
+    for (name, bytes) in &seeds {
+        std::fs::write(dir.join(name), bytes)?;
+    }
+    println!(
+        "wrote {} language_data seeds to {}",
+        seeds.len(),
+        dir.display()
+    );
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = PathBuf::from(
         std::env::args()
             .nth(1)
-            .ok_or("usage: fuzz_seeds <directory>")?,
+            .ok_or("usage: fuzz_seeds <directory> [target]")?,
     );
     std::fs::create_dir_all(&dir)?;
+
+    let target = std::env::args().nth(2).unwrap_or_else(|| {
+        if dir.file_name().and_then(|n| n.to_str()) == Some("language_data") {
+            "language_data".to_string()
+        } else {
+            "worker_messages".to_string()
+        }
+    });
+
+    if target == "language_data" {
+        return write_language_data_seeds(&dir);
+    }
     let (request, doc) = (RequestId(7), DocumentId(1));
     let page = PageSize {
         width_pt: 612.0,

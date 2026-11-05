@@ -309,11 +309,11 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 資料 | 從哪裡來 | 怎麼檢查 | 測試 | fuzz |
 |---|---|---|---|---|
 | `.pfx`、`.p12` | 使用者選的檔案（≤ 1 MiB） | Windows 的 `PFXImportCertStore`，加 `PKCS12_NO_PERSIST_KEY \| PKCS12_ALWAYS_CNG_KSP`：金鑰不存到磁碟、不能匯出。憑證鏈加 `CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL`、`CERT_CHAIN_DISABLE_AUTH_ROOT_AUTO_UPDATE`，不連網（ADR 0020） | `signing.rs` 11 個（`the_test_certificate_signs_two_parts_and_leaves_no_key_behind`、`a_wrong_password_or_a_file_that_is_no_certificate_says_only_that` 等） | 不做：Windows 的程式碼，ADR 0020 接受的設計（§9） |
-| `.traineddata` | 使用者匯入（≤ 64 MiB） | `check_language_data`：目錄的項目數 23–64，位移不倒退、不超出檔案，要有 LSTM 模型、字元集與 recoder | `crates/ipc_contract/src/ocr.rs` 8 個 | 沒有（#429） |
-| 字型 | 使用者匯入（≤ 64 MiB） | 副檔名、大小、`check_import_header`；之後由新的 worker 檢查（`InspectFont`） | `fonts.rs` 14 個（`unc_network_device_and_traversal_paths_are_strictly_rejected` 等） | 檔頭沒有（#429）；`InspectFont` 有（`text_box_font`，#428） |
-| 檢查更新的回覆 | 網路（§5） | ≤ 1 MiB；serde_json；只讀版本號 | `update_check.rs` 6 個（`reads_versions_and_nothing_else`、`anything_unexpected_is_a_failure` 等） | 沒有（#429） |
-| `settings.json`、`recent.json`、`sensitive.json`、`fonts\metadata.json` | app 資料夾 | 先限制大小（`local_data.rs`：`settings.json` 64 KiB、`recent.json` 512 KiB、`sensitive.json` 2 MiB），不是 app 寫的內容就當成沒有 | `local_data.rs`（`writes_whole_files_and_reads_them_back_within_a_limit`）、`settings.rs`（`a_file_the_app_did_not_write_gives_the_defaults`）、`recent.rs`、`sensitive.rs` | 沒有（#429） |
-| 復原日誌 | app 資料夾的 `recovery\`（每個 ≤ 4 MiB） | 當成不可信的資料檢查 | `recovery.rs`（`journals_are_checked_as_untrusted_data` 等 14 個） | 沒有（#429） |
+| `.traineddata` | 使用者匯入（≤ 64 MiB） | `check_language_data`：目錄的項目數 23–64，位移不倒退、不超出檔案，要有 LSTM 模型、字元集與 recoder | `crates/ipc_contract/src/ocr.rs` 8 個 | `language_data`（#429） |
+| 字型 | 使用者匯入（≤ 64 MiB） | 副檔名、大小、`check_import_header`；之後由新的 worker 檢查（`InspectFont`） | `fonts.rs` 15 個（含檔頭與中繼資料的截斷／變異測試） | 檔頭由單元變異測試驗證（#429）；`InspectFont` 有（`text_box_font`，#428） |
+| 檢查更新的回覆 | 網路（§5） | ≤ 1 MiB；serde_json；只讀版本號 | `update_check.rs` 7 個（含 `interpret` 的截斷／變異測試） | 由單元變異測試驗證（#429） |
+| `settings.json`、`recent.json`、`sensitive.json`、`fonts\metadata.json` | app 資料夾 | 先限制大小（`local_data.rs`：`settings.json` 64 KiB、`recent.json` 512 KiB、`sensitive.json` 2 MiB、`metadata.json` 512 KiB），不是 app 寫的內容就當成沒有 | `local_data.rs`、`settings.rs`、`recent.rs`、`sensitive.rs`、`fonts.rs`（各模組皆有截斷、變異與隨機輸入測試） | 由單元變異測試驗證（#429） |
+| 復原日誌 | app 資料夾的 `recovery\`（每個 ≤ 4 MiB） | 當成不可信的資料檢查 | `recovery.rs` 15 個（含截斷、變異與隨機輸入測試） | 由單元變異測試驗證（#429） |
 | 文字索引 | app 資料夾的 `index\`（金鑰 ≤ 4 KiB，目錄與文件 ≤ 32 MiB） | AES-256-GCM；金鑰以 DPAPI 保護。不是 app 寫的檔案在解析前就被拒絕 | `text_index.rs` 24 個（`nothing_on_the_disk_can_be_read_without_the_key` 等）、`index_crypto.rs` 3 個 | 不需要（先驗證才解析） |
 | 認證管理員裡的密碼 | app 自己寫的項目（`PdfReader/password/v1/<key>`） | 鍵是 worker 從檔案的加密資訊算出的雜湊（`PasswordKey`，ADR 0017）；項目裡沒有檔名、路徑或內容 | `credentials.rs` 7 個 | 不需要 |
 | 命令列、第二次啟動的參數 | 其他程式（§8） | 只當成檔案路徑 | `cli.rs` 3 個 | 不需要 |
@@ -416,7 +416,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 已由 #426 拆出 `read_document` 目標完成 fuzz（§2.4） | #426 | 是 |
 | fuzz 沒有走到的編輯、存檔、副本（§2.4、§2.5） | #427 | 是 |
 | 已在 #428 補上：圖章圖片（`PrepareStampImage`，新目標 `stamp_image`）與匯入字型（`InspectFont`，併入 `text_box_font`）的 fuzz（§2.4） | #428 | 是 |
-| 主行程自己解析的資料沒有 fuzz（§3） | #429 | 是 |
+| 主行程自己解析的資料沒有 fuzz（§3；已由 #429 補上 language_data fuzz 目標與主行程解析器變異測試） | #429 | 是 |
 | OCR 的語言資料與掃描頁沒有 fuzz（§2.3、§2.4） | #431 | 是 |
 | `retry_open`、`cancel` 在主行程這一側沒有測試（§1.1、§1.2；已由 #432 於 `retry-open-and-cancel.spec.ts` 測試） | #432 | 否 |
 | 拖放開檔列入人工檢查（manual-checks §3.14），`commands.rs` 註解已更正（§8） | #436（已完成） | 否 |

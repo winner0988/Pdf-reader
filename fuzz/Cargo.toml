@@ -84,3 +84,9 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "language_data"
+path = "fuzz_targets/language_data.rs"
+test = false
+doc = false
+bench = false
