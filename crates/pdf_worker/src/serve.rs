@@ -773,7 +773,7 @@ fn revert(
 }
 
 /// Applies an edit to the document in memory (ADR 0013).
-fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineError> {
+pub fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), EngineError> {
     match edit {
         WorkerEdit::RotatePages { pages, degrees } => document.rotate_pages(pages, *degrees)?,
         WorkerEdit::DeletePages { pages } => document.delete_pages(pages)?,

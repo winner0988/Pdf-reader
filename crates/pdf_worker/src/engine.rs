@@ -66,6 +66,37 @@ pub use text_box::{
     TextBoxFont, TextBoxMade, TextBoxSpec, inspect_font, prepare_text_box, prepare_text_boxes,
 };
 
+/// The bundled Droid Sans Fallback font, for fuzzing text boxes and watermarks.
+pub fn bundled_font() -> &'static [u8] {
+    mupdf_fonts_droid::find_by_name("Droid Sans Fallback", false, false)
+        .expect("the bundled font")
+        .data
+}
+
+/// A prepared text box model for fuzzing.
+pub fn sample_text_box_model(text: &str) -> Option<ipc_contract::worker::TextBoxModel> {
+    let font = TextBoxFont {
+        bytes: bundled_font(),
+        face: 0,
+        name: "Droid Sans Fallback",
+    };
+    prepare_text_box(&font, text).ok()
+}
+
+/// A prepared 1x1 stamp picture PNG for fuzzing.
+pub fn sample_stamp_png() -> Vec<u8> {
+    const TINY_PNG: &[u8] = &[
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f,
+        0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00,
+        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+        0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ];
+    prepare_stamp_picture(TINY_PNG)
+        .map(|p| p.png)
+        .unwrap_or_default()
+}
+
 /// Most form fields looked at to find a signature (`PdfDocument::is_signed`).
 const MAX_FORM_FIELDS: usize = 10_000;
 
@@ -4729,6 +4760,21 @@ endstream",
         assert!(doc.insert_pages(1, truncated, &[]).is_err());
         assert_eq!(doc.page_count().unwrap(), 10);
         assert_eq!(page_titles(&doc), titles(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+    }
+
+    #[test]
+    fn fuzz_helpers_provide_valid_font_model_and_stamp() {
+        let font = bundled_font();
+        assert!(!font.is_empty());
+        assert_eq!(&font[..4], &[0, 1, 0, 0]);
+
+        let model = sample_text_box_model("Fuzz Test").expect("text box model");
+        assert_eq!(model.text, "Fuzz Test");
+        assert!(!model.subset.is_empty());
+
+        let png = sample_stamp_png();
+        assert!(!png.is_empty());
+        assert!(png.starts_with(&ipc_contract::validate::PNG_SIGNATURE));
     }
 
     #[test]

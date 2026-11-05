@@ -98,3 +98,10 @@ path = "fuzz_targets/ocr.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "edit_document"
+path = "fuzz_targets/edit_document.rs"
+test = false
+doc = false
+bench = false
