@@ -228,7 +228,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 程式庫 | 解析什麼 | `unsafe` | fuzz |
 |---|---|---|---|
 | MuPDF 1.27.2（`mupdf` =0.8.0、`mupdf-sys` =0.8.0） | PDF（含內嵌的字型與圖片）、PNG、JPEG、EPUB、HTML、SVG、XPS、docx、xlsx、pptx、純文字 | C 程式庫；`owner_password.rs` 直接呼叫 C 函式 | `open_document`、`create_pdf`、`compress_images`、`exif_clean`、`stamp_image`；缺的見 #426、#427 |
-| Tesseract、Leptonica（MuPDF 內建的 Artifex 版本） | `.traineddata`、掃描頁的像素 | C++、C；呼叫集中在 `ocr.rs` | 沒有（#431） |
+| Tesseract、Leptonica（MuPDF 內建的 Artifex 版本） | `.traineddata`、掃描頁的像素 | C++、C；呼叫集中在 `ocr.rs` | `ocr`（#431） |
 | skrifa 0.49、subsetter 0.2.6 | 文字方塊與匯入用的字型 | 純 Rust，沒有 `unsafe` | `text_box_font`（含 `InspectFont`，#428） |
 | Windows CryptoAPI（`crypt.rs`） | 簽章的 CMS 與憑證；憑證鏈只用本機的快取 | Windows | 沒有：Linux 的 fuzz 跑不到（#426 只 fuzz 讀簽章欄位） |
 | jpeg-encoder 0.7.1 | 只編碼 worker 自己渲染的像素，不解析輸入 | 純 Rust（不開 `simd`） | 不需要 |
@@ -275,8 +275,8 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `PrepareTextBox`、`PrepareTextBoxes` | 字型檔（≤ 64 MiB） | `engine/text_box.rs`、`engine/text_box/` | worker `text_box_worker.rs`、`fonts.rs` | `text_box_font` |
 | `InspectFont` | 要匯入的字型檔 | `engine/text_box/font.rs` | worker `text_box_worker.rs` | `text_box_font`（#428） |
 | `CreatePdf` | 圖片、HTML、純文字、EPUB、XPS、SVG、docx、xlsx、pptx（唯讀代號） | `engine/create.rs` | worker `create_pdf.rs` | `create_pdf` |
-| `OcrLoad` | `.traineddata`（≤ 64 MiB；worker 再跑一次 `check_language_data`） | `ocr.rs` | worker `ocr.rs` | 沒有（#431） |
-| `OcrPage`、`OcrPoll`、`OcrStop` | 掃描頁：判斷、渲染成灰階、辨識、做成文字層 | `engine/ocr.rs`、`ocr_worker.rs`、`text_layer.rs` | worker `ocr.rs`、`search_cache.rs` | 沒有（#431） |
+| `OcrLoad` | `.traineddata`（≤ 64 MiB；worker 再跑一次 `check_language_data`） | `ocr.rs` | worker `ocr.rs` | `ocr`（#431） |
+| `OcrPage`、`OcrPoll`、`OcrStop` | 掃描頁：判斷、渲染成灰階、辨識、做成文字層 | `engine/ocr.rs`、`ocr_worker.rs`、`text_layer.rs` | worker `ocr.rs`、`search_cache.rs` | `ocr`（#431） |
 | `Close` | 關閉文件 | `serve.rs` | `tabs.spec.ts` | `worker_messages` |
 | `Cancel` | 主行程目前不送；worker 收到也不處理 | `serve.rs` | — | `worker_messages` |
 | `Shutdown` | 主行程目前不送（直接結束 worker）；worker 收到就結束 | `serve.rs` | `crates/ipc_contract/src/frame.rs` | `worker_messages` |
@@ -417,7 +417,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | fuzz 沒有走到的編輯、存檔、副本（§2.4、§2.5） | #427 | 是 |
 | 已在 #428 補上：圖章圖片（`PrepareStampImage`，新目標 `stamp_image`）與匯入字型（`InspectFont`，併入 `text_box_font`）的 fuzz（§2.4） | #428 | 是 |
 | 主行程自己解析的資料沒有 fuzz（§3；已由 #429 補上 language_data fuzz 目標與主行程解析器變異測試） | #429 | 是 |
-| OCR 的語言資料與掃描頁沒有 fuzz（§2.3、§2.4） | #431 | 是 |
+| OCR 的語言資料與掃描頁沒有 fuzz（§2.3、§2.4） | 已由 #431 補上目標（`ocr`） | 是 |
 | `retry_open`、`cancel` 在主行程這一側沒有測試（§1.1、§1.2；已由 #432 於 `retry-open-and-cancel.spec.ts` 測試） | #432 | 否 |
 | 拖放開檔列入人工檢查（manual-checks §3.14），`commands.rs` 註解已更正（§8） | #436（已完成） | 否 |
 | 這份清單與程式碼一致的 CI 檢查 | 已由 #430 實作（`check-security-config.mjs`） | 是 |
