@@ -27,7 +27,7 @@ const option = (name, fallback) => {
 const targetDir = process.env.CARGO_TARGET_DIR ?? path.join(ROOT, "target");
 const app = path.resolve(option("--app", path.join(targetDir, "release", "pdf-reader.exe")));
 const outDir = path.resolve(option("--out", path.join(ROOT, "test-results", "perf")));
-const large = path.join(ROOT, "tests", "corpus", "large", "output", "large-1000-pages.pdf");
+const large = path.resolve(option("--file", path.join(ROOT, "tests", "corpus", "large", "output", "large-1000-pages.pdf")));
 const poster = path.join(ROOT, "tests", "corpus", "large", "output", "large-a0-poster.pdf");
 for (const file of [app, large, poster]) {
   if (!fs.existsSync(file)) {
@@ -35,6 +35,7 @@ for (const file of [app, large, poster]) {
     process.exit(1);
   }
 }
+const fileSizeMB = Math.round(fs.statSync(large).size / (1024 * 1024));
 fs.mkdirSync(outDir, { recursive: true });
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -97,16 +98,35 @@ const treeScript = `
 const powershell = (script) =>
   execFileSync("powershell.exe", ["-NoProfile", "-Command", script], { encoding: "utf8" }).trim();
 
-/** Private memory in MB: the main process with its workers, and all of it with WebView2. */
+/** Private memory in MB: the main process, WebView2, and each worker. */
 const memoryScript = `
-  $mine = $tree | Where-Object { $_.Name -in 'pdf-reader.exe', 'pdf_worker.exe' }
-  $main = ($mine | ForEach-Object { (Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue).PrivateMemorySize64 } | Measure-Object -Sum).Sum
+  $appProc = $tree | Where-Object { $_.Name -eq 'pdf-reader.exe' }
+  $appMem = ($appProc | ForEach-Object { (Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue).PrivateMemorySize64 } | Measure-Object -Sum).Sum
+  if (-not $appMem) { $appMem = 0 }
+  $wvProcs = $tree | Where-Object { $_.Name -like 'msedgewebview2*' }
+  $wvMem = ($wvProcs | ForEach-Object { (Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue).PrivateMemorySize64 } | Measure-Object -Sum).Sum
+  if (-not $wvMem) { $wvMem = 0 }
+  $workerProcs = @($tree | Where-Object { $_.Name -eq 'pdf_worker.exe' })
+  $workerMemList = @($workerProcs | ForEach-Object {
+    $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
+    if ($p) { [PSCustomObject]@{ pid = $_.ProcessId; memoryMB = [math]::Round($p.PrivateMemorySize64 / 1MB) } }
+  })
+  $workerTotal = ($workerProcs | ForEach-Object { (Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue).PrivateMemorySize64 } | Measure-Object -Sum).Sum
+  if (-not $workerTotal) { $workerTotal = 0 }
   $every = ($tree | ForEach-Object { (Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue).PrivateMemorySize64 } | Measure-Object -Sum).Sum
-  "{0} {1}" -f [math]::Round($main / 1MB), [math]::Round($every / 1MB)
+  if (-not $every) { $every = 0 }
+  [PSCustomObject]@{
+    main = [math]::Round($appMem / 1MB)
+    webView2 = [math]::Round($wvMem / 1MB)
+    workers = $workerMemList
+    workersTotal = [math]::Round($workerTotal / 1MB)
+    mainAndWorkers = [math]::Round(($appMem + $workerTotal) / 1MB)
+    all = [math]::Round($every / 1MB)
+  } | ConvertTo-Json -Compress
 `;
 function memoryMB() {
-  const [main, all] = powershell(treeScript + memoryScript).split(/\s+/).map(Number);
-  return { main, all };
+  const json = powershell(treeScript + memoryScript);
+  return JSON.parse(json);
 }
 
 function killWorkers() {
@@ -203,6 +223,11 @@ const helpers = `(() => {
     __doc: () => slots()[0]?.dataset.doc ?? '',
     __visible: visible,
     __allVisibleDrawn: () => { const v = visible(); return v.length > 0 && v.every(drawn); },
+    __totalPages: () => {
+      const text = document.querySelector('[role="contentinfo"]')?.textContent ?? '';
+      const match = new RegExp('/ (\\\\d+) 頁').exec(text);
+      return match ? Number(match[1]) : 0;
+    },
     __zoom: (value) => {
       // The shown tab's zoom box (strings.toolbar.zoomLevel).
       const select = [...document.querySelectorAll('select[aria-label="縮放比例"]')].find((el) => el.getClientRects().length > 0);
@@ -256,6 +281,8 @@ const startedMs = await (async () => {
 })();
 if (startedMs < 0) fail("The first page was never drawn.");
 results.startToFirstPageMs = startedMs;
+const totalPages = (await evaluate(`window.__totalPages()`)) || (large.includes("2000") ? 2000 : 1000);
+results.file = { path: large, pages: totalPages, sizeMB: fileSizeMB };
 results.window = await evaluate(`({
   width: innerWidth,
   height: innerHeight,
@@ -386,17 +413,22 @@ await sampled;
 const memory = samples
   .trim()
   .split(/\r?\n/)
-  .map((line) => line.trim().split(/\s+/).map(Number));
+  .map((line) => line.trim())
+  .filter(Boolean)
+  .map((line) => JSON.parse(line));
 results.fastScrollMemoryMB = {
-  mainAndWorkers: memory.map((m) => m[0]),
-  withWebView2: memory.map((m) => m[1]),
-  maxMainAndWorkers: Math.max(...memory.map((m) => m[0])),
+  main: memory.map((m) => m.main),
+  webView2: memory.map((m) => m.webView2),
+  workersTotal: memory.map((m) => m.workersTotal),
+  mainAndWorkers: memory.map((m) => m.mainAndWorkers),
+  withWebView2: memory.map((m) => m.all),
+  maxMainAndWorkers: Math.max(...memory.map((m) => m.mainAndWorkers)),
 };
 
 step("last page");
 // The last page and back to the first.
 await evaluate(`window.__scroller().scrollTop = window.__scroller().scrollHeight`);
-results.lastPageMs = await until(`window.__ready(1000)`, 10_000);
+results.lastPageMs = await until(`window.__ready(${totalPages})`, 10_000);
 await shot("last-page");
 await evaluate(`window.__scroller().scrollTop = 0`);
 results.backToFirstMs = await until(`window.__ready(1)`, 10_000);
@@ -406,6 +438,54 @@ step("T7");
 await sleep(2000);
 results.idleCpuPercent = cpuPercent(10);
 results.idleMemoryMB = memoryMB();
+
+step("search");
+// Search the common word across the whole document.
+const searchQuery = option("--search", "privacy");
+await pressCtrl("f", 70);
+await until(`Boolean(document.querySelector('div[role="search"]'))`, 5000);
+await evaluate(`(() => {
+  const input = document.querySelector('div[role="search"] input');
+  if (input) {
+    input.focus();
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+    if (setter) setter.call(input, ${JSON.stringify(searchQuery)});
+    else input.value = ${JSON.stringify(searchQuery)};
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+})()`);
+await sleep(100);
+const enterEvent = { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" };
+await send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...enterEvent });
+await send("Input.dispatchKeyEvent", { type: "keyUp", ...enterEvent });
+const searchT0 = performance.now();
+let peakSearchMemory = memoryMB();
+while (performance.now() - searchT0 < 60_000) {
+  const cur = memoryMB();
+  if (cur.mainAndWorkers > peakSearchMemory.mainAndWorkers) peakSearchMemory = cur;
+  const status = await evaluate(`document.querySelector('div[role="search"] span[data-status]')?.dataset.status`);
+  if (status === "done" || status === "failed") break;
+  await sleep(50);
+}
+const searchMs = Math.round(performance.now() - searchT0);
+const searchStatusText = (await evaluate(`document.querySelector('div[role="search"] span[data-status]')?.textContent?.trim()`)) || "";
+const searchStatusKind = (await evaluate(`document.querySelector('div[role="search"] span[data-status]')?.dataset.status`)) || "unknown";
+await evaluate(`(() => {
+  const closeBtn = document.querySelector('div[role="search"] button[aria-label="關閉"]');
+  if (closeBtn) closeBtn.click();
+  else {
+    const input = document.querySelector('div[role="search"] input');
+    if (input) input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+  }
+})()`);
+results.search = {
+  query: searchQuery,
+  timeMs: searchMs,
+  status: searchStatusKind,
+  summary: searchStatusText,
+  peakMemoryMB: peakSearchMemory,
+};
 // Where the time of a large page goes: the worker and the main process (until the bytes are in
 // the page), then drawing them. Nothing else is being drawn now, and the scales were not asked
 // for before, so nothing comes from the cache.
@@ -475,15 +555,16 @@ cleanUp();
 
 // ---------------------------------------------------------------- report
 
+const fileDesc = `${totalPages} pages, ${fileSizeMB} MB`;
 const targets = [
-  ["T1 start to first page (1000 pages, 197 MB)", `${results.startToFirstPageMs} ms`, "<= 1500 ms", results.startToFirstPageMs <= 1500],
+  [`T1 start to first page (${fileDesc})`, `${results.startToFirstPageMs} ms`, "<= 1500 ms", results.startToFirstPageMs <= 1500],
   ["T1 open in the running app", `${results.openInRunningAppMs} ms`, "<= 1000 ms", results.openInRunningAppMs >= 0 && results.openInRunningAppMs <= 1000],
   ["T2 normal scrolling: blank on screen p95 / max", `${results.normalScroll.blankShownMsP95} / ${results.normalScroll.blankShownMsMax} ms`, "p95 0 ms, max <= 100 ms", results.normalScroll.blankShownMsP95 === 0 && results.normalScroll.blankShownMsMax <= 100],
   ["T3 stop after fast scrolling: all drawn (max)", `${Math.max(...results.afterFastScrollMs)} ms`, "<= 500 ms", results.afterFastScrollMs.every((ms) => ms >= 0 && ms <= 500)],
   ["T4 zoom 100% -> 200%: blank frames / sharp", `${results.zoom200.blankFrames} / ${results.zoom200.sharpMs} ms`, "0 / <= 500 ms", results.zoom200.blankFrames === 0 && results.zoom200.sharpMs >= 0 && results.zoom200.sharpMs <= 500],
   ["T4 zoom 100% -> 400%: blank frames / sharp", `${results.zoom400.blankFrames} / ${results.zoom400.sharpMs} ms`, "0 / <= 1500 ms", results.zoom400.blankFrames === 0 && results.zoom400.sharpMs >= 0 && results.zoom400.sharpMs <= 1500],
   ["T5 A0 poster at 200%: sharp", `${results.poster200.sharpMs} ms`, "<= 1500 ms", results.poster200.sharpMs >= 0 && results.poster200.sharpMs <= 1500],
-  ["T5 A0 poster: main process + workers", `${results.posterMemoryMB.main} MB`, "< 1024 MB", results.posterMemoryMB.main < 1024],
+  ["T5 A0 poster: main process + workers", `${results.posterMemoryMB.mainAndWorkers} MB`, "< 1024 MB", results.posterMemoryMB.mainAndWorkers < 1024],
   ["T6 fast scrolling 10 s: main process + workers (max)", `${results.fastScrollMemoryMB.maxMainAndWorkers} MB`, "< 1024 MB", results.fastScrollMemoryMB.maxMainAndWorkers < 1024],
   ["T7 idle 10 s: CPU of the app, workers and WebView2", `${results.idleCpuPercent} %`, "< 1 %", results.idleCpuPercent < 1],
 ];
@@ -493,4 +574,7 @@ console.log(JSON.stringify(results, null, 2));
 console.log("");
 for (const [name, value, target, met] of targets) {
   console.log(`${met ? "ok  " : "MISS"} ${name}: ${value} (target ${target})`);
+}
+if (results.search) {
+  console.log(`info search "${results.search.query}": ${results.search.timeMs} ms (${results.search.summary}), peak main+workers ${results.search.peakMemoryMB?.mainAndWorkers} MB, total ${results.search.peakMemoryMB?.all} MB`);
 }

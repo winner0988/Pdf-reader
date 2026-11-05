@@ -834,6 +834,16 @@
       "onDemand": true
     },
     {
+      "path": "large/output/large-2000-pages.pdf",
+      "category": "large",
+      "purpose": "About 300 MB: 2000 pages with a 224 x 224 RGB image and searchable text each (B4-10, Issue #418).",
+      "expected": "Opens; memory stays bounded while scrolling; 'needle-1000' finds one hit on page 1000; 'privacy' finds 2000 hits.",
+      "pages": 2000,
+      "findings": [],
+      "text": [],
+      "onDemand": true
+    },
+    {
       "path": "large/output/large-text-1000-pages.pdf",
       "category": "large",
       "purpose": "About 4 MB: 1000 pages with about 40 lines of mixed English and Chinese text each (MVP-10, Issue #242).",

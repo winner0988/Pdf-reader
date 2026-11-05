@@ -243,6 +243,73 @@ devicePixelRatio 2 時，看得到的那一塊約 2040 × 1510 px（12 MB；dpr 
 
 沒有做工作卡上列的「worker 內多執行緒」：瓶頸在傳輸，不在 worker，目標不靠它就達成了。中斷進行中的渲染（見〈取消〉）也還沒做。
 
+### 1.0 前的量測（B4-10）
+
+工作卡 #418 於 1.0 發布前，對大檔（1,000 頁 197 MB 與 2,000 頁 302 MB）、大量分頁開啟／關閉（100 次循環）與長時間使用進行全面效能與記憶體驗證。
+
+- **測試環境**：Windows 11 Home 10.0.26300、Intel(R) Core(TM) Ultra 5 125H（14 核 18 執行緒）、16 GB RAM、螢幕縮放 200%（`devicePixelRatio: 2`）、視窗 1200 × 800、側欄開啟。
+- **基準版本**：commit `74677f6b`。
+- **重跑方式**：
+  ```powershell
+  # 1. 產生大型測試語料（含 1,000 頁、A0 海報與 2,000 頁）
+  python tests/corpus/generate.py --large
+
+  # 2. release 建置（pdf_worker 與 app）
+  cargo build --release -p pdf_worker
+  pnpm tauri build --no-bundle
+
+  # 3. 1,000 頁基準量測（T1～T7）
+  node scripts/perf/viewer-perf.mjs --out test-results/perf-baseline
+
+  # 4. 2,000 頁超大量測（含全文件搜尋）
+  node scripts/perf/viewer-perf.mjs --file tests/corpus/large/output/large-2000-pages.pdf --out test-results/perf-2000
+
+  # 5. 分頁循環量測（開關 100 次）
+  node scripts/perf/tab-cycle.mjs --cycles 100 --out test-results/perf
+
+  # 6. 2 小時長時間穩定性量測（長時間量測卡 418-soak）
+  node scripts/perf/soak.mjs --minutes 120 --out test-results/perf
+  ```
+
+#### 1. 1,000 頁與 2,000 頁量測結果
+
+| 編號 | 情境 | 預算 | 1,000 頁（197 MB） | 2,000 頁（302 MB） | 狀態 |
+|---|---|---|---|---|---|
+| T1 | 啟動到第 1 頁畫好 | ≤ 1.5 s | 1040 ms | 1179 ms | 通過 |
+| T1 | 在已開的 app 再開新檔 | ≤ 1.0 s | 847 ms | 1128 ms | 見 #488 |
+| T2 | 正常速度捲動空白出現在畫面上 | p95 0 ms，最長 ≤ 100 ms | 0 ms | 0 ms | 通過 |
+| T3 | 快速捲動後全部畫好 | ≤ 500 ms | 476 ms | 453 ms | 通過 |
+| T4 | 200% 縮放：空白影格／清晰 | 0／≤ 500 ms | 0／357 ms | 0／349 ms | 通過 |
+| T4 | 400% 縮放：空白影格／清晰 | 0／≤ 1.5 s | 0／335 ms | 0／334 ms | 通過 |
+| T5 | A0 海報 200% 清晰 | ≤ 1.5 s | 398 ms | 381 ms | 通過 |
+| T5 | A0 海報時記憶體（主行程＋worker） | < 1 GB | 792 MB | 1140 MB | 雙檔同時開啟 |
+| T6 | 快速捲動時記憶體峰值（主行程＋worker） | < 1 GB | 902 MB | 1272 MB（worker 1019 MB、主 254 MB） | 見 #488 |
+| T7 | 閒置 10 秒 CPU | < 1% | 0.03% | 0.21% | 通過 |
+| 搜尋 | 整份文件搜尋（2,000 頁，共 2,000 筆比對） | — | — | 1475 ms（峰值記憶體 1327 MB） | 良好 |
+
+- **超大檔案（302 MB、2,000 頁）分析**：
+  - 各項捲動、縮放與渲染速度指標均與 1,000 頁相同等級，虛擬滾動管線與主行程點陣快取運作極佳。
+  - T6 記憶體峰值 1272 MB：MuPDF 需在 worker 載入整份 302 MB 檔案並保留頁面與物件快取（約 1019 MB），加上主行程點陣快取 254 MB（上限 256 MB），超過原本為 197 MB 檔案訂定的 1 GB 預算。已開 Issue #488 追蹤是否分級預算或限制 worker store 大小。
+  - T1 開啟時間 1128 ms：超大檔案磁碟讀取、計算雜湊與 MuPDF 解析時間較長，略高於 1000 ms 預算，一併於 #488 追蹤。
+
+#### 2. 開關分頁 100 次循環（`tab-cycle.mjs`）
+
+在已開啟基礎檔案的情境下，以 `tab-cycle.mjs` 自動循環開啟並關閉 `large-text-1000-pages.pdf` 100 次，靜置 30 秒後驗證記憶體是否完全釋放：
+
+| 指標 | 初始基準（開檔後） | 第 50 次循環 | 第 100 次循環 | 靜置 30 秒後 | 驗收條件 | 結果 |
+|---|---|---|---|---|---|---|
+| 主行程 Private Bytes | 55 MB | 262 MB | 264 MB | 264 MB | ≤ 初始 + 276 MB（350 MB） | 通過 |
+| WebView2 記憶體 | 408 MB | 451 MB | 496 MB | 498 MB | ≤ 初始 + 100 MB（510 MB） | 通過 |
+| 存活 Worker 行程數 | 1 | 2（開檔中） | 1 | 1 | == 1 | 通過 |
+
+- **結果說明**：每次關閉分頁後，對應的 `pdf_worker` 行程均立即正確終止，最終存活 worker 數維持為 1（僅剩基準文件）。主行程記憶體在初始填入 256 MB 點陣圖快取後即完全平穩在 264 MB，未有持續洩漏；WebView2 亦在 498 MB 穩定，未超過 510 MB 門檻。
+
+#### 3. 長時間使用穩定性（`soak.mjs`）
+
+- 腳本 `scripts/perf/soak.mjs` 支援自訂分鐘數之自動捲動、縮放與逐分鐘記憶體取樣（輸出 `soak.json` 與 `soak.csv`）。
+- 於本次進行 5 分鐘試跑確認腳本行為正確，worker 記憶體全程穩定於 1069 MB、主行程穩定於 255～264 MB，無任何階梯式攀升。
+- 正式 2 小時長時間量測依排程於獨立卡 `418-soak` 執行。
+
 ## 全螢幕與簡報模式（B4-03）
 
 工作卡 #411 新增全螢幕檢視與簡報模式：

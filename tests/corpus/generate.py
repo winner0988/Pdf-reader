@@ -1709,6 +1709,34 @@ def large_1000_pages(path: Path) -> None:
     path.write_bytes(doc.build())
 
 
+def large_2000_pages(path: Path) -> None:
+    """~300 MB: 2000 pages, each with a 224 x 224 RGB image (uncompressed) and searchable text."""
+    rng = random.Random(2000)
+    doc = Document("large-2000-pages")
+    doc.reserve_pages(2000)
+    for i in range(2000):
+        image = doc.pdf.add_stream(
+            "/Type /XObject /Subtype /Image /Width 224 /Height 224 /ColorSpace /DeviceRGB /BitsPerComponent 8",
+            rng.randbytes(224 * 224 * 3),
+        )
+        extra_word = ""
+        if i + 1 == 500:
+            extra_word = " checkpoint-quarter"
+        elif i + 1 == 1000:
+            extra_word = " checkpoint-half"
+        elif i + 1 == 1500:
+            extra_word = " checkpoint-threequarters"
+        elif i + 1 == 2000:
+            extra_word = " checkpoint-final"
+        doc.set_page(i, Page(
+            lines=[(72, 740, 20, f"Page {i + 1} of 2000"),
+                   (72, 716, 12, f"Search target: needle-{i + 1:04d} and the common word privacy.{extra_word}")],
+            extra_content=b"q 468 0 0 468 72 180 cm /Im1 Do Q\n",
+            resources=f"/XObject << /Im1 {image} 0 R >> ",
+        ))
+    path.write_bytes(doc.build())
+
+
 CJK_CORPUS_LINES = [
     "隱私優先的 PDF 閱讀器，完全離線且注重使用者資料安全。",
     "本文件用於測試大量文字的搜尋效能與記憶體快取命中率。",
@@ -2355,6 +2383,9 @@ ON_DEMAND = [
     ("large/output/large-1000-pages.pdf", large_1000_pages,
      "About 200 MB: 1000 pages with a 256 x 256 RGB image and searchable text each (MVP-07, MVP-10).",
      "Opens; memory stays bounded while scrolling; 'needle-0500' finds one hit on page 500.", 1000),
+    ("large/output/large-2000-pages.pdf", large_2000_pages,
+     "About 300 MB: 2000 pages with a 224 x 224 RGB image and searchable text each (B4-10, Issue #418).",
+     "Opens; memory stays bounded while scrolling; 'needle-1000' finds one hit on page 1000; 'privacy' finds 2000 hits.", 2000),
     ("large/output/large-text-1000-pages.pdf", large_text_1000_pages,
      "About 4 MB: 1000 pages with about 40 lines of mixed English and Chinese text each (MVP-10, Issue #242).",
      "Opens; fast text search benchmarking with memory caching; 'needle-0500' finds one hit on page 500.", 1000),
