@@ -1,4 +1,5 @@
 // End-to-end tests against the real Windows app (QA-02, docs/architecture/e2e.md).
+import path from "node:path";
 import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
@@ -14,4 +15,6 @@ export default defineConfig({
   reporter: [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
   // Screenshots and app logs of failed tests land here (uploaded by CI).
   outputDir: "test-results",
+  globalSetup: path.resolve(import.meta.dirname, "global-setup.ts"),
+  globalTeardown: path.resolve(import.meta.dirname, "global-teardown.ts"),
 });

@@ -36,7 +36,10 @@
      - app 的視窗是否回應（`IsHungAppWindow`：app 的主執行緒是不是卡住）；
      - app 與它的 WebView2 各個行程用了多少處理器時間；
      - 這台電腦最忙的行程與磁碟。
-5. **結束**：中斷連線，以 `taskkill /T` 結束 app 與它的 worker、WebView2 行程，刪除暫存設定與資料資料夾。
+5. **結束**：中斷連線，以 `taskkill /T` 結束 app 與它的 worker、WebView2 行程，呼叫共用的 `removeTemporaryFolder` 刪除暫存設定（`running.profile`）與資料資料夾（`running.data`）。
+   - **暫存資料夾清理與被鎖定時的處理（#484）**：WebView2 行程在結束後，其背景工作或快取機制可能短暫鎖住設定檔內的檔案（例如 `EBWebView\Default\AutofillStrikeDatabase`）。
+     - **重試與警告**：`removeTemporaryFolder` 預設重試約 10 秒（`maxRetries: 50, retryDelay: 200`）。若重試後依然因佔用或鎖定失敗（`EBUSY`、`EPERM`、`ENOTEMPTY`），不會丟出例外中斷已完成的測試，而是印出警告（`console.warn`，註明資料夾路徑與錯誤碼），並將該資料夾寫入當次測試輪次的暫存清單檔案（`process.env.PDF_READER_E2E_CLEANUP_MANIFEST`）。其他非佔用型的檔案系統錯誤則依舊正常丟出。
+     - **全域收尾（`globalTeardown`）**：在所有測試執行完畢後，由 Playwright 的 `globalTeardown` 讀取清單重新嘗試刪除這些資料夾；若依然無法刪除則印出警告，不讓整輪測試失敗。清單與暫存狀態僅限當次執行自己建的資料夾（由 `globalSetup` 建立的專屬目錄管理），絕不使用萬用字元掃描或誤刪同一台機器上其他可能並行執行的 E2E 設定檔。
 6. **失敗時**：保存截圖（`screenshot-N.png`）與 app 的日誌（stdout／stderr 與 WebView 主控台，`app-N.log`）到 `tests/e2e/test-results/`，也附在 HTML 報告中。
    - 測試的輸出（也就是 CI 的記錄）另外印出一段摘要，不必下載上傳的檔案就能先判斷（#133）：
      - WebView 在啟動後多久回應、app 的頁面多久出現、app 是否還在執行；頁面慢時的情況（見上一步）；
