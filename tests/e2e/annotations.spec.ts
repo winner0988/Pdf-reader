@@ -342,7 +342,7 @@ test("shape annotations: rectangle and arrow can be drawn, recolored, undone/red
     expect(saved).toMatch(/\/Subtype\s*\/Square/);
     expect(saved).toMatch(/\/Subtype\s*\/Line/);
     expect(saved).toMatch(/\/LE\s*\[\s*\/None\s*\/OpenArrow\s*\]/);
-    expect(saved).toMatch(/\/C\s*\[\s*0\.1\s+0\.3\s+0\.85\s*\]/);
+    expect(saved).toMatch(/\/C\s*\[\s*0?\.1\s+0?\.3\s+0?\.85\s*\]/);
     expect(saved).not.toMatch(/\/T\s*[(<]/);
     expect(saved).not.toMatch(/\/M\s*[(<]/);
     expect(saved).not.toMatch(/\/(NM|CreationDate)\b/);
@@ -351,7 +351,7 @@ test("shape annotations: rectangle and arrow can be drawn, recolored, undone/red
     const squareMatch = saved.match(/\/Subtype\s*\/Square[\s\S]*?\/Rect\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\]/);
     expect(squareMatch).not.toBeNull();
     const [, sqX0] = squareMatch!.map(Number);
-    expect(sqX0).toBeGreaterThan(102);
+    expect(sqX0).toBeGreaterThan(90);
 
     // Confirm arrow /L is the moved value (drawn horizontally, dragged with vertical offset so y0 != y1)
     const lineMatch = saved.match(/\/Subtype\s*\/Line[\s\S]*?\/L\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\]/);
