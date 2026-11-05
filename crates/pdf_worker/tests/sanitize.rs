@@ -379,6 +379,7 @@ fn original_document_in_worker_is_unaffected_and_can_be_sanitized_again() {
     let (written1, rep1) = doc
         .sanitized_copy(&id1, DEFAULT_OPTIONS, &mut out1)
         .unwrap();
+    assert_eq!(written1, out1.len() as u64);
 
     // Original doc still has its active content
     let sec_report = doc.active_content(ScanBudget::default());
@@ -387,14 +388,20 @@ fn original_document_in_worker_is_unaffected_and_can_be_sanitized_again() {
         "original document must remain intact"
     );
 
-    // Second sanitize on same document instance succeeds identically
+    // Second sanitize on the same document instance succeeds identically once the trailer's
+    // /ID is stripped: MuPDF replaces the second identifier with random bytes on every save,
+    // which can also vary in serialized length.
     let id2 = [7u8; 16];
     let mut out2 = Vec::new();
     let (written2, rep2) = doc
         .sanitized_copy(&id2, DEFAULT_OPTIONS, &mut out2)
         .unwrap();
+    assert_eq!(written2, out2.len() as u64);
 
-    assert_eq!(written1, written2);
+    assert_eq!(
+        common::without_trailer_id(&out1).expect("trailer /ID in first copy"),
+        common::without_trailer_id(&out2).expect("trailer /ID in second copy"),
+    );
     assert_eq!(rep1, rep2);
 }
 
