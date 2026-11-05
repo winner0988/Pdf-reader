@@ -15,9 +15,12 @@ export const OVERSCAN_PAGES = 2;
 const MIN_FIT_FACTOR = 0.25;
 const MAX_FIT_FACTOR = 2;
 
+export type PageLayoutMode = "single" | "twoPage" | "twoPageCover";
+
 export type Viewport = { top: number; left: number; width: number; height: number };
-export type PageBox = { top: number; width: number; height: number };
-export type Layout = { boxes: PageBox[]; totalHeight: number; maxWidth: number };
+export type PageBox = { top: number; width: number; height: number; dx?: number };
+export type LayoutRow = { top: number; height: number; firstPageIndex: number; pageCount: number };
+export type Layout = { boxes: PageBox[]; rows: LayoutRow[]; totalHeight: number; maxWidth: number };
 /** A point relative to the viewport's top-left corner, in CSS pixels. */
 export type ViewportPoint = { x: number; y: number };
 /** A place in the document: a page and a position on it, as fractions of its displayed size. */
@@ -32,7 +35,13 @@ export function displayedSize(page: PageSize, rotation: Rotation): PageSize {
  * CSS pixels per CSS pixel at 100% (1 = 100%). Fit modes use the largest page so the factor
  * does not jump while scrolling through mixed page sizes. An unmeasured viewport counts as 100%.
  */
-export function zoomFactor(zoom: Zoom, pages: PageSize[], rotation: Rotation, viewport: Viewport): number {
+export function zoomFactor(
+  zoom: Zoom,
+  pages: PageSize[],
+  rotation: Rotation,
+  viewport: Viewport,
+  mode: PageLayoutMode = "single",
+): number {
   if (typeof zoom === "number") return zoom / 100;
   if (viewport.width <= 0 || pages.length === 0) return 1;
   let widest = 0;
@@ -43,7 +52,14 @@ export function zoomFactor(zoom: Zoom, pages: PageSize[], rotation: Rotation, vi
     tallest = Math.max(tallest, size.heightPt);
   }
   const available = (px: number) => Math.max(px - 2 * PAGE_PADDING_PX, 1);
-  let factor = available(viewport.width) / (widest * CSS_PX_PER_PT);
+  let factor: number;
+  if (mode === "single") {
+    factor = available(viewport.width) / (widest * CSS_PX_PER_PT);
+  } else {
+    // In two-page modes, a row consists of two columns (each with width equal to widest page) plus the gap between them.
+    const availableWidth = Math.max(available(viewport.width) - PAGE_GAP_PX, 1);
+    factor = availableWidth / (2 * widest * CSS_PX_PER_PT);
+  }
   if (zoom === "fitPage" && viewport.height > 0) {
     factor = Math.min(factor, available(viewport.height) / (tallest * CSS_PX_PER_PT));
   }
@@ -51,23 +67,113 @@ export function zoomFactor(zoom: Zoom, pages: PageSize[], rotation: Rotation, vi
 }
 
 /** Where every page goes in the scrolled content: stacked vertically, centered horizontally. */
-export function layoutPages(pages: PageSize[], rotation: Rotation, factor: number): Layout {
-  const boxes: PageBox[] = [];
-  let top = PAGE_PADDING_PX;
-  let maxWidth = 0;
+export function layoutPages(
+  pages: PageSize[],
+  rotation: Rotation,
+  factor: number,
+  mode: PageLayoutMode = "single",
+): Layout {
+  if (pages.length === 0) {
+    return { boxes: [], rows: [], totalHeight: 0, maxWidth: 0 };
+  }
+
+  if (mode === "single") {
+    const boxes: PageBox[] = [];
+    const rows: LayoutRow[] = [];
+    let top = PAGE_PADDING_PX;
+    let maxWidth = 0;
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i]!;
+      const size = displayedSize(page, rotation);
+      const width = size.widthPt * CSS_PX_PER_PT * factor;
+      const height = size.heightPt * CSS_PX_PER_PT * factor;
+      const box: PageBox = {
+        top,
+        width,
+        height,
+        dx: -width / 2,
+      };
+      boxes.push(box);
+      rows.push({
+        top,
+        height,
+        firstPageIndex: i,
+        pageCount: 1,
+      });
+      maxWidth = Math.max(maxWidth, width);
+      top += height + PAGE_GAP_PX;
+    }
+    const totalHeight = top - PAGE_GAP_PX + PAGE_PADDING_PX;
+    return { boxes, rows, totalHeight, maxWidth };
+  }
+
+  // Two-page modes ("twoPage" | "twoPageCover")
+  // Both columns have the width of the widest displayed page.
+  let columnWidth = 0;
   for (const page of pages) {
     const size = displayedSize(page, rotation);
-    const box = {
-      top,
-      width: size.widthPt * CSS_PX_PER_PT * factor,
-      height: size.heightPt * CSS_PX_PER_PT * factor,
-    };
-    boxes.push(box);
-    maxWidth = Math.max(maxWidth, box.width);
-    top += box.height + PAGE_GAP_PX;
+    columnWidth = Math.max(columnWidth, size.widthPt * CSS_PX_PER_PT * factor);
   }
-  const totalHeight = boxes.length === 0 ? 0 : top - PAGE_GAP_PX + PAGE_PADDING_PX;
-  return { boxes, totalHeight, maxWidth };
+  const maxWidth = 2 * columnWidth + PAGE_GAP_PX;
+
+  // Group pages into rows:
+  // offset: 1 for twoPageCover, 0 for twoPage
+  // Each page i is placed in row r = Math.floor((i + offset) / 2)
+  // and column col = (i + offset) % 2 (0: left, 1: right)
+  const offset = mode === "twoPageCover" ? 1 : 0;
+  const rowGroups: { firstPageIndex: number; pageIndexes: number[] }[] = [];
+  for (let i = 0; i < pages.length; i++) {
+    const r = Math.floor((i + offset) / 2);
+    if (!rowGroups[r]) {
+      rowGroups[r] = { firstPageIndex: i, pageIndexes: [] };
+    }
+    rowGroups[r]!.pageIndexes.push(i);
+  }
+
+  const boxes: PageBox[] = new Array(pages.length);
+  const rows: LayoutRow[] = [];
+  let top = PAGE_PADDING_PX;
+
+  for (const group of rowGroups) {
+    if (!group || group.pageIndexes.length === 0) continue;
+    let rowHeight = 0;
+    const pageItems = group.pageIndexes.map((idx) => {
+      const size = displayedSize(pages[idx]!, rotation);
+      const width = size.widthPt * CSS_PX_PER_PT * factor;
+      const height = size.heightPt * CSS_PX_PER_PT * factor;
+      rowHeight = Math.max(rowHeight, height);
+      return { idx, width, height };
+    });
+
+    const rowTop = top;
+    for (const item of pageItems) {
+      const col = (item.idx + offset) % 2;
+      const pageTop = rowTop + (rowHeight - item.height) / 2;
+      const dx =
+        col === 0
+          ? -PAGE_GAP_PX / 2 - columnWidth + (columnWidth - item.width) / 2
+          : PAGE_GAP_PX / 2 + (columnWidth - item.width) / 2;
+
+      boxes[item.idx] = {
+        top: pageTop,
+        width: item.width,
+        height: item.height,
+        dx,
+      };
+    }
+
+    rows.push({
+      top: rowTop,
+      height: rowHeight,
+      firstPageIndex: group.firstPageIndex,
+      pageCount: group.pageIndexes.length,
+    });
+
+    top += rowHeight + PAGE_GAP_PX;
+  }
+
+  const totalHeight = top - PAGE_GAP_PX + PAGE_PADDING_PX;
+  return { boxes, rows, totalHeight, maxWidth };
 }
 
 /** Width of the scrolled content: the viewport, or wider when a page does not fit (then it scrolls). */
@@ -85,26 +191,56 @@ export function fitsWidth(layout: Layout, viewportWidth: number): boolean {
   return layout.maxWidth + 2 * PAGE_PADDING_PX <= viewportWidth + 1;
 }
 
-/** Left edge of a page: centered in the content. */
+/** Left edge of a page: centered in the content or column. */
 export function pageLeft(box: PageBox, width: number): number {
-  return (width - box.width) / 2;
+  return box.dx !== undefined ? width / 2 + box.dx : (width - box.width) / 2;
 }
 
-/** First page whose bottom edge is below `y`. */
-function firstBelow(boxes: PageBox[], y: number): number {
+/** First row whose bottom edge is below `y`. */
+function firstRowBelow(rows: LayoutRow[], y: number): number {
   let low = 0;
-  let high = boxes.length;
+  let high = rows.length;
   while (low < high) {
     const middle = (low + high) >> 1;
-    const box = boxes[middle]!;
-    if (box.top + box.height <= y) low = middle + 1;
+    const row = rows[middle]!;
+    if (row.top + row.height <= y) low = middle + 1;
     else high = middle;
   }
   return low;
 }
 
+/** The 0-based index of the row containing page `pageIndex`. */
+export function rowForPage(layout: Layout, pageIndex: number): number {
+  const rows = layout.rows;
+  if (rows.length === 0 || pageIndex < 0) return 0;
+  if (pageIndex >= layout.boxes.length) return rows.length - 1;
+  let low = 0;
+  let high = rows.length - 1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const row = rows[mid]!;
+    if (pageIndex < row.firstPageIndex) {
+      high = mid - 1;
+    } else if (pageIndex >= row.firstPageIndex + row.pageCount) {
+      low = mid + 1;
+    } else {
+      return mid;
+    }
+  }
+  return Math.min(Math.max(low, 0), rows.length - 1);
+}
+
+/** The 0-based index of the row at 30% of the viewport height, or the last row at the end. */
+export function currentRowAt(layout: Layout, viewport: Pick<Viewport, "top" | "height">): number {
+  const rowCount = layout.rows.length;
+  if (rowCount === 0) return 0;
+  if (viewport.top + viewport.height >= layout.totalHeight - 1 && viewport.top > 0) return rowCount - 1;
+  const index = firstRowBelow(layout.rows, viewport.top + viewport.height * 0.3);
+  return Math.min(index, rowCount - 1);
+}
+
 /**
- * Pages to keep rendered: those intersecting the viewport plus `overscan` on each side.
+ * Pages to keep rendered: rows intersecting the viewport plus `overscan` rows on each side.
  * Returns an empty range (`last < first`) for a document without pages.
  */
 export function visibleRange(
@@ -112,13 +248,18 @@ export function visibleRange(
   viewport: Pick<Viewport, "top" | "height">,
   overscan = OVERSCAN_PAGES,
 ): { first: number; last: number } {
-  const count = layout.boxes.length;
-  if (count === 0) return { first: 0, last: -1 };
+  const rowCount = layout.rows.length;
+  if (rowCount === 0 || layout.boxes.length === 0) return { first: 0, last: -1 };
   const bottom = viewport.top + viewport.height;
-  const first = Math.min(firstBelow(layout.boxes, viewport.top), count - 1);
-  let last = first;
-  while (last + 1 < count && layout.boxes[last + 1]!.top < bottom) last++;
-  return { first: Math.max(first - overscan, 0), last: Math.min(last + overscan, count - 1) };
+  const firstRow = Math.min(firstRowBelow(layout.rows, viewport.top), rowCount - 1);
+  let lastRow = firstRow;
+  while (lastRow + 1 < rowCount && layout.rows[lastRow + 1]!.top < bottom) lastRow++;
+  const startRow = Math.max(firstRow - overscan, 0);
+  const endRow = Math.min(lastRow + overscan, rowCount - 1);
+  const first = layout.rows[startRow]!.firstPageIndex;
+  const lastRowObj = layout.rows[endRow]!;
+  const last = lastRowObj.firstPageIndex + lastRowObj.pageCount - 1;
+  return { first, last };
 }
 
 /** The document place under `point` (for keeping it in place while zooming or rotating). */
@@ -132,7 +273,8 @@ export function anchorAt(
   if (count === 0) return null;
   const y = viewport.top + point.y;
   const x = viewport.left + point.x;
-  const pageIndex = Math.min(firstBelow(layout.boxes, y), count - 1);
+  const pageIndex = pageNear(layout, y, x, width);
+  if (pageIndex === null) return null;
   const box = layout.boxes[pageIndex]!;
   return { pageIndex, fx: (x - pageLeft(box, width)) / box.width, fy: (y - box.top) / box.height };
 }
@@ -205,17 +347,33 @@ export function boxToPage(
 }
 
 /**
- * The page at content height `y`: the one whose box reaches that height, or the nearer one when
- * `y` falls in the gap between two pages. Null for a document without pages.
+ * The page at content position `(x, y)`: the row reached by `y`, and the page in that row.
+ * When `(x, y)` falls in the gap between two pages, takes the nearer page.
+ * Clamps above the first row and below the last. Null for a document without pages.
  */
-export function pageNear(layout: Layout, y: number): number | null {
-  const count = layout.boxes.length;
-  if (count === 0) return null;
-  const index = Math.min(firstBelow(layout.boxes, y), count - 1);
-  const box = layout.boxes[index]!;
-  const previous = layout.boxes[index - 1];
-  if (y < box.top && previous && box.top - y > y - (previous.top + previous.height)) return index - 1;
-  return index;
+export function pageNear(layout: Layout, y: number, x?: number, width?: number): number | null {
+  const rowCount = layout.rows.length;
+  if (rowCount === 0) return null;
+  const rowIndex = Math.min(firstRowBelow(layout.rows, y), rowCount - 1);
+  let row = layout.rows[rowIndex]!;
+  const previous = layout.rows[rowIndex - 1];
+  if (y < row.top && previous && row.top - y > y - (previous.top + previous.height)) {
+    row = previous;
+  }
+  if (row.pageCount <= 1 || x === undefined || width === undefined) {
+    return row.firstPageIndex;
+  }
+  const leftIdx = row.firstPageIndex;
+  const rightIdx = row.firstPageIndex + 1;
+  const boxL = layout.boxes[leftIdx]!;
+  const boxR = layout.boxes[rightIdx]!;
+  const leftL = pageLeft(boxL, width);
+  const rightL = leftL + boxL.width;
+  const leftR = pageLeft(boxR, width);
+
+  if (x <= rightL) return leftIdx;
+  if (x >= leftR) return rightIdx;
+  return x - rightL <= leftR - x ? leftIdx : rightIdx;
 }
 
 /** A page-space rectangle (a link's area) as a CSS pixel rectangle inside the page's box. */
@@ -235,19 +393,43 @@ export function rectToBox(
   };
 }
 
-/** The 1-based page being read: the one at 30% of the viewport height, or the last page at the end. */
-export function currentPageAt(layout: Layout, viewport: Pick<Viewport, "top" | "height">): number {
+/**
+ * The 1-based page being read: the first page of the row at 30% of the viewport height, or
+ * `preferredPage` if it is in that row (e.g. after jumping to the right-hand page), or the
+ * last page at the end of the document.
+ */
+export function currentPageAt(
+  layout: Layout,
+  viewport: Pick<Viewport, "top" | "height">,
+  preferredPage?: number,
+): number {
   const count = layout.boxes.length;
   if (count === 0) return 1;
-  if (viewport.top + viewport.height >= layout.totalHeight - 1 && viewport.top > 0) return count;
-  const index = firstBelow(layout.boxes, viewport.top + viewport.height * 0.3);
-  return Math.min(index, count - 1) + 1;
+  if (viewport.top + viewport.height >= layout.totalHeight - 1 && viewport.top > 0) {
+    if (preferredPage !== undefined && preferredPage >= 1 && preferredPage <= count) {
+      const prefRow = rowForPage(layout, preferredPage - 1);
+      if (prefRow === layout.rows.length - 1) return preferredPage;
+    }
+    return count;
+  }
+  const rowIndex = currentRowAt(layout, viewport);
+  const row = layout.rows[rowIndex]!;
+  if (preferredPage !== undefined && preferredPage >= 1 && preferredPage <= count) {
+    const prefIndex = preferredPage - 1;
+    if (prefIndex >= row.firstPageIndex && prefIndex < row.firstPageIndex + row.pageCount) {
+      return preferredPage;
+    }
+  }
+  return row.firstPageIndex + 1;
 }
 
-/** Scroll position that puts a 1-based page at the top of the viewport. */
+/** Scroll position that puts a 1-based page (its row) at the top of the viewport. */
 export function scrollTopFor(layout: Layout, page: number): number {
-  const box = layout.boxes[page - 1];
-  return box ? Math.max(box.top - PAGE_PADDING_PX / 2, 0) : 0;
+  if (page < 1 || layout.boxes.length === 0) return 0;
+  const pageIndex = Math.min(page - 1, layout.boxes.length - 1);
+  const rowIndex = rowForPage(layout, pageIndex);
+  const row = layout.rows[rowIndex];
+  return row ? Math.max(row.top - PAGE_PADDING_PX / 2, 0) : 0;
 }
 
 /**

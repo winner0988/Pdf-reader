@@ -1330,4 +1330,21 @@ describe("theme", () => {
       expect(screen.getByRole("textbox", { name: strings.toolbar.pageNumber })).toHaveValue("5");
     });
   });
+
+  describe("page layout (B4-02)", () => {
+    it("switches page layout from the More menu", async () => {
+      const { user } = renderShell(openState);
+      await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+
+      const singleRadio = await screen.findByRole("menuitemradio", { name: strings.menu.layoutSingle });
+      const twoPageRadio = screen.getByRole("menuitemradio", { name: strings.menu.layoutTwoPage });
+      const twoPageCoverRadio = screen.getByRole("menuitemradio", { name: strings.menu.layoutTwoPageCover });
+
+      expect(singleRadio).toHaveAttribute("aria-checked", "true");
+      expect(twoPageRadio).toHaveAttribute("aria-checked", "false");
+      expect(twoPageCoverRadio).toHaveAttribute("aria-checked", "false");
+
+      await user.click(twoPageCoverRadio);
+    });
+  });
 });
