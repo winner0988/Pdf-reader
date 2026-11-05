@@ -26,6 +26,9 @@ function picture(angle: number): PageAnnotation {
     color: null,
     text: null,
     picture: view,
+    lineEnds: null,
+    shapeColor: null,
+    shapeWidth: null,
   };
 }
 
@@ -36,6 +39,9 @@ const standard: PageAnnotation = {
   color: null,
   text: null,
   picture: null,
+  lineEnds: null,
+  shapeColor: null,
+  shapeWidth: null,
 };
 
 async function setup(onPage: PageAnnotation[], permissions: DocumentPermissions = ALL_PERMISSIONS) {

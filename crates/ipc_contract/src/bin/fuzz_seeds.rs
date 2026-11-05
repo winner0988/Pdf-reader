@@ -16,9 +16,9 @@ use ipc_contract::types::{
     PageNumberFormat, PageNumberMark, PageSize, PageText, Password, PersonalDataCategory,
     PersonalDataMatch, PersonalDataMatches, PictureView, Point, Quad, RasterRegion, Rect,
     RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions,
-    SanitizeReport, SearchHit, SecurityFinding, SecurityReport, SignatureInfo, SignatureReport,
-    SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine, TextMarkKind,
-    UnverifiableReason, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    SanitizeReport, SearchHit, SecurityFinding, SecurityReport, Shape, SignatureInfo,
+    SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine,
+    TextMarkKind, UnverifiableReason, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, InsertedTextBox, ModelGlyph, OcrFinished, OcrOutcome,
@@ -274,6 +274,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     color: Some(HighlightColor::Yellow),
                     text: None,
                     picture: None,
+                    line_ends: None,
+                    shape_color: None,
+                    shape_width: None,
                 },
                 PageAnnotation {
                     id: AnnotationId(13),
@@ -287,6 +290,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     color: None,
                     text: Some("第一行\nsecond line".to_owned()),
                     picture: None,
+                    line_ends: None,
+                    shape_color: None,
+                    shape_width: None,
                 },
                 PageAnnotation {
                     id: AnnotationId(14),
@@ -304,6 +310,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         width: 128.0,
                         height: 64.0,
                     }),
+                    line_ends: None,
+                    shape_color: None,
+                    shape_width: None,
+                },
+                PageAnnotation {
+                    id: AnnotationId(15),
+                    kind: AnnotationKind::Arrow,
+                    rect: Rect {
+                        x0: 100.0,
+                        y0: 200.0,
+                        x1: 300.0,
+                        y1: 200.0,
+                    },
+                    color: None,
+                    text: None,
+                    picture: None,
+                    line_ends: Some(ipc_contract::types::LineEnds {
+                        from: Point { x: 100.0, y: 200.0 },
+                        to: Point { x: 300.0, y: 200.0 },
+                    }),
+                    shape_color: Some(InkColor::Red),
+                    shape_width: Some(InkWidth::Medium),
                 },
             ],
         },
@@ -929,6 +957,88 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 page: 0,
                 annotation: AnnotationId(14),
                 degrees: -37.5,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddShape {
+                page: 0,
+                shape: Shape::Rectangle {
+                    rect: Rect {
+                        x0: 50.0,
+                        y0: 50.0,
+                        x1: 200.0,
+                        y1: 150.0,
+                    },
+                },
+                color: InkColor::Blue,
+                width: InkWidth::Thin,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddShape {
+                page: 0,
+                shape: Shape::Ellipse {
+                    rect: Rect {
+                        x0: 60.0,
+                        y0: 60.0,
+                        x1: 180.0,
+                        y1: 180.0,
+                    },
+                },
+                color: InkColor::Green,
+                width: InkWidth::Medium,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddShape {
+                page: 0,
+                shape: Shape::Line {
+                    from: Point { x: 72.0, y: 72.0 },
+                    to: Point { x: 288.0, y: 144.0 },
+                    arrow: false,
+                },
+                color: InkColor::Black,
+                width: InkWidth::Thick,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddShape {
+                page: 0,
+                shape: Shape::Line {
+                    from: Point { x: 100.0, y: 200.0 },
+                    to: Point { x: 300.0, y: 200.0 },
+                    arrow: true,
+                },
+                color: InkColor::Red,
+                width: InkWidth::Medium,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::SetLineEnds {
+                page: 0,
+                annotation: AnnotationId(15),
+                from: Point { x: 80.0, y: 80.0 },
+                to: Point { x: 250.0, y: 160.0 },
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::SetShapeStyle {
+                page: 0,
+                annotation: AnnotationId(15),
+                color: InkColor::Blue,
+                width: InkWidth::Thick,
             },
         },
         WorkerRequest::Revert {

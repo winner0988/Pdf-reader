@@ -11,6 +11,9 @@ const highlight: PageAnnotation = {
   color: "yellow",
   text: null,
   picture: null,
+  lineEnds: null,
+  shapeColor: null,
+  shapeWidth: null,
 };
 const note: PageAnnotation = {
   id: 5,
@@ -19,6 +22,9 @@ const note: PageAnnotation = {
   color: null,
   text: "Existing note",
   picture: null,
+  lineEnds: null,
+  shapeColor: null,
+  shapeWidth: null,
 };
 
 /** Characters by code point: the invisible ones are not written out in the source. */
@@ -81,5 +87,9 @@ describe("annotations on a page", () => {
     expect(annotationLabel({ ...note, kind: "other", text: null })).toBe(strings.annotations.kind.other);
     expect(annotationLabel({ ...note, kind: "ink", text: null })).toBe(strings.annotations.kind.ink);
     expect(annotationLabel({ ...note, kind: "stamp", text: null })).toBe(strings.annotations.kind.stamp);
+    expect(annotationLabel({ ...note, kind: "rectangle", text: null })).toBe(strings.annotations.kind.rectangle);
+    expect(annotationLabel({ ...note, kind: "ellipse", text: null })).toBe(strings.annotations.kind.ellipse);
+    expect(annotationLabel({ ...note, kind: "line", text: null })).toBe(strings.annotations.kind.line);
+    expect(annotationLabel({ ...note, kind: "arrow", text: null })).toBe(strings.annotations.kind.arrow);
   });
 });

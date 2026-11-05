@@ -16,7 +16,7 @@ import { HIGHLIGHT_COLORS, SWATCH } from "@/features/annotations/model";
 import { NoteDialog } from "@/features/annotations/NoteDialog";
 import { TextBoxDialog } from "@/features/annotations/TextBoxDialog";
 import { createAnnotationSource, type AnnotationsApi } from "@/features/annotations/source";
-import { pictureRectAt, redactionRectAt, stampRectAt, type Tool } from "@/features/annotations/tools";
+import { pictureRectAt, redactionRectAt, stampRectAt, type ShapeToolKind, type Tool } from "@/features/annotations/tools";
 import { useAnnotations } from "@/features/annotations/useAnnotations";
 import { RedactionConfirmDialog } from "@/features/redaction/RedactionConfirmDialog";
 import { FindPersonalDataDialog } from "@/features/redaction/FindPersonalDataDialog";
@@ -902,6 +902,42 @@ export function ReaderShell({
       showHint(strings.redaction.toolOn);
     }
   };
+  // How the shape tool draws (B4-05).
+  const [shapeStyle, setShapeStyle] = useState<{ kind: ShapeToolKind; color: InkColor; width: InkWidth }>({
+    kind: "rectangle",
+    color: "black",
+    width: "medium",
+  });
+  const toggleShape = () => {
+    if (tool?.kind === "shape") {
+      setTool(null);
+    } else {
+      setTool({ kind: "shape", shapeKind: shapeStyle.kind, color: shapeStyle.color, width: shapeStyle.width });
+      showHint(strings.annotations.shapeOn(strings.annotations.shapeKinds[shapeStyle.kind]));
+    }
+  };
+  const changeShapeKind = (kind: ShapeToolKind) => {
+    const next = { ...shapeStyle, kind };
+    setShapeStyle(next);
+    if (tool?.kind === "shape") {
+      setTool({ kind: "shape", shapeKind: kind, color: next.color, width: next.width });
+      showHint(strings.annotations.shapeOn(strings.annotations.shapeKinds[kind]));
+    }
+  };
+  const changeShapeColor = (color: InkColor) => {
+    const next = { ...shapeStyle, color };
+    setShapeStyle(next);
+    if (tool?.kind === "shape") {
+      setTool({ kind: "shape", shapeKind: next.kind, color, width: next.width });
+    }
+  };
+  const changeShapeWidth = (width: InkWidth) => {
+    const next = { ...shapeStyle, width };
+    setShapeStyle(next);
+    if (tool?.kind === "shape") {
+      setTool({ kind: "shape", shapeKind: next.kind, color: next.color, width });
+    }
+  };
   const inkStyle = (change: Partial<{ color: InkColor; width: InkWidth }>) => {
     const next = { ...ink, ...change };
     setInk(next);
@@ -951,7 +987,7 @@ export function ReaderShell({
     // what it does. It comes before the button sees it: Enter on the stamp's button would open its
     // menu.
     const onEnter = (event: KeyboardEvent) => {
-      if (event.key !== "Enter" || tool.kind === "pen" || !chosenPage || !edit) return;
+      if (event.key !== "Enter" || tool.kind === "pen" || tool.kind === "shape" || !chosenPage || !edit) return;
       const target = event.target;
       const here =
         !(target instanceof Element) ||
@@ -1495,6 +1531,20 @@ export function ReaderShell({
                   onToggle: annotations.enabled ? togglePen : undefined,
                   onColor: (color) => inkStyle({ color }),
                   onWidth: (width) => inkStyle({ width }),
+                }
+              : undefined
+          }
+          shape={
+            editingApi !== undefined && doc !== undefined
+              ? {
+                  active: toolOn?.kind === "shape",
+                  kind: shapeStyle.kind,
+                  color: shapeStyle.color,
+                  width: shapeStyle.width,
+                  onToggle: annotations.enabled ? toggleShape : undefined,
+                  onKind: changeShapeKind,
+                  onColor: changeShapeColor,
+                  onWidth: changeShapeWidth,
                 }
               : undefined
           }

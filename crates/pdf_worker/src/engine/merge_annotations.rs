@@ -12,7 +12,7 @@ use ipc_contract::limits::{
 };
 use ipc_contract::text::clean_note_text;
 use ipc_contract::types::{
-    Edit, HighlightColor, HighlightMark, InkColor, InkWidth, Point, Quad, Rect, StampName,
+    Edit, HighlightColor, HighlightMark, InkColor, InkWidth, Point, Quad, Rect, Shape, StampName,
     TextMarkKind,
 };
 use ipc_contract::validate::{
@@ -20,10 +20,13 @@ use ipc_contract::validate::{
     stamp_png_size,
 };
 use ipc_contract::worker::{InsertedTextBox, SourceTextBox};
-use mupdf::pdf::{PdfAnnotationType, PdfObject};
+use mupdf::pdf::{LineEndingStyle, PdfAnnotationType, PdfObject};
 use mupdf::{Colorspace, ImageFormat, Pixmap};
 
-use super::annotations::{highlight_color, parse_ink_color, parse_ink_width, parse_stamp_name};
+use super::annotations::{
+    has_unsupported_shape_features, highlight_color, parse_ink_color, parse_ink_width,
+    parse_stamp_name,
+};
 use super::stamp_image::{entry_of, read_setting};
 use super::text_box::is_text_box;
 use super::text_box::pdf::{KEY as TEXT_BOX_KEY, read_source_text_box_info};
@@ -243,6 +246,12 @@ pub(super) enum ExtractedAnnotation {
         upright_rect: Rect,
         png: Vec<u8>,
         angle_degrees: f32,
+    },
+    Shape {
+        page: u32,
+        shape: Shape,
+        color: InkColor,
+        width: InkWidth,
     },
 }
 
@@ -467,6 +476,108 @@ pub(super) fn extract_source_annotations(
                         }
                     }
                 }
+                PdfAnnotationType::Square => {
+                    if has_unsupported_shape_features(&annot).unwrap_or(true) {
+                        continue;
+                    }
+                    if annot.rect().is_ok_and(|r| r.x1 < r.x0 || r.y1 < r.y0) {
+                        continue;
+                    }
+                    let r = annot.rect().ok().unwrap_or(bounds);
+                    let rect = Rect {
+                        x0: r.x0,
+                        y0: r.y0,
+                        x1: r.x1,
+                        y1: r.y1,
+                    };
+                    if check_annotation_rect(&rect).is_err() {
+                        continue;
+                    }
+                    let Some(color) = annot.color().ok().flatten().and_then(parse_ink_color) else {
+                        continue;
+                    };
+                    let width = annot
+                        .border_width()
+                        .ok()
+                        .and_then(parse_ink_width)
+                        .unwrap_or(InkWidth::Medium);
+                    extracted.push(ExtractedAnnotation::Shape {
+                        page: page_idx,
+                        shape: Shape::Rectangle { rect },
+                        color,
+                        width,
+                    });
+                }
+                PdfAnnotationType::Circle => {
+                    if has_unsupported_shape_features(&annot).unwrap_or(true) {
+                        continue;
+                    }
+                    if annot.rect().is_ok_and(|r| r.x1 < r.x0 || r.y1 < r.y0) {
+                        continue;
+                    }
+                    let r = annot.rect().ok().unwrap_or(bounds);
+                    let rect = Rect {
+                        x0: r.x0,
+                        y0: r.y0,
+                        x1: r.x1,
+                        y1: r.y1,
+                    };
+                    if check_annotation_rect(&rect).is_err() {
+                        continue;
+                    }
+                    let Some(color) = annot.color().ok().flatten().and_then(parse_ink_color) else {
+                        continue;
+                    };
+                    let width = annot
+                        .border_width()
+                        .ok()
+                        .and_then(parse_ink_width)
+                        .unwrap_or(InkWidth::Medium);
+                    extracted.push(ExtractedAnnotation::Shape {
+                        page: page_idx,
+                        shape: Shape::Ellipse { rect },
+                        color,
+                        width,
+                    });
+                }
+                PdfAnnotationType::Line => {
+                    if has_unsupported_shape_features(&annot).unwrap_or(true) {
+                        continue;
+                    }
+                    let Ok((start, end)) = annot.line() else {
+                        continue;
+                    };
+                    let from = Point {
+                        x: start.x,
+                        y: start.y,
+                    };
+                    let to = Point { x: end.x, y: end.y };
+                    if from.validate().is_err() || to.validate().is_err() {
+                        continue;
+                    }
+                    let (_, end_style) = annot
+                        .line_ending_styles()
+                        .unwrap_or((LineEndingStyle::None, LineEndingStyle::None));
+                    let arrow = end_style == LineEndingStyle::OpenArrow;
+                    let Some(color) = annot.color().ok().flatten().and_then(parse_ink_color) else {
+                        continue;
+                    };
+                    let width = annot
+                        .border_width()
+                        .ok()
+                        .and_then(parse_ink_width)
+                        .unwrap_or(InkWidth::Medium);
+                    let shape = Shape::Line { from, to, arrow };
+                    if shape.validate().is_err() {
+                        continue;
+                    }
+                    extracted.push(ExtractedAnnotation::Shape {
+                        page: page_idx,
+                        shape,
+                        color,
+                        width,
+                    });
+                }
                 _ => {}
             }
         }
@@ -623,6 +734,22 @@ pub(super) fn recreate_annotations(
                 };
                 if angle_degrees.abs() > 1e-3 {
                     let _ = doc.set_picture_angle(at + page, id, *angle_degrees);
+                }
+            }
+            ExtractedAnnotation::Shape {
+                page,
+                shape,
+                color,
+                width,
+            } => {
+                let edit = Edit::AddShape {
+                    page: at + page,
+                    shape: shape.clone(),
+                    color: *color,
+                    width: *width,
+                };
+                if edit.validate().is_ok() {
+                    let _ = doc.add_shape(at + page, shape, *color, *width);
                 }
             }
         }
