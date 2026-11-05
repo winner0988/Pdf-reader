@@ -41,6 +41,15 @@ export function AnnotationSummaryDialog({
   const [state, setState] = useState<"idle" | "running" | "empty" | "failed">("idle");
   const running = state === "running";
 
+  // Starts afresh every time it opens
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    setFormat("text");
+    setIncludeName(true);
+    setState("idle");
+  }
+
   const close = () => {
     onClose?.();
     onOpenChange?.(false);
