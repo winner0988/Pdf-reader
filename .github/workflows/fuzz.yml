@@ -57,6 +57,25 @@ jobs:
         run: |
           echo "CLANG_PATH=$(command -v clang)" >> "$GITHUB_ENV"
           echo "LIBCLANG_PATH=$(llvm-config --libdir 2>/dev/null || dirname "$(find /usr/lib -name 'libclang.so*' | head -1)")" >> "$GITHUB_ENV"
+      # Find llvm-symbolizer on the runner for symbolized AddressSanitizer and LeakSanitizer
+      # reports. Symbolized function names are required for LSan suppressions (Issue #485).
+      - name: Locate llvm-symbolizer
+        run: |
+          symbolizer=""
+          if command -v llvm-symbolizer >/dev/null 2>&1; then
+            symbolizer="$(command -v llvm-symbolizer)"
+          elif command -v llvm-config >/dev/null 2>&1 && [ -x "$(llvm-config --bindir 2>/dev/null)/llvm-symbolizer" ]; then
+            symbolizer="$(llvm-config --bindir)/llvm-symbolizer"
+          else
+            symbolizer=$(find /usr/lib/llvm-*/bin/llvm-symbolizer /usr/bin/llvm-symbolizer-* 2>/dev/null | sort -V | tail -1 || true)
+          fi
+          if [ -z "$symbolizer" ] || [ ! -x "$symbolizer" ]; then
+            echo "::error::llvm-symbolizer was not found on the runner. Symbolized reports are required for LeakSanitizer suppressions."
+            exit 1
+          fi
+          echo "ASAN_SYMBOLIZER_PATH=$symbolizer" >> "$GITHUB_ENV"
+          echo "Using symbolizer: $symbolizer"
+          "$symbolizer" --version
       # Nightly for the sanitizers, the pinned stable for the seeds; both from the official Rust
       # sources. cargo-fuzz is pinned.
       - name: Install nightly Rust and cargo-fuzz
@@ -128,6 +147,8 @@ jobs:
       # in Base64) go to fuzz.log only. A font is far larger than a message: the font target may
       # read seeds of up to 5 MiB, so that the fonts above are not cut off.
       - name: Fuzz
+        env:
+          LSAN_OPTIONS: suppressions=${{ github.workspace }}/fuzz/lsan-suppressions.txt
         run: |
           max_len=1048576
           if [ "${{ matrix.target }}" = text_box_font ] || [ "${{ matrix.target }}" = ocr ]; then max_len=5242880; fi

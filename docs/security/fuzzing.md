@@ -30,6 +30,10 @@
 - **MuPDF 也被偵測**：
   - workflow 以 `CC=clang`、`CFLAGS=-fsanitize=fuzzer-no-link,address` 建置，MuPDF 與它的 C 函式庫也有覆蓋率回饋與 AddressSanitizer，不只 Rust 程式碼。
   - 只設 C 的旗標，因為 libFuzzer 本身是 C++，不能對自己插樁。
+- **符號化報告**：
+  - runner 尋找內建的 `llvm-symbolizer`（`/usr/lib/llvm-*/bin/llvm-symbolizer` 或 `/usr/bin/llvm-symbolizer-*`）並設定 `ASAN_SYMBOLIZER_PATH`，使 AddressSanitizer 與 LeakSanitizer 的報告包含函式名稱而非純位址，供抑制清單比對並提升崩潰診斷效率；未找到時直接讓步驟失敗。公開日誌僅顯示 symbolizer 的路徑與版本。
+- **記憶體洩漏抑制清單**：
+  - Fuzz 執行時透過 `LSAN_OPTIONS=suppressions=...` 載入 `fuzz/lsan-suppressions.txt`，僅忽略已確認的上游第三方已知洩漏（如 `mupdf-sys` 0.8.0 的 4 個包裝函式，#485），其餘記憶體洩漏照常回報。
 - **Linux fuzz 建置包含 Tesseract**：
   - Windows 上 `mupdf-sys` 0.8.0 透過 MSBuild 建置時無論 feature 為何都會包含 Tesseract，因此 app 的 OCR 正常運作。
   - Linux 上以 make 建置時會遵循 Cargo feature（`mupdf-sys` 的 `build.rs` 的 `make_bool("tesseract", …)`）。`crates/pdf_worker/Cargo.toml` 未開啟 `tesseract`，因此只在 `fuzz/Cargo.toml` 顯式開啟 `mupdf-sys` 的 `tesseract` feature，由 Cargo 的 feature 合併機制在 Linux fuzz 建置中啟用 Tesseract 與 Leptonica，不改動 worker 的正式建置設定。
@@ -205,11 +209,22 @@ CI 結果（Linux runner，2026-11-05，#428，run 41884061447）：
    | Rust panic（`open_document`） | 本專案程式碼（engine、scan、search）panic | 一般 bug；worker 會崩潰但被隔離，仍然要修 |
    | Rust panic（`create_pdf`） | 本專案程式碼（`PdfBuilder`、`jpeg`）panic | 一般 bug，修正並加上單元測試 |
    | AddressSanitizer 報告（MuPDF 內部） | 堆疊在 MuPDF 或第三方 C 函式庫 | **安全問題**：依 [SECURITY.md](../../SECURITY.md) 私下處理，確認是否已在上游修正，必要時升級 `mupdf` crate |
+   | `leak-*`（LeakSanitizer） | 堆疊在本專案程式碼為一般 bug；在第三方 C 函式庫或依賴 | 本專案程式碼要修；第三方則確認上游，若上游已修正但尚未發行，才加入抑制清單 `fuzz/lsan-suppressions.txt`，並記錄於下方「已知的第三方問題」 |
    | `oom-*`、`timeout-*` | 記憶體或時間超過上限 | 檢查是否有未設上限的配置或迴圈；worker 的 Job Object 記憶體上限與主行程逾時是最後防線 |
 
 5. **加回迴歸測試**：修正後把縮小過的樣本變成測試。能公開的樣本放進 `tests/corpus/`（以產生器重現），不能公開的只留在私下的紀錄中。
 
 **崩潰樣本可能就是可利用的攻擊檔案：不得附在 Issue、PR、討論或任何公開位置。**
+
+### 已知的第三方問題
+
+mupdf-sys 0.8.0 的 C 包裝函式在處理失敗時存在記憶體洩漏（#485）：
+- **函式**：`mupdf_pdf_write_document`、`mupdf_pixmap_get_image_data`、`mupdf_page_to_svg`、`mupdf_display_list_to_svg`。
+- **原因**：函式先配置一個 `fz_buffer`（例如寫出 PDF 預設 8 KiB），呼叫 MuPDF 寫入時若拋出錯誤，`fz_catch` 僅記錄錯誤而未釋放該 buffer；Rust 端 `ffi_try!` 偵測到錯誤後丟棄回傳指標，導致配置的記憶體遺留。
+- **影響**：僅在寫出或轉換失敗時發生，每次洩漏一個 buffer（數 KiB）。低權限 worker 行程為每份文件獨立啟動，文件關閉或 worker 終止時即由作業系統全數回收，對一般使用者影響極小；但 fuzzing 過程會因 LeakSanitizer 阻斷，導致後續分支無法探索。
+- **上游修正**：上游已於 commit [`ffaf28f`](https://github.com/messense/mupdf-rs/commit/ffaf28f5a96c478661e228dd04564afdcf2477c6)（2026-07-08）在上述 4 個函式的 `fz_catch` 區塊加入 `fz_drop_buffer(ctx, buf); buf = NULL;` 修正，但 crates.io 截至 0.8.0 尚未發行新版。
+- **抑制範圍**：透過 `fuzz/lsan-suppressions.txt` 設定 `leak:<函式名稱>` 抑制。由於 LeakSanitizer 是比對配置時的完整呼叫堆疊，因此凡是在這 4 個函式呼叫鏈底下配置而未釋放的記憶體均會被忽略，不限於該 buffer。
+- **移除條件**：待 `mupdf` / `mupdf-sys` 升級至包含上游 ffaf28f 修正的版本時，在同一個升級 PR 中刪除 `fuzz/lsan-suppressions.txt` 並移除 CI workflow 中的抑制設定。
 
 ## 主行程解析器測試（Property 與變異測試）
 
