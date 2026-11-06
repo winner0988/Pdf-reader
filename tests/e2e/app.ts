@@ -5,7 +5,7 @@
 // (the recent files list, #73) goes to a temporary folder too, never to the user's.
 
 import { execFile, execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { get } from "node:http";
 import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -15,6 +15,7 @@ import { promisify } from "node:util";
 import { chromium, test as base, type Browser, type CDPSession, type Locator, type Page, type Request } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
+import { removeTemporaryFolder } from "./cleanup";
 
 export const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -526,9 +527,9 @@ function stop(running: Running) {
   } catch {
     // Not set (or already removed).
   }
-  // WebView2 can hold its profile for a moment after exiting.
-  rmSync(running.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
-  rmSync(running.data, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  // WebView2 can hold its profile for a moment after exiting (#484).
+  removeTemporaryFolder(running.profile);
+  removeTemporaryFolder(running.data);
 }
 
 /**
@@ -728,9 +729,9 @@ export const test = base.extend<{
           } catch {
             // Not set.
           }
-          rmSync(running.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+          removeTemporaryFolder(running.profile);
           if (!options.dataDir) {
-            rmSync(running.data, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+            removeTemporaryFolder(running.data);
           }
           if (attempt === 1) {
             console.log(
@@ -779,3 +780,4 @@ export const test = base.extend<{
 });
 
 export { expect } from "@playwright/test";
+export { removeTemporaryFolder } from "./cleanup";
