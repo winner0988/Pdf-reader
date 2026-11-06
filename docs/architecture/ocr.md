@@ -72,7 +72,7 @@ sequenceDiagram
 ## 語言資料
 
 - 一份 Tesseract 的 `.traineddata`，最多 `MAX_LANGUAGE_DATA_BYTES`（64 MiB），名稱 `is_language_name`（字母開頭，最多 32 個字母、數字、`_`、`-`）。
-- **Tesseract 不防禦壞掉的檔案**：空的緩衝區會被當成資料夾名稱去讀，位移倒退會讓它配置不存在的記憶體。所以 `ipc_contract::ocr::check_language_data` 在資料靠近 Tesseract 之前檢查檔頭：項目數 23–64、各項位移從表的結尾開始、不倒退、不超出檔案，並且有 LSTM 模型、字元集與 recoder 三項（沒有的是舊的非 LSTM 檔，Tesseract 初始化會失敗）。主行程在使用者匯入時檢查，worker 收到時再檢查（`Recogniser::new` 也檢查）。再往裡面（模型本身）由 Tesseract 讀：壞掉的模型最壞是 worker 崩潰，主行程重啟它，不影響其他文件。
+- **Tesseract 不防禦壞掉的檔案**：空的緩衝區會被當成資料夾名稱去讀，位移倒退會讓它配置不存在的記憶體。所以 `ipc_contract::ocr::check_language_data` 在資料靠近 Tesseract 之前檢查檔頭：項目數 23–64、各項位移從表的結尾開始、不倒退、不超出檔案，並且有 LSTM 模型、字元集與 recoder 三項（沒有的是舊的非 LSTM 檔，Tesseract 初始化會失敗）。主行程在使用者匯入時檢查，worker 收到時再檢查（`Recogniser::new` 也檢查）。再往裡面（模型本身）由 Tesseract 讀：Tesseract 讀不了時以 `abort` 結束行程，不回傳錯誤，所以 fuzz 不涵蓋模型本身；壞掉的模型最壞是 worker 崩潰，主行程重啟它，不影響其他文件。
 - 內附的 `eng` 與 `chi_tra`（`src-tauri/resources/tessdata`，見該資料夾的 README）：測試檢查它們的大小、雜湊值與格式。
 
 ## 升級 MuPDF 時
