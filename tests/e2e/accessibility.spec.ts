@@ -285,7 +285,16 @@ test("the system's setting to reduce motion is respected", async ({ launch }) =>
       return Math.max(
         ...[...document.querySelectorAll("*")].flatMap((element) => {
           const style = getComputedStyle(element);
-          return [...seconds(style.transitionDuration), ...seconds(style.animationDuration)];
+          const after = getComputedStyle(element, "::after");
+          const before = getComputedStyle(element, "::before");
+          return [
+            ...seconds(style.transitionDuration),
+            ...seconds(style.animationDuration),
+            ...seconds(after.transitionDuration),
+            ...seconds(after.animationDuration),
+            ...seconds(before.transitionDuration),
+            ...seconds(before.animationDuration),
+          ];
         }),
       );
     });

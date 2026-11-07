@@ -165,11 +165,20 @@
 ## 7. 動態與轉場規則（Motion & Transitions）
 
 - **減少動態模式（`prefers-reduced-motion`）**：
-  當使用者在 Windows 系統設定中關閉「動畫效果」時，`src/index.css` 的全域規則會強制將動畫與過渡持續時間壓至 `0.01ms`，完全停用所有動態效果。所有新增的元件與樣式均受此規則保護。
+  當使用者在 Windows 系統設定中關閉「動畫效果」時，`src/index.css` 的全域規則會強制將動畫與過渡持續時間壓至 `0.01ms`，動畫重複次數限制為 1，完全停用所有動態效果與微光循環。所有元件、虛擬元素（`::before`、`::after`）均受此規則保護。
 - **微動態基本規範**：
   - 時間維持在 **150ms 至 250ms** 之間。
   - 動畫屬性僅允許 `transform` 與 `opacity`，確保由 GPU 加速合成，絕不觸發 DOM 排版重繪（reflow）。
-  - 互動反饋：按鈕點擊微下沉（`active:translate-y-px`）。
-- **後續進度標記**：
-  - **開始畫面（Start Screen）**：自訂向量 SVG 插圖、拖曳進入視窗的動態反饋，於 **UX-02 第 2 步** 定案與實作。
-  - **精細微動態（Micro-interactions）**：側欄滑順開合、切換分頁轉場、存檔成功微勾動畫、骨架載入微光（Shimmer），於 **UX-02 第 3 步** 定案與實作。
+  - 不使用任何外部動畫套件，純依賴原生 CSS transition 與 keyframes。
+  - 動態進行中不得遮擋點擊互動（維持可點擊性），亦不得變更焦點順序。
+  - 閱讀區的畫布頁面與文件捲動不加動畫（效能與閱讀優先）。
+
+### 7.1 定案微動態規格表（UX-02 第 3 步定案）
+
+| 互動情境 | 適用位置 / 元件 | 時間 (Duration) | Easing | 動態屬性 (Properties) | 視覺效果說明 |
+|---|---|---|---|---|---|
+| **側欄開合** | `src/features/shell/Sidebar.tsx` | 200ms | `ease-out` (`cubic-bezier(0.16, 1, 0.3, 1)`) | `transform`, `opacity` | 展開時由左側微移入（`translateX(-8px)` $\to$ `0`）並淡入，不變更寬度或觸發重排版；關閉時立即移除無殘留。 |
+| **切換分頁** | `src/features/tabs/TabBar.tsx`、`src/App.tsx` (`TabPane`)、`src/components/ui/tabs.tsx` | 200ms | `ease-out` | `opacity`, `colors` | 分頁按鈕狀態過渡，分頁內容於切換時 200ms 平滑淡入（`opacity: 0` $\to$ `1`），保持無障礙焦點區域穩定。 |
+| **按鈕按下回饋** | `src/components/ui/button.tsx`、`IconButton` | 150ms | `ease-out` | `transform` | 按下時微縮放至 98%（`scale(0.98)`）並微下沉 1px（`translateY(1px)`），放開時 150ms 平滑回彈，提供清晰觸覺回饋。 |
+| **存檔完成打勾** | `src/features/shell/StatusBar.tsx` | 200ms | `ease-out` | `transform`, `opacity` | 狀態列出現「已儲存」成功提示時，前方打勾圖示（`<Check aria-hidden />`）以 200ms 彈性縮放（`scale(0.75)` $\to$ `1`）與淡入顯現。 |
+| **骨架載入微光** | `src/features/shell/states.tsx` (`LoadingState`)、`src/components/ui/skeleton.tsx` | 淡入 200ms / 微光 2s 循環 | `ease-out` / `linear` | `transform`, `opacity` | 開檔超過 300ms 進入載入狀態時，畫布顯示頁面骨架紙張，表面以微光（Shimmer，`translateX`）沿 X 軸掠過，減少動態時完全靜止。 |

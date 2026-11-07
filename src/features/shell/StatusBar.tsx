@@ -1,4 +1,4 @@
-import { LockKeyhole, MonitorOff, ScanText, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Check, LockKeyhole, MonitorOff, ScanText, ShieldCheck, TriangleAlert } from "lucide-react";
 
 import { formatZoom } from "@/features/shell/format";
 import type { Zoom } from "@/features/shell/model";
@@ -87,8 +87,14 @@ export function StatusBar({
           {hoverTarget ? (
             <span className="ml-auto truncate">{hoverTarget}</span>
           ) : (
-            <span role="status" className="ml-auto truncate">
-              {hint}
+            <span role="status" className="ml-auto inline-flex items-center truncate">
+              {hint?.startsWith("已儲存") && (
+                <Check
+                  aria-hidden="true"
+                  className="mr-1 size-3.5 shrink-0 text-primary animate-in fade-in-0 zoom-in-75 duration-200 ease-out motion-reduce:animate-none"
+                />
+              )}
+              <span className="truncate">{hint}</span>
             </span>
           )}
           <span className="shrink-0">
