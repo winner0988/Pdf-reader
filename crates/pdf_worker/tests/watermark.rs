@@ -4,6 +4,8 @@
 //! worker goes on.
 #![cfg(windows)]
 
+mod common;
+
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -78,6 +80,7 @@ fn copy(
         }) => {
             let written = std::fs::read(&path).expect("the copy");
             assert_eq!(written.len() as u64, bytes);
+            common::check_qpdf(&path);
             Ok((path, written))
         }
         Ok(other) => panic!("{other:?}"),

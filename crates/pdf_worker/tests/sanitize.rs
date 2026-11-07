@@ -215,6 +215,7 @@ fn annotation_flatten_and_remove_modes() {
     let (_, _flat_report) = orig_doc
         .sanitized_copy(&id, flatten_options, &mut flat_out)
         .unwrap();
+    common::check_qpdf_bytes(&flat_out);
 
     let flat_doc = PdfDocument::from_bytes(&flat_out).unwrap();
 
@@ -266,6 +267,7 @@ fn annotation_flatten_and_remove_modes() {
     let (_, rem_report) = orig_doc
         .sanitized_copy(&id, remove_options, &mut rem_out)
         .unwrap();
+    common::check_qpdf_bytes(&rem_out);
     assert!(
         rem_report.annotations > 0,
         "annotations should be counted as removed"

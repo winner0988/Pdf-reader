@@ -102,6 +102,23 @@ jobs:
         run: cargo fmt --all --check
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Install qpdf
+        shell: pwsh
+        run: |
+          $url = "https://github.com/qpdf/qpdf/releases/download/v12.4.2/qpdf-12.4.2-msvc64.zip"
+          $expectedHash = "db87077e683630c1217e0e8f9a20a9749d952ab676e881c3689187763a5de25d"
+          $zipPath = Join-Path $env:RUNNER_TEMP "qpdf-12.4.2-msvc64.zip"
+          Invoke-WebRequest -Uri $url -OutFile $zipPath
+          $actualHash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
+          if ($actualHash -ne $expectedHash) {
+            Write-Error "qpdf SHA-256 mismatch: expected $expectedHash, got $actualHash"
+            exit 1
+          }
+          $extractDir = Join-Path $env:RUNNER_TEMP "qpdf-12.4.2"
+          $ProgressPreference = 'SilentlyContinue'
+          Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+          $binDir = Join-Path $extractDir "qpdf-12.4.2-msvc64\bin"
+          Add-Content -Path $env:GITHUB_PATH -Value $binDir
       - name: Test
         run: cargo test --workspace --locked
       # The fuzz targets (fuzz/, QA-03) are built by cargo-fuzz with nightly Rust in the Fuzz

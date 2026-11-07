@@ -91,6 +91,7 @@
 - [Rust](https://rustup.rs/)（rustup；實際版本由 `rust-toolchain.toml` 自動安裝）
 - Visual Studio Build Tools，勾選「使用 C++ 的桌面開發」
 - [LLVM](https://llvm.org/)：`winget install LLVM.LLVM`（建置 MuPDF 需要，安裝在預設位置即可；見 [docs/architecture/mupdf-binding.md](docs/architecture/mupdf-binding.md)）
+- [qpdf](https://github.com/qpdf/qpdf) 12.4.2（執行整合測試檢查寫出的 PDF 需要）：下載 [qpdf-12.4.2-msvc64.zip](https://github.com/qpdf/qpdf/releases/download/v12.4.2/qpdf-12.4.2-msvc64.zip)（SHA-256：`db87077e683630c1217e0e8f9a20a9749d952ab676e881c3689187763a5de25d`），解壓縮後將 `bin` 目錄加入 `PATH`，或設定環境變數 `QPDF` 指向 `qpdf.exe`；見 [docs/architecture/saving.md](docs/architecture/saving.md)
 - Microsoft Edge WebView2（Windows 11 已內建）
 
 ```bash

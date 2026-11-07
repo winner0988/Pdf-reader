@@ -1,6 +1,8 @@
 //! Finding personal data in the real worker and real sandbox (Issue #302).
 #![cfg(windows)]
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use ipc_contract::types::{
@@ -145,4 +147,25 @@ fn finds_a_keyword_across_a_line_break_and_masks_it() {
     );
     let rects: Vec<usize> = found.matches.iter().map(|m| m.rects.len()).collect();
     assert_eq!(rects, [1, 2]);
+}
+
+#[test]
+fn privacy_copy_passes_qpdf() {
+    let (mut host, doc) = open("benign/metadata-full.pdf");
+    let path = std::env::temp_dir().join(format!("pdf-worker-{}-privacy.pdf", std::process::id()));
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .expect("create");
+    let response = host
+        .privacy_copy(doc, &file, [0xA5; 16])
+        .expect("privacy copy");
+    drop(file);
+    let WorkerResponse::Saved { bytes, .. } = response else {
+        panic!("{response:?}");
+    };
+    assert_eq!(std::fs::metadata(&path).expect("metadata").len(), bytes);
+    common::check_qpdf(&path);
+    std::fs::remove_file(&path).ok();
 }

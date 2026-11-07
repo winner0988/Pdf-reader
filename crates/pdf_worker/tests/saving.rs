@@ -3,6 +3,8 @@
 //! process created; it never gets a path.
 #![cfg(windows)]
 
+mod common;
+
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
@@ -78,6 +80,7 @@ fn an_edited_document_is_saved_through_a_write_only_handle() {
     drop(file);
     assert!(!incremental);
     assert_eq!(std::fs::metadata(&path).expect("saved file").len(), bytes);
+    common::check_qpdf(&path);
 
     // The saved file opens with the page turned, the others as they were.
     let (_, reopened) = opened(&mut host, &path);
@@ -238,6 +241,7 @@ fn some_pages_are_saved_as_a_document_of_their_own_and_the_document_is_not_chang
     drop(file);
     assert!(!incremental);
     assert_eq!(std::fs::metadata(&path).expect("file").len(), bytes);
+    common::check_qpdf(&path);
     let (_, copy) = opened(&mut host, &path);
     assert_eq!(copy.len(), 3);
     std::fs::remove_file(&path).ok();

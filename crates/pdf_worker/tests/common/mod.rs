@@ -1,5 +1,9 @@
 //! Small PDFs for integration tests, built with correct xref tables.
 
+pub mod qpdf;
+#[allow(unused_imports)]
+pub use qpdf::*;
+
 /// Builds a PDF from object bodies (object n = body n-1; object 1 is the catalog).
 #[allow(dead_code)]
 pub fn build_pdf(objects: &[String]) -> Vec<u8> {
@@ -32,7 +36,8 @@ pub fn one_page(content: &str) -> Vec<u8> {
     build_pdf(&[
         "<< /Type /Catalog /Pages 2 0 R >>".into(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>".into(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> /Contents 4 0 R >>"
+            .into(),
         format!(
             "<< /Length {} >>\nstream\n{content}\nendstream",
             content.len()

@@ -152,6 +152,7 @@ fn the_worker_writes_a_smaller_copy_of_the_pictures_and_the_document_is_as_it_wa
     let copy = std::fs::read(&path).expect("first compressed copy");
     assert_eq!(bytes, copy.len() as u64);
     assert!(bytes * 3 < before, "{bytes} bytes from {before}");
+    common::check_qpdf(&path);
 
     // The copy opens, in a worker of its own, with its page.
     let mut again = self::host();
