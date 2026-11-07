@@ -742,6 +742,26 @@ function PageSlot({
   const [state, setState] = useState<SlotState>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
 
+  // Zoomed far in (B3-09): the part on screen, sharp, over the whole page. A new part is asked
+  // for when the view leaves the one asked for last; it replaces the old one once drawn.
+  const detailRef = useRef<HTMLCanvasElement>(null);
+
+  // Immediately release canvas surfaces on unmount (tab closed or page scrolled out of range).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const detail = detailRef.current;
+    return () => {
+      if (canvas) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+      if (detail) {
+        detail.width = 0;
+        detail.height = 0;
+      }
+    };
+  }, []);
+
   // The whole page: at `scale`, or underneath the part drawn sharp at a lower one.
   const wholeAt = baseScale ?? scale;
   useEffect(() => {
@@ -781,7 +801,6 @@ function PageSlot({
 
   // Zoomed far in (B3-09): the part on screen, sharp, over the whole page. A new part is asked
   // for when the view leaves the one asked for last; it replaces the old one once drawn.
-  const detailRef = useRef<HTMLCanvasElement>(null);
   const [asked, setAsked] = useState<Detail | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const whole = rasterSize(page, rotation, scale);

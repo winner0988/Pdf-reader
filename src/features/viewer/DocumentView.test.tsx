@@ -234,6 +234,22 @@ describe("DocumentView", () => {
     expect(putImageData).toHaveBeenCalledTimes(1);
   });
 
+  it("releases canvas surfaces and cancels in-flight jobs when unmounted (tab closed)", async () => {
+    const { renderer, calls, active } = fakeRenderer();
+    const { unmount, container } = render(<Harness pages={[LETTER]} renderer={renderer} />);
+    await act(async () => {
+      calls[0]!.resolve(raster());
+    });
+    const canvas = container.querySelector("canvas")!;
+    expect([canvas.width, canvas.height]).toEqual([2, 2]);
+
+    unmount();
+
+    expect(canvas.width).toBe(0);
+    expect(canvas.height).toBe(0);
+    expect(active()).toHaveLength(0);
+  });
+
   it("shows a failed page with a retry button, without affecting the others", async () => {
     const { renderer, calls } = fakeRenderer();
     const user = userEvent.setup();
