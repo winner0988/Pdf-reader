@@ -42,6 +42,7 @@ mod forms;
 mod identifier;
 mod merge_annotations;
 mod ocr;
+pub(crate) mod ocr_text_layer;
 mod page_marks;
 mod page_overlay;
 mod personal_data;

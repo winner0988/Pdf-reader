@@ -50,8 +50,8 @@ pub(super) fn line_form(
 /// marks (B3-16) set a number on every page, and one subset serves them all.
 pub(super) struct LineFont {
     /// The glyphs of the subset; its bytes are in the document, not here.
-    model: TextBoxModel,
-    object_number: i32,
+    pub(super) model: TextBoxModel,
+    pub(super) object_number: i32,
 }
 
 /// Writes into `doc` a subset of `font` with the glyphs of the characters of `characters`.

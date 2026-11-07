@@ -15,7 +15,7 @@ use super::text_box::{LineFont, TextBoxFont, line_font, line_form};
 /// The built-in font of the words: it has Chinese and Latin letters.
 const FONT_NAME: &str = "Droid Sans Fallback";
 
-fn droid_sans() -> Result<TextBoxFont<'static>, EngineError> {
+pub(super) fn droid_sans() -> Result<TextBoxFont<'static>, EngineError> {
     let font = mupdf_fonts_droid::find_by_name(FONT_NAME, false, false)
         .ok_or(EngineError::InvalidEdit("no font for the words"))?;
     Ok(TextBoxFont {
