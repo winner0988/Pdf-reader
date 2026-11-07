@@ -52,6 +52,28 @@ describe("states", () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
+  it("empty: renders the privacy illustration with aria-hidden and viewBox", () => {
+    const { container } = renderShell({ kind: "empty" });
+
+    const canvas = container.querySelector("[data-region='canvas']");
+    const svg = canvas?.querySelector("svg[aria-hidden='true']");
+    expect(svg).toBeInTheDocument();
+    expect(svg).toHaveAttribute("viewBox", "0 0 96 96");
+    expect(svg).toHaveClass("size-24", "text-muted-foreground");
+  });
+
+  it("drop indicator: reflects dropActive state with transform and opacity classes", () => {
+    const { container, rerender } = renderShell({ kind: "empty" }, { dropActive: false });
+
+    const indicator = container.querySelector("[data-drop-indicator]");
+    expect(indicator).toBeInTheDocument();
+    expect(indicator).toHaveClass("opacity-0", "scale-[0.98]");
+    expect(indicator).toHaveClass("border-dashed", "border-primary");
+
+    rerender(<ReaderShell state={{ kind: "empty" }} onOpen={vi.fn()} loadingDelayMs={0} dropActive={true} />);
+    expect(indicator).toHaveClass("opacity-100", "scale-100");
+  });
+
   it("loading: shows the file name once the delay has passed", () => {
     vi.useFakeTimers();
     try {
