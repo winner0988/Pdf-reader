@@ -44,6 +44,16 @@ export function PresentationMode({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    return () => {
+      if (canvas) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+    };
+  }, []);
+
   // Window viewport measurement for fit-to-screen scale.
   const [viewport, setViewport] = useState({
     width: typeof window !== "undefined" ? window.innerWidth : 1920,

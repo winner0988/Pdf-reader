@@ -553,6 +553,16 @@ function Thumbnail({
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    const canvas = canvasRef.current;
+    return () => {
+      if (canvas) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (sensitive || !renderer || doc === undefined) return;
     // Sharp on the screen: as many device pixels as the thumbnail covers.
     const scale = renderScale(box.width / (page.widthPt * CSS_PX_PER_PT), window.devicePixelRatio);
