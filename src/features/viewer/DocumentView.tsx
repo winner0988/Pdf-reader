@@ -744,20 +744,25 @@ function PageSlot({
 
   // Zoomed far in (B3-09): the part on screen, sharp, over the whole page. A new part is asked
   // for when the view leaves the one asked for last; it replaces the old one once drawn.
-  const detailRef = useRef<HTMLCanvasElement>(null);
+  const detailRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Immediately release canvas surfaces on unmount (tab closed or page scrolled out of range).
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const detail = detailRef.current;
+  // React 19 ref callback cleanup: when React unmounts either canvas, zero its surface immediately.
+  const setCanvasRef = useCallback((canvas: HTMLCanvasElement | null) => {
+    canvasRef.current = canvas;
     return () => {
       if (canvas) {
         canvas.width = 0;
         canvas.height = 0;
       }
-      if (detail) {
-        detail.width = 0;
-        detail.height = 0;
+    };
+  }, []);
+
+  const setDetailRef = useCallback((canvas: HTMLCanvasElement | null) => {
+    detailRef.current = canvas;
+    return () => {
+      if (canvas) {
+        canvas.width = 0;
+        canvas.height = 0;
       }
     };
   }, []);
@@ -875,9 +880,9 @@ function PageSlot({
       className="absolute flex items-center justify-center overflow-hidden bg-white text-sm text-neutral-400 shadow-sm ring-1 ring-black/10"
       style={{ top: box.top, left, width: box.width, height: box.height }}
     >
-      <canvas ref={canvasRef} aria-hidden className="absolute inset-0 size-full" />
+      <canvas key={attempt} ref={setCanvasRef} aria-hidden className="absolute inset-0 size-full" />
       <canvas
-        ref={detailRef}
+        ref={setDetailRef}
         aria-hidden
         data-detail
         hidden={shownDetail === null}

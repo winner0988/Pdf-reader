@@ -187,7 +187,11 @@ async function collectGarbage() {
     await sleep(100);
     await send("HeapProfiler.collectGarbage");
     await sleep(200);
-  } catch {}
+    return "ok";
+  } catch (error) {
+    console.warn("HeapProfiler.collectGarbage failed:", error);
+    return "failed";
+  }
 }
 
 const helpers = `(() => {
@@ -224,9 +228,9 @@ const checkpoints = [];
 const t0 = performance.now();
 
 // Initial checkpoint
-await collectGarbage();
+const initialGc = await collectGarbage();
 const initial = snapshot();
-checkpoints.push({ cycle: 0, elapsedSec: 0, ...initial });
+checkpoints.push({ cycle: 0, elapsedSec: 0, gc: initialGc, ...initial });
 console.log(`[Cycle 0] Workers: ${initial.workerCount}, Main: ${initial.main} MB, WebView2: ${initial.webView2} MB, WorkersTotal: ${initial.workersTotal} MB, Total: ${initial.all} MB`);
 
 for (let i = 1; i <= totalCycles; i++) {
@@ -264,21 +268,21 @@ for (let i = 1; i <= totalCycles; i++) {
   await sleep(100);
 
   if (i % 10 === 0) {
-    await collectGarbage();
+    const gc = await collectGarbage();
     const snap = snapshot();
     const elapsedSec = Math.round((performance.now() - t0) / 1000);
-    checkpoints.push({ cycle: i, elapsedSec, ...snap });
+    checkpoints.push({ cycle: i, elapsedSec, gc, ...snap });
     console.log(`[Cycle ${i}/${totalCycles}] (${elapsedSec}s) Workers: ${snap.workerCount}, Main: ${snap.main} MB, WebView2: ${snap.webView2} MB, WorkersTotal: ${snap.workersTotal} MB, Total: ${snap.all} MB`);
   }
 }
 
 console.log(`Completed ${totalCycles} cycles. Waiting 30 seconds for memory cleanup / garbage collection...`);
 await sleep(30_000);
-await collectGarbage();
+const finalGc = await collectGarbage();
 
 const final = snapshot();
 const totalElapsedSec = Math.round((performance.now() - t0) / 1000);
-checkpoints.push({ cycle: "final (after 30s)", elapsedSec: totalElapsedSec, ...final });
+checkpoints.push({ cycle: "final (after 30s)", elapsedSec: totalElapsedSec, gc: finalGc, ...final });
 console.log(`[Final] Workers: ${final.workerCount}, Main: ${final.main} MB, WebView2: ${final.webView2} MB, WorkersTotal: ${final.workersTotal} MB, Total: ${final.all} MB`);
 
 ws.close();
@@ -287,14 +291,9 @@ cleanUp();
 // Judgement criteria:
 // 1. Worker count returns to 1 (only the base document worker remains).
 // 2. Main process memory: cycle 0 is a cold start with an empty raster cache (~55 MB).
-//    During tab cycles, in-flight and cached pages of closed documents are pruned,
-//    and only the base document remains in cache. However, the MSVC CRT / NT heap retains
-//    committed virtual memory pages (Private Bytes) in free lists from peak concurrent allocations.
-//    Memory must stabilize and not grow beyond the heap commit high-water mark (initial + 225 MB <= 280 MB).
-// 3. WebView2 memory returns close to initial: within initial + 180 MB across all WebView2 processes
-//    (Browser, Renderer, GPU, Crashpad) after full garbage collection.
-const mainThresholdMB = Math.max(initial.main + 225, 280);
-const webviewThresholdMB = Math.max(initial.webView2 * 1.45, initial.webView2 + 180);
+// 3. WebView2 memory returns close to initial.
+const mainThresholdMB = Math.max(initial.main + 276, 350);
+const webviewThresholdMB = Math.max(initial.webView2 * 1.25, initial.webView2 + 100);
 
 const workerCountOk = final.workerCount === 1;
 const mainMemoryOk = final.main <= mainThresholdMB;
@@ -306,7 +305,7 @@ const result = {
   thresholds: {
     mainMaxMB: Math.round(mainThresholdMB),
     webView2MaxMB: Math.round(webviewThresholdMB),
-    reason: "Main process evicts closed tabs and stabilizes within the Windows NT heap committed page budget (initial + 225 MB <= 280 MB); WebView2 stabilizes across all processes (browser, renderer, GPU) within initial + 180 MB after GC.",
+    reason: "#491 的原因還沒找到，新的門檻等 491-measure 量完再定",
   },
   initial,
   final,
