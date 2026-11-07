@@ -92,36 +92,36 @@ test("global shortcuts and search bar: Shortcuts, Print, SearchAll, SearchBar", 
 
   // Focus the document tab to ensure document focus before global shortcuts
   await page.getByRole("tab").first().focus();
-  expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
 
   // 1. Shortcuts dialog (Ctrl+/)
   await page.keyboard.press("Control+/");
   const shortcutsDialog = page.getByRole("dialog", { name: strings.shortcuts.title });
   await expect(shortcutsDialog).toBeVisible();
-  expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
   await inBothThemes(page, (theme) => noProblems(page, `shortcuts dialog, ${theme}`));
   await page.keyboard.press("Escape");
   await expect(shortcutsDialog).toHaveCount(0);
-  expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
 
   // 2. Print dialog (Ctrl+P)
   await page.keyboard.press("Control+p");
   const printDialog = page.getByRole("dialog", { name: strings.print.title });
   await expect(printDialog).toBeVisible();
-  expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
   await page.keyboard.press("Escape");
   await expect(printDialog).toHaveCount(0);
-  expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
 
   // 3. Search All dialog (Ctrl+Shift+F)
   await page.keyboard.press("Control+Shift+F");
   const searchAllDialog = page.getByRole("dialog", { name: strings.textIndex.title });
   await expect(searchAllDialog).toBeVisible();
-  expect(await page.evaluate(() => document.querySelector('[role="dialog"]')?.contains(document.activeElement) ?? false)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.querySelector('[role="dialog"]')?.contains(document.activeElement) ?? false)).toBe(true);
   await inBothThemes(page, (theme) => noProblems(page, `search all dialog, ${theme}`));
   await page.keyboard.press("Escape");
   await expect(searchAllDialog).toHaveCount(0);
-  expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
 
   // 4. In-document search bar (Ctrl+F)
   await page.keyboard.press("Control+f");
@@ -129,7 +129,7 @@ test("global shortcuts and search bar: Shortcuts, Print, SearchAll, SearchBar", 
   await expect(searchBar).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(searchBar).toHaveCount(0);
-  expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
 });
 
 test("menu dialogs: keyboard walkthrough, focus trapping, and focus return to More button", async ({ launch }) => {
@@ -162,11 +162,14 @@ test("menu dialogs: keyboard walkthrough, focus trapping, and focus return to Mo
     await expect(dialog).toBeVisible();
 
     // Verify focus is trapped inside dialog
-    const inside = await page.evaluate(() => {
-      const el = document.activeElement;
-      return el !== null && el !== document.body && (document.querySelector('[role="dialog"]')?.contains(el) ?? false);
-    });
-    expect(inside, `${title}: initial focus should be inside dialog`).toBe(true);
+    await expect.poll(
+      () =>
+        page.evaluate(() => {
+          const el = document.activeElement;
+          return el !== null && el !== document.body && (document.querySelector('[role="dialog"]')?.contains(el) ?? false);
+        }),
+      { message: `${title}: initial focus should be inside dialog` },
+    ).toBe(true);
 
     // Keyboard navigation inside dialog (Tab trap check)
     await page.keyboard.press("Tab");
@@ -176,8 +179,10 @@ test("menu dialogs: keyboard walkthrough, focus trapping, and focus return to Mo
     await expect(page.getByRole("dialog")).toHaveCount(0);
 
     // Focus MUST restore to the invoking "More" button, never drop to body
-    const activeLabel = await page.evaluate(() => document.activeElement?.getAttribute("aria-label"));
-    expect(activeLabel, `${title}: focus should return to More button`).toBe(strings.toolbar.more);
+    await expect.poll(
+      () => page.evaluate(() => document.activeElement?.getAttribute("aria-label")),
+      { message: `${title}: focus should return to More button` },
+    ).toBe(strings.toolbar.more);
   }
 });
 
@@ -192,15 +197,14 @@ test("external link confirmation: LinkConfirmDialog initial focus and return", a
   await expect(confirmDialog).toBeVisible();
 
   // Initial focus must be on the Cancel button (docs/ux/screen-map.md §4)
-  const cancelText = await page.evaluate(() => document.activeElement?.textContent?.trim());
-  expect(cancelText).toBe(strings.links.cancel);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim())).toBe(strings.links.cancel);
 
   await inBothThemes(page, (theme) => noProblems(page, `link confirmation, ${theme}`));
 
   // Dismiss with Escape
   await page.keyboard.press("Escape");
   await expect(confirmDialog).toHaveCount(0);
-  expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
 });
 
 test("blocked link dialog: BlockedLinkDialog initial focus and return", async ({ launch }) => {
@@ -214,14 +218,13 @@ test("blocked link dialog: BlockedLinkDialog initial focus and return", async ({
   await expect(blockedDialog).toBeVisible();
 
   // Initial focus must be on the Close button
-  const closeText = await page.evaluate(() => document.activeElement?.textContent?.trim());
-  expect(closeText).toBe(strings.links.close);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim())).toBe(strings.links.close);
 
   await inBothThemes(page, (theme) => noProblems(page, `blocked link, ${theme}`));
 
   await page.keyboard.press("Escape");
   await expect(blockedDialog).toHaveCount(0);
-  expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
 });
 
 test("annotations: TextBoxDialog and Issue #402 focus restoration", async ({ launch }) => {
@@ -240,7 +243,7 @@ test("annotations: TextBoxDialog and Issue #402 focus restoration", async ({ lau
   await expect(addDialog).toBeVisible();
 
   // Initial focus on textarea
-  expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("TEXTAREA");
+  await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).toBe("TEXTAREA");
   await inBothThemes(page, (theme) => noProblems(page, `add text box dialog, ${theme}`));
 
   // Type and save box to test editing and #402 restoration
@@ -264,8 +267,10 @@ test("annotations: TextBoxDialog and Issue #402 focus restoration", async ({ lau
   await expect(editDialog).toHaveCount(0);
 
   // VERIFY ISSUE #402: Focus MUST return to the text box on canvas, NOT drop to body!
-  const focusedAnnotation = await page.evaluate(() => document.activeElement?.getAttribute("data-annotation"));
-  expect(focusedAnnotation, "#402: focus must return to the text box annotation").toBe("textBox");
+  await expect.poll(
+    () => page.evaluate(() => document.activeElement?.getAttribute("data-annotation")),
+    { message: "#402: focus must return to the text box annotation" },
+  ).toBe("textBox");
 });
 
 test("outline bookmarks: DeleteBookmarkDialog and rename with keyboard", async ({ launch }) => {
@@ -287,7 +292,7 @@ test("outline bookmarks: DeleteBookmarkDialog and rename with keyboard", async (
   await expect(renameInput).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(renameInput).toHaveCount(0);
-  expect(await page.evaluate(() => document.activeElement?.getAttribute("role"))).toBe("treeitem");
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("role"))).toBe("treeitem");
 
   // Test delete confirmation dialog (Delete on bookmark with children)
   await page.keyboard.press("Delete");
@@ -299,7 +304,7 @@ test("outline bookmarks: DeleteBookmarkDialog and rename with keyboard", async (
   await expect(deleteDialog).toHaveCount(0);
 
   // Focus restores to the bookmark item in the tree
-  expect(await page.evaluate(() => document.activeElement?.getAttribute("role"))).toBe("treeitem");
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("role"))).toBe("treeitem");
 });
 
 test("redaction: FindPersonalDataDialog and RedactionConfirmDialog", async ({ launch }) => {
@@ -320,7 +325,7 @@ test("redaction: FindPersonalDataDialog and RedactionConfirmDialog", async ({ la
   await expect(findDialog).toHaveCount(0);
 
   // Focus restores to "找出個資…" button
-  expect(await page.evaluate(() => document.activeElement?.textContent?.trim())).toBe(strings.redaction.findPersonalData);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim())).toBe(strings.redaction.findPersonalData);
 
   // 2. Redaction confirmation dialog
   await page.getByRole("button", { name: strings.redaction.tool, exact: true }).click();
@@ -340,7 +345,7 @@ test("redaction: FindPersonalDataDialog and RedactionConfirmDialog", async ({ la
   await expect(confirmDialog).toHaveCount(0);
 
   // Focus restores to "套用遮蔽…" button
-  expect(await page.evaluate(() => document.activeElement?.textContent?.trim())).toBe(strings.redaction.apply);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim())).toBe(strings.redaction.apply);
 });
 
 test("page management: MovePagesDialog in thumbnails", async ({ launch }) => {
@@ -359,7 +364,7 @@ test("page management: MovePagesDialog in thumbnails", async ({ launch }) => {
 
   await page.keyboard.press("Escape");
   await expect(moveDialog).toHaveCount(0);
-  expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
 });
 
 test("attachments: DangerConfirmDialog on executable attachment", async ({ launch }) => {
@@ -380,7 +385,7 @@ test("attachments: DangerConfirmDialog on executable attachment", async ({ launc
   await expect(dangerDialog).toHaveCount(0);
 
   // Focus restores to the save button
-  expect(await page.evaluate(() => document.activeElement?.getAttribute("data-testid"))).toBe("save-attachment-button");
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-testid"))).toBe("save-attachment-button");
 });
 
 test("form flattening: FlattenDialog in form document", async ({ launch }) => {
@@ -396,7 +401,7 @@ test("form flattening: FlattenDialog in form document", async ({ launch }) => {
   await expect(flattenDialog).toHaveCount(0);
 
   // Focus restores to More button
-  expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe(strings.toolbar.more);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe(strings.toolbar.more);
 });
 
 test("unsaved changes: UnsavedDialog when closing tab with edits", async ({ launch }) => {
@@ -424,7 +429,7 @@ test("unsaved changes: UnsavedDialog when closing tab with edits", async ({ laun
   await expect(unsavedDialog).toHaveCount(0);
 
   // Tab remains open, focus is not body
-  expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
+  await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
 });
 
 test("security details panel", async ({ launch }) => {
@@ -439,7 +444,7 @@ test("security details panel", async ({ launch }) => {
 
   await page.keyboard.press("Escape");
   await expect(panel).toHaveCount(0);
-  expect(await page.evaluate(() => document.activeElement?.textContent?.trim())).toBe(strings.banner.details);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim())).toBe(strings.banner.details);
 });
 
 test("signature details panel", async ({ launch }) => {
@@ -454,5 +459,5 @@ test("signature details panel", async ({ launch }) => {
 
   await page.keyboard.press("Escape");
   await expect(signPanel).toHaveCount(0);
-  expect(await page.evaluate(() => document.activeElement?.textContent?.trim())).toBe(strings.signatures.details);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim())).toBe(strings.signatures.details);
 });
