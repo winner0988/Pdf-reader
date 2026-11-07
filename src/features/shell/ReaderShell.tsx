@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
+import { cn } from "@/lib/utils";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -1690,6 +1691,14 @@ export function ReaderShell({
               />
             )}
             <div className="relative flex min-h-0 flex-1 flex-col">
+              <div
+                aria-hidden="true"
+                data-drop-indicator
+                className={cn(
+                  "pointer-events-none absolute inset-1.5 z-40 rounded-lg border-2 border-dashed border-primary transition-[transform,opacity] duration-200 ease-out",
+                  dropActive ? "scale-100 opacity-100" : "scale-[0.98] opacity-0",
+                )}
+              />
               <main
                 ref={canvasRef}
               aria-label={strings.canvas.label}
@@ -1701,7 +1710,7 @@ export function ReaderShell({
               // The scroll bar's space is always kept: otherwise a fitted page just taller than the
               // canvas makes the scroll bar appear, which narrows the canvas, which shrinks the page,
               // which hides the scroll bar again, forever (#46).
-              className="relative min-h-0 flex-1 overflow-auto bg-muted outline-none [scrollbar-gutter:stable] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-primary data-drop-active:outline-2 data-drop-active:-outline-offset-4 data-drop-active:outline-primary data-drop-active:outline-dashed"
+              className="relative min-h-0 flex-1 overflow-auto bg-muted outline-none [scrollbar-gutter:stable] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-primary"
               onPointerDown={() => {
                 // A floating sidebar closes when the user goes back to the page.
                 if (sidebarOpen && isNarrowWindow()) setSidebarOpen(false);

@@ -1,4 +1,4 @@
-import { FileText, Loader2, LockKeyhole, TriangleAlert } from "lucide-react";
+import { Loader2, LockKeyhole, TriangleAlert } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { RecentApi } from "@/features/recent/api";
 import { RecentFiles } from "@/features/recent/RecentFiles";
 import { RETRYABLE_ERRORS, type ErrorCode } from "@/features/shell/model";
+import { StartIllustration } from "@/features/shell/StartIllustration";
 import { strings } from "@/i18n/zh-TW";
 
 /** The start screen: open a file, or one of the recently opened ones (#73). */
@@ -25,7 +26,7 @@ export function EmptyState({
   const t = strings.empty;
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
-      <FileText className="size-16 text-muted-foreground" aria-hidden />
+      <StartIllustration className="size-24 text-muted-foreground" aria-hidden="true" />
       <h1 className="text-2xl font-semibold">{t.title}</h1>
       <Button size="lg" autoFocus onClick={onOpen}>
         {t.openButton}
