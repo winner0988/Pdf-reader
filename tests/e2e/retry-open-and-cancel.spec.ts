@@ -1,9 +1,9 @@
-// E2E tests for retry_open and cancel (#432).
-// - retry_open: reopens a document when its worker crashes or is killed, while other tabs remain usable.
-// - cancel: stops an ongoing cancellable operation (e.g. export), and safely ignores non-existent,
-//   already-finished, or other-tab request IDs without disrupting running operations.
+// E2E tests for retry_open and cancel (#432, #495).
+// - retry_open: reopens a tab that failed to open (e.g. file was missing or unreadable) once it can be accessed.
+// - cancel: stops an ongoing cancellable operation (e.g. export), and safely ignores non-existent
+//   or already-finished request IDs without disrupting running operations.
 
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -19,7 +19,7 @@ async function openExport(page: Page) {
   return page.getByRole("dialog", { name: strings.export.title });
 }
 
-test("when a tab's worker dies, the tab shows an error and can be retried while other tabs stay usable (#432)", async ({
+test("when a tab's worker dies, the document recovers in a new worker while another tab's worker is untouched (ADR 0012) (#432)", async ({
   launch,
 }) => {
   // 1. Open two documents from corpus; each tab has its own worker.
@@ -79,23 +79,78 @@ test("when a tab's worker dies, the tab shows an error and can be retried while 
   await expect(page.getByRole("contentinfo")).toContainText("outline-3-levels.pdf");
   await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
   expect(pdfWorkerPids(page)).toContain(secondWorkerPid);
+});
 
-  // 5. Verify direct retry_open command validation (rejects invalid tab and non-failed tab)
-  await expect(
-    page.evaluate(async () => {
-      const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke(cmd: string, args: unknown): Promise<unknown> } })
-        .__TAURI_INTERNALS__;
-      return internals.invoke("retry_open", { tab: 999999 });
-    }),
-  ).rejects.toThrow();
+test("retrying a tab that failed to open reopens the document in a new worker via retry_open (#495)", async ({
+  launch,
+}) => {
+  const folder = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-retry-open-"));
+  const deferredFile = path.join(folder, "deferred.pdf");
+  try {
+    // 1. Launch app with a path that does not yet exist.
+    // The main process creates the tab in 'Opening' state without checking existence in add(),
+    // then load() calls check_file() which fails with Unreadable; the tab shows the error screen.
+    const page = await launch(deferredFile);
 
-  await expect(
-    page.evaluate(async () => {
-      const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke(cmd: string, args: unknown): Promise<unknown> } })
-        .__TAURI_INTERNALS__;
-      return internals.invoke("retry_open", { tab: 1 });
-    }),
-  ).rejects.toThrow();
+    await expect(documentTabs(page)).toHaveCount(1);
+    await expect(documentTabs(page).first()).toContainText(strings.tabs.failed);
+
+    // Tab-level error alert (in ReaderShell's ErrorState, not a page render error)
+    const alert = page.getByRole("alert").filter({ hasText: strings.error.title });
+    await expect(alert).toBeVisible();
+    await expect(alert).toContainText(strings.error.messages.unreadable);
+    const retryButton = alert.getByRole("button", { name: strings.error.retry });
+    await expect(retryButton).toBeVisible();
+
+    // No worker process was created since check_file failed before spawning a worker host
+    expect(pdfWorkerPids(page)).toHaveLength(0);
+
+    // 2. Put a valid PDF at the deferred path
+    copyFileSync(corpus("benign/single-page.pdf"), deferredFile);
+
+    // 3. Click the retry button in the tab-level error alert, and confirm retry_open was sent
+    const retryOpenPromise = page.waitForRequest((req) => req.url().startsWith("http://ipc.localhost/retry_open"));
+    await retryButton.click();
+    await retryOpenPromise;
+
+    // 4. Confirm document opens successfully:
+    // Page canvas renders with ready state
+    const page1 = page.getByRole("img", { name: strings.canvas.page(1) });
+    await expect(page1).toHaveAttribute("data-state", "ready");
+
+    // Status bar shows file name and page 1 of 1
+    await expect(page.getByRole("contentinfo")).toContainText("deferred.pdf");
+    await expect(page.getByRole("contentinfo")).toContainText(strings.statusBar.pageStatus(1, 1, strings.toolbar.fitWidth));
+
+    // Tab title no longer shows failed mark
+    await expect(documentTabs(page).first()).not.toContainText(strings.tabs.failed);
+    await expect(alert).toHaveCount(0);
+
+    // A worker was spawned for the opened document
+    await expect.poll(() => pdfWorkerPids(page).length).toBe(1);
+    expect(pdfWorkerPids(page)[0]!).toBeGreaterThan(0);
+
+    // 5. Verify direct retry_open command validation (rejects invalid tab and non-failed tab)
+    await expect(
+      page.evaluate(async () => {
+        const internals = (window as unknown as {
+          __TAURI_INTERNALS__: { invoke(cmd: string, args?: unknown): Promise<unknown> };
+        }).__TAURI_INTERNALS__;
+        return internals.invoke("retry_open", { tab: 999999 });
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      page.evaluate(async () => {
+        const internals = (window as unknown as {
+          __TAURI_INTERNALS__: { invoke(cmd: string, args?: unknown): Promise<unknown> };
+        }).__TAURI_INTERNALS__;
+        return internals.invoke("retry_open", { tab: 1 });
+      }),
+    ).rejects.toThrow();
+  } finally {
+    rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
 });
 
 test("cancelling an ongoing export stops the job with no further progress (#432)", async ({ launch }) => {
@@ -133,7 +188,7 @@ test("cancelling an ongoing export stops the job with no further progress (#432)
   }
 });
 
-test("cancelling non-existent, finished, or another tab's request id succeeds and does not affect running jobs (#432)", async ({
+test("cancelling a non-existent or already-finished request id succeeds and does not affect running jobs (#432, #495)", async ({
   launch,
 }) => {
   const folder = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-cancel-ids-"));
@@ -141,44 +196,62 @@ test("cancelling non-existent, finished, or another tab's request id succeeds an
     const page = await launch(corpus("benign/multi-page-10.pdf"));
     await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
 
-    // Open second document to establish another tab
-    launchAgain(corpus("benign/single-page.pdf"));
-    await expect(documentTabs(page)).toHaveCount(2);
+    // 1. Perform a short export (page 1) to establish an already finished request
+    const dialog1 = await openExport(page);
+    await dialog1.getByRole("radio", { name: strings.export.png }).check();
+    await dialog1.getByRole("combobox", { name: strings.export.resolution }).selectOption("72");
+    await dialog1.getByRole("textbox", { name: strings.print.pages }).fill("1");
 
-    // Switch back to first tab
-    await documentTabs(page).first().click();
-    await expect(page.getByRole("contentinfo")).toContainText("multi-page-10.pdf");
+    const export1Promise = page.waitForRequest((req) => req.url().startsWith("http://ipc.localhost/export_pages"));
+    await dialog1.getByRole("button", { name: strings.export.start }).click();
+    await answerFileDialog(page, { path: folder });
 
-    // Start an export on tab 1
-    const dialog = await openExport(page);
-    await dialog.getByRole("radio", { name: strings.export.png }).check();
-    await dialog.getByRole("combobox", { name: strings.export.resolution }).selectOption("72");
-    await dialog.getByRole("textbox", { name: strings.print.pages }).fill("1-2");
-    await dialog.getByRole("button", { name: strings.export.start }).click();
+    const export1Req = await export1Promise;
+    let finishedRequestId: number | undefined;
+    const postData = export1Req.postData();
+    if (postData) {
+      try {
+        const parsed = JSON.parse(postData) as { args?: { request?: number } };
+        finishedRequestId = parsed.args?.request;
+      } catch {
+        // Not JSON
+      }
+    }
+
+    // Wait for the first export to complete
+    await expect(page.getByRole("contentinfo")).toContainText(strings.export.done(1));
+    await expect(dialog1).toHaveCount(0);
+
+    // 2. Start a second export (pages 2-3)
+    const dialog2 = await openExport(page);
+    await dialog2.getByRole("radio", { name: strings.export.png }).check();
+    await dialog2.getByRole("combobox", { name: strings.export.resolution }).selectOption("72");
+    await dialog2.getByRole("textbox", { name: strings.print.pages }).fill("2-3");
+    await dialog2.getByRole("button", { name: strings.export.start }).click();
 
     await answerFileDialog(page, { path: folder });
 
-    // Send cancel for non-existent id, finished id, and other tab's id via __TAURI_INTERNALS__.invoke
-    await page.evaluate(async () => {
-      const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke(cmd: string, args: unknown): Promise<unknown> } })
-        .__TAURI_INTERNALS__;
-      // 1. Non-existent request id
-      await internals.invoke("cancel", { request: 999999 });
-      // 2. Already finished request id
-      await internals.invoke("cancel", { request: 1 });
-      // 3. Another tab's request id
-      await internals.invoke("cancel", { request: 2 });
-    });
+    // Send cancel for non-existent id (0: counter starts at 1, 0 is never issued) and finished id
+    await page.evaluate(async (finishedId) => {
+      const internals = (window as unknown as {
+        __TAURI_INTERNALS__: { invoke(cmd: string, args?: unknown): Promise<unknown> };
+      }).__TAURI_INTERNALS__;
+      // Non-existent request id (counter starts at 1, 0 is never issued)
+      await internals.invoke("cancel", { request: 0 });
+      if (typeof finishedId === "number") {
+        // Already finished request id
+        await internals.invoke("cancel", { request: finishedId });
+      }
+    }, finishedRequestId);
 
-    // The export running on tab 1 was not affected and completes normally
+    // The export running on the document was not affected and completes normally
     await expect(page.getByRole("contentinfo")).toContainText(strings.export.done(2));
-    await expect(dialog).toHaveCount(0);
-    expect(readdirSync(folder).sort()).toEqual(["multi-page-10-p1.png", "multi-page-10-p2.png"]);
-
-    // Tab 2 remains unaffected and functional
-    await documentTabs(page).nth(1).click();
-    await expect(page.getByRole("contentinfo")).toContainText("single-page.pdf");
-    await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
+    await expect(dialog2).toHaveCount(0);
+    expect(readdirSync(folder).sort()).toEqual([
+      "multi-page-10-p1.png",
+      "multi-page-10-p2.png",
+      "multi-page-10-p3.png",
+    ]);
   } finally {
     rmSync(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
