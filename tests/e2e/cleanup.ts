@@ -7,13 +7,12 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "nod
 import path from "node:path";
 
 export type RemoveFolderOptions = {
-  /** Maximum retry attempts before giving up (default: 50, ~10s total with 200ms delay). */
+  /** Maximum retry attempts before giving up (default: 10, ~11s total because Node's rmSync increases delay by retryDelay on each attempt). */
   maxRetries?: number;
   /** Delay between retries in milliseconds (default: 200ms). */
   retryDelay?: number;
 };
 
-const inMemoryPending = new Set<string>();
 let customManifestPath: string | null = null;
 
 /** Override the cleanup manifest file location (primarily for testing). */
@@ -29,13 +28,12 @@ export function getManifestPath(): string | null {
 /**
  * Records a folder for deferred cleanup by globalTeardown.
  *
- * Writes to both the in-process Set and the run's cleanup manifest file so that
- * globalTeardown (which runs in a separate process from test workers) knows which
+ * Writes to the run's cleanup manifest file so that globalTeardown
+ * (which runs in a separate process from test workers) knows which
  * folders belong to this test run.
  */
 export function recordPendingCleanup(folder: string): void {
   const resolved = path.resolve(folder);
-  inMemoryPending.add(resolved);
 
   const manifest = getManifestPath();
   if (manifest) {
@@ -45,12 +43,14 @@ export function recordPendingCleanup(folder: string): void {
     } catch (error) {
       console.warn(`warning: could not record pending cleanup to "${manifest}": ${String(error)}`);
     }
+  } else {
+    console.warn(`warning: could not record pending cleanup for "${resolved}" because no cleanup manifest is configured`);
   }
 }
 
-/** Returns all folders currently recorded for deferred cleanup. */
+/** Returns all folders currently recorded for deferred cleanup in the manifest file. */
 export function getPendingCleanups(): string[] {
-  const folders = new Set<string>(inMemoryPending);
+  const folders = new Set<string>();
   const manifest = getManifestPath();
   if (manifest && existsSync(manifest)) {
     try {
@@ -69,7 +69,8 @@ export function getPendingCleanups(): string[] {
 }
 
 /**
- * Removes a temporary folder. Retries for ~10 seconds by default.
+ * Removes a temporary folder. Retries for ~11 seconds by default
+ * (maxRetries: 10, retryDelay: 200; Node's rmSync adds retryDelay per attempt: 1+2+...+10 = 55 * 200ms = 11s).
  *
  * If the folder is still locked (EBUSY, EPERM, ENOTEMPTY), logs a warning and records
  * the folder for globalTeardown rather than throwing and failing the test. Any other
@@ -80,7 +81,7 @@ export function removeTemporaryFolder(folder: string, options?: RemoveFolderOpti
     return;
   }
 
-  const maxRetries = options?.maxRetries ?? 50;
+  const maxRetries = options?.maxRetries ?? 10;
   const retryDelay = options?.retryDelay ?? 200;
 
   try {
@@ -102,7 +103,7 @@ export function removeTemporaryFolder(folder: string, options?: RemoveFolderOpti
  */
 export function cleanupPendingFolders(options?: RemoveFolderOptions): void {
   const folders = getPendingCleanups();
-  const maxRetries = options?.maxRetries ?? 50;
+  const maxRetries = options?.maxRetries ?? 10;
   const retryDelay = options?.retryDelay ?? 200;
 
   for (const folder of folders) {
@@ -117,21 +118,10 @@ export function cleanupPendingFolders(options?: RemoveFolderOptions): void {
     }
   }
 
-  inMemoryPending.clear();
-
   const manifest = getManifestPath();
   if (manifest && existsSync(manifest)) {
     try {
       rmSync(manifest, { force: true });
-    } catch {
-      // Best-effort cleanup
-    }
-  }
-
-  const runDir = process.env.PDF_READER_E2E_RUN_DIR;
-  if (runDir && existsSync(runDir)) {
-    try {
-      rmSync(runDir, { recursive: true, force: true });
     } catch {
       // Best-effort cleanup
     }
