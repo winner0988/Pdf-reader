@@ -67,7 +67,7 @@ export function Sidebar({
     <aside
       aria-label={t.label}
       data-region="sidebar"
-      className="flex w-[280px] shrink-0 flex-col border-r bg-muted/40 max-[959px]:absolute max-[959px]:inset-y-0 max-[959px]:left-0 max-[959px]:z-20 max-[959px]:bg-background max-[959px]:shadow-lg"
+      className="flex w-[280px] shrink-0 flex-col border-r bg-muted/40 max-[959px]:absolute max-[959px]:inset-y-0 max-[959px]:left-0 max-[959px]:z-20 max-[959px]:bg-background max-[959px]:shadow-lg animate-in fade-in-0 slide-in-from-left-2 duration-200 ease-out motion-reduce:animate-none"
     >
       <Tabs
         value={activeTab}

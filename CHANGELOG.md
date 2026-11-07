@@ -16,6 +16,7 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 ### 視覺
 
+- 微動態（UX-02 第 3 步，#393）：側欄開合、分頁切換、按鈕按下、存檔完成打勾與頁面載入骨架微光採用 150～250 ms 輕量動態，僅操作 `transform` 與 `opacity` 確保 GPU 合成不重繪排版；Windows「動畫效果」關閉（`prefers-reduced-motion: reduce`）時所有動態與微光立即靜止，維持極致效能與最高無障礙標準。
 - 視覺風格指南與品牌強調色（UX-02 第 1 步）：新增視覺風格指南（`docs/ux/visual-style.md`），以暖中性色取代純灰色，並加入高對比的品牌強調色（深寶藍／天藍），套用於主要按鈕、焦點框、選取範圍、目前的分頁、縮圖頁面外框與檔案拖放目標，通過 WCAG AA 與 1.4.11 無障礙色彩對比標準。
 
 ### 閱讀

@@ -49,6 +49,7 @@ describe("saving (B2-02)", () => {
     await user.keyboard("{Control>}s{/Control}");
     expect(api.save).toHaveBeenCalledWith(5);
     await waitFor(() => expect(statusText()).toContain(t.saved));
+    expect(screen.getByRole("status").querySelector("svg")).toHaveClass("text-primary");
   });
 
   it("has nothing to save without changes", async () => {
