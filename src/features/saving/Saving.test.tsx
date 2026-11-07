@@ -68,12 +68,13 @@ describe("saving (B2-02)", () => {
 
     await user.keyboard("{Control>}s{/Control}");
     await waitFor(() => expect(statusText()).toContain(t.savedIncremental));
+    expect(screen.getByRole("status").querySelector("svg")).toBeNull();
   });
 
   it.each([
-    [0, t.redactionVerified],
-    [2, t.redactionFailed(2)],
-  ])("after redacting, says the file was verified only when reading it again found nothing (%i places, B2-20)", async (places, message) => {
+    [0, t.redactionVerified, true],
+    [2, t.redactionFailed(2), false],
+  ])("after redacting, says the file was verified only when reading it again found nothing (%i places, B2-20)", async (places, message, tick) => {
     const api = fakeSavingApi({
       save: vi.fn(() => Promise.resolve({ incremental: false, redaction: { places } })),
     });
@@ -81,6 +82,11 @@ describe("saving (B2-02)", () => {
     await user.keyboard("{Control>}s{/Control}");
     await waitFor(() => expect(statusText()).toContain(message));
     expect(statusText()).not.toContain(t.saved);
+    if (tick) {
+      expect(screen.getByRole("status").querySelector("svg")).toHaveClass("text-primary");
+    } else {
+      expect(screen.getByRole("status").querySelector("svg")).toBeNull();
+    }
   });
 
   it("saves as another file from the menu and Ctrl+Shift+S; a closed dialog changes nothing", async () => {

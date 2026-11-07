@@ -30,6 +30,11 @@ describe("StatusBar save checkmark", () => {
     expect(checkmarkShown(container)).toBe(false);
   });
 
+  it("does not show the checkmark for other non-save hints", () => {
+    const { container } = render(<StatusBar document={document} hint="已複製。" />);
+    expect(checkmarkShown(container)).toBe(false);
+  });
+
   it("does not show the checkmark without a hint", () => {
     const { container } = render(<StatusBar document={document} />);
     expect(checkmarkShown(container)).toBe(false);
