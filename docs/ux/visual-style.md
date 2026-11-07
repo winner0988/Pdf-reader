@@ -138,7 +138,8 @@
   - `size-3.5` (14px)：分頁狀態小圖示（載入、鎖定、警告）。
   - `size-4` (16px)：按鈕內前綴圖示、選單項目圖示、狀態列輔助圖示。
   - `size-5` (20px)：主工具列按鈕圖示（翻頁、縮放、旋轉、搜尋、更多）。
-  - `size-16` (64px)：空狀態中心引導圖示。
+  - `size-16` (64px)：一般空狀態中心引導圖示。
+  - `size-24` (96px)：開始畫面中心向量插畫。
 - **無障礙規範**：
   - 純裝飾用圖示一律標記 `aria-hidden`。
   - 獨立圖示按鈕必須具備 `aria-label` 或工具提示，不得僅依賴視覺圖示表達功能。
@@ -170,6 +171,15 @@
   - 時間維持在 **150ms 至 250ms** 之間。
   - 動畫屬性僅允許 `transform` 與 `opacity`，確保由 GPU 加速合成，絕不觸發 DOM 排版重繪（reflow）。
   - 互動反饋：按鈕點擊微下沉（`active:translate-y-px`）。
+- **開始畫面與拖放動態（Start Screen & Drop Motion，UX-02 第 2 步定案）**：
+  - **插畫構成**：自訂手繪純幾何向量 SVG（`StartIllustration`，`viewBox="0 0 96 96"`），以紙張頁面（含折角與內容預覽線）搭配隱私盾牌與鎖頭，具體表達「離線、注重隱私的閱讀器」。不載入任何外部資源或點陣圖，純向量路徑在 100%、125%、150% 等任何高 DPI 縮放下均保持清晰銳利。圖示標記 `aria-hidden="true"`，不干擾無障礙輔助科技。
+  - **色彩來源**：所有色彩嚴格僅取自 `currentColor` 與現有 CSS Token，不寫死任何色碼：
+    - 文件外框與內文預覽線：`currentColor`（繼承 `--muted-foreground`，線條透明度 0.3）。
+    - 文件底色：`--card`。
+    - 折角微光：`--primary`（透明度 0.12）。
+    - 盾牌底色：`--background`。
+    - 盾牌輪廓與鎖頭本體：品牌強調色 `--primary`（淺色為深寶藍、深色為天青藍，均符合 WCAG AA 對比度）。
+    - 鎖孔：`--primary-foreground`。
+  - **拖放動態**：當檔案拖曳進入視窗時（`data-drop-indicator`），邊框呈現品牌強調色虛線框（`border-2 border-dashed border-primary`），動態持續時間為 **200ms**（`ease-out`），僅動 **`transform`**（scale 0.98 $\to$ 1.0）與 **`opacity`**（0 $\to$ 1），絕不觸發排版重繪（reflow）。在系統開啟「減少動態」模式下，全域 `prefers-reduced-motion` 規則會將其過渡時間壓至 0.01ms 即時呈現。
 - **後續進度標記**：
-  - **開始畫面（Start Screen）**：自訂向量 SVG 插圖、拖曳進入視窗的動態反饋，於 **UX-02 第 2 步** 定案與實作。
   - **精細微動態（Micro-interactions）**：側欄滑順開合、切換分頁轉場、存檔成功微勾動畫、骨架載入微光（Shimmer），於 **UX-02 第 3 步** 定案與實作。
