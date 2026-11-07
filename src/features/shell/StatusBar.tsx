@@ -11,6 +11,8 @@ type StatusBarProps = {
   hoverTarget?: string;
   /** A passing message, such as why Ctrl+C did nothing; screen readers announce it. */
   hint?: string;
+  /** The hint reports a completed save (not a warning): it gets the checkmark. */
+  hintDone?: boolean;
   /** What the document's author restricts (MVP-19). */
   restriction?: string | null;
   /** Scanned pages are being read (B2-10): how far it is, and a way to stop it. */
@@ -30,6 +32,7 @@ export function StatusBar({
   document,
   hoverTarget,
   hint,
+  hintDone = false,
   restriction,
   ocr,
   ocrNote,
@@ -88,7 +91,7 @@ export function StatusBar({
             <span className="ml-auto truncate">{hoverTarget}</span>
           ) : (
             <span role="status" className="ml-auto inline-flex items-center truncate">
-              {hint?.startsWith("已儲存") && (
+              {hintDone && hint !== undefined && (
                 <Check
                   aria-hidden="true"
                   className="mr-1 size-3.5 shrink-0 text-primary animate-in fade-in-0 zoom-in-75 duration-200 ease-out motion-reduce:animate-none"

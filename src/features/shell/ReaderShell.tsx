@@ -317,7 +317,7 @@ export function ReaderShell({
   /** Whether any of the document's text is selected (MVP-15). */
   const [textSelected, setTextSelected] = useState(false);
   /** A passing message in the status bar; `id` counts them, so the same one shows anew each time. */
-  const [hint, setHint] = useState<{ text: string; id: number } | null>(null);
+  const [hint, setHint] = useState<{ text: string; id: number; done: boolean } | null>(null);
   const [zoom, setZoom] = useState<Zoom>("fitWidth");
   const [layoutMode, setLayoutMode] = useState<PageLayoutMode>("single");
   /** What a fit mode currently shows, so zoom steps continue from there. */
@@ -437,7 +437,9 @@ export function ReaderShell({
     return () => window.clearTimeout(timer);
   }, [hint]);
 
-  const showHint = (text: string) => setHint((last) => ({ text, id: (last?.id ?? 0) + 1 }));
+  const showHint = (text: string) => setHint((last) => ({ text, id: (last?.id ?? 0) + 1, done: false }));
+  /** A hint that says the save is complete: only this one gets the checkmark. */
+  const showDoneHint = (text: string) => setHint((last) => ({ text, id: (last?.id ?? 0) + 1, done: true }));
   // Forgetting the password the app remembers for this file (B2-26); the file's new state follows.
   const forgetPassword = onForgetPassword
     ? () => {
@@ -735,13 +737,13 @@ export function ReaderShell({
     if (!result) return;
     // After redacting (B2-20): only a file read again without what was removed is said to be done.
     if (result.redaction) {
-      showHint(
-        result.redaction.places === 0
-          ? strings.saving.redactionVerified
-          : strings.saving.redactionFailed(result.redaction.places),
-      );
+      if (result.redaction.places === 0) showDoneHint(strings.saving.redactionVerified);
+      else showHint(strings.saving.redactionFailed(result.redaction.places));
+    } else if (result.incremental) {
+      // The removed text is still in the file: a warning, not a success.
+      showHint(strings.saving.savedIncremental);
     } else {
-      showHint(result.incremental ? strings.saving.savedIncremental : strings.saving.saved);
+      showDoneHint(strings.saving.saved);
     }
   };
   // A value still being typed in a field of the form is part of what is saved (B2-09), and the
@@ -1901,6 +1903,7 @@ export function ReaderShell({
           document={document_ ? { displayName: document_.displayName, currentPage, pageCount, zoom } : null}
           hoverTarget={linkHover ?? undefined}
           hint={hint?.text}
+          hintDone={hint?.done}
           restriction={document_ ? restrictionSummary(permissions) : null}
           ocr={ocrView.status}
           ocrNote={ocrView.note}

@@ -162,8 +162,11 @@
 }
 
 @keyframes shimmer {
-  100% {
-    transform: translateX(100%);
+  from {
+    translate: -100% 0;
+  }
+  to {
+    translate: 100% 0;
   }
 }
 

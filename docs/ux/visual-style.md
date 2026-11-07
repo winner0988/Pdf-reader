@@ -177,8 +177,8 @@
 
 | 互動情境 | 適用位置 / 元件 | 時間 (Duration) | Easing | 動態屬性 (Properties) | 視覺效果說明 |
 |---|---|---|---|---|---|
-| **側欄開合** | `src/features/shell/Sidebar.tsx` | 200ms | `ease-out` (`cubic-bezier(0.16, 1, 0.3, 1)`) | `transform`, `opacity` | 展開時由左側微移入（`translateX(-8px)` $\to$ `0`）並淡入，不變更寬度或觸發重排版；關閉時立即移除無殘留。 |
+| **側欄開合** | `src/features/shell/Sidebar.tsx` | 200ms | `ease-out` (`cubic-bezier(0, 0, 0.2, 1)`) | `transform`, `opacity` | 展開時由左側微移入（`translateX(-8px)` → `0`）並淡入，不變更寬度或觸發重排版；關閉時立即移除無殘留。 |
 | **切換分頁** | `src/features/tabs/TabBar.tsx`、`src/App.tsx` (`TabPane`)、`src/components/ui/tabs.tsx` | 200ms | `ease-out` | `opacity`, `colors` | 分頁按鈕狀態過渡，分頁內容於切換時 200ms 平滑淡入（`opacity: 0` $\to$ `1`），保持無障礙焦點區域穩定。 |
-| **按鈕按下回饋** | `src/components/ui/button.tsx`、`IconButton` | 150ms | `ease-out` | `transform` | 按下時微縮放至 98%（`scale(0.98)`）並微下沉 1px（`translateY(1px)`），放開時 150ms 平滑回彈，提供清晰觸覺回饋。 |
-| **存檔完成打勾** | `src/features/shell/StatusBar.tsx` | 200ms | `ease-out` | `transform`, `opacity` | 狀態列出現「已儲存」成功提示時，前方打勾圖示（`<Check aria-hidden />`）以 200ms 彈性縮放（`scale(0.75)` $\to$ `1`）與淡入顯現。 |
-| **骨架載入微光** | `src/features/shell/states.tsx` (`LoadingState`)、`src/components/ui/skeleton.tsx` | 淡入 200ms / 微光 2s 循環 | `ease-out` / `linear` | `transform`, `opacity` | 開檔超過 300ms 進入載入狀態時，畫布顯示頁面骨架紙張，表面以微光（Shimmer，`translateX`）沿 X 軸掠過，減少動態時完全靜止。 |
+| **按鈕按下回饋** | `src/components/ui/button.tsx`、`IconButton` | 150ms | `ease-out` (`cubic-bezier(0, 0, 0.2, 1)`) | `translate`, `scale` | 按下時微縮放至 98%（`scale: 0.98`）並微下沉 1px（`translate: 0 1px`），放開時 150ms 平滑回彈，提供清晰觸覺回饋。Tailwind 4 把這兩個屬性獨立設定，所以過渡清單要列出 `translate` 與 `scale`。 |
+| **存檔完成打勾** | `src/features/shell/StatusBar.tsx` | 200ms | `ease-out` (`cubic-bezier(0, 0, 0.2, 1)`) | `transform`, `opacity` | 只有存檔完成（一般存檔，或遮蔽後重讀驗證通過）的提示才出現前方打勾圖示（`<Check aria-hidden />`），以 200ms 彈性縮放（`scale(0.75)` → `1`）與淡入顯現。警告（遮蔽未通過、增量存檔仍留有刪除內容）不打勾。由存檔結果決定，不比對提示文字。 |
+| **骨架載入微光** | `src/features/shell/states.tsx` (`LoadingState`)、`src/components/ui/skeleton.tsx` | 淡入 200ms / 微光 2s 循環 | `ease-out` / `ease`（未指定，瀏覽器預設） | `translate`, `opacity` | 開檔超過 300ms 進入載入狀態時，畫布顯示頁面骨架紙張，表面以微光（Shimmer，`translate` 由 -100% 走到 100%）沿 X 軸掠過，減少動態時完全靜止。
