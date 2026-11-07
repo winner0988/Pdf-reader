@@ -24,9 +24,11 @@
 
 ## 自動執行（`.github/workflows/fuzz.yml`）
 
-- **排程**：每週一，Linux runner，每個目標 20 分鐘。
+- **排程**：每週一，Linux runner（`ubuntu-24.04`，因 `ubuntu-26.04` 缺少 bindgen 所需的 libclang，見 #498），每個目標 20 分鐘。
 - **PR**：修改 `fuzz/`、`crates/ipc_contract/`、`crates/pdf_worker/`、`tests/corpus/` 或這個 workflow 時，每個目標跑 2 分鐘。
 - **手動**：Actions → Fuzz → Run workflow。
+- **編譯工具環境**：
+  - runner 尋找內建的 `clang` 與 `libclang` 供 bindgen 使用；找不到 clang、libclang 或 llvm-symbolizer 時，那一步會失敗（#498）。
 - **MuPDF 也被偵測**：
   - workflow 以 `CC=clang`、`CFLAGS=-fsanitize=fuzzer-no-link,address` 建置，MuPDF 與它的 C 函式庫也有覆蓋率回饋與 AddressSanitizer，不只 Rust 程式碼。
   - 只設 C 的旗標，因為 libFuzzer 本身是 C++，不能對自己插樁。

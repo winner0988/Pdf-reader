@@ -34,7 +34,10 @@ concurrency:
 jobs:
   fuzz:
     name: Fuzz (${{ matrix.target }})
-    runs-on: ubuntu-latest
+    # Pinned to ubuntu-24.04 because ubuntu-26.04 image lacks libclang in standard paths required by bindgen (#498).
+    # Moving to a newer runner version should be tracked in a separate issue to re-verify libclang,
+    # llvm-symbolizer, and LeakSanitizer suppressions.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -55,8 +58,31 @@ jobs:
       # .cargo/config.toml points bindgen at LLVM's Windows location unless these are set.
       - name: Use the runner's clang for bindgen
         run: |
-          echo "CLANG_PATH=$(command -v clang)" >> "$GITHUB_ENV"
-          echo "LIBCLANG_PATH=$(llvm-config --libdir 2>/dev/null || dirname "$(find /usr/lib -name 'libclang.so*' | head -1)")" >> "$GITHUB_ENV"
+          clang_path=$(command -v clang || true)
+          if [ -z "$clang_path" ]; then
+            echo "::error::clang was not found on the runner (#498)."
+            exit 1
+          fi
+
+          libclang_dir=""
+          if command -v llvm-config >/dev/null 2>&1; then
+            libclang_dir=$(llvm-config --libdir 2>/dev/null || true)
+          fi
+          if [ -z "$libclang_dir" ]; then
+            libclang_so=$(find /usr/lib -name 'libclang.so*' 2>/dev/null | head -1 || true)
+            if [ -n "$libclang_so" ]; then
+              libclang_dir=$(dirname "$libclang_so")
+            fi
+          fi
+          if [ -z "$libclang_dir" ]; then
+            echo "::error::libclang was not found on the runner (#498)."
+            exit 1
+          fi
+
+          echo "CLANG_PATH=$clang_path" >> "$GITHUB_ENV"
+          echo "LIBCLANG_PATH=$libclang_dir" >> "$GITHUB_ENV"
+          echo "Using clang: $clang_path"
+          echo "Using libclang: $libclang_dir"
       # Find llvm-symbolizer on the runner for symbolized AddressSanitizer and LeakSanitizer
       # reports. Symbolized function names are required for LSan suppressions (Issue #485).
       - name: Locate llvm-symbolizer
