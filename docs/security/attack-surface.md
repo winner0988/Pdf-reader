@@ -53,7 +53,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 |---|---|---|---|---|
 | `subscribe_open_events` | 用 channel 接收開檔的結果（不開放 `core:event`） | 沒有參數 | — | `open.spec.ts` |
 | `open_document_dialog` | 主行程顯示開啟對話框，選到的每個 PDF 各開一個分頁 | 同時只開一個（`DIALOG_SHOWING`）；分頁 ≤ `MAX_TABS`（20）；檔案 ≤ `MAX_DOCUMENT_BYTES`（512 MiB） | 開啟對話框（`*.pdf`，可多選）；每個分頁啟動一個 worker；記入最近的檔案（§6） | `open.spec.ts`、`tabs.spec.ts`、`unicode-paths.spec.ts` |
-| `retry_open` | worker 失敗後，以分頁代號重新開啟那個分頁的檔案 | 分頁代號 | 新的 worker | `retry-open-and-cancel.spec.ts`；worker `isolation.rs`（`killed_worker_is_reported_then_replaced`） |
+| `retry_open` | 重試開檔失敗的分頁；已開好的文件在 worker 死掉後由主行程自動重開 | 分頁代號 | 新的 worker | `retry-open-and-cancel.spec.ts`；`documents.rs`（`a_failed_open_is_reported_and_can_be_retried_in_the_same_tab`、`a_crashed_worker_fails_one_render_then_the_document_is_reopened`）；worker `isolation.rs`（`killed_worker_is_reported_then_replaced`） |
 | `unlock_tab` | 對加密文件的分頁試密碼；使用者要求時記住 | `UnlockArgs`：`check_password`（不得為空、不含 NUL、≤ `MAX_PASSWORD_BYTES` 1024 bytes） | 密碼只送到那個分頁的 worker；要記住時寫入認證管理員（§6） | `password.spec.ts`、`password-memory.spec.ts`；`credentials.rs` |
 | `forget_password` | 忘記某個分頁的檔案記住的密碼 | 分頁代號 | 刪除認證管理員裡的那一筆 | `password-memory.spec.ts` |
 | `forget_all_passwords` | 忘記全部記住的密碼，回傳原本有幾筆 | 沒有參數 | 刪除認證管理員裡 app 的全部項目 | `password-memory.spec.ts` |
@@ -68,7 +68,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 命令 | 做什麼 | 主行程的檢查與上限 | 對話框、寫入、行程 | 測試 |
 |---|---|---|---|---|
 | `render_page` | 渲染一頁，或一頁的一塊 | `RenderPageArgs`：`check_scale`（0.01–64）、`check_page_index`；區塊每邊 ≤ 8192 px、總像素 ≤ 4096²、座標在 2²⁰ 以內 | `Render`、`RenderRegion` | `viewer.spec.ts`、`thumbnails.spec.ts`；`documents.rs`（`regions_render_at_the_requested_scale`）；worker `isolation.rs`（`memory_limit_contains_a_huge_render`） |
-| `cancel` | 以請求代號取消排隊或進行中的工作（渲染、搜尋、匯出、批次、索引搜尋） | 請求代號 | 只在主行程裡取消；worker 的 `Cancel` 目前沒有送出（§2） | `retry-open-and-cancel.spec.ts`；前端的單元測試 |
+| `cancel` | 以請求代號取消排隊或進行中的工作（渲染、搜尋、匯出、批次、索引搜尋） | 請求代號 | 只在主行程裡取消；worker 的 `Cancel` 目前沒有送出（§2） | `retry-open-and-cancel.spec.ts`；`render.rs`（`queued_requests_can_be_cancelled`）；`search.rs`（`cancelling_stops_before_the_next_page`、`cancel_marks_only_running_searches`）；`batch.rs`（`a_batch_is_known_until_it_ends_and_can_be_stopped`）；`Exports::cancel`（`export.rs`）無單元測試，由 `retry-open-and-cancel.spec.ts` 測試；前端的單元測試 |
 | `get_outline` | 讀目錄（已檢查過） | 文件代號 | `GetOutline` | `outline-edit.spec.ts`；worker `outline.rs` |
 | `get_page_text` | 一頁的文字與每個字的位置（選取、複製） | `check_page_index` | `GetPageText` | `text.spec.ts`；worker `text.rs` |
 | `get_page_links` | 一頁的連結在哪裡、是哪一種 | `check_page_index` | `GetPageLinks` | worker `links.rs`；`links.rs` |
@@ -419,6 +419,6 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 已在 #428 補上：圖章圖片（`PrepareStampImage`，新目標 `stamp_image`）與匯入字型（`InspectFont`，併入 `text_box_font`）的 fuzz（§2.4） | #428 | 是 |
 | 主行程自己解析的資料沒有 fuzz（§3；已由 #429 補上 language_data fuzz 目標與主行程解析器變異測試） | #429 | 是 |
 | OCR 的語言資料與掃描頁沒有 fuzz（§2.3、§2.4） | 已由 #431 補上目標（`ocr`） | 是 |
-| `retry_open`、`cancel` 在主行程這一側沒有測試（§1.1、§1.2；已由 #432 於 `retry-open-and-cancel.spec.ts` 測試） | #432 | 否 |
+| `retry_open`、`cancel` 在主行程這一側沒有測試（§1.1、§1.2；主行程已有單元測試，`Exports::cancel` 僅有 E2E；E2E 由 #432 與 #495 於 `retry-open-and-cancel.spec.ts` 測試） | #432、#495 | 否 |
 | 拖放開檔列入人工檢查（manual-checks §3.14），`commands.rs` 註解已更正（§8） | #436（已完成） | 否 |
 | 這份清單與程式碼一致的 CI 檢查 | 已由 #430 實作（`check-security-config.mjs`） | 是 |
