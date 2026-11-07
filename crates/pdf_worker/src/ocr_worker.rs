@@ -41,7 +41,7 @@ pub struct Geometry {
 }
 
 impl Geometry {
-    fn quad(&self, c: &OcrChar) -> Quad {
+    pub(crate) fn quad(&self, c: &OcrChar) -> Quad {
         let at = |x: i32, y: i32| Point {
             x: self.x0 + x as f32 / self.pixels_per_point,
             y: self.y0 + y as f32 / self.pixels_per_point,
