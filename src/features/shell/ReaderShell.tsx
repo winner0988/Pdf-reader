@@ -1756,6 +1756,7 @@ export function ReaderShell({
                       rotation={rotation}
                       layoutMode={layoutMode}
                       scrollContainer={canvasRef}
+                      active={active}
                       doc={document_.doc}
                       renderer={renderer}
                       onCurrentPageChange={setCurrentPage}

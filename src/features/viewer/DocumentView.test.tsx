@@ -71,6 +71,7 @@ type HarnessProps = {
   onSelectionChange?: (selected: boolean) => void;
   onNoText?: () => void;
   view?: Ref<DocumentViewHandle>;
+  active?: boolean;
 };
 
 function Harness({
@@ -89,6 +90,7 @@ function Harness({
   onSelectionChange,
   onNoText,
   view,
+  active = true,
 }: HarnessProps) {
   const scroller = useRef<HTMLElement>(null);
   return (
@@ -100,6 +102,7 @@ function Harness({
         rotation={rotation}
         layoutMode={layoutMode}
         scrollContainer={scroller}
+        active={active}
         doc={7}
         renderer={renderer}
         onCurrentPageChange={onPage}
@@ -986,6 +989,131 @@ describe("DocumentView", () => {
       fireEvent.mouseMove(window, at(0, 101, 106));
       fireEvent.mouseUp(window);
       expect(view.current!.hasSelection()).toBe(false);
+    });
+  });
+
+  describe("hidden tab (#510)", () => {
+    it("keeps reading position and sends no renders when hidden and restored at numeric zoom", () => {
+      let resizeCallback: (() => void) | null = null;
+      vi.stubGlobal(
+        "ResizeObserver",
+        vi.fn(function (callback: () => void) {
+          resizeCallback = callback;
+          return {
+            observe: vi.fn(),
+            unobserve: vi.fn(),
+            disconnect: vi.fn(() => {
+              resizeCallback = null;
+            }),
+          };
+        }),
+      );
+      try {
+        const { renderer, calls } = fakeRenderer();
+        const pages = Array(1000).fill(LETTER);
+        const { rerender } = render(<Harness pages={pages} zoom={100} renderer={renderer} active={true} />);
+        const scroller = screen.getByTestId("scroller");
+        Object.defineProperty(scroller, "clientWidth", { configurable: true, value: 1000 });
+        Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 800 });
+        // Scroll to page 300 (0-based index 299)
+        const targetScroll = PAGE_PADDING_PX + PITCH * 299;
+        scrollTo(scroller, targetScroll);
+        expect(scroller.scrollTop).toBe(targetScroll);
+        const initialCalls = calls.length;
+        expect(initialCalls).toBeGreaterThan(0);
+
+        // Hide tab: active becomes false, dimensions and scrollTop become 0
+        rerender(<Harness pages={pages} zoom={100} renderer={renderer} active={false} />);
+        Object.defineProperty(scroller, "clientWidth", { configurable: true, value: 0 });
+        Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 0 });
+        scroller.scrollTop = 0;
+        act(() => {
+          resizeCallback?.();
+          scroller.dispatchEvent(new Event("scroll"));
+        });
+
+        // While hidden: no new render requests
+        expect(calls.length).toBe(initialCalls);
+
+        // Switch back: active becomes true, dimensions restored
+        Object.defineProperty(scroller, "clientWidth", { configurable: true, value: 1000 });
+        Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 800 });
+        rerender(<Harness pages={pages} zoom={100} renderer={renderer} active={true} />);
+        act(() => {
+          resizeCallback?.();
+          scroller.dispatchEvent(new Event("scroll"));
+        });
+
+        // Reading position is preserved
+        expect(scroller.scrollTop).toBe(targetScroll);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("keeps reading position and sends no renders when hidden and restored at fitWidth zoom", () => {
+      let resizeCallback: (() => void) | null = null;
+      vi.stubGlobal(
+        "ResizeObserver",
+        vi.fn(function (callback: () => void) {
+          resizeCallback = callback;
+          return {
+            observe: vi.fn(),
+            unobserve: vi.fn(),
+            disconnect: vi.fn(() => {
+              resizeCallback = null;
+            }),
+          };
+        }),
+      );
+      try {
+        const { renderer, calls } = fakeRenderer();
+        const pages = Array(1000).fill(LETTER);
+        const viewRef = createRef<DocumentViewHandle>();
+        const { rerender } = render(<Harness pages={pages} zoom="fitWidth" renderer={renderer} active={true} view={viewRef} />);
+        const scroller = screen.getByTestId("scroller");
+        Object.defineProperty(scroller, "clientWidth", { configurable: true, value: 1000 });
+        Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 800 });
+        act(() => {
+          resizeCallback?.();
+          scroller.dispatchEvent(new Event("scroll"));
+        });
+        // Scroll to page 300
+        act(() => {
+          viewRef.current?.scrollToPage(300);
+        });
+        const targetScroll = scroller.scrollTop;
+        expect(targetScroll).toBeGreaterThan(0);
+        const initialCalls = calls.length;
+        expect(initialCalls).toBeGreaterThan(0);
+
+        // Hide tab: active becomes false, dimensions and scrollTop become 0
+        rerender(<Harness pages={pages} zoom="fitWidth" renderer={renderer} active={false} view={viewRef} />);
+        Object.defineProperty(scroller, "clientWidth", { configurable: true, value: 0 });
+        Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 0 });
+        scroller.scrollTop = 0;
+        act(() => {
+          resizeCallback?.();
+          scroller.dispatchEvent(new Event("scroll"));
+        });
+
+        // While hidden: no new render requests
+        expect(calls.length).toBe(initialCalls);
+
+        // Switch back: active becomes true, dimensions restored
+        Object.defineProperty(scroller, "clientWidth", { configurable: true, value: 1000 });
+        Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 800 });
+        rerender(<Harness pages={pages} zoom="fitWidth" renderer={renderer} active={true} view={viewRef} />);
+        act(() => {
+          resizeCallback?.();
+          scroller.dispatchEvent(new Event("scroll"));
+        });
+
+        // Reading position is preserved
+        expect(scroller.scrollTop).toBe(targetScroll);
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
   });
 });

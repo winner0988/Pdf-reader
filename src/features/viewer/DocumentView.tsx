@@ -160,6 +160,8 @@ type DocumentViewProps = {
   onToolDone?: () => void;
   /** Page layout arrangement: single, twoPage, or twoPageCover. */
   layoutMode?: PageLayoutMode;
+  /** Whether the view is in the active tab; hidden tabs keep their layout and reading position without measuring (#510). */
+  active?: boolean;
   /** Delay before a newly mounted page asks for a render; tests pass 0. */
   requestDelayMs?: number;
   ref?: Ref<DocumentViewHandle>;
@@ -228,6 +230,7 @@ export function DocumentView({
   rotation,
   layoutMode = "single",
   scrollContainer,
+  active = true,
   doc,
   renderer,
   onCurrentPageChange,
@@ -274,13 +277,45 @@ export function DocumentView({
     zoomStep.current = onZoomStep;
   });
 
+  const activeRef = useRef(active);
+  useEffect(() => {
+    activeRef.current = active;
+  });
+
+  const lastMeasuredRef = useRef<Viewport | null>(null);
+  useEffect(() => {
+    if (measured !== null && active) {
+      lastMeasuredRef.current = measured;
+    }
+  }, [measured, active]);
+
+  const wasActive = useRef(active);
+  useEffect(() => {
+    if (!wasActive.current && active) {
+      const element = scrollContainer.current;
+      if (element) {
+        const last = lastMeasuredRef.current;
+        if (last && (element.scrollTop !== last.top || element.scrollLeft !== last.left)) {
+          scrollElement(element, { top: last.top, left: last.left });
+        }
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setMeasured(measure(element));
+      }
+    }
+    wasActive.current = active;
+  }, [active, scrollContainer]);
+
   useEffect(() => {
     const element = scrollContainer.current;
     if (!element) return;
-    const update = () => setMeasured(measure(element));
+    const update = () => {
+      if (!activeRef.current) return;
+      setMeasured(measure(element));
+    };
     update();
     let wheel = 0;
     const onWheel = (event: WheelEvent) => {
+      if (!activeRef.current) return;
       if (!event.ctrlKey) return;
       // Ours, not the WebView's page zoom.
       event.preventDefault();
