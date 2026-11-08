@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -549,8 +550,19 @@ function Thumbnail({
   onContextMenu,
   onPointerDown,
 }: ThumbnailProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [failed, setFailed] = useState(false);
+
+  // React 19 ref callback cleanup: when React unmounts the canvas, zero its surface immediately.
+  const setCanvasRef = useCallback((canvas: HTMLCanvasElement | null) => {
+    canvasRef.current = canvas;
+    return () => {
+      if (canvas) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (sensitive || !renderer || doc === undefined) return;
@@ -599,7 +611,7 @@ function Thumbnail({
             <FileLock2 className="size-8" />
           </div>
         ) : (
-          <canvas ref={canvasRef} aria-hidden className="size-full rounded-sm" />
+          <canvas ref={setCanvasRef} aria-hidden className="size-full rounded-sm" />
         )}
       </div>
       <span aria-hidden className="mt-1 text-xs text-muted-foreground">

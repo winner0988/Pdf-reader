@@ -1695,7 +1695,7 @@ export function ReaderShell({
                 aria-hidden="true"
                 data-drop-indicator
                 className={cn(
-                  "pointer-events-none absolute inset-1.5 z-40 rounded-lg border-2 border-dashed border-primary transition-[transform,opacity] duration-200 ease-out",
+                  "pointer-events-none absolute inset-1.5 z-40 rounded-lg border-2 border-dashed border-primary transition-[scale,opacity] duration-200 ease-out",
                   dropActive ? "scale-100 opacity-100" : "scale-[0.98] opacity-0",
                 )}
               />

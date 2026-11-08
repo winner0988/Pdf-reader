@@ -4,7 +4,7 @@ import type { SVGProps } from "react";
  * A handwritten, privacy-focused vector illustration for the start screen (UX-02 step 2, #393).
  * Represents an offline, privacy-first reader: a document with a folded corner and a shield lock.
  * Uses only `currentColor` and existing CSS tokens (--primary, --card, --background, --primary-foreground)
- * so it adapts automatically to dark mode and Windows high contrast themes without hardcoded colours.
+ * so it adapts automatically to dark mode without hardcoded colours.
  */
 export function StartIllustration({ className, ...props }: SVGProps<SVGSVGElement>) {
   return (

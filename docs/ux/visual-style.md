@@ -193,3 +193,6 @@
 | **按鈕按下回饋** | `src/components/ui/button.tsx`、`IconButton` | 150ms | `ease-out` (`cubic-bezier(0, 0, 0.2, 1)`) | `translate`, `scale` | 按下時微縮放至 98%（`scale: 0.98`）並微下沉 1px（`translate: 0 1px`），放開時 150ms 平滑回彈，提供清晰觸覺回饋。Tailwind 4 把這兩個屬性獨立設定，所以過渡清單要列出 `translate` 與 `scale`。 |
 | **存檔完成打勾** | `src/features/shell/StatusBar.tsx` | 200ms | `ease-out` (`cubic-bezier(0, 0, 0.2, 1)`) | `transform`, `opacity` | 只有存檔完成（一般存檔，或遮蔽後重讀驗證通過）的提示才出現前方打勾圖示（`<Check aria-hidden />`），以 200ms 彈性縮放（`scale(0.75)` → `1`）與淡入顯現。警告（遮蔽未通過、增量存檔仍留有刪除內容）不打勾。由存檔結果決定，不比對提示文字。 |
 | **骨架載入微光** | `src/features/shell/states.tsx` (`LoadingState`)、`src/components/ui/skeleton.tsx` | 淡入 200ms / 微光 2s 循環 | `ease-out` / `ease`（未指定，瀏覽器預設） | `translate`, `opacity` | 開檔超過 300ms 進入載入狀態時，畫布顯示頁面骨架紙張，表面以微光（Shimmer，`translate` 由 -100% 走到 100%）沿 X 軸掠過，減少動態時完全靜止。 |
+  - **拖放動態**：當檔案拖曳進入視窗時（`data-drop-indicator`），邊框呈現品牌強調色虛線框（`border-2 border-dashed border-primary`），動態持續時間為 **200ms**（`ease-out`），只動 **`scale`**（0.98 → 1）與 **`opacity`**（0 → 1）（`scale` 是 CSS 的獨立屬性，跟 `transform` 一樣由 GPU 合成，不觸發 reflow）。在系統開啟「減少動態」模式下，全域 `prefers-reduced-motion` 規則會將其過渡時間壓至 0.01ms 即時呈現。
+- **後續進度標記**：
+  - **精細微動態（Micro-interactions）**：側欄滑順開合、切換分頁轉場、存檔成功微勾動畫、骨架載入微光（Shimmer），於 **UX-02 第 3 步** 定案與實作。

@@ -364,6 +364,7 @@ pub async fn set_sensitive(app: AppHandle, args: SensitiveArgs) -> Result<(), Ip
             _ => list.remove_identifier(&identifier),
         }
         report(&app, event);
+        after_tabs_changed(&app);
         Ok(())
     })
     .await

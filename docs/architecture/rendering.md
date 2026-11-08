@@ -294,25 +294,61 @@ devicePixelRatio 2 時，看得到的那一塊約 2040 × 1510 px（12 MB；dpr 
 
 #### 2. 開關分頁 100 次循環（`tab-cycle.mjs`）
 
-在已開啟基礎檔案的情境下，以 `tab-cycle.mjs` 自動循環開啟並關閉 `large-text-1000-pages.pdf` 100 次，每 10 次循環與靜置 30 秒後記錄各行程狀態（原始記錄見 `test-results/perf/tab-cycle.json`）：
+在已開啟基礎檔案的情境下，以 `tab-cycle.mjs` 自動循環開啟並關閉 `large-text-1000-pages.pdf` 100 次，每 10 次循環與靜置 30 秒後（並透過 CDP `HeapProfiler.collectGarbage` 觸發完整垃圾回收）記錄各行程狀態。
 
-| 檢查點 | 主行程 | WebView2 | worker 數 | worker 記憶體 |
+修之前（`test-results/perf/tab-cycle-100-before.json`）與修之後（`test-results/perf/tab-cycle.json`）對照：
+
+| 檢查點 | 修之前主行程 | 修之後主行程 | 修之前 WebView2 | 修之後 WebView2 | worker 數 | worker 記憶體 |
+|---|---|---|---|---|---|---|
+| 第 0 次（初始基準） | 55 MB | 56 MB | 422 MB | 420 MB | 1 | 461 MB |
+| 第 10 次 | 96 MB | 97 MB | 628 MB | 599 MB | 1 | 553 MB |
+| 第 20 次 | 110 MB | 111 MB | 601 MB | 611 MB | 1 | 638 MB |
+| 第 30 次 | 127 MB | 126 MB | 644 MB | 664 MB | 1 | 642 MB |
+| 第 40 次 | 158 MB | 158 MB | 673 MB | 729 MB | 1 | 642 MB |
+| 第 50 次 | 309 MB | 218 MB | 715 MB | 646 MB | 1 | 643 MB |
+| 第 60 次 | 263 MB | 263 MB | 717 MB | 691 MB | 1 | 644 MB |
+| 第 70 次 | 264 MB | 264 MB | 669 MB | 645 MB | 1 | 646 MB |
+| 第 80 次 | 414 MB | 264 MB | 717 MB | 662 MB | 1 | 647 MB |
+| 第 90 次 | 264 MB | 262 MB | 651 MB | 596 MB | 1 | 648 MB |
+| 第 100 次 | 264 MB | 264 MB | 688 MB | 590 MB | 1 | 649 MB |
+| 靜置 30 秒後（含完整 GC） | 262 MB | 263 MB | 569 MB | 574 MB | 1 | 649 MB |
+
+*註：修之後另一次 100 次量測（`tab-cycle-100-after.json`）靜置後主行程為 265 MB、WebView2 為 577 MB。*
+
+- **300 次循環測試（`tab-cycle-300-before.json` vs `tab-cycle-300-after.json`）**：
+
+| 檢查點 | 修之前主行程 | 修之後主行程 | 修之前 WebView2 | 修之後 WebView2 |
 |---|---|---|---|---|
-| 第 0 次（初始基準） | 55 MB | 408 MB | 1 | 459 MB |
-| 第 10 次 | 97 MB | 632 MB | 1 | 539 MB |
-| 第 20 次 | 231 MB | 660 MB | 1 | 630 MB |
-| 第 30 次 | 279 MB | 713 MB | 1 | 642 MB |
-| 第 40 次 | 227 MB | 764 MB | 1 | 642 MB |
-| 第 50 次 | 384 MB | 708 MB | 1 | 643 MB |
-| 第 60 次 | 446 MB | 599 MB | 1 | 644 MB |
-| 第 70 次 | 371 MB | 775 MB | 1 | 645 MB |
-| 第 80 次 | 429 MB | 621 MB | 1 | 678 MB |
-| 第 90 次 | 476 MB | 699 MB | 1 | 648 MB |
-| 第 100 次 | 334 MB | 615 MB | 1 | 649 MB |
-| 靜置 30 秒後 | 264 MB | 498 MB | 1 | 649 MB |
+| 第 0 次（初始基準） | 55 MB | 55 MB | 422 MB | 408 MB |
+| 第 100 次 | 266 MB | 264 MB | 727 MB | 632 MB |
+| 第 140 次 | 220 MB | 220 MB | 581 MB | 523 MB |
+| 第 200 次 | 220 MB | 220 MB | 622 MB | 529 MB |
+| 第 300 次 | 220 MB | 220 MB | 601 MB | 609 MB |
+| 靜置 30 秒後（含完整 GC） | 219 MB | 219 MB | 443 MB | 471 MB |
 
-- **結果說明**：每次關閉分頁後，對應的 `pdf_worker` 行程均立即正確終止（這點成立），存活 worker 數維持為 1。跑的時候主行程在 97～476 MB 之間起落，最高達到 476 MB，超過開始的值加整個點陣快取（55 + 256 = 311 MB）；靜置之後主行程 264 MB、WebView2 498 MB，比開始多 209 MB 與 90 MB。
-- **驗收狀態**：沒達到，見 #491。腳本判定通過，是因為門檻（主行程 ≤ 350 MB、WebView2 ≤ 開始的 1.25 倍即 510 MB）是 418 自己定的；工作卡的驗收「回到接近開始時的值」沒有達到。主行程執行中超過快取上限之推測原因（關閉分頁時仍在進行中的渲染於完成後仍寫入快取、IPC 傳輸緩衝區、CRT heap 高水位未釋放等）已移至 #491 追蹤。
+- **結果說明與原因分析**：
+  1. **量測數據說明**：修之前與修之後數字一樣，開關 100 次靜置後主行程均在 262～265 MB，WebView2 均在 569～577 MB；300 次循環兩邊均在第 140 次起鎖定在 220 MB 平原、靜置後皆為 219 MB。220 MB 平原在修之前就已經存在。
+  2. **已實作之防護**：
+     - `RasterCache` 追蹤存活文件與調度 epoch，關閉分頁時清除該文件快取，並阻擋在上一次 `retain_documents` 之前就開始繪製、且該次未留下的晚到渲染寫入快取；標記機敏時更新分頁狀態並釋放舊快取。
+     - 前端 `DocumentView`、`Thumbnails`、`PresentationMode` 改用 React 19 ref callback 清理機制，於 DOM 節點移除時立即將 `<canvas>` 之 `width` 與 `height` 歸零。
+  3. **原因分析（推測）**：主行程記憶體高於初始值，推測可能為 Windows NT Heap / MSVC CRT 分配器保留已提交記憶體頁於 free list 的高水位特性，但此原因尚未經過獨立驗證，待 `491-measure` 進一步量測確認。
+- **驗收狀態**：沒達到（#491）。
+  - 門檻（維持 main 原本的值）：
+    - 主行程記憶體 ≤ `max(開始 + 276, 350)` MB；
+    - WebView2 記憶體 ≤ `max(開始 × 1.25, 開始 + 100)` MB；
+    - 理由：#491 的原因還沒找到，新的門檻等 491-measure 量完再定。依原本門檻，WebView2 照實判定為不通過。
+- **重跑方式**：
+  ```bash
+  # 1. 產生大檔測試集
+  python tests/corpus/generate.py --large
+  # 2. release 建置
+  cargo build --release -p pdf_worker
+  # 暫時修改 src-tauri/tauri.conf.json identifier 為 io.github.winner0988.pdfreader.perf491 避免單一實例衝突
+  pnpm tauri build --no-bundle
+  # 3. 執行分頁循環量測
+  node scripts/perf/tab-cycle.mjs --cycles 100 --out test-results/perf
+  # 4. 復原 tauri.conf.json identifier
+  ```
 
 #### 3. 長時間使用穩定性（`soak.mjs`）
 
