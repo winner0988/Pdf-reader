@@ -105,6 +105,7 @@ jobs:
       - name: Install qpdf
         shell: pwsh
         run: |
+          $ProgressPreference = 'SilentlyContinue'
           $url = "https://github.com/qpdf/qpdf/releases/download/v12.4.2/qpdf-12.4.2-msvc64.zip"
           $expectedHash = "db87077e683630c1217e0e8f9a20a9749d952ab676e881c3689187763a5de25d"
           $zipPath = Join-Path $env:RUNNER_TEMP "qpdf-12.4.2-msvc64.zip"
@@ -115,7 +116,6 @@ jobs:
             exit 1
           }
           $extractDir = Join-Path $env:RUNNER_TEMP "qpdf-12.4.2"
-          $ProgressPreference = 'SilentlyContinue'
           Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
           $binDir = Join-Path $extractDir "qpdf-12.4.2-msvc64\bin"
           Add-Content -Path $env:GITHUB_PATH -Value $binDir

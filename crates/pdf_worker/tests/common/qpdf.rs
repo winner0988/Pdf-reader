@@ -20,10 +20,17 @@ pub fn find_qpdf_from(
     if let Some(qpdf_val) = qpdf_env {
         let trimmed = qpdf_val.to_string_lossy().trim().to_string();
         if !trimmed.is_empty() {
-            let path = PathBuf::from(trimmed);
-            if path.exists() {
+            let path = PathBuf::from(&trimmed);
+            if path.is_file() {
                 return Ok(path);
             }
+            return Err(format!(
+                "QPDF environment variable is set to '{trimmed}', but the file does not exist.\n\
+                To install qpdf:\n\
+                - Download: https://github.com/qpdf/qpdf/releases/download/v12.4.2/qpdf-12.4.2-msvc64.zip\n\
+                - SHA-256: db87077e683630c1217e0e8f9a20a9749d952ab676e881c3689187763a5de25d\n\
+                - Unpack and set the QPDF environment variable to the path of qpdf.exe, or add its containing folder to PATH."
+            ));
         }
     }
 

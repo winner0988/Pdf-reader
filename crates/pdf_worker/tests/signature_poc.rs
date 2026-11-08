@@ -5,6 +5,8 @@
 // FFI to crypt32; each unsafe block says why it is sound.
 #![allow(unsafe_code)]
 
+mod common;
+
 use std::mem::size_of;
 use std::ptr::{null, null_mut};
 
@@ -213,6 +215,7 @@ fn an_update_after_signing_leaves_the_signature_valid_for_what_was_signed() {
     let mut updated = Vec::new();
     doc.write_to_with_options(&mut updated, options)
         .expect("write");
+    common::check_qpdf_bytes(&updated);
 
     // The signature still verifies, but it no longer covers the whole file: the reader must say
     // the document changed after it was signed.

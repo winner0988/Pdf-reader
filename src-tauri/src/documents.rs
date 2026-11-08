@@ -4122,10 +4122,17 @@ mod with_worker {
         if let Some(qpdf_env) = std::env::var_os("QPDF") {
             let trimmed = qpdf_env.to_string_lossy().trim().to_string();
             if !trimmed.is_empty() {
-                let path = PathBuf::from(trimmed);
-                if path.exists() {
+                let path = PathBuf::from(&trimmed);
+                if path.is_file() {
                     return path;
                 }
+                panic!(
+                    "QPDF environment variable is set to '{trimmed}', but the file does not exist.\n\
+                    To install qpdf:\n\
+                    - Download: https://github.com/qpdf/qpdf/releases/download/v12.4.2/qpdf-12.4.2-msvc64.zip\n\
+                    - SHA-256: db87077e683630c1217e0e8f9a20a9749d952ab676e881c3689187763a5de25d\n\
+                    - Unpack and set the QPDF environment variable to the path of qpdf.exe, or add its containing folder to PATH."
+                );
             }
         }
         if let Some(paths) = std::env::var_os("PATH") {
@@ -4868,6 +4875,21 @@ mod with_worker {
         assert_eq!(std::fs::read(&path).unwrap(), original);
         assert_eq!(first_page_of(&copy), LANDSCAPE);
         std::fs::remove_file(copy).ok();
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_signed_document_is_saved_incrementally_and_passes_qpdf() {
+        let signed_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign/signed.pdf");
+        let (documents, info, path) =
+            open_bytes("save-signed", &std::fs::read(&signed_path).unwrap());
+        let edited = opened_info(documents.apply_edit(&rotate(info.doc, vec![0])).unwrap());
+        let (result, event) = documents.save(edited.doc, None).unwrap();
+        assert!(result.incremental);
+        check_qpdf(&path);
+        let saved = opened_info(event);
+        assert!(!saved.unsaved);
         std::fs::remove_file(path).ok();
     }
 
@@ -6125,6 +6147,7 @@ mod with_worker {
         assert!(documents.open_identifiers().is_empty());
 
         let (identifier, event) = documents.set_sensitive(info.doc, true, None).unwrap();
+        check_qpdf(&path);
         let marked = opened_info(event);
         assert!(marked.sensitive);
         // The worker's document is opened again from the file: another id, the same pages.
@@ -6155,16 +6178,19 @@ mod with_worker {
         let mut doc = marked.doc;
         edited_pages(&documents, &mut doc, turn(0));
         let (_, saved) = documents.save(doc, None).unwrap();
+        check_qpdf(&path);
         let saved = opened_info(saved);
         assert!(saved.sensitive);
         assert!(open_in(&Documents::new(worker()), &path).sensitive);
         let exported = folder.join("exported.pdf");
         documents.privacy_export(saved.doc, &exported).unwrap();
+        check_qpdf(&exported);
         assert!(!open_in(&Documents::new(worker()), &exported).sensitive);
 
         // Taken out: appended too, and the file opens as any other.
         let before = std::fs::read(&path).unwrap();
         let (removed, event) = documents.set_sensitive(saved.doc, false, None).unwrap();
+        check_qpdf(&path);
         assert_eq!(removed, identifier);
         assert!(!opened_info(event).sensitive);
         assert_eq!(&std::fs::read(&path).unwrap()[..before.len()], &before[..]);

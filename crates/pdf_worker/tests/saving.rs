@@ -89,6 +89,45 @@ fn an_edited_document_is_saved_through_a_write_only_handle() {
 }
 
 #[test]
+fn a_signed_document_is_saved_incrementally_and_passes_qpdf() {
+    let mut host = host();
+    let (doc, pages) = opened(&mut host, &corpus("benign/signed.pdf"));
+
+    let edited = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::RotatePages {
+                pages: vec![0],
+                degrees: 90,
+            },
+        })
+        .expect("edit");
+    let WorkerResponse::Edited { pages: turned, .. } = edited else {
+        panic!("{edited:?}");
+    };
+    assert_eq!(turned.len(), pages.len());
+
+    let (path, file) = new_file("saved-signed");
+    let saved = host.save(doc, &file).expect("save");
+    let WorkerResponse::Saved {
+        bytes, incremental, ..
+    } = saved
+    else {
+        panic!("{saved:?}");
+    };
+    drop(file);
+    assert!(incremental);
+    assert_eq!(std::fs::metadata(&path).expect("saved file").len(), bytes);
+    common::check_qpdf(&path);
+
+    // The saved file opens with the page turned, the others as they were.
+    let (_, reopened) = opened(&mut host, &path);
+    assert_eq!(reopened, turned);
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
 fn an_edit_of_a_missing_page_is_refused() {
     let mut host = host();
     let (doc, _) = opened(&mut host, &corpus("benign/single-page.pdf"));

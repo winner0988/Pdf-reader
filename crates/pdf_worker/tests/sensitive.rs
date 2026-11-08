@@ -4,6 +4,8 @@
 //! refusing a signed file and an encrypted one without its permissions password.
 #![cfg(windows)]
 
+mod common;
+
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -102,6 +104,7 @@ fn the_mark_is_appended_to_the_file_and_seen_when_it_opens_again() {
 
     let (marked_path, marked) = write(&mut host, doc, Some(MARK), None).expect("marked");
     assert_eq!(&marked[..original.len()], &original[..]);
+    common::check_qpdf(&marked_path);
     let (again, document) = opened(&mut host, &marked_path, None);
     assert_eq!(document.identifier, Some(MARK));
     assert_eq!(document.pages.len(), 10);
@@ -109,6 +112,7 @@ fn the_mark_is_appended_to_the_file_and_seen_when_it_opens_again() {
     // Taken out, from the marked file.
     let (unmarked_path, unmarked) = write(&mut host, again, None, None).expect("unmarked");
     assert_eq!(&unmarked[..marked.len()], &marked[..]);
+    common::check_qpdf(&unmarked_path);
     assert_eq!(opened(&mut host, &unmarked_path, None).1.identifier, None);
     for path in [marked_path, unmarked_path] {
         std::fs::remove_file(path).ok();
@@ -146,6 +150,7 @@ fn an_encrypted_file_is_written_to_only_with_its_permissions_password() {
         assert!(host.is_running());
     }
     let (path, _) = write(&mut host, doc, Some(MARK), Some("owner")).expect("marked");
+    common::check_qpdf_encrypted(&path, Some("user"));
     assert_eq!(
         opened(&mut host, &path, Some("user")).1.identifier,
         Some(MARK)
