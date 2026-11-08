@@ -25,6 +25,7 @@ const outDir = path.resolve(option("--out", path.join(ROOT, "test-results", "per
 const baseFile = path.resolve(option("--base", path.join(ROOT, "tests", "corpus", "large", "output", "large-1000-pages.pdf")));
 const cycleFile = path.resolve(option("--cycle-file", path.join(ROOT, "tests", "corpus", "large", "output", "large-text-1000-pages.pdf")));
 const totalCycles = Number(option("--cycles", 100));
+const outFile = path.resolve(option("--out-file", path.join(outDir, "tab-cycle.json")));
 
 for (const file of [app, baseFile, cycleFile]) {
   if (!fs.existsSync(file)) {
@@ -180,6 +181,19 @@ async function pressCtrl(key, keyCode) {
   await send("Input.dispatchKeyEvent", { type: "keyUp", ...event });
 }
 
+async function collectGarbage() {
+  try {
+    await send("HeapProfiler.collectGarbage");
+    await sleep(100);
+    await send("HeapProfiler.collectGarbage");
+    await sleep(200);
+    return "ok";
+  } catch (error) {
+    console.warn("HeapProfiler.collectGarbage failed:", error);
+    return "failed";
+  }
+}
+
 const helpers = `(() => {
   if (window.__perf) return true;
   const scroller = () => [...document.querySelectorAll('main[data-region="canvas"]')].find((m) => m.getClientRects().length > 0);
@@ -196,7 +210,7 @@ const helpers = `(() => {
 })()`;
 
 // Stalled safety timeout
-setTimeout(() => fail("Stopped after 15 minutes."), 900_000).unref();
+setTimeout(() => fail("Stopped after timeout."), Math.max(900_000, totalCycles * 10_000)).unref();
 
 // Wait for base document first page
 while (performance.now() - launched < 60_000) {
@@ -214,8 +228,9 @@ const checkpoints = [];
 const t0 = performance.now();
 
 // Initial checkpoint
+const initialGc = await collectGarbage();
 const initial = snapshot();
-checkpoints.push({ cycle: 0, elapsedSec: 0, ...initial });
+checkpoints.push({ cycle: 0, elapsedSec: 0, gc: initialGc, ...initial });
 console.log(`[Cycle 0] Workers: ${initial.workerCount}, Main: ${initial.main} MB, WebView2: ${initial.webView2} MB, WorkersTotal: ${initial.workersTotal} MB, Total: ${initial.all} MB`);
 
 for (let i = 1; i <= totalCycles; i++) {
@@ -253,19 +268,21 @@ for (let i = 1; i <= totalCycles; i++) {
   await sleep(100);
 
   if (i % 10 === 0) {
+    const gc = await collectGarbage();
     const snap = snapshot();
     const elapsedSec = Math.round((performance.now() - t0) / 1000);
-    checkpoints.push({ cycle: i, elapsedSec, ...snap });
+    checkpoints.push({ cycle: i, elapsedSec, gc, ...snap });
     console.log(`[Cycle ${i}/${totalCycles}] (${elapsedSec}s) Workers: ${snap.workerCount}, Main: ${snap.main} MB, WebView2: ${snap.webView2} MB, WorkersTotal: ${snap.workersTotal} MB, Total: ${snap.all} MB`);
   }
 }
 
-console.log("Completed 100 cycles. Waiting 30 seconds for memory cleanup / garbage collection...");
+console.log(`Completed ${totalCycles} cycles. Waiting 30 seconds for memory cleanup / garbage collection...`);
 await sleep(30_000);
+const finalGc = await collectGarbage();
 
 const final = snapshot();
 const totalElapsedSec = Math.round((performance.now() - t0) / 1000);
-checkpoints.push({ cycle: "final (after 30s)", elapsedSec: totalElapsedSec, ...final });
+checkpoints.push({ cycle: "final (after 30s)", elapsedSec: totalElapsedSec, gc: finalGc, ...final });
 console.log(`[Final] Workers: ${final.workerCount}, Main: ${final.main} MB, WebView2: ${final.webView2} MB, WorkersTotal: ${final.workersTotal} MB, Total: ${final.all} MB`);
 
 ws.close();
@@ -274,10 +291,7 @@ cleanUp();
 // Judgement criteria:
 // 1. Worker count returns to 1 (only the base document worker remains).
 // 2. Main process memory: cycle 0 is a cold start with an empty raster cache (~55 MB).
-//    During tab cycles, the raster cache (DEFAULT_CACHE_BYTES = 256 MB in render.rs) populates,
-//    and the MSVC CRT heap retains committed virtual memory pages for subsequent allocations.
-//    The memory must stabilize within the cache budget and not grow unboundedly (initial + 256 MB cache + margin <= 350 MB).
-// 3. WebView2 memory returns close to initial: within initial + 100 MB (allowing for Chromium V8 DOM/JIT pool).
+// 3. WebView2 memory returns close to initial.
 const mainThresholdMB = Math.max(initial.main + 276, 350);
 const webviewThresholdMB = Math.max(initial.webView2 * 1.25, initial.webView2 + 100);
 
@@ -291,7 +305,7 @@ const result = {
   thresholds: {
     mainMaxMB: Math.round(mainThresholdMB),
     webView2MaxMB: Math.round(webviewThresholdMB),
-    reason: "Main process includes DEFAULT_CACHE_BYTES = 256 MB raster cache plus retained heap; WebView2 retains V8 JIT pool within 100 MB after GC.",
+    reason: "#491 的原因還沒找到，新的門檻等 491-measure 量完再定",
   },
   initial,
   final,
@@ -304,9 +318,9 @@ const result = {
   checkpoints,
 };
 
-fs.writeFileSync(path.join(outDir, "tab-cycle.json"), JSON.stringify(result, null, 2));
+fs.writeFileSync(outFile, JSON.stringify(result, null, 2));
 
-console.log("\n--- Tab Cycle 100 Summary ---");
+console.log(`\n--- Tab Cycle ${totalCycles} Summary ---`);
 console.log(`${workerCountOk ? "ok  " : "MISS"} Worker count: ${final.workerCount} (target 1)`);
 console.log(`${mainMemoryOk ? "ok  " : "MISS"} Main memory: ${final.main} MB (initial ${initial.main} MB, target <= ${Math.round(mainThresholdMB)} MB)`);
 console.log(`${webView2MemoryOk ? "ok  " : "MISS"} WebView2 memory: ${final.webView2} MB (initial ${initial.webView2} MB, target <= ${Math.round(webviewThresholdMB)} MB)`);

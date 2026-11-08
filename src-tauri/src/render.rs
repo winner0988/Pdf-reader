@@ -6,7 +6,7 @@
 //! cancelled request that has not started is dropped and answered with `cancelled`. Finished
 //! pages go into an LRU cache bounded by bytes, so scrolling back does not render again.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 use ipc_contract::types::{
@@ -46,6 +46,8 @@ pub struct RasterCache {
     used: usize,
     clock: u64,
     entries: HashMap<CacheKey, Entry>,
+    epoch: u64,
+    retained_docs: HashSet<DocumentId>,
 }
 
 struct Entry {
@@ -60,7 +62,13 @@ impl RasterCache {
             used: 0,
             clock: 0,
             entries: HashMap::new(),
+            epoch: 0,
+            retained_docs: HashSet::new(),
         }
+    }
+
+    pub fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     pub fn get(&mut self, key: &CacheKey) -> Option<Arc<Vec<u8>>> {
@@ -71,8 +79,12 @@ impl RasterCache {
     }
 
     /// Adds a page, evicting the least recently used ones until it fits. A page larger than the
-    /// whole budget is not cached.
-    pub fn insert(&mut self, key: CacheKey, bytes: Arc<Vec<u8>>) {
+    /// whole budget is not cached. Renders that started before the latest `retain_documents` and
+    /// whose document was not retained in that call are dropped.
+    pub fn insert(&mut self, key: CacheKey, bytes: Arc<Vec<u8>>, epoch: u64) {
+        if epoch < self.epoch && !self.retained_docs.contains(&key.doc) {
+            return;
+        }
         if bytes.len() > self.capacity {
             return;
         }
@@ -97,17 +109,21 @@ impl RasterCache {
         );
     }
 
-    /// Drops every page that does not belong to one of `docs`.
+    /// Drops every page that does not belong to one of `docs`, increments the epoch, and records
+    /// the retained documents so that late-arriving renders for closed documents are not cached.
     pub fn retain_documents(&mut self, docs: &[DocumentId]) {
+        self.epoch += 1;
+        let set: HashSet<DocumentId> = docs.iter().copied().collect();
         let stale: Vec<CacheKey> = self
             .entries
             .keys()
-            .filter(|key| !docs.contains(&key.doc))
+            .filter(|key| !set.contains(&key.doc))
             .copied()
             .collect();
         for key in stale {
             self.remove(&key);
         }
+        self.retained_docs = set;
     }
 
     #[cfg(test)]
@@ -271,17 +287,18 @@ enum Work {
 
 fn serve(shared: &Shared, render: &dyn Fn(&RenderPageArgs) -> Result<Vec<u8>, IpcError>) {
     loop {
-        let work = {
+        let (work, epoch) = {
             let mut state = shared.lock();
             loop {
                 if state.stopped {
                     return;
                 }
                 if let Some(job) = state.queue.pop_front() {
-                    break Work::Render(job);
+                    let epoch = state.cache.epoch();
+                    break (Work::Render(job), epoch);
                 }
                 if let Some(job) = state.background.pop_front() {
-                    break Work::Background(job);
+                    break (Work::Background(job), 0);
                 }
                 state = shared
                     .wake
@@ -308,7 +325,7 @@ fn serve(shared: &Shared, render: &dyn Fn(&RenderPageArgs) -> Result<Vec<u8>, Ip
         if let Ok(bytes) = &result
             && job.args.region.is_none()
         {
-            shared.lock().cache.insert(key, bytes.clone());
+            shared.lock().cache.insert(key, bytes.clone(), epoch);
         }
         let _ = job.reply.send(result);
     }
@@ -366,19 +383,20 @@ mod tests {
     #[test]
     fn lru_evicts_the_least_recently_used_page() {
         let mut cache = RasterCache::new(300);
-        cache.insert(key(1, 0), Arc::new(vec![0; 100]));
-        cache.insert(key(1, 1), Arc::new(vec![0; 100]));
-        cache.insert(key(1, 2), Arc::new(vec![0; 100]));
+        let epoch = cache.epoch();
+        cache.insert(key(1, 0), Arc::new(vec![0; 100]), epoch);
+        cache.insert(key(1, 1), Arc::new(vec![0; 100]), epoch);
+        cache.insert(key(1, 2), Arc::new(vec![0; 100]), epoch);
         assert!(cache.get(&key(1, 0)).is_some()); // page 1 is now the oldest
 
-        cache.insert(key(1, 3), Arc::new(vec![0; 100]));
+        cache.insert(key(1, 3), Arc::new(vec![0; 100]), epoch);
         assert!(cache.get(&key(1, 1)).is_none());
         assert!(cache.get(&key(1, 0)).is_some());
         assert!(cache.get(&key(1, 3)).is_some());
         assert_eq!(cache.used_bytes(), 300);
 
         // One large page may push out several small ones.
-        cache.insert(key(1, 4), Arc::new(vec![0; 250]));
+        cache.insert(key(1, 4), Arc::new(vec![0; 250]), epoch);
         assert_eq!(cache.used_bytes(), 250);
         assert!(cache.get(&key(1, 4)).is_some());
     }
@@ -386,21 +404,31 @@ mod tests {
     #[test]
     fn lru_skips_pages_larger_than_the_budget_and_replaces_duplicates() {
         let mut cache = RasterCache::new(100);
-        cache.insert(key(1, 0), Arc::new(vec![0; 101]));
+        let epoch = cache.epoch();
+        cache.insert(key(1, 0), Arc::new(vec![0; 101]), epoch);
         assert_eq!(cache.used_bytes(), 0);
-        cache.insert(key(1, 0), Arc::new(vec![0; 60]));
-        cache.insert(key(1, 0), Arc::new(vec![0; 70]));
+        cache.insert(key(1, 0), Arc::new(vec![0; 60]), epoch);
+        cache.insert(key(1, 0), Arc::new(vec![0; 70]), epoch);
         assert_eq!(cache.used_bytes(), 70);
     }
 
     #[test]
     fn lru_forgets_other_documents() {
         let mut cache = RasterCache::new(1000);
-        cache.insert(key(1, 0), Arc::new(vec![0; 10]));
-        cache.insert(key(2, 0), Arc::new(vec![0; 20]));
-        cache.insert(key(3, 0), Arc::new(vec![0; 30]));
+        let epoch = cache.epoch();
+        cache.insert(key(1, 0), Arc::new(vec![0; 10]), epoch);
+        cache.insert(key(2, 0), Arc::new(vec![0; 20]), epoch);
+        cache.insert(key(3, 0), Arc::new(vec![0; 30]), epoch);
+        let epoch_before = cache.epoch();
         cache.retain_documents(&[DocumentId(2), DocumentId(3)]);
         assert_eq!(cache.used_bytes(), 50);
+        assert!(cache.get(&key(1, 0)).is_none());
+
+        // An insert for a document that is no longer open and was started before retain_documents is dropped.
+        cache.insert(key(1, 1), Arc::new(vec![0; 10]), epoch_before);
+        assert_eq!(cache.used_bytes(), 50);
+        assert!(cache.get(&key(1, 1)).is_none());
+
         cache.retain_documents(&[]);
         assert_eq!(cache.used_bytes(), 0);
     }
@@ -527,6 +555,99 @@ mod tests {
         gate.release();
         assert!(running.join().unwrap().is_ok());
         assert!(new.join().unwrap().is_ok());
+        // Document 1's page was not retained, so only document 2's page was cached.
+        assert_eq!(renderer.cached_bytes(), 16);
+        assert!(renderer.shared.lock().cache.get(&key(1, 0)).is_none());
+        assert!(renderer.shared.lock().cache.get(&key(2, 0)).is_some());
+    }
+
+    #[test]
+    fn late_arriving_renders_for_closed_documents_are_not_cached() {
+        let (renderer, gate) = gated_renderer();
+        let spawn = |request, doc| {
+            let renderer = renderer.clone();
+            std::thread::spawn(move || block_on(renderer.render(args(request, doc, 0))))
+        };
+        // Document 1 starts rendering and waits at the gate.
+        let running = spawn(1, 1);
+        while gate.calls() == 0 {
+            std::thread::yield_now();
+        }
+
+        // Document 1 is closed before its render finishes.
+        renderer.retain_documents(&[DocumentId(2)]);
+
+        // The in-flight render for document 1 finishes.
+        gate.release();
+        assert!(running.join().unwrap().is_ok());
+
+        // Cache must not contain the late-arriving page for the closed document.
+        assert_eq!(renderer.cached_bytes(), 0);
+        assert!(renderer.shared.lock().cache.get(&key(1, 0)).is_none());
+
+        // Document 2 is retained, so its render is cached.
+        let retained = spawn(2, 2);
+        gate.release();
+        assert!(retained.join().unwrap().is_ok());
+        assert_eq!(renderer.cached_bytes(), 16);
+        assert!(renderer.shared.lock().cache.get(&key(2, 0)).is_some());
+
+        // Closing document 2 frees its cache entries.
+        renderer.retain_documents(&[]);
+        assert_eq!(renderer.cached_bytes(), 0);
+        assert!(renderer.shared.lock().cache.get(&key(2, 0)).is_none());
+    }
+
+    #[test]
+    fn new_documents_started_after_retain_documents_are_cached() {
+        let (renderer, gate) = gated_renderer();
+        let spawn = |request, doc| {
+            let renderer = renderer.clone();
+            std::thread::spawn(move || block_on(renderer.render(args(request, doc, 0))))
+        };
+        // Document 1 is retained; document 2 is not yet open or retained.
+        renderer.retain_documents(&[DocumentId(1)]);
+
+        // Document 2 starts rendering after the latest retain_documents.
+        let job = spawn(1, 2);
+        while gate.calls() == 0 {
+            std::thread::yield_now();
+        }
+        gate.release();
+        assert!(job.join().unwrap().is_ok());
+
+        // The new document was started after retain_documents, so its render is cached even
+        // though it was not in the previous retained list.
+        assert_eq!(renderer.cached_bytes(), 16);
+        assert!(renderer.shared.lock().cache.get(&key(2, 0)).is_some());
+    }
+
+    #[test]
+    fn in_flight_render_retained_across_retain_documents_is_cached() {
+        let (renderer, gate) = gated_renderer();
+        let spawn = |request, doc| {
+            let renderer = renderer.clone();
+            std::thread::spawn(move || block_on(renderer.render(args(request, doc, 0))))
+        };
+        // Documents 1 and 2 are open.
+        renderer.retain_documents(&[DocumentId(1), DocumentId(2)]);
+
+        // Document 1 starts rendering and waits at the gate.
+        let running = spawn(1, 1);
+        while gate.calls() == 0 {
+            std::thread::yield_now();
+        }
+
+        // Another retain_documents happens while document 1 is rendering; document 1 is kept.
+        renderer.retain_documents(&[DocumentId(1)]);
+
+        // The in-flight render for document 1 finishes.
+        gate.release();
+        assert!(running.join().unwrap().is_ok());
+
+        // Since document 1 remains in the retained list, its page is cached.
+        assert_eq!(renderer.cached_bytes(), 16);
+        assert!(renderer.shared.lock().cache.get(&key(1, 0)).is_some());
     }
 
     #[test]

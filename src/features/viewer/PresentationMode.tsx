@@ -1,6 +1,6 @@
 // Full-screen presentation mode (B4-03, docs/ux/screen-map.md, section 7).
 
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 
 import type { PageSize, Rotation } from "@/features/shell/model";
 import { CSS_PX_PER_PT, displayedSize, rectToBox, renderScale } from "@/features/viewer/layout";
@@ -42,7 +42,18 @@ export function PresentationMode({
   onLinkActivate,
 }: PresentationModeProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // React 19 ref callback cleanup: when React unmounts the canvas, zero its surface immediately.
+  const setCanvasRef = useCallback((canvas: HTMLCanvasElement | null) => {
+    canvasRef.current = canvas;
+    return () => {
+      if (canvas) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+    };
+  }, []);
 
   // Window viewport measurement for fit-to-screen scale.
   const [viewport, setViewport] = useState({
@@ -234,7 +245,7 @@ export function PresentationMode({
         style={{ width: cssWidth, height: cssHeight }}
       >
         <canvas
-          ref={canvasRef}
+          ref={setCanvasRef}
           width={cssWidth}
           height={cssHeight}
           style={{ width: cssWidth, height: cssHeight }}

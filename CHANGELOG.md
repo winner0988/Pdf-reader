@@ -4,6 +4,10 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 ## [Unreleased]
 
+### 效能
+
+- 關閉分頁與元件卸載時釋放點陣快取與 Canvas（#491）：關閉分頁時清除該文件的點陣圖快取，且關閉分頁時還在畫的頁在畫完後不再放進快取；標記機敏的文件在更換 id 後舊快取立即釋放；前端於分頁與 Canvas 元件卸載時透過 ref callback 即時釋放 Canvas 表面。
+
 ### 安全
 
 - 限制主視窗的 WebView 導覽與封鎖下載（#424）：WebView 設定 `on_navigation`，正式版僅允許 app 自身的 `http://tauri.localhost`（開發模式僅允許 `http://localhost:1420`），其餘所有網址與 scheme（包含 `https:`、`file:`、`data:`、`blob:`、`javascript:`、`about:`）一律拒絕；同時接上 `on_download` 封鎖所有檔案下載，被拒絕的導覽僅記錄 scheme 與 host，防止頁面被注入腳本時外傳文件資料或下載檔案。

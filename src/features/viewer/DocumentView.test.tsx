@@ -234,6 +234,88 @@ describe("DocumentView", () => {
     expect(putImageData).toHaveBeenCalledTimes(1);
   });
 
+  it("releases canvas surfaces and cancels in-flight jobs when unmounted (tab closed)", async () => {
+    const { renderer, calls } = fakeRenderer();
+    const { unmount, container } = render(<Harness pages={[LETTER, LETTER]} renderer={renderer} />);
+    // Page 0 resolves and draws; page 1 remains in-flight.
+    await act(async () => {
+      calls[0]!.resolve(raster());
+    });
+    const canvas = container.querySelector("canvas")!;
+    expect([canvas.width, canvas.height]).toEqual([2, 2]);
+    expect(calls[1]!.cancel).not.toHaveBeenCalled();
+
+    unmount();
+
+    expect(canvas.width).toBe(0);
+    expect(canvas.height).toBe(0);
+    expect(calls[1]!.cancel).toHaveBeenCalled();
+  });
+
+  it("releases both whole-page and detail canvases when unmounted while zoomed in", async () => {
+    vi.useFakeTimers();
+    try {
+      const { renderer, calls } = fakeRenderer();
+      const pages: PageSize[] = Array(3).fill(LETTER);
+      const { unmount, rerender } = render(<Harness pages={pages} renderer={renderer} />);
+      const element = sizeScroller(900);
+      scrollTo(element, 0);
+      await act(async () => calls.forEach((call) => call.resolve(raster())));
+      const before = calls.length;
+      const page = screen.getByRole("img", { name: strings.canvas.page(1) });
+      expect(page.hasAttribute("data-sharp")).toBe(true);
+
+      // 400%: a page is 3264 x 4224 pixels, many times the 1000 x 900 on screen.
+      rerender(<Harness pages={pages} renderer={renderer} zoom={400} />);
+      act(() => element.dispatchEvent(new Event("scroll")));
+      act(() => vi.advanceTimersByTime(150)); // RESCALE_DELAY_MS
+
+      const asked = calls.slice(before);
+      expect(asked.length).toBeGreaterThanOrEqual(1);
+      const part = asked[0]!.args.region!;
+      const pixels = new Uint8ClampedArray(part.width * part.height * 4);
+      await act(async () => asked[0]!.resolve({ width: part.width, height: part.height, pixels }));
+
+      const canvas = page.querySelector<HTMLCanvasElement>("canvas:not([data-detail])")!;
+      const detailCanvas = page.querySelector<HTMLCanvasElement>("canvas[data-detail]")!;
+      expect(canvas.width).toBeGreaterThan(0);
+      expect(detailCanvas.width).toBeGreaterThan(0);
+
+      unmount();
+
+      expect(canvas.width).toBe(0);
+      expect(canvas.height).toBe(0);
+      expect(detailCanvas.width).toBe(0);
+      expect(detailCanvas.height).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("releases the replacement canvas surface on unmount after a retry", async () => {
+    const { renderer, calls } = fakeRenderer();
+    const user = userEvent.setup();
+    const { unmount, container } = render(<Harness pages={[LETTER]} renderer={renderer} />);
+    await act(async () => {
+      calls[0]!.reject({ code: "workerCrashed", message: "" });
+    });
+
+    const failed = screen.getByRole("img", { name: "第 1 頁" });
+    expect(failed).toHaveTextContent(strings.canvas.pageRenderFailed);
+
+    await user.click(screen.getByRole("button", { name: strings.error.retry }));
+    expect(calls).toHaveLength(2);
+    await act(async () => calls[1]!.resolve(raster()));
+
+    const retryCanvas = container.querySelector("canvas")!;
+    expect([retryCanvas.width, retryCanvas.height]).toEqual([2, 2]);
+
+    unmount();
+
+    expect(retryCanvas.width).toBe(0);
+    expect(retryCanvas.height).toBe(0);
+  });
+
   it("shows a failed page with a retry button, without affecting the others", async () => {
     const { renderer, calls } = fakeRenderer();
     const user = userEvent.setup();
