@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 const t = strings.tabs;
 
 /** Shared sizing and geometry for each tab slot so visual and overlay layers stay aligned (#188). */
-const tabSlotClass = "flex h-8 max-w-56 min-w-28 shrink-0 items-center rounded-t-md border-x border-t-2 border-b-0 text-sm";
+const tabSlotClass = "flex h-8 max-w-56 min-w-28 shrink-0 items-center rounded-t-md border-x border-t-2 border-b-0 text-sm transition-colors duration-200 ease-out";
 const tabInnerClass = "flex h-full min-w-0 flex-1 items-center gap-1.5 pr-8 pl-3";
 
 type TabLabelProps = {

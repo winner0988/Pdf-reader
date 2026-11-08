@@ -43,6 +43,7 @@ import { useTabs } from "@/features/tabs/useTabs";
 import { createPageRenderer, tauriRenderApi, type PageRenderer, type RenderApi } from "@/features/viewer/renderer";
 import { tauriWindowApi, type WindowApi } from "@/features/window/api";
 import type { CaptureProtection, DocumentInfo, TabId } from "@/ipc/generated/contract";
+import { cn } from "@/lib/utils";
 
 type AppProps = {
   api?: OpenApi;
@@ -358,7 +359,13 @@ function TabPane({
     isUnsaved(tab),
   );
   return (
-    <div role="tabpanel" id={tabPanelId(tab.tab)} aria-labelledby={tabElementId(tab.tab)} hidden={!active} className="h-full">
+    <div
+      role="tabpanel"
+      id={tabPanelId(tab.tab)}
+      aria-labelledby={tabElementId(tab.tab)}
+      hidden={!active}
+      className={cn("h-full", active && "animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none")}
+    >
       <ReaderShell
         {...shell}
         state={shellState(tab)}

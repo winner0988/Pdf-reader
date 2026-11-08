@@ -2,6 +2,7 @@ import { Loader2, LockKeyhole, TriangleAlert } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { RecentApi } from "@/features/recent/api";
 import { RecentFiles } from "@/features/recent/RecentFiles";
 import { RETRYABLE_ERRORS, type ErrorCode } from "@/features/shell/model";
@@ -62,10 +63,29 @@ export function LoadingState({ displayName, delayMs = 300 }: { displayName: stri
 
   if (!visible) return null;
   return (
-    <div role="status" className="flex h-full items-center justify-center p-8">
-      <div className="flex items-center gap-3 rounded-lg border bg-background px-5 py-4 shadow-sm">
-        <Loader2 className="size-5 animate-spin text-primary motion-reduce:animate-none" aria-hidden />
-        <span>{strings.loading(displayName)}</span>
+    <div role="status" className="flex h-full items-center justify-center p-8 animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none">
+      <div className="relative flex flex-col items-center">
+        {/* Page loading skeleton */}
+        <div
+          aria-hidden="true"
+          className="flex h-[360px] w-[260px] flex-col gap-3 rounded-sm border bg-card p-6 shadow-sm ring-1 ring-border sm:h-[420px] sm:w-[300px]"
+        >
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="mt-2 h-2.5 w-full" />
+          <Skeleton className="h-2.5 w-5/6" />
+          <Skeleton className="h-2.5 w-4/5" />
+          <Skeleton className="mt-4 h-24 w-full sm:h-28" />
+          <Skeleton className="mt-3 h-2.5 w-full" />
+          <Skeleton className="h-2.5 w-11/12" />
+          <Skeleton className="h-2.5 w-2/3" />
+        </div>
+        {/* Centered status badge floating above page skeleton */}
+        <div className="absolute inset-0 flex items-center justify-center p-4">
+          <div className="flex max-w-xs items-center gap-3 rounded-lg border bg-background/95 px-5 py-4 shadow-md backdrop-blur-xs">
+            <Loader2 className="size-5 shrink-0 animate-spin text-primary motion-reduce:animate-none" aria-hidden="true" />
+            <span className="truncate">{strings.loading(displayName)}</span>
+          </div>
+        </div>
       </div>
     </div>
   );

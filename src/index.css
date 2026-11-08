@@ -161,6 +161,15 @@
   }
 }
 
+@keyframes shimmer {
+  from {
+    translate: -100% 0;
+  }
+  to {
+    translate: 100% 0;
+  }
+}
+
 /* The system's "reduce motion" setting (docs/ux/screen-map.md): nothing moves or fades. */
 @media (prefers-reduced-motion: reduce) {
   *,

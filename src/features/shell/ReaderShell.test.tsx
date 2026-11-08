@@ -82,6 +82,7 @@ describe("states", () => {
       expect(screen.queryByText(strings.loading("報告.pdf"))).not.toBeInTheDocument();
       act(() => vi.advanceTimersByTime(300));
       expect(screen.getByText(strings.loading("報告.pdf"))).toBeInTheDocument();
+      expect(screen.getByRole("status").querySelector('[aria-hidden="true"]')).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }

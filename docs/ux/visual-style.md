@@ -166,11 +166,13 @@
 ## 7. 動態與轉場規則（Motion & Transitions）
 
 - **減少動態模式（`prefers-reduced-motion`）**：
-  當使用者在 Windows 系統設定中關閉「動畫效果」時，`src/index.css` 的全域規則會強制將動畫與過渡持續時間壓至 `0.01ms`，完全停用所有動態效果。所有新增的元件與樣式均受此規則保護。
+  當使用者在 Windows 系統設定中關閉「動畫效果」時，`src/index.css` 的全域規則會強制將動畫與過渡持續時間壓至 `0.01ms`，動畫重複次數限制為 1，完全停用所有動態效果與微光循環。所有元件、虛擬元素（`::before`、`::after`）均受此規則保護。
 - **微動態基本規範**：
-  - 時間維持在 **150ms 至 250ms** 之間。
-  - 動畫屬性僅允許 `transform` 與 `opacity`，確保由 GPU 加速合成，絕不觸發 DOM 排版重繪（reflow）。
-  - 互動反饋：按鈕點擊微下沉（`active:translate-y-px`）。
+  - 時間維持在 **150ms 至 250ms** 之間。唯一例外是骨架載入的微光循環（2 秒），它是循環動畫而非一次性過渡，且在減少動態模式下會停止（見 §7.1）。
+  - 動畫屬性僅允許 `transform`、`translate`、`scale` 與 `opacity`，確保由 GPU 加速合成，絕不觸發 DOM 排版重繪（reflow）。
+  - 不使用任何外部動畫套件，純依賴原生 CSS transition 與 keyframes。
+  - 動態進行中不得遮擋點擊互動（維持可點擊性），亦不得變更焦點順序。
+  - 閱讀區的畫布頁面與文件捲動不加動畫（效能與閱讀優先）。
 - **開始畫面與拖放動態（Start Screen & Drop Motion，UX-02 第 2 步定案）**：
   - **插畫構成**：自訂手繪純幾何向量 SVG（`StartIllustration`，`viewBox="0 0 96 96"`），以紙張頁面（含折角與內容預覽線）搭配隱私盾牌與鎖頭，具體表達「離線、注重隱私的閱讀器」。不載入任何外部資源或點陣圖，純向量路徑在 100%、125%、150% 等任何高 DPI 縮放下均保持清晰銳利。圖示標記 `aria-hidden="true"`，不干擾無障礙輔助科技。
   - **色彩來源**：所有色彩嚴格僅取自 `currentColor` 與現有 CSS Token，不寫死任何色碼：
@@ -180,6 +182,17 @@
     - 盾牌底色：`--background`。
     - 盾牌輪廓與鎖頭本體：品牌強調色 `--primary`（淺色為深寶藍、深色為天青藍，均符合 WCAG AA 對比度）。
     - 鎖孔：`--primary-foreground`。
+  - **拖放動態**：當檔案拖曳進入視窗時（`data-drop-indicator`），邊框呈現品牌強調色虛線框（`border-2 border-dashed border-primary`），動態持續時間為 **200ms**（`ease-out`），僅動 **`transform`**（scale 0.98 → 1.0）與 **`opacity`**（0 → 1），絕不觸發排版重繪（reflow）。在系統開啟「減少動態」模式下，全域 `prefers-reduced-motion` 規則會將其過渡時間壓至 0.01ms 即時呈現。
+
+### 7.1 定案微動態規格表（UX-02 第 3 步定案）
+
+| 互動情境 | 適用位置 / 元件 | 時間 (Duration) | Easing | 動態屬性 (Properties) | 視覺效果說明 |
+|---|---|---|---|---|---|
+| **側欄開合** | `src/features/shell/Sidebar.tsx` | 200ms | `ease-out` (`cubic-bezier(0, 0, 0.2, 1)`) | `transform`, `opacity` | 展開時由左側微移入（`translateX(-8px)` → `0`）並淡入，不變更寬度或觸發重排版；關閉時立即移除無殘留。 |
+| **切換分頁** | `src/features/tabs/TabBar.tsx`、`src/App.tsx` (`TabPane`)、`src/components/ui/tabs.tsx` | 200ms | `ease-out` | `opacity`, `colors` | 分頁按鈕狀態過渡，分頁內容於切換時 200ms 平滑淡入（`opacity: 0` → `1`），保持無障礙焦點區域穩定。 |
+| **按鈕按下回饋** | `src/components/ui/button.tsx`、`IconButton` | 150ms | `ease-out` (`cubic-bezier(0, 0, 0.2, 1)`) | `translate`, `scale` | 按下時微縮放至 98%（`scale: 0.98`）並微下沉 1px（`translate: 0 1px`），放開時 150ms 平滑回彈，提供清晰觸覺回饋。Tailwind 4 把這兩個屬性獨立設定，所以過渡清單要列出 `translate` 與 `scale`。 |
+| **存檔完成打勾** | `src/features/shell/StatusBar.tsx` | 200ms | `ease-out` (`cubic-bezier(0, 0, 0.2, 1)`) | `transform`, `opacity` | 只有存檔完成（一般存檔，或遮蔽後重讀驗證通過）的提示才出現前方打勾圖示（`<Check aria-hidden />`），以 200ms 彈性縮放（`scale(0.75)` → `1`）與淡入顯現。警告（遮蔽未通過、增量存檔仍留有刪除內容）不打勾。由存檔結果決定，不比對提示文字。 |
+| **骨架載入微光** | `src/features/shell/states.tsx` (`LoadingState`)、`src/components/ui/skeleton.tsx` | 淡入 200ms / 微光 2s 循環 | `ease-out` / `ease`（未指定，瀏覽器預設） | `translate`, `opacity` | 開檔超過 300ms 進入載入狀態時，畫布顯示頁面骨架紙張，表面以微光（Shimmer，`translate` 由 -100% 走到 100%）沿 X 軸掠過，減少動態時完全靜止。 |
   - **拖放動態**：當檔案拖曳進入視窗時（`data-drop-indicator`），邊框呈現品牌強調色虛線框（`border-2 border-dashed border-primary`），動態持續時間為 **200ms**（`ease-out`），只動 **`scale`**（0.98 → 1）與 **`opacity`**（0 → 1）（`scale` 是 CSS 的獨立屬性，跟 `transform` 一樣由 GPU 合成，不觸發 reflow）。在系統開啟「減少動態」模式下，全域 `prefers-reduced-motion` 規則會將其過渡時間壓至 0.01ms 即時呈現。
 - **後續進度標記**：
   - **精細微動態（Micro-interactions）**：側欄滑順開合、切換分頁轉場、存檔成功微勾動畫、骨架載入微光（Shimmer），於 **UX-02 第 3 步** 定案與實作。
