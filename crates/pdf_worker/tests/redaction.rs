@@ -179,6 +179,7 @@ fn text_in_the_area_is_gone_from_the_page_and_from_the_saved_file() {
 
     // Saved (rewritten whole, ADR 0013) and opened again: none of it is in the file.
     let bytes = saved(&doc);
+    common::check_qpdf_bytes(&bytes);
     for gone in [
         "SECRET-ALPHA-123 inside",
         "SECRET-ALPHA-123 in a note",

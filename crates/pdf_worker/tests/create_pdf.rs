@@ -4,6 +4,8 @@
 //! error, never in anything but the worker's own end.
 #![cfg(windows)]
 
+mod common;
+
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -81,6 +83,7 @@ fn create(host: &mut WorkerHost, sources: &[(&Path, CreateKind)]) -> Result<Made
             bytes: std::fs::read(&path).expect("the PDF"),
         };
         assert_eq!(made.bytes.len() as u64, bytes);
+        common::check_qpdf(&made.path);
         made
     };
     match result {

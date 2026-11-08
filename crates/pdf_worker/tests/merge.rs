@@ -3,6 +3,8 @@
 //! plain copy of it, and later takes the pages from that copy.
 #![cfg(windows)]
 
+mod common;
+
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
@@ -124,6 +126,19 @@ fn the_pages_of_an_encrypted_file_go_into_a_document_by_a_plain_copy() {
         reverted,
         WorkerResponse::Edited { pages, .. } if pages.len() == 11
     ));
+
+    // Save the document with inserted pages and check with qpdf
+    let path = std::env::temp_dir().join(format!("pdf-worker-{}-merged.pdf", std::process::id()));
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .expect("create");
+    let saved = host.save(doc, &file).expect("save");
+    drop(file);
+    assert!(matches!(saved, WorkerResponse::Saved { .. }));
+    common::check_qpdf(&path);
+    std::fs::remove_file(&path).ok();
 }
 
 #[test]

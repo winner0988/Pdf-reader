@@ -4055,6 +4055,103 @@ mod with_worker {
         worker
     }
 
+    fn check_qpdf(path: &Path) {
+        let qpdf = find_qpdf();
+        let output = std::process::Command::new(&qpdf)
+            .arg("--check")
+            .arg(path)
+            .output()
+            .unwrap_or_else(|err| panic!("failed to execute qpdf at {}: {err}", qpdf.display()));
+        let code = output.status.code().unwrap_or(-1);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if code != 0 {
+            panic!(
+                "qpdf --check failed on {} with exit code {code}:\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}",
+                path.display()
+            );
+        }
+    }
+
+    fn check_qpdf_encrypted(path: &Path, password: Option<&str>) {
+        let qpdf = find_qpdf();
+        let mut cmd = std::process::Command::new(&qpdf);
+        cmd.arg("--check");
+        if let Some(pw) = password {
+            cmd.arg(format!("--password={pw}"));
+        }
+        cmd.arg(path);
+        let output = cmd
+            .output()
+            .unwrap_or_else(|err| panic!("failed to execute qpdf at {}: {err}", qpdf.display()));
+        let code = output.status.code().unwrap_or(-1);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if code != 0 {
+            panic!(
+                "qpdf --check (encrypted) failed on {} with exit code {code}:\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}",
+                path.display()
+            );
+        }
+
+        let mut show_cmd = std::process::Command::new(&qpdf);
+        show_cmd.arg("--show-encryption");
+        if let Some(pw) = password {
+            show_cmd.arg(format!("--password={pw}"));
+        }
+        show_cmd.arg(path);
+        let show_out = show_cmd
+            .output()
+            .unwrap_or_else(|err| panic!("failed to execute qpdf at {}: {err}", qpdf.display()));
+        let show_code = show_out.status.code().unwrap_or(-1);
+        let show_stdout = String::from_utf8_lossy(&show_out.stdout);
+        let show_stderr = String::from_utf8_lossy(&show_out.stderr);
+        if show_code != 0 {
+            panic!(
+                "qpdf --show-encryption failed on {} with exit code {show_code}:\n--- stdout ---\n{show_stdout}\n--- stderr ---\n{show_stderr}",
+                path.display()
+            );
+        }
+        assert!(
+            show_stdout.contains("R = 6"),
+            "expected R = 6, got:\n{show_stdout}"
+        );
+    }
+
+    fn find_qpdf() -> PathBuf {
+        if let Some(qpdf_env) = std::env::var_os("QPDF") {
+            let trimmed = qpdf_env.to_string_lossy().trim().to_string();
+            if !trimmed.is_empty() {
+                let path = PathBuf::from(&trimmed);
+                if path.is_file() {
+                    return path;
+                }
+                panic!(
+                    "QPDF environment variable is set to '{trimmed}', but the file does not exist.\n\
+                    To install qpdf:\n\
+                    - Download: https://github.com/qpdf/qpdf/releases/download/v12.4.2/qpdf-12.4.2-msvc64.zip\n\
+                    - SHA-256: db87077e683630c1217e0e8f9a20a9749d952ab676e881c3689187763a5de25d\n\
+                    - Unpack and set the QPDF environment variable to the path of qpdf.exe, or add its containing folder to PATH."
+                );
+            }
+        }
+        if let Some(paths) = std::env::var_os("PATH") {
+            for dir in std::env::split_paths(&paths) {
+                let candidate = dir.join(if cfg!(windows) { "qpdf.exe" } else { "qpdf" });
+                if candidate.is_file() {
+                    return candidate;
+                }
+            }
+        }
+        panic!(
+            "qpdf 12.4.2 is required for tests but was not found.\n\
+            To install qpdf:\n\
+            - Download: https://github.com/qpdf/qpdf/releases/download/v12.4.2/qpdf-12.4.2-msvc64.zip\n\
+            - SHA-256: db87077e683630c1217e0e8f9a20a9749d952ab676e881c3689187763a5de25d\n\
+            - Unpack and set the QPDF environment variable to the path of qpdf.exe, or add its containing folder to PATH."
+        );
+    }
+
     /// A PDF with `pages` Letter pages and a correct xref table.
     fn letter_pdf(pages: usize) -> Vec<u8> {
         pdf_with(pages, "", &[])
@@ -4073,10 +4170,9 @@ mod with_worker {
                 kids.join(" ")
             ),
         ];
-        objects.extend(
-            (0..pages)
-                .map(|_| "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_owned()),
-        );
+        objects.extend((0..pages).map(|_| {
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>".to_owned()
+        }));
         objects.extend(extra.iter().cloned());
         pdf_objects(&objects)
     }
@@ -4767,6 +4863,7 @@ mod with_worker {
 
         let copy = path.with_file_name(format!("b202-copy-{}.pdf", std::process::id()));
         let (result, event) = documents.save(edited.doc, Some(copy.clone())).unwrap();
+        check_qpdf(&copy);
         assert!(!result.incremental);
         let saved = opened_info(event);
         assert_eq!(saved.doc, edited.doc);
@@ -4782,6 +4879,21 @@ mod with_worker {
     }
 
     #[test]
+    fn a_signed_document_is_saved_incrementally_and_passes_qpdf() {
+        let signed_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign/signed.pdf");
+        let (documents, info, path) =
+            open_bytes("save-signed", &std::fs::read(&signed_path).unwrap());
+        let edited = opened_info(documents.apply_edit(&rotate(info.doc, vec![0])).unwrap());
+        let (result, event) = documents.save(edited.doc, None).unwrap();
+        assert!(result.incremental);
+        check_qpdf(&path);
+        let saved = opened_info(event);
+        assert!(!saved.unsaved);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
     fn saving_writes_the_file_itself_once_there_is_something_to_write() {
         let (documents, info, path) = open("save-in-place", 1);
         let before = std::fs::read(&path).unwrap();
@@ -4793,6 +4905,7 @@ mod with_worker {
         let (_, event) = documents.save(edited.doc, None).unwrap();
         assert!(!opened_info(event).unsaved);
         assert_eq!(first_page_of(&path), LANDSCAPE);
+        check_qpdf(&path);
         // No temporary or backup file is left next to it.
         let stem = path.file_name().unwrap().to_string_lossy().into_owned();
         let left: Vec<_> = std::fs::read_dir(path.parent().unwrap())
@@ -4871,6 +4984,7 @@ mod with_worker {
         std::fs::remove_file(&copy).ok();
 
         documents.privacy_export(info.doc, &copy).unwrap();
+        check_qpdf(&copy);
         let written = std::fs::read(&copy).unwrap();
         assert!(written.starts_with(b"%PDF-"));
         assert!(!written.windows(AUTHOR.len()).any(|window| window == AUTHOR));
@@ -4918,6 +5032,7 @@ mod with_worker {
         };
 
         let result = documents.sanitize_copy(info.doc, &copy, options).unwrap();
+        check_qpdf(&copy);
         assert!(result.bytes > 0);
         let written = std::fs::read(&copy).unwrap();
         assert!(written.starts_with(b"%PDF-"));
@@ -5336,6 +5451,7 @@ mod with_worker {
                 .unwrap();
             let written = std::fs::read(&copy).unwrap();
             assert!(written.starts_with(&original), "appended to the file");
+            check_qpdf(&copy);
 
             let reader = Documents::new(worker());
             let opened = open_in(&reader, &copy);
@@ -6031,6 +6147,7 @@ mod with_worker {
         assert!(documents.open_identifiers().is_empty());
 
         let (identifier, event) = documents.set_sensitive(info.doc, true, None).unwrap();
+        check_qpdf(&path);
         let marked = opened_info(event);
         assert!(marked.sensitive);
         // The worker's document is opened again from the file: another id, the same pages.
@@ -6061,16 +6178,19 @@ mod with_worker {
         let mut doc = marked.doc;
         edited_pages(&documents, &mut doc, turn(0));
         let (_, saved) = documents.save(doc, None).unwrap();
+        check_qpdf(&path);
         let saved = opened_info(saved);
         assert!(saved.sensitive);
         assert!(open_in(&Documents::new(worker()), &path).sensitive);
         let exported = folder.join("exported.pdf");
         documents.privacy_export(saved.doc, &exported).unwrap();
+        check_qpdf(&exported);
         assert!(!open_in(&Documents::new(worker()), &exported).sensitive);
 
         // Taken out: appended too, and the file opens as any other.
         let before = std::fs::read(&path).unwrap();
         let (removed, event) = documents.set_sensitive(saved.doc, false, None).unwrap();
+        check_qpdf(&path);
         assert_eq!(removed, identifier);
         assert!(!opened_info(event).sensitive);
         assert_eq!(&std::fs::read(&path).unwrap()[..before.len()], &before[..]);
@@ -7238,6 +7358,7 @@ mod with_worker {
         documents
             .save_pages(doc.doc, &[1, 2, 4], &destination)
             .unwrap();
+        check_qpdf(&destination);
         let copy = open_in(&Documents::new(worker()), &destination);
         assert_eq!(copy.pages, [LETTER, LETTER, LETTER]);
         assert!(!copy.unsaved);
@@ -7808,6 +7929,9 @@ mod with_worker {
                 "single-page（隱私匯出）.pdf"
             ]
         );
+        for name in names_in(&out) {
+            check_qpdf(&out.join(name));
+        }
         let copy = std::fs::read(out.join("metadata-full（隱私匯出）.pdf")).unwrap();
         assert!(
             !copy
@@ -7877,6 +8001,9 @@ mod with_worker {
             names_in(&out),
             ["multi-page-10（已加密）.pdf", "single-page（已加密）.pdf"]
         );
+        for name in names_in(&out) {
+            check_qpdf_encrypted(&out.join(name), Some("user"));
+        }
         // The copy needs the password, and opens with it.
         let copy = out.join("multi-page-10（已加密）.pdf");
         let asked = std::cell::RefCell::new(false);
@@ -7922,6 +8049,9 @@ mod with_worker {
                 "photo-exif（已清除 EXIF）.pdf"
             ]
         );
+        for name in names_in(&out) {
+            check_qpdf(&out.join(name));
+        }
         let has = |bytes: &[u8], needle: &[u8]| {
             bytes.windows(needle.len()).any(|window| window == needle)
         };
@@ -8008,6 +8138,9 @@ mod with_worker {
             names_in(&out),
             ["image-only（已壓縮）.pdf", "photo-exif（已壓縮）.pdf"]
         );
+        for name in names_in(&out) {
+            check_qpdf(&out.join(name));
+        }
         // Each copy is the same document; the page that is a large picture got much smaller.
         for (name, source) in [
             ("image-only（已壓縮）.pdf", &files[0]),
@@ -8064,6 +8197,9 @@ mod with_worker {
             names_in(&out),
             ["multi-page-10（浮水印）.pdf", "single-page（浮水印）.pdf"]
         );
+        for name in names_in(&out) {
+            check_qpdf(&out.join(name));
+        }
         let single = std::fs::read(out.join("single-page（浮水印）.pdf")).unwrap();
         assert!(single.starts_with(b"%PDF-"));
         let single_wm_count = single
@@ -8244,6 +8380,9 @@ mod with_worker {
                 "openaction-js（淨化副本）.pdf"
             ]
         );
+        for name in names_in(&out) {
+            check_qpdf(&out.join(name));
+        }
         // What the scan found in the files is not in their copies, which have the same pages.
         for (name, source) in [
             ("composite-sanitize（淨化副本）.pdf", &files[0]),
@@ -8378,6 +8517,9 @@ mod with_worker {
                 "single-page（頁碼與 Bates）.pdf"
             ]
         );
+        for name in names_in(&out) {
+            check_qpdf(&out.join(name));
+        }
         let multi_copy = std::fs::read(out.join("multi-page-10（頁碼與 Bates）.pdf")).unwrap();
         assert!(multi_copy.starts_with(b"%PDF-"));
         let single_copy = std::fs::read(out.join("single-page（頁碼與 Bates）.pdf")).unwrap();
@@ -8484,6 +8626,9 @@ mod with_worker {
         );
 
         // Verify text in the copies.
+        for name in names_in(&out) {
+            check_qpdf(&out.join(name));
+        }
         let multi_doc = open_in(&documents, &out.join("multi-page-10（頁碼與 Bates）.pdf"));
         let p0_text = documents.page_text(multi_doc.doc, 0).unwrap();
         assert!(p0_text.lines.iter().any(|l| l.text.contains("CASE-000001")));

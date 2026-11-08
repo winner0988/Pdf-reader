@@ -3,6 +3,8 @@
 //! with the passwords it was sent once; the document itself is left as it was.
 #![cfg(windows)]
 
+mod common;
+
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
@@ -97,6 +99,9 @@ fn a_copy_opens_only_with_its_password_and_the_document_is_as_it_was() {
     assert!(has(&written, b"/AESV3"));
     assert!(!has(&written, b"pw-open-7Qz") && !has(&written, b"pw-owner-7Qz"));
 
+    let enc = common::check_qpdf_encrypted(&path, Some("pw-open-7Qz"));
+    assert_eq!(enc.r, 6);
+
     // It needs a password; a wrong one is refused; either of its own opens it.
     for with in [None, Some("pw-other-7Qz")] {
         assert_eq!(
@@ -137,6 +142,10 @@ fn restrictions_are_what_the_copy_is_opened_with_unless_the_permissions_password
     )
     .expect("encrypted copy");
     drop(file);
+    let enc = common::check_qpdf_encrypted(&path, Some("pw-open-7Qz"));
+    assert_eq!(enc.r, 6);
+    assert!(!enc.print_low && !enc.print_high);
+    assert!(!enc.extract_any);
     let (restricted, _) = opened_with(&path, Some("pw-open-7Qz")).expect("opens");
     assert!(!restricted.print && !restricted.print_high_quality && !restricted.copy);
     assert!(
@@ -161,6 +170,11 @@ fn restrictions_are_what_the_copy_is_opened_with_unless_the_permissions_password
     )
     .expect("encrypted copy");
     drop(file);
+    let enc = common::check_qpdf_encrypted(&path, None);
+    assert_eq!(enc.r, 6);
+    assert!(!enc.modify_anything);
+    assert!(enc.print_low && enc.print_high);
+    assert!(enc.extract_any);
     let (anyone, pages) = opened_with(&path, None).expect("opens without a password");
     assert_eq!(pages, 10);
     assert!(!anyone.modify && !anyone.assemble && !anyone.annotate && !anyone.fill_forms);

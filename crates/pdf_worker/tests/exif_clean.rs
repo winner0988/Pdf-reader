@@ -102,6 +102,7 @@ fn the_worker_writes_a_copy_without_what_the_camera_wrote_and_the_page_looks_the
     assert_eq!((pictures, cleaned), (1, 1));
     let copy = std::fs::read(&path).expect("copy");
     assert_eq!(bytes, copy.len() as u64);
+    common::check_qpdf(&path);
     for private in PRIVATE {
         assert!(
             !contains(&copy, private),

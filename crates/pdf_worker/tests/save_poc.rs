@@ -2,6 +2,8 @@
 //! before any of it is wired into the worker. Each `Vec<u8>` stands for the file behind the
 //! write-only handle the main process would give the worker (crates/sandbox tests that part).
 
+mod common;
+
 use mupdf::pdf::{PdfDocument as MuPdfDocument, PdfWriteOptions};
 
 fn corpus(name: &str) -> Vec<u8> {
@@ -64,6 +66,7 @@ fn an_incremental_save_leaves_a_signed_file_as_it_was() {
     assert!(saved.len() > original.len());
     assert!(saved[..original.len()] == original[..]);
     assert_eq!(rotation(&saved, 0), 90);
+    common::check_qpdf_bytes(&saved);
 }
 
 #[test]

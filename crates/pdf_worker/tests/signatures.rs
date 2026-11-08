@@ -138,6 +138,7 @@ fn a_change_after_signing_is_told_but_the_signature_still_holds_for_what_it_cove
         .expect("write");
     assert!(updated.len() > original.len());
     assert!(updated.starts_with(&original));
+    common::check_qpdf_bytes(&updated);
 
     let report = report_of(&updated, "signed-updated");
     let signature = only(&report);
