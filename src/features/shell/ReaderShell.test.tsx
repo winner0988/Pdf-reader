@@ -62,11 +62,12 @@ describe("states", () => {
     expect(svg).toHaveClass("size-24", "text-muted-foreground");
   });
 
-  it("drop indicator: reflects dropActive state with transform and opacity classes", () => {
+  it("drop indicator: reflects dropActive state with scale and opacity classes", () => {
     const { container, rerender } = renderShell({ kind: "empty" }, { dropActive: false });
 
     const indicator = container.querySelector("[data-drop-indicator]");
     expect(indicator).toBeInTheDocument();
+    expect(indicator).toHaveClass("transition-[scale,opacity]");
     expect(indicator).toHaveClass("opacity-0", "scale-[0.98]");
     expect(indicator).toHaveClass("border-dashed", "border-primary");
 

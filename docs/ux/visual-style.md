@@ -180,6 +180,6 @@
     - 盾牌底色：`--background`。
     - 盾牌輪廓與鎖頭本體：品牌強調色 `--primary`（淺色為深寶藍、深色為天青藍，均符合 WCAG AA 對比度）。
     - 鎖孔：`--primary-foreground`。
-  - **拖放動態**：當檔案拖曳進入視窗時（`data-drop-indicator`），邊框呈現品牌強調色虛線框（`border-2 border-dashed border-primary`），動態持續時間為 **200ms**（`ease-out`），僅動 **`transform`**（scale 0.98 $\to$ 1.0）與 **`opacity`**（0 $\to$ 1），絕不觸發排版重繪（reflow）。在系統開啟「減少動態」模式下，全域 `prefers-reduced-motion` 規則會將其過渡時間壓至 0.01ms 即時呈現。
+  - **拖放動態**：當檔案拖曳進入視窗時（`data-drop-indicator`），邊框呈現品牌強調色虛線框（`border-2 border-dashed border-primary`），動態持續時間為 **200ms**（`ease-out`），只動 **`scale`**（0.98 → 1）與 **`opacity`**（0 → 1）（`scale` 是 CSS 的獨立屬性，跟 `transform` 一樣由 GPU 合成，不觸發 reflow）。在系統開啟「減少動態」模式下，全域 `prefers-reduced-motion` 規則會將其過渡時間壓至 0.01ms 即時呈現。
 - **後續進度標記**：
   - **精細微動態（Micro-interactions）**：側欄滑順開合、切換分頁轉場、存檔成功微勾動畫、骨架載入微光（Shimmer），於 **UX-02 第 3 步** 定案與實作。
