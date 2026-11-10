@@ -1358,8 +1358,28 @@ fn read_limited(file: Option<File>, limit: u64) -> Result<Vec<u8>, ErrorFor> {
             )
         });
     };
+    let hint = file.metadata().ok().map(|m| m.len());
+    read_limited_from(file, hint, limit)
+}
+
+fn read_limited_from<R: Read>(
+    reader: R,
+    hint: Option<u64>,
+    limit: u64,
+) -> Result<Vec<u8>, ErrorFor> {
+    if hint.is_some_and(|hint_len| hint_len > limit) {
+        return Err(|request| error(request, WorkerErrorCode::LimitExceeded, "file too large"));
+    }
+
     let mut bytes = Vec::new();
-    if file.take(limit + 1).read_to_end(&mut bytes).is_err() {
+    if let Some(hint_len) = hint {
+        let reserve_len = usize::try_from(hint_len).unwrap_or(usize::MAX);
+        if bytes.try_reserve_exact(reserve_len).is_err() {
+            return Err(|request| error(request, WorkerErrorCode::LimitExceeded, "file too large"));
+        }
+    }
+
+    if reader.take(limit + 1).read_to_end(&mut bytes).is_err() {
         return Err(|request| {
             error(
                 request,
@@ -1368,9 +1388,15 @@ fn read_limited(file: Option<File>, limit: u64) -> Result<Vec<u8>, ErrorFor> {
             )
         });
     }
+
     if bytes.len() as u64 > limit {
         return Err(|request| error(request, WorkerErrorCode::LimitExceeded, "file too large"));
     }
+
+    if hint.is_none() || bytes.capacity().saturating_sub(bytes.len()) > 4096 {
+        bytes.shrink_to_fit();
+    }
+
     Ok(bytes)
 }
 
@@ -1631,5 +1657,174 @@ fn ocr_poll(
         request,
         finished,
         waiting: u32::try_from(waiting).unwrap_or(u32::MAX),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Cursor, Write};
+    use std::path::PathBuf;
+
+    struct TempFile(PathBuf);
+    impl TempFile {
+        fn new(name: &str) -> Self {
+            let path =
+                std::env::temp_dir().join(format!("pdf-worker-test-{}-{name}", std::process::id()));
+            Self(path)
+        }
+    }
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    fn check_error_code(result: Result<Vec<u8>, ErrorFor>, expected: WorkerErrorCode) {
+        let response_fn = result.expect_err("expected error");
+        let response = response_fn(RequestId(1));
+        let WorkerResponse::Error { error, .. } = response else {
+            panic!("expected WorkerResponse::Error, got {response:?}");
+        };
+        assert_eq!(error.code, expected);
+    }
+
+    #[test]
+    fn buffer_capacity_does_not_exceed_non_power_of_two_file_size() {
+        let temp = TempFile::new("read-sized-buffer.bin");
+        let target_size = 3 * 1024 * 1024 + 1;
+        let chunk_size = 251 * 256;
+        let mut data = Vec::with_capacity(chunk_size);
+        for i in 0..chunk_size {
+            data.push((i % 251) as u8);
+        }
+        let mut file = File::create(&temp.0).unwrap();
+        let mut written = 0;
+        while written < target_size {
+            let chunk_len = (target_size - written).min(data.len());
+            file.write_all(&data[..chunk_len]).unwrap();
+            written += chunk_len;
+        }
+        file.flush().unwrap();
+        drop(file);
+
+        let file = File::open(&temp.0).unwrap();
+        let bytes = read_limited(Some(file), 16 * 1024 * 1024).expect("read failed");
+        assert_eq!(bytes.len(), target_size);
+        for (i, &b) in bytes.iter().enumerate() {
+            assert_eq!(b, (i % 251) as u8);
+        }
+        assert_eq!(bytes.capacity(), target_size);
+        assert!(
+            bytes.capacity() <= bytes.len() + 4096,
+            "capacity {} exceeds len {} + 4096",
+            bytes.capacity(),
+            bytes.len()
+        );
+    }
+
+    #[test]
+    fn hint_exceeding_limit_returns_limit_exceeded_without_reading() {
+        struct Unreadable;
+        impl Read for Unreadable {
+            fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+                panic!("should not read when hint exceeds limit");
+            }
+        }
+        let res = read_limited_from(Unreadable, Some(101), 100);
+        check_error_code(res, WorkerErrorCode::LimitExceeded);
+    }
+
+    #[test]
+    fn allocation_failure_returns_limit_exceeded() {
+        let reader = Cursor::new(b"hello");
+        // Requesting usize::MAX elements will fail try_reserve_exact due to capacity overflow.
+        let res = read_limited_from(reader, Some(u64::MAX), u64::MAX);
+        check_error_code(res, WorkerErrorCode::LimitExceeded);
+    }
+
+    #[test]
+    fn unhinted_read_shrinks_to_fit() {
+        let data = vec![42u8; 3 * 1024 * 1024 + 1];
+        let reader = Cursor::new(data.clone());
+        let bytes = read_limited_from(reader, None, 16 * 1024 * 1024).expect("read failed");
+        assert_eq!(bytes, data);
+        assert!(
+            bytes.capacity() <= bytes.len() + 4096,
+            "capacity {} exceeds len {} + 4096",
+            bytes.capacity(),
+            bytes.len()
+        );
+    }
+
+    #[test]
+    fn read_less_than_hint_shrinks_excess_capacity() {
+        let reader = Cursor::new(b"small content".to_vec());
+        let bytes =
+            read_limited_from(reader, Some(1024 * 1024), 16 * 1024 * 1024).expect("read failed");
+        assert_eq!(&bytes[..], b"small content");
+        assert!(
+            bytes.capacity() <= bytes.len() + 4096,
+            "capacity {} exceeds len {} + 4096",
+            bytes.capacity(),
+            bytes.len()
+        );
+    }
+
+    #[test]
+    fn read_more_than_hint_succeeds_within_limit() {
+        let reader = Cursor::new(vec![7u8; 100]);
+        let bytes = read_limited_from(reader, Some(10), 1000).expect("read failed");
+        assert_eq!(bytes.len(), 100);
+    }
+
+    #[test]
+    fn read_more_than_hint_fails_when_exceeding_limit() {
+        let reader = Cursor::new(vec![7u8; 100]);
+        let res = read_limited_from(reader, Some(10), 50);
+        check_error_code(res, WorkerErrorCode::LimitExceeded);
+    }
+
+    #[test]
+    fn empty_file_succeeds() {
+        let temp = TempFile::new("empty.bin");
+        File::create(&temp.0).unwrap();
+        let file = File::open(&temp.0).unwrap();
+        let bytes = read_limited(Some(file), 100).expect("read failed");
+        assert!(bytes.is_empty());
+        assert!(bytes.capacity() <= 4096);
+    }
+
+    #[test]
+    fn exact_limit_succeeds() {
+        let temp = TempFile::new("exact-limit.bin");
+        let mut file = File::create(&temp.0).unwrap();
+        file.write_all(&[1, 2, 3, 4, 5]).unwrap();
+        file.flush().unwrap();
+        drop(file);
+
+        let file = File::open(&temp.0).unwrap();
+        let bytes = read_limited(Some(file), 5).expect("read failed");
+        assert_eq!(bytes, vec![1, 2, 3, 4, 5]);
+        assert_eq!(bytes.capacity(), 5);
+    }
+
+    #[test]
+    fn limit_plus_one_fails() {
+        let temp = TempFile::new("limit-plus-one.bin");
+        let mut file = File::create(&temp.0).unwrap();
+        file.write_all(&[1, 2, 3, 4, 5, 6]).unwrap();
+        file.flush().unwrap();
+        drop(file);
+
+        let file = File::open(&temp.0).unwrap();
+        let res = read_limited(Some(file), 5);
+        check_error_code(res, WorkerErrorCode::LimitExceeded);
+    }
+
+    #[test]
+    fn none_file_handle_returns_invalid_request() {
+        let res = read_limited(None, 100);
+        check_error_code(res, WorkerErrorCode::InvalidRequest);
     }
 }
