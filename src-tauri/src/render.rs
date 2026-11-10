@@ -14,8 +14,9 @@ use ipc_contract::types::{
 };
 use tokio::sync::oneshot;
 
-/// Initial cache budget for rendered pages.
-pub const DEFAULT_CACHE_BYTES: usize = 256 * 1024 * 1024;
+/// Initial cache budget for rendered pages. Reduced from 256 MB to 128 MB (#520) based on
+/// #488 measurements to keep main + worker process memory within the 1 GB budget.
+pub const DEFAULT_CACHE_BYTES: usize = 128 * 1024 * 1024;
 
 /// Identifies one rendering of a page, or of a region of it (B3-09). Scales are compared to
 /// 1/1000.
@@ -337,6 +338,8 @@ mod tests {
     use std::sync::mpsc;
     use std::time::Duration;
 
+    use ipc_contract::limits::MAX_RASTER_PIXELS;
+    use ipc_contract::raster::RASTER_HEADER_BYTES;
     use tauri::async_runtime::block_on;
 
     use super::*;
@@ -410,6 +413,48 @@ mod tests {
         cache.insert(key(1, 0), Arc::new(vec![0; 60]), epoch);
         cache.insert(key(1, 0), Arc::new(vec![0; 70]), epoch);
         assert_eq!(cache.used_bytes(), 70);
+    }
+
+    #[test]
+    fn default_cache_capacity_holds_largest_raster_pages() {
+        // The main process caches the encoded raster returned by Documents::render (via encode_raster),
+        // which consists of a 16-byte header (RASTER_HEADER_BYTES) followed by RGBA pixels (4 bytes/px).
+        const BYTES_PER_PIXEL: usize = 4;
+        let max_raster_bytes = RASTER_HEADER_BYTES + (MAX_RASTER_PIXELS as usize) * BYTES_PER_PIXEL;
+        assert_eq!(max_raster_bytes, 16 + 4096 * 4096 * 4);
+
+        // 128 MB (134,217,728 bytes) is at least as large as one maximum raster page.
+        assert!(
+            DEFAULT_CACHE_BYTES >= max_raster_bytes,
+            "default cache must hold at least one maximum page"
+        );
+
+        // Two maximum raster pages require 2 * 67,108,880 = 134,217,760 bytes, which exceeds
+        // 128 MB by 32 bytes (the two 16-byte headers). Therefore, exactly 1 maximum page fits.
+        assert_eq!(
+            2 * max_raster_bytes - DEFAULT_CACHE_BYTES,
+            2 * RASTER_HEADER_BYTES
+        );
+
+        let mut cache = RasterCache::new(DEFAULT_CACHE_BYTES);
+        let epoch = cache.epoch();
+
+        let page1 = Arc::new(vec![1u8; max_raster_bytes]);
+        let page2 = Arc::new(vec![2u8; max_raster_bytes]);
+
+        // One maximum page fits and is not rejected as too large (bytes.len() <= capacity).
+        cache.insert(key(1, 0), page1.clone(), epoch);
+        assert_eq!(cache.used_bytes(), max_raster_bytes);
+        assert!(cache.get(&key(1, 0)).is_some());
+
+        // Inserting a second maximum page evicts the first because 2 * max_raster_bytes > 128 MB.
+        cache.insert(key(1, 1), page2.clone(), epoch);
+        assert_eq!(cache.used_bytes(), max_raster_bytes);
+        assert!(
+            cache.get(&key(1, 0)).is_none(),
+            "first page evicted because 2 * 64 MiB + 32 B > 128 MiB"
+        );
+        assert!(cache.get(&key(1, 1)).is_some());
     }
 
     #[test]
