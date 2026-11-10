@@ -10,7 +10,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
 import { corpus, expect, launchAgain, test } from "./app";
@@ -84,6 +84,111 @@ async function chooseFromMenu(page: Page, name: string) {
   const more = page.getByRole("button", { name: strings.toolbar.more });
   await more.click();
   await page.getByRole("menuitem", { name: new RegExp(`^${name}`) }).click();
+}
+
+/**
+ * Verifies that Tab and Shift+Tab key navigation remains trapped inside the given dialog.
+ * - Counts tabbable controls `n` inside the dialog.
+ * - Presses Tab `n + 2` times, polling activeElement to confirm it stays inside dialog.
+ * - Presses Shift+Tab 3 times, polling activeElement to confirm it stays inside dialog.
+ * - If n > 1, verifies that focus moved to another control at least once.
+ */
+async function verifyFocusTrap(
+  page: Page,
+  dialog: Locator,
+  name: string,
+  options?: { containerSelector?: string },
+): Promise<number> {
+  const n = await dialog.evaluate((dialogEl) => {
+    const isTabbable = (el: HTMLElement) => {
+      if (el.getAttribute("tabindex") === "-1" || el.tabIndex < 0) return false;
+      if ((el as HTMLButtonElement).disabled || el.closest("fieldset:disabled") !== null) return false;
+      if (el instanceof HTMLInputElement && el.type === "hidden") return false;
+      if (el.hidden || el.closest("[hidden]") !== null) return false;
+      if (el.getAttribute("aria-hidden") === "true" || el.closest('[aria-hidden="true"]') !== null) return false;
+      const style = window.getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden") return false;
+      if (typeof el.checkVisibility === "function") {
+        if (!el.checkVisibility({ checkOpacity: false, checkVisibilityCSS: true })) return false;
+      } else if (el.offsetWidth === 0 && el.offsetHeight === 0 && el.getClientRects().length === 0) {
+        return false;
+      }
+      return true;
+    };
+
+    const candidates = dialogEl.querySelectorAll<HTMLElement>(
+      "button, [href], input, select, textarea, [tabindex]",
+    );
+    return Array.from(candidates).filter(isTabbable).length;
+  });
+
+  console.log(`[focus-trap] ${name}: tabbable count n = ${n}`);
+
+  await dialog.evaluate((dialogEl) => {
+    const visited = new Set<Element>();
+    const active = document.activeElement;
+    if (active && active !== document.body && dialogEl.contains(active)) {
+      visited.add(active);
+    }
+    (window as unknown as { __focusTrapVisited: Set<Element> }).__focusTrapVisited = visited;
+  });
+
+  const tabPresses = n + 2;
+  for (let i = 1; i <= tabPresses; i++) {
+    await page.keyboard.press("Tab");
+    await expect.poll(
+      () =>
+        dialog.evaluate((dialogEl, selector) => {
+          const container = selector ? dialogEl.querySelector(selector) : dialogEl;
+          const active = document.activeElement;
+          const inside =
+            active !== null &&
+            active !== document.body &&
+            Boolean(container && (container === active || container.contains(active)));
+          if (inside && active) {
+            (window as unknown as { __focusTrapVisited?: Set<Element> }).__focusTrapVisited?.add(active);
+          }
+          return inside;
+        }, options?.containerSelector),
+      { message: `${name}: Tab ${i}/${tabPresses}: activeElement must stay inside dialog` },
+    ).toBe(true);
+  }
+
+  for (let i = 1; i <= 3; i++) {
+    await page.keyboard.press("Shift+Tab");
+    await expect.poll(
+      () =>
+        dialog.evaluate((dialogEl, selector) => {
+          const container = selector ? dialogEl.querySelector(selector) : dialogEl;
+          const active = document.activeElement;
+          const inside =
+            active !== null &&
+            active !== document.body &&
+            Boolean(container && (container === active || container.contains(active)));
+          if (inside && active) {
+            (window as unknown as { __focusTrapVisited?: Set<Element> }).__focusTrapVisited?.add(active);
+          }
+          return inside;
+        }, options?.containerSelector),
+      { message: `${name}: Shift+Tab ${i}/3: activeElement must stay inside dialog` },
+    ).toBe(true);
+  }
+
+  const visitedCount = await page.evaluate(() => {
+    const visited = (window as unknown as { __focusTrapVisited?: Set<Element> }).__focusTrapVisited;
+    const size = visited ? visited.size : 0;
+    delete (window as unknown as { __focusTrapVisited?: Set<Element> }).__focusTrapVisited;
+    return size;
+  });
+
+  if (n > 1) {
+    expect(
+      visitedCount,
+      `${name}: focus must move to at least another control across Tab navigation (n = ${n})`,
+    ).toBeGreaterThan(1);
+  }
+
+  return n;
 }
 
 test("global shortcuts and search bar: Shortcuts, Print, SearchAll, SearchBar", async ({ launch }) => {
@@ -172,7 +277,8 @@ test("menu dialogs: keyboard walkthrough, focus trapping, and focus return to Mo
     ).toBe(true);
 
     // Keyboard navigation inside dialog (Tab trap check)
-    await page.keyboard.press("Tab");
+    // NOTE: Intentionally failing containerSelector for step 4 verification
+    await verifyFocusTrap(page, dialog, title, { containerSelector: "[data-never]" });
 
     // Close via Escape key
     await page.keyboard.press("Escape");
@@ -201,6 +307,8 @@ test("external link confirmation: LinkConfirmDialog initial focus and return", a
 
   await inBothThemes(page, (theme) => noProblems(page, `link confirmation, ${theme}`));
 
+  await verifyFocusTrap(page, confirmDialog, strings.links.confirmTitle);
+
   // Dismiss with Escape
   await page.keyboard.press("Escape");
   await expect(confirmDialog).toHaveCount(0);
@@ -221,6 +329,8 @@ test("blocked link dialog: BlockedLinkDialog initial focus and return", async ({
   await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim())).toBe(strings.links.close);
 
   await inBothThemes(page, (theme) => noProblems(page, `blocked link, ${theme}`));
+
+  await verifyFocusTrap(page, blockedDialog, strings.links.blockedTitle);
 
   await page.keyboard.press("Escape");
   await expect(blockedDialog).toHaveCount(0);
@@ -262,6 +372,8 @@ test("annotations: TextBoxDialog and Issue #402 focus restoration", async ({ lau
   const editDialog = page.getByRole("dialog", { name: t.textBoxDialog.editTitle });
   await expect(editDialog).toBeVisible();
 
+  await verifyFocusTrap(page, editDialog, t.textBoxDialog.editTitle);
+
   // Dismiss edit dialog with Escape
   await page.keyboard.press("Escape");
   await expect(editDialog).toHaveCount(0);
@@ -300,6 +412,8 @@ test("outline bookmarks: DeleteBookmarkDialog and rename with keyboard", async (
   await expect(deleteDialog).toBeVisible();
   await inBothThemes(page, (theme) => noProblems(page, `delete bookmark dialog, ${theme}`));
 
+  await verifyFocusTrap(page, deleteDialog, strings.sidebar.deleteConfirmTitle);
+
   await page.keyboard.press("Escape");
   await expect(deleteDialog).toHaveCount(0);
 
@@ -321,6 +435,8 @@ test("redaction: FindPersonalDataDialog and RedactionConfirmDialog", async ({ la
   await expect(findDialog).toBeVisible();
   await inBothThemes(page, (theme) => noProblems(page, `find personal data dialog, ${theme}`));
 
+  await verifyFocusTrap(page, findDialog, strings.redaction.findPersonalDataDialog.title);
+
   await page.keyboard.press("Escape");
   await expect(findDialog).toHaveCount(0);
 
@@ -340,6 +456,8 @@ test("redaction: FindPersonalDataDialog and RedactionConfirmDialog", async ({ la
   const confirmDialog = page.getByRole("dialog", { name: strings.redaction.dialog.title });
   await expect(confirmDialog).toBeVisible();
   await inBothThemes(page, (theme) => noProblems(page, `redaction confirm dialog, ${theme}`));
+
+  await verifyFocusTrap(page, confirmDialog, strings.redaction.dialog.title);
 
   await page.keyboard.press("Escape");
   await expect(confirmDialog).toHaveCount(0);
@@ -362,6 +480,8 @@ test("page management: MovePagesDialog in thumbnails", async ({ launch }) => {
   await expect(moveDialog).toBeVisible();
   await inBothThemes(page, (theme) => noProblems(page, `move pages dialog, ${theme}`));
 
+  await verifyFocusTrap(page, moveDialog, strings.pages.move.title);
+
   await page.keyboard.press("Escape");
   await expect(moveDialog).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
@@ -381,6 +501,8 @@ test("attachments: DangerConfirmDialog on executable attachment", async ({ launc
   await expect(dangerDialog).toContainText(strings.attachments.dangerConfirm.title);
   await inBothThemes(page, (theme) => noProblems(page, `danger confirm dialog, ${theme}`));
 
+  await verifyFocusTrap(page, dangerDialog, strings.attachments.dangerConfirm.title);
+
   await page.keyboard.press("Escape");
   await expect(dangerDialog).toHaveCount(0);
 
@@ -396,6 +518,8 @@ test("form flattening: FlattenDialog in form document", async ({ launch }) => {
   const flattenDialog = page.getByRole("dialog", { name: strings.forms.flattenDialog.title });
   await expect(flattenDialog).toBeVisible();
   await inBothThemes(page, (theme) => noProblems(page, `flatten dialog, ${theme}`));
+
+  await verifyFocusTrap(page, flattenDialog, strings.forms.flattenDialog.title);
 
   await page.keyboard.press("Escape");
   await expect(flattenDialog).toHaveCount(0);
@@ -424,6 +548,8 @@ test("unsaved changes: UnsavedDialog when closing tab with edits", async ({ laun
   const unsavedDialog = page.getByRole("dialog", { name: strings.saving.askTitle });
   await expect(unsavedDialog).toBeVisible();
   await inBothThemes(page, (theme) => noProblems(page, `unsaved dialog, ${theme}`));
+
+  await verifyFocusTrap(page, unsavedDialog, strings.saving.askTitle);
 
   await page.keyboard.press("Escape");
   await expect(unsavedDialog).toHaveCount(0);
