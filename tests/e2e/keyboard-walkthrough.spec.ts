@@ -277,8 +277,7 @@ test("menu dialogs: keyboard walkthrough, focus trapping, and focus return to Mo
     ).toBe(true);
 
     // Keyboard navigation inside dialog (Tab trap check)
-    // NOTE: Intentionally failing containerSelector for step 4 verification
-    await verifyFocusTrap(page, dialog, title, { containerSelector: "[data-never]" });
+    await verifyFocusTrap(page, dialog, title);
 
     // Close via Escape key
     await page.keyboard.press("Escape");
