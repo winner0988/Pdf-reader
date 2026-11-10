@@ -26,6 +26,8 @@ const baseFile = path.resolve(option("--base", path.join(ROOT, "tests", "corpus"
 const cycleFile = path.resolve(option("--cycle-file", path.join(ROOT, "tests", "corpus", "large", "output", "large-text-1000-pages.pdf")));
 const totalCycles = Number(option("--cycles", 100));
 const outFile = path.resolve(option("--out-file", path.join(outDir, "tab-cycle.json")));
+const heapSnapshot = process.argv.includes("--heap-snapshot");
+const heapSnapshotPrefix = option("--heap-snapshot-prefix", path.join(outDir, "heap"));
 
 for (const file of [app, baseFile, cycleFile]) {
   if (!fs.existsSync(file)) {
@@ -91,14 +93,32 @@ const treeScript = `
 const powershell = (script) =>
   execFileSync("powershell.exe", ["-NoProfile", "-Command", script], { encoding: "utf8" }).trim();
 
-/** Private memory in MB: the main process, WebView2, and each worker. */
+/** Private memory in MB: the main process, WebView2 (categorized by --type=), and each worker. */
 const memoryScript = `
   $appProc = $tree | Where-Object { $_.Name -eq 'pdf-reader.exe' }
   $appMem = ($appProc | ForEach-Object { (Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue).PrivateMemorySize64 } | Measure-Object -Sum).Sum
   if (-not $appMem) { $appMem = 0 }
-  $wvProcs = $tree | Where-Object { $_.Name -like 'msedgewebview2*' }
+  $wvProcs = @($tree | Where-Object { $_.Name -like 'msedgewebview2*' })
   $wvMem = ($wvProcs | ForEach-Object { (Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue).PrivateMemorySize64 } | Measure-Object -Sum).Sum
   if (-not $wvMem) { $wvMem = 0 }
+  $wvBrowserMem = 0
+  $wvRendererMem = 0
+  $wvGpuMem = 0
+  $wvOtherMem = 0
+  foreach ($p in $wvProcs) {
+    $proc = Get-Process -Id $p.ProcessId -ErrorAction SilentlyContinue
+    if (-not $proc) { continue }
+    $cmd = $p.CommandLine
+    if (-not $cmd -or $cmd -notmatch '--type=') {
+      $wvBrowserMem += $proc.PrivateMemorySize64
+    } elseif ($cmd -match '--type=renderer') {
+      $wvRendererMem += $proc.PrivateMemorySize64
+    } elseif ($cmd -match '--type=gpu-process') {
+      $wvGpuMem += $proc.PrivateMemorySize64
+    } else {
+      $wvOtherMem += $proc.PrivateMemorySize64
+    }
+  }
   $workerProcs = @($tree | Where-Object { $_.Name -eq 'pdf_worker.exe' })
   $workerMemList = @($workerProcs | ForEach-Object {
     $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
@@ -111,18 +131,21 @@ const memoryScript = `
   [PSCustomObject]@{
     workerCount = $workerProcs.Count
     main = [math]::Round($appMem / 1MB)
+    mainBytes = $appMem
     webView2 = [math]::Round($wvMem / 1MB)
+    webView2Details = [PSCustomObject]@{
+      total = [math]::Round($wvMem / 1MB)
+      browser = [math]::Round($wvBrowserMem / 1MB)
+      renderer = [math]::Round($wvRendererMem / 1MB)
+      gpu = [math]::Round($wvGpuMem / 1MB)
+      other = [math]::Round($wvOtherMem / 1MB)
+    }
     workers = $workerMemList
     workersTotal = [math]::Round($workerTotal / 1MB)
     mainAndWorkers = [math]::Round(($appMem + $workerTotal) / 1MB)
     all = [math]::Round($every / 1MB)
   } | ConvertTo-Json -Compress
 `;
-
-function snapshot() {
-  const json = powershell(treeScript + memoryScript);
-  return JSON.parse(json);
-}
 
 function openInRunningApp(file) {
   spawn(app, [file], { env, stdio: "ignore" });
@@ -145,9 +168,14 @@ const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((resolve) => (ws.onopen = resolve));
 let lastId = 0;
 const pending = new Map();
+let heapSnapshotStream = null;
 
 ws.onmessage = (message) => {
   const reply = JSON.parse(message.data);
+  if (reply.method === "HeapProfiler.addHeapSnapshotChunk" && heapSnapshotStream) {
+    heapSnapshotStream.write(reply.params.chunk);
+    return;
+  }
   if (reply.id && pending.has(reply.id)) pending.get(reply.id)(reply);
 };
 
@@ -175,12 +203,6 @@ async function until(expression, timeoutMs = 30_000) {
   return -1;
 }
 
-async function pressCtrl(key, keyCode) {
-  const event = { key, code: `Key${key.toUpperCase()}`, windowsVirtualKeyCode: keyCode, modifiers: 2 };
-  await send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...event });
-  await send("Input.dispatchKeyEvent", { type: "keyUp", ...event });
-}
-
 async function collectGarbage() {
   try {
     await send("HeapProfiler.collectGarbage");
@@ -194,13 +216,136 @@ async function collectGarbage() {
   }
 }
 
+async function snapshot() {
+  const json = powershell(treeScript + memoryScript);
+  const snap = JSON.parse(json);
+
+  let domCounters = null;
+  try {
+    const reply = await send("Memory.getDOMCounters");
+    const res = reply.result ?? reply;
+    domCounters = {
+      documents: res.documents ?? 0,
+      nodes: res.nodes ?? 0,
+      jsEventListeners: res.jsEventListeners ?? 0,
+    };
+  } catch (err) {
+    console.warn("Memory.getDOMCounters failed:", err);
+  }
+
+  let jsHeap = null;
+  try {
+    const reply = await send("Runtime.getHeapUsage");
+    const res = reply.result ?? reply;
+    jsHeap = {
+      usedMB: Math.round((res.usedSize ?? 0) / 1024 / 1024),
+      totalMB: Math.round((res.totalSize ?? 0) / 1024 / 1024),
+      usedBytes: res.usedSize ?? 0,
+      totalBytes: res.totalSize ?? 0,
+    };
+  } catch (err) {
+    console.warn("Runtime.getHeapUsage failed:", err);
+  }
+
+  return {
+    ...snap,
+    domCounters,
+    jsHeap,
+  };
+}
+
+async function takeHeapSnapshot(filePath) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const stream = fs.createWriteStream(filePath, "utf8");
+  heapSnapshotStream = stream;
+  try {
+    await send("HeapProfiler.enable");
+    await send("HeapProfiler.takeHeapSnapshot", { reportProgress: false });
+  } finally {
+    heapSnapshotStream = null;
+    stream.end();
+    await new Promise((resolve) => stream.on("finish", resolve));
+  }
+}
+
 const helpers = `(() => {
   if (window.__perf) return true;
-  const scroller = () => [...document.querySelectorAll('main[data-region="canvas"]')].find((m) => m.getClientRects().length > 0);
-  const slots = () => [...(scroller()?.querySelectorAll('[role="img"][data-doc]') ?? [])].filter((el) => el.getClientRects().length > 0);
+  const getBaseCanvas = () => {
+    const all = [...document.querySelectorAll('main[data-region="canvas"]')];
+    if (window.__baseDocId) {
+      const match = all.find((m) => m.querySelector('[data-doc="' + window.__baseDocId + '"]'));
+      if (match) return match;
+    }
+    return all[0] ?? null;
+  };
+  const getCycleCanvas = () => {
+    const base = getBaseCanvas();
+    return [...document.querySelectorAll('main[data-region="canvas"]')].find((m) => m !== base) ?? null;
+  };
+  const isBaseHidden = () => {
+    const c = getBaseCanvas();
+    if (!c) return true;
+    const p = c.closest('[role="tabpanel"]');
+    return (p && p.hidden) || c.getClientRects().length === 0;
+  };
+  const isBaseVisible = () => {
+    const c = getBaseCanvas();
+    if (!c) return false;
+    const p = c.closest('[role="tabpanel"]');
+    return !(p && p.hidden) && c.getClientRects().length > 0;
+  };
+  const isCycleVisibleAndReady = () => {
+    const c = getCycleCanvas();
+    if (!c) return false;
+    const p = c.closest('[role="tabpanel"]');
+    if (!p || p.hidden || c.getClientRects().length === 0) return false;
+    const slot = c.querySelector('[role="img"][aria-label="第 1 頁"]');
+    if (!slot || slot.dataset.state !== 'ready') return false;
+    const canvas = slot.querySelector('canvas');
+    return (canvas?.width ?? 0) > 1;
+  };
   const drawn = (el) => el?.dataset.state === 'ready' && (el.querySelector('canvas')?.width ?? 0) > 1;
+  const slots = () => [...(getBaseCanvas()?.querySelectorAll('[role="img"][data-doc]') ?? [])].filter((el) => el.getClientRects().length > 0);
   Object.assign(window, {
-    __scroller: scroller,
+    __getBaseCanvas: getBaseCanvas,
+    __getCycleCanvas: getCycleCanvas,
+    __isBaseHidden: isBaseHidden,
+    __isBaseVisible: isBaseVisible,
+    __isCycleVisibleAndReady: isCycleVisibleAndReady,
+    __getBaseScrollTop: () => getBaseCanvas()?.scrollTop ?? 0,
+    __scrollCycleCanvas: (delta = 1200) => {
+      const c = getCycleCanvas();
+      if (c) {
+        c.scrollTop += delta;
+        return true;
+      }
+      return false;
+    },
+    __patchBaseDimensions: () => {
+      const c = getBaseCanvas();
+      if (c && !c.__perfPatched) {
+        let lastCW = c.clientWidth;
+        let lastCH = c.clientHeight;
+        const origCW = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth');
+        const origCH = Object.getOwnPropertyDescriptor(Element.prototype, 'clientHeight');
+        Object.defineProperty(c, 'clientWidth', {
+          get() {
+            const v = origCW.get.call(this);
+            if (v > 0) lastCW = v;
+            return v === 0 && lastCW > 0 ? lastCW : v;
+          },
+        });
+        Object.defineProperty(c, 'clientHeight', {
+          get() {
+            const v = origCH.get.call(this);
+            if (v > 0) lastCH = v;
+            return v === 0 && lastCH > 0 ? lastCH : v;
+          },
+        });
+        c.__perfPatched = true;
+      }
+      return true;
+    },
     __slot: (n) => slots().find((el) => el.getAttribute('aria-label') === '第 ' + n + ' 頁'),
     __ready: (n) => drawn(window.__slot(n)),
     __doc: () => slots()[0]?.dataset.doc ?? '',
@@ -221,6 +366,8 @@ while (performance.now() - launched < 60_000) {
 }
 const baseDocId = await evaluate(`window.__doc()`);
 if (!baseDocId) fail("Failed to open base document.");
+await evaluate(`window.__baseDocId = ${JSON.stringify(baseDocId)}`);
+await evaluate(`window.__patchBaseDimensions()`);
 
 console.log(`Base document ready (docId: ${baseDocId}). Running ${totalCycles} tab cycles...`);
 
@@ -229,18 +376,44 @@ const t0 = performance.now();
 
 // Initial checkpoint
 const initialGc = await collectGarbage();
-const initial = snapshot();
+if (heapSnapshot) {
+  console.log("Taking initial heap snapshot...");
+  await takeHeapSnapshot(`${heapSnapshotPrefix}-cycle-0.heapsnapshot`);
+  console.log(`Saved initial heap snapshot to ${heapSnapshotPrefix}-cycle-0.heapsnapshot`);
+}
+const initial = await snapshot();
 checkpoints.push({ cycle: 0, elapsedSec: 0, gc: initialGc, ...initial });
-console.log(`[Cycle 0] Workers: ${initial.workerCount}, Main: ${initial.main} MB, WebView2: ${initial.webView2} MB, WorkersTotal: ${initial.workersTotal} MB, Total: ${initial.all} MB`);
+console.log(
+  `[Cycle 0] Workers: ${initial.workerCount}, Main: ${initial.main} MB, WebView2: ${initial.webView2} MB ` +
+  `(r:${initial.webView2Details.renderer}/b:${initial.webView2Details.browser}/g:${initial.webView2Details.gpu}/o:${initial.webView2Details.other}), ` +
+  `WorkersTotal: ${initial.workersTotal} MB, Total: ${initial.all} MB, DOM: ${initial.domCounters?.nodes} nodes, JS Heap: ${initial.jsHeap?.usedMB} MB`
+);
 
 for (let i = 1; i <= totalCycles; i++) {
+  // 每一輪記下基準文件的捲動位置
+  const baseScrollBefore = await evaluate("window.__getBaseScrollTop()");
+
   // Open file in running app (new tab)
   openInRunningApp(cycleFile);
-  const openedMs = await until(`window.__doc() !== ${JSON.stringify(baseDocId)} && window.__ready(1)`, 10_000);
-  if (openedMs < 0) fail(`Cycle ${i}: new tab did not open or render page 1.`);
 
-  // Scroll a few pages
-  await evaluate(`(() => { const s = window.__scroller(); if (s) s.scrollTop += 1200; })()`);
+  // 開檔之後，先等新分頁的畫布成為看得見的那一個（基準文件的那一個看不見了），再捲動新分頁
+  const openedMs = await until(
+    "window.__isBaseHidden() && window.__isCycleVisibleAndReady()",
+    10_000,
+  );
+  if (openedMs < 0) {
+    const diag = await evaluate(`({
+      baseHidden: window.__isBaseHidden(),
+      cycleReady: window.__isCycleVisibleAndReady(),
+      baseVisible: window.__isBaseVisible(),
+      canvasCount: document.querySelectorAll('main[data-region="canvas"]').length,
+      tabCount: document.querySelectorAll('div[role="tablist"][aria-label="已開啟的文件"] [role="tab"]').length
+    })`).catch((e) => String(e));
+    fail(`Cycle ${i}: new tab did not open, become visible, or render page 1. Diag: ${JSON.stringify(diag)}`);
+  }
+
+  // 捲動新分頁
+  await evaluate("window.__scrollCycleCanvas(1200)");
   await sleep(100);
 
   // Close the new tab via its exact close button
@@ -251,17 +424,24 @@ for (let i = 1; i <= totalCycles; i++) {
   })()`);
 
   const closedMs = await until(
-    `document.querySelectorAll('div[role="tablist"][aria-label="已開啟的文件"] [role="tab"]').length === 1 && window.__doc() === ${JSON.stringify(baseDocId)}`,
+    `document.querySelectorAll('div[role="tablist"][aria-label="已開啟的文件"] [role="tab"]').length === 1 && window.__isBaseVisible()`,
     10_000,
   );
   if (closedMs < 0) {
     const diag = await evaluate(`({
       doc: window.__doc(),
       baseDocId: ${JSON.stringify(baseDocId)},
+      baseVisible: window.__isBaseVisible(),
       docTabCount: document.querySelectorAll('div[role="tablist"][aria-label="已開啟的文件"] [role="tab"]').length
     })`).catch((e) => String(e));
     console.error("DIAGNOSTIC ON FAILURE:", JSON.stringify(diag));
     fail(`Cycle ${i}: failed to close tab back to base document.`);
+  }
+
+  // 每一輪記下基準文件的捲動位置。開關前後要一樣，不一樣就讓腳本失敗，並印出是第幾輪
+  const baseScrollAfter = await evaluate("window.__getBaseScrollTop()");
+  if (baseScrollAfter !== baseScrollBefore) {
+    fail(`Cycle ${i}: 基準文件捲動位置在開關前後不一致 (第 ${i} 輪：開前 ${baseScrollBefore} px，關後 ${baseScrollAfter} px)`);
   }
 
   // Short pause to allow Windows job/process cleanup
@@ -269,10 +449,14 @@ for (let i = 1; i <= totalCycles; i++) {
 
   if (i % 10 === 0) {
     const gc = await collectGarbage();
-    const snap = snapshot();
+    const snap = await snapshot();
     const elapsedSec = Math.round((performance.now() - t0) / 1000);
     checkpoints.push({ cycle: i, elapsedSec, gc, ...snap });
-    console.log(`[Cycle ${i}/${totalCycles}] (${elapsedSec}s) Workers: ${snap.workerCount}, Main: ${snap.main} MB, WebView2: ${snap.webView2} MB, WorkersTotal: ${snap.workersTotal} MB, Total: ${snap.all} MB`);
+    console.log(
+      `[Cycle ${i}/${totalCycles}] (${elapsedSec}s) Workers: ${snap.workerCount}, Main: ${snap.main} MB, WebView2: ${snap.webView2} MB ` +
+      `(r:${snap.webView2Details.renderer}/b:${snap.webView2Details.browser}/g:${snap.webView2Details.gpu}/o:${snap.webView2Details.other}), ` +
+      `WorkersTotal: ${snap.workersTotal} MB, Total: ${snap.all} MB, DOM: ${snap.domCounters?.nodes} nodes, JS Heap: ${snap.jsHeap?.usedMB} MB`
+    );
   }
 }
 
@@ -280,20 +464,32 @@ console.log(`Completed ${totalCycles} cycles. Waiting 30 seconds for memory clea
 await sleep(30_000);
 const finalGc = await collectGarbage();
 
-const final = snapshot();
+if (heapSnapshot) {
+  console.log("Taking final heap snapshot...");
+  await takeHeapSnapshot(`${heapSnapshotPrefix}-final.heapsnapshot`);
+  console.log(`Saved final heap snapshot to ${heapSnapshotPrefix}-final.heapsnapshot`);
+}
+
+const final = await snapshot();
 const totalElapsedSec = Math.round((performance.now() - t0) / 1000);
 checkpoints.push({ cycle: "final (after 30s)", elapsedSec: totalElapsedSec, gc: finalGc, ...final });
-console.log(`[Final] Workers: ${final.workerCount}, Main: ${final.main} MB, WebView2: ${final.webView2} MB, WorkersTotal: ${final.workersTotal} MB, Total: ${final.all} MB`);
+console.log(
+  `[Final] Workers: ${final.workerCount}, Main: ${final.main} MB, WebView2: ${final.webView2} MB ` +
+  `(r:${final.webView2Details.renderer}/b:${final.webView2Details.browser}/g:${final.webView2Details.gpu}/o:${final.webView2Details.other}), ` +
+  `WorkersTotal: ${final.workersTotal} MB, Total: ${final.all} MB, DOM: ${final.domCounters?.nodes} nodes, JS Heap: ${final.jsHeap?.usedMB} MB`
+);
 
 ws.close();
 cleanUp();
 
 // Judgement criteria:
 // 1. Worker count returns to 1 (only the base document worker remains).
-// 2. Main process memory: cycle 0 is a cold start with an empty raster cache (~55 MB).
-// 3. WebView2 memory returns close to initial.
-const mainThresholdMB = Math.max(initial.main + 276, 350);
-const webviewThresholdMB = Math.max(initial.webView2 * 1.25, initial.webView2 + 100);
+// 2. Main process memory returns close to initial now that the base document is not scrolled.
+//    (Based on 3 runs of 100 cycles where max delta was +2 MB, threshold set to initial + 15 MB).
+// 3. WebView2 memory returns close to initial (accounting for GPU process cache variance up to 90 MB,
+//    threshold set to initial + 100 MB).
+const mainThresholdMB = initial.main + 15;
+const webviewThresholdMB = initial.webView2 + 100;
 
 const workerCountOk = final.workerCount === 1;
 const mainMemoryOk = final.main <= mainThresholdMB;
@@ -305,7 +501,7 @@ const result = {
   thresholds: {
     mainMaxMB: Math.round(mainThresholdMB),
     webView2MaxMB: Math.round(webviewThresholdMB),
-    reason: "#491 的原因還沒找到，新的門檻等 491-measure 量完再定",
+    reason: "#491 的量測（2026-11-08）確認開關分頁本身不殘留點陣快取，基準文件不再被捲動後回到接近初始值（3 次 100 輪最大增加 2 MB，門檻定為開始 + 15 MB）；WebView2 門檻定為開始 + 100 MB，容納 GPU 行程自然快取達 90 MB 之浮動",
   },
   initial,
   final,
