@@ -38,6 +38,8 @@ type SidebarProps = {
   redaction?: RedactionPanelProps;
   /** Jumping to an annotation in the document view (B4-06). */
   onJumpToAnnotation?: (pageIndex: number, id: AnnotationId) => void;
+  /** Whether the view is in the active tab; hidden tabs keep their layout and scroll position (#513). */
+  active?: boolean;
 };
 
 function Message({ children }: { children: string }) {
@@ -60,6 +62,7 @@ export function Sidebar({
   isSensitive = sensitive,
   redaction,
   onJumpToAnnotation,
+  active = true,
 }: SidebarProps) {
   const [activeTab, setActiveTab] = useState("outline");
 
@@ -118,6 +121,7 @@ export function Sidebar({
             editing={pageEditing}
             savePages={savePages}
             sensitive={sensitive}
+            shown={active}
           />
         </TabsContent>
         <TabsContent value="attachments" className="min-h-0 flex-1 overflow-auto px-2 pb-2">

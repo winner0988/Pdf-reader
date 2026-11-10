@@ -91,6 +91,11 @@ type ThumbnailsProps = {
   sensitive?: boolean;
   /** Delay before a thumbnail that came into view asks for a render; tests pass 0. */
   requestDelayMs?: number;
+  /**
+   * Whether the thumbnails are shown (not hidden in another tab, #513).
+   * When false (tab hidden), measurements and scroll adjustments are skipped.
+   */
+  shown?: boolean;
 };
 
 /** Like the pages: thumbnails that only flash by while scrolling are never rendered. */
@@ -131,6 +136,7 @@ export function Thumbnails({
   savePages,
   sensitive = false,
   requestDelayMs = REQUEST_DELAY_MS,
+  shown = true,
 }: ThumbnailsProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -150,6 +156,14 @@ export function Thumbnails({
   const layout = useMemo(() => layoutThumbs(pages), [pages]);
   const count = pages.length;
 
+  const shownRef = useRef(shown);
+  useLayoutEffect(() => {
+    shownRef.current = shown;
+  });
+
+  const wasShown = useRef(shown);
+  const lastScrollTop = useRef<number | null>(null);
+
   // Deleted pages leave the selection.
   const kept = within(selection, count);
   if (kept !== selection) setSelection(kept);
@@ -159,7 +173,11 @@ export function Thumbnails({
     const element = scroller.current;
     if (!element) return;
     // Before layout (and in tests) the list has no height yet; assume the window's.
-    const update = () => setView({ top: element.scrollTop, height: element.clientHeight || window.innerHeight });
+    const update = () => {
+      if (!shownRef.current) return;
+      lastScrollTop.current = element.scrollTop;
+      setView({ top: element.scrollTop, height: element.clientHeight || window.innerHeight });
+    };
     update();
     element.addEventListener("scroll", update, { passive: true });
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
@@ -170,13 +188,26 @@ export function Thumbnails({
     };
   }, []);
 
-  // The page being read stays in view.
+  // The page being read stays in view; when hidden, adjustments are skipped and restored on switch back.
   useLayoutEffect(() => {
+    if (!shown) {
+      wasShown.current = false;
+      return;
+    }
     const element = scroller.current;
     if (!element) return;
+    if (!wasShown.current) {
+      if (lastScrollTop.current !== null && element.scrollTop !== lastScrollTop.current) {
+        element.scrollTop = lastScrollTop.current;
+      }
+    }
+    wasShown.current = true;
     const top = scrollToShow(layout, currentPage - 1, element.scrollTop, element.clientHeight || window.innerHeight);
-    if (top !== element.scrollTop) element.scrollTop = top;
-  }, [layout, currentPage]);
+    if (top !== element.scrollTop) {
+      element.scrollTop = top;
+      lastScrollTop.current = top;
+    }
+  }, [layout, currentPage, shown]);
 
   const range = visibleThumbs(layout, view.top, view.height);
 
@@ -193,6 +224,7 @@ export function Thumbnails({
     const element = scroller.current;
     if (!element) return;
     element.scrollTop = scrollToShow(layout, index, element.scrollTop, element.clientHeight || window.innerHeight);
+    lastScrollTop.current = element.scrollTop;
     setView({ top: element.scrollTop, height: element.clientHeight || window.innerHeight });
     setActive(index);
     setFocusing(index);

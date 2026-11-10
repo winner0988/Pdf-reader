@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -353,5 +354,314 @@ describe("page management in the thumbnails (B2-05)", () => {
     await user.click(thumb(2));
     await user.keyboard("{Delete}");
     expect(apply).not.toHaveBeenCalled();
+  });
+});
+
+describe("hidden thumbnails (#513)", () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+  });
+
+  it("keeps scroll position and sends no renders for first pages when hidden and restored", () => {
+    let resizeCallback: (() => void) | null = null;
+    vi.stubGlobal(
+      "ResizeObserver",
+      vi.fn(function (callback: () => void) {
+        resizeCallback = callback;
+        return {
+          observe: vi.fn(),
+          unobserve: vi.fn(),
+          disconnect: vi.fn(() => {
+            resizeCallback = null;
+          }),
+        };
+      }),
+    );
+    let clientHeight = 600;
+    const heightSpy = vi.spyOn(Element.prototype, "clientHeight", "get").mockImplementation(() => clientHeight);
+    try {
+      const renderer = {
+        render: vi.fn<PageRenderer["render"]>(() => ({ result: new Promise(() => {}), cancel: vi.fn() })),
+      } satisfies PageRenderer;
+      const onJumpToPage = vi.fn();
+      const pages = Array(1000).fill(LETTER);
+      const { rerender } = render(
+        <div style={{ height: 600 }}>
+          <Thumbnails
+            pages={pages}
+            doc={3}
+            renderer={renderer}
+            currentPage={300}
+            onJumpToPage={onJumpToPage}
+            requestDelayMs={0}
+            shown={true}
+          />
+        </div>,
+      );
+      const list = screen.getByRole("listbox", { name: strings.sidebar.thumbnailsTab });
+      const scroller = list.parentElement!;
+      act(() => {
+        resizeCallback?.();
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+
+      const initialScrollTop = scroller.scrollTop;
+      expect(initialScrollTop).toBeGreaterThan(0);
+      expect(screen.getByRole("option", { name: strings.canvas.page(300) })).toBeInTheDocument();
+      renderer.render.mockClear();
+
+      // Hide tab: shown becomes false, dimensions and scrollTop become 0
+      clientHeight = 0;
+      scroller.scrollTop = 0;
+      rerender(
+        <div style={{ height: 600 }}>
+          <Thumbnails
+            pages={pages}
+            doc={3}
+            renderer={renderer}
+            currentPage={300}
+            onJumpToPage={onJumpToPage}
+            requestDelayMs={0}
+            shown={false}
+          />
+        </div>,
+      );
+      act(() => {
+        resizeCallback?.();
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+
+      // While hidden: no new render requests, especially not for the first pages
+      expect(renderer.render.mock.calls.some(([arg]) => arg.pageIndex === 0)).toBe(false);
+      expect(renderer.render).not.toHaveBeenCalled();
+
+      // Switch back: restore dimensions and shown becomes true
+      clientHeight = 600;
+      rerender(
+        <div style={{ height: 600 }}>
+          <Thumbnails
+            pages={pages}
+            doc={3}
+            renderer={renderer}
+            currentPage={300}
+            onJumpToPage={onJumpToPage}
+            requestDelayMs={0}
+            shown={true}
+          />
+        </div>,
+      );
+      act(() => {
+        resizeCallback?.();
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+
+      // Scroll position is preserved, still rendering around page 300
+      expect(scroller.scrollTop).toBe(initialScrollTop);
+      expect(screen.getByRole("option", { name: strings.canvas.page(300) })).toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: strings.canvas.page(1) })).toBeNull();
+    } finally {
+      heightSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("handles hiding in the same commit where parent layout effect zeros dimensions", () => {
+    let resizeCallback: (() => void) | null = null;
+    vi.stubGlobal(
+      "ResizeObserver",
+      vi.fn(function (callback: () => void) {
+        resizeCallback = callback;
+        return {
+          observe: vi.fn(),
+          unobserve: vi.fn(),
+          disconnect: vi.fn(() => {
+            resizeCallback = null;
+          }),
+        };
+      }),
+    );
+    let clientHeight = 600;
+    const heightSpy = vi.spyOn(Element.prototype, "clientHeight", "get").mockImplementation(() => clientHeight);
+    try {
+      const renderer = {
+        render: vi.fn<PageRenderer["render"]>(() => ({ result: new Promise(() => {}), cancel: vi.fn() })),
+      } satisfies PageRenderer;
+      const onJumpToPage = vi.fn();
+      const pages = Array(1000).fill(LETTER);
+
+      function Harness({ shown }: { shown: boolean }) {
+        const containerRef = useRef<HTMLDivElement>(null);
+        useLayoutEffect(() => {
+          if (!shown) {
+            const scroller = containerRef.current?.querySelector('[role="listbox"]')?.parentElement;
+            if (scroller) {
+              clientHeight = 0;
+              scroller.scrollTop = 0;
+              resizeCallback?.();
+            }
+          }
+        }, [shown]);
+
+        return (
+          <div ref={containerRef} style={{ height: 600 }}>
+            <Thumbnails
+              pages={pages}
+              doc={3}
+              renderer={renderer}
+              currentPage={300}
+              onJumpToPage={onJumpToPage}
+              requestDelayMs={0}
+              shown={shown}
+            />
+          </div>
+        );
+      }
+
+      const { rerender } = render(<Harness shown={true} />);
+      const list = screen.getByRole("listbox", { name: strings.sidebar.thumbnailsTab });
+      const scroller = list.parentElement!;
+      act(() => {
+        resizeCallback?.();
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+
+      const initialScrollTop = scroller.scrollTop;
+      expect(initialScrollTop).toBeGreaterThan(0);
+      expect(screen.getByRole("option", { name: strings.canvas.page(300) })).toBeInTheDocument();
+      renderer.render.mockClear();
+
+      // Hide tab: shown becomes false. Harness useLayoutEffect zeros dimensions and triggers resizeCallback
+      // in the same commit before any useEffect runs.
+      rerender(<Harness shown={false} />);
+
+      // While hidden: no render requests for the first pages
+      expect(renderer.render.mock.calls.some(([arg]) => arg.pageIndex === 0)).toBe(false);
+      expect(renderer.render).not.toHaveBeenCalled();
+
+      // Switch back: restore dimensions
+      clientHeight = 600;
+      rerender(<Harness shown={true} />);
+      act(() => {
+        resizeCallback?.();
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+
+      expect(scroller.scrollTop).toBe(initialScrollTop);
+      expect(screen.getByRole("option", { name: strings.canvas.page(300) })).toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: strings.canvas.page(1) })).toBeNull();
+    } finally {
+      heightSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("scrolls to the new current page when restored if current page changed while hidden", () => {
+    let resizeCallback: (() => void) | null = null;
+    vi.stubGlobal(
+      "ResizeObserver",
+      vi.fn(function (callback: () => void) {
+        resizeCallback = callback;
+        return {
+          observe: vi.fn(),
+          unobserve: vi.fn(),
+          disconnect: vi.fn(() => {
+            resizeCallback = null;
+          }),
+        };
+      }),
+    );
+    try {
+      const renderer = {
+        render: vi.fn<PageRenderer["render"]>(() => ({ result: new Promise(() => {}), cancel: vi.fn() })),
+      } satisfies PageRenderer;
+      const onJumpToPage = vi.fn();
+      const pages = Array(1000).fill(LETTER);
+      const { rerender } = render(
+        <div style={{ height: 600 }}>
+          <Thumbnails
+            pages={pages}
+            doc={3}
+            renderer={renderer}
+            currentPage={300}
+            onJumpToPage={onJumpToPage}
+            requestDelayMs={0}
+            shown={true}
+          />
+        </div>,
+      );
+      const list = screen.getByRole("listbox", { name: strings.sidebar.thumbnailsTab });
+      const scroller = list.parentElement!;
+      Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 600 });
+      act(() => {
+        resizeCallback?.();
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+      const initialScrollTop = scroller.scrollTop;
+      expect(initialScrollTop).toBeGreaterThan(0);
+
+      // Hide tab
+      rerender(
+        <div style={{ height: 600 }}>
+          <Thumbnails
+            pages={pages}
+            doc={3}
+            renderer={renderer}
+            currentPage={300}
+            onJumpToPage={onJumpToPage}
+            requestDelayMs={0}
+            shown={false}
+          />
+        </div>,
+      );
+      Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 0 });
+      scroller.scrollTop = 0;
+      act(() => {
+        resizeCallback?.();
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+
+      // Change current page to 500 while hidden
+      rerender(
+        <div style={{ height: 600 }}>
+          <Thumbnails
+            pages={pages}
+            doc={3}
+            renderer={renderer}
+            currentPage={500}
+            onJumpToPage={onJumpToPage}
+            requestDelayMs={0}
+            shown={false}
+          />
+        </div>,
+      );
+      // While hidden, scrollTop should not be changed by scrollToShow
+      expect(scroller.scrollTop).toBe(0);
+
+      // Restore tab
+      Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 600 });
+      rerender(
+        <div style={{ height: 600 }}>
+          <Thumbnails
+            pages={pages}
+            doc={3}
+            renderer={renderer}
+            currentPage={500}
+            onJumpToPage={onJumpToPage}
+            requestDelayMs={0}
+            shown={true}
+          />
+        </div>,
+      );
+      act(() => {
+        resizeCallback?.();
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+
+      // Restored and scrolled to page 500
+      expect(scroller.scrollTop).toBeGreaterThan(initialScrollTop);
+      expect(screen.getByRole("option", { name: strings.canvas.page(500) })).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

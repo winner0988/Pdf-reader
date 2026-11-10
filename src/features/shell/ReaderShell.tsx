@@ -1627,6 +1627,7 @@ export function ReaderShell({
                 onOpenFindPersonalData: () => setFindPersonalDataOpen(true),
               }}
               onJumpToAnnotation={jumpToAnnotation}
+              active={active}
             />
           )}
           <div className="flex min-w-0 flex-1 flex-col">
