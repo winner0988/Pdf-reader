@@ -278,19 +278,19 @@ export function DocumentView({
   });
 
   const activeRef = useRef(active);
-  useEffect(() => {
+  useLayoutEffect(() => {
     activeRef.current = active;
   });
 
   const lastMeasuredRef = useRef<Viewport | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (measured !== null && active) {
       lastMeasuredRef.current = measured;
     }
   }, [measured, active]);
 
   const wasActive = useRef(active);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!wasActive.current && active) {
       const element = scrollContainer.current;
       if (element) {
@@ -298,8 +298,6 @@ export function DocumentView({
         if (last && (element.scrollTop !== last.top || element.scrollLeft !== last.left)) {
           scrollElement(element, { top: last.top, left: last.left });
         }
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setMeasured(measure(element));
       }
     }
     wasActive.current = active;

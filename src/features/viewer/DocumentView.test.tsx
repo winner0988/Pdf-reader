@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createRef, useRef, type Ref } from "react";
+import { createRef, useLayoutEffect, useRef, type Ref } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PageSize, Rotation, Zoom } from "@/features/shell/model";
@@ -72,6 +72,7 @@ type HarnessProps = {
   onNoText?: () => void;
   view?: Ref<DocumentViewHandle>;
   active?: boolean;
+  onLayoutHide?: (scroller: HTMLElement) => void;
 };
 
 function Harness({
@@ -91,8 +92,16 @@ function Harness({
   onNoText,
   view,
   active = true,
+  onLayoutHide,
 }: HarnessProps) {
   const scroller = useRef<HTMLElement>(null);
+  const wasActive = useRef(active);
+  useLayoutEffect(() => {
+    if (wasActive.current && !active && scroller.current) {
+      onLayoutHide?.(scroller.current);
+    }
+    wasActive.current = active;
+  }, [active, onLayoutHide]);
   return (
     <main ref={scroller} data-testid="scroller" style={{ overflow: "auto" }}>
       <DocumentView
@@ -1039,6 +1048,69 @@ describe("DocumentView", () => {
         Object.defineProperty(scroller, "clientWidth", { configurable: true, value: 1000 });
         Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 800 });
         rerender(<Harness pages={pages} zoom={100} renderer={renderer} active={true} />);
+        act(() => {
+          resizeCallback?.();
+          scroller.dispatchEvent(new Event("scroll"));
+        });
+
+        // Reading position is preserved
+        expect(scroller.scrollTop).toBe(targetScroll);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("stops measuring in the same commit when hidden before useEffect fires", () => {
+      let resizeCallback: (() => void) | null = null;
+      vi.stubGlobal(
+        "ResizeObserver",
+        vi.fn(function (callback: () => void) {
+          resizeCallback = callback;
+          return {
+            observe: vi.fn(),
+            unobserve: vi.fn(),
+            disconnect: vi.fn(() => {
+              resizeCallback = null;
+            }),
+          };
+        }),
+      );
+      try {
+        const { renderer, calls } = fakeRenderer();
+        const pages = Array(1000).fill(LETTER);
+        const onLayoutHide = (scroller: HTMLElement) => {
+          Object.defineProperty(scroller, "clientWidth", { configurable: true, value: 0 });
+          Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 0 });
+          scroller.scrollTop = 0;
+          resizeCallback?.();
+        };
+        const { rerender } = render(
+          <Harness pages={pages} zoom={100} renderer={renderer} active={true} onLayoutHide={onLayoutHide} />,
+        );
+        const scroller = screen.getByTestId("scroller");
+        Object.defineProperty(scroller, "clientWidth", { configurable: true, value: 1000 });
+        Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 800 });
+        // Scroll to page 300 (0-based index 299)
+        const targetScroll = PAGE_PADDING_PX + PITCH * 299;
+        scrollTo(scroller, targetScroll);
+        expect(scroller.scrollTop).toBe(targetScroll);
+        const initialCalls = calls.length;
+        expect(initialCalls).toBeGreaterThan(0);
+
+        // Hide tab: active becomes false. onLayoutHide fires in parent useLayoutEffect before useEffect!
+        rerender(
+          <Harness pages={pages} zoom={100} renderer={renderer} active={false} onLayoutHide={onLayoutHide} />,
+        );
+
+        // While hidden: no new render requests
+        expect(calls.length).toBe(initialCalls);
+
+        // Switch back: active becomes true, dimensions restored
+        Object.defineProperty(scroller, "clientWidth", { configurable: true, value: 1000 });
+        Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 800 });
+        rerender(
+          <Harness pages={pages} zoom={100} renderer={renderer} active={true} onLayoutHide={onLayoutHide} />,
+        );
         act(() => {
           resizeCallback?.();
           scroller.dispatchEvent(new Event("scroll"));
