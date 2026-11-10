@@ -139,7 +139,7 @@ jobs:
           seed_ocr() { printf "\x$1" | cat - "$2" > "fuzz/corpus/ocr/$(basename "$2")"; }
           seed_ocr 01 tests/corpus/benign/scanned-text.pdf
           seed_ocr 01 tests/corpus/benign/image-only.pdf
-          # Edits, saves and copies of an untrusted PDF (Issue #427):
+          # Edits, saves and copies of an untrusted PDF (Issue #427, #515):
           # Prepend 32 bytes to each PDF, cycling secondary actions and edits across seeds.
           action=0
           edit=0
@@ -148,7 +148,7 @@ jobs:
             hex_edit=$(printf '%02x' "$edit")
             (printf "\x$hex_action\x01\x$hex_edit"; head -c 29 /dev/zero) | cat - "$file" > "fuzz/corpus/edit_document/$(basename "$file")"
             action=$(( (action + 1) % 10 ))
-            edit=$(( (edit + 1) % 26 ))
+            edit=$(( (edit + 1) % 29 ))
           done
       # Built separately so that compiler errors stay visible; the run step below prints nothing.
       - name: Build the fuzz target

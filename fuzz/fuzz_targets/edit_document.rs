@@ -1,4 +1,4 @@
-//! Edits, saves, and copies of an untrusted PDF (Issue #427, ADR 0013):
+//! Edits, saves, and copies of an untrusted PDF (Issues #427, #515, ADR 0013):
 //! The first 32 bytes of input select 1..=4 typed edits and parameters (main-process validated),
 //! apply them in the worker engine, save the document (full rewrite or incremental if signed),
 //! re-open and render page 0 at small scale, then execute one secondary operation:
@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 use ipc_contract::types::{
     AnnotationId, BookmarkId, Edit, FieldId, HighlightColor, HighlightMark, InkColor, InkWidth,
     PageCorner, PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark,
-    Point, Quad, Rect, Restrictions, Rgb, Rotation, SanitizeOptions, SourceId, StampImageId,
+    Point, Quad, Rect, Restrictions, Rgb, Rotation, SanitizeOptions, Shape, SourceId, StampImageId,
     StampName, TextAlign, TextBoxModelId, TextBoxStyle, TextMarkKind, Watermark, WatermarkContent,
     WatermarkPages, WatermarkPlace,
 };
@@ -35,6 +35,68 @@ fn cached_stamp_png() -> &'static [u8] {
 fn cached_text_box_model() -> &'static Option<ipc_contract::worker::TextBoxModel> {
     static MODEL: OnceLock<Option<ipc_contract::worker::TextBoxModel>> = OnceLock::new();
     MODEL.get_or_init(|| sample_text_box_model("Fuzz TextBox"))
+}
+
+fn sample_shape_rect(u: &mut Unstructured) -> Rect {
+    match u.int_in_range(0..=4).unwrap_or(0) {
+        0 => Rect {
+            x0: 50.0,
+            y0: 50.0,
+            x1: 200.0,
+            y1: 150.0,
+        },
+        1 => Rect {
+            x0: 60.0,
+            y0: 60.0,
+            x1: 180.0,
+            y1: 180.0,
+        },
+        2 => Rect {
+            x0: 0.0,
+            y0: 0.0,
+            x1: 100.0,
+            y1: 100.0,
+        },
+        3 => Rect {
+            x0: 100.0,
+            y0: 100.0,
+            x1: 50.0,
+            y1: 50.0,
+        },
+        _ => Rect {
+            x0: 100.0,
+            y0: 100.0,
+            x1: 100.0,
+            y1: 100.0,
+        },
+    }
+}
+
+fn sample_line_ends(u: &mut Unstructured) -> (Point, Point) {
+    match u.int_in_range(0..=4).unwrap_or(0) {
+        0 => (Point { x: 72.0, y: 72.0 }, Point { x: 288.0, y: 144.0 }),
+        1 => (Point { x: 100.0, y: 200.0 }, Point { x: 300.0, y: 200.0 }),
+        2 => (Point { x: 0.0, y: 0.0 }, Point { x: 150.0, y: 150.0 }),
+        3 => (Point { x: 100.0, y: 100.0 }, Point { x: 100.0, y: 100.0 }),
+        _ => (Point { x: 0.0, y: 0.0 }, Point { x: 0.0, y: 0.0 }),
+    }
+}
+
+fn sample_ink_color(u: &mut Unstructured) -> InkColor {
+    match u.int_in_range(0..=3).unwrap_or(0) {
+        0 => InkColor::Black,
+        1 => InkColor::Red,
+        2 => InkColor::Blue,
+        _ => InkColor::Green,
+    }
+}
+
+fn sample_ink_width(u: &mut Unstructured) -> InkWidth {
+    match u.int_in_range(0..=2).unwrap_or(0) {
+        0 => InkWidth::Thin,
+        1 => InkWidth::Medium,
+        _ => InkWidth::Thick,
+    }
 }
 
 fuzz_target!(|data: &[u8]| {
@@ -66,7 +128,7 @@ fuzz_target!(|data: &[u8]| {
     let mut applied_edits = Vec::new();
 
     for _ in 0..num_edits {
-        let kind = u.int_in_range(0..=25).unwrap_or(0);
+        let kind = u.int_in_range(0..=28).unwrap_or(0);
         let p = (u.int_in_range(0..=255).unwrap_or(0) as u32) % page_count;
 
         let edit = match kind {
@@ -321,12 +383,67 @@ fuzz_target!(|data: &[u8]| {
                 let id = u.int_in_range(0..=10).unwrap_or(0);
                 Edit::DeleteBookmark { id: BookmarkId(id) }
             }
-            _ => {
+            25 => {
                 let id = u.int_in_range(0..=10).unwrap_or(0);
                 Edit::MoveBookmark {
                     id: BookmarkId(id),
                     parent: None,
                     index: 0,
+                }
+            }
+            26 => {
+                let color = sample_ink_color(&mut u);
+                let width = sample_ink_width(&mut u);
+                let shape = match u.int_in_range(0..=3).unwrap_or(0) {
+                    0 => Shape::Rectangle {
+                        rect: sample_shape_rect(&mut u),
+                    },
+                    1 => Shape::Ellipse {
+                        rect: sample_shape_rect(&mut u),
+                    },
+                    2 => {
+                        let (from, to) = sample_line_ends(&mut u);
+                        Shape::Line {
+                            from,
+                            to,
+                            arrow: false,
+                        }
+                    }
+                    _ => {
+                        let (from, to) = sample_line_ends(&mut u);
+                        Shape::Line {
+                            from,
+                            to,
+                            arrow: true,
+                        }
+                    }
+                };
+                Edit::AddShape {
+                    page: p,
+                    shape,
+                    color,
+                    width,
+                }
+            }
+            27 => {
+                let id = u.int_in_range(0..=10).unwrap_or(0);
+                let (from, to) = sample_line_ends(&mut u);
+                Edit::SetLineEnds {
+                    page: p,
+                    annotation: AnnotationId(id),
+                    from,
+                    to,
+                }
+            }
+            _ => {
+                let id = u.int_in_range(0..=10).unwrap_or(0);
+                let color = sample_ink_color(&mut u);
+                let width = sample_ink_width(&mut u);
+                Edit::SetShapeStyle {
+                    page: p,
+                    annotation: AnnotationId(id),
+                    color,
+                    width,
                 }
             }
         };
