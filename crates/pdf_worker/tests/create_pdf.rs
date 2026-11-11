@@ -516,3 +516,72 @@ fn a_word_file_that_says_it_is_3_gib_unpacked_does_not_make_the_worker_hold_that
     .expect("the worker goes on");
     assert_eq!(made.pages, 1);
 }
+
+#[test]
+fn multi_page_plain_text_has_its_own_content_per_page() {
+    let mut host = host();
+    let path = temp_path("400lines.txt");
+    let mut content = String::new();
+    for i in 0..400 {
+        content.push_str(&format!("LINE{i:06}\n"));
+    }
+    std::fs::write(&path, content).expect("write text file");
+    let made = create(&mut host, &[(&path, CreateKind::Text)]).expect("create PDF");
+    std::fs::remove_file(&path).ok();
+    assert!(
+        made.pages > 1,
+        "expected multiple pages, got {}",
+        made.pages
+    );
+
+    let (doc, opened) = host.open(&made.path).expect("open the PDF");
+    let WorkerResponse::Opened { document, .. } = opened else {
+        panic!("{opened:?}");
+    };
+    assert_eq!(document.pages.len() as u32, made.pages);
+
+    let mut all_lines = Vec::new();
+    let mut last_num: Option<usize> = None;
+    for page_index in 0..made.pages {
+        let response = host
+            .request(|request| WorkerRequest::GetPageText {
+                request,
+                doc,
+                page_index,
+            })
+            .expect("page text");
+        let WorkerResponse::PageText { text: page, .. } = response else {
+            panic!("{response:?}");
+        };
+        let page_lines: Vec<String> = page
+            .lines
+            .into_iter()
+            .map(|l| l.text.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .collect();
+        assert!(
+            page_lines.len() <= 80,
+            "page {page_index} has too many lines: {}",
+            page_lines.len()
+        );
+        for line in &page_lines {
+            let num: usize = line
+                .strip_prefix("LINE")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_else(|| panic!("line does not start with LINE: {line}"));
+            if let Some(prev) = last_num {
+                assert_eq!(
+                    num,
+                    prev + 1,
+                    "page {page_index}: line {num} does not follow {prev}"
+                );
+            } else {
+                assert_eq!(num, 0, "first line should be 0");
+            }
+            last_num = Some(num);
+        }
+        all_lines.extend(page_lines);
+    }
+    assert_eq!(all_lines.len(), 400);
+    assert_eq!(last_num, Some(399));
+}

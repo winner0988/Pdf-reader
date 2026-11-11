@@ -19,7 +19,8 @@ use std::sync::Mutex;
 use ipc_contract::limits::MAX_PAGE_COUNT;
 use ipc_contract::types::CreateKind;
 use mupdf::pdf::{
-    InsertImageOptions, PageImageSource, PdfDocument as MuPdfDocument, PdfWriteOptions,
+    InsertImageOptions, InsertPdfOptions, PageImageSource, PdfDocument as MuPdfDocument,
+    PdfWriteOptions,
 };
 use mupdf::{Document, Image, Rect, Size};
 
@@ -125,7 +126,11 @@ impl PdfBuilder {
         let mut catalog = pdf.catalog()?;
         catalog.dict_delete("Info")?;
         let mut options = PdfWriteOptions::default();
-        options.set_garbage(true);
+        if self.pictures {
+            options.set_garbage(true);
+        } else {
+            options.set_garbage_level(4);
+        }
         options.set_compress(true);
         options.set_compress_images(true);
         options.set_compress_fonts(true);
@@ -288,9 +293,8 @@ fn convert(bytes: &[u8], kind: CreateKind) -> Result<MuPdfDocument, EngineError>
     if u32::try_from(pages).unwrap_or(u32::MAX) > MAX_PAGE_COUNT {
         return Err(EngineError::TooManyPages);
     }
-    // Pre-validate every page into a display list before calling `convert_to_pdf`:
-    // `mupdf_convert_to_pdf_internal` leaves its stack `fz_page *page` uninitialized and leaks
-    // `pdfout` if `fz_load_page` or `fz_run_page` throws midway through the loop.
+    // Pre-validate every page into a display list before converting: ensures every page can be
+    // read and rendered before any page is converted.
     for index in 0..pages {
         let page = document.load_page(index).map_err(unreadable)?;
         let bounds = page.bounds().map_err(unreadable)?;
@@ -300,7 +304,23 @@ fn convert(bytes: &[u8], kind: CreateKind) -> Result<MuPdfDocument, EngineError>
         }
         let _ = page.to_display_list(true).map_err(unreadable)?;
     }
-    document.convert_to_pdf(0, pages - 1, 0).map_err(unreadable)
+    // Convert one page at a time: converting multiple pages in a single call shares the content
+    // stream across pages, which causes every page to include the content of all pages. Each
+    // converted page is joined into the output document with `insert_pdf`.
+    let mut out: Option<MuPdfDocument> = None;
+    for index in 0..pages {
+        let one = document
+            .convert_to_pdf(index, index, 0)
+            .map_err(unreadable)?;
+        match out.as_mut() {
+            None => out = Some(one),
+            Some(pdf) => {
+                pdf.insert_pdf(&one, InsertPdfOptions::default())
+                    .map_err(unreadable)?;
+            }
+        }
+    }
+    out.ok_or(EngineError::InvalidSource("the file has no pages"))
 }
 
 /// Checks a ZIP container (EPUB, XPS, DOCX, XLSX, PPTX) before handing it to MuPDF's zip reader:
@@ -654,6 +674,31 @@ mod tests {
 <spine><itemref idref=\"c1\"/></spine></package>",
             ),
             ("chapter1.xhtml", EPUB_CHAPTER),
+        ])
+    }
+
+    const EPUB_CHAPTER_TWO: &str = "<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>c2</title></head>\
+<body><h1>Chapter two</h1><p>The book's second words.</p></body></html>";
+
+    fn epub_two_chapters() -> Vec<u8> {
+        zip(&[
+            ("mimetype", "application/epub+zip"),
+            (
+                "META-INF/container.xml",
+                "<?xml version=\"1.0\"?><container version=\"1.0\" xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\">\
+<rootfiles><rootfile full-path=\"content.opf\" media-type=\"application/oebps-package+xml\"/></rootfiles></container>",
+            ),
+            (
+                "content.opf",
+                "<?xml version=\"1.0\"?><package xmlns=\"http://www.idpf.org/2007/opf\" version=\"2.0\" unique-identifier=\"id\">\
+<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:title>Sample</dc:title><dc:creator>Jane Q. Private-Author</dc:creator>\
+<dc:identifier id=\"id\">x</dc:identifier><dc:language>en</dc:language></metadata>\
+<manifest><item id=\"c1\" href=\"chapter1.xhtml\" media-type=\"application/xhtml+xml\"/>\
+<item id=\"c2\" href=\"chapter2.xhtml\" media-type=\"application/xhtml+xml\"/></manifest>\
+<spine><itemref idref=\"c1\"/><itemref idref=\"c2\"/></spine></package>",
+            ),
+            ("chapter1.xhtml", EPUB_CHAPTER),
+            ("chapter2.xhtml", EPUB_CHAPTER_TWO),
         ])
     }
 
@@ -1242,5 +1287,243 @@ xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld><
             .add(&corpus("images/stamp-exif.jpg"), CreateKind::Image)
             .unwrap();
         assert_eq!(builder.pages(), 3);
+    }
+
+    #[test]
+    fn multi_page_plain_text_has_its_own_content_per_page() {
+        let mut src = String::new();
+        for i in 0..400 {
+            src.push_str(&format!("LINE{i:06}\n"));
+        }
+        let (pdf, created) = one(src.as_bytes(), CreateKind::Text);
+        assert!(
+            created.pages > 1,
+            "expected multiple pages, got {}",
+            created.pages
+        );
+        let doc = Engine::from_bytes(&pdf).expect("a PDF");
+        let pages = doc.page_count().unwrap();
+        assert_eq!(created.pages, pages);
+
+        let mut all_lines = Vec::new();
+        let mut last_num: Option<usize> = None;
+        for page in 0..pages {
+            let page_lines: Vec<String> = doc
+                .page_text(page, 100_000)
+                .unwrap()
+                .lines
+                .into_iter()
+                .map(|l| l.text.trim().to_string())
+                .filter(|t| !t.is_empty())
+                .collect();
+            assert!(
+                page_lines.len() <= 80,
+                "page {page} has too many lines: {}",
+                page_lines.len()
+            );
+            for line in &page_lines {
+                let num: usize = line
+                    .strip_prefix("LINE")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_else(|| panic!("line does not start with LINE: {line}"));
+                if let Some(prev) = last_num {
+                    assert_eq!(
+                        num,
+                        prev + 1,
+                        "page {page}: line {num} does not follow {prev}"
+                    );
+                } else {
+                    assert_eq!(num, 0, "first line should be 0");
+                }
+                last_num = Some(num);
+            }
+            all_lines.extend(page_lines);
+        }
+        assert_eq!(all_lines.len(), 400);
+        assert_eq!(last_num, Some(399));
+    }
+
+    #[test]
+    fn multi_page_html_has_its_own_content_per_page() {
+        let mut src =
+            String::from("<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body>");
+        for i in 0..400 {
+            src.push_str(&format!("<p>LINE{i:06} <b>bold</b> <i>italic</i></p>"));
+        }
+        src.push_str("</body></html>");
+
+        let (pdf, created) = one(src.as_bytes(), CreateKind::Html);
+        assert!(
+            created.pages > 1,
+            "expected multiple pages, got {}",
+            created.pages
+        );
+        let doc = Engine::from_bytes(&pdf).expect("a PDF");
+        let pages = doc.page_count().unwrap();
+        assert_eq!(created.pages, pages);
+
+        let mut all_lines = Vec::new();
+        let mut last_num: Option<usize> = None;
+        for page in 0..pages {
+            let page_lines: Vec<String> = doc
+                .page_text(page, 100_000)
+                .unwrap()
+                .lines
+                .into_iter()
+                .map(|l| l.text.trim().to_string())
+                .filter(|t| !t.is_empty())
+                .collect();
+            assert!(
+                page_lines.len() <= 80,
+                "page {page} has too many lines: {}",
+                page_lines.len()
+            );
+            for line in &page_lines {
+                let num: usize = line
+                    .split_whitespace()
+                    .next()
+                    .and_then(|s| s.strip_prefix("LINE"))
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_else(|| panic!("line does not start with LINE: {line}"));
+                if let Some(prev) = last_num {
+                    assert_eq!(
+                        num,
+                        prev + 1,
+                        "page {page}: line {num} does not follow {prev}"
+                    );
+                } else {
+                    assert_eq!(num, 0, "first line should be 0");
+                }
+                last_num = Some(num);
+            }
+            all_lines.extend(page_lines);
+        }
+        assert_eq!(all_lines.len(), 400);
+        assert_eq!(last_num, Some(399));
+    }
+
+    #[test]
+    fn plain_text_5000_lines_converts_cleanly_page_by_page() {
+        let mut src = String::new();
+        for i in 0..5000 {
+            src.push_str(&format!("LINE{i:06}\n"));
+        }
+        let (pdf, created) = one(src.as_bytes(), CreateKind::Text);
+        assert!(
+            created.pages >= 90,
+            "expected ~91 pages, got {}",
+            created.pages
+        );
+        let doc = Engine::from_bytes(&pdf).expect("a PDF");
+        let pages = doc.page_count().unwrap();
+        assert_eq!(created.pages, pages);
+
+        let mut all_lines = Vec::new();
+        let mut last_num: Option<usize> = None;
+        for page in 0..pages {
+            let page_lines: Vec<String> = doc
+                .page_text(page, 100_000)
+                .unwrap()
+                .lines
+                .into_iter()
+                .map(|l| l.text.trim().to_string())
+                .filter(|t| !t.is_empty())
+                .collect();
+            assert!(
+                page_lines.len() <= 80,
+                "page {page} has too many lines: {}",
+                page_lines.len()
+            );
+            for line in &page_lines {
+                let num: usize = line
+                    .strip_prefix("LINE")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_else(|| panic!("line does not start with LINE: {line}"));
+                if let Some(prev) = last_num {
+                    assert_eq!(
+                        num,
+                        prev + 1,
+                        "page {page}: line {num} does not follow {prev}"
+                    );
+                } else {
+                    assert_eq!(num, 0, "first line should be 0");
+                }
+                last_num = Some(num);
+            }
+            all_lines.extend(page_lines);
+        }
+        assert_eq!(all_lines.len(), 5000);
+        assert_eq!(last_num, Some(4999));
+    }
+
+    #[test]
+    fn chinese_plain_text_deduplicates_fonts_across_pages() {
+        let mut one_page = String::new();
+        for i in 0..40 {
+            one_page.push_str(&format!("LINE{i:06} 繁體中文 測試字型展示\n"));
+        }
+        let (pdf_one, created_one) = one(one_page.as_bytes(), CreateKind::Text);
+        assert_eq!(created_one.pages, 1);
+
+        let mut multi_page = String::new();
+        for i in 0..400 {
+            multi_page.push_str(&format!("LINE{i:06} 繁體中文 測試字型展示\n"));
+        }
+        let (pdf_multi, created_multi) = one(multi_page.as_bytes(), CreateKind::Text);
+        assert!(created_multi.pages > 1);
+
+        // With garbage level 4, the font streams across all pages are deduplicated,
+        // so the 8-page document is barely larger than the 1-page document (less than 1.5x).
+        let ratio = pdf_multi.len() as f64 / pdf_one.len() as f64;
+        assert!(
+            ratio <= 1.5,
+            "multi-page size {} is {ratio:.2}x of 1-page size {}",
+            pdf_multi.len(),
+            pdf_one.len()
+        );
+    }
+
+    #[test]
+    fn single_page_source_behavior_preserved() {
+        let src = "Single page source test content.\nLine 2.\n";
+        let (pdf, created) = one(src.as_bytes(), CreateKind::Text);
+        assert_eq!(created.pages, 1);
+        let doc = Engine::from_bytes(&pdf).expect("a PDF");
+        assert_eq!(doc.page_count().unwrap(), 1);
+        let text = text_of(&pdf);
+        assert!(text.contains("Single page source test content."));
+        assert!(text.contains("Line 2."));
+    }
+
+    #[test]
+    fn multi_page_epub_has_its_own_content_per_page() {
+        let (pdf, created) = one(&epub_two_chapters(), CreateKind::Epub);
+        assert_eq!(created.pages, 2);
+        let doc = Engine::from_bytes(&pdf).expect("a PDF");
+        assert_eq!(doc.page_count().unwrap(), 2);
+
+        let p0_lines: Vec<String> = doc
+            .page_text(0, 100_000)
+            .unwrap()
+            .lines
+            .into_iter()
+            .map(|l| l.text)
+            .collect();
+        let p0_text = p0_lines.join(" ");
+        assert!(p0_text.contains("Chapter one"), "{p0_text}");
+        assert!(p0_text.contains("first words"), "{p0_text}");
+        assert!(!p0_text.contains("Chapter two"), "{p0_text}");
+
+        let p1_lines: Vec<String> = doc
+            .page_text(1, 100_000)
+            .unwrap()
+            .lines
+            .into_iter()
+            .map(|l| l.text)
+            .collect();
+        let p1_text = p1_lines.join(" ");
+        assert!(p1_text.contains("Chapter two"), "{p1_text}");
+        assert!(p1_text.contains("second words"), "{p1_text}");
+        assert!(!p1_text.contains("Chapter one"), "{p1_text}");
     }
 }
