@@ -1,0 +1,4 @@
+# 名字	repo	commit	範圍	授權
+qpdf	qpdf/qpdf	4eba95899886e851cc41d76886483b347612f2a8	*.pdf	Apache-2.0
+pdf-differences	pdf-association/pdf-differences	907fe96e52b73e491489eee545c47b119bf9989b	*.pdf	Apache-2.0
+pdfjs	mozilla/pdf.js	0a4153349dc473ba950fc17941c5ca7eda43c1de	test/pdfs/*.pdf	Apache-2.0
