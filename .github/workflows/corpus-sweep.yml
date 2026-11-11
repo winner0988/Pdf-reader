@@ -13,6 +13,7 @@ on:
     paths:
       - "scripts/corpus-sweep/**"
       - "tests/corpus-sweep/**"
+      - "crates/worker_host/Cargo.toml"
       - "crates/worker_host/src/bin/corpus_sweep.rs"
       - "crates/worker_host/src/sweep.rs"
       - ".github/workflows/corpus-sweep.yml"
@@ -38,8 +39,8 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build release binaries
         run: |
-          cargo build --release -p pdf_worker --bin pdf_worker
-          cargo build --release -p worker_host --bin corpus_sweep
+          cargo build --release --locked -p pdf_worker --bin pdf_worker
+          cargo build --release --locked -p worker_host --bin corpus_sweep --features sweep
       - name: Fetch corpora
         shell: bash
         run: |
@@ -52,7 +53,7 @@ jobs:
       - name: Run corpus sweep
         shell: bash
         run: |
-          target/release/corpus_sweep corpus-files sweep-output
+          target/release/corpus_sweep corpus-files sweep-output --withhold-names
       - name: Print summary report
         if: always()
         shell: bash

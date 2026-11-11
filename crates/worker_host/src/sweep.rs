@@ -91,6 +91,14 @@ impl SweepResultKind {
                 | Self::GetTextFailed
         )
     }
+
+    /// Whether this result category must have its file name and details withheld in public output.
+    pub fn is_withheld(&self) -> bool {
+        matches!(
+            self,
+            Self::WorkerCrashed | Self::ProtocolViolation | Self::WorkerTimeout | Self::FileTimeout
+        )
+    }
 }
 
 /// The stage at which the scan stopped or failed.
@@ -141,28 +149,51 @@ pub struct FileResult {
 }
 
 impl FileResult {
-    pub fn to_json_line(&self) -> String {
+    pub fn to_json_line(&self, withhold_names: bool) -> String {
+        let (rel_path, bytes_str, pages_str, page_idx_str, err_str, elapsed_str, peak_mem_str) =
+            if withhold_names && self.result.is_withheld() {
+                (
+                    "(withheld)".to_string(),
+                    "null".to_string(),
+                    "null".to_string(),
+                    "null".to_string(),
+                    "null".to_string(),
+                    "null".to_string(),
+                    "null".to_string(),
+                )
+            } else {
+                (
+                    escape_json(&self.relative_path),
+                    self.bytes.to_string(),
+                    self.pages
+                        .map(|p| p.to_string())
+                        .unwrap_or_else(|| "null".into()),
+                    self.page_index
+                        .map(|p| p.to_string())
+                        .unwrap_or_else(|| "null".into()),
+                    self.error_code
+                        .as_ref()
+                        .map(|c| format!("\"{}\"", escape_json(c)))
+                        .unwrap_or_else(|| "null".into()),
+                    self.elapsed_ms.to_string(),
+                    self.peak_memory_bytes
+                        .map(|m| m.to_string())
+                        .unwrap_or_else(|| "null".into()),
+                )
+            };
+
         format!(
             "{{\"corpus\":\"{}\",\"relative_path\":\"{}\",\"bytes\":{},\"pages\":{},\"result\":\"{}\",\"stage\":\"{}\",\"page_index\":{},\"error_code\":{},\"elapsed_ms\":{},\"peak_memory_bytes\":{}}}",
             escape_json(&self.corpus),
-            escape_json(&self.relative_path),
-            self.bytes,
-            self.pages
-                .map(|p| p.to_string())
-                .unwrap_or_else(|| "null".into()),
+            rel_path,
+            bytes_str,
+            pages_str,
             self.result.as_str(),
             self.stage.as_str(),
-            self.page_index
-                .map(|p| p.to_string())
-                .unwrap_or_else(|| "null".into()),
-            self.error_code
-                .as_ref()
-                .map(|c| format!("\"{}\"", escape_json(c)))
-                .unwrap_or_else(|| "null".into()),
-            self.elapsed_ms,
-            self.peak_memory_bytes
-                .map(|m| m.to_string())
-                .unwrap_or_else(|| "null".into()),
+            page_idx_str,
+            err_str,
+            elapsed_str,
+            peak_mem_str,
         )
     }
 }
@@ -254,7 +285,7 @@ impl SweepSummary {
     }
 
     /// Generates markdown summary report (`summary.md`).
-    pub fn generate_markdown(&self) -> String {
+    pub fn generate_markdown(&self, withhold_names: bool) -> String {
         let mut md = String::new();
         md.push_str("# 公開 PDF 語料庫穩健性掃描摘要 (Corpus Sweep Summary)\n\n");
         md.push_str(&format!(
@@ -351,20 +382,40 @@ impl SweepSummary {
             );
             md.push_str("|---|---|---|---|---|---|---|\n");
             for item in &self.notable_issues {
-                let page_str = item
-                    .page_index
-                    .map(|p| format!("第 {} 頁", p + 1))
-                    .unwrap_or_else(|| "-".into());
-                let err_str = item.error_code.as_deref().unwrap_or("-").replace('\n', " ");
+                let (path_str, page_str, err_col, elapsed_str) =
+                    if withhold_names && item.result.is_withheld() {
+                        (
+                            "(withheld)".to_string(),
+                            "-".to_string(),
+                            "-".to_string(),
+                            "-".to_string(),
+                        )
+                    } else {
+                        let page_str = item
+                            .page_index
+                            .map(|p| format!("第 {} 頁", p + 1))
+                            .unwrap_or_else(|| "-".into());
+                        let err_str = item
+                            .error_code
+                            .as_deref()
+                            .map(|c| format!("`{}`", c.replace('\n', " ")))
+                            .unwrap_or_else(|| "-".into());
+                        (
+                            item.relative_path.clone(),
+                            page_str,
+                            err_str,
+                            item.elapsed_ms.to_string(),
+                        )
+                    };
                 md.push_str(&format!(
-                    "| `{}` | `{}` | {} | {} | {} | `{}` | {} |\n",
+                    "| `{}` | `{}` | {} | {} | {} | {} | {} |\n",
                     item.corpus,
-                    item.relative_path,
+                    path_str,
                     item.result.display_name(),
                     item.stage.display_name(),
                     page_str,
-                    err_str,
-                    item.elapsed_ms
+                    err_col,
+                    elapsed_str
                 ));
             }
         }
@@ -581,7 +632,7 @@ pub fn sweep_file(
                 result: SweepResultKind::Unreadable,
                 stage: SweepStage::ReadFile,
                 page_index: None,
-                error_code: Some(e.to_string()),
+                error_code: Some(format!("{:?}", e.kind())),
                 elapsed_ms: started.elapsed().as_millis() as u64,
                 peak_memory_bytes: None,
             };
@@ -593,7 +644,7 @@ pub fn sweep_file(
     let open_res = host.open(file_path);
     let (doc, document) = match open_res {
         Ok((doc, WorkerResponse::Opened { document, .. })) => (doc, document),
-        Ok((doc, other)) => {
+        Ok((doc, _other)) => {
             let _ = host.notify(&WorkerRequest::Close { doc });
             return FileResult {
                 corpus: corpus.to_string(),
@@ -603,7 +654,7 @@ pub fn sweep_file(
                 result: SweepResultKind::ProtocolViolation,
                 stage: SweepStage::Open,
                 page_index: None,
-                error_code: Some(format!("unexpected response to Open: {other:?}")),
+                error_code: Some("UnexpectedResponse".into()),
                 elapsed_ms: started.elapsed().as_millis() as u64,
                 peak_memory_bytes: host.worker_peak_memory(),
             };
@@ -615,14 +666,15 @@ pub fn sweep_file(
                 }
                 HostError::Crashed => (SweepResultKind::WorkerCrashed, "Crashed".into()),
                 HostError::Timeout => (SweepResultKind::WorkerTimeout, "Timeout".into()),
-                HostError::ProtocolViolation(msg) => {
-                    (SweepResultKind::ProtocolViolation, msg.clone())
+                HostError::ProtocolViolation(_) => (
+                    SweepResultKind::ProtocolViolation,
+                    "ProtocolViolation".into(),
+                ),
+                HostError::Unreadable(io_err) => {
+                    (SweepResultKind::Unreadable, format!("{:?}", io_err.kind()))
                 }
-                HostError::Unreadable(io_err) => (SweepResultKind::Unreadable, io_err.to_string()),
                 HostError::TooLarge => (SweepResultKind::OpenFailed, "TooLarge".into()),
-                HostError::Spawn(e) => {
-                    (SweepResultKind::WorkerCrashed, format!("SpawnFailed: {e}"))
-                }
+                HostError::Spawn(e) => (SweepResultKind::WorkerCrashed, format!("{:?}", e.kind())),
             };
             return FileResult {
                 corpus: corpus.to_string(),
@@ -654,12 +706,7 @@ pub fn sweep_file(
                 result: SweepResultKind::FileTimeout,
                 stage: SweepStage::FileTimeout,
                 page_index: Some(page_idx),
-                error_code: Some(format!(
-                    "timed out after {}ms (completed {} of {} pages)",
-                    started.elapsed().as_millis(),
-                    page_idx,
-                    total_pages
-                )),
+                error_code: Some("FileTimeout".into()),
                 elapsed_ms: started.elapsed().as_millis() as u64,
                 peak_memory_bytes: host.worker_peak_memory(),
             };
@@ -669,7 +716,7 @@ pub fn sweep_file(
         let page = document.pages[page_idx as usize];
         let scale = match fit_scale(page, 1.0) {
             Ok(s) => s,
-            Err(e) => {
+            Err(_e) => {
                 let _ = host.notify(&WorkerRequest::Close { doc });
                 return FileResult {
                     corpus: corpus.to_string(),
@@ -679,7 +726,7 @@ pub fn sweep_file(
                     result: SweepResultKind::RenderFailed,
                     stage: SweepStage::Render,
                     page_index: Some(page_idx),
-                    error_code: Some(format!("fit_scale: {e}")),
+                    error_code: Some("FitScaleFailed".into()),
                     elapsed_ms: started.elapsed().as_millis() as u64,
                     peak_memory_bytes: host.worker_peak_memory(),
                 };
@@ -696,7 +743,7 @@ pub fn sweep_file(
 
         match render_res {
             Ok(WorkerResponse::Rendered { .. }) => {}
-            Ok(other) => {
+            Ok(_other) => {
                 let _ = host.notify(&WorkerRequest::Close { doc });
                 return FileResult {
                     corpus: corpus.to_string(),
@@ -706,7 +753,7 @@ pub fn sweep_file(
                     result: SweepResultKind::ProtocolViolation,
                     stage: SweepStage::Render,
                     page_index: Some(page_idx),
-                    error_code: Some(format!("unexpected response to Render: {other:?}")),
+                    error_code: Some("UnexpectedResponse".into()),
                     elapsed_ms: started.elapsed().as_millis() as u64,
                     peak_memory_bytes: host.worker_peak_memory(),
                 };
@@ -718,15 +765,16 @@ pub fn sweep_file(
                     }
                     HostError::Crashed => (SweepResultKind::WorkerCrashed, "Crashed".into()),
                     HostError::Timeout => (SweepResultKind::WorkerTimeout, "Timeout".into()),
-                    HostError::ProtocolViolation(msg) => {
-                        (SweepResultKind::ProtocolViolation, msg.clone())
-                    }
+                    HostError::ProtocolViolation(_) => (
+                        SweepResultKind::ProtocolViolation,
+                        "ProtocolViolation".into(),
+                    ),
                     HostError::Unreadable(io_err) => {
-                        (SweepResultKind::Unreadable, io_err.to_string())
+                        (SweepResultKind::Unreadable, format!("{:?}", io_err.kind()))
                     }
                     HostError::TooLarge => (SweepResultKind::RenderFailed, "TooLarge".into()),
                     HostError::Spawn(e) => {
-                        (SweepResultKind::WorkerCrashed, format!("SpawnFailed: {e}"))
+                        (SweepResultKind::WorkerCrashed, format!("{:?}", e.kind()))
                     }
                 };
                 if res_kind == SweepResultKind::RenderFailed {
@@ -758,12 +806,7 @@ pub fn sweep_file(
                 result: SweepResultKind::FileTimeout,
                 stage: SweepStage::FileTimeout,
                 page_index: Some(page_idx),
-                error_code: Some(format!(
-                    "timed out after {}ms (rendered page {} of {})",
-                    started.elapsed().as_millis(),
-                    page_idx + 1,
-                    total_pages
-                )),
+                error_code: Some("FileTimeout".into()),
                 elapsed_ms: started.elapsed().as_millis() as u64,
                 peak_memory_bytes: host.worker_peak_memory(),
             };
@@ -778,7 +821,7 @@ pub fn sweep_file(
 
         match text_res {
             Ok(WorkerResponse::PageText { .. }) => {}
-            Ok(other) => {
+            Ok(_other) => {
                 let _ = host.notify(&WorkerRequest::Close { doc });
                 return FileResult {
                     corpus: corpus.to_string(),
@@ -788,7 +831,7 @@ pub fn sweep_file(
                     result: SweepResultKind::ProtocolViolation,
                     stage: SweepStage::GetText,
                     page_index: Some(page_idx),
-                    error_code: Some(format!("unexpected response to GetPageText: {other:?}")),
+                    error_code: Some("UnexpectedResponse".into()),
                     elapsed_ms: started.elapsed().as_millis() as u64,
                     peak_memory_bytes: host.worker_peak_memory(),
                 };
@@ -800,15 +843,16 @@ pub fn sweep_file(
                     }
                     HostError::Crashed => (SweepResultKind::WorkerCrashed, "Crashed".into()),
                     HostError::Timeout => (SweepResultKind::WorkerTimeout, "Timeout".into()),
-                    HostError::ProtocolViolation(msg) => {
-                        (SweepResultKind::ProtocolViolation, msg.clone())
-                    }
+                    HostError::ProtocolViolation(_) => (
+                        SweepResultKind::ProtocolViolation,
+                        "ProtocolViolation".into(),
+                    ),
                     HostError::Unreadable(io_err) => {
-                        (SweepResultKind::Unreadable, io_err.to_string())
+                        (SweepResultKind::Unreadable, format!("{:?}", io_err.kind()))
                     }
                     HostError::TooLarge => (SweepResultKind::GetTextFailed, "TooLarge".into()),
                     HostError::Spawn(e) => {
-                        (SweepResultKind::WorkerCrashed, format!("SpawnFailed: {e}"))
+                        (SweepResultKind::WorkerCrashed, format!("{:?}", e.kind()))
                     }
                 };
                 if res_kind == SweepResultKind::GetTextFailed {
@@ -854,6 +898,7 @@ pub fn run_sweep(
     file_timeout: Duration,
     expect_files: Option<usize>,
     specific_corpus: Option<&str>,
+    withhold_names: bool,
 ) -> Result<SweepSummary, String> {
     if !corpus_dir.is_dir() {
         return Err(format!(
@@ -895,10 +940,10 @@ pub fn run_sweep(
     );
 
     let sweep_started = Instant::now();
-    let mut host = WorkerHost::new(worker_exe, HostConfig::default());
     let mut results = Vec::with_capacity(targets.len());
 
     for (i, target) in targets.iter().enumerate() {
+        let mut host = WorkerHost::new(worker_exe, HostConfig::default());
         let res = sweep_file(
             &mut host,
             &target.corpus,
@@ -907,7 +952,7 @@ pub fn run_sweep(
             file_timeout,
         );
 
-        let json_line = res.to_json_line();
+        let json_line = res.to_json_line(withhold_names);
         writeln!(writer, "{json_line}")
             .map_err(|e| format!("failed to write results.jsonl: {e}"))?;
         writer
@@ -915,12 +960,17 @@ pub fn run_sweep(
             .map_err(|e| format!("failed to flush results.jsonl: {e}"))?;
 
         if (i + 1) % 50 == 0 || (i + 1) == targets.len() {
+            let display_path = if withhold_names && res.result.is_withheld() {
+                "(withheld)"
+            } else {
+                target.relative_path.as_str()
+            };
             println!(
                 "[{}/{}] ({}) {} -> {} ({} ms)",
                 i + 1,
                 targets.len(),
                 target.corpus,
-                target.relative_path,
+                display_path,
                 res.result.as_str(),
                 res.elapsed_ms
             );
@@ -933,7 +983,7 @@ pub fn run_sweep(
     let summary = SweepSummary::from_results(&results, total_elapsed);
 
     // Write summary.md
-    let md = summary.generate_markdown();
+    let md = summary.generate_markdown(withhold_names);
     fs::write(output_dir.join("summary.md"), &md)
         .map_err(|e| format!("failed to write summary.md: {e}"))?;
 
@@ -960,6 +1010,7 @@ pub fn run_cli() -> Result<(), String> {
     let mut expect_files = None;
     let mut worker_override = None;
     let mut specific_corpus = None;
+    let mut withhold_names = false;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -988,9 +1039,12 @@ pub fn run_cli() -> Result<(), String> {
                 let val = args.next().ok_or("--corpus requires a corpus name")?;
                 specific_corpus = Some(val);
             }
+            "--withhold-names" => {
+                withhold_names = true;
+            }
             "-h" | "--help" => {
                 println!(
-                    "Usage: corpus_sweep <corpus_dir> <output_dir> [--file-seconds 60] [--expect-files N] [--worker <path>] [--corpus <name>]"
+                    "Usage: corpus_sweep <corpus_dir> <output_dir> [--file-seconds 60] [--expect-files N] [--worker <path>] [--corpus <name>] [--withhold-names]"
                 );
                 return Ok(());
             }
@@ -1024,6 +1078,7 @@ pub fn run_cli() -> Result<(), String> {
         Duration::from_secs(file_seconds),
         expect_files,
         specific_corpus.as_deref(),
+        withhold_names,
     )?;
 
     Ok(())
@@ -1054,7 +1109,7 @@ mod tests {
             elapsed_ms: 42,
             peak_memory_bytes: Some(10485760),
         };
-        let line = res.to_json_line();
+        let line = res.to_json_line(false);
         assert!(line.contains("\"corpus\":\"qpdf\""));
         assert!(line.contains("\"relative_path\":\"qtest/test.pdf\""));
         assert!(line.contains("\"bytes\":12345"));
@@ -1133,7 +1188,7 @@ mod tests {
             SweepResultKind::WorkerTimeout
         );
 
-        let md = summary.generate_markdown();
+        let md = summary.generate_markdown(false);
         assert!(md.contains("| `qpdf` | 2 | 1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |"));
         assert!(md.contains("| `pdfjs` | 2 | 0 | 0 | 0 | 0 | 1 | 1 | 0 | 0 | 0 |"));
         assert!(md.contains("`Corrupt`"));
@@ -1143,5 +1198,142 @@ mod tests {
         assert!(json.contains("\"total_files\": 4"));
         assert!(json.contains("\"worker_crashed\": 1"));
         assert!(json.contains("\"worker_timeout\": 1"));
+    }
+
+    #[test]
+    fn test_withhold_names() {
+        let items = vec![
+            FileResult {
+                corpus: "pdfjs".into(),
+                relative_path: "secret_crash.pdf".into(),
+                bytes: 111,
+                pages: Some(1),
+                result: SweepResultKind::WorkerCrashed,
+                stage: SweepStage::Render,
+                page_index: Some(0),
+                error_code: Some("Crashed".into()),
+                elapsed_ms: 1234,
+                peak_memory_bytes: Some(123456),
+            },
+            FileResult {
+                corpus: "pdfjs".into(),
+                relative_path: "secret_proto.pdf".into(),
+                bytes: 222,
+                pages: Some(2),
+                result: SweepResultKind::ProtocolViolation,
+                stage: SweepStage::Open,
+                page_index: None,
+                error_code: Some("ProtocolViolation".into()),
+                elapsed_ms: 2345,
+                peak_memory_bytes: Some(234567),
+            },
+            FileResult {
+                corpus: "pdfjs".into(),
+                relative_path: "secret_timeout.pdf".into(),
+                bytes: 333,
+                pages: Some(3),
+                result: SweepResultKind::WorkerTimeout,
+                stage: SweepStage::Render,
+                page_index: Some(1),
+                error_code: Some("Timeout".into()),
+                elapsed_ms: 30000,
+                peak_memory_bytes: Some(345678),
+            },
+            FileResult {
+                corpus: "pdfjs".into(),
+                relative_path: "secret_file_timeout.pdf".into(),
+                bytes: 444,
+                pages: Some(4),
+                result: SweepResultKind::FileTimeout,
+                stage: SweepStage::FileTimeout,
+                page_index: Some(2),
+                error_code: Some("FileTimeout".into()),
+                elapsed_ms: 60000,
+                peak_memory_bytes: Some(456789),
+            },
+            FileResult {
+                corpus: "qpdf".into(),
+                relative_path: "render_failed_visible.pdf".into(),
+                bytes: 555,
+                pages: Some(5),
+                result: SweepResultKind::RenderFailed,
+                stage: SweepStage::Render,
+                page_index: Some(3),
+                error_code: Some("Internal".into()),
+                elapsed_ms: 50,
+                peak_memory_bytes: Some(567890),
+            },
+        ];
+
+        // 1. Verify to_json_line with withhold_names = true
+        for (i, res) in items.iter().enumerate() {
+            let line = res.to_json_line(true);
+            if res.result.is_withheld() {
+                assert!(
+                    line.contains("\"relative_path\":\"(withheld)\""),
+                    "item {i} should withhold relative_path"
+                );
+                assert!(
+                    line.contains("\"bytes\":null"),
+                    "item {i} should withhold bytes"
+                );
+                assert!(
+                    line.contains("\"pages\":null"),
+                    "item {i} should withhold pages"
+                );
+                assert!(
+                    line.contains("\"page_index\":null"),
+                    "item {i} should withhold page_index"
+                );
+                assert!(
+                    line.contains("\"error_code\":null"),
+                    "item {i} should withhold error_code"
+                );
+                assert!(
+                    line.contains("\"elapsed_ms\":null"),
+                    "item {i} should withhold elapsed_ms"
+                );
+                assert!(
+                    line.contains("\"peak_memory_bytes\":null"),
+                    "item {i} should withhold peak_memory_bytes"
+                );
+                assert!(
+                    !line.contains(&res.relative_path),
+                    "item {i} should not contain original filename: {}",
+                    res.relative_path
+                );
+            } else {
+                // render_failed must still show filename and details
+                assert!(
+                    line.contains("\"relative_path\":\"render_failed_visible.pdf\""),
+                    "render_failed must show filename"
+                );
+                assert!(
+                    line.contains("\"bytes\":555"),
+                    "render_failed must show bytes"
+                );
+                assert!(
+                    line.contains("\"result\":\"render_failed\""),
+                    "render_failed result kind"
+                );
+            }
+        }
+
+        // 2. Verify generate_markdown with withhold_names = true
+        let summary = SweepSummary::from_results(&items, 95000);
+        let md = summary.generate_markdown(true);
+
+        assert!(!md.contains("secret_crash.pdf"));
+        assert!(!md.contains("secret_proto.pdf"));
+        assert!(!md.contains("secret_timeout.pdf"));
+        assert!(!md.contains("secret_file_timeout.pdf"));
+        assert!(
+            md.contains("render_failed_visible.pdf"),
+            "render_failed filename must be preserved in markdown"
+        );
+        assert!(
+            md.contains("(withheld)"),
+            "withheld items must show (withheld) placeholder"
+        );
     }
 }

@@ -31,6 +31,7 @@ fn test_corpus_sweep_on_repo_corpus() {
         Duration::from_secs(30),
         None,
         None,
+        false,
     )
     .expect("run_sweep on tests/corpus must succeed");
 
@@ -57,6 +58,37 @@ fn test_corpus_sweep_on_repo_corpus() {
     assert!(
         normal_line.contains("\"pages\":1"),
         "single-page.pdf must have 1 page, got: {normal_line}"
+    );
+
+    // Verify that each file runs in a fresh worker and does not share a cumulative peak memory:
+    // multi-page-10.pdf is processed before single-page.pdf in alphabetical order.
+    // If the worker were shared, single-page.pdf's peak memory would be >= multi-page-10.pdf's.
+    let ok_entries: Vec<serde_json::Value> = lines
+        .iter()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).expect("valid json line"))
+        .filter(|v| v["result"] == "ok" && v["peak_memory_bytes"].is_number())
+        .collect();
+    let single_page = ok_entries
+        .iter()
+        .find(|v| {
+            v["relative_path"]
+                .as_str()
+                .is_some_and(|p| p.ends_with("single-page.pdf"))
+        })
+        .expect("must contain single-page.pdf");
+    let multi_page = ok_entries
+        .iter()
+        .find(|v| {
+            v["relative_path"]
+                .as_str()
+                .is_some_and(|p| p.ends_with("multi-page-10.pdf"))
+        })
+        .expect("must contain multi-page-10.pdf");
+    let single_mem = single_page["peak_memory_bytes"].as_u64().unwrap();
+    let multi_mem = multi_page["peak_memory_bytes"].as_u64().unwrap();
+    assert_ne!(
+        single_mem, multi_mem,
+        "each file must run in a fresh worker so peak_memory_bytes is not identical: single={single_mem}, multi={multi_mem}"
     );
 
     // Verify at least one malformed file is open_failed

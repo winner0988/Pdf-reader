@@ -11,6 +11,9 @@ autobins = true
 [lints]
 workspace = true
 
+[features]
+sweep = []
+
 [[bin]]
 name = "fake_worker"
 path = "src/bin/fake_worker.rs"
@@ -35,6 +38,7 @@ test = false
 name = "corpus_sweep"
 path = "src/bin/corpus_sweep.rs"
 test = false
+required-features = ["sweep"]
 
 [dependencies]
 ipc_contract = { path = "../ipc_contract" }

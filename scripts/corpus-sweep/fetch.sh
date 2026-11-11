@@ -91,7 +91,7 @@ for name in "${targets[@]}"; do
 
   url="https://codeload.github.com/${repo}/tar.gz/${commit}"
   echo "Downloading $url ..."
-  curl --fail --location --proto '=https' --max-filesize 524288000 -o "$tarball" "$url"
+  curl --fail --location --proto '=https' --proto-redir '=https' --max-filesize 524288000 -o "$tarball" "$url"
 
   echo "Extracting to $target_dir ..."
   mkdir -p "$target_dir"
@@ -113,7 +113,7 @@ for name in "${targets[@]}"; do
     echo "Writing manifest $manifest_file ..."
     (
       cd "$target_dir"
-      find . -type f \( -name '*.pdf' -o -name '*.Pdf' -o -name '*.PDF' \) | \
+      find . -type f -iname '*.pdf' | \
         sed 's|^\./||' | \
         sort | \
         xargs -d '\n' sha256sum | \
@@ -142,7 +142,7 @@ for name in "${targets[@]}"; do
       # shellcheck disable=SC2064
       trap "rm -f '$actual_list' '$manifest_list'" EXIT
 
-      find . -type f \( -name '*.pdf' -o -name '*.Pdf' -o -name '*.PDF' \) | sed 's|^\./||' | sort > "$actual_list"
+      find . -type f -iname '*.pdf' | sed 's|^\./||' | sort > "$actual_list"
       sed 's/^[0-9a-fA-F]* [ *]//' "$manifest_file" | sort > "$manifest_list"
 
       extra_files="$(comm -23 "$actual_list" "$manifest_list")"
