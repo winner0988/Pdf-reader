@@ -321,31 +321,6 @@ const helpers = `(() => {
       }
       return false;
     },
-    __patchBaseDimensions: () => {
-      const c = getBaseCanvas();
-      if (c && !c.__perfPatched) {
-        let lastCW = c.clientWidth;
-        let lastCH = c.clientHeight;
-        const origCW = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth');
-        const origCH = Object.getOwnPropertyDescriptor(Element.prototype, 'clientHeight');
-        Object.defineProperty(c, 'clientWidth', {
-          get() {
-            const v = origCW.get.call(this);
-            if (v > 0) lastCW = v;
-            return v === 0 && lastCW > 0 ? lastCW : v;
-          },
-        });
-        Object.defineProperty(c, 'clientHeight', {
-          get() {
-            const v = origCH.get.call(this);
-            if (v > 0) lastCH = v;
-            return v === 0 && lastCH > 0 ? lastCH : v;
-          },
-        });
-        c.__perfPatched = true;
-      }
-      return true;
-    },
     __slot: (n) => slots().find((el) => el.getAttribute('aria-label') === '第 ' + n + ' 頁'),
     __ready: (n) => drawn(window.__slot(n)),
     __doc: () => slots()[0]?.dataset.doc ?? '',
@@ -367,7 +342,6 @@ while (performance.now() - launched < 60_000) {
 const baseDocId = await evaluate(`window.__doc()`);
 if (!baseDocId) fail("Failed to open base document.");
 await evaluate(`window.__baseDocId = ${JSON.stringify(baseDocId)}`);
-await evaluate(`window.__patchBaseDimensions()`);
 
 console.log(`Base document ready (docId: ${baseDocId}). Running ${totalCycles} tab cycles...`);
 
@@ -484,10 +458,10 @@ cleanUp();
 
 // Judgement criteria:
 // 1. Worker count returns to 1 (only the base document worker remains).
-// 2. Main process memory returns close to initial now that the base document is not scrolled.
+// 2. Main process memory returns close to initial without dimension patching (#510).
 //    (Based on 3 runs of 100 cycles where max delta was +2 MB, threshold set to initial + 15 MB).
-// 3. WebView2 memory returns close to initial (accounting for GPU process cache variance up to 90 MB,
-//    threshold set to initial + 100 MB).
+// 3. WebView2 memory returns close to initial (accounting for GPU process cache variance up to 90 MB
+//    and renderer/browser process memory across cycles, threshold set to initial + 100 MB).
 const mainThresholdMB = initial.main + 15;
 const webviewThresholdMB = initial.webView2 + 100;
 
@@ -501,7 +475,7 @@ const result = {
   thresholds: {
     mainMaxMB: Math.round(mainThresholdMB),
     webView2MaxMB: Math.round(webviewThresholdMB),
-    reason: "#491 的量測（2026-11-08）確認開關分頁本身不殘留點陣快取，基準文件不再被捲動後回到接近初始值（3 次 100 輪最大增加 2 MB，門檻定為開始 + 15 MB）；WebView2 門檻定為開始 + 100 MB，容納 GPU 行程自然快取達 90 MB 之浮動",
+    reason: "#491 的量測（2026-11-08）確認開關分頁本身不殘留點陣快取；#510 修正隱藏分頁量版面問題後，腳本不改寫尺寸，基準文件捲動位置在開關前後保持一致且主行程回到接近初始值（3 次 100 輪最大增加 2 MB，門檻定為開始 + 15 MB）；WebView2 門檻定為開始 + 100 MB，容納 GPU 行程自然快取達 90 MB 之浮動與行程增長",
   },
   initial,
   final,
