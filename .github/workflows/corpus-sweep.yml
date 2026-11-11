@@ -1,0 +1,72 @@
+name: Corpus Sweep
+
+# Robustness sweep of pinned public PDF corpora (Issue #439, B5-02):
+# Opens, renders, and extracts text for every PDF in pinned public corpora through
+# the sandboxed worker, recording any crashes, timeouts, protocol violations, or errors.
+# Weekly scheduled sweep; pull requests touching the scanner or corpora run a smoke sweep
+# of pdf-differences and the repo's own corpus.
+on:
+  schedule:
+    - cron: "47 4 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/corpus-sweep/**"
+      - "tests/corpus-sweep/**"
+      - "crates/worker_host/src/bin/corpus_sweep.rs"
+      - "crates/worker_host/src/sweep.rs"
+      - ".github/workflows/corpus-sweep.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: corpus-sweep-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  sweep:
+    name: Corpus Sweep
+    runs-on: windows-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Build release binaries
+        run: |
+          cargo build --release -p pdf_worker --bin pdf_worker
+          cargo build --release -p worker_host --bin corpus_sweep
+      - name: Fetch corpora
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            bash scripts/corpus-sweep/fetch.sh corpus-files pdf-differences
+            cp -r tests/corpus corpus-files/tests-corpus
+          else
+            bash scripts/corpus-sweep/fetch.sh corpus-files
+          fi
+      - name: Run corpus sweep
+        shell: bash
+        run: |
+          target/release/corpus_sweep corpus-files sweep-output
+      - name: Print summary report
+        if: always()
+        shell: bash
+        run: |
+          if [ -f sweep-output/summary.md ]; then
+            cat sweep-output/summary.md
+          fi
+      - name: Upload sweep results
+        if: always() && hashFiles('sweep-output/summary.md') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: corpus-sweep-results
+          path: |
+            sweep-output/results.jsonl
+            sweep-output/summary.md
+            sweep-output/summary.json
+          retention-days: 30
