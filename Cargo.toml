@@ -30,3 +30,11 @@ debug = "line-tables-only"
 codegen-units = 1
 lto = true
 strip = true
+
+# mupdf-sys 0.8.0 bundles MuPDF 1.27.2, whose OpenJPEG lacks an upstream bounds check in
+# opj_j2k_read_sod (#539). This is v0.8.0 of messense/mupdf-rs plus one commit that applies the
+# upstream fix when the crate is built; see docs/architecture/mupdf-binding.md. fuzz/Cargo.toml
+# has the same patch and deny.toml allows this one repository. Remove all three when a
+# mupdf-sys release bundles MuPDF 1.28.0 or later.
+[patch.crates-io]
+mupdf-sys = { git = "https://github.com/winner0988/mupdf-rs", rev = "31e8194dc379f53f1f6da2a0d6fd9ad759e76bc7" }

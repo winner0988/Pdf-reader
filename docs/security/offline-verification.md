@@ -8,7 +8,7 @@
 |---|---|---|
 | 原始碼 | 遙測 SDK、遠端字型／CDN、具網路能力的 Tauri 外掛名稱 | `scripts/ci/check-forbidden.sh`（`Guardrails`） |
 | 原始碼 | WinHTTP（檢查更新用的唯一網路 API）只能出現在 `src-tauri/src/update_check.rs`（`@only` 規則） | 同上 |
-| Rust 依賴圖 | 禁用 HTTP／WebSocket／TLS client 與遙測 crate；授權白名單；只允許 crates.io | `deny.toml`（`Security` → `Dependency audit`） |
+| Rust 依賴圖 | 禁用 HTTP／WebSocket／TLS client 與遙測 crate；授權白名單；來源只允許 crates.io，以及 `mupdf-sys` 的一個 git repo（見 [mupdf-binding.md](../architecture/mupdf-binding.md)） | `deny.toml`（`Security` → `Dependency audit`） |
 | npm 依賴 | 已知弱點 | `pnpm audit --prod`（`Dependency audit`） |
 | 正式版 CSP | 只允許 `'self'`、`data:`／`blob:`（限圖片與 worker）、Tauri IPC；必須有 `object-src`／`base-uri`／`form-action`／`frame-src 'none'` | `scripts/ci/check-security-config.mjs`（`Guardrails`） |
 | 開發模式 CSP | 同上，另外只允許 Vite 需要的 `'unsafe-inline'`（script／style）與 `ws://localhost:1420` | 同上（讀 `vite.config.ts`） |
