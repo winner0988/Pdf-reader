@@ -195,7 +195,7 @@ Rust crates
 - regex 1.13.1 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex | L4, L24
 - regex-automata 0.4.18 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex | L4, L24
 - regex-syntax 0.8.11 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex | L4, L24
-- rfd 0.17.2 | MIT | https://github.com/PolyMeilex/rfd | L110
+- rfd 0.18.0 | MIT | https://github.com/PolyMeilex/rfd | L110
 - rustc-hash 2.1.3 | Apache-2.0 OR MIT | https://github.com/rust-lang/rustc-hash | L20, L14
 - same-file 1.0.6 | Unlicense/MIT | https://github.com/BurntSushi/same-file | L15, L111, L17
 - schemars 0.8.22 | MIT | https://github.com/GREsau/schemars | L112
@@ -324,7 +324,7 @@ JavaScript packages
 - @tauri-apps/api 2.12.4 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri#readme | L20, L130, L164
 - class-variance-authority 0.7.1 | Apache-2.0 | https://github.com/joe-bell/cva#readme | L165
 - clsx 2.1.1 | MIT | https://github.com/lukeed/clsx#readme | L166
-- lucide-react 1.66.0 | ISC | https://lucide.dev | L167
+- lucide-react 1.70.0 | ISC | https://lucide.dev | L167
 - react 19.3.1 | MIT | https://react.dev/ | L168
 - react-dom 19.3.1 | MIT | https://react.dev/ | L168
 - reselect 5.3.0 | MIT | https://github.com/reduxjs/reselect#readme | L169
@@ -7499,7 +7499,7 @@ Permission is granted to anyone to use this software for any purpose, including 
 3. This notice may not be removed or altered from any source distribution.
 
 ----- L110 -----
-Used by: rfd 0.17.2
+Used by: rfd 0.18.0
 
 MIT License
 
@@ -10510,7 +10510,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ----- L167 -----
-Used by: lucide-react 1.66.0
+Used by: lucide-react 1.70.0
 
 ISC License
 
