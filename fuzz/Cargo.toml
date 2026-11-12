@@ -19,6 +19,11 @@ mupdf-sys = { version = "=0.8.0", default-features = false, features = ["tessera
 [workspace]
 members = ["."]
 
+# The same source of mupdf-sys as the main workspace (see its Cargo.toml and #539): a patch only
+# counts in the workspace that declares it.
+[patch.crates-io]
+mupdf-sys = { git = "https://github.com/winner0988/mupdf-rs", rev = "31e8194dc379f53f1f6da2a0d6fd9ad759e76bc7" }
+
 # cargo-fuzz builds with overflow checks on; the shipped release build has them off. The font
 # subsetter adds two u16 values without a check in name.rs (typst/subsetter#30): the sum wraps in
 # the shipped build, which ends in a refused font, but panics here, and the fuzzer would stop at

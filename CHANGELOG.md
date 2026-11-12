@@ -12,6 +12,7 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 ### 安全
 
+- PDF 引擎內附的 OpenJPEG（JPEG 2000 影像的解碼器）加上上游已有的一個範圍檢查（`opj_j2k_read_sod`，#539）：`mupdf-sys` 0.8.0 內附的 MuPDF 1.27.2 還沒有它，所以 `mupdf-sys` 暫時改由 git 取得，在建置時套用 OpenJPEG 的修正原文；等 `mupdf-sys` 發布內附 MuPDF 1.28 以上的版本再改回 crates.io。
 - 限制主視窗的 WebView 導覽與封鎖下載（#424）：WebView 設定 `on_navigation`，正式版僅允許 app 自身的 `http://tauri.localhost`（開發模式僅允許 `http://localhost:1420`），其餘所有網址與 scheme（包含 `https:`、`file:`、`data:`、`blob:`、`javascript:`、`about:`）一律拒絕；同時接上 `on_download` 封鎖所有檔案下載，被拒絕的導覽僅記錄 scheme 與 host，防止頁面被注入腳本時外傳文件資料或下載檔案。
 
 ### 新增

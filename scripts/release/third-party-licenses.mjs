@@ -231,6 +231,8 @@ export function collect() {
   const rust = rustPackages();
   const sys = rust.find((p) => p.name === "mupdf-sys");
   if (!sys) throw new Error("mupdf-sys is not among the dependencies");
+  // A git source reads `git+<url>?rev=<rev>#<commit>`: say so, since such a copy is a changed one.
+  const fromGit = sys.source.match(/^git\+([^?#]+)(?:\?[^#]*)?#([0-9a-f]{40})$/);
   const mupdf = path.join(path.dirname(sys.manifest_path), "mupdf");
   const mupdfVersion = readFileSync(path.join(mupdf, "include", "mupdf", "fitz", "version.h"), "utf8").match(/FZ_VERSION "([^"]+)"/)?.[1];
   if (!mupdfVersion) throw new Error("no MuPDF version in version.h");
@@ -253,7 +255,9 @@ export function collect() {
         version: mupdfVersion,
         license: "AGPL-3.0",
         url: "https://mupdf.com/",
-        note: `The sources are those of the Rust crate mupdf-sys ${sys.version}, which carries them.`,
+        note: fromGit
+          ? `The sources are those of the Rust crate mupdf-sys ${sys.version}, taken from ${fromGit[1]} at commit ${fromGit[2]} and not from crates.io: that repository adds changes to the sources of the libraries built into MuPDF (see build.rs of the crate).`
+          : `The sources are those of the Rust crate mupdf-sys ${sys.version}, which carries them.`,
         texts: [mupdfLicence],
       },
       ...libraries.map((library) => ({ ...library, note: "Built into MuPDF." })),

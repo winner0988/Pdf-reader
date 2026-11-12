@@ -16,10 +16,24 @@
 |---|---|
 | Rust crate | `mupdf = "=0.8.0"`、`mupdf-sys 0.8.0`（精確固定） |
 | MuPDF | 1.27.2（原始碼隨 `mupdf-sys` crate 發布） |
-| 取得方式 | crates.io；`Cargo.lock` 記錄 SHA-256，cargo 下載時驗證 |
+| 取得方式 | `mupdf`、`mupdf-fonts-droid`：crates.io，`Cargo.lock` 記錄 SHA-256，cargo 下載時驗證。`mupdf-sys`：git（見下方「`mupdf-sys` 的來源」），`Cargo.lock` 記錄 commit |
 | 授權 | `mupdf`、`mupdf-sys` 與 MuPDF 皆為 AGPL-3.0（或向 Artifex 購買商業授權），見 DEC-02（#2） |
 
-升級 MuPDF 一律視為安全變更（`needs-security-review`）。**cargo-deny 的弱點資料庫只涵蓋 Rust crate，不涵蓋 MuPDF 的 C 程式碼**；升級前與每次發布前，要人工查 Artifex 的版本說明與 NVD 上 MuPDF 的 CVE。
+升級 MuPDF 一律視為安全變更（`needs-security-review`）。**cargo-deny 的弱點資料庫只涵蓋 Rust crate，不涵蓋 MuPDF 的 C 程式碼**，也不涵蓋 MuPDF 內附的第三方函式庫（OpenJPEG、FreeType 等）；升級前與每次發布前，要人工查 Artifex 的版本說明與 NVD 上 MuPDF 的 CVE。
+
+### `mupdf-sys` 的來源
+
+`mupdf-sys` 0.8.0 內附 MuPDF 1.27.2，而 1.27.2 內附的 OpenJPEG 少了上游已經加上的一個檢查：`opj_j2k_read_sod` 寫入 tile-part 索引前沒有檢查範圍。
+
+- 上游的修正：OpenJPEG [`91d08b11`](https://github.com/uclouvain/openjpeg/commit/91d08b11a72764f6d199f32fa0c1b1abd4edc2ad)；Artifex 的 OpenJPEG 是 `328a8da`，MuPDF 1.28.0 起包含。
+- crates.io 上還沒有內附 MuPDF 1.28 以上的 `mupdf-sys`，所以暫時從 git 取得：
+  - 來源是 <https://github.com/winner0988/mupdf-rs> 的 `v0.8.0-openjpeg-read-sod` 分支，也就是上游 `messense/mupdf-rs` 的 `v0.8.0` 加上一個 commit；
+  - 那個 commit 只改 `mupdf-sys/build.rs`：建置時把上游的修正原文套到複製出來的 OpenJPEG 原始碼。原始碼裡既找不到未修正的寫法、也找不到修正後的寫法時，建置失敗，不會默默建出沒有檢查的版本；
+  - 根目錄與 `fuzz/` 的 `Cargo.toml` 以 `[patch.crates-io]` 指向同一個 `rev`（完整的 commit），`deny.toml` 的 `allow-git` 只允許這一個 repo；
+  - `mupdf` 與字型 crate 仍然來自 crates.io：上游 repo 裡的字型檔是符號連結，Windows 上取出來會壞掉。
+- 代價：cargo 第一次要下載 MuPDF 與它所有第三方函式庫的 git 歷史（約 850 MB），之後存在 `~/.cargo/git`。
+- **移除條件**：`mupdf-sys` 發布內附 MuPDF 1.28.0 以上的版本後，在升級的 PR 裡刪掉兩個 `[patch.crates-io]` 與 `allow-git` 的那一項，這一節也改回 crates.io。
+- 要換 `rev`（例如上游再有修正）：在 fork 的分支加 commit，兩個 `Cargo.toml` 改成新的完整 commit，再更新兩個 `Cargo.lock`。這是依賴來源的變更，要 `needs-security-review`。
 
 ## 編譯期功能
 
