@@ -417,7 +417,7 @@ describe("drawing on a page that is zoomed and turned (B2-08)", () => {
     });
     // The line is as thick on the screen as on the page: 2.5 points, at this zoom.
     fireEvent.pointerDown(layer()!, at(100, 100));
-    expect(layer()!.querySelector("[data-stroke]")).toHaveAttribute("stroke-width", String(2.5 * scale));
+    expect(parseFloat(layer()!.querySelector("[data-stroke]")!.getAttribute("stroke-width")!)).toBeCloseTo(2.5 * scale);
     fireEvent.pointerCancel(layer()!, at(100, 100));
 
     // And a stamp: its middle is where the pointer was released, the stamp turned with the page.
