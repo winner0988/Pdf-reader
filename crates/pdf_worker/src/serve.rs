@@ -22,7 +22,7 @@ use ipc_contract::types::{
     PageLink, PageSize, Password, Rect, RequestId, Restrictions, SanitizeOptions, TextBoxInfo,
     Watermark,
 };
-use ipc_contract::validate::{check_prepare_text_boxes_request, stamp_png_size, Validate};
+use ipc_contract::validate::{Validate, check_prepare_text_boxes_request, stamp_png_size};
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, NewSignature, OcrFinished, OcrOutcome, OcrPageState,
     OpenedDocument, Raster, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest,
