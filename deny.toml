@@ -86,4 +86,7 @@ deny = [
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
+# The one git source: mupdf-sys 0.8.0 plus one fix of the bundled OpenJPEG that no mupdf-sys
+# release has yet ([patch.crates-io] in Cargo.toml and fuzz/Cargo.toml, which pin the commit;
+# docs/architecture/mupdf-binding.md). Take the entry out again with the patch.
+allow-git = ["https://github.com/winner0988/mupdf-rs"]

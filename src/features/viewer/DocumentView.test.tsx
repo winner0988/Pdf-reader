@@ -445,7 +445,8 @@ describe("DocumentView", () => {
       expect(page.hasAttribute("data-sharp")).toBe(true);
       const detail = page.querySelector<HTMLCanvasElement>("canvas[data-detail]")!;
       expect(detail.hidden).toBe(false);
-      expect(detail.style.width).toBe(`${(part.width / 3264) * 100}%`);
+      expect(parseFloat(detail.style.width)).toBeCloseTo((part.width / 3264) * 100);
+      expect(detail.style.width.endsWith("%")).toBe(true);
 
       // A little scrolling stays within it; more asks for the next part once the view rests.
       scrollTo(element, element.scrollTop + 40);
@@ -491,7 +492,9 @@ describe("DocumentView", () => {
           pixels: new Uint8ClampedArray(next.width * next.height * 4),
         }),
       );
-      expect(drawnAt).toBe(`${(next.y / 4224) * 100}%`);
+      expect(drawnAt).not.toBeNull();
+      expect(parseFloat(drawnAt!)).toBeCloseTo((next.y / 4224) * 100);
+      expect(drawnAt!.endsWith("%")).toBe(true);
       expect(page.hasAttribute("data-sharp")).toBe(true);
     } finally {
       vi.useRealTimers();

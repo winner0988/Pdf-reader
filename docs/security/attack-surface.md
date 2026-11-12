@@ -228,7 +228,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 程式庫 | 解析什麼 | `unsafe` | fuzz |
 |---|---|---|---|
-| MuPDF 1.27.2（`mupdf` =0.8.0、`mupdf-sys` =0.8.0） | PDF（含內嵌的字型與圖片）、PNG、JPEG、EPUB、HTML、SVG、XPS、docx、xlsx、pptx、純文字 | C 程式庫；`owner_password.rs` 直接呼叫 C 函式 | `open_document`、`create_pdf`、`compress_images`、`exif_clean`、`stamp_image`；缺的見 #426、#427 |
+| MuPDF 1.27.2（`mupdf` =0.8.0、`mupdf-sys` =0.8.0，後者來自 git，多一個 OpenJPEG 的上游修正，見 [mupdf-binding.md](../architecture/mupdf-binding.md)） | PDF（含內嵌的字型與圖片）、PNG、JPEG、EPUB、HTML、SVG、XPS、docx、xlsx、pptx、純文字 | C 程式庫；`owner_password.rs` 直接呼叫 C 函式 | `open_document`、`create_pdf`、`compress_images`、`exif_clean`、`stamp_image`；缺的見 #426、#427 |
 | Tesseract、Leptonica（MuPDF 內建的 Artifex 版本） | `.traineddata`、掃描頁的像素 | C++、C；呼叫集中在 `ocr.rs` | `ocr`（#431） |
 | skrifa 0.49、subsetter 0.2.6 | 文字方塊與匯入用的字型 | 純 Rust，沒有 `unsafe` | `text_box_font`（含 `InspectFont`，#428） |
 | Windows CryptoAPI（`crypt.rs`） | 簽章的 CMS 與憑證；憑證鏈只用本機的快取 | Windows | 沒有：Linux 的 fuzz 跑不到（#426 只 fuzz 讀簽章欄位） |

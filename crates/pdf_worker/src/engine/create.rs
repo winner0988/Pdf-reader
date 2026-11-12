@@ -293,8 +293,10 @@ fn convert(bytes: &[u8], kind: CreateKind) -> Result<MuPdfDocument, EngineError>
     if u32::try_from(pages).unwrap_or(u32::MAX) > MAX_PAGE_COUNT {
         return Err(EngineError::TooManyPages);
     }
-    // Pre-validate every page into a display list before converting: ensures every page can be
-    // read and rendered before any page is converted.
+    // Pre-validate every page into a display list before converting:
+    // `mupdf_convert_to_pdf_internal` leaves its stack `fz_page *page` uninitialized and leaks
+    // `pdfout` if `fz_load_page` or `fz_run_page` throws. A source that cannot be read is an error
+    // before any page is converted, never leaving a half-made document.
     for index in 0..pages {
         let page = document.load_page(index).map_err(unreadable)?;
         let bounds = page.bounds().map_err(unreadable)?;
@@ -1525,5 +1527,156 @@ xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld><
         assert!(p1_text.contains("Chapter two"), "{p1_text}");
         assert!(p1_text.contains("second words"), "{p1_text}");
         assert!(!p1_text.contains("Chapter one"), "{p1_text}");
+    }
+
+    fn xps_two_pages() -> Vec<u8> {
+        zip(&[
+            (
+                "[Content_Types].xml",
+                "<?xml version=\"1.0\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">\
+<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>\
+<Default Extension=\"fdseq\" ContentType=\"application/vnd.ms-package.xps-fixeddocumentsequence+xml\"/>\
+<Default Extension=\"fdoc\" ContentType=\"application/vnd.ms-package.xps-fixeddocument+xml\"/>\
+<Default Extension=\"fpage\" ContentType=\"application/vnd.ms-package.xps-fixedpage+xml\"/></Types>",
+            ),
+            (
+                "_rels/.rels",
+                "<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+<Relationship Id=\"R1\" Type=\"http://schemas.microsoft.com/xps/2005/06/fixedrepresentation\" Target=\"FixedDocumentSequence.fdseq\"/></Relationships>",
+            ),
+            (
+                "FixedDocumentSequence.fdseq",
+                "<?xml version=\"1.0\"?><FixedDocumentSequence xmlns=\"http://schemas.microsoft.com/xps/2005/06\">\
+<DocumentReference Source=\"Documents/1/FixedDocument.fdoc\"/></FixedDocumentSequence>",
+            ),
+            (
+                "Documents/1/FixedDocument.fdoc",
+                "<?xml version=\"1.0\"?><FixedDocument xmlns=\"http://schemas.microsoft.com/xps/2005/06\">\
+<PageContent Source=\"Pages/1.fpage\"/>\
+<PageContent Source=\"Pages/2.fpage\"/></FixedDocument>",
+            ),
+            (
+                "Documents/1/Pages/1.fpage",
+                "<?xml version=\"1.0\"?><FixedPage xmlns=\"http://schemas.microsoft.com/xps/2005/06\" Width=\"816\" Height=\"1056\" xml:lang=\"en-US\">\
+<Glyphs Fill=\"#FF000000\" FontUri=\"dummy\" FontRenderingEmSize=\"16\" OriginX=\"96\" OriginY=\"96\" UnicodeString=\"First XPS page unique content\"/></FixedPage>",
+            ),
+            (
+                "Documents/1/Pages/2.fpage",
+                "<?xml version=\"1.0\"?><FixedPage xmlns=\"http://schemas.microsoft.com/xps/2005/06\" Width=\"816\" Height=\"1056\" xml:lang=\"en-US\">\
+<Glyphs Fill=\"#FF000000\" FontUri=\"dummy\" FontRenderingEmSize=\"16\" OriginX=\"96\" OriginY=\"96\" UnicodeString=\"Second XPS page unique content\"/></FixedPage>",
+            ),
+        ])
+    }
+
+    fn docx_many_paragraphs(count: usize) -> Vec<u8> {
+        let mut body = String::new();
+        for i in 0..count {
+            body.push_str(&format!(
+                "<w:p><w:r><w:t>LINE{i:06} docx paragraph text</w:t></w:r></w:p>"
+            ));
+        }
+        let doc = format!(
+            "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>{body}</w:body></w:document>"
+        );
+        zip(&[
+            (
+                "[Content_Types].xml",
+                "<?xml version=\"1.0\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">\
+<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>\
+<Default Extension=\"xml\" ContentType=\"application/xml\"/>\
+<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/></Types>",
+            ),
+            (
+                "_rels/.rels",
+                "<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/></Relationships>",
+            ),
+            (
+                "word/_rels/document.xml.rels",
+                "<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"/>",
+            ),
+            ("word/document.xml", &doc),
+        ])
+    }
+
+    #[test]
+    fn multi_page_xps_has_its_own_content_per_page() {
+        let (pdf, created) = one(&xps_two_pages(), CreateKind::Xps);
+        assert_eq!(created.pages, 2);
+        let doc = Engine::from_bytes(&pdf).expect("a PDF");
+        assert_eq!(doc.page_count().unwrap(), 2);
+
+        let p0_lines: Vec<String> = doc
+            .page_text(0, 100_000)
+            .unwrap()
+            .lines
+            .into_iter()
+            .map(|l| l.text)
+            .collect();
+        let p0_text = p0_lines.join(" ");
+        assert!(p0_text.contains("First XPS page"), "{p0_text}");
+        assert!(!p0_text.contains("Second XPS page"), "{p0_text}");
+
+        let p1_lines: Vec<String> = doc
+            .page_text(1, 100_000)
+            .unwrap()
+            .lines
+            .into_iter()
+            .map(|l| l.text)
+            .collect();
+        let p1_text = p1_lines.join(" ");
+        assert!(p1_text.contains("Second XPS page"), "{p1_text}");
+        assert!(!p1_text.contains("First XPS page"), "{p1_text}");
+    }
+
+    #[test]
+    fn multi_page_docx_has_its_own_content_per_page() {
+        let (pdf, created) = one(&docx_many_paragraphs(200), CreateKind::Docx);
+        assert!(
+            created.pages > 1,
+            "expected multiple pages, got {}",
+            created.pages
+        );
+        let doc = Engine::from_bytes(&pdf).expect("a PDF");
+        let pages = doc.page_count().unwrap();
+        assert_eq!(created.pages, pages);
+
+        let mut all_lines = Vec::new();
+        let mut last_num: Option<usize> = None;
+        for page in 0..pages {
+            let page_lines: Vec<String> = doc
+                .page_text(page, 100_000)
+                .unwrap()
+                .lines
+                .into_iter()
+                .map(|l| l.text.trim().to_string())
+                .filter(|t| !t.is_empty())
+                .collect();
+            assert!(
+                page_lines.len() <= 80,
+                "page {page} has too many lines: {}",
+                page_lines.len()
+            );
+            for line in &page_lines {
+                let num: usize = line
+                    .strip_prefix("LINE")
+                    .and_then(|s| s.split_whitespace().next())
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_else(|| panic!("line does not start with LINE: {line}"));
+                if let Some(prev) = last_num {
+                    assert_eq!(
+                        num,
+                        prev + 1,
+                        "page {page}: line {num} does not follow {prev}"
+                    );
+                } else {
+                    assert_eq!(num, 0, "first line should be 0");
+                }
+                last_num = Some(num);
+            }
+            all_lines.extend(page_lines);
+        }
+        assert_eq!(all_lines.len(), 200);
+        assert_eq!(last_num, Some(199));
     }
 }

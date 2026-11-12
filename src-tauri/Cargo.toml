@@ -22,7 +22,7 @@ ipc_contract = { path = "../crates/ipc_contract" }
 worker_host = { path = "../crates/worker_host" }
 # Native message boxes: WebView2 missing, replacing exported files (the file dialogs are
 # src/file_dialog.rs).
-rfd = { version = "0.17.2", default-features = false }
+rfd = { version = "0.18.0", default-features = false }
 # Already used by Tauri; only the oneshot channel of the render queue is needed here.
 tokio = { version = "1", default-features = false, features = ["sync"] }
 # Already used by Tauri: parses web links the way browsers do before one is opened (MVP-12).
