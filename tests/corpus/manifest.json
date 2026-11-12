@@ -772,7 +772,7 @@
       "path": "malformed/huge-page-size.pdf",
       "category": "malformed",
       "purpose": "MediaBox of 1e9 x 1e9 points.",
-      "expected": "Rejected by validation or rendered within the raster limits; never allocates unbounded memory.",
+      "expected": "Reports limit exceeded (page too large); never allocates unbounded memory.",
       "pages": null,
       "findings": [],
       "text": [],
