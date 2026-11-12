@@ -11,9 +11,9 @@ use std::time::Duration;
 use ipc_contract::frame::{self, FrameError};
 use ipc_contract::limits::{
     MAX_CREATE_SOURCES, MAX_DOCUMENT_BYTES, MAX_ERROR_MESSAGE_BYTES, MAX_LINKS_PER_PAGE,
-    MAX_OCR_PAGE_MILLIS, MAX_OUTLINE_DEPTH, MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_PAGE_TEXT_CHARS,
-    MAX_SEARCH_HITS, MAX_SOURCE_BYTES, MAX_STAMP_PNG_BYTES, MAX_STAMP_SOURCE_BYTES, MAX_TEXT_BYTES,
-    MAX_UNDO_EDITS,
+    MAX_OCR_PAGE_MILLIS, MAX_OUTLINE_DEPTH, MAX_OUTLINE_ITEMS, MAX_PAGE_COUNT, MAX_PAGE_SIDE_PT,
+    MAX_PAGE_TEXT_CHARS, MAX_SEARCH_HITS, MAX_SOURCE_BYTES, MAX_STAMP_PNG_BYTES,
+    MAX_STAMP_SOURCE_BYTES, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
 };
 use ipc_contract::ocr::{check_language_data, is_language_name};
 use ipc_contract::text::{classify_uri, clean_display_text};
@@ -22,7 +22,7 @@ use ipc_contract::types::{
     PageLink, PageSize, Password, Rect, RequestId, Restrictions, SanitizeOptions, TextBoxInfo,
     Watermark,
 };
-use ipc_contract::validate::{check_prepare_text_boxes_request, stamp_png_size};
+use ipc_contract::validate::{Validate, check_prepare_text_boxes_request, stamp_png_size};
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, NewSignature, OcrFinished, OcrOutcome, OcrPageState,
     OpenedDocument, Raster, WorkerEdit, WorkerError, WorkerErrorCode, WorkerRequest,
@@ -349,12 +349,13 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     WorkerErrorCode::UnknownDocument,
                     "unknown document",
                 ),
-                Some(document) => {
-                    match apply(document, &edit).and_then(|()| page_sizes(document)) {
+                Some(document) => match apply(document, &edit) {
+                    Ok(()) => match page_sizes(document) {
                         Ok(pages) => WorkerResponse::Edited { request, pages },
-                        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
-                    }
-                }
+                        Err(err) => err.into_response(request, WorkerErrorCode::Internal),
+                    },
+                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+                },
             }),
             WorkerRequest::Revert {
                 request,
@@ -687,7 +688,7 @@ fn open(
     }
     let pages = match page_sizes(&document) {
         Ok(pages) => pages,
-        Err(engine) => return engine_error(request, &engine, WorkerErrorCode::Corrupted),
+        Err(err) => return err.into_response(request, WorkerErrorCode::Corrupted),
     };
     let has_outline = document.has_outline();
     let has_form = document.has_form();
@@ -713,17 +714,47 @@ fn open(
     }
 }
 
+#[derive(Debug)]
+enum PageSizesError {
+    Engine(EngineError),
+    LimitExceeded(&'static str),
+    Corrupted(&'static str),
+}
+
+impl PageSizesError {
+    fn into_response(
+        self,
+        request: RequestId,
+        fallback_engine_code: WorkerErrorCode,
+    ) -> WorkerResponse {
+        match self {
+            Self::LimitExceeded(msg) => error(request, WorkerErrorCode::LimitExceeded, msg),
+            Self::Corrupted(msg) => error(request, WorkerErrorCode::Corrupted, msg),
+            Self::Engine(engine) => engine_error(request, &engine, fallback_engine_code),
+        }
+    }
+}
+
 /// The size of every page, as `Opened` and `Edited` report them.
-fn page_sizes(document: &PdfDocument) -> Result<Vec<PageSize>, EngineError> {
-    (0..document.page_count()?)
-        .map(|index| {
-            let (width_pt, height_pt) = document.page_size(index)?;
-            Ok(PageSize {
-                width_pt,
-                height_pt,
-            })
-        })
-        .collect()
+fn page_sizes(document: &PdfDocument) -> Result<Vec<PageSize>, PageSizesError> {
+    let count = document.page_count().map_err(PageSizesError::Engine)?;
+    let mut pages = Vec::with_capacity(count as usize);
+    for index in 0..count {
+        let (width_pt, height_pt) = document.page_size(index).map_err(PageSizesError::Engine)?;
+        let size = PageSize {
+            width_pt,
+            height_pt,
+        };
+        if size.validate().is_err() {
+            return if size.width_pt > MAX_PAGE_SIDE_PT || size.height_pt > MAX_PAGE_SIDE_PT {
+                Err(PageSizesError::LimitExceeded("page too large"))
+            } else {
+                Err(PageSizesError::Corrupted("invalid page size"))
+            };
+        }
+        pages.push(size);
+    }
+    Ok(pages)
 }
 
 /// Opens `doc` again from the bytes it was opened from (or last saved to) and applies `edits` in
@@ -768,7 +799,7 @@ fn revert(
             documents.insert(doc, document);
             WorkerResponse::Edited { request, pages }
         }
-        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+        Err(err) => err.into_response(request, WorkerErrorCode::Internal),
     }
 }
 

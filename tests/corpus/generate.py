@@ -2369,7 +2369,7 @@ SAMPLES = [
     Sample("malformed/outline-cycle.pdf", malformed_outline_cycle, "Outline items whose /Next pointers form a cycle.",
            "Opens; the outline is cut at the cycle; never hangs.", 1),
     Sample("malformed/huge-page-size.pdf", malformed_huge_page, "MediaBox of 1e9 x 1e9 points.",
-           "Rejected by validation or rendered within the raster limits; never allocates unbounded memory."),
+           "Reports limit exceeded (page too large); never allocates unbounded memory."),
     Sample("malformed/deep-nesting.pdf", malformed_deep_nesting, "10,000 nested arrays in the page dictionary.",
            "Opens or reports corrupted; no stack overflow."),
     Sample("malformed/no-pages.pdf", malformed_no_pages, "Structurally valid document with zero pages.",
