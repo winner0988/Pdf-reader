@@ -1,6 +1,7 @@
 # Fuzzing
 
 對應工作卡 QA-03；ADR 0008：隔離能限制損害，但不能取代找出問題。
+另見 [Corpus Sweep (B5-02)](./corpus-sweep.md)：透過沙盒化 worker 批次掃描公開語料庫（qpdf、pdf.js、pdf-differences 共 1,831 個檔案），作為模糊測試之外的另一道真實世界檔案健全性防線。
 
 ## 目標
 

@@ -27,6 +27,9 @@ use ipc_contract::worker::{
 use sandbox::{SandboxConfig, Sandboxed};
 use thiserror::Error;
 
+#[cfg(feature = "sweep")]
+pub mod sweep;
+
 /// Largest document the worker is asked to open, or writes when saving.
 pub const MAX_DOCUMENT_BYTES: u64 = ipc_contract::limits::MAX_DOCUMENT_BYTES;
 

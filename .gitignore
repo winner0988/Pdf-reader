@@ -24,6 +24,8 @@ tests/**/output/
 *.profraw
 fuzz/artifacts/
 fuzz/corpus/
+/corpus-sweep/
+tests/corpus-sweep/files/
 
 # --- 環境與秘密 ---
 .env
