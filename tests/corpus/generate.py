@@ -139,6 +139,7 @@ class Document:
         )
         self.page_nums: list[int] = []
         self.catalog_extra = ""
+        self.pages_extra = ""
 
     def reserve_pages(self, count: int) -> list[int]:
         """Reserve page object numbers so annotations can point at pages before they exist."""
@@ -163,7 +164,10 @@ class Document:
 
     def build(self, **kwargs) -> bytes:
         kids = " ".join(f"{n} 0 R" for n in self.page_nums)
-        self.pdf.set(self.pages_root, f"<< /Type /Pages /Kids [{kids}] /Count {len(self.page_nums)} >>")
+        self.pdf.set(
+            self.pages_root,
+            f"<< /Type /Pages /Kids [{kids}] /Count {len(self.page_nums)}{self.pages_extra} >>",
+        )
         self.pdf.set(self.catalog, f"<< /Type /Catalog /Pages {self.pages_root} 0 R{self.catalog_extra} >>")
         return self.pdf.build(self.catalog, doc_id=doc_id(self.name), **kwargs)
 
@@ -1657,6 +1661,77 @@ def malformed_page_tree_cycle() -> bytes:
     return pdf.build(catalog, doc_id=doc_id("page-tree-cycle"))
 
 
+def malformed_page_tree_parent_cycle() -> bytes:
+    doc = Document("page-tree-parent-cycle")
+    boxes = " /CropBox [0 0 612 792] /BleedBox [0 0 612 792] /TrimBox [0 0 612 792] /ArtBox [0 0 612 792] /Rotate 0"
+    doc.add_pages([
+        Page(lines=[(72, 720, 24, "Page 1: /Parent chain cycle")], extra=boxes),
+        Page(lines=[(72, 720, 24, "Page 2: /Parent chain cycle")], extra=boxes),
+    ])
+    doc.pages_extra = f" /Parent {doc.pages_root} 0 R"
+    return doc.build()
+
+
+def malformed_page_tree_middle_parent_cycle() -> bytes:
+    pdf = Pdf()
+    catalog = pdf.reserve()
+    pages_root = pdf.reserve()
+    middle = pdf.reserve()
+    font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+    c1 = pdf.add_stream("", text_ops([(72, 720, 24, "Page 1: middle /Parent cycle")]))
+    c2 = pdf.add_stream("", text_ops([(72, 720, 24, "Page 2: middle /Parent cycle")]))
+    p1 = pdf.add(
+        f"<< /Type /Page /Parent {pages_root} 0 R /MediaBox [0 0 612 792] /CropBox [0 0 612 792] /Rotate 0"
+        f" /Resources << /Font << /F1 {font} 0 R >> >> /Contents {c1} 0 R >>"
+    )
+    p2 = pdf.add(
+        f"<< /Type /Page /Parent {pages_root} 0 R /MediaBox [0 0 612 792] /CropBox [0 0 612 792] /Rotate 0"
+        f" /Resources << /Font << /F1 {font} 0 R >> >> /Contents {c2} 0 R >>"
+    )
+    pdf.set(
+        middle,
+        f"<< /Type /Pages /Parent {middle} 0 R /Kids [{p1} 0 R {p2} 0 R] /Count 2 >>",
+    )
+    pdf.set(
+        pages_root,
+        f"<< /Type /Pages /Kids [{middle} 0 R] /Count 2 >>",
+    )
+    pdf.set(catalog, f"<< /Type /Catalog /Pages {pages_root} 0 R >>")
+    return pdf.build(catalog, doc_id=doc_id("page-tree-middle-parent-cycle"))
+
+
+def malformed_page_tree_shared_kids() -> bytes:
+    pdf = Pdf()
+    catalog = pdf.reserve()
+    pages_root = pdf.reserve()
+    kids_array = pdf.reserve()
+    font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+    c1 = pdf.add_stream("", text_ops([(72, 720, 24, "Page 1: shared kids array")]))
+    c2 = pdf.add_stream("", text_ops([(72, 720, 24, "Page 2: shared kids array")]))
+    p1 = pdf.add(
+        f"<< /Type /Page /Parent {pages_root} 0 R /MediaBox [0 0 612 792] /CropBox [0 0 612 792] /Rotate 0"
+        f" /Resources << /Font << /F1 {font} 0 R >> >> /Contents {c1} 0 R >>"
+    )
+    p2 = pdf.add(
+        f"<< /Type /Page /Parent {pages_root} 0 R /MediaBox [0 0 612 792] /CropBox [0 0 612 792] /Rotate 0"
+        f" /Resources << /Font << /F1 {font} 0 R >> >> /Contents {c2} 0 R >>"
+    )
+    nodes = []
+    for _ in range(1000):
+        n = pdf.add(
+            f"<< /Type /Pages /Parent {pages_root} 0 R /Kids {kids_array} 0 R /Count 0 >>"
+        )
+        nodes.append(f"{n} 0 R")
+    elements = nodes + [f"{p1} 0 R", f"{p2} 0 R"]
+    pdf.set(kids_array, "[" + " ".join(elements) + "]")
+    pdf.set(
+        pages_root,
+        f"<< /Type /Pages /Kids {kids_array} 0 R /Count 2 >>",
+    )
+    pdf.set(catalog, f"<< /Type /Catalog /Pages {pages_root} 0 R >>")
+    return pdf.build(catalog, doc_id=doc_id("page-tree-shared-kids"))
+
+
 def malformed_outline_cycle() -> bytes:
     doc = Document("outline-cycle")
     doc.add_pages([Page(lines=[(72, 720, 24, "Outline items point at each other")])])
@@ -2366,6 +2441,15 @@ SAMPLES = [
            "Opens after repair (1 page) or reports corrupted; never crashes."),
     Sample("malformed/page-tree-cycle.pdf", malformed_page_tree_cycle, "The page tree lists itself as a kid.",
            "Reports corrupted; never hangs or crashes."),
+    Sample("malformed/page-tree-parent-cycle.pdf", malformed_page_tree_parent_cycle,
+           "The page tree's /Parent chain contains a cycle.",
+           "Opens (2 pages); page edits are refused (corrupted); never hangs.", 2),
+    Sample("malformed/page-tree-middle-parent-cycle.pdf", malformed_page_tree_middle_parent_cycle,
+           "An intermediate /Pages node's /Parent points to itself while page /Parent points to the root.",
+           "Opens (2 pages); page edits are refused (corrupted); never hangs.", 2),
+    Sample("malformed/page-tree-shared-kids.pdf", malformed_page_tree_shared_kids,
+           "Intermediate /Pages nodes share a large /Kids array.",
+           "Opens (2 pages); page edits are refused (corrupted); never hangs.", 2),
     Sample("malformed/outline-cycle.pdf", malformed_outline_cycle, "Outline items whose /Next pointers form a cycle.",
            "Opens; the outline is cut at the cycle; never hangs.", 1),
     Sample("malformed/huge-page-size.pdf", malformed_huge_page, "MediaBox of 1e9 x 1e9 points.",
