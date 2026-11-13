@@ -139,6 +139,7 @@ class Document:
         )
         self.page_nums: list[int] = []
         self.catalog_extra = ""
+        self.pages_extra = ""
 
     def reserve_pages(self, count: int) -> list[int]:
         """Reserve page object numbers so annotations can point at pages before they exist."""
@@ -163,7 +164,10 @@ class Document:
 
     def build(self, **kwargs) -> bytes:
         kids = " ".join(f"{n} 0 R" for n in self.page_nums)
-        self.pdf.set(self.pages_root, f"<< /Type /Pages /Kids [{kids}] /Count {len(self.page_nums)} >>")
+        self.pdf.set(
+            self.pages_root,
+            f"<< /Type /Pages /Kids [{kids}] /Count {len(self.page_nums)}{self.pages_extra} >>",
+        )
         self.pdf.set(self.catalog, f"<< /Type /Catalog /Pages {self.pages_root} 0 R{self.catalog_extra} >>")
         return self.pdf.build(self.catalog, doc_id=doc_id(self.name), **kwargs)
 
@@ -1657,6 +1661,17 @@ def malformed_page_tree_cycle() -> bytes:
     return pdf.build(catalog, doc_id=doc_id("page-tree-cycle"))
 
 
+def malformed_page_tree_parent_cycle() -> bytes:
+    doc = Document("page-tree-parent-cycle")
+    boxes = " /CropBox [0 0 612 792] /BleedBox [0 0 612 792] /TrimBox [0 0 612 792] /ArtBox [0 0 612 792] /Rotate 0"
+    doc.add_pages([
+        Page(lines=[(72, 720, 24, "Page 1: /Parent chain cycle")], extra=boxes),
+        Page(lines=[(72, 720, 24, "Page 2: /Parent chain cycle")], extra=boxes),
+    ])
+    doc.pages_extra = f" /Parent {doc.pages_root} 0 R"
+    return doc.build()
+
+
 def malformed_outline_cycle() -> bytes:
     doc = Document("outline-cycle")
     doc.add_pages([Page(lines=[(72, 720, 24, "Outline items point at each other")])])
@@ -2366,6 +2381,9 @@ SAMPLES = [
            "Opens after repair (1 page) or reports corrupted; never crashes."),
     Sample("malformed/page-tree-cycle.pdf", malformed_page_tree_cycle, "The page tree lists itself as a kid.",
            "Reports corrupted; never hangs or crashes."),
+    Sample("malformed/page-tree-parent-cycle.pdf", malformed_page_tree_parent_cycle,
+           "The page tree's /Parent chain contains a cycle.",
+           "Opens (2 pages); page edits are refused (corrupted); never hangs.", 2),
     Sample("malformed/outline-cycle.pdf", malformed_outline_cycle, "Outline items whose /Next pointers form a cycle.",
            "Opens; the outline is cut at the cycle; never hangs.", 1),
     Sample("malformed/huge-page-size.pdf", malformed_huge_page, "MediaBox of 1e9 x 1e9 points.",

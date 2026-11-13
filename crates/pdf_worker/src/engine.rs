@@ -34,6 +34,12 @@ use crate::search::{PageSearch, PageText};
 use crate::text_layer::TextLayerBuilder;
 use thiserror::Error;
 
+/// The deepest page tree a document's edits may walk (ADR 0013, Issue #544).
+///
+/// Bounded like outline depth (`MAX_OUTLINE_DEPTH`): deeper than this is treated as corrupted,
+/// preventing infinite loops or excessive recursion in MuPDF when modifying the page tree.
+pub const MAX_PAGE_TREE_DEPTH: usize = 64;
+
 mod annotations;
 mod attachments;
 mod create;
@@ -188,6 +194,8 @@ pub enum EngineError {
     NotAppendable,
     #[error("the active-content check found remaining items after sanitization")]
     SanitizeCheckFailed,
+    #[error("the page tree is corrupted: /Parent chain does not end")]
+    CorruptedPageTree,
     #[error("MuPDF: {0}")]
     MuPdf(#[from] mupdf::Error),
 }
@@ -899,6 +907,7 @@ impl PdfDocument {
     ///   entry, link or named destination to a removed page stays, but goes nowhere.
     pub fn delete_pages(&mut self, pages: &[u32]) -> Result<(), EngineError> {
         let count = self.checked_pages(pages)?;
+        self.check_page_tree_parents(pages)?;
         if pages.len() >= count as usize {
             return Err(EngineError::NoPageLeft);
         }
@@ -931,6 +940,13 @@ impl PdfDocument {
         if before > count {
             return Err(EngineError::PageOutOfRange(before));
         }
+        let mut targets = pages.to_vec();
+        if before < count {
+            targets.push(before);
+        } else if count > 0 {
+            targets.push(count - 1);
+        }
+        self.check_page_tree_parents(&targets)?;
         let mut moved = pages.to_vec();
         moved.sort_unstable();
         let len = moved.len() as u32;
@@ -968,6 +984,16 @@ impl PdfDocument {
         if count >= MAX_PAGE_COUNT {
             return Err(EngineError::TooManyPages);
         }
+        let mut targets = Vec::new();
+        if at < count {
+            targets.push(at);
+        } else if count > 0 {
+            targets.push(count - 1);
+        }
+        if like < count && like != at {
+            targets.push(like);
+        }
+        self.check_page_tree_parents(&targets)?;
         let size = self.page_size(like)?;
         self.doc.new_page_at(at as i32, size)?;
         self.ocr_forget_page(at);
@@ -989,6 +1015,70 @@ impl PdfDocument {
             return Err(EngineError::PageOutOfRange(page));
         }
         Ok(count)
+    }
+
+    /// Checks that the `/Parent` chain starting from each page in `pages` terminates without
+    /// cycles and within [`MAX_PAGE_TREE_DEPTH`] (ADR 0013, Issue #544).
+    pub fn check_page_tree_parents(&self, pages: &[u32]) -> Result<(), EngineError> {
+        let count = self.page_count()?;
+        let mut verified = HashSet::new();
+        let mut targets = Vec::with_capacity(pages.len() + 1);
+        if count > 0 {
+            targets.push(0);
+        }
+        for &page in pages {
+            if page < count && !targets.contains(&page) {
+                targets.push(page);
+            }
+        }
+        if targets.is_empty() {
+            if let Some(catalog) = self.doc.catalog()?.get_dict("Pages")? {
+                self.walk_parent_chain(catalog, &mut verified)?;
+            }
+            return Ok(());
+        }
+        for page_idx in targets {
+            let page_obj = self.doc.find_page(page_idx as i32)?;
+            self.walk_parent_chain(page_obj, &mut verified)?;
+        }
+        Ok(())
+    }
+
+    fn walk_parent_chain(
+        &self,
+        start: PdfObject,
+        verified: &mut HashSet<i32>,
+    ) -> Result<(), EngineError> {
+        let mut chain = Vec::new();
+        let mut chain_set = HashSet::new();
+        let mut curr = Some(start);
+        let mut depth = 0;
+
+        while let Some(node) = curr {
+            depth += 1;
+            if depth > MAX_PAGE_TREE_DEPTH {
+                return Err(EngineError::CorruptedPageTree);
+            }
+
+            if node.is_indirect()? {
+                let n = node.as_indirect()?;
+                if verified.contains(&n) {
+                    break;
+                }
+                if !chain_set.insert(n) {
+                    return Err(EngineError::CorruptedPageTree);
+                }
+                chain.push(n);
+            }
+
+            curr = match node.get_dict("Parent")? {
+                Some(parent) if parent.is_dict()? => Some(parent),
+                _ => None,
+            };
+        }
+
+        verified.extend(chain);
+        Ok(())
     }
 
     /// Whether the document is signed: its form says signatures exist (`/SigFlags` bit 1), or a
@@ -1477,6 +1567,13 @@ impl PdfDocument {
         if at > count {
             return Err(EngineError::PageOutOfRange(at));
         }
+        let mut targets = Vec::new();
+        if at < count {
+            targets.push(at);
+        } else if count > 0 {
+            targets.push(count - 1);
+        }
+        self.check_page_tree_parents(&targets)?;
         let source_doc = PdfDocument::from_bytes(source)?;
         let inserted = source_doc.page_count()?;
         if inserted == 0 {
@@ -1485,6 +1582,7 @@ impl PdfDocument {
         if count.saturating_add(inserted) > MAX_PAGE_COUNT {
             return Err(EngineError::TooManyPages);
         }
+        source_doc.check_page_tree_parents(&[0])?;
         let annotations = merge_annotations::extract_source_annotations(&source_doc)?;
         let target = if at == count {
             InsertPosition::Append

@@ -758,6 +758,17 @@
       "sha256": "790aec5b308605e9228336d70805e09e6e332ce307b7ffe5945da024718f196c"
     },
     {
+      "path": "malformed/page-tree-parent-cycle.pdf",
+      "category": "malformed",
+      "purpose": "The page tree's /Parent chain contains a cycle.",
+      "expected": "Opens (2 pages); page edits are refused (corrupted); never hangs.",
+      "pages": 2,
+      "findings": [],
+      "text": [],
+      "bytes": 1213,
+      "sha256": "f76e127fb3194af7ddc7aa7de4509bb563efb997ca21f921498371eec63b7017"
+    },
+    {
       "path": "malformed/outline-cycle.pdf",
       "category": "malformed",
       "purpose": "Outline items whose /Next pointers form a cycle.",
