@@ -769,6 +769,17 @@
       "sha256": "f76e127fb3194af7ddc7aa7de4509bb563efb997ca21f921498371eec63b7017"
     },
     {
+      "path": "malformed/page-tree-middle-parent-cycle.pdf",
+      "category": "malformed",
+      "purpose": "An intermediate /Pages node's /Parent points to itself while page /Parent points to the root.",
+      "expected": "Opens (2 pages); page edits are refused (corrupted); never hangs.",
+      "pages": 2,
+      "findings": [],
+      "text": [],
+      "bytes": 1154,
+      "sha256": "8b93abf9a949be58368da9f2ac71620fcdefe20d9a277a86756f968a5231ef45"
+    },
+    {
       "path": "malformed/outline-cycle.pdf",
       "category": "malformed",
       "purpose": "Outline items whose /Next pointers form a cycle.",

@@ -1,0 +1,50 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Pages /Parent 3 0 R /Kids [7 0 R 8 0 R] /Count 2 >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<<  /Length 60 >>
+stream
+BT /F1 24 Tf 72 720 Td (Page 1: middle /Parent cycle) Tj ET
+
+endstream
+endobj
+6 0 obj
+<<  /Length 60 >>
+stream
+BT /F1 24 Tf 72 720 Td (Page 2: middle /Parent cycle) Tj ET
+
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /CropBox [0 0 612 792] /Rotate 0 /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /CropBox [0 0 612 792] /Rotate 0 /Resources << /Font << /F1 4 0 R >> >> /Contents 6 0 R >>
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000198 00000 n 
+0000000295 00000 n 
+0000000406 00000 n 
+0000000517 00000 n 
+0000000676 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R /ID [<B6B8F6CEF999DD5212F59B4D2DC75945> <B6B8F6CEF999DD5212F59B4D2DC75945>] >>
+startxref
+835
+%%EOF
