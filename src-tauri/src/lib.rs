@@ -5,6 +5,7 @@ compile_error!(
     "PDF Reader supports Windows only for now (ADR 0007): the worker sandbox is Windows-specific."
 );
 
+mod app_icon;
 mod attachments;
 mod background;
 mod batch;
@@ -108,6 +109,7 @@ pub fn run() {
         .manage(Exports::default())
         .manage(Batches::default())
         .manage(Background::default())
+        .manage(app_icon::AppIcon::default())
         .manage(signing::ChosenCertificate::default())
         .manage(signing::ListedCertificates::default())
         .manage(compare::CompareCache::default())
@@ -215,6 +217,8 @@ pub fn run() {
                 .on_navigation(move |url| navigation::check_navigation(url, cfg!(debug_assertions)))
                 .on_download(move |_webview, _event| false)
                 .build()?;
+            // The window's icon is the one that stands out against Windows' taskbar (UX-04).
+            app_icon::follow_windows_mode(app.handle());
             let data = data_dir(app.app_handle());
             app.manage(SettingsStore::load(
                 data.as_ref().map(|dir| dir.join(settings::FILE_NAME)),
