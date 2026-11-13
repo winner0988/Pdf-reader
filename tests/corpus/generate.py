@@ -1700,6 +1700,38 @@ def malformed_page_tree_middle_parent_cycle() -> bytes:
     return pdf.build(catalog, doc_id=doc_id("page-tree-middle-parent-cycle"))
 
 
+def malformed_page_tree_shared_kids() -> bytes:
+    pdf = Pdf()
+    catalog = pdf.reserve()
+    pages_root = pdf.reserve()
+    kids_array = pdf.reserve()
+    font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+    c1 = pdf.add_stream("", text_ops([(72, 720, 24, "Page 1: shared kids array")]))
+    c2 = pdf.add_stream("", text_ops([(72, 720, 24, "Page 2: shared kids array")]))
+    p1 = pdf.add(
+        f"<< /Type /Page /Parent {pages_root} 0 R /MediaBox [0 0 612 792] /CropBox [0 0 612 792] /Rotate 0"
+        f" /Resources << /Font << /F1 {font} 0 R >> >> /Contents {c1} 0 R >>"
+    )
+    p2 = pdf.add(
+        f"<< /Type /Page /Parent {pages_root} 0 R /MediaBox [0 0 612 792] /CropBox [0 0 612 792] /Rotate 0"
+        f" /Resources << /Font << /F1 {font} 0 R >> >> /Contents {c2} 0 R >>"
+    )
+    nodes = []
+    for _ in range(1000):
+        n = pdf.add(
+            f"<< /Type /Pages /Parent {pages_root} 0 R /Kids {kids_array} 0 R /Count 0 >>"
+        )
+        nodes.append(f"{n} 0 R")
+    elements = nodes + [f"{p1} 0 R", f"{p2} 0 R"]
+    pdf.set(kids_array, "[" + " ".join(elements) + "]")
+    pdf.set(
+        pages_root,
+        f"<< /Type /Pages /Kids {kids_array} 0 R /Count 2 >>",
+    )
+    pdf.set(catalog, f"<< /Type /Catalog /Pages {pages_root} 0 R >>")
+    return pdf.build(catalog, doc_id=doc_id("page-tree-shared-kids"))
+
+
 def malformed_outline_cycle() -> bytes:
     doc = Document("outline-cycle")
     doc.add_pages([Page(lines=[(72, 720, 24, "Outline items point at each other")])])
@@ -2414,6 +2446,9 @@ SAMPLES = [
            "Opens (2 pages); page edits are refused (corrupted); never hangs.", 2),
     Sample("malformed/page-tree-middle-parent-cycle.pdf", malformed_page_tree_middle_parent_cycle,
            "An intermediate /Pages node's /Parent points to itself while page /Parent points to the root.",
+           "Opens (2 pages); page edits are refused (corrupted); never hangs.", 2),
+    Sample("malformed/page-tree-shared-kids.pdf", malformed_page_tree_shared_kids,
+           "Intermediate /Pages nodes share a large /Kids array.",
            "Opens (2 pages); page edits are refused (corrupted); never hangs.", 2),
     Sample("malformed/outline-cycle.pdf", malformed_outline_cycle, "Outline items whose /Next pointers form a cycle.",
            "Opens; the outline is cut at the cycle; never hangs.", 1),

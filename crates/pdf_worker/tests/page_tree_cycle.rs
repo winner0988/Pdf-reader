@@ -421,3 +421,174 @@ fn insert_pages_on_middle_parent_cycle_is_refused_with_corrupted_and_worker_stay
     assert!(matches!(opened, WorkerResponse::Opened { .. }));
     assert!(host.is_running());
 }
+
+#[test]
+fn move_pages_on_shared_kids_is_refused_with_corrupted_and_worker_stays_running() {
+    let mut host = host();
+    let (doc, opened) = host
+        .open(&corpus("malformed/page-tree-shared-kids.pdf"))
+        .expect("open page-tree-shared-kids.pdf");
+    match opened {
+        WorkerResponse::Opened { document, .. } => {
+            assert_eq!(document.pages.len(), 2);
+        }
+        ref other => panic!("expected Opened, got: {other:?}"),
+    }
+
+    let edit_res = host.request(|request| WorkerRequest::Edit {
+        request,
+        doc,
+        edit: WorkerEdit::MovePages {
+            pages: vec![0],
+            before: 2,
+        },
+    });
+
+    match edit_res {
+        Err(HostError::Worker(ref error)) => {
+            assert_eq!(error.code, WorkerErrorCode::Corrupted);
+            assert_eq!(
+                error.detail,
+                "the page tree is corrupted: /Parent chain does not end"
+            );
+        }
+        Err(ref other) => panic!("expected HostError::Worker(Corrupted), got: {other:?}"),
+        Ok(ref response) => panic!("expected edit refusal, got success: {response:?}"),
+    }
+
+    assert!(
+        host.is_running(),
+        "the worker must not be terminated by a refused edit"
+    );
+
+    let (_doc, opened) = host
+        .open(&corpus("benign/single-page.pdf"))
+        .expect("open benign document on the same worker");
+    assert!(matches!(opened, WorkerResponse::Opened { .. }));
+    assert!(host.is_running());
+}
+
+#[test]
+fn delete_pages_on_shared_kids_is_refused_with_corrupted_and_worker_stays_running() {
+    let mut host = host();
+    let (doc, opened) = host
+        .open(&corpus("malformed/page-tree-shared-kids.pdf"))
+        .expect("open page-tree-shared-kids.pdf");
+    match opened {
+        WorkerResponse::Opened { document, .. } => {
+            assert_eq!(document.pages.len(), 2);
+        }
+        ref other => panic!("expected Opened, got: {other:?}"),
+    }
+
+    let edit_res = host.request(|request| WorkerRequest::Edit {
+        request,
+        doc,
+        edit: WorkerEdit::DeletePages { pages: vec![0] },
+    });
+
+    match edit_res {
+        Err(HostError::Worker(ref error)) => {
+            assert_eq!(error.code, WorkerErrorCode::Corrupted);
+            assert_eq!(
+                error.detail,
+                "the page tree is corrupted: /Parent chain does not end"
+            );
+        }
+        Err(ref other) => panic!("expected HostError::Worker(Corrupted), got: {other:?}"),
+        Ok(ref response) => panic!("expected edit refusal, got success: {response:?}"),
+    }
+
+    assert!(host.is_running());
+
+    let (_doc, opened) = host
+        .open(&corpus("benign/single-page.pdf"))
+        .expect("open benign document on the same worker");
+    assert!(matches!(opened, WorkerResponse::Opened { .. }));
+    assert!(host.is_running());
+}
+
+#[test]
+fn insert_blank_page_on_shared_kids_is_refused_with_corrupted_and_worker_stays_running() {
+    let mut host = host();
+    let (doc, opened) = host
+        .open(&corpus("malformed/page-tree-shared-kids.pdf"))
+        .expect("open page-tree-shared-kids.pdf");
+    match opened {
+        WorkerResponse::Opened { document, .. } => {
+            assert_eq!(document.pages.len(), 2);
+        }
+        ref other => panic!("expected Opened, got: {other:?}"),
+    }
+
+    let edit_res = host.request(|request| WorkerRequest::Edit {
+        request,
+        doc,
+        edit: WorkerEdit::InsertBlankPage { at: 0, like: 0 },
+    });
+
+    match edit_res {
+        Err(HostError::Worker(ref error)) => {
+            assert_eq!(error.code, WorkerErrorCode::Corrupted);
+            assert_eq!(
+                error.detail,
+                "the page tree is corrupted: /Parent chain does not end"
+            );
+        }
+        Err(ref other) => panic!("expected HostError::Worker(Corrupted), got: {other:?}"),
+        Ok(ref response) => panic!("expected edit refusal, got success: {response:?}"),
+    }
+
+    assert!(host.is_running());
+
+    let (_doc, opened) = host
+        .open(&corpus("benign/single-page.pdf"))
+        .expect("open benign document on the same worker");
+    assert!(matches!(opened, WorkerResponse::Opened { .. }));
+    assert!(host.is_running());
+}
+
+#[test]
+fn insert_pages_on_shared_kids_is_refused_with_corrupted_and_worker_stays_running() {
+    let mut host = host();
+    let (doc, opened) = host
+        .open(&corpus("malformed/page-tree-shared-kids.pdf"))
+        .expect("open page-tree-shared-kids.pdf");
+    match opened {
+        WorkerResponse::Opened { document, .. } => {
+            assert_eq!(document.pages.len(), 2);
+        }
+        ref other => panic!("expected Opened, got: {other:?}"),
+    }
+
+    let source = fs::read(corpus("benign/single-page.pdf")).expect("read single-page.pdf");
+    let edit_res = host.request(|request| WorkerRequest::Edit {
+        request,
+        doc,
+        edit: WorkerEdit::InsertPages {
+            at: 0,
+            source,
+            text_boxes: vec![],
+        },
+    });
+
+    match edit_res {
+        Err(HostError::Worker(ref error)) => {
+            assert_eq!(error.code, WorkerErrorCode::Corrupted);
+            assert_eq!(
+                error.detail,
+                "the page tree is corrupted: /Parent chain does not end"
+            );
+        }
+        Err(ref other) => panic!("expected HostError::Worker(Corrupted), got: {other:?}"),
+        Ok(ref response) => panic!("expected edit refusal, got success: {response:?}"),
+    }
+
+    assert!(host.is_running());
+
+    let (_doc, opened) = host
+        .open(&corpus("benign/single-page.pdf"))
+        .expect("open benign document on the same worker");
+    assert!(matches!(opened, WorkerResponse::Opened { .. }));
+    assert!(host.is_running());
+}

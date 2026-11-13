@@ -46,6 +46,14 @@ pub const MAX_PAGE_TREE_DEPTH: usize = 64;
 /// tree cannot contain more intermediate nodes than this without being corrupted.
 pub const MAX_PAGE_TREE_NODES: usize = MAX_PAGE_COUNT as usize;
 
+/// The maximum number of `/Kids` entries inspected across the entire page tree when
+/// validating (Issue #544).
+///
+/// In a well-formed page tree, the total number of `/Kids` array entries across all
+/// intermediate nodes is at most the number of pages plus the number of intermediate nodes.
+/// Bounded by 2 * [`MAX_PAGE_COUNT`].
+pub const MAX_PAGE_TREE_KIDS: usize = 2 * MAX_PAGE_COUNT as usize;
+
 mod annotations;
 mod attachments;
 mod create;
@@ -1012,8 +1020,9 @@ impl PdfDocument {
     /// (ADR 0013, Issue #544).
     ///
     /// Walks down from the catalog's `/Pages` root along `/Kids` with an explicit stack, bounded
-    /// by [`MAX_PAGE_TREE_DEPTH`] and [`MAX_PAGE_TREE_NODES`]. For each `/Type /Pages` node and
-    /// page node encountered, verifies that the `/Parent` chain terminates without cycles.
+    /// by [`MAX_PAGE_TREE_DEPTH`], [`MAX_PAGE_TREE_NODES`], and [`MAX_PAGE_TREE_KIDS`]. For each
+    /// `/Type /Pages` node and page node encountered, verifies that the `/Parent` chain terminates
+    /// without cycles.
     pub fn check_page_tree_parents(&self) -> Result<(), EngineError> {
         let Some(root) = self.doc.catalog()?.get_dict("Pages")? else {
             return Ok(());
@@ -1026,6 +1035,7 @@ impl PdfDocument {
         let mut visited_pages_nodes = HashSet::new();
         let mut verified_parents = HashMap::new();
         let mut pages_node_count = 0;
+        let mut total_kids_inspected = 0;
 
         if root.is_indirect()? {
             visited_pages_nodes.insert(root.as_indirect()?);
@@ -1051,7 +1061,14 @@ impl PdfDocument {
             }
 
             let len = kids.len()?;
+            if len > MAX_PAGE_TREE_KIDS.saturating_sub(total_kids_inspected) {
+                return Err(EngineError::CorruptedPageTree);
+            }
             for i in (0..len).rev() {
+                total_kids_inspected += 1;
+                if total_kids_inspected > MAX_PAGE_TREE_KIDS {
+                    return Err(EngineError::CorruptedPageTree);
+                }
                 let Some(kid) = kids.get_array(i32::try_from(i).unwrap_or(i32::MAX))? else {
                     continue;
                 };
@@ -5129,5 +5146,27 @@ endstream",
         assert_eq!(annots.len(), 1);
         assert_eq!(annots[0].kind, AnnotationKind::Note);
         assert_eq!(annots[0].text.as_deref(), Some("still here"));
+    }
+
+    #[test]
+    fn ten_thousand_page_normal_document_passes_page_tree_check() {
+        let pages = 10_000;
+        let kids: Vec<String> = (0..pages).map(|i| format!("{} 0 R", 3 + i)).collect();
+        let mut objects = vec![
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            format!(
+                "<< /Type /Pages /Kids [{}] /Count {pages} >>",
+                kids.join(" ")
+            ),
+        ];
+        objects.extend(
+            (0..pages)
+                .map(|_| "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_owned()),
+        );
+        let refs: Vec<&str> = objects.iter().map(String::as_str).collect();
+        let bytes = build_pdf(&refs);
+        let doc = PdfDocument::from_bytes(&bytes).expect("open 10k page pdf");
+        assert_eq!(doc.page_count().expect("page count"), 10_000);
+        assert!(doc.check_page_tree_parents().is_ok());
     }
 }
