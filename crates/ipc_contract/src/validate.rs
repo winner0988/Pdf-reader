@@ -11,8 +11,8 @@ use thiserror::Error;
 use crate::limits::*;
 use crate::ocr::is_language_name;
 use crate::text::{
-    classify_uri, is_clean_copy_text, is_clean_display_text, is_invisible_format, is_note_text,
-    is_web_address,
+    classify_uri, is_clean_copy_text, is_clean_display_text, is_clean_page_label,
+    is_invisible_format, is_note_text, is_web_address,
 };
 use crate::types::{
     AnnotationKind, AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind,
@@ -399,6 +399,7 @@ impl Validate for SearchHit {
 impl Validate for OpenedDocument {
     fn validate(&self) -> Result<(), ValidationError> {
         check_pages(&self.pages)?;
+        check_page_labels(self.page_labels.as_deref(), self.pages.len())?;
         self.security.validate()
     }
 }
@@ -413,6 +414,27 @@ fn check_pages(pages: &[PageSize]) -> Result<(), ValidationError> {
     }
     check_count("pages", pages.len(), MAX_PAGE_COUNT)?;
     pages.iter().try_for_each(PageSize::validate)
+}
+
+fn check_page_labels(labels: Option<&[String]>, page_count: usize) -> Result<(), ValidationError> {
+    let Some(labels) = labels else {
+        return Ok(());
+    };
+    if labels.len() != page_count {
+        return Err(ValidationError::Invalid {
+            what: "page_labels",
+            reason: "label count does not match page count",
+        });
+    }
+    for label in labels {
+        if label.len() > MAX_PAGE_LABEL_BYTES || !is_clean_page_label(label) {
+            return Err(ValidationError::Invalid {
+                what: "page_labels",
+                reason: "contains invalid or oversized label",
+            });
+        }
+    }
+    Ok(())
 }
 
 impl Validate for Raster {
@@ -2310,6 +2332,7 @@ impl Validate for DocumentInfo {
         check_display_name(&self.display_name)?;
         check_count("pages", self.pages.len(), MAX_PAGE_COUNT)?;
         self.pages.iter().try_for_each(PageSize::validate)?;
+        check_page_labels(self.page_labels.as_deref(), self.pages.len())?;
         self.security.validate()
     }
 }
@@ -2690,6 +2713,7 @@ mod tests {
             encrypted: false,
             signed: false,
             identifier: None,
+            page_labels: None,
         };
         assert!(doc(vec![page(612.0, 792.0)]).validate().is_ok());
         assert!(doc(vec![]).validate().is_err());
@@ -5713,6 +5737,7 @@ mod tests {
             password_remembered: false,
             password_recalled: false,
             sensitive: false,
+            page_labels: None,
         };
         assert!(info("報告.pdf").validate().is_ok());
         assert!(info(r"C:\Users\someone\報告.pdf").validate().is_err());

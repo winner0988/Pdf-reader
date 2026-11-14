@@ -219,7 +219,7 @@ pub fn bindings() -> String {
         SaveAttachmentResult,
     );
 
-    let limits: [(&str, String); 74] = [
+    let limits: [(&str, String); 75] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -233,6 +233,7 @@ pub fn bindings() -> String {
         ("maxUriBytes", MAX_URI_BYTES.to_string()),
         ("maxRemoteAddresses", MAX_REMOTE_ADDRESSES.to_string()),
         ("maxTextBytes", MAX_TEXT_BYTES.to_string()),
+        ("maxPageLabelBytes", MAX_PAGE_LABEL_BYTES.to_string()),
         ("maxQueryBytes", MAX_QUERY_BYTES.to_string()),
         ("maxPasswordBytes", MAX_PASSWORD_BYTES.to_string()),
         ("maxNewPasswordBytes", MAX_NEW_PASSWORD_BYTES.to_string()),

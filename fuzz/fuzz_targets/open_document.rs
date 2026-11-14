@@ -30,6 +30,7 @@ fuzz_target!(|data: &[u8]| {
     let _ = document.docx(&first_pages, &mut std::io::sink());
     let _ = document.outline(1_000, 64);
     let _ = document.has_outline();
+    let _ = document.page_labels();
     let _ = document.active_content(ScanBudget {
         max_objects: 100_000,
         max_time: Duration::from_secs(1),

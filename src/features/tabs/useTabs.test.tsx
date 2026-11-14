@@ -23,6 +23,7 @@ const info: DocumentInfo = {
   passwordRemembered: false,
   passwordRecalled: false,
   sensitive: false,
+  pageLabels: null,
 };
 
 function setup(onOcr?: (event: OcrEvent) => void, unlocked: UnlockOutcome = { notRemembered: null }) {

@@ -75,6 +75,7 @@ export type PageEditing = {
 
 type ThumbnailsProps = {
   pages: PageSize[];
+  pageLabels?: string[];
   /** Without a document id or renderer (demo data), thumbnails stay blank. */
   doc?: DocumentId;
   renderer?: PageRenderer;
@@ -128,6 +129,7 @@ function dropBefore(layout: ThumbLayout, y: number): number {
  */
 export function Thumbnails({
   pages,
+  pageLabels,
   doc,
   renderer,
   currentPage,
@@ -401,6 +403,8 @@ export function Thumbnails({
       <Thumbnail
         key={index}
         index={index}
+        label={pageLabels?.[index]}
+        pageCount={pages.length}
         box={layout.boxes[index]!}
         page={pages[index]!}
         doc={doc}
@@ -551,6 +555,8 @@ export function Thumbnails({
 
 type ThumbnailProps = {
   index: number;
+  label?: string;
+  pageCount: number;
   box: ThumbBox;
   page: PageSize;
   doc?: DocumentId;
@@ -569,6 +575,8 @@ type ThumbnailProps = {
 
 function Thumbnail({
   index,
+  label,
+  pageCount,
   box,
   page,
   doc,
@@ -584,6 +592,14 @@ function Thumbnail({
 }: ThumbnailProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [failed, setFailed] = useState(false);
+
+  const hasCustomLabel = label !== undefined && label !== String(index + 1);
+  const displayText = hasCustomLabel
+    ? strings.canvas.pageLabelWithPhysical(label, index + 1, pageCount)
+    : String(index + 1);
+  const ariaLabel = hasCustomLabel
+    ? strings.canvas.pageWithLabel(label, index + 1, pageCount)
+    : strings.canvas.page(index + 1);
 
   // React 19 ref callback cleanup: when React unmounts the canvas, zero its surface immediately.
   const setCanvasRef = useCallback((canvas: HTMLCanvasElement | null) => {
@@ -623,7 +639,7 @@ function Thumbnail({
     <div
       role="option"
       data-index={index}
-      aria-label={strings.canvas.page(index + 1)}
+      aria-label={ariaLabel}
       aria-selected={selected}
       aria-current={current ? "page" : undefined}
       tabIndex={tabbable ? 0 : -1}
@@ -646,8 +662,8 @@ function Thumbnail({
           <canvas ref={setCanvasRef} aria-hidden className="size-full rounded-sm" />
         )}
       </div>
-      <span aria-hidden className="mt-1 text-xs text-muted-foreground">
-        {index + 1}
+      <span aria-hidden className="mt-1 text-xs text-muted-foreground text-center px-1 truncate max-w-full">
+        {displayText}
       </span>
     </div>
   );

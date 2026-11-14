@@ -664,4 +664,36 @@ describe("hidden thumbnails (#513)", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("displays document page labels alongside physical page numbers when present", () => {
+    const renderer = {
+      render: vi.fn<PageRenderer["render"]>(() => ({ result: new Promise(() => {}), cancel: vi.fn() })),
+    } satisfies PageRenderer;
+    const onJumpToPage = vi.fn();
+    const pages = Array(10).fill(LETTER);
+    const pageLabels = ["i", "ii", "iii", "iv", "1", "2", "3", "4", "A-1", "A-2"];
+    render(
+      <div style={{ height: 600 }}>
+        <Thumbnails
+          pages={pages}
+          pageLabels={pageLabels}
+          doc={3}
+          renderer={renderer}
+          currentPage={1}
+          onJumpToPage={onJumpToPage}
+          requestDelayMs={0}
+        />
+      </div>,
+    );
+    const options = screen.getAllByRole("option");
+    expect(options[0]?.getAttribute("aria-label")).toBe(strings.canvas.pageWithLabel("i", 1, 10));
+    expect(options[0]?.textContent).toContain(strings.pages.thumbnailLabel("i", 1, 10));
+
+    expect(options[3]?.getAttribute("aria-label")).toBe(strings.canvas.pageWithLabel("iv", 4, 10));
+    expect(options[3]?.textContent).toContain(strings.pages.thumbnailLabel("iv", 4, 10));
+
+    // Page 5 label is "1" (different from physical 5)
+    expect(options[4]?.getAttribute("aria-label")).toBe(strings.canvas.pageWithLabel("1", 5, 10));
+    expect(options[4]?.textContent).toContain(strings.pages.thumbnailLabel("1", 5, 10));
+  });
 });

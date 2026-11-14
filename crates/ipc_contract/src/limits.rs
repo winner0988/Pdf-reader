@@ -44,6 +44,12 @@ pub const MAX_REGION_PAGE_SIDE_PX: u32 = 1 << 20;
 pub const MAX_OUTLINE_ITEMS: u32 = 10_000;
 pub const MAX_OUTLINE_DEPTH: u16 = 64;
 
+/// Upper bounds for reading the /PageLabels number tree (B5-07, Issue #444).
+pub const MAX_PAGE_LABEL_NODES: usize = 256;
+pub const MAX_PAGE_LABEL_DEPTH: usize = 16;
+/// Maximum length of a single page label (UTF-8 bytes, B5-07).
+pub const MAX_PAGE_LABEL_BYTES: usize = 64;
+
 /// Maximum links reported for one page.
 pub const MAX_LINKS_PER_PAGE: u32 = 2_000;
 

@@ -62,6 +62,7 @@ mod forms;
 mod identifier;
 mod merge_annotations;
 mod ocr;
+mod page_labels;
 mod page_marks;
 mod page_overlay;
 mod personal_data;
@@ -414,6 +415,22 @@ impl PdfDocument {
             Ok(fields.is_array()? && fields.len()? > 0)
         })()
         .unwrap_or(false)
+    }
+
+    /// Reads and formats page labels defined in the document (/PageLabels, B5-07).
+    ///
+    /// Returns `Ok(None)` when there are no labels, when labels are malformed or exceed
+    /// the tree bounds, or when every label equals its 1-based physical page number.
+    pub fn page_labels(&self) -> Result<Option<Vec<String>>, EngineError> {
+        let page_count = self.page_count()?;
+        if page_count == 0 {
+            return Ok(None);
+        }
+        let catalog = self.doc.catalog()?;
+        let Some(root) = catalog.get_dict("PageLabels")? else {
+            return Ok(None);
+        };
+        page_labels::read_page_labels(&root, page_count as usize)
     }
 
     /// The outline (table of contents), flattened in reading order, with at most `max_items`
