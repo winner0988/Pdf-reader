@@ -1750,6 +1750,49 @@ def malformed_huge_page() -> bytes:
     return doc.build()
 
 
+def make_rgb_j2k(w: int, h: int) -> bytes:
+    """Bare JPEG 2000 (J2K) codestream with 3 components (RGB) and custom image/tile dimensions."""
+    base = (
+        b"\xff\x4f\xff\x51\x00\x2f\x00\x00"
+        b"\x00\x00\x00\x10"  # Xsiz (offset 8)
+        b"\x00\x00\x00\x10"  # Ysiz (offset 12)
+        b"\x00\x00\x00\x00"  # X0siz (offset 16)
+        b"\x00\x00\x00\x00"  # Y0siz (offset 20)
+        b"\x00\x00\x00\x20"  # XTsiz (offset 24)
+        b"\x00\x00\x00\x20"  # YTsiz (offset 28)
+        b"\x00\x00\x00\x00"  # XT0siz (offset 32)
+        b"\x00\x00\x00\x00"  # YT0siz (offset 36)
+        b"\x00\x03\x07\x01\x01\x07\x01\x01\x07\x01\x01"  # Csiz=3, 8-bit, 1, 1 x 3
+        b"\xff\x52\x00\x0c\x00\x00\x00\x01\x01\x05\x04\x04\x00\x00"
+        b"\xff\x5c\x00\x23\x42\x77\x20\x76\xf0\x76\xf0\x76\xc0\x6f\x00\x6f\x00\x6e\xe0\x67\x50\x67\x50\x67\x68\x50\x05\x50\x05\x50\x47\x57\xd3\x57\xd3\x57\x62"
+        b"\xff\x64\x00\x25\x00\x01\x43\x72\x65\x61\x74\x65\x64\x20\x62\x79\x20\x4f\x70\x65\x6e\x4a\x50\x45\x47\x20\x76\x65\x72\x73\x69\x6f\x6e\x20\x32\x2e\x35\x2e\x34"
+        b"\xff\x90\x00\x0a\x00\x00\x00\x00\x00\x20\x00\x01"
+        b"\xff\x93\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\xff\xd9"
+    )
+    data = bytearray(base)
+    struct.pack_into(">I", data, 8, w)
+    struct.pack_into(">I", data, 12, h)
+    struct.pack_into(">I", data, 24, w)
+    struct.pack_into(">I", data, 28, h)
+    return bytes(data)
+
+
+def malformed_huge_jpx_tile() -> bytes:
+    doc = Document("huge-jpx-tile")
+    w, h = 12608, 16806
+    jpx = make_rgb_j2k(w, h)
+    image = doc.pdf.add_stream(
+        f"/Type /XObject /Subtype /Image /Width {w} /Height {h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /JPXDecode",
+        jpx,
+    )
+    doc.add_pages([Page(
+        size=(612, 792),
+        extra_content=b"q 612 0 0 792 0 0 cm /Im1 Do Q\n",
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    )])
+    return doc.build()
+
+
 def malformed_deep_nesting() -> bytes:
     depth = 10_000
     doc = Document("deep-nesting")
@@ -2454,6 +2497,9 @@ SAMPLES = [
            "Opens; the outline is cut at the cycle; never hangs.", 1),
     Sample("malformed/huge-page-size.pdf", malformed_huge_page, "MediaBox of 1e9 x 1e9 points.",
            "Reports limit exceeded (page too large); never allocates unbounded memory."),
+    Sample("malformed/huge-jpx-tile.pdf", malformed_huge_jpx_tile,
+           "A JPEG 2000 image whose tile dimensions require > 2 GiB decoding memory in OpenJPEG.",
+           "Opens (1 page); rendering fails (internal error / Failed to decode JPX image) when worker memory reaches cap.", 1),
     Sample("malformed/deep-nesting.pdf", malformed_deep_nesting, "10,000 nested arrays in the page dictionary.",
            "Opens or reports corrupted; no stack overflow."),
     Sample("malformed/no-pages.pdf", malformed_no_pages, "Structurally valid document with zero pages.",

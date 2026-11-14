@@ -813,6 +813,17 @@
       "sha256": "df90f4a812bcbc7c0bba2c0d99180e99f99ee1d1fd0f2bcb2fab3e40bbc3602b"
     },
     {
+      "path": "malformed/huge-jpx-tile.pdf",
+      "category": "malformed",
+      "purpose": "A JPEG 2000 image whose tile dimensions require > 2 GiB decoding memory in OpenJPEG.",
+      "expected": "Opens (1 page); rendering fails (internal error / Failed to decode JPX image) when worker memory reaches cap.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 1077,
+      "sha256": "873d058e4bf1b172687109d1a22032c656e03d33bd6d7e6173dedb49f13dd263"
+    },
+    {
       "path": "malformed/deep-nesting.pdf",
       "category": "malformed",
       "purpose": "10,000 nested arrays in the page dictionary.",
