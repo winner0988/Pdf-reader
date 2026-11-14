@@ -139,6 +139,7 @@ class Document:
         )
         self.page_nums: list[int] = []
         self.catalog_extra = ""
+        self.pages_extra = ""
 
     def reserve_pages(self, count: int) -> list[int]:
         """Reserve page object numbers so annotations can point at pages before they exist."""
@@ -163,7 +164,10 @@ class Document:
 
     def build(self, **kwargs) -> bytes:
         kids = " ".join(f"{n} 0 R" for n in self.page_nums)
-        self.pdf.set(self.pages_root, f"<< /Type /Pages /Kids [{kids}] /Count {len(self.page_nums)} >>")
+        self.pdf.set(
+            self.pages_root,
+            f"<< /Type /Pages /Kids [{kids}] /Count {len(self.page_nums)}{self.pages_extra} >>",
+        )
         self.pdf.set(self.catalog, f"<< /Type /Catalog /Pages {self.pages_root} 0 R{self.catalog_extra} >>")
         return self.pdf.build(self.catalog, doc_id=doc_id(self.name), **kwargs)
 
@@ -365,6 +369,80 @@ def benign_image_only() -> bytes:
     )
     doc.add_pages([Page(
         extra_content=b"q 468 0 0 648 72 72 cm /Im1 Do Q\n",
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    )])
+    return doc.build()
+
+
+# --------------------------------------------------------------------------- JPEG 2000 (JPX)
+
+
+def make_jpx_codestream(*, two_tiles: bool = False, extra_tile_parts: bool = False) -> bytes:
+    """Handcrafted raw JPEG 2000 (J2K) codestream (ITU-T T.800 / ISO/IEC 15444-1).
+
+    Uses a single component (8-bit grayscale), single quality layer, 0 decomposition
+    levels (1 resolution level) and empty packets (0x00) with no code-blocks, which
+    reconstructs a solid mid-gray image (DC level shift 128).
+    """
+    soc = b"\xff\x4f"
+    if not two_tiles:
+        siz = (
+            b"\xff\x51\x00\x29\x00\x00"
+            b"\x00\x00\x00\x80\x00\x00\x00\x40"  # 128 x 64
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"  # X0=0, Y0=0
+            b"\x00\x00\x00\x80\x00\x00\x00\x40"  # XTsiz=128, YTsiz=64 (1 tile)
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"  # XT0=0, YT0=0
+            b"\x00\x01\x07\x01\x01"              # 1 component, 8-bit unsigned, sub 1x1
+        )
+    else:
+        siz = (
+            b"\xff\x51\x00\x29\x00\x00"
+            b"\x00\x00\x00\x80\x00\x00\x00\x40"  # 128 x 64
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"  # X0=0, Y0=0
+            b"\x00\x00\x00\x40\x00\x00\x00\x40"  # XTsiz=64, YTsiz=64 (2 tiles)
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"  # XT0=0, YT0=0
+            b"\x00\x01\x07\x01\x01"              # 1 component, 8-bit unsigned, sub 1x1
+        )
+    cod = b"\xff\x52\x00\x0c\x00\x00\x00\x01\x00\x00\x04\x04\x00\x01"
+    qcd = b"\xff\x5c\x00\x04\x40\x40"
+    if not extra_tile_parts:
+        sot = b"\xff\x90\x00\x0a\x00\x00\x00\x00\x00\x0f\x00\x01"
+        sod = b"\xff\x93\x00"
+        return soc + siz + cod + qcd + sot + sod + b"\xff\xd9"
+
+    # TLM marker listing 2 tile-parts: 1 for tile 0 and 1 for tile 1 (#539, #554).
+    # Ltlm=10, Ztlm=0, Stlm=0x10 (ST=1: 1-byte tile index; SP=0: 2-byte tile-part length)
+    tlm = b"\xff\x55\x00\x0a\x00\x10\x00\x00\x0f\x01\x00\x0f"
+    # Tile 0 has 3 tile-parts: TPsot = 0, 1, 2. Each SOT declares TNsot = 0.
+    t0_p0 = b"\xff\x90\x00\x0a\x00\x00\x00\x00\x00\x0f\x00\x00\xff\x93\x00"
+    t0_p1 = b"\xff\x90\x00\x0a\x00\x00\x00\x00\x00\x0f\x01\x00\xff\x93\x00"
+    t0_p2 = b"\xff\x90\x00\x0a\x00\x00\x00\x00\x00\x0f\x02\x00\xff\x93\x00"
+    # Tile 1 has 1 tile-part: TPsot = 0, TNsot = 0.
+    t1_p0 = b"\xff\x90\x00\x0a\x00\x01\x00\x00\x00\x0f\x00\x00\xff\x93\x00"
+    return soc + siz + cod + qcd + tlm + t0_p0 + t0_p1 + t0_p2 + t1_p0 + b"\xff\xd9"
+
+
+def benign_jpx_image() -> bytes:
+    doc = Document("jpx-image")
+    image = doc.pdf.add_stream(
+        "/Type /XObject /Subtype /Image /Width 128 /Height 64 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /JPXDecode",
+        make_jpx_codestream(),
+    )
+    doc.add_pages([Page(
+        extra_content=b"q 256 0 0 128 72 72 cm /Im1 Do Q\n",
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    )])
+    return doc.build()
+
+
+def malformed_jpx_tile_parts_beyond_tlm() -> bytes:
+    doc = Document("jpx-tile-parts-beyond-tlm")
+    image = doc.pdf.add_stream(
+        "/Type /XObject /Subtype /Image /Width 128 /Height 64 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /JPXDecode",
+        make_jpx_codestream(two_tiles=True, extra_tile_parts=True),
+    )
+    doc.add_pages([Page(
+        extra_content=b"q 256 0 0 128 72 72 cm /Im1 Do Q\n",
         resources=f"/XObject << /Im1 {image} 0 R >> ",
     )])
     return doc.build()
@@ -1657,6 +1735,77 @@ def malformed_page_tree_cycle() -> bytes:
     return pdf.build(catalog, doc_id=doc_id("page-tree-cycle"))
 
 
+def malformed_page_tree_parent_cycle() -> bytes:
+    doc = Document("page-tree-parent-cycle")
+    boxes = " /CropBox [0 0 612 792] /BleedBox [0 0 612 792] /TrimBox [0 0 612 792] /ArtBox [0 0 612 792] /Rotate 0"
+    doc.add_pages([
+        Page(lines=[(72, 720, 24, "Page 1: /Parent chain cycle")], extra=boxes),
+        Page(lines=[(72, 720, 24, "Page 2: /Parent chain cycle")], extra=boxes),
+    ])
+    doc.pages_extra = f" /Parent {doc.pages_root} 0 R"
+    return doc.build()
+
+
+def malformed_page_tree_middle_parent_cycle() -> bytes:
+    pdf = Pdf()
+    catalog = pdf.reserve()
+    pages_root = pdf.reserve()
+    middle = pdf.reserve()
+    font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+    c1 = pdf.add_stream("", text_ops([(72, 720, 24, "Page 1: middle /Parent cycle")]))
+    c2 = pdf.add_stream("", text_ops([(72, 720, 24, "Page 2: middle /Parent cycle")]))
+    p1 = pdf.add(
+        f"<< /Type /Page /Parent {pages_root} 0 R /MediaBox [0 0 612 792] /CropBox [0 0 612 792] /Rotate 0"
+        f" /Resources << /Font << /F1 {font} 0 R >> >> /Contents {c1} 0 R >>"
+    )
+    p2 = pdf.add(
+        f"<< /Type /Page /Parent {pages_root} 0 R /MediaBox [0 0 612 792] /CropBox [0 0 612 792] /Rotate 0"
+        f" /Resources << /Font << /F1 {font} 0 R >> >> /Contents {c2} 0 R >>"
+    )
+    pdf.set(
+        middle,
+        f"<< /Type /Pages /Parent {middle} 0 R /Kids [{p1} 0 R {p2} 0 R] /Count 2 >>",
+    )
+    pdf.set(
+        pages_root,
+        f"<< /Type /Pages /Kids [{middle} 0 R] /Count 2 >>",
+    )
+    pdf.set(catalog, f"<< /Type /Catalog /Pages {pages_root} 0 R >>")
+    return pdf.build(catalog, doc_id=doc_id("page-tree-middle-parent-cycle"))
+
+
+def malformed_page_tree_shared_kids() -> bytes:
+    pdf = Pdf()
+    catalog = pdf.reserve()
+    pages_root = pdf.reserve()
+    kids_array = pdf.reserve()
+    font = pdf.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+    c1 = pdf.add_stream("", text_ops([(72, 720, 24, "Page 1: shared kids array")]))
+    c2 = pdf.add_stream("", text_ops([(72, 720, 24, "Page 2: shared kids array")]))
+    p1 = pdf.add(
+        f"<< /Type /Page /Parent {pages_root} 0 R /MediaBox [0 0 612 792] /CropBox [0 0 612 792] /Rotate 0"
+        f" /Resources << /Font << /F1 {font} 0 R >> >> /Contents {c1} 0 R >>"
+    )
+    p2 = pdf.add(
+        f"<< /Type /Page /Parent {pages_root} 0 R /MediaBox [0 0 612 792] /CropBox [0 0 612 792] /Rotate 0"
+        f" /Resources << /Font << /F1 {font} 0 R >> >> /Contents {c2} 0 R >>"
+    )
+    nodes = []
+    for _ in range(1000):
+        n = pdf.add(
+            f"<< /Type /Pages /Parent {pages_root} 0 R /Kids {kids_array} 0 R /Count 0 >>"
+        )
+        nodes.append(f"{n} 0 R")
+    elements = nodes + [f"{p1} 0 R", f"{p2} 0 R"]
+    pdf.set(kids_array, "[" + " ".join(elements) + "]")
+    pdf.set(
+        pages_root,
+        f"<< /Type /Pages /Kids {kids_array} 0 R /Count 2 >>",
+    )
+    pdf.set(catalog, f"<< /Type /Catalog /Pages {pages_root} 0 R >>")
+    return pdf.build(catalog, doc_id=doc_id("page-tree-shared-kids"))
+
+
 def malformed_outline_cycle() -> bytes:
     doc = Document("outline-cycle")
     doc.add_pages([Page(lines=[(72, 720, 24, "Outline items point at each other")])])
@@ -2179,6 +2328,8 @@ SAMPLES = [
            "Each page keeps its own size.", 4),
     Sample("benign/image-only.pdf", benign_image_only, "A page with an image and no text layer.",
            "Renders a gradient; search reports that the document has no text layer.", 1),
+    Sample("benign/jpx-image.pdf", benign_jpx_image, "A page with a JPEG 2000 image (/JPXDecode).",
+           "Renders the image; search reports that the document has no text layer.", 1),
     Sample("benign/scanned-text.pdf", benign_scanned_text,
            "A scan: the page is one picture of two lines of text (PRIVACY FIRST, SECRET PAPER) and nothing "
            "else, so it has no text layer.",
@@ -2366,6 +2517,15 @@ SAMPLES = [
            "Opens after repair (1 page) or reports corrupted; never crashes."),
     Sample("malformed/page-tree-cycle.pdf", malformed_page_tree_cycle, "The page tree lists itself as a kid.",
            "Reports corrupted; never hangs or crashes."),
+    Sample("malformed/page-tree-parent-cycle.pdf", malformed_page_tree_parent_cycle,
+           "The page tree's /Parent chain contains a cycle.",
+           "Opens (2 pages); page edits are refused (corrupted); never hangs.", 2),
+    Sample("malformed/page-tree-middle-parent-cycle.pdf", malformed_page_tree_middle_parent_cycle,
+           "An intermediate /Pages node's /Parent points to itself while page /Parent points to the root.",
+           "Opens (2 pages); page edits are refused (corrupted); never hangs.", 2),
+    Sample("malformed/page-tree-shared-kids.pdf", malformed_page_tree_shared_kids,
+           "Intermediate /Pages nodes share a large /Kids array.",
+           "Opens (2 pages); page edits are refused (corrupted); never hangs.", 2),
     Sample("malformed/outline-cycle.pdf", malformed_outline_cycle, "Outline items whose /Next pointers form a cycle.",
            "Opens; the outline is cut at the cycle; never hangs.", 1),
     Sample("malformed/huge-page-size.pdf", malformed_huge_page, "MediaBox of 1e9 x 1e9 points.",
@@ -2374,6 +2534,9 @@ SAMPLES = [
            "Opens or reports corrupted; no stack overflow."),
     Sample("malformed/no-pages.pdf", malformed_no_pages, "Structurally valid document with zero pages.",
            "Reports corrupted (a document needs at least one page)."),
+    Sample("malformed/jpx-tile-parts-beyond-tlm.pdf", malformed_jpx_tile_parts_beyond_tlm,
+           "A JPEG 2000 image with more tile-parts than listed in the TLM marker (Issue #539, #554).",
+           "Opens and renders without crashing or leaking memory; worker stays healthy.", 1),
     Sample("malformed/not-a-pdf.pdf", lambda: b"This is a plain text file with a .pdf extension.\n",
            "Text file named .pdf.", "Reports not a PDF."),
     Sample("malformed/empty.pdf", lambda: b"", "Zero bytes.", "Reports not a PDF or corrupted."),
