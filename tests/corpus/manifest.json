@@ -111,6 +111,17 @@
       "sha256": "1c81bc7cd4e6584a527582c1486333a5cec953e37589b393b152de40b5ead3f2"
     },
     {
+      "path": "benign/jpx-image.pdf",
+      "category": "benign",
+      "purpose": "A page with a JPEG 2000 image (/JPXDecode).",
+      "expected": "Renders the image; search reports that the document has no text layer.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 981,
+      "sha256": "986929a819af0ddf9cc660e75b581982d160cebf1023cada4d4aeb397ab15a43"
+    },
+    {
       "path": "benign/scanned-text.pdf",
       "category": "benign",
       "purpose": "A scan: the page is one picture of two lines of text (PRIVACY FIRST, SECRET PAPER) and nothing else, so it has no text layer.",
@@ -833,6 +844,17 @@
       "text": [],
       "bytes": 432,
       "sha256": "b21bfc213b2ab173a6061886a4e2eacafaf836af48e5e353ee0b7c20807b31d4"
+    },
+    {
+      "path": "malformed/jpx-tile-parts-beyond-tlm.pdf",
+      "category": "malformed",
+      "purpose": "A JPEG 2000 image with more tile-parts than listed in the TLM marker (Issue #539, #554).",
+      "expected": "Opens and renders without crashing or leaking memory; worker stays healthy.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 1039,
+      "sha256": "a8c657158c8d1f88a813aa0532cc3ebc3300cdf9847346b2be8767cced7ec3bc"
     },
     {
       "path": "malformed/not-a-pdf.pdf",
