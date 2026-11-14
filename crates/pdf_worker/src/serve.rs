@@ -1539,12 +1539,17 @@ fn engine_error_code(engine: &EngineError, other: WorkerErrorCode) -> WorkerErro
 
 fn render_error_code(engine: &EngineError) -> WorkerErrorCode {
     match engine {
-        EngineError::MuPdf(mupdf::Error::MuPdf(e)) => match e.code {
-            mupdf_sys::FZ_ERROR_ARGUMENT
-            | mupdf_sys::FZ_ERROR_FORMAT
-            | mupdf_sys::FZ_ERROR_SYNTAX => WorkerErrorCode::Corrupted,
-            _ => WorkerErrorCode::Internal,
-        },
+        EngineError::MuPdf(mupdf::Error::MuPdf(e)) => {
+            #[allow(clippy::unnecessary_cast)]
+            if e.code == mupdf_sys::FZ_ERROR_ARGUMENT as i32
+                || e.code == mupdf_sys::FZ_ERROR_FORMAT as i32
+                || e.code == mupdf_sys::FZ_ERROR_SYNTAX as i32
+            {
+                WorkerErrorCode::Corrupted
+            } else {
+                WorkerErrorCode::Internal
+            }
+        }
         EngineError::MuPdf(_) => WorkerErrorCode::Internal,
         other => engine_error_code(other, WorkerErrorCode::Internal),
     }
@@ -1884,22 +1889,47 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::unnecessary_cast)]
     fn render_error_code_mapping_for_mupdf_and_engine_errors() {
         use mupdf::error::MuPdfError;
 
         let cases = [
-            (mupdf_sys::FZ_ERROR_NONE, WorkerErrorCode::Internal),
-            (mupdf_sys::FZ_ERROR_GENERIC, WorkerErrorCode::Internal),
-            (mupdf_sys::FZ_ERROR_SYSTEM, WorkerErrorCode::Internal),
-            (mupdf_sys::FZ_ERROR_LIBRARY, WorkerErrorCode::Internal),
-            (mupdf_sys::FZ_ERROR_ARGUMENT, WorkerErrorCode::Corrupted),
-            (mupdf_sys::FZ_ERROR_LIMIT, WorkerErrorCode::Internal),
-            (mupdf_sys::FZ_ERROR_UNSUPPORTED, WorkerErrorCode::Internal),
-            (mupdf_sys::FZ_ERROR_FORMAT, WorkerErrorCode::Corrupted),
-            (mupdf_sys::FZ_ERROR_SYNTAX, WorkerErrorCode::Corrupted),
-            (mupdf_sys::FZ_ERROR_TRYLATER, WorkerErrorCode::Internal),
-            (mupdf_sys::FZ_ERROR_ABORT, WorkerErrorCode::Internal),
-            (mupdf_sys::FZ_ERROR_REPAIRED, WorkerErrorCode::Internal),
+            (mupdf_sys::FZ_ERROR_NONE as i32, WorkerErrorCode::Internal),
+            (
+                mupdf_sys::FZ_ERROR_GENERIC as i32,
+                WorkerErrorCode::Internal,
+            ),
+            (mupdf_sys::FZ_ERROR_SYSTEM as i32, WorkerErrorCode::Internal),
+            (
+                mupdf_sys::FZ_ERROR_LIBRARY as i32,
+                WorkerErrorCode::Internal,
+            ),
+            (
+                mupdf_sys::FZ_ERROR_ARGUMENT as i32,
+                WorkerErrorCode::Corrupted,
+            ),
+            (mupdf_sys::FZ_ERROR_LIMIT as i32, WorkerErrorCode::Internal),
+            (
+                mupdf_sys::FZ_ERROR_UNSUPPORTED as i32,
+                WorkerErrorCode::Internal,
+            ),
+            (
+                mupdf_sys::FZ_ERROR_FORMAT as i32,
+                WorkerErrorCode::Corrupted,
+            ),
+            (
+                mupdf_sys::FZ_ERROR_SYNTAX as i32,
+                WorkerErrorCode::Corrupted,
+            ),
+            (
+                mupdf_sys::FZ_ERROR_TRYLATER as i32,
+                WorkerErrorCode::Internal,
+            ),
+            (mupdf_sys::FZ_ERROR_ABORT as i32, WorkerErrorCode::Internal),
+            (
+                mupdf_sys::FZ_ERROR_REPAIRED as i32,
+                WorkerErrorCode::Internal,
+            ),
         ];
 
         for i in 0..=11 {
