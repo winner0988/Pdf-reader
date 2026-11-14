@@ -21,7 +21,7 @@ PDF Reader
 MuPDF, and the libraries built into it
 ==============================================================================
 - MuPDF 1.27.2 | AGPL-3.0 | https://mupdf.com/ | L1
-    The sources are those of the Rust crate mupdf-sys 0.8.0, taken from https://github.com/winner0988/mupdf-rs at commit 31e8194dc379f53f1f6da2a0d6fd9ad759e76bc7 and not from crates.io: that repository adds changes to the sources of the libraries built into MuPDF (see build.rs of the crate).
+    The sources are those of the Rust crate mupdf-sys 0.8.0, taken from https://github.com/winner0988/mupdf-rs at commit 8e70fa5a55d55ad22ae14419c93eb6d92f03a08a and not from crates.io: that repository adds changes to the sources of the libraries built into MuPDF (see build.rs of the crate).
 - Brotli | MIT | https://github.com/google/brotli | L2
     Built into MuPDF.
 - extract | see the text | https://ghostscript.com/ | L1
