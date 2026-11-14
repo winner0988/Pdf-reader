@@ -19,7 +19,7 @@
 | 取得方式 | `mupdf`、`mupdf-fonts-droid`：crates.io，`Cargo.lock` 記錄 SHA-256，cargo 下載時驗證。`mupdf-sys`：git（見下方「`mupdf-sys` 的來源」），`Cargo.lock` 記錄 commit |
 | 授權 | `mupdf`、`mupdf-sys` 與 MuPDF 皆為 AGPL-3.0（或向 Artifex 購買商業授權），見 DEC-02（#2） |
 
-升級 MuPDF 一律視為安全變更（`needs-security-review`）。**cargo-deny 的弱點資料庫只涵蓋 Rust crate，不涵蓋 MuPDF 的 C 程式碼**，也不涵蓋 MuPDF 內附的第三方函式庫（OpenJPEG、FreeType 等）；升級前與每次發布前，要人工查 Artifex 的版本說明與 NVD 上 MuPDF 的 CVE。
+升級 MuPDF 一律視為安全變更（`needs-security-review`）。**cargo-deny 的弱點資料庫只涵蓋 Rust crate，不涵蓋 MuPDF 的 C 程式碼**，也不涵蓋 MuPDF 內附的第三方函式庫（OpenJPEG、FreeType 等）；升級前與每次發布前，要人工查 Artifex 的版本說明與 NVD 上 MuPDF 的 CVE。內嵌第三方 C 函式庫的完整清單、版本與更新方式見 [bundled-libraries.md](../security/bundled-libraries.md)（#553）。
 
 ### `mupdf-sys` 的來源
 
