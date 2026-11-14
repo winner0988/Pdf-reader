@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Rebuilds the icon files in src-tauri/icons from their SVG sources (docs/ux/visual-style.md,
-// section 8). The Tauri CLI draws every size from one picture; at 32 px and below the guard line
-// of the full picture turns into a smudge, so those sizes come from a simplified second source.
+// Rebuilds the icon files in src-tauri/icons, of both palettes, from their SVG sources
+// (docs/ux/visual-style.md, section 8). The Tauri CLI draws every size from one picture; at 32 px
+// and below the guard line of the full picture turns into a smudge, so those sizes come from a
+// simplified second source.
 //
 //   node scripts/release/app-icons.mjs
 import { execFileSync } from "node:child_process";
@@ -77,22 +78,33 @@ function draw(cli, source, out) {
   execFileSync(process.execPath, [cli, "icon", path.join(ICONS, source), "--output", out], { stdio: "inherit" });
 }
 
+/** Draws `source` and its simplified `smallSource` into `work`; the folder of the full pictures and the .ico. */
+function build(cli, work, name, source, smallSource) {
+  const full = path.join(work, name, "full");
+  const small = path.join(work, name, "small");
+  draw(cli, source, full);
+  draw(cli, smallSource, small);
+  const ico = mergeIco(readFileSync(path.join(full, "icon.ico")), readFileSync(path.join(small, "icon.ico")));
+  return { full, small, ico };
+}
+
 if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] ?? "")) {
   const cli = createRequire(import.meta.url).resolve("@tauri-apps/cli/tauri.js");
   const work = mkdtempSync(path.join(tmpdir(), "app-icons-"));
   try {
-    const full = path.join(work, "full");
-    const small = path.join(work, "small");
-    draw(cli, "app-icon.svg", full);
-    draw(cli, "app-icon-small.svg", small);
+    // The blue tile: the icon of the exe, the installer and the shortcuts.
+    const blue = build(cli, work, "blue", "app-icon.svg", "app-icon-small.svg");
     for (const name of ["128x128.png", "128x128@2x.png", "icon.png", "icon.icns"]) {
-      copyFileSync(path.join(full, name), path.join(ICONS, name));
+      copyFileSync(path.join(blue.full, name), path.join(ICONS, name));
     }
-    copyFileSync(path.join(small, "32x32.png"), path.join(ICONS, "32x32.png"));
-    const ico = mergeIco(readFileSync(path.join(full, "icon.ico")), readFileSync(path.join(small, "icon.ico")));
-    writeFileSync(path.join(ICONS, "icon.ico"), ico);
-    const sizes = readIco(ico).map((picture) => picture.size);
-    console.log(`src-tauri/icons rebuilt; icon.ico has ${sizes.join(", ")} px`);
+    copyFileSync(path.join(blue.small, "32x32.png"), path.join(ICONS, "32x32.png"));
+    writeFileSync(path.join(ICONS, "icon.ico"), blue.ico);
+    // The dark tile: what the window and the notification area show while Windows is in its
+    // light mode (src-tauri/src/app_icon.rs). Only Windows uses it, so only the .ico.
+    const dark = build(cli, work, "dark", "app-icon-dark.svg", "app-icon-dark-small.svg");
+    writeFileSync(path.join(ICONS, "icon-dark.ico"), dark.ico);
+    const sizes = readIco(blue.ico).map((picture) => picture.size);
+    console.log(`src-tauri/icons rebuilt; icon.ico and icon-dark.ico have ${sizes.join(", ")} px`);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

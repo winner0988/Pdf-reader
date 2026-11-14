@@ -93,6 +93,17 @@ fn main() {
         "run_batch",
         "create_pdf",
     ]);
-    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
-        .expect("failed to run tauri-build");
+    // A second icon in the exe: the dark tile the window and the notification area show while
+    // Windows is in its light mode (UX-04, src/app_icon.rs, which asks for it by this id). The
+    // id is above the app icon's (32512), so the app icon stays the exe's first: the one
+    // Explorer, the shortcuts and the installer show.
+    println!("cargo:rerun-if-changed=icons/icon-dark.ico");
+    let windows = tauri_build::WindowsAttributes::new()
+        .append_rc_content("32513 ICON \"icons/icon-dark.ico\"\n");
+    tauri_build::try_build(
+        tauri_build::Attributes::new()
+            .app_manifest(manifest)
+            .windows_attributes(windows),
+    )
+    .expect("failed to run tauri-build");
 }

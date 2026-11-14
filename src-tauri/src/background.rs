@@ -25,6 +25,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
 
+use crate::app_icon;
 use crate::batch::{self, Batches};
 use crate::documents::Documents;
 use crate::strings;
@@ -116,14 +117,15 @@ fn hide(app: &AppHandle, discard: bool) -> bool {
 /// The icon, with how far the batch has come, and its menu.
 fn show_icon(app: &AppHandle, (done, total): (u32, u32)) -> tauri::Result<()> {
     // An icon nobody can see is no way back to a hidden window: without the app's, there is none.
-    let Some(picture) = app.default_window_icon() else {
+    // It is the one that stands out against the taskbar of Windows' mode (UX-04).
+    let Some(picture) = app_icon::tray_icon(app) else {
         return Err(tauri::Error::InvalidIcon(ErrorKind::NotFound.into()));
     };
     let show = MenuItem::with_id(app, SHOW, strings::BATCH_TRAY_SHOW, true, None::<&str>)?;
     let stop = MenuItem::with_id(app, STOP, strings::BATCH_TRAY_STOP, true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &stop])?;
     TrayIconBuilder::with_id(ICON)
-        .icon(picture.clone())
+        .icon(picture)
         .tooltip(strings::batch_tray_tooltip(done, total))
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -144,6 +146,14 @@ fn show_icon(app: &AppHandle, (done, total): (u32, u32)) -> tauri::Result<()> {
         })
         .build(app)
         .map(|_| ())
+}
+
+/// On the main thread: Windows went from light to dark or back, and the icon, if it is shown,
+/// becomes the one for the new mode (UX-04, src/app_icon.rs).
+pub fn icon_changed(app: &AppHandle) {
+    if let Some(icon) = app.tray_by_id(ICON) {
+        let _ = icon.set_icon(app_icon::tray_icon(app));
+    }
 }
 
 /// Shows the window and brings it to the front (the icon's menu, a second launch that hands it a

@@ -206,9 +206,14 @@ app 自己的圖示（exe、安裝檔、捷徑、工作列、檔案總管裡的 
 | 配色 | 原始檔 | 底板 | 紙與盾牌 | 防護線 | 用在 |
 |---|---|---|---|---|---|
 | 藍底 | `app-icon.svg`、`app-icon-small.svg` | 寶藍漸層 `#0b65bf` → `#014a93`（上到下，以 `--primary` `#0256a9` 為中心） | `#fffdfa`（`--background`） | `#8ec2ff` | exe、安裝檔、捷徑等所有固定的圖示 |
-| 深色底 | `app-icon-dark.svg`、`app-icon-dark-small.svg` | `#191713`（深色模式的 `--card`），內緣一圈 12% 的 `#fcfaf7` | `#fcfaf7` | 屋頂 `#5fa1f3`（深色模式的 `--primary`）、左側 `#1f74cf` | Windows 是淺色時的視窗與通知區域圖示（#548，尚未實作） |
+| 深色底 | `app-icon-dark.svg`、`app-icon-dark-small.svg` | `#191713`（深色模式的 `--card`），內緣一圈 12% 的 `#fcfaf7` | `#fcfaf7` | 屋頂 `#5fa1f3`（深色模式的 `--primary`）、左側 `#1f74cf` | Windows 是淺色時的視窗與通知區域圖示（UX-04，#548） |
 
 - **固定的圖示只有一張**：Windows 不會依深淺色替未封裝（非 MSIX）的 app 換 exe、捷徑與安裝檔的圖示，所以這些地方一律用藍底，它在淺色與深色背景上都看得清楚。
+- **執行中的圖示跟著 Windows 的模式**（UX-04，#548，`src-tauri/src/app_icon.rs`）：視窗圖示（標題列、執行中的工作列按鈕、`Alt+Tab`）與批次處理的通知區域圖示，Windows 是深色時用藍底，是淺色時用深色底，各是在那種工作列上比較醒目的一張。
+  - 跟的是「Windows 模式」（設定 → 個人化 → 色彩 →「選擇預設 Windows 模式」，登錄值 `SystemUsesLightTheme`），也就是工作列的顏色；不是「app 模式」，那是頁面自己跟的。Windows 沒有這個值時當成深色。
+  - app 開著的時候改模式，圖示跟著換，不必重開：一條執行緒等那個登錄機碼變動。只讀不寫，也不讀任何檔案：兩張圖示都是 exe 裡的資源（深色底是 `icon-dark.ico`，由 `build.rs` 放進去，編號在 app 圖示之後，所以檔案總管看到的仍然是藍底）。
+  - 通知區域的圖示以 Windows 的小圖示尺寸（視窗圖示的一半，100% 縮放時是 16 px）取圖，用的是簡化版，不是把大圖縮小。
+  - 釘選在工作列的 app **沒有在執行時**顯示的是捷徑的圖示，永遠是藍底。
 - **簡化版**（`*-small.svg`）：32 px 以下防護線會糊成一團，所以拿掉防護線、把紙與盾牌之間的縫隙留寬、圖形放大到幾乎填滿底板。`icon.ico` 的 16、24、32 px 與 `32x32.png` 用簡化版，48 px 以上用完整版。
 - **對比度**（WCAG 1.4.11，非文字 ≥ 3:1）：
 
@@ -220,4 +225,4 @@ app 自己的圖示（exe、安裝檔、捷徑、工作列、檔案總管裡的 
 | 深色底：防護線 `#5fa1f3`／`#1f74cf` 對底板 | 6.72:1／3.80:1 |
 
   藍底的底板本身在深色背景（`#191713`）上只有 2.05:1～3.09:1，辨識靠的是底板上的白色圖形。
-- **重新產生圖檔**：改了 SVG 之後執行 `node scripts/release/app-icons.mjs`，它用 Tauri CLI 從兩個藍底的 SVG 畫出 `icon.ico`、`icon.icns` 與各個 PNG，不要手動編輯這些檔案。除了 `icon.icns`（只有 macOS 用，Tauri CLI 每次寫出的位元組不同），重新執行會得到相同的檔案。
+- **重新產生圖檔**：改了 SVG 之後執行 `node scripts/release/app-icons.mjs`，它用 Tauri CLI 從兩個藍底的 SVG 畫出 `icon.ico`、`icon.icns` 與各個 PNG，從兩個深色底的 SVG 畫出 `icon-dark.ico`，不要手動編輯這些檔案。除了 `icon.icns`（只有 macOS 用，Tauri CLI 每次寫出的位元組不同），重新執行會得到相同的檔案。
