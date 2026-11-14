@@ -88,7 +88,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                             pixels: page.rgba,
                         },
                     },
-                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
                 },
             }),
             WorkerRequest::RenderRegion {
@@ -114,7 +114,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                                 pixels: page.rgba,
                             },
                         },
-                        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+                        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
                     }
                 }
             }),
@@ -277,7 +277,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => match document.render_png(page_index, scale) {
                     Ok(png) => WorkerResponse::Png { request, png },
-                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
                 },
             }),
             WorkerRequest::RenderJpeg {
@@ -293,7 +293,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => match document.render_jpeg(page_index, scale) {
                     Ok(jpeg) => WorkerResponse::Jpeg { request, jpeg },
-                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
                 },
             }),
             WorkerRequest::GetPageText {
@@ -1536,7 +1536,8 @@ fn engine_error(
             std::io::ErrorKind::FileTooLarge => WorkerErrorCode::LimitExceeded,
             _ => WorkerErrorCode::Unwritable,
         },
-        EngineError::MuPdf(_) | EngineError::Encode(_) => other,
+        EngineError::Encode(_) => WorkerErrorCode::Internal,
+        EngineError::MuPdf(_) => other,
     };
     error(request, code, &engine.to_string())
 }
