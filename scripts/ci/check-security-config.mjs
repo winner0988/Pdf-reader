@@ -80,6 +80,14 @@ const ALLOWED_PERMISSIONS = new Map([
     "allow-save-attachment",
     "B3-20, ADR 0025: save one listed attachment where the user says in the system's save dialog, marked as from the internet; by document and attachment id, never opened",
   ],
+  [
+    "allow-get-document-properties",
+    "B5-04: get read-only basic document properties and security summary by document id; no paths or hidden layers",
+  ],
+  [
+    "allow-get-document-fonts",
+    "B5-04: discover fonts referenced or embedded in the document by document id, cancellable by request id",
+  ],
   ["allow-search", "MVP-10: full-text search, results on a channel"],
   [
     "allow-search-text-index",

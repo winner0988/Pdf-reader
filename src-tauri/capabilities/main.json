@@ -20,6 +20,8 @@
     "allow-get-outline",
     "allow-get-attachments",
     "allow-save-attachment",
+    "allow-get-document-properties",
+    "allow-get-document-fonts",
     "allow-get-page-links",
     "allow-get-page-annotations",
     "allow-get-annotation-summary",

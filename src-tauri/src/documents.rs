@@ -22,7 +22,8 @@ use ipc_contract::text::{clean_display_text, is_web_address};
 use ipc_contract::types::{
     AnnotationId, AnnotationSummary, AttachmentId, AttachmentInfo, AttachmentSource,
     BatchOperation, BlockedAction, Certification, CompressResult, CreateKind, CreateResult,
-    DocumentId, DocumentInfo, DocumentPermissions, Edit, EditArgs, ErrorCode,
+    DocumentFonts, DocumentId, DocumentInfo, DocumentPermissions,
+    DocumentProperties, Edit, EditArgs, ErrorCode,
     FindPersonalDataQuery, FontInfo, FormField, ImageQuality, IpcError, LinkArgs, LinkPreview,
     LinkTarget, MarkCheck, NotRemembered, OpenEvent, OutlineLinkArgs, OutlineResult,
     PageAnnotation, PageLink, PageMarksError, PageSize, PageText, PagesSource, Password,
@@ -1823,6 +1824,71 @@ impl Documents {
                     })
                 })
                 .collect()
+        })
+    }
+
+    /// Collects basic metadata, format, security, and font counts for `doc` (B5-04).
+    pub fn document_properties(&self, doc: DocumentId) -> Result<DocumentProperties, IpcError> {
+        self.with_document(doc, |document| {
+            let file_size = std::fs::metadata(&document.path)
+                .map(|m| m.len())
+                .unwrap_or(0);
+            let response = request(document, |request, doc| WorkerRequest::GetDocumentProperties {
+                request,
+                doc,
+            })?;
+            let WorkerResponse::DocumentProperties { properties, .. } = response else {
+                return Err(unexpected_on(document, "GetDocumentProperties"));
+            };
+            let page_count = document.info.pages.len() as u32;
+            let page_sizes = document.info.pages.clone();
+            let props = DocumentProperties {
+                display_name: document.info.display_name.clone(),
+                file_size,
+                page_count,
+                page_sizes,
+                format: properties.format,
+                encryption_method: properties.encryption_method,
+                title: properties.title,
+                author: properties.author,
+                subject: properties.subject,
+                keywords: properties.keywords,
+                creator: properties.creator,
+                producer: properties.producer,
+                creation_date: properties.creation_date,
+                mod_date: properties.mod_date,
+                has_xmp: properties.has_xmp,
+                signatures_count: properties.signatures_count,
+                signatures_truncated: properties.signatures_truncated,
+                attachment_count: properties.attachment_count,
+                security: document.info.security.clone(),
+                permissions: document.info.permissions,
+                sensitive: document.info.sensitive,
+                encrypted: document.info.encrypted,
+            };
+            props.validate().map_err(|e| IpcError {
+                code: ErrorCode::ProtocolViolation,
+                message: format!("invalid properties from worker: {e}"),
+            })?;
+            Ok(props)
+        })
+    }
+
+    /// Discovers fonts embedded in or referenced by `doc` (B5-04).
+    pub fn document_fonts(&self, doc: DocumentId) -> Result<DocumentFonts, IpcError> {
+        self.with_document(doc, |document| {
+            let response = request_long(document, |request, doc| WorkerRequest::GetDocumentFonts {
+                request,
+                doc,
+            })?;
+            let WorkerResponse::DocumentFonts { fonts, .. } = response else {
+                return Err(unexpected_on(document, "GetDocumentFonts"));
+            };
+            fonts.validate().map_err(|e| IpcError {
+                code: ErrorCode::ProtocolViolation,
+                message: format!("invalid fonts from worker: {e}"),
+            })?;
+            Ok(fonts)
         })
     }
 

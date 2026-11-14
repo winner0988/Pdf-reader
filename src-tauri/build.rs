@@ -18,6 +18,8 @@ fn main() {
         "get_outline",
         "get_attachments",
         "save_attachment",
+        "get_document_properties",
+        "get_document_fonts",
         "get_page_links",
         "get_page_annotations",
         "get_annotation_summary",

@@ -21,6 +21,7 @@ mod drives;
 mod events;
 mod export;
 mod file_dialog;
+mod font_jobs;
 mod fonts;
 mod history;
 mod index_crypto;
@@ -56,6 +57,7 @@ use crate::batch::Batches;
 use crate::documents::Documents;
 use crate::events::OpenEvents;
 use crate::export::Exports;
+use crate::font_jobs::FontJobs;
 use crate::ocr::Ocr;
 use crate::ocr_languages::Languages;
 use crate::recent::RecentFiles;
@@ -108,6 +110,7 @@ pub fn run() {
         .manage(Searches::default())
         .manage(Exports::default())
         .manage(Batches::default())
+        .manage(FontJobs::default())
         .manage(Background::default())
         .manage(app_icon::AppIcon::default())
         .manage(signing::ChosenCertificate::default())
@@ -130,6 +133,8 @@ pub fn run() {
             commands::get_outline,
             commands::get_attachments,
             commands::save_attachment,
+            commands::get_document_properties,
+            commands::get_document_fonts,
             commands::get_page_links,
             commands::get_page_annotations,
             commands::get_annotation_summary,

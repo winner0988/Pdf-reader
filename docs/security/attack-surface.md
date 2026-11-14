@@ -24,7 +24,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 邊界 | 不可信的一方 | 通道 | 主要的防線 |
 |---|---|---|---|
-| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 90 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
+| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 92 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
 | worker → 主行程 | `pdf_worker`（假設已被惡意檔案控制） | worker 標準輸入、輸出上的 postcard frame，每個 ≤ `MAX_FRAME_BYTES`（80 MiB） | 沙盒（§2.1）；每個回應都先驗證（§2.2）；逾時 |
 | 檔案 → worker | PDF 與其他要讀的檔案 | 主行程開好的唯讀檔案代號，或主行程讀好的位元組 | 沙盒；程式庫見 §2.3 |
 | 檔案 → 主行程 | app 資料夾的檔案；使用者匯入的語言資料、字型、`.pfx` | 主行程自己讀 | 大小上限與格式檢查（§3） |
@@ -38,9 +38,9 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 3. 寫到使用者的檔案時，先寫同一個資料夾裡新建的暫存檔，寫完（存檔還要再檢查）才改名取代。批次只寫新的檔名，不取代任何檔案（§6）。
 4. 只有 `src-tauri/src/update_check.rs` 會連網，而且只在使用者按「檢查更新」時（ADR 0009，§5）。
 
-## 1. 前端能呼叫的命令（90 個）
+## 1. 前端能呼叫的命令（92 個）
 
-- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 90 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
+- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 92 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
 - **自由文字**：沒有命令接受路徑或 URI。會帶自由文字的只有這些參數：密碼、剪貼簿的文字、搜尋字串、個資的關鍵字、註解與文字方塊的文字、表單欄位的值、書籤標題、浮水印與頁面標記的文字、簽章的理由、設定、OCR 語言代碼。
 - **參數檢查**：參數先由 serde 解碼成固定的型別，型別不對就拒絕；再由 `crates/ipc_contract/src/validate.rs` 檢查（表中寫成 `XxxArgs`）。上限都在 `crates/ipc_contract/src/limits.rs`。主行程沒有另外限制一個 IPC 訊息的大小，參數整個解碼後才檢查（§9）。
 - **對話框**：都是 Windows 的 `IFileDialog`（`src-tauri/src/file_dialog.rs`），一律加 `FOS_FORCEFILESYSTEM | FOS_DONTADDTORECENT`，只能選真的檔案，也不記入 Windows 的最近使用。另存的對話框再加 `FOS_OVERWRITEPROMPT`。
@@ -63,7 +63,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `close_tab` | 關閉分頁，結束它的 worker | 分頁代號 | 清掉文字比較的快取 | `tabs.spec.ts` |
 | `set_active_tab` | 視窗顯示哪個分頁（給視窗標題用） | 分頁代號 | — | `tabs.spec.ts` |
 
-### 1.2 閱讀（14 個）
+### 1.2 閱讀（16 個）
 
 | 命令 | 做什麼 | 主行程的檢查與上限 | 對話框、寫入、行程 | 測試 |
 |---|---|---|---|---|
@@ -80,6 +80,8 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `find_personal_data` | 找個資，回傳數量與遮掉一部分的預覽 | `FindPersonalDataQuery`：類別 ≤ 10 個；關鍵字只能配它的類別，不得空白，≤ 1024 bytes | `FindPersonalData` | `redaction.spec.ts`；worker `personal_data.rs` |
 | `get_attachments` | 附件清單（清理過的名稱、宣稱的大小、類型是否危險） | 文件代號 | `GetAttachments` | `attachments.spec.ts`；worker `attachments.rs` |
 | `save_attachment` | 把一個附件存到使用者選的地方；app 從不開啟附件（ADR 0025） | 附件代號必須在清單裡；目的地不得是文件自己的檔案（`same_file`），而且要可寫（`check_writable`） | 另存對話框（附件的副檔名，加 `*.*`）；worker 以只能寫的代號寫到暫存檔，再改名；加上 `Zone.Identifier`（來自網際網路） | `attachments.spec.ts`；`documents.rs`（`an_attachment_is_saved_as_it_is_and_marked_as_from_the_internet`）；`attachments.rs` |
+| `get_document_properties` | 讀取文件的基本屬性與安全摘要（唯讀，不含路徑） | 文件代號 | `GetDocumentProperties` | `properties.spec.ts`；worker `properties.rs` |
+| `get_document_fonts` | 遍歷頁面與 Form XObject 列出字型清單（可取消） | 文件代號、請求代號 | `GetDocumentFonts` | `properties.spec.ts`；worker `properties.rs` |
 | `set_fullscreen` | 設定視窗進出全螢幕（B4-03） | `on: bool` | — | `presentation.spec.ts` |
 
 ### 1.3 連結、外部網址與檢查更新（10 個）
@@ -234,7 +236,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | Windows CryptoAPI（`crypt.rs`） | 簽章的 CMS 與憑證；憑證鏈只用本機的快取 | Windows | 沒有：Linux 的 fuzz 跑不到（#426 只 fuzz 讀簽章欄位） |
 | jpeg-encoder 0.7.1 | 只編碼 worker 自己渲染的像素，不解析輸入 | 純 Rust（不開 `simd`） | 不需要 |
 
-### 2.4 worker 的請求（46 個）
+### 2.4 worker 的請求（48 個）
 
 除了另外註明的，請求都送到那個分頁自己的 worker（ADR 0012）。用新的 worker 的有：驗證剛簽好的副本、批次的每個檔案、`CreatePdf`、`InspectFont`、批次的浮水印圖片。
 
@@ -255,6 +257,8 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `AnnotationSummary` | 每一頁的註解，與註解蓋住的文字 | `engine.rs` | `engine.rs` 的單元測試；`annotation-summary.spec.ts` | `read_document`（#426） |
 | `GetAttachments` | 附件清單 | `engine/attachments.rs`（沒有單元測試） | worker `attachments.rs` | `read_document`（#426） |
 | `WriteAttachment` | 解碼附件（≤ 512 MiB），寫到只能寫的代號 | `engine/attachments.rs` | worker `attachments.rs` | `read_document`（至多前 2 個，上限 1 MiB，#426） |
+| `GetDocumentProperties` | 基本中繼資料、加密方式、簽章數量與附件數量 | `engine/properties.rs` | worker `properties.rs` | `read_document` |
+| `GetDocumentFonts` | 頁面與 Form XObject 裡的字型清單 | `engine/properties.rs` | worker `properties.rs` | `read_document` |
 | `GetTextBox` | 文字方塊註解 | `engine/text_box.rs` | worker `text_box_worker.rs` | `read_document`（前兩頁，#426） |
 | `ExportDocx` | 頁面的文字與圖片，寫成 .docx | `engine/docx.rs` | worker `docx.rs` | `open_document` |
 | `Edit` | 29 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs` | `edit_document`（29 種） |
