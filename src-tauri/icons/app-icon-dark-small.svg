@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- App icon, dark tile (for a light Windows mode, #548), simplified for 32 px and below.
+       Rebuild every icon file with `node scripts/release/app-icons.mjs` (docs/ux/visual-style.md, section 8). -->
+  <rect x="24" y="24" width="976" height="976" rx="200" fill="#191713"/>
+  <rect x="30" y="30" width="964" height="964" rx="194" fill="none" stroke="#fcfaf7" stroke-opacity=".12" stroke-width="12"/>
+  <g transform="translate(512 512) scale(1.04) translate(-508 -508)">
+    <!-- Folded corner -->
+    <path d="M420 182V281A32 32 0 0 1 388 313H289Z" fill="#fcfaf7" stroke="#fcfaf7" stroke-width="10" stroke-linejoin="round"/>
+    <!-- Page; its lower right makes room for the shield -->
+    <path d="M487 165A30 30 0 0 1 517 135H570Q588 135 601 148L756 303Q775 322 775 348V503.2Q775 541.2 743 526.3L612 464.9Q602 460.3 592 464.9L384.8 561.9Q347 579.6 347 617.4C347 709.6 357.2 745 381.2 790H277A35 35 0 0 1 242 755V415A35 35 0 0 1 277 380H410A77 77 0 0 0 487 303Z" fill="#fcfaf7"/>
+    <!-- Shield -->
+    <path d="M602 558L762 633Q768 636 768 646C768 760 690 838 610 880Q602 884 594 880C514 838 436 760 436 646Q436 636 442 633Z" fill="#fcfaf7" stroke="#fcfaf7" stroke-width="10" stroke-linejoin="round"/>
+  </g>
+</svg>

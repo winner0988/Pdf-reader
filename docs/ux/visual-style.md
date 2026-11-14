@@ -193,3 +193,31 @@
 | **按鈕按下回饋** | `src/components/ui/button.tsx`、`IconButton` | 150ms | `ease-out` (`cubic-bezier(0, 0, 0.2, 1)`) | `translate`, `scale` | 按下時微縮放至 98%（`scale: 0.98`）並微下沉 1px（`translate: 0 1px`），放開時 150ms 平滑回彈，提供清晰觸覺回饋。Tailwind 4 把這兩個屬性獨立設定，所以過渡清單要列出 `translate` 與 `scale`。 |
 | **存檔完成打勾** | `src/features/shell/StatusBar.tsx` | 200ms | `ease-out` (`cubic-bezier(0, 0, 0.2, 1)`) | `transform`, `opacity` | 只有存檔完成（一般存檔，或遮蔽後重讀驗證通過）的提示才出現前方打勾圖示（`<Check aria-hidden />`），以 200ms 彈性縮放（`scale(0.75)` → `1`）與淡入顯現。警告（遮蔽未通過、增量存檔仍留有刪除內容）不打勾。由存檔結果決定，不比對提示文字。 |
 | **骨架載入微光** | `src/features/shell/states.tsx` (`LoadingState`)、`src/components/ui/skeleton.tsx` | 淡入 200ms / 微光 2s 循環 | `ease-out` / `ease`（未指定，瀏覽器預設） | `translate`, `opacity` | 開檔超過 300ms 進入載入狀態時，畫布顯示頁面骨架紙張，表面以微光（Shimmer，`translate` 由 -100% 走到 100%）沿 X 軸掠過，減少動態時完全靜止。 |
+
+---
+
+## 8. App 圖示（App Icon）
+
+app 自己的圖示（exe、安裝檔、捷徑、工作列、檔案總管裡的 PDF 檔）。工作卡 UX-03（#547）。
+
+- **圖形**：一張折角的紙、右下的盾牌，兩者之間一條防護線（盾牌的屋頂與左側）。以負責人 2026-11-13 提供的圖為出發點：那張圖是負責人用 AI 圖像工具產生的點陣圖，沒有放進 repo；這裡的 SVG 是照它的構圖手寫重畫的，配色改用本指南的顏色。
+- **兩種配色**，原始檔都在 `src-tauri/icons/`：
+
+| 配色 | 原始檔 | 底板 | 紙與盾牌 | 防護線 | 用在 |
+|---|---|---|---|---|---|
+| 藍底 | `app-icon.svg`、`app-icon-small.svg` | 寶藍漸層 `#0b65bf` → `#014a93`（上到下，以 `--primary` `#0256a9` 為中心） | `#fffdfa`（`--background`） | `#8ec2ff` | exe、安裝檔、捷徑等所有固定的圖示 |
+| 深色底 | `app-icon-dark.svg`、`app-icon-dark-small.svg` | `#191713`（深色模式的 `--card`），內緣一圈 12% 的 `#fcfaf7` | `#fcfaf7` | 屋頂 `#5fa1f3`（深色模式的 `--primary`）、左側 `#1f74cf` | Windows 是淺色時的視窗與通知區域圖示（#548，尚未實作） |
+
+- **固定的圖示只有一張**：Windows 不會依深淺色替未封裝（非 MSIX）的 app 換 exe、捷徑與安裝檔的圖示，所以這些地方一律用藍底，它在淺色與深色背景上都看得清楚。
+- **簡化版**（`*-small.svg`）：32 px 以下防護線會糊成一團，所以拿掉防護線、把紙與盾牌之間的縫隙留寬、圖形放大到幾乎填滿底板。`icon.ico` 的 16、24、32 px 與 `32x32.png` 用簡化版，48 px 以上用完整版。
+- **對比度**（WCAG 1.4.11，非文字 ≥ 3:1）：
+
+| 組合 | 對比度 |
+|---|---|
+| 藍底：紙與盾牌 `#fffdfa` 對底板 | 5.70:1（上緣）～ 8.61:1（下緣） |
+| 藍底：防護線 `#8ec2ff` 對底板 | 3.12:1（上緣）～ 4.71:1（下緣） |
+| 深色底：紙與盾牌 `#fcfaf7` 對底板 | 17.18:1 |
+| 深色底：防護線 `#5fa1f3`／`#1f74cf` 對底板 | 6.72:1／3.80:1 |
+
+  藍底的底板本身在深色背景（`#191713`）上只有 2.05:1～3.09:1，辨識靠的是底板上的白色圖形。
+- **重新產生圖檔**：改了 SVG 之後執行 `node scripts/release/app-icons.mjs`，它用 Tauri CLI 從兩個藍底的 SVG 畫出 `icon.ico`、`icon.icns` 與各個 PNG，不要手動編輯這些檔案。除了 `icon.icns`（只有 macOS 用，Tauri CLI 每次寫出的位元組不同），重新執行會得到相同的檔案。
