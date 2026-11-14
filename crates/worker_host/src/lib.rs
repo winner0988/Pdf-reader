@@ -946,6 +946,12 @@ pub fn is_expected_response(request: &WorkerRequest, response: &WorkerResponse) 
         WorkerRequest::AnnotationSummary { .. } => {
             matches!(response, WorkerResponse::AnnotationSummary { .. })
         }
+        WorkerRequest::GetDocumentProperties { .. } => {
+            matches!(response, WorkerResponse::DocumentProperties { .. })
+        }
+        WorkerRequest::GetDocumentFonts { .. } => {
+            matches!(response, WorkerResponse::DocumentFonts { .. })
+        }
         WorkerRequest::Cancel { .. } | WorkerRequest::Close { .. } | WorkerRequest::Shutdown => {
             false
         }

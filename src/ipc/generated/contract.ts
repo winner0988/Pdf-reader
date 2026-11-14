@@ -1257,6 +1257,102 @@ passwordRecalled: boolean,
 sensitive: boolean, };
 
 /**
+ * Parsed date from a PDF date string (`D:YYYYMMDDHHmmSSOHH'mm'`) (B5-04).
+ */
+export type PdfDate = { year: number, month: number, day: number, hour: number, minute: number, second: number, 
+/**
+ * Offset from UTC in minutes, positive for east (e.g. +480 for UTC+8), negative for west. None if unspecified.
+ */
+tzOffsetMinutes: number | null, };
+
+/**
+ * Document properties and security summary displayed in the properties dialog (B5-04).
+ */
+export type DocumentProperties = { 
+/**
+ * Document display name (file name without directory path).
+ */
+displayName: string, 
+/**
+ * File size in bytes.
+ */
+fileSize: number, 
+/**
+ * Total number of pages.
+ */
+pageCount: number, 
+/**
+ * Sizes of all pages in the document.
+ */
+pageSizes: Array<PageSize>, 
+/**
+ * PDF version/format string (e.g. "PDF 1.7").
+ */
+format: string | null, 
+/**
+ * Encryption method description if encrypted.
+ */
+encryptionMethod: string | null, title: string | null, author: string | null, subject: string | null, keywords: string | null, creator: string | null, producer: string | null, creationDate: PdfDate | null, modDate: PdfDate | null, 
+/**
+ * Whether the catalog dictionary has an XMP metadata stream.
+ */
+hasXmp: boolean, 
+/**
+ * Number of digital signatures found.
+ */
+signaturesCount: number, 
+/**
+ * True if there are more signatures or fields than the limit looked at ("至少 N 個").
+ */
+signaturesTruncated: boolean, 
+/**
+ * Number of embedded file attachments.
+ */
+attachmentCount: number, 
+/**
+ * Active content scan findings.
+ */
+security: SecurityReport, 
+/**
+ * User permissions allowed by the document.
+ */
+permissions: DocumentPermissions, 
+/**
+ * Whether the file is marked as sensitive.
+ */
+sensitive: boolean, 
+/**
+ * Whether the document is encrypted.
+ */
+encrypted: boolean, };
+
+/**
+ * A font found in a document (B5-04).
+ */
+export type DocumentFontEntry = { 
+/**
+ * Font name, stripped of any 6-character subset prefix (`ABCDEF+`) and sanitized.
+ */
+name: string, 
+/**
+ * Subtype string: "Type 1", "TrueType", "Type 0", "Type 3", "MMType 1", etc.
+ */
+subtype: string, 
+/**
+ * Whether the font program is embedded in the PDF file.
+ */
+embedded: boolean, };
+
+/**
+ * Fonts collected from a document (B5-04).
+ */
+export type DocumentFonts = { fonts: Array<DocumentFontEntry>, 
+/**
+ * False if the font scan hit depth, object, entry, or time limits before examining all pages.
+ */
+complete: boolean, };
+
+/**
  * Arguments of the `render_page` command.
  */
 export type RenderPageArgs = { request: RequestId, doc: DocumentId, pageIndex: number, 
@@ -1671,6 +1767,102 @@ bytes: number,
  */
 marked: boolean, };
 
+/**
+ * Parsed date from a PDF date string (`D:YYYYMMDDHHmmSSOHH'mm'`) (B5-04).
+ */
+export type PdfDate = { year: number, month: number, day: number, hour: number, minute: number, second: number, 
+/**
+ * Offset from UTC in minutes, positive for east (e.g. +480 for UTC+8), negative for west. None if unspecified.
+ */
+tzOffsetMinutes: number | null, };
+
+/**
+ * A font found in a document (B5-04).
+ */
+export type DocumentFontEntry = { 
+/**
+ * Font name, stripped of any 6-character subset prefix (`ABCDEF+`) and sanitized.
+ */
+name: string, 
+/**
+ * Subtype string: "Type 1", "TrueType", "Type 0", "Type 3", "MMType 1", etc.
+ */
+subtype: string, 
+/**
+ * Whether the font program is embedded in the PDF file.
+ */
+embedded: boolean, };
+
+/**
+ * Fonts collected from a document (B5-04).
+ */
+export type DocumentFonts = { fonts: Array<DocumentFontEntry>, 
+/**
+ * False if the font scan hit depth, object, entry, or time limits before examining all pages.
+ */
+complete: boolean, };
+
+/**
+ * Document properties and security summary displayed in the properties dialog (B5-04).
+ */
+export type DocumentProperties = { 
+/**
+ * Document display name (file name without directory path).
+ */
+displayName: string, 
+/**
+ * File size in bytes.
+ */
+fileSize: number, 
+/**
+ * Total number of pages.
+ */
+pageCount: number, 
+/**
+ * Sizes of all pages in the document.
+ */
+pageSizes: Array<PageSize>, 
+/**
+ * PDF version/format string (e.g. "PDF 1.7").
+ */
+format: string | null, 
+/**
+ * Encryption method description if encrypted.
+ */
+encryptionMethod: string | null, title: string | null, author: string | null, subject: string | null, keywords: string | null, creator: string | null, producer: string | null, creationDate: PdfDate | null, modDate: PdfDate | null, 
+/**
+ * Whether the catalog dictionary has an XMP metadata stream.
+ */
+hasXmp: boolean, 
+/**
+ * Number of digital signatures found.
+ */
+signaturesCount: number, 
+/**
+ * True if there are more signatures or fields than the limit looked at ("至少 N 個").
+ */
+signaturesTruncated: boolean, 
+/**
+ * Number of embedded file attachments.
+ */
+attachmentCount: number, 
+/**
+ * Active content scan findings.
+ */
+security: SecurityReport, 
+/**
+ * User permissions allowed by the document.
+ */
+permissions: DocumentPermissions, 
+/**
+ * Whether the file is marked as sensitive.
+ */
+sensitive: boolean, 
+/**
+ * Whether the document is encrypted.
+ */
+encrypted: boolean, };
+
 /** Limits enforced by the main process (crates/ipc_contract/src/limits.rs). */
 export const LIMITS = {
   maxPageCount: 100000,
@@ -1746,6 +1938,12 @@ export const LIMITS = {
   maxCompareDiffItems: 2000,
   maxCompareTextBytes: 4096,
   maxCompareDeadlineMillis: 10000,
+  maxPropertyTextBytes: 1024,
+  maxFontEntries: 500,
+  maxFontResourceObjects: 10000,
+  maxFontResourceDepth: 32,
+  maxFontTimeMillis: 2000,
+  maxPageParentDepth: 64,
   protocolVersion: 0,
 } as const;
 

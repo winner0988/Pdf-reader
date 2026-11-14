@@ -2949,9 +2949,259 @@ pub struct SaveAttachmentResult {
     pub marked: bool,
 }
 
+/// Parsed date from a PDF date string (`D:YYYYMMDDHHmmSSOHH'mm'`) (B5-04).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfDate {
+    pub year: i32,
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+    pub second: u8,
+    /// Offset from UTC in minutes, positive for east (e.g. +480 for UTC+8), negative for west. None if unspecified.
+    pub tz_offset_minutes: Option<i32>,
+}
+
+impl PdfDate {
+    /// Parses a PDF date string (`D:YYYYMMDDHHmmSSOHH'mm'`) as defined in PDF 1.7 spec 7.9.4.
+    /// The prefix `D:` is optional. Early truncation (e.g. `D:YYYY` or `D:YYYYMMDD`) is supported.
+    /// Returns `None` if the string cannot be parsed or if any date/time component is invalid.
+    pub fn parse(raw: &str) -> Option<Self> {
+        let s = raw.strip_prefix("D:").unwrap_or(raw).trim();
+        if s.len() < 4 {
+            return None;
+        }
+        let year: i32 = s.get(0..4)?.parse().ok()?;
+        if !(1000..=9999).contains(&year) {
+            return None;
+        }
+        let mut rest = &s[4..];
+
+        let month = if rest.len() >= 2 && rest[0..2].chars().all(|c| c.is_ascii_digit()) {
+            let m: u8 = rest[0..2].parse().ok()?;
+            if !(1..=12).contains(&m) {
+                return None;
+            }
+            rest = &rest[2..];
+            m
+        } else {
+            1
+        };
+
+        let day = if rest.len() >= 2 && rest[0..2].chars().all(|c| c.is_ascii_digit()) {
+            let d: u8 = rest[0..2].parse().ok()?;
+            if !(1..=31).contains(&d) {
+                return None;
+            }
+            rest = &rest[2..];
+            d
+        } else {
+            1
+        };
+
+        let hour = if rest.len() >= 2 && rest[0..2].chars().all(|c| c.is_ascii_digit()) {
+            let h: u8 = rest[0..2].parse().ok()?;
+            if h > 23 {
+                return None;
+            }
+            rest = &rest[2..];
+            h
+        } else {
+            0
+        };
+
+        let minute = if rest.len() >= 2 && rest[0..2].chars().all(|c| c.is_ascii_digit()) {
+            let m: u8 = rest[0..2].parse().ok()?;
+            if m > 59 {
+                return None;
+            }
+            rest = &rest[2..];
+            m
+        } else {
+            0
+        };
+
+        let second = if rest.len() >= 2 && rest[0..2].chars().all(|c| c.is_ascii_digit()) {
+            let sec: u8 = rest[0..2].parse().ok()?;
+            if sec > 59 {
+                return None;
+            }
+            rest = &rest[2..];
+            sec
+        } else {
+            0
+        };
+
+        let tz_offset_minutes = if rest.is_empty() {
+            None
+        } else {
+            let sign = match rest.chars().next() {
+                Some('Z') => 0,
+                Some('+') => 1,
+                Some('-') => -1,
+                _ => return None,
+            };
+            if sign == 0 {
+                Some(0)
+            } else {
+                let rest_tz = &rest[1..];
+                let parts: Vec<&str> = rest_tz.split('\'').collect();
+                let hours: i32 = parts.first()?.parse().ok()?;
+                if hours > 23 {
+                    return None;
+                }
+                let minutes: i32 = if let Some(m_str) = parts.get(1) {
+                    if m_str.is_empty() {
+                        0
+                    } else {
+                        let m: i32 = m_str.trim_end_matches('\'').parse().ok()?;
+                        if m > 59 {
+                            return None;
+                        }
+                        m
+                    }
+                } else {
+                    0
+                };
+                let total = sign * (hours * 60 + minutes);
+                if !(-840..=840).contains(&total) {
+                    return None;
+                }
+                Some(total)
+            }
+        };
+
+        Some(PdfDate {
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second,
+            tz_offset_minutes,
+        })
+    }
+}
+
+/// A font found in a document (B5-04).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentFontEntry {
+    /// Font name, stripped of any 6-character subset prefix (`ABCDEF+`) and sanitized.
+    pub name: String,
+    /// Subtype string: "Type 1", "TrueType", "Type 0", "Type 3", "MMType 1", etc.
+    pub subtype: String,
+    /// Whether the font program is embedded in the PDF file.
+    pub embedded: bool,
+}
+
+/// Fonts collected from a document (B5-04).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentFonts {
+    pub fonts: Vec<DocumentFontEntry>,
+    /// False if the font scan hit depth, object, entry, or time limits before examining all pages.
+    pub complete: bool,
+}
+
+/// Document properties and security summary displayed in the properties dialog (B5-04).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentProperties {
+    /// Document display name (file name without directory path).
+    pub display_name: String,
+    /// File size in bytes.
+    #[ts(type = "number")]
+    pub file_size: u64,
+    /// Total number of pages.
+    pub page_count: u32,
+    /// Sizes of all pages in the document.
+    pub page_sizes: Vec<PageSize>,
+    /// PDF version/format string (e.g. "PDF 1.7").
+    pub format: Option<String>,
+    /// Encryption method description if encrypted.
+    pub encryption_method: Option<String>,
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub subject: Option<String>,
+    pub keywords: Option<String>,
+    pub creator: Option<String>,
+    pub producer: Option<String>,
+    pub creation_date: Option<PdfDate>,
+    pub mod_date: Option<PdfDate>,
+    /// Whether the catalog dictionary has an XMP metadata stream.
+    pub has_xmp: bool,
+    /// Number of digital signatures found.
+    pub signatures_count: u32,
+    /// True if there are more signatures or fields than the limit looked at ("至少 N 個").
+    pub signatures_truncated: bool,
+    /// Number of embedded file attachments.
+    pub attachment_count: u32,
+    /// Active content scan findings.
+    pub security: SecurityReport,
+    /// User permissions allowed by the document.
+    pub permissions: DocumentPermissions,
+    /// Whether the file is marked as sensitive.
+    pub sensitive: bool,
+    /// Whether the document is encrypted.
+    pub encrypted: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_pdf_dates() {
+        let d = PdfDate::parse("D:20261114234500+08'00'").unwrap();
+        assert_eq!(
+            d,
+            PdfDate {
+                year: 2026,
+                month: 11,
+                day: 14,
+                hour: 23,
+                minute: 45,
+                second: 0,
+                tz_offset_minutes: Some(480),
+            }
+        );
+
+        let d2 = PdfDate::parse("D:20261114234500Z").unwrap();
+        assert_eq!(d2.tz_offset_minutes, Some(0));
+
+        let d3 = PdfDate::parse("D:20261114234500-05'00'").unwrap();
+        assert_eq!(d3.tz_offset_minutes, Some(-300));
+
+        let d4 = PdfDate::parse("20261114").unwrap();
+        assert_eq!(
+            d4,
+            PdfDate {
+                year: 2026,
+                month: 11,
+                day: 14,
+                hour: 0,
+                minute: 0,
+                second: 0,
+                tz_offset_minutes: None,
+            }
+        );
+
+        let d5 = PdfDate::parse("D:2026").unwrap();
+        assert_eq!(d5.year, 2026);
+        assert_eq!(d5.month, 1);
+        assert_eq!(d5.day, 1);
+
+        assert!(PdfDate::parse("").is_none());
+        assert!(PdfDate::parse("invalid").is_none());
+        assert!(PdfDate::parse("D:999").is_none());
+        assert!(PdfDate::parse("D:20261301").is_none());
+        assert!(PdfDate::parse("D:20260132").is_none());
+        assert!(PdfDate::parse("D:20260101250000").is_none());
+        assert!(PdfDate::parse("D:20260101006000").is_none());
+        assert!(PdfDate::parse("D:20260101000060").is_none());
+    }
 
     #[test]
     fn settings_travel_as_camel_case_and_take_no_other_field() {

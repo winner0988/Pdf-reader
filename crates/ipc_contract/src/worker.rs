@@ -10,14 +10,15 @@ use serde::{Deserialize, Serialize};
 use crate::PROTOCOL_VERSION;
 use crate::types::{
     AnnotationId, AnnotationSummary, AttachmentId, AttachmentSource, BatesMark, BookmarkId,
-    CreateKind, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId, FindPersonalDataQuery,
-    FontRefusal, FormField, HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality,
-    InkColor, InkWidth, OutlineResult, PageAnnotation, PageCorner, PageLink, PageMarkPages,
-    PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark, PageSize, PageText, Password,
-    PersonalDataMatches, Point, RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId,
-    Restrictions, Rgb, Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityReport, Shape,
-    SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle,
-    TextMarkKind, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    CreateKind, DocumentFonts, DocumentId, DocumentPermissions, Edit,
+    ErrorCode, FieldId, FindPersonalDataQuery, FontRefusal, FormField, HeaderFooterMarks,
+    HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, OutlineResult,
+    PageAnnotation, PageCorner, PageLink, PageMarkPages, PageMarkPosition, PageMarks,
+    PageNumberFormat, PageNumberMark, PageSize, PageText, Password, PdfDate, PersonalDataMatches,
+    Point, RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb,
+    Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityReport, Shape, SignatureReport,
+    SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle, TextMarkKind,
+    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 
 /// An attachment of a document as reported by the worker (B3-20, ADR 0025).
@@ -28,6 +29,25 @@ pub struct WorkerAttachment {
     pub size: Option<u64>,
     pub description: Option<String>,
     pub source: AttachmentSource,
+}
+
+/// Metadata and facts read by the worker for `GetDocumentProperties` (B5-04).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerDocumentProperties {
+    pub format: Option<String>,
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub subject: Option<String>,
+    pub keywords: Option<String>,
+    pub creator: Option<String>,
+    pub producer: Option<String>,
+    pub creation_date: Option<PdfDate>,
+    pub mod_date: Option<PdfDate>,
+    pub has_xmp: bool,
+    pub encryption_method: Option<String>,
+    pub signatures_count: u32,
+    pub signatures_truncated: bool,
+    pub attachment_count: u32,
 }
 
 /// A file handle that the main process duplicated into the worker process: read-only for
@@ -1170,6 +1190,16 @@ pub enum WorkerRequest {
         request: RequestId,
         doc: DocumentId,
     },
+    /// Collects basic metadata, encryption, signatures count, and attachment count (B5-04).
+    GetDocumentProperties {
+        request: RequestId,
+        doc: DocumentId,
+    },
+    /// Traverses pages and Form XObjects to list fonts (B5-04).
+    GetDocumentFonts {
+        request: RequestId,
+        doc: DocumentId,
+    },
     Shutdown,
 }
 
@@ -1373,6 +1403,16 @@ pub enum WorkerResponse {
     AttachmentWritten {
         request: RequestId,
         bytes: u64,
+    },
+    /// Document properties from `GetDocumentProperties` (B5-04).
+    DocumentProperties {
+        request: RequestId,
+        properties: WorkerDocumentProperties,
+    },
+    /// Fonts list from `GetDocumentFonts` (B5-04).
+    DocumentFonts {
+        request: RequestId,
+        fonts: DocumentFonts,
     },
     Error {
         request: Option<RequestId>,

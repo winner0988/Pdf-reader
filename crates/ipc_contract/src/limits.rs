@@ -419,3 +419,23 @@ pub const MAX_COMPARE_DEADLINE_MILLIS: u64 = 10_000;
 /// Largest memory in bytes the main process keeps for caching the last comparison result (B3-24, E9).
 /// Sized to hold full diff structures and document names for native export without recomputation.
 pub const MAX_COMPARE_CACHE_BYTES: usize = 16 * 1024 * 1024;
+
+/// Maximum length of a document property text (title, author, subject, keywords, creator,
+/// producer, font name, etc.) in UTF-8 bytes (B5-04).
+pub const MAX_PROPERTY_TEXT_BYTES: usize = 1_024;
+
+/// Maximum number of font entries reported for one document (B5-04).
+pub const MAX_FONT_ENTRIES: u32 = 500;
+
+/// Maximum number of indirect objects / resource nodes examined when traversing fonts (B5-04).
+pub const MAX_FONT_RESOURCE_OBJECTS: usize = 10_000;
+
+/// Maximum nesting depth of resource dictionaries and Form XObjects when traversing fonts (B5-04).
+pub const MAX_FONT_RESOURCE_DEPTH: usize = 32;
+
+/// Maximum time in milliseconds spent collecting fonts before returning partial results (B5-04).
+pub const MAX_FONT_TIME_MILLIS: u64 = 2_000;
+
+/// Deepest /Parent chain walked in the page tree when looking up inherited resources (B5-04).
+pub const MAX_PAGE_PARENT_DEPTH: usize = 64;
+

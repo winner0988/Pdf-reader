@@ -17,12 +17,13 @@ use crate::text::{
 use crate::types::{
     AnnotationKind, AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind,
     AttachmentInfo, AttachmentSource, BatchArgs, BatchOperation, CompareTextArgs,
-    CompareTextResult, CompressArgs, DocumentInfo, Edit, EditArgs, EncryptArgs, ExportArgs,
-    ExportCompareTextArgs, ExportFormat, FindPersonalDataQuery, FindingKind, FontImport, FontInfo,
-    FormField, IndexSearchArgs, IndexSearchEvent, IndexSnippet, IpcError, LineEnds, LinkTarget,
-    OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink,
-    PageMarkPages, PageMarkPosition, PageMarks, PageMarksCopyArgs, PageNumberFormat, PageSize,
-    PageText, Password, PersonalDataMatch, PersonalDataMatches, Point, PrepareTextBoxArgs, Quad,
+    CompareTextResult, CompressArgs, DocumentFontEntry, DocumentFonts, DocumentInfo,
+    DocumentProperties, Edit, EditArgs, EncryptArgs, ExportArgs, ExportCompareTextArgs,
+    ExportFormat, FindPersonalDataQuery, FindingKind, FontImport, FontInfo, FormField,
+    IndexSearchArgs, IndexSearchEvent, IndexSnippet, IpcError, LineEnds, LinkTarget, OcrLanguages,
+    OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageMarkPages,
+    PageMarkPosition, PageMarks, PageMarksCopyArgs, PageNumberFormat, PageSize, PageText,
+    Password, PdfDate, PersonalDataMatch, PersonalDataMatches, Point, PrepareTextBoxArgs, Quad,
     RasterRegion, RecentFile, Rect, RedactionSummary, RemoveFontArgs, RemoveLanguageArgs,
     RenderPageArgs, Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport,
     SanitizeResult, SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs,
@@ -32,8 +33,8 @@ use crate::types::{
 };
 use crate::worker::{
     InsertedTextBox, InspectedFont, OcrOutcome, OpenedDocument, PreparedTextBoxModel, Raster,
-    SourceTextBox, TextBoxModel, WorkerAttachment, WorkerError, WorkerErrorCode, WorkerPageMarks,
-    WorkerResponse,
+    SourceTextBox, TextBoxModel, WorkerAttachment, WorkerDocumentProperties, WorkerError,
+    WorkerErrorCode, WorkerPageMarks, WorkerResponse,
 };
 
 /// Maximum length of the worker version string in `Hello`.
@@ -732,10 +733,179 @@ impl Validate for WorkerResponse {
                 }
                 Ok(())
             }
+            WorkerResponse::DocumentProperties { properties, .. } => properties.validate(),
+            WorkerResponse::DocumentFonts { fonts, .. } => fonts.validate(),
             WorkerResponse::Error { error, .. } => error.validate(),
         }
     }
 }
+
+fn check_property_text(what: &'static str, text: &str) -> Result<(), ValidationError> {
+    check_text(what, text, MAX_PROPERTY_TEXT_BYTES as u32)?;
+    check_clean(what, text)?;
+    Ok(())
+}
+
+impl Validate for PdfDate {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if !(1000..=9999).contains(&self.year) {
+            return Err(ValidationError::OutOfRange {
+                what: "pdf date year",
+            });
+        }
+        if !(1..=12).contains(&self.month) {
+            return Err(ValidationError::OutOfRange {
+                what: "pdf date month",
+            });
+        }
+        if !(1..=31).contains(&self.day) {
+            return Err(ValidationError::OutOfRange {
+                what: "pdf date day",
+            });
+        }
+        if self.hour > 23 {
+            return Err(ValidationError::OutOfRange {
+                what: "pdf date hour",
+            });
+        }
+        if self.minute > 59 {
+            return Err(ValidationError::OutOfRange {
+                what: "pdf date minute",
+            });
+        }
+        if self.second > 59 {
+            return Err(ValidationError::OutOfRange {
+                what: "pdf date second",
+            });
+        }
+        if let Some(offset) = self.tz_offset_minutes {
+            if !(-1440..=1440).contains(&offset) {
+                return Err(ValidationError::OutOfRange {
+                    what: "pdf date timezone offset",
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Validate for WorkerDocumentProperties {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if let Some(format) = &self.format {
+            check_property_text("format", format)?;
+        }
+        if let Some(title) = &self.title {
+            check_property_text("title", title)?;
+        }
+        if let Some(author) = &self.author {
+            check_property_text("author", author)?;
+        }
+        if let Some(subject) = &self.subject {
+            check_property_text("subject", subject)?;
+        }
+        if let Some(keywords) = &self.keywords {
+            check_property_text("keywords", keywords)?;
+        }
+        if let Some(creator) = &self.creator {
+            check_property_text("creator", creator)?;
+        }
+        if let Some(producer) = &self.producer {
+            check_property_text("producer", producer)?;
+        }
+        if let Some(enc) = &self.encryption_method {
+            check_property_text("encryption method", enc)?;
+        }
+        if let Some(date) = &self.creation_date {
+            date.validate()?;
+        }
+        if let Some(date) = &self.mod_date {
+            date.validate()?;
+        }
+        check_count(
+            "attachment count",
+            self.attachment_count as usize,
+            MAX_ATTACHMENTS,
+        )?;
+        Ok(())
+    }
+}
+
+impl Validate for DocumentProperties {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_text(
+            "display name",
+            &self.display_name,
+            MAX_DISPLAY_NAME_BYTES,
+        )?;
+        check_clean("display name", &self.display_name)?;
+        if self.page_count == 0 || self.page_count > MAX_PAGE_COUNT {
+            return Err(ValidationError::OutOfRange {
+                what: "document properties page count",
+            });
+        }
+        check_count("page sizes", self.page_sizes.len(), MAX_PAGE_COUNT)?;
+        self.page_sizes.iter().try_for_each(PageSize::validate)?;
+        if let Some(format) = &self.format {
+            check_property_text("format", format)?;
+        }
+        if let Some(title) = &self.title {
+            check_property_text("title", title)?;
+        }
+        if let Some(author) = &self.author {
+            check_property_text("author", author)?;
+        }
+        if let Some(subject) = &self.subject {
+            check_property_text("subject", subject)?;
+        }
+        if let Some(keywords) = &self.keywords {
+            check_property_text("keywords", keywords)?;
+        }
+        if let Some(creator) = &self.creator {
+            check_property_text("creator", creator)?;
+        }
+        if let Some(producer) = &self.producer {
+            check_property_text("producer", producer)?;
+        }
+        if let Some(enc) = &self.encryption_method {
+            check_property_text("encryption method", enc)?;
+        }
+        if let Some(date) = &self.creation_date {
+            date.validate()?;
+        }
+        if let Some(date) = &self.mod_date {
+            date.validate()?;
+        }
+        self.security.validate()?;
+        check_count(
+            "attachment count",
+            self.attachment_count as usize,
+            MAX_ATTACHMENTS,
+        )?;
+        Ok(())
+    }
+}
+
+impl Validate for DocumentFontEntry {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.name.is_empty() {
+            return Err(ValidationError::Invalid {
+                what: "font name",
+                reason: "empty",
+            });
+        }
+        check_property_text("font name", &self.name)?;
+        check_property_text("font subtype", &self.subtype)?;
+        Ok(())
+    }
+}
+
+impl Validate for DocumentFonts {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_count("document fonts", self.fonts.len(), MAX_FONT_ENTRIES)?;
+        self.fonts.iter().try_for_each(DocumentFontEntry::validate)
+    }
+}
+
 
 /// Longest time text of a signature: "2026-09-24 12:00:00 UTC+08:00" is 30 bytes.
 const MAX_SIGNATURE_TIME_BYTES: u32 = 40;
