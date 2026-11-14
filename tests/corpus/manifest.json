@@ -369,6 +369,22 @@
       "sha256": "560bcd9ec03834bb89600ecc0e8814c41ef1a106867d16b933679d378bae5d4f"
     },
     {
+      "path": "benign/page-labels.pdf",
+      "category": "benign",
+      "purpose": "A document with flat /PageLabels (lowercase roman numerals i-ii, then decimal 1-2).",
+      "expected": "Opens; 4 pages; page labels cover roman and decimal pages.",
+      "pages": 4,
+      "findings": [],
+      "text": [
+        "Page 1: roman i",
+        "Page 2: roman ii",
+        "Page 3: decimal 1",
+        "Page 4: decimal 2"
+      ],
+      "bytes": 1583,
+      "sha256": "f46bd87578821a7532889b2286eed33978c4858a517fb0455ddc18082bb716e4"
+    },
+    {
       "path": "malicious/js-document-level.pdf",
       "category": "malicious",
       "purpose": "Document-level JavaScript in the names tree.",
@@ -800,6 +816,17 @@
       "text": [],
       "bytes": 99940,
       "sha256": "ba52ba0043ba487cbc9385f715ea38391712711e1895e1bb3ee7588eb95be099"
+    },
+    {
+      "path": "malformed/page-labels-cycle.pdf",
+      "category": "malformed",
+      "purpose": "The page labels tree's /Kids array contains a cycle.",
+      "expected": "Opens (2 pages); page edits are refused (corrupted); never hangs.",
+      "pages": 2,
+      "findings": [],
+      "text": [],
+      "bytes": 1268,
+      "sha256": "570032126312b31e60b0e30bb3b627eab71d269988b8b976d83ddbb68cb9a5f7"
     },
     {
       "path": "malformed/outline-cycle.pdf",
