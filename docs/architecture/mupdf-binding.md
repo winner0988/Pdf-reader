@@ -74,9 +74,9 @@ PDF 可以使用中日韓字型而不嵌入它（例如只寫 `/BaseFont /MingLi
 注意：Windows 上 `mupdf-sys` 用 MSBuild 建置 MuPDF 的 Visual Studio 方案，會編譯方案內所有第三方函式庫的原始碼，這主要影響建置時間。Cargo feature 以 `FZ_ENABLE_*` 決定 MuPDF 是否使用它們，未被參照的程式碼不會連結進執行檔，但 **Tesseract 與 Leptonica 例外**：
 
 - 方案一律以 `HAVE_TESSERACT`、`HAVE_LEPTONICA` 編譯 MuPDF，沒有 `FZ_ENABLE_*` 可以關閉；
-- release 的 `pdf_worker.exe` 因此已經包含它們的一部分：依 link map，至少有 Tesseract 223 個原始檔中的 123 個、Leptonica 182 個中的 37 個，以及 MuPDF 的 `tessocr` 與 PDF OCR 輸出器（`output-pdfocr`）；
-- worker 從不呼叫它們：只有明確建立 OCR 裝置或 PDF OCR 輸出器時才會執行；
-- ADR 0015（提議中）建議的 OCR 就是使用這一份。
+- release 的 `pdf_worker.exe` 因此包含它們：Tesseract 與 Leptonica 原始碼被編譯連結進 worker；
+- worker 在 B2-10 實作 OCR 後，由 `crates/pdf_worker/src/ocr.rs` 宣告並呼叫 Tesseract C API 與 `fz_set_leptonica_mem`（ADR 0015）；MuPDF 內建的 `tessocr` 裝置與 PDF OCR 輸出器則未被呼叫；
+- ADR 0015 採用的 OCR 就是使用這一份。
 
 ## 建置需求（Windows）
 
