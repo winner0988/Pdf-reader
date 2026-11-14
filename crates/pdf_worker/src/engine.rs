@@ -54,6 +54,25 @@ pub const MAX_PAGE_TREE_NODES: usize = MAX_PAGE_COUNT as usize;
 /// Bounded by 2 * [`MAX_PAGE_COUNT`].
 pub const MAX_PAGE_TREE_KIDS: usize = 2 * MAX_PAGE_COUNT as usize;
 
+/// The deepest page labels number tree a document's edits may walk (ADR 0013, Issue #566).
+///
+/// Bounded like outline depth (`MAX_OUTLINE_DEPTH`) and page tree depth (`MAX_PAGE_TREE_DEPTH`):
+/// deeper than this is treated as corrupted, preventing excessive recursion when modifying page labels.
+pub const MAX_PAGE_LABELS_DEPTH: usize = 64;
+
+/// The maximum number of page label tree nodes visited when validating page labels (Issue #566).
+///
+/// Bounded by document page limits: a document has at most [`MAX_PAGE_COUNT`] pages, so a page
+/// label tree cannot contain more nodes than this without being corrupted.
+pub const MAX_PAGE_LABELS_NODES: usize = MAX_PAGE_COUNT as usize;
+
+/// The maximum number of `/Kids` and `/Nums` entries inspected across the entire page label
+/// tree when validating (Issue #566).
+///
+/// In a well-formed page label tree, the total number of `/Kids` and `/Nums` array entries
+/// is bounded by 2 * [`MAX_PAGE_COUNT`].
+pub const MAX_PAGE_LABELS_ITEMS: usize = 2 * MAX_PAGE_COUNT as usize;
+
 mod annotations;
 mod attachments;
 mod create;
@@ -210,6 +229,8 @@ pub enum EngineError {
     SanitizeCheckFailed,
     #[error("the page tree is corrupted: /Parent chain does not end")]
     CorruptedPageTree,
+    #[error("the page labels tree is corrupted")]
+    CorruptedPageLabels,
     #[error("MuPDF: {0}")]
     MuPdf(#[from] mupdf::Error),
 }
@@ -922,6 +943,7 @@ impl PdfDocument {
     pub fn delete_pages(&mut self, pages: &[u32]) -> Result<(), EngineError> {
         let count = self.checked_pages(pages)?;
         self.check_page_tree_parents()?;
+        self.check_page_labels()?;
         if pages.len() >= count as usize {
             return Err(EngineError::NoPageLeft);
         }
@@ -955,6 +977,7 @@ impl PdfDocument {
             return Err(EngineError::PageOutOfRange(before));
         }
         self.check_page_tree_parents()?;
+        self.check_page_labels()?;
         let mut moved = pages.to_vec();
         moved.sort_unstable();
         let len = moved.len() as u32;
@@ -993,6 +1016,7 @@ impl PdfDocument {
             return Err(EngineError::TooManyPages);
         }
         self.check_page_tree_parents()?;
+        self.check_page_labels()?;
         let size = self.page_size(like)?;
         self.doc.new_page_at(at as i32, size)?;
         self.ocr_forget_page(at);
@@ -1151,6 +1175,98 @@ impl PdfDocument {
             current_dist += 1;
             verified.insert(n, current_dist);
         }
+        Ok(())
+    }
+
+    /// Checks that the page labels number tree terminates without cycles or shared nodes and
+    /// within [`MAX_PAGE_LABELS_DEPTH`], [`MAX_PAGE_LABELS_NODES`], and [`MAX_PAGE_LABELS_ITEMS`]
+    /// (Issue #566).
+    ///
+    /// Walks down from the catalog's `/PageLabels` root along `/Kids` with an explicit stack.
+    /// Traversal follows the path taken by the engine when adjusting page labels on page edits:
+    /// inspecting `/Kids` and `/Nums` at each node. Any indirect object visited more than once
+    /// (cycles or shared nodes) or exceeding depth/node/entry limits is rejected as corrupted.
+    pub fn check_page_labels(&self) -> Result<(), EngineError> {
+        let Some(root) = self.doc.catalog()?.get_dict("PageLabels")? else {
+            return Ok(());
+        };
+        if root.is_null()? {
+            return Ok(());
+        }
+        if !root.is_dict()? {
+            return Err(EngineError::CorruptedPageLabels);
+        }
+
+        let mut stack = vec![(root.clone(), 1)];
+        let mut visited = HashSet::new();
+        let mut total_nodes = 0;
+        let mut total_items = 0;
+
+        if root.is_indirect()? {
+            visited.insert(root.as_indirect()?);
+        }
+
+        while let Some((node, depth)) = stack.pop() {
+            if depth > MAX_PAGE_LABELS_DEPTH {
+                return Err(EngineError::CorruptedPageLabels);
+            }
+
+            total_nodes += 1;
+            if total_nodes > MAX_PAGE_LABELS_NODES {
+                return Err(EngineError::CorruptedPageLabels);
+            }
+
+            if !node.is_dict()? {
+                continue;
+            }
+
+            if let Some(nums) = node.get_dict("Nums")? {
+                if nums.is_indirect()? {
+                    let id = nums.as_indirect()?;
+                    if !visited.insert(id) {
+                        return Err(EngineError::CorruptedPageLabels);
+                    }
+                }
+                if nums.is_array()? {
+                    let len = nums.len()?;
+                    if len > MAX_PAGE_LABELS_ITEMS.saturating_sub(total_items) {
+                        return Err(EngineError::CorruptedPageLabels);
+                    }
+                    total_items += len;
+                }
+            }
+
+            if let Some(kids) = node.get_dict("Kids")? {
+                if kids.is_indirect()? {
+                    let id = kids.as_indirect()?;
+                    if !visited.insert(id) {
+                        return Err(EngineError::CorruptedPageLabels);
+                    }
+                }
+                if kids.is_array()? {
+                    let len = kids.len()?;
+                    if len > MAX_PAGE_LABELS_ITEMS.saturating_sub(total_items) {
+                        return Err(EngineError::CorruptedPageLabels);
+                    }
+                    total_items += len;
+
+                    for i in (0..len).rev() {
+                        let Some(kid) = kids.get_array(i32::try_from(i).unwrap_or(i32::MAX))?
+                        else {
+                            continue;
+                        };
+                        if kid.is_indirect()? {
+                            let id = kid.as_indirect()?;
+                            if !visited.insert(id) {
+                                return Err(EngineError::CorruptedPageLabels);
+                            }
+                        }
+                        stack.push((kid, depth + 1));
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -1641,6 +1757,7 @@ impl PdfDocument {
             return Err(EngineError::PageOutOfRange(at));
         }
         self.check_page_tree_parents()?;
+        self.check_page_labels()?;
         let source_doc = PdfDocument::from_bytes(source)?;
         let inserted = source_doc.page_count()?;
         if inserted == 0 {
@@ -5168,5 +5285,115 @@ endstream",
         let doc = PdfDocument::from_bytes(&bytes).expect("open 10k page pdf");
         assert_eq!(doc.page_count().expect("page count"), 10_000);
         assert!(doc.check_page_tree_parents().is_ok());
+    }
+
+    #[test]
+    fn page_labels_normal_document_passes_check() {
+        let bytes = build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R /PageLabels << /Nums [0 << /S /r >> 2 << /S /D /St 1 >>] >> >>",
+            "<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R 6 0 R] /Count 4 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+        ]);
+        let doc = PdfDocument::from_bytes(&bytes).expect("open");
+        assert!(doc.check_page_labels().is_ok());
+    }
+
+    #[test]
+    fn page_labels_absent_passes_check() {
+        let bytes = build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+        ]);
+        let doc = PdfDocument::from_bytes(&bytes).expect("open");
+        assert!(doc.check_page_labels().is_ok());
+    }
+
+    #[test]
+    fn page_labels_cycle_is_refused() {
+        let bytes = build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R /PageLabels 4 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+            "<< /Kids [4 0 R] >>",
+        ]);
+        let doc = PdfDocument::from_bytes(&bytes).expect("open");
+        assert!(matches!(
+            doc.check_page_labels(),
+            Err(EngineError::CorruptedPageLabels)
+        ));
+    }
+
+    #[test]
+    fn page_labels_shared_child_node_is_refused() {
+        let bytes = build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R /PageLabels 4 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+            "<< /Kids [5 0 R 5 0 R] >>",
+            "<< /Nums [0 << /S /D >>] >>",
+        ]);
+        let doc = PdfDocument::from_bytes(&bytes).expect("open");
+        assert!(matches!(
+            doc.check_page_labels(),
+            Err(EngineError::CorruptedPageLabels)
+        ));
+    }
+
+    #[test]
+    fn page_labels_deep_tree_is_refused() {
+        let depth = 70;
+        let mut objects = vec![
+            "<< /Type /Catalog /Pages 2 0 R /PageLabels 4 0 R >>".to_owned(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_owned(),
+        ];
+        for i in 0..depth {
+            let next_obj = 5 + i;
+            objects.push(format!("<< /Kids [{next_obj} 0 R] >>"));
+        }
+        objects.push("<< /Nums [0 << /S /D >>] >>".to_owned());
+        let refs: Vec<&str> = objects.iter().map(String::as_str).collect();
+        let bytes = build_pdf(&refs);
+        let doc = PdfDocument::from_bytes(&bytes).expect("open");
+        assert!(matches!(
+            doc.check_page_labels(),
+            Err(EngineError::CorruptedPageLabels)
+        ));
+    }
+
+    #[test]
+    fn page_labels_huge_nums_array_is_refused() {
+        let huge_nums = format!("<< /Nums [{}] >>", "0 ".repeat(MAX_PAGE_LABELS_ITEMS + 2));
+        let bytes = build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R /PageLabels 4 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+            &huge_nums,
+        ]);
+        let doc = PdfDocument::from_bytes(&bytes).expect("open");
+        assert!(matches!(
+            doc.check_page_labels(),
+            Err(EngineError::CorruptedPageLabels)
+        ));
+    }
+
+    #[test]
+    fn page_labels_huge_kids_array_is_refused() {
+        let huge_kids = format!("<< /Kids [{}] >>", "0 ".repeat(MAX_PAGE_LABELS_ITEMS + 2));
+        let bytes = build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R /PageLabels 4 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+            &huge_kids,
+        ]);
+        let doc = PdfDocument::from_bytes(&bytes).expect("open");
+        assert!(matches!(
+            doc.check_page_labels(),
+            Err(EngineError::CorruptedPageLabels)
+        ));
     }
 }
