@@ -1762,6 +1762,25 @@ def malformed_no_pages() -> bytes:
     return doc.build()
 
 
+def malformed_tiling_pattern_tiny_step() -> bytes:
+    """Tiling pattern with very small XStep and YStep (0.01 pt) filling a Letter page (Issue #550)."""
+    doc = Document("tiling-pattern-tiny-step")
+    doc.reserve_pages(1)
+    pattern_obj = doc.pdf.add_stream(
+        "/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 "
+        "/BBox [0 0 1 1] /XStep 0.01 /YStep 0.01 /Resources << >>",
+        b"0 0 1 rg 0 0 1 1 re f\n",
+    )
+    fill_ops = b"q /Pattern cs /P1 scn 0 0 612 792 re f Q\n"
+    page = Page(
+        size=LETTER,
+        extra_content=fill_ops,
+        resources=f"/Pattern << /P1 {pattern_obj} 0 R >>",
+    )
+    doc.set_page(0, page)
+    return doc.build()
+
+
 # --------------------------------------------------------------------------- on demand
 
 
@@ -2458,6 +2477,9 @@ SAMPLES = [
            "Opens or reports corrupted; no stack overflow."),
     Sample("malformed/no-pages.pdf", malformed_no_pages, "Structurally valid document with zero pages.",
            "Reports corrupted (a document needs at least one page)."),
+    Sample("malformed/tiling-pattern-tiny-step.pdf", malformed_tiling_pattern_tiny_step,
+           "Tiling pattern with 0.01 pt XStep and YStep filling a Letter page (Issue #550).",
+           "Opens (1 page); rendering page 1 times out (worker restart); never hangs the app or leaks memory.", 1),
     Sample("malformed/not-a-pdf.pdf", lambda: b"This is a plain text file with a .pdf extension.\n",
            "Text file named .pdf.", "Reports not a PDF."),
     Sample("malformed/empty.pdf", lambda: b"", "Zero bytes.", "Reports not a PDF or corrupted."),

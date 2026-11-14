@@ -835,6 +835,17 @@
       "sha256": "b21bfc213b2ab173a6061886a4e2eacafaf836af48e5e353ee0b7c20807b31d4"
     },
     {
+      "path": "malformed/tiling-pattern-tiny-step.pdf",
+      "category": "malformed",
+      "purpose": "Tiling pattern with 0.01 pt XStep and YStep filling a Letter page (Issue #550).",
+      "expected": "Opens (1 page); rendering page 1 times out (worker restart); never hangs the app or leaks memory.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 925,
+      "sha256": "c86f87ca410056be1c86eec1ebb404eea2f6d4a8f708eacce4e5efd076848a57"
+    },
+    {
       "path": "malformed/not-a-pdf.pdf",
       "category": "malformed",
       "purpose": "Text file named .pdf.",
