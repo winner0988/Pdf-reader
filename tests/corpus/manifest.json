@@ -813,6 +813,17 @@
       "sha256": "2bcac821bb2b98776f625555c02394f7126827f5153e8b08725e38591b0c0eb9"
     },
     {
+      "path": "malformed/predictor-colors.pdf",
+      "category": "malformed",
+      "purpose": "Image stream whose FlateDecode predictor /Colors exceeds MuPDF's maximum (32).",
+      "expected": "Opens (1 page); rendering fails with corrupted; worker stays running.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 1044,
+      "sha256": "3e12799f0ea5a9357d74f13143ee32659bdffc4de05db8ffd00735bf81828506"
+    },
+    {
       "path": "malformed/huge-page-size.pdf",
       "category": "malformed",
       "purpose": "MediaBox of 1e9 x 1e9 points.",

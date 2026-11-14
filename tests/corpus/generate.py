@@ -1818,6 +1818,22 @@ def malformed_outline_cycle() -> bytes:
     return doc.build()
 
 
+def malformed_predictor_colors() -> bytes:
+    doc = Document("predictor-colors")
+    compressed = zlib.compress(b"\x00\x00\x00\x00")
+    image = doc.pdf.add_stream(
+        "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 "
+        "/Filter /FlateDecode /DecodeParms << /Predictor 15 /Colors 536870913 /Columns 1 >>",
+        compressed,
+    )
+    doc.add_pages([Page(
+        lines=[(72, 720, 24, "Image with malformed /Colors in predictor")],
+        extra_content=b"q 72 0 0 72 72 600 cm /Im1 Do Q\n",
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    )])
+    return doc.build()
+
+
 def malformed_huge_page() -> bytes:
     doc = Document("huge-page-size")
     doc.add_pages([Page(size=(1_000_000_000, 1_000_000_000), lines=[(72, 720, 24, "MediaBox 1e9 x 1e9")])])
@@ -2528,6 +2544,9 @@ SAMPLES = [
            "Opens (2 pages); page edits are refused (corrupted); never hangs.", 2),
     Sample("malformed/outline-cycle.pdf", malformed_outline_cycle, "Outline items whose /Next pointers form a cycle.",
            "Opens; the outline is cut at the cycle; never hangs.", 1),
+    Sample("malformed/predictor-colors.pdf", malformed_predictor_colors,
+           "Image stream whose FlateDecode predictor /Colors exceeds MuPDF's maximum (32).",
+           "Opens (1 page); rendering fails with corrupted; worker stays running.", 1),
     Sample("malformed/huge-page-size.pdf", malformed_huge_page, "MediaBox of 1e9 x 1e9 points.",
            "Reports limit exceeded (page too large); never allocates unbounded memory."),
     Sample("malformed/deep-nesting.pdf", malformed_deep_nesting, "10,000 nested arrays in the page dictionary.",
