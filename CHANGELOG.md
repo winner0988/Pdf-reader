@@ -6,6 +6,7 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 ### 安全
 
+- 內附的文字辨識函式庫套用上游的修正（#563）。
 - 內附的色彩管理函式庫套用上游的修正（#562）。
 
 ### 視覺
