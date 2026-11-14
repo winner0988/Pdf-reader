@@ -88,7 +88,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                             pixels: page.rgba,
                         },
                     },
-                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                    Err(engine) => render_engine_error(request, &engine),
                 },
             }),
             WorkerRequest::RenderRegion {
@@ -114,7 +114,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                                 pixels: page.rgba,
                             },
                         },
-                        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                        Err(engine) => render_engine_error(request, &engine),
                     }
                 }
             }),
@@ -277,7 +277,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => match document.render_png(page_index, scale) {
                     Ok(png) => WorkerResponse::Png { request, png },
-                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                    Err(engine) => render_engine_error(request, &engine),
                 },
             }),
             WorkerRequest::RenderJpeg {
@@ -293,7 +293,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => match document.render_jpeg(page_index, scale) {
                     Ok(jpeg) => WorkerResponse::Jpeg { request, jpeg },
-                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                    Err(engine) => render_engine_error(request, &engine),
                 },
             }),
             WorkerRequest::GetPageText {
@@ -1497,12 +1497,8 @@ fn contract_target(target: OutlineTarget, page_count: u32) -> Option<LinkTarget>
     }
 }
 
-fn engine_error(
-    request: RequestId,
-    engine: &EngineError,
-    other: WorkerErrorCode,
-) -> WorkerResponse {
-    let code = match engine {
+fn engine_error_code(engine: &EngineError, other: WorkerErrorCode) -> WorkerErrorCode {
+    match engine {
         EngineError::NotPdf => WorkerErrorCode::NotPdf,
         EngineError::Encrypted => WorkerErrorCode::Encrypted,
         EngineError::WrongPassword => WorkerErrorCode::WrongPassword,
@@ -1538,7 +1534,33 @@ fn engine_error(
         },
         EngineError::Encode(_) => WorkerErrorCode::Internal,
         EngineError::MuPdf(_) => other,
-    };
+    }
+}
+
+fn render_error_code(engine: &EngineError) -> WorkerErrorCode {
+    match engine {
+        EngineError::MuPdf(mupdf::Error::MuPdf(e)) => match e.code {
+            mupdf_sys::FZ_ERROR_ARGUMENT
+            | mupdf_sys::FZ_ERROR_FORMAT
+            | mupdf_sys::FZ_ERROR_SYNTAX => WorkerErrorCode::Corrupted,
+            _ => WorkerErrorCode::Internal,
+        },
+        EngineError::MuPdf(_) => WorkerErrorCode::Internal,
+        other => engine_error_code(other, WorkerErrorCode::Internal),
+    }
+}
+
+fn render_engine_error(request: RequestId, engine: &EngineError) -> WorkerResponse {
+    let code = render_error_code(engine);
+    error(request, code, &engine.to_string())
+}
+
+fn engine_error(
+    request: RequestId,
+    engine: &EngineError,
+    other: WorkerErrorCode,
+) -> WorkerResponse {
+    let code = engine_error_code(engine, other);
     error(request, code, &engine.to_string())
 }
 
@@ -1859,5 +1881,53 @@ mod tests {
     fn none_file_handle_returns_invalid_request() {
         let res = read_limited(None, 100);
         check_error_code(res, WorkerErrorCode::InvalidRequest);
+    }
+
+    #[test]
+    fn render_error_code_mapping_for_mupdf_and_engine_errors() {
+        use mupdf::error::MuPdfError;
+
+        let cases = [
+            (mupdf_sys::FZ_ERROR_NONE, WorkerErrorCode::Internal),
+            (mupdf_sys::FZ_ERROR_GENERIC, WorkerErrorCode::Internal),
+            (mupdf_sys::FZ_ERROR_SYSTEM, WorkerErrorCode::Internal),
+            (mupdf_sys::FZ_ERROR_LIBRARY, WorkerErrorCode::Internal),
+            (mupdf_sys::FZ_ERROR_ARGUMENT, WorkerErrorCode::Corrupted),
+            (mupdf_sys::FZ_ERROR_LIMIT, WorkerErrorCode::Internal),
+            (mupdf_sys::FZ_ERROR_UNSUPPORTED, WorkerErrorCode::Internal),
+            (mupdf_sys::FZ_ERROR_FORMAT, WorkerErrorCode::Corrupted),
+            (mupdf_sys::FZ_ERROR_SYNTAX, WorkerErrorCode::Corrupted),
+            (mupdf_sys::FZ_ERROR_TRYLATER, WorkerErrorCode::Internal),
+            (mupdf_sys::FZ_ERROR_ABORT, WorkerErrorCode::Internal),
+            (mupdf_sys::FZ_ERROR_REPAIRED, WorkerErrorCode::Internal),
+        ];
+
+        for i in 0..=11 {
+            assert_eq!(cases[i as usize].0, i);
+        }
+
+        for (code, expected) in cases {
+            let engine = EngineError::MuPdf(mupdf::Error::MuPdf(MuPdfError {
+                code,
+                message: format!("test error for code {code}"),
+            }));
+            assert_eq!(
+                render_error_code(&engine),
+                expected,
+                "code {code} expected {expected:?}"
+            );
+        }
+
+        let non_mupdf = EngineError::MuPdf(mupdf::Error::InvalidUtf8);
+        assert_eq!(render_error_code(&non_mupdf), WorkerErrorCode::Internal);
+
+        let too_large = EngineError::TooLarge {
+            width: 1000,
+            height: 1000,
+        };
+        assert_eq!(
+            render_error_code(&too_large),
+            WorkerErrorCode::LimitExceeded
+        );
     }
 }
