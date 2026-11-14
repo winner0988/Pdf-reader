@@ -31,6 +31,20 @@
       "sha256": "37950d0b5266c0ebcb3c148fc0bcc7e6c9b5b97f0e374b8dcb47b31be87fb031"
     },
     {
+      "path": "benign/page-labels.pdf",
+      "category": "benign",
+      "purpose": "Ten pages with /PageLabels: roman (i..iv), decimal (1..4), prefixed (A-1..A-2).",
+      "expected": "Opens; 10 pages; displays custom page labels in page box and thumbnails.",
+      "pages": 10,
+      "findings": [],
+      "text": [
+        "Page 1 of 10",
+        "Page 4 of 10"
+      ],
+      "bytes": 3267,
+      "sha256": "bcff16c0ba1357095fa0e9e0c9d4df206ea2946b31464ff24f9059200cf9ffcc"
+    },
+    {
       "path": "benign/mixed-text-zh-en.pdf",
       "category": "benign",
       "purpose": "English and Traditional Chinese text (Type0 font, non-embedded, with ToUnicode).",

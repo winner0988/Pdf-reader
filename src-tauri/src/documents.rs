@@ -3700,6 +3700,7 @@ fn document_info(
         password_remembered: false,
         password_recalled: false,
         sensitive: facts.identifier.is_some(),
+        page_labels: document.page_labels,
     };
     info.validate().map_err(|error| IpcError {
         code: ErrorCode::Internal,

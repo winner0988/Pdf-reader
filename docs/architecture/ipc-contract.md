@@ -154,6 +154,7 @@ flowchart LR
 - `DocumentInfo.recovery`（B2-13）：上一次執行留下、還沒回答的編輯：`none`、`available`（可以還原）或 `stale`（檔案已改變，不能還原）。見 [crash-recovery.md](crash-recovery.md)。
 - `DocumentInfo.hasForm`（B2-09）：文件有表單，且沒有被扁平化。見 [forms.md](forms.md)。
 - `DocumentInfo.encrypted`（B2-03）：文件有加密（有開啟密碼，或只有權限密碼）；沒有隱私匯出。
+- `DocumentInfo.pageLabels`（B5-07）：文件的自訂頁碼標籤（`/PageLabels`，如 i、ii、1）。開檔時由 worker 安全走訪 number tree 取得，若無自訂標籤或與 1-based 實體頁碼完全相同則為 `None`。每個標籤長度最多 `LIMITS.maxPageLabelBytes`（64 bytes），已清除控制字元與不可見字元（見 [page-labels.md](page-labels.md)）。
 
 ### 檔案對話框（MVP-06、#86、B2-04）
 
@@ -370,6 +371,9 @@ worker 端的 `WorkerErrorCode` 以 `From` 轉換對應到上表。
 | 密碼 | 1,024 bytes | 不可為空、不可含 NUL；PDF 本身最多用到 127 bytes（MVP-16） |
 | 搜尋結果 | 10,000 筆 | 超過時 `truncated` |
 | 每筆結果的 quad | 64 | |
+| 頁碼標籤長度（MAX_PAGE_LABEL_BYTES） | 64 bytes | 單一頁碼標籤 UTF-8 長度上限，去除控制字元與不可見字元（B5-07） |
+| 頁碼標籤樹節點數（MAX_PAGE_LABEL_NODES） | 256 | `/PageLabels` number tree 走訪節點上限，超過時停止並視為無標籤（B5-07） |
+| 頁碼標籤樹深度（MAX_PAGE_LABEL_DEPTH） | 16 | `/PageLabels` number tree 走訪深度上限（B5-07） |
 | 一筆遮蔽群組的範圍數（MAX_REDACTION_GROUP_RECTS） | 16 | 一個號碼跨越的行數上限（Issue #330） |
 | 每頁文字（選取與複製） | 100,000 字元 | 超過時 worker 截斷並設 `truncated`（MVP-15） |
 | 批次準備文字方塊數量（MAX_PREPARE_TEXT_BOXES） | 200 段 | 單一請求準備多個文字方塊的段數上限（Issue #381） |

@@ -49,13 +49,14 @@ import { strings } from "@/i18n/zh-TW";
 const t = strings.toolbar;
 
 export type ToolbarProps = {
-  document: { pageCount: number; currentPage: number; zoom: Zoom } | null;
+  document: { pageCount: number; currentPage: number; zoom: Zoom; pageLabels?: string[] } | null;
   sidebarOpen: boolean;
   searchOpen: boolean;
   theme: ThemePreference;
   layoutMode?: PageLayoutMode;
   onLayoutModeChange?: (mode: PageLayoutMode) => void;
   pageInputRef?: Ref<HTMLInputElement>;
+  onHint?: (text: string) => void;
   canGoBack?: boolean;
   canGoForward?: boolean;
   onGoBack?: () => void;
@@ -264,8 +265,10 @@ export function Toolbar(props: ToolbarProps) {
               key={document.currentPage}
               pageCount={document.pageCount}
               currentPage={document.currentPage}
+              pageLabels={document.pageLabels}
               inputRef={props.pageInputRef}
               onGoToPage={props.onGoToPage}
+              onHint={props.onHint}
             />
             <div className="mx-1 h-6 w-px bg-border" aria-hidden />
             <IconButton label={t.zoomOut} shortcut="Ctrl+-" onClick={props.onZoomOut}>
@@ -570,19 +573,26 @@ function StampMenu({ stamp }: { stamp: NonNullable<ToolbarProps["stamp"]> }) {
   );
 }
 
-function PageInput({
+export function PageInput({
   pageCount,
   currentPage,
+  pageLabels,
   inputRef,
   onGoToPage,
+  onHint,
 }: {
   pageCount: number;
   currentPage: number;
+  pageLabels?: string[];
   inputRef?: Ref<HTMLInputElement>;
   onGoToPage: (page: number) => void;
+  onHint?: (text: string) => void;
 }) {
+  const currentLabel = pageLabels?.[currentPage - 1];
+  const hasCustomLabel = currentLabel !== undefined && currentLabel !== String(currentPage);
+
   // Remounted (via key) whenever the current page changes, so the draft starts fresh.
-  const [draft, setDraft] = useState(String(currentPage));
+  const [draft, setDraft] = useState(hasCustomLabel ? currentLabel : String(currentPage));
   const [invalid, setInvalid] = useState(false);
   // Unique per tab (MVP-14): every tab has a toolbar.
   const errorId = useId();
@@ -591,11 +601,12 @@ function PageInput({
     <div className="relative flex items-center gap-1 text-sm">
       <input
         ref={inputRef}
-        aria-label={t.pageNumber}
+        aria-label={hasCustomLabel ? t.pageNumberWithLabel(currentLabel, currentPage, pageCount) : t.pageNumber}
         aria-invalid={invalid}
         aria-describedby={invalid ? errorId : undefined}
-        inputMode="numeric"
-        className="h-8 w-12 rounded-md border bg-background px-1 text-center aria-invalid:border-destructive"
+        inputMode={pageLabels && pageLabels.length > 0 ? "text" : "numeric"}
+        className="h-8 min-w-12 max-w-28 rounded-md border bg-background px-1 text-center aria-invalid:border-destructive"
+        style={{ width: `${Math.max(3, draft.length + 1)}ch` }}
         value={draft}
         onChange={(event) => {
           setDraft(event.target.value);
@@ -604,7 +615,24 @@ function PageInput({
         onFocus={(event) => event.target.select()}
         onKeyDown={(event) => {
           if (event.key !== "Enter") return;
-          const page = Number(draft);
+          const raw = draft.trim();
+          if (pageLabels && pageLabels.length > 0) {
+            const matches: number[] = [];
+            for (let i = 0; i < pageLabels.length; i++) {
+              if (pageLabels[i] === raw) {
+                matches.push(i + 1);
+              }
+            }
+            if (matches.length > 0) {
+              const targetPage = matches[0]!;
+              if (matches.length > 1) {
+                onHint?.(t.duplicatePageLabel(raw, targetPage));
+              }
+              onGoToPage(targetPage);
+              return;
+            }
+          }
+          const page = Number(raw);
           if (Number.isInteger(page) && page >= 1 && page <= pageCount) {
             onGoToPage(page);
           } else {
@@ -612,7 +640,9 @@ function PageInput({
           }
         }}
       />
-      <span className="text-muted-foreground">{t.pageCount(pageCount)}</span>
+      <span className="text-muted-foreground">
+        {hasCustomLabel ? t.pageCountWithLabel(currentPage, pageCount) : t.pageCount(pageCount)}
+      </span>
       {invalid && (
         <span
           id={errorId}

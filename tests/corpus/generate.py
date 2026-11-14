@@ -217,6 +217,19 @@ def benign_multi_page() -> bytes:
     return doc.build()
 
 
+def benign_page_labels() -> bytes:
+    doc = Document("page-labels")
+    pages = []
+    for n in range(1, 11):
+        pages.append(Page(lines=[(72, 720, 24, f"Page {n} of 10")]))
+    doc.add_pages(pages)
+    labels = doc.pdf.add(
+        "<< /Nums [ 0 << /S /r >> 4 << /S /D /St 1 >> 8 << /S /D /P (A-) /St 1 >> ] >>"
+    )
+    doc.catalog_extra = f" /PageLabels {labels} 0 R"
+    return doc.build()
+
+
 CJK_TEXT = "隱私優先的 PDF 閱讀器"
 
 
@@ -2325,6 +2338,10 @@ SAMPLES = [
     Sample("benign/multi-page-10.pdf", benign_multi_page, "Ten pages; a unique keyword on page 7.",
            "Opens; 10 pages; searching 'needle' finds exactly one hit on page 7.", 10,
            text=["Page 1 of 10", "needle"]),
+    Sample("benign/page-labels.pdf", benign_page_labels,
+           "Ten pages with /PageLabels: roman (i..iv), decimal (1..4), prefixed (A-1..A-2).",
+           "Opens; 10 pages; displays custom page labels in page box and thumbnails.", 10,
+           text=["Page 1 of 10", "Page 4 of 10"]),
     Sample("benign/mixed-text-zh-en.pdf", benign_mixed_text,
            "English and Traditional Chinese text (Type0 font, non-embedded, with ToUnicode).",
            "Opens; both strings are drawn and searchable. The worker substitutes its bundled Droid CJK font for the "

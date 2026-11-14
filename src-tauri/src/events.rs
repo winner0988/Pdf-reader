@@ -172,6 +172,7 @@ mod tests {
             password_remembered: false,
             password_recalled: false,
             sensitive: false,
+            page_labels: None,
         };
         let (channel, received) = recording_channel();
         events.subscribe(channel, || {

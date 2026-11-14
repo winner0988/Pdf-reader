@@ -86,6 +86,7 @@ export function toShellDocument(info: DocumentInfo): ShellDocument {
     passwordRemembered: info.passwordRemembered,
     passwordRecalled: info.passwordRecalled,
     sensitive: info.sensitive,
+    pageLabels: info.pageLabels ?? undefined,
   };
 }
 

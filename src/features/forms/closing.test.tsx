@@ -49,6 +49,7 @@ const info = (doc: number, unsaved: boolean): DocumentInfo => ({
   passwordRemembered: false,
   passwordRecalled: false,
   sensitive: false,
+  pageLabels: null,
 });
 
 async function openForm() {

@@ -697,6 +697,7 @@ fn open(
     let encrypted = document.is_encrypted();
     let signed = document.is_signed();
     let identifier = document.identifier();
+    let page_labels = document.page_labels().unwrap_or(None);
     documents.insert(doc, document);
     originals.insert(doc, bytes);
     WorkerResponse::Opened {
@@ -710,6 +711,7 @@ fn open(
             encrypted,
             signed,
             identifier,
+            page_labels,
         },
     }
 }
