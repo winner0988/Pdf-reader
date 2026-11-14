@@ -374,6 +374,80 @@ def benign_image_only() -> bytes:
     return doc.build()
 
 
+# --------------------------------------------------------------------------- JPEG 2000 (JPX)
+
+
+def make_jpx_codestream(*, two_tiles: bool = False, extra_tile_parts: bool = False) -> bytes:
+    """Handcrafted raw JPEG 2000 (J2K) codestream (ITU-T T.800 / ISO/IEC 15444-1).
+
+    Uses a single component (8-bit grayscale), single quality layer, 0 decomposition
+    levels (1 resolution level) and empty packets (0x00) with no code-blocks, which
+    reconstructs a solid mid-gray image (DC level shift 128).
+    """
+    soc = b"\xff\x4f"
+    if not two_tiles:
+        siz = (
+            b"\xff\x51\x00\x29\x00\x00"
+            b"\x00\x00\x00\x80\x00\x00\x00\x40"  # 128 x 64
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"  # X0=0, Y0=0
+            b"\x00\x00\x00\x80\x00\x00\x00\x40"  # XTsiz=128, YTsiz=64 (1 tile)
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"  # XT0=0, YT0=0
+            b"\x00\x01\x07\x01\x01"              # 1 component, 8-bit unsigned, sub 1x1
+        )
+    else:
+        siz = (
+            b"\xff\x51\x00\x29\x00\x00"
+            b"\x00\x00\x00\x80\x00\x00\x00\x40"  # 128 x 64
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"  # X0=0, Y0=0
+            b"\x00\x00\x00\x40\x00\x00\x00\x40"  # XTsiz=64, YTsiz=64 (2 tiles)
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"  # XT0=0, YT0=0
+            b"\x00\x01\x07\x01\x01"              # 1 component, 8-bit unsigned, sub 1x1
+        )
+    cod = b"\xff\x52\x00\x0c\x00\x00\x00\x01\x00\x00\x04\x04\x00\x01"
+    qcd = b"\xff\x5c\x00\x04\x40\x40"
+    if not extra_tile_parts:
+        sot = b"\xff\x90\x00\x0a\x00\x00\x00\x00\x00\x0f\x00\x01"
+        sod = b"\xff\x93\x00"
+        return soc + siz + cod + qcd + sot + sod + b"\xff\xd9"
+
+    # TLM marker listing 2 tile-parts: 1 for tile 0 and 1 for tile 1 (#539, #554).
+    # Ltlm=10, Ztlm=0, Stlm=0x10 (ST=1: 1-byte tile index; SP=0: 2-byte tile-part length)
+    tlm = b"\xff\x55\x00\x0a\x00\x10\x00\x00\x0f\x01\x00\x0f"
+    # Tile 0 has 3 tile-parts: TPsot = 0, 1, 2. Each SOT declares TNsot = 0.
+    t0_p0 = b"\xff\x90\x00\x0a\x00\x00\x00\x00\x00\x0f\x00\x00\xff\x93\x00"
+    t0_p1 = b"\xff\x90\x00\x0a\x00\x00\x00\x00\x00\x0f\x01\x00\xff\x93\x00"
+    t0_p2 = b"\xff\x90\x00\x0a\x00\x00\x00\x00\x00\x0f\x02\x00\xff\x93\x00"
+    # Tile 1 has 1 tile-part: TPsot = 0, TNsot = 0.
+    t1_p0 = b"\xff\x90\x00\x0a\x00\x01\x00\x00\x00\x0f\x00\x00\xff\x93\x00"
+    return soc + siz + cod + qcd + tlm + t0_p0 + t0_p1 + t0_p2 + t1_p0 + b"\xff\xd9"
+
+
+def benign_jpx_image() -> bytes:
+    doc = Document("jpx-image")
+    image = doc.pdf.add_stream(
+        "/Type /XObject /Subtype /Image /Width 128 /Height 64 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /JPXDecode",
+        make_jpx_codestream(),
+    )
+    doc.add_pages([Page(
+        extra_content=b"q 256 0 0 128 72 72 cm /Im1 Do Q\n",
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    )])
+    return doc.build()
+
+
+def malformed_jpx_tile_parts_beyond_tlm() -> bytes:
+    doc = Document("jpx-tile-parts-beyond-tlm")
+    image = doc.pdf.add_stream(
+        "/Type /XObject /Subtype /Image /Width 128 /Height 64 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /JPXDecode",
+        make_jpx_codestream(two_tiles=True, extra_tile_parts=True),
+    )
+    doc.add_pages([Page(
+        extra_content=b"q 256 0 0 128 72 72 cm /Im1 Do Q\n",
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    )])
+    return doc.build()
+
+
 # --------------------------------------------------------------------------- a scanned page
 
 # The letters of the scanned sample, 5 x 7 cells each, drawn for this corpus: no font and no
@@ -2254,6 +2328,8 @@ SAMPLES = [
            "Each page keeps its own size.", 4),
     Sample("benign/image-only.pdf", benign_image_only, "A page with an image and no text layer.",
            "Renders a gradient; search reports that the document has no text layer.", 1),
+    Sample("benign/jpx-image.pdf", benign_jpx_image, "A page with a JPEG 2000 image (/JPXDecode).",
+           "Renders the image; search reports that the document has no text layer.", 1),
     Sample("benign/scanned-text.pdf", benign_scanned_text,
            "A scan: the page is one picture of two lines of text (PRIVACY FIRST, SECRET PAPER) and nothing "
            "else, so it has no text layer.",
@@ -2458,6 +2534,9 @@ SAMPLES = [
            "Opens or reports corrupted; no stack overflow."),
     Sample("malformed/no-pages.pdf", malformed_no_pages, "Structurally valid document with zero pages.",
            "Reports corrupted (a document needs at least one page)."),
+    Sample("malformed/jpx-tile-parts-beyond-tlm.pdf", malformed_jpx_tile_parts_beyond_tlm,
+           "A JPEG 2000 image with more tile-parts than listed in the TLM marker (Issue #539, #554).",
+           "Opens and renders without crashing or leaking memory; worker stays healthy.", 1),
     Sample("malformed/not-a-pdf.pdf", lambda: b"This is a plain text file with a .pdf extension.\n",
            "Text file named .pdf.", "Reports not a PDF."),
     Sample("malformed/empty.pdf", lambda: b"", "Zero bytes.", "Reports not a PDF or corrupted."),
