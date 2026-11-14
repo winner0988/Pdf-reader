@@ -111,6 +111,17 @@
       "sha256": "1c81bc7cd4e6584a527582c1486333a5cec953e37589b393b152de40b5ead3f2"
     },
     {
+      "path": "benign/jpx-image.pdf",
+      "category": "benign",
+      "purpose": "A page with a JPEG 2000 image (/JPXDecode).",
+      "expected": "Renders the image; search reports that the document has no text layer.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 981,
+      "sha256": "986929a819af0ddf9cc660e75b581982d160cebf1023cada4d4aeb397ab15a43"
+    },
+    {
       "path": "benign/scanned-text.pdf",
       "category": "benign",
       "purpose": "A scan: the page is one picture of two lines of text (PRIVACY FIRST, SECRET PAPER) and nothing else, so it has no text layer.",
@@ -758,6 +769,39 @@
       "sha256": "790aec5b308605e9228336d70805e09e6e332ce307b7ffe5945da024718f196c"
     },
     {
+      "path": "malformed/page-tree-parent-cycle.pdf",
+      "category": "malformed",
+      "purpose": "The page tree's /Parent chain contains a cycle.",
+      "expected": "Opens (2 pages); page edits are refused (corrupted); never hangs.",
+      "pages": 2,
+      "findings": [],
+      "text": [],
+      "bytes": 1213,
+      "sha256": "f76e127fb3194af7ddc7aa7de4509bb563efb997ca21f921498371eec63b7017"
+    },
+    {
+      "path": "malformed/page-tree-middle-parent-cycle.pdf",
+      "category": "malformed",
+      "purpose": "An intermediate /Pages node's /Parent points to itself while page /Parent points to the root.",
+      "expected": "Opens (2 pages); page edits are refused (corrupted); never hangs.",
+      "pages": 2,
+      "findings": [],
+      "text": [],
+      "bytes": 1154,
+      "sha256": "8b93abf9a949be58368da9f2ac71620fcdefe20d9a277a86756f968a5231ef45"
+    },
+    {
+      "path": "malformed/page-tree-shared-kids.pdf",
+      "category": "malformed",
+      "purpose": "Intermediate /Pages nodes share a large /Kids array.",
+      "expected": "Opens (2 pages); page edits are refused (corrupted); never hangs.",
+      "pages": 2,
+      "findings": [],
+      "text": [],
+      "bytes": 99940,
+      "sha256": "ba52ba0043ba487cbc9385f715ea38391712711e1895e1bb3ee7588eb95be099"
+    },
+    {
       "path": "malformed/outline-cycle.pdf",
       "category": "malformed",
       "purpose": "Outline items whose /Next pointers form a cycle.",
@@ -800,6 +844,17 @@
       "text": [],
       "bytes": 432,
       "sha256": "b21bfc213b2ab173a6061886a4e2eacafaf836af48e5e353ee0b7c20807b31d4"
+    },
+    {
+      "path": "malformed/jpx-tile-parts-beyond-tlm.pdf",
+      "category": "malformed",
+      "purpose": "A JPEG 2000 image with more tile-parts than listed in the TLM marker (Issue #539, #554).",
+      "expected": "Opens and renders without crashing or leaking memory; worker stays healthy.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 1039,
+      "sha256": "a8c657158c8d1f88a813aa0532cc3ebc3300cdf9847346b2be8767cced7ec3bc"
     },
     {
       "path": "malformed/not-a-pdf.pdf",

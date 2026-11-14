@@ -1520,7 +1520,8 @@ fn engine_error(
         | EngineError::InvalidPicture(_)
         | EngineError::NoPageLeft
         | EngineError::EncryptedCopy => WorkerErrorCode::InvalidRequest,
-        EngineError::InvalidSource(_)
+        EngineError::CorruptedPageTree
+        | EngineError::InvalidSource(_)
         | EngineError::NotAppendable
         | EngineError::SanitizeCheckFailed => WorkerErrorCode::Corrupted,
         EngineError::Signed => WorkerErrorCode::Signed,

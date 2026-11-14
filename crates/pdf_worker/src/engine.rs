@@ -5,7 +5,7 @@
 //! Nothing in this crate may call `PdfDocument::enable_js`.
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 
 use ipc_contract::limits::{
@@ -33,6 +33,26 @@ use crate::scan::{self, ScanBudget};
 use crate::search::{PageSearch, PageText};
 use crate::text_layer::TextLayerBuilder;
 use thiserror::Error;
+
+/// The deepest page tree a document's edits may walk (ADR 0013, Issue #544).
+///
+/// Bounded like outline depth (`MAX_OUTLINE_DEPTH`): deeper than this is treated as corrupted,
+/// preventing infinite loops or excessive recursion in MuPDF when modifying the page tree.
+pub const MAX_PAGE_TREE_DEPTH: usize = 64;
+
+/// The maximum number of page tree nodes visited when validating the page tree (Issue #544).
+///
+/// Bounded by document page limits: a document has at most [`MAX_PAGE_COUNT`] pages, so a page
+/// tree cannot contain more intermediate nodes than this without being corrupted.
+pub const MAX_PAGE_TREE_NODES: usize = MAX_PAGE_COUNT as usize;
+
+/// The maximum number of `/Kids` entries inspected across the entire page tree when
+/// validating (Issue #544).
+///
+/// In a well-formed page tree, the total number of `/Kids` array entries across all
+/// intermediate nodes is at most the number of pages plus the number of intermediate nodes.
+/// Bounded by 2 * [`MAX_PAGE_COUNT`].
+pub const MAX_PAGE_TREE_KIDS: usize = 2 * MAX_PAGE_COUNT as usize;
 
 mod annotations;
 mod attachments;
@@ -188,6 +208,8 @@ pub enum EngineError {
     NotAppendable,
     #[error("the active-content check found remaining items after sanitization")]
     SanitizeCheckFailed,
+    #[error("the page tree is corrupted: /Parent chain does not end")]
+    CorruptedPageTree,
     #[error("MuPDF: {0}")]
     MuPdf(#[from] mupdf::Error),
 }
@@ -899,6 +921,7 @@ impl PdfDocument {
     ///   entry, link or named destination to a removed page stays, but goes nowhere.
     pub fn delete_pages(&mut self, pages: &[u32]) -> Result<(), EngineError> {
         let count = self.checked_pages(pages)?;
+        self.check_page_tree_parents()?;
         if pages.len() >= count as usize {
             return Err(EngineError::NoPageLeft);
         }
@@ -931,6 +954,7 @@ impl PdfDocument {
         if before > count {
             return Err(EngineError::PageOutOfRange(before));
         }
+        self.check_page_tree_parents()?;
         let mut moved = pages.to_vec();
         moved.sort_unstable();
         let len = moved.len() as u32;
@@ -968,6 +992,7 @@ impl PdfDocument {
         if count >= MAX_PAGE_COUNT {
             return Err(EngineError::TooManyPages);
         }
+        self.check_page_tree_parents()?;
         let size = self.page_size(like)?;
         self.doc.new_page_at(at as i32, size)?;
         self.ocr_forget_page(at);
@@ -989,6 +1014,144 @@ impl PdfDocument {
             return Err(EngineError::PageOutOfRange(page));
         }
         Ok(count)
+    }
+
+    /// Checks that the page tree terminates without cycles and within [`MAX_PAGE_TREE_DEPTH`]
+    /// (ADR 0013, Issue #544).
+    ///
+    /// Walks down from the catalog's `/Pages` root along `/Kids` with an explicit stack, bounded
+    /// by [`MAX_PAGE_TREE_DEPTH`], [`MAX_PAGE_TREE_NODES`], and [`MAX_PAGE_TREE_KIDS`]. For each
+    /// `/Type /Pages` node and page node encountered, verifies that the `/Parent` chain terminates
+    /// without cycles.
+    pub fn check_page_tree_parents(&self) -> Result<(), EngineError> {
+        let Some(root) = self.doc.catalog()?.get_dict("Pages")? else {
+            return Ok(());
+        };
+        if !root.is_dict()? {
+            return Ok(());
+        }
+
+        let mut stack = vec![(root.clone(), 1)];
+        let mut visited_pages_nodes = HashSet::new();
+        let mut verified_parents = HashMap::new();
+        let mut pages_node_count = 0;
+        let mut total_kids_inspected = 0;
+
+        if root.is_indirect()? {
+            visited_pages_nodes.insert(root.as_indirect()?);
+        }
+
+        while let Some((node, depth)) = stack.pop() {
+            if depth > MAX_PAGE_TREE_DEPTH {
+                return Err(EngineError::CorruptedPageTree);
+            }
+
+            pages_node_count += 1;
+            if pages_node_count > MAX_PAGE_TREE_NODES {
+                return Err(EngineError::CorruptedPageTree);
+            }
+
+            self.walk_parent_chain(&node, &mut verified_parents)?;
+
+            let Some(kids) = node.get_dict("Kids")? else {
+                continue;
+            };
+            if !kids.is_array()? {
+                continue;
+            }
+
+            let len = kids.len()?;
+            if len > MAX_PAGE_TREE_KIDS.saturating_sub(total_kids_inspected) {
+                return Err(EngineError::CorruptedPageTree);
+            }
+            for i in (0..len).rev() {
+                total_kids_inspected += 1;
+                if total_kids_inspected > MAX_PAGE_TREE_KIDS {
+                    return Err(EngineError::CorruptedPageTree);
+                }
+                let Some(kid) = kids.get_array(i32::try_from(i).unwrap_or(i32::MAX))? else {
+                    continue;
+                };
+                if !kid.is_dict()? {
+                    continue;
+                }
+
+                let Some(grandkids) = kid.get_dict("Kids")? else {
+                    continue;
+                };
+                if !grandkids.is_array()? {
+                    continue;
+                }
+
+                let is_pages = match kid.get_dict("Type")? {
+                    Some(t) if t.is_name()? => t.as_name()? == b"Pages",
+                    Some(_) => false,
+                    None => true,
+                };
+
+                if is_pages {
+                    if kid.is_indirect()? {
+                        let id = kid.as_indirect()?;
+                        if !visited_pages_nodes.insert(id) {
+                            continue;
+                        }
+                    }
+                    stack.push((kid, depth + 1));
+                }
+            }
+        }
+
+        if let Ok(page_0) = self.doc.find_page(0) {
+            self.walk_parent_chain(&page_0, &mut verified_parents)?;
+        }
+
+        Ok(())
+    }
+
+    fn walk_parent_chain(
+        &self,
+        start: &PdfObject,
+        verified: &mut HashMap<i32, usize>,
+    ) -> Result<(), EngineError> {
+        let mut chain = Vec::new();
+        let mut chain_set = HashSet::new();
+        let mut curr = Some(start.clone());
+        let mut depth = 0;
+        let mut base_dist = 0;
+
+        while let Some(node) = curr {
+            depth += 1;
+            if depth > MAX_PAGE_TREE_DEPTH {
+                return Err(EngineError::CorruptedPageTree);
+            }
+
+            if node.is_indirect()? {
+                let n = node.as_indirect()?;
+                if let Some(&dist) = verified.get(&n) {
+                    if depth.saturating_add(dist).saturating_sub(1) > MAX_PAGE_TREE_DEPTH {
+                        return Err(EngineError::CorruptedPageTree);
+                    }
+                    base_dist = dist;
+                    break;
+                }
+                if !chain_set.insert(n) {
+                    return Err(EngineError::CorruptedPageTree);
+                }
+                chain.push(n);
+            }
+
+            curr = match node.get_dict("Parent")? {
+                Some(parent) if parent.is_dict()? => Some(parent),
+                _ => None,
+            };
+        }
+
+        let mut current_dist = base_dist;
+        for &n in chain.iter().rev() {
+            current_dist += 1;
+            verified.insert(n, current_dist);
+        }
+        Ok(())
     }
 
     /// Whether the document is signed: its form says signatures exist (`/SigFlags` bit 1), or a
@@ -1477,6 +1640,7 @@ impl PdfDocument {
         if at > count {
             return Err(EngineError::PageOutOfRange(at));
         }
+        self.check_page_tree_parents()?;
         let source_doc = PdfDocument::from_bytes(source)?;
         let inserted = source_doc.page_count()?;
         if inserted == 0 {
@@ -1485,6 +1649,7 @@ impl PdfDocument {
         if count.saturating_add(inserted) > MAX_PAGE_COUNT {
             return Err(EngineError::TooManyPages);
         }
+        source_doc.check_page_tree_parents()?;
         let annotations = merge_annotations::extract_source_annotations(&source_doc)?;
         let target = if at == count {
             InsertPosition::Append
@@ -4981,5 +5146,27 @@ endstream",
         assert_eq!(annots.len(), 1);
         assert_eq!(annots[0].kind, AnnotationKind::Note);
         assert_eq!(annots[0].text.as_deref(), Some("still here"));
+    }
+
+    #[test]
+    fn ten_thousand_page_normal_document_passes_page_tree_check() {
+        let pages = 10_000;
+        let kids: Vec<String> = (0..pages).map(|i| format!("{} 0 R", 3 + i)).collect();
+        let mut objects = vec![
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            format!(
+                "<< /Type /Pages /Kids [{}] /Count {pages} >>",
+                kids.join(" ")
+            ),
+        ];
+        objects.extend(
+            (0..pages)
+                .map(|_| "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_owned()),
+        );
+        let refs: Vec<&str> = objects.iter().map(String::as_str).collect();
+        let bytes = build_pdf(&refs);
+        let doc = PdfDocument::from_bytes(&bytes).expect("open 10k page pdf");
+        assert_eq!(doc.page_count().expect("page count"), 10_000);
+        assert!(doc.check_page_tree_parents().is_ok());
     }
 }
