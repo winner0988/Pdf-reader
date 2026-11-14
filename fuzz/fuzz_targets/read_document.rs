@@ -75,6 +75,8 @@ fn exercise_document(document: &PdfDocument) {
             let _ = field.contents();
         }
     }
+    let _ = document.document_properties();
+    let _ = document.document_fonts();
 }
 
 fuzz_target!(|data: &[u8]| {

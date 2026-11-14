@@ -851,7 +851,9 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::ExifCleaned { request, .. }
         | WorkerResponse::Created { request, .. }
         | WorkerResponse::Attachments { request, .. }
-        | WorkerResponse::AttachmentWritten { request, .. } => Some(*request),
+        | WorkerResponse::AttachmentWritten { request, .. }
+        | WorkerResponse::DocumentProperties { request, .. }
+        | WorkerResponse::DocumentFonts { request, .. } => Some(*request),
         WorkerResponse::Error { request, .. } => *request,
     }
 }
