@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 53">
+  <!-- The header of the installer's and the uninstaller's other pages (docs/ux/visual-style.md,
+       section 9). Rebuild the bitmaps with `node scripts/release/installer-images.mjs`. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b65bf"/>
+      <stop offset="1" stop-color="#014a93"/>
+    </linearGradient>
+  </defs>
+  <rect width="150" height="53" fill="#ffffff"/>
+  <!-- The app icon (src-tauri/icons/app-icon.svg) at the right, next to the page's title -->
+  <g transform="translate(97 5.53) scale(0.041)">
+    <rect x="48" y="48" width="928" height="928" rx="190" fill="url(#tile)"/>
+    <g transform="translate(512 512) scale(0.90625) translate(-508 -508)">
+      <path d="M432 170V293A32 32 0 0 1 400 325H277Z" fill="#fffdfa" stroke="#fffdfa" stroke-width="10" stroke-linejoin="round"/>
+      <path d="M487 165A30 30 0 0 1 517 135H570Q588 135 601 148L756 303Q775 322 775 348V467.9Q775 505.9 743 490.9L612 429.6Q602 424.9 592 429.6L367.2 534.8Q315 559.2 315 611.4C315 689.2 318.8 745 342.8 790H277A35 35 0 0 1 242 755V415A35 35 0 0 1 277 380H410A77 77 0 0 0 487 303Z" fill="#fffdfa"/>
+      <path d="M374 612.1V626.1C373 735 418 815 478 866" fill="none" stroke="#8ec2ff" stroke-width="29" stroke-linecap="round"/>
+      <path d="M765 565.3L612 493.6Q602 489 592 493.6L400 583.5Q373 596.1 374 612.1" fill="none" stroke="#8ec2ff" stroke-width="29" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M602 558L762 633Q768 636 768 646C768 760 690 838 610 880Q602 884 594 880C514 838 436 760 436 646Q436 636 442 633Z" fill="#fffdfa" stroke="#fffdfa" stroke-width="10" stroke-linejoin="round"/>
+    </g>
+  </g>
+</svg>
