@@ -98,6 +98,28 @@ jobs:
           if (($languages -join ',') -ne 'TradChinese,English') { throw "installer languages: $($languages -join ', ')" }
           "installer languages: $($languages -join ', ')"
 
+      # UX-05 (#559): the installer and the uninstaller have the app's icon and the wizard's
+      # pictures (docs/ux/visual-style.md, section 9), not NSIS's own. The uninstaller's header
+      # is the installer's: Tauri either repeats it or leaves the define empty, and MUI2 then
+      # uses the installer's.
+      - name: Installer has the app's icon and pictures
+        run: |
+          $wanted = [ordered]@{
+            INSTALLERICON = 'icons[\\/]icon\.ico'
+            UNINSTALLERICON = 'icons[\\/]icon\.ico'
+            SIDEBARIMAGE = 'windows[\\/]installer-sidebar\.bmp'
+            HEADERIMAGE = 'windows[\\/]installer-header\.bmp'
+            UNINSTALLERHEADERIMAGE = 'windows[\\/]installer-header\.bmp'
+          }
+          foreach ($name in $wanted.Keys) {
+            $define = Select-String -Path target/release/nsis/x64/installer.nsi -Pattern "^!define $name `"(.*)`"" | Select-Object -First 1
+            if (-not $define) { throw "$name is missing from the generated installer script" }
+            $value = $define.Matches[0].Groups[1].Value
+            $empty = $name -eq 'UNINSTALLERHEADERIMAGE' -and $value -eq ''
+            if (-not $empty -and $value -notmatch "(^|[\\/])$($wanted[$name])$") { throw "$name is '$value'" }
+            "${name}: '$value'"
+          }
+
       - name: Installer contains the worker, the OCR language data, the licence and the notices
         run: |
           $installer = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
