@@ -1305,10 +1305,12 @@ pub enum WorkerResponse {
         /// Whether the page has any text at all (none on every page means no text layer).
         has_text: bool,
     },
-    /// The edit is applied; `pages` are the document's pages now.
+    /// The edit is applied; `pages` are the document's pages now, and `page_labels` are the document's
+    /// page labels now (B5-07, Issue #444).
     Edited {
         request: RequestId,
         pages: Vec<PageSize>,
+        page_labels: Option<Vec<String>>,
     },
     /// `Rebase` is done.
     Rebased {
@@ -1484,6 +1486,9 @@ pub struct OpenedDocument {
     /// The app's document identifier in the file's metadata (ADR 0010; not a `DocumentId`): the
     /// file is marked as sensitive (B3-05, ADR 0004).
     pub identifier: Option<[u8; 16]>,
+    /// Page labels defined by the document (/PageLabels, B5-07).
+    /// `None` when there are no labels or when every label equals its 1-based physical page number.
+    pub page_labels: Option<Vec<String>>,
 }
 
 /// A rendered page: opaque RGBA8 (alpha is always 255), rows top to bottom, no padding.
@@ -1941,6 +1946,7 @@ mod tests {
             encrypted: false,
             signed: true,
             identifier: Some([0xc3; 16]),
+            page_labels: None,
         };
         let bytes = postcard::to_allocvec(&opened).unwrap();
         assert_eq!(

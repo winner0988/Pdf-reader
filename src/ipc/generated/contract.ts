@@ -1254,7 +1254,11 @@ passwordRecalled: boolean,
  * (ADR 0010). Text copied from it stays out of Windows' clipboard history and cloud
  * clipboard, and the file is not on the recent files list.
  */
-sensitive: boolean, };
+sensitive: boolean, 
+/**
+ * Page labels defined by the document (/PageLabels, B5-07).
+ */
+pageLabels: Array<string> | null, };
 
 /**
  * Parsed date from a PDF date string (`D:YYYYMMDDHHmmSSOHH'mm'`) (B5-04).
@@ -1782,6 +1786,7 @@ export const LIMITS = {
   maxUriBytes: 32768,
   maxRemoteAddresses: 32,
   maxTextBytes: 1024,
+  maxPageLabelBytes: 64,
   maxQueryBytes: 1024,
   maxPasswordBytes: 1024,
   maxNewPasswordBytes: 127,

@@ -3,7 +3,7 @@
 //! left-to-right-safe text before it leaves the worker, and the main process rejects anything
 //! that was not.
 
-use crate::limits::{MAX_TEXT_BYTES, MAX_URI_BYTES};
+use crate::limits::{MAX_PAGE_LABEL_BYTES, MAX_TEXT_BYTES, MAX_URI_BYTES};
 use crate::types::{BlockedAction, LinkTarget};
 
 /// Characters that change how surrounding text is displayed without being visible themselves:
@@ -13,6 +13,21 @@ pub(crate) fn is_invisible_format(c: char) -> bool {
     matches!(
         c,
         '\u{061C}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2069}'
+            | '\u{FEFF}'
+    )
+}
+
+/// Characters forbidden in page labels (B5-07, Issue #444): ASCII controls (U+0000..=U+001F),
+/// DEL and C1 controls (U+007F..=U+009F), and directional / invisible formatting characters.
+pub fn is_forbidden_label_char(c: char) -> bool {
+    matches!(
+        c,
+        '\u{0000}'..='\u{001F}'
+            | '\u{007F}'..='\u{009F}'
+            | '\u{061C}'
             | '\u{200B}'..='\u{200F}'
             | '\u{202A}'..='\u{202E}'
             | '\u{2060}'..='\u{2069}'
@@ -55,6 +70,29 @@ pub fn is_clean_display_text(text: &str) -> bool {
         && !text.starts_with(' ')
         && !text.ends_with(' ')
         && !text.contains("  ")
+}
+
+/// Sanitizes a page label taken from a PDF (B5-07): control characters and invisible formatting
+/// characters are stripped, and the result is truncated at a UTF-8 character boundary to at most
+/// `max_bytes`.
+pub fn clean_page_label(text: &str, max_bytes: usize) -> String {
+    let mut out = String::with_capacity(text.len().min(max_bytes));
+    for c in text.chars() {
+        if is_forbidden_label_char(c) {
+            continue;
+        }
+        if out.len() + c.len_utf8() > max_bytes {
+            break;
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Whether `text` is a valid page label: within `MAX_PAGE_LABEL_BYTES` and free of control or
+/// invisible formatting characters.
+pub fn is_clean_page_label(text: &str) -> bool {
+    text.len() <= MAX_PAGE_LABEL_BYTES && !text.chars().any(is_forbidden_label_char)
 }
 
 /// A character of a page's text as it is selected and copied (MVP-15): whitespace and control
@@ -453,5 +491,18 @@ mod tests {
         ] {
             assert!(!is_network_path(path), "{}", String::from_utf8_lossy(path));
         }
+    }
+
+    #[test]
+    fn page_labels_cleaning_and_validation() {
+        assert_eq!(clean_page_label("iv", 64), "iv");
+        assert_eq!(clean_page_label("A-1\u{0000}\u{202E}\u{001F}", 64), "A-1");
+        let long = "a".repeat(100);
+        assert_eq!(clean_page_label(&long, 64).len(), 64);
+        assert!(is_clean_page_label("iv"));
+        assert!(is_clean_page_label("Appendix-A"));
+        assert!(!is_clean_page_label("bad\u{0000}"));
+        assert!(!is_clean_page_label("bad\u{202E}"));
+        assert!(!is_clean_page_label(&long));
     }
 }

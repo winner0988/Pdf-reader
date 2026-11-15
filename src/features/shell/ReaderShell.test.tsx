@@ -648,6 +648,92 @@ describe("shortcuts", () => {
     expect(within(dialog).getByText("Ctrl+O")).toBeInTheDocument();
   });
 
+  it("Ctrl+K opens the command palette, and Enter executes a command (B5-06)", async () => {
+    const { user } = renderShell(openState);
+
+    await user.keyboard("{Control>}k{/Control}");
+    const dialog = await screen.findByRole("dialog", { name: strings.commands.palette });
+    expect(dialog).toBeInTheDocument();
+
+    const input = within(dialog).getByRole("combobox");
+    expect(input).toHaveFocus();
+
+    await user.type(input, "順時針旋轉");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: strings.commands.palette })).not.toBeInTheDocument());
+  });
+
+  it("Ctrl+K does not open command palette on top of another open dialog", async () => {
+    const { user } = renderShell(openState);
+
+    // Open shortcuts dialog with Ctrl+/
+    await user.keyboard("{Control>}/{/Control}");
+    expect(await screen.findByRole("dialog", { name: strings.shortcuts.title })).toBeInTheDocument();
+
+    // Press Ctrl+K
+    await user.keyboard("{Control>}k{/Control}");
+    expect(screen.queryByRole("dialog", { name: strings.commands.palette })).not.toBeInTheDocument();
+  });
+
+  it("proves command conditions are defined in a single source: print permission simultaneously disables MoreMenu and CommandPalette with the same reason", async () => {
+    const restrictedDoc: ShellDocument = {
+      ...demoDocument,
+      permissions: {
+        ...demoDocument.permissions,
+        print: false,
+      },
+    };
+    const { user } = renderShell({ kind: "open", document: restrictedDoc });
+
+    // 1. Check MoreMenu: print is disabled with "作者不允許"
+    const moreButton = screen.getByRole("button", { name: strings.toolbar.more });
+    await user.click(moreButton);
+
+    const menu = await screen.findByRole("menu");
+    const printMenuItem = within(menu).getByRole("menuitem", { name: /列印…/ });
+    expect(printMenuItem).toHaveAttribute("data-disabled");
+    expect(within(printMenuItem).getByText(strings.permissions.notAllowed)).toBeInTheDocument();
+
+    // Close MoreMenu by pressing Escape
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+
+    // 2. Check CommandPalette: print is disabled with the exact same reason "作者不允許"
+    await user.keyboard("{Control>}k{/Control}");
+    const palette = await screen.findByRole("dialog", { name: strings.commands.palette });
+    const input = within(palette).getByRole("combobox");
+    await user.type(input, "列印…");
+
+    const printOption = within(palette).getByRole("option", { name: /列印…/ });
+    expect(printOption).toHaveAttribute("aria-disabled", "true");
+    expect(printOption).toHaveTextContent(strings.permissions.notAllowed);
+  });
+
+  it("executing shortcuts command from command palette keeps focus inside shortcuts dialog (B5-06 suggestion)", async () => {
+    const { user } = renderShell(openState);
+
+    // Open command palette with Ctrl+K
+    await user.keyboard("{Control>}k{/Control}");
+    const paletteDialog = await screen.findByRole("dialog", { name: strings.commands.palette });
+    expect(paletteDialog).toBeInTheDocument();
+
+    const input = within(paletteDialog).getByRole("combobox");
+    await user.type(input, "快捷鍵");
+    await user.keyboard("{Enter}");
+
+    // Palette closes, shortcuts dialog opens
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: strings.commands.palette })).not.toBeInTheDocument());
+    const shortcutsDialog = await screen.findByRole("dialog", { name: strings.shortcuts.title });
+    expect(shortcutsDialog).toBeInTheDocument();
+
+    // Wait a tick for any focus restore timeouts
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Focus is inside the shortcuts dialog
+    expect(shortcutsDialog.contains(document.activeElement)).toBe(true);
+  });
+
   it("document shortcuts do nothing without a document", async () => {
     const { user } = renderShell({ kind: "empty" });
     await user.keyboard("{Control>}f{/Control}");

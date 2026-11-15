@@ -68,6 +68,9 @@ import { SignatureDetails } from "@/features/signatures/SignatureDetails";
 import type { SignatureView } from "@/features/signatures/useSignatures";
 import { hasBannerContent } from "@/features/security-banner/summary";
 import { AboutDialog, SetDefaultFailedDialog, ShortcutsDialog } from "@/features/shell/dialogs";
+import { CommandPalette } from "@/features/commands/CommandPalette";
+import { createCommands } from "@/features/commands/registry";
+import type { CommandOptions } from "@/features/commands/types";
 import { APP_VERSION } from "@/features/shell/version";
 import { rotate, sameSession, stepZoom, type Rotation, type ShellState, type Zoom } from "@/features/shell/model";
 import { DocumentPropertiesDialog } from "@/features/properties/DocumentPropertiesDialog";
@@ -354,6 +357,7 @@ export function ReaderShell({
     | "create"
     | "sensitive"
     | "sign"
+    | "commandPalette"
     | "properties"
     | null
   >(
@@ -1198,6 +1202,19 @@ export function ReaderShell({
     presentationCurrent: whenOpen(() => startPresentation(true)),
     help: () => setDialog("shortcuts"),
     searchAll: () => textIndex?.openSearchAll(),
+    commandPalette: () => {
+      if (
+        dialog !== null ||
+        linkDialog !== null ||
+        printJob !== null ||
+        redactionConfirmOpen ||
+        findPersonalDataOpen ||
+        flattenOpen
+      ) {
+        return false;
+      }
+      setDialog("commandPalette");
+    },
   }, active && presentation === null);
 
   /**
@@ -1400,110 +1417,134 @@ export function ReaderShell({
     }
   };
 
+  const commandOptions: CommandOptions = {
+    document: document_ ? { pageCount, currentPage, zoom, pageLabels: document_.pageLabels } : null,
+    sidebarOpen: sidebarOpen && document_ !== null,
+    searchOpen,
+    theme,
+    layoutMode,
+    onLayoutModeChange: setLayoutMode,
+    pageInputRef,
+    canGoBack: canGoBack(navHistory),
+    canGoForward: canGoForward(navHistory),
+    onGoBack: goBack,
+    onGoForward: goForward,
+    onToggleSidebar: () => setSidebarOpen((open) => !open),
+    onOpen,
+    onGoToPage: jumpPage,
+    onHint: showHint,
+    onZoomIn: () => setZoom((z) => stepZoom(z, 1, fitPercent)),
+    onZoomOut: () => setZoom((z) => stepZoom(z, -1, fitPercent)),
+    onZoomChange: setZoom,
+    onRotate: (direction) => setRotation((r) => rotate(r, direction)),
+    onSearch: () => (searchOpen ? closeSearch() : setSearchOpen(true)),
+    onThemeChange: setTheme,
+    fullscreen,
+    onToggleFullscreen: toggleFullscreen,
+    onShowShortcuts: () => setDialog("shortcuts"),
+    onShowAbout: () => setDialog("about"),
+    onShowSettings: () => setDialog("settings"),
+    onSetDefault: () => {
+      systemApi?.openDefaultAppsSettings().catch(() => setDialog("setDefaultFailed"));
+    },
+    onPrint: printable && permissions.print ? print : undefined,
+    printBlocked: !permissions.print,
+    onDocumentProperties: doc !== undefined ? () => setDialog("properties") : undefined,
+    onSave: savable && document_?.unsaved ? save : undefined,
+    onSaveAs: savable ? saveAs : undefined,
+    onCreatePdf: createApi ? () => setDialog("create") : undefined,
+    onUndo: undoable ? () => undo() : undefined,
+    onRedo: redoable ? redo : undefined,
+    onExport:
+      exportable && permissions.copy
+        ? () => {
+            setExportPreset(null);
+            setDialog("export");
+          }
+        : undefined,
+    exportBlocked: exportable && !permissions.copy,
+    onExportAnnotations:
+      summaryApi && permissions.copy ? () => setDialog("exportAnnotations") : undefined,
+    exportAnnotationsBlocked: summaryApi !== undefined && !permissions.copy,
+    onCompareText:
+      compareApi !== undefined &&
+      doc !== undefined &&
+      otherTabs !== undefined &&
+      otherTabs.length > 0 &&
+      permissions.copy
+        ? () => setDialog("compare")
+        : undefined,
+    compareTextBlocked:
+      compareApi === undefined
+        ? undefined
+        : !permissions.copy
+          ? strings.permissions.notAllowed
+          : otherTabs === undefined || otherTabs.length === 0
+            ? strings.compare.onlyOneTab
+            : undefined,
+    onPrivacyExport: savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined,
+    privacyExportBlocked: savable && document_?.encrypted === true,
+    onSanitizeCopy:
+      savable && !document_?.encrypted && !isSigned
+        ? () => setDialog("sanitize")
+        : undefined,
+    sanitizeCopyBlocked:
+      !savable
+        ? undefined
+        : document_?.encrypted
+          ? strings.sanitize.encrypted
+          : isSigned
+            ? strings.sanitize.signatures
+            : undefined,
+    onPageMarks: savable && !document_?.encrypted ? () => setDialog("pageMarks") : undefined,
+    pageMarksBlocked: savable && document_?.encrypted === true,
+    onEncryptCopy: savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined,
+    onBatch: openBatch,
+    onSearchAll: textIndex?.openSearchAll,
+    encryptCopyBlocked: savable && document_?.encrypted === true,
+    onForgetPassword: document_?.passwordRemembered ? forgetPassword : undefined,
+    onCompressImages: savable && !document_?.encrypted ? () => setDialog("compress") : undefined,
+    compressImagesBlocked: savable && document_?.encrypted === true,
+    onSign: signingApi && doc !== undefined && !document_?.encrypted ? () => setDialog("sign") : undefined,
+    signBlocked: signingApi !== undefined && doc !== undefined && document_?.encrypted === true,
+    ocr: ocrView.menu,
+    flatten:
+      document_?.hasForm && editingApi !== undefined
+        ? { onClick: fillForms ? () => setFlattenOpen(true) : undefined }
+        : undefined,
+    sensitive:
+      sensitiveApi && doc !== undefined
+        ? { marked: document_?.sensitive === true, onClick: () => setDialog("sensitive") }
+        : undefined,
+    recording:
+      recording && document_?.sensitive !== true
+        ? { recorded, onChange: setRecording }
+        : undefined,
+    onInsertFrom: editingApi?.pickPagesSource ? insertFrom : undefined,
+    insertFromBlocked: !(permissions.assemble || permissions.modify),
+    onClose,
+    onCopy: () => !hasPageSelection() && copySelection(),
+    onFindNext: () => findAgain(1),
+    onFindPrevious: () => findAgain(-1),
+    onFitPage: () => setZoom("fitPage"),
+    onActualSize: () => setZoom(100),
+    onFitWidth: () => setZoom("fitWidth"),
+    onFirstPage: () => goToPage(1),
+    onLastPage: () => goToPage(pageCount),
+    onPresentation: () => startPresentation(false),
+    onPresentationCurrent: () => startPresentation(true),
+    onNextRegion: () => focusRegion(shellRef.current, 1),
+    onPreviousRegion: () => focusRegion(shellRef.current, -1),
+  };
+
+  const allCommands = createCommands(commandOptions);
+
   return (
     <TooltipProvider>
       <div ref={shellRef} className="flex h-full flex-col bg-background text-foreground">
         <Toolbar
-          document={document_ ? { pageCount, currentPage, zoom } : null}
-          sidebarOpen={sidebarOpen && document_ !== null}
-          searchOpen={searchOpen}
-          theme={theme}
-          layoutMode={layoutMode}
-          onLayoutModeChange={setLayoutMode}
-          pageInputRef={pageInputRef}
-          canGoBack={canGoBack(navHistory)}
-          canGoForward={canGoForward(navHistory)}
-          onGoBack={goBack}
-          onGoForward={goForward}
-          onToggleSidebar={() => setSidebarOpen((open) => !open)}
-          onOpen={onOpen}
-          onGoToPage={jumpPage}
-          onZoomIn={() => setZoom((z) => stepZoom(z, 1, fitPercent))}
-          onZoomOut={() => setZoom((z) => stepZoom(z, -1, fitPercent))}
-          onZoomChange={setZoom}
-          onRotate={(direction) => setRotation((r) => rotate(r, direction))}
-          onSearch={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
-          onThemeChange={setTheme}
-          fullscreen={fullscreen}
-          onToggleFullscreen={toggleFullscreen}
-          onShowShortcuts={() => setDialog("shortcuts")}
-          onShowAbout={() => setDialog("about")}
-          onShowSettings={() => setDialog("settings")}
-          onSetDefault={() => {
-            systemApi?.openDefaultAppsSettings().catch(() => setDialog("setDefaultFailed"));
-          }}
-          onPrint={printable && permissions.print ? print : undefined}
-          printBlocked={!permissions.print}
-          onDocumentProperties={doc !== undefined ? () => setDialog("properties") : undefined}
-          onSave={savable && document_?.unsaved ? save : undefined}
-          onSaveAs={savable ? saveAs : undefined}
-          onCreatePdf={createApi ? () => setDialog("create") : undefined}
-          onUndo={undoable ? () => undo() : undefined}
-          onRedo={redoable ? redo : undefined}
-          onExport={
-            exportable && permissions.copy
-              ? () => {
-                  setExportPreset(null);
-                  setDialog("export");
-                }
-              : undefined
-          }
-          exportBlocked={exportable && !permissions.copy}
-          onExportAnnotations={
-            summaryApi && permissions.copy ? () => setDialog("exportAnnotations") : undefined
-          }
-          exportAnnotationsBlocked={summaryApi !== undefined && !permissions.copy}
-          onCompareText={
-            compareApi !== undefined &&
-            doc !== undefined &&
-            otherTabs !== undefined &&
-            otherTabs.length > 0 &&
-            permissions.copy
-              ? () => setDialog("compare")
-              : undefined
-          }
-          compareTextBlocked={
-            compareApi === undefined
-              ? undefined
-              : !permissions.copy
-                ? strings.permissions.notAllowed
-                : otherTabs === undefined || otherTabs.length === 0
-                  ? strings.compare.onlyOneTab
-                  : undefined
-          }
-          onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}
-          privacyExportBlocked={savable && document_?.encrypted === true}
-          onSanitizeCopy={
-            savable && !document_?.encrypted && !isSigned
-              ? () => setDialog("sanitize")
-              : undefined
-          }
-          sanitizeCopyBlocked={
-            !savable
-              ? undefined
-              : document_?.encrypted
-                ? strings.sanitize.encrypted
-                : isSigned
-                  ? strings.sanitize.signatures
-                  : undefined
-          }
-          onPageMarks={savable && !document_?.encrypted ? () => setDialog("pageMarks") : undefined}
-          pageMarksBlocked={savable && document_?.encrypted === true}
-          onEncryptCopy={savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined}
-          onBatch={openBatch}
-          onSearchAll={textIndex?.openSearchAll}
-          encryptCopyBlocked={savable && document_?.encrypted === true}
-          onForgetPassword={document_?.passwordRemembered ? forgetPassword : undefined}
-          onCompressImages={savable && !document_?.encrypted ? () => setDialog("compress") : undefined}
-          compressImagesBlocked={savable && document_?.encrypted === true}
-          onSign={signingApi && doc !== undefined && !document_?.encrypted ? () => setDialog("sign") : undefined}
-          signBlocked={signingApi !== undefined && doc !== undefined && document_?.encrypted === true}
-          ocr={ocrView.menu}
-          flatten={
-            document_?.hasForm && editingApi !== undefined
-              ? { onClick: fillForms ? () => setFlattenOpen(true) : undefined }
-              : undefined
-          }
+          {...commandOptions}
+          commands={allCommands}
           highlight={
             editingApi !== undefined && doc !== undefined
               ? {
@@ -1596,13 +1637,6 @@ export function ReaderShell({
               : undefined
           }
           onMoreMenuOpen={askRecording}
-          // A sensitive file is never on the recent files list: there is nothing to choose (B3-05).
-          recording={recording && document_?.sensitive !== true ? { recorded, onChange: setRecording } : undefined}
-          sensitive={
-            sensitiveApi && doc !== undefined
-              ? { marked: document_?.sensitive === true, onClick: () => setDialog("sensitive") }
-              : undefined
-          }
         />
         <div className="relative flex min-h-0 flex-1">
           {sidebarOpen && document_ && (
@@ -1611,6 +1645,7 @@ export function ReaderShell({
               key={document_.session ?? document_.doc ?? document_.displayName}
               outline={outline ?? document_.outline ?? { status: "none" }}
               pages={document_.pages}
+              pageLabels={document_.pageLabels}
               doc={document_.doc}
               renderer={renderer}
               currentPage={currentPage}
@@ -1898,7 +1933,13 @@ export function ReaderShell({
             </main>
             {document_ && searchOpen && (
               <div className="pointer-events-none absolute inset-x-0 top-0 *:pointer-events-auto">
-                <SearchBar search={search} pageCount={pageCount} inputRef={searchInputRef} onClose={closeSearch} />
+                <SearchBar
+                  search={search}
+                  pageCount={pageCount}
+                  pageLabels={document_.pageLabels}
+                  inputRef={searchInputRef}
+                  onClose={closeSearch}
+                />
               </div>
             )}
             </div>
@@ -2012,6 +2053,11 @@ export function ReaderShell({
         onClose={() => setSaveFailed(null)}
       />
       <ShortcutsDialog open={dialog === "shortcuts"} onOpenChange={(open) => setDialog(open ? "shortcuts" : null)} />
+      <CommandPalette
+        open={dialog === "commandPalette"}
+        onOpenChange={(open) => setDialog(open ? "commandPalette" : null)}
+        commands={allCommands}
+      />
       <SetDefaultFailedDialog
         open={dialog === "setDefaultFailed"}
         onOpenChange={(open) => setDialog(open ? "setDefaultFailed" : null)}

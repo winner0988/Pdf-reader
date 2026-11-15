@@ -196,4 +196,11 @@ describe("the window's panels and the dialogs of its menu", () => {
     await screen.findByRole("region", { name: strings.licenses.textLabel });
     await expectAccessible(document.body);
   });
+
+  it("the command palette (B5-06)", async () => {
+    shell({ kind: "open", document: demoDocument });
+    await user.keyboard("{Control>}k{/Control}");
+    await screen.findByRole("dialog", { name: strings.commands.palette });
+    await expectAccessible(document.body);
+  });
 });

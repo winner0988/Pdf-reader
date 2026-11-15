@@ -44,6 +44,18 @@ pub const MAX_REGION_PAGE_SIDE_PX: u32 = 1 << 20;
 pub const MAX_OUTLINE_ITEMS: u32 = 10_000;
 pub const MAX_OUTLINE_DEPTH: u16 = 64;
 
+/// Upper bounds for reading the /PageLabels number tree (B5-07, Issue #444).
+pub const MAX_PAGE_LABEL_NODES: usize = 256;
+pub const MAX_PAGE_LABEL_DEPTH: usize = 16;
+/// Maximum number of `/Kids` and `/Nums` items inspected across the entire page label tree (B5-07, Issue #444).
+///
+/// In a well-formed page label tree, one `/Nums` array entry exists per label range, and each entry
+/// consists of a page index and a label dictionary (2 array items). Bounded by 2 * [`MAX_PAGE_COUNT`],
+/// which allows any valid document up to the maximum page count while bounding memory and iteration.
+pub const MAX_PAGE_LABEL_ITEMS: usize = 2 * MAX_PAGE_COUNT as usize;
+/// Maximum length of a single page label (UTF-8 bytes, B5-07).
+pub const MAX_PAGE_LABEL_BYTES: usize = 64;
+
 /// Maximum links reported for one page.
 pub const MAX_LINKS_PER_PAGE: u32 = 2_000;
 

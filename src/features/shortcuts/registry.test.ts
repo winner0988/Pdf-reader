@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { SHORTCUTS, findShortcut } from "@/features/shortcuts/registry";
+import { SHORTCUTS, findShortcut, getShortcutKey } from "@/features/shortcuts/registry";
 import { strings } from "@/i18n/zh-TW";
 
 function keydown(init: KeyboardEventInit, target: EventTarget = document.body): KeyboardEvent {
@@ -22,6 +22,7 @@ describe("findShortcut", () => {
     [{ key: "F6", shiftKey: true }, "previousRegion"],
     [{ key: "/", ctrlKey: true }, "help"],
     [{ key: "p", ctrlKey: true }, "print"],
+    [{ key: "k", ctrlKey: true }, "commandPalette"],
   ])("maps %o to %s", (init, id) => {
     expect(findShortcut(keydown(init))?.id).toBe(id);
   });
@@ -43,6 +44,7 @@ describe("findShortcut", () => {
     const input = document.createElement("input");
     expect(findShortcut(keydown({ key: "Home" }, input))).toBeUndefined();
     expect(findShortcut(keydown({ key: "f", ctrlKey: true }, input))?.id).toBe("search");
+    expect(findShortcut(keydown({ key: "k", ctrlKey: true }, input))?.id).toBe("commandPalette");
   });
 
   it("leaves Ctrl+C to text fields, which copy their own text", () => {
@@ -76,5 +78,10 @@ describe("findShortcut", () => {
     for (const shortcut of SHORTCUTS) {
       expect(strings.shortcuts.descriptions[shortcut.id]).toBeTruthy();
     }
+  });
+
+  it("returns primary shortcut key label via getShortcutKey", () => {
+    expect(getShortcutKey("commandPalette")).toBe("Ctrl+K");
+    expect(getShortcutKey("save")).toBe("Ctrl+S");
   });
 });

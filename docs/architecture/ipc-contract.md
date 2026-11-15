@@ -154,6 +154,7 @@ flowchart LR
 - `DocumentInfo.recovery`（B2-13）：上一次執行留下、還沒回答的編輯：`none`、`available`（可以還原）或 `stale`（檔案已改變，不能還原）。見 [crash-recovery.md](crash-recovery.md)。
 - `DocumentInfo.hasForm`（B2-09）：文件有表單，且沒有被扁平化。見 [forms.md](forms.md)。
 - `DocumentInfo.encrypted`（B2-03）：文件有加密（有開啟密碼，或只有權限密碼）；沒有隱私匯出。
+- `DocumentInfo.pageLabels`（B5-07）：文件的自訂頁碼標籤（`/PageLabels`，如 i、ii、1）。開檔時由 worker 安全走訪 number tree 取得，若無自訂標籤或與 1-based 實體頁碼完全相同則為 `None`。每個標籤長度最多 `LIMITS.maxPageLabelBytes`（64 bytes），已清除控制字元與不可見字元（見 [page-labels.md](page-labels.md)）。
 
 ### 檔案對話框（MVP-06、#86、B2-04）
 
@@ -266,8 +267,8 @@ flowchart LR
 | `VerifySignatures` | `request`, `doc` | `Signatures`（`report: SignatureReport`，最多 `MAX_SIGNATURES` 筆；沒有簽署者的簽章不會有名字，主行程檢查）或 `Error`；驗證的是 worker 保存的檔案位元組，不是編輯後的文件（B2-14） |
 | `RenderPng` | `request`, `doc`, `page_index`, `scale` | `Png`（PNG 位元組，最多 `MAX_PNG_BYTES`，主行程檢查簽名）或 `Error`；不旋轉，匯出用（B2-04） |
 | `SearchPage` | `request`, `doc`, `page_index`, `query`, `case_sensitive`, `max_hits` | `PageSearched`（`hits`、`has_text`）或 `Error`；整份文件的搜尋由主行程逐頁驅動，見 [search.md](search.md) |
-| `Edit` | `request`, `doc`, `edit`（`WorkerEdit`：`RotatePages { pages, degrees }`、`DeletePages { pages }`、`MovePages { pages, before }`、`InsertBlankPage { at, like }`、`InsertPages { at, source, text_boxes }`：`source` 是 `PrepareSource` 做出來的檔案，`text_boxes` 是主行程為來源文字方塊準備的排版模型，B2-06、B3-23，見 [merge.md](merge.md)） | `Edited`（套用後的 `pages`）或 `Error`；只改記憶體中的文件（B2-02） |
-| `Revert` | `request`, `doc`, `edits`（`WorkerEdit` 的清單，最多 `MAX_UNDO_EDITS` 個）, `password`（以密碼開啟的文件才有，用完即清除） | `Edited`（套用後的 `pages`）或 `Error`；從保留的位元組重新開啟並依序套用，全部成功才取代文件（復原，B2-05） |
+| `Edit` | `request`, `doc`, `edit`（`WorkerEdit`：`RotatePages { pages, degrees }`、`DeletePages { pages }`、`MovePages { pages, before }`、`InsertBlankPage { at, like }`、`InsertPages { at, source, text_boxes }`：`source` 是 `PrepareSource` 做出來的檔案，`text_boxes` 是主行程為來源文字方塊準備的排版模型，B2-06、B3-23，見 [merge.md](merge.md)） | `Edited`（套用後的 `pages` 與 `page_labels`）或 `Error`；只改記憶體中的文件（B2-02） |
+| `Revert` | `request`, `doc`, `edits`（`WorkerEdit` 的清單，最多 `MAX_UNDO_EDITS` 個）, `password`（以密碼開啟的文件才有，用完即清除） | `Edited`（套用後的 `pages` 與 `page_labels`）或 `Error`；從保留的位元組重新開啟並依序套用，全部成功才取代文件（復原，B2-05） |
 | `Rebase` | `request`, `doc`, `file`（唯讀 handle：剛存好的檔案） | `Rebased`；之後復原從這個檔案的位元組重新開啟。不解析檔案，不需要密碼 |
 | `WriteIdentifier` | `request`, `doc`, `file`（只能寫入的新暫存檔）, `identifier: Option<[u8; 16]>`, `password`（加密檔案的權限密碼，用完即清除） | `Saved`（一定是 `incremental`）或 `Error`：把文件開啟（或上次存檔）時的檔案位元組另外開啟一次，在文件資訊字典放入（或取出）文件識別碼，以增量更新寫出：原本的位元組在前、不變。開著的文件不變。已簽章是 `Signed`；加密而不是權限密碼是 `NotAllowed`；MuPDF 修復過的檔案是 `Corrupted`（B3-05，ADR 0010） |
 | `Save` | `request`, `doc`, `file`（**只能寫入**的 handle，指向主行程建立的新暫存檔） | `Saved`（`bytes`、`incremental`）或 `Error`（`DiskFull`、`Unwritable`、`LimitExceeded` 等）；逾時 5 分鐘，見 [saving.md](saving.md) |
@@ -370,6 +371,10 @@ worker 端的 `WorkerErrorCode` 以 `From` 轉換對應到上表。
 | 密碼 | 1,024 bytes | 不可為空、不可含 NUL；PDF 本身最多用到 127 bytes（MVP-16） |
 | 搜尋結果 | 10,000 筆 | 超過時 `truncated` |
 | 每筆結果的 quad | 64 | |
+| 頁碼標籤長度（MAX_PAGE_LABEL_BYTES） | 64 bytes | 單一頁碼標籤 UTF-8 長度上限，去除控制字元與不可見字元（B5-07） |
+| 頁碼標籤樹節點數（MAX_PAGE_LABEL_NODES） | 256 | `/PageLabels` number tree 走訪節點上限，超過時停止並視為無標籤（B5-07） |
+| 頁碼標籤樹深度（MAX_PAGE_LABEL_DEPTH） | 16 | `/PageLabels` number tree 走訪深度上限（B5-07） |
+| 頁碼標籤項目總數（MAX_PAGE_LABEL_ITEMS） | 200,000 | `/PageLabels` 走訪期間 `/Kids` 與 `/Nums` 項目總數上限，超過時停止並視為無標籤（B5-07） |
 | 一筆遮蔽群組的範圍數（MAX_REDACTION_GROUP_RECTS） | 16 | 一個號碼跨越的行數上限（Issue #330） |
 | 每頁文字（選取與複製） | 100,000 字元 | 超過時 worker 截斷並設 `truncated`（MVP-15） |
 | 批次準備文字方塊數量（MAX_PREPARE_TEXT_BOXES） | 200 段 | 單一請求準備多個文字方塊的段數上限（Issue #381） |

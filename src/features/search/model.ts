@@ -85,7 +85,7 @@ export function isSearched(state: SearchState, query: SearchQuery): boolean {
 }
 
 /** What the bar says in place of "第 n／N 筆" (docs/ux/screen-map.md, section 3). */
-export function searchStatus(state: SearchState, pageCount: number): string {
+export function searchStatus(state: SearchState, pageCount: number, pageLabels?: string[] | null): string {
   switch (state.status) {
     case "idle":
       return "";
@@ -93,10 +93,19 @@ export function searchStatus(state: SearchState, pageCount: number): string {
       return t.progress(state.pagesSearched, pageCount);
     case "failed":
       return t.failed;
-    case "done":
+    case "done": {
       if (state.noTextLayer) return t.noTextLayer;
       if (state.hits.length === 0) return t.noResults(state.searched?.query.trim() ?? "");
       if (state.truncated) return t.truncated(LIMITS.maxSearchHits);
+      const hit = state.hits[state.current];
+      if (hit && pageLabels) {
+        const label = pageLabels[hit.pageIndex];
+        const pageNumber = hit.pageIndex + 1;
+        if (label !== undefined && label !== String(pageNumber)) {
+          return t.countWithLabel(state.current + 1, state.hits.length, label, pageNumber, pageCount);
+        }
+      }
       return t.count(state.current + 1, state.hits.length);
+    }
   }
 }
