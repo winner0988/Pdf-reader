@@ -19,7 +19,16 @@
 | 取得方式 | `mupdf`、`mupdf-fonts-droid`：crates.io，`Cargo.lock` 記錄 SHA-256，cargo 下載時驗證。`mupdf-sys`：git（見下方「`mupdf-sys` 的來源」），`Cargo.lock` 記錄 commit |
 | 授權 | `mupdf`、`mupdf-sys` 與 MuPDF 皆為 AGPL-3.0（或向 Artifex 購買商業授權），見 DEC-02（#2） |
 
-升級 MuPDF 一律視為安全變更（`needs-security-review`）。**cargo-deny 的弱點資料庫只涵蓋 Rust crate，不涵蓋 MuPDF 的 C 程式碼**，也不涵蓋 MuPDF 內附的第三方函式庫（OpenJPEG、FreeType 等）；升級前與每次發布前，要人工查 Artifex 的版本說明與 NVD 上 MuPDF 的 CVE。內嵌第三方 C 函式庫的完整清單、版本與更新方式見 [bundled-libraries.md](../security/bundled-libraries.md)（#553）。
+升級 MuPDF 一律視為安全變更（`needs-security-review`）。**cargo-deny 的弱點資料庫只涵蓋 Rust crate，不涵蓋 MuPDF 的 C 程式碼**，也不涵蓋 MuPDF 內附的第三方函式庫（OpenJPEG、FreeType 等）；發行前的例行對照程序見 [release.md](../release.md#發行前) 的檢查表。內嵌第三方 C 函式庫的完整清單、版本與更新方式見 [bundled-libraries.md](../security/bundled-libraries.md#清單查證與更新程序)（#553）。
+
+### 升級與來源變更規則
+
+凡涉及升級 MuPDF 版本，或變更 `mupdf-sys` 的來源（包括修改 `Cargo.toml` 中 `[patch.crates-io]` 的 `rev`、換 fork 或回到 crates.io）的 PR，必須滿足以下兩項條件方可完成：
+
+1. **更新清單與依據**：照新的原始碼更新 [bundled-libraries.md](../security/bundled-libraries.md#清單查證與更新程序) 的版本、commit、查證依據與查驗日期。
+2. **重做已知問題對照**：對清單列出的每個第三方函式庫重新到 OSV、NVD 與各專案安全公告或版本說明查核已知問題，對照結果照 [SECURITY.md](../../SECURITY.md) 私下交給負責人（不寫進 PR、commit 或 CHANGELOG）。
+
+兩件事都做完，該 PR 才算完成。
 
 ### `mupdf-sys` 的來源
 

@@ -28,8 +28,8 @@
 | **Brotli** | 通用解壓縮演算法 | 1.1.0 | `6e092ab79683949f432d1c0cab88effa683c90d7` | `thirdparty/brotli/c/common/version.h#L20-L22` | 否 | 否 | `FZ_ENABLE_BROTLI=0` 編譯為空虛設函式（stub），未被參照的物件被 MSVC 連結器 `/OPT:REF` 剔除；Linux Makefile 透過 `make_bool("brotli", false)` 關閉。 |
 | **MuJS** | 輕量級 JavaScript 直譯器 | 1.3.8 | `33c83d8553048fd7710a518821cdefa5818e1559` | `thirdparty/mujs/mujs.h#L10-L12` | 否 | 否 | `FZ_ENABLE_JS=0`（Linux `make_bool("mujs", false)`），不編譯／不連結執行引擎。由 `javascript_is_compiled_out` 測試驗證。 |
 | **extract** | DOCX 輸出轉換工具 | 未標註版本（無獨立版本號） | `8750ac39c30a0d65119b426b5a491c5b8e8bf674` | `thirdparty/extract/`（目錄內無版本定義） | 否 | 否 | `FZ_ENABLE_DOCX_OUTPUT=0`，未啟用。Word 匯出由 `pdf_worker` 自行組裝 XML（見 [docx-export.md](../architecture/docx-export.md)）。 |
-| **zxing-cpp** | 條碼與 QR Code 辨識 | 2.3.0 | `742aef959e12a41eda494df78fd567c2e715ff57` | `scripts/zxing-cpp/Version.h#L13-L17` | 否 | 否 | Windows 雖於 `libmupdf.vcxproj` 編譯 `barcode.c` 並關聯 `libmubarcode.vcxproj`，但 `pdf_worker` 未呼叫條碼函式且 `msbuild.rs` 只連結 `libmupdf` 與 `libthirdparty`，未連結進 `pdf_worker.exe`（發行二進位檔字串查驗為 0 筆匹配）；Linux 由 `build.rs:447` 設定 `make_bool("barcode", false)` 關閉。 |
-| **zint** | 條碼繪製與編碼 | 2.13.0.9 (開發版) | `7a9fdd6cd00cd5bfd0082705d934c13ef84f25e1` | `thirdparty/zint/backend/zintconfig.h#L37-L40`、`backend/zint.h#L34` | 否 | 否 | 與 zxing-cpp 相同，未被 `pdf_worker` 呼叫且 `msbuild.rs` 未連結 barcode 專案庫，未連結進 `pdf_worker.exe`（發行二進位檔字串查驗為 0 筆匹配）；Linux 由 `make_bool("barcode", false)` 關閉。 |
+| **zxing-cpp** | 條碼與 QR Code 辨識 | 2.3.0 | `742aef959e12a41eda494df78fd567c2e715ff57` | `scripts/zxing-cpp/Version.h#L13-L17` | 否 | 否 | Windows 雖於 `libmupdf.vcxproj` 透過 `LinkLibraryDependencies` 將 `libmubarcode` 物件併入 `libmupdf.lib`，但靜態函式庫僅拉入有被參照之物件，因 `pdf_worker` 未調用任何條碼函式，故未連結進 `pdf_worker.exe`（發行二進位檔字串查驗為 0 筆匹配）；Linux 由 `build.rs:447` 設定 `make_bool("barcode", false)` 關閉。 |
+| **zint** | 條碼繪製與編碼 | 2.13.0.9 (開發版) | `7a9fdd6cd00cd5bfd0082705d934c13ef84f25e1` | `thirdparty/zint/backend/zintconfig.h#L37-L40`、`backend/zint.h#L34` | 否 | 否 | 與 zxing-cpp 相同，條碼物件雖併入 `libmupdf.lib`，但因未被 `pdf_worker` 調用，靜態函式庫物件未被拉入，未連結進 `pdf_worker.exe`（發行二進位檔字串查驗為 0 筆匹配）；Linux 由 `make_bool("barcode", false)` 關閉。 |
 | **curl** | 網路資料傳輸函式庫 | 7.66.0-DEV | `f43c6fbb2dbdf68dfdd0f0c3399e3711a621614a` | `thirdparty/curl/include/curl/curlver.h#L33` | 否 | 否 | Windows 未納入 `libmupdf.vcxproj`；Linux `HAVE_CURL=no`。`pdf_worker` 為零網路沙盒行程（ADR 0009）。 |
 | **freeglut** | OpenGL 視窗與輸入工具庫 | 3.0.0 | `d5e2256d571b3ef66fb60716c99e35e9d3e570a2` | `thirdparty/freeglut/CMakeLists.txt#L20-L22` | 否 | 否 | Windows 未納入方案；Linux `HAVE_GLUT=no`。無 GUI / OpenGL 依賴。 |
 
@@ -49,9 +49,9 @@ MuPDF 1.27.2 內附的 lcms2（commit `f75fad71`）其 `CubeSize` 計算節點�
 
 1. **方案編譯**：Windows 上 `mupdf-sys` 透過 MSBuild 編譯 Visual Studio 方案（`platform/win32/mupdf.sln`）。
 2. **前置處理器旗標**：編譯時以 `FZ_ENABLE_*` 控制功能（例如 `FZ_ENABLE_JS=0`、`FZ_ENABLE_BROTLI=0`、`FZ_ENABLE_DOCX_OUTPUT=0`）。關閉的功能在 MuPDF 內部實作為直接擲出 `FZ_ERROR_UNSUPPORTED` 的空函式 stub。
-3. **未參照符號剔除**：MSVC 連結器預設開啟 `/OPT:REF` 與 `/OPT:ICF`。對於未被 `pdf_worker` 參照的函式庫物件（例如 Brotli、MuJS、extract 等），連結器不會將其代碼放入最終的 `pdf_worker.exe`。
+3. **未參照物件與符號剔除**：連結靜態函式庫時，未被參照的物件（`.obj`，例如 Brotli、MuJS、extract、barcode 等未被調用的函式庫物件）本來就不會被連結器拉入最終二進位檔；MSVC 連結器預設開啟之 `/OPT:REF` 與 `/OPT:ICF`，則進一步將已拉入物件中未被參照的函式與資料（COMDAT）自最終產物剔除。
 4. **Tesseract 與 Leptonica 的編譯與呼叫**：Windows 方案預設包含 `libtesseract.vcxproj` 與 `liblept.vcxproj`，編譯時帶入 `HAVE_TESSERACT` 與 `HAVE_LEPTONICA`，靜態編譯連結進 `pdf_worker.exe`。`crates/pdf_worker/src/ocr.rs` 宣告並呼叫 `TessBaseAPICreate`、`TessBaseAPIInit5` 等 C API 執行掃描頁辨識（B2-10、ADR 0015），輸入為 MuPDF 渲染之頁面點陣圖與使用者匯入之 `.traineddata`（由主行程與 worker 的 `crates/ipc_contract/src/ocr.rs` `check_language_data` 檢查）。
-5. **條碼函式庫未連結**：Windows 下 `platform/win32/libmupdf.vcxproj` 編譯 `source/fitz/barcode.c` 並將 `libmubarcode.vcxproj` 列為相依專案（第 1069、1424 行），且 `build.rs` 未定義 `FZ_ENABLE_BARCODE`（`config.h` 預設為 1）；但因 `pdf_worker` 未調用任何條碼 API，且 `mupdf-sys/msbuild.rs` 僅連結 `libmupdf` 與 `libthirdparty`（第 119–120 行），zxing-cpp 與 zint 的符號並未進入 `pdf_worker.exe`（發行二進位檔字串查驗：zxing 0、zint 0）。
+5. **條碼函式庫未連結**：Windows 下 `platform/win32/libmupdf.vcxproj` 編譯 `source/fitz/barcode.c`（第 1069 行）並將 `libmubarcode.vcxproj` 列為相依專案（第 1424 行），且因 `<ProjectReference>` 設定 `<LinkLibraryDependencies>true</LinkLibraryDependencies>`（第 477 行起），條碼專案的物件會被併入 `libmupdf.lib`；`mupdf-sys/msbuild.rs`（第 119–120 行）亦連結 `libmupdf` 與 `libthirdparty`。然而連結器只從靜態函式庫拉入有被參照的物件，由於 `pdf_worker` 未調用任何條碼 API（不同於 `crates/pdf_worker/src/ocr.rs` 呼叫 Tesseract C API 使其物件被拉入），因此 zxing-cpp 與 zint 的物件不會被拉進最終的 `pdf_worker.exe`（發行二進位檔字串查驗：zxing 0、zint 0）。
 
 ### Linux (Make)
 
@@ -63,7 +63,7 @@ MuPDF 1.27.2 內附的 lcms2（commit `f75fad71`）其 `CubeSize` 計算節點�
 
 ## 清單查證與更新程序
 
-當 MuPDF 或 `mupdf-sys` 升級版本時，負責人或開發者應遵循以下步驟驗證並更新本清單：
+本程序適用於兩種時機：每次發行 minor 或 major 版本前的例行對照（見 [release.md](../release.md#發行前) 的發行前檢查表），以及升級 MuPDF 或變更 `mupdf-sys` 來源時的重查與驗證（見 [mupdf-binding.md](../architecture/mupdf-binding.md#升級與來源變更規則)）。負責人或開發者應遵循以下步驟驗證並更新本清單：
 
 1. **取得最新原始碼**：
    在 `mupdf-sys` 的 checkout 目錄（例如本地或 `~/.cargo/git/checkouts/mupdf-rs-*/<hash>` 下的 MuPDF 原始碼目錄）執行：
@@ -107,4 +107,5 @@ MuPDF 1.27.2 內附的 lcms2（commit `f75fad71`）其 `CubeSize` 計算節點�
    在發行建置的 `pdf_worker.exe` 中搜尋各函式庫關鍵字串（`grep -a -c <lib> <exe>`，例如 `grep -a -c zxing <exe>`、`grep -a -c zint <exe>`、`grep -a -c tesseract <exe>`），確認未啟用函式庫未被連結進產物，且啟用函式庫符合預期。
 7. **更新清單與關聯文件**：
    - 更新本文件的表格內容與查驗日期。
-   - 若有新增函式庫或版本變動，同步確認 [mupdf-binding.md](../architecture/mupdf-binding.md) 與 [attack-surface.md](attack-surface.md) 之說明。
+   - 將對照結果依 [SECURITY.md](../../SECURITY.md) 私下回報負責人（不公開於 PR、CHANGELOG 或 commit）。
+   - 若有新增函式庫或版本變動，同步確認 [mupdf-binding.md](../architecture/mupdf-binding.md#升級與來源變更規則) 與 [attack-surface.md](attack-surface.md) 之說明。
