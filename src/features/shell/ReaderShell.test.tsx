@@ -648,6 +648,34 @@ describe("shortcuts", () => {
     expect(within(dialog).getByText("Ctrl+O")).toBeInTheDocument();
   });
 
+  it("Ctrl+K opens the command palette, and Enter executes a command (B5-06)", async () => {
+    const { user } = renderShell(openState);
+
+    await user.keyboard("{Control>}k{/Control}");
+    const dialog = await screen.findByRole("dialog", { name: strings.commands.palette });
+    expect(dialog).toBeInTheDocument();
+
+    const input = within(dialog).getByRole("combobox");
+    expect(input).toHaveFocus();
+
+    await user.type(input, "順時針旋轉");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: strings.commands.palette })).not.toBeInTheDocument());
+  });
+
+  it("Ctrl+K does not open command palette on top of another open dialog", async () => {
+    const { user } = renderShell(openState);
+
+    // Open shortcuts dialog with Ctrl+/
+    await user.keyboard("{Control>}/{/Control}");
+    expect(await screen.findByRole("dialog", { name: strings.shortcuts.title })).toBeInTheDocument();
+
+    // Press Ctrl+K
+    await user.keyboard("{Control>}k{/Control}");
+    expect(screen.queryByRole("dialog", { name: strings.commands.palette })).not.toBeInTheDocument();
+  });
+
   it("document shortcuts do nothing without a document", async () => {
     const { user } = renderShell({ kind: "empty" });
     await user.keyboard("{Control>}f{/Control}");

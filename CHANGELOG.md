@@ -4,6 +4,10 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 ## [Unreleased]
 
+### 新增
+
+- 按 `Ctrl+K` 開啟命令面板，可輸入文字或別名快速篩選並執行「⋯」選單中的各項功能與快捷鍵動作（#443）。
+
 ### 安全
 
 - 內附的文字辨識函式庫套用上游的修正（#563）。

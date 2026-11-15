@@ -38,6 +38,8 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { createCommands } from "@/features/commands/registry";
+import type { Command, CommandId } from "@/features/commands/types";
 import { IconButton } from "@/features/shell/IconButton";
 import { ZOOM_LEVELS, type Zoom } from "@/features/shell/model";
 import { INK_COLORS, INK_SWATCH, INK_WIDTHS, STAMPS, type ShapeToolKind } from "@/features/annotations/tools";
@@ -223,6 +225,8 @@ export type ToolbarProps = {
    * take it out when `marked`. Without it (demo data) the menu has no such item.
    */
   sensitive?: { marked: boolean; onClick: () => void };
+  /** Central commands registry (B5-06, Ctrl+K). */
+  commands?: Command[];
 };
 
 export function Toolbar(props: ToolbarProps) {
@@ -628,6 +632,24 @@ function PageInput({
 
 function MoreMenu(props: ToolbarProps) {
   const menu = strings.menu;
+  const commands = props.commands ?? createCommands(props);
+  const byId = new Map(commands.map((c) => [c.id, c]));
+
+  const renderItem = (id: CommandId) => {
+    const cmd = byId.get(id);
+    if (!cmd || cmd.visibleInMenu === false) return null;
+    return (
+      <DropdownMenuItem
+        key={cmd.id}
+        disabled={cmd.menuDisabled ?? !cmd.enabled}
+        onClick={cmd.run}
+      >
+        {cmd.menuLabel ?? cmd.name}
+        {cmd.shortcutBadge && <DropdownMenuShortcut>{cmd.shortcutBadge}</DropdownMenuShortcut>}
+      </DropdownMenuItem>
+    );
+  };
+
   return (
     <DropdownMenu onOpenChange={(open) => open && props.onMoreMenuOpen?.()}>
       <DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label={t.more} />}>
@@ -642,9 +664,9 @@ function MoreMenu(props: ToolbarProps) {
                 value={props.layoutMode ?? "single"}
                 onValueChange={(value) => props.onLayoutModeChange?.(value as PageLayoutMode)}
               >
-                <DropdownMenuRadioItem value="single">{menu.layoutSingle}</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="twoPage">{menu.layoutTwoPage}</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="twoPageCover">{menu.layoutTwoPageCover}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="single">{byId.get("layoutSingle")?.name ?? menu.layoutSingle}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="twoPage">{byId.get("layoutTwoPage")?.name ?? menu.layoutTwoPage}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="twoPageCover">{byId.get("layoutTwoPageCover")?.name ?? menu.layoutTwoPageCover}</DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
@@ -656,138 +678,57 @@ function MoreMenu(props: ToolbarProps) {
             value={props.theme}
             onValueChange={(value) => props.onThemeChange(value as ThemePreference)}
           >
-            <DropdownMenuRadioItem value="system">{menu.themeSystem}</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="light">{menu.themeLight}</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="dark">{menu.themeDark}</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="system">{byId.get("themeSystem")?.name ?? menu.themeSystem}</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="light">{byId.get("themeLight")?.name ?? menu.themeLight}</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="dark">{byId.get("themeDark")?.name ?? menu.themeDark}</DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
           {props.onToggleFullscreen && (
             <DropdownMenuCheckboxItem
               checked={props.fullscreen ?? false}
               onCheckedChange={props.onToggleFullscreen}
             >
-              {menu.fullscreen}
-              <DropdownMenuShortcut>F11</DropdownMenuShortcut>
+              {byId.get("fullscreen")?.name ?? menu.fullscreen}
+              <DropdownMenuShortcut>{byId.get("fullscreen")?.shortcutBadge ?? "F11"}</DropdownMenuShortcut>
             </DropdownMenuCheckboxItem>
           )}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem disabled={!props.onUndo} onClick={props.onUndo}>
-          {menu.undo}
-          <DropdownMenuShortcut>Ctrl+Z</DropdownMenuShortcut>
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!props.onRedo} onClick={props.onRedo}>
-          {menu.redo}
-          <DropdownMenuShortcut>Ctrl+Y</DropdownMenuShortcut>
-        </DropdownMenuItem>
+        {renderItem("undo")}
+        {renderItem("redo")}
         <DropdownMenuSeparator />
-        <DropdownMenuItem disabled={!props.onSave} onClick={props.onSave}>
-          {menu.save}
-          <DropdownMenuShortcut>Ctrl+S</DropdownMenuShortcut>
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!props.onSaveAs} onClick={props.onSaveAs}>
-          {menu.saveAs}
-          <DropdownMenuShortcut>Ctrl+Shift+S</DropdownMenuShortcut>
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!props.onCreatePdf} onClick={props.onCreatePdf}>
-          {menu.createPdf}
-        </DropdownMenuItem>
-        {props.ocr && (
-          <DropdownMenuItem disabled={props.ocr.running} onClick={props.ocr.onStart}>
-            {props.ocr.running ? strings.ocr.menuRunning : strings.ocr.menu}
-          </DropdownMenuItem>
-        )}
-        {props.flatten && (
-          <DropdownMenuItem disabled={!props.flatten.onClick} onClick={props.flatten.onClick}>
-            {strings.forms.flatten}
-            {!props.flatten.onClick && (
-              <DropdownMenuShortcut>{strings.permissions.notAllowed}</DropdownMenuShortcut>
-            )}
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem disabled={!props.onExport} onClick={props.onExport}>
-          {menu.export}
-          {props.exportBlocked && <DropdownMenuShortcut>{strings.permissions.notAllowed}</DropdownMenuShortcut>}
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!props.onExportAnnotations} onClick={props.onExportAnnotations}>
-          {menu.exportAnnotations}
-          {props.exportAnnotationsBlocked && (
-            <DropdownMenuShortcut>{strings.permissions.notAllowed}</DropdownMenuShortcut>
-          )}
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!props.onCompareText} onClick={props.onCompareText}>
-          {menu.compareText}
-          {props.compareTextBlocked && (
-            <DropdownMenuShortcut>{props.compareTextBlocked}</DropdownMenuShortcut>
-          )}
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!props.onPrivacyExport} onClick={props.onPrivacyExport}>
-          {menu.privacyExport}
-          {props.privacyExportBlocked && (
-            <DropdownMenuShortcut>{strings.privacyExport.encrypted}</DropdownMenuShortcut>
-          )}
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!props.onSanitizeCopy} onClick={props.onSanitizeCopy}>
-          {menu.sanitizeCopy}
-          {props.sanitizeCopyBlocked && (
-            <DropdownMenuShortcut>{props.sanitizeCopyBlocked}</DropdownMenuShortcut>
-          )}
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!props.onPageMarks} onClick={props.onPageMarks}>
-          {menu.pageMarks}
-          {props.pageMarksBlocked && (
-            <DropdownMenuShortcut>{strings.pageMarks.encrypted}</DropdownMenuShortcut>
-          )}
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!props.onEncryptCopy} onClick={props.onEncryptCopy}>
-          {menu.encryptCopy}
-          {props.encryptCopyBlocked && <DropdownMenuShortcut>{strings.encryption.encrypted}</DropdownMenuShortcut>}
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!props.onSearchAll} onClick={props.onSearchAll}>
-          {menu.searchAll}
-          <DropdownMenuShortcut>Ctrl+Shift+F</DropdownMenuShortcut>
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!props.onBatch} onClick={props.onBatch}>
-          {menu.batch}
-        </DropdownMenuItem>
-        {props.onForgetPassword && (
-          <DropdownMenuItem onClick={props.onForgetPassword}>{strings.password.forgetMenu}</DropdownMenuItem>
-        )}
-        <DropdownMenuItem disabled={!props.onCompressImages} onClick={props.onCompressImages}>
-          {menu.compressImages}
-          {props.compressImagesBlocked && <DropdownMenuShortcut>{strings.compress.encrypted}</DropdownMenuShortcut>}
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!props.onSign} onClick={props.onSign}>
-          {menu.sign}
-          {props.signBlocked && <DropdownMenuShortcut>{strings.signing.encryptedShort}</DropdownMenuShortcut>}
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled={!props.onPrint} onClick={props.onPrint}>
-          {menu.print}
-          <DropdownMenuShortcut>{props.printBlocked ? strings.permissions.notAllowed : "Ctrl+P"}</DropdownMenuShortcut>
-        </DropdownMenuItem>
-        {props.sensitive && (
-          <DropdownMenuItem onClick={props.sensitive.onClick}>
-            {props.sensitive.marked ? menu.unmarkSensitive : menu.markSensitive}
-          </DropdownMenuItem>
-        )}
+        {renderItem("save")}
+        {renderItem("saveAs")}
+        {renderItem("createPdf")}
+        {props.ocr && renderItem("ocr")}
+        {props.flatten && renderItem("flatten")}
+        {renderItem("export")}
+        {renderItem("exportAnnotations")}
+        {renderItem("compareText")}
+        {renderItem("privacyExport")}
+        {renderItem("sanitizeCopy")}
+        {renderItem("pageMarks")}
+        {renderItem("encryptCopy")}
+        {renderItem("searchAll")}
+        {renderItem("batch")}
+        {props.onForgetPassword && renderItem("forgetPassword")}
+        {renderItem("compressImages")}
+        {renderItem("sign")}
+        {renderItem("print")}
+        {props.sensitive && renderItem("sensitive")}
         {props.recording && (
           <DropdownMenuCheckboxItem
             checked={props.recording.recorded === false}
             disabled={props.recording.recorded === null}
             onCheckedChange={(checked) => props.recording?.onChange(!checked)}
           >
-            {menu.dontRecord}
+            {byId.get("dontRecord")?.name ?? menu.dontRecord}
           </DropdownMenuCheckboxItem>
         )}
-        <DropdownMenuItem onClick={props.onShowShortcuts}>
-          {menu.shortcuts}
-          <DropdownMenuShortcut>Ctrl+/</DropdownMenuShortcut>
-        </DropdownMenuItem>
-        {props.onShowSettings && (
-          <DropdownMenuItem onClick={props.onShowSettings}>{menu.settings}</DropdownMenuItem>
-        )}
-        <DropdownMenuItem onClick={props.onShowAbout}>{menu.about}</DropdownMenuItem>
+        {renderItem("shortcuts")}
+        {props.onShowSettings && renderItem("settings")}
+        {renderItem("about")}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={props.onSetDefault}>{menu.setDefault}</DropdownMenuItem>
+        {renderItem("setDefault")}
       </DropdownMenuContent>
     </DropdownMenu>
   );
