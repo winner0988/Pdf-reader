@@ -43,7 +43,7 @@ test("displays page labels and jumps when typing a label", async ({ launch }) =>
   const pageInput4After = page.getByRole("textbox", { name: strings.toolbar.pageNumberWithLabel("1", 4, 9) });
   await expect(pageInput4After).toBeVisible();
   await expect(pageInput4After).toHaveValue("1");
-  await expect(page.getByText(strings.toolbar.pageCountWithLabel(4, 9))).toBeVisible();
+  await expect(page.getByText(strings.toolbar.pageCountWithLabel(4, 9), { exact: true })).toBeVisible();
 
   // Page 4 thumbnail now has label '1' out of 9 pages
   const newThumb4 = thumbnails.getByRole("option", { name: strings.canvas.pageWithLabel("1", 4, 9) });
