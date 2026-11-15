@@ -591,7 +591,12 @@ impl Validate for WorkerResponse {
                 check_count("search hits", hits.len(), MAX_SEARCH_HITS)?;
                 hits.iter().try_for_each(SearchHit::validate)
             }
-            WorkerResponse::Edited { pages, .. } => check_pages(pages),
+            WorkerResponse::Edited {
+                pages, page_labels, ..
+            } => {
+                check_pages(pages)?;
+                check_page_labels(page_labels.as_deref(), pages.len())
+            }
             WorkerResponse::Saved { bytes, .. } => {
                 if *bytes == 0 || *bytes > MAX_DOCUMENT_BYTES {
                     return Err(ValidationError::OutOfRange {
@@ -5374,10 +5379,40 @@ mod tests {
         let edited = |pages: Vec<PageSize>| WorkerResponse::Edited {
             request: RequestId(1),
             pages,
+            page_labels: None,
         };
         assert!(edited(vec![page(792.0, 612.0)]).validate().is_ok());
         assert!(edited(Vec::new()).validate().is_err());
         assert!(edited(vec![page(f32::NAN, 612.0)]).validate().is_err());
+
+        // WorkerResponse::Edited validates page_labels count and contents (B5-07, Issue #444)
+        let edited_with_labels =
+            |pages: Vec<PageSize>, labels: Option<Vec<String>>| WorkerResponse::Edited {
+                request: RequestId(1),
+                pages,
+                page_labels: labels,
+            };
+        assert!(
+            edited_with_labels(
+                vec![page(792.0, 612.0), page(792.0, 612.0)],
+                Some(vec!["i".into(), "ii".into()])
+            )
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            edited_with_labels(
+                vec![page(792.0, 612.0)],
+                Some(vec!["i".into(), "ii".into()])
+            )
+            .validate()
+            .is_err()
+        );
+        assert!(
+            edited_with_labels(vec![page(792.0, 612.0)], Some(vec!["bad\u{0000}".into()]))
+                .validate()
+                .is_err()
+        );
         let saved = |bytes: u64| WorkerResponse::Saved {
             request: RequestId(1),
             bytes,

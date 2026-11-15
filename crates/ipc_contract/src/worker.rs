@@ -1275,10 +1275,12 @@ pub enum WorkerResponse {
         /// Whether the page has any text at all (none on every page means no text layer).
         has_text: bool,
     },
-    /// The edit is applied; `pages` are the document's pages now.
+    /// The edit is applied; `pages` are the document's pages now, and `page_labels` are the document's
+    /// page labels now (B5-07, Issue #444).
     Edited {
         request: RequestId,
         pages: Vec<PageSize>,
+        page_labels: Option<Vec<String>>,
     },
     /// `Rebase` is done.
     Rebased {

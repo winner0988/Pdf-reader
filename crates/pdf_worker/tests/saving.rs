@@ -301,3 +301,127 @@ fn some_pages_are_saved_as_a_document_of_their_own_and_the_document_is_not_chang
     }
     assert!(host.is_running());
 }
+
+#[test]
+fn page_edits_update_page_labels_matching_save_and_reopen() {
+    let mut host = host();
+    let (doc, opened) = host
+        .open(&corpus("benign/page-labels-styles.pdf"))
+        .expect("open benign/page-labels-styles.pdf");
+
+    let initial_labels = match opened {
+        WorkerResponse::Opened { document, .. } => {
+            assert_eq!(document.pages.len(), 10);
+            document.page_labels.expect("has page labels")
+        }
+        ref other => panic!("expected Opened, got: {other:?}"),
+    };
+    assert_eq!(initial_labels.len(), 10);
+
+    // 1. Delete a page (page 3)
+    let delete_res = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::DeletePages { pages: vec![3] },
+        })
+        .expect("delete page must succeed");
+    let delete_labels = match delete_res {
+        WorkerResponse::Edited {
+            pages, page_labels, ..
+        } => {
+            assert_eq!(pages.len(), 9);
+            let labels = page_labels.expect("has page labels after delete");
+            assert_eq!(labels.len(), pages.len());
+            labels
+        }
+        ref other => panic!("expected Edited, got: {other:?}"),
+    };
+
+    let (path1, file1) = new_file("after-delete");
+    let saved1 = host.save(doc, &file1).expect("save after delete");
+    assert!(matches!(saved1, WorkerResponse::Saved { .. }));
+    drop(file1);
+    let (_, reopened1) = host.open(&path1).expect("reopen after delete");
+    match reopened1 {
+        WorkerResponse::Opened { document, .. } => {
+            assert_eq!(document.pages.len(), 9);
+            assert_eq!(document.page_labels, Some(delete_labels));
+        }
+        ref other => panic!("expected Opened, got: {other:?}"),
+    }
+    std::fs::remove_file(&path1).ok();
+
+    // 2. Insert blank page at index 0
+    let insert_res = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::InsertBlankPage { at: 0, like: 0 },
+        })
+        .expect("insert blank page must succeed");
+    let insert_labels = match insert_res {
+        WorkerResponse::Edited {
+            pages, page_labels, ..
+        } => {
+            assert_eq!(pages.len(), 10);
+            let labels = page_labels.expect("has page labels after insert");
+            assert_eq!(labels.len(), pages.len());
+            labels
+        }
+        ref other => panic!("expected Edited, got: {other:?}"),
+    };
+
+    let (path2, file2) = new_file("after-insert");
+    let saved2 = host.save(doc, &file2).expect("save after insert");
+    assert!(matches!(saved2, WorkerResponse::Saved { .. }));
+    drop(file2);
+    let (_, reopened2) = host.open(&path2).expect("reopen after insert");
+    match reopened2 {
+        WorkerResponse::Opened { document, .. } => {
+            assert_eq!(document.pages.len(), 10);
+            assert_eq!(document.page_labels, Some(insert_labels));
+        }
+        ref other => panic!("expected Opened, got: {other:?}"),
+    }
+    std::fs::remove_file(&path2).ok();
+
+    // 3. Move a page (move page 2 to before 0)
+    let move_res = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::MovePages {
+                pages: vec![2],
+                before: 0,
+            },
+        })
+        .expect("move page must succeed");
+    let move_labels = match move_res {
+        WorkerResponse::Edited {
+            pages, page_labels, ..
+        } => {
+            assert_eq!(pages.len(), 10);
+            let labels = page_labels.expect("has page labels after move");
+            assert_eq!(labels.len(), pages.len());
+            labels
+        }
+        ref other => panic!("expected Edited, got: {other:?}"),
+    };
+
+    let (path3, file3) = new_file("after-move");
+    let saved3 = host.save(doc, &file3).expect("save after move");
+    assert!(matches!(saved3, WorkerResponse::Saved { .. }));
+    drop(file3);
+    let (_, reopened3) = host.open(&path3).expect("reopen after move");
+    match reopened3 {
+        WorkerResponse::Opened { document, .. } => {
+            assert_eq!(document.pages.len(), 10);
+            assert_eq!(document.page_labels, Some(move_labels));
+        }
+        ref other => panic!("expected Opened, got: {other:?}"),
+    }
+    std::fs::remove_file(&path3).ok();
+
+    assert!(host.is_running());
+}

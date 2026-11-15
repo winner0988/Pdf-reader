@@ -217,8 +217,8 @@ def benign_multi_page() -> bytes:
     return doc.build()
 
 
-def benign_page_labels() -> bytes:
-    doc = Document("page-labels")
+def benign_page_labels_styles() -> bytes:
+    doc = Document("page-labels-styles")
     pages = []
     for n in range(1, 11):
         pages.append(Page(lines=[(72, 720, 24, f"Page {n} of 10")]))
@@ -2364,7 +2364,7 @@ SAMPLES = [
     Sample("benign/multi-page-10.pdf", benign_multi_page, "Ten pages; a unique keyword on page 7.",
            "Opens; 10 pages; searching 'needle' finds exactly one hit on page 7.", 10,
            text=["Page 1 of 10", "needle"]),
-    Sample("benign/page-labels.pdf", benign_page_labels,
+    Sample("benign/page-labels-styles.pdf", benign_page_labels_styles,
            "Ten pages with /PageLabels: roman (i..iv), decimal (1..4), prefixed (A-1..A-2).",
            "Opens; 10 pages; displays custom page labels in page box and thumbnails.", 10,
            text=["Page 1 of 10", "Page 4 of 10"]),

@@ -3,7 +3,7 @@ import { strings } from "../../src/i18n/zh-TW";
 import { corpus, expect, test } from "./app";
 
 test("displays page labels and jumps when typing a label", async ({ launch }) => {
-  const page = await launch(corpus("benign/page-labels.pdf"));
+  const page = await launch(corpus("benign/page-labels-styles.pdf"));
   await page.setViewportSize({ width: 1024, height: 700 });
   await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
 
@@ -33,4 +33,20 @@ test("displays page labels and jumps when typing a label", async ({ launch }) =>
   const pageInput9 = page.getByRole("textbox", { name: strings.toolbar.pageNumberWithLabel("A-1", 9, 10) });
   await expect(pageInput9).toHaveValue("A-1");
   await expect(page.getByRole("contentinfo")).toContainText(strings.statusBar.pageStatus(9, 10, strings.toolbar.fitWidth));
+
+  // Delete page 4 (label 'iv') from thumbnails; page labels update to match 9 pages
+  const docBefore = await page.getByRole("img", { name: strings.canvas.page(1) }).getAttribute("data-doc");
+  await thumb4.click({ button: "right" });
+  await page.getByRole("menuitem", { name: new RegExp(`^${strings.pages.delete}`) }).click();
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(page.getByRole("img", { name: strings.canvas.page(1) })).not.toHaveAttribute("data-doc", docBefore ?? "");
+
+  // Page 4 now has label '1' out of 9 pages
+  const newThumb4 = thumbnails.getByRole("option", { name: strings.canvas.pageWithLabel("1", 4, 9) });
+  await expect(newThumb4).toBeVisible();
+  await expect(newThumb4).toContainText(strings.pages.thumbnailLabel("1", 4, 9));
+
+  // Page 1 now reflects i (1 / 9)
+  const thumb1 = thumbnails.getByRole("option", { name: strings.canvas.pageWithLabel("i", 1, 9) });
+  await expect(thumb1).toBeVisible();
 });

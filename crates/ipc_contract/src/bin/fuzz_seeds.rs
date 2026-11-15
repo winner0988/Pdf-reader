@@ -463,6 +463,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
                 page,
             ],
+            page_labels: None,
         },
         WorkerResponse::Rebased { request },
         WorkerResponse::OcrLoaded { request },

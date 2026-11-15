@@ -633,7 +633,7 @@ impl Documents {
                 code: ErrorCode::LimitExceeded,
                 message: "too many unsaved changes to keep safe: save first".to_owned(),
             })?;
-            let pages = edit_in_worker(document, &edit).inspect_err(|error| {
+            let (pages, page_labels) = edit_in_worker(document, &edit).inspect_err(|error| {
                 // The worker failed partway through: its copy may be half edited. Opened again
                 // from the file with the edits made so far, it is as it was.
                 if matches!(error.code, ErrorCode::Internal | ErrorCode::LimitExceeded) {
@@ -646,6 +646,7 @@ impl Documents {
             document.history.push(args.edit.clone());
             document.edit_count += 1;
             document.info.pages = pages;
+            document.info.page_labels = page_labels;
             show_history(document);
             self.keep_journal(document);
             document.info.doc = DocumentId(self.next_id());
@@ -690,14 +691,16 @@ impl Documents {
                     )
                 })
                 .collect::<Result<_, _>>()?;
-            let pages = revert_in_worker(document, edits, password).inspect_err(|error| {
-                if matches!(error.code, ErrorCode::Internal | ErrorCode::LimitExceeded) {
-                    document.lost = true;
-                }
-            })?;
+            let (pages, page_labels) =
+                revert_in_worker(document, edits, password).inspect_err(|error| {
+                    if matches!(error.code, ErrorCode::Internal | ErrorCode::LimitExceeded) {
+                        document.lost = true;
+                    }
+                })?;
             document.history.undone();
             document.edit_count += 1;
             document.info.pages = pages;
+            document.info.page_labels = page_labels;
             show_history(document);
             self.keep_journal(document);
             document.info.doc = DocumentId(self.next_id());
@@ -722,7 +725,7 @@ impl Documents {
                         edit,
                     )
                 })?;
-            let pages = edit_in_worker(document, &edit).inspect_err(|error| {
+            let (pages, page_labels) = edit_in_worker(document, &edit).inspect_err(|error| {
                 if matches!(error.code, ErrorCode::Internal | ErrorCode::LimitExceeded) {
                     document.lost = true;
                 }
@@ -730,6 +733,7 @@ impl Documents {
             document.history.redone();
             document.edit_count += 1;
             document.info.pages = pages;
+            document.info.page_labels = page_labels;
             show_history(document);
             self.keep_journal(document);
             document.info.doc = DocumentId(self.next_id());
@@ -3226,6 +3230,7 @@ fn replay(document: &mut OpenDocument, edits: &[Edit]) -> Result<(), IpcError> {
         });
     }
     let mut pages = document.info.pages.clone();
+    let mut page_labels = document.info.page_labels.clone();
     for edit in edits {
         let edit = worker_edit(
             &document.sources,
@@ -3233,9 +3238,11 @@ fn replay(document: &mut OpenDocument, edits: &[Edit]) -> Result<(), IpcError> {
             &document.text_boxes,
             edit,
         )?;
-        pages = edit_in_worker(document, &edit).inspect_err(|_| {
+        let (next_pages, next_labels) = edit_in_worker(document, &edit).inspect_err(|_| {
             document.lost = true;
         })?;
+        pages = next_pages;
+        page_labels = next_labels;
     }
     if pages.len() != expected as usize {
         return Err(unexpected_on(document, "Edit"));
@@ -3244,6 +3251,7 @@ fn replay(document: &mut OpenDocument, edits: &[Edit]) -> Result<(), IpcError> {
         document.history.push(edit.clone());
     }
     document.info.pages = pages;
+    document.info.page_labels = page_labels;
     show_history(document);
     Ok(())
 }
@@ -3270,11 +3278,11 @@ fn worker_edit(
     })
 }
 
-/// Applies `edit` in the document's worker and returns the document's pages after it.
+/// Applies `edit` in the document's worker and returns the document's pages and page labels after it.
 fn edit_in_worker(
     document: &mut OpenDocument,
     edit: &WorkerEdit,
-) -> Result<Vec<PageSize>, IpcError> {
+) -> Result<(Vec<PageSize>, Option<Vec<String>>), IpcError> {
     let send = if takes_pages(edit) {
         request_long
     } else {
@@ -3285,19 +3293,21 @@ fn edit_in_worker(
         doc,
         edit: edit.clone(),
     })? {
-        WorkerResponse::Edited { pages, .. } => Ok(pages),
+        WorkerResponse::Edited {
+            pages, page_labels, ..
+        } => Ok((pages, page_labels)),
         _ => Err(unexpected_on(document, "Edit")),
     }
 }
 
 /// Opens the document again in its worker from the bytes the worker keeps and applies `edits`
-/// (undo, ADR 0013); returns the document's pages after them. `password`: the user's, for a
+/// (undo, ADR 0013); returns the document's pages and page labels after them. `password`: the user's, for a
 /// document opened with one.
 fn revert_in_worker(
     document: &mut OpenDocument,
     edits: Vec<WorkerEdit>,
     password: Option<Password>,
-) -> Result<Vec<PageSize>, IpcError> {
+) -> Result<(Vec<PageSize>, Option<Vec<String>>), IpcError> {
     let send = if edits.iter().any(takes_pages) {
         request_long
     } else {
@@ -3309,7 +3319,9 @@ fn revert_in_worker(
         edits,
         password,
     })? {
-        WorkerResponse::Edited { pages, .. } => Ok(pages),
+        WorkerResponse::Edited {
+            pages, page_labels, ..
+        } => Ok((pages, page_labels)),
         _ => Err(unexpected_on(document, "Revert")),
     }
 }
@@ -3652,7 +3664,10 @@ pub fn ipc_error(error: &HostError) -> IpcError {
         HostError::Spawn(_) => "the PDF engine could not be started".to_owned(),
         HostError::Crashed => "the PDF engine stopped unexpectedly".to_owned(),
         HostError::Timeout => "the PDF engine did not answer in time".to_owned(),
-        HostError::ProtocolViolation(_) => "the PDF engine sent an invalid message".to_owned(),
+        HostError::ProtocolViolation(err) => {
+            eprintln!("PROTOCOL VIOLATION: {err}");
+            "the PDF engine sent an invalid message".to_owned()
+        }
         HostError::Unreadable(error) => format!("the file could not be read ({:?})", error.kind()),
         HostError::TooLarge => format!("larger than {MAX_DOCUMENT_BYTES} bytes"),
         HostError::Worker(error) => format!("the PDF engine reported {:?}", error.code),
@@ -4892,6 +4907,34 @@ mod with_worker {
         let saved = opened_info(event);
         assert!(!saved.unsaved);
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn apply_edit_updates_page_labels_in_document_info() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/page-labels-styles.pdf");
+        let documents = Documents::new(worker());
+        let info = open_in(&documents, &path);
+        let original_labels = info.page_labels.expect("has page labels");
+        assert_eq!(original_labels.len(), 10);
+        assert_eq!(original_labels[0], "i");
+        assert_eq!(original_labels[3], "iv");
+        assert_eq!(original_labels[4], "1");
+
+        // Delete page 3 (0-based index 3, which is label "iv")
+        let edit = Edit::DeletePages { pages: vec![3] };
+        let edited = opened_info(
+            documents
+                .apply_edit(&EditArgs {
+                    doc: info.doc,
+                    edit,
+                })
+                .unwrap(),
+        );
+        assert_eq!(edited.pages.len(), 9);
+        let updated_labels = edited.page_labels.expect("has updated page labels");
+        assert_eq!(updated_labels.len(), 9);
+        assert_ne!(updated_labels, original_labels);
     }
 
     #[test]

@@ -5,15 +5,17 @@
 //!
 //! The `/PageLabels` tree is untrusted input from the file. To protect against malicious trees,
 //! we traverse the number tree iteratively using an explicit stack, record visited indirect object
-//! numbers to prevent cycles, and strictly enforce limits on tree depth ([`MAX_PAGE_LABEL_DEPTH`])
-//! and total visited nodes ([`MAX_PAGE_LABEL_NODES`]). Bounding the total node budget accounts for
-//! trees where multiple `/Kids` reference the same child node (DAG structures).
+//! numbers to prevent cycles, and strictly enforce limits on tree depth ([`MAX_PAGE_LABEL_DEPTH`]),
+//! total visited nodes ([`MAX_PAGE_LABEL_NODES`]), and total `/Kids` and `/Nums` items ([`MAX_PAGE_LABEL_ITEMS`]).
+//! Bounding the total item budget accounts for trees where multiple nodes reference or share large arrays.
 //! When bounds are exceeded or when the structure is malformed, reading safely falls back to physical
 //! page numbers (`None`) rather than failing open or crashing.
 
 use std::collections::HashSet;
 
-use ipc_contract::limits::{MAX_PAGE_LABEL_BYTES, MAX_PAGE_LABEL_DEPTH, MAX_PAGE_LABEL_NODES};
+use ipc_contract::limits::{
+    MAX_PAGE_LABEL_BYTES, MAX_PAGE_LABEL_DEPTH, MAX_PAGE_LABEL_ITEMS, MAX_PAGE_LABEL_NODES,
+};
 use ipc_contract::text::clean_page_label;
 use mupdf::pdf::PdfObject;
 
@@ -50,6 +52,7 @@ pub(crate) fn read_page_labels(
 
     let mut visited_indirect = HashSet::new();
     let mut total_nodes = 0usize;
+    let mut total_items = 0usize;
     let mut entries: Vec<(u32, LabelRule)> = Vec::new();
     let mut stack = vec![(root.clone(), 0usize)];
 
@@ -74,13 +77,31 @@ pub(crate) fn read_page_labels(
         if let Ok(Some(kids)) = node.get_dict("Kids")
             && kids.is_array()?
         {
-            let mut kids_vec = Vec::new();
-            for kid in kids.array_iter()?.flatten() {
-                kids_vec.push(kid);
-            }
-            // Push in reverse order so leftmost child is visited first
-            for kid in kids_vec.into_iter().rev() {
-                stack.push((kid, depth + 1));
+            if let Ok(num) = kids.as_indirect()
+                && num > 0
+                && !visited_indirect.insert(num)
+            {
+                // Already visited this indirect array
+            } else {
+                let len = kids.len()?;
+                if len > MAX_PAGE_LABEL_ITEMS.saturating_sub(total_items) {
+                    return Ok(None);
+                }
+                total_items += len;
+
+                // Push in reverse order so leftmost child is visited first
+                for i in (0..len).rev() {
+                    let Some(kid) = kids.get_array(i32::try_from(i).unwrap_or(i32::MAX))? else {
+                        continue;
+                    };
+                    if let Ok(num) = kid.as_indirect()
+                        && num > 0
+                        && visited_indirect.contains(&num)
+                    {
+                        continue;
+                    }
+                    stack.push((kid, depth + 1));
+                }
             }
         }
 
@@ -88,37 +109,57 @@ pub(crate) fn read_page_labels(
         if let Ok(Some(nums)) = node.get_dict("Nums")
             && nums.is_array()?
         {
-            let items: Vec<PdfObject> = nums.array_iter()?.flatten().collect();
-            for chunk in items.as_chunks::<2>().0 {
-                let key_obj = &chunk[0];
-                let val_obj = &chunk[1];
-
-                // Key must be an integer, >= 0 and within document page count
-                let Ok(true) = key_obj.is_int() else {
-                    continue;
-                };
-                let Ok(k) = key_obj.as_int() else {
-                    continue;
-                };
-                if k < 0 || (k as usize) >= page_count {
-                    continue;
+            if let Ok(num) = nums.as_indirect()
+                && num > 0
+                && !visited_indirect.insert(num)
+            {
+                // Already visited this indirect array
+            } else {
+                let len = nums.len()?;
+                if len > MAX_PAGE_LABEL_ITEMS.saturating_sub(total_items) {
+                    return Ok(None);
                 }
-                let key = k as u32;
+                total_items += len;
 
-                // Number tree keys must be strictly ascending
-                if let Some(&(last_k, _)) = entries.last()
-                    && key <= last_k
-                {
-                    continue;
+                let pair_count = len / 2;
+                for i in 0..pair_count {
+                    let key_idx = i32::try_from(2 * i).unwrap_or(i32::MAX);
+                    let val_idx = i32::try_from(2 * i + 1).unwrap_or(i32::MAX);
+
+                    let Some(key_obj) = nums.get_array(key_idx)? else {
+                        continue;
+                    };
+                    let Some(val_obj) = nums.get_array(val_idx)? else {
+                        continue;
+                    };
+
+                    // Key must be an integer, >= 0 and within document page count
+                    let Ok(true) = key_obj.is_int() else {
+                        continue;
+                    };
+                    let Ok(k) = key_obj.as_int() else {
+                        continue;
+                    };
+                    if k < 0 || (k as usize) >= page_count {
+                        continue;
+                    }
+                    let key = k as u32;
+
+                    // Number tree keys must be strictly ascending
+                    if let Some(&(last_k, _)) = entries.last()
+                        && key <= last_k
+                    {
+                        continue;
+                    }
+
+                    // Value must be a dictionary
+                    let Ok(true) = val_obj.is_dict() else {
+                        continue;
+                    };
+
+                    let rule = parse_label_dict(&val_obj);
+                    entries.push((key, rule));
                 }
-
-                // Value must be a dictionary
-                let Ok(true) = val_obj.is_dict() else {
-                    continue;
-                };
-
-                let rule = parse_label_dict(val_obj);
-                entries.push((key, rule));
             }
         }
     }
@@ -615,5 +656,110 @@ mod tests {
         );
         let labels = open_and_read_labels(&pdf).expect("has labels");
         assert_eq!(labels, vec!["i", "Z-1"]);
+    }
+
+    #[test]
+    fn sixteen_nodes_sharing_huge_kids_array_returns_none_under_one_second() {
+        // 16 nodes sharing a /Kids array whose length exceeds MAX_PAGE_LABEL_ITEMS
+        // Object 4: Root << /Kids 5 0 R >>
+        // Object 5: Array [ 6 0 R ... 21 0 R, 0 0 ... 0 ] with length MAX_PAGE_LABEL_ITEMS + 2
+        // Objects 6..=21: each << /Kids 5 0 R >>
+        let target_len = MAX_PAGE_LABEL_ITEMS + 2;
+        let mut kids_elements = Vec::with_capacity(target_len);
+        for id in 6..=21 {
+            kids_elements.push(format!("{id} 0 R"));
+        }
+        for _ in 0..(target_len - 16) {
+            kids_elements.push("0".to_string());
+        }
+
+        let mut objects = Vec::new();
+        objects.push("<< /Type /Catalog /Pages 2 0 R /PageLabels 4 0 R >>".to_string());
+        objects.push("<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string());
+        objects.push("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_string());
+        objects.push("<< /Kids 5 0 R >>".to_string()); // obj 4
+        objects.push(format!("[{}]", kids_elements.join(" "))); // obj 5
+        for _ in 6..=21 {
+            objects.push("<< /Kids 5 0 R >>".to_string()); // obj 6..=21
+        }
+
+        let mut out = b"%PDF-1.7\n".to_vec();
+        let mut offsets = Vec::new();
+        for (i, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
+        }
+        let xref = out.len();
+        out.extend_from_slice(
+            format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes(),
+        );
+        for offset in offsets {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+                objects.len() + 1
+            )
+            .as_bytes(),
+        );
+
+        let doc = crate::engine::PdfDocument::from_bytes(&out).expect("open document");
+        let start = Instant::now();
+        let labels = doc.page_labels().expect("read page labels");
+        let elapsed = start.elapsed();
+        println!("sixteen_nodes_sharing_huge_kids elapsed: {:?}", elapsed);
+        assert_eq!(labels, None);
+        assert!(elapsed < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn sixteen_nodes_sharing_huge_nums_array_returns_none_under_one_second() {
+        // 16 nodes sharing a /Nums array whose length exceeds MAX_PAGE_LABEL_ITEMS
+        // Object 4: Root << /Kids [ 6 0 R ... 21 0 R ] >>
+        // Object 5: Array [ 0 0 ... 0 ] with length MAX_PAGE_LABEL_ITEMS + 2
+        // Objects 6..=21: each << /Nums 5 0 R >>
+        let target_len = MAX_PAGE_LABEL_ITEMS + 2;
+        let nums_elements = "0 ".repeat(target_len);
+
+        let mut objects = Vec::new();
+        objects.push("<< /Type /Catalog /Pages 2 0 R /PageLabels 4 0 R >>".to_string());
+        objects.push("<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string());
+        objects.push("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_string());
+        let kids_refs: Vec<String> = (6..=21).map(|id| format!("{id} 0 R")).collect();
+        objects.push(format!("<< /Kids [{}] >>", kids_refs.join(" "))); // obj 4
+        objects.push(format!("[{nums_elements}]")); // obj 5
+        for _ in 6..=21 {
+            objects.push("<< /Nums 5 0 R >>".to_string()); // obj 6..=21
+        }
+
+        let mut out = b"%PDF-1.7\n".to_vec();
+        let mut offsets = Vec::new();
+        for (i, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
+        }
+        let xref = out.len();
+        out.extend_from_slice(
+            format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes(),
+        );
+        for offset in offsets {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+                objects.len() + 1
+            )
+            .as_bytes(),
+        );
+
+        let doc = crate::engine::PdfDocument::from_bytes(&out).expect("open document");
+        let start = Instant::now();
+        let labels = doc.page_labels().expect("read page labels");
+        let elapsed = start.elapsed();
+        println!("sixteen_nodes_sharing_huge_nums elapsed: {:?}", elapsed);
+        assert_eq!(labels, None);
+        assert!(elapsed < Duration::from_secs(1));
     }
 }
