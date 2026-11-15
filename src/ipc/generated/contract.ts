@@ -408,7 +408,7 @@ export type RemoveFontArgs = { id: FontId, };
 /**
  * Why importing a language was refused (B2-10).
  */
-export type LanguageRefusal = "unreadable" | "tooLarge" | "notLanguageData" | "badName" | "nameTaken" | "tooMany";
+export type LanguageRefusal = "unreadable" | "tooLarge" | "notLanguageData" | "unsupportedSetting" | "badName" | "nameTaken" | "tooMany";
 
 /**
  * What `import_ocr_language` came to (B2-10).

@@ -119,6 +119,9 @@ unsafe extern "C" {
     fn fz_drop_context(ctx: *mut c_void);
     fn fz_set_leptonica_mem(ctx: *mut c_void);
     fn fz_clear_leptonica_mem(ctx: *mut c_void);
+
+    #[cfg(test)]
+    fn TessBaseAPIGetLoadedLanguagesAsVector(handle: *const c_void) -> *mut *mut c_char;
 }
 
 /// Lets the calling thread give way to the others: recognising a page is background work, and
@@ -260,8 +263,14 @@ impl Recogniser {
             return Err(OcrError::Init("no recogniser"));
         }
         let api = Api(handle);
-        // SAFETY: `data` and `language` outlive the call, which copies what it keeps; no configs
-        // or variables are passed.
+        // Override `tessedit_load_sublangs` to an empty string. Tesseract applies these
+        // variables after reading the language's settings, overriding any value in the data;
+        // the app supplies only one language's data at a time, from memory.
+        let mut var_names = [c"tessedit_load_sublangs".as_ptr().cast_mut()];
+        let mut var_values = [c"".as_ptr().cast_mut()];
+        // SAFETY: `data` and `language` outlive the call, which copies what it keeps; one
+        // variable is passed whose name and value outlive the call, which Tesseract only reads
+        // and copies. No configs are passed.
         let initialised = unsafe {
             TessBaseAPIInit5(
                 api.0,
@@ -271,9 +280,9 @@ impl Recogniser {
                 OEM_LSTM_ONLY,
                 std::ptr::null_mut(),
                 0,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                0,
+                var_names.as_mut_ptr(),
+                var_values.as_mut_ptr(),
+                1,
                 0,
             )
         };
@@ -287,6 +296,27 @@ impl Recogniser {
             _memory: memory,
             _in_use: in_use,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn loaded_languages(&self) -> Vec<String> {
+        // SAFETY: `self.api.0` is a live handle. `TessBaseAPIGetLoadedLanguagesAsVector` returns
+        // a null-terminated array of null-terminated C strings. We do not call `TessDeleteTextArray`
+        // here because it frees strings with C++ `delete[]` whereas MuPDF's Tesseract allocates them
+        // with `strdup`. Leaking a few bytes in this test is acceptable and harmless.
+        unsafe {
+            let mut result = Vec::new();
+            let arr = TessBaseAPIGetLoadedLanguagesAsVector(self.api.0);
+            if !arr.is_null() {
+                let mut ptr = arr;
+                while !(*ptr).is_null() {
+                    let s = CStr::from_ptr(*ptr).to_string_lossy().into_owned();
+                    result.push(s);
+                    ptr = ptr.add(1);
+                }
+            }
+            result
+        }
     }
 }
 
@@ -717,5 +747,61 @@ pub(crate) mod tests {
             .recognise(&grey, width, height, DPI, TIME, &AtomicBool::new(false))
             .expect("recognise");
         assert!(text_of(&lines).contains(&"Privacy-first PDF Reader".to_owned()));
+    }
+
+    struct RemoveOnDrop(std::path::PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// `data` with entry 0 (the language's settings) replaced by `config`, or added. The table
+    /// is the number of entries (i32), then an offset (i64, -1 for none) for each,
+    /// little-endian; the entries follow in that order.
+    fn with_language_config(data: &[u8], config: &[u8]) -> Vec<u8> {
+        let count = usize::try_from(i32::from_le_bytes(data[..4].try_into().unwrap())).unwrap();
+        let offset = |i: usize| i64::from_le_bytes(data[4 + 8 * i..12 + 8 * i].try_into().unwrap());
+        let mut entries: Vec<Option<&[u8]>> = (0..count)
+            .map(|i| {
+                let start = usize::try_from(offset(i)).ok()?;
+                let end = (i + 1..count)
+                    .find_map(|j| usize::try_from(offset(j)).ok())
+                    .unwrap_or(data.len());
+                Some(&data[start..end])
+            })
+            .collect();
+        entries[0] = Some(config);
+        let mut out = data[..4].to_vec();
+        let mut at = i64::try_from(4 + 8 * count).unwrap();
+        for entry in &entries {
+            let begins = entry.map_or(-1, |entry| {
+                let begins = at;
+                at += i64::try_from(entry.len()).unwrap();
+                begins
+            });
+            out.extend_from_slice(&begins.to_le_bytes());
+        }
+        for entry in entries.iter().flatten() {
+            out.extend_from_slice(entry);
+        }
+        out
+    }
+
+    #[test]
+    fn language_data_that_names_other_languages_loads_only_itself() {
+        let _turn = one_at_a_time();
+        // Tesseract looks for the languages that `tessedit_load_sublangs` names in a folder
+        // named after the language, under the working directory (the package's folder when
+        // cargo runs the tests).
+        let name = "sublangs581";
+        let folder = std::env::current_dir().unwrap().join(name);
+        let _remove = RemoveOnDrop(folder.clone());
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("chi_tra.traineddata"), traineddata("chi_tra")).unwrap();
+        let data = with_language_config(&traineddata("eng"), b"tessedit_load_sublangs chi_tra\n");
+        let recogniser = Recogniser::new(name, &data).expect("loads");
+        assert_eq!(recogniser.loaded_languages(), [name]);
     }
 }

@@ -6,7 +6,8 @@
 //! buffer, or offsets that run backwards, make it read where it should not or allocate without
 //! end. So both sides refuse such a file before it gets near Tesseract: the main process when the
 //! user imports one, the worker when it is given one. The check goes as far as the file's table
-//! of contents; the model inside is Tesseract's to read, in the worker's sandbox.
+//! of contents; the model inside is Tesseract's to read, in the worker's sandbox. It also checks
+//! entry 0 (the language's settings), accepting only settings used by official language data.
 
 use thiserror::Error;
 
@@ -29,6 +30,154 @@ pub enum LanguageDataError {
     Malformed(&'static str),
     #[error("the language data has no LSTM model, which is the only kind the app uses")]
     NoLstm,
+    #[error("unsupported Tesseract setting in language data: {0}")]
+    UnsupportedSetting(&'static str),
+}
+
+/// The maximum size of entry 0 (the language's settings): 4096 bytes.
+const MAX_CONFIG_BYTES: usize = 4096;
+/// The maximum length of a setting line, including line endings: 255 bytes.
+const MAX_CONFIG_LINE_BYTES: usize = 255;
+
+/// The 59 (name, value) setting pairs that official Tesseract language data uses.
+/// Collected on 2026-11-15 from 491 `.traineddata` files across tesseract-ocr's `tessdata_fast`,
+/// `tessdata_best`, and `tessdata` repositories (87 files have settings).
+///
+/// Two setting names are accepted with any value and therefore omitted from this table:
+/// - `tessedit_char_blacklist`: only disables characters from recognition.
+/// - `tessedit_load_sublangs`: overridden by the worker with an empty string at init.
+pub const ALLOWED_SETTINGS: [(&str, &str); 59] = [
+    ("allow_blob_division", "F"),
+    ("assume_fixed_pitch_char_segment", "T"),
+    ("chop_enable", "0"),
+    ("chop_enable", "F"),
+    ("classify_cp_cutoff_strength", "2"),
+    ("classify_integer_matcher_multiplier", "10"),
+    ("classify_integer_matcher_multiplier", "4"),
+    ("classify_integer_matcher_multiplier", "6"),
+    ("classify_misfit_junk_penalty", "0.125"),
+    ("disable_character_fragments", "F"),
+    ("edges_children_count_limit", "1000"),
+    ("edges_children_count_limit", "10000"),
+    ("edges_children_fix", "T"),
+    ("edges_max_children_layers", "5"),
+    ("edges_max_children_per_outline", "10"),
+    ("edges_max_children_per_outline", "20"),
+    ("edges_use_new_outline_complexity", "T"),
+    ("language_model_ngram_nonmatch_score", "-20"),
+    ("language_model_ngram_on", "1"),
+    ("language_model_ngram_scale_factor", "0.1"),
+    ("language_model_ngram_space_delimited_language", "F"),
+    ("language_model_use_sigmoidal_certainty", "T"),
+    ("merge_fragments_in_matrix", "F"),
+    ("ocr_devanagari_split_strategy", "1"),
+    ("pageseg_devanagari_split_strategy", "1"),
+    ("preserve_interword_spaces", "1"),
+    ("prioritize_division", "T"),
+    ("segment_nonalphabetic_script", "1"),
+    ("segment_penalty_dict_nonword", "1.0"),
+    ("segment_penalty_garbage", "1.0"),
+    ("segsearch_max_char_wh_ratio", "1.3"),
+    ("segsearch_max_futile_classifications", "10"),
+    ("stopper_nondict_certainty_base", "-2"),
+    ("tessedit_ocr_engine_mode", "1"),
+    ("tessedit_tess_adaption_mode", "0x00"),
+    ("tessedit_use_primary_params_model", "1"),
+    ("textord_force_make_prop_words", "T"),
+    ("textord_max_noise_size", "7"),
+    ("textord_no_rejects", "T"),
+    ("textord_noise_normratio", "5"),
+    ("textord_noise_normratio", "6"),
+    ("textord_noise_rejwords", "F"),
+    ("textord_noise_rowratio", "20.0"),
+    ("textord_noise_sizelimit", "0.1"),
+    ("textord_noise_sizelimit", "0.2"),
+    ("textord_noise_syfract", "0.6"),
+    ("textord_single_height_mode", "T"),
+    ("textord_space_size_is_variable", "T"),
+    ("textord_tabfind_aligned_gap_fraction", "0.5"),
+    ("textord_tabfind_vertical_text_ratio", "0.1"),
+    ("textord_tabvector_vertical_box_ratio", "0.3"),
+    ("textord_tabvector_vertical_gap_fraction", "1.5"),
+    ("textord_use_cjk_fp_model", "T"),
+    ("tosp_force_wordbreak_on_punct", "F"),
+    ("tosp_old_sp_kn_th_factor", "4.0"),
+    ("tosp_old_to_constrain_sp_kn", "T"),
+    ("tosp_old_to_method", "T"),
+    ("tosp_only_small_gaps_for_kern", "T"),
+    ("tosp_use_pre_chopping", "T"),
+];
+
+/// Validates entry 0 (language config) against official allowed settings.
+fn check_language_config(config: &[u8]) -> Result<(), LanguageDataError> {
+    if config.len() > MAX_CONFIG_BYTES {
+        return Err(LanguageDataError::UnsupportedSetting(
+            "the settings are longer than 4096 bytes",
+        ));
+    }
+    for &b in config {
+        if (b < 0x20 && b != b'\t' && b != b'\n' && b != b'\r') || b == 0x7F {
+            return Err(LanguageDataError::UnsupportedSetting(
+                "a control character is present",
+            ));
+        }
+    }
+    let mut remaining = config;
+    while !remaining.is_empty() {
+        let line_with_lf = match remaining.iter().position(|&b| b == b'\n') {
+            Some(pos) => {
+                let line = &remaining[..=pos];
+                remaining = &remaining[pos + 1..];
+                line
+            }
+            None => {
+                let line = remaining;
+                remaining = &[];
+                line
+            }
+        };
+        if line_with_lf.len() > MAX_CONFIG_LINE_BYTES {
+            return Err(LanguageDataError::UnsupportedSetting("a line is too long"));
+        }
+        if let Some(&first) = line_with_lf.first() {
+            if first == b'\r' || first == b'\n' || first == b'#' {
+                continue;
+            }
+        } else {
+            continue;
+        }
+        let mut line = line_with_lf;
+        while let Some((&b'\r' | &b'\n', rest)) = line.split_last() {
+            line = rest;
+        }
+        let Some(pos) = line.iter().position(|&b| b == b' ' || b == b'\t') else {
+            return Err(LanguageDataError::UnsupportedSetting("a line has no value"));
+        };
+        if pos == 0 {
+            return Err(LanguageDataError::UnsupportedSetting(
+                "a line begins with whitespace",
+            ));
+        }
+        let name = &line[..pos];
+        let val_start = line[pos..]
+            .iter()
+            .position(|&b| b != b' ' && b != b'\t')
+            .map(|offset| pos + offset)
+            .unwrap_or(line.len());
+        let val = &line[val_start..];
+        if name == b"tessedit_char_blacklist" || name == b"tessedit_load_sublangs" {
+            continue;
+        }
+        let is_allowed = ALLOWED_SETTINGS.iter().any(|&(allowed_name, allowed_val)| {
+            name == allowed_name.as_bytes() && val == allowed_val.as_bytes()
+        });
+        if !is_allowed {
+            return Err(LanguageDataError::UnsupportedSetting(
+                "an unsupported setting or value",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Tesseract's `TessdataType`: the entries of the table of contents the LSTM engine needs.
@@ -93,6 +242,23 @@ pub fn check_language_data(data: &[u8]) -> Result<(), LanguageDataError> {
     .all(present)
     {
         return Err(LanguageDataError::NoLstm);
+    }
+    if offsets[0] != -1 {
+        let start = usize::try_from(offsets[0]).expect("offset >= 0");
+        let end = (1..count)
+            .find_map(|j| {
+                let off = offsets[j];
+                if off != -1 {
+                    usize::try_from(off).ok()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(data.len());
+        let config = data
+            .get(start..end)
+            .ok_or(LanguageDataError::Malformed("entry 0 out of bounds"))?;
+        check_language_config(config)?;
     }
     Ok(())
 }
@@ -284,5 +450,105 @@ mod tests {
             assert!(!is_language_name(name), "{name:?}");
         }
         assert!(is_language_name(&"a".repeat(32)));
+    }
+
+    /// Language data with entry 0 (the language's settings) containing `config`, and LSTM models present.
+    fn data_with_config(config: &[u8]) -> Vec<u8> {
+        let count = 24;
+        let table_end = 4 + 8 * count;
+        let mut out = i32::try_from(count).unwrap().to_le_bytes().to_vec();
+        let mut at = table_end;
+        let entry0_offset = i64::try_from(at).unwrap();
+        at += config.len();
+        out.extend_from_slice(&entry0_offset.to_le_bytes());
+        for index in 1..count {
+            let offset: i64 = if LSTM.contains(&index) {
+                let here = at;
+                at += 10;
+                i64::try_from(here).unwrap()
+            } else {
+                -1
+            };
+            out.extend_from_slice(&offset.to_le_bytes());
+        }
+        out.extend_from_slice(config);
+        out.resize(at, 7);
+        out
+    }
+
+    #[test]
+    fn language_data_with_allowed_settings_is_accepted() {
+        // Every setting pair in ALLOWED_SETTINGS individually passes.
+        for &(name, val) in &ALLOWED_SETTINGS {
+            let line = format!("{name} {val}\n");
+            assert_eq!(
+                check_language_data(&data_with_config(line.as_bytes())),
+                Ok(()),
+                "{name} {val}"
+            );
+        }
+        // Tabs or multiple spaces between name and value pass.
+        assert_eq!(
+            check_language_data(&data_with_config(b"chop_enable\t0\n")),
+            Ok(())
+        );
+        assert_eq!(
+            check_language_data(&data_with_config(b"chop_enable   0\n")),
+            Ok(())
+        );
+        // Empty lines, comments, CRLF line endings, and no trailing newline pass.
+        let mixed = b"# comment\n\r\nchop_enable 0\r\npreserve_interword_spaces 1";
+        assert_eq!(check_language_data(&data_with_config(mixed)), Ok(()));
+        // tessedit_char_blacklist with non-UTF-8 bytes passes.
+        let mut blacklist = b"tessedit_char_blacklist ".to_vec();
+        blacklist.extend_from_slice(&[0xA4, 0x40]);
+        blacklist.push(b'\n');
+        assert_eq!(check_language_data(&data_with_config(&blacklist)), Ok(()));
+        // tessedit_load_sublangs with arbitrary value passes.
+        assert_eq!(
+            check_language_data(&data_with_config(b"tessedit_load_sublangs whatever_lang\n")),
+            Ok(())
+        );
+        // A line of exactly 255 bytes passes.
+        let mut line_255 = b"tessedit_load_sublangs ".to_vec();
+        line_255.resize(254, b'a');
+        line_255.push(b'\n');
+        assert_eq!(check_language_data(&data_with_config(&line_255)), Ok(()));
+        // Empty entry 0 passes.
+        assert_eq!(check_language_data(&data_with_config(&[])), Ok(()));
+    }
+
+    #[test]
+    fn language_data_with_unsupported_settings_is_refused() {
+        let is_unsupported = |config: &[u8]| {
+            matches!(
+                check_language_data(&data_with_config(config)),
+                Err(LanguageDataError::UnsupportedSetting(_))
+            )
+        };
+        // Name not in the list.
+        assert!(is_unsupported(b"tessedit_write_params_to_file x\n"));
+        // Name in the list, but value not in the list.
+        assert!(is_unsupported(b"chop_enable 2\n"));
+        // Trailing whitespace after value.
+        assert!(is_unsupported(b"chop_enable 0 \n"));
+        // Leading space or tab.
+        assert!(is_unsupported(b" chop_enable 0\n"));
+        assert!(is_unsupported(b"\tchop_enable 0\n"));
+        // Only name without value or space.
+        assert!(is_unsupported(b"chop_enable\n"));
+        assert!(is_unsupported(b"chop_enable"));
+        // Control characters: NUL, 0x01, 0x7F.
+        assert!(is_unsupported(b"chop_enable \x00\n"));
+        assert!(is_unsupported(b"chop_enable \x01\n"));
+        assert!(is_unsupported(b"chop_enable \x7F\n"));
+        // Line of 256 bytes.
+        let mut line_256 = b"tessedit_load_sublangs ".to_vec();
+        line_256.resize(255, b'a');
+        line_256.push(b'\n');
+        assert!(is_unsupported(&line_256));
+        // Settings exceeding 4096 bytes.
+        let big = vec![b'\n'; 4097];
+        assert!(is_unsupported(&big));
     }
 }

@@ -361,6 +361,8 @@ pub enum LanguageRefusal {
     TooLarge,
     /// It is not the language data of Tesseract's LSTM engine.
     NotLanguageData,
+    /// It carries Tesseract settings the app does not accept.
+    UnsupportedSetting,
     /// Its name is not a code the app can use: a letter, then letters, digits, `_` or `-`.
     BadName,
     /// A language that came with the app has that code.
