@@ -1,9 +1,9 @@
 # ADR 0028：可搜尋的 PDF 副本：辨識出的文字以 Tesseract 的空字型寫成隱形的文字層，只用於沒有簽章、沒有加密的文件
 
 ## 狀態
-提議中
+已接受
 
-（工作卡 [#416](https://github.com/winner0988/Pdf-reader/issues/416)〔B4-08〕，正式版排在 1.0 之後，當第五批的第一張卡。POC：[#503](https://github.com/winner0988/Pdf-reader/pull/503)，draft，2026-11-14 關閉，分支 `feat/416-ocr-text-layer-poc` 保留。負責人的決定：2026-11-10 定了字型與排法〔[#416 的留言](https://github.com/winner0988/Pdf-reader/issues/416#issuecomment-6767609587)〕；2026-11-14 定了簽章與加密的文件不適用、入口放在「⋯」、現在寫這份 ADR〔[#416 的留言](https://github.com/winner0988/Pdf-reader/issues/416#issuecomment-6880042476)〕。）
+（負責人於 2026-11-15 接受〔[#416 的留言](https://github.com/winner0988/Pdf-reader/issues/416#issuecomment-6886734528)〕：排法用混合，不用 A2 的例外。工作卡 [#416](https://github.com/winner0988/Pdf-reader/issues/416)〔B4-08〕，正式版排在 1.0 之後，當第五批的第一張卡。POC：[#503](https://github.com/winner0988/Pdf-reader/pull/503)，draft，2026-11-14 關閉，分支 `feat/416-ocr-text-layer-poc` 保留。負責人的決定：2026-11-10 定了字型與排法〔[#416 的留言](https://github.com/winner0988/Pdf-reader/issues/416#issuecomment-6767609587)〕；2026-11-14 定了簽章與加密的文件不適用、入口放在「⋯」、現在寫這份 ADR〔[#416 的留言](https://github.com/winner0988/Pdf-reader/issues/416#issuecomment-6880042476)〕。）
 
 ## 背景
 - 規格 §2「OCR 引擎」：為掃描件產生可搜尋的文字層。ADR 0015 讓 app 在文件自己的 worker 中辨識掃描頁，但辨識出的文字只在 app 裡用（顯示、搜尋、選取）。寫進 PDF 的文字層要「另開卡」，就是 #416。
@@ -59,7 +59,7 @@
 |---|---|---|
 | A1：一個詞一個位置，用 `Tz` 拉寬 | 跟 Tesseract 一樣，各家閱讀器都處理過這種檔 | 中文沒有空白，一整串字被當成一個詞，越後面的字偏得越多（最多 13 pt） |
 | A2：每個字一個位置，字級是字框的高度 | 選取框最貼；Edge 搜得到 `PRIVACY FIRST` 與 `隱私優先` | 沒有空白：複製出來的字黏在一起，要靠閱讀器從間距猜空白；字級跟著字框跳（1.44～26.64 pt），標點與有下伸部的字最不穩 |
-| **混合（建議；負責人 11-10 選定）**：同一行一個字級與基線，詞與詞之間寫空白，每個字的水平位置照 OCR 的框 | 有 Tesseract 的空白與整齊的行（大寫檔在 Edge 接得成片語，就是這種條件），也有 A2 的每字位置（中文不會越後面越偏） | 要多算每一行的字級與基線，程式比 A2 多一點 |
+| **混合（負責人 11-10 選定）**：同一行一個字級與基線，詞與詞之間寫空白，每個字的水平位置照 OCR 的框 | 有 Tesseract 的空白與整齊的行（大寫檔在 Edge 接得成片語，就是這種條件），也有 A2 的每字位置（中文不會越後面越偏） | 要多算每一行的字級與基線，程式比 A2 多一點 |
 
 ## 決定
 1. **字型**：用 Tesseract 的空字型 GlyphLessFont（選項 A）。
