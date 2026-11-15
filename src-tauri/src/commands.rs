@@ -13,19 +13,20 @@ use ipc_contract::types::{
     AnnotationId, AnnotationSummary, AnnotationSummaryFormat, AnnotationSummaryOutcome,
     AttachmentId, AttachmentInfo, BatchArgs, BatchEvent, BatchOperation, BatchReport,
     CaptureProtection, CompareExportFormat, CompareTextArgs, CompareTextResult, CompressArgs,
-    CompressResult, CreateResult, DocumentId, DocumentInfo, EditArgs, EncryptArgs, ErrorCode,
-    ExportAnnotationSummaryArgs, ExportArgs, ExportCompareTextArgs, ExportCompareTextOutcome,
-    ExportEvent, ExportFormat, FileRecordingArgs, FindPersonalDataQuery, FontImport, FontInfo,
-    FormField, IndexSearchArgs, IndexSearchEvent, IpcError, LanguageImport, LinkArgs, LinkPreview,
-    MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent, OpenIndexedArgs, OutlineLinkArgs,
-    OutlineResult, PageAnnotation, PageLink, PageMarksCopyArgs, PageText, PagesSource, Password,
-    PersonalDataMatches, PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId,
-    RedactionSummary, RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs,
-    RenderPageArgs, RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult,
-    SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs,
-    SignCheck, SignResult, SignatureReport, SigningFile, SigningFileKey, SigningKey,
-    SigningStoreKey, StampImageInfo, StoreCertificate, TabId, TextBoxInfo, TextIndexStatus,
-    UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
+    CompressResult, CreateResult, DocumentFonts, DocumentId, DocumentInfo, DocumentProperties,
+    EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs, ExportArgs,
+    ExportCompareTextArgs, ExportCompareTextOutcome, ExportEvent, ExportFormat, FileRecordingArgs,
+    FindPersonalDataQuery, FontImport, FontInfo, FormField, IndexSearchArgs, IndexSearchEvent,
+    IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs,
+    OcrLanguages, OpenEvent, OpenIndexedArgs, OutlineLinkArgs, OutlineResult, PageAnnotation,
+    PageLink, PageMarksCopyArgs, PageText, PagesSource, Password, PersonalDataMatches,
+    PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
+    RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
+    RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult, SearchArgs,
+    SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs, SignCheck,
+    SignResult, SignatureReport, SigningFile, SigningFileKey, SigningKey, SigningStoreKey,
+    StampImageInfo, StoreCertificate, TabId, TextBoxInfo, TextIndexStatus, UndoArgs, UnlockArgs,
+    UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use ipc_contract::worker::{NewSignature, VisibleSignature};
@@ -42,6 +43,7 @@ use crate::documents::{self, Documents};
 use crate::events::OpenEvents;
 use crate::export::{self, Exports, ImageKind};
 use crate::file_dialog;
+use crate::font_jobs::FontJobs;
 use crate::ocr::Ocr;
 use crate::recent::RecentFiles;
 use crate::render::Renderer;
@@ -783,6 +785,46 @@ pub async fn get_attachments(
     doc: DocumentId,
 ) -> Result<Vec<AttachmentInfo>, IpcError> {
     blocking(move || app.state::<Documents>().attachments(doc)).await
+}
+
+/// Returns the basic properties, security summary, and metadata for `doc` (B5-04).
+#[tauri::command]
+pub async fn get_document_properties(
+    app: AppHandle,
+    doc: DocumentId,
+) -> Result<DocumentProperties, IpcError> {
+    blocking(move || app.state::<Documents>().document_properties(doc)).await
+}
+
+/// Returns the fonts used in `doc` (B5-04).
+#[tauri::command]
+pub async fn get_document_fonts(
+    app: AppHandle,
+    doc: DocumentId,
+    request: RequestId,
+) -> Result<DocumentFonts, IpcError> {
+    let cancel = app.state::<FontJobs>().start(request);
+    let app_clone = app.clone();
+    let result = blocking(move || {
+        if cancel.load(Ordering::SeqCst) {
+            return Err(font_cancelled());
+        }
+        let fonts = app_clone.state::<Documents>().document_fonts(doc)?;
+        if cancel.load(Ordering::SeqCst) {
+            return Err(font_cancelled());
+        }
+        Ok(fonts)
+    })
+    .await;
+    app.state::<FontJobs>().finish(request);
+    result
+}
+
+fn font_cancelled() -> IpcError {
+    IpcError {
+        code: ErrorCode::Cancelled,
+        message: "cancelled".to_owned(),
+    }
 }
 
 /// Asks where to save attachment `attachment` of `doc`, suggesting its cleaned name, then writes
@@ -2260,6 +2302,7 @@ pub async fn cancel(app: AppHandle, request: RequestId) -> Result<(), IpcError> 
     app.state::<Searches>().cancel(request);
     app.state::<Exports>().cancel(request);
     app.state::<Batches>().cancel(request);
+    app.state::<FontJobs>().cancel(request);
     Ok(())
 }
 

@@ -174,6 +174,10 @@ pub fn bindings() -> String {
         SignArgs,
         SignResult,
         DocumentInfo,
+        PdfDate,
+        DocumentProperties,
+        DocumentFontEntry,
+        DocumentFonts,
         RenderPageArgs,
         RasterRegion,
         BlockedAction,
@@ -219,7 +223,7 @@ pub fn bindings() -> String {
         SaveAttachmentResult,
     );
 
-    let limits: [(&str, String); 75] = [
+    let limits: [(&str, String); 81] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -330,6 +334,15 @@ pub fn bindings() -> String {
             "maxCompareDeadlineMillis",
             MAX_COMPARE_DEADLINE_MILLIS.to_string(),
         ),
+        ("maxPropertyTextBytes", MAX_PROPERTY_TEXT_BYTES.to_string()),
+        ("maxFontEntries", MAX_FONT_ENTRIES.to_string()),
+        (
+            "maxFontResourceObjects",
+            MAX_FONT_RESOURCE_OBJECTS.to_string(),
+        ),
+        ("maxFontResourceDepth", MAX_FONT_RESOURCE_DEPTH.to_string()),
+        ("maxFontTimeMillis", MAX_FONT_TIME_MILLIS.to_string()),
+        ("maxPageParentDepth", MAX_PAGE_PARENT_DEPTH.to_string()),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];
     out.push_str(
