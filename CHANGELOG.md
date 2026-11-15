@@ -4,6 +4,10 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 ## [Unreleased]
 
+### 新增
+
+- 列印對話框支援多頁合一（每張紙 2、4、6、9 頁，可選排列順序與細頁框）與小冊子列印（#452）。
+
 ### 安全
 
 - 內附的文字辨識函式庫套用上游的修正（#563）。

@@ -70,9 +70,9 @@ import { hasBannerContent } from "@/features/security-banner/summary";
 import { AboutDialog, SetDefaultFailedDialog, ShortcutsDialog } from "@/features/shell/dialogs";
 import { APP_VERSION } from "@/features/shell/version";
 import { rotate, sameSession, stepZoom, type Rotation, type ShellState, type Zoom } from "@/features/shell/model";
-import { PrintDialog } from "@/features/print/PrintDialog";
+import { PrintDialog, type PrintJob } from "@/features/print/PrintDialog";
 import { PrintPages } from "@/features/print/PrintPages";
-import { freePrintPages, LOW_RES_PRINT_DPI, PRINT_DPI, renderForPrint, type PrintPage } from "@/features/print/render";
+import { freePrintPages, LOW_RES_PRINT_DPI, PRINT_DPI, renderForPrint } from "@/features/print/render";
 import { SearchBar } from "@/features/shell/SearchBar";
 import { Sidebar } from "@/features/shell/Sidebar";
 import { EmptyState, ErrorState, LoadingState, PasswordState } from "@/features/shell/states";
@@ -356,7 +356,7 @@ export function ReaderShell({
   /** Why saving failed (B2-02), while that is shown. */
   const [saveFailed, setSaveFailed] = useState<unknown>(null);
   /** Pages rendered for printing, while the system's print dialog is up (MVP-17). */
-  const [printPages, setPrintPages] = useState<PrintPage[] | null>(null);
+  const [printJob, setPrintJob] = useState<PrintJob | null>(null);
   /** What the pointer does on the pages (B2-08): draws with the pen, or puts a stamp down. */
   const [tool, setTool] = useState<Tool | null>(null);
   /** Whether the document's file may be on the recent files list (#73); null until asked. */
@@ -2026,7 +2026,7 @@ export function ReaderShell({
               dpi: permissions.printHighQuality ? PRINT_DPI : LOW_RES_PRINT_DPI,
             })
           }
-          onReady={setPrintPages}
+          onReady={setPrintJob}
           lowResolutionDpi={permissions.printHighQuality ? undefined : LOW_RES_PRINT_DPI}
         />
       )}
@@ -2137,12 +2137,15 @@ export function ReaderShell({
           onJumpToPage={goToPage}
         />
       )}
-      {printPages && (
+      {printJob && (
         <PrintPages
-          pages={printPages}
+          pages={printJob.pages}
+          layout={printJob.layout}
+          order={printJob.order}
+          border={printJob.border}
           onDone={() => {
-            freePrintPages(printPages);
-            setPrintPages(null);
+            freePrintPages(printJob.pages);
+            setPrintJob(null);
           }}
         />
       )}
