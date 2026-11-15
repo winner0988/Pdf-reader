@@ -1517,6 +1517,7 @@ fn engine_error_code(engine: &EngineError, other: WorkerErrorCode) -> WorkerErro
         | EngineError::NoPageLeft
         | EngineError::EncryptedCopy => WorkerErrorCode::InvalidRequest,
         EngineError::CorruptedPageTree
+        | EngineError::CorruptedPageLabels
         | EngineError::InvalidSource(_)
         | EngineError::NotAppendable
         | EngineError::SanitizeCheckFailed => WorkerErrorCode::Corrupted,

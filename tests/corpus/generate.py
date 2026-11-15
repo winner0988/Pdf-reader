@@ -1679,6 +1679,19 @@ def benign_contract_v2() -> bytes:
     return doc.build()
 
 
+def benign_page_labels() -> bytes:
+    doc = Document("page-labels")
+    pages = [
+        Page(lines=[(72, 720, 24, "Page 1: roman i")]),
+        Page(lines=[(72, 720, 24, "Page 2: roman ii")]),
+        Page(lines=[(72, 720, 24, "Page 3: decimal 1")]),
+        Page(lines=[(72, 720, 24, "Page 4: decimal 2")]),
+    ]
+    doc.add_pages(pages)
+    doc.catalog_extra = " /PageLabels << /Nums [0 << /S /r >> 2 << /S /D /St 1 >>] >>"
+    return doc.build()
+
+
 
 def malicious_attachment_size_mismatch() -> bytes:
     data = b"actual payload is only 30 bytes"
@@ -1804,6 +1817,19 @@ def malformed_page_tree_shared_kids() -> bytes:
     )
     pdf.set(catalog, f"<< /Type /Catalog /Pages {pages_root} 0 R >>")
     return pdf.build(catalog, doc_id=doc_id("page-tree-shared-kids"))
+
+
+def malformed_page_labels_cycle() -> bytes:
+    doc = Document("page-labels-cycle")
+    boxes = " /CropBox [0 0 612 792] /BleedBox [0 0 612 792] /TrimBox [0 0 612 792] /ArtBox [0 0 612 792] /Rotate 0"
+    doc.add_pages([
+        Page(lines=[(72, 720, 24, "Page 1: /PageLabels cycle")], extra=boxes),
+        Page(lines=[(72, 720, 24, "Page 2: /PageLabels cycle")], extra=boxes),
+    ])
+    label_node = doc.pdf.reserve()
+    doc.pdf.set(label_node, f"<< /Kids [{label_node} 0 R] >>")
+    doc.catalog_extra = f" /PageLabels {label_node} 0 R"
+    return doc.build()
 
 
 def malformed_outline_cycle() -> bytes:
@@ -2436,6 +2462,10 @@ SAMPLES = [
            "Two-page contract version 2 with additions, deletions, modifications, and cross-page changes (B3-24, E9).",
            "Opens; 2 pages with updated contract clauses.", 2,
            text=["SERVICE AGREEMENT - VERSION 2", "Alpha Corp and Gamma Inc", "Clause 3A. Expenses"]),
+    Sample("benign/page-labels.pdf", benign_page_labels,
+           "A document with flat /PageLabels (lowercase roman numerals i-ii, then decimal 1-2).",
+           "Opens; 4 pages; page labels cover roman and decimal pages.", 4,
+           text=["Page 1: roman i", "Page 2: roman ii", "Page 3: decimal 1", "Page 4: decimal 2"]),
     # malicious
     Sample("malicious/js-document-level.pdf", malicious_js_document, "Document-level JavaScript in the names tree.",
            "No script runs; finding reported.", 1, ["javaScript"]),
@@ -2541,6 +2571,9 @@ SAMPLES = [
            "Opens (2 pages); page edits are refused (corrupted); never hangs.", 2),
     Sample("malformed/page-tree-shared-kids.pdf", malformed_page_tree_shared_kids,
            "Intermediate /Pages nodes share a large /Kids array.",
+           "Opens (2 pages); page edits are refused (corrupted); never hangs.", 2),
+    Sample("malformed/page-labels-cycle.pdf", malformed_page_labels_cycle,
+           "The page labels tree's /Kids array contains a cycle.",
            "Opens (2 pages); page edits are refused (corrupted); never hangs.", 2),
     Sample("malformed/outline-cycle.pdf", malformed_outline_cycle, "Outline items whose /Next pointers form a cycle.",
            "Opens; the outline is cut at the cycle; never hangs.", 1),
