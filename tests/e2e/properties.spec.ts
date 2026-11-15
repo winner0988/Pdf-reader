@@ -41,7 +41,7 @@ test.describe("document properties dialog (B5-04)", () => {
     ).toBeVisible();
 
     // Close dialog
-    await dialog.getByRole("button", { name: t.close }).click();
+    await dialog.getByRole("button", { name: t.close }).first().click();
     await expect(dialog).not.toBeVisible();
   });
 });
