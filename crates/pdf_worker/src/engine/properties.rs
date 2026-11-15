@@ -22,12 +22,11 @@ fn is_font_embedded(font_val: &PdfObject, subtype: &str) -> bool {
         return true;
     }
     if subtype == "Type 0" || subtype == "Type0" {
-        if let Ok(Some(descendants)) = font_val.get_dict("DescendantFonts") {
-            if let Ok(Some(first)) = descendants.get_array(0) {
-                if let Ok(Some(descriptor)) = first.get_dict("FontDescriptor") {
-                    return has_font_file(&descriptor);
-                }
-            }
+        if let Ok(Some(descendants)) = font_val.get_dict("DescendantFonts")
+            && let Ok(Some(first)) = descendants.get_array(0)
+            && let Ok(Some(descriptor)) = first.get_dict("FontDescriptor")
+        {
+            return has_font_file(&descriptor);
         }
         return false;
     }
@@ -44,20 +43,20 @@ fn has_font_file(descriptor: &PdfObject) -> bool {
 }
 
 fn extract_subtype(font_val: &PdfObject) -> String {
-    if let Ok(Some(st)) = font_val.get_dict("Subtype") {
-        if let Ok(bytes) = st.as_name() {
-            let name = String::from_utf8_lossy(&bytes);
-            let trimmed = name.trim_start_matches('/');
-            match trimmed {
-                "Type1" => return "Type 1".to_string(),
-                "Type0" => return "Type 0".to_string(),
-                "Type3" => return "Type 3".to_string(),
-                "MMType1" => return "MMType 1".to_string(),
-                "TrueType" => return "TrueType".to_string(),
-                "CIDFontType0" => return "CIDFontType0".to_string(),
-                "CIDFontType2" => return "CIDFontType2".to_string(),
-                other => return clean_display_text(other, MAX_PROPERTY_TEXT_BYTES),
-            }
+    if let Ok(Some(st)) = font_val.get_dict("Subtype")
+        && let Ok(bytes) = st.as_name()
+    {
+        let name = String::from_utf8_lossy(&bytes);
+        let trimmed = name.trim_start_matches('/');
+        match trimmed {
+            "Type1" => return "Type 1".to_string(),
+            "Type0" => return "Type 0".to_string(),
+            "Type3" => return "Type 3".to_string(),
+            "MMType1" => return "MMType 1".to_string(),
+            "TrueType" => return "TrueType".to_string(),
+            "CIDFontType0" => return "CIDFontType0".to_string(),
+            "CIDFontType2" => return "CIDFontType2".to_string(),
+            other => return clean_display_text(other, MAX_PROPERTY_TEXT_BYTES),
         }
     }
     "Unknown".to_string()
@@ -68,32 +67,30 @@ fn extract_font_name(font_val: &PdfObject) -> String {
         bf.as_name()
             .map(|b| String::from_utf8_lossy(&b).into_owned())
             .or_else(|_| bf.as_string())
-            .ok()
-    } else if let Ok(Some(nm)) = font_val.get_dict("Name") {
-        nm.as_name()
+            .unwrap_or_else(|_| "Unnamed".to_string())
+    } else if let Ok(Some(name)) = font_val.get_dict("Name") {
+        name.as_name()
             .map(|b| String::from_utf8_lossy(&b).into_owned())
-            .or_else(|_| nm.as_string())
-            .ok()
+            .or_else(|_| name.as_string())
+            .unwrap_or_else(|_| "Unnamed".to_string())
     } else {
-        None
+        "Unnamed".to_string()
     };
 
-    let Some(raw_str) = raw else {
-        return "Unnamed".to_string();
-    };
-
-    let trimmed = raw_str.trim_start_matches('/');
-    // Strip subset prefix if it matches [A-Z]{6}\+
-    let without_prefix = if trimmed.len() > 7
+    let trimmed = raw.trim_start_matches('/');
+    // Check if there is a 6-character uppercase subset prefix followed by '+' (e.g. ABCDEF+FontName)
+    let stripped = if trimmed.len() > 7
         && trimmed.as_bytes()[6] == b'+'
-        && trimmed.as_bytes()[0..6].iter().all(|b| b.is_ascii_uppercase())
+        && trimmed.as_bytes()[..6]
+            .iter()
+            .all(|b| b.is_ascii_uppercase())
     {
         &trimmed[7..]
     } else {
         trimmed
     };
 
-    let cleaned = clean_display_text(without_prefix, MAX_PROPERTY_TEXT_BYTES);
+    let cleaned = clean_display_text(stripped, MAX_PROPERTY_TEXT_BYTES);
     if cleaned.is_empty() {
         "Unnamed".to_string()
     } else {
@@ -118,11 +115,12 @@ fn get_page_resources(
             break;
         }
         depth += 1;
-        if let Ok(id) = parent.as_indirect() {
-            if id > 0 && !seen_parents.insert(id) {
-                *complete = false;
-                break;
-            }
+        if let Ok(id) = parent.as_indirect()
+            && id > 0
+            && !seen_parents.insert(id)
+        {
+            *complete = false;
+            break;
         }
         if let Some(res) = parent.get_dict("Resources")? {
             return Ok(Some(res));
@@ -132,139 +130,129 @@ fn get_page_resources(
     Ok(None)
 }
 
+struct FontScanContext<'a> {
+    complete: &'a mut bool,
+    seen_resources: &'a mut HashSet<i32>,
+    seen_xobjects: &'a mut HashSet<i32>,
+    seen_fonts: &'a mut HashSet<i32>,
+    object_count: &'a mut usize,
+    raw_fonts: &'a mut Vec<DocumentFontEntry>,
+    start_time: Instant,
+}
+
+impl<'a> FontScanContext<'a> {
+    fn is_exhausted(&self) -> bool {
+        *self.object_count >= MAX_FONT_RESOURCE_OBJECTS
+            || self.raw_fonts.len() >= MAX_FONT_ENTRIES as usize
+            || self.start_time.elapsed().as_millis() >= MAX_FONT_TIME_MILLIS as u128
+    }
+}
+
 fn traverse_resources(
     res_obj: &PdfObject,
     depth: usize,
-    complete: &mut bool,
-    seen_resources: &mut HashSet<i32>,
-    seen_xobjects: &mut HashSet<i32>,
-    seen_fonts: &mut HashSet<i32>,
-    object_count: &mut usize,
-    raw_fonts: &mut Vec<DocumentFontEntry>,
-    start_time: Instant,
+    ctx: &mut FontScanContext<'_>,
 ) -> Result<(), EngineError> {
     if depth > MAX_FONT_RESOURCE_DEPTH {
-        *complete = false;
+        *ctx.complete = false;
         return Ok(());
     }
-    if *object_count >= MAX_FONT_RESOURCE_OBJECTS
-        || raw_fonts.len() >= MAX_FONT_ENTRIES as usize
-        || start_time.elapsed().as_millis() >= MAX_FONT_TIME_MILLIS as u128
-    {
-        *complete = false;
+    if ctx.is_exhausted() {
+        *ctx.complete = false;
         return Ok(());
     }
 
-    if let Ok(id) = res_obj.as_indirect() {
-        if id > 0 && !seen_resources.insert(id) {
-            return Ok(());
-        }
+    if let Ok(id) = res_obj.as_indirect()
+        && id > 0
+        && !ctx.seen_resources.insert(id)
+    {
+        return Ok(());
     }
-    *object_count += 1;
+    *ctx.object_count += 1;
 
     // 1. Process /Font dictionary
     if let Some(font_dict) = res_obj.get_dict("Font")? {
-        if *object_count >= MAX_FONT_RESOURCE_OBJECTS
-            || raw_fonts.len() >= MAX_FONT_ENTRIES as usize
-            || start_time.elapsed().as_millis() >= MAX_FONT_TIME_MILLIS as u128
-        {
-            *complete = false;
+        if ctx.is_exhausted() {
+            *ctx.complete = false;
             return Ok(());
         }
-        *object_count += 1;
+        *ctx.object_count += 1;
 
-        if font_dict.is_dict().unwrap_or(false) {
-            if let Ok(iter) = font_dict.dict_iter() {
-                for item in iter {
-                    if *object_count >= MAX_FONT_RESOURCE_OBJECTS
-                        || raw_fonts.len() >= MAX_FONT_ENTRIES as usize
-                        || start_time.elapsed().as_millis() >= MAX_FONT_TIME_MILLIS as u128
-                    {
-                        *complete = false;
-                        return Ok(());
-                    }
-                    *object_count += 1;
-
-                    let Ok((_key, font_val)) = item else {
-                        continue;
-                    };
-
-                    if let Ok(id) = font_val.as_indirect() {
-                        if id > 0 && !seen_fonts.insert(id) {
-                            continue;
-                        }
-                    }
-
-                    let subtype = extract_subtype(&font_val);
-                    let name = extract_font_name(&font_val);
-                    let embedded = is_font_embedded(&font_val, &subtype);
-
-                    raw_fonts.push(DocumentFontEntry {
-                        name,
-                        subtype,
-                        embedded,
-                    });
+        if font_dict.is_dict().unwrap_or(false)
+            && let Ok(iter) = font_dict.dict_iter()
+        {
+            for item in iter {
+                if ctx.is_exhausted() {
+                    *ctx.complete = false;
+                    return Ok(());
                 }
+                *ctx.object_count += 1;
+
+                let Ok((_key, font_val)) = item else {
+                    continue;
+                };
+
+                if let Ok(id) = font_val.as_indirect()
+                    && id > 0
+                    && !ctx.seen_fonts.insert(id)
+                {
+                    continue;
+                }
+
+                let subtype = extract_subtype(&font_val);
+                let name = extract_font_name(&font_val);
+                let embedded = is_font_embedded(&font_val, &subtype);
+
+                ctx.raw_fonts.push(DocumentFontEntry {
+                    name,
+                    subtype,
+                    embedded,
+                });
             }
         }
     }
 
     // 2. Process /XObject dictionary
     if let Some(xobj_dict) = res_obj.get_dict("XObject")? {
-        if *object_count >= MAX_FONT_RESOURCE_OBJECTS
-            || raw_fonts.len() >= MAX_FONT_ENTRIES as usize
-            || start_time.elapsed().as_millis() >= MAX_FONT_TIME_MILLIS as u128
-        {
-            *complete = false;
+        if ctx.is_exhausted() {
+            *ctx.complete = false;
             return Ok(());
         }
-        *object_count += 1;
+        *ctx.object_count += 1;
 
-        if xobj_dict.is_dict().unwrap_or(false) {
-            if let Ok(iter) = xobj_dict.dict_iter() {
-                for item in iter {
-                    if *object_count >= MAX_FONT_RESOURCE_OBJECTS
-                        || raw_fonts.len() >= MAX_FONT_ENTRIES as usize
-                        || start_time.elapsed().as_millis() >= MAX_FONT_TIME_MILLIS as u128
-                    {
-                        *complete = false;
-                        return Ok(());
-                    }
-                    *object_count += 1;
+        if xobj_dict.is_dict().unwrap_or(false)
+            && let Ok(iter) = xobj_dict.dict_iter()
+        {
+            for item in iter {
+                if ctx.is_exhausted() {
+                    *ctx.complete = false;
+                    return Ok(());
+                }
+                *ctx.object_count += 1;
 
-                    let Ok((_key, xobj_val)) = item else {
-                        continue;
-                    };
+                let Ok((_key, xobj_val)) = item else {
+                    continue;
+                };
 
-                    let is_form = if let Ok(Some(st)) = xobj_val.get_dict("Subtype") {
-                        st.as_name().map(|n| n == b"Form").unwrap_or(false)
-                    } else {
-                        false
-                    };
+                let is_form = if let Ok(Some(st)) = xobj_val.get_dict("Subtype") {
+                    st.as_name().map(|n| n == b"Form").unwrap_or(false)
+                } else {
+                    false
+                };
 
-                    if !is_form {
-                        continue;
-                    }
+                if !is_form {
+                    continue;
+                }
 
-                    if let Ok(id) = xobj_val.as_indirect() {
-                        if id > 0 && !seen_xobjects.insert(id) {
-                            continue;
-                        }
-                    }
+                if let Ok(id) = xobj_val.as_indirect()
+                    && id > 0
+                    && !ctx.seen_xobjects.insert(id)
+                {
+                    continue;
+                }
 
-                    if let Some(x_res) = xobj_val.get_dict("Resources")? {
-                        traverse_resources(
-                            &x_res,
-                            depth + 1,
-                            complete,
-                            seen_resources,
-                            seen_xobjects,
-                            seen_fonts,
-                            object_count,
-                            raw_fonts,
-                            start_time,
-                        )?;
-                    }
+                if let Some(x_res) = xobj_val.get_dict("Resources")? {
+                    traverse_resources(&x_res, depth + 1, ctx)?;
                 }
             }
         }
@@ -386,17 +374,17 @@ impl PdfDocument {
                 continue;
             };
 
-            traverse_resources(
-                &res,
-                0,
-                &mut complete,
-                &mut seen_resources,
-                &mut seen_xobjects,
-                &mut seen_fonts,
-                &mut object_count,
-                &mut raw_fonts,
+            let mut ctx = FontScanContext {
+                complete: &mut complete,
+                seen_resources: &mut seen_resources,
+                seen_xobjects: &mut seen_xobjects,
+                seen_fonts: &mut seen_fonts,
+                object_count: &mut object_count,
+                raw_fonts: &mut raw_fonts,
                 start_time,
-            )?;
+            };
+
+            traverse_resources(&res, 0, &mut ctx)?;
         }
 
         let mut fonts = raw_fonts;

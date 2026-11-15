@@ -22,15 +22,14 @@ use ipc_contract::text::{clean_display_text, is_web_address};
 use ipc_contract::types::{
     AnnotationId, AnnotationSummary, AttachmentId, AttachmentInfo, AttachmentSource,
     BatchOperation, BlockedAction, Certification, CompressResult, CreateKind, CreateResult,
-    DocumentFonts, DocumentId, DocumentInfo, DocumentPermissions,
-    DocumentProperties, Edit, EditArgs, ErrorCode,
-    FindPersonalDataQuery, FontInfo, FormField, ImageQuality, IpcError, LinkArgs, LinkPreview,
-    LinkTarget, MarkCheck, NotRemembered, OpenEvent, OutlineLinkArgs, OutlineResult,
-    PageAnnotation, PageLink, PageMarksError, PageSize, PageText, PagesSource, Password,
-    PersonalDataMatches, PreparedTextBox, Recovery, RedactionSummary, RememberedPasswords,
-    RemoteAddressArgs, RenderPageArgs, Restrictions, SanitizeOptions, SanitizeResult,
-    SaveAttachmentResult, SaveResult, SearchHit, SecurityReport, SignCheck, SignatureReport,
-    SignatureStatus, SourceId, StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
+    DocumentFonts, DocumentId, DocumentInfo, DocumentPermissions, DocumentProperties, Edit,
+    EditArgs, ErrorCode, FindPersonalDataQuery, FontInfo, FormField, ImageQuality, IpcError,
+    LinkArgs, LinkPreview, LinkTarget, MarkCheck, NotRemembered, OpenEvent, OutlineLinkArgs,
+    OutlineResult, PageAnnotation, PageLink, PageMarksError, PageSize, PageText, PagesSource,
+    Password, PersonalDataMatches, PreparedTextBox, Recovery, RedactionSummary,
+    RememberedPasswords, RemoteAddressArgs, RenderPageArgs, Restrictions, SanitizeOptions,
+    SanitizeResult, SaveAttachmentResult, SaveResult, SearchHit, SecurityReport, SignCheck,
+    SignatureReport, SignatureStatus, SourceId, StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
 };
 use ipc_contract::validate::{
     Validate, check_page_index, check_prepared_text_boxes_count, check_text_box_text,
@@ -1833,9 +1832,8 @@ impl Documents {
             let file_size = std::fs::metadata(&document.path)
                 .map(|m| m.len())
                 .unwrap_or(0);
-            let response = request(document, |request, doc| WorkerRequest::GetDocumentProperties {
-                request,
-                doc,
+            let response = request(document, |request, doc| {
+                WorkerRequest::GetDocumentProperties { request, doc }
             })?;
             let WorkerResponse::DocumentProperties { properties, .. } = response else {
                 return Err(unexpected_on(document, "GetDocumentProperties"));
@@ -1877,9 +1875,8 @@ impl Documents {
     /// Discovers fonts embedded in or referenced by `doc` (B5-04).
     pub fn document_fonts(&self, doc: DocumentId) -> Result<DocumentFonts, IpcError> {
         self.with_document(doc, |document| {
-            let response = request_long(document, |request, doc| WorkerRequest::GetDocumentFonts {
-                request,
-                doc,
+            let response = request_long(document, |request, doc| {
+                WorkerRequest::GetDocumentFonts { request, doc }
             })?;
             let WorkerResponse::DocumentFonts { fonts, .. } = response else {
                 return Err(unexpected_on(document, "GetDocumentFonts"));

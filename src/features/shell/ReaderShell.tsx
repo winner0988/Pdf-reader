@@ -70,6 +70,8 @@ import { hasBannerContent } from "@/features/security-banner/summary";
 import { AboutDialog, SetDefaultFailedDialog, ShortcutsDialog } from "@/features/shell/dialogs";
 import { APP_VERSION } from "@/features/shell/version";
 import { rotate, sameSession, stepZoom, type Rotation, type ShellState, type Zoom } from "@/features/shell/model";
+import { DocumentPropertiesDialog } from "@/features/properties/DocumentPropertiesDialog";
+import type { PropertiesApi } from "@/features/properties/api";
 import { PrintDialog } from "@/features/print/PrintDialog";
 import { PrintPages } from "@/features/print/PrintPages";
 import { freePrintPages, LOW_RES_PRINT_DPI, PRINT_DPI, renderForPrint, type PrintPage } from "@/features/print/render";
@@ -215,6 +217,8 @@ type ReaderShellProps = {
   windowApi?: WindowApi;
   /** Delay before the loading state appears; tests pass 0. */
   loadingDelayMs?: number;
+  /** Document properties and font discovery (B5-04). */
+  propertiesApi?: PropertiesApi;
 };
 
 /** Below this width the sidebar floats over the canvas (docs/ux/screen-map.md, section 1). */
@@ -288,6 +292,7 @@ export function ReaderShell({
   onJumped,
   loadingDelayMs,
   windowApi = tauriWindowApi,
+  propertiesApi,
 }: ReaderShellProps) {
   const [theme, setTheme] = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(() => !isNarrowWindow());
@@ -349,6 +354,7 @@ export function ReaderShell({
     | "create"
     | "sensitive"
     | "sign"
+    | "properties"
     | null
   >(
     null,
@@ -1428,6 +1434,7 @@ export function ReaderShell({
           }}
           onPrint={printable && permissions.print ? print : undefined}
           printBlocked={!permissions.print}
+          onDocumentProperties={doc !== undefined ? () => setDialog("properties") : undefined}
           onSave={savable && document_?.unsaved ? save : undefined}
           onSaveAs={savable ? saveAs : undefined}
           onCreatePdf={createApi ? () => setDialog("create") : undefined}
@@ -2055,6 +2062,15 @@ export function ReaderShell({
           sensitive={document_?.sensitive === true}
           api={sensitiveApi}
           onFinished={showHint}
+        />
+      )}
+      {doc !== undefined && (
+        <DocumentPropertiesDialog
+          open={dialog === "properties"}
+          onOpenChange={(open) => setDialog(open ? "properties" : null)}
+          doc={doc}
+          api={propertiesApi}
+          onPrivacyExport={savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined}
         />
       )}
       {savable && (

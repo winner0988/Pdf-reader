@@ -438,4 +438,3 @@ pub const MAX_FONT_TIME_MILLIS: u64 = 2_000;
 
 /// Deepest /Parent chain walked in the page tree when looking up inherited resources (B5-04).
 pub const MAX_PAGE_PARENT_DEPTH: usize = 64;
-

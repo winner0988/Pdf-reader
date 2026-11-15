@@ -207,7 +207,9 @@ fn test_ipc_worker_host_properties_and_fonts() {
         Path::new(env!("CARGO_BIN_EXE_pdf_worker")),
         HostConfig::default(),
     );
-    let (doc, _) = host.open(&corpus("benign/metadata-full.pdf")).expect("open");
+    let (doc, _) = host
+        .open(&corpus("benign/metadata-full.pdf"))
+        .expect("open");
     let resp = host
         .request(|request| WorkerRequest::GetDocumentProperties { request, doc })
         .expect("request");
@@ -227,4 +229,132 @@ fn test_ipc_worker_host_properties_and_fonts() {
         }
         other => panic!("expected DocumentFonts, got {other:?}"),
     }
+}
+
+fn build_pdf_with_info(objects: &[String], info_obj: usize) -> Vec<u8> {
+    let mut out = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", index + 1).as_bytes());
+    }
+    let xref = out.len();
+    out.extend_from_slice(
+        format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes(),
+    );
+    for offset in offsets {
+        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R /Info {} 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+            objects.len() + 1,
+            info_obj
+        )
+        .as_bytes(),
+    );
+    out
+}
+
+#[test]
+fn test_font_type0_and_type3_and_embedded_status() {
+    let start = Instant::now();
+    let objects = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R /F2 8 0 R /F3 9 0 R >> >> >>".to_owned(),
+        "<< /Type /Font /Subtype /Type0 /BaseFont /MyType0Font /Encoding /Identity-H /DescendantFonts [5 0 R] >>".to_owned(),
+        "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /MyType0Font /FontDescriptor 6 0 R /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> >>".to_owned(),
+        "<< /Type /FontDescriptor /FontName /MyType0Font /FontFile3 7 0 R >>".to_owned(),
+        "<< /Length 0 /Subtype /OpenType >>\nstream\nendstream".to_owned(),
+        "<< /Type /Font /Subtype /Type3 /BaseFont /MyType3Font /FontBBox [0 0 1000 1000] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << >> /Encoding << /Type /Encoding /Differences [32 /space] >> /FirstChar 32 /LastChar 32 /Widths [500] >>".to_owned(),
+        "<< /Type /Font /Subtype /TrueType /BaseFont /Arial >>".to_owned(),
+    ];
+    let bytes = build_pdf(&objects);
+    let doc = PdfDocument::from_bytes(&bytes).expect("open doc");
+    let fonts = doc.document_fonts().expect("fonts");
+    let elapsed = start.elapsed();
+    assert!(elapsed.as_millis() < 1000, "took too long: {:?}", elapsed);
+    assert!(fonts.complete);
+    assert_eq!(fonts.fonts.len(), 3);
+
+    let f_arial = fonts
+        .fonts
+        .iter()
+        .find(|f| f.name == "Arial")
+        .expect("Arial");
+    assert_eq!(f_arial.subtype, "TrueType");
+    assert!(!f_arial.embedded);
+
+    let f_type0 = fonts
+        .fonts
+        .iter()
+        .find(|f| f.name == "MyType0Font")
+        .expect("Type0");
+    assert_eq!(f_type0.subtype, "Type 0");
+    assert!(f_type0.embedded);
+
+    let f_type3 = fonts
+        .fonts
+        .iter()
+        .find(|f| f.name == "MyType3Font")
+        .expect("Type3");
+    assert_eq!(f_type3.subtype, "Type 3");
+    assert!(f_type3.embedded);
+}
+
+#[test]
+fn test_metadata_long_control_and_bidi_characters() {
+    let start = Instant::now();
+    let mut long_title = "SafeStart_".to_string();
+    long_title.push_str("\u{202E}gnirts_edirrevO\u{202C}");
+    long_title.push('\x01');
+    long_title.push('\x1F');
+    long_title.push_str(&"A".repeat(5000));
+    long_title.push_str("_SafeEnd");
+
+    let objects = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_owned(),
+        format!(
+            "<< /Title ({}) /Author (Author\u{202A}HiddenDir\u{202C}Name) >>",
+            long_title.replace('(', "\\(").replace(')', "\\)")
+        ),
+    ];
+    let bytes = build_pdf_with_info(&objects, 4);
+    let doc = PdfDocument::from_bytes(&bytes).expect("open doc");
+    let props = doc.document_properties().expect("properties");
+    let elapsed = start.elapsed();
+    assert!(elapsed.as_millis() < 1000, "took too long: {:?}", elapsed);
+
+    let title = props.title.expect("title");
+    assert!(title.len() <= ipc_contract::limits::MAX_PROPERTY_TEXT_BYTES);
+    assert!(!title.contains('\x01'));
+    assert!(!title.contains('\x1F'));
+    assert!(!title.contains('\u{202E}'));
+    assert!(!title.contains('\u{202C}'));
+
+    let author = props.author.expect("author");
+    assert!(!author.contains('\u{202A}'));
+    assert!(!author.contains('\u{202C}'));
+}
+
+#[test]
+fn test_metadata_broken_dates() {
+    let start = Instant::now();
+    let objects = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_owned(),
+        "<< /CreationDate (D:broken_date_string) /ModDate (D:20261399256060) >>".to_owned(),
+    ];
+    let bytes = build_pdf_with_info(&objects, 4);
+    let doc = PdfDocument::from_bytes(&bytes).expect("open doc");
+    let props = doc.document_properties().expect("properties");
+    let elapsed = start.elapsed();
+    assert!(elapsed.as_millis() < 1000, "took too long: {:?}", elapsed);
+
+    assert_eq!(props.creation_date, None);
+    assert_eq!(props.mod_date, None);
 }

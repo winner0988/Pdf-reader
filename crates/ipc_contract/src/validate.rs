@@ -22,14 +22,14 @@ use crate::types::{
     ExportFormat, FindPersonalDataQuery, FindingKind, FontImport, FontInfo, FormField,
     IndexSearchArgs, IndexSearchEvent, IndexSnippet, IpcError, LineEnds, LinkTarget, OcrLanguages,
     OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageMarkPages,
-    PageMarkPosition, PageMarks, PageMarksCopyArgs, PageNumberFormat, PageSize, PageText,
-    Password, PdfDate, PersonalDataMatch, PersonalDataMatches, Point, PrepareTextBoxArgs, Quad,
-    RasterRegion, RecentFile, Rect, RedactionSummary, RemoveFontArgs, RemoveLanguageArgs,
-    RenderPageArgs, Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport,
-    SanitizeResult, SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs,
-    SensitiveFile, Settings, Shape, SignArgs, SignatureInfo, SignatureReport, SignatureStatus,
-    SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs,
-    UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
+    PageMarkPosition, PageMarks, PageMarksCopyArgs, PageNumberFormat, PageSize, PageText, Password,
+    PdfDate, PersonalDataMatch, PersonalDataMatches, Point, PrepareTextBoxArgs, Quad, RasterRegion,
+    RecentFile, Rect, RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
+    Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult,
+    SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs, SensitiveFile,
+    Settings, Shape, SignArgs, SignatureInfo, SignatureReport, SignatureStatus, SigningFileKey,
+    SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs, UnlockArgs,
+    UnlockSourceArgs, Watermark, WatermarkContent,
 };
 use crate::worker::{
     InsertedTextBox, InspectedFont, OcrOutcome, OpenedDocument, PreparedTextBoxModel, Raster,
@@ -778,12 +778,13 @@ impl Validate for PdfDate {
                 what: "pdf date second",
             });
         }
-        if let Some(offset) = self.tz_offset_minutes {
-            if !(-1440..=1440).contains(&offset) {
-                return Err(ValidationError::OutOfRange {
-                    what: "pdf date timezone offset",
-                });
-            }
+        if self
+            .tz_offset_minutes
+            .is_some_and(|offset| !(-1440..=1440).contains(&offset))
+        {
+            return Err(ValidationError::OutOfRange {
+                what: "pdf date timezone offset",
+            });
         }
         Ok(())
     }
@@ -832,11 +833,7 @@ impl Validate for WorkerDocumentProperties {
 
 impl Validate for DocumentProperties {
     fn validate(&self) -> Result<(), ValidationError> {
-        check_text(
-            "display name",
-            &self.display_name,
-            MAX_DISPLAY_NAME_BYTES,
-        )?;
+        check_text("display name", &self.display_name, MAX_DISPLAY_NAME_BYTES)?;
         check_clean("display name", &self.display_name)?;
         if self.page_count == 0 || self.page_count > MAX_PAGE_COUNT {
             return Err(ValidationError::OutOfRange {
@@ -905,7 +902,6 @@ impl Validate for DocumentFonts {
         self.fonts.iter().try_for_each(DocumentFontEntry::validate)
     }
 }
-
 
 /// Longest time text of a signature: "2026-09-24 12:00:00 UTC+08:00" is 30 bytes.
 const MAX_SIGNATURE_TIME_BYTES: u32 = 40;

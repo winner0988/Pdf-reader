@@ -221,10 +221,6 @@ pub fn bindings() -> String {
         AttachmentSource,
         AttachmentInfo,
         SaveAttachmentResult,
-        PdfDate,
-        DocumentFontEntry,
-        DocumentFonts,
-        DocumentProperties,
     );
 
     let limits: [(&str, String); 80] = [
@@ -337,24 +333,15 @@ pub fn bindings() -> String {
             "maxCompareDeadlineMillis",
             MAX_COMPARE_DEADLINE_MILLIS.to_string(),
         ),
-        (
-            "maxPropertyTextBytes",
-            MAX_PROPERTY_TEXT_BYTES.to_string(),
-        ),
+        ("maxPropertyTextBytes", MAX_PROPERTY_TEXT_BYTES.to_string()),
         ("maxFontEntries", MAX_FONT_ENTRIES.to_string()),
         (
             "maxFontResourceObjects",
             MAX_FONT_RESOURCE_OBJECTS.to_string(),
         ),
-        (
-            "maxFontResourceDepth",
-            MAX_FONT_RESOURCE_DEPTH.to_string(),
-        ),
+        ("maxFontResourceDepth", MAX_FONT_RESOURCE_DEPTH.to_string()),
         ("maxFontTimeMillis", MAX_FONT_TIME_MILLIS.to_string()),
-        (
-            "maxPageParentDepth",
-            MAX_PAGE_PARENT_DEPTH.to_string(),
-        ),
+        ("maxPageParentDepth", MAX_PAGE_PARENT_DEPTH.to_string()),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];
     out.push_str(

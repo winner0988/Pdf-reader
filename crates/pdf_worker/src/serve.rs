@@ -643,31 +643,21 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                             request,
                             properties,
                         },
-                        Err(err) => error(
-                            request,
-                            WorkerErrorCode::Corrupted,
-                            &err.to_string(),
-                        ),
+                        Err(err) => error(request, WorkerErrorCode::Corrupted, &err.to_string()),
                     },
                 })
             }
-            WorkerRequest::GetDocumentFonts { request, doc } => {
-                Some(match documents.get(&doc) {
-                    None => error(
-                        request,
-                        WorkerErrorCode::UnknownDocument,
-                        "unknown document",
-                    ),
-                    Some(document) => match document.document_fonts() {
-                        Ok(fonts) => WorkerResponse::DocumentFonts { request, fonts },
-                        Err(err) => error(
-                            request,
-                            WorkerErrorCode::Corrupted,
-                            &err.to_string(),
-                        ),
-                    },
-                })
-            }
+            WorkerRequest::GetDocumentFonts { request, doc } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => match document.document_fonts() {
+                    Ok(fonts) => WorkerResponse::DocumentFonts { request, fonts },
+                    Err(err) => error(request, WorkerErrorCode::Corrupted, &err.to_string()),
+                },
+            }),
             WorkerRequest::WriteAttachment {
                 request,
                 doc,
