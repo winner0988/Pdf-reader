@@ -24,10 +24,10 @@ const RIL_TEXTLINE: c_int = 2;
 const RIL_WORD: c_int = 3;
 const RIL_SYMBOL: c_int = 4;
 
-/// The MuPDF version a context is made for: `mupdf` =0.8.0 is MuPDF 1.27.2. A MuPDF that is not
+/// The MuPDF version a context is made for: MuPDF 1.28.6 from fork. A MuPDF that is not
 /// this one refuses the context (the version check of `fz_new_context_imp`), and the tests of
 /// this module then fail: that is how a MuPDF upgrade is told to look at OCR again (ADR 0015).
-const FZ_VERSION: &CStr = c"1.27.2";
+const FZ_VERSION: &CStr = c"1.28.6";
 /// How much the MuPDF context that Leptonica allocates through may keep (`FZ_STORE_DEFAULT`).
 const STORE_BYTES: usize = 256 << 20;
 
