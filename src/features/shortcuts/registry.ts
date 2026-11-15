@@ -84,6 +84,11 @@ export const SHORTCUTS: Shortcut[] = [
   { id: "presentation", keys: ["F5"], matches: (e) => plain(e) && !e.shiftKey && e.key === "F5" },
   { id: "presentationCurrent", keys: ["Shift+F5"], matches: (e) => plain(e) && e.shiftKey && e.key === "F5" },
   { id: "help", keys: ["Ctrl+/"], matches: (e) => ctrl(e) && e.key === "/" },
+  {
+    id: "commandPalette",
+    keys: ["Ctrl+K"],
+    matches: (e) => ctrl(e) && !e.shiftKey && e.key.toLowerCase() === "k",
+  },
 ];
 
 /** A field where keys and the context menu edit text. */
@@ -124,4 +129,9 @@ export function findShortcut(event: KeyboardEvent): Shortcut | undefined {
     return undefined;
   }
   return shortcut;
+}
+
+/** Returns the primary key label for a shortcut, or undefined. */
+export function getShortcutKey(id: ShortcutId): string | undefined {
+  return SHORTCUTS.find((s) => s.id === id)?.keys[0];
 }

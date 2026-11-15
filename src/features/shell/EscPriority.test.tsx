@@ -176,4 +176,45 @@ describe("Esc key priority", () => {
     });
     expect(windowApi.setFullscreen).toHaveBeenCalledWith(false);
   });
+
+  it("when command palette is opened in fullscreen, Esc closes command palette without exiting fullscreen", async () => {
+    const windowApi = fakeWindowApi();
+    render(
+      <ReaderShell
+        state={{ kind: "open", document: { ...demoDocument, doc: 1 } }}
+        onOpen={vi.fn()}
+        renderer={fakeRenderer()}
+        windowApi={windowApi}
+        loadingDelayMs={0}
+      />,
+    );
+
+    // Enter fullscreen
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "F11" });
+    });
+    expect(windowApi.setFullscreen).toHaveBeenCalledWith(true);
+
+    // Open command palette with Ctrl+K
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    });
+    const palette = await screen.findByRole("dialog", { name: strings.commands.palette });
+    expect(palette).toBeInTheDocument();
+
+    // Press Escape: closes command palette, stays in fullscreen
+    windowApi.setFullscreen.mockClear();
+    await act(async () => {
+      fireEvent.keyDown(palette, { key: "Escape" });
+    });
+
+    expect(screen.queryByRole("dialog", { name: strings.commands.palette })).not.toBeInTheDocument();
+    expect(windowApi.setFullscreen).not.toHaveBeenCalled();
+
+    // Now pressing Escape in fullscreen exits fullscreen
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+    expect(windowApi.setFullscreen).toHaveBeenCalledWith(false);
+  });
 });
