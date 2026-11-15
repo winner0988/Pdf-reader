@@ -577,12 +577,13 @@ fn mupdf_subset(font: &[u8], glyphs: &mut Vec<i32>) -> Vec<u8> {
     glyphs.sort_unstable();
     glyphs.dedup();
     // SAFETY: the context, buffers and the font's bytes outlive every call, on this thread only.
+    // MuPDF version 1.28.6 from fork.
     unsafe {
         let ctx = fz_new_context_imp(
             std::ptr::null(),
             std::ptr::null(),
             FZ_STORE_DEFAULT as usize,
-            c"1.27.2".as_ptr(),
+            c"1.28.6".as_ptr(),
         );
         assert!(!ctx.is_null());
         let buffer = fz_new_buffer_from_shared_data(ctx, font.as_ptr(), font.len());

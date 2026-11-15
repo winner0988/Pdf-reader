@@ -15,8 +15,8 @@
 | 項目 | 值 |
 |---|---|
 | Rust crate | `mupdf = "=0.8.0"`、`mupdf-sys 0.8.0`（精確固定） |
-| MuPDF | 1.27.2（原始碼隨 `mupdf-sys` crate 發布） |
-| 取得方式 | `mupdf`、`mupdf-fonts-droid`：crates.io，`Cargo.lock` 記錄 SHA-256，cargo 下載時驗證。`mupdf-sys`：git（見下方「`mupdf-sys` 的來源」），`Cargo.lock` 記錄 commit |
+| MuPDF | 1.28.6（原始碼隨 `mupdf-sys` fork 取得） |
+| 取得方式 | `mupdf`、`mupdf-sys`：git（見下方「`mupdf-sys` 的來源」），`Cargo.lock` 記錄 commit。`mupdf-fonts-droid`：crates.io，`Cargo.lock` 記錄 SHA-256，cargo 下載時驗證 |
 | 授權 | `mupdf`、`mupdf-sys` 與 MuPDF 皆為 AGPL-3.0（或向 Artifex 購買商業授權），見 DEC-02（#2） |
 
 升級 MuPDF 一律視為安全變更（`needs-security-review`）。**cargo-deny 的弱點資料庫只涵蓋 Rust crate，不涵蓋 MuPDF 的 C 程式碼**，也不涵蓋 MuPDF 內附的第三方函式庫（OpenJPEG、FreeType 等）；發行前的例行對照程序見 [release.md](../release.md#發行前) 的檢查表。內嵌第三方 C 函式庫的完整清單、版本與更新方式見 [bundled-libraries.md](../security/bundled-libraries.md#清單查證與更新程序)（#553）。
@@ -32,20 +32,18 @@
 
 ### `mupdf-sys` 的來源
 
-`mupdf-sys` 0.8.0 內附 MuPDF 1.27.2，而 1.27.2 內附的 OpenJPEG、Little CMS 與 Tesseract 缺少了上游已經修復的檢查：
-
-- OpenJPEG：`opj_j2k_read_sod` 寫入 tile-part 索引前沒有檢查範圍。上游的修正為 OpenJPEG [`91d08b11`](https://github.com/uclouvain/openjpeg/commit/91d08b11a72764f6d199f32fa0c1b1abd4edc2ad)；Artifex 的 OpenJPEG 是 `328a8da`，MuPDF 1.28.0 起包含（#539）。
-- Little CMS（lcms2mt）：`CubeSize` 計算節點總數時使用 32 位元整數且在乘法後才檢查溢位。上游的修正為 Little CMS [`da6110b1`](https://github.com/mm2/Little-CMS/commit/da6110b1d14abc394633a388209abd5ebedd7ab0) 與 [`e0641b18`](https://github.com/mm2/Little-CMS/commit/e0641b1828d0a1af5ecb1b11fe22f24fceefd4bc)（#562）。
-- Tesseract：讀取語言資料（.traineddata）時缺少陣列邊界與大小檢查，以及 LSTM 閘矩陣與 recoder 的合理性檢查。上游的修正為 Tesseract [`82727cc1`](https://github.com/tesseract-ocr/tesseract/commit/82727cc11c34eaf1249af002d69f6bbae70993b9)、[`55287a94`](https://github.com/tesseract-ocr/tesseract/commit/55287a94b8044c05ce3fd10f5aca6ebbd238e518)、[`103dc134`](https://github.com/tesseract-ocr/tesseract/commit/103dc134eb36411ddc6833ec20aa2c76795bd0ff)、[`b494ac18`](https://github.com/tesseract-ocr/tesseract/commit/b494ac18925f9d9aff9ef5815475de9943ab19bf) 與 [`c94a5532`](https://github.com/tesseract-ocr/tesseract/commit/c94a5532ee04db5a4919542832fd94caee5ea58f)（`103dc134` 加的 `WeightMatrix::Dim1()`／`Dim2()` 是 `b494ac18` 要用的，#563）。
-
-crates.io 上還沒有內附 MuPDF 1.28 以上的 `mupdf-sys`，所以暫時從 git 取得：
-- 來源是 <https://github.com/winner0988/mupdf-rs> 的 `v0.8.0-bundled-fixes` 分支，也就是上游 `messense/mupdf-rs` 的 `v0.8.0` 加上修補 commit；
-- commit 只改 `mupdf-sys/build.rs`：建置時把上游的修正原文套到複製出來的 OpenJPEG、lcms2 與 Tesseract 原始碼。原始碼裡既找不到未修正的寫法、也找不到修正後的寫法時，建置失敗，不會默默建出沒有檢查的版本；
-- 根目錄與 `fuzz/` 的 `Cargo.toml` 以 `[patch.crates-io]` 指向同一個 `rev`（完整的 commit `1989036c0019c1b7f23ccf075024e3997a66c1bc`），`deny.toml` 的 `allow-git` 只允許這一個 repo；
-- `mupdf` 與字型 crate 仍然來自 crates.io：上游 repo 裡的字型檔是符號連結，Windows 上取出來會壞掉。
-- 代價：cargo 第一次要下載 MuPDF 與它所有第三方函式庫的 git 歷史（約 850 MB），之後存在 `~/.cargo/git`。
-- **移除條件**：`mupdf-sys` 發布內附 MuPDF 1.28.0 以上的版本後，在升級的 PR 裡刪掉兩個 `[patch.crates-io]` 與 `allow-git` 的那一項，這一節也改回 crates.io。
-- 要換 `rev`（例如上游再有修正）：在 fork 的分支加 commit，兩個 `Cargo.toml` 改成新的完整 commit，再更新兩個 `Cargo.lock`。這是依賴來源的變更，要 `needs-security-review`。
+- **為什麼用 fork**：crates.io 停在 0.8.0，內附的是 1.27.2。
+- **分支與 commit**：來源是 <https://github.com/winner0988/mupdf-rs> 的分支 `v0.8.0-mupdf-1.28`，commit 為 `e60fbdc5f0b7d0a9fd83671f5cede5132e8b7ba5`。它帶了：
+  - 子模組指到 MuPDF 1.28.6（`da5f5eb890d7b3fb76903160b5f7f48ba1301492`）；
+  - `src/page.rs` 補上 `table_hunt_options`（`vertically_collapse_bordered_cells: 0`，行為與 1.27.2 相同）；
+  - 根目錄 `Cargo.toml` 的字型 crate 拿掉 `path`，改從 crates.io 取；
+  - `mupdf-sys/build.rs` 以 `FZ_ENABLE_MD=0` 關掉 1.28 新增的 Markdown 讀取器；
+  - 保留 Tesseract 的五個上游模型讀取邊界檢查修補（共 16 個檔案，+179 −27）。
+- **已移除的建置期修補**：OpenJPEG（#539）與 lcms2（#562）的修正已經在 1.28.6 內附的版本裡，建置期修補已經拿掉。
+- **舊分支保留**：`v0.8.0-bundled-fixes`（`1989036c0019c1b7f23ccf075024e3997a66c1bc`）保留不動。
+- 根目錄與 `fuzz/` 的 `Cargo.toml` 以 `[patch.crates-io]` 指向同一個 `rev`（`e60fbdc5f0b7d0a9fd83671f5cede5132e8b7ba5`），`deny.toml` 的 `allow-git` 允許此 repository。
+- **什麼時候可以拿掉 fork**：crates.io 上的 `mupdf`、`mupdf-sys` 內附的 MuPDF 已經有 Tesseract 那五個修正後，在升級的 PR 裡刪除兩個 `Cargo.toml` 的 `[patch.crates-io]` 與 `deny.toml` 的 `allow-git`，這一節改回 crates.io。
+- **之後要升到更新的 1.28.x**：在分支加 commit 改 gitlink，重做第 5 步（建置原始碼比對），並加上 `needs-security-review`。
 
 ## 編譯期功能
 
@@ -54,6 +52,7 @@ crates.io 上還沒有內附 MuPDF 1.28 以上的 `mupdf-sys`，所以暫時從 
 | 功能 | 狀態 | 說明 |
 |---|---|---|
 | JavaScript（`js`） | **關閉** | 以 `FZ_ENABLE_JS=0` 編譯，MuPDF 的腳本支援只剩空殼。測試 `javascript_is_compiled_out` 在測試碼中刻意呼叫 `enable_js()`，確認 `is_js_supported()` 仍為 false。正式程式碼不得呼叫 `enable_js`（ADR 0001 的表單腳本沙盒日後另行評估） |
+| Markdown（`FZ_ENABLE_MD`） | 關閉 | 1.28 新增，會依內容猜格式；worker 不需要；由 `markdown_reader_is_compiled_out` 確認 |
 | 標準 14 字型（`base14-fonts`） | 開啟 | 沒有它，使用未嵌入標準字型（Helvetica 等）的 PDF 會顯示成空白 |
 | Droid CJK 備援字型（`bundled-fonts-droid`） | 開啟 | 見下方「CJK 字型」 |
 | HTML、EPUB、SVG、XPS（`html`、`epub`、`svg`、`xps`） | 開啟（B3-03） | 「從檔案建立 PDF」要讀的格式。每一項就是 worker 沙盒裡多一個解析器，所以有 fuzz 目標（`create_pdf`）與惡意樣本；轉換是唯一有意用到它們的地方。**開啟文件時仍然只收 PDF**：worker 要求 `%PDF-` 檔頭、以 PDF 的 MIME 開啟，結果不是 PDF 文件就拒絕。但 MuPDF 也看內容選讀取器，所以一個同時有 `%PDF-` 檔頭又是 EPUB／XPS 的混合檔，理論上會先被這些讀取器解析一部分才被拒絕；原本就編進來的 Office、txt、fb2、mobi 讀取器早就是這樣，風險在沙盒內，`open_document` 的 fuzz 目標涵蓋這條路。評估與理由見 [create-pdf.md](create-pdf.md) |
