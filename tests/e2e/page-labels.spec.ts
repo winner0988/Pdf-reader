@@ -1,10 +1,6 @@
 // Page labels (B5-07): display document's own labels and accept them in the page input.
-import type { Page } from "@playwright/test";
 import { strings } from "../../src/i18n/zh-TW";
 import { corpus, expect, test } from "./app";
-
-const hasPages = (page: Page, total: number) =>
-  expect(page.getByText(strings.toolbar.pageCount(total), { exact: true })).toBeVisible();
 
 test("displays page labels and jumps when typing a label", async ({ launch }) => {
   const page = await launch(corpus("benign/page-labels-styles.pdf"));
@@ -42,9 +38,14 @@ test("displays page labels and jumps when typing a label", async ({ launch }) =>
   await thumb4.click({ button: "right" });
   await page.getByRole("menuitem", { name: new RegExp(`^${strings.pages.delete}`) }).click();
   await expect(page.getByRole("menu")).toHaveCount(0);
-  await hasPages(page, 9);
 
-  // Page 4 now has label '1' out of 9 pages
+  // Toolbar page input now has label '1' and shows count (4 / 9)
+  const pageInput4After = page.getByRole("textbox", { name: strings.toolbar.pageNumberWithLabel("1", 4, 9) });
+  await expect(pageInput4After).toBeVisible();
+  await expect(pageInput4After).toHaveValue("1");
+  await expect(page.getByText(strings.toolbar.pageCountWithLabel(4, 9))).toBeVisible();
+
+  // Page 4 thumbnail now has label '1' out of 9 pages
   const newThumb4 = thumbnails.getByRole("option", { name: strings.canvas.pageWithLabel("1", 4, 9) });
   await expect(newThumb4).toBeVisible();
   await expect(newThumb4).toContainText(strings.pages.thumbnailLabel("1", 4, 9));
