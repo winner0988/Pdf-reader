@@ -262,7 +262,7 @@ export function Toolbar(props: ToolbarProps) {
               <ArrowRight />
             </IconButton>
             <PageInput
-              key={document.currentPage}
+              key={`${document.currentPage}:${document.pageCount}:${document.pageLabels?.[document.currentPage - 1] ?? ""}`}
               pageCount={document.pageCount}
               currentPage={document.currentPage}
               pageLabels={document.pageLabels}
