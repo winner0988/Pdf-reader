@@ -2039,6 +2039,8 @@ pub struct DocumentInfo {
     /// (ADR 0010). Text copied from it stays out of Windows' clipboard history and cloud
     /// clipboard, and the file is not on the recent files list.
     pub sensitive: bool,
+    /// Page labels defined by the document (/PageLabels, B5-07).
+    pub page_labels: Option<Vec<String>>,
 }
 
 /// Changes to a file that an earlier run of the app made but neither saved nor discarded: it

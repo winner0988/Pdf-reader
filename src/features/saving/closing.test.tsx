@@ -58,6 +58,7 @@ const info = (doc: number, displayName: string, unsaved: boolean): DocumentInfo 
   passwordRemembered: false,
   passwordRecalled: false,
   sensitive: false,
+  pageLabels: null,
 });
 
 function open(push: (event: OpenEvent) => void, tab: number, doc: number, name: string, unsaved: boolean) {

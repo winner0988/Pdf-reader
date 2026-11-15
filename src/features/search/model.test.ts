@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { initialSearch, isSearched, reduceSearch, type SearchAction, type SearchState } from "@/features/search/model";
+import {
+  initialSearch,
+  isSearched,
+  reduceSearch,
+  searchStatus,
+  type SearchAction,
+  type SearchState,
+} from "@/features/search/model";
+import { strings } from "@/i18n/zh-TW";
 import type { Quad, SearchEvent } from "@/ipc/generated/contract";
 
 const quad = (x: number): Quad => ({
@@ -91,5 +99,39 @@ describe("reduceSearch", () => {
     expect(isSearched(initialSearch, needle)).toBe(false);
     // A failed search is tried again.
     expect(isSearched(reduceSearch(searching, { type: "failed", request: 1 }), needle)).toBe(false);
+  });
+});
+
+describe("searchStatus", () => {
+  it("formats status for idle, searching, failed, no text layer, empty, and truncated", () => {
+    expect(searchStatus(initialSearch, 10)).toBe("");
+    const searching = run(start(1), event(1, { kind: "progress", pagesSearched: 4 }));
+    expect(searchStatus(searching, 10)).toBe(strings.search.progress(4, 10));
+
+    const failed = run(start(1), { type: "failed", request: 1 });
+    expect(searchStatus(failed, 10)).toBe(strings.search.failed);
+
+    const noText = run(start(1), event(1, { kind: "done", totalHits: 0, truncated: false, noTextLayer: true }));
+    expect(searchStatus(noText, 10)).toBe(strings.search.noTextLayer);
+
+    const empty = run(start(1), event(1, { kind: "done", totalHits: 0, truncated: false, noTextLayer: false }));
+    expect(searchStatus(empty, 10)).toBe(strings.search.noResults("needle"));
+  });
+
+  it("shows count without label when labels are absent or match physical page", () => {
+    const done = run(start(1), event(1, hits(0, 10)), event(1, { kind: "done", totalHits: 1, truncated: false, noTextLayer: false }));
+    expect(searchStatus(done, 10)).toBe(strings.search.count(1, 1));
+    expect(searchStatus(done, 10, null)).toBe(strings.search.count(1, 1));
+    expect(searchStatus(done, 10, ["1", "2", "3"])).toBe(strings.search.count(1, 1));
+  });
+
+  it("shows count with label when label differs from physical page", () => {
+    const done = run(
+      start(1),
+      event(1, hits(3, 10)),
+      event(1, { kind: "done", totalHits: 1, truncated: false, noTextLayer: false }),
+    );
+    const labels = ["i", "ii", "iii", "iv", "1", "2"];
+    expect(searchStatus(done, 6, labels)).toBe(strings.search.countWithLabel(1, 1, "iv", 4, 6));
   });
 });

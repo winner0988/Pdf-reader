@@ -54,6 +54,7 @@ const info = (doc: number, displayName: string, pages = 10): DocumentInfo => ({
   passwordRemembered: false,
   passwordRecalled: false,
   sensitive: false,
+  pageLabels: null,
 });
 
 const opening = (tab: number, displayName: string): OpenEvent => ({ kind: "opening", tab, displayName });
