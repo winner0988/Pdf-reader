@@ -19,6 +19,26 @@ const indexFolder = (page: Page) => path.join(dataDir(page), "index");
 /** The files of the index: the key, the catalog, and one for each document whose text it has. */
 const indexFiles = (page: Page) => (existsSync(indexFolder(page)) ? readdirSync(indexFolder(page)) : []);
 
+/**
+ * Every file of the index with its bytes. The app writes a file under a temporary name and then
+ * renames it, so a file listed may be gone when it is read: then list and read them all again.
+ */
+async function readIndex(page: Page): Promise<{ name: string; bytes: Buffer }[]> {
+  let files: { name: string; bytes: Buffer }[] = [];
+  await expect
+    .poll(() => {
+      try {
+        files = indexFiles(page).map((name) => ({ name, bytes: readFileSync(path.join(indexFolder(page), name)) }));
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+      }
+    })
+    .toBe(true);
+  return files;
+}
+
 async function ready(page: Page) {
   await expect(page.getByRole("img", { name: strings.canvas.page(1) }).first()).toHaveAttribute("data-state", "ready");
 }
@@ -74,8 +94,7 @@ test.describe("the text index", () => {
     await expect.poll(() => indexFiles(page).filter((name) => /^d[0-9a-f]{16}$/.test(name)).length, { timeout: 30_000 }).toBe(2);
 
     // Nothing of the files is on the disk as it is: not their words, names or folder.
-    for (const name of indexFiles(page)) {
-      const bytes = readFileSync(path.join(indexFolder(page), name));
+    for (const { name, bytes } of await readIndex(page)) {
       for (const plain of ["needle", "keyword", "report.pdf", "notes.pdf", path.basename(folder)]) {
         expect(bytes.includes(Buffer.from(plain, "utf8")), `${name}: ${plain}`).toBe(false);
         expect(bytes.includes(Buffer.from(plain, "utf16le")), `${name}: ${plain}`).toBe(false);
