@@ -3664,10 +3664,7 @@ pub fn ipc_error(error: &HostError) -> IpcError {
         HostError::Spawn(_) => "the PDF engine could not be started".to_owned(),
         HostError::Crashed => "the PDF engine stopped unexpectedly".to_owned(),
         HostError::Timeout => "the PDF engine did not answer in time".to_owned(),
-        HostError::ProtocolViolation(err) => {
-            eprintln!("PROTOCOL VIOLATION: {err}");
-            "the PDF engine sent an invalid message".to_owned()
-        }
+        HostError::ProtocolViolation(_) => "the PDF engine sent an invalid message".to_owned(),
         HostError::Unreadable(error) => format!("the file could not be read ({:?})", error.kind()),
         HostError::TooLarge => format!("larger than {MAX_DOCUMENT_BYTES} bytes"),
         HostError::Worker(error) => format!("the PDF engine reported {:?}", error.code),

@@ -425,3 +425,189 @@ fn page_edits_update_page_labels_matching_save_and_reopen() {
 
     assert!(host.is_running());
 }
+
+#[test]
+fn unlabeled_document_page_edits_keep_page_labels_none_and_save_reopen() {
+    let mut host = host();
+    let (doc, pages) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    assert_eq!(pages.len(), 10);
+
+    // 1. Delete page 3 (0-based index 2)
+    let del_res = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::DeletePages { pages: vec![2] },
+        })
+        .expect("delete page 3");
+    let WorkerResponse::Edited {
+        pages: pages_after_del,
+        page_labels: del_labels,
+        ..
+    } = del_res
+    else {
+        panic!("expected Edited, got {del_res:?}");
+    };
+    assert_eq!(pages_after_del.len(), 9);
+    assert_eq!(del_labels, None);
+
+    // 2. Move page 4 (0-based index 3, which was page 5 before delete) to before 0
+    let move_res = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::MovePages {
+                pages: vec![3],
+                before: 0,
+            },
+        })
+        .expect("move page 4 to front");
+    let WorkerResponse::Edited {
+        pages: pages_after_move,
+        page_labels: move_labels,
+        ..
+    } = move_res
+    else {
+        panic!("expected Edited, got {move_res:?}");
+    };
+    assert_eq!(pages_after_move.len(), 9);
+    assert_eq!(move_labels, None);
+
+    // 3. Rotate page 3 (0-based index 2) by 90 degrees CW
+    let rot_res = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::RotatePages {
+                pages: vec![2],
+                degrees: 90,
+            },
+        })
+        .expect("rotate page 3");
+    let WorkerResponse::Edited {
+        pages: pages_after_rot,
+        page_labels: rot_labels,
+        ..
+    } = rot_res
+    else {
+        panic!("expected Edited, got {rot_res:?}");
+    };
+    assert_eq!(pages_after_rot.len(), 9);
+    assert_eq!(rot_labels, None);
+
+    // Save and reopen
+    let (path, file) = new_file("unlabeled-rearranged");
+    let saved = host.save(doc, &file).expect("save");
+    assert!(matches!(saved, WorkerResponse::Saved { .. }));
+    drop(file);
+
+    let (_, reopened) = host.open(&path).expect("reopen");
+    let WorkerResponse::Opened { document, .. } = reopened else {
+        panic!("expected Opened, got {reopened:?}");
+    };
+    assert_eq!(document.pages.len(), 9);
+    assert_eq!(document.page_labels, None);
+    // Page 3 (0-based index 2) is landscape (width > height), while page 2 (index 1) is portrait.
+    assert!(document.pages[1].width_pt < document.pages[1].height_pt);
+    assert!(document.pages[2].width_pt > document.pages[2].height_pt);
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn unlabeled_document_insert_blank_and_source_pages_at_front_keeps_page_labels_none() {
+    let mut host = host();
+    let (doc, pages) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    assert_eq!(pages.len(), 10);
+
+    // 1. Insert blank page at index 0
+    let insert_blank = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::InsertBlankPage { at: 0, like: 0 },
+        })
+        .expect("insert blank page");
+    let WorkerResponse::Edited {
+        pages: blank_pages,
+        page_labels: blank_labels,
+        ..
+    } = insert_blank
+    else {
+        panic!("expected Edited, got {insert_blank:?}");
+    };
+    assert_eq!(blank_pages.len(), 11);
+    assert_eq!(blank_labels, None);
+
+    // 2. Insert pages from another document at index 0
+    let source_file = File::open(corpus("benign/single-page.pdf")).expect("open source pdf");
+    let WorkerResponse::Source {
+        bytes: source_bytes,
+        ..
+    } = host
+        .prepare_source(&source_file, None)
+        .expect("prepare source")
+    else {
+        panic!("expected Source response");
+    };
+    let insert_source = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::InsertPages {
+                at: 0,
+                source: source_bytes,
+                text_boxes: Vec::new(),
+            },
+        })
+        .expect("insert source pages");
+    let WorkerResponse::Edited {
+        pages: source_pages,
+        page_labels: source_labels,
+        ..
+    } = insert_source
+    else {
+        panic!("expected Edited, got {insert_source:?}");
+    };
+    assert_eq!(source_pages.len(), 12);
+    assert_eq!(source_labels, None);
+
+    // Save and reopen
+    let (path, file) = new_file("unlabeled-inserted");
+    let saved = host.save(doc, &file).expect("save");
+    assert!(matches!(saved, WorkerResponse::Saved { .. }));
+    drop(file);
+
+    let (_, reopened) = host.open(&path).expect("reopen");
+    let WorkerResponse::Opened { document, .. } = reopened else {
+        panic!("expected Opened, got {reopened:?}");
+    };
+    assert_eq!(document.pages.len(), 12);
+    assert_eq!(document.page_labels, None);
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn labeled_document_insert_blank_page_at_front_keeps_page_labels() {
+    let mut host = host();
+    let (doc, _) = host
+        .open(&corpus("benign/page-labels-styles.pdf"))
+        .expect("open");
+    let insert_res = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::InsertBlankPage { at: 0, like: 0 },
+        })
+        .expect("insert blank page at 0");
+    let WorkerResponse::Edited {
+        pages, page_labels, ..
+    } = insert_res
+    else {
+        panic!("expected Edited, got {insert_res:?}");
+    };
+    assert_eq!(pages.len(), 11);
+    // MuPDF adjusts page labels when inserting a page before page 0 of a document with labels.
+    // We verify labels remain present and match the updated page count.
+    let labels = page_labels.expect("labeled document keeps page labels after insert");
+    assert_eq!(labels.len(), pages.len());
+}

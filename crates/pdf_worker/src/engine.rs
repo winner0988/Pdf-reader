@@ -961,6 +961,7 @@ impl PdfDocument {
         let count = self.checked_pages(pages)?;
         self.check_page_tree_parents()?;
         self.check_page_labels()?;
+        let had_page_labels = self.has_page_labels()?;
         if pages.len() >= count as usize {
             return Err(EngineError::NoPageLeft);
         }
@@ -982,7 +983,9 @@ impl PdfDocument {
         self.ocr_forget(removed.iter().copied());
         self.clear_text_cache();
         gone.extend(&removed);
-        crate::unlink::unlink(&self.doc, &gone)
+        crate::unlink::unlink(&self.doc, &gone)?;
+        self.strip_unwanted_page_labels(had_page_labels)?;
+        Ok(())
     }
 
     /// Moves `pages` (no repeats) to just before page `before` (the page count: to the end),
@@ -995,6 +998,7 @@ impl PdfDocument {
         }
         self.check_page_tree_parents()?;
         self.check_page_labels()?;
+        let had_page_labels = self.has_page_labels()?;
         let mut moved = pages.to_vec();
         moved.sort_unstable();
         let len = moved.len() as u32;
@@ -1019,6 +1023,7 @@ impl PdfDocument {
             done.push((from, to));
         }
         self.clear_text_cache();
+        self.strip_unwanted_page_labels(had_page_labels)?;
         Ok(())
     }
 
@@ -1034,10 +1039,12 @@ impl PdfDocument {
         }
         self.check_page_tree_parents()?;
         self.check_page_labels()?;
+        let had_page_labels = self.has_page_labels()?;
         let size = self.page_size(like)?;
         self.doc.new_page_at(at as i32, size)?;
         self.ocr_forget_page(at);
         self.clear_text_cache();
+        self.strip_unwanted_page_labels(had_page_labels)?;
         Ok(())
     }
 
@@ -1284,6 +1291,26 @@ impl PdfDocument {
             }
         }
 
+        Ok(())
+    }
+
+    /// Whether the document's catalog defines page labels (/PageLabels).
+    fn has_page_labels(&self) -> Result<bool, EngineError> {
+        let catalog = self.doc.catalog()?;
+        match catalog.get_dict("PageLabels")? {
+            Some(obj) => Ok(!obj.is_null()?),
+            None => Ok(false),
+        }
+    }
+
+    /// When inserting or moving pages (especially before the first page), MuPDF creates a
+    /// `/PageLabels` entry in documents that had none. If the document originally had no page
+    /// labels, strip any newly added `/PageLabels` to preserve that state.
+    fn strip_unwanted_page_labels(&mut self, had_page_labels: bool) -> Result<(), EngineError> {
+        if !had_page_labels && self.has_page_labels()? {
+            let mut catalog = self.doc.catalog()?;
+            catalog.dict_delete("PageLabels")?;
+        }
         Ok(())
     }
 
@@ -1775,6 +1802,7 @@ impl PdfDocument {
         }
         self.check_page_tree_parents()?;
         self.check_page_labels()?;
+        let had_page_labels = self.has_page_labels()?;
         let source_doc = PdfDocument::from_bytes(source)?;
         let inserted = source_doc.page_count()?;
         if inserted == 0 {
@@ -1803,6 +1831,7 @@ impl PdfDocument {
         self.clear_text_cache();
         crate::scrub::scrub_pages(&self.doc, at, inserted, first_new)?;
         merge_annotations::recreate_annotations(self, at, &annotations, text_boxes)?;
+        self.strip_unwanted_page_labels(had_page_labels)?;
         Ok(())
     }
 }
