@@ -2278,8 +2278,7 @@ dependencies = [
 [[package]]
 name = "mupdf"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "185fb74927a40c569b7152c01c73f4c0206059b8b3d37c7eb007cc3f63453b64"
+source = "git+https://github.com/winner0988/mupdf-rs?rev=e60fbdc5f0b7d0a9fd83671f5cede5132e8b7ba5#e60fbdc5f0b7d0a9fd83671f5cede5132e8b7ba5"
 dependencies = [
  "bitflags 2.13.2",
  "mupdf-fonts-droid",
@@ -2298,7 +2297,7 @@ checksum = "762db7ec55fe4d5f8928b08f8ed5bb2885077f87e8ef37aaaae1c7a1edcd2369"
 [[package]]
 name = "mupdf-sys"
 version = "0.8.0"
-source = "git+https://github.com/winner0988/mupdf-rs?rev=1989036c0019c1b7f23ccf075024e3997a66c1bc#1989036c0019c1b7f23ccf075024e3997a66c1bc"
+source = "git+https://github.com/winner0988/mupdf-rs?rev=e60fbdc5f0b7d0a9fd83671f5cede5132e8b7ba5#e60fbdc5f0b7d0a9fd83671f5cede5132e8b7ba5"
 dependencies = [
  "bindgen",
  "cc",

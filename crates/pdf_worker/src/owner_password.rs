@@ -23,9 +23,9 @@ use mupdf_sys::{
 };
 use zeroize::Zeroizing;
 
-/// The MuPDF version a context must be made for: `mupdf` =0.8.0 is MuPDF 1.27.2. With any other,
+/// The MuPDF version a context must be made for: MuPDF 1.28.6 from fork. With any other,
 /// MuPDF makes no context and this says no owner password (the tests would fail).
-const FZ_VERSION: &std::ffi::CStr = c"1.27.2";
+const FZ_VERSION: &std::ffi::CStr = c"1.28.6";
 
 /// What `pdf_authenticate_password` returns for the owner password (with 2 for the user one).
 const OWNER_PASSWORD: i32 = 4;

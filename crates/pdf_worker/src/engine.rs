@@ -84,6 +84,7 @@ mod ocr;
 mod page_marks;
 mod page_overlay;
 mod personal_data;
+mod properties;
 mod redaction;
 mod sanitize;
 
@@ -2947,6 +2948,16 @@ mod tests {
         let mut doc = mupdf::pdf::PdfDocument::from_bytes(&pdf).unwrap();
         doc.enable_js().unwrap();
         assert!(!doc.is_js_supported().unwrap());
+    }
+
+    /// MuPDF 1.28 adds a Markdown reader that also guesses Markdown from a file's contents.
+    /// The fork's build.rs compiles it out (`FZ_ENABLE_MD=0`), so the worker keeps the
+    /// readers it had with MuPDF 1.27.2.
+    #[test]
+    fn markdown_reader_is_compiled_out() {
+        assert!(mupdf::Document::recognize("application/pdf").unwrap());
+        assert!(!mupdf::Document::recognize("text/markdown").unwrap());
+        assert!(!mupdf::Document::recognize("notes.md").unwrap());
     }
 
     fn corpus(name: &str) -> Vec<u8> {
