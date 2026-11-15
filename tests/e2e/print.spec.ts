@@ -119,7 +119,7 @@ test("prints 8 pages as a booklet with 4 faces and correct booklet page order", 
   await expect(sheets).toHaveCount(4);
 
   // Check landscape style
-  await expect(page.locator("[data-print-pages] style")).toContainText("@page { size: landscape; }");
+  expect(await page.locator("[data-print-pages] style").textContent()).toContain("@page { size: landscape; }");
 
   // Expected booklet page order across the 4 faces:
   // Face 0: [8, 1]
