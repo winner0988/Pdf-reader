@@ -41,6 +41,7 @@ import { TabBar } from "@/features/tabs/TabBar";
 import { tauriEditingApi, type EditingApi } from "@/features/thumbnails/api";
 import { useTabs } from "@/features/tabs/useTabs";
 import { createPageRenderer, tauriRenderApi, type PageRenderer, type RenderApi } from "@/features/viewer/renderer";
+import { defaultPropertiesApi, type PropertiesApi } from "@/features/properties/api";
 import { tauriWindowApi, type WindowApi } from "@/features/window/api";
 import type { CaptureProtection, DocumentInfo, TabId } from "@/ipc/generated/contract";
 import { cn } from "@/lib/utils";
@@ -71,6 +72,7 @@ type AppProps = {
   ocrApi?: OcrApi;
   textIndexApi?: TextIndexApi;
   windowApi?: WindowApi;
+  propertiesApi?: PropertiesApi;
 };
 
 export default function App({
@@ -99,6 +101,7 @@ export default function App({
   ocrApi = tauriOcrApi,
   textIndexApi = tauriTextIndexApi,
   windowApi = tauriWindowApi,
+  propertiesApi = defaultPropertiesApi,
 }: AppProps) {
   // How recognising the text of each tab's scanned pages goes arrives with the open events (B2-10).
   const ocr = useOcr();
@@ -207,6 +210,7 @@ export default function App({
                 passwordsApi={demo ? undefined : api}
                 createApi={demo ? undefined : createApi}
                 sensitiveApi={demo ? undefined : sensitiveApi}
+                propertiesApi={demo ? undefined : propertiesApi}
                 windowApi={windowApi}
                 onOpen={open}
                 onClose={() => setDemo(null)}
@@ -241,6 +245,7 @@ export default function App({
                   ocrApi={ocrApi}
                   passwordsApi={api}
                   windowApi={windowApi}
+                  propertiesApi={propertiesApi}
                   ocr={ocr.state.get(tab.tab)}
                   fieldEdits={fieldEdits}
                   captureProtection={state.captureProtection}
@@ -317,6 +322,7 @@ type TabPaneProps = {
   ocrApi: OcrApi;
   passwordsApi: PasswordsApi;
   windowApi?: WindowApi;
+  propertiesApi?: PropertiesApi;
   ocr: OcrTab | undefined;
   fieldEdits: FieldEdits;
   captureProtection: CaptureProtection;
