@@ -22,9 +22,11 @@ export type CommandPaletteProps = {
 function CommandPaletteContent({
   onOpenChange,
   commands,
+  onCommandExecuted,
 }: {
   onOpenChange: (open: boolean) => void;
   commands: Command[];
+  onCommandExecuted?: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -46,6 +48,7 @@ function CommandPaletteContent({
   const handleExecute = (cmd: Command) => {
     if (!cmd.enabled) return;
     recordRecentCommand(cmd.id);
+    onCommandExecuted?.();
     onOpenChange(false);
     cmd.run();
   };
@@ -166,10 +169,12 @@ function CommandPaletteContent({
 
 export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteProps) {
   const previousActiveElement = useRef<HTMLElement | null>(null);
+  const executedCommandRef = useRef(false);
 
   useEffect(() => {
     if (open) {
       previousActiveElement.current = document.activeElement as HTMLElement | null;
+      executedCommandRef.current = false;
     }
   }, [open]);
 
@@ -177,8 +182,14 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
     onOpenChange(nextOpen);
     if (!nextOpen && previousActiveElement.current) {
       const el = previousActiveElement.current;
-      setTimeout(() => el.focus(), 0);
+      if (!executedCommandRef.current) {
+        setTimeout(() => el.focus(), 0);
+      }
     }
+  };
+
+  const handleCommandExecuted = () => {
+    executedCommandRef.current = true;
   };
 
   return (
@@ -197,6 +208,7 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
             key="palette-content"
             onOpenChange={handleOpenChange}
             commands={commands}
+            onCommandExecuted={handleCommandExecuted}
           />
         )}
       </DialogContent>

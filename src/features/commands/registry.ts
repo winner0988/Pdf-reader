@@ -20,7 +20,7 @@ export function clearRecentCommands(): void {
 }
 
 /**
- * Creates the complete list of 58 commands (33 from the More menu, 25 shortcut-only / viewer actions).
+ * Creates the complete list of commands (33 from the More menu, 25 shortcut-only / viewer actions, 1 palette-only action).
  * Both the "⋯" menu and the Command Palette are generated from this list.
  */
 export function createCommands(opts: CommandOptions): Command[] {
@@ -795,6 +795,26 @@ export function createCommands(opts: CommandOptions): Command[] {
       enabled: hasDoc && Boolean(opts.onPresentationCurrent),
       disabledReason: !hasDoc ? strings.commands.noDocument : undefined,
       run: () => opts.onPresentationCurrent?.(),
+    },
+
+    // --- 7. Palette-only commands ---
+    {
+      id: "insertFileAfterCurrent",
+      name: strings.commands.insertFileAfterCurrent,
+      aliases: [...aliases.insertFileAfterCurrent],
+      fromMenu: false,
+      visibleInMenu: false,
+      enabled: hasDoc && Boolean(opts.onInsertFrom && !opts.insertFromBlocked),
+      disabledReason: !hasDoc
+        ? strings.commands.noDocument
+        : opts.insertFromBlocked
+          ? strings.permissions.notAllowed
+          : undefined,
+      run: () => {
+        if (opts.document && opts.onInsertFrom) {
+          void opts.onInsertFrom(opts.document.currentPage);
+        }
+      },
     },
   ];
 

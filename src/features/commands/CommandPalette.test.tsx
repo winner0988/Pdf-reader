@@ -67,6 +67,8 @@ function setup(opts: Partial<CommandOptions> = {}, defaultOpen = true) {
     flatten: { onClick: vi.fn() },
     sensitive: { marked: false, onClick: vi.fn() },
     recording: { recorded: true, onChange: vi.fn() },
+    onInsertFrom: vi.fn(),
+    insertFromBlocked: false,
     ...opts,
   };
 
@@ -105,10 +107,13 @@ describe("CommandPalette", () => {
       expect(names).toContain(strings.menu.setDefault);
     });
 
-    it("contains all 25 shortcut/viewer commands", () => {
+    it("contains all 25 shortcut/viewer commands and 1 palette-only command", () => {
       const { commands } = setup();
-      const shortcutCommands = commands.filter((c) => !c.fromMenu);
+      const shortcutCommands = commands.filter((c) => !c.fromMenu && c.id !== "insertFileAfterCurrent");
       expect(shortcutCommands).toHaveLength(25);
+
+      const paletteCommands = commands.filter((c) => c.id === "insertFileAfterCurrent");
+      expect(paletteCommands).toHaveLength(1);
 
       const names = shortcutCommands.map((c) => c.name);
       expect(names).toContain(strings.shortcuts.descriptions.zoomIn);
@@ -135,17 +140,17 @@ describe("CommandPalette", () => {
       const { user } = setup();
       const input = screen.getByRole("combobox");
 
-      // "合併" is an alias for "扁平化表單…"
+      // "合併" is an alias for "在目前這一頁後面插入其他檔案的頁面…"
       await user.type(input, "合併");
       const options = screen.getAllByRole("option");
       expect(options.length).toBeGreaterThan(0);
-      expect(options.some((o) => o.textContent?.includes("扁平化表單…"))).toBe(true);
+      expect(options[0]).toHaveTextContent(strings.commands.insertFileAfterCurrent);
 
       // "密碼" is an alias for "加密並另存新檔…"
       await user.clear(input);
       await user.type(input, "密碼");
       const passwordOptions = screen.getAllByRole("option");
-      expect(passwordOptions.some((o) => o.textContent?.includes("加密並另存新檔…"))).toBe(true);
+      expect(passwordOptions.some((o) => o.textContent?.includes(strings.menu.encryptCopy))).toBe(true);
     });
 
     it("filters by English case-insensitively", async () => {
@@ -225,6 +230,56 @@ describe("CommandPalette", () => {
       await user.click(printOption);
       expect(onPrint).not.toHaveBeenCalled();
       expect(onOpenChange).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("insertFileAfterCurrent command", () => {
+    it("finds insertFileAfterCurrent as first item when searching 合併", async () => {
+      const { user } = setup();
+      const input = screen.getByRole("combobox");
+
+      await user.type(input, "合併");
+      const options = screen.getAllByRole("option");
+      expect(options[0]).toHaveTextContent(strings.commands.insertFileAfterCurrent);
+    });
+
+    it("disables insertFileAfterCurrent with noDocument reason when document is null", () => {
+      setup({ document: null });
+      const options = screen.getAllByRole("option");
+      const insertOption = options.find((o) => o.textContent?.includes(strings.commands.insertFileAfterCurrent));
+      expect(insertOption).toHaveAttribute("aria-disabled", "true");
+      expect(insertOption).toHaveTextContent(strings.commands.noDocument);
+    });
+
+    it("disables insertFileAfterCurrent with permissions not allowed when insertFromBlocked is true", async () => {
+      const onInsertFrom = vi.fn();
+      const { user } = setup({ insertFromBlocked: true, onInsertFrom });
+      const input = screen.getByRole("combobox");
+
+      await user.type(input, "合併");
+      const options = screen.getAllByRole("option");
+      expect(options[0]).toHaveAttribute("aria-disabled", "true");
+      expect(options[0]).toHaveTextContent(strings.permissions.notAllowed);
+
+      await user.click(options[0]!);
+      expect(onInsertFrom).not.toHaveBeenCalled();
+    });
+
+    it("executes insertFrom with correct at (currentPage) when enabled", async () => {
+      const onInsertFrom = vi.fn();
+      const { user, onOpenChange } = setup({
+        document: { pageCount: 10, currentPage: 4, zoom: 100 },
+        insertFromBlocked: false,
+        onInsertFrom,
+      });
+      const input = screen.getByRole("combobox");
+
+      await user.type(input, "合併");
+      const options = screen.getAllByRole("option");
+      await user.click(options[0]!);
+
+      expect(onInsertFrom).toHaveBeenCalledWith(4);
+      expect(onOpenChange).toHaveBeenCalledWith(false);
     });
   });
 
@@ -313,6 +368,60 @@ describe("CommandPalette", () => {
 
       await waitFor(() => expect(screen.queryByRole("combobox")).toBeNull());
       expect(trigger).toHaveFocus();
+    });
+
+    it("does not restore focus to previous element when command is executed so new dialog keeps focus", async () => {
+      const user = userEvent.setup();
+      const onAction = vi.fn();
+
+      function Harness() {
+        const [open, setOpen] = useState(false);
+        const commands = createCommands({
+          document: { pageCount: 1, currentPage: 1, zoom: 100 },
+          sidebarOpen: false,
+          searchOpen: false,
+          theme: "system",
+          onToggleSidebar: vi.fn(),
+          onOpen: vi.fn(),
+          onGoToPage: vi.fn(),
+          onZoomIn: vi.fn(),
+          onZoomOut: vi.fn(),
+          onZoomChange: vi.fn(),
+          onRotate: vi.fn(),
+          onSearch: vi.fn(),
+          onThemeChange: vi.fn(),
+          onShowShortcuts: onAction,
+          onShowAbout: vi.fn(),
+          onSetDefault: vi.fn(),
+        });
+
+        return (
+          <TooltipProvider>
+            <button data-testid="trigger" onClick={() => setOpen(true)}>
+              Open
+            </button>
+            <CommandPalette open={open} onOpenChange={setOpen} commands={commands} />
+          </TooltipProvider>
+        );
+      }
+
+      render(<Harness />);
+      const trigger = screen.getByTestId("trigger");
+      trigger.focus();
+      expect(trigger).toHaveFocus();
+
+      await user.click(trigger);
+
+      const combobox = await screen.findByRole("combobox");
+      await waitFor(() => expect(combobox).toHaveFocus());
+
+      await user.type(combobox, "鍵盤快捷鍵");
+      await user.keyboard("{Enter}");
+
+      expect(onAction).toHaveBeenCalledTimes(1);
+      // Wait for any setTimeout(0) to complete
+      await new Promise((r) => setTimeout(r, 50));
+      expect(trigger).not.toHaveFocus();
     });
   });
 });

@@ -60,7 +60,9 @@ export type CommandId =
   | "nextRegion"
   | "previousRegion"
   | "presentation"
-  | "presentationCurrent";
+  | "presentationCurrent"
+  // Palette-only items:
+  | "insertFileAfterCurrent";
 
 export type MenuSection = "layout" | "appearance" | "history" | "actions" | "default";
 export type MenuItemKind = "item" | "radio" | "checkbox";
@@ -100,4 +102,6 @@ export type CommandOptions = ToolbarProps & {
   onPreviousRegion?: () => void;
   onNextTab?: () => void;
   onPreviousTab?: () => void;
+  onInsertFrom?: (at: number) => Promise<number | null> | void;
+  insertFromBlocked?: boolean;
 };
