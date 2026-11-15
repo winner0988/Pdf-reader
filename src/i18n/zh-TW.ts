@@ -125,8 +125,11 @@ export const strings = {
     historyBack: "上一個位置",
     historyForward: "下一個位置",
     pageNumber: "頁碼",
+    pageNumberWithLabel: (label: string, page: number, total: number) => `頁碼 ${label}（${page}／${total}）`,
     pageCount: (total: number) => `/ ${total}`,
+    pageCountWithLabel: (page: number, total: number) => `（${page}／${total}）`,
     pageOutOfRange: (total: number) => `頁碼需介於 1 與 ${total} 之間`,
+    duplicatePageLabel: (label: string, page: number) => `「${label}」有多頁使用，已跳至第 ${page} 頁`,
     zoomOut: "縮小",
     zoomIn: "放大",
     zoomLevel: "縮放比例",
@@ -183,6 +186,7 @@ export const strings = {
   /** Page management in the thumbnails (B2-05). */
   pages: {
     selected: (count: number) => `已選取 ${count} 頁`,
+    thumbnailLabel: (label: string, page: number, total: number) => `${label}（${page}／${total}）`,
     rotateCw: "向右旋轉 90°",
     rotateCcw: "向左旋轉 90°",
     delete: "刪除",
@@ -233,6 +237,8 @@ export const strings = {
   canvas: {
     label: "頁面",
     page: (page: number) => `第 ${page} 頁`,
+    pageWithLabel: (label: string, page: number, total: number) => `第 ${label} 頁（第 ${page}／${total} 頁）`,
+    pageLabelWithPhysical: (label: string, page: number, total: number) => `${label}（${page}／${total}）`,
     pageRenderFailed: "這一頁無法顯示",
   },
   permissions: {
@@ -1043,6 +1049,8 @@ export const strings = {
     label: "搜尋文件",
     placeholder: "搜尋文件",
     count: (index: number, total: number) => `第 ${index}／${total} 筆`,
+    countWithLabel: (index: number, total: number, label: string, page: number, pageTotal: number) =>
+      `第 ${index}／${total} 筆 · ${label}（${page}／${pageTotal}）`,
     previous: "上一筆",
     next: "下一筆",
     caseSensitive: "區分大小寫",

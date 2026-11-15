@@ -351,7 +351,14 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => match apply(document, &edit) {
                     Ok(()) => match page_sizes(document) {
-                        Ok(pages) => WorkerResponse::Edited { request, pages },
+                        Ok(pages) => {
+                            let page_labels = document.page_labels().unwrap_or(None);
+                            WorkerResponse::Edited {
+                                request,
+                                pages,
+                                page_labels,
+                            }
+                        }
                         Err(err) => err.into_response(request, WorkerErrorCode::Internal),
                     },
                     Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
@@ -724,6 +731,7 @@ fn open(
     let encrypted = document.is_encrypted();
     let signed = document.is_signed();
     let identifier = document.identifier();
+    let page_labels = document.page_labels().unwrap_or(None);
     documents.insert(doc, document);
     originals.insert(doc, bytes);
     WorkerResponse::Opened {
@@ -737,6 +745,7 @@ fn open(
             encrypted,
             signed,
             identifier,
+            page_labels,
         },
     }
 }
@@ -823,8 +832,13 @@ fn revert(
     }
     match page_sizes(&document) {
         Ok(pages) => {
+            let page_labels = document.page_labels().unwrap_or(None);
             documents.insert(doc, document);
-            WorkerResponse::Edited { request, pages }
+            WorkerResponse::Edited {
+                request,
+                pages,
+                page_labels,
+            }
         }
         Err(err) => err.into_response(request, WorkerErrorCode::Internal),
     }

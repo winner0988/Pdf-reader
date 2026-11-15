@@ -1404,7 +1404,7 @@ export function ReaderShell({
     <TooltipProvider>
       <div ref={shellRef} className="flex h-full flex-col bg-background text-foreground">
         <Toolbar
-          document={document_ ? { pageCount, currentPage, zoom } : null}
+          document={document_ ? { pageCount, currentPage, zoom, pageLabels: document_.pageLabels } : null}
           sidebarOpen={sidebarOpen && document_ !== null}
           searchOpen={searchOpen}
           theme={theme}
@@ -1418,6 +1418,7 @@ export function ReaderShell({
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
           onOpen={onOpen}
           onGoToPage={jumpPage}
+          onHint={showHint}
           onZoomIn={() => setZoom((z) => stepZoom(z, 1, fitPercent))}
           onZoomOut={() => setZoom((z) => stepZoom(z, -1, fitPercent))}
           onZoomChange={setZoom}
@@ -1611,6 +1612,7 @@ export function ReaderShell({
               key={document_.session ?? document_.doc ?? document_.displayName}
               outline={outline ?? document_.outline ?? { status: "none" }}
               pages={document_.pages}
+              pageLabels={document_.pageLabels}
               doc={document_.doc}
               renderer={renderer}
               currentPage={currentPage}
@@ -1898,7 +1900,13 @@ export function ReaderShell({
             </main>
             {document_ && searchOpen && (
               <div className="pointer-events-none absolute inset-x-0 top-0 *:pointer-events-auto">
-                <SearchBar search={search} pageCount={pageCount} inputRef={searchInputRef} onClose={closeSearch} />
+                <SearchBar
+                  search={search}
+                  pageCount={pageCount}
+                  pageLabels={document_.pageLabels}
+                  inputRef={searchInputRef}
+                  onClose={closeSearch}
+                />
               </div>
             )}
             </div>

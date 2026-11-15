@@ -52,6 +52,8 @@ export type ShellDocument = {
    * history, and the file is not on the recent files list.
    */
   sensitive?: boolean;
+  /** Page labels defined by the document (/PageLabels, B5-07). */
+  pageLabels?: string[];
   /**
    * The same while the tab shows the file it opened, through edits and saving (which give the
    * document a new `doc`, B2-02); a new one when a file is opened. Absent for demo data.

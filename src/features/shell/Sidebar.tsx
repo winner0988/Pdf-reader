@@ -18,6 +18,7 @@ const t = strings.sidebar;
 type SidebarProps = {
   outline: OutlineView;
   pages: PageSize[];
+  pageLabels?: string[];
   /** For the thumbnails; without them (demo data) the thumbnails stay blank. */
   doc?: DocumentId;
   renderer?: PageRenderer;
@@ -50,6 +51,7 @@ function Message({ children }: { children: string }) {
 export function Sidebar({
   outline,
   pages,
+  pageLabels,
   doc,
   renderer,
   currentPage,
@@ -114,6 +116,7 @@ export function Sidebar({
         <TabsContent value="thumbnails" className="min-h-0 flex-1">
           <Thumbnails
             pages={pages}
+            pageLabels={pageLabels}
             doc={doc}
             renderer={renderer}
             currentPage={currentPage}

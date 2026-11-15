@@ -172,6 +172,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 encrypted: true,
                 signed: true,
                 identifier: Some([0x5a; 16]),
+                page_labels: Some(vec!["i".to_owned(), "ii".to_owned(), "1".to_owned()]),
             },
         },
         WorkerResponse::Rendered {
@@ -463,6 +464,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
                 page,
             ],
+            page_labels: None,
         },
         WorkerResponse::Rebased { request },
         WorkerResponse::OcrLoaded { request },

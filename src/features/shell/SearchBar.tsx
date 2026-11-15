@@ -12,16 +12,17 @@ const t = strings.search;
 type SearchBarProps = {
   search: SearchController;
   pageCount: number;
+  pageLabels?: string[];
   /** Lets Ctrl+F focus the field again while the bar is open. */
   inputRef?: RefObject<HTMLInputElement | null>;
   onClose: () => void;
 };
 
-export function SearchBar({ search, pageCount, inputRef, onClose }: SearchBarProps) {
+export function SearchBar({ search, pageCount, pageLabels, inputRef, onClose }: SearchBarProps) {
   const ownRef = useRef<HTMLInputElement>(null);
   const input = inputRef ?? ownRef;
   const { state } = search;
-  const status = searchStatus(state, pageCount);
+  const status = searchStatus(state, pageCount, pageLabels);
 
   // Opening the bar selects what was searched before, so typing replaces it.
   useEffect(() => {
