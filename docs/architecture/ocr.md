@@ -77,7 +77,7 @@ sequenceDiagram
 
 ## 升級 MuPDF 時
 
-Tesseract 與 Leptonica 隨 `mupdf-sys` 建置，版本由固定的 `mupdf` =0.8.0（MuPDF 1.27.2，Artifex 維護的分支）決定。升級（本來就是安全變更）要確認：
+Tesseract 與 Leptonica 隨 `mupdf-sys` 建置，版本由 fork 的 `mupdf` =0.8.0（MuPDF 1.28.6，Artifex 維護的分支）決定。升級（本來就是安全變更）要確認：
 
 - 上面那些 C API 函式與 `fz_new_context_imp`／`fz_set_leptonica_mem`／`fz_clear_leptonica_mem` 的簽章沒變（編譯、連結會先失敗）；
 - `FZ_VERSION`（`ocr.rs`）改成新版本，否則 MuPDF 拒絕建立 context，`ocr` 的測試全部失敗；
