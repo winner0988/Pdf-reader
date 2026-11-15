@@ -13,15 +13,19 @@ function mockPages(count: number): PrintPage[] {
 }
 
 describe("PrintPages", () => {
-  it("renders 1-up layout by default", () => {
+  it("renders 1-up layout by default with portrait orientation and no style tag", () => {
     const pages = mockPages(2);
     render(<PrintPages pages={pages} onDone={vi.fn()} />);
 
     const container = document.querySelector("[data-print-pages]");
     expect(container).toBeInTheDocument();
+    expect(document.querySelector("style")).toBeNull();
 
     const sheets = container?.querySelectorAll("[data-print-sheet]");
     expect(sheets).toHaveLength(2);
+    sheets?.forEach((sheet) => {
+      expect(sheet.getAttribute("data-orientation")).toBe("portrait");
+    });
 
     const images = container?.querySelectorAll("img");
     expect(images).toHaveLength(2);
@@ -29,11 +33,10 @@ describe("PrintPages", () => {
     expect(images?.[1]?.getAttribute("data-page")).toBe("2");
   });
 
-  it("renders 4-up grid layout with cells and borders", () => {
-    const pages = mockPages(4);
-    render(
+  it("renders 4-up and 9-up layouts with portrait orientation and no style tag", () => {
+    const { unmount } = render(
       <PrintPages
-        pages={pages}
+        pages={mockPages(4)}
         layout="4"
         order="vertical"
         border={true}
@@ -42,25 +45,71 @@ describe("PrintPages", () => {
     );
 
     const container = document.querySelector("[data-print-pages]");
-    const sheets = container?.querySelectorAll("[data-print-sheet]");
-    expect(sheets).toHaveLength(1);
+    expect(document.querySelector("style")).toBeNull();
+    const sheets4 = container?.querySelectorAll("[data-print-sheet]");
+    expect(sheets4).toHaveLength(1);
+    expect(sheets4?.[0]?.getAttribute("data-orientation")).toBe("portrait");
 
-    const cells = sheets?.[0]?.querySelectorAll("[data-print-cell]");
+    const cells = sheets4?.[0]?.querySelectorAll("[data-print-cell]");
     expect(cells).toHaveLength(4);
 
-    // Border attribute should be present
     cells?.forEach((cell) => {
       expect(cell.getAttribute("data-border")).toBe("true");
     });
 
-    // In 4-up vertical order: cell 0=page 1, cell 1=page 3, cell 2=page 2, cell 3=page 4
     const pageNumbers = Array.from(cells ?? []).map(
       (cell) => cell.querySelector("img")?.getAttribute("data-page"),
     );
     expect(pageNumbers).toEqual(["1", "3", "2", "4"]);
+
+    unmount();
+
+    render(
+      <PrintPages
+        pages={mockPages(9)}
+        layout="9"
+        onDone={vi.fn()}
+      />,
+    );
+    const container9 = document.querySelector("[data-print-pages]");
+    expect(document.querySelector("style")).toBeNull();
+    const sheets9 = container9?.querySelectorAll("[data-print-sheet]");
+    expect(sheets9).toHaveLength(1);
+    expect(sheets9?.[0]?.getAttribute("data-orientation")).toBe("portrait");
   });
 
-  it("renders booklet layout with 4 faces for 8 pages and includes landscape style", () => {
+  it("renders 2-up and 6-up layouts with landscape orientation and no style tag", () => {
+    const { unmount } = render(
+      <PrintPages
+        pages={mockPages(2)}
+        layout="2"
+        onDone={vi.fn()}
+      />,
+    );
+
+    const container2 = document.querySelector("[data-print-pages]");
+    expect(document.querySelector("style")).toBeNull();
+    const sheets2 = container2?.querySelectorAll("[data-print-sheet]");
+    expect(sheets2).toHaveLength(1);
+    expect(sheets2?.[0]?.getAttribute("data-orientation")).toBe("landscape");
+
+    unmount();
+
+    render(
+      <PrintPages
+        pages={mockPages(6)}
+        layout="6"
+        onDone={vi.fn()}
+      />,
+    );
+    const container6 = document.querySelector("[data-print-pages]");
+    expect(document.querySelector("style")).toBeNull();
+    const sheets6 = container6?.querySelectorAll("[data-print-sheet]");
+    expect(sheets6).toHaveLength(1);
+    expect(sheets6?.[0]?.getAttribute("data-orientation")).toBe("landscape");
+  });
+
+  it("renders booklet layout with 4 faces for 8 pages with landscape orientation and no style tag", () => {
     const pages = mockPages(8);
     render(
       <PrintPages
@@ -71,11 +120,14 @@ describe("PrintPages", () => {
     );
 
     const container = document.querySelector("[data-print-pages]");
-    const style = container?.querySelector("style");
-    expect(style?.textContent).toContain("@page { size: landscape; }");
+    expect(document.querySelector("style")).toBeNull();
 
     const sheets = container?.querySelectorAll("[data-print-sheet]");
     expect(sheets).toHaveLength(4);
+
+    sheets?.forEach((sheet) => {
+      expect(sheet.getAttribute("data-orientation")).toBe("landscape");
+    });
 
     const sheetPages = Array.from(sheets ?? []).map((sheet) => {
       const cells = sheet.querySelectorAll("[data-print-cell]");
@@ -83,11 +135,6 @@ describe("PrintPages", () => {
       return Array.from(cells).map((cell) => cell.querySelector("img")?.getAttribute("data-page") ?? null);
     });
 
-    // Exactly matches prompt:
-    // Face 0: [8, 1]
-    // Face 1: [2, 7]
-    // Face 2: [6, 3]
-    // Face 3: [4, 5]
     expect(sheetPages).toEqual([
       ["8", "1"],
       ["2", "7"],

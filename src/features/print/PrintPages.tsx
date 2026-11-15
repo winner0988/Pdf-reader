@@ -53,15 +53,14 @@ export function PrintPages({
   }, []);
 
   const sheets = calculatePrintLayout(pages, layout, order);
-  const isLandscape = sheets.length > 0 && sheets[0]?.orientation === "landscape";
 
   return createPortal(
     <div ref={container} data-print-pages>
-      {isLandscape && <style type="text/css">{"@page { size: landscape; }"}</style>}
       {sheets.map((sheet) => (
         <div
           key={sheet.sheetIndex}
           data-print-sheet
+          data-orientation={sheet.orientation}
           style={{
             gridTemplateRows: `repeat(${sheet.rows}, 1fr)`,
             gridTemplateColumns: `repeat(${sheet.cols}, 1fr)`,

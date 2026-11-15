@@ -144,6 +144,14 @@
   }
 }
 
+@page landscape-sheet {
+  size: landscape;
+}
+
+[data-print-sheet][data-orientation="landscape"] {
+  page: landscape-sheet;
+}
+
 @media print {
   body > :not([data-print-pages]) {
     display: none !important;

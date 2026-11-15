@@ -79,6 +79,8 @@ test("prints 4 pages on one sheet with 4 cells and correct page order", async ({
   // 1 sheet, 4 cells, in order 1, 2, 3, 4
   const sheets = page.locator("[data-print-sheet]");
   await expect(sheets).toHaveCount(1);
+  const sheetPage = await sheets.first().evaluate((el) => getComputedStyle(el).page);
+  expect(sheetPage).not.toBe("landscape-sheet");
 
   const cells = sheets.first().locator("[data-print-cell]");
   await expect(cells).toHaveCount(4);
@@ -118,8 +120,9 @@ test("prints 8 pages as a booklet with 4 faces and correct booklet page order", 
   const sheets = page.locator("[data-print-sheet]");
   await expect(sheets).toHaveCount(4);
 
-  // Check landscape style
-  expect(await page.locator("[data-print-pages] style").textContent()).toContain("@page { size: landscape; }");
+  // Check landscape named page style
+  const sheetPage = await sheets.first().evaluate((el) => getComputedStyle(el).page);
+  expect(sheetPage).toBe("landscape-sheet");
 
   // Expected booklet page order across the 4 faces:
   // Face 0: [8, 1]

@@ -30,7 +30,7 @@
    - 它直接掛在 `<body>` 下；
    - 螢幕上看不到；
    - 列印時只印它（`index.css` 的 `@media print` 隱藏整個 app）；
-   - 每一面一張紙，裡面以 CSS grid 排版；每格裡的頁等比例縮放（`object-fit: contain`）並置中，混合尺寸與旋轉角度的文件都能完整呈現；多頁合一可選畫細頁框；2、6 頁與小冊子透過 `@page { size: landscape; }` 建議橫向列印。
+   - 每一面一張紙，裡面以 CSS grid 排版；每格裡的頁等比例縮放（`object-fit: contain`）並置中，混合尺寸與旋轉角度的文件都能完整呈現；多頁合一可選畫細頁框；2、6 頁與小冊子透過具名頁面（CSS named pages `@page landscape-sheet { size: landscape; }` 與 `[data-print-sheet][data-orientation="landscape"] { page: landscape-sheet; }`）建議橫向列印，不用執行時插入的 `<style>`，因為 CSP 不允許 inline style。
 4. 圖片都解碼後呼叫 `window.print()`，開啟 WebView2 的列印對話框；印表機、份數、方向都在這裡選。
 5. 對話框關閉（`afterprint`）後移除頁面，並釋放 blob URL。
 
