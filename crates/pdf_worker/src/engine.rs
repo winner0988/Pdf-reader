@@ -84,6 +84,7 @@ mod ocr;
 mod page_marks;
 mod page_overlay;
 mod personal_data;
+mod properties;
 mod redaction;
 mod sanitize;
 

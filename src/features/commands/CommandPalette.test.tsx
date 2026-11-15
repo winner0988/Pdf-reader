@@ -89,10 +89,10 @@ describe("CommandPalette", () => {
   });
 
   describe("completeness of menu commands", () => {
-    it("contains all 33 commands from the More menu", () => {
+    it("contains all 34 commands from the More menu", () => {
       const { commands } = setup();
       const menuCommands = commands.filter((c) => c.fromMenu);
-      expect(menuCommands).toHaveLength(33);
+      expect(menuCommands).toHaveLength(34);
 
       // Verify key More menu items are present
       const names = menuCommands.map((c) => c.name);
@@ -102,6 +102,7 @@ describe("CommandPalette", () => {
       expect(names).toContain(strings.menu.redo);
       expect(names).toContain(strings.menu.export);
       expect(names).toContain(strings.menu.print);
+      expect(names).toContain(strings.menu.documentProperties);
       expect(names).toContain(strings.menu.fullscreen);
       expect(names).toContain(strings.menu.shortcuts);
       expect(names).toContain(strings.menu.setDefault);

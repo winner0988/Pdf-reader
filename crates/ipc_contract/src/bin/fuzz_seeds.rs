@@ -9,22 +9,23 @@ use ipc_contract::frame::encode;
 use ipc_contract::types::{
     AnnotationId, AnnotationKind, AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind,
     AttachmentId, AttachmentSource, BatesMark, BlockedAction, BookmarkId, Certification,
-    CreateKind, DocumentId, DocumentPermissions, FieldId, FieldKind, FieldOption,
-    FindPersonalDataQuery, FindingKind, FontRefusal, FormField, HeaderFooterMarks, HighlightColor,
-    HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, LinkTarget, OutlineItem,
-    OutlineResult, PageAnnotation, PageLink, PageMarkPages, PageMarkPosition, PageMarks,
-    PageNumberFormat, PageNumberMark, PageSize, PageText, Password, PersonalDataCategory,
-    PersonalDataMatch, PersonalDataMatches, PictureView, Point, Quad, RasterRegion, Rect,
-    RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions,
-    SanitizeReport, SearchHit, SecurityFinding, SecurityReport, Shape, SignatureInfo,
-    SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine,
-    TextMarkKind, UnverifiableReason, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    CreateKind, DocumentFontEntry, DocumentFonts, DocumentId, DocumentPermissions, FieldId,
+    FieldKind, FieldOption, FindPersonalDataQuery, FindingKind, FontRefusal, FormField,
+    HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, LinkId,
+    LinkTarget, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageMarkPages,
+    PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark, PageSize, PageText, Password,
+    PdfDate, PersonalDataCategory, PersonalDataMatch, PersonalDataMatches, PictureView, Point,
+    Quad, RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb,
+    Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityFinding, SecurityReport, Shape,
+    SignatureInfo, SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo,
+    TextBoxStyle, TextLine, TextMarkKind, UnverifiableReason, Watermark, WatermarkContent,
+    WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, InsertedTextBox, ModelGlyph, OcrFinished, OcrOutcome,
     OcrPageState, OpenedDocument, PasswordKey, PreparedTextBoxModel, Raster, SourceTextBox,
-    TextBoxModel, WorkerAttachment, WorkerEdit, WorkerError, WorkerErrorCode, WorkerPageMarks,
-    WorkerRequest, WorkerResponse, WorkerWatermark,
+    TextBoxModel, WorkerAttachment, WorkerDocumentProperties, WorkerEdit, WorkerError,
+    WorkerErrorCode, WorkerPageMarks, WorkerRequest, WorkerResponse, WorkerWatermark,
 };
 
 /// The words of a text box, as a worker would prepare them (a small one).
@@ -603,6 +604,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         WorkerResponse::AttachmentWritten {
             request,
             bytes: 1024,
+        },
+        WorkerResponse::DocumentProperties {
+            request,
+            properties: WorkerDocumentProperties {
+                format: Some("PDF 1.7".to_owned()),
+                title: Some("Sample Title".to_owned()),
+                author: Some("Author".to_owned()),
+                subject: Some("Subject".to_owned()),
+                keywords: Some("Keywords".to_owned()),
+                creator: Some("Creator".to_owned()),
+                producer: Some("Producer".to_owned()),
+                creation_date: Some(PdfDate {
+                    year: 2026,
+                    month: 1,
+                    day: 1,
+                    hour: 0,
+                    minute: 0,
+                    second: 0,
+                    tz_offset_minutes: Some(480),
+                }),
+                mod_date: None,
+                has_xmp: true,
+                encryption_method: None,
+                signatures_count: 0,
+                signatures_truncated: false,
+                attachment_count: 0,
+            },
+        },
+        WorkerResponse::DocumentFonts {
+            request,
+            fonts: DocumentFonts {
+                fonts: vec![DocumentFontEntry {
+                    name: "Helvetica".to_owned(),
+                    subtype: "Type 1".to_owned(),
+                    embedded: false,
+                }],
+                complete: true,
+            },
         },
         WorkerResponse::Error {
             request: Some(request),
@@ -1436,6 +1475,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         WorkerRequest::Cancel { target: request },
         WorkerRequest::Close { doc },
         WorkerRequest::AnnotationSummary { request, doc },
+        WorkerRequest::GetDocumentProperties { request, doc },
+        WorkerRequest::GetDocumentFonts { request, doc },
         WorkerRequest::Shutdown,
     ];
 

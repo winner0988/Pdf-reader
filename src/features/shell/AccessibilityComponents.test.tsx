@@ -27,6 +27,7 @@ import { SaveFailedDialog } from "@/features/saving/SaveFailedDialog";
 import { SearchAllDialog } from "@/features/textIndex/SearchAllDialog";
 import { SensitiveDialog } from "@/features/sensitive/SensitiveDialog";
 import { SensitiveSection } from "@/features/sensitive/SensitiveSection";
+import { DocumentPropertiesDialog } from "@/features/properties/DocumentPropertiesDialog";
 import { SignDialog } from "@/features/signing/SignDialog";
 import { UnsavedDialog } from "@/features/saving/UnsavedDialog";
 import { demoDocument } from "@/features/shell/demo";
@@ -134,6 +135,55 @@ describe("dialogs", () => {
       <PrivacyExportDialog open onOpenChange={vi.fn()} onExport={() => Promise.resolve(false)} onFinished={vi.fn()} />,
     );
     await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("the document properties dialog (B5-04)", async () => {
+    const api = {
+      getDocumentProperties: vi.fn(() =>
+        Promise.resolve({
+          displayName: "sample.pdf",
+          fileSize: 1024,
+          pageCount: 1,
+          pageSizes: [{ widthPt: 595.28, heightPt: 841.89 }],
+          format: "PDF 1.7",
+          encryptionMethod: null,
+          title: "Sample",
+          author: "Author",
+          subject: null,
+          keywords: null,
+          creator: null,
+          producer: null,
+          creationDate: null,
+          modDate: null,
+          hasXmp: false,
+          signaturesCount: 0,
+          signaturesTruncated: false,
+          attachmentCount: 0,
+          security: { scanComplete: true, findings: [], remoteAddresses: [] },
+          permissions: {
+            print: true,
+            printHighQuality: true,
+            copy: true,
+            modify: true,
+            assemble: true,
+            annotate: true,
+            fillForms: true,
+          },
+          sensitive: false,
+          encrypted: false,
+        }),
+      ),
+      getDocumentFonts: vi.fn(() =>
+        Promise.resolve({
+          fonts: [{ name: "Arial", subtype: "TrueType", embedded: false }],
+          complete: true,
+        }),
+      ),
+      cancel: vi.fn(() => Promise.resolve()),
+    };
+    render(<DocumentPropertiesDialog open onOpenChange={vi.fn()} doc={1} api={api} />);
+    await screen.findByRole("dialog", { name: strings.properties.title });
     await expectAccessible(everything());
   });
 

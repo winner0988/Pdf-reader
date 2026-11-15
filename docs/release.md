@@ -24,6 +24,7 @@ REL-04（[#198](https://github.com/winner0988/Pdf-reader/issues/198)）。怎麼
 
 - [ ] `main` 的 CI 全綠，沒有待處理的 `needs-security-review`。
 - [ ] 人工安全檢查（[manual-checks.md](security/manual-checks.md)）：每次發行做第 1、2 節；1.0 另外做[第 3 節「1.0 發行之前」](security/manual-checks.md#3-10-發行之前b4-11)；1.0 之後的發行若改到攻擊面（新的命令、worker 請求、權限、寫入的位置或啟動的行程），也再做第 3 節中相關的項目。在要發行的建置上做過，結果都寫進 manual-checks.md 最後的紀錄表。
+- [ ] 內附 C 函式庫已知問題對照（[bundled-libraries.md](security/bundled-libraries.md#清單查證與更新程序)）：每次發行 minor 或 major 版本前（patch 版不用），對清單列出的每個函式庫，至 OSV、NVD 與各專案安全公告或版本說明查核是否有新公布的已知問題。對照結果照 [SECURITY.md](../SECURITY.md) 私下交給負責人，不寫在發行 PR、CHANGELOG 或任何公開處；公開清單僅更新查驗日期。需處理者每一項另開一張卡（照 #553 第 3 點，標題與內文僅註明套用上游修正與 commit，不寫編號）；若影響已發行版本，先私下通報負責人。
 - [ ] 螢幕報讀軟體（NVDA、Windows 朗讀程式）的實機檢查：以鍵盤操作主視窗、閱讀畫布、側欄目錄與縮圖、關鍵對話框（如開啟密碼、外部連結確認、設定、列印），確認名稱、狀態與角色報讀正常。
 - [ ] 離線驗證的手動檢查（[offline-verification.md](security/offline-verification.md#手動檢查每次發布前)，「每次發布前」）：方法 A（內建的 `scripts/security/watch-connections.ps1`）與方法 B（Process Monitor），在要發行的安裝檔上做；結果依該文件的「紀錄格式」附在發行 PR。
 - [ ] 版本：`package.json` 的 `version`、`Cargo.toml` 的 `[workspace.package]`、`Cargo.lock`（`cargo check` 會更新）是同一個版本；`CHANGELOG.md` 有 `## [x.y.z] - yyyy-mm-dd`，日期是發行當天，內容是使用者看得懂的變化。`node scripts/release/check-version.mjs v<版本>` 要通過。

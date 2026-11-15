@@ -29,6 +29,7 @@ export type CommandId =
   | "compressImages"
   | "sign"
   | "print"
+  | "documentProperties"
   | "sensitive"
   | "dontRecord"
   | "shortcuts"
