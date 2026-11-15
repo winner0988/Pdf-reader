@@ -32,10 +32,11 @@ lto = true
 strip = true
 
 # mupdf-sys 0.8.0 bundles MuPDF 1.27.2, whose OpenJPEG lacks an upstream bounds check in
-# opj_j2k_read_sod (#539) and whose Little CMS lacks upstream overflow checks in CubeSize (#562).
+# opj_j2k_read_sod (#539), whose Little CMS lacks upstream overflow checks in CubeSize (#562),
+# and whose Tesseract lacks upstream model-loading checks (#563).
 # This is v0.8.0 of messense/mupdf-rs plus commits that apply upstream fixes when the crate is
 # built; see docs/architecture/mupdf-binding.md. fuzz/Cargo.toml has the same patch and
 # deny.toml allows this one repository. Remove all three when a mupdf-sys release bundles MuPDF
 # 1.28.0 or later.
 [patch.crates-io]
-mupdf-sys = { git = "https://github.com/winner0988/mupdf-rs", rev = "8e70fa5a55d55ad22ae14419c93eb6d92f03a08a" }
+mupdf-sys = { git = "https://github.com/winner0988/mupdf-rs", rev = "1989036c0019c1b7f23ccf075024e3997a66c1bc" }

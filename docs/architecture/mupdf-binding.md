@@ -23,15 +23,16 @@
 
 ### `mupdf-sys` 的來源
 
-`mupdf-sys` 0.8.0 內附 MuPDF 1.27.2，而 1.27.2 內附的 OpenJPEG 與 Little CMS 缺少了上游已經修復的檢查：
+`mupdf-sys` 0.8.0 內附 MuPDF 1.27.2，而 1.27.2 內附的 OpenJPEG、Little CMS 與 Tesseract 缺少了上游已經修復的檢查：
 
 - OpenJPEG：`opj_j2k_read_sod` 寫入 tile-part 索引前沒有檢查範圍。上游的修正為 OpenJPEG [`91d08b11`](https://github.com/uclouvain/openjpeg/commit/91d08b11a72764f6d199f32fa0c1b1abd4edc2ad)；Artifex 的 OpenJPEG 是 `328a8da`，MuPDF 1.28.0 起包含（#539）。
 - Little CMS（lcms2mt）：`CubeSize` 計算節點總數時使用 32 位元整數且在乘法後才檢查溢位。上游的修正為 Little CMS [`da6110b1`](https://github.com/mm2/Little-CMS/commit/da6110b1d14abc394633a388209abd5ebedd7ab0) 與 [`e0641b18`](https://github.com/mm2/Little-CMS/commit/e0641b1828d0a1af5ecb1b11fe22f24fceefd4bc)（#562）。
+- Tesseract：讀取語言資料（.traineddata）時缺少陣列邊界與大小檢查，以及 LSTM 閘矩陣與 recoder 的合理性檢查。上游的修正為 Tesseract [`82727cc1`](https://github.com/tesseract-ocr/tesseract/commit/82727cc11c34eaf1249af002d69f6bbae70993b9)、[`55287a94`](https://github.com/tesseract-ocr/tesseract/commit/55287a94b8044c05ce3fd10f5aca6ebbd238e518)、[`103dc134`](https://github.com/tesseract-ocr/tesseract/commit/103dc134eb36411ddc6833ec20aa2c76795bd0ff)、[`b494ac18`](https://github.com/tesseract-ocr/tesseract/commit/b494ac18925f9d9aff9ef5815475de9943ab19bf) 與 [`c94a5532`](https://github.com/tesseract-ocr/tesseract/commit/c94a5532ee04db5a4919542832fd94caee5ea58f)（`103dc134` 加的 `WeightMatrix::Dim1()`／`Dim2()` 是 `b494ac18` 要用的，#563）。
 
 crates.io 上還沒有內附 MuPDF 1.28 以上的 `mupdf-sys`，所以暫時從 git 取得：
 - 來源是 <https://github.com/winner0988/mupdf-rs> 的 `v0.8.0-bundled-fixes` 分支，也就是上游 `messense/mupdf-rs` 的 `v0.8.0` 加上修補 commit；
-- commit 只改 `mupdf-sys/build.rs`：建置時把上游的修正原文套到複製出來的 OpenJPEG 與 lcms2 原始碼。原始碼裡既找不到未修正的寫法、也找不到修正後的寫法時，建置失敗，不會默默建出沒有檢查的版本；
-- 根目錄與 `fuzz/` 的 `Cargo.toml` 以 `[patch.crates-io]` 指向同一個 `rev`（完整的 commit `8e70fa5a55d55ad22ae14419c93eb6d92f03a08a`），`deny.toml` 的 `allow-git` 只允許這一個 repo；
+- commit 只改 `mupdf-sys/build.rs`：建置時把上游的修正原文套到複製出來的 OpenJPEG、lcms2 與 Tesseract 原始碼。原始碼裡既找不到未修正的寫法、也找不到修正後的寫法時，建置失敗，不會默默建出沒有檢查的版本；
+- 根目錄與 `fuzz/` 的 `Cargo.toml` 以 `[patch.crates-io]` 指向同一個 `rev`（完整的 commit `1989036c0019c1b7f23ccf075024e3997a66c1bc`），`deny.toml` 的 `allow-git` 只允許這一個 repo；
 - `mupdf` 與字型 crate 仍然來自 crates.io：上游 repo 裡的字型檔是符號連結，Windows 上取出來會壞掉。
 - 代價：cargo 第一次要下載 MuPDF 與它所有第三方函式庫的 git 歷史（約 850 MB），之後存在 `~/.cargo/git`。
 - **移除條件**：`mupdf-sys` 發布內附 MuPDF 1.28.0 以上的版本後，在升級的 PR 裡刪掉兩個 `[patch.crates-io]` 與 `allow-git` 的那一項，這一節也改回 crates.io。
