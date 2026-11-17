@@ -72,7 +72,7 @@ sequenceDiagram
 ## 語言資料
 
 - 一份 Tesseract 的 `.traineddata`，最多 `MAX_LANGUAGE_DATA_BYTES`（64 MiB），名稱 `is_language_name`（字母開頭，最多 32 個字母、數字、`_`、`-`）。
-- **Tesseract 不防禦壞掉的檔案**：空的緩衝區會被當成資料夾名稱去讀，位移倒退會讓它配置不存在的記憶體。所以 `ipc_contract::ocr::check_language_data` 在資料靠近 Tesseract 之前檢查檔頭：項目數 23–64、各項位移從表的結尾開始、不倒退、不超出檔案，並且有 LSTM 模型、字元集與 recoder 三項（沒有的是舊的非 LSTM 檔，Tesseract 初始化會失敗）。主行程在使用者匯入時檢查，worker 收到時再檢查（`Recogniser::new` 也檢查）。再往裡面（模型本身）由 Tesseract 讀：Tesseract 讀不了時以 `abort` 結束行程，不回傳錯誤，所以 fuzz 不涵蓋模型本身；壞掉的模型最壞是 worker 崩潰，主行程重啟它，不影響其他文件。
+- **Tesseract 不防禦壞掉的檔案**：空的緩衝區會被當成資料夾名稱去讀，位移倒退會讓它配置不存在的記憶體。所以 `ipc_contract::ocr::check_language_data` 在資料靠近 Tesseract 之前檢查檔頭：項目數 23–64、各項位移從表的結尾開始、不倒退、不超出檔案，並且有 LSTM 模型、字元集與 recoder 三項（沒有的是舊的非 LSTM 檔，Tesseract 初始化會失敗）；也檢查語言的設定（第 0 項，最多 4 KiB、每行 ≤ 255 位元組），只接受官方語言資料用到的設定。worker 初始化時傳入變數把 `tessedit_load_sublangs` 設為空字串，不讓 Tesseract 從磁碟載入其他語言。已經匯入、但不符合規則的檔案，讀取時會被拒絕，要重新匯入符合的檔案。主行程在使用者匯入時檢查，worker 收到時再檢查（`Recogniser::new` 也檢查）。再往裡面（模型本身）由 Tesseract 讀：Tesseract 讀不了時以 `abort` 結束行程，不回傳錯誤，所以 fuzz 不涵蓋模型本身；壞掉的模型最壞是 worker 崩潰，主行程重啟它，不影響其他文件。
 - 內附的 `eng` 與 `chi_tra`（`src-tauri/resources/tessdata`，見該資料夾的 README）：測試檢查它們的大小、雜湊值與格式。
 
 ## 升級 MuPDF 時
@@ -92,9 +92,10 @@ Tesseract 與 Leptonica 隨 `mupdf-sys` 建置，版本由 fork 的 `mupdf` =0.8
 
 ## 測試
 
-- `ocr.rs`：英文與中文的辨識、每個字元都有在圖片內的外框、空白圖片、尺寸不合的圖片、壞的語言資料（空的、全零、全 255、檔名文字）、一次一個、逾時與取消後可以再辨識。
+- `ocr.rs`：英文與中文的辨識、每個字元都有在圖片內的外框、空白圖片、尺寸不合的圖片、壞的語言資料（空的、全零、全 255、檔名文字）、載入子語言時只載入自己、一次一個、逾時與取消後可以再辨識。
 - `ocr_worker.rs`：頁面座標的換算、背景辨識、佇列與取走、換語言、停止、逾時。
-- `ipc_contract` 的 `ocr`：語言資料格式的各種壞法、內附資料的雜湊值；`validate`：`OcrPolled` 的上限。
+- `ipc_contract` 的 `ocr`：語言資料格式的各種壞法、語言設定白名單與各項限制、內附資料的雜湊值；`validate`：`OcrPolled` 的上限。
+- `src-tauri` 的 `ocr_languages.rs`：帶有不接受設定的檔案拒絕（`UnsupportedSetting`）且不留檔案。
 - `crates/pdf_worker/tests/ocr.rs`：真正的 worker 在沙盒中（停用 win32k 的 AppContainer），辨識掃描頁並提供文字與搜尋、不是掃描頁的頁面、沒有文字的圖片、中文、轉動與復原、刪除／移動／插入頁面、壞的語言檔、辨識時渲染照常回應、停止。
 
 ## 主行程
@@ -106,7 +107,7 @@ Tesseract 與 Leptonica 隨 `mupdf-sys` 建置，版本由 fork 的 `mupdf` =0.8
   - 內附的：安裝檔放在程式旁邊（`bundle.resources`）；開發與 E2E 建置由 `tauri-build` 複製到 `target/<profile>/tessdata`；
   - 匯入的：app 的資料資料夾（`PDF_READER_DATA_DIR` 或本機資料夾）下的 `tessdata`。
 - 檔名是 `<代碼>.traineddata`，代碼要通過 `is_language_name`；列出時略過其他檔名、空檔與超過上限的檔案。**自動**選擇：`chi_tra`（也認得英文與數字），其次 `eng`，再其次第一個。設定指定的語言沒有安裝時用自動的。
-- **匯入**（`import_ocr_language`）：對話框在主行程，路徑不到畫面。依序檢查檔名（`BadName`）、內附語言的代碼（`NameTaken`：匯入的檔案不能取代內附的）、已匯入的數量（`TooMany`，最多 `MAX_IMPORTED_LANGUAGES`＝20；取代同代碼的不算）、大小（`TooLarge`，最多 `MAX_LANGUAGE_DATA_BYTES`＝64 MiB，讀取時就限制）、格式（`NotLanguageData`，`check_language_data`）；通過才經暫存檔複製進資料資料夾。壞掉的檔案不會留下任何東西。
+- **匯入**（`import_ocr_language`）：對話框在主行程，路徑不到畫面。依序檢查檔名（`BadName`）、內附語言的代碼（`NameTaken`：匯入的檔案不能取代內附的）、已匯入的數量（`TooMany`，最多 `MAX_IMPORTED_LANGUAGES`＝20；取代同代碼的不算）、大小（`TooLarge`，最多 `MAX_LANGUAGE_DATA_BYTES`＝64 MiB，讀取時就限制）、格式與設定（`NotLanguageData`、`UnsupportedSetting`，`check_language_data`）；通過才經暫存檔複製進資料資料夾。壞掉的檔案不會留下任何東西。
 - **讀取**交給 worker 之前再檢查一次（資料夾裡的檔案可能是手動放進去的）；只移除匯入的語言。
 
 ### 排程

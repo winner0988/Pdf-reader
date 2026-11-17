@@ -192,6 +192,7 @@ impl Languages {
         })?;
         check_language_data(&data).map_err(|error| match error {
             LanguageDataError::TooLarge => LanguageRefusal::TooLarge,
+            LanguageDataError::UnsupportedSetting(_) => LanguageRefusal::UnsupportedSetting,
             _ => LanguageRefusal::NotLanguageData,
         })?;
         local_data::write(&folder.join(format!("{code}{EXTENSION}")), &data)
@@ -462,6 +463,42 @@ pub(crate) mod tests {
         assert!(languages.remove("deu"));
         assert!(!languages.remove("deu"));
         assert_eq!(codes(&languages.list()), [("eng", true)]);
+        for dir in [bundled, imported, source] {
+            let _ = fs::remove_dir_all(dir);
+        }
+    }
+
+    #[test]
+    fn language_data_with_an_unsupported_setting_is_refused_and_leaves_no_file() {
+        let (bundled, imported, source) = (folder("unsup-b"), folder("unsup-i"), folder("unsup-s"));
+        let languages = Languages::new(Some(bundled.clone()), Some(imported.clone()));
+        let count = 24usize;
+        let mut bad_data = i32::try_from(count).unwrap().to_le_bytes().to_vec();
+        let config = b"tessedit_write_params_to_file x\n";
+        let mut at = 4 + 8 * count;
+        let entry0_offset = i64::try_from(at).unwrap();
+        at += config.len();
+        bad_data.extend_from_slice(&entry0_offset.to_le_bytes());
+        for index in 1..count {
+            let offset: i64 = if [17, 21, 22].contains(&index) {
+                let here = at;
+                at += 4;
+                i64::try_from(here).unwrap()
+            } else {
+                -1
+            };
+            bad_data.extend_from_slice(&offset.to_le_bytes());
+        }
+        bad_data.extend_from_slice(config);
+        bad_data.resize(at, 7);
+
+        let file = install(&source, "bad", &bad_data);
+        assert_eq!(
+            languages.import(&file),
+            Err(LanguageRefusal::UnsupportedSetting)
+        );
+        assert!(!imported.join("bad.traineddata").exists());
+        assert_eq!(codes(&languages.list()), []);
         for dir in [bundled, imported, source] {
             let _ = fs::remove_dir_all(dir);
         }
