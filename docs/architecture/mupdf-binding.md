@@ -32,18 +32,19 @@
 
 ### `mupdf-sys` 的來源
 
-- **為什麼用 fork**：crates.io 停在 0.8.0，內附的是 1.27.2。
-- **分支與 commit**：來源是 <https://github.com/winner0988/mupdf-rs> 的分支 `v0.8.0-mupdf-1.28`，commit 為 `e60fbdc5f0b7d0a9fd83671f5cede5132e8b7ba5`。它帶了：
+- **為什麼用 fork**：crates.io 停在 0.8.0，內附的是 1.27.2。第一次建置時 cargo 要下載 MuPDF 與它所有第三方函式庫的 git 歷史（約 850 MB），之後存在 `~/.cargo/git`。
+- **分支與 commit**：來源是 <https://github.com/winner0988/mupdf-rs> 的分支 `v0.8.0-mupdf-1.28`，commit 為 `c183ec844106f29ed50a6db8bcf99714216e0513`。它帶了：
   - 子模組指到 MuPDF 1.28.6（`da5f5eb890d7b3fb76903160b5f7f48ba1301492`）；
   - `src/page.rs` 補上 `table_hunt_options`（`vertically_collapse_bordered_cells: 0`，行為與 1.27.2 相同）；
   - 根目錄 `Cargo.toml` 的字型 crate 拿掉 `path`，改從 crates.io 取；
   - `mupdf-sys/build.rs` 以 `FZ_ENABLE_MD=0` 關掉 1.28 新增的 Markdown 讀取器；
-  - 保留 Tesseract 的五個上游模型讀取邊界檢查修補（共 16 個檔案，+179 −27）。
+  - Tesseract 的修補：#563 的 5 個加 #577 的 22 個上游 commit（和 MuPDF 內附的原始碼比，25 個檔案 +464 −55）；原始碼裡既找不到未修正、也找不到修正後的寫法時，建置失敗；MuPDF 開始編譯 Tesseract 的舊引擎或 `FAST_FLOAT` 時也會失敗；
+  - `mupdf-sys/msbuild.rs` 連結 `advapi32`。
 - **已移除的建置期修補**：OpenJPEG（#539）與 lcms2（#562）的修正已經在 1.28.6 內附的版本裡，建置期修補已經拿掉。
 - **舊分支保留**：`v0.8.0-bundled-fixes`（`1989036c0019c1b7f23ccf075024e3997a66c1bc`）保留不動。
-- 根目錄與 `fuzz/` 的 `Cargo.toml` 以 `[patch.crates-io]` 指向同一個 `rev`（`e60fbdc5f0b7d0a9fd83671f5cede5132e8b7ba5`），`deny.toml` 的 `allow-git` 允許此 repository。
-- **什麼時候可以拿掉 fork**：crates.io 上的 `mupdf`、`mupdf-sys` 內附的 MuPDF 已經有 Tesseract 那五個修正後，在升級的 PR 裡刪除兩個 `Cargo.toml` 的 `[patch.crates-io]` 與 `deny.toml` 的 `allow-git`，這一節改回 crates.io。
-- **之後要升到更新的 1.28.x**：在分支加 commit 改 gitlink，重做第 5 步（建置原始碼比對），並加上 `needs-security-review`。
+- 根目錄與 `fuzz/` 的 `Cargo.toml` 以 `[patch.crates-io]` 指向同一個 `rev`（`c183ec844106f29ed50a6db8bcf99714216e0513`），`deny.toml` 的 `allow-git` 允許此 repository。
+- **什麼時候可以拿掉 fork**：MuPDF 內附的 Tesseract 到 5.5.4 以上時，Tesseract 的修補與上面的檢查都拿掉；crates.io 上的 `mupdf`、`mupdf-sys` 也帶了這樣的 MuPDF 時，在升級的 PR 裡刪除兩個 `Cargo.toml` 的 `[patch.crates-io]` 與 `deny.toml` 的 `allow-git`，這一節改回 crates.io。
+- **之後要升到更新的 1.28.x**：在分支加 commit 改 gitlink；檢查建置輸出（`<run>/output`）沒有 `Unable to patch`；Tesseract 的差異和這裡寫的相同；照 #561 的規則更新 `bundled-libraries.md`，並由 Claude Code 私下對照已知問題；加上 `needs-security-review`。
 
 ## 編譯期功能
 
