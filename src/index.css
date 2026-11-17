@@ -144,6 +144,9 @@
   }
 }
 
+@page landscape-sheet {
+  size: landscape;
+}
 
 [data-print-sheet][data-orientation="landscape"] {
   page: landscape-sheet;
