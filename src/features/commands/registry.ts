@@ -1,4 +1,5 @@
 import { getShortcutKey } from "@/features/shortcuts/registry";
+import { insertFailureMessage } from "@/features/thumbnails/insertFailure";
 import { strings } from "@/i18n/zh-TW";
 import type { Command, CommandId, CommandOptions } from "./types";
 
@@ -825,7 +826,10 @@ export function createCommands(opts: CommandOptions): Command[] {
           : undefined,
       run: () => {
         if (opts.document && opts.onInsertFrom) {
-          void opts.onInsertFrom(opts.document.currentPage);
+          // The palette has no message area of its own: a refusal goes to the status bar (#584).
+          void Promise.resolve(opts.onInsertFrom(opts.document.currentPage)).catch((error: unknown) => {
+            opts.onHint?.(insertFailureMessage(error));
+          });
         }
       },
     },

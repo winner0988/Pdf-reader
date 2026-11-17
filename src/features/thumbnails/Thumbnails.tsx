@@ -31,6 +31,7 @@ import {
   type ThumbBox,
   type ThumbLayout,
 } from "@/features/thumbnails/layout";
+import { insertFailureMessage } from "@/features/thumbnails/insertFailure";
 import { MovePagesDialog } from "@/features/thumbnails/MovePagesDialog";
 import {
   extendTo,
@@ -266,14 +267,7 @@ export function Thumbnails({
       },
       (error: unknown) => {
         setBusy(false);
-        const code = errorCodeOf(error);
-        setMessage(
-          code === "notAllowed"
-            ? t.sourceNotAllowed
-            : code === "limitExceeded" || code === "tooLarge"
-              ? t.sourceTooLarge
-              : t.sourceFailed,
-        );
+        setMessage(insertFailureMessage(error));
       },
     );
   };
