@@ -9,11 +9,8 @@ import { clearRecentCommands, createCommands } from "@/features/commands/registr
 import type { CommandOptions } from "@/features/commands/types";
 import { strings } from "@/i18n/zh-TW";
 
-function setup(opts: Partial<CommandOptions> = {}, defaultOpen = true) {
-  const user = userEvent.setup();
-  const onOpenChange = vi.fn();
-
-  const options: CommandOptions = {
+function makeOptions(opts: Partial<CommandOptions> = {}): CommandOptions {
+  return {
     document: { pageCount: 5, currentPage: 1, zoom: 100 },
     sidebarOpen: false,
     searchOpen: false,
@@ -71,6 +68,13 @@ function setup(opts: Partial<CommandOptions> = {}, defaultOpen = true) {
     insertFromBlocked: false,
     ...opts,
   };
+}
+
+function setup(opts: Partial<CommandOptions> = {}, defaultOpen = true) {
+  const user = userEvent.setup();
+  const onOpenChange = vi.fn();
+
+  const options = makeOptions(opts);
 
   const commands = createCommands(options);
 
@@ -281,6 +285,53 @@ describe("CommandPalette", () => {
 
       expect(onInsertFrom).toHaveBeenCalledWith(4);
       expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
+  describe("insertFileAfterCurrent hint on failure (#584)", () => {
+    it("calls onHint with sourceNotAllowed when onInsertFrom rejects", async () => {
+      const onInsertFrom = vi.fn().mockRejectedValue({ code: "notAllowed", message: "x" });
+      const onHint = vi.fn();
+      const options = makeOptions({
+        document: { pageCount: 5, currentPage: 3, zoom: 100 },
+        onInsertFrom,
+        onHint,
+      });
+      const commands = createCommands(options);
+      const cmd = commands.find((c) => c.id === "insertFileAfterCurrent");
+      expect(cmd).toBeDefined();
+
+      cmd!.run();
+
+      expect(onInsertFrom).toHaveBeenCalledWith(3);
+      await vi.waitFor(() => {
+        expect(onHint).toHaveBeenCalledTimes(1);
+        expect(onHint).toHaveBeenCalledWith(strings.pages.sourceNotAllowed);
+      });
+    });
+
+    it("does not call onHint when onInsertFrom succeeds", async () => {
+      const onInsertFrom = vi.fn().mockResolvedValue(2);
+      const onHint = vi.fn();
+      const options = makeOptions({
+        document: { pageCount: 5, currentPage: 3, zoom: 100 },
+        onInsertFrom,
+        onHint,
+      });
+      const commands = createCommands(options);
+      const cmd = commands.find((c) => c.id === "insertFileAfterCurrent");
+      expect(cmd).toBeDefined();
+
+      cmd!.run();
+
+      expect(onInsertFrom).toHaveBeenCalledWith(3);
+      await vi.waitFor(() => {
+        expect(onInsertFrom).toHaveReturned();
+      });
+      await vi.waitFor(async () => {
+        await Promise.resolve();
+        expect(onHint).not.toHaveBeenCalled();
+      });
     });
   });
 

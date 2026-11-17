@@ -282,3 +282,29 @@ test("the pages of another file carry the app's five annotation kinds, text box 
   }
 });
 
+test("inserting pages from another file via command palette reports refusal in the status bar (B2-06, #584)", async ({
+  launch,
+}) => {
+  const page = await launch(corpus("benign/multi-page-10.pdf"));
+  await expect(pageSlot(page, 1)).toHaveAttribute("data-state", "ready");
+
+  await page.keyboard.press("Control+k");
+  const palette = page.getByRole("dialog", { name: strings.commands.palette });
+  const input = palette.getByRole("combobox");
+  await input.fill("在目前這一頁後面插入");
+
+  const option = palette.getByRole("option", { name: strings.commands.insertFileAfterCurrent });
+  await expect(option).toHaveAttribute("aria-selected", "true");
+  await input.press("Enter");
+  await answerFileDialog(page, { path: corpus("benign/restricted-open-password.pdf") });
+
+  const dialog = page.getByRole("dialog", { name: t.sourcePassword.title });
+  const field = dialog.getByLabel(t.sourcePassword.label);
+  await field.fill("user");
+  await field.press("Enter");
+
+  await expect(page.getByRole("contentinfo").getByRole("status")).toHaveText(t.sourceNotAllowed);
+  await hasPages(page, 10);
+});
+
+
