@@ -1322,6 +1322,7 @@ export const strings = {
         unreadable: "無法讀取這個檔案。",
         tooLarge: "這個檔案太大（上限 64 MB）。",
         notLanguageData: "這不是 Tesseract 的語言資料，或不含 LSTM 模型。",
+        unsupportedSetting: "這個語言資料帶有 app 不接受的 Tesseract 設定。",
         badName: "檔名要像 eng.traineddata：英文字母開頭，只有字母、數字、底線與連字號。",
         nameTaken: "app 已經內附這個語言，不能取代。",
         tooMany: "匯入的語言已經太多，請先移除一些。",

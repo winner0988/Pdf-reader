@@ -175,3 +175,11 @@ flowchart LR
 
 - 第五批（B5）：工作卡 B5-01～B5-16 是 [#438](https://github.com/winner0988/Pdf-reader/issues/438)–[#453](https://github.com/winner0988/Pdf-reader/issues/453)，2026-11-03 開卡（來源：與 [pdfcraft](https://github.com/storytold/pdfcraft) 的比較），都還沒排程。
 - 1.0 之後從 [Acrobat Pro 對照清單](../planning/acrobat-pro-parity.md)的「缺口排名」挑卡，寫成那一批的計畫。
+
+## 第六批
+
+- 第六批（B6，1.0 之後）：工作卡 B6-01～B6-15 是 [#586](https://github.com/winner0988/Pdf-reader/issues/586)–[#600](https://github.com/winner0988/Pdf-reader/issues/600)，2026-11-15 開卡（來源：[Acrobat Pro 對照清單](../planning/acrobat-pro-parity.md)的「缺口排名」），都還沒排程，由負責人在 1.0 之後排。
+  - 實作：B6-01～B6-06、B6-11、B6-14。
+  - POC（不合併進 `main`）：B6-07、B6-08、B6-10、B6-13。
+  - 先寫 ADR：B6-09、B6-12、B6-15。
+- 同一天開的 1.0 之前的修正與測試：[#583](https://github.com/winner0988/Pdf-reader/issues/583)、[#584](https://github.com/winner0988/Pdf-reader/issues/584)、[#585](https://github.com/winner0988/Pdf-reader/issues/585)。

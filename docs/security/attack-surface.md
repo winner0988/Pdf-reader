@@ -191,7 +191,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 命令 | 做什麼 | 主行程的檢查與上限 | 對話框、寫入、行程 | 測試 |
 |---|---|---|---|---|
 | `get_ocr_languages` | 可用的語言（代碼與大小） | 沒有參數 | 讀內附的 `tessdata\` 與 app 資料夾的 `tessdata\` | `ocr.spec.ts`；`ocr_languages.rs` 7 個 |
-| `import_ocr_language` | 匯入 `.traineddata`（B2-10、ADR 0015） | 同時只開一個（`LANGUAGE_DIALOG_SHOWING`）；名稱過 `is_language_name`，大小 ≤ 64 MiB，內容過 `check_language_data`；匯入 ≤ `MAX_IMPORTED_LANGUAGES`（20） | 開啟對話框；複製到 app 資料夾的 `tessdata\` | `ocr.spec.ts`；`crates/ipc_contract/src/ocr.rs` 8 個 |
+| `import_ocr_language` | 匯入 `.traineddata`（B2-10、ADR 0015） | 同時只開一個（`LANGUAGE_DIALOG_SHOWING`）；名稱過 `is_language_name`，大小 ≤ 64 MiB，內容過 `check_language_data`；匯入 ≤ `MAX_IMPORTED_LANGUAGES`（20） | 開啟對話框；複製到 app 資料夾的 `tessdata\` | `ocr.spec.ts`；`crates/ipc_contract/src/ocr.rs` 10 個 |
 | `remove_ocr_language` | 以代碼移除匯入的語言；內附的不能移除 | `RemoveLanguageArgs`：`is_language_name`，路徑字元進不來 | 刪除檔案 | `ocr.spec.ts`；`ocr_languages.rs` |
 | `start_ocr` | 現在開始辨識文件的掃描頁 | 文件代號 | 主行程讀語言資料送給文件的 worker（`OcrLoad`），再逐頁 `OcrPage`、`OcrPoll` | `ocr.spec.ts`；`src-tauri/src/ocr.rs` 14 個；worker `ocr.rs` |
 | `stop_ocr` | 停止辨識 | 文件代號 | `OcrStop` | `src-tauri/src/ocr.rs`；worker `ocr.rs` |
@@ -314,7 +314,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 資料 | 從哪裡來 | 怎麼檢查 | 測試 | fuzz |
 |---|---|---|---|---|
 | `.pfx`、`.p12` | 使用者選的檔案（≤ 1 MiB） | Windows 的 `PFXImportCertStore`，加 `PKCS12_NO_PERSIST_KEY \| PKCS12_ALWAYS_CNG_KSP`：金鑰不存到磁碟、不能匯出。憑證鏈加 `CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL`、`CERT_CHAIN_DISABLE_AUTH_ROOT_AUTO_UPDATE`，不連網（ADR 0020） | `signing.rs` 11 個（`the_test_certificate_signs_two_parts_and_leaves_no_key_behind`、`a_wrong_password_or_a_file_that_is_no_certificate_says_only_that` 等） | 不做：Windows 的程式碼，ADR 0020 接受的設計（§9） |
-| `.traineddata` | 使用者匯入（≤ 64 MiB） | `check_language_data`：目錄的項目數 23–64，位移不倒退、不超出檔案，要有 LSTM 模型、字元集與 recoder | `crates/ipc_contract/src/ocr.rs` 8 個 | `language_data`（#429） |
+| `.traineddata` | 使用者匯入（≤ 64 MiB） | `check_language_data`：目錄的項目數 23–64，位移不倒退、不超出檔案，要有 LSTM 模型、字元集與 recoder；第 0 項（語言設定）≤ 4 KiB、每行 ≤ 255 位元組，只接受官方 59 組設定（`tessedit_char_blacklist` 與 `tessedit_load_sublangs` 值不限） | `crates/ipc_contract/src/ocr.rs` 10 個 | `language_data`（#429） |
 | 字型 | 使用者匯入（≤ 64 MiB） | 副檔名、大小、`check_import_header`；之後由新的 worker 檢查（`InspectFont`） | `fonts.rs` 15 個（含檔頭與中繼資料的截斷／變異測試） | 檔頭由單元變異測試驗證（#429）；`InspectFont` 有（`text_box_font`，#428） |
 | 檢查更新的回覆 | 網路（§5） | ≤ 1 MiB；serde_json；只讀版本號 | `update_check.rs` 7 個（含 `interpret` 的截斷／變異測試） | 由單元變異測試驗證（#429） |
 | `settings.json`、`recent.json`、`sensitive.json`、`fonts\metadata.json` | app 資料夾 | 先限制大小（`local_data.rs`：`settings.json` 64 KiB、`recent.json` 512 KiB、`sensitive.json` 2 MiB、`metadata.json` 512 KiB），不是 app 寫的內容就當成沒有 | `local_data.rs`、`settings.rs`、`recent.rs`、`sensitive.rs`、`fonts.rs`（各模組皆有截斷、變異與隨機輸入測試） | 由單元變異測試驗證（#429） |

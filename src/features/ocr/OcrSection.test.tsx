@@ -90,7 +90,7 @@ describe("the settings of recognising text (B2-10)", () => {
 
   it("says why a file was refused, and does nothing when the dialog is closed", async () => {
     const { api, user } = setup();
-    for (const reason of ["notLanguageData", "tooLarge", "nameTaken", "badName", "tooMany", "unreadable"] as const) {
+    for (const reason of ["notLanguageData", "unsupportedSetting", "tooLarge", "nameTaken", "badName", "tooMany", "unreadable"] as const) {
       api.importLanguage.mockResolvedValueOnce({ kind: "refused", reason });
       await user.click(screen.getByRole("button", { name: t.importButton }));
       expect(await screen.findByText(t.refused[reason])).toBeInTheDocument();
