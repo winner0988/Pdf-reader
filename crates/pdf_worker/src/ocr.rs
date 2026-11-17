@@ -670,6 +670,60 @@ pub(crate) mod tests {
         Recogniser::new("eng", &traineddata("eng")).expect("english");
     }
 
+    /// `data` rebuilt with entry `index` of its table changed by `change` (`None` is no entry).
+    /// A `.traineddata` begins with the number of entries (i32) and an offset (i64, -1 for no
+    /// entry) for each, little-endian; the entries follow in that order.
+    fn with_entry(
+        data: &[u8],
+        index: usize,
+        change: impl FnOnce(Option<Vec<u8>>) -> Option<Vec<u8>>,
+    ) -> Vec<u8> {
+        let count = usize::try_from(i32::from_le_bytes(data[..4].try_into().unwrap())).unwrap();
+        let offset = |i: usize| i64::from_le_bytes(data[4 + 8 * i..12 + 8 * i].try_into().unwrap());
+        let mut entries: Vec<Option<Vec<u8>>> = (0..count)
+            .map(|i| {
+                let start = usize::try_from(offset(i)).ok()?;
+                let end = (i + 1..count)
+                    .find_map(|j| usize::try_from(offset(j)).ok())
+                    .unwrap_or(data.len());
+                Some(data[start..end].to_vec())
+            })
+            .collect();
+        entries[index] = change(entries[index].take());
+        let mut out = data[..4].to_vec();
+        let mut at = i64::try_from(4 + 8 * count).unwrap();
+        for entry in &entries {
+            let offset = match entry {
+                Some(entry) => {
+                    let begins = at;
+                    at += i64::try_from(entry.len()).unwrap();
+                    begins
+                }
+                None => -1,
+            };
+            out.extend_from_slice(&offset.to_le_bytes());
+        }
+        for entry in entries.iter().flatten() {
+            out.extend_from_slice(entry);
+        }
+        out
+    }
+
+    #[test]
+    fn language_data_with_a_broken_lstm_model_is_refused() {
+        let _turn = one_at_a_time();
+        let english = traineddata("eng");
+        // Entry 17 is the LSTM model. Rebuilding the file without changing it keeps it working.
+        Recogniser::new("eng", &with_entry(&english, 17, |entry| entry)).expect("rebuilt");
+        // A model that cannot be read is refused (the upstream check that #577 applies).
+        let broken = with_entry(&english, 17, |_| Some(vec![0; 8]));
+        assert!(matches!(
+            Recogniser::new("eng", &broken),
+            Err(OcrError::LanguageData)
+        ));
+        Recogniser::new("eng", &english).expect("english");
+    }
+
     #[test]
     fn a_second_recogniser_is_refused_while_the_first_lives() {
         let _turn = one_at_a_time();

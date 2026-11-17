@@ -10,7 +10,6 @@ use mupdf::pdf::{
     PdfRedactTextMethod, PdfWriteOptions,
 };
 use mupdf::{Colorspace, Matrix};
-use pdf_worker as _;
 
 // Shared with the other test crates, which use the helpers this one does not.
 #[allow(dead_code)]

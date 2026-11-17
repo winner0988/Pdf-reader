@@ -364,7 +364,7 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 [[package]]
 name = "mupdf"
 version = "0.8.0"
-source = "git+https://github.com/winner0988/mupdf-rs?rev=e60fbdc5f0b7d0a9fd83671f5cede5132e8b7ba5#e60fbdc5f0b7d0a9fd83671f5cede5132e8b7ba5"
+source = "git+https://github.com/winner0988/mupdf-rs?rev=c183ec844106f29ed50a6db8bcf99714216e0513#c183ec844106f29ed50a6db8bcf99714216e0513"
 dependencies = [
  "bitflags",
  "mupdf-fonts-droid",
@@ -383,7 +383,7 @@ checksum = "762db7ec55fe4d5f8928b08f8ed5bb2885077f87e8ef37aaaae1c7a1edcd2369"
 [[package]]
 name = "mupdf-sys"
 version = "0.8.0"
-source = "git+https://github.com/winner0988/mupdf-rs?rev=e60fbdc5f0b7d0a9fd83671f5cede5132e8b7ba5#e60fbdc5f0b7d0a9fd83671f5cede5132e8b7ba5"
+source = "git+https://github.com/winner0988/mupdf-rs?rev=c183ec844106f29ed50a6db8bcf99714216e0513#c183ec844106f29ed50a6db8bcf99714216e0513"
 dependencies = [
  "bindgen",
  "cc",
