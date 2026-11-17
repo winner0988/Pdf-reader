@@ -1,6 +1,8 @@
 // Printing (MVP-17, B5-15) in the real app. The system's print dialog cannot be driven from here, so
 // `window.print` is recorded instead of opening it; what it would print is checked by printing
 // the same page to PDF over CDP, the way Chromium's print preview does.
+// Booklet and N-up printing also check the orientation of the printed sheets (`preferCSSPageSize`).
+import type { Page } from "@playwright/test";
 import { strings } from "../../src/i18n/zh-TW";
 import { corpus, expect, test } from "./app";
 
@@ -11,6 +13,22 @@ const SIZES = [
   [1191, 842],
   [200, 200],
 ] as const;
+
+/**
+ * Width and height, in points, of every sheet of what would be printed: Chromium prints the page
+ * to a PDF in memory and keeps the sizes and orientations that the CSS `@page` rules give.
+ */
+async function printedSheets(page: Page): Promise<{ width: number; height: number }[]> {
+  await page.emulateMedia({ media: "print" });
+  const cdp = await page.context().newCDPSession(page);
+  const { data } = await cdp.send("Page.printToPDF", { printBackground: false, preferCSSPageSize: true });
+  await cdp.detach();
+  const pdf = Buffer.from(data, "base64").toString("latin1");
+  return [...pdf.matchAll(/\/MediaBox\s*\[\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\]/g)].map((box) => ({
+    width: Number(box[3]) - Number(box[1]),
+    height: Number(box[4]) - Number(box[2]),
+  }));
+}
 
 test("prints every page in order, each at its own shape, and nothing of the app", async ({ launch }) => {
   const page = await launch(corpus("benign/mixed-page-sizes.pdf"));
@@ -89,6 +107,10 @@ test("prints 4 pages on one sheet with 4 cells and correct page order", async ({
     await expect(cells.nth(i)).toHaveAttribute("data-border", "true");
     await expect(cells.nth(i).locator("img")).toHaveAttribute("data-page", String(i + 1));
   }
+
+  const printed = await printedSheets(page);
+  expect(printed).toHaveLength(1);
+  expect(printed[0]!.height, JSON.stringify(printed[0])).toBeGreaterThan(printed[0]!.width);
 });
 
 test("prints 8 pages as a booklet with 4 faces and correct booklet page order", async ({ launch }) => {
@@ -144,4 +166,9 @@ test("prints 8 pages as a booklet with 4 faces and correct booklet page order", 
     await expect(cells.nth(0).locator("img")).toHaveAttribute("data-page", left!);
     await expect(cells.nth(1).locator("img")).toHaveAttribute("data-page", right!);
   }
+
+  // What the printer gets: four sheets, each wider than tall (#585).
+  const printed = await printedSheets(page);
+  expect(printed).toHaveLength(4);
+  for (const sheet of printed) expect(sheet.width, JSON.stringify(sheet)).toBeGreaterThan(sheet.height);
 });
