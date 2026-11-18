@@ -530,5 +530,59 @@ describe("CommandPalette", () => {
       await user.keyboard("{Escape}");
       await waitFor(() => expect(screen.queryByRole("combobox")).toBeNull());
     });
+
+    it("gives the focus back only to an element from this opening (#622)", async () => {
+      const user = userEvent.setup();
+
+      function Harness() {
+        const [open, setOpen] = useState(false);
+        const commands = createCommands({
+          document: null,
+          sidebarOpen: false,
+          searchOpen: false,
+          theme: "system",
+          onToggleSidebar: vi.fn(),
+          onOpen: vi.fn(),
+          onGoToPage: vi.fn(),
+          onZoomIn: vi.fn(),
+          onZoomOut: vi.fn(),
+          onZoomChange: vi.fn(),
+          onRotate: vi.fn(),
+          onSearch: vi.fn(),
+          onThemeChange: vi.fn(),
+          onShowShortcuts: vi.fn(),
+          onShowAbout: vi.fn(),
+          onSetDefault: vi.fn(),
+        });
+
+        return (
+          <TooltipProvider>
+            <button data-testid="first" onClick={() => setOpen(true)}>
+              First
+            </button>
+            <div role="dialog" aria-label="other">
+              <button data-testid="inside" onClick={() => setOpen(true)}>
+                Inside
+              </button>
+            </div>
+            <CommandPalette open={open} onOpenChange={setOpen} commands={commands} />
+          </TooltipProvider>
+        );
+      }
+
+      render(<Harness />);
+      const first = screen.getByTestId("first");
+      await user.click(first);
+      await screen.findByRole("combobox");
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(first).toHaveFocus());
+
+      await user.click(screen.getByTestId("inside"));
+      await screen.findByRole("combobox");
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("combobox")).toBeNull());
+      await new Promise((r) => setTimeout(r, 50));
+      expect(first).not.toHaveFocus();
+    });
   });
 });

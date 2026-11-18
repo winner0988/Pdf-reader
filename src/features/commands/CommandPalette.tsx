@@ -174,9 +174,7 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
   useEffect(() => {
     if (open) {
       const active = document.activeElement as HTMLElement | null;
-      if (active && !active.closest('[role="dialog"]')) {
-        previousActiveElement.current = active;
-      }
+      previousActiveElement.current = active && !active.closest('[role="dialog"]') ? active : null;
       executedCommandRef.current = false;
     }
   }, [open]);

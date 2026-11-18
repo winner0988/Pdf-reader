@@ -182,4 +182,46 @@ describe("PrintDialog", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(trigger).toHaveFocus());
   });
+
+  it("gives the focus back only to an element from this opening (#622)", async () => {
+    const user = userEvent.setup();
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <div>
+          <button data-testid="first" onClick={() => setOpen(true)}>
+            First
+          </button>
+          <div role="dialog" aria-label="other">
+            <button data-testid="inside" onClick={() => setOpen(true)}>
+              Inside
+            </button>
+          </div>
+          <PrintDialog
+            open={open}
+            onOpenChange={setOpen}
+            pageCount={4}
+            currentPage={1}
+            prepare={vi.fn()}
+            onReady={vi.fn()}
+          />
+        </div>
+      );
+    }
+
+    render(<Harness />);
+    const first = screen.getByTestId("first");
+    await user.click(first);
+    await screen.findByRole("dialog", { name: t.title });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(first).toHaveFocus());
+
+    await user.click(screen.getByTestId("inside"));
+    await screen.findByRole("dialog", { name: t.title });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: t.title })).toBeNull());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(first).not.toHaveFocus();
+  });
 });
