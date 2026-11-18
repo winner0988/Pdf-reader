@@ -110,7 +110,7 @@ function CommandPaletteContent({
         />
       </div>
 
-      <div className="max-h-[320px] overflow-y-auto p-1">
+      <div className="p-1">
         {filtered.length === 0 ? (
           <div role="status" className="py-6 text-center text-sm text-muted-foreground">
             {strings.commands.noResults}
@@ -120,7 +120,7 @@ function CommandPaletteContent({
             id={listboxId}
             role="listbox"
             aria-label={strings.commands.palette}
-            className="space-y-0.5"
+            className="max-h-[320px] overflow-y-auto space-y-0.5"
           >
             {filtered.map((cmd, index) => {
               const isSelected = index === activeIndex;
@@ -173,7 +173,10 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
 
   useEffect(() => {
     if (open) {
-      previousActiveElement.current = document.activeElement as HTMLElement | null;
+      const active = document.activeElement as HTMLElement | null;
+      if (active && !active.closest('[role="dialog"]')) {
+        previousActiveElement.current = active;
+      }
       executedCommandRef.current = false;
     }
   }, [open]);
@@ -183,7 +186,11 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
     if (!nextOpen && previousActiveElement.current) {
       const el = previousActiveElement.current;
       if (!executedCommandRef.current) {
-        setTimeout(() => el.focus(), 0);
+        setTimeout(() => {
+          if (document.contains(el)) {
+            el.focus();
+          }
+        }, 0);
       }
     }
   };
