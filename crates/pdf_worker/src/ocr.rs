@@ -122,6 +122,8 @@ unsafe extern "C" {
 
     #[cfg(test)]
     fn TessBaseAPIGetLoadedLanguagesAsVector(handle: *const c_void) -> *mut *mut c_char;
+    #[cfg(test)]
+    fn TessDeleteTextArray(arr: *mut *mut c_char);
 }
 
 /// Lets the calling thread give way to the others: recognising a page is background work, and
@@ -301,9 +303,9 @@ impl Recogniser {
     #[cfg(test)]
     pub(crate) fn loaded_languages(&self) -> Vec<String> {
         // SAFETY: `self.api.0` is a live handle. `TessBaseAPIGetLoadedLanguagesAsVector` returns
-        // a null-terminated array of null-terminated C strings. We do not call `TessDeleteTextArray`
-        // here because it frees strings with C++ `delete[]` whereas MuPDF's Tesseract allocates them
-        // with `strdup`. Leaking a few bytes in this test is acceptable and harmless.
+        // a null-terminated array of null-terminated C strings, allocated with `new[]` by
+        // Tesseract's C API (`MakeTextArray` in capi.cpp); the strings are copied before
+        // `TessDeleteTextArray` frees them with the matching `delete[]`.
         unsafe {
             let mut result = Vec::new();
             let arr = TessBaseAPIGetLoadedLanguagesAsVector(self.api.0);
@@ -314,6 +316,7 @@ impl Recogniser {
                     result.push(s);
                     ptr = ptr.add(1);
                 }
+                TessDeleteTextArray(arr);
             }
             result
         }

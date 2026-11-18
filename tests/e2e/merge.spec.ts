@@ -306,5 +306,3 @@ test("inserting pages from another file via command palette reports refusal in t
   await expect(page.getByRole("contentinfo").getByRole("status")).toHaveText(t.sourceNotAllowed);
   await hasPages(page, 10);
 });
-
-

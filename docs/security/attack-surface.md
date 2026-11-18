@@ -190,7 +190,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 命令 | 做什麼 | 主行程的檢查與上限 | 對話框、寫入、行程 | 測試 |
 |---|---|---|---|---|
-| `get_ocr_languages` | 可用的語言（代碼與大小） | 沒有參數 | 讀內附的 `tessdata\` 與 app 資料夾的 `tessdata\` | `ocr.spec.ts`；`ocr_languages.rs` 7 個 |
+| `get_ocr_languages` | 可用的語言（代碼與大小） | 沒有參數 | 讀內附的 `tessdata\` 與 app 資料夾的 `tessdata\` | `ocr.spec.ts`；`ocr_languages.rs` 8 個 |
 | `import_ocr_language` | 匯入 `.traineddata`（B2-10、ADR 0015） | 同時只開一個（`LANGUAGE_DIALOG_SHOWING`）；名稱過 `is_language_name`，大小 ≤ 64 MiB，內容過 `check_language_data`；匯入 ≤ `MAX_IMPORTED_LANGUAGES`（20） | 開啟對話框；複製到 app 資料夾的 `tessdata\` | `ocr.spec.ts`；`crates/ipc_contract/src/ocr.rs` 10 個 |
 | `remove_ocr_language` | 以代碼移除匯入的語言；內附的不能移除 | `RemoveLanguageArgs`：`is_language_name`，路徑字元進不來 | 刪除檔案 | `ocr.spec.ts`；`ocr_languages.rs` |
 | `start_ocr` | 現在開始辨識文件的掃描頁 | 文件代號 | 主行程讀語言資料送給文件的 worker（`OcrLoad`），再逐頁 `OcrPage`、`OcrPoll` | `ocr.spec.ts`；`src-tauri/src/ocr.rs` 14 個；worker `ocr.rs` |
