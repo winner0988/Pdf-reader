@@ -1,4 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
+import { useState } from "react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -144,5 +145,41 @@ describe("PrintDialog", () => {
 
     const dialog = screen.getByRole("dialog", { name: t.title });
     expect(within(dialog).getByText(strings.permissions.lowResNote(150))).toBeInTheDocument();
+  });
+
+  it("restores focus to previous element on Escape", async () => {
+    const user = userEvent.setup();
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <div>
+          <button data-testid="trigger" onClick={() => setOpen(true)}>
+            Open
+          </button>
+          <PrintDialog
+            open={open}
+            onOpenChange={setOpen}
+            pageCount={4}
+            currentPage={1}
+            prepare={vi.fn()}
+            onReady={vi.fn()}
+          />
+        </div>
+      );
+    }
+
+    render(<Harness />);
+    const trigger = screen.getByTestId("trigger");
+    trigger.focus();
+    expect(trigger).toHaveFocus();
+
+    await user.click(trigger);
+    const dialog = await screen.findByRole("dialog", { name: t.title });
+    expect(dialog).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 });

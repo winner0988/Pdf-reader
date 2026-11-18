@@ -173,7 +173,10 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
 
   useEffect(() => {
     if (open) {
-      previousActiveElement.current = document.activeElement as HTMLElement | null;
+      const active = document.activeElement as HTMLElement | null;
+      if (active && !active.closest('[role="dialog"]')) {
+        previousActiveElement.current = active;
+      }
       executedCommandRef.current = false;
     }
   }, [open]);
@@ -183,7 +186,11 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
     if (!nextOpen && previousActiveElement.current) {
       const el = previousActiveElement.current;
       if (!executedCommandRef.current) {
-        setTimeout(() => el.focus(), 0);
+        setTimeout(() => {
+          if (document.contains(el)) {
+            el.focus();
+          }
+        }, 0);
       }
     }
   };

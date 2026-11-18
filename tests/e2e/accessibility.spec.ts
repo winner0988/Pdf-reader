@@ -304,3 +304,12 @@ test("the system's setting to reduce motion is respected", async ({ launch }) =>
   await page.emulateMedia({ reducedMotion: "reduce" });
   expect(await longest()).toBeLessThan(0.001);
 });
+
+test("the toolbar of a document with page labels (B5-07)", async ({ launch }) => {
+  const page = await launch(corpus("benign/page-labels-styles.pdf"));
+  await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
+  await expect(
+    page.getByRole("textbox", { name: strings.toolbar.pageNumberWithLabel("i", 1, 10) }),
+  ).toBeVisible();
+  await inBothThemes(page, (theme) => noProblems(page, theme));
+});

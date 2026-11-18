@@ -259,6 +259,7 @@ test("menu dialogs: keyboard walkthrough, focus trapping, and focus return to Mo
     [strings.menu.createPdf, strings.create.title],
     [strings.menu.markSensitive, strings.sensitive.markTitle],
     [strings.menu.compareText, strings.compare.title],
+    [strings.menu.documentProperties, strings.properties.title],
   ];
 
   for (const [item, title] of menuDialogs) {
@@ -585,4 +586,120 @@ test("signature details panel", async ({ launch }) => {
   await page.keyboard.press("Escape");
   await expect(signPanel).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => document.activeElement?.textContent?.trim())).toBe(strings.signatures.details);
+});
+
+test("command palette (B5-06): focus stays inside, arrow keys choose, Escape gives focus back", async ({ launch }) => {
+  const page = await launch(corpus("benign/multi-page-10.pdf"));
+  await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
+
+  const tab = page.getByRole("tab").first();
+  await tab.focus();
+  await expect(tab).toBeFocused();
+
+  await page.keyboard.press("Control+k");
+  const palette = page.getByRole("dialog", { name: strings.commands.palette });
+  await expect(palette).toBeVisible();
+
+  const input = palette.getByRole("combobox");
+  await expect(input).toBeFocused();
+
+  await verifyFocusTrap(page, palette, "command palette");
+  await input.focus();
+
+  await input.fill("頁");
+  const options = palette.getByRole("option");
+  await expect.poll(async () => await options.count()).toBeGreaterThanOrEqual(2);
+  await expect(options.nth(0)).toHaveAttribute("aria-selected", "true");
+
+  await page.keyboard.press("ArrowDown");
+  await expect(options.nth(1)).toHaveAttribute("aria-selected", "true");
+  const secondId = await options.nth(1).getAttribute("id");
+  expect(secondId).toBeTruthy();
+  await expect(input).toHaveAttribute("aria-activedescendant", secondId!);
+
+  await page.keyboard.press("ArrowUp");
+  await expect(options.nth(0)).toHaveAttribute("aria-selected", "true");
+  const firstId = await options.nth(0).getAttribute("id");
+  expect(firstId).toBeTruthy();
+  await expect(input).toHaveAttribute("aria-activedescendant", firstId!);
+
+  await inBothThemes(page, (theme) => noProblems(page, `command palette with results, ${theme}`));
+
+  await input.fill("zzzz-no-such-command");
+  await expect(palette.getByText(strings.commands.noResults)).toBeVisible();
+  await inBothThemes(page, (theme) => noProblems(page, `command palette without results, ${theme}`));
+
+  await page.keyboard.press("Escape");
+  await expect(palette).toHaveCount(0);
+  await expect(tab).toBeFocused();
+});
+
+test("print dialog (B5-15): layouts by keyboard, named controls, focus back", async ({ launch }) => {
+  const page = await launch(corpus("benign/multi-page-10.pdf"));
+  await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
+
+  const tab = page.getByRole("tab").first();
+  await tab.focus();
+  await expect(tab).toBeFocused();
+
+  await page.keyboard.press("Control+p");
+  const dialog = page.getByRole("dialog", { name: strings.print.title });
+  await expect(dialog).toBeVisible();
+
+  await verifyFocusTrap(page, dialog, "print dialog");
+
+  await inBothThemes(page, (theme) => noProblems(page, `print dialog, one page a sheet, ${theme}`));
+
+  const layout = dialog.getByRole("combobox", { name: strings.print.layout });
+  for (let i = 0; i < 20; i++) {
+    const isFocused = await layout.evaluate((el) => el === document.activeElement);
+    if (isFocused) break;
+    await page.keyboard.press("Tab");
+  }
+  await expect(layout).toBeFocused();
+
+  await page.keyboard.press("ArrowDown");
+  await expect(layout).toHaveValue("2");
+
+  await page.keyboard.press("ArrowDown");
+  await expect(layout).toHaveValue("4");
+
+  const order = dialog.getByRole("combobox", { name: strings.print.order });
+  await expect(order).toBeVisible();
+  const pageBorder = dialog.getByRole("checkbox", { name: strings.print.pageBorder });
+  await expect(pageBorder).toBeVisible();
+
+  for (let i = 0; i < 10; i++) {
+    const isFocused = await pageBorder.evaluate((el) => el === document.activeElement);
+    if (isFocused) break;
+    await page.keyboard.press("Tab");
+  }
+  await expect(pageBorder).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(pageBorder).toBeChecked();
+
+  await inBothThemes(page, (theme) => noProblems(page, `print dialog, 4 a sheet, ${theme}`));
+
+  for (let i = 0; i < 10; i++) {
+    const isFocused = await layout.evaluate((el) => el === document.activeElement);
+    if (isFocused) break;
+    await page.keyboard.press("Shift+Tab");
+  }
+  await expect(layout).toBeFocused();
+
+  await page.keyboard.press("ArrowDown");
+  await expect(layout).toHaveValue("6");
+
+  await page.keyboard.press("ArrowDown");
+  await expect(layout).toHaveValue("9");
+
+  await page.keyboard.press("ArrowDown");
+  await expect(layout).toHaveValue("booklet");
+
+  await expect(dialog.getByText(strings.print.bookletHint)).toBeVisible();
+  await inBothThemes(page, (theme) => noProblems(page, `print dialog, booklet, ${theme}`));
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(tab).toBeFocused();
 });

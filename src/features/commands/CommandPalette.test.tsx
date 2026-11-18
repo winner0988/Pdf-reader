@@ -475,5 +475,60 @@ describe("CommandPalette", () => {
       await new Promise((r) => setTimeout(r, 50));
       expect(trigger).not.toHaveFocus();
     });
+
+    it("does not crash or throw if previous element was removed from document", async () => {
+      const user = userEvent.setup();
+
+      function Harness() {
+        const [open, setOpen] = useState(false);
+        const [showTrigger, setShowTrigger] = useState(true);
+        const commands = createCommands({
+          document: null,
+          sidebarOpen: false,
+          searchOpen: false,
+          theme: "system",
+          onToggleSidebar: vi.fn(),
+          onOpen: vi.fn(),
+          onGoToPage: vi.fn(),
+          onZoomIn: vi.fn(),
+          onZoomOut: vi.fn(),
+          onZoomChange: vi.fn(),
+          onRotate: vi.fn(),
+          onSearch: vi.fn(),
+          onThemeChange: vi.fn(),
+          onShowShortcuts: vi.fn(),
+          onShowAbout: vi.fn(),
+          onSetDefault: vi.fn(),
+        });
+
+        return (
+          <TooltipProvider>
+            {showTrigger && (
+              <button
+                data-testid="trigger"
+                onClick={() => {
+                  setOpen(true);
+                  setShowTrigger(false);
+                }}
+              >
+                Open
+              </button>
+            )}
+            <CommandPalette open={open} onOpenChange={setOpen} commands={commands} />
+          </TooltipProvider>
+        );
+      }
+
+      render(<Harness />);
+      const trigger = screen.getByTestId("trigger");
+      trigger.focus();
+      await user.click(trigger);
+
+      const combobox = await screen.findByRole("combobox");
+      await waitFor(() => expect(combobox).toHaveFocus());
+
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("combobox")).toBeNull());
+    });
   });
 });
