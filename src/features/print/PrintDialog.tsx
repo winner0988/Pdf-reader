@@ -62,7 +62,6 @@ export function PrintDialog({
   const [problem, setProblem] = useState<Problem | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const running = useRef<AbortController | null>(null);
-  const previousActiveElement = useRef<HTMLElement | null>(null);
   const pagesId = useId();
   const problemId = useId();
   const layoutId = useId();
@@ -83,16 +82,6 @@ export function PrintDialog({
       setProgress(null);
     }
   }
-
-  useEffect(() => {
-    if (open) {
-      const active = document.activeElement as HTMLElement | null;
-      if (active && !active.closest('[role="dialog"]')) {
-        previousActiveElement.current = active;
-      }
-    }
-  }, [open]);
-
   useEffect(() => () => running.current?.abort(), []);
 
   const close = () => {
@@ -100,14 +89,6 @@ export function PrintDialog({
     running.current = null;
     setProgress(null);
     onOpenChange(false);
-    if (previousActiveElement.current) {
-      const el = previousActiveElement.current;
-      setTimeout(() => {
-        if (document.contains(el)) {
-          el.focus();
-        }
-      }, 0);
-    }
   };
 
   const submit = (event: FormEvent) => {
