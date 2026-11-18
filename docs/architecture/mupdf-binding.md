@@ -44,6 +44,7 @@
 - **舊分支保留**：`v0.8.0-bundled-fixes`（`1989036c0019c1b7f23ccf075024e3997a66c1bc`）保留不動。
 - 根目錄與 `fuzz/` 的 `Cargo.toml` 以 `[patch.crates-io]` 指向同一個 `rev`（`b891496ef30226960d19132be7b0dc452bcd12bc`），`deny.toml` 的 `allow-git` 允許此 repository。
 - **什麼時候可以拿掉 fork**：MuPDF 內附的 Tesseract 到 5.5.4 以上時，Tesseract 的修補與上面的檢查都拿掉；crates.io 上的 `mupdf`、`mupdf-sys` 也帶了這樣的 MuPDF 時，在升級的 PR 裡刪除兩個 `Cargo.toml` 的 `[patch.crates-io]` 與 `deny.toml` 的 `allow-git`，這一節改回 crates.io。
+  - fork 也以 `FZ_ENABLE_MD=0` 關掉 Markdown 讀取器（#572）：crates.io 的 `mupdf-sys` 也要能關掉它，才能拿掉 fork，否則 `markdown_reader_is_compiled_out` 會失敗。
 - **之後要升到更新的 1.28.x**：在分支加 commit 改 gitlink；檢查建置輸出（`<run>/output`）沒有 `Unable to patch`；Tesseract 的差異和這裡寫的相同；照 #561 的規則更新 `bundled-libraries.md`，並由 Claude Code 私下對照已知問題；加上 `needs-security-review`。
 
 ## 編譯期功能
