@@ -538,7 +538,9 @@ describe("PageAnnotations", () => {
   it("leaves the focus where the user took it when an edit takes away the annotation chosen (#402)", async () => {
     const { onChoose, onRelease, edit, answer } = mountEdited([words, highlight], 7);
     const outline = await screen.findByRole("button", { name: annotationLabel(words) });
-    act(() => outline.focus());
+    // The first list's effect puts the focus on the chosen outline; wait for it, or it can run after
+    // the focus has moved and take it back (#608).
+    await waitFor(() => expect(outline).toHaveFocus());
     const elsewhere = document.body.appendChild(document.createElement("input"));
     act(() => elsewhere.focus());
     edit();
