@@ -33,11 +33,11 @@ strip = true
 
 # mupdf and mupdf-sys are patched to our fork branch v0.8.0-mupdf-1.28, which upgrades
 # MuPDF to 1.28.6, compiles out the Markdown reader (FZ_ENABLE_MD=0, #572), and applies
-# upstream Tesseract model-loading bounds checks (#563, #577).
+# upstream Tesseract model-loading bounds checks (#563, #577) and recognition fixes (#580).
 # OpenJPEG (#539) and Little CMS (#562) fixes are already present in MuPDF 1.28.6.
 # See docs/architecture/mupdf-binding.md. fuzz/Cargo.toml has the same patch and
 # deny.toml allows this one repository. Remove the patches when releases on crates.io
 # of mupdf and mupdf-sys bundle a MuPDF that includes Tesseract 5.5.4 or later.
 [patch.crates-io]
-mupdf = { git = "https://github.com/winner0988/mupdf-rs", rev = "c183ec844106f29ed50a6db8bcf99714216e0513" }
-mupdf-sys = { git = "https://github.com/winner0988/mupdf-rs", rev = "c183ec844106f29ed50a6db8bcf99714216e0513" }
+mupdf = { git = "https://github.com/winner0988/mupdf-rs", rev = "b891496ef30226960d19132be7b0dc452bcd12bc" }
+mupdf-sys = { git = "https://github.com/winner0988/mupdf-rs", rev = "b891496ef30226960d19132be7b0dc452bcd12bc" }
