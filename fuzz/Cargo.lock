@@ -271,7 +271,7 @@ dependencies = [
 
 [[package]]
 name = "ipc_contract"
-version = "0.3.0"
+version = "1.0.0"
 dependencies = [
  "postcard",
  "serde",
@@ -429,7 +429,7 @@ dependencies = [
 
 [[package]]
 name = "pdf_worker"
-version = "0.3.0"
+version = "1.0.0"
 dependencies = [
  "ipc_contract",
  "jpeg-encoder",
