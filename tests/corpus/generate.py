@@ -1891,6 +1891,14 @@ def malformed_no_pages() -> bytes:
     return doc.build()
 
 
+def malformed_metadata_non_ascii_dates() -> bytes:
+    doc = single_page_doc("metadata-non-ascii-dates", [(72, 720, 24, "Dates with non-ASCII characters")])
+    info = doc.pdf.add(
+        f"<< /Title (Dates with non-ASCII characters) /CreationDate {utf16_hex('D:2024年1月1日')} /ModDate (D:20241\\351) >>"
+    )
+    return doc.build(info=info)
+
+
 # --------------------------------------------------------------------------- on demand
 
 
@@ -2606,6 +2614,10 @@ SAMPLES = [
     Sample("malformed/jpx-tile-parts-beyond-tlm.pdf", malformed_jpx_tile_parts_beyond_tlm,
            "A JPEG 2000 image with more tile-parts than listed in the TLM marker (Issue #539, #554).",
            "Opens and renders without crashing or leaking memory; worker stays healthy.", 1),
+    Sample("malformed/metadata-non-ascii-dates.pdf", malformed_metadata_non_ascii_dates,
+           "Info dates with a UTF-16 CJK date and a PDFDocEncoding e-acute (#627).",
+           "Opens (1 page); document properties show the title and '-' for both dates; the worker keeps running.",
+           1, text=["Dates with non-ASCII characters"]),
     Sample("malformed/not-a-pdf.pdf", lambda: b"This is a plain text file with a .pdf extension.\n",
            "Text file named .pdf.", "Reports not a PDF."),
     Sample("malformed/empty.pdf", lambda: b"", "Zero bytes.", "Reports not a PDF or corrupted."),

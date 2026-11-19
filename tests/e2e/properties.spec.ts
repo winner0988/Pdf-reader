@@ -44,4 +44,25 @@ test.describe("document properties dialog (B5-04)", () => {
     await dialog.getByRole("button", { name: t.close }).first().click();
     await expect(dialog).not.toBeVisible();
   });
+
+  test("shows a dash for dates it cannot read and keeps the document open (#627)", async ({ launch }) => {
+    const page = await launch(corpus("malformed/metadata-non-ascii-dates.pdf"));
+
+    const firstPage = page.getByRole("img", { name: strings.canvas.page(1) }).first();
+    await expect(firstPage).toHaveAttribute("data-state", "ready");
+
+    await page.getByRole("button", { name: strings.toolbar.more }).click();
+    await page.getByRole("menuitem", { name: new RegExp(`^${strings.menu.documentProperties}`) }).click();
+
+    const dialog = page.getByRole("dialog", { name: t.title });
+    await expect(dialog).toBeVisible();
+
+    await expect(dialog.getByText("Dates with non-ASCII characters", { exact: true })).toBeVisible();
+    await expect(dialog.locator("dt", { hasText: t.creationDate }).locator("xpath=following-sibling::dd[1]")).toHaveText("-");
+    await expect(dialog.locator("dt", { hasText: t.modDate }).locator("xpath=following-sibling::dd[1]")).toHaveText("-");
+
+    await dialog.getByRole("button", { name: t.close }).first().click();
+    await expect(dialog).not.toBeVisible();
+    await expect(firstPage).toHaveAttribute("data-state", "ready");
+  });
 });
