@@ -358,3 +358,23 @@ fn test_metadata_broken_dates() {
     assert_eq!(props.creation_date, None);
     assert_eq!(props.mod_date, None);
 }
+
+#[test]
+fn test_metadata_non_ascii_dates() {
+    let objects = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>".to_owned(),
+        "<< /Title (Dates with non-ASCII characters) /CreationDate <FEFF0044003A00320030003200345E7400316708003165E5> /ModDate (D:20241\\351) >>".to_owned(),
+    ];
+    let bytes = build_pdf_with_info(&objects, 4);
+    let doc = PdfDocument::from_bytes(&bytes).expect("open doc");
+    let props = doc.document_properties().expect("properties");
+
+    assert_eq!(props.creation_date, None);
+    assert_eq!(props.mod_date, None);
+    assert_eq!(
+        props.title,
+        Some("Dates with non-ASCII characters".to_owned())
+    );
+}

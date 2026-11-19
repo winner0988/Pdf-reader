@@ -2967,6 +2967,16 @@ pub struct PdfDate {
     pub tz_offset_minutes: Option<i32>,
 }
 
+/// The next two bytes as a number when both are ASCII digits, so a field is never cut inside a character (#627).
+fn two_digits(rest: &str) -> Option<u8> {
+    match rest.as_bytes() {
+        [a, b, ..] if a.is_ascii_digit() && b.is_ascii_digit() => {
+            Some((a - b'0') * 10 + (b - b'0'))
+        }
+        _ => None,
+    }
+}
+
 impl PdfDate {
     /// Parses a PDF date string (`D:YYYYMMDDHHmmSSOHH'mm'`) as defined in PDF 1.7 spec 7.9.4.
     /// The prefix `D:` is optional. Early truncation (e.g. `D:YYYY` or `D:YYYYMMDD`) is supported.
@@ -2982,8 +2992,7 @@ impl PdfDate {
         }
         let mut rest = &s[4..];
 
-        let month = if rest.len() >= 2 && rest[0..2].chars().all(|c| c.is_ascii_digit()) {
-            let m: u8 = rest[0..2].parse().ok()?;
+        let month = if let Some(m) = two_digits(rest) {
             if !(1..=12).contains(&m) {
                 return None;
             }
@@ -2993,8 +3002,7 @@ impl PdfDate {
             1
         };
 
-        let day = if rest.len() >= 2 && rest[0..2].chars().all(|c| c.is_ascii_digit()) {
-            let d: u8 = rest[0..2].parse().ok()?;
+        let day = if let Some(d) = two_digits(rest) {
             if !(1..=31).contains(&d) {
                 return None;
             }
@@ -3004,8 +3012,7 @@ impl PdfDate {
             1
         };
 
-        let hour = if rest.len() >= 2 && rest[0..2].chars().all(|c| c.is_ascii_digit()) {
-            let h: u8 = rest[0..2].parse().ok()?;
+        let hour = if let Some(h) = two_digits(rest) {
             if h > 23 {
                 return None;
             }
@@ -3015,8 +3022,7 @@ impl PdfDate {
             0
         };
 
-        let minute = if rest.len() >= 2 && rest[0..2].chars().all(|c| c.is_ascii_digit()) {
-            let m: u8 = rest[0..2].parse().ok()?;
+        let minute = if let Some(m) = two_digits(rest) {
             if m > 59 {
                 return None;
             }
@@ -3026,8 +3032,7 @@ impl PdfDate {
             0
         };
 
-        let second = if rest.len() >= 2 && rest[0..2].chars().all(|c| c.is_ascii_digit()) {
-            let sec: u8 = rest[0..2].parse().ok()?;
+        let second = if let Some(sec) = two_digits(rest) {
             if sec > 59 {
                 return None;
             }
@@ -3051,15 +3056,23 @@ impl PdfDate {
             } else {
                 let rest_tz = &rest[1..];
                 let parts: Vec<&str> = rest_tz.split('\'').collect();
-                let hours: i32 = parts.first()?.parse().ok()?;
+                let hours_str = *parts.first()?;
+                if hours_str.is_empty() || !hours_str.bytes().all(|b| b.is_ascii_digit()) {
+                    return None;
+                }
+                let hours: i32 = hours_str.parse().ok()?;
                 if hours > 23 {
                     return None;
                 }
                 let minutes: i32 = if let Some(m_str) = parts.get(1) {
+                    let m_str = m_str.trim_end_matches('\'');
                     if m_str.is_empty() {
                         0
                     } else {
-                        let m: i32 = m_str.trim_end_matches('\'').parse().ok()?;
+                        if !m_str.bytes().all(|b| b.is_ascii_digit()) {
+                            return None;
+                        }
+                        let m: i32 = m_str.parse().ok()?;
                         if m > 59 {
                             return None;
                         }
@@ -3205,6 +3218,96 @@ mod tests {
         assert!(PdfDate::parse("D:20260101250000").is_none());
         assert!(PdfDate::parse("D:20260101006000").is_none());
         assert!(PdfDate::parse("D:20260101000060").is_none());
+    }
+
+    #[test]
+    fn parse_pdf_dates_with_non_ascii_characters() {
+        for raw in [
+            "D:2024年1月1日",
+            "D:20241é",
+            "D:2024011中",
+            "D:2024010112é",
+            "D:20240101120000é",
+            "D:2024é",
+        ] {
+            assert_eq!(PdfDate::parse(raw), None, "{raw:?}");
+        }
+
+        assert_eq!(
+            PdfDate::parse("D:2024\u{00A0}"),
+            Some(PdfDate {
+                year: 2024,
+                month: 1,
+                day: 1,
+                hour: 0,
+                minute: 0,
+                second: 0,
+                tz_offset_minutes: None,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_pdf_dates_never_panics() {
+        let prefixes = [
+            "D:2024",
+            "D:202401",
+            "D:20240101",
+            "D:2024010112",
+            "D:202401011200",
+            "D:20240101120000",
+            "2024",
+        ];
+        let chars = [
+            "0", "1", "2", "5", "9", "'", "+", "-", "Z", "é", "中", "😀", "\u{00A0}", " ",
+        ];
+        for prefix in prefixes {
+            for c1 in chars {
+                let s1 = format!("{prefix}{c1}");
+                let _ = PdfDate::parse(&s1);
+                for c2 in chars {
+                    let s2 = format!("{prefix}{c1}{c2}");
+                    let _ = PdfDate::parse(&s2);
+                    for c3 in chars {
+                        let s3 = format!("{prefix}{c1}{c2}{c3}");
+                        let _ = PdfDate::parse(&s3);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn parse_pdf_dates_take_only_digits_in_the_time_zone() {
+        assert_eq!(PdfDate::parse("D:20240101000000+-08'00'"), None);
+        assert_eq!(PdfDate::parse("D:20240101000000-+08'00'"), None);
+        assert_eq!(PdfDate::parse("D:20240101000000+08'-5'"), None);
+
+        assert_eq!(
+            PdfDate::parse("D:20240101000000+08'00'")
+                .unwrap()
+                .tz_offset_minutes,
+            Some(480)
+        );
+        assert_eq!(
+            PdfDate::parse("D:20240101000000+08").unwrap().tz_offset_minutes,
+            Some(480)
+        );
+        assert_eq!(
+            PdfDate::parse("D:20240101000000+08'").unwrap().tz_offset_minutes,
+            Some(480)
+        );
+
+        assert_eq!(
+            PdfDate::parse("D:20240101000000-05'00'")
+                .unwrap()
+                .tz_offset_minutes,
+            Some(-300)
+        );
+        assert_eq!(
+            PdfDate::parse("D:2024Zé").unwrap().tz_offset_minutes,
+            Some(0)
+        );
     }
 
     #[test]
