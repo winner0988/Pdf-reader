@@ -909,6 +909,19 @@
       "sha256": "a8c657158c8d1f88a813aa0532cc3ebc3300cdf9847346b2be8767cced7ec3bc"
     },
     {
+      "path": "malformed/metadata-non-ascii-dates.pdf",
+      "category": "malformed",
+      "purpose": "Info dates with a UTF-16 CJK date and a PDFDocEncoding e-acute (#627).",
+      "expected": "Opens (1 page); document properties show the title and '-' for both dates; the worker keeps running.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Dates with non-ASCII characters"
+      ],
+      "bytes": 899,
+      "sha256": "bc4171998ea6c6bb60ba8b25607e8a067f2d6628b54b1d4b2c74779a954d5b18"
+    },
+    {
       "path": "malformed/not-a-pdf.pdf",
       "category": "malformed",
       "purpose": "Text file named .pdf.",
