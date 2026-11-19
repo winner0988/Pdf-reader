@@ -3290,11 +3290,15 @@ mod tests {
             Some(480)
         );
         assert_eq!(
-            PdfDate::parse("D:20240101000000+08").unwrap().tz_offset_minutes,
+            PdfDate::parse("D:20240101000000+08")
+                .unwrap()
+                .tz_offset_minutes,
             Some(480)
         );
         assert_eq!(
-            PdfDate::parse("D:20240101000000+08'").unwrap().tz_offset_minutes,
+            PdfDate::parse("D:20240101000000+08'")
+                .unwrap()
+                .tz_offset_minutes,
             Some(480)
         );
 
