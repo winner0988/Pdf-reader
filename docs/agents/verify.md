@@ -34,8 +34,8 @@
    - app 自己的系統對話框與視窗，只用 harness 的 `answerFileDialog`、`closeMessageBox`、`closeAppWindow`。它們只找 app 行程自己的視窗。
    - 不用模擬滑鼠鍵盤或桌面自動化工具去碰其他視窗。
 6. **不改這台電腦的設定。**
-   - 執行 E2E 或 `cargo test` 之前，確認下面的環境變數都沒有設定。它們讓測試做只該在用完即丟的 CI runner 上做的事：
-     - `CI`：harness 寫入整台電腦的 WebView2 原則（HKLM），WebView 沒有啟動時改截整個桌面（[e2e.md](../architecture/e2e.md)）；下面幾項的測試也會照做；
+   - 執行 E2E 或 `cargo test` 之前，在要執行的那個 shell 裡確認下面的環境變數都沒有設定（建置不讀它們）。它們讓測試做只該在用完即丟的 CI runner 上做的事：
+     - `CI`：harness 寫入整台電腦的 WebView2 原則（HKLM），WebView 沒有啟動時改截整個桌面（[e2e.md](../architecture/e2e.md)）；下面幾項的測試也都會跑；
      - `E2E_SIGNING`、`PDF_READER_TEST_SIGNING`：把測試憑證放進使用者的憑證存放區（[signing.md](../architecture/signing.md)）；
      - `E2E_REGISTER_FONT`：為目前的使用者登錄一個字型（[text-boxes.md](../architecture/text-boxes.md)）；
      - `PDF_READER_TEST_CLIPBOARD`：換掉剪貼簿上的內容。
@@ -60,16 +60,29 @@
 
 - 在自己分支的 worktree 裡做，不在共用的工作目錄動手（那裡可能有別人未提交的變更）。
 - Windows 的路徑有 260 字元的限制（見「常見問題」）：
-  - 建置資料夾（`target/`，或環境變數 `CARGO_TARGET_DIR` 指定的資料夾）的路徑太長，MuPDF 的建置會失敗；
+  - 建置資料夾（`target/`，或環境變數 `CARGO_TARGET_DIR` 指定的資料夾）的路徑太長，MuPDF 的建置會失敗。實測：約 50 個字元的 `target` 可以建置，超過 100 個字元曾經失敗；
   - worktree 的路徑太長，vitest 會失敗（`node_modules` 裡的路徑很深）。
-- 能自己選位置時，把 worktree 開在路徑短的資料夾，例如磁碟根目錄下一兩層，或系統的暫存資料夾底下：
+- 能自己選位置時，把 worktree 開在路徑短的資料夾，例如磁碟根目錄下一兩層，或系統的暫存資料夾底下。在 repo 或它的任一個 worktree 裡執行：
 
 ```
 git worktree add <短路徑> <分支>
 ```
 
-- 那個分支已經在別的 worktree 裡時，git 不准再 check out 一次：加上 `--detach`。改動仍在原本的 worktree 提交，之後在短路徑的 worktree 切到新的 commit 再建置。
+- 那個分支已經在別的 worktree 裡時，git 不准再 check out 一次。改開 detached 的 worktree：
+
+```
+git worktree add --detach <短路徑> <分支>
+```
+
+- 改動仍在原本的 worktree 提交。提交之後，讓短路徑的 worktree 切到新的 commit，再建置一次：
+
+```
+git -C <短路徑> checkout --detach <分支>
+```
+
 - 已經在很深的 worktree 裡（例如工具自動建立的），而且只做 E2E 時：把 `CARGO_TARGET_DIR` 設到短的資料夾，執行 E2E 時再用 `E2E_APP` 指向那裡的 app（第 2 步）。
+- 沒有要用 `CARGO_TARGET_DIR` 時，確認它沒有被設定：設了的話，建置會放到那個資料夾，不在 worktree 的 `target/`（共用的建置資料夾見「常見問題」）。
+- 記下這時的 `git status`：驗證完要回到一樣的狀態（第 6 步）。
 
 在 worktree 裡安裝依賴（在 PowerShell 執行，見「常見問題」）：
 
@@ -84,7 +97,11 @@ pnpm e2e:build
 ```
 
 - 建出 release 版的 `pdf_worker` 與 app：`target/release/pdf-reader.exe`，旁邊是 `pdf_worker.exe`。不建安裝檔。
-- 第一次要編譯 MuPDF，會等一段時間（幾分鐘到十幾分鐘）；之後是增量建置。agent 的指令有逾時限制時，在背景執行，等它結束再繼續。
+- 在 PowerShell 或 Git Bash 執行都可以；只有 `pnpm install` 要在 PowerShell。
+- 新的 worktree 第一次建置，要編譯 MuPDF 與所有的 Rust 依賴：
+  - 試用時約 11 分鐘（worker 與 MuPDF 約 4 分鐘，其餘是 app），`target` 約 4.3 GB；
+  - 之後是增量建置；
+  - agent 的指令有逾時限制時，在背景執行，等它結束再繼續。
 - E2E 跑的是建好的執行檔：改了前端或 Rust 之後，要再 `pnpm e2e:build` 一次，否則看到的是舊的 app。
 - 不用 `pnpm tauri dev` 驗證：開發模式的頁面由 Vite 提供，CSP 也不同（`vite.config.ts`），有些問題只在 release 建置出現。
 - 設了 `CARGO_TARGET_DIR` 時，app 在那個資料夾的 `release/pdf-reader.exe`。執行 E2E 時設定環境變數 `E2E_APP=<pdf-reader.exe 的路徑>`（[e2e.md](../architecture/e2e.md)）；其他位置建好的 app 也一樣。
@@ -132,7 +149,6 @@ pnpm e2e zz-verify-<主題>.spec.ts
   - 用同一個檔案的 `external()` 列出 app 自己的內容以外的請求；
   - 用完刪掉記錄檔。
 - **失敗時**：harness 把截圖、app 的日誌與摘要寫到 `tests/e2e/test-results/`；報告在 `tests/e2e/playwright-report/index.html`。
-- **做完**：刪掉臨時的 spec，`git status` 要和開始前一樣（`test-results/` 與 `playwright-report/` 已被 `.gitignore` 忽略）。
 
 ### 4. 直接問 worker（渲染、文字、安全報告）
 
@@ -175,6 +191,17 @@ cargo test --workspace --locked <測試名稱>
 - 貼 `external()` 列出的結果（應該是空的），並寫出 app 開了多久、做了哪些操作。
 
 發現問題時照實寫，附上重現步驟；不要說做完了。
+
+### 6. 收尾
+
+- 刪掉臨時的 spec，以及只為了確認一次而寫的 Rust 測試。
+- `git status` 要和第 1 步記下的一樣。`target/`、`node_modules/`、`tests/e2e/test-results/`、`tests/e2e/playwright-report/` 都被 `.gitignore` 忽略，不會出現在裡面。
+- 要留的截圖，先複製到 repo 以外（第 3 步）。
+- 只為了驗證而另外開的 worktree，用完就移除：它的 `target/` 有好幾 GB。在別的 worktree 裡執行：
+
+```
+git worktree remove <短路徑>
+```
 
 ## 什麼時候該寫 E2E 測試
 
