@@ -71,7 +71,7 @@ git worktree add <短路徑> <分支>
 - 那個分支已經在別的 worktree 裡時，git 不准再 check out 一次：加上 `--detach`。改動仍在原本的 worktree 提交，之後在短路徑的 worktree 切到新的 commit 再建置。
 - 已經在很深的 worktree 裡（例如工具自動建立的），而且只做 E2E 時：把 `CARGO_TARGET_DIR` 設到短的資料夾，執行 E2E 時再用 `E2E_APP` 指向那裡的 app（第 2 步）。
 
-在 worktree 裡安裝依賴：
+在 worktree 裡安裝依賴（在 PowerShell 執行，見「常見問題」）：
 
 ```
 pnpm install --frozen-lockfile
