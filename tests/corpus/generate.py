@@ -1716,7 +1716,8 @@ def benign_text_render_modes() -> bytes:
 
     Modes 4 to 6 fill, stroke or both and add the glyphs to the clip that ET applies; mode 7
     only clips (a gray box painted through it shows the word). One text object switches from
-    mode 4 to 7 to 5, and a last word is drawn twice in mode 0 on two lines.
+    mode 4 to 7 to 5 (switching back to modes 0 to 3 loses the clip in MuPDF 1.28, #638), and
+    a last word is drawn twice in mode 0 on two lines.
     """
     doc = Document("text-render-modes")
     content = (
