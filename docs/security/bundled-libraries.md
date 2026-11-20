@@ -14,7 +14,7 @@
 
 | 函式庫 | 用途 | 版本 | Git Commit | 查證依據（檔案與行號） | Windows 編入 | Linux 編入 | 備註 |
 |---|---|---|---|---|---|---|---|
-| **MuPDF** | 核心 PDF 與文件渲染引擎 | 1.28.6 | `da5f5eb890d7b3fb76903160b5f7f48ba1301492` | `include/mupdf/fitz/version.h#L26-L29` | 是 | 是 | 核心解析與渲染引擎；經由 `mupdf-sys` 靜態編譯連結。 |
+| **MuPDF** | 核心 PDF 與文件渲染引擎 | 1.28.6 | `da5f5eb890d7b3fb76903160b5f7f48ba1301492` | `include/mupdf/fitz/version.h#L26-L29` | 是 | 是 | 核心解析與渲染引擎；經由 `mupdf-sys` 靜態編譯連結。fork 在建置時套用兩個文字擷取的修補（#628、#629，見 [mupdf-binding.md](../architecture/mupdf-binding.md)）。 |
 | **FreeType** | 字型載入、解析與點陣化 | 2.14.3 | `0a0221a1347e2f1e07c395263540026e9a0aa7c7` | `thirdparty/freetype/include/freetype/freetype.h#L5170-L5172` | 是 | 是 | TrueType / OpenType 字型解碼與渲染。編譯時由 `slimftoptions.h` 關閉未使用的變形字型擴充。 |
 | **HarfBuzz** | 複雜文字塑形（OpenType shaping） | 13.0.1 | `c28ba35a1e6dc4b6b32e2b1d11fd2a408f6c86bb` | `thirdparty/harfbuzz/src/hb-version.h#L44-L63` | 是 | 是 | 供文字排版塑形（`hb_shape`）。字型子集化未透過 HarfBuzz，由純 Rust `subsetter` crate 處理。 |
 | **libjpeg (IJG)** | JPEG 影像解碼 | 10 | `627faae398468d5d11e3d694dc325432f734b5c4` | `thirdparty/libjpeg/jversion.h#L12`、`jpeglib.h#L40-L42` | 是 | 是 | 獨立 JPEG 群組（IJG）實作，供 DCT 濾鏡與點陣圖片解碼。 |
