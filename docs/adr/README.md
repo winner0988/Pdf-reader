@@ -36,6 +36,7 @@
 | [0028](0028-searchable-pdf-text-layer.md) | 可搜尋的 PDF 副本：辨識出的文字以 Tesseract 的空字型寫成隱形的文字層，只用於沒有簽章、沒有加密的文件 | 已接受 |
 | [0029](0029-english-interface.md) | 英文介面：預設跟隨 Windows 的顯示語言、可在設定中改；每種語言一份型別相同的字串表，啟動時決定語言 | 提議中 |
 | [0030](0030-form-field-editing.md) | 建立與修改表單欄位：在文件自己的 worker 中以型別化的編輯新增、修改、刪除欄位與排 Tab 順序；外觀由 MuPDF 產生；app 不寫任何動作或腳本 | 提議中 |
+| [0031](0031-scanning.md) | 從掃描器掃描：主行程以 Windows 的 WIA 2.0 取得影像，驅動程式留在 Windows 的掃描服務裡；影像只在記憶體，由 worker 做成 PDF 的頁面 | 提議中 |
 
 ## 規則
 
