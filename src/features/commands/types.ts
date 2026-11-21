@@ -22,6 +22,7 @@ export type CommandId =
   | "privacyExport"
   | "sanitizeCopy"
   | "pageMarks"
+  | "watermark"
   | "encryptCopy"
   | "searchAll"
   | "batch"

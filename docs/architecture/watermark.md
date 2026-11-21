@@ -44,4 +44,33 @@
   - 圖片浮水印用印章圖片（`prepare_stamp_image`）的 PNG；
   - 不是 PNG、字卻帶圖片、圖片卻沒有：被拒絕，worker 繼續服務；
   - 加密的文件被拒絕。
-- fuzz：`worker_messages` 的種子有兩種浮水印請求。
+- fuzz：`worker_messages` 的種子有兩種浮水印請求，`edit_document` 有 `Edit::AddWatermark` 的隨機生成測試。
+
+## 加在開著的文件（B6-06，#591）
+
+為目前開啟的文件加上文字或圖片浮水印，直接修改文件內容，並支援復原與重做。
+
+### 編輯形式與 IPC
+
+- 前端送出 `Edit::AddWatermark { pages, watermark, image }`，主行程檢查後轉成 `WorkerEdit::AddWatermark { pages, watermark, png }`。
+- **目標頁面**：`pages` 陣列直接包含欲套用浮水印的頁碼清單（0-based）。`watermark.pages` 固定設定為 `"all"`，因為具體頁面過濾已由 `pages` 欄位負責。
+- **圖片印章路徑**：圖片浮水印使用既有的 `pick_stamp_image` 與 `prepare_stamp_image` 流程。主行程權限檢查放寬為允許註解或允許修改（`document.info.permissions.annotate || document.info.permissions.modify`）。圖片由主行程保管於記憶體中（`pictures.rs`），並在存檔與復原日誌（`recovery.rs`）中維護關聯，防止未存檔前丟失。
+
+### 限制與權限
+
+- **已簽署的文件**：禁止加浮水印（回報 `signed` 錯誤）。因為浮水印直接改動頁面內容串流，會破壞既有的數位簽章。
+- **加密的文件**：開啟時已解密，只要文件的權限允許修改（`/P` 第 4 位元），即可加浮水印並在存檔時重新加密。
+
+### 多次加浮水印與資源名稱配置
+
+- 在批次處理中原先固定使用 `/Resources /XObject` 名稱 `/PdfReaderWatermark`。若在同一頁上加第二次浮水印，會覆蓋既有的 Form XObject 定義。
+- 為了支援多次加浮水印以及既有浮水印文件的處理，worker 在加入浮水印時透過 `unused_watermark_name` 動態搜尋頁面的 `/Resources /XObject`：
+  - 依序嘗試 `PdfReaderWatermark`、`PdfReaderWatermark2`、`PdfReaderWatermark3` … 直到 `PdfReaderWatermark100`。
+  - 當同一頁浮水印數量超過 100 時拒絕。
+  - 此機制同時修復了批次處理對已有浮水印之檔案處理時舊浮水印被覆蓋的問題。
+
+### 預覽與近似
+
+- 浮水印對話框提供即時 HTML5 Canvas 2D 畫布預覽，模擬旋轉、縮放、透明度與位置配置。
+- 機敏文件（`sensitive === true`）不呼叫渲染器以空白背景預覽。
+- 預覽中採用的系統字型與 worker 內建的 Droid Sans Fallback 可能略有差異，對話框有提示文字說明。

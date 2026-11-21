@@ -328,6 +328,19 @@
 - **另存副本**：主行程顯示系統另存對話框，建議檔名 `<原檔名>（頁碼與 Bates）.pdf`；不能選原檔；暫存檔取代；不加入最近開啟。
 - 做法與細節見 [page-marks.md](../architecture/page-marks.md)。
 
+### 浮水印（B6-06，#591）
+
+- 「⋯」→「浮水印…」（在「頁碼與 Bates 編號…」之後）開啟對話框。沒有開啟文件時停用；有數位簽章的文件開啟後提示不能加浮水印；未允許修改的文件停用。
+- **對話框**：
+  - 文字或圖片浮水印切換；
+  - 文字：文字內容（最多 100 字元）、字級（8～200 點）、顏色；
+  - 圖片：按鈕選擇圖片（PNG/JPEG，≤ 16 MB），指定寬度（16～1200 點）；
+  - 透明度（5～100%）、方向（水平／對角線）、位置（置中／頂端／底部）；
+  - 目標頁面：全部頁面、只有第一頁、第一頁以外、指定範圍（格式無效時停用套用按鈕）；
+  - **預覽**：右側 Canvas 2D 畫布預覽實際頁面背景與浮水印配置，支援上一頁／下一頁切換；機敏文件以空白背景預覽。
+- **套用與復原**：套用後直接成為文件內容（Form XObject），存檔前隨時可按 `Ctrl+Z` 復原或 `Ctrl+Y` 重做。
+- 做法與細節見 [watermark.md](../architecture/watermark.md)。
+
 ### 儲存（B2-02）
 
 - 「⋯」→「儲存」（`Ctrl+S`）：沒有未儲存的變更時停用；「另存新檔…」（`Ctrl+Shift+S`）：有開啟的文件就可以用。沒有文件時 `Ctrl+S` 也不會讓 WebView 儲存網頁。
@@ -1182,6 +1195,30 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | page_marks_file_name（主行程） | <原檔名>（頁碼與 Bates）.pdf |
 | PAGE_MARKS_SAME_FILE_TITLE（主行程） | 請選擇其他檔案 |
 | PAGE_MARKS_SAME_FILE_MESSAGE（主行程） | 頁碼與 Bates 編號會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
+| menu.watermark | 浮水印… |
+| documentWatermark.title | 浮水印 |
+| documentWatermark.description | 在目前的頁面畫上文字或圖片浮水印。存檔前可以復原。 |
+| documentWatermark.apply | 套用 |
+| documentWatermark.cancel | 取消 |
+| documentWatermark.pages | 目標頁面 |
+| documentWatermark.pagesAll | 全部 |
+| documentWatermark.pagesFirst | 只有第一頁 |
+| documentWatermark.pagesAllButFirst | 第一頁以外 |
+| documentWatermark.pagesRange | 指定範圍 |
+| documentWatermark.pagesRangePlaceholder | 例：1-3, 5 |
+| documentWatermark.preview | 預覽 |
+| documentWatermark.previewPage(page, total) | 第 <page> 頁（共 <total> 頁） |
+| documentWatermark.prevPage／nextPage | 上一頁／下一頁 |
+| documentWatermark.previewFontNote | 預覽的字型與實際略有不同 |
+| documentWatermark.choosePicture／changePicture | 選擇圖片…／更換圖片… |
+| documentWatermark.pictureSize(w, h) | <w> × <h> 像素 |
+| documentWatermark.pictureLabel | 圖片 |
+| documentWatermark.noPictureChosen | 請先選擇圖片 |
+| documentWatermark.invalidPages | 請輸入正確的頁碼範圍 |
+| documentWatermark.signedDocument | 有數位簽章的文件不能加浮水印：簽章會失效。 |
+| documentWatermark.limitExceeded | 未儲存的變更太多，請先存檔再繼續編輯。 |
+| documentWatermark.applied | 已加上浮水印 |
+| documentWatermark.failed | 無法加上浮水印，請再試一次。 |
 
 ### 批次處理（B3-04）
 

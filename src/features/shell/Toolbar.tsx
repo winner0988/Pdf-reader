@@ -119,6 +119,10 @@ export type ToolbarProps = {
   onPageMarks?: () => void;
   /** An encrypted document has no page marks copy (B3-16): the menu item says so. */
   pageMarksBlocked?: boolean;
+  /** Adds a watermark to the document (B6-06); without it the menu item is disabled. */
+  onWatermark?: () => void;
+  /** A signed document or modify-disallowed document cannot have a watermark: the menu item says why. */
+  watermarkBlocked?: string;
   /** Writes an encrypted copy (B2-15); without it the menu item is disabled. */
   onEncryptCopy?: () => void;
   /** Does one thing to many files (B3-04); without it (demo data, tests) the menu item is disabled. */
@@ -739,6 +743,7 @@ function MoreMenu(props: ToolbarProps) {
         {renderItem("privacyExport")}
         {renderItem("sanitizeCopy")}
         {renderItem("pageMarks")}
+        {renderItem("watermark")}
         {renderItem("encryptCopy")}
         {renderItem("searchAll")}
         {renderItem("batch")}
