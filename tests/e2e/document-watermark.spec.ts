@@ -48,7 +48,7 @@ test.describe("document watermark (B6-06, #591)", () => {
     await expect(dialog).toBeVisible();
 
     // 3. Enter watermark text "草稿"
-    const textInput = dialog.getByLabel(strings.batch.watermarkText);
+    const textInput = dialog.getByRole("textbox", { name: strings.batch.watermarkTextInput });
     await textInput.fill("草稿");
 
     // 4. Select page range "2-3"
