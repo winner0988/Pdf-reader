@@ -6,6 +6,8 @@ import type { OcrApi } from "@/features/ocr/api";
 import { OcrSection } from "@/features/ocr/OcrSection";
 import type { RecentApi } from "@/features/recent/api";
 import { SensitiveSection, type SensitiveListApi } from "@/features/sensitive/SensitiveSection";
+import type { SignaturesApi } from "@/features/annotations/signaturesApi";
+import { SignaturesSection } from "@/features/settings/SignaturesSection";
 import { FontsSection, type FontsApi } from "@/features/settings/FontsSection";
 import { PasswordsSection, type PasswordsApi } from "@/features/settings/PasswordsSection";
 import type { UpdatesApi } from "@/features/settings/updates";
@@ -31,6 +33,8 @@ type SettingsDialogProps = {
   passwordsApi?: PasswordsApi;
   /** The files marked as sensitive here (B3-05); without it (demo data, tests) they are not shown. */
   sensitiveApi?: SensitiveListApi;
+  /** Reusable signatures (B6-02); without it (demo data, tests) they are not shown. */
+  signaturesApi?: SignaturesApi;
 };
 
 const THEMES: ThemePreference[] = ["system", "light", "dark"];
@@ -49,6 +53,7 @@ export function SettingsDialog({
   fontsApi,
   passwordsApi,
   sensitiveApi,
+  signaturesApi,
 }: SettingsDialogProps) {
   const t = strings.settings;
   const shared = useSettings();
@@ -143,6 +148,8 @@ export function SettingsDialog({
         {ocrApi && <OcrSection api={ocrApi} />}
 
         {fontsApi && <FontsSection api={fontsApi} />}
+
+        {signaturesApi && <SignaturesSection api={signaturesApi} />}
 
         {passwordsApi && <PasswordsSection api={passwordsApi} />}
 

@@ -193,6 +193,8 @@ export type ToolbarProps = {
     onChoose?: (stamp: StampName) => void;
     /** Asks for a picture of the user's own to make a stamp of. */
     onPick?: () => void;
+    /** Opens the saved signatures dialog (B6-02). */
+    onSignature?: () => void;
   };
   /**
    * The text box tool (B2-30): turned on or off with its button; a click on a page then asks what
@@ -573,6 +575,12 @@ function StampMenu({ stamp }: { stamp: NonNullable<ToolbarProps["stamp"]> }) {
           onClick={stamp.onPick}
         >
           {labels.pickPicture}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!stamp.onSignature}
+          onClick={stamp.onSignature}
+        >
+          {labels.signature}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

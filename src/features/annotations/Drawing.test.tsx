@@ -3,6 +3,7 @@ import userEvent, { PointerEventsCheckLevel } from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest";
 
 import { type AnnotationsApi } from "@/features/annotations/source";
+import type { SignaturesApi } from "@/features/annotations/signaturesApi";
 import type { LinksApi } from "@/features/links/source";
 import { STAMP_HEIGHT_PT, STAMP_WIDTH_PT } from "@/features/annotations/tools";
 import { ALL_PERMISSIONS } from "@/features/permissions/permissions";
@@ -47,6 +48,7 @@ async function setup(
   linksApi?: LinksApi,
   /** What the user's choice of a picture gives; `null`: the API cannot ask for one. */
   pick: (() => Promise<StampImageInfo | null>) | null = () => Promise.resolve(null),
+  signaturesApi?: SignaturesApi,
 ) {
   const editing = {
     applyEdit: vi.fn<EditingApi["applyEdit"]>(() => Promise.resolve()),
@@ -66,6 +68,7 @@ async function setup(
       loadingDelayMs={0}
       editingApi={editing}
       annotationsApi={annotationsApi}
+      signaturesApi={signaturesApi}
       linksApi={linksApi}
     />,
   );
@@ -552,5 +555,31 @@ describe("the shape tool (B4-05)", () => {
     const width = edit.shape.rect.x1 - edit.shape.rect.x0;
     const height = edit.shape.rect.y1 - edit.shape.rect.y0;
     expect(width).toBeCloseTo(height, 1);
+  });
+
+  describe("reusable signatures menu item (B6-02)", () => {
+    it("disables '簽名…' menuitem when signaturesApi is not provided", async () => {
+      const { stampButton, user } = await setup(ALL_PERMISSIONS);
+      await user.click(stampButton());
+      expect(await screen.findByRole("menuitem", { name: t.signature })).toHaveAttribute("aria-disabled", "true");
+    });
+
+    it("opens signatures dialog when '簽名…' is clicked with signaturesApi provided", async () => {
+      const mockSignaturesApi: SignaturesApi = {
+        getSignatureImages: vi.fn().mockResolvedValue([]),
+        getSignatureImagePng: vi.fn().mockResolvedValue([]),
+        addSignatureImage: vi.fn().mockResolvedValue([]),
+        importSignatureImage: vi.fn().mockResolvedValue([]),
+        removeSignatureImage: vi.fn().mockResolvedValue([]),
+        removeAllSignatureImages: vi.fn().mockResolvedValue([]),
+        prepareSignatureStamp: vi.fn().mockResolvedValue({ id: 1, width: 100, height: 50, png: [] }),
+      };
+      const { stampButton, user } = await setup(ALL_PERMISSIONS, [drawing, stamp], undefined, undefined, mockSignaturesApi);
+      await user.click(stampButton());
+      const item = await screen.findByRole("menuitem", { name: t.signature });
+      expect(item).not.toHaveAttribute("aria-disabled", "true");
+      await user.click(item);
+      expect(await screen.findByRole("dialog", { name: strings.savedSignatures.dialogTitle })).toBeInTheDocument();
+    });
   });
 });

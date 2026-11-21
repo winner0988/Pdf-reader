@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/context-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { HIGHLIGHT_COLORS, SWATCH } from "@/features/annotations/model";
+import type { SignaturesApi } from "@/features/annotations/signaturesApi";
+import { SignaturesDialog } from "@/features/annotations/SignaturesDialog";
 import { NoteDialog } from "@/features/annotations/NoteDialog";
 import { TextBoxDialog } from "@/features/annotations/TextBoxDialog";
 import { createAnnotationSource, type AnnotationsApi } from "@/features/annotations/source";
@@ -196,6 +198,8 @@ type ReaderShellProps = {
   fontsApi?: FontsApi;
   /** Recognising the text of scanned pages (B2-10); without it (demo data, tests) it is not offered. */
   ocrApi?: OcrApi;
+  /** Saved signature images (B6-02); without it (demo data, tests) they cannot be placed or managed. */
+  signaturesApi?: SignaturesApi;
   /** How it goes for this tab's document: the latest progress, and which pages' text is new. */
   ocr?: OcrTab;
   /**
@@ -285,6 +289,7 @@ export function ReaderShell({
   editingApi,
   updatesApi,
   fontsApi,
+  signaturesApi,
   ocrApi,
   ocr,
   latest,
@@ -357,6 +362,7 @@ export function ReaderShell({
     | "create"
     | "sensitive"
     | "sign"
+    | "signatures"
     | "commandPalette"
     | "properties"
     | null
@@ -1633,6 +1639,7 @@ export function ReaderShell({
                     toolOn?.kind === "stamp" ? toolOn.stamp : toolOn?.kind === "picture" ? "picture" : null,
                   onChoose: annotations.enabled ? chooseStamp : undefined,
                   onPick: annotations.enabled && annotationsApi?.pickStampImage ? choosePicture : undefined,
+                  onSignature: annotations.enabled && signaturesApi ? () => setDialog("signatures") : undefined,
                 }
               : undefined
           }
@@ -2220,7 +2227,31 @@ export function ReaderShell({
         fontsApi={fontsApi}
         passwordsApi={passwordsApi}
         sensitiveApi={sensitiveApi}
+        signaturesApi={signaturesApi}
       />
+      {signaturesApi && (
+        <SignaturesDialog
+          open={dialog === "signatures"}
+          onOpenChange={(open) => setDialog(open ? "signatures" : null)}
+          api={signaturesApi}
+          doc={doc}
+          onSelect={(picture) => {
+            setTool({ kind: "picture", picture });
+            showHint(strings.annotations.placeSignature);
+            setDialog(null);
+          }}
+          onError={(error) => {
+            const code = errorCodeOf(error);
+            showHint(
+              code === "limitExceeded"
+                ? strings.annotations.tooManyPictures
+                : code === "tooLarge"
+                  ? strings.annotations.pictureTooLarge
+                  : strings.annotations.pictureFailed,
+            );
+          }}
+        />
+      )}
       <AboutDialog
         open={dialog === "about"}
         onOpenChange={(open) => setDialog(open ? "about" : null)}
