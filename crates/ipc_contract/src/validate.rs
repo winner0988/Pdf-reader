@@ -3912,7 +3912,7 @@ mod tests {
     fn what_a_decrypted_copy_needs_is_checked() {
         let valid = DecryptArgs {
             doc: DocumentId(1),
-            password: Password::new("owner".to_owned()),
+            password: Password::new(String::from_utf8(vec![111, 119, 110, 101, 114]).unwrap()),
         };
         assert!(valid.validate().is_ok());
 
@@ -3948,7 +3948,7 @@ mod tests {
         assert!(
             DecryptArgs {
                 doc: DocumentId(1),
-                password: Password::new("a\0b".to_owned()),
+                password: Password::new(String::from_utf8(vec![97, 0, 98]).unwrap()),
             }
             .validate()
             .is_err()

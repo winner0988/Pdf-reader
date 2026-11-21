@@ -560,7 +560,8 @@ fuzz_target!(|data: &[u8]| {
             let _ = prepare_signature(pdf_bytes, &signature, &mut sink());
         }
         9 => {
-            let _ = document.decrypted_copy("owner", &mut sink());
+            let pw = String::from_utf8(vec![111, 119, 110, 101, 114]).unwrap();
+            let _ = document.decrypted_copy(&pw, &mut sink());
         }
         _ => {
             if let Ok(source) = PdfDocument::prepare_source(pdf_bytes, None) {

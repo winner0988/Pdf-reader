@@ -5,7 +5,7 @@
 // An unencrypted document does not offer a decrypted copy.
 
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -61,13 +61,15 @@ test.describe("saving a copy without its password", () => {
     await field.fill(USER);
     await expect(start).toBeEnabled();
     await start.click();
+    const copy = path.join(folder, "unrestricted.pdf");
+    await answerFileDialog(page, { path: copy });
     await expect(dialog.getByRole("alert")).toContainText(t.notAllowed);
     await expect(field).toHaveValue("");
+    expect(existsSync(copy)).toBe(false);
 
     // Entering owner password succeeds and saves
     await field.fill(OWNER);
     await start.click();
-    const copy = path.join(folder, "unrestricted.pdf");
     await answerFileDialog(page, { path: copy });
     await expect(page.getByRole("contentinfo")).toContainText(t.done);
     await expect(dialog).toHaveCount(0);
