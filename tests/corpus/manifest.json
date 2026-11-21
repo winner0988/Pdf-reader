@@ -722,6 +722,17 @@
       "sha256": "d2f00f40d1a339d3c575c54f4fe2b90d22bdc591d52ad21cacbf4d8f999b5555"
     },
     {
+      "path": "malicious/link-mailto-recipients.pdf",
+      "category": "malicious",
+      "purpose": "mailto link with two recipients separated by ';' (#610).",
+      "expected": "The confirmation's site line shows first.example, second.example.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 1021,
+      "sha256": "411128c091e3ac95e4c8252553fd0c8a7044a41b186c8be91b2c1bfd19346097"
+    },
+    {
       "path": "malicious/link-ms-protocol.pdf",
       "category": "malicious",
       "purpose": "URI link with a Windows protocol handler scheme.",
