@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::PROTOCOL_VERSION;
 use crate::types::{
     AnnotationId, AnnotationSummary, AttachmentId, AttachmentSource, BatesMark, BookmarkId,
-    CreateKind, DocumentFonts, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId,
+    CreateKind, CropMargins, DocumentFonts, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId,
     FindPersonalDataQuery, FontRefusal, FormField, HeaderFooterMarks, HighlightColor,
     HighlightMark, ImageQuality, InkColor, InkWidth, OutlineResult, PageAnnotation, PageCorner,
     PageLink, PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark,
@@ -602,6 +602,11 @@ pub enum WorkerEdit {
         color: InkColor,
         width: InkWidth,
     },
+    /// As [`Edit::CropPages`].
+    CropPages {
+        pages: Vec<u32>,
+        margins: CropMargins,
+    },
 }
 
 /// An edit names something its document does not have: a file whose pages it takes (B2-06), the
@@ -818,6 +823,10 @@ impl WorkerEdit {
                 annotation: *annotation,
                 color: *color,
                 width: *width,
+            },
+            Edit::CropPages { pages, margins } => WorkerEdit::CropPages {
+                pages: pages.clone(),
+                margins: *margins,
             },
         })
     }
