@@ -10,7 +10,7 @@ use std::io::sink;
 use std::sync::OnceLock;
 
 use ipc_contract::types::{
-    AnnotationId, BookmarkId, Edit, FieldId, HighlightColor, HighlightMark, InkColor, InkWidth,
+    AnnotationId, BookmarkId, CropMargins, Edit, FieldId, HighlightColor, HighlightMark, InkColor, InkWidth,
     PageCorner, PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark,
     Point, Quad, Rect, Restrictions, Rgb, Rotation, SanitizeOptions, Shape, SourceId, StampImageId,
     StampName, TextAlign, TextBoxModelId, TextBoxStyle, TextMarkKind, Watermark, WatermarkContent,
@@ -128,7 +128,7 @@ fuzz_target!(|data: &[u8]| {
     let mut applied_edits = Vec::new();
 
     for _ in 0..num_edits {
-        let kind = u.int_in_range(0..=28).unwrap_or(0);
+        let kind = u.int_in_range(0..=29).unwrap_or(0);
         let p = (u.int_in_range(0..=255).unwrap_or(0) as u32) % page_count;
 
         let edit = match kind {
@@ -435,7 +435,7 @@ fuzz_target!(|data: &[u8]| {
                     to,
                 }
             }
-            _ => {
+            28 => {
                 let id = u.int_in_range(0..=10).unwrap_or(0);
                 let color = sample_ink_color(&mut u);
                 let width = sample_ink_width(&mut u);
@@ -444,6 +444,21 @@ fuzz_target!(|data: &[u8]| {
                     annotation: AnnotationId(id),
                     color,
                     width,
+                }
+            }
+            _ => {
+                let top = u.int_in_range(0..=400).unwrap_or(0) as f32;
+                let right = u.int_in_range(0..=400).unwrap_or(0) as f32;
+                let bottom = u.int_in_range(0..=400).unwrap_or(0) as f32;
+                let left = u.int_in_range(0..=400).unwrap_or(0) as f32;
+                Edit::CropPages {
+                    pages: vec![p],
+                    margins: CropMargins {
+                        top,
+                        right,
+                        bottom,
+                        left,
+                    },
                 }
             }
         };
