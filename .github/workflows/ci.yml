@@ -40,14 +40,29 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # On a PR, HEAD is the merge commit and HEAD^1 its base parent (#630).
+          fetch-depth: 2
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
+      # On a PR the guards run as they are on the base branch, so a PR cannot change the rules
+      # that judge it; a change to a guard counts once it is merged. A guard that the base does
+      # not have yet runs as it is in the PR (#630).
+      - name: Guard scripts from the base branch
+        # bash with pipefail, so a failing git archive fails the step.
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          cp -R scripts/ci scripts/ci-base
+          if [ "$EVENT" = pull_request ]; then
+            git archive HEAD^1 scripts/ci | tar -x --strip-components=2 -C scripts/ci-base
+          fi
       - name: Forbidden telemetry / network dependencies
-        run: bash scripts/ci/check-forbidden.sh
+        run: bash scripts/ci-base/check-forbidden.sh
       - name: ADR numbering and index
-        run: bash scripts/ci/check-adr.sh
+        run: bash scripts/ci-base/check-adr.sh
       - name: Test corpus is reproducible
         run: |
           python3 tests/corpus/generate.py
@@ -57,7 +72,10 @@ jobs:
             exit 1
           fi
       - name: CSP, dev CSP and capabilities
-        run: node scripts/ci/check-security-config.mjs
+        run: node scripts/ci-base/check-security-config.mjs
+      - name: The PR switches off no check that judges it
+        if: github.event_name == 'pull_request'
+        run: node scripts/ci-base/check-test-integrity.mjs --base HEAD^1
       - name: Guard script tests
         run: node --test scripts/ci/*.test.mjs
 
@@ -191,6 +209,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # On a PR, HEAD is the merge commit and HEAD^1 its base parent (#630).
+          fetch-depth: 2
       # pnpm version comes from the "packageManager" field in package.json.
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -202,5 +222,16 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      # As in Guardrails: on a PR the guard runs as it is on the base branch (#630).
+      - name: Guard scripts from the base branch
+        # bash with pipefail, so a failing git archive fails the step.
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          cp -R scripts/ci scripts/ci-base
+          if [ "$EVENT" = pull_request ]; then
+            git archive HEAD^1 scripts/ci | tar -x --strip-components=2 -C scripts/ci-base
+          fi
       - name: Build output loads nothing external
-        run: node scripts/ci/check-dist.mjs
+        run: node scripts/ci-base/check-dist.mjs
