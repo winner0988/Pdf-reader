@@ -245,7 +245,8 @@ pub fn run() {
             app.state::<Documents>().set_fonts(fonts.clone());
             app.manage(fonts);
             let signatures = signature_images::SignatureImages::new(
-                data.as_ref().map(|dir| dir.join(signature_images::FOLDER_NAME)),
+                data.as_ref()
+                    .map(|dir| dir.join(signature_images::FOLDER_NAME)),
             );
             app.manage(signatures);
             app.manage(RecentFiles::new(

@@ -10440,8 +10440,7 @@ mod with_worker {
     #[test]
     fn add_stamp_picture_requires_annotate_permission_and_integrates_with_undo_redo_and_save() {
         let png = std::fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../tests/corpus/images/stamp-metadata.png"),
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/images/stamp-metadata.png"),
         )
         .unwrap();
 

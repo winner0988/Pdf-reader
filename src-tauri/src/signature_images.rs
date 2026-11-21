@@ -106,10 +106,13 @@ impl SignatureImages {
         };
 
         inner.refresh_highest_id();
-        let next_id = inner.highest_seen_id.checked_add(1).ok_or_else(|| IpcError {
-            code: ErrorCode::LimitExceeded,
-            message: "signature id overflow".to_owned(),
-        })?;
+        let next_id = inner
+            .highest_seen_id
+            .checked_add(1)
+            .ok_or_else(|| IpcError {
+                code: ErrorCode::LimitExceeded,
+                message: "signature id overflow".to_owned(),
+            })?;
         inner.highest_seen_id = next_id;
 
         let protected = index_crypto::protect_with(png, ENTROPY).map_err(|_| IpcError {
@@ -140,9 +143,7 @@ impl SignatureImages {
     pub fn remove_all(&self) -> Result<Vec<SignatureImage>, IpcError> {
         let mut inner = self.inner.lock().unwrap();
         if let Some(folder) = &inner.folder {
-            if folder.exists() {
-                let _ = fs::remove_dir_all(folder);
-            }
+            let _ = fs::remove_dir_all(folder);
         }
         inner.list()
     }
@@ -151,17 +152,22 @@ impl SignatureImages {
 impl Inner {
     fn refresh_highest_id(&mut self) {
         let Some(folder) = &self.folder else { return };
-        if let Ok(entries) = fs::read_dir(folder) {
-            for entry in entries.flatten() {
-                if let Ok(file_type) = entry.file_type() {
-                    if file_type.is_file() {
-                        if let Some(name) = entry.file_name().to_str() {
-                            if let Some(id) = parse_signature_file_name(name) {
-                                self.highest_seen_id = self.highest_seen_id.max(id);
-                            }
-                        }
-                    }
-                }
+        let Ok(entries) = fs::read_dir(folder) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if !file_type.is_file() {
+                continue;
+            }
+            let file_name = entry.file_name();
+            let Some(name) = file_name.to_str() else {
+                continue;
+            };
+            if let Some(id) = parse_signature_file_name(name) {
+                self.highest_seen_id = self.highest_seen_id.max(id);
             }
         }
     }
@@ -180,10 +186,18 @@ impl Inner {
 
         let mut found: Vec<(u32, u32, u32)> = Vec::new();
         for entry in entries.flatten() {
-            let Ok(file_type) = entry.file_type() else { continue };
-            if !file_type.is_file() { continue };
-            let Some(name) = entry.file_name().to_str().map(|s| s.to_owned()) else { continue };
-            let Some(id) = parse_signature_file_name(&name) else { continue };
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if !file_type.is_file() {
+                continue;
+            };
+            let Some(name) = entry.file_name().to_str().map(|s| s.to_owned()) else {
+                continue;
+            };
+            let Some(id) = parse_signature_file_name(&name) else {
+                continue;
+            };
             self.highest_seen_id = self.highest_seen_id.max(id);
 
             let path = entry.path();
@@ -299,7 +313,8 @@ mod tests {
     }
 
     fn test_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("test-signatures-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("test-signatures-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }
