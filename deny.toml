@@ -80,6 +80,7 @@ deny = [
     { crate = "opentelemetry-otlp", reason = "telemetry exporter: zero telemetry (AGENTS.md)" },
     { crate = "opentelemetry-http", reason = "telemetry exporter: zero telemetry (AGENTS.md)" },
     { crate = "posthog-rs", reason = "analytics: zero telemetry (AGENTS.md)" },
+    { crate = "tauri-plugin-aptabase", reason = "analytics: zero telemetry (AGENTS.md)" },
 ]
 
 [sources]
