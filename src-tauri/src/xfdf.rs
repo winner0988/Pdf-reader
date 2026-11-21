@@ -93,10 +93,7 @@ fn line_ending_name(ending: ExportedLineEnding) -> &'static str {
 /// - No user paths (only the base file name in `<f href="...">`)
 /// - No author (`title`), dates (`date`, `creationdate`), subject, or `<ids>` elements.
 pub fn file(annotations: &ExportedAnnotations, file_name: &str) -> String {
-    let base_name = file_name
-        .rsplit(|c| c == '/' || c == '\\')
-        .next()
-        .unwrap_or(file_name);
+    let base_name = file_name.rsplit(['/', '\\']).next().unwrap_or(file_name);
     let href = escape_attribute(base_name);
 
     let mut out = String::new();
@@ -156,25 +153,21 @@ fn format_annotation(out: &mut String, item: &ExportedAnnotation) {
         attrs.push(format!("color=\"{}\"", format_hex_color(color)));
     }
 
-    if let Some(interior) = item.interior {
-        if matches!(
+    if let Some(interior) = item.interior.filter(|_| {
+        matches!(
             item.kind,
             ExportedAnnotationKind::Rectangle | ExportedAnnotationKind::Ellipse
-        ) {
-            attrs.push(format!("interior-color=\"{}\"", format_hex_color(interior)));
-        }
+        )
+    }) {
+        attrs.push(format!("interior-color=\"{}\"", format_hex_color(interior)));
     }
 
-    if let Some(opacity) = item.opacity {
-        if opacity < 0.9999 {
-            attrs.push(format!("opacity=\"{}\"", format_coord(opacity)));
-        }
+    if let Some(opacity) = item.opacity.filter(|&o| o < 0.9999) {
+        attrs.push(format!("opacity=\"{}\"", format_coord(opacity)));
     }
 
-    if let Some(width) = item.width {
-        if (width - 1.0).abs() > 1e-4 {
-            attrs.push(format!("width=\"{}\"", format_coord(width)));
-        }
+    if let Some(width) = item.width.filter(|&w| (w - 1.0).abs() > 1e-4) {
+        attrs.push(format!("width=\"{}\"", format_coord(width)));
     }
 
     if let Some(ref irt) = item.in_reply_to {
@@ -242,20 +235,18 @@ fn format_annotation(out: &mut String, item: &ExportedAnnotation) {
     // Child elements
     let mut children = Vec::new();
 
-    if item.kind == ExportedAnnotationKind::TextBox {
-        if let Some(style) = item.text_style {
-            let r_f = format_coord(f32::from(style.color[0]) / 255.0);
-            let g_f = format_coord(f32::from(style.color[1]) / 255.0);
-            let b_f = format_coord(f32::from(style.color[2]) / 255.0);
-            let size_f = format_coord(style.size);
-            let hex = format_hex_color(style.color);
-            children.push(format!(
-                "<defaultappearance>/Helvetica {size_f} Tf {r_f} {g_f} {b_f} rg</defaultappearance>"
-            ));
-            children.push(format!(
-                "<defaultstyle>font: {size_f}pt Helvetica; color: {hex}</defaultstyle>"
-            ));
-        }
+    if let (ExportedAnnotationKind::TextBox, Some(style)) = (item.kind, item.text_style) {
+        let r_f = format_coord(f32::from(style.color[0]) / 255.0);
+        let g_f = format_coord(f32::from(style.color[1]) / 255.0);
+        let b_f = format_coord(f32::from(style.color[2]) / 255.0);
+        let size_f = format_coord(style.size);
+        let hex = format_hex_color(style.color);
+        children.push(format!(
+            "<defaultappearance>/Helvetica {size_f} Tf {r_f} {g_f} {b_f} rg</defaultappearance>"
+        ));
+        children.push(format!(
+            "<defaultstyle>font: {size_f}pt Helvetica; color: {hex}</defaultstyle>"
+        ));
     }
 
     if item.kind == ExportedAnnotationKind::Ink && !item.ink.is_empty() {
@@ -271,10 +262,11 @@ fn format_annotation(out: &mut String, item: &ExportedAnnotation) {
         children.push(inklist);
     }
 
-    if let Some(ref text) = item.contents {
-        if !text.is_empty() {
-            children.push(format!("<contents>{}</contents>", escape_text_content(text)));
-        }
+    if let Some(text) = item.contents.as_deref().filter(|s| !s.is_empty()) {
+        children.push(format!(
+            "<contents>{}</contents>",
+            escape_text_content(text)
+        ));
     }
 
     let attr_str = attrs.join(" ");

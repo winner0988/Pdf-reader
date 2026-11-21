@@ -1368,8 +1368,7 @@ pub async fn export_annotations_xfdf(
     let ExportXfdfArgs { doc } = args;
     let info = copy_allowed(&app, doc)?;
     let worker_app = app.clone();
-    let exported =
-        blocking(move || worker_app.state::<Documents>().annotation_export(doc)).await?;
+    let exported = blocking(move || worker_app.state::<Documents>().annotation_export(doc)).await?;
 
     if exported.items.is_empty() {
         return Ok(XfdfOutcome::Empty {

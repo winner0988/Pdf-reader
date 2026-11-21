@@ -13,8 +13,8 @@ use std::collections::{HashMap, HashSet};
 
 use ipc_contract::limits::{
     MAX_ANNOTATION_QUADS, MAX_ANNOTATION_SUMMARY_ITEMS, MAX_ANNOTATION_SUMMARY_TEXT_BYTES,
-    MAX_ANNOTATION_SUMMARY_TOTAL_BYTES, MAX_ANNOTATIONS_PER_PAGE, MAX_INK_POINTS,
-    MAX_INK_STROKES, MAX_PAGE_SIDE_PT,
+    MAX_ANNOTATION_SUMMARY_TOTAL_BYTES, MAX_ANNOTATIONS_PER_PAGE, MAX_INK_POINTS, MAX_INK_STROKES,
+    MAX_PAGE_SIDE_PT,
 };
 use ipc_contract::text::clean_note_text;
 use ipc_contract::types::{Point, TextAlign};
@@ -259,7 +259,8 @@ impl PdfDocument {
                 let name = match raw_nm {
                     Some(nm) if !used_names.contains(&nm) => nm,
                     _ => {
-                        let mut generated_name = format!("pdf-reader-{}-{}", page_index + 1, item_idx + 1);
+                        let mut generated_name =
+                            format!("pdf-reader-{}-{}", page_index + 1, item_idx + 1);
                         if used_names.contains(&generated_name) {
                             let mut suffix = 1;
                             while used_names.contains(&format!("{generated_name}-{suffix}")) {
@@ -377,7 +378,7 @@ fn read_quad_points(dict: &PdfObject) -> Option<Vec<[f32; 8]>> {
     let mut quads = Vec::with_capacity(len / 8);
     for chunk in 0..(len / 8) {
         let mut quad = [0.0f32; 8];
-        for i in 0..8 {
+        for (i, slot) in quad.iter_mut().enumerate() {
             let val = quad_obj
                 .get_array((chunk * 8 + i) as i32)
                 .ok()??
@@ -386,7 +387,7 @@ fn read_quad_points(dict: &PdfObject) -> Option<Vec<[f32; 8]>> {
             if !val.is_finite() || val.abs() > MAX_PAGE_SIDE_PT {
                 return None;
             }
-            quad[i] = val;
+            *slot = val;
         }
         quads.push(quad);
     }
@@ -479,14 +480,20 @@ fn parse_le(item: PdfObject) -> ExportedLineEnding {
 /// Reads line endings from `/LE` or fallback to annotation styles.
 fn read_line_endings(annotation: &PdfAnnotation) -> Option<[ExportedLineEnding; 2]> {
     let dict = annotation.object();
-    if let Ok(Some(le_obj)) = dict.get_dict("LE") {
-        if let Ok(len) = le_obj.len() {
-            if len == 2 {
-                if let (Ok(Some(le0)), Ok(Some(le1))) = (le_obj.get_array(0), le_obj.get_array(1)) {
-                    return Some([parse_le(le0), parse_le(le1)]);
-                }
+    if let Some([le0, le1]) = dict
+        .get_dict("LE")
+        .ok()
+        .flatten()
+        .and_then(|le_obj| {
+            if le_obj.len().ok() == Some(2) {
+                Some((le_obj.get_array(0).ok()??, le_obj.get_array(1).ok()??))
+            } else {
+                None
             }
-        }
+        })
+        .map(|(a, b)| [parse_le(a), parse_le(b)])
+    {
+        return Some([le0, le1]);
     }
     if let Ok((start, end)) = annotation.line_ending_styles() {
         let conv = |s: mupdf::pdf::LineEndingStyle| match s {
@@ -565,27 +572,26 @@ fn read_opacity(dict: &PdfObject) -> Option<f32> {
 
 /// Reads border width from `/BS /W` or `/Border` 3rd element.
 fn read_width(dict: &PdfObject) -> Option<f32> {
-    if let Ok(Some(bs)) = dict.get_dict("BS") {
-        if let Ok(Some(w_obj)) = bs.get_dict("W") {
-            if let Ok(w) = w_obj.as_float() {
-                if w.is_finite() && (0.0..=100.0).contains(&w) {
-                    return Some(w);
-                }
-            }
-        }
+    if let Some(w) = dict
+        .get_dict("BS")
+        .ok()
+        .flatten()
+        .and_then(|bs| bs.get_dict("W").ok().flatten())
+        .and_then(|w| w.as_float().ok())
+        .filter(|w| w.is_finite() && (0.0..=100.0).contains(w))
+    {
+        return Some(w);
     }
-    if let Ok(Some(border)) = dict.get_dict("Border") {
-        if let Ok(len) = border.len() {
-            if len >= 3 {
-                if let Ok(Some(w_obj)) = border.get_array(2) {
-                    if let Ok(w) = w_obj.as_float() {
-                        if w.is_finite() && (0.0..=100.0).contains(&w) {
-                            return Some(w);
-                        }
-                    }
-                }
-            }
-        }
+    if let Some(w) = dict
+        .get_dict("Border")
+        .ok()
+        .flatten()
+        .filter(|border| border.len().unwrap_or(0) >= 3)
+        .and_then(|border| border.get_array(2).ok().flatten())
+        .and_then(|w| w.as_float().ok())
+        .filter(|w| w.is_finite() && (0.0..=100.0).contains(w))
+    {
+        return Some(w);
     }
     None
 }
@@ -648,10 +654,12 @@ fn read_note_icon(dict: &PdfObject) -> Option<String> {
 /// Reads `/NM` if valid: 1..=64 characters of `[A-Za-z0-9._:-]`.
 fn read_nm(dict: &PdfObject) -> Option<String> {
     let nm_obj = dict.get_dict("NM").ok()??;
-    let nm = nm_obj
-        .as_string()
-        .ok()
-        .or_else(|| nm_obj.as_name().ok().and_then(|n| String::from_utf8(n).ok()))?;
+    let nm = nm_obj.as_string().ok().or_else(|| {
+        nm_obj
+            .as_name()
+            .ok()
+            .and_then(|n| String::from_utf8(n).ok())
+    })?;
     if (1..=64).contains(&nm.len())
         && nm
             .chars()
@@ -694,9 +702,7 @@ mod tests {
         HighlightColor, HighlightMark, InkColor, InkWidth, Point, Quad, Rect, Rgb, Shape,
         StampName, TextAlign, TextBoxStyle, TextMarkKind,
     };
-    use ipc_contract::worker::{
-        ExportedAnnotationKind, ExportedLineEnding,
-    };
+    use ipc_contract::worker::{ExportedAnnotationKind, ExportedLineEnding};
     use mupdf::pdf::PdfObject;
 
     use crate::engine::text_box::prepare_text_box;
@@ -771,17 +777,14 @@ mod tests {
             let mut annots: Vec<_> = page.annotations().collect();
             let parent = annots
                 .iter()
-                .find(|a| a.contents().ok().flatten().as_deref() == Some("Parent note"))
+                .find(|a| a.contents().ok().flatten() == Some("Parent note"))
                 .expect("parent annot");
             let parent_obj = parent.object();
             let reply = annots
                 .iter_mut()
-                .find(|a| a.contents().ok().flatten().as_deref() == Some("Reply note"))
+                .find(|a| a.contents().ok().flatten() == Some("Reply note"))
                 .expect("reply annot");
-            reply
-                .object()
-                .dict_put("IRT", parent_obj)
-                .expect("put IRT");
+            reply.object().dict_put("IRT", parent_obj).expect("put IRT");
             reply.update().expect("update reply");
         }
 
@@ -934,7 +937,10 @@ mod tests {
             .iter()
             .find(|i| i.contents.as_deref() == Some("Reply note"))
             .expect("reply item");
-        assert_eq!(reply_item.in_reply_to.as_deref(), Some(parent_item.name.as_str()));
+        assert_eq!(
+            reply_item.in_reply_to.as_deref(),
+            Some(parent_item.name.as_str())
+        );
 
         // Check Highlight
         let hl = exported
@@ -970,16 +976,20 @@ mod tests {
         assert_eq!(stamp.icon.as_deref(), Some("Approved"));
 
         // Check Rectangle
-        assert!(exported
-            .items
-            .iter()
-            .any(|i| i.kind == ExportedAnnotationKind::Rectangle));
+        assert!(
+            exported
+                .items
+                .iter()
+                .any(|i| i.kind == ExportedAnnotationKind::Rectangle)
+        );
 
         // Check Ellipse
-        assert!(exported
-            .items
-            .iter()
-            .any(|i| i.kind == ExportedAnnotationKind::Ellipse));
+        assert!(
+            exported
+                .items
+                .iter()
+                .any(|i| i.kind == ExportedAnnotationKind::Ellipse)
+        );
 
         // Check Line
         let line_item = exported
@@ -987,9 +997,9 @@ mod tests {
             .iter()
             .find(|i| {
                 i.kind == ExportedAnnotationKind::Line
-                    && i.line_endings.as_ref().map_or(true, |le| {
-                        le[1] == ExportedLineEnding::None
-                    })
+                    && i.line_endings
+                        .as_ref()
+                        .is_none_or(|le| le[1] == ExportedLineEnding::None)
             })
             .expect("plain line");
         assert!(line_item.line.is_some());
@@ -1030,7 +1040,9 @@ mod tests {
                 mbox.array_push(PdfObject::new_real(v).expect("real"))
                     .expect("push");
             }
-            page.object().dict_put("MediaBox", mbox).expect("put MediaBox");
+            page.object()
+                .dict_put("MediaBox", mbox)
+                .expect("put MediaBox");
         }
         doc.add_note(1, Point { x: 100.0, y: 100.0 }, "Note on rotated page")
             .expect("add note");

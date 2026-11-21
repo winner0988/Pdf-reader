@@ -1629,13 +1629,15 @@ impl Validate for ExportedAnnotation {
                 reason: "invalid format or length",
             });
         }
-        if let Some(ref irt) = self.in_reply_to {
-            if !is_valid_xfdf_name(irt) {
-                return Err(ValidationError::Invalid {
-                    what: "exported annotation in_reply_to",
-                    reason: "invalid format or length",
-                });
-            }
+        if self
+            .in_reply_to
+            .as_deref()
+            .is_some_and(|irt| !is_valid_xfdf_name(irt))
+        {
+            return Err(ValidationError::Invalid {
+                what: "exported annotation in_reply_to",
+                reason: "invalid format or length",
+            });
         }
         if let Some(opacity) = self.opacity {
             if !opacity.is_finite() {
@@ -1661,13 +1663,15 @@ impl Validate for ExportedAnnotation {
                 });
             }
         }
-        if let Some(ref icon) = self.icon {
-            if !is_valid_xfdf_icon(icon) {
-                return Err(ValidationError::Invalid {
-                    what: "exported annotation icon",
-                    reason: "invalid format or length",
-                });
-            }
+        if self
+            .icon
+            .as_deref()
+            .is_some_and(|icon| !is_valid_xfdf_icon(icon))
+        {
+            return Err(ValidationError::Invalid {
+                what: "exported annotation icon",
+                reason: "invalid format or length",
+            });
         }
         if let Some(ref contents) = self.contents {
             check_cleaned_note(

@@ -4,6 +4,10 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 ## [Unreleased]
 
+### 新增
+
+- 把註解匯出成 XFDF，讓其他 PDF 程式匯入；檔案裡沒有路徑、作者與時間，圖片印章不匯出（#446）。
+
 ### 修正
 
 - 「文件內容」對話框讀不到資料時，會說明原因（例如 PDF 引擎沒有回應），不再顯示 `[object Object]`（#634）。

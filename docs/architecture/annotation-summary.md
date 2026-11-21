@@ -1,6 +1,6 @@
 # 註解摘要匯出（B3-18）
 
-工作卡 [#306](https://github.com/winner0988/Pdf-reader/issues/306)；規格 §6「註解標記」的延伸。畫面見 [screen-map.md](../ux/screen-map.md)「註解摘要」。
+工作卡 [#306](https://github.com/winner0988/Pdf-reader/issues/306)；規格 §6「註解標記」的延伸。畫面見 [screen-map.md](../ux/screen-map.md)「註解摘要」。匯出成標準 XFDF 格式另見 [xfdf-export.md](xfdf-export.md)（#446）。
 
 把文件裡的註解依頁碼與位置排好，存成純文字或 Markdown 檔：螢光筆與文字標記標示底下的文字、附註與文字方塊的內容；手繪線條、幾何圖形與印章只列出在第幾頁。
 

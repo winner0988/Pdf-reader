@@ -2552,13 +2552,15 @@ impl Documents {
                 }
             }
             for item in &annotations.items {
-                if let Some(ref irt) = item.in_reply_to {
-                    if !names.contains(irt.as_str()) {
-                        return Err(IpcError {
-                            code: ErrorCode::ProtocolViolation,
-                            message: "annotation in_reply_to references unknown name".to_owned(),
-                        });
-                    }
+                if item
+                    .in_reply_to
+                    .as_deref()
+                    .is_some_and(|irt| !names.contains(irt))
+                {
+                    return Err(IpcError {
+                        code: ErrorCode::ProtocolViolation,
+                        message: "annotation in_reply_to references unknown name".to_owned(),
+                    });
                 }
             }
             Ok(annotations)

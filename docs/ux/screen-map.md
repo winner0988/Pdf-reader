@@ -234,6 +234,14 @@
 - 結束後關閉對話框，狀態列顯示 exportAnnotations.done，摘要因為註解太多而沒有列完時顯示 exportAnnotations.truncated。失敗時對話框裡顯示 exportAnnotations.failed。
 - 檔案的內容與順序見 [annotation-summary.md](../architecture/annotation-summary.md)。
 
+### 註解匯出（XFDF）（B5-09）
+
+- 「⋯」→「匯出註解（XFDF）…」（在「匯出註解摘要…」之後）直接觸發匯出（沒有開啟文件時停用；作者禁止複製時停用並標示 permissions.notAllowed）。
+- 文件沒有註解時，狀態列顯示 exportXfdf.empty，不開啟另存對話框。
+- 否則主行程顯示系統另存對話框（標題 EXPORT_XFDF_DIALOG_TITLE，篩選器 XFDF (*.xfdf)），建議檔名 `<原檔名>（註解）.xfdf`；選到文件自己的檔案時以訊息方塊說明、可以再選。
+- 成功存檔後狀態列顯示 exportXfdf.done，若有自訂圖片印章等略過項目則附加 exportXfdf.skipped 提示，註解過多截斷時附加 exportXfdf.truncated。
+- 格式與安全設計見 [xfdf-export.md](../architecture/xfdf-export.md)。
+
 ### 加密並另存新檔（B2-15）
 
 - 「⋯」→「加密並另存新檔…」（在「隱私匯出…」之後）開啟對話框。沒有開啟文件時停用；加密的文件停用，並標示 encryption.encrypted。做法見 [encrypt-copy.md](../architecture/encrypt-copy.md)。
@@ -1026,6 +1034,10 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | annotation_kind_name（主行程，檔案裡的種類） | 螢光筆標示／附註／文字方塊／手繪線條／印章 |
 | annotation_summary_page（主行程，檔案裡的頁碼） | 第 <n> 頁 |
 | ANNOTATION_SUMMARY_TRUNCATED（主行程，檔案的最後一行） | （註解太多，其餘沒有列出。） |
+| menu.exportXfdf | 匯出註解（XFDF）… |
+| exportXfdf.empty | 這份文件沒有註解。 |
+| exportXfdf.done | 已匯出 <N> 個註解到 XFDF 檔。 |
+| EXPORT_XFDF_DIALOG_TITLE／XFDF_FILTER_NAME（主行程） | 匯出註解（XFDF）／XFDF (*.xfdf) |
 
 ### 頁面管理（B2-05）
 
