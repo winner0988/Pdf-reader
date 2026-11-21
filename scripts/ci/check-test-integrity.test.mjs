@@ -342,8 +342,20 @@ test("workflows: a new condition on a job or step that was there is found", () =
 
 test("workflows: conditions that only run more, and new steps with a condition, pass", () => {
   ciPasses(edit(WORKFLOW, "if: failure()", "if: always()"));
+  ciPasses(edit(WORKFLOW, "      - name: Guard script tests\n", "      - name: Guard script tests\n        if: ${{ !cancelled() }}\n"));
   ciPasses(edit(WORKFLOW, "if: needs.detect.outputs.rust == 'true'", "if: needs.detect.outputs.rust == 'true' || github.event_name == 'workflow_dispatch'"));
   ciPasses(edit(WORKFLOW, "      - name: E2E tests\n", "      - name: Only on pull requests\n        if: github.event_name == 'pull_request'\n        run: echo hi\n      - name: E2E tests\n"));
+});
+
+test("workflows: a check that no longer runs after an earlier failure is found", () => {
+  const anyway = edit(WORKFLOW, "      - name: Guard script tests\n", "      - name: Guard script tests\n        if: ${{ !cancelled() }}\n");
+  found(".github/workflows/ci.yml", anyway, WORKFLOW, /step "Guard script tests" of job "guardrails" no longer runs after an earlier step fails: its if: !cancelled\(\) is removed/);
+  const narrowed = edit(anyway, "if: ${{ !cancelled() }}", "if: ${{ !cancelled() && github.event_name == 'pull_request' }}");
+  found(".github/workflows/ci.yml", narrowed, edit(anyway, "if: ${{ !cancelled() }}", "if: github.event_name == 'pull_request'"), /step "Guard script tests" of job "guardrails" gets a new condition/);
+  const job = edit(WORKFLOW, "  e2e:\n", "  e2e:\n    if: always()\n");
+  found(".github/workflows/ci.yml", job, WORKFLOW, /job "e2e" no longer runs after a job it needs fails: its if: always\(\) is removed/);
+  // A step that checks nothing, such as an upload, may lose it.
+  passes(".github/workflows/ci.yml", edit(WORKFLOW, "if: failure()", "if: always()"), edit(WORKFLOW, "        if: failure()\n", ""));
 });
 
 test("workflows: a removed step or job is found, a renamed step passes", () => {
@@ -415,6 +427,11 @@ test("workflows: every workflow of this repository parses, and is unchanged agai
   }
   const guardrails = parseWorkflow(readFileSync(join(WORKFLOWS, "ci.yml"), "utf8")).find((job) => job.id === "guardrails");
   assert.ok(guardrails.text.includes("node scripts/ci-base/check-test-integrity.mjs --base HEAD^1"));
+  // Every check of Guardrails runs even when one before it fails, so none hides another (#630).
+  const copy = guardrails.steps.findIndex((step) => step.key === "Guard scripts from the base branch");
+  const checks = guardrails.steps.slice(copy + 1);
+  assert.ok(copy > 0 && checks.length >= 6);
+  for (const step of checks) assert.match(step.if ?? "", /^!cancelled\(\)(?: && |$)/, step.key);
 });
 
 // --- Ban lists -----------------------------------------------------------------------------------

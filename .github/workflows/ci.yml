@@ -59,11 +59,17 @@ jobs:
           if [ "$EVENT" = pull_request ]; then
             git archive HEAD^1 scripts/ci | tar -x --strip-components=2 -C scripts/ci-base
           fi
+      # Each check below runs even when one before it fails: an expected red (a guard changed
+      # together with what it checks, or a permission the base's list does not have yet) must
+      # not hide another finding of the same PR (#630).
       - name: Forbidden telemetry / network dependencies
+        if: ${{ !cancelled() }}
         run: bash scripts/ci-base/check-forbidden.sh
       - name: ADR numbering and index
+        if: ${{ !cancelled() }}
         run: bash scripts/ci-base/check-adr.sh
       - name: Test corpus is reproducible
+        if: ${{ !cancelled() }}
         run: |
           python3 tests/corpus/generate.py
           if [ -n "$(git status --porcelain -- tests/corpus)" ]; then
@@ -72,11 +78,13 @@ jobs:
             exit 1
           fi
       - name: CSP, dev CSP and capabilities
+        if: ${{ !cancelled() }}
         run: node scripts/ci-base/check-security-config.mjs
       - name: The PR switches off no check that judges it
-        if: github.event_name == 'pull_request'
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         run: node scripts/ci-base/check-test-integrity.mjs --base HEAD^1
       - name: Guard script tests
+        if: ${{ !cancelled() }}
         run: node --test scripts/ci/*.test.mjs
 
   pr-hygiene:

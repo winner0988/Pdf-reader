@@ -319,6 +319,8 @@ const CHECK_SCRIPTS = ["lint", "typecheck", "test", "e2e"];
 
 // A condition that can only make a step or job run more often.
 const RUNS_MORE = /^(?:always\(\)|!\s*cancelled\(\))$/;
+// A condition with which a step or job runs even after an earlier one failed.
+const RUNS_AFTER_FAILURE = /(?:\balways|!\s*cancelled)\s*\(\s*\)/;
 
 /** The 1-based line range of the bracketed block that starts on line index `i`. */
 function blockAt(lines, i, comment) {
@@ -607,6 +609,10 @@ function checkWorkflow(path, base, head, removedLines) {
     now !== was &&
     !RUNS_MORE.test(now) &&
     !(was !== null && (now.startsWith(`${was} ||`) || now.startsWith(`(${was}) ||`)));
+  // A condition that let the job or step run after an earlier failure, and is gone: it now runs
+  // only when everything before it passed, so an expected red can hide its findings.
+  const lostRunAnyway = (now, was) => now === null && was !== null && RUNS_AFTER_FAILURE.test(was);
+  const runsCheck = (step) => /scripts\/ci(?:-base)?\//.test(step.body) || CHECK_COMMAND.test(step.body);
 
   // The pull request triggers may gain paths or branches to run on, nothing else.
   const was = base === null ? null : prTriggers(base);
@@ -642,12 +648,18 @@ function checkWorkflow(path, base, head, removedLines) {
       if (was && newCondition(step.if, was.if)) {
         report(step.ifLine, `step "${step.key}" of job "${job.id}" gets a new condition, so it may not run: if: ${step.if}`);
       }
+      if (was && lostRunAnyway(step.if, was.if) && runsCheck(step)) {
+        report(step.line, `step "${step.key}" of job "${job.id}" no longer runs after an earlier step fails: its if: ${was.if} is removed.`);
+      }
     });
     for (const gone of oldSteps) {
       report(job.line, `step "${gone.key}" of job "${job.id}" is removed.`);
     }
     if (old && newCondition(job.if, old.if)) {
       report(job.ifLine, `job "${job.id}" gets a new condition, so it may not run: if: ${job.if}`);
+    }
+    if (old && lostRunAnyway(job.if, old.if)) {
+      report(job.line, `job "${job.id}" no longer runs after a job it needs fails: its if: ${old.if} is removed.`);
     }
   }
   for (const job of before) {

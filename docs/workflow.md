@@ -55,7 +55,11 @@ AGENTS.md「禁止事項」第 1 條：不得關閉、略過或刪除測試與 C
 - PR 上，`Guardrails` 與 `Frontend` 先把 base 分支的 `scripts/ci/` 放到 `scripts/ci-base/`，再用它檢查 PR 的檔案。PR 改不了判斷它的規則。
 - base 還沒有的守門腳本，照 PR 裡的版本跑。
 - 改守門腳本的 PR，合併後才生效。同一個 PR 又改守門腳本、又改它檢查的內容，CI 會用舊規則判斷而變紅：拆成兩個 PR，先合併改守門腳本的那個。
+  - 最常見的是加新的 Tauri 命令：它的權限要加進 `check-security-config.mjs` 的 `ALLOWED_PERMISSIONS`，base 的版本沒有這一筆。
+  - 先開一個只在 `ALLOWED_PERMISSIONS` 加這一筆的 PR（附上理由，加 `needs-security-review`），合併後再送功能的 PR。
+  - 或者在功能 PR 的說明寫明，交給負責人照紅合併。
 - 守門腳本自身的測試（`node --test scripts/ci/*.test.mjs`）照 PR 的版本跑。
+- `Guardrails` 的每一項檢查都會跑，前面的檢查紅了也一樣。所以預期中的紅，不會蓋掉同一個 PR 的其他發現。
 
 **`check-test-integrity.mjs` 比對 PR 與 base**
 
@@ -74,6 +78,7 @@ AGENTS.md「禁止事項」第 1 條：不得關閉、略過或刪除測試與 C
 - **workflow**：
   - 不是 `false` 的 `continue-on-error`；
   - 原本就有的 job 或 step 加上或改了 `if:`。只會讓它多跑的條件不算，例如 `always()`、「原條件 `||` 別的條件」。
+  - job 或執行檢查的 step 原本有 `always()` 或 `!cancelled()`（前面失敗也照樣跑），這個條件被拿掉；
   - job 或 step 被刪掉；
   - pull request 的觸發條件變了（只多加 paths 不算）；
   - 決定其他 job 跑不跑的 job（例如 `detect`）變了；
