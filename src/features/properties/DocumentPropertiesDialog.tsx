@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatFileSize } from "@/features/attachments/size";
 import { defaultPropertiesApi, type PropertiesApi } from "@/features/properties/api";
 import { formatPageSizes, formatPdfDate } from "@/features/properties/format";
+import { ipcErrorMessage } from "@/ipc/errors";
 import type {
   DocumentFonts,
   DocumentId,
@@ -65,7 +66,7 @@ function PropertiesModalContent({
       })
       .catch((err) => {
         if (active) {
-          setPropsError(String(err));
+          setPropsError(ipcErrorMessage(err));
           setLoadingProps(false);
         }
       });
@@ -80,7 +81,7 @@ function PropertiesModalContent({
       })
       .catch((err) => {
         if (active) {
-          setFontsError(String(err));
+          setFontsError(ipcErrorMessage(err));
           setLoadingFonts(false);
         }
       });
@@ -102,8 +103,11 @@ function PropertiesModalContent({
         <div className="py-8 text-center text-sm text-muted-foreground">{strings.licenses.loading}</div>
       )}
 
-      {propsError && (
-        <div className="py-8 text-center text-sm text-destructive">{propsError}</div>
+      {propsError !== null && (
+        <div className="py-8 text-center text-sm text-destructive">
+          <p>{t.loadPropertiesError}</p>
+          {propsError !== "" && <p>{propsError}</p>}
+        </div>
       )}
 
       {properties && (
@@ -262,8 +266,11 @@ function PropertiesModalContent({
             {loadingFonts && (
               <div className="py-8 text-center text-sm text-muted-foreground">{t.loadingFonts}</div>
             )}
-            {fontsError && (
-              <div className="py-8 text-center text-sm text-destructive">{t.loadFontsError}</div>
+            {fontsError !== null && (
+              <div className="py-8 text-center text-sm text-destructive">
+                <p>{t.loadFontsError}</p>
+                {fontsError !== "" && <p>{fontsError}</p>}
+              </div>
             )}
             {fonts && (
               <>

@@ -1708,6 +1708,7 @@ export const strings = {
     noFonts: "這份文件未嵌入或參照任何字型",
     fontsTruncated: "（搜尋已達上限，顯示部分字型）",
     loadingFonts: "正在掃描字型…",
+    loadPropertiesError: "無法讀取文件內容",
     loadFontsError: "無法載入字型清單",
     close: "關閉",
   },
