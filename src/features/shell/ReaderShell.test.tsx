@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { demoDocument } from "@/features/shell/demo";
+import type { ExportApi } from "@/features/export/api";
 import type { SensitiveApi } from "@/features/sensitive/api";
 import type { DocumentPermissions, ShellDocument, ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
@@ -1455,6 +1456,57 @@ describe("theme", () => {
       expect(twoPageCoverRadio).toHaveAttribute("aria-checked", "false");
 
       await user.click(twoPageCoverRadio);
+    });
+  });
+
+  describe("XFDF export (B5-09)", () => {
+    it("exports annotations as XFDF and reports outcome in status bar", async () => {
+      const exportAnnotationsXfdf = vi.fn().mockResolvedValue({
+        kind: "written",
+        count: 5,
+        skipped: 1,
+        truncated: false,
+      });
+      const exportApi: ExportApi = {
+        exportPages: vi.fn(),
+        cancel: vi.fn(),
+        exportAnnotationsXfdf,
+      };
+
+      const docState: ShellState = { kind: "open", document: { ...demoDocument, doc: 5 } };
+      const { user } = renderShell(docState, { exportApi });
+      await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+
+      const item = await screen.findByRole("menuitem", { name: strings.menu.exportXfdf });
+      await user.click(item);
+
+      expect(exportAnnotationsXfdf).toHaveBeenCalledWith({ doc: 5 });
+      await waitFor(() => {
+        expect(screen.getByRole("contentinfo")).toHaveTextContent("已匯出 5 個註解到 XFDF 檔。（略過 1 個不支援的項目）");
+      });
+    });
+
+    it("reports empty annotations when exporting XFDF", async () => {
+      const exportAnnotationsXfdf = vi.fn().mockResolvedValue({
+        kind: "empty",
+        skipped: 0,
+      });
+      const exportApi: ExportApi = {
+        exportPages: vi.fn(),
+        cancel: vi.fn(),
+        exportAnnotationsXfdf,
+      };
+
+      const docState: ShellState = { kind: "open", document: { ...demoDocument, doc: 5 } };
+      const { user } = renderShell(docState, { exportApi });
+      await user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+
+      const item = await screen.findByRole("menuitem", { name: strings.menu.exportXfdf });
+      await user.click(item);
+
+      await waitFor(() => {
+        expect(screen.getByRole("contentinfo")).toHaveTextContent(strings.exportXfdf.empty);
+      });
     });
   });
 });
