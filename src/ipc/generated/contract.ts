@@ -1455,7 +1455,8 @@ uri: string,
  */
 opens: string, 
 /**
- * The site the browser will contact (for `mailto`, the mail domain), as it reads.
+ * The site the browser will contact, as it reads. For mailto, every recipient's mail domain
+ * in order, without repeats, joined by ", " (#610).
  */
 host: string | null, 
 /**

@@ -20,6 +20,7 @@ import type {
   CompareExportFormat,
   CompareTextResult,
   DocumentId,
+  PageSize,
   TabId,
 } from "@/ipc/generated/contract";
 
@@ -30,6 +31,7 @@ export type CompareTabOption = {
   doc: DocumentId;
   displayName: string;
   copyAllowed: boolean;
+  pages?: PageSize[];
 };
 
 export type CompareDialogProps = {

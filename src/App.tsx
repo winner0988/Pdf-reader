@@ -126,11 +126,13 @@ export default function App({
       if (item.content.kind === "open" && item.content.document.doc !== undefined) {
         const info = latestInfo(item.tab);
         const copyAllowed = info?.permissions.copy ?? item.content.document.permissions.copy;
+        const pages = info?.pages ?? item.content.document.pages;
         list.push({
           tab: item.tab,
           doc: item.content.document.doc,
           displayName: item.displayName,
           copyAllowed,
+          pages,
         });
       }
     }
@@ -225,6 +227,7 @@ export default function App({
                   tab={tab}
                   active={tab.tab === state.active}
                   dropActive={state.dragActive}
+                  renderApi={renderApi}
                   renderer={renderer}
                   outlineApi={outlineApi}
                   searchApi={searchApi}
@@ -312,6 +315,7 @@ type TabPaneProps = {
   formsApi: FormsApi;
   signaturesApi: SignaturesApi;
   systemApi: SystemApi;
+  renderApi?: RenderApi;
   recentApi: RecentApi;
   exportApi: ExportApi;
   compareApi?: CompareApi;
