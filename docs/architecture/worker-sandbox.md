@@ -94,7 +94,7 @@ AppContainer 不影響這個流程：handle 在複製時就已帶著存取權限
 網路由三層擋住：
 
 1. **作業系統**：AppContainer 沒有 `internetClient`、`internetClientServer`、`privateNetworkClientServer` capability，Windows 拒絕所有連線，包含 loopback。即使 MuPDF 被惡意 PDF 攻破、攻擊者自行載入 Winsock，也連不出去（`network_is_blocked_even_to_localhost`；對照組：不使用 AppContainer 時同一個 probe 可以連上）。授予任何 capability 都必須另立 ADR。
-2. **連結**：worker 不連結任何網路程式庫。`cargo-deny` 禁止 HTTP／WebSocket／TLS crate（MVP-13），且測試確認 worker 執行檔的匯入表沒有 `ws2_32`、`wininet`、`winhttp`、`urlmon`、`dnsapi` 等。
+2. **連結**：worker 不連結任何網路程式庫。`cargo-deny` 禁止 HTTP／WebSocket／TLS crate（MVP-13），且測試確認 worker 執行檔的匯入表（包括延遲載入的匯入表）沒有 `ws2_32`、`wininet`、`winhttp`、`urlmon`、`dnsapi` 等。
 3. **引擎**：MuPDF 以 `default-features = false` 建置，本身不會發出網路請求。
 
 Job Object、restricted token 與 Low 完整性本身**不會**阻止連網；只靠它們時，同一個 probe 連得上 127.0.0.1。
