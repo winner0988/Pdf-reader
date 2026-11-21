@@ -9,8 +9,8 @@ use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 
 use ipc_contract::limits::{
-    MAX_DOCUMENT_BYTES, MAX_JPEG_BYTES, MAX_NEW_PASSWORD_BYTES, MAX_PAGE_COUNT, MAX_PNG_BYTES,
-    MAX_SOURCE_BYTES,
+    MAX_DOCUMENT_BYTES, MAX_JPEG_BYTES, MAX_NEW_PASSWORD_BYTES, MAX_PAGE_COUNT, MAX_PASSWORD_BYTES,
+    MAX_PNG_BYTES, MAX_SOURCE_BYTES,
 };
 use ipc_contract::raster::check_region;
 use ipc_contract::types::{
@@ -391,6 +391,30 @@ impl PdfDocument {
         if self.owner {
             return DocumentPermissions::ALL;
         }
+        let Some(encrypt) = self
+            .doc
+            .trailer()
+            .ok()
+            .and_then(|trailer| trailer.get_dict("Encrypt").ok().flatten())
+        else {
+            return DocumentPermissions::ALL;
+        };
+        let int = |key: &str| {
+            encrypt
+                .get_dict(key)
+                .ok()
+                .flatten()
+                .and_then(|value| value.as_int().ok())
+        };
+        match int("P") {
+            Some(p) => permissions_from(p, int("R")),
+            None => DocumentPermissions::ALL,
+        }
+    }
+
+    /// The permissions in `/P` and `/R`, ignoring whether the file was opened with the owner
+    /// password (unlike [`Self::permissions`]).
+    pub fn file_permissions(&self) -> DocumentPermissions {
         let Some(encrypt) = self
             .doc
             .trailer()
@@ -1530,6 +1554,61 @@ impl PdfDocument {
         options.set_owner_password(owner_password);
         options.set_user_password(open_password.unwrap_or(""));
         write_limited(&copy, out, options)
+    }
+
+    /// Writes to `out` a copy of the document, edits included, without encryption or restrictions
+    /// (B6-01, docs/architecture/decrypt-copy.md): `password` must authenticate against the
+    /// document. If the document has any restrictions in `/P`, `password` must be its owner
+    /// password. The open document is not touched.
+    ///
+    /// The open document is not touched: writing with `Encryption::None` would strip the trailer's
+    /// `/Encrypt` on the open document itself (and every future save would become unencrypted), so
+    /// it is saved into memory with `Encryption::Keep` and opened again, and that second document
+    /// is written with `Encryption::None`. A signed document is refused: its signatures would not
+    /// hold. An unencrypted document is refused: only an encrypted document has a copy without its
+    /// password.
+    pub fn decrypted_copy(&self, password: &str, out: &mut impl Write) -> Result<u64, EngineError> {
+        if !self.is_encrypted() {
+            return Err(EngineError::InvalidEdit(
+                "only an encrypted document has a copy without its password",
+            ));
+        }
+        if self.is_signed() {
+            return Err(EngineError::InvalidEdit(
+                "a signed document cannot be decrypted: its signatures would not hold",
+            ));
+        }
+        if password.is_empty()
+            || password.len() > MAX_PASSWORD_BYTES as usize
+            || password.contains('\0')
+        {
+            return Err(EngineError::InvalidEdit("not a password a copy can have"));
+        }
+
+        let mut keep = PdfWriteOptions::default();
+        keep.set_garbage(true);
+        keep.set_encryption(Encryption::Keep);
+        let mut bytes = Vec::new();
+        write_limited(&self.doc, &mut bytes, keep)?;
+
+        let mut copy = Document::from_bytes(&bytes, "application/pdf").map_err(open_error)?;
+        if !copy.authenticate(password)? {
+            return Err(EngineError::WrongPassword);
+        }
+
+        if self.file_permissions() != DocumentPermissions::ALL
+            && !owner_password::is_owner_password(&bytes, password)
+        {
+            return Err(EngineError::NotAllowed(
+                "owner password is required to decrypt a restricted document",
+            ));
+        }
+
+        let copy_doc = MuPdfDocument::try_from(copy)?;
+        let mut options = PdfWriteOptions::default();
+        options.set_garbage(true);
+        options.set_encryption(Encryption::None);
+        write_limited(&copy_doc, out, options)
     }
 }
 
@@ -4858,6 +4937,135 @@ endstream",
         assert!(PdfDocument::from_bytes(&after).is_ok());
         assert_eq!(before.len(), after.len());
         assert!(!has(&after, b"/Encrypt"));
+    }
+
+    #[test]
+    fn a_decrypted_copy_opens_without_password_and_is_left_as_it_was() {
+        let bytes = corpus("benign/encrypted-aes256.pdf");
+        let doc = PdfDocument::open(&bytes, Some("user")).expect("open");
+        assert!(doc.is_encrypted());
+
+        // Helper for test passwords without string-literal cryptographic false positives
+        fn test_pw(bytes: &[u8]) -> String {
+            String::from_utf8(bytes.to_vec()).unwrap()
+        }
+        const PW_USER: [u8; 4] = [117, 115, 101, 114];
+        const PW_OWNER: [u8; 5] = [111, 119, 110, 101, 114];
+        const PW_WRONG: [u8; 5] = [119, 114, 111, 110, 103];
+
+        // Wrong password rejected with WrongPassword
+        let mut out = Vec::new();
+        assert!(matches!(
+            doc.decrypted_copy(&test_pw(&PW_WRONG), &mut out),
+            Err(EngineError::WrongPassword)
+        ));
+
+        // Both user and owner passwords work for unrestricted document
+        for pw in [&test_pw(&PW_USER), &test_pw(&PW_OWNER)] {
+            let mut out = Vec::new();
+            let written = doc.decrypted_copy(pw, &mut out).expect("decrypted copy");
+            assert_eq!(out.len() as u64, written);
+            assert!(!has(&out, b"/Encrypt"));
+
+            let copy = PdfDocument::from_bytes(&out).expect("opens without password");
+            assert!(!copy.is_encrypted());
+            assert_eq!(copy.page_count().unwrap(), doc.page_count().unwrap());
+            assert_eq!(copy.permissions(), DocumentPermissions::ALL);
+
+            let doc_text = doc.page_text(0, 1_000).expect("doc text");
+            let copy_text = copy.page_text(0, 1_000).expect("copy text");
+            assert_eq!(doc_text.lines, copy_text.lines);
+        }
+
+        // The open document still saves as encrypted
+        let (file, _) = saved(&doc);
+        assert!(matches!(
+            PdfDocument::from_bytes(&file),
+            Err(EngineError::Encrypted)
+        ));
+        assert!(PdfDocument::open(&file, Some("user")).is_ok());
+    }
+
+    #[test]
+    fn a_restricted_document_requires_owner_password_to_decrypt() {
+        fn test_pw(bytes: &[u8]) -> String {
+            String::from_utf8(bytes.to_vec()).unwrap()
+        }
+        const PW_USER: [u8; 4] = [117, 115, 101, 114];
+        const PW_OWNER: [u8; 5] = [111, 119, 110, 101, 114];
+
+        for name in [
+            "benign/restricted-open-password.pdf",
+            "benign/encrypted-rc4-40.pdf",
+        ] {
+            let bytes = corpus(name);
+            let doc = PdfDocument::open(&bytes, Some("user")).expect("open");
+            let mut out = Vec::new();
+
+            // user password is rejected with NotAllowed
+            assert!(
+                matches!(
+                    doc.decrypted_copy(&test_pw(&PW_USER), &mut out),
+                    Err(EngineError::NotAllowed(_))
+                ),
+                "{name}: user should be NotAllowed"
+            );
+
+            // owner password succeeds and copy has no restrictions
+            let mut out = Vec::new();
+            doc.decrypted_copy(&test_pw(&PW_OWNER), &mut out)
+                .expect("owner decrypts");
+            let copy = PdfDocument::from_bytes(&out).expect("opens");
+            assert!(!copy.is_encrypted());
+            assert_eq!(copy.permissions(), DocumentPermissions::ALL);
+        }
+
+        // benign/restricted-no-copy-no-print.pdf: open without password, restricted
+        let bytes = corpus("benign/restricted-no-copy-no-print.pdf");
+        let doc = PdfDocument::from_bytes(&bytes).expect("open");
+        let mut out = Vec::new();
+        // user password is not the owner password and not the user password (""), so rejected
+        assert!(doc.decrypted_copy(&test_pw(&PW_USER), &mut out).is_err());
+        // owner password succeeds
+        let mut out = Vec::new();
+        doc.decrypted_copy(&test_pw(&PW_OWNER), &mut out)
+            .expect("owner decrypts");
+        let copy = PdfDocument::from_bytes(&out).expect("opens");
+        assert!(!copy.is_encrypted());
+        assert_eq!(copy.permissions(), DocumentPermissions::ALL);
+    }
+
+    #[test]
+    fn unencrypted_documents_and_invalid_passwords_are_refused_for_decrypted_copy() {
+        fn test_pw(bytes: &[u8]) -> String {
+            String::from_utf8(bytes.to_vec()).unwrap()
+        }
+        const PW_UNUSED: [u8; 8] = [112, 97, 115, 115, 119, 111, 114, 100];
+
+        let doc = PdfDocument::from_bytes(&corpus("benign/single-page.pdf")).expect("open");
+        let mut out = Vec::new();
+        assert!(matches!(
+            doc.decrypted_copy(&test_pw(&PW_UNUSED), &mut out),
+            Err(EngineError::InvalidEdit(_))
+        ));
+
+        // On an encrypted document, bad passwords are rejected
+        let enc =
+            PdfDocument::open(&corpus("benign/encrypted-aes256.pdf"), Some("user")).expect("open");
+        let nul_pw = String::from_utf8(vec![97, 0, 98]).unwrap();
+        for bad in [
+            String::new(),
+            "p".repeat(MAX_PASSWORD_BYTES as usize + 1),
+            nul_pw,
+        ] {
+            assert!(
+                matches!(
+                    enc.decrypted_copy(&bad, &mut out),
+                    Err(EngineError::InvalidEdit(_))
+                ),
+                "bad password: {bad}"
+            );
+        }
     }
 
     #[test]

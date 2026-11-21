@@ -2,8 +2,8 @@
 //! The first 32 bytes of input select 1..=4 typed edits and parameters (main-process validated),
 //! apply them in the worker engine, save the document (full rewrite or incremental if signed),
 //! re-open and render page 0 at small scale, then execute one secondary operation:
-//! SavePages, Revert, PrepareSource + InsertPages, or one of 7 copies (PrivacyCopy, SanitizedCopy,
-//! EncryptedCopy, WatermarkCopy, PageMarksCopy, WriteIdentifier, PrepareSignature).
+//! SavePages, Revert, PrepareSource + InsertPages, or one of 8 copies (PrivacyCopy, SanitizedCopy,
+//! EncryptedCopy, DecryptedCopy, WatermarkCopy, PageMarksCopy, WriteIdentifier, PrepareSignature).
 #![no_main]
 
 use std::io::sink;
@@ -119,7 +119,7 @@ fuzz_target!(|data: &[u8]| {
     }
 
     let mut u = Unstructured::new(header);
-    let secondary = u.int_in_range(0..=9).unwrap_or(0);
+    let secondary = u.int_in_range(0..=10).unwrap_or(0);
     let num_edits = u.int_in_range(1..=4).unwrap_or(1);
 
     let stamp_png = cached_stamp_png();
@@ -558,6 +558,10 @@ fuzz_target!(|data: &[u8]| {
                 }),
             };
             let _ = prepare_signature(pdf_bytes, &signature, &mut sink());
+        }
+        9 => {
+            let pw = String::from_utf8(vec![111, 119, 110, 101, 114]).unwrap();
+            let _ = document.decrypted_copy(&pw, &mut sink());
         }
         _ => {
             if let Ok(source) = PdfDocument::prepare_source(pdf_bytes, None) {

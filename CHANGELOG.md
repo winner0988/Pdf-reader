@@ -4,6 +4,10 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 ## [Unreleased]
 
+### 新增
+
+- 「另存沒有密碼的副本」：加密的文件可以另存一份沒有密碼、沒有限制的副本；作者設了限制時要輸入權限密碼（#586）。
+
 ### 修正
 
 - 「文件內容」對話框讀不到資料時，會說明原因（例如 PDF 引擎沒有回應），不再顯示 `[object Object]`（#634）。
