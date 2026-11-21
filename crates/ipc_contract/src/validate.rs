@@ -17,7 +17,7 @@ use crate::text::{
 use crate::types::{
     AnnotationKind, AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind,
     AttachmentInfo, AttachmentSource, BatchArgs, BatchOperation, CompareTextArgs,
-    CompareTextResult, CompressArgs, DocumentFontEntry, DocumentFonts, DocumentInfo,
+    CompareTextResult, CompressArgs, DecryptArgs, DocumentFontEntry, DocumentFonts, DocumentInfo,
     DocumentProperties, Edit, EditArgs, EncryptArgs, ExportArgs, ExportCompareTextArgs,
     ExportFormat, FindPersonalDataQuery, FindingKind, FontImport, FontInfo, FormField,
     IndexSearchArgs, IndexSearchEvent, IndexSnippet, IpcError, LineEnds, LinkTarget, OcrLanguages,
@@ -1046,6 +1046,12 @@ impl Validate for EncryptArgs {
             self.permissions_password.as_ref(),
             self.restrictions,
         )
+    }
+}
+
+impl Validate for DecryptArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_password(&self.password)
     }
 }
 
@@ -3900,6 +3906,57 @@ mod tests {
                 .validate()
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn what_a_decrypted_copy_needs_is_checked() {
+        let valid = DecryptArgs {
+            doc: DocumentId(1),
+            password: Password::new("owner".to_owned()),
+        };
+        assert!(valid.validate().is_ok());
+
+        // Passwords: not empty, no NUL, at most MAX_PASSWORD_BYTES (1024).
+        let longest = "p".repeat(MAX_PASSWORD_BYTES as usize);
+        assert!(
+            DecryptArgs {
+                doc: DocumentId(1),
+                password: Password::new(longest.clone()),
+            }
+            .validate()
+            .is_ok()
+        );
+
+        assert!(
+            DecryptArgs {
+                doc: DocumentId(1),
+                password: Password::new(format!("{longest}p")),
+            }
+            .validate()
+            .is_err()
+        );
+
+        assert!(
+            DecryptArgs {
+                doc: DocumentId(1),
+                password: Password::new(String::new()),
+            }
+            .validate()
+            .is_err()
+        );
+
+        assert!(
+            DecryptArgs {
+                doc: DocumentId(1),
+                password: Password::new("a\0b".to_owned()),
+            }
+            .validate()
+            .is_err()
+        );
+
+        // Extra fields rejected by deny_unknown_fields
+        let json = r#"{"doc": 1, "password": "owner", "extra": 42}"#;
+        assert!(serde_json::from_str::<DecryptArgs>(json).is_err());
     }
 
     #[test]

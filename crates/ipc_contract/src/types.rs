@@ -144,6 +144,16 @@ pub struct EncryptArgs {
     pub restrictions: Restrictions,
 }
 
+/// Arguments of `decrypt_copy` (B6-01): the open document is written, without encryption or
+/// restrictions, to a file the user chooses next. The password is never stored or logged (see
+/// [`Password`]). Any other field is rejected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DecryptArgs {
+    pub doc: DocumentId,
+    pub password: Password,
+}
+
 /// What a batch does to each of its files (B3-04, ADR 0005, docs/architecture/batch.md): a copy of
 /// each is written to the folder the user chooses; no file is changed. An operation with fields
 /// has those only: any other field is rejected.

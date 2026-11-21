@@ -53,6 +53,7 @@ pub fn bindings() -> String {
         PagesSource,
         Restrictions,
         EncryptArgs,
+        DecryptArgs,
         WatermarkContent,
         WatermarkPlace,
         WatermarkPages,

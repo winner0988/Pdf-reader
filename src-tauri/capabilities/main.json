@@ -75,6 +75,7 @@
     "allow-privacy-export",
     "allow-page-marks-copy",
     "allow-encrypt-copy",
+    "allow-decrypt-copy",
     "allow-compress-images",
     "allow-sanitize-copy",
     "allow-get-ocr-languages",

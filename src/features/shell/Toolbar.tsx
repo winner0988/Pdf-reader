@@ -127,6 +127,10 @@ export type ToolbarProps = {
   onSearchAll?: () => void;
   /** An encrypted document has no encrypted copy (B2-15): the menu item says so. */
   encryptCopyBlocked?: boolean;
+  /** Writes a copy of an encrypted document without its password (docs/architecture/decrypt-copy.md). */
+  onDecryptCopy?: () => void;
+  /** An unencrypted document has no decrypted copy: the menu item says so. */
+  decryptCopyBlocked?: boolean;
   /** Forgets the password the app remembers for this file (B2-26); given only when there is one. */
   onForgetPassword?: () => void;
   /** Writes a copy whose pictures are compressed (B3-01); without it the menu item is disabled. */
@@ -740,6 +744,7 @@ function MoreMenu(props: ToolbarProps) {
         {renderItem("sanitizeCopy")}
         {renderItem("pageMarks")}
         {renderItem("encryptCopy")}
+        {renderItem("decryptCopy")}
         {renderItem("searchAll")}
         {renderItem("batch")}
         {props.onForgetPassword && renderItem("forgetPassword")}

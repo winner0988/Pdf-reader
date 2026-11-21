@@ -993,6 +993,16 @@ pub enum WorkerRequest {
         owner_password: Password,
         restrictions: Restrictions,
     },
+    /// Writes to `file` (as for `Save`) a copy of the document, edits included, without encryption
+    /// or restrictions (B6-01, docs/architecture/decrypt-copy.md). The open document is not changed.
+    /// Answered by `Saved`, never appended. Refused for an unencrypted document and for a signed one
+    /// (its signatures would not hold). The password is wiped as any password is (MVP-16).
+    DecryptedCopy {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
+        password: Password,
+    },
     /// Writes to `file` (as for `Save`) a copy of the document, edits included, with `watermark`
     /// on its pages (B3-04, docs/architecture/watermark.md). `picture` is the PNG of a picture
     /// watermark (a stamp picture, B2-08), and nothing for words. The open document is not
