@@ -41,9 +41,10 @@ cdnjs\.cloudflare\.com
 # The app's one network request is the update check the user asks for (#64), sent from the main
 # process with Windows' own WinHTTP; HTTP and TLS crates stay banned in deny.toml. A pattern
 # followed by "@only <path>..." may appear in those files and nowhere else: WinHTTP only in the
-# update check's module, its feature only in src-tauri/Cargo.toml, and its name in the worker's
-# isolation test, which checks that the worker never loads it.
-WinHttp @only src-tauri/src/update_check.rs src-tauri/Cargo.toml crates/pdf_worker/tests/isolation.rs
+# update check's module, its feature only in src-tauri/Cargo.toml, and its name in the import
+# tests, which check that the worker never loads it and that it is the main executable's only
+# networking DLL (#612).
+WinHttp @only src-tauri/src/update_check.rs src-tauri/Cargo.toml crates/pdf_worker/tests/isolation.rs src-tauri/tests/binary_imports.rs
 
 # Tauri plugins with network capability: none, the update check included.
 tauri-plugin-http
