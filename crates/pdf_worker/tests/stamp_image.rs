@@ -8,7 +8,7 @@ use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
 use ipc_contract::limits::MAX_STAMP_SIDE_PX;
-use ipc_contract::types::{AnnotationKind, DocumentId, Rect};
+use ipc_contract::types::{AnnotationKind, DocumentId, Rect, Rotation};
 use ipc_contract::validate::stamp_png_size;
 use ipc_contract::worker::{WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse};
 use worker_host::{HostConfig, HostError, WorkerHost};
@@ -264,4 +264,157 @@ fn a_stamp_edit_with_something_else_than_a_stamp_picture_is_refused() {
         assert!(refused.is_err(), "{refused:?}");
     }
     assert!(host.is_running());
+}
+
+fn make_transparent_line_png(width: u32, height: u32) -> Vec<u8> {
+    let mut raw_scanlines = Vec::new();
+    let mid_y = height / 2;
+    for y in 0..height {
+        raw_scanlines.push(0u8); // filter type none
+        let is_line = y == mid_y || (height > 1 && y == mid_y - 1);
+        for _x in 0..width {
+            if is_line {
+                raw_scanlines.extend_from_slice(&[0, 0, 0, 255]); // opaque black
+            } else {
+                raw_scanlines.extend_from_slice(&[0, 0, 0, 0]); // transparent
+            }
+        }
+    }
+
+    let mut zlib = vec![0x78, 0x01];
+    let len = raw_scanlines.len();
+    assert!(len <= 65535, "length fits in u16");
+    let len_u16 = len as u16;
+    let nlen_u16 = !len_u16;
+    zlib.push(0x01); // BFINAL=1, BTYPE=00 (uncompressed)
+    zlib.extend_from_slice(&len_u16.to_le_bytes());
+    zlib.extend_from_slice(&nlen_u16.to_le_bytes());
+    zlib.extend_from_slice(&raw_scanlines);
+
+    let mut s1 = 1u32;
+    let mut s2 = 0u32;
+    for b in &raw_scanlines {
+        s1 = (s1 + *b as u32) % 65521;
+        s2 = (s2 + s1) % 65521;
+    }
+    let adler = (s2 << 16) | s1;
+    zlib.extend_from_slice(&adler.to_be_bytes());
+
+    let mut png = Vec::new();
+    png.extend_from_slice(&[137, 80, 78, 71, 13, 10, 26, 10]);
+
+    let mut ihdr = Vec::new();
+    ihdr.extend_from_slice(&width.to_be_bytes());
+    ihdr.extend_from_slice(&height.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
+    write_png_chunk(&mut png, b"IHDR", &ihdr);
+    write_png_chunk(&mut png, b"IDAT", &zlib);
+    write_png_chunk(&mut png, b"IEND", &[]);
+    png
+}
+
+fn write_png_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+    out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+    out.extend_from_slice(kind);
+    out.extend_from_slice(data);
+    let mut crc_input = Vec::new();
+    crc_input.extend_from_slice(kind);
+    crc_input.extend_from_slice(data);
+    out.extend_from_slice(&calc_crc32(&crc_input).to_be_bytes());
+}
+
+fn calc_crc32(data: &[u8]) -> u32 {
+    let mut crc = 0xFFFF_FFFFu32;
+    for byte in data {
+        crc ^= *byte as u32;
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xEDBA_7720 & mask);
+        }
+    }
+    !crc
+}
+
+#[test]
+fn a_transparent_png_stamp_preserves_page_color_and_draws_lines_dark() {
+    let mut host = host();
+    let png = make_transparent_line_png(32, 32);
+    assert_eq!(stamp_png_size(&png), Ok((32, 32)));
+
+    let (doc, _) = match host.open(&corpus("benign/single-page.pdf")).expect("open") {
+        (doc, WorkerResponse::Opened { document, .. }) => (doc, document.pages),
+        other => panic!("{other:?}"),
+    };
+
+    let rect = Rect {
+        x0: 100.0,
+        y0: 100.0,
+        x1: 200.0,
+        y1: 200.0,
+    };
+    let stamped = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddImageStamp {
+                page: 0,
+                rect,
+                png: png.clone(),
+            },
+        })
+        .expect("the stamp");
+    assert!(matches!(stamped, WorkerResponse::Edited { .. }));
+
+    let path = std::env::temp_dir().join(format!("transparent-stamp-{}.pdf", std::process::id()));
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .read(true)
+        .write(true)
+        .open(&path)
+        .expect("temp file");
+    let saved = host.save(doc, &file).expect("save");
+    drop(file);
+    assert!(matches!(saved, WorkerResponse::Saved { .. }));
+
+    let mut other = (self::host)();
+    let (again, _) = other.open(&path).expect("open copy");
+    let rendered = other
+        .request(|request| WorkerRequest::Render {
+            request,
+            doc: again,
+            page_index: 0,
+            scale: 1.0,
+            rotation: Rotation::None,
+        })
+        .expect("render");
+    std::fs::remove_file(&path).ok();
+
+    let WorkerResponse::Rendered { raster, .. } = rendered else {
+        panic!("expected Rendered, got {rendered:?}");
+    };
+
+    let pixel_at = |x: u32, y: u32| -> [u8; 4] {
+        let offset = ((y * raster.width + x) * 4) as usize;
+        [
+            raster.pixels[offset],
+            raster.pixels[offset + 1],
+            raster.pixels[offset + 2],
+            raster.pixels[offset + 3],
+        ]
+    };
+
+    // Transparent area shows white page background
+    let transparent_pixel = pixel_at(150, 110);
+    assert!(
+        transparent_pixel[0] > 240 && transparent_pixel[1] > 240 && transparent_pixel[2] > 240,
+        "transparent area should be white page: {transparent_pixel:?}"
+    );
+
+    // Line area is dark
+    let line_pixel = pixel_at(150, 150);
+    assert!(
+        line_pixel[0] < 50 && line_pixel[1] < 50 && line_pixel[2] < 50,
+        "line area should be dark: {line_pixel:?}"
+    );
 }

@@ -208,6 +208,13 @@ pub fn run() {
             commands::stop_ocr,
             commands::set_ocr_focus,
             commands::pick_stamp_image,
+            commands::get_signature_images,
+            commands::get_signature_image_png,
+            commands::add_signature_image,
+            commands::import_signature_image,
+            commands::remove_signature_image,
+            commands::remove_all_signature_images,
+            commands::prepare_signature_stamp,
             commands::run_batch,
             commands::create_pdf,
         ])
