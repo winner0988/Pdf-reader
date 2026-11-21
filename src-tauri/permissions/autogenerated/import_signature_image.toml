@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-import-signature-image"
+description = "Enables the import_signature_image command without any pre-configured scope."
+commands.allow = ["import_signature_image"]
+
+[[permission]]
+identifier = "deny-import-signature-image"
+description = "Denies the import_signature_image command without any pre-configured scope."
+commands.deny = ["import_signature_image"]

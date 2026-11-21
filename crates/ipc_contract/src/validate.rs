@@ -15,19 +15,20 @@ use crate::text::{
     is_invisible_format, is_note_text, is_web_address,
 };
 use crate::types::{
-    AnnotationKind, AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind,
-    AttachmentInfo, AttachmentSource, BatchArgs, BatchOperation, CompareTextArgs,
-    CompareTextResult, CompressArgs, DocumentFontEntry, DocumentFonts, DocumentInfo,
-    DocumentProperties, Edit, EditArgs, EncryptArgs, ExportArgs, ExportCompareTextArgs,
-    ExportFormat, FindPersonalDataQuery, FindingKind, FontImport, FontInfo, FormField,
-    IndexSearchArgs, IndexSearchEvent, IndexSnippet, IpcError, LineEnds, LinkTarget, OcrLanguages,
-    OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageMarkPages,
-    PageMarkPosition, PageMarks, PageMarksCopyArgs, PageNumberFormat, PageSize, PageText, Password,
-    PdfDate, PersonalDataMatch, PersonalDataMatches, Point, PrepareTextBoxArgs, Quad, RasterRegion,
-    RecentFile, Rect, RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
-    Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult,
-    SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs, SensitiveFile,
-    Settings, Shape, SignArgs, SignatureInfo, SignatureReport, SignatureStatus, SigningFileKey,
+    AddSignatureImageArgs, AnnotationKind, AnnotationSummary, AnnotationSummaryItem,
+    AnnotationSummaryKind, AttachmentInfo, AttachmentSource, BatchArgs, BatchOperation,
+    CompareTextArgs, CompareTextResult, CompressArgs, DocumentFontEntry, DocumentFonts,
+    DocumentInfo, DocumentProperties, Edit, EditArgs, EncryptArgs, ExportArgs,
+    ExportCompareTextArgs, ExportFormat, FindPersonalDataQuery, FindingKind, FontImport, FontInfo,
+    FormField, IndexSearchArgs, IndexSearchEvent, IndexSnippet, IpcError, LineEnds, LinkTarget,
+    OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink,
+    PageMarkPages, PageMarkPosition, PageMarks, PageMarksCopyArgs, PageNumberFormat, PageSize,
+    PageText, Password, PdfDate, PersonalDataMatch, PersonalDataMatches, Point,
+    PrepareSignatureStampArgs, PrepareTextBoxArgs, Quad, RasterRegion, RecentFile, Rect,
+    RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation,
+    SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult, SaveAttachmentResult,
+    SearchArgs, SearchHit, SecurityReport, SensitiveArgs, SensitiveFile, Settings, Shape, SignArgs,
+    SignatureImageArgs, SignatureInfo, SignatureReport, SignatureStatus, SigningFileKey,
     SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs, UnlockArgs,
     UnlockSourceArgs, Watermark, WatermarkContent,
 };
@@ -2093,6 +2094,25 @@ impl Validate for PrepareTextBoxArgs {
 }
 
 impl Validate for RemoveFontArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
+    }
+}
+
+impl Validate for SignatureImageArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
+    }
+}
+
+impl Validate for AddSignatureImageArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        stamp_png_size(&self.png)?;
+        Ok(())
+    }
+}
+
+impl Validate for PrepareSignatureStampArgs {
     fn validate(&self) -> Result<(), ValidationError> {
         Ok(())
     }

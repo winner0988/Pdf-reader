@@ -554,6 +554,31 @@ export type StampImageId = number;
 export type StampImageInfo = { image: StampImageId, width: number, height: number, };
 
 /**
+ * An id of a saved signature image (B6-02).
+ */
+export type SignatureImageId = number;
+
+/**
+ * Information about a saved signature image (B6-02).
+ */
+export type SignatureImage = { id: SignatureImageId, width: number, height: number, };
+
+/**
+ * Arguments of commands taking a signature image id (B6-02).
+ */
+export type SignatureImageArgs = { id: SignatureImageId, };
+
+/**
+ * Arguments of `add_signature_image` (B6-02).
+ */
+export type AddSignatureImageArgs = { png: Array<number>, };
+
+/**
+ * Arguments of `prepare_signature_stamp` (B6-02).
+ */
+export type PrepareSignatureStampArgs = { doc: DocumentId, id: SignatureImageId, };
+
+/**
  * An annotation of an open document: the number of its object in the document, which stays
  * the same through edits until the document is saved (B2-07).
  */
@@ -1827,6 +1852,7 @@ export const LIMITS = {
   maxLanguageDataBytes: 67108864,
   maxImportedLanguages: 20,
   maxImportedFonts: 50,
+  maxSignatureImages: 10,
   minPageMarkSizePt: 6,
   maxPageMarkSizePt: 72,
   minPageMarkMarginPt: 0,

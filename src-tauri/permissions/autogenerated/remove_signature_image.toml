@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-remove-signature-image"
+description = "Enables the remove_signature_image command without any pre-configured scope."
+commands.allow = ["remove_signature_image"]
+
+[[permission]]
+identifier = "deny-remove-signature-image"
+description = "Denies the remove_signature_image command without any pre-configured scope."
+commands.deny = ["remove_signature_image"]

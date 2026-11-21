@@ -109,6 +109,11 @@ pub fn bindings() -> String {
         StampName,
         StampImageId,
         StampImageInfo,
+        SignatureImageId,
+        SignatureImage,
+        SignatureImageArgs,
+        AddSignatureImageArgs,
+        PrepareSignatureStampArgs,
         AnnotationId,
         BookmarkId,
         AnnotationKind,
@@ -223,7 +228,7 @@ pub fn bindings() -> String {
         SaveAttachmentResult,
     );
 
-    let limits: [(&str, String); 81] = [
+    let limits: [(&str, String); 82] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
@@ -292,6 +297,7 @@ pub fn bindings() -> String {
         ("maxLanguageDataBytes", MAX_LANGUAGE_DATA_BYTES.to_string()),
         ("maxImportedLanguages", MAX_IMPORTED_LANGUAGES.to_string()),
         ("maxImportedFonts", MAX_IMPORTED_FONTS.to_string()),
+        ("maxSignatureImages", MAX_SIGNATURE_IMAGES.to_string()),
         ("minPageMarkSizePt", MIN_PAGE_MARK_SIZE_PT.to_string()),
         ("maxPageMarkSizePt", MAX_PAGE_MARK_SIZE_PT.to_string()),
         ("minPageMarkMarginPt", MIN_PAGE_MARK_MARGIN_PT.to_string()),

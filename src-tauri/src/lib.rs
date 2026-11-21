@@ -39,6 +39,7 @@ mod saving;
 mod search;
 mod sensitive;
 mod settings;
+pub mod signature_images;
 mod signing;
 mod sources;
 mod strings;
@@ -207,6 +208,13 @@ pub fn run() {
             commands::stop_ocr,
             commands::set_ocr_focus,
             commands::pick_stamp_image,
+            commands::get_signature_images,
+            commands::get_signature_image_png,
+            commands::add_signature_image,
+            commands::import_signature_image,
+            commands::remove_signature_image,
+            commands::remove_all_signature_images,
+            commands::prepare_signature_stamp,
             commands::run_batch,
             commands::create_pdf,
         ])
@@ -236,6 +244,11 @@ pub fn run() {
             let fonts = fonts::Fonts::new(data.as_ref().map(|dir| dir.join(fonts::FOLDER_NAME)));
             app.state::<Documents>().set_fonts(fonts.clone());
             app.manage(fonts);
+            let signatures = signature_images::SignatureImages::new(
+                data.as_ref()
+                    .map(|dir| dir.join(signature_images::FOLDER_NAME)),
+            );
+            app.manage(signatures);
             app.manage(RecentFiles::new(
                 data.as_ref().map(|dir| dir.join(recent::FILE_NAME)),
             ));
