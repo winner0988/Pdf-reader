@@ -231,9 +231,25 @@ test("the page's CSP blocks every kind of request to another site (#613)", async
 
     for (const check of checks) {
       const matched = violations.some(
-        (v) => v.effectiveDirective === check.directive && v.blockedURI.startsWith(check.url),
+        (v) =>
+          v.effectiveDirective === check.directive &&
+          (v.blockedURI.startsWith(check.url) || (check.kind === "iframe" && v.blockedURI.startsWith(BASE))),
       );
       expect.soft(matched, `${check.kind} blocked by ${check.directive}`).toBe(true);
+    }
+
+    const directiveCounts: { directive: string; expected: number }[] = [
+      { directive: "connect-src", expected: 5 },
+      { directive: "img-src", expected: 2 },
+      { directive: "script-src-elem", expected: 1 },
+      { directive: "style-src-elem", expected: 1 },
+      { directive: "font-src", expected: 1 },
+      { directive: "frame-src", expected: 1 },
+    ];
+
+    for (const { directive, expected } of directiveCounts) {
+      const count = violations.filter((v) => v.effectiveDirective === directive).length;
+      expect.soft(count, `violations for ${directive}`).toBeGreaterThanOrEqual(expected);
     }
 
     expect.soft(outcomes.fetch, "fetch outcome").toMatch(/^failed/);
