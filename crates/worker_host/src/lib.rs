@@ -853,7 +853,8 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::Attachments { request, .. }
         | WorkerResponse::AttachmentWritten { request, .. }
         | WorkerResponse::DocumentProperties { request, .. }
-        | WorkerResponse::DocumentFonts { request, .. } => Some(*request),
+        | WorkerResponse::DocumentFonts { request, .. }
+        | WorkerResponse::AnnotationExport { request, .. } => Some(*request),
         WorkerResponse::Error { request, .. } => *request,
     }
 }
@@ -947,6 +948,9 @@ pub fn is_expected_response(request: &WorkerRequest, response: &WorkerResponse) 
         }
         WorkerRequest::AnnotationSummary { .. } => {
             matches!(response, WorkerResponse::AnnotationSummary { .. })
+        }
+        WorkerRequest::AnnotationExport { .. } => {
+            matches!(response, WorkerResponse::AnnotationExport { .. })
         }
         WorkerRequest::GetDocumentProperties { .. } => {
             matches!(response, WorkerResponse::DocumentProperties { .. })
