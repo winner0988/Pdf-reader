@@ -1592,6 +1592,16 @@ includeName: boolean, };
 export type AnnotationSummaryOutcome = { "kind": "empty" } | { "kind": "cancelled" } | { "kind": "written", count: number, truncated: boolean, };
 
 /**
+ * Arguments for exporting annotations as XFDF (B5-09).
+ */
+export type ExportXfdfArgs = { doc: DocumentId, };
+
+/**
+ * What came of exporting annotations as XFDF (B5-09).
+ */
+export type XfdfOutcome = { "kind": "empty", skipped: number, } | { "kind": "cancelled" } | { "kind": "written", count: number, skipped: number, truncated: boolean, };
+
+/**
  * The kinds of annotations a summary lists (B3-18).
  */
 export type AnnotationSummaryKind = "highlight" | "underline" | "strikeOut" | "squiggly" | "note" | "textBox" | "ink" | "stamp" | "rectangle" | "ellipse" | "line" | "arrow";
