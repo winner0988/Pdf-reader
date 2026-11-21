@@ -206,9 +206,10 @@ test.describe("reusable signatures (B6-02)", () => {
     const settingsDialog = again.getByRole("dialog", { name: strings.settings.title });
     await expect(settingsDialog).toBeVisible();
 
-    await settingsDialog.getByRole("button", { name: strings.settings.signatures.removeAll }).click();
-    await settingsDialog.getByRole("button", { name: strings.settings.signatures.confirmRemoveAll }).click();
-    await expect(settingsDialog.getByRole("status")).toContainText(strings.settings.signatures.allRemoved);
+    const signaturesRegion = settingsDialog.getByRole("region", { name: strings.settings.signatures.title });
+    await signaturesRegion.getByRole("button", { name: strings.settings.signatures.removeAll }).click();
+    await signaturesRegion.getByRole("button", { name: strings.settings.signatures.confirmRemoveAll }).click();
+    await expect(signaturesRegion.getByRole("status")).toContainText(strings.settings.signatures.allRemoved);
 
     expect(!existsSync(sigDir) || readdirSync(sigDir).filter((f) => f.endsWith(".sig")).length === 0).toBe(true);
   });
