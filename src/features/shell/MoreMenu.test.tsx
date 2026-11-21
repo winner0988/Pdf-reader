@@ -54,6 +54,7 @@ describe("MoreMenu structure and order", () => {
       onExport: vi.fn(),
       onExportAnnotations: vi.fn(),
       onCompareText: vi.fn(),
+      onCompareVisual: vi.fn(),
       onPrivacyExport: vi.fn(),
       onSanitizeCopy: vi.fn(),
       onPageMarks: vi.fn(),
@@ -103,6 +104,7 @@ describe("MoreMenu structure and order", () => {
       { text: "匯出…", role: "menuitem", disabled: false },
       { text: "匯出註解摘要…", role: "menuitem", disabled: false },
       { text: "與另一個分頁比較文字…", role: "menuitem", disabled: false },
+      { text: "與另一個分頁比較畫面…", role: "menuitem", disabled: false },
       { text: "隱私匯出…", role: "menuitem", disabled: false },
       { text: "分享前淨化…", role: "menuitem", disabled: false },
       { text: "頁碼與 Bates 編號…", role: "menuitem", disabled: false },
@@ -134,6 +136,9 @@ describe("MoreMenu structure and order", () => {
       onExportAnnotations: vi.fn(),
       compareTextBlocked: strings.compare.onlyOneTab,
       onCompareText: vi.fn(),
+      onCompareVisual: vi.fn(),
+      compareVisualBlocked: strings.compare.onlyOneTab,
+      onCompareVisual: vi.fn(),
       privacyExportBlocked: true,
       onPrivacyExport: vi.fn(),
       sanitizeCopyBlocked: strings.sanitize.encrypted,
@@ -179,6 +184,7 @@ describe("MoreMenu structure and order", () => {
       { text: `匯出…${strings.permissions.notAllowed}`, role: "menuitem", disabled: false }, // onExport provided
       { text: `匯出註解摘要…${strings.permissions.notAllowed}`, role: "menuitem", disabled: false }, // onExportAnnotations provided
       { text: `與另一個分頁比較文字…${strings.compare.onlyOneTab}`, role: "menuitem", disabled: false }, // onCompareText provided
+      { text: `與另一個分頁比較畫面…${strings.compare.onlyOneTab}`, role: "menuitem", disabled: false }, // onCompareVisual provided
       { text: `隱私匯出…${strings.privacyExport.encrypted}`, role: "menuitem", disabled: false },
       { text: `分享前淨化…${strings.sanitize.encrypted}`, role: "menuitem", disabled: false },
       { text: `頁碼與 Bates 編號…${strings.pageMarks.encrypted}`, role: "menuitem", disabled: false },
