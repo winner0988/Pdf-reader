@@ -962,6 +962,14 @@ pub fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), Engine
         WorkerEdit::MoveBookmark { id, parent, index } => {
             document.move_bookmark(*id, *parent, *index)?;
         }
+        WorkerEdit::AddWatermark {
+            pages,
+            watermark,
+            png,
+        } => {
+            let watermark: Watermark = watermark.clone().into();
+            document.add_watermark(pages, &watermark, png.as_deref())?;
+        }
     }
     document.clear_text_cache();
     Ok(())

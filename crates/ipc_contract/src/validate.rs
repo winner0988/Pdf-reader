@@ -4629,7 +4629,11 @@ mod tests {
             content: WatermarkContent::Text {
                 text: "CONFIDENTIAL".to_owned(),
                 size: 48.0,
-                color: Rgb { r: 10, g: 20, b: 30 },
+                color: Rgb {
+                    r: 10,
+                    g: 20,
+                    b: 30,
+                },
             },
             opacity: 50,
             diagonal: true,

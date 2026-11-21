@@ -117,6 +117,28 @@ impl PdfDocument {
         Ok((stream, width, height))
     }
 
+    /// Draws `watermark` on `pages` of the open document (B6-06, #591).
+    pub fn add_watermark(
+        &mut self,
+        pages: &[u32],
+        watermark: &Watermark,
+        picture: Option<&[u8]>,
+    ) -> Result<(), EngineError> {
+        watermark
+            .validate()
+            .map_err(|_| EngineError::InvalidEdit("the watermark"))?;
+        self.checked_pages(pages)?;
+        if self.is_signed() {
+            return Err(EngineError::Signed);
+        }
+        let (mark, width, height) = self.watermark_form(watermark, picture)?;
+        for &index in pages {
+            self.put_watermark(index, &mark, (width, height), watermark)?;
+        }
+        self.clear_text_cache();
+        Ok(())
+    }
+
     /// Draws `mark`, `size` points large, on page `index` as `watermark` says: in the middle, at
     /// the top or at the bottom of the page as it is shown, level or along its diagonal, and made
     /// smaller if it would not fit. The page's own content is drawn first, with its graphics state
@@ -134,6 +156,7 @@ impl PdfDocument {
         if !(page_width > 0.0 && page_height > 0.0) {
             return Ok(());
         }
+        let name = unused_watermark_name(&page)?;
         // Page space goes down from the top left corner of the page as it is shown.
         let angle = if watermark.diagonal {
             page_height.atan2(page_width)
@@ -163,8 +186,36 @@ impl PdfDocument {
         matrix.concat(Matrix::new_translate(x, y));
         matrix.concat(inverse);
 
-        attach_form_to_page(&mut self.doc, &mut page, NAME, mark, &matrix)
+        attach_form_to_page(&mut self.doc, &mut page, &name, mark, &matrix)
     }
+}
+
+/// Finds the first unused `/Resources /XObject` name for a watermark on `page`,
+/// from `PdfReaderWatermark` then `PdfReaderWatermark2` up to `PdfReaderWatermark100`.
+fn unused_watermark_name(page: &PdfObject) -> Result<String, EngineError> {
+    let resources = match page.get_dict("Resources")? {
+        Some(resources) => Some(resources),
+        None => page.get_dict_inheritable("Resources")?,
+    };
+    let xobjects = match resources {
+        Some(res) => res.get_dict("XObject")?,
+        None => None,
+    };
+    for n in 1..=100 {
+        let name = if n == 1 {
+            NAME.to_string()
+        } else {
+            format!("{NAME}{n}")
+        };
+        let exists = match &xobjects {
+            Some(xo) => xo.get_dict(name.as_str())?.is_some(),
+            None => false,
+        };
+        if !exists {
+            return Ok(name);
+        }
+    }
+    Err(EngineError::InvalidEdit("too many watermarks on a page"))
 }
 
 #[cfg(test)]
@@ -422,5 +473,77 @@ mod tests {
             encrypted.watermark_copy(&words("DRAFT", 100), None, &mut out),
             Err(EngineError::EncryptedCopy)
         ));
+    }
+
+    #[test]
+    fn add_watermark_gives_same_rendering_as_watermark_copy() {
+        let bytes = corpus("benign/single-page.pdf");
+        let doc_copy = PdfDocument::from_bytes(&bytes).unwrap();
+        let mut doc_edit = PdfDocument::from_bytes(&bytes).unwrap();
+        let mark = words("IDENTICAL RENDERING", 80);
+        let copy = copy_of(&doc_copy, &mark, None);
+        doc_edit.add_watermark(&[0], &mark, None).unwrap();
+        let rendered_copy = copy.render(0, 1.0, 0).unwrap();
+        let rendered_edit = doc_edit.render(0, 1.0, 0).unwrap();
+        assert_eq!(rendered_copy.rgba, rendered_edit.rgba);
+    }
+
+    #[test]
+    fn add_watermark_on_pages_two_and_three_only() {
+        let mut doc = PdfDocument::from_bytes(&corpus("benign/multi-page-10.pdf")).unwrap();
+        let mark = words("PAGES TWO THREE", 100);
+        doc.add_watermark(&[1, 2], &mark, None).unwrap();
+        assert!(!text_of(&doc, 0).contains("PAGES TWO THREE"));
+        assert!(text_of(&doc, 1).contains("PAGES TWO THREE"));
+        assert!(text_of(&doc, 2).contains("PAGES TWO THREE"));
+        assert!(!text_of(&doc, 3).contains("PAGES TWO THREE"));
+        assert!(!text_of(&doc, 9).contains("PAGES TWO THREE"));
+    }
+
+    #[test]
+    fn two_watermarks_on_same_page_get_distinct_names_and_both_show() {
+        let mut doc = PdfDocument::from_bytes(&corpus("benign/single-page.pdf")).unwrap();
+        let mark1 = words("FIRST WATERMARK", 100);
+        let mut mark2 = words("SECOND WATERMARK", 100);
+        mark2.place = WatermarkPlace::Top;
+        doc.add_watermark(&[0], &mark1, None).unwrap();
+        doc.add_watermark(&[0], &mark2, None).unwrap();
+        let text = text_of(&doc, 0);
+        assert!(text.contains("FIRST WATERMARK"));
+        assert!(text.contains("SECOND WATERMARK"));
+
+        let (page, _) = doc.page_to_pdf(0).unwrap();
+        let resources = page.get_dict("Resources").unwrap().unwrap();
+        let xobjects = resources.get_dict("XObject").unwrap().unwrap();
+        assert!(xobjects.get_dict("PdfReaderWatermark").unwrap().is_some());
+        assert!(xobjects.get_dict("PdfReaderWatermark2").unwrap().is_some());
+
+        // Batch watermark_copy twice preserves both
+        let clean = PdfDocument::from_bytes(&corpus("benign/single-page.pdf")).unwrap();
+        let copy1 = copy_of(&clean, &mark1, None);
+        let copy2 = copy_of(&copy1, &mark2, None);
+        let copy_text = text_of(&copy2, 0);
+        assert!(copy_text.contains("FIRST WATERMARK"));
+        assert!(copy_text.contains("SECOND WATERMARK"));
+        let (copy_page, _) = copy2.page_to_pdf(0).unwrap();
+        let copy_res = copy_page.get_dict("Resources").unwrap().unwrap();
+        let copy_xo = copy_res.get_dict("XObject").unwrap().unwrap();
+        assert!(copy_xo.get_dict("PdfReaderWatermark").unwrap().is_some());
+        assert!(copy_xo.get_dict("PdfReaderWatermark2").unwrap().is_some());
+    }
+
+    #[test]
+    fn signed_document_refuses_watermark_encrypted_document_accepts() {
+        let mut signed = PdfDocument::from_bytes(&corpus("benign/signed.pdf")).unwrap();
+        let mark = words("SHOULD FAIL", 100);
+        assert!(matches!(
+            signed.add_watermark(&[0], &mark, None),
+            Err(EngineError::Signed)
+        ));
+
+        let mut encrypted =
+            PdfDocument::open(&corpus("benign/encrypted-rc4-40.pdf"), Some("user")).unwrap();
+        assert!(encrypted.add_watermark(&[0], &mark, None).is_ok());
+        assert!(text_of(&encrypted, 0).contains("SHOULD FAIL"));
     }
 }

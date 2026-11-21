@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use ipc_contract::types::{
     DocumentId, ErrorCode, Rgb, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
-use ipc_contract::worker::{WorkerRequest, WorkerResponse};
+use ipc_contract::worker::{WorkerEdit, WorkerRequest, WorkerResponse};
 use worker_host::{HostConfig, HostError, WorkerHost};
 
 fn host() -> WorkerHost {
@@ -91,13 +91,12 @@ fn copy(
     }
 }
 
-fn first_page_text(host: &mut WorkerHost, path: &Path) -> String {
-    let doc = opened(host, path);
+fn page_text(host: &mut WorkerHost, doc: DocumentId, page_index: u32) -> String {
     let response = host
         .request(|request| WorkerRequest::GetPageText {
             request,
             doc,
-            page_index: 0,
+            page_index,
         })
         .expect("text");
     let WorkerResponse::PageText { text, .. } = response else {
@@ -108,6 +107,11 @@ fn first_page_text(host: &mut WorkerHost, path: &Path) -> String {
         .map(|line| line.text.clone())
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn first_page_text(host: &mut WorkerHost, path: &Path) -> String {
+    let doc = opened(host, path);
+    page_text(host, doc, 0)
 }
 
 #[test]
@@ -170,5 +174,82 @@ fn an_encrypted_document_has_no_copy_with_a_watermark() {
     };
     let refused = copy(&mut host, doc, words("DRAFT"), None).expect_err("refused");
     assert_eq!(refused.code(), ErrorCode::InvalidArgument);
+    assert!(host.is_running());
+}
+
+#[test]
+fn edit_document_with_add_watermark() {
+    let mut host = host();
+    let doc = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    let mark = words("PAGE TWO ONLY");
+    let edited = host.request(|request| WorkerRequest::Edit {
+        request,
+        doc,
+        edit: WorkerEdit::AddWatermark {
+            pages: vec![1],
+            watermark: mark.into(),
+            png: None,
+        },
+    });
+    assert!(matches!(edited, Ok(WorkerResponse::Edited { .. })));
+
+    let path = temp_path("edited.pdf");
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .expect("create");
+    let saved = host.save(doc, &file).expect("save");
+    drop(file);
+    assert!(matches!(saved, WorkerResponse::Saved { .. }));
+    common::check_qpdf(&path);
+
+    let saved_doc = opened(&mut host, &path);
+    let p0 = page_text(&mut host, saved_doc, 0);
+    let p1 = page_text(&mut host, saved_doc, 1);
+    assert!(!p0.contains("PAGE TWO ONLY"));
+    assert!(p1.contains("PAGE TWO ONLY"));
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn edit_document_with_picture_watermark() {
+    let mut host = host();
+    let file = File::open(corpus("images/stamp-exif.jpg")).expect("the picture");
+    let WorkerResponse::StampImage { png, .. } = host.prepare_stamp_image(&file).expect("stamp")
+    else {
+        panic!("a stamp picture");
+    };
+    let doc = opened(&mut host, &corpus("benign/single-page.pdf"));
+    let picture = Watermark {
+        content: WatermarkContent::Picture { width_pt: 150.0 },
+        ..words("unused")
+    };
+
+    // Invalid PNG rejected with InvalidArgument and worker survives
+    let bad = host.request(|request| WorkerRequest::Edit {
+        request,
+        doc,
+        edit: WorkerEdit::AddWatermark {
+            pages: vec![0],
+            watermark: picture.clone().into(),
+            png: Some(b"not a png at all".to_vec()),
+        },
+    });
+    let refused = bad.expect_err("refused");
+    assert_eq!(refused.code(), ErrorCode::InvalidArgument);
+    assert!(host.is_running());
+
+    // Valid picture watermark succeeds
+    let ok = host.request(|request| WorkerRequest::Edit {
+        request,
+        doc,
+        edit: WorkerEdit::AddWatermark {
+            pages: vec![0],
+            watermark: picture.into(),
+            png: Some(png),
+        },
+    });
+    assert!(matches!(ok, Ok(WorkerResponse::Edited { .. })));
     assert!(host.is_running());
 }

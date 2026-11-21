@@ -2279,7 +2279,11 @@ mod tests {
             content: WatermarkContent::Text {
                 text: "CONFIDENTIAL".to_owned(),
                 size: 40.0,
-                color: Rgb { r: 10, g: 20, b: 30 },
+                color: Rgb {
+                    r: 10,
+                    g: 20,
+                    b: 30,
+                },
             },
             opacity: 45,
             diagonal: true,
@@ -2318,7 +2322,13 @@ mod tests {
         let pic_worker_edit = WorkerEdit::of(
             &pic_edit,
             |_| None,
-            |id| if id == StampImageId(99) { Some(vec![1, 2, 3]) } else { None },
+            |id| {
+                if id == StampImageId(99) {
+                    Some(vec![1, 2, 3])
+                } else {
+                    None
+                }
+            },
             |_| None,
         )
         .unwrap();
