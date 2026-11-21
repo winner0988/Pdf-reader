@@ -44,6 +44,7 @@ import { CompressDialog } from "@/features/saving/CompressDialog";
 import { useOpenBatch } from "@/features/batch/useOpenBatch";
 import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PageMarksDialog } from "@/features/saving/PageMarksDialog";
+import { DocumentWatermarkDialog } from "@/features/batch/DocumentWatermarkDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
 import { SanitizeDialog } from "@/features/saving/SanitizeDialog";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
@@ -352,6 +353,7 @@ export function ReaderShell({
     | "privacyExport"
     | "sanitize"
     | "pageMarks"
+    | "watermark"
     | "encrypt"
     | "compress"
     | "create"
@@ -433,6 +435,7 @@ export function ReaderShell({
       dialog === "privacyExport" ||
       dialog === "sanitize" ||
       dialog === "pageMarks" ||
+      dialog === "watermark" ||
       dialog === "encrypt" ||
       dialog === "compress" ||
       dialog === "sensitive" ||
@@ -1498,6 +1501,18 @@ export function ReaderShell({
             : undefined,
     onPageMarks: savable && !document_?.encrypted ? () => setDialog("pageMarks") : undefined,
     pageMarksBlocked: savable && document_?.encrypted === true,
+    onWatermark:
+      doc !== undefined && editingApi !== undefined && !isSigned && (permissions?.modify ?? false)
+        ? () => setDialog("watermark")
+        : undefined,
+    watermarkBlocked:
+      doc === undefined
+        ? undefined
+        : isSigned
+          ? strings.documentWatermark.signedDocument
+          : permissions && !permissions.modify
+            ? strings.permissions.notAllowed
+            : undefined,
     onEncryptCopy: savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined,
     onBatch: openBatch,
     onSearchAll: textIndex?.openSearchAll,
@@ -2145,6 +2160,19 @@ export function ReaderShell({
           doc={doc}
           totalPages={document_?.pages.length ?? 0}
           onPageMarksCopy={(args) => savingApi.pageMarksCopy(args)}
+          onFinished={showHint}
+        />
+      )}
+      {editingApi !== undefined && doc !== undefined && (
+        <DocumentWatermarkDialog
+          open={dialog === "watermark"}
+          onOpenChange={(open) => setDialog(open ? "watermark" : null)}
+          doc={doc}
+          pages={document_?.pages ?? []}
+          sensitive={sensitive}
+          renderer={renderer}
+          annotationsApi={annotationsApi}
+          applyEdit={(edit) => editingApi.applyEdit(latestDocument()?.doc ?? doc, edit)}
           onFinished={showHint}
         />
       )}
