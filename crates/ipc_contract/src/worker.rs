@@ -602,6 +602,15 @@ pub enum WorkerEdit {
         color: InkColor,
         width: InkWidth,
     },
+    /// As [`Edit::ReplacePages`].
+    ReplacePages {
+        first: u32,
+        count: u32,
+        source: Vec<u8>,
+        text_boxes: Vec<InsertedTextBox>,
+        from: u32,
+        to: u32,
+    },
 }
 
 /// An edit names something its document does not have: a file whose pages it takes (B2-06), the
@@ -819,6 +828,23 @@ impl WorkerEdit {
                 color: *color,
                 width: *width,
             },
+            Edit::ReplacePages {
+                first,
+                count,
+                source: id,
+                from,
+                to,
+            } => {
+                let (source, text_boxes) = source(*id).ok_or(UnknownFile::Source)?;
+                WorkerEdit::ReplacePages {
+                    first: *first,
+                    count: *count,
+                    source,
+                    text_boxes,
+                    from: *from,
+                    to: *to,
+                }
+            }
         })
     }
 }
@@ -1788,6 +1814,57 @@ mod tests {
                 at: 2,
                 source: vec![1, 2, 3, 4],
                 text_boxes: vec![tb],
+            }
+        );
+        let bytes = postcard::to_allocvec(&made).unwrap();
+        assert_eq!(postcard::from_bytes::<WorkerEdit>(&bytes).unwrap(), made);
+
+        assert_eq!(
+            WorkerEdit::of(&edit, |_| None, |_| None, |_| None),
+            Err(UnknownFile::Source)
+        );
+    }
+
+    #[test]
+    fn replace_pages_edit_carries_source_and_text_boxes() {
+        let edit = Edit::ReplacePages {
+            first: 2,
+            count: 3,
+            source: SourceId(5),
+            from: 1,
+            to: 4,
+        };
+        let tb = InsertedTextBox {
+            page: 0,
+            rect: Rect {
+                x0: 10.0,
+                y0: 20.0,
+                x1: 100.0,
+                y1: 50.0,
+            },
+            model: sample_model(),
+            style: TextBoxStyle {
+                size: 14.0,
+                color: Rgb {
+                    r: 10,
+                    g: 20,
+                    b: 30,
+                },
+                align: crate::types::TextAlign::Center,
+            },
+        };
+        let source_fn =
+            |id: SourceId| (id == SourceId(5)).then(|| (vec![1, 2, 3, 4], vec![tb.clone()]));
+        let made = WorkerEdit::of(&edit, source_fn, |_| None, |_| None).unwrap();
+        assert_eq!(
+            made,
+            WorkerEdit::ReplacePages {
+                first: 2,
+                count: 3,
+                source: vec![1, 2, 3, 4],
+                text_boxes: vec![tb],
+                from: 1,
+                to: 4,
             }
         );
         let bytes = postcard::to_allocvec(&made).unwrap();
