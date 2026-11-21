@@ -10,6 +10,7 @@ import path from "node:path";
 
 import { strings } from "../../src/i18n/zh-TW";
 import { corpus, expect, quit, ROOT, test, webViewCommandLine } from "./app";
+import { external } from "./netlog";
 
 /** The app's own WebView2 arguments, which the build passes to WebView2. */
 const APP_ARGUMENTS: string[] = JSON.parse(readFileSync(path.join(ROOT, "src-tauri", "tauri.conf.json"), "utf8"))
@@ -25,18 +26,6 @@ const COMPONENT_UPDATER_SOONER = "--component-updater=fast-update";
 /** How long the app runs, from launch: the component updater would have asked well within it. */
 const WATCH_MS = 25_000;
 
-/** The app itself, and this computer: `tauri.localhost`, `ipc.localhost`, loopback. */
-const LOCAL = /^((https?|wss?):\/\/)?((ipc|tauri)\.localhost|localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/;
-
-/**
- * Every web address and host in a network log that is not local. Without their queries: those to
- * Microsoft's configuration service identify this computer's WebView2.
- */
-function external(log: string): string[] {
-  const urls = [...log.matchAll(/"url":"((?:https?|wss?):\/\/[^"?]+)/g)].map((match) => match[1]!);
-  const hosts = [...log.matchAll(/"host":"([^"]+)"/g)].map((match) => match[1]!);
-  return [...new Set([...urls, ...hosts])].filter((address) => !LOCAL.test(address));
-}
 
 test("the WebView connects to nothing while the app starts, shows a document and stays open (#121)", async ({
   launch,
