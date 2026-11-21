@@ -37,7 +37,7 @@ test.describe("document watermark (B6-06, #591)", () => {
     const searchInput = search.getByRole("textbox", { name: strings.search.placeholder });
     const searchStatus = search.getByRole("status");
     await searchInput.fill("草稿");
-    await expect(searchStatus).toHaveText(strings.search.count(0, 0));
+    await expect(searchStatus).toHaveText(strings.search.noResults("草稿"));
     await page.keyboard.press("Escape");
 
     // 2. Open "⋯" menu -> "浮水印…"
@@ -73,7 +73,7 @@ test.describe("document watermark (B6-06, #591)", () => {
     await page.keyboard.press("Control+z");
     await page.keyboard.press("Control+f");
     await searchInput.fill("草稿");
-    await expect(searchStatus).toHaveText(strings.search.count(0, 0));
+    await expect(searchStatus).toHaveText(strings.search.noResults("草稿"));
     await page.keyboard.press("Escape");
 
     // 8. Redo with Ctrl+Y: watermark reappears
