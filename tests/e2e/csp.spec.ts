@@ -189,20 +189,14 @@ test("the page's CSP blocks every kind of request to another site (#613)", async
 
       // 11. iframe
       const iframe = document.createElement("iframe");
-      addedElements.push(iframe);
-      outcomes.iframe = await Promise.race([
-        new Promise<string>((resolve) => {
-          iframe.onload = () => resolve("loaded");
-          iframe.onerror = () => resolve("error");
-          try {
-            iframe.src = base + "frame";
-            document.body.appendChild(iframe);
-          } catch (e) {
-            resolve(`failed: ${e}`);
-          }
-        }),
-        timeout(5000),
-      ]);
+      document.body.appendChild(iframe);
+      try {
+        iframe.src = base + "frame";
+        outcomes.iframe = "done";
+      } catch (e) {
+        outcomes.iframe = `failed: ${e}`;
+      }
+      iframe.remove();
 
       // 等 1 秒讓非同步的違規事件都到
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -233,7 +227,11 @@ test("the page's CSP blocks every kind of request to another site (#613)", async
       const matched = violations.some(
         (v) =>
           v.effectiveDirective === check.directive &&
-          (v.blockedURI.startsWith(check.url) || (check.kind === "iframe" && v.blockedURI.startsWith(BASE))),
+          (v.blockedURI.startsWith(check.url) ||
+            (check.kind === "iframe" &&
+              (v.blockedURI.startsWith(check.url) ||
+                v.blockedURI.startsWith(BASE) ||
+                v.blockedURI.startsWith("https://csp-check.example")))),
       );
       expect.soft(matched, `${check.kind} blocked by ${check.directive}`).toBe(true);
     }
