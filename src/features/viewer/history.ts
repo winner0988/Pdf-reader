@@ -169,6 +169,12 @@ export function mapPageAfterEdit(page: number, edit: Edit, pageCount: number): n
       const newIndex = oldIndex >= edit.at ? oldIndex + 1 : oldIndex;
       return newIndex + 1;
     }
+    case "replacePages": {
+      if (oldIndex < edit.first) return page;
+      if (oldIndex < edit.first + edit.count) return null;
+      const netChange = edit.to - edit.from + 1 - edit.count;
+      return page + netChange;
+    }
     default:
       return page;
   }
