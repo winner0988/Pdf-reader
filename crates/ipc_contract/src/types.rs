@@ -2268,7 +2268,8 @@ pub struct LinkPreview {
     /// What the system is given when the user opens it: ASCII only, the host in punycode and
     /// everything else percent-encoded. Also what "copy link" copies.
     pub opens: String,
-    /// The site the browser will contact (for `mailto`, the mail domain), as it reads.
+    /// The site the browser will contact, as it reads. For mailto, every recipient's mail domain
+    /// in order, without repeats, joined by ", " (#610).
     pub host: Option<String>,
     /// The host's ASCII (punycode) form when it differs from `host`: an internationalised
     /// name, which may imitate another one.
