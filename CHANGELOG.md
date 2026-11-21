@@ -4,6 +4,10 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 ## [Unreleased]
 
+### 修正
+
+- 「文件內容」對話框讀不到資料時，會說明原因（例如 PDF 引擎沒有回應），不再顯示 `[object Object]`（#634）。
+
 ## [1.0.0] - 2026-11-20
 
 PDF Reader 是注重隱私、完全離線的 Windows 桌面 PDF 閱讀器，也能編輯、簽署與轉檔。1.0 是第一個正式版：之後的 1.x 都會沿用這一版保存的設定與資料，不用重新設定（[版本的規則](https://github.com/winner0988/Pdf-reader/blob/v1.0.0/docs/release.md#版本與變更記錄)）。這個版本加入「文件內容」對話框、命令面板、多頁合一與小冊子列印，並顯示文件自己的頁碼；換上新的 app 圖示與安裝畫面；PDF 引擎 MuPDF 升級到 1.28.6，內附的文字辨識與色彩管理函式庫也套用了上游的修正。
