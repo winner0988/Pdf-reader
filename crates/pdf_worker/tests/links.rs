@@ -144,6 +144,13 @@ fn everything_else_is_blocked_with_its_reason() {
             ),
         ),
         (
+            "malicious/gotor-localhost-host.pdf",
+            blocked(
+                BlockedAction::RemoteGoTo,
+                "file://localhost.example/share/doc.pdf",
+            ),
+        ),
+        (
             "malicious/gotoe.pdf",
             LinkTarget::Blocked {
                 action: BlockedAction::EmbeddedGoTo,
@@ -168,6 +175,13 @@ fn everything_else_is_blocked_with_its_reason() {
         (
             "malicious/link-unc-uri.pdf",
             blocked(BlockedAction::NetworkShare, "\\\\share.example.invalid\\x"),
+        ),
+        (
+            "malicious/link-localhost-host-uri.pdf",
+            blocked(
+                BlockedAction::NetworkShare,
+                "file://localhost.example/share/doc.pdf",
+            ),
         ),
         (
             "malicious/link-ms-protocol.pdf",

@@ -520,6 +520,20 @@
       "sha256": "b5f059a507b1349be99ecbd6ff7cc2b4ca7d972b646be844c7cf69c15b03e10f"
     },
     {
+      "path": "malicious/gotor-localhost-host.pdf",
+      "category": "malicious",
+      "purpose": "GoToR to file://localhost.example/... (host only starts with localhost, #611).",
+      "expected": "No SMB connection is attempted; link blocked; findings reported.",
+      "pages": 1,
+      "findings": [
+        "remoteGoTo",
+        "uncReference"
+      ],
+      "text": [],
+      "bytes": 998,
+      "sha256": "810e1b1bf2b6e750d956118806d4e473abfc13f8db8fe11835fb7969770cded8"
+    },
+    {
       "path": "malicious/gotoe.pdf",
       "category": "malicious",
       "purpose": "GoToE into an embedded document.",
@@ -720,6 +734,17 @@
       "text": [],
       "bytes": 944,
       "sha256": "d2f00f40d1a339d3c575c54f4fe2b90d22bdc591d52ad21cacbf4d8f999b5555"
+    },
+    {
+      "path": "malicious/link-localhost-host-uri.pdf",
+      "category": "malicious",
+      "purpose": "URI link to file://localhost.example/... (#611).",
+      "expected": "Blocked as a network share; no SMB connection.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 1007,
+      "sha256": "c9ec53a34b0a151c1650667a46d829881dbc9155b7dae4df9f1da0f5d0c7f668"
     },
     {
       "path": "malicious/link-ms-protocol.pdf",
