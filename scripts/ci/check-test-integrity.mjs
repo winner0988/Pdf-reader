@@ -33,16 +33,18 @@ const OWN_TESTS = "scripts/ci/check-test-integrity.test.mjs";
 
 const isRust = (path) => path.endsWith(".rs");
 const isScript = (path) => /\.[cm]?[jt]sx?$/.test(path);
-const isTestScript = (path) =>
-  isScript(path) && (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path) || path.startsWith("tests/e2e/"));
-const isRustTest = (path) =>
-  isRust(path) && (/(?:^|\/)tests\//.test(path) || path.startsWith("fuzz/fuzz_targets/"));
-const isTestFile = (path) => isTestScript(path) || isRustTest(path);
 const isViteConfig = (path) => /(?:^|\/)vite\.config\.[cm]?[jt]s$/.test(path);
 const isTestConfig = (path) =>
   /(?:^|\/)(?:playwright|vitest)\.config\.[cm]?[jt]s$/.test(path) ||
   isViteConfig(path) ||
   path.endsWith(".config/nextest.toml");
+const isTestScript = (path) =>
+  isScript(path) &&
+  !isTestConfig(path) &&
+  (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path) || path.startsWith("tests/e2e/"));
+const isRustTest = (path) =>
+  isRust(path) && (/(?:^|\/)tests\//.test(path) || path.startsWith("fuzz/fuzz_targets/"));
+const isTestFile = (path) => isTestScript(path) || isRustTest(path) || isTestConfig(path);
 const isWorkflow = (path) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(path);
 const isEslintConfig = (path) => /^eslint\.config\.[cm]?js$/.test(path);
 const isGitleaksConfig = (path) => /(?:^|\/)\.?gitleaks(?:\.toml|ignore)$/.test(path);
@@ -439,7 +441,7 @@ export function checkChange({ path, oldPath = null, base, head }) {
   const own = path === OWN_TESTS;
 
   if (head === null && base !== null && isTestFile(path)) {
-    report(null, `test file ${path} is deleted.`);
+    report(null, `${isTestConfig(path) ? "test config" : "test file"} ${path} is deleted.`);
   }
   if (oldPath !== null && oldPath !== path && isTestFile(oldPath) && !isTestFile(path)) {
     report(null, `test file ${oldPath} is renamed to ${path}, where no test runner picks it up.`);

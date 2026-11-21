@@ -191,8 +191,8 @@ test("#630 case 3: the E2E network test turned into test.skip", () => {
 
 test("#630 case 4: playwright.config.ts retries: 2", () => {
   const head = edit(PLAYWRIGHT, "retries: 0,", "retries: 2,");
-  const [problem] = found("tests/e2e/playwright.config.ts", PLAYWRIGHT, head, /retrying/);
-  assert.equal(problem.line, 5);
+  const list = found("tests/e2e/playwright.config.ts", PLAYWRIGHT, head, /retrying/);
+  assert.deepEqual(list.map((p) => p.line), [5]);
 });
 
 test("#630 case 5: continue-on-error: true on the E2E job", () => {
@@ -513,6 +513,7 @@ test("gitleaks: a new marker that skips a finding is found, except in docs", () 
 test("a deleted test file, or one renamed out of the test runners' reach, is found", () => {
   found("src/a.test.ts", FRONTEND_TEST, null, /test file src\/a\.test\.ts is deleted/);
   found("crates/pdf_worker/tests/sandbox.rs", RUST, null, /is deleted/);
+  found("tests/e2e/playwright.config.ts", PLAYWRIGHT, null, /test config tests\/e2e\/playwright\.config\.ts is deleted/);
   assert.match(problems("src/a.test.ts.bak", FRONTEND_TEST, FRONTEND_TEST, "src/a.test.ts")[0].message, /renamed to src\/a\.test\.ts\.bak/);
   assert.deepEqual(problems("src/viewer/a.test.ts", FRONTEND_TEST, FRONTEND_TEST, "src/a.test.ts"), []);
   passes("src/a.ts", "export {};\n", null);
