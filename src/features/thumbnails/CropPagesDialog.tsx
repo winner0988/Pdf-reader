@@ -70,10 +70,15 @@ export function CropPagesDialog({
     if (open) {
       setChoice(selectedPages.length > 0 ? "selected" : "current");
       setMargins({ top: 0, right: 0, bottom: 0, left: 0 });
-      dragStartRef.current = null;
       setDragging(false);
     }
   }
+
+  useEffect(() => {
+    if (!open) {
+      dragStartRef.current = null;
+    }
+  }, [open]);
 
   const pageCount = pages.length;
   const current0 = Math.max(0, Math.min(currentPage - 1, pageCount - 1));

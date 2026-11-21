@@ -6,7 +6,7 @@ import path from "node:path";
 import type { Locator, Page } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
-import { answerFileDialog, corpus, expect, test } from "./app";
+import { answerFileDialog, corpus, expect, quit, test } from "./app";
 
 const pageSlot = (page: Page, number: number) =>
   page.getByRole("img", { name: strings.canvas.page(number) }).first();
@@ -79,8 +79,10 @@ test("crop odd pages, undo, redo, and save to a new file (B6-04, #589)", async (
 
   // Save As new file
   const copy = path.join(folder, "cropped.pdf");
-  await answerFileDialog(page, copy, () => page.keyboard.press("Control+Shift+S"));
-  await expect(page).toHaveTitle(new RegExp(path.basename(copy)));
+  await page.keyboard.press("Control+Shift+S");
+  await answerFileDialog(page, { path: copy });
+  await expect(page.getByRole("contentinfo")).toContainText(strings.saving.saved);
+  await quit(page);
 
   // Reopen saved file and verify pages 1 and 3 are ~400/600, page 2 is ~612/792
   const reopened = await launch(copy);

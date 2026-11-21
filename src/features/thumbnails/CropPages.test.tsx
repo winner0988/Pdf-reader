@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,7 +21,7 @@ describe("CropPagesDialog", () => {
     doc: 1,
     renderer: {
       render: vi.fn<PageRenderer["render"]>(() => ({
-        result: Promise.resolve({ width: 300, height: 388, data: new Uint8ClampedArray() }),
+        result: Promise.resolve({ width: 300, height: 388, pixels: new Uint8ClampedArray(300 * 388 * 4) }),
         cancel: vi.fn(),
       })),
     } satisfies PageRenderer,
