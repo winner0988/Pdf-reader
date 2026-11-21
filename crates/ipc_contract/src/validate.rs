@@ -2851,9 +2851,9 @@ mod tests {
         DocumentId, DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption, FontId,
         HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, IndexEntryId,
         IndexPageHits, InkColor, InkWidth, LinkId, PageNumberMark, PictureView, RecentId, Recovery,
-        RequestId, Restrictions, Rgb, Rotation, SecurityFinding, SourceId, StampImageId, StampName, TabId,
-        TextAlign, TextBoxInfo, TextBoxModelId, TextMarkKind, UnverifiableReason, WatermarkPages,
-        WatermarkPlace,
+        RequestId, Restrictions, Rgb, Rotation, SecurityFinding, SourceId, StampImageId, StampName,
+        TabId, TextAlign, TextBoxInfo, TextBoxModelId, TextMarkKind, UnverifiableReason,
+        WatermarkPages, WatermarkPlace,
     };
     use crate::worker::{ModelGlyph, WorkerErrorCode};
 
@@ -5578,7 +5578,11 @@ mod tests {
         assert!(replace(0, 1, 5, 2).validate().is_err());
         assert!(replace(MAX_PAGE_COUNT + 1, 1, 0, 0).validate().is_err());
         assert!(replace(0, MAX_PAGE_COUNT + 1, 0, 0).validate().is_err());
-        assert!(replace(0, 1, MAX_PAGE_COUNT + 1, MAX_PAGE_COUNT + 1).validate().is_err());
+        assert!(
+            replace(0, 1, MAX_PAGE_COUNT + 1, MAX_PAGE_COUNT + 1)
+                .validate()
+                .is_err()
+        );
         assert!(replace(0, 1, 0, MAX_PAGE_COUNT + 1).validate().is_err());
         assert_eq!(
             serde_json::from_value::<EditArgs>(serde_json::json!({

@@ -1938,7 +1938,11 @@ fn get_page_text(host: &mut WorkerHost, doc: DocumentId, page_index: u32) -> Str
     let WorkerResponse::PageText { text, .. } = response else {
         panic!("{response:?}");
     };
-    text.lines.into_iter().map(|l| l.text).collect::<Vec<_>>().join(" ")
+    text.lines
+        .into_iter()
+        .map(|l| l.text)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[test]
@@ -1997,7 +2001,9 @@ fn replace_pages_different_counts() {
             },
         })
         .expect("replace 1 with 3");
-    let WorkerResponse::Edited { pages: p1, .. } = edited1 else { panic!() };
+    let WorkerResponse::Edited { pages: p1, .. } = edited1 else {
+        panic!()
+    };
     assert_eq!(p1.len(), 12);
 
     // Replace front pages (first: 0, count: 2, from: 0, to: 0) -> 10 - 2 + 1 = 9 pages
@@ -2016,7 +2022,9 @@ fn replace_pages_different_counts() {
             },
         })
         .expect("replace front");
-    let WorkerResponse::Edited { pages: p2, .. } = edited2 else { panic!() };
+    let WorkerResponse::Edited { pages: p2, .. } = edited2 else {
+        panic!()
+    };
     assert_eq!(p2.len(), 9);
 
     // Replace back pages (first: 8, count: 2, from: 0, to: 2) -> 10 - 2 + 3 = 11 pages
@@ -2035,7 +2043,9 @@ fn replace_pages_different_counts() {
             },
         })
         .expect("replace back");
-    let WorkerResponse::Edited { pages: p3, .. } = edited3 else { panic!() };
+    let WorkerResponse::Edited { pages: p3, .. } = edited3 else {
+        panic!()
+    };
     assert_eq!(p3.len(), 11);
 
     // Replace all pages (first: 0, count: 10, from: 0, to: 1) -> 10 - 10 + 2 = 2 pages
@@ -2054,7 +2064,9 @@ fn replace_pages_different_counts() {
             },
         })
         .expect("replace all");
-    let WorkerResponse::Edited { pages: p4, .. } = edited4 else { panic!() };
+    let WorkerResponse::Edited { pages: p4, .. } = edited4 else {
+        panic!()
+    };
     assert_eq!(p4.len(), 2);
 
     // Source takes 1 page only (from: 3, to: 3)
@@ -2073,7 +2085,9 @@ fn replace_pages_different_counts() {
             },
         })
         .expect("source takes 1 page");
-    let WorkerResponse::Edited { pages: p5, .. } = edited5 else { panic!() };
+    let WorkerResponse::Edited { pages: p5, .. } = edited5 else {
+        panic!()
+    };
     assert_eq!(p5.len(), 8);
 }
 
@@ -2102,7 +2116,8 @@ fn replace_pages_recreates_annotations_within_range_only() {
     })
     .expect("note 1");
 
-    let source_path = std::env::temp_dir().join(format!("pdf-worker-source-test-{}.pdf", std::process::id()));
+    let source_path =
+        std::env::temp_dir().join(format!("pdf-worker-source-test-{}.pdf", std::process::id()));
     let source_file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
@@ -2245,7 +2260,10 @@ fn replace_pages_saved_check_qpdf_and_replaced_content_removed() {
     })
     .expect("replace page 7");
 
-    let path = std::env::temp_dir().join(format!("pdf-worker-replace-saved-{}.pdf", std::process::id()));
+    let path = std::env::temp_dir().join(format!(
+        "pdf-worker-replace-saved-{}.pdf",
+        std::process::id()
+    ));
     let file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
@@ -2265,9 +2283,11 @@ fn replace_pages_saved_check_qpdf_and_replaced_content_removed() {
     assert_eq!(pages.len(), 10);
     for idx in 0..10 {
         let text = get_page_text(&mut new_host, reopened_doc, idx);
-        assert!(!text.contains("needle"), "Page {idx} should not contain needle");
+        assert!(
+            !text.contains("needle"),
+            "Page {idx} should not contain needle"
+        );
     }
 
     std::fs::remove_file(&path).ok();
 }
-

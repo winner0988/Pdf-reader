@@ -9358,11 +9358,7 @@ mod with_worker {
         };
 
         let source_fn = |id: ipc_contract::types::SourceId| {
-            if id.0 == 1 {
-                Some(5)
-            } else {
-                None
-            }
+            if id.0 == 1 { Some(5) } else { None }
         };
 
         let valid_edit = replace_pages_edit(2, 2, ipc_contract::types::SourceId(1), 0, 2);

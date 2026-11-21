@@ -4,6 +4,10 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 ## [Unreleased]
 
+### 新增
+
+- 取代頁面：把選取的連續頁面換成另一個檔案的頁面，頁數可以不同，先預覽結果，一次就能復原（#590）。
+
 ### 修正
 
 - 「文件內容」對話框讀不到資料時，會說明原因（例如 PDF 引擎沒有回應），不再顯示 `[object Object]`（#634）。
