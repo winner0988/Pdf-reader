@@ -119,23 +119,22 @@ describe("DocumentPropertiesDialog (B5-04)", () => {
   function renderDialog(options: {
     properties?: DocumentProperties;
     fonts?: DocumentFonts;
-    getPropertiesReject?: boolean;
-    getFontsReject?: boolean;
+    propertiesRejection?: unknown;
+    fontsRejection?: unknown;
     onPrivacyExport?: () => void;
   } = {}) {
     const cancelFn = vi.fn(() => Promise.resolve());
     const api: PropertiesApi = {
       getDocumentProperties: vi.fn(() =>
-        options.getPropertiesReject
-          ? Promise.reject(new Error("Failed to load properties"))
+        "propertiesRejection" in options
+          ? Promise.reject(options.propertiesRejection)
           : Promise.resolve(options.properties ?? mockProperties),
       ),
-      getDocumentFonts: vi.fn(() => {
-        if (options.getFontsReject) {
-          return Promise.reject(new Error("Failed to load fonts"));
-        }
-        return Promise.resolve(options.fonts ?? mockFonts);
-      }),
+      getDocumentFonts: vi.fn(() =>
+        "fontsRejection" in options
+          ? Promise.reject(options.fontsRejection)
+          : Promise.resolve(options.fonts ?? mockFonts),
+      ),
       cancel: cancelFn,
     };
 
@@ -284,10 +283,36 @@ describe("DocumentPropertiesDialog (B5-04)", () => {
     expect(cancelFn).toHaveBeenCalled();
   });
 
-  it("displays error state when loading properties fails", async () => {
-    renderDialog({ getPropertiesReject: true });
+  it("shows the general reason, not the raw error, when the properties cannot be read (#634)", async () => {
+    renderDialog({ propertiesRejection: new Error("Failed to load properties") });
 
-    expect(await screen.findByText(/Failed to load properties/)).toBeInTheDocument();
+    expect(await screen.findByText(t.loadPropertiesError)).toBeInTheDocument();
+    expect(screen.getByText(strings.error.messages.internal)).toBeInTheDocument();
+    expect(screen.queryByText(/Failed to load properties/)).toBeNull();
+  });
+
+  it("shows why the properties cannot be read instead of [object Object] (#634)", async () => {
+    renderDialog({
+      propertiesRejection: { code: "workerTimeout", message: "worker timed out" },
+    });
+
+    expect(await screen.findByText(t.loadPropertiesError)).toBeInTheDocument();
+    expect(screen.getByText(strings.error.messages.workerTimeout)).toBeInTheDocument();
+    expect(screen.queryByText(/object Object/)).toBeNull();
+    expect(screen.queryByText(/worker timed out/)).toBeNull();
+  });
+
+  it("shows why the font list cannot be loaded (#634)", async () => {
+    const { user } = renderDialog({
+      fontsRejection: { code: "workerCrashed", message: "x" },
+    });
+
+    await screen.findByText("Test Document Title");
+
+    await user.click(screen.getByRole("tab", { name: t.tabFonts }));
+
+    expect(await screen.findByText(t.loadFontsError)).toBeInTheDocument();
+    expect(screen.getByText(strings.error.messages.workerCrashed)).toBeInTheDocument();
   });
 
   it("renders ultra-long strings without breaking", async () => {
