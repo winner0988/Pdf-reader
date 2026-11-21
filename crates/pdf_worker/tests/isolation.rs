@@ -226,10 +226,10 @@ fn memory_limit_contains_a_huge_render() {
 
 #[test]
 fn worker_binary_imports_no_networking() {
-    let imports = pe_imports(&std::fs::read(worker()).unwrap());
+    let (imports, delay_imports) = pe_imports(&std::fs::read(worker()).unwrap());
     assert!(
         imports.iter().any(|dll| dll == "kernel32.dll"),
-        "parser sanity check: {imports:?}"
+        "parser sanity check: standard={imports:?}, delay={delay_imports:?}"
     );
     for forbidden in [
         "ws2_32.dll",
@@ -246,14 +246,21 @@ fn worker_binary_imports_no_networking() {
         "shell32.dll",
     ] {
         assert!(
-            !imports.iter().any(|dll| dll == forbidden),
-            "pdf_worker must not import {forbidden}: {imports:?}"
+            !imports.iter().any(|dll| dll == forbidden)
+                && !delay_imports.iter().any(|dll| dll == forbidden),
+            "pdf_worker must not import {forbidden}: standard={imports:?}, delay={delay_imports:?}"
         );
     }
 }
 
-/// Names (lower-case) of the DLLs in a PE file's import table.
-fn pe_imports(image: &[u8]) -> Vec<String> {
+// Keep in sync with src-tauri/tests/binary_imports.rs.
+/// Names (lower-case) of the DLLs in a PE file's import table:
+/// returns `(standard_imports, delay_imports)`.
+///
+/// Both standard imports (data directory 1) and delay-loaded imports (data directory 13)
+/// are inspected because DLLs linked with `/DELAYLOAD` do not appear in the standard
+/// import table.
+fn pe_imports(image: &[u8]) -> (Vec<String>, Vec<String>) {
     let u16_at = |at: usize| u16::from_le_bytes(image[at..at + 2].try_into().unwrap()) as usize;
     let u32_at = |at: usize| u32::from_le_bytes(image[at..at + 4].try_into().unwrap()) as usize;
 
@@ -263,7 +270,6 @@ fn pe_imports(image: &[u8]) -> Vec<String> {
     let optional = pe + 24;
     let optional_size = u16_at(pe + 20);
     assert_eq!(u16_at(optional), 0x20b, "PE32+");
-    let import_rva = u32_at(optional + 120); // data directory 1 (imports)
 
     let section_table = optional + optional_size;
     let to_offset = |rva: usize| {
@@ -281,17 +287,47 @@ fn pe_imports(image: &[u8]) -> Vec<String> {
             .expect("RVA inside a section")
     };
 
+    // Standard imports: data directory 1 (imports)
+    let import_rva = u32_at(optional + 120);
     let mut names = Vec::new();
-    let mut descriptor = to_offset(import_rva);
-    loop {
-        let name_rva = u32_at(descriptor + 12);
-        if name_rva == 0 {
-            break;
+    if import_rva != 0 {
+        let mut descriptor = to_offset(import_rva);
+        loop {
+            let name_rva = u32_at(descriptor + 12);
+            if name_rva == 0 {
+                break;
+            }
+            let start = to_offset(name_rva);
+            let end = start + image[start..].iter().position(|&b| b == 0).unwrap();
+            names.push(String::from_utf8_lossy(&image[start..end]).to_lowercase());
+            descriptor += 20;
         }
-        let start = to_offset(name_rva);
-        let end = start + image[start..].iter().position(|&b| b == 0).unwrap();
-        names.push(String::from_utf8_lossy(&image[start..end]).to_lowercase());
-        descriptor += 20;
     }
-    names
+
+    // Delay-loaded imports: data directory 13 (delay import descriptor)
+    let num_rva_and_sizes = u32_at(optional + 108);
+    let mut delay_names = Vec::new();
+    if num_rva_and_sizes >= 14 {
+        let delay_rva = u32_at(optional + 112 + 13 * 8);
+        if delay_rva != 0 {
+            let mut descriptor = to_offset(delay_rva);
+            loop {
+                let dll_name_rva = u32_at(descriptor + 4);
+                if dll_name_rva == 0 {
+                    break;
+                }
+                let attributes = u32_at(descriptor);
+                assert!(
+                    attributes & 1 != 0,
+                    "legacy delay load format is not supported by this test (Attributes bit 0 is 0): {attributes:#x}"
+                );
+                let start = to_offset(dll_name_rva);
+                let end = start + image[start..].iter().position(|&b| b == 0).unwrap();
+                delay_names.push(String::from_utf8_lossy(&image[start..end]).to_lowercase());
+                descriptor += 32;
+            }
+        }
+    }
+
+    (names, delay_names)
 }
