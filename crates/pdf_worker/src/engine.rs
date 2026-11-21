@@ -76,6 +76,7 @@ pub const MAX_PAGE_LABELS_ITEMS: usize = 2 * MAX_PAGE_COUNT as usize;
 mod annotations;
 mod attachments;
 mod create;
+mod crop;
 mod docx;
 mod forms;
 mod identifier;
@@ -1051,7 +1052,7 @@ impl PdfDocument {
 
     /// Checks the pages an edit names (some, none twice, all in the document) and returns the
     /// page count.
-    fn checked_pages(&self, pages: &[u32]) -> Result<u32, EngineError> {
+    pub(super) fn checked_pages(&self, pages: &[u32]) -> Result<u32, EngineError> {
         if pages.is_empty() {
             return Err(EngineError::InvalidEdit("no pages"));
         }

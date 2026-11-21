@@ -17,7 +17,7 @@ use crate::text::{
 use crate::types::{
     AnnotationKind, AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind,
     AttachmentInfo, AttachmentSource, BatchArgs, BatchOperation, CompareTextArgs,
-    CompareTextResult, CompressArgs, DocumentFontEntry, DocumentFonts, DocumentInfo,
+    CompareTextResult, CompressArgs, CropMargins, DocumentFontEntry, DocumentFonts, DocumentInfo,
     DocumentProperties, Edit, EditArgs, EncryptArgs, ExportArgs, ExportCompareTextArgs,
     ExportFormat, FindPersonalDataQuery, FindingKind, FontImport, FontInfo, FormField,
     IndexSearchArgs, IndexSearchEvent, IndexSnippet, IpcError, LineEnds, LinkTarget, OcrLanguages,
@@ -165,6 +165,30 @@ impl Validate for Rect {
     fn validate(&self) -> Result<(), ValidationError> {
         for value in [self.x0, self.y0, self.x1, self.y1] {
             check_coordinate("rectangle coordinate", value)?;
+        }
+        Ok(())
+    }
+}
+
+impl Validate for CropMargins {
+    fn validate(&self) -> Result<(), ValidationError> {
+        for margin in [self.top, self.right, self.bottom, self.left] {
+            if !margin.is_finite() {
+                return Err(ValidationError::NotFinite {
+                    what: "crop margin",
+                });
+            }
+            if !(0.0..=MAX_PAGE_SIDE_PT).contains(&margin) {
+                return Err(ValidationError::OutOfRange {
+                    what: "crop margin",
+                });
+            }
+        }
+        if self.top == 0.0 && self.right == 0.0 && self.bottom == 0.0 && self.left == 0.0 {
+            return Err(ValidationError::Invalid {
+                what: "crop margins",
+                reason: "crops nothing",
+            });
         }
         Ok(())
     }
@@ -1816,6 +1840,10 @@ impl Validate for Edit {
                 }
                 Ok(())
             }
+            Edit::CropPages { pages, margins } => {
+                check_page_list("pages to crop", pages)?;
+                margins.validate()
+            }
         }
     }
 }
@@ -2824,8 +2852,8 @@ mod tests {
     use super::*;
     use crate::types::{
         AnnotationId, AnnotationKind, BatesMark, BlockedAction, BookmarkId, CompareExportFormat,
-        DocumentId, DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption, FontId,
-        HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, IndexEntryId,
+        CropMargins, DocumentId, DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption,
+        FontId, HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, IndexEntryId,
         IndexPageHits, InkColor, InkWidth, LinkId, PageNumberMark, PictureView, RecentId, Recovery,
         RequestId, Restrictions, Rgb, Rotation, SecurityFinding, StampImageId, StampName, TabId,
         TextAlign, TextBoxInfo, TextBoxModelId, TextMarkKind, UnverifiableReason, WatermarkPages,
@@ -4598,6 +4626,67 @@ mod tests {
             }))
             .unwrap(),
             rotate(vec![0], Rotation::Cw270)
+        );
+    }
+
+    #[test]
+    fn crop_pages_checks_pages_and_margins() {
+        let crop = |pages: Vec<u32>, margins: CropMargins| EditArgs {
+            doc: DocumentId(1),
+            edit: Edit::CropPages { pages, margins },
+        };
+        let valid_margins = CropMargins {
+            top: 10.0,
+            right: 20.0,
+            bottom: 30.0,
+            left: 40.0,
+        };
+        assert!(crop(vec![0], valid_margins).validate().is_ok());
+        assert!(crop(vec![0, 2], valid_margins).validate().is_ok());
+        // Empty pages or duplicate page rejected
+        assert!(crop(vec![], valid_margins).validate().is_err());
+        assert!(crop(vec![1, 1], valid_margins).validate().is_err());
+        // Margins that crop nothing rejected
+        let zero_margins = CropMargins {
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+            left: 0.0,
+        };
+        assert!(crop(vec![0], zero_margins).validate().is_err());
+        // Negative, NaN, infinite, or exceeding MAX_PAGE_SIDE_PT rejected
+        for bad in [
+            CropMargins {
+                top: -1.0,
+                ..valid_margins
+            },
+            CropMargins {
+                right: f32::NAN,
+                ..valid_margins
+            },
+            CropMargins {
+                bottom: f32::INFINITY,
+                ..valid_margins
+            },
+            CropMargins {
+                left: MAX_PAGE_SIDE_PT + 1.0,
+                ..valid_margins
+            },
+        ] {
+            assert!(crop(vec![0], bad).validate().is_err());
+        }
+        // JSON shape check
+        assert_eq!(
+            serde_json::from_value::<EditArgs>(serde_json::json!({
+                "doc": 1,
+                "edit": {
+                    "kind": "cropPages",
+                    "pages": [0],
+                    "margins": { "top": 10.0, "right": 20.0, "bottom": 30.0, "left": 40.0 }
+                }
+            }))
+            .unwrap(),
+            crop(vec![0], valid_margins)
         );
     }
 
