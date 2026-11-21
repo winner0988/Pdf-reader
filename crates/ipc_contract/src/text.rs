@@ -245,10 +245,16 @@ pub fn is_network_path(raw: &[u8]) -> bool {
         return true;
     }
     if let Some(rest) = text.strip_prefix("file:") {
-        // file://server/share and file:////server/share; file:/// and file://localhost/ are local.
+        // file://server/share and file:////server/share are network paths; file:/// and
+        // file://localhost/ are local. Only a host that is exactly "localhost" (or none) is this
+        // computer: Windows turns file://localhost.example/share into \\localhost.example\share (#611).
         let rest = rest.trim_start_matches(['/', '\\']);
         let slashes = text.len() - "file:".len() - rest.len();
-        return (slashes == 2 && !rest.starts_with("localhost")) || slashes >= 4;
+        if slashes == 2 {
+            let host = rest.split(['/', '\\']).next().unwrap_or_default();
+            return !(host.is_empty() || host == "localhost");
+        }
+        return slashes >= 4;
     }
     text.starts_with("smb:") || text.starts_with("cifs:")
 }
