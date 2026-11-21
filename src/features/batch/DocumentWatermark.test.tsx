@@ -6,6 +6,7 @@ import { DocumentWatermarkDialog } from "./DocumentWatermarkDialog";
 import { strings } from "@/i18n/zh-TW";
 import type { PageSize, StampImageId, StampImageInfo } from "@/ipc/generated/contract";
 import type { PageRenderer, RenderJob } from "@/features/viewer/renderer";
+import type { AnnotationsApi } from "@/features/annotations/source";
 
 const t = strings.documentWatermark;
 const pages: PageSize[] = [
@@ -143,7 +144,7 @@ describe("DocumentWatermarkDialog", () => {
     const user = userEvent.setup();
     const applyEdit = vi.fn().mockResolvedValue(undefined);
     const mockImage: StampImageInfo = { image: 10 as StampImageId, width: 200, height: 100 };
-    const annotationsApi = {
+    const annotationsApi: Pick<AnnotationsApi, "pickStampImage"> = {
       pickStampImage: vi.fn().mockResolvedValue(mockImage),
     };
 

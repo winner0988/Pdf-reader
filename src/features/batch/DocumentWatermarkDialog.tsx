@@ -50,7 +50,7 @@ type DocumentWatermarkDialogProps = {
   pages: PageSize[];
   sensitive?: boolean;
   renderer?: PageRenderer;
-  annotationsApi?: AnnotationsApi;
+  annotationsApi?: Pick<AnnotationsApi, "pickStampImage">;
   applyEdit: (edit: Edit) => Promise<void>;
   onFinished: (message: string) => void;
 };
