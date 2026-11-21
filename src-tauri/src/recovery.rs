@@ -373,7 +373,7 @@ fn read(file: &Path, path: &Path) -> Option<(Stored, ReadPictures, ReadTextBoxes
         && stored
             .edits
             .iter()
-            .all(|edit| !matches!(edit, Edit::InsertPages { .. }) && edit.validate().is_ok());
+            .all(|edit| !matches!(edit, Edit::InsertPages { .. } | Edit::ReplacePages { .. }) && edit.validate().is_ok());
     if !valid {
         return None;
     }
@@ -916,6 +916,10 @@ mod tests {
         let bad = [
             // The pages of another file cannot be in a journal: it cannot keep the file.
             journal(r#"[{"kind":"insertPages","at":1,"source":3}]"#, 0),
+            journal(
+                r#"[{"kind":"replacePages","first":1,"count":1,"source":3,"from":0,"to":0}]"#,
+                0,
+            ),
             // Nor a text box: its font is up to 64 MiB (B2-28; B2-29 keeps a subset).
             journal(
                 r#"[{"kind":"addTextBox","page":0,"rect":{"x0":72.0,"y0":72.0,"x1":372.0,"y1":132.0},"model":7,"style":{"size":12.0,"color":{"r":0,"g":0,"b":0},"align":"left"}}]"#,

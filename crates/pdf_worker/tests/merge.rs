@@ -1926,3 +1926,368 @@ fn merge_carries_shape_annotations() {
     };
     assert_eq!(reverted_annots.len(), 4);
 }
+
+fn get_page_text(host: &mut WorkerHost, doc: DocumentId, page_index: u32) -> String {
+    let response = host
+        .request(|request| WorkerRequest::GetPageText {
+            request,
+            doc,
+            page_index,
+        })
+        .expect("page text");
+    let WorkerResponse::PageText { text, .. } = response else {
+        panic!("{response:?}");
+    };
+    text.lines
+        .into_iter()
+        .map(|l| l.text)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[test]
+fn replace_pages_same_count_as_source() {
+    let mut host = host();
+    let (source_bytes, s, _) = source(&mut host, "benign/multi-page-10.pdf", None).expect("source");
+    assert_eq!(s, 10);
+    let (doc, before) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    assert_eq!(before.len(), 10);
+
+    let edited = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::ReplacePages {
+                first: 2,
+                count: 2,
+                source: source_bytes,
+                text_boxes: Vec::new(),
+                from: 6,
+                to: 7,
+            },
+        })
+        .expect("replace pages");
+    let WorkerResponse::Edited { pages, .. } = edited else {
+        panic!("{edited:?}");
+    };
+    assert_eq!(pages.len(), 10);
+
+    let p2_text = get_page_text(&mut host, doc, 2);
+    assert!(p2_text.contains("Page 7 of 10"), "p2_text: {p2_text}");
+    assert!(p2_text.contains("needle"), "p2_text: {p2_text}");
+
+    let p6_text = get_page_text(&mut host, doc, 6);
+    assert!(p6_text.contains("needle"), "p6_text: {p6_text}");
+}
+
+#[test]
+fn replace_pages_different_counts() {
+    let mut host = host();
+    let (source_bytes, _, _) = source(&mut host, "benign/multi-page-10.pdf", None).expect("source");
+
+    // Replace page 2 (index 1) with 3 pages (from 0 to 2) -> 10 - 1 + 3 = 12 pages
+    let (doc1, _) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    let edited1 = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc: doc1,
+            edit: WorkerEdit::ReplacePages {
+                first: 1,
+                count: 1,
+                source: source_bytes.clone(),
+                text_boxes: Vec::new(),
+                from: 0,
+                to: 2,
+            },
+        })
+        .expect("replace 1 with 3");
+    let WorkerResponse::Edited { pages: p1, .. } = edited1 else {
+        panic!()
+    };
+    assert_eq!(p1.len(), 12);
+
+    // Replace front pages (first: 0, count: 2, from: 0, to: 0) -> 10 - 2 + 1 = 9 pages
+    let (doc2, _) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    let edited2 = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc: doc2,
+            edit: WorkerEdit::ReplacePages {
+                first: 0,
+                count: 2,
+                source: source_bytes.clone(),
+                text_boxes: Vec::new(),
+                from: 0,
+                to: 0,
+            },
+        })
+        .expect("replace front");
+    let WorkerResponse::Edited { pages: p2, .. } = edited2 else {
+        panic!()
+    };
+    assert_eq!(p2.len(), 9);
+
+    // Replace back pages (first: 8, count: 2, from: 0, to: 2) -> 10 - 2 + 3 = 11 pages
+    let (doc3, _) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    let edited3 = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc: doc3,
+            edit: WorkerEdit::ReplacePages {
+                first: 8,
+                count: 2,
+                source: source_bytes.clone(),
+                text_boxes: Vec::new(),
+                from: 0,
+                to: 2,
+            },
+        })
+        .expect("replace back");
+    let WorkerResponse::Edited { pages: p3, .. } = edited3 else {
+        panic!()
+    };
+    assert_eq!(p3.len(), 11);
+
+    // Replace all pages (first: 0, count: 10, from: 0, to: 1) -> 10 - 10 + 2 = 2 pages
+    let (doc4, _) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    let edited4 = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc: doc4,
+            edit: WorkerEdit::ReplacePages {
+                first: 0,
+                count: 10,
+                source: source_bytes.clone(),
+                text_boxes: Vec::new(),
+                from: 0,
+                to: 1,
+            },
+        })
+        .expect("replace all");
+    let WorkerResponse::Edited { pages: p4, .. } = edited4 else {
+        panic!()
+    };
+    assert_eq!(p4.len(), 2);
+
+    // Source takes 1 page only (from: 3, to: 3)
+    let (doc5, _) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    let edited5 = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc: doc5,
+            edit: WorkerEdit::ReplacePages {
+                first: 3,
+                count: 3,
+                source: source_bytes,
+                text_boxes: Vec::new(),
+                from: 3,
+                to: 3,
+            },
+        })
+        .expect("source takes 1 page");
+    let WorkerResponse::Edited { pages: p5, .. } = edited5 else {
+        panic!()
+    };
+    assert_eq!(p5.len(), 8);
+}
+
+#[test]
+fn replace_pages_recreates_annotations_within_range_only() {
+    let mut host = host();
+    let (source_doc, _) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddNote {
+            page: 0,
+            at: Point { x: 100.0, y: 200.0 },
+            text: "Page 0 Note".to_owned(),
+        },
+    })
+    .expect("note 0");
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: source_doc,
+        edit: WorkerEdit::AddNote {
+            page: 1,
+            at: Point { x: 100.0, y: 200.0 },
+            text: "Page 1 Note".to_owned(),
+        },
+    })
+    .expect("note 1");
+
+    let source_path =
+        std::env::temp_dir().join(format!("pdf-worker-source-test-{}.pdf", std::process::id()));
+    let source_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&source_path)
+        .expect("create source");
+    host.save(source_doc, &source_file).expect("save source");
+    drop(source_file);
+
+    let (source_bytes, source_pages, _) = match host
+        .prepare_source(&File::open(&source_path).expect("open"), None)
+        .expect("prepare")
+    {
+        WorkerResponse::Source { bytes, pages, .. } => (bytes, pages, ()),
+        other => panic!("{other:?}"),
+    };
+    std::fs::remove_file(&source_path).ok();
+    assert_eq!(source_pages, 10);
+
+    let (target_doc, _) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+
+    // Replace target page index 1 with source page 0 only (from: 0, to: 0)
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: target_doc,
+        edit: WorkerEdit::ReplacePages {
+            first: 1,
+            count: 1,
+            source: source_bytes,
+            text_boxes: Vec::new(),
+            from: 0,
+            to: 0,
+        },
+    })
+    .expect("replace pages");
+
+    let annots_p1 = match host
+        .request(|request| WorkerRequest::GetPageAnnotations {
+            request,
+            doc: target_doc,
+            page_index: 1,
+        })
+        .expect("page annots")
+    {
+        WorkerResponse::PageAnnotations { annotations, .. } => annotations,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(annots_p1.len(), 1);
+    assert_eq!(annots_p1[0].kind, AnnotationKind::Note);
+
+    let annots_p0 = match host
+        .request(|request| WorkerRequest::GetPageAnnotations {
+            request,
+            doc: target_doc,
+            page_index: 0,
+        })
+        .expect("page annots")
+    {
+        WorkerResponse::PageAnnotations { annotations, .. } => annotations,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(annots_p0.len(), 0);
+}
+
+#[test]
+fn replace_pages_invalid_ranges_rejected() {
+    let mut host = host();
+    let (source_bytes, _, _) = source(&mut host, "benign/multi-page-10.pdf", None).expect("source");
+    let (doc, _) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+
+    // to >= S (to: 10, source has 10 pages 0..=9)
+    let res1 = host.request(|request| WorkerRequest::Edit {
+        request,
+        doc,
+        edit: WorkerEdit::ReplacePages {
+            first: 2,
+            count: 2,
+            source: source_bytes.clone(),
+            text_boxes: Vec::new(),
+            from: 0,
+            to: 10,
+        },
+    });
+    assert!(res1.is_err());
+
+    // first + count > doc_pages (first: 8, count: 3 -> 11 > 10)
+    let res2 = host.request(|request| WorkerRequest::Edit {
+        request,
+        doc,
+        edit: WorkerEdit::ReplacePages {
+            first: 8,
+            count: 3,
+            source: source_bytes.clone(),
+            text_boxes: Vec::new(),
+            from: 0,
+            to: 1,
+        },
+    });
+    assert!(res2.is_err());
+
+    // from > to
+    let res3 = host.request(|request| WorkerRequest::Edit {
+        request,
+        doc,
+        edit: WorkerEdit::ReplacePages {
+            first: 2,
+            count: 2,
+            source: source_bytes.clone(),
+            text_boxes: Vec::new(),
+            from: 5,
+            to: 2,
+        },
+    });
+    assert!(res3.is_err());
+
+    // Verify document is unchanged: still 10 pages
+    let p0_text = get_page_text(&mut host, doc, 0);
+    assert!(p0_text.contains("Page 1 of 10"));
+}
+
+#[test]
+fn replace_pages_saved_check_qpdf_and_replaced_content_removed() {
+    let mut host = host();
+    let (source_bytes, _, _) = source(&mut host, "benign/multi-page-10.pdf", None).expect("source");
+    let (doc, _) = opened(&mut host, &corpus("benign/multi-page-10.pdf"));
+
+    // In benign/multi-page-10.pdf, needle is ONLY on page 7 (index 6).
+    // Replace page 7 (index 6, count 1) with page 1 of source (from 0 to 0, which has no needle).
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc,
+        edit: WorkerEdit::ReplacePages {
+            first: 6,
+            count: 1,
+            source: source_bytes,
+            text_boxes: Vec::new(),
+            from: 0,
+            to: 0,
+        },
+    })
+    .expect("replace page 7");
+
+    let path = std::env::temp_dir().join(format!(
+        "pdf-worker-replace-saved-{}.pdf",
+        std::process::id()
+    ));
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&path)
+        .expect("create file");
+    let saved = host.save(doc, &file).expect("save");
+    drop(file);
+    assert!(matches!(saved, WorkerResponse::Saved { .. }));
+
+    // check_qpdf passes
+    common::check_qpdf(&path);
+
+    // Reopen in a new worker and verify needle is completely gone
+    let mut new_host = self::host();
+    let (reopened_doc, pages) = opened(&mut new_host, &path);
+    assert_eq!(pages.len(), 10);
+    for idx in 0..10 {
+        let text = get_page_text(&mut new_host, reopened_doc, idx);
+        assert!(
+            !text.contains("needle"),
+            "Page {idx} should not contain needle"
+        );
+    }
+
+    std::fs::remove_file(&path).ok();
+}
