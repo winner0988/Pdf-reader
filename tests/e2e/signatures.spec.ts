@@ -192,8 +192,9 @@ test.describe("reusable signatures (B6-02)", () => {
     await expect(dialogAgain.getByRole("button", { name: new RegExp(`^${strings.savedSignatures.clickToPlace}`) })).toHaveCount(1);
 
     await dialogAgain.getByRole("button", { name: strings.savedSignatures.importTab }).click();
-    await answerFileDialog(again, { path: corpus("images/stamp-exif.jpg") });
+    const importDialogPromise = answerFileDialog(again, { path: corpus("images/stamp-exif.jpg") });
     await dialogAgain.getByRole("button", { name: strings.savedSignatures.importButton }).click();
+    await importDialogPromise;
     await expect(dialogAgain.getByRole("button", { name: new RegExp(`^${strings.savedSignatures.clickToPlace}`) })).toHaveCount(2);
 
     await again.keyboard.press("Escape");
