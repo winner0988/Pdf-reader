@@ -168,10 +168,7 @@ fn a_file_url_whose_host_only_starts_with_localhost_names_a_network_path() {
     ));
     assert_eq!(
         findings(&report),
-        [
-            (FindingKind::RemoteGoTo, 2),
-            (FindingKind::UncReference, 1),
-        ]
+        [(FindingKind::RemoteGoTo, 2), (FindingKind::UncReference, 1),]
     );
 }
 
