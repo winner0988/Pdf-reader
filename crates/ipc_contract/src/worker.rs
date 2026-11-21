@@ -602,6 +602,12 @@ pub enum WorkerEdit {
         color: InkColor,
         width: InkWidth,
     },
+    /// As [`Edit::AddWatermark`] (B6-06).
+    AddWatermark {
+        pages: Vec<u32>,
+        watermark: WorkerWatermark,
+        png: Option<Vec<u8>>,
+    },
 }
 
 /// An edit names something its document does not have: a file whose pages it takes (B2-06), the
@@ -818,6 +824,18 @@ impl WorkerEdit {
                 annotation: *annotation,
                 color: *color,
                 width: *width,
+            },
+            Edit::AddWatermark {
+                pages,
+                watermark,
+                image,
+            } => WorkerEdit::AddWatermark {
+                pages: pages.clone(),
+                watermark: watermark.clone().into(),
+                png: match image {
+                    Some(image) => Some(picture(*image).ok_or(UnknownFile::Picture)?),
+                    None => None,
+                },
             },
         })
     }
@@ -2252,5 +2270,60 @@ mod tests {
         for (value, target) in json.into_iter().zip(targets()) {
             assert_eq!(serde_json::from_value::<LinkTarget>(value).unwrap(), target);
         }
+    }
+
+    #[test]
+    fn add_watermark_edit_crosses_the_worker_boundary() {
+        use crate::types::{Watermark, WatermarkContent, WatermarkPages, WatermarkPlace};
+        let watermark = Watermark {
+            content: WatermarkContent::Text {
+                text: "CONFIDENTIAL".to_owned(),
+                size: 40.0,
+                color: Rgb { r: 10, g: 20, b: 30 },
+            },
+            opacity: 45,
+            diagonal: true,
+            place: WatermarkPlace::Center,
+            pages: WatermarkPages::All,
+        };
+        let edit = Edit::AddWatermark {
+            pages: vec![0, 2],
+            watermark: watermark.clone(),
+            image: None,
+        };
+        let worker_edit = WorkerEdit::of(&edit, |_| None, |_| None, |_| None).unwrap();
+        let bytes = postcard::to_allocvec(&worker_edit).unwrap();
+        let back = postcard::from_bytes::<WorkerEdit>(&bytes).unwrap();
+        assert_eq!(back, worker_edit);
+
+        // Picture watermark with missing picture gives UnknownFile::Picture
+        let pic_wm = Watermark {
+            content: WatermarkContent::Picture { width_pt: 120.0 },
+            opacity: 60,
+            diagonal: false,
+            place: WatermarkPlace::Top,
+            pages: WatermarkPages::All,
+        };
+        let pic_edit = Edit::AddWatermark {
+            pages: vec![1],
+            watermark: pic_wm.clone(),
+            image: Some(StampImageId(99)),
+        };
+        assert_eq!(
+            WorkerEdit::of(&pic_edit, |_| None, |_| None, |_| None),
+            Err(UnknownFile::Picture)
+        );
+
+        // Picture watermark with picture round-trips
+        let pic_worker_edit = WorkerEdit::of(
+            &pic_edit,
+            |_| None,
+            |id| if id == StampImageId(99) { Some(vec![1, 2, 3]) } else { None },
+            |_| None,
+        )
+        .unwrap();
+        let bytes = postcard::to_allocvec(&pic_worker_edit).unwrap();
+        let back = postcard::from_bytes::<WorkerEdit>(&bytes).unwrap();
+        assert_eq!(back, pic_worker_edit);
     }
 }
