@@ -41,11 +41,12 @@
      - `PDF_READER_TEST_CLIPBOARD`：換掉剪貼簿上的內容。
    - 不自己設定 WebView2 的環境變數或登錄機碼來開除錯埠。
    - 不直接執行 `pdf-reader.exe` 來驗證：那會用到使用者自己的設定與最近開啟的檔案。
+   - 啟動之前確認沒有 `pdf-reader.exe` 在執行，包括使用者自己安裝的 app。app 只允許一個執行個體：新啟動的會把要開的檔案交給已經在執行的那一個（它用的是使用者自己的設定與最近開啟的檔案），然後結束。
    - 用 harness 的 `launch`。它每次啟動都：
      - 只對這一次啟動開除錯埠（只綁 127.0.0.1）；
      - 用新的暫存 WebView2 設定與資料資料夾；
      - 在結束時刪掉它們。
-7. **開 app 之前先問。** app 會在桌面上開真的視窗，有些測試還會回答系統的對話框。在有人正在使用的電腦上，先問過對方。執行期間不要操作滑鼠鍵盤（[e2e.md](../architecture/e2e.md)）。
+7. **開 app 之前先問。** app 會在桌面上開真的視窗，有些測試還會回答系統的對話框。在有人正在使用的電腦上，先問過對方，並說清楚會開幾次視窗：harness 啟動失敗時會再試一次（#133），所以一次啟動可能出現兩個視窗。執行期間不要操作滑鼠鍵盤（[e2e.md](../architecture/e2e.md)）。
 8. **不把私人或危險的東西放進 PR。**
    - 截圖只能是語料檔的畫面。
    - 不貼本機路徑、使用者名稱，也不貼 WebView2 的整份網路記錄（見「證據」）。
@@ -74,7 +75,7 @@ git worktree add <短路徑> <分支>
 git worktree add --detach <短路徑> <分支>
 ```
 
-- 改動仍在原本的 worktree 提交。提交之後，讓短路徑的 worktree 切到新的 commit，再建置一次：
+- 改動仍在原本的 worktree 提交。提交之後，讓短路徑的 worktree 切到新的 commit；新的 commit 有改到程式碼時，再建置一次：
 
 ```
 git -C <短路徑> checkout --detach <分支>
@@ -135,7 +136,7 @@ pnpm e2e zz-verify-<主題>.spec.ts
 
 - **等畫好再看**：第 1 頁的 `data-state` 變成 `ready`，再操作或截圖。
 - **步驟從既有的 spec 抄**：那個功能在 `tests/e2e/*.spec.ts` 已有的測試，知道選單的名稱與要等什麼。
-- **截圖**：在 `tests/e2e/test-results/` 底下這個測試的資料夾。
+- **截圖**：在 `tests/e2e/test-results/` 底下這個測試的資料夾，資料夾名稱由 spec 的檔名與測試的名稱組成。
   - 自己打開看一次，確定截到的是要確認的畫面。
   - 下一次執行 E2E 會清掉這個資料夾；要留就先複製到 repo 以外。
 - **直接呼叫主行程的命令**：照 `tests/e2e/saving.spec.ts`，在 `page.evaluate` 裡呼叫 `window.__TAURI_INTERNALS__.invoke("<命令>", <參數>)`。
@@ -146,6 +147,7 @@ pnpm e2e zz-verify-<主題>.spec.ts
 - **確認沒有連網**：只改到連網相關的程式時，直接跑 `pnpm e2e network.spec.ts`。要在自己的情境裡看，照 `tests/e2e/network.spec.ts`：
   - 以 `launch(file, { netLog })` 啟動，記錄檔放在系統暫存資料夾，檔名要短；
   - 用 `quit(page)` 結束 app 之後再讀記錄；
+  - 也照抄 `expect(log).toContain("http://tauri.localhost/")`：記錄是空的時候，下一步的結果也是空的，什麼都證明不了；
   - 用同一個檔案的 `external()` 列出 app 自己的內容以外的請求；
   - 用完刪掉記錄檔。
 - **失敗時**：harness 把截圖、app 的日誌與摘要寫到 `tests/e2e/test-results/`；報告在 `tests/e2e/playwright-report/index.html`。
@@ -202,6 +204,11 @@ cargo test --workspace --locked <測試名稱>
 ```
 git worktree remove <短路徑>
 ```
+
+- 確認那個資料夾真的不在了。`git worktree remove` 回報成功之後，`node_modules` 裡仍可能留下 pnpm 建的連結（junction）與空資料夾。
+  - 先確認剩下的連結都指向這個資料夾裡面，才不會刪到別的地方；
+  - 再在 cmd 用 `rmdir /s /q <短路徑>` 刪掉。
+- harness 在系統暫存資料夾建立的 `pdf-reader-e2e-*` 資料夾，正常結束時會自己刪掉（[e2e.md](../architecture/e2e.md)）。
 
 ## 什麼時候該寫 E2E 測試
 
