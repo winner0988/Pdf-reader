@@ -36,9 +36,9 @@ use ipc_contract::validate::{
     stamp_png_size,
 };
 use ipc_contract::worker::{
-    FontData, InsertedTextBox, InspectedFont, NewSignature, OcrFinished, OcrOutcome, OcrPageState,
-    PasswordKey, PreparedTextBoxModel, SourceTextBox, TextBoxModel, UnknownFile, WorkerEdit,
-    WorkerErrorCode, WorkerRequest, WorkerResponse,
+    ExportedAnnotations, FontData, InsertedTextBox, InspectedFont, NewSignature, OcrFinished,
+    OcrOutcome, OcrPageState, PasswordKey, PreparedTextBoxModel, SourceTextBox, TextBoxModel,
+    UnknownFile, WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
 };
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
@@ -2523,6 +2523,45 @@ impl Documents {
                 }
             }
             Ok(summary)
+        })
+    }
+
+    /// Exports the annotations across `doc` for XFDF (B5-09).
+    pub fn annotation_export(&self, doc: DocumentId) -> Result<ExportedAnnotations, IpcError> {
+        self.with_document(doc, |document| {
+            let response = request_long(document, |request, doc| {
+                WorkerRequest::AnnotationExport { request, doc }
+            })?;
+            let WorkerResponse::AnnotationExport { annotations, .. } = response else {
+                return Err(unexpected_on(document, "AnnotationExport"));
+            };
+            let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+            let mut names = std::collections::HashSet::new();
+            for item in &annotations.items {
+                if item.page >= page_count {
+                    return Err(IpcError {
+                        code: ErrorCode::ProtocolViolation,
+                        message: "annotation export page index out of bounds".to_owned(),
+                    });
+                }
+                if !names.insert(item.name.as_str()) {
+                    return Err(IpcError {
+                        code: ErrorCode::ProtocolViolation,
+                        message: "duplicate annotation name in export".to_owned(),
+                    });
+                }
+            }
+            for item in &annotations.items {
+                if let Some(ref irt) = item.in_reply_to {
+                    if !names.contains(irt.as_str()) {
+                        return Err(IpcError {
+                            code: ErrorCode::ProtocolViolation,
+                            message: "annotation in_reply_to references unknown name".to_owned(),
+                        });
+                    }
+                }
+            }
+            Ok(annotations)
         })
     }
 
@@ -7362,6 +7401,18 @@ mod with_worker {
         let summary = documents.annotation_summary(doc).unwrap();
         assert_eq!(summary.items.len(), 1);
         assert_ne!(summary.items[0].id.0, 0);
+
+        let exported = documents.annotation_export(doc).unwrap();
+        assert_eq!(exported.items.len(), 1);
+        assert!(!exported.items[0].name.is_empty());
+
+        assert_eq!(
+            documents
+                .annotation_export(DocumentId(99999))
+                .unwrap_err()
+                .code,
+            ErrorCode::UnknownDocument
+        );
 
         std::fs::remove_file(path).ok();
     }
