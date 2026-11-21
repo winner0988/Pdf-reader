@@ -27,9 +27,10 @@ use crate::types::{
     RecentFile, Rect, RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
     Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult,
     SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs, SensitiveFile,
-    Settings, Shape, SignArgs, SignatureInfo, SignatureReport, SignatureStatus, SigningFileKey,
-    SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs, UnlockArgs,
-    UnlockSourceArgs, Watermark, WatermarkContent,
+    Settings, Shape, SignArgs, SignatureImageArgs, SignatureInfo, SignatureReport, SignatureStatus,
+    SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs,
+    UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent, AddSignatureImageArgs,
+    PrepareSignatureStampArgs,
 };
 use crate::worker::{
     InsertedTextBox, InspectedFont, OcrOutcome, OpenedDocument, PreparedTextBoxModel, Raster,
@@ -2093,6 +2094,25 @@ impl Validate for PrepareTextBoxArgs {
 }
 
 impl Validate for RemoveFontArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
+    }
+}
+
+impl Validate for SignatureImageArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
+    }
+}
+
+impl Validate for AddSignatureImageArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        stamp_png_size(&self.png)?;
+        Ok(())
+    }
+}
+
+impl Validate for PrepareSignatureStampArgs {
     fn validate(&self) -> Result<(), ValidationError> {
         Ok(())
     }

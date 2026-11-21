@@ -70,8 +70,13 @@ pub fn new_key() -> Result<Zeroizing<Vec<u8>>, CryptoError> {
 
 /// `secret` protected by DPAPI for the current Windows user, to keep on disk. Nothing is shown.
 pub fn protect(secret: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    protect_with(secret, ENTROPY)
+}
+
+/// `secret` protected by DPAPI with `entropy` for the current Windows user.
+pub fn protect_with(secret: &[u8], entropy: &[u8]) -> Result<Vec<u8>, CryptoError> {
     let input = blob(secret)?;
-    let entropy = blob(ENTROPY)?;
+    let entropy_blob = blob(entropy)?;
     let mut output = CRYPT_INTEGER_BLOB {
         cbData: 0,
         pbData: null_mut(),
@@ -82,7 +87,7 @@ pub fn protect(secret: &[u8]) -> Result<Vec<u8>, CryptoError> {
         CryptProtectData(
             &input,
             null(),
-            &entropy,
+            &entropy_blob,
             null(),
             null(),
             CRYPTPROTECT_UI_FORBIDDEN,
@@ -98,8 +103,13 @@ pub fn protect(secret: &[u8]) -> Result<Vec<u8>, CryptoError> {
 
 /// The secret `protected` holds, if DPAPI can unprotect it for the current Windows user.
 pub fn unprotect(protected: &[u8]) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
+    unprotect_with(protected, ENTROPY)
+}
+
+/// The secret `protected` holds, if DPAPI with `entropy` can unprotect it for the current Windows user.
+pub fn unprotect_with(protected: &[u8], entropy: &[u8]) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
     let input = blob(protected)?;
-    let entropy = blob(ENTROPY)?;
+    let entropy_blob = blob(entropy)?;
     let mut output = CRYPT_INTEGER_BLOB {
         cbData: 0,
         pbData: null_mut(),
@@ -109,7 +119,7 @@ pub fn unprotect(protected: &[u8]) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
         CryptUnprotectData(
             &input,
             null_mut(),
-            &entropy,
+            &entropy_blob,
             null(),
             null(),
             CRYPTPROTECT_UI_FORBIDDEN,
@@ -401,5 +411,19 @@ mod tests {
         changed[last] ^= 1;
         assert_eq!(unprotect(&changed), Err(CryptoError::Failed));
         assert!(Cipher::new(&key[..16]).is_err());
+    }
+
+    #[test]
+    fn protect_with_different_entropies_cannot_be_unprotected() {
+        let plain = b"sensitive signature image payload";
+        let entropy_a = b"Pdf-reader signature image (B6-02)";
+        let entropy_b = b"Pdf-reader text index key (B3-21)";
+
+        let protected = protect_with(plain, entropy_a).unwrap();
+        assert_eq!(&unprotect_with(&protected, entropy_a).unwrap()[..], plain);
+        assert_eq!(
+            unprotect_with(&protected, entropy_b),
+            Err(CryptoError::Failed)
+        );
     }
 }
