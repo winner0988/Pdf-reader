@@ -234,6 +234,26 @@
 - 結束後關閉對話框，狀態列顯示 exportAnnotations.done，摘要因為註解太多而沒有列完時顯示 exportAnnotations.truncated。失敗時對話框裡顯示 exportAnnotations.failed。
 - 檔案的內容與順序見 [annotation-summary.md](../architecture/annotation-summary.md)。
 
+### 視覺比較（B5-14，#451）
+
+- 「⋯」→「與另一個分頁比較畫面…」（在「與另一個分頁比較文字…」之後）與命令面板開啟。只有開啟單一分頁時停用並提示 `compare.onlyOneTab`；作者禁止複製不影響此項目（純畫面檢視）。
+- **對話框內容**：
+  - 頂部選取目標分頁（`compare.visual.targetTab`、`compare.visual.chooseTab`），點擊「開始比較」（`compare.visual.start`）。
+  - 頁面切換：「上一頁」、「下一頁」與「第 N 頁，共 M 頁」（M 為兩者頁數較大者）。
+  - 顯示方式：「並排」（Side-by-side）與「疊在一起」（Overlay，Doc A 100% 不透明度底層，Doc B 50% 不透明度疊加）。
+  - 差異跳轉：「上一處」、「下一處」與「第 k 處，共 n 處」。跳轉超出當前頁時自動向前或向後逐頁比對，比對時顯示「比較中…」與「停止」按鈕。
+  - 差異框標示：在畫面上以主題邊框標出不同區域，當前選定之差異以粗邊框高亮並自動捲動到可見位置。
+- **狀態訊息（`role="status"`）**：
+  - 「這一頁沒有差異」
+  - 「這一頁只在〈檔名〉有」
+  - 「兩頁大小不同，已縮放到相同的寬度」
+  - 「差異太多，只標出前 100 處」
+  - 「這一頁無法比較」
+- **鍵盤與無障礙**：
+  - 畫面容器標記 `role="img"`，名稱明確包含分頁名稱與頁碼。
+  - 所有操作按鈕均支援鍵盤操作與焦點環。
+  - 跳轉至差異處時透過狀態區域朗讀當前差異位置。
+
 ### 加密並另存新檔（B2-15）
 
 - 「⋯」→「加密並另存新檔…」（在「隱私匯出…」之後）開啟對話框。沒有開啟文件時停用；加密的文件停用，並標示 encryption.encrypted。做法見 [encrypt-copy.md](../architecture/encrypt-copy.md)。

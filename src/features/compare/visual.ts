@@ -94,13 +94,29 @@ export function diffRegions(a: RasterImage, b: RasterImage): DiffResult {
         let idxB = rowOffsetB;
 
         for (let x = startX; x < endX; x++) {
-          const diffR = Math.abs(a.pixels[idxA] - b.pixels[idxB]);
-          const diffG = Math.abs(a.pixels[idxA + 1] - b.pixels[idxB + 1]);
-          const diffB = Math.abs(a.pixels[idxA + 2] - b.pixels[idxB + 2]);
+          const paR = a.pixels[idxA];
+          const pbR = b.pixels[idxB];
+          const paG = a.pixels[idxA + 1];
+          const pbG = b.pixels[idxB + 1];
+          const paB = a.pixels[idxA + 2];
+          const pbB = b.pixels[idxB + 2];
 
-          if (diffR > PIXEL_THRESHOLD || diffG > PIXEL_THRESHOLD || diffB > PIXEL_THRESHOLD) {
-            cellDiff = true;
-            break;
+          if (
+            paR !== undefined &&
+            pbR !== undefined &&
+            paG !== undefined &&
+            pbG !== undefined &&
+            paB !== undefined &&
+            pbB !== undefined
+          ) {
+            const diffR = Math.abs(paR - pbR);
+            const diffG = Math.abs(paG - pbG);
+            const diffB = Math.abs(paB - pbB);
+
+            if (diffR > PIXEL_THRESHOLD || diffG > PIXEL_THRESHOLD || diffB > PIXEL_THRESHOLD) {
+              cellDiff = true;
+              break;
+            }
           }
           idxA += 4;
           idxB += 4;
@@ -136,6 +152,7 @@ export function diffRegions(a: RasterImage, b: RasterImage): DiffResult {
       let qHead = 0;
       while (qHead < queue.length) {
         const curr = queue[qHead++];
+        if (curr === undefined) break;
         const currR = Math.floor(curr / cols);
         const currC = curr % cols;
 
@@ -174,6 +191,7 @@ export function diffRegions(a: RasterImage, b: RasterImage): DiffResult {
       for (let j = i + 1; j < boxes.length; j++) {
         const b1 = boxes[i];
         const b2 = boxes[j];
+        if (!b1 || !b2) continue;
 
         const gapC =
           b1.maxC < b2.minC ? b2.minC - b1.maxC - 1 : b2.maxC < b1.minC ? b1.minC - b2.maxC - 1 : 0;

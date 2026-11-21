@@ -4,6 +4,10 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 ## [Unreleased]
 
+### 新增
+
+- 「與另一個分頁比較畫面」：逐頁標出兩份文件畫面不同的地方，可以並排或疊在一起看，跳到上一處、下一處（#451）。
+
 ### 修正
 
 - 「文件內容」對話框讀不到資料時，會說明原因（例如 PDF 引擎沒有回應），不再顯示 `[object Object]`（#634）。

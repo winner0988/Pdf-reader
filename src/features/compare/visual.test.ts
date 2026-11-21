@@ -67,7 +67,7 @@ describe("visual compare pure functions", () => {
 
     const result = diffRegions(a, b);
     expect(result.regions).toHaveLength(1);
-    const region = result.regions[0];
+    const region = result.regions[0]!;
     // x from 10 to 29 spans cells [10//8, 29//8] = [1, 3] -> x: 8, width: (3 - 1 + 1)*8 = 24
     // y from 10 to 29 spans cells [1, 3] -> y: 8, height: 24
     expect(region.x).toBe(8);
@@ -102,9 +102,9 @@ describe("visual compare pure functions", () => {
     const result = diffRegions(a, b);
     expect(result.regions).toHaveLength(2);
     // Sorted by y then x: Block 2 (y=48) should come before Block 1 (y=200)
-    expect(result.regions[0].y).toBeLessThan(result.regions[1].y);
-    expect(result.regions[0].x).toBe(48); // 50 // 8 * 8
-    expect(result.regions[1].y).toBe(200); // 200 // 8 * 8
+    expect(result.regions[0]!.y).toBeLessThan(result.regions[1]!.y);
+    expect(result.regions[0]!.x).toBe(48); // 50 // 8 * 8
+    expect(result.regions[1]!.y).toBe(200); // 200 // 8 * 8
   });
 
   it("merges two blocks separated by less than MERGE_GAP_CELLS into one region", () => {
@@ -118,8 +118,8 @@ describe("visual compare pure functions", () => {
 
     const result = diffRegions(a, b);
     expect(result.regions).toHaveLength(1);
-    expect(result.regions[0].x).toBe(8);
-    expect(result.regions[0].width).toBe((3 - 1 + 1) * CELL_PX); // 24 px
+    expect(result.regions[0]!.x).toBe(8);
+    expect(result.regions[0]!.width).toBe((3 - 1 + 1) * CELL_PX); // 24 px
   });
 
   it("ignores color differences below threshold (e.g. diff of 20)", () => {
@@ -138,6 +138,8 @@ describe("visual compare pure functions", () => {
 
     const result = diffRegions(a, b);
     expect(result.regions).toHaveLength(0);
+    expect(PIXEL_THRESHOLD).toBe(48);
+    expect(MERGE_GAP_CELLS).toBe(2);
   });
 
   it("handles height difference: > 2px adds extra region at bottom, 1px difference ignored", () => {
