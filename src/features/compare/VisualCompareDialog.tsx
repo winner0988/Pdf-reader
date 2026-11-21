@@ -650,7 +650,7 @@ export function VisualCompareDialog({
               type="button"
               onClick={handleStartCompare}
               disabled={scanning || loadingPage || selectedDoc === undefined}
-              className="shrink-0"
+              className="shrink-0 text-white dark:text-primary-foreground"
             >
               {t.start}
             </Button>
@@ -779,7 +779,12 @@ export function VisualCompareDialog({
         {renderStatus()}
 
         {/* Visual comparison canvas viewport */}
-        <div className="flex-1 min-h-0 overflow-auto bg-muted/30 rounded-md border p-4 flex items-center justify-center">
+        <div
+          tabIndex={0}
+          role="region"
+          aria-label={t.title}
+          className="flex-1 min-h-0 overflow-auto bg-muted/30 rounded-md border p-4 flex items-center justify-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+        >
           {!started ? (
             <div className="text-center text-sm text-muted-foreground py-12">
               {t.chooseTab}
