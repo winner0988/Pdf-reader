@@ -824,6 +824,7 @@ export function ReaderShell({
     doc !== undefined && editingApi !== undefined
       ? {
           allowed: permissions.assemble || permissions.modify,
+          cropAllowed: permissions.modify,
           apply: async (edit) => {
             await editingApi.applyEdit(doc, edit);
             setNavHistory((prev) => adjustHistoryForEdit(prev, edit, pageCount));

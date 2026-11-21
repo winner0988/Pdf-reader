@@ -4,7 +4,10 @@
 import type { Edit } from "@/ipc/generated/contract";
 
 /** The edits the thumbnails make: to pages, not to annotations (B2-07). */
-export type PageEdit = Extract<Edit, { kind: "rotatePages" | "deletePages" | "movePages" | "insertBlankPage" }>;
+export type PageEdit = Extract<
+  Edit,
+  { kind: "rotatePages" | "deletePages" | "movePages" | "insertBlankPage" | "cropPages" }
+>;
 
 /** Selected pages, ascending, and the page a Shift+click or Shift+arrow extends from. */
 export type Selection = { pages: number[]; anchor: number | null };
@@ -63,7 +66,8 @@ export function movesNothing(pages: readonly number[], before: number): boolean 
  */
 export function selectionAfter(edit: PageEdit): Selection {
   switch (edit.kind) {
-    case "rotatePages": {
+    case "rotatePages":
+    case "cropPages": {
       const pages = [...edit.pages].sort((a, b) => a - b);
       return { pages, anchor: pages[0] ?? null };
     }
