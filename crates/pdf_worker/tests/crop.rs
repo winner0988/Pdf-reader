@@ -18,7 +18,8 @@ fn new_host() -> WorkerHost {
 }
 
 fn new_file(name: &str) -> (PathBuf, File) {
-    let path = std::env::temp_dir().join(format!("pdf-worker-crop-{}-{name}.pdf", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("pdf-worker-crop-{}-{name}.pdf", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let file = OpenOptions::new()
         .write(true)
@@ -63,7 +64,8 @@ fn read_box(obj: &mupdf::pdf::PdfObject) -> [f32; 4] {
 #[test]
 fn test_crop_10_pages_table_and_saving() {
     let pdf_bytes = sample_10_pages_pdf();
-    let temp_input = std::env::temp_dir().join(format!("pdf-worker-crop-input-{}.pdf", std::process::id()));
+    let temp_input =
+        std::env::temp_dir().join(format!("pdf-worker-crop-input-{}.pdf", std::process::id()));
     std::fs::write(&temp_input, &pdf_bytes).expect("write input");
 
     let mut host = new_host();
@@ -74,20 +76,51 @@ fn test_crop_10_pages_table_and_saving() {
     };
 
     let expected_initial = [
-        PageSize { width_pt: 612.0, height_pt: 792.0 },
-        PageSize { width_pt: 500.0, height_pt: 640.0 },
-        PageSize { width_pt: 612.0, height_pt: 792.0 },
-        PageSize { width_pt: 792.0, height_pt: 612.0 },
-        PageSize { width_pt: 612.0, height_pt: 792.0 },
-        PageSize { width_pt: 640.0, height_pt: 500.0 },
-        PageSize { width_pt: 612.0, height_pt: 792.0 },
-        PageSize { width_pt: 612.0, height_pt: 792.0 },
-        PageSize { width_pt: 300.0, height_pt: 400.0 },
-        PageSize { width_pt: 300.0, height_pt: 400.0 },
+        PageSize {
+            width_pt: 612.0,
+            height_pt: 792.0,
+        },
+        PageSize {
+            width_pt: 500.0,
+            height_pt: 640.0,
+        },
+        PageSize {
+            width_pt: 612.0,
+            height_pt: 792.0,
+        },
+        PageSize {
+            width_pt: 792.0,
+            height_pt: 612.0,
+        },
+        PageSize {
+            width_pt: 612.0,
+            height_pt: 792.0,
+        },
+        PageSize {
+            width_pt: 640.0,
+            height_pt: 500.0,
+        },
+        PageSize {
+            width_pt: 612.0,
+            height_pt: 792.0,
+        },
+        PageSize {
+            width_pt: 612.0,
+            height_pt: 792.0,
+        },
+        PageSize {
+            width_pt: 300.0,
+            height_pt: 400.0,
+        },
+        PageSize {
+            width_pt: 300.0,
+            height_pt: 400.0,
+        },
     ];
     for (i, (actual, expected)) in initial_pages.iter().zip(&expected_initial).enumerate() {
         assert!(
-            (actual.width_pt - expected.width_pt).abs() < 0.01 && (actual.height_pt - expected.height_pt).abs() < 0.01,
+            (actual.width_pt - expected.width_pt).abs() < 0.01
+                && (actual.height_pt - expected.height_pt).abs() < 0.01,
             "Initial page {i} size mismatch: got {actual:?}, expected {expected:?}"
         );
     }
@@ -99,14 +132,16 @@ fn test_crop_10_pages_table_and_saving() {
         bottom: 30.0,
         left: 40.0,
     };
-    let edit_resp = host.request(|request| WorkerRequest::Edit {
-        request,
-        doc,
-        edit: WorkerEdit::CropPages {
-            pages: (0..9).collect(),
-            margins: crop_margins,
-        },
-    }).expect("edit crop");
+    let edit_resp = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::CropPages {
+                pages: (0..9).collect(),
+                margins: crop_margins,
+            },
+        })
+        .expect("edit crop");
 
     let edited_pages = match edit_resp {
         WorkerResponse::Edited { pages, .. } => pages,
@@ -114,16 +149,46 @@ fn test_crop_10_pages_table_and_saving() {
     };
 
     let expected_cropped = [
-        PageSize { width_pt: 552.0, height_pt: 752.0 },
-        PageSize { width_pt: 440.0, height_pt: 600.0 },
-        PageSize { width_pt: 552.0, height_pt: 752.0 },
-        PageSize { width_pt: 732.0, height_pt: 572.0 },
-        PageSize { width_pt: 552.0, height_pt: 752.0 },
-        PageSize { width_pt: 580.0, height_pt: 460.0 },
-        PageSize { width_pt: 552.0, height_pt: 752.0 },
-        PageSize { width_pt: 552.0, height_pt: 752.0 },
-        PageSize { width_pt: 240.0, height_pt: 360.0 },
-        PageSize { width_pt: 300.0, height_pt: 400.0 },
+        PageSize {
+            width_pt: 552.0,
+            height_pt: 752.0,
+        },
+        PageSize {
+            width_pt: 440.0,
+            height_pt: 600.0,
+        },
+        PageSize {
+            width_pt: 552.0,
+            height_pt: 752.0,
+        },
+        PageSize {
+            width_pt: 732.0,
+            height_pt: 572.0,
+        },
+        PageSize {
+            width_pt: 552.0,
+            height_pt: 752.0,
+        },
+        PageSize {
+            width_pt: 580.0,
+            height_pt: 460.0,
+        },
+        PageSize {
+            width_pt: 552.0,
+            height_pt: 752.0,
+        },
+        PageSize {
+            width_pt: 552.0,
+            height_pt: 752.0,
+        },
+        PageSize {
+            width_pt: 240.0,
+            height_pt: 360.0,
+        },
+        PageSize {
+            width_pt: 300.0,
+            height_pt: 400.0,
+        },
     ];
 
     println!("=== Table results: Actual cropped sizes ===");
@@ -137,7 +202,8 @@ fn test_crop_10_pages_table_and_saving() {
             expected.height_pt
         );
         assert!(
-            (actual.width_pt - expected.width_pt).abs() < 0.01 && (actual.height_pt - expected.height_pt).abs() < 0.01,
+            (actual.width_pt - expected.width_pt).abs() < 0.01
+                && (actual.height_pt - expected.height_pt).abs() < 0.01,
             "Cropped page {i} size mismatch: got {actual:?}, expected {expected:?}"
         );
     }
@@ -157,13 +223,15 @@ fn test_crop_10_pages_table_and_saving() {
     };
     for (i, (actual, expected)) in reopened_pages.iter().zip(&expected_cropped).enumerate() {
         assert!(
-            (actual.width_pt - expected.width_pt).abs() < 0.01 && (actual.height_pt - expected.height_pt).abs() < 0.01,
+            (actual.width_pt - expected.width_pt).abs() < 0.01
+                && (actual.height_pt - expected.height_pt).abs() < 0.01,
             "Reopened page {i} size mismatch: got {actual:?}, expected {expected:?}"
         );
     }
 
     // Read objects directly with mupdf
-    let mupdf_doc = mupdf::pdf::PdfDocument::open(saved_path.to_str().unwrap()).expect("open mupdf");
+    let mupdf_doc =
+        mupdf::pdf::PdfDocument::open(saved_path.to_str().unwrap()).expect("open mupdf");
     let expected_crop_boxes = [
         Some([40.0, 30.0, 592.0, 782.0]),
         Some([90.0, 90.0, 530.0, 690.0]),
@@ -178,14 +246,19 @@ fn test_crop_10_pages_table_and_saving() {
     ];
 
     println!("=== Table results: Actual own CropBox ===");
-    for i in 0..10 {
+    for (i, expected_box) in expected_crop_boxes.iter().enumerate() {
         let pdf_page = mupdf_doc.load_pdf_page(i as i32).expect("load pdf page");
         let page_obj = pdf_page.object();
         let own_crop = page_obj.get_dict("CropBox").expect("get CropBox");
-        match (own_crop, expected_crop_boxes[i]) {
+        match (own_crop, *expected_box) {
             (Some(cb), Some(expected_box)) => {
                 let actual_box = read_box(&cb);
-                println!("Page {}: {:?} (expected {:?})", i + 1, actual_box, expected_box);
+                println!(
+                    "Page {}: {:?} (expected {:?})",
+                    i + 1,
+                    actual_box,
+                    expected_box
+                );
                 for k in 0..4 {
                     assert!(
                         (actual_box[k] - expected_box[k]).abs() < 0.01,
@@ -200,7 +273,10 @@ fn test_crop_10_pages_table_and_saving() {
                 println!("Page {}: None (expected None)", i + 1);
             }
             (other, exp) => {
-                panic!("Page {} CropBox presence mismatch: got {other:?}, expected {exp:?}", i + 1);
+                panic!(
+                    "Page {} CropBox presence mismatch: got {other:?}, expected {exp:?}",
+                    i + 1
+                );
             }
         }
     }
@@ -208,8 +284,15 @@ fn test_crop_10_pages_table_and_saving() {
     // Verify object 11's /CropBox is still [0 0 300 400]
     // Object 11 is the parent Pages node for pages 9 and 10.
     let page8 = mupdf_doc.load_pdf_page(8).expect("load page 8");
-    let page8_parent = page8.object().get_dict("Parent").expect("parent").expect("parent exists");
-    let parent_crop = page8_parent.get_dict("CropBox").expect("parent crop").expect("has CropBox");
+    let page8_parent = page8
+        .object()
+        .get_dict("Parent")
+        .expect("parent")
+        .expect("parent exists");
+    let parent_crop = page8_parent
+        .get_dict("CropBox")
+        .expect("parent crop")
+        .expect("has CropBox");
     assert_eq!(read_box(&parent_crop), [0.0, 0.0, 300.0, 400.0]);
 
     // Verify MediaBox of all pages unchanged
@@ -225,10 +308,14 @@ fn test_crop_10_pages_table_and_saving() {
         [0.0, 0.0, 612.0, 792.0],
         [0.0, 0.0, 612.0, 792.0],
     ];
-    for i in 0..10 {
+    for (i, expected_box) in expected_media_boxes.iter().enumerate() {
         let pdf_page = mupdf_doc.load_pdf_page(i as i32).expect("load pdf page");
-        let mb = pdf_page.object().get_dict("MediaBox").expect("get MediaBox").expect("has MediaBox");
-        assert_eq!(read_box(&mb), expected_media_boxes[i], "Page {i} MediaBox changed");
+        let mb = pdf_page
+            .object()
+            .get_dict("MediaBox")
+            .expect("get MediaBox")
+            .expect("has MediaBox");
+        assert_eq!(read_box(&mb), *expected_box, "Page {i} MediaBox changed");
     }
 
     let _ = std::fs::remove_file(&temp_input);
@@ -238,7 +325,10 @@ fn test_crop_10_pages_table_and_saving() {
 #[test]
 fn test_crop_margin_too_large_leaves_document_unchanged() {
     let pdf_bytes = sample_10_pages_pdf();
-    let temp_input = std::env::temp_dir().join(format!("pdf-worker-crop-toolarge-{}.pdf", std::process::id()));
+    let temp_input = std::env::temp_dir().join(format!(
+        "pdf-worker-crop-toolarge-{}.pdf",
+        std::process::id()
+    ));
     std::fs::write(&temp_input, &pdf_bytes).expect("write input");
 
     let mut host = new_host();
@@ -272,14 +362,16 @@ fn test_crop_margin_too_large_leaves_document_unchanged() {
         bottom: 10.0,
         left: 10.0,
     };
-    let ok_resp = host.request(|request| WorkerRequest::Edit {
-        request,
-        doc,
-        edit: WorkerEdit::CropPages {
-            pages: vec![0],
-            margins: good_margins,
-        },
-    }).expect("edit call");
+    let ok_resp = host
+        .request(|request| WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::CropPages {
+                pages: vec![0],
+                margins: good_margins,
+            },
+        })
+        .expect("edit call");
 
     let pages_after = match ok_resp {
         WorkerResponse::Edited { pages, .. } => pages,
@@ -302,7 +394,10 @@ fn test_crop_margin_too_large_leaves_document_unchanged() {
 #[test]
 fn test_crop_invalid_pages_rejected() {
     let pdf_bytes = sample_10_pages_pdf();
-    let temp_input = std::env::temp_dir().join(format!("pdf-worker-crop-invalidpages-{}.pdf", std::process::id()));
+    let temp_input = std::env::temp_dir().join(format!(
+        "pdf-worker-crop-invalidpages-{}.pdf",
+        std::process::id()
+    ));
     std::fs::write(&temp_input, &pdf_bytes).expect("write input");
 
     let mut host = new_host();
@@ -324,7 +419,9 @@ fn test_crop_invalid_pages_rejected() {
             margins,
         },
     });
-    assert!(matches!(err_resp, Err(HostError::Worker(ref err)) if err.code == WorkerErrorCode::PageOutOfRange));
+    assert!(
+        matches!(err_resp, Err(HostError::Worker(ref err)) if err.code == WorkerErrorCode::PageOutOfRange)
+    );
 
     // Duplicate pages
     let err_resp2 = host.request(|request| WorkerRequest::Edit {
@@ -335,7 +432,9 @@ fn test_crop_invalid_pages_rejected() {
             margins,
         },
     });
-    assert!(matches!(err_resp2, Err(HostError::Worker(ref err)) if err.code == WorkerErrorCode::InvalidRequest));
+    assert!(
+        matches!(err_resp2, Err(HostError::Worker(ref err)) if err.code == WorkerErrorCode::InvalidRequest)
+    );
 
     let _ = std::fs::remove_file(&temp_input);
 }
@@ -353,25 +452,40 @@ fn test_crop_text_outside_cropbox() {
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".into(),
     ]);
 
-    let temp_input = std::env::temp_dir().join(format!("pdf-worker-crop-text-{}.pdf", std::process::id()));
+    let temp_input =
+        std::env::temp_dir().join(format!("pdf-worker-crop-text-{}.pdf", std::process::id()));
     std::fs::write(&temp_input, &pdf_bytes).expect("write input");
 
     let mut host = new_host();
     let (doc, _) = host.open(&temp_input).expect("open");
 
     // Before crop, verify text is extracted
-    let text_before = match host.request(|request| WorkerRequest::GetPageText {
-        request,
-        doc,
-        page_index: 0,
-    }).expect("get text before") {
+    let text_before = match host
+        .request(|request| WorkerRequest::GetPageText {
+            request,
+            doc,
+            page_index: 0,
+        })
+        .expect("get text before")
+    {
         WorkerResponse::PageText { text, .. } => text,
         other => panic!("expected PageText, got {other:?}"),
     };
-    let combined_before: String = text_before.lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join(" ");
+    let combined_before: String = text_before
+        .lines
+        .iter()
+        .map(|l| l.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
     println!("Text before crop: {:?}", combined_before);
-    assert!(combined_before.contains("hidden"), "Initial text should contain 'hidden'");
-    assert!(combined_before.contains("visible"), "Initial text should contain 'visible'");
+    assert!(
+        combined_before.contains("hidden"),
+        "Initial text should contain 'hidden'"
+    );
+    assert!(
+        combined_before.contains("visible"),
+        "Initial text should contain 'visible'"
+    );
 
     // Crop left 40
     let crop_margins = CropMargins {
@@ -387,22 +501,34 @@ fn test_crop_text_outside_cropbox() {
             pages: vec![0],
             margins: crop_margins,
         },
-    }).expect("edit crop");
+    })
+    .expect("edit crop");
 
     // After crop, check whether (hidden) is in GetPageText
-    let text_after = match host.request(|request| WorkerRequest::GetPageText {
-        request,
-        doc,
-        page_index: 0,
-    }).expect("get text after") {
+    let text_after = match host
+        .request(|request| WorkerRequest::GetPageText {
+            request,
+            doc,
+            page_index: 0,
+        })
+        .expect("get text after")
+    {
         WorkerResponse::PageText { text, .. } => text,
         other => panic!("expected PageText, got {other:?}"),
     };
-    let combined_after: String = text_after.lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join(" ");
+    let combined_after: String = text_after
+        .lines
+        .iter()
+        .map(|l| l.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
     println!("Text after crop (left 40): {:?}", combined_after);
 
     let has_hidden = combined_after.contains("hidden");
-    println!("Is 'hidden' still in GetPageText after crop? {}", has_hidden);
+    println!(
+        "Is 'hidden' still in GetPageText after crop? {}",
+        has_hidden
+    );
     // Write assertion according to actual behavior:
     if has_hidden {
         assert!(combined_after.contains("hidden"));

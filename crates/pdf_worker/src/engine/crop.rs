@@ -42,7 +42,9 @@ impl PdfDocument {
             let new_y1 = bounds.y1 - margins.bottom;
 
             if (new_x1 - new_x0) < MIN_CROPPED_SIDE_PT || (new_y1 - new_y0) < MIN_CROPPED_SIDE_PT {
-                return Err(EngineError::InvalidEdit("the crop leaves too little of a page"));
+                return Err(EngineError::InvalidEdit(
+                    "the crop leaves too little of a page",
+                ));
             }
 
             let (page_object, inverse) = self.page_to_pdf(page)?;

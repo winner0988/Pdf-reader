@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use crate::PROTOCOL_VERSION;
 use crate::types::{
     AnnotationId, AnnotationSummary, AttachmentId, AttachmentSource, BatesMark, BookmarkId,
-    CreateKind, CropMargins, DocumentFonts, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId,
-    FindPersonalDataQuery, FontRefusal, FormField, HeaderFooterMarks, HighlightColor,
+    CreateKind, CropMargins, DocumentFonts, DocumentId, DocumentPermissions, Edit, ErrorCode,
+    FieldId, FindPersonalDataQuery, FontRefusal, FormField, HeaderFooterMarks, HighlightColor,
     HighlightMark, ImageQuality, InkColor, InkWidth, OutlineResult, PageAnnotation, PageCorner,
     PageLink, PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark,
     PageSize, PageText, Password, PdfDate, PersonalDataMatches, Point, RasterRegion, Rect,

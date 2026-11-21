@@ -4123,9 +4123,9 @@ mod tests {
 mod with_worker {
     use ipc_contract::limits::MAX_RASTER_PIXELS;
     use ipc_contract::types::{
-        AnnotationId, AnnotationKind, CropMargins, FieldId, HighlightColor, HighlightMark, InkColor, InkWidth,
-        Point, Quad, Rect, RequestId, Rgb, Rotation, Shape, StampImageId, StampName, TextAlign,
-        TextBoxModelId, TextBoxStyle, TextMarkKind,
+        AnnotationId, AnnotationKind, CropMargins, FieldId, HighlightColor, HighlightMark,
+        InkColor, InkWidth, Point, Quad, Rect, RequestId, Rgb, Rotation, Shape, StampImageId,
+        StampName, TextAlign, TextBoxModelId, TextBoxStyle, TextMarkKind,
     };
 
     use super::*;
@@ -6234,10 +6234,7 @@ mod with_worker {
         );
         // Modify allowed: permitted.
         let can_modify = DocumentPermissions::ALL;
-        assert_eq!(
-            pages_after(&crop, 1, can_modify, &|_| None).unwrap(),
-            1
-        );
+        assert_eq!(pages_after(&crop, 1, can_modify, &|_| None).unwrap(), 1);
         // Page out of range: invalidArgument.
         let elsewhere = Edit::CropPages {
             pages: vec![3],
@@ -6577,10 +6574,7 @@ mod with_worker {
             height_pt: 792.0 - 10.0 - 30.0,
         };
         // Crop applied: page 0 cropped, page 1 unchanged.
-        assert_eq!(
-            edited_pages(&documents, &mut doc, crop),
-            [cropped, LETTER]
-        );
+        assert_eq!(edited_pages(&documents, &mut doc, crop), [cropped, LETTER]);
         // Undo: returns to original size.
         let undone = stepped(&documents, &mut doc, true);
         assert_eq!(undone.pages, [LETTER, LETTER]);

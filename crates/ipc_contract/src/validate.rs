@@ -2852,8 +2852,8 @@ mod tests {
     use super::*;
     use crate::types::{
         AnnotationId, AnnotationKind, BatesMark, BlockedAction, BookmarkId, CompareExportFormat,
-        CropMargins, DocumentId, DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption, FontId,
-        HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, IndexEntryId,
+        CropMargins, DocumentId, DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption,
+        FontId, HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, IndexEntryId,
         IndexPageHits, InkColor, InkWidth, LinkId, PageNumberMark, PictureView, RecentId, Recovery,
         RequestId, Restrictions, Rgb, Rotation, SecurityFinding, StampImageId, StampName, TabId,
         TextAlign, TextBoxInfo, TextBoxModelId, TextMarkKind, UnverifiableReason, WatermarkPages,
