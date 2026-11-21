@@ -43,6 +43,8 @@ enum Kind {
     SaveText { file_name: String },
     /// Where to save exported annotation summary (Issue #306), suggesting `file_name`.
     SaveAnnotationSummary { file_name: String, markdown: bool },
+    /// Where to save exported annotations as XFDF (#446), suggesting `file_name`.
+    SaveXfdf { file_name: String },
     /// Where to save exported text comparison (B3-24, E9), suggesting `file_name`.
     SaveCompareText { file_name: String, markdown: bool },
     /// Where to save a document as another file (B2-02), suggesting `file_name`.
@@ -127,6 +129,16 @@ pub async fn save_annotation_summary_file(
     )
     .await?
     .and_then(|mut paths| paths.pop()))
+}
+
+/// Asks where to save exported annotations as XFDF (#446), suggesting `file_name`.
+pub async fn save_xfdf_file(
+    window: &WebviewWindow,
+    file_name: String,
+) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::SaveXfdf { file_name })
+        .await?
+        .and_then(|mut paths| paths.pop()))
 }
 
 /// Asks where to save an exported text comparison (B3-24, E9), suggesting `file_name`.
@@ -366,6 +378,7 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
         Kind::OpenPdfs | Kind::OpenBatchFiles | Kind::OpenSources => common | FOS_ALLOWMULTISELECT,
         Kind::SaveText { .. }
         | Kind::SaveAnnotationSummary { .. }
+        | Kind::SaveXfdf { .. }
         | Kind::SaveCompareText { .. }
         | Kind::SavePdf { .. }
         | Kind::SaveDocx { .. }
@@ -434,6 +447,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
         match kind {
             Kind::SaveText { .. }
             | Kind::SaveAnnotationSummary { .. }
+            | Kind::SaveXfdf { .. }
             | Kind::SaveCompareText { .. }
             | Kind::SavePdf { .. }
             | Kind::SaveDocx { .. }
@@ -516,6 +530,10 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
                 )
             }
         }
+        Kind::SaveXfdf { .. } => (
+            strings::EXPORT_XFDF_DIALOG_TITLE,
+            one(strings::XFDF_FILTER_NAME, "*.xfdf"),
+        ),
         Kind::SaveCompareText { markdown, .. } => {
             if *markdown {
                 (
@@ -630,6 +648,7 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
         }
         if let Kind::SaveText { file_name }
         | Kind::SaveAnnotationSummary { file_name, .. }
+        | Kind::SaveXfdf { file_name }
         | Kind::SaveCompareText { file_name, .. }
         | Kind::SavePdf { file_name }
         | Kind::SaveDocx { file_name }
@@ -645,6 +664,7 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             let extension = match kind {
                 Kind::SaveText { .. } => "txt",
                 Kind::SaveDocx { .. } => "docx",
+                Kind::SaveXfdf { .. } => "xfdf",
                 Kind::SaveAnnotationSummary { markdown: true, .. }
                 | Kind::SaveCompareText { markdown: true, .. } => "md",
                 Kind::SaveAnnotationSummary {
@@ -740,6 +760,13 @@ mod tests {
             summary(FOS_DONTADDTORECENT)
                 && summary(FOS_OVERWRITEPROMPT)
                 && summary(FOS_FORCEFILESYSTEM)
+        );
+
+        let xfdf = options_of(Kind::SaveXfdf {
+            file_name: "註解.xfdf".to_owned(),
+        });
+        assert!(
+            xfdf(FOS_DONTADDTORECENT) && xfdf(FOS_OVERWRITEPROMPT) && xfdf(FOS_FORCEFILESYSTEM)
         );
 
         let compare = options_of(Kind::SaveCompareText {

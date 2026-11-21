@@ -53,6 +53,7 @@ describe("MoreMenu structure and order", () => {
       flatten: { onClick: vi.fn() },
       onExport: vi.fn(),
       onExportAnnotations: vi.fn(),
+      onExportXfdf: vi.fn(),
       onCompareText: vi.fn(),
       onPrivacyExport: vi.fn(),
       onSanitizeCopy: vi.fn(),
@@ -102,6 +103,7 @@ describe("MoreMenu structure and order", () => {
       { text: "扁平化表單…", role: "menuitem", disabled: false },
       { text: "匯出…", role: "menuitem", disabled: false },
       { text: "匯出註解摘要…", role: "menuitem", disabled: false },
+      { text: "匯出註解（XFDF）…", role: "menuitem", disabled: false },
       { text: "與另一個分頁比較文字…", role: "menuitem", disabled: false },
       { text: "隱私匯出…", role: "menuitem", disabled: false },
       { text: "分享前淨化…", role: "menuitem", disabled: false },
@@ -132,6 +134,8 @@ describe("MoreMenu structure and order", () => {
       onExport: vi.fn(),
       exportAnnotationsBlocked: true,
       onExportAnnotations: vi.fn(),
+      exportXfdfBlocked: true,
+      onExportXfdf: vi.fn(),
       compareTextBlocked: strings.compare.onlyOneTab,
       onCompareText: vi.fn(),
       privacyExportBlocked: true,
@@ -178,6 +182,7 @@ describe("MoreMenu structure and order", () => {
       { text: `扁平化表單…${strings.permissions.notAllowed}`, role: "menuitem", disabled: true },
       { text: `匯出…${strings.permissions.notAllowed}`, role: "menuitem", disabled: false }, // onExport provided
       { text: `匯出註解摘要…${strings.permissions.notAllowed}`, role: "menuitem", disabled: false }, // onExportAnnotations provided
+      { text: `匯出註解（XFDF）…${strings.permissions.notAllowed}`, role: "menuitem", disabled: false }, // onExportXfdf provided
       { text: `與另一個分頁比較文字…${strings.compare.onlyOneTab}`, role: "menuitem", disabled: false }, // onCompareText provided
       { text: `隱私匯出…${strings.privacyExport.encrypted}`, role: "menuitem", disabled: false },
       { text: `分享前淨化…${strings.sanitize.encrypted}`, role: "menuitem", disabled: false },

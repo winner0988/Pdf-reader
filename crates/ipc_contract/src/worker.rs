@@ -50,6 +50,69 @@ pub struct WorkerDocumentProperties {
     pub attachment_count: u32,
 }
 
+/// What kind of annotation was exported for XFDF (B5-09).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExportedAnnotationKind {
+    Highlight,
+    Underline,
+    StrikeOut,
+    Squiggly,
+    Note,
+    Ink,
+    Stamp,
+    TextBox,
+    Rectangle,
+    Ellipse,
+    Line,
+}
+
+/// Line ending decoration for XFDF lines (B5-09).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExportedLineEnding {
+    None,
+    OpenArrow,
+    ClosedArrow,
+}
+
+/// Font and style details for text box XFDF export (B5-09).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ExportedTextStyle {
+    pub size: f32,
+    pub color: [u8; 3],
+    pub justification: u8,
+}
+
+/// An annotation exported from a document for XFDF (B5-09).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExportedAnnotation {
+    pub kind: ExportedAnnotationKind,
+    pub page: u32,
+    pub rect: [f32; 4],
+    pub name: String,
+    pub in_reply_to: Option<String>,
+    pub color: Option<[u8; 3]>,
+    pub interior: Option<[u8; 3]>,
+    pub opacity: Option<f32>,
+    pub width: Option<f32>,
+    pub print: bool,
+    pub hidden: bool,
+    pub icon: Option<String>,
+    pub contents: Option<String>,
+    pub quads: Vec<[f32; 8]>,
+    pub ink: Vec<Vec<[f32; 2]>>,
+    pub line: Option<[f32; 4]>,
+    pub line_endings: Option<[ExportedLineEnding; 2]>,
+    pub text_style: Option<ExportedTextStyle>,
+}
+
+/// The annotations exported across the document for XFDF (B5-09).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExportedAnnotations {
+    pub items: Vec<ExportedAnnotation>,
+    pub skipped: u32,
+    pub truncated: bool,
+}
+
 /// A file handle that the main process duplicated into the worker process: read-only for
 /// `Open`, write-only for `Save`. The value is only meaningful inside the worker; the worker
 /// never receives a path.
@@ -1195,6 +1258,11 @@ pub enum WorkerRequest {
         request: RequestId,
         doc: DocumentId,
     },
+    /// Collects annotations across all pages for XFDF export (B5-09).
+    AnnotationExport {
+        request: RequestId,
+        doc: DocumentId,
+    },
     /// Traverses pages and Form XObjects to list fonts (B5-04).
     GetDocumentFonts {
         request: RequestId,
@@ -1410,6 +1478,11 @@ pub enum WorkerResponse {
     DocumentProperties {
         request: RequestId,
         properties: WorkerDocumentProperties,
+    },
+    /// Exported annotations from `AnnotationExport` (B5-09).
+    AnnotationExport {
+        request: RequestId,
+        annotations: ExportedAnnotations,
     },
     /// Fonts list from `GetDocumentFonts` (B5-04).
     DocumentFonts {
@@ -2252,5 +2325,55 @@ mod tests {
         for (value, target) in json.into_iter().zip(targets()) {
             assert_eq!(serde_json::from_value::<LinkTarget>(value).unwrap(), target);
         }
+    }
+
+    #[test]
+    fn annotation_export_survives_round_trip_through_postcard() {
+        let request = WorkerRequest::AnnotationExport {
+            request: RequestId(42),
+            doc: DocumentId(7),
+        };
+        let bytes = postcard::to_stdvec(&request).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerRequest>(&bytes).unwrap(),
+            request
+        );
+
+        let response = WorkerResponse::AnnotationExport {
+            request: RequestId(42),
+            annotations: ExportedAnnotations {
+                items: vec![ExportedAnnotation {
+                    kind: ExportedAnnotationKind::Highlight,
+                    page: 0,
+                    rect: [72.0, 100.0, 200.0, 120.0],
+                    name: "pdf-reader-1-1".to_owned(),
+                    in_reply_to: None,
+                    color: Some([255, 255, 0]),
+                    interior: None,
+                    opacity: Some(0.8),
+                    width: Some(1.0),
+                    print: true,
+                    hidden: false,
+                    icon: None,
+                    contents: Some("Note text".to_owned()),
+                    quads: vec![[72.0, 120.0, 200.0, 120.0, 72.0, 100.0, 200.0, 100.0]],
+                    ink: vec![vec![[10.0, 20.0], [30.0, 40.0]]],
+                    line: Some([10.0, 20.0, 30.0, 40.0]),
+                    line_endings: Some([ExportedLineEnding::None, ExportedLineEnding::OpenArrow]),
+                    text_style: Some(ExportedTextStyle {
+                        size: 14.0,
+                        color: [0, 0, 0],
+                        justification: 0,
+                    }),
+                }],
+                skipped: 1,
+                truncated: false,
+            },
+        };
+        let bytes = postcard::to_stdvec(&response).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerResponse>(&bytes).unwrap(),
+            response
+        );
     }
 }

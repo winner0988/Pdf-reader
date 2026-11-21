@@ -61,6 +61,7 @@
     "allow-copy-protected-text",
     "allow-export-pages",
     "allow-export-annotation-summary",
+    "allow-export-annotations-xfdf",
     "allow-compare-text",
     "allow-export-compare-text",
     "allow-apply-edit",
