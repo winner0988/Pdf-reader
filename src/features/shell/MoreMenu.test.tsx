@@ -136,7 +136,6 @@ describe("MoreMenu structure and order", () => {
       onExportAnnotations: vi.fn(),
       compareTextBlocked: strings.compare.onlyOneTab,
       onCompareText: vi.fn(),
-      onCompareVisual: vi.fn(),
       compareVisualBlocked: strings.compare.onlyOneTab,
       onCompareVisual: vi.fn(),
       privacyExportBlocked: true,

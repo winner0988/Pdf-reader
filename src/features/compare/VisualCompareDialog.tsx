@@ -27,7 +27,6 @@ import {
   createPageRenderer,
   drawRaster,
   tauriRenderApi,
-  type PageRenderer,
   type RenderApi,
 } from "@/features/viewer/renderer";
 import { strings } from "@/i18n/zh-TW";
@@ -84,10 +83,7 @@ export function VisualCompareDialog({
   const [rasterB, setRasterB] = useState<RasterImage | null>(null);
   const [currentDiff, setCurrentDiff] = useState<CachedPageDiff | null>(null);
 
-  const rendererRef = useRef<PageRenderer | null>(null);
-  if (!rendererRef.current) {
-    rendererRef.current = createPageRenderer(renderApi);
-  }
+  const renderer = useMemo(() => createPageRenderer(renderApi), [renderApi]);
 
   const canvasARef = useRef<HTMLCanvasElement | null>(null);
   const canvasBRef = useRef<HTMLCanvasElement | null>(null);
@@ -99,7 +95,7 @@ export function VisualCompareDialog({
 
   const selectedTab = otherTabs.find((t) => t.doc === selectedDoc);
   const targetDisplayName = selectedTab?.displayName ?? "Document B";
-  const targetPages = selectedTab?.pages ?? [];
+  const targetPages = useMemo(() => selectedTab?.pages ?? [], [selectedTab?.pages]);
 
   const pairs: PagePair[] = useMemo(
     () => pagePairs(currentPages.length, targetPages.length),
@@ -114,26 +110,18 @@ export function VisualCompareDialog({
     activeJobsRef.current = {};
   }, []);
 
-  // Reset state when opening or switching selected target tab
-  useEffect(() => {
-    if (!open) {
-      cancelActiveJobs();
-      scanAbortRef.current = true;
-      setStarted(false);
-      setPageIndex(0);
-      setSelectedDiffIndex(0);
-      setDiffCache(new Map());
-      setRasterA(null);
-      setRasterB(null);
-      setCurrentDiff(null);
-      setScanning(false);
-      setLoadingPage(false);
-    }
-  }, [open, cancelActiveJobs]);
-
   const handleClose = () => {
     cancelActiveJobs();
     scanAbortRef.current = true;
+    setStarted(false);
+    setPageIndex(0);
+    setSelectedDiffIndex(0);
+    setDiffCache(new Map());
+    setRasterA(null);
+    setRasterB(null);
+    setCurrentDiff(null);
+    setScanning(false);
+    setLoadingPage(false);
     onOpenChange(false);
   };
 
@@ -147,7 +135,6 @@ export function VisualCompareDialog({
       rB: RasterImage | null;
     }> => {
       const pair = pairs[pIndex] ?? { a: null, b: null };
-      const renderer = rendererRef.current!;
 
       // Case 1: Page only in Doc A
       if (pair.a !== null && pair.b === null) {
@@ -320,7 +307,7 @@ export function VisualCompareDialog({
         rB: null,
       };
     },
-    [pairs, currentPages, targetPages, currentDoc, selectedDoc, currentDisplayName, targetDisplayName],
+    [pairs, currentPages, targetPages, currentDoc, selectedDoc, currentDisplayName, targetDisplayName, renderer],
   );
 
   // Load and display a specific page
@@ -342,14 +329,6 @@ export function VisualCompareDialog({
     },
     [cancelActiveJobs, computePageDiff],
   );
-
-  // Trigger page load when pageIndex changes while started
-  useEffect(() => {
-    if (started && open) {
-      loadPage(pageIndex);
-      onJumpToPage?.(pageIndex + 1);
-    }
-  }, [started, open, pageIndex]);
 
   // Redraw canvases whenever rasters or displayMode changes
   useEffect(() => {
@@ -405,17 +384,25 @@ export function VisualCompareDialog({
     setStarted(true);
     setPageIndex(0);
     setSelectedDiffIndex(0);
+    void loadPage(0);
+    onJumpToPage?.(1);
   };
 
   const handlePrevPage = () => {
     if (pageIndex > 0 && !scanning) {
-      setPageIndex((p) => p - 1);
+      const nextP = pageIndex - 1;
+      setPageIndex(nextP);
+      void loadPage(nextP);
+      onJumpToPage?.(nextP + 1);
     }
   };
 
   const handleNextPage = () => {
     if (pageIndex < totalPages - 1 && !scanning) {
-      setPageIndex((p) => p + 1);
+      const nextP = pageIndex + 1;
+      setPageIndex(nextP);
+      void loadPage(nextP);
+      onJumpToPage?.(nextP + 1);
     }
   };
 
@@ -476,7 +463,10 @@ export function VisualCompareDialog({
       if (foundRA || foundRB) {
         setRasterA(foundRA);
         setRasterB(foundRB);
+      } else {
+        void loadPage(foundPage);
       }
+      onJumpToPage?.(foundPage + 1);
     }
   };
 
@@ -536,7 +526,10 @@ export function VisualCompareDialog({
       if (foundRA || foundRB) {
         setRasterA(foundRA);
         setRasterB(foundRB);
+      } else {
+        void loadPage(foundPage);
       }
+      onJumpToPage?.(foundPage + 1);
     }
   };
 
@@ -630,9 +623,18 @@ export function VisualCompareDialog({
               id="visual-compare-target-tab"
               value={selectedDoc}
               onChange={(e) => {
+                cancelActiveJobs();
+                scanAbortRef.current = true;
                 setSelectedDoc(Number(e.target.value));
                 setStarted(false);
+                setPageIndex(0);
+                setSelectedDiffIndex(0);
                 setDiffCache(new Map());
+                setRasterA(null);
+                setRasterB(null);
+                setCurrentDiff(null);
+                setScanning(false);
+                setLoadingPage(false);
               }}
               disabled={scanning || loadingPage}
               aria-label={t.chooseTab}

@@ -183,7 +183,7 @@ export function diffRegions(a: RasterImage, b: RasterImage): DiffResult {
   }
 
   // Merge components whose cell bounding boxes are within MERGE_GAP_CELLS in both dimensions
-  let boxes = components;
+  const boxes = components;
   let merged = true;
   while (merged) {
     merged = false;
