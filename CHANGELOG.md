@@ -4,6 +4,10 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 ## [Unreleased]
 
+### 新增
+
+- 簽名：畫一次、輸入名字或匯入圖片，之後每份文件點一下就能放上；簽名加密保存在這台電腦上，可以逐個或全部刪除（#587）。
+
 ### 修正
 
 - 「文件內容」對話框讀不到資料時，會說明原因（例如 PDF 引擎沒有回應），不再顯示 `[object Object]`（#634）。
