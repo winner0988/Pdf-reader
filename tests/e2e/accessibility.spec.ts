@@ -313,3 +313,12 @@ test("the toolbar of a document with page labels (B5-07)", async ({ launch }) =>
   ).toBeVisible();
   await inBothThemes(page, (theme) => noProblems(page, theme));
 });
+
+test("the watermark dialog (B6-06, #591)", async ({ launch }) => {
+  const page = await launch(corpus("benign/multi-page-10.pdf"));
+  await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
+  await chooseFromMenu(page, strings.menu.watermark);
+  const dialog = page.getByRole("dialog", { name: strings.documentWatermark.title });
+  await expect(dialog).toBeVisible();
+  await inBothThemes(page, (theme) => noProblems(page, theme));
+});
