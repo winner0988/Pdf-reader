@@ -2,15 +2,15 @@
 //! The first 32 bytes of input select 1..=4 typed edits and parameters (main-process validated),
 //! apply them in the worker engine, save the document (full rewrite or incremental if signed),
 //! re-open and render page 0 at small scale, then execute one secondary operation:
-//! SavePages, Revert, PrepareSource + InsertPages, or one of 7 copies (PrivacyCopy, SanitizedCopy,
-//! EncryptedCopy, WatermarkCopy, PageMarksCopy, WriteIdentifier, PrepareSignature).
+//! SavePages, Revert, PrepareSource + InsertPages, or one of 8 copies (PrivacyCopy, SanitizedCopy,
+//! EncryptedCopy, DecryptedCopy, WatermarkCopy, PageMarksCopy, WriteIdentifier, PrepareSignature).
 #![no_main]
 
 use std::io::sink;
 use std::sync::OnceLock;
 
 use ipc_contract::types::{
-    AnnotationId, BookmarkId, Edit, FieldId, HighlightColor, HighlightMark, InkColor, InkWidth,
+    AnnotationId, BookmarkId, CropMargins, Edit, FieldId, HighlightColor, HighlightMark, InkColor, InkWidth,
     PageCorner, PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark,
     Point, Quad, Rect, Restrictions, Rgb, Rotation, SanitizeOptions, Shape, SourceId, StampImageId,
     StampName, TextAlign, TextBoxModelId, TextBoxStyle, TextMarkKind, Watermark, WatermarkContent,
@@ -119,7 +119,7 @@ fuzz_target!(|data: &[u8]| {
     }
 
     let mut u = Unstructured::new(header);
-    let secondary = u.int_in_range(0..=9).unwrap_or(0);
+    let secondary = u.int_in_range(0..=10).unwrap_or(0);
     let num_edits = u.int_in_range(1..=4).unwrap_or(1);
 
     let stamp_png = cached_stamp_png();
@@ -128,7 +128,7 @@ fuzz_target!(|data: &[u8]| {
     let mut applied_edits = Vec::new();
 
     for _ in 0..num_edits {
-        let kind = u.int_in_range(0..=29).unwrap_or(0);
+        let kind = u.int_in_range(0..=30).unwrap_or(0);
         let p = (u.int_in_range(0..=255).unwrap_or(0) as u32) % page_count;
 
         let edit = match kind {
@@ -446,6 +446,21 @@ fuzz_target!(|data: &[u8]| {
                     width,
                 }
             }
+            29 => {
+                let top = u.int_in_range(0..=400).unwrap_or(0) as f32;
+                let right = u.int_in_range(0..=400).unwrap_or(0) as f32;
+                let bottom = u.int_in_range(0..=400).unwrap_or(0) as f32;
+                let left = u.int_in_range(0..=400).unwrap_or(0) as f32;
+                Edit::CropPages {
+                    pages: vec![p],
+                    margins: CropMargins {
+                        top,
+                        right,
+                        bottom,
+                        left,
+                    },
+                }
+            }
             _ => {
                 let opacity = u.int_in_range(1..=100).unwrap_or(50);
                 let diagonal = u.int_in_range(0..=1).unwrap_or(0) == 1;
@@ -594,6 +609,9 @@ fuzz_target!(|data: &[u8]| {
                 }),
             };
             let _ = prepare_signature(pdf_bytes, &signature, &mut sink());
+        }
+        9 => {
+            let _ = document.decrypted_copy("owner", &mut sink());
         }
         _ => {
             if let Ok(source) = PdfDocument::prepare_source(pdf_bytes, None) {

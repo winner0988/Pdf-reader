@@ -1343,6 +1343,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 modify: true,
             },
         },
+        WorkerRequest::DecryptedCopy {
+            request,
+            doc,
+            file: FileHandle(0x2b4),
+            password: Password::new("permissions".to_owned()),
+        },
         WorkerRequest::CompressedCopy {
             request,
             doc,

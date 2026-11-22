@@ -21,7 +21,7 @@ export function clearRecentCommands(): void {
 }
 
 /**
- * Creates the complete list of commands (33 from the More menu, 25 shortcut-only / viewer actions, 1 palette-only action).
+ * Creates the complete list of commands (36 from the More menu, 25 shortcut-only / viewer actions, 1 palette-only action).
  * Both the "⋯" menu and the Command Palette are generated from this list.
  */
 export function createCommands(opts: CommandOptions): Command[] {
@@ -286,6 +286,22 @@ export function createCommands(opts: CommandOptions): Command[] {
       run: () => opts.onCompareText?.(),
     },
     {
+      id: "compareVisual",
+      name: menu.compareVisual,
+      aliases: [...aliases.compareVisual],
+      shortcutBadge: opts.compareVisualBlocked,
+      fromMenu: true,
+      menuSection: "actions",
+      menuKind: "item",
+      visibleInMenu: true,
+      menuDisabled: !opts.onCompareVisual,
+      enabled: hasDoc && Boolean(opts.onCompareVisual && !opts.compareVisualBlocked),
+      disabledReason: !hasDoc
+        ? strings.commands.noDocument
+        : opts.compareVisualBlocked,
+      run: () => opts.onCompareVisual?.(),
+    },
+    {
       id: "privacyExport",
       name: menu.privacyExport,
       aliases: [...aliases.privacyExport],
@@ -370,6 +386,24 @@ export function createCommands(opts: CommandOptions): Command[] {
           ? strings.encryption.encrypted
           : undefined,
       run: () => opts.onEncryptCopy?.(),
+    },
+    {
+      id: "decryptCopy",
+      name: menu.decryptCopy,
+      aliases: [...aliases.decryptCopy],
+      shortcutBadge: opts.decryptCopyBlocked ? strings.decryption.unencryptedBlocked : undefined,
+      fromMenu: true,
+      menuSection: "actions",
+      menuKind: "item",
+      visibleInMenu: true,
+      menuDisabled: !opts.onDecryptCopy,
+      enabled: hasDoc && Boolean(opts.onDecryptCopy && !opts.decryptCopyBlocked),
+      disabledReason: !hasDoc
+        ? strings.commands.noDocument
+        : opts.decryptCopyBlocked
+          ? strings.decryption.unencryptedBlocked
+          : undefined,
+      run: () => opts.onDecryptCopy?.(),
     },
     {
       id: "searchAll",
