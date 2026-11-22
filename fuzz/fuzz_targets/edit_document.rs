@@ -128,7 +128,7 @@ fuzz_target!(|data: &[u8]| {
     let mut applied_edits = Vec::new();
 
     for _ in 0..num_edits {
-        let kind = u.int_in_range(0..=29).unwrap_or(0);
+        let kind = u.int_in_range(0..=30).unwrap_or(0);
         let p = (u.int_in_range(0..=255).unwrap_or(0) as u32) % page_count;
 
         let edit = match kind {
@@ -446,7 +446,7 @@ fuzz_target!(|data: &[u8]| {
                     width,
                 }
             }
-            _ => {
+            29 => {
                 let top = u.int_in_range(0..=400).unwrap_or(0) as f32;
                 let right = u.int_in_range(0..=400).unwrap_or(0) as f32;
                 let bottom = u.int_in_range(0..=400).unwrap_or(0) as f32;
@@ -459,6 +459,42 @@ fuzz_target!(|data: &[u8]| {
                         bottom,
                         left,
                     },
+                }
+            }
+            _ => {
+                let opacity = u.int_in_range(1..=100).unwrap_or(50);
+                let diagonal = u.int_in_range(0..=1).unwrap_or(0) == 1;
+                let place = match u.int_in_range(0..=2).unwrap_or(0) {
+                    0 => WatermarkPlace::Center,
+                    1 => WatermarkPlace::Top,
+                    _ => WatermarkPlace::Bottom,
+                };
+                let content_kind = u.int_in_range(0..=1).unwrap_or(0);
+                let (content, image) = if content_kind == 0 {
+                    (
+                        WatermarkContent::Text {
+                            text: "FUZZ WATERMARK".to_string(),
+                            size: 36.0,
+                            color: Rgb { r: 255, g: 0, b: 0 },
+                        },
+                        None,
+                    )
+                } else {
+                    (
+                        WatermarkContent::Picture { width_pt: 120.0 },
+                        Some(StampImageId(0)),
+                    )
+                };
+                Edit::AddWatermark {
+                    pages: vec![p],
+                    watermark: Watermark {
+                        content,
+                        opacity,
+                        diagonal,
+                        place,
+                        pages: WatermarkPages::All,
+                    },
+                    image,
                 }
             }
         };

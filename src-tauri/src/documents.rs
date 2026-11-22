@@ -2382,7 +2382,8 @@ impl Documents {
         file: &std::fs::File,
     ) -> Result<StampImageInfo, IpcError> {
         self.with_document(doc, |document| {
-            if !document.info.permissions.annotate {
+            // Stamp pictures are used for image stamps (annotate permission) and picture watermarks (modify permission).
+            if !(document.info.permissions.annotate || document.info.permissions.modify) {
                 return Err(not_allowed());
             }
             let response = document
@@ -3214,6 +3215,16 @@ fn pages_after(
             }
             return Ok(page_count);
         }
+        Edit::AddWatermark { pages, .. } => {
+            if !permissions.modify {
+                return Err(not_allowed());
+            }
+            pages
+                .iter()
+                .try_for_each(|&page| check_page_index(page, page_count))
+                .map_err(invalid_argument)?;
+            return Ok(page_count);
+        }
         Edit::AddBookmark { page, .. } => {
             if !permissions.modify {
                 return Err(not_allowed());
@@ -3336,7 +3347,8 @@ fn pages_after(
         | Edit::RenameBookmark { .. }
         | Edit::DeleteBookmark { .. }
         | Edit::MoveBookmark { .. }
-        | Edit::CropPages { .. } => Ok(page_count),
+        | Edit::CropPages { .. }
+        | Edit::AddWatermark { .. } => Ok(page_count),
     }
 }
 
@@ -4197,7 +4209,8 @@ mod with_worker {
     use ipc_contract::types::{
         AnnotationId, AnnotationKind, CropMargins, FieldId, HighlightColor, HighlightMark,
         InkColor, InkWidth, Point, Quad, Rect, RequestId, Rgb, Rotation, Shape, StampImageId,
-        StampName, TextAlign, TextBoxModelId, TextBoxStyle, TextMarkKind,
+        StampName, TextAlign, TextBoxModelId, TextBoxStyle, TextMarkKind, Watermark,
+        WatermarkContent, WatermarkPages, WatermarkPlace,
     };
 
     use super::*;
@@ -6419,6 +6432,95 @@ mod with_worker {
             }],
         };
         assert!(pages_after(&elsewhere_group, 1, DocumentPermissions::ALL, &|_| None).is_err());
+    }
+
+    #[test]
+    fn watermark_edit_checks_modify_permission_and_page_ranges() {
+        let watermark = Watermark {
+            content: WatermarkContent::Text {
+                text: "CONFIDENTIAL".to_string(),
+                size: 36.0,
+                color: Rgb { r: 255, g: 0, b: 0 },
+            },
+            opacity: 50,
+            diagonal: false,
+            place: WatermarkPlace::Center,
+            pages: WatermarkPages::All,
+        };
+        let edit = Edit::AddWatermark {
+            pages: vec![0],
+            watermark: watermark.clone(),
+            image: None,
+        };
+        let only_annotating = DocumentPermissions {
+            modify: false,
+            ..DocumentPermissions::ALL
+        };
+        assert_eq!(
+            pages_after(&edit, 1, only_annotating, &|_| None)
+                .unwrap_err()
+                .message,
+            not_allowed().message
+        );
+        assert_eq!(
+            pages_after(&edit, 1, DocumentPermissions::ALL, &|_| None).unwrap(),
+            1
+        );
+        let out_of_range = Edit::AddWatermark {
+            pages: vec![5],
+            watermark,
+            image: None,
+        };
+        assert!(pages_after(&out_of_range, 1, DocumentPermissions::ALL, &|_| None).is_err());
+    }
+
+    #[test]
+    fn watermark_edit_undo_redo_and_worker_crash() {
+        let (documents, info, path) = open("watermark-edit", 2);
+        let mut doc = info.doc;
+        let watermark = Watermark {
+            content: WatermarkContent::Text {
+                text: "WATERMARK-TEST".to_string(),
+                size: 36.0,
+                color: Rgb { r: 200, g: 0, b: 0 },
+            },
+            opacity: 100,
+            diagonal: false,
+            place: WatermarkPlace::Center,
+            pages: WatermarkPages::All,
+        };
+        let edit = Edit::AddWatermark {
+            pages: vec![0],
+            watermark,
+            image: None,
+        };
+        edited_pages(&documents, &mut doc, edit);
+        assert!(first_page_says(&documents, doc).contains("WATERMARK-TEST"));
+
+        // Undo
+        stepped(&documents, &mut doc, true);
+        assert!(!first_page_says(&documents, doc).contains("WATERMARK-TEST"));
+
+        // Redo
+        stepped(&documents, &mut doc, false);
+        assert!(first_page_says(&documents, doc).contains("WATERMARK-TEST"));
+
+        // Worker crash survival
+        let pid = documents.worker_id(doc).expect("worker running");
+        std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            documents
+                .render(&args(doc, 0, 0.5, Rotation::None))
+                .unwrap_err()
+                .code,
+            ErrorCode::WorkerCrashed
+        );
+        assert!(first_page_says(&documents, doc).contains("WATERMARK-TEST"));
+
+        std::fs::remove_file(path).ok();
     }
 
     #[test]

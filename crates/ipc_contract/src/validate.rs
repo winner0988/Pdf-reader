@@ -30,7 +30,7 @@ use crate::types::{
     SearchArgs, SearchHit, SecurityReport, SensitiveArgs, SensitiveFile, Settings, Shape, SignArgs,
     SignatureImageArgs, SignatureInfo, SignatureReport, SignatureStatus, SigningFileKey,
     SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs, UnlockArgs,
-    UnlockSourceArgs, Watermark, WatermarkContent,
+    UnlockSourceArgs, Watermark, WatermarkContent, WatermarkPages,
 };
 use crate::worker::{
     InsertedTextBox, InspectedFont, OcrOutcome, OpenedDocument, PreparedTextBoxModel, Raster,
@@ -1850,6 +1850,28 @@ impl Validate for Edit {
             Edit::CropPages { pages, margins } => {
                 check_page_list("pages to crop", pages)?;
                 margins.validate()
+            }
+            Edit::AddWatermark {
+                pages,
+                watermark,
+                image,
+            } => {
+                check_page_list("pages to watermark", pages)?;
+                watermark.validate()?;
+                if watermark.pages != WatermarkPages::All {
+                    return Err(ValidationError::Invalid {
+                        what: "watermark pages",
+                        reason: "watermark.pages must be all",
+                    });
+                }
+                match (&watermark.content, image) {
+                    (WatermarkContent::Text { .. }, None)
+                    | (WatermarkContent::Picture { .. }, Some(_)) => Ok(()),
+                    _ => Err(ValidationError::Invalid {
+                        what: "watermark image",
+                        reason: "a picture watermark needs its picture, and words none",
+                    }),
+                }
             }
         }
     }
@@ -4704,6 +4726,106 @@ mod tests {
             .unwrap(),
             rotate(vec![0], Rotation::Cw270)
         );
+    }
+
+    #[test]
+    fn watermark_edits_are_validated() {
+        let text_watermark = Watermark {
+            content: WatermarkContent::Text {
+                text: "CONFIDENTIAL".to_owned(),
+                size: 48.0,
+                color: Rgb {
+                    r: 10,
+                    g: 20,
+                    b: 30,
+                },
+            },
+            opacity: 50,
+            diagonal: true,
+            place: WatermarkPlace::Center,
+            pages: WatermarkPages::All,
+        };
+        let picture_watermark = Watermark {
+            content: WatermarkContent::Picture { width_pt: 100.0 },
+            opacity: 50,
+            diagonal: false,
+            place: WatermarkPlace::Top,
+            pages: WatermarkPages::All,
+        };
+
+        // Valid text watermark
+        let edit = Edit::AddWatermark {
+            pages: vec![0, 1],
+            watermark: text_watermark.clone(),
+            image: None,
+        };
+        assert!(edit.validate().is_ok());
+
+        // Valid picture watermark
+        let pic_edit = Edit::AddWatermark {
+            pages: vec![0],
+            watermark: picture_watermark.clone(),
+            image: Some(StampImageId(1)),
+        };
+        assert!(pic_edit.validate().is_ok());
+
+        // watermark.pages is not All
+        let mut not_all = text_watermark.clone();
+        not_all.pages = WatermarkPages::First;
+        let err = Edit::AddWatermark {
+            pages: vec![0],
+            watermark: not_all,
+            image: None,
+        }
+        .validate();
+        assert!(matches!(err, Err(ValidationError::Invalid { .. })));
+
+        // Words with picture
+        let err = Edit::AddWatermark {
+            pages: vec![0],
+            watermark: text_watermark.clone(),
+            image: Some(StampImageId(1)),
+        }
+        .validate();
+        assert!(matches!(err, Err(ValidationError::Invalid { .. })));
+
+        // Picture without picture
+        let err = Edit::AddWatermark {
+            pages: vec![0],
+            watermark: picture_watermark.clone(),
+            image: None,
+        }
+        .validate();
+        assert!(matches!(err, Err(ValidationError::Invalid { .. })));
+
+        // Empty pages
+        let err = Edit::AddWatermark {
+            pages: vec![],
+            watermark: text_watermark.clone(),
+            image: None,
+        }
+        .validate();
+        assert!(err.is_err());
+
+        // Duplicate pages
+        let err = Edit::AddWatermark {
+            pages: vec![1, 1],
+            watermark: text_watermark.clone(),
+            image: None,
+        }
+        .validate();
+        assert!(err.is_err());
+
+        // Invalid watermark itself (e.g. opacity too low)
+        let mut bad_wm = text_watermark;
+        bad_wm.opacity = 2;
+        let err = Edit::AddWatermark {
+            pages: vec![0],
+            watermark: bad_wm,
+            image: None,
+        }
+        .validate();
+        assert!(err.is_err());
     }
 
     #[test]

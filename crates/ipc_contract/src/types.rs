@@ -764,6 +764,14 @@ pub enum Edit {
         pages: Vec<u32>,
         margins: CropMargins,
     },
+    /// Draws `watermark` on `pages` (no repeats) as page content, as a batch draws it on a copy
+    /// (B6-06); `image` is the picture of a picture watermark (what `pick_stamp_image` made of it),
+    /// none for words; `watermark.pages` must be `All`, as the edit lists its own pages.
+    AddWatermark {
+        pages: Vec<u32>,
+        watermark: Watermark,
+        image: Option<StampImageId>,
+    },
 }
 
 /// What applying the redaction marks of a document would do besides removing what their areas

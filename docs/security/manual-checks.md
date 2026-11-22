@@ -50,6 +50,7 @@
 
 - worker 在 AppContainer 中執行，沒有任何網路 capability；Job Object 限制只能有 1 個行程，無法啟動子行程（`crates/sandbox/tests/sandbox.rs`、`crates/pdf_worker/tests/isolation.rs`）。
 - worker 執行檔不匯入任何網路 DLL（`worker_binary_imports_no_networking`）。
+- 主行程執行檔的網路 DLL 只有 `winhttp.dll`（`main_binary_imports_no_network_dll_except_winhttp`，#612）。
 - 每個樣本的掃描結果與 manifest 一致（`crates/pdf_worker/tests/active_content.rs`）。
 - 開發時的抽查（MVP-11，2026-09-24，release 建置）：以內建工具逐一開啟 21 個惡意樣本，每個檔案等待 2.5 秒。結果：
   - worker 沒有子行程；app 的行程樹只有 app、worker 與 WebView2；
