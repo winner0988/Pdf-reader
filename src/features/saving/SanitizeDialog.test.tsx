@@ -32,6 +32,7 @@ function fakeSavingApi(sanitizeCopy?: SavingApi["sanitizeCopy"]) {
     privacyExport: vi.fn<SavingApi["privacyExport"]>(() => Promise.resolve(true)),
     pageMarksCopy: vi.fn<SavingApi["pageMarksCopy"]>(() => Promise.resolve(true)),
     encryptCopy: vi.fn<SavingApi["encryptCopy"]>(() => Promise.resolve(true)),
+    decryptCopy: vi.fn<SavingApi["decryptCopy"]>(() => Promise.resolve(true)),
     compressImages: vi.fn<SavingApi["compressImages"]>(() => Promise.resolve(null)),
     sanitizeCopy: vi.fn<NonNullable<SavingApi["sanitizeCopy"]>>(
       sanitizeCopy ?? (() => Promise.resolve({ bytes: 100, report: emptyReport })),

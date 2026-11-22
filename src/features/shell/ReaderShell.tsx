@@ -43,6 +43,7 @@ import type { CompareApi } from "@/features/compare/api";
 import { ExportDialog } from "@/features/export/ExportDialog";
 import { CompressDialog } from "@/features/saving/CompressDialog";
 import { useOpenBatch } from "@/features/batch/useOpenBatch";
+import { DecryptDialog } from "@/features/saving/DecryptDialog";
 import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PageMarksDialog } from "@/features/saving/PageMarksDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
@@ -357,6 +358,7 @@ export function ReaderShell({
     | "sanitize"
     | "pageMarks"
     | "encrypt"
+    | "decrypt"
     | "compress"
     | "create"
     | "sensitive"
@@ -1514,9 +1516,11 @@ export function ReaderShell({
     onPageMarks: savable && !document_?.encrypted ? () => setDialog("pageMarks") : undefined,
     pageMarksBlocked: savable && document_?.encrypted === true,
     onEncryptCopy: savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined,
+    onDecryptCopy: savable && document_?.encrypted ? () => setDialog("decrypt") : undefined,
     onBatch: openBatch,
     onSearchAll: textIndex?.openSearchAll,
     encryptCopyBlocked: savable && document_?.encrypted === true,
+    decryptCopyBlocked: savable && document_?.encrypted !== true,
     onForgetPassword: document_?.passwordRemembered ? forgetPassword : undefined,
     onCompressImages: savable && !document_?.encrypted ? () => setDialog("compress") : undefined,
     compressImagesBlocked: savable && document_?.encrypted === true,
@@ -2169,6 +2173,15 @@ export function ReaderShell({
           onOpenChange={(open) => setDialog(open ? "encrypt" : null)}
           doc={doc}
           onEncrypt={(args) => savingApi.encryptCopy(args)}
+          onFinished={showHint}
+        />
+      )}
+      {savable && (
+        <DecryptDialog
+          open={dialog === "decrypt"}
+          onOpenChange={(open) => setDialog(open ? "decrypt" : null)}
+          doc={doc}
+          onDecrypt={(args) => savingApi.decryptCopy(args)}
           onFinished={showHint}
         />
       )}
