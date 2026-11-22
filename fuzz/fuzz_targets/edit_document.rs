@@ -128,7 +128,7 @@ fuzz_target!(|data: &[u8]| {
     let mut applied_edits = Vec::new();
 
     for _ in 0..num_edits {
-        let kind = u.int_in_range(0..=30).unwrap_or(0);
+        let kind = u.int_in_range(0..=31).unwrap_or(0);
         let p = (u.int_in_range(0..=255).unwrap_or(0) as u32) % page_count;
 
         let edit = match kind {
@@ -461,7 +461,7 @@ fuzz_target!(|data: &[u8]| {
                     },
                 }
             }
-            _ => {
+            30 => {
                 let opacity = u.int_in_range(1..=100).unwrap_or(50);
                 let diagonal = u.int_in_range(0..=1).unwrap_or(0) == 1;
                 let place = match u.int_in_range(0..=2).unwrap_or(0) {
@@ -495,6 +495,19 @@ fuzz_target!(|data: &[u8]| {
                         pages: WatermarkPages::All,
                     },
                     image,
+                }
+            }
+            _ => {
+                let first = p;
+                let count = (u.int_in_range(1..=5).unwrap_or(1) as u32).min(page_count - first);
+                let from = u.int_in_range(0..=2).unwrap_or(0) as u32;
+                let to = from + (u.int_in_range(0..=2).unwrap_or(0) as u32);
+                Edit::ReplacePages {
+                    first,
+                    count: count.max(1),
+                    source: SourceId(1),
+                    from,
+                    to,
                 }
             }
         };

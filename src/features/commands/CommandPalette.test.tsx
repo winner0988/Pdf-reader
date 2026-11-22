@@ -116,13 +116,15 @@ describe("CommandPalette", () => {
       expect(names).toContain(strings.menu.decryptCopy);
     });
 
-    it("contains all 25 shortcut/viewer commands and 1 palette-only command", () => {
+    it("contains all 25 shortcut/viewer commands and 2 palette-only commands", () => {
       const { commands } = setup();
-      const shortcutCommands = commands.filter((c) => !c.fromMenu && c.id !== "insertFileAfterCurrent");
+      const shortcutCommands = commands.filter(
+        (c) => !c.fromMenu && c.id !== "insertFileAfterCurrent" && c.id !== "replaceCurrentPage",
+      );
       expect(shortcutCommands).toHaveLength(25);
 
-      const paletteCommands = commands.filter((c) => c.id === "insertFileAfterCurrent");
-      expect(paletteCommands).toHaveLength(1);
+      const paletteCommands = commands.filter((c) => c.id === "insertFileAfterCurrent" || c.id === "replaceCurrentPage");
+      expect(paletteCommands).toHaveLength(2);
 
       const names = shortcutCommands.map((c) => c.name);
       expect(names).toContain(strings.shortcuts.descriptions.zoomIn);
@@ -344,6 +346,94 @@ describe("CommandPalette", () => {
       expect(onInsertFrom).toHaveBeenCalledWith(3);
       await vi.waitFor(() => {
         expect(onInsertFrom).toHaveReturned();
+      });
+      await vi.waitFor(async () => {
+        await Promise.resolve();
+        expect(onHint).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe("replaceCurrentPage command (#590)", () => {
+    it("finds replaceCurrentPage when searching 取代", async () => {
+      const { user } = setup();
+      const input = screen.getByRole("combobox");
+
+      await user.type(input, "取代");
+      const options = screen.getAllByRole("option");
+      expect(options[0]).toHaveTextContent(strings.commands.replaceCurrentPage);
+    });
+
+    it("disables replaceCurrentPage with noDocument reason when document is null", () => {
+      setup({ document: null });
+      const options = screen.getAllByRole("option");
+      const replaceOption = options.find((o) => o.textContent?.includes(strings.commands.replaceCurrentPage));
+      expect(replaceOption).toHaveAttribute("aria-disabled", "true");
+      expect(replaceOption).toHaveTextContent(strings.commands.noDocument);
+    });
+
+    it("disables replaceCurrentPage when insertFromBlocked is true", () => {
+      setup({ insertFromBlocked: true });
+      const options = screen.getAllByRole("option");
+      const replaceOption = options.find((o) => o.textContent?.includes(strings.commands.replaceCurrentPage));
+      expect(replaceOption).toHaveAttribute("aria-disabled", "true");
+      expect(replaceOption).toHaveTextContent(strings.permissions.notAllowed);
+    });
+
+    it("runs onReplacePages with 0-based page index and count 1, and closes palette", async () => {
+      const onReplacePages = vi.fn().mockResolvedValue(1);
+      const { user, onOpenChange } = setup({
+        document: { pageCount: 5, currentPage: 4, zoom: 100 },
+        onReplacePages,
+      });
+      const input = screen.getByRole("combobox");
+
+      await user.type(input, "取代");
+      const options = screen.getAllByRole("option");
+      await user.click(options[0]!);
+
+      expect(onReplacePages).toHaveBeenCalledWith(3, 1);
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+
+    it("calls onHint with sourceNotAllowed when onReplacePages rejects", async () => {
+      const onReplacePages = vi.fn().mockRejectedValue({ code: "notAllowed", message: "x" });
+      const onHint = vi.fn();
+      const options = makeOptions({
+        document: { pageCount: 5, currentPage: 3, zoom: 100 },
+        onReplacePages,
+        onHint,
+      });
+      const commands = createCommands(options);
+      const cmd = commands.find((c) => c.id === "replaceCurrentPage");
+      expect(cmd).toBeDefined();
+
+      cmd!.run();
+
+      expect(onReplacePages).toHaveBeenCalledWith(2, 1);
+      await vi.waitFor(() => {
+        expect(onHint).toHaveBeenCalledTimes(1);
+        expect(onHint).toHaveBeenCalledWith(strings.pages.sourceNotAllowed);
+      });
+    });
+
+    it("does not call onHint when onReplacePages succeeds", async () => {
+      const onReplacePages = vi.fn().mockResolvedValue(2);
+      const onHint = vi.fn();
+      const options = makeOptions({
+        document: { pageCount: 5, currentPage: 3, zoom: 100 },
+        onReplacePages,
+        onHint,
+      });
+      const commands = createCommands(options);
+      const cmd = commands.find((c) => c.id === "replaceCurrentPage");
+      expect(cmd).toBeDefined();
+
+      cmd!.run();
+
+      expect(onReplacePages).toHaveBeenCalledWith(2, 1);
+      await vi.waitFor(() => {
+        expect(onReplacePages).toHaveReturned();
       });
       await vi.waitFor(async () => {
         await Promise.resolve();

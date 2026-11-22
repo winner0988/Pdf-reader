@@ -772,6 +772,17 @@ pub enum Edit {
         watermark: Watermark,
         image: Option<StampImageId>,
     },
+    /// Replaces the `count` pages from index `first` on with pages `from` to `to` (0-based, both
+    /// included) of the file `source` (what `pick_pages_source` made of the file the user
+    /// chose), in their order (B6-05); the pages that go are removed as `DeletePages` removes
+    /// them, and the pages that come in bring what `InsertPages` brings.
+    ReplacePages {
+        first: u32,
+        count: u32,
+        source: SourceId,
+        from: u32,
+        to: u32,
+    },
 }
 
 /// What applying the redaction marks of a document would do besides removing what their areas

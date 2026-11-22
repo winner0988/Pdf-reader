@@ -66,7 +66,8 @@ export type CommandId =
   | "presentation"
   | "presentationCurrent"
   // Palette-only items:
-  | "insertFileAfterCurrent";
+  | "insertFileAfterCurrent"
+  | "replaceCurrentPage";
 
 export type MenuSection = "layout" | "appearance" | "history" | "actions" | "default";
 export type MenuItemKind = "item" | "radio" | "checkbox";
@@ -107,6 +108,7 @@ export type CommandOptions = ToolbarProps & {
   onNextTab?: () => void;
   onPreviousTab?: () => void;
   onInsertFrom?: (at: number) => Promise<number | null> | void;
+  onReplacePages?: (first: number, count: number) => Promise<number | null> | void;
   insertFromBlocked?: boolean;
   onDecryptCopy?: () => void;
   decryptCopyBlocked?: boolean;
