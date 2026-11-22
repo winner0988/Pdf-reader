@@ -33,7 +33,7 @@
 ### `mupdf-sys` 的來源
 
 - **為什麼用 fork**：crates.io 停在 0.8.0，內附的是 1.27.2。第一次建置時 cargo 要下載 MuPDF 與它所有第三方函式庫的 git 歷史（約 850 MB），之後存在 `~/.cargo/git`。
-- **分支與 commit**：來源是 <https://github.com/winner0988/mupdf-rs> 的分支 `v0.8.0-mupdf-1.28`，commit 為 `581e4fb2be538bd0de480fd5186f8cf99fd1f090`。它帶了：
+- **分支與 commit**：來源是 <https://github.com/winner0988/mupdf-rs> 的分支 `v0.8.0-mupdf-1.28`，commit 為 `c5b5c9e4d3d7f7f48946593bc4f90c44b91e74a2`。它帶了：
   - 子模組指到 MuPDF 1.28.6（`da5f5eb890d7b3fb76903160b5f7f48ba1301492`）；
   - `src/page.rs` 補上 `table_hunt_options`（`vertically_collapse_bordered_cells: 0`，行為與 1.27.2 相同）；
   - 根目錄 `Cargo.toml` 的字型 crate 拿掉 `path`，改從 crates.io 取；
@@ -46,7 +46,7 @@
   - `mupdf-sys/msbuild.rs` 連結 `advapi32`。
 - **已移除的建置期修補**：OpenJPEG（#539）與 lcms2（#562）的修正已經在 1.28.6 內附的版本裡，建置期修補已經拿掉。
 - **舊分支保留**：`v0.8.0-bundled-fixes`（`1989036c0019c1b7f23ccf075024e3997a66c1bc`）保留不動。
-- 根目錄與 `fuzz/` 的 `Cargo.toml` 以 `[patch.crates-io]` 指向同一個 `rev`（`581e4fb2be538bd0de480fd5186f8cf99fd1f090`），`deny.toml` 的 `allow-git` 允許此 repository。
+- 根目錄與 `fuzz/` 的 `Cargo.toml` 以 `[patch.crates-io]` 指向同一個 `rev`（`c5b5c9e4d3d7f7f48946593bc4f90c44b91e74a2`），`deny.toml` 的 `allow-git` 允許此 repository。
 - **什麼時候可以拿掉 fork**：MuPDF 內附的 Tesseract 到 5.5.4 以上時，Tesseract 的修補與上面的檢查都拿掉；MuPDF 內附的 FreeType 到 2.15.0 以上時，FreeType 的修補拿掉；crates.io 上的 `mupdf`、`mupdf-sys` 也帶了這樣的 MuPDF 時，在升級的 PR 裡刪除兩個 `Cargo.toml` 的 `[patch.crates-io]` 與 `deny.toml` 的 `allow-git`，這一節改回 crates.io。
   - fork 也以 `FZ_ENABLE_MD=0` 關掉 Markdown 讀取器（#572）：crates.io 的 `mupdf-sys` 也要能關掉它，才能拿掉 fork，否則 `markdown_reader_is_compiled_out` 會失敗。
   - 文字擷取的兩個修補（#628、#629）也要上游修好才能拿掉，否則 `crates/pdf_worker/tests/text.rs` 的 `text_that_is_drawn_and_clipped_comes_out_once` 與 `glyph_names_give_the_characters_they_stand_for` 會失敗。
