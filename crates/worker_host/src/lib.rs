@@ -597,6 +597,31 @@ impl WorkerHost {
         })
     }
 
+    /// Writes to `file`, as [`save`](Self::save) does, a copy of `doc` without encryption or
+    /// restrictions (B6-01); `password` authenticates against the open document. `doc` itself is
+    /// not changed. Returns `Saved`.
+    pub fn decrypted_copy(
+        &mut self,
+        doc: DocumentId,
+        file: &std::fs::File,
+        password: Password,
+    ) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_write_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::DecryptedCopy {
+            request,
+            doc,
+            file: FileHandle(handle),
+            password,
+        })
+    }
+
     /// Writes to `file`, as [`save`](Self::save) does, a copy of `doc` with `watermark` on its
     /// pages (B3-04); `picture` is the stamp picture (a PNG) of a picture watermark. `doc` itself
     /// is not changed. Returns `Saved`.
@@ -903,6 +928,7 @@ pub fn is_expected_response(request: &WorkerRequest, response: &WorkerResponse) 
         WorkerRequest::Save { .. }
         | WorkerRequest::PrivacyCopy { .. }
         | WorkerRequest::EncryptedCopy { .. }
+        | WorkerRequest::DecryptedCopy { .. }
         | WorkerRequest::WatermarkCopy { .. }
         | WorkerRequest::PageMarksCopy { .. }
         | WorkerRequest::WriteIdentifier { .. }

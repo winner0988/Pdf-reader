@@ -1387,6 +1387,50 @@ describe("theme", () => {
     expect(await screen.findByRole("dialog", { name: strings.compare.title })).toBeInTheDocument();
   });
 
+  it("compare visual: disabled when only one tab open, enabled even when copy disallowed, opens dialog when available", async () => {
+    const docState: ShellState = {
+      kind: "open",
+      document: { ...demoDocument, doc: 1 },
+    };
+
+    // 1. Only one tab open (otherTabs is empty):
+    const first = renderShell(docState, { otherTabs: [] });
+    await first.user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    const blockedItem = await screen.findByRole("menuitem", { name: new RegExp(`^${strings.menu.compareVisual}`) });
+    expect(blockedItem).toHaveAttribute("data-disabled");
+    expect(blockedItem).toHaveTextContent(strings.compare.onlyOneTab);
+    first.unmount();
+
+    // 2. Copy disallowed (visual compare is NOT blocked by copy restriction):
+    const copyBlockedState: ShellState = {
+      kind: "open",
+      document: {
+        ...demoDocument,
+        doc: 1,
+        permissions: { ...demoDocument.permissions, copy: false },
+      },
+    };
+    const second = renderShell(copyBlockedState, {
+      otherTabs: [{ tab: 2, doc: 20, displayName: "other.pdf", copyAllowed: false, pages: [{ widthPt: 500, heightPt: 500 }] }],
+    });
+    await second.user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    const permItem = await screen.findByRole("menuitem", { name: new RegExp(`^${strings.menu.compareVisual}`) });
+    expect(permItem).not.toHaveAttribute("data-disabled");
+    await second.user.click(permItem);
+    expect(await screen.findByRole("dialog", { name: strings.compare.visual.title })).toBeInTheDocument();
+    second.unmount();
+
+    // 3. Enabled with other tabs:
+    const third = renderShell(docState, {
+      otherTabs: [{ tab: 2, doc: 20, displayName: "other.pdf", copyAllowed: true, pages: [{ widthPt: 500, heightPt: 500 }] }],
+    });
+    await third.user.click(screen.getByRole("button", { name: strings.toolbar.more }));
+    const readyItem = await screen.findByRole("menuitem", { name: new RegExp(`^${strings.menu.compareVisual}`) });
+    expect(readyItem).not.toHaveAttribute("data-disabled");
+    await third.user.click(readyItem);
+    expect(await screen.findByRole("dialog", { name: strings.compare.visual.title })).toBeInTheDocument();
+  });
+
   describe("navigation history (B4-01)", () => {
     it("shows back and forward buttons in toolbar and navigates back and forward", async () => {
       const { user } = renderShell(openState);

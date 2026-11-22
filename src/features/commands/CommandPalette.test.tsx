@@ -37,6 +37,7 @@ function makeOptions(opts: Partial<CommandOptions> = {}): CommandOptions {
     onExportAnnotations: vi.fn(),
     onExportXfdf: vi.fn(),
     onCompareText: vi.fn(),
+    onCompareVisual: vi.fn(),
     onPrivacyExport: vi.fn(),
     onSanitizeCopy: vi.fn(),
     onPageMarks: vi.fn(),
@@ -94,10 +95,10 @@ describe("CommandPalette", () => {
   });
 
   describe("completeness of menu commands", () => {
-    it("contains all 35 commands from the More menu", () => {
+    it("contains all 37 commands from the More menu", () => {
       const { commands } = setup();
       const menuCommands = commands.filter((c) => c.fromMenu);
-      expect(menuCommands).toHaveLength(35);
+      expect(menuCommands).toHaveLength(37);
 
       // Verify key More menu items are present
       const names = menuCommands.map((c) => c.name);
@@ -107,10 +108,12 @@ describe("CommandPalette", () => {
       expect(names).toContain(strings.menu.redo);
       expect(names).toContain(strings.menu.export);
       expect(names).toContain(strings.menu.print);
+      expect(names).toContain(strings.menu.compareVisual);
       expect(names).toContain(strings.menu.documentProperties);
       expect(names).toContain(strings.menu.fullscreen);
       expect(names).toContain(strings.menu.shortcuts);
       expect(names).toContain(strings.menu.setDefault);
+      expect(names).toContain(strings.menu.decryptCopy);
     });
 
     it("contains all 25 shortcut/viewer commands and 1 palette-only command", () => {
@@ -126,6 +129,19 @@ describe("CommandPalette", () => {
       expect(names).toContain(strings.shortcuts.descriptions.rotateCw);
       expect(names).toContain(strings.shortcuts.descriptions.toggleSidebar);
       expect(names).toContain(strings.shortcuts.descriptions.fitWidth);
+    });
+
+    it("filters and executes compareVisual", async () => {
+      const onCompareVisual = vi.fn();
+      const { user, onOpenChange } = setup({ onCompareVisual });
+      const input = screen.getByRole("combobox");
+
+      await user.type(input, "畫面");
+      const option = screen.getByRole("option", { name: new RegExp(strings.menu.compareVisual) });
+      await user.click(option);
+
+      expect(onCompareVisual).toHaveBeenCalled();
+      expect(onOpenChange).toHaveBeenCalledWith(false);
     });
   });
 

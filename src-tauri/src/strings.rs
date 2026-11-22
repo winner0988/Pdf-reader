@@ -57,6 +57,16 @@ pub const ENCRYPTED_COPY_SAME_FILE_TITLE: &str = "請選擇其他檔案";
 pub const ENCRYPTED_COPY_SAME_FILE_MESSAGE: &str =
     "加密會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
 
+/// Saving a copy without its password (B6-01): where the copy goes, what it is called at first, and why the
+/// document's own file cannot be chosen.
+pub const DECRYPTED_COPY_DIALOG_TITLE: &str = "另存沒有密碼的副本：選擇副本的位置";
+pub fn decrypted_copy_file_name(stem: &str) -> String {
+    format!("{stem}（無密碼）.pdf")
+}
+pub const DECRYPTED_COPY_SAME_FILE_TITLE: &str = "請選擇其他檔案";
+pub const DECRYPTED_COPY_SAME_FILE_MESSAGE: &str =
+    "另存沒有密碼的副本會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
+
 /// Compressing the pictures of a copy (B3-01): where the copy goes, what it is called at first,
 /// and why the document's own file cannot be chosen.
 pub const COMPRESSED_COPY_DIALOG_TITLE: &str = "壓縮圖片並另存新檔：選擇副本的位置";

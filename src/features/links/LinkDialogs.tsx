@@ -68,12 +68,14 @@ export function LinkConfirmDialog({ preview, onOpen, onClose, copyText = copy }:
           <p className="text-sm">
             {t.confirmHost}：
             <strong dir="ltr" data-host className="font-semibold break-all">
-              {preview.host}
+              {revealHidden(preview.host)}
             </strong>
           </p>
         )}
         {preview.asciiHost !== null && <Warning>{t.warnIdn(preview.asciiHost)}</Warning>}
-        {hasHiddenCharacters(preview.uri) && <Warning>{t.warnControl}</Warning>}
+        {(hasHiddenCharacters(preview.uri) || hasHiddenCharacters(preview.host ?? "")) && (
+          <Warning>{t.warnControl}</Warning>
+        )}
         <FullText label={t.confirmFullUrl} text={revealHidden(preview.uri)} />
         {failed && (
           <p role="alert" className="text-sm text-destructive">

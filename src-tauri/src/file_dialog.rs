@@ -57,6 +57,8 @@ enum Kind {
     SanitizedCopy { file_name: String },
     /// Where to write an encrypted copy of a document (B2-15), suggesting `file_name`.
     EncryptedCopy { file_name: String },
+    /// Where to write a copy of a document without its password or restrictions (B6-01), suggesting `file_name`.
+    DecryptedCopy { file_name: String },
     /// Where to write a copy of a document with its pictures compressed (B3-01), suggesting
     /// `file_name`.
     CompressedCopy { file_name: String },
@@ -209,6 +211,17 @@ pub async fn encrypted_copy_file(
     file_name: String,
 ) -> Result<Option<PathBuf>, IpcError> {
     Ok(run(window, Kind::EncryptedCopy { file_name })
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
+/// Asks where to write a copy of an encrypted document without its password (B6-01), suggesting `file_name`. The
+/// dialog itself asks before replacing an existing file.
+pub async fn decrypted_copy_file(
+    window: &WebviewWindow,
+    file_name: String,
+) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::DecryptedCopy { file_name })
         .await?
         .and_then(|mut paths| paths.pop()))
 }
@@ -385,6 +398,7 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
         | Kind::PrivacyExport { .. }
         | Kind::SanitizedCopy { .. }
         | Kind::EncryptedCopy { .. }
+        | Kind::DecryptedCopy { .. }
         | Kind::CompressedCopy { .. }
         | Kind::PageMarks { .. }
         | Kind::SplitPdf { .. }
@@ -454,6 +468,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
             | Kind::PrivacyExport { .. }
             | Kind::SanitizedCopy { .. }
             | Kind::EncryptedCopy { .. }
+            | Kind::DecryptedCopy { .. }
             | Kind::CompressedCopy { .. }
             | Kind::PageMarks { .. }
             | Kind::SplitPdf { .. }
@@ -567,6 +582,10 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             strings::ENCRYPTED_COPY_DIALOG_TITLE,
             one(strings::PDF_FILTER_NAME, "*.pdf"),
         ),
+        Kind::DecryptedCopy { .. } => (
+            strings::DECRYPTED_COPY_DIALOG_TITLE,
+            one(strings::PDF_FILTER_NAME, "*.pdf"),
+        ),
         Kind::CompressedCopy { .. } => (
             strings::COMPRESSED_COPY_DIALOG_TITLE,
             one(strings::PDF_FILTER_NAME, "*.pdf"),
@@ -655,6 +674,7 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
         | Kind::PrivacyExport { file_name }
         | Kind::SanitizedCopy { file_name }
         | Kind::EncryptedCopy { file_name }
+        | Kind::DecryptedCopy { file_name }
         | Kind::CompressedCopy { file_name }
         | Kind::PageMarks { file_name }
         | Kind::SplitPdf { file_name }
@@ -803,6 +823,11 @@ mod tests {
             file_name: "報告（已加密）.pdf".to_owned(),
         });
         assert!(encrypted(FOS_DONTADDTORECENT) && encrypted(FOS_OVERWRITEPROMPT));
+
+        let decrypted = options_of(Kind::DecryptedCopy {
+            file_name: "報告（無密碼）.pdf".to_owned(),
+        });
+        assert!(decrypted(FOS_DONTADDTORECENT) && decrypted(FOS_OVERWRITEPROMPT));
 
         let compressed = options_of(Kind::CompressedCopy {
             file_name: "報告（已壓縮）.pdf".to_owned(),

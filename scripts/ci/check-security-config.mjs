@@ -202,6 +202,10 @@ const ALLOWED_PERMISSIONS = new Map([
     "B2-15: a copy encrypted with AES-256; the passwords are used once and not kept, the main process asks where, never the document's own file",
   ],
   [
+    "allow-decrypt-copy",
+    "B6-01: a copy of an encrypted document without its password; the password is used once and not kept, the owner password is required when the author set restrictions, the main process asks where, never the document's own file",
+  ],
+  [
     "allow-compress-images",
     "B3-01: a copy whose pictures are encoded again, smaller; the main process asks where, never the document's own file, and the worker decodes the pictures as it does for any page",
   ],

@@ -74,6 +74,7 @@ fn main() {
         "privacy_export",
         "page_marks_copy",
         "encrypt_copy",
+        "decrypt_copy",
         "compress_images",
         "sanitize_copy",
         "check_signing",

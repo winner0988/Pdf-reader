@@ -38,10 +38,12 @@ import { SignDialog } from "@/features/signing/SignDialog";
 import type { ExportApi } from "@/features/export/api";
 import { AnnotationSummaryDialog } from "@/features/export/AnnotationSummaryDialog";
 import { CompareDialog, type CompareTabOption } from "@/features/compare/CompareDialog";
+import { VisualCompareDialog } from "@/features/compare/VisualCompareDialog";
 import type { CompareApi } from "@/features/compare/api";
 import { ExportDialog } from "@/features/export/ExportDialog";
 import { CompressDialog } from "@/features/saving/CompressDialog";
 import { useOpenBatch } from "@/features/batch/useOpenBatch";
+import { DecryptDialog } from "@/features/saving/DecryptDialog";
 import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PageMarksDialog } from "@/features/saving/PageMarksDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
@@ -106,7 +108,7 @@ import {
   recordNavigation,
   type NavigationLocation,
 } from "@/features/viewer/history";
-import { errorCodeOf, type PageRenderer } from "@/features/viewer/renderer";
+import { errorCodeOf, type PageRenderer, type RenderApi } from "@/features/viewer/renderer";
 import type { OutlineView } from "@/features/outline/tree";
 import { strings } from "@/i18n/zh-TW";
 import type {
@@ -151,6 +153,7 @@ type ReaderShellProps = {
   dropActive?: boolean;
   /** Renders pages; without it (demo data, tests) pages are placeholders. */
   renderer?: PageRenderer;
+  renderApi?: RenderApi;
   /** The open document's outline (loaded separately so loading it does not reset the view). */
   outline?: OutlineView;
   /** Searches the open document; without it (demo data, tests) the search bar finds nothing. */
@@ -266,6 +269,7 @@ export function ReaderShell({
   passwordsApi,
   dropActive = false,
   renderer,
+  renderApi,
   outline,
   searchApi,
   linksApi,
@@ -349,10 +353,12 @@ export function ReaderShell({
     | "export"
     | "exportAnnotations"
     | "compare"
+    | "compareVisual"
     | "privacyExport"
     | "sanitize"
     | "pageMarks"
     | "encrypt"
+    | "decrypt"
     | "compress"
     | "create"
     | "sensitive"
@@ -849,6 +855,7 @@ export function ReaderShell({
     doc !== undefined && editingApi !== undefined
       ? {
           allowed: permissions.assemble || permissions.modify,
+          cropAllowed: permissions.modify,
           apply: async (edit) => {
             await editingApi.applyEdit(doc, edit);
             setNavHistory((prev) => adjustHistoryForEdit(prev, edit, pageCount));
@@ -1513,6 +1520,16 @@ export function ReaderShell({
           : otherTabs === undefined || otherTabs.length === 0
             ? strings.compare.onlyOneTab
             : undefined,
+    onCompareVisual:
+      doc !== undefined &&
+      otherTabs !== undefined &&
+      otherTabs.length > 0
+        ? () => setDialog("compareVisual")
+        : undefined,
+    compareVisualBlocked:
+      otherTabs === undefined || otherTabs.length === 0
+        ? strings.compare.onlyOneTab
+        : undefined,
     onPrivacyExport: savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined,
     privacyExportBlocked: savable && document_?.encrypted === true,
     onSanitizeCopy:
@@ -1530,9 +1547,11 @@ export function ReaderShell({
     onPageMarks: savable && !document_?.encrypted ? () => setDialog("pageMarks") : undefined,
     pageMarksBlocked: savable && document_?.encrypted === true,
     onEncryptCopy: savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined,
+    onDecryptCopy: savable && document_?.encrypted ? () => setDialog("decrypt") : undefined,
     onBatch: openBatch,
     onSearchAll: textIndex?.openSearchAll,
     encryptCopyBlocked: savable && document_?.encrypted === true,
+    decryptCopyBlocked: savable && document_?.encrypted !== true,
     onForgetPassword: document_?.passwordRemembered ? forgetPassword : undefined,
     onCompressImages: savable && !document_?.encrypted ? () => setDialog("compress") : undefined,
     compressImagesBlocked: savable && document_?.encrypted === true,
@@ -2189,6 +2208,15 @@ export function ReaderShell({
         />
       )}
       {savable && (
+        <DecryptDialog
+          open={dialog === "decrypt"}
+          onOpenChange={(open) => setDialog(open ? "decrypt" : null)}
+          doc={doc}
+          onDecrypt={(args) => savingApi.decryptCopy(args)}
+          onFinished={showHint}
+        />
+      )}
+      {savable && (
         <CompressDialog
           open={dialog === "compress"}
           onOpenChange={(open) => setDialog(open ? "compress" : null)}
@@ -2227,6 +2255,18 @@ export function ReaderShell({
           currentDisplayName={document_?.displayName}
           otherTabs={otherTabs}
           api={compareApi}
+          onJumpToPage={goToPage}
+        />
+      )}
+      {doc !== undefined && otherTabs && otherTabs.length > 0 && (
+        <VisualCompareDialog
+          open={dialog === "compareVisual"}
+          onOpenChange={(open) => setDialog(open ? "compareVisual" : null)}
+          currentDoc={doc}
+          currentDisplayName={document_?.displayName}
+          currentPages={document_?.pages}
+          otherTabs={otherTabs}
+          renderApi={renderApi}
           onJumpToPage={goToPage}
         />
       )}
