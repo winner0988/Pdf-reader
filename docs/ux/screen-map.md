@@ -262,6 +262,13 @@
 - **加密並另存新檔…**：主行程顯示系統的另存對話框，建議檔名 `<原檔名>（已加密）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（ENCRYPTED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，可以再試；失敗（例如有數位簽章）時顯示 encryption.failed，沒有檔案被留下。
 - 關閉對話框或完成後，密碼欄位清空，不留任何密碼。完成後狀態列顯示 encryption.done 4 秒；分頁仍然是原本的文件。
 
+### 另存沒有密碼的副本
+
+- 「⋯」→「另存沒有密碼的副本…」（在「加密並另存新檔…」之後）開啟對話框。沒有開啟文件時停用；沒有加密的文件停用，並標示 decryption.unencryptedBlocked。做法見 [decrypt-copy.md](../architecture/decrypt-copy.md)。
+- **對話框**：decryption.description；「密碼」欄位（decryption.password，`type="password"`，`autoComplete="off"`）。
+- **另存…**：密碼為空時停用。送出後密碼欄位立即清空；若文件有限制但密碼不是權限密碼，顯示 decryption.notAllowed；密碼不正確顯示 decryption.wrongPassword；其他原因顯示 decryption.failed。
+- 主行程顯示系統的另存對話框，建議檔名 `<原檔名>（已解密）.pdf`；選到原本的檔案時以訊息方塊說明（DECRYPTED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框；成功另存後關閉對話框，狀態列顯示 decryption.done 4 秒。
+
 ### 壓縮圖片並另存新檔（B3-01）
 
 - 「⋯」→「壓縮圖片並另存新檔…」（在「加密並另存新檔…」之後）開啟對話框。沒有開啟文件時停用；加密的文件停用，並標示 compress.encrypted。做法見 [compress-images.md](../architecture/compress-images.md)。
@@ -372,6 +379,7 @@
   - 選取的縮圖有底色；選取兩頁以上時，縮圖上方顯示 pages.selected。
 - **右鍵功能表**（在沒有選取的縮圖上按右鍵，會先只選取它）：
   - pages.rotateCw、pages.rotateCcw：永久旋轉選取的頁面（與工具列只改變檢視的旋轉不同）；
+  - pages.cropPage（B6-04，#589）：對話框 pages.crop.title，設定四邊邊距或在預覽拖曳框選，套用到選取頁、目前頁、全部、奇數頁或偶數頁；頁面小於 36 點或未裁切時提示，作者不允許修改時停用（permissions.notAllowed）；
   - pages.delete（`Delete`；沒有選取時，`Delete` 刪除有焦點的縮圖）：選取全部頁面時停用，按 `Delete` 則在縮圖上方顯示 pages.keepOne；
   - pages.insertBefore、pages.insertAfter：在第一個（或最後一個）選取的頁面前（或後）插入空白頁，大小與那一頁顯示的大小相同；
   - pages.insertFileBefore、pages.insertFileAfter（B2-06）：在第一個（或最後一個）選取的頁面前（或後）插入**其他 PDF 檔案的全部頁面**。系統的開啟對話框選檔案（單選，只列 PDF）；選好之後頁面依原來的順序插入，插入的頁面被選取；關閉對話框什麼都不發生。做法見 [merge.md](../architecture/merge.md)；
@@ -1309,6 +1317,24 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | ENCRYPTED_COPY_DIALOG_TITLE（主行程） | 加密並另存新檔：選擇副本的位置 |
 | encrypted_copy_file_name（主行程） | <原檔名>（已加密）.pdf |
 | ENCRYPTED_COPY_SAME_FILE_TITLE／MESSAGE（主行程） | 請選擇其他檔案／加密會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
+
+### 另存沒有密碼的副本
+
+| 鍵 | 文字 |
+|---|---|
+| menu.decryptCopy | 另存沒有密碼的副本… |
+| decryption.title | 另存沒有密碼的副本 |
+| decryption.description | 副本沒有密碼也沒有限制，任何人都能開啟、複製、列印；作者設了限制的文件要輸入權限密碼；只設開啟密碼的文件輸入開啟密碼即可；有數位簽章的文件不能用。 |
+| decryption.password | 密碼 |
+| decryption.wrongPassword | 密碼不正確。 |
+| decryption.notAllowed | 這份文件有作者設定的限制，要輸入權限密碼才能另存沒有密碼的副本。 |
+| decryption.failed | 無法另存沒有密碼的副本。請稍後再試。 |
+| decryption.start／decryption.cancel | 另存…／取消 |
+| decryption.running／decryption.done | 正在另存副本…／已另存沒有密碼的副本。 |
+| decryption.unencryptedBlocked | 沒有加密的文件不適用（選單中，取代快捷鍵的位置） |
+| DECRYPTED_COPY_DIALOG_TITLE（主行程） | 另存沒有密碼的副本：選擇副本的位置 |
+| decrypted_copy_file_name（主行程） | <原檔名>（已解密）.pdf |
+| DECRYPTED_COPY_SAME_FILE_TITLE／MESSAGE（主行程） | 請選擇其他檔案／另存副本不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
 
 ### 壓縮圖片並另存新檔（B3-01）
 

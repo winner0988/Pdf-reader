@@ -17,8 +17,8 @@ use crate::text::{
 use crate::types::{
     AddSignatureImageArgs, AnnotationKind, AnnotationSummary, AnnotationSummaryItem,
     AnnotationSummaryKind, AttachmentInfo, AttachmentSource, BatchArgs, BatchOperation,
-    CompareTextArgs, CompareTextResult, CompressArgs, DocumentFontEntry, DocumentFonts,
-    DocumentInfo, DocumentProperties, Edit, EditArgs, EncryptArgs, ExportArgs,
+    CompareTextArgs, CompareTextResult, CompressArgs, CropMargins, DecryptArgs, DocumentFontEntry,
+    DocumentFonts, DocumentInfo, DocumentProperties, Edit, EditArgs, EncryptArgs, ExportArgs,
     ExportCompareTextArgs, ExportFormat, FindPersonalDataQuery, FindingKind, FontImport, FontInfo,
     FormField, IndexSearchArgs, IndexSearchEvent, IndexSnippet, IpcError, LineEnds, LinkTarget,
     OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink,
@@ -166,6 +166,30 @@ impl Validate for Rect {
     fn validate(&self) -> Result<(), ValidationError> {
         for value in [self.x0, self.y0, self.x1, self.y1] {
             check_coordinate("rectangle coordinate", value)?;
+        }
+        Ok(())
+    }
+}
+
+impl Validate for CropMargins {
+    fn validate(&self) -> Result<(), ValidationError> {
+        for margin in [self.top, self.right, self.bottom, self.left] {
+            if !margin.is_finite() {
+                return Err(ValidationError::NotFinite {
+                    what: "crop margin",
+                });
+            }
+            if !(0.0..=MAX_PAGE_SIDE_PT).contains(&margin) {
+                return Err(ValidationError::OutOfRange {
+                    what: "crop margin",
+                });
+            }
+        }
+        if self.top == 0.0 && self.right == 0.0 && self.bottom == 0.0 && self.left == 0.0 {
+            return Err(ValidationError::Invalid {
+                what: "crop margins",
+                reason: "crops nothing",
+            });
         }
         Ok(())
     }
@@ -1050,6 +1074,12 @@ impl Validate for EncryptArgs {
     }
 }
 
+impl Validate for DecryptArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_password(&self.password)
+    }
+}
+
 impl Validate for Watermark {
     fn validate(&self) -> Result<(), ValidationError> {
         if !(MIN_WATERMARK_OPACITY..=100).contains(&self.opacity) {
@@ -1816,6 +1846,10 @@ impl Validate for Edit {
                     });
                 }
                 Ok(())
+            }
+            Edit::CropPages { pages, margins } => {
+                check_page_list("pages to crop", pages)?;
+                margins.validate()
             }
         }
     }
@@ -2844,8 +2878,8 @@ mod tests {
     use super::*;
     use crate::types::{
         AnnotationId, AnnotationKind, BatesMark, BlockedAction, BookmarkId, CompareExportFormat,
-        DocumentId, DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption, FontId,
-        HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, IndexEntryId,
+        CropMargins, DocumentId, DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption,
+        FontId, HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, IndexEntryId,
         IndexPageHits, InkColor, InkWidth, LinkId, PageNumberMark, PictureView, RecentId, Recovery,
         RequestId, Restrictions, Rgb, Rotation, SecurityFinding, StampImageId, StampName, TabId,
         TextAlign, TextBoxInfo, TextBoxModelId, TextMarkKind, UnverifiableReason, WatermarkPages,
@@ -3923,6 +3957,57 @@ mod tests {
     }
 
     #[test]
+    fn what_a_decrypted_copy_needs_is_checked() {
+        let valid = DecryptArgs {
+            doc: DocumentId(1),
+            password: Password::new("owner".to_owned()),
+        };
+        assert!(valid.validate().is_ok());
+
+        // Passwords: not empty, no NUL, at most MAX_PASSWORD_BYTES (1024).
+        let longest = "p".repeat(MAX_PASSWORD_BYTES as usize);
+        assert!(
+            DecryptArgs {
+                doc: DocumentId(1),
+                password: Password::new(longest.clone()),
+            }
+            .validate()
+            .is_ok()
+        );
+
+        assert!(
+            DecryptArgs {
+                doc: DocumentId(1),
+                password: Password::new(format!("{longest}p")),
+            }
+            .validate()
+            .is_err()
+        );
+
+        assert!(
+            DecryptArgs {
+                doc: DocumentId(1),
+                password: Password::new(String::new()),
+            }
+            .validate()
+            .is_err()
+        );
+
+        assert!(
+            DecryptArgs {
+                doc: DocumentId(1),
+                password: Password::new("a\0b".to_owned()),
+            }
+            .validate()
+            .is_err()
+        );
+
+        // Extra fields rejected by deny_unknown_fields
+        let json = r#"{"doc": 1, "password": "owner", "extra": 42}"#;
+        assert!(serde_json::from_str::<DecryptArgs>(json).is_err());
+    }
+
+    #[test]
     fn a_signature_report_is_bounded_and_consistent() {
         let report = |signatures| SignatureReport {
             signatures,
@@ -4618,6 +4703,67 @@ mod tests {
             }))
             .unwrap(),
             rotate(vec![0], Rotation::Cw270)
+        );
+    }
+
+    #[test]
+    fn crop_pages_checks_pages_and_margins() {
+        let crop = |pages: Vec<u32>, margins: CropMargins| EditArgs {
+            doc: DocumentId(1),
+            edit: Edit::CropPages { pages, margins },
+        };
+        let valid_margins = CropMargins {
+            top: 10.0,
+            right: 20.0,
+            bottom: 30.0,
+            left: 40.0,
+        };
+        assert!(crop(vec![0], valid_margins).validate().is_ok());
+        assert!(crop(vec![0, 2], valid_margins).validate().is_ok());
+        // Empty pages or duplicate page rejected
+        assert!(crop(vec![], valid_margins).validate().is_err());
+        assert!(crop(vec![1, 1], valid_margins).validate().is_err());
+        // Margins that crop nothing rejected
+        let zero_margins = CropMargins {
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+            left: 0.0,
+        };
+        assert!(crop(vec![0], zero_margins).validate().is_err());
+        // Negative, NaN, infinite, or exceeding MAX_PAGE_SIDE_PT rejected
+        for bad in [
+            CropMargins {
+                top: -1.0,
+                ..valid_margins
+            },
+            CropMargins {
+                right: f32::NAN,
+                ..valid_margins
+            },
+            CropMargins {
+                bottom: f32::INFINITY,
+                ..valid_margins
+            },
+            CropMargins {
+                left: MAX_PAGE_SIDE_PT + 1.0,
+                ..valid_margins
+            },
+        ] {
+            assert!(crop(vec![0], bad).validate().is_err());
+        }
+        // JSON shape check
+        assert_eq!(
+            serde_json::from_value::<EditArgs>(serde_json::json!({
+                "doc": 1,
+                "edit": {
+                    "kind": "cropPages",
+                    "pages": [0],
+                    "margins": { "top": 10.0, "right": 20.0, "bottom": 30.0, "left": 40.0 }
+                }
+            }))
+            .unwrap(),
+            crop(vec![0], valid_margins)
         );
     }
 

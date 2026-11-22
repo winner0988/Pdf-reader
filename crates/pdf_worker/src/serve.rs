@@ -513,6 +513,19 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     restrictions,
                 ),
             }),
+            WorkerRequest::DecryptedCopy {
+                request,
+                doc,
+                file,
+                password,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => decrypted_copy(document, request, file, password.as_str()),
+            }),
             WorkerRequest::WatermarkCopy {
                 request,
                 doc,
@@ -962,6 +975,7 @@ pub fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), Engine
         WorkerEdit::MoveBookmark { id, parent, index } => {
             document.move_bookmark(*id, *parent, *index)?;
         }
+        WorkerEdit::CropPages { pages, margins } => document.crop_pages(pages, *margins)?,
     }
     document.clear_text_cache();
     Ok(())
@@ -1138,6 +1152,31 @@ fn encrypted_copy(
         );
     };
     match document.encrypted_copy(open_password, owner_password, restrictions, &mut file) {
+        Ok(bytes) => WorkerResponse::Saved {
+            request,
+            bytes,
+            incremental: false,
+            redaction: None,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
+/// Writes a copy of `document` without encryption or restrictions (B6-01) to `file`, a handle like `save`'s.
+fn decrypted_copy(
+    document: &PdfDocument,
+    request: RequestId,
+    file: FileHandle,
+    password: &str,
+) -> WorkerResponse {
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match document.decrypted_copy(password, &mut file) {
         Ok(bytes) => WorkerResponse::Saved {
             request,
             bytes,
