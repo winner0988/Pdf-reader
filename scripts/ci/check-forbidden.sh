@@ -4,8 +4,11 @@
 # the guards themselves (the ban list in deny.toml, the guard scripts' tests), which must
 # spell the forbidden names out. A pattern followed by "@only <path>..." is allowed in those
 # files and forbidden everywhere else (ADR 0009: the update check's one module).
+# The rules come from the patterns file next to this script: on a PR, CI runs the base
+# branch's copy of both, so the PR cannot change them (#630).
 set -euo pipefail
 
+rules_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/forbidden-patterns.txt"
 cd "$(git rev-parse --show-toplevel)"
 
 patterns_file="scripts/ci/forbidden-patterns.txt"
@@ -21,7 +24,7 @@ excludes=(
 )
 
 # Strip comments and blank lines; git grep would treat them as patterns.
-rules="$(grep -Ev '^[[:space:]]*(#|$)' "$patterns_file")"
+rules="$(grep -Ev '^[[:space:]]*(#|$)' "$rules_file")"
 grep -v ' @only ' <<< "$rules" > "$patterns" || true
 
 found=0

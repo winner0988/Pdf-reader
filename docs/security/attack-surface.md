@@ -24,7 +24,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 邊界 | 不可信的一方 | 通道 | 主要的防線 |
 |---|---|---|---|
-| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 92 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
+| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 93 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
 | worker → 主行程 | `pdf_worker`（假設已被惡意檔案控制） | worker 標準輸入、輸出上的 postcard frame，每個 ≤ `MAX_FRAME_BYTES`（80 MiB） | 沙盒（§2.1）；每個回應都先驗證（§2.2）；逾時 |
 | 檔案 → worker | PDF 與其他要讀的檔案 | 主行程開好的唯讀檔案代號，或主行程讀好的位元組 | 沙盒；程式庫見 §2.3 |
 | 檔案 → 主行程 | app 資料夾的檔案；使用者匯入的語言資料、字型、`.pfx` | 主行程自己讀 | 大小上限與格式檢查（§3） |
@@ -38,9 +38,9 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 3. 寫到使用者的檔案時，先寫同一個資料夾裡新建的暫存檔，寫完（存檔還要再檢查）才改名取代。批次只寫新的檔名，不取代任何檔案（§6）。
 4. 只有 `src-tauri/src/update_check.rs` 會連網，而且只在使用者按「檢查更新」時（ADR 0009，§5）。
 
-## 1. 前端能呼叫的命令（92 個）
+## 1. 前端能呼叫的命令（93 個）
 
-- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 92 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
+- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 93 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
 - **自由文字**：沒有命令接受路徑或 URI。會帶自由文字的只有這些參數：密碼、剪貼簿的文字、搜尋字串、個資的關鍵字、註解與文字方塊的文字、表單欄位的值、書籤標題、浮水印與頁面標記的文字、簽章的理由、設定、OCR 語言代碼。
 - **參數檢查**：參數先由 serde 解碼成固定的型別，型別不對就拒絕；再由 `crates/ipc_contract/src/validate.rs` 檢查（表中寫成 `XxxArgs`）。上限都在 `crates/ipc_contract/src/limits.rs`。主行程沒有另外限制一個 IPC 訊息的大小，參數整個解碼後才檢查（§9）。
 - **對話框**：都是 Windows 的 `IFileDialog`（`src-tauri/src/file_dialog.rs`），一律加 `FOS_FORCEFILESYSTEM | FOS_DONTADDTORECENT`，只能選真的檔案，也不記入 Windows 的最近使用。另存的對話框再加 `FOS_OVERWRITEPROMPT`。
@@ -143,7 +143,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `close_window` | 使用者回答未存的變更之後，關閉視窗 | `discard` 是 false 而且還有未存的變更時，拒絕並請頁面詢問使用者 | 批次還在跑時只隱藏視窗（通知區圖示留著）；否則丟掉未存的變更，關閉視窗 | `saving.spec.ts`、`batch.spec.ts` |
 | `pick_stamp_image` | 選一張圖片做自訂圖章（B2-08） | 先開對話框，之後才檢查文件（§9） | 開啟對話框（`*.png;*.jpg;*.jpeg`）；文件的 worker 讀它，只留像素（`PrepareStampImage`） | `ink-stamps.spec.ts`；worker `stamp_image.rs` |
 
-### 1.8 匯出、比較與副本（9 個）
+### 1.8 匯出、比較與副本（10 個）
 
 寫出副本的命令都先由主行程問使用者存到哪裡，選到文件自己的檔案就說明並再問一次，然後由文件的 worker 以只能寫的代號寫到暫存檔，主行程再改名。原本的文件不變。
 
@@ -158,6 +158,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `page_marks_copy` | 加上頁碼、Bates 編號、頁首頁尾的副本（B3-16） | `PageMarksCopyArgs`：字級與邊界在範圍內；頁面遞增；文字是一行、不含控制字元與看不見的格式字元；位置不重複；Bates 的位數與起始值不溢位；加密文件拒絕 | 另存對話框；`PageMarksCopy` | `page-marks.spec.ts`；worker `page_marks.rs` |
 | `compress_images` | 圖片重新編碼、縮小的副本（B3-01） | `CompressArgs`：長邊 256–16,384 px；加密文件拒絕，已簽章的文件由 worker 拒絕 | 另存對話框；`CompressedCopy` | `compress-images.spec.ts`；worker `compress.rs`；fuzz `compress_images` |
 | `encrypt_copy` | AES-256 加密的副本（B2-15） | `EncryptArgs`：新密碼 ≤ `MAX_NEW_PASSWORD_BYTES`（127 bytes）；要有開啟密碼或限制；有限制就要有權限密碼；兩個密碼不得相同；加密文件拒絕，已簽章的文件由 worker 拒絕 | 另存對話框；`EncryptedCopy`。沒有給權限密碼時，主行程產生 128 位元的隨機密碼；密碼用完即清除 | `encrypt.spec.ts`；worker `encrypt_copy.rs` |
+| `decrypt_copy` | 解密並另存副本（#586） | `DecryptArgs`：密碼 ≤ `MAX_NEW_PASSWORD_BYTES`（127 bytes），不可為空；未加密文件拒絕，已簽章的文件由 worker 拒絕 | 另存對話框；`DecryptedCopy`。密碼用完即清除 | `decrypt.spec.ts`；worker `decrypt_copy.rs` |
 
 ### 1.9 批次與建立 PDF（2 個）
 
@@ -236,7 +237,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | Windows CryptoAPI（`crypt.rs`） | 簽章的 CMS 與憑證；憑證鏈只用本機的快取 | Windows | 沒有：Linux 的 fuzz 跑不到（#426 只 fuzz 讀簽章欄位） |
 | jpeg-encoder 0.7.1 | 只編碼 worker 自己渲染的像素，不解析輸入 | 純 Rust（不開 `simd`） | 不需要 |
 
-### 2.4 worker 的請求（48 個）
+### 2.4 worker 的請求（49 個）
 
 除了另外註明的，請求都送到那個分頁自己的 worker（ADR 0012）。用新的 worker 的有：驗證剛簽好的副本、批次的每個檔案、`CreatePdf`、`InspectFont`、批次的浮水印圖片。
 
@@ -261,7 +262,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `GetDocumentFonts` | 頁面與 Form XObject 裡的字型清單 | `engine/properties.rs` | worker `properties.rs` | `read_document` |
 | `GetTextBox` | 文字方塊註解 | `engine/text_box.rs` | worker `text_box_worker.rs` | `read_document`（前兩頁，#426） |
 | `ExportDocx` | 頁面的文字與圖片，寫成 .docx | `engine/docx.rs` | worker `docx.rs` | `open_document` |
-| `Edit` | 30 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs` | `edit_document`（30 種） |
+| `Edit` | 31 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs` | `edit_document`（31 種） |
 | `Revert` | 從保留的位元組重新開啟，再做一次編輯 | `engine.rs` | worker `saving.rs`、`merge.rs` | `edit_document` |
 | `Rebase` | 把剛存的檔案當成 undo 的起點；只保留位元組，不解析 | `serve.rs` | worker `saving.rs` | 不需要 |
 | `Save` | 寫出整份文件；已簽章的文件以增量更新 | `engine.rs` | worker `saving.rs`、`save_poc.rs` | `text_box_font`、`edit_document` |
@@ -271,6 +272,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `ExifCleanCopy` | 拿掉圖片裡的中繼資料，不重新編碼 | `exif.rs` | worker `exif_clean.rs` | `exif_clean` |
 | `SanitizedCopy` | 清理過的副本 | `engine/sanitize.rs` | worker `sanitize.rs` | `edit_document` |
 | `EncryptedCopy` | 加密的副本；密碼用完即清除 | `engine.rs` | worker `encrypt_copy.rs` | `edit_document` |
+| `DecryptedCopy` | 沒有密碼與限制的副本；密碼用完即清除 | `engine.rs` | worker `decrypt_copy.rs` | `edit_document` |
 | `WatermarkCopy` | 加上文字或圖片浮水印的副本 | `engine/watermark.rs` | worker `watermark.rs` | `edit_document` |
 | `PageMarksCopy` | 加上頁面標記的副本 | `engine/page_marks.rs` | worker `page_marks.rs` | `edit_document` |
 | `WriteIdentifier` | 以增量更新寫入或拿掉 app 的文件識別碼（ADR 0010） | `engine/identifier.rs` | worker `sensitive.rs` | `edit_document` |
@@ -286,13 +288,14 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `Cancel` | 主行程目前不送；worker 收到也不處理 | `serve.rs` | — | `worker_messages` |
 | `Shutdown` | 主行程目前不送（直接結束 worker）；worker 收到就結束 | `serve.rs` | `crates/ipc_contract/src/frame.rs` | `worker_messages` |
 
-### 2.5 編輯（`WorkerEdit`，30 種）
+### 2.5 編輯（`WorkerEdit`，31 種）
 
 前端送的是 `Edit`，主行程檢查後轉成 `WorkerEdit`。插入的頁面來源與文字方塊的字型子集是主行程留著的，前端不能直接給位元組。結構不正確的頁碼標籤樹在改動頁面之前由 worker 拒絕（有上限）。
 
 | 編輯 | 主行程的檢查（`Edit::validate`） |
 |---|---|
 | `RotatePages`、`DeletePages`、`MovePages` | 頁面清單（`check_page_list`）；位置 ≤ `MAX_PAGE_COUNT` |
+| `CropPages` | 頁面清單（`check_page_list`）；邊距（`CropMargins::validate`，四邊介於 0 與 `MAX_PAGE_SIDE_PT`、不可全為 0） |
 | `InsertBlankPage`、`InsertPages` | 位置 ≤ `MAX_PAGE_COUNT`；`InsertPages` 的來源是 `PrepareSource` 做好的副本 |
 | `ReplacePages` | 位置與數量 ≤ `MAX_PAGE_COUNT`，`from` ≤ `to`；來源是 `PrepareSource` 做好的副本；主行程檢查頁數上限 |
 | `AddHighlight`、`SetHighlightColor` | 頁碼（`check_annotated_page`）；頁數 ≤ `MAX_HIGHLIGHT_PAGES`；四邊形不得為空、總數 ≤ `MAX_ANNOTATION_QUADS`；顏色是固定的選項 |

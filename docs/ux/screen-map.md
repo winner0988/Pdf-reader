@@ -93,7 +93,7 @@
 
 ![外部連結確認](wireframes/link-confirmation.svg)
 
-- ① 「網站」一行以粗體顯示主機名稱；有國際化網域（IDN）時顯示原樣。
+- ① 「網站」一行以粗體顯示主機名稱；有國際化網域（IDN）時顯示原樣。郵件連結（`mailto`）的「網站」顯示路徑裡用 `,`、`;`、`%2C`、`%3B` 分開的收件人，加上 `to`、`cc`、`bcc` 標頭，依序、去掉重複，以 `, ` 分開；網域裡的隱藏字元以 `[U+XXXX]` 標示並警告。
 - ② 主機名稱含非 ASCII 字元時顯示警示與 punycode 版本；網址含雙向控制字元（U+202A～U+202E、U+2066～U+2069）或其他控制字元時，以 `[U+XXXX]` 標示並顯示警示。兩種警示可同時出現。
 - ③ 完整網址放在可捲動、可選取的等寬字型區塊，**絕不截斷**（最長 32,768 bytes）。
 - ④ 按鈕：「複製連結」、「取消」、「開啟」。**預設焦點在「取消」**；`Esc` 等同取消；`Enter` 觸發目前焦點的按鈕。
@@ -234,6 +234,26 @@
 - 結束後關閉對話框，狀態列顯示 exportAnnotations.done，摘要因為註解太多而沒有列完時顯示 exportAnnotations.truncated。失敗時對話框裡顯示 exportAnnotations.failed。
 - 檔案的內容與順序見 [annotation-summary.md](../architecture/annotation-summary.md)。
 
+### 視覺比較（B5-14，#451）
+
+- 「⋯」→「與另一個分頁比較畫面…」（在「與另一個分頁比較文字…」之後）與命令面板開啟。只有開啟單一分頁時停用並提示 `compare.onlyOneTab`；作者禁止複製不影響此項目（純畫面檢視）。
+- **對話框內容**：
+  - 頂部選取目標分頁（`compare.visual.targetTab`、`compare.visual.chooseTab`），點擊「開始比較」（`compare.visual.start`）。
+  - 頁面切換：「上一頁」、「下一頁」與「第 N 頁，共 M 頁」（M 為兩者頁數較大者）。
+  - 顯示方式：「並排」（Side-by-side）與「疊在一起」（Overlay，Doc A 100% 不透明度底層，Doc B 50% 不透明度疊加）。
+  - 差異跳轉：「上一處」、「下一處」與「第 k 處，共 n 處」。跳轉超出當前頁時自動向前或向後逐頁比對，比對時顯示「比較中…」與「停止」按鈕。
+  - 差異框標示：在畫面上以主題邊框標出不同區域，當前選定之差異以粗邊框高亮並自動捲動到可見位置。
+- **狀態訊息（`role="status"`）**：
+  - 「這一頁沒有差異」
+  - 「這一頁只在〈檔名〉有」
+  - 「兩頁大小不同，已縮放到相同的寬度」
+  - 「差異太多，只標出前 100 處」
+  - 「這一頁無法比較」
+- **鍵盤與無障礙**：
+  - 畫面容器標記 `role="img"`，名稱明確包含分頁名稱與頁碼。
+  - 所有操作按鈕均支援鍵盤操作與焦點環。
+  - 跳轉至差異處時透過狀態區域朗讀當前差異位置。
+
 ### 加密並另存新檔（B2-15）
 
 - 「⋯」→「加密並另存新檔…」（在「隱私匯出…」之後）開啟對話框。沒有開啟文件時停用；加密的文件停用，並標示 encryption.encrypted。做法見 [encrypt-copy.md](../architecture/encrypt-copy.md)。
@@ -241,6 +261,13 @@
 - **提示**：欄位下方一行（`role="status"`）說明第一個問題：沒有設定任何東西、兩次輸入不同、有限制卻沒有權限密碼、權限密碼與開啟密碼相同、密碼太長（以位元組計）；有問題時「加密並另存新檔…」停用。
 - **加密並另存新檔…**：主行程顯示系統的另存對話框，建議檔名 `<原檔名>（已加密）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（ENCRYPTED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，可以再試；失敗（例如有數位簽章）時顯示 encryption.failed，沒有檔案被留下。
 - 關閉對話框或完成後，密碼欄位清空，不留任何密碼。完成後狀態列顯示 encryption.done 4 秒；分頁仍然是原本的文件。
+
+### 另存沒有密碼的副本
+
+- 「⋯」→「另存沒有密碼的副本…」（在「加密並另存新檔…」之後）開啟對話框。沒有開啟文件時停用；沒有加密的文件停用，並標示 decryption.unencryptedBlocked。做法見 [decrypt-copy.md](../architecture/decrypt-copy.md)。
+- **對話框**：decryption.description；「密碼」欄位（decryption.password，`type="password"`，`autoComplete="off"`）。
+- **另存…**：密碼為空時停用。送出後密碼欄位立即清空；若文件有限制但密碼不是權限密碼，顯示 decryption.notAllowed；密碼不正確顯示 decryption.wrongPassword；其他原因顯示 decryption.failed。
+- 主行程顯示系統的另存對話框，建議檔名 `<原檔名>（已解密）.pdf`；選到原本的檔案時以訊息方塊說明（DECRYPTED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框；成功另存後關閉對話框，狀態列顯示 decryption.done 4 秒。
 
 ### 壓縮圖片並另存新檔（B3-01）
 
@@ -352,6 +379,7 @@
   - 選取的縮圖有底色；選取兩頁以上時，縮圖上方顯示 pages.selected。
 - **右鍵功能表**（在沒有選取的縮圖上按右鍵，會先只選取它）：
   - pages.rotateCw、pages.rotateCcw：永久旋轉選取的頁面（與工具列只改變檢視的旋轉不同）；
+  - pages.cropPage（B6-04，#589）：對話框 pages.crop.title，設定四邊邊距或在預覽拖曳框選，套用到選取頁、目前頁、全部、奇數頁或偶數頁；頁面小於 36 點或未裁切時提示，作者不允許修改時停用（permissions.notAllowed）；
   - pages.delete（`Delete`；沒有選取時，`Delete` 刪除有焦點的縮圖）：選取全部頁面時停用，按 `Delete` 則在縮圖上方顯示 pages.keepOne；
   - pages.insertBefore、pages.insertAfter：在第一個（或最後一個）選取的頁面前（或後）插入空白頁，大小與那一頁顯示的大小相同；
   - pages.insertFileBefore、pages.insertFileAfter（B2-06）：在第一個（或最後一個）選取的頁面前（或後）插入**其他 PDF 檔案的全部頁面**。系統的開啟對話框選檔案（單選，只列 PDF）；選好之後頁面依原來的順序插入，插入的頁面被選取；關閉對話框什麼都不發生。做法見 [merge.md](../architecture/merge.md)；
@@ -1293,6 +1321,24 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | ENCRYPTED_COPY_DIALOG_TITLE（主行程） | 加密並另存新檔：選擇副本的位置 |
 | encrypted_copy_file_name（主行程） | <原檔名>（已加密）.pdf |
 | ENCRYPTED_COPY_SAME_FILE_TITLE／MESSAGE（主行程） | 請選擇其他檔案／加密會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
+
+### 另存沒有密碼的副本
+
+| 鍵 | 文字 |
+|---|---|
+| menu.decryptCopy | 另存沒有密碼的副本… |
+| decryption.title | 另存沒有密碼的副本 |
+| decryption.description | 副本沒有密碼也沒有限制，任何人都能開啟、複製、列印；作者設了限制的文件要輸入權限密碼；只設開啟密碼的文件輸入開啟密碼即可；有數位簽章的文件不能用。 |
+| decryption.password | 密碼 |
+| decryption.wrongPassword | 密碼不正確。 |
+| decryption.notAllowed | 這份文件有作者設定的限制，要輸入權限密碼才能另存沒有密碼的副本。 |
+| decryption.failed | 無法另存沒有密碼的副本。請稍後再試。 |
+| decryption.start／decryption.cancel | 另存…／取消 |
+| decryption.running／decryption.done | 正在另存副本…／已另存沒有密碼的副本。 |
+| decryption.unencryptedBlocked | 沒有加密的文件不適用（選單中，取代快捷鍵的位置） |
+| DECRYPTED_COPY_DIALOG_TITLE（主行程） | 另存沒有密碼的副本：選擇副本的位置 |
+| decrypted_copy_file_name（主行程） | <原檔名>（已解密）.pdf |
+| DECRYPTED_COPY_SAME_FILE_TITLE／MESSAGE（主行程） | 請選擇其他檔案／另存副本不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
 
 ### 壓縮圖片並另存新檔（B3-01）
 

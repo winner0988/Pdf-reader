@@ -144,6 +144,16 @@ pub struct EncryptArgs {
     pub restrictions: Restrictions,
 }
 
+/// Arguments of `decrypt_copy` (B6-01): the open document is written, without encryption or
+/// restrictions, to a file the user chooses next. The password is never stored or logged (see
+/// [`Password`]). Any other field is rejected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DecryptArgs {
+    pub doc: DocumentId,
+    pub password: Password,
+}
+
 /// What a batch does to each of its files (B3-04, ADR 0005, docs/architecture/batch.md): a copy of
 /// each is written to the folder the user chooses; no file is changed. An operation with fields
 /// has those only: any other field is rejected.
@@ -747,6 +757,12 @@ pub enum Edit {
         id: BookmarkId,
         parent: Option<BookmarkId>,
         index: u32,
+    },
+    /// Crops `pages` (no repeats) by `margins`, measured in from the edges of each page as it is shown,
+    /// by setting its `/CropBox` (B6-04); what is outside stays in the file.
+    CropPages {
+        pages: Vec<u32>,
+        margins: CropMargins,
     },
     /// Replaces the `count` pages from index `first` on with pages `from` to `to` (0-based, both
     /// included) of the file `source` (what `pick_pages_source` made of the file the user
@@ -1636,6 +1652,16 @@ pub struct Rect {
     pub y1: f32,
 }
 
+/// Margins for cropping pages in PDF points, measured in from the top, right, bottom, and left
+/// edges of each page as it is shown (B6-04).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+pub struct CropMargins {
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub left: f32,
+}
+
 /// A quadrilateral in page space, used for text that may be rotated.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
 pub struct Quad {
@@ -2279,7 +2305,8 @@ pub struct LinkPreview {
     /// What the system is given when the user opens it: ASCII only, the host in punycode and
     /// everything else percent-encoded. Also what "copy link" copies.
     pub opens: String,
-    /// The site the browser will contact (for `mailto`, the mail domain), as it reads.
+    /// The site the browser will contact, as it reads. For mailto, every recipient's mail domain
+    /// in order, without repeats, joined by ", " (#610).
     pub host: Option<String>,
     /// The host's ASCII (punycode) form when it differs from `host`: an internationalised
     /// name, which may imitate another one.

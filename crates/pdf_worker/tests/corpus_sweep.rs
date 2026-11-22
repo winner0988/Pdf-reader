@@ -1,6 +1,8 @@
 //! Integration test for corpus_sweep using repo's tests/corpus (Issue #439, B5-02).
 #![cfg(windows)]
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -60,36 +62,7 @@ fn test_corpus_sweep_on_repo_corpus() {
         "single-page.pdf must have 1 page, got: {normal_line}"
     );
 
-    // Verify that each file runs in a fresh worker and does not share a cumulative peak memory:
-    // multi-page-10.pdf is processed before single-page.pdf in alphabetical order.
-    // If the worker were shared, single-page.pdf's peak memory would be >= multi-page-10.pdf's.
-    let ok_entries: Vec<serde_json::Value> = lines
-        .iter()
-        .map(|l| serde_json::from_str::<serde_json::Value>(l).expect("valid json line"))
-        .filter(|v| v["result"] == "ok" && v["peak_memory_bytes"].is_number())
-        .collect();
-    let single_page = ok_entries
-        .iter()
-        .find(|v| {
-            v["relative_path"]
-                .as_str()
-                .is_some_and(|p| p.ends_with("single-page.pdf"))
-        })
-        .expect("must contain single-page.pdf");
-    let multi_page = ok_entries
-        .iter()
-        .find(|v| {
-            v["relative_path"]
-                .as_str()
-                .is_some_and(|p| p.ends_with("multi-page-10.pdf"))
-        })
-        .expect("must contain multi-page-10.pdf");
-    let single_mem = single_page["peak_memory_bytes"].as_u64().unwrap();
-    let multi_mem = multi_page["peak_memory_bytes"].as_u64().unwrap();
-    assert_ne!(
-        single_mem, multi_mem,
-        "each file must run in a fresh worker so peak_memory_bytes is not identical: single={single_mem}, multi={multi_mem}"
-    );
+    // Whether each file gets a fresh worker is checked by `each_file_runs_in_a_fresh_worker`.
 
     // Verify at least one malformed file is open_failed
     let malformed_line = lines
@@ -111,4 +84,79 @@ fn test_corpus_sweep_on_repo_corpus() {
     assert!(json.contains("\"by_corpus\""));
 
     let _ = fs::remove_dir_all(&output_dir);
+}
+
+/// One page of `side` x `side` points, filled, so that rendering it at scale 1 takes a raster of
+/// `side` x `side` pixels.
+fn square_page(side: u32) -> Vec<u8> {
+    let content = format!("0 0 1 rg 0 0 {side} {side} re f");
+    common::build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+        format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {side} {side}] /Resources << >> /Contents 4 0 R >>"
+        ),
+        format!(
+            "<< /Length {} >>\nstream\n{content}\nendstream",
+            content.len()
+        ),
+    ])
+}
+
+/// The peak memory of a worker's job only grows while that worker lives (#643). A small page swept
+/// after a large one can only show the lower peak if it got a worker of its own: with one worker
+/// for both, its peak would be at least the large page's. The large page's raster (2000 x 2000
+/// pixels, about 16 MB) is far above the run-to-run noise of the peak (about 1 MB), so two pages of
+/// the same size, which can show the very same peak in fresh workers, are not compared.
+#[test]
+fn each_file_runs_in_a_fresh_worker() {
+    let dir =
+        std::env::temp_dir().join(format!("corpus_sweep_fresh_worker_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let corpus_dir = dir.join("corpus");
+    let output_dir = dir.join("out");
+    fs::create_dir_all(&corpus_dir).unwrap();
+    // The sweep goes in file name order: the large page first.
+    fs::write(corpus_dir.join("a-large-page.pdf"), square_page(2000)).unwrap();
+    fs::write(corpus_dir.join("b-small-page.pdf"), square_page(100)).unwrap();
+
+    run_sweep(
+        &worker_path(),
+        &corpus_dir,
+        &output_dir,
+        Duration::from_secs(30),
+        Some(2),
+        None,
+        false,
+    )
+    .expect("run_sweep on the two pages must succeed");
+
+    let jsonl = fs::read_to_string(output_dir.join("results.jsonl")).expect("read results.jsonl");
+    let peaks: Vec<(String, u64)> = jsonl
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| {
+            let v: serde_json::Value = serde_json::from_str(l).expect("valid json line");
+            assert_eq!(v["result"], "ok", "{l}");
+            let name = v["relative_path"]
+                .as_str()
+                .expect("relative_path")
+                .to_owned();
+            let peak = v["peak_memory_bytes"].as_u64().expect("peak_memory_bytes");
+            (name, peak)
+        })
+        .collect();
+    let [(large_name, large), (small_name, small)] = peaks.as_slice() else {
+        panic!("expected two results, got {peaks:?}");
+    };
+    assert_eq!(
+        (large_name.as_str(), small_name.as_str()),
+        ("a-large-page.pdf", "b-small-page.pdf")
+    );
+    assert!(
+        small < large,
+        "the small page must have a worker of its own, so its peak is below the large page's: small={small}, large={large}"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
 }

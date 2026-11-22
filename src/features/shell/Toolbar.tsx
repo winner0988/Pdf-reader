@@ -107,6 +107,10 @@ export type ToolbarProps = {
   onCompareText?: () => void;
   /** Why comparing text is blocked (e.g. only one tab open or copying forbidden). */
   compareTextBlocked?: string;
+  /** Compares visual appearance with another open tab (B5-14, #451); without it the menu item is disabled. */
+  onCompareVisual?: () => void;
+  /** Why comparing visual appearance is blocked (e.g. only one tab open). */
+  compareVisualBlocked?: string;
   /** Writes a copy without metadata (B2-03); without it the menu item is disabled. */
   onPrivacyExport?: () => void;
   /** An encrypted document has no privacy export (B2-03): the menu item says so. */
@@ -127,6 +131,10 @@ export type ToolbarProps = {
   onSearchAll?: () => void;
   /** An encrypted document has no encrypted copy (B2-15): the menu item says so. */
   encryptCopyBlocked?: boolean;
+  /** Writes a copy of an encrypted document without its password (docs/architecture/decrypt-copy.md). */
+  onDecryptCopy?: () => void;
+  /** An unencrypted document has no decrypted copy: the menu item says so. */
+  decryptCopyBlocked?: boolean;
   /** Forgets the password the app remembers for this file (B2-26); given only when there is one. */
   onForgetPassword?: () => void;
   /** Writes a copy whose pictures are compressed (B3-01); without it the menu item is disabled. */
@@ -736,10 +744,12 @@ function MoreMenu(props: ToolbarProps) {
         {renderItem("export")}
         {renderItem("exportAnnotations")}
         {renderItem("compareText")}
+        {renderItem("compareVisual")}
         {renderItem("privacyExport")}
         {renderItem("sanitizeCopy")}
         {renderItem("pageMarks")}
         {renderItem("encryptCopy")}
+        {renderItem("decryptCopy")}
         {renderItem("searchAll")}
         {renderItem("batch")}
         {props.onForgetPassword && renderItem("forgetPassword")}
