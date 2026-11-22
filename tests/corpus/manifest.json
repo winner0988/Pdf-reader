@@ -383,6 +383,48 @@
       "sha256": "560bcd9ec03834bb89600ecc0e8814c41ef1a106867d16b933679d378bae5d4f"
     },
     {
+      "path": "benign/compare-picture-a.pdf",
+      "category": "benign",
+      "purpose": "One-page text-only document for visual comparison testing (#451).",
+      "expected": "Opens; 1 page with title and paragraphs for visual difference detection.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "VISUAL COMPARISON TEST DOCUMENT",
+        "visual difference detection"
+      ],
+      "bytes": 934,
+      "sha256": "ec18ab657b0fe5bc942ecb021028623fea2def7b539efa952716f85dd8860fb6"
+    },
+    {
+      "path": "benign/compare-picture-b.pdf",
+      "category": "benign",
+      "purpose": "One-page document with text and an added image for visual comparison testing (#451).",
+      "expected": "Opens; 1 page with title, paragraphs, and a 120x80 pt picture below text.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "VISUAL COMPARISON TEST DOCUMENT",
+        "visual difference detection"
+      ],
+      "bytes": 13451,
+      "sha256": "783c645bf5e7cd12bb374f5ddb63b101699db1ece70dfe6e48c0fc8bb25845f2"
+    },
+    {
+      "path": "benign/compare-same-as-a.pdf",
+      "category": "benign",
+      "purpose": "One-page document visually identical to compare-picture-a.pdf for visual comparison testing (#451).",
+      "expected": "Opens; 1 page visually identical to compare-picture-a.pdf, reporting no differences.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "VISUAL COMPARISON TEST DOCUMENT",
+        "visual difference detection"
+      ],
+      "bytes": 934,
+      "sha256": "ec18ab657b0fe5bc942ecb021028623fea2def7b539efa952716f85dd8860fb6"
+    },
+    {
       "path": "benign/page-labels.pdf",
       "category": "benign",
       "purpose": "A document with flat /PageLabels (lowercase roman numerals i-ii, then decimal 1-2).",
@@ -720,6 +762,17 @@
       "text": [],
       "bytes": 944,
       "sha256": "d2f00f40d1a339d3c575c54f4fe2b90d22bdc591d52ad21cacbf4d8f999b5555"
+    },
+    {
+      "path": "malicious/link-mailto-recipients.pdf",
+      "category": "malicious",
+      "purpose": "mailto link with two recipients separated by ';' (#610).",
+      "expected": "The confirmation's site line shows first.example, second.example.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 1021,
+      "sha256": "411128c091e3ac95e4c8252553fd0c8a7044a41b186c8be91b2c1bfd19346097"
     },
     {
       "path": "malicious/link-ms-protocol.pdf",

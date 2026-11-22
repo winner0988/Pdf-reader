@@ -41,7 +41,7 @@ pub fn preview(uri: &str) -> Result<LinkPreview, IpcError> {
             let differs = unicode != ascii;
             (Some(unicode), differs.then(|| ascii.to_owned()))
         }
-        "mailto" => mail_domain(url.path()),
+        "mailto" => mail_domains(&url),
         _ => return Err(not_openable("scheme")),
     };
     Ok(LinkPreview {
@@ -52,20 +52,60 @@ pub fn preview(uri: &str) -> Result<LinkPreview, IpcError> {
     })
 }
 
-/// The domain of the first address of a `mailto` URL, as it reads and (when different) in
+/// The domains of the recipients of a `mailto` URL, as they read and (when different) in
 /// punycode.
-fn mail_domain(path: &str) -> (Option<String>, Option<String>) {
-    let first = path.split(',').next().unwrap_or_default();
-    let Some((_, domain)) = first.rsplit_once('@') else {
-        return (None, None);
-    };
-    let domain = percent_decode(domain);
-    if domain.is_empty() {
+fn mail_domains(url: &Url) -> (Option<String>, Option<String>) {
+    let mut recipients = Vec::new();
+    let decoded_path = percent_decode(url.path());
+    for slice in decoded_path.split([',', ';']) {
+        recipients.push(slice.to_owned());
+    }
+    if let Some(query) = url.query() {
+        for part in query.split('&') {
+            let (name, val) = part.split_once('=').unwrap_or((part, ""));
+            let decoded_name = percent_decode(name);
+            if decoded_name.eq_ignore_ascii_case("to")
+                || decoded_name.eq_ignore_ascii_case("cc")
+                || decoded_name.eq_ignore_ascii_case("bcc")
+            {
+                let decoded_val = percent_decode(val);
+                for slice in decoded_val.split([',', ';']) {
+                    recipients.push(slice.to_owned());
+                }
+            }
+        }
+    }
+
+    let mut domains: Vec<String> = Vec::new();
+    for recipient in recipients {
+        let trimmed = recipient.trim();
+        if let Some((_, domain)) = trimmed.rsplit_once('@')
+            && !domain.is_empty()
+            && !domains.iter().any(|d| d.eq_ignore_ascii_case(domain))
+        {
+            domains.push(domain.to_owned());
+        }
+    }
+
+    if domains.is_empty() {
         return (None, None);
     }
-    let ascii = url::quirks::domain_to_ascii(&domain);
-    let differs = !ascii.is_empty() && ascii != domain;
-    (Some(domain), differs.then_some(ascii))
+
+    let mut any_different = false;
+    let mut ascii_domains = Vec::with_capacity(domains.len());
+    for domain in &domains {
+        let ascii = url::quirks::domain_to_ascii(domain);
+        if !ascii.is_empty() && !ascii.eq_ignore_ascii_case(domain) {
+            any_different = true;
+            ascii_domains.push(ascii);
+        } else {
+            ascii_domains.push(domain.clone());
+        }
+    }
+
+    let host = domains.join(", ");
+    let ascii_host = any_different.then(|| ascii_domains.join(", "));
+    (Some(host), ascii_host)
 }
 
 fn percent_decode(text: &str) -> String {
@@ -75,6 +115,7 @@ fn percent_decode(text: &str) -> String {
     while index < bytes.len() {
         let hex = bytes
             .get(index + 1..index + 3)
+            .filter(|pair| pair.iter().all(|b| b.is_ascii_hexdigit()))
             .and_then(|pair| std::str::from_utf8(pair).ok())
             .and_then(|pair| u8::from_str_radix(pair, 16).ok());
         match (bytes[index], hex) {
@@ -231,5 +272,82 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn a_mail_link_shows_every_recipients_domain() {
+        let cases = [
+            (
+                "mailto:someone@first.example,ceo@second.example",
+                "first.example, second.example",
+                "mailto:someone@first.example,ceo@second.example",
+            ),
+            (
+                "mailto:someone@first.example;ceo@second.example",
+                "first.example, second.example",
+                "mailto:someone@first.example;ceo@second.example",
+            ),
+            (
+                "mailto:someone@first.example%2Cceo@second.example",
+                "first.example, second.example",
+                "mailto:someone@first.example%2Cceo@second.example",
+            ),
+            (
+                "mailto:someone@first.example%3Bceo@second.example",
+                "first.example, second.example",
+                "mailto:someone@first.example%3Bceo@second.example",
+            ),
+            (
+                "mailto:?to=someone@first.example",
+                "first.example",
+                "mailto:?to=someone@first.example",
+            ),
+            (
+                "mailto:a@first.example?cc=b@second.example&bcc=c@third.example",
+                "first.example, second.example, third.example",
+                "mailto:a@first.example?cc=b@second.example&bcc=c@third.example",
+            ),
+            (
+                "mailto:a@first.example?TO=b@second.example",
+                "first.example, second.example",
+                "mailto:a@first.example?TO=b@second.example",
+            ),
+            (
+                "mailto:a@first.example,b@FIRST.example;c@second.example",
+                "first.example, second.example",
+                "mailto:a@first.example,b@FIRST.example;c@second.example",
+            ),
+            (
+                "mailto:a@first.example?subject=x@evil.example&body=y@evil.example",
+                "first.example",
+                "mailto:a@first.example?subject=x@evil.example&body=y@evil.example",
+            ),
+        ];
+        for (uri, host, expected_opens) in cases {
+            let p = preview(uri).unwrap();
+            assert_eq!(p.host.as_deref(), Some(host), "{uri}");
+            assert_eq!(p.opens, expected_opens, "{uri}");
+        }
+    }
+
+    #[test]
+    fn a_mail_domain_never_hides_a_character() {
+        let p1 = preview("mailto:x@second.example%+0").unwrap();
+        assert_eq!(p1.host.as_deref(), Some("second.example%+0"));
+        assert!(!p1.host.as_deref().unwrap().chars().any(char::is_control));
+        assert_eq!(p1.opens, "mailto:x@second.example%+0");
+
+        let p2 = preview("mailto:x@%+4second.example").unwrap();
+        assert_eq!(p2.host.as_deref(), Some("%+4second.example"));
+        assert!(!p2.host.as_deref().unwrap().chars().any(char::is_control));
+        assert_eq!(p2.opens, "mailto:x@%+4second.example");
+
+        let p3 = preview("mailto:x@second.example%00").unwrap();
+        assert_eq!(p3.host.as_deref(), Some("second.example\u{0}"));
+        assert_eq!(p3.opens, "mailto:x@second.example%00");
+
+        let p4 = preview("mailto:x@Example.COM").unwrap();
+        assert_eq!(p4.ascii_host, None);
+        assert_eq!(p4.opens, "mailto:x@Example.COM");
     }
 }

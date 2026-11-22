@@ -107,6 +107,10 @@ export type ToolbarProps = {
   onCompareText?: () => void;
   /** Why comparing text is blocked (e.g. only one tab open or copying forbidden). */
   compareTextBlocked?: string;
+  /** Compares visual appearance with another open tab (B5-14, #451); without it the menu item is disabled. */
+  onCompareVisual?: () => void;
+  /** Why comparing visual appearance is blocked (e.g. only one tab open). */
+  compareVisualBlocked?: string;
   /** Writes a copy without metadata (B2-03); without it the menu item is disabled. */
   onPrivacyExport?: () => void;
   /** An encrypted document has no privacy export (B2-03): the menu item says so. */
@@ -736,6 +740,7 @@ function MoreMenu(props: ToolbarProps) {
         {renderItem("export")}
         {renderItem("exportAnnotations")}
         {renderItem("compareText")}
+        {renderItem("compareVisual")}
         {renderItem("privacyExport")}
         {renderItem("sanitizeCopy")}
         {renderItem("pageMarks")}
