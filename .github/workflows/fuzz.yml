@@ -141,14 +141,27 @@ jobs:
           seed_ocr 01 tests/corpus/benign/image-only.pdf
           # Edits, saves and copies of an untrusted PDF (Issue #427, #515):
           # Prepend 32 bytes to each PDF, cycling secondary actions and edits across seeds.
+          # Byte 1 is the secondary action and byte 3 the first edit. The target reads each of
+          # them from one byte, so byte b is kind b; how many kinds there are is read from the
+          # target, so that a new kind gets seeds too (#674).
+          target=fuzz/fuzz_targets/edit_document.rs
+          range_end() { sed -nE "s/^[[:space:]]*let $1 = u\.int_in_range\(0\.\.=([0-9]+)\).*/\1/p" "$target"; }
+          last_action=$(range_end secondary)
+          last_edit=$(range_end kind)
+          for n in "$last_action" "$last_edit"; do
+            if ! [[ "$n" =~ ^[1-9][0-9]{0,2}$ ]] || [ "$n" -gt 255 ]; then
+              echo "::error::$target needs one 'let secondary = u.int_in_range(0..=M)' and one 'let kind = u.int_in_range(0..=N)', each from 1 to 255, to seed edit_document (#674)."
+              exit 1
+            fi
+          done
           action=0
           edit=0
           for file in fuzz/corpus/open_document/*; do
             hex_action=$(printf '%02x' "$action")
             hex_edit=$(printf '%02x' "$edit")
             (printf "\x$hex_action\x01\x$hex_edit"; head -c 29 /dev/zero) | cat - "$file" > "fuzz/corpus/edit_document/$(basename "$file")"
-            action=$(( (action + 1) % 10 ))
-            edit=$(( (edit + 1) % 29 ))
+            action=$(( (action + 1) % (last_action + 1) ))
+            edit=$(( (edit + 1) % (last_edit + 1) ))
           done
       # Built separately so that compiler errors stay visible; the run step below prints nothing.
       - name: Build the fuzz target
