@@ -11,6 +11,25 @@ import { strings } from "../../src/i18n/zh-TW";
 import { corpus, expect, quit, test } from "./app";
 import { external } from "./netlog";
 
+/** Whether `blockedURI` is on the same site as `url`; WebView2 reports only the origin for a frame. */
+function sameOrigin(blockedURI: string, url: string): boolean {
+  try {
+    return new URL(blockedURI).origin === new URL(url).origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * WebView2 preconnects to a frame's site before `frame-src` blocks the frame (#664). These are
+ * the only addresses this test allows in the net log; remove them when #664 is resolved.
+ */
+const FRAME_PRECONNECT = new Set([
+  "https://csp-check.example/frame",
+  "csp-check.example",
+  "https://csp-check.example",
+]);
+
 const BASE = "https://csp-check.example/";
 
 test("the page's CSP blocks every kind of request to another site (#613)", async ({ launch }) => {
@@ -228,10 +247,7 @@ test("the page's CSP blocks every kind of request to another site (#613)", async
         (v) =>
           v.effectiveDirective === check.directive &&
           (v.blockedURI.startsWith(check.url) ||
-            (check.kind === "iframe" &&
-              (v.blockedURI.startsWith(check.url) ||
-                v.blockedURI.startsWith(BASE) ||
-                v.blockedURI.startsWith("https://csp-check.example")))),
+            (check.kind === "iframe" && sameOrigin(v.blockedURI, check.url))),
       );
       expect.soft(matched, `${check.kind} blocked by ${check.directive}`).toBe(true);
     }
@@ -255,7 +271,7 @@ test("the page's CSP blocks every kind of request to another site (#613)", async
     await quit(page);
     const log = readFileSync(netLog, "utf8");
     expect(log).toContain("http://tauri.localhost/");
-    expect(external(log)).toEqual([]);
+    expect(external(log).filter((address) => !FRAME_PRECONNECT.has(address))).toEqual([]);
   } finally {
     rmSync(netLog, { force: true, maxRetries: 10, retryDelay: 200 });
   }

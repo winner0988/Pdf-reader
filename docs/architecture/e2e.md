@@ -86,7 +86,7 @@ app 本身完全沒有為測試做任何修改：沒有測試專用的建置選�
 | 以開啟對話框開啟（#86） | `Ctrl+O` 後取消：沒有分頁；再按「選擇檔案…」，輸入 `benign/single-page.pdf` 並開啟：分頁出現、第 1 頁已渲染。對話框是系統的，由 `answerFileDialog`（`file-dialog.ps1`）以 UI Automation 找到後回答 |
 | 匯出（B2-04，`export.spec.ts`） | 純文字寫到另存的檔案；兩頁 PNG 寫到選的資料夾（簽名、72 dpi 的寬度）；取消另存時什麼都不寫 |
 | 不自行連網（#121，`network.spec.ts`） | WebView2 瀏覽器行程的命令列帶有 app 的每個參數；啟動、顯示文件並停留到啟動後 25 秒（以 `--component-updater=fast-update` 讓元件更新程式提早到約 10 秒詢問，預設約 60 秒；app 的 `--disable-component-update` 照樣停用它），WebView2 的 net log 除了 app 自己的內容，沒有任何請求 |
-| CSP 擋下對外連線（#613，`csp.spec.ts`） | 在頁面中依序嘗試 11 種對外連線（`fetch`、`XMLHttpRequest`、`WebSocket`、`EventSource`、`navigator.sendBeacon`、`<img>`、`<script>`、`<link rel="stylesheet">`、`FontFace`、CSS 的 `url()`、`<iframe>`），確認每一種都被 CSP 擋下並產生 `securitypolicyviolation` 事件（`fetch` 失敗），且 net log 沒有外部位址 |
+| CSP 擋下對外連線（#613，`csp.spec.ts`） | 在頁面中依序嘗試 11 種對外連線（`fetch`、`XMLHttpRequest`、`WebSocket`、`EventSource`、`navigator.sendBeacon`、`<img>`、`<script>`、`<link rel="stylesheet">`、`FontFace`、CSS 的 `url()`、`<iframe>`），確認每一種都被 CSP 擋下並產生 `securitypolicyviolation` 事件（`fetch` 失敗），且 net log 沒有外部位址（`<iframe>` 的三筆預先連線除外，#664） |
 | 頁面管理（B2-05，`pages.spec.ts`） | 在縮圖上以右鍵刪除第 3 頁、以「移到…」把第 5 頁移到最前面、右鍵把第 2 頁向右轉；另存後重新開啟：9 頁，搜尋定位各頁、第 3 頁是橫的。另以滑鼠拖曳縮圖移動頁面 |
 | 表單（B2-09，`forms.spec.ts`） | 填樣本表單的每一種欄位（文字、多行、最大長度、核取方塊、選項按鈕、兩種選單、必填），另存新檔後重新開啟，值都在；唯讀欄位只能看；有腳本的欄位可以填，狀態列說明腳本不執行，沒有對話框；扁平化後另存，頁面上沒有欄位，重新開啟的新檔搜尋得到填的值 |
 | 數位簽章（B2-14，`signatures.spec.ts`） | 開啟 `benign/signed.pdf`：簽章提示列說簽章有效但無法確認簽署者，面板列出語料的測試憑證、簽署時間（標示為簽署者自己聲稱）與離線驗證的說明，關閉後焦點回到按鈕；`signed-docmdp-p1.pdf` 的面板說簽署者不允許任何變更；改動簽章範圍內一個字母的檔案顯示簽章無效、不列簽署者；沒有簽章的文件沒有提示列 |
