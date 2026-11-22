@@ -234,6 +234,14 @@
 - 結束後關閉對話框，狀態列顯示 exportAnnotations.done，摘要因為註解太多而沒有列完時顯示 exportAnnotations.truncated。失敗時對話框裡顯示 exportAnnotations.failed。
 - 檔案的內容與順序見 [annotation-summary.md](../architecture/annotation-summary.md)。
 
+### 註解匯出（XFDF）（B5-09）
+
+- 「⋯」→「匯出註解（XFDF）…」（在「匯出註解摘要…」之後）直接觸發匯出（沒有開啟文件時停用；作者禁止複製時停用並標示 permissions.notAllowed）。
+- 文件沒有註解時，狀態列顯示 exportXfdf.empty，不開啟另存對話框。
+- 否則主行程顯示系統另存對話框（標題 EXPORT_XFDF_DIALOG_TITLE，篩選器 XFDF (*.xfdf)），建議檔名 `<原檔名>（註解）.xfdf`；選到文件自己的檔案時以訊息方塊說明、可以再選。
+- 成功存檔後狀態列顯示 exportXfdf.done，若有自訂圖片印章等略過項目則附加 exportXfdf.skipped 提示，註解過多截斷時附加 exportXfdf.truncated。
+- 格式與安全設計見 [xfdf-export.md](../architecture/xfdf-export.md)。
+
 ### 視覺比較（B5-14，#451）
 
 - 「⋯」→「與另一個分頁比較畫面…」（在「與另一個分頁比較文字…」之後）與命令面板開啟。只有開啟單一分頁時停用並提示 `compare.onlyOneTab`；作者禁止複製不影響此項目（純畫面檢視）。
@@ -400,6 +408,7 @@
     - 檔案的作者不允許取出頁面時，縮圖上方顯示 pages.sourceNotAllowed；檔案太大、或插入後超過頁數與未儲存變更的上限時顯示 pages.sourceTooLarge；其他情形（不是 PDF、損毀）顯示 pages.sourceFailed；
     - 來源檔有主動內容時，內容不會進入文件，但警示橫幅（主視窗 3）列出它有哪些；使用者關閉過橫幅之後，插入的檔案讓橫幅有從沒說過的內容時才再顯示；復原與重做回到說過的內容時不會再出現；
     - 只在不是示範資料的文件顯示這兩項；作者不允許變更頁面時停用（pages.notAllowed）。
+  - pages.replacePages（B6-05，#590）：選取的頁面必須連續，否則在縮圖上方提示 pages.replaceOnlyContiguous；選取來源檔案後開啟對話框 pages.replace.title，指定來源頁面範圍（pages.replace.from 到 pages.replace.to），即時預覽總頁數與頁面編排，按 pages.replace.confirm 取代；
   - pages.moveTo：對話框 pages.move.title，輸入頁碼並選擇「之前／之後」；頁碼超出範圍時顯示 pages.move.outOfRange。
 - **拖曳**：把選取的縮圖拖到兩張縮圖之間（以一條線標示位置），靠近清單上下緣時自動捲動；`Esc` 取消。拖曳沒有選取的縮圖時只移動它。
 - **之後**：旋轉與移動的頁面仍保持選取，插入的空白頁被選取；刪除後不選取任何頁面。分頁標示未儲存（「•」）。
@@ -472,6 +481,7 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
   - 按一下沒有拖曳畫出一個圓點。
 - **印章**：按印章按鈕選一種（annotations.stamps），狀態列顯示 annotations.placeStamp；在頁面上點一下，以點擊處為中心放下，放下後工具自動結束；按 `Enter` 放在目前這一頁的中央（給不能使用滑鼠的人）；`Esc` 取消。標準印章的文字是英文（由 PDF 引擎畫出，其他閱讀器看到的一樣），選單與說明用中文。
 - **自訂圖片印章**：印章選單的最後一項「annotations.pickPicture」（前面有分隔線）。選了之後出現系統的開啟對話框（單選，只列 PNG 與 JPEG）；選好圖片後狀態列顯示 annotations.placePicture，在頁面上點一下放下（以點擊處為中心，保持圖片的形狀，較長的一邊 150 點），或按 `Enter` 放在這一頁的中央，`Esc` 取消。關閉對話框什麼都不發生。圖片不能用時狀態列說明：annotations.pictureTooLarge（太大）、annotations.tooManyPictures（尚未儲存的變更用了太多不同的圖片，要先存檔）、annotations.pictureFailed（其他，包含不是 PNG 或 JPEG）。圖片只留下像素，相機的資料（EXIF、GPS）不會進入文件。
+- **簽名**（B6-02）：印章選單中的「annotations.signature」（簽名…）。開啟簽名對話框，提供已存簽名清單、手繪簽名板、文字輸入與圖片匯入功能。簽名加密保存在這台電腦上（DPAPI），點一下已存簽名即可在頁面上放下（狀態列提示 annotations.placeSignature），可自由移動、縮放與旋轉。設定頁的「簽名」區塊亦提供已存數量與「全部刪除…」操作。
 - **移動與縮放**：選取手繪或印章（`Tab` 或點一下）時，周圍出現控制點；拖曳本體移動，拖曳控制點縮放。手繪有八個控制點，可以自由縮放；印章只有四個角，維持比例。拖曳時以虛線輪廓預覽，放開才生效（可以復原）。方向鍵移動 1 點，加 `Shift` 移動 10 點；按住不放不會連續移動。操作方式（annotations.moveHint）是這個輪廓的工具提示，也是螢幕閱讀器念出的說明。
 - **旋轉圖片**（B3-01）：使用者自己的圖片印章選取時，上方多一個圓點（旋轉把手，annotations.turnHandle 是它的提示），拖曳它旋轉：圖片的輪廓（實線）跟著轉，放開才生效（可以復原），加 `Shift` 每次轉 15 度，接近 0、90、180、270 度時會靠上去。小工具列有「annotations.turnLeft」「annotations.turnRight」兩個按鈕（各轉 15 度），選取時按 `[` 與 `]` 也一樣（給不能使用滑鼠的人；按住不會連續轉）；選取的圖片的操作說明是 annotations.moveTurnHint。轉過之後，選取框是裝得下圖片的外框，縮放與移動沿用它的形狀；轉回 0 度就是原來的樣子。標準印章與別的軟體做的印章不能旋轉，沒有把手與按鈕。
 - **作者不允許註解**時，畫筆與印章按鈕停用，說明是 annotations.notAllowed；已有的手繪與印章仍然顯示，可以選取，但沒有控制點，方向鍵與 `Delete` 不作用。
@@ -1067,6 +1077,10 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | annotation_kind_name（主行程，檔案裡的種類） | 螢光筆標示／附註／文字方塊／手繪線條／印章 |
 | annotation_summary_page（主行程，檔案裡的頁碼） | 第 <n> 頁 |
 | ANNOTATION_SUMMARY_TRUNCATED（主行程，檔案的最後一行） | （註解太多，其餘沒有列出。） |
+| menu.exportXfdf | 匯出註解（XFDF）… |
+| exportXfdf.empty | 這份文件沒有註解。 |
+| exportXfdf.done | 已匯出 <N> 個註解到 XFDF 檔。 |
+| EXPORT_XFDF_DIALOG_TITLE／XFDF_FILTER_NAME（主行程） | 匯出註解（XFDF）／XFDF (*.xfdf) |
 
 ### 頁面管理（B2-05）
 
@@ -1077,6 +1091,10 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | pages.delete | 刪除 |
 | pages.insertBefore／pages.insertAfter | 在前面插入空白頁／在後面插入空白頁 |
 | pages.insertFileBefore／pages.insertFileAfter | 在前面插入其他檔案的頁面…／在後面插入其他檔案的頁面… |
+| pages.replacePages | 取代頁面… |
+| pages.replaceOnlyContiguous | 只能取代連續的頁：請選取相連的頁面。 |
+| pages.replace.title | 取代頁面 |
+| pages.replace.confirm／cancel | 取代／取消 |
 | pages.sourcePassword.title | 這個檔案受密碼保護 |
 | pages.sourcePassword.description | 輸入密碼才能取出這個檔案的頁面。密碼只用在這一次，不會被儲存。 |
 | pages.sourcePassword.label／confirm／cancel | 密碼／插入頁面／取消 |

@@ -157,6 +157,22 @@ fn network_paths_are_flagged_wherever_a_file_is_named() {
 }
 
 #[test]
+fn a_file_url_whose_host_only_starts_with_localhost_names_a_network_path() {
+    let report = scan(&document(
+        "",
+        "/Annots [4 0 R 5 0 R]",
+        &[
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] /A << /S /GoToR /F (file://localhost.example/share/a.pdf) /D [0 /Fit] >> >>",
+            "<< /Type /Annot /Subtype /Link /Rect [0 0 10 10] /A << /S /GoToR /F (file://localhost/C:/a.pdf) /D [0 /Fit] >> >>",
+        ],
+    ));
+    assert_eq!(
+        findings(&report),
+        [(FindingKind::RemoteGoTo, 2), (FindingKind::UncReference, 1),]
+    );
+}
+
+#[test]
 fn a_submit_address_is_part_of_the_submit_action() {
     let report = scan(&document(
         "",

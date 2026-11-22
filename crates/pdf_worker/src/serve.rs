@@ -197,6 +197,20 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
                 },
             }),
+            WorkerRequest::AnnotationExport { request, doc } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => match document.annotation_export() {
+                    Ok(annotations) => WorkerResponse::AnnotationExport {
+                        request,
+                        annotations,
+                    },
+                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                },
+            }),
             WorkerRequest::GetTextBox {
                 request,
                 doc,
@@ -869,6 +883,14 @@ pub fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), Engine
             source,
             text_boxes,
         } => document.insert_pages(*at, source, text_boxes)?,
+        WorkerEdit::ReplacePages {
+            first,
+            count,
+            source,
+            text_boxes,
+            from,
+            to,
+        } => document.replace_pages(*first, *count, source, text_boxes, *from, *to)?,
         WorkerEdit::AddHighlight {
             mark_kind,
             marks,

@@ -13,6 +13,7 @@ import { FieldEdits } from "@/features/forms/edits";
 import { tauriFormsApi, type FormsApi } from "@/features/forms/source";
 import { tauriLinksApi, type LinksApi } from "@/features/links/source";
 import { tauriSignaturesApi, useSignatures, type SignaturesApi } from "@/features/signatures/useSignatures";
+import { tauriSignaturesApi as tauriSavedSignaturesApi, type SignaturesApi as SavedSignaturesApi } from "@/features/annotations/signaturesApi";
 import { tauriOcrApi, type OcrApi } from "@/features/ocr/api";
 import type { OcrTab } from "@/features/ocr/model";
 import { useOcr } from "@/features/ocr/useOcr";
@@ -70,6 +71,7 @@ type AppProps = {
   updatesApi?: UpdatesApi;
   fontsApi?: FontsApi;
   ocrApi?: OcrApi;
+  savedSignaturesApi?: SavedSignaturesApi;
   textIndexApi?: TextIndexApi;
   windowApi?: WindowApi;
   propertiesApi?: PropertiesApi;
@@ -99,6 +101,7 @@ export default function App({
   updatesApi = tauriUpdatesApi,
   fontsApi = tauriFontsApi,
   ocrApi = tauriOcrApi,
+  savedSignaturesApi = tauriSavedSignaturesApi,
   textIndexApi = tauriTextIndexApi,
   windowApi = tauriWindowApi,
   propertiesApi = defaultPropertiesApi,
@@ -246,6 +249,7 @@ export default function App({
                   updatesApi={updatesApi}
                   fontsApi={fontsApi}
                   ocrApi={ocrApi}
+                  savedSignaturesApi={savedSignaturesApi}
                   passwordsApi={api}
                   windowApi={windowApi}
                   propertiesApi={propertiesApi}
@@ -324,6 +328,7 @@ type TabPaneProps = {
   updatesApi: UpdatesApi;
   fontsApi: FontsApi;
   ocrApi: OcrApi;
+  savedSignaturesApi: SavedSignaturesApi;
   passwordsApi: PasswordsApi;
   windowApi?: WindowApi;
   propertiesApi?: PropertiesApi;
@@ -349,6 +354,7 @@ function TabPane({
   active,
   outlineApi,
   signaturesApi,
+  savedSignaturesApi,
   latestInfo,
   onClose,
   onRetry,
@@ -378,6 +384,7 @@ function TabPane({
     >
       <ReaderShell
         {...shell}
+        signaturesApi={savedSignaturesApi}
         state={shellState(tab)}
         active={active}
         outline={outline}

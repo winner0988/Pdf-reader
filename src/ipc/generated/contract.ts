@@ -514,7 +514,7 @@ export type LineEnds = { from: Point, to: Point, };
  * A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
  * those of the document as it is before the edit.
  */
-export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", markKind: TextMarkKind, marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "addTextBox", page: number, rect: Rect, model: TextBoxModelId, style: TextBoxStyle, } | { "kind": "setTextBox", page: number, annotation: AnnotationId, model: TextBoxModelId | null, style: TextBoxStyle, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setPictureAngle", page: number, annotation: AnnotationId, degrees: number, } | { "kind": "addShape", page: number, shape: Shape, color: InkColor, width: InkWidth, } | { "kind": "setLineEnds", page: number, annotation: AnnotationId, from: Point, to: Point, } | { "kind": "setShapeStyle", page: number, annotation: AnnotationId, color: InkColor, width: InkWidth, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" } | { "kind": "addRedaction", page: number, rect: Rect, } | { "kind": "addRedactionGroup", page: number, rects: Array<Rect>, } | { "kind": "applyRedactions" } | { "kind": "addBookmark", parent: BookmarkId | null, index: number, title: string, page: number, } | { "kind": "renameBookmark", id: BookmarkId, title: string, } | { "kind": "deleteBookmark", id: BookmarkId, } | { "kind": "moveBookmark", id: BookmarkId, parent: BookmarkId | null, index: number, } | { "kind": "cropPages", pages: Array<number>, margins: CropMargins, } | { "kind": "addWatermark", pages: Array<number>, watermark: Watermark, image: StampImageId | null, };
+export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", markKind: TextMarkKind, marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "addTextBox", page: number, rect: Rect, model: TextBoxModelId, style: TextBoxStyle, } | { "kind": "setTextBox", page: number, annotation: AnnotationId, model: TextBoxModelId | null, style: TextBoxStyle, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setPictureAngle", page: number, annotation: AnnotationId, degrees: number, } | { "kind": "addShape", page: number, shape: Shape, color: InkColor, width: InkWidth, } | { "kind": "setLineEnds", page: number, annotation: AnnotationId, from: Point, to: Point, } | { "kind": "setShapeStyle", page: number, annotation: AnnotationId, color: InkColor, width: InkWidth, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" } | { "kind": "addRedaction", page: number, rect: Rect, } | { "kind": "addRedactionGroup", page: number, rects: Array<Rect>, } | { "kind": "applyRedactions" } | { "kind": "addBookmark", parent: BookmarkId | null, index: number, title: string, page: number, } | { "kind": "renameBookmark", id: BookmarkId, title: string, } | { "kind": "deleteBookmark", id: BookmarkId, } | { "kind": "moveBookmark", id: BookmarkId, parent: BookmarkId | null, index: number, } | { "kind": "cropPages", pages: Array<number>, margins: CropMargins, } | { "kind": "addWatermark", pages: Array<number>, watermark: Watermark, image: StampImageId | null, } | { "kind": "replacePages", first: number, count: number, source: SourceId, from: number, to: number, };
 
 /**
  * The kind of text markup annotation (B2-07, B4-04).
@@ -559,6 +559,31 @@ export type StampImageId = number;
  * `Edit::AddImageStamp` and its size in pixels, as it will be drawn (a large picture is shrunk).
  */
 export type StampImageInfo = { image: StampImageId, width: number, height: number, };
+
+/**
+ * An id of a saved signature image (B6-02).
+ */
+export type SignatureImageId = number;
+
+/**
+ * Information about a saved signature image (B6-02).
+ */
+export type SignatureImage = { id: SignatureImageId, width: number, height: number, };
+
+/**
+ * Arguments of commands taking a signature image id (B6-02).
+ */
+export type SignatureImageArgs = { id: SignatureImageId, };
+
+/**
+ * Arguments of `add_signature_image` (B6-02).
+ */
+export type AddSignatureImageArgs = { png: Array<number>, };
+
+/**
+ * Arguments of `prepare_signature_stamp` (B6-02).
+ */
+export type PrepareSignatureStampArgs = { doc: DocumentId, id: SignatureImageId, };
 
 /**
  * An annotation of an open document: the number of its object in the document, which stays
@@ -1606,6 +1631,16 @@ includeName: boolean, };
 export type AnnotationSummaryOutcome = { "kind": "empty" } | { "kind": "cancelled" } | { "kind": "written", count: number, truncated: boolean, };
 
 /**
+ * Arguments for exporting annotations as XFDF (B5-09).
+ */
+export type ExportXfdfArgs = { doc: DocumentId, };
+
+/**
+ * What came of exporting annotations as XFDF (B5-09).
+ */
+export type XfdfOutcome = { "kind": "empty", skipped: number, } | { "kind": "cancelled" } | { "kind": "written", count: number, skipped: number, truncated: boolean, };
+
+/**
  * The kinds of annotations a summary lists (B3-18).
  */
 export type AnnotationSummaryKind = "highlight" | "underline" | "strikeOut" | "squiggly" | "note" | "textBox" | "ink" | "stamp" | "rectangle" | "ellipse" | "line" | "arrow";
@@ -1841,6 +1876,7 @@ export const LIMITS = {
   maxLanguageDataBytes: 67108864,
   maxImportedLanguages: 20,
   maxImportedFonts: 50,
+  maxSignatureImages: 10,
   minPageMarkSizePt: 6,
   maxPageMarkSizePt: 72,
   minPageMarkMarginPt: 0,

@@ -21,6 +21,7 @@
 | `fonts\` | 使用者匯入的自訂字型檔（`<雜湊值>.ttf` 或 `.ttc`，每個最多 64 MiB，最多 50 個）與其名稱索引 `metadata.json` | 主行程 | [text-boxes.md](text-boxes.md) |
 | `recovery\` | 崩潰復原日誌：有未儲存變更的文件，每份一個，含檔案的**完整路徑**、大小與修改時間，以及還沒存檔的編輯。正常存檔、不儲存或關閉時刪除，只有 app 沒有正常結束時才會留下 | 主行程 | [crash-recovery.md](crash-recovery.md) |
 | `index\` | 本機全文索引（預設關閉）：開啟過的文件的文字與檔案的**完整路徑**，以 AES-256-GCM 加密；金鑰以 DPAPI 保護，只有目前的 Windows 使用者解得開。最多 2,000 份、共 256 MiB | 主行程 | [text-index.md](text-index.md) |
+| `signatures\` | 重複使用的簽名圖片（`<編號>.sig`，以 DPAPI 加密，每個最多 2 MiB，最多 10 個） | 主行程 | [signature-images.md](signature-images.md) |
 | `EBWebView\` | 畫面元件（WebView2）的暫存資料 | WebView2 | 本頁「WebView2」 |
 
 另外，worker 的 AppContainer profile 在 `%LOCALAPPDATA%\Packages\` 底下，解除安裝時由安裝程式刪除（`src-tauri/windows/installer-hooks.nsh`）。
@@ -59,4 +60,5 @@ WebView2 在 `EBWebView\` 保存它自己的資料（快取等）。
 
 - 設定頁可以清除最近開啟的檔案，以及「不記錄此檔案」的選擇；機敏文件的清單可以逐筆移除（檔案的標記不變，見 [sensitive-files.md](sensitive-files.md)）。清除最近開啟的檔案（或關閉記錄）時，一併刪除目前沒有分頁使用的復原日誌與整個本機全文索引。
 - 本機全文索引可以在設定頁單獨清除；先刪金鑰，刪不掉的檔案沒有金鑰也讀不出來（[text-index.md](text-index.md)）。
+- 簽名圖片可以在簽名對話框逐個刪除，或在設定頁「全部刪除」清空整個目錄（[signature-images.md](signature-images.md)）。
 - 關閉 app 後，可以直接刪除整個資料夾：下次啟動時一切回到預設值。

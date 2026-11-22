@@ -477,6 +477,11 @@ pub fn write_annotation_summary(file: &Path, content: &str) -> Result<(), IpcErr
     write_whole(file, content.as_bytes()).map_err(not_written)
 }
 
+/// Writes the XFDF document `content` (#446) to `file`, whole, UTF-8 without BOM.
+pub fn write_xfdf(file: &Path, content: &str) -> Result<(), IpcError> {
+    write_whole(file, content.as_bytes()).map_err(not_written)
+}
+
 /// Formats a text comparison outcome as Plain text or Markdown (B3-24, E9).
 pub fn compare_text_file(
     result: &CompareTextResult,
@@ -845,6 +850,19 @@ mod tests {
             .map(|entry| entry.unwrap().file_name())
             .collect();
         assert_eq!(names, ["報告（註解摘要）.md"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_xfdf_export_is_written_whole_utf8() {
+        let dir = std::env::temp_dir().join(format!("pdf-reader-xfdf-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("報告（註解）.xfdf");
+        let content = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<xfdf>test</xfdf>\n";
+        write_xfdf(&file, content).unwrap();
+        let read = fs::read_to_string(&file).unwrap();
+        assert_eq!(read, content);
         fs::remove_dir_all(&dir).unwrap();
     }
 

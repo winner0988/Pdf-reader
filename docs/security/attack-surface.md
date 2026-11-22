@@ -24,7 +24,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 邊界 | 不可信的一方 | 通道 | 主要的防線 |
 |---|---|---|---|
-| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 93 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
+| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 101 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
 | worker → 主行程 | `pdf_worker`（假設已被惡意檔案控制） | worker 標準輸入、輸出上的 postcard frame，每個 ≤ `MAX_FRAME_BYTES`（80 MiB） | 沙盒（§2.1）；每個回應都先驗證（§2.2）；逾時 |
 | 檔案 → worker | PDF 與其他要讀的檔案 | 主行程開好的唯讀檔案代號，或主行程讀好的位元組 | 沙盒；程式庫見 §2.3 |
 | 檔案 → 主行程 | app 資料夾的檔案；使用者匯入的語言資料、字型、`.pfx` | 主行程自己讀 | 大小上限與格式檢查（§3） |
@@ -38,9 +38,9 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 3. 寫到使用者的檔案時，先寫同一個資料夾裡新建的暫存檔，寫完（存檔還要再檢查）才改名取代。批次只寫新的檔名，不取代任何檔案（§6）。
 4. 只有 `src-tauri/src/update_check.rs` 會連網，而且只在使用者按「檢查更新」時（ADR 0009，§5）。
 
-## 1. 前端能呼叫的命令（93 個）
+## 1. 前端能呼叫的命令（101 個）
 
-- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 93 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
+- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 101 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
 - **自由文字**：沒有命令接受路徑或 URI。會帶自由文字的只有這些參數：密碼、剪貼簿的文字、搜尋字串、個資的關鍵字、註解與文字方塊的文字、表單欄位的值、書籤標題、浮水印與頁面標記的文字、簽章的理由、設定、OCR 語言代碼。
 - **參數檢查**：參數先由 serde 解碼成固定的型別，型別不對就拒絕；再由 `crates/ipc_contract/src/validate.rs` 檢查（表中寫成 `XxxArgs`）。上限都在 `crates/ipc_contract/src/limits.rs`。主行程沒有另外限制一個 IPC 訊息的大小，參數整個解碼後才檢查（§9）。
 - **對話框**：都是 Windows 的 `IFileDialog`（`src-tauri/src/file_dialog.rs`），一律加 `FOS_FORCEFILESYSTEM | FOS_DONTADDTORECENT`，只能選真的檔案，也不記入 Windows 的最近使用。另存的對話框再加 `FOS_OVERWRITEPROMPT`。
@@ -143,7 +143,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `close_window` | 使用者回答未存的變更之後，關閉視窗 | `discard` 是 false 而且還有未存的變更時，拒絕並請頁面詢問使用者 | 批次還在跑時只隱藏視窗（通知區圖示留著）；否則丟掉未存的變更，關閉視窗 | `saving.spec.ts`、`batch.spec.ts` |
 | `pick_stamp_image` | 選一張圖片做自訂圖章（B2-08）或浮水印（B6-06） | 先開對話框，之後才檢查文件（§9） | 開啟對話框（`*.png;*.jpg;*.jpeg`）；文件的 worker 讀它，只留像素（`PrepareStampImage`） | `ink-stamps.spec.ts`、`document-watermark.spec.ts`；worker `stamp_image.rs`、`watermark.rs` |
 
-### 1.8 匯出、比較與副本（10 個）
+### 1.8 匯出、比較與副本（11 個）
 
 寫出副本的命令都先由主行程問使用者存到哪裡，選到文件自己的檔案就說明並再問一次，然後由文件的 worker 以只能寫的代號寫到暫存檔，主行程再改名。原本的文件不變。
 
@@ -151,6 +151,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 |---|---|---|---|---|
 | `export_pages` | 匯出頁面：純文字、Word、PNG、JPEG、PDF（拆分） | `ExportArgs`：頁面不得為空、不重複、≤ 1000（PDF ≤ 100,000）；dpi 只能是 72、150、300；每 N 頁一個檔時 N > 0、≤ 1000 個檔；作者禁止複製時拒絕；加密文件不能拆成 PDF | 純文字、Word、PDF：另存對話框，擋文件自己的檔案（#423）。圖片、每 N 頁一個檔：選資料夾，已有的檔案要確認取代。`RenderPng`、`RenderJpeg`、`ExportDocx`、`SavePages` | `export.spec.ts`（含純文字不能取代原檔）、`split.spec.ts`；`export.rs` 9 個；worker `docx.rs` |
 | `export_annotation_summary` | 註解摘要寫成純文字或 Markdown | 作者禁止複製時拒絕 | 另存對話框，擋文件自己的檔案；`AnnotationSummary` | `annotation-summary.spec.ts`；`export.rs` |
+| `export_annotations_xfdf` | 註解匯出成 ISO 19444-1 XFDF 檔（B5-09） | 作者禁止複製時拒絕 | 另存對話框，擋文件自己的檔案；`AnnotationExport`；不含路徑、作者、時間、ID | `annotation-summary.spec.ts`；`xfdf.rs` |
 | `compare_text` | 比較兩份開著的文件的文字 | `CompareTextArgs`：不能和自己比；任一份的作者禁止複製時拒絕；期限 ≤ `MAX_COMPARE_DEADLINE_MILLIS`（10 秒） | 讀兩份文件的頁面文字 | `compare.spec.ts`；`src-tauri/src/compare/` |
 | `export_compare_text` | 比較結果寫成純文字或 Markdown | `ExportCompareTextArgs`：同上 | 另存對話框，兩份文件自己的檔案都擋 | `compare.spec.ts` |
 | `privacy_export` | 不含中繼資料的副本（B2-03） | 加密文件拒絕 | 另存對話框；`PrivacyCopy`（識別碼由主行程隨機產生） | `privacy-export.spec.ts` |
@@ -198,6 +199,18 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `stop_ocr` | 停止辨識 | 文件代號 | `OcrStop` | `src-tauri/src/ocr.rs`；worker `ocr.rs` |
 | `set_ocr_focus` | 先辨識使用者正在看的那一頁 | `check_page_index` | — | `src-tauri/src/ocr.rs` |
 
+### 1.13 簽名（7 個）
+
+| 命令 | 做什麼 | 主行程的檢查與上限 | 對話框、寫入、行程 | 測試 |
+|---|---|---|---|---|
+| `get_signature_images` | 列出這台電腦上已存的簽名圖片 | 沒有參數；最多回傳 `MAX_SIGNATURE_IMAGES`（10）個 | 讀取 `signatures\`，DPAPI 解密驗證；不回傳路徑 | `signatures.spec.ts`；`signature_images.rs` |
+| `get_signature_image_png` | 取回某個簽名的 PNG 供畫面預覽 | `SignatureImageArgs` | 讀取 `signatures\`，DPAPI 解密驗證 | `signatures.spec.ts`；`signature_images.rs` |
+| `add_signature_image` | 儲存畫的或輸入的簽名 PNG | `AddSignatureImageArgs`：`stamp_png_size`（≤ 1 MiB，長寬 ≤ 1024）；已有 10 個時拒絕 | DPAPI 加密寫入 `signatures\<id>.sig`（先寫暫存檔再改名） | `signatures.spec.ts`；`signature_images.rs` |
+| `import_signature_image` | 從檔案對話框選一張圖片做簽名 | 同圖片印章（長寬 ≤ 1024，≤ 1 MiB）；已有 10 個時拒絕 | 開啟對話框（`*.png;*.jpg;*.jpeg`）；worker 解碼只留像素；DPAPI 加密寫入 `signatures\` | `signatures.spec.ts`；`signature_images.rs` |
+| `remove_signature_image` | 刪除一個已存的簽名 | `SignatureImageArgs` | 刪除 `signatures\<id>.sig` | `signatures.spec.ts`；`signature_images.rs` |
+| `remove_all_signature_images` | 刪除全部已存的簽名 | 沒有參數 | 刪除整個 `signatures\` 資料夾與暫存檔 | `signatures.spec.ts`；`signature_images.rs` |
+| `prepare_signature_stamp` | 將已存的簽名放入文件的暫存圖片 | `PrepareSignatureStampArgs`；文件需有 `annotate` 權限；圖片數量上限 | DPAPI 解密放入文件的圖片清單，回傳印章圖片代號與大小 | `signatures.spec.ts`；`documents.rs` |
+
 ## 2. worker
 
 ### 2.1 沙盒
@@ -237,7 +250,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | Windows CryptoAPI（`crypt.rs`） | 簽章的 CMS 與憑證；憑證鏈只用本機的快取 | Windows | 沒有：Linux 的 fuzz 跑不到（#426 只 fuzz 讀簽章欄位） |
 | jpeg-encoder 0.7.1 | 只編碼 worker 自己渲染的像素，不解析輸入 | 純 Rust（不開 `simd`） | 不需要 |
 
-### 2.4 worker 的請求（49 個）
+### 2.4 worker 的請求（50 個）
 
 除了另外註明的，請求都送到那個分頁自己的 worker（ADR 0012）。用新的 worker 的有：驗證剛簽好的副本、批次的每個檔案、`CreatePdf`、`InspectFont`、批次的浮水印圖片。
 
@@ -256,13 +269,14 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `GetPageText` | 頁面文字 | `engine.rs`、`text_cache.rs` | worker `text.rs` | `read_document`（前兩頁，#426） |
 | `SearchPage` | 頁面文字 | `search.rs` | worker `search_cache.rs` | `open_document`（前兩頁） |
 | `AnnotationSummary` | 每一頁的註解，與註解蓋住的文字 | `engine.rs` | `engine.rs` 的單元測試；`annotation-summary.spec.ts` | `read_document`（#426） |
+| `AnnotationExport` | 每一頁的註解與幾何資料，匯出 XFDF（B5-09） | `engine/xfdf.rs` | worker `engine::xfdf`；`annotation-summary.spec.ts` | `read_document`（#426） |
 | `GetAttachments` | 附件清單 | `engine/attachments.rs`（沒有單元測試） | worker `attachments.rs` | `read_document`（#426） |
 | `WriteAttachment` | 解碼附件（≤ 512 MiB），寫到只能寫的代號 | `engine/attachments.rs` | worker `attachments.rs` | `read_document`（至多前 2 個，上限 1 MiB，#426） |
 | `GetDocumentProperties` | 基本中繼資料、加密方式、簽章數量與附件數量 | `engine/properties.rs` | worker `properties.rs` | `read_document` |
 | `GetDocumentFonts` | 頁面與 Form XObject 裡的字型清單 | `engine/properties.rs` | worker `properties.rs` | `read_document` |
 | `GetTextBox` | 文字方塊註解 | `engine/text_box.rs` | worker `text_box_worker.rs` | `read_document`（前兩頁，#426） |
 | `ExportDocx` | 頁面的文字與圖片，寫成 .docx | `engine/docx.rs` | worker `docx.rs` | `open_document` |
-| `Edit` | 31 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs`、`watermark.rs` | `edit_document`（31 種） |
+| `Edit` | 32 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs`、`watermark.rs` | `edit_document`（32 種） |
 | `Revert` | 從保留的位元組重新開啟，再做一次編輯 | `engine.rs` | worker `saving.rs`、`merge.rs` | `edit_document` |
 | `Rebase` | 把剛存的檔案當成 undo 的起點；只保留位元組，不解析 | `serve.rs` | worker `saving.rs` | 不需要 |
 | `Save` | 寫出整份文件；已簽章的文件以增量更新 | `engine.rs` | worker `saving.rs`、`save_poc.rs` | `text_box_font`、`edit_document` |
@@ -288,7 +302,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `Cancel` | 主行程目前不送；worker 收到也不處理 | `serve.rs` | — | `worker_messages` |
 | `Shutdown` | 主行程目前不送（直接結束 worker）；worker 收到就結束 | `serve.rs` | `crates/ipc_contract/src/frame.rs` | `worker_messages` |
 
-### 2.5 編輯（`WorkerEdit`，31 種）
+### 2.5 編輯（`WorkerEdit`，32 種）
 
 前端送的是 `Edit`，主行程檢查後轉成 `WorkerEdit`。插入的頁面來源與文字方塊的字型子集是主行程留著的，前端不能直接給位元組。結構不正確的頁碼標籤樹在改動頁面之前由 worker 拒絕（有上限）。
 
@@ -297,6 +311,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `RotatePages`、`DeletePages`、`MovePages` | 頁面清單（`check_page_list`）；位置 ≤ `MAX_PAGE_COUNT` |
 | `CropPages` | 頁面清單（`check_page_list`）；邊距（`CropMargins::validate`，四邊介於 0 與 `MAX_PAGE_SIDE_PT`、不可全為 0） |
 | `InsertBlankPage`、`InsertPages` | 位置 ≤ `MAX_PAGE_COUNT`；`InsertPages` 的來源是 `PrepareSource` 做好的副本 |
+| `ReplacePages` | 位置與數量 ≤ `MAX_PAGE_COUNT`，`from` ≤ `to`；來源是 `PrepareSource` 做好的副本；主行程檢查頁數上限 |
 | `AddHighlight`、`SetHighlightColor` | 頁碼（`check_annotated_page`）；頁數 ≤ `MAX_HIGHLIGHT_PAGES`；四邊形不得為空、總數 ≤ `MAX_ANNOTATION_QUADS`；顏色是固定的選項 |
 | `AddNote`、`SetNoteText` | 頁碼；位置；文字過 `check_note_text` |
 | `DeleteAnnotation`、`SetAnnotationRect`、`SetPictureAngle` | 頁碼；矩形（`check_annotation_rect`）；角度（`check_angle`） |
@@ -332,7 +347,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 項目 | 設定 | 檢查 |
 |---|---|---|
 | capability | `src-tauri/capabilities/main.json`：只給 `main` 視窗；89 個 `allow-*`；沒有 `core:*`、`dialog`、`fs`；沒有 `remote`，外部網頁拿不到 IPC | `check-security-config.mjs`（靜態）；`refused-commands.spec.ts`（#425） |
-| CSP | `default-src 'self'`、`script-src 'self'`、`style-src 'self'`、`img-src 'self' data: blob:`、`font-src 'self'`、`connect-src ipc: http://ipc.localhost`、`object-src`／`base-uri`／`form-action`／`frame-src` 都是 `'none'` | `check-security-config.mjs`（正式版與 `vite.config.ts` 的開發用 CSP）；`check-dist.mjs`（建置產物不引用外部資源） |
+| CSP | `default-src 'self'`、`script-src 'self'`、`style-src 'self'`、`img-src 'self' data: blob:`、`font-src 'self'`、`connect-src ipc: http://ipc.localhost`、`object-src`／`base-uri`／`form-action`／`frame-src` 都是 `'none'` | `check-security-config.mjs`（正式版與 `vite.config.ts` 的開發用 CSP）；`check-dist.mjs`（建置產物不引用外部資源）；`csp.spec.ts`（#613） |
 | 全域 API | `withGlobalTauri: false` | — |
 | 開發人員工具 | `tauri` 沒有開 `devtools` 功能，正式版沒有開發人員工具 | 人工檢查（manual-checks §3） |
 | WebView2 的參數 | `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-networking --no-proxy-server --disable-component-update` | `network.spec.ts`（#121） |
@@ -358,7 +373,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 |---|---|---|
 | 主行程（`update_check.rs` 以外） | 執行檔的網路 DLL 只有 `update_check.rs` 用的 `winhttp.dll`（一般與延遲載入的匯入表都檢查） | `binary_imports.rs`（`main_binary_imports_no_network_dll_except_winhttp`） |
 | worker | AppContainer 沒有網路的 capability；執行檔不匯入網路 API | `network_is_blocked_even_to_localhost`、`worker_binary_imports_no_networking` |
-| WebView | CSP；WebView2 的參數；`on_navigation` 只允許 app 自己的網址，`on_download` 封鎖下載 | `network.spec.ts`（WebView 什麼都不連）、`remote-references.spec.ts`（遠端參照一律不載入，ADR 0022）、`navigation.spec.ts`（#424） |
+| WebView | CSP；WebView2 的參數；`on_navigation` 只允許 app 自己的網址，`on_download` 封鎖下載 | `network.spec.ts`（WebView 什麼都不連）、`remote-references.spec.ts`（遠端參照一律不載入，ADR 0022）、`navigation.spec.ts`（#424）、`csp.spec.ts`（#613） |
 | 依賴與程式碼 | 不得有 HTTP client、更新器、遙測 | `scripts/ci/check-forbidden.sh`、`scripts/ci/forbidden-patterns.txt`、`cargo deny check` |
 | 整個 app | 實際執行時觀察 | [offline-verification.md](offline-verification.md)；manual-checks §1 |
 
@@ -368,7 +383,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 位置 | 寫什麼 | 何時 |
 |---|---|---|
-| app 資料夾 `%LOCALAPPDATA%\io.github.winner0988.pdfreader\`（或 `PDF_READER_DATA_DIR`，§8） | `recent.json`、`settings.json`、`sensitive.json`、`tessdata\`（匯入的語言）、`fonts\` 與 `metadata.json`（匯入的字型）、`recovery\`（復原日誌）、`index\`（文字索引）、`EBWebView\`（WebView2 自己的資料） | 使用時；細節見 [local-data.md](../architecture/local-data.md) |
+| app 資料夾 `%LOCALAPPDATA%\io.github.winner0988.pdfreader\`（或 `PDF_READER_DATA_DIR`，§8） | `recent.json`、`settings.json`、`sensitive.json`、`signatures\`（簽名圖片）、`tessdata\`（匯入的語言）、`fonts\` 與 `metadata.json`（匯入的字型）、`recovery\`（復原日誌）、`index\`（文字索引）、`EBWebView\`（WebView2 自己的資料） | 使用時；細節見 [local-data.md](../architecture/local-data.md) |
 | AppContainer 的設定檔 `%LOCALAPPDATA%\Packages\pdfreader.worker\`，與 HKCU 裡的對應 | Windows 建立 AppContainer 時寫入 | 第一次啟動 worker；解除安裝時刪除 |
 | 使用者選的位置，與旁邊的暫存檔 | 另存、匯出、副本、附件、簽章的副本、建立的 PDF | 使用者在對話框選好之後 |
 | 文件自己的檔案 | 存檔、機敏標記 | 使用者存檔或確認標記之後 |

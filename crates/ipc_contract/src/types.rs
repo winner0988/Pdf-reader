@@ -772,6 +772,17 @@ pub enum Edit {
         watermark: Watermark,
         image: Option<StampImageId>,
     },
+    /// Replaces the `count` pages from index `first` on with pages `from` to `to` (0-based, both
+    /// included) of the file `source` (what `pick_pages_source` made of the file the user
+    /// chose), in their order (B6-05); the pages that go are removed as `DeletePages` removes
+    /// them, and the pages that come in bring what `InsertPages` brings.
+    ReplacePages {
+        first: u32,
+        count: u32,
+        source: SourceId,
+        from: u32,
+        to: u32,
+    },
 }
 
 /// What applying the redaction marks of a document would do besides removing what their areas
@@ -985,6 +996,44 @@ pub struct StampImageInfo {
     pub image: StampImageId,
     pub width: u32,
     pub height: u32,
+}
+
+// ---------------------------------------------------------------------------
+// Reusable signatures (B6-02, docs/architecture/signature-images.md)
+
+/// An id of a saved signature image (B6-02).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+pub struct SignatureImageId(pub u32);
+
+/// Information about a saved signature image (B6-02).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SignatureImage {
+    pub id: SignatureImageId,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Arguments of commands taking a signature image id (B6-02).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SignatureImageArgs {
+    pub id: SignatureImageId,
+}
+
+/// Arguments of `add_signature_image` (B6-02).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AddSignatureImageArgs {
+    pub png: Vec<u8>,
+}
+
+/// Arguments of `prepare_signature_stamp` (B6-02).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PrepareSignatureStampArgs {
+    pub doc: DocumentId,
+    pub id: SignatureImageId,
 }
 
 /// An annotation of an open document: the number of its object in the document, which stays
@@ -2786,6 +2835,30 @@ pub enum AnnotationSummaryOutcome {
     /// The file lists `count` annotations; `truncated`: the document has more (see
     /// [`AnnotationSummary::truncated`]), and the file says so.
     Written { count: u32, truncated: bool },
+}
+
+/// Arguments for exporting annotations as XFDF (B5-09).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExportXfdfArgs {
+    pub doc: DocumentId,
+}
+
+/// What came of exporting annotations as XFDF (B5-09).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum XfdfOutcome {
+    /// The document has no annotations that can be exported: nothing was asked or written.
+    Empty { skipped: u32 },
+    /// The user closed the save dialog: nothing was written.
+    Cancelled,
+    /// The file lists `count` annotations; `skipped`: annotations that could not be exported;
+    /// `truncated`: the document has more, and the file says so.
+    Written {
+        count: u32,
+        skipped: u32,
+        truncated: bool,
+    },
 }
 
 /// Compares the text of two open documents `doc_a` and `doc_b` (B3-24, E9).

@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/context-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { HIGHLIGHT_COLORS, SWATCH } from "@/features/annotations/model";
+import type { SignaturesApi } from "@/features/annotations/signaturesApi";
+import { SignaturesDialog } from "@/features/annotations/SignaturesDialog";
 import { NoteDialog } from "@/features/annotations/NoteDialog";
 import { TextBoxDialog } from "@/features/annotations/TextBoxDialog";
 import { createAnnotationSource, type AnnotationsApi } from "@/features/annotations/source";
@@ -91,6 +93,7 @@ import type { SystemApi } from "@/features/system/defaultApp";
 import { createTextSource, type TextApi } from "@/features/text/source";
 import type { EditingApi } from "@/features/thumbnails/api";
 import type { PageEditing, SavePages } from "@/features/thumbnails/Thumbnails";
+import { ReplacePagesDialog } from "@/features/thumbnails/ReplacePagesDialog";
 import { SourcePasswordDialog } from "@/features/thumbnails/SourcePasswordDialog";
 import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
 import { useTheme } from "@/features/theme/useTheme";
@@ -200,6 +203,8 @@ type ReaderShellProps = {
   fontsApi?: FontsApi;
   /** Recognising the text of scanned pages (B2-10); without it (demo data, tests) it is not offered. */
   ocrApi?: OcrApi;
+  /** Saved signature images (B6-02); without it (demo data, tests) they cannot be placed or managed. */
+  signaturesApi?: SignaturesApi;
   /** How it goes for this tab's document: the latest progress, and which pages' text is new. */
   ocr?: OcrTab;
   /**
@@ -290,6 +295,7 @@ export function ReaderShell({
   editingApi,
   updatesApi,
   fontsApi,
+  signaturesApi,
   ocrApi,
   ocr,
   latest,
@@ -365,6 +371,7 @@ export function ReaderShell({
     | "create"
     | "sensitive"
     | "sign"
+    | "signatures"
     | "commandPalette"
     | "properties"
     | null
@@ -737,6 +744,31 @@ export function ReaderShell({
     document_?.doc !== undefined && exportApi?.exportAnnotationSummary
       ? { exportAnnotationSummary: exportApi.exportAnnotationSummary }
       : undefined;
+
+  const exportXfdf = async () => {
+    if (!exportApi?.exportAnnotationsXfdf || document_?.doc === undefined) return;
+    try {
+      const outcome = await exportApi.exportAnnotationsXfdf({ doc: document_.doc });
+      if (outcome.kind === "written") {
+        let text = strings.exportXfdf.done(outcome.count);
+        if (outcome.skipped > 0) {
+          text += strings.exportXfdf.skipped(outcome.skipped);
+        }
+        if (outcome.truncated) {
+          text += strings.exportXfdf.truncated;
+        }
+        showDoneHint(text);
+      } else if (outcome.kind === "empty") {
+        if (outcome.skipped > 0) {
+          showHint(strings.exportXfdf.emptyWithSkipped(outcome.skipped));
+        } else {
+          showHint(strings.exportXfdf.empty);
+        }
+      }
+    } catch {
+      showHint(strings.exportXfdf.failed());
+    }
+  };
   /** Pages chosen in the thumbnails to be saved as a file of their own (B2-06). */
   const [exportPreset, setExportPreset] = useState<number[] | null>(null);
   const savePages: SavePages | undefined =
@@ -801,7 +833,14 @@ export function ReaderShell({
     wrong: boolean;
     answer: (password: string | null) => void;
   } | null>(null);
-  const insertFrom = async (at: number): Promise<number | null> => {
+  const [replacePagesState, setReplacePagesState] = useState<{
+    first: number;
+    count: number;
+    source: PagesSource;
+    answer: (range: { from: number; to: number } | null) => void;
+  } | null>(null);
+
+  const pickSource = async (): Promise<PagesSource | null> => {
     const api = editingApi;
     if (!api?.pickPagesSource || doc === undefined) return null;
     let source: PagesSource | null;
@@ -825,10 +864,41 @@ export function ReaderShell({
       }
       setSourcePassword(null);
     }
+    return source;
+  };
+
+  const insertFrom = async (at: number): Promise<number | null> => {
+    const api = editingApi;
+    if (!api?.pickPagesSource || doc === undefined) return null;
+    const source = await pickSource();
     if (!source) return null;
     await api.applyEdit(doc, { kind: "insertPages", at, source: source.source });
     return source.pages;
   };
+
+  const replacePages = async (first: number, count: number): Promise<number | null> => {
+    const api = editingApi;
+    if (!api?.pickPagesSource || doc === undefined) return null;
+    const source = await pickSource();
+    if (!source) return null;
+    const range = await new Promise<{ from: number; to: number } | null>((answer) =>
+      setReplacePagesState({ first, count, source, answer }),
+    );
+    setReplacePagesState(null);
+    if (!range) return null;
+    const edit: Edit = {
+      kind: "replacePages",
+      first,
+      count,
+      source: source.source,
+      from: range.from,
+      to: range.to,
+    };
+    await api.applyEdit(doc, edit);
+    setNavHistory((prev) => adjustHistoryForEdit(prev, edit, pageCount));
+    return range.to - range.from + 1;
+  };
+
   const pageEditing: PageEditing | undefined =
     doc !== undefined && editingApi !== undefined
       ? {
@@ -839,6 +909,7 @@ export function ReaderShell({
             setNavHistory((prev) => adjustHistoryForEdit(prev, edit, pageCount));
           },
           insertFrom: editingApi.pickPagesSource ? insertFrom : undefined,
+          replace: editingApi.pickPagesSource ? replacePages : undefined,
         }
       : undefined;
   const outlineEditing =
@@ -1476,6 +1547,12 @@ export function ReaderShell({
     onExportAnnotations:
       summaryApi && permissions.copy ? () => setDialog("exportAnnotations") : undefined,
     exportAnnotationsBlocked: summaryApi !== undefined && !permissions.copy,
+    onExportXfdf:
+      exportApi?.exportAnnotationsXfdf && document_?.doc !== undefined && permissions.copy
+        ? exportXfdf
+        : undefined,
+    exportXfdfBlocked:
+      exportApi?.exportAnnotationsXfdf !== undefined && !permissions.copy,
     onCompareText:
       compareApi !== undefined &&
       doc !== undefined &&
@@ -1556,6 +1633,7 @@ export function ReaderShell({
         : undefined,
     onInsertFrom: editingApi?.pickPagesSource ? insertFrom : undefined,
     insertFromBlocked: !(permissions.assemble || permissions.modify),
+    onReplacePages: editingApi?.pickPagesSource ? replacePages : undefined,
     onClose,
     onCopy: () => !hasPageSelection() && copySelection(),
     onFindNext: () => findAgain(1),
@@ -1667,6 +1745,7 @@ export function ReaderShell({
                     toolOn?.kind === "stamp" ? toolOn.stamp : toolOn?.kind === "picture" ? "picture" : null,
                   onChoose: annotations.enabled ? chooseStamp : undefined,
                   onPick: annotations.enabled && annotationsApi?.pickStampImage ? choosePicture : undefined,
+                  onSignature: annotations.enabled && signaturesApi ? () => setDialog("signatures") : undefined,
                 }
               : undefined
           }
@@ -2075,6 +2154,29 @@ export function ReaderShell({
         onSubmit={(password) => sourcePassword?.answer(password)}
         onCancel={() => sourcePassword?.answer(null)}
       />
+      {replacePagesState && (
+        <ReplacePagesDialog
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) {
+              replacePagesState.answer(null);
+              setReplacePagesState(null);
+            }
+          }}
+          first={replacePagesState.first}
+          count={replacePagesState.count}
+          sourcePages={replacePagesState.source.pages}
+          docPages={pageCount}
+          onReplace={(from, to) => {
+            replacePagesState.answer({ from, to });
+            setReplacePagesState(null);
+          }}
+          onCancel={() => {
+            replacePagesState.answer(null);
+            setReplacePagesState(null);
+          }}
+        />
+      )}
       <UndoPasswordDialog
         open={undoPassword !== null}
         wrong={undoPassword?.wrong ?? false}
@@ -2288,7 +2390,31 @@ export function ReaderShell({
         fontsApi={fontsApi}
         passwordsApi={passwordsApi}
         sensitiveApi={sensitiveApi}
+        signaturesApi={signaturesApi}
       />
+      {signaturesApi && (
+        <SignaturesDialog
+          open={dialog === "signatures"}
+          onOpenChange={(open) => setDialog(open ? "signatures" : null)}
+          api={signaturesApi}
+          doc={doc}
+          onSelect={(picture) => {
+            setTool({ kind: "picture", picture });
+            showHint(strings.annotations.placeSignature);
+            setDialog(null);
+          }}
+          onError={(error) => {
+            const code = errorCodeOf(error);
+            showHint(
+              code === "limitExceeded"
+                ? strings.annotations.tooManyPictures
+                : code === "tooLarge"
+                  ? strings.annotations.pictureTooLarge
+                  : strings.annotations.pictureFailed,
+            );
+          }}
+        />
+      )}
       <AboutDialog
         open={dialog === "about"}
         onOpenChange={(open) => setDialog(open ? "about" : null)}
