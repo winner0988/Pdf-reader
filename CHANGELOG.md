@@ -24,6 +24,7 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 - 郵件連結（`mailto`）的確認對話框列出每個收件人的網域，包括用 `;` 分開或寫在 `cc`、`bcc` 的收件人；網域裡看不見的字元會標出來並警告（#610）。
 - 處理 PDF 裡的字型時，多了上游 FreeType 2.15.0 的修正（#626）。
 - 主機名稱只是以 localhost 開頭的 `file://` 網址（例如 `file://localhost.example/…`），連結與安全檢查都算成網路共用路徑（#611）。
+- 主行程解析網址用的 `url` 套件更新到 2.5.9，包含上游的安全性修正（#676）。
 
 ### 修正
 
