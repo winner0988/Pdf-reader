@@ -95,3 +95,45 @@ sequenceDiagram
 - `describe_outline_link`／`open_outline_link`：主行程向 worker 重新取得目錄、取出第 `item` 項，再走與頁面連結相同的檢查（`links::preview`）與開啟方式。
 - 目錄中解析不了的網址，同樣在 `get_outline` 時改成封鎖。
 - 封鎖的目錄項目不需要主行程：前端直接開啟「已封鎖的連結」對話框。
+
+## 性質測試（#616）
+
+為防止連結解析與路徑判定出現非預期的邊界錯誤（如 #610 與 #611），在 `src-tauri/src/links.rs` 與 `src-tauri/tests/network_path.rs` 引入了性質測試（property-based testing）。為了不額外引入 `proptest` 及其依賴樹、保持依賴乾淨且保證測試結果在 CI 100% 確定性可重現，實作內建了輕量 SplitMix64 虛擬亂數產生器與自動反例縮小（shrinking）演算法。
+
+### 八條性質
+
+1. **允許協定限制**：`preview` 成功的網址，其交給系統開啟的網址（`opens`）以 WHATWG 解析後之 scheme 必定僅為 `http`、`https` 或 `mailto`。
+2. **協定不變性**：`Url::parse(opens)` 的 scheme 與 `Url::parse(輸入)` 的 scheme 必定一致。
+3. **命令列安全性**：`opens` 僅包含可列印 ASCII 字元（`is_ascii_graphic`），且絕不包含 `ALWAYS_ENCODED` 字元（空白、引號、反斜線等）。
+4. **主機一致性**：對 `http` 與 `https` 連結，確認對話框顯示的 `host` 與 `Url::parse(opens)` 之主機轉 Unicode 後完全一致。
+5. **冪等性**：對已經產生的 `opens` 再次呼叫 `preview`，其 `opens` 與 `host` 均保持不變。
+6. **不崩潰保證**：任何隨機字串輸入（含控制字元、非法跳脫等），`preview` 均不引發 panic。
+7. **收件人網域完整性**：對 `mailto` 連結，路徑與標頭（`to`、`cc`、`bcc`）中每個預期收件人的網域（依 WHATWG percent-decode 解碼）必定出現在 `host` 清單中（不分大小寫）。
+8. **網路路徑與 Windows 一致性**：在 Windows 上，`PathCreateFromUrlW` 轉換成功之路徑以 `\\` 開頭（UNC 網路共用路徑）若且唯若 `is_network_path` 回傳 `true`。
+
+### 產生器設計
+
+- **一般網址產生器（性質 1～6）**：隨機混合大小寫的 scheme（`http`、`https`、`mailto`、`file`、`javascript` 等與隨機字串）；隨機分隔符號（`://`、`:/\\`、`:\\\\` 等）；主機與路徑隨機組合合法與不合法 `%XX` 跳脫（如 `%+0`、`%G1`、單獨 `%`）、標點（`@`、`,`、`;`、`?`、`#`、`&`、`=`）、反斜線、空白、控制字元（`\u{0}`～`\u{1F}`、`\u{7F}`、`\u{200B}`）、IDN（如 `例子`、`bücher`、`xn--`）、IPv6（`[::1]`）、連接埠（`:port`）、`localhost` 各種形態與一般字母數字，長度 0 到 200 字元。
+- **mailto 網址產生器（性質 7）**：先隨機決定 1～4 位收件人（本地端由 `[a-z0-9._+-]` 組成，網域包含大小寫、`.`、`-`、Unicode 字元與合法/不合法 `%XX` 跳脫，避開 `%2C`、`%3B`、`%40`、`%26`、`%3D`、`%3F`、`%23` 等分隔字元），隨機以 `,`、`;`、`%2C`、`%3B` 連接，部分放置於路徑，部分分組放入隨機大小寫之 `?to=`、`?cc=`、`?bcc=` 參數。
+- **file 網址產生器（性質 8）**：偏向 `file:` 網址，隨機產生 0 到 4 個 `/` 或 `\`；主機從 `localhost`、`LOCALHOST`、`localhost.`、`localhost.example`、`localhostserver`、`localhost:445`、`%6Cocalhost`、空字串、`127.0.0.1`、`[::1]` 及隨機伺服器名稱中選取；路徑由 `C:/doc.pdf`、`share/doc.pdf` 等片段組成。
+
+### 種子、案例數與失敗重現
+
+- **案例數與種子**：
+  - 性質 1～6（一般網址）：種子 `0x616_0001`，10,000 個案例。
+  - 性質 7（mailto）：種子 `0x616_0002`，5,000 個案例。
+  - 性質 8（網路路徑）：種子 `0x616_0003`，10,000 個案例。
+- **失敗重現方式**：失敗時測試會透過 panic 訊息輸出 `Seed`、`Case`、`Original` 與縮小後的 `Shrunk` 字串。若需重現，可在對應測試中將種子直接指定為報告之 `Seed`，並以該 `Case` 編號單獨測試。
+
+### 負控制驗證結果
+
+1. **性質 7（暫時移除 #610 修復）**：
+   - 暫時將 `mail_domains` 還原為舊版 `mail_domain`（僅讀取第一收件人）、`percent_decode` 移除十六進位字元過濾。
+   - 執行 `cargo test -p pdf-reader --locked properties`：性質 7 立即在 Case 0 失敗。
+   - 原反例：`"mailto:ryr_@Invalid%2c6@EXAMPLE例子mail%61?Bcc=wu5hwe54@testInvalid%C0"`。
+   - 縮小後反例：`"Invalid"`（證明多收件人/跳脫字元遺漏被成功捕捉）。
+2. **性質 8（暫時移除 #611 修復）**：
+   - 暫時將 `is_network_path` 的主機判斷改回舊版 `starts_with("localhost")`。
+   - 執行 `cargo test -p pdf-reader --locked --test network_path`：性質 8 立即在 Case 2 失敗。
+   - 原反例：`"file://localhostserver/test/file.txt"`（Windows 轉出 `\\localhostserver\test\file.txt`，但 `is_network_path` 回傳 `false`）。
+   - 縮小後反例：`"file://localhostt"`（證明以 localhost 開頭之非本機主機被成功捕捉）。
