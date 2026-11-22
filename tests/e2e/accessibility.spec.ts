@@ -351,3 +351,15 @@ test("the replace pages dialog (B6-05, #590)", async ({ launch }) => {
   await dialog.getByRole("button", { name: strings.pages.replace.cancel }).click();
   await expect(dialog).toHaveCount(0);
 });
+
+test("the signatures dialog in both themes (B6-02)", async ({ launch }) => {
+  const page = await launch(corpus("benign/single-page.pdf"));
+  await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
+  await page.locator("[data-stamp-button]").click();
+  await page.getByRole("menuitem", { name: strings.annotations.signature }).click();
+  const dialog = page.getByRole("dialog", { name: strings.savedSignatures.dialogTitle });
+  await expect(dialog).toBeVisible();
+  await inBothThemes(page, (theme) => noProblems(page, `signatures dialog, ${theme}`));
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-prepare-signature-stamp"
+description = "Enables the prepare_signature_stamp command without any pre-configured scope."
+commands.allow = ["prepare_signature_stamp"]
+
+[[permission]]
+identifier = "deny-prepare-signature-stamp"
+description = "Denies the prepare_signature_stamp command without any pre-configured scope."
+commands.deny = ["prepare_signature_stamp"]

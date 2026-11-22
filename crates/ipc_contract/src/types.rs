@@ -998,6 +998,44 @@ pub struct StampImageInfo {
     pub height: u32,
 }
 
+// ---------------------------------------------------------------------------
+// Reusable signatures (B6-02, docs/architecture/signature-images.md)
+
+/// An id of a saved signature image (B6-02).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+pub struct SignatureImageId(pub u32);
+
+/// Information about a saved signature image (B6-02).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SignatureImage {
+    pub id: SignatureImageId,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Arguments of commands taking a signature image id (B6-02).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SignatureImageArgs {
+    pub id: SignatureImageId,
+}
+
+/// Arguments of `add_signature_image` (B6-02).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AddSignatureImageArgs {
+    pub png: Vec<u8>,
+}
+
+/// Arguments of `prepare_signature_stamp` (B6-02).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PrepareSignatureStampArgs {
+    pub doc: DocumentId,
+    pub id: SignatureImageId,
+}
+
 /// An annotation of an open document: the number of its object in the document, which stays
 /// the same through edits until the document is saved (B2-07).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]

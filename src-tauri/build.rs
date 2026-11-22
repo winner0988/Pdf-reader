@@ -94,6 +94,13 @@ fn main() {
         "stop_ocr",
         "set_ocr_focus",
         "pick_stamp_image",
+        "get_signature_images",
+        "get_signature_image_png",
+        "add_signature_image",
+        "import_signature_image",
+        "remove_signature_image",
+        "remove_all_signature_images",
+        "prepare_signature_stamp",
         "run_batch",
         "create_pdf",
     ]);

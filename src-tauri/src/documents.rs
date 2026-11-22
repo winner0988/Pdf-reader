@@ -2438,6 +2438,35 @@ impl Documents {
         Ok(png)
     }
 
+    /// Puts the stamp picture PNG bytes into `doc`, returning its picture id and dimensions (B6-02).
+    pub fn add_stamp_picture(
+        &self,
+        doc: DocumentId,
+        png: Vec<u8>,
+    ) -> Result<StampImageInfo, IpcError> {
+        self.with_document(doc, |document| {
+            if !document.info.permissions.annotate {
+                return Err(not_allowed());
+            }
+            let (width, height) = stamp_png_size(&png).map_err(|error| IpcError {
+                code: ErrorCode::InvalidArgument,
+                message: error.to_string(),
+            })?;
+            let image = document
+                .pictures
+                .add(png, document.history.all())
+                .map_err(|Full| IpcError {
+                    code: ErrorCode::LimitExceeded,
+                    message: "too many pictures in the unsaved changes: save first".to_owned(),
+                })?;
+            Ok(StampImageInfo {
+                image,
+                width,
+                height,
+            })
+        })
+    }
+
     /// Makes `text` in the font `font` (its name, and the bytes of its file, which the caller
     /// read) into the prepared words of a text box of `doc`, and keeps them for the document
     /// (B2-29, ADR 0018). The document's worker does the work: it reads the font, which is not
@@ -11054,6 +11083,62 @@ mod with_worker {
                 .code,
             ErrorCode::InvalidArgument
         );
+    }
+
+    #[test]
+    fn add_stamp_picture_requires_annotate_permission_and_integrates_with_undo_redo_and_save() {
+        let png = std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/images/stamp-metadata.png"),
+        )
+        .unwrap();
+
+        // 1. Requires annotate permission
+        let encrypted_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/encrypted-rc4-40.pdf");
+        let documents = Documents::new(worker());
+        let (_, info) = unlocked(&documents, &encrypted_path);
+        assert!(!info.permissions.annotate);
+        assert_eq!(
+            documents
+                .add_stamp_picture(info.doc, png.clone())
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+
+        // 2. Add stamp picture, undo, redo, worker crashed recovery, save
+        let (documents, info, path) = open("add-stamp-picture", 2);
+        let picked = documents.add_stamp_picture(info.doc, png).unwrap();
+        assert_eq!((picked.width, picked.height), (64, 32));
+        let mut doc = info.doc;
+        edited_pages(&documents, &mut doc, picture_stamp(0, picked.image));
+        let [stamp] = &documents.page_annotations(doc, 0).unwrap()[..] else {
+            panic!("one stamp");
+        };
+        assert_eq!(stamp.kind, AnnotationKind::Stamp);
+
+        // Undone and redone
+        doc = opened_info(documents.undo(doc, None).unwrap()).doc;
+        assert!(documents.page_annotations(doc, 0).unwrap().is_empty());
+        doc = opened_info(documents.redo(doc).unwrap()).doc;
+        assert_eq!(documents.page_annotations(doc, 0).unwrap().len(), 1);
+
+        // Worker crash recovery
+        documents
+            .with_document(doc, |document| {
+                document.lost = true;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(documents.page_annotations(doc, 0).unwrap().len(), 1);
+
+        // Save
+        let copy = std::env::temp_dir().join(format!("b602-{}-copy.pdf", std::process::id()));
+        let _ = std::fs::remove_file(&copy);
+        documents.save(doc, Some(copy.clone())).unwrap();
+        assert!(copy.exists());
+        let _ = std::fs::remove_file(&copy);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

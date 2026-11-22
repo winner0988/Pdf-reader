@@ -226,6 +226,34 @@ const ALLOWED_PERMISSIONS = new Map([
     "B2-08: a picture for a custom stamp; the main process asks in its open dialog and the path stays there, the document's worker keeps only the pixels",
   ],
   [
+    "allow-get-signature-images",
+    "B6-02: list saved signature images (ids and dimensions only, no paths)",
+  ],
+  [
+    "allow-get-signature-image-png",
+    "B6-02: get the decrypted PNG bytes of a saved signature for preview in the UI",
+  ],
+  [
+    "allow-add-signature-image",
+    "B6-02: save a drawn or typed signature image PNG, encrypted with DPAPI",
+  ],
+  [
+    "allow-import-signature-image",
+    "B6-02: import an image from file dialog as a saved signature, cleaned by worker and encrypted with DPAPI",
+  ],
+  [
+    "allow-remove-signature-image",
+    "B6-02: delete a saved signature image file by its id",
+  ],
+  [
+    "allow-remove-all-signature-images",
+    "B6-02: delete all saved signature image files and folder",
+  ],
+  [
+    "allow-prepare-signature-stamp",
+    "B6-02: decrypt a saved signature image and add it as a stamp picture for an open document",
+  ],
+  [
     "allow-create-pdf",
     "B3-03: a PDF made of files the user picks; the main process asks for the files and for where the PDF goes, a sandboxed worker reads them through read-only handles, and the paths stay there",
   ],

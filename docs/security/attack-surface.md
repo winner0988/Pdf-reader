@@ -24,7 +24,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 邊界 | 不可信的一方 | 通道 | 主要的防線 |
 |---|---|---|---|
-| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 94 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
+| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 101 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
 | worker → 主行程 | `pdf_worker`（假設已被惡意檔案控制） | worker 標準輸入、輸出上的 postcard frame，每個 ≤ `MAX_FRAME_BYTES`（80 MiB） | 沙盒（§2.1）；每個回應都先驗證（§2.2）；逾時 |
 | 檔案 → worker | PDF 與其他要讀的檔案 | 主行程開好的唯讀檔案代號，或主行程讀好的位元組 | 沙盒；程式庫見 §2.3 |
 | 檔案 → 主行程 | app 資料夾的檔案；使用者匯入的語言資料、字型、`.pfx` | 主行程自己讀 | 大小上限與格式檢查（§3） |
@@ -38,9 +38,9 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 3. 寫到使用者的檔案時，先寫同一個資料夾裡新建的暫存檔，寫完（存檔還要再檢查）才改名取代。批次只寫新的檔名，不取代任何檔案（§6）。
 4. 只有 `src-tauri/src/update_check.rs` 會連網，而且只在使用者按「檢查更新」時（ADR 0009，§5）。
 
-## 1. 前端能呼叫的命令（94 個）
+## 1. 前端能呼叫的命令（101 個）
 
-- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 94 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
+- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 101 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
 - **自由文字**：沒有命令接受路徑或 URI。會帶自由文字的只有這些參數：密碼、剪貼簿的文字、搜尋字串、個資的關鍵字、註解與文字方塊的文字、表單欄位的值、書籤標題、浮水印與頁面標記的文字、簽章的理由、設定、OCR 語言代碼。
 - **參數檢查**：參數先由 serde 解碼成固定的型別，型別不對就拒絕；再由 `crates/ipc_contract/src/validate.rs` 檢查（表中寫成 `XxxArgs`）。上限都在 `crates/ipc_contract/src/limits.rs`。主行程沒有另外限制一個 IPC 訊息的大小，參數整個解碼後才檢查（§9）。
 - **對話框**：都是 Windows 的 `IFileDialog`（`src-tauri/src/file_dialog.rs`），一律加 `FOS_FORCEFILESYSTEM | FOS_DONTADDTORECENT`，只能選真的檔案，也不記入 Windows 的最近使用。另存的對話框再加 `FOS_OVERWRITEPROMPT`。
@@ -198,6 +198,18 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `start_ocr` | 現在開始辨識文件的掃描頁 | 文件代號 | 主行程讀語言資料送給文件的 worker（`OcrLoad`），再逐頁 `OcrPage`、`OcrPoll` | `ocr.spec.ts`；`src-tauri/src/ocr.rs` 14 個；worker `ocr.rs` |
 | `stop_ocr` | 停止辨識 | 文件代號 | `OcrStop` | `src-tauri/src/ocr.rs`；worker `ocr.rs` |
 | `set_ocr_focus` | 先辨識使用者正在看的那一頁 | `check_page_index` | — | `src-tauri/src/ocr.rs` |
+
+### 1.13 簽名（7 個）
+
+| 命令 | 做什麼 | 主行程的檢查與上限 | 對話框、寫入、行程 | 測試 |
+|---|---|---|---|---|
+| `get_signature_images` | 列出這台電腦上已存的簽名圖片 | 沒有參數；最多回傳 `MAX_SIGNATURE_IMAGES`（10）個 | 讀取 `signatures\`，DPAPI 解密驗證；不回傳路徑 | `signatures.spec.ts`；`signature_images.rs` |
+| `get_signature_image_png` | 取回某個簽名的 PNG 供畫面預覽 | `SignatureImageArgs` | 讀取 `signatures\`，DPAPI 解密驗證 | `signatures.spec.ts`；`signature_images.rs` |
+| `add_signature_image` | 儲存畫的或輸入的簽名 PNG | `AddSignatureImageArgs`：`stamp_png_size`（≤ 1 MiB，長寬 ≤ 1024）；已有 10 個時拒絕 | DPAPI 加密寫入 `signatures\<id>.sig`（先寫暫存檔再改名） | `signatures.spec.ts`；`signature_images.rs` |
+| `import_signature_image` | 從檔案對話框選一張圖片做簽名 | 同圖片印章（長寬 ≤ 1024，≤ 1 MiB）；已有 10 個時拒絕 | 開啟對話框（`*.png;*.jpg;*.jpeg`）；worker 解碼只留像素；DPAPI 加密寫入 `signatures\` | `signatures.spec.ts`；`signature_images.rs` |
+| `remove_signature_image` | 刪除一個已存的簽名 | `SignatureImageArgs` | 刪除 `signatures\<id>.sig` | `signatures.spec.ts`；`signature_images.rs` |
+| `remove_all_signature_images` | 刪除全部已存的簽名 | 沒有參數 | 刪除整個 `signatures\` 資料夾與暫存檔 | `signatures.spec.ts`；`signature_images.rs` |
+| `prepare_signature_stamp` | 將已存的簽名放入文件的暫存圖片 | `PrepareSignatureStampArgs`；文件需有 `annotate` 權限；圖片數量上限 | DPAPI 解密放入文件的圖片清單，回傳印章圖片代號與大小 | `signatures.spec.ts`；`documents.rs` |
 
 ## 2. worker
 
@@ -371,7 +383,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 位置 | 寫什麼 | 何時 |
 |---|---|---|
-| app 資料夾 `%LOCALAPPDATA%\io.github.winner0988.pdfreader\`（或 `PDF_READER_DATA_DIR`，§8） | `recent.json`、`settings.json`、`sensitive.json`、`tessdata\`（匯入的語言）、`fonts\` 與 `metadata.json`（匯入的字型）、`recovery\`（復原日誌）、`index\`（文字索引）、`EBWebView\`（WebView2 自己的資料） | 使用時；細節見 [local-data.md](../architecture/local-data.md) |
+| app 資料夾 `%LOCALAPPDATA%\io.github.winner0988.pdfreader\`（或 `PDF_READER_DATA_DIR`，§8） | `recent.json`、`settings.json`、`sensitive.json`、`signatures\`（簽名圖片）、`tessdata\`（匯入的語言）、`fonts\` 與 `metadata.json`（匯入的字型）、`recovery\`（復原日誌）、`index\`（文字索引）、`EBWebView\`（WebView2 自己的資料） | 使用時；細節見 [local-data.md](../architecture/local-data.md) |
 | AppContainer 的設定檔 `%LOCALAPPDATA%\Packages\pdfreader.worker\`，與 HKCU 裡的對應 | Windows 建立 AppContainer 時寫入 | 第一次啟動 worker；解除安裝時刪除 |
 | 使用者選的位置，與旁邊的暫存檔 | 另存、匯出、副本、附件、簽章的副本、建立的 PDF | 使用者在對話框選好之後 |
 | 文件自己的檔案 | 存檔、機敏標記 | 使用者存檔或確認標記之後 |

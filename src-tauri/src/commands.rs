@@ -10,24 +10,25 @@ use std::time::Duration;
 
 use ipc_contract::limits::MAX_BATCH_FILES;
 use ipc_contract::types::{
-    AnnotationId, AnnotationSummary, AnnotationSummaryFormat, AnnotationSummaryOutcome,
-    AttachmentId, AttachmentInfo, BatchArgs, BatchEvent, BatchOperation, BatchReport,
-    CaptureProtection, CompareExportFormat, CompareTextArgs, CompareTextResult, CompressArgs,
-    CompressResult, CreateResult, DecryptArgs, DocumentFonts, DocumentId, DocumentInfo,
-    DocumentProperties, EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs, ExportArgs,
-    ExportCompareTextArgs, ExportCompareTextOutcome, ExportEvent, ExportFormat, ExportXfdfArgs,
-    FileRecordingArgs, FindPersonalDataQuery, FontImport, FontInfo, FormField, IndexSearchArgs,
-    IndexSearchEvent, IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs,
-    OcrFocusArgs, OcrLanguages, OpenEvent, OpenIndexedArgs, OutlineLinkArgs, OutlineResult,
-    PageAnnotation, PageLink, PageMarksCopyArgs, PageText, PagesSource, Password,
-    PersonalDataMatches, PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId,
-    RedactionSummary, RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs,
-    RenderPageArgs, RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult,
-    SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs,
-    SignCheck, SignResult, SignatureReport, SigningFile, SigningFileKey, SigningKey,
-    SigningStoreKey, StampImageInfo, StoreCertificate, TabId, TextBoxInfo, TextIndexStatus,
-    UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
-    XfdfOutcome,
+    AddSignatureImageArgs, AnnotationId, AnnotationSummary, AnnotationSummaryFormat,
+    AnnotationSummaryOutcome, AttachmentId, AttachmentInfo, BatchArgs, BatchEvent, BatchOperation,
+    BatchReport, CaptureProtection, CompareExportFormat, CompareTextArgs, CompareTextResult,
+    CompressArgs, CompressResult, CreateResult, DecryptArgs, DocumentFonts, DocumentId,
+    DocumentInfo, DocumentProperties, EditArgs, EncryptArgs, ErrorCode,
+    ExportAnnotationSummaryArgs, ExportArgs, ExportCompareTextArgs, ExportCompareTextOutcome,
+    ExportEvent, ExportFormat, ExportXfdfArgs, FileRecordingArgs, FindPersonalDataQuery,
+    FontImport, FontInfo, FormField, IndexSearchArgs, IndexSearchEvent, IpcError, LanguageImport,
+    LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs, OcrLanguages, OpenEvent,
+    OpenIndexedArgs, OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageMarksCopyArgs,
+    PageText, PagesSource, Password, PersonalDataMatches, PrepareSignatureStampArgs,
+    PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
+    RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
+    RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult, SearchArgs,
+    SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs, SignCheck,
+    SignResult, SignatureImage, SignatureImageArgs, SignatureReport, SigningFile, SigningFileKey,
+    SigningKey, SigningStoreKey, StampImageInfo, StoreCertificate, TabId, TextBoxInfo,
+    TextIndexStatus, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
+    WatermarkContent, XfdfOutcome,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use ipc_contract::worker::{NewSignature, VisibleSignature};
@@ -51,6 +52,7 @@ use crate::render::Renderer;
 use crate::search::{self, Searches};
 use crate::sensitive::SensitiveFiles;
 use crate::settings::SettingsStore;
+use crate::signature_images::SignatureImages;
 use crate::signing::{self, ChosenCertificate, ListedCertificates, Signer};
 use crate::strings;
 use crate::text_index::{self, IndexFacts, Source as _, TextIndex};
@@ -2210,6 +2212,93 @@ pub async fn pick_stamp_image(
         app.state::<Documents>()
             .prepare_stamp_image(doc, &file)
             .map(Some)
+    })
+    .await
+}
+
+/// Lists the saved signature images on this computer (B6-02).
+#[tauri::command]
+pub async fn get_signature_images(app: AppHandle) -> Result<Vec<SignatureImage>, IpcError> {
+    blocking(move || app.state::<SignatureImages>().list()).await
+}
+
+/// The PNG bytes of a saved signature image for preview (B6-02).
+#[tauri::command]
+pub async fn get_signature_image_png(
+    app: AppHandle,
+    args: SignatureImageArgs,
+) -> Result<Vec<u8>, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    blocking(move || app.state::<SignatureImages>().get_png(args.id)).await
+}
+
+/// Adds a drawn or typed signature image PNG, encrypted with DPAPI (B6-02).
+#[tauri::command]
+pub async fn add_signature_image(
+    app: AppHandle,
+    args: AddSignatureImageArgs,
+) -> Result<Vec<SignatureImage>, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    blocking(move || app.state::<SignatureImages>().add(&args.png)).await
+}
+
+/// Asks for a picture in the open dialog, decodes it in a worker to keep pixels alone,
+/// and saves it encrypted with DPAPI (B6-02).
+#[tauri::command]
+pub async fn import_signature_image(
+    app: AppHandle,
+    window: WebviewWindow,
+) -> Result<Option<Vec<SignatureImage>>, IpcError> {
+    let Some(path) = file_dialog::pick_image(&window).await? else {
+        return Ok(None);
+    };
+    blocking(move || {
+        let png = app.state::<Documents>().prepare_watermark_picture(&path)?;
+        let list = app.state::<SignatureImages>().add(&png)?;
+        Ok(Some(list))
+    })
+    .await
+}
+
+/// Deletes a saved signature image by its id (B6-02).
+#[tauri::command]
+pub async fn remove_signature_image(
+    app: AppHandle,
+    args: SignatureImageArgs,
+) -> Result<Vec<SignatureImage>, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    blocking(move || app.state::<SignatureImages>().remove(args.id)).await
+}
+
+/// Deletes all saved signature images and their folder (B6-02).
+#[tauri::command]
+pub async fn remove_all_signature_images(app: AppHandle) -> Result<Vec<SignatureImage>, IpcError> {
+    blocking(move || app.state::<SignatureImages>().remove_all()).await
+}
+
+/// Prepares a saved signature image as a stamp for `doc` (B6-02).
+#[tauri::command]
+pub async fn prepare_signature_stamp(
+    app: AppHandle,
+    args: PrepareSignatureStampArgs,
+) -> Result<StampImageInfo, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    blocking(move || {
+        let plain = app.state::<SignatureImages>().get_png_zeroizing(args.id)?;
+        app.state::<Documents>()
+            .add_stamp_picture(args.doc, plain.to_vec())
     })
     .await
 }
