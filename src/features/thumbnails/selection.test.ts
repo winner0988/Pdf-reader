@@ -33,6 +33,13 @@ describe("thumbnail selection", () => {
 
   it("follows the pages an edit changed", () => {
     expect(selectionAfter({ kind: "rotatePages", pages: [5, 1], by: "cw90" }).pages).toEqual([1, 5]);
+    expect(
+      selectionAfter({
+        kind: "cropPages",
+        pages: [5, 1],
+        margins: { top: 10, right: 10, bottom: 10, left: 10 },
+      }).pages,
+    ).toEqual([1, 5]);
     // Pages 2 and 6 moved before page 9 of ten: they are now the 7th and 8th.
     expect(selectionAfter({ kind: "movePages", pages: [5, 1], before: 8 }).pages).toEqual([6, 7]);
     expect(selectionAfter({ kind: "insertBlankPage", at: 3, like: 2 })).toEqual(selectOnly(3));

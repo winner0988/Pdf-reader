@@ -66,7 +66,7 @@
 
 ## 禁止事項
 
-- 不得關閉、略過或刪除測試與 CI 檢查來讓 CI 變綠（包含 `#[ignore]`、`it.skip`、`--no-verify`）。
+- 不得關閉、略過或刪除測試與 CI 檢查來讓 CI 變綠（包含 `#[ignore]`、`it.skip`、`--no-verify`）。CI 的 `check-test-integrity.mjs` 會擋下這類變更；真的需要例外時，在 PR 說明寫原因，交給負責人（見 `docs/workflow.md`）。
 - 不得提交秘密、憑證、私人檔案或真實使用者資料。
 - 不得把 ADR 狀態改成「已接受」；只有專案負責人可以。
 - 不得從不明來源下載並執行二進位檔或腳本；新增的工具必須在 PR 中說明來源。
@@ -109,6 +109,7 @@ CI 使用同一組指令。工具版本由 `package.json`（`packageManager`）�
 | 禁用依賴檢查 | `bash scripts/ci/check-forbidden.sh` |
 | ADR 檢查 | `bash scripts/ci/check-adr.sh` |
 | CSP／capability 政策 | `node scripts/ci/check-security-config.mjs` |
+| PR 不得關掉檢查（先 commit；和 `origin/main` 的 merge base 比對） | `node scripts/ci/check-test-integrity.mjs` |
 | 守門腳本測試 | `node --test scripts/ci/*.test.mjs` |
 | 建置產物不得引用外部資源（先 `pnpm build`） | `node scripts/ci/check-dist.mjs` |
 | Rust 依賴稽核 | `cargo deny check`（需 `cargo install cargo-deny --locked`） |

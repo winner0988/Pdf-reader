@@ -127,6 +127,12 @@ fn web_links_are_offered_exactly_as_written() {
         panic!("the long URL must be offered");
     };
     assert_eq!(uri.len(), 10_000);
+    assert_eq!(
+        only_target("malicious/link-mailto-recipients.pdf"),
+        LinkTarget::Uri {
+            uri: "mailto:someone@first.example;ceo@second.example".to_owned()
+        }
+    );
 }
 
 #[test]
