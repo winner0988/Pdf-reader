@@ -640,6 +640,7 @@ test("checkRepository finds a fuzzing.md that counts the WorkerEdit kinds wrong 
     "src-tauri/src/lib.rs",
     "src-tauri/build.rs",
     "src-tauri/capabilities/main.json",
+    "src-tauri/allowed-permissions.json",
     "crates/ipc_contract/src/worker.rs",
     "docs/security/attack-surface.md",
   ]) {
