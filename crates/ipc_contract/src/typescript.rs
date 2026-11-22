@@ -144,6 +144,7 @@ pub fn bindings() -> String {
         Rotation,
         Point,
         Rect,
+        CropMargins,
         Quad,
         Rgb,
         TextAlign,
@@ -224,9 +225,10 @@ pub fn bindings() -> String {
         SaveAttachmentResult,
     );
 
-    let limits: [(&str, String); 81] = [
+    let limits: [(&str, String); 82] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
+        ("minCroppedSidePt", MIN_CROPPED_SIDE_PT.to_string()),
         ("minRenderScale", MIN_RENDER_SCALE.to_string()),
         ("maxRenderScale", MAX_RENDER_SCALE.to_string()),
         ("maxRasterSidePx", MAX_RASTER_SIDE_PX.to_string()),

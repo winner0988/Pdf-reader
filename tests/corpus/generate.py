@@ -1692,6 +1692,36 @@ def benign_contract_v2() -> bytes:
     return doc.build()
 
 
+def benign_compare_picture_a() -> bytes:
+    doc = Document("compare-picture-a")
+    p = Page(lines=[
+        (72, 740, 16, "VISUAL COMPARISON TEST DOCUMENT"),
+        (72, 700, 12, "This document is used to verify page-by-page visual difference detection."),
+        (72, 670, 12, "It contains a standard heading and body paragraphs for side-by-side comparison."),
+    ])
+    doc.add_pages([p])
+    return doc.build()
+
+
+def benign_compare_picture_b() -> bytes:
+    doc = Document("compare-picture-b")
+    image = doc.pdf.add_stream(
+        "/Type /XObject /Subtype /Image /Width 64 /Height 64 /ColorSpace /DeviceRGB /BitsPerComponent 8",
+        gradient_rgb(64, 64),
+    )
+    p = Page(
+        lines=[
+            (72, 740, 16, "VISUAL COMPARISON TEST DOCUMENT"),
+            (72, 700, 12, "This document is used to verify page-by-page visual difference detection."),
+            (72, 670, 12, "It contains a standard heading and body paragraphs for side-by-side comparison."),
+        ],
+        extra_content=b"q 120 0 0 80 72 560 cm /Im1 Do Q\n",
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    )
+    doc.add_pages([p])
+    return doc.build()
+
+
 def benign_page_labels() -> bytes:
     doc = Document("page-labels")
     pages = [
@@ -2487,6 +2517,18 @@ SAMPLES = [
            "Two-page contract version 2 with additions, deletions, modifications, and cross-page changes (B3-24, E9).",
            "Opens; 2 pages with updated contract clauses.", 2,
            text=["SERVICE AGREEMENT - VERSION 2", "Alpha Corp and Gamma Inc", "Clause 3A. Expenses"]),
+    Sample("benign/compare-picture-a.pdf", benign_compare_picture_a,
+           "One-page text-only document for visual comparison testing (#451).",
+           "Opens; 1 page with title and paragraphs for visual difference detection.", 1,
+           text=["VISUAL COMPARISON TEST DOCUMENT", "visual difference detection"]),
+    Sample("benign/compare-picture-b.pdf", benign_compare_picture_b,
+           "One-page document with text and an added image for visual comparison testing (#451).",
+           "Opens; 1 page with title, paragraphs, and a 120x80 pt picture below text.", 1,
+           text=["VISUAL COMPARISON TEST DOCUMENT", "visual difference detection"]),
+    Sample("benign/compare-same-as-a.pdf", benign_compare_picture_a,
+           "One-page document visually identical to compare-picture-a.pdf for visual comparison testing (#451).",
+           "Opens; 1 page visually identical to compare-picture-a.pdf, reporting no differences.", 1,
+           text=["VISUAL COMPARISON TEST DOCUMENT", "visual difference detection"]),
     Sample("benign/page-labels.pdf", benign_page_labels,
            "A document with flat /PageLabels (lowercase roman numerals i-ii, then decimal 1-2).",
            "Opens; 4 pages; page labels cover roman and decimal pages.", 4,
@@ -2565,6 +2607,11 @@ SAMPLES = [
     Sample("malicious/link-unc-uri.pdf",
            lambda: link_scheme_sample("link-unc-uri", b"\\\\share.example.invalid\\x", "UNC path as URI"),
            "URI link whose value is a UNC path.", "Blocked with an explanation; no SMB connection.", 1),
+    Sample("malicious/link-mailto-recipients.pdf",
+           lambda: link_scheme_sample("link-mailto-recipients", b"mailto:someone@first.example;ceo@second.example",
+                                      "mailto with recipients separated by ;"),
+           "mailto link with two recipients separated by ';' (#610).",
+           "The confirmation's site line shows first.example, second.example.", 1),
     Sample("malicious/link-ms-protocol.pdf",
            lambda: link_scheme_sample("link-ms-protocol", b"ms-msdt:/id PCWDiagnostic", "ms-msdt: URI"),
            "URI link with a Windows protocol handler scheme.", "Blocked with an explanation; nothing starts.", 1),

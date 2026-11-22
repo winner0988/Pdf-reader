@@ -3159,6 +3159,19 @@ fn pages_after(
     // Redaction (B2-19, ADR 0016) changes what the pages say, marks included: the author's
     // permission to change the document covers it. The worker refuses a signed document.
     match edit {
+        // PDF spec bit 11 (assemble document) only covers insert, rotate, delete pages.
+        // Cropping modifies the page dictionary (/CropBox), which falls under bit 4 (modify),
+        // so an author allowing only document assembly does not permit cropping.
+        Edit::CropPages { pages, .. } => {
+            if !permissions.modify {
+                return Err(not_allowed());
+            }
+            pages
+                .iter()
+                .try_for_each(|&page| check_page_index(page, page_count))
+                .map_err(invalid_argument)?;
+            return Ok(page_count);
+        }
         Edit::AddRedaction { page, .. } | Edit::AddRedactionGroup { page, .. } => {
             if !permissions.modify {
                 return Err(not_allowed());
@@ -3293,7 +3306,8 @@ fn pages_after(
         | Edit::AddBookmark { .. }
         | Edit::RenameBookmark { .. }
         | Edit::DeleteBookmark { .. }
-        | Edit::MoveBookmark { .. } => Ok(page_count),
+        | Edit::MoveBookmark { .. }
+        | Edit::CropPages { .. } => Ok(page_count),
     }
 }
 
@@ -4152,9 +4166,9 @@ mod tests {
 mod with_worker {
     use ipc_contract::limits::MAX_RASTER_PIXELS;
     use ipc_contract::types::{
-        AnnotationId, AnnotationKind, FieldId, HighlightColor, HighlightMark, InkColor, InkWidth,
-        Point, Quad, Rect, RequestId, Rgb, Rotation, Shape, StampImageId, StampName, TextAlign,
-        TextBoxModelId, TextBoxStyle, TextMarkKind,
+        AnnotationId, AnnotationKind, CropMargins, FieldId, HighlightColor, HighlightMark,
+        InkColor, InkWidth, Point, Quad, Rect, RequestId, Rgb, Rotation, Shape, StampImageId,
+        StampName, TextAlign, TextBoxModelId, TextBoxStyle, TextMarkKind,
     };
 
     use super::*;
@@ -6379,6 +6393,50 @@ mod with_worker {
     }
 
     #[test]
+    fn crop_needs_the_authors_permission_to_modify_the_document() {
+        let crop = Edit::CropPages {
+            pages: vec![0],
+            margins: CropMargins {
+                top: 10.0,
+                right: 20.0,
+                bottom: 30.0,
+                left: 40.0,
+            },
+        };
+        // Assembling only: assembling covers insert, rotate, delete, but not cropping (bit 4 modify).
+        let only_assemble = DocumentPermissions {
+            assemble: true,
+            modify: false,
+            ..DocumentPermissions::ALL
+        };
+        assert_eq!(
+            pages_after(&crop, 1, only_assemble, &|_| None)
+                .unwrap_err()
+                .message,
+            not_allowed().message
+        );
+        // Modify allowed: permitted.
+        let can_modify = DocumentPermissions::ALL;
+        assert_eq!(pages_after(&crop, 1, can_modify, &|_| None).unwrap(), 1);
+        // Page out of range: invalidArgument.
+        let elsewhere = Edit::CropPages {
+            pages: vec![3],
+            margins: CropMargins {
+                top: 10.0,
+                right: 20.0,
+                bottom: 30.0,
+                left: 40.0,
+            },
+        };
+        assert_eq!(
+            pages_after(&elsewhere, 1, can_modify, &|_| None)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+    }
+
+    #[test]
     fn redaction_is_refused_for_restricted_corpus_document() {
         let documents = Documents::new(worker());
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -6677,6 +6735,57 @@ mod with_worker {
         assert_eq!(info.pages, [LANDSCAPE, LANDSCAPE]);
         let info = stepped(&documents, &mut doc, true);
         assert_eq!(info.pages, [LANDSCAPE, LETTER]);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn crop_pages_undo_redo_and_survives_worker_crash() {
+        let (documents, info, path) = open("crop-undo", 2);
+        let mut doc = info.doc;
+        assert_eq!(info.pages, [LETTER, LETTER]);
+        let crop = Edit::CropPages {
+            pages: vec![0],
+            margins: CropMargins {
+                top: 10.0,
+                right: 20.0,
+                bottom: 30.0,
+                left: 40.0,
+            },
+        };
+        let cropped = PageSize {
+            width_pt: 612.0 - 40.0 - 20.0,
+            height_pt: 792.0 - 10.0 - 30.0,
+        };
+        // Crop applied: page 0 cropped, page 1 unchanged.
+        assert_eq!(edited_pages(&documents, &mut doc, crop), [cropped, LETTER]);
+        // Undo: returns to original size.
+        let undone = stepped(&documents, &mut doc, true);
+        assert_eq!(undone.pages, [LETTER, LETTER]);
+        // Redo: returns to cropped size.
+        let redone = stepped(&documents, &mut doc, false);
+        assert_eq!(redone.pages, [cropped, LETTER]);
+
+        // Worker crash
+        let pid = documents.worker_id(doc).expect("worker running");
+        std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            documents
+                .render(&args(doc, 0, 0.5, Rotation::None))
+                .unwrap_err()
+                .code,
+            ErrorCode::WorkerCrashed
+        );
+
+        // After crash: undo returns to original size
+        let undone_after_crash = stepped(&documents, &mut doc, true);
+        assert_eq!(undone_after_crash.pages, [LETTER, LETTER]);
+        // Redo returns to cropped size
+        let redone_after_crash = stepped(&documents, &mut doc, false);
+        assert_eq!(redone_after_crash.pages, [cropped, LETTER]);
+
         std::fs::remove_file(path).ok();
     }
 

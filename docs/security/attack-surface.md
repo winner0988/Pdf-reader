@@ -262,7 +262,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `GetDocumentFonts` | 頁面與 Form XObject 裡的字型清單 | `engine/properties.rs` | worker `properties.rs` | `read_document` |
 | `GetTextBox` | 文字方塊註解 | `engine/text_box.rs` | worker `text_box_worker.rs` | `read_document`（前兩頁，#426） |
 | `ExportDocx` | 頁面的文字與圖片，寫成 .docx | `engine/docx.rs` | worker `docx.rs` | `open_document` |
-| `Edit` | 29 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs` | `edit_document`（29 種） |
+| `Edit` | 30 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs` | `edit_document`（30 種） |
 | `Revert` | 從保留的位元組重新開啟，再做一次編輯 | `engine.rs` | worker `saving.rs`、`merge.rs` | `edit_document` |
 | `Rebase` | 把剛存的檔案當成 undo 的起點；只保留位元組，不解析 | `serve.rs` | worker `saving.rs` | 不需要 |
 | `Save` | 寫出整份文件；已簽章的文件以增量更新 | `engine.rs` | worker `saving.rs`、`save_poc.rs` | `text_box_font`、`edit_document` |
@@ -288,13 +288,14 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `Cancel` | 主行程目前不送；worker 收到也不處理 | `serve.rs` | — | `worker_messages` |
 | `Shutdown` | 主行程目前不送（直接結束 worker）；worker 收到就結束 | `serve.rs` | `crates/ipc_contract/src/frame.rs` | `worker_messages` |
 
-### 2.5 編輯（`WorkerEdit`，29 種）
+### 2.5 編輯（`WorkerEdit`，30 種）
 
 前端送的是 `Edit`，主行程檢查後轉成 `WorkerEdit`。插入的頁面來源與文字方塊的字型子集是主行程留著的，前端不能直接給位元組。結構不正確的頁碼標籤樹在改動頁面之前由 worker 拒絕（有上限）。
 
 | 編輯 | 主行程的檢查（`Edit::validate`） |
 |---|---|
 | `RotatePages`、`DeletePages`、`MovePages` | 頁面清單（`check_page_list`）；位置 ≤ `MAX_PAGE_COUNT` |
+| `CropPages` | 頁面清單（`check_page_list`）；邊距（`CropMargins::validate`，四邊介於 0 與 `MAX_PAGE_SIDE_PT`、不可全為 0） |
 | `InsertBlankPage`、`InsertPages` | 位置 ≤ `MAX_PAGE_COUNT`；`InsertPages` 的來源是 `PrepareSource` 做好的副本 |
 | `AddHighlight`、`SetHighlightColor` | 頁碼（`check_annotated_page`）；頁數 ≤ `MAX_HIGHLIGHT_PAGES`；四邊形不得為空、總數 ≤ `MAX_ANNOTATION_QUADS`；顏色是固定的選項 |
 | `AddNote`、`SetNoteText` | 頁碼；位置；文字過 `check_note_text` |

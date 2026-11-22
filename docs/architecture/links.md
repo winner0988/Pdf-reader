@@ -66,7 +66,7 @@ sequenceDiagram
   - `classify_uri`：只允許 `http`、`https`、`mailto`；
   - 以 WHATWG URL 規則解析（`url` crate，與瀏覽器相同）。解析不了的網址，在 `get_page_links` 時就改成「已封鎖：不支援的連結類型」，讓狀態列的說明與點擊結果一致；
   - `opens`：主機轉成 punycode，其餘非 ASCII 百分比編碼；另外把空白、`"`、`<`、`>`、`\`、`^`、`` ` ``、`{`、`|`、`}` 也編碼。交給系統的只有可列印 ASCII，沒有任何命令列可能誤讀的字元；
-  - `host` 是解析後實際會連線的主機（`https://bank.example@evil.example/` 的主機是 `evil.example`），以 Unicode 顯示；與 punycode 不同時一併提供 `asciiHost`，前端顯示 IDN 警示。
+  - `host` 是解析後實際會連線的主機（`https://bank.example@evil.example/` 的主機是 `evil.example`），以 Unicode 顯示；對 `mailto` 則是依序收集路徑（以 `,`、`;` 分隔）與 `to`、`cc`、`bcc` 標頭中的收件人網域，不分大小寫去重後以 `, ` 連接；與 punycode 不同時一併提供 `asciiHost`，前端顯示 IDN 警示。網域中的隱藏字元以 `[U+XXXX]` 標示並警示。
 - **交給系統**（`src-tauri/src/opener.rs`）：
   - `ShellExecuteW(NULL, "open", opens, NULL, NULL, SW_SHOWNORMAL)`，網址是唯一的檔案參數，不組任何命令列。
   - 在主執行緒執行，那裡的 COM 已經依 Shell 的需求初始化。

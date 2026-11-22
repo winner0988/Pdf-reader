@@ -38,6 +38,7 @@ import { SignDialog } from "@/features/signing/SignDialog";
 import type { ExportApi } from "@/features/export/api";
 import { AnnotationSummaryDialog } from "@/features/export/AnnotationSummaryDialog";
 import { CompareDialog, type CompareTabOption } from "@/features/compare/CompareDialog";
+import { VisualCompareDialog } from "@/features/compare/VisualCompareDialog";
 import type { CompareApi } from "@/features/compare/api";
 import { ExportDialog } from "@/features/export/ExportDialog";
 import { CompressDialog } from "@/features/saving/CompressDialog";
@@ -107,7 +108,7 @@ import {
   recordNavigation,
   type NavigationLocation,
 } from "@/features/viewer/history";
-import { errorCodeOf, type PageRenderer } from "@/features/viewer/renderer";
+import { errorCodeOf, type PageRenderer, type RenderApi } from "@/features/viewer/renderer";
 import type { OutlineView } from "@/features/outline/tree";
 import { strings } from "@/i18n/zh-TW";
 import type {
@@ -152,6 +153,7 @@ type ReaderShellProps = {
   dropActive?: boolean;
   /** Renders pages; without it (demo data, tests) pages are placeholders. */
   renderer?: PageRenderer;
+  renderApi?: RenderApi;
   /** The open document's outline (loaded separately so loading it does not reset the view). */
   outline?: OutlineView;
   /** Searches the open document; without it (demo data, tests) the search bar finds nothing. */
@@ -267,6 +269,7 @@ export function ReaderShell({
   passwordsApi,
   dropActive = false,
   renderer,
+  renderApi,
   outline,
   searchApi,
   linksApi,
@@ -350,6 +353,7 @@ export function ReaderShell({
     | "export"
     | "exportAnnotations"
     | "compare"
+    | "compareVisual"
     | "privacyExport"
     | "sanitize"
     | "pageMarks"
@@ -826,6 +830,7 @@ export function ReaderShell({
     doc !== undefined && editingApi !== undefined
       ? {
           allowed: permissions.assemble || permissions.modify,
+          cropAllowed: permissions.modify,
           apply: async (edit) => {
             await editingApi.applyEdit(doc, edit);
             setNavHistory((prev) => adjustHistoryForEdit(prev, edit, pageCount));
@@ -1484,6 +1489,16 @@ export function ReaderShell({
           : otherTabs === undefined || otherTabs.length === 0
             ? strings.compare.onlyOneTab
             : undefined,
+    onCompareVisual:
+      doc !== undefined &&
+      otherTabs !== undefined &&
+      otherTabs.length > 0
+        ? () => setDialog("compareVisual")
+        : undefined,
+    compareVisualBlocked:
+      otherTabs === undefined || otherTabs.length === 0
+        ? strings.compare.onlyOneTab
+        : undefined,
     onPrivacyExport: savable && !document_?.encrypted ? () => setDialog("privacyExport") : undefined,
     privacyExportBlocked: savable && document_?.encrypted === true,
     onSanitizeCopy:
@@ -2209,6 +2224,18 @@ export function ReaderShell({
           currentDisplayName={document_?.displayName}
           otherTabs={otherTabs}
           api={compareApi}
+          onJumpToPage={goToPage}
+        />
+      )}
+      {doc !== undefined && otherTabs && otherTabs.length > 0 && (
+        <VisualCompareDialog
+          open={dialog === "compareVisual"}
+          onOpenChange={(open) => setDialog(open ? "compareVisual" : null)}
+          currentDoc={doc}
+          currentDisplayName={document_?.displayName}
+          currentPages={document_?.pages}
+          otherTabs={otherTabs}
+          renderApi={renderApi}
           onJumpToPage={goToPage}
         />
       )}

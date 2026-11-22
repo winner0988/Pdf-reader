@@ -286,6 +286,22 @@ export function createCommands(opts: CommandOptions): Command[] {
       run: () => opts.onCompareText?.(),
     },
     {
+      id: "compareVisual",
+      name: menu.compareVisual,
+      aliases: [...aliases.compareVisual],
+      shortcutBadge: opts.compareVisualBlocked,
+      fromMenu: true,
+      menuSection: "actions",
+      menuKind: "item",
+      visibleInMenu: true,
+      menuDisabled: !opts.onCompareVisual,
+      enabled: hasDoc && Boolean(opts.onCompareVisual && !opts.compareVisualBlocked),
+      disabledReason: !hasDoc
+        ? strings.commands.noDocument
+        : opts.compareVisualBlocked,
+      run: () => opts.onCompareVisual?.(),
+    },
+    {
       id: "privacyExport",
       name: menu.privacyExport,
       aliases: [...aliases.privacyExport],
