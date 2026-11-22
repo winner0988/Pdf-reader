@@ -31,6 +31,9 @@ pub struct Pictures {
 fn used_by(edit: &Edit) -> Option<StampImageId> {
     match edit {
         Edit::AddImageStamp { image, .. } => Some(*image),
+        Edit::AddWatermark {
+            image: Some(image), ..
+        } => Some(*image),
         _ => None,
     }
 }
@@ -90,7 +93,7 @@ impl Pictures {
 
 #[cfg(test)]
 mod tests {
-    use ipc_contract::types::Rect;
+    use ipc_contract::types::{Rect, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace};
 
     use super::*;
 
@@ -132,6 +135,26 @@ mod tests {
         assert_eq!(pictures.png(a), None);
         assert_eq!(pictures.png(b), None);
         assert!(c.0 > b.0);
+    }
+
+    #[test]
+    fn a_watermark_picture_is_kept() {
+        let mut pictures = Pictures::default();
+        let a = pictures.add(vec![1, 2, 3], []).unwrap();
+        let edit = Edit::AddWatermark {
+            pages: vec![0],
+            watermark: Watermark {
+                content: WatermarkContent::Picture { width_pt: 100.0 },
+                opacity: 50,
+                diagonal: false,
+                place: WatermarkPlace::Center,
+                pages: WatermarkPages::All,
+            },
+            image: Some(a),
+        };
+        let b = pictures.add(vec![4, 5, 6], [&edit]).unwrap();
+        assert_eq!(pictures.png(a), Some(vec![1, 2, 3]));
+        assert_eq!(pictures.png(b), Some(vec![4, 5, 6]));
     }
 
     #[test]
