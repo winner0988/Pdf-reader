@@ -13,8 +13,8 @@ use ipc_contract::types::{
     AnnotationId, AnnotationSummary, AnnotationSummaryFormat, AnnotationSummaryOutcome,
     AttachmentId, AttachmentInfo, BatchArgs, BatchEvent, BatchOperation, BatchReport,
     CaptureProtection, CompareExportFormat, CompareTextArgs, CompareTextResult, CompressArgs,
-    CompressResult, CreateResult, DocumentFonts, DocumentId, DocumentInfo, DocumentProperties,
-    EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs, ExportArgs,
+    CompressResult, CreateResult, DecryptArgs, DocumentFonts, DocumentId, DocumentInfo,
+    DocumentProperties, EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs, ExportArgs,
     ExportCompareTextArgs, ExportCompareTextOutcome, ExportEvent, ExportFormat, FileRecordingArgs,
     FindPersonalDataQuery, FontImport, FontInfo, FormField, IndexSearchArgs, IndexSearchEvent,
     IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs,
@@ -1933,6 +1933,59 @@ pub async fn encrypt_copy(
             owner_password,
             args.restrictions,
         )
+    })
+    .await?;
+    Ok(true)
+}
+
+/// Writes a copy of an encrypted document without its password or restrictions (B6-01,
+/// docs/architecture/decrypt-copy.md) where the user says in the system's save dialog, never over
+/// the document's own file. `false` when the user closes the dialog. The document itself does not
+/// change. The password of `args` is used once and not kept.
+#[tauri::command]
+pub async fn decrypt_copy(
+    app: AppHandle,
+    window: WebviewWindow,
+    args: DecryptArgs,
+) -> Result<bool, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let doc = args.doc;
+    let info = app
+        .state::<Documents>()
+        .document_info(doc)
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        })?;
+    if !info.encrypted {
+        return Err(IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "only an encrypted document has a copy without its password".to_owned(),
+        });
+    }
+    let file_name = strings::decrypted_copy_file_name(&export::stem(&info.display_name));
+    let destination = loop {
+        let Some(path) = file_dialog::decrypted_copy_file(&window, file_name.clone()).await? else {
+            return Ok(false);
+        };
+        if !app.state::<Documents>().is_document_file(doc, &path) {
+            break path;
+        }
+        rfd::AsyncMessageDialog::new()
+            .set_level(rfd::MessageLevel::Info)
+            .set_title(strings::DECRYPTED_COPY_SAME_FILE_TITLE)
+            .set_description(strings::DECRYPTED_COPY_SAME_FILE_MESSAGE)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .set_parent(&window)
+            .show()
+            .await;
+    };
+    blocking(move || {
+        app.state::<Documents>()
+            .decrypted_copy(doc, &destination, args.password)
     })
     .await?;
     Ok(true)

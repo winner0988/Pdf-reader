@@ -119,6 +119,13 @@ openPassword: Password | null,
 permissionsPassword: Password | null, restrictions: Restrictions, };
 
 /**
+ * Arguments of `decrypt_copy` (B6-01): the open document is written, without encryption or
+ * restrictions, to a file the user chooses next. The password is never stored or logged (see
+ * [`Password`]). Any other field is rejected.
+ */
+export type DecryptArgs = { doc: DocumentId, password: Password, };
+
+/**
  * What a watermark is (B3-04, docs/architecture/watermark.md).
  */
 export type WatermarkContent = { "kind": "text", text: string, size: number, color: Rgb, } | { "kind": "picture", widthPt: number, };

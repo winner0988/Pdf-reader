@@ -1212,6 +1212,49 @@ impl Documents {
         })
     }
 
+    /// Writes a copy of `doc` to `destination`, edits included, without encryption or
+    /// restrictions (B6-01, docs/architecture/decrypt-copy.md), made by the document's worker:
+    /// `password` authenticates against the open document. The password goes to the worker in one
+    /// request and is wiped; nothing is kept. The document, its edits and its file are not changed.
+    /// Refused for an unencrypted document (only an encrypted document has a copy without its
+    /// password), for a signed one (its signatures would not hold; the worker says so), and for
+    /// the document's own file.
+    pub fn decrypted_copy(
+        &self,
+        doc: DocumentId,
+        destination: &Path,
+        password: Password,
+    ) -> Result<(), IpcError> {
+        self.with_document(doc, |document| {
+            if !document.info.encrypted {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "only an encrypted document has a copy without its password"
+                        .to_owned(),
+                });
+            }
+            if same_file(&document.path, destination) {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "the copy without password never replaces the document's own file"
+                        .to_owned(),
+                });
+            }
+            saving::check_writable(destination)?;
+            let mut temporary = Temporary::new(destination)?;
+            let worker_doc = live_worker(document)?;
+            let response = document
+                .host
+                .decrypted_copy(worker_doc, temporary.file(), password)
+                .map_err(|error| lost_on(document, &error))?;
+            let WorkerResponse::Saved { bytes, .. } = response else {
+                return Err(unexpected_on(document, "DecryptedCopy"));
+            };
+            temporary.check(bytes)?;
+            temporary.replace(destination)
+        })
+    }
+
     /// Whether `doc` can be signed (B3-06, ADR 0020): asked when the dialog opens. The first
     /// reason it cannot be, or that it can. A certifying signature that allows no change is
     /// found by the worker's check of the signatures (B2-14).
@@ -5874,6 +5917,146 @@ mod with_worker {
             ErrorCode::InvalidArgument
         );
         assert!(!copy.exists());
+    }
+
+    #[test]
+    fn a_decrypted_copy_has_the_edits_and_leaves_the_document_encrypted() {
+        let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign");
+        let source = corpus.join("restricted-open-password.pdf");
+        let temp = std::env::temp_dir().join(format!(
+            "pdf-reader-decrypted-test-{}.pdf",
+            std::process::id()
+        ));
+        std::fs::copy(&source, &temp).unwrap();
+        let documents = Documents::new(worker());
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let [tab] = documents.add(std::slice::from_ref(&temp), &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(tab, &report);
+        documents
+            .unlock(tab, password("user"), false, &report)
+            .unwrap();
+        let Some(OpenEvent::Opened { info, .. }) = events.borrow().last().cloned() else {
+            panic!("opened")
+        };
+        assert!(info.encrypted);
+
+        let edited = opened_info(documents.apply_edit(&rotate(info.doc, vec![0])).unwrap());
+
+        let copy = temp.with_file_name(format!("decrypted-copy-result-{}.pdf", std::process::id()));
+        std::fs::remove_file(&copy).ok();
+
+        // Refuse when user password is supplied because document is restricted
+        assert_eq!(
+            documents
+                .decrypted_copy(edited.doc, &copy, password("user"))
+                .unwrap_err()
+                .code,
+            ErrorCode::NotAllowed
+        );
+        assert!(!copy.exists());
+
+        // Decrypt with owner password
+        documents
+            .decrypted_copy(edited.doc, &copy, password("owner"))
+            .unwrap();
+        assert!(copy.exists());
+        let copy_bytes = std::fs::read(&copy).unwrap();
+        assert!(!copy_bytes.windows(8).any(|w| w == b"/Encrypt"));
+
+        // Original document is still encrypted, uncommitted edits are still unsaved
+        assert_eq!(documents.unsaved_tabs().len(), 1);
+        assert!(documents.document_info(edited.doc).unwrap().encrypted);
+
+        // Original document still saves as encrypted (not corrupted)
+        documents.save(edited.doc, None).unwrap();
+        let saved_bytes = std::fs::read(&temp).unwrap();
+        assert!(saved_bytes.windows(8).any(|w| w == b"/Encrypt"));
+
+        // The copy can be opened without password and has no restrictions
+        let [copy_tab] = documents.add(std::slice::from_ref(&copy), &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(copy_tab, &report);
+        let Some(OpenEvent::Opened {
+            info: copy_info, ..
+        }) = events.borrow().last().cloned()
+        else {
+            panic!("opened")
+        };
+        assert!(!copy_info.encrypted);
+        assert!(
+            copy_info.permissions.print
+                && copy_info.permissions.copy
+                && copy_info.permissions.modify
+        );
+
+        // Clean up
+        std::fs::remove_file(copy).ok();
+        std::fs::remove_file(temp).ok();
+    }
+
+    #[test]
+    fn a_decrypted_copy_never_replaces_own_file_and_refuses_unencrypted_or_signed() {
+        // 1. Unencrypted document refused
+        let (documents, info, path) = open("decrypted-unencrypted", 1);
+        let copy = path.with_file_name("decrypted-copy.pdf");
+        assert_eq!(
+            documents
+                .decrypted_copy(info.doc, &copy, password("any"))
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+
+        // 2. Encrypted document cannot overwrite its own file
+        let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign");
+        let source = corpus.join("encrypted-aes256.pdf");
+        let temp = std::env::temp_dir().join(format!(
+            "pdf-reader-decrypted-own-{}.pdf",
+            std::process::id()
+        ));
+        std::fs::copy(&source, &temp).unwrap();
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let [tab] = documents.add(std::slice::from_ref(&temp), &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(tab, &report);
+        documents
+            .unlock(tab, password("user"), false, &report)
+            .unwrap();
+        let Some(OpenEvent::Opened { info: enc_info, .. }) = events.borrow().last().cloned() else {
+            panic!("opened")
+        };
+
+        let shouted = PathBuf::from(temp.to_string_lossy().to_uppercase());
+        for destination in [&temp, &shouted] {
+            assert_eq!(
+                documents
+                    .decrypted_copy(enc_info.doc, destination, password("user"))
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidArgument
+            );
+        }
+
+        std::fs::remove_file(path).ok();
+        std::fs::remove_file(temp).ok();
+
+        // 3. Signed document refused
+        let signed = corpus.join("signed.pdf");
+        let documents = Documents::new(worker());
+        let info = open_in(&documents, &signed);
+        assert_eq!(
+            documents
+                .decrypted_copy(info.doc, &copy, password("any"))
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
     }
 
     #[test]
