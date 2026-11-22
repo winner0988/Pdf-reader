@@ -1657,6 +1657,10 @@ fn render_error_code(engine: &EngineError) -> WorkerErrorCode {
                 || e.code == mupdf_sys::FZ_ERROR_SYNTAX as i32
             {
                 WorkerErrorCode::Corrupted
+            } else if e.code == mupdf_sys::FZ_ERROR_LIMIT as i32 {
+                // The page needs more than MuPDF allows, such as a tiling pattern that could
+                // not be painted within the render timeout (#550). Not our own error (#552).
+                WorkerErrorCode::LimitExceeded
             } else {
                 WorkerErrorCode::Internal
             }
@@ -2019,7 +2023,10 @@ mod tests {
                 mupdf_sys::FZ_ERROR_ARGUMENT as i32,
                 WorkerErrorCode::Corrupted,
             ),
-            (mupdf_sys::FZ_ERROR_LIMIT as i32, WorkerErrorCode::Internal),
+            (
+                mupdf_sys::FZ_ERROR_LIMIT as i32,
+                WorkerErrorCode::LimitExceeded,
+            ),
             (
                 mupdf_sys::FZ_ERROR_UNSUPPORTED as i32,
                 WorkerErrorCode::Internal,

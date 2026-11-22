@@ -1,8 +1,9 @@
-//! Page render error handling for malformed content (Issue #552).
+//! Page render error handling for malformed content (Issue #552), and for tiling patterns that
+//! cannot be painted within the render timeout (Issue #550).
 #![cfg(windows)]
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ipc_contract::types::Rotation;
 use ipc_contract::worker::{WorkerErrorCode, WorkerRequest, WorkerResponse};
@@ -140,4 +141,50 @@ fn render_region_png_jpeg_on_malformed_predictor_colors_report_corrupted() {
     }
 
     assert!(host.is_running());
+}
+
+/// The fork's build-time limits refuse these patterns before painting (#550): a tile as large as
+/// the page repeated every 0.1 point, and a pattern with a blend mode, whose content MuPDF runs
+/// once per repeat. Without them each render runs into the host's 10 s timeout.
+#[test]
+fn tiling_patterns_that_cannot_finish_report_limit_exceeded_at_once() {
+    let mut host = host();
+    for name in [
+        "malformed/tiling-pattern-large-tile.pdf",
+        "malformed/tiling-pattern-blend.pdf",
+    ] {
+        let (doc, _) = host
+            .open(&corpus(name))
+            .unwrap_or_else(|error| panic!("open {name}: {error:?}"));
+        let started = Instant::now();
+        let render_res = host.request(|request| WorkerRequest::Render {
+            request,
+            doc,
+            page_index: 0,
+            scale: 1.0,
+            rotation: Rotation::None,
+        });
+        match render_res {
+            Err(HostError::Worker(ref error)) => {
+                assert_eq!(error.code, WorkerErrorCode::LimitExceeded, "{name}");
+                assert!(
+                    error.detail.contains("tiling pattern"),
+                    "{name}: detail should keep MuPDF's message, got: {}",
+                    error.detail
+                );
+            }
+            ref other => {
+                panic!("{name}: expected HostError::Worker(LimitExceeded), got: {other:?}")
+            }
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{name}: refused only after {:?}",
+            started.elapsed()
+        );
+        assert!(
+            host.is_running(),
+            "{name}: the worker must not be terminated by a refused pattern"
+        );
+    }
 }

@@ -2038,6 +2038,43 @@ def malformed_metadata_non_ascii_dates() -> bytes:
     return doc.build(info=info)
 
 
+def tiling_pattern_page(name: str, label: str, bbox: str, step: str, cell: str, resources: str = "") -> bytes:
+    """A Letter page filled with a colored tiling pattern repeated every `step` points (#550)."""
+    doc = Document(name)
+    pattern = doc.pdf.add_stream(
+        f"/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [{bbox}]"
+        f" /XStep {step} /YStep {step} /Resources << {resources}>>",
+        (cell + "\n").encode("latin-1"),
+    )
+    doc.add_pages([Page(
+        lines=[(72, 720, 24, label)],
+        extra_content=b"q /Pattern cs /P1 scn 0 0 612 792 re f Q\n",
+        resources=f"/Pattern << /P1 {pattern} 0 R >> ",
+    )])
+    return doc.build()
+
+
+def malformed_tiling_pattern_large_tile() -> bytes:
+    """A tile as large as the page, repeated every 0.1 point (#550).
+
+    MuPDF paints the whole tile once per repeat: at scale 1, about 2 x 10^13 pixels, hours of
+    work. MuPDF 1.28 doubles only steps below 1/16 pixel.
+    """
+    return tiling_pattern_page("tiling-pattern-large-tile", "Page-sized tile, step 0.1",
+                               "0 0 612 792", "0.1", "0 0 1 rg 500 600 100 100 re f")
+
+
+def malformed_tiling_pattern_blend() -> bytes:
+    """A 1-point tile repeated every 0.001 point, with a blend mode in its resources (#550).
+
+    A blend mode anywhere in the pattern's resources makes MuPDF run the pattern's content once
+    per repeat instead of painting a tile: about 4.8 x 10^11 runs for a Letter page.
+    """
+    return tiling_pattern_page("tiling-pattern-blend", "Blend-mode pattern, step 0.001",
+                               "0 0 1 1", "0.001", "0 0 1 rg 0 0 1 1 re f",
+                               "/ExtGState << /G << /BM /Multiply >> >> ")
+
+
 # --------------------------------------------------------------------------- on demand
 
 
@@ -2793,6 +2830,15 @@ SAMPLES = [
            "Info dates with a UTF-16 CJK date and a PDFDocEncoding e-acute (#627).",
            "Opens (1 page); document properties show the title and '-' for both dates; the worker keeps running.",
            1, text=["Dates with non-ASCII characters"]),
+    Sample("malformed/tiling-pattern-large-tile.pdf", malformed_tiling_pattern_large_tile,
+           "A tiling pattern whose tile is as large as the page, repeated every 0.1 point (#550).",
+           "Opens (1 page); rendering at scale 1 fails at once with limit exceeded instead of running into the "
+           "render timeout; the worker stays running.", 1),
+    Sample("malformed/tiling-pattern-blend.pdf", malformed_tiling_pattern_blend,
+           "A 1-point tiling pattern repeated every 0.001 point, with a blend mode in its resources, so MuPDF "
+           "runs its content once per repeat (#550).",
+           "Opens (1 page); rendering fails at once with limit exceeded instead of running into the render "
+           "timeout; the worker stays running.", 1),
     Sample("malformed/not-a-pdf.pdf", lambda: b"This is a plain text file with a .pdf extension.\n",
            "Text file named .pdf.", "Reports not a PDF."),
     Sample("malformed/empty.pdf", lambda: b"", "Zero bytes.", "Reports not a PDF or corrupted."),

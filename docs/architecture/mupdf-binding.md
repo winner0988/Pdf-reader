@@ -33,7 +33,7 @@
 ### `mupdf-sys` 的來源
 
 - **為什麼用 fork**：crates.io 停在 0.8.0，內附的是 1.27.2。第一次建置時 cargo 要下載 MuPDF 與它所有第三方函式庫的 git 歷史（約 850 MB），之後存在 `~/.cargo/git`。
-- **分支與 commit**：來源是 <https://github.com/winner0988/mupdf-rs> 的分支 `v0.8.0-mupdf-1.28`，commit 為 `c5b5c9e4d3d7f7f48946593bc4f90c44b91e74a2`。它帶了：
+- **分支與 commit**：來源是 <https://github.com/winner0988/mupdf-rs> 的分支 `v0.8.0-mupdf-1.28`，commit 為 `206fd893e1cc8d6cc6facb8e520541e0f8ad88e0`。它帶了：
   - 子模組指到 MuPDF 1.28.6（`da5f5eb890d7b3fb76903160b5f7f48ba1301492`）；
   - `src/page.rs` 補上 `table_hunt_options`（`vertically_collapse_bordered_cells: 0`，行為與 1.27.2 相同）；
   - 根目錄 `Cargo.toml` 的字型 crate 拿掉 `path`，改從 crates.io 取；
@@ -43,13 +43,18 @@
   - 文字擷取的兩個修補，是我們自己寫的（上游的 1.28.x 與 master 到 2026-11-20 都還沒修）；和 Tesseract 的修補一樣，找不到未修正、也找不到修正後的寫法時，建置失敗：
     - `source/pdf/pdf-op-run.c`（#628）：文字繪製模式 4～6 的字畫出來之後，也會加進 ET 時套用的裁切，結構化文字裝置把裁切的那一份又擷取一次。裁切的那一份改成不帶字元（`-1`，和一個字元對應多個字形時多出來的字形一樣），文字裝置就略過它；只裁切的模式 7 照舊帶著字元；
     - `source/pdf/pdf-type3.c`（#629）：1.28 把不是標準名稱、以 `g` 開頭的字形名稱當成十六進位的 TrueType 字形編號（為了舊版 Ghostscript 產生的 TrueType 子集，`g0024` 是 `A`），Type3 字型用 `/g32` 這類十進位字元碼命名時就擷取成別的字。Type3 字型不再套用這條推測，和 1.27.2 一樣：字元碼 32～126 沒有標準名稱時，就當成 ASCII；其他字型照舊；
+  - tiling pattern 的兩個上限（#550），也是我們自己寫的（上游的 1.28.x 與 master 到 2026-11-22 都還沒有）。碰到上限的頁面馬上以 `FZ_ERROR_LIMIT` 失敗，不必等 worker 30 秒的繪製時限；找不到未修正、也找不到修正後的寫法時，建置失敗：
+    - `source/fitz/draw-device.c` 的 `fz_draw_end_tile`：1.28 會把在頁面上移動不到 1/16 像素的步距加倍，但格子大、步距小時，每重複一次仍要貼一次整格。進迴圈之前先估計要畫多少（像素 + 8 × 列數 + 64 × 重複次數；權重都低於最便宜的情況、也就是全透明格子量到的成本），超過 2^38 就拒絕。被拒絕的 pattern 在開發機上估計至少要畫 45 秒，本來就會撞到 30 秒的時限。反過來，沒被拒絕的仍可能畫很久，例如縮圖的小倍率與不透明的格子（#672）；
+    - `source/pdf/pdf-op-run.c` 的 `pdf_show_pattern`：pattern 的資源裡有混合模式（或裝置要求不用 tile）時，MuPDF 每重複一次就把 pattern 的內容跑一次，這條路沒有任何步距的保護。重複超過 2^26 次就拒絕：內容是空的，在開發機上每次也要 1.4 µs，2^26 次至少 90 秒；
+    - worker 把繪製時的 `FZ_ERROR_LIMIT` 回報成 `LimitExceeded`（`crates/pdf_worker/src/serve.rs` 的 `render_error_code`）；
   - `mupdf-sys/msbuild.rs` 連結 `advapi32`。
 - **已移除的建置期修補**：OpenJPEG（#539）與 lcms2（#562）的修正已經在 1.28.6 內附的版本裡，建置期修補已經拿掉。
 - **舊分支保留**：`v0.8.0-bundled-fixes`（`1989036c0019c1b7f23ccf075024e3997a66c1bc`）保留不動。
-- 根目錄與 `fuzz/` 的 `Cargo.toml` 以 `[patch.crates-io]` 指向同一個 `rev`（`c5b5c9e4d3d7f7f48946593bc4f90c44b91e74a2`），`deny.toml` 的 `allow-git` 允許此 repository。
+- 根目錄與 `fuzz/` 的 `Cargo.toml` 以 `[patch.crates-io]` 指向同一個 `rev`（`206fd893e1cc8d6cc6facb8e520541e0f8ad88e0`），`deny.toml` 的 `allow-git` 允許此 repository。
 - **什麼時候可以拿掉 fork**：MuPDF 內附的 Tesseract 到 5.5.4 以上時，Tesseract 的修補與上面的檢查都拿掉；MuPDF 內附的 FreeType 到 2.15.0 以上時，FreeType 的修補拿掉；crates.io 上的 `mupdf`、`mupdf-sys` 也帶了這樣的 MuPDF 時，在升級的 PR 裡刪除兩個 `Cargo.toml` 的 `[patch.crates-io]` 與 `deny.toml` 的 `allow-git`，這一節改回 crates.io。
   - fork 也以 `FZ_ENABLE_MD=0` 關掉 Markdown 讀取器（#572）：crates.io 的 `mupdf-sys` 也要能關掉它，才能拿掉 fork，否則 `markdown_reader_is_compiled_out` 會失敗。
   - 文字擷取的兩個修補（#628、#629）也要上游修好才能拿掉，否則 `crates/pdf_worker/tests/text.rs` 的 `text_that_is_drawn_and_clipped_comes_out_once` 與 `glyph_names_give_the_characters_they_stand_for` 會失敗。
+  - tiling pattern 的上限（#550）也要上游有同樣的保護才能拿掉，否則 `crates/pdf_worker/tests/render_error.rs` 的 `tiling_patterns_that_cannot_finish_report_limit_exceeded_at_once` 會逾時失敗。
 - **之後要升到更新的 1.28.x**：在分支加 commit 改 gitlink；檢查建置輸出（`<run>/output`）沒有 `Unable to patch`；Tesseract 與 FreeType 的差異和這裡寫的相同；照 #561 的規則更新 `bundled-libraries.md`，並由 Claude Code 私下對照已知問題；加上 `needs-security-review`。
 
 ## 編譯期功能

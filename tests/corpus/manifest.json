@@ -1047,6 +1047,28 @@
       "sha256": "bc4171998ea6c6bb60ba8b25607e8a067f2d6628b54b1d4b2c74779a954d5b18"
     },
     {
+      "path": "malformed/tiling-pattern-large-tile.pdf",
+      "category": "malformed",
+      "purpose": "A tiling pattern whose tile is as large as the page, repeated every 0.1 point (#550).",
+      "expected": "Opens (1 page); rendering at scale 1 fails at once with limit exceeded instead of running into the render timeout; the worker stays running.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 993,
+      "sha256": "3be8f7a4d6c08371c8187d60c2a4d5a8826506b5cb8ba188c39e3af0ece99709"
+    },
+    {
+      "path": "malformed/tiling-pattern-blend.pdf",
+      "category": "malformed",
+      "purpose": "A 1-point tiling pattern repeated every 0.001 point, with a blend mode in its resources, so MuPDF runs its content once per repeat (#550).",
+      "expected": "Opens (1 page); rendering fails at once with limit exceeded instead of running into the render timeout; the worker stays running.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 1031,
+      "sha256": "1e60d0ca1894596bbf0df6b443aee789d8d4abc85a98de4955480fb1bef85681"
+    },
+    {
       "path": "malformed/not-a-pdf.pdf",
       "category": "malformed",
       "purpose": "Text file named .pdf.",

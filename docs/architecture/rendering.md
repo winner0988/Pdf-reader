@@ -131,6 +131,8 @@ worker 畫的是頁面看起來的樣子：頁面內容，加上它的**註解�
 - 單頁上限寫在 `ipc_contract::limits`：最長邊 `MAX_RASTER_SIDE_PX = 8192`、面積 `MAX_RASTER_PIXELS = 4096 × 4096`（RGBA 約 64 MB）。worker 與主行程都會檢查。
 - 超過上限時**降低解析度**，不回報錯誤：`fit_scale` 取「不超過要求、且符合上限」的最大縮放比例，前端把結果拉伸到頁面的顯示尺寸。例：Letter 頁面要求 8×，實際約 6.5×。
 - 連 `MIN_RENDER_SCALE` 都放不下的頁面（例如宣告 1,000,000 pt 見方的惡意頁面）回報 `limitExceeded`。
+- 畫不完的 tiling pattern（#550）：fork 讓 MuPDF 在畫之前先估計要畫多少，30 秒的時限內一定畫不完的就丟 `FZ_ERROR_LIMIT`，worker 回報 `limitExceeded`，那一頁馬上失敗，worker 不會被結束（做法與數字見 [mupdf-binding.md](mupdf-binding.md)）。
+  - 縮圖可能擋不下（#672）：估計值大約和倍率的四次方成正比，1.28 又會把步距加倍，所以縮圖的小倍率下可能低於上限，照常畫。repo 的 `tiling-pattern-large-tile.pdf` 在螢幕縮放 100%、125% 時，縮圖要畫 15.6、18.3 秒。#439 的 `tiling-pattern-tiny-steps-large.pdf` 在 150% 時，以及整格不透明的格子在 100% 時，縮圖仍會等到 30 秒的時限，worker 重新啟動。
 - 一塊（`region`，B3-09）不降低解析度：區塊本身要符合上述上限，整頁在這個比例下的邊長不超過 `MAX_REGION_PAGE_SIDE_PX = 2^20`，區塊要落在頁面內，否則是 `invalidArgument`。worker 以 MuPDF 畫進只有區塊大小的 pixmap（`fz_run_page`，含註解與表單欄位），所以整頁再大也只配置區塊的記憶體。文字與向量圖形和整頁的同一塊逐像素相同；圖片因為 MuPDF 只縮放畫到的部分，差幾個色階（測試 `a_region_is_that_part_of_the_whole_page`）。
 - worker 回報的頁數與頁面尺寸在開檔時就經過 `Validate`（頁數 ≤ 100,000、邊長 ≤ 1,000,000 pt），惡意 PDF 無法藉此讓主行程配置大量記憶體。
 
