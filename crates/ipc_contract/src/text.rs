@@ -245,10 +245,16 @@ pub fn is_network_path(raw: &[u8]) -> bool {
         return true;
     }
     if let Some(rest) = text.strip_prefix("file:") {
-        // file://server/share and file:////server/share; file:/// and file://localhost/ are local.
+        // file://server/share and file:////server/share are network paths; file:/// and
+        // file://localhost/ are local. Only a host that is exactly "localhost" (or none) is this
+        // computer: Windows turns file://localhost.example/share into \\localhost.example\share (#611).
         let rest = rest.trim_start_matches(['/', '\\']);
         let slashes = text.len() - "file:".len() - rest.len();
-        return (slashes == 2 && !rest.starts_with("localhost")) || slashes >= 4;
+        if slashes == 2 {
+            let host = rest.split(['/', '\\']).next().unwrap_or_default();
+            return !(host.is_empty() || host == "localhost");
+        }
+        return slashes >= 4;
     }
     text.starts_with("smb:") || text.starts_with("cifs:")
 }
@@ -491,6 +497,114 @@ mod tests {
         ] {
             assert!(!is_network_path(path), "{}", String::from_utf8_lossy(path));
         }
+    }
+
+    // 這張表是 Windows PathCreateFromUrlW 的結果（#611）。
+    #[test]
+    fn a_file_url_is_local_only_for_localhost_itself() {
+        assert!(
+            !is_network_path(b"file://localhost/C:/doc.pdf"),
+            "{}",
+            "file://localhost/C:/doc.pdf"
+        );
+        assert!(
+            !is_network_path(b"file://LOCALHOST/C:/doc.pdf"),
+            "{}",
+            "file://LOCALHOST/C:/doc.pdf"
+        );
+        assert!(
+            !is_network_path(b"file://localhost"),
+            "{}",
+            "file://localhost"
+        );
+        assert!(!is_network_path(b"file://"), "{}", "file://");
+        assert!(
+            !is_network_path(b"file://localhost/share/doc.pdf"),
+            "{}",
+            "file://localhost/share/doc.pdf"
+        );
+        assert!(
+            !is_network_path(b"file:\\/localhost/C:/doc.pdf"),
+            "{}",
+            "file:\\/localhost/C:/doc.pdf"
+        );
+        assert!(
+            !is_network_path(b"file:/\\localhost/C:/doc.pdf"),
+            "{}",
+            "file:/\\localhost/C:/doc.pdf"
+        );
+        assert!(
+            !is_network_path(b"file://localhost\\C:\\doc.pdf"),
+            "{}",
+            "file://localhost\\C:\\doc.pdf"
+        );
+        assert!(
+            !is_network_path(b"file:///C:/doc.pdf"),
+            "{}",
+            "file:///C:/doc.pdf"
+        );
+
+        assert!(
+            is_network_path(b"file://localhost.example/share/doc.pdf"),
+            "{}",
+            "file://localhost.example/share/doc.pdf"
+        );
+        assert!(
+            is_network_path(b"file://localhostserver/share/doc.pdf"),
+            "{}",
+            "file://localhostserver/share/doc.pdf"
+        );
+        assert!(
+            is_network_path(b"file://localhost:445/share/doc.pdf"),
+            "{}",
+            "file://localhost:445/share/doc.pdf"
+        );
+        assert!(
+            is_network_path(b"file://LocalHost.Example/s/x"),
+            "{}",
+            "file://LocalHost.Example/s/x"
+        );
+        assert!(
+            is_network_path(b"file://localhost./share/x"),
+            "{}",
+            "file://localhost./share/x"
+        );
+        assert!(
+            is_network_path(b"file://%6Cocalhost/share/x"),
+            "{}",
+            "file://%6Cocalhost/share/x"
+        );
+        assert!(
+            is_network_path(b"file:/\\localhost.example/share/doc.pdf"),
+            "{}",
+            "file:/\\localhost.example/share/doc.pdf"
+        );
+        assert!(
+            is_network_path(b"file:\\\\localhost.example\\share\\doc.pdf"),
+            "{}",
+            "file:\\\\localhost.example\\share\\doc.pdf"
+        );
+        assert!(
+            is_network_path(b"file://127.0.0.1/share/doc.pdf"),
+            "{}",
+            "file://127.0.0.1/share/doc.pdf"
+        );
+        assert!(
+            is_network_path(b"file://server.example/share/doc.pdf"),
+            "{}",
+            "file://server.example/share/doc.pdf"
+        );
+        assert!(
+            is_network_path(b"file:////server/share"),
+            "{}",
+            "file:////server/share"
+        );
+
+        assert!(
+            is_network_path(b"\xfe\xff\x00f\x00i\x00l\x00e\x00:\x00/\x00/\x00l\x00o\x00c\x00a\x00l\x00h\x00o\x00s\x00t\x00.\x00e\x00x\x00a\x00m\x00p\x00l\x00e\x00/\x00s"),
+            "{}",
+            "UTF-16 file://localhost.example/s"
+        );
     }
 
     #[test]
