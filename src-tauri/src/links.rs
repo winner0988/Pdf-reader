@@ -351,3 +351,554 @@ mod tests {
         assert_eq!(p4.opens, "mailto:x@Example.COM");
     }
 }
+
+#[cfg(test)]
+mod properties {
+    use super::*;
+
+    const SEED_GENERAL: u64 = 0x616_0001;
+    const CASES_GENERAL: usize = 10_000;
+
+    const SEED_MAILTO: u64 = 0x616_0002;
+    const CASES_MAILTO: usize = 5_000;
+
+    struct Rng {
+        state: u64,
+    }
+
+    impl Rng {
+        fn new(seed: u64) -> Self {
+            Self { state: seed }
+        }
+
+        fn next_u64(&mut self) -> u64 {
+            self.state = self.state.wrapping_add(0x9E3779B97F4A7C15);
+            let mut z = self.state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+            z ^ (z >> 31)
+        }
+
+        fn next_usize(&mut self, bound: usize) -> usize {
+            if bound == 0 {
+                return 0;
+            }
+            (self.next_u64() % (bound as u64)) as usize
+        }
+
+        fn choose<'a, T>(&mut self, slice: &'a [T]) -> &'a T {
+            &slice[self.next_usize(slice.len())]
+        }
+
+        fn gen_bool(&mut self) -> bool {
+            (self.next_u64() & 1) == 1
+        }
+    }
+
+    fn shrink_failing_input<F>(mut current: String, mut still_fails: F) -> String
+    where
+        F: FnMut(&str) -> bool,
+    {
+        let mut changed = true;
+        while changed {
+            changed = false;
+            let char_indices: Vec<usize> = current.char_indices().map(|(i, _)| i).collect();
+            let n_chars = char_indices.len();
+            if n_chars == 0 {
+                break;
+            }
+            let mut chunk_size = n_chars / 2;
+            loop {
+                let size = chunk_size.max(1);
+                let mut i = 0;
+                while i + size <= n_chars {
+                    let start_byte = char_indices[i];
+                    let end_byte = if i + size < n_chars {
+                        char_indices[i + size]
+                    } else {
+                        current.len()
+                    };
+                    let mut candidate =
+                        String::with_capacity(current.len() - (end_byte - start_byte));
+                    candidate.push_str(&current[..start_byte]);
+                    candidate.push_str(&current[end_byte..]);
+                    if still_fails(&candidate) {
+                        current = candidate;
+                        changed = true;
+                        break;
+                    }
+                    i += 1;
+                }
+                if changed || size == 1 {
+                    break;
+                }
+                chunk_size /= 2;
+            }
+        }
+        current
+    }
+
+    /// Independent WHATWG percent-decode for test verification (#616).
+    /// Decodes `%XX` only when followed by two ASCII hex digits; otherwise keeps bytes as-is.
+    /// Result is interpreted as UTF-8 (lossy).
+    fn test_whatwg_percent_decode(input: &str) -> String {
+        let bytes = input.as_bytes();
+        let mut decoded = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'%' && i + 2 < bytes.len() {
+                let h1 = bytes[i + 1];
+                let h2 = bytes[i + 2];
+                if h1.is_ascii_hexdigit() && h2.is_ascii_hexdigit() {
+                    let v1 = match h1 {
+                        b'0'..=b'9' => h1 - b'0',
+                        b'a'..=b'f' => h1 - b'a' + 10,
+                        b'A'..=b'F' => h1 - b'A' + 10,
+                        _ => 0,
+                    };
+                    let v2 = match h2 {
+                        b'0'..=b'9' => h2 - b'0',
+                        b'a'..=b'f' => h2 - b'a' + 10,
+                        b'A'..=b'F' => h2 - b'A' + 10,
+                        _ => 0,
+                    };
+                    decoded.push((v1 << 4) | v2);
+                    i += 3;
+                    continue;
+                }
+            }
+            decoded.push(bytes[i]);
+            i += 1;
+        }
+        String::from_utf8_lossy(&decoded).into_owned()
+    }
+
+    fn gen_random_scheme(rng: &mut Rng) -> String {
+        let base_schemes = [
+            "http",
+            "https",
+            "mailto",
+            "file",
+            "javascript",
+            "data",
+            "smb",
+            "ftp",
+            "ms-settings",
+        ];
+        let name = if rng.next_usize(10) < 8 {
+            (*rng.choose(&base_schemes)).to_string()
+        } else {
+            let len = 1 + rng.next_usize(6);
+            (0..len)
+                .map(|_| {
+                    if rng.gen_bool() {
+                        (b'a' + rng.next_usize(26) as u8) as char
+                    } else {
+                        (b'A' + rng.next_usize(26) as u8) as char
+                    }
+                })
+                .collect()
+        };
+        name.chars()
+            .map(|c| {
+                if rng.gen_bool() {
+                    c.to_ascii_uppercase()
+                } else {
+                    c.to_ascii_lowercase()
+                }
+            })
+            .collect()
+    }
+
+    fn gen_general_url(rng: &mut Rng) -> String {
+        let has_scheme = rng.next_usize(20) > 0;
+        let mut out = String::new();
+        if has_scheme {
+            out.push_str(&gen_random_scheme(rng));
+            let sep = *rng.choose(&[":", "://", ":/\\", ":\\\\", ":/", ":\\", "::", ""]);
+            out.push_str(sep);
+        }
+
+        let fragments = [
+            "%20",
+            "%2E",
+            "%41",
+            "%ff",
+            "%00",
+            "%+0",
+            "%G1",
+            "%4",
+            "%",
+            "%%",
+            "@",
+            ",",
+            ";",
+            "?",
+            "#",
+            "&",
+            "=",
+            "\\",
+            "/",
+            " ",
+            "\t",
+            "\r",
+            "\n",
+            "\u{0}",
+            "\u{1}",
+            "\u{1F}",
+            "\u{7F}",
+            "\u{200B}",
+            "例子",
+            "bücher",
+            "xn--",
+            "xn--fsqu00a",
+            "[::1]",
+            "[2001:db8::1]",
+            "[::]",
+            ":80",
+            ":443",
+            ":8080",
+            "localhost",
+            "LOCALHOST",
+            "LocalHost",
+            "localhost.",
+            "localhost.example",
+            "localhostserver",
+            "localhost:445",
+            "%6Cocalhost",
+            "127.0.0.1",
+            "a",
+            "B",
+            "123",
+            "foo",
+            "bar",
+            "doc.pdf",
+        ];
+
+        let target_len = rng.next_usize(201);
+        while out.chars().count() < target_len {
+            let choice = rng.next_usize(fragments.len() + 2);
+            let piece = if choice < fragments.len() {
+                fragments[choice].to_string()
+            } else if choice == fragments.len() {
+                let b = rng.next_usize(32) as u8;
+                (b as char).to_string()
+            } else {
+                let chars = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+                (*rng.choose(chars) as char).to_string()
+            };
+            if out.chars().count() + piece.chars().count() > target_len && !out.is_empty() {
+                break;
+            }
+            out.push_str(&piece);
+        }
+        out
+    }
+
+    fn check_properties_1_to_6(uri: &str) -> Result<(), String> {
+        let preview_attempt =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| preview(uri)));
+        let preview_res = match preview_attempt {
+            Ok(r) => r,
+            Err(_) => {
+                // Property 6: no panic
+                return Err(format!("Property 6: preview panicked on input {uri:?}"));
+            }
+        };
+
+        let p = match preview_res {
+            Ok(p) => p,
+            Err(_) => return Ok(()),
+        };
+
+        // Property 1: Url::parse(opens) scheme is http, https, or mailto
+        let parsed_opens = Url::parse(&p.opens)
+            .map_err(|e| format!("Property 1: Url::parse(opens={:?}) failed: {e}", p.opens))?;
+        let opens_scheme = parsed_opens.scheme();
+        if !matches!(opens_scheme, "http" | "https" | "mailto") {
+            return Err(format!(
+                "Property 1: opens scheme is {opens_scheme:?}, expected http/https/mailto"
+            ));
+        }
+
+        // Property 2: Url::parse(opens).scheme() == Url::parse(input).scheme()
+        let parsed_input = Url::parse(uri)
+            .map_err(|e| format!("Property 2: Url::parse(input={:?}) failed: {e}", uri))?;
+        if opens_scheme != parsed_input.scheme() {
+            return Err(format!(
+                "Property 2: opens scheme {opens_scheme:?} != input scheme {:?}",
+                parsed_input.scheme()
+            ));
+        }
+
+        // Property 3: opens contains only visible ASCII and no ALWAYS_ENCODED characters
+        for &byte in p.opens.as_bytes() {
+            if !byte.is_ascii_graphic() || ALWAYS_ENCODED.contains(&byte) {
+                return Err(format!(
+                    "Property 3: opens contains invalid byte {byte:#04X} ({:?})",
+                    byte as char
+                ));
+            }
+        }
+
+        // Property 4: for http/https, host matches Url::parse(opens) host converted to Unicode
+        if matches!(opens_scheme, "http" | "https") {
+            let ascii = parsed_opens
+                .host_str()
+                .ok_or_else(|| format!("Property 4: no host in parsed opens {:?}", p.opens))?;
+            let expected_host = match parsed_opens.host() {
+                Some(url::Host::Domain(_)) => url::quirks::domain_to_unicode(ascii),
+                _ => ascii.to_owned(),
+            };
+            if p.host.as_deref() != Some(expected_host.as_str()) {
+                return Err(format!(
+                    "Property 4: host was {:?}, expected {expected_host:?}",
+                    p.host
+                ));
+            }
+        }
+
+        // Property 5: preview(opens) is idempotent: opens and host do not change
+        let second_attempt =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| preview(&p.opens)));
+        let second_res = match second_attempt {
+            Ok(r) => r,
+            Err(_) => {
+                return Err(format!("Property 5: preview(opens={:?}) panicked", p.opens));
+            }
+        };
+        let second = second_res
+            .map_err(|e| format!("Property 5: preview(opens={:?}) failed: {e:?}", p.opens))?;
+        if second.opens != p.opens {
+            return Err(format!(
+                "Property 5: opens changed from {:?} to {:?}",
+                p.opens, second.opens
+            ));
+        }
+        if second.host != p.host {
+            return Err(format!(
+                "Property 5: host changed from {:?} to {:?}",
+                p.host, second.host
+            ));
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn properties_1_to_6_preview_general() {
+        let mut rng = Rng::new(SEED_GENERAL);
+        for case in 0..CASES_GENERAL {
+            let input = gen_general_url(&mut rng);
+            if let Err(err) = check_properties_1_to_6(&input) {
+                let shrunk = shrink_failing_input(input.clone(), |cand| {
+                    check_properties_1_to_6(cand).is_err()
+                });
+                panic!(
+                    "Property violated!\nSeed: {SEED_GENERAL:#X}\nCase: {case}\nError: {err}\nOriginal: {:?}\nShrunk:   {:?}",
+                    input, shrunk
+                );
+            }
+        }
+    }
+
+    fn gen_mailto_recipient(rng: &mut Rng) -> (String, String) {
+        let local_chars = b"abcdefghijklmnopqrstuvwxyz0123456789._+-";
+        let local_len = 1 + rng.next_usize(8);
+        let local: String = (0..local_len)
+            .map(|_| *rng.choose(local_chars) as char)
+            .collect();
+
+        let domain_pieces = [
+            "example",
+            "invalid",
+            "test",
+            "org",
+            "co",
+            "uk",
+            "sub",
+            "mail",
+            "EXAMPLE",
+            "Invalid",
+            "Bücher",
+            "例子",
+            "\u{0430}pple",
+            // Valid %XX (excluding 2C, 3B, 40, 26, 3D, 3F, 23)
+            "%61",
+            "%62",
+            "%C3%BC",
+            "%E4%BE%8B",
+            "%00",
+            "%ff",
+            "%2E",
+            // Invalid %XX
+            "%+0",
+            "%G1",
+            "%4",
+            "%",
+            "%zz",
+            ".",
+            "-",
+        ];
+        let n_pieces = 1 + rng.next_usize(4);
+        let mut domain = String::new();
+        for _ in 0..n_pieces {
+            let choice = rng.next_usize(domain_pieces.len() + 2);
+            if choice < domain_pieces.len() {
+                domain.push_str(domain_pieces[choice]);
+            } else if choice == domain_pieces.len() {
+                let chars = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+                domain.push(*rng.choose(chars) as char);
+            } else {
+                let forbidden = [
+                    0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, 0x2C, 0x3B, 0x40, 0x26, 0x3D, 0x3F, 0x23,
+                ];
+                let mut byte = rng.next_usize(256) as u8;
+                while forbidden.contains(&byte) {
+                    byte = rng.next_usize(256) as u8;
+                }
+                domain.push_str(&format!("%{byte:02X}"));
+            }
+        }
+        if domain.trim().is_empty() {
+            domain.push_str("example.com");
+        }
+
+        let expected_domain = test_whatwg_percent_decode(&domain);
+        let recipient_str = format!("{local}@{domain}");
+        (recipient_str, expected_domain)
+    }
+
+    fn gen_mailto_url(rng: &mut Rng) -> (String, Vec<String>) {
+        let n_recipients = 1 + rng.next_usize(4);
+        let mut recipients = Vec::with_capacity(n_recipients);
+        let mut expected_domains = Vec::with_capacity(n_recipients);
+        for _ in 0..n_recipients {
+            let (rec, dom) = gen_mailto_recipient(rng);
+            recipients.push(rec);
+            expected_domains.push(dom);
+        }
+
+        let seps = [",", ";", "%2C", "%3B", "%2c", "%3b"];
+
+        let n_path = rng.next_usize(n_recipients + 1);
+        let path_recipients = &recipients[..n_path];
+        let query_recipients = &recipients[n_path..];
+
+        let mut path_str = String::new();
+        for (i, rec) in path_recipients.iter().enumerate() {
+            if i > 0 {
+                path_str.push_str(rng.choose(&seps));
+            }
+            path_str.push_str(rec);
+        }
+
+        let mut query_params: Vec<String> = Vec::new();
+        if !query_recipients.is_empty() {
+            let param_names = ["to", "To", "TO", "cc", "Cc", "CC", "bcc", "Bcc", "BCC"];
+            let mut i = 0;
+            while i < query_recipients.len() {
+                let take = 1 + rng.next_usize(query_recipients.len() - i);
+                let name = *rng.choose(&param_names);
+                let mut val = String::new();
+                for (j, rec) in query_recipients[i..i + take].iter().enumerate() {
+                    if j > 0 {
+                        val.push_str(rng.choose(&seps));
+                    }
+                    val.push_str(rec);
+                }
+                query_params.push(format!("{name}={val}"));
+                i += take;
+            }
+        }
+
+        if rng.next_usize(5) == 0 {
+            query_params.push("subject=Test%20Mail&body=Hello".to_string());
+        }
+
+        let mut url = format!("mailto:{path_str}");
+        if !query_params.is_empty() {
+            url.push('?');
+            url.push_str(&query_params.join("&"));
+        }
+
+        (url, expected_domains)
+    }
+
+    fn check_property_7(url: &str, expected_domains: &[String]) -> Result<(), (String, String)> {
+        let preview_attempt =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| preview(url)));
+        let preview_res = match preview_attempt {
+            Ok(r) => r,
+            Err(_) => {
+                return Err((
+                    format!("Property 6/7: preview panicked on {url:?}"),
+                    expected_domains.first().cloned().unwrap_or_default(),
+                ));
+            }
+        };
+
+        let p = preview_res.map_err(|e| {
+            (
+                format!("Property 7: preview({url:?}) failed: {e:?}"),
+                expected_domains.first().cloned().unwrap_or_default(),
+            )
+        })?;
+
+        let host_str = p.host.as_deref().unwrap_or("");
+        let actual_domains: Vec<&str> = host_str.split(", ").collect();
+
+        for expected in expected_domains {
+            if expected.is_empty() {
+                continue;
+            }
+            if !actual_domains
+                .iter()
+                .any(|d| d.eq_ignore_ascii_case(expected))
+            {
+                return Err((
+                    format!(
+                        "Property 7 violated: expected domain {expected:?} not found in host list {actual_domains:?} for url {url:?}"
+                    ),
+                    expected.to_string(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn property_7_mailto_domains() {
+        let mut rng = Rng::new(SEED_MAILTO);
+        for case in 0..CASES_MAILTO {
+            let (url, expected_domains) = gen_mailto_url(&mut rng);
+            if let Err((err, missing_domain)) = check_property_7(&url, &expected_domains) {
+                let shrunk = shrink_failing_input(url.clone(), |cand| {
+                    if !missing_domain.is_empty()
+                        && !cand
+                            .to_ascii_lowercase()
+                            .contains(&missing_domain.to_ascii_lowercase())
+                    {
+                        return false;
+                    }
+                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| preview(cand))) {
+                        Err(_) => true,
+                        Ok(Err(_)) => true,
+                        Ok(Ok(p)) => {
+                            let host_str = p.host.as_deref().unwrap_or("");
+                            let actual_domains: Vec<&str> = host_str.split(", ").collect();
+                            !actual_domains
+                                .iter()
+                                .any(|d| d.eq_ignore_ascii_case(missing_domain.trim()))
+                        }
+                    }
+                });
+                panic!(
+                    "Property 7 violated!\nSeed: {SEED_MAILTO:#X}\nCase: {case}\nError: {err}\nOriginal: {:?}\nShrunk:   {:?}",
+                    url, shrunk
+                );
+            }
+        }
+    }
+}
