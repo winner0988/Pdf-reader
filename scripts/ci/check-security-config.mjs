@@ -2,7 +2,8 @@
 // Checks security-relevant configuration (AGENTS.md principles 1 and 6, ADR 0009):
 //   - the production CSP in src-tauri/tauri.conf.json
 //   - the dev-server CSP in vite.config.ts (Tauri does not apply its CSP to devUrl pages)
-//   - Tauri capabilities in src-tauri/capabilities/
+//   - Tauri capabilities in src-tauri/capabilities/, and the list of app permissions they may
+//     grant in src-tauri/allowed-permissions.json (#665)
 //   - command registration in src-tauri/src/lib.rs vs AppManifest::commands in src-tauri/build.rs (#327)
 //   - app permissions: the files in src-tauri/permissions/, and the app permissions capabilities
 //     grant, vs AppManifest::commands (#659)
@@ -39,204 +40,20 @@ const DEV_ONLY_SOURCES = {
 };
 
 /**
- * Permissions the frontend may be granted. Add an entry only together with a work card that
- * needs it, a one-line justification, and the needs-security-review label.
+ * The app permissions the frontend may be granted are data, not part of this script (#665): each
+ * entry is the allow-<command> tauri-build generates for a command of AppManifest::commands, with
+ * a reason. A PR that adds a command adds its permission there, and the guards, which run from the
+ * base branch, read the PR's list and check every entry against the PR's build.rs.
  */
-const ALLOWED_PERMISSIONS = new Map([
-  // The app's own commands (src-tauri/src/commands.rs). They take document and request ids,
-  // never paths or URIs; each was reviewed with its card's PR.
-  ["allow-subscribe-open-events", "MVP-06: receive open outcomes on a channel instead of core:event"],
-  ["allow-open-document-dialog", "MVP-06: the main process shows the dialog; the path stays there"],
-  ["allow-retry-open", "MVP-06, MVP-14: reopen a tab's file after a worker failure, by tab id"],
-  ["allow-unlock-tab", "MVP-16, B2-25: try a password on a tab whose file is encrypted; it goes to that tab's worker only, and is remembered only if the user asks"],
-  [
-    "allow-forget-password",
-    "B2-25: forget the password the app remembers for the file of a tab, by tab id; nothing comes back but the tab's new state",
-  ],
-  [
-    "allow-forget-all-passwords",
-    "B2-25: forget every password the app remembers in Windows' Credential Manager; answers how many there were",
-  ],
-  [
-    "allow-get-remembered-passwords",
-    "B2-25: how many passwords the app remembers, and the most it will; no list, no keys, no passwords",
-  ],
-  [
-    "allow-pick-pages-source",
-    "B2-06: a PDF whose pages go into the document; the main process asks in its open dialog and the path stays there, the document's worker scans it and writes a clean copy",
-  ],
-  [
-    "allow-unlock-pages-source",
-    "B2-06: the password of the encrypted file just chosen to take pages from; it goes to that document's worker only",
-  ],
-  ["allow-close-tab", "MVP-14: close a tab by its id; its worker ends"],
-  ["allow-set-active-tab", "MVP-14: which tab the window shows, for the window title"],
-  ["allow-render-page", "MVP-07: render a page of an open document"],
-  ["allow-cancel", "MVP-07, MVP-10: cancel a queued render or a running search by request id"],
-  ["allow-get-outline", "MVP-09: read the checked outline"],
-  [
-    "allow-get-attachments",
-    "B3-20, ADR 0025: list the files a document carries (cleaned names, claimed sizes, whether the type is dangerous); by document id, nothing is opened",
-  ],
-  [
-    "allow-save-attachment",
-    "B3-20, ADR 0025: save one listed attachment where the user says in the system's save dialog, marked as from the internet; by document and attachment id, never opened",
-  ],
-  [
-    "allow-get-document-properties",
-    "B5-04: get read-only basic document properties and security summary by document id; no paths or hidden layers",
-  ],
-  [
-    "allow-get-document-fonts",
-    "B5-04: discover fonts referenced or embedded in the document by document id, cancellable by request id",
-  ],
-  ["allow-search", "MVP-10: full-text search, results on a channel"],
-  [
-    "allow-search-text-index",
-    "B3-21, ADR 0026: search the text index of the documents opened before, results on a channel; each gives a file name, page numbers and a little text, never a path",
-  ],
-  [
-    "allow-open-indexed-document",
-    "B3-21, ADR 0026: open the file of a result of the last index search by its number; the path stays in the main process, which checks the file has not changed",
-  ],
-  ["allow-get-text-index-status", "B3-21, ADR 0026: how many documents the text index has and how much room it takes"],
-  ["allow-clear-text-index", "B3-21, ADR 0026: delete the text index, its key first"],
-  ["allow-get-page-links", "MVP-12: where a page's links are and where they point"],
-  ["allow-get-page-annotations", "B2-07: list one page's annotations (highlights, notes and the document's own) to select and edit them"],
-  [
-    "allow-get-annotation-summary",
-    "B4-06: fetch a summary of an open document's annotations for the sidebar, by document id; runs on blocking pool; ui prevents copying",
-  ],
-  ["allow-get-page-fields", "B2-09: list one page's form fields (values, options, whether they have scripts) to fill them in; nothing in them is run"],
-  ["allow-get-signatures", "B2-14: the signatures of an open document, verified offline by its worker (whether each holds, who signed); by document id"],
-  [
-    "allow-get-redaction-summary",
-    "B2-19, ADR 0016: how many redaction marks, pages, annotations and form fields applying would touch; counts only, by document id",
-  ],
-  [
-    "allow-find-personal-data",
-    "#302: scan open document for personal data patterns to mark for redaction; counts and masked previews only, by document id",
-  ],
-  ["allow-get-page-text", "MVP-15: a page's text and where its characters are, for selecting and copying"],
-  ["allow-describe-link", "MVP-12: what the confirmation dialog shows, checked in the main process"],
-  ["allow-open-link", "MVP-12: open a confirmed http/https/mailto link by its id"],
-  ["allow-describe-outline-link", "#49: the same confirmation for an outline item"],
-  ["allow-open-outline-link", "#49: open a confirmed outline link by its position"],
-  ["allow-describe-remote-address", "B3-08: the same confirmation for a remote reference's web address"],
-  ["allow-open-remote-address", "B3-08: hand a confirmed remote address to the browser by its position"],
-  ["allow-open-default-apps-settings", "REL-03: open the fixed default-apps page of Windows Settings"],
-  [
-    "allow-check-for-updates",
-    "#64, ADR 0009: the one network request, from the main process to a fixed GitHub address; no arguments",
-  ],
-  ["allow-describe-releases-page", "#64: what the link confirmation shows about the fixed releases page"],
-  ["allow-open-releases-page", "#64: open the fixed releases page after the user confirmed it"],
-  ["allow-get-recent-files", "#73: the recently opened files as names and ids; the paths stay in the main process"],
-  ["allow-open-recent-file", "#73: open a recently opened file by its id"],
-  ["allow-remove-recent-file", "#73: take a file off the recent files list by its id"],
-  ["allow-clear-recent-files", "#73: empty the recent files list"],
-  ["allow-get-file-recording", "#73: whether an open document's file may be on the recent files list"],
-  ["allow-set-file-recording", "#73: record an open document's file on the recent files list, or not"],
-  ["allow-get-settings", "B2-12: the user's settings (theme, whether to record recent files)"],
-  ["allow-set-settings", "B2-12: replace the user's settings; typed, no other field accepted"],
-  ["allow-clear-recent-exclusions", "B2-12: forget which files the user asked not to record"],
-  ["allow-check-sensitive-mark", "B3-05, ADR 0010: what writing the sensitive mark into an open document's file would do"],
-  [
-    "allow-set-sensitive",
-    "B3-05, ADR 0010: append the sensitive mark to an open document's file, or take it out, after the user confirmed; no path from the page",
-  ],
-  ["allow-get-sensitive-files", "B3-05: the files marked as sensitive on this computer, as names and ids; no paths"],
-  ["allow-remove-sensitive-file", "B3-05: take a file off the list of marked files by its id; the file is not changed"],
-  [
-    "allow-copy-protected-text",
-    "B3-05, ADR 0004: put text copied from a sensitive document on the clipboard, kept out of the clipboard history; never reads it",
-  ],
-  ["allow-export-pages", "B2-04: export pages as text or PNG; the main process asks where and writes the files"],
-  [
-    "allow-export-annotation-summary",
-    "B3-18: a summary of an open document's annotations as a text or Markdown file, by document id; the main process makes it, asks where, never the document's own file; refused when the author forbids copying",
-  ],
-  [
-    "allow-compare-text",
-    "B3-24, E9: compare text between two open documents by their document ids; runs on blocking pool; refused when either author forbids copying",
-  ],
-  [
-    "allow-export-compare-text",
-    "B3-24, E9: export text comparison as text or Markdown file; main process asks where, never either document's own file",
-  ],
-  ["allow-apply-edit", "B2-02: a typed edit of an open document, applied in its worker; validated, no PDF objects"],
-  ["allow-undo-edit", "B2-05: undo the last edit of an open document; its worker opens the kept bytes again"],
-  ["allow-redo-edit", "B2-05: make the last undone edit of an open document again"],
-  ["allow-recover-edits", "B2-13: make again the edits an earlier run left for an open document's file (crash recovery)"],
-  ["allow-discard-recovered-edits", "B2-13: delete the recovery journal an earlier run left for an open document's file"],
-  ["allow-save-document", "B2-02: write an open document to its own file; the main process owns the path"],
-  ["allow-save-document-as", "B2-02: write an open document to a file the user picks in the main process's save dialog"],
-  ["allow-close-window", "B2-02: close the window after the user was asked about unsaved changes"],
-  ["allow-set-fullscreen", "B4-03: 讓視窗進出全螢幕；不接受路徑或網址"],
-  [
-    "allow-privacy-export",
-    "B2-03: a copy without metadata; the main process asks where, never the document's own file",
-  ],
-  ["allow-get-ocr-languages", "B2-10: the languages scanned pages can be recognised in (codes and sizes)"],
-  ["allow-get-fonts", "B2-27: the fonts installed in Windows (ids and names, never a path), for text boxes"],
-  ["allow-get-text-box", "B2-29: what a text box says of itself (words, font name, style), to fill in the dialog that changes it"],
-  ["allow-prepare-text-box", "B2-29: the words of a text box, made into a small subset of a font by id (the page gets no path and no font bytes)"],
-  [
-    "allow-import-font",
-    "B2-32: the main process asks for a .ttf/.ttc file, checks its header and size, the worker checks its TrueType outlines, and copies it into the app's data folder; the path stays there",
-  ],
-  ["allow-remove-font", "B2-32: remove an imported font by its id; the installed Windows fonts stay"],
-  ["allow-remove-all-fonts", "B2-32: remove all imported fonts from the app's data folder; the installed Windows fonts stay"],
-  [
-    "allow-import-ocr-language",
-    "B2-10: the main process asks for a .traineddata file, checks its name, size and format, and copies it into the app's data folder; the path stays there",
-  ],
-  ["allow-remove-ocr-language", "B2-10: remove an imported language by its code; the ones that came with the app stay"],
-  ["allow-start-ocr", "B2-10: recognise the text of an open document's scanned pages now, by document id"],
-  ["allow-stop-ocr", "B2-10: stop recognising an open document's pages, by document id"],
-  ["allow-set-ocr-focus", "B2-10: the page the user looks at, which is recognised first, by document id and page number"],
-  [
-    "allow-encrypt-copy",
-    "B2-15: a copy encrypted with AES-256; the passwords are used once and not kept, the main process asks where, never the document's own file",
-  ],
-  [
-    "allow-compress-images",
-    "B3-01: a copy whose pictures are encoded again, smaller; the main process asks where, never the document's own file, and the worker decodes the pictures as it does for any page",
-  ],
-  [
-    "allow-page-marks-copy",
-    "B3-16: a copy with page numbers, Bates numbers, headers and footers drawn on its pages; the main process asks where, never the document's own file",
-  ],
-  [
-    "allow-sanitize-copy",
-    "B3-15: a copy without active content, attachments and hidden data, checked by the active-content scan before it is written; the main process asks where, never the document's own file",
-  ],
-  [
-    "allow-run-batch",
-    "B3-04: one operation (metadata removal, encrypted copy) done to many files the user picks, one after the other, each in a worker of its own; the main process asks for the files and the folder, the paths stay there, no file is changed",
-  ],
-  [
-    "allow-pick-stamp-image",
-    "B2-08: a picture for a custom stamp; the main process asks in its open dialog and the path stays there, the document's worker keeps only the pixels",
-  ],
-  [
-    "allow-create-pdf",
-    "B3-03: a PDF made of files the user picks; the main process asks for the files and for where the PDF goes, a sandboxed worker reads them through read-only handles, and the paths stay there",
-  ],
-  ["allow-check-signing", "B3-06: whether an open document can be signed, by document id"],
-  [
-    "allow-choose-signing-file",
-    "B3-06: a certificate file (PKCS #12) to sign with; the main process asks in its open dialog and keeps the file, the page gets a number and the file's name",
-  ],
-  [
-    "allow-list-signing-certificates",
-    "B3-06, ADR 0020: the certificates of the user's own store that have a private key (in Windows or on a smart card), read only; the page gets numbers, names and dates, and no key is opened",
-  ],
-  [
-    "allow-sign-document",
-    "B3-06, ADR 0020: a signed copy of an open document's file, with a certificate file (the password goes to Windows once, the private key stays in the main process and in memory) or a certificate of the user's store (its key stays in Windows or on the card, which asks for its PIN); the main process asks where, never the document's own file, and a new worker verifies the copy",
-  ],
-]);
+export const ALLOWED_PERMISSIONS_FILE = "src-tauri/allowed-permissions.json";
+
+/**
+ * Core and plugin permissions (with a prefix, such as core: or dialog:) the frontend may be
+ * granted. There are none. Add one only together with a work card that needs it, a one-line
+ * justification, and the needs-security-review label. The guards run from the base branch, so
+ * the entry must reach main in a PR of its own before the PR that grants the permission.
+ */
+const ALLOWED_PLUGIN_PERMISSIONS = new Map([]);
 
 /** Plugin permission prefixes that are never granted to the frontend, allowlist or not. */
 const FORBIDDEN_PERMISSION_PREFIXES = [
@@ -427,11 +244,85 @@ export function ungeneratedAppPermissions(ids, commands) {
   return ids.filter((id) => !id.includes(":") && !generated.has(id));
 }
 
+/** Says why an app permission is not one tauri-build generates (#659). */
+function notGenerated(id) {
+  const command = id.startsWith("allow-") ? id.slice("allow-".length).replaceAll("-", "_") : null;
+  return (
+    `${id} has no plugin prefix, so it is an app permission, but tauri-build generates one only ` +
+    "as allow-<command> for a command in AppManifest::commands (src-tauri/build.rs)" +
+    (command !== null && commandPermission(command) === id ? `, and ${command} is not there` : "")
+  );
+}
+
 /**
- * Returns a list of problems with one capability file. With `commands` (AppManifest::commands),
- * an app permission must also be the one tauri-build generates for one of them (#659).
+ * Reads the app permissions the frontend may be granted from the text of
+ * src-tauri/allowed-permissions.json (#665). Returns each listed app permission with its reason
+ * (null when the text is not such a list), and the problems with the file: an entry must have an
+ * id without a prefix, which is the allow-<command> tauri-build generates for one of `commands`
+ * (not checked when null), a reason, and no other keys, and no id may be listed twice.
  */
-export function checkCapability(capability, fileName, { commands = null } = {}) {
+export function readAllowedPermissions(text, commands, { file = ALLOWED_PERMISSIONS_FILE } = {}) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (error) {
+    return { allowed: null, problems: [`${file}: not valid JSON (${error.message})`] };
+  }
+  if (data === null || !Array.isArray(data.permissions)) {
+    return { allowed: null, problems: [`${file}: must be an object with a "permissions" list`] };
+  }
+  const allowed = new Map();
+  const problems = [];
+  for (const key of Object.keys(data)) {
+    if (key !== "$comment" && key !== "permissions") {
+      problems.push(`${file}: unknown key "${key}"`);
+    }
+  }
+  data.permissions.forEach((entry, index) => {
+    const where = `${file}: permissions[${index}]`;
+    if (entry === null || typeof entry !== "object") {
+      problems.push(`${where} must be an object with an id and a reason`);
+      return;
+    }
+    const { id, reason } = entry;
+    if (typeof id !== "string" || id === "") {
+      problems.push(`${where} has no id`);
+      return;
+    }
+    const extra = Object.keys(entry).filter((key) => key !== "id" && key !== "reason");
+    if (extra.length > 0) {
+      problems.push(`${where}: ${id} has keys other than id and reason: ${extra.join(", ")}`);
+    }
+    if (typeof reason !== "string" || reason.trim() === "") {
+      problems.push(`${where}: ${id} has no reason`);
+    }
+    if (id.includes(":")) {
+      problems.push(
+        `${where}: ${id} has a prefix. Only the app's own allow-<command> permissions are listed ` +
+          "here; core and plugin permissions go into ALLOWED_PLUGIN_PERMISSIONS " +
+          "(scripts/ci/check-security-config.mjs)",
+      );
+      return;
+    }
+    if (allowed.has(id)) {
+      problems.push(`${where}: ${id} is listed twice`);
+      return;
+    }
+    if (commands !== null && ungeneratedAppPermissions([id], commands).length > 0) {
+      problems.push(`${where}: ${notGenerated(id)}`);
+    }
+    allowed.set(id, typeof reason === "string" ? reason : "");
+  });
+  return { allowed, problems };
+}
+
+/**
+ * Returns a list of problems with one capability file. `allowed` holds the app permissions of
+ * src-tauri/allowed-permissions.json (null when that file could not be read; its problem is
+ * reported on its own). With `commands` (AppManifest::commands), an app permission must also be
+ * the one tauri-build generates for one of them (#659).
+ */
+export function checkCapability(capability, fileName, { allowed = new Map(), commands = null } = {}) {
   const problems = [];
   if (capability.remote) {
     problems.push(`${fileName}: remote URLs must never get IPC access`);
@@ -444,17 +335,18 @@ export function checkCapability(capability, fileName, { commands = null } = {}) 
     }
     if (FORBIDDEN_PERMISSION_PREFIXES.some((prefix) => id.startsWith(prefix))) {
       problems.push(`${fileName}: ${id} is never granted to the frontend`);
-    } else if (!ALLOWED_PERMISSIONS.has(id)) {
-      problems.push(
-        `${fileName}: ${id} is not in ALLOWED_PERMISSIONS (scripts/ci/check-security-config.mjs)`,
-      );
+    } else if (id.includes(":")) {
+      if (!ALLOWED_PLUGIN_PERMISSIONS.has(id)) {
+        problems.push(
+          `${fileName}: ${id} is a core or plugin permission that is not in ALLOWED_PLUGIN_PERMISSIONS ` +
+            "(scripts/ci/check-security-config.mjs). The guards run from the base branch, so the " +
+            "entry must reach main in a PR of its own first",
+        );
+      }
+    } else if (allowed !== null && !allowed.has(id)) {
+      problems.push(`${fileName}: ${id} is not in ${ALLOWED_PERMISSIONS_FILE}`);
     } else if (commands !== null && ungeneratedAppPermissions([id], commands).length > 0) {
-      const command = id.startsWith("allow-") ? id.slice("allow-".length).replaceAll("-", "_") : null;
-      problems.push(
-        `${fileName}: ${id} has no plugin prefix, so it is an app permission, but tauri-build ` +
-          "generates one only as allow-<command> for a command in AppManifest::commands " +
-          `(src-tauri/build.rs)${command === null ? "" : `, and ${command} is not there`}`,
-      );
+      problems.push(`${fileName}: ${notGenerated(id)}`);
     }
   }
   return problems;
@@ -1136,10 +1028,21 @@ export function checkRepository(root) {
   // null when build.rs has no AppManifest::commands; checkCommandManifest reports that.
   const commands = extractManifestCommands(buildSource);
 
+  // null when the list cannot be read: that problem is reported once, not for every permission.
+  let allowed = null;
+  const allowedFile = join(root, ALLOWED_PERMISSIONS_FILE);
+  if (!existsSync(allowedFile)) {
+    problems.push(`${ALLOWED_PERMISSIONS_FILE}: file not found`);
+  } else {
+    const list = readAllowedPermissions(readFileSync(allowedFile, "utf8"), commands);
+    problems.push(...list.problems);
+    allowed = list.allowed;
+  }
+
   const capabilityDir = join(root, "src-tauri/capabilities");
   for (const file of readdirSync(capabilityDir).filter((name) => name.endsWith(".json"))) {
     const capability = JSON.parse(readFileSync(join(capabilityDir, file), "utf8"));
-    problems.push(...checkCapability(capability, `capabilities/${file}`, { commands }));
+    problems.push(...checkCapability(capability, `capabilities/${file}`, { allowed, commands }));
   }
 
   problems.push(...checkCommandManifest(libSource, buildSource));
@@ -1183,6 +1086,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(1);
   }
   console.log(
-    "OK: CSP, dev CSP, WebView2 arguments, capabilities, command manifest, permission files, and attack surface list are within policy.",
+    "OK: CSP, dev CSP, WebView2 arguments, capabilities, allowed app permissions, command manifest, permission files, and attack surface list are within policy.",
   );
 }

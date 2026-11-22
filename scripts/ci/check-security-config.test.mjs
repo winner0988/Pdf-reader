@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  ALLOWED_PERMISSIONS_FILE,
   checkAttackSurface,
   checkBrowserArguments,
   checkCapability,
@@ -18,6 +19,7 @@ import {
   extractHandlerCommands,
   extractManifestCommands,
   extractRustEnumVariants,
+  readAllowedPermissions,
   ungeneratedAppPermissions,
 } from "./check-security-config.mjs";
 
@@ -408,6 +410,10 @@ test("checkRepository reports problem when manifest is missing a command", (t) =
   for (const file of readdirSync(capDir).filter((name) => name.endsWith(".json"))) {
     copyFileSync(join(capDir, file), join(tempDir, "src-tauri/capabilities", file));
   }
+  copyFileSync(
+    join(repoRoot, "src-tauri/allowed-permissions.json"),
+    join(tempDir, "src-tauri/allowed-permissions.json"),
+  );
 
   const buildSource = readFileSync(join(repoRoot, "src-tauri/build.rs"), "utf8");
   const missingCmd = "subscribe_open_events";
@@ -416,11 +422,16 @@ test("checkRepository reports problem when manifest is missing a command", (t) =
   writeFileSync(join(tempDir, "src-tauri/build.rs"), modifiedBuild, "utf8");
 
   const problems = checkRepository(tempDir);
-  // The manifest check finds the command, and the capability check finds that main.json grants a
-  // permission tauri-build no longer generates (#659).
-  assert.equal(problems.length, 2, JSON.stringify(problems));
+  // The manifest check finds the command; main.json grants, and allowed-permissions.json lists, a
+  // permission tauri-build no longer generates (#659, #665).
+  assert.equal(problems.length, 3, JSON.stringify(problems));
   assert.ok(problems.every((problem) => problem.includes(missingCmd)), JSON.stringify(problems));
   assert.ok(problems.some((problem) => problem.startsWith("capabilities/main.json: allow-subscribe-open-events ")));
+  assert.ok(
+    problems.some((problem) =>
+      problem.startsWith("src-tauri/allowed-permissions.json: permissions[0]: allow-subscribe-open-events "),
+    ),
+  );
 });
 
 const sampleLib = `
@@ -612,6 +623,11 @@ test("checkRepository reports problem when attack surface is missing a command",
     copyFileSync(join(capDir, file), join(tempDir, "src-tauri/capabilities", file));
   }
 
+  copyFileSync(
+    join(repoRoot, "src-tauri/allowed-permissions.json"),
+    join(tempDir, "src-tauri/allowed-permissions.json"),
+  );
+
   const docSource = readFileSync(join(repoRoot, "docs/security/attack-surface.md"), "utf8");
   const missingCmd = "subscribe_open_events";
   // Remove line with missingCmd
@@ -658,20 +674,28 @@ test("app permissions are only the ones tauri-build generates for AppManifest::c
   );
 
   // An allowlisted permission passes while its command is in the manifest, and fails without it.
-  assert.deepEqual(checkCapability({ permissions: ["allow-cancel"] }, "main.json", { commands: ["cancel"] }), []);
+  const allowed = new Map([
+    ["allow-cancel", "test"],
+    ["allow-retry-open", "test"],
+  ]);
+  assert.deepEqual(
+    checkCapability({ permissions: ["allow-cancel"] }, "main.json", { allowed, commands: ["cancel"] }),
+    [],
+  );
   const problems = checkCapability(
     { permissions: ["allow-cancel", { identifier: "allow-retry-open" }] },
     "main.json",
-    { commands: ["retry_open"] },
+    { allowed, commands: ["retry_open"] },
   );
   assert.equal(problems.length, 1, JSON.stringify(problems));
   assert.match(problems[0], /^main\.json: allow-cancel .*AppManifest::commands .*, and cancel is not there$/);
 
   // Without the manifest's commands, only the allowlist is checked.
-  assert.deepEqual(checkCapability({ permissions: ["allow-cancel"] }, "main.json"), []);
+  assert.deepEqual(checkCapability({ permissions: ["allow-cancel"] }, "main.json", { allowed }), []);
   // A forbidden or unlisted permission gets one problem, not a second one about the manifest.
   assert.equal(
-    checkCapability({ permissions: ["fs:default", "allow-not-listed"] }, "main.json", { commands: [] }).length,
+    checkCapability({ permissions: ["fs:default", "allow-not-listed"] }, "main.json", { allowed, commands: [] })
+      .length,
     2,
   );
 });
@@ -701,18 +725,19 @@ test("only the permission files tauri-build writes may be in src-tauri/permissio
   assert.ok(problems.every((problem) => problem.includes("Delete this file")), JSON.stringify(problems));
 });
 
-test("checkRepository finds a hand-written permission file (#659)", (t) => {
+/** Copies the files checkRepository reads into a new temporary folder, removed after the test. */
+function copyRepository(t, prefix) {
   const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
-  const tempDir = mkdtempSync(join(tmpdir(), "check-repo-perm-"));
+  const tempDir = mkdtempSync(join(tmpdir(), prefix));
   t.after(() => {
     rmSync(tempDir, { recursive: true, force: true });
   });
-
   for (const dir of ["src-tauri/src", "crates/ipc_contract/src", "docs/security"]) {
     mkdirSync(join(tempDir, dir), { recursive: true });
   }
   for (const file of [
     "src-tauri/tauri.conf.json",
+    "src-tauri/allowed-permissions.json",
     "vite.config.ts",
     "src-tauri/src/lib.rs",
     "src-tauri/build.rs",
@@ -727,6 +752,11 @@ test("checkRepository finds a hand-written permission file (#659)", (t) => {
       copyFileSync(join(repoRoot, dir, file), join(tempDir, dir, file));
     }
   }
+  return tempDir;
+}
+
+test("checkRepository finds a hand-written permission file (#659)", (t) => {
+  const tempDir = copyRepository(t, "check-repo-perm-");
   assert.deepEqual(checkRepository(tempDir), []);
 
   mkdirSync(join(tempDir, "src-tauri/permissions/sets"));
@@ -741,5 +771,168 @@ test("checkRepository finds a hand-written permission file (#659)", (t) => {
       "src-tauri/permissions/autogenerated/removed_command.toml",
       "src-tauri/permissions/sets/open.toml",
     ],
+  );
+});
+
+test("allowed-permissions.json lists only the app's own allow-<command> permissions, each with a reason (#665)", () => {
+  const commands = ["cmd_a", "cmd_b", "cmd_c", "open_document_dialog"];
+  const list = (permissions, extra = {}) => JSON.stringify({ $comment: ["test"], permissions, ...extra });
+
+  const good = readAllowedPermissions(
+    list([
+      { id: "allow-cmd-a", reason: "A" },
+      { id: "allow-open-document-dialog", reason: "B" },
+    ]),
+    commands,
+  );
+  assert.deepEqual(good.problems, []);
+  assert.deepEqual(
+    [...good.allowed],
+    [
+      ["allow-cmd-a", "A"],
+      ["allow-open-document-dialog", "B"],
+    ],
+  );
+
+  const bad = readAllowedPermissions(
+    list(
+      [
+        { id: "core:default", reason: "a core permission" },
+        { id: "allow-cmd-x", reason: "no such command" },
+        { id: "allow-cmd-b", reason: " " },
+        { id: "allow-cmd-a", reason: "A" },
+        { id: "allow-cmd-a", reason: "again" },
+        { id: "allow-open-document-dialog" },
+        { id: "", reason: "no id" },
+        "allow-cmd-c",
+        { id: "deny-cmd-a", reason: "a deny permission" },
+        { id: "allow-cmd_b", reason: "_ instead of -" },
+        { id: "allow-cmd-c", reason: "C", scope: ["**"] },
+      ],
+      { allow: ["core:default"] },
+    ),
+    commands,
+  );
+  const file = ALLOWED_PERMISSIONS_FILE;
+  const expected = [
+    `${file}: unknown key "allow"`,
+    `${file}: permissions[0]: core:default has a prefix.`,
+    `${file}: permissions[1]: allow-cmd-x has no plugin prefix`,
+    `${file}: permissions[2]: allow-cmd-b has no reason`,
+    `${file}: permissions[4]: allow-cmd-a is listed twice`,
+    `${file}: permissions[5]: allow-open-document-dialog has no reason`,
+    `${file}: permissions[6] has no id`,
+    `${file}: permissions[7] must be an object with an id and a reason`,
+    `${file}: permissions[8]: deny-cmd-a has no plugin prefix`,
+    `${file}: permissions[9]: allow-cmd_b has no plugin prefix`,
+    `${file}: permissions[10]: allow-cmd-c has keys other than id and reason: scope`,
+  ];
+  assert.equal(bad.problems.length, expected.length, JSON.stringify(bad.problems, null, 1));
+  bad.problems.forEach((problem, index) => assert.ok(problem.startsWith(expected[index]), problem));
+  assert.ok(bad.problems[2].endsWith(", and cmd_x is not there"), bad.problems[2]);
+  assert.ok(bad.problems[8].endsWith("(src-tauri/build.rs)"), bad.problems[8]);
+  assert.ok(bad.problems[9].endsWith("(src-tauri/build.rs)"), bad.problems[9]);
+  // A prefixed id never counts as listed, and of two entries for one id the first counts.
+  assert.deepEqual(
+    [...bad.allowed],
+    [
+      ["allow-cmd-x", "no such command"],
+      ["allow-cmd-b", " "],
+      ["allow-cmd-a", "A"],
+      ["allow-open-document-dialog", ""],
+      ["deny-cmd-a", "a deny permission"],
+      ["allow-cmd_b", "_ instead of -"],
+      ["allow-cmd-c", "C"],
+    ],
+  );
+
+  // Without the manifest's commands, the entries are not checked against it.
+  assert.deepEqual(readAllowedPermissions(list([{ id: "allow-cmd-x", reason: "r" }]), null).problems, []);
+  // Text that is not such a list gives one problem and no list.
+  for (const text of ["", "{", "[]", "null", '{"permissions": {}}', '{"$comment": "no list"}']) {
+    const { allowed, problems } = readAllowedPermissions(text, commands);
+    assert.equal(allowed, null, text);
+    assert.equal(problems.length, 1, text);
+  }
+});
+
+test("capabilities grant only listed app permissions, and core or plugin ones only from the script (#665)", () => {
+  const allowed = new Map([["allow-cmd-a", "A"]]);
+  assert.deepEqual(checkCapability({ permissions: ["allow-cmd-a"] }, "main.json", { allowed, commands: ["cmd_a"] }), []);
+  const problems = checkCapability(
+    { permissions: ["allow-cmd-b", "core:event:allow-listen", "dialog:allow-open", "fs:allow-read-file"] },
+    "main.json",
+    { allowed, commands: ["cmd_a", "cmd_b"] },
+  );
+  assert.equal(problems.length, 4, JSON.stringify(problems));
+  assert.equal(problems[0], `main.json: allow-cmd-b is not in ${ALLOWED_PERMISSIONS_FILE}`);
+  assert.ok(
+    problems[1].startsWith(
+      "main.json: core:event:allow-listen is a core or plugin permission that is not in ALLOWED_PLUGIN_PERMISSIONS",
+    ),
+    problems[1],
+  );
+  assert.ok(problems[2].startsWith("main.json: dialog:allow-open is a core or plugin permission"), problems[2]);
+  assert.equal(problems[3], "main.json: fs:allow-read-file is never granted to the frontend");
+
+  // When the list could not be read, that is reported once, not for every permission; the
+  // permissions are still checked against the manifest.
+  assert.deepEqual(
+    checkCapability({ permissions: ["allow-cmd-a", "allow-cmd-b"] }, "main.json", {
+      allowed: null,
+      commands: ["cmd_a", "cmd_b"],
+    }),
+    [],
+  );
+  assert.equal(
+    checkCapability({ permissions: ["allow-cmd-x"] }, "main.json", { allowed: null, commands: ["cmd_a"] }).length,
+    1,
+  );
+});
+
+test("checkRepository reads the app permissions from src-tauri/allowed-permissions.json (#665)", (t) => {
+  const tempDir = copyRepository(t, "check-repo-allowed-");
+  const file = join(tempDir, ALLOWED_PERMISSIONS_FILE);
+  const list = JSON.parse(readFileSync(file, "utf8"));
+  assert.deepEqual(checkRepository(tempDir), []);
+
+  // The list is gone, or is not JSON: one problem, not one for every permission.
+  rmSync(file);
+  assert.deepEqual(checkRepository(tempDir), [`${ALLOWED_PERMISSIONS_FILE}: file not found`]);
+  writeFileSync(file, "{");
+  const invalid = checkRepository(tempDir);
+  assert.equal(invalid.length, 1, JSON.stringify(invalid));
+  assert.ok(invalid[0].startsWith(`${ALLOWED_PERMISSIONS_FILE}: not valid JSON`), invalid[0]);
+
+  // main.json grants a permission the list does not have.
+  const index = list.permissions.findIndex((entry) => entry.id === "allow-cancel");
+  assert.ok(index >= 0);
+  writeFileSync(file, JSON.stringify({ ...list, permissions: list.permissions.filter((_, i) => i !== index) }));
+  assert.deepEqual(checkRepository(tempDir), [
+    `capabilities/main.json: allow-cancel is not in ${ALLOWED_PERMISSIONS_FILE}`,
+  ]);
+
+  // The list has an entry for a command build.rs does not have, and a core permission.
+  const count = list.permissions.length;
+  writeFileSync(
+    file,
+    JSON.stringify({
+      ...list,
+      permissions: [
+        ...list.permissions,
+        { id: "allow-no-such-command", reason: "test" },
+        { id: "core:default", reason: "test" },
+      ],
+    }),
+  );
+  const extra = checkRepository(tempDir);
+  assert.equal(extra.length, 2, JSON.stringify(extra));
+  assert.ok(
+    extra[0].startsWith(`${ALLOWED_PERMISSIONS_FILE}: permissions[${count}]: allow-no-such-command `),
+    extra[0],
+  );
+  assert.ok(
+    extra[1].startsWith(`${ALLOWED_PERMISSIONS_FILE}: permissions[${count + 1}]: core:default has a prefix`),
+    extra[1],
   );
 });
