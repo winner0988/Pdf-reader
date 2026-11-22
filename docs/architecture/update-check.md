@@ -48,7 +48,7 @@ sequenceDiagram
 - **Proxy**：只用系統管理員為 WinHTTP 設定的 proxy（`netsh winhttp`，`WINHTTP_ACCESS_TYPE_DEFAULT_PROXY`）。不做自動偵測（WPAD）或 PAC：它們會在區域網路上另外發出請求。所以只在瀏覽器設定 proxy 的環境可能無法檢查更新，使用者仍可自己到 GitHub 查看。
 - **逾時**：名稱解析、連線、送出、每次等待資料各 15 秒。
 - `unsafe` 只在 WinHTTP 的呼叫，集中在這個模組；handle 以 RAII 關閉（子 handle 先於父 handle）。
-- `scripts/ci/forbidden-patterns.txt` 的 `WinHttp @only …` 規則讓 WinHTTP 只能出現在這個模組、`src-tauri/Cargo.toml` 的 feature，以及確認 worker 不載入它的隔離測試中。
+- `scripts/ci/forbidden-patterns.txt` 的 `WinHttp @only …` 規則讓 WinHTTP 只能出現在這個模組、`src-tauri/Cargo.toml` 的 feature，確認 worker 不載入它的隔離測試，以及確認主行程執行檔只有它一個網路 DLL 的匯入表測試（`src-tauri/tests/binary_imports.rs`，#612）中。
 
 ## 測試
 
