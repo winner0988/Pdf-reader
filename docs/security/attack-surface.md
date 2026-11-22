@@ -346,8 +346,8 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 項目 | 設定 | 檢查 |
 |---|---|---|
-| capability | `src-tauri/capabilities/main.json`：只給 `main` 視窗；99 個 `allow-*`；沒有 `core:*`、`dialog`、`fs`；沒有 `remote`，外部網頁拿不到 IPC | `check-security-config.mjs`（靜態）；`refused-commands.spec.ts`（#425） |
-| CSP | `default-src 'self'`、`script-src 'self'`、`style-src 'self'`、`img-src 'self' data: blob:`、`font-src 'self'`、`connect-src ipc: http://ipc.localhost`、`object-src`／`base-uri`／`form-action`／`frame-src` 都是 `'none'` | `check-security-config.mjs`（正式版與 `vite.config.ts` 的開發用 CSP）；`check-dist.mjs`（建置產物不引用外部資源） |
+| capability | `src-tauri/capabilities/main.json`：只給 `main` 視窗；89 個 `allow-*`；沒有 `core:*`、`dialog`、`fs`；沒有 `remote`，外部網頁拿不到 IPC | `check-security-config.mjs`（靜態）；`refused-commands.spec.ts`（#425） |
+| CSP | `default-src 'self'`、`script-src 'self'`、`style-src 'self'`、`img-src 'self' data: blob:`、`font-src 'self'`、`connect-src ipc: http://ipc.localhost`、`object-src`／`base-uri`／`form-action`／`frame-src` 都是 `'none'` | `check-security-config.mjs`（正式版與 `vite.config.ts` 的開發用 CSP）；`check-dist.mjs`（建置產物不引用外部資源）；`csp.spec.ts`（#613） |
 | 全域 API | `withGlobalTauri: false` | — |
 | 開發人員工具 | `tauri` 沒有開 `devtools` 功能，正式版沒有開發人員工具 | 人工檢查（manual-checks §3） |
 | WebView2 的參數 | `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-networking --no-proxy-server --disable-component-update` | `network.spec.ts`（#121） |
@@ -373,7 +373,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 |---|---|---|
 | 主行程（`update_check.rs` 以外） | 執行檔的網路 DLL 只有 `update_check.rs` 用的 `winhttp.dll`（一般與延遲載入的匯入表都檢查） | `binary_imports.rs`（`main_binary_imports_no_network_dll_except_winhttp`） |
 | worker | AppContainer 沒有網路的 capability；執行檔不匯入網路 API | `network_is_blocked_even_to_localhost`、`worker_binary_imports_no_networking` |
-| WebView | CSP；WebView2 的參數；`on_navigation` 只允許 app 自己的網址，`on_download` 封鎖下載 | `network.spec.ts`（WebView 什麼都不連）、`remote-references.spec.ts`（遠端參照一律不載入，ADR 0022）、`navigation.spec.ts`（#424） |
+| WebView | CSP；WebView2 的參數；`on_navigation` 只允許 app 自己的網址，`on_download` 封鎖下載 | `network.spec.ts`（WebView 什麼都不連）、`remote-references.spec.ts`（遠端參照一律不載入，ADR 0022）、`navigation.spec.ts`（#424）、`csp.spec.ts`（#613） |
 | 依賴與程式碼 | 不得有 HTTP client、更新器、遙測 | `scripts/ci/check-forbidden.sh`、`scripts/ci/forbidden-patterns.txt`、`cargo deny check` |
 | 整個 app | 實際執行時觀察 | [offline-verification.md](offline-verification.md)；manual-checks §1 |
 
