@@ -1049,6 +1049,15 @@ export const strings = {
     done: (count: number) => `已匯出 ${count} 個註解的摘要。`,
     truncated: (count: number) => `已匯出前 ${count} 個註解的摘要；註解太多，其餘沒有列出。`,
   },
+  /** Exporting annotations as XFDF (#446). */
+  exportXfdf: {
+    empty: "這份文件沒有註解。",
+    emptyWithSkipped: (skipped: number) => `這份文件沒有可匯出的註解（略過 ${skipped} 個不支援的項目）。`,
+    failed: () => "匯出失敗，請再試一次。",
+    done: (count: number) => `已匯出 ${count} 個註解到 XFDF 檔。`,
+    truncated: "（註解太多，其餘未匯出）",
+    skipped: (skipped: number) => `（略過 ${skipped} 個不支援的項目）`,
+  },
   /** Text comparison between two open tabs (B3-24, E9). */
   compare: {
     menu: "與另一個分頁比較文字…",
@@ -1302,6 +1311,7 @@ export const strings = {
     documentProperties: "文件內容…",
     export: "匯出…",
     exportAnnotations: "匯出註解摘要…",
+    exportXfdf: "匯出註解（XFDF）…",
     compareText: "與另一個分頁比較文字…",
     compareVisual: "與另一個分頁比較畫面…",
     privacyExport: "隱私匯出…",
@@ -1743,6 +1753,7 @@ export const strings = {
       replaceCurrentPage: ["取代", "取代頁面", "替換", "replace pages"],
       export: ["匯出文字", "匯出頁面", "轉存", "export"],
       exportAnnotations: ["匯出註解", "註解清單", "摘要報告", "annotations summary"],
+      exportXfdf: ["匯出 XFDF", "XFDF", "匯出註解檔", "export xfdf"],
       compareText: ["比對文字", "文字差異", "比較分頁", "diff", "compare text"],
       compareVisual: ["比對畫面", "視覺比較", "比較畫面", "visual diff", "compare visual"],
       privacyExport: ["去除中繼資料", "清空個人資訊", "隱私匯出", "privacy export"],

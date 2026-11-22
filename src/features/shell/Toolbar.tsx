@@ -103,6 +103,10 @@ export type ToolbarProps = {
   onExportAnnotations?: () => void;
   /** The document's author forbids copying, which covers the text a summary lists (B3-18). */
   exportAnnotationsBlocked?: boolean;
+  /** Writes annotations as an XFDF file (#446); without it the menu item is disabled. */
+  onExportXfdf?: () => void;
+  /** The document's author forbids copying, which covers XFDF export (MVP-19). */
+  exportXfdfBlocked?: boolean;
   /** Compares text with another open tab (B3-24, E9); without it the menu item is disabled. */
   onCompareText?: () => void;
   /** Why comparing text is blocked (e.g. only one tab open or copying forbidden). */
@@ -747,6 +751,7 @@ function MoreMenu(props: ToolbarProps) {
         {props.flatten && renderItem("flatten")}
         {renderItem("export")}
         {renderItem("exportAnnotations")}
+        {renderItem("exportXfdf")}
         {renderItem("compareText")}
         {renderItem("compareVisual")}
         {renderItem("privacyExport")}

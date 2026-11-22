@@ -155,6 +155,10 @@ const ALLOWED_PERMISSIONS = new Map([
     "B3-18: a summary of an open document's annotations as a text or Markdown file, by document id; the main process makes it, asks where, never the document's own file; refused when the author forbids copying",
   ],
   [
+    "allow-export-annotations-xfdf",
+    "B5-09: export annotations of an open document as an ISO 19444-1 XFDF file; main process makes it, asks where, never the document's own file; refused when author forbids copying",
+  ],
+  [
     "allow-compare-text",
     "B3-24, E9: compare text between two open documents by their document ids; runs on blocking pool; refused when either author forbids copying",
   ],

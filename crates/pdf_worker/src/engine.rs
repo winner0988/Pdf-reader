@@ -100,6 +100,7 @@ mod signing;
 mod stamp_image;
 mod text_box;
 mod watermark;
+mod xfdf;
 
 pub use signatures::{SignatureField, SignatureFields};
 pub use signing::{PreparedSignature, prepare_signature};

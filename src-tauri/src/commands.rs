@@ -15,18 +15,19 @@ use ipc_contract::types::{
     CaptureProtection, CompareExportFormat, CompareTextArgs, CompareTextResult, CompressArgs,
     CompressResult, CreateResult, DecryptArgs, DocumentFonts, DocumentId, DocumentInfo,
     DocumentProperties, EditArgs, EncryptArgs, ErrorCode, ExportAnnotationSummaryArgs, ExportArgs,
-    ExportCompareTextArgs, ExportCompareTextOutcome, ExportEvent, ExportFormat, FileRecordingArgs,
-    FindPersonalDataQuery, FontImport, FontInfo, FormField, IndexSearchArgs, IndexSearchEvent,
-    IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs, OcrFocusArgs,
-    OcrLanguages, OpenEvent, OpenIndexedArgs, OutlineLinkArgs, OutlineResult, PageAnnotation,
-    PageLink, PageMarksCopyArgs, PageText, PagesSource, Password, PersonalDataMatches,
-    PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
-    RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
-    RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult, SearchArgs,
-    SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs, SignCheck,
-    SignResult, SignatureReport, SigningFile, SigningFileKey, SigningKey, SigningStoreKey,
-    StampImageInfo, StoreCertificate, TabId, TextBoxInfo, TextIndexStatus, UndoArgs, UnlockArgs,
-    UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
+    ExportCompareTextArgs, ExportCompareTextOutcome, ExportEvent, ExportFormat, ExportXfdfArgs,
+    FileRecordingArgs, FindPersonalDataQuery, FontImport, FontInfo, FormField, IndexSearchArgs,
+    IndexSearchEvent, IpcError, LanguageImport, LinkArgs, LinkPreview, MarkCheck, OcrArgs,
+    OcrFocusArgs, OcrLanguages, OpenEvent, OpenIndexedArgs, OutlineLinkArgs, OutlineResult,
+    PageAnnotation, PageLink, PageMarksCopyArgs, PageText, PagesSource, Password,
+    PersonalDataMatches, PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId,
+    RedactionSummary, RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs,
+    RenderPageArgs, RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult,
+    SearchArgs, SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs,
+    SignCheck, SignResult, SignatureReport, SigningFile, SigningFileKey, SigningKey,
+    SigningStoreKey, StampImageInfo, StoreCertificate, TabId, TextBoxInfo, TextIndexStatus,
+    UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck, WatermarkContent,
+    XfdfOutcome,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use ipc_contract::worker::{NewSignature, VisibleSignature};
@@ -53,6 +54,7 @@ use crate::settings::SettingsStore;
 use crate::signing::{self, ChosenCertificate, ListedCertificates, Signer};
 use crate::strings;
 use crate::text_index::{self, IndexFacts, Source as _, TextIndex};
+use crate::xfdf;
 
 /// Registers the frontend's channel for [`OpenEvent`]s.
 #[tauri::command]
@@ -1350,6 +1352,48 @@ pub async fn export_annotation_summary(
     Ok(AnnotationSummaryOutcome::Written {
         count: u32::try_from(summary.items.len()).unwrap_or(u32::MAX),
         truncated: summary.truncated,
+    })
+}
+
+/// Exports all supported annotations of `doc` as an ISO 19444-1 XFDF file (B5-09),
+/// where the user chooses in the system save dialog, never over the document's own file.
+///
+/// Disabled when the document author forbids copying content (MVP-19).
+#[tauri::command]
+pub async fn export_annotations_xfdf(
+    app: AppHandle,
+    window: WebviewWindow,
+    args: ExportXfdfArgs,
+) -> Result<XfdfOutcome, IpcError> {
+    let ExportXfdfArgs { doc } = args;
+    let info = copy_allowed(&app, doc)?;
+    let worker_app = app.clone();
+    let exported = blocking(move || worker_app.state::<Documents>().annotation_export(doc)).await?;
+
+    if exported.items.is_empty() {
+        return Ok(XfdfOutcome::Empty {
+            skipped: exported.skipped,
+        });
+    }
+
+    let xml_content = xfdf::file(&exported, &info.display_name);
+    let default_name = strings::xfdf_file_name(&export::stem(&info.display_name));
+
+    let destination = loop {
+        let Some(path) = file_dialog::save_xfdf_file(&window, default_name.clone()).await? else {
+            return Ok(XfdfOutcome::Cancelled);
+        };
+        if !app.state::<Documents>().is_document_file(doc, &path) {
+            break path;
+        }
+        tell_same_file(&window).await;
+    };
+
+    blocking(move || export::write_xfdf(&destination, &xml_content)).await?;
+    Ok(XfdfOutcome::Written {
+        count: u32::try_from(exported.items.len()).unwrap_or(u32::MAX),
+        skipped: exported.skipped,
+        truncated: exported.truncated,
     })
 }
 

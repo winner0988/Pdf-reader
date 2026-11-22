@@ -59,6 +59,7 @@ fn main() {
         "copy_protected_text",
         "export_pages",
         "export_annotation_summary",
+        "export_annotations_xfdf",
         "compare_text",
         "export_compare_text",
         "apply_edit",

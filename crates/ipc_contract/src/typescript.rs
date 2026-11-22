@@ -210,6 +210,8 @@ pub fn bindings() -> String {
         AnnotationSummaryFormat,
         ExportAnnotationSummaryArgs,
         AnnotationSummaryOutcome,
+        ExportXfdfArgs,
+        XfdfOutcome,
         AnnotationSummaryKind,
         AnnotationSummaryItem,
         AnnotationSummary,

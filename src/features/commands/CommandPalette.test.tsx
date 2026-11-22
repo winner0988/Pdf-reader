@@ -35,6 +35,7 @@ function makeOptions(opts: Partial<CommandOptions> = {}): CommandOptions {
     onCreatePdf: vi.fn(),
     onExport: vi.fn(),
     onExportAnnotations: vi.fn(),
+    onExportXfdf: vi.fn(),
     onCompareText: vi.fn(),
     onCompareVisual: vi.fn(),
     onPrivacyExport: vi.fn(),
@@ -94,10 +95,10 @@ describe("CommandPalette", () => {
   });
 
   describe("completeness of menu commands", () => {
-    it("contains all 37 commands from the More menu", () => {
+    it("contains all 38 commands from the More menu", () => {
       const { commands } = setup();
       const menuCommands = commands.filter((c) => c.fromMenu);
-      expect(menuCommands).toHaveLength(37);
+      expect(menuCommands).toHaveLength(38);
 
       // Verify key More menu items are present
       const names = menuCommands.map((c) => c.name);
@@ -189,6 +190,11 @@ describe("CommandPalette", () => {
       await user.type(input, "PDF");
       const optionsUpper = screen.getAllByRole("option");
       expect(optionsUpper.length).toBe(optionsLower.length);
+
+      await user.clear(input);
+      await user.type(input, "xfdf");
+      const xfdfOptions = screen.getAllByRole("option");
+      expect(xfdfOptions.some((o) => o.textContent?.includes(strings.menu.exportXfdf))).toBe(true);
     });
 
     it("displays no results when nothing matches", async () => {

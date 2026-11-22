@@ -738,6 +738,31 @@ export function ReaderShell({
     document_?.doc !== undefined && exportApi?.exportAnnotationSummary
       ? { exportAnnotationSummary: exportApi.exportAnnotationSummary }
       : undefined;
+
+  const exportXfdf = async () => {
+    if (!exportApi?.exportAnnotationsXfdf || document_?.doc === undefined) return;
+    try {
+      const outcome = await exportApi.exportAnnotationsXfdf({ doc: document_.doc });
+      if (outcome.kind === "written") {
+        let text = strings.exportXfdf.done(outcome.count);
+        if (outcome.skipped > 0) {
+          text += strings.exportXfdf.skipped(outcome.skipped);
+        }
+        if (outcome.truncated) {
+          text += strings.exportXfdf.truncated;
+        }
+        showDoneHint(text);
+      } else if (outcome.kind === "empty") {
+        if (outcome.skipped > 0) {
+          showHint(strings.exportXfdf.emptyWithSkipped(outcome.skipped));
+        } else {
+          showHint(strings.exportXfdf.empty);
+        }
+      }
+    } catch {
+      showHint(strings.exportXfdf.failed());
+    }
+  };
   /** Pages chosen in the thumbnails to be saved as a file of their own (B2-06). */
   const [exportPreset, setExportPreset] = useState<number[] | null>(null);
   const savePages: SavePages | undefined =
@@ -1516,6 +1541,12 @@ export function ReaderShell({
     onExportAnnotations:
       summaryApi && permissions.copy ? () => setDialog("exportAnnotations") : undefined,
     exportAnnotationsBlocked: summaryApi !== undefined && !permissions.copy,
+    onExportXfdf:
+      exportApi?.exportAnnotationsXfdf && document_?.doc !== undefined && permissions.copy
+        ? exportXfdf
+        : undefined,
+    exportXfdfBlocked:
+      exportApi?.exportAnnotationsXfdf !== undefined && !permissions.copy,
     onCompareText:
       compareApi !== undefined &&
       doc !== undefined &&
