@@ -103,6 +103,10 @@ export type ToolbarProps = {
   onExportAnnotations?: () => void;
   /** The document's author forbids copying, which covers the text a summary lists (B3-18). */
   exportAnnotationsBlocked?: boolean;
+  /** Writes annotations as an XFDF file (#446); without it the menu item is disabled. */
+  onExportXfdf?: () => void;
+  /** The document's author forbids copying, which covers XFDF export (MVP-19). */
+  exportXfdfBlocked?: boolean;
   /** Compares text with another open tab (B3-24, E9); without it the menu item is disabled. */
   onCompareText?: () => void;
   /** Why comparing text is blocked (e.g. only one tab open or copying forbidden). */
@@ -123,6 +127,10 @@ export type ToolbarProps = {
   onPageMarks?: () => void;
   /** An encrypted document has no page marks copy (B3-16): the menu item says so. */
   pageMarksBlocked?: boolean;
+  /** Adds a watermark to the document (B6-06); without it the menu item is disabled. */
+  onWatermark?: () => void;
+  /** A signed document or modify-disallowed document cannot have a watermark: the menu item says why. */
+  watermarkBlocked?: string;
   /** Writes an encrypted copy (B2-15); without it the menu item is disabled. */
   onEncryptCopy?: () => void;
   /** Does one thing to many files (B3-04); without it (demo data, tests) the menu item is disabled. */
@@ -201,6 +209,8 @@ export type ToolbarProps = {
     onChoose?: (stamp: StampName) => void;
     /** Asks for a picture of the user's own to make a stamp of. */
     onPick?: () => void;
+    /** Opens the saved signatures dialog (B6-02). */
+    onSignature?: () => void;
   };
   /**
    * The text box tool (B2-30): turned on or off with its button; a click on a page then asks what
@@ -582,6 +592,12 @@ function StampMenu({ stamp }: { stamp: NonNullable<ToolbarProps["stamp"]> }) {
         >
           {labels.pickPicture}
         </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!stamp.onSignature}
+          onClick={stamp.onSignature}
+        >
+          {labels.signature}
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -743,11 +759,13 @@ function MoreMenu(props: ToolbarProps) {
         {props.flatten && renderItem("flatten")}
         {renderItem("export")}
         {renderItem("exportAnnotations")}
+        {renderItem("exportXfdf")}
         {renderItem("compareText")}
         {renderItem("compareVisual")}
         {renderItem("privacyExport")}
         {renderItem("sanitizeCopy")}
         {renderItem("pageMarks")}
+        {renderItem("watermark")}
         {renderItem("encryptCopy")}
         {renderItem("decryptCopy")}
         {renderItem("searchAll")}

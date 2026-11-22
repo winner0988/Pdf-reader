@@ -441,6 +441,53 @@
       "sha256": "f46bd87578821a7532889b2286eed33978c4858a517fb0455ddc18082bb716e4"
     },
     {
+      "path": "benign/text-render-modes.pdf",
+      "category": "benign",
+      "purpose": "One word in each of the text rendering modes 0 and 4 to 7, a text object that switches from mode 4 to 7 to 5, and one word drawn twice in mode 0 (#628).",
+      "expected": "Opens; every word is extracted once, and 'Twice' twice. MuPDF 1.28 without the build-time patch extracts the words drawn in modes 4 to 6 a second time from the clip.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Mode0Fill",
+        "Mode4FillClip",
+        "Mode5StrokeClip",
+        "Mode6FillStrokeClip",
+        "Mode7ClipOnly",
+        "MixedFill",
+        "MixedClip",
+        "MixedStroke",
+        "Twice"
+      ],
+      "bytes": 1192,
+      "sha256": "1ff29d0182238ad6aace16a4d8572d260bd44952e4b91d9045b377a8add2de50"
+    },
+    {
+      "path": "benign/type3-decimal-glyph-names.pdf",
+      "category": "benign",
+      "purpose": "A Type 3 font without ToUnicode whose glyphs are named g32, g33, ... after their decimal character codes (#629).",
+      "expected": "Opens; the text is 'Hello World 2026'. MuPDF 1.28 without the build-time patch reads the names as hexadecimal TrueType glyph indexes (the space comes out as 'O').",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Hello World 2026"
+      ],
+      "bytes": 2628,
+      "sha256": "0fc88d4dda692fc9aaaade5c75c02b07aca4c2630f150b6c8f1e1650097595ce"
+    },
+    {
+      "path": "benign/truetype-glyph-index-names.pdf",
+      "category": "benign",
+      "purpose": "A non-embedded TrueType font whose /Differences name glyphs g0024, ...: four hexadecimal digits of the glyph index, as in old Ghostscript subsets (#629).",
+      "expected": "Opens; the text is 'GLYPH INDEX'.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "GLYPH INDEX"
+      ],
+      "bytes": 1527,
+      "sha256": "d6ac31bf97a3087475aff3e90f8e7405d928cc20614765ad31bee826fd5a09cc"
+    },
+    {
       "path": "malicious/js-document-level.pdf",
       "category": "malicious",
       "purpose": "Document-level JavaScript in the names tree.",
@@ -560,6 +607,20 @@
       "text": [],
       "bytes": 974,
       "sha256": "b5f059a507b1349be99ecbd6ff7cc2b4ca7d972b646be844c7cf69c15b03e10f"
+    },
+    {
+      "path": "malicious/gotor-localhost-host.pdf",
+      "category": "malicious",
+      "purpose": "GoToR to file://localhost.example/... (host only starts with localhost, #611).",
+      "expected": "No SMB connection is attempted; link blocked; findings reported.",
+      "pages": 1,
+      "findings": [
+        "remoteGoTo",
+        "uncReference"
+      ],
+      "text": [],
+      "bytes": 998,
+      "sha256": "810e1b1bf2b6e750d956118806d4e473abfc13f8db8fe11835fb7969770cded8"
     },
     {
       "path": "malicious/gotoe.pdf",
@@ -762,6 +823,17 @@
       "text": [],
       "bytes": 944,
       "sha256": "d2f00f40d1a339d3c575c54f4fe2b90d22bdc591d52ad21cacbf4d8f999b5555"
+    },
+    {
+      "path": "malicious/link-localhost-host-uri.pdf",
+      "category": "malicious",
+      "purpose": "URI link to file://localhost.example/... (#611).",
+      "expected": "Blocked as a network share; no SMB connection.",
+      "pages": 1,
+      "findings": [],
+      "text": [],
+      "bytes": 1007,
+      "sha256": "c9ec53a34b0a151c1650667a46d829881dbc9155b7dae4df9f1da0f5d0c7f668"
     },
     {
       "path": "malicious/link-mailto-recipients.pdf",

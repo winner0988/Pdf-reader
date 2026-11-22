@@ -172,6 +172,13 @@ pub fn annotation_summary_file_name(stem: &str, markdown: bool) -> String {
     let extension = if markdown { "md" } else { "txt" };
     format!("{stem}（註解摘要）.{extension}")
 }
+
+/// Exporting annotations as XFDF (#446): where it goes, what it is called at first, and its filter.
+pub const EXPORT_XFDF_DIALOG_TITLE: &str = "匯出註解（XFDF）";
+pub const XFDF_FILTER_NAME: &str = "XFDF (*.xfdf)";
+pub fn xfdf_file_name(stem: &str) -> String {
+    format!("{stem}（註解）.xfdf")
+}
 /// What the summary file calls each kind of annotation, as the page lists them.
 pub fn annotation_kind_name(kind: AnnotationSummaryKind) -> &'static str {
     match kind {
@@ -394,8 +401,14 @@ mod tests {
     use super::{
         BatchOperation, BatchOutcome, ErrorCode, annotation_summary_file_name,
         batch_operation_name, batch_outcome, compare_file_name, split_file_name, split_part_name,
-        window_title,
+        window_title, xfdf_file_name,
     };
+
+    #[test]
+    fn an_xfdf_export_is_named_after_the_document() {
+        assert_eq!(xfdf_file_name("報告"), "報告（註解）.xfdf");
+        assert_eq!(xfdf_file_name("file_name"), "file_name（註解）.xfdf");
+    }
 
     #[test]
     fn an_annotation_summary_is_named_after_the_document_and_its_kind() {

@@ -8,7 +8,7 @@ import { createRequire } from "node:module";
 import type { Page } from "@playwright/test";
 
 import { strings } from "../../src/i18n/zh-TW";
-import { corpus, dataDir, expect, launchAgain, quit, test } from "./app";
+import { answerFileDialog, corpus, dataDir, expect, launchAgain, quit, test } from "./app";
 import { leaveNothing, SAMPLE } from "./passwords";
 
 const axeSource = readFileSync(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8");
@@ -326,4 +326,40 @@ test("the toolbar of a document with page labels (B5-07)", async ({ launch }) =>
     page.getByRole("textbox", { name: strings.toolbar.pageNumberWithLabel("i", 1, 10) }),
   ).toBeVisible();
   await inBothThemes(page, (theme) => noProblems(page, theme));
+});
+
+test("the watermark dialog (B6-06, #591)", async ({ launch }) => {
+  const page = await launch(corpus("benign/multi-page-10.pdf"));
+  await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
+  await chooseFromMenu(page, strings.menu.watermark);
+  const dialog = page.getByRole("dialog", { name: strings.documentWatermark.title });
+  await expect(dialog).toBeVisible();
+  await inBothThemes(page, (theme) => noProblems(page, theme));
+});
+
+test("the replace pages dialog (B6-05, #590)", async ({ launch }) => {
+  const page = await launch(corpus("benign/multi-page-10.pdf"));
+  await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
+  await page.getByRole("tab", { name: strings.sidebar.thumbnailsTab }).click();
+  const thumb = page.getByRole("option", { name: strings.canvas.page(2) });
+  await thumb.click({ button: "right" });
+  await page.getByRole("menuitem", { name: new RegExp(`^${strings.pages.replacePages}`) }).click();
+  await answerFileDialog(page, { path: corpus("benign/multi-page-10.pdf") });
+  const dialog = page.getByRole("dialog", { name: strings.pages.replace.title });
+  await expect(dialog).toBeVisible();
+  await inBothThemes(page, (theme) => noProblems(page, `replace pages dialog, ${theme}`));
+  await dialog.getByRole("button", { name: strings.pages.replace.cancel }).click();
+  await expect(dialog).toHaveCount(0);
+});
+
+test("the signatures dialog in both themes (B6-02)", async ({ launch }) => {
+  const page = await launch(corpus("benign/single-page.pdf"));
+  await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
+  await page.locator("[data-stamp-button]").click();
+  await page.getByRole("menuitem", { name: strings.annotations.signature }).click();
+  const dialog = page.getByRole("dialog", { name: strings.savedSignatures.dialogTitle });
+  await expect(dialog).toBeVisible();
+  await inBothThemes(page, (theme) => noProblems(page, `signatures dialog, ${theme}`));
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 });

@@ -15,26 +15,28 @@ use crate::text::{
     is_invisible_format, is_note_text, is_web_address,
 };
 use crate::types::{
-    AnnotationKind, AnnotationSummary, AnnotationSummaryItem, AnnotationSummaryKind,
-    AttachmentInfo, AttachmentSource, BatchArgs, BatchOperation, CompareTextArgs,
-    CompareTextResult, CompressArgs, CropMargins, DecryptArgs, DocumentFontEntry, DocumentFonts,
-    DocumentInfo, DocumentProperties, Edit, EditArgs, EncryptArgs, ExportArgs,
+    AddSignatureImageArgs, AnnotationKind, AnnotationSummary, AnnotationSummaryItem,
+    AnnotationSummaryKind, AttachmentInfo, AttachmentSource, BatchArgs, BatchOperation,
+    CompareTextArgs, CompareTextResult, CompressArgs, CropMargins, DecryptArgs, DocumentFontEntry,
+    DocumentFonts, DocumentInfo, DocumentProperties, Edit, EditArgs, EncryptArgs, ExportArgs,
     ExportCompareTextArgs, ExportFormat, FindPersonalDataQuery, FindingKind, FontImport, FontInfo,
     FormField, IndexSearchArgs, IndexSearchEvent, IndexSnippet, IpcError, LineEnds, LinkTarget,
     OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink,
     PageMarkPages, PageMarkPosition, PageMarks, PageMarksCopyArgs, PageNumberFormat, PageSize,
-    PageText, Password, PdfDate, PersonalDataMatch, PersonalDataMatches, Point, PrepareTextBoxArgs,
-    Quad, RasterRegion, RecentFile, Rect, RedactionSummary, RemoveFontArgs, RemoveLanguageArgs,
-    RenderPageArgs, Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport,
-    SanitizeResult, SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs,
-    SensitiveFile, Settings, Shape, SignArgs, SignatureInfo, SignatureReport, SignatureStatus,
-    SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs,
-    UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
+    PageText, Password, PdfDate, PersonalDataMatch, PersonalDataMatches, Point,
+    PrepareSignatureStampArgs, PrepareTextBoxArgs, Quad, RasterRegion, RecentFile, Rect,
+    RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation,
+    SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult, SaveAttachmentResult,
+    SearchArgs, SearchHit, SecurityReport, SensitiveArgs, SensitiveFile, Settings, Shape, SignArgs,
+    SignatureImageArgs, SignatureInfo, SignatureReport, SignatureStatus, SigningFileKey,
+    SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs, UnlockArgs,
+    UnlockSourceArgs, Watermark, WatermarkContent, WatermarkPages,
 };
 use crate::worker::{
-    InsertedTextBox, InspectedFont, OcrOutcome, OpenedDocument, PreparedTextBoxModel, Raster,
-    SourceTextBox, TextBoxModel, WorkerAttachment, WorkerDocumentProperties, WorkerError,
-    WorkerErrorCode, WorkerPageMarks, WorkerResponse,
+    ExportedAnnotation, ExportedAnnotations, ExportedTextStyle, InsertedTextBox, InspectedFont,
+    OcrOutcome, OpenedDocument, PreparedTextBoxModel, Raster, SourceTextBox, TextBoxModel,
+    WorkerAttachment, WorkerDocumentProperties, WorkerError, WorkerErrorCode, WorkerPageMarks,
+    WorkerResponse,
 };
 
 /// Maximum length of the worker version string in `Hello`.
@@ -557,6 +559,7 @@ impl Validate for WorkerResponse {
             WorkerResponse::Signatures { report, .. } => report.validate(),
             WorkerResponse::RedactionSummary { summary, .. } => summary.validate(),
             WorkerResponse::AnnotationSummary { summary, .. } => summary.validate(),
+            WorkerResponse::AnnotationExport { annotations, .. } => annotations.validate(),
             WorkerResponse::PersonalDataMatches { matches, .. } => matches.validate(),
             WorkerResponse::TextBoxPrepared { model, .. } => model.validate(),
             WorkerResponse::TextBoxesPrepared { models, .. } => {
@@ -1613,6 +1616,163 @@ impl Validate for AnnotationSummaryItem {
     }
 }
 
+fn is_valid_xfdf_name(name: &str) -> bool {
+    (1..=64).contains(&name.len())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == ':' || c == '-')
+}
+
+fn is_valid_xfdf_icon(icon: &str) -> bool {
+    (1..=32).contains(&icon.len()) && icon.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+impl Validate for ExportedTextStyle {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_coordinate("exported text style size", self.size)?;
+        if self.size <= 0.0 {
+            return Err(ValidationError::OutOfRange {
+                what: "exported text style size",
+            });
+        }
+        if self.justification > 2 {
+            return Err(ValidationError::OutOfRange {
+                what: "exported text style justification",
+            });
+        }
+        Ok(())
+    }
+}
+
+impl Validate for ExportedAnnotation {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.page >= MAX_PAGE_COUNT {
+            return Err(ValidationError::OutOfRange {
+                what: "exported annotation page",
+            });
+        }
+        for coord in self.rect {
+            check_coordinate("exported annotation rect coordinate", coord)?;
+        }
+        if !is_valid_xfdf_name(&self.name) {
+            return Err(ValidationError::Invalid {
+                what: "exported annotation name",
+                reason: "invalid format or length",
+            });
+        }
+        if self
+            .in_reply_to
+            .as_deref()
+            .is_some_and(|irt| !is_valid_xfdf_name(irt))
+        {
+            return Err(ValidationError::Invalid {
+                what: "exported annotation in_reply_to",
+                reason: "invalid format or length",
+            });
+        }
+        if let Some(opacity) = self.opacity {
+            if !opacity.is_finite() {
+                return Err(ValidationError::NotFinite {
+                    what: "exported annotation opacity",
+                });
+            }
+            if !(0.0..=1.0).contains(&opacity) {
+                return Err(ValidationError::OutOfRange {
+                    what: "exported annotation opacity",
+                });
+            }
+        }
+        if let Some(width) = self.width {
+            if !width.is_finite() {
+                return Err(ValidationError::NotFinite {
+                    what: "exported annotation width",
+                });
+            }
+            if !(0.0..=100.0).contains(&width) {
+                return Err(ValidationError::OutOfRange {
+                    what: "exported annotation width",
+                });
+            }
+        }
+        if self
+            .icon
+            .as_deref()
+            .is_some_and(|icon| !is_valid_xfdf_icon(icon))
+        {
+            return Err(ValidationError::Invalid {
+                what: "exported annotation icon",
+                reason: "invalid format or length",
+            });
+        }
+        if let Some(ref contents) = self.contents {
+            check_cleaned_note(
+                "exported annotation contents",
+                contents,
+                MAX_ANNOTATION_SUMMARY_TEXT_BYTES,
+            )?;
+        }
+        check_count(
+            "exported annotation quads",
+            self.quads.len(),
+            MAX_ANNOTATION_QUADS,
+        )?;
+        for quad in &self.quads {
+            for coord in quad {
+                check_coordinate("exported annotation quad coordinate", *coord)?;
+            }
+        }
+        check_count(
+            "exported annotation ink strokes",
+            self.ink.len(),
+            MAX_INK_STROKES,
+        )?;
+        let mut total_points = 0usize;
+        for stroke in &self.ink {
+            total_points += stroke.len();
+            for point in stroke {
+                check_coordinate("exported annotation ink x", point[0])?;
+                check_coordinate("exported annotation ink y", point[1])?;
+            }
+        }
+        check_count(
+            "exported annotation ink points",
+            total_points,
+            MAX_INK_POINTS,
+        )?;
+        if let Some(line) = self.line {
+            for coord in line {
+                check_coordinate("exported annotation line coordinate", coord)?;
+            }
+        }
+        if let Some(ref style) = self.text_style {
+            style.validate()?;
+        }
+        Ok(())
+    }
+}
+
+impl Validate for ExportedAnnotations {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_count(
+            "exported annotation items",
+            self.items.len(),
+            MAX_ANNOTATION_SUMMARY_ITEMS,
+        )?;
+        let mut bytes = 0usize;
+        for item in &self.items {
+            item.validate()?;
+            if let Some(ref contents) = item.contents {
+                bytes += contents.len();
+            }
+        }
+        check_count(
+            "exported annotation text bytes",
+            bytes,
+            MAX_ANNOTATION_SUMMARY_TOTAL_BYTES,
+        )
+    }
+}
+
 impl Validate for EditArgs {
     fn validate(&self) -> Result<(), ValidationError> {
         self.edit.validate()
@@ -1849,6 +2009,52 @@ impl Validate for Edit {
             Edit::CropPages { pages, margins } => {
                 check_page_list("pages to crop", pages)?;
                 margins.validate()
+            }
+            Edit::AddWatermark {
+                pages,
+                watermark,
+                image,
+            } => {
+                check_page_list("pages to watermark", pages)?;
+                watermark.validate()?;
+                if watermark.pages != WatermarkPages::All {
+                    return Err(ValidationError::Invalid {
+                        what: "watermark pages",
+                        reason: "watermark.pages must be all",
+                    });
+                }
+                match (&watermark.content, image) {
+                    (WatermarkContent::Text { .. }, None)
+                    | (WatermarkContent::Picture { .. }, Some(_)) => Ok(()),
+                    _ => Err(ValidationError::Invalid {
+                        what: "watermark image",
+                        reason: "a picture watermark needs its picture, and words none",
+                    }),
+                }
+            }
+            Edit::ReplacePages {
+                first,
+                count,
+                source: _,
+                from,
+                to,
+            } => {
+                if *count == 0 || *count > MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "how many pages to replace",
+                    });
+                }
+                if *first > MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "first page to replace",
+                    });
+                }
+                if *from > MAX_PAGE_COUNT || *to > MAX_PAGE_COUNT || *from > *to {
+                    return Err(ValidationError::OutOfRange {
+                        what: "source pages to take",
+                    });
+                }
+                Ok(())
             }
         }
     }
@@ -2127,6 +2333,25 @@ impl Validate for PrepareTextBoxArgs {
 }
 
 impl Validate for RemoveFontArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
+    }
+}
+
+impl Validate for SignatureImageArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
+    }
+}
+
+impl Validate for AddSignatureImageArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        stamp_png_size(&self.png)?;
+        Ok(())
+    }
+}
+
+impl Validate for PrepareSignatureStampArgs {
     fn validate(&self) -> Result<(), ValidationError> {
         Ok(())
     }
@@ -2861,9 +3086,9 @@ mod tests {
         CropMargins, DocumentId, DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption,
         FontId, HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, IndexEntryId,
         IndexPageHits, InkColor, InkWidth, LinkId, PageNumberMark, PictureView, RecentId, Recovery,
-        RequestId, Restrictions, Rgb, Rotation, SecurityFinding, StampImageId, StampName, TabId,
-        TextAlign, TextBoxInfo, TextBoxModelId, TextMarkKind, UnverifiableReason, WatermarkPages,
-        WatermarkPlace,
+        RequestId, Restrictions, Rgb, Rotation, SecurityFinding, SourceId, StampImageId, StampName,
+        TabId, TextAlign, TextBoxInfo, TextBoxModelId, TextMarkKind, UnverifiableReason,
+        WatermarkPages, WatermarkPlace,
     };
     use crate::worker::{ModelGlyph, WorkerErrorCode};
 
@@ -4687,6 +4912,106 @@ mod tests {
     }
 
     #[test]
+    fn watermark_edits_are_validated() {
+        let text_watermark = Watermark {
+            content: WatermarkContent::Text {
+                text: "CONFIDENTIAL".to_owned(),
+                size: 48.0,
+                color: Rgb {
+                    r: 10,
+                    g: 20,
+                    b: 30,
+                },
+            },
+            opacity: 50,
+            diagonal: true,
+            place: WatermarkPlace::Center,
+            pages: WatermarkPages::All,
+        };
+        let picture_watermark = Watermark {
+            content: WatermarkContent::Picture { width_pt: 100.0 },
+            opacity: 50,
+            diagonal: false,
+            place: WatermarkPlace::Top,
+            pages: WatermarkPages::All,
+        };
+
+        // Valid text watermark
+        let edit = Edit::AddWatermark {
+            pages: vec![0, 1],
+            watermark: text_watermark.clone(),
+            image: None,
+        };
+        assert!(edit.validate().is_ok());
+
+        // Valid picture watermark
+        let pic_edit = Edit::AddWatermark {
+            pages: vec![0],
+            watermark: picture_watermark.clone(),
+            image: Some(StampImageId(1)),
+        };
+        assert!(pic_edit.validate().is_ok());
+
+        // watermark.pages is not All
+        let mut not_all = text_watermark.clone();
+        not_all.pages = WatermarkPages::First;
+        let err = Edit::AddWatermark {
+            pages: vec![0],
+            watermark: not_all,
+            image: None,
+        }
+        .validate();
+        assert!(matches!(err, Err(ValidationError::Invalid { .. })));
+
+        // Words with picture
+        let err = Edit::AddWatermark {
+            pages: vec![0],
+            watermark: text_watermark.clone(),
+            image: Some(StampImageId(1)),
+        }
+        .validate();
+        assert!(matches!(err, Err(ValidationError::Invalid { .. })));
+
+        // Picture without picture
+        let err = Edit::AddWatermark {
+            pages: vec![0],
+            watermark: picture_watermark.clone(),
+            image: None,
+        }
+        .validate();
+        assert!(matches!(err, Err(ValidationError::Invalid { .. })));
+
+        // Empty pages
+        let err = Edit::AddWatermark {
+            pages: vec![],
+            watermark: text_watermark.clone(),
+            image: None,
+        }
+        .validate();
+        assert!(err.is_err());
+
+        // Duplicate pages
+        let err = Edit::AddWatermark {
+            pages: vec![1, 1],
+            watermark: text_watermark.clone(),
+            image: None,
+        }
+        .validate();
+        assert!(err.is_err());
+
+        // Invalid watermark itself (e.g. opacity too low)
+        let mut bad_wm = text_watermark;
+        bad_wm.opacity = 2;
+        let err = Edit::AddWatermark {
+            pages: vec![0],
+            watermark: bad_wm,
+            image: None,
+        }
+        .validate();
+        assert!(err.is_err());
+    }
+
+    #[test]
     fn crop_pages_checks_pages_and_margins() {
         let crop = |pages: Vec<u32>, margins: CropMargins| EditArgs {
             doc: DocumentId(1),
@@ -5684,6 +6009,42 @@ mod tests {
             .unwrap(),
             insert(2, 1)
         );
+
+        let replace = |first: u32, count: u32, from: u32, to: u32| {
+            edit(Edit::ReplacePages {
+                first,
+                count,
+                source: SourceId(1),
+                from,
+                to,
+            })
+        };
+        assert!(replace(0, 1, 0, 0).validate().is_ok());
+        assert!(replace(2, 3, 1, 5).validate().is_ok());
+        assert!(replace(0, 0, 0, 0).validate().is_err());
+        assert!(replace(0, 1, 5, 2).validate().is_err());
+        assert!(replace(MAX_PAGE_COUNT + 1, 1, 0, 0).validate().is_err());
+        assert!(replace(0, MAX_PAGE_COUNT + 1, 0, 0).validate().is_err());
+        assert!(
+            replace(0, 1, MAX_PAGE_COUNT + 1, MAX_PAGE_COUNT + 1)
+                .validate()
+                .is_err()
+        );
+        assert!(replace(0, 1, 0, MAX_PAGE_COUNT + 1).validate().is_err());
+        assert_eq!(
+            serde_json::from_value::<EditArgs>(serde_json::json!({
+                "doc": 1,
+                "edit": { "kind": "replacePages", "first": 2, "count": 2, "source": 7, "from": 0, "to": 2 }
+            }))
+            .unwrap(),
+            edit(Edit::ReplacePages {
+                first: 2,
+                count: 2,
+                source: SourceId(7),
+                from: 0,
+                to: 2,
+            })
+        );
     }
 
     #[test]
@@ -6194,6 +6555,181 @@ mod tests {
         let mut over = full;
         over.push(item(AnnotationSummaryKind::Highlight, "x"));
         assert!(summary(over).validate().is_err());
+    }
+
+    #[test]
+    fn exported_annotations_validate_all_bounds_and_limits() {
+        use crate::worker::{ExportedAnnotationKind, ExportedLineEnding};
+
+        let valid_item = || ExportedAnnotation {
+            kind: ExportedAnnotationKind::Highlight,
+            page: 0,
+            rect: [72.0, 100.0, 200.0, 120.0],
+            name: "annot-1".to_owned(),
+            in_reply_to: None,
+            color: Some([255, 255, 0]),
+            interior: None,
+            opacity: Some(0.5),
+            width: Some(1.0),
+            print: true,
+            hidden: false,
+            icon: Some("Approved".to_owned()),
+            contents: Some("cleaned text".to_owned()),
+            quads: vec![[72.0, 120.0, 200.0, 120.0, 72.0, 100.0, 200.0, 100.0]],
+            ink: vec![vec![[10.0, 20.0]]],
+            line: Some([10.0, 20.0, 30.0, 40.0]),
+            line_endings: Some([ExportedLineEnding::None, ExportedLineEnding::OpenArrow]),
+            text_style: Some(ExportedTextStyle {
+                size: 12.0,
+                color: [0, 0, 0],
+                justification: 0,
+            }),
+        };
+
+        let wrap = |items: Vec<ExportedAnnotation>| ExportedAnnotations {
+            items,
+            skipped: 0,
+            truncated: false,
+        };
+
+        assert!(wrap(vec![valid_item()]).validate().is_ok());
+
+        // Boundary: name
+        let mut item = valid_item();
+        item.name = "a".repeat(64);
+        assert!(wrap(vec![item.clone()]).validate().is_ok());
+        item.name = "a".repeat(65);
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+        item.name = "".to_owned();
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+        item.name = "has space".to_owned();
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+
+        // in_reply_to
+        item = valid_item();
+        item.in_reply_to = Some("valid_IRT-1:2.3".to_owned());
+        assert!(wrap(vec![item.clone()]).validate().is_ok());
+        item.in_reply_to = Some("a".repeat(65));
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+        item.in_reply_to = Some("has space".to_owned());
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+
+        // icon
+        item = valid_item();
+        item.icon = Some("A".repeat(32));
+        assert!(wrap(vec![item.clone()]).validate().is_ok());
+        item.icon = Some("A".repeat(33));
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+        item.icon = Some("with-dash".to_owned());
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+
+        // opacity
+        item = valid_item();
+        item.opacity = Some(0.0);
+        assert!(wrap(vec![item.clone()]).validate().is_ok());
+        item.opacity = Some(1.0);
+        assert!(wrap(vec![item.clone()]).validate().is_ok());
+        item.opacity = Some(1.001);
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+        item.opacity = Some(-0.001);
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+        item.opacity = Some(f32::NAN);
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+
+        // width
+        item = valid_item();
+        item.width = Some(0.0);
+        assert!(wrap(vec![item.clone()]).validate().is_ok());
+        item.width = Some(100.0);
+        assert!(wrap(vec![item.clone()]).validate().is_ok());
+        item.width = Some(100.1);
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+        item.width = Some(-0.1);
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+        item.width = Some(f32::NAN);
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+
+        // rect & coordinates
+        item = valid_item();
+        item.rect = [0.0, 0.0, MAX_PAGE_SIDE_PT, MAX_PAGE_SIDE_PT];
+        assert!(wrap(vec![item.clone()]).validate().is_ok());
+        item.rect[0] = MAX_PAGE_SIDE_PT + 1.0;
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+        item.rect[0] = f32::NAN;
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+
+        // page
+        item = valid_item();
+        item.page = MAX_PAGE_COUNT - 1;
+        assert!(wrap(vec![item.clone()]).validate().is_ok());
+        item.page = MAX_PAGE_COUNT;
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+
+        // quads
+        item = valid_item();
+        item.quads = vec![[1.0; 8]; MAX_ANNOTATION_QUADS as usize];
+        assert!(wrap(vec![item.clone()]).validate().is_ok());
+        item.quads.push([1.0; 8]);
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+
+        // ink strokes and points
+        item = valid_item();
+        item.ink = vec![vec![[1.0, 2.0]]; MAX_INK_STROKES as usize];
+        assert!(wrap(vec![item.clone()]).validate().is_ok());
+        item.ink.push(vec![[1.0, 2.0]]);
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+
+        item = valid_item();
+        item.ink = vec![vec![[1.0, 2.0]; MAX_INK_POINTS as usize]];
+        assert!(wrap(vec![item.clone()]).validate().is_ok());
+        item.ink[0].push([1.0, 2.0]);
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+
+        // contents text
+        item = valid_item();
+        item.contents = Some("x".repeat(MAX_ANNOTATION_SUMMARY_TEXT_BYTES as usize));
+        assert!(wrap(vec![item.clone()]).validate().is_ok());
+        item.contents = Some("x".repeat(MAX_ANNOTATION_SUMMARY_TEXT_BYTES as usize + 1));
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+
+        // text style
+        item = valid_item();
+        let mut style = item.text_style.unwrap();
+        style.size = 0.0;
+        item.text_style = Some(style);
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+        style.size = -5.0;
+        item.text_style = Some(style);
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+        style.size = f32::NAN;
+        item.text_style = Some(style);
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+        style.size = 12.0;
+        style.justification = 3;
+        item.text_style = Some(style);
+        assert!(wrap(vec![item.clone()]).validate().is_err());
+
+        // Total items limit
+        let items = vec![valid_item(); MAX_ANNOTATION_SUMMARY_ITEMS as usize];
+        assert!(wrap(items).validate().is_ok());
+        let items_over = vec![valid_item(); MAX_ANNOTATION_SUMMARY_ITEMS as usize + 1];
+        assert!(wrap(items_over).validate().is_err());
+
+        // Total bytes limit
+        let line = "x".repeat(MAX_ANNOTATION_SUMMARY_TEXT_BYTES as usize);
+        let count = MAX_ANNOTATION_SUMMARY_TOTAL_BYTES / MAX_ANNOTATION_SUMMARY_TEXT_BYTES;
+        let mut full_items: Vec<_> = (0..count)
+            .map(|_| {
+                let mut i = valid_item();
+                i.contents = Some(line.clone());
+                i
+            })
+            .collect();
+        assert!(wrap(full_items.clone()).validate().is_ok());
+        let mut over_item = valid_item();
+        over_item.contents = Some("x".to_owned());
+        full_items.push(over_item);
+        assert!(wrap(full_items).validate().is_err());
     }
 
     #[test]

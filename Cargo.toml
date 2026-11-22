@@ -41,5 +41,5 @@ strip = true
 # of mupdf and mupdf-sys bundle a MuPDF that includes Tesseract 5.5.4 and
 # FreeType 2.15.0 or later.
 [patch.crates-io]
-mupdf = { git = "https://github.com/winner0988/mupdf-rs", rev = "581e4fb2be538bd0de480fd5186f8cf99fd1f090" }
-mupdf-sys = { git = "https://github.com/winner0988/mupdf-rs", rev = "581e4fb2be538bd0de480fd5186f8cf99fd1f090" }
+mupdf = { git = "https://github.com/winner0988/mupdf-rs", rev = "c5b5c9e4d3d7f7f48946593bc4f90c44b91e74a2" }
+mupdf-sys = { git = "https://github.com/winner0988/mupdf-rs", rev = "c5b5c9e4d3d7f7f48946593bc4f90c44b91e74a2" }

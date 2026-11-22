@@ -21,7 +21,7 @@ export function clearRecentCommands(): void {
 }
 
 /**
- * Creates the complete list of commands (35 from the More menu, 25 shortcut-only / viewer actions, 1 palette-only action).
+ * Creates the complete list of commands (37 from the More menu, 25 shortcut-only / viewer actions, 1 palette-only action).
  * Both the "⋯" menu and the Command Palette are generated from this list.
  */
 export function createCommands(opts: CommandOptions): Command[] {
@@ -270,6 +270,24 @@ export function createCommands(opts: CommandOptions): Command[] {
       run: () => opts.onExportAnnotations?.(),
     },
     {
+      id: "exportXfdf",
+      name: menu.exportXfdf,
+      aliases: [...aliases.exportXfdf],
+      shortcutBadge: opts.exportXfdfBlocked ? strings.permissions.notAllowed : undefined,
+      fromMenu: true,
+      menuSection: "actions",
+      menuKind: "item",
+      visibleInMenu: true,
+      menuDisabled: !opts.onExportXfdf,
+      enabled: hasDoc && Boolean(opts.onExportXfdf && !opts.exportXfdfBlocked),
+      disabledReason: !hasDoc
+        ? strings.commands.noDocument
+        : opts.exportXfdfBlocked
+          ? strings.permissions.notAllowed
+          : undefined,
+      run: () => opts.onExportXfdf?.(),
+    },
+    {
       id: "compareText",
       name: menu.compareText,
       aliases: [...aliases.compareText],
@@ -352,6 +370,22 @@ export function createCommands(opts: CommandOptions): Command[] {
           ? strings.pageMarks.encrypted
           : undefined,
       run: () => opts.onPageMarks?.(),
+    },
+    {
+      id: "watermark",
+      name: menu.watermark,
+      aliases: [...aliases.watermark],
+      shortcutBadge: opts.watermarkBlocked ? opts.watermarkBlocked : undefined,
+      fromMenu: true,
+      menuSection: "actions",
+      menuKind: "item",
+      visibleInMenu: true,
+      menuDisabled: !opts.onWatermark,
+      enabled: hasDoc && Boolean(opts.onWatermark && !opts.watermarkBlocked),
+      disabledReason: !hasDoc
+        ? strings.commands.noDocument
+        : opts.watermarkBlocked,
+      run: () => opts.onWatermark?.(),
     },
     {
       id: "encryptCopy",
@@ -862,6 +896,26 @@ export function createCommands(opts: CommandOptions): Command[] {
         if (opts.document && opts.onInsertFrom) {
           // The palette has no message area of its own: a refusal goes to the status bar (#584).
           void Promise.resolve(opts.onInsertFrom(opts.document.currentPage)).catch((error: unknown) => {
+            opts.onHint?.(insertFailureMessage(error));
+          });
+        }
+      },
+    },
+    {
+      id: "replaceCurrentPage",
+      name: strings.commands.replaceCurrentPage,
+      aliases: [...aliases.replaceCurrentPage],
+      fromMenu: false,
+      visibleInMenu: false,
+      enabled: hasDoc && Boolean(opts.onReplacePages && !opts.insertFromBlocked),
+      disabledReason: !hasDoc
+        ? strings.commands.noDocument
+        : opts.insertFromBlocked
+          ? strings.permissions.notAllowed
+          : undefined,
+      run: () => {
+        if (opts.document && opts.onReplacePages) {
+          void Promise.resolve(opts.onReplacePages(opts.document.currentPage - 1, 1)).catch((error: unknown) => {
             opts.onHint?.(insertFailureMessage(error));
           });
         }

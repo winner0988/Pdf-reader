@@ -13,9 +13,10 @@ type WatermarkFieldsProps = {
   form: WatermarkForm;
   onChange: (changes: Partial<WatermarkForm>) => void;
   disabled: boolean;
+  hidePages?: boolean;
 };
 
-export function WatermarkFields({ form, onChange, disabled }: WatermarkFieldsProps) {
+export function WatermarkFields({ form, onChange, disabled, hidePages }: WatermarkFieldsProps) {
   const ids = {
     text: useId(),
     size: useId(),
@@ -194,28 +195,30 @@ export function WatermarkFields({ form, onChange, disabled }: WatermarkFieldsPro
           </div>
         </div>
 
-        <div className="grid gap-1">
-          <span className="font-medium">{t.watermarkPages}</span>
-          <div className="flex flex-wrap gap-4">
-            {(["all", "first", "allButFirst"] as const).map((pages: WatermarkPages) => (
-              <label key={pages} className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="watermark-pages"
-                  value={pages}
-                  disabled={disabled}
-                  checked={form.pages === pages}
-                  onChange={() => onChange({ pages })}
-                />
-                {pages === "all"
-                  ? t.watermarkPagesAll
-                  : pages === "first"
-                    ? t.watermarkPagesFirst
-                    : t.watermarkPagesAllButFirst}
-              </label>
-            ))}
+        {!hidePages && (
+          <div className="grid gap-1">
+            <span className="font-medium">{t.watermarkPages}</span>
+            <div className="flex flex-wrap gap-4">
+              {(["all", "first", "allButFirst"] as const).map((pages: WatermarkPages) => (
+                <label key={pages} className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="watermark-pages"
+                    value={pages}
+                    disabled={disabled}
+                    checked={form.pages === pages}
+                    onChange={() => onChange({ pages })}
+                  />
+                  {pages === "all"
+                    ? t.watermarkPagesAll
+                    : pages === "first"
+                      ? t.watermarkPagesFirst
+                      : t.watermarkPagesAllButFirst}
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </fieldset>
     </>
   );

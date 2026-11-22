@@ -30,7 +30,7 @@
 | `additionalActions` | 任何字典的 `/AA`（文件、頁面、註解、表單欄位）裡的每個觸發項目 | 每個觸發 1 |
 | `launch`、`submitForm`、`importData`、`remoteGoTo`、`embeddedGoTo` | `/S` 是 `Launch`、`SubmitForm`、`ImportData`、`GoToR`、`GoToE` | 每個動作 1 |
 | `remoteFileSpec` | `/FS /URL` 的檔案規格（例如從網址載入資料的影像）。**屬於上述動作的 `/F` 不重複計算**：表單的送出網址就是 `submitForm` | 每個 1 |
-| `uncReference` | 檔案名稱欄位（`/F`、`/UF`、`/DOS`、`/Unix`、`/Mac`）是網路路徑：`\\server\share`（含斜線寫法）、有主機的 `file://`、`smb:`。**與動作本身同時回報**，因為 Windows 存取 UNC 路徑可能送出帳號雜湊（SMB／NTLM） | 每個字典 1 |
+| `uncReference` | 檔案名稱欄位（`/F`、`/UF`、`/DOS`、`/Unix`、`/Mac`）是網路路徑：`\\server\share`（含斜線寫法）、主機不是 `localhost` 的 `file://`（例如 `file://localhost.example/`、`file://localhost:445/`）、`smb:`。**與動作本身同時回報**，因為 Windows 存取 UNC 路徑可能送出帳號雜湊（SMB／NTLM） | 每個字典 1 |
 | `xfa` | 帶 `/XFA` 的字典（AcroForm） | 1 |
 | `richMedia` | `/Subtype` 是 `RichMedia`、`Screen`、`Movie`、`Sound`、`3D` 的註解；`/S /RichMediaExecute` | 每個 1 |
 | `embeddedFile` | 帶 `/EF` 的檔案規格（內嵌附件、附件註解） | 每個 1 |

@@ -35,6 +35,7 @@ function makeOptions(opts: Partial<CommandOptions> = {}): CommandOptions {
     onCreatePdf: vi.fn(),
     onExport: vi.fn(),
     onExportAnnotations: vi.fn(),
+    onExportXfdf: vi.fn(),
     onCompareText: vi.fn(),
     onCompareVisual: vi.fn(),
     onPrivacyExport: vi.fn(),
@@ -94,10 +95,10 @@ describe("CommandPalette", () => {
   });
 
   describe("completeness of menu commands", () => {
-    it("contains all 36 commands from the More menu", () => {
+    it("contains all 38 commands from the More menu", () => {
       const { commands } = setup();
       const menuCommands = commands.filter((c) => c.fromMenu);
-      expect(menuCommands).toHaveLength(36);
+      expect(menuCommands).toHaveLength(38);
 
       // Verify key More menu items are present
       const names = menuCommands.map((c) => c.name);
@@ -106,6 +107,7 @@ describe("CommandPalette", () => {
       expect(names).toContain(strings.menu.undo);
       expect(names).toContain(strings.menu.redo);
       expect(names).toContain(strings.menu.export);
+      expect(names).toContain(strings.menu.watermark);
       expect(names).toContain(strings.menu.print);
       expect(names).toContain(strings.menu.compareVisual);
       expect(names).toContain(strings.menu.documentProperties);
@@ -115,13 +117,15 @@ describe("CommandPalette", () => {
       expect(names).toContain(strings.menu.decryptCopy);
     });
 
-    it("contains all 25 shortcut/viewer commands and 1 palette-only command", () => {
+    it("contains all 25 shortcut/viewer commands and 2 palette-only commands", () => {
       const { commands } = setup();
-      const shortcutCommands = commands.filter((c) => !c.fromMenu && c.id !== "insertFileAfterCurrent");
+      const shortcutCommands = commands.filter(
+        (c) => !c.fromMenu && c.id !== "insertFileAfterCurrent" && c.id !== "replaceCurrentPage",
+      );
       expect(shortcutCommands).toHaveLength(25);
 
-      const paletteCommands = commands.filter((c) => c.id === "insertFileAfterCurrent");
-      expect(paletteCommands).toHaveLength(1);
+      const paletteCommands = commands.filter((c) => c.id === "insertFileAfterCurrent" || c.id === "replaceCurrentPage");
+      expect(paletteCommands).toHaveLength(2);
 
       const names = shortcutCommands.map((c) => c.name);
       expect(names).toContain(strings.shortcuts.descriptions.zoomIn);
@@ -186,6 +190,11 @@ describe("CommandPalette", () => {
       await user.type(input, "PDF");
       const optionsUpper = screen.getAllByRole("option");
       expect(optionsUpper.length).toBe(optionsLower.length);
+
+      await user.clear(input);
+      await user.type(input, "xfdf");
+      const xfdfOptions = screen.getAllByRole("option");
+      expect(xfdfOptions.some((o) => o.textContent?.includes(strings.menu.exportXfdf))).toBe(true);
     });
 
     it("displays no results when nothing matches", async () => {
@@ -343,6 +352,94 @@ describe("CommandPalette", () => {
       expect(onInsertFrom).toHaveBeenCalledWith(3);
       await vi.waitFor(() => {
         expect(onInsertFrom).toHaveReturned();
+      });
+      await vi.waitFor(async () => {
+        await Promise.resolve();
+        expect(onHint).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe("replaceCurrentPage command (#590)", () => {
+    it("finds replaceCurrentPage when searching 取代", async () => {
+      const { user } = setup();
+      const input = screen.getByRole("combobox");
+
+      await user.type(input, "取代");
+      const options = screen.getAllByRole("option");
+      expect(options[0]).toHaveTextContent(strings.commands.replaceCurrentPage);
+    });
+
+    it("disables replaceCurrentPage with noDocument reason when document is null", () => {
+      setup({ document: null });
+      const options = screen.getAllByRole("option");
+      const replaceOption = options.find((o) => o.textContent?.includes(strings.commands.replaceCurrentPage));
+      expect(replaceOption).toHaveAttribute("aria-disabled", "true");
+      expect(replaceOption).toHaveTextContent(strings.commands.noDocument);
+    });
+
+    it("disables replaceCurrentPage when insertFromBlocked is true", () => {
+      setup({ insertFromBlocked: true });
+      const options = screen.getAllByRole("option");
+      const replaceOption = options.find((o) => o.textContent?.includes(strings.commands.replaceCurrentPage));
+      expect(replaceOption).toHaveAttribute("aria-disabled", "true");
+      expect(replaceOption).toHaveTextContent(strings.permissions.notAllowed);
+    });
+
+    it("runs onReplacePages with 0-based page index and count 1, and closes palette", async () => {
+      const onReplacePages = vi.fn().mockResolvedValue(1);
+      const { user, onOpenChange } = setup({
+        document: { pageCount: 5, currentPage: 4, zoom: 100 },
+        onReplacePages,
+      });
+      const input = screen.getByRole("combobox");
+
+      await user.type(input, "取代");
+      const options = screen.getAllByRole("option");
+      await user.click(options[0]!);
+
+      expect(onReplacePages).toHaveBeenCalledWith(3, 1);
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+
+    it("calls onHint with sourceNotAllowed when onReplacePages rejects", async () => {
+      const onReplacePages = vi.fn().mockRejectedValue({ code: "notAllowed", message: "x" });
+      const onHint = vi.fn();
+      const options = makeOptions({
+        document: { pageCount: 5, currentPage: 3, zoom: 100 },
+        onReplacePages,
+        onHint,
+      });
+      const commands = createCommands(options);
+      const cmd = commands.find((c) => c.id === "replaceCurrentPage");
+      expect(cmd).toBeDefined();
+
+      cmd!.run();
+
+      expect(onReplacePages).toHaveBeenCalledWith(2, 1);
+      await vi.waitFor(() => {
+        expect(onHint).toHaveBeenCalledTimes(1);
+        expect(onHint).toHaveBeenCalledWith(strings.pages.sourceNotAllowed);
+      });
+    });
+
+    it("does not call onHint when onReplacePages succeeds", async () => {
+      const onReplacePages = vi.fn().mockResolvedValue(2);
+      const onHint = vi.fn();
+      const options = makeOptions({
+        document: { pageCount: 5, currentPage: 3, zoom: 100 },
+        onReplacePages,
+        onHint,
+      });
+      const commands = createCommands(options);
+      const cmd = commands.find((c) => c.id === "replaceCurrentPage");
+      expect(cmd).toBeDefined();
+
+      cmd!.run();
+
+      expect(onReplacePages).toHaveBeenCalledWith(2, 1);
+      await vi.waitFor(() => {
+        expect(onReplacePages).toHaveReturned();
       });
       await vi.waitFor(async () => {
         await Promise.resolve();

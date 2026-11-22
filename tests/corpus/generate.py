@@ -1407,6 +1407,13 @@ def malicious_gotor_unc() -> bytes:
     )
 
 
+def malicious_gotor_localhost_host() -> bytes:
+    return link_sample(
+        "gotor-localhost-host", "GoToR to a file:// URL whose host only starts with localhost",
+        "/S /GoToR /F (file://localhost.example/share/doc.pdf) /D [0 /Fit]",
+    )
+
+
 def malicious_gotoe() -> bytes:
     return link_sample(
         "gotoe", "GoToE into an embedded document",
@@ -1732,6 +1739,108 @@ def benign_page_labels() -> bytes:
     ]
     doc.add_pages(pages)
     doc.catalog_extra = " /PageLabels << /Nums [0 << /S /r >> 2 << /S /D /St 1 >>] >>"
+    return doc.build()
+
+
+TEXT_RENDER_MODE_WORDS = [
+    "Mode0Fill", "Mode4FillClip", "Mode5StrokeClip", "Mode6FillStrokeClip", "Mode7ClipOnly",
+    "MixedFill", "MixedClip", "MixedStroke",
+]
+
+
+def benign_text_render_modes() -> bytes:
+    """One word in each text rendering mode that draws and clips (#628).
+
+    Modes 4 to 6 fill, stroke or both and add the glyphs to the clip that ET applies; mode 7
+    only clips (a gray box painted through it shows the word). One text object switches from
+    mode 4 to 7 to 5 (switching back to modes 0 to 3 loses the clip in MuPDF 1.28, #638), and
+    a last word is drawn twice in mode 0 on two lines.
+    """
+    doc = Document("text-render-modes")
+    content = (
+        "q BT /F1 14 Tf 72 696 Td 0 Tr (Mode0Fill) Tj ET Q\n"
+        "q BT /F1 14 Tf 72 672 Td 4 Tr (Mode4FillClip) Tj ET Q\n"
+        "q 0.5 w BT /F1 14 Tf 72 648 Td 5 Tr (Mode5StrokeClip) Tj ET Q\n"
+        "q 0.5 w BT /F1 14 Tf 72 624 Td 6 Tr (Mode6FillStrokeClip) Tj ET Q\n"
+        "q BT /F1 14 Tf 72 600 Td 7 Tr (Mode7ClipOnly) Tj ET 0.5 g 72 596 200 20 re f Q\n"
+        "q 0.5 w BT /F1 14 Tf 72 576 Td 4 Tr (MixedFill) Tj 7 Tr ( MixedClip) Tj 5 Tr ( MixedStroke) Tj ET Q\n"
+        "BT /F1 14 Tf 72 552 Td (Twice) Tj ET\n"
+        "BT /F1 14 Tf 72 528 Td (Twice) Tj ET\n"
+    )
+    doc.add_pages([
+        Page(lines=[(72, 730, 16, "Text rendering modes")], extra_content=content.encode("latin-1"))
+    ])
+    return doc.build()
+
+
+TYPE3_GLYPH_NAMES_TEXT = "Hello World 2026"
+
+
+def benign_type3_decimal_glyph_names() -> bytes:
+    """A Type 3 font that names each glyph g and its decimal character code, g32 for the space (#629).
+
+    The font has no ToUnicode, so the text comes from the glyph names. They are no standard
+    names, so the character code counts as ASCII. MuPDF 1.28 read g32 as the hexadecimal
+    TrueType glyph index 0x32 (the letter O).
+    """
+    doc = Document("type3-decimal-glyph-names")
+    codes = sorted(set(TYPE3_GLYPH_NAMES_TEXT.encode("ascii")))
+    procs = {}
+    for code in codes:
+        data = b"600 0 d0\n" if code == 32 else b"600 0 50 0 550 700 d1\n50 0 500 700 re f\n"
+        procs[code] = doc.pdf.add_stream("", data)
+    first, last = codes[0], codes[-1]
+    charprocs = " ".join(f"/g{code} {procs[code]} 0 R" for code in codes)
+    differences = " ".join(f"{code} /g{code}" for code in codes)
+    widths = " ".join("600" if code in procs else "0" for code in range(first, last + 1))
+    font = doc.pdf.add(
+        "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 600 700] /FontMatrix [0.001 0 0 0.001 0 0]"
+        f" /CharProcs << {charprocs} >> /Encoding << /Type /Encoding /Differences [{differences}] >>"
+        f" /FirstChar {first} /LastChar {last} /Widths [{widths}] /Resources << >> >>"
+    )
+    ops = f"BT /F2 24 Tf 72 660 Td {pdf_string(TYPE3_GLYPH_NAMES_TEXT)} Tj ET\n"
+    doc.add_pages([
+        Page(
+            lines=[(72, 730, 16, "Type 3 glyph names")],
+            extra_content=ops.encode("latin-1"),
+            fonts=f"/F2 {font} 0 R ",
+        )
+    ])
+    return doc.build()
+
+
+TRUETYPE_GLYPH_INDEX_TEXT = "GLYPH INDEX"
+
+
+def benign_truetype_glyph_index_names() -> bytes:
+    """A TrueType font whose /Differences name glyphs g0024, ... (#629).
+
+    Old Ghostscript subsets named TrueType glyphs g and their glyph index in four hexadecimal
+    digits; the standard Macintosh glyph order puts ASCII 0x20 to 0x7E at indexes 3 to 97. Since
+    MuPDF 1.28 the text of such names is the character at that index (bug1027533.pdf of pdf.js).
+    """
+    doc = Document("truetype-glyph-index-names")
+    codes = sorted(set(TRUETYPE_GLYPH_INDEX_TEXT.encode("ascii")))
+    differences = " ".join(f"{code} /g{code - 29:04x}" for code in codes)
+    first, last = codes[0], codes[-1]
+    widths = " ".join("600" for _ in range(first, last + 1))
+    descriptor = doc.pdf.add(
+        "<< /Type /FontDescriptor /FontName /ArialMT /Flags 32 /FontBBox [-665 -325 2000 1006]"
+        " /ItalicAngle 0 /Ascent 905 /Descent -212 /CapHeight 716 /StemV 80 >>"
+    )
+    font = doc.pdf.add(
+        "<< /Type /Font /Subtype /TrueType /BaseFont /ArialMT"
+        f" /Encoding << /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [{differences}] >>"
+        f" /FirstChar {first} /LastChar {last} /Widths [{widths}] /FontDescriptor {descriptor} 0 R >>"
+    )
+    ops = f"BT /F2 24 Tf 72 660 Td {pdf_string(TRUETYPE_GLYPH_INDEX_TEXT)} Tj ET\n"
+    doc.add_pages([
+        Page(
+            lines=[(72, 730, 16, "TrueType glyph index names")],
+            extra_content=ops.encode("latin-1"),
+            fonts=f"/F2 {font} 0 R ",
+        )
+    ])
     return doc.build()
 
 
@@ -2533,6 +2642,23 @@ SAMPLES = [
            "A document with flat /PageLabels (lowercase roman numerals i-ii, then decimal 1-2).",
            "Opens; 4 pages; page labels cover roman and decimal pages.", 4,
            text=["Page 1: roman i", "Page 2: roman ii", "Page 3: decimal 1", "Page 4: decimal 2"]),
+    Sample("benign/text-render-modes.pdf", benign_text_render_modes,
+           "One word in each of the text rendering modes 0 and 4 to 7, a text object that switches from mode 4 to "
+           "7 to 5, and one word drawn twice in mode 0 (#628).",
+           "Opens; every word is extracted once, and 'Twice' twice. MuPDF 1.28 without the build-time patch "
+           "extracts the words drawn in modes 4 to 6 a second time from the clip.", 1,
+           text=TEXT_RENDER_MODE_WORDS + ["Twice"]),
+    Sample("benign/type3-decimal-glyph-names.pdf", benign_type3_decimal_glyph_names,
+           "A Type 3 font without ToUnicode whose glyphs are named g32, g33, ... after their decimal character "
+           "codes (#629).",
+           "Opens; the text is 'Hello World 2026'. MuPDF 1.28 without the build-time patch reads the names as "
+           "hexadecimal TrueType glyph indexes (the space comes out as 'O').", 1,
+           text=[TYPE3_GLYPH_NAMES_TEXT]),
+    Sample("benign/truetype-glyph-index-names.pdf", benign_truetype_glyph_index_names,
+           "A non-embedded TrueType font whose /Differences name glyphs g0024, ...: four hexadecimal digits of "
+           "the glyph index, as in old Ghostscript subsets (#629).",
+           "Opens; the text is 'GLYPH INDEX'.", 1,
+           text=[TRUETYPE_GLYPH_INDEX_TEXT]),
     # malicious
     Sample("malicious/js-document-level.pdf", malicious_js_document, "Document-level JavaScript in the names tree.",
            "No script runs; finding reported.", 1, ["javaScript"]),
@@ -2554,6 +2680,7 @@ SAMPLES = [
     Sample("malicious/gotor-unc.pdf", malicious_gotor_unc, "GoToR to a UNC path.",
            "No SMB connection is attempted; link blocked; findings reported.", 1,
            ["remoteGoTo", "uncReference"]),
+    Sample("malicious/gotor-localhost-host.pdf", malicious_gotor_localhost_host, "GoToR to file://localhost.example/... (host only starts with localhost, #611).", "No SMB connection is attempted; link blocked; findings reported.", 1, ["remoteGoTo", "uncReference"]),
     Sample("malicious/gotoe.pdf", malicious_gotoe, "GoToE into an embedded document.",
            "Link blocked; finding reported.", 1, ["embeddedGoTo"]),
     Sample("malicious/remote-filespec.pdf", malicious_remote_filespec,
@@ -2607,6 +2734,7 @@ SAMPLES = [
     Sample("malicious/link-unc-uri.pdf",
            lambda: link_scheme_sample("link-unc-uri", b"\\\\share.example.invalid\\x", "UNC path as URI"),
            "URI link whose value is a UNC path.", "Blocked with an explanation; no SMB connection.", 1),
+    Sample("malicious/link-localhost-host-uri.pdf", lambda: link_scheme_sample("link-localhost-host-uri", b"file://localhost.example/share/doc.pdf", "file: URI with a localhost-prefixed host"), "URI link to file://localhost.example/... (#611).", "Blocked as a network share; no SMB connection.", 1),
     Sample("malicious/link-mailto-recipients.pdf",
            lambda: link_scheme_sample("link-mailto-recipients", b"mailto:someone@first.example;ceo@second.example",
                                       "mailto with recipients separated by ;"),

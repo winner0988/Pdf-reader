@@ -8,6 +8,8 @@ import { CompareDialog } from "@/features/compare/CompareDialog";
 import { DeleteBookmarkDialog } from "@/features/outline/DeleteBookmarkDialog";
 import { FindPersonalDataDialog } from "@/features/redaction/FindPersonalDataDialog";
 import { NoteDialog } from "@/features/annotations/NoteDialog";
+import { SignaturesDialog } from "@/features/annotations/SignaturesDialog";
+import type { SignaturesApi } from "@/features/annotations/signaturesApi";
 import { AnnotationsListPanel } from "@/features/annotations/AnnotationsListPanel";
 import { BatchDialog } from "@/features/batch/BatchDialog";
 import { TextBoxDialog } from "@/features/annotations/TextBoxDialog";
@@ -36,6 +38,7 @@ import { StatusBar } from "@/features/shell/StatusBar";
 import { tabElementId, tabPanelId, type Tab } from "@/features/tabs/model";
 import { TabBar } from "@/features/tabs/TabBar";
 import { MovePagesDialog } from "@/features/thumbnails/MovePagesDialog";
+import { ReplacePagesDialog } from "@/features/thumbnails/ReplacePagesDialog";
 import { SourcePasswordDialog } from "@/features/thumbnails/SourcePasswordDialog";
 import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
 import { RedactionConfirmDialog } from "@/features/redaction/RedactionConfirmDialog";
@@ -358,6 +361,23 @@ describe("dialogs", () => {
 
   it("moving pages", async () => {
     render(<MovePagesDialog open onOpenChange={vi.fn()} pageCount={10} moving={2} onMove={vi.fn()} />);
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("replacing pages with pages from another file", async () => {
+    render(
+      <ReplacePagesDialog
+        open
+        onOpenChange={vi.fn()}
+        first={1}
+        count={2}
+        sourcePages={5}
+        docPages={10}
+        onReplace={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
     await screen.findByRole("dialog");
     await expectAccessible(everything());
   });
@@ -691,5 +711,35 @@ describe("what the window shows", () => {
     await expectAccessible(everything(), {
       skip: { region: "the panel is shown without the sidebar that has it in the window" },
     });
+  });
+
+  it("signatures dialog without saved signatures", async () => {
+    const api: SignaturesApi = {
+      getSignatureImages: vi.fn().mockResolvedValue([]),
+      getSignatureImagePng: vi.fn().mockResolvedValue([]),
+      addSignatureImage: vi.fn().mockResolvedValue([]),
+      importSignatureImage: vi.fn().mockResolvedValue([]),
+      removeSignatureImage: vi.fn().mockResolvedValue([]),
+      removeAllSignatureImages: vi.fn().mockResolvedValue([]),
+      prepareSignatureStamp: vi.fn().mockResolvedValue({ id: 1, width: 100, height: 50, png: [] }),
+    };
+    render(<SignaturesDialog open onOpenChange={vi.fn()} api={api} />);
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("signatures dialog with saved signatures", async () => {
+    const api: SignaturesApi = {
+      getSignatureImages: vi.fn().mockResolvedValue([{ id: 1, width: 100, height: 50 }]),
+      getSignatureImagePng: vi.fn().mockResolvedValue([137, 80, 78, 71]),
+      addSignatureImage: vi.fn().mockResolvedValue([]),
+      importSignatureImage: vi.fn().mockResolvedValue([]),
+      removeSignatureImage: vi.fn().mockResolvedValue([]),
+      removeAllSignatureImages: vi.fn().mockResolvedValue([]),
+      prepareSignatureStamp: vi.fn().mockResolvedValue({ id: 1, width: 100, height: 50, png: [] }),
+    };
+    render(<SignaturesDialog open onOpenChange={vi.fn()} api={api} doc={1 as unknown as DocumentId} />);
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
   });
 });

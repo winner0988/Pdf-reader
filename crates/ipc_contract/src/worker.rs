@@ -50,6 +50,69 @@ pub struct WorkerDocumentProperties {
     pub attachment_count: u32,
 }
 
+/// What kind of annotation was exported for XFDF (B5-09).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExportedAnnotationKind {
+    Highlight,
+    Underline,
+    StrikeOut,
+    Squiggly,
+    Note,
+    Ink,
+    Stamp,
+    TextBox,
+    Rectangle,
+    Ellipse,
+    Line,
+}
+
+/// Line ending decoration for XFDF lines (B5-09).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExportedLineEnding {
+    None,
+    OpenArrow,
+    ClosedArrow,
+}
+
+/// Font and style details for text box XFDF export (B5-09).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ExportedTextStyle {
+    pub size: f32,
+    pub color: [u8; 3],
+    pub justification: u8,
+}
+
+/// An annotation exported from a document for XFDF (B5-09).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExportedAnnotation {
+    pub kind: ExportedAnnotationKind,
+    pub page: u32,
+    pub rect: [f32; 4],
+    pub name: String,
+    pub in_reply_to: Option<String>,
+    pub color: Option<[u8; 3]>,
+    pub interior: Option<[u8; 3]>,
+    pub opacity: Option<f32>,
+    pub width: Option<f32>,
+    pub print: bool,
+    pub hidden: bool,
+    pub icon: Option<String>,
+    pub contents: Option<String>,
+    pub quads: Vec<[f32; 8]>,
+    pub ink: Vec<Vec<[f32; 2]>>,
+    pub line: Option<[f32; 4]>,
+    pub line_endings: Option<[ExportedLineEnding; 2]>,
+    pub text_style: Option<ExportedTextStyle>,
+}
+
+/// The annotations exported across the document for XFDF (B5-09).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExportedAnnotations {
+    pub items: Vec<ExportedAnnotation>,
+    pub skipped: u32,
+    pub truncated: bool,
+}
+
 /// A file handle that the main process duplicated into the worker process: read-only for
 /// `Open`, write-only for `Save`. The value is only meaningful inside the worker; the worker
 /// never receives a path.
@@ -607,6 +670,21 @@ pub enum WorkerEdit {
         pages: Vec<u32>,
         margins: CropMargins,
     },
+    /// As [`Edit::AddWatermark`] (B6-06).
+    AddWatermark {
+        pages: Vec<u32>,
+        watermark: WorkerWatermark,
+        png: Option<Vec<u8>>,
+    },
+    /// As [`Edit::ReplacePages`].
+    ReplacePages {
+        first: u32,
+        count: u32,
+        source: Vec<u8>,
+        text_boxes: Vec<InsertedTextBox>,
+        from: u32,
+        to: u32,
+    },
 }
 
 /// An edit names something its document does not have: a file whose pages it takes (B2-06), the
@@ -828,6 +906,35 @@ impl WorkerEdit {
                 pages: pages.clone(),
                 margins: *margins,
             },
+            Edit::AddWatermark {
+                pages,
+                watermark,
+                image,
+            } => WorkerEdit::AddWatermark {
+                pages: pages.clone(),
+                watermark: watermark.clone().into(),
+                png: match image {
+                    Some(image) => Some(picture(*image).ok_or(UnknownFile::Picture)?),
+                    None => None,
+                },
+            },
+            Edit::ReplacePages {
+                first,
+                count,
+                source: id,
+                from,
+                to,
+            } => {
+                let (source, text_boxes) = source(*id).ok_or(UnknownFile::Source)?;
+                WorkerEdit::ReplacePages {
+                    first: *first,
+                    count: *count,
+                    source,
+                    text_boxes,
+                    from: *from,
+                    to: *to,
+                }
+            }
         })
     }
 }
@@ -1214,6 +1321,11 @@ pub enum WorkerRequest {
         request: RequestId,
         doc: DocumentId,
     },
+    /// Collects annotations across all pages for XFDF export (B5-09).
+    AnnotationExport {
+        request: RequestId,
+        doc: DocumentId,
+    },
     /// Traverses pages and Form XObjects to list fonts (B5-04).
     GetDocumentFonts {
         request: RequestId,
@@ -1429,6 +1541,11 @@ pub enum WorkerResponse {
     DocumentProperties {
         request: RequestId,
         properties: WorkerDocumentProperties,
+    },
+    /// Exported annotations from `AnnotationExport` (B5-09).
+    AnnotationExport {
+        request: RequestId,
+        annotations: ExportedAnnotations,
     },
     /// Fonts list from `GetDocumentFonts` (B5-04).
     DocumentFonts {
@@ -1807,6 +1924,57 @@ mod tests {
                 at: 2,
                 source: vec![1, 2, 3, 4],
                 text_boxes: vec![tb],
+            }
+        );
+        let bytes = postcard::to_allocvec(&made).unwrap();
+        assert_eq!(postcard::from_bytes::<WorkerEdit>(&bytes).unwrap(), made);
+
+        assert_eq!(
+            WorkerEdit::of(&edit, |_| None, |_| None, |_| None),
+            Err(UnknownFile::Source)
+        );
+    }
+
+    #[test]
+    fn replace_pages_edit_carries_source_and_text_boxes() {
+        let edit = Edit::ReplacePages {
+            first: 2,
+            count: 3,
+            source: SourceId(5),
+            from: 1,
+            to: 4,
+        };
+        let tb = InsertedTextBox {
+            page: 0,
+            rect: Rect {
+                x0: 10.0,
+                y0: 20.0,
+                x1: 100.0,
+                y1: 50.0,
+            },
+            model: sample_model(),
+            style: TextBoxStyle {
+                size: 14.0,
+                color: Rgb {
+                    r: 10,
+                    g: 20,
+                    b: 30,
+                },
+                align: crate::types::TextAlign::Center,
+            },
+        };
+        let source_fn =
+            |id: SourceId| (id == SourceId(5)).then(|| (vec![1, 2, 3, 4], vec![tb.clone()]));
+        let made = WorkerEdit::of(&edit, source_fn, |_| None, |_| None).unwrap();
+        assert_eq!(
+            made,
+            WorkerEdit::ReplacePages {
+                first: 2,
+                count: 3,
+                source: vec![1, 2, 3, 4],
+                text_boxes: vec![tb],
+                from: 1,
+                to: 4,
             }
         );
         let bytes = postcard::to_allocvec(&made).unwrap();
@@ -2271,5 +2439,120 @@ mod tests {
         for (value, target) in json.into_iter().zip(targets()) {
             assert_eq!(serde_json::from_value::<LinkTarget>(value).unwrap(), target);
         }
+    }
+
+    #[test]
+    fn add_watermark_edit_crosses_the_worker_boundary() {
+        use crate::types::{Watermark, WatermarkContent, WatermarkPages, WatermarkPlace};
+        let watermark = Watermark {
+            content: WatermarkContent::Text {
+                text: "CONFIDENTIAL".to_owned(),
+                size: 40.0,
+                color: Rgb {
+                    r: 10,
+                    g: 20,
+                    b: 30,
+                },
+            },
+            opacity: 45,
+            diagonal: true,
+            place: WatermarkPlace::Center,
+            pages: WatermarkPages::All,
+        };
+        let edit = Edit::AddWatermark {
+            pages: vec![0, 2],
+            watermark: watermark.clone(),
+            image: None,
+        };
+        let worker_edit = WorkerEdit::of(&edit, |_| None, |_| None, |_| None).unwrap();
+        let bytes = postcard::to_allocvec(&worker_edit).unwrap();
+        let back = postcard::from_bytes::<WorkerEdit>(&bytes).unwrap();
+        assert_eq!(back, worker_edit);
+
+        // Picture watermark with missing picture gives UnknownFile::Picture
+        let pic_wm = Watermark {
+            content: WatermarkContent::Picture { width_pt: 120.0 },
+            opacity: 60,
+            diagonal: false,
+            place: WatermarkPlace::Top,
+            pages: WatermarkPages::All,
+        };
+        let pic_edit = Edit::AddWatermark {
+            pages: vec![1],
+            watermark: pic_wm.clone(),
+            image: Some(StampImageId(99)),
+        };
+        assert_eq!(
+            WorkerEdit::of(&pic_edit, |_| None, |_| None, |_| None),
+            Err(UnknownFile::Picture)
+        );
+
+        // Picture watermark with picture round-trips
+        let pic_worker_edit = WorkerEdit::of(
+            &pic_edit,
+            |_| None,
+            |id| {
+                if id == StampImageId(99) {
+                    Some(vec![1, 2, 3])
+                } else {
+                    None
+                }
+            },
+            |_| None,
+        )
+        .unwrap();
+        let bytes = postcard::to_allocvec(&pic_worker_edit).unwrap();
+        let back = postcard::from_bytes::<WorkerEdit>(&bytes).unwrap();
+        assert_eq!(back, pic_worker_edit);
+    }
+
+    #[test]
+    fn annotation_export_survives_round_trip_through_postcard() {
+        let request = WorkerRequest::AnnotationExport {
+            request: RequestId(42),
+            doc: DocumentId(7),
+        };
+        let bytes = postcard::to_stdvec(&request).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerRequest>(&bytes).unwrap(),
+            request
+        );
+
+        let response = WorkerResponse::AnnotationExport {
+            request: RequestId(42),
+            annotations: ExportedAnnotations {
+                items: vec![ExportedAnnotation {
+                    kind: ExportedAnnotationKind::Highlight,
+                    page: 0,
+                    rect: [72.0, 100.0, 200.0, 120.0],
+                    name: "pdf-reader-1-1".to_owned(),
+                    in_reply_to: None,
+                    color: Some([255, 255, 0]),
+                    interior: None,
+                    opacity: Some(0.8),
+                    width: Some(1.0),
+                    print: true,
+                    hidden: false,
+                    icon: None,
+                    contents: Some("Note text".to_owned()),
+                    quads: vec![[72.0, 120.0, 200.0, 120.0, 72.0, 100.0, 200.0, 100.0]],
+                    ink: vec![vec![[10.0, 20.0], [30.0, 40.0]]],
+                    line: Some([10.0, 20.0, 30.0, 40.0]),
+                    line_endings: Some([ExportedLineEnding::None, ExportedLineEnding::OpenArrow]),
+                    text_style: Some(ExportedTextStyle {
+                        size: 14.0,
+                        color: [0, 0, 0],
+                        justification: 0,
+                    }),
+                }],
+                skipped: 1,
+                truncated: false,
+            },
+        };
+        let bytes = postcard::to_stdvec(&response).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerResponse>(&bytes).unwrap(),
+            response
+        );
     }
 }
