@@ -173,7 +173,9 @@ fn tiling_patterns_that_cannot_finish_report_limit_exceeded_at_once() {
                     error.detail
                 );
             }
-            ref other => panic!("{name}: expected HostError::Worker(LimitExceeded), got: {other:?}"),
+            ref other => {
+                panic!("{name}: expected HostError::Worker(LimitExceeded), got: {other:?}")
+            }
         }
         assert!(
             started.elapsed() < Duration::from_secs(5),

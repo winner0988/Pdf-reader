@@ -25,6 +25,7 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 - 批次處理對已經有浮水印的檔案再加浮水印時，不再換掉原本的浮水印（#591）。
 - 先填色或描邊、再當成裁切路徑的文字，在複製、搜尋、本機全文索引與匯出成文字或 Word 時不再多出一份（1.0.0 已知的限制，[#628](https://github.com/winner0988/Pdf-reader/issues/628)）。
 - Type3 字型的字形用「g 加十進位的字元碼」命名（例如 `/g32` 是空白）時，擷取出來的字不再變成別的字（1.0.0 已知的限制，[#629](https://github.com/winner0988/Pdf-reader/issues/629)）。
+- 鋪滿細小重複圖樣（tiling pattern）、30 秒內一定畫不完的頁面，會馬上顯示「這一頁無法顯示」，不再等到時限、讓 PDF 引擎重新啟動（1.0.0 已知的限制，[#550](https://github.com/winner0988/Pdf-reader/issues/550)）。這種頁面的縮圖比較小，有些仍要畫很久或等到時限（[#672](https://github.com/winner0988/Pdf-reader/issues/672)）。
 
 ## [1.0.0] - 2026-11-20
 
