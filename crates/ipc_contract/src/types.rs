@@ -764,6 +764,14 @@ pub enum Edit {
         pages: Vec<u32>,
         margins: CropMargins,
     },
+    /// Draws `watermark` on `pages` (no repeats) as page content, as a batch draws it on a copy
+    /// (B6-06); `image` is the picture of a picture watermark (what `pick_stamp_image` made of it),
+    /// none for words; `watermark.pages` must be `All`, as the edit lists its own pages.
+    AddWatermark {
+        pages: Vec<u32>,
+        watermark: Watermark,
+        image: Option<StampImageId>,
+    },
     /// Replaces the `count` pages from index `first` on with pages `from` to `to` (0-based, both
     /// included) of the file `source` (what `pick_pages_source` made of the file the user
     /// chose), in their order (B6-05); the pages that go are removed as `DeletePages` removes

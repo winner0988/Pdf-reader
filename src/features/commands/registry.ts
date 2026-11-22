@@ -21,7 +21,7 @@ export function clearRecentCommands(): void {
 }
 
 /**
- * Creates the complete list of commands (35 from the More menu, 25 shortcut-only / viewer actions, 1 palette-only action).
+ * Creates the complete list of commands (36 from the More menu, 25 shortcut-only / viewer actions, 1 palette-only action).
  * Both the "⋯" menu and the Command Palette are generated from this list.
  */
 export function createCommands(opts: CommandOptions): Command[] {
@@ -352,6 +352,22 @@ export function createCommands(opts: CommandOptions): Command[] {
           ? strings.pageMarks.encrypted
           : undefined,
       run: () => opts.onPageMarks?.(),
+    },
+    {
+      id: "watermark",
+      name: menu.watermark,
+      aliases: [...aliases.watermark],
+      shortcutBadge: opts.watermarkBlocked ? opts.watermarkBlocked : undefined,
+      fromMenu: true,
+      menuSection: "actions",
+      menuKind: "item",
+      visibleInMenu: true,
+      menuDisabled: !opts.onWatermark,
+      enabled: hasDoc && Boolean(opts.onWatermark && !opts.watermarkBlocked),
+      disabledReason: !hasDoc
+        ? strings.commands.noDocument
+        : opts.watermarkBlocked,
+      run: () => opts.onWatermark?.(),
     },
     {
       id: "encryptCopy",
