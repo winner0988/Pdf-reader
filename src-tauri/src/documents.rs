@@ -5917,18 +5917,12 @@ mod with_worker {
         let documents = Documents::new(worker());
         let events = std::cell::RefCell::new(Vec::new());
         let report = |event: OpenEvent| events.borrow_mut().push(event);
-        fn test_password(bytes: &[u8]) -> Password {
-            Password::new(String::from_utf8(bytes.to_vec()).unwrap())
-        }
-        const PW_USER: [u8; 4] = [117, 115, 101, 114];
-        const PW_OWNER: [u8; 5] = [111, 119, 110, 101, 114];
-
         let [tab] = documents.add(std::slice::from_ref(&temp), &report)[..] else {
             panic!("one tab")
         };
         documents.load(tab, &report);
         documents
-            .unlock(tab, test_password(&PW_USER), false, &report)
+            .unlock(tab, password("user"), false, &report)
             .unwrap();
         let Some(OpenEvent::Opened { info, .. }) = events.borrow().last().cloned() else {
             panic!("opened")
@@ -5943,7 +5937,7 @@ mod with_worker {
         // Refuse when user password is supplied because document is restricted
         assert_eq!(
             documents
-                .decrypted_copy(edited.doc, &copy, test_password(&PW_USER))
+                .decrypted_copy(edited.doc, &copy, password("user"))
                 .unwrap_err()
                 .code,
             ErrorCode::NotAllowed
@@ -5952,7 +5946,7 @@ mod with_worker {
 
         // Decrypt with owner password
         documents
-            .decrypted_copy(edited.doc, &copy, test_password(&PW_OWNER))
+            .decrypted_copy(edited.doc, &copy, password("owner"))
             .unwrap();
         assert!(copy.exists());
         let copy_bytes = std::fs::read(&copy).unwrap();
@@ -5992,18 +5986,12 @@ mod with_worker {
 
     #[test]
     fn a_decrypted_copy_never_replaces_own_file_and_refuses_unencrypted_or_signed() {
-        fn test_password(bytes: &[u8]) -> Password {
-            Password::new(String::from_utf8(bytes.to_vec()).unwrap())
-        }
-        const PW_USER: [u8; 4] = [117, 115, 101, 114];
-        const PW_ANY: [u8; 3] = [97, 110, 121];
-
         // 1. Unencrypted document refused
         let (documents, info, path) = open("decrypted-unencrypted", 1);
         let copy = path.with_file_name("decrypted-copy.pdf");
         assert_eq!(
             documents
-                .decrypted_copy(info.doc, &copy, test_password(&PW_ANY))
+                .decrypted_copy(info.doc, &copy, password("any"))
                 .unwrap_err()
                 .code,
             ErrorCode::InvalidArgument
@@ -6024,7 +6012,7 @@ mod with_worker {
         };
         documents.load(tab, &report);
         documents
-            .unlock(tab, test_password(&PW_USER), false, &report)
+            .unlock(tab, password("user"), false, &report)
             .unwrap();
         let Some(OpenEvent::Opened { info: enc_info, .. }) = events.borrow().last().cloned() else {
             panic!("opened")
@@ -6034,7 +6022,7 @@ mod with_worker {
         for destination in [&temp, &shouted] {
             assert_eq!(
                 documents
-                    .decrypted_copy(enc_info.doc, destination, test_password(&PW_USER))
+                    .decrypted_copy(enc_info.doc, destination, password("user"))
                     .unwrap_err()
                     .code,
                 ErrorCode::InvalidArgument
@@ -6050,7 +6038,7 @@ mod with_worker {
         let info = open_in(&documents, &signed);
         assert_eq!(
             documents
-                .decrypted_copy(info.doc, &copy, test_password(&PW_ANY))
+                .decrypted_copy(info.doc, &copy, password("any"))
                 .unwrap_err()
                 .code,
             ErrorCode::InvalidArgument

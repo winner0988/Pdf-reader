@@ -4945,23 +4945,15 @@ endstream",
         let doc = PdfDocument::open(&bytes, Some("user")).expect("open");
         assert!(doc.is_encrypted());
 
-        // Helper for test passwords without string-literal cryptographic false positives
-        fn test_pw(bytes: &[u8]) -> String {
-            String::from_utf8(bytes.to_vec()).unwrap()
-        }
-        const PW_USER: [u8; 4] = [117, 115, 101, 114];
-        const PW_OWNER: [u8; 5] = [111, 119, 110, 101, 114];
-        const PW_WRONG: [u8; 5] = [119, 114, 111, 110, 103];
-
         // Wrong password rejected with WrongPassword
         let mut out = Vec::new();
         assert!(matches!(
-            doc.decrypted_copy(&test_pw(&PW_WRONG), &mut out),
+            doc.decrypted_copy("wrong", &mut out),
             Err(EngineError::WrongPassword)
         ));
 
         // Both user and owner passwords work for unrestricted document
-        for pw in [&test_pw(&PW_USER), &test_pw(&PW_OWNER)] {
+        for pw in ["user", "owner"] {
             let mut out = Vec::new();
             let written = doc.decrypted_copy(pw, &mut out).expect("decrypted copy");
             assert_eq!(out.len() as u64, written);
@@ -4988,12 +4980,6 @@ endstream",
 
     #[test]
     fn a_restricted_document_requires_owner_password_to_decrypt() {
-        fn test_pw(bytes: &[u8]) -> String {
-            String::from_utf8(bytes.to_vec()).unwrap()
-        }
-        const PW_USER: [u8; 4] = [117, 115, 101, 114];
-        const PW_OWNER: [u8; 5] = [111, 119, 110, 101, 114];
-
         for name in [
             "benign/restricted-open-password.pdf",
             "benign/encrypted-rc4-40.pdf",
@@ -5005,7 +4991,7 @@ endstream",
             // user password is rejected with NotAllowed
             assert!(
                 matches!(
-                    doc.decrypted_copy(&test_pw(&PW_USER), &mut out),
+                    doc.decrypted_copy("user", &mut out),
                     Err(EngineError::NotAllowed(_))
                 ),
                 "{name}: user should be NotAllowed"
@@ -5013,7 +4999,7 @@ endstream",
 
             // owner password succeeds and copy has no restrictions
             let mut out = Vec::new();
-            doc.decrypted_copy(&test_pw(&PW_OWNER), &mut out)
+            doc.decrypted_copy("owner", &mut out)
                 .expect("owner decrypts");
             let copy = PdfDocument::from_bytes(&out).expect("opens");
             assert!(!copy.is_encrypted());
@@ -5025,10 +5011,10 @@ endstream",
         let doc = PdfDocument::from_bytes(&bytes).expect("open");
         let mut out = Vec::new();
         // user password is not the owner password and not the user password (""), so rejected
-        assert!(doc.decrypted_copy(&test_pw(&PW_USER), &mut out).is_err());
+        assert!(doc.decrypted_copy("user", &mut out).is_err());
         // owner password succeeds
         let mut out = Vec::new();
-        doc.decrypted_copy(&test_pw(&PW_OWNER), &mut out)
+        doc.decrypted_copy("owner", &mut out)
             .expect("owner decrypts");
         let copy = PdfDocument::from_bytes(&out).expect("opens");
         assert!(!copy.is_encrypted());
@@ -5037,30 +5023,20 @@ endstream",
 
     #[test]
     fn unencrypted_documents_and_invalid_passwords_are_refused_for_decrypted_copy() {
-        fn test_pw(bytes: &[u8]) -> String {
-            String::from_utf8(bytes.to_vec()).unwrap()
-        }
-        const PW_UNUSED: [u8; 8] = [112, 97, 115, 115, 119, 111, 114, 100];
-
         let doc = PdfDocument::from_bytes(&corpus("benign/single-page.pdf")).expect("open");
         let mut out = Vec::new();
         assert!(matches!(
-            doc.decrypted_copy(&test_pw(&PW_UNUSED), &mut out),
+            doc.decrypted_copy("password", &mut out),
             Err(EngineError::InvalidEdit(_))
         ));
 
         // On an encrypted document, bad passwords are rejected
         let enc =
             PdfDocument::open(&corpus("benign/encrypted-aes256.pdf"), Some("user")).expect("open");
-        let nul_pw = String::from_utf8(vec![97, 0, 98]).unwrap();
-        for bad in [
-            String::new(),
-            "p".repeat(MAX_PASSWORD_BYTES as usize + 1),
-            nul_pw,
-        ] {
+        for bad in ["", &"p".repeat(MAX_PASSWORD_BYTES as usize + 1), "a\0b"] {
             assert!(
                 matches!(
-                    enc.decrypted_copy(&bad, &mut out),
+                    enc.decrypted_copy(bad, &mut out),
                     Err(EngineError::InvalidEdit(_))
                 ),
                 "bad password: {bad}"

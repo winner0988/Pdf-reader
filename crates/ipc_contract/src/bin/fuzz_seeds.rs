@@ -1347,10 +1347,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             doc,
             file: FileHandle(0x2b4),
-            password: Password::new(
-                String::from_utf8(vec![112, 101, 114, 109, 105, 115, 115, 105, 111, 110, 115])
-                    .unwrap(),
-            ),
+            password: Password::new("permissions".to_owned()),
         },
         WorkerRequest::CompressedCopy {
             request,
