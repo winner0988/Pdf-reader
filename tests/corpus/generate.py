@@ -1407,6 +1407,13 @@ def malicious_gotor_unc() -> bytes:
     )
 
 
+def malicious_gotor_localhost_host() -> bytes:
+    return link_sample(
+        "gotor-localhost-host", "GoToR to a file:// URL whose host only starts with localhost",
+        "/S /GoToR /F (file://localhost.example/share/doc.pdf) /D [0 /Fit]",
+    )
+
+
 def malicious_gotoe() -> bytes:
     return link_sample(
         "gotoe", "GoToE into an embedded document",
@@ -2554,6 +2561,7 @@ SAMPLES = [
     Sample("malicious/gotor-unc.pdf", malicious_gotor_unc, "GoToR to a UNC path.",
            "No SMB connection is attempted; link blocked; findings reported.", 1,
            ["remoteGoTo", "uncReference"]),
+    Sample("malicious/gotor-localhost-host.pdf", malicious_gotor_localhost_host, "GoToR to file://localhost.example/... (host only starts with localhost, #611).", "No SMB connection is attempted; link blocked; findings reported.", 1, ["remoteGoTo", "uncReference"]),
     Sample("malicious/gotoe.pdf", malicious_gotoe, "GoToE into an embedded document.",
            "Link blocked; finding reported.", 1, ["embeddedGoTo"]),
     Sample("malicious/remote-filespec.pdf", malicious_remote_filespec,
@@ -2607,6 +2615,7 @@ SAMPLES = [
     Sample("malicious/link-unc-uri.pdf",
            lambda: link_scheme_sample("link-unc-uri", b"\\\\share.example.invalid\\x", "UNC path as URI"),
            "URI link whose value is a UNC path.", "Blocked with an explanation; no SMB connection.", 1),
+    Sample("malicious/link-localhost-host-uri.pdf", lambda: link_scheme_sample("link-localhost-host-uri", b"file://localhost.example/share/doc.pdf", "file: URI with a localhost-prefixed host"), "URI link to file://localhost.example/... (#611).", "Blocked as a network share; no SMB connection.", 1),
     Sample("malicious/link-mailto-recipients.pdf",
            lambda: link_scheme_sample("link-mailto-recipients", b"mailto:someone@first.example;ceo@second.example",
                                       "mailto with recipients separated by ;"),

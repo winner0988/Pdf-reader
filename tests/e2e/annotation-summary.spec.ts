@@ -86,3 +86,75 @@ test.describe("annotation summary", () => {
     expect(readdirSync(folder)).toEqual([]);
   });
 });
+
+test.describe("XFDF export", () => {
+  let folder: string;
+  test.beforeEach(() => {
+    folder = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-xfdf-"));
+  });
+  test.afterEach(() => {
+    rmSync(folder, { recursive: true, force: true });
+  });
+
+  test("exports annotations as standard XFDF without private data (B5-09)", async ({ launch }) => {
+    const page = await launch(corpus("benign/mixed-text-zh-en.pdf"));
+    await expect(page.getByRole("img", { name: strings.canvas.page(1) }).first()).toHaveAttribute("data-state", "ready");
+    await highlight(page, "Reader");
+    await expect(marks(page)).toHaveCount(1);
+    await highlight(page, "Privacy");
+    await expect(marks(page)).toHaveCount(2);
+
+    const file = path.join(folder, "export.xfdf");
+    const dialogReport = answerFileDialog(page, { path: file });
+
+    await page.getByRole("button", { name: strings.toolbar.more }).click();
+    await page.getByRole("menuitem", { name: strings.menu.exportXfdf }).click();
+
+    await dialogReport;
+    await expect(page.getByRole("contentinfo")).toContainText(strings.exportXfdf.done(2));
+    expect(existsSync(file)).toBe(true);
+
+    const xml = readFileSync(file, "utf8");
+    const parseResult = await page.evaluate((content) => {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(content, "application/xml");
+      const errorNode = doc.querySelector("parsererror");
+      if (errorNode) return { error: errorNode.textContent };
+      const root = doc.documentElement;
+      const annots = root.querySelector("annots");
+      const f = root.querySelector("f");
+      const highlights = annots ? Array.from(annots.querySelectorAll("highlight")) : [];
+      return {
+        rootTag: root.tagName,
+        xmlns: root.getAttribute("xmlns"),
+        annotsCount: highlights.length,
+        href: f?.getAttribute("href"),
+      };
+    }, xml);
+
+    expect(parseResult.error).toBeUndefined();
+    expect(parseResult.rootTag).toBe("xfdf");
+    expect(parseResult.xmlns).toBe("http://ns.adobe.com/xfdf/");
+    expect(parseResult.annotsCount).toBe(2);
+    expect(parseResult.href).toBe("mixed-text-zh-en.pdf");
+
+    // Privacy checks: no paths, no title, no date, no creationdate, no subject, no IDs
+    expect(xml).not.toContain("title=");
+    expect(xml).not.toContain("date=");
+    expect(xml).not.toContain("creationdate=");
+    expect(xml).not.toContain("subject=");
+    expect(xml).not.toContain("<ids");
+    expect(xml).not.toContain(folder);
+
+    expect(readdirSync(folder)).toEqual(["export.xfdf"]);
+  });
+
+  test("says so when the document has no annotations when exporting XFDF", async ({ launch }) => {
+    const page = await launch(corpus("benign/mixed-text-zh-en.pdf"));
+    await expect(page.getByRole("img", { name: strings.canvas.page(1) }).first()).toHaveAttribute("data-state", "ready");
+    await page.getByRole("button", { name: strings.toolbar.more }).click();
+    await page.getByRole("menuitem", { name: strings.menu.exportXfdf }).click();
+    await expect(page.getByRole("contentinfo")).toContainText(strings.exportXfdf.empty);
+    expect(readdirSync(folder)).toEqual([]);
+  });
+});

@@ -36,9 +36,9 @@ use ipc_contract::validate::{
     stamp_png_size,
 };
 use ipc_contract::worker::{
-    FontData, InsertedTextBox, InspectedFont, NewSignature, OcrFinished, OcrOutcome, OcrPageState,
-    PasswordKey, PreparedTextBoxModel, SourceTextBox, TextBoxModel, UnknownFile, WorkerEdit,
-    WorkerErrorCode, WorkerRequest, WorkerResponse,
+    ExportedAnnotations, FontData, InsertedTextBox, InspectedFont, NewSignature, OcrFinished,
+    OcrOutcome, OcrPageState, PasswordKey, PreparedTextBoxModel, SourceTextBox, TextBoxModel,
+    UnknownFile, WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
 };
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
@@ -2599,6 +2599,47 @@ impl Documents {
         })
     }
 
+    /// Exports the annotations across `doc` for XFDF (B5-09).
+    pub fn annotation_export(&self, doc: DocumentId) -> Result<ExportedAnnotations, IpcError> {
+        self.with_document(doc, |document| {
+            let response = request_long(document, |request, doc| {
+                WorkerRequest::AnnotationExport { request, doc }
+            })?;
+            let WorkerResponse::AnnotationExport { annotations, .. } = response else {
+                return Err(unexpected_on(document, "AnnotationExport"));
+            };
+            let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+            let mut names = std::collections::HashSet::new();
+            for item in &annotations.items {
+                if item.page >= page_count {
+                    return Err(IpcError {
+                        code: ErrorCode::ProtocolViolation,
+                        message: "annotation export page index out of bounds".to_owned(),
+                    });
+                }
+                if !names.insert(item.name.as_str()) {
+                    return Err(IpcError {
+                        code: ErrorCode::ProtocolViolation,
+                        message: "duplicate annotation name in export".to_owned(),
+                    });
+                }
+            }
+            for item in &annotations.items {
+                if item
+                    .in_reply_to
+                    .as_deref()
+                    .is_some_and(|irt| !names.contains(irt))
+                {
+                    return Err(IpcError {
+                        code: ErrorCode::ProtocolViolation,
+                        message: "annotation in_reply_to references unknown name".to_owned(),
+                    });
+                }
+            }
+            Ok(annotations)
+        })
+    }
+
     pub fn page_links(&self, doc: DocumentId, page_index: u32) -> Result<Vec<PageLink>, IpcError> {
         self.with_document(doc, |document| {
             let page_count = document.info.pages.len();
@@ -3124,7 +3165,10 @@ fn request_long(
 
 /// Whether `edit` takes the pages of a file: it carries the file, and may take long.
 fn takes_pages(edit: &WorkerEdit) -> bool {
-    matches!(edit, WorkerEdit::InsertPages { .. })
+    matches!(
+        edit,
+        WorkerEdit::InsertPages { .. } | WorkerEdit::ReplacePages { .. }
+    )
 }
 
 /// The document's id in its worker. If the worker that had the document died, the file is
@@ -3310,6 +3354,37 @@ fn pages_after(
             }
             Ok(page_count + inserted)
         }
+        Edit::ReplacePages {
+            first,
+            count,
+            source,
+            from,
+            to,
+        } => {
+            if first.saturating_add(*count) > page_count {
+                return Err(invalid_argument("no such pages to replace"));
+            }
+            let source_total =
+                source_pages(*source).ok_or_else(|| invalid_argument("no such source file"))?;
+            if *to >= source_total {
+                return Err(invalid_argument("source page out of range"));
+            }
+            let new_pages = to - from + 1;
+            let resulting = page_count - count + new_pages;
+            if resulting > MAX_PAGE_COUNT {
+                return Err(IpcError {
+                    code: ErrorCode::LimitExceeded,
+                    message: format!("a document has at most {MAX_PAGE_COUNT} pages"),
+                });
+            }
+            if page_count.saturating_add(source_total) > MAX_PAGE_COUNT {
+                return Err(IpcError {
+                    code: ErrorCode::LimitExceeded,
+                    message: format!("a document has at most {MAX_PAGE_COUNT} pages"),
+                });
+            }
+            Ok(resulting)
+        }
         Edit::InsertBlankPage { at, like } => {
             check_page_index(*like, page_count).map_err(invalid_argument)?;
             if *at > page_count {
@@ -3358,7 +3433,7 @@ fn pages_after(
 fn journalled(applied: &[Edit]) -> (&[Edit], u32) {
     let kept = applied
         .iter()
-        .position(|edit| matches!(edit, Edit::InsertPages { .. }))
+        .position(|edit| matches!(edit, Edit::InsertPages { .. } | Edit::ReplacePages { .. }))
         .unwrap_or(applied.len());
     (
         &applied[..kept],
@@ -7786,6 +7861,18 @@ mod with_worker {
         assert_eq!(summary.items.len(), 1);
         assert_ne!(summary.items[0].id.0, 0);
 
+        let exported = documents.annotation_export(doc).unwrap();
+        assert_eq!(exported.items.len(), 1);
+        assert!(!exported.items[0].name.is_empty());
+
+        assert_eq!(
+            documents
+                .annotation_export(DocumentId(99999))
+                .unwrap_err()
+                .code,
+            ErrorCode::UnknownDocument
+        );
+
         std::fs::remove_file(path).ok();
     }
 
@@ -9662,6 +9749,173 @@ mod with_worker {
 
     fn insert_pages(at: u32, source: ipc_contract::types::SourceId) -> Edit {
         Edit::InsertPages { at, source }
+    }
+
+    fn replace_pages_edit(
+        first: u32,
+        count: u32,
+        source: ipc_contract::types::SourceId,
+        from: u32,
+        to: u32,
+    ) -> Edit {
+        Edit::ReplacePages {
+            first,
+            count,
+            source,
+            from,
+            to,
+        }
+    }
+
+    #[test]
+    fn replace_pages_are_an_edit_that_undo_redo_and_saving_follow() {
+        let (documents, info, path) = open("replace-edit", 3);
+        let taken = documents
+            .prepare_pages_source(info.doc, &corpus_path("benign/mixed-page-sizes.pdf"), None)
+            .unwrap();
+        assert_eq!(taken.pages, 4);
+
+        let mut doc = info.doc;
+        // Replace page index 1 (count 1) with source pages 0 to 1 (2 pages) -> 3 - 1 + 2 = 4 pages
+        let pages = edited_pages(
+            &documents,
+            &mut doc,
+            replace_pages_edit(1, 1, taken.source, 0, 1),
+        );
+        assert_eq!(pages.len(), 4);
+        assert_eq!(pages[0], LETTER);
+        assert_eq!(pages[3], LETTER);
+        assert_ne!(pages[1], LETTER);
+
+        // Undone: back to original 3 pages
+        let undone = opened_info(documents.undo(doc, None).unwrap());
+        assert_eq!(undone.pages, [LETTER; 3]);
+
+        // Redone: back to 4 pages
+        let redone = opened_info(documents.redo(undone.doc).unwrap());
+        assert_eq!(redone.pages, pages);
+
+        // Another edit after it, then undone
+        let mut doc = redone.doc;
+        let turned = edited_pages(&documents, &mut doc, turn(0));
+        assert_eq!(turned.len(), 4);
+        let back = opened_info(documents.undo(doc, None).unwrap());
+        assert_eq!(back.pages, pages);
+
+        // Worker dies and is recovered
+        documents
+            .with_document(back.doc, |document| {
+                document.lost = true;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(documents.document_info(back.doc).unwrap().pages.len(), 4);
+
+        // Saved as a copy
+        let copy = std::env::temp_dir().join(format!("b605-{}-copy.pdf", std::process::id()));
+        let _ = std::fs::remove_file(&copy);
+        documents.save(back.doc, Some(copy.clone())).unwrap();
+        assert_eq!(first_page_count(&copy), 4);
+        std::fs::remove_file(&copy).ok();
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn replace_pages_pages_after_permissions_and_limits() {
+        let perm_ok = DocumentPermissions {
+            assemble: true,
+            modify: false,
+            ..DocumentPermissions::ALL
+        };
+        let perm_no = DocumentPermissions {
+            assemble: false,
+            modify: false,
+            ..DocumentPermissions::ALL
+        };
+
+        let source_fn = |id: ipc_contract::types::SourceId| {
+            if id.0 == 1 { Some(5) } else { None }
+        };
+
+        let valid_edit = replace_pages_edit(2, 2, ipc_contract::types::SourceId(1), 0, 2);
+
+        // Permission check
+        assert!(pages_after(&valid_edit, 10, perm_ok, &source_fn).is_ok());
+        assert_eq!(
+            pages_after(&valid_edit, 10, perm_no, &source_fn)
+                .unwrap_err()
+                .message,
+            not_allowed().message
+        );
+
+        // Range: first + count > page_count
+        let bad_range = replace_pages_edit(9, 2, ipc_contract::types::SourceId(1), 0, 1);
+        assert_eq!(
+            pages_after(&bad_range, 10, perm_ok, &source_fn)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+
+        // Source not found
+        let bad_source = replace_pages_edit(2, 2, ipc_contract::types::SourceId(99), 0, 1);
+        assert_eq!(
+            pages_after(&bad_source, 10, perm_ok, &source_fn)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+
+        // Source to >= source_pages (source has 5 pages, to = 5 is out of range)
+        let bad_to = replace_pages_edit(2, 2, ipc_contract::types::SourceId(1), 0, 5);
+        assert_eq!(
+            pages_after(&bad_to, 10, perm_ok, &source_fn)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+
+        // Limit: resulting page count > MAX_PAGE_COUNT
+        let limit_source_fn = |id: ipc_contract::types::SourceId| {
+            if id.0 == 1 {
+                Some(MAX_PAGE_COUNT)
+            } else {
+                None
+            }
+        };
+        let over_resulting = replace_pages_edit(
+            0,
+            1,
+            ipc_contract::types::SourceId(1),
+            0,
+            MAX_PAGE_COUNT - 1,
+        );
+        assert_eq!(
+            pages_after(&over_resulting, 10, perm_ok, &limit_source_fn)
+                .unwrap_err()
+                .code,
+            ErrorCode::LimitExceeded
+        );
+
+        // Limit: page_count + source_total > MAX_PAGE_COUNT
+        let over_preinsert = replace_pages_edit(0, 10, ipc_contract::types::SourceId(1), 0, 0);
+        assert_eq!(
+            pages_after(&over_preinsert, 10, perm_ok, &limit_source_fn)
+                .unwrap_err()
+                .code,
+            ErrorCode::LimitExceeded
+        );
+    }
+
+    #[test]
+    fn replace_pages_journalled_stops_before_it() {
+        let edit1 = turn(0);
+        let edit2 = replace_pages_edit(1, 1, ipc_contract::types::SourceId(1), 0, 0);
+        let edit3 = turn(1);
+        let edits = [edit1.clone(), edit2, edit3];
+        let (kept, lost) = journalled(&edits);
+        assert_eq!(kept, &[edit1]);
+        assert_eq!(lost, 2);
     }
 
     #[test]

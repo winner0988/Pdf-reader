@@ -44,7 +44,7 @@ pub struct Sources {
 /// The file an edit takes pages from, if it does.
 fn used_by(edit: &Edit) -> Option<SourceId> {
     match edit {
-        Edit::InsertPages { source, .. } => Some(*source),
+        Edit::InsertPages { source, .. } | Edit::ReplacePages { source, .. } => Some(*source),
         _ => None,
     }
 }
@@ -165,12 +165,22 @@ mod tests {
         Edit::InsertPages { at: 0, source }
     }
 
+    fn replacing(source: SourceId) -> Edit {
+        Edit::ReplacePages {
+            first: 0,
+            count: 1,
+            source,
+            from: 0,
+            to: 0,
+        }
+    }
+
     #[test]
     fn a_file_is_kept_while_an_edit_uses_it_and_its_number_is_not_given_again() {
         let mut sources = Sources::default();
         let a = sources.add(file(10, 3, &[]), []).unwrap();
         assert_eq!(sources.pages(a), Some(3));
-        let history = [taking(a)];
+        let history = [replacing(a)];
         let b = sources.add(file(10, 5, &[]), &history).unwrap();
         assert_eq!((sources.pages(a), sources.pages(b)), (Some(3), Some(5)));
         // The edit is gone from the history (saved, or undone and replaced): so are the files.

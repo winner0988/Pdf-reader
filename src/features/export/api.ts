@@ -11,7 +11,9 @@ import type {
   ExportArgs,
   ExportEvent,
   ExportFormat,
+  ExportXfdfArgs,
   RequestId,
+  XfdfOutcome,
 } from "@/ipc/generated/contract";
 import { nextRequestId } from "@/ipc/requests";
 
@@ -35,6 +37,11 @@ export type ExportApi = {
    * process makes it and asks where. Without it, the menu item is disabled.
    */
   exportAnnotationSummary?: (args: ExportAnnotationSummaryArgs) => Promise<AnnotationSummaryOutcome>;
+  /**
+   * Exports the document's annotations into an ISO 19444-1 XFDF file (#446).
+   * Without it, the menu item is disabled.
+   */
+  exportAnnotationsXfdf?: (args: ExportXfdfArgs) => Promise<XfdfOutcome>;
 };
 
 /** What the annotation summary dialog needs (B3-18). */
@@ -50,4 +57,5 @@ export const tauriExportApi: ExportApi = {
   },
   cancel: (request) => invoke<void>("cancel", { request }),
   exportAnnotationSummary: (args) => invoke<AnnotationSummaryOutcome>("export_annotation_summary", { args }),
+  exportAnnotationsXfdf: (args) => invoke<XfdfOutcome>("export_annotations_xfdf", { args }),
 };

@@ -38,6 +38,7 @@ import { StatusBar } from "@/features/shell/StatusBar";
 import { tabElementId, tabPanelId, type Tab } from "@/features/tabs/model";
 import { TabBar } from "@/features/tabs/TabBar";
 import { MovePagesDialog } from "@/features/thumbnails/MovePagesDialog";
+import { ReplacePagesDialog } from "@/features/thumbnails/ReplacePagesDialog";
 import { SourcePasswordDialog } from "@/features/thumbnails/SourcePasswordDialog";
 import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
 import { RedactionConfirmDialog } from "@/features/redaction/RedactionConfirmDialog";
@@ -360,6 +361,23 @@ describe("dialogs", () => {
 
   it("moving pages", async () => {
     render(<MovePagesDialog open onOpenChange={vi.fn()} pageCount={10} moving={2} onMove={vi.fn()} />);
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
+  });
+
+  it("replacing pages with pages from another file", async () => {
+    render(
+      <ReplacePagesDialog
+        open
+        onOpenChange={vi.fn()}
+        first={1}
+        count={2}
+        sourcePages={5}
+        docPages={10}
+        onReplace={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
     await screen.findByRole("dialog");
     await expectAccessible(everything());
   });

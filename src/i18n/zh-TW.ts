@@ -195,6 +195,8 @@ export const strings = {
     /** The pages of another file (B2-06). */
     insertFileBefore: "在前面插入其他檔案的頁面…",
     insertFileAfter: "在後面插入其他檔案的頁面…",
+    replacePages: "取代頁面…",
+    replaceOnlyContiguous: "只能取代連續的頁：請選取相連的頁面。",
     sourceNotAllowed: "這個檔案的作者不允許取出它的頁面。",
     sourceFailed: "無法插入這個檔案的頁面，請確認它是沒有損毀的 PDF 檔案。",
     sourceTooLarge: "這個檔案太大，或插入之後會超過頁數、尚未儲存的變更的上限；請先存檔，或選擇小一點的檔案。",
@@ -206,6 +208,24 @@ export const strings = {
       confirm: "插入頁面",
       cancel: "取消",
       wrong: "密碼不正確，請再試一次。",
+    },
+    replace: {
+      title: "取代頁面",
+      prompt: (first: number, last: number, sourcePages: number) =>
+        `以選的檔案的第 [從] 到 [到] 頁（共 ${sourcePages} 頁）取代第 ${first === last ? first : `${first} 到 ${last}`} 頁`,
+      from: "從",
+      to: "到",
+      pageUnit: "頁",
+      sourceCount: (total: number) => `（共 ${total} 頁）`,
+      targetLabel: (first: number, last: number) =>
+        `取代第 ${first === last ? first : `${first} 到 ${last}`} 頁`,
+      fromGreaterThanTo: "起始頁碼不能大於結束頁碼",
+      outOfRange: (total: number) => `頁碼需介於 1 與 ${total} 之間`,
+      previewTitle: (total: number) => `取代之後共 ${total} 頁：`,
+      previewOriginal: (newRange: string, origRange: string) => `第 ${newRange} 頁：原本的第 ${origRange} 頁`,
+      previewSource: (newRange: string, srcRange: string) => `第 ${newRange} 頁：選的檔案的第 ${srcRange} 頁`,
+      confirm: "取代",
+      cancel: "取消",
     },
     moveTo: "移到…",
     cropPage: "裁切頁面…",
@@ -1031,6 +1051,15 @@ export const strings = {
     done: (count: number) => `已匯出 ${count} 個註解的摘要。`,
     truncated: (count: number) => `已匯出前 ${count} 個註解的摘要；註解太多，其餘沒有列出。`,
   },
+  /** Exporting annotations as XFDF (#446). */
+  exportXfdf: {
+    empty: "這份文件沒有註解。",
+    emptyWithSkipped: (skipped: number) => `這份文件沒有可匯出的註解（略過 ${skipped} 個不支援的項目）。`,
+    failed: () => "匯出失敗，請再試一次。",
+    done: (count: number) => `已匯出 ${count} 個註解到 XFDF 檔。`,
+    truncated: "（註解太多，其餘未匯出）",
+    skipped: (skipped: number) => `（略過 ${skipped} 個不支援的項目）`,
+  },
   /** Text comparison between two open tabs (B3-24, E9). */
   compare: {
     menu: "與另一個分頁比較文字…",
@@ -1314,6 +1343,7 @@ export const strings = {
     documentProperties: "文件內容…",
     export: "匯出…",
     exportAnnotations: "匯出註解摘要…",
+    exportXfdf: "匯出註解（XFDF）…",
     compareText: "與另一個分頁比較文字…",
     compareVisual: "與另一個分頁比較畫面…",
     privacyExport: "隱私匯出…",
@@ -1725,6 +1755,7 @@ export const strings = {
     noHistory: "沒有可移動的歷程",
     noSelection: "需要先選取文字",
     insertFileAfterCurrent: "在目前這一頁後面插入其他檔案的頁面…",
+    replaceCurrentPage: "以其他檔案的頁面取代目前這一頁…",
     aliases: {
       open: ["開啟", "打開", "open"],
       save: ["存檔", "儲存檔案", "save"],
@@ -1765,8 +1796,10 @@ export const strings = {
       ocr: ["OCR", "文字辨識", "光學字元辨識", "掃描辨識", "recognize text"],
       flatten: ["扁平化表單", "壓平表單", "flatten form"],
       insertFileAfterCurrent: ["合併", "合併檔案", "插入頁面", "insert pages", "merge"],
+      replaceCurrentPage: ["取代", "取代頁面", "替換", "replace pages"],
       export: ["匯出文字", "匯出頁面", "轉存", "export"],
       exportAnnotations: ["匯出註解", "註解清單", "摘要報告", "annotations summary"],
+      exportXfdf: ["匯出 XFDF", "XFDF", "匯出註解檔", "export xfdf"],
       compareText: ["比對文字", "文字差異", "比較分頁", "diff", "compare text"],
       compareVisual: ["比對畫面", "視覺比較", "比較畫面", "visual diff", "compare visual"],
       privacyExport: ["去除中繼資料", "清空個人資訊", "隱私匯出", "privacy export"],

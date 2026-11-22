@@ -100,6 +100,7 @@ mod signing;
 mod stamp_image;
 mod text_box;
 mod watermark;
+mod xfdf;
 
 pub use signatures::{SignatureField, SignatureFields};
 pub use signing::{PreparedSignature, prepare_signature};
@@ -1913,6 +1914,50 @@ impl PdfDocument {
         crate::scrub::scrub_pages(&self.doc, at, inserted, first_new)?;
         merge_annotations::recreate_annotations(self, at, &annotations, text_boxes)?;
         self.strip_unwanted_page_labels(had_page_labels)?;
+        Ok(())
+    }
+
+    /// Replaces the `count` pages starting from index `first` with pages `from..=to` of `source`.
+    ///
+    /// The implementation first inserts all pages of `source` at index `first`, and then deletes
+    /// the source pages outside `from..=to` as well as the replaced original pages (B6-05, #590).
+    pub fn replace_pages(
+        &mut self,
+        first: u32,
+        count: u32,
+        source: &[u8],
+        text_boxes: &[InsertedTextBox],
+        from: u32,
+        to: u32,
+    ) -> Result<(), EngineError> {
+        if count == 0 {
+            return Err(EngineError::InvalidEdit("cannot replace zero pages"));
+        }
+        let total_pages = self.page_count()?;
+        if first.saturating_add(count) > total_pages {
+            return Err(EngineError::PageOutOfRange(first.saturating_add(count)));
+        }
+        let source_doc = PdfDocument::from_bytes(source)?;
+        let s = source_doc.page_count()?;
+        if s == 0 {
+            return Err(EngineError::InvalidEdit("the source has no pages"));
+        }
+        if from > to || to >= s {
+            return Err(EngineError::PageOutOfRange(to));
+        }
+
+        self.insert_pages(first, source, text_boxes)?;
+
+        let mut gone = Vec::new();
+        for i in 0..s {
+            if i < from || i > to {
+                gone.push(first + i);
+            }
+        }
+        for j in 0..count {
+            gone.push(first + s + j);
+        }
+        self.delete_pages(&gone)?;
         Ok(())
     }
 }

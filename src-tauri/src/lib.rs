@@ -46,6 +46,7 @@ mod strings;
 mod text_boxes;
 mod text_index;
 mod update_check;
+pub mod xfdf;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -175,6 +176,7 @@ pub fn run() {
             commands::copy_protected_text,
             commands::export_pages,
             commands::export_annotation_summary,
+            commands::export_annotations_xfdf,
             commands::compare_text,
             commands::export_compare_text,
             commands::apply_edit,
