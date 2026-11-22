@@ -5,8 +5,8 @@
 `crates/pdf_worker` 透過 `mupdf-sys` 靜態編譯並連結 MuPDF 及其第三方 C/C++ 函式庫。由於 `cargo deny` 與 Dependabot 僅能追蹤 crates.io 上的 Rust 依賴，無法穿透檢測靜態內嵌的 C/C++ 原始碼，因此本文件維護這份清單，記錄各函式庫在目前所用 MuPDF 版本的來源版本、原始碼提交點、平臺納入情況與更新指引。
 
 - **查驗基準版本**：MuPDF 1.28.6（git commit [`da5f5eb890d7b3fb76903160b5f7f48ba1301492`](https://github.com/ArtifexSoftware/mupdf/commit/da5f5eb890d7b3fb76903160b5f7f48ba1301492)）
-- **mupdf-sys 來源**：[`winner0988/mupdf-rs`](https://github.com/winner0988/mupdf-rs) 的 `v0.8.0-mupdf-1.28` 分支（commit `b891496ef30226960d19132be7b0dc452bcd12bc`，見 [mupdf-binding.md](../architecture/mupdf-binding.md)）
-- **查驗日期**：2026-11-18
+- **mupdf-sys 來源**：[`winner0988/mupdf-rs`](https://github.com/winner0988/mupdf-rs) 的 `v0.8.0-mupdf-1.28` 分支（commit `581e4fb2be538bd0de480fd5186f8cf99fd1f090`，見 [mupdf-binding.md](../architecture/mupdf-binding.md)）
+- **查驗日期**：2026-11-21
 
 ---
 
@@ -15,7 +15,7 @@
 | 函式庫 | 用途 | 版本 | Git Commit | 查證依據（檔案與行號） | Windows 編入 | Linux 編入 | 備註 |
 |---|---|---|---|---|---|---|---|
 | **MuPDF** | 核心 PDF 與文件渲染引擎 | 1.28.6 | `da5f5eb890d7b3fb76903160b5f7f48ba1301492` | `include/mupdf/fitz/version.h#L26-L29` | 是 | 是 | 核心解析與渲染引擎；經由 `mupdf-sys` 靜態編譯連結。fork 在建置時套用兩個文字擷取的修補（#628、#629，見 [mupdf-binding.md](../architecture/mupdf-binding.md)）。 |
-| **FreeType** | 字型載入、解析與點陣化 | 2.14.3 | `0a0221a1347e2f1e07c395263540026e9a0aa7c7` | `thirdparty/freetype/include/freetype/freetype.h#L5170-L5172` | 是 | 是 | TrueType / OpenType 字型解碼與渲染。編譯時由 `slimftoptions.h` 關閉未使用的變形字型擴充。 |
+| **FreeType** | 字型載入、解析與點陣化 | 2.14.3 | `0a0221a1347e2f1e07c395263540026e9a0aa7c7` | `thirdparty/freetype/include/freetype/freetype.h#L5170-L5172` | 是 | 是 | TrueType / OpenType 字型解碼與渲染。編譯時由 `slimftoptions.h` 關閉未使用的變形字型擴充。建置時由 fork `winner0988/mupdf-rs`（commit `581e4fb2`）套上上游 FreeType 2.15.0 的 12 個修正（#626，見下方附註）。 |
 | **HarfBuzz** | 複雜文字塑形（OpenType shaping） | 13.0.1 | `c28ba35a1e6dc4b6b32e2b1d11fd2a408f6c86bb` | `thirdparty/harfbuzz/src/hb-version.h#L44-L63` | 是 | 是 | 供文字排版塑形（`hb_shape`）。字型子集化未透過 HarfBuzz，由純 Rust `subsetter` crate 處理。 |
 | **libjpeg (IJG)** | JPEG 影像解碼 | 10 | `627faae398468d5d11e3d694dc325432f734b5c4` | `thirdparty/libjpeg/jversion.h#L12`、`jpeglib.h#L40-L42` | 是 | 是 | 獨立 JPEG 群組（IJG）實作，供 DCT 濾鏡與點陣圖片解碼。 |
 | **OpenJPEG** | JPEG 2000 影像解碼 | 2.5.4 | `957029eb875eee1118743f200cb86da9d8289de2` | `thirdparty/openjpeg/NEWS.md#L5`（標頭檔 `src/lib/openjp2/opj_config.h#L10-L12` 未更新仍標 2.5.3） | 是 | 是 | 供 JPXDecode 濾鏡解碼。MuPDF 1.28.6 內附的版本已經有上游的修正，#572 拿掉了建置期修補（見附註與 [mupdf-binding.md](../architecture/mupdf-binding.md)）。 |
@@ -23,7 +23,7 @@
 | **zlib** | Deflate / Inflate 串流壓縮與解壓縮 | 1.3.2 | `da607da739fa6047df13e66a2af6b8bec7c2a498` | `thirdparty/zlib/zlib.h#L44` | 是 | 是 | 供 FlateDecode 濾鏡與串流解壓縮使用。僅調用串流 API，未包含高階檔案 I/O 工具。 |
 | **lcms2** | 色彩管理（Little CMS 2） | 2.19 (lcms2mt) | `d69c64417c4a33a4629957fc0e08f4f4c5abcc3d` | `thirdparty/lcms2/configure.ac#L10`、`include/lcms2mt.h#L102` | 是 | 是 | 採用多執行緒分支（lcms2mt），用於 ICC 色彩設定檔轉換與色彩空間對齊。MuPDF 1.28.6 內附的版本已經有上游的修正，#572 拿掉了建置期修補（見附註與 [mupdf-binding.md](../architecture/mupdf-binding.md)）。 |
 | **gumbo-parser** | HTML5 解析器 | 0.10.1 | `61bd4e736c3b342e592f65be0d65ec6a0acd8dcb` | `thirdparty/gumbo-parser/configure.ac#L5`、`CHANGES.md#L1` | 是 | 是 | 供「從檔案建立 PDF」（`CreatePdf`）的 HTML 轉換解析使用。 |
-| **Tesseract** | 光學字元辨識（OCR） | 5.5.2 | `ad0f76d971946512a62c933f490c8111877eddaa` | `thirdparty/tesseract/VERSION#L1`（包裝標頭 `scripts/tesseract/tesseract/version.h#L28` 殘留 5.0.0-alpha） | 是 | 是（只在 Fuzz 的建置） | 供掃描頁 OCR 辨識（B2-10、ADR 0015）。建置時由 fork `winner0988/mupdf-rs`（commit `b891496e`）在 `mupdf-sys/build.rs` 的 `patch_mupdf_sources` 自動套用 Tesseract 上游修補（#563 的 5 個 commit、#577 套的上游 5.5.3、5.5.4 讀取語言資料檢查 22 個 commit，與 #580 套的上游 5.5.3、5.5.4 辨識時的修正 10 個 commit，共 33 個檔案 +549 −80；#580 沒套的見 #580；只改到舊引擎與 `FAST_FLOAT` 的不套，建置時會檢查這兩個設定，見附註與 [mupdf-binding.md](../architecture/mupdf-binding.md)）。由 `crates/pdf_worker/src/ocr.rs` 宣告並呼叫 `TessBaseAPICreate`、`TessBaseAPIInit5` 等 C API；輸入為 MuPDF 渲染之頁面點陣圖與使用者匯入之 `.traineddata`（由 `crates/ipc_contract/src/ocr.rs` 的 `check_language_data` 檢查）。Linux 僅於 Fuzz 建置中開啟（`fuzz/Cargo.toml` 啟用 `tesseract` feature）。修補仍然保留。 |
+| **Tesseract** | 光學字元辨識（OCR） | 5.5.2 | `ad0f76d971946512a62c933f490c8111877eddaa` | `thirdparty/tesseract/VERSION#L1`（包裝標頭 `scripts/tesseract/tesseract/version.h#L28` 殘留 5.0.0-alpha） | 是 | 是（只在 Fuzz 的建置） | 供掃描頁 OCR 辨識（B2-10、ADR 0015）。建置時由 fork `winner0988/mupdf-rs`（commit `581e4fb2`）在 `mupdf-sys/build.rs` 的 `patch_mupdf_sources` 自動套用 Tesseract 上游修補（#563 的 5 個 commit、#577 套的上游 5.5.3、5.5.4 讀取語言資料檢查 22 個 commit，與 #580 套的上游 5.5.3、5.5.4 辨識時的修正 10 個 commit，共 33 個檔案 +549 −80；#580 沒套的見 #580；只改到舊引擎與 `FAST_FLOAT` 的不套，建置時會檢查這兩個設定，見附註與 [mupdf-binding.md](../architecture/mupdf-binding.md)）。由 `crates/pdf_worker/src/ocr.rs` 宣告並呼叫 `TessBaseAPICreate`、`TessBaseAPIInit5` 等 C API；輸入為 MuPDF 渲染之頁面點陣圖與使用者匯入之 `.traineddata`（由 `crates/ipc_contract/src/ocr.rs` 的 `check_language_data` 檢查）。Linux 僅於 Fuzz 建置中開啟（`fuzz/Cargo.toml` 啟用 `tesseract` feature）。修補仍然保留。 |
 | **Leptonica** | 影像處理與分析庫（供 OCR 使用） | 1.87.0 | `7fbe9ea76d1e0c48a02b2ed371d24f92c7bac40c` | `thirdparty/leptonica/src/allheaders.h#L31-L33` | 是 | 是（只在 Fuzz 的建置） | 與 Tesseract 搭配供 OCR 使用。MuPDF 以 `fz_set_leptonica_mem` 將其記憶體配置接管至 MuPDF context；輸入為記憶體點陣圖。Linux 僅在 Fuzz 建置中開啟。 |
 | **Brotli** | 通用解壓縮演算法 | 1.2.1 | `05d2263409056fde56805e9cdabd2d31a1f1d427` | `thirdparty/brotli/c/common/version.h#L20-L22` | 否 | 否 | `FZ_ENABLE_BROTLI=0` 編譯為空虛設函式（stub），未被參照的物件被 MSVC 連結器 `/OPT:REF` 剔除；Linux Makefile 透過 `make_bool("brotli", false)` 關閉。 |
 | **MuJS** | 輕量級 JavaScript 直譯器 | 1.3.8 | `2c61a7bed7e7625c03c6e82e644a711ac4471c1e` | `thirdparty/mujs/mujs.h#L10-L12` | 否 | 否 | `FZ_ENABLE_JS=0`（Linux `make_bool("mujs", false)`），不編譯／不連結執行引擎。由 `javascript_is_compiled_out` 測試驗證。 |
@@ -44,7 +44,11 @@ MuPDF 1.28.6 內附的版本已經有上游的修正，#572 拿掉了建置期�
 
 ### 附註：Tesseract 建置期修補
 
-MuPDF 1.28.6 內附的 Tesseract（基準為 5.5.2，commit `ad0f76d971946512a62c933f490c8111877eddaa`）缺少對 traineddata 讀取時的計數與長度邊界檢查，以及 LSTM 閘矩陣與 recoder 的合理性檢查。專案使用 fork `winner0988/mupdf-rs`（commit `b891496ef30226960d19132be7b0dc452bcd12bc`），其在 `mupdf-sys/build.rs` 的 `patch_mupdf_sources` 於呼叫 MSBuild 或 make 之前被呼叫，因此在 Windows 與 Linux 建置期皆會自動套用 Tesseract 上游修補：包括 #563 的五個 commit（`82727cc1`、`55287a94`、`103dc134`、`b494ac18` 與 `c94a5532`，`103dc134` 加的 `WeightMatrix::Dim1()`／`Dim2()` 是 `b494ac18` 要用的），加上 #577 套的上游 5.5.3、5.5.4 讀取語言資料的檢查（22 個 commit），以及 #580 套的上游 5.5.3、5.5.4 辨識時的修正（10 個 commit，沒套的見 #580；清單都在 fork 的 `mupdf-sys/build.rs`；共 33 個檔案 +549 −80）。只改到舊引擎（`DISABLED_LEGACY_ENGINE`）與 `FAST_FLOAT` 的不套，建置時會檢查這兩個設定（原始碼裡既找不到未修正、也找不到修正後的寫法時，或 MuPDF 開始編譯舊引擎／`FAST_FLOAT` 時，建置皆會失敗；詳見 [mupdf-binding.md](../architecture/mupdf-binding.md)）。修補仍然保留。
+MuPDF 1.28.6 內附的 Tesseract（基準為 5.5.2，commit `ad0f76d971946512a62c933f490c8111877eddaa`）缺少對 traineddata 讀取時的計數與長度邊界檢查，以及 LSTM 閘矩陣與 recoder 的合理性檢查。專案使用 fork `winner0988/mupdf-rs`（commit `581e4fb2be538bd0de480fd5186f8cf99fd1f090`），其在 `mupdf-sys/build.rs` 的 `patch_mupdf_sources` 於呼叫 MSBuild 或 make 之前被呼叫，因此在 Windows 與 Linux 建置期皆會自動套用 Tesseract 上游修補：包括 #563 的五個 commit（`82727cc1`、`55287a94`、`103dc134`、`b494ac18` 與 `c94a5532`，`103dc134` 加的 `WeightMatrix::Dim1()`／`Dim2()` 是 `b494ac18` 要用的），加上 #577 套的上游 5.5.3、5.5.4 讀取語言資料的檢查（22 個 commit），以及 #580 套的上游 5.5.3、5.5.4 辨識時的修正（10 個 commit，沒套的見 #580；清單都在 fork 的 `mupdf-sys/build.rs`；共 33 個檔案 +549 −80）。只改到舊引擎（`DISABLED_LEGACY_ENGINE`）與 `FAST_FLOAT` 的不套，建置時會檢查這兩個設定（原始碼裡既找不到未修正、也找不到修正後的寫法時，或 MuPDF 開始編譯舊引擎／`FAST_FLOAT` 時，建置皆會失敗；詳見 [mupdf-binding.md](../architecture/mupdf-binding.md)）。修補仍然保留。
+
+### 附註：FreeType 建置期修補
+
+MuPDF 1.28.6 內附的 FreeType 是 2.14.3。fork（commit `581e4fb2be538bd0de480fd5186f8cf99fd1f090`）的 `mupdf-sys/build.rs` 在建置時套上上游 FreeType 2.15.0 的 12 個 commit（#626）：TrueType 位元組碼直譯器（`Ins_IUP`、`Ins_SHZ`、`Ins_WCVTF`）、CID 字型的子程式讀取、定點數運算（`FT_Matrix_Check` 與絕對值），以及 CFF 字形程式（`psaux`）的堆疊與子程式檢查；共 6 個檔案 +67 −40。清單在 fork 的 `mupdf-sys/build.rs`，沒套的與理由見 #626。原始碼裡既找不到未修正、也找不到修正後的寫法時，建置失敗。
 
 ---
 

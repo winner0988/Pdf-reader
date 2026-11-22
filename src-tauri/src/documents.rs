@@ -1212,6 +1212,49 @@ impl Documents {
         })
     }
 
+    /// Writes a copy of `doc` to `destination`, edits included, without encryption or
+    /// restrictions (B6-01, docs/architecture/decrypt-copy.md), made by the document's worker:
+    /// `password` authenticates against the open document. The password goes to the worker in one
+    /// request and is wiped; nothing is kept. The document, its edits and its file are not changed.
+    /// Refused for an unencrypted document (only an encrypted document has a copy without its
+    /// password), for a signed one (its signatures would not hold; the worker says so), and for
+    /// the document's own file.
+    pub fn decrypted_copy(
+        &self,
+        doc: DocumentId,
+        destination: &Path,
+        password: Password,
+    ) -> Result<(), IpcError> {
+        self.with_document(doc, |document| {
+            if !document.info.encrypted {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "only an encrypted document has a copy without its password"
+                        .to_owned(),
+                });
+            }
+            if same_file(&document.path, destination) {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "the copy without password never replaces the document's own file"
+                        .to_owned(),
+                });
+            }
+            saving::check_writable(destination)?;
+            let mut temporary = Temporary::new(destination)?;
+            let worker_doc = live_worker(document)?;
+            let response = document
+                .host
+                .decrypted_copy(worker_doc, temporary.file(), password)
+                .map_err(|error| lost_on(document, &error))?;
+            let WorkerResponse::Saved { bytes, .. } = response else {
+                return Err(unexpected_on(document, "DecryptedCopy"));
+            };
+            temporary.check(bytes)?;
+            temporary.replace(destination)
+        })
+    }
+
     /// Whether `doc` can be signed (B3-06, ADR 0020): asked when the dialog opens. The first
     /// reason it cannot be, or that it can. A certifying signature that allows no change is
     /// found by the worker's check of the signatures (B2-14).
@@ -3116,6 +3159,19 @@ fn pages_after(
     // Redaction (B2-19, ADR 0016) changes what the pages say, marks included: the author's
     // permission to change the document covers it. The worker refuses a signed document.
     match edit {
+        // PDF spec bit 11 (assemble document) only covers insert, rotate, delete pages.
+        // Cropping modifies the page dictionary (/CropBox), which falls under bit 4 (modify),
+        // so an author allowing only document assembly does not permit cropping.
+        Edit::CropPages { pages, .. } => {
+            if !permissions.modify {
+                return Err(not_allowed());
+            }
+            pages
+                .iter()
+                .try_for_each(|&page| check_page_index(page, page_count))
+                .map_err(invalid_argument)?;
+            return Ok(page_count);
+        }
         Edit::AddRedaction { page, .. } | Edit::AddRedactionGroup { page, .. } => {
             if !permissions.modify {
                 return Err(not_allowed());
@@ -3250,7 +3306,8 @@ fn pages_after(
         | Edit::AddBookmark { .. }
         | Edit::RenameBookmark { .. }
         | Edit::DeleteBookmark { .. }
-        | Edit::MoveBookmark { .. } => Ok(page_count),
+        | Edit::MoveBookmark { .. }
+        | Edit::CropPages { .. } => Ok(page_count),
     }
 }
 
@@ -4109,9 +4166,9 @@ mod tests {
 mod with_worker {
     use ipc_contract::limits::MAX_RASTER_PIXELS;
     use ipc_contract::types::{
-        AnnotationId, AnnotationKind, FieldId, HighlightColor, HighlightMark, InkColor, InkWidth,
-        Point, Quad, Rect, RequestId, Rgb, Rotation, Shape, StampImageId, StampName, TextAlign,
-        TextBoxModelId, TextBoxStyle, TextMarkKind,
+        AnnotationId, AnnotationKind, CropMargins, FieldId, HighlightColor, HighlightMark,
+        InkColor, InkWidth, Point, Quad, Rect, RequestId, Rgb, Rotation, Shape, StampImageId,
+        StampName, TextAlign, TextBoxModelId, TextBoxStyle, TextMarkKind,
     };
 
     use super::*;
@@ -5863,6 +5920,146 @@ mod with_worker {
     }
 
     #[test]
+    fn a_decrypted_copy_has_the_edits_and_leaves_the_document_encrypted() {
+        let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign");
+        let source = corpus.join("restricted-open-password.pdf");
+        let temp = std::env::temp_dir().join(format!(
+            "pdf-reader-decrypted-test-{}.pdf",
+            std::process::id()
+        ));
+        std::fs::copy(&source, &temp).unwrap();
+        let documents = Documents::new(worker());
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let [tab] = documents.add(std::slice::from_ref(&temp), &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(tab, &report);
+        documents
+            .unlock(tab, password("user"), false, &report)
+            .unwrap();
+        let Some(OpenEvent::Opened { info, .. }) = events.borrow().last().cloned() else {
+            panic!("opened")
+        };
+        assert!(info.encrypted);
+
+        let edited = opened_info(documents.apply_edit(&rotate(info.doc, vec![0])).unwrap());
+
+        let copy = temp.with_file_name(format!("decrypted-copy-result-{}.pdf", std::process::id()));
+        std::fs::remove_file(&copy).ok();
+
+        // Refuse when user password is supplied because document is restricted
+        assert_eq!(
+            documents
+                .decrypted_copy(edited.doc, &copy, password("user"))
+                .unwrap_err()
+                .code,
+            ErrorCode::NotAllowed
+        );
+        assert!(!copy.exists());
+
+        // Decrypt with owner password
+        documents
+            .decrypted_copy(edited.doc, &copy, password("owner"))
+            .unwrap();
+        assert!(copy.exists());
+        let copy_bytes = std::fs::read(&copy).unwrap();
+        assert!(!copy_bytes.windows(8).any(|w| w == b"/Encrypt"));
+
+        // Original document is still encrypted, uncommitted edits are still unsaved
+        assert_eq!(documents.unsaved_tabs().len(), 1);
+        assert!(documents.document_info(edited.doc).unwrap().encrypted);
+
+        // Original document still saves as encrypted (not corrupted)
+        documents.save(edited.doc, None).unwrap();
+        let saved_bytes = std::fs::read(&temp).unwrap();
+        assert!(saved_bytes.windows(8).any(|w| w == b"/Encrypt"));
+
+        // The copy can be opened without password and has no restrictions
+        let [copy_tab] = documents.add(std::slice::from_ref(&copy), &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(copy_tab, &report);
+        let Some(OpenEvent::Opened {
+            info: copy_info, ..
+        }) = events.borrow().last().cloned()
+        else {
+            panic!("opened")
+        };
+        assert!(!copy_info.encrypted);
+        assert!(
+            copy_info.permissions.print
+                && copy_info.permissions.copy
+                && copy_info.permissions.modify
+        );
+
+        // Clean up
+        std::fs::remove_file(copy).ok();
+        std::fs::remove_file(temp).ok();
+    }
+
+    #[test]
+    fn a_decrypted_copy_never_replaces_own_file_and_refuses_unencrypted_or_signed() {
+        // 1. Unencrypted document refused
+        let (documents, info, path) = open("decrypted-unencrypted", 1);
+        let copy = path.with_file_name("decrypted-copy.pdf");
+        assert_eq!(
+            documents
+                .decrypted_copy(info.doc, &copy, password("any"))
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+
+        // 2. Encrypted document cannot overwrite its own file
+        let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign");
+        let source = corpus.join("encrypted-aes256.pdf");
+        let temp = std::env::temp_dir().join(format!(
+            "pdf-reader-decrypted-own-{}.pdf",
+            std::process::id()
+        ));
+        std::fs::copy(&source, &temp).unwrap();
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let [tab] = documents.add(std::slice::from_ref(&temp), &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(tab, &report);
+        documents
+            .unlock(tab, password("user"), false, &report)
+            .unwrap();
+        let Some(OpenEvent::Opened { info: enc_info, .. }) = events.borrow().last().cloned() else {
+            panic!("opened")
+        };
+
+        let shouted = PathBuf::from(temp.to_string_lossy().to_uppercase());
+        for destination in [&temp, &shouted] {
+            assert_eq!(
+                documents
+                    .decrypted_copy(enc_info.doc, destination, password("user"))
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidArgument
+            );
+        }
+
+        std::fs::remove_file(path).ok();
+        std::fs::remove_file(temp).ok();
+
+        // 3. Signed document refused
+        let signed = corpus.join("signed.pdf");
+        let documents = Documents::new(worker());
+        let info = open_in(&documents, &signed);
+        assert_eq!(
+            documents
+                .decrypted_copy(info.doc, &copy, password("any"))
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+    }
+
+    #[test]
     fn edits_survive_a_worker_crash() {
         let (documents, info, path) = open("edit-crash", 2);
         let edited = opened_info(documents.apply_edit(&rotate(info.doc, vec![1])).unwrap());
@@ -6196,6 +6393,50 @@ mod with_worker {
     }
 
     #[test]
+    fn crop_needs_the_authors_permission_to_modify_the_document() {
+        let crop = Edit::CropPages {
+            pages: vec![0],
+            margins: CropMargins {
+                top: 10.0,
+                right: 20.0,
+                bottom: 30.0,
+                left: 40.0,
+            },
+        };
+        // Assembling only: assembling covers insert, rotate, delete, but not cropping (bit 4 modify).
+        let only_assemble = DocumentPermissions {
+            assemble: true,
+            modify: false,
+            ..DocumentPermissions::ALL
+        };
+        assert_eq!(
+            pages_after(&crop, 1, only_assemble, &|_| None)
+                .unwrap_err()
+                .message,
+            not_allowed().message
+        );
+        // Modify allowed: permitted.
+        let can_modify = DocumentPermissions::ALL;
+        assert_eq!(pages_after(&crop, 1, can_modify, &|_| None).unwrap(), 1);
+        // Page out of range: invalidArgument.
+        let elsewhere = Edit::CropPages {
+            pages: vec![3],
+            margins: CropMargins {
+                top: 10.0,
+                right: 20.0,
+                bottom: 30.0,
+                left: 40.0,
+            },
+        };
+        assert_eq!(
+            pages_after(&elsewhere, 1, can_modify, &|_| None)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+    }
+
+    #[test]
     fn redaction_is_refused_for_restricted_corpus_document() {
         let documents = Documents::new(worker());
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -6494,6 +6735,57 @@ mod with_worker {
         assert_eq!(info.pages, [LANDSCAPE, LANDSCAPE]);
         let info = stepped(&documents, &mut doc, true);
         assert_eq!(info.pages, [LANDSCAPE, LETTER]);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn crop_pages_undo_redo_and_survives_worker_crash() {
+        let (documents, info, path) = open("crop-undo", 2);
+        let mut doc = info.doc;
+        assert_eq!(info.pages, [LETTER, LETTER]);
+        let crop = Edit::CropPages {
+            pages: vec![0],
+            margins: CropMargins {
+                top: 10.0,
+                right: 20.0,
+                bottom: 30.0,
+                left: 40.0,
+            },
+        };
+        let cropped = PageSize {
+            width_pt: 612.0 - 40.0 - 20.0,
+            height_pt: 792.0 - 10.0 - 30.0,
+        };
+        // Crop applied: page 0 cropped, page 1 unchanged.
+        assert_eq!(edited_pages(&documents, &mut doc, crop), [cropped, LETTER]);
+        // Undo: returns to original size.
+        let undone = stepped(&documents, &mut doc, true);
+        assert_eq!(undone.pages, [LETTER, LETTER]);
+        // Redo: returns to cropped size.
+        let redone = stepped(&documents, &mut doc, false);
+        assert_eq!(redone.pages, [cropped, LETTER]);
+
+        // Worker crash
+        let pid = documents.worker_id(doc).expect("worker running");
+        std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            documents
+                .render(&args(doc, 0, 0.5, Rotation::None))
+                .unwrap_err()
+                .code,
+            ErrorCode::WorkerCrashed
+        );
+
+        // After crash: undo returns to original size
+        let undone_after_crash = stepped(&documents, &mut doc, true);
+        assert_eq!(undone_after_crash.pages, [LETTER, LETTER]);
+        // Redo returns to cropped size
+        let redone_after_crash = stepped(&documents, &mut doc, false);
+        assert_eq!(redone_after_crash.pages, [cropped, LETTER]);
+
         std::fs::remove_file(path).ok();
     }
 

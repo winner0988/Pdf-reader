@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use crate::PROTOCOL_VERSION;
 use crate::types::{
     AnnotationId, AnnotationSummary, AttachmentId, AttachmentSource, BatesMark, BookmarkId,
-    CreateKind, DocumentFonts, DocumentId, DocumentPermissions, Edit, ErrorCode, FieldId,
-    FindPersonalDataQuery, FontRefusal, FormField, HeaderFooterMarks, HighlightColor,
+    CreateKind, CropMargins, DocumentFonts, DocumentId, DocumentPermissions, Edit, ErrorCode,
+    FieldId, FindPersonalDataQuery, FontRefusal, FormField, HeaderFooterMarks, HighlightColor,
     HighlightMark, ImageQuality, InkColor, InkWidth, OutlineResult, PageAnnotation, PageCorner,
     PageLink, PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark,
     PageSize, PageText, Password, PdfDate, PersonalDataMatches, Point, RasterRegion, Rect,
@@ -602,6 +602,11 @@ pub enum WorkerEdit {
         color: InkColor,
         width: InkWidth,
     },
+    /// As [`Edit::CropPages`].
+    CropPages {
+        pages: Vec<u32>,
+        margins: CropMargins,
+    },
 }
 
 /// An edit names something its document does not have: a file whose pages it takes (B2-06), the
@@ -819,6 +824,10 @@ impl WorkerEdit {
                 color: *color,
                 width: *width,
             },
+            Edit::CropPages { pages, margins } => WorkerEdit::CropPages {
+                pages: pages.clone(),
+                margins: *margins,
+            },
         })
     }
 }
@@ -992,6 +1001,16 @@ pub enum WorkerRequest {
         /// Lifts the restrictions. The main process makes one up when the user gave none.
         owner_password: Password,
         restrictions: Restrictions,
+    },
+    /// Writes to `file` (as for `Save`) a copy of the document, edits included, without encryption
+    /// or restrictions (B6-01, docs/architecture/decrypt-copy.md). The open document is not changed.
+    /// Answered by `Saved`, never appended. Refused for an unencrypted document and for a signed one
+    /// (its signatures would not hold). The password is wiped as any password is (MVP-16).
+    DecryptedCopy {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
+        password: Password,
     },
     /// Writes to `file` (as for `Save`) a copy of the document, edits included, with `watermark`
     /// on its pages (B3-04, docs/architecture/watermark.md). `picture` is the PNG of a picture

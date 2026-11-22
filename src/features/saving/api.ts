@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   CompressArgs,
   CompressResult,
+  DecryptArgs,
   DocumentId,
   EncryptArgs,
   PageMarksCopyArgs,
@@ -40,6 +41,12 @@ export type SavingApi = {
    */
   encryptCopy(args: EncryptArgs): Promise<boolean>;
   /**
+   * Writes a copy of the document without its password or restrictions (docs/architecture/decrypt-copy.md)
+   * where the user says in the system's save dialog, never over its own file: `false` if the dialog was closed.
+   * The document itself does not change. The password goes to the main process once and is not kept.
+   */
+  decryptCopy(args: DecryptArgs): Promise<boolean>;
+  /**
    * Writes a copy of the document whose pictures are encoded again, smaller (B3-01), where the
    * user says in the system's save dialog, never over its own file: `null` if the dialog was
    * closed, else what was done. The document itself does not change.
@@ -60,6 +67,7 @@ export const tauriSavingApi: SavingApi = {
   privacyExport: (doc) => invoke<boolean>("privacy_export", { doc }),
   pageMarksCopy: (args) => invoke<boolean>("page_marks_copy", { args }),
   encryptCopy: (args) => invoke<boolean>("encrypt_copy", { args }),
+  decryptCopy: (args) => invoke<boolean>("decrypt_copy", { args }),
   compressImages: (args) => invoke<CompressResult | null>("compress_images", { args }),
   sanitizeCopy: (args) => invoke<SanitizeResult | null>("sanitize_copy", { args }),
 };

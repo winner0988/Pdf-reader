@@ -1,7 +1,7 @@
 import type { ToolbarProps } from "@/features/shell/Toolbar";
 
 export type CommandId =
-  // Menu items (33):
+  // Menu items (35):
   | "layoutSingle"
   | "layoutTwoPage"
   | "layoutTwoPageCover"
@@ -19,10 +19,12 @@ export type CommandId =
   | "export"
   | "exportAnnotations"
   | "compareText"
+  | "compareVisual"
   | "privacyExport"
   | "sanitizeCopy"
   | "pageMarks"
   | "encryptCopy"
+  | "decryptCopy"
   | "searchAll"
   | "batch"
   | "forgetPassword"
@@ -105,4 +107,6 @@ export type CommandOptions = ToolbarProps & {
   onPreviousTab?: () => void;
   onInsertFrom?: (at: number) => Promise<number | null> | void;
   insertFromBlocked?: boolean;
+  onDecryptCopy?: () => void;
+  decryptCopyBlocked?: boolean;
 };

@@ -83,6 +83,25 @@ describe("LinkConfirmDialog", () => {
     const { dialog } = confirm(web("mailto:someone", { host: null }));
     expect(dialog).not.toHaveTextContent(`${t.confirmHost}：`);
   });
+
+  it("marks a hidden character in the shown domain and warns (#610)", () => {
+    const { dialog } = confirm(
+      web("mailto:x@second.example", {
+        host: "second.example\u0000",
+      }),
+    );
+    expect(dialog.querySelector("[data-host]")?.textContent).toBe("second.example[U+0000]");
+    expect(within(dialog).getAllByText(t.warnControl)).toHaveLength(1);
+  });
+
+  it("shows every recipient's domain on the site line (#610)", () => {
+    const { dialog } = confirm(
+      web("mailto:someone@first.example,ceo@second.example", {
+        host: "first.example, second.example",
+      }),
+    );
+    expect(dialog.querySelector("[data-host]")?.textContent).toBe("first.example, second.example");
+  });
 });
 
 describe("BlockedLinkDialog", () => {
