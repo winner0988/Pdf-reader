@@ -12,6 +12,7 @@ import {
   checkCapability,
   checkCommandManifest,
   checkCsp,
+  checkFuzzingDoc,
   checkPermissionFiles,
   checkRepository,
   checkTauriConfig,
@@ -405,6 +406,10 @@ test("checkRepository reports problem when manifest is missing a command", (t) =
     join(repoRoot, "docs/security/attack-surface.md"),
     join(tempDir, "docs/security/attack-surface.md"),
   );
+  copyFileSync(
+    join(repoRoot, "docs/security/fuzzing.md"),
+    join(tempDir, "docs/security/fuzzing.md"),
+  );
 
   const capDir = join(repoRoot, "src-tauri/capabilities");
   for (const file of readdirSync(capDir).filter((name) => name.endsWith(".json"))) {
@@ -585,6 +590,74 @@ test("extractRustEnumVariants parses Rust enums correctly and handles empty enum
   assert.equal(extractRustEnumVariants(src, "NonExistent"), null);
 });
 
+const sampleFuzzing = `
+| 目標 | 測什麼 | 種子 |
+|---|---|---|
+| \`edit_document\` | 套用編輯（涵蓋 \`WorkerEdit\` 2 種中的 2 種：\`EditOne\`〔含說明〕、\`EditTwo\`；參數經 \`Validate\` 檢查） | 種子 |
+`;
+
+test("fuzzing.md counts and lists the WorkerEdit kinds edit_document covers (#674)", () => {
+  const problems = (worker, doc) =>
+    checkFuzzingDoc(worker, doc).map((problem) => problem.slice(problem.indexOf(": ") + 2));
+  assert.deepEqual(problems(sampleWorker, sampleFuzzing), []);
+  // A target that covers only some of the kinds lists those.
+  assert.deepEqual(problems(sampleWorker, sampleFuzzing.replace("2 種中的 2 種：`EditOne`〔含說明〕、", "2 種中的 1 種：")), []);
+
+  // A new WorkerEdit that the document does not count yet.
+  const workerWithThree = sampleWorker.replace("EditTwo { param: u32 },", "EditTwo { param: u32 },\n    EditThree,");
+  assert.deepEqual(problems(workerWithThree, sampleFuzzing), [
+    "寫 `WorkerEdit` 有 2 種，crates/ipc_contract/src/worker.rs 有 3 種",
+  ]);
+  // Counted, but left out of the list.
+  assert.deepEqual(problems(workerWithThree, sampleFuzzing.replace("2 種中的 2 種", "3 種中的 3 種")), [
+    "寫涵蓋 3 種，清單列了 2 種",
+  ]);
+  // A name that is not a WorkerEdit, and a name listed twice.
+  assert.deepEqual(problems(sampleWorker, sampleFuzzing.replace("、`EditTwo`；", "、`EditGone`；")), [
+    "清單的 `EditGone` 不是 WorkerEdit 的一種",
+  ]);
+  assert.deepEqual(problems(sampleWorker, sampleFuzzing.replace("、`EditTwo`；", "、`EditOne`；")), [
+    "清單列了兩次 `EditOne`",
+  ]);
+  // Nothing to compare.
+  assert.equal(checkFuzzingDoc(sampleWorker, "# Fuzzing\n").length, 1);
+  assert.equal(checkFuzzingDoc("enum Other {}", sampleFuzzing).length, 1);
+});
+
+test("checkRepository finds a fuzzing.md that counts the WorkerEdit kinds wrong (#674)", (t) => {
+  const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+  const tempDir = mkdtempSync(join(tmpdir(), "check-repo-fuzz-"));
+  t.after(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  for (const dir of ["src-tauri/src", "src-tauri/capabilities", "crates/ipc_contract/src", "docs/security"]) {
+    mkdirSync(join(tempDir, dir), { recursive: true });
+  }
+  for (const file of [
+    "src-tauri/tauri.conf.json",
+    "vite.config.ts",
+    "src-tauri/src/lib.rs",
+    "src-tauri/build.rs",
+    "src-tauri/capabilities/main.json",
+    "crates/ipc_contract/src/worker.rs",
+    "docs/security/attack-surface.md",
+  ]) {
+    copyFileSync(join(repoRoot, file), join(tempDir, file));
+  }
+  const fuzzing = readFileSync(join(repoRoot, "docs/security/fuzzing.md"), "utf8");
+  const stale = fuzzing.replace(/(涵蓋 `WorkerEdit` )(\d+)/, (_, before, total) => `${before}${total - 1}`);
+  assert.notEqual(stale, fuzzing, "the count should have been changed");
+  writeFileSync(join(tempDir, "docs/security/fuzzing.md"), stale, "utf8");
+
+  const problems = checkRepository(tempDir);
+  assert.equal(problems.length, 1, JSON.stringify(problems));
+  assert.match(problems[0], /^docs\/security\/fuzzing\.md: 寫 `WorkerEdit` 有 \d+ 種，/);
+
+  rmSync(join(tempDir, "docs/security/fuzzing.md"));
+  assert.deepEqual(checkRepository(tempDir), ["docs/security/fuzzing.md: file not found"]);
+});
+
 test("checkRepository reports problem when attack surface is missing a command", (t) => {
   const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
   const tempDir = mkdtempSync(join(tmpdir(), "check-repo-atk-"));
@@ -743,6 +816,7 @@ function copyRepository(t, prefix) {
     "src-tauri/build.rs",
     "crates/ipc_contract/src/worker.rs",
     "docs/security/attack-surface.md",
+    "docs/security/fuzzing.md",
   ]) {
     copyFileSync(join(repoRoot, file), join(tempDir, file));
   }

@@ -8,6 +8,7 @@
 //   - app permissions: the files in src-tauri/permissions/, and the app permissions capabilities
 //     grant, vs AppManifest::commands (#659)
 //   - attack surface list in docs/security/attack-surface.md vs code and capabilities (#430)
+//   - the WorkerEdit kinds docs/security/fuzzing.md counts and lists for edit_document (#674)
 // Rules only get stricter: loosening one requires the needs-security-review label.
 //
 // Usage: node scripts/ci/check-security-config.mjs
@@ -1009,6 +1010,47 @@ export function checkAttackSurface(
   return problems;
 }
 
+/**
+ * Checks the edit_document row of docs/security/fuzzing.md against WorkerEdit (#674). The row
+ * says "涵蓋 `WorkerEdit` M 種中的 K 種：`A`、`B`、…；": M must be the number of WorkerEdit
+ * variants, and the list must name K different variants. Which ones the fuzz target reaches is
+ * not checked here.
+ */
+export function checkFuzzingDoc(
+  workerSource,
+  fuzzingSource,
+  { workerPath = "crates/ipc_contract/src/worker.rs", docPath = "docs/security/fuzzing.md" } = {},
+) {
+  const codeEdits = extractRustEnumVariants(workerSource, "WorkerEdit");
+  if (codeEdits === null || codeEdits.length === 0) {
+    return [`${workerPath}: enum WorkerEdit not found or has no variants`];
+  }
+  const row = fuzzingSource.match(/涵蓋\s*`WorkerEdit`\s*(\d+)\s*種中的\s*(\d+)\s*種：([^；\n]*)；/);
+  if (row === null) {
+    return [`${docPath}: edit_document 那一列找不到「涵蓋 \`WorkerEdit\` M 種中的 K 種：…；」`];
+  }
+  const [, total, covered, list] = row;
+  const listed = [...list.matchAll(/`([^`]+)`/g)].map((match) => match[1].trim());
+  const problems = [];
+  if (Number(total) !== codeEdits.length) {
+    problems.push(`${docPath}: 寫 \`WorkerEdit\` 有 ${total} 種，${workerPath} 有 ${codeEdits.length} 種`);
+  }
+  if (Number(covered) !== listed.length) {
+    problems.push(`${docPath}: 寫涵蓋 ${covered} 種，清單列了 ${listed.length} 種`);
+  }
+  const variants = new Set(codeEdits);
+  const seen = new Set();
+  for (const name of listed) {
+    if (!variants.has(name)) {
+      problems.push(`${docPath}: 清單的 \`${name}\` 不是 WorkerEdit 的一種`);
+    } else if (seen.has(name)) {
+      problems.push(`${docPath}: 清單列了兩次 \`${name}\``);
+    }
+    seen.add(name);
+  }
+  return problems;
+}
+
 /** Runs every check against the repository at `root`. */
 export function checkRepository(root) {
   const problems = [];
@@ -1070,6 +1112,15 @@ export function checkRepository(root) {
     const mainCapability = JSON.parse(readFileSync(mainCapFile, "utf8"));
     problems.push(
       ...checkAttackSurface(libSource, workerSource, mainCapability, attackSurfaceSource),
+    );
+  }
+
+  const fuzzingFile = join(root, "docs/security/fuzzing.md");
+  if (!existsSync(fuzzingFile)) {
+    problems.push("docs/security/fuzzing.md: file not found");
+  } else if (existsSync(workerFile)) {
+    problems.push(
+      ...checkFuzzingDoc(readFileSync(workerFile, "utf8"), readFileSync(fuzzingFile, "utf8")),
     );
   }
 
