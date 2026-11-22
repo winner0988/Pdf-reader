@@ -976,6 +976,14 @@ pub fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), Engine
             document.move_bookmark(*id, *parent, *index)?;
         }
         WorkerEdit::CropPages { pages, margins } => document.crop_pages(pages, *margins)?,
+        WorkerEdit::AddWatermark {
+            pages,
+            watermark,
+            png,
+        } => {
+            let watermark: Watermark = watermark.clone().into();
+            document.add_watermark(pages, &watermark, png.as_deref())?;
+        }
     }
     document.clear_text_cache();
     Ok(())
