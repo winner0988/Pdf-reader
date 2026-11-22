@@ -408,6 +408,7 @@
     - 檔案的作者不允許取出頁面時，縮圖上方顯示 pages.sourceNotAllowed；檔案太大、或插入後超過頁數與未儲存變更的上限時顯示 pages.sourceTooLarge；其他情形（不是 PDF、損毀）顯示 pages.sourceFailed；
     - 來源檔有主動內容時，內容不會進入文件，但警示橫幅（主視窗 3）列出它有哪些；使用者關閉過橫幅之後，插入的檔案讓橫幅有從沒說過的內容時才再顯示；復原與重做回到說過的內容時不會再出現；
     - 只在不是示範資料的文件顯示這兩項；作者不允許變更頁面時停用（pages.notAllowed）。
+  - pages.replacePages（B6-05，#590）：選取的頁面必須連續，否則在縮圖上方提示 pages.replaceOnlyContiguous；選取來源檔案後開啟對話框 pages.replace.title，指定來源頁面範圍（pages.replace.from 到 pages.replace.to），即時預覽總頁數與頁面編排，按 pages.replace.confirm 取代；
   - pages.moveTo：對話框 pages.move.title，輸入頁碼並選擇「之前／之後」；頁碼超出範圍時顯示 pages.move.outOfRange。
 - **拖曳**：把選取的縮圖拖到兩張縮圖之間（以一條線標示位置），靠近清單上下緣時自動捲動；`Esc` 取消。拖曳沒有選取的縮圖時只移動它。
 - **之後**：旋轉與移動的頁面仍保持選取，插入的空白頁被選取；刪除後不選取任何頁面。分頁標示未儲存（「•」）。
@@ -1089,6 +1090,10 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | pages.delete | 刪除 |
 | pages.insertBefore／pages.insertAfter | 在前面插入空白頁／在後面插入空白頁 |
 | pages.insertFileBefore／pages.insertFileAfter | 在前面插入其他檔案的頁面…／在後面插入其他檔案的頁面… |
+| pages.replacePages | 取代頁面… |
+| pages.replaceOnlyContiguous | 只能取代連續的頁：請選取相連的頁面。 |
+| pages.replace.title | 取代頁面 |
+| pages.replace.confirm／cancel | 取代／取消 |
 | pages.sourcePassword.title | 這個檔案受密碼保護 |
 | pages.sourcePassword.description | 輸入密碼才能取出這個檔案的頁面。密碼只用在這一次，不會被儲存。 |
 | pages.sourcePassword.label／confirm／cancel | 密碼／插入頁面／取消 |

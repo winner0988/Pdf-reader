@@ -2031,6 +2031,30 @@ impl Validate for Edit {
                     }),
                 }
             }
+            Edit::ReplacePages {
+                first,
+                count,
+                source: _,
+                from,
+                to,
+            } => {
+                if *count == 0 || *count > MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "how many pages to replace",
+                    });
+                }
+                if *first > MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "first page to replace",
+                    });
+                }
+                if *from > MAX_PAGE_COUNT || *to > MAX_PAGE_COUNT || *from > *to {
+                    return Err(ValidationError::OutOfRange {
+                        what: "source pages to take",
+                    });
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -3042,9 +3066,9 @@ mod tests {
         CropMargins, DocumentId, DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption,
         FontId, HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, IndexEntryId,
         IndexPageHits, InkColor, InkWidth, LinkId, PageNumberMark, PictureView, RecentId, Recovery,
-        RequestId, Restrictions, Rgb, Rotation, SecurityFinding, StampImageId, StampName, TabId,
-        TextAlign, TextBoxInfo, TextBoxModelId, TextMarkKind, UnverifiableReason, WatermarkPages,
-        WatermarkPlace,
+        RequestId, Restrictions, Rgb, Rotation, SecurityFinding, SourceId, StampImageId, StampName,
+        TabId, TextAlign, TextBoxInfo, TextBoxModelId, TextMarkKind, UnverifiableReason,
+        WatermarkPages, WatermarkPlace,
     };
     use crate::worker::{ModelGlyph, WorkerErrorCode};
 
@@ -5964,6 +5988,42 @@ mod tests {
             }))
             .unwrap(),
             insert(2, 1)
+        );
+
+        let replace = |first: u32, count: u32, from: u32, to: u32| {
+            edit(Edit::ReplacePages {
+                first,
+                count,
+                source: SourceId(1),
+                from,
+                to,
+            })
+        };
+        assert!(replace(0, 1, 0, 0).validate().is_ok());
+        assert!(replace(2, 3, 1, 5).validate().is_ok());
+        assert!(replace(0, 0, 0, 0).validate().is_err());
+        assert!(replace(0, 1, 5, 2).validate().is_err());
+        assert!(replace(MAX_PAGE_COUNT + 1, 1, 0, 0).validate().is_err());
+        assert!(replace(0, MAX_PAGE_COUNT + 1, 0, 0).validate().is_err());
+        assert!(
+            replace(0, 1, MAX_PAGE_COUNT + 1, MAX_PAGE_COUNT + 1)
+                .validate()
+                .is_err()
+        );
+        assert!(replace(0, 1, 0, MAX_PAGE_COUNT + 1).validate().is_err());
+        assert_eq!(
+            serde_json::from_value::<EditArgs>(serde_json::json!({
+                "doc": 1,
+                "edit": { "kind": "replacePages", "first": 2, "count": 2, "source": 7, "from": 0, "to": 2 }
+            }))
+            .unwrap(),
+            edit(Edit::ReplacePages {
+                first: 2,
+                count: 2,
+                source: SourceId(7),
+                from: 0,
+                to: 2,
+            })
         );
     }
 

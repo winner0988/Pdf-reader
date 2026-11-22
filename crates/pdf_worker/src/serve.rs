@@ -883,6 +883,14 @@ pub fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), Engine
             source,
             text_boxes,
         } => document.insert_pages(*at, source, text_boxes)?,
+        WorkerEdit::ReplacePages {
+            first,
+            count,
+            source,
+            text_boxes,
+            from,
+            to,
+        } => document.replace_pages(*first, *count, source, text_boxes, *from, *to)?,
         WorkerEdit::AddHighlight {
             mark_kind,
             marks,

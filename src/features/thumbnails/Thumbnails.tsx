@@ -75,6 +75,11 @@ export type PageEditing = {
    * pages came in; `null` if the user closed a dialog. Not offered without it.
    */
   insertFrom?: (at: number) => Promise<number | null>;
+  /**
+   * Replaces the contiguous range of `count` pages starting at `first` (0-based) with the chosen
+   * pages of another file (B6-05). Resolves how many pages came in; `null` if canceled.
+   */
+  replace?: (first: number, count: number) => Promise<number | null>;
 };
 
 type ThumbnailsProps = {
@@ -268,6 +273,33 @@ export function Thumbnails({
         setBusy(false);
         // The pages that came in are the ones selected, as for a blank page.
         if (inserted) setSelection({ pages: Array.from({ length: inserted }, (_, index) => at + index), anchor: at });
+      },
+      (error: unknown) => {
+        setBusy(false);
+        setMessage(insertFailureMessage(error));
+      },
+    );
+  };
+
+  /** Replaces selected contiguous pages with pages of a file chosen by the user (B6-05, #590). */
+  const replaceSelectedPages = () => {
+    if (!editing?.replace || !canEdit || selected.length === 0) return;
+    const sorted = [...selected].sort((a, b) => a - b);
+    const contiguous = sorted.every((page, idx) => idx === 0 || page === sorted[idx - 1]! + 1);
+    if (!contiguous) {
+      setMessage(strings.pages.replaceOnlyContiguous);
+      return;
+    }
+    const first = sorted[0]!;
+    const count = sorted.length;
+    setBusy(true);
+    setMessage(null);
+    editing.replace(first, count).then(
+      (inserted) => {
+        setBusy(false);
+        if (inserted !== null) {
+          setSelection({ pages: Array.from({ length: inserted }, (_, index) => first + index), anchor: first });
+        }
       },
       (error: unknown) => {
         setBusy(false);
@@ -521,6 +553,14 @@ export function Thumbnails({
                       {t.insertFileAfter}
                     </ContextMenuItem>
                   </>
+                )}
+                {editing.replace && (
+                  <ContextMenuItem
+                    disabled={!canEdit || selected.length === 0}
+                    onClick={replaceSelectedPages}
+                  >
+                    {t.replacePages}
+                  </ContextMenuItem>
                 )}
                 <ContextMenuSeparator />
                 <ContextMenuItem disabled={!canEdit || selected.length === 0} onClick={() => setMoveOpen(true)}>

@@ -173,6 +173,26 @@ describe("navigation history model (B4-01)", () => {
       expect(history.back).toEqual([loc(1), loc(4)]);
     });
 
+    it("handles replacePages edit at three positions (before, within, after)", () => {
+      let history = createNavigationHistory();
+      history = recordNavigation(history, loc(2)); // before first (first=2 -> 0-based 2 is page 3)
+      history = recordNavigation(history, loc(4)); // within replaced range (first=2, count=3 -> pages 3, 4, 5)
+      history = recordNavigation(history, loc(6)); // after replaced range (page 6 -> 0-based 5)
+
+      // Replace 3 pages starting at 0-based 2 (pages 3..5) with 2 pages (from=0, to=1)
+      // Net change = 2 - 3 = -1
+      history = adjustHistoryForEdit(
+        history,
+        { kind: "replacePages", first: 2, count: 3, source: 1, from: 0, to: 1 },
+        10,
+      );
+
+      // Page 2 stays page 2
+      // Page 4 was removed -> dropped (null)
+      // Page 6 shifts by -1 -> page 5
+      expect(history.back).toEqual([loc(2), loc(5)]);
+    });
+
     it("deduplicates consecutive entries if an edit causes them to share the same page", () => {
       let history = createNavigationHistory();
       // Suppose we had page 1, page 2

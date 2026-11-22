@@ -901,6 +901,26 @@ export function createCommands(opts: CommandOptions): Command[] {
         }
       },
     },
+    {
+      id: "replaceCurrentPage",
+      name: strings.commands.replaceCurrentPage,
+      aliases: [...aliases.replaceCurrentPage],
+      fromMenu: false,
+      visibleInMenu: false,
+      enabled: hasDoc && Boolean(opts.onReplacePages && !opts.insertFromBlocked),
+      disabledReason: !hasDoc
+        ? strings.commands.noDocument
+        : opts.insertFromBlocked
+          ? strings.permissions.notAllowed
+          : undefined,
+      run: () => {
+        if (opts.document && opts.onReplacePages) {
+          void Promise.resolve(opts.onReplacePages(opts.document.currentPage - 1, 1)).catch((error: unknown) => {
+            opts.onHint?.(insertFailureMessage(error));
+          });
+        }
+      },
+    },
   ];
 
   return commands;
