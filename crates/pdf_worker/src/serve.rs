@@ -962,6 +962,7 @@ pub fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), Engine
         WorkerEdit::MoveBookmark { id, parent, index } => {
             document.move_bookmark(*id, *parent, *index)?;
         }
+        WorkerEdit::CropPages { pages, margins } => document.crop_pages(pages, *margins)?,
     }
     document.clear_text_cache();
     Ok(())

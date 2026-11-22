@@ -32,6 +32,7 @@ import {
   type ThumbLayout,
 } from "@/features/thumbnails/layout";
 import { insertFailureMessage } from "@/features/thumbnails/insertFailure";
+import { CropPagesDialog } from "@/features/thumbnails/CropPagesDialog";
 import { MovePagesDialog } from "@/features/thumbnails/MovePagesDialog";
 import {
   extendTo,
@@ -64,6 +65,8 @@ export type SavePages = {
 export type PageEditing = {
   /** The document's author allows assembling or changing it (MVP-19). */
   allowed: boolean;
+  /** The document's author allows modifying the document (needed for crop, B6-04). */
+  cropAllowed?: boolean;
   /** Applies `edit` to the document shown; resolves once the document has it. */
   apply: (edit: Edit) => Promise<void>;
   /**
@@ -153,6 +156,7 @@ export function Thumbnails({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [cropOpen, setCropOpen] = useState(false);
   const [drag, setDrag] = useState<Drag | null>(null);
   /** The click that ends a drag selects nothing. */
   const dragged = useRef(false);
@@ -474,6 +478,17 @@ export function Thumbnails({
                 >
                   {t.rotateCcw}
                 </ContextMenuItem>
+                {editing.cropAllowed !== undefined && (
+                  <ContextMenuItem
+                    disabled={!canEdit || !editing.cropAllowed || selected.length === 0}
+                    onClick={() => setCropOpen(true)}
+                  >
+                    {t.cropPage}
+                    {!editing.cropAllowed && (
+                      <ContextMenuShortcut>{strings.permissions.notAllowed}</ContextMenuShortcut>
+                    )}
+                  </ContextMenuItem>
+                )}
                 <ContextMenuItem disabled={!canEdit || selected.length === 0 || allSelected} onClick={() => deletePages()}>
                   {t.delete}
                   <ContextMenuShortcut>Delete</ContextMenuShortcut>
@@ -533,15 +548,30 @@ export function Thumbnails({
         )}
       </div>
       {editing && (
-        <MovePagesDialog
-          open={moveOpen}
-          onOpenChange={setMoveOpen}
-          pageCount={count}
-          moving={selected.length}
-          onMove={(before) => {
-            if (!movesNothing(selected, before)) apply({ kind: "movePages", pages: selected, before });
-          }}
-        />
+        <>
+          <MovePagesDialog
+            open={moveOpen}
+            onOpenChange={setMoveOpen}
+            pageCount={count}
+            moving={selected.length}
+            onMove={(before) => {
+              if (!movesNothing(selected, before)) apply({ kind: "movePages", pages: selected, before });
+            }}
+          />
+          <CropPagesDialog
+            open={cropOpen}
+            onOpenChange={setCropOpen}
+            doc={doc}
+            renderer={renderer}
+            sensitive={sensitive}
+            pages={pages}
+            selectedPages={selected}
+            currentPage={currentPage}
+            onCrop={(pagesToCrop, margins) => {
+              apply({ kind: "cropPages", pages: pagesToCrop, margins });
+            }}
+          />
+        </>
       )}
     </div>
   );

@@ -178,6 +178,20 @@ test("the dialogs of the menu", async ({ launch }) => {
   }
 });
 
+test("the crop pages dialog (B6-04)", async ({ launch }) => {
+  const page = await launch(corpus("benign/multi-page-10.pdf"));
+  await expect(page.getByRole("img", { name: strings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
+  await page.getByRole("tab", { name: strings.sidebar.thumbnailsTab }).click();
+  const list = page.getByRole("listbox", { name: strings.sidebar.thumbnailsTab });
+  await list.getByRole("option", { name: strings.canvas.page(1) }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: new RegExp(`^${strings.pages.cropPage}`) }).click();
+  const dialog = page.getByRole("dialog", { name: strings.pages.crop.title });
+  await expect(dialog).toBeVisible();
+  await inBothThemes(page, (theme) => noProblems(page, `crop pages dialog, ${theme}`));
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
 test("the text box dialog, with a problem shown, and the toolbar of a text box on the page (B2-31)", async ({ launch }) => {
   const page = await launch(corpus("benign/mixed-text-zh-en.pdf"));
   const sheet = page.getByRole("img", { name: strings.canvas.page(1) });

@@ -372,6 +372,7 @@
   - 選取的縮圖有底色；選取兩頁以上時，縮圖上方顯示 pages.selected。
 - **右鍵功能表**（在沒有選取的縮圖上按右鍵，會先只選取它）：
   - pages.rotateCw、pages.rotateCcw：永久旋轉選取的頁面（與工具列只改變檢視的旋轉不同）；
+  - pages.cropPage（B6-04，#589）：對話框 pages.crop.title，設定四邊邊距或在預覽拖曳框選，套用到選取頁、目前頁、全部、奇數頁或偶數頁；頁面小於 36 點或未裁切時提示，作者不允許修改時停用（permissions.notAllowed）；
   - pages.delete（`Delete`；沒有選取時，`Delete` 刪除有焦點的縮圖）：選取全部頁面時停用，按 `Delete` 則在縮圖上方顯示 pages.keepOne；
   - pages.insertBefore、pages.insertAfter：在第一個（或最後一個）選取的頁面前（或後）插入空白頁，大小與那一頁顯示的大小相同；
   - pages.insertFileBefore、pages.insertFileAfter（B2-06）：在第一個（或最後一個）選取的頁面前（或後）插入**其他 PDF 檔案的全部頁面**。系統的開啟對話框選檔案（單選，只列 PDF）；選好之後頁面依原來的順序插入，插入的頁面被選取；關閉對話框什麼都不發生。做法見 [merge.md](../architecture/merge.md)；
