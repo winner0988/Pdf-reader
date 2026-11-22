@@ -29,6 +29,41 @@ applicationinsights
 opentelemetry-otlp
 @opentelemetry/exporter
 
+# Performance and error monitoring (#614).
+@elastic/apm-rum
+elastic-apm-node
+@grafana/faro-
+@honeybadger-io/
+raygun4
+trackjs
+@appsignal/
+@splunk/otel-web
+aws-rum-web
+highlight\.run
+@highlight-run/
+openreplay
+
+# Product analytics and session recording (#614). Not bare "plausible", "clarity", "heap", "fathom", "pendo" or "mouseflow": they are words, or parts of identifiers such as appendOnly.
+aptabase
+@fullstory/
+fullstory\.com
+hotjar
+@microsoft/clarity
+clarity\.ms
+smartlook
+mouseflow\.com
+heapanalytics\.com
+heap-api\.com
+@heap/
+plausible-tracker
+@plausible-analytics/
+plausible\.io
+matomo
+fathom-client
+usefathom\.com
+pendo\.io
+@pendo/
+
 # --- Remote fonts and CDNs (everything must be bundled locally) ---
 fonts\.googleapis\.com
 fonts\.gstatic\.com

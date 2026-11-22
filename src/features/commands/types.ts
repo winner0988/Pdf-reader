@@ -19,6 +19,7 @@ export type CommandId =
   | "export"
   | "exportAnnotations"
   | "compareText"
+  | "compareVisual"
   | "privacyExport"
   | "sanitizeCopy"
   | "pageMarks"

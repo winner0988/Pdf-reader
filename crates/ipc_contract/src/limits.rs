@@ -26,6 +26,9 @@ pub const MAX_SOURCES_BYTES: usize = 128 * 1024 * 1024;
 /// this only rejects absurd values (the PDF spec allows 14 400 units, scaled by `UserUnit`).
 pub const MAX_PAGE_SIDE_PT: f32 = 1_000_000.0;
 
+/// Minimum side of a page after cropping in PDF points (B6-04).
+pub const MIN_CROPPED_SIDE_PT: f32 = 36.0;
+
 /// Render scale bounds (1.0 = 72 dpi, one PDF point per pixel).
 pub const MIN_RENDER_SCALE: f32 = 0.01;
 pub const MAX_RENDER_SCALE: f32 = 64.0;

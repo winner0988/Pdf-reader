@@ -6,7 +6,7 @@
 
 | 層 | 檢查 | 位置 |
 |---|---|---|
-| 原始碼 | 遙測 SDK、遠端字型／CDN、具網路能力的 Tauri 外掛名稱 | `scripts/ci/check-forbidden.sh`（`Guardrails`） |
+| 原始碼 | 遙測、錯誤回報與工作階段錄影的 SDK、遠端字型／CDN、具網路能力的 Tauri 外掛名稱 | `scripts/ci/check-forbidden.sh`（規則的範例：`check-forbidden.test.mjs`，#614）（`Guardrails`） |
 | 原始碼 | WinHTTP（檢查更新用的唯一網路 API）只能出現在 `src-tauri/src/update_check.rs`（`@only` 規則） | 同上 |
 | Rust 依賴圖 | 禁用 HTTP／WebSocket／TLS client 與遙測 crate；授權白名單；來源只允許 crates.io，以及 `mupdf-sys` 的一個 git repo（見 [mupdf-binding.md](../architecture/mupdf-binding.md)） | `deny.toml`（`Security` → `Dependency audit`） |
 | npm 依賴 | 已知弱點 | `pnpm audit --prod`（`Dependency audit`） |
