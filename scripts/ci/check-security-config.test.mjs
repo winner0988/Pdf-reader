@@ -642,6 +642,9 @@ test("checkRepository finds a fuzzing.md that counts the WorkerEdit kinds wrong 
   const problems = checkRepository(tempDir);
   assert.equal(problems.length, 1, JSON.stringify(problems));
   assert.match(problems[0], /^docs\/security\/fuzzing\.md: 寫 `WorkerEdit` 有 \d+ 種，/);
+
+  rmSync(join(tempDir, "docs/security/fuzzing.md"));
+  assert.deepEqual(checkRepository(tempDir), ["docs/security/fuzzing.md: file not found"]);
 });
 
 test("checkRepository reports problem when attack surface is missing a command", (t) => {
