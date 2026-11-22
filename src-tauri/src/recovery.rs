@@ -426,6 +426,9 @@ fn pictures_of(stored: &Stored) -> Option<ReadPictures> {
     }
     let named = stored.edits.iter().all(|edit| match edit {
         Edit::AddImageStamp { image, .. } => pictures.iter().any(|(id, _)| id == image),
+        Edit::AddWatermark {
+            image: Some(image), ..
+        } => pictures.iter().any(|(id, _)| id == image),
         _ => true,
     });
     named.then_some(pictures)
@@ -435,7 +438,9 @@ fn pictures_of(stored: &Stored) -> Option<ReadPictures> {
 mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    use ipc_contract::types::Rotation;
+    use ipc_contract::types::{
+        Rotation, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    };
     use ipc_contract::worker::ModelGlyph;
 
     use super::*;
@@ -1141,5 +1146,47 @@ mod tests {
         let oversized = vec![b'a'; MAX_JOURNAL_BYTES + 1024];
         fs::write(&journal_file, &oversized).unwrap();
         assert!(read(&journal_file, &file()).is_none());
+    }
+
+    #[test]
+    fn a_journal_keeps_watermark_picture() {
+        let folder = Folder::new();
+        let earlier = folder.journals();
+        let id = earlier.create().unwrap();
+        let png = [
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9c, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+        ];
+        let edit = Edit::AddWatermark {
+            pages: vec![0],
+            watermark: Watermark {
+                content: WatermarkContent::Picture { width_pt: 100.0 },
+                opacity: 50,
+                diagonal: false,
+                place: WatermarkPlace::Center,
+                pages: WatermarkPages::All,
+            },
+            image: Some(StampImageId(7)),
+        };
+        let pictures = [(StampImageId(7), png.as_slice())];
+        earlier
+            .write(
+                &id,
+                &file(),
+                identity(1_000),
+                std::slice::from_ref(&edit),
+                Named {
+                    pictures: &pictures,
+                    ..Named::default()
+                },
+                0,
+            )
+            .unwrap();
+        let found = folder.journals().find(&file(), identity(1_000)).unwrap();
+        assert_eq!(found.edits, vec![edit]);
+        assert_eq!(found.pictures, vec![(StampImageId(7), png.to_vec())]);
     }
 }
