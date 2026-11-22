@@ -59,6 +59,7 @@
 
 - 新增或升級依賴（Cargo、npm、GitHub Actions）
 - 修改 Tauri capability、CSP、`tauri.conf.json` 的安全相關設定
+- 修改 `src-tauri/allowed-permissions.json`（前端可以拿到的 app 權限清單）
 - 修改 `pdf_worker` 的權限、行程啟動方式、IPC 協定或訊息大小上限
 - 任何處理連結、主動內容、遠端資源、檔案路徑、密碼的程式碼
 - 修改 CI、`scripts/ci/`、`.github/` 底下的檔案
