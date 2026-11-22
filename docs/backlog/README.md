@@ -184,11 +184,12 @@ flowchart LR
   - 先寫 ADR：B6-09、B6-12、B6-15。
 - 同一天開的 1.0 之前的修正與測試：[#583](https://github.com/winner0988/Pdf-reader/issues/583)、[#584](https://github.com/winner0988/Pdf-reader/issues/584)、[#585](https://github.com/winner0988/Pdf-reader/issues/585)。
 
-## 1.0.1 與 1.1.0
+## 1.1.0 與 1.2.0
 
-- 見 [1.0.1 與 1.1.0 的計畫](../planning/2026-11-20-plan-1.1.md)；負責人的決定記在 [#635](https://github.com/winner0988/Pdf-reader/issues/635)。
-- 1.0.1 只收修正。
-- 1.1.0 的功能有：
+- 見 [1.1.0 與 1.2.0 的計畫](../planning/2026-11-20-plan-1.1.md)；負責人的決定記在 [#635](https://github.com/winner0988/Pdf-reader/issues/635)。
+- 11-22 負責人改成不發 1.0.1：下一版發 1.1.0，從 `main` 發，含修正與已經合併的功能。
+- 規劃的功能有：
   - 第五批的 B5-09、B5-14；
   - 第六批的 B6-01、B6-02、B6-04～B6-06。
+  - 在 1.1.0 的發行 PR 之前合併的跟著 1.1.0 發，其他的放 1.2.0。
 - B6-09、B6-12、B6-15 先寫 ADR。
