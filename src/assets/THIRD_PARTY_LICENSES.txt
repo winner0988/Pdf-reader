@@ -121,7 +121,7 @@ Rust crates
 - foldhash 0.2.0 | Zlib | https://github.com/orlp/foldhash | L59
 - font-types 0.11.3 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L60, L61
 - font-types 0.12.7 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L62, L63
-- form_urlencoded 1.2.2 | MIT OR Apache-2.0 | https://github.com/servo/rust-url | L4, L64
+- form_urlencoded 1.2.3 | MIT OR Apache-2.0 | https://github.com/servo/rust-url | L4, L64
 - generic-array 0.14.7 | MIT | https://github.com/fizyk20/generic-array.git | L65
 - getrandom 0.3.4 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom | L66, L67
 - getrandom 0.4.3 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom | L66, L68
@@ -191,7 +191,7 @@ Rust crates
 - quote 1.0.47 | MIT OR Apache-2.0 | https://github.com/dtolnay/quote | L20, L14
 - raw-window-handle 0.6.2 | MIT OR Apache-2.0 OR Zlib | https://github.com/rust-windowing/raw-window-handle | L20, L108, L109
 - read-fonts 0.39.2 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L60, L61
-- read-fonts 0.46.0 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L62, L63
+- read-fonts 0.47.0 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L62, L63
 - regex 1.13.1 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex | L4, L24
 - regex-automata 0.4.18 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex | L4, L24
 - regex-syntax 0.8.11 | MIT OR Apache-2.0 | https://github.com/rust-lang/regex | L4, L24
@@ -223,7 +223,7 @@ Rust crates
 - similar 3.2.1 | Apache-2.0 | https://github.com/mitsuhiko/similar | L4
 - siphasher 1.0.3 | MIT/Apache-2.0 | https://github.com/jedisct1/rust-siphash | L120
 - skrifa 0.42.1 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L60, L61
-- skrifa 0.49.0 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L62, L63
+- skrifa 0.50.0 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations | L62, L63
 - smallvec 1.16.1 | MIT OR Apache-2.0 | https://github.com/servo/rust-smallvec | L4, L121
 - socket2 0.6.5 | MIT OR Apache-2.0 | https://github.com/rust-lang/socket2 | L4, L31
 - softbuffer 0.4.8 | MIT OR Apache-2.0 | https://github.com/rust-windowing/softbuffer | L122, L123
@@ -267,7 +267,7 @@ Rust crates
 - typenum 1.20.1 | MIT OR Apache-2.0 | https://github.com/paholg/typenum | L139, L140, L141
 - unicode-ident 1.0.26 | (MIT OR Apache-2.0) AND Unicode-3.0 | https://github.com/dtolnay/unicode-ident | L20, L14, L142
 - unicode-segmentation 1.13.3 | MIT OR Apache-2.0 | https://github.com/unicode-rs/unicode-segmentation | L143, L4, L70
-- url 2.5.8 | MIT OR Apache-2.0 | https://github.com/servo/rust-url | L4, L77
+- url 2.5.9 | MIT OR Apache-2.0 | https://github.com/servo/rust-url | L4, L77
 - urlpattern 0.6.0 | MIT | https://github.com/denoland/rust-urlpattern | L144
 - utf8_iter 1.0.4 | Apache-2.0 OR MIT | https://github.com/hsivonen/utf8_iter | L145, L4, L146
 - uuid 1.26.1 | Apache-2.0 OR MIT | https://github.com/uuid-rs/uuid | L4, L147
@@ -324,7 +324,7 @@ JavaScript packages
 - @tauri-apps/api 2.12.4 | Apache-2.0 OR MIT | https://github.com/tauri-apps/tauri#readme | L20, L130, L164
 - class-variance-authority 0.7.1 | Apache-2.0 | https://github.com/joe-bell/cva#readme | L165
 - clsx 2.1.1 | MIT | https://github.com/lukeed/clsx#readme | L166
-- lucide-react 1.70.0 | ISC | https://lucide.dev | L167
+- lucide-react 1.73.0 | ISC | https://lucide.dev | L167
 - react 19.3.1 | MIT | https://react.dev/ | L168
 - react-dom 19.3.1 | MIT | https://react.dev/ | L168
 - reselect 5.3.0 | MIT | https://github.com/reduxjs/reselect#readme | L169
@@ -1077,7 +1077,7 @@ builds) is in the public domain.
 --- end of LICENSE.TXT ---
 
 ----- L4 -----
-Used by: Gumbo, Tesseract OCR, Tesseract language data (tessdata_fast: eng, chi_tra), arrayvec 0.7.8, base64 0.23.1, bit-set 0.8.0, bit-vec 0.8.0, bitflags 2.13.2, block-buffer 0.10.4, block-buffer 0.12.1, bytemuck 1.25.2, bytemuck_derive 1.12.1, camino 1.2.6, cfg-if 1.0.5, const-oid 0.10.2, cpufeatures 0.2.17, cpufeatures 0.3.1, crossbeam-channel 0.5.17, crossbeam-utils 0.8.23, crypto-common 0.1.7, crypto-common 0.2.2, digest 0.10.7, digest 0.11.3, displaydoc 0.2.7, equivalent 1.0.2, fastrand 2.5.0, flate2 1.1.10, fnv 1.0.7, form_urlencoded 1.2.2, glob 0.3.4, hashbrown 0.12.3, hashbrown 0.17.1, heck 0.5.0, html5ever 0.39.0, hybrid-array 0.4.15, idna 1.1.0, idna_adapter 1.2.2, indexmap 1.9.3, indexmap 2.14.2, jpeg-encoder 0.7.1, keyboard-types 0.8.3, kurbo 0.13.1, lock_api 0.4.14, log 0.4.34, markup5ever 0.39.0, mime 0.3.17, muda 0.20.0, once_cell 1.21.4, parking_lot 0.12.5, parking_lot_core 0.9.12, percent-encoding 2.3.2, png 0.18.1, polycool 0.4.0, postcard 1.1.3, regex 1.13.1, regex-automata 0.4.18, regex-syntax 0.8.11, scopeguard 1.2.0, serde_with 3.23.0, serde_with_macros 3.23.0, serialize-to-javascript 0.1.2, serialize-to-javascript-impl 0.1.2, servo_arc 0.4.3, sha2 0.10.9, sha2 0.11.1, similar 3.2.1, smallvec 1.16.1, socket2 0.6.5, stable_deref_trait 1.2.1, string_cache 0.9.0, tendril 0.5.1, tray-icon 0.25.1, unicode-segmentation 1.13.3, url 2.5.8, utf8_iter 1.0.4, uuid 1.26.1, web_atoms 0.2.6, window-vibrancy 0.8.1, wry 0.57.0, zeroize 1.9.1
+Used by: Gumbo, Tesseract OCR, Tesseract language data (tessdata_fast: eng, chi_tra), arrayvec 0.7.8, base64 0.23.1, bit-set 0.8.0, bit-vec 0.8.0, bitflags 2.13.2, block-buffer 0.10.4, block-buffer 0.12.1, bytemuck 1.25.2, bytemuck_derive 1.12.1, camino 1.2.6, cfg-if 1.0.5, const-oid 0.10.2, cpufeatures 0.2.17, cpufeatures 0.3.1, crossbeam-channel 0.5.17, crossbeam-utils 0.8.23, crypto-common 0.1.7, crypto-common 0.2.2, digest 0.10.7, digest 0.11.3, displaydoc 0.2.7, equivalent 1.0.2, fastrand 2.5.0, flate2 1.1.10, fnv 1.0.7, form_urlencoded 1.2.3, glob 0.3.4, hashbrown 0.12.3, hashbrown 0.17.1, heck 0.5.0, html5ever 0.39.0, hybrid-array 0.4.15, idna 1.1.0, idna_adapter 1.2.2, indexmap 1.9.3, indexmap 2.14.2, jpeg-encoder 0.7.1, keyboard-types 0.8.3, kurbo 0.13.1, lock_api 0.4.14, log 0.4.34, markup5ever 0.39.0, mime 0.3.17, muda 0.20.0, once_cell 1.21.4, parking_lot 0.12.5, parking_lot_core 0.9.12, percent-encoding 2.3.2, png 0.18.1, polycool 0.4.0, postcard 1.1.3, regex 1.13.1, regex-automata 0.4.18, regex-syntax 0.8.11, scopeguard 1.2.0, serde_with 3.23.0, serde_with_macros 3.23.0, serialize-to-javascript 0.1.2, serialize-to-javascript-impl 0.1.2, servo_arc 0.4.3, sha2 0.10.9, sha2 0.11.1, similar 3.2.1, smallvec 1.16.1, socket2 0.6.5, stable_deref_trait 1.2.1, string_cache 0.9.0, tendril 0.5.1, tray-icon 0.25.1, unicode-segmentation 1.13.3, url 2.5.9, utf8_iter 1.0.4, uuid 1.26.1, web_atoms 0.2.6, window-vibrancy 0.8.1, wry 0.57.0, zeroize 1.9.1
 
 Apache License
                            Version 2.0, January 2004
@@ -4895,7 +4895,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ----- L62 -----
-Used by: font-types 0.12.7, read-fonts 0.46.0, skrifa 0.49.0
+Used by: font-types 0.12.7, read-fonts 0.47.0, skrifa 0.50.0
 
 Apache License
 
@@ -4966,7 +4966,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ----- L63 -----
-Used by: font-types 0.12.7, read-fonts 0.46.0, skrifa 0.49.0
+Used by: font-types 0.12.7, read-fonts 0.47.0, skrifa 0.50.0
 
 Copyright (c) 2019 Fontations Developers
 
@@ -4995,7 +4995,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ----- L64 -----
-Used by: form_urlencoded 1.2.2
+Used by: form_urlencoded 1.2.3
 
 Copyright (c) 2013-2016 The rust-url developers
 
@@ -5739,7 +5739,7 @@ Portions of ICU4X may have been adapted from ICU4C and/or ICU4J.
 ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation and others.
 
 ----- L77 -----
-Used by: idna 1.1.0, percent-encoding 2.3.2, url 2.5.8
+Used by: idna 1.1.0, percent-encoding 2.3.2, url 2.5.9
 
 Copyright (c) 2013-2025 The rust-url developers
 
@@ -10515,7 +10515,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ----- L167 -----
-Used by: lucide-react 1.70.0
+Used by: lucide-react 1.73.0
 
 ISC License
 
