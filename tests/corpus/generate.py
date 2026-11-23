@@ -512,7 +512,19 @@ def run_length_encode(data: bytes) -> bytes:
     return bytes(out)
 
 
-def scan_image(lines: list[str], *, width: int, height: int, cell: int, x: int, y: int, leading: int) -> bytes:
+def scan_image(
+    lines: list[str],
+    *,
+    width: int,
+    height: int,
+    cell: int,
+    x: int,
+    y: int,
+    leading: int,
+    skew_degrees: float = 0.0,
+    noise_dots: int = 0,
+    noise_seed: int = 42,
+) -> bytes:
     """A 1-bit grey picture (0 is black, rows padded to whole bytes) of `lines` in SCAN_GLYPHS."""
     row_bytes = (width + 7) // 8
     rows = [bytearray(bytes([255]) * row_bytes) for _ in range(height)]
@@ -529,6 +541,57 @@ def scan_image(lines: list[str], *, width: int, height: int, cell: int, x: int, 
                         for dx in range(cell):
                             column = left + glyph_column * cell + dx
                             row[column // 8] &= ~(0x80 >> (column % 8)) & 255
+
+    if skew_degrees != 0.0:
+        import math
+        rad = math.radians(skew_degrees)
+        cos_a = math.cos(rad)
+        sin_a = math.sin(rad)
+        cx, cy = width / 2.0, height / 2.0
+        min_src_x, max_src_x = x - 10, x + max(len(l) for l in lines) * 6 * cell + 10
+        min_src_y, max_src_y = y - 10, y + len(lines) * leading + 10
+        corners = [
+            (min_src_x, min_src_y),
+            (max_src_x, min_src_y),
+            (max_src_x, max_src_y),
+            (min_src_x, max_src_y),
+        ]
+        rot_corners = [
+            (cx + (px - cx) * cos_a - (py - cy) * sin_a, cy + (px - cx) * sin_a + (py - cy) * cos_a)
+            for px, py in corners
+        ]
+        min_ry = max(0, int(math.floor(min(ry for _, ry in rot_corners))) - 5)
+        max_ry = min(height, int(math.ceil(max(ry for _, ry in rot_corners))) + 5)
+        min_rx = max(0, int(math.floor(min(rx for rx, _ in rot_corners))) - 5)
+        max_rx = min(width, int(math.ceil(max(rx for rx, _ in rot_corners))) + 5)
+
+        rot_rows = [bytearray(bytes([255]) * row_bytes) for _ in range(height)]
+        for ry in range(min_ry, max_ry):
+            out_row = rot_rows[ry]
+            for rx in range(min_rx, max_rx):
+                src_x = int(round(cx + (rx - cx) * cos_a + (ry - cy) * sin_a))
+                src_y = int(round(cy - (rx - cx) * sin_a + (ry - cy) * cos_a))
+                if 0 <= src_y < height and 0 <= src_x < width:
+                    if not (rows[src_y][src_x // 8] & (0x80 >> (src_x % 8))):
+                        out_row[rx // 8] &= ~(0x80 >> (rx % 8)) & 255
+        rows = rot_rows
+
+    if noise_dots > 0:
+        rng = random.Random(noise_seed)
+        for _ in range(noise_dots):
+            nx = rng.randint(2, width - 3)
+            ny = rng.randint(2, height - 3)
+            all_white = True
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if not (rows[ny + dy][(nx + dx) // 8] & (0x80 >> ((nx + dx) % 8))):
+                        all_white = False
+                        break
+                if not all_white:
+                    break
+            if all_white:
+                rows[ny][nx // 8] &= ~(0x80 >> (nx % 8)) & 255
+
     return b"".join(bytes(row) for row in rows)
 
 
@@ -542,6 +605,66 @@ def benign_scanned_text() -> bytes:
         f"/Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceGray "
         "/BitsPerComponent 1 /Filter /RunLengthDecode",
         run_length_encode(scan_image(SCANNED_LINES, width=width, height=height, cell=7, x=100, y=300, leading=140)),
+    )
+    doc.add_pages([Page(
+        extra_content=b"q 612 0 0 792 0 0 cm /Im1 Do Q" + bytes([10]),
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    )])
+    return doc.build()
+
+
+def benign_scanned_skew_2() -> bytes:
+    doc = Document("scanned-skew-2")
+    width, height = 1224, 1584
+    image = doc.pdf.add_stream(
+        f"/Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceGray "
+        "/BitsPerComponent 1 /Filter /RunLengthDecode",
+        run_length_encode(scan_image(SCANNED_LINES, width=width, height=height, cell=7, x=100, y=300, leading=140, skew_degrees=2.0)),
+    )
+    doc.add_pages([Page(
+        extra_content=b"q 612 0 0 792 0 0 cm /Im1 Do Q" + bytes([10]),
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    )])
+    return doc.build()
+
+
+def benign_scanned_skew_5() -> bytes:
+    doc = Document("scanned-skew-5")
+    width, height = 1224, 1584
+    image = doc.pdf.add_stream(
+        f"/Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceGray "
+        "/BitsPerComponent 1 /Filter /RunLengthDecode",
+        run_length_encode(scan_image(SCANNED_LINES, width=width, height=height, cell=7, x=100, y=300, leading=140, skew_degrees=5.0)),
+    )
+    doc.add_pages([Page(
+        extra_content=b"q 612 0 0 792 0 0 cm /Im1 Do Q" + bytes([10]),
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    )])
+    return doc.build()
+
+
+def benign_scanned_skew_10() -> bytes:
+    doc = Document("scanned-skew-10")
+    width, height = 1224, 1584
+    image = doc.pdf.add_stream(
+        f"/Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceGray "
+        "/BitsPerComponent 1 /Filter /RunLengthDecode",
+        run_length_encode(scan_image(SCANNED_LINES, width=width, height=height, cell=7, x=100, y=300, leading=140, skew_degrees=10.0)),
+    )
+    doc.add_pages([Page(
+        extra_content=b"q 612 0 0 792 0 0 cm /Im1 Do Q" + bytes([10]),
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    )])
+    return doc.build()
+
+
+def benign_scanned_noisy() -> bytes:
+    doc = Document("scanned-noisy")
+    width, height = 1224, 1584
+    image = doc.pdf.add_stream(
+        f"/Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceGray "
+        "/BitsPerComponent 1 /Filter /RunLengthDecode",
+        run_length_encode(scan_image(SCANNED_LINES, width=width, height=height, cell=7, x=100, y=300, leading=140, noise_dots=1500, noise_seed=596)),
     )
     doc.add_pages([Page(
         extra_content=b"q 612 0 0 792 0 0 cm /Im1 Do Q" + bytes([10]),
@@ -2578,6 +2701,18 @@ SAMPLES = [
            "else, so it has no text layer.",
            "Search finds nothing and text cannot be selected until the text is recognised (OCR, B2-10); "
            "then both lines can be searched.", 1),
+    Sample("benign/scanned-skew-2.pdf", benign_scanned_skew_2,
+           "A scan: two lines of text (PRIVACY FIRST, SECRET PAPER) skewed by 2 degrees clockwise.",
+           "Deskewed and recognised by OCR (B6-11).", 1),
+    Sample("benign/scanned-skew-5.pdf", benign_scanned_skew_5,
+           "A scan: two lines of text (PRIVACY FIRST, SECRET PAPER) skewed by 5 degrees clockwise.",
+           "Deskewed and recognised by OCR (B6-11).", 1),
+    Sample("benign/scanned-skew-10.pdf", benign_scanned_skew_10,
+           "A scan: two lines of text (PRIVACY FIRST, SECRET PAPER) skewed by 10 degrees clockwise.",
+           "Deskewed and recognised by OCR (B6-11).", 1),
+    Sample("benign/scanned-noisy.pdf", benign_scanned_noisy,
+           "A scan: two lines of text (PRIVACY FIRST, SECRET PAPER) with isolated noise dots.",
+           "Denoised and recognised by OCR (B6-11).", 1),
     Sample("benign/encrypted-rc4-40.pdf", benign_encrypted,
            "Encrypted with the standard handler (RC4 40-bit, R2); user password 'user', owner password 'owner'.",
            "Asks for a password (MVP-16): 'user' or 'owner' opens it, any other is refused.", 1),
