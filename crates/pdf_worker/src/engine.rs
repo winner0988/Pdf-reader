@@ -77,6 +77,7 @@ mod annotations;
 mod attachments;
 mod create;
 mod crop;
+mod deskew;
 mod docx;
 mod forms;
 mod identifier;

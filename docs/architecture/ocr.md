@@ -37,6 +37,23 @@ sequenceDiagram
 - 只有向量圖形或文字轉成外框的頁面不是掃描頁（沒有圖片），不辨識；
 - 判斷「不是」的頁面會記起來，不再重複檢查。
 
+## 歪斜估計、轉正與去噪（#596）
+
+掃描檔常有輕微歪斜或孤立雜點，使 Tesseract LSTM 辨識率顯著下降（例如 5° 歪斜可能使整行文字漏失，10° 甚至完全無法辨識）。在將頁面圖片送入 Tesseract 前，先在 `engine/ocr.rs` 與 `engine/deskew.rs` 進行純 Rust 的歪斜估計、轉正與去噪：
+
+- **Leptonica 調查**：MuPDF 內部雖然編譯了 Leptonica（供 Tesseract 使用），但 `mupdf-sys` 的 `build.rs` 僅以 bindgen 匯出 `fz_*`、`pdf_*` 等符號，完全排除了 Leptonica 的 `pix*` 符號。若要透過 Leptonica 進行 deskew，需要修改 fork 的 `mupdf-rs` 或增加 C 依賴與 FFI 綁定，違反不增加 C 依賴與 fork 穩定的原則。因此全部演算法皆以純安全 Rust 實作（無 `unsafe`）。
+- **歪斜角度估計（Projection Profile）**：
+  - 先將輸入灰階圖片等比例縮小至長邊最大 1,000 像素以確保估計效能（單頁估計時間在 debug 建置約 50 ms，release 建置約 4 ms，遠低於 200 ms 上限）。
+  - 使用 Otsu 自動門檻法將縮圖二值化為前景黑字與背景白底。
+  - 計算水平投影輪廓的平方和（投影峰值越高表示文字行越水平整齊）：先以粗略掃描（$-15^\circ \sim +15^\circ$，步進 $0.5^\circ$），再於最佳角度周圍以精細掃描（$\pm 0.45^\circ$，步進 $0.05^\circ$）找出最佳歪斜角度。
+- **轉正門檻**：
+  - 只有在 $|\theta| \ge 0.5^\circ$ 時才進行轉正。若小於 $0.5^\circ$，判定為未歪斜，維持原始圖片與單位幾何變換，不做任何多餘旋轉或重新取樣。
+- **轉正與座標還原**：
+  - 轉正時不對點陣圖做耗損畫質的有損插值，而是透過 MuPDF 重新以包含旋轉與位移的變換矩陣（圍繞頁面中心旋轉並平移至裝置座標原點 $(0, 0)$）重新渲染向量/掃描內容，並重新計算 `scale` 滿足 1,600 萬像素與邊長 12,000 像素上限。
+  - 將轉正時的逆向仿射變換矩陣（inverse affine transform）存入 `Geometry.transform`。辨識完成後，Tesseract 回傳的字元外框（character quads）透過該變換矩陣換算回原始頁面未旋轉的座標系統，確保選取、搜尋與標示位置完全吻合原始頁面（中心誤差小於 1 個字元高度，實測 $< 2.6$ pt）。
+- **孤立雜點去噪（Denoise）**：
+  - 檢查圖片中的孤立黑點（8 鄰域皆為白色或邊界），只有在每百萬像素超過 100 個孤立黑點時才啟動過濾將雜點清除。乾淨頁面不會改變任何像素。
+
 ## 辨識
 
 `crates/pdf_worker/src/ocr.rs` 是 OCR 唯一有 `unsafe` 的模組：Tesseract 的 C API（只用 LSTM，`OEM_LSTM_ONLY`、`PSM_AUTO`）與 MuPDF 的四個函式（`fz_new_context_imp`、`fz_drop_context`、`fz_set_leptonica_mem`、`fz_clear_leptonica_mem`，讓 Leptonica 用 MuPDF 的 context 配置記憶體）；每個 `unsafe` 區塊都寫了為什麼安全。
