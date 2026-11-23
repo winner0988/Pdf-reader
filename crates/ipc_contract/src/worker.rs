@@ -13,12 +13,12 @@ use crate::types::{
     CreateKind, CropMargins, DocumentFonts, DocumentId, DocumentPermissions, Edit, ErrorCode,
     FieldId, FindPersonalDataQuery, FontRefusal, FormField, HeaderFooterMarks, HighlightColor,
     HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, NewLinkTarget, OutlineResult,
-    PageAnnotation, PageCorner, PageLink, PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark,
-    PageSize, PageText, Password, PdfDate, PersonalDataMatches, Point, RasterRegion, Rect,
-    RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions,
-    SanitizeReport, SearchHit, SecurityReport, Shape, SignatureReport, SourceId, StampImageId,
-    StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle, TextMarkKind, Watermark,
-    WatermarkContent, WatermarkPages, WatermarkPlace,
+    PageAnnotation, PageCorner, PageLink, PageMarkPages, PageMarkPosition, PageMarks,
+    PageNumberFormat, PageNumberMark, PageSize, PageText, Password, PdfDate, PersonalDataMatches,
+    Point, RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb,
+    Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityReport, Shape, SignatureReport,
+    SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle, TextMarkKind,
+    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 
 /// An attachment of a document as reported by the worker (B3-20, ADR 0025).
@@ -692,14 +692,9 @@ pub enum WorkerEdit {
         target: NewLinkTarget,
     },
     /// As [`Edit::SetLinkTarget`] (B6-03).
-    SetLinkTarget {
-        link: LinkId,
-        target: NewLinkTarget,
-    },
+    SetLinkTarget { link: LinkId, target: NewLinkTarget },
     /// As [`Edit::DeleteLink`] (B6-03).
-    DeleteLink {
-        link: LinkId,
-    },
+    DeleteLink { link: LinkId },
 }
 
 /// An edit names something its document does not have: a file whose pages it takes (B2-06), the
@@ -2487,7 +2482,8 @@ mod tests {
             page_target
         );
         assert_eq!(
-            serde_json::from_str::<NewLinkTarget>(r#"{"kind":"uri","uri":"https://example.com/"}"#).unwrap(),
+            serde_json::from_str::<NewLinkTarget>(r#"{"kind":"uri","uri":"https://example.com/"}"#)
+                .unwrap(),
             uri_target
         );
 

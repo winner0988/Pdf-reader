@@ -21,16 +21,16 @@ use crate::types::{
     DocumentFonts, DocumentInfo, DocumentProperties, Edit, EditArgs, EncryptArgs, ExportArgs,
     ExportCompareTextArgs, ExportFormat, FindPersonalDataQuery, FindingKind, FontImport, FontInfo,
     FormField, IndexSearchArgs, IndexSearchEvent, IndexSnippet, IpcError, LineEnds, LinkTarget,
-    NewLinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink,
-    PageMarkPages, PageMarkPosition, PageMarks, PageMarksCopyArgs, PageNumberFormat, PageSize,
-    PageText, Password, PdfDate, PersonalDataMatch, PersonalDataMatches, Point,
-    PrepareSignatureStampArgs, PrepareTextBoxArgs, Quad, RasterRegion, RecentFile, Rect,
-    RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs, Restrictions, Rotation,
-    SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult, SaveAttachmentResult,
-    SearchArgs, SearchHit, SecurityReport, SensitiveArgs, SensitiveFile, Settings, Shape, SignArgs,
-    SignatureImageArgs, SignatureInfo, SignatureReport, SignatureStatus, SigningFileKey,
-    SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs, UnlockArgs,
-    UnlockSourceArgs, Watermark, WatermarkContent, WatermarkPages,
+    NewLinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult,
+    PageAnnotation, PageLink, PageMarkPages, PageMarkPosition, PageMarks, PageMarksCopyArgs,
+    PageNumberFormat, PageSize, PageText, Password, PdfDate, PersonalDataMatch,
+    PersonalDataMatches, Point, PrepareSignatureStampArgs, PrepareTextBoxArgs, Quad, RasterRegion,
+    RecentFile, Rect, RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
+    Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult,
+    SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs, SensitiveFile,
+    Settings, Shape, SignArgs, SignatureImageArgs, SignatureInfo, SignatureReport, SignatureStatus,
+    SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs,
+    UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent, WatermarkPages,
 };
 use crate::worker::{
     ExportedAnnotation, ExportedAnnotations, ExportedTextStyle, InsertedTextBox, InspectedFont,
@@ -2239,7 +2239,7 @@ pub fn check_new_link_uri(uri: &str) -> Result<(), ValidationError> {
             reason: "contains control or invisible formatting characters",
         });
     }
-    let (scheme, rest) = uri.split_once(':').ok_or_else(|| ValidationError::Invalid {
+    let (scheme, rest) = uri.split_once(':').ok_or(ValidationError::Invalid {
         what: "link URI",
         reason: "missing scheme",
     })?;
@@ -3199,10 +3199,10 @@ mod tests {
         AnnotationId, AnnotationKind, BatesMark, BlockedAction, BookmarkId, CompareExportFormat,
         CropMargins, DocumentId, DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption,
         FontId, HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, IndexEntryId,
-        IndexPageHits, InkColor, InkWidth, LinkId, NewLinkTarget, PageNumberMark, PictureView, RecentId, Recovery,
-        RequestId, Restrictions, Rgb, Rotation, SecurityFinding, SourceId, StampImageId, StampName,
-        TabId, TextAlign, TextBoxInfo, TextBoxModelId, TextMarkKind, UnverifiableReason,
-        WatermarkPages, WatermarkPlace,
+        IndexPageHits, InkColor, InkWidth, LinkId, NewLinkTarget, PageNumberMark, PictureView,
+        RecentId, Recovery, RequestId, Restrictions, Rgb, Rotation, SecurityFinding, SourceId,
+        StampImageId, StampName, TabId, TextAlign, TextBoxInfo, TextBoxModelId, TextMarkKind,
+        UnverifiableReason, WatermarkPages, WatermarkPlace,
     };
     use crate::worker::{ModelGlyph, WorkerErrorCode};
 
@@ -7530,85 +7530,113 @@ mod tests {
 
         // NewLinkTarget::Page
         assert!(NewLinkTarget::Page { page: 0 }.validate().is_ok());
-        assert!(NewLinkTarget::Page { page: MAX_PAGE_COUNT - 1 }.validate().is_ok());
-        assert!(NewLinkTarget::Page { page: MAX_PAGE_COUNT }.validate().is_err());
+        assert!(
+            NewLinkTarget::Page {
+                page: MAX_PAGE_COUNT - 1
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            NewLinkTarget::Page {
+                page: MAX_PAGE_COUNT
+            }
+            .validate()
+            .is_err()
+        );
 
         // NewLinkTarget::Uri
-        assert!(NewLinkTarget::Uri {
-            uri: "https://example.com".into()
-        }
-        .validate()
-        .is_ok());
-        assert!(NewLinkTarget::Uri {
-            uri: "invalid uri".into()
-        }
-        .validate()
-        .is_err());
+        assert!(
+            NewLinkTarget::Uri {
+                uri: "https://example.com".into()
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            NewLinkTarget::Uri {
+                uri: "invalid uri".into()
+            }
+            .validate()
+            .is_err()
+        );
 
         // Edit::AddLink
-        assert!(Edit::AddLink {
-            page: 0,
-            rect: ok_rect,
-            target: NewLinkTarget::Page { page: 1 },
-        }
-        .validate()
-        .is_ok());
+        assert!(
+            Edit::AddLink {
+                page: 0,
+                rect: ok_rect,
+                target: NewLinkTarget::Page { page: 1 },
+            }
+            .validate()
+            .is_ok()
+        );
 
-        assert!(Edit::AddLink {
-            page: MAX_PAGE_COUNT,
-            rect: ok_rect,
-            target: NewLinkTarget::Page { page: 1 },
-        }
-        .validate()
-        .is_err());
+        assert!(
+            Edit::AddLink {
+                page: MAX_PAGE_COUNT,
+                rect: ok_rect,
+                target: NewLinkTarget::Page { page: 1 },
+            }
+            .validate()
+            .is_err()
+        );
 
-        assert!(Edit::AddLink {
-            page: 0,
-            rect: Rect {
-                x0: 0.0,
-                y0: 0.0,
-                x1: 1.0,
-                y1: 1.0,
-            },
-            target: NewLinkTarget::Page { page: 1 },
-        }
-        .validate()
-        .is_err());
+        assert!(
+            Edit::AddLink {
+                page: 0,
+                rect: Rect {
+                    x0: 0.0,
+                    y0: 0.0,
+                    x1: 1.0,
+                    y1: 1.0,
+                },
+                target: NewLinkTarget::Page { page: 1 },
+            }
+            .validate()
+            .is_err()
+        );
 
         // Edit::SetLinkTarget
-        assert!(Edit::SetLinkTarget {
-            link: LinkId {
-                page_index: 0,
-                index: 1
-            },
-            target: NewLinkTarget::Uri {
-                uri: "https://example.com".into()
-            },
-        }
-        .validate()
-        .is_ok());
+        assert!(
+            Edit::SetLinkTarget {
+                link: LinkId {
+                    page_index: 0,
+                    index: 1
+                },
+                target: NewLinkTarget::Uri {
+                    uri: "https://example.com".into()
+                },
+            }
+            .validate()
+            .is_ok()
+        );
 
-        assert!(Edit::SetLinkTarget {
-            link: LinkId {
-                page_index: 0,
-                index: 1
-            },
-            target: NewLinkTarget::Page {
-                page: MAX_PAGE_COUNT
-            },
-        }
-        .validate()
-        .is_err());
+        assert!(
+            Edit::SetLinkTarget {
+                link: LinkId {
+                    page_index: 0,
+                    index: 1
+                },
+                target: NewLinkTarget::Page {
+                    page: MAX_PAGE_COUNT
+                },
+            }
+            .validate()
+            .is_err()
+        );
 
         // Edit::DeleteLink
-        assert!(Edit::DeleteLink {
-            link: LinkId {
-                page_index: 0,
-                index: 1
+        assert!(
+            Edit::DeleteLink {
+                link: LinkId {
+                    page_index: 0,
+                    index: 1
+                }
             }
-        }
-        .validate()
-        .is_ok());
+            .validate()
+            .is_ok()
+        );
     }
 
     #[test]

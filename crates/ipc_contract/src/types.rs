@@ -811,14 +811,9 @@ pub enum Edit {
     },
     /// Changes where link `link` points to (B6-03, Issue #588).
     #[serde(rename_all = "camelCase")]
-    SetLinkTarget {
-        link: LinkId,
-        target: NewLinkTarget,
-    },
+    SetLinkTarget { link: LinkId, target: NewLinkTarget },
     /// Removes link `link` (B6-03, Issue #588).
-    DeleteLink {
-        link: LinkId,
-    },
+    DeleteLink { link: LinkId },
 }
 
 /// What applying the redaction marks of a document would do besides removing what their areas

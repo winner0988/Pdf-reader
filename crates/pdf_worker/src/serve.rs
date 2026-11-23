@@ -18,9 +18,8 @@ use ipc_contract::limits::{
 use ipc_contract::ocr::{check_language_data, is_language_name};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
-    AttachmentId, DocumentId, ImageQuality, LinkId, OutlineItem, OutlineResult,
-    PageLink, PageSize, Password, Rect, RequestId, Restrictions, SanitizeOptions, TextBoxInfo,
-    Watermark,
+    AttachmentId, DocumentId, ImageQuality, LinkId, OutlineItem, OutlineResult, PageLink, PageSize,
+    Password, Rect, RequestId, Restrictions, SanitizeOptions, TextBoxInfo, Watermark,
 };
 use ipc_contract::validate::{Validate, check_prepare_text_boxes_request, stamp_png_size};
 use ipc_contract::worker::{

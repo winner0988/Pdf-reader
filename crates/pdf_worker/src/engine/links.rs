@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use ipc_contract::limits::MAX_TEXT_BYTES;
 use ipc_contract::text::{classify_uri, clean_display_text};
 use ipc_contract::types::{LinkId, LinkTarget, NewLinkTarget, Rect};
-use ipc_contract::validate::{check_link_rect, Validate};
+use ipc_contract::validate::{Validate, check_link_rect};
 use mupdf::pdf::PdfObject;
 
 use super::{EngineError, OutlineTarget, PdfDocument};
@@ -31,13 +31,14 @@ pub(crate) fn contract_target(target: OutlineTarget, page_count: u32) -> Option<
 
 /// Recursively collects all indirect object xref numbers within an action dictionary or array
 /// (such as chained `/Next` actions) so they can be unlinked from the document.
-fn collect_action_xrefs(action: &PdfObject, unlinked: &mut HashSet<i32>) -> Result<(), mupdf::Error> {
+fn collect_action_xrefs(
+    action: &PdfObject,
+    unlinked: &mut HashSet<i32>,
+) -> Result<(), mupdf::Error> {
     if action.is_indirect()? {
         let x = action.as_indirect()?;
-        if x > 0 {
-            if !unlinked.insert(x) {
-                return Ok(());
-            }
+        if x > 0 && !unlinked.insert(x) {
+            return Ok(());
         }
     }
     if let Some(next) = action.get_dict("Next")? {
@@ -64,9 +65,10 @@ impl PdfDocument {
         if link.page_index >= page_count {
             return Err(EngineError::PageOutOfRange(link.page_index));
         }
-        let page = self
-            .doc
-            .find_page(i32::try_from(link.page_index).map_err(|_| EngineError::PageOutOfRange(link.page_index))?)?;
+        let page = self.doc.find_page(
+            i32::try_from(link.page_index)
+                .map_err(|_| EngineError::PageOutOfRange(link.page_index))?,
+        )?;
         let ctm = page.page_ctm()?;
         let Some(annots) = page.get_dict("Annots")? else {
             return Err(EngineError::InvalidEdit("link not found"));
@@ -77,13 +79,15 @@ impl PdfDocument {
         let mut link_idx: u32 = 0;
         for (annot_idx, annot_res) in annots.array_iter()?.enumerate() {
             let Ok(annot) = annot_res else { continue };
-            if let Ok(Some(entry)) = self.link_entry(&annot, &ctm) {
-                if contract_target(entry.target, page_count).is_some() {
-                    if link_idx == link.index {
-                        return Ok((page, annot, annot_idx));
-                    }
-                    link_idx += 1;
+            let has_target = match self.link_entry(&annot, &ctm) {
+                Ok(Some(entry)) => contract_target(entry.target, page_count).is_some(),
+                _ => false,
+            };
+            if has_target {
+                if link_idx == link.index {
+                    return Ok((page, annot, annot_idx));
                 }
+                link_idx += 1;
             }
         }
         Err(EngineError::InvalidEdit("link not found"))
@@ -108,15 +112,12 @@ impl PdfDocument {
         if page_index >= page_count {
             return Err(EngineError::PageOutOfRange(page_index));
         }
-        if let NewLinkTarget::Page { page } = target {
-            if *page >= page_count {
-                return Err(EngineError::InvalidEdit("link target page out of range"));
-            }
+        if matches!(target, NewLinkTarget::Page { page } if *page >= page_count) {
+            return Err(EngineError::InvalidEdit("link target page out of range"));
         }
 
         let mut page = self.doc.find_page(
-            i32::try_from(page_index)
-                .map_err(|_| EngineError::PageOutOfRange(page_index))?,
+            i32::try_from(page_index).map_err(|_| EngineError::PageOutOfRange(page_index))?,
         )?;
         let inverse = page
             .page_ctm()?
@@ -162,10 +163,13 @@ impl PdfDocument {
                     i32::try_from(*dest_page_index)
                         .map_err(|_| EngineError::PageOutOfRange(*dest_page_index))?,
                 )?;
-                let dest_inv_ctm = dest_page
-                    .page_ctm()?
-                    .invert()
-                    .ok_or(EngineError::InvalidEdit("destination page cannot be placed"))?;
+                let dest_inv_ctm =
+                    dest_page
+                        .page_ctm()?
+                        .invert()
+                        .ok_or(EngineError::InvalidEdit(
+                            "destination page cannot be placed",
+                        ))?;
                 let (left, top) = dest_inv_ctm.transform_xy(0.0, 0.0);
 
                 let mut dest = self.doc.new_array_with_capacity(5)?;
@@ -207,10 +211,8 @@ impl PdfDocument {
             .map_err(|_| EngineError::InvalidEdit("the target of a link"))?;
 
         let page_count = self.page_count()?;
-        if let NewLinkTarget::Page { page } = target {
-            if *page >= page_count {
-                return Err(EngineError::InvalidEdit("link target page out of range"));
-            }
+        if matches!(target, NewLinkTarget::Page { page } if *page >= page_count) {
+            return Err(EngineError::InvalidEdit("link target page out of range"));
         }
 
         let (_page, mut annot, _annot_idx) = self.find_link_annot(link)?;
@@ -228,9 +230,7 @@ impl PdfDocument {
             }
             if aa.is_dict()? {
                 for index in 0..aa.dict_len()? {
-                    if let Some(sub) =
-                        aa.get_dict_val(i32::try_from(index).unwrap_or(i32::MAX))?
-                    {
+                    if let Some(sub) = aa.get_dict_val(i32::try_from(index).unwrap_or(i32::MAX))? {
                         collect_action_xrefs(&sub, &mut unlinked)?;
                     }
                 }
@@ -259,10 +259,13 @@ impl PdfDocument {
                     i32::try_from(*dest_page_index)
                         .map_err(|_| EngineError::PageOutOfRange(*dest_page_index))?,
                 )?;
-                let dest_inv_ctm = dest_page
-                    .page_ctm()?
-                    .invert()
-                    .ok_or(EngineError::InvalidEdit("destination page cannot be placed"))?;
+                let dest_inv_ctm =
+                    dest_page
+                        .page_ctm()?
+                        .invert()
+                        .ok_or(EngineError::InvalidEdit(
+                            "destination page cannot be placed",
+                        ))?;
                 let (left, top) = dest_inv_ctm.transform_xy(0.0, 0.0);
 
                 let mut dest = self.doc.new_array_with_capacity(5)?;
@@ -302,9 +305,7 @@ impl PdfDocument {
             }
             if aa.is_dict()? {
                 for index in 0..aa.dict_len()? {
-                    if let Some(sub) =
-                        aa.get_dict_val(i32::try_from(index).unwrap_or(i32::MAX))?
-                    {
+                    if let Some(sub) = aa.get_dict_val(i32::try_from(index).unwrap_or(i32::MAX))? {
                         collect_action_xrefs(&sub, &mut unlinked)?;
                     }
                 }

@@ -8,7 +8,9 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use ipc_contract::types::{BlockedAction, DocumentId, LinkId, LinkTarget, NewLinkTarget, PageLink, Rect};
+use ipc_contract::types::{
+    BlockedAction, DocumentId, LinkId, LinkTarget, NewLinkTarget, PageLink, Rect,
+};
 use ipc_contract::worker::{WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse};
 use pdf_worker::engine::{EngineError, OutlineTarget, PdfDocument};
 use worker_host::{HostConfig, HostError, WorkerHost};
@@ -314,12 +316,8 @@ fn test_add_links_and_verify_dictionary_constraints_and_qpdf() {
         x1: 200.0,
         y1: 130.0,
     };
-    doc.add_link(
-        0,
-        page_rect,
-        &NewLinkTarget::Page { page: 1 },
-    )
-    .unwrap();
+    doc.add_link(0, page_rect, &NewLinkTarget::Page { page: 1 })
+        .unwrap();
 
     // Verify dictionary constraints directly on the page's /Annots
     let links = doc.page_links(0, 10).unwrap();
