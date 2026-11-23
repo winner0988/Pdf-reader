@@ -9,6 +9,10 @@
 //     grant, vs AppManifest::commands (#659)
 //   - attack surface list in docs/security/attack-surface.md vs code and capabilities (#430)
 //   - the WorkerEdit kinds docs/security/fuzzing.md counts and lists for edit_document (#674)
+//   - what else a Windows build loads: capability files other than the .json files at the top of
+//     src-tauri/capabilities/, capabilities written into a file or the configuration in other
+//     forms, Tauri configuration files other than tauri.conf.json, the settings
+//     tauri.bundle.conf.json makes, and names Windows treats as the ones this script reads (#671)
 // Rules only get stricter: loosening one requires the needs-security-review label.
 //
 // Usage: node scripts/ci/check-security-config.mjs
@@ -76,6 +80,36 @@ const OFFLINE_WEBVIEW2_MODES = ["skip", "offlineInstaller", "fixedRuntime"];
 
 /** Plugins with network or broad system access; they must not be configured at all. */
 const FORBIDDEN_PLUGINS = ["http", "websocket", "upload", "updater", "shell", "opener", "fs"];
+
+/**
+ * The Tauri configuration files src-tauri/ may hold (#671). A Windows build also merges
+ * tauri.windows.conf.json into tauri.conf.json, and with Tauri's config-json5 or config-toml
+ * feature it merges tauri.windows.conf.json5 or Tauri.windows.toml, and reads tauri.conf.json5 or
+ * Tauri.toml in place of a missing tauri.conf.json. Windows matches those names in any letter case.
+ */
+const TAURI_CONFIG_FILES = ["tauri.conf.json", "tauri.bundle.conf.json"];
+
+/**
+ * The settings src-tauri/tauri.bundle.conf.json may make, as key paths (#671). `pnpm bundle` runs
+ * `tauri build --config src-tauri/tauri.bundle.conf.json`, and Tauri merges that file into
+ * tauri.conf.json as a JSON Merge Patch, where null removes a setting (tauri-build and the context
+ * macro get it from the CLI in TAURI_CONFIG). Any other setting would change what the installer is
+ * built with, unseen by this script.
+ */
+const BUNDLE_CONFIG_SETTINGS = [["$schema"], ["build", "beforeBuildCommand"], ["bundle", "externalBin"]];
+
+/**
+ * Names a Windows build reads where this script reads them, by the folder that holds them (#671).
+ * Windows treats names that differ only in letter case as one, so a Windows checkout writes
+ * SRC-TAURI/ or src-tauri/Capabilities/ into the folder the build reads, while on the Linux runner
+ * they are other folders, which this script never reads. Tauri configuration files are checked
+ * by checkTauriConfigFiles.
+ */
+const WINDOWS_BUILD_NAMES = new Map([
+  ["", ["src-tauri"]],
+  ["src-tauri", ["capabilities", "permissions", "build.rs", "src"]],
+  ["src-tauri/src", ["lib.rs"]],
+]);
 
 /** Parses a CSP given as a string ("a b; c d") or as Tauri's object form. */
 export function parseCsp(csp) {
@@ -194,6 +228,22 @@ export function checkTauriConfig(config) {
   }
   if (config?.app?.withGlobalTauri) {
     problems.push("tauri.conf.json: withGlobalTauri must stay false");
+  }
+  // Tauri also takes capabilities written into the configuration (#671). A list of identifiers
+  // only picks among the capability files, which are checked on their own.
+  const capabilities = security.capabilities ?? [];
+  if (!Array.isArray(capabilities)) {
+    problems.push("tauri.conf.json: app.security.capabilities must be a list of capability identifiers");
+  } else {
+    capabilities.forEach((entry, index) => {
+      if (typeof entry !== "string") {
+        problems.push(
+          `tauri.conf.json: app.security.capabilities[${index}] is a capability written into the ` +
+            "configuration. Tauri grants its permissions, but this check reads capabilities only " +
+            "from the .json files at the top of src-tauri/capabilities/; move it into one there (#671)",
+        );
+      }
+    });
   }
   for (const window of config?.app?.windows ?? []) {
     if (window?.create !== false) {
@@ -322,8 +372,25 @@ export function readAllowedPermissions(text, commands, { file = ALLOWED_PERMISSI
  * src-tauri/allowed-permissions.json (null when that file could not be read; its problem is
  * reported on its own). With `commands` (AppManifest::commands), an app permission must also be
  * the one tauri-build generates for one of them (#659).
+ *
+ * Tauri also reads a capability file that holds a list of capabilities, or an object with a
+ * "capabilities" list, whose own permissions it then ignores (#671). This check reads a file as
+ * one capability, so it rejects those forms.
  */
 export function checkCapability(capability, fileName, { allowed = new Map(), commands = null } = {}) {
+  if (capability === null || typeof capability !== "object" || Array.isArray(capability)) {
+    return [
+      `${fileName}: must hold one capability, as a JSON object. Tauri loads every capability of a ` +
+        "list in one file, but this check reads a file as one capability; keep one capability per file (#671)",
+    ];
+  }
+  if (Object.hasOwn(capability, "capabilities")) {
+    return [
+      `${fileName}: has a "capabilities" list. Tauri then loads the capabilities in that list and ` +
+        "ignores this file's own permissions, but this check reads only the file's own; keep one " +
+        "capability per file (#671)",
+    ];
+  }
   const problems = [];
   if (capability.remote) {
     problems.push(`${fileName}: remote URLs must never get IPC access`);
@@ -391,6 +458,109 @@ function listFiles(dir, prefix = "") {
     }
   }
   return files;
+}
+
+/**
+ * Checks what the top of src-tauri/capabilities/ holds (#671). tauri-build loads every .json and
+ * .toml file in the folder and in the folders under it (and .json5 with the config-json5
+ * feature), except files in a folder named schemas, and the configuration does not pick among
+ * them, so each capability it loads is granted. This script reads only the .json files at the
+ * top, so nothing else may be in the folder. `entries` are { name, folder } for its top.
+ */
+export function checkCapabilityFolder(entries, { dir = "src-tauri/capabilities" } = {}) {
+  return entries
+    .filter(({ name, folder }) => folder || !name.endsWith(".json"))
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    .map(({ name, folder }) =>
+      folder
+        ? `${dir}/${name}/: tauri-build also loads the capability files in the folders under ${dir}/, ` +
+          "but this check reads only the .json files at its top. Keep each capability in a .json " +
+          "file there (#671)"
+        : `${dir}/${name}: only .json capability files may be in ${dir}/. tauri-build also loads ` +
+          ".toml files there (and .json5 with the config-json5 feature), which this check does not read (#671)",
+    );
+}
+
+/**
+ * Checks the names at the top of src-tauri/ that a Windows build may read as Tauri configuration
+ * (#671): every name that starts with "tauri.", in any letter case, other than the two files of
+ * TAURI_CONFIG_FILES.
+ */
+export function checkTauriConfigFiles(names, { dir = "src-tauri" } = {}) {
+  const problems = [];
+  for (const name of [...names].sort()) {
+    const lower = name.toLowerCase();
+    if (!lower.startsWith("tauri.") || TAURI_CONFIG_FILES.includes(name)) {
+      continue;
+    }
+    problems.push(
+      TAURI_CONFIG_FILES.includes(lower)
+        ? `${dir}/${name}: differs from ${dir}/${lower} only in letter case. Windows treats the two ` +
+            "as one file, so a Windows build may read this one, which this check does not. Rename " +
+            "or delete it (#671)"
+        : `${dir}/${name}: only ${TAURI_CONFIG_FILES.join(" and ")} may be Tauri configuration ` +
+            "files here. A Windows build merges tauri.windows.conf.json, in any letter case, into " +
+            "tauri.conf.json (and its .json5 and Tauri.windows.toml forms with Tauri's config-json5 " +
+            "and config-toml features), which this check does not see (#671)",
+    );
+  }
+  return problems;
+}
+
+/** Lists the key paths of the settings a JSON value makes: the paths to values that are not objects. */
+function settingPaths(value, path = []) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return [path];
+  }
+  return Object.entries(value).flatMap(([key, child]) => settingPaths(child, [...path, key]));
+}
+
+/** Returns the problems with src-tauri/tauri.bundle.conf.json: a setting not in BUNDLE_CONFIG_SETTINGS (#671). */
+export function checkBundleConfig(config, { file = "src-tauri/tauri.bundle.conf.json" } = {}) {
+  if (config === null || typeof config !== "object" || Array.isArray(config)) {
+    return [`${file}: must be a JSON object`];
+  }
+  const allowed = new Set(BUNDLE_CONFIG_SETTINGS.map((path) => JSON.stringify(path)));
+  return settingPaths(config)
+    .filter((path) => !allowed.has(JSON.stringify(path)))
+    .map(
+      (path) =>
+        `${file}: sets ${path.join(".")}. pnpm bundle merges this file into tauri.conf.json, where a ` +
+        `null removes a setting, so it may set only ${BUNDLE_CONFIG_SETTINGS.map((p) => p.join(".")).join(", ")}. ` +
+        "Put other settings in tauri.conf.json, where this check reads them (#671)",
+    );
+}
+
+/**
+ * Finds names that a Windows checkout writes into a folder or file the build reads (#671): a name
+ * in a folder of WINDOWS_BUILD_NAMES that differs from one of its names only in letter case, or
+ * one with a ~ and a digit, the form of a short (8.3) name. Windows resolves a short name to the
+ * folder or file it belongs to (on a volume that has them, SRC-TA~1 can be src-tauri), so a commit
+ * that adds SRC-TA~1/a.json can put a.json into src-tauri/ of an existing checkout. `listings` maps
+ * each folder of WINDOWS_BUILD_NAMES to the names in it.
+ */
+export function checkWindowsAliases(listings) {
+  const problems = [];
+  for (const [dir, names] of WINDOWS_BUILD_NAMES) {
+    const where = (name) => (dir === "" ? name : `${dir}/${name}`);
+    for (const name of [...(listings.get(dir) ?? [])].sort()) {
+      const same = names.find((known) => known !== name && known.toLowerCase() === name.toLowerCase());
+      if (same !== undefined) {
+        problems.push(
+          `${where(name)}: differs from ${where(same)} only in letter case. Windows treats the two as ` +
+            `one, so a Windows checkout puts it where the build reads ${where(same)}, and this check ` +
+            "does not read it. Rename or delete it (#671)",
+        );
+      } else if (/~\d/.test(name)) {
+        problems.push(
+          `${where(name)}: has the form of a Windows short (8.3) name, which Windows resolves to the ` +
+            "folder or file it belongs to (SRC-TA~1 can be src-tauri), so a Windows checkout can write " +
+            "it into one the build reads, and this check does not read it. Rename or delete it (#671)",
+        );
+      }
+    }
+  }
+  return problems;
 }
 
 /** Extracts the block inside tauri::generate_handler![ ... ] from lib.rs source. */
@@ -1058,6 +1228,19 @@ export function checkRepository(root) {
   const tauriConfig = JSON.parse(readFileSync(join(root, "src-tauri/tauri.conf.json"), "utf8"));
   problems.push(...checkTauriConfig(tauriConfig));
 
+  // What else a Windows build loads (#671).
+  const listings = new Map();
+  for (const dir of WINDOWS_BUILD_NAMES.keys()) {
+    const path = join(root, dir);
+    listings.set(dir, existsSync(path) ? readdirSync(path) : []);
+  }
+  problems.push(...checkWindowsAliases(listings));
+  problems.push(...checkTauriConfigFiles(listings.get("src-tauri")));
+  const bundleConfigFile = join(root, "src-tauri/tauri.bundle.conf.json");
+  if (existsSync(bundleConfigFile)) {
+    problems.push(...checkBundleConfig(JSON.parse(readFileSync(bundleConfigFile, "utf8"))));
+  }
+
   const devCsp = extractDevCsp(readFileSync(join(root, "vite.config.ts"), "utf8"));
   if (devCsp === null) {
     problems.push("vite.config.ts: devContentSecurityPolicy not found");
@@ -1082,9 +1265,14 @@ export function checkRepository(root) {
   }
 
   const capabilityDir = join(root, "src-tauri/capabilities");
-  for (const file of readdirSync(capabilityDir).filter((name) => name.endsWith(".json"))) {
-    const capability = JSON.parse(readFileSync(join(capabilityDir, file), "utf8"));
-    problems.push(...checkCapability(capability, `capabilities/${file}`, { allowed, commands }));
+  const capabilityEntries = readdirSync(capabilityDir, { withFileTypes: true }).map((entry) => ({
+    name: entry.name,
+    folder: entry.isDirectory(),
+  }));
+  problems.push(...checkCapabilityFolder(capabilityEntries));
+  for (const { name } of capabilityEntries.filter(({ name, folder }) => !folder && name.endsWith(".json"))) {
+    const capability = JSON.parse(readFileSync(join(capabilityDir, name), "utf8"));
+    problems.push(...checkCapability(capability, `capabilities/${name}`, { allowed, commands }));
   }
 
   problems.push(...checkCommandManifest(libSource, buildSource));
@@ -1137,6 +1325,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(1);
   }
   console.log(
-    "OK: CSP, dev CSP, WebView2 arguments, capabilities, allowed app permissions, command manifest, permission files, and attack surface list are within policy.",
+    "OK: CSP, dev CSP, WebView2 arguments, Tauri configuration files, capabilities, allowed app permissions, command manifest, permission files, and attack surface list are within policy.",
   );
 }

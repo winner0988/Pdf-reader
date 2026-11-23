@@ -193,3 +193,13 @@ flowchart LR
   - 第六批的 B6-01、B6-02、B6-04～B6-06。
   - 在 1.1.0 的發行 PR 之前合併的跟著 1.1.0 發，其他的放 1.2.0。
 - B6-09、B6-12、B6-15 先寫 ADR。
+  - 三份 ADR（0029～0031）在 11-22 接受；實作是第七批的卡。
+
+## 1.2.0 與第七批
+
+- 見 [1.2.0 的計畫](../planning/2026-11-23-plan-1.2.md)；追蹤的卡是 [#690](https://github.com/winner0988/Pdf-reader/issues/690)。
+- 負責人 2026-11-22 決定開始做 1.2.0，剩下的卡都要做。
+- 第七批（B7）是已接受的 ADR 的實作，工作卡 B7-01～B7-07 是 [#683](https://github.com/winner0988/Pdf-reader/issues/683)–[#689](https://github.com/winner0988/Pdf-reader/issues/689)：
+  - 英文介面（ADR 0029）：B7-01～B7-03；
+  - 建立表單欄位（ADR 0030）：B7-04 是 POC，B7-05 在 POC 通過後實作；
+  - 從掃描器掃描（ADR 0031）：B7-06 是 POC，B7-07 在 POC 通過後實作。

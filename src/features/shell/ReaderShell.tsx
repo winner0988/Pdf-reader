@@ -872,7 +872,9 @@ export function ReaderShell({
     if (!api?.pickPagesSource || doc === undefined) return null;
     const source = await pickSource();
     if (!source) return null;
-    await api.applyEdit(doc, { kind: "insertPages", at, source: source.source });
+    const edit: Edit = { kind: "insertPages", at, source: source.source };
+    await api.applyEdit(doc, edit);
+    setNavHistory((prev) => adjustHistoryForEdit(prev, edit, pageCount, source.pages));
     return source.pages;
   };
 

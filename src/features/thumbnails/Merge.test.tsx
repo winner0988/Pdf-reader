@@ -115,6 +115,35 @@ describe("the pages of another file (B2-06)", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: t.sourcePassword.title })).toBeNull());
     expect(api.applyEdit).not.toHaveBeenCalled();
   });
+
+  it("moves navigation history when inserting pages from another file (#636)", async () => {
+    const tenPages = demoDocument.pages.slice(0, 10);
+    const { api, user } = renderShell({ pages: tenPages });
+
+    // Jump to page 5
+    let pageInput = screen.getByRole("textbox", { name: strings.toolbar.pageNumber });
+    await user.clear(pageInput);
+    await user.type(pageInput, "5{Enter}");
+    expect(screen.getByRole("textbox", { name: strings.toolbar.pageNumber })).toHaveValue("5");
+
+    // Jump to page 8 (PageInput remounts when currentPage changes)
+    pageInput = screen.getByRole("textbox", { name: strings.toolbar.pageNumber });
+    await user.clear(pageInput);
+    await user.type(pageInput, "8{Enter}");
+    expect(screen.getByRole("textbox", { name: strings.toolbar.pageNumber })).toHaveValue("8");
+
+    // Insert 3 pages after page 1 (taken has pages: 3, source: 7)
+    await takeAfterPage(user, 1);
+    await waitFor(() =>
+      expect(api.applyEdit).toHaveBeenCalledWith(5, { kind: "insertPages", at: 1, source: 7 }),
+    );
+
+    // Clicking "go back" returns to previous location (page 5 before insertion, now page 8)
+    const backButton = screen.getByRole("button", { name: strings.toolbar.historyBack });
+    expect(backButton).toBeEnabled();
+    await user.click(backButton);
+    expect(screen.getByRole("textbox", { name: strings.toolbar.pageNumber })).toHaveValue("8");
+  });
 });
 
 describe("what the pages of another file brought to the banner (B2-06)", () => {

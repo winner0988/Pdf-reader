@@ -67,13 +67,19 @@ fn nested_outline(depth: usize) -> Vec<u8> {
 }
 
 /// Opens `pdf` and asks for its outline.
-fn outline_of(name: &str, pdf: &[u8]) -> (WorkerHost, Result<OutlineResult, HostError>) {
-    let path = temp_pdf(&format!("outline-{name}"), pdf);
+fn outline_of(
+    name: &str,
+    pdf: &[u8],
+) -> (
+    WorkerHost,
+    Result<OutlineResult, HostError>,
+    common::TempFileGuard,
+) {
+    let guard = temp_pdf(&format!("outline-{name}"), pdf);
     let mut host = WorkerHost::new(worker(), HostConfig::default());
-    let (doc, _) = host.open(&path).expect("open");
+    let (doc, _) = host.open(&guard).expect("open");
     let result = outline_request(&mut host, doc);
-    std::fs::remove_file(path).ok();
-    (host, result)
+    (host, result, guard)
 }
 
 fn outline_request(host: &mut WorkerHost, doc: DocumentId) -> Result<OutlineResult, HostError> {
@@ -95,7 +101,7 @@ fn titles_are_cleaned_and_targets_classified() {
         "<< /Title (Missing page) /Parent 4 0 R /Prev 8 0 R /Next 10 0 R /Dest [99 /Fit] >>".to_owned(),
         "<< /Title (Dangling) /Parent 4 0 R /Prev 9 0 R /Dest [99 0 R /Fit] >>".to_owned(),
     ];
-    let (_host, outline) = outline_of("hostile", &pdf_with_outline(5, 10, &items));
+    let (_host, outline, _guard) = outline_of("hostile", &pdf_with_outline(5, 10, &items));
     let outline = outline.expect("outline");
     let titles: Vec<&str> = outline
         .items
@@ -155,7 +161,8 @@ fn titles_are_cleaned_and_targets_classified() {
 
 #[test]
 fn a_huge_outline_is_cut_at_the_item_limit() {
-    let (_host, outline) = outline_of("huge", &flat_outline(MAX_OUTLINE_ITEMS as usize + 500));
+    let (_host, outline, _guard) =
+        outline_of("huge", &flat_outline(MAX_OUTLINE_ITEMS as usize + 500));
     let outline = outline.expect("outline");
     assert_eq!(outline.items.len(), MAX_OUTLINE_ITEMS as usize);
     assert!(outline.truncated);
@@ -163,7 +170,7 @@ fn a_huge_outline_is_cut_at_the_item_limit() {
 
 #[test]
 fn a_deeply_nested_outline_is_cut_at_the_depth_limit_without_crashing() {
-    let (host, outline) = outline_of("deep", &nested_outline(20_000));
+    let (host, outline, _guard) = outline_of("deep", &nested_outline(20_000));
     let outline = outline.expect("the worker must survive a 20,000-level outline");
     assert_eq!(outline.items.len(), usize::from(MAX_OUTLINE_DEPTH) + 1);
     assert_eq!(outline.items.last().unwrap().depth, MAX_OUTLINE_DEPTH);
@@ -178,7 +185,7 @@ fn a_cyclic_outline_is_cut_at_the_cycle() {
         "<< /Title (B) /Parent 4 0 R /Prev 5 0 R /Next 5 0 R /Dest [3 0 R /XYZ 0 792 0] >>"
             .to_owned(),
     ];
-    let (_host, outline) = outline_of("cycle", &pdf_with_outline(5, 6, &items));
+    let (_host, outline, _guard) = outline_of("cycle", &pdf_with_outline(5, 6, &items));
     let outline = outline.expect("outline");
     let titles: Vec<&str> = outline
         .items
@@ -192,6 +199,6 @@ fn a_cyclic_outline_is_cut_at_the_cycle() {
 #[test]
 fn documents_without_an_outline_have_an_empty_one() {
     let pdf = common::one_page("0 0 0 rg 0 0 10 10 re f");
-    let (_host, outline) = outline_of("none", &pdf);
+    let (_host, outline, _guard) = outline_of("none", &pdf);
     assert_eq!(outline.expect("outline"), OutlineResult::default());
 }

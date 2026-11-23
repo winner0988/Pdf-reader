@@ -14,7 +14,8 @@
 | 開發模式 CSP | 同上，另外只允許 Vite 需要的 `'unsafe-inline'`（script／style）與 `ws://localhost:1420` | 同上（讀 `vite.config.ts`） |
 | WebView2 參數 | 每個視窗的 `additionalBrowserArgs` 都要有 `--disable-background-networking`、`--no-proxy-server`、`--disable-component-update`，並保留 Tauri 預設停用的功能；不得有遠端偵錯埠或 proxy（見下方「WebView2 的背景連線」） | `scripts/ci/check-security-config.mjs`（`Guardrails`） |
 | 執行中的 app | WebView2 瀏覽器行程的命令列帶有 app 的每個參數；啟動、顯示文件並停留到啟動後 25 秒（元件更新程式以 `--component-updater=fast-update` 提早到約 10 秒詢問），WebView2 的 net log 沒有任何對外請求 | `tests/e2e/network.spec.ts`（`E2E (Windows)`） |
-| Capability | 前端權限必須在白名單內；`http:`、`shell:`、`fs:`、`opener:` 等永遠不可授予；不得設定 `remote` | 同上 |
+| Capability | 前端權限必須在白名單內；`http:`、`shell:`、`fs:`、`opener:` 等永遠不可授予；不得設定 `remote` | `scripts/ci/check-security-config.mjs`（`Guardrails`） |
+| Tauri 在 Windows 上建置時讀的其他檔 | `src-tauri/capabilities/` 只能有最上層的 `.json` 檔，一個檔只放一個 capability；`tauri.conf.json` 裡不得直接寫 capability；`src-tauri/` 裡以 `tauri.` 開頭的檔（不分大小寫）只能是 `tauri.conf.json` 與 `tauri.bundle.conf.json`，後者只能設 `build.beforeBuildCommand` 與 `bundle.externalBin`；根目錄、`src-tauri/`、`src-tauri/src/` 不得有 Windows 會當成 `src-tauri`、`capabilities`、`permissions`、`build.rs`、`src`、`lib.rs` 的名稱（只差大小寫，或像 `SRC-TA~1` 的短檔名）（#671） | 同上 |
 | 前端 ESLint | 禁止 `fetch`、`XMLHttpRequest`、`WebSocket`、`EventSource`、`navigator.sendBeacon` | `eslint.config.js`（`Frontend`） |
 | 建置產物 | `dist/` 的 HTML／CSS 不得引用外部資源 | `scripts/ci/check-dist.mjs`（`Frontend`） |
 | 導覽與下載 | WebView 的 `on_navigation` 只允許 app 自己的網址（正式版 `http://tauri.localhost`，debug `http://localhost:1420`），`on_download` 封鎖下載；被擋下的導覽只記錄 scheme 與 host | `src-tauri/src/navigation.rs`（單元測試）、`tests/e2e/navigation.spec.ts`（`E2E (Windows)`） |
