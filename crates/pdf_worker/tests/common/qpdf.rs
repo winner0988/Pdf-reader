@@ -80,18 +80,13 @@ pub fn check_qpdf(path: &Path) {
     }
 }
 
-pub struct TempFileGuard(pub PathBuf);
-impl Drop for TempFileGuard {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
-}
+#[allow(unused_imports)]
+pub use super::TempFileGuard;
 
 /// Writes `bytes` to a temporary file and checks it with `qpdf --check`.
 #[allow(dead_code)]
 pub fn check_qpdf_bytes(bytes: &[u8]) {
     let path = super::temp_pdf("qpdf-check", bytes);
-    let _guard = TempFileGuard(path.clone());
     check_qpdf(&path);
 }
 
@@ -236,6 +231,5 @@ pub fn check_qpdf_encrypted(path: &Path, password: Option<&str>) -> QpdfEncrypti
 #[allow(dead_code)]
 pub fn check_qpdf_encrypted_bytes(bytes: &[u8], password: Option<&str>) -> QpdfEncryption {
     let path = super::temp_pdf("qpdf-enc-check", bytes);
-    let _guard = TempFileGuard(path.clone());
     check_qpdf_encrypted(&path, password)
 }
