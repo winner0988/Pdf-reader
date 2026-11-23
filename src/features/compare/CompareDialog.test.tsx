@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { CompareApi } from "@/features/compare/api";
 import { CompareDialog, type CompareTabOption } from "@/features/compare/CompareDialog";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { CompareTextResult, ExportCompareTextOutcome } from "@/ipc/generated/contract";
 
 const t = strings.compare;

@@ -6,7 +6,7 @@ import type { SensitiveApi } from "@/features/sensitive/api";
 import { fitsClipboard } from "@/features/sensitive/api";
 import { SensitiveDialog } from "@/features/sensitive/SensitiveDialog";
 import { SensitiveSection } from "@/features/sensitive/SensitiveSection";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { ErrorCode, MarkCheck, SensitiveFile } from "@/ipc/generated/contract";
 
 const t = strings.sensitive;

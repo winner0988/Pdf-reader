@@ -9,7 +9,7 @@ import {
   formatPdfDate,
   formatSinglePageSize,
 } from "@/features/properties/format";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { DocumentFonts, DocumentProperties } from "@/ipc/generated/contract";
 import { expectAccessible } from "@/test/axe";
 

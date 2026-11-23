@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import type { OcrApi } from "@/features/ocr/api";
 import { languageLabel } from "@/features/ocr/languages";
 import { useSettings } from "@/features/settings/useSettings";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { OcrLanguages } from "@/ipc/generated/contract";
 
 const megabytes = (bytes: bigint) => `${(Number(bytes) / (1024 * 1024)).toFixed(1)} MB`;

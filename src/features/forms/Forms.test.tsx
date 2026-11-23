@@ -10,7 +10,7 @@ import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { SavingApi } from "@/features/saving/api";
 import type { EditingApi } from "@/features/thumbnails/api";
 import { rectToBox } from "@/features/viewer/layout";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { FormField } from "@/ipc/generated/contract";
 
 const t = strings.forms;

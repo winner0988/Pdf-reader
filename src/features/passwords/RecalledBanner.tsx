@@ -4,7 +4,7 @@
 import { KeyRound, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 const t = strings.password.recalled;
 

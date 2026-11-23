@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { bannerSummary, categoryOf, worstCategory } from "@/features/signatures/summary";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { SignatureInfo, SignatureReport } from "@/ipc/generated/contract";
 
 const t = strings.signatures;

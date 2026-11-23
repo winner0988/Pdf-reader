@@ -8,7 +8,7 @@ import type { SignatureView } from "@/features/signatures/useSignatures";
 import { demoDocument } from "@/features/shell/demo";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { SanitizeReport, SanitizeResult } from "@/ipc/generated/contract";
 
 const t = strings.sanitize;

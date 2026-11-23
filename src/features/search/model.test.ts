@@ -8,7 +8,7 @@ import {
   type SearchAction,
   type SearchState,
 } from "@/features/search/model";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { Quad, SearchEvent } from "@/ipc/generated/contract";
 
 const quad = (x: number): Quad => ({

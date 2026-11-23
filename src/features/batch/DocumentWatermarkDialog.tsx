@@ -32,7 +32,7 @@ import {
 } from "@/features/batch/documentWatermark";
 import { drawRaster, type PageRenderer } from "@/features/viewer/renderer";
 import type { AnnotationsApi } from "@/features/annotations/source";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type {
   DocumentId,
   Edit,

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { UpdateCheck, UpdatesApi } from "@/features/settings/updates";
 import { demoDocument } from "@/features/shell/demo";
 import { ReaderShell } from "@/features/shell/ReaderShell";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { LinkPreview } from "@/ipc/generated/contract";
 
 const t = strings.settings;

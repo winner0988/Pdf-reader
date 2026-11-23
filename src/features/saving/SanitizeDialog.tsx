@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { DEFAULT_SANITIZE_FORM, sanitizeOptionsOf, type SanitizeForm } from "@/features/saving/sanitize";
 import { SanitizeFields } from "@/features/saving/SanitizeFields";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { DocumentId, SanitizeArgs, SanitizeReport, SanitizeResult } from "@/ipc/generated/contract";
 
 const t = strings.sanitize;

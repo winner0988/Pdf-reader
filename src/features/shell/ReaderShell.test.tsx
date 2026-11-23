@@ -9,7 +9,7 @@ import type { DocumentPermissions, ShellDocument, ShellState } from "@/features/
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import { APP_VERSION } from "@/features/shell/version";
 import type { SearchApi } from "@/features/search/useSearch";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { LinksApi } from "@/features/links/source";
 import type { RecentApi } from "@/features/recent/api";
 import { PRINT_SCALE, printScale } from "@/features/print/render";

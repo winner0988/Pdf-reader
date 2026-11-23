@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import { ipcErrorCode, ipcErrorMessage } from "@/ipc/errors";
 
 describe("ipcErrorCode and ipcErrorMessage (#634)", () => {

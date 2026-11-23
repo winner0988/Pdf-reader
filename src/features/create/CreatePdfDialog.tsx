@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import type { CreateApi } from "@/features/create/api";
 import { createFailure } from "@/features/create/messages";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 const t = strings.create;
 

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toolbar, type ToolbarProps } from "@/features/shell/Toolbar";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 function renderToolbar(props: Partial<ToolbarProps> = {}) {
   const user = userEvent.setup();

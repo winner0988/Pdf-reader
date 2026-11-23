@@ -11,7 +11,7 @@ import { demoDocument } from "@/features/shell/demo";
 import type { DocumentPermissions } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { EditingApi } from "@/features/thumbnails/api";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { Edit, PageAnnotation, PageLink, StampImageInfo } from "@/ipc/generated/contract";
 
 const t = strings.annotations;

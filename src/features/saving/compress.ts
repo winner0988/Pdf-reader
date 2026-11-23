@@ -1,7 +1,7 @@
 // Compressing the pictures of a copy (B3-01, docs/architecture/compress-images.md): what the user
 // chooses, what is sent to the main process, and what the result is called.
 
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { CompressArgs, CompressResult, DocumentId, ImageQuality } from "@/ipc/generated/contract";
 
 const t = strings.compress;

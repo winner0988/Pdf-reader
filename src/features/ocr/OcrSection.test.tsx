@@ -6,7 +6,7 @@ import type { OcrApi } from "@/features/ocr/api";
 import { OcrSection } from "@/features/ocr/OcrSection";
 import { DEFAULT_SETTINGS, type Settings, type SettingsApi } from "@/features/settings/api";
 import { SettingsProvider } from "@/features/settings/SettingsProvider";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { OcrLanguages } from "@/ipc/generated/contract";
 
 const t = strings.ocr.settings;

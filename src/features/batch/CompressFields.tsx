@@ -4,7 +4,7 @@
 import { useId } from "react";
 
 import { QUALITIES, SIDES, type CompressForm } from "@/features/saving/compress";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 const t = strings.compress;
 

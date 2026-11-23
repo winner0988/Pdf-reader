@@ -3,7 +3,7 @@ import { useEffect, useId, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { categoryOf, type Category } from "@/features/signatures/summary";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { SignatureInfo, SignatureReport } from "@/ipc/generated/contract";
 
 const t = strings.signatures;

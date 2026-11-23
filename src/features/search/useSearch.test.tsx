@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SEARCH_DELAY_MS, useSearch, type SearchApi } from "@/features/search/useSearch";
 import { SearchBar } from "@/features/shell/SearchBar";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { IpcError, Quad, SearchArgs, SearchEvent } from "@/ipc/generated/contract";
 
 const t = strings.search;

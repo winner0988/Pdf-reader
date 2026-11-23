@@ -19,7 +19,7 @@ import {
   type PageLayoutMode,
 } from "@/features/viewer/layout";
 import type { PageRenderer, RenderJob } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { IpcError, PageLink, PageText, RenderPageArgs, TextLine } from "@/ipc/generated/contract";
 import type { RasterImage } from "@/ipc/raster";
 

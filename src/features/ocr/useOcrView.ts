@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { OcrApi } from "@/features/ocr/api";
 import type { OcrTab } from "@/features/ocr/model";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { DocumentId, OcrRun } from "@/ipc/generated/contract";
 
 /** The page is looked at this long before the main process is told: scrolling past is not looking. */

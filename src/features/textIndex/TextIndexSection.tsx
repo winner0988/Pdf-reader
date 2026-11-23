@@ -6,7 +6,7 @@ import { useCallback, useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useSettings } from "@/features/settings/useSettings";
 import type { TextIndexApi } from "@/features/textIndex/api";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { TextIndexStatus } from "@/ipc/generated/contract";
 
 const megabytes = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1);

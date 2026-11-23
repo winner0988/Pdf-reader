@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { AnnotationSummaryApi } from "@/features/export/api";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { AnnotationSummaryFormat, DocumentId } from "@/ipc/generated/contract";
 
 const t = strings.exportAnnotations;

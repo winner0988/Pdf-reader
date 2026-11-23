@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { SignaturesApi } from "@/features/annotations/signaturesApi";
 import { SignaturesSection } from "@/features/settings/SignaturesSection";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { SignatureImage } from "@/ipc/generated/contract";
 
 afterEach(cleanup);

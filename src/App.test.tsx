@@ -8,7 +8,7 @@ import type { OpenApi } from "@/features/open/api";
 import type { OutlineApi } from "@/features/outline/useOutline";
 import type { RenderApi } from "@/features/viewer/renderer";
 import { tabPanelId } from "@/features/tabs/model";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import {
   LIMITS,
   type BatchEvent,

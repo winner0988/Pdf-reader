@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { strings } from "@/i18n";
 
 type IconButtonProps = {
   label: string;
@@ -21,7 +22,7 @@ export function IconButton({ label, shortcut, pressed, children, ...rest }: Icon
       >
         {children}
       </TooltipTrigger>
-      <TooltipContent>{shortcut ? `${label}（${shortcut}）` : label}</TooltipContent>
+      <TooltipContent>{shortcut ? strings.toolbar.shortcutTooltip(label, shortcut) : label}</TooltipContent>
     </Tooltip>
   );
 }

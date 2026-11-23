@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { BlockedAction, LinkPreview } from "@/ipc/generated/contract";
 
 const t = strings.links;

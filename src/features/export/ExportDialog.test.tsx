@@ -7,7 +7,7 @@ import { demoDocument } from "@/features/shell/demo";
 import type { DocumentPermissions, ShellDocument, ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { EditingApi } from "@/features/thumbnails/api";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 const t = strings.export;
 

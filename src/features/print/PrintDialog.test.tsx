@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { PrintDialog } from "@/features/print/PrintDialog";
 import type { PrintPage } from "@/features/print/render";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 const t = strings.print;
 

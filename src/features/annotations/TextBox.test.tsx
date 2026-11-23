@@ -10,7 +10,7 @@ import type { DocumentPermissions } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { EditingApi } from "@/features/thumbnails/api";
 import { contentWidth, layoutPages, pageLeft } from "@/features/viewer/layout";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { Edit, FontInfo, PageAnnotation, TextBoxInfo } from "@/ipc/generated/contract";
 
 const t = strings.annotations;

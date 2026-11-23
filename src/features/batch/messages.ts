@@ -1,6 +1,6 @@
 // What the user is told about one file of a batch (B3-04).
 
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { BatchOutcome, ErrorCode } from "@/ipc/generated/contract";
 
 const t = strings.batch;

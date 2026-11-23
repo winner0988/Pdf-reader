@@ -6,7 +6,7 @@ import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { WindowApi } from "@/features/window/api";
 import type { PageRenderer } from "@/features/viewer/renderer";
 import type { EditingApi } from "@/features/thumbnails/api";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 function fakeRenderer(): PageRenderer {
   return {

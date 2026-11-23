@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 
 use ipc_contract::ocr::is_language_name;
-use ipc_contract::types::{Settings, ThemePreference};
-use serde::{Deserialize, Serialize};
+use ipc_contract::types::{LanguagePreference, Settings, ThemePreference};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::local_data;
 
@@ -24,6 +24,10 @@ const VERSION: u32 = 1;
 struct Stored {
     version: u32,
     theme: ThemePreference,
+    /// Added with the English interface (ADR 0029, #683): system (default), zh-TW, en.
+    /// Missing or unrecognized values fall back to system.
+    #[serde(default, deserialize_with = "deserialize_language")]
+    language: LanguagePreference,
     record_recent_files: bool,
     /// Added with the recognising of scanned pages (B2-10): a file written before it lacks them.
     #[serde(default = "default_ocr_auto")]
@@ -33,6 +37,18 @@ struct Stored {
     /// Added with the text index (B3-21, ADR 0026): off in a file written before it.
     #[serde(default)]
     text_index: bool,
+}
+
+fn deserialize_language<'de, D>(deserializer: D) -> Result<LanguagePreference, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let opt = Option::<String>::deserialize(deserializer)?;
+    Ok(match opt.as_deref() {
+        Some("zh-TW") => LanguagePreference::ZhTw,
+        Some("en") => LanguagePreference::En,
+        _ => LanguagePreference::System,
+    })
 }
 
 fn default_ocr_auto() -> bool {
@@ -57,6 +73,7 @@ impl SettingsStore {
             .filter(|stored| stored.version == VERSION)
             .map_or_else(Settings::default, |stored| Settings {
                 theme: stored.theme,
+                language: stored.language,
                 record_recent_files: stored.record_recent_files,
                 ocr_auto: stored.ocr_auto,
                 // Only what could be a language's code is taken from a file.
@@ -86,6 +103,7 @@ impl SettingsStore {
         let stored = Stored {
             version: VERSION,
             theme: settings.theme,
+            language: settings.language,
             record_recent_files: settings.record_recent_files,
             ocr_auto: settings.ocr_auto,
             ocr_language: settings.ocr_language,
@@ -118,6 +136,7 @@ mod tests {
 
         let dark = Settings {
             theme: ThemePreference::Dark,
+            language: LanguagePreference::En,
             record_recent_files: false,
             ocr_auto: false,
             ocr_language: Some("chi_tra".to_owned()),
@@ -141,10 +160,28 @@ mod tests {
         .unwrap();
         let settings = SettingsStore::load(Some(file.clone())).get();
         assert_eq!(settings.theme, ThemePreference::Dark);
+        assert_eq!(settings.language, LanguagePreference::System);
         assert!(!settings.record_recent_files);
         assert!(settings.ocr_auto);
         assert_eq!(settings.ocr_language, None);
         assert!(!settings.text_index);
+
+        // Language setting: recognized values are kept; unknown falls back to system.
+        for (raw, expected) in [
+            (r#""zh-TW""#, LanguagePreference::ZhTw),
+            (r#""en""#, LanguagePreference::En),
+            (r#""system""#, LanguagePreference::System),
+            (r#""fr""#, LanguagePreference::System),
+            (r#""unknown""#, LanguagePreference::System),
+        ] {
+            fs::write(
+                &file,
+                format!(r#"{{"version": 1, "theme": "dark", "language": {raw}, "recordRecentFiles": true}}"#),
+            )
+            .unwrap();
+            let settings = SettingsStore::load(Some(file.clone())).get();
+            assert_eq!(settings.language, expected);
+        }
 
         // A language that is not a code is not taken.
         fs::write(

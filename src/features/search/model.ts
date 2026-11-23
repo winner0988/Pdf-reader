@@ -1,6 +1,6 @@
 // Search results as the window shows them (MVP-10). Pure, so it is tested without IPC.
 
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import { LIMITS, type Quad, type RequestId, type SearchEvent } from "@/ipc/generated/contract";
 
 const t = strings.search;

@@ -4,7 +4,7 @@
 import { useId } from "react";
 
 import type { SanitizeForm } from "@/features/saving/sanitize";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 const t = strings.sanitize;
 

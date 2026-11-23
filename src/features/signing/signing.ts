@@ -1,7 +1,7 @@
 // Signing a document (B3-06): what the user chooses, what is sent to the main process, and what is
 // said when it does not work.
 
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import {
   LIMITS,
   type CertificateDate,

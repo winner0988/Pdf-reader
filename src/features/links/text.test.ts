@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { HOVER_MAX_CHARS, hasHiddenCharacters, linkHoverText, revealHidden } from "@/features/links/text";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { BlockedAction } from "@/ipc/generated/contract";
 
 describe("revealHidden", () => {

@@ -1,5 +1,5 @@
 import type { Zoom } from "@/features/shell/model";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 export function formatZoom(zoom: Zoom): string {
   if (zoom === "fitWidth") return strings.toolbar.fitWidth;

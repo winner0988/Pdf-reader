@@ -22,7 +22,7 @@ import {
   SIDES,
   type CompressForm,
 } from "@/features/saving/compress";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { CompressArgs, CompressResult, DocumentId } from "@/ipc/generated/contract";
 
 const t = strings.compress;

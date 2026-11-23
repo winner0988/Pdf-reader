@@ -19,7 +19,7 @@ import {
   type IndexSearchState,
 } from "@/features/textIndex/model";
 import { errorCodeOf } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import { LIMITS, type RequestId, type TabId } from "@/ipc/generated/contract";
 import { nextRequestId } from "@/ipc/requests";
 

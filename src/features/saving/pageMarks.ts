@@ -10,7 +10,7 @@ import {
   type PageNumberFormat,
   type Rgb,
 } from "@/ipc/generated/contract";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 export const POSITIONS: PageMarkPosition[] = [
   "topLeft",
@@ -120,10 +120,10 @@ export function formatPageNumber(
     return `${n}`;
   }
   if (format.kind === "page") {
-    return `第 ${n} 頁`;
+    return strings.pageMarks.previewPage(n);
   }
   if (format.kind === "pageOfTotal") {
-    return `第 ${n} 頁／共 ${total} 頁`;
+    return strings.pageMarks.previewPageOfTotal(n, total);
   }
   if (format.kind === "custom") {
     return `${format.prefix}${n}${format.suffix}`;

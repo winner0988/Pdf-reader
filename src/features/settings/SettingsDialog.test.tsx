@@ -8,7 +8,7 @@ import { SettingsProvider } from "@/features/settings/SettingsProvider";
 import { demoDocument } from "@/features/shell/demo";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { Settings } from "@/ipc/generated/contract";
 import { mediaQuery } from "@/test/setup";
 
@@ -120,5 +120,22 @@ describe("settings (B2-12)", () => {
     const dialog = await openSettings(user);
     for (const item of t.dataItems) expect(within(dialog).getByText(item)).toBeInTheDocument();
     expect(within(dialog).getByText(t.dataLocation)).toBeInTheDocument();
+  });
+
+  it("choosing a language saves the setting and shows the restart notice", async () => {
+    const settingsApi = fakeSettingsApi();
+    const { user } = renderWithSettings(settingsApi, fakeRecentApi());
+    await act(async () => {});
+    const dialog = await openSettings(user);
+
+    expect(within(dialog).getByRole("radio", { name: t.languageZhTw })).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: t.languageEn })).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: t.languageSystem(t.languageZhTw) })).toBeChecked();
+    expect(within(dialog).queryByText(t.restartRequired)).toBeNull();
+
+    await user.click(within(dialog).getByRole("radio", { name: t.languageEn }));
+    expect(settingsApi.set).toHaveBeenLastCalledWith({ ...DEFAULT_SETTINGS, language: "en" });
+    expect(within(dialog).getByRole("radio", { name: t.languageEn })).toBeChecked();
+    expect(within(dialog).getByText(t.restartRequired)).toBeInTheDocument();
   });
 });

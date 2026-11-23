@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { bannerSummary, hasBannerContent, orderedFindings } from "@/features/security-banner/summary";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 describe("bannerSummary", () => {
   it("counts the kinds and names them in display order", () => {

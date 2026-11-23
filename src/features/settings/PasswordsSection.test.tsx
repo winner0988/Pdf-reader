@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { OpenNotice } from "@/features/open/OpenNotice";
 import { PasswordsSection, type PasswordsApi } from "@/features/settings/PasswordsSection";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { RememberedPasswords } from "@/ipc/generated/contract";
 
 const t = strings.settings.passwords;

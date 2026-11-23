@@ -1,7 +1,7 @@
 // What the page shows of annotations (B2-07, docs/architecture/annotations.md): the highlighter's
 // colors, how an annotation is named, which one is under the pointer, and what a note may say.
 
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import { LIMITS, type HighlightColor, type PageAnnotation } from "@/ipc/generated/contract";
 
 const t = strings.annotations;
