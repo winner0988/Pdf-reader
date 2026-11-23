@@ -4,6 +4,9 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 ## [Unreleased]
 
+### 新增
+
+- 掃描頁文字辨識（OCR）之前先估計歪斜並轉正，辨識出的字元框換回頁面座標，提高歪斜掃描件的辨識率（#596）。
 ### 安全
 
 - 主機是 localhost 但路徑多了斜線（例如 `file://localhost///…`）、或路徑開頭有編碼斜線（例如 `file://localhost/%5C…`、`file:%5C%5C…`）的 `file:` 網址，與 Windows 一致判定為網路共用路徑（#668）。
