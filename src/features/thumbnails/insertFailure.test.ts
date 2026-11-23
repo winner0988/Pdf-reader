@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { insertFailureMessage } from "@/features/thumbnails/insertFailure";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 describe("insertFailureMessage", () => {
   it("maps notAllowed to sourceNotAllowed", () => {

@@ -5,7 +5,7 @@ import { PresentationMode } from "@/features/viewer/PresentationMode";
 import type { PageRenderer } from "@/features/viewer/renderer";
 import type { LinkSource } from "@/features/links/source";
 import type { PageSize } from "@/features/shell/model";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { PageLink } from "@/ipc/generated/contract";
 
 const pages: PageSize[] = [

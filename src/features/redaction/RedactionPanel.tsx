@@ -2,7 +2,7 @@ import { Ban, Search, ShieldAlert, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { groupMarksByPage, type RedactionMarkItem } from "@/features/redaction/model";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { AnnotationId, RedactionSummary } from "@/ipc/generated/contract";
 
 const t = strings.redaction;
@@ -136,7 +136,7 @@ export function RedactionPanel({
                         key={mark.id}
                         variant="ghost"
                         size="icon-xs"
-                        aria-label={`刪除第 ${group.page + 1} 頁標記 ${i + 1}`}
+                        aria-label={t.deleteMark(group.page + 1, i + 1)}
                         disabled={!canEdit}
                         onClick={() => onDeleteMark(group.page, mark.id)}
                       >

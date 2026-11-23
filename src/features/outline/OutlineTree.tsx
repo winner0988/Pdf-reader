@@ -30,7 +30,7 @@ import {
   type MoveDirection,
 } from "@/features/outline/tree";
 import { errorCodeOf } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { Edit, LinkTarget, OutlineItem } from "@/ipc/generated/contract";
 
 const t = strings.sidebar;

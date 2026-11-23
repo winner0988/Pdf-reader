@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import type { RecentApi } from "@/features/recent/api";
 import { IconButton } from "@/features/shell/IconButton";
 import { errorCodeOf } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { RecentFile } from "@/ipc/generated/contract";
 
 /**

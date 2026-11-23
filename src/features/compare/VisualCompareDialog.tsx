@@ -29,7 +29,7 @@ import {
   tauriRenderApi,
   type RenderApi,
 } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { DocumentId, PageSize } from "@/ipc/generated/contract";
 import type { RasterImage } from "@/ipc/raster";
 import { cn } from "@/lib/utils";

@@ -46,7 +46,7 @@ import { INK_COLORS, INK_SWATCH, INK_WIDTHS, STAMPS, type ShapeToolKind } from "
 import type { HighlightColor, InkColor, InkWidth, StampName } from "@/ipc/generated/contract";
 import type { ThemePreference } from "@/features/theme/useTheme";
 import type { PageLayoutMode } from "@/features/viewer/layout";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 const t = strings.toolbar;
 

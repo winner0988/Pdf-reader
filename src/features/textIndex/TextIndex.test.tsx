@@ -11,7 +11,7 @@ import { initialIndexSearch, reduceIndexSearch, type IndexResult } from "@/featu
 import { SearchAllDialog } from "@/features/textIndex/SearchAllDialog";
 import { TextIndexHost } from "@/features/textIndex/TextIndexHost";
 import { TextIndexSection } from "@/features/textIndex/TextIndexSection";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { IndexSearchEvent, Settings } from "@/ipc/generated/contract";
 
 const t = strings.textIndex;

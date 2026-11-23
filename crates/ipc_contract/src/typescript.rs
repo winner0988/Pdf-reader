@@ -80,6 +80,7 @@ pub fn bindings() -> String {
         CaptureProtection,
         SensitiveArgs,
         ThemePreference,
+        LanguagePreference,
         Settings,
         OcrLanguage,
         OcrLanguages,

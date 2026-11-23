@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Tab } from "@/features/tabs/model";
 import { TabBar } from "@/features/tabs/TabBar";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 const tabs: Tab[] = [
   { tab: 1, displayName: "a.pdf", content: { kind: "loading" } },

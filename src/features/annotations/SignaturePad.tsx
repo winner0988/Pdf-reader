@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { defaultCanvasToPng, findCropBounds } from "@/features/annotations/signatureImage";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 export type SignaturePadProps = {
   onSave: (png: number[]) => Promise<void> | void;

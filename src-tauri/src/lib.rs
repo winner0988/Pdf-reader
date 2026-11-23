@@ -25,6 +25,7 @@ mod font_jobs;
 mod fonts;
 mod history;
 mod index_crypto;
+mod language;
 mod links;
 mod local_data;
 mod navigation;
@@ -223,6 +224,16 @@ pub fn run() {
         ])
         .on_window_event(commands::on_window_event)
         .setup(move |app| {
+            let data = data_dir(app.app_handle());
+            let settings_store = SettingsStore::load(
+                data.as_ref().map(|dir| dir.join(settings::FILE_NAME)),
+            );
+            let (effective_lang, sys_lang) =
+                language::resolve_language(settings_store.get().language);
+            let init_script = format!(
+                r#"window.__PDF_READER_LANGUAGE__ = "{effective_lang}"; window.__PDF_READER_SYSTEM_LANGUAGE__ = "{sys_lang}";"#
+            );
+
             let window_config = app
                 .config()
                 .app
@@ -230,15 +241,13 @@ pub fn run() {
                 .first()
                 .expect("tauri.conf.json must declare the main window");
             tauri::WebviewWindowBuilder::from_config(app.handle(), window_config)?
+                .initialization_script(&init_script)
                 .on_navigation(move |url| navigation::check_navigation(url, cfg!(debug_assertions)))
                 .on_download(move |_webview, _event| false)
                 .build()?;
             // The window's icon is the one that stands out against Windows' taskbar (UX-04).
             app_icon::follow_windows_mode(app.handle());
-            let data = data_dir(app.app_handle());
-            app.manage(SettingsStore::load(
-                data.as_ref().map(|dir| dir.join(settings::FILE_NAME)),
-            ));
+            app.manage(settings_store);
             app.manage(Arc::new(Ocr::new(Languages::new(
                 bundled_languages(app.app_handle()),
                 data.as_ref()

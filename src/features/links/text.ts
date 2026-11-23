@@ -1,7 +1,7 @@
 // How links are described to the user (MVP-12, docs/ux/screen-map.md, section 4). A PDF
 // controls its URIs completely, so nothing it hides may stay hidden.
 
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { LinkTarget } from "@/ipc/generated/contract";
 
 /** Longest link text shown in the status bar; the dialog always shows everything. */

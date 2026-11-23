@@ -6,7 +6,7 @@ import { useCallback, useEffect, useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { FontsApi } from "@/features/settings/fontsApi";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { FontId, FontImport, FontInfo } from "@/ipc/generated/contract";
 
 export type { FontsApi };

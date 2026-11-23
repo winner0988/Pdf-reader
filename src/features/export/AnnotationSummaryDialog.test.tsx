@@ -6,7 +6,7 @@ import type { ExportApi } from "@/features/export/api";
 import { demoDocument } from "@/features/shell/demo";
 import type { DocumentPermissions, ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { AnnotationSummaryOutcome } from "@/ipc/generated/contract";
 
 const t = strings.exportAnnotations;

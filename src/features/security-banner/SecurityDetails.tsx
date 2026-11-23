@@ -4,7 +4,7 @@ import { useEffect, useId, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { revealHidden } from "@/features/links/text";
 import { LEAKY_KINDS, orderedFindings } from "@/features/security-banner/summary";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { SecurityFinding } from "@/ipc/generated/contract";
 
 const t = strings.banner;

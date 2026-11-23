@@ -6,7 +6,7 @@ import type { LinksApi } from "@/features/links/source";
 import { demoDocument } from "@/features/shell/demo";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import { expectAccessible } from "@/test/axe";
 
 function shell(state: ShellState) {

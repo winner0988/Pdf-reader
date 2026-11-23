@@ -486,6 +486,7 @@ export const strings = {
     noMarks: "這份文件沒有待遮蔽的標記。",
     marksSummary: (marks: number, pages: number) => `待遮蔽標記：共 ${marks} 處（${pages} 頁）`,
     pageMarks: (page: number, count: number) => `第 ${page} 頁（${count} 處）`,
+    deleteMark: (page: number, markIndex: number) => `刪除第 ${page} 頁標記 ${markIndex}`,
     marksListLabel: "待遮蔽標記清單",
     deleteAll: "全部刪除",
     apply: "套用遮蔽…",
@@ -657,6 +658,8 @@ export const strings = {
     firstPagePreview: "第一頁標記效果",
     lastPagePreview: "最後一頁標記效果",
     previewPageNumber: (page: number) => `（第 ${page} 頁）`,
+    previewPage: (page: number) => `第 ${page} 頁`,
+    previewPageOfTotal: (page: number, total: number) => `第 ${page} 頁／共 ${total} 頁`,
     previewPageContent: "PDF 頁面內容",
     pageNumberTitle: "頁碼",
     format: "格式",
@@ -927,6 +930,7 @@ export const strings = {
       opacityOutOfRange: "不透明度必須在 5% 到 100% 之間",
     },
     watermarkSignatureNote: "有數位簽章的檔案，副本裡的簽章不會成立。",
+    defaultWatermarkText: "機密",
     exifNote:
       "只清除圖片裡的資訊：相機型號、拍攝時間、GPS 位置、縮圖與其他程式寫進去的說明。圖片不重新編碼，看起來完全一樣。文件本身的中繼資料（作者、標題等）不在其中，請另外用「清除中繼資料」。",
     notes: (limit: number) => [
@@ -1488,6 +1492,11 @@ export const strings = {
   settings: {
     title: "設定",
     description: "變更會立即套用並儲存在這台電腦上。",
+    languageTitle: "介面語言 Language",
+    languageZhTw: "繁體中文",
+    languageEn: "English",
+    languageSystem: (current: string) => `跟隨 Windows（目前：${current}）`,
+    restartRequired: "重新啟動 PDF Reader 後生效",
     appearance: "外觀",
     themes: { system: "跟隨系統", light: "淺色", dark: "深色" },
     recent: "最近開啟的檔案",
@@ -1874,6 +1883,7 @@ export const strings = {
     permAssemble: "頁面組合與旋轉",
     securityScanTitle: "主動內容安全掃描",
     noRisksDetected: "未偵測到主動內容或潛在風險",
+    findingsCount: (n: number) => `${n} 個`,
     // Fonts tab
     fontName: "字型名稱",
     fontSubtype: "類型",
@@ -1888,4 +1898,6 @@ export const strings = {
     close: "關閉",
   },
   close: "關閉",
-} as const;
+};
+
+export type Strings = typeof strings;

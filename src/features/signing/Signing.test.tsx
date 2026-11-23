@@ -10,7 +10,7 @@ import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { SigningApi } from "@/features/signing/api";
 import { argsOf, dateOf, DEFAULT_FORM, failure, reasonFits, usable } from "@/features/signing/signing";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import { LIMITS, type SignCheck, type SignResult, type StoreCertificate } from "@/ipc/generated/contract";
 
 const t = strings.signing;

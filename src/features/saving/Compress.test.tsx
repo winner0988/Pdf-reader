@@ -9,7 +9,7 @@ import { describe as describeResult, sizeText } from "@/features/saving/compress
 import { demoDocument } from "@/features/shell/demo";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { CompressResult } from "@/ipc/generated/contract";
 
 const t = strings.compress;

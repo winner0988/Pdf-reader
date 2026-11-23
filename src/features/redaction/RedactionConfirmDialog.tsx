@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { RedactionSummary } from "@/ipc/generated/contract";
 
 const t = strings.redaction.dialog;

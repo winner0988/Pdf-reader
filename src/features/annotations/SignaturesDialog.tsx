@@ -13,7 +13,7 @@ import {
 import { SignaturePad } from "@/features/annotations/SignaturePad";
 import { calculateTypedFontSize, findCropBounds } from "@/features/annotations/signatureImage";
 import type { SignaturesApi } from "@/features/annotations/signaturesApi";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import {
   type DocumentId,
   LIMITS,

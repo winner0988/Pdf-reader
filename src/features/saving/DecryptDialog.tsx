@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import { ipcErrorCode } from "@/ipc/errors";
 import type { DecryptArgs, DocumentId } from "@/ipc/generated/contract";
 

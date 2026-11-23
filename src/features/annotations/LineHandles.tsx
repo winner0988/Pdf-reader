@@ -6,7 +6,7 @@ import { useState, type PointerEvent } from "react";
 
 import type { PageSize, Rotation } from "@/features/shell/model";
 import { boxToPage, pageToBox, type PageBox } from "@/features/viewer/layout";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { PageAnnotation, Point } from "@/ipc/generated/contract";
 
 type LineHandlesProps = {

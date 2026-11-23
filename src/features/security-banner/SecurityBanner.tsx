@@ -3,7 +3,7 @@ import type { Ref } from "react";
 
 import { Button } from "@/components/ui/button";
 import { bannerSummary } from "@/features/security-banner/summary";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { SecurityFinding } from "@/ipc/generated/contract";
 
 const t = strings.banner;

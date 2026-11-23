@@ -6,7 +6,7 @@ import App from "@/App";
 import type { OpenApi } from "@/features/open/api";
 import type { SavingApi } from "@/features/saving/api";
 import type { RenderApi } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { DocumentInfo, OpenEvent } from "@/ipc/generated/contract";
 
 const t = strings.saving;

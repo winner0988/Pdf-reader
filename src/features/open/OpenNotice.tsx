@@ -3,7 +3,7 @@ import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { TabsNotice } from "@/features/tabs/model";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import { LIMITS } from "@/ipc/generated/contract";
 
 /** How long a notice stays before it hides itself. */

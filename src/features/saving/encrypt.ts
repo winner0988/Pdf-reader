@@ -1,7 +1,7 @@
 // What is asked for when a copy of the document is encrypted (B2-15, docs/architecture/encrypt-copy.md):
 // the same rules the main process checks, so the dialog can say what is wrong before anything is sent.
 
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import {
   LIMITS,
   type BatchOperation,

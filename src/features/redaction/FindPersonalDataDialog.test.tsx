@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AnnotationsApi } from "@/features/annotations/source";
 import { FindPersonalDataDialog } from "@/features/redaction/FindPersonalDataDialog";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { PersonalDataMatches } from "@/ipc/generated/contract";
 
 const t = strings.redaction.findPersonalDataDialog;

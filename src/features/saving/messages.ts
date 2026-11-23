@@ -2,7 +2,7 @@
 // what to try.
 
 import type { ErrorCode, IpcError } from "@/ipc/generated/contract";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 /** Failures where saving a copy elsewhere may still work. */
 const SAVE_AS_HELPS: ErrorCode[] = ["readOnly", "fileInUse", "changedOnDisk", "unwritable", "diskFull"];

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { OpenApi } from "@/features/open/api";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { RememberedPasswords } from "@/ipc/generated/contract";
 
 /** The two commands this section needs. */

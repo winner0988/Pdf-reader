@@ -16,7 +16,8 @@ import { useSettings } from "@/features/settings/useSettings";
 import { TextIndexSection } from "@/features/textIndex/TextIndexSection";
 import { useTextIndex } from "@/features/textIndex/useTextIndex";
 import { useTheme, type ThemePreference } from "@/features/theme/useTheme";
-import { strings } from "@/i18n/zh-TW";
+import { getSystemLanguage, strings } from "@/i18n";
+import type { LanguagePreference } from "@/ipc/generated/contract";
 
 type SettingsDialogProps = {
   open: boolean;
@@ -38,6 +39,7 @@ type SettingsDialogProps = {
 };
 
 const THEMES: ThemePreference[] = ["system", "light", "dark"];
+const LANGUAGES: LanguagePreference[] = ["zh-TW", "en", "system"];
 
 /**
  * The settings (B2-12): appearance, the recent files list and the text index (B3-21), the update
@@ -60,7 +62,9 @@ export function SettingsDialog({
   const textIndex = useTextIndex();
   const [theme, setTheme] = useTheme();
   const [notice, setNotice] = useState<string | null>(null);
+  const [languageChanged, setLanguageChanged] = useState(false);
   const appearanceId = useId();
+  const languageId = useId();
   const recentId = useId();
   const dataId = useId();
 
@@ -68,7 +72,10 @@ export function SettingsDialog({
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open) setNotice(null);
+    if (open) {
+      setNotice(null);
+      setLanguageChanged(false);
+    }
   }
 
   const run = (action: () => Promise<void>, done: string) => {
@@ -77,6 +84,20 @@ export function SettingsDialog({
       () => setNotice(done),
       () => setNotice(t.failed),
     );
+  };
+
+  const systemLanguage = getSystemLanguage();
+  const systemLanguageLabel = systemLanguage === "en" ? t.languageEn : t.languageZhTw;
+
+  const languageOptionLabel = (option: LanguagePreference) => {
+    switch (option) {
+      case "zh-TW":
+        return t.languageZhTw;
+      case "en":
+        return t.languageEn;
+      case "system":
+        return t.languageSystem(systemLanguageLabel);
+    }
   };
 
   const recording = shared?.settings.recordRecentFiles ?? true;
@@ -106,6 +127,33 @@ export function SettingsDialog({
               </label>
             ))}
           </div>
+        </section>
+
+        <section aria-labelledby={languageId} className="space-y-2">
+          <h3 id={languageId} className="text-sm font-medium">
+            {t.languageTitle}
+          </h3>
+          <div role="radiogroup" aria-labelledby={languageId} className="space-y-1 text-sm">
+            {LANGUAGES.map((option) => (
+              <label key={option} className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="language"
+                  checked={(shared?.settings.language ?? "system") === option}
+                  onChange={() => {
+                    if (shared && (shared.settings.language ?? "system") !== option) {
+                      shared.update({ language: option });
+                      setLanguageChanged(true);
+                    }
+                  }}
+                />
+                {languageOptionLabel(option)}
+              </label>
+            ))}
+          </div>
+          {languageChanged && (
+            <p className="text-xs text-muted-foreground">{t.restartRequired}</p>
+          )}
         </section>
 
         {shared && recentApi && (

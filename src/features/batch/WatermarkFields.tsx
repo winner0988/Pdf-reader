@@ -4,7 +4,7 @@
 import { useId } from "react";
 
 import type { WatermarkForm } from "@/features/batch/watermark";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { WatermarkPages, WatermarkPlace } from "@/ipc/generated/contract";
 
 const t = strings.batch;

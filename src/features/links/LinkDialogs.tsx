@@ -4,7 +4,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { hasHiddenCharacters, revealHidden } from "@/features/links/text";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { BlockedAction, LinkPreview } from "@/ipc/generated/contract";
 
 const t = strings.links;

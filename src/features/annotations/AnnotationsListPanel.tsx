@@ -1,5 +1,5 @@
 import { useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type {
   AnnotationId,
   AnnotationSummaryItem,

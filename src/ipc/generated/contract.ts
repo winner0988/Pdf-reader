@@ -318,10 +318,19 @@ export type SensitiveArgs = { doc: DocumentId, sensitive: boolean, password: Pas
 export type ThemePreference = "system" | "light" | "dark";
 
 /**
+ * Which language the app's interface uses (ADR 0029, #683): the system's language, or a chosen one.
+ */
+export type LanguagePreference = "system" | "zh-TW" | "en";
+
+/**
  * The user's settings (B2-12), kept by the main process in the app's local data folder. The
  * frontend reads them and sends the whole set back; any other field is rejected.
  */
 export type Settings = { theme: ThemePreference, 
+/**
+ * Added with the English interface (ADR 0029, #683): which language the interface uses.
+ */
+language: LanguagePreference, 
 /**
  * Whether files that open go on the recent files list (#73).
  */

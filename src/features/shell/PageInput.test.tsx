@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { PageInput } from "@/features/shell/Toolbar";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 describe("PageInput", () => {
   it("displays physical page number and count without labels", async () => {

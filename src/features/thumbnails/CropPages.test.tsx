@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CropPagesDialog } from "@/features/thumbnails/CropPagesDialog";
 import { Thumbnails, type PageEditing } from "@/features/thumbnails/Thumbnails";
 import type { PageRenderer } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 const LETTER = { widthPt: 612, heightPt: 792 };
 const t = strings.pages.crop;

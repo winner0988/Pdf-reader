@@ -5,7 +5,7 @@
 import { useId } from "react";
 
 import type { EncryptForm } from "@/features/saving/encrypt";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 const t = strings.encryption;
 

@@ -114,7 +114,7 @@ import {
 } from "@/features/viewer/history";
 import { errorCodeOf, type PageRenderer, type RenderApi } from "@/features/viewer/renderer";
 import type { OutlineView } from "@/features/outline/tree";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type {
   AnnotationId,
   BlockedAction,

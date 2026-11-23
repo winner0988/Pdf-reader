@@ -12,7 +12,7 @@ import {
 import type { ExportApi, ExportJob } from "@/features/export/api";
 import { formatPageList, pagesInRange, type PrintRange } from "@/features/print/range";
 import { errorCodeOf } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import { LIMITS, type DocumentId, type ExportFormat } from "@/ipc/generated/contract";
 
 type ExportDialogProps = {

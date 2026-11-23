@@ -1,4 +1,4 @@
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { PageSize, PdfDate } from "@/ipc/generated/contract";
 
 export function formatPdfDate(date: PdfDate | null | undefined): string {

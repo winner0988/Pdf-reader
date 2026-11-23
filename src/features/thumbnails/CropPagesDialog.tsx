@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { CSS_PX_PER_PT, renderScale } from "@/features/viewer/layout";
 import { drawRaster, type PageRenderer, type RenderJob } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { CropMargins, DocumentId, PageSize } from "@/ipc/generated/contract";
 import {
   cropsNothing,

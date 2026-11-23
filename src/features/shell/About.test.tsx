@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SOURCE_URL } from "@/features/shell/about";
 import { AboutDialog } from "@/features/shell/dialogs";
 import { APP_VERSION } from "@/features/shell/version";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import packageJson from "../../../package.json?raw";
 
 const t = strings.about;

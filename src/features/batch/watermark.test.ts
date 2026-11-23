@@ -9,7 +9,7 @@ import {
   watermarkProblemWith,
   type WatermarkForm,
 } from "@/features/batch/watermark";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 describe("batch watermark form", () => {
   it("converts hex to rgb and back", () => {

@@ -4,7 +4,7 @@ import { useEffect, useRef, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { searchStatus } from "@/features/search/model";
 import type { SearchController } from "@/features/search/useSearch";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import { LIMITS } from "@/ipc/generated/contract";
 
 const t = strings.search;

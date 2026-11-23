@@ -45,7 +45,7 @@ import {
   type PageMarksForm,
 } from "@/features/saving/pageMarks";
 import { PageMarksFields } from "@/features/saving/PageMarksFields";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import { LIMITS, type BatchEvent, type BatchOperation, type BatchOutcome, type BatchReport } from "@/ipc/generated/contract";
 
 const t = strings.batch;

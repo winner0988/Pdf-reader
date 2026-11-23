@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { argsOf, describeProblem, EMPTY_FORM, problemWith, type EncryptForm } from "@/features/saving/encrypt";
 import { EncryptFields } from "@/features/saving/EncryptFields";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { DocumentId, EncryptArgs } from "@/ipc/generated/contract";
 
 const t = strings.encryption;

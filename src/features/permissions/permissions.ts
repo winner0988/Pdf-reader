@@ -2,7 +2,7 @@
 // printing it, or allow only low-resolution printing. The app obeys, as Adobe Acrobat does.
 // The permissions are the author's wish, not a security boundary (docs/architecture/encryption.md).
 
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { DocumentPermissions } from "@/ipc/generated/contract";
 
 export type { DocumentPermissions };

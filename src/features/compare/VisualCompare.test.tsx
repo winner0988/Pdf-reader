@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { CompareTabOption } from "@/features/compare/CompareDialog";
 import { VisualCompareDialog } from "@/features/compare/VisualCompareDialog";
 import type { RenderApi } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { RenderPageArgs } from "@/ipc/generated/contract";
 import { expectAccessible } from "@/test/axe";
 

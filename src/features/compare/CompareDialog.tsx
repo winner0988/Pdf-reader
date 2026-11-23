@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { CompareApi } from "@/features/compare/api";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type {
   CompareExportFormat,
   CompareTextResult,

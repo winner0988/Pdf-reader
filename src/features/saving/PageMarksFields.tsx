@@ -9,7 +9,7 @@ import {
   PRESET_COLORS,
   type PageMarksForm,
 } from "@/features/saving/pageMarks";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { PageMarkPosition } from "@/ipc/generated/contract";
 
 const t = strings.pageMarks;

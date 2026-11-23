@@ -48,7 +48,7 @@ import {
 } from "@/features/thumbnails/selection";
 import { CSS_PX_PER_PT, renderScale } from "@/features/viewer/layout";
 import { drawRaster, errorCodeOf, type PageRenderer, type RenderJob } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { DocumentId, Edit } from "@/ipc/generated/contract";
 
 const t = strings.pages;

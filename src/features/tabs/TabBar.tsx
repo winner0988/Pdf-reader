@@ -7,7 +7,7 @@ import { useRef, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/features/shell/IconButton";
 import { isUnsaved, tabElementId, tabPanelId, type Tab } from "@/features/tabs/model";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { TabId } from "@/ipc/generated/contract";
 import { cn } from "@/lib/utils";
 

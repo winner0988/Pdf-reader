@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import type { SensitiveApi } from "@/features/sensitive/api";
 import { errorCodeOf } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { DocumentId, ErrorCode, MarkCheck } from "@/ipc/generated/contract";
 
 const t = strings.sensitive;

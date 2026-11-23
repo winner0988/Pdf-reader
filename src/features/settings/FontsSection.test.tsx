@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { FontsSection, type FontsApi } from "@/features/settings/FontsSection";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { FontId, FontImport, FontImportRefusal, FontInfo } from "@/ipc/generated/contract";
 
 const t = strings.settings.fonts;

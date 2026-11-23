@@ -7,7 +7,7 @@ import type { RecentApi } from "@/features/recent/api";
 import { RecentFiles } from "@/features/recent/RecentFiles";
 import { RETRYABLE_ERRORS, type ErrorCode } from "@/features/shell/model";
 import { StartIllustration } from "@/features/shell/StartIllustration";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 /** The start screen: open a file, or one of the recently opened ones (#73). */
 export function EmptyState({

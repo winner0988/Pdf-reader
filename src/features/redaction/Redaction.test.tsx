@@ -12,7 +12,7 @@ import {
 import { RedactionConfirmDialog } from "@/features/redaction/RedactionConfirmDialog";
 import { RedactionPanel } from "@/features/redaction/RedactionPanel";
 import { redactionRectAt, REDACTION_HEIGHT_PT, REDACTION_WIDTH_PT } from "@/features/annotations/tools";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { Quad, Rect, RedactionSummary } from "@/ipc/generated/contract";
 
 describe("redaction geometry and model helpers", () => {

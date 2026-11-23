@@ -23,7 +23,7 @@ import {
   type PageMarksForm,
 } from "@/features/saving/pageMarks";
 import { PageMarksFields } from "@/features/saving/PageMarksFields";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type {
   DocumentId,
   PageMarkPosition,

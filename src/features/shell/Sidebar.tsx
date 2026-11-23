@@ -10,7 +10,7 @@ import type { PageSize } from "@/features/shell/model";
 import { RedactionPanel, type RedactionPanelProps } from "@/features/redaction/RedactionPanel";
 import { Thumbnails, type PageEditing, type SavePages } from "@/features/thumbnails/Thumbnails";
 import type { PageRenderer } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { AnnotationId, DocumentId } from "@/ipc/generated/contract";
 
 const t = strings.sidebar;

@@ -15,7 +15,7 @@ import {
 } from "@/features/thumbnails/layout";
 import { Thumbnails, type PageEditing, type SavePages } from "@/features/thumbnails/Thumbnails";
 import type { PageRenderer } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 const LETTER = { widthPt: 612, heightPt: 792 };
 const LANDSCAPE = { widthPt: 842, heightPt: 595 };

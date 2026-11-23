@@ -43,7 +43,7 @@ import { SourcePasswordDialog } from "@/features/thumbnails/SourcePasswordDialog
 import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
 import { RedactionConfirmDialog } from "@/features/redaction/RedactionConfirmDialog";
 import { RedactionPanel } from "@/features/redaction/RedactionPanel";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { BatchEvent, BlockedAction, DocumentId, FontInfo, LinkPreview, OutlineItem } from "@/ipc/generated/contract";
 import { expectAccessible } from "@/test/axe";
 

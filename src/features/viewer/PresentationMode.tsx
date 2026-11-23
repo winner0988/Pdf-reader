@@ -7,7 +7,7 @@ import { CSS_PX_PER_PT, displayedSize, rectToBox, renderScale } from "@/features
 import { drawRaster, type PageRenderer } from "@/features/viewer/renderer";
 import { linkHoverText } from "@/features/links/text";
 import type { LinkSource } from "@/features/links/source";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { DocumentId, PageLink, Rotation as ContractRotation } from "@/ipc/generated/contract";
 import { cn } from "@/lib/utils";
 
