@@ -4,6 +4,10 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 ## [Unreleased]
 
+### 安全
+
+- 主機是 localhost 但路徑多了斜線（例如 `file://localhost///…`）、或路徑開頭有編碼斜線（例如 `file://localhost/%5C…`、`file:%5C%5C…`）的 `file:` 網址，與 Windows 一致判定為網路共用路徑（#668）。
+
 ## [1.1.0] - 2026-11-23
 
 PDF Reader 是注重隱私、完全離線的 Windows 桌面 PDF 閱讀器，也能編輯、簽署與轉檔。這個版本加入裁切頁面、取代頁面、加浮水印、可以重複使用的簽名、另存沒有密碼的副本、把註解匯出成 XFDF，以及比較兩份文件的畫面；修正 1.0.0 已知的兩個文字擷取問題，畫不完的重複圖樣頁面也會馬上停下；郵件連結與網路路徑的檢查更嚴格，PDF 引擎內附的字型函式庫 FreeType 也套用了上游的修正。

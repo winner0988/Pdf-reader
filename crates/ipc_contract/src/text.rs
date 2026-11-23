@@ -236,6 +236,25 @@ pub fn is_web_address(uri: &str) -> bool {
 ///
 /// `raw` is a PDF string: UTF-16BE with a byte order mark, or single bytes (PDFDocEncoding,
 /// which agrees with ASCII for everything looked at here).
+///
+/// Rules for `file:` URLs are aligned with Windows `PathCreateFromUrlW` (dwflags 0, #611, #668):
+/// - 0 raw slashes after `file:`: Windows produces a UNC path if and only if it starts with `%5C`
+///   followed by `/`, `\` or another `%5C` (e.g. `file:%5C%5Cserver\share`), because `%5C` is
+///   unescaped to `\` in DOS path conversion.
+/// - 1 raw slash after `file:`: UNC if and only if followed by `%5C` (e.g. `file:/%5Cserver/share`),
+///   combining the initial `\` with the unescaped `%5C` into `\\`.
+/// - 2 raw slashes after `file:`:
+///   - Empty host: local (e.g. `file://`).
+///   - Host is not `localhost` (e.g. `file://server/share`, `file://127.0.0.1/share`, `file://localhost:445/share`,
+///     `file://%5Cserver/share`): network path.
+///   - Host is `localhost`: local when followed by 1 or 2 raw slashes (e.g. `file://localhost/share`,
+///     `file://localhost//server/share`, `file://localhost/\server\share`), but network when followed
+///     by 3 or more raw slashes (`file://localhost///server/share`), or when 1 or 2 raw slashes are
+///     immediately followed by `%5C` (`file://localhost/%5Cserver/share`, `file://localhost//%5Cserver/share`),
+///     because Windows turns 1 or 2 slashes into a single `\` and unescapes `%5C` into `\`.
+/// - 3 raw slashes after `file:`: local (e.g. `file:///C:/doc.pdf`, `file:///server/share`), but
+///   network if followed by `%5C` (`file:///%5Cserver/share`).
+/// - 4 or more raw slashes after `file:`: network path (e.g. `file:////server/share`).
 pub fn is_network_path(raw: &[u8]) -> bool {
     let text = decode_pdf_string(raw).to_ascii_lowercase();
     let text = text.trim_start();
@@ -245,14 +264,44 @@ pub fn is_network_path(raw: &[u8]) -> bool {
         return true;
     }
     if let Some(rest) = text.strip_prefix("file:") {
-        // file://server/share and file:////server/share are network paths; file:/// and
-        // file://localhost/ are local. Only a host that is exactly "localhost" (or none) is this
-        // computer: Windows turns file://localhost.example/share into \\localhost.example\share (#611).
-        let rest = rest.trim_start_matches(['/', '\\']);
-        let slashes = text.len() - "file:".len() - rest.len();
+        let starts_with_pct_5c = |s: &str| s.starts_with("%5c");
+
+        let after_slashes = rest.trim_start_matches(['/', '\\']);
+        let slashes = rest.len() - after_slashes.len();
+
+        if slashes == 0 {
+            if starts_with_pct_5c(after_slashes) {
+                let next = &after_slashes[3..];
+                return next.starts_with(['/', '\\']) || starts_with_pct_5c(next);
+            }
+            return false;
+        }
+        if slashes == 1 {
+            return starts_with_pct_5c(after_slashes);
+        }
         if slashes == 2 {
-            let host = rest.split(['/', '\\']).next().unwrap_or_default();
-            return !(host.is_empty() || host == "localhost");
+            let host = after_slashes.split(['/', '\\']).next().unwrap_or_default();
+            if host.is_empty() {
+                return false;
+            }
+            if host == "localhost" {
+                let path = &after_slashes[host.len()..];
+                let after_path_slashes = path.trim_start_matches(['/', '\\']);
+                let path_slashes = path.len() - after_path_slashes.len();
+                if path_slashes >= 3 {
+                    return true;
+                }
+                if (path_slashes == 1 || path_slashes == 2)
+                    && starts_with_pct_5c(after_path_slashes)
+                {
+                    return true;
+                }
+                return false;
+            }
+            return true;
+        }
+        if slashes == 3 {
+            return starts_with_pct_5c(after_slashes);
         }
         return slashes >= 4;
     }
@@ -604,6 +653,84 @@ mod tests {
             is_network_path(b"\xfe\xff\x00f\x00i\x00l\x00e\x00:\x00/\x00/\x00l\x00o\x00c\x00a\x00l\x00h\x00o\x00s\x00t\x00.\x00e\x00x\x00a\x00m\x00p\x00l\x00e\x00/\x00s"),
             "{}",
             "UTF-16 file://localhost.example/s"
+        );
+    }
+
+    // 這張表是 Windows PathCreateFromUrlW 的結果，測試 localhost 與編碼斜線的各種組合（#668）。
+    #[test]
+    fn localhost_file_urls_with_extra_or_encoded_slashes_match_windows() {
+        // Issue #668 5 shapes + 2 controls
+        assert!(!is_network_path(
+            b"file://localhost/\\server\\share\\doc.pdf"
+        ));
+        assert!(is_network_path(b"file://localhost///server/share/doc.pdf"));
+        assert!(is_network_path(b"file://localhost/%5Cserver/share"));
+        assert!(is_network_path(b"file:%5C%5Cserver\\share"));
+        assert!(!is_network_path(b"file:/%2Fserver/share"));
+        assert!(!is_network_path(b"file://localhost//server/share"));
+        assert!(!is_network_path(b"file:///server/share"));
+
+        // Case variations of %5C / %2F
+        assert!(is_network_path(b"file://localhost/%5cserver/share"));
+        assert!(is_network_path(b"file://LOCALHOST/%5Cserver/share"));
+        assert!(is_network_path(b"file:%5c%5cserver\\share"));
+        assert!(!is_network_path(b"file:/%2fserver/share"));
+        assert!(!is_network_path(b"file:%2F%2Fserver/share"));
+        assert!(!is_network_path(b"file:%2f%2fserver/share"));
+
+        // Localhost with 1 to 4 slashes (/ and \ mixed)
+        assert!(!is_network_path(b"file://localhost/server/share"));
+        assert!(!is_network_path(b"file://localhost\\server\\share"));
+        assert!(!is_network_path(b"file://localhost//server/share"));
+        assert!(!is_network_path(b"file://localhost/\\server\\share"));
+        assert!(!is_network_path(b"file://localhost\\/server/share"));
+        assert!(!is_network_path(b"file://localhost\\\\server/share"));
+        assert!(!is_network_path(b"file://localhost\\\\server\\share"));
+        assert!(is_network_path(b"file://localhost///server/share"));
+        assert!(is_network_path(b"file://localhost//\\server\\share"));
+        assert!(is_network_path(b"file://localhost/\\//server\\share"));
+        assert!(is_network_path(b"file://localhost/\\\\server\\share"));
+        assert!(is_network_path(b"file://localhost\\//server\\share"));
+        assert!(is_network_path(b"file://localhost\\\\/server\\share"));
+        assert!(is_network_path(b"file://localhost\\\\\\server\\share"));
+        assert!(is_network_path(b"file://localhost////server/share"));
+        assert!(is_network_path(b"file://localhost\\\\\\\\server\\share"));
+
+        // Localhost with encoded slashes
+        assert!(!is_network_path(b"file://localhost/%2F/server/share"));
+        assert!(!is_network_path(b"file://localhost//%2Fserver/share"));
+        assert!(is_network_path(b"file://localhost/%5C/server/share"));
+        assert!(is_network_path(b"file://localhost//%5Cserver/share"));
+        assert!(is_network_path(b"file://localhost/\\%5Cserver/share"));
+        assert!(is_network_path(b"file://localhost\\%5Cserver/share"));
+        assert!(!is_network_path(b"file://localhost/%2F%2Fserver/share"));
+        assert!(is_network_path(b"file://localhost/%5C%5Cserver/share"));
+
+        // No host combinations with %5C
+        assert!(is_network_path(b"file:/%5Cserver/share"));
+        assert!(is_network_path(b"file:\\%5Cserver\\share"));
+        assert!(!is_network_path(b"file:/%2Fserver/share"));
+        assert!(!is_network_path(b"file:\\%2Fserver/share"));
+        assert!(is_network_path(b"file://%5Cserver/share"));
+        assert!(is_network_path(b"file://%2Fserver/share"));
+        assert!(is_network_path(b"file:///%5Cserver/share"));
+        assert!(!is_network_path(b"file:///%2Fserver/share"));
+        assert!(is_network_path(b"file:////%5Cserver/share"));
+        assert!(is_network_path(b"file:////%2Fserver/share"));
+        assert!(!is_network_path(b"file:%2Fserver/share"));
+        assert!(!is_network_path(b"file:%5Cserver/share"));
+
+        // UTF-16 representation of file://localhost///server/share
+        assert!(
+            is_network_path(b"\xfe\xff\x00f\x00i\x00l\x00e\x00:\x00/\x00/\x00l\x00o\x00c\x00a\x00l\x00h\x00o\x00s\x00t\x00/\x00/\x00/\x00s\x00/\x00x"),
+            "{}",
+            "UTF-16 file://localhost///s/x"
+        );
+        // UTF-16 representation of file://localhost/%5Cserver/share
+        assert!(
+            is_network_path(b"\xfe\xff\x00f\x00i\x00l\x00e\x00:\x00/\x00/\x00l\x00o\x00c\x00a\x00l\x00h\x00o\x00s\x00t\x00/\x00%\x005\x00C\x00s\x00/\x00x"),
+            "{}",
+            "UTF-16 file://localhost/%5Cs/x"
         );
     }
 
