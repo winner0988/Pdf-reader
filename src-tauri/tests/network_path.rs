@@ -121,10 +121,26 @@ where
     current
 }
 
+fn gen_random_host(rng: &mut Rng) -> String {
+    let len = 1 + rng.next_usize(8);
+    let mut s = String::with_capacity(len);
+    for _ in 0..len {
+        let b = if rng.gen_bool() {
+            b'a' + (rng.next_usize(26) as u8)
+        } else {
+            b'A' + (rng.next_usize(26) as u8)
+        };
+        s.push(b as char);
+    }
+    s
+}
+
 fn gen_file_url(rng: &mut Rng) -> String {
+    let slash_pieces = ["/", "\\", "%2F", "%2f", "%5C", "%5c"];
     let host_choices = [
         "localhost",
         "LOCALHOST",
+        "LocalHost",
         "localhost.",
         "localhost.example",
         "localhostserver",
@@ -143,50 +159,61 @@ fn gen_file_url(rng: &mut Rng) -> String {
         "test/file.txt",
     ];
 
-    // 0 to 4 slashes (/ or \)
-    let num_slashes = rng.next_usize(5);
-    let mut slashes = String::new();
-    for _ in 0..num_slashes {
-        if rng.next_usize(2) == 0 {
-            slashes.push('/');
-        } else {
-            slashes.push('\\');
+    let slashes_2 = if rng.gen_bool() {
+        "//"
+    } else {
+        match rng.next_usize(3) {
+            0 => r"\\",
+            1 => r"/\",
+            _ => r"\/",
         }
-    }
+    };
 
-    let slash_char = if rng.next_usize(2) == 0 { '/' } else { '\\' };
-
-    match num_slashes {
-        2 => {
-            let host = if rng.next_usize(12) < host_choices.len() {
-                host_choices[rng.next_usize(host_choices.len())]
+    let kind = rng.next_usize(5);
+    match kind {
+        0 => {
+            // host: localhost
+            let host = *rng.choose(&["localhost", "LOCALHOST", "LocalHost"]);
+            let num_post = rng.next_usize(5);
+            let mut post = String::new();
+            for _ in 0..num_post {
+                post.push_str(rng.choose(&slash_pieces));
+            }
+            let next_server = if rng.gen_bool() {
+                format!("{}/", gen_random_host(rng))
+            } else if rng.gen_bool() {
+                "server/".to_string()
             } else {
-                *rng.choose(&[
-                    "server",
-                    "remote",
-                    "myhost",
-                    "sharehost",
-                    "corp",
-                    "fileserver",
-                ])
+                String::new()
             };
             let path = *rng.choose(&path_choices);
-            if host.is_empty() {
-                if rng.gen_bool() {
-                    format!("file:{slashes}")
+            format!("file:{slashes_2}{host}{post}{next_server}{path}")
+        }
+        1 => {
+            // host: empty ("")
+            let num_post = rng.next_usize(5);
+            let mut post = String::new();
+            for _ in 0..num_post {
+                post.push_str(rng.choose(&slash_pieces));
+            }
+            let next_server = if rng.gen_bool() {
+                format!("{}/", gen_random_host(rng))
+            } else {
+                "server/".to_string()
+            };
+            let path = *rng.choose(&path_choices);
+            format!("file:{slashes_2}{post}{next_server}{path}")
+        }
+        2 => {
+            // host: other fixed host
+            let host = if rng.next_usize(12) < host_choices.len() {
+                let h = host_choices[rng.next_usize(host_choices.len())];
+                if h.is_empty() || h.eq_ignore_ascii_case("localhost") {
+                    "server"
                 } else {
-                    format!("file:{slashes}{slash_char}{path}")
+                    h
                 }
             } else {
-                format!("file:{slashes}{host}{slash_char}{path}")
-            }
-        }
-        3 => {
-            let path = *rng.choose(&path_choices);
-            format!("file:{slashes}{path}")
-        }
-        4 => {
-            let server = if rng.next_usize(10) < 6 {
                 *rng.choose(&[
                     "server",
                     "remote",
@@ -195,15 +222,49 @@ fn gen_file_url(rng: &mut Rng) -> String {
                     "corp",
                     "fileserver",
                 ])
-            } else {
-                *rng.choose(&["localhost.example", "localhostserver", "127.0.0.1", "[::1]"])
             };
-            let share = *rng.choose(&["share", "doc.pdf", "data", "public"]);
-            format!("file:{slashes}{server}{slash_char}{share}")
+            let num_post = rng.next_usize(5);
+            let mut post = String::new();
+            for _ in 0..num_post {
+                post.push_str(rng.choose(&slash_pieces));
+            }
+            if post.is_empty() {
+                post.push(if rng.gen_bool() { '/' } else { '\\' });
+            }
+            let path = *rng.choose(&path_choices);
+            format!("file:{slashes_2}{host}{post}{path}")
+        }
+        3 => {
+            // host: random letters (1 to 8 letters)
+            let host = gen_random_host(rng);
+            let num_post = rng.next_usize(5);
+            let mut post = String::new();
+            for _ in 0..num_post {
+                post.push_str(rng.choose(&slash_pieces));
+            }
+            if post.is_empty() {
+                post.push(if rng.gen_bool() { '/' } else { '\\' });
+            }
+            let path = *rng.choose(&path_choices);
+            format!("file:{slashes_2}{host}{post}{path}")
         }
         _ => {
+            // file: followed directly by %2F, %5C or 0 to 1 slash then %2F, %5C
+            let mut prefix = String::new();
+            if rng.gen_bool() {
+                prefix.push(if rng.gen_bool() { '/' } else { '\\' });
+            }
+            let num_pieces = 1 + rng.next_usize(4);
+            for _ in 0..num_pieces {
+                prefix.push_str(rng.choose(&slash_pieces));
+            }
+            let next_server = if rng.gen_bool() {
+                format!("{}/", gen_random_host(rng))
+            } else {
+                "server/".to_string()
+            };
             let path = *rng.choose(&path_choices);
-            format!("file:{slashes}{path}")
+            format!("file:{prefix}{next_server}{path}")
         }
     }
 }
@@ -240,5 +301,141 @@ fn property_8_is_network_path_matches_windows_path_create_from_url() {
 
     println!(
         "Property 8 verified on {checked_cases} URLs ({conversion_failures} conversion failures omitted)"
+    );
+}
+
+#[test]
+fn windows_agrees_on_the_668_and_661_shapes() {
+    let test_urls = [
+        // Issue #668 5 shapes + 2 controls
+        r"file://localhost/\server\share\doc.pdf",
+        r"file://localhost///server/share/doc.pdf",
+        r"file://localhost/%5Cserver/share",
+        r"file:%5C%5Cserver\share",
+        r"file:/%2Fserver/share",
+        r"file://localhost//server/share",
+        r"file:///server/share",
+        // PR #661 table
+        r"file://localhost/C:/doc.pdf",
+        r"file://LOCALHOST/C:/doc.pdf",
+        r"file://localhost",
+        r"file://",
+        r"file://localhost/share/doc.pdf",
+        r"file:\/localhost/C:/doc.pdf",
+        r"file:/\localhost/C:/doc.pdf",
+        r"file://localhost\C:\doc.pdf",
+        r"file:///C:/doc.pdf",
+        r"file://localhost.example/share/doc.pdf",
+        r"file://localhostserver/share/doc.pdf",
+        r"file://localhost:445/share/doc.pdf",
+        r"file://LocalHost.Example/s/x",
+        r"file://localhost./share/x",
+        r"file://%6Cocalhost/share/x",
+        r"file:/\localhost.example/share/doc.pdf",
+        r"file:\\localhost.example\share\doc.pdf",
+        r"file://127.0.0.1/share/doc.pdf",
+        r"file://server.example/share/doc.pdf",
+        r"file:////server/share",
+        // Case variations of %2f and %5c
+        r"file://localhost/%5cserver/share",
+        r"file://localhost/%2Fserver/share",
+        r"file://localhost/%2fserver/share",
+        r"file:%5c%5cserver\share",
+        r"file:/%2fserver/share",
+        r"file:%2F%2Fserver/share",
+        r"file:%2f%2fserver/share",
+        r"file:%2F%5Cserver/share",
+        r"file:%5C%2Fserver/share",
+        // localhost followed by 1 to 4 slashes (/ and \ mixed)
+        r"file://localhost/server/share",
+        r"file://localhost\server\share",
+        r"file://localhost//server/share",
+        r"file://localhost/\server\share",
+        r"file://localhost\/server/share",
+        r"file://localhost\\server/share",
+        r"file://localhost\\server\share",
+        r"file://localhost///server/share",
+        r"file://localhost//\server\share",
+        r"file://localhost/\//server\share",
+        r"file://localhost/\\server\share",
+        r"file://localhost\//server\share",
+        r"file://localhost\\/server\share",
+        r"file://localhost\\\server\share",
+        r"file://localhost////server/share",
+        r"file://localhost///\server\share",
+        r"file://localhost//\\server\share",
+        r"file://localhost/\\/server\share",
+        r"file://localhost/\\\server\share",
+        r"file://localhost\///server\share",
+        r"file://localhost\\\\server\share",
+        // localhost with encoded slashes
+        r"file://localhost/%2F/server/share",
+        r"file://localhost//%2Fserver/share",
+        r"file://localhost/%5C/server/share",
+        r"file://localhost//%5Cserver/share",
+        r"file://localhost/\%5Cserver/share",
+        r"file://localhost\%5Cserver/share",
+        r"file://localhost/%2F%2Fserver/share",
+        r"file://localhost/%5C%5Cserver/share",
+        // No host / empty host combinations
+        r"file:/server/share",
+        r"file://server/share",
+        r"file:///server/share",
+        r"file:////server/share",
+        r"file://///server/share",
+        r"file:%5C%5Cserver\share",
+        r"file:%2F%2Fserver/share",
+        r"file:/%5Cserver/share",
+        r"file:\%5Cserver\share",
+        r"file:\%2Fserver/share",
+        r"file:/%2Fserver/share",
+        r"file://%5Cserver/share",
+        r"file://%2Fserver/share",
+        r"file:///%5Cserver/share",
+        r"file:///%2Fserver/share",
+        r"file:////%5Cserver/share",
+        r"file:////%2Fserver/share",
+        r"file:%2Fserver/share",
+        r"file:%5Cserver/share",
+        // localhost:445
+        r"file://localhost:445/share",
+        r"file://localhost:445//share",
+        r"file://localhost:445/%5Cshare",
+        r"file://localhost:445/\share",
+        r"file://localhost:445///share",
+        // Host casing variations
+        r"file://LOCALHOST/\server\share\doc.pdf",
+        r"file://LOCALHOST/%5Cserver/share",
+        r"file://LocalHost///server/share/doc.pdf",
+        r"file://LocalHost//server/share",
+    ];
+
+    let mut mismatches = Vec::new();
+    println!("\n=== Table: windows_agrees_on_the_668_and_661_shapes ===");
+    for url in test_urls {
+        let win_path = path_create_from_url(url);
+        let win_unc = win_path
+            .as_ref()
+            .map(|p| p.starts_with(r"\\"))
+            .unwrap_or(false);
+        let contract_net = is_network_path(url.as_bytes());
+        let matches = win_unc == contract_net;
+        println!(
+            "URL: {:<42} | WinPath: {:<32?} | WinUNC: {:<5} | is_net: {:<5} | Match: {}",
+            url, win_path, win_unc, contract_net, matches
+        );
+        if !matches {
+            mismatches.push((url, win_path, win_unc, contract_net));
+        }
+    }
+    println!(
+        "=== End Table (total mismatches: {}) ===\n",
+        mismatches.len()
+    );
+
+    assert!(
+        mismatches.is_empty(),
+        "Mismatches found between Windows PathCreateFromUrlW and is_network_path:\n{:#?}",
+        mismatches
     );
 }
