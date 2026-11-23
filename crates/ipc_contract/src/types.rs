@@ -802,6 +802,23 @@ pub enum Edit {
         from: u32,
         to: u32,
     },
+    /// Adds a new link over `rect` on page `page` (B6-03, Issue #588).
+    #[serde(rename_all = "camelCase")]
+    AddLink {
+        page: u32,
+        rect: Rect,
+        target: NewLinkTarget,
+    },
+    /// Changes where link `link` points to (B6-03, Issue #588).
+    #[serde(rename_all = "camelCase")]
+    SetLinkTarget {
+        link: LinkId,
+        target: NewLinkTarget,
+    },
+    /// Removes link `link` (B6-03, Issue #588).
+    DeleteLink {
+        link: LinkId,
+    },
 }
 
 /// What applying the redaction marks of a document would do besides removing what their areas
@@ -2308,6 +2325,75 @@ mod link_target_serde {
     }
 
     impl<'de> Deserialize<'de> for LinkTarget {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            if deserializer.is_human_readable() {
+                Tagged::deserialize(deserializer).map(Into::into)
+            } else {
+                Compact::deserialize(deserializer).map(Into::into)
+            }
+        }
+    }
+}
+
+/// Where a newly added or retargeted link points to (B6-03, Issue #588).
+///
+/// Handled like [`LinkTarget`]: postcard cannot deserialize internally tagged enums.
+/// See [`new_link_target_serde`].
+#[derive(Debug, Clone, PartialEq, Eq, TS)]
+#[ts(tag = "kind", rename_all = "camelCase")]
+pub enum NewLinkTarget {
+    /// A page in the same document (0-based).
+    Page { page: u32 },
+    /// An external web or email address (`http`, `https` or `mailto`).
+    Uri { uri: String },
+}
+
+mod new_link_target_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use super::NewLinkTarget;
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(tag = "kind", rename_all = "camelCase")]
+    enum Tagged {
+        Page { page: u32 },
+        Uri { uri: String },
+    }
+
+    #[derive(Serialize, Deserialize)]
+    enum Compact {
+        Page { page: u32 },
+        Uri { uri: String },
+    }
+
+    macro_rules! convert {
+        ($from:ident => $to:ident) => {
+            impl From<$from> for $to {
+                fn from(target: $from) -> Self {
+                    match target {
+                        $from::Page { page } => $to::Page { page },
+                        $from::Uri { uri } => $to::Uri { uri },
+                    }
+                }
+            }
+        };
+    }
+    convert!(NewLinkTarget => Tagged);
+    convert!(NewLinkTarget => Compact);
+    convert!(Tagged => NewLinkTarget);
+    convert!(Compact => NewLinkTarget);
+
+    impl Serialize for NewLinkTarget {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            if serializer.is_human_readable() {
+                Tagged::from(self.clone()).serialize(serializer)
+            } else {
+                Compact::from(self.clone()).serialize(serializer)
+            }
+        }
+    }
+
+    impl<'de> Deserialize<'de> for NewLinkTarget {
         fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
             if deserializer.is_human_readable() {
                 Tagged::deserialize(deserializer).map(Into::into)

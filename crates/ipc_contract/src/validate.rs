@@ -12,7 +12,7 @@ use crate::limits::*;
 use crate::ocr::is_language_name;
 use crate::text::{
     classify_uri, is_clean_copy_text, is_clean_display_text, is_clean_page_label,
-    is_invisible_format, is_note_text, is_web_address,
+    is_forbidden_label_char, is_invisible_format, is_note_text, is_web_address,
 };
 use crate::types::{
     AddSignatureImageArgs, AnnotationKind, AnnotationSummary, AnnotationSummaryItem,
@@ -21,7 +21,7 @@ use crate::types::{
     DocumentFonts, DocumentInfo, DocumentProperties, Edit, EditArgs, EncryptArgs, ExportArgs,
     ExportCompareTextArgs, ExportFormat, FindPersonalDataQuery, FindingKind, FontImport, FontInfo,
     FormField, IndexSearchArgs, IndexSearchEvent, IndexSnippet, IpcError, LineEnds, LinkTarget,
-    OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink,
+    NewLinkTarget, OcrLanguages, OcrProgress, OpenEvent, OutlineItem, OutlineResult, PageAnnotation, PageLink,
     PageMarkPages, PageMarkPosition, PageMarks, PageMarksCopyArgs, PageNumberFormat, PageSize,
     PageText, Password, PdfDate, PersonalDataMatch, PersonalDataMatches, Point,
     PrepareSignatureStampArgs, PrepareTextBoxArgs, Quad, RasterRegion, RecentFile, Rect,
@@ -323,6 +323,22 @@ impl Validate for PageLink {
     fn validate(&self) -> Result<(), ValidationError> {
         self.rect.validate()?;
         self.target.validate()
+    }
+}
+
+impl Validate for NewLinkTarget {
+    fn validate(&self) -> Result<(), ValidationError> {
+        match self {
+            NewLinkTarget::Page { page } => {
+                if *page >= MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "link target page",
+                    });
+                }
+                Ok(())
+            }
+            NewLinkTarget::Uri { uri } => check_new_link_uri(uri),
+        }
     }
 }
 
@@ -2056,6 +2072,13 @@ impl Validate for Edit {
                 }
                 Ok(())
             }
+            Edit::AddLink { page, rect, target } => {
+                check_annotated_page(*page)?;
+                check_link_rect(rect)?;
+                target.validate()
+            }
+            Edit::SetLinkTarget { link: _, target } => target.validate(),
+            Edit::DeleteLink { link: _ } => Ok(()),
         }
     }
 }
@@ -2169,6 +2192,97 @@ pub fn check_annotation_rect(rect: &Rect) -> Result<(), ValidationError> {
         return Err(ValidationError::Invalid {
             what: "annotation rectangle",
             reason: "too small, or upside down",
+        });
+    }
+    Ok(())
+}
+
+/// A rectangle a link is put in (B6-03, Issue #588): finite, upright, and large enough to
+/// be clicked or hovered.
+pub fn check_link_rect(rect: &Rect) -> Result<(), ValidationError> {
+    rect.validate()?;
+    if rect.x1 - rect.x0 < MIN_LINK_SIDE_PT || rect.y1 - rect.y0 < MIN_LINK_SIDE_PT {
+        return Err(ValidationError::Invalid {
+            what: "link rectangle",
+            reason: "too small, or upside down",
+        });
+    }
+    Ok(())
+}
+
+/// What a new or retargeted link points to as a web address or email (B6-03, Issue #588).
+///
+/// Must be an openable URI (`http`, `https` or `mailto`), within length limits, containing no
+/// whitespace, control, or invisible formatting characters. Web addresses must include an
+/// authority prefix (`//`) and a non-empty host before any path, query, or fragment. Mailto
+/// addresses must specify a non-empty recipient.
+pub fn check_new_link_uri(uri: &str) -> Result<(), ValidationError> {
+    if uri.is_empty() {
+        return Err(ValidationError::Invalid {
+            what: "link URI",
+            reason: "empty",
+        });
+    }
+    check_text("link URI", uri, MAX_URI_BYTES)?;
+    if uri.chars().any(|c| c.is_whitespace()) {
+        return Err(ValidationError::Invalid {
+            what: "link URI",
+            reason: "contains whitespace",
+        });
+    }
+    if uri
+        .chars()
+        .any(|c| c.is_control() || is_invisible_format(c) || is_forbidden_label_char(c))
+    {
+        return Err(ValidationError::Invalid {
+            what: "link URI",
+            reason: "contains control or invisible formatting characters",
+        });
+    }
+    let (scheme, rest) = uri.split_once(':').ok_or_else(|| ValidationError::Invalid {
+        what: "link URI",
+        reason: "missing scheme",
+    })?;
+    let scheme_lower = scheme.to_ascii_lowercase();
+    match scheme_lower.as_str() {
+        "http" | "https" => {
+            if !rest.starts_with("//") {
+                return Err(ValidationError::Invalid {
+                    what: "link URI",
+                    reason: "missing authority (//)",
+                });
+            }
+            let after_slashes = &rest[2..];
+            let host = after_slashes
+                .split(['/', '?', '#'])
+                .next()
+                .unwrap_or_default();
+            if host.is_empty() {
+                return Err(ValidationError::Invalid {
+                    what: "link URI",
+                    reason: "empty host",
+                });
+            }
+        }
+        "mailto" => {
+            if rest.is_empty() {
+                return Err(ValidationError::Invalid {
+                    what: "link URI",
+                    reason: "empty mailto recipient",
+                });
+            }
+        }
+        _ => {
+            return Err(ValidationError::Invalid {
+                what: "link URI",
+                reason: "scheme must be http, https or mailto",
+            });
+        }
+    }
+    if !matches!(classify_uri(uri), LinkTarget::Uri { .. }) {
+        return Err(ValidationError::Invalid {
+            what: "link URI",
+            reason: "not an openable http, https or mailto URI",
         });
     }
     Ok(())
@@ -3085,7 +3199,7 @@ mod tests {
         AnnotationId, AnnotationKind, BatesMark, BlockedAction, BookmarkId, CompareExportFormat,
         CropMargins, DocumentId, DocumentPermissions, ErrorCode, FieldId, FieldKind, FieldOption,
         FontId, HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, IndexEntryId,
-        IndexPageHits, InkColor, InkWidth, LinkId, PageNumberMark, PictureView, RecentId, Recovery,
+        IndexPageHits, InkColor, InkWidth, LinkId, NewLinkTarget, PageNumberMark, PictureView, RecentId, Recovery,
         RequestId, Restrictions, Rgb, Rotation, SecurityFinding, SourceId, StampImageId, StampName,
         TabId, TextAlign, TextBoxInfo, TextBoxModelId, TextMarkKind, UnverifiableReason,
         WatermarkPages, WatermarkPlace,
@@ -7295,5 +7409,230 @@ mod tests {
             truncated: false,
         };
         assert!(res_too_many.validate().is_err());
+    }
+
+    #[test]
+    fn test_new_link_uri_validation() {
+        // Valid web and mailto URIs
+        assert!(check_new_link_uri("https://example.com").is_ok());
+        assert!(check_new_link_uri("http://localhost:8080/foo/bar?baz=1#hash").is_ok());
+        assert!(check_new_link_uri("mailto:user@example.com").is_ok());
+        assert!(check_new_link_uri("HTTP://EXAMPLE.COM/PATH").is_ok());
+        assert!(check_new_link_uri("HTTPS://DOMAIN.ORG").is_ok());
+        assert!(check_new_link_uri("mailto:A@B.COM").is_ok());
+
+        // Empty
+        assert!(check_new_link_uri("").is_err());
+
+        // Whitespace
+        assert!(check_new_link_uri(" https://example.com").is_err());
+        assert!(check_new_link_uri("https://example.com ").is_err());
+        assert!(check_new_link_uri("https://example.com/foo bar").is_err());
+        assert!(check_new_link_uri("https://example.com\t").is_err());
+        assert!(check_new_link_uri("https://example.com\n").is_err());
+
+        // Control and invisible characters
+        assert!(check_new_link_uri("https://example.com/\0").is_err());
+        assert!(check_new_link_uri("https://example.com/\u{200B}").is_err()); // zero-width space
+        assert!(check_new_link_uri("\u{FEFF}https://example.com").is_err()); // BOM
+        assert!(check_new_link_uri("https://example.com/\u{202E}path").is_err()); // RLO
+
+        // Bad schemes
+        assert!(check_new_link_uri("javascript:alert(1)").is_err());
+        assert!(check_new_link_uri("file:///c:/path").is_err());
+        assert!(check_new_link_uri("smb://server/share").is_err());
+        assert!(check_new_link_uri("ftp://ftp.example.com").is_err());
+        assert!(check_new_link_uri("example.com").is_err());
+
+        // Missing //
+        assert!(check_new_link_uri("http:example.com").is_err());
+        assert!(check_new_link_uri("https:example.com").is_err());
+
+        // Empty host
+        assert!(check_new_link_uri("https://").is_err());
+        assert!(check_new_link_uri("https:///").is_err());
+        assert!(check_new_link_uri("https://?query=1").is_err());
+        assert!(check_new_link_uri("https://#hash").is_err());
+        assert!(check_new_link_uri("http://").is_err());
+
+        // Empty mailto
+        assert!(check_new_link_uri("mailto:").is_err());
+
+        // Length limit
+        let long_uri = format!("https://example.com/{}", "a".repeat(MAX_URI_BYTES as usize));
+        assert!(check_new_link_uri(&long_uri).is_err());
+    }
+
+    #[test]
+    fn test_link_rect_validation() {
+        let ok_rect = Rect {
+            x0: 10.0,
+            y0: 20.0,
+            x1: 50.0,
+            y1: 60.0,
+        };
+        assert!(check_link_rect(&ok_rect).is_ok());
+
+        // Exactly MIN_LINK_SIDE_PT (4.0)
+        let min_rect = Rect {
+            x0: 10.0,
+            y0: 20.0,
+            x1: 14.0,
+            y1: 24.0,
+        };
+        assert!(check_link_rect(&min_rect).is_ok());
+
+        // Too narrow (< 4.0)
+        let narrow_rect = Rect {
+            x0: 10.0,
+            y0: 20.0,
+            x1: 13.9,
+            y1: 24.0,
+        };
+        assert!(check_link_rect(&narrow_rect).is_err());
+
+        // Too short (< 4.0)
+        let short_rect = Rect {
+            x0: 10.0,
+            y0: 20.0,
+            x1: 14.0,
+            y1: 23.9,
+        };
+        assert!(check_link_rect(&short_rect).is_err());
+
+        // Inverted
+        let inv_rect = Rect {
+            x0: 50.0,
+            y0: 20.0,
+            x1: 10.0,
+            y1: 60.0,
+        };
+        assert!(check_link_rect(&inv_rect).is_err());
+
+        // Non-finite
+        let nan_rect = Rect {
+            x0: f32::NAN,
+            y0: 20.0,
+            x1: 50.0,
+            y1: 60.0,
+        };
+        assert!(check_link_rect(&nan_rect).is_err());
+    }
+
+    #[test]
+    fn test_new_link_target_and_edit_validation() {
+        let ok_rect = Rect {
+            x0: 10.0,
+            y0: 20.0,
+            x1: 50.0,
+            y1: 60.0,
+        };
+
+        // NewLinkTarget::Page
+        assert!(NewLinkTarget::Page { page: 0 }.validate().is_ok());
+        assert!(NewLinkTarget::Page { page: MAX_PAGE_COUNT - 1 }.validate().is_ok());
+        assert!(NewLinkTarget::Page { page: MAX_PAGE_COUNT }.validate().is_err());
+
+        // NewLinkTarget::Uri
+        assert!(NewLinkTarget::Uri {
+            uri: "https://example.com".into()
+        }
+        .validate()
+        .is_ok());
+        assert!(NewLinkTarget::Uri {
+            uri: "invalid uri".into()
+        }
+        .validate()
+        .is_err());
+
+        // Edit::AddLink
+        assert!(Edit::AddLink {
+            page: 0,
+            rect: ok_rect,
+            target: NewLinkTarget::Page { page: 1 },
+        }
+        .validate()
+        .is_ok());
+
+        assert!(Edit::AddLink {
+            page: MAX_PAGE_COUNT,
+            rect: ok_rect,
+            target: NewLinkTarget::Page { page: 1 },
+        }
+        .validate()
+        .is_err());
+
+        assert!(Edit::AddLink {
+            page: 0,
+            rect: Rect {
+                x0: 0.0,
+                y0: 0.0,
+                x1: 1.0,
+                y1: 1.0,
+            },
+            target: NewLinkTarget::Page { page: 1 },
+        }
+        .validate()
+        .is_err());
+
+        // Edit::SetLinkTarget
+        assert!(Edit::SetLinkTarget {
+            link: LinkId {
+                page_index: 0,
+                index: 1
+            },
+            target: NewLinkTarget::Uri {
+                uri: "https://example.com".into()
+            },
+        }
+        .validate()
+        .is_ok());
+
+        assert!(Edit::SetLinkTarget {
+            link: LinkId {
+                page_index: 0,
+                index: 1
+            },
+            target: NewLinkTarget::Page {
+                page: MAX_PAGE_COUNT
+            },
+        }
+        .validate()
+        .is_err());
+
+        // Edit::DeleteLink
+        assert!(Edit::DeleteLink {
+            link: LinkId {
+                page_index: 0,
+                index: 1
+            }
+        }
+        .validate()
+        .is_ok());
+    }
+
+    #[test]
+    fn test_check_new_link_uri_property_classify_uri() {
+        // Any URI accepted by check_new_link_uri must classify as LinkTarget::Uri in classify_uri.
+        let candidates = [
+            "https://example.com",
+            "http://example.com",
+            "https://sub.domain.org/path/to/page?q=hello&lang=en#heading-1",
+            "http://127.0.0.1:8080/api/v1",
+            "mailto:alice@example.com",
+            "mailto:bob+tag@domain.co.uk",
+            "HTTPS://WWW.GOOGLE.COM/SEARCH?Q=TEST",
+            "HTTP://EXAMPLE.COM",
+            "mailto:info@company.org",
+        ];
+        for uri in candidates {
+            assert!(check_new_link_uri(uri).is_ok());
+            let classified = classify_uri(uri);
+            assert!(
+                matches!(classified, LinkTarget::Uri { ref uri } if uri == uri),
+                "classified mismatch for {}",
+                uri
+            );
+        }
     }
 }

@@ -190,6 +190,7 @@ pub fn bindings() -> String {
         RasterRegion,
         BlockedAction,
         LinkTarget,
+        NewLinkTarget,
         LinkId,
         PageLink,
         LinkArgs,
