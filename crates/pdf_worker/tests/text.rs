@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use ipc_contract::types::{DocumentId, PageText};
 use ipc_contract::worker::{WorkerErrorCode, WorkerRequest, WorkerResponse};
+use pdf_worker::engine::{PdfDocument, RenderedPage};
 use worker_host::{HostConfig, HostError, WorkerHost};
 
 fn corpus(path: &str) -> PathBuf {
@@ -125,6 +126,12 @@ fn text_that_is_drawn_and_clipped_comes_out_once() {
         assert_eq!(all.matches(word).count(), 1, "{word} in {all:?}");
     }
     assert_eq!(all.matches("Twice").count(), 2, "{all:?}");
+    // Mode 7 text comes out where the content shows it. MuPDF 1.28 sent it only at ET, after
+    // MixedStroke, which the same text object draws after it (#638).
+    assert!(
+        lines(&text).contains(&"MixedFill MixedClip MixedStroke"),
+        "{all:?}"
+    );
 
     let (mut host, doc) = open(path);
     for (query, hits) in [
@@ -135,6 +142,78 @@ fn text_that_is_drawn_and_clipped_comes_out_once() {
     ] {
         assert_eq!(search_hits(&mut host, doc, query), hits, "{query}");
     }
+}
+
+/// The pixels of `page` inside `area` (left, top, right, bottom) for which `wanted` says yes.
+fn pixels(
+    page: &RenderedPage,
+    area: [usize; 4],
+    wanted: impl Fn([i32; 3]) -> bool,
+) -> Vec<(usize, usize)> {
+    let [x0, y0, x1, y1] = area;
+    let mut found = Vec::new();
+    for y in y0..y1.min(page.height as usize) {
+        for x in x0..x1.min(page.width as usize) {
+            let at = (y * page.width as usize + x) * 4;
+            let [r, g, b] = [page.rgba[at], page.rgba[at + 1], page.rgba[at + 2]].map(i32::from);
+            if wanted([r, g, b]) {
+                found.push((x, y));
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn a_text_object_that_clips_and_then_draws_keeps_its_clip() {
+    // The glyphs drawn in text rendering modes 4 to 7 become a clip at ET. MuPDF 1.28 decided at
+    // ET from the last mode whether to clip, so a text object that clipped Hello (mode 7) and then
+    // drew World (mode 0) lost its clip, and Hello was not extracted (#638). The build-time patch
+    // in mupdf-sys applies the clip whatever the last mode, and extracts every part of a text
+    // object in the order it is shown.
+    let path = "benign/text-clip-mode-switch.pdf";
+    let text = page_text(path, 0);
+    assert!(lines(&text).contains(&"Hello World"), "{:?}", lines(&text));
+    let (mut host, doc) = open(path);
+    assert_eq!(search_hits(&mut host, doc, "Hello"), 1);
+
+    // After ET the page is filled with blue, which shows only through Hello's glyphs (24 pt at
+    // x 72, baseline 192 pixels from the top at scale 1). World, after it, stays black.
+    let page = PdfDocument::from_bytes(&std::fs::read(corpus(path)).unwrap())
+        .unwrap()
+        .render(0, 1.0, 0)
+        .unwrap();
+    let whole = [0, 0, page.width as usize, page.height as usize];
+    let blue = pixels(&page, whole, |[r, g, b]| b > 200 && r < 80 && g < 80);
+    assert!(blue.len() > 20, "{} blue pixels", blue.len());
+    let outside_hello: Vec<_> = blue
+        .iter()
+        .filter(|&&(x, y)| !(70..130).contains(&x) || !(170..196).contains(&y))
+        .collect();
+    assert!(
+        outside_hello.is_empty(),
+        "{} of {} blue pixels outside Hello, the first {:?}",
+        outside_hello.len(),
+        blue.len(),
+        outside_hello.first()
+    );
+    let world = pixels(&page, [133, 170, 200, 196], |[r, g, b]| r + g + b < 120);
+    assert!(world.len() > 20, "{} black pixels in World", world.len());
+}
+
+#[test]
+fn a_clipped_glyph_that_stands_for_two_letters_gives_both() {
+    // A ToUnicode can map one glyph to more than one character, here the fi ligature to f and i.
+    // MuPDF 1.28 extracted only the f of such a glyph in text rendering mode 7, which only clips
+    // (#678); the build-time patch in mupdf-sys takes mode 7 text from the copy that has them all.
+    let path = "benign/text-clip-ligature.pdf";
+    let text = page_text(path, 0);
+    let all = lines(&text).join("\n");
+    for word in ["Office0", "Office4", "Office7"] {
+        assert_eq!(all.matches(word).count(), 1, "{word} in {all:?}");
+    }
+    let (mut host, doc) = open(path);
+    assert_eq!(search_hits(&mut host, doc, "Office7"), 1);
 }
 
 #[test]
