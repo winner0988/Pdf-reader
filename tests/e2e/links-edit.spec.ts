@@ -39,8 +39,12 @@ test("adding page links and URI links, editing targets, deleting, and undo/redo 
     await pageInput.fill("2");
     await addDialog.getByRole("button", { name: strings.links.add }).click();
     await expect(addDialog).toHaveCount(0);
+    // Link tool is deactivated after placing a link
+    await expect(linkToolButton).toHaveAttribute("aria-pressed", "false");
 
-    // 3. Click again to add a URI link
+    // 3. Activate link tool again to add a URI link
+    await linkToolButton.click();
+    await expect(linkToolButton).toHaveAttribute("aria-pressed", "true");
     await page.mouse.click(pageBox.x + 100, pageBox.y + 150);
     await expect(addDialog).toBeVisible();
 
@@ -50,20 +54,10 @@ test("adding page links and URI links, editing targets, deleting, and undo/redo 
     await uriInput.fill("https://example.com/e2e-test");
     await addDialog.getByRole("button", { name: strings.links.add }).click();
     await expect(addDialog).toHaveCount(0);
-
-    // Turn off link tool
-    await page.keyboard.press("Escape");
     await expect(linkToolButton).toHaveAttribute("aria-pressed", "false");
 
-    // 4. Test page navigation link
-    const pageLinkButton = page.locator("button[data-link]").filter({ hasText: strings.links.hoverPage(2) }).first();
-    await expect(pageLinkButton).toBeVisible();
-    await pageLinkButton.click();
-    // Navigated to page 2
-    await expect(page.getByRole("img", { name: strings.canvas.page(2) })).toBeVisible();
-
-    // 5. Test URI link confirmation dialog
-    const uriLinkButton = page.locator("button[data-link]").filter({ hasText: "https://example.com/e2e-test" }).first();
+    // 4. Test URI link confirmation dialog (while still on page 1)
+    const uriLinkButton = page.locator('button[data-link="uri"]').first();
     await expect(uriLinkButton).toBeVisible();
     await uriLinkButton.click();
 
@@ -73,13 +67,20 @@ test("adding page links and URI links, editing targets, deleting, and undo/redo 
     await page.keyboard.press("Escape");
     await expect(confirmDialog).toHaveCount(0);
 
-    // 6. Test undo and redo
+    // 5. Test undo and redo of the URI link
     await page.keyboard.press("Control+z");
     // URI link is undone
-    await expect(page.locator("button[data-link]").filter({ hasText: "https://example.com/e2e-test" })).toHaveCount(0);
+    await expect(page.locator('button[data-link="uri"]')).toHaveCount(0);
     await page.keyboard.press("Control+y");
     // Redo brings it back
-    await expect(page.locator("button[data-link]").filter({ hasText: "https://example.com/e2e-test" })).toHaveCount(1);
+    await expect(page.locator('button[data-link="uri"]')).toHaveCount(1);
+
+    // 6. Test page navigation link
+    const pageLinkButton = page.locator('button[data-link="page"]').first();
+    await expect(pageLinkButton).toBeVisible();
+    await pageLinkButton.click();
+    // Navigated to page 2
+    await expect(page.getByRole("img", { name: strings.canvas.page(2) })).toBeVisible();
 
     // 7. Save copy and verify PDF structure
     const copyPath = path.join(folder, "with-links.pdf");
