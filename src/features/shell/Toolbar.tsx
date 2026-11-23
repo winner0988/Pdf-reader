@@ -7,6 +7,7 @@ import {
   Eraser,
   FolderOpen,
   LineSquiggle,
+  Link2,
   Minus,
   MoreHorizontal,
   PanelLeft,
@@ -218,6 +219,11 @@ export type ToolbarProps = {
    */
   textBox?: { active: boolean; onToggle?: () => void };
   /**
+   * The link tool (Issue #588, B6-03): turned on or off with its button; a click or drag on a page
+   * then adds or edits a link. Without a toggle (the author does not allow annotating) the button is disabled.
+   */
+  link?: { active: boolean; onToggle?: () => void };
+  /**
    * The security redaction tool (B2-21, ADR 0016): turned on or off with its button; a drag on a
    * page marks an area to be redacted. Without a toggle (the author forbids modifying or the
    * document is signed) the button is disabled and explains why.
@@ -398,6 +404,18 @@ export function Toolbar(props: ToolbarProps) {
             data-text-box-button=""
           >
             <Type />
+          </IconButton>
+        )}
+        {document && props.link && (
+          <IconButton
+            label={strings.links.tool}
+            shortcut={props.link.onToggle ? undefined : strings.annotations.notAllowed}
+            pressed={props.link.active}
+            disabled={!props.link.onToggle}
+            onClick={props.link.onToggle}
+            data-link-button=""
+          >
+            <Link2 />
           </IconButton>
         )}
         {document && props.redact && (

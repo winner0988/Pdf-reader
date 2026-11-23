@@ -19,7 +19,7 @@ import { SignaturesDialog } from "@/features/annotations/SignaturesDialog";
 import { NoteDialog } from "@/features/annotations/NoteDialog";
 import { TextBoxDialog } from "@/features/annotations/TextBoxDialog";
 import { createAnnotationSource, type AnnotationsApi } from "@/features/annotations/source";
-import { pictureRectAt, redactionRectAt, stampRectAt, type ShapeToolKind, type Tool } from "@/features/annotations/tools";
+import { pictureRectAt, redactionRectAt, stampRectAt, linkRectAt, type ShapeToolKind, type Tool } from "@/features/annotations/tools";
 import { useAnnotations } from "@/features/annotations/useAnnotations";
 import { RedactionConfirmDialog } from "@/features/redaction/RedactionConfirmDialog";
 import { FindPersonalDataDialog } from "@/features/redaction/FindPersonalDataDialog";
@@ -28,6 +28,7 @@ import { FieldEdits, until } from "@/features/forms/edits";
 import { FlattenDialog } from "@/features/forms/FlattenDialog";
 import { createFormSource, type FormsApi } from "@/features/forms/source";
 import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
+import { LinkEditDialog } from "@/features/links/LinkEditDialog";
 import type { OcrApi } from "@/features/ocr/api";
 import type { OcrTab } from "@/features/ocr/model";
 import { useOcrView } from "@/features/ocr/useOcrView";
@@ -125,9 +126,11 @@ import type {
   Edit,
   LinkPreview,
   LinkTarget,
+  NewLinkTarget,
   PageLink,
   PagesSource,
   PersonalDataMatch,
+  Rect,
   RedactionSummary,
   SaveResult,
   StampName,
@@ -336,6 +339,11 @@ export function ReaderShell({
   const [linkDialog, setLinkDialog] = useState<LinkDialog | null>(null);
   /** Whether any of the document's text is selected (MVP-15). */
   const [textSelected, setTextSelected] = useState(false);
+  const [linkEditDialogState, setLinkEditDialogState] = useState<
+    | { mode: "add"; page: number; rect: Rect }
+    | { mode: "edit"; link: PageLink }
+    | null
+  >(null);
   /** A passing message in the status bar; `id` counts them, so the same one shows anew each time. */
   const [hint, setHint] = useState<{ text: string; id: number; done: boolean } | null>(null);
   const [zoom, setZoom] = useState<Zoom>("fitWidth");
@@ -436,6 +444,7 @@ export function ReaderShell({
     setLinkHover(null);
     setLinkDialog(null);
     setTextSelected(false);
+    setLinkEditDialogState(null);
     setTool(null);
     setHint(null);
     setRecorded(null);
@@ -1011,6 +1020,93 @@ export function ReaderShell({
       showHint(strings.redaction.toolOn);
     }
   };
+  // The link tool (Issue #588, B6-03).
+  const toggleLink = () => {
+    if (tool?.kind === "link") {
+      setTool(null);
+    } else {
+      setTool({ kind: "link" });
+      showHint(strings.links.toolOn);
+    }
+  };
+
+  const confirmLinkEdit = async (target: NewLinkTarget) => {
+    if (!linkEditDialogState || !editingApi || doc === undefined) return;
+    const state = linkEditDialogState;
+    setLinkEditDialogState(null);
+    try {
+      if (state.mode === "add") {
+        await editingApi.applyEdit(latestDocument()?.doc ?? doc, {
+          kind: "addLink",
+          page: state.page,
+          rect: state.rect,
+          target,
+        });
+      } else {
+        await editingApi.applyEdit(latestDocument()?.doc ?? doc, {
+          kind: "setLinkTarget",
+          link: state.link.id,
+          target,
+        });
+      }
+    } catch {
+      showHint(strings.annotations.failed);
+    }
+  };
+
+  const deleteLinkDirectly = async (link: PageLink) => {
+    if (!editingApi || doc === undefined) return;
+    try {
+      await editingApi.applyEdit(latestDocument()?.doc ?? doc, {
+        kind: "deleteLink",
+        link: link.id,
+      });
+    } catch {
+      showHint(strings.annotations.failed);
+    }
+  };
+
+  const deleteLinkFromDialog = async () => {
+    if (!linkEditDialogState || linkEditDialogState.mode !== "edit" || !editingApi || doc === undefined) return;
+    const link = linkEditDialogState.link;
+    setLinkEditDialogState(null);
+    await deleteLinkDirectly(link);
+  };
+
+  const addLinkFromSelection = async () => {
+    if (!viewRef.current || !editingApi || doc === undefined || !permissions.annotate) return;
+    const marks = await viewRef.current.highlightMarks();
+    if (marks.length !== 1) {
+      showHint(strings.links.crossPageNotAllowed);
+      return;
+    }
+    const mark = marks[0];
+    if (!mark || mark.quads.length === 0) return;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const q of mark.quads) {
+      minX = Math.min(minX, q.ul.x, q.ur.x, q.ll.x, q.lr.x);
+      maxX = Math.max(maxX, q.ul.x, q.ur.x, q.ll.x, q.lr.x);
+      minY = Math.min(minY, q.ul.y, q.ur.y, q.ll.y, q.lr.y);
+      maxY = Math.max(maxY, q.ul.y, q.ur.y, q.ll.y, q.lr.y);
+    }
+    const minSide = LIMITS.minLinkSidePt ?? 4;
+    const width = Math.max(maxX - minX, minSide);
+    const height = Math.max(maxY - minY, minSide);
+    const rect: Rect = {
+      x0: Math.round(minX * 100) / 100,
+      y0: Math.round(minY * 100) / 100,
+      x1: Math.round((minX + width) * 100) / 100,
+      y1: Math.round((minY + height) * 100) / 100,
+    };
+    setLinkEditDialogState({
+      mode: "add",
+      page: mark.page,
+      rect,
+    });
+  };
   // How the shape tool draws (B4-05).
   const [shapeStyle, setShapeStyle] = useState<{ kind: ShapeToolKind; color: InkColor; width: InkWidth }>({
     kind: "rectangle",
@@ -1101,7 +1197,7 @@ export function ReaderShell({
       const here =
         !(target instanceof Element) ||
         target === document.body ||
-        target.closest('[data-region="canvas"], [data-stamp-button], [data-text-box-button], [data-redact-button]') !== null;
+        target.closest('[data-region="canvas"], [data-stamp-button], [data-text-box-button], [data-link-button], [data-redact-button]') !== null;
       // A form field on the page (B2-09) keeps its Enter.
       const typing = target instanceof Element && target.closest("input, textarea, select") !== null;
       if (!here || typing) return;
@@ -1116,6 +1212,12 @@ export function ReaderShell({
           kind: "addRedaction",
           page: currentPage - 1,
           rect: redactionRectAt(middle, chosenPage),
+        });
+      } else if (tool.kind === "link") {
+        setLinkEditDialogState({
+          mode: "add",
+          page: currentPage - 1,
+          rect: linkRectAt(middle, chosenPage),
         });
       } else {
         edit({
@@ -1731,6 +1833,14 @@ export function ReaderShell({
               ? { active: toolOn?.kind === "textBox", onToggle: annotations.textBoxes ? toggleTextBox : undefined }
               : undefined
           }
+          link={
+            editingApi !== undefined && doc !== undefined
+              ? {
+                  active: toolOn?.kind === "link",
+                  onToggle: permissions.annotate ? toggleLink : undefined,
+                }
+              : undefined
+          }
           redact={
             editingApi !== undefined && doc !== undefined
               ? {
@@ -1925,7 +2035,9 @@ export function ReaderShell({
                       onLinkHover={setLinkHover}
                       onLinkActivate={(link) => activateLink(link)}
                       text={textSource}
-                      onSelectionChange={setTextSelected}
+                      onSelectionChange={(selected) => {
+                        setTextSelected(selected);
+                      }}
                       onNoText={ocrView.noText}
                       textVersions={ocrView.textVersions}
                       onRecognised={ocrView.onRecognised}
@@ -1934,6 +2046,9 @@ export function ReaderShell({
                       onEditNote={annotations.editNote}
                       onEditTextBox={annotations.editTextBox}
                       onNewTextBox={annotations.newTextBox}
+                      onNewLink={(page, rect) => setLinkEditDialogState({ mode: "add", page, rect })}
+                      onEditLink={(link) => setLinkEditDialogState({ mode: "edit", link })}
+                      onDeleteLink={deleteLinkDirectly}
                       tool={toolOn ?? undefined}
                       onToolDone={() => setTool(null)}
                       forms={formSource}
@@ -2038,6 +2153,17 @@ export function ReaderShell({
                           {strings.redaction.markSelection}
                           {!redactionAllowed && (
                             <ContextMenuShortcut>{redactionDisabledReason}</ContextMenuShortcut>
+                          )}
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          disabled={!textSelected || !permissions.annotate}
+                          onClick={() => void addLinkFromSelection()}
+                        >
+                          {strings.links.addLink}
+                          {!permissions.annotate && (
+                            <ContextMenuShortcut>
+                              {strings.permissions.notAllowed}
+                            </ContextMenuShortcut>
                           )}
                         </ContextMenuItem>
                       </>
@@ -2422,6 +2548,24 @@ export function ReaderShell({
         onOpenChange={(open) => setDialog(open ? "about" : null)}
         version={APP_VERSION}
       />
+      {linkEditDialogState && (
+        <LinkEditDialog
+          mode={linkEditDialogState.mode}
+          pageCount={pageCount}
+          initialTarget={
+            linkEditDialogState.mode === "edit"
+              ? linkEditDialogState.link.target.kind === "uri"
+                ? { kind: "uri", uri: linkEditDialogState.link.target.uri }
+                : linkEditDialogState.link.target.kind === "page"
+                  ? { kind: "page", page: linkEditDialogState.link.target.pageIndex }
+                  : undefined
+              : undefined
+          }
+          onConfirm={confirmLinkEdit}
+          onDelete={linkEditDialogState.mode === "edit" ? deleteLinkFromDialog : undefined}
+          onCancel={() => setLinkEditDialogState(null)}
+        />
+      )}
     </TooltipProvider>
   );
 }

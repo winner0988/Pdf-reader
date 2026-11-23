@@ -26,6 +26,7 @@ export type Tool =
   | { kind: "picture"; picture: StampImageInfo }
   | { kind: "textBox" }
   | { kind: "redaction" }
+  | { kind: "link" }
   | { kind: "shape"; shapeKind: ShapeToolKind; color: InkColor; width: InkWidth };
 
 export const INK_COLORS: InkColor[] = ["black", "red", "blue", "green"];
@@ -128,6 +129,15 @@ export const REDACTION_HEIGHT_PT = 24;
 /** The rectangle a redaction mark takes when put down at `at` (page space), inside the page. */
 export function redactionRectAt(at: Point, page: PageSize): Rect {
   return rectAround(at, page, Math.min(REDACTION_WIDTH_PT, page.widthPt), Math.min(REDACTION_HEIGHT_PT, page.heightPt));
+}
+
+/** A default link is put down 120 points wide and 24 high. */
+export const LINK_WIDTH_PT = 120;
+export const LINK_HEIGHT_PT = 24;
+
+/** The rectangle a link takes when put down at `at` (page space), inside the page. */
+export function linkRectAt(at: Point, page: PageSize): Rect {
+  return rectAround(at, page, Math.min(LINK_WIDTH_PT, page.widthPt), Math.min(LINK_HEIGHT_PT, page.heightPt));
 }
 
 /** The longer side of a picture stamp when it is put down, in points. */
