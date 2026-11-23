@@ -1474,6 +1474,48 @@ pub struct CompressResult {
     pub partial: bool,
 }
 
+/// Arguments of `searchable_copy` (B4-08, Issue #416, ADR 0028): the open document is written
+/// with an invisible OCR text layer on each recognised scanned page, to a file the user chooses
+/// next. Any other field is rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SearchableCopyArgs {
+    pub doc: DocumentId,
+}
+
+/// Why a page did not receive an invisible OCR text layer in a searchable copy (B4-08, ADR 0028).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SearchableSkipReason {
+    /// The page already has text of its own, or is not mostly an image.
+    NotScan,
+    /// OCR recognition failed for this page (or was not yet completed).
+    Failed,
+    /// OCR recognition timed out for this page.
+    TimedOut,
+    /// OCR recognition found no writable horizontal text on this page.
+    NoText,
+}
+
+/// A page that did not receive an invisible text layer in `searchable_copy`, and why (B4-08).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchableSkippedPage {
+    /// 0-based page index.
+    pub page_index: u32,
+    pub reason: SearchableSkipReason,
+}
+
+/// What `searchable_copy` wrote (B4-08, ADR 0028), for the dialog to report.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchableCopyResult {
+    /// Number of pages that received an invisible text layer.
+    pub added_pages: u32,
+    /// Pages that did not receive a text layer, in ascending page order, with reasons.
+    pub skipped: Vec<SearchableSkippedPage>,
+}
+
 /// What to do with annotations when saving a sanitized copy (B3-15).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

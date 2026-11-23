@@ -16,9 +16,9 @@ use crate::types::{
     PageLink, PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark,
     PageSize, PageText, Password, PdfDate, PersonalDataMatches, Point, RasterRegion, Rect,
     RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions,
-    SanitizeReport, SearchHit, SecurityReport, Shape, SignatureReport, SourceId, StampImageId,
-    StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle, TextMarkKind, Watermark,
-    WatermarkContent, WatermarkPages, WatermarkPlace,
+    SanitizeReport, SearchHit, SearchableSkippedPage, SecurityReport, Shape, SignatureReport,
+    SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle, TextMarkKind,
+    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 
 /// An attachment of a document as reported by the worker (B3-20, ADR 0025).
@@ -1073,6 +1073,16 @@ pub enum WorkerRequest {
         quality: ImageQuality,
         max_side: Option<u32>,
     },
+    /// Writes to `file` (as for `Save`) a copy of the document, edits included, with an invisible
+    /// OCR text layer (`3 Tr`, GlyphLessFont) on each recognised scanned page (B4-08, Issue #416,
+    /// ADR 0028). Uses only the OCR results already kept in the worker. The open document is not
+    /// changed. Answered by `Searchable`, never appended. Refused for an encrypted document and
+    /// for a signed one (its signatures would not hold).
+    SearchableCopy {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
+    },
     /// Writes to `file` (as for `Save`) a copy of the document, edits included, whose pictures
     /// carry nothing but themselves: what a camera or a program wrote into them (EXIF, XMP and
     /// the rest) is taken out without encoding them again (B3-04, docs/architecture/batch.md).
@@ -1484,6 +1494,15 @@ pub enum WorkerResponse {
         images: u32,
         changed: u32,
         partial: bool,
+    },
+    /// `SearchableCopy` is done: the copy is `bytes` long; `added_pages` pages received an
+    /// invisible OCR text layer, and `skipped` lists the pages that did not and why (B4-08,
+    /// ADR 0028).
+    Searchable {
+        request: RequestId,
+        bytes: u64,
+        added_pages: u32,
+        skipped: Vec<SearchableSkippedPage>,
     },
     /// `ExifCleanCopy` is done: the copy is `bytes` long; `pictures` pictures (and other JPEG
     /// streams) were looked at, and `cleaned` of them had something taken out.

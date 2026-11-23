@@ -90,10 +90,12 @@ mod personal_data;
 mod properties;
 mod redaction;
 mod sanitize;
+mod searchable_copy;
 
 pub use create::{Created, PdfBuilder};
 pub use identifier::write_identifier;
 pub use ocr::OcrKnown;
+pub use searchable_copy::SearchableCopy;
 
 mod outline;
 mod signatures;

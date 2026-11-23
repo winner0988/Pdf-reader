@@ -97,6 +97,16 @@ pub const COMPRESSED_COPY_SAME_FILE_TITLE: &str = "請選擇其他檔案";
 pub const COMPRESSED_COPY_SAME_FILE_MESSAGE: &str =
     "壓縮會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
 
+/// Saving a searchable copy with invisible OCR text layers (B4-08, Issue #416, ADR 0028): where
+/// the copy goes, what it is called at first, and why the document's own file cannot be chosen.
+pub const SEARCHABLE_COPY_DIALOG_TITLE: &str = "另存為可搜尋的 PDF：選擇副本的位置";
+pub fn searchable_copy_file_name(stem: &str) -> String {
+    format!("{stem}（可搜尋）.pdf")
+}
+pub const SEARCHABLE_COPY_SAME_FILE_TITLE: &str = "請選擇其他檔案";
+pub const SEARCHABLE_COPY_SAME_FILE_MESSAGE: &str =
+    "另存為可搜尋的 PDF 會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
+
 /// Signing a document (B3-06, ADR 0020): the open dialog for the certificate file and its filter,
 /// the save dialog for the signed copy and what the copy is called at first, and why the copy
 /// cannot go over the document's own file.
@@ -408,6 +418,14 @@ mod tests {
     fn an_xfdf_export_is_named_after_the_document() {
         assert_eq!(xfdf_file_name("報告"), "報告（註解）.xfdf");
         assert_eq!(xfdf_file_name("file_name"), "file_name（註解）.xfdf");
+        assert_eq!(
+            super::searchable_copy_file_name("報告"),
+            "報告（可搜尋）.pdf"
+        );
+        assert_eq!(
+            super::searchable_copy_file_name("scan"),
+            "scan（可搜尋）.pdf"
+        );
     }
 
     #[test]

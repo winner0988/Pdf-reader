@@ -30,6 +30,7 @@ import { createFormSource, type FormsApi } from "@/features/forms/source";
 import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
 import type { OcrApi } from "@/features/ocr/api";
 import type { OcrTab } from "@/features/ocr/model";
+import { SearchableCopyDialog } from "@/features/ocr/SearchableCopyDialog";
 import { useOcrView } from "@/features/ocr/useOcrView";
 import type { CreateApi } from "@/features/create/api";
 import { CreatePdfDialog } from "@/features/create/CreatePdfDialog";
@@ -368,6 +369,7 @@ export function ReaderShell({
     | "encrypt"
     | "decrypt"
     | "compress"
+    | "searchableCopy"
     | "create"
     | "sensitive"
     | "sign"
@@ -451,6 +453,7 @@ export function ReaderShell({
       dialog === "watermark" ||
       dialog === "encrypt" ||
       dialog === "compress" ||
+      dialog === "searchableCopy" ||
       dialog === "sensitive" ||
       dialog === "sign"
     ) {
@@ -1621,6 +1624,7 @@ export function ReaderShell({
     onSign: signingApi && doc !== undefined && !document_?.encrypted ? () => setDialog("sign") : undefined,
     signBlocked: signingApi !== undefined && doc !== undefined && document_?.encrypted === true,
     ocr: ocrView.menu,
+    onSearchableCopy: savable && ocrApi ? () => setDialog("searchableCopy") : undefined,
     flatten:
       document_?.hasForm && editingApi !== undefined
         ? { onClick: fillForms ? () => setFlattenOpen(true) : undefined }
@@ -2323,6 +2327,21 @@ export function ReaderShell({
           onOpenChange={(open) => setDialog(open ? "compress" : null)}
           doc={doc}
           onCompress={(args) => savingApi.compressImages(args)}
+        />
+      )}
+      {savable && ocrApi && (
+        <SearchableCopyDialog
+          open={dialog === "searchableCopy"}
+          onOpenChange={(open) => setDialog(open ? "searchableCopy" : null)}
+          doc={doc}
+          pageCount={pageCount}
+          encrypted={document_?.encrypted === true}
+          signed={isSigned}
+          ocrProgress={ocrView.progress}
+          ocrApi={ocrApi}
+          onSaveSearchable={(args) =>
+            savingApi.searchableCopy ? savingApi.searchableCopy(args) : Promise.resolve(null)
+          }
         />
       )}
       {exportable && (

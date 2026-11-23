@@ -62,6 +62,9 @@ enum Kind {
     /// Where to write a copy of a document with its pictures compressed (B3-01), suggesting
     /// `file_name`.
     CompressedCopy { file_name: String },
+    /// Where to write a searchable copy of a document with invisible OCR text layers (B4-08,
+    /// ADR 0028), suggesting `file_name`.
+    SearchableCopy { file_name: String },
     /// Where to write a copy of a document with page marks (B3-16), suggesting `file_name`.
     PageMarks { file_name: String },
     /// Where to save some pages of a document as a file of their own (B2-06), suggesting
@@ -237,6 +240,17 @@ pub async fn compressed_copy_file(
         .and_then(|mut paths| paths.pop()))
 }
 
+/// Asks where to write a searchable copy of a document with invisible OCR text layers (B4-08,
+/// ADR 0028), suggesting `file_name`. The dialog itself asks before replacing an existing file.
+pub async fn searchable_copy_file(
+    window: &WebviewWindow,
+    file_name: String,
+) -> Result<Option<PathBuf>, IpcError> {
+    Ok(run(window, Kind::SearchableCopy { file_name })
+        .await?
+        .and_then(|mut paths| paths.pop()))
+}
+
 /// Asks where to write a copy of a document with page marks (B3-16), suggesting
 /// `file_name`. The dialog itself asks before replacing an existing file.
 pub async fn page_marks_file(
@@ -400,6 +414,7 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
         | Kind::EncryptedCopy { .. }
         | Kind::DecryptedCopy { .. }
         | Kind::CompressedCopy { .. }
+        | Kind::SearchableCopy { .. }
         | Kind::PageMarks { .. }
         | Kind::SplitPdf { .. }
         | Kind::SaveCreatedPdf { .. }
@@ -470,6 +485,7 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
             | Kind::EncryptedCopy { .. }
             | Kind::DecryptedCopy { .. }
             | Kind::CompressedCopy { .. }
+            | Kind::SearchableCopy { .. }
             | Kind::PageMarks { .. }
             | Kind::SplitPdf { .. }
             | Kind::SaveCreatedPdf { .. }
@@ -590,6 +606,10 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
             strings::COMPRESSED_COPY_DIALOG_TITLE,
             one(strings::PDF_FILTER_NAME, "*.pdf"),
         ),
+        Kind::SearchableCopy { .. } => (
+            strings::SEARCHABLE_COPY_DIALOG_TITLE,
+            one(strings::PDF_FILTER_NAME, "*.pdf"),
+        ),
         Kind::PageMarks { .. } => (
             strings::PAGE_MARKS_DIALOG_TITLE,
             one(strings::PDF_FILTER_NAME, "*.pdf"),
@@ -676,6 +696,7 @@ fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
         | Kind::EncryptedCopy { file_name }
         | Kind::DecryptedCopy { file_name }
         | Kind::CompressedCopy { file_name }
+        | Kind::SearchableCopy { file_name }
         | Kind::PageMarks { file_name }
         | Kind::SplitPdf { file_name }
         | Kind::SaveCreatedPdf { file_name }
@@ -833,6 +854,11 @@ mod tests {
             file_name: "報告（已壓縮）.pdf".to_owned(),
         });
         assert!(compressed(FOS_DONTADDTORECENT) && compressed(FOS_OVERWRITEPROMPT));
+
+        let searchable = options_of(Kind::SearchableCopy {
+            file_name: "報告（可搜尋）.pdf".to_owned(),
+        });
+        assert!(searchable(FOS_DONTADDTORECENT) && searchable(FOS_OVERWRITEPROMPT));
 
         let split = options_of(Kind::SplitPdf {
             file_name: "報告-p2-4.pdf".to_owned(),

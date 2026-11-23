@@ -43,7 +43,7 @@ MuPDF, and the libraries built into it
 - OpenJPEG | BSD-2-Clause | https://www.openjpeg.org/ | L10
     Built into MuPDF.
 - Tesseract OCR | Apache-2.0 | https://github.com/tesseract-ocr/tesseract | L4
-    Built into MuPDF.
+    Built into MuPDF; also the source of the embedded empty font GlyphLessFont (src/api/pdf_ttf.h).
 - zlib | Zlib | https://zlib.net/ | L11
     Built into MuPDF.
 - URW++ base 35 fonts | distributed with MuPDF, under its licence | https://mupdf.com/ | L1
@@ -84,7 +84,7 @@ Rust crates
 - cfg-if 1.0.5 | MIT OR Apache-2.0 | https://github.com/rust-lang/cfg-if | L4, L31
 - cobs 0.3.0 | MIT OR Apache-2.0 | https://github.com/jamesmunns/cobs.rs | L32, L33
 - const-oid 0.10.2 | Apache-2.0 OR MIT | https://github.com/RustCrypto/formats | L4, L34
-- cookie 0.18.2 | MIT OR Apache-2.0 | https://github.com/SergioBenitez/cookie-rs | L35, L36
+- cookie 0.18.3 | MIT OR Apache-2.0 | https://github.com/SergioBenitez/cookie-rs | L35, L36
 - cpufeatures 0.2.17 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils | L4, L37
 - cpufeatures 0.3.1 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils | L4, L34
 - crc32fast 1.5.2 | MIT OR Apache-2.0 | https://github.com/srijs/rust-crc32fast | L32, L38
@@ -2554,7 +2554,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ----- L35 -----
-Used by: cookie 0.18.2
+Used by: cookie 0.18.3
 
 Apache License
                         Version 2.0, January 2004
@@ -2760,7 +2760,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ----- L36 -----
-Used by: cookie 0.18.2
+Used by: cookie 0.18.3
 
 Copyright (c) 2017 Sergio Benitez
 Copyright (c) 2014 Alex Crichton

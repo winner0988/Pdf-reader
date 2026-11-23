@@ -102,10 +102,19 @@ Tesseract 與 Leptonica 隨 `mupdf-sys` 建置，版本由 fork 的 `mupdf` =0.8
 
 ## 已知限制
 
-- 直書的文字需要 `*_vert` 的語言資料（匯入後可以用）；沒有偵測頁面方向，轉了 90 度的掃描檔要先轉正再辨識（轉動頁面會重新辨識）。
+- 直書的文字需要 `*_vert` 的語言資料（匯入後可以用）；「另存為可搜尋的 PDF」不寫入直排文字層。沒有偵測頁面方向，轉了 90 度的掃描檔要先轉正再辨識（轉動頁面會重新辨識）。
 - 一次只用一種語言；繁體中文的資料也認得英文與數字，英文的資料不認得中文。
 - 搜尋「PDF閱讀器」找不到辨識結果「PDF 閱讀器」：中日韓字元與英文字母之間有沒有空白，辨識無從得知，依空隙大小猜。
 - 字元外框只是估計，選取時的標示邊緣可能差幾個像素。
+
+## 另存為可搜尋的 PDF（B4-08，#416）
+
+決定見 [ADR 0028](../adr/0028-searchable-pdf-text-layer.md)。把已經在 worker 記憶體（`OcrPages`）中辨識好的掃描頁文字寫成隱藏文字層，整份重寫為新副本，不修改原檔，副本也不自動開啟或不加入最近開啟的檔案。
+
+- **字型**：使用 Tesseract `src/api/pdf_ttf.h` 的 573 位元組空白 TrueType 字型 `GlyphLessFont`（Apache-2.0），整份文件只嵌入一次，建為 Type0（`Identity-H`）搭配 CIDFontType2（`/DW 1000`）與 `ToUnicode` CMap（每段 `bfrange` 最多 256 個字碼且不跨低位元組邊界，每個 `beginbfrange` 區塊最多 100 筆，符合 PDF 32000-1 §9.10.3）。
+- **混合排版**：每一行水平文字以統一字級（`Tf`）與基線放置，詞與詞之間顯式寫出 U+0020 空白，逐字以水平縮放（`Tz`）對齊 OCR 字元寬度；超出基本多文種平面（`> U+FFFF`）的字元以 `/Span << /ActualText <FEFF…> >> BDC … EMC` 包覆 UTF-16 代理對輸出。直排文字行略過不寫，單頁字數維持 `MAX_PAGE_TEXT_CHARS` 上限。
+- **頁面內容與座標**：原頁面內容串流以 `q … Q` 包覆後再附加 `3 Tr`（不可見）文字串流，確保原內容未配對的 `cm`／狀態不污染文字層；座標以 `page_to_pdf`（MuPDF `page_ctm` 的反矩陣）從頁面座標轉回 PDF 使用者空間，正確處理 `/Rotate` 與非原點 `MediaBox`/`CropBox`。原本就有文字的頁面完全不修改。
+- **請求與命令**：worker 新增 `WorkerRequest::SearchableCopy` / `WorkerResponse::Searchable`；主行程新增 `searchable_copy` Tauri 命令（預設檔名 `<檔名>（可搜尋）.pdf`、拒絕覆寫原檔、拒絕加密與已簽章文件且不寫出檔案、保留機敏文件識別碼）。前端透過「⋯」選單「另存為可搜尋的 PDF…」開啟專用對話框，重用既有排程器完成辨識後呼叫 `searchable_copy` 並列出略過的頁面與原因。
 
 ## 測試
 

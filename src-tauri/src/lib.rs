@@ -195,6 +195,7 @@ pub fn run() {
             commands::encrypt_copy,
             commands::decrypt_copy,
             commands::compress_images,
+            commands::searchable_copy,
             commands::check_signing,
             commands::choose_signing_file,
             commands::list_signing_certificates,
