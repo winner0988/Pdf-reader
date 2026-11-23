@@ -1,10 +1,8 @@
 // English UI (ADR 0029, #683) in the real app:
 // Starts with English UI setting and verifies the English string tables,
 // language attribute, key screens, and accessibility (axe).
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
-import path from "node:path";
 
 import type { Page } from "@playwright/test";
 
@@ -58,23 +56,7 @@ async function problems(page: Page, skip: Record<string, string> = {}): Promise<
 }
 
 test("starts with English interface, displays English UI, and passes accessibility checks", async ({ launch }) => {
-  const data = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-data-en-"));
-  const settingsFile = path.join(data, "settings.json");
-  writeFileSync(
-    settingsFile,
-    JSON.stringify({
-      version: 1,
-      theme: "light",
-      language: "en",
-      recordRecentFiles: true,
-      ocrAuto: true,
-      ocrLanguage: null,
-      textIndex: false,
-    }),
-    "utf8",
-  );
-
-  const page = await launch(corpus("benign/single-page.pdf"), { dataDir: data });
+  const page = await launch(corpus("benign/single-page.pdf"), { systemLanguage: "en" });
   await page.emulateMedia({ colorScheme: "light" });
 
   // HTML lang attribute reflects English setting
@@ -97,7 +79,7 @@ test("starts with English interface, displays English UI, and passes accessibili
   const settingsDialog = page.getByRole("dialog", { name: enStrings.settings.title });
   await expect(settingsDialog).toBeVisible();
   await expect(settingsDialog.getByRole("heading", { name: enStrings.settings.languageTitle })).toBeVisible();
-  await expect(settingsDialog.getByRole("radio", { name: enStrings.settings.languageEn })).toBeChecked();
+  await expect(settingsDialog.getByRole("radio", { name: enStrings.settings.languageSystem(enStrings.settings.languageEn) })).toBeChecked();
 
   // Accessibility check on settings dialog
   expect(await problems(page, APPLICATION)).toEqual([]);

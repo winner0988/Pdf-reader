@@ -26,6 +26,10 @@ pub fn map_language_name(lang_name: &str) -> &'static str {
 /// The system's preferred UI language according to Windows.
 #[cfg(windows)]
 pub fn system_ui_language() -> &'static str {
+    if let Ok(val) = std::env::var("PDF_READER_SYSTEM_LANGUAGE") {
+        return map_language_name(&val);
+    }
+
     use windows_sys::Win32::Globalization::{GetUserPreferredUILanguages, MUI_LANGUAGE_NAME};
 
     let mut num_languages: u32 = 0;
