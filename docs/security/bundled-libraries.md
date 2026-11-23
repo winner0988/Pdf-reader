@@ -6,7 +6,7 @@
 
 - **查驗基準版本**：MuPDF 1.28.6（git commit [`da5f5eb890d7b3fb76903160b5f7f48ba1301492`](https://github.com/ArtifexSoftware/mupdf/commit/da5f5eb890d7b3fb76903160b5f7f48ba1301492)）
 - **mupdf-sys 來源**：[`winner0988/mupdf-rs`](https://github.com/winner0988/mupdf-rs) 的 `v0.8.0-mupdf-1.28` 分支（commit `206fd893e1cc8d6cc6facb8e520541e0f8ad88e0`，見 [mupdf-binding.md](../architecture/mupdf-binding.md)）
-- **查驗日期**：2026-11-21
+- **查驗日期**：2026-11-23
 
 ---
 
