@@ -4,7 +4,7 @@ import { strings as enStrings } from "./en";
 import { strings as zhTwStrings } from "./zh-TW";
 import { currentLanguage, getSystemLanguage } from "./index";
 
-const CHINESE_REGEX = /[\u4e00-\u9fa5]/;
+const CHINESE_REGEX = /\p{Script=Han}|[\u3000-\u303f\uff00-\uffef]/u;
 
 const CHINESE_WHITELIST = new Set([
   "settings.languageZhTw",

@@ -17,5 +17,5 @@ export function restrictionSummary(permissions: DocumentPermissions): string | n
   if (!permissions.copy) restricted.push(t.noCopy);
   if (!permissions.print) restricted.push(t.noPrint);
   else if (!permissions.printHighQuality) restricted.push(t.lowResPrint);
-  return restricted.length > 0 ? t.restricted(restricted.join("、")) : null;
+  return restricted.length > 0 ? t.restricted(restricted.join(t.separator)) : null;
 }

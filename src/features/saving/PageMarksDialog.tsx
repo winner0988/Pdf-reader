@@ -126,7 +126,7 @@ export function PageMarksDialog({
             <h3 className="font-medium text-sm">{t.previewTitle}</h3>
             {conflicts.length > 0 && (
               <p className="mt-1 text-xs text-destructive font-medium">
-                {t.conflictError} {conflicts.map(posLabel).join("、")}
+                {t.conflictError} {conflicts.map(posLabel).join(t.listSeparator)}
               </p>
             )}
 

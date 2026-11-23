@@ -156,7 +156,7 @@ export function CompareDialog({
             >
               {otherTabs.map((tab) => (
                 <option key={tab.tab} value={tab.doc} disabled={!tab.copyAllowed}>
-                  {tab.displayName}{!tab.copyAllowed ? `（${t.tabNoCopy}）` : ""}
+                  {!tab.copyAllowed ? t.tabNoCopyOption(tab.displayName) : tab.displayName}
                 </option>
               ))}
             </select>
@@ -262,9 +262,11 @@ export function CompareDialog({
                   >
                     <div role="list" className="space-y-2">
                       {result.items.map((item, idx) => {
-                        const ariaLabel = `${t.itemPages(item.pageA + 1, item.pageB + 1)}。${
-                          item.deleted ? `${t.deletedLabel}：${item.deleted}。` : ""
-                        }${item.inserted ? `${t.insertedLabel}：${item.inserted}。` : ""}`;
+                        const ariaLabel = t.itemAriaLabel(
+                          t.itemPages(item.pageA + 1, item.pageB + 1),
+                          item.deleted,
+                          item.inserted,
+                        );
 
                         return (
                           <div key={idx} role="listitem">
@@ -284,13 +286,13 @@ export function CompareDialog({
                               </div>
                               {item.deleted && (
                                 <div className="text-xs font-mono bg-destructive/10 text-destructive rounded px-2 py-1 break-words line-through whitespace-pre-wrap">
-                                  <span className="sr-only">{t.deletedLabel}：</span>
+                                  <span className="sr-only">{t.deletedPrefix}</span>
                                   {item.deleted}
                                 </div>
                               )}
                               {item.inserted && (
                                 <div className="text-xs font-mono bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 rounded px-2 py-1 break-words whitespace-pre-wrap">
-                                  <span className="sr-only">{t.insertedLabel}：</span>
+                                  <span className="sr-only">{t.insertedPrefix}</span>
                                   {item.inserted}
                                 </div>
                               )}

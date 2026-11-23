@@ -27,7 +27,7 @@ const noChineseInCode = {
     ) {
       return {};
     }
-    const CHINESE_REGEX = /[\u4e00-\u9fa5]/;
+    const CHINESE_REGEX = /\p{Script=Han}|[\u3000-\u303f\uff00-\uffef]/u;
     return {
       Literal(node) {
         if (typeof node.value === "string" && CHINESE_REGEX.test(node.value)) {

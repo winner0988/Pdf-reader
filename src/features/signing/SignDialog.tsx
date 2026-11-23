@@ -278,7 +278,7 @@ export function SignDialog({ open, onOpenChange, doc, page, api }: SignDialogPro
                                   </label>
                                   <span id={detail} className="text-muted-foreground">
                                     {t.certificateDetail(listedOne.issuer, dateOf(listedOne.expires))}
-                                    {listedOne.problem && `（${t.problems[listedOne.problem]}）`}
+                                    {listedOne.problem && t.problemWithParentheses(t.problems[listedOne.problem])}
                                   </span>
                                 </span>
                               </li>

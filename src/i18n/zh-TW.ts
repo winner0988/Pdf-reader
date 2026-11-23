@@ -148,6 +148,7 @@ export const strings = {
     squiggly: (color: string) => `波浪線（${color}）`,
     squigglyNeedsText: "波浪線：先選取文字",
     more: "更多",
+    shortcutTooltip: (label: string, shortcut: string) => `${label}（${shortcut}）`,
   },
   statusBar: {
     pageStatus: (page: number, total: number, zoom: string) => `第 ${page} / ${total} 頁 · ${zoom}`,
@@ -286,6 +287,7 @@ export const strings = {
   },
   permissions: {
     restricted: (what: string) => `已限制：${what}`,
+    separator: "、",
     noCopy: "不可複製",
     noPrint: "不可列印",
     lowResPrint: "只能低解析度列印",
@@ -367,6 +369,7 @@ export const strings = {
     textBoxSaying: (text: string) => `文字方塊：${text}`,
     /** The shape tools (B4-05). */
     shape: "圖形",
+    shapeWithKind: (shape: string, kind: string) => `${shape}（${kind}）`,
     shapeStyle: "圖形的顏色與粗細",
     shapeKinds: {
       rectangle: "矩形",
@@ -694,6 +697,8 @@ export const strings = {
     posBottomLeft: "下左",
     posBottomCenter: "下中",
     posBottomRight: "下右",
+    listSeparator: "、",
+    withHint: (label: string, hint: string) => `${label}（${hint}）`,
     conflictError: "有多個標記放在同一個位置：",
     noMarksError: "請至少啟用一項標記（頁碼、Bates 編號或頁首頁尾）",
     commonTitle: "外觀與範圍",
@@ -744,8 +749,10 @@ export const strings = {
     title: "加密並另存新檔",
     description: "把目前的文件以 AES-256 加密後另存成新檔。目前的文件與它的檔案不會改變。",
     openPassword: "開啟密碼",
+    openPasswordAgain: "開啟密碼（再輸入一次）",
     openPasswordHint: "沒有開啟密碼的話，任何人都能開啟這份副本。",
     permissionsPassword: "權限密碼",
+    permissionsPasswordAgain: "權限密碼（再輸入一次）",
     permissionsPasswordHint: "用來解除下面的限制；有任何限制時一定要設，而且要與開啟密碼不同。",
     again: "再輸入一次",
     restrictionsTitle: "限制",
@@ -852,6 +859,7 @@ export const strings = {
       notYetValid: "還沒生效",
       notForSigning: "不能用來簽署",
     },
+    problemWithParentheses: (problem: string) => `（${problem}）`,
     pinNote: "如果這張憑證要 PIN，會由 Windows 或卡片的程式詢問，app 不會看到 PIN。",
     fileLabel: "憑證檔",
     chooseFile: "選擇憑證檔…",
@@ -1082,6 +1090,7 @@ export const strings = {
     noTextOneSide: (name: string) => `「${name}」沒有文字，建議先執行文字辨識（OCR）。`,
     copyNotAllowed: "其中一份文件的作者不允許複製文字。",
     tabNoCopy: "這份文件的作者不允許複製文字",
+    tabNoCopyOption: (name: string) => `${name}（這份文件的作者不允許複製文字）`,
     allTabsNoCopy: "其他開啟的文件皆不允許複製文字，無法進行比較。",
     diffCount: (count: number) => `共找到 ${count} 處文字差異`,
     truncated: "差異過多或比對已達時間上限，僅列出部分結果。",
@@ -1089,8 +1098,16 @@ export const strings = {
     pageTextTruncated: "部分頁面的文字過長已被截斷。",
     itemPages: (pageA: number, pageB: number) => `目前第 ${pageA} 頁 / 對照第 ${pageB} 頁`,
     itemTruncated: "文字過長已截斷",
+    itemAriaLabel: (pages: string, deleted: string | null, inserted: string | null) => {
+      let s = `${pages}。`;
+      if (deleted) s += `刪除：${deleted}。`;
+      if (inserted) s += `新增：${inserted}。`;
+      return s;
+    },
     deletedLabel: "刪除",
+    deletedPrefix: "刪除：",
     insertedLabel: "新增",
+    insertedPrefix: "新增：",
     exportText: "匯出純文字…",
     exportMarkdown: "匯出 Markdown…",
     exporting: "正在匯出…",
@@ -1135,7 +1152,7 @@ export const strings = {
     hoverBlocked: (reason: string) => `已封鎖：${reason}`,
     confirmTitle: "要開啟外部連結嗎？",
     confirmBody: "這個連結會在預設瀏覽器中開啟。瀏覽器會連上網路，對方可能因此得知你的 IP 位址。",
-    confirmHost: "網站",
+    confirmHost: "網站：",
     confirmFullUrl: "完整網址",
     warnIdn: (asciiHost: string) => `網址包含非拉丁字母，可能是假冒的網站。實際網址：${asciiHost}`,
     warnControl: "網址包含會改變文字顯示方向的隱藏字元，已以 [U+XXXX] 標示。",
@@ -1447,6 +1464,7 @@ export const strings = {
     pageNote: "此頁文字由 OCR 辨識，可能有誤",
     menu: "辨識此文件的文字",
     menuRunning: "正在辨識文字…",
+    languageWithCode: (name: string, code: string) => `${name}（${code}）`,
     /** What the languages of the data are called (the others show their code). */
     languages: {
       eng: "English",
@@ -1845,6 +1863,7 @@ export const strings = {
     fileSize: "檔案大小",
     pageCount: "頁數",
     pageSize: "頁面尺寸",
+    pageSizeValue: (wMm: number, hMm: number, wPt: number, hPt: number) => `${wMm} × ${hMm} mm（${wPt} × ${hPt} pt）`,
     pdfVersion: "PDF 版本",
     docTitle: "標題",
     author: "作者",

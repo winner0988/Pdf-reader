@@ -34,7 +34,9 @@ pub fn system_ui_language() -> &'static str {
 
     let mut num_languages: u32 = 0;
     let mut buffer_size: u32 = 0;
-    // First query the required buffer size in UTF-16 code units (including null terminators).
+    // SAFETY: Passing a null pointer for the buffer with `buffer_size` initialized to 0 queries
+    // the required buffer size in UTF-16 code units; `num_languages` and `buffer_size` are valid
+    // out-pointers to stack variables.
     let success = unsafe {
         GetUserPreferredUILanguages(
             MUI_LANGUAGE_NAME,
@@ -48,6 +50,9 @@ pub fn system_ui_language() -> &'static str {
     }
 
     let mut buffer = vec![0u16; buffer_size as usize];
+    // SAFETY: `buffer.as_mut_ptr()` comes from the allocated vector `buffer` of length `buffer_size`,
+    // which lives through the call; `buffer_size` passes its capacity and receives the written code
+    // units. If the call fails (`success == 0`), `buffer` is not read and we return early.
     let success = unsafe {
         GetUserPreferredUILanguages(
             MUI_LANGUAGE_NAME,

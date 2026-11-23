@@ -66,7 +66,7 @@ export function LinkConfirmDialog({ preview, onOpen, onClose, copyText = copy }:
         </DialogHeader>
         {preview.host !== null && (
           <p className="text-sm">
-            {t.confirmHost}：
+            {t.confirmHost}
             <strong dir="ltr" data-host className="font-semibold break-all">
               {revealHidden(preview.host)}
             </strong>

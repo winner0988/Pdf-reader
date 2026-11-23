@@ -148,6 +148,7 @@ export const strings: Strings = {
     squiggly: (color: string) => `Squiggly (${color})`,
     squigglyNeedsText: "Squiggly: select text first",
     more: "More",
+    shortcutTooltip: (label: string, shortcut: string) => `${label} (${shortcut})`,
   },
   statusBar: {
     pageStatus: (page: number, total: number, zoom: string) => `Page ${page} / ${total} · ${zoom}`,
@@ -281,6 +282,7 @@ export const strings: Strings = {
   },
   permissions: {
     restricted: (what: string) => `Restricted: ${what}`,
+    separator: ", ",
     noCopy: "Copying not permitted",
     noPrint: "Printing not permitted",
     lowResPrint: "Low-resolution printing only",
@@ -354,6 +356,7 @@ export const strings: Strings = {
     },
     textBoxSaying: (text: string) => `Text box: ${text}`,
     shape: "Shape",
+    shapeWithKind: (shape: string, kind: string) => `${shape} (${kind})`,
     shapeStyle: "Shape color and line width",
     shapeKinds: {
       rectangle: "Rectangle",
@@ -672,6 +675,8 @@ export const strings: Strings = {
     posBottomLeft: "Bottom Left",
     posBottomCenter: "Bottom Center",
     posBottomRight: "Bottom Right",
+    listSeparator: ", ",
+    withHint: (label: string, hint: string) => `${label} (${hint})`,
     conflictError: "Multiple marks placed in the same position:",
     noMarksError: "Please enable at least one mark (page numbers, Bates numbers, or headers/footers)",
     commonTitle: "Appearance and Scope",
@@ -720,8 +725,10 @@ export const strings: Strings = {
     title: "Encrypt and Save As",
     description: "Encrypt the current document with AES-256 and save as a new file. The current document and file remain unchanged.",
     openPassword: "Open password",
+    openPasswordAgain: "Open password (confirm)",
     openPasswordHint: "Without an open password, anyone can open this copy.",
     permissionsPassword: "Permissions password",
+    permissionsPasswordAgain: "Permissions password (confirm)",
     permissionsPasswordHint: "Used to remove restrictions below; required if any restrictions are set, and must differ from open password.",
     again: "Enter again",
     restrictionsTitle: "Restrictions",
@@ -817,6 +824,7 @@ export const strings: Strings = {
       notYetValid: "Not yet valid",
       notForSigning: "Not valid for signing",
     },
+    problemWithParentheses: (problem: string) => ` (${problem})`,
     pinNote: "If this certificate requires a PIN, Windows or card software will prompt for it; the app never sees the PIN.",
     fileLabel: "Certificate file",
     chooseFile: "Choose certificate file…",
@@ -1043,6 +1051,7 @@ export const strings: Strings = {
     noTextOneSide: (name: string) => `No text in "${name}"; text recognition (OCR) is recommended first.`,
     copyNotAllowed: "The author of one document does not permit copying text.",
     tabNoCopy: "The author of this document does not permit copying text",
+    tabNoCopyOption: (name: string) => `${name} (The author of this document does not permit copying text)`,
     allTabsNoCopy: "None of the other open documents permit text copying; cannot compare.",
     diffCount: (count: number) => (count === 1 ? "Found 1 text difference" : `Found ${count} text differences`),
     truncated: "Too many differences or comparison deadline reached; partial results shown.",
@@ -1050,8 +1059,16 @@ export const strings: Strings = {
     pageTextTruncated: "Text on some pages was truncated due to length.",
     itemPages: (pageA: number, pageB: number) => `Current page ${pageA} / Reference page ${pageB}`,
     itemTruncated: "Text truncated due to length",
+    itemAriaLabel: (pages: string, deleted: string | null, inserted: string | null) => {
+      let s = `${pages}. `;
+      if (deleted) s += `Deleted: ${deleted}. `;
+      if (inserted) s += `Added: ${inserted}. `;
+      return s.trim();
+    },
     deletedLabel: "Deleted",
+    deletedPrefix: "Deleted: ",
     insertedLabel: "Inserted",
+    insertedPrefix: "Added: ",
     exportText: "Export plain text…",
     exportMarkdown: "Export Markdown…",
     exporting: "Exporting…",
@@ -1095,7 +1112,7 @@ export const strings: Strings = {
     hoverBlocked: (reason: string) => `Blocked: ${reason}`,
     confirmTitle: "Open external link?",
     confirmBody: "This link will open in your default browser. Connecting to the network may expose your IP address to the destination site.",
-    confirmHost: "Website",
+    confirmHost: "Website: ",
     confirmFullUrl: "Full URL",
     warnIdn: (asciiHost: string) => `URL contains non-Latin characters and may be a spoofed website. Actual address: ${asciiHost}`,
     warnControl: "URL contains hidden characters that alter text direction; highlighted as [U+XXXX].",
@@ -1394,6 +1411,7 @@ export const strings: Strings = {
     pageNote: "Page text recognized by OCR; may contain errors",
     menu: "Recognize text for this document",
     menuRunning: "Recognizing text…",
+    languageWithCode: (name: string, code: string) => `${name} (${code})`,
     languages: {
       eng: "English",
       chi_tra: "Traditional Chinese",
@@ -1787,6 +1805,7 @@ export const strings: Strings = {
     fileSize: "File size",
     pageCount: "Page count",
     pageSize: "Page size",
+    pageSizeValue: (wMm: number, hMm: number, wPt: number, hPt: number) => `${wMm} × ${hMm} mm (${wPt} × ${hPt} pt)`,
     pdfVersion: "PDF version",
     docTitle: "Title",
     author: "Author",

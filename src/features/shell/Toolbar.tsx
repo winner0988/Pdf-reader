@@ -487,7 +487,7 @@ function ShapeControls({ shape }: { shape: NonNullable<ToolbarProps["shape"]> })
   return (
     <>
       <IconButton
-        label={`${labels.shape}（${labels.shapeKinds[shape.kind]}）`}
+        label={labels.shapeWithKind(labels.shape, labels.shapeKinds[shape.kind])}
         shortcut={shape.onToggle ? undefined : labels.notAllowed}
         pressed={shape.active}
         disabled={!shape.onToggle}
