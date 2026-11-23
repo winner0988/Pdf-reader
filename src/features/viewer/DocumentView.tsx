@@ -495,7 +495,11 @@ export function DocumentView({
         if (unmeasured) {
           pendingLocation.current = location;
         } else {
-          const top = location.scrollTop !== undefined ? location.scrollTop : scrollTopFor(layout, location.page);
+          const rowForTarget = rowForPage(layout, location.page - 1);
+          const rowForScroll = location.scrollTop !== undefined ? currentRowAt(layout, { top: location.scrollTop, height: viewport.height }) : null;
+          const top = location.scrollTop !== undefined && rowForScroll === rowForTarget
+            ? location.scrollTop
+            : scrollTopFor(layout, location.page);
           scrollElement(element, { top });
           setMeasured((prev) => (prev ? { ...prev, top } : null));
         }

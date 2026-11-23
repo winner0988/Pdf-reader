@@ -43,7 +43,6 @@ fn report_of(pdf: &[u8], name: &str) -> SignatureReport {
     let answer = host
         .request(|request| WorkerRequest::VerifySignatures { request, doc })
         .expect("verify");
-    std::fs::remove_file(path).ok();
     match answer {
         WorkerResponse::Signatures { report, .. } => report,
         other => panic!("{other:?}"),
