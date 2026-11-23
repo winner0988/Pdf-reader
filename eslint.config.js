@@ -17,6 +17,16 @@ const noChineseInCode = {
     },
   },
   create(context) {
+    const filename = (context.filename ?? context.getFilename?.() ?? "").replace(/\\/g, "/");
+    if (
+      filename.includes("/src/i18n/") ||
+      filename.includes(".test.") ||
+      filename.includes(".spec.") ||
+      filename.includes("/src/test/") ||
+      filename.endsWith("/src/features/shell/demo.ts")
+    ) {
+      return {};
+    }
     const CHINESE_REGEX = /[\u4e00-\u9fa5]/;
     return {
       Literal(node) {
@@ -100,12 +110,6 @@ export default defineConfig([
   {
     // User-facing strings must be in src/i18n; forbid hardcoded Chinese in code (ADR 0029).
     files: ["src/**/*.{ts,tsx}"],
-    ignores: [
-      "src/i18n/**",
-      "src/**/*.test.*",
-      "src/test/**",
-      "src/features/shell/demo.ts",
-    ],
     plugins: {
       custom: {
         rules: {
