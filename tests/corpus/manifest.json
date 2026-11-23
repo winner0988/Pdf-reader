@@ -506,6 +506,36 @@
       "sha256": "1ff29d0182238ad6aace16a4d8572d260bd44952e4b91d9045b377a8add2de50"
     },
     {
+      "path": "benign/text-clip-mode-switch.pdf",
+      "category": "benign",
+      "purpose": "A text object that clips one word in text rendering mode 7 and draws the next in mode 0, then a blue fill of the page in the same q ... Q (#638).",
+      "expected": "Opens; 'Hello World' is extracted once; the blue shows only through Hello's glyphs and World stays black. MuPDF 1.28 without the build-time patch drops the clip (the page turns blue) and Hello.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Clip, then draw",
+        "Hello World"
+      ],
+      "bytes": 791,
+      "sha256": "f6ee5085ac092cf5b5588a46257f660a2bdcc7954c324f6bc150fd7b9cc93462"
+    },
+    {
+      "path": "benign/text-clip-ligature.pdf",
+      "category": "benign",
+      "purpose": "The fi ligature in text rendering modes 0, 4 and 7, which the font's ToUnicode maps to the two characters f and i (#678).",
+      "expected": "Opens; Office0, Office4 and Office7 are each extracted once. MuPDF 1.28 without the build-time patch extracts Offce7 for mode 7.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Ligatures that clip",
+        "Office0",
+        "Office4",
+        "Office7"
+      ],
+      "bytes": 1407,
+      "sha256": "2638d3d761a30d7073825d6e52c97a752726c6add2758af0859c69baf08579df"
+    },
+    {
       "path": "benign/type3-decimal-glyph-names.pdf",
       "category": "benign",
       "purpose": "A Type 3 font without ToUnicode whose glyphs are named g32, g33, ... after their decimal character codes (#629).",

@@ -1876,8 +1876,8 @@ def benign_text_render_modes() -> bytes:
 
     Modes 4 to 6 fill, stroke or both and add the glyphs to the clip that ET applies; mode 7
     only clips (a gray box painted through it shows the word). One text object switches from
-    mode 4 to 7 to 5 (switching back to modes 0 to 3 loses the clip in MuPDF 1.28, #638), and
-    a last word is drawn twice in mode 0 on two lines.
+    mode 4 to 7 to 5 (text-clip-mode-switch.pdf goes back to mode 0, #638), and a last word
+    is drawn twice in mode 0 on two lines.
     """
     doc = Document("text-render-modes")
     content = (
@@ -1892,6 +1892,56 @@ def benign_text_render_modes() -> bytes:
     )
     doc.add_pages([
         Page(lines=[(72, 730, 16, "Text rendering modes")], extra_content=content.encode("latin-1"))
+    ])
+    return doc.build()
+
+
+def benign_text_clip_mode_switch() -> bytes:
+    """A text object that clips one word (mode 7) and then draws the next one (mode 0) (#638).
+
+    The clip of a text object is the glyphs drawn in modes 4 to 7, applied at ET. After ET the
+    same q ... Q fills the page with blue, which only Hello's glyphs let through; World stays
+    black. MuPDF 1.28 decided at ET from the last mode (0) that there was nothing to clip, so the
+    fill covered the page, and Hello was not extracted.
+    """
+    doc = Document("text-clip-mode-switch")
+    content = "q BT /F1 24 Tf 72 600 Td 7 Tr (Hello) Tj 0 Tr ( World) Tj ET 0 0 1 rg 0 0 612 792 re f Q\n"
+    doc.add_pages([
+        Page(lines=[(72, 730, 16, "Clip, then draw")], extra_content=content.encode("latin-1"))
+    ])
+    return doc.build()
+
+
+TEXT_CLIP_LIGATURE_WORDS = ["Office0", "Office4", "Office7"]
+
+
+def benign_text_clip_ligature() -> bytes:
+    """The fi ligature in text rendering modes 0, 4 and 7, which the ToUnicode maps to f and i (#678).
+
+    Helvetica's built-in encoding has the fi ligature at 0xAE (written \\256 in the strings).
+    MuPDF 1.28 extracted only the f of a glyph that is only clipped (mode 7): the characters
+    after the first went into the copy of the text that is drawn, which mode 7 does not draw. A
+    gray box painted through the mode 7 word shows it.
+    """
+    doc = Document("text-clip-ligature")
+    to_unicode = (
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n"
+        "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
+        "/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n"
+        "1 begincodespacerange\n<00> <FF>\nendcodespacerange\n"
+        "1 beginbfchar\n<AE> <00660069>\nendbfchar\n"
+        "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n"
+    ).encode("latin-1")
+    cmap = doc.pdf.add_stream("", to_unicode)
+    font = doc.pdf.add(f"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode {cmap} 0 R >>")
+    content = (
+        "q BT /F2 18 Tf 72 660 Td 0 Tr (Of\\256ce0) Tj ET Q\n"
+        "q BT /F2 18 Tf 72 630 Td 4 Tr (Of\\256ce4) Tj ET Q\n"
+        "q BT /F2 18 Tf 72 600 Td 7 Tr (Of\\256ce7) Tj ET 0.5 g 72 594 200 24 re f Q\n"
+    )
+    doc.add_pages([
+        Page(lines=[(72, 730, 16, "Ligatures that clip")], extra_content=content.encode("latin-1"),
+             fonts=f"/F2 {font} 0 R ")
     ])
     return doc.build()
 
@@ -2820,6 +2870,18 @@ SAMPLES = [
            "Opens; every word is extracted once, and 'Twice' twice. MuPDF 1.28 without the build-time patch "
            "extracts the words drawn in modes 4 to 6 a second time from the clip.", 1,
            text=TEXT_RENDER_MODE_WORDS + ["Twice"]),
+    Sample("benign/text-clip-mode-switch.pdf", benign_text_clip_mode_switch,
+           "A text object that clips one word in text rendering mode 7 and draws the next in mode 0, then a "
+           "blue fill of the page in the same q ... Q (#638).",
+           "Opens; 'Hello World' is extracted once; the blue shows only through Hello's glyphs and World stays "
+           "black. MuPDF 1.28 without the build-time patch drops the clip (the page turns blue) and Hello.", 1,
+           text=["Clip, then draw", "Hello World"]),
+    Sample("benign/text-clip-ligature.pdf", benign_text_clip_ligature,
+           "The fi ligature in text rendering modes 0, 4 and 7, which the font's ToUnicode maps to the two "
+           "characters f and i (#678).",
+           "Opens; Office0, Office4 and Office7 are each extracted once. MuPDF 1.28 without the build-time "
+           "patch extracts Offce7 for mode 7.", 1,
+           text=["Ligatures that clip"] + TEXT_CLIP_LIGATURE_WORDS),
     Sample("benign/type3-decimal-glyph-names.pdf", benign_type3_decimal_glyph_names,
            "A Type 3 font without ToUnicode whose glyphs are named g32, g33, ... after their decimal character "
            "codes (#629).",
