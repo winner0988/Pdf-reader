@@ -7,6 +7,7 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 ### 安全
 
 - 主機是 localhost 但路徑多了斜線（例如 `file://localhost///…`）、或路徑開頭有編碼斜線（例如 `file://localhost/%5C…`、`file:%5C%5C…`）的 `file:` 網址，與 Windows 一致判定為網路共用路徑（#668）。
+- `tauri` 與 `wry` 用的 `cookie` 套件更新到 0.18.3，包含上游的安全性修正（#709）。
 ### 修正
 
 - 插入其他檔案的頁面之後，瀏覽歷程的頁碼跟著頁面移動，「回到上一個位置」跳到正確的頁（#636）。
