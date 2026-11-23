@@ -173,6 +173,70 @@ describe("navigation history model (B4-01)", () => {
       expect(history.back).toEqual([loc(1), loc(4)]);
     });
 
+    it("shifts entries when pages are inserted from another file (#636)", () => {
+      let history = createNavigationHistory();
+      history = recordNavigation(history, loc(1));
+      history = recordNavigation(history, loc(3));
+      history = recordNavigation(history, loc(5));
+
+      // Insert 3 pages at 0-based index 2 (between page 2 and page 3)
+      history = adjustHistoryForEdit(
+        history,
+        { kind: "insertPages", at: 2, source: 1 },
+        5,
+        3,
+      );
+
+      // Page 1 stays page 1 (< at 2)
+      // Page 3 shifts by +3 -> page 6 (>= at 2)
+      // Page 5 shifts by +3 -> page 8 (>= at 2)
+      expect(history.back).toEqual([loc(1), loc(6), loc(8)]);
+    });
+
+    it("shifts all entries when pages are inserted at index 0 (#636)", () => {
+      let history = createNavigationHistory();
+      history = recordNavigation(history, loc(1));
+      history = recordNavigation(history, loc(4));
+
+      // Insert 2 pages at index 0 (at the very beginning)
+      history = adjustHistoryForEdit(
+        history,
+        { kind: "insertPages", at: 0, source: 1 },
+        5,
+        2,
+      );
+
+      // Both pages shift by +2
+      expect(history.back).toEqual([loc(3), loc(6)]);
+    });
+
+    it("shifts both back and forward stacks when pages are inserted (#636)", () => {
+      let history = createNavigationHistory();
+      history = recordNavigation(history, loc(1));
+      history = recordNavigation(history, loc(4));
+      history = recordNavigation(history, loc(6));
+
+      // Go back once: back has [loc(1), loc(4)], forward has [loc(6)]
+      const backResult = historyGoBack(history, loc(6));
+      expect(backResult).not.toBeNull();
+      history = backResult!.nextHistory;
+      expect(history.back).toEqual([loc(1), loc(4)]);
+      expect(history.forward).toEqual([loc(6)]);
+
+      // Insert 3 pages at index 2 (between page 2 and page 3)
+      history = adjustHistoryForEdit(
+        history,
+        { kind: "insertPages", at: 2, source: 1 },
+        6,
+        3,
+      );
+
+      // Back stack: page 1 stays 1, page 4 becomes 7
+      expect(history.back).toEqual([loc(1), loc(7)]);
+      // Forward stack: page 6 becomes 9
+      expect(history.forward).toEqual([loc(9)]);
+    });
+
     it("handles replacePages edit at three positions (before, within, after)", () => {
       let history = createNavigationHistory();
       history = recordNavigation(history, loc(2)); // before first (first=2 -> 0-based 2 is page 3)

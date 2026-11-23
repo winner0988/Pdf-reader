@@ -151,8 +151,14 @@ export function pageOrderAfterMove(pageCount: number, moving: readonly number[],
 /**
  * Maps a single 1-based page number to its new position after an edit,
  * or returns null if the page was deleted.
+ * `insertedPages` is only used when edit.kind is "insertPages".
  */
-export function mapPageAfterEdit(page: number, edit: Edit, pageCount: number): number | null {
+export function mapPageAfterEdit(
+  page: number,
+  edit: Edit,
+  pageCount: number,
+  insertedPages = 0,
+): number | null {
   const oldIndex = page - 1;
   switch (edit.kind) {
     case "deletePages": {
@@ -167,6 +173,10 @@ export function mapPageAfterEdit(page: number, edit: Edit, pageCount: number): n
     }
     case "insertBlankPage": {
       const newIndex = oldIndex >= edit.at ? oldIndex + 1 : oldIndex;
+      return newIndex + 1;
+    }
+    case "insertPages": {
+      const newIndex = oldIndex >= edit.at ? oldIndex + insertedPages : oldIndex;
       return newIndex + 1;
     }
     case "replacePages": {
@@ -184,16 +194,18 @@ export function mapPageAfterEdit(page: number, edit: Edit, pageCount: number): n
  * Adjusts history entries when pages are edited (deleted, inserted, moved).
  * Pages that were deleted are dropped. Remaining entries follow their pages' new locations.
  * Consecutive entries that map to the same page are deduplicated.
+ * `insertedPages` is only used when edit.kind is "insertPages".
  */
 export function adjustHistoryForEdit(
   history: NavigationHistory,
   edit: Edit,
   pageCount: number,
+  insertedPages = 0,
 ): NavigationHistory {
   const adjustList = (list: readonly NavigationLocation[]): NavigationLocation[] => {
     const mapped: NavigationLocation[] = [];
     for (const entry of list) {
-      const newPage = mapPageAfterEdit(entry.page, edit, pageCount);
+      const newPage = mapPageAfterEdit(entry.page, edit, pageCount, insertedPages);
       if (newPage !== null) {
         mapped.push({ ...entry, page: newPage });
       }
