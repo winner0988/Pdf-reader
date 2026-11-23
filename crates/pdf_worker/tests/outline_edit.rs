@@ -3,7 +3,7 @@
 
 mod common;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use ipc_contract::types::{DocumentId, LinkTarget, OutlineResult};
 use ipc_contract::worker::{WorkerEdit, WorkerRequest, WorkerResponse};
@@ -18,7 +18,7 @@ fn worker() -> &'static Path {
 struct TestDoc {
     host: WorkerHost,
     doc: DocumentId,
-    path: PathBuf,
+    path: common::TempFileGuard,
 }
 
 impl Drop for TestDoc {

@@ -6,6 +6,7 @@ PDF Reader 的每個版本。格式依 [Keep a Changelog](https://keepachangelog
 
 ### 修正
 
+- 插入其他檔案的頁面之後，瀏覽歷程的頁碼跟著頁面移動，「回到上一個位置」跳到正確的頁（#636）。
 - 一段文字前面只當成裁切路徑、後面照常畫出來時，裁切不再不見，只當成裁切路徑的字在複製、搜尋、本機全文索引與匯出成文字或 Word 時也擷取得到（[#638](https://github.com/winner0988/Pdf-reader/issues/638)）。
 - 只當成裁切路徑的字對到好幾個字元時（例如 fi 連字），擷取出每一個字元，不再只有第一個（[#678](https://github.com/winner0988/Pdf-reader/issues/678)）。
 
