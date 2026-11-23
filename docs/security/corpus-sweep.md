@@ -85,6 +85,7 @@ target/release/corpus_sweep corpus-files sweep-output --worker target/release/pd
 
 輸出包含：
 - `results.jsonl`：逐一記錄每個檔案的掃描結果、耗時、頁數與失敗階段。
+- `page-hashes.jsonl`：逐一記錄每頁渲染 SHA-256、文字 SHA-256 與 16×16 感知雜湊（dHash，64 位元）。
 - `summary.json`：結構化的統計數據（供程式或 CI 比對）。
 - `summary.md`：GitHub 格式的統計報告與顯著問題（notable issues）清單。
 
@@ -121,6 +122,35 @@ target/release/corpus_sweep corpus-files sweep-output --worker target/release/pd
 2. 執行 `fetch.sh --write-manifest <暫存目錄> [語料名稱]` 下載並自動產生新的個別檔案 SHA-256 清單（寫入 `tests/corpus-sweep/<name>.sha256`）。
 3. 執行 `fetch.sh <暫存目錄> [語料名稱]` 確保校驗通過且無多餘檔案。
 4. 執行完整本機掃描建立新的基準線，並在 PR 中更新本文檔之統計章節。
+
+## 差異比對與核准流程 (Differential Testing)
+
+公開語料庫掃描支援與上一次排程執行的基準（Baseline）進行差異比對（Issue #617）：
+
+1. **雜湊記錄**：
+   - 主行程在每一頁完成渲染後，計算尺寸與像素的 SHA-256 以及縮小至 16×16 灰階的 64 位元感知雜湊（dHash）。
+   - 在擷取文字後，計算純文字（不含排版位置與邊界框）的 SHA-256。
+   - 雜湊記錄寫入 `page-hashes.jsonl`，並隨 artifact 上傳保存。只存雜湊，絕不保存或傳播不受信任的語料文字或影像。
+   - 帶有 `--withhold-names` 旗標時，崩潰、逾時或協定錯誤等異常檔案不輸出任何檔名與雜湊。
+
+2. **自動比對 (`--baseline`)**：
+   - CI 會自動查詢 `main` 分支上一次成功的排程掃描 artifact 作為基準；手動執行時亦可透過 `workflow_dispatch` 的 `baseline_run` 參數指定特定 run ID。
+   - 找不到具備雜湊記錄的基準時（例如初次啟用或 artifact 過期），掃描印出「沒有基準，這次只記錄」並如常完成，不算失敗。
+   - 基準中存在但本次掃描缺失的頁面（例如開檔失敗、頁數減少、Worker 崩潰或逾時）亦視為變更。
+   - 基準中不存在的新檔案（例如 PR 煙霧測試額外放入的 `tests-corpus`）僅記錄，不列入失敗。
+
+3. **差異判讀與感知雜湊**：
+   - 渲染結果不同時，報告列出感知雜湊的漢明距離（Hamming distance）。
+   - 漢明距離很小（例如 1～2）通常表示僅為字型微調或反鋸齒邊界像素變動；距離顯著較大則代表畫面結構、排版或影像呈現有實質改變。
+
+4. **核准清單 (`tests/corpus-sweep/approved-differences.tsv`)**：
+   - 升級 MuPDF 或調整文字/渲染引擎時，若產生未核准的差異，掃描將以非 0 狀態碼失敗中斷。
+   - 預期中的變更需登錄於核准清單，欄位包含：語料名稱、相對路徑、頁碼、種類（`text` 或 `render`）、原因與核准 PR。
+   - 頁碼支援 `*`（全檔案），相對路徑支援 `*`（全語料）。PR 說明中必須說明這些列涵蓋的具體頁數與原因。
+
+5. **核准列移除時機**：
+   - 未對應到任何實際差異的核准列會在摘要報告中列出警告（但不會導致失敗）。
+   - 當包含核准變更的 PR 合併至 `main` 且排程掃描產生新的基準線後，原先核准的變更在新的基準線中已成為預期輸出；後續的 PR 應將用不到的核准列從 TSV 中清除。
 
 ## 基準線掃描紀錄 (Baseline Run-1)
 
