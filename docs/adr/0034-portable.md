@@ -1,4 +1,4 @@
-# ADR 0034：可攜版（免安裝）：另一個建置，資料都在程式旁邊的 `data\`；正常結束時刪除 worker 的 AppContainer profile，這台電腦上不留 app 的資料；只在 NTFS 的磁碟上執行
+# ADR 0034：可攜版（免安裝）：另一個建置，資料都在程式旁邊的 `data\`；正常結束時刪除 worker 的 AppContainer profile，這台電腦上不留 app 的資料；只在 NTFS 或 ReFS 的磁碟上執行
 
 ## 狀態
 提議中
@@ -16,7 +16,7 @@
   - worker 的 AppContainer profile：`%LOCALAPPDATA%\Packages\pdfreader.worker\`（容器的 `TEMP`、`TMP`，不含使用者資料）與 HKCU 的對應；解除安裝時刪除（`installer-hooks.nsh`），程式內有 `sandbox::delete_app_container_profile`；
   - 記住的密碼：Windows 認證管理員（ADR 0017）；
   - 以 DPAPI 保護的全文索引金鑰與簽名圖片：只有這台電腦上的這位 Windows 使用者解得開。
-- **AppContainer 與檔案的權限**（[worker-sandbox.md](../architecture/worker-sandbox.md)）：容器只能開啟權限（ACL）明確授權給它的檔案。worker 執行檔在使用者擁有的位置時，啟動前把那個執行檔的讀取＋執行權限授予容器。
+- **AppContainer 與檔案的權限**（[worker-sandbox.md](../architecture/worker-sandbox.md)）：容器只能開啟權限（ACL）明確授權給它的檔案。worker 執行檔在使用者擁有的位置時，啟動前把那個執行檔的讀取＋執行權限授予容器。改 ACL 要 `WRITE_DAC`（檔案的擁有者有）；改不了時（`ERROR_ACCESS_DENIED`），`sandbox` 的 `grant_read_execute` 當成成功，因為安裝版在 Program Files，本來就授權給所有 app package。
 - **單一執行個體**（ADR 0012）：第二次啟動把檔案交給已經開著的視窗再結束，以 Tauri 設定的 `identifier`（`io.github.winner0988.pdfreader`）區分，它在建置時就決定了。
 - **更新**（ADR 0009，[update-check.md](../architecture/update-check.md)）：只有使用者按下「檢查更新」時，主行程送一個請求到固定的 GitHub API；有新版時，確認後以系統瀏覽器開啟固定的發行頁。不自動下載、不安裝。
 - **原則**：不連網、零遙測（AGENTS.md 原則 1、2）；worker 的隔離（原則 4）；最小權限（原則 6）。
@@ -27,7 +27,7 @@
 
 | 選項 | 換來 | 付出與風險 |
 |---|---|---|
-| **A. 另一個建置（建議）** | 是不是可攜版在建置時就決定，執行時不看任何檔案、參數或環境變數：別人在安裝版旁邊放一個檔案，什麼都不會改變。`identifier` 也不同，單一執行個體與安裝版分開 | CI 與發行多建置一次主程式；可攜版要另外測（工作卡已經要求 E2E 跑一次） |
+| **A. 另一個建置（建議）** | 是不是可攜版在建置時就決定，判斷時不看任何檔案、參數或環境變數：別人在安裝版旁邊放一個檔案，什麼都不會改變。`identifier` 也不同，單一執行個體與安裝版分開 | CI 與發行多建置一次主程式；可攜版要另外測（工作卡已經要求 E2E 跑一次） |
 | B. 程式旁邊的標記檔（工作卡的例子） | 只有一個建置 | 安裝版也要在啟動時找標記檔：能在程式的資料夾放檔案的人就能切換模式（安裝版的資料夾只有系統管理員能寫，風險不大，但多了一個輸入）。`identifier` 是建置時決定的，單一執行個體分不開：安裝版開著時，從隨身碟開的檔案會交給安裝版，記進這台電腦的最近開啟的檔案 |
 | C. 命令列參數（`--portable`） | 只有一個建置 | 直接按兩下執行檔就不是可攜版；捷徑在每台電腦上都要重做；單一執行個體同樣分不開 |
 
@@ -63,7 +63,7 @@
 
 | 選項 | 換來 | 付出與風險 |
 |---|---|---|
-| **A. 只在 NTFS 的磁碟上執行（建議）** | worker 的隔離靠 AppContainer，AppContainer 靠檔案的權限決定它能碰什麼；NTFS 才有檔案的權限 | 新的隨身碟多半是 exFAT 或 FAT32，要先格式化成 NTFS；啟動時檢查，不是 NTFS 就說明並結束 |
+| **A. 只在 NTFS 或 ReFS 的磁碟上執行（建議）** | worker 的隔離靠 AppContainer，AppContainer 靠檔案的權限決定它能碰什麼；NTFS 與 ReFS 才有檔案的權限 | 新的隨身碟多半是 exFAT 或 FAT32，要先格式化成 NTFS；啟動時檢查，不是就說明並結束 |
 | B. 也在 exFAT 與 FAT32 上執行 | 隨身碟不用格式化 | 這兩種沒有檔案的權限，程式與 `data\` 所在的磁碟就少了這層保護。要先以 POC 證明 AppContainer 在那裡仍然碰不到別的檔案，才能考慮 |
 
 ## 決定（建議的做法：1 的 A、2 的「可攜版（建議）」那一欄、3 的 A、4 的 A、5 的 A）
@@ -80,7 +80,11 @@
   - 所以在安裝版旁邊放什麼檔案，安裝版都不會改變；
   - 單一執行個體以 `identifier` 區分：可攜版與安裝版同時開著時，各自開自己的檔案，不會交給對方。
 - worker 的 AppContainer 用另一個名稱（例如 `pdfreader.portable.worker`），刪除它不影響安裝版。`pdf_worker.exe` 是同一個，worker 不知道自己在哪一版。
-- 新的設定檔也要通過 `check-security-config.mjs`（#671 之後，它檢查 Windows 建置會讀的每一個設定檔）。
+- **設定檔與檢查**：`check-security-config.mjs`（#693）在 `src-tauri/` 只接受 `tauri.conf.json` 與 `tauri.bundle.conf.json`（`TAURI_CONFIG_FILES`）；bundle 的設定檔也只能設 `$schema`、`build.beforeBuildCommand`、`bundle.externalBin` 三個鍵（`BUNDLE_CONFIG_SETTINGS`）。可攜版的設定檔放在 `src-tauri/` 會被它擋下；放在別處，`tauri build --config` 讀得到、檢查卻讀不到，那個檔就能放寬 CSP 或 capability，CI 看不出來。所以：
+  - 可攜版的設定檔放在 `src-tauri/`（例如 `tauri.portable.conf.json`），加進檢查的清單，只允許設 `identifier` 與 bundle 設定檔的那三個鍵，其他的鍵都讓檢查失敗；
+  - 可攜版其他的不同（資料在 `data\`、InPrivate 與畫面元件的資料資料夾、AppContainer 的名稱、不提供的項目）不放在設定檔，由主程式在編譯時決定（例如 Cargo 的 feature `portable`）；
+  - 改這個設定檔、改檢查，都要 `needs-security-review`。實作的 PR 會改 `scripts/ci/`，要負責人核准。
+- **環境變數**：上面的「判斷時不看」指的是判斷是不是可攜版。可攜版**不讀 `PDF_READER_DATA_DIR`**：資料一律在程式旁邊的 `data\`，不會因為這台電腦設了這個變數就寫到別處。E2E 每次把可攜版解壓縮到新的暫存資料夾，`data\` 就在那裡，不用這個變數也能隔離每次執行。其他不改變資料位置的變數（例如測試用的 `PDF_READER_TEST_WINDOWS_MODE_KEY`）與安裝版相同。
 
 ### 資料放在哪裡
 - 全部在程式旁邊的 `data\`：內容與規則與安裝版的資料夾相同（local-data.md），讀的時候照樣當成不受信任的資料。
@@ -89,7 +93,7 @@
 - 資料夾的權限沿用所在的位置，app 不另外設定：放在自己的使用者資料夾時，只有自己（與系統管理員）讀得到；放在隨身碟時，拿到隨身碟的人都讀得到。
 
 ### 這台電腦上留下什麼
-- 可攜版只在這台電腦上建立 worker 的 AppContainer profile（`%LOCALAPPDATA%\Packages\<名稱>\` 與 HKCU 的對應），**正常結束時刪除**（`sandbox::delete_app_container_profile`，worker 都結束之後）。當機時留下的，下次在這台電腦上正常結束時一起刪除。
+- 可攜版只在這台電腦上建立 worker 的 AppContainer profile（`%LOCALAPPDATA%\Packages\<名稱>\` 與 HKCU 的對應），**正常結束時刪除**（`sandbox::delete_app_container_profile`，在用這個容器的每一個行程都結束之後：每份文件的 worker、合併與轉換專用的 worker，以及之後加入、也用這個容器的行程）。當機時留下的，下次在這台電腦上正常結束時一起刪除。
 - 畫面元件的資料在 `data\EBWebView\`（選項 4 的 A）。
 - 所以工作卡的驗收「`%LOCALAPPDATA%` 中只留下 ADR 允許的東西」是：執行中只有那個 AppContainer profile，正常結束之後沒有 app 的東西。
 - Windows 自己記下的東西不在 app 的控制內，使用手冊寫明：檔案對話框最近用過的資料夾、執行過哪些程式、通知區域的圖示設定、SmartScreen 的紀錄等。
@@ -99,8 +103,13 @@
 - 資料資料夾指定在 `data\EBWebView\`，畫面元件以 InPrivate 開啟（Tauri 視窗的 `incognito`）。POC 確認 InPrivate 之後還會寫哪些檔案，以及從隨身碟啟動要多久；太慢時改用選項 4 的 B，由負責人決定。
 
 ### 檔案系統
-- 啟動時檢查程式所在的磁碟，不是 NTFS 就說明（可以把隨身碟格式化成 NTFS，或把資料夾放在電腦的硬碟上）並結束。
-- 在 NTFS 上，worker 執行檔照現在的做法：啟動前把那個執行檔的讀取＋執行權限授予容器；`data\` 與其他檔案沒有授權，容器碰不到。
+- 啟動時檢查程式所在的磁碟：以 `GetVolumePathNameW` 找到它的根，再以 `GetVolumeInformationW` 取得檔案系統的名稱，只接受 `NTFS` 與 `ReFS`（兩者都有檔案的權限；ReFS 例如 Windows 11 的開發磁碟機）。網路上的資料夾（`GetDriveTypeW` 是 `DRIVE_REMOTE`）也不接受。不接受時說明（可以把隨身碟格式化成 NTFS，或把資料夾放在電腦的硬碟上）並結束。
+- 在這兩種檔案系統上，worker 執行檔照現在的做法：啟動前把那個執行檔的讀取＋執行權限授予容器；`data\` 與其他檔案沒有授權，容器碰不到。
+- **授權可能寫不進去**：
+  - 改 ACL 要 `WRITE_DAC`，檔案的擁有者有；以 Windows 格式化的 NTFS 隨身碟，預設只給 Authenticated Users「修改」，沒有 `WRITE_DAC`。
+  - 容器的 SID 由名稱導出，每台電腦都一樣，所以授權寫進隨身碟上的 ACL 之後，換電腦也有效。
+  - 但第一次執行的帳號不是 `pdf_worker.exe` 的擁有者時，授權寫不進去。例如在 A 電腦解壓縮後沒有執行，直接拿到 B 電腦執行；或用檔案總管把資料夾複製到另一個隨身碟（複製不帶明確的 ACE），再到別的電腦執行。
+  - 現在遇到這種情形，`grant_read_execute` 當成成功，worker 開不了，畫面只有一般的錯誤。可攜版改成：授權失敗、ACL 裡也沒有這個容器的授權時，說明原因與解法（在解壓縮的那台電腦先執行一次，或用自己的帳號重新解壓縮），然後結束。
 - 要放寬到 exFAT 與 FAT32，先另做 POC 並改寫這一段（選項 5 的 B）。
 
 ### 更新（ADR 0009 不變）
@@ -114,13 +123,13 @@
 - capability 與 CSP 不變。前端多知道一件事：這是不是可攜版（決定顯示哪些項目、怎麼說明更新），沒有新的命令參數，也沒有路徑。
 
 ### 測試
-- 主行程：資料資料夾的位置；資料夾不能寫入；不是 NTFS 的磁碟；不提供的項目被拒絕（全文索引、簽名圖片、記住密碼、設為預設）；最近開啟的檔案預設關閉；正常結束時刪除 profile，當機留下的在下次結束時刪除。
-- E2E（工作卡）：以可攜版開檔、編輯、存檔、結束；結束後 `%LOCALAPPDATA%` 沒有 app 的東西，profile 已刪除。另外一次：安裝版與可攜版同時開著，各自開自己的檔案。
+- 主行程：資料資料夾的位置；資料夾不能寫入；不是 NTFS 或 ReFS 的磁碟、網路上的資料夾；授權寫不進去、ACL 裡也沒有容器的授權時說明並結束；不讀 `PDF_READER_DATA_DIR`；不提供的項目被拒絕（全文索引、簽名圖片、記住密碼、設為預設）；最近開啟的檔案預設關閉；正常結束時刪除 profile，當機留下的在下次結束時刪除。
+- E2E（工作卡）：每次把可攜版解壓縮到新的暫存資料夾，`data\` 就在那裡；以可攜版開檔、編輯、存檔、結束；結束後 `%LOCALAPPDATA%` 沒有 app 的東西，profile 已刪除。另外一次：安裝版與可攜版同時開著，各自開自己的檔案。
 - 發行腳本的測試（`scripts/release/*.test.mjs`）：zip 的內容與 `.sha256`。
 
 ### POC（實作前，不通過就不實作）
 1. 可攜版的建置（另一個 `identifier`）：單一執行個體與安裝版分開；`check-security-config.mjs` 通過。
-2. 在沒有裝過 app 的 Windows 11（Windows Sandbox 或虛擬機）上，從 NTFS 的隨身碟執行：開檔、編輯、存檔、結束；比對執行前後的 `%LOCALAPPDATA%`、`%TEMP%` 與 HKCU，結束後只剩 Windows 自己的紀錄。
+2. 在沒有裝過 app 的 Windows 11（Windows Sandbox 或虛擬機）上，從 NTFS 的隨身碟執行：開檔、編輯、存檔、結束；比對執行前後的 `%LOCALAPPDATA%`、`%TEMP%` 與 HKCU，結束後只剩 Windows 自己的紀錄。也在 ReFS 上跑一次。授權寫不進去的兩種情形（在 A 電腦解壓縮後沒有執行，直接拿到 B 電腦執行；以檔案總管把資料夾複製到另一個隨身碟，再到別的電腦執行）都要說明原因並結束。
 3. WebView2 的資料在隨身碟、以 InPrivate 開啟：寫了哪些檔案；USB 2.0 與 3.0 的隨身碟啟動要多久；每次重新建立 profile 要多久。
 
 ## 後果
@@ -132,6 +141,7 @@
   - 另一個建置：CI 與發行多建置一次主程式，發行多兩個檔案；
   - 資料的安全只靠隨身碟本身：拿到隨身碟的人讀得到設定、機敏文件的檔名、崩潰復原的日誌（未存檔的編輯與完整路徑），開了最近開啟的檔案時還有路徑。使用手冊建議以 BitLocker To Go 加密隨身碟；
   - 程式在使用者可以寫入的資料夾：拿到隨身碟的人可以換掉程式（安裝版在 Program Files，一般權限的程式換不掉 `pdf_worker.exe`）。使用手冊寫明只在自己保管的隨身碟上用，懷疑時重新下載並核對 SHA-256；
+  - 隨身碟上的 `pdf_worker.exe` 留著一條給這個容器的授權（讀取＋執行）；第一次執行的帳號改不了 ACL 時（例如解壓縮後沒有執行就換了電腦），可攜版不能用，要照說明重新解壓縮；
   - 少了全文索引、簽名圖片、記住密碼與設為預設；
   - 只在 NTFS 的磁碟上執行；
   - 換電腦後磁碟代號不同，崩潰復原（與開啟時的最近開啟的檔案）以完整路徑找，會找不到；
