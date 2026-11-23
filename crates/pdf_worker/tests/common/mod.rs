@@ -45,17 +45,42 @@ pub fn one_page(content: &str) -> Vec<u8> {
     ])
 }
 
+use std::ops::Deref;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct TempFileGuard(pub PathBuf);
+
+impl Deref for TempFileGuard {
+    type Target = Path;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl AsRef<Path> for TempFileGuard {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
 
 /// Writes `bytes` to a uniquely named file in the temp directory and returns its path.
 #[allow(dead_code)]
-pub fn temp_pdf(name: &str, bytes: &[u8]) -> std::path::PathBuf {
+pub fn temp_pdf(name: &str, bytes: &[u8]) -> TempFileGuard {
     static NEXT: AtomicU32 = AtomicU32::new(0);
     let id = NEXT.fetch_add(1, Ordering::Relaxed);
     let path =
         std::env::temp_dir().join(format!("pdf-worker-{}-{id}-{name}.pdf", std::process::id()));
     std::fs::write(&path, bytes).unwrap();
-    path
+    TempFileGuard(path)
 }
 
 fn is_pdf_whitespace(b: u8) -> bool {

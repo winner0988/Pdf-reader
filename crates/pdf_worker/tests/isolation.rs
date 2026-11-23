@@ -69,7 +69,6 @@ fn opens_and_renders_through_the_sandbox() {
     // The black square is at (200, 592) from the top-left.
     let at = ((592 * raster.width + 200) * 4) as usize;
     assert_eq!(&raster.pixels[at..at + 4], &[0, 0, 0, 255]);
-    std::fs::remove_file(path).ok();
 }
 
 #[test]
@@ -89,7 +88,6 @@ fn worker_errors_are_reported_not_fatal() {
 
     let error = render(&mut host, DocumentId(999), 1.0).unwrap_err();
     assert_eq!(error.code(), ErrorCode::UnknownDocument);
-    std::fs::remove_file(not_pdf).ok();
 }
 
 #[test]
@@ -146,7 +144,6 @@ fn worker_runs_at_low_integrity_in_an_app_container() {
     };
     assert_eq!(rid, 0x1000, "SECURITY_MANDATORY_LOW_RID");
     assert_eq!(is_app_container, 1, "worker must run in an AppContainer");
-    std::fs::remove_file(path).ok();
 }
 
 #[test]
@@ -176,7 +173,6 @@ fn killed_worker_is_reported_then_replaced() {
     let (doc, _) = host.open(&path).unwrap();
     assert_ne!(host.worker_id().unwrap(), first);
     assert!(render(&mut host, doc, 1.0).is_ok());
-    std::fs::remove_file(path).ok();
 }
 
 #[test]
@@ -196,7 +192,6 @@ fn slow_requests_time_out_and_the_worker_is_stopped() {
     let error = render(&mut host, doc, 4.0).unwrap_err();
     assert_eq!(error.code(), ErrorCode::WorkerTimeout);
     assert!(!host.is_running(), "a worker that timed out is stopped");
-    std::fs::remove_file(path).ok();
 }
 
 #[test]
@@ -221,7 +216,6 @@ fn memory_limit_contains_a_huge_render() {
     // Whatever happened in the worker, the host keeps working.
     let (doc, _) = host.open(&path).unwrap();
     assert!(render(&mut host, doc, 0.5).is_ok());
-    std::fs::remove_file(path).ok();
 }
 
 #[test]

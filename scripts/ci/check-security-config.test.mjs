@@ -9,13 +9,17 @@ import {
   ALLOWED_PERMISSIONS_FILE,
   checkAttackSurface,
   checkBrowserArguments,
+  checkBundleConfig,
   checkCapability,
+  checkCapabilityFolder,
   checkCommandManifest,
   checkCsp,
   checkFuzzingDoc,
   checkPermissionFiles,
   checkRepository,
   checkTauriConfig,
+  checkTauriConfigFiles,
+  checkWindowsAliases,
   extractDevCsp,
   extractHandlerCommands,
   extractManifestCommands,
@@ -811,6 +815,7 @@ function copyRepository(t, prefix) {
   }
   for (const file of [
     "src-tauri/tauri.conf.json",
+    "src-tauri/tauri.bundle.conf.json",
     "src-tauri/allowed-permissions.json",
     "vite.config.ts",
     "src-tauri/src/lib.rs",
@@ -1010,4 +1015,199 @@ test("checkRepository reads the app permissions from src-tauri/allowed-permissio
     extra[1].startsWith(`${ALLOWED_PERMISSIONS_FILE}: permissions[${count + 1}]: core:default has a prefix`),
     extra[1],
   );
+});
+
+/** The part of each problem before ": ", which names the file or setting. */
+const subjects = (problems) => problems.map((problem) => problem.slice(0, problem.indexOf(": ")));
+
+/** A capability that grants a core permission, which ALLOWED_PLUGIN_PERMISSIONS does not have. */
+const coreCapability = { identifier: "extra", windows: ["main"], permissions: ["core:default"] };
+
+test("src-tauri/capabilities/ holds only .json capability files, at its top (#671)", () => {
+  const file = (name) => ({ name, folder: false });
+  assert.deepEqual(checkCapabilityFolder([file("main.json"), file("other.json")]), []);
+  assert.deepEqual(checkCapabilityFolder([]), []);
+  const problems = checkCapabilityFolder([
+    file("main.json"),
+    file("extra.toml"),
+    file("extra.json5"),
+    file("MAIN.JSON"),
+    file("README.md"),
+    { name: "sub", folder: true },
+    { name: "schemas", folder: true },
+    { name: "folder.json", folder: true },
+  ]);
+  assert.deepEqual(subjects(problems), [
+    "src-tauri/capabilities/MAIN.JSON",
+    "src-tauri/capabilities/README.md",
+    "src-tauri/capabilities/extra.json5",
+    "src-tauri/capabilities/extra.toml",
+    "src-tauri/capabilities/folder.json/",
+    "src-tauri/capabilities/schemas/",
+    "src-tauri/capabilities/sub/",
+  ]);
+  assert.match(problems[3], /tauri-build also loads \.toml files there/);
+  assert.match(problems[6], /also loads the capability files in the folders under/);
+});
+
+test("a capability file holds one capability, not a list Tauri would read instead (#671)", () => {
+  assert.deepEqual(checkCapability({ identifier: "main", permissions: [] }, "main.json"), []);
+  const forms = [
+    [coreCapability],
+    { capabilities: [coreCapability] },
+    // Tauri reads only the list here, so the file's own (allowed) permissions say nothing.
+    { identifier: "main", permissions: [], capabilities: [coreCapability] },
+    null,
+    "main",
+  ];
+  for (const form of forms) {
+    const problems = checkCapability(form, "main.json");
+    assert.equal(problems.length, 1, `${JSON.stringify(form)}: ${JSON.stringify(problems)}`);
+    assert.match(problems[0], /^main\.json: (must hold one capability|has a "capabilities" list)/);
+  }
+});
+
+test("tauri.conf.json names capabilities but holds none (#671)", () => {
+  const config = (capabilities) => ({
+    app: { security: { csp: productionCsp, capabilities }, windows: quietWindows },
+    bundle: offlineBundle,
+  });
+  assert.deepEqual(checkTauriConfig(config(undefined)), []);
+  assert.deepEqual(checkTauriConfig(config([])), []);
+  assert.deepEqual(checkTauriConfig(config(["main"])), []);
+  const inline = checkTauriConfig(config(["main", coreCapability]));
+  assert.equal(inline.length, 1, JSON.stringify(inline));
+  assert.match(inline[0], /^tauri\.conf\.json: app\.security\.capabilities\[1\] is a capability written into the configuration/);
+  assert.deepEqual(checkTauriConfig(config("main")), [
+    "tauri.conf.json: app.security.capabilities must be a list of capability identifiers",
+  ]);
+});
+
+test("tauri.conf.json and tauri.bundle.conf.json are the only Tauri configuration files (#671)", () => {
+  const usual = ["build.rs", "capabilities", "Cargo.toml", "tauri.bundle.conf.json", "tauri.conf.json", "tauri-notes.md"];
+  assert.deepEqual(checkTauriConfigFiles(usual), []);
+  for (const name of [
+    "tauri.windows.conf.json",
+    "tauri.windows.conf.json5",
+    "Tauri.windows.toml",
+    "Tauri.Windows.Conf.json",
+    "tauri.linux.conf.json",
+    "tauri.conf.json5",
+    "Tauri.toml",
+    "TAURI.CONF.JSON",
+    "Tauri.bundle.conf.json",
+  ]) {
+    const problems = checkTauriConfigFiles([...usual, name]);
+    assert.deepEqual(subjects(problems), [`src-tauri/${name}`], JSON.stringify(problems));
+  }
+  assert.match(checkTauriConfigFiles(["TAURI.CONF.JSON"])[0], /differs from src-tauri\/tauri\.conf\.json only in letter case/);
+  assert.match(checkTauriConfigFiles(["tauri.windows.conf.json"])[0], /A Windows build merges tauri\.windows\.conf\.json/);
+});
+
+test("tauri.bundle.conf.json sets only what pnpm bundle needs (#671)", () => {
+  const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+  const bundle = JSON.parse(readFileSync(join(repoRoot, "src-tauri/tauri.bundle.conf.json"), "utf8"));
+  assert.deepEqual(checkBundleConfig(bundle), []);
+  assert.deepEqual(checkBundleConfig({}), []);
+  for (const [config, setting] of [
+    [{ ...bundle, app: { security: { csp: null } } }, "app.security.csp"],
+    [{ ...bundle, app: null }, "app"],
+    [{ bundle: null }, "bundle"],
+    [{ ...bundle, bundle: { ...bundle.bundle, windows: { webviewInstallMode: { type: "downloadBootstrapper" } } } }, "bundle.windows.webviewInstallMode.type"],
+    [{ ...bundle, build: { ...bundle.build, devUrl: "http://localhost:1420" } }, "build.devUrl"],
+    [{ ...bundle, build: { beforeBuildCommand: { script: "pnpm build" } } }, "build.beforeBuildCommand.script"],
+  ]) {
+    const problems = checkBundleConfig(config);
+    assert.equal(problems.length, 1, JSON.stringify(problems));
+    assert.ok(problems[0].startsWith(`src-tauri/tauri.bundle.conf.json: sets ${setting}. `), problems[0]);
+  }
+  assert.deepEqual(checkBundleConfig([]), ["src-tauri/tauri.bundle.conf.json: must be a JSON object"]);
+});
+
+test("names Windows reads as the folders and files the build uses are found (#671)", () => {
+  const listings = (dir = null, name = null) => {
+    const names = new Map([
+      ["", ["src-tauri", "scripts", "vite.config.ts"]],
+      ["src-tauri", ["build.rs", "capabilities", "permissions", "src", "tauri.conf.json"]],
+      ["src-tauri/src", ["lib.rs", "main.rs"]],
+    ]);
+    if (dir !== null) {
+      names.get(dir).push(name);
+    }
+    return names;
+  };
+  assert.deepEqual(checkWindowsAliases(listings()), []);
+  assert.deepEqual(checkWindowsAliases(new Map()), []);
+  for (const [dir, name, kind] of [
+    ["", "SRC-TAURI", "case"],
+    ["", "Src-Tauri", "case"],
+    ["", "SRC-TA~1", "short"],
+    ["", "SCRIPT~1", "short"],
+    ["src-tauri", "Capabilities", "case"],
+    ["src-tauri", "PERMISSIONS", "case"],
+    ["src-tauri", "Build.rs", "case"],
+    ["src-tauri", "SRC", "case"],
+    ["src-tauri", "CAPABI~1", "short"],
+    ["src-tauri", "TAURIC~1.JSO", "short"],
+    ["src-tauri/src", "LIB.rs", "case"],
+    ["src-tauri/src", "COMMAN~1.RS", "short"],
+  ]) {
+    const problems = checkWindowsAliases(listings(dir, name));
+    assert.deepEqual(subjects(problems), [dir === "" ? name : `${dir}/${name}`], JSON.stringify(problems));
+    assert.match(problems[0], kind === "case" ? /only in letter case/ : /short \(8\.3\) name/);
+  }
+});
+
+test("checkRepository finds what else a Windows build would load (#671)", (t) => {
+  const tempDir = copyRepository(t, "check-repo-windows-");
+  assert.deepEqual(checkRepository(tempDir), []);
+  const capabilities = join(tempDir, "src-tauri/capabilities");
+
+  // Capability files that are not .json files at the top of the folder.
+  mkdirSync(join(capabilities, "sub"));
+  writeFileSync(join(capabilities, "sub/extra.json"), JSON.stringify(coreCapability));
+  writeFileSync(join(capabilities, "extra.toml"), 'identifier = "extra"\nwindows = ["main"]\npermissions = ["core:default"]\n');
+  assert.deepEqual(subjects(checkRepository(tempDir)), ["src-tauri/capabilities/extra.toml", "src-tauri/capabilities/sub/"]);
+  rmSync(join(capabilities, "sub"), { recursive: true });
+  rmSync(join(capabilities, "extra.toml"));
+
+  // A capability file that holds a list.
+  writeFileSync(join(capabilities, "extra.json"), JSON.stringify({ capabilities: [coreCapability] }));
+  assert.deepEqual(subjects(checkRepository(tempDir)), ["capabilities/extra.json"]);
+  rmSync(join(capabilities, "extra.json"));
+
+  // A capability written into tauri.conf.json.
+  const configFile = join(tempDir, "src-tauri/tauri.conf.json");
+  const configText = readFileSync(configFile, "utf8");
+  const config = JSON.parse(configText);
+  config.app.security.capabilities = ["main", coreCapability];
+  writeFileSync(configFile, JSON.stringify(config));
+  assert.deepEqual(subjects(checkRepository(tempDir)), ["tauri.conf.json"]);
+  writeFileSync(configFile, configText);
+
+  // A platform configuration file, and a setting tauri.bundle.conf.json may not make.
+  writeFileSync(join(tempDir, "src-tauri/tauri.windows.conf.json"), JSON.stringify({ app: { security: { csp: null } } }));
+  const bundleFile = join(tempDir, "src-tauri/tauri.bundle.conf.json");
+  const bundleText = readFileSync(bundleFile, "utf8");
+  writeFileSync(bundleFile, JSON.stringify({ ...JSON.parse(bundleText), app: { security: { csp: null } } }));
+  assert.deepEqual(subjects(checkRepository(tempDir)), [
+    "src-tauri/tauri.windows.conf.json",
+    "src-tauri/tauri.bundle.conf.json",
+  ]);
+  rmSync(join(tempDir, "src-tauri/tauri.windows.conf.json"));
+  writeFileSync(bundleFile, bundleText);
+  assert.deepEqual(checkRepository(tempDir), []);
+
+  // A permission set in a folder that differs from src-tauri/permissions/ only in letter case.
+  // Without src-tauri/permissions/, this folder can be made on Windows too, where the permission
+  // file check also finds the set, since Windows opens src-tauri/permissions/ as this folder.
+  rmSync(join(tempDir, "src-tauri/permissions"), { recursive: true });
+  mkdirSync(join(tempDir, "src-tauri/Permissions/sets"), { recursive: true });
+  writeFileSync(
+    join(tempDir, "src-tauri/Permissions/sets/open.toml"),
+    '[[set]]\nidentifier = "allow-open-plus"\npermissions = ["allow-open-document-dialog", "core:webview:default"]\n',
+  );
+  const problems = checkRepository(tempDir);
+  assert.equal(subjects(problems)[0], "src-tauri/Permissions", JSON.stringify(problems));
+  assert.match(problems[0], /differs from src-tauri\/permissions only in letter case/);
 });

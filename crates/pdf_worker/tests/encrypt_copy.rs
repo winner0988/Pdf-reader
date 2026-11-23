@@ -33,7 +33,7 @@ fn open(host: &mut WorkerHost, path: &Path) -> DocumentId {
 }
 
 /// A new, empty file to write into, as the main process creates it.
-fn new_file(name: &str) -> (PathBuf, File) {
+fn new_file(name: &str) -> (common::TempFileGuard, File) {
     let path = std::env::temp_dir().join(format!("pdf-worker-{}-{name}.pdf", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let file = OpenOptions::new()
@@ -41,7 +41,7 @@ fn new_file(name: &str) -> (PathBuf, File) {
         .create_new(true)
         .open(&path)
         .expect("create");
-    (path, file)
+    (common::TempFileGuard(path), file)
 }
 
 fn password(text: &str) -> Password {
@@ -120,8 +120,6 @@ fn a_copy_opens_only_with_its_password_and_the_document_is_as_it_was() {
     drop(plain_file);
     let (_, pages) = opened_with(&plain, None).expect("a plain file opens without a password");
     assert_eq!(pages, 10);
-    std::fs::remove_file(path).ok();
-    std::fs::remove_file(plain).ok();
 }
 
 #[test]
@@ -153,7 +151,6 @@ fn restrictions_are_what_the_copy_is_opened_with_unless_the_permissions_password
     );
     let (lifted, _) = opened_with(&path, Some("pw-owner-7Qz")).expect("opens");
     assert_eq!(lifted, DocumentPermissions::ALL);
-    std::fs::remove_file(path).ok();
 
     // With only restrictions, nobody is asked for a password, and the restrictions hold.
     let (path, file) = new_file("restricted-only");
@@ -179,13 +176,12 @@ fn restrictions_are_what_the_copy_is_opened_with_unless_the_permissions_password
     assert_eq!(pages, 10);
     assert!(!anyone.modify && !anyone.assemble && !anyone.annotate && !anyone.fill_forms);
     assert!(anyone.print && anyone.copy);
-    std::fs::remove_file(path).ok();
 }
 
 #[test]
 fn a_signed_document_and_an_encrypted_one_have_no_encrypted_copy() {
     let mut host = host();
-    let (_, file) = new_file("refused");
+    let (_refused_guard, file) = new_file("refused");
     let signed = open(&mut host, &corpus("benign/signed.pdf"));
     let error = host
         .encrypted_copy(
@@ -219,7 +215,7 @@ fn a_signed_document_and_an_encrypted_one_have_no_encrypted_copy() {
 
     // The worker goes on: an unsigned document is served by it.
     let plain = open(&mut host, &corpus("benign/multi-page-10.pdf"));
-    let (_, plain_file) = new_file("served");
+    let (_served_guard, plain_file) = new_file("served");
     host.encrypted_copy(
         plain,
         &plain_file,
@@ -234,7 +230,7 @@ fn a_signed_document_and_an_encrypted_one_have_no_encrypted_copy() {
 fn a_password_a_copy_cannot_have_is_refused_and_the_worker_goes_on() {
     let mut host = host();
     let doc = open(&mut host, &corpus("benign/multi-page-10.pdf"));
-    let (_, file) = new_file("bad-password");
+    let (_bad_pw_guard, file) = new_file("bad-password");
     for (open, owner) in [
         (Some("p".repeat(128)), "owner".to_owned()),
         (None, "p".repeat(128)),
@@ -252,9 +248,10 @@ fn a_password_a_copy_cannot_have_is_refused_and_the_worker_goes_on() {
             .unwrap_err();
         assert_eq!(error.code(), ErrorCode::InvalidArgument);
     }
+    drop(file);
     // Not a crash: the next request is served by the same worker.
     assert!(host.is_running());
-    let (_, file) = new_file("after");
+    let (_after_guard, file) = new_file("after");
     host.encrypted_copy(
         doc,
         &file,
@@ -263,4 +260,5 @@ fn a_password_a_copy_cannot_have_is_refused_and_the_worker_goes_on() {
         NONE,
     )
     .expect("encrypted copy");
+    drop(file);
 }

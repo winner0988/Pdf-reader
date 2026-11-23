@@ -74,14 +74,14 @@ fn scanned_pdf(names: &[&str]) -> Vec<u8> {
 }
 
 /// A worker with the scan of `names` open.
-fn open_scan(names: &[&str]) -> (WorkerHost, DocumentId) {
-    let path = common::temp_pdf(&format!("ocr-{}", names.len()), &scanned_pdf(names));
+fn open_scan(names: &[&str]) -> (WorkerHost, DocumentId, common::TempFileGuard) {
+    let guard = common::temp_pdf(&format!("ocr-{}", names.len()), &scanned_pdf(names));
     let mut host = WorkerHost::new(
         Path::new(env!("CARGO_BIN_EXE_pdf_worker")),
         HostConfig::default(),
     );
-    let doc = host.open(&path).expect("open the scan").0;
-    (host, doc)
+    let doc = host.open(&guard).expect("open the scan").0;
+    (host, doc, guard)
 }
 
 fn open_corpus(name: &str) -> (WorkerHost, DocumentId) {
@@ -189,7 +189,7 @@ fn search(
 
 #[test]
 fn a_scanned_page_is_recognised_in_the_sandbox_and_then_has_text() {
-    let (mut host, doc) = open_scan(&[PRIVACY]);
+    let (mut host, doc, _guard) = open_scan(&[PRIVACY]);
     // Before: no text, no hits, no text layer at all.
     assert!(text(&mut host, doc, 0).lines.is_empty());
     assert_eq!(search(&mut host, doc, 0, "reader"), (Vec::new(), false));
@@ -302,7 +302,7 @@ fn a_picture_without_text_is_read_and_stays_without() {
 
 #[test]
 fn chinese_is_recognised_with_the_chinese_data() {
-    let (mut host, doc) = open_scan(&[PRIVACY]);
+    let (mut host, doc, _guard) = open_scan(&[PRIVACY]);
     load(&mut host, "chi_tra");
     read(&mut host, doc, &[0]);
     let page = text(&mut host, doc, 0);
@@ -319,7 +319,7 @@ fn chinese_is_recognised_with_the_chinese_data() {
 
 #[test]
 fn turning_a_page_or_opening_the_document_again_drops_what_was_read() {
-    let (mut host, doc) = open_scan(&[PRIVACY]);
+    let (mut host, doc, _guard) = open_scan(&[PRIVACY]);
     load(&mut host, "eng");
     read(&mut host, doc, &[0]);
     assert!(text(&mut host, doc, 0).recognised);
@@ -353,7 +353,7 @@ fn turning_a_page_or_opening_the_document_again_drops_what_was_read() {
 
 #[test]
 fn what_was_read_stays_with_its_page_as_pages_are_deleted_moved_and_inserted() {
-    let (mut host, doc) = open_scan(&[PRIVACY, HELLO]);
+    let (mut host, doc, _guard) = open_scan(&[PRIVACY, HELLO]);
     load(&mut host, "eng");
     read(&mut host, doc, &[0, 1]);
     let hello =
@@ -396,7 +396,7 @@ fn what_was_read_stays_with_its_page_as_pages_are_deleted_moved_and_inserted() {
 
 #[test]
 fn a_language_file_that_is_not_one_is_refused_and_the_worker_goes_on() {
-    let (mut host, doc) = open_scan(&[PRIVACY]);
+    let (mut host, doc, _guard) = open_scan(&[PRIVACY]);
     for (language, data) in [
         ("eng", Vec::new()),
         ("eng", vec![0; 100]),
@@ -419,7 +419,7 @@ fn a_language_file_that_is_not_one_is_refused_and_the_worker_goes_on() {
 
 #[test]
 fn the_worker_answers_other_requests_while_pages_are_read() {
-    let (mut host, doc) = open_scan(&[PRIVACY, PRIVACY, PRIVACY, PRIVACY]);
+    let (mut host, doc, _guard) = open_scan(&[PRIVACY, PRIVACY, PRIVACY, PRIVACY]);
     load(&mut host, "eng");
     for page in 0..4 {
         assert_eq!(check(&mut host, doc, page), OcrPageState::Queued);
