@@ -318,6 +318,10 @@ fn test_crop_10_pages_table_and_saving() {
         assert_eq!(read_box(&mb), *expected_box, "Page {i} MediaBox changed");
     }
 
+    drop(page8_parent);
+    drop(page8);
+    drop(mupdf_doc);
+    drop(host2);
     let _ = std::fs::remove_file(&temp_input);
     let _ = std::fs::remove_file(&saved_path);
 }
