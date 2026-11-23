@@ -65,9 +65,10 @@ test("starts with English interface, displays English UI, and passes accessibili
   // Page canvas renders in English
   await expect(page.getByRole("img", { name: enStrings.canvas.page(1) })).toHaveAttribute("data-state", "ready");
 
-  // Toolbar buttons have English tooltips / accessible names
+  // Toolbar buttons and zoom dropdown have English tooltips / accessible names
   await expect(page.getByRole("button", { name: enStrings.toolbar.more })).toBeVisible();
-  await expect(page.getByRole("button", { name: enStrings.toolbar.fitPage })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: enStrings.toolbar.zoomLevel })).toBeVisible();
+  await expect(page.getByRole("button", { name: enStrings.toolbar.zoomIn })).toBeVisible();
 
   // Accessibility check on main reader view
   expect(await problems(page, { ...APPLICATION, ...TABS })).toEqual([]);
