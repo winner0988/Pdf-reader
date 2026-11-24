@@ -16,11 +16,10 @@ use ipc_contract::limits::{
     MAX_STAMP_SOURCE_BYTES, MAX_TEXT_BYTES, MAX_UNDO_EDITS,
 };
 use ipc_contract::ocr::{check_language_data, is_language_name};
-use ipc_contract::text::{classify_uri, clean_display_text};
+use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
-    AttachmentId, DocumentId, ImageQuality, LinkId, LinkTarget, OutlineItem, OutlineResult,
-    PageLink, PageSize, Password, Rect, RequestId, Restrictions, SanitizeOptions, TextBoxInfo,
-    Watermark,
+    AttachmentId, DocumentId, ImageQuality, LinkId, OutlineItem, OutlineResult, PageLink, PageSize,
+    Password, Rect, RequestId, Restrictions, SanitizeOptions, TextBoxInfo, Watermark,
 };
 use ipc_contract::validate::{Validate, check_prepare_text_boxes_request, stamp_png_size};
 use ipc_contract::worker::{
@@ -30,7 +29,7 @@ use ipc_contract::worker::{
 };
 
 use crate::engine::{
-    EngineError, OcrKnown, OutlineTarget, PdfBuilder, PdfDocument, TextBoxFont, inspect_font,
+    EngineError, OcrKnown, PdfBuilder, PdfDocument, TextBoxFont, inspect_font,
     prepare_stamp_picture, prepare_text_box, prepare_text_boxes,
 };
 use crate::handle;
@@ -1016,6 +1015,15 @@ pub fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), Engine
             let watermark: Watermark = watermark.clone().into();
             document.add_watermark(pages, &watermark, png.as_deref())?;
         }
+        WorkerEdit::AddLink { page, rect, target } => {
+            document.add_link(*page, *rect, target)?;
+        }
+        WorkerEdit::SetLinkTarget { link, target } => {
+            document.set_link_target(*link, target)?;
+        }
+        WorkerEdit::DeleteLink { link } => {
+            document.delete_link(*link)?;
+        }
     }
     document.clear_text_cache();
     Ok(())
@@ -1618,25 +1626,7 @@ fn page_links(document: &PdfDocument, page_index: u32) -> Result<Vec<PageLink>, 
     Ok(links)
 }
 
-/// An outline or link target as the frontend sees it: pages within the document, URIs sorted
-/// into openable and blocked ones, and PDF-provided text cleaned for display.
-fn contract_target(target: OutlineTarget, page_count: u32) -> Option<LinkTarget> {
-    match target {
-        OutlineTarget::Page(page_index) if page_index < page_count => Some(LinkTarget::Page {
-            page_index,
-            x: None,
-            y: None,
-        }),
-        OutlineTarget::Page(_) | OutlineTarget::None => None,
-        OutlineTarget::Uri(uri) => Some(classify_uri(&uri)),
-        OutlineTarget::Blocked { action, target } => Some(LinkTarget::Blocked {
-            action,
-            target: target
-                .map(|text| clean_display_text(&text, MAX_TEXT_BYTES as usize))
-                .filter(|text| !text.is_empty()),
-        }),
-    }
-}
+use crate::engine::links::contract_target;
 
 fn engine_error_code(engine: &EngineError, other: WorkerErrorCode) -> WorkerErrorCode {
     match engine {

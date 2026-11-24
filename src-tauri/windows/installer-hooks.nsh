@@ -42,6 +42,24 @@
 !define PDF_READER_PROGID "PdfReader.Document"
 !define PDF_READER_CAPABILITIES "Software\PDF Reader\Capabilities"
 
+; Explorer context menu verb for images (B5-13, #450): registered under SystemFileAssociations so
+; image ProgIDs, OpenWithProgids, UserChoice, and default handlers are never modified.
+; MultiSelectModel=Player raises Windows Explorer's static-verb selection limit from 15 (Document)
+; to 100 items; Windows invokes the command once per selected file and single-instance collects them.
+!define PDF_READER_CREATE_PDF_VERB "PdfReader.CreatePdf"
+!define PDF_READER_CREATE_PDF_LABEL "用 PDF Reader 建立 PDF"
+
+!macro PDF_READER_REGISTER_IMAGE_VERB ext
+  WriteRegStr HKLM "Software\Classes\SystemFileAssociations\.${ext}\shell\${PDF_READER_CREATE_PDF_VERB}" "MUIVerb" "${PDF_READER_CREATE_PDF_LABEL}"
+  WriteRegStr HKLM "Software\Classes\SystemFileAssociations\.${ext}\shell\${PDF_READER_CREATE_PDF_VERB}" "Icon" "$INSTDIR\${MAINBINARYNAME}.exe,0"
+  WriteRegStr HKLM "Software\Classes\SystemFileAssociations\.${ext}\shell\${PDF_READER_CREATE_PDF_VERB}" "MultiSelectModel" "Player"
+  WriteRegStr HKLM "Software\Classes\SystemFileAssociations\.${ext}\shell\${PDF_READER_CREATE_PDF_VERB}\command" "" '"$INSTDIR\${MAINBINARYNAME}.exe" --create-pdf-from "%1"'
+!macroend
+
+!macro PDF_READER_UNREGISTER_IMAGE_VERB ext
+  DeleteRegKey HKLM "Software\Classes\SystemFileAssociations\.${ext}\shell\${PDF_READER_CREATE_PDF_VERB}"
+!macroend
+
 !macro PDF_READER_REGISTER
   SetRegView 64
   WriteRegStr HKLM "Software\Classes\${PDF_READER_PROGID}" "" "PDF 文件"
@@ -56,6 +74,13 @@
   WriteRegStr HKLM "${PDF_READER_CAPABILITIES}" "ApplicationIcon" "$INSTDIR\${MAINBINARYNAME}.exe,0"
   WriteRegStr HKLM "${PDF_READER_CAPABILITIES}\FileAssociations" ".pdf" "${PDF_READER_PROGID}"
   WriteRegStr HKLM "Software\RegisteredApplications" "${PRODUCTNAME}" "${PDF_READER_CAPABILITIES}"
+  !insertmacro PDF_READER_REGISTER_IMAGE_VERB "png"
+  !insertmacro PDF_READER_REGISTER_IMAGE_VERB "jpg"
+  !insertmacro PDF_READER_REGISTER_IMAGE_VERB "jpeg"
+  !insertmacro PDF_READER_REGISTER_IMAGE_VERB "gif"
+  !insertmacro PDF_READER_REGISTER_IMAGE_VERB "bmp"
+  !insertmacro PDF_READER_REGISTER_IMAGE_VERB "tif"
+  !insertmacro PDF_READER_REGISTER_IMAGE_VERB "tiff"
   SetRegView lastused
   ; SHCNE_ASSOCCHANGED, SHCNF_FLUSH: Explorer picks up the new handler without a restart.
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x1000, p 0, p 0)'
@@ -63,6 +88,13 @@
 
 !macro PDF_READER_UNREGISTER
   SetRegView 64
+  !insertmacro PDF_READER_UNREGISTER_IMAGE_VERB "png"
+  !insertmacro PDF_READER_UNREGISTER_IMAGE_VERB "jpg"
+  !insertmacro PDF_READER_UNREGISTER_IMAGE_VERB "jpeg"
+  !insertmacro PDF_READER_UNREGISTER_IMAGE_VERB "gif"
+  !insertmacro PDF_READER_UNREGISTER_IMAGE_VERB "bmp"
+  !insertmacro PDF_READER_UNREGISTER_IMAGE_VERB "tif"
+  !insertmacro PDF_READER_UNREGISTER_IMAGE_VERB "tiff"
   DeleteRegValue HKLM "Software\RegisteredApplications" "${PRODUCTNAME}"
   DeleteRegKey HKLM "Software\PDF Reader"
   DeleteRegKey HKLM "Software\Classes\Applications\${MAINBINARYNAME}.exe"

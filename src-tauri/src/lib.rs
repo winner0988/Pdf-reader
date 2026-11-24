@@ -19,6 +19,7 @@ mod credentials;
 mod documents;
 mod drives;
 mod events;
+mod explorer_create;
 mod export;
 mod file_dialog;
 mod font_jobs;
@@ -59,6 +60,7 @@ use crate::background::Background;
 use crate::batch::Batches;
 use crate::documents::Documents;
 use crate::events::OpenEvents;
+use crate::explorer_create::ExplorerCreate;
 use crate::export::Exports;
 use crate::font_jobs::FontJobs;
 use crate::ocr::Ocr;
@@ -93,22 +95,23 @@ pub fn run() {
             worker_host::WORKER_FILE_NAME
         );
     }
-    let launch_documents = cli::document_arguments(std::env::args_os());
+    let launch = cli::parse(std::env::args_os());
 
     tauri::Builder::default()
         // First, so that a second launch ends before anything else starts: it hands its files to
-        // this window (each gets a tab) and exits (MVP-14, ADR 0012). Paths stay in the main
-        // processes; a relative one is taken from the second launch's working directory.
+        // this window (each gets a tab, or images after `--create-pdf-from` enter the collector)
+        // and exits (MVP-14, B5-13, ADR 0012). Paths stay in the main processes; relative ones are
+        // taken from the second launch's working directory.
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
-            let paths = cli::document_arguments(argv.into_iter().map(OsString::from))
-                .into_iter()
-                .map(|path| Path::new(&cwd).join(path))
-                .collect();
-            commands::open_paths(app, paths);
+            let launch =
+                cli::parse(argv.into_iter().map(OsString::from)).resolve_relative(Path::new(&cwd));
+            commands::open_paths(app, launch.documents);
+            app.state::<ExplorerCreate>().enqueue(launch.create_from);
             show_window(app);
         }))
         .manage(Documents::new(worker))
         .manage(OpenEvents::default())
+        .manage(ExplorerCreate::new())
         .manage(capture::CaptureGuard::default())
         .manage(Searches::default())
         .manage(Exports::default())
@@ -304,7 +307,10 @@ pub fn run() {
                 move |event| events.state::<OpenEvents>().send(event),
             );
             text_index.start(commands::IndexSource(app.app_handle().clone()));
-            commands::open_paths(app.app_handle(), launch_documents);
+            app.state::<ExplorerCreate>()
+                .start(app.app_handle().clone());
+            commands::open_paths(app.app_handle(), launch.documents);
+            app.state::<ExplorerCreate>().enqueue(launch.create_from);
             Ok(())
         })
         .run(tauri::generate_context!())

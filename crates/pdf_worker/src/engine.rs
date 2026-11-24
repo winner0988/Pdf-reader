@@ -97,6 +97,7 @@ pub use identifier::write_identifier;
 pub use ocr::OcrKnown;
 pub use searchable_copy::SearchableCopy;
 
+pub mod links;
 mod outline;
 mod signatures;
 mod signing;
@@ -652,7 +653,7 @@ impl PdfDocument {
         Ok(links)
     }
 
-    fn link_entry(
+    pub(crate) fn link_entry(
         &self,
         annot: &PdfObject,
         ctm: &Matrix,

@@ -96,6 +96,7 @@ export function useTabs(api: OpenApi, onOcr?: (event: OcrEvent) => void) {
   const activate = useCallback((tab: TabId) => dispatch({ type: "activate", tab }), []);
   const step = useCallback((by: 1 | -1) => dispatch({ type: "step", by }), []);
   const dismissNotice = useCallback(() => dispatch({ type: "dismissNotice" }), []);
+  const dismissExplorerCreate = useCallback(() => dispatch({ type: "dismissExplorerCreate" }), []);
   const dismissCloseRequest = useCallback(() => dispatch({ type: "dismissCloseRequest" }), []);
 
   return {
@@ -109,6 +110,7 @@ export function useTabs(api: OpenApi, onOcr?: (event: OcrEvent) => void) {
     activate,
     step,
     dismissNotice,
+    dismissExplorerCreate,
     dismissCloseRequest,
   };
 }

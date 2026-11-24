@@ -277,7 +277,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `GetDocumentFonts` | 頁面與 Form XObject 裡的字型清單 | `engine/properties.rs` | worker `properties.rs` | `read_document` |
 | `GetTextBox` | 文字方塊註解 | `engine/text_box.rs` | worker `text_box_worker.rs` | `read_document`（前兩頁，#426） |
 | `ExportDocx` | 頁面的文字與圖片，寫成 .docx | `engine/docx.rs` | worker `docx.rs` | `open_document` |
-| `Edit` | 32 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs`、`watermark.rs` | `edit_document`（32 種） |
+| `Edit` | 35 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs`、`watermark.rs`、`links.rs` | `edit_document`（35 種） |
 | `Revert` | 從保留的位元組重新開啟，再做一次編輯 | `engine.rs` | worker `saving.rs`、`merge.rs` | `edit_document` |
 | `Rebase` | 把剛存的檔案當成 undo 的起點；只保留位元組，不解析 | `serve.rs` | worker `saving.rs` | 不需要 |
 | `Save` | 寫出整份文件；已簽章的文件以增量更新 | `engine.rs` | worker `saving.rs`、`save_poc.rs` | `text_box_font`、`edit_document` |
@@ -304,7 +304,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `Cancel` | 主行程目前不送；worker 收到也不處理 | `serve.rs` | — | `worker_messages` |
 | `Shutdown` | 主行程目前不送（直接結束 worker）；worker 收到就結束 | `serve.rs` | `crates/ipc_contract/src/frame.rs` | `worker_messages` |
 
-### 2.5 編輯（`WorkerEdit`，32 種）
+### 2.5 編輯（`WorkerEdit`，35 種）
 
 前端送的是 `Edit`，主行程檢查後轉成 `WorkerEdit`。插入的頁面來源與文字方塊的字型子集是主行程留著的，前端不能直接給位元組。結構不正確的頁碼標籤樹在改動頁面之前由 worker 拒絕（有上限）。
 
@@ -325,6 +325,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `SetTextBox`、`PlaceTextBox` | 頁碼；矩形；樣式（`TextBoxStyle::validate`）；字是 `PrepareTextBox` 做好的模型 |
 | `AddBookmark`、`RenameBookmark`、`DeleteBookmark`、`MoveBookmark` | 位置 ≤ `MAX_OUTLINE_ITEMS`；頁碼；標題不得空白、≤ `MAX_TEXT_BYTES`、不含控制字元（`check_clean`） |
 | `AddWatermark` | 頁面清單（`check_page_list`）；浮水印內容與選項（`Watermark::validate`）；圖片是 `PrepareStampImage` 做好的 PNG |
+| `AddLink`、`SetLinkTarget`、`DeleteLink` | 頁碼；矩形邊長 ≥ `MIN_LINK_SIDE_PT`（4.0 pt）；網址只允許 http、https、mailto 且 ≤ `MAX_TEXT_BYTES`（4096 位元組）、不含控制字元與空白字元（`NewLinkTarget::validate`） |
 
 測試：`documents.rs` 的編輯測試（`annotations_are_added_changed_removed_and_undone_like_any_edit`、`drawings_and_stamps_are_added_moved_removed_and_undone_like_any_annotation` 等）、`ipc_contract` 的驗證測試、worker 的整合測試與上面列的 E2E。fuzz：`edit_document`。
 
@@ -342,7 +343,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 復原日誌 | app 資料夾的 `recovery\`（每個 ≤ 4 MiB） | 當成不可信的資料檢查 | `recovery.rs` 15 個（含截斷、變異與隨機輸入測試） | 由單元變異測試驗證（#429） |
 | 文字索引 | app 資料夾的 `index\`（金鑰 ≤ 4 KiB，目錄與文件 ≤ 32 MiB） | AES-256-GCM；金鑰以 DPAPI 保護。不是 app 寫的檔案在解析前就被拒絕 | `text_index.rs` 24 個（`nothing_on_the_disk_can_be_read_without_the_key` 等）、`index_crypto.rs` 3 個 | 不需要（先驗證才解析） |
 | 認證管理員裡的密碼 | app 自己寫的項目（`PdfReader/password/v1/<key>`） | 鍵是 worker 從檔案的加密資訊算出的雜湊（`PasswordKey`，ADR 0017）；項目裡沒有檔名、路徑或內容 | `credentials.rs` 7 個 | 不需要 |
-| 命令列、第二次啟動的參數 | 其他程式（§8） | 只當成檔案路徑 | `cli.rs` 3 個 | 不需要 |
+| 命令列、第二次啟動的參數 | 其他程式（§8） | `--create-pdf-from` 之前只當成要開啟的檔案路徑；之後只當成建立 PDF 的圖片路徑，逐一檢查為存在的一般檔案與七種圖片副檔名、去重並受 `MAX_CREATE_SOURCES`（200）限制，路徑不傳到前端 | `cli.rs` 8 個、`explorer_create.rs` 5 個 | 不需要 |
 
 ## 4. WebView 的權限
 
@@ -412,10 +413,10 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 入口 | 處理方式 | 檢查 |
 |---|---|---|
-| 命令列 | `src-tauri/src/cli.rs`：跳過 `-` 開頭的參數，其餘當成檔案路徑交給 `commands::open_paths`（開啟對話框也走這裡） | `cli.rs` 3 個；`open.spec.ts` |
-| 第二次啟動 | `tauri-plugin-single-instance` =2.5.4：mutex、`FindWindowW`、`WM_COPYDATA` 傳來參數與工作目錄，主行程以 `Path::new(&cwd).join(path)` 交給 `open_paths` | `batch.spec.ts`（第二次啟動把檔案交給視窗） |
+| 命令列 | `src-tauri/src/cli.rs`：跳過 `-` 開頭的參數（`--create-pdf-from` 切換模式），之前交給 `commands::open_paths`（開啟對話框也走這裡），之後交給 `ExplorerCreate` 收集並經 `create_pdf_from_sources` 建立 PDF（檢查存在的一般檔案、七種圖片副檔名、`same_file` 去重與 200 張上限，由另存對話框決定輸出位置） | `cli.rs` 8 個、`explorer_create.rs` 5 個；`open.spec.ts`、`create-from-explorer.spec.ts` |
+| 第二次啟動 | `tauri-plugin-single-instance` =2.5.4：mutex、`FindWindowW`、`WM_COPYDATA` 傳來參數與工作目錄，主行程以 `cli::parse(...).resolve_relative(&cwd)` 分別交給 `open_paths` 與 `ExplorerCreate` | `batch.spec.ts`（第二次啟動把檔案交給視窗）、`create-from-explorer.spec.ts` |
 | 拖放 | 視窗的拖放事件把每個拖進來的檔案交給 `open_paths`（每個檔案各開一個分頁；非 PDF 或資料夾則顯示錯誤分頁） | manual-checks §3.14（原生 OLE 拖放無法由 Playwright CDP 模擬，見 `docs/architecture/e2e.md`） |
-| 檔案關聯 | 安裝程式在 HKLM 登錄 `.pdf` 的開啟命令 | manual-checks §3 |
+| 檔案關聯 | 安裝程式在 HKLM 登錄 `.pdf` 的開啟命令，並在 `SystemFileAssociations\.<七種圖片副檔名>\shell\PdfReader.CreatePdf` 登錄 `--create-pdf-from "%1"` 右鍵動詞（不改圖片預設程式） | `installer_hooks.rs`；manual-checks §3 |
 | `PDF_READER_DATA_DIR` | 是絕對路徑時，取代 app 資料夾；正式版也讀（E2E 用它讓每次執行有自己的資料夾） | §9 |
 | WebView2 的環境變數 | `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`、`WEBVIEW2_USER_DATA_FOLDER` 等由 WebView2 自己讀；E2E 用前者打開 `--remote-debugging-port`（`docs/architecture/e2e.md`） | §9；manual-checks §3 |
 | 只給測試用的環境變數 | `CI`、`PDF_READER_TEST_CLIPBOARD`、`PDF_READER_TEST_SIGNING` 只在單元測試裡讀 | — |

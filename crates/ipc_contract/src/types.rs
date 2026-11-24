@@ -802,6 +802,18 @@ pub enum Edit {
         from: u32,
         to: u32,
     },
+    /// Adds a new link over `rect` on page `page` (B6-03, Issue #588).
+    #[serde(rename_all = "camelCase")]
+    AddLink {
+        page: u32,
+        rect: Rect,
+        target: NewLinkTarget,
+    },
+    /// Changes where link `link` points to (B6-03, Issue #588).
+    #[serde(rename_all = "camelCase")]
+    SetLinkTarget { link: LinkId, target: NewLinkTarget },
+    /// Removes link `link` (B6-03, Issue #588).
+    DeleteLink { link: LinkId },
 }
 
 /// What applying the redaction marks of a document would do besides removing what their areas
@@ -2360,6 +2372,75 @@ mod link_target_serde {
     }
 }
 
+/// Where a newly added or retargeted link points to (B6-03, Issue #588).
+///
+/// Handled like [`LinkTarget`]: postcard cannot deserialize internally tagged enums.
+/// See [`new_link_target_serde`].
+#[derive(Debug, Clone, PartialEq, Eq, TS)]
+#[ts(tag = "kind", rename_all = "camelCase")]
+pub enum NewLinkTarget {
+    /// A page in the same document (0-based).
+    Page { page: u32 },
+    /// An external web or email address (`http`, `https` or `mailto`).
+    Uri { uri: String },
+}
+
+mod new_link_target_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use super::NewLinkTarget;
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(tag = "kind", rename_all = "camelCase")]
+    enum Tagged {
+        Page { page: u32 },
+        Uri { uri: String },
+    }
+
+    #[derive(Serialize, Deserialize)]
+    enum Compact {
+        Page { page: u32 },
+        Uri { uri: String },
+    }
+
+    macro_rules! convert {
+        ($from:ident => $to:ident) => {
+            impl From<$from> for $to {
+                fn from(target: $from) -> Self {
+                    match target {
+                        $from::Page { page } => $to::Page { page },
+                        $from::Uri { uri } => $to::Uri { uri },
+                    }
+                }
+            }
+        };
+    }
+    convert!(NewLinkTarget => Tagged);
+    convert!(NewLinkTarget => Compact);
+    convert!(Tagged => NewLinkTarget);
+    convert!(Compact => NewLinkTarget);
+
+    impl Serialize for NewLinkTarget {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            if serializer.is_human_readable() {
+                Tagged::from(self.clone()).serialize(serializer)
+            } else {
+                Compact::from(self.clone()).serialize(serializer)
+            }
+        }
+    }
+
+    impl<'de> Deserialize<'de> for NewLinkTarget {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            if deserializer.is_human_readable() {
+                Tagged::deserialize(deserializer).map(Into::into)
+            } else {
+                Compact::deserialize(deserializer).map(Into::into)
+            }
+        }
+    }
+}
+
 /// Identifies a link reported by the worker, so the main process can look it up later
 /// instead of trusting a URI string sent back by the frontend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
@@ -2671,6 +2752,23 @@ pub struct IpcError {
     pub message: String,
 }
 
+/// Progress of making a PDF from images passed via Explorer's context menu (`--create-pdf-from`,
+/// B5-13). Paths never leave the main process (ADR 0008): the page only sees counts and outcomes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "phase", rename_all = "camelCase")]
+pub enum ExplorerCreateStatus {
+    /// Gathering images from one or more Explorer launches before starting.
+    Collecting { count: u32, skipped: u32 },
+    /// Asking where to save and converting `count` images into a PDF.
+    Creating { count: u32, skipped: u32 },
+    /// The PDF was created and opened in a new tab.
+    Done { pages: u32, skipped: u32 },
+    /// Conversion failed with a known error code (never a path or raw error text).
+    Failed { code: ErrorCode },
+    /// No longer active (cancelled, all files skipped, or over the image limit).
+    Idle,
+}
+
 /// Pushed by the main process on the channel passed to `subscribe_open_events`, for documents
 /// opened from the dialog, by drag and drop, from the command line or from a second launch of
 /// the app. Every file gets its own tab (MVP-14): `Opening` adds it, then `Opened` or `Failed`
@@ -2727,6 +2825,8 @@ pub enum OpenEvent {
     /// the `Opened` of the sensitive document that turned it on, and to a page that subscribes
     /// while it is on.
     CaptureProtection { state: CaptureProtection },
+    /// Progress of creating a PDF from images passed via Explorer (`--create-pdf-from`, B5-13).
+    ExplorerCreate { status: ExplorerCreateStatus },
 }
 
 /// A font on this computer that the user can set the text of a text box in (ADR 0018, B2-27).

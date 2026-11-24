@@ -1004,6 +1004,15 @@ export const strings = {
     cancel: "取消",
     running: "正在建立 PDF…",
     done: (pages: number) => `已建立 ${pages} 頁的 PDF，並在新分頁開啟。`,
+    explorerCollecting: (count: number, skipped: number) =>
+      skipped > 0
+        ? count > 0
+          ? `正在收集圖片（已收到 ${count} 張，略過 ${skipped} 個檔案）…`
+          : `正在收集圖片（已略過 ${skipped} 個檔案）…`
+        : `正在收集圖片（已收到 ${count} 張）…`,
+    explorerCreating: (count: number) => `正在從 ${count} 張圖片建立 PDF…`,
+    explorerDoneSkipped: (pages: number, skipped: number) =>
+      `已建立 ${pages} 頁的 PDF，並在新分頁開啟（已略過 ${skipped} 個檔案）。`,
     /** Why it failed, for the codes that mean something here; any other code has its general text. */
     failures: {
       invalidArgument:
@@ -1148,6 +1157,27 @@ export const strings = {
     noTextLayer: "這一頁沒有文字層，無法選取文字。",
   },
   links: {
+    tool: "連結",
+    toolOn: "連結工具已開啟：在頁面上點一下或拖曳放置連結，或點擊現有連結進行編輯，按 Esc 結束。",
+    addLink: "在這裡新增連結…",
+    editLink: "編輯連結…",
+    deleteLink: "刪除連結",
+    crossPageNotAllowed: "無法跨頁建立連結",
+    addTitle: "新增連結",
+    editTitle: "編輯連結",
+    targetType: "連結目標",
+    targetPage: "文件內頁面",
+    targetUri: "網址或電子郵件",
+    pageNumber: "頁碼",
+    pageNumberPlaceholder: (total: number) => `1 至 ${total}`,
+    pageNumberError: (total: number) => `頁碼必須介於 1 到 ${total} 之間`,
+    uriLabel: "網址或郵件位址",
+    uriPlaceholder: "https://example.com 或 mailto:user@example.com",
+    uriError: "網址必須以 http://、https:// 或 mailto: 開頭，且不可包含空白",
+    save: "儲存",
+    add: "新增",
+    delete: "刪除",
+    confirmDelete: "確定要刪除這個連結嗎？",
     hoverPage: (page: number) => `前往第 ${page} 頁`,
     hoverBlocked: (reason: string) => `已封鎖：${reason}`,
     confirmTitle: "要開啟外部連結嗎？",

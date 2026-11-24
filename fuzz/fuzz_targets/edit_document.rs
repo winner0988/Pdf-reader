@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 
 use ipc_contract::types::{
     AnnotationId, BookmarkId, CropMargins, Edit, FieldId, HighlightColor, HighlightMark, InkColor, InkWidth,
-    PageCorner, PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark,
+    LinkId, NewLinkTarget, PageCorner, PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark,
     Point, Quad, Rect, Restrictions, Rgb, Rotation, SanitizeOptions, Shape, SourceId, StampImageId,
     StampName, TextAlign, TextBoxModelId, TextBoxStyle, TextMarkKind, Watermark, WatermarkContent,
     WatermarkPages, WatermarkPlace,
@@ -128,7 +128,7 @@ fuzz_target!(|data: &[u8]| {
     let mut applied_edits = Vec::new();
 
     for _ in 0..num_edits {
-        let kind = u.int_in_range(0..=31).unwrap_or(0);
+        let kind = u.int_in_range(0..=34).unwrap_or(0);
         let p = (u.int_in_range(0..=255).unwrap_or(0) as u32) % page_count;
 
         let edit = match kind {
@@ -497,7 +497,7 @@ fuzz_target!(|data: &[u8]| {
                     image,
                 }
             }
-            _ => {
+            31 => {
                 let first = p;
                 let count = (u.int_in_range(1..=5).unwrap_or(1) as u32).min(page_count - first);
                 let from = u.int_in_range(0..=2).unwrap_or(0) as u32;
@@ -508,6 +508,53 @@ fuzz_target!(|data: &[u8]| {
                     source: SourceId(1),
                     from,
                     to,
+                }
+            }
+            32 => {
+                let target = match u.int_in_range(0..=1).unwrap_or(0) {
+                    0 => NewLinkTarget::Page {
+                        page: (u.int_in_range(0..=255).unwrap_or(0) as u32) % page_count,
+                    },
+                    _ => NewLinkTarget::Uri {
+                        uri: "https://example.com/fuzz".to_string(),
+                    },
+                };
+                Edit::AddLink {
+                    page: p,
+                    rect: Rect {
+                        x0: 72.0,
+                        y0: 72.0,
+                        x1: 200.0,
+                        y1: 100.0,
+                    },
+                    target,
+                }
+            }
+            33 => {
+                let id = u.int_in_range(0..=10).unwrap_or(0);
+                let target = match u.int_in_range(0..=1).unwrap_or(0) {
+                    0 => NewLinkTarget::Page {
+                        page: (u.int_in_range(0..=255).unwrap_or(0) as u32) % page_count,
+                    },
+                    _ => NewLinkTarget::Uri {
+                        uri: "https://example.com/retarget".to_string(),
+                    },
+                };
+                Edit::SetLinkTarget {
+                    link: LinkId {
+                        page_index: p,
+                        index: id,
+                    },
+                    target,
+                }
+            }
+            _ => {
+                let id = u.int_in_range(0..=10).unwrap_or(0);
+                Edit::DeleteLink {
+                    link: LinkId {
+                        page_index: p,
+                        index: id,
+                    },
                 }
             }
         };

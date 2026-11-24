@@ -618,11 +618,20 @@ export async function answerFileDialog(page: Page, answer: { path: string } | "c
 }
 
 /**
+ * Starts the app a second time with arbitrary command-line arguments (e.g. `--create-pdf-from`
+ * from Explorer's context menu, B5-13). That launch hands its arguments to the running window and
+ * exits; this waits until it has.
+ */
+export function launchAgainWithArgs(args: string[]): void {
+  execFileSync(APP, args, { stdio: "ignore", timeout: STARTUP_TIMEOUT_MS });
+}
+
+/**
  * Starts the app a second time with `file` (as Explorer does for a PDF, MVP-14). That launch hands
  * the file to the running window, which opens it in a new tab, and exits; this waits until it has.
  */
 export function launchAgain(file: string): void {
-  execFileSync(APP, [file], { stdio: "ignore", timeout: STARTUP_TIMEOUT_MS });
+  launchAgainWithArgs([file]);
 }
 
 /** The tabs of the open documents in the tab bar (ignoring any sidebar panel tabs). */

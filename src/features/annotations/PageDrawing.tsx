@@ -89,7 +89,7 @@ export function PageDrawing({
     follow([], false);
     if (tool.kind === "pen") {
       onStroke(index, strokePoints(points.map(onPage)));
-    } else if (tool.kind === "redaction") {
+    } else if (tool.kind === "redaction" || tool.kind === "link") {
       if (start && Math.hypot(end.x - start.x, end.y - start.y) >= 4 && onRect) {
         onRect(index, rectOfPoints(onPage(start), onPage(end)));
       } else {
@@ -254,7 +254,7 @@ export function PageDrawing({
           })()}
         </svg>
       )}
-      {tool.kind === "redaction" && shown.points.length >= 2 && (
+      {(tool.kind === "redaction" || tool.kind === "link") && shown.points.length >= 2 && (
         <svg width={box.width} height={box.height} className="pointer-events-none absolute inset-0" aria-hidden>
           {(() => {
             const start = shown.points[0]!;
@@ -263,15 +263,17 @@ export function PageDrawing({
             const top = Math.min(start.y, current.y);
             const width = Math.abs(current.x - start.x);
             const height = Math.abs(current.y - start.y);
+            const isLink = tool.kind === "link";
             return (
               <rect
-                data-redaction-preview=""
+                data-link-preview={isLink ? "" : undefined}
+                data-redaction-preview={!isLink ? "" : undefined}
                 x={left}
                 y={top}
                 width={width}
                 height={height}
-                fill="rgba(239, 68, 68, 0.2)"
-                stroke="rgb(239, 68, 68)"
+                fill={isLink ? "rgba(59, 130, 246, 0.2)" : "rgba(239, 68, 68, 0.2)"}
+                stroke={isLink ? "rgb(59, 130, 246)" : "rgb(239, 68, 68)"}
                 strokeWidth={2}
                 strokeDasharray="4 2"
               />

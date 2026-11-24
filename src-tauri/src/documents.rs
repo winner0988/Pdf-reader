@@ -24,9 +24,9 @@ use ipc_contract::types::{
     BatchOperation, BlockedAction, Certification, CompressResult, CreateKind, CreateResult,
     DocumentFonts, DocumentId, DocumentInfo, DocumentPermissions, DocumentProperties, Edit,
     EditArgs, ErrorCode, FindPersonalDataQuery, FontInfo, FormField, ImageQuality, IpcError,
-    LinkArgs, LinkPreview, LinkTarget, MarkCheck, NotRemembered, OpenEvent, OutlineLinkArgs,
-    OutlineResult, PageAnnotation, PageLink, PageMarksError, PageSize, PageText, PagesSource,
-    Password, PersonalDataMatches, PreparedTextBox, Recovery, RedactionSummary,
+    LinkArgs, LinkPreview, LinkTarget, MarkCheck, NewLinkTarget, NotRemembered, OpenEvent,
+    OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageMarksError, PageSize, PageText,
+    PagesSource, Password, PersonalDataMatches, PreparedTextBox, Recovery, RedactionSummary,
     RememberedPasswords, RemoteAddressArgs, RenderPageArgs, Restrictions, SanitizeOptions,
     SanitizeResult, SaveAttachmentResult, SaveResult, SearchHit, SearchableCopyResult,
     SecurityReport, SignCheck, SignatureReport, SignatureStatus, SourceId, StampImageInfo, TabId,
@@ -3276,7 +3276,11 @@ fn pages_after(
         | Edit::SetPictureAngle { page, .. }
         | Edit::AddShape { page, .. }
         | Edit::SetLineEnds { page, .. }
-        | Edit::SetShapeStyle { page, .. } => Some(vec![*page]),
+        | Edit::SetShapeStyle { page, .. }
+        | Edit::AddLink { page, .. } => Some(vec![*page]),
+        Edit::SetLinkTarget { link, .. } | Edit::DeleteLink { link, .. } => {
+            Some(vec![link.page_index])
+        }
         _ => None,
     };
     // Redaction (B2-19, ADR 0016) changes what the pages say, marks included: the author's
@@ -3341,6 +3345,17 @@ fn pages_after(
             .into_iter()
             .try_for_each(|page| check_page_index(page, page_count))
             .map_err(invalid_argument)?;
+        if let Edit::AddLink {
+            target: NewLinkTarget::Page { page },
+            ..
+        }
+        | Edit::SetLinkTarget {
+            target: NewLinkTarget::Page { page },
+            ..
+        } = edit
+        {
+            check_page_index(*page, page_count).map_err(invalid_argument)?;
+        }
         return Ok(page_count);
     }
     // Filling in a form (B2-09) has its own permission too (`/P` bit 9, or bit 6); the worker
@@ -3472,7 +3487,10 @@ fn pages_after(
         | Edit::DeleteBookmark { .. }
         | Edit::MoveBookmark { .. }
         | Edit::CropPages { .. }
-        | Edit::AddWatermark { .. } => Ok(page_count),
+        | Edit::AddWatermark { .. }
+        | Edit::AddLink { .. }
+        | Edit::SetLinkTarget { .. }
+        | Edit::DeleteLink { .. } => Ok(page_count),
     }
 }
 
@@ -8371,6 +8389,26 @@ mod with_worker {
                 color: InkColor::Black,
                 width: InkWidth::Thin,
             },
+            Edit::AddLink {
+                page: 0,
+                rect,
+                target: NewLinkTarget::Page { page: 0 },
+            },
+            Edit::SetLinkTarget {
+                link: ipc_contract::types::LinkId {
+                    page_index: 0,
+                    index: 0,
+                },
+                target: NewLinkTarget::Uri {
+                    uri: "https://example.com/".to_owned(),
+                },
+            },
+            Edit::DeleteLink {
+                link: ipc_contract::types::LinkId {
+                    page_index: 0,
+                    index: 0,
+                },
+            },
         ] {
             assert_eq!(
                 documents
@@ -8385,6 +8423,143 @@ mod with_worker {
         }
         // Listing them is not editing them.
         assert!(documents.page_annotations(info.doc, 0).is_ok());
+    }
+
+    #[test]
+    fn link_edits_add_retarget_delete_and_reflect_in_preview() {
+        let (documents, info, path) = open("links-lifecycle", 3);
+        let mut doc = info.doc;
+        let rect = Rect {
+            x0: 50.0,
+            y0: 100.0,
+            x1: 200.0,
+            y1: 150.0,
+        };
+
+        // Initially no links
+        assert!(documents.page_links(doc, 0).unwrap().is_empty());
+
+        // Add a web link
+        let event = documents
+            .apply_edit(&EditArgs {
+                doc,
+                edit: Edit::AddLink {
+                    page: 0,
+                    rect,
+                    target: NewLinkTarget::Uri {
+                        uri: "https://example.com/first".to_owned(),
+                    },
+                },
+            })
+            .unwrap();
+        doc = opened_info(event).doc;
+
+        let links = documents.page_links(doc, 0).unwrap();
+        assert_eq!(links.len(), 1);
+        let link_id = links[0].id;
+        assert_eq!(
+            links[0].target,
+            LinkTarget::Uri {
+                uri: "https://example.com/first".to_owned()
+            }
+        );
+
+        // Preview checks out
+        let preview = documents
+            .link_preview(LinkArgs { doc, link: link_id })
+            .unwrap();
+        assert_eq!(preview.opens, "https://example.com/first");
+
+        // Retarget link to page 2
+        let event = documents
+            .apply_edit(&EditArgs {
+                doc,
+                edit: Edit::SetLinkTarget {
+                    link: link_id,
+                    target: NewLinkTarget::Page { page: 2 },
+                },
+            })
+            .unwrap();
+        doc = opened_info(event).doc;
+
+        let links_after = documents.page_links(doc, 0).unwrap();
+        assert_eq!(links_after.len(), 1);
+        match &links_after[0].target {
+            LinkTarget::Page { page_index, .. } => assert_eq!(*page_index, 2),
+            other => panic!("expected Page target, got {other:?}"),
+        }
+
+        // link_preview on page target returns InvalidArgument
+        assert_eq!(
+            documents
+                .link_preview(LinkArgs { doc, link: link_id })
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+
+        // Undo retarget -> returns to web link
+        stepped(&documents, &mut doc, true);
+        let links_undone = documents.page_links(doc, 0).unwrap();
+        assert_eq!(
+            links_undone[0].target,
+            LinkTarget::Uri {
+                uri: "https://example.com/first".to_owned()
+            }
+        );
+
+        // Redo -> returns to page 2
+        stepped(&documents, &mut doc, false);
+        let links_redone = documents.page_links(doc, 0).unwrap();
+        match &links_redone[0].target {
+            LinkTarget::Page { page_index, .. } => assert_eq!(*page_index, 2),
+            other => panic!("expected Page target, got {other:?}"),
+        }
+
+        // Delete link
+        let event = documents
+            .apply_edit(&EditArgs {
+                doc,
+                edit: Edit::DeleteLink { link: link_id },
+            })
+            .unwrap();
+        doc = opened_info(event).doc;
+
+        assert!(documents.page_links(doc, 0).unwrap().is_empty());
+
+        // Target page out of range
+        assert_eq!(
+            documents
+                .apply_edit(&EditArgs {
+                    doc,
+                    edit: Edit::AddLink {
+                        page: 0,
+                        rect,
+                        target: NewLinkTarget::Page { page: 10 },
+                    },
+                })
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+
+        // Source page out of range
+        assert_eq!(
+            documents
+                .apply_edit(&EditArgs {
+                    doc,
+                    edit: Edit::AddLink {
+                        page: 10,
+                        rect,
+                        target: NewLinkTarget::Page { page: 0 },
+                    },
+                })
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+
+        std::fs::remove_file(path).ok();
     }
 
     /// A copy of the form sample in a file of its own, opened in a window of its own.

@@ -967,6 +967,20 @@ export const strings: Strings = {
     cancel: "Cancel",
     running: "Creating PDF…",
     done: (pages: number) => `Created ${pages === 1 ? "1 page" : `${pages} pages`} PDF, opened in new tab.`,
+    explorerCollecting: (count: number, skipped: number) => {
+      const imgs = count === 1 ? "1 image" : `${count} images`;
+      const skips = skipped === 1 ? "1 file skipped" : `${skipped} files skipped`;
+      if (skipped > 0) {
+        return count > 0
+          ? `Collecting images (${imgs} received, ${skips})…`
+          : `Collecting images (${skips})…`;
+      }
+      return `Collecting images (${imgs} received)…`;
+    },
+    explorerCreating: (count: number) =>
+      `Creating PDF from ${count === 1 ? "1 image" : `${count} images`}…`,
+    explorerDoneSkipped: (pages: number, skipped: number) =>
+      `Created ${pages === 1 ? "1 page" : `${pages} pages`} PDF, opened in new tab (${skipped === 1 ? "1 file skipped" : `${skipped} files skipped`}).`,
     failures: {
       invalidArgument:
         "Selected files cannot be converted together: multiple images can be chosen at once, but other formats must be chosen individually; other extensions are not supported.",
@@ -1108,6 +1122,27 @@ export const strings: Strings = {
     noTextLayer: "This page has no text layer; cannot select text.",
   },
   links: {
+    tool: "Link",
+    toolOn: "Link tool active: click or drag on a page to create a link, or click an existing link to edit. Press Esc to exit.",
+    addLink: "Add link here…",
+    editLink: "Edit link…",
+    deleteLink: "Delete link",
+    crossPageNotAllowed: "Cannot create link across multiple pages",
+    addTitle: "Add Link",
+    editTitle: "Edit Link",
+    targetType: "Link Target",
+    targetPage: "Page in Document",
+    targetUri: "Web or Email Address",
+    pageNumber: "Page number",
+    pageNumberPlaceholder: (total: number) => `1 to ${total}`,
+    pageNumberError: (total: number) => `Page number must be between 1 and ${total}`,
+    uriLabel: "URL or email address",
+    uriPlaceholder: "https://example.com or mailto:user@example.com",
+    uriError: "URL must start with http://, https://, or mailto:, and must not contain spaces",
+    save: "Save",
+    add: "Add",
+    delete: "Delete",
+    confirmDelete: "Are you sure you want to delete this link?",
     hoverPage: (page: number) => `Go to page ${page}`,
     hoverBlocked: (reason: string) => `Blocked: ${reason}`,
     confirmTitle: "Open external link?",
