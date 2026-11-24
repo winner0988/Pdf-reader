@@ -137,6 +137,7 @@ target/release/corpus_sweep corpus-files sweep-output --worker target/release/pd
    - CI 會自動查詢 `main` 分支上一次成功的排程掃描 artifact 作為基準；手動執行時亦可透過 `workflow_dispatch` 的 `baseline_run` 參數指定特定 run ID。
    - 找不到具備雜湊記錄的基準時（例如初次啟用或 artifact 過期），掃描印出「沒有基準，這次只記錄」並如常完成，不算失敗。
    - 基準中存在但本次掃描缺失的頁面（例如開檔失敗、頁數減少、Worker 崩潰或逾時）亦視為變更。
+   - 帶有 `--withhold-names` 旗標時，若基準中有的檔案在本次掃描發生崩潰、逾時或協定錯誤而被隱藏名稱，差異比對報告不會列出該檔案的路徑、頁碼或雜湊，僅顯示異常檔案的數目（例如「N 個檔案這次異常，名稱不公開」），但仍計入未核准差異並使掃描失敗；未帶 `--withhold-names` 時則照常列出路徑。
    - 基準中不存在的新檔案（例如 PR 煙霧測試額外放入的 `tests-corpus`）僅記錄，不列入失敗。
 
 3. **差異判讀與感知雜湊**：

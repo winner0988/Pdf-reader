@@ -379,6 +379,7 @@ pub struct DifferentialReport {
     pub changed_pages_count: usize,
     pub approved_count: usize,
     pub unapproved_count: usize,
+    pub withheld_files_count: usize,
     pub differences: Vec<PageDifference>,
     pub unused_approvals: Vec<ApprovedEntry>,
     pub new_files: Vec<String>,
@@ -411,9 +412,16 @@ impl DifferentialReport {
             ));
         }
 
-        if self.differences.is_empty() {
+        if self.withheld_files_count > 0 {
+            md.push_str(&format!(
+                "- **異常而隱藏名稱的檔案**：{} 個檔案這次異常，名稱不公開（不列出路徑、頁碼或雜湊，仍視為未核准差異）\n\n",
+                self.withheld_files_count
+            ));
+        }
+
+        if self.differences.is_empty() && self.withheld_files_count == 0 {
             md.push_str("未發現任何與基準不同的頁面。\n\n");
-        } else {
+        } else if !self.differences.is_empty() {
             md.push_str("### 差異清單 (Differences)\n\n");
             md.push_str("| 語料 | 檔案路徑 | 頁碼 | 種類 | 感知雜湊距離 | 狀態 | 理由 / PR |\n");
             md.push_str("|---|---|---|---|---|---|---|\n");
@@ -545,10 +553,15 @@ pub fn load_approved_tsv(path: &Path) -> Result<Vec<ApprovedEntry>, String> {
 }
 
 /// Compares current page hashes against baseline page hashes and checks against approvals.
+///
+/// Files in `withheld_files` (pairs of `(corpus, relative_path)`) that appear in `baseline_records`
+/// are counted as unapproved differences via `withheld_files_count` without recording their paths,
+/// page numbers, or hashes in `differences`.
 pub fn compare_page_hashes(
     baseline_records: &[PageHashRecord],
     current_records: &[PageHashRecord],
     mut approvals: Vec<ApprovedEntry>,
+    withheld_files: &BTreeSet<(String, String)>,
 ) -> DifferentialReport {
     let mut baseline_by_file: BTreeMap<(String, String), BTreeMap<u32, PageHashRecord>> =
         BTreeMap::new();
@@ -561,25 +574,37 @@ pub fn compare_page_hashes(
 
     let mut current_by_file: BTreeMap<(String, String), BTreeMap<u32, PageHashRecord>> =
         BTreeMap::new();
+    let mut current_page_count = 0usize;
     for rec in current_records {
+        let key = (rec.corpus.clone(), rec.relative_path.clone());
+        if withheld_files.contains(&key) {
+            continue;
+        }
+        current_page_count += 1;
         current_by_file
-            .entry((rec.corpus.clone(), rec.relative_path.clone()))
+            .entry(key)
             .or_default()
             .insert(rec.page_index, rec.clone());
     }
 
     let mut differences = Vec::new();
     let mut new_files = Vec::new();
+    let mut withheld_files_count = 0usize;
 
     // Check files in current not in baseline
     for (corpus, rel_path) in current_by_file.keys() {
-        if !baseline_by_file.contains_key(&(corpus.clone(), rel_path.clone())) {
+        let key = (corpus.clone(), rel_path.clone());
+        if !baseline_by_file.contains_key(&key) && !withheld_files.contains(&key) {
             new_files.push(format!("{corpus}/{rel_path}"));
         }
     }
 
     // For files in baseline:
     for ((corpus, rel_path), b_pages) in &baseline_by_file {
+        if withheld_files.contains(&(corpus.clone(), rel_path.clone())) {
+            withheld_files_count += 1;
+            continue;
+        }
         match current_by_file.get(&(corpus.clone(), rel_path.clone())) {
             None => {
                 // File completely missing in current run (failed to open / crashed / missing)
@@ -752,17 +777,45 @@ pub fn compare_page_hashes(
         ));
     }
 
+    unapproved_count += withheld_files_count;
+
     DifferentialReport {
         baseline_page_count: baseline_records.len(),
-        current_page_count: current_records.len(),
+        current_page_count,
         changed_pages_count: unique_changed_pages.len(),
         approved_count,
         unapproved_count,
+        withheld_files_count,
         differences,
         unused_approvals,
         new_files,
         baseline_available: true,
     }
+}
+
+/// Collects current page hashes and withheld file identifiers from scan results
+/// and compares them against baseline records.
+pub fn compare_results_against_baseline(
+    baseline_records: &[PageHashRecord],
+    results: &[FileResult],
+    approvals: Vec<ApprovedEntry>,
+    withhold_names: bool,
+) -> DifferentialReport {
+    let mut current_records = Vec::new();
+    let mut withheld_files = BTreeSet::new();
+    for r in results {
+        if withhold_names && r.result.is_withheld() {
+            withheld_files.insert((r.corpus.clone(), r.relative_path.clone()));
+        } else {
+            current_records.extend(r.page_hashes.clone());
+        }
+    }
+    compare_page_hashes(
+        baseline_records,
+        &current_records,
+        approvals,
+        &withheld_files,
+    )
 }
 
 /// Result of scanning one PDF file.
@@ -1173,6 +1226,10 @@ impl SweepSummary {
             ));
             out.push_str(&format!("    \"approved\": {},\n", diff.approved_count));
             out.push_str(&format!("    \"unapproved\": {},\n", diff.unapproved_count));
+            out.push_str(&format!(
+                "    \"withheld_files\": {},\n",
+                diff.withheld_files_count
+            ));
             out.push_str(&format!(
                 "    \"unused_approvals\": {}\n",
                 diff.unused_approvals.len()
@@ -1733,13 +1790,12 @@ pub fn run_sweep(
                 } else {
                     Vec::new()
                 };
-                let mut current_records = Vec::new();
-                for r in &results {
-                    if !(withhold_names && r.result.is_withheld()) {
-                        current_records.extend(r.page_hashes.clone());
-                    }
-                }
-                let report = compare_page_hashes(&baseline_records, &current_records, approvals);
+                let report = compare_results_against_baseline(
+                    &baseline_records,
+                    &results,
+                    approvals,
+                    withhold_names,
+                );
                 diff_report = Some(report);
             }
         }
@@ -2172,7 +2228,7 @@ mod tests {
         };
         let baseline = vec![rec.clone()];
         let current = vec![rec];
-        let report = compare_page_hashes(&baseline, &current, Vec::new());
+        let report = compare_page_hashes(&baseline, &current, Vec::new(), &BTreeSet::new());
         assert_eq!(report.baseline_page_count, 1);
         assert_eq!(report.current_page_count, 1);
         assert_eq!(report.changed_pages_count, 0);
@@ -2199,7 +2255,7 @@ mod tests {
             text_hash: "text_new".into(),
             dhash: "0000000000000001".into(),
         };
-        let report = compare_page_hashes(&[b_rec], &[c_rec], Vec::new());
+        let report = compare_page_hashes(&[b_rec], &[c_rec], Vec::new(), &BTreeSet::new());
         assert_eq!(report.changed_pages_count, 1);
         assert_eq!(report.differences.len(), 1);
         assert_eq!(report.differences[0].kind, DiffKind::Text);
@@ -2227,7 +2283,7 @@ mod tests {
             text_hash: "text_same".into(),
             dhash: "0000000000000003".into(), // Hamming distance = 2 (bits 0 and 1)
         };
-        let report = compare_page_hashes(&[b_rec], &[c_rec], Vec::new());
+        let report = compare_page_hashes(&[b_rec], &[c_rec], Vec::new(), &BTreeSet::new());
         assert_eq!(report.changed_pages_count, 1);
         assert_eq!(report.differences.len(), 1);
         assert_eq!(report.differences[0].kind, DiffKind::Render);
@@ -2256,7 +2312,7 @@ mod tests {
         };
         let c1 = b1.clone();
         // Baseline has 2 pages, current has only page 0
-        let report = compare_page_hashes(&[b1, b2], &[c1], Vec::new());
+        let report = compare_page_hashes(&[b1, b2], &[c1], Vec::new(), &BTreeSet::new());
         assert_eq!(report.changed_pages_count, 1);
         // Page 2 missing generates both text and render differences
         assert_eq!(report.differences.len(), 2);
@@ -2295,7 +2351,7 @@ mod tests {
             line_number: 10,
             match_count: 0,
         }];
-        let report = compare_page_hashes(&[b], &[c], approvals);
+        let report = compare_page_hashes(&[b], &[c], approvals, &BTreeSet::new());
         assert_eq!(report.changed_pages_count, 1);
         assert_eq!(report.approved_count, 1);
         assert_eq!(report.unapproved_count, 0);
@@ -2370,7 +2426,7 @@ mod tests {
             },
         ];
 
-        let report = compare_page_hashes(&[b1, b2, b3], &[c1, c2, c3], approvals);
+        let report = compare_page_hashes(&[b1, b2, b3], &[c1, c2, c3], approvals, &BTreeSet::new());
         assert_eq!(report.changed_pages_count, 3);
         assert_eq!(report.approved_count, 3);
         assert_eq!(report.unapproved_count, 0);
@@ -2398,7 +2454,7 @@ mod tests {
             match_count: 0,
         }];
 
-        let report = compare_page_hashes(&[b], &[c], approvals);
+        let report = compare_page_hashes(&[b], &[c], approvals, &BTreeSet::new());
         assert_eq!(report.changed_pages_count, 0);
         assert_eq!(report.unapproved_count, 0);
         assert_eq!(report.unused_approvals.len(), 1);
@@ -2525,5 +2581,194 @@ mod tests {
         let h_split = compute_dhash(&split_raster);
         assert_ne!(h_white, h_split);
         assert!(hamming_distance(h_white, h_split) > 0);
+    }
+
+    #[test]
+    fn test_differential_withhold_names_hides_crashed_baseline_file() {
+        let baseline = vec![
+            PageHashRecord {
+                corpus: "pdfjs".into(),
+                relative_path: "secret_crash_in_baseline.pdf".into(),
+                page_index: 0,
+                render_hash: "b_r0_secret".into(),
+                text_hash: "b_t0_secret".into(),
+                dhash: "0000000000000001".into(),
+            },
+            PageHashRecord {
+                corpus: "pdfjs".into(),
+                relative_path: "secret_crash_in_baseline.pdf".into(),
+                page_index: 1,
+                render_hash: "b_r1_secret".into(),
+                text_hash: "b_t1_secret".into(),
+                dhash: "0000000000000002".into(),
+            },
+            PageHashRecord {
+                corpus: "pdfjs".into(),
+                relative_path: "normal.pdf".into(),
+                page_index: 0,
+                render_hash: "r_ok".into(),
+                text_hash: "t_ok".into(),
+                dhash: "0000000000000003".into(),
+            },
+        ];
+
+        let results = vec![
+            FileResult {
+                corpus: "pdfjs".into(),
+                relative_path: "secret_crash_in_baseline.pdf".into(),
+                bytes: 100,
+                pages: Some(2),
+                result: SweepResultKind::WorkerCrashed,
+                stage: SweepStage::Render,
+                page_index: Some(0),
+                error_code: Some("Crashed".into()),
+                elapsed_ms: 42,
+                peak_memory_bytes: None,
+                page_hashes: Vec::new(),
+            },
+            FileResult {
+                corpus: "pdfjs".into(),
+                relative_path: "normal.pdf".into(),
+                bytes: 200,
+                pages: Some(1),
+                result: SweepResultKind::Ok,
+                stage: SweepStage::Render,
+                page_index: None,
+                error_code: None,
+                elapsed_ms: 10,
+                peak_memory_bytes: None,
+                page_hashes: vec![baseline[2].clone()],
+            },
+        ];
+
+        let report = compare_results_against_baseline(&baseline, &results, Vec::new(), true);
+        assert_eq!(report.withheld_files_count, 1);
+        assert_eq!(report.unapproved_count, 1);
+        assert!(report.differences.is_empty());
+
+        let summary = SweepSummary::from_results(&results, 100);
+        let md = summary.generate_markdown(true, Some(&report));
+        assert!(
+            !md.contains("secret_crash_in_baseline.pdf"),
+            "withheld file path must not appear in summary.md:\n{md}"
+        );
+        assert!(!md.contains("b_r0_secret"));
+        assert!(!md.contains("b_t0_secret"));
+        assert!(!md.contains("b_r1_secret"));
+        assert!(!md.contains("b_t1_secret"));
+        assert!(
+            md.contains("1 個檔案這次異常，名稱不公開"),
+            "summary.md must report withheld count:\n{md}"
+        );
+        assert!(
+            !md.contains("未發現任何與基準不同的頁面"),
+            "summary.md must not claim no differences when withheld files failed:\n{md}"
+        );
+
+        let json = summary.generate_json(Some(&report));
+        assert!(json.contains("\"withheld_files\": 1"));
+        assert!(json.contains("\"unapproved\": 1"));
+        assert!(!json.contains("secret_crash_in_baseline.pdf"));
+
+        // Even wildcard approvals must not suppress a withheld crash failure.
+        let wildcard_approvals = vec![
+            ApprovedEntry {
+                corpus: "pdfjs".into(),
+                relative_path: "*".into(),
+                page: None,
+                kind: DiffKind::Text,
+                reason: "wildcard text".into(),
+                pr: "#999".into(),
+                line_number: 1,
+                match_count: 0,
+            },
+            ApprovedEntry {
+                corpus: "pdfjs".into(),
+                relative_path: "*".into(),
+                page: None,
+                kind: DiffKind::Render,
+                reason: "wildcard render".into(),
+                pr: "#999".into(),
+                line_number: 2,
+                match_count: 0,
+            },
+        ];
+        let report_with_wildcards =
+            compare_results_against_baseline(&baseline, &results, wildcard_approvals, true);
+        assert_eq!(report_with_wildcards.withheld_files_count, 1);
+        assert_eq!(report_with_wildcards.unapproved_count, 1);
+        assert!(report_with_wildcards.differences.is_empty());
+    }
+
+    #[test]
+    fn test_differential_without_withhold_names_lists_crashed_baseline_file() {
+        let baseline = vec![
+            PageHashRecord {
+                corpus: "pdfjs".into(),
+                relative_path: "secret_crash_in_baseline.pdf".into(),
+                page_index: 0,
+                render_hash: "b_r0_secret".into(),
+                text_hash: "b_t0_secret".into(),
+                dhash: "0000000000000001".into(),
+            },
+            PageHashRecord {
+                corpus: "pdfjs".into(),
+                relative_path: "secret_crash_in_baseline.pdf".into(),
+                page_index: 1,
+                render_hash: "b_r1_secret".into(),
+                text_hash: "b_t1_secret".into(),
+                dhash: "0000000000000002".into(),
+            },
+            PageHashRecord {
+                corpus: "pdfjs".into(),
+                relative_path: "normal.pdf".into(),
+                page_index: 0,
+                render_hash: "r_ok".into(),
+                text_hash: "t_ok".into(),
+                dhash: "0000000000000003".into(),
+            },
+        ];
+
+        let results = vec![
+            FileResult {
+                corpus: "pdfjs".into(),
+                relative_path: "secret_crash_in_baseline.pdf".into(),
+                bytes: 100,
+                pages: Some(2),
+                result: SweepResultKind::WorkerCrashed,
+                stage: SweepStage::Render,
+                page_index: Some(0),
+                error_code: Some("Crashed".into()),
+                elapsed_ms: 42,
+                peak_memory_bytes: None,
+                page_hashes: Vec::new(),
+            },
+            FileResult {
+                corpus: "pdfjs".into(),
+                relative_path: "normal.pdf".into(),
+                bytes: 200,
+                pages: Some(1),
+                result: SweepResultKind::Ok,
+                stage: SweepStage::Render,
+                page_index: None,
+                error_code: None,
+                elapsed_ms: 10,
+                peak_memory_bytes: None,
+                page_hashes: vec![baseline[2].clone()],
+            },
+        ];
+
+        let report = compare_results_against_baseline(&baseline, &results, Vec::new(), false);
+        assert_eq!(report.withheld_files_count, 0);
+        assert_eq!(report.unapproved_count, 4);
+        assert_eq!(report.differences.len(), 4);
+
+        let summary = SweepSummary::from_results(&results, 100);
+        let md = summary.generate_markdown(false, Some(&report));
+        assert!(
+            md.contains("secret_crash_in_baseline.pdf"),
+            "without --withhold-names, summary.md should list the path:\n{md}"
+        );
+        assert!(!md.contains("名稱不公開"));
     }
 }
