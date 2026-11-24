@@ -70,15 +70,19 @@ test.describe("searchable PDF copy", () => {
     await expect(documentTabs(page)).toHaveCount(1);
 
     // Open the copy in a new tab: with ocrAuto=false, search must succeed purely from the
-    // embedded invisible text layer (and no OCR note is shown).
+    // embedded invisible text layer (and no OCR note is shown on the copy's tab).
     await page.keyboard.press("Control+o");
     await answerFileDialog(page, { path: copy });
     await expect(page.getByRole("tab", { name: /searchable\.pdf/ })).toHaveAttribute("aria-selected", "true");
+    // Hidden tabs stay mounted in the DOM (so the original scan's tab keeps its ocr-note after
+    // OCR ran for the copy); only the active tab's status bar (contentinfo) is in the accessibility tree.
+    const status = page.getByRole("contentinfo");
+    await expect(status).toContainText("searchable.pdf");
     await expect(page.getByRole("img", { name: strings.canvas.page(1) }).last()).toHaveAttribute(
       "data-state",
       "ready",
     );
-    await expect(page.getByTestId("ocr-note")).toHaveCount(0);
+    await expect(status.getByTestId("ocr-note")).toHaveCount(0);
 
     await page.keyboard.press("Control+f");
     const input = page.getByRole("textbox", { name: strings.search.placeholder });
