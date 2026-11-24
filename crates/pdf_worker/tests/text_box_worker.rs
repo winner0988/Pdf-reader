@@ -302,10 +302,12 @@ fn a_text_box_is_read_moved_restyled_and_given_other_words_and_stays_the_same_an
             annotation: id,
             model: None,
             style: red,
+            rect: None,
         },
     );
     let told = info(&mut host, doc, id);
     assert_eq!((told.text.as_str(), told.style), ("Hello 你好", red));
+    assert!((1_000..=2_000).contains(&told.line_step));
 
     // Other words, prepared from the font.
     let other = prepared(&mut host, "Goodbye 再見", droid()).expect("a model");
@@ -317,6 +319,7 @@ fn a_text_box_is_read_moved_restyled_and_given_other_words_and_stays_the_same_an
             annotation: id,
             model: Some(other),
             style: red,
+            rect: None,
         },
     );
     let finally = annotations(&mut host, doc);

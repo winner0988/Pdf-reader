@@ -1708,6 +1708,7 @@ impl Documents {
                         scale: args.scale,
                         rotation: args.rotation,
                         region,
+                        without_annotations: args.without_annotations,
                     })?
                 }
                 None => {
@@ -2498,6 +2499,7 @@ impl Documents {
                 return Err(unexpected("PrepareTextBox"));
             };
             let view_only = model.view_only;
+            let line_step = model.step;
             let model = document
                 .text_boxes
                 .add(model, document.history.all())
@@ -2505,7 +2507,11 @@ impl Documents {
                     code: ErrorCode::LimitExceeded,
                     message: "too many text boxes in the unsaved changes: save first".to_owned(),
                 })?;
-            Ok(PreparedTextBox { model, view_only })
+            Ok(PreparedTextBox {
+                model,
+                view_only,
+                line_step,
+            })
         })
     }
 
@@ -4522,6 +4528,7 @@ mod with_worker {
             scale,
             rotation,
             region: None,
+            without_annotations: false,
         }
     }
 
@@ -4612,6 +4619,13 @@ mod with_worker {
             ErrorCode::InvalidArgument
         );
         assert_eq!(code(region(0, 0, 4097, 4096)), ErrorCode::InvalidArgument);
+        // `withoutAnnotations` is only valid with a `region` (B7-08).
+        let mut whole_no_annots = args(info.doc, 0, 1.0, Rotation::None);
+        whole_no_annots.without_annotations = true;
+        assert_eq!(code(whole_no_annots), ErrorCode::InvalidArgument);
+        let mut region_no_annots = region(0, 0, 200, 200);
+        region_no_annots.without_annotations = true;
+        assert_eq!(size(&documents.render(&region_no_annots).unwrap()), (200, 200));
         std::fs::remove_file(path).ok();
     }
 
@@ -10926,9 +10940,11 @@ mod with_worker {
                 annotation: id,
                 model: None,
                 style: red(),
+                rect: None,
             },
         );
         let second = documents.prepare_text_box(doc, "Goodbye", arial()).unwrap();
+        assert!((1_000..=2_000).contains(&second.line_step));
         edited_pages(
             &documents,
             &mut doc,
@@ -10937,6 +10953,7 @@ mod with_worker {
                 annotation: id,
                 model: Some(second.model),
                 style: red(),
+                rect: None,
             },
         );
         let says = |doc: DocumentId| {
@@ -10988,6 +11005,7 @@ mod with_worker {
                 annotation: id,
                 model: Some(second.model),
                 style: red(),
+                rect: None,
             },
         );
         drop(earlier);

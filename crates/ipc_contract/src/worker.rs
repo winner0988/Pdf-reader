@@ -613,12 +613,13 @@ pub enum WorkerEdit {
     /// Puts the picture `png` (as `StampImage` made it) over `rect` on page `page` as a stamp
     /// (B2-08).
     AddImageStamp { page: u32, rect: Rect, png: Vec<u8> },
-    /// As [`Edit::SetTextBox`], with the model itself if there is one (B2-29).
+    /// As [`Edit::SetTextBox`], with the model itself if there is one (B2-29, B7-08).
     SetTextBox {
         page: u32,
         annotation: AnnotationId,
         model: Option<TextBoxModel>,
         style: TextBoxStyle,
+        rect: Option<Rect>,
     },
     /// As [`Edit::AddTextBox`], with the model itself (B2-28): no font is needed to make it.
     PlaceTextBox {
@@ -821,6 +822,7 @@ impl WorkerEdit {
                 annotation,
                 model,
                 style,
+                rect,
             } => WorkerEdit::SetTextBox {
                 page: *page,
                 annotation: *annotation,
@@ -828,6 +830,7 @@ impl WorkerEdit {
                     .map(|id| text_box(id).ok_or(UnknownFile::TextBox))
                     .transpose()?,
                 style: *style,
+                rect: *rect,
             },
             Edit::AddTextBox {
                 page,
@@ -978,6 +981,7 @@ pub enum WorkerRequest {
     },
     /// Only `region` of the page at `scale` (B3-09), answered with `Rendered`: a raster of the
     /// region's size. The page as a whole may be larger than the raster limits.
+    /// When `without_annotations` is true (B7-08), draws page contents and form widgets only.
     RenderRegion {
         request: RequestId,
         doc: DocumentId,
@@ -985,6 +989,7 @@ pub enum WorkerRequest {
         scale: f32,
         rotation: Rotation,
         region: RasterRegion,
+        without_annotations: bool,
     },
     GetOutline {
         request: RequestId,
@@ -1870,27 +1875,43 @@ mod tests {
             color: Rgb { r: 1, g: 2, b: 3 },
             align: TextAlign::Left,
         };
-        let edit = |model: Option<u32>| Edit::SetTextBox {
+        let edit = |model: Option<u32>, rect: Option<Rect>| Edit::SetTextBox {
             page: 0,
             annotation: AnnotationId(7),
             model: model.map(TextBoxModelId),
             style,
+            rect,
         };
         let models = |id: TextBoxModelId| (id == TextBoxModelId(4)).then(sample_model);
         // Without new words, none are looked for: the box keeps the words it has.
-        let kept = WorkerEdit::of(&edit(None), |_| None, |_| None, |_| None).unwrap();
-        assert!(matches!(kept, WorkerEdit::SetTextBox { model: None, .. }));
-        let new = WorkerEdit::of(&edit(Some(4)), |_| None, |_| None, models).unwrap();
+        let kept = WorkerEdit::of(&edit(None, None), |_| None, |_| None, |_| None).unwrap();
+        assert!(matches!(
+            kept,
+            WorkerEdit::SetTextBox {
+                model: None,
+                rect: None,
+                ..
+            }
+        ));
+        let grown = Rect {
+            x0: 10.0,
+            y0: 20.0,
+            x1: 240.0,
+            y1: 90.0,
+        };
+        let new = WorkerEdit::of(&edit(Some(4), Some(grown)), |_| None, |_| None, models).unwrap();
         let WorkerEdit::SetTextBox {
             model: Some(ref words),
+            rect,
             ..
         } = new
         else {
             panic!("{new:?}");
         };
         assert_eq!(*words, sample_model());
+        assert_eq!(rect, Some(grown));
         assert_eq!(
-            WorkerEdit::of(&edit(Some(9)), |_| None, |_| None, models),
+            WorkerEdit::of(&edit(Some(9), None), |_| None, |_| None, models),
             Err(UnknownFile::TextBox)
         );
         for edit in [&kept, &new] {

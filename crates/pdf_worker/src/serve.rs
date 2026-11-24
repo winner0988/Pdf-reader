@@ -97,6 +97,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 scale,
                 rotation,
                 region,
+                without_annotations,
             } => Some(match documents.get(&doc) {
                 None => error(
                     request,
@@ -104,7 +105,13 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     "unknown document",
                 ),
                 Some(document) => {
-                    match document.render_region(page_index, scale, rotation, region) {
+                    match document.render_region(
+                        page_index,
+                        scale,
+                        rotation,
+                        region,
+                        without_annotations,
+                    ) {
                         Ok(page) => WorkerResponse::Rendered {
                             request,
                             raster: Raster {
@@ -230,6 +237,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                             style,
                             view_only: model.view_only,
                             overflow,
+                            line_step: model.step,
                         },
                     },
                     Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
@@ -971,8 +979,9 @@ pub fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), Engine
             annotation,
             model,
             style,
+            rect,
         } => {
-            document.set_text_box(*page, *annotation, model.as_ref(), style)?;
+            document.set_text_box(*page, *annotation, model.as_ref(), style, *rect)?;
         }
         WorkerEdit::SetPictureAngle {
             page,
