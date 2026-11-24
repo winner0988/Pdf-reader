@@ -7,6 +7,7 @@ import type {
   DocumentId,
   DocumentInfo,
   ErrorCode,
+  ExplorerCreateStatus,
   NotRemembered,
   OpenEvent,
   TabId,
@@ -44,6 +45,8 @@ export type TabsState = {
   /** Files are being dragged over the window. */
   dragActive: boolean;
   notice: TabsNotice | null;
+  /** Progress of creating a PDF from Explorer's context menu (`--create-pdf-from`, B5-13). */
+  explorerCreate: ExplorerCreateStatus | null;
   /** Whether the window is kept out of screen captures, while a sensitive document is open (B3-13). */
   captureProtection: CaptureProtection;
 };
@@ -56,6 +59,7 @@ export type TabsAction =
   | { type: "failed"; code: ErrorCode }
   | { type: "notRemembered"; reason: NotRemembered }
   | { type: "dismissNotice" }
+  | { type: "dismissExplorerCreate" }
   | { type: "dismissCloseRequest" };
 
 export const initialTabs: TabsState = {
@@ -65,6 +69,7 @@ export const initialTabs: TabsState = {
   closed: [],
   dragActive: false,
   notice: null,
+  explorerCreate: null,
   captureProtection: "off",
 };
 
@@ -160,6 +165,8 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsState {
       return { ...state, notice: { kind: "notRemembered", reason: action.reason } };
     case "dismissNotice":
       return { ...state, notice: null };
+    case "dismissExplorerCreate":
+      return { ...state, explorerCreate: null };
     case "dismissCloseRequest":
       return { ...state, closeRequest: null };
     case "event":
@@ -219,6 +226,8 @@ export function reduceTabs(state: TabsState, action: TabsAction): TabsState {
       return { ...state, closeRequest: event.tabs };
     case "captureProtection":
       return { ...state, captureProtection: event.state };
+    case "explorerCreate":
+      return { ...state, explorerCreate: event.status.phase === "idle" ? null : event.status };
     // How recognising the text of scanned pages goes (B2-10) is told apart before the tabs
     // hear of it (useTabs): it is not about the tabs themselves.
     case "ocr":

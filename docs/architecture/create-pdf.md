@@ -55,6 +55,17 @@ sequenceDiagram
 ```
 
 - 命令 `create_pdf` **沒有參數**：要哪些檔案、放在哪裡都是主行程的系統對話框問的。回傳 `CreateResult`（`pages`、`kind`；見 [ipc-contract.md](ipc-contract.md)）或 `null`。同一時間只有一次：進行中再呼叫立即回 `null`。
+
+### 從檔案總管右鍵選單開始（B5-13，#450）
+
+- **入口**：安裝程式為七種圖片副檔名登錄右鍵動詞，呼叫 `"pdf-reader.exe" --create-pdf-from "%1"`（見 [packaging.md](packaging.md)）。`src-tauri/src/cli.rs` 將 `--create-pdf-from` 之後的非選項參數分開解析到 `Launch::create_from`，不當成要開啟的 PDF；第二次啟動由 `tauri-plugin-single-instance` 以該次工作目錄展開相對路徑後交給執行中的主行程。
+- **收集規則**（`src-tauri/src/explorer_create.rs`）：
+  - 檔案總管多選時可能每張各啟動一次，主行程將短時間內到達的路徑收進同一批：最後一個檔案到達後 `COLLECT_IDLE`（1.5 秒）沒有新檔案就開始；從第一個檔案起最多等 `COLLECT_MAX_WAIT`（60 秒）。
+  - 開始之後才到的路徑成為新的一批，排在後面；與 `create_pdf` 共用互斥鎖（`CREATE_LOCK`），一次只有一批進行建立。
+  - 每個路徑須為存在的一般檔案且副檔名屬於七種圖片（不分大小寫）；其餘略過並計數。同一檔案（`same_file`）只算一次。
+  - 依檔名自然排序（與 `sources_of` 共用同一套排序）。超過 `MAX_CREATE_SOURCES`（200）張時以訊息方塊說明上限、不建立 PDF。
+  - 路徑只在主行程，透過既有 `subscribe_open_events` 通道的 `OpenEvent::ExplorerCreate` 只傳送張數、略過數與狀態給前端（ADR 0008），不新增 Tauri 命令。
+- **建立流程**：有略過的檔案時，在另存對話框前先以訊息方塊說明略過數量與原因（全部略過則不開另存對話框）；接著直接進入與 `create_pdf` 共用的 `create_pdf_from_sources`（顯示另存對話框、檢查 `same_file`、啟動專用沙盒 worker 轉換、在新分頁開啟）。網路共用路徑（UNC）照命令列開檔的既有做法，不額外加規則。
 - **為什麼用專用的 worker**：沒有文件開著也要能轉換（開始畫面），而且轉換是不受信任的檔案進到 MuPDF 的新入口，不該和使用者正在讀的文件共用一個行程（ADR 0012 的精神）。worker 在轉換結束時隨著 `WorkerHost` 一起結束，MuPDF 的狀態（樣式表、快取）不會留到下一次。
 - worker 請求 `CreatePdf`：與 `Save` 相同，worker 只拿到唯讀 handle（來源）與只能寫入的 handle（輸出），**看不到路徑**；沒有開啟任何文件。一次只在記憶體中放一個來源檔（圖片除外，見下）。
 - 回應 `Created` 在主行程驗證（`ipc_contract::validate`）：頁數在 1 到 `MAX_PAGE_COUNT`，位元組數不超過 `MAX_DOCUMENT_BYTES`。

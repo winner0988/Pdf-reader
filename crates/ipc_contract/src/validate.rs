@@ -2967,6 +2967,14 @@ impl Validate for OpenEvent {
             OpenEvent::DragHover { .. }
             | OpenEvent::TabLimit { .. }
             | OpenEvent::CaptureProtection { .. } => Ok(()),
+            OpenEvent::ExplorerCreate { status } => match status {
+                crate::types::ExplorerCreateStatus::Done { pages, .. }
+                    if *pages == 0 || *pages > MAX_PAGE_COUNT =>
+                {
+                    Err(ValidationError::OutOfRange { what: "page count" })
+                }
+                _ => Ok(()),
+            },
             OpenEvent::Ocr { progress, .. } => progress.validate(),
             OpenEvent::OcrPage { page_index, .. } => {
                 if *page_index >= MAX_PAGE_COUNT {

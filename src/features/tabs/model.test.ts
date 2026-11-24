@@ -205,4 +205,18 @@ describe("tabs", () => {
     expect(asked.closeRequest).toEqual([1, 2]);
     expect(run([{ type: "dismissCloseRequest" }], asked).closeRequest).toBeNull();
   });
+
+  it("tracks Explorer image PDF creation progress and clears on idle or dismiss (B5-13)", () => {
+    expect(initialTabs.explorerCreate).toBeNull();
+    const collecting = run([event({ kind: "explorerCreate", status: { phase: "collecting", count: 2, skipped: 1 } })]);
+    expect(collecting.explorerCreate).toEqual({ phase: "collecting", count: 2, skipped: 1 });
+    const creating = run([event({ kind: "explorerCreate", status: { phase: "creating", count: 2, skipped: 1 } })], collecting);
+    expect(creating.explorerCreate).toEqual({ phase: "creating", count: 2, skipped: 1 });
+    const done = run([event({ kind: "explorerCreate", status: { phase: "done", pages: 2, skipped: 1 } })], creating);
+    expect(done.explorerCreate).toEqual({ phase: "done", pages: 2, skipped: 1 });
+    expect(run([{ type: "dismissExplorerCreate" }], done).explorerCreate).toBeNull();
+    const failed = run([event({ kind: "explorerCreate", status: { phase: "failed", code: "corrupted" } })], creating);
+    expect(failed.explorerCreate).toEqual({ phase: "failed", code: "corrupted" });
+    expect(run([event({ kind: "explorerCreate", status: { phase: "idle" } })], failed).explorerCreate).toBeNull();
+  });
 });

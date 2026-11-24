@@ -7,7 +7,7 @@
 
 use std::sync::Mutex;
 
-use ipc_contract::types::OpenEvent;
+use ipc_contract::types::{ExplorerCreateStatus, OpenEvent};
 use tauri::ipc::Channel;
 
 /// Events kept while no frontend is subscribed (e.g. a command-line open during start-up).
@@ -62,7 +62,16 @@ impl OpenEvents {
         let mut sink = self.lock();
         let notices = std::mem::take(&mut sink.queued)
             .into_iter()
-            .filter(|event| matches!(event, OpenEvent::TabLimit { .. }));
+            .filter(|event| {
+                matches!(
+                    event,
+                    OpenEvent::TabLimit { .. }
+                        | OpenEvent::ExplorerCreate {
+                            status: ExplorerCreateStatus::Done { .. }
+                                | ExplorerCreateStatus::Failed { .. }
+                        }
+                )
+            });
         for event in snapshot().into_iter().chain(notices) {
             // A failure here surfaces on the next send.
             let _ = channel.send(event);
@@ -186,5 +195,32 @@ mod tests {
         assert_eq!(received[0]["kind"], "opened");
         assert_eq!(received[0]["tab"], 4);
         assert_eq!(received[0]["info"]["doc"], 3);
+    }
+
+    #[test]
+    fn queued_explorer_create_terminal_status_is_delivered_while_collecting_comes_from_snapshot() {
+        let events = OpenEvents::default();
+        events.send(OpenEvent::ExplorerCreate {
+            status: ExplorerCreateStatus::Collecting {
+                count: 2,
+                skipped: 0,
+            },
+        });
+        events.send(OpenEvent::ExplorerCreate {
+            status: ExplorerCreateStatus::Done {
+                pages: 2,
+                skipped: 1,
+            },
+        });
+
+        let (channel, received) = recording_channel();
+        events.subscribe(channel, Vec::new);
+
+        let received = received.lock().unwrap();
+        assert_eq!(received.len(), 1);
+        assert_eq!(received[0]["kind"], "explorerCreate");
+        assert_eq!(received[0]["status"]["phase"], "done");
+        assert_eq!(received[0]["status"]["pages"], 2);
+        assert_eq!(received[0]["status"]["skipped"], 1);
     }
 }
