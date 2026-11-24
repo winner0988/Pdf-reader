@@ -477,6 +477,143 @@ fn test_delete_link_and_invalid_edits() {
     common::check_qpdf_bytes(&saved);
 }
 
+fn shared_action_pdf() -> Vec<u8> {
+    build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R /Outlines 7 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> /Annots [4 0 R 5 0 R] >>"
+            .into(),
+        "<< /Type /Annot /Subtype /Link /Rect [50 600 200 630] /A 6 0 R >>".into(),
+        "<< /Type /Annot /Subtype /Link /Rect [50 500 200 530] /A 6 0 R >>".into(),
+        "<< /S /URI /URI (https://shared.example.invalid/doc) >>".into(),
+        "<< /Type /Outlines /First 8 0 R /Last 8 0 R /Count 1 >>".into(),
+        "<< /Title (Shared bookmark) /Parent 7 0 R /A 6 0 R >>".into(),
+    ])
+}
+
+#[test]
+fn test_retarget_link_preserves_shared_indirect_action() {
+    let mut doc = PdfDocument::from_bytes(&shared_action_pdf()).unwrap();
+    let shared_target = OutlineTarget::Uri("https://shared.example.invalid/doc".into());
+
+    assert_eq!(doc.page_links(0, 10).unwrap().len(), 2);
+    assert_eq!(doc.outline(10, 4).unwrap().entries[0].target, shared_target);
+
+    doc.set_link_target(
+        LinkId {
+            page_index: 0,
+            index: 0,
+        },
+        &NewLinkTarget::Uri {
+            uri: "https://retargeted.example.invalid/".into(),
+        },
+    )
+    .unwrap();
+
+    let links = doc.page_links(0, 10).unwrap();
+    assert_eq!(links.len(), 2);
+    assert_eq!(
+        links[0].target,
+        OutlineTarget::Uri("https://retargeted.example.invalid/".into())
+    );
+    assert_eq!(links[1].target, shared_target);
+
+    let outline = doc.outline(10, 4).unwrap();
+    assert_eq!(outline.entries.len(), 1);
+    assert_eq!(outline.entries[0].target, shared_target);
+
+    let mut saved = Vec::new();
+    doc.save(&mut saved).unwrap();
+    common::check_qpdf_bytes(&saved);
+
+    let reopened = PdfDocument::from_bytes(&saved).unwrap();
+    let reopened_links = reopened.page_links(0, 10).unwrap();
+    assert_eq!(reopened_links.len(), 2);
+    assert_eq!(
+        reopened_links[0].target,
+        OutlineTarget::Uri("https://retargeted.example.invalid/".into())
+    );
+    assert_eq!(reopened_links[1].target, shared_target);
+    assert_eq!(
+        reopened.outline(10, 4).unwrap().entries[0].target,
+        shared_target
+    );
+}
+
+#[test]
+fn test_delete_link_preserves_shared_indirect_action() {
+    let mut doc = PdfDocument::from_bytes(&shared_action_pdf()).unwrap();
+    let shared_target = OutlineTarget::Uri("https://shared.example.invalid/doc".into());
+
+    doc.delete_link(LinkId {
+        page_index: 0,
+        index: 0,
+    })
+    .unwrap();
+
+    let links = doc.page_links(0, 10).unwrap();
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].target, shared_target);
+
+    let outline = doc.outline(10, 4).unwrap();
+    assert_eq!(outline.entries.len(), 1);
+    assert_eq!(outline.entries[0].target, shared_target);
+
+    let mut saved = Vec::new();
+    doc.save(&mut saved).unwrap();
+    common::check_qpdf_bytes(&saved);
+
+    let reopened = PdfDocument::from_bytes(&saved).unwrap();
+    let reopened_links = reopened.page_links(0, 10).unwrap();
+    assert_eq!(reopened_links.len(), 1);
+    assert_eq!(reopened_links[0].target, shared_target);
+    assert_eq!(
+        reopened.outline(10, 4).unwrap().entries[0].target,
+        shared_target
+    );
+}
+
+#[test]
+fn test_retarget_link_drops_unreferenced_old_uri_on_save() {
+    let pdf = build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> /Annots [4 0 R] >>"
+            .into(),
+        "<< /Type /Annot /Subtype /Link /Rect [50 600 200 630] /A 5 0 R >>".into(),
+        "<< /S /URI /URI (https://old-unshared.example.invalid/removed) >>".into(),
+    ]);
+    let mut doc = PdfDocument::from_bytes(&pdf).unwrap();
+
+    doc.set_link_target(
+        LinkId {
+            page_index: 0,
+            index: 0,
+        },
+        &NewLinkTarget::Uri {
+            uri: "https://new-target.example.invalid/".into(),
+        },
+    )
+    .unwrap();
+
+    let mut saved = Vec::new();
+    let (_bytes, incremental) = doc.save(&mut saved).unwrap();
+    assert!(!incremental);
+    common::check_qpdf_bytes(&saved);
+
+    let saved_text = String::from_utf8_lossy(&saved);
+    assert!(!saved_text.contains("old-unshared.example.invalid"));
+    assert!(saved_text.contains("new-target.example.invalid"));
+
+    let reopened = PdfDocument::from_bytes(&saved).unwrap();
+    let reopened_links = reopened.page_links(0, 10).unwrap();
+    assert_eq!(reopened_links.len(), 1);
+    assert_eq!(
+        reopened_links[0].target,
+        OutlineTarget::Uri("https://new-target.example.invalid/".into())
+    );
+}
+
 #[test]
 fn test_worker_host_link_edits_round_trip() {
     let mut host = host();

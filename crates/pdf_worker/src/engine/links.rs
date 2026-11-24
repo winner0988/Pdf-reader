@@ -29,31 +29,6 @@ pub(crate) fn contract_target(target: OutlineTarget, page_count: u32) -> Option<
     }
 }
 
-/// Recursively collects all indirect object xref numbers within an action dictionary or array
-/// (such as chained `/Next` actions) so they can be unlinked from the document.
-fn collect_action_xrefs(
-    action: &PdfObject,
-    unlinked: &mut HashSet<i32>,
-) -> Result<(), mupdf::Error> {
-    if action.is_indirect()? {
-        let x = action.as_indirect()?;
-        if x > 0 && !unlinked.insert(x) {
-            return Ok(());
-        }
-    }
-    if let Some(next) = action.get_dict("Next")? {
-        if next.is_array()? {
-            for item in next.array_iter()? {
-                let item = item?;
-                collect_action_xrefs(&item, unlinked)?;
-            }
-        } else if next.is_dict()? {
-            collect_action_xrefs(&next, unlinked)?;
-        }
-    }
-    Ok(())
-}
-
 impl PdfDocument {
     /// Finds the link annotation for `link`, returning the page `PdfObject`, the annotation `PdfObject`,
     /// and its index in the page's `/Annots` array.
@@ -199,8 +174,9 @@ impl PdfDocument {
 
     /// Changes where link `link` points to (B6-03, Issue #588).
     ///
-    /// Strips existing `/A` (and recursively unlinks chained `/Next` actions), `/Dest`,
-    /// `/AA`, and `/PA`, unlinking any indirect xrefs no longer referenced.
+    /// Removes `/A`, `/Dest`, `/AA`, and `/PA` from this annotation without unlinking
+    /// indirect action objects so other links or bookmarks sharing them stay intact;
+    /// unreferenced actions are dropped on full save by garbage collection.
     pub fn set_link_target(
         &mut self,
         link: LinkId,
@@ -216,29 +192,6 @@ impl PdfDocument {
         }
 
         let (_page, mut annot, _annot_idx) = self.find_link_annot(link)?;
-
-        let mut unlinked = HashSet::new();
-        if let Some(action) = annot.get_dict("A")? {
-            collect_action_xrefs(&action, &mut unlinked)?;
-        }
-        if let Some(aa) = annot.get_dict("AA")? {
-            if aa.is_indirect()? {
-                let x = aa.as_indirect()?;
-                if x > 0 {
-                    unlinked.insert(x);
-                }
-            }
-            if aa.is_dict()? {
-                for index in 0..aa.dict_len()? {
-                    if let Some(sub) = aa.get_dict_val(i32::try_from(index).unwrap_or(i32::MAX))? {
-                        collect_action_xrefs(&sub, &mut unlinked)?;
-                    }
-                }
-            }
-        }
-        if let Some(pa) = annot.get_dict("PA")? {
-            collect_action_xrefs(&pa, &mut unlinked)?;
-        }
 
         annot.dict_delete("A")?;
         annot.dict_delete("Dest")?;
@@ -278,11 +231,11 @@ impl PdfDocument {
             }
         }
 
-        crate::unlink::unlink(&self.doc, &unlinked)?;
         Ok(())
     }
 
-    /// Removes link `link` from its page and unlinks indirect xrefs (B6-03, Issue #588).
+    /// Removes link `link` from its page and unlinks references to the annotation itself,
+    /// leaving any shared action objects intact (B6-03, Issue #588).
     pub fn delete_link(&mut self, link: LinkId) -> Result<(), EngineError> {
         let (page, annot, annot_idx) = self.find_link_annot(link)?;
 
@@ -292,27 +245,6 @@ impl PdfDocument {
             if x > 0 {
                 unlinked.insert(x);
             }
-        }
-        if let Some(action) = annot.get_dict("A")? {
-            collect_action_xrefs(&action, &mut unlinked)?;
-        }
-        if let Some(aa) = annot.get_dict("AA")? {
-            if aa.is_indirect()? {
-                let x = aa.as_indirect()?;
-                if x > 0 {
-                    unlinked.insert(x);
-                }
-            }
-            if aa.is_dict()? {
-                for index in 0..aa.dict_len()? {
-                    if let Some(sub) = aa.get_dict_val(i32::try_from(index).unwrap_or(i32::MAX))? {
-                        collect_action_xrefs(&sub, &mut unlinked)?;
-                    }
-                }
-            }
-        }
-        if let Some(pa) = annot.get_dict("PA")? {
-            collect_action_xrefs(&pa, &mut unlinked)?;
         }
 
         let Some(mut annots) = page.get_dict("Annots")? else {
