@@ -85,7 +85,7 @@ test.describe("making a PDF from Explorer context menu (--create-pdf-from)", () 
       "ready",
     );
     await expect(page.getByRole("img", { name: strings.canvas.page(3) })).toHaveCount(0);
-    await expect(page.getByRole("status")).toContainText(t.explorerDoneSkipped(2, 1));
+    await expect(page.getByRole("status").filter({ hasText: t.explorerDoneSkipped(2, 1) })).toBeVisible();
   });
 
   test("when every file is unsupported, a notice explains why and no save dialog opens", async ({ launch }) => {
