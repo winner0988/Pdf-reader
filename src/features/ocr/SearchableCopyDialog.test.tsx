@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { OcrApi } from "@/features/ocr/api";
 import { SearchableCopyDialog, type SearchableCopyDialogProps } from "@/features/ocr/SearchableCopyDialog";
 import { strings } from "@/i18n";
-import type { OcrProgress, SearchableCopyResult } from "@/ipc/generated/contract";
+import type { OcrProgress, SearchableCopyArgs, SearchableCopyResult } from "@/ipc/generated/contract";
 
 const t = strings.ocr.searchable;
 
@@ -228,5 +228,73 @@ describe("SearchableCopyDialog", () => {
 
     await user.click(screen.getByRole("button", { name: t.startSave }));
     expect(await screen.findByRole("alert")).toHaveTextContent(t.signedReason);
+  });
+
+  it("does not re-invoke saving or discard the result when the parent re-renders with a new callback", async () => {
+    let resolveSave!: (value: SearchableCopyResult | null) => void;
+    const invokeSave = vi.fn<(args: SearchableCopyArgs) => Promise<SearchableCopyResult | null>>(
+      () =>
+        new Promise<SearchableCopyResult | null>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    const ocrApi = makeOcrApi();
+    const initialProgress: OcrProgress = {
+      doc: 1,
+      run: "idle",
+      pages: 1,
+      checked: 0,
+      scans: 0,
+      recognised: 0,
+      failed: 0,
+    };
+    const { user, rerender, props } = renderDialog({
+      pageCount: 1,
+      ocrProgress: initialProgress,
+      ocrApi,
+      onSaveSearchable: (args) => invokeSave(args),
+    });
+
+    await user.click(screen.getByRole("button", { name: t.start }));
+
+    const doneProgress: OcrProgress = {
+      doc: 1,
+      run: "done",
+      pages: 1,
+      checked: 1,
+      scans: 1,
+      recognised: 1,
+      failed: 0,
+    };
+    rerender(
+      <SearchableCopyDialog
+        {...props}
+        ocrProgress={doneProgress}
+        onSaveSearchable={(args) => invokeSave(args)}
+      />,
+    );
+    await waitFor(() => expect(invokeSave).toHaveBeenCalledTimes(1));
+
+    // Simulate ReaderShell re-rendering (e.g. OCR note/page text update) with a fresh inline callback.
+    rerender(
+      <SearchableCopyDialog
+        {...props}
+        ocrProgress={{ ...doneProgress }}
+        onSaveSearchable={(args) => invokeSave(args)}
+      />,
+    );
+    rerender(
+      <SearchableCopyDialog
+        {...props}
+        ocrProgress={{ ...doneProgress }}
+        onSaveSearchable={(args) => invokeSave(args)}
+      />,
+    );
+
+    expect(invokeSave).toHaveBeenCalledTimes(1);
+
+    resolveSave({ addedPages: 1, skipped: [] });
+    await screen.findByText(t.doneTitle);
+    expect(screen.getByText(t.doneAdded(1))).toBeInTheDocument();
   });
 });

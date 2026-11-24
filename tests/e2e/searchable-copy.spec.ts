@@ -51,7 +51,9 @@ test.describe("searchable PDF copy", () => {
 
     await dialog.getByRole("button", { name: t.start }).click();
 
-    // OCR completes and the Windows save dialog appears; answer it with our target path.
+    // Wait for OCR to finish and enter the saving phase (matching ocr.spec.ts's 60 s OCR budget)
+    // before answering the Windows save dialog (whose UIA poll has a 20 s deadline).
+    await expect(dialog).toContainText(t.saving, { timeout: 60_000 });
     const copy = path.join(folder, "searchable.pdf");
     const report = await answerFileDialog(page, { path: copy });
 

@@ -4,7 +4,7 @@
 // system's save dialog. The original file is never modified; the copy is neither opened nor added
 // to recent files.
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -107,11 +107,19 @@ export function SearchableCopyDialog({
     };
   }, [open, encrypted, signed, ocrApi]);
 
+  // Keep the latest save callback in a ref so parent re-renders (e.g. ReaderShell passing an
+  // inline arrow function when OCR updates page text/status) do not cancel an in-flight save or
+  // open duplicate system save dialogs.
+  const saveRef = useRef(onSaveSearchable);
+  useEffect(() => {
+    saveRef.current = onSaveSearchable;
+  });
+
   // Perform the save when entering the "saving" phase.
   useEffect(() => {
     if (!open || phase !== "saving" || saveAttempt === 0) return;
     let cancelled = false;
-    onSaveSearchable({ doc }).then(
+    saveRef.current({ doc }).then(
       (done) => {
         if (cancelled) return;
         if (done) {
@@ -138,7 +146,7 @@ export function SearchableCopyDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, phase, saveAttempt, doc, onSaveSearchable]);
+  }, [open, phase, saveAttempt, doc]);
 
   const installed = languages?.languages ?? [];
   const chosenCode =
