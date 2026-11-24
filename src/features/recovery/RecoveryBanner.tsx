@@ -4,7 +4,7 @@
 import { HistoryIcon, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { Recovery } from "@/ipc/generated/contract";
 
 const t = strings.recovery;

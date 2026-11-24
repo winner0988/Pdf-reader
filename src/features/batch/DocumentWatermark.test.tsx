@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DocumentWatermarkDialog } from "./DocumentWatermarkDialog";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { PageSize, StampImageId, StampImageInfo } from "@/ipc/generated/contract";
 import type { PageRenderer, RenderJob } from "@/features/viewer/renderer";
 import type { AnnotationsApi } from "@/features/annotations/source";

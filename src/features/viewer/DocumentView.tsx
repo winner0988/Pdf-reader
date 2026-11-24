@@ -68,7 +68,7 @@ import {
   type RasterSize,
 } from "@/features/viewer/detail";
 import { drawRaster, errorCodeOf, type PageRenderer, type RenderJob } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type {
   AnnotationId,
   DocumentId,

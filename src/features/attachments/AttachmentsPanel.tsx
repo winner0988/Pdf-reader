@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { AttachmentInfo, DocumentId } from "@/ipc/generated/contract";
 import { type AttachmentsApi, tauriAttachmentsApi } from "./api";
 import { formatFileSize } from "./size";

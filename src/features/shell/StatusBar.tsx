@@ -2,7 +2,7 @@ import { Check, LockKeyhole, MonitorOff, ScanText, ShieldCheck, TriangleAlert } 
 
 import { formatZoom } from "@/features/shell/format";
 import type { Zoom } from "@/features/shell/model";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { CaptureProtection } from "@/ipc/generated/contract";
 
 type StatusBarProps = {

@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { SOURCE_URL } from "@/features/shell/about";
 import { SHORTCUTS } from "@/features/shortcuts/registry";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 type DialogProps = { open: boolean; onOpenChange: (open: boolean) => void };
 

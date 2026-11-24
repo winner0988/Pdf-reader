@@ -643,6 +643,8 @@ export type LaunchOptions = {
   netLog?: string;
   /** More WebView2 arguments, for this launch only. */
   browserArguments?: string[];
+  /** Overrides the system language detection for testing (ADR 0029, #683). */
+  systemLanguage?: string;
 };
 
 export const test = base.extend<{
@@ -676,6 +678,7 @@ export const test = base.extend<{
             WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: browserArguments,
             WEBVIEW2_USER_DATA_FOLDER: profile,
             PDF_READER_DATA_DIR: data,
+            PDF_READER_SYSTEM_LANGUAGE: options.systemLanguage ?? process.env.PDF_READER_SYSTEM_LANGUAGE ?? "zh-TW",
           },
           stdio: ["ignore", "pipe", "pipe"],
         });

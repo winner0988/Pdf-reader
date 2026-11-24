@@ -9,7 +9,7 @@ import {
   PRESET_COLORS,
   type PageMarksForm,
 } from "@/features/saving/pageMarks";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { PageMarkPosition } from "@/ipc/generated/contract";
 
 const t = strings.pageMarks;
@@ -186,7 +186,7 @@ export function PageMarksFields({
           <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
             <div>
               <label className="block text-xs font-medium text-muted-foreground">
-                <span>{t.batesPrefix}（{t.batesPrefixHint}）</span>
+                <span>{t.withHint(t.batesPrefix, t.batesPrefixHint)}</span>
                 <input
                   type="text"
                   disabled={disabled}
@@ -225,7 +225,7 @@ export function PageMarksFields({
 
             <div>
               <label className="block text-xs font-medium text-muted-foreground">
-                <span>{t.batesDigits}（{t.batesDigitsHint}）</span>
+                <span>{t.withHint(t.batesDigits, t.batesDigitsHint)}</span>
                 <input
                   type="number"
                   disabled={disabled}

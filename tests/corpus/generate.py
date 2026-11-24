@@ -512,7 +512,19 @@ def run_length_encode(data: bytes) -> bytes:
     return bytes(out)
 
 
-def scan_image(lines: list[str], *, width: int, height: int, cell: int, x: int, y: int, leading: int) -> bytes:
+def scan_image(
+    lines: list[str],
+    *,
+    width: int,
+    height: int,
+    cell: int,
+    x: int,
+    y: int,
+    leading: int,
+    skew_degrees: float = 0.0,
+    noise_dots: int = 0,
+    noise_seed: int = 42,
+) -> bytes:
     """A 1-bit grey picture (0 is black, rows padded to whole bytes) of `lines` in SCAN_GLYPHS."""
     row_bytes = (width + 7) // 8
     rows = [bytearray(bytes([255]) * row_bytes) for _ in range(height)]
@@ -529,6 +541,57 @@ def scan_image(lines: list[str], *, width: int, height: int, cell: int, x: int, 
                         for dx in range(cell):
                             column = left + glyph_column * cell + dx
                             row[column // 8] &= ~(0x80 >> (column % 8)) & 255
+
+    if skew_degrees != 0.0:
+        import math
+        rad = math.radians(skew_degrees)
+        cos_a = math.cos(rad)
+        sin_a = math.sin(rad)
+        cx, cy = width / 2.0, height / 2.0
+        min_src_x, max_src_x = x - 10, x + max(len(l) for l in lines) * 6 * cell + 10
+        min_src_y, max_src_y = y - 10, y + len(lines) * leading + 10
+        corners = [
+            (min_src_x, min_src_y),
+            (max_src_x, min_src_y),
+            (max_src_x, max_src_y),
+            (min_src_x, max_src_y),
+        ]
+        rot_corners = [
+            (cx + (px - cx) * cos_a - (py - cy) * sin_a, cy + (px - cx) * sin_a + (py - cy) * cos_a)
+            for px, py in corners
+        ]
+        min_ry = max(0, int(math.floor(min(ry for _, ry in rot_corners))) - 5)
+        max_ry = min(height, int(math.ceil(max(ry for _, ry in rot_corners))) + 5)
+        min_rx = max(0, int(math.floor(min(rx for rx, _ in rot_corners))) - 5)
+        max_rx = min(width, int(math.ceil(max(rx for rx, _ in rot_corners))) + 5)
+
+        rot_rows = [bytearray(bytes([255]) * row_bytes) for _ in range(height)]
+        for ry in range(min_ry, max_ry):
+            out_row = rot_rows[ry]
+            for rx in range(min_rx, max_rx):
+                src_x = int(round(cx + (rx - cx) * cos_a + (ry - cy) * sin_a))
+                src_y = int(round(cy - (rx - cx) * sin_a + (ry - cy) * cos_a))
+                if 0 <= src_y < height and 0 <= src_x < width:
+                    if not (rows[src_y][src_x // 8] & (0x80 >> (src_x % 8))):
+                        out_row[rx // 8] &= ~(0x80 >> (rx % 8)) & 255
+        rows = rot_rows
+
+    if noise_dots > 0:
+        rng = random.Random(noise_seed)
+        for _ in range(noise_dots):
+            nx = rng.randint(2, width - 3)
+            ny = rng.randint(2, height - 3)
+            all_white = True
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if not (rows[ny + dy][(nx + dx) // 8] & (0x80 >> ((nx + dx) % 8))):
+                        all_white = False
+                        break
+                if not all_white:
+                    break
+            if all_white:
+                rows[ny][nx // 8] &= ~(0x80 >> (nx % 8)) & 255
+
     return b"".join(bytes(row) for row in rows)
 
 
@@ -542,6 +605,66 @@ def benign_scanned_text() -> bytes:
         f"/Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceGray "
         "/BitsPerComponent 1 /Filter /RunLengthDecode",
         run_length_encode(scan_image(SCANNED_LINES, width=width, height=height, cell=7, x=100, y=300, leading=140)),
+    )
+    doc.add_pages([Page(
+        extra_content=b"q 612 0 0 792 0 0 cm /Im1 Do Q" + bytes([10]),
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    )])
+    return doc.build()
+
+
+def benign_scanned_skew_2() -> bytes:
+    doc = Document("scanned-skew-2")
+    width, height = 1224, 1584
+    image = doc.pdf.add_stream(
+        f"/Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceGray "
+        "/BitsPerComponent 1 /Filter /RunLengthDecode",
+        run_length_encode(scan_image(SCANNED_LINES, width=width, height=height, cell=7, x=100, y=300, leading=140, skew_degrees=2.0)),
+    )
+    doc.add_pages([Page(
+        extra_content=b"q 612 0 0 792 0 0 cm /Im1 Do Q" + bytes([10]),
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    )])
+    return doc.build()
+
+
+def benign_scanned_skew_5() -> bytes:
+    doc = Document("scanned-skew-5")
+    width, height = 1224, 1584
+    image = doc.pdf.add_stream(
+        f"/Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceGray "
+        "/BitsPerComponent 1 /Filter /RunLengthDecode",
+        run_length_encode(scan_image(SCANNED_LINES, width=width, height=height, cell=7, x=100, y=300, leading=140, skew_degrees=5.0)),
+    )
+    doc.add_pages([Page(
+        extra_content=b"q 612 0 0 792 0 0 cm /Im1 Do Q" + bytes([10]),
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    )])
+    return doc.build()
+
+
+def benign_scanned_skew_10() -> bytes:
+    doc = Document("scanned-skew-10")
+    width, height = 1224, 1584
+    image = doc.pdf.add_stream(
+        f"/Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceGray "
+        "/BitsPerComponent 1 /Filter /RunLengthDecode",
+        run_length_encode(scan_image(SCANNED_LINES, width=width, height=height, cell=7, x=100, y=300, leading=140, skew_degrees=10.0)),
+    )
+    doc.add_pages([Page(
+        extra_content=b"q 612 0 0 792 0 0 cm /Im1 Do Q" + bytes([10]),
+        resources=f"/XObject << /Im1 {image} 0 R >> ",
+    )])
+    return doc.build()
+
+
+def benign_scanned_noisy() -> bytes:
+    doc = Document("scanned-noisy")
+    width, height = 1224, 1584
+    image = doc.pdf.add_stream(
+        f"/Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceGray "
+        "/BitsPerComponent 1 /Filter /RunLengthDecode",
+        run_length_encode(scan_image(SCANNED_LINES, width=width, height=height, cell=7, x=100, y=300, leading=140, noise_dots=1500, noise_seed=596)),
     )
     doc.add_pages([Page(
         extra_content=b"q 612 0 0 792 0 0 cm /Im1 Do Q" + bytes([10]),
@@ -1753,8 +1876,8 @@ def benign_text_render_modes() -> bytes:
 
     Modes 4 to 6 fill, stroke or both and add the glyphs to the clip that ET applies; mode 7
     only clips (a gray box painted through it shows the word). One text object switches from
-    mode 4 to 7 to 5 (switching back to modes 0 to 3 loses the clip in MuPDF 1.28, #638), and
-    a last word is drawn twice in mode 0 on two lines.
+    mode 4 to 7 to 5 (text-clip-mode-switch.pdf goes back to mode 0, #638), and a last word
+    is drawn twice in mode 0 on two lines.
     """
     doc = Document("text-render-modes")
     content = (
@@ -1769,6 +1892,56 @@ def benign_text_render_modes() -> bytes:
     )
     doc.add_pages([
         Page(lines=[(72, 730, 16, "Text rendering modes")], extra_content=content.encode("latin-1"))
+    ])
+    return doc.build()
+
+
+def benign_text_clip_mode_switch() -> bytes:
+    """A text object that clips one word (mode 7) and then draws the next one (mode 0) (#638).
+
+    The clip of a text object is the glyphs drawn in modes 4 to 7, applied at ET. After ET the
+    same q ... Q fills the page with blue, which only Hello's glyphs let through; World stays
+    black. MuPDF 1.28 decided at ET from the last mode (0) that there was nothing to clip, so the
+    fill covered the page, and Hello was not extracted.
+    """
+    doc = Document("text-clip-mode-switch")
+    content = "q BT /F1 24 Tf 72 600 Td 7 Tr (Hello) Tj 0 Tr ( World) Tj ET 0 0 1 rg 0 0 612 792 re f Q\n"
+    doc.add_pages([
+        Page(lines=[(72, 730, 16, "Clip, then draw")], extra_content=content.encode("latin-1"))
+    ])
+    return doc.build()
+
+
+TEXT_CLIP_LIGATURE_WORDS = ["Office0", "Office4", "Office7"]
+
+
+def benign_text_clip_ligature() -> bytes:
+    """The fi ligature in text rendering modes 0, 4 and 7, which the ToUnicode maps to f and i (#678).
+
+    Helvetica's built-in encoding has the fi ligature at 0xAE (written \\256 in the strings).
+    MuPDF 1.28 extracted only the f of a glyph that is only clipped (mode 7): the characters
+    after the first went into the copy of the text that is drawn, which mode 7 does not draw. A
+    gray box painted through the mode 7 word shows it.
+    """
+    doc = Document("text-clip-ligature")
+    to_unicode = (
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n"
+        "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
+        "/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n"
+        "1 begincodespacerange\n<00> <FF>\nendcodespacerange\n"
+        "1 beginbfchar\n<AE> <00660069>\nendbfchar\n"
+        "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n"
+    ).encode("latin-1")
+    cmap = doc.pdf.add_stream("", to_unicode)
+    font = doc.pdf.add(f"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode {cmap} 0 R >>")
+    content = (
+        "q BT /F2 18 Tf 72 660 Td 0 Tr (Of\\256ce0) Tj ET Q\n"
+        "q BT /F2 18 Tf 72 630 Td 4 Tr (Of\\256ce4) Tj ET Q\n"
+        "q BT /F2 18 Tf 72 600 Td 7 Tr (Of\\256ce7) Tj ET 0.5 g 72 594 200 24 re f Q\n"
+    )
+    doc.add_pages([
+        Page(lines=[(72, 730, 16, "Ligatures that clip")], extra_content=content.encode("latin-1"),
+             fonts=f"/F2 {font} 0 R ")
     ])
     return doc.build()
 
@@ -2578,6 +2751,18 @@ SAMPLES = [
            "else, so it has no text layer.",
            "Search finds nothing and text cannot be selected until the text is recognised (OCR, B2-10); "
            "then both lines can be searched.", 1),
+    Sample("benign/scanned-skew-2.pdf", benign_scanned_skew_2,
+           "A scan: two lines of text (PRIVACY FIRST, SECRET PAPER) skewed by 2 degrees clockwise.",
+           "Deskewed and recognised by OCR (B6-11).", 1),
+    Sample("benign/scanned-skew-5.pdf", benign_scanned_skew_5,
+           "A scan: two lines of text (PRIVACY FIRST, SECRET PAPER) skewed by 5 degrees clockwise.",
+           "Deskewed and recognised by OCR (B6-11).", 1),
+    Sample("benign/scanned-skew-10.pdf", benign_scanned_skew_10,
+           "A scan: two lines of text (PRIVACY FIRST, SECRET PAPER) skewed by 10 degrees clockwise.",
+           "Deskewed and recognised by OCR (B6-11).", 1),
+    Sample("benign/scanned-noisy.pdf", benign_scanned_noisy,
+           "A scan: two lines of text (PRIVACY FIRST, SECRET PAPER) with isolated noise dots.",
+           "Denoised and recognised by OCR (B6-11).", 1),
     Sample("benign/encrypted-rc4-40.pdf", benign_encrypted,
            "Encrypted with the standard handler (RC4 40-bit, R2); user password 'user', owner password 'owner'.",
            "Asks for a password (MVP-16): 'user' or 'owner' opens it, any other is refused.", 1),
@@ -2685,6 +2870,18 @@ SAMPLES = [
            "Opens; every word is extracted once, and 'Twice' twice. MuPDF 1.28 without the build-time patch "
            "extracts the words drawn in modes 4 to 6 a second time from the clip.", 1,
            text=TEXT_RENDER_MODE_WORDS + ["Twice"]),
+    Sample("benign/text-clip-mode-switch.pdf", benign_text_clip_mode_switch,
+           "A text object that clips one word in text rendering mode 7 and draws the next in mode 0, then a "
+           "blue fill of the page in the same q ... Q (#638).",
+           "Opens; 'Hello World' is extracted once; the blue shows only through Hello's glyphs and World stays "
+           "black. MuPDF 1.28 without the build-time patch drops the clip (the page turns blue) and Hello.", 1,
+           text=["Clip, then draw", "Hello World"]),
+    Sample("benign/text-clip-ligature.pdf", benign_text_clip_ligature,
+           "The fi ligature in text rendering modes 0, 4 and 7, which the font's ToUnicode maps to the two "
+           "characters f and i (#678).",
+           "Opens; Office0, Office4 and Office7 are each extracted once. MuPDF 1.28 without the build-time "
+           "patch extracts Offce7 for mode 7.", 1,
+           text=["Ligatures that clip"] + TEXT_CLIP_LIGATURE_WORDS),
     Sample("benign/type3-decimal-glyph-names.pdf", benign_type3_decimal_glyph_names,
            "A Type 3 font without ToUnicode whose glyphs are named g32, g33, ... after their decimal character "
            "codes (#629).",

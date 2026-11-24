@@ -7,7 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { CommandPalette } from "@/features/commands/CommandPalette";
 import { clearRecentCommands, createCommands } from "@/features/commands/registry";
 import type { CommandOptions } from "@/features/commands/types";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 function makeOptions(opts: Partial<CommandOptions> = {}): CommandOptions {
   return {

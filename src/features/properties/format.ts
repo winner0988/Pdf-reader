@@ -1,4 +1,4 @@
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { PageSize, PdfDate } from "@/ipc/generated/contract";
 
 export function formatPdfDate(date: PdfDate | null | undefined): string {
@@ -19,12 +19,12 @@ export function formatPdfDate(date: PdfDate | null | undefined): string {
   return `${ymd} ${hms} UTC${sign}${pad(tzH)}:${pad(tzM)}`;
 }
 
-export function formatSinglePageSize(size: PageSize): string {
+export function formatSinglePageSize(size: PageSize, t: typeof strings.properties = strings.properties): string {
   const wMm = Math.round((size.widthPt * 25.4) / 72);
   const hMm = Math.round((size.heightPt * 25.4) / 72);
   const wPt = Math.round(size.widthPt);
   const hPt = Math.round(size.heightPt);
-  return `${wMm} × ${hMm} mm（${wPt} × ${hPt} pt）`;
+  return t.pageSizeValue(wMm, hMm, wPt, hPt);
 }
 
 export function formatPageSizes(pageSizes: PageSize[], t: typeof strings.properties): string {
@@ -35,7 +35,7 @@ export function formatPageSizes(pageSizes: PageSize[], t: typeof strings.propert
     (s) => Math.abs(s.widthPt - first.widthPt) < 0.5 && Math.abs(s.heightPt - first.heightPt) < 0.5,
   );
   if (allSame) {
-    return formatSinglePageSize(first);
+    return formatSinglePageSize(first, t);
   }
-  return t.multipleSizes(formatSinglePageSize(first));
+  return t.multipleSizes(formatSinglePageSize(first, t));
 }

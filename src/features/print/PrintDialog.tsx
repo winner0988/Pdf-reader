@@ -12,7 +12,7 @@ import {
 import type { PrintLayoutKind, PrintPageOrder } from "@/features/print/layout";
 import { MAX_PRINT_PAGES, pagesToPrint, type PrintRange } from "@/features/print/range";
 import { PrintCancelled, type PrintPage } from "@/features/print/render";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 export type PrintJob = {
   pages: PrintPage[];

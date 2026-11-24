@@ -12,7 +12,7 @@ import type { PageSize } from "@/features/shell/model";
 import type { EditingApi } from "@/features/thumbnails/api";
 import type { DocumentViewHandle } from "@/features/viewer/DocumentView";
 import { errorCodeOf } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import {
   LIMITS,
   type DocumentId,

@@ -4,7 +4,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { hasHiddenCharacters, revealHidden } from "@/features/links/text";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { BlockedAction, LinkPreview } from "@/ipc/generated/contract";
 
 const t = strings.links;
@@ -66,7 +66,7 @@ export function LinkConfirmDialog({ preview, onOpen, onClose, copyText = copy }:
         </DialogHeader>
         {preview.host !== null && (
           <p className="text-sm">
-            {t.confirmHost}：
+            {t.confirmHost}
             <strong dir="ltr" data-host className="font-semibold break-all">
               {revealHidden(preview.host)}
             </strong>

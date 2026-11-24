@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { AnnotationsApi } from "@/features/annotations/source";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type {
   DocumentId,
   FindPersonalDataQuery,

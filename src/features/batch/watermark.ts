@@ -1,7 +1,7 @@
 // What is asked for when a watermark is drawn on copies in a batch (B3-04, docs/architecture/watermark.md):
 // rules match ipc_contract validation, so the dialog can say what is wrong before anything is sent.
 
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type {
   BatchOperation,
   Rgb,
@@ -24,7 +24,7 @@ export type WatermarkForm = {
 
 export const DEFAULT_WATERMARK_FORM: WatermarkForm = {
   type: "text",
-  text: "機密",
+  text: strings.batch.defaultWatermarkText,
   size: 40,
   color: "#c80000",
   pictureWidth: 150,

@@ -3,7 +3,7 @@ import type { Ref } from "react";
 
 import { Button } from "@/components/ui/button";
 import { bannerSummary, worstCategory, type Category } from "@/features/signatures/summary";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { SignatureReport } from "@/ipc/generated/contract";
 
 const t = strings.signatures;

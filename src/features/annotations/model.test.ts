@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { annotationAt, annotationLabel, noteText, noteTooLong } from "@/features/annotations/model";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import { LIMITS, type PageAnnotation } from "@/ipc/generated/contract";
 
 const highlight: PageAnnotation = {

@@ -16,7 +16,7 @@ import {
 } from "@/features/annotations/turn";
 import type { PageSize, Rotation } from "@/features/shell/model";
 import { displayedSize, pageToBox, type PageBox } from "@/features/viewer/layout";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { PictureView, Rect } from "@/ipc/generated/contract";
 
 type PictureTurnProps = {

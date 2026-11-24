@@ -6,7 +6,7 @@ import { demoDocument } from "@/features/shell/demo";
 import type { ShellDocument } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { SignatureView } from "@/features/signatures/useSignatures";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { SignatureInfo } from "@/ipc/generated/contract";
 
 const t = strings.signatures;

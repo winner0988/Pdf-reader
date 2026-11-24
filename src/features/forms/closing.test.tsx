@@ -8,7 +8,7 @@ import type { OpenApi } from "@/features/open/api";
 import type { SavingApi } from "@/features/saving/api";
 import type { EditingApi } from "@/features/thumbnails/api";
 import type { RenderApi } from "@/features/viewer/renderer";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { DocumentInfo, FormField, OpenEvent } from "@/ipc/generated/contract";
 
 // Closing a tab while a value is being typed in a field of its form (B2-09): the value is a change

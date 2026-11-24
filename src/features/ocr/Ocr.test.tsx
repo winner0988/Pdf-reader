@@ -8,7 +8,7 @@ import type { OcrTab } from "@/features/ocr/model";
 import { demoDocument } from "@/features/shell/demo";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { TextApi } from "@/features/text/source";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { SearchApi } from "@/features/search/useSearch";
 import type { OcrProgress, PageText, SearchEvent } from "@/ipc/generated/contract";
 

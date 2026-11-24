@@ -38,19 +38,35 @@ pub struct Geometry {
     pub y0: f32,
     /// Pixels in a point of the page.
     pub pixels_per_point: f32,
+    /// Optional pixel-to-page affine matrix [a, b, c, d, e, f] where
+    /// `x_page = a * x_pix + c * y_pix + e`
+    /// `y_page = b * x_pix + d * y_pix + f`
+    /// When None, standard unrotated mapping is used.
+    pub transform: Option<[f32; 6]>,
 }
 
 impl Geometry {
+    fn at(&self, x: i32, y: i32) -> Point {
+        if let Some([a, b, c, d, e, f]) = self.transform {
+            let (xf, yf) = (x as f32, y as f32);
+            Point {
+                x: a * xf + c * yf + e,
+                y: b * xf + d * yf + f,
+            }
+        } else {
+            Point {
+                x: self.x0 + x as f32 / self.pixels_per_point,
+                y: self.y0 + y as f32 / self.pixels_per_point,
+            }
+        }
+    }
+
     fn quad(&self, c: &OcrChar) -> Quad {
-        let at = |x: i32, y: i32| Point {
-            x: self.x0 + x as f32 / self.pixels_per_point,
-            y: self.y0 + y as f32 / self.pixels_per_point,
-        };
         Quad {
-            ul: at(c.left, c.top),
-            ur: at(c.right, c.top),
-            ll: at(c.left, c.bottom),
-            lr: at(c.right, c.bottom),
+            ul: self.at(c.left, c.top),
+            ur: self.at(c.right, c.top),
+            ll: self.at(c.left, c.bottom),
+            lr: self.at(c.right, c.bottom),
         }
     }
 }
@@ -352,6 +368,7 @@ mod tests {
                 x0: 0.0,
                 y0: 0.0,
                 pixels_per_point: ppi as f32 / 72.0,
+                transform: None,
             },
             time: Duration::from_secs(120),
         }
@@ -386,6 +403,7 @@ mod tests {
             x0: 10.0,
             y0: 20.0,
             pixels_per_point: 2.0,
+            transform: None,
         };
         let lines = vec![
             vec![c('H', 100, 200, 120, 240), c('i', 130, 200, 140, 240)],

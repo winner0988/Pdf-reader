@@ -1,6 +1,6 @@
 import { getShortcutKey } from "@/features/shortcuts/registry";
 import { insertFailureMessage } from "@/features/thumbnails/insertFailure";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { Command, CommandId, CommandOptions } from "./types";
 
 let recentCommandIds: string[] = [];

@@ -457,3 +457,99 @@ fn the_worker_answers_other_requests_while_pages_are_read() {
         std::thread::sleep(Duration::from_millis(20));
     }
 }
+
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a_chars: Vec<char> = a.chars().collect();
+    let b_chars: Vec<char> = b.chars().collect();
+    let mut prev = (0..=b_chars.len()).collect::<Vec<_>>();
+    let mut curr = vec![0; b_chars.len() + 1];
+
+    for (i, &ca) in a_chars.iter().enumerate() {
+        curr[0] = i + 1;
+        for (j, &cb) in b_chars.iter().enumerate() {
+            let cost = if ca == cb { 0 } else { 1 };
+            curr[j + 1] = (prev[j + 1] + 1).min(curr[j] + 1).min(prev[j] + cost);
+        }
+        prev.copy_from_slice(&curr);
+    }
+    prev[b_chars.len()]
+}
+
+fn accuracy(recognised: &str, expected: &str) -> f64 {
+    let dist = levenshtein(recognised, expected);
+    let max_len = recognised.chars().count().max(expected.chars().count());
+    if max_len == 0 {
+        1.0
+    } else {
+        (1.0 - (dist as f64 / max_len as f64)).max(0.0)
+    }
+}
+
+const EXPECTED_TEXT: &str = "PRIVACY FIRST\nSECRET PAPER";
+
+#[test]
+fn skewed_and_noisy_scans_are_deskewed_and_recognised() {
+    let samples = [
+        ("benign/scanned-text.pdf", 0.0f64),
+        ("benign/scanned-skew-2.pdf", 2.0f64),
+        ("benign/scanned-skew-5.pdf", 5.0f64),
+        ("benign/scanned-skew-10.pdf", 10.0f64),
+        ("benign/scanned-noisy.pdf", 0.0f64),
+    ];
+
+    for (sample_file, skew_deg) in samples {
+        let (mut host, doc) = open_corpus(sample_file);
+        load(&mut host, "eng");
+        assert_eq!(check(&mut host, doc, 0), OcrPageState::Queued);
+        let done = finished(&mut host, 1);
+        assert!(
+            matches!(done[0].outcome, OcrOutcome::Recognised { chars } if chars > 10),
+            "{sample_file} outcome: {:?}",
+            done[0].outcome
+        );
+
+        let page = text(&mut host, doc, 0);
+        let text_lines = lines(&page).join("\n");
+        let acc = accuracy(&text_lines, EXPECTED_TEXT);
+        eprintln!(
+            "{sample_file} accuracy: {:.2}% ({text_lines:?})",
+            acc * 100.0
+        );
+
+        // All samples after deskew/denoise achieve >= 80% character accuracy
+        assert!(
+            acc >= 0.80,
+            "{sample_file} accuracy {acc:.2} below threshold (text: {text_lines:?})"
+        );
+
+        // Verify character quad location of first letter 'P' in "PRIVACY"
+        let rad = (skew_deg).to_radians();
+        let (cos_s, sin_s) = (rad.cos(), rad.sin());
+        // Unskewed center of 'P' in page points:
+        // x = (100.0 + 35.0/2.0) * 0.5 = 58.75
+        // y = (300.0 + 49.0/2.0) * 0.5 = 162.25
+        // Page center is (306.0, 396.0)
+        let exp_p_x = (306.0 + (58.75 - 306.0) * cos_s - (162.25 - 396.0) * sin_s) as f32;
+        let exp_p_y = (396.0 + (58.75 - 306.0) * sin_s + (162.25 - 396.0) * cos_s) as f32;
+
+        let (hits, has_text) = search(&mut host, doc, 0, "PRIVACY");
+        assert!(
+            has_text && !hits.is_empty(),
+            "search PRIVACY in {sample_file}"
+        );
+        let quad = hits[0].quads[0];
+        let char_h = 25.0f32; // character height is ~24.5 pt
+        let diff_x = (quad.ul.x - (exp_p_x - 8.75)).abs();
+        let diff_y = (quad.ul.y - (exp_p_y - 12.25)).abs();
+        let dist = diff_x.hypot(diff_y);
+        eprintln!(
+            "{sample_file} 'P' dist: {dist:.2} (quad ul: {:?}, exp: ({:.1}, {:.1}))",
+            quad.ul, exp_p_x, exp_p_y
+        );
+        assert!(
+            dist <= char_h,
+            "{sample_file}: 'P' quad ul {:?} is further than char height from expected ({exp_p_x}, {exp_p_y}), dist={dist}",
+            quad.ul
+        );
+    }
+}

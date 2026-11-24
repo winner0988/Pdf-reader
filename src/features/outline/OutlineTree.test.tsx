@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { OutlineTree, type OutlineEditing } from "@/features/outline/OutlineTree";
 import type { OutlineView } from "@/features/outline/tree";
 import { Sidebar } from "@/features/shell/Sidebar";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { OutlineItem } from "@/ipc/generated/contract";
 
 const page = (pageIndex: number) => ({ kind: "page" as const, pageIndex, x: null, y: null });

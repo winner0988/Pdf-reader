@@ -5,6 +5,61 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 
+const noChineseInCode = {
+  meta: {
+    type: "problem",
+    docs: {
+      description: "Disallow Chinese characters in string literals and JSX text outside i18n and tests (ADR 0029).",
+    },
+    schema: [],
+    messages: {
+      noChinese: "Hardcoded Chinese character found in code: '{{text}}'. Move user-facing strings to src/i18n (ADR 0029).",
+    },
+  },
+  create(context) {
+    const filename = (context.filename ?? context.getFilename?.() ?? "").replace(/\\/g, "/");
+    if (
+      filename.includes("/src/i18n/") ||
+      filename.includes(".test.") ||
+      filename.includes(".spec.") ||
+      filename.includes("/src/test/") ||
+      filename.endsWith("/src/features/shell/demo.ts")
+    ) {
+      return {};
+    }
+    const CHINESE_REGEX = /\p{Script=Han}|[\u3000-\u303f\uff00-\uffef]/u;
+    return {
+      Literal(node) {
+        if (typeof node.value === "string" && CHINESE_REGEX.test(node.value)) {
+          context.report({
+            node,
+            messageId: "noChinese",
+            data: { text: node.value },
+          });
+        }
+      },
+      JSXText(node) {
+        if (CHINESE_REGEX.test(node.value)) {
+          context.report({
+            node,
+            messageId: "noChinese",
+            data: { text: node.value.trim() },
+          });
+        }
+      },
+      TemplateElement(node) {
+        if (CHINESE_REGEX.test(node.value.raw)) {
+          context.report({
+            node,
+            messageId: "noChinese",
+            data: { text: node.value.raw.trim() },
+          });
+        }
+      },
+    };
+  },
+};
+
 export default defineConfig([
   globalIgnores(["dist", "coverage", "src-tauri", "crates", "target"]),
   {
@@ -50,6 +105,20 @@ export default defineConfig([
     files: ["src/components/ui/**/*.tsx"],
     rules: {
       "react-refresh/only-export-components": "off",
+    },
+  },
+  {
+    // User-facing strings must be in src/i18n; forbid hardcoded Chinese in code (ADR 0029).
+    files: ["src/**/*.{ts,tsx}"],
+    plugins: {
+      custom: {
+        rules: {
+          "no-chinese": noChineseInCode,
+        },
+      },
+    },
+    rules: {
+      "custom/no-chinese": "error",
     },
   },
 ]);

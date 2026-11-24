@@ -2,7 +2,7 @@
 // printing it, or allow only low-resolution printing. The app obeys, as Adobe Acrobat does.
 // The permissions are the author's wish, not a security boundary (docs/architecture/encryption.md).
 
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { DocumentPermissions } from "@/ipc/generated/contract";
 
 export type { DocumentPermissions };
@@ -17,5 +17,5 @@ export function restrictionSummary(permissions: DocumentPermissions): string | n
   if (!permissions.copy) restricted.push(t.noCopy);
   if (!permissions.print) restricted.push(t.noPrint);
   else if (!permissions.printHighQuality) restricted.push(t.lowResPrint);
-  return restricted.length > 0 ? t.restricted(restricted.join("、")) : null;
+  return restricted.length > 0 ? t.restricted(restricted.join(t.separator)) : null;
 }

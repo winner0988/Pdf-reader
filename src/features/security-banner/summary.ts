@@ -1,7 +1,7 @@
 // What the blocked-content banner and its details panel say (MVP-11, docs/ux/screen-map.md,
 // sections 1 and 5). The findings come from the worker's scan when the document opens.
 
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { FindingKind, SecurityFinding } from "@/ipc/generated/contract";
 
 /** Display order of blocked-content kinds (docs/ux/screen-map.md, section 8). */

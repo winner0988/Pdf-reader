@@ -20,7 +20,7 @@ import type {
   DocumentProperties,
 } from "@/ipc/generated/contract";
 import { nextRequestId } from "@/ipc/requests";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 export type DocumentPropertiesDialogProps = {
   open: boolean;
@@ -253,7 +253,7 @@ function PropertiesModalContent({
                     return (
                       <li key={finding.kind} className="flex justify-between border-b py-0.5">
                         <span>{info?.name ?? finding.kind}</span>
-                        <span className="font-mono text-muted-foreground">{finding.count} 個</span>
+                        <span className="font-mono text-muted-foreground">{t.findingsCount(finding.count)}</span>
                       </li>
                     );
                   })}

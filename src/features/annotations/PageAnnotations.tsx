@@ -28,7 +28,7 @@ import { INK_COLORS, INK_SWATCH, INK_WIDTHS, keepLineOnPage, keptOnPage, moved, 
 import type { AnnotationSource } from "@/features/annotations/source";
 import type { PageSize, Rotation } from "@/features/shell/model";
 import { boxToPage, displayedSize, pageToBox, rectToBox, type PageBox } from "@/features/viewer/layout";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type {
   AnnotationId,
   DocumentId,

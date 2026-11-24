@@ -9,7 +9,7 @@ import { useEffect, useId, useRef, useState, type ChangeEvent, type CSSPropertie
 import type { FormSource } from "@/features/forms/source";
 import type { PageSize, Rotation } from "@/features/shell/model";
 import { rectToBox, type PageBox } from "@/features/viewer/layout";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { DocumentId, Edit, FormField } from "@/ipc/generated/contract";
 
 const t = strings.forms;

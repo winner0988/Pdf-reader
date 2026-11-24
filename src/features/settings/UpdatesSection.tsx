@@ -3,7 +3,7 @@ import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { LinkConfirmDialog } from "@/features/links/LinkDialogs";
 import type { UpdateCheck, UpdatesApi } from "@/features/settings/updates";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { LinkPreview } from "@/ipc/generated/contract";
 
 type Status = { kind: "idle" } | { kind: "checking" } | { kind: "failed" } | { kind: "checked"; result: UpdateCheck };

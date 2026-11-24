@@ -2,7 +2,7 @@
 // developer-facing `message`.
 
 import type { ErrorCode, IpcError } from "@/ipc/generated/contract";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 /** The code of a rejected command, or `internal` when the value is not an `IpcError` with a known code. */
 export function ipcErrorCode(error: unknown): ErrorCode {

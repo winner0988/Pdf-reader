@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { SHORTCUTS, findShortcut, getShortcutKey } from "@/features/shortcuts/registry";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 function keydown(init: KeyboardEventInit, target: EventTarget = document.body): KeyboardEvent {
   const event = new KeyboardEvent("keydown", { bubbles: true, ...init });

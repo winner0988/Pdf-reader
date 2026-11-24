@@ -585,9 +585,9 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "cookie"
-version = "0.18.2"
+version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a373e3602691c3cdea496d2f0ee5935151e6168fe87739483c463db1b2f2f87"
+checksum = "d55f2d6c30eeec7d5c6f98bd4395d4abb1895629eab97ee6522d340623615f8a"
 dependencies = [
  "time",
  "version_check",
@@ -2278,7 +2278,7 @@ dependencies = [
 [[package]]
 name = "mupdf"
 version = "0.8.0"
-source = "git+https://github.com/winner0988/mupdf-rs?rev=206fd893e1cc8d6cc6facb8e520541e0f8ad88e0#206fd893e1cc8d6cc6facb8e520541e0f8ad88e0"
+source = "git+https://github.com/winner0988/mupdf-rs?rev=8520f108e2adc332ad53b7a61281137650275904#8520f108e2adc332ad53b7a61281137650275904"
 dependencies = [
  "bitflags 2.13.2",
  "mupdf-fonts-droid",
@@ -2297,7 +2297,7 @@ checksum = "762db7ec55fe4d5f8928b08f8ed5bb2885077f87e8ef37aaaae1c7a1edcd2369"
 [[package]]
 name = "mupdf-sys"
 version = "0.8.0"
-source = "git+https://github.com/winner0988/mupdf-rs?rev=206fd893e1cc8d6cc6facb8e520541e0f8ad88e0#206fd893e1cc8d6cc6facb8e520541e0f8ad88e0"
+source = "git+https://github.com/winner0988/mupdf-rs?rev=8520f108e2adc332ad53b7a61281137650275904#8520f108e2adc332ad53b7a61281137650275904"
 dependencies = [
  "bindgen",
  "cc",

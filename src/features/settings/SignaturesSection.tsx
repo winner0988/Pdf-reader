@@ -4,7 +4,7 @@ import { useCallback, useEffect, useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { SignaturesApi } from "@/features/annotations/signaturesApi";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { SignatureImage } from "@/ipc/generated/contract";
 
 export function SignaturesSection({ api }: { api?: SignaturesApi }) {

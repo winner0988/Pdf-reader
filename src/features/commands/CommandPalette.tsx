@@ -8,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { filterCommands, recordRecentCommand } from "./registry";
 import type { Command } from "./types";

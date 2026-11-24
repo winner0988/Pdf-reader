@@ -1,6 +1,6 @@
 // What the signatures of a document add up to (B2-14, docs/ux/screen-map.md).
 
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { SignatureInfo, SignatureReport } from "@/ipc/generated/contract";
 
 /**

@@ -1,7 +1,7 @@
 // Central keyboard shortcut registry (docs/ux/screen-map.md, section 7).
 // Components never listen for keys themselves; they pass handlers to useShortcuts().
 
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 export type ShortcutId = keyof typeof strings.shortcuts.descriptions;
 

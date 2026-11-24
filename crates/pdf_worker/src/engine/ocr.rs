@@ -185,17 +185,102 @@ impl PdfDocument {
         for row in pixmap.samples().chunks_exact(stride.max(1)) {
             grey.extend_from_slice(&row[..width as usize]);
         }
-        let picture = Picture {
+        let mut picture = Picture {
             grey,
             width,
             height,
             ppi: (scale * 72.0).round() as u32,
         };
-        let geometry = Geometry {
+        let mut geometry = Geometry {
             x0: bounds.x0,
             y0: bounds.y0,
             pixels_per_point: scale as f32,
+            transform: None,
         };
+
+        // B6-11: estimate skew angle and straighten if |skew| >= 0.5 degrees
+        let skew_deg = super::deskew::estimate_skew(&picture);
+        if skew_deg.abs() >= 0.5 {
+            let rot_deg = -skew_deg;
+            let rad = rot_deg.to_radians();
+            let cos_r = rad.cos();
+            let sin_r = rad.sin();
+
+            let cx = (f64::from(bounds.x0) + f64::from(bounds.x1)) / 2.0;
+            let cy = (f64::from(bounds.y0) + f64::from(bounds.y1)) / 2.0;
+
+            let corners = [
+                (f64::from(bounds.x0), f64::from(bounds.y0)),
+                (f64::from(bounds.x1), f64::from(bounds.y0)),
+                (f64::from(bounds.x1), f64::from(bounds.y1)),
+                (f64::from(bounds.x0), f64::from(bounds.y1)),
+            ];
+
+            let mut min_rx = f64::INFINITY;
+            let mut max_rx = f64::NEG_INFINITY;
+            let mut min_ry = f64::INFINITY;
+            let mut max_ry = f64::NEG_INFINITY;
+
+            for &(px, py) in &corners {
+                let rx = (px - cx) * cos_r - (py - cy) * sin_r;
+                let ry = (px - cx) * sin_r + (py - cy) * cos_r;
+                min_rx = min_rx.min(rx);
+                max_rx = max_rx.max(rx);
+                min_ry = min_ry.min(ry);
+                max_ry = max_ry.max(ry);
+            }
+
+            let rot_width_pt = max_rx - min_rx;
+            let rot_height_pt = max_ry - min_ry;
+
+            let mut rot_scale = OCR_DPI / 72.0;
+            rot_scale = rot_scale
+                .min(f64::from(MAX_OCR_SIDE_PX) / rot_width_pt.max(rot_height_pt))
+                .min((OCR_DRAW_PIXELS / (rot_width_pt * rot_height_pt)).sqrt());
+            let rot_pixels = (rot_width_pt * rot_scale).ceil() * (rot_height_pt * rot_scale).ceil();
+            if rot_pixels >= 1.0 && rot_pixels <= MAX_OCR_PIXELS as f64 {
+                let a = (rot_scale * cos_r) as f32;
+                let b = (rot_scale * sin_r) as f32;
+                let c = (-rot_scale * sin_r) as f32;
+                let d = (rot_scale * cos_r) as f32;
+                let e = (rot_scale * (-cx * cos_r + cy * sin_r - min_rx)) as f32;
+                let f = (rot_scale * (-cx * sin_r - cy * cos_r - min_ry)) as f32;
+
+                let ctm = Matrix::new(a, b, c, d, e, f);
+                let pixmap = page.to_pixmap(&ctm, &Colorspace::device_gray(), false, false)?;
+                let (width, height) = (pixmap.width(), pixmap.height());
+                let stride = usize::try_from(pixmap.stride()).unwrap_or(0);
+                let mut grey = Vec::with_capacity(width as usize * height as usize);
+                for row in pixmap.samples().chunks_exact(stride.max(1)) {
+                    grey.extend_from_slice(&row[..width as usize]);
+                }
+
+                picture = Picture {
+                    grey,
+                    width,
+                    height,
+                    ppi: (rot_scale * 72.0).round() as u32,
+                };
+
+                let inv_a = (cos_r / rot_scale) as f32;
+                let inv_b = (-sin_r / rot_scale) as f32;
+                let inv_c = (sin_r / rot_scale) as f32;
+                let inv_d = (cos_r / rot_scale) as f32;
+                let inv_e = (min_rx * cos_r + min_ry * sin_r + cx) as f32;
+                let inv_f = (-min_rx * sin_r + min_ry * cos_r + cy) as f32;
+
+                geometry = Geometry {
+                    x0: bounds.x0,
+                    y0: bounds.y0,
+                    pixels_per_point: rot_scale as f32,
+                    transform: Some([inv_a, inv_b, inv_c, inv_d, inv_e, inv_f]),
+                };
+            }
+        }
+
+        // B6-11: Denoise if page has isolated noise dots
+        super::deskew::denoise_isolated_noise(&mut picture);
+
         Ok((picture, geometry, key))
     }
 }

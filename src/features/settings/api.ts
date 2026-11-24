@@ -20,6 +20,7 @@ export const tauriSettingsApi: SettingsApi = {
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "system",
+  language: "system",
   recordRecentFiles: true,
   ocrAuto: true,
   ocrLanguage: null,

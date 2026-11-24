@@ -5,7 +5,7 @@
 import { useId } from "react";
 
 import type { EncryptForm } from "@/features/saving/encrypt";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 
 const t = strings.encryption;
 
@@ -40,7 +40,7 @@ export function EncryptFields({ form, onChange, disabled }: EncryptFieldsProps) 
     <>
       <fieldset className="grid gap-2 text-sm">
         {field(ids.open, t.openPassword, "open")}
-        {field(ids.openAgain, `${t.openPassword}（${t.again}）`, "openAgain")}
+        {field(ids.openAgain, t.openPasswordAgain, "openAgain")}
         <p className="text-muted-foreground">{t.openPasswordHint}</p>
       </fieldset>
       <fieldset className="grid gap-2 text-sm">
@@ -57,7 +57,7 @@ export function EncryptFields({ form, onChange, disabled }: EncryptFieldsProps) 
           </label>
         ))}
         {field(ids.permissions, t.permissionsPassword, "permissions")}
-        {field(ids.permissionsAgain, `${t.permissionsPassword}（${t.again}）`, "permissionsAgain")}
+        {field(ids.permissionsAgain, t.permissionsPasswordAgain, "permissionsAgain")}
         <p className="text-muted-foreground">{t.permissionsPasswordHint}</p>
       </fieldset>
     </>

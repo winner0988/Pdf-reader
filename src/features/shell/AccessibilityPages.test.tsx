@@ -14,7 +14,7 @@ import type { UpdatesApi } from "@/features/settings/updates";
 import { demoDocument } from "@/features/shell/demo";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { EditingApi } from "@/features/thumbnails/api";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import type { SignatureView } from "@/features/signatures/useSignatures";
 import type { FormField, OcrLanguages, PageAnnotation, PageLink, SignatureInfo } from "@/ipc/generated/contract";
 import { expectAccessible } from "@/test/axe";

@@ -25,7 +25,7 @@ import {
   toHex,
   variantOf,
 } from "@/features/annotations/textBox";
-import { strings } from "@/i18n/zh-TW";
+import { strings } from "@/i18n";
 import { LIMITS, type FontInfo, type Rgb, type TextAlign, type TextBoxStyle } from "@/ipc/generated/contract";
 
 const t = strings.annotations.textBoxDialog;

@@ -307,12 +307,30 @@ pub enum ThemePreference {
     Dark,
 }
 
+/// Which language the app's interface uses (ADR 0029, #683): the system's language, or a chosen one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+pub enum LanguagePreference {
+    #[default]
+    #[serde(rename = "system")]
+    #[ts(rename = "system")]
+    System,
+    #[serde(rename = "zh-TW")]
+    #[ts(rename = "zh-TW")]
+    ZhTw,
+    #[serde(rename = "en")]
+    #[ts(rename = "en")]
+    En,
+}
+
 /// The user's settings (B2-12), kept by the main process in the app's local data folder. The
 /// frontend reads them and sends the whole set back; any other field is rejected.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
     pub theme: ThemePreference,
+    /// Added with the English interface (ADR 0029, #683): which language the interface uses.
+    #[serde(default)]
+    pub language: LanguagePreference,
     /// Whether files that open go on the recent files list (#73).
     pub record_recent_files: bool,
     /// Whether the text of scanned pages is recognised by itself when a document opens (B2-10,
@@ -331,6 +349,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             theme: ThemePreference::System,
+            language: LanguagePreference::System,
             record_recent_files: true,
             ocr_auto: true,
             ocr_language: None,
@@ -3426,6 +3445,7 @@ mod tests {
     fn settings_travel_as_camel_case_and_take_no_other_field() {
         let settings = Settings {
             theme: ThemePreference::Dark,
+            language: LanguagePreference::En,
             record_recent_files: false,
             ocr_auto: false,
             ocr_language: Some("eng".to_owned()),
@@ -3436,6 +3456,7 @@ mod tests {
             json,
             serde_json::json!({
                 "theme": "dark",
+                "language": "en",
                 "recordRecentFiles": false,
                 "ocrAuto": false,
                 "ocrLanguage": "eng",
@@ -3444,17 +3465,22 @@ mod tests {
         );
         let with = |name: &str, value: serde_json::Value| {
             let mut json = serde_json::json!({
-                "theme": "dark", "recordRecentFiles": false, "ocrAuto": true, "ocrLanguage": null,
+                "theme": "dark", "language": "system", "recordRecentFiles": false, "ocrAuto": true, "ocrLanguage": null,
                 "textIndex": false
             });
             json[name] = value;
             json
         };
         assert!(serde_json::from_value::<Settings>(with("theme", "light".into())).is_ok());
+        assert!(serde_json::from_value::<Settings>(with("language", "zh-TW".into())).is_ok());
+        assert!(serde_json::from_value::<Settings>(with("language", "en".into())).is_ok());
+        assert!(serde_json::from_value::<Settings>(with("language", "system".into())).is_ok());
+        assert!(serde_json::from_value::<Settings>(with("language", "fr".into())).is_err());
         assert!(serde_json::from_value::<Settings>(with("path", "C:/x".into())).is_err());
         assert!(serde_json::from_value::<Settings>(with("theme", "sepia".into())).is_err());
         assert!(serde_json::from_value::<Settings>(with("ocrAuto", "yes".into())).is_err());
         assert_eq!(Settings::default().theme, ThemePreference::System);
+        assert_eq!(Settings::default().language, LanguagePreference::System);
         assert!(Settings::default().record_recent_files);
         assert!(Settings::default().ocr_auto);
         assert_eq!(Settings::default().ocr_language, None);
