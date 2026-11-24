@@ -107,6 +107,11 @@
     { "id": "allow-check-signing", "reason": "B3-06: whether an open document can be signed, by document id" },
     { "id": "allow-choose-signing-file", "reason": "B3-06: a certificate file (PKCS #12) to sign with; the main process asks in its open dialog and keeps the file, the page gets a number and the file's name" },
     { "id": "allow-list-signing-certificates", "reason": "B3-06, ADR 0020: the certificates of the user's own store that have a private key (in Windows or on a smart card), read only; the page gets numbers, names and dates, and no key is opened" },
-    { "id": "allow-sign-document", "reason": "B3-06, ADR 0020: a signed copy of an open document's file, with a certificate file (the password goes to Windows once, the private key stays in the main process and in memory) or a certificate of the user's store (its key stays in Windows or on the card, which asks for its PIN); the main process asks where, never the document's own file, and a new worker verifies the copy" }
+    { "id": "allow-sign-document", "reason": "B3-06, ADR 0020: a signed copy of an open document's file, with a certificate file (the password goes to Windows once, the private key stays in the main process and in memory) or a certificate of the user's store (its key stays in Windows or on the card, which asks for its PIN); the main process asks where, never the document's own file, and a new worker verifies the copy" },
+    { "id": "allow-get-speech-voices", "reason": "B6-14, #599: list the offline speech voices installed on Windows (opaque ids, display names and languages only; no paths or network access)" },
+    { "id": "allow-speak-text", "reason": "B6-14, #599: synthesize plain text in memory with an installed offline Windows voice (never SSML, never URIs or files) and stream UTF-16 word boundaries on a channel" },
+    { "id": "allow-pause-speech", "reason": "B6-14, #599: pause active read-aloud playback in the main process" },
+    { "id": "allow-resume-speech", "reason": "B6-14, #599: resume paused read-aloud playback in the main process" },
+    { "id": "allow-stop-speech", "reason": "B6-14, #599: stop active read-aloud playback in the main process" }
   ]
 }

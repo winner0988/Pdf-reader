@@ -350,7 +350,50 @@ ocrLanguage: string | null,
  * computer, to find which document has some words (B3-21, ADR 0026). Off unless the user
  * turns it on; only while the recent files list is kept too.
  */
-textIndex: boolean, };
+textIndex: boolean, 
+/**
+ * Preferred installed offline voice id for read aloud (B6-14, #599); `None` uses Windows'
+ * default voice. If a saved id is no longer installed, the UI falls back to the default.
+ */
+speechVoiceId: string | null, 
+/**
+ * Preferred speaking rate for read aloud (B6-14, #599): `0.5`–`6.0`, default `1.0`.
+ */
+speechRate: number, };
+
+/**
+ * An offline speech voice installed on Windows (B6-14, #599).
+ */
+export type SpeechVoice = { 
+/**
+ * Opaque identifier from Windows (`VoiceInformation.Id`), validated against the installed
+ * list before use and never treated as a file path or registry location.
+ */
+id: string, name: string, language: string, isDefault: boolean, };
+
+/**
+ * Arguments of `speak_text` (B6-14, #599): plain text synthesized with an installed offline
+ * Windows voice. Any other field is rejected. `Debug` omits `text` so logs never record document
+ * content.
+ */
+export type SpeakArgs = { 
+/**
+ * Plain text to read aloud (never SSML). At most `LIMITS.maxSpeechTextBytes` UTF-8 bytes.
+ */
+text: string, 
+/**
+ * Opaque voice id from `get_speech_voices`, or `None` for the system default voice.
+ */
+voiceId: string | null, 
+/**
+ * Speaking rate (`LIMITS.minSpeechRate`..=`LIMITS.maxSpeechRate`, `1.0` = normal).
+ */
+rate: number, };
+
+/**
+ * Events sent on the channel of `speak_text` (B6-14, #599).
+ */
+export type SpeechEvent = { "kind": "word", utf16Start: number, utf16Len: number, } | { "kind": "finished" } | { "kind": "error", code: ErrorCode, };
 
 /**
  * A language that scanned pages can be recognised in (B2-10).
@@ -1602,7 +1645,7 @@ edges: Array<number>, };
 /**
  * Error codes the frontend maps to localized messages.
  */
-export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "signed" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "credentialsUnavailable" | "pictureNotCleaned" | "batesOverflow" | "noPageToMark" | "certificateUnreadable" | "certificateExpired" | "certificateNotYetValid" | "certificateNotForSigning" | "signatureTooLarge" | "signatureNotValid" | "certificateUnavailable" | "internal";
+export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "signed" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "credentialsUnavailable" | "pictureNotCleaned" | "batesOverflow" | "noPageToMark" | "certificateUnreadable" | "certificateExpired" | "certificateNotYetValid" | "certificateNotForSigning" | "signatureTooLarge" | "signatureNotValid" | "certificateUnavailable" | "speechNoVoices" | "speechNoAudioDevice" | "speechUnknownVoice" | "speechFailed" | "internal";
 
 /**
  * Rejection value of every command. `message` is for logs and must not contain paths or
@@ -1913,6 +1956,11 @@ export const LIMITS = {
   maxFontResourceDepth: 32,
   maxFontTimeMillis: 2000,
   maxPageParentDepth: 64,
+  maxSpeechTextBytes: 524288,
+  minSpeechRate: 0.5,
+  maxSpeechRate: 6,
+  maxSpeechVoiceIdBytes: 512,
+  maxSpeechVoices: 512,
   protocolVersion: 0,
 } as const;
 

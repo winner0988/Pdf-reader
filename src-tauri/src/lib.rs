@@ -43,6 +43,7 @@ mod settings;
 pub mod signature_images;
 mod signing;
 mod sources;
+mod speech;
 mod strings;
 mod text_boxes;
 mod text_index;
@@ -119,6 +120,7 @@ pub fn run() {
         .manage(signing::ChosenCertificate::default())
         .manage(signing::ListedCertificates::default())
         .manage(compare::CompareCache::default())
+        .manage(speech::SpeechService::new_winrt())
         .invoke_handler(tauri::generate_handler![
             commands::subscribe_open_events,
             commands::open_document_dialog,
@@ -221,6 +223,11 @@ pub fn run() {
             commands::prepare_signature_stamp,
             commands::run_batch,
             commands::create_pdf,
+            commands::get_speech_voices,
+            commands::speak_text,
+            commands::pause_speech,
+            commands::resume_speech,
+            commands::stop_speech,
         ])
         .on_window_event(commands::on_window_event)
         .setup(move |app| {

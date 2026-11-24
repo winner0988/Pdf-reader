@@ -26,7 +26,8 @@ use ipc_contract::types::{
     RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult, SearchArgs,
     SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs, SignCheck,
     SignResult, SignatureImage, SignatureImageArgs, SignatureReport, SigningFile, SigningFileKey,
-    SigningKey, SigningStoreKey, StampImageInfo, StoreCertificate, TabId, TextBoxInfo,
+    SigningKey, SigningStoreKey, SpeakArgs, SpeechEvent, SpeechVoice, StampImageInfo,
+    StoreCertificate, TabId, TextBoxInfo,
     TextIndexStatus, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
     WatermarkContent, XfdfOutcome,
 };
@@ -54,6 +55,7 @@ use crate::sensitive::SensitiveFiles;
 use crate::settings::SettingsStore;
 use crate::signature_images::SignatureImages;
 use crate::signing::{self, ChosenCertificate, ListedCertificates, Signer};
+use crate::speech::SpeechService;
 use crate::strings;
 use crate::text_index::{self, IndexFacts, Source as _, TextIndex};
 use crate::xfdf;
@@ -2460,11 +2462,59 @@ pub async fn close_window(
     }
     // The changes are discarded: nothing is left to recover them from (B2-13).
     documents.discard_unsaved();
+    app.state::<SpeechService>().stop();
     // Unlike `close`, `destroy` does not ask again (see `on_window_event`).
     window.destroy().map_err(|_| IpcError {
         code: ErrorCode::Internal,
         message: "the window could not be closed".to_owned(),
     })
+}
+
+/// Lists the offline speech voices installed on Windows (B6-14, #599).
+#[tauri::command]
+pub async fn get_speech_voices(app: AppHandle) -> Result<Vec<SpeechVoice>, IpcError> {
+    blocking(move || app.state::<SpeechService>().list_voices()).await
+}
+
+/// Synthesizes plain text using an installed offline Windows voice and plays it from memory,
+/// streaming word boundaries, completion, and errors on `on_event` (B6-14, #599).
+#[tauri::command]
+pub async fn speak_text(
+    app: AppHandle,
+    args: SpeakArgs,
+    on_event: Channel<SpeechEvent>,
+) -> Result<(), IpcError> {
+    blocking(move || {
+        app.state::<SpeechService>().speak(
+            args,
+            Arc::new(move |event| {
+                let _ = on_event.send(event);
+            }),
+        )
+    })
+    .await
+}
+
+/// Pauses active read-aloud playback (B6-14, #599).
+#[tauri::command]
+pub async fn pause_speech(app: AppHandle) -> Result<(), IpcError> {
+    blocking(move || app.state::<SpeechService>().pause()).await
+}
+
+/// Resumes paused read-aloud playback (B6-14, #599).
+#[tauri::command]
+pub async fn resume_speech(app: AppHandle) -> Result<(), IpcError> {
+    blocking(move || app.state::<SpeechService>().resume()).await
+}
+
+/// Stops active read-aloud playback (B6-14, #599).
+#[tauri::command]
+pub async fn stop_speech(app: AppHandle) -> Result<(), IpcError> {
+    blocking(move || {
+        app.state::<SpeechService>().stop();
+        Ok(())
+    })
+    .await
 }
 
 /// Sets whether `window` is full-screen (B4-03). Returns the resulting state.
@@ -2527,6 +2577,10 @@ fn close_if_unanswered(window: Window) {
 /// beyond `MAX_TABS` are ignored and reported as `TabLimit`.
 pub fn on_window_event(window: &Window, event: &WindowEvent) {
     let app = window.app_handle();
+    if matches!(event, WindowEvent::Destroyed) {
+        app.state::<SpeechService>().stop();
+        return;
+    }
     if let WindowEvent::CloseRequested { api, .. } = event {
         // The page asks what to do about unsaved changes (B2-02), then calls `close_window`. It
         // is asked even when no tab is known to have any: a value still being typed in a field is

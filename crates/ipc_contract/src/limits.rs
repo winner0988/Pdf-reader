@@ -459,3 +459,19 @@ pub const MAX_FONT_TIME_MILLIS: u64 = 2_000;
 
 /// Deepest /Parent chain walked in the page tree when looking up inherited resources (B5-04).
 pub const MAX_PAGE_PARENT_DEPTH: usize = 64;
+
+/// Longest text sent in one `speak_text` call (B6-14, #599), in UTF-8 bytes.
+/// Must be at least one page of text (`MAX_PAGE_TEXT_CHARS` = 100,000 Unicode scalars <= 400,000
+/// UTF-8 bytes); 512 KiB comfortably covers any single page while bounding in-memory synthesis.
+pub const MAX_SPEECH_TEXT_BYTES: u32 = 512 * 1024;
+
+/// Slowest and fastest speaking rate accepted by Windows `SpeechSynthesizerOptions.SpeakingRate`
+/// (B6-14, #599).
+pub const MIN_SPEECH_RATE: f64 = 0.5;
+pub const MAX_SPEECH_RATE: f64 = 6.0;
+
+/// Longest opaque voice id string kept in settings or sent in `speak_text` (B6-14, #599).
+pub const MAX_SPEECH_VOICE_ID_BYTES: u32 = 512;
+
+/// Most installed offline voices reported by `get_speech_voices` (B6-14, #599).
+pub const MAX_SPEECH_VOICES: u32 = 512;

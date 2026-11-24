@@ -82,6 +82,9 @@ pub fn bindings() -> String {
         ThemePreference,
         LanguagePreference,
         Settings,
+        SpeechVoice,
+        SpeakArgs,
+        SpeechEvent,
         OcrLanguage,
         OcrLanguages,
         FontId,
@@ -233,7 +236,7 @@ pub fn bindings() -> String {
         SaveAttachmentResult,
     );
 
-    let limits: [(&str, String); 83] = [
+    let limits: [(&str, String); 88] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minCroppedSidePt", MIN_CROPPED_SIDE_PT.to_string()),
@@ -355,6 +358,11 @@ pub fn bindings() -> String {
         ("maxFontResourceDepth", MAX_FONT_RESOURCE_DEPTH.to_string()),
         ("maxFontTimeMillis", MAX_FONT_TIME_MILLIS.to_string()),
         ("maxPageParentDepth", MAX_PAGE_PARENT_DEPTH.to_string()),
+        ("maxSpeechTextBytes", MAX_SPEECH_TEXT_BYTES.to_string()),
+        ("minSpeechRate", MIN_SPEECH_RATE.to_string()),
+        ("maxSpeechRate", MAX_SPEECH_RATE.to_string()),
+        ("maxSpeechVoiceIdBytes", MAX_SPEECH_VOICE_ID_BYTES.to_string()),
+        ("maxSpeechVoices", MAX_SPEECH_VOICES.to_string()),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];
     out.push_str(

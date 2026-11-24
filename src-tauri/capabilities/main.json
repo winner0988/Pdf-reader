@@ -104,6 +104,11 @@
     "allow-check-signing",
     "allow-choose-signing-file",
     "allow-list-signing-certificates",
-    "allow-sign-document"
+    "allow-sign-document",
+    "allow-get-speech-voices",
+    "allow-speak-text",
+    "allow-pause-speech",
+    "allow-resume-speech",
+    "allow-stop-speech"
   ]
 }
