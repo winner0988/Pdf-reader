@@ -2629,6 +2629,23 @@ pub struct IpcError {
     pub message: String,
 }
 
+/// Progress of making a PDF from images passed via Explorer's context menu (`--create-pdf-from`,
+/// B5-13). Paths never leave the main process (ADR 0008): the page only sees counts and outcomes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "phase", rename_all = "camelCase")]
+pub enum ExplorerCreateStatus {
+    /// Gathering images from one or more Explorer launches before starting.
+    Collecting { count: u32, skipped: u32 },
+    /// Asking where to save and converting `count` images into a PDF.
+    Creating { count: u32, skipped: u32 },
+    /// The PDF was created and opened in a new tab.
+    Done { pages: u32, skipped: u32 },
+    /// Conversion failed with a known error code (never a path or raw error text).
+    Failed { code: ErrorCode },
+    /// No longer active (cancelled, all files skipped, or over the image limit).
+    Idle,
+}
+
 /// Pushed by the main process on the channel passed to `subscribe_open_events`, for documents
 /// opened from the dialog, by drag and drop, from the command line or from a second launch of
 /// the app. Every file gets its own tab (MVP-14): `Opening` adds it, then `Opened` or `Failed`
@@ -2685,6 +2702,8 @@ pub enum OpenEvent {
     /// the `Opened` of the sensitive document that turned it on, and to a page that subscribes
     /// while it is on.
     CaptureProtection { state: CaptureProtection },
+    /// Progress of creating a PDF from images passed via Explorer (`--create-pdf-from`, B5-13).
+    ExplorerCreate { status: ExplorerCreateStatus },
 }
 
 /// A font on this computer that the user can set the text of a text box in (ADR 0018, B2-27).

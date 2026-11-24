@@ -1004,6 +1004,15 @@ export const strings = {
     cancel: "取消",
     running: "正在建立 PDF…",
     done: (pages: number) => `已建立 ${pages} 頁的 PDF，並在新分頁開啟。`,
+    explorerCollecting: (count: number, skipped: number) =>
+      skipped > 0
+        ? count > 0
+          ? `正在收集圖片（已收到 ${count} 張，略過 ${skipped} 個檔案）…`
+          : `正在收集圖片（已略過 ${skipped} 個檔案）…`
+        : `正在收集圖片（已收到 ${count} 張）…`,
+    explorerCreating: (count: number) => `正在從 ${count} 張圖片建立 PDF…`,
+    explorerDoneSkipped: (pages: number, skipped: number) =>
+      `已建立 ${pages} 頁的 PDF，並在新分頁開啟（已略過 ${skipped} 個檔案）。`,
     /** Why it failed, for the codes that mean something here; any other code has its general text. */
     failures: {
       invalidArgument:

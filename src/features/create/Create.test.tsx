@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CreateApi } from "@/features/create/api";
+import { ExplorerCreateNotice } from "@/features/create/ExplorerCreateNotice";
 import { createFailure } from "@/features/create/messages";
 import { demoDocument } from "@/features/shell/demo";
 import type { ShellState } from "@/features/shell/model";
@@ -133,5 +134,40 @@ describe("why a PDF could not be made", () => {
     expect(createFailure({ code: "cancelled", message: "" })).toBe(t.failed);
     expect(createFailure(new Error("boom"))).toBe(strings.error.messages.internal);
     expect(createFailure(null)).toBe(strings.error.messages.internal);
+  });
+});
+
+describe("Explorer context menu PDF creation status (B5-13)", () => {
+  it("shows collecting count, creating progress, completion, failure, and dismiss button", async () => {
+    const user = userEvent.setup();
+    const onDismiss = vi.fn();
+
+    const { rerender } = render(
+      <ExplorerCreateNotice status={{ phase: "collecting", count: 3, skipped: 0 }} onDismiss={onDismiss} />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(t.explorerCollecting(3, 0));
+    expect(screen.queryByRole("button", { name: strings.open.dismissNotice })).toBeNull();
+
+    rerender(<ExplorerCreateNotice status={{ phase: "collecting", count: 2, skipped: 1 }} onDismiss={onDismiss} />);
+    expect(screen.getByRole("status")).toHaveTextContent(t.explorerCollecting(2, 1));
+
+    rerender(<ExplorerCreateNotice status={{ phase: "creating", count: 2, skipped: 1 }} onDismiss={onDismiss} />);
+    expect(screen.getByRole("status")).toHaveTextContent(t.explorerCreating(2));
+    expect(screen.queryByRole("button", { name: strings.open.dismissNotice })).toBeNull();
+
+    rerender(<ExplorerCreateNotice status={{ phase: "done", pages: 2, skipped: 0 }} onDismiss={onDismiss} />);
+    expect(screen.getByRole("status")).toHaveTextContent(t.done(2));
+
+    rerender(<ExplorerCreateNotice status={{ phase: "done", pages: 2, skipped: 1 }} onDismiss={onDismiss} />);
+    expect(screen.getByRole("status")).toHaveTextContent(t.explorerDoneSkipped(2, 1));
+    await user.click(screen.getByRole("button", { name: strings.open.dismissNotice }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+
+    rerender(<ExplorerCreateNotice status={{ phase: "failed", code: "corrupted" }} onDismiss={onDismiss} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(t.failures.corrupted!);
+
+    rerender(<ExplorerCreateNotice status={{ phase: "idle" }} onDismiss={onDismiss} />);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

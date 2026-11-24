@@ -78,6 +78,12 @@ pub fn sources_of(paths: Vec<PathBuf>) -> Result<Vec<(PathBuf, CreateKind)>, Ipc
     Ok(sources)
 }
 
+/// Sorts file paths in the same natural file-name order as [`sources_of`]: case-insensitive,
+/// comparing runs of digits as numbers (`2.png` before `10.png`).
+pub(crate) fn sort_paths(paths: &mut [PathBuf]) {
+    paths.sort_by(|a, b| natural_order(&name_of(a), &name_of(b)));
+}
+
 fn name_of(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())

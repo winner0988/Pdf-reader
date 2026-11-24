@@ -144,6 +144,7 @@ pub fn bindings() -> String {
         SanitizeResult,
         CreateKind,
         CreateResult,
+        ExplorerCreateStatus,
         UpdateCheck,
         RequestId,
         PageSize,

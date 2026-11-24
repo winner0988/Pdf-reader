@@ -107,6 +107,23 @@ REL-03（[#68](https://github.com/winner0988/Pdf-reader/issues/68)），規格 �
   - 使用者若把 PDF Reader 設為預設，Windows 會在 ProgID 消失後自行改回；
   - 更新時先解除安裝再安裝，ProgID 名稱不變，使用者的選擇會保留。
 
+### 圖片右鍵選單「用 PDF Reader 建立 PDF」（B5-13）
+
+工作卡 [#450](https://github.com/winner0988/Pdf-reader/issues/450)，規格 §1「作業系統關聯」、§7「格式匯入／建立 PDF」。
+
+- **安裝後**（`PDF_READER_REGISTER`，64 位元登錄檔視圖）：
+  - 對七種支援的圖片副檔名（`.png`、`.jpg`、`.jpeg`、`.gif`、`.bmp`、`.tif`、`.tiff`），各自在 `HKLM\Software\Classes\SystemFileAssociations\.<副檔名>\shell\PdfReader.CreatePdf` 登錄一個動詞：
+    - `MUIVerb`：`用 PDF Reader 建立 PDF`
+    - `Icon`：`"$INSTDIR\${MAINBINARYNAME}.exe,0"`
+    - `MultiSelectModel`：`Player`
+    - `command`：`'"$INSTDIR\${MAINBINARYNAME}.exe" --create-pdf-from "%1"'`
+  - 動詞名稱由 `PDF_READER_CREATE_PDF_VERB` 定義一次，安裝與解除安裝共用。
+  - **不改圖片的預設程式**：不寫入圖片的 ProgID、`OpenWithProgids`、`UserChoice` 或副檔名本身的預設值。
+- **Windows 11 與多選行為**：
+  - 這是傳統靜態動詞，在 Windows 11 上位於右鍵選單的「顯示更多選項」裡（第一層新式選單需要 `IExplorerCommand` 與套件身分，不在範圍內）。
+  - 設定 `MultiSelectModel = Player`（而非靜態動詞預設推斷的 `Document`，預設在超過 15 個檔案時會隱藏動詞）將靜態動詞的檔案總管選取上限提升至 100 張（依 Microsoft *How to Employ the Verb Selection Model*，靜態 `Player` 上限為 100 張，超過時選單不顯示；COM 介面才有無限多選）。選取多張時 Windows 會為每張圖片各自啟動一次主程式，由單一執行個體收集成同一批（見 [create-pdf.md](create-pdf.md)）。超過 100 張圖片可改由 app 內的「從檔案建立 PDF…」選取（上限 200 張）。
+- **解除安裝**（`PDF_READER_UNREGISTER`）：只刪除上述七個副檔名底下的 `PdfReader.CreatePdf` 動詞鍵，不刪除 `SystemFileAssociations\.<副檔名>` 本身。`crates/sandbox/tests/installer_hooks.rs` 檢查七個副檔名、指令引號、配對清除與不修改預設程式的規則。
+
 ## CI
 
 `.github/workflows/installer.yml`（push 到 `main`、手動觸發，以及變更會進入安裝檔的 PR）：

@@ -340,7 +340,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 復原日誌 | app 資料夾的 `recovery\`（每個 ≤ 4 MiB） | 當成不可信的資料檢查 | `recovery.rs` 15 個（含截斷、變異與隨機輸入測試） | 由單元變異測試驗證（#429） |
 | 文字索引 | app 資料夾的 `index\`（金鑰 ≤ 4 KiB，目錄與文件 ≤ 32 MiB） | AES-256-GCM；金鑰以 DPAPI 保護。不是 app 寫的檔案在解析前就被拒絕 | `text_index.rs` 24 個（`nothing_on_the_disk_can_be_read_without_the_key` 等）、`index_crypto.rs` 3 個 | 不需要（先驗證才解析） |
 | 認證管理員裡的密碼 | app 自己寫的項目（`PdfReader/password/v1/<key>`） | 鍵是 worker 從檔案的加密資訊算出的雜湊（`PasswordKey`，ADR 0017）；項目裡沒有檔名、路徑或內容 | `credentials.rs` 7 個 | 不需要 |
-| 命令列、第二次啟動的參數 | 其他程式（§8） | 只當成檔案路徑 | `cli.rs` 3 個 | 不需要 |
+| 命令列、第二次啟動的參數 | 其他程式（§8） | `--create-pdf-from` 之前只當成要開啟的檔案路徑；之後只當成建立 PDF 的圖片路徑，逐一檢查為存在的一般檔案與七種圖片副檔名、去重並受 `MAX_CREATE_SOURCES`（200）限制，路徑不傳到前端 | `cli.rs` 8 個、`explorer_create.rs` 5 個 | 不需要 |
 
 ## 4. WebView 的權限
 
@@ -410,10 +410,10 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 入口 | 處理方式 | 檢查 |
 |---|---|---|
-| 命令列 | `src-tauri/src/cli.rs`：跳過 `-` 開頭的參數，其餘當成檔案路徑交給 `commands::open_paths`（開啟對話框也走這裡） | `cli.rs` 3 個；`open.spec.ts` |
-| 第二次啟動 | `tauri-plugin-single-instance` =2.5.4：mutex、`FindWindowW`、`WM_COPYDATA` 傳來參數與工作目錄，主行程以 `Path::new(&cwd).join(path)` 交給 `open_paths` | `batch.spec.ts`（第二次啟動把檔案交給視窗） |
+| 命令列 | `src-tauri/src/cli.rs`：跳過 `-` 開頭的參數（`--create-pdf-from` 切換模式），之前交給 `commands::open_paths`（開啟對話框也走這裡），之後交給 `ExplorerCreate` 收集並經 `create_pdf_from_sources` 建立 PDF（檢查存在的一般檔案、七種圖片副檔名、`same_file` 去重與 200 張上限，由另存對話框決定輸出位置） | `cli.rs` 8 個、`explorer_create.rs` 5 個；`open.spec.ts`、`create-from-explorer.spec.ts` |
+| 第二次啟動 | `tauri-plugin-single-instance` =2.5.4：mutex、`FindWindowW`、`WM_COPYDATA` 傳來參數與工作目錄，主行程以 `cli::parse(...).resolve_relative(&cwd)` 分別交給 `open_paths` 與 `ExplorerCreate` | `batch.spec.ts`（第二次啟動把檔案交給視窗）、`create-from-explorer.spec.ts` |
 | 拖放 | 視窗的拖放事件把每個拖進來的檔案交給 `open_paths`（每個檔案各開一個分頁；非 PDF 或資料夾則顯示錯誤分頁） | manual-checks §3.14（原生 OLE 拖放無法由 Playwright CDP 模擬，見 `docs/architecture/e2e.md`） |
-| 檔案關聯 | 安裝程式在 HKLM 登錄 `.pdf` 的開啟命令 | manual-checks §3 |
+| 檔案關聯 | 安裝程式在 HKLM 登錄 `.pdf` 的開啟命令，並在 `SystemFileAssociations\.<七種圖片副檔名>\shell\PdfReader.CreatePdf` 登錄 `--create-pdf-from "%1"` 右鍵動詞（不改圖片預設程式） | `installer_hooks.rs`；manual-checks §3 |
 | `PDF_READER_DATA_DIR` | 是絕對路徑時，取代 app 資料夾；正式版也讀（E2E 用它讓每次執行有自己的資料夾） | §9 |
 | WebView2 的環境變數 | `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`、`WEBVIEW2_USER_DATA_FOLDER` 等由 WebView2 自己讀；E2E 用前者打開 `--remote-debugging-port`（`docs/architecture/e2e.md`） | §9；manual-checks §3 |
 | 只給測試用的環境變數 | `CI`、`PDF_READER_TEST_CLIPBOARD`、`PDF_READER_TEST_SIGNING` 只在單元測試裡讀 | — |

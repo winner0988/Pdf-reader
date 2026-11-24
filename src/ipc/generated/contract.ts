@@ -916,6 +916,12 @@ export type CreateResult = { pages: number,
 kind: CreateKind, };
 
 /**
+ * Progress of making a PDF from images passed via Explorer's context menu (`--create-pdf-from`,
+ * B5-13). Paths never leave the main process (ADR 0008): the page only sees counts and outcomes.
+ */
+export type ExplorerCreateStatus = { "phase": "collecting", count: number, skipped: number, } | { "phase": "creating", count: number, skipped: number, } | { "phase": "done", pages: number, skipped: number, } | { "phase": "failed", code: ErrorCode, } | { "phase": "idle" };
+
+/**
  * What `check_for_updates` found (#64, ADR 0009). Versions are `major.minor.patch`; the latest
  * one is rewritten from its three numbers, so nothing else from GitHub's answer reaches the page.
  */
@@ -1616,7 +1622,7 @@ export type IpcError = { code: ErrorCode, message: string, };
  * the app. Every file gets its own tab (MVP-14): `Opening` adds it, then `Opened` or `Failed`
  * says how it went.
  */
-export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, canRemember: boolean, rememberedFailed: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, } | { "kind": "closeRequested", tabs: Array<TabId>, } | { "kind": "ocr", tab: TabId, progress: OcrProgress, } | { "kind": "ocrPage", tab: TabId, doc: DocumentId, pageIndex: number, } | { "kind": "captureProtection", state: CaptureProtection, };
+export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, canRemember: boolean, rememberedFailed: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, } | { "kind": "closeRequested", tabs: Array<TabId>, } | { "kind": "ocr", tab: TabId, progress: OcrProgress, } | { "kind": "ocrPage", tab: TabId, doc: DocumentId, pageIndex: number, } | { "kind": "captureProtection", state: CaptureProtection, } | { "kind": "explorerCreate", status: ExplorerCreateStatus, };
 
 /**
  * The kind of file an annotation summary is written as (B3-18).

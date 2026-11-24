@@ -5,6 +5,7 @@ import { BatchHost } from "@/features/batch/BatchHost";
 import { tauriCompareApi, type CompareApi } from "@/features/compare/api";
 import type { CompareTabOption } from "@/features/compare/CompareDialog";
 import { tauriCreateApi, type CreateApi } from "@/features/create/api";
+import { ExplorerCreateNotice } from "@/features/create/ExplorerCreateNotice";
 import { tauriExportApi, type ExportApi } from "@/features/export/api";
 import { tauriOpenApi, type OpenApi } from "@/features/open/api";
 import { OpenNotice } from "@/features/open/OpenNotice";
@@ -269,6 +270,13 @@ export default function App({
             )}
           </div>
           {state.notice && <OpenNotice notice={state.notice} onDismiss={tabs.dismissNotice} />}
+          {state.explorerCreate && (
+            <ExplorerCreateNotice
+              status={state.explorerCreate}
+              onDismiss={tabs.dismissExplorerCreate}
+              stacked={state.notice !== null}
+            />
+          )}
           <UnsavedDialog
             names={closingTab ? [closingTab.displayName] : null}
             onSave={async () => {
