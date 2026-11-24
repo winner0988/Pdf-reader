@@ -13,6 +13,7 @@ import {
 import { flushSync } from "react-dom";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { PageSize, Rotation, Zoom } from "@/features/shell/model";
 import {
   anchorAt,
@@ -41,7 +42,7 @@ import {
 import { annotationAt } from "@/features/annotations/model";
 import { PageAnnotations } from "@/features/annotations/PageAnnotations";
 import { PageDrawing } from "@/features/annotations/PageDrawing";
-import { pictureRectAt, redactionRectAt, stampRectAt, type Tool } from "@/features/annotations/tools";
+import { linkRectAt, pictureRectAt, redactionRectAt, stampRectAt, type Tool } from "@/features/annotations/tools";
 import type { AnnotationSource } from "@/features/annotations/source";
 import { PageFields } from "@/features/forms/PageFields";
 import type { FormSource } from "@/features/forms/source";
@@ -74,11 +75,13 @@ import type {
   DocumentId,
   Edit,
   HighlightMark,
+  LinkId,
   PageAnnotation,
   PageLink,
   PageText,
   Point,
   RasterRegion,
+  Rect,
   Rotation as ContractRotation,
 } from "@/ipc/generated/contract";
 
@@ -151,6 +154,12 @@ type DocumentViewProps = {
   onEditTextBox?: (page: number, annotation: PageAnnotation) => void;
   /** The text box tool was used on a page: where (page space), to ask what it says. */
   onNewTextBox?: (page: number, at: Point) => void;
+  /** A new link is placed or dragged on a page (Issue #588, B6-03). */
+  onNewLink?: (page: number, rect: Rect) => void;
+  /** Asks to edit the target of an existing link. */
+  onEditLink?: (link: PageLink) => void;
+  /** Asks to delete an existing link. */
+  onDeleteLink?: (link: PageLink) => void;
   /**
    * What the pointer does on the pages (B2-08): draws with the pen, or puts a stamp down. Without
    * it (or without `onAnnotationEdit`) it selects text and chooses annotations.
@@ -250,6 +259,9 @@ export function DocumentView({
   onEditNote,
   onEditTextBox,
   onNewTextBox,
+  onNewLink,
+  onEditLink,
+  onDeleteLink,
   tool,
   onToolDone,
   forms,
@@ -420,7 +432,11 @@ export function DocumentView({
     const at = locate(event.clientX, event.clientY);
     const found = at?.inside ? annotationAt(annotations.loaded(doc, at.page) ?? [], at.point) : null;
     setChosen(at && found ? { page: at.page, id: found.id } : null);
+    if (tool?.kind === "link") {
+      setSelectedLink(null);
+    }
   };
+  const [selectedLink, setSelectedLink] = useState<PageLink | null>(null);
   const selected = hasSelectedText(selection);
   const onSelection = useRef(onSelectionChange);
   useEffect(() => {
@@ -634,8 +650,9 @@ export function DocumentView({
         />,
       );
     }
-    if (links && doc !== undefined) {
-      slots.push(
+    const isLinkTool = tool?.kind === "link";
+    const pageLinksElement =
+      links && doc !== undefined ? (
         <PageLinks
           key={`links-${index}`}
           source={links}
@@ -648,11 +665,18 @@ export function DocumentView({
           delayMs={delay}
           onHover={hoverLink}
           onActivate={activateLink}
-        />,
-      );
+          isLinkToolActive={isLinkTool}
+          selectedLinkId={selectedLink?.id}
+          onSelectLink={setSelectedLink}
+          onEditLink={onEditLink}
+          onDeleteLink={onDeleteLink}
+        />
+      ) : null;
+    if (!isLinkTool && pageLinksElement) {
+      slots.push(pageLinksElement);
     }
     // The last layer, so that it gets the press before links, fields or text do.
-    if (tool && onAnnotationEdit && doc !== undefined) {
+    if (tool && (onAnnotationEdit || onNewLink) && doc !== undefined) {
       slots.push(
         <PageDrawing
           key={`drawing-${index}`}
@@ -664,23 +688,25 @@ export function DocumentView({
           left={left}
           onStroke={(page, points) => {
             if (tool.kind === "pen") {
-              onAnnotationEdit({ kind: "addInk", page, strokes: [points], color: tool.color, width: tool.width });
+              onAnnotationEdit?.({ kind: "addInk", page, strokes: [points], color: tool.color, width: tool.width });
             }
           }}
           onShape={(page, shape, color, width) => {
-            onAnnotationEdit({ kind: "addShape", page, shape, color, width });
+            onAnnotationEdit?.({ kind: "addShape", page, shape, color, width });
           }}
           onRect={(page, rect) => {
             if (tool.kind === "redaction") {
-              onAnnotationEdit({ kind: "addRedaction", page, rect });
+              onAnnotationEdit?.({ kind: "addRedaction", page, rect });
+            } else if (tool.kind === "link") {
+              onNewLink?.(page, rect);
             }
             onToolDone?.();
           }}
           onPlace={(page, at) => {
             if (tool.kind === "stamp") {
-              onAnnotationEdit({ kind: "addStamp", page, rect: stampRectAt(at, pages[page]!), stamp: tool.stamp });
+              onAnnotationEdit?.({ kind: "addStamp", page, rect: stampRectAt(at, pages[page]!), stamp: tool.stamp });
             } else if (tool.kind === "picture") {
-              onAnnotationEdit({
+              onAnnotationEdit?.({
                 kind: "addImageStamp",
                 page,
                 rect: pictureRectAt(at, pages[page]!, tool.picture),
@@ -689,7 +715,9 @@ export function DocumentView({
             } else if (tool.kind === "textBox") {
               onNewTextBox?.(page, at);
             } else if (tool.kind === "redaction") {
-              onAnnotationEdit({ kind: "addRedaction", page, rect: redactionRectAt(at, pages[page]!) });
+              onAnnotationEdit?.({ kind: "addRedaction", page, rect: redactionRectAt(at, pages[page]!) });
+            } else if (tool.kind === "link") {
+              onNewLink?.(page, linkRectAt(at, pages[page]!));
             } else {
               return;
             }
@@ -697,6 +725,9 @@ export function DocumentView({
           }}
         />,
       );
+    }
+    if (isLinkTool && pageLinksElement) {
+      slots.push(pageLinksElement);
     }
   }
 
@@ -1072,6 +1103,11 @@ type PageLinksProps = {
   delayMs: number;
   onHover: (text: string | null) => void;
   onActivate: (link: PageLink) => void;
+  isLinkToolActive?: boolean;
+  selectedLinkId?: LinkId | null;
+  onSelectLink?: (link: PageLink) => void;
+  onEditLink?: (link: PageLink) => void;
+  onDeleteLink?: (link: PageLink) => void;
 };
 
 /**
@@ -1079,7 +1115,23 @@ type PageLinksProps = {
  * it: the page is an image to assistive technology, which would hide them. What a link does
  * when activated is up to the shell; nothing here opens anything.
  */
-function PageLinks({ source, doc, index, page, rotation, box, left, delayMs, onHover, onActivate }: PageLinksProps) {
+function PageLinks({
+  source,
+  doc,
+  index,
+  page,
+  rotation,
+  box,
+  left,
+  delayMs,
+  onHover,
+  onActivate,
+  isLinkToolActive,
+  selectedLinkId,
+  onSelectLink,
+  onEditLink,
+  onDeleteLink,
+}: PageLinksProps) {
   const [loaded, setLoaded] = useState<{ doc: DocumentId; links: PageLink[] } | null>(null);
   const hovered = useRef(false);
 
@@ -1129,19 +1181,57 @@ function PageLinks({ source, doc, index, page, rotation, box, left, delayMs, onH
       {links.map((link) => {
         const area = rectToBox(link.rect, page, rotation, box);
         const text = linkHoverText(link.target);
+        const isSelected =
+          isLinkToolActive &&
+          selectedLinkId?.pageIndex === link.id.pageIndex &&
+          selectedLinkId?.index === link.id.index;
         return (
           <button
             key={link.id.index}
             type="button"
             aria-label={text}
             data-link={link.target.kind}
-            className="pointer-events-auto absolute cursor-pointer rounded-[2px] outline-offset-1 focus-visible:outline-2 focus-visible:outline-primary"
+            data-selected={isSelected ? "" : undefined}
+            className={cn(
+              "pointer-events-auto absolute cursor-pointer rounded-[2px] outline-offset-1 focus-visible:outline-2 focus-visible:outline-primary",
+              isLinkToolActive && "border border-blue-400/80 bg-blue-500/15 hover:bg-blue-500/25",
+              isSelected && "ring-2 ring-blue-600 bg-blue-500/35 border-blue-600",
+            )}
             style={{ left: area.left, top: area.top, width: area.width, height: area.height }}
             onPointerEnter={() => enter(text)}
             onPointerLeave={leave}
-            onFocus={() => enter(text)}
+            onFocus={() => {
+              enter(text);
+              if (isLinkToolActive) onSelectLink?.(link);
+            }}
             onBlur={leave}
-            onClick={() => onActivate(link)}
+            onClick={(e) => {
+              if (isLinkToolActive) {
+                e.stopPropagation();
+                onSelectLink?.(link);
+              } else {
+                onActivate(link);
+              }
+            }}
+            onDoubleClick={(e) => {
+              if (isLinkToolActive) {
+                e.stopPropagation();
+                onEditLink?.(link);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (isLinkToolActive) {
+                if (e.key === "Delete" || e.key === "Backspace") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDeleteLink?.(link);
+                } else if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onEditLink?.(link);
+                }
+              }
+            }}
           />
         );
       })}

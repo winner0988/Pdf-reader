@@ -12,13 +12,13 @@ use crate::types::{
     AnnotationId, AnnotationSummary, AttachmentId, AttachmentSource, BatesMark, BookmarkId,
     CreateKind, CropMargins, DocumentFonts, DocumentId, DocumentPermissions, Edit, ErrorCode,
     FieldId, FindPersonalDataQuery, FontRefusal, FormField, HeaderFooterMarks, HighlightColor,
-    HighlightMark, ImageQuality, InkColor, InkWidth, OutlineResult, PageAnnotation, PageCorner,
-    PageLink, PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark,
-    PageSize, PageText, Password, PdfDate, PersonalDataMatches, Point, RasterRegion, Rect,
-    RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions,
-    SanitizeReport, SearchHit, SecurityReport, Shape, SignatureReport, SourceId, StampImageId,
-    StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle, TextMarkKind, Watermark,
-    WatermarkContent, WatermarkPages, WatermarkPlace,
+    HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, NewLinkTarget, OutlineResult,
+    PageAnnotation, PageCorner, PageLink, PageMarkPages, PageMarkPosition, PageMarks,
+    PageNumberFormat, PageNumberMark, PageSize, PageText, Password, PdfDate, PersonalDataMatches,
+    Point, RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb,
+    Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityReport, Shape, SignatureReport,
+    SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle, TextMarkKind,
+    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 
 /// An attachment of a document as reported by the worker (B3-20, ADR 0025).
@@ -685,6 +685,16 @@ pub enum WorkerEdit {
         from: u32,
         to: u32,
     },
+    /// As [`Edit::AddLink`] (B6-03).
+    AddLink {
+        page: u32,
+        rect: Rect,
+        target: NewLinkTarget,
+    },
+    /// As [`Edit::SetLinkTarget`] (B6-03).
+    SetLinkTarget { link: LinkId, target: NewLinkTarget },
+    /// As [`Edit::DeleteLink`] (B6-03).
+    DeleteLink { link: LinkId },
 }
 
 /// An edit names something its document does not have: a file whose pages it takes (B2-06), the
@@ -935,6 +945,16 @@ impl WorkerEdit {
                     to: *to,
                 }
             }
+            Edit::AddLink { page, rect, target } => WorkerEdit::AddLink {
+                page: *page,
+                rect: *rect,
+                target: target.clone(),
+            },
+            Edit::SetLinkTarget { link, target } => WorkerEdit::SetLinkTarget {
+                link: *link,
+                target: target.clone(),
+            },
+            Edit::DeleteLink { link } => WorkerEdit::DeleteLink { link: *link },
         })
     }
 }
@@ -2439,6 +2459,80 @@ mod tests {
         for (value, target) in json.into_iter().zip(targets()) {
             assert_eq!(serde_json::from_value::<LinkTarget>(value).unwrap(), target);
         }
+    }
+
+    #[test]
+    fn new_link_target_and_edits_cross_the_worker_boundary() {
+        let page_target = NewLinkTarget::Page { page: 3 };
+        let uri_target = NewLinkTarget::Uri {
+            uri: "https://example.com/".to_owned(),
+        };
+
+        // JSON format is tagged for the frontend
+        assert_eq!(
+            serde_json::to_value(&page_target).unwrap(),
+            serde_json::json!({ "kind": "page", "page": 3 })
+        );
+        assert_eq!(
+            serde_json::to_value(&uri_target).unwrap(),
+            serde_json::json!({ "kind": "uri", "uri": "https://example.com/" })
+        );
+        assert_eq!(
+            serde_json::from_str::<NewLinkTarget>(r#"{"kind":"page","page":3}"#).unwrap(),
+            page_target
+        );
+        assert_eq!(
+            serde_json::from_str::<NewLinkTarget>(r#"{"kind":"uri","uri":"https://example.com/"}"#)
+                .unwrap(),
+            uri_target
+        );
+
+        // WorkerEdit round-trips through postcard
+        let edits = [
+            WorkerEdit::AddLink {
+                page: 1,
+                rect: Rect {
+                    x0: 10.0,
+                    y0: 20.0,
+                    x1: 50.0,
+                    y1: 60.0,
+                },
+                target: page_target,
+            },
+            WorkerEdit::SetLinkTarget {
+                link: LinkId {
+                    page_index: 1,
+                    index: 0,
+                },
+                target: uri_target,
+            },
+            WorkerEdit::DeleteLink {
+                link: LinkId {
+                    page_index: 1,
+                    index: 0,
+                },
+            },
+        ];
+
+        for edit in &edits {
+            let bytes = postcard::to_stdvec(edit).unwrap();
+            let recovered: WorkerEdit = postcard::from_bytes(&bytes).unwrap();
+            assert_eq!(&recovered, edit);
+        }
+
+        // Edit::of conversion
+        let app_edit = Edit::AddLink {
+            page: 1,
+            rect: Rect {
+                x0: 10.0,
+                y0: 20.0,
+                x1: 50.0,
+                y1: 60.0,
+            },
+            target: NewLinkTarget::Page { page: 3 },
+        };
+        let worker_edit = WorkerEdit::of(&app_edit, |_| None, |_| None, |_| None).unwrap();
+        assert_eq!(worker_edit, edits[0]);
     }
 
     #[test]

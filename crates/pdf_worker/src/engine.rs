@@ -95,6 +95,7 @@ pub use create::{Created, PdfBuilder};
 pub use identifier::write_identifier;
 pub use ocr::OcrKnown;
 
+pub mod links;
 mod outline;
 mod signatures;
 mod signing;
@@ -650,7 +651,7 @@ impl PdfDocument {
         Ok(links)
     }
 
-    fn link_entry(
+    pub(crate) fn link_entry(
         &self,
         annot: &PdfObject,
         ctm: &Matrix,

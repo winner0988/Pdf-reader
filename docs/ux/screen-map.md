@@ -821,6 +821,32 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | SubmitForm | 表單傳送 | 這個連結會把表單內容送到網路或其他位置，因此不允許開啟。 |
 | ImportData | 匯入外部資料 | 這個連結會從其他檔案讀取資料，因此不允許開啟。 |
 
+### 加入與修改連結（B6-03）
+
+| 鍵 | 文字 |
+|---|---|
+| toolbar.link | 連結 |
+| toolbar.linkOn | 連結工具已開啟：在頁面上拖曳建立連結，或點選連結修改目標，按 Esc 結束。 |
+| links.addLink | 加入連結… |
+| links.editLink | 編輯 |
+| links.deleteLink | 刪除 |
+| links.crossPageNotAllowed | 連結不能跨頁，請在同一頁選取文字 |
+| links.addTitle | 加入連結 |
+| links.editTitle | 編輯連結 |
+| links.targetType | 目標類型 |
+| links.targetPage | 此文件的頁面 |
+| links.targetUri | 外部網址 |
+| links.pageNumber | 頁碼 |
+| links.pageNumberPlaceholder | 1 到 <總頁數> |
+| links.pageNumberError | 頁碼必須介於 1 到 <總頁數> 之間 |
+| links.uriLabel | 網址（http://、https:// 或 mailto:） |
+| links.uriPlaceholder | https://example.com |
+| links.uriError | 請輸入以 http://、https:// 或 mailto: 開頭的有效網址 |
+| links.save | 儲存 |
+| links.add | 加入 |
+| links.delete | 刪除連結 |
+| links.confirmDelete | 確定要刪除這個連結嗎？ |
+
 ### 已封鎖內容
 
 | 鍵 | 文字 |
