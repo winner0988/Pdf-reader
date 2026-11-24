@@ -34,6 +34,8 @@ fn test_corpus_sweep_on_repo_corpus() {
         None,
         None,
         false,
+        None,
+        None,
     )
     .expect("run_sweep on tests/corpus must succeed");
 
@@ -128,6 +130,8 @@ fn each_file_runs_in_a_fresh_worker() {
         Some(2),
         None,
         false,
+        None,
+        None,
     )
     .expect("run_sweep on the two pages must succeed");
 

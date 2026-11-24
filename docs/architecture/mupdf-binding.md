@@ -23,12 +23,13 @@
 
 ### 升級與來源變更規則
 
-凡涉及升級 MuPDF 版本，或變更 `mupdf-sys` 的來源（包括修改 `Cargo.toml` 中 `[patch.crates-io]` 的 `rev`、換 fork 或回到 crates.io）的 PR，必須滿足以下兩項條件方可完成：
+凡涉及升級 MuPDF 版本，或變更 `mupdf-sys` 的來源（包括修改 `Cargo.toml` 中 `[patch.crates-io]` 的 `rev`、換 fork 或回到 crates.io）的 PR，必須滿足以下三項條件方可完成：
 
 1. **更新清單與依據**：照新的原始碼更新 [bundled-libraries.md](../security/bundled-libraries.md#清單查證與更新程序) 的版本、commit、查證依據與查驗日期。
 2. **重做已知問題對照**：對清單列出的每個第三方函式庫重新到 OSV、NVD 與各專案安全公告或版本說明查核已知問題，對照結果照 [SECURITY.md](../../SECURITY.md) 私下交給負責人（不寫進 PR、commit 或 CHANGELOG）。
+3. **比對公開語料掃描差異**：執行公開語料庫完整掃描（`corpus-sweep`），比對與前一版本的每頁文字與渲染雜湊差異；若有預期中的差異（如反鋸齒微調或字型修正），需記錄於 `tests/corpus-sweep/approved-differences.tsv` 並在 PR 說明中列出涵蓋頁數與原因（詳見 [corpus-sweep.md](../security/corpus-sweep.md)）。
 
-兩件事都做完，該 PR 才算完成。
+三件事都做完，該 PR 才算完成。
 
 ### `mupdf-sys` 的來源
 
