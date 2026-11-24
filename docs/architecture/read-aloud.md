@@ -24,7 +24,7 @@
 1. **禁止 SSML**：合成只呼叫 `SpeechSynthesizer::SynthesizeTextToStreamAsync`，絕不呼叫 `SynthesizeSsmlToStreamAsync`（SSML 允許 `<audio src>` 與 `<lexicon uri>` 引用外部資源）。自動化測試 `winrt_speech_treats_ssml_and_sapi_markup_as_plain_text` 驗證 `<speak><audio src="http://example.invalid/a.wav"/></speak>` 與 `<voice required="Name=x"/>` 均被當成純文字朗讀。
 2. **禁止 URI 與檔案路徑**：播放只使用 `MediaSource::CreateFromStream(&stream, &content_type)`，不使用 `CreateFromUri`，也不寫入暫存檔。
 3. **語音 ID 白名單比對**：前端送來的 `voiceId` 只與 `SpeechSynthesizer::AllVoices()` 傳回的清單做精確字串比對，取得對應的 `VoiceInformation` 物件後傳給 `SetVoice`；不把 `voiceId` 當成檔案路徑或登錄機碼使用。
-4. **輸入上限**：`crates/ipc_contract/src/limits.rs` 定義 `MAX_SPEECH_TEXT_BYTES`（512 KiB，涵蓋單頁 `MAX_PAGE_TEXT_CHARS` 100,000 字元上限）、`MIN_SPEECH_RATE`（0.5）與 `MAX_SPEECH_RATE`（6.0）、`MAX_SPEECH_VOICE_ID_BYTES`（512 bytes）。超過即拒絕。
+4. **輸入上限與分段送出**：前端依段落／句子把一頁或選取文字切成每段最多 2,000 UTF-16 編碼單位（不切開代理對），一段唸完再送下一段，降低首次出聲延遲、記憶體佔用與 `stop()` 等待時間；`crates/ipc_contract/src/limits.rs` 定義 `MAX_SPEECH_TEXT_BYTES`（16 KiB，大於單段最壞情況 6,000 UTF-8 bytes 並留餘裕）、`MIN_SPEECH_RATE`（0.5）與 `MAX_SPEECH_RATE`（6.0）、`MAX_SPEECH_VOICE_ID_BYTES`（512 bytes）。超過即拒絕。
 
 ## 4. UTF-16 與 Unicode 字元位置對照（`src/features/readAloud/model.ts`）
 

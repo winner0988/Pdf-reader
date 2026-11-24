@@ -216,7 +216,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 命令 | 做什麼 | 主行程的檢查與上限 | 對話框、寫入、行程 | 測試 |
 |---|---|---|---|---|
 | `get_speech_voices` | 列出 Windows 本機已安裝的離線語音（代號、名稱與語言） | 沒有參數；最多回傳 `MAX_SPEECH_VOICES`（512）個 | 獨立 COM 執行緒呼叫 WinRT `SpeechSynthesizer::AllVoices`（不連網、不寫檔） | `read-aloud.spec.ts`；`speech.rs` |
-| `speak_text` | 以已安裝的離線語音合成純文字並在記憶體播放，詞界與狀態透過 channel 送回 | `SpeakArgs`：純文字不得空白、不含 NUL、≤ `MAX_SPEECH_TEXT_BYTES`（512 KiB）；速度 `0.5`–`6.0`（有限數）；語音 id ≤ 512 bytes 且必須與 `AllVoices` 清單完全一致（不當路徑或登錄機碼用）；錯誤訊息不含文字 | 只呼叫 `SynthesizeTextToStreamAsync`（禁止 SSML）與 `MediaSource::CreateFromStream`（禁止 URI／檔案）；一次只唸一段 | `read-aloud.spec.ts`；`speech.rs`（假引擎與 WinRT 純文字／SSML 測試） |
+| `speak_text` | 以已安裝的離線語音合成純文字並在記憶體播放，詞界與狀態透過 channel 送回 | `SpeakArgs`：純文字不得空白、不含 NUL、≤ `MAX_SPEECH_TEXT_BYTES`（16 KiB，前端依句子／段落分段，每段最多 2,000 UTF-16 單位）；速度 `0.5`–`6.0`（有限數）；語音 id ≤ 512 bytes 且必須與 `AllVoices` 清單完全一致（不當路徑或登錄機碼用）；錯誤訊息不含文字 | 只呼叫 `SynthesizeTextToStreamAsync`（禁止 SSML）與 `MediaSource::CreateFromStream`（禁止 URI／檔案）；一次只唸一段 | `read-aloud.spec.ts`；`speech.rs`（假引擎與 WinRT 純文字／SSML 測試） |
 | `pause_speech` | 暫停目前進行中的朗讀 | 沒有參數 | 獨立 COM 執行緒呼叫 `MediaPlayer::Pause` | `speech.rs` |
 | `resume_speech` | 繼續已暫停的朗讀 | 沒有參數 | 獨立 COM 執行緒呼叫 `MediaPlayer::Play` | `speech.rs` |
 | `stop_speech` | 停止目前進行中的朗讀 | 沒有參數 | 獨立 COM 執行緒停止並釋放 `MediaPlayer`；視窗／app 關閉時亦自動停止 | `read-aloud.spec.ts`；`speech.rs` |

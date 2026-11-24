@@ -296,6 +296,124 @@ describe("ReadAloudBar & useReadAloud", () => {
     expect(speech.speakCalls).toHaveLength(0);
   });
 
+  it("splits a long page into <=2000 UTF-16 chunks, keeps surrogate pairs intact, and aligns second-chunk word highlights", async () => {
+    const user = userEvent.setup();
+    const speech = createFakeSpeech();
+    let latestHighlight: Highlight | null = null;
+
+    // 1,999 ASCII 'a' chars + 1 non-BMP U+20000 (UTF-16 indices 1999..2000, scalar index 1999) + "target"
+    // Without whitespace or sentence punctuation, a naive hard cut at 2000 would split the surrogate pair.
+    const prefix = "a".repeat(1999);
+    const nonBmp = "\u{20000}";
+    const tail = "target";
+    const longLine = `${prefix}${nonBmp}${tail}`;
+    expect(longLine.length).toBe(2007);
+
+    render(
+      <Harness
+        speechApi={speech}
+        pages={[{ lines: [makeLine(longLine, 20)], truncated: false, recognised: false }]}
+        onHighlight={(h) => {
+          latestHighlight = h;
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "open-bar" }));
+    const playBtn = await screen.findByRole("button", { name: strings.readAloud.play });
+    await waitFor(() => expect(playBtn).toBeEnabled());
+    await user.click(playBtn);
+
+    await waitFor(() => expect(speech.speakCalls).toHaveLength(1));
+    const chunk1 = speech.speakCalls[0]!.text;
+    expect(chunk1.length).toBeLessThanOrEqual(2000);
+    expect(chunk1).toBe(prefix);
+    // Chunk 1 must not end with a lone high surrogate (0xD800..0xDBFF).
+    const lastUnit = chunk1.charCodeAt(chunk1.length - 1);
+    expect(lastUnit < 0xd800 || lastUnit > 0xdbff).toBe(true);
+
+    // Finish chunk 1 -> chunk 2 starts automatically with the intact surrogate pair + "target".
+    act(() => {
+      speech.emit({ kind: "finished" });
+    });
+    await waitFor(() => expect(speech.speakCalls).toHaveLength(2));
+    const chunk2 = speech.speakCalls[1]!.text;
+    expect(chunk2.length).toBeLessThanOrEqual(2000);
+    expect(chunk2).toBe(`${nonBmp}${tail}`);
+    // Chunk 2 must not start with a lone low surrogate (0xDC00..0xDFFF).
+    const firstUnit = chunk2.charCodeAt(0);
+    expect(firstUnit < 0xdc00 || firstUnit > 0xdfff).toBe(true);
+
+    // Emit word boundary for "target" in chunk 2: UTF-16 offset 2 (after U+20000), length 6.
+    // Scalar index in line: 1999 ('a's) + 1 (U+20000) = 2000..2006 -> x: 20000..20060.
+    act(() => {
+      speech.emit({ kind: "word", utf16Start: 2, utf16Len: 6 });
+    });
+    expect(latestHighlight).toEqual({
+      pageIndex: 0,
+      quads: [{ ul: { x: 20000, y: 20 }, ur: { x: 20060, y: 20 }, ll: { x: 20000, y: 32 }, lr: { x: 20060, y: 32 } }],
+    });
+
+    // Finish chunk 2 -> playback completes cleanly.
+    act(() => {
+      speech.emit({ kind: "finished" });
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("region", { name: strings.readAloud.label })).toHaveAttribute("data-read-aloud-status", "idle"),
+    );
+  });
+
+  it("splits a multi-sentence long page across sentence boundaries and advances through every chunk", async () => {
+    const user = userEvent.setup();
+    const speech = createFakeSpeech();
+    let latestHighlight: Highlight | null = null;
+
+    // Three sentences totaling > 2,500 UTF-16 units so the page spans multiple sentence-aligned chunks.
+    const sentence1 = `${"甲".repeat(1199)}。`;
+    const sentence2 = `${"乙".repeat(1199)}。`;
+    const sentence3 = "最後一句話。";
+    const page: PageText = {
+      lines: [makeLine(sentence1, 10), makeLine(sentence2, 30), makeLine(sentence3, 50)],
+      truncated: false,
+      recognised: false,
+    };
+
+    render(
+      <Harness
+        speechApi={speech}
+        pages={[page]}
+        onHighlight={(h) => {
+          latestHighlight = h;
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "open-bar" }));
+    const playBtn = await screen.findByRole("button", { name: strings.readAloud.play });
+    await waitFor(() => expect(playBtn).toBeEnabled());
+    await user.click(playBtn);
+
+    await waitFor(() => expect(speech.speakCalls).toHaveLength(1));
+    expect(speech.speakCalls[0]!.text.length).toBeLessThanOrEqual(2000);
+    expect(speech.speakCalls[0]!.text).toBe(sentence1);
+
+    act(() => {
+      speech.emit({ kind: "finished" });
+    });
+    await waitFor(() => expect(speech.speakCalls).toHaveLength(2));
+    expect(speech.speakCalls[1]!.text.length).toBeLessThanOrEqual(2000);
+    expect(speech.speakCalls[1]!.text).toBe(`${sentence2}\n${sentence3}`);
+
+    // Highlight "最後" (UTF-16 1201..1203 in chunk 2: after 1200 chars of sentence2 + "\n") -> line 2 (y=50), chars 0..2 -> x: 0..20.
+    act(() => {
+      speech.emit({ kind: "word", utf16Start: 1201, utf16Len: 2 });
+    });
+    expect(latestHighlight).toEqual({
+      pageIndex: 0,
+      quads: [{ ul: { x: 0, y: 50 }, ur: { x: 20, y: 50 }, ll: { x: 0, y: 62 }, lr: { x: 20, y: 62 } }],
+    });
+  });
+
   it("passes axe-core accessibility checks", async () => {
     const user = userEvent.setup();
     const speech = createFakeSpeech();

@@ -1956,7 +1956,7 @@ export const LIMITS = {
   maxFontResourceDepth: 32,
   maxFontTimeMillis: 2000,
   maxPageParentDepth: 64,
-  maxSpeechTextBytes: 524288,
+  maxSpeechTextBytes: 16384,
   minSpeechRate: 0.5,
   maxSpeechRate: 6,
   maxSpeechVoiceIdBytes: 512,

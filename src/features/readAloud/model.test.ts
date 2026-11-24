@@ -5,6 +5,8 @@ import {
   buildSelectionUtterance,
   clampSpeechRate,
   highlightForUtf16Range,
+  MAX_SPEECH_CHUNK_UTF16,
+  nextSpeechChunk,
   resolveVoiceId,
 } from "@/features/readAloud/model";
 import type { PageText, SpeechVoice, TextLine } from "@/ipc/generated/contract";
@@ -176,5 +178,67 @@ describe("readAloud model", () => {
     expect(clampSpeechRate(0.1)).toBe(0.5);
     expect(clampSpeechRate(10)).toBe(6.0);
     expect(clampSpeechRate(Number.NaN)).toBe(1.0);
+  });
+
+  describe("nextSpeechChunk", () => {
+    it("returns the entire string when within the UTF-16 limit and skips leading whitespace", () => {
+      expect(nextSpeechChunk("  Hello world", 0, 50)).toEqual({ start: 2, end: 13, text: "Hello world" });
+      expect(nextSpeechChunk("   \n\t ", 0, 50)).toBeNull();
+      expect(nextSpeechChunk("Hello", 5, 50)).toBeNull();
+    });
+
+    it("prefers paragraph breaks, then sentence boundaries without splitting decimals", () => {
+      // Paragraph break in the second half of the window.
+      const para = "First paragraph here.\n\nSecond paragraph here.";
+      const p1 = nextSpeechChunk(para, 0, 30);
+      expect(p1).toEqual({ start: 0, end: 21, text: "First paragraph here." });
+      const p2 = nextSpeechChunk(para, p1!.end, 30);
+      expect(p2).toEqual({ start: 23, end: para.length, text: "Second paragraph here." });
+
+      // Decimal number "3.14" must not be treated as a sentence boundary.
+      const decimal = "Value is 3.1415926535 and more words";
+      const d1 = nextSpeechChunk(decimal, 0, 18);
+      expect(d1?.text).toBe("Value is");
+      expect(d1!.text.length).toBeLessThanOrEqual(18);
+
+      // Chinese sentence boundary keeps closing quote together when it fits.
+      const zh = "第一句「引言」。第二句話很長很長";
+      const z1 = nextSpeechChunk(zh, 0, 12);
+      expect(z1).toEqual({ start: 0, end: 8, text: "第一句「引言」。" });
+      const z2 = nextSpeechChunk(zh, z1!.end, 12);
+      expect(z2).toEqual({ start: 8, end: zh.length, text: "第二句話很長很長" });
+    });
+
+    it("hard-cuts at the limit without splitting UTF-16 surrogate pairs (U+20000)", () => {
+      // 'a' (1 unit) + U+20000 (2 units) + 'b' (1 unit): limit=2 must cut after 'a', not mid-pair.
+      const text = "a\u{20000}b";
+      const c1 = nextSpeechChunk(text, 0, 2);
+      expect(c1).toEqual({ start: 0, end: 1, text: "a" });
+      const c2 = nextSpeechChunk(text, c1!.end, 2);
+      expect(c2).toEqual({ start: 1, end: 3, text: "\u{20000}" });
+      const c3 = nextSpeechChunk(text, c2!.end, 2);
+      expect(c3).toEqual({ start: 3, end: 4, text: "b" });
+      expect(nextSpeechChunk(text, c3!.end, 2)).toBeNull();
+
+      // Starting mid-surrogate-pair backs up to the high surrogate.
+      const mid = nextSpeechChunk(text, 2, 10);
+      expect(mid).toEqual({ start: 1, end: 4, text: "\u{20000}b" });
+    });
+
+    it("uses 2,000 UTF-16 code units as the default limit and covers a long page completely", () => {
+      expect(MAX_SPEECH_CHUNK_UTF16).toBe(2000);
+      const text = `${"a".repeat(1999)}\u{20000}${"b".repeat(2500)}`;
+      const chunks: string[] = [];
+      let cursor = 0;
+      for (;;) {
+        const chunk = nextSpeechChunk(text, cursor);
+        if (!chunk) break;
+        expect(chunk.text.length).toBeLessThanOrEqual(MAX_SPEECH_CHUNK_UTF16);
+        chunks.push(chunk.text);
+        cursor = chunk.end;
+      }
+      expect(chunks.length).toBe(3);
+      expect(chunks.join("")).toBe(text);
+    });
   });
 });

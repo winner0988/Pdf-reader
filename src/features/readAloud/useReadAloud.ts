@@ -10,6 +10,7 @@ import {
   buildSelectionUtterance,
   clampSpeechRate,
   highlightForUtf16Range,
+  nextSpeechChunk,
   resolveVoiceId,
   type SpeechUtterance,
 } from "@/features/readAloud/model";
@@ -212,9 +213,8 @@ export function useReadAloud({
         const speechApi = latestRef.current.api;
         if (!speechApi) return;
 
-        const safeOffset = Math.max(0, Math.min(targetFromUtf16, targetUtterance.text.length));
-        const slice = targetUtterance.text.slice(safeOffset);
-        if (slice.trim().length === 0) {
+        const chunk = nextSpeechChunk(targetUtterance.text, targetFromUtf16);
+        if (!chunk) {
           stopInternal(false);
           return;
         }
@@ -222,8 +222,8 @@ export function useReadAloud({
         const myToken = tokenRef.current + 1;
         tokenRef.current = myToken;
         utteranceRef.current = targetUtterance;
-        baseUtf16Ref.current = safeOffset;
-        currentUtf16Ref.current = safeOffset;
+        baseUtf16Ref.current = chunk.start;
+        currentUtf16Ref.current = chunk.start;
         dirtyWhilePausedRef.current = false;
         setNotice(null);
         setStatusBoth("playing");
@@ -231,14 +231,17 @@ export function useReadAloud({
           announce(strings.readAloud.announcedStarted);
         }
 
-        const continueFromPage = async (startPageIndex: number, activeToken: number) => {
+        const continueFromPage = async (
+          startPageIndex: number,
+          activeToken: number,
+          nextVoiceId: string | null,
+          nextRate: number,
+        ) => {
           const {
             doc: currentDoc,
             pageCount: totalPages,
             textSource: source,
             onScrollToPage: scrollTo,
-            effectiveVoiceId: nextVoiceId,
-            savedRate: nextRate,
           } = latestRef.current;
 
           if (currentDoc === undefined || !source) {
@@ -300,6 +303,11 @@ export function useReadAloud({
           }
           if (event.kind === "finished") {
             setSpokenHighlight(null);
+            const nextChunk = nextSpeechChunk(targetUtterance.text, chunk.end);
+            if (nextChunk) {
+              void run(targetUtterance, nextChunk.start, targetVoiceId, targetRate, false);
+              return;
+            }
             if (targetUtterance.mode === "selection") {
               utteranceRef.current = null;
               setStatusBoth("idle");
@@ -307,12 +315,12 @@ export function useReadAloud({
               return;
             }
             // Continue to the next page that has speakable text.
-            void continueFromPage(targetUtterance.pageIndex + 1, myToken);
+            void continueFromPage(targetUtterance.pageIndex + 1, myToken, targetVoiceId, targetRate);
           }
         };
 
         try {
-          await speechApi.speak({ text: slice, voiceId: targetVoiceId, rate: targetRate }, handleEvent);
+          await speechApi.speak({ text: chunk.text, voiceId: targetVoiceId, rate: targetRate }, handleEvent);
         } catch (error: unknown) {
           if (tokenRef.current !== myToken) return;
           const message = ipcErrorMessage(error);

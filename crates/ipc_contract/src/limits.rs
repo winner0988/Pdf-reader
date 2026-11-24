@@ -461,9 +461,10 @@ pub const MAX_FONT_TIME_MILLIS: u64 = 2_000;
 pub const MAX_PAGE_PARENT_DEPTH: usize = 64;
 
 /// Longest text sent in one `speak_text` call (B6-14, #599), in UTF-8 bytes.
-/// Must be at least one page of text (`MAX_PAGE_TEXT_CHARS` = 100,000 Unicode scalars <= 400,000
-/// UTF-8 bytes); 512 KiB comfortably covers any single page while bounding in-memory synthesis.
-pub const MAX_SPEECH_TEXT_BYTES: u32 = 512 * 1024;
+/// The frontend splits each page or selection into chunks of at most 2,000 UTF-16 code units
+/// (<= 6,000 UTF-8 bytes in the worst case); 16 KiB leaves headroom over one chunk while bounding
+/// in-memory audio synthesis size, startup latency, and `stop()` wait time in the main process.
+pub const MAX_SPEECH_TEXT_BYTES: u32 = 16 * 1024;
 
 /// Slowest and fastest speaking rate accepted by Windows `SpeechSynthesizerOptions.SpeakingRate`
 /// (B6-14, #599).

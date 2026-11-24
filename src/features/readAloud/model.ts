@@ -14,6 +14,30 @@ import { LIMITS, type PageText, type Point, type Quad, type SpeechVoice, type Te
 /** Preset speaking rates within Windows' accepted range (0.5–6.0). */
 export const SPEECH_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const;
 
+/**
+ * Maximum UTF-16 code units sent in a single `speak_text` call.
+ * Worst-case UTF-8 size is 6,000 bytes (3 bytes/unit for BMP CJK), staying well within
+ * `LIMITS.maxSpeechTextBytes` (16 KiB) while keeping in-memory synthesis latency and
+ * cancellation latency short.
+ */
+export const MAX_SPEECH_CHUNK_UTF16 = 2_000;
+
+/**
+ * Maximum UTF-8 bytes assembled into one page or selection utterance before chunking.
+ * Covers a full page at `LIMITS.maxPageTextChars` (100,000 scalars <= 400,000 UTF-8 bytes)
+ * while bounding frontend memory for large multi-page selections.
+ */
+export const MAX_UTTERANCE_BYTES = 512 * 1024;
+
+export type SpeechChunk = {
+  /** Inclusive start offset in the utterance text (UTF-16 code units). */
+  start: number;
+  /** Exclusive end offset in the utterance text (UTF-16 code units). */
+  end: number;
+  /** Slice `text.slice(start, end)` sent to `speak_text`. */
+  text: string;
+};
+
 export type Utf16Position = {
   page: number;
   line: number;
@@ -122,7 +146,7 @@ function buildUtteranceFromRuns(
 export function buildPageUtterance(
   pageIndex: number,
   pageText: PageText,
-  maxBytes: number = LIMITS.maxSpeechTextBytes,
+  maxBytes: number = MAX_UTTERANCE_BYTES,
 ): SpeechUtterance | null {
   const runs: LineRun[] = [];
   pageText.lines.forEach((line, lineIndex) => {
@@ -139,7 +163,7 @@ export function buildPageUtterance(
 export function buildSelectionUtterance(
   selection: TextSelection,
   textOf: (page: number) => PageText | undefined,
-  maxBytes: number = LIMITS.maxSpeechTextBytes,
+  maxBytes: number = MAX_UTTERANCE_BYTES,
 ): SpeechUtterance | null {
   const [start, end] = selectionRange(selection);
   const runs: LineRun[] = [];
@@ -221,6 +245,150 @@ export function resolveVoiceId(savedVoiceId: string | null, voices: readonly Spe
     return savedVoiceId;
   }
   return voices.find((v) => v.isDefault)?.id ?? voices[0]!.id;
+}
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
+function isWhitespace(ch: string): boolean {
+  return /\s/.test(ch);
+}
+
+function isClosingPunctCode(code: number): boolean {
+  return (
+    code === 0x0022 || // "
+    code === 0x0027 || // '
+    code === 0x0029 || // )
+    code === 0x005d || // ]
+    code === 0x2019 || // RIGHT SINGLE QUOTATION MARK
+    code === 0x201d || // RIGHT DOUBLE QUOTATION MARK
+    code === 0x300b || // RIGHT DOUBLE ANGLE BRACKET
+    code === 0x300d || // RIGHT CORNER BRACKET
+    code === 0x300f || // RIGHT WHITE CORNER BRACKET
+    code === 0x3011 || // RIGHT BLACK LENTICULAR BRACKET
+    code === 0xff09 // FULLWIDTH RIGHT PARENTHESIS
+  );
+}
+
+function isCjkSentenceEndCode(code: number): boolean {
+  return (
+    code === 0x3002 || // IDEOGRAPHIC FULL STOP
+    code === 0xff01 || // FULLWIDTH EXCLAMATION MARK
+    code === 0xff1f || // FULLWIDTH QUESTION MARK
+    code === 0xff1b // FULLWIDTH SEMICOLON
+  );
+}
+
+function isAsciiSentenceEndCode(code: number): boolean {
+  return code === 0x002e || code === 0x0021 || code === 0x003f || code === 0x003b;
+}
+
+/**
+ * Picks the next speakable chunk starting at or after `fromUtf16`, capped at `maxUtf16`
+ * UTF-16 code units.
+ *
+ * - Never starts or ends inside a UTF-16 surrogate pair.
+ * - Skips leading whitespace so `speak_text` is never given whitespace-only text, while keeping
+ *   `start` aligned with `text` so `baseUtf16 + event.utf16Start` maps back to page coordinates.
+ * - When remaining text exceeds `maxUtf16`, prefers breaking at a paragraph break (`\n\n`), then
+ *   a sentence boundary (CJK full-stop/exclamation/question/semicolon or ASCII `.!?;` followed by
+ *   whitespace/end), then a line break (`\n`), then whitespace, and falls back to a surrogate-safe
+ *   hard cut at `maxUtf16`.
+ */
+export function nextSpeechChunk(
+  text: string,
+  fromUtf16: number,
+  maxUtf16: number = MAX_SPEECH_CHUNK_UTF16,
+): SpeechChunk | null {
+  let start = Math.max(0, Math.min(Math.floor(fromUtf16), text.length));
+  if (
+    start > 0 &&
+    start < text.length &&
+    isLowSurrogate(text.charCodeAt(start)) &&
+    isHighSurrogate(text.charCodeAt(start - 1))
+  ) {
+    start -= 1;
+  }
+
+  while (start < text.length && isWhitespace(text[start]!)) {
+    start += 1;
+  }
+  if (start >= text.length) return null;
+
+  const limit = Math.max(2, Math.floor(maxUtf16));
+  if (text.length - start <= limit) {
+    return { start, end: text.length, text: text.slice(start) };
+  }
+
+  const hardEnd = start + limit;
+  const preferredMin = start + Math.floor(limit / 2);
+
+  // 1. Prefer a paragraph break (`\n\n`) in the second half of the window.
+  for (let i = hardEnd - 2; i >= preferredMin; i--) {
+    if (text[i] === "\n" && text[i + 1] === "\n") {
+      let end = i;
+      while (end > start && isWhitespace(text[end - 1]!)) end -= 1;
+      if (end > start) {
+        return { start, end, text: text.slice(start, end) };
+      }
+    }
+  }
+
+  // 2. Sentence boundary anywhere in `(start, hardEnd]`.
+  for (let i = hardEnd - 1; i >= start; i--) {
+    const code = text.charCodeAt(i);
+    if (isCjkSentenceEndCode(code)) {
+      let cut = i + 1;
+      while (cut < hardEnd && isClosingPunctCode(text.charCodeAt(cut))) cut += 1;
+      if (cut > start) {
+        return { start, end: cut, text: text.slice(start, cut) };
+      }
+    } else if (isAsciiSentenceEndCode(code)) {
+      let cut = i + 1;
+      while (cut < hardEnd && isClosingPunctCode(text.charCodeAt(cut))) cut += 1;
+      if (cut > start && (cut === text.length || isWhitespace(text[cut]!))) {
+        return { start, end: cut, text: text.slice(start, cut) };
+      }
+    }
+  }
+
+  // 3. Line break (`\n`) anywhere in `(start, hardEnd)`.
+  for (let i = hardEnd - 1; i > start; i--) {
+    if (text[i] === "\n") {
+      let end = i;
+      while (end > start && isWhitespace(text[end - 1]!)) end -= 1;
+      if (end > start) {
+        return { start, end, text: text.slice(start, end) };
+      }
+    }
+  }
+
+  // 4. Word/whitespace boundary anywhere in `(start, hardEnd)`.
+  for (let i = hardEnd - 1; i > start; i--) {
+    if (isWhitespace(text[i]!)) {
+      let end = i;
+      while (end > start && isWhitespace(text[end - 1]!)) end -= 1;
+      if (end > start) {
+        return { start, end, text: text.slice(start, end) };
+      }
+    }
+  }
+
+  // 5. Hard cut at `hardEnd`, backing up 1 unit if it would split a UTF-16 surrogate pair.
+  let end = hardEnd;
+  if (
+    end < text.length &&
+    isHighSurrogate(text.charCodeAt(end - 1)) &&
+    isLowSurrogate(text.charCodeAt(end))
+  ) {
+    end -= 1;
+  }
+  return { start, end, text: text.slice(start, end) };
 }
 
 /** Clamps a speaking rate into the supported range. */
