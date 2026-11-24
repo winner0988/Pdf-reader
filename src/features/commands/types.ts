@@ -40,13 +40,14 @@ export type CommandId =
   | "settings"
   | "about"
   | "setDefault"
-  // Shortcut-only items (25):
+  // Shortcut-only items (26):
   | "open"
   | "close"
   | "nextTab"
   | "previousTab"
   | "copy"
   | "search"
+  | "readAloud"
   | "findNext"
   | "findPrevious"
   | "zoomIn"

@@ -361,7 +361,10 @@ pub fn bindings() -> String {
         ("maxSpeechTextBytes", MAX_SPEECH_TEXT_BYTES.to_string()),
         ("minSpeechRate", MIN_SPEECH_RATE.to_string()),
         ("maxSpeechRate", MAX_SPEECH_RATE.to_string()),
-        ("maxSpeechVoiceIdBytes", MAX_SPEECH_VOICE_ID_BYTES.to_string()),
+        (
+            "maxSpeechVoiceIdBytes",
+            MAX_SPEECH_VOICE_ID_BYTES.to_string(),
+        ),
         ("maxSpeechVoices", MAX_SPEECH_VOICES.to_string()),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];

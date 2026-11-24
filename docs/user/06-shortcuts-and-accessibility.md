@@ -16,6 +16,7 @@ app 裡按 `Ctrl+/`，或「⋯」→「快捷鍵」，可以看到這張表。
 | 列印 | `Ctrl+P` |
 | 下一個／上一個分頁 | `Ctrl+Tab`（或 `Ctrl+PageDown`）／`Ctrl+Shift+Tab`（或 `Ctrl+PageUp`） |
 | 搜尋 | `Ctrl+F` |
+| 朗讀（開關控制列） | `Ctrl+Shift+U` |
 | 在所有文件中搜尋 | `Ctrl+Shift+F` |
 | 下一筆／上一筆結果 | 搜尋列中 `Enter`／`Shift+Enter`；任何時候 `F3`／`Shift+F3` |
 | 放大／縮小 | `Ctrl+=`（或 `Ctrl++`）／`Ctrl+-`；`Ctrl+滾輪` |

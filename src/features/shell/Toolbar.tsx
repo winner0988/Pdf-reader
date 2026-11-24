@@ -21,6 +21,7 @@ import {
   Strikethrough,
   Type,
   Underline,
+  Volume2,
 } from "lucide-react";
 import { useId, useState, type Ref } from "react";
 
@@ -54,6 +55,7 @@ export type ToolbarProps = {
   document: { pageCount: number; currentPage: number; zoom: Zoom; pageLabels?: string[] } | null;
   sidebarOpen: boolean;
   searchOpen: boolean;
+  readAloudOpen?: boolean;
   theme: ThemePreference;
   layoutMode?: PageLayoutMode;
   onLayoutModeChange?: (mode: PageLayoutMode) => void;
@@ -71,6 +73,8 @@ export type ToolbarProps = {
   onZoomChange: (zoom: Zoom) => void;
   onRotate: (direction: 1 | -1) => void;
   onSearch: () => void;
+  /** Opens or closes the Read Aloud control bar (B6-14, #599). */
+  onReadAloud?: () => void;
   onThemeChange: (theme: ThemePreference) => void;
   onShowShortcuts: () => void;
   onShowAbout: () => void;
@@ -410,6 +414,16 @@ export function Toolbar(props: ToolbarProps) {
             data-redact-button=""
           >
             <Eraser />
+          </IconButton>
+        )}
+        {document && props.onReadAloud && (
+          <IconButton
+            label={t.readAloud}
+            shortcut="Ctrl+Shift+U"
+            pressed={props.readAloudOpen}
+            onClick={props.onReadAloud}
+          >
+            <Volume2 />
           </IconButton>
         )}
         {document && (

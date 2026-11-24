@@ -27,9 +27,8 @@ use ipc_contract::types::{
     SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs, SignCheck,
     SignResult, SignatureImage, SignatureImageArgs, SignatureReport, SigningFile, SigningFileKey,
     SigningKey, SigningStoreKey, SpeakArgs, SpeechEvent, SpeechVoice, StampImageInfo,
-    StoreCertificate, TabId, TextBoxInfo,
-    TextIndexStatus, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
-    WatermarkContent, XfdfOutcome,
+    StoreCertificate, TabId, TextBoxInfo, TextIndexStatus, UndoArgs, UnlockArgs, UnlockOutcome,
+    UnlockSourceArgs, UpdateCheck, WatermarkContent, XfdfOutcome,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use ipc_contract::worker::{NewSignature, VisibleSignature};

@@ -117,12 +117,12 @@ describe("CommandPalette", () => {
       expect(names).toContain(strings.menu.decryptCopy);
     });
 
-    it("contains all 25 shortcut/viewer commands and 2 palette-only commands", () => {
+    it("contains all 26 shortcut/viewer commands and 2 palette-only commands", () => {
       const { commands } = setup();
       const shortcutCommands = commands.filter(
         (c) => !c.fromMenu && c.id !== "insertFileAfterCurrent" && c.id !== "replaceCurrentPage",
       );
-      expect(shortcutCommands).toHaveLength(25);
+      expect(shortcutCommands).toHaveLength(26);
 
       const paletteCommands = commands.filter((c) => c.id === "insertFileAfterCurrent" || c.id === "replaceCurrentPage");
       expect(paletteCommands).toHaveLength(2);

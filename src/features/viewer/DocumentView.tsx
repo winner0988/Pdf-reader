@@ -91,6 +91,8 @@ export type DocumentViewHandle = {
   revealHit(hit: Highlight): void;
   /** Whether any text is selected (MVP-15). */
   hasSelection(): boolean;
+  /** Current text selection range (for Read Aloud, B6-14), or null when nothing is selected. */
+  selection(): TextSelection | null;
   /** The selected text, or null when nothing is selected. */
   selectedText(): Promise<string | null>;
   /** Where the selected text is on each page, for the highlighter (B2-07); none when nothing is selected. */
@@ -117,6 +119,8 @@ type DocumentViewProps = {
   onZoomStep?: (direction: 1 | -1) => void;
   /** Search hits drawn over the pages. */
   highlights?: Highlights;
+  /** Spoken word highlight for Read Aloud (B6-14, #599), drawn without stealing focus. */
+  spokenHighlight?: Highlight | null;
   /** Where the pages' links come from; without it (demo data) pages have no links. */
   links?: LinkSource;
   /** The pointer or focus is on a link (its description), or left it (null). */
@@ -237,6 +241,7 @@ export function DocumentView({
   onEffectiveZoomChange,
   onZoomStep,
   highlights,
+  spokenHighlight,
   links,
   onLinkHover,
   onLinkActivate,
@@ -405,6 +410,10 @@ export function DocumentView({
   };
   const textSelection = useTextSelection({ doc, source: text, locate, scrollContainer, onNoText });
   const { selection } = textSelection;
+  const selectionRef = useRef(selection);
+  useEffect(() => {
+    selectionRef.current = selection;
+  });
 
   // The chosen annotation (B2-07). A click (a press that did not move, so not selecting text) on
   // an annotation chooses it, anywhere else lets it go.
@@ -514,6 +523,7 @@ export function DocumentView({
         }
       },
       hasSelection: textSelection.hasSelection,
+      selection: () => selectionRef.current,
       selectedText: textSelection.selectedText,
       highlightMarks: textSelection.selectedQuads,
       pageAt(clientX, clientY) {
@@ -564,6 +574,11 @@ export function DocumentView({
         view={visiblePart(box, left, shown)}
         baseScale={detailBaseScale(pages[index]!, contractRotation, renderFactor, ratio, screenPixels)}
         overlay={highlights ? pageOverlay(highlights, index, pages[index]!, rotation, box) : null}
+        spokenPolygons={
+          spokenHighlight && spokenHighlight.pageIndex === index
+            ? spokenHighlight.quads.map((quad) => quadPoints(quad, pages[index]!, rotation, box))
+            : null
+        }
         doc={doc}
         renderer={renderer}
         scale={renderAt}
@@ -755,6 +770,7 @@ type PageSlotProps = {
   /** Wait before a page already drawn is drawn again at a new scale or rotation. */
   redrawDelayMs: number;
   overlay: PageOverlay | null;
+  spokenPolygons: string[] | null;
 };
 
 function PageSlot({
@@ -772,6 +788,7 @@ function PageSlot({
   requestDelayMs,
   redrawDelayMs,
   overlay,
+  spokenPolygons,
 }: PageSlotProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // What the canvas has in it, which is stretched until the next one comes; null after a failure.
@@ -954,6 +971,25 @@ function PageSlot({
               points={points}
               className="fill-none stroke-orange-500"
               strokeWidth={2}
+              strokeLinejoin="round"
+            />
+          ))}
+        </svg>
+      )}
+      {spokenPolygons && spokenPolygons.length > 0 && (
+        <svg
+          aria-hidden
+          data-read-aloud-highlight
+          className="pointer-events-none absolute inset-0 size-full mix-blend-multiply"
+          viewBox={`0 0 ${box.width} ${box.height}`}
+          preserveAspectRatio="none"
+        >
+          {spokenPolygons.map((points, i) => (
+            <polygon
+              key={i}
+              points={points}
+              className="fill-primary/25 stroke-primary"
+              strokeWidth={1.5}
               strokeLinejoin="round"
             />
           ))}

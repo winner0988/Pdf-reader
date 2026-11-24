@@ -52,7 +52,10 @@ pub enum SpeechError {
 impl SpeechError {
     pub fn into_ipc_error(self) -> IpcError {
         let (code, message) = match self {
-            Self::NoVoices => (ErrorCode::SpeechNoVoices, "no offline speech voices installed"),
+            Self::NoVoices => (
+                ErrorCode::SpeechNoVoices,
+                "no offline speech voices installed",
+            ),
             Self::NoAudioDevice => (
                 ErrorCode::SpeechNoAudioDevice,
                 "no audio playback device available",
@@ -132,7 +135,10 @@ impl SpeechService {
         Self::start(false, move || Box::new(backend))
     }
 
-    fn start(init_com: bool, factory: impl FnOnce() -> Box<dyn SpeechBackend> + Send + 'static) -> Self {
+    fn start(
+        init_com: bool,
+        factory: impl FnOnce() -> Box<dyn SpeechBackend> + Send + 'static,
+    ) -> Self {
         let (tx, rx) = mpsc::channel();
         let handle = thread::Builder::new()
             .name("pdf-reader-speech".to_owned())
@@ -415,29 +421,32 @@ fn attach_word_boundary_tracks(
             continue;
         }
         let word_sink = Arc::clone(sink);
-        let _ = track.CueEntered(&TypedEventHandler::<TimedMetadataTrack, MediaCueEventArgs>::new(
-            move |_track, args| {
-                if let Some(args) = args.as_ref()
-                    && let Ok(cue) = args.Cue()
-                    && let Ok(speech_cue) = cue.cast::<SpeechCue>()
-                    && let Ok(start_ref) = speech_cue.StartPositionInInput()
-                    && let Ok(end_ref) = speech_cue.EndPositionInInput()
-                    && let Ok(start) = start_ref.Value()
-                    && let Ok(end) = end_ref.Value()
-                    && start >= 0
-                    && end >= start
-                {
-                    let utf16_start = start as u32;
-                    let utf16_len = (end - start + 1) as u32;
-                    word_sink(SpeechEvent::Word {
-                        utf16_start,
-                        utf16_len,
-                    });
-                }
-                Ok(())
-            },
-        ));
-        let _ = tracks.SetPresentationMode(i, TimedMetadataTrackPresentationMode::ApplicationPresented);
+        let _ = track.CueEntered(
+            &TypedEventHandler::<TimedMetadataTrack, MediaCueEventArgs>::new(
+                move |_track, args| {
+                    if let Some(args) = args.as_ref()
+                        && let Ok(cue) = args.Cue()
+                        && let Ok(speech_cue) = cue.cast::<SpeechCue>()
+                        && let Ok(start_ref) = speech_cue.StartPositionInInput()
+                        && let Ok(end_ref) = speech_cue.EndPositionInInput()
+                        && let Ok(start) = start_ref.Value()
+                        && let Ok(end) = end_ref.Value()
+                        && start >= 0
+                        && end >= start
+                    {
+                        let utf16_start = start as u32;
+                        let utf16_len = (end - start + 1) as u32;
+                        word_sink(SpeechEvent::Word {
+                            utf16_start,
+                            utf16_len,
+                        });
+                    }
+                    Ok(())
+                },
+            ),
+        );
+        let _ =
+            tracks.SetPresentationMode(i, TimedMetadataTrackPresentationMode::ApplicationPresented);
     }
 }
 
@@ -512,7 +521,8 @@ impl SpeechBackend for WinRtSpeechBackend {
         let opts = synth.Options().map_err(|_| SpeechError::Failed)?;
         opts.SetIncludeWordBoundaryMetadata(true)
             .map_err(|_| SpeechError::Failed)?;
-        opts.SetSpeakingRate(rate).map_err(|_| SpeechError::Failed)?;
+        opts.SetSpeakingRate(rate)
+            .map_err(|_| SpeechError::Failed)?;
 
         // Security rule: synthesize plain text ONLY (never `SynthesizeSsmlToStreamAsync`).
         let stream = synth
@@ -523,8 +533,8 @@ impl SpeechBackend for WinRtSpeechBackend {
 
         // Security rule: playback comes ONLY from the in-memory stream (never `CreateFromUri`).
         let content_type = stream.ContentType().map_err(|_| SpeechError::Failed)?;
-        let source =
-            MediaSource::CreateFromStream(&stream, &content_type).map_err(|_| SpeechError::Failed)?;
+        let source = MediaSource::CreateFromStream(&stream, &content_type)
+            .map_err(|_| SpeechError::Failed)?;
         let item = MediaPlaybackItem::Create(&source).map_err(|_| SpeechError::Failed)?;
 
         let registered = Arc::new(Mutex::new(HashSet::new()));
@@ -547,25 +557,28 @@ impl SpeechBackend for WinRtSpeechBackend {
 
         let player = MediaPlayer::new().map_err(|_| SpeechError::Failed)?;
         let ended_sink = Arc::clone(&sink);
-        let _ = player.MediaEnded(&TypedEventHandler::<MediaPlayer, windows::core::IInspectable>::new(
-            move |_player, _args| {
-                ended_sink(SpeechEvent::Finished);
-                Ok(())
-            },
-        ));
+        let _ = player.MediaEnded(
+            &TypedEventHandler::<MediaPlayer, windows::core::IInspectable>::new(
+                move |_player, _args| {
+                    ended_sink(SpeechEvent::Finished);
+                    Ok(())
+                },
+            ),
+        );
         let failed_sink = Arc::clone(&sink);
-        let _ = player.MediaFailed(&TypedEventHandler::<
-            MediaPlayer,
-            MediaPlayerFailedEventArgs,
-        >::new(move |_player, args| {
-            let hr = args
-                .as_ref()
-                .and_then(|a| a.ExtendedErrorCode().ok())
-                .map_or(0, |h| h.0);
-            let code = classify_playback_error(hr);
-            failed_sink(SpeechEvent::Error { code });
-            Ok(())
-        }));
+        let _ = player.MediaFailed(
+            &TypedEventHandler::<MediaPlayer, MediaPlayerFailedEventArgs>::new(
+                move |_player, args| {
+                    let hr = args
+                        .as_ref()
+                        .and_then(|a| a.ExtendedErrorCode().ok())
+                        .map_or(0, |h| h.0);
+                    let code = classify_playback_error(hr);
+                    failed_sink(SpeechEvent::Error { code });
+                    Ok(())
+                },
+            ),
+        );
 
         player.SetSource(&item).map_err(|e| {
             if classify_playback_error(e.code().0) == ErrorCode::SpeechNoAudioDevice {
@@ -980,16 +993,8 @@ mod winrt_tests {
                 let cues = track.Cues().unwrap();
                 for c_idx in 0..cues.Size().unwrap() {
                     let speech_cue: SpeechCue = cues.GetAt(c_idx).unwrap().cast().unwrap();
-                    let start = speech_cue
-                        .StartPositionInInput()
-                        .unwrap()
-                        .Value()
-                        .unwrap();
-                    let end = speech_cue
-                        .EndPositionInInput()
-                        .unwrap()
-                        .Value()
-                        .unwrap();
+                    let start = speech_cue.StartPositionInInput().unwrap().Value().unwrap();
+                    let end = speech_cue.EndPositionInInput().unwrap().Value().unwrap();
                     let text = speech_cue.Text().unwrap().to_string();
                     assert!(start >= 0 && end >= start);
                     let slice = String::from_utf16(&utf16[(start as usize)..=(end as usize)])
@@ -1011,7 +1016,10 @@ mod winrt_tests {
             .iter()
             .find(|(_, _, text)| text == "test")
             .expect("expected cue for 'test'");
-        assert_eq!(test_cue.0, 12, "word after non-BMP char must use UTF-16 index");
+        assert_eq!(
+            test_cue.0, 12,
+            "word after non-BMP char must use UTF-16 index"
+        );
         assert_eq!(test_cue.1, 4);
     }
 

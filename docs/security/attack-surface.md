@@ -24,7 +24,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 邊界 | 不可信的一方 | 通道 | 主要的防線 |
 |---|---|---|---|
-| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 101 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
+| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 106 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
 | worker → 主行程 | `pdf_worker`（假設已被惡意檔案控制） | worker 標準輸入、輸出上的 postcard frame，每個 ≤ `MAX_FRAME_BYTES`（80 MiB） | 沙盒（§2.1）；每個回應都先驗證（§2.2）；逾時 |
 | 檔案 → worker | PDF 與其他要讀的檔案 | 主行程開好的唯讀檔案代號，或主行程讀好的位元組 | 沙盒；程式庫見 §2.3 |
 | 檔案 → 主行程 | app 資料夾的檔案；使用者匯入的語言資料、字型、`.pfx` | 主行程自己讀 | 大小上限與格式檢查（§3） |
@@ -38,10 +38,10 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 3. 寫到使用者的檔案時，先寫同一個資料夾裡新建的暫存檔，寫完（存檔還要再檢查）才改名取代。批次只寫新的檔名，不取代任何檔案（§6）。
 4. 只有 `src-tauri/src/update_check.rs` 會連網，而且只在使用者按「檢查更新」時（ADR 0009，§5）。
 
-## 1. 前端能呼叫的命令（101 個）
+## 1. 前端能呼叫的命令（106 個）
 
-- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 101 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
-- **自由文字**：沒有命令接受路徑或 URI。會帶自由文字的只有這些參數：密碼、剪貼簿的文字、搜尋字串、個資的關鍵字、註解與文字方塊的文字、表單欄位的值、書籤標題、浮水印與頁面標記的文字、簽章的理由、設定、OCR 語言代碼。
+- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 106 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
+- **自由文字**：沒有命令接受路徑或 URI。會帶自由文字的只有這些參數：密碼、剪貼簿的文字、搜尋字串、個資的關鍵字、註解與文字方塊的文字、表單欄位的值、書籤標題、浮水印與頁面標記的文字、簽章的理由、朗讀的純文字與語音代號、設定、OCR 語言代碼。
 - **參數檢查**：參數先由 serde 解碼成固定的型別，型別不對就拒絕；再由 `crates/ipc_contract/src/validate.rs` 檢查（表中寫成 `XxxArgs`）。上限都在 `crates/ipc_contract/src/limits.rs`。主行程沒有另外限制一個 IPC 訊息的大小，參數整個解碼後才檢查（§9）。
 - **對話框**：都是 Windows 的 `IFileDialog`（`src-tauri/src/file_dialog.rs`），一律加 `FOS_FORCEFILESYSTEM | FOS_DONTADDTORECENT`，只能選真的檔案，也不記入 Windows 的最近使用。另存的對話框再加 `FOS_OVERWRITEPROMPT`。
 - **選到文件自己的檔案時**：寫出副本、匯出的命令都會說明不能取代，再問一次（`is_document_file`、`tell_same_file`）。例外是匯出純文字（#423）。
@@ -210,6 +210,16 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `remove_signature_image` | 刪除一個已存的簽名 | `SignatureImageArgs` | 刪除 `signatures\<id>.sig` | `signatures.spec.ts`；`signature_images.rs` |
 | `remove_all_signature_images` | 刪除全部已存的簽名 | 沒有參數 | 刪除整個 `signatures\` 資料夾與暫存檔 | `signatures.spec.ts`；`signature_images.rs` |
 | `prepare_signature_stamp` | 將已存的簽名放入文件的暫存圖片 | `PrepareSignatureStampArgs`；文件需有 `annotate` 權限；圖片數量上限 | DPAPI 解密放入文件的圖片清單，回傳印章圖片代號與大小 | `signatures.spec.ts`；`documents.rs` |
+
+### 1.14 朗讀（5 個）
+
+| 命令 | 做什麼 | 主行程的檢查與上限 | 對話框、寫入、行程 | 測試 |
+|---|---|---|---|---|
+| `get_speech_voices` | 列出 Windows 本機已安裝的離線語音（代號、名稱與語言） | 沒有參數；最多回傳 `MAX_SPEECH_VOICES`（512）個 | 獨立 COM 執行緒呼叫 WinRT `SpeechSynthesizer::AllVoices`（不連網、不寫檔） | `read-aloud.spec.ts`；`speech.rs` |
+| `speak_text` | 以已安裝的離線語音合成純文字並在記憶體播放，詞界與狀態透過 channel 送回 | `SpeakArgs`：純文字不得空白、不含 NUL、≤ `MAX_SPEECH_TEXT_BYTES`（512 KiB）；速度 `0.5`–`6.0`（有限數）；語音 id ≤ 512 bytes 且必須與 `AllVoices` 清單完全一致（不當路徑或登錄機碼用）；錯誤訊息不含文字 | 只呼叫 `SynthesizeTextToStreamAsync`（禁止 SSML）與 `MediaSource::CreateFromStream`（禁止 URI／檔案）；一次只唸一段 | `read-aloud.spec.ts`；`speech.rs`（假引擎與 WinRT 純文字／SSML 測試） |
+| `pause_speech` | 暫停目前進行中的朗讀 | 沒有參數 | 獨立 COM 執行緒呼叫 `MediaPlayer::Pause` | `speech.rs` |
+| `resume_speech` | 繼續已暫停的朗讀 | 沒有參數 | 獨立 COM 執行緒呼叫 `MediaPlayer::Play` | `speech.rs` |
+| `stop_speech` | 停止目前進行中的朗讀 | 沒有參數 | 獨立 COM 執行緒停止並釋放 `MediaPlayer`；視窗／app 關閉時亦自動停止 | `read-aloud.spec.ts`；`speech.rs` |
 
 ## 2. worker
 
