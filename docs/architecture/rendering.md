@@ -38,6 +38,8 @@ worker 畫的是頁面看起來的樣子：頁面內容，加上它的**註解�
 
 這個選擇曾經是關的（`show_extras = false`）：B2-07 的註解、B2-09 的表單欄位在 worker 的測試與存檔後的檔案中都對，但 app 自己的畫面上看不到，直到 `a_page_is_drawn_with_its_annotations_and_form_fields` 這個測試把它固定下來。表單欄位的輸入元件蓋在畫好的欄位上（見 [forms.md](forms.md)），所以輸入元件的背景是不透明的。
 
+編輯既有文字方塊時（#719），透明的 `<textarea>` 需要遮住底下舊的 FreeText 字形而不遮蔽頁面內容（底圖、表格線等）：前端以 `render_page` 帶 `region` 與 `withoutAnnotations: true` 請求該方塊範圍的不含註解區塊（worker 改呼 `run_contents` 與 `run_widgets`，略過註解），貼在輸入框正下方。`withoutAnnotations` 只允許與 `region` 併用，單獨用於整頁渲染會被拒絕（`invalidArgument`）。
+
 ## 前端：虛擬滾動
 
 程式碼在 `src/features/viewer/`：`layout.ts`（純函式）、`detail.ts`（放得很大時畫哪一塊，純函式）、`renderer.ts`（呼叫 `render_page`／`cancel`）、`DocumentView.tsx`（元件）。

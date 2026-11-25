@@ -384,16 +384,20 @@ impl PdfDocument {
     }
 
     /// Gives text box `id` of page `index` another `style`, and other words if `model` is given
-    /// (otherwise those it has): it is set again in the rectangle it has.
+    /// (otherwise those it has), in `rect` if given (otherwise the rectangle it has).
     pub fn set_text_box(
         &mut self,
         index: u32,
         id: AnnotationId,
         model: Option<&TextBoxModel>,
         style: &TextBoxStyle,
+        rect: Option<Rect>,
     ) -> Result<TextBoxMade, EngineError> {
         let (own, _, _) = self.text_box(index, id)?;
-        let rect = self.text_box_rect(index, id)?;
+        let rect = match rect {
+            Some(rect) => rect,
+            None => self.text_box_rect(index, id)?,
+        };
         self.replace_text_box(index, id, rect, model.unwrap_or(&own), style)
     }
 

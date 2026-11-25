@@ -683,12 +683,16 @@ pub enum Edit {
     },
     /// Gives the text box `annotation` of page `page` another `style`, and other words if `model`
     /// is given (what `prepare_text_box` made of them and their font); without it, the words and
-    /// the font it has stay, and the font is not needed (B2-29). The box stays where it is.
+    /// the font it has stay, and the font is not needed (B2-29). When `rect` is given (B7-08), the
+    /// box is also moved/resized to `rect` in the same edit; without it, the box stays where it is.
     SetTextBox {
         page: u32,
         annotation: AnnotationId,
         model: Option<TextBoxModelId>,
         style: TextBoxStyle,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        rect: Option<Rect>,
     },
     /// Moves and resizes the drawing or stamp `annotation` of page `page` to `rect`, which is a
     /// rectangle as `PageAnnotation::rect` lists it (B2-08). A drawing keeps the thickness of
@@ -1161,6 +1165,8 @@ pub struct TextBoxInfo {
     pub view_only: bool,
     /// The words do not fit the box: what is below is cut off.
     pub overflow: bool,
+    /// The distance between two lines, in thousandths of the font size (matches `TextBoxModel::step`).
+    pub line_step: i32,
 }
 
 /// Arguments of `apply_edit` (B2-02). Any other field is rejected.
@@ -1866,6 +1872,8 @@ pub struct PreparedTextBox {
     pub model: TextBoxModelId,
     /// The font's licence lets a document with it be viewed and printed only: the page says so.
     pub view_only: bool,
+    /// The distance between two lines, in thousandths of the font size (matches `TextBoxModel::step`).
+    pub line_step: i32,
 }
 
 /// Kinds of active content or remote references found in a document (MVP-11).
@@ -2235,6 +2243,11 @@ pub struct RenderPageArgs {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub region: Option<RasterRegion>,
+    /// Draws only page contents and form widgets, leaving out annotations (B7-08).
+    /// Only allowed together with `region`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub without_annotations: bool,
 }
 
 /// A rectangle of a page's raster, in pixels from its top left corner (B3-09): the page at a

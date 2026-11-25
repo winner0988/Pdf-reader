@@ -29,6 +29,8 @@ type MoveResizeProps = {
   area: Box;
   /** The annotation is to be at `rect` (page space). */
   onPlace: (rect: Rect) => void;
+  /** Double-click on the annotation body (used by text boxes to start inline editing, #719). */
+  onDoubleClick?: (client: { x: number; y: number }) => void;
 };
 
 type Drag = { handle: Handle | "move"; pointer: number; x: number; y: number };
@@ -59,7 +61,7 @@ const CURSOR: Record<Handle, string> = {
 /** The size of a handle, in CSS pixels. */
 const HANDLE_PX = 10;
 
-export function MoveResize({ annotation, page, rotation, box, area, onPlace }: MoveResizeProps) {
+export function MoveResize({ annotation, page, rotation, box, area, onPlace, onDoubleClick }: MoveResizeProps) {
   const [drag, setDrag] = useState<Drag | null>(null);
   const [preview, setPreview] = useState<Box | null>(null);
   const keepShape = annotation.kind === "stamp";
@@ -115,6 +117,15 @@ export function MoveResize({ annotation, page, rotation, box, area, onPlace }: M
         onPointerMove={move}
         onPointerUp={end}
         onPointerCancel={cancel}
+        onDoubleClick={
+          onDoubleClick
+            ? (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onDoubleClick({ x: event.clientX, y: event.clientY });
+              }
+            : undefined
+        }
       >
         {HANDLES.filter((handle) => !keepShape || isCorner(handle)).map((handle) => (
           <div

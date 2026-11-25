@@ -17,7 +17,8 @@ import { HIGHLIGHT_COLORS, SWATCH } from "@/features/annotations/model";
 import type { SignaturesApi } from "@/features/annotations/signaturesApi";
 import { SignaturesDialog } from "@/features/annotations/SignaturesDialog";
 import { NoteDialog } from "@/features/annotations/NoteDialog";
-import { TextBoxDialog } from "@/features/annotations/TextBoxDialog";
+import type { InlineTextEditorHandle } from "@/features/annotations/InlineTextEditor";
+import type { InlineTextBoxSession } from "@/features/annotations/PageAnnotations";
 import { createAnnotationSource, type AnnotationsApi } from "@/features/annotations/source";
 import { pictureRectAt, redactionRectAt, stampRectAt, linkRectAt, type ShapeToolKind, type Tool } from "@/features/annotations/tools";
 import { useAnnotations } from "@/features/annotations/useAnnotations";
@@ -984,20 +985,54 @@ export function ReaderShell({
       () => showHint(strings.forms.flattenFailed),
     );
   };
-  // Highlighter marks and notes (B2-07); the author's permission to annotate covers them (MVP-19).
+  // Highlighter marks, notes and inline text boxes (B2-07, B2-30, #719).
   const annotations = useAnnotations({
     doc,
     api: annotationsApi,
     pageSizeOf: (index) => document_?.pages[index],
     editing: editingApi,
+    edits,
+    latest,
     allowed: permissions.annotate,
     view: viewRef,
     onProblem: showHint,
   });
+  const inlineTextBoxRef = useRef<InlineTextEditorHandle | null>(null);
+  const setInlineTextBoxEditor = useCallback((handle: InlineTextEditorHandle | null) => {
+    inlineTextBoxRef.current = handle;
+  }, []);
+  const inlineTextBoxSession: InlineTextBoxSession = useMemo(
+    () => ({
+      target: annotations.textBox,
+      lastFamily: annotations.lastFamily,
+      setEditor: setInlineTextBoxEditor,
+      onSave: annotations.saveTextBox,
+      onCancel: annotations.closeTextBox,
+    }),
+    [annotations.textBox, annotations.lastFamily, setInlineTextBoxEditor, annotations.saveTextBox, annotations.closeTextBox],
+  );
+  // Register the active inline text box with `edits` so Ctrl+S, Ctrl+Shift+S, tab close, and
+  // window close commit typed words first (#719).
+  useEffect(() => {
+    if (!annotations.textBox) return;
+    return edits.registerFlusher(() => inlineTextBoxRef.current?.commit({ restoreFocus: false }) ?? Promise.resolve(true));
+  }, [annotations.textBox, edits]);
+  // Commit an active inline text box when switching away from this tab.
+  const prevTabActiveRef = useRef(active);
+  useEffect(() => {
+    if (prevTabActiveRef.current && !active && inlineTextBoxRef.current) {
+      void inlineTextBoxRef.current.commit({ restoreFocus: false });
+    }
+    prevTabActiveRef.current = active;
+  }, [active]);
+  const commitActiveTextBox = () => {
+    if (inlineTextBoxRef.current) void inlineTextBoxRef.current.commit({ restoreFocus: false });
+  };
   // How the pen draws (B2-08).
   const [ink, setInk] = useState<{ color: InkColor; width: InkWidth }>({ color: "black", width: "medium" });
   const toolOn = annotations.enabled ? tool : null;
   const togglePen = () => {
+    commitActiveTextBox();
     if (tool?.kind === "pen") {
       setTool(null);
     } else {
@@ -1005,8 +1040,9 @@ export function ReaderShell({
       showHint(strings.annotations.penOn);
     }
   };
-  // The text box tool (B2-30): a click on a page asks what the box says.
+  // The text box tool (B2-30, #719): a click on a page starts typing directly on the page.
   const toggleTextBox = () => {
+    commitActiveTextBox();
     if (tool?.kind === "textBox") {
       setTool(null);
     } else {
@@ -1016,6 +1052,7 @@ export function ReaderShell({
   };
   // The security redaction tool (B2-21, ADR 0016).
   const toggleRedaction = () => {
+    commitActiveTextBox();
     if (tool?.kind === "redaction") {
       setTool(null);
     } else {
@@ -1025,6 +1062,7 @@ export function ReaderShell({
   };
   // The link tool (Issue #588, B6-03).
   const toggleLink = () => {
+    commitActiveTextBox();
     if (tool?.kind === "link") {
       setTool(null);
     } else {
@@ -1117,6 +1155,7 @@ export function ReaderShell({
     width: "medium",
   });
   const toggleShape = () => {
+    commitActiveTextBox();
     if (tool?.kind === "shape") {
       setTool(null);
     } else {
@@ -1152,12 +1191,14 @@ export function ReaderShell({
     if (tool?.kind === "pen") setTool({ kind: "pen", ...next });
   };
   const chooseStamp = (stamp: StampName) => {
+    commitActiveTextBox();
     setTool({ kind: "stamp", stamp });
     showHint(strings.annotations.placeStamp(strings.annotations.stamps[stamp]));
   };
   // A picture of the user's own: asked for in the system's dialog, made into a stamp picture of
   // the document by the main process (the path never comes here).
   const choosePicture = () => {
+    commitActiveTextBox();
     if (!annotationsApi?.pickStampImage || doc === undefined) return;
     annotationsApi.pickStampImage(doc).then(
       (picture) => {
@@ -1207,7 +1248,7 @@ export function ReaderShell({
       event.preventDefault();
       const middle = { x: chosenPage.widthPt / 2, y: chosenPage.heightPt / 2 };
       if (tool.kind === "textBox") {
-        annotations.newTextBox(currentPage - 1, middle);
+        annotations.newTextBox(currentPage - 1, middle, { centered: true });
       } else if (tool.kind === "stamp") {
         edit({ kind: "addStamp", page: currentPage - 1, rect: stampRectAt(middle, chosenPage), stamp: tool.stamp });
       } else if (tool.kind === "redaction") {
@@ -1251,7 +1292,8 @@ export function ReaderShell({
         detailsOpen ||
         signaturesOpen ||
         searchOpen ||
-        tool !== null
+        tool !== null ||
+        annotations.textBox !== null
       ) {
         return;
       }
@@ -1273,6 +1315,7 @@ export function ReaderShell({
     signaturesOpen,
     searchOpen,
     tool,
+    annotations.textBox,
     windowApi,
   ]);
   // Changes an earlier run of the app left for the file (B2-13): made again or discarded. The tab's
@@ -2046,10 +2089,13 @@ export function ReaderShell({
                       textVersions={ocrView.textVersions}
                       onRecognised={ocrView.onRecognised}
                       annotations={annotationSource}
+                      annotationsApi={annotationsApi}
                       onAnnotationEdit={annotations.edit}
                       onEditNote={annotations.editNote}
                       onEditTextBox={annotations.editTextBox}
                       onNewTextBox={annotations.newTextBox}
+                      inlineTextBox={inlineTextBoxSession}
+                      onAnnotationProblem={showHint}
                       onNewLink={(page, rect) => setLinkEditDialogState({ mode: "add", page, rect })}
                       onEditLink={(link) => setLinkEditDialogState({ mode: "edit", link })}
                       onDeleteLink={deleteLinkDirectly}
@@ -2268,16 +2314,6 @@ export function ReaderShell({
           initial={annotations.note.kind === "edit" ? (annotations.note.annotation.text ?? "") : null}
           onSave={annotations.saveNote}
           onCancel={annotations.closeNote}
-        />
-      )}
-      {annotations.textBox && (
-        <TextBoxDialog
-          mode={annotations.textBox.kind}
-          fonts={annotations.textBox.fonts}
-          start={annotations.textBox.kind === "edit" ? annotations.textBox.start : undefined}
-          lastFamily={annotations.lastFamily}
-          onSave={annotations.saveTextBox}
-          onCancel={annotations.closeTextBox}
         />
       )}
       <SourcePasswordDialog

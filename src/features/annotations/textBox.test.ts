@@ -5,8 +5,14 @@ import {
   families,
   fontNamed,
   fromHex,
+  growInlineRect,
+  isFontRenderable,
+  newInlineTextBoxRect,
+  sameRect,
+  sameStyle,
   sizeAllowed,
   startingFamily,
+  TEXT_BOX_EDGE_MARGIN_PT,
   TEXT_COLORS,
   textTooLong,
   toHex,
@@ -85,5 +91,50 @@ describe("what a box can say", () => {
   it("is set in a size from 4 to 288 points", () => {
     for (const ok of [4, 12, 14.5, 288]) expect(sizeAllowed(ok)).toBe(true);
     for (const bad of [0, 3.9, 288.1, Number.NaN, Number.POSITIVE_INFINITY, -12]) expect(sizeAllowed(bad)).toBe(false);
+  });
+});
+
+describe("inline layout and imported fonts (#719)", () => {
+  const LETTER = { widthPt: 612, heightPt: 792 };
+
+  it("lists imported families before installed families and marks imported fonts as fallback-rendered", () => {
+    const imported: FontInfo = {
+      id: 99,
+      name: "Custom Sans",
+      family: "Custom Sans",
+      bold: false,
+      italic: false,
+      source: "imported",
+    };
+    expect(families([FONTS[0]!, imported, FONTS[2]!])).toEqual(["Custom Sans", "Arial", "Segoe UI"]);
+    expect(isFontRenderable(imported)).toBe(false);
+    expect(isFontRenderable(FONTS[0]!)).toBe(true);
+    expect(isFontRenderable(undefined)).toBe(false);
+  });
+
+  it("places a new inline box inside the page, and widens rightward until the right margin unless fixed", () => {
+    const start = newInlineTextBoxRect({ x: 100, y: 200 }, LETTER);
+    expect(start.x0).toBe(100);
+    expect(start.x1).toBeGreaterThan(start.x0);
+    expect(start.y1).toBeGreaterThan(start.y0);
+
+    // Unconstrained new box widens up to page right margin, then stops widening and grows downward.
+    const wide = growInlineRect(start, 900, 140, LETTER, false);
+    expect(wide.x0).toBe(100);
+    expect(wide.x1).toBeCloseTo(LETTER.widthPt - TEXT_BOX_EDGE_MARGIN_PT, 2);
+    expect(wide.y1 - wide.y0).toBeCloseTo(140, 2);
+
+    // Fixed-width box keeps its width and only grows downward.
+    const fixed = growInlineRect(start, 900, 140, LETTER, true);
+    expect(fixed.x1 - fixed.x0).toBeCloseTo(start.x1 - start.x0, 2);
+    expect(fixed.y1 - fixed.y0).toBeCloseTo(140, 2);
+  });
+
+  it("compares rectangles and styles accurately", () => {
+    expect(sameRect({ x0: 10, y0: 20, x1: 110, y1: 60 }, { x0: 10.005, y0: 20, x1: 110, y1: 60 })).toBe(true);
+    expect(sameRect({ x0: 10, y0: 20, x1: 110, y1: 60 }, { x0: 10, y0: 20, x1: 110, y1: 80 })).toBe(false);
+    const s = { size: 14, color: { r: 0, g: 0, b: 0 }, align: "left" as const };
+    expect(sameStyle(s, { ...s })).toBe(true);
+    expect(sameStyle(s, { ...s, size: 18 })).toBe(false);
   });
 });

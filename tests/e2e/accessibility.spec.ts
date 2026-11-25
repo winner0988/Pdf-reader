@@ -192,39 +192,44 @@ test("the crop pages dialog (B6-04)", async ({ launch }) => {
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
-test("the text box dialog, with a problem shown, and the toolbar of a text box on the page (B2-31)", async ({ launch }) => {
+test("the inline text box editor, with a problem shown, and the floating toolbar of a text box on the page (B2-31, #719)", async ({ launch }) => {
   const page = await launch(corpus("benign/mixed-text-zh-en.pdf"));
   const sheet = page.getByRole("img", { name: strings.canvas.page(1) });
   await expect(sheet).toHaveAttribute("data-state", "ready");
   const t = strings.annotations;
-  const dialog = page.getByRole("dialog", { name: t.textBoxDialog.addTitle });
+  const e = t.textBoxEditor;
+  const textarea = page.getByRole("textbox", { name: e.label });
+  const editorBar = page.getByRole("toolbar", { name: e.toolbarLabel });
 
-  // The tool is on, and a click on the page (all of it on the screen) asks what the box says.
+  // The tool is on, and a click on the page starts typing inline with a floating toolbar.
   await page.keyboard.press("Control+0");
   await expect.poll(async () => (await sheet.boundingBox())?.height ?? Infinity).toBeLessThan(700);
   await page.getByRole("button", { name: t.textBox, exact: true }).click();
   const area = (await sheet.boundingBox())!;
-  await page.mouse.click(area.x + area.width * 0.5, area.y + area.height * 0.6);
-  await expect(dialog).toBeVisible();
-  await inBothThemes(page, (theme) => noProblems(page, `new text box, ${theme}`));
+  await page.mouse.click(area.x + area.width * 0.4, area.y + area.height * 0.6);
+  await expect(textarea).toBeVisible();
+  await expect(editorBar).toBeVisible();
+  await inBothThemes(page, (theme) => noProblems(page, `new inline text box, ${theme}`));
 
-  // Saved with nothing in it: the problem is said in the dialog.
-  await dialog.getByRole("button", { name: t.textBoxDialog.save, exact: true }).click();
-  await expect(dialog.getByRole("alert")).toHaveText(t.textBoxDialog.empty);
-  await inBothThemes(page, (theme) => noProblems(page, `text box with a problem, ${theme}`));
+  // Invalid size triggers an alert in the floating toolbar while editing stays open.
+  await textarea.fill("Contrast");
+  await editorBar.getByLabel(e.size, { exact: true }).fill("500");
+  await page.keyboard.press("Escape");
+  await expect(editorBar.getByRole("alert")).toHaveText(e.sizeRange(4, 288));
+  await inBothThemes(page, (theme) => noProblems(page, `inline text box with a problem, ${theme}`));
 
-  // A box on the page, chosen: its outline, handles and small toolbar.
-  await dialog.getByLabel(t.textBoxDialog.text, { exact: true }).fill("Contrast");
-  await dialog.getByRole("button", { name: t.textBoxDialog.save, exact: true }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  // Fix size and commit: a box on the page, chosen, shows its outline, handles and floating toolbar.
+  await editorBar.getByLabel(e.size, { exact: true }).fill("18");
+  await page.keyboard.press("Escape");
+  await expect(textarea).toHaveCount(0);
   await page.locator("[data-page-annotations] [data-annotation=textBox]").first().focus();
   await expect(page.getByRole("toolbar", { name: t.textBoxSaying("Contrast") })).toBeVisible();
   await inBothThemes(page, (theme) => noProblems(page, `text box chosen, ${theme}`));
 
-  // The dialog again, for the box: it starts from what the box is.
+  // Enter edits the box inline again.
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("dialog", { name: t.textBoxDialog.editTitle })).toBeVisible();
-  await inBothThemes(page, (theme) => noProblems(page, `text box changed, ${theme}`));
+  await expect(textarea).toBeVisible();
+  await inBothThemes(page, (theme) => noProblems(page, `text box edited inline, ${theme}`));
 });
 
 test("the password form that can remember, the notice of a remembered password, and the remembered passwords in the settings (B2-26)", async ({

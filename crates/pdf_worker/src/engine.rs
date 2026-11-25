@@ -703,13 +703,15 @@ impl PdfDocument {
     }
 
     /// Renders only `region` of the page at `scale` and `rotation` (B3-09): the pixels the whole
-    /// page would have there, however large the whole page would be.
+    /// page would have there, however large the whole page would be. When `without_annotations` is
+    /// true (B7-08), draws page contents and form widgets only, omitting annotations.
     pub fn render_region(
         &self,
         index: u32,
         scale: f32,
         rotation: Rotation,
         region: RasterRegion,
+        without_annotations: bool,
     ) -> Result<RenderedPage, EngineError> {
         if !scale.is_finite() || !(MIN_RENDER_SCALE..=MAX_RENDER_SCALE).contains(&scale) {
             return Err(EngineError::InvalidScale);
@@ -738,11 +740,16 @@ impl PdfDocument {
         let area = IRect::new(x0, y0, past(x0, region.width)?, past(y0, region.height)?);
         let mut pixmap = Pixmap::new_with_rect(&Colorspace::device_rgb(), area, false)?;
         // Opaque white under the page, as for a whole page; then the page with its annotations
-        // and form fields (`fz_run_page`), as `to_pixmap` draws it with the extras.
+        // and form fields (`fz_run_page`), or without annotations when editing one inline.
         pixmap.clear_with(255)?;
         {
             let device = Device::from_pixmap(&pixmap)?;
-            page.run(&device, &ctm)?;
+            if without_annotations {
+                page.run_contents(&device, &ctm)?;
+                page.run_widgets(&device, &ctm)?;
+            } else {
+                page.run(&device, &ctm)?;
+            }
         }
         Ok(opaque_rgba(&pixmap))
     }
@@ -3005,7 +3012,7 @@ mod tests {
                 let whole = doc.render(0, 1.5, rotation.degrees()).unwrap();
                 for (x, y) in [(0, 0), (37, 81), (whole.width - 300, whole.height - 211)] {
                     let part = doc
-                        .render_region(0, 1.5, rotation, region(x, y, 300, 211))
+                        .render_region(0, 1.5, rotation, region(x, y, 300, 211), false)
                         .unwrap();
                     assert_eq!((part.width, part.height), (300, 211));
                     for row in 0..211 {
@@ -3045,10 +3052,13 @@ mod tests {
             width: 200,
             height: 200,
         };
-        let part = doc.render_region(0, 20.0, Rotation::None, square).unwrap();
+        let part = doc
+            .render_region(0, 20.0, Rotation::None, square, false)
+            .unwrap();
         assert_eq!(pixel(&part, 100, 100), [0, 0, 0, 255]);
 
-        let refused = |page, scale, region| doc.render_region(page, scale, Rotation::None, region);
+        let refused =
+            |page, scale, region| doc.render_region(page, scale, Rotation::None, region, false);
         let past_the_edge = RasterRegion {
             x: 612 * 20 - 199,
             ..square

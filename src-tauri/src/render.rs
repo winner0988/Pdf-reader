@@ -27,6 +27,7 @@ pub struct CacheKey {
     rotation: Rotation,
     scale_milli: u32,
     region: Option<RasterRegion>,
+    without_annotations: bool,
 }
 
 impl CacheKey {
@@ -37,6 +38,7 @@ impl CacheKey {
             rotation: args.rotation,
             scale_milli: (f64::from(args.scale) * 1000.0).round() as u32,
             region: args.region,
+            without_annotations: args.without_annotations,
         }
     }
 }
@@ -352,6 +354,7 @@ mod tests {
             scale: 1.5,
             rotation: Rotation::None,
             region: None,
+            without_annotations: false,
         }
     }
 
