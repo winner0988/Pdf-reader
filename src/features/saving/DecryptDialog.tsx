@@ -32,7 +32,7 @@ type DecryptDialogProps = {
 export function DecryptDialog({ open, onOpenChange, doc, onDecrypt, onFinished }: DecryptDialogProps) {
   const [password, setPassword] = useState("");
   const [running, setRunning] = useState(false);
-  const [error, setError] = useState<"encrypted" | "notAllowed" | "failed" | null>(null);
+  const [error, setError] = useState<"encrypted" | "notAllowed" | "signed" | "failed" | null>(null);
   const fieldId = useId();
   const errorId = useId();
 
@@ -65,6 +65,8 @@ export function DecryptDialog({ open, onOpenChange, doc, onDecrypt, onFinished }
           setError("encrypted");
         } else if (code === "notAllowed") {
           setError("notAllowed");
+        } else if (code === "signed") {
+          setError("signed");
         } else {
           setError("failed");
         }
@@ -77,9 +79,11 @@ export function DecryptDialog({ open, onOpenChange, doc, onDecrypt, onFinished }
       ? t.wrongPassword
       : error === "notAllowed"
         ? t.notAllowed
-        : error === "failed"
-          ? t.failed
-          : null;
+        : error === "signed"
+          ? t.signed
+          : error === "failed"
+            ? t.failed
+            : null;
 
   return (
     <Dialog

@@ -6355,17 +6355,47 @@ mod with_worker {
         std::fs::remove_file(path).ok();
         std::fs::remove_file(temp).ok();
 
-        // 3. Signed document refused
-        let signed = corpus.join("signed.pdf");
+        // 3. Signed encrypted document refused by the worker with Signed
+        let qpdf = find_qpdf();
+        let temp_signed = std::env::temp_dir().join(format!(
+            "pdf-reader-decrypted-signed-{}.pdf",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&temp_signed);
+        let status = std::process::Command::new(&qpdf)
+            .arg(corpus.join("signed.pdf"))
+            .args(["--encrypt", "user", "owner", "256", "--"])
+            .arg(&temp_signed)
+            .status()
+            .expect("qpdf encrypt signed pdf");
+        assert!(status.success(), "qpdf failed to encrypt signed pdf");
+
         let documents = Documents::new(worker());
-        let info = open_in(&documents, &signed);
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let [signed_tab] = documents.add(std::slice::from_ref(&temp_signed), &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(signed_tab, &report);
+        documents
+            .unlock(signed_tab, password("user"), false, &report)
+            .unwrap();
+        let Some(OpenEvent::Opened {
+            info: signed_info, ..
+        }) = events.borrow().last().cloned()
+        else {
+            panic!("opened")
+        };
+        std::fs::remove_file(&copy).ok();
         assert_eq!(
             documents
-                .decrypted_copy(info.doc, &copy, password("any"))
+                .decrypted_copy(signed_info.doc, &copy, password("owner"))
                 .unwrap_err()
                 .code,
-            ErrorCode::InvalidArgument
+            ErrorCode::Signed
         );
+        assert!(!copy.exists());
+        std::fs::remove_file(temp_signed).ok();
     }
 
     #[test]

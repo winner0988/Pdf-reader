@@ -112,6 +112,4 @@ export type CommandOptions = ToolbarProps & {
   onInsertFrom?: (at: number) => Promise<number | null> | void;
   onReplacePages?: (first: number, count: number) => Promise<number | null> | void;
   insertFromBlocked?: boolean;
-  onDecryptCopy?: () => void;
-  decryptCopyBlocked?: boolean;
 };

@@ -5,7 +5,7 @@
 ## 範圍
 
 - 把目前開著的加密文件（含還沒儲存的編輯），另存成一份**沒有密碼、沒有限制**的新檔。目前的文件與它的檔案不會改變；副本不加入最近開啟的檔案。
-- 只有加密的文件才適用；沒有加密的文件停用該選單項目。
+- 只有沒有數位簽章的加密文件才適用；沒有加密或有數位簽章的文件停用該選單項目並說明原因。
 - **不做**：批次解除密碼（ADR 0024）、憑證加密文件的解密、更改密碼（只支援另存為無密碼副本）。
 
 ## 規則
@@ -15,8 +15,8 @@
 | 密碼驗證 | 若文件有任何限制（由作者在 `/P` 設定），必須驗證輸入的密碼為權限密碼（owner password）；若只有開啟密碼而無任何限制，輸入開啟密碼即可 |
 | 無密碼但有限制的文件 | 雖然開啟時不用密碼，但另存無密碼副本時仍必須輸入權限密碼（不可為空） |
 | 密碼驗證演算法 | 使用 `owner_password::is_owner_password(bytes, password)` 驗證權限密碼 |
-| 錯誤回傳 | 密碼錯誤回傳 `WorkerError::Encrypted`（`ErrorCode::Encrypted`）；若有限制但輸入的密碼非權限密碼，回傳 `WorkerError::NotAllowed`（`ErrorCode::NotAllowed`） |
-| 有數位簽章的文件 | 拒絕：解密需重寫檔案，簽章會失效。worker 拒絕（回傳 `WorkerError::Signed`），不留下任何檔案 |
+| 錯誤回傳 | 密碼錯誤回傳 `WorkerErrorCode::WrongPassword`（`ErrorCode::Encrypted`）；若有限制但輸入的密碼非權限密碼，回傳 `WorkerErrorCode::NotAllowed`（`ErrorCode::NotAllowed`） |
+| 有數位簽章的文件 | 拒絕：解密需重寫檔案，簽章會失效。選單停用（`isSigned` 為真時標示原因），若仍送出則 worker 拒絕（回傳 `WorkerErrorCode::Signed`／`ErrorCode::Signed`），不留下任何檔案 |
 | 文件自己的檔案 | 不能是目的地（比照其他另存副本操作），主行程提示使用者另選 |
 | 開著的文件狀態 | 不可被改為未加密：worker 必須先以 `Encryption::Keep` 存到記憶體，重開驗證後再以 `Encryption::None` 寫出副本 |
 
@@ -56,10 +56,10 @@ sequenceDiagram
 ## 測試
 
 - `ipc_contract`：`what_a_decrypted_copy_needs_is_checked`（doc > 0、密碼非空且不大於 127 位元組、不含 NUL）；模糊測試種子包含 `DecryptedCopy`。
-- `pdf_worker/src/engine.rs`：單元測試涵蓋一般加密文件（AES-256、RC4-40）、有限制文件（需權限密碼）、有簽章文件（拒絕）、未加密文件（拒絕）、解密後原文件仍能存為加密。
-- `pdf_worker/tests/decrypt_copy.rs`（真實 worker、真實沙盒）：真實 IPC handle 寫入、有限制與無限制、簽章拒絕、密碼錯誤不崩潰 worker。
-- 主行程（`documents.rs`）：副本含未儲存編輯、原文件保持加密、不可覆寫自身、未加密或簽章文件拒絕。
-- 前端（`Decrypt.test.tsx`）：對話框介面、送出密碼、關閉/失敗後清空密碼、錯誤代碼訊息對應、未加密文件停用、axe 無障礙檢驗。
+- `pdf_worker/src/engine.rs`：單元測試涵蓋一般加密文件（AES-256、RC4-40）、有限制文件（需權限密碼）、未加密與不合規則密碼（拒絕）、解密後原文件仍能存為加密。
+- `pdf_worker/tests/decrypt_copy.rs`（真實 worker、真實沙盒）：真實 IPC handle 寫入、有限制與無限制、簽章拒絕（`Signed`）、未加密拒絕、密碼錯誤不崩潰 worker。
+- 主行程（`documents.rs`）：副本含未儲存編輯、原文件保持加密、不可覆寫自身、未加密文件拒絕（`InvalidArgument`）、有數位簽章的加密文件拒絕（`Signed`）。
+- 前端（`Decrypt.test.tsx`）：對話框介面、送出密碼、關閉/失敗後清空密碼、錯誤代碼訊息對應（含 `signed`）、未加密或有數位簽章的文件停用選單並說明原因、axe 無障礙檢驗。
 - E2E（`tests/e2e/decrypt.spec.ts`）：真實 app 開啟受限檔案、輸入使用者密碼提示需權限密碼、輸入權限密碼成功另存、原檔不變、副本開啟無密碼無限制、未加密文件選單停用。
 
 ## 已知限制

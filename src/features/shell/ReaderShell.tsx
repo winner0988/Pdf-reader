@@ -1767,11 +1767,19 @@ export function ReaderShell({
             ? strings.permissions.notAllowed
             : undefined,
     onEncryptCopy: savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined,
-    onDecryptCopy: savable && document_?.encrypted ? () => setDialog("decrypt") : undefined,
+    onDecryptCopy:
+      savable && document_?.encrypted && !isSigned ? () => setDialog("decrypt") : undefined,
     onBatch: openBatch,
     onSearchAll: textIndex?.openSearchAll,
     encryptCopyBlocked: savable && document_?.encrypted === true,
-    decryptCopyBlocked: savable && document_?.encrypted !== true,
+    decryptCopyBlocked:
+      !savable
+        ? undefined
+        : !document_?.encrypted
+          ? strings.decryption.unencryptedBlocked
+          : isSigned
+            ? strings.decryption.signedBlocked
+            : undefined,
     onForgetPassword: document_?.passwordRemembered ? forgetPassword : undefined,
     onCompressImages: savable && !document_?.encrypted ? () => setDialog("compress") : undefined,
     compressImagesBlocked: savable && document_?.encrypted === true,
