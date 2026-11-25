@@ -678,6 +678,16 @@ export function createCommands(opts: CommandOptions): Command[] {
       run: () => opts.onSearch(),
     },
     {
+      id: "readAloud",
+      name: strings.shortcuts.descriptions.readAloud,
+      aliases: [...aliases.readAloud],
+      shortcut: getShortcutKey("readAloud"),
+      fromMenu: false,
+      enabled: hasDoc && Boolean(opts.onReadAloud),
+      disabledReason: !hasDoc ? strings.commands.noDocument : undefined,
+      run: () => opts.onReadAloud?.(),
+    },
+    {
       id: "findNext",
       name: strings.shortcuts.descriptions.findNext,
       aliases: [...aliases.findNext],

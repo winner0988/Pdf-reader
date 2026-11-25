@@ -25,4 +25,6 @@ export const DEFAULT_SETTINGS: Settings = {
   ocrAuto: true,
   ocrLanguage: null,
   textIndex: false,
+  speechVoiceId: null,
+  speechRate: 1,
 };

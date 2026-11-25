@@ -56,6 +56,9 @@ import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
 import { SanitizeDialog } from "@/features/saving/SanitizeDialog";
 import { createLinkSource, type LinksApi } from "@/features/links/source";
 import { ALL_PERMISSIONS, restrictionSummary } from "@/features/permissions/permissions";
+import type { SpeechApi } from "@/features/readAloud/api";
+import { ReadAloudBar } from "@/features/readAloud/ReadAloudBar";
+import { useReadAloud } from "@/features/readAloud/useReadAloud";
 import type { RecentApi } from "@/features/recent/api";
 import type { UpdatesApi } from "@/features/settings/updates";
 import type { SavingApi } from "@/features/saving/api";
@@ -237,6 +240,8 @@ type ReaderShellProps = {
   loadingDelayMs?: number;
   /** Document properties and font discovery (B5-04). */
   propertiesApi?: PropertiesApi;
+  /** Read-aloud offline Windows speech API (B6-14, #599); without it (demo data, tests) the button is hidden. */
+  speechApi?: SpeechApi;
 };
 
 /** Below this width the sidebar floats over the canvas (docs/ux/screen-map.md, section 1). */
@@ -313,6 +318,7 @@ export function ReaderShell({
   loadingDelayMs,
   windowApi = tauriWindowApi,
   propertiesApi,
+  speechApi,
 }: ReaderShellProps) {
   const [theme, setTheme] = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(() => !isNarrowWindow());
@@ -419,6 +425,25 @@ export function ReaderShell({
   const search = useSearch({ api: searchApi, doc: document_?.doc, active: searchOpen });
   const linkSource = useMemo(() => (linksApi ? createLinkSource(linksApi) : undefined), [linksApi]);
   const textSource = useMemo(() => (textApi ? createTextSource(textApi) : undefined), [textApi]);
+  const getReadAloudSelection = useCallback(() => viewRef.current?.selection() ?? null, []);
+  const scrollToReadAloudPage = useCallback((page: number) => {
+    setCurrentPage(page);
+    viewRef.current?.scrollToPage(page);
+  }, []);
+  const readAloud = useReadAloud({
+    api: speechApi,
+    doc: document_?.doc,
+    session: document_?.session,
+    pageCount,
+    currentPage,
+    textSource,
+    getSelection: getReadAloudSelection,
+    onScrollToPage: scrollToReadAloudPage,
+  });
+  const closeReadAloud = useCallback(() => {
+    readAloud.closeBar();
+    canvasRef.current?.focus();
+  }, [readAloud]);
   const annotationSource = useMemo(
     () => (annotationsApi ? createAnnotationSource(annotationsApi) : undefined),
     [annotationsApi],
@@ -1301,6 +1326,7 @@ export function ReaderShell({
         detailsOpen ||
         signaturesOpen ||
         searchOpen ||
+        readAloud.open ||
         tool !== null ||
         annotations.textBox !== null
       ) {
@@ -1323,6 +1349,7 @@ export function ReaderShell({
     detailsOpen,
     signaturesOpen,
     searchOpen,
+    readAloud.open,
     tool,
     annotations.textBox,
     windowApi,
@@ -1404,6 +1431,10 @@ export function ReaderShell({
       setSearchOpen(true);
       searchInputRef.current?.focus();
       searchInputRef.current?.select();
+    },
+    readAloud: () => {
+      if (!document_ || !speechApi) return;
+      readAloud.toggleBar();
     },
     findNext: () => findAgain(1),
     findPrevious: () => findAgain(-1),
@@ -1678,6 +1709,8 @@ export function ReaderShell({
     onZoomChange: setZoom,
     onRotate: (direction) => setRotation((r) => rotate(r, direction)),
     onSearch: () => (searchOpen ? closeSearch() : setSearchOpen(true)),
+    readAloudOpen: readAloud.open,
+    onReadAloud: document_ && speechApi ? readAloud.toggleBar : undefined,
     onThemeChange: setTheme,
     fullscreen,
     onToggleFullscreen: toggleFullscreen,
@@ -2087,6 +2120,7 @@ export function ReaderShell({
                       onEffectiveZoomChange={setFitPercent}
                       onZoomStep={(direction) => setZoom((z) => stepZoom(z, direction, fitPercent))}
                       highlights={searchOpen && hits.length > 0 ? { hits, current } : undefined}
+                      spokenHighlight={readAloud.spokenHighlight}
                       links={linkSource}
                       onLinkHover={setLinkHover}
                       onLinkActivate={(link) => activateLink(link)}
@@ -2240,6 +2274,16 @@ export function ReaderShell({
                   inputRef={searchInputRef}
                   onClose={closeSearch}
                 />
+              </div>
+            )}
+            {document_ && speechApi && readAloud.open && (
+              <div
+                className={cn(
+                  "pointer-events-none absolute right-4 z-10 *:pointer-events-auto",
+                  searchOpen ? "top-16" : "top-2",
+                )}
+              >
+                <ReadAloudBar controller={readAloud} onClose={closeReadAloud} />
               </div>
             )}
             </div>
