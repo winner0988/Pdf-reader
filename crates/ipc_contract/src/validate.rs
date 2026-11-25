@@ -27,10 +27,10 @@ use crate::types::{
     PersonalDataMatches, Point, PrepareSignatureStampArgs, PrepareTextBoxArgs, Quad, RasterRegion,
     RecentFile, Rect, RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
     Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult,
-    SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs, SensitiveFile,
-    Settings, Shape, SignArgs, SignatureImageArgs, SignatureInfo, SignatureReport, SignatureStatus,
-    SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs,
-    UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent, WatermarkPages,
+    SaveAttachmentResult, SearchArgs, SearchHit, SearchableCopyArgs, SecurityReport, SensitiveArgs,
+    SensitiveFile, Settings, Shape, SignArgs, SignatureImageArgs, SignatureInfo, SignatureReport,
+    SignatureStatus, SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine,
+    UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent, WatermarkPages,
 };
 use crate::worker::{
     ExportedAnnotation, ExportedAnnotations, ExportedTextStyle, InsertedTextBox, InspectedFont,
@@ -688,6 +688,41 @@ impl Validate for WorkerResponse {
                     return Err(ValidationError::OutOfRange {
                         what: "compressed picture count",
                     });
+                }
+                Ok(())
+            }
+            WorkerResponse::Searchable {
+                bytes,
+                added_pages,
+                skipped,
+                ..
+            } => {
+                if *bytes == 0 || *bytes > MAX_DOCUMENT_BYTES {
+                    return Err(ValidationError::OutOfRange {
+                        what: "searchable file size",
+                    });
+                }
+                if *added_pages > MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "searchable added page count",
+                    });
+                }
+                check_count("searchable skipped pages", skipped.len(), MAX_PAGE_COUNT)?;
+                if usize::try_from(*added_pages)
+                    .ok()
+                    .and_then(|added| added.checked_add(skipped.len()))
+                    .is_none_or(|total| total > MAX_PAGE_COUNT as usize)
+                {
+                    return Err(ValidationError::OutOfRange {
+                        what: "searchable total page count",
+                    });
+                }
+                for entry in skipped {
+                    if entry.page_index >= MAX_PAGE_COUNT {
+                        return Err(ValidationError::OutOfRange {
+                            what: "searchable skipped page index",
+                        });
+                    }
                 }
                 Ok(())
             }
@@ -1369,6 +1404,12 @@ fn check_encryption(
 impl Validate for CompressArgs {
     fn validate(&self) -> Result<(), ValidationError> {
         check_compress_side(self.max_side)
+    }
+}
+
+impl Validate for SearchableCopyArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
     }
 }
 
@@ -7417,6 +7458,59 @@ mod tests {
             truncated: false,
         };
         assert!(res_too_many.validate().is_err());
+    }
+
+    #[test]
+    fn searchable_copy_response_is_bounded() {
+        use crate::types::{SearchableSkipReason, SearchableSkippedPage};
+        let valid = WorkerResponse::Searchable {
+            request: RequestId(1),
+            bytes: 1234,
+            added_pages: 2,
+            skipped: vec![SearchableSkippedPage {
+                page_index: 0,
+                reason: SearchableSkipReason::NotScan,
+            }],
+        };
+        assert!(valid.validate().is_ok());
+
+        let zero_bytes = WorkerResponse::Searchable {
+            request: RequestId(1),
+            bytes: 0,
+            added_pages: 1,
+            skipped: Vec::new(),
+        };
+        assert!(zero_bytes.validate().is_err());
+
+        let oversized = WorkerResponse::Searchable {
+            request: RequestId(1),
+            bytes: MAX_DOCUMENT_BYTES + 1,
+            added_pages: 1,
+            skipped: Vec::new(),
+        };
+        assert!(oversized.validate().is_err());
+
+        let oob_page = WorkerResponse::Searchable {
+            request: RequestId(1),
+            bytes: 1234,
+            added_pages: 0,
+            skipped: vec![SearchableSkippedPage {
+                page_index: MAX_PAGE_COUNT,
+                reason: SearchableSkipReason::Failed,
+            }],
+        };
+        assert!(oob_page.validate().is_err());
+
+        let too_many_total = WorkerResponse::Searchable {
+            request: RequestId(1),
+            bytes: 1234,
+            added_pages: MAX_PAGE_COUNT,
+            skipped: vec![SearchableSkippedPage {
+                page_index: 0,
+                reason: SearchableSkipReason::NoText,
+            }],
+        };
+        assert!(too_many_total.validate().is_err());
     }
 
     #[test]

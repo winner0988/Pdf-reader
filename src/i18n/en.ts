@@ -2,7 +2,7 @@
 // Terminology is defined in docs/ux/glossary-en.md.
 
 import type { ErrorCode, FindingKind } from "@/features/shell/model";
-import type { BlockedAction, NotRemembered } from "@/ipc/generated/contract";
+import type { BlockedAction, NotRemembered, SearchableSkipReason } from "@/ipc/generated/contract";
 import type { Strings } from "./zh-TW";
 
 export const strings: Strings = {
@@ -1373,6 +1373,7 @@ export const strings: Strings = {
     batch: "Batch Processing…",
     searchAll: "Search in All Documents…",
     createPdf: "Create PDF from File…",
+    searchableCopy: "Save as Searchable PDF…",
     dontRecord: "Do not record this file",
     markSensitive: "Mark as Sensitive…",
     unmarkSensitive: "Remove Sensitive Mark…",
@@ -1486,6 +1487,48 @@ export const strings: Strings = {
         tooMany: "Too many imported languages; please remove some first.",
       },
       failed: "Could not complete operation. Please try again.",
+    },
+    searchable: {
+      title: "Save as Searchable PDF",
+      description:
+        "Add an invisible text layer to scanned pages and save as a new PDF so other PDF readers can search and copy text. The original file remains unchanged, and the copy is neither opened nor added to recent files.",
+      languageLabel: "Recognition language",
+      pagesLabel: "Pages",
+      pagesSummary: (total: number) =>
+        `${total === 1 ? "1 page" : `${total} pages`} total (only image-only scanned pages are recognized; pages with existing text remain unchanged)`,
+      pagesDoneSummary: (total: number) =>
+        `${total === 1 ? "1 page" : `${total} pages`} total; text recognition is already complete for this document and ready to save.`,
+      note: "The text layer uses an invisible font overlaid on original pages so visual appearance remains unchanged; vertical text is not written to the text layer.",
+      encryptedReason:
+        "This document is encrypted and cannot be saved as a searchable PDF (rewriting the file cannot preserve the original encryption settings).",
+      signedReason:
+        "This document has digital signatures and cannot be saved as a searchable PDF (adding a text layer would invalidate the signatures).",
+      stillWorksInApp:
+        "You can still recognize text and search scanned pages inside PDF Reader (results stay in memory without modifying the file).",
+      recognisingScans: (done: number, scans: number, checked: number, total: number) =>
+        `Recognizing scanned pages: ${done} / ${scans} (checked ${checked} / ${total})…`,
+      checkingPages: (checked: number, total: number) =>
+        `Checking pages: ${checked} / ${total}…`,
+      saving: "Writing text layer and saving copy…",
+      start: "Recognize and Save As…",
+      startSave: "Choose Location and Save…",
+      cancel: "Cancel",
+      ok: "OK",
+      doneButton: "Done",
+      doneTitle: "Saved as Searchable PDF",
+      doneAdded: (pages: number) =>
+        `Added an invisible text layer to ${pages === 1 ? "1 page" : `${pages} pages`} and saved as a new file. The original file was not changed.`,
+      doneNoneAdded:
+        "Saved copy, but no pages received a new text layer. The original file was not changed.",
+      skippedTitle: "The following pages did not receive a text layer:",
+      skippedPage: (page: number, reason: string) => `Page ${page}: ${reason}`,
+      skipReasons: {
+        notScan: "Already has a text layer or is not a scanned page",
+        noText: "No text recognized",
+        timedOut: "Text recognition timed out",
+        failed: "Text recognition failed",
+      } satisfies Record<SearchableSkipReason, string>,
+      failed: "Could not save as a searchable PDF. Please try again.",
     },
   },
   settings: {
@@ -1800,6 +1843,7 @@ export const strings: Strings = {
       setDefault: ["set as default", "default app", "default pdf reader"],
       createPdf: ["create pdf", "convert to pdf", "new pdf"],
       ocr: ["ocr", "recognize text", "optical character recognition"],
+      searchableCopy: ["searchable pdf", "save as searchable pdf", "ocr save", "invisible text layer"],
       flatten: ["flatten form", "flatten fields"],
       insertFileAfterCurrent: ["insert pages", "merge", "append file"],
       replaceCurrentPage: ["replace pages", "replace page"],

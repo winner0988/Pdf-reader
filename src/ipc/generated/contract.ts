@@ -875,6 +875,40 @@ changed: number,
 partial: boolean, };
 
 /**
+ * Arguments of `searchable_copy` (B4-08, Issue #416, ADR 0028): the open document is written
+ * with an invisible OCR text layer on each recognised scanned page, to a file the user chooses
+ * next. Any other field is rejected.
+ */
+export type SearchableCopyArgs = { doc: DocumentId, };
+
+/**
+ * Why a page did not receive an invisible OCR text layer in a searchable copy (B4-08, ADR 0028).
+ */
+export type SearchableSkipReason = "notScan" | "failed" | "timedOut" | "noText";
+
+/**
+ * A page that did not receive an invisible text layer in `searchable_copy`, and why (B4-08).
+ */
+export type SearchableSkippedPage = { 
+/**
+ * 0-based page index.
+ */
+pageIndex: number, reason: SearchableSkipReason, };
+
+/**
+ * What `searchable_copy` wrote (B4-08, ADR 0028), for the dialog to report.
+ */
+export type SearchableCopyResult = { 
+/**
+ * Number of pages that received an invisible text layer.
+ */
+addedPages: number, 
+/**
+ * Pages that did not receive a text layer, in ascending page order, with reasons.
+ */
+skipped: Array<SearchableSkippedPage>, };
+
+/**
  * What to do with annotations when saving a sanitized copy (B3-15).
  */
 export type SanitizeAnnotations = "keep" | "remove" | "flatten";

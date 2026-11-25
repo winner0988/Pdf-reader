@@ -2,7 +2,7 @@
 // Source of truth for wording: docs/ux/screen-map.md, section 8.
 
 import type { ErrorCode, FindingKind } from "@/features/shell/model";
-import type { BlockedAction, NotRemembered } from "@/ipc/generated/contract";
+import type { BlockedAction, NotRemembered, SearchableSkipReason } from "@/ipc/generated/contract";
 
 export const strings = {
   appName: "PDF Reader",
@@ -1408,6 +1408,7 @@ export const strings = {
     batch: "批次處理…",
     searchAll: "在所有文件中搜尋…",
     createPdf: "從檔案建立 PDF…",
+    searchableCopy: "另存為可搜尋的 PDF…",
     dontRecord: "不記錄此檔案",
     markSensitive: "標記為機敏…",
     unmarkSensitive: "取消機敏標記…",
@@ -1535,6 +1536,46 @@ export const strings = {
         tooMany: "匯入的語言已經太多，請先移除一些。",
       },
       failed: "無法完成，請再試一次。",
+    },
+    /** Saving a copy with invisible OCR text layers (B4-08, Issue #416, ADR 0028). */
+    searchable: {
+      title: "另存為可搜尋的 PDF",
+      description:
+        "為掃描頁加上隱藏文字層並另存成新的 PDF，讓其他 PDF 閱讀器也能搜尋與複製文字。原本的檔案不會改變，新檔案也不會開啟或加入最近開啟的檔案。",
+      languageLabel: "辨識語言",
+      pagesLabel: "頁面",
+      pagesSummary: (total: number) =>
+        `共 ${total} 頁（僅辨識沒有文字層的掃描頁，已有文字層的頁面維持原樣）`,
+      pagesDoneSummary: (total: number) =>
+        `共 ${total} 頁，這份文件的掃描頁已完成文字辨識，可直接另存。`,
+      note: "文字層會使用透明字型疊在原頁面上，畫面外觀與原檔相同；直排文字不會寫入文字層。",
+      encryptedReason: "這份文件已加密，無法另存為可搜尋的 PDF（重寫檔案無法保留原本的加密設定）。",
+      signedReason: "這份文件有數位簽章，無法另存為可搜尋的 PDF（寫入文字層會讓簽章失效）。",
+      stillWorksInApp:
+        "在 PDF Reader 中仍然可以對掃描頁執行文字辨識與搜尋（結果僅留在記憶體中，不改動檔案）。",
+      recognisingScans: (done: number, scans: number, checked: number, total: number) =>
+        `正在辨識掃描頁：${done} / ${scans} 頁（已檢查 ${checked} / ${total} 頁）…`,
+      checkingPages: (checked: number, total: number) => `正在檢查頁面：${checked} / ${total} 頁…`,
+      saving: "正在寫入文字層並另存新檔…",
+      start: "開始辨識並另存…",
+      startSave: "選擇位置並另存…",
+      cancel: "取消",
+      /** Not "關閉": the dialog's corner button already has that name. */
+      ok: "確定",
+      doneButton: "完成",
+      doneTitle: "已另存為可搜尋的 PDF",
+      doneAdded: (pages: number) =>
+        `已為 ${pages} 頁加上隱藏文字層並另存成新檔。原本的檔案沒有改變。`,
+      doneNoneAdded: "已另存副本，但沒有頁面加上新的文字層。原本的檔案沒有改變。",
+      skippedTitle: "以下頁面未加上文字層：",
+      skippedPage: (page: number, reason: string) => `第 ${page} 頁：${reason}`,
+      skipReasons: {
+        notScan: "原本就有文字層或不是掃描頁",
+        noText: "未辨識出文字",
+        timedOut: "文字辨識逾時",
+        failed: "文字辨識失敗",
+      } satisfies Record<SearchableSkipReason, string>,
+      failed: "無法另存為可搜尋的 PDF，請再試一次。",
     },
   },
   settings: {
@@ -1851,6 +1892,7 @@ export const strings = {
       setDefault: ["預設程式", "設為預設 PDF 閱讀器", "default app"],
       createPdf: ["建立 PDF", "轉換為 PDF", "新 PDF", "create pdf"],
       ocr: ["OCR", "文字辨識", "光學字元辨識", "掃描辨識", "recognize text"],
+      searchableCopy: ["可搜尋 PDF", "另存可搜尋", "OCR 另存", "文字層", "searchable pdf", "ocr save"],
       flatten: ["扁平化表單", "壓平表單", "flatten form"],
       insertFileAfterCurrent: ["合併", "合併檔案", "插入頁面", "insert pages", "merge"],
       replaceCurrentPage: ["取代", "取代頁面", "替換", "replace pages"],

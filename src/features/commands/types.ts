@@ -1,7 +1,7 @@
 import type { ToolbarProps } from "@/features/shell/Toolbar";
 
 export type CommandId =
-  // Menu items (37):
+  // Menu items (39):
   | "layoutSingle"
   | "layoutTwoPage"
   | "layoutTwoPageCover"
@@ -15,6 +15,7 @@ export type CommandId =
   | "saveAs"
   | "createPdf"
   | "ocr"
+  | "searchableCopy"
   | "flatten"
   | "export"
   | "exportAnnotations"

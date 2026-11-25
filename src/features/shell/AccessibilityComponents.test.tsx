@@ -22,6 +22,7 @@ import { PrintDialog } from "@/features/print/PrintDialog";
 import { RecoveryBanner } from "@/features/recovery/RecoveryBanner";
 import { CreatePdfDialog } from "@/features/create/CreatePdfDialog";
 import { CompressDialog } from "@/features/saving/CompressDialog";
+import { SearchableCopyDialog } from "@/features/ocr/SearchableCopyDialog";
 import { EncryptDialog } from "@/features/saving/EncryptDialog";
 import { PrivacyExportDialog } from "@/features/saving/PrivacyExportDialog";
 import { SanitizeDialog } from "@/features/saving/SanitizeDialog";
@@ -248,6 +249,59 @@ describe("dialogs", () => {
     render(<CompressDialog open onOpenChange={vi.fn()} doc={5} onCompress={() => Promise.resolve(done)} />);
     await userEvent.setup().click(await screen.findByRole("button", { name: strings.compress.start }));
     await screen.findByRole("button", { name: strings.compress.close });
+    await expectAccessible(everything());
+  });
+
+  it("saving a searchable copy: ready, blocked, and done (B4-08)", async () => {
+    const ocrApi = {
+      languages: vi.fn(() =>
+        Promise.resolve({
+          languages: [{ code: "chi_tra", bundled: true, bytes: 1000n }],
+          automatic: "chi_tra",
+        }),
+      ),
+      importLanguage: vi.fn(),
+      removeLanguage: vi.fn(),
+      start: vi.fn(() => Promise.resolve()),
+      stop: vi.fn(() => Promise.resolve()),
+      focus: vi.fn(() => Promise.resolve()),
+    };
+    const { unmount } = render(
+      <SearchableCopyDialog
+        open
+        onOpenChange={vi.fn()}
+        doc={5}
+        pageCount={3}
+        ocrProgress={{ doc: 5, run: "done", pages: 3, checked: 3, scans: 2, recognised: 2, failed: 0 }}
+        ocrApi={ocrApi}
+        onSaveSearchable={() =>
+          Promise.resolve({
+            addedPages: 2,
+            skipped: [{ pageIndex: 0, reason: "notScan" }],
+          })
+        }
+      />,
+    );
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
+    await userEvent.setup().click(screen.getByRole("button", { name: strings.ocr.searchable.startSave }));
+    await screen.findByRole("button", { name: strings.ocr.searchable.doneButton });
+    await expectAccessible(everything());
+    unmount();
+
+    render(
+      <SearchableCopyDialog
+        open
+        onOpenChange={vi.fn()}
+        doc={5}
+        pageCount={3}
+        encrypted
+        ocrProgress={null}
+        ocrApi={ocrApi}
+        onSaveSearchable={vi.fn()}
+      />,
+    );
+    await screen.findByRole("dialog");
     await expectAccessible(everything());
   });
 
