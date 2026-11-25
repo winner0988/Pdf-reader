@@ -49,12 +49,13 @@
 
 - **端對端**（`tests/e2e/text-box.spec.ts`，真正的 app 與真正的 Windows 字型）：
   - 英文、繁體中文、簡體中文、日文各放一個方塊：頁面上看得到字（藍色的像素在方塊裡）、搜尋找得到而且標示在方塊裡、拖曳選取後複製得到原本的字，另存新檔後檔案裡有 `FreeText` 和 `PdfReaderTextBox`、只多了子集的大小（不到 400 KB，字型本身是好幾 MB），重新開啟後方塊、字與搜尋都還在；
-  - 以工具列按鈕加 Enter 放在頁面中央、`Ctrl+Enter` 儲存；以方向鍵移動、以控制點縮放、Enter 開啟對話框改字與換字型（對話框從方塊現在的樣子開始）、刪除、復原與重做；另存後重新開啟的方塊和結束時一樣；
-  - 只用鍵盤時焦點一直在方塊上（#402）：選一次之後，方向鍵連續移動兩次；Enter 改大小、`Ctrl+Enter` 儲存之後再按 Enter，對話框是改過的大小；`Esc` 關掉對話框後焦點回到方塊；`Delete` 刪除後焦點回到頁面區域；
+  - 以工具列按鈕加 Enter 在頁面中央開始頁面內打字、Esc 完成；以方向鍵移動、以控制點縮放、Enter 進入頁面內編輯改字與換字型、刪除、復原與重做；另存後重新開啟的方塊和結束時一樣；
+  - 頁面內自動延伸、換行一致與單步復原（#719）：長段英文與中文打字時自動長高且完成後不溢位；比對打字中瀏覽器鏡像換行結果與完成後 worker 輸出的斷行一致；放大既有方塊並加字後按一次 `Ctrl+Z` 同時還原文字與尺寸、`Ctrl+Y` 一次重做；
+  - 只用鍵盤時焦點一直在方塊上（#402）：選一次之後，方向鍵連續移動兩次；Enter 進入頁面內編輯改大小、Esc 完成之後焦點仍在方塊上，再按 Enter 看到改過的大小；`Delete` 刪除後焦點回到頁面區域；
   - 沒有存檔就結束（像當機一樣）：日誌裡有的是子集（一個十六進位的模型，不到 600 KB），不是字型；重新開啟後還原，復原與重做都能用，另存後還在；
-  - 不能用的字型說明原因而且對話框不關：英文字型沒有中文的字（`fontMissingGlyphs`）、可變字型 Bahnschrift（`fontVariable`）、彩色字型 Segoe UI Emoji（`fontColour`），換成能用的字型就存得起來；這一條走的是右鍵功能表；
-  - **只在 CI 上做**（登錄使用者自己的字型，會動到這台電腦的設定，本機預設跳過；要做就設 `E2E_REGISTER_FONT=1`）：Arial 的複本以另一個名稱登錄在 `HKCU`（和使用者自己裝的字型一樣），出現在字型選單；對話框開著時檔案被刪掉（`fontUnavailable`）；文件在沒有這個字型的電腦上開啟（選單顯示「這台電腦找不到」，改大小可以、改字要先選別的字型）；受限授權（`fsType` 改成 `0x0002`）被拒絕、輪廓不是 TrueType（`glyf` 換了標籤）被拒絕、只准檢視與列印（`0x0004`）的做得出方塊而且狀態列有說明。每個測試結束一定（`finally`）把登錄值和暫存檔移除。
-- **無障礙**（`tests/e2e/accessibility.spec.ts`）：文字方塊的對話框（新增、顯示錯誤、改現有的）與選取方塊時的小工具列，淺色與深色各以 axe 檢查。
+  - 不能用的字型說明原因而且頁面內編輯不關：英文字型沒有中文的字（`fontMissingGlyphs`）、可變字型 Bahnschrift（`fontVariable`）、彩色字型 Segoe UI Emoji（`fontColour`），換成能用的字型就存得起來；這一條走的是右鍵功能表；
+  - **只在 CI 上做**（登錄使用者自己的字型，會動到這台電腦的設定，本機預設跳過；要做就設 `E2E_REGISTER_FONT=1`）：Arial 的複本以另一個名稱登錄在 `HKCU`（和使用者自己裝的字型一樣），出現在字型選單；頁面內編輯開著時檔案被刪掉（`fontUnavailable`）；文件在沒有這個字型的電腦上開啟（選單顯示「這台電腦找不到」，改大小可以、改字要先選別的字型）；受限授權（`fsType` 改成 `0x0002`）被拒絕、輪廓不是 TrueType（`glyf` 換了標籤）被拒絕、只准檢視與列印（`0x0004`）的做得出方塊而且狀態列有說明。每個測試結束一定（`finally`）把登錄值和暫存檔移除。
+- **無障礙**（`tests/e2e/accessibility.spec.ts`）：頁面內文字方塊編輯器（新增、顯示錯誤、編輯既有）與選取方塊時的浮動格式工具列，淺色與深色各以 axe 檢查。
 - **fuzz**（`fuzz/fuzz_targets/text_box_font.rs`，見 [fuzzing.md](../security/fuzzing.md)）：字型的位元組經 `skrifa` 讀、`subsetter` 裁、放上頁面、渲染、存檔、重新開啟、搜尋的整條路；種子是 worker 附帶的 Droid Sans Fallback 與 runner 上的 TrueType 字型；每週 20 分鐘，修改相關檔案的 PR 跑 2 分鐘。
 - 為了不把字型放進 repo（AGENTS.md 原則 7），測試只用這台電腦與 CI 的 Windows 已有的字型；單元測試與整合測試用 worker 附帶的 Droid Sans Fallback（本來就在 repo 的相依套件裡）。
 
@@ -91,6 +92,15 @@
   - `WorkerEdit::InsertPages` 攜帶這批模型傳交 worker，由 worker 呼叫 `place_text_box` 重建。
   - 復原、重做與 worker 重啟（`WorkerEdit::of`）都使用主行程保管的同一批模型，確保重播結果完全一致。文件存檔後，來源副本與文字方塊模型一併釋放。
 
+## 頁面內編輯與浮動工具列（B7-08，#719）
+
+以直接在頁面上輸入取代原本的對話框（`InlineTextEditor.tsx`、`TextBoxToolbar.tsx`，元件與 FreeText 解耦以供後續頁面文字編輯重複使用）：
+
+- **單一編輯與復原**：`Edit::SetTextBox` 與 `WorkerEdit::SetTextBox` 增加選填 `rect: Option<Rect>`。編輯既有方塊而內容增高時，文字、樣式與新尺寸在同一次 `setTextBox` 編輯完成（不送 `setAnnotationRect` + `setTextBox` 兩次），保持同一 `AnnotationId`，`Ctrl+Z` 一次還原。
+- **遮蔽舊字不留髒檔**：編輯既有方塊時，呼叫 `render_page` 帶 `region` 與 `withoutAnnotations: true`，只重畫該矩形的頁面內容（含表單欄位，不含註解）蓋在舊字上，再於其上疊透明 `<textarea>`；不修改文件、不改未儲存狀態，結束即移除。
+- **與 worker 排版對齊**：`PreparedTextBox` 與 `TextBoxInfo` 多回傳 `lineStep`（千分之一 em）；前端 `<textarea>` 使用相同的 2 pt 內距、`lineStep / 1000` 行高、關閉 `font-synthesis`/`font-kerning`/`font-variant-ligatures`，並於打字開始後（400 ms 防抖）與切換字型時背景呼叫一次 `prepare_text_box` 取得實際 `lineStep`、`viewOnly` 與字型拒絕訊息。
+- **無法呈現的字型**：不傳字型檔位元組到前端（ADR 0018）；匯入字型或 WebView2 無法以該名稱呈現的字型（以離屏 canvas 量測與系統預設字型比對），打字時退回系統字型並於工具列以 `role="status"` 提示，完成後由 worker 以所選字型繪製嵌入。
+
 ## 尚未實作
-已做：worker 的字型子集、排版與外觀、契約（B2-28，見 [text-box-engine.md](text-box-engine.md)）；`prepare_text_box`、模型庫、復原與日誌（B2-29 第一部分）。移動、縮放、改字與樣式（B2-29 第二部分）。搜尋與選取（B2-29 第三部分）。畫面與輸入法（B2-30）。端對端與 fuzz（B2-31）。匯入字型檔（B2-32，#229）。合併插入頁面時文字方塊的字型退回與重建（B3-23，#338）。
+已做：worker 的字型子集、排版與外觀、契約（B2-28，見 [text-box-engine.md](text-box-engine.md)）；`prepare_text_box`、模型庫、復原與日誌（B2-29 第一部分）。移動、縮放、改字與樣式（B2-29 第二部分）。搜尋與選取（B2-29 第三部分）。畫面與輸入法（B2-30）。端對端與 fuzz（B2-31）。匯入字型檔（B2-32，#229）。合併插入頁面時文字方塊的字型退回與重建（B3-23，#338）。頁面內編輯與浮動工具列（B7-08，#719）。
 
