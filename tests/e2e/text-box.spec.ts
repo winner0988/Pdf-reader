@@ -310,8 +310,8 @@ test("an inline text box auto-grows without clipping, wraps consistently for Eng
     await bar.getByLabel(e.size, { exact: true }).fill("16");
     await bar.getByRole("radio", { name: e.colors.blue }).click();
     await inlineInput(page).fill(text);
-    // Wait for background prepare_text_box (400ms debounce) so lineStep matches the font.
-    await page.waitForTimeout(600);
+    // Wait for background prepare_text_box (400ms debounce + worker shaping) so lineStep matches the font.
+    await expect(page.locator("[data-inline-text-editor]")).toHaveAttribute("data-font-probed", "true");
     const linesBefore = await visualLinesWhileTyping(page);
     expect(linesBefore.length, `${label} should wrap onto multiple lines`).toBeGreaterThanOrEqual(2);
 
@@ -341,8 +341,13 @@ test("an inline text box auto-grows without clipping, wraps consistently for Eng
     await expect(page.locator("[data-move-resize]")).toHaveCount(0);
 
     // Drag across the entire box and copy to read the worker's actual line breaks.
+    // Ensure page text quads for the current document have arrived under the start point before mousedown.
+    const viewer = page.locator('[data-page-annotations="1"]').locator("..");
+    await expect(async () => {
+      await page.mouse.move(area.x + 2, area.y + 4);
+      await expect(viewer).toHaveCSS("cursor", "text");
+    }).toPass();
     const copied = await recordCopies(page);
-    await page.mouse.move(area.x + 2, area.y + 4);
     await page.mouse.down();
     await page.mouse.move(area.x + area.width - 2, area.y + area.height - 4, { steps: 10 });
     await page.mouse.up();

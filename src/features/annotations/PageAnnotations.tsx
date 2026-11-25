@@ -8,7 +8,7 @@
 // to change what it says.
 
 import { ChevronDown, Pencil, RotateCcw, RotateCw, Trash2 } from "lucide-react";
-import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -50,6 +50,7 @@ import {
   type AnnotationId,
   type DocumentId,
   type Edit,
+  type FontId,
   type FontInfo,
   type HighlightColor,
   type InkColor,
@@ -199,6 +200,12 @@ export function PageAnnotations({
       }
     }
   }, [chosen, loaded, inlineTarget]);
+
+  const prepareTextBox = api?.prepareTextBox;
+  const prepareProbe = useMemo(
+    () => (prepareTextBox ? (sample: string, fontId: FontId) => prepareTextBox(doc, sample, fontId) : undefined),
+    [prepareTextBox, doc],
+  );
 
   if (annotations.length === 0 && inlineTarget === null) return null;
   // Nothing is changed from the list of the document before an edit, and no editor starts from it:
@@ -437,9 +444,7 @@ export function PageAnnotations({
           lastFamily={inlineTextBox.lastFamily}
           clickClient={inlineTarget.kind === "edit" ? inlineTarget.clickClient : undefined}
           onRefreshFonts={api?.getFonts}
-          onPrepareProbe={
-            api?.prepareTextBox ? (sample, fontId) => api.prepareTextBox!(doc, sample, fontId) : undefined
-          }
+          onPrepareProbe={prepareProbe}
           onCommit={inlineTextBox.onSave}
           onCancel={inlineTextBox.onCancel}
           onUnmountFlush={(draft) => {

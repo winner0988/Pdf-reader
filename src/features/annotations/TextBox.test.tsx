@@ -373,6 +373,58 @@ describe("typing a new text box directly on the page (#719, B2-30)", () => {
     }
   });
 
+  it("cancels pending background probe when committing before debounce expires", async () => {
+    const prepare = vi.fn<NonNullable<AnnotationsApi["prepareTextBox"]>>(
+      () =>
+        new Promise((resolve) => {
+          window.setTimeout(() => resolve({ model: 7, viewOnly: false, lineStep: 1250 }), 550);
+        }),
+    );
+    const { editing, layer, toolButton, editor, pages, user } = await setup(ALL_PERMISSIONS, { prepare });
+    await user.click(toolButton());
+    fireEvent.pointerDown(layer()!, pointer(100, 100));
+    fireEvent.pointerUp(layer()!, pointer(100, 100));
+    const textarea = await editor();
+
+    fireEvent.change(textarea, { target: { value: "简体字测试" } });
+    // Commit before the 400ms probe debounce expires; prepare takes 550ms (> 400ms).
+    fireEvent.pointerDown(pages);
+
+    await waitFor(() => expect(editing.applyEdit).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(lastEdit(editing)).toMatchObject({ kind: "addTextBox", model: 7 });
+  });
+
+  it("serializes commit after an already in-flight background probe instead of calling prepare_text_box concurrently", async () => {
+    let resolveProbe!: (value: { model: number; viewOnly: boolean; lineStep: number }) => void;
+    const probePending = new Promise<{ model: number; viewOnly: boolean; lineStep: number }>((resolve) => {
+      resolveProbe = resolve;
+    });
+    const prepare = vi.fn<NonNullable<AnnotationsApi["prepareTextBox"]>>();
+    prepare.mockReturnValueOnce(probePending);
+    prepare.mockResolvedValueOnce({ model: 9, viewOnly: false, lineStep: 1250 });
+
+    const { editing, layer, toolButton, editor, pages, user } = await setup(ALL_PERMISSIONS, { prepare });
+    await user.click(toolButton());
+    fireEvent.pointerDown(layer()!, pointer(100, 100));
+    fireEvent.pointerUp(layer()!, pointer(100, 100));
+    const textarea = await editor();
+
+    fireEvent.change(textarea, { target: { value: "日本語のテスト" } });
+    // Wait for the debounced background probe to start and remain in flight.
+    await waitFor(() => expect(prepare).toHaveBeenCalledTimes(1), { timeout: 2000 });
+
+    // Commit while the probe is still in flight: must wait for it rather than overlapping.
+    fireEvent.pointerDown(pages);
+    await new Promise((resolve) => window.setTimeout(resolve, 30));
+    expect(prepare).toHaveBeenCalledTimes(1);
+
+    resolveProbe({ model: 1, viewOnly: false, lineStep: 1300 });
+    await waitFor(() => expect(editing.applyEdit).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(lastEdit(editing)).toMatchObject({ kind: "addTextBox", model: 9 });
+  });
+
   it("is disabled when author forbids annotations", async () => {
     const { annotationsApi, toolButton, pages, user } = await setup({ ...ALL_PERMISSIONS, annotate: false });
     expect(toolButton()).toBeDisabled();

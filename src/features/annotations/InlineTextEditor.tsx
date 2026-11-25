@@ -236,7 +236,17 @@ export function InlineTextEditor({
 
   const finishedRef = useRef(false);
   const committingRef = useRef(false);
+  const [probedFontId, setProbedFontId] = useState<FontId | null>(mode === "edit" ? (own?.id ?? null) : null);
   const probedFontIdRef = useRef<FontId | null>(mode === "edit" ? (own?.id ?? null) : null);
+  const probeTimerRef = useRef<number | null>(null);
+  const probeInFlightRef = useRef<Promise<unknown> | null>(null);
+
+  const clearPendingProbe = useCallback(() => {
+    if (probeTimerRef.current !== null) {
+      window.clearTimeout(probeTimerRef.current);
+      probeTimerRef.current = null;
+    }
+  }, []);
 
   const chosen = family === "" ? undefined : variantOf(fonts, family, bold, italic);
   const numericSize = Number(sizeText);
@@ -300,36 +310,48 @@ export function InlineTextEditor({
   const chosenId = chosen?.id ?? null;
   const chosenName = chosen?.name ?? "";
   useEffect(() => {
-    if (!onPrepareProbe || !hasText || chosenId === null) return;
+    if (!onPrepareProbe || !hasText || chosenId === null || busy) return;
     if (probedFontIdRef.current === chosenId) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
+      if (probeTimerRef.current === timer) probeTimerRef.current = null;
       const sample = noteText(latestRef.current.text);
-      if (sample === "" || cancelled) return;
-      onPrepareProbe(sample, chosenId).then(
-        (prepared) => {
-          if (cancelled) return;
-          probedFontIdRef.current = chosenId;
-          setLineStep(prepared.lineStep);
-          setViewOnlyFont(prepared.viewOnly ? chosenName : null);
-        },
-        (error: unknown) => {
-          if (cancelled) return;
-          const code = errorCodeOf(error);
-          // Missing glyphs are reported on commit with the complete text; font-level refusals
-          // (variable, colour, non-TrueType, non-embeddable, unavailable) are shown right away.
-          if (EARLY_FONT_ERRORS.has(code)) {
+      if (sample === "" || cancelled || committingRef.current || finishedRef.current) return;
+      const req = onPrepareProbe(sample, chosenId)
+        .then(
+          (prepared) => {
+            if (cancelled) return;
             probedFontIdRef.current = chosenId;
-            setProblem(strings.error.messages[code] ?? e.failed);
+            setProbedFontId(chosenId);
+            setLineStep(prepared.lineStep);
+            setViewOnlyFont(prepared.viewOnly ? chosenName : null);
+          },
+          (error: unknown) => {
+            if (cancelled) return;
+            const code = errorCodeOf(error);
+            // Missing glyphs are reported on commit with the complete text; font-level refusals
+            // (variable, colour, non-TrueType, non-embeddable, unavailable) are shown right away.
+            if (EARLY_FONT_ERRORS.has(code)) {
+              probedFontIdRef.current = chosenId;
+              setProbedFontId(chosenId);
+              setProblem(strings.error.messages[code] ?? e.failed);
+            }
+          },
+        )
+        .finally(() => {
+          if (probeInFlightRef.current === req) {
+            probeInFlightRef.current = null;
           }
-        },
-      );
+        });
+      probeInFlightRef.current = req;
     }, PREPARE_DEBOUNCE_MS);
+    probeTimerRef.current = timer;
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      if (probeTimerRef.current === timer) probeTimerRef.current = null;
     };
-  }, [onPrepareProbe, hasText, chosenId, chosenName]);
+  }, [onPrepareProbe, hasText, chosenId, chosenName, busy]);
 
   // Auto-grow box based on measured content width and wrapped height.
   const pixelsPerPoint = box.width / displayedSize(page, rotation).widthPt;
@@ -368,6 +390,7 @@ export function InlineTextEditor({
     async (options?: { restoreFocus?: boolean }): Promise<boolean> => {
       if (finishedRef.current) return true;
       if (committingRef.current) return false;
+      clearPendingProbe();
       const cur = latestRef.current;
       const cleaned = noteText(cur.text);
       const points = Number(cur.sizeText);
@@ -382,6 +405,7 @@ export function InlineTextEditor({
       if (mode === "edit" && cleaned === "") {
         committingRef.current = true;
         setBusy(true);
+        if (probeInFlightRef.current) await probeInFlightRef.current;
         const failed = await onCommit(
           { text: "", font: cur.chosen ?? null, style: { size: previewSize, color: cur.color, align: cur.align }, rect: cur.rect },
           options,
@@ -408,6 +432,9 @@ export function InlineTextEditor({
       committingRef.current = true;
       setBusy(true);
       setProblem(null);
+      // Wait for any in-flight probe to finish before commit calls `prepare_text_box`: the
+      // backend retains only one uncommitted model at a time, so overlapping calls can evict it.
+      if (probeInFlightRef.current) await probeInFlightRef.current;
       const failed = await onCommit(
         { text: cleaned, font: cur.chosen ?? null, style: { size: points, color: cur.color, align: cur.align }, rect: cur.rect },
         options,
@@ -421,7 +448,7 @@ export function InlineTextEditor({
       finishedRef.current = true;
       return true;
     },
-    [mode, onCancel, onCommit, previewSize],
+    [mode, onCancel, onCommit, previewSize, clearPendingProbe],
   );
 
   useImperativeHandle(ref, () => ({ commit }), [commit]);
@@ -515,6 +542,7 @@ export function InlineTextEditor({
     setFamily(next);
     setProblem(null);
     probedFontIdRef.current = null;
+    setProbedFontId(null);
     const settled = next === "" ? undefined : settleVariant(fonts, next, bold, italic);
     if (!settled) return;
     setVariantNote(
@@ -538,6 +566,7 @@ export function InlineTextEditor({
     setVariantNote(null);
     setProblem(null);
     probedFontIdRef.current = null;
+    setProbedFontId(null);
     setBold(asked.bold);
     setItalic(asked.italic);
   };
@@ -622,6 +651,7 @@ export function InlineTextEditor({
     <div
       ref={rootRef}
       data-inline-text-editor
+      data-font-probed={probedFontId !== null && probedFontId === chosenId ? "true" : undefined}
       className="pointer-events-none absolute inset-0 z-20"
       onKeyDown={handleContainerKeyDown}
     >
