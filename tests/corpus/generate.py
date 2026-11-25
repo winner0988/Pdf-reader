@@ -2703,6 +2703,46 @@ def benign_personal_data() -> bytes:
     return single_page_doc("personal-data", lines).build()
 
 
+def benign_layers_hidden() -> bytes:
+    """One page with visible text and a layer hidden via /D /OFF (#703)."""
+    doc = Document("layers-hidden")
+    doc.reserve_pages(1)
+    ocg = doc.pdf.add("<< /Type /OCG /Name (Hidden Layer) >>")
+    doc.catalog_extra = (
+        f" /OCProperties << /OCGs [{ocg} 0 R]"
+        f" /D << /BaseState /ON /OFF [{ocg} 0 R] /Order [{ocg} 0 R] >> >>"
+    )
+    doc.set_page(
+        0,
+        Page(
+            lines=[(72, 720, 20, "Document with a hidden layer.")],
+            extra_content=b"q /OC /OC1 BDC\n1 0 0 rg\n100 300 200 200 re f\nEMC Q\n",
+            resources=f"/Properties << /OC1 {ocg} 0 R >> ",
+        ),
+    )
+    return doc.build()
+
+
+def benign_layers_visible() -> bytes:
+    """One page with a visible layer containing a blue square (#703)."""
+    doc = Document("layers-visible")
+    doc.reserve_pages(1)
+    ocg = doc.pdf.add("<< /Type /OCG /Name (Visible Layer) >>")
+    doc.catalog_extra = (
+        f" /OCProperties << /OCGs [{ocg} 0 R]"
+        f" /D << /BaseState /ON /ON [{ocg} 0 R] /Order [{ocg} 0 R] >> >>"
+    )
+    doc.set_page(
+        0,
+        Page(
+            lines=[(72, 720, 20, "Document with a visible layer.")],
+            extra_content=b"q /OC /OC1 BDC\n0 0 1 rg\n100 300 200 200 re f\nEMC Q\n",
+            resources=f"/Properties << /OC1 {ocg} 0 R >> ",
+        ),
+    )
+    return doc.build()
+
+
 @dataclass
 class Sample:
     path: str
@@ -2893,6 +2933,14 @@ SAMPLES = [
            "the glyph index, as in old Ghostscript subsets (#629).",
            "Opens; the text is 'GLYPH INDEX'.", 1,
            text=[TRUETYPE_GLYPH_INDEX_TEXT]),
+    Sample("benign/layers-hidden.pdf", benign_layers_hidden,
+           "One page with visible text and a hidden layer turned off via /OCProperties /D /OFF (#703).",
+           "Opens; the hidden layer's red square is not rendered on its own, and shows after inserting into another file.",
+           1, text=["Document with a hidden layer."]),
+    Sample("benign/layers-visible.pdf", benign_layers_visible,
+           "One page with a layer visible by default containing a blue square (#703).",
+           "Opens; renders the blue square.",
+           1, text=["Document with a visible layer."]),
     # malicious
     Sample("malicious/js-document-level.pdf", malicious_js_document, "Document-level JavaScript in the names tree.",
            "No script runs; finding reported.", 1, ["javaScript"]),

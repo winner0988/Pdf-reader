@@ -562,6 +562,32 @@
       "sha256": "d6ac31bf97a3087475aff3e90f8e7405d928cc20614765ad31bee826fd5a09cc"
     },
     {
+      "path": "benign/layers-hidden.pdf",
+      "category": "benign",
+      "purpose": "One page with visible text and a hidden layer turned off via /OCProperties /D /OFF (#703).",
+      "expected": "Opens; the hidden layer's red square is not rendered on its own, and shows after inserting into another file.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Document with a hidden layer."
+      ],
+      "bytes": 955,
+      "sha256": "d107345b84ec0c81b6ff100437f7c422fda406f98e9f63c8a33141e40322ad75"
+    },
+    {
+      "path": "benign/layers-visible.pdf",
+      "category": "benign",
+      "purpose": "One page with a layer visible by default containing a blue square (#703).",
+      "expected": "Opens; renders the blue square.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Document with a visible layer."
+      ],
+      "bytes": 956,
+      "sha256": "43dbe213c22e4c08acd534cad2af075b14d6d7b3e32d706c4500565d46c3e449"
+    },
+    {
       "path": "malicious/js-document-level.pdf",
       "category": "malicious",
       "purpose": "Document-level JavaScript in the names tree.",

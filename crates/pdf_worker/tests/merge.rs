@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 use ipc_contract::limits::{MAX_INK_STROKES, MAX_SOURCE_BYTES, MAX_SOURCE_TEXT_BOXES};
 use ipc_contract::types::{
     AnnotationKind, DocumentId, ErrorCode, HighlightColor, HighlightMark, InkColor, InkWidth,
-    PageSize, Password, Point, Quad, Rect, Rgb, Shape, StampName, TextAlign, TextBoxStyle,
-    TextMarkKind,
+    PageSize, Password, Point, Quad, Rect, Rgb, Rotation, Shape, StampName, TextAlign,
+    TextBoxStyle, TextMarkKind,
 };
 use ipc_contract::worker::{
     FontData, InsertedTextBox, WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
@@ -2290,4 +2290,147 @@ fn replace_pages_saved_check_qpdf_and_replaced_content_removed() {
     }
 
     std::fs::remove_file(&path).ok();
+}
+
+fn rendered_page(host: &mut WorkerHost, doc: DocumentId, page_index: u32) -> Vec<u8> {
+    match host
+        .request(|request| WorkerRequest::Render {
+            request,
+            doc,
+            page_index,
+            scale: 1.0,
+            rotation: Rotation::None,
+        })
+        .expect("render")
+    {
+        WorkerResponse::Rendered { raster, .. } => raster.pixels,
+        other => panic!("{other:?}"),
+    }
+}
+
+fn count_nearly_red(rgba: &[u8]) -> usize {
+    rgba.chunks_exact(4)
+        .filter(|px| px[0] >= 240 && px[1] <= 15 && px[2] <= 15 && px[3] >= 240)
+        .count()
+}
+
+fn count_nearly_blue(rgba: &[u8]) -> usize {
+    rgba.chunks_exact(4)
+        .filter(|px| px[0] <= 15 && px[1] <= 15 && px[2] >= 240 && px[3] >= 240)
+        .count()
+}
+
+fn compare_hidden_layer_rendering(sample_name: &str) -> (usize, usize, usize, usize, usize) {
+    let mut host = host();
+
+    // (a) Render source document on its own.
+    let (src_doc, _) = opened(&mut host, &corpus(sample_name));
+    let own_red = count_nearly_red(&rendered_page(&mut host, src_doc, 0));
+
+    let (source_bytes, source_pages, _) = source(&mut host, sample_name, None).expect("source");
+    assert_eq!(source_pages, 1);
+
+    // (b) Insert into a document without layers (benign/single-page.pdf).
+    let (doc_b, _) = opened(&mut host, &corpus("benign/single-page.pdf"));
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: doc_b,
+        edit: WorkerEdit::InsertPages {
+            at: 1,
+            source: source_bytes.clone(),
+            text_boxes: Vec::new(),
+        },
+    })
+    .expect("insert into single-page");
+    let inserted_b_pixels = rendered_page(&mut host, doc_b, 1);
+    let inserted_b_red = count_nearly_red(&inserted_b_pixels);
+
+    let path_b =
+        std::env::temp_dir().join(format!("pdf-worker-{}-layers-b.pdf", std::process::id()));
+    let _ = std::fs::remove_file(&path_b);
+    let file_b = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path_b)
+        .expect("create b");
+    host.save(doc_b, &file_b).expect("save b");
+    drop(file_b);
+    common::check_qpdf(&path_b);
+    let mut host_b = self::host();
+    let (reopened_b, pages_b) = opened(&mut host_b, &path_b);
+    assert_eq!(pages_b.len(), 2);
+    let reopened_b_pixels = rendered_page(&mut host_b, reopened_b, 1);
+    assert_eq!(reopened_b_pixels, inserted_b_pixels);
+    std::fs::remove_file(&path_b).ok();
+
+    // (c) Insert into a document with its own visible layer (benign/layers-visible.pdf).
+    let (doc_c, _) = opened(&mut host, &corpus("benign/layers-visible.pdf"));
+    let blue_before = count_nearly_blue(&rendered_page(&mut host, doc_c, 0));
+    host.request(|request| WorkerRequest::Edit {
+        request,
+        doc: doc_c,
+        edit: WorkerEdit::InsertPages {
+            at: 1,
+            source: source_bytes,
+            text_boxes: Vec::new(),
+        },
+    })
+    .expect("insert into layers-visible");
+    let blue_after_insert = count_nearly_blue(&rendered_page(&mut host, doc_c, 0));
+    assert_eq!(blue_after_insert, blue_before);
+    let inserted_c_pixels = rendered_page(&mut host, doc_c, 1);
+    let inserted_c_red = count_nearly_red(&inserted_c_pixels);
+
+    let path_c =
+        std::env::temp_dir().join(format!("pdf-worker-{}-layers-c.pdf", std::process::id()));
+    let _ = std::fs::remove_file(&path_c);
+    let file_c = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path_c)
+        .expect("create c");
+    host.save(doc_c, &file_c).expect("save c");
+    drop(file_c);
+    common::check_qpdf(&path_c);
+    let mut host_c = self::host();
+    let (reopened_c, pages_c) = opened(&mut host_c, &path_c);
+    assert_eq!(pages_c.len(), 2);
+    assert_eq!(
+        count_nearly_blue(&rendered_page(&mut host_c, reopened_c, 0)),
+        blue_before
+    );
+    let reopened_c_pixels = rendered_page(&mut host_c, reopened_c, 1);
+    assert_eq!(reopened_c_pixels, inserted_c_pixels);
+    std::fs::remove_file(&path_c).ok();
+
+    (
+        own_red,
+        inserted_b_red,
+        inserted_c_red,
+        blue_before,
+        blue_after_insert,
+    )
+}
+
+#[test]
+fn hidden_layer_becomes_visible_when_inserted_into_another_document() {
+    let (own_red, b_red, c_red, blue_before, blue_after) =
+        compare_hidden_layer_rendering("benign/layers-hidden.pdf");
+    eprintln!(
+        "layers-hidden.pdf: own_red={own_red}, inserted_into_single_page_red={b_red}, inserted_into_layers_visible_red={c_red}, target_blue_before={blue_before}, target_blue_after={blue_after}"
+    );
+    assert_eq!(own_red, 0);
+    assert!(
+        b_red > 10_000,
+        "expected red square after inserting into single-page, got {b_red}"
+    );
+    assert!(
+        c_red > 10_000,
+        "expected red square after inserting into layers-visible, got {c_red}"
+    );
+    assert!(
+        blue_before > 10_000,
+        "expected target blue square, got {blue_before}"
+    );
+    assert_eq!(blue_after, blue_before);
 }
