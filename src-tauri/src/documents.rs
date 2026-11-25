@@ -24,12 +24,13 @@ use ipc_contract::types::{
     BatchOperation, BlockedAction, Certification, CompressResult, CreateKind, CreateResult,
     DocumentFonts, DocumentId, DocumentInfo, DocumentPermissions, DocumentProperties, Edit,
     EditArgs, ErrorCode, FindPersonalDataQuery, FontInfo, FormField, ImageQuality, IpcError,
-    LinkArgs, LinkPreview, LinkTarget, MarkCheck, NotRemembered, OpenEvent, OutlineLinkArgs,
-    OutlineResult, PageAnnotation, PageLink, PageMarksError, PageSize, PageText, PagesSource,
-    Password, PersonalDataMatches, PreparedTextBox, Recovery, RedactionSummary,
+    LinkArgs, LinkPreview, LinkTarget, MarkCheck, NewLinkTarget, NotRemembered, OpenEvent,
+    OutlineLinkArgs, OutlineResult, PageAnnotation, PageLink, PageMarksError, PageSize, PageText,
+    PagesSource, Password, PersonalDataMatches, PreparedTextBox, Recovery, RedactionSummary,
     RememberedPasswords, RemoteAddressArgs, RenderPageArgs, Restrictions, SanitizeOptions,
-    SanitizeResult, SaveAttachmentResult, SaveResult, SearchHit, SecurityReport, SignCheck,
-    SignatureReport, SignatureStatus, SourceId, StampImageInfo, TabId, TextBoxInfo, UnlockOutcome,
+    SanitizeResult, SaveAttachmentResult, SaveResult, SearchHit, SearchableCopyResult,
+    SecurityReport, SignCheck, SignatureReport, SignatureStatus, SourceId, StampImageInfo, TabId,
+    TextBoxInfo, UnlockOutcome,
 };
 use ipc_contract::validate::{
     Validate, check_page_index, check_prepared_text_boxes_count, check_text_box_text,
@@ -1163,6 +1164,54 @@ impl Documents {
         })
     }
 
+    /// Writes to `destination` a copy of `doc`, edits included, with invisible OCR text layers on
+    /// scanned pages that have already been recognised in the document's worker (B4-08, Issue #416,
+    /// ADR 0028). The document, its edits, its file, and recent files are not changed. Refused for
+    /// an encrypted document, for a signed one, and for the document's own file.
+    pub fn searchable_copy(
+        &self,
+        doc: DocumentId,
+        destination: &Path,
+    ) -> Result<SearchableCopyResult, IpcError> {
+        self.with_document(doc, |document| {
+            if document.info.encrypted {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "an encrypted document has no searchable copy".to_owned(),
+                });
+            }
+            if same_file(&document.path, destination) {
+                return Err(IpcError {
+                    code: ErrorCode::InvalidArgument,
+                    message: "the searchable copy never replaces the document's own file"
+                        .to_owned(),
+                });
+            }
+            saving::check_writable(destination)?;
+            let mut temporary = Temporary::new(destination)?;
+            let worker_doc = live_worker(document)?;
+            let response = document
+                .host
+                .searchable_copy(worker_doc, temporary.file())
+                .map_err(|error| lost_on(document, &error))?;
+            let WorkerResponse::Searchable {
+                bytes,
+                added_pages,
+                skipped,
+                ..
+            } = response
+            else {
+                return Err(unexpected_on(document, "SearchableCopy"));
+            };
+            temporary.check(bytes)?;
+            temporary.replace(destination)?;
+            Ok(SearchableCopyResult {
+                added_pages,
+                skipped,
+            })
+        })
+    }
+
     /// Writes a copy of `doc` to `destination`, edits included, encrypted with AES-256 (B2-15,
     /// docs/architecture/encrypt-copy.md), made by the document's worker: `open_password` opens
     /// it (none: anyone can), `owner_password` lifts `restrictions`. The passwords go to the
@@ -1708,6 +1757,7 @@ impl Documents {
                         scale: args.scale,
                         rotation: args.rotation,
                         region,
+                        without_annotations: args.without_annotations,
                     })?
                 }
                 None => {
@@ -2274,6 +2324,7 @@ impl Documents {
                 bytes,
                 pages,
                 security,
+                has_layers,
                 text_boxes,
                 ..
             } = response
@@ -2298,7 +2349,11 @@ impl Documents {
                     message: "too many files in the unsaved changes: save first".to_owned(),
                 })?;
             document.pending_source = None;
-            Ok(PagesSource { source, pages })
+            Ok(PagesSource {
+                source,
+                pages,
+                has_layers,
+            })
         })
     }
 
@@ -2498,6 +2553,7 @@ impl Documents {
                 return Err(unexpected("PrepareTextBox"));
             };
             let view_only = model.view_only;
+            let line_step = model.step;
             let model = document
                 .text_boxes
                 .add(model, document.history.all())
@@ -2505,7 +2561,11 @@ impl Documents {
                     code: ErrorCode::LimitExceeded,
                     message: "too many text boxes in the unsaved changes: save first".to_owned(),
                 })?;
-            Ok(PreparedTextBox { model, view_only })
+            Ok(PreparedTextBox {
+                model,
+                view_only,
+                line_step,
+            })
         })
     }
 
@@ -3227,7 +3287,11 @@ fn pages_after(
         | Edit::SetPictureAngle { page, .. }
         | Edit::AddShape { page, .. }
         | Edit::SetLineEnds { page, .. }
-        | Edit::SetShapeStyle { page, .. } => Some(vec![*page]),
+        | Edit::SetShapeStyle { page, .. }
+        | Edit::AddLink { page, .. } => Some(vec![*page]),
+        Edit::SetLinkTarget { link, .. } | Edit::DeleteLink { link, .. } => {
+            Some(vec![link.page_index])
+        }
         _ => None,
     };
     // Redaction (B2-19, ADR 0016) changes what the pages say, marks included: the author's
@@ -3292,6 +3356,17 @@ fn pages_after(
             .into_iter()
             .try_for_each(|page| check_page_index(page, page_count))
             .map_err(invalid_argument)?;
+        if let Edit::AddLink {
+            target: NewLinkTarget::Page { page },
+            ..
+        }
+        | Edit::SetLinkTarget {
+            target: NewLinkTarget::Page { page },
+            ..
+        } = edit
+        {
+            check_page_index(*page, page_count).map_err(invalid_argument)?;
+        }
         return Ok(page_count);
     }
     // Filling in a form (B2-09) has its own permission too (`/P` bit 9, or bit 6); the worker
@@ -3423,7 +3498,10 @@ fn pages_after(
         | Edit::DeleteBookmark { .. }
         | Edit::MoveBookmark { .. }
         | Edit::CropPages { .. }
-        | Edit::AddWatermark { .. } => Ok(page_count),
+        | Edit::AddWatermark { .. }
+        | Edit::AddLink { .. }
+        | Edit::SetLinkTarget { .. }
+        | Edit::DeleteLink { .. } => Ok(page_count),
     }
 }
 
@@ -4504,6 +4582,7 @@ mod with_worker {
             scale,
             rotation,
             region: None,
+            without_annotations: false,
         }
     }
 
@@ -4594,6 +4673,16 @@ mod with_worker {
             ErrorCode::InvalidArgument
         );
         assert_eq!(code(region(0, 0, 4097, 4096)), ErrorCode::InvalidArgument);
+        // `withoutAnnotations` is only valid with a `region` (B7-08).
+        let mut whole_no_annots = args(info.doc, 0, 1.0, Rotation::None);
+        whole_no_annots.without_annotations = true;
+        assert_eq!(code(whole_no_annots), ErrorCode::InvalidArgument);
+        let mut region_no_annots = region(0, 0, 200, 200);
+        region_no_annots.without_annotations = true;
+        assert_eq!(
+            size(&documents.render(&region_no_annots).unwrap()),
+            (200, 200)
+        );
         std::fs::remove_file(path).ok();
     }
 
@@ -5569,6 +5658,109 @@ mod with_worker {
             .compress_copy(info.doc, &copy, ImageQuality::Medium, None)
             .unwrap_err();
         assert_ne!(error.code, ErrorCode::Internal, "{error:?}");
+        assert!(!copy.exists());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn searchable_copy_writes_text_layer_and_does_not_record_recent_or_replace_original() {
+        let sample =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign/scanned-text.pdf");
+        let (documents, info, path) =
+            open_bytes("searchable-copy", &std::fs::read(sample).unwrap());
+        let before = std::fs::read(&path).unwrap();
+
+        // Run OCR on the open scanned document via the existing OcrLink path.
+        let bundled = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/tessdata");
+        let eng_data = std::fs::read(bundled.join("eng.traineddata")).unwrap();
+        let tab = documents.tab_of(info.doc).expect("tab");
+        assert!(documents.with_link(tab, &mut |link| {
+            link.load_language("eng", eng_data.clone()).unwrap();
+            assert_eq!(link.check_page(0).unwrap(), OcrPageState::Queued);
+        }));
+        let started = std::time::Instant::now();
+        let mut finished = false;
+        while !finished && started.elapsed() < std::time::Duration::from_secs(60) {
+            documents.with_link(tab, &mut |link| {
+                let (done, _) = link.poll().unwrap();
+                if !done.is_empty() {
+                    finished = true;
+                }
+            });
+            if !finished {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+        }
+        assert!(finished, "OCR did not finish in time");
+
+        // Refuses replacing the document's own file.
+        assert_eq!(
+            documents.searchable_copy(info.doc, &path).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+
+        let copy = path.with_file_name("searchable-copy-out.pdf");
+        std::fs::remove_file(&copy).ok();
+        let result = documents.searchable_copy(info.doc, &copy).unwrap();
+        assert_eq!(result.added_pages, 1);
+        assert!(result.skipped.is_empty());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        // Copy is not opened as a new tab and does not alter open tabs.
+        assert_eq!(documents.tabs().len(), 1);
+
+        // Reopen copy in a fresh Documents instance and confirm text is searchable without OCR.
+        let (verify_docs, copy_info, _) =
+            open_bytes("searchable-verify", &std::fs::read(&copy).unwrap());
+        let page_text = verify_docs.page_text(copy_info.doc, 0).unwrap();
+        assert!(!page_text.recognised);
+        let text: String = page_text
+            .lines
+            .iter()
+            .map(|l| l.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("PRIVACY FIRST"), "got {text:?}");
+
+        std::fs::remove_file(copy).ok();
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn an_encrypted_document_and_a_signed_one_have_no_searchable_copy() {
+        let copy = std::env::temp_dir().join(format!(
+            "pdf-reader-searchable-refused-{}.pdf",
+            std::process::id()
+        ));
+        std::fs::remove_file(&copy).ok();
+        let documents = Documents::new(worker());
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/encrypted-aes256.pdf");
+        let events = std::cell::RefCell::new(Vec::new());
+        let report = |event: OpenEvent| events.borrow_mut().push(event);
+        let [tab] = documents.add(&[path], &report)[..] else {
+            panic!("one tab")
+        };
+        documents.load(tab, &report);
+        documents
+            .unlock(tab, Password::new("user".to_owned()), false, &report)
+            .unwrap();
+        let Some(OpenEvent::Opened { info, .. }) = events.borrow().last().cloned() else {
+            panic!("opened")
+        };
+        assert_eq!(
+            documents.searchable_copy(info.doc, &copy).unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        assert!(!copy.exists());
+
+        let sample =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign/signed.pdf");
+        let (documents, info, path) =
+            open_bytes("searchable-signed", &std::fs::read(sample).unwrap());
+        assert_eq!(
+            documents.searchable_copy(info.doc, &copy).unwrap_err().code,
+            ErrorCode::Signed
+        );
         assert!(!copy.exists());
         std::fs::remove_file(path).ok();
     }
@@ -8219,6 +8411,26 @@ mod with_worker {
                 color: InkColor::Black,
                 width: InkWidth::Thin,
             },
+            Edit::AddLink {
+                page: 0,
+                rect,
+                target: NewLinkTarget::Page { page: 0 },
+            },
+            Edit::SetLinkTarget {
+                link: ipc_contract::types::LinkId {
+                    page_index: 0,
+                    index: 0,
+                },
+                target: NewLinkTarget::Uri {
+                    uri: "https://example.com/".to_owned(),
+                },
+            },
+            Edit::DeleteLink {
+                link: ipc_contract::types::LinkId {
+                    page_index: 0,
+                    index: 0,
+                },
+            },
         ] {
             assert_eq!(
                 documents
@@ -8233,6 +8445,143 @@ mod with_worker {
         }
         // Listing them is not editing them.
         assert!(documents.page_annotations(info.doc, 0).is_ok());
+    }
+
+    #[test]
+    fn link_edits_add_retarget_delete_and_reflect_in_preview() {
+        let (documents, info, path) = open("links-lifecycle", 3);
+        let mut doc = info.doc;
+        let rect = Rect {
+            x0: 50.0,
+            y0: 100.0,
+            x1: 200.0,
+            y1: 150.0,
+        };
+
+        // Initially no links
+        assert!(documents.page_links(doc, 0).unwrap().is_empty());
+
+        // Add a web link
+        let event = documents
+            .apply_edit(&EditArgs {
+                doc,
+                edit: Edit::AddLink {
+                    page: 0,
+                    rect,
+                    target: NewLinkTarget::Uri {
+                        uri: "https://example.com/first".to_owned(),
+                    },
+                },
+            })
+            .unwrap();
+        doc = opened_info(event).doc;
+
+        let links = documents.page_links(doc, 0).unwrap();
+        assert_eq!(links.len(), 1);
+        let link_id = links[0].id;
+        assert_eq!(
+            links[0].target,
+            LinkTarget::Uri {
+                uri: "https://example.com/first".to_owned()
+            }
+        );
+
+        // Preview checks out
+        let preview = documents
+            .link_preview(LinkArgs { doc, link: link_id })
+            .unwrap();
+        assert_eq!(preview.opens, "https://example.com/first");
+
+        // Retarget link to page 2
+        let event = documents
+            .apply_edit(&EditArgs {
+                doc,
+                edit: Edit::SetLinkTarget {
+                    link: link_id,
+                    target: NewLinkTarget::Page { page: 2 },
+                },
+            })
+            .unwrap();
+        doc = opened_info(event).doc;
+
+        let links_after = documents.page_links(doc, 0).unwrap();
+        assert_eq!(links_after.len(), 1);
+        match &links_after[0].target {
+            LinkTarget::Page { page_index, .. } => assert_eq!(*page_index, 2),
+            other => panic!("expected Page target, got {other:?}"),
+        }
+
+        // link_preview on page target returns InvalidArgument
+        assert_eq!(
+            documents
+                .link_preview(LinkArgs { doc, link: link_id })
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+
+        // Undo retarget -> returns to web link
+        stepped(&documents, &mut doc, true);
+        let links_undone = documents.page_links(doc, 0).unwrap();
+        assert_eq!(
+            links_undone[0].target,
+            LinkTarget::Uri {
+                uri: "https://example.com/first".to_owned()
+            }
+        );
+
+        // Redo -> returns to page 2
+        stepped(&documents, &mut doc, false);
+        let links_redone = documents.page_links(doc, 0).unwrap();
+        match &links_redone[0].target {
+            LinkTarget::Page { page_index, .. } => assert_eq!(*page_index, 2),
+            other => panic!("expected Page target, got {other:?}"),
+        }
+
+        // Delete link
+        let event = documents
+            .apply_edit(&EditArgs {
+                doc,
+                edit: Edit::DeleteLink { link: link_id },
+            })
+            .unwrap();
+        doc = opened_info(event).doc;
+
+        assert!(documents.page_links(doc, 0).unwrap().is_empty());
+
+        // Target page out of range
+        assert_eq!(
+            documents
+                .apply_edit(&EditArgs {
+                    doc,
+                    edit: Edit::AddLink {
+                        page: 0,
+                        rect,
+                        target: NewLinkTarget::Page { page: 10 },
+                    },
+                })
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+
+        // Source page out of range
+        assert_eq!(
+            documents
+                .apply_edit(&EditArgs {
+                    doc,
+                    edit: Edit::AddLink {
+                        page: 10,
+                        rect,
+                        target: NewLinkTarget::Page { page: 0 },
+                    },
+                })
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidArgument
+        );
+
+        std::fs::remove_file(path).ok();
     }
 
     /// A copy of the form sample in a file of its own, opened in a window of its own.
@@ -10095,6 +10444,23 @@ mod with_worker {
         let taken = documents
             .prepare_pages_source(info.doc, &corpus_path("benign/single-page.pdf"), None)
             .unwrap();
+        assert!(!taken.has_layers);
+        for layered in [
+            "benign/layers-hidden.pdf",
+            "benign/layers-visible.pdf",
+            "benign/layers-base-off.pdf",
+            "benign/layers-intent-design.pdf",
+            "benign/layers-ocmd-ve.pdf",
+        ] {
+            let layered_source = documents
+                .prepare_pages_source(info.doc, &corpus_path(layered), None)
+                .unwrap();
+            assert!(layered_source.has_layers, "{layered}");
+        }
+        let empty_layers = documents
+            .prepare_pages_source(info.doc, &corpus_path("benign/layers-empty-ocgs.pdf"), None)
+            .unwrap();
+        assert!(!empty_layers.has_layers);
         let refused = |at: u32, source| {
             documents
                 .apply_edit(&EditArgs {
@@ -10751,9 +11117,11 @@ mod with_worker {
                 annotation: id,
                 model: None,
                 style: red(),
+                rect: None,
             },
         );
         let second = documents.prepare_text_box(doc, "Goodbye", arial()).unwrap();
+        assert!((1_000..=2_000).contains(&second.line_step));
         edited_pages(
             &documents,
             &mut doc,
@@ -10762,6 +11130,7 @@ mod with_worker {
                 annotation: id,
                 model: Some(second.model),
                 style: red(),
+                rect: None,
             },
         );
         let says = |doc: DocumentId| {
@@ -10813,6 +11182,7 @@ mod with_worker {
                 annotation: id,
                 model: Some(second.model),
                 style: red(),
+                rect: None,
             },
         );
         drop(earlier);

@@ -82,7 +82,11 @@ export type PagesSource = { source: SourceId,
 /**
  * How many pages it has: all of them are inserted.
  */
-pages: number, };
+pages: number, 
+/**
+ * Whether the source file defines any layers (`/OCProperties /OCGs`) (#703).
+ */
+hasLayers: boolean, };
 
 /**
  * What the reader of an encrypted copy is not allowed to do (B2-15, docs/architecture/encrypt-copy.md),
@@ -566,7 +570,7 @@ export type LineEnds = { from: Point, to: Point, };
  * A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
  * those of the document as it is before the edit.
  */
-export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", markKind: TextMarkKind, marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "addTextBox", page: number, rect: Rect, model: TextBoxModelId, style: TextBoxStyle, } | { "kind": "setTextBox", page: number, annotation: AnnotationId, model: TextBoxModelId | null, style: TextBoxStyle, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setPictureAngle", page: number, annotation: AnnotationId, degrees: number, } | { "kind": "addShape", page: number, shape: Shape, color: InkColor, width: InkWidth, } | { "kind": "setLineEnds", page: number, annotation: AnnotationId, from: Point, to: Point, } | { "kind": "setShapeStyle", page: number, annotation: AnnotationId, color: InkColor, width: InkWidth, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" } | { "kind": "addRedaction", page: number, rect: Rect, } | { "kind": "addRedactionGroup", page: number, rects: Array<Rect>, } | { "kind": "applyRedactions" } | { "kind": "addBookmark", parent: BookmarkId | null, index: number, title: string, page: number, } | { "kind": "renameBookmark", id: BookmarkId, title: string, } | { "kind": "deleteBookmark", id: BookmarkId, } | { "kind": "moveBookmark", id: BookmarkId, parent: BookmarkId | null, index: number, } | { "kind": "cropPages", pages: Array<number>, margins: CropMargins, } | { "kind": "addWatermark", pages: Array<number>, watermark: Watermark, image: StampImageId | null, } | { "kind": "replacePages", first: number, count: number, source: SourceId, from: number, to: number, };
+export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", markKind: TextMarkKind, marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "addTextBox", page: number, rect: Rect, model: TextBoxModelId, style: TextBoxStyle, } | { "kind": "setTextBox", page: number, annotation: AnnotationId, model: TextBoxModelId | null, style: TextBoxStyle, rect?: Rect, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setPictureAngle", page: number, annotation: AnnotationId, degrees: number, } | { "kind": "addShape", page: number, shape: Shape, color: InkColor, width: InkWidth, } | { "kind": "setLineEnds", page: number, annotation: AnnotationId, from: Point, to: Point, } | { "kind": "setShapeStyle", page: number, annotation: AnnotationId, color: InkColor, width: InkWidth, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" } | { "kind": "addRedaction", page: number, rect: Rect, } | { "kind": "addRedactionGroup", page: number, rects: Array<Rect>, } | { "kind": "applyRedactions" } | { "kind": "addBookmark", parent: BookmarkId | null, index: number, title: string, page: number, } | { "kind": "renameBookmark", id: BookmarkId, title: string, } | { "kind": "deleteBookmark", id: BookmarkId, } | { "kind": "moveBookmark", id: BookmarkId, parent: BookmarkId | null, index: number, } | { "kind": "cropPages", pages: Array<number>, margins: CropMargins, } | { "kind": "addWatermark", pages: Array<number>, watermark: Watermark, image: StampImageId | null, } | { "kind": "replacePages", first: number, count: number, source: SourceId, from: number, to: number, } | { "kind": "addLink", page: number, rect: Rect, target: NewLinkTarget, } | { "kind": "setLinkTarget", link: LinkId, target: NewLinkTarget, } | { "kind": "deleteLink", link: LinkId, };
 
 /**
  * The kind of text markup annotation (B2-07, B4-04).
@@ -918,6 +922,40 @@ changed: number,
 partial: boolean, };
 
 /**
+ * Arguments of `searchable_copy` (B4-08, Issue #416, ADR 0028): the open document is written
+ * with an invisible OCR text layer on each recognised scanned page, to a file the user chooses
+ * next. Any other field is rejected.
+ */
+export type SearchableCopyArgs = { doc: DocumentId, };
+
+/**
+ * Why a page did not receive an invisible OCR text layer in a searchable copy (B4-08, ADR 0028).
+ */
+export type SearchableSkipReason = "notScan" | "failed" | "timedOut" | "noText";
+
+/**
+ * A page that did not receive an invisible text layer in `searchable_copy`, and why (B4-08).
+ */
+export type SearchableSkippedPage = { 
+/**
+ * 0-based page index.
+ */
+pageIndex: number, reason: SearchableSkipReason, };
+
+/**
+ * What `searchable_copy` wrote (B4-08, ADR 0028), for the dialog to report.
+ */
+export type SearchableCopyResult = { 
+/**
+ * Number of pages that received an invisible text layer.
+ */
+addedPages: number, 
+/**
+ * Pages that did not receive a text layer, in ascending page order, with reasons.
+ */
+skipped: Array<SearchableSkippedPage>, };
+
+/**
  * What to do with annotations when saving a sanitized copy (B3-15).
  */
 export type SanitizeAnnotations = "keep" | "remove" | "flatten";
@@ -957,6 +995,12 @@ export type CreateResult = { pages: number,
  * What the PDF was made of (that of the first file, when there are pictures).
  */
 kind: CreateKind, };
+
+/**
+ * Progress of making a PDF from images passed via Explorer's context menu (`--create-pdf-from`,
+ * B5-13). Paths never leave the main process (ADR 0008): the page only sees counts and outcomes.
+ */
+export type ExplorerCreateStatus = { "phase": "collecting", count: number, skipped: number, } | { "phase": "creating", count: number, skipped: number, } | { "phase": "done", pages: number, skipped: number, } | { "phase": "failed", code: ErrorCode, } | { "phase": "idle" };
 
 /**
  * What `check_for_updates` found (#64, ADR 0009). Versions are `major.minor.patch`; the latest
@@ -1056,7 +1100,11 @@ model: TextBoxModelId,
 /**
  * The font's licence lets a document with it be viewed and printed only: the page says so.
  */
-viewOnly: boolean, };
+viewOnly: boolean, 
+/**
+ * The distance between two lines, in thousandths of the font size (matches `TextBoxModel::step`).
+ */
+lineStep: number, };
 
 /**
  * What a text box says of itself (B2-29), from the page's worker: to fill in the dialog that
@@ -1072,7 +1120,11 @@ viewOnly: boolean,
 /**
  * The words do not fit the box: what is below is cut off.
  */
-overflow: boolean, };
+overflow: boolean, 
+/**
+ * The distance between two lines, in thousandths of the font size (matches `TextBoxModel::step`).
+ */
+lineStep: number, };
 
 /**
  * Kinds of active content or remote references found in a document (MVP-11).
@@ -1458,7 +1510,12 @@ scale: number, rotation: Rotation,
  * Only this part of the page (B3-09), at `scale` exactly; without it, the whole page, at a
  * lower scale if it does not fit the raster limits.
  */
-region?: RasterRegion, };
+region?: RasterRegion, 
+/**
+ * Draws only page contents and form widgets, leaving out annotations (B7-08).
+ * Only allowed together with `region`.
+ */
+withoutAnnotations?: boolean, };
 
 /**
  * A rectangle of a page's raster, in pixels from its top left corner (B3-09): the page at a
@@ -1479,6 +1536,14 @@ export type BlockedAction = "launch" | "remoteGoTo" | "embeddedGoTo" | "javaScri
  * tagged enums. See [`link_target_serde`].
  */
 export type LinkTarget = { "kind": "page", pageIndex: number, x: number | null, y: number | null, } | { "kind": "uri", uri: string, } | { "kind": "blocked", action: BlockedAction, target: string | null, };
+
+/**
+ * Where a newly added or retargeted link points to (B6-03, Issue #588).
+ *
+ * Handled like [`LinkTarget`]: postcard cannot deserialize internally tagged enums.
+ * See [`new_link_target_serde`].
+ */
+export type NewLinkTarget = { "kind": "page", page: number, } | { "kind": "uri", uri: string, };
 
 /**
  * Identifies a link reported by the worker, so the main process can look it up later
@@ -1659,7 +1724,7 @@ export type IpcError = { code: ErrorCode, message: string, };
  * the app. Every file gets its own tab (MVP-14): `Opening` adds it, then `Opened` or `Failed`
  * says how it went.
  */
-export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, canRemember: boolean, rememberedFailed: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, } | { "kind": "closeRequested", tabs: Array<TabId>, } | { "kind": "ocr", tab: TabId, progress: OcrProgress, } | { "kind": "ocrPage", tab: TabId, doc: DocumentId, pageIndex: number, } | { "kind": "captureProtection", state: CaptureProtection, };
+export type OpenEvent = { "kind": "dragHover", active: boolean, } | { "kind": "opening", tab: TabId, displayName: string, } | { "kind": "opened", tab: TabId, info: DocumentInfo, } | { "kind": "passwordNeeded", tab: TabId, displayName: string, wrong: boolean, canRemember: boolean, rememberedFailed: boolean, } | { "kind": "failed", tab: TabId, displayName: string, error: IpcError, } | { "kind": "tabLimit", ignoredFiles: number, } | { "kind": "closeRequested", tabs: Array<TabId>, } | { "kind": "ocr", tab: TabId, progress: OcrProgress, } | { "kind": "ocrPage", tab: TabId, doc: DocumentId, pageIndex: number, } | { "kind": "captureProtection", state: CaptureProtection, } | { "kind": "explorerCreate", status: ExplorerCreateStatus, };
 
 /**
  * The kind of file an annotation summary is written as (B3-18).
@@ -1916,6 +1981,7 @@ export const LIMITS = {
   maxInkStrokes: 256,
   maxInkPoints: 20000,
   minAnnotationSidePt: 8,
+  minLinkSidePt: 4,
   maxAnnotationsPerPage: 2000,
   maxSourceAnnotations: 10000,
   maxSourceTextBoxes: 1000,

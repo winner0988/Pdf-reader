@@ -147,7 +147,7 @@
     - 「匯入字型檔…」（settings.fonts.importButton）：開啟對話框選一個 TrueType 字型檔（`.ttf`、`.ttc`）；成功顯示 settings.fonts.importSuccess，被拒絕時顯示原因（settings.fonts.refused.*：讀不到、太大、不是字型檔、已匯入過、達到上限、不是 TrueType、可變字型、彩色字型、受限授權、沒有字元等）；
     - 匯入的字型列在下方，顯示原始檔名、字型家族與樣式，每筆有「移除」（settings.fonts.removeButton）；
     - 有匯入字型時顯示「清除全部…」（settings.fonts.removeAllButton），點擊後跳出二次確認對話框（settings.fonts.removeAllConfirmTitle / Description），確認後清除全部匯入字型；
-    - 文字方塊編輯對話框中的字型選單會包含已匯入字型，並附註「（已匯入）」。
+    - 文字方塊浮動工具列中的字型選單會包含已匯入字型（排在最前），並附註「（已匯入）」。
   - **這台電腦上保存的資料**：列出 settings.dataItems 與 settings.dataLocation。
   - 設定寫不進檔案時顯示 settings.saveFailed：仍然套用，但重新啟動後會回到之前的設定。
   - 保存方式見 [local-data.md](../architecture/local-data.md)。
@@ -488,26 +488,35 @@ app 在編輯途中當機、被強制結束或斷電時，下次開啟同一個�
 - 編輯失敗時，狀態列顯示 annotations.failed；未儲存的變更太多時顯示 pages.saveFirst。
 - 沒有開啟畫筆或印章的快捷鍵（可以從工具列的按鈕以鍵盤操作）。
 
-### 文字方塊（B2-30）
+### 文字方塊（B2-30、#719）
 
 文字方塊是頁面上的 `FreeText` 註解，字型以子集嵌入檔案，其他閱讀器也看得到。做法見 [text-box-engine.md](../architecture/text-box-engine.md)，字型清單見 [text-boxes.md](../architecture/text-boxes.md)。畫面只送字型的代號與樣式，永遠拿不到字型檔或路徑。
 
 - **放置**：
-  - 工具列的「文字方塊」按鈕（annotations.textBox，字母 T 的圖示，在印章按鈕右邊，開啟時是按下的狀態），狀態列顯示 annotations.textBoxOn；在頁面上點一下，以點擊處為中心放一個 240 × 48 點的方框（不夠就移到頁面內），同時開啟對話框，放下後工具自動結束；
-  - 工具開著時按 `Enter`，放在目前這一頁的中央（給不能使用滑鼠的人，焦點在頁面或這個按鈕上時；比照印章）；`Esc` 或再按一次按鈕結束；
-  - 頁面上按右鍵，功能表的「annotations.addTextBox」，放在按右鍵的地方。
-- **對話框**（新增：annotations.textBoxDialog.addTitle，改：annotations.textBoxDialog.editTitle）：
-  - 文字（多行；`Enter` 換行，`Ctrl+Enter` 儲存）；用輸入法組字時，`Enter`、`Ctrl+Enter` 與其他按鍵都是輸入法的，不儲存，也不觸發應用程式的快捷鍵（全域的快捷鍵遇到組字中的按鍵一律不作用）；
-  - 字型：下拉選單列出已安裝與已匯入字型的**家族**（每次開啟對話框都重新讀清單，匯入的字型排在最前並標示 annotations.textBoxDialog.importedBadge），旁邊的「粗體」「斜體」是同一家族的另一個字型；家族沒有那個變體時，說明 annotations.textBoxDialog.noBold／noItalic，按鈕不變，**不模擬**；換成沒有粗體或斜體的家族時，粗體或斜體會取消並同樣說明；選單下方一行說明 annotations.textBoxDialog.fontsHelp（可在設定匯入字型檔或在 Windows 安裝字型）；新的方塊一開始用上次的家族，沒有就用能顯示中日文的字型（微軟正黑體等），再沒有就用清單的第一個；
-  - 大小（點，4 到 288）、顏色（七個顏色與自訂顏色）、對齊（靠左、置中、靠右）；
-  - 儲存時畫面先請主行程準備文字與字型；字型不能用、字型沒有文字裡的某個字、文字需要字形變化（阿拉伯文、希伯來文、印度系文字、組合記號）、字型已不在，都在對話框裡顯示原因（錯誤碼的訊息：fontInvalid、fontNotTrueType、fontVariable、fontColour、fontNotEmbeddable、fontMissingGlyphs、textNotSupported、fontUnavailable），對話框不關，可以換字型再試；
-  - 字型的授權只允許檢視與列印時，方塊照樣加上，狀態列顯示 annotations.textBoxViewOnly；
-  - 空白、太長（4,096 位元組）、大小不對時，在對話框裡說明，不送出。
-- **選取、移動、縮放與刪除**沿用註解的操作：`Tab` 或點一下選取，周圍有八個控制點可以自由縮放（文字重新斷行），拖曳本體移動；選取後方向鍵移動 1 點、加 `Shift` 移動 10 點；`Delete` 刪除；小工具列顯示文字、「編輯文字方塊…」（annotations.editTextBox）與刪除。
-- **改文字與樣式**：小工具列的按鈕，或選取後按 `Enter`，開啟同一個對話框，從方塊現在的內容開始（文字、字型、大小、顏色、對齊）；只改樣式時不重新讀字型；改文字或字型時才重新準備；什麼都沒改就什麼都不送。方塊的字型這台電腦已經沒有時（解除安裝、換電腦），選單顯示 annotations.textBoxDialog.fontMissing，方塊照原樣顯示與列印，移動、縮放、改大小、顏色與對齊都照常；要改文字或換字型必須先選另一個字型（annotations.textBoxDialog.needFont）。文字超出方塊時，對話框提醒 annotations.textBoxDialog.overflow。
+  - 工具列的「文字方塊」按鈕（`annotations.textBox`，字母 T 的圖示，在印章按鈕右邊，開啟時是按下的狀態），狀態列顯示 `annotations.textBoxOn`；在頁面上點一下，立即在點擊處出現透明背景的頁面內輸入框與浮動格式工具列，並自動結束工具；若點在既有文字方塊上則直接進入編輯該方塊；
+  - 工具開著時按 `Enter`，在目前這一頁的中央開始頁面內打字（給不能使用滑鼠的人，焦點在頁面或這個按鈕上時；比照印章）；`Esc` 或再按一次按鈕結束；
+  - 頁面上按右鍵，功能表的 `annotations.addTextBox`（「在這裡新增文字方塊」），在按右鍵的地方開始頁面內打字。
+- **頁面內輸入與自動延伸**：
+  - 直接在頁面上打字（`<textarea>`，`aria-label` 為 `annotations.textBoxEditor.label`），`Enter` 換行；排版參數（內距 2 pt、行距來自 worker 回傳的 `lineStep`、不模擬粗斜體、關閉 kerning 與連字、嚴格換行規則）與 worker 對齊；
+  - 新方塊打字時自動向右延伸到頁緣留白處，再自動換行向下長高；編輯既有方塊或拖曳右側寬度把手（`annotations.textBoxEditor.resizeWidth`）後固定寬度並向下長高，不裁切輸入中的文字；
+  - 編輯既有方塊時，輸入框底下疊一層不畫註解的局部頁面渲染（`render_page` 帶 `region` 與 `withoutAnnotations: true`）遮住舊字並保留頁面原有內容，結束時移除；
+  - 用輸入法組字時，`Enter`、`Esc` 與其他按鍵皆保留給輸入法，不換行、不結束、也不觸發應用程式快捷鍵；方向鍵、`Home`、`End`、`Delete`、`Backspace`、`Ctrl+A`、`Ctrl+Z` 留在輸入框內。
+- **浮動格式工具列**（`role="toolbar"`，打字時位於方塊上方、空間不足時移至下方，選取既有方塊但未打字時亦顯示）：
+  - 字型：下拉選單列出已安裝與已匯入字型的**家族**（開啟選單時重新讀清單，匯入的字型排在最前並標示 `annotations.textBoxEditor.importedBadge`），旁邊的「粗體」「斜體」是同一家族的另一個字型；家族沒有那個變體時，說明 `annotations.textBoxEditor.noBold`／`noItalic`，按鈕不變，**不模擬**；換成沒有粗體或斜體的家族時，粗體或斜體會取消並同樣說明；選單下方一行說明 `annotations.textBoxEditor.fontsHelp`；新方塊沿用上次家族，沒有就用預設中日文字型（微軟正黑體等），再沒有就用清單第一個；
+  - 畫面無法直接呈現該字型時（例如已匯入字型不傳字型檔給前端，或 WebView2 找不到該家族名稱），打字時退回系統字型並以 `role="status"` 顯示 `annotations.textBoxEditor.fallbackFontNote`，結束後仍以所選字型繪製；
+  - 大小（點，4 到 288）、顏色（七個預設色票與自訂顏色）、對齊（靠左、置中、靠右）；`Tab`／`Shift+Tab` 在輸入框與工具列之間移動；
+  - 打入第一個字後（防抖 400 ms）與換字型時在背景呼叫一次 `prepare_text_box`，取回行距 `lineStep`、`viewOnly` 提示，並提早顯示被拒絕的字型（可變、彩色、非 TrueType、不可嵌入、已不在）；結束時用完整文字再準備一次，若缺字（`fontMissingGlyphs`）或超長（4,096 位元組）／大小不合法，以 `role="alert"` 顯示原因並維持編輯不結束；
+  - 字型授權僅允許檢視與列印時，方塊照樣加上，狀態列與工具列顯示 `annotations.textBoxViewOnly`。
+- **結束與套用**：點方塊與工具列以外的地方、`Esc`、切換工具、切換分頁、按 `Ctrl+S`／`Ctrl+Shift+S`（先套用再存檔）、關閉分頁／視窗，或頁面捲出虛擬捲動範圍時自動結束並套用：
+  - 空白的新方塊不送任何編輯；
+  - 清空既有方塊以一次 `deleteAnnotation` 刪除；
+  - 既有方塊的文字、樣式與自動延伸後的 `rect` 合併為單一次 `setTextBox` 編輯，一次 `Ctrl+Z` 完整復原；
+  - 以 `Esc` 結束編輯後焦點回到該文字方塊輪廓（#402）。
+- **選取、移動、縮放與刪除**沿用註解的操作：`Tab` 或點一下選取，周圍有八個控制點可以自由縮放（文字重新斷行），拖曳本體移動；選取後方向鍵移動 1 點、加 `Shift` 移動 10 點；`Delete` 刪除。選取狀態的浮動工具列可直接改大小、顏色、對齊（送單一次 `setTextBox`，`model: null`，不重讀字型）或換字型（準備並送單一次 `setTextBox`），並附「編輯文字方塊」（`annotations.editTextBox`）與刪除按鈕。
+- **再次編輯**：點擊「編輯文字方塊」、選取後按 `Enter`、連按兩下文字方塊，或開著文字方塊工具點該方塊，皆進入頁面內編輯；滑鼠進入時游標盡量落在點擊處，鍵盤進入時落在文末。方塊的原字型這台電腦已經沒有時，選單顯示 `annotations.textBoxEditor.fontMissing`，移動、縮放、改大小、顏色與對齊照常；改文字或換字型必須先選另一個字型（`annotations.textBoxEditor.needFont`）。文字超出方塊時提醒 `annotations.textBoxEditor.overflow`。
 - **作者不允許註解**時，按鈕與右鍵項目停用並說明；已有的方塊仍然顯示，但沒有控制點，也不能改。
 - 復原與重做、存檔、崩潰後還原都和別的註解一樣。
-- **搜尋與複製**：方塊裡的字用搜尋找得到（標示在方塊裡的位置），也能像頁面上的字一樣選取、複製；在方塊上點一下是**選取方塊**（為了移動與縮放），所以要選方塊裡的字，從字上**按住拖曳**；雙擊選字在已選取的方塊上不作用（控制點蓋住了字）。
+- **搜尋與複製**：方塊裡的字用搜尋找得到（標示在方塊裡的位置），也能像頁面上的字一樣選取、複製；在方塊上點一下是**選取方塊**，連按兩下是**進入編輯**，要選方塊裡的字從字上**按住拖曳**。
 - 沒有開啟文字方塊工具的快捷鍵（可以從工具列的按鈕以鍵盤操作）。
 
 ### 表單（B2-09）
@@ -820,6 +829,32 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | GoToE | 開啟內嵌文件 | 這個連結會開啟文件內嵌的其他文件，目前版本不支援。 |
 | SubmitForm | 表單傳送 | 這個連結會把表單內容送到網路或其他位置，因此不允許開啟。 |
 | ImportData | 匯入外部資料 | 這個連結會從其他檔案讀取資料，因此不允許開啟。 |
+
+### 加入與修改連結（B6-03）
+
+| 鍵 | 文字 |
+|---|---|
+| toolbar.link | 連結 |
+| toolbar.linkOn | 連結工具已開啟：在頁面上拖曳建立連結，或點選連結修改目標，按 Esc 結束。 |
+| links.addLink | 加入連結… |
+| links.editLink | 編輯 |
+| links.deleteLink | 刪除 |
+| links.crossPageNotAllowed | 連結不能跨頁，請在同一頁選取文字 |
+| links.addTitle | 加入連結 |
+| links.editTitle | 編輯連結 |
+| links.targetType | 目標類型 |
+| links.targetPage | 此文件的頁面 |
+| links.targetUri | 外部網址 |
+| links.pageNumber | 頁碼 |
+| links.pageNumberPlaceholder | 1 到 <總頁數> |
+| links.pageNumberError | 頁碼必須介於 1 到 <總頁數> 之間 |
+| links.uriLabel | 網址（http://、https:// 或 mailto:） |
+| links.uriPlaceholder | https://example.com |
+| links.uriError | 請輸入以 http://、https:// 或 mailto: 開頭的有效網址 |
+| links.save | 儲存 |
+| links.add | 加入 |
+| links.delete | 刪除連結 |
+| links.confirmDelete | 確定要刪除這個連結嗎？ |
 
 ### 已封鎖內容
 

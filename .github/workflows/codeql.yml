@@ -1,0 +1,64 @@
+name: CodeQL
+
+# Code scanning with CodeQL's advanced setup, in place of GitHub's default setup (#663): the
+# same languages, query suite (default), threat model (remote), build mode and runner. What
+# differs is that test code is not analyzed, so test passwords and other test literals raise
+# no alerts and do not turn the PR check red:
+#   - Rust: #[cfg(test)] modules and functions are not extracted (the rust entry of the matrix);
+#   - all languages: the paths in .github/codeql/codeql-config.yml are not scanned.
+# Production code is still analyzed by every query of the suite.
+# The default setup must be off in the repository settings: while it is on, code scanning
+# refuses the results this workflow uploads.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 4 * * 1" # Mondays 04:00 UTC: new CodeQL queries also look at code that did not change
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Upload the results to code scanning.
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+          - language: javascript-typescript
+          - language: python
+          - language: rust
+            # Extra CodeQL CLI options (CODEQL_ACTION_EXTRA_OPTIONS). The Rust extractor turns
+            # cfg(test) on unless told otherwise; its cargo_cfg_overrides option "-test" turns
+            # it off, so items under #[cfg(test)] are not extracted. With build-mode none the
+            # analyze step extracts the code with `codeql database trace-command`, so the
+            # option goes to that command.
+            extra-options: '{"database":{"trace-command":["--extractor-option=rust.cargo_cfg_overrides=-test"]}}'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          config-file: ./.github/codeql/codeql-config.yml
+      - uses: github/codeql-action/analyze@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        env:
+          CODEQL_ACTION_EXTRA_OPTIONS: ${{ matrix.extra-options }}
+        with:
+          category: "/language:${{ matrix.language }}"

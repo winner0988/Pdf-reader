@@ -506,6 +506,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 scan_complete: true,
                 remote_addresses: Vec::new(),
             },
+            has_layers: true,
             text_boxes: Vec::new(),
         },
         WorkerResponse::Source {
@@ -513,6 +514,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             bytes: b"%PDF-1.7\n%%EOF\n".to_vec(),
             pages: 1,
             security: SecurityReport::default(),
+            has_layers: false,
             text_boxes: vec![SourceTextBox {
                 page: 0,
                 rect: Rect {
@@ -689,6 +691,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
                 view_only: false,
                 overflow: true,
+                line_step: 1_150,
             },
         },
         WorkerResponse::Error {
@@ -748,6 +751,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 width: 2400,
                 height: 1600,
             },
+            without_annotations: false,
+        },
+        WorkerRequest::RenderRegion {
+            request,
+            doc,
+            page_index: 0,
+            scale: 2.0,
+            rotation: Rotation::None,
+            region: RasterRegion {
+                x: 100,
+                y: 200,
+                width: 300,
+                height: 80,
+            },
+            without_annotations: true,
         },
         WorkerRequest::RenderPng {
             request,
@@ -1239,6 +1257,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     color: Rgb { r: 0, g: 0, b: 0 },
                     align: TextAlign::Right,
                 },
+                rect: Some(Rect {
+                    x0: 72.0,
+                    y0: 72.0,
+                    x1: 372.0,
+                    y1: 150.0,
+                }),
             },
         },
         WorkerRequest::PrepareTextBox {

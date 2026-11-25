@@ -4,17 +4,17 @@
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use ipc_contract::limits::MAX_BATCH_FILES;
+use ipc_contract::limits::{MAX_BATCH_FILES, MAX_CREATE_SOURCES};
 use ipc_contract::types::{
     AddSignatureImageArgs, AnnotationId, AnnotationSummary, AnnotationSummaryFormat,
     AnnotationSummaryOutcome, AttachmentId, AttachmentInfo, BatchArgs, BatchEvent, BatchOperation,
     BatchReport, CaptureProtection, CompareExportFormat, CompareTextArgs, CompareTextResult,
-    CompressArgs, CompressResult, CreateResult, DecryptArgs, DocumentFonts, DocumentId,
-    DocumentInfo, DocumentProperties, EditArgs, EncryptArgs, ErrorCode,
+    CompressArgs, CompressResult, CreateKind, CreateResult, DecryptArgs, DocumentFonts, DocumentId,
+    DocumentInfo, DocumentProperties, EditArgs, EncryptArgs, ErrorCode, ExplorerCreateStatus,
     ExportAnnotationSummaryArgs, ExportArgs, ExportCompareTextArgs, ExportCompareTextOutcome,
     ExportEvent, ExportFormat, ExportXfdfArgs, FileRecordingArgs, FindPersonalDataQuery,
     FontImport, FontInfo, FormField, IndexSearchArgs, IndexSearchEvent, IpcError, LanguageImport,
@@ -24,11 +24,12 @@ use ipc_contract::types::{
     PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
     RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
     RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult, SearchArgs,
-    SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs, SignCheck,
-    SignResult, SignatureImage, SignatureImageArgs, SignatureReport, SigningFile, SigningFileKey,
-    SigningKey, SigningStoreKey, SpeakArgs, SpeechEvent, SpeechVoice, StampImageInfo,
-    StoreCertificate, TabId, TextBoxInfo, TextIndexStatus, UndoArgs, UnlockArgs, UnlockOutcome,
-    UnlockSourceArgs, UpdateCheck, WatermarkContent, XfdfOutcome,
+    SearchEvent, SearchableCopyArgs, SearchableCopyResult, SensitiveArgs, SensitiveFile,
+    SensitiveId, Settings, SignArgs, SignCheck, SignResult, SignatureImage, SignatureImageArgs,
+    SignatureReport, SigningFile, SigningFileKey, SigningKey, SigningStoreKey, SpeakArgs,
+    SpeechEvent, SpeechVoice, StampImageInfo, StoreCertificate, TabId, TextBoxInfo,
+    TextIndexStatus, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
+    WatermarkContent, XfdfOutcome,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use ipc_contract::worker::{NewSignature, VisibleSignature};
@@ -43,6 +44,7 @@ use crate::compare;
 use crate::create_pdf;
 use crate::documents::{self, Documents};
 use crate::events::OpenEvents;
+use crate::explorer_create::{ExplorerCreate, ReadyBatch};
 use crate::export::{self, Exports, ImageKind};
 use crate::file_dialog;
 use crate::font_jobs::FontJobs;
@@ -69,6 +71,7 @@ pub async fn subscribe_open_events(
         let documents = app.state::<Documents>();
         let ocr = app.state::<Arc<Ocr>>();
         let capture = app.state::<CaptureGuard>().state();
+        let explorer_create = app.state::<ExplorerCreate>().snapshot();
         app.state::<OpenEvents>().subscribe(on_event, || {
             let mut events = Vec::new();
             if capture != CaptureProtection::Off {
@@ -76,6 +79,9 @@ pub async fn subscribe_open_events(
             }
             events.extend(documents.snapshot());
             events.extend(ocr.snapshot());
+            if let Some(event) = explorer_create {
+                events.push(event);
+            }
             events
         });
         Ok(())
@@ -1739,6 +1745,57 @@ pub async fn compress_images(
     Ok(Some(result))
 }
 
+/// Writes a copy of the document with invisible OCR text layers on scanned pages (B4-08, Issue
+/// #416, ADR 0028) where the user says in the system's save dialog, never over the document's own
+/// file. `None` when the user closes the dialog; else what was done. The document itself does not
+/// change, and the copy is neither opened nor added to recent files.
+#[tauri::command]
+pub async fn searchable_copy(
+    app: AppHandle,
+    window: WebviewWindow,
+    args: SearchableCopyArgs,
+) -> Result<Option<SearchableCopyResult>, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let doc = args.doc;
+    let info = app
+        .state::<Documents>()
+        .document_info(doc)
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        })?;
+    if info.encrypted {
+        return Err(IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "an encrypted document has no searchable copy".to_owned(),
+        });
+    }
+    let file_name = strings::searchable_copy_file_name(&export::stem(&info.display_name));
+    let destination = loop {
+        let Some(path) = file_dialog::searchable_copy_file(&window, file_name.clone()).await?
+        else {
+            return Ok(None);
+        };
+        if !app.state::<Documents>().is_document_file(doc, &path) {
+            break path;
+        }
+        rfd::AsyncMessageDialog::new()
+            .set_level(rfd::MessageLevel::Info)
+            .set_title(strings::SEARCHABLE_COPY_SAME_FILE_TITLE)
+            .set_description(strings::SEARCHABLE_COPY_SAME_FILE_MESSAGE)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .set_parent(&window)
+            .show()
+            .await;
+    };
+    let result =
+        blocking(move || app.state::<Documents>().searchable_copy(doc, &destination)).await?;
+    Ok(Some(result))
+}
+
 /// Whether the document can be signed (B3-06, ADR 0020, docs/architecture/signing.md): asked
 /// when the signing dialog opens.
 #[tauri::command]
@@ -2136,39 +2193,23 @@ pub(crate) fn unguessable_password() -> Result<Password, IpcError> {
     ))
 }
 
-/// Set while a PDF is being made of files (B3-03), from the open dialog to the end.
-static CREATING: AtomicBool = AtomicBool::new(false);
+/// Held while a PDF is being made of files (B3-03 / B5-13), so only one creation runs at a time.
+/// The in-app `create_pdf` command uses `try_lock` (returning `Ok(None)` immediately if busy),
+/// while Explorer-initiated batches wait in turn with `lock().await`.
+static CREATE_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
 
-/// Makes a PDF of files the user picks (B3-03, docs/architecture/create-pdf.md): the system's open
-/// dialog for the files (pictures, a web page, a text, a book, an XPS file, an SVG picture or an
-/// Office file; several pictures can go together, any other kind alone), then the save dialog for
-/// the PDF, never over one of the files. A sandboxed worker reads the files and makes the PDF; it
-/// then opens in a tab. Paths stay in the main process. `None` when the user closes either dialog,
-/// or when a PDF is already being made.
-#[tauri::command]
-pub async fn create_pdf(
-    app: AppHandle,
-    window: WebviewWindow,
+/// Saves and opens a PDF made from already-validated `sources` (shared between `create_pdf` and
+/// Explorer's `--create-pdf-from`, B3-03 / B5-13). Caller must hold [`CREATE_LOCK`].
+async fn create_pdf_from_sources(
+    app: &AppHandle,
+    window: &WebviewWindow,
+    sources: Vec<(PathBuf, CreateKind)>,
 ) -> Result<Option<CreateResult>, IpcError> {
-    if CREATING.swap(true, Ordering::SeqCst) {
-        return Ok(None);
-    }
-    struct Creating;
-    impl Drop for Creating {
-        fn drop(&mut self) {
-            CREATING.store(false, Ordering::SeqCst);
-        }
-    }
-    let _creating = Creating;
-
-    let Some(picked) = file_dialog::pick_sources(&window).await? else {
-        return Ok(None);
-    };
-    let sources = create_pdf::sources_of(picked)?;
     let file_name =
         strings::created_pdf_file_name(&export::stem(&documents::display_name(&sources[0].0)));
     let destination = loop {
-        let Some(path) = file_dialog::save_created_pdf_file(&window, file_name.clone()).await?
+        let Some(path) = file_dialog::save_created_pdf_file(window, file_name.clone()).await?
         else {
             return Ok(None);
         };
@@ -2183,7 +2224,7 @@ pub async fn create_pdf(
             .set_title(strings::CREATE_PDF_SAME_FILE_TITLE)
             .set_description(strings::CREATE_PDF_SAME_FILE_MESSAGE)
             .set_buttons(rfd::MessageButtons::Ok)
-            .set_parent(&window)
+            .set_parent(window)
             .show()
             .await;
     };
@@ -2191,8 +2232,107 @@ pub async fn create_pdf(
         let (app, destination) = (app.clone(), destination.clone());
         blocking(move || app.state::<Documents>().create_pdf(&sources, &destination)).await?
     };
-    open_paths(&app, vec![destination]);
+    open_paths(app, vec![destination]);
     Ok(Some(created))
+}
+
+/// Runs one settled batch of images from Explorer's context menu (`--create-pdf-from`, B5-13, #450)
+/// through the shared PDF creation flow, showing native notices for over-limit or skipped files
+/// before the save dialog.
+pub async fn create_pdf_from_explorer(
+    app: &AppHandle,
+    batch: ReadyBatch,
+    on_status: impl Fn(ExplorerCreateStatus),
+) -> ExplorerCreateStatus {
+    let _guard = CREATE_LOCK.lock().await;
+    background::show_window(app);
+    let Some(window) = app.get_webview_window("main") else {
+        return ExplorerCreateStatus::Idle;
+    };
+
+    if batch.too_many {
+        on_status(ExplorerCreateStatus::Idle);
+        rfd::AsyncMessageDialog::new()
+            .set_level(rfd::MessageLevel::Warning)
+            .set_title(strings::EXPLORER_CREATE_TOO_MANY_TITLE)
+            .set_description(strings::explorer_create_too_many_message(
+                MAX_CREATE_SOURCES,
+            ))
+            .set_buttons(rfd::MessageButtons::Ok)
+            .set_parent(&window)
+            .show()
+            .await;
+        return ExplorerCreateStatus::Idle;
+    }
+
+    if batch.files.is_empty() {
+        on_status(ExplorerCreateStatus::Idle);
+        if batch.skipped > 0 {
+            rfd::AsyncMessageDialog::new()
+                .set_level(rfd::MessageLevel::Info)
+                .set_title(strings::EXPLORER_CREATE_ALL_SKIPPED_TITLE)
+                .set_description(strings::explorer_create_all_skipped_message(batch.skipped))
+                .set_buttons(rfd::MessageButtons::Ok)
+                .set_parent(&window)
+                .show()
+                .await;
+        }
+        return ExplorerCreateStatus::Idle;
+    }
+
+    let count = u32::try_from(batch.files.len()).unwrap_or(u32::MAX);
+    let skipped = u32::try_from(batch.skipped).unwrap_or(u32::MAX);
+    on_status(ExplorerCreateStatus::Creating { count, skipped });
+
+    if batch.skipped > 0 {
+        rfd::AsyncMessageDialog::new()
+            .set_level(rfd::MessageLevel::Info)
+            .set_title(strings::EXPLORER_CREATE_SKIPPED_TITLE)
+            .set_description(strings::explorer_create_skipped_message(
+                batch.skipped,
+                batch.files.len(),
+            ))
+            .set_buttons(rfd::MessageButtons::Ok)
+            .set_parent(&window)
+            .show()
+            .await;
+    }
+
+    let sources = match create_pdf::sources_of(batch.files) {
+        Ok(sources) => sources,
+        Err(error) => return ExplorerCreateStatus::Failed { code: error.code },
+    };
+
+    match create_pdf_from_sources(app, &window, sources).await {
+        Ok(Some(created)) => ExplorerCreateStatus::Done {
+            pages: created.pages,
+            skipped,
+        },
+        Ok(None) => ExplorerCreateStatus::Idle,
+        Err(error) => ExplorerCreateStatus::Failed { code: error.code },
+    }
+}
+
+/// Makes a PDF of files the user picks (B3-03, docs/architecture/create-pdf.md): the system's open
+/// dialog for the files (pictures, a web page, a text, a book, an XPS file, an SVG picture or an
+/// Office file; several pictures can go together, any other kind alone), then the save dialog for
+/// the PDF, never over one of the files. A sandboxed worker reads the files and makes the PDF; it
+/// then opens in a tab. Paths stay in the main process. `None` when the user closes either dialog,
+/// or when a PDF is already being made.
+#[tauri::command]
+pub async fn create_pdf(
+    app: AppHandle,
+    window: WebviewWindow,
+) -> Result<Option<CreateResult>, IpcError> {
+    let Ok(_guard) = CREATE_LOCK.try_lock() else {
+        return Ok(None);
+    };
+
+    let Some(picked) = file_dialog::pick_sources(&window).await? else {
+        return Ok(None);
+    };
+    let sources = create_pdf::sources_of(picked)?;
+    create_pdf_from_sources(&app, &window, sources).await
 }
 
 /// Asks for a picture (PNG or JPEG) in the system's open dialog and makes it into what a stamp

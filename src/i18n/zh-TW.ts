@@ -2,7 +2,7 @@
 // Source of truth for wording: docs/ux/screen-map.md, section 8.
 
 import type { ErrorCode, FindingKind } from "@/features/shell/model";
-import type { BlockedAction, NotRemembered } from "@/ipc/generated/contract";
+import type { BlockedAction, NotRemembered, SearchableSkipReason } from "@/ipc/generated/contract";
 
 export const strings = {
   appName: "PDF Reader",
@@ -215,6 +215,14 @@ export const strings = {
       cancel: "取消",
       wrong: "密碼不正確，請再試一次。",
     },
+    /** The source PDF defines layers: all of them become visible once inserted (#703). */
+    sourceLayers: {
+      title: "這份檔案有圖層",
+      description: "這份有圖層，插入後會全部顯示，原本隱藏的也是。",
+      detail: "app 還不能切換圖層；插入之後可以先看過新的頁面，不要就按「復原」（Ctrl+Z），存檔之前都可以。",
+      confirm: "插入",
+      cancel: "取消",
+    },
     replace: {
       title: "取代頁面",
       prompt: (first: number, last: number, sourcePages: number) =>
@@ -230,6 +238,8 @@ export const strings = {
       previewTitle: (total: number) => `取代之後共 ${total} 頁：`,
       previewOriginal: (newRange: string, origRange: string) => `第 ${newRange} 頁：原本的第 ${origRange} 頁`,
       previewSource: (newRange: string, srcRange: string) => `第 ${newRange} 頁：選的檔案的第 ${srcRange} 頁`,
+      layersWarning:
+        "這份有圖層，取代後會全部顯示，原本隱藏的也是。app 還不能切換圖層；取代之後可以先看過新的頁面，不要就按「復原」（Ctrl+Z），存檔之前都可以。",
       confirm: "取代",
       cancel: "取消",
     },
@@ -432,20 +442,18 @@ export const strings = {
       empty: "請輸入附註內容。",
       tooLong: "附註太長了，請縮短一些。",
     },
-    /** The text box tool and its dialog (B2-30). */
+    /** The text box tool and its inline editor (B2-30, #719). */
     textBox: "文字方塊",
-    textBoxOn: "文字方塊已開啟：在頁面上點一下放置（或按 Enter 放在這一頁的中央），按 Esc 結束。",
-    addTextBox: "在這裡新增文字方塊…",
-    editTextBox: "編輯文字方塊…",
+    textBoxOn: "文字方塊已開啟：在頁面上點一下直接打字（或按 Enter 放在這一頁的中央），按 Esc 結束。",
+    addTextBox: "在這裡新增文字方塊",
+    editTextBox: "編輯文字方塊",
     notOnPageForBox: "請在頁面上按右鍵，才能新增文字方塊。",
     fontsFailed: "無法讀取這台電腦的字型清單，請再試一次。",
     textBoxViewOnly: (font: string) =>
       `字型「${font}」的授權只允許檢視與列印：文字方塊已加上，但別的軟體可能不讓人編輯它。`,
-    textBoxDialog: {
-      addTitle: "新增文字方塊",
-      editTitle: "編輯文字方塊",
-      loading: "正在讀取字型…",
-      text: "文字",
+    textBoxEditor: {
+      label: "文字方塊內容",
+      toolbarLabel: "文字方塊格式",
       font: "字型",
       /** The font a box was made with, when this computer has no such font any more. */
       fontMissing: (name: string) => `${name}（這台電腦找不到）`,
@@ -456,6 +464,7 @@ export const strings = {
       italic: "斜體",
       noBold: (family: string) => `「${family}」沒有粗體，不會用假的粗體。`,
       noItalic: (family: string) => `「${family}」沒有斜體，不會用假的斜體。`,
+      fallbackFontNote: (family: string) => `打字時暫時以系統字型顯示，完成後會以「${family}」繪製。`,
       size: "大小（點）",
       sizeRange: (least: number, most: number) => `大小要在 ${least} 到 ${most} 點之間。`,
       color: "顏色",
@@ -471,14 +480,10 @@ export const strings = {
       },
       align: "對齊",
       aligns: { left: "靠左", center: "置中", right: "靠右" },
-      save: "儲存",
-      working: "正在處理…",
-      cancel: "取消",
-      empty: "請輸入文字。",
       tooLong: "文字太長了，請縮短一些。",
       needFont: "原來的字型在這台電腦找不到：要改文字或字型，請先選另一個字型。",
       overflow: "文字比方塊大，超出的部分會被裁掉：請放大方塊或縮小字。",
-      hint: "按 Ctrl+Enter 儲存；用輸入法組字時 Enter 只是確認選字。",
+      resizeWidth: "調整文字方塊寬度",
       failed: "無法儲存文字方塊，請再試一次。",
     },
   },
@@ -1009,6 +1014,15 @@ export const strings = {
     cancel: "取消",
     running: "正在建立 PDF…",
     done: (pages: number) => `已建立 ${pages} 頁的 PDF，並在新分頁開啟。`,
+    explorerCollecting: (count: number, skipped: number) =>
+      skipped > 0
+        ? count > 0
+          ? `正在收集圖片（已收到 ${count} 張，略過 ${skipped} 個檔案）…`
+          : `正在收集圖片（已略過 ${skipped} 個檔案）…`
+        : `正在收集圖片（已收到 ${count} 張）…`,
+    explorerCreating: (count: number) => `正在從 ${count} 張圖片建立 PDF…`,
+    explorerDoneSkipped: (pages: number, skipped: number) =>
+      `已建立 ${pages} 頁的 PDF，並在新分頁開啟（已略過 ${skipped} 個檔案）。`,
     /** Why it failed, for the codes that mean something here; any other code has its general text. */
     failures: {
       invalidArgument:
@@ -1153,6 +1167,27 @@ export const strings = {
     noTextLayer: "這一頁沒有文字層，無法選取文字。",
   },
   links: {
+    tool: "連結",
+    toolOn: "連結工具已開啟：在頁面上點一下或拖曳放置連結，或點擊現有連結進行編輯，按 Esc 結束。",
+    addLink: "在這裡新增連結…",
+    editLink: "編輯連結…",
+    deleteLink: "刪除連結",
+    crossPageNotAllowed: "無法跨頁建立連結",
+    addTitle: "新增連結",
+    editTitle: "編輯連結",
+    targetType: "連結目標",
+    targetPage: "文件內頁面",
+    targetUri: "網址或電子郵件",
+    pageNumber: "頁碼",
+    pageNumberPlaceholder: (total: number) => `1 至 ${total}`,
+    pageNumberError: (total: number) => `頁碼必須介於 1 到 ${total} 之間`,
+    uriLabel: "網址或郵件位址",
+    uriPlaceholder: "https://example.com 或 mailto:user@example.com",
+    uriError: "網址必須以 http://、https:// 或 mailto: 開頭，且不可包含空白",
+    save: "儲存",
+    add: "新增",
+    delete: "刪除",
+    confirmDelete: "確定要刪除這個連結嗎？",
     hoverPage: (page: number) => `前往第 ${page} 頁`,
     hoverBlocked: (reason: string) => `已封鎖：${reason}`,
     confirmTitle: "要開啟外部連結嗎？",
@@ -1383,6 +1418,7 @@ export const strings = {
     batch: "批次處理…",
     searchAll: "在所有文件中搜尋…",
     createPdf: "從檔案建立 PDF…",
+    searchableCopy: "另存為可搜尋的 PDF…",
     dontRecord: "不記錄此檔案",
     markSensitive: "標記為機敏…",
     unmarkSensitive: "取消機敏標記…",
@@ -1510,6 +1546,46 @@ export const strings = {
         tooMany: "匯入的語言已經太多，請先移除一些。",
       },
       failed: "無法完成，請再試一次。",
+    },
+    /** Saving a copy with invisible OCR text layers (B4-08, Issue #416, ADR 0028). */
+    searchable: {
+      title: "另存為可搜尋的 PDF",
+      description:
+        "為掃描頁加上隱藏文字層並另存成新的 PDF，讓其他 PDF 閱讀器也能搜尋與複製文字。原本的檔案不會改變，新檔案也不會開啟或加入最近開啟的檔案。",
+      languageLabel: "辨識語言",
+      pagesLabel: "頁面",
+      pagesSummary: (total: number) =>
+        `共 ${total} 頁（僅辨識沒有文字層的掃描頁，已有文字層的頁面維持原樣）`,
+      pagesDoneSummary: (total: number) =>
+        `共 ${total} 頁，這份文件的掃描頁已完成文字辨識，可直接另存。`,
+      note: "文字層會使用透明字型疊在原頁面上，畫面外觀與原檔相同；直排文字不會寫入文字層。",
+      encryptedReason: "這份文件已加密，無法另存為可搜尋的 PDF（重寫檔案無法保留原本的加密設定）。",
+      signedReason: "這份文件有數位簽章，無法另存為可搜尋的 PDF（寫入文字層會讓簽章失效）。",
+      stillWorksInApp:
+        "在 PDF Reader 中仍然可以對掃描頁執行文字辨識與搜尋（結果僅留在記憶體中，不改動檔案）。",
+      recognisingScans: (done: number, scans: number, checked: number, total: number) =>
+        `正在辨識掃描頁：${done} / ${scans} 頁（已檢查 ${checked} / ${total} 頁）…`,
+      checkingPages: (checked: number, total: number) => `正在檢查頁面：${checked} / ${total} 頁…`,
+      saving: "正在寫入文字層並另存新檔…",
+      start: "開始辨識並另存…",
+      startSave: "選擇位置並另存…",
+      cancel: "取消",
+      /** Not "關閉": the dialog's corner button already has that name. */
+      ok: "確定",
+      doneButton: "完成",
+      doneTitle: "已另存為可搜尋的 PDF",
+      doneAdded: (pages: number) =>
+        `已為 ${pages} 頁加上隱藏文字層並另存成新檔。原本的檔案沒有改變。`,
+      doneNoneAdded: "已另存副本，但沒有頁面加上新的文字層。原本的檔案沒有改變。",
+      skippedTitle: "以下頁面未加上文字層：",
+      skippedPage: (page: number, reason: string) => `第 ${page} 頁：${reason}`,
+      skipReasons: {
+        notScan: "原本就有文字層或不是掃描頁",
+        noText: "未辨識出文字",
+        timedOut: "文字辨識逾時",
+        failed: "文字辨識失敗",
+      } satisfies Record<SearchableSkipReason, string>,
+      failed: "無法另存為可搜尋的 PDF，請再試一次。",
     },
   },
   settings: {
@@ -1828,6 +1904,7 @@ export const strings = {
       setDefault: ["預設程式", "設為預設 PDF 閱讀器", "default app"],
       createPdf: ["建立 PDF", "轉換為 PDF", "新 PDF", "create pdf"],
       ocr: ["OCR", "文字辨識", "光學字元辨識", "掃描辨識", "recognize text"],
+      searchableCopy: ["可搜尋 PDF", "另存可搜尋", "OCR 另存", "文字層", "searchable pdf", "ocr save"],
       flatten: ["扁平化表單", "壓平表單", "flatten form"],
       insertFileAfterCurrent: ["合併", "合併檔案", "插入頁面", "insert pages", "merge"],
       replaceCurrentPage: ["取代", "取代頁面", "替換", "replace pages"],

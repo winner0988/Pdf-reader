@@ -63,6 +63,7 @@ function makeOptions(opts: Partial<CommandOptions> = {}): CommandOptions {
     onLayoutModeChange: vi.fn(),
     onToggleFullscreen: vi.fn(),
     ocr: { running: false, onStart: vi.fn() },
+    onSearchableCopy: vi.fn(),
     flatten: { onClick: vi.fn() },
     sensitive: { marked: false, onClick: vi.fn() },
     recording: { recorded: true, onChange: vi.fn() },
@@ -95,10 +96,10 @@ describe("CommandPalette", () => {
   });
 
   describe("completeness of menu commands", () => {
-    it("contains all 38 commands from the More menu", () => {
+    it("contains all 39 commands from the More menu", () => {
       const { commands } = setup();
       const menuCommands = commands.filter((c) => c.fromMenu);
-      expect(menuCommands).toHaveLength(38);
+      expect(menuCommands).toHaveLength(39);
 
       // Verify key More menu items are present
       const names = menuCommands.map((c) => c.name);

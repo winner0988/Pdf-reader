@@ -24,7 +24,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 邊界 | 不可信的一方 | 通道 | 主要的防線 |
 |---|---|---|---|
-| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 106 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
+| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 107 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
 | worker → 主行程 | `pdf_worker`（假設已被惡意檔案控制） | worker 標準輸入、輸出上的 postcard frame，每個 ≤ `MAX_FRAME_BYTES`（80 MiB） | 沙盒（§2.1）；每個回應都先驗證（§2.2）；逾時 |
 | 檔案 → worker | PDF 與其他要讀的檔案 | 主行程開好的唯讀檔案代號，或主行程讀好的位元組 | 沙盒；程式庫見 §2.3 |
 | 檔案 → 主行程 | app 資料夾的檔案；使用者匯入的語言資料、字型、`.pfx` | 主行程自己讀 | 大小上限與格式檢查（§3） |
@@ -38,9 +38,9 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 3. 寫到使用者的檔案時，先寫同一個資料夾裡新建的暫存檔，寫完（存檔還要再檢查）才改名取代。批次只寫新的檔名，不取代任何檔案（§6）。
 4. 只有 `src-tauri/src/update_check.rs` 會連網，而且只在使用者按「檢查更新」時（ADR 0009，§5）。
 
-## 1. 前端能呼叫的命令（106 個）
+## 1. 前端能呼叫的命令（107 個）
 
-- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 106 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
+- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 107 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
 - **自由文字**：沒有命令接受路徑或 URI。會帶自由文字的只有這些參數：密碼、剪貼簿的文字、搜尋字串、個資的關鍵字、註解與文字方塊的文字、表單欄位的值、書籤標題、浮水印與頁面標記的文字、簽章的理由、朗讀的純文字與語音代號、設定、OCR 語言代碼。
 - **參數檢查**：參數先由 serde 解碼成固定的型別，型別不對就拒絕；再由 `crates/ipc_contract/src/validate.rs` 檢查（表中寫成 `XxxArgs`）。上限都在 `crates/ipc_contract/src/limits.rs`。主行程沒有另外限制一個 IPC 訊息的大小，參數整個解碼後才檢查（§9）。
 - **對話框**：都是 Windows 的 `IFileDialog`（`src-tauri/src/file_dialog.rs`），一律加 `FOS_FORCEFILESYSTEM | FOS_DONTADDTORECENT`，只能選真的檔案，也不記入 Windows 的最近使用。另存的對話框再加 `FOS_OVERWRITEPROMPT`。
@@ -143,7 +143,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `close_window` | 使用者回答未存的變更之後，關閉視窗 | `discard` 是 false 而且還有未存的變更時，拒絕並請頁面詢問使用者 | 批次還在跑時只隱藏視窗（通知區圖示留著）；否則丟掉未存的變更，關閉視窗 | `saving.spec.ts`、`batch.spec.ts` |
 | `pick_stamp_image` | 選一張圖片做自訂圖章（B2-08）或浮水印（B6-06） | 先開對話框，之後才檢查文件（§9） | 開啟對話框（`*.png;*.jpg;*.jpeg`）；文件的 worker 讀它，只留像素（`PrepareStampImage`） | `ink-stamps.spec.ts`、`document-watermark.spec.ts`；worker `stamp_image.rs`、`watermark.rs` |
 
-### 1.8 匯出、比較與副本（11 個）
+### 1.8 匯出、比較與副本（12 個）
 
 寫出副本的命令都先由主行程問使用者存到哪裡，選到文件自己的檔案就說明並再問一次，然後由文件的 worker 以只能寫的代號寫到暫存檔，主行程再改名。原本的文件不變。
 
@@ -158,6 +158,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `sanitize_copy` | 去除主動內容、附件與隱藏資料的副本（B3-15） | `SanitizeArgs`；加密文件拒絕，已簽章的文件由 worker 拒絕 | 另存對話框；`SanitizedCopy`，寫出前先做主動內容掃描 | `sanitize.spec.ts`；worker `sanitize.rs` |
 | `page_marks_copy` | 加上頁碼、Bates 編號、頁首頁尾的副本（B3-16） | `PageMarksCopyArgs`：字級與邊界在範圍內；頁面遞增；文字是一行、不含控制字元與看不見的格式字元；位置不重複；Bates 的位數與起始值不溢位；加密文件拒絕 | 另存對話框；`PageMarksCopy` | `page-marks.spec.ts`；worker `page_marks.rs` |
 | `compress_images` | 圖片重新編碼、縮小的副本（B3-01） | `CompressArgs`：長邊 256–16,384 px；加密文件拒絕，已簽章的文件由 worker 拒絕 | 另存對話框；`CompressedCopy` | `compress-images.spec.ts`；worker `compress.rs`；fuzz `compress_images` |
+| `searchable_copy` | 加上 OCR 隱形文字層的可搜尋副本（B4-08、ADR 0028） | `SearchableCopyArgs`；加密與已簽章的文件拒絕 | 另存對話框；`SearchableCopy`（只用 worker 已有的辨識結果） | `searchable-copy.spec.ts`；worker `ocr.rs`、`searchable_copy.rs`；`documents.rs` |
 | `encrypt_copy` | AES-256 加密的副本（B2-15） | `EncryptArgs`：新密碼 ≤ `MAX_NEW_PASSWORD_BYTES`（127 bytes）；要有開啟密碼或限制；有限制就要有權限密碼；兩個密碼不得相同；加密文件拒絕，已簽章的文件由 worker 拒絕 | 另存對話框；`EncryptedCopy`。沒有給權限密碼時，主行程產生 128 位元的隨機密碼；密碼用完即清除 | `encrypt.spec.ts`；worker `encrypt_copy.rs` |
 | `decrypt_copy` | 解密並另存副本（#586） | `DecryptArgs`：密碼 ≤ `MAX_NEW_PASSWORD_BYTES`（127 bytes），不可為空；未加密文件拒絕，已簽章的文件由 worker 拒絕 | 另存對話框；`DecryptedCopy`。密碼用完即清除 | `decrypt.spec.ts`；worker `decrypt_copy.rs` |
 
@@ -260,7 +261,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | Windows CryptoAPI（`crypt.rs`） | 簽章的 CMS 與憑證；憑證鏈只用本機的快取 | Windows | 沒有：Linux 的 fuzz 跑不到（#426 只 fuzz 讀簽章欄位） |
 | jpeg-encoder 0.7.1 | 只編碼 worker 自己渲染的像素，不解析輸入 | 純 Rust（不開 `simd`） | 不需要 |
 
-### 2.4 worker 的請求（50 個）
+### 2.4 worker 的請求（51 個）
 
 除了另外註明的，請求都送到那個分頁自己的 worker（ADR 0012）。用新的 worker 的有：驗證剛簽好的副本、批次的每個檔案、`CreatePdf`、`InspectFont`、批次的浮水印圖片。
 
@@ -286,13 +287,14 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `GetDocumentFonts` | 頁面與 Form XObject 裡的字型清單 | `engine/properties.rs` | worker `properties.rs` | `read_document` |
 | `GetTextBox` | 文字方塊註解 | `engine/text_box.rs` | worker `text_box_worker.rs` | `read_document`（前兩頁，#426） |
 | `ExportDocx` | 頁面的文字與圖片，寫成 .docx | `engine/docx.rs` | worker `docx.rs` | `open_document` |
-| `Edit` | 32 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs`、`watermark.rs` | `edit_document`（32 種） |
+| `Edit` | 35 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs`、`watermark.rs`、`links.rs` | `edit_document`（35 種） |
 | `Revert` | 從保留的位元組重新開啟，再做一次編輯 | `engine.rs` | worker `saving.rs`、`merge.rs` | `edit_document` |
 | `Rebase` | 把剛存的檔案當成 undo 的起點；只保留位元組，不解析 | `serve.rs` | worker `saving.rs` | 不需要 |
 | `Save` | 寫出整份文件；已簽章的文件以增量更新 | `engine.rs` | worker `saving.rs`、`save_poc.rs` | `text_box_font`、`edit_document` |
 | `SavePages` | 只寫出某些頁 | `engine.rs` | worker `saving.rs`；`split.spec.ts` | `edit_document` |
 | `PrivacyCopy` | 不含中繼資料的副本 | `privacy.rs` | `privacy-export.spec.ts` | `edit_document` |
 | `CompressedCopy` | 解碼圖片再重新編碼 | `compress.rs`、`jpeg.rs` | worker `compress.rs` | `compress_images` |
+| `SearchableCopy` | 把 worker 已有的 OCR 辨識結果寫成隱形文字層副本（ADR 0028） | `engine/searchable_copy.rs` | worker `searchable_copy.rs`、`ocr.rs` | `ocr`（辨識部分） |
 | `ExifCleanCopy` | 拿掉圖片裡的中繼資料，不重新編碼 | `exif.rs` | worker `exif_clean.rs` | `exif_clean` |
 | `SanitizedCopy` | 清理過的副本 | `engine/sanitize.rs` | worker `sanitize.rs` | `edit_document` |
 | `EncryptedCopy` | 加密的副本；密碼用完即清除 | `engine.rs` | worker `encrypt_copy.rs` | `edit_document` |
@@ -312,7 +314,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `Cancel` | 主行程目前不送；worker 收到也不處理 | `serve.rs` | — | `worker_messages` |
 | `Shutdown` | 主行程目前不送（直接結束 worker）；worker 收到就結束 | `serve.rs` | `crates/ipc_contract/src/frame.rs` | `worker_messages` |
 
-### 2.5 編輯（`WorkerEdit`，32 種）
+### 2.5 編輯（`WorkerEdit`，35 種）
 
 前端送的是 `Edit`，主行程檢查後轉成 `WorkerEdit`。插入的頁面來源與文字方塊的字型子集是主行程留著的，前端不能直接給位元組。結構不正確的頁碼標籤樹在改動頁面之前由 worker 拒絕（有上限）。
 
@@ -333,6 +335,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `SetTextBox`、`PlaceTextBox` | 頁碼；矩形；樣式（`TextBoxStyle::validate`）；字是 `PrepareTextBox` 做好的模型 |
 | `AddBookmark`、`RenameBookmark`、`DeleteBookmark`、`MoveBookmark` | 位置 ≤ `MAX_OUTLINE_ITEMS`；頁碼；標題不得空白、≤ `MAX_TEXT_BYTES`、不含控制字元（`check_clean`） |
 | `AddWatermark` | 頁面清單（`check_page_list`）；浮水印內容與選項（`Watermark::validate`）；圖片是 `PrepareStampImage` 做好的 PNG |
+| `AddLink`、`SetLinkTarget`、`DeleteLink` | 頁碼；矩形邊長 ≥ `MIN_LINK_SIDE_PT`（4.0 pt）；網址只允許 http、https、mailto 且 ≤ `MAX_TEXT_BYTES`（4096 位元組）、不含控制字元與空白字元（`NewLinkTarget::validate`） |
 
 測試：`documents.rs` 的編輯測試（`annotations_are_added_changed_removed_and_undone_like_any_edit`、`drawings_and_stamps_are_added_moved_removed_and_undone_like_any_annotation` 等）、`ipc_contract` 的驗證測試、worker 的整合測試與上面列的 E2E。fuzz：`edit_document`。
 
@@ -350,7 +353,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | 復原日誌 | app 資料夾的 `recovery\`（每個 ≤ 4 MiB） | 當成不可信的資料檢查 | `recovery.rs` 15 個（含截斷、變異與隨機輸入測試） | 由單元變異測試驗證（#429） |
 | 文字索引 | app 資料夾的 `index\`（金鑰 ≤ 4 KiB，目錄與文件 ≤ 32 MiB） | AES-256-GCM；金鑰以 DPAPI 保護。不是 app 寫的檔案在解析前就被拒絕 | `text_index.rs` 24 個（`nothing_on_the_disk_can_be_read_without_the_key` 等）、`index_crypto.rs` 3 個 | 不需要（先驗證才解析） |
 | 認證管理員裡的密碼 | app 自己寫的項目（`PdfReader/password/v1/<key>`） | 鍵是 worker 從檔案的加密資訊算出的雜湊（`PasswordKey`，ADR 0017）；項目裡沒有檔名、路徑或內容 | `credentials.rs` 7 個 | 不需要 |
-| 命令列、第二次啟動的參數 | 其他程式（§8） | 只當成檔案路徑 | `cli.rs` 3 個 | 不需要 |
+| 命令列、第二次啟動的參數 | 其他程式（§8） | `--create-pdf-from` 之前只當成要開啟的檔案路徑；之後只當成建立 PDF 的圖片路徑，逐一檢查為存在的一般檔案與七種圖片副檔名、去重並受 `MAX_CREATE_SOURCES`（200）限制，路徑不傳到前端 | `cli.rs` 8 個、`explorer_create.rs` 5 個 | 不需要 |
 
 ## 4. WebView 的權限
 
@@ -420,10 +423,10 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 入口 | 處理方式 | 檢查 |
 |---|---|---|
-| 命令列 | `src-tauri/src/cli.rs`：跳過 `-` 開頭的參數，其餘當成檔案路徑交給 `commands::open_paths`（開啟對話框也走這裡） | `cli.rs` 3 個；`open.spec.ts` |
-| 第二次啟動 | `tauri-plugin-single-instance` =2.5.4：mutex、`FindWindowW`、`WM_COPYDATA` 傳來參數與工作目錄，主行程以 `Path::new(&cwd).join(path)` 交給 `open_paths` | `batch.spec.ts`（第二次啟動把檔案交給視窗） |
+| 命令列 | `src-tauri/src/cli.rs`：跳過 `-` 開頭的參數（`--create-pdf-from` 切換模式），之前交給 `commands::open_paths`（開啟對話框也走這裡），之後交給 `ExplorerCreate` 收集並經 `create_pdf_from_sources` 建立 PDF（檢查存在的一般檔案、七種圖片副檔名、`same_file` 去重與 200 張上限，由另存對話框決定輸出位置） | `cli.rs` 8 個、`explorer_create.rs` 5 個；`open.spec.ts`、`create-from-explorer.spec.ts` |
+| 第二次啟動 | `tauri-plugin-single-instance` =2.5.4：mutex、`FindWindowW`、`WM_COPYDATA` 傳來參數與工作目錄，主行程以 `cli::parse(...).resolve_relative(&cwd)` 分別交給 `open_paths` 與 `ExplorerCreate` | `batch.spec.ts`（第二次啟動把檔案交給視窗）、`create-from-explorer.spec.ts` |
 | 拖放 | 視窗的拖放事件把每個拖進來的檔案交給 `open_paths`（每個檔案各開一個分頁；非 PDF 或資料夾則顯示錯誤分頁） | manual-checks §3.14（原生 OLE 拖放無法由 Playwright CDP 模擬，見 `docs/architecture/e2e.md`） |
-| 檔案關聯 | 安裝程式在 HKLM 登錄 `.pdf` 的開啟命令 | manual-checks §3 |
+| 檔案關聯 | 安裝程式在 HKLM 登錄 `.pdf` 的開啟命令，並在 `SystemFileAssociations\.<七種圖片副檔名>\shell\PdfReader.CreatePdf` 登錄 `--create-pdf-from "%1"` 右鍵動詞（不改圖片預設程式） | `installer_hooks.rs`；manual-checks §3 |
 | `PDF_READER_DATA_DIR` | 是絕對路徑時，取代 app 資料夾；正式版也讀（E2E 用它讓每次執行有自己的資料夾） | §9 |
 | WebView2 的環境變數 | `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`、`WEBVIEW2_USER_DATA_FOLDER` 等由 WebView2 自己讀；E2E 用前者打開 `--remote-debugging-port`（`docs/architecture/e2e.md`） | §9；manual-checks §3 |
 | 只給測試用的環境變數 | `CI`、`PDF_READER_TEST_CLIPBOARD`、`PDF_READER_TEST_SIGNING` 只在單元測試裡讀 | — |

@@ -26,6 +26,9 @@ pub const MAX_SOURCES_BYTES: usize = 128 * 1024 * 1024;
 /// this only rejects absurd values (the PDF spec allows 14 400 units, scaled by `UserUnit`).
 pub const MAX_PAGE_SIDE_PT: f32 = 1_000_000.0;
 
+/// Minimum side of a link rectangle in PDF points (B6-03, Issue #588).
+pub const MIN_LINK_SIDE_PT: f32 = 4.0;
+
 /// Minimum side of a page after cropping in PDF points (B6-04).
 pub const MIN_CROPPED_SIDE_PT: f32 = 36.0;
 

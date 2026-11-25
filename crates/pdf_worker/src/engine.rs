@@ -90,11 +90,14 @@ mod personal_data;
 mod properties;
 mod redaction;
 mod sanitize;
+mod searchable_copy;
 
 pub use create::{Created, PdfBuilder};
 pub use identifier::write_identifier;
 pub use ocr::OcrKnown;
+pub use searchable_copy::SearchableCopy;
 
+pub mod links;
 mod outline;
 mod signatures;
 mod signing;
@@ -466,6 +469,24 @@ impl PdfDocument {
         .unwrap_or(false)
     }
 
+    /// Whether the document defines any layers (`/OCProperties /OCGs` is a non-empty array) (#703).
+    /// Errors while reading are treated as `true` so a malformed catalog does not skip the warning.
+    pub fn has_layers(&self) -> bool {
+        (|| -> Result<bool, mupdf::Error> {
+            let Some(props) = self.doc.catalog()?.get_dict("OCProperties")? else {
+                return Ok(false);
+            };
+            if !props.is_dict()? {
+                return Ok(!props.is_null()?);
+            }
+            let Some(ocgs) = props.get_dict("OCGs")? else {
+                return Ok(false);
+            };
+            Ok(ocgs.is_array()? && ocgs.len()? > 0)
+        })()
+        .unwrap_or(true)
+    }
+
     /// Reads and formats page labels defined in the document (/PageLabels, B5-07).
     ///
     /// Returns `Ok(None)` when there are no labels, when labels are malformed or exceed
@@ -650,7 +671,7 @@ impl PdfDocument {
         Ok(links)
     }
 
-    fn link_entry(
+    pub(crate) fn link_entry(
         &self,
         annot: &PdfObject,
         ctm: &Matrix,
@@ -700,13 +721,15 @@ impl PdfDocument {
     }
 
     /// Renders only `region` of the page at `scale` and `rotation` (B3-09): the pixels the whole
-    /// page would have there, however large the whole page would be.
+    /// page would have there, however large the whole page would be. When `without_annotations` is
+    /// true (B7-08), draws page contents and form widgets only, omitting annotations.
     pub fn render_region(
         &self,
         index: u32,
         scale: f32,
         rotation: Rotation,
         region: RasterRegion,
+        without_annotations: bool,
     ) -> Result<RenderedPage, EngineError> {
         if !scale.is_finite() || !(MIN_RENDER_SCALE..=MAX_RENDER_SCALE).contains(&scale) {
             return Err(EngineError::InvalidScale);
@@ -735,11 +758,16 @@ impl PdfDocument {
         let area = IRect::new(x0, y0, past(x0, region.width)?, past(y0, region.height)?);
         let mut pixmap = Pixmap::new_with_rect(&Colorspace::device_rgb(), area, false)?;
         // Opaque white under the page, as for a whole page; then the page with its annotations
-        // and form fields (`fz_run_page`), as `to_pixmap` draws it with the extras.
+        // and form fields (`fz_run_page`), or without annotations when editing one inline.
         pixmap.clear_with(255)?;
         {
             let device = Device::from_pixmap(&pixmap)?;
-            page.run(&device, &ctm)?;
+            if without_annotations {
+                page.run_contents(&device, &ctm)?;
+                page.run_widgets(&device, &ctm)?;
+            } else {
+                page.run(&device, &ctm)?;
+            }
         }
         Ok(opaque_rgba(&pixmap))
     }
@@ -1821,6 +1849,8 @@ pub struct PreparedSource {
     pub pages: u32,
     /// The active content the PDF has (MVP-11). None of it comes along with the pages.
     pub security: SecurityReport,
+    /// Whether the source PDF defines any layers (`/OCProperties /OCGs`) (#703).
+    pub has_layers: bool,
     /// Text boxes found in the source file to recreate (B3-23, ADR 0019).
     pub text_boxes: Vec<SourceTextBox>,
 }
@@ -1856,11 +1886,13 @@ impl PdfDocument {
         let mut plain = Vec::new();
         write_at_most(&source.doc, &mut plain, options, MAX_SOURCE_BYTES as u64)?;
         let plain_doc = PdfDocument::from_bytes(&plain)?;
+        let has_layers = plain_doc.has_layers();
         let text_boxes = merge_annotations::extract_source_text_boxes(&plain_doc)?;
         Ok(PreparedSource {
             bytes: plain,
             pages,
             security,
+            has_layers,
             text_boxes,
         })
     }
@@ -3002,7 +3034,7 @@ mod tests {
                 let whole = doc.render(0, 1.5, rotation.degrees()).unwrap();
                 for (x, y) in [(0, 0), (37, 81), (whole.width - 300, whole.height - 211)] {
                     let part = doc
-                        .render_region(0, 1.5, rotation, region(x, y, 300, 211))
+                        .render_region(0, 1.5, rotation, region(x, y, 300, 211), false)
                         .unwrap();
                     assert_eq!((part.width, part.height), (300, 211));
                     for row in 0..211 {
@@ -3042,10 +3074,13 @@ mod tests {
             width: 200,
             height: 200,
         };
-        let part = doc.render_region(0, 20.0, Rotation::None, square).unwrap();
+        let part = doc
+            .render_region(0, 20.0, Rotation::None, square, false)
+            .unwrap();
         assert_eq!(pixel(&part, 100, 100), [0, 0, 0, 255]);
 
-        let refused = |page, scale, region| doc.render_region(page, scale, Rotation::None, region);
+        let refused =
+            |page, scale, region| doc.render_region(page, scale, Rotation::None, region, false);
         let past_the_edge = RasterRegion {
             x: 612 * 20 - 199,
             ..square
@@ -5364,6 +5399,38 @@ endstream",
         assert!(doc.insert_pages(1, truncated, &[]).is_err());
         assert_eq!(doc.page_count().unwrap(), 10);
         assert_eq!(page_titles(&doc), titles(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+    }
+
+    #[test]
+    fn has_layers_reads_oc_properties_and_treats_read_errors_as_true() {
+        let no_props = PdfDocument::from_bytes(&corpus("benign/single-page.pdf")).unwrap();
+        assert!(!no_props.has_layers());
+
+        let empty_ocgs = PdfDocument::from_bytes(&corpus("benign/layers-empty-ocgs.pdf")).unwrap();
+        assert!(!empty_ocgs.has_layers());
+
+        for name in [
+            "benign/layers-hidden.pdf",
+            "benign/layers-visible.pdf",
+            "benign/layers-base-off.pdf",
+            "benign/layers-intent-design.pdf",
+            "benign/layers-ocmd-ve.pdf",
+        ] {
+            let doc = PdfDocument::from_bytes(&corpus(name)).unwrap();
+            assert!(doc.has_layers(), "{name}");
+        }
+
+        // Non-dict /OCProperties and unresolved/broken indirect /OCGs must report true (fail-safe).
+        let malformed_props = build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R /OCProperties 42 >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>",
+        ]);
+        assert!(
+            PdfDocument::from_bytes(&malformed_props)
+                .unwrap()
+                .has_layers()
+        );
     }
 
     #[test]

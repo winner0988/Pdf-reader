@@ -5,9 +5,10 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 
+import type { InlineTextDraft, InlineTextStart } from "@/features/annotations/InlineTextEditor";
 import type { AnnotationsApi } from "@/features/annotations/source";
-import type { TextBoxDraft, TextBoxStart } from "@/features/annotations/TextBoxDialog";
-import { textBoxRectAt } from "@/features/annotations/tools";
+import { newInlineTextBoxRect, sameRect, sameStyle } from "@/features/annotations/textBox";
+import { until, type FieldEdits } from "@/features/forms/edits";
 import type { PageSize } from "@/features/shell/model";
 import type { EditingApi } from "@/features/thumbnails/api";
 import type { DocumentViewHandle } from "@/features/viewer/DocumentView";
@@ -21,7 +22,7 @@ import {
   type HighlightColor,
   type PageAnnotation,
   type Point,
-  type TextBoxStyle,
+  type Rect,
   type TextMarkKind,
 } from "@/ipc/generated/contract";
 
@@ -30,10 +31,17 @@ export type NoteTarget =
   | { kind: "add"; page: number; at: Point }
   | { kind: "edit"; page: number; annotation: PageAnnotation };
 
-/** The text box a dialog is open for: a new one at a place on a page, or one already there. */
+/** The text box being typed inline on a page: a new one or one already there (#719). */
 export type TextBoxTarget =
-  | { kind: "add"; page: number; at: Point; fonts: FontInfo[] }
-  | { kind: "edit"; page: number; annotation: PageAnnotation; fonts: FontInfo[]; start: TextBoxStart };
+  | { kind: "add"; page: number; rect: Rect; fonts: FontInfo[] }
+  | {
+      kind: "edit";
+      page: number;
+      annotation: PageAnnotation;
+      fonts: FontInfo[];
+      start: InlineTextStart;
+      clickClient?: { x: number; y: number };
+    };
 
 type Options = {
   doc?: DocumentId;
@@ -42,6 +50,10 @@ type Options = {
   /** The size of page `index`, to put a text box inside it. */
   pageSizeOf?: (index: number) => PageSize | undefined;
   editing?: EditingApi;
+  /** Shared edit queue so Ctrl+S / close waits for an inline text box commit and its new doc id. */
+  edits?: FieldEdits;
+  /** The latest announced document id for the tab. */
+  latest?: () => { doc: DocumentId; unsaved: boolean } | undefined;
   /** The document's author allows annotating (`/P` bit 6, MVP-19). */
   allowed: boolean;
   view: RefObject<DocumentViewHandle | null>;
@@ -71,30 +83,20 @@ export type AnnotationActions = {
   closeNote(): void;
   /** Text boxes can be put down and changed (the main process has what they need). */
   textBoxes: boolean;
-  /** Opens the dialog for a new text box at `at` on `page` (page space). */
-  newTextBox(page: number, at: Point): void;
-  /** Opens the dialog for a new text box where the context menu was opened. */
+  /** Starts typing a new text box inline at `at` on `page` (page space). */
+  newTextBox(page: number, at: Point, options?: { centered?: boolean }): void;
+  /** Starts typing a new text box inline where the context menu was opened. */
   newTextBoxAtMenu(): void;
-  /** Opens the dialog for what the text box `annotation` of `page` says. */
-  editTextBox(page: number, annotation: PageAnnotation): void;
+  /** Starts editing an existing text box inline on `page`. */
+  editTextBox(page: number, annotation: PageAnnotation, clickClient?: { x: number; y: number }): void;
   textBox: TextBoxTarget | null;
   /** The family the last text box was set in, to start the next with. */
   lastFamily: string | undefined;
-  /** Makes the words and puts them in a box; says what went wrong (for the dialog), or `null` when done. */
-  saveTextBox(draft: TextBoxDraft): Promise<string | null>;
-  closeTextBox(): void;
+  /** Makes the words and commits them in one edit; says what went wrong, or `null` when done. */
+  saveTextBox(draft: InlineTextDraft, options?: { restoreFocus?: boolean }): Promise<string | null>;
+  /** Cancels an empty new text box without sending an edit. */
+  closeTextBox(options?: { restoreFocus?: boolean }): void;
 };
-
-/** Whether two styles are the same. */
-function sameStyle(one: TextBoxStyle, other: TextBoxStyle): boolean {
-  return (
-    one.size === other.size &&
-    one.align === other.align &&
-    one.color.r === other.color.r &&
-    one.color.g === other.color.g &&
-    one.color.b === other.color.b
-  );
-}
 
 const DEFAULT_MARK_COLORS: Record<TextMarkKind, HighlightColor> = {
   highlight: "yellow",
@@ -108,6 +110,8 @@ export function useAnnotations({
   api,
   pageSizeOf,
   editing,
+  edits,
+  latest,
   allowed,
   view,
   onProblem,
@@ -120,37 +124,55 @@ export function useAnnotations({
   const [lastFamily, setLastFamily] = useState<string | undefined>(undefined);
   const textBoxes = enabled && api?.getFonts !== undefined && api.prepareTextBox !== undefined;
 
-  // Where the focus was when a dialog opened: an annotation's outline, say, or a button of its
-  // toolbar. A dialog closes by going away, which leaves the focus nowhere; it goes back there,
-  // unless that is gone or the user has moved on (#402).
+  // Where the focus was when a dialog or inline editor opened: an annotation's outline, say, or a
+  // button of its toolbar. Closing with Esc leaves focus nowhere; it goes back there (#402).
   const focusBefore = useRef<Element | null>(null);
   const opening = () => {
     focusBefore.current = document.activeElement;
   };
-  const dialogOpen = note !== null || textBox !== null;
+  const editorOpen = note !== null || textBox !== null;
   useEffect(() => {
-    if (dialogOpen) return;
+    if (editorOpen) return;
     const before = focusBefore.current;
     focusBefore.current = null;
     const nowhere = document.activeElement === null || document.activeElement === document.body;
     if (before instanceof HTMLElement && before.isConnected && nowhere) before.focus();
-  }, [dialogOpen]);
+  }, [editorOpen]);
+
+  const currentDoc = () => latest?.()?.doc ?? doc;
 
   const edit = (change: Edit) => {
-    if (!enabled) return;
-    editing.applyEdit(doc, change).catch((error: unknown) => {
+    const activeDoc = currentDoc();
+    if (!enabled || activeDoc === undefined) return;
+    editing.applyEdit(activeDoc, change).catch((error: unknown) => {
       // Too many unsaved changes to keep (B2-13): saving makes room.
       onProblem(errorCodeOf(error) === "limitExceeded" ? strings.pages.saveFirst : strings.annotations.failed);
     });
   };
 
-  const openNewTextBox = (page: number, at: Point) => {
+  /** Sends an edit through `edits` (if provided) and waits for the new doc id announcement. */
+  const applySettledEdit = async (change: Edit): Promise<void> => {
+    if (!enabled) throw new Error("editing disabled");
+    const run = async () => {
+      const before = currentDoc();
+      if (before === undefined) throw new Error("no document");
+      await editing.applyEdit(before, change);
+      if (latest) await until(() => latest()?.doc !== before);
+    };
+    if (edits) await edits.run(run);
+    else await run();
+  };
+
+  const openNewTextBox = (page: number, at: Point, options?: { centered?: boolean }) => {
     if (!textBoxes || !api?.getFonts) return;
+    const size = pageSizeOf?.(page);
+    if (!size) return;
     // The list is read again every time: a font installed a moment ago is in it.
     api.getFonts().then(
       (fonts) => {
         opening();
-        setTextBox({ kind: "add", page, at, fonts });
+        const rect = newInlineTextBoxRect(at, size, undefined, undefined, options?.centered === true);
+        setTextBox({ kind: "add", page, rect, fonts });
       },
       () => onProblem(strings.annotations.fontsFailed),
     );
@@ -214,9 +236,10 @@ export function useAnnotations({
       if (!at) onProblem(strings.annotations.notOnPageForBox);
       else openNewTextBox(at.page, at.point);
     },
-    editTextBox(page, annotation) {
-      if (!textBoxes || !api?.getFonts || !api.getTextBox || doc === undefined) return;
-      Promise.all([api.getFonts(), api.getTextBox(doc, page, annotation.id)]).then(
+    editTextBox(page, annotation, clickClient) {
+      const activeDoc = currentDoc();
+      if (!textBoxes || !api?.getFonts || !api.getTextBox || activeDoc === undefined) return;
+      Promise.all([api.getFonts(), api.getTextBox(activeDoc, page, annotation.id)]).then(
         ([fonts, info]) => {
           opening();
           setTextBox({
@@ -224,50 +247,93 @@ export function useAnnotations({
             page,
             annotation,
             fonts,
-            start: { text: info.text, font: info.font, style: info.style, overflow: info.overflow },
+            start: {
+              text: info.text,
+              font: info.font,
+              style: info.style,
+              overflow: info.overflow,
+              viewOnly: info.viewOnly,
+              lineStep: info.lineStep,
+            },
+            clickClient,
           });
         },
         () => onProblem(strings.annotations.fontsFailed),
       );
     },
-    async saveTextBox(draft) {
-      const t = strings.annotations.textBoxDialog;
+    async saveTextBox(draft, options) {
+      const e = strings.annotations.textBoxEditor;
       const target = textBox;
-      if (!target || !textBoxes || !api?.prepareTextBox || doc === undefined) return t.failed;
+      const activeDoc = currentDoc();
+      if (!target || !textBoxes || !api?.prepareTextBox || activeDoc === undefined) return e.failed;
+      if (options?.restoreFocus === false) focusBefore.current = null;
       // Words and a font are prepared by the main process; a box is made of what comes back.
       const prepare = async (font: FontInfo) => {
-        const prepared = await api.prepareTextBox!(doc, draft.text, font.id);
+        const prepared = await api.prepareTextBox!(activeDoc, draft.text, font.id);
         if (prepared.viewOnly) onProblem(strings.annotations.textBoxViewOnly(font.name));
         return prepared.model;
       };
       try {
         if (target.kind === "add") {
-          const size = pageSizeOf?.(target.page);
-          if (!draft.font || !size) return t.failed;
+          if (draft.text === "") {
+            setTextBox(null);
+            return null;
+          }
+          if (!draft.font) return e.failed;
           const model = await prepare(draft.font);
-          edit({ kind: "addTextBox", page: target.page, rect: textBoxRectAt(target.at, size), model, style: draft.style });
+          await applySettledEdit({
+            kind: "addTextBox",
+            page: target.page,
+            rect: draft.rect,
+            model,
+            style: draft.style,
+          });
+        } else if (draft.text === "") {
+          // Existing text box cleared to empty: delete in one undoable edit.
+          await applySettledEdit({
+            kind: "deleteAnnotation",
+            page: target.page,
+            annotation: target.annotation.id,
+          });
         } else {
           const own = target.start;
           const fontChanged = draft.font !== null && draft.font.name !== own.font;
+          const rectChanged = !sameRect(draft.rect, target.annotation.rect);
+          const rectField = rectChanged ? { rect: draft.rect } : {};
           if (draft.text !== own.text || fontChanged) {
             // Other words or another font need a font: the one the box has may be gone.
-            if (!draft.font) return t.needFont;
+            if (!draft.font) return e.needFont;
             const model = await prepare(draft.font);
-            edit({ kind: "setTextBox", page: target.page, annotation: target.annotation.id, model, style: draft.style });
-          } else if (!sameStyle(draft.style, own.style)) {
-            edit({ kind: "setTextBox", page: target.page, annotation: target.annotation.id, model: null, style: draft.style });
+            await applySettledEdit({
+              kind: "setTextBox",
+              page: target.page,
+              annotation: target.annotation.id,
+              model,
+              style: draft.style,
+              ...rectField,
+            });
+          } else if (!sameStyle(draft.style, own.style) || rectChanged) {
+            await applySettledEdit({
+              kind: "setTextBox",
+              page: target.page,
+              annotation: target.annotation.id,
+              model: null,
+              style: draft.style,
+              ...rectField,
+            });
           }
         }
       } catch (error) {
         const code = errorCodeOf(error);
         if (code === "limitExceeded") return strings.pages.saveFirst;
-        return (code && strings.error.messages[code]) || t.failed;
+        return (code && strings.error.messages[code]) || e.failed;
       }
       if (draft.font) setLastFamily(draft.font.family);
       setTextBox(null);
       return null;
     },
-    closeTextBox() {
+    closeTextBox(options) {
+      if (options?.restoreFocus === false) focusBefore.current = null;
       setTextBox(null);
     },
   };

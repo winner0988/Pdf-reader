@@ -1,0 +1,5 @@
+# 核准的語料差異清單 (Approved Corpus Differences)
+# 欄位：語料 (corpus)	相對路徑 (relative_path)	頁碼 (page: 1-based 數字或 *)	種類 (kind: text | render)	原因 (reason)	核准 PR (approved_pr)
+# 頁碼可為 1-based 數字或 *（整個檔案）；相對路徑可為檔案路徑或 *（整個語料）。
+# 沒有對到任何差異的列會產生警告，但不算失敗。基準趕上之後，由之後的 PR 移除。
+corpus	relative_path	page	kind	reason	pr

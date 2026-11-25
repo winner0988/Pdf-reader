@@ -337,29 +337,30 @@ test("blocked link dialog: BlockedLinkDialog initial focus and return", async ({
   await expect.poll(() => page.evaluate(() => document.activeElement !== document.body)).toBe(true);
 });
 
-test("annotations: TextBoxDialog and Issue #402 focus restoration", async ({ launch }) => {
+test("annotations: inline text box editor and Issue #402 focus restoration (#719)", async ({ launch }) => {
   const page = await launch(corpus("benign/mixed-text-zh-en.pdf"));
   const sheet = page.getByRole("img", { name: strings.canvas.page(1) });
   await expect(sheet).toHaveAttribute("data-state", "ready");
   const t = strings.annotations;
+  const e = t.textBoxEditor;
 
   // Add Text Box via tool
   await page.keyboard.press("Control+0");
   await page.getByRole("button", { name: t.textBox, exact: true }).click();
   const area = (await sheet.boundingBox())!;
-  await page.mouse.click(area.x + area.width * 0.5, area.y + area.height * 0.5);
+  await page.mouse.click(area.x + area.width * 0.4, area.y + area.height * 0.5);
 
-  const addDialog = page.getByRole("dialog", { name: t.textBoxDialog.addTitle });
-  await expect(addDialog).toBeVisible();
+  const inlineBox = page.getByRole("textbox", { name: e.label });
+  await expect(inlineBox).toBeVisible();
 
   // Initial focus on textarea
   await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).toBe("TEXTAREA");
-  await inBothThemes(page, (theme) => noProblems(page, `add text box dialog, ${theme}`));
+  await inBothThemes(page, (theme) => noProblems(page, `add inline text box, ${theme}`));
 
-  // Type and save box to test editing and #402 restoration
-  await addDialog.getByLabel(t.textBoxDialog.text).fill("FocusTest402");
-  await addDialog.getByRole("button", { name: t.textBoxDialog.save, exact: true }).click();
-  await expect(addDialog).toHaveCount(0);
+  // Type and commit box to test editing and #402 restoration
+  await inlineBox.fill("FocusTest402");
+  await page.keyboard.press("Escape");
+  await expect(inlineBox).toHaveCount(0);
 
   // Focus the newly created text box on page
   const boxAnnotation = page.locator("[data-page-annotations] [data-annotation=textBox]").first();
@@ -369,14 +370,18 @@ test("annotations: TextBoxDialog and Issue #402 focus restoration", async ({ lau
 
   // Edit via Enter key (#402 walkthrough)
   await page.keyboard.press("Enter");
-  const editDialog = page.getByRole("dialog", { name: t.textBoxDialog.editTitle });
-  await expect(editDialog).toBeVisible();
+  await expect(inlineBox).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).toBe("TEXTAREA");
 
-  await verifyFocusTrap(page, editDialog, t.textBoxDialog.editTitle);
+  // Tab moves between textarea and floating toolbar controls
+  await page.keyboard.press("Tab");
+  await expect.poll(() =>
+    page.evaluate(() => document.querySelector("[data-text-box-toolbar]")?.contains(document.activeElement) ?? false),
+  ).toBe(true);
 
-  // Dismiss edit dialog with Escape
+  // Dismiss inline editor with Escape
   await page.keyboard.press("Escape");
-  await expect(editDialog).toHaveCount(0);
+  await expect(inlineBox).toHaveCount(0);
 
   // VERIFY ISSUE #402: Focus MUST return to the text box on canvas, NOT drop to body!
   await expect.poll(
@@ -533,15 +538,16 @@ test("unsaved changes: UnsavedDialog when closing tab with edits", async ({ laun
   const sheet = page.getByRole("img", { name: strings.canvas.page(1) });
   await expect(sheet).toHaveAttribute("data-state", "ready");
 
-  // Add a text box to make document dirty
+  // Add a text box inline to make document dirty
   await page.getByRole("button", { name: strings.annotations.textBox, exact: true }).click();
   const area = (await sheet.boundingBox())!;
   await page.mouse.click(area.x + 80, area.y + 80);
 
-  const tbDialog = page.getByRole("dialog", { name: strings.annotations.textBoxDialog.addTitle });
-  await tbDialog.getByLabel(strings.annotations.textBoxDialog.text).fill("UnsavedNote");
-  await tbDialog.getByRole("button", { name: strings.annotations.textBoxDialog.save, exact: true }).click();
-  await expect(tbDialog).toHaveCount(0);
+  const inlineBox = page.getByRole("textbox", { name: strings.annotations.textBoxEditor.label });
+  await expect(inlineBox).toBeVisible();
+  await inlineBox.fill("UnsavedNote");
+  await page.keyboard.press("Escape");
+  await expect(inlineBox).toHaveCount(0);
 
   // Close tab via Ctrl+W
   await page.keyboard.press("Control+w");

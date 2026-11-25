@@ -9,6 +9,11 @@ on:
   schedule:
     - cron: "47 4 * * 1"
   workflow_dispatch:
+    inputs:
+      baseline_run:
+        description: "Run ID of the baseline sweep to compare against"
+        required: false
+        type: string
   pull_request:
     paths:
       - "scripts/corpus-sweep/**"
@@ -20,6 +25,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: corpus-sweep-${{ github.ref }}
@@ -50,10 +56,67 @@ jobs:
           else
             bash scripts/corpus-sweep/fetch.sh corpus-files
           fi
+      - name: Fetch baseline results
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_BASELINE_RUN: ${{ inputs.baseline_run }}
+        run: |
+          mkdir -p baseline-output
+          baseline_found=0
+          if [ -n "$INPUT_BASELINE_RUN" ]; then
+            if ! [[ "$INPUT_BASELINE_RUN" =~ ^[0-9]+$ ]]; then
+              echo "Error: baseline_run must contain only digits: $INPUT_BASELINE_RUN" >&2
+              exit 1
+            fi
+            echo "Fetching specified baseline run: $INPUT_BASELINE_RUN"
+            if gh run download "$INPUT_BASELINE_RUN" -n corpus-sweep-results -D baseline-output; then
+              if [ -s baseline-output/page-hashes.jsonl ]; then
+                echo "Found page-hashes.jsonl in specified baseline run $INPUT_BASELINE_RUN"
+                baseline_found=1
+              else
+                echo "No page-hashes.jsonl in artifact of specified baseline run $INPUT_BASELINE_RUN"
+                rm -rf baseline-output/*
+              fi
+            else
+              echo "Failed to download artifact for specified baseline run $INPUT_BASELINE_RUN"
+            fi
+          else
+            echo "Searching for most recent successful schedule run on main with hashes..."
+            run_ids=$(gh run list --workflow=corpus-sweep.yml --branch=main --event=schedule --status=success --limit=10 --json databaseId --jq '.[].databaseId' 2>/dev/null || true)
+            for rid in $run_ids; do
+              echo "Checking run $rid..."
+              rm -rf baseline-output/*
+              if gh run download "$rid" -n corpus-sweep-results -D baseline-output 2>/dev/null; then
+                if [ -s baseline-output/page-hashes.jsonl ]; then
+                  echo "Found valid baseline in run $rid"
+                  baseline_found=1
+                  break
+                else
+                  echo "Run $rid artifact does not contain page-hashes.jsonl"
+                fi
+              fi
+            done
+          fi
+
+          if [ "$baseline_found" -eq 1 ]; then
+            echo "BASELINE_AVAILABLE=true" >> "$GITHUB_ENV"
+          else
+            echo "沒有基準，這次只記錄"
+            rm -rf baseline-output
+            echo "BASELINE_AVAILABLE=false" >> "$GITHUB_ENV"
+          fi
       - name: Run corpus sweep
         shell: bash
         run: |
-          target/release/corpus_sweep corpus-files sweep-output --withhold-names
+          extra_flags=()
+          if [ "${BASELINE_AVAILABLE}" = "true" ] && [ -d baseline-output ]; then
+            extra_flags+=(--baseline baseline-output)
+          fi
+          if [ -f tests/corpus-sweep/approved-differences.tsv ]; then
+            extra_flags+=(--approved tests/corpus-sweep/approved-differences.tsv)
+          fi
+          target/release/corpus_sweep corpus-files sweep-output --withhold-names "${extra_flags[@]}"
       - name: Print summary report
         if: always()
         shell: bash
@@ -70,4 +133,5 @@ jobs:
             sweep-output/results.jsonl
             sweep-output/summary.md
             sweep-output/summary.json
+            sweep-output/page-hashes.jsonl
           retention-days: 30

@@ -104,6 +104,7 @@ fn render_region_png_jpeg_on_malformed_predictor_colors_report_corrupted() {
             width: 100,
             height: 100,
         },
+        without_annotations: false,
     });
     match region_res {
         Err(HostError::Worker(ref error)) => {

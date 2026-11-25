@@ -1,0 +1,13 @@
+# CodeQL configuration for .github/workflows/codeql.yml (#663): test code that has no
+# #[cfg(test)] attribute and is never shipped. The workflow leaves #[cfg(test)] Rust code out
+# on its own. GitHub applies paths-ignore to interpreted languages and to compiled languages
+# analyzed without a build, which is how Rust is analyzed (build-mode: none).
+paths-ignore:
+  # Rust integration tests.
+  - "crates/*/tests/**"
+  - "src-tauri/tests/**"
+  # Fuzzing (QA-03): the cargo-fuzz targets and the seed generator. Neither is shipped.
+  - "fuzz/**"
+  - crates/ipc_contract/src/bin/fuzz_seeds.rs
+  # The test corpus generator and the E2E tests.
+  - "tests/**"

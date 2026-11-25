@@ -94,6 +94,8 @@ export function useOcrView({ api, ocr, doc, currentPage, active, showHint }: Opt
   for (const version of ocr?.doc === doc ? (ocr?.versions.values() ?? []) : []) versionTotal += version;
 
   return {
+    /** Latest OCR progress for the current document (B4-08, Issue #416). */
+    progress: current,
     /** Which pages' text was recognised since the document opened, for the pages to ask again. */
     textVersions: ocr?.doc === doc ? ocr?.versions : undefined,
     /** How many pages were recognised in all: a search that was done is done again when it grows. */

@@ -50,6 +50,7 @@ describe("MoreMenu structure and order", () => {
       onSaveAs: vi.fn(),
       onCreatePdf: vi.fn(),
       ocr: { running: false, onStart: vi.fn() },
+      onSearchableCopy: vi.fn(),
       flatten: { onClick: vi.fn() },
       onExport: vi.fn(),
       onExportAnnotations: vi.fn(),
@@ -103,6 +104,7 @@ describe("MoreMenu structure and order", () => {
       { text: "另存新檔…Ctrl+Shift+S", role: "menuitem", disabled: false },
       { text: "從檔案建立 PDF…", role: "menuitem", disabled: false },
       { text: "辨識此文件的文字", role: "menuitem", disabled: false },
+      { text: "另存為可搜尋的 PDF…", role: "menuitem", disabled: false },
       { text: "扁平化表單…", role: "menuitem", disabled: false },
       { text: "匯出…", role: "menuitem", disabled: false },
       { text: "匯出註解摘要…", role: "menuitem", disabled: false },
@@ -187,6 +189,7 @@ describe("MoreMenu structure and order", () => {
       { text: "另存新檔…Ctrl+Shift+S", role: "menuitem", disabled: true },
       { text: "從檔案建立 PDF…", role: "menuitem", disabled: true },
       { text: "正在辨識文字…", role: "menuitem", disabled: true },
+      { text: "另存為可搜尋的 PDF…", role: "menuitem", disabled: true },
       { text: `扁平化表單…${strings.permissions.notAllowed}`, role: "menuitem", disabled: true },
       { text: `匯出…${strings.permissions.notAllowed}`, role: "menuitem", disabled: false }, // onExport provided
       { text: `匯出註解摘要…${strings.permissions.notAllowed}`, role: "menuitem", disabled: false }, // onExportAnnotations provided

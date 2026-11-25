@@ -922,7 +922,7 @@ fn a_text_box_gets_another_style_and_other_words_and_the_old_font_goes_with_a_fu
         },
         align: TextAlign::Right,
     };
-    let made = app.set_text_box(0, id, None, &red).expect("restyled");
+    let made = app.set_text_box(0, id, None, &red, None).expect("restyled");
     assert!(!made.overflow || made.overflow);
     let page = render(&saved(&mut app));
     assert!(pixels(&page, whole(&page), |[r, g, b]| r > g + 80 && r > b + 80).len() > 100);
@@ -932,7 +932,7 @@ fn a_text_box_gets_another_style_and_other_words_and_the_old_font_goes_with_a_fu
 
     // Other words, prepared from the font: the text of the box and its glyphs are the new ones.
     let other = prepare_text_box(&font(droid()), "Goodbye 再見，朋友").expect("a model");
-    app.set_text_box(0, id, Some(&other), &style)
+    app.set_text_box(0, id, Some(&other), &style, None)
         .expect("new words");
     let listed = app.page_annotations(0).expect("list");
     assert_eq!(listed.len(), 1);
@@ -980,7 +980,10 @@ fn only_a_text_box_of_the_app_is_set_again_and_it_needs_a_rectangle_a_box_can_ha
         size: 1_000.0,
         ..style(12.0)
     };
-    assert!(app.set_text_box(0, id, Some(&other), &wrong_style).is_err());
+    assert!(
+        app.set_text_box(0, id, Some(&other), &wrong_style, None)
+            .is_err()
+    );
     assert!(
         saved(&mut app) == before,
         "something was changed by what was refused"
@@ -1243,4 +1246,125 @@ fn malformed_freetext_rect_geometry_is_safely_ignored_and_does_not_crash_page_te
             hit.validate().expect("search hit must be valid");
         }
     }
+}
+
+#[test]
+fn set_text_box_with_rect_updates_position_and_words_in_one_edit_and_replays_identically() {
+    let original = common::one_page("");
+    let first_model = prepare_text_box(&font(droid()), "Initial").expect("first model");
+    let second_model =
+        prepare_text_box(&font(droid()), "Expanded words 你好世界").expect("second model");
+    let first_style = style(16.0);
+    let second_style = TextBoxStyle {
+        size: 20.0,
+        color: Rgb {
+            r: 200,
+            g: 30,
+            b: 30,
+        },
+        align: TextAlign::Center,
+    };
+    let grown = Rect {
+        x0: 100.0,
+        y0: 150.0,
+        x1: 480.0,
+        y1: 260.0,
+    };
+
+    let apply_sequence = || {
+        let mut doc = PdfDocument::from_bytes(&original).expect("open");
+        doc.place_text_box(0, BOX, &first_model, &first_style)
+            .expect("place");
+        let id = doc.page_annotations(0).expect("list")[0].id;
+        doc.set_text_box(0, id, Some(&second_model), &second_style, Some(grown))
+            .expect("set with rect");
+        (doc, id)
+    };
+
+    let (mut doc, id) = apply_sequence();
+    let listed = doc.page_annotations(0).expect("list");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, id, "annotation id must stay the same");
+    assert_eq!(listed[0].text.as_deref(), Some("Expanded words 你好世界"));
+    assert!((listed[0].rect.x0 - grown.x0).abs() < 0.01);
+    assert!((listed[0].rect.y0 - grown.y0).abs() < 0.01);
+    assert!((listed[0].rect.x1 - grown.x1).abs() < 0.01);
+    assert!((listed[0].rect.y1 - grown.y1).abs() < 0.01);
+
+    // Searchable at the new rect.
+    let found = doc.search_page(0, "你好世界", true, 10).expect("search");
+    assert_eq!(found.hits.len(), 1);
+    assert!(found.hits[0].quads.iter().all(|q| inside(q, grown)));
+
+    // Replaying from the original bytes gives the same saved annotation state and pixels.
+    let (mut replayed, replayed_id) = apply_sequence();
+    assert_eq!(replayed_id, id);
+    let saved_a = saved(&mut doc);
+    let saved_b = saved(&mut replayed);
+    assert_eq!(render(&saved_a).rgba, render(&saved_b).rgba);
+    assert_eq!(
+        PdfDocument::from_bytes(&saved_a)
+            .expect("open a")
+            .page_annotations(0)
+            .expect("list a"),
+        PdfDocument::from_bytes(&saved_b)
+            .expect("open b")
+            .page_annotations(0)
+            .expect("list b")
+    );
+}
+
+#[test]
+fn render_region_without_annotations_hides_text_box_while_keeping_page_content() {
+    use ipc_contract::types::{RasterRegion, Rotation};
+
+    // Page with a black bar drawn in the page content stream (PDF y 680..700 -> page-space y 92..112),
+    // and a blue text box overlapping the same region.
+    let mut doc =
+        PdfDocument::from_bytes(&common::one_page("0 0 0 rg 100 680 120 20 re f")).expect("open");
+    // Check where page content ink is at scale 1.0.
+    let whole_before = doc.render(0, 1.0, 0).expect("render");
+    let content_ink = ink(&whole_before, whole(&whole_before));
+    assert!(!content_ink.is_empty(), "page must have visible content");
+    let [cx0, cy0, cx1, cy1] = bounds(&content_ink);
+
+    // Put a blue text box overlapping the page content area so one region covers both.
+    let box_rect = Rect {
+        x0: (cx0 as f32 - 10.0).max(10.0),
+        y0: (cy0 as f32 - 10.0).max(10.0),
+        x1: (cx1 as f32 + 120.0).min(580.0),
+        y1: (cy1 as f32 + 60.0).min(760.0),
+    };
+    doc.add_text_box(0, box_rect, &spec("Overlay Box"), &font(droid()))
+        .expect("add text box");
+    let (app, _) = reopened(&mut doc);
+
+    let region = RasterRegion {
+        x: box_rect.x0.floor() as u32,
+        y: box_rect.y0.floor() as u32,
+        width: (box_rect.x1 - box_rect.x0).ceil() as u32,
+        height: (box_rect.y1 - box_rect.y0).ceil() as u32,
+    };
+    let with_annots = app
+        .render_region(0, 1.0, Rotation::None, region, false)
+        .expect("render with annotations");
+    let without_annots = app
+        .render_region(0, 1.0, Rotation::None, region, true)
+        .expect("render without annotations");
+
+    // With annotations: blue text box pixels are drawn.
+    assert!(
+        blue(&with_annots) > 50,
+        "text box should be drawn when without_annotations is false"
+    );
+    // Without annotations: blue text box pixels are gone, while black page content remains.
+    assert_eq!(
+        blue(&without_annots),
+        0,
+        "text box must be omitted when without_annotations is true"
+    );
+    assert!(
+        !ink(&without_annots, whole(&without_annots)).is_empty(),
+        "page content must remain visible when without_annotations is true"
+    );
 }

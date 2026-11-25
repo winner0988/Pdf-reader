@@ -97,6 +97,16 @@ pub const COMPRESSED_COPY_SAME_FILE_TITLE: &str = "請選擇其他檔案";
 pub const COMPRESSED_COPY_SAME_FILE_MESSAGE: &str =
     "壓縮會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
 
+/// Saving a searchable copy with invisible OCR text layers (B4-08, Issue #416, ADR 0028): where
+/// the copy goes, what it is called at first, and why the document's own file cannot be chosen.
+pub const SEARCHABLE_COPY_DIALOG_TITLE: &str = "另存為可搜尋的 PDF：選擇副本的位置";
+pub fn searchable_copy_file_name(stem: &str) -> String {
+    format!("{stem}（可搜尋）.pdf")
+}
+pub const SEARCHABLE_COPY_SAME_FILE_TITLE: &str = "請選擇其他檔案";
+pub const SEARCHABLE_COPY_SAME_FILE_MESSAGE: &str =
+    "另存為可搜尋的 PDF 會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
+
 /// Signing a document (B3-06, ADR 0020): the open dialog for the certificate file and its filter,
 /// the save dialog for the signed copy and what the copy is called at first, and why the copy
 /// cannot go over the document's own file.
@@ -154,6 +164,24 @@ pub fn created_pdf_file_name(stem: &str) -> String {
 pub const CREATE_PDF_SAME_FILE_TITLE: &str = "請選擇其他檔案";
 pub const CREATE_PDF_SAME_FILE_MESSAGE: &str =
     "建立 PDF 不會改動原本的檔案。請選擇原檔以外的位置或檔名。";
+
+/// Creating a PDF from images passed via File Explorer (`--create-pdf-from`, B5-13, #450).
+pub const EXPLORER_CREATE_TOO_MANY_TITLE: &str = "圖片數量超過上限";
+pub fn explorer_create_too_many_message(limit: usize) -> String {
+    format!("一次最多只能使用 {limit} 張圖片建立 PDF，請減少選取的圖片後再試一次。")
+}
+pub const EXPLORER_CREATE_SKIPPED_TITLE: &str = "部分檔案已略過";
+pub fn explorer_create_skipped_message(skipped: usize, valid: usize) -> String {
+    format!(
+        "已略過 {skipped} 個檔案：只支援存在的一般圖片檔（PNG、JPEG、GIF、BMP、TIFF）。\n\n接下來會用其餘 {valid} 張圖片建立 PDF。"
+    )
+}
+pub const EXPLORER_CREATE_ALL_SKIPPED_TITLE: &str = "無法建立 PDF";
+pub fn explorer_create_all_skipped_message(skipped: usize) -> String {
+    format!(
+        "已略過 {skipped} 個檔案，沒有可以用來建立 PDF 的圖片。\n\n只支援存在的一般圖片檔（PNG、JPEG、GIF、BMP、TIFF）。"
+    )
+}
 
 /// Importing a language for recognising the text of scanned pages (B2-10).
 pub const LANGUAGE_DIALOG_TITLE: &str = "匯入 OCR 語言資料";
@@ -408,6 +436,23 @@ mod tests {
     fn an_xfdf_export_is_named_after_the_document() {
         assert_eq!(xfdf_file_name("報告"), "報告（註解）.xfdf");
         assert_eq!(xfdf_file_name("file_name"), "file_name（註解）.xfdf");
+        assert_eq!(
+            super::searchable_copy_file_name("報告"),
+            "報告（可搜尋）.pdf"
+        );
+        assert_eq!(
+            super::searchable_copy_file_name("scan"),
+            "scan（可搜尋）.pdf"
+        );
+    }
+
+    #[test]
+    fn explorer_create_messages_state_counts_and_limits() {
+        assert!(super::explorer_create_too_many_message(200).contains("200"));
+        let skipped = super::explorer_create_skipped_message(2, 3);
+        assert!(skipped.contains("2") && skipped.contains("3"));
+        let all_skipped = super::explorer_create_all_skipped_message(4);
+        assert!(all_skipped.contains("4"));
     }
 
     #[test]

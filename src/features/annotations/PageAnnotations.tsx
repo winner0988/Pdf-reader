@@ -8,7 +8,7 @@
 // to change what it says.
 
 import { ChevronDown, Pencil, RotateCcw, RotateCw, Trash2 } from "lucide-react";
-import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -19,29 +19,65 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  InlineTextEditor,
+  type InlineTextDraft,
+  type InlineTextEditorHandle,
+} from "@/features/annotations/InlineTextEditor";
 import { LineHandles } from "@/features/annotations/LineHandles";
 import { annotationLabel, HIGHLIGHT_COLORS, SWATCH } from "@/features/annotations/model";
 import { MoveResize } from "@/features/annotations/MoveResize";
 import { PictureTurn } from "@/features/annotations/PictureTurn";
+import type { AnnotationsApi, AnnotationSource } from "@/features/annotations/source";
+import {
+  DEFAULT_TEXT_SIZE,
+  fontNamed,
+  settleVariant,
+  sizeAllowed,
+  TEXT_COLORS,
+  variantOf,
+} from "@/features/annotations/textBox";
+import { TextBoxToolbar } from "@/features/annotations/TextBoxToolbar";
 import { normalizeAngle, TURN_STEP_DEGREES } from "@/features/annotations/turn";
 import { INK_COLORS, INK_SWATCH, INK_WIDTHS, keepLineOnPage, keptOnPage, moved, rectOfBox, type Box } from "@/features/annotations/tools";
-import type { AnnotationSource } from "@/features/annotations/source";
+import type { TextBoxTarget } from "@/features/annotations/useAnnotations";
 import type { PageSize, Rotation } from "@/features/shell/model";
 import { boxToPage, displayedSize, pageToBox, rectToBox, type PageBox } from "@/features/viewer/layout";
+import { errorCodeOf, type PageRenderer } from "@/features/viewer/renderer";
 import { strings } from "@/i18n";
-import type {
-  AnnotationId,
-  DocumentId,
-  Edit,
-  HighlightColor,
-  InkColor,
-  InkWidth,
-  PageAnnotation,
-  Point,
-  Rect,
+import {
+  LIMITS,
+  type AnnotationId,
+  type DocumentId,
+  type Edit,
+  type FontId,
+  type FontInfo,
+  type HighlightColor,
+  type InkColor,
+  type InkWidth,
+  type PageAnnotation,
+  type Point,
+  type Rect,
+  type Rgb,
+  type Rotation as ContractRotation,
+  type TextAlign,
+  type TextBoxInfo,
+  type TextBoxStyle,
 } from "@/ipc/generated/contract";
 
 const t = strings.annotations;
+const e = strings.annotations.textBoxEditor;
+
+/** Approximate floating toolbar height (CSS px) for above/below placement. */
+const SELECTED_TOOLBAR_HEIGHT_PX = 136;
+
+export type InlineTextBoxSession = {
+  target: TextBoxTarget | null;
+  lastFamily: string | undefined;
+  setEditor: (handle: InlineTextEditorHandle | null) => void;
+  onSave: (draft: InlineTextDraft, options?: { restoreFocus?: boolean }) => Promise<string | null>;
+  onCancel: (options?: { restoreFocus?: boolean }) => void;
+};
 
 /** What each arrow key moves a drawing or stamp: along x and along y, on the screen. */
 const ARROWS: Record<string, [number, number] | undefined> = {
@@ -53,10 +89,15 @@ const ARROWS: Record<string, [number, number] | undefined> = {
 
 type PageAnnotationsProps = {
   source: AnnotationSource;
+  /** Optional text-box commands for inline editing and the selected text box floating toolbar. */
+  api?: AnnotationsApi;
   doc: DocumentId;
   index: number;
   page: PageSize;
   rotation: Rotation;
+  contractRotation?: ContractRotation;
+  scale?: number;
+  renderer?: PageRenderer;
   box: PageBox;
   left: number;
   delayMs: number;
@@ -69,8 +110,12 @@ type PageAnnotationsProps = {
   onEdit?: (edit: Edit) => void;
   /** Asks for a note's new text (the shell's dialog). */
   onEditNote?: (page: number, annotation: PageAnnotation) => void;
-  /** Asks for a text box's new words and style (the shell's dialog); without it the box can only be moved or removed. */
-  onEditTextBox?: (page: number, annotation: PageAnnotation) => void;
+  /** Starts editing a text box inline on the page (#719). */
+  onEditTextBox?: (page: number, annotation: PageAnnotation, clickClient?: { x: number; y: number }) => void;
+  /** Active inline text box editor session, when one is open on any page. */
+  inlineTextBox?: InlineTextBoxSession;
+  /** Says what went wrong or notices (such as a view-only font) in the status bar. */
+  onProblem?: (text: string) => void;
 };
 
 /** The kinds that can be moved and resized; a redaction mark is only an area until it is applied (B2-19). */
@@ -78,10 +123,14 @@ const MOVABLE = new Set(["ink", "stamp", "textBox", "redaction", "rectangle", "e
 
 export function PageAnnotations({
   source,
+  api,
   doc,
   index,
   page,
   rotation,
+  contractRotation = "none",
+  scale = 1,
+  renderer,
   box,
   left,
   delayMs,
@@ -91,6 +140,8 @@ export function PageAnnotations({
   onEdit,
   onEditNote,
   onEditTextBox,
+  inlineTextBox,
+  onProblem,
 }: PageAnnotationsProps) {
   // The annotations of the last document that answered. An edit gives the document a new id; the
   // annotation the user is on keeps its outline, and with it the focus, until the new list arrives
@@ -135,19 +186,29 @@ export function PageAnnotations({
     } else onChoose(null);
   }, [gone, onChoose, onRelease]);
 
+  const inlineTarget = inlineTextBox?.target && inlineTextBox.target.page === index ? inlineTextBox.target : null;
+  const editingTextBoxId = inlineTarget?.kind === "edit" ? inlineTarget.annotation.id : null;
+
   // When an annotation is chosen (e.g. from the sidebar), focus its outline once the page's
-  // annotations are loaded (B4-06).
+  // annotations are loaded (B4-06). Never steal focus while an inline text editor or dialog is open.
   const chosenBtnRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
+    if (inlineTarget !== null) return;
     if (chosen !== null && chosenBtnRef.current && document.activeElement !== chosenBtnRef.current) {
-      if (!document.activeElement?.closest('[role="dialog"]')) {
+      if (!document.activeElement?.closest('[role="dialog"], [data-inline-text-editor], [data-text-box-toolbar]')) {
         chosenBtnRef.current.focus();
       }
     }
-  }, [chosen, loaded]);
+  }, [chosen, loaded, inlineTarget]);
 
-  if (annotations.length === 0) return null;
-  // Nothing is changed from the list of the document before an edit, and no dialog starts from it:
+  const prepareTextBox = api?.prepareTextBox;
+  const prepareProbe = useMemo(
+    () => (prepareTextBox ? (sample: string, fontId: FontId) => prepareTextBox(doc, sample, fontId) : undefined),
+    [prepareTextBox, doc],
+  );
+
+  if (annotations.length === 0 && inlineTarget === null) return null;
+  // Nothing is changed from the list of the document before an edit, and no editor starts from it:
   // they wait for the new list.
   const change = (edit: Edit) => {
     if (fresh) onEdit?.(edit);
@@ -168,8 +229,10 @@ export function PageAnnotations({
   };
   const editTextBox =
     onEditTextBox &&
-    ((annotation: PageAnnotation) => {
-      if (fresh) onEditTextBox(index, annotation);
+    ((annotation: PageAnnotation, clickClient?: { x: number; y: number }) => {
+      if (!fresh) return;
+      if (clickClient) onEditTextBox(index, annotation, clickClient);
+      else onEditTextBox(index, annotation);
     });
   const pixelsPerPoint = box.width / displayedSize(page, rotation).widthPt;
   const keys = (annotation: PageAnnotation, area: Box) => (event: KeyboardEvent) => {
@@ -229,6 +292,7 @@ export function PageAnnotations({
       {annotations.map((annotation) => {
         const area = rectToBox(annotation.rect, page, rotation, box);
         const isChosen = annotation.id === chosen;
+        const isEditingThis = annotation.id === editingTextBoxId;
         const movable = onEdit !== undefined && MOVABLE.has(annotation.kind);
         const isLine = annotation.kind === "line" || annotation.kind === "arrow";
         const btnWidth = isLine ? Math.max(area.width, 16) : area.width;
@@ -255,9 +319,11 @@ export function PageAnnotations({
               data-annotation={annotation.kind}
               title={annotation.kind === "redaction" ? t.kind.redaction : undefined}
               // The pointer goes through: a click is found by position (DocumentView).
+              // While inline-editing this text box, keep the outline button mounted (invisible) so
+              // Escape can restore focus straight back to it (#402).
               className={`absolute rounded-[2px] outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary aria-pressed:outline-2 aria-pressed:outline-primary aria-pressed:outline-dashed ${
                 annotation.kind === "redaction" ? "border border-red-500/80 bg-red-500/15" : ""
-              }`}
+              } ${isEditingThis ? "opacity-0" : ""}`}
               style={{ left: btnLeft, top: btnTop, width: btnWidth, height: btnHeight }}
               onFocus={() => {
                 if (chosen !== annotation.id) {
@@ -267,7 +333,7 @@ export function PageAnnotations({
               onKeyDown={keys(annotation, area)}
             />
             {/* The handles are for the annotation as the page shows it: not on the list before an edit. */}
-            {isChosen && movable && fresh && isLine && (
+            {isChosen && !isEditingThis && movable && fresh && isLine && (
               <LineHandles
                 annotation={annotation}
                 page={page}
@@ -276,7 +342,7 @@ export function PageAnnotations({
                 onPlaceLine={(from, to) => placeLine(annotation, from, to)}
               />
             )}
-            {isChosen && movable && fresh && !isLine && (
+            {isChosen && !isEditingThis && movable && fresh && !isLine && (
               <MoveResize
                 annotation={annotation}
                 page={page}
@@ -284,9 +350,14 @@ export function PageAnnotations({
                 box={box}
                 area={area}
                 onPlace={(rect) => place(annotation, rect)}
+                onDoubleClick={
+                  annotation.kind === "textBox" && editTextBox
+                    ? (client) => editTextBox(annotation, client)
+                    : undefined
+                }
               />
             )}
-            {isChosen && movable && fresh && annotation.picture && (
+            {isChosen && !isEditingThis && movable && fresh && annotation.picture && (
               <PictureTurn
                 picture={annotation.picture}
                 rect={annotation.rect}
@@ -296,41 +367,307 @@ export function PageAnnotations({
                 onTurn={(degrees) => turnTo(annotation, degrees)}
               />
             )}
-            {isChosen && (
-              <AnnotationToolbar
+            {isChosen && !isEditingThis && annotation.kind === "textBox" && api?.getTextBox && api.getFonts ? (
+              <SelectedTextBoxToolbar
                 annotation={annotation}
-                // Above it (and above the handle that turns a picture), unless there is no room on the page.
-                top={
-                  area.top >= (annotation.picture ? 72 : 40)
-                    ? area.top - (annotation.picture ? 72 : 40)
-                    : area.top + area.height + 4
-                }
-                left={Math.max(0, Math.min(area.left, box.width - 240))}
-                allowed={onEdit !== undefined}
-                onColor={(color) =>
-                  change({ kind: "setHighlightColor", page: index, annotation: annotation.id, color })
-                }
-                onShapeColor={(color) =>
-                  setShapeStyle(annotation, color, annotation.shapeWidth ?? "medium")
-                }
-                onShapeWidth={(width) =>
-                  setShapeStyle(annotation, annotation.shapeColor ?? "black", width)
-                }
-                onEditNote={() => editNote(annotation)}
+                doc={doc}
+                pageIndex={index}
+                area={area}
+                boxWidth={box.width}
+                api={api}
+                allowed={onEdit !== undefined && fresh}
                 onEditTextBox={editTextBox ? () => editTextBox(annotation) : undefined}
-                onTurn={
-                  annotation.picture
-                    ? (by) => turnTo(annotation, (annotation.picture?.angle ?? 0) + by)
-                    : undefined
-                }
                 onDelete={() => remove(annotation)}
-                onKeyDown={keys(annotation, area)}
+                onApply={change}
+                onProblem={onProblem}
+                onRelease={onRelease}
+                onFallbackKeys={keys(annotation, area)}
               />
+            ) : (
+              isChosen &&
+              !isEditingThis && (
+                <AnnotationToolbar
+                  annotation={annotation}
+                  // Above it (and above the handle that turns a picture), unless there is no room on the page.
+                  top={
+                    area.top >= (annotation.picture ? 72 : 40)
+                      ? area.top - (annotation.picture ? 72 : 40)
+                      : area.top + area.height + 4
+                  }
+                  left={Math.max(0, Math.min(area.left, box.width - 240))}
+                  allowed={onEdit !== undefined}
+                  onColor={(color) =>
+                    change({ kind: "setHighlightColor", page: index, annotation: annotation.id, color })
+                  }
+                  onShapeColor={(color) =>
+                    setShapeStyle(annotation, color, annotation.shapeWidth ?? "medium")
+                  }
+                  onShapeWidth={(width) =>
+                    setShapeStyle(annotation, annotation.shapeColor ?? "black", width)
+                  }
+                  onEditNote={() => editNote(annotation)}
+                  onEditTextBox={editTextBox ? () => editTextBox(annotation) : undefined}
+                  onTurn={
+                    annotation.picture
+                      ? (by) => turnTo(annotation, (annotation.picture?.angle ?? 0) + by)
+                      : undefined
+                  }
+                  onDelete={() => remove(annotation)}
+                  onKeyDown={keys(annotation, area)}
+                />
+              )
             )}
           </Fragment>
         );
       })}
+      {inlineTarget && inlineTextBox && (
+        <InlineTextEditor
+          key={
+            inlineTarget.kind === "add"
+              ? `add-${inlineTarget.page}-${inlineTarget.rect.x0}-${inlineTarget.rect.y0}`
+              : `edit-${inlineTarget.page}-${inlineTarget.annotation.id}`
+          }
+          onHandle={inlineTextBox.setEditor}
+          mode={inlineTarget.kind}
+          initialRect={inlineTarget.kind === "add" ? inlineTarget.rect : inlineTarget.annotation.rect}
+          hideRect={inlineTarget.kind === "edit" ? inlineTarget.annotation.rect : undefined}
+          page={page}
+          pageIndex={index}
+          rotation={rotation}
+          contractRotation={contractRotation}
+          box={box}
+          scale={scale}
+          doc={doc}
+          renderer={renderer}
+          fonts={inlineTarget.fonts}
+          start={inlineTarget.kind === "edit" ? inlineTarget.start : undefined}
+          lastFamily={inlineTextBox.lastFamily}
+          clickClient={inlineTarget.kind === "edit" ? inlineTarget.clickClient : undefined}
+          onRefreshFonts={api?.getFonts}
+          onPrepareProbe={prepareProbe}
+          onCommit={inlineTextBox.onSave}
+          onCancel={inlineTextBox.onCancel}
+          onUnmountFlush={(draft) => {
+            void inlineTextBox.onSave(draft, { restoreFocus: false });
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+type SelectedTextBoxToolbarProps = {
+  annotation: PageAnnotation;
+  doc: DocumentId;
+  pageIndex: number;
+  area: Box;
+  boxWidth: number;
+  api: AnnotationsApi;
+  allowed: boolean;
+  onEditTextBox?: () => void;
+  onDelete: () => void;
+  onApply: (edit: Edit) => void;
+  onProblem?: (text: string) => void;
+  onRelease: () => void;
+  onFallbackKeys: (event: KeyboardEvent) => void;
+};
+
+/**
+ * Floating formatting toolbar shown when an existing text box is selected (not actively typing).
+ * Style changes (size, color, align) send a single `setTextBox` with `model: null` without
+ * re-reading fonts; font/variant changes prepare and send a single `setTextBox` (#719).
+ */
+function SelectedTextBoxToolbar({
+  annotation,
+  doc,
+  pageIndex,
+  area,
+  boxWidth,
+  api,
+  allowed,
+  onEditTextBox,
+  onDelete,
+  onApply,
+  onProblem,
+  onRelease,
+  onFallbackKeys,
+}: SelectedTextBoxToolbarProps) {
+  const [loaded, setLoaded] = useState<{ doc: DocumentId; id: AnnotationId; info: TextBoxInfo } | null>(null);
+  const [fonts, setFonts] = useState<readonly FontInfo[]>([]);
+  const [sizeDraft, setSizeDraft] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let current = true;
+    void Promise.all([api.getTextBox!(doc, pageIndex, annotation.id), api.getFonts!()]).then(
+      ([info, list]) => {
+        if (!current) return;
+        setLoaded({ doc, id: annotation.id, info });
+        setFonts(list);
+        setSizeDraft(null);
+        setProblem(null);
+      },
+      () => {},
+    );
+    return () => {
+      current = false;
+    };
+  }, [api, doc, pageIndex, annotation.id]);
+
+  const info = loaded && loaded.doc === doc && loaded.id === annotation.id ? loaded.info : null;
+  const own = info ? fontNamed(fonts, info.font) : undefined;
+  const family = own?.family ?? "";
+  const bold = own?.bold ?? false;
+  const italic = own?.italic ?? false;
+  const style: TextBoxStyle = info?.style ?? {
+    size: DEFAULT_TEXT_SIZE,
+    color: TEXT_COLORS[0].rgb,
+    align: "left",
+  };
+  const sizeValue = sizeDraft ?? String(style.size);
+
+  const applyStyle = (nextStyle: TextBoxStyle) => {
+    if (!allowed || !info) return;
+    setProblem(null);
+    onApply({
+      kind: "setTextBox",
+      page: pageIndex,
+      annotation: annotation.id,
+      model: null,
+      style: nextStyle,
+    });
+  };
+
+  const applyFont = async (nextFont: FontInfo) => {
+    if (!allowed || !info || !api.prepareTextBox) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      const prepared = await api.prepareTextBox(doc, info.text, nextFont.id);
+      if (prepared.viewOnly) onProblem?.(t.textBoxViewOnly(nextFont.name));
+      onApply({
+        kind: "setTextBox",
+        page: pageIndex,
+        annotation: annotation.id,
+        model: prepared.model,
+        style,
+      });
+    } catch (error) {
+      const code = errorCodeOf(error);
+      setProblem(code === "limitExceeded" ? strings.pages.saveFirst : (strings.error.messages[code] ?? e.failed));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const chooseFamily = (nextFamily: string) => {
+    if (nextFamily === "") return;
+    const settled = settleVariant(fonts, nextFamily, bold, italic);
+    if (!settled) return;
+    setNote(
+      bold && !settled.bold
+        ? e.noBold(nextFamily)
+        : italic && !settled.italic
+          ? e.noItalic(nextFamily)
+          : null,
+    );
+    void applyFont(settled.font);
+  };
+
+  const toggleVariant = (what: "bold" | "italic") => {
+    if (family === "") return;
+    const nextBold = what === "bold" ? !bold : bold;
+    const nextItalic = what === "italic" ? !italic : italic;
+    const found = variantOf(fonts, family, nextBold, nextItalic);
+    if (!found) {
+      setNote(what === "bold" ? e.noBold(family) : e.noItalic(family));
+      return;
+    }
+    setNote(null);
+    void applyFont(found);
+  };
+
+  const commitSize = () => {
+    if (sizeDraft === null || !info) return;
+    const points = Number(sizeDraft);
+    if (!sizeAllowed(points)) {
+      setProblem(e.sizeRange(LIMITS.minTextBoxSize, LIMITS.maxTextBoxSize));
+      return;
+    }
+    setSizeDraft(null);
+    if (points !== info.style.size) {
+      applyStyle({ ...style, size: points });
+    }
+  };
+
+  const refreshFonts = () => {
+    if (!api.getFonts) return;
+    void api.getFonts().then(
+      (list) => setFonts(list),
+      () => {},
+    );
+  };
+
+  const statusNotes: string[] = [];
+  if (note) statusNotes.push(note);
+  if (info?.overflow) statusNotes.push(e.overflow);
+
+  const toolbarTop =
+    area.top >= SELECTED_TOOLBAR_HEIGHT_PX + 8
+      ? area.top - SELECTED_TOOLBAR_HEIGHT_PX - 8
+      : area.top + area.height + 8;
+  const toolbarMaxWidth = Math.min(440, Math.max(240, boxWidth));
+  const toolbarLeft = Math.max(0, Math.min(area.left, Math.max(0, boxWidth - toolbarMaxWidth)));
+
+  return (
+    <TextBoxToolbar
+      label={annotationLabel(annotation)}
+      top={toolbarTop}
+      left={toolbarLeft}
+      maxWidth={toolbarMaxWidth}
+      fonts={fonts}
+      family={family}
+      missingFontName={info && !own ? info.font : undefined}
+      bold={bold}
+      italic={italic}
+      sizeValue={sizeValue}
+      color={style.color}
+      align={style.align}
+      disabled={!allowed || busy || info === null}
+      disabledReason={!allowed ? t.notAllowed : undefined}
+      onRefreshFonts={refreshFonts}
+      onFamilyChange={chooseFamily}
+      onToggleBold={() => toggleVariant("bold")}
+      onToggleItalic={() => toggleVariant("italic")}
+      onSizeChange={(value) => {
+        setSizeDraft(value);
+        setProblem(null);
+      }}
+      onSizeCommit={commitSize}
+      onColorChange={(color: Rgb) => applyStyle({ ...style, color })}
+      onAlignChange={(align: TextAlign) => applyStyle({ ...style, align })}
+      onEdit={onEditTextBox}
+      onDelete={onDelete}
+      statusNotes={statusNotes}
+      problem={problem}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          onRelease();
+          return;
+        }
+        // Editing keys inside the size input or font select must stay in the control, never
+        // moving or deleting the selected text box.
+        if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) {
+          event.stopPropagation();
+          return;
+        }
+        onFallbackKeys(event);
+      }}
+    />
   );
 }
 

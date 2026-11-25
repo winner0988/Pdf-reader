@@ -78,6 +78,7 @@
     "allow-encrypt-copy",
     "allow-decrypt-copy",
     "allow-compress-images",
+    "allow-searchable-copy",
     "allow-sanitize-copy",
     "allow-get-ocr-languages",
     "allow-get-fonts",

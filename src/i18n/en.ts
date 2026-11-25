@@ -2,7 +2,7 @@
 // Terminology is defined in docs/ux/glossary-en.md.
 
 import type { ErrorCode, FindingKind } from "@/features/shell/model";
-import type { BlockedAction, NotRemembered } from "@/ipc/generated/contract";
+import type { BlockedAction, NotRemembered, SearchableSkipReason } from "@/ipc/generated/contract";
 import type { Strings } from "./zh-TW";
 
 export const strings: Strings = {
@@ -211,6 +211,14 @@ export const strings: Strings = {
       cancel: "Cancel",
       wrong: "Incorrect password. Please try again.",
     },
+    sourceLayers: {
+      title: "This file has layers",
+      description: "This file has layers. After inserting, all layers will be shown, including hidden ones.",
+      detail:
+        "The app cannot switch layers yet. After inserting, you can check the new pages and press Undo (Ctrl+Z) before saving if you do not want them.",
+      confirm: "Insert",
+      cancel: "Cancel",
+    },
     replace: {
       title: "Replace Pages",
       prompt: (first: number, last: number, sourcePages: number) =>
@@ -226,6 +234,8 @@ export const strings: Strings = {
       previewTitle: (total: number) => `${total === 1 ? "1 page" : `${total} pages`} total after replacement:`,
       previewOriginal: (newRange: string, origRange: string) => `Page ${newRange}: Original page ${origRange}`,
       previewSource: (newRange: string, srcRange: string) => `Page ${newRange}: Selected file page ${srcRange}`,
+      layersWarning:
+        "This file has layers. After replacing, all layers will be shown, including hidden ones. The app cannot switch layers yet; after replacing, you can check the new pages and press Undo (Ctrl+Z) before saving if you do not want them.",
       confirm: "Replace",
       cancel: "Cancel",
     },
@@ -418,18 +428,16 @@ export const strings: Strings = {
       tooLong: "Note is too long. Please shorten it.",
     },
     textBox: "Text box",
-    textBoxOn: "Text box active: click on page to place (or press Enter for page center), press Esc to exit.",
-    addTextBox: "Add text box here…",
-    editTextBox: "Edit text box…",
+    textBoxOn: "Text box active: click on page to type (or press Enter for page center), press Esc to exit.",
+    addTextBox: "Add text box here",
+    editTextBox: "Edit text box",
     notOnPageForBox: "Right-click on a page to add a text box.",
     fontsFailed: "Could not read installed fonts on this computer. Please try again.",
     textBoxViewOnly: (font: string) =>
       `The font "${font}" only permits preview and printing: text box added, but other software may not allow editing it.`,
-    textBoxDialog: {
-      addTitle: "Add Text Box",
-      editTitle: "Edit Text Box",
-      loading: "Loading fonts…",
-      text: "Text",
+    textBoxEditor: {
+      label: "Text box content",
+      toolbarLabel: "Text box formatting",
       font: "Font",
       fontMissing: (name: string) => `${name} (not found on this computer)`,
       fontsHelp: "Cannot find your font? Install it in Windows, or import custom font files in Settings.",
@@ -439,6 +447,7 @@ export const strings: Strings = {
       italic: "Italic",
       noBold: (family: string) => `"${family}" has no bold style; synthetic bold will not be used.`,
       noItalic: (family: string) => `"${family}" has no italic style; synthetic italic will not be used.`,
+      fallbackFontNote: (family: string) => `Previewed in a system font while typing; will be drawn in "${family}" when finished.`,
       size: "Size (pt)",
       sizeRange: (least: number, most: number) => `Size must be between ${least} and ${most} points.`,
       color: "Color",
@@ -454,14 +463,10 @@ export const strings: Strings = {
       },
       align: "Alignment",
       aligns: { left: "Left", center: "Center", right: "Right" },
-      save: "Save",
-      working: "Processing…",
-      cancel: "Cancel",
-      empty: "Please enter text.",
       tooLong: "Text is too long. Please shorten it.",
       needFont: "Original font not found on this computer: to edit text or font, please choose another font first.",
       overflow: "Text exceeds box dimensions and will be clipped: please enlarge the box or decrease font size.",
-      hint: "Press Ctrl+Enter to save; Enter during IME composition only confirms candidate selection.",
+      resizeWidth: "Resize text box width",
       failed: "Could not save text box. Please try again.",
     },
   },
@@ -972,6 +977,20 @@ export const strings: Strings = {
     cancel: "Cancel",
     running: "Creating PDF…",
     done: (pages: number) => `Created ${pages === 1 ? "1 page" : `${pages} pages`} PDF, opened in new tab.`,
+    explorerCollecting: (count: number, skipped: number) => {
+      const imgs = count === 1 ? "1 image" : `${count} images`;
+      const skips = skipped === 1 ? "1 file skipped" : `${skipped} files skipped`;
+      if (skipped > 0) {
+        return count > 0
+          ? `Collecting images (${imgs} received, ${skips})…`
+          : `Collecting images (${skips})…`;
+      }
+      return `Collecting images (${imgs} received)…`;
+    },
+    explorerCreating: (count: number) =>
+      `Creating PDF from ${count === 1 ? "1 image" : `${count} images`}…`,
+    explorerDoneSkipped: (pages: number, skipped: number) =>
+      `Created ${pages === 1 ? "1 page" : `${pages} pages`} PDF, opened in new tab (${skipped === 1 ? "1 file skipped" : `${skipped} files skipped`}).`,
     failures: {
       invalidArgument:
         "Selected files cannot be converted together: multiple images can be chosen at once, but other formats must be chosen individually; other extensions are not supported.",
@@ -1113,6 +1132,27 @@ export const strings: Strings = {
     noTextLayer: "This page has no text layer; cannot select text.",
   },
   links: {
+    tool: "Link",
+    toolOn: "Link tool active: click or drag on a page to create a link, or click an existing link to edit. Press Esc to exit.",
+    addLink: "Add link here…",
+    editLink: "Edit link…",
+    deleteLink: "Delete link",
+    crossPageNotAllowed: "Cannot create link across multiple pages",
+    addTitle: "Add Link",
+    editTitle: "Edit Link",
+    targetType: "Link Target",
+    targetPage: "Page in Document",
+    targetUri: "Web or Email Address",
+    pageNumber: "Page number",
+    pageNumberPlaceholder: (total: number) => `1 to ${total}`,
+    pageNumberError: (total: number) => `Page number must be between 1 and ${total}`,
+    uriLabel: "URL or email address",
+    uriPlaceholder: "https://example.com or mailto:user@example.com",
+    uriError: "URL must start with http://, https://, or mailto:, and must not contain spaces",
+    save: "Save",
+    add: "Add",
+    delete: "Delete",
+    confirmDelete: "Are you sure you want to delete this link?",
     hoverPage: (page: number) => `Go to page ${page}`,
     hoverBlocked: (reason: string) => `Blocked: ${reason}`,
     confirmTitle: "Open external link?",
@@ -1343,6 +1383,7 @@ export const strings: Strings = {
     batch: "Batch Processing…",
     searchAll: "Search in All Documents…",
     createPdf: "Create PDF from File…",
+    searchableCopy: "Save as Searchable PDF…",
     dontRecord: "Do not record this file",
     markSensitive: "Mark as Sensitive…",
     unmarkSensitive: "Remove Sensitive Mark…",
@@ -1456,6 +1497,48 @@ export const strings: Strings = {
         tooMany: "Too many imported languages; please remove some first.",
       },
       failed: "Could not complete operation. Please try again.",
+    },
+    searchable: {
+      title: "Save as Searchable PDF",
+      description:
+        "Add an invisible text layer to scanned pages and save as a new PDF so other PDF readers can search and copy text. The original file remains unchanged, and the copy is neither opened nor added to recent files.",
+      languageLabel: "Recognition language",
+      pagesLabel: "Pages",
+      pagesSummary: (total: number) =>
+        `${total === 1 ? "1 page" : `${total} pages`} total (only image-only scanned pages are recognized; pages with existing text remain unchanged)`,
+      pagesDoneSummary: (total: number) =>
+        `${total === 1 ? "1 page" : `${total} pages`} total; text recognition is already complete for this document and ready to save.`,
+      note: "The text layer uses an invisible font overlaid on original pages so visual appearance remains unchanged; vertical text is not written to the text layer.",
+      encryptedReason:
+        "This document is encrypted and cannot be saved as a searchable PDF (rewriting the file cannot preserve the original encryption settings).",
+      signedReason:
+        "This document has digital signatures and cannot be saved as a searchable PDF (adding a text layer would invalidate the signatures).",
+      stillWorksInApp:
+        "You can still recognize text and search scanned pages inside PDF Reader (results stay in memory without modifying the file).",
+      recognisingScans: (done: number, scans: number, checked: number, total: number) =>
+        `Recognizing scanned pages: ${done} / ${scans} (checked ${checked} / ${total})…`,
+      checkingPages: (checked: number, total: number) =>
+        `Checking pages: ${checked} / ${total}…`,
+      saving: "Writing text layer and saving copy…",
+      start: "Recognize and Save As…",
+      startSave: "Choose Location and Save…",
+      cancel: "Cancel",
+      ok: "OK",
+      doneButton: "Done",
+      doneTitle: "Saved as Searchable PDF",
+      doneAdded: (pages: number) =>
+        `Added an invisible text layer to ${pages === 1 ? "1 page" : `${pages} pages`} and saved as a new file. The original file was not changed.`,
+      doneNoneAdded:
+        "Saved copy, but no pages received a new text layer. The original file was not changed.",
+      skippedTitle: "The following pages did not receive a text layer:",
+      skippedPage: (page: number, reason: string) => `Page ${page}: ${reason}`,
+      skipReasons: {
+        notScan: "Already has a text layer or is not a scanned page",
+        noText: "No text recognized",
+        timedOut: "Text recognition timed out",
+        failed: "Text recognition failed",
+      } satisfies Record<SearchableSkipReason, string>,
+      failed: "Could not save as a searchable PDF. Please try again.",
     },
   },
   settings: {
@@ -1772,6 +1855,7 @@ export const strings: Strings = {
       setDefault: ["set as default", "default app", "default pdf reader"],
       createPdf: ["create pdf", "convert to pdf", "new pdf"],
       ocr: ["ocr", "recognize text", "optical character recognition"],
+      searchableCopy: ["searchable pdf", "save as searchable pdf", "ocr save", "invisible text layer"],
       flatten: ["flatten form", "flatten fields"],
       insertFileAfterCurrent: ["insert pages", "merge", "append file"],
       replaceCurrentPage: ["replace pages", "replace page"],

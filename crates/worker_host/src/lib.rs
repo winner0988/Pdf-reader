@@ -544,6 +544,29 @@ impl WorkerHost {
         })
     }
 
+    /// Writes to `file`, as [`save`](Self::save) does, a copy of `doc` with an invisible OCR text
+    /// layer on each recognised scanned page (B4-08, Issue #416, ADR 0028); `doc` itself is not
+    /// changed. Returns `Searchable`.
+    pub fn searchable_copy(
+        &mut self,
+        doc: DocumentId,
+        file: &File,
+    ) -> Result<WorkerResponse, HostError> {
+        self.ensure_running()?;
+        let handle = self
+            .connection
+            .as_ref()
+            .expect("running")
+            .process
+            .duplicate_write_only(file)
+            .map_err(HostError::Spawn)?;
+        self.request_within(SAVE_TIMEOUT, |request| WorkerRequest::SearchableCopy {
+            request,
+            doc,
+            file: FileHandle(handle),
+        })
+    }
+
     /// Writes to `file`, as [`save`](Self::save) does, a copy of `doc` whose pictures carry nothing
     /// but themselves: what a camera or a program wrote into them is taken out (B3-04). `doc`
     /// itself is not changed. Returns `ExifCleaned`.
@@ -872,6 +895,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::Saved { request, .. }
         | WorkerResponse::Sanitized { request, .. }
         | WorkerResponse::Compressed { request, .. }
+        | WorkerResponse::Searchable { request, .. }
         | WorkerResponse::SignaturePrepared { request, .. }
         | WorkerResponse::ExifCleaned { request, .. }
         | WorkerResponse::Created { request, .. }
@@ -936,6 +960,9 @@ pub fn is_expected_response(request: &WorkerRequest, response: &WorkerResponse) 
         | WorkerRequest::ExportDocx { .. } => matches!(response, WorkerResponse::Saved { .. }),
         WorkerRequest::CompressedCopy { .. } => {
             matches!(response, WorkerResponse::Compressed { .. })
+        }
+        WorkerRequest::SearchableCopy { .. } => {
+            matches!(response, WorkerResponse::Searchable { .. })
         }
         WorkerRequest::ExifCleanCopy { .. } => {
             matches!(response, WorkerResponse::ExifCleaned { .. })
