@@ -6252,6 +6252,7 @@ mod tests {
             bytes: vec![0; len],
             pages,
             security: SecurityReport::default(),
+            has_layers: false,
             text_boxes: Vec::new(),
         };
         assert!(source(1_000, 3).validate().is_ok());
@@ -6278,6 +6279,7 @@ mod tests {
                 bytes: Vec::new(),
                 pages: 1,
                 security: bad_report,
+                has_layers: true,
                 text_boxes: Vec::new(),
             }
             .validate()
@@ -6309,6 +6311,7 @@ mod tests {
                 bytes: vec![0; 10],
                 pages: 1,
                 security: SecurityReport::default(),
+                has_layers: false,
                 text_boxes: vec![SourceTextBox {
                     page: 1,
                     ..valid_box.clone()
@@ -6325,6 +6328,7 @@ mod tests {
                 bytes: vec![0; 10],
                 pages: 10,
                 security: SecurityReport::default(),
+                has_layers: false,
                 text_boxes: vec![valid_box; MAX_SOURCE_TEXT_BOXES as usize + 1],
             }
             .validate()

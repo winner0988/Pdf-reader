@@ -206,6 +206,14 @@ export const strings: Strings = {
       cancel: "Cancel",
       wrong: "Incorrect password. Please try again.",
     },
+    sourceLayers: {
+      title: "This file has layers",
+      description: "This file has layers. After inserting, all layers will be shown, including hidden ones.",
+      detail:
+        "The app cannot switch layers yet. After inserting, you can check the new pages and press Undo (Ctrl+Z) before saving if you do not want them.",
+      confirm: "Insert",
+      cancel: "Cancel",
+    },
     replace: {
       title: "Replace Pages",
       prompt: (first: number, last: number, sourcePages: number) =>
@@ -221,6 +229,8 @@ export const strings: Strings = {
       previewTitle: (total: number) => `${total === 1 ? "1 page" : `${total} pages`} total after replacement:`,
       previewOriginal: (newRange: string, origRange: string) => `Page ${newRange}: Original page ${origRange}`,
       previewSource: (newRange: string, srcRange: string) => `Page ${newRange}: Selected file page ${srcRange}`,
+      layersWarning:
+        "This file has layers. After replacing, all layers will be shown, including hidden ones. The app cannot switch layers yet; after replacing, you can check the new pages and press Undo (Ctrl+Z) before saving if you do not want them.",
       confirm: "Replace",
       cancel: "Cancel",
     },

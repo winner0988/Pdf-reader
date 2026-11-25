@@ -467,6 +467,24 @@ impl PdfDocument {
         .unwrap_or(false)
     }
 
+    /// Whether the document defines any layers (`/OCProperties /OCGs` is a non-empty array) (#703).
+    /// Errors while reading are treated as `true` so a malformed catalog does not skip the warning.
+    pub fn has_layers(&self) -> bool {
+        (|| -> Result<bool, mupdf::Error> {
+            let Some(props) = self.doc.catalog()?.get_dict("OCProperties")? else {
+                return Ok(false);
+            };
+            if !props.is_dict()? {
+                return Ok(!props.is_null()?);
+            }
+            let Some(ocgs) = props.get_dict("OCGs")? else {
+                return Ok(false);
+            };
+            Ok(ocgs.is_array()? && ocgs.len()? > 0)
+        })()
+        .unwrap_or(true)
+    }
+
     /// Reads and formats page labels defined in the document (/PageLabels, B5-07).
     ///
     /// Returns `Ok(None)` when there are no labels, when labels are malformed or exceed
@@ -1822,6 +1840,8 @@ pub struct PreparedSource {
     pub pages: u32,
     /// The active content the PDF has (MVP-11). None of it comes along with the pages.
     pub security: SecurityReport,
+    /// Whether the source PDF defines any layers (`/OCProperties /OCGs`) (#703).
+    pub has_layers: bool,
     /// Text boxes found in the source file to recreate (B3-23, ADR 0019).
     pub text_boxes: Vec<SourceTextBox>,
 }
@@ -1857,11 +1877,13 @@ impl PdfDocument {
         let mut plain = Vec::new();
         write_at_most(&source.doc, &mut plain, options, MAX_SOURCE_BYTES as u64)?;
         let plain_doc = PdfDocument::from_bytes(&plain)?;
+        let has_layers = plain_doc.has_layers();
         let text_boxes = merge_annotations::extract_source_text_boxes(&plain_doc)?;
         Ok(PreparedSource {
             bytes: plain,
             pages,
             security,
+            has_layers,
             text_boxes,
         })
     }
@@ -5365,6 +5387,38 @@ endstream",
         assert!(doc.insert_pages(1, truncated, &[]).is_err());
         assert_eq!(doc.page_count().unwrap(), 10);
         assert_eq!(page_titles(&doc), titles(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+    }
+
+    #[test]
+    fn has_layers_reads_oc_properties_and_treats_read_errors_as_true() {
+        let no_props = PdfDocument::from_bytes(&corpus("benign/single-page.pdf")).unwrap();
+        assert!(!no_props.has_layers());
+
+        let empty_ocgs = PdfDocument::from_bytes(&corpus("benign/layers-empty-ocgs.pdf")).unwrap();
+        assert!(!empty_ocgs.has_layers());
+
+        for name in [
+            "benign/layers-hidden.pdf",
+            "benign/layers-visible.pdf",
+            "benign/layers-base-off.pdf",
+            "benign/layers-intent-design.pdf",
+            "benign/layers-ocmd-ve.pdf",
+        ] {
+            let doc = PdfDocument::from_bytes(&corpus(name)).unwrap();
+            assert!(doc.has_layers(), "{name}");
+        }
+
+        // Non-dict /OCProperties and unresolved/broken indirect /OCGs must report true (fail-safe).
+        let malformed_props = build_pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R /OCProperties 42 >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>",
+        ]);
+        assert!(
+            PdfDocument::from_bytes(&malformed_props)
+                .unwrap()
+                .has_layers()
+        );
     }
 
     #[test]

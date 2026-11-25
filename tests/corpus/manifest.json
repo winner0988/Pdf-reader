@@ -588,6 +588,58 @@
       "sha256": "43dbe213c22e4c08acd534cad2af075b14d6d7b3e32d706c4500565d46c3e449"
     },
     {
+      "path": "benign/layers-base-off.pdf",
+      "category": "benign",
+      "purpose": "One page with a layer hidden via /OCProperties /D /BaseState /OFF (#703).",
+      "expected": "Opens; the hidden layer's red square is not rendered on its own, and shows after inserting into another file.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Document with BaseState OFF layer."
+      ],
+      "bytes": 950,
+      "sha256": "698f6433027d57d8e9a29e31d2a761c347bae736e8d62418689f4ac50b9410cd"
+    },
+    {
+      "path": "benign/layers-intent-design.pdf",
+      "category": "benign",
+      "purpose": "One page with a /Design intent layer hidden under /D /Intent /View (#703).",
+      "expected": "Opens; the Design intent layer's red square is not rendered on its own.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Document with Design intent layer."
+      ],
+      "bytes": 977,
+      "sha256": "fa7d629c673eca984b67d774a38b0462bcb50234cb122cf3d475fffae2932123"
+    },
+    {
+      "path": "benign/layers-ocmd-ve.pdf",
+      "category": "benign",
+      "purpose": "One page with content hidden via an OCMD /VE visibility expression (#703).",
+      "expected": "Opens; /OCProperties /OCGs lists the base layer (MuPDF does not evaluate /OCMD /VE so the red square renders in MuPDF while viewers supporting /VE hide it).",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Document with OCMD visibility expression layer."
+      ],
+      "bytes": 1040,
+      "sha256": "d41431d1601369709b28328d2b0536ad78c45b588cb4242143081ce8979295e9"
+    },
+    {
+      "path": "benign/layers-empty-ocgs.pdf",
+      "category": "benign",
+      "purpose": "One page with /OCProperties /OCGs as an empty array (#703).",
+      "expected": "Opens; reported as having no layers.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Document with empty OCGs array."
+      ],
+      "bytes": 770,
+      "sha256": "23844ee4d2562c93abec008bb0f0bc69aa77629d37867ee2a4f3bedb93a5a31c"
+    },
+    {
       "path": "malicious/js-document-level.pdf",
       "category": "malicious",
       "purpose": "Document-level JavaScript in the names tree.",

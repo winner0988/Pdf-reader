@@ -1489,6 +1489,7 @@ fn prepare_source(
             bytes: source.bytes,
             pages: source.pages,
             security: source.security,
+            has_layers: source.has_layers,
             text_boxes: source.text_boxes,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),

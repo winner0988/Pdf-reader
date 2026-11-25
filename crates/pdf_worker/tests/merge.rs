@@ -2309,13 +2309,17 @@ fn rendered_page(host: &mut WorkerHost, doc: DocumentId, page_index: u32) -> Vec
 }
 
 fn count_nearly_red(rgba: &[u8]) -> usize {
-    rgba.chunks_exact(4)
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
         .filter(|px| px[0] >= 240 && px[1] <= 15 && px[2] <= 15 && px[3] >= 240)
         .count()
 }
 
 fn count_nearly_blue(rgba: &[u8]) -> usize {
-    rgba.chunks_exact(4)
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
         .filter(|px| px[0] <= 15 && px[1] <= 15 && px[2] >= 240 && px[3] >= 240)
         .count()
 }
@@ -2433,4 +2437,70 @@ fn hidden_layer_becomes_visible_when_inserted_into_another_document() {
         "expected target blue square, got {blue_before}"
     );
     assert_eq!(blue_after, blue_before);
+}
+
+fn source_has_layers(host: &mut WorkerHost, name: &str) -> bool {
+    let file = File::open(corpus(name)).expect("the sample");
+    match host.prepare_source(&file, None).expect("prepare_source") {
+        WorkerResponse::Source { has_layers, .. } => has_layers,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn prepare_source_reports_has_layers_and_compares_hidden_layer_variants() {
+    let mut host = host();
+    for name in [
+        "benign/layers-hidden.pdf",
+        "benign/layers-base-off.pdf",
+        "benign/layers-intent-design.pdf",
+        "benign/layers-ocmd-ve.pdf",
+        "benign/layers-visible.pdf",
+    ] {
+        assert!(
+            source_has_layers(&mut host, name),
+            "expected has_layers=true for {name}"
+        );
+    }
+    for name in ["benign/single-page.pdf", "benign/layers-empty-ocgs.pdf"] {
+        assert!(
+            !source_has_layers(&mut host, name),
+            "expected has_layers=false for {name}"
+        );
+    }
+
+    for (name, expect_hidden_in_source) in [
+        ("benign/layers-hidden.pdf", true),
+        ("benign/layers-base-off.pdf", true),
+        ("benign/layers-intent-design.pdf", true),
+        // MuPDF 1.28.6 (pdf-layer.c) returns 0 (visible) for OCMD /VE expressions, so even on its
+        // own this sample renders the red square in MuPDF while viewers supporting /VE hide it.
+        ("benign/layers-ocmd-ve.pdf", false),
+    ] {
+        let (own_red, b_red, c_red, blue_before, blue_after) = compare_hidden_layer_rendering(name);
+        eprintln!(
+            "{name}: own_red={own_red}, inserted_into_single_page_red={b_red}, inserted_into_layers_visible_red={c_red}, target_blue_before={blue_before}, target_blue_after={blue_after}"
+        );
+        if expect_hidden_in_source {
+            assert_eq!(
+                own_red, 0,
+                "{name}: source rendered on its own should have 0 red pixels"
+            );
+        } else {
+            assert!(
+                own_red > 10_000,
+                "{name}: MuPDF renders OCMD /VE as visible, got {own_red}"
+            );
+        }
+        assert!(
+            b_red > 10_000,
+            "{name}: expected red square after inserting into single-page, got {b_red}"
+        );
+        assert!(
+            c_red > 10_000,
+            "{name}: expected red square after inserting into layers-visible, got {c_red}"
+        );
+        assert!(blue_before > 10_000);
+        assert_eq!(blue_after, blue_before);
+    }
 }

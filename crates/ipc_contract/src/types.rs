@@ -276,6 +276,8 @@ pub struct PagesSource {
     pub source: SourceId,
     /// How many pages it has: all of them are inserted.
     pub pages: u32,
+    /// Whether the source file defines any layers (`/OCProperties /OCGs`) (#703).
+    pub has_layers: bool,
 }
 
 /// Arguments of `undo_edit` (B2-05). A document opened with a password is opened again to undo
@@ -3671,5 +3673,26 @@ mod tests {
                 last: "DOC-000005".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn pages_source_carries_has_layers_in_camel_case() {
+        for has_layers in [false, true] {
+            let src = PagesSource {
+                source: SourceId(7),
+                pages: 3,
+                has_layers,
+            };
+            let json = serde_json::to_value(src).unwrap();
+            assert_eq!(
+                json,
+                serde_json::json!({
+                    "source": 7,
+                    "pages": 3,
+                    "hasLayers": has_layers,
+                })
+            );
+            assert_eq!(serde_json::from_value::<PagesSource>(json).unwrap(), src);
+        }
     }
 }

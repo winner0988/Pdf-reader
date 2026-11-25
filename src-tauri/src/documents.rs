@@ -2274,6 +2274,7 @@ impl Documents {
                 bytes,
                 pages,
                 security,
+                has_layers,
                 text_boxes,
                 ..
             } = response
@@ -2298,7 +2299,11 @@ impl Documents {
                     message: "too many files in the unsaved changes: save first".to_owned(),
                 })?;
             document.pending_source = None;
-            Ok(PagesSource { source, pages })
+            Ok(PagesSource {
+                source,
+                pages,
+                has_layers,
+            })
         })
     }
 
@@ -10270,6 +10275,23 @@ mod with_worker {
         let taken = documents
             .prepare_pages_source(info.doc, &corpus_path("benign/single-page.pdf"), None)
             .unwrap();
+        assert!(!taken.has_layers);
+        for layered in [
+            "benign/layers-hidden.pdf",
+            "benign/layers-visible.pdf",
+            "benign/layers-base-off.pdf",
+            "benign/layers-intent-design.pdf",
+            "benign/layers-ocmd-ve.pdf",
+        ] {
+            let layered_source = documents
+                .prepare_pages_source(info.doc, &corpus_path(layered), None)
+                .unwrap();
+            assert!(layered_source.has_layers, "{layered}");
+        }
+        let empty_layers = documents
+            .prepare_pages_source(info.doc, &corpus_path("benign/layers-empty-ocgs.pdf"), None)
+            .unwrap();
+        assert!(!empty_layers.has_layers);
         let refused = |at: u32, source| {
             documents
                 .apply_edit(&EditArgs {

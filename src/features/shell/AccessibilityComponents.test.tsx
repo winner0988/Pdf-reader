@@ -39,6 +39,7 @@ import { tabElementId, tabPanelId, type Tab } from "@/features/tabs/model";
 import { TabBar } from "@/features/tabs/TabBar";
 import { MovePagesDialog } from "@/features/thumbnails/MovePagesDialog";
 import { ReplacePagesDialog } from "@/features/thumbnails/ReplacePagesDialog";
+import { SourceLayersDialog } from "@/features/thumbnails/SourceLayersDialog";
 import { SourcePasswordDialog } from "@/features/thumbnails/SourcePasswordDialog";
 import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
 import { RedactionConfirmDialog } from "@/features/redaction/RedactionConfirmDialog";
@@ -366,7 +367,7 @@ describe("dialogs", () => {
   });
 
   it("replacing pages with pages from another file", async () => {
-    render(
+    const { rerender } = render(
       <ReplacePagesDialog
         open
         onOpenChange={vi.fn()}
@@ -378,6 +379,26 @@ describe("dialogs", () => {
         onCancel={vi.fn()}
       />,
     );
+    await screen.findByRole("dialog");
+    await expectAccessible(everything());
+    rerender(
+      <ReplacePagesDialog
+        open
+        onOpenChange={vi.fn()}
+        first={1}
+        count={2}
+        sourcePages={5}
+        docPages={10}
+        hasLayers
+        onReplace={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    await expectAccessible(everything());
+  });
+
+  it("warning before inserting pages from a file with layers", async () => {
+    render(<SourceLayersDialog open onConfirm={vi.fn()} onCancel={vi.fn()} />);
     await screen.findByRole("dialog");
     await expectAccessible(everything());
   });
