@@ -341,11 +341,17 @@ fuzz_target!(|data: &[u8]| {
                     color: Rgb { r: 0, g: 0, b: 0 },
                     align: TextAlign::Left,
                 };
+                let rect = if u.int_in_range(0..=1).unwrap_or(0) == 1 {
+                    Some(sample_shape_rect(&mut u))
+                } else {
+                    None
+                };
                 Edit::SetTextBox {
                     page: p,
                     annotation: AnnotationId(id),
                     model: Some(TextBoxModelId(1)),
                     style,
+                    rect,
                 }
             }
             21 => {

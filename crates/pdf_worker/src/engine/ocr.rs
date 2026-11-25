@@ -59,8 +59,19 @@ pub(super) struct OcrPages {
     text: HashMap<i32, TextLayer>,
     not_scans: HashSet<i32>,
     failed: HashSet<i32>,
+    timed_out: HashSet<i32>,
     waiting: HashSet<i32>,
     epoch: u64,
+}
+
+/// How [`PdfDocument::searchable_copy`] sees what OCR knows about one page.
+pub(super) enum SearchablePageSource<'a> {
+    Text(&'a TextLayer),
+    NotScan,
+    TimedOut,
+    Failed,
+    NoText,
+    Unknown,
 }
 
 impl OcrPages {
@@ -69,6 +80,7 @@ impl OcrPages {
             text: HashMap::new(),
             not_scans: HashSet::new(),
             failed: HashSet::new(),
+            timed_out: HashSet::new(),
             waiting: HashSet::new(),
             epoch: new_epoch(),
         }
@@ -80,6 +92,7 @@ impl OcrPages {
             self.text.remove(&key);
             self.not_scans.remove(&key);
             self.failed.remove(&key);
+            self.timed_out.remove(&key);
             self.waiting.remove(&key);
         }
     }
@@ -118,17 +131,15 @@ impl PdfDocument {
             OcrKnown::NotScan
         } else if self.ocr.waiting.contains(&key) {
             OcrKnown::Waiting
-        } else if self.ocr.failed.contains(&key) {
+        } else if self.ocr.failed.contains(&key) || self.ocr.timed_out.contains(&key) {
             OcrKnown::Failed
         } else {
             OcrKnown::Unknown
         })
     }
 
-    /// Whether page `index` is a scan: it has no text and images cover most of it. A page that
-    /// is not one is remembered as such.
-    pub fn ocr_is_scan(&mut self, index: u32) -> Result<bool, EngineError> {
-        let key = self.ocr_key(index)?;
+    /// Whether page `index` is a scan without mutating cached OCR state.
+    pub(super) fn is_scan_page(&self, index: u32) -> Result<bool, EngineError> {
         let page = self.load_page(index)?;
         let bounds = page.bounds()?;
         let area = (bounds.x1 - bounds.x0).max(0.0) * (bounds.y1 - bounds.y0).max(0.0);
@@ -149,7 +160,14 @@ impl PdfDocument {
                 });
             }
         }
-        let scan = !has_text && area > 0.0 && covered >= area * SCAN_COVERAGE;
+        Ok(!has_text && area > 0.0 && covered >= area * SCAN_COVERAGE)
+    }
+
+    /// Whether page `index` is a scan: it has no text and images cover most of it. A page that
+    /// is not one is remembered as such.
+    pub fn ocr_is_scan(&mut self, index: u32) -> Result<bool, EngineError> {
+        let key = self.ocr_key(index)?;
+        let scan = self.is_scan_page(index)?;
         if !scan {
             self.ocr.not_scans.insert(key);
         }
@@ -300,6 +318,18 @@ impl PdfDocument {
     /// `epoch`: the text, or that it could not. Gives the page's index if the result is still
     /// about it, and nothing if the page was turned or deleted since.
     pub fn ocr_finish(&mut self, key: i32, epoch: u64, text: Option<TextLayer>) -> Option<u32> {
+        self.ocr_finish_with_reason(key, epoch, text, false)
+    }
+
+    /// As [`ocr_finish`](Self::ocr_finish), recording whether a missing result was caused by a
+    /// timeout so [`PdfDocument::searchable_copy`] can report the exact reason (B4-08, ADR 0028).
+    pub fn ocr_finish_with_reason(
+        &mut self,
+        key: i32,
+        epoch: u64,
+        text: Option<TextLayer>,
+        timed_out: bool,
+    ) -> Option<u32> {
         self.ocr.waiting.remove(&key);
         if epoch != self.ocr.epoch {
             return None;
@@ -307,14 +337,62 @@ impl PdfDocument {
         let index = self.ocr_index(key)?;
         match text {
             Some(text) => {
+                self.ocr.failed.remove(&key);
+                self.ocr.timed_out.remove(&key);
                 self.ocr.text.insert(key, text);
             }
+            None if timed_out => {
+                self.ocr.failed.remove(&key);
+                self.ocr.timed_out.insert(key);
+            }
             None => {
+                self.ocr.timed_out.remove(&key);
                 self.ocr.failed.insert(key);
             }
         }
         self.invalidate_page_text_cache(index);
         Some(index)
+    }
+
+    /// What OCR already knows about page `index` for [`PdfDocument::searchable_copy`].
+    pub(super) fn ocr_searchable_source(
+        &self,
+        index: u32,
+    ) -> Result<SearchablePageSource<'_>, EngineError> {
+        let key = self.ocr_key(index)?;
+        Ok(if let Some(text) = self.ocr.text.get(&key) {
+            if text.lines.is_empty() {
+                SearchablePageSource::NoText
+            } else {
+                SearchablePageSource::Text(text)
+            }
+        } else if self.ocr.not_scans.contains(&key) {
+            SearchablePageSource::NotScan
+        } else if self.ocr.timed_out.contains(&key) {
+            SearchablePageSource::TimedOut
+        } else if self.ocr.failed.contains(&key) {
+            SearchablePageSource::Failed
+        } else {
+            SearchablePageSource::Unknown
+        })
+    }
+
+    /// Inserts OCR text directly for page `index` (for unit tests).
+    #[cfg(test)]
+    pub(super) fn ocr_set_text_for_test(&mut self, index: u32, text: TextLayer) {
+        let key = self.ocr_key(index).expect("page key");
+        self.ocr.not_scans.remove(&key);
+        self.ocr.failed.remove(&key);
+        self.ocr.timed_out.remove(&key);
+        self.ocr.text.insert(key, text);
+    }
+
+    /// Marks page `index` as timed out or failed (for unit tests).
+    #[cfg(test)]
+    pub(super) fn ocr_set_failed_for_test(&mut self, index: u32, timed_out: bool) {
+        let key = self.ocr_key(index).expect("page key");
+        let epoch = self.ocr.epoch;
+        self.ocr_finish_with_reason(key, epoch, None, timed_out);
     }
 
     /// The text read from page `index`, when it has any.

@@ -97,6 +97,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 scale,
                 rotation,
                 region,
+                without_annotations,
             } => Some(match documents.get(&doc) {
                 None => error(
                     request,
@@ -104,7 +105,13 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     "unknown document",
                 ),
                 Some(document) => {
-                    match document.render_region(page_index, scale, rotation, region) {
+                    match document.render_region(
+                        page_index,
+                        scale,
+                        rotation,
+                        region,
+                        without_annotations,
+                    ) {
                         Ok(page) => WorkerResponse::Rendered {
                             request,
                             raster: Raster {
@@ -230,6 +237,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                             style,
                             view_only: model.view_only,
                             overflow,
+                            line_step: model.step,
                         },
                     },
                     Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
@@ -494,6 +502,16 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                 ),
                 Some(document) => compressed_copy(document, request, file, quality, max_side),
             }),
+            WorkerRequest::SearchableCopy { request, doc, file } => {
+                Some(match documents.get(&doc) {
+                    None => error(
+                        request,
+                        WorkerErrorCode::UnknownDocument,
+                        "unknown document",
+                    ),
+                    Some(document) => searchable_copy(document, request, file),
+                })
+            }
             WorkerRequest::ExifCleanCopy { request, doc, file } => {
                 Some(match documents.get(&doc) {
                     None => error(
@@ -971,8 +989,9 @@ pub fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), Engine
             annotation,
             model,
             style,
+            rect,
         } => {
-            document.set_text_box(*page, *annotation, model.as_ref(), style)?;
+            document.set_text_box(*page, *annotation, model.as_ref(), style, *rect)?;
         }
         WorkerEdit::SetPictureAngle {
             page,
@@ -1314,6 +1333,27 @@ fn compressed_copy(
     }
 }
 
+/// Writes the copy of `document` with invisible OCR text layers on scanned pages (B4-08, ADR 0028)
+/// to `file`, a handle like `save`'s.
+fn searchable_copy(document: &PdfDocument, request: RequestId, file: FileHandle) -> WorkerResponse {
+    let Some(mut file) = handle::take_file(file) else {
+        return error(
+            request,
+            WorkerErrorCode::InvalidRequest,
+            "invalid file handle",
+        );
+    };
+    match document.searchable_copy(&mut file) {
+        Ok(copy) => WorkerResponse::Searchable {
+            request,
+            bytes: copy.bytes,
+            added_pages: copy.added_pages,
+            skipped: copy.skipped,
+        },
+        Err(engine) => engine_error(request, &engine, WorkerErrorCode::Internal),
+    }
+}
+
 /// Writes the copy of `document` whose pictures carry nothing but themselves (B3-04) to `file`, a
 /// handle like `save`'s.
 fn exif_clean_copy(document: &PdfDocument, request: RequestId, file: FileHandle) -> WorkerResponse {
@@ -1489,6 +1529,7 @@ fn prepare_source(
             bytes: source.bytes,
             pages: source.pages,
             security: source.security,
+            has_layers: source.has_layers,
             text_boxes: source.text_boxes,
         },
         Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
@@ -1810,7 +1851,10 @@ fn ocr_poll(
             Err(OcrError::Stopped) => (None, OcrOutcome::TimedOut),
             Err(_) => (None, OcrOutcome::Failed),
         };
-        if let Some(page_index) = document.ocr_finish(item.page_key, item.epoch, text) {
+        let timed_out = matches!(outcome, OcrOutcome::TimedOut);
+        if let Some(page_index) =
+            document.ocr_finish_with_reason(item.page_key, item.epoch, text, timed_out)
+        {
             finished.push(OcrFinished {
                 doc: item.doc,
                 page_index,

@@ -24,11 +24,11 @@ use ipc_contract::types::{
     PrepareTextBoxArgs, PreparedTextBox, RecentFile, RecentId, RedactionSummary,
     RememberedPasswords, RemoteAddressArgs, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
     RequestId, SanitizeArgs, SanitizeResult, SaveAttachmentResult, SaveResult, SearchArgs,
-    SearchEvent, SensitiveArgs, SensitiveFile, SensitiveId, Settings, SignArgs, SignCheck,
-    SignResult, SignatureImage, SignatureImageArgs, SignatureReport, SigningFile, SigningFileKey,
-    SigningKey, SigningStoreKey, StampImageInfo, StoreCertificate, TabId, TextBoxInfo,
-    TextIndexStatus, UndoArgs, UnlockArgs, UnlockOutcome, UnlockSourceArgs, UpdateCheck,
-    WatermarkContent, XfdfOutcome,
+    SearchEvent, SearchableCopyArgs, SearchableCopyResult, SensitiveArgs, SensitiveFile,
+    SensitiveId, Settings, SignArgs, SignCheck, SignResult, SignatureImage, SignatureImageArgs,
+    SignatureReport, SigningFile, SigningFileKey, SigningKey, SigningStoreKey, StampImageInfo,
+    StoreCertificate, TabId, TextBoxInfo, TextIndexStatus, UndoArgs, UnlockArgs, UnlockOutcome,
+    UnlockSourceArgs, UpdateCheck, WatermarkContent, XfdfOutcome,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
 use ipc_contract::worker::{NewSignature, VisibleSignature};
@@ -1740,6 +1740,57 @@ pub async fn compress_images(
             .compress_copy(doc, &destination, args.quality, args.max_side)
     })
     .await?;
+    Ok(Some(result))
+}
+
+/// Writes a copy of the document with invisible OCR text layers on scanned pages (B4-08, Issue
+/// #416, ADR 0028) where the user says in the system's save dialog, never over the document's own
+/// file. `None` when the user closes the dialog; else what was done. The document itself does not
+/// change, and the copy is neither opened nor added to recent files.
+#[tauri::command]
+pub async fn searchable_copy(
+    app: AppHandle,
+    window: WebviewWindow,
+    args: SearchableCopyArgs,
+) -> Result<Option<SearchableCopyResult>, IpcError> {
+    args.validate().map_err(|error| IpcError {
+        code: ErrorCode::InvalidArgument,
+        message: error.to_string(),
+    })?;
+    let doc = args.doc;
+    let info = app
+        .state::<Documents>()
+        .document_info(doc)
+        .ok_or_else(|| IpcError {
+            code: ErrorCode::UnknownDocument,
+            message: "no such open document".to_owned(),
+        })?;
+    if info.encrypted {
+        return Err(IpcError {
+            code: ErrorCode::InvalidArgument,
+            message: "an encrypted document has no searchable copy".to_owned(),
+        });
+    }
+    let file_name = strings::searchable_copy_file_name(&export::stem(&info.display_name));
+    let destination = loop {
+        let Some(path) = file_dialog::searchable_copy_file(&window, file_name.clone()).await?
+        else {
+            return Ok(None);
+        };
+        if !app.state::<Documents>().is_document_file(doc, &path) {
+            break path;
+        }
+        rfd::AsyncMessageDialog::new()
+            .set_level(rfd::MessageLevel::Info)
+            .set_title(strings::SEARCHABLE_COPY_SAME_FILE_TITLE)
+            .set_description(strings::SEARCHABLE_COPY_SAME_FILE_MESSAGE)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .set_parent(&window)
+            .show()
+            .await;
+    };
+    let result =
+        blocking(move || app.state::<Documents>().searchable_copy(doc, &destination)).await?;
     Ok(Some(result))
 }
 

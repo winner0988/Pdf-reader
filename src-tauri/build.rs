@@ -76,6 +76,7 @@ fn main() {
         "encrypt_copy",
         "decrypt_copy",
         "compress_images",
+        "searchable_copy",
         "sanitize_copy",
         "check_signing",
         "choose_signing_file",

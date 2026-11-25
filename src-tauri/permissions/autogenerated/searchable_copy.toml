@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-searchable-copy"
+description = "Enables the searchable_copy command without any pre-configured scope."
+commands.allow = ["searchable_copy"]
+
+[[permission]]
+identifier = "deny-searchable-copy"
+description = "Denies the searchable_copy command without any pre-configured scope."
+commands.deny = ["searchable_copy"]

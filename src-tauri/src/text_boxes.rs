@@ -233,6 +233,7 @@ mod tests {
                 color: Rgb { r: 0, g: 0, b: 0 },
                 align: TextAlign::Left,
             },
+            rect: None,
         };
         let mut boxes = TextBoxes::default();
         let a = boxes.add(model(20), []).unwrap();

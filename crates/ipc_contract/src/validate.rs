@@ -27,10 +27,10 @@ use crate::types::{
     PersonalDataMatches, Point, PrepareSignatureStampArgs, PrepareTextBoxArgs, Quad, RasterRegion,
     RecentFile, Rect, RedactionSummary, RemoveFontArgs, RemoveLanguageArgs, RenderPageArgs,
     Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult,
-    SaveAttachmentResult, SearchArgs, SearchHit, SecurityReport, SensitiveArgs, SensitiveFile,
-    Settings, Shape, SignArgs, SignatureImageArgs, SignatureInfo, SignatureReport, SignatureStatus,
-    SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine, UndoArgs,
-    UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent, WatermarkPages,
+    SaveAttachmentResult, SearchArgs, SearchHit, SearchableCopyArgs, SecurityReport, SensitiveArgs,
+    SensitiveFile, Settings, Shape, SignArgs, SignatureImageArgs, SignatureInfo, SignatureReport,
+    SignatureStatus, SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine,
+    UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent, WatermarkPages,
 };
 use crate::worker::{
     ExportedAnnotation, ExportedAnnotations, ExportedTextStyle, InsertedTextBox, InspectedFont,
@@ -691,6 +691,41 @@ impl Validate for WorkerResponse {
                 }
                 Ok(())
             }
+            WorkerResponse::Searchable {
+                bytes,
+                added_pages,
+                skipped,
+                ..
+            } => {
+                if *bytes == 0 || *bytes > MAX_DOCUMENT_BYTES {
+                    return Err(ValidationError::OutOfRange {
+                        what: "searchable file size",
+                    });
+                }
+                if *added_pages > MAX_PAGE_COUNT {
+                    return Err(ValidationError::OutOfRange {
+                        what: "searchable added page count",
+                    });
+                }
+                check_count("searchable skipped pages", skipped.len(), MAX_PAGE_COUNT)?;
+                if usize::try_from(*added_pages)
+                    .ok()
+                    .and_then(|added| added.checked_add(skipped.len()))
+                    .is_none_or(|total| total > MAX_PAGE_COUNT as usize)
+                {
+                    return Err(ValidationError::OutOfRange {
+                        what: "searchable total page count",
+                    });
+                }
+                for entry in skipped {
+                    if entry.page_index >= MAX_PAGE_COUNT {
+                        return Err(ValidationError::OutOfRange {
+                            what: "searchable skipped page index",
+                        });
+                    }
+                }
+                Ok(())
+            }
             WorkerResponse::ExifCleaned {
                 bytes,
                 pictures,
@@ -1023,6 +1058,12 @@ impl Validate for SignatureReport {
 impl Validate for RenderPageArgs {
     fn validate(&self) -> Result<(), ValidationError> {
         check_scale(self.scale)?;
+        if self.without_annotations && self.region.is_none() {
+            return Err(ValidationError::Invalid {
+                what: "render page",
+                reason: "withoutAnnotations requires a region",
+            });
+        }
         self.region.as_ref().map_or(Ok(()), Validate::validate)
     }
 }
@@ -1369,6 +1410,12 @@ fn check_encryption(
 impl Validate for CompressArgs {
     fn validate(&self) -> Result<(), ValidationError> {
         check_compress_side(self.max_side)
+    }
+}
+
+impl Validate for SearchableCopyArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        Ok(())
     }
 }
 
@@ -1916,8 +1963,13 @@ impl Validate for Edit {
                 check_annotation_rect(rect)?;
                 style.validate()
             }
-            Edit::SetTextBox { page, style, .. } => {
+            Edit::SetTextBox {
+                page, style, rect, ..
+            } => {
                 check_annotated_page(*page)?;
+                if let Some(rect) = rect {
+                    check_annotation_rect(rect)?;
+                }
                 style.validate()
             }
             Edit::AddStamp { page, rect, .. }
@@ -2436,6 +2488,11 @@ impl Validate for TextBoxInfo {
             MAX_MODEL_FONT_NAME_BYTES as u32,
         )?;
         check_clean("text box font name", &self.font)?;
+        if !(1_000..=2_000).contains(&self.line_step) {
+            return Err(ValidationError::OutOfRange {
+                what: "text box line step",
+            });
+        }
         self.style.validate()
     }
 }
@@ -4471,11 +4528,25 @@ mod tests {
             scale,
             rotation: Rotation::None,
             region: None,
+            without_annotations: false,
         };
         assert!(args(1.0).validate().is_ok());
         assert!(args(0.0).validate().is_err());
         assert!(args(f32::NAN).validate().is_err());
         assert!(args(MAX_RENDER_SCALE * 2.0).validate().is_err());
+
+        // `withoutAnnotations` is only allowed together with `region` (B7-08).
+        let mut whole_without_annots = args(1.0);
+        whole_without_annots.without_annotations = true;
+        assert!(whole_without_annots.validate().is_err());
+
+        // JSON without `withoutAnnotations` deserializes with it false.
+        let parsed: RenderPageArgs = serde_json::from_value(serde_json::json!({
+            "request": 1, "doc": 1, "pageIndex": 0, "scale": 1.0, "rotation": "none"
+        }))
+        .unwrap();
+        assert!(!parsed.without_annotations);
+        assert_eq!(parsed.region, None);
 
         // A region (B3-09): not empty, within the raster limits and the largest page raster.
         let region = |x, y, width, height| RenderPageArgs {
@@ -4488,6 +4559,9 @@ mod tests {
             ..args(8.0)
         };
         assert!(region(5000, 9000, 2400, 1600).validate().is_ok());
+        let mut region_no_annots = region(5000, 9000, 2400, 1600);
+        region_no_annots.without_annotations = true;
+        assert!(region_no_annots.validate().is_ok());
         assert!(region(0, 0, 0, 1600).validate().is_err());
         assert!(region(0, 0, MAX_RASTER_SIDE_PX + 1, 1).validate().is_err());
         assert!(region(0, 0, 4097, 4096).validate().is_err());
@@ -4950,9 +5024,56 @@ mod tests {
             annotation: AnnotationId(5),
             model: model.map(TextBoxModelId),
             style: style(size),
+            rect: None,
         };
         assert!(set(None, 12.0, 0).validate().is_ok());
         assert!(set(Some(3), 12.0, 0).validate().is_ok());
+        // With an optional rect (B7-08): valid rect passes, non-finite or too small is rejected.
+        let with_rect = |rect: Rect| Edit::SetTextBox {
+            page: 0,
+            annotation: AnnotationId(5),
+            model: Some(TextBoxModelId(3)),
+            style: style(12.0),
+            rect: Some(rect),
+        };
+        assert!(
+            with_rect(Rect {
+                x0: 10.0,
+                y0: 20.0,
+                x1: 200.0,
+                y1: 80.0
+            })
+            .validate()
+            .is_ok()
+        );
+        for bad_rect in [
+            Rect {
+                x0: f32::NAN,
+                y0: 20.0,
+                x1: 200.0,
+                y1: 80.0,
+            },
+            Rect {
+                x0: 10.0,
+                y0: 20.0,
+                x1: f32::INFINITY,
+                y1: 80.0,
+            },
+            Rect {
+                x0: 10.0,
+                y0: 20.0,
+                x1: 12.0,
+                y1: 80.0,
+            },
+            Rect {
+                x0: 10.0,
+                y0: 20.0,
+                x1: 200.0,
+                y1: 22.0,
+            },
+        ] {
+            assert!(with_rect(bad_rect).validate().is_err(), "{bad_rect:?}");
+        }
         for bad in [
             0.0,
             MIN_TEXT_BOX_SIZE - 0.5,
@@ -4962,7 +5083,7 @@ mod tests {
             assert!(set(None, bad, 0).validate().is_err(), "{bad}");
         }
         assert!(set(None, 12.0, MAX_PAGE_COUNT).validate().is_err());
-        // The form the page sends: the words are optional, and named by number when they are there.
+        // The form the page sends: the words and rect are optional (old journals omit `rect`).
         let with: Edit = serde_json::from_value(serde_json::json!({
             "kind": "setTextBox", "page": 1, "annotation": 5, "model": 3,
             "style": {"size": 12.0, "color": {"r": 9, "g": 9, "b": 9}, "align": "center"}
@@ -4989,6 +5110,7 @@ mod tests {
             },
             view_only: false,
             overflow: true,
+            line_step: 1_150,
         };
         assert!(info().validate().is_ok());
         let broken = |change: &dyn Fn(&mut TextBoxInfo)| {
@@ -5002,6 +5124,8 @@ mod tests {
         assert!(broken(&|i| i.font = "x".repeat(129)));
         assert!(broken(&|i| i.font = "Arial\u{0}".to_owned()));
         assert!(broken(&|i| i.style.size = f32::INFINITY));
+        assert!(broken(&|i| i.line_step = 999));
+        assert!(broken(&|i| i.line_step = 2_001));
         let response = WorkerResponse::TextBox {
             request: RequestId(1),
             info: info(),
@@ -5009,6 +5133,7 @@ mod tests {
         assert!(response.validate().is_ok());
         let json = serde_json::to_value(info()).unwrap();
         assert_eq!(json["viewOnly"], false);
+        assert_eq!(json["lineStep"], 1_150);
         assert_eq!(json["style"]["align"], "left");
     }
 
@@ -6252,6 +6377,7 @@ mod tests {
             bytes: vec![0; len],
             pages,
             security: SecurityReport::default(),
+            has_layers: false,
             text_boxes: Vec::new(),
         };
         assert!(source(1_000, 3).validate().is_ok());
@@ -6278,6 +6404,7 @@ mod tests {
                 bytes: Vec::new(),
                 pages: 1,
                 security: bad_report,
+                has_layers: true,
                 text_boxes: Vec::new(),
             }
             .validate()
@@ -6309,6 +6436,7 @@ mod tests {
                 bytes: vec![0; 10],
                 pages: 1,
                 security: SecurityReport::default(),
+                has_layers: false,
                 text_boxes: vec![SourceTextBox {
                     page: 1,
                     ..valid_box.clone()
@@ -6325,6 +6453,7 @@ mod tests {
                 bytes: vec![0; 10],
                 pages: 10,
                 security: SecurityReport::default(),
+                has_layers: false,
                 text_boxes: vec![valid_box; MAX_SOURCE_TEXT_BOXES as usize + 1],
             }
             .validate()
@@ -7417,6 +7546,59 @@ mod tests {
             truncated: false,
         };
         assert!(res_too_many.validate().is_err());
+    }
+
+    #[test]
+    fn searchable_copy_response_is_bounded() {
+        use crate::types::{SearchableSkipReason, SearchableSkippedPage};
+        let valid = WorkerResponse::Searchable {
+            request: RequestId(1),
+            bytes: 1234,
+            added_pages: 2,
+            skipped: vec![SearchableSkippedPage {
+                page_index: 0,
+                reason: SearchableSkipReason::NotScan,
+            }],
+        };
+        assert!(valid.validate().is_ok());
+
+        let zero_bytes = WorkerResponse::Searchable {
+            request: RequestId(1),
+            bytes: 0,
+            added_pages: 1,
+            skipped: Vec::new(),
+        };
+        assert!(zero_bytes.validate().is_err());
+
+        let oversized = WorkerResponse::Searchable {
+            request: RequestId(1),
+            bytes: MAX_DOCUMENT_BYTES + 1,
+            added_pages: 1,
+            skipped: Vec::new(),
+        };
+        assert!(oversized.validate().is_err());
+
+        let oob_page = WorkerResponse::Searchable {
+            request: RequestId(1),
+            bytes: 1234,
+            added_pages: 0,
+            skipped: vec![SearchableSkippedPage {
+                page_index: MAX_PAGE_COUNT,
+                reason: SearchableSkipReason::Failed,
+            }],
+        };
+        assert!(oob_page.validate().is_err());
+
+        let too_many_total = WorkerResponse::Searchable {
+            request: RequestId(1),
+            bytes: 1234,
+            added_pages: MAX_PAGE_COUNT,
+            skipped: vec![SearchableSkippedPage {
+                page_index: 0,
+                reason: SearchableSkipReason::NoText,
+            }],
+        };
+        assert!(too_many_total.validate().is_err());
     }
 
     #[test]

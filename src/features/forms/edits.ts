@@ -26,6 +26,18 @@ export function until(condition: () => boolean, timeoutMs = ANNOUNCE_TIMEOUT_MS)
 export class FieldEdits {
   private tail: Promise<void> = Promise.resolve();
   private pending = 0;
+  private flushers = new Set<() => Promise<boolean>>();
+
+  /**
+   * Registers an active inline editor (e.g. an on-page text box, #719) that must commit before
+   * saving or closing the document. Returns an unregister function.
+   */
+  registerFlusher(flush: () => Promise<boolean>): () => void {
+    this.flushers.add(flush);
+    return () => {
+      this.flushers.delete(flush);
+    };
+  }
 
   /** Runs `work` once the edits before it have been answered, whether or not they worked. */
   run<T>(work: () => Promise<T>): Promise<T> {
@@ -43,10 +55,10 @@ export class FieldEdits {
   }
 
   /**
-   * Calls `next` once the value being typed in a field (if one is) has been sent and answered, and
-   * with it every earlier one: at once when there is none, so that most commands stay as they are.
-   * With `keepFocus` the user, who may go on typing (after saving, say), gets the box back unless
-   * they moved on.
+   * Calls `next` once the value being typed in a field or inline text box (if one is) has been
+   * sent and answered, and with it every earlier one: at once when there is none, so that most
+   * commands stay as they are. With `keepFocus` the user, who may go on typing (after saving,
+   * say), gets the box back unless they moved on.
    */
   whenSettled(next: () => void, { keepFocus = false } = {}): void {
     const active = document.activeElement;
@@ -57,7 +69,17 @@ export class FieldEdits {
       next();
       if (keepFocus && box?.isConnected && document.activeElement === document.body) box.focus();
     };
-    if (this.pending === 0) proceed();
-    else void this.tail.then(proceed);
+    const activeFlushers = [...this.flushers];
+    if (activeFlushers.length === 0) {
+      if (this.pending === 0) proceed();
+      else void this.tail.then(proceed);
+      return;
+    }
+    void Promise.all(activeFlushers.map((flush) => flush().catch(() => false))).then((outcomes) => {
+      // If an inline editor stayed open due to a validation/font error, do not proceed with save/close.
+      if (outcomes.some((ok) => !ok)) return;
+      if (this.pending === 0) proceed();
+      else void this.tail.then(proceed);
+    });
   }
 }

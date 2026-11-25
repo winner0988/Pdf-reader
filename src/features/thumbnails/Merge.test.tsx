@@ -10,7 +10,7 @@ import { strings } from "@/i18n";
 import type { PagesSource } from "@/ipc/generated/contract";
 
 const t = strings.pages;
-const taken: PagesSource = { source: 7, pages: 3 };
+const taken: PagesSource = { source: 7, pages: 3, hasLayers: false };
 
 function fakeEditingApi() {
   return {
@@ -55,7 +55,57 @@ describe("the pages of another file (B2-06)", () => {
     await waitFor(() =>
       expect(api.applyEdit).toHaveBeenCalledWith(5, { kind: "insertPages", at: 2, source: 7 }),
     );
+    expect(screen.queryByRole("dialog", { name: t.sourceLayers.title })).toBeNull();
     expect(api.unlockPagesSource).not.toHaveBeenCalled();
+  });
+
+  it("warn before inserting when the source has layers and insert only on confirm (#703)", async () => {
+    const { api, user } = renderShell();
+    api.pickPagesSource.mockResolvedValue({ source: 7, pages: 3, hasLayers: true });
+    await takeAfterPage(user, 2);
+    const dialog = await screen.findByRole("dialog", { name: t.sourceLayers.title });
+    expect(within(dialog).getByText(t.sourceLayers.description)).toBeInTheDocument();
+    expect(within(dialog).getByText(t.sourceLayers.detail)).toBeInTheDocument();
+    expect(api.applyEdit).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: t.sourceLayers.confirm }));
+    await waitFor(() =>
+      expect(api.applyEdit).toHaveBeenCalledWith(5, { kind: "insertPages", at: 2, source: 7 }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: t.sourceLayers.title })).toBeNull());
+  });
+
+  it("do not insert or show an error when the layers warning is canceled or closed with Escape (#703)", async () => {
+    const { api, user } = renderShell();
+    api.pickPagesSource.mockResolvedValueOnce({ source: 7, pages: 3, hasLayers: true });
+    await takeAfterPage(user, 2);
+    const dialog = await screen.findByRole("dialog", { name: t.sourceLayers.title });
+    await user.click(within(dialog).getByRole("button", { name: t.sourceLayers.cancel }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: t.sourceLayers.title })).toBeNull());
+    expect(api.applyEdit).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    api.pickPagesSource.mockResolvedValueOnce({ source: 8, pages: 2, hasLayers: true });
+    await takeAfterPage(user, 2);
+    await screen.findByRole("dialog", { name: t.sourceLayers.title });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: t.sourceLayers.title })).toBeNull());
+    expect(api.applyEdit).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("warn about layers after unlocking an encrypted source that has layers (#703)", async () => {
+    const { api, user } = renderShell();
+    api.pickPagesSource.mockRejectedValue({ code: "encrypted", message: "" });
+    api.unlockPagesSource.mockResolvedValue({ source: 7, pages: 3, hasLayers: true });
+    await takeAfterPage(user, 3);
+    const pwdDialog = await screen.findByRole("dialog", { name: t.sourcePassword.title });
+    await user.type(within(pwdDialog).getByLabelText(t.sourcePassword.label), "user{Enter}");
+    const layersDialog = await screen.findByRole("dialog", { name: t.sourceLayers.title });
+    expect(api.applyEdit).not.toHaveBeenCalled();
+    await user.click(within(layersDialog).getByRole("button", { name: t.sourceLayers.confirm }));
+    await waitFor(() =>
+      expect(api.applyEdit).toHaveBeenCalledWith(5, { kind: "insertPages", at: 3, source: 7 }),
+    );
   });
 
   it("are not put in when the dialog is closed", async () => {

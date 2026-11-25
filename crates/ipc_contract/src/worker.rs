@@ -16,9 +16,9 @@ use crate::types::{
     PageAnnotation, PageCorner, PageLink, PageMarkPages, PageMarkPosition, PageMarks,
     PageNumberFormat, PageNumberMark, PageSize, PageText, Password, PdfDate, PersonalDataMatches,
     Point, RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb,
-    Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityReport, Shape, SignatureReport,
-    SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId, TextBoxStyle, TextMarkKind,
-    Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    Rotation, SanitizeOptions, SanitizeReport, SearchHit, SearchableSkippedPage, SecurityReport,
+    Shape, SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId,
+    TextBoxStyle, TextMarkKind, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 
 /// An attachment of a document as reported by the worker (B3-20, ADR 0025).
@@ -613,12 +613,13 @@ pub enum WorkerEdit {
     /// Puts the picture `png` (as `StampImage` made it) over `rect` on page `page` as a stamp
     /// (B2-08).
     AddImageStamp { page: u32, rect: Rect, png: Vec<u8> },
-    /// As [`Edit::SetTextBox`], with the model itself if there is one (B2-29).
+    /// As [`Edit::SetTextBox`], with the model itself if there is one (B2-29, B7-08).
     SetTextBox {
         page: u32,
         annotation: AnnotationId,
         model: Option<TextBoxModel>,
         style: TextBoxStyle,
+        rect: Option<Rect>,
     },
     /// As [`Edit::AddTextBox`], with the model itself (B2-28): no font is needed to make it.
     PlaceTextBox {
@@ -821,6 +822,7 @@ impl WorkerEdit {
                 annotation,
                 model,
                 style,
+                rect,
             } => WorkerEdit::SetTextBox {
                 page: *page,
                 annotation: *annotation,
@@ -828,6 +830,7 @@ impl WorkerEdit {
                     .map(|id| text_box(id).ok_or(UnknownFile::TextBox))
                     .transpose()?,
                 style: *style,
+                rect: *rect,
             },
             Edit::AddTextBox {
                 page,
@@ -978,6 +981,7 @@ pub enum WorkerRequest {
     },
     /// Only `region` of the page at `scale` (B3-09), answered with `Rendered`: a raster of the
     /// region's size. The page as a whole may be larger than the raster limits.
+    /// When `without_annotations` is true (B7-08), draws page contents and form widgets only.
     RenderRegion {
         request: RequestId,
         doc: DocumentId,
@@ -985,6 +989,7 @@ pub enum WorkerRequest {
         scale: f32,
         rotation: Rotation,
         region: RasterRegion,
+        without_annotations: bool,
     },
     GetOutline {
         request: RequestId,
@@ -1092,6 +1097,16 @@ pub enum WorkerRequest {
         file: FileHandle,
         quality: ImageQuality,
         max_side: Option<u32>,
+    },
+    /// Writes to `file` (as for `Save`) a copy of the document, edits included, with an invisible
+    /// OCR text layer (`3 Tr`, GlyphLessFont) on each recognised scanned page (B4-08, Issue #416,
+    /// ADR 0028). Uses only the OCR results already kept in the worker. The open document is not
+    /// changed. Answered by `Searchable`, never appended. Refused for an encrypted document and
+    /// for a signed one (its signatures would not hold).
+    SearchableCopy {
+        request: RequestId,
+        doc: DocumentId,
+        file: FileHandle,
     },
     /// Writes to `file` (as for `Save`) a copy of the document, edits included, whose pictures
     /// carry nothing but themselves: what a camera or a program wrote into them (EXIF, XMP and
@@ -1467,12 +1482,14 @@ pub enum WorkerResponse {
     Rebased {
         request: RequestId,
     },
-    /// The copy of the file of `PrepareSource` (B2-06), with any text boxes it has (B3-23, ADR 0019).
+    /// The copy of the file of `PrepareSource` (B2-06), with whether it has layers (#703) and any
+    /// text boxes it has (B3-23, ADR 0019).
     Source {
         request: RequestId,
         bytes: Vec<u8>,
         pages: u32,
         security: SecurityReport,
+        has_layers: bool,
         text_boxes: Vec<SourceTextBox>,
     },
     /// The document was written: `bytes` long, appended to the original (`incremental`, for a
@@ -1504,6 +1521,15 @@ pub enum WorkerResponse {
         images: u32,
         changed: u32,
         partial: bool,
+    },
+    /// `SearchableCopy` is done: the copy is `bytes` long; `added_pages` pages received an
+    /// invisible OCR text layer, and `skipped` lists the pages that did not and why (B4-08,
+    /// ADR 0028).
+    Searchable {
+        request: RequestId,
+        bytes: u64,
+        added_pages: u32,
+        skipped: Vec<SearchableSkippedPage>,
     },
     /// `ExifCleanCopy` is done: the copy is `bytes` long; `pictures` pictures (and other JPEG
     /// streams) were looked at, and `cleaned` of them had something taken out.
@@ -1870,27 +1896,43 @@ mod tests {
             color: Rgb { r: 1, g: 2, b: 3 },
             align: TextAlign::Left,
         };
-        let edit = |model: Option<u32>| Edit::SetTextBox {
+        let edit = |model: Option<u32>, rect: Option<Rect>| Edit::SetTextBox {
             page: 0,
             annotation: AnnotationId(7),
             model: model.map(TextBoxModelId),
             style,
+            rect,
         };
         let models = |id: TextBoxModelId| (id == TextBoxModelId(4)).then(sample_model);
         // Without new words, none are looked for: the box keeps the words it has.
-        let kept = WorkerEdit::of(&edit(None), |_| None, |_| None, |_| None).unwrap();
-        assert!(matches!(kept, WorkerEdit::SetTextBox { model: None, .. }));
-        let new = WorkerEdit::of(&edit(Some(4)), |_| None, |_| None, models).unwrap();
+        let kept = WorkerEdit::of(&edit(None, None), |_| None, |_| None, |_| None).unwrap();
+        assert!(matches!(
+            kept,
+            WorkerEdit::SetTextBox {
+                model: None,
+                rect: None,
+                ..
+            }
+        ));
+        let grown = Rect {
+            x0: 10.0,
+            y0: 20.0,
+            x1: 240.0,
+            y1: 90.0,
+        };
+        let new = WorkerEdit::of(&edit(Some(4), Some(grown)), |_| None, |_| None, models).unwrap();
         let WorkerEdit::SetTextBox {
             model: Some(ref words),
+            rect,
             ..
         } = new
         else {
             panic!("{new:?}");
         };
         assert_eq!(*words, sample_model());
+        assert_eq!(rect, Some(grown));
         assert_eq!(
-            WorkerEdit::of(&edit(Some(9)), |_| None, |_| None, models),
+            WorkerEdit::of(&edit(Some(9), None), |_| None, |_| None, models),
             Err(UnknownFile::TextBox)
         );
         for edit in [&kept, &new] {
@@ -2648,5 +2690,24 @@ mod tests {
             postcard::from_bytes::<WorkerResponse>(&bytes).unwrap(),
             response
         );
+    }
+
+    #[test]
+    fn worker_source_response_carries_has_layers_through_postcard() {
+        for has_layers in [false, true] {
+            let response = WorkerResponse::Source {
+                request: RequestId(11),
+                bytes: b"%PDF-1.7\n%%EOF\n".to_vec(),
+                pages: 2,
+                security: SecurityReport::default(),
+                has_layers,
+                text_boxes: Vec::new(),
+            };
+            let bytes = postcard::to_stdvec(&response).unwrap();
+            assert_eq!(
+                postcard::from_bytes::<WorkerResponse>(&bytes).unwrap(),
+                response
+            );
+        }
     }
 }

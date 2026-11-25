@@ -1,0 +1,46 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [5 0 R] /D << /BaseState /ON /ON [5 0 R] /Order [5 0 R] >> >> >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> /Properties << /OC1 6 0 R >> >> /Contents 7 0 R >>
+endobj
+5 0 obj
+<< /Type /OCG /Name (Base Layer) >>
+endobj
+6 0 obj
+<< /Type /OCMD /VE [/Not 5 0 R] >>
+endobj
+7 0 obj
+<<  /Length 130 >>
+stream
+BT /F1 20 Tf 72 720 Td (Document with OCMD visibility expression layer.) Tj ET
+q /OC /OC1 BDC
+1 0 0 rg
+100 300 200 200 re f
+EMC Q
+
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000149 00000 n 
+0000000206 00000 n 
+0000000303 00000 n 
+0000000458 00000 n 
+0000000509 00000 n 
+0000000559 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R /ID [<0FF58348997B936EBF98E259AA39D98E> <0FF58348997B936EBF98E259AA39D98E>] >>
+startxref
+741
+%%EOF

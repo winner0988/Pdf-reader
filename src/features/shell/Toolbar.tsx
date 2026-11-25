@@ -240,6 +240,8 @@ export type ToolbarProps = {
    * process can (not for demo data). `running` while it is doing so.
    */
   ocr?: { running: boolean; onStart: () => void };
+  /** Saves a copy with invisible OCR text layers on scanned pages (B4-08, Issue #416). */
+  onSearchableCopy?: () => void;
   /** The "⋯" menu opened. */
   onMoreMenuOpen?: () => void;
   /**
@@ -774,6 +776,7 @@ function MoreMenu(props: ToolbarProps) {
         {renderItem("saveAs")}
         {renderItem("createPdf")}
         {props.ocr && renderItem("ocr")}
+        {renderItem("searchableCopy")}
         {props.flatten && renderItem("flatten")}
         {renderItem("export")}
         {renderItem("exportAnnotations")}

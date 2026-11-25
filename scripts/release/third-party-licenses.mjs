@@ -219,7 +219,13 @@ export function mupdfLibraries(dir) {
       texts: ["This software is based in part on the work of the Independent JPEG Group."],
     },
     { name: "OpenJPEG", license: "BSD-2-Clause", url: "https://www.openjpeg.org/", texts: files("openjpeg", "LICENSE") },
-    { name: "Tesseract OCR", license: "Apache-2.0", url: "https://github.com/tesseract-ocr/tesseract", texts: files("tesseract", "LICENSE") },
+    {
+      name: "Tesseract OCR",
+      license: "Apache-2.0",
+      url: "https://github.com/tesseract-ocr/tesseract",
+      note: "Built into MuPDF; also the source of the embedded empty font GlyphLessFont (src/api/pdf_ttf.h).",
+      texts: files("tesseract", "LICENSE"),
+    },
     { name: "zlib", license: "Zlib", url: "https://zlib.net/", texts: files("zlib", "LICENSE") },
   ];
 }
@@ -260,7 +266,7 @@ export function collect() {
           : `The sources are those of the Rust crate mupdf-sys ${sys.version}, which carries them.`,
         texts: [mupdfLicence],
       },
-      ...libraries.map((library) => ({ ...library, note: "Built into MuPDF." })),
+      ...libraries.map((library) => ({ note: "Built into MuPDF.", ...library })),
       {
         name: "URW++ base 35 fonts",
         license: "distributed with MuPDF, under its licence",

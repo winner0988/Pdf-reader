@@ -40,10 +40,10 @@ import {
   type ViewportPoint,
 } from "@/features/viewer/layout";
 import { annotationAt } from "@/features/annotations/model";
-import { PageAnnotations } from "@/features/annotations/PageAnnotations";
+import { PageAnnotations, type InlineTextBoxSession } from "@/features/annotations/PageAnnotations";
 import { PageDrawing } from "@/features/annotations/PageDrawing";
 import { linkRectAt, pictureRectAt, redactionRectAt, stampRectAt, type Tool } from "@/features/annotations/tools";
-import type { AnnotationSource } from "@/features/annotations/source";
+import type { AnnotationsApi, AnnotationSource } from "@/features/annotations/source";
 import { PageFields } from "@/features/forms/PageFields";
 import type { FormSource } from "@/features/forms/source";
 import { linkHoverText } from "@/features/links/text";
@@ -140,6 +140,8 @@ type DocumentViewProps = {
   onRecognised?: (pageIndex: number, recognised: boolean) => void;
   /** Where the pages' annotations come from (B2-07); without it (demo data) none are shown. */
   annotations?: AnnotationSource;
+  /** Optional text-box commands for inline editing and the selected text box floating toolbar. */
+  annotationsApi?: AnnotationsApi;
   /** Changes an annotation (B2-07); without it (the author does not allow it) none can be changed. */
   onAnnotationEdit?: (edit: Edit) => void;
   /** Where the pages' form fields come from (B2-09); without it (demo data) pages have none. */
@@ -150,10 +152,14 @@ type DocumentViewProps = {
   onFieldScript?: () => void;
   /** Asks for a note's new text. */
   onEditNote?: (page: number, annotation: PageAnnotation) => void;
-  /** Asks for a text box's new words and style (B2-30). */
-  onEditTextBox?: (page: number, annotation: PageAnnotation) => void;
-  /** The text box tool was used on a page: where (page space), to ask what it says. */
+  /** Starts editing a text box inline on the page (B2-30, #719). */
+  onEditTextBox?: (page: number, annotation: PageAnnotation, clickClient?: { x: number; y: number }) => void;
+  /** The text box tool was used on a page: where (page space), to start typing inline. */
   onNewTextBox?: (page: number, at: Point) => void;
+  /** Active inline text box editor session, when one is open. */
+  inlineTextBox?: InlineTextBoxSession;
+  /** Shows a status-bar hint (e.g. a view-only font notice from the floating toolbar). */
+  onAnnotationProblem?: (text: string) => void;
   /** A new link is placed or dragged on a page (Issue #588, B6-03). */
   onNewLink?: (page: number, rect: Rect) => void;
   /** Asks to edit the target of an existing link. */
@@ -255,10 +261,13 @@ export function DocumentView({
   textVersions,
   onRecognised,
   annotations,
+  annotationsApi,
   onAnnotationEdit,
   onEditNote,
   onEditTextBox,
   onNewTextBox,
+  inlineTextBox,
+  onAnnotationProblem,
   onNewLink,
   onEditLink,
   onDeleteLink,
@@ -434,6 +443,17 @@ export function DocumentView({
     setChosen(at && found ? { page: at.page, id: found.id } : null);
     if (tool?.kind === "link") {
       setSelectedLink(null);
+    }
+  };
+  const editAtDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (tool || !annotations || doc === undefined || !onEditTextBox) return;
+    if (event.target instanceof Element && event.target.closest("button, input, textarea, select")) return;
+    const at = locate(event.clientX, event.clientY);
+    const found = at?.inside ? annotationAt(annotations.loaded(doc, at.page) ?? [], at.point) : null;
+    if (at && found?.kind === "textBox") {
+      event.preventDefault();
+      setChosen({ page: at.page, id: found.id });
+      onEditTextBox(at.page, found, { x: event.clientX, y: event.clientY });
     }
   };
   const [selectedLink, setSelectedLink] = useState<PageLink | null>(null);
@@ -613,10 +633,14 @@ export function DocumentView({
         <PageAnnotations
           key={`annotations-${index}`}
           source={annotations}
+          api={annotationsApi}
           doc={doc}
           index={index}
           page={pages[index]!}
           rotation={rotation}
+          contractRotation={contractRotation}
+          scale={renderAt}
+          renderer={renderer}
           box={box}
           left={left}
           delayMs={delay}
@@ -629,6 +653,8 @@ export function DocumentView({
           onEdit={onAnnotationEdit}
           onEditNote={onEditNote}
           onEditTextBox={onEditTextBox}
+          inlineTextBox={inlineTextBox}
+          onProblem={onAnnotationProblem}
         />,
       );
     }
@@ -713,7 +739,16 @@ export function DocumentView({
                 image: tool.picture.image,
               });
             } else if (tool.kind === "textBox") {
-              onNewTextBox?.(page, at);
+              // Clicking an existing text box with the text box tool enters inline edit mode on it (#719).
+              const existing = annotations
+                ? annotationAt(annotations.loaded(doc, page) ?? [], at)
+                : null;
+              if (existing?.kind === "textBox" && onEditTextBox) {
+                setChosen({ page, id: existing.id });
+                onEditTextBox(page, existing);
+              } else {
+                onNewTextBox?.(page, at);
+              }
             } else if (tool.kind === "redaction") {
               onAnnotationEdit?.({ kind: "addRedaction", page, rect: redactionRectAt(at, pages[page]!) });
             } else if (tool.kind === "link") {
@@ -744,6 +779,7 @@ export function DocumentView({
       }}
       onMouseMove={textSelection.onMouseMove}
       onClick={chooseAt}
+      onDoubleClick={editAtDoubleClick}
     >
       {slots}
     </div>

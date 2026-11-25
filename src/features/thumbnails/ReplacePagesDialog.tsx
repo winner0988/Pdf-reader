@@ -26,6 +26,8 @@ export type ReplacePagesDialogProps = {
   sourcePages: number;
   /** Total pages in the current document. */
   docPages: number;
+  /** Whether the source file defines any layers (#703). */
+  hasLayers?: boolean;
   /** Called with 0-based from and to indices. */
   onReplace: (from: number, to: number) => void;
   onCancel: () => void;
@@ -42,6 +44,7 @@ export function ReplacePagesDialog({
   count,
   sourcePages,
   docPages,
+  hasLayers = false,
   onReplace,
   onCancel,
 }: ReplacePagesDialogProps) {
@@ -178,6 +181,12 @@ export function ReplacePagesDialog({
                     <li key={idx}>{segment}</li>
                   ))}
                 </ul>
+              </div>
+            )}
+
+            {hasLayers && (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-900 dark:text-amber-200">
+                <p>{t.layersWarning}</p>
               </div>
             )}
           </div>

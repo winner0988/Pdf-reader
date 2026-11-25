@@ -276,6 +276,8 @@ pub struct PagesSource {
     pub source: SourceId,
     /// How many pages it has: all of them are inserted.
     pub pages: u32,
+    /// Whether the source file defines any layers (`/OCProperties /OCGs`) (#703).
+    pub has_layers: bool,
 }
 
 /// Arguments of `undo_edit` (B2-05). A document opened with a password is opened again to undo
@@ -683,12 +685,16 @@ pub enum Edit {
     },
     /// Gives the text box `annotation` of page `page` another `style`, and other words if `model`
     /// is given (what `prepare_text_box` made of them and their font); without it, the words and
-    /// the font it has stay, and the font is not needed (B2-29). The box stays where it is.
+    /// the font it has stay, and the font is not needed (B2-29). When `rect` is given (B7-08), the
+    /// box is also moved/resized to `rect` in the same edit; without it, the box stays where it is.
     SetTextBox {
         page: u32,
         annotation: AnnotationId,
         model: Option<TextBoxModelId>,
         style: TextBoxStyle,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        rect: Option<Rect>,
     },
     /// Moves and resizes the drawing or stamp `annotation` of page `page` to `rect`, which is a
     /// rectangle as `PageAnnotation::rect` lists it (B2-08). A drawing keeps the thickness of
@@ -1161,6 +1167,8 @@ pub struct TextBoxInfo {
     pub view_only: bool,
     /// The words do not fit the box: what is below is cut off.
     pub overflow: bool,
+    /// The distance between two lines, in thousandths of the font size (matches `TextBoxModel::step`).
+    pub line_step: i32,
 }
 
 /// Arguments of `apply_edit` (B2-02). Any other field is rejected.
@@ -1484,6 +1492,48 @@ pub struct CompressResult {
     pub changed: u32,
     /// The time was up before every picture was looked at: the rest were left as they are.
     pub partial: bool,
+}
+
+/// Arguments of `searchable_copy` (B4-08, Issue #416, ADR 0028): the open document is written
+/// with an invisible OCR text layer on each recognised scanned page, to a file the user chooses
+/// next. Any other field is rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SearchableCopyArgs {
+    pub doc: DocumentId,
+}
+
+/// Why a page did not receive an invisible OCR text layer in a searchable copy (B4-08, ADR 0028).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SearchableSkipReason {
+    /// The page already has text of its own, or is not mostly an image.
+    NotScan,
+    /// OCR recognition failed for this page (or was not yet completed).
+    Failed,
+    /// OCR recognition timed out for this page.
+    TimedOut,
+    /// OCR recognition found no writable horizontal text on this page.
+    NoText,
+}
+
+/// A page that did not receive an invisible text layer in `searchable_copy`, and why (B4-08).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchableSkippedPage {
+    /// 0-based page index.
+    pub page_index: u32,
+    pub reason: SearchableSkipReason,
+}
+
+/// What `searchable_copy` wrote (B4-08, ADR 0028), for the dialog to report.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchableCopyResult {
+    /// Number of pages that received an invisible text layer.
+    pub added_pages: u32,
+    /// Pages that did not receive a text layer, in ascending page order, with reasons.
+    pub skipped: Vec<SearchableSkippedPage>,
 }
 
 /// What to do with annotations when saving a sanitized copy (B3-15).
@@ -1824,6 +1874,8 @@ pub struct PreparedTextBox {
     pub model: TextBoxModelId,
     /// The font's licence lets a document with it be viewed and printed only: the page says so.
     pub view_only: bool,
+    /// The distance between two lines, in thousandths of the font size (matches `TextBoxModel::step`).
+    pub line_step: i32,
 }
 
 /// Kinds of active content or remote references found in a document (MVP-11).
@@ -2193,6 +2245,11 @@ pub struct RenderPageArgs {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub region: Option<RasterRegion>,
+    /// Draws only page contents and form widgets, leaving out annotations (B7-08).
+    /// Only allowed together with `region`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub without_annotations: bool,
 }
 
 /// A rectangle of a page's raster, in pixels from its top left corner (B3-09): the page at a
@@ -3671,5 +3728,26 @@ mod tests {
                 last: "DOC-000005".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn pages_source_carries_has_layers_in_camel_case() {
+        for has_layers in [false, true] {
+            let src = PagesSource {
+                source: SourceId(7),
+                pages: 3,
+                has_layers,
+            };
+            let json = serde_json::to_value(src).unwrap();
+            assert_eq!(
+                json,
+                serde_json::json!({
+                    "source": 7,
+                    "pages": 3,
+                    "hasLayers": has_layers,
+                })
+            );
+            assert_eq!(serde_json::from_value::<PagesSource>(json).unwrap(), src);
+        }
     }
 }

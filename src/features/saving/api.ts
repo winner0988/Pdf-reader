@@ -13,6 +13,8 @@ import type {
   SanitizeArgs,
   SanitizeResult,
   SaveResult,
+  SearchableCopyArgs,
+  SearchableCopyResult,
 } from "@/ipc/generated/contract";
 
 export type SavingApi = {
@@ -58,6 +60,12 @@ export type SavingApi = {
    * else what was removed. The document itself does not change.
    */
   sanitizeCopy?(args: SanitizeArgs): Promise<SanitizeResult | null>;
+  /**
+   * Writes a copy of the document with invisible OCR text layers on scanned pages (B4-08, Issue
+   * #416, ADR 0028) where the user says in the system's save dialog, never over its own file:
+   * `null` if the dialog was closed, else what was written or skipped.
+   */
+  searchableCopy?(args: SearchableCopyArgs): Promise<SearchableCopyResult | null>;
 };
 
 export const tauriSavingApi: SavingApi = {
@@ -70,4 +78,5 @@ export const tauriSavingApi: SavingApi = {
   decryptCopy: (args) => invoke<boolean>("decrypt_copy", { args }),
   compressImages: (args) => invoke<CompressResult | null>("compress_images", { args }),
   sanitizeCopy: (args) => invoke<SanitizeResult | null>("sanitize_copy", { args }),
+  searchableCopy: (args) => invoke<SearchableCopyResult | null>("searchable_copy", { args }),
 };

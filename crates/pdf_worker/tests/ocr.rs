@@ -553,3 +553,60 @@ fn skewed_and_noisy_scans_are_deskewed_and_recognised() {
         );
     }
 }
+
+#[test]
+fn searchable_copy_in_sandbox_passes_qpdf_check_and_is_searchable() {
+    let (mut host, doc, _guard) = open_scan(&[PRIVACY]);
+    load(&mut host, "chi_tra");
+    read(&mut host, doc, &[0]);
+
+    let out_guard = common::temp_pdf("searchable-copy-out", &[]);
+    let out_file = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(&*out_guard)
+        .expect("open out file");
+
+    let response = host
+        .searchable_copy(doc, &out_file)
+        .expect("searchable copy request");
+    drop(out_file);
+
+    let WorkerResponse::Searchable {
+        bytes,
+        added_pages,
+        skipped,
+        ..
+    } = response
+    else {
+        panic!("expected Searchable, got {response:?}");
+    };
+    assert_eq!(added_pages, 1);
+    assert!(skipped.is_empty());
+
+    let written = std::fs::read(&*out_guard).expect("read copy");
+    assert_eq!(written.len() as u64, bytes);
+    assert!(written.starts_with(b"%PDF-"));
+
+    // Verify ISO 32000 compliance via qpdf --check
+    common::qpdf::check_qpdf(&out_guard);
+
+    // Reopen the copy in a fresh worker (without OCR) and verify text extraction & search
+    let mut reader = WorkerHost::new(
+        Path::new(env!("CARGO_BIN_EXE_pdf_worker")),
+        HostConfig::default(),
+    );
+    let copy_doc = reader.open(&out_guard).expect("open searchable copy").0;
+    let page = text(&mut reader, copy_doc, 0);
+    assert!(!page.recognised, "text must come from PDF text layer");
+    let (zh_hits, zh_has_text) = search(&mut reader, copy_doc, 0, "隱私優先");
+    assert!(
+        zh_has_text && !zh_hits.is_empty(),
+        "Chinese search failed on copy"
+    );
+    let (en_hits, en_has_text) = search(&mut reader, copy_doc, 0, "PDF");
+    assert!(
+        en_has_text && !en_hits.is_empty(),
+        "English search failed on copy"
+    );
+}
