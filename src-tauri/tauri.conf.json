@@ -61,7 +61,7 @@
       },
       "nsis": {
         "installMode": "perMachine",
-        "languages": ["TradChinese", "English"],
+        "languages": ["English", "TradChinese"],
         "installerHooks": "windows/installer-hooks.nsh",
         "installerIcon": "icons/icon.ico",
         "uninstallerIcon": "icons/icon.ico",

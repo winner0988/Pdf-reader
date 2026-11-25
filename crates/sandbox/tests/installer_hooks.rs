@@ -2,8 +2,73 @@
 //! depends on: AppContainer profile cleanup (REL-01) and Explorer image context menu verbs (B5-13).
 #![cfg(windows)]
 
+use std::collections::{BTreeMap, BTreeSet};
+
 const HOOKS: &str = include_str!("../../../src-tauri/windows/installer-hooks.nsh");
 const IMAGE_EXTENSIONS: [&str; 7] = ["png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff"];
+const REQUIRED_LANG_IDS: [&str; 2] = ["${LANG_ENGLISH}", "${LANG_TRADCHINESE}"];
+const REQUIRED_LANG_STRINGS: [&str; 4] = [
+    "PDF_READER_WEBVIEW2_MISSING",
+    "PDF_READER_CREATE_PDF_LABEL",
+    "PDF_READER_PROGID_DESCRIPTION",
+    "PDF_READER_APP_DESCRIPTION",
+];
+
+fn has_cjk(text: &str) -> bool {
+    text.chars().any(|c| {
+        matches!(
+            c,
+            '\u{3000}'..='\u{303f}' | '\u{4e00}'..='\u{9fff}' | '\u{ff00}'..='\u{ffef}'
+        )
+    })
+}
+
+fn parse_lang_string(line: &str) -> Option<(&str, &str, &str)> {
+    let rest = line.trim().strip_prefix("LangString ")?.trim_start();
+    let (name, rest) = rest.split_once(char::is_whitespace)?;
+    let rest = rest.trim_start();
+    let (lang_id, rest) = rest.split_once(char::is_whitespace)?;
+    let value = rest.trim();
+    if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
+        Some((name, lang_id, &value[1..value.len() - 1]))
+    } else {
+        None
+    }
+}
+
+fn collect_lang_strings(source: &str) -> BTreeMap<&str, BTreeMap<&str, &str>> {
+    let mut map: BTreeMap<&str, BTreeMap<&str, &str>> = BTreeMap::new();
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with(';') {
+            continue;
+        }
+        if trimmed.starts_with("LangString ") {
+            let (name, lang_id, value) = parse_lang_string(trimmed)
+                .unwrap_or_else(|| panic!("invalid LangString syntax: {trimmed}"));
+            let prev = map.entry(name).or_default().insert(lang_id, value);
+            assert!(
+                prev.is_none(),
+                "duplicate LangString {name} for language {lang_id}"
+            );
+        }
+    }
+    map
+}
+
+fn extract_lang_refs(line: &str) -> Vec<&str> {
+    let mut refs = Vec::new();
+    let mut rest = line;
+    while let Some(start) = rest.find("$(") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find(')') else {
+            break;
+        };
+        refs.push(&after[..end]);
+        rest = &after[end + 1..];
+    }
+    refs
+}
 
 fn macro_body<'a>(source: &'a str, name: &str) -> &'a str {
     let exact = format!("!macro {name}");
@@ -56,9 +121,9 @@ fn image_context_menu_registers_all_seven_extensions_with_quoted_command() {
     let register_verb = macro_body(HOOKS, "PDF_READER_REGISTER_IMAGE_VERB");
     assert!(
         register_verb.contains(
-            r#"WriteRegStr HKLM "Software\Classes\SystemFileAssociations\.${ext}\shell\${PDF_READER_CREATE_PDF_VERB}" "MUIVerb" "${PDF_READER_CREATE_PDF_LABEL}""#
+            r#"WriteRegStr HKLM "Software\Classes\SystemFileAssociations\.${ext}\shell\${PDF_READER_CREATE_PDF_VERB}" "MUIVerb" "$(PDF_READER_CREATE_PDF_LABEL)""#
         ),
-        "must set MUIVerb on the verb key"
+        "must set MUIVerb on the verb key using LangString"
     );
     assert!(
         register_verb.contains(
@@ -154,4 +219,114 @@ fn installer_never_writes_user_choice_or_extension_default_values() {
             );
         }
     }
+}
+
+#[test]
+fn every_lang_string_is_defined_in_both_languages_inside_install_hooks() {
+    let lang_strings = collect_lang_strings(HOOKS);
+    for required in REQUIRED_LANG_STRINGS {
+        assert!(
+            lang_strings.contains_key(required),
+            "installer-hooks.nsh must define LangString {required}"
+        );
+    }
+
+    let preinstall = macro_body(HOOKS, "NSIS_HOOK_PREINSTALL");
+    let postinstall = macro_body(HOOKS, "NSIS_HOOK_POSTINSTALL");
+
+    for (name, entries) in &lang_strings {
+        for lang_id in REQUIRED_LANG_IDS {
+            let value = entries.get(lang_id).unwrap_or_else(|| {
+                panic!("LangString {name} is missing entry for {lang_id}");
+            });
+            assert!(
+                !value.trim().is_empty(),
+                "LangString {name} for {lang_id} must not be empty"
+            );
+            if lang_id == "${LANG_ENGLISH}" {
+                assert!(
+                    !has_cjk(value),
+                    "LangString {name} for {lang_id} must not contain Chinese characters: {value}"
+                );
+            } else {
+                assert!(
+                    has_cjk(value),
+                    "LangString {name} for {lang_id} must contain Chinese characters: {value}"
+                );
+            }
+        }
+        let expected_keys: BTreeSet<&str> = REQUIRED_LANG_IDS.into_iter().collect();
+        let actual_keys: BTreeSet<&str> = entries.keys().copied().collect();
+        assert_eq!(
+            actual_keys, expected_keys,
+            "LangString {name} must define only English and TradChinese"
+        );
+
+        let defined_in_install_hook = preinstall
+            .lines()
+            .chain(postinstall.lines())
+            .filter(|line| line.trim_start().starts_with("LangString "))
+            .filter_map(parse_lang_string)
+            .filter(|(n, _, _)| n == name)
+            .count();
+        assert_eq!(
+            defined_in_install_hook,
+            REQUIRED_LANG_IDS.len(),
+            "LangString {name} must be defined inside NSIS_HOOK_PREINSTALL or NSIS_HOOK_POSTINSTALL (after MUI_LANGUAGE)"
+        );
+    }
+}
+
+#[test]
+fn message_boxes_and_registry_strings_use_lang_strings_without_hardcoded_chinese() {
+    let lang_strings = collect_lang_strings(HOOKS);
+    let mut used_refs = BTreeSet::new();
+
+    for line in HOOKS.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with(';') {
+            continue;
+        }
+        if trimmed.starts_with("MessageBox ") || trimmed.starts_with("WriteRegStr ") {
+            assert!(
+                !has_cjk(trimmed),
+                "MessageBox / WriteRegStr must use $(LangString) rather than hardcoded Chinese: {trimmed}"
+            );
+            for lang_ref in extract_lang_refs(trimmed) {
+                assert!(
+                    lang_strings.contains_key(lang_ref),
+                    "referenced $({lang_ref}) has no LangString definition: {trimmed}"
+                );
+                used_refs.insert(lang_ref);
+            }
+        }
+    }
+
+    let preinstall = macro_body(HOOKS, "NSIS_HOOK_PREINSTALL");
+    assert!(
+        preinstall.contains(
+            r#"MessageBox MB_OK|MB_ICONEXCLAMATION "$(PDF_READER_WEBVIEW2_MISSING)" /SD IDOK"#
+        ),
+        "NSIS_HOOK_PREINSTALL must show $(PDF_READER_WEBVIEW2_MISSING)"
+    );
+
+    let register = macro_body(HOOKS, "PDF_READER_REGISTER");
+    assert!(
+        register.contains(
+            r#"WriteRegStr HKLM "Software\Classes\${PDF_READER_PROGID}" "" "$(PDF_READER_PROGID_DESCRIPTION)""#
+        ),
+        "PDF_READER_REGISTER must write $(PDF_READER_PROGID_DESCRIPTION)"
+    );
+    assert!(
+        register.contains(
+            r#"WriteRegStr HKLM "${PDF_READER_CAPABILITIES}" "ApplicationDescription" "$(PDF_READER_APP_DESCRIPTION)""#
+        ),
+        "PDF_READER_REGISTER must write $(PDF_READER_APP_DESCRIPTION)"
+    );
+
+    let expected_used: BTreeSet<&str> = REQUIRED_LANG_STRINGS.into_iter().collect();
+    assert_eq!(
+        used_refs, expected_used,
+        "all required LangStrings must be referenced in MessageBox or WriteRegStr"
+    );
 }

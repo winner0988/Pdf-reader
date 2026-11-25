@@ -22,14 +22,16 @@
   ${EndIf}
 !macroend
 
-!define PDF_READER_WEBVIEW2_MISSING "這台電腦缺少 Microsoft Edge WebView2 Runtime，安裝完成後 PDF Reader 還無法開啟。$\r$\n$\r$\nWindows 11 已內建 WebView2。如果它被移除了，請到 Microsoft 官方網站下載並安裝「WebView2 Runtime」：$\r$\nhttps://developer.microsoft.com/microsoft-edge/webview2/$\r$\n$\r$\n本安裝程式不會自行下載任何東西。"
-
 ; /SD IDOK: a silent install does not stop here.
 !macro NSIS_HOOK_PREINSTALL
+  ; Tauri includes installerHooks before MUI_LANGUAGE, whereas NSIS_HOOK_PREINSTALL expands inside
+  ; Section Install after MUI_LANGUAGE has defined ${LANG_ENGLISH} and ${LANG_TRADCHINESE}.
+  LangString PDF_READER_WEBVIEW2_MISSING ${LANG_ENGLISH} "This computer is missing Microsoft Edge WebView2 Runtime, so PDF Reader cannot open after installation.$\r$\n$\r$\nWindows 11 includes WebView2. If it has been removed, please download and install WebView2 Runtime from the official Microsoft website:$\r$\nhttps://developer.microsoft.com/microsoft-edge/webview2/$\r$\n$\r$\nThis installer does not download anything on its own."
+  LangString PDF_READER_WEBVIEW2_MISSING ${LANG_TRADCHINESE} "這台電腦缺少 Microsoft Edge WebView2 Runtime，安裝完成後 PDF Reader 還無法開啟。$\r$\n$\r$\nWindows 11 已內建 WebView2。如果它被移除了，請到 Microsoft 官方網站下載並安裝「WebView2 Runtime」：$\r$\nhttps://developer.microsoft.com/microsoft-edge/webview2/$\r$\n$\r$\n本安裝程式不會自行下載任何東西。"
   Push $R0
   !insertmacro PDF_READER_WEBVIEW2_VERSION
   ${If} $R0 == ""
-    MessageBox MB_OK|MB_ICONEXCLAMATION "${PDF_READER_WEBVIEW2_MISSING}" /SD IDOK
+    MessageBox MB_OK|MB_ICONEXCLAMATION "$(PDF_READER_WEBVIEW2_MISSING)" /SD IDOK
   ${EndIf}
   Pop $R0
 !macroend
@@ -47,10 +49,9 @@
 ; MultiSelectModel=Player raises Windows Explorer's static-verb selection limit from 15 (Document)
 ; to 100 items; Windows invokes the command once per selected file and single-instance collects them.
 !define PDF_READER_CREATE_PDF_VERB "PdfReader.CreatePdf"
-!define PDF_READER_CREATE_PDF_LABEL "用 PDF Reader 建立 PDF"
 
 !macro PDF_READER_REGISTER_IMAGE_VERB ext
-  WriteRegStr HKLM "Software\Classes\SystemFileAssociations\.${ext}\shell\${PDF_READER_CREATE_PDF_VERB}" "MUIVerb" "${PDF_READER_CREATE_PDF_LABEL}"
+  WriteRegStr HKLM "Software\Classes\SystemFileAssociations\.${ext}\shell\${PDF_READER_CREATE_PDF_VERB}" "MUIVerb" "$(PDF_READER_CREATE_PDF_LABEL)"
   WriteRegStr HKLM "Software\Classes\SystemFileAssociations\.${ext}\shell\${PDF_READER_CREATE_PDF_VERB}" "Icon" "$INSTDIR\${MAINBINARYNAME}.exe,0"
   WriteRegStr HKLM "Software\Classes\SystemFileAssociations\.${ext}\shell\${PDF_READER_CREATE_PDF_VERB}" "MultiSelectModel" "Player"
   WriteRegStr HKLM "Software\Classes\SystemFileAssociations\.${ext}\shell\${PDF_READER_CREATE_PDF_VERB}\command" "" '"$INSTDIR\${MAINBINARYNAME}.exe" --create-pdf-from "%1"'
@@ -62,7 +63,7 @@
 
 !macro PDF_READER_REGISTER
   SetRegView 64
-  WriteRegStr HKLM "Software\Classes\${PDF_READER_PROGID}" "" "PDF 文件"
+  WriteRegStr HKLM "Software\Classes\${PDF_READER_PROGID}" "" "$(PDF_READER_PROGID_DESCRIPTION)"
   WriteRegStr HKLM "Software\Classes\${PDF_READER_PROGID}\DefaultIcon" "" "$INSTDIR\${MAINBINARYNAME}.exe,0"
   WriteRegStr HKLM "Software\Classes\${PDF_READER_PROGID}\shell\open\command" "" '"$INSTDIR\${MAINBINARYNAME}.exe" "%1"'
   WriteRegStr HKLM "Software\Classes\.pdf\OpenWithProgids" "${PDF_READER_PROGID}" ""
@@ -70,7 +71,7 @@
   WriteRegStr HKLM "Software\Classes\Applications\${MAINBINARYNAME}.exe\SupportedTypes" ".pdf" ""
   WriteRegStr HKLM "Software\Classes\Applications\${MAINBINARYNAME}.exe\shell\open\command" "" '"$INSTDIR\${MAINBINARYNAME}.exe" "%1"'
   WriteRegStr HKLM "${PDF_READER_CAPABILITIES}" "ApplicationName" "${PRODUCTNAME}"
-  WriteRegStr HKLM "${PDF_READER_CAPABILITIES}" "ApplicationDescription" "注重隱私、完全離線的 PDF 閱讀器"
+  WriteRegStr HKLM "${PDF_READER_CAPABILITIES}" "ApplicationDescription" "$(PDF_READER_APP_DESCRIPTION)"
   WriteRegStr HKLM "${PDF_READER_CAPABILITIES}" "ApplicationIcon" "$INSTDIR\${MAINBINARYNAME}.exe,0"
   WriteRegStr HKLM "${PDF_READER_CAPABILITIES}\FileAssociations" ".pdf" "${PDF_READER_PROGID}"
   WriteRegStr HKLM "Software\RegisteredApplications" "${PRODUCTNAME}" "${PDF_READER_CAPABILITIES}"
@@ -105,6 +106,13 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  ; Expanded inside Section Install after MUI_LANGUAGE; registry strings stay in the install-time language.
+  LangString PDF_READER_CREATE_PDF_LABEL ${LANG_ENGLISH} "Create PDF with PDF Reader"
+  LangString PDF_READER_CREATE_PDF_LABEL ${LANG_TRADCHINESE} "用 PDF Reader 建立 PDF"
+  LangString PDF_READER_PROGID_DESCRIPTION ${LANG_ENGLISH} "PDF Document"
+  LangString PDF_READER_PROGID_DESCRIPTION ${LANG_TRADCHINESE} "PDF 文件"
+  LangString PDF_READER_APP_DESCRIPTION ${LANG_ENGLISH} "Privacy-first, offline PDF reader"
+  LangString PDF_READER_APP_DESCRIPTION ${LANG_TRADCHINESE} "注重隱私、完全離線的 PDF 閱讀器"
   !insertmacro PDF_READER_REGISTER
 !macroend
 

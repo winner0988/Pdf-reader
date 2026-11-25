@@ -21,13 +21,21 @@ pnpm bundle    # 產出 target/release/bundle/nsis/PDF Reader_<版本>_x64-setup
 
 為什麼 `externalBin` 放在獨立的設定檔：`tauri-build` 在**每次**編譯主程式時都會檢查 `externalBin` 指到的檔案存在。如果寫在 `tauri.conf.json`，`cargo clippy --workspace`、`cargo test --workspace` 都得先建置一次 release worker。
 
-## 安裝程式的語言（REL-06）
+## 安裝程式的語言（REL-06、ADR 0029）
 
-`bundle.windows.nsis.languages`（`tauri.conf.json`）是 `["TradChinese", "English"]`，Tauri 預設只有英文：
+`bundle.windows.nsis.languages`（`tauri.conf.json`）是 `["English", "TradChinese"]`，把英文放在第一個：
 
-- 預設依作業系統的語言選：繁體中文的 Windows 看到繁體中文，英文的看到英文；都不是時用第一個（繁體中文），與 app 的語言一致。不顯示語言選擇視窗。
-- `windows/installer-hooks.nsh` 的提示（缺少 WebView2）與「預設應用程式」的說明本來就是繁體中文，不隨語言變動。
-- CI（`installer.yml`）檢查產生的 `installer.nsi` 依序含這兩個語言；CI 看不到精靈的畫面，所以負責人在乾淨的 Windows 11 上裝一次時要看一眼（[release.md](../release.md)）。
+- 預設依作業系統的顯示語言選（不顯示語言選擇視窗，`displayLanguageSelector` 未開啟）：
+  - 英文的 Windows 看到英文（`1033`）；
+  - 繁體中文的 Windows 看到繁體中文（`1028`）；
+  - **簡體中文的 Windows 也會看到繁體中文**：NSIS（§4.10 Multiple Languages）在沒有完全相符的 LCID 時，會比對 Windows UI 語言的主語言代碼（`PRIMARYLANGID = langid & 0x3FF`）。簡體中文（`2052` = `0x0804`）的主語言代碼是 `0x04`（`LANG_CHINESE`），與清單裡的 `TradChinese`（`1028` = `0x0404`，主語言代碼 `0x04`）相符，因此選到 `TradChinese`（與 app 的語言規則一致，不會掉回第一個語言英文）；
+  - 其他未列出的語言（例如日文、德文）都不相符，會用清單的第一個語言（`English`），與 ADR 0029 的 app 規則一致。
+- `windows/installer-hooks.nsh` 的文字改成英文與繁體中文的 `LangString`（定義在 `Section Install` 展開的 `NSIS_HOOK_PREINSTALL` 與 `NSIS_HOOK_POSTINSTALL` 內，位於 `installer.nsi` 的 `!insertmacro MUI_LANGUAGE` 之後）：
+  - 缺少 WebView2 的提示（`PDF_READER_WEBVIEW2_MISSING`）；
+  - 圖片右鍵選單名稱（`PDF_READER_CREATE_PDF_LABEL`：`Create PDF with PDF Reader`／`用 PDF Reader 建立 PDF`）；
+  - 寫進登錄的 `.pdf` ProgID 類型名稱（`PDF_READER_PROGID_DESCRIPTION`：`PDF Document`／`PDF 文件`）與 `ApplicationDescription`（`PDF_READER_APP_DESCRIPTION`：`Privacy-first, offline PDF reader`／`注重隱私、完全離線的 PDF 閱讀器`）。
+- 寫進登錄的類型名稱、程式說明與右鍵選單文字會使用**安裝當時**的語言；之後在 app 設定裡切換介面語言不會改變這些登錄文字。安裝檔也不會寫入 app 的語言設定（`settings.json`）。
+- CI（`installer.yml`）檢查產生的 `installer.nsi` 依序含 `English,TradChinese`；CI 看不到精靈的畫面，所以負責人在乾淨的 Windows 11 上裝一次時要看一眼（[release.md](../release.md)）。
 
 ## 附帶的 OCR 語言資料
 
@@ -113,7 +121,7 @@ REL-03（[#68](https://github.com/winner0988/Pdf-reader/issues/68)），規格 �
 
 - **安裝後**（`PDF_READER_REGISTER`，64 位元登錄檔視圖）：
   - 對七種支援的圖片副檔名（`.png`、`.jpg`、`.jpeg`、`.gif`、`.bmp`、`.tif`、`.tiff`），各自在 `HKLM\Software\Classes\SystemFileAssociations\.<副檔名>\shell\PdfReader.CreatePdf` 登錄一個動詞：
-    - `MUIVerb`：`用 PDF Reader 建立 PDF`
+    - `MUIVerb`：`$(PDF_READER_CREATE_PDF_LABEL)`（英文系統為 `Create PDF with PDF Reader`，繁體中文與簡體中文系統為 `用 PDF Reader 建立 PDF`，依安裝當時的語言寫入，之後在 app 切換語言不變）
     - `Icon`：`"$INSTDIR\${MAINBINARYNAME}.exe,0"`
     - `MultiSelectModel`：`Player`
     - `command`：`'"$INSTDIR\${MAINBINARYNAME}.exe" --create-pdf-from "%1"'`
