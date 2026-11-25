@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Rebuilds the icon files in src-tauri/icons, of both palettes, from their SVG sources
-// (docs/ux/visual-style.md, section 8). The Tauri CLI draws every size from one picture; at 32 px
-// and below the guard line of the full picture turns into a smudge, so those sizes come from a
-// simplified second source.
+// Rebuilds the icon files in src-tauri/icons from their SVG sources: the app icon of both palettes
+// and the PDF file icon (docs/ux/visual-style.md, section 8). The Tauri CLI draws every size from
+// one picture; at 32 px and below the guard line of the full app icon turns into a smudge and the
+// file icon's text cannot be read, so those sizes come from a simplified second source.
 //
 //   node scripts/release/app-icons.mjs
 import { execFileSync } from "node:child_process";
@@ -103,8 +103,12 @@ if (fileURLToPath(import.meta.url) === path.resolve(process.argv[1] ?? "")) {
     // light mode (src-tauri/src/app_icon.rs). Only Windows uses it, so only the .ico.
     const dark = build(cli, work, "dark", "app-icon-dark.svg", "app-icon-dark-small.svg");
     writeFileSync(path.join(ICONS, "icon-dark.ico"), dark.ico);
+    // The PDF file icon: what Explorer shows for a PDF this app opens, the DefaultIcon the
+    // installer writes (src-tauri/windows/installer-hooks.nsh). Only Windows uses it, so only the .ico.
+    const pdf = build(cli, work, "pdf", "pdf-file.svg", "pdf-file-small.svg");
+    writeFileSync(path.join(ICONS, "pdf-file.ico"), pdf.ico);
     const sizes = readIco(blue.ico).map((picture) => picture.size);
-    console.log(`src-tauri/icons rebuilt; icon.ico and icon-dark.ico have ${sizes.join(", ")} px`);
+    console.log(`src-tauri/icons rebuilt; icon.ico, icon-dark.ico and pdf-file.ico have ${sizes.join(", ")} px`);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

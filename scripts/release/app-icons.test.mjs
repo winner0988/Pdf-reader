@@ -63,7 +63,10 @@ test("a file cut short is refused", () => {
   assert.throws(() => readIco(bytes.subarray(0, bytes.length - 1)), /picture is cut short/);
 });
 
-for (const name of ["icon.ico", "icon-dark.ico"]) {
+/** The .ico files the exe holds: the app icon, the dark tile, and the PDF file icon. */
+const ICONS = ["icon.ico", "icon-dark.ico", "pdf-file.ico"];
+
+for (const name of ICONS) {
   test(`the app's ${name} has every size Windows asks for`, () => {
     const pictures = readIco(readFileSync(path.join(ROOT, "src-tauri", "icons", name)));
     assert.deepEqual(pictures.map((entry) => entry.size).sort((a, b) => a - b), ICO_SIZES);
@@ -71,10 +74,17 @@ for (const name of ["icon.ico", "icon-dark.ico"]) {
   });
 }
 
-test("the two icons are different pictures at every size", () => {
-  const read = (name) => readIco(readFileSync(path.join(ROOT, "src-tauri", "icons", name)));
-  const dark = new Map(read("icon-dark.ico").map((entry) => [entry.size, entry.data]));
-  for (const entry of read("icon.ico")) assert.ok(!entry.data.equals(dark.get(entry.size)), `${entry.size} px`);
+test("the icons are different pictures at every size", () => {
+  const read = (name) => {
+    const pictures = readIco(readFileSync(path.join(ROOT, "src-tauri", "icons", name)));
+    return new Map(pictures.map((entry) => [entry.size, entry.data]));
+  };
+  const icons = ICONS.map((name) => [name, read(name)]);
+  for (const [index, [first, pictures]] of icons.entries()) {
+    for (const [second, others] of icons.slice(index + 1)) {
+      for (const [size, data] of pictures) assert.ok(!data.equals(others.get(size)), `${first} and ${second}, ${size} px`);
+    }
+  }
 });
 
 test("every simplified size is one icon.ico has", () => {

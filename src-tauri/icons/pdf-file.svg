@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- PDF file icon: what Explorer shows for a PDF this app opens (UX-06, #730), 48 px and up.
+       Rebuild every icon file with `node scripts/release/app-icons.mjs` (docs/ux/visual-style.md, section 8). -->
+  <!-- Page -->
+  <path d="M208 32H650.667L864 245.333V944A48 48 0 0 1 816 992H208A48 48 0 0 1 160 944V80A48 48 0 0 1 208 32Z" fill="#fffdfa"/>
+  <!-- Label band; its edges sit on the 48 and 64 px grids -->
+  <rect x="160" y="640" width="704" height="256" fill="#0256a9"/>
+  <!-- Folded corner; its edges sit on the 48 px grid -->
+  <path d="M650.667 32V197.333A48 48 0 0 0 698.667 245.333H864Z" fill="#e6e2dd"/>
+  <!-- Outline of the page and the folded corner: 1 px at 48 px -->
+  <path d="M208 32H650.667L864 245.333V944A48 48 0 0 1 816 992H208A48 48 0 0 1 160 944V80A48 48 0 0 1 208 32Z" fill="none" stroke="#8f8a82" stroke-width="21.333" stroke-linejoin="round"/>
+  <path d="M650.667 32V197.333A48 48 0 0 0 698.667 245.333H864" fill="none" stroke="#8f8a82" stroke-width="21.333" stroke-linejoin="round"/>
+  <!-- Shield, the app icon's -->
+  <path transform="translate(512 376) scale(0.9) translate(-602 -721)" d="M602 558L762 633Q768 636 768 646C768 760 690 838 610 880Q602 884 594 880C514 838 436 760 436 646Q436 636 442 633Z" fill="#0256a9" stroke="#0256a9" stroke-width="10" stroke-linejoin="round"/>
+  <!-- "PDF", drawn as paths so that no font is needed -->
+  <g transform="translate(319 688)" fill="#fcfaf7" fill-rule="evenodd">
+    <path d="M0 0H58A52 52 0 0 1 58 104H36V160H0Z M36 36V68H58A16 16 0 0 0 58 36Z"/>
+    <path transform="translate(136 0)" d="M0 0H44A80 80 0 0 1 44 160H0Z M36 36V124H44A44 44 0 0 0 44 36Z"/>
+    <path transform="translate(286 0)" d="M0 0H100V36H36V70H88V104H36V160H0Z"/>
+  </g>
+</svg>

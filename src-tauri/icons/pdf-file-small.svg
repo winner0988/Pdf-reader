@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- PDF file icon (UX-06, #730), simplified for 32 px and below: no text, which cannot be read
+       that small, and the edges sit on the 16 px grid (64 units a pixel).
+       Rebuild every icon file with `node scripts/release/app-icons.mjs` (docs/ux/visual-style.md, section 8). -->
+  <!-- Page -->
+  <path d="M192 32H672L864 224V960A32 32 0 0 1 832 992H192A32 32 0 0 1 160 960V64A32 32 0 0 1 192 32Z" fill="#fffdfa"/>
+  <!-- Label band: rows 10 to 13 at 16 px -->
+  <rect x="160" y="640" width="704" height="256" fill="#0256a9"/>
+  <!-- Folded corner -->
+  <path d="M672 32V224H864Z" fill="#e6e2dd"/>
+  <!-- Outline of the page and the folded corner: 1 px at 16 px -->
+  <path d="M192 32H672L864 224V960A32 32 0 0 1 832 992H192A32 32 0 0 1 160 960V64A32 32 0 0 1 192 32Z" fill="none" stroke="#8f8a82" stroke-width="64" stroke-linejoin="round"/>
+  <path d="M672 32V224H864" fill="none" stroke="#8f8a82" stroke-width="64" stroke-linejoin="round"/>
+  <!-- Shield, the app icon's, larger than in the full picture -->
+  <path transform="translate(512 416) scale(0.98) translate(-602 -721)" d="M602 558L762 633Q768 636 768 646C768 760 690 838 610 880Q602 884 594 880C514 838 436 760 436 646Q436 636 442 633Z" fill="#0256a9" stroke="#0256a9" stroke-width="10" stroke-linejoin="round"/>
+</svg>
