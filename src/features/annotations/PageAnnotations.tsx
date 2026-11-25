@@ -223,7 +223,9 @@ export function PageAnnotations({
   const editTextBox =
     onEditTextBox &&
     ((annotation: PageAnnotation, clickClient?: { x: number; y: number }) => {
-      if (fresh) onEditTextBox(index, annotation, clickClient);
+      if (!fresh) return;
+      if (clickClient) onEditTextBox(index, annotation, clickClient);
+      else onEditTextBox(index, annotation);
     });
   const pixelsPerPoint = box.width / displayedSize(page, rotation).widthPt;
   const keys = (annotation: PageAnnotation, area: Box) => (event: KeyboardEvent) => {

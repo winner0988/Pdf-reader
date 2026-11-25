@@ -1292,9 +1292,7 @@ fn set_text_box_with_rect_updates_position_and_words_in_one_edit_and_replays_ide
     assert!((listed[0].rect.y1 - grown.y1).abs() < 0.01);
 
     // Searchable at the new rect.
-    let found = doc
-        .search_page(0, "你好世界", true, 10)
-        .expect("search");
+    let found = doc.search_page(0, "你好世界", true, 10).expect("search");
     assert_eq!(found.hits.len(), 1);
     assert!(found.hits[0].quads.iter().all(|q| inside(q, grown)));
 

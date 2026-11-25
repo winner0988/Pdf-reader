@@ -4625,7 +4625,10 @@ mod with_worker {
         assert_eq!(code(whole_no_annots), ErrorCode::InvalidArgument);
         let mut region_no_annots = region(0, 0, 200, 200);
         region_no_annots.without_annotations = true;
-        assert_eq!(size(&documents.render(&region_no_annots).unwrap()), (200, 200));
+        assert_eq!(
+            size(&documents.render(&region_no_annots).unwrap()),
+            (200, 200)
+        );
         std::fs::remove_file(path).ok();
     }
 

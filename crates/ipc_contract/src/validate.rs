@@ -1923,10 +1923,7 @@ impl Validate for Edit {
                 style.validate()
             }
             Edit::SetTextBox {
-                page,
-                style,
-                rect,
-                ..
+                page, style, rect, ..
             } => {
                 check_annotated_page(*page)?;
                 if let Some(rect) = rect {
