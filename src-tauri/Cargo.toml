@@ -44,6 +44,12 @@ similar = { version = "3.2", default-features = false, features = ["std"] }
 # The system's file dialogs, with an option rfd cannot set (#86, B2-04, src/file_dialog.rs).
 # Already used by Tauri, in this version.
 windows = { version = "0.62", features = [
+    "Foundation",
+    "Foundation_Collections",
+    "Media_Core",
+    "Media_Playback",
+    "Media_SpeechSynthesis",
+    "Storage_Streams",
     "Win32_Foundation",
     "Win32_System_Com",
     "Win32_UI_Shell",

@@ -104,6 +104,11 @@ fn main() {
         "prepare_signature_stamp",
         "run_batch",
         "create_pdf",
+        "get_speech_voices",
+        "speak_text",
+        "pause_speech",
+        "resume_speech",
+        "stop_speech",
     ]);
     // A second icon in the exe: the dark tile the window and the notification area show while
     // Windows is in its light mode (UX-04, src/app_icon.rs, which asks for it by this id). The

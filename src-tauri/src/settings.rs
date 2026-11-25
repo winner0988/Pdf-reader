@@ -8,6 +8,7 @@ use std::sync::{Mutex, PoisonError};
 
 use ipc_contract::ocr::is_language_name;
 use ipc_contract::types::{LanguagePreference, Settings, ThemePreference};
+use ipc_contract::validate::{check_speech_rate, check_speech_voice_id};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::local_data;
@@ -37,6 +38,11 @@ struct Stored {
     /// Added with the text index (B3-21, ADR 0026): off in a file written before it.
     #[serde(default)]
     text_index: bool,
+    /// Added with read aloud (B6-14, #599): system default voice and 1.0x speed in older files.
+    #[serde(default)]
+    speech_voice_id: Option<String>,
+    #[serde(default = "default_speech_rate")]
+    speech_rate: f64,
 }
 
 fn deserialize_language<'de, D>(deserializer: D) -> Result<LanguagePreference, D::Error>
@@ -53,6 +59,10 @@ where
 
 fn default_ocr_auto() -> bool {
     Settings::default().ocr_auto
+}
+
+fn default_speech_rate() -> f64 {
+    Settings::default().speech_rate
 }
 
 pub struct SettingsStore {
@@ -79,6 +89,14 @@ impl SettingsStore {
                 // Only what could be a language's code is taken from a file.
                 ocr_language: stored.ocr_language.filter(|code| is_language_name(code)),
                 text_index: stored.text_index,
+                speech_voice_id: stored
+                    .speech_voice_id
+                    .filter(|id| check_speech_voice_id(id).is_ok()),
+                speech_rate: if check_speech_rate(stored.speech_rate).is_ok() {
+                    stored.speech_rate
+                } else {
+                    default_speech_rate()
+                },
             });
         Self {
             file,
@@ -108,6 +126,8 @@ impl SettingsStore {
             ocr_auto: settings.ocr_auto,
             ocr_language: settings.ocr_language,
             text_index: settings.text_index,
+            speech_voice_id: settings.speech_voice_id,
+            speech_rate: settings.speech_rate,
         };
         let json = serde_json::to_vec_pretty(&stored).map_err(io::Error::other)?;
         local_data::write(file, &json)
@@ -141,6 +161,8 @@ mod tests {
             ocr_auto: false,
             ocr_language: Some("chi_tra".to_owned()),
             text_index: true,
+            speech_voice_id: Some("voice-tw".to_owned()),
+            speech_rate: 1.25,
         };
         store.set(dark.clone()).unwrap();
         assert_eq!(store.get(), dark);
@@ -165,6 +187,8 @@ mod tests {
         assert!(settings.ocr_auto);
         assert_eq!(settings.ocr_language, None);
         assert!(!settings.text_index);
+        assert_eq!(settings.speech_voice_id, None);
+        assert_eq!(settings.speech_rate, 1.0);
 
         // Language setting: recognized values are kept; unknown falls back to system.
         for (raw, expected) in [
