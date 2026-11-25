@@ -82,7 +82,11 @@ export type PagesSource = { source: SourceId,
 /**
  * How many pages it has: all of them are inserted.
  */
-pages: number, };
+pages: number, 
+/**
+ * Whether the source file defines any layers (`/OCProperties /OCGs`) (#703).
+ */
+hasLayers: boolean, };
 
 /**
  * What the reader of an encrypted copy is not allowed to do (B2-15, docs/architecture/encrypt-copy.md),

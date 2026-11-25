@@ -2703,6 +2703,119 @@ def benign_personal_data() -> bytes:
     return single_page_doc("personal-data", lines).build()
 
 
+def benign_layers_hidden() -> bytes:
+    """One page with visible text and a layer hidden via /D /OFF (#703)."""
+    doc = Document("layers-hidden")
+    doc.reserve_pages(1)
+    ocg = doc.pdf.add("<< /Type /OCG /Name (Hidden Layer) >>")
+    doc.catalog_extra = (
+        f" /OCProperties << /OCGs [{ocg} 0 R]"
+        f" /D << /BaseState /ON /OFF [{ocg} 0 R] /Order [{ocg} 0 R] >> >>"
+    )
+    doc.set_page(
+        0,
+        Page(
+            lines=[(72, 720, 20, "Document with a hidden layer.")],
+            extra_content=b"q /OC /OC1 BDC\n1 0 0 rg\n100 300 200 200 re f\nEMC Q\n",
+            resources=f"/Properties << /OC1 {ocg} 0 R >> ",
+        ),
+    )
+    return doc.build()
+
+
+def benign_layers_visible() -> bytes:
+    """One page with a visible layer containing a blue square (#703)."""
+    doc = Document("layers-visible")
+    doc.reserve_pages(1)
+    ocg = doc.pdf.add("<< /Type /OCG /Name (Visible Layer) >>")
+    doc.catalog_extra = (
+        f" /OCProperties << /OCGs [{ocg} 0 R]"
+        f" /D << /BaseState /ON /ON [{ocg} 0 R] /Order [{ocg} 0 R] >> >>"
+    )
+    doc.set_page(
+        0,
+        Page(
+            lines=[(72, 720, 20, "Document with a visible layer.")],
+            extra_content=b"q /OC /OC1 BDC\n0 0 1 rg\n100 300 200 200 re f\nEMC Q\n",
+            resources=f"/Properties << /OC1 {ocg} 0 R >> ",
+        ),
+    )
+    return doc.build()
+
+
+def benign_layers_base_off() -> bytes:
+    """One page with a layer hidden via /D /BaseState /OFF (#703)."""
+    doc = Document("layers-base-off")
+    doc.reserve_pages(1)
+    ocg = doc.pdf.add("<< /Type /OCG /Name (Base Off Layer) >>")
+    doc.catalog_extra = (
+        f" /OCProperties << /OCGs [{ocg} 0 R]"
+        f" /D << /BaseState /OFF /Order [{ocg} 0 R] >> >>"
+    )
+    doc.set_page(
+        0,
+        Page(
+            lines=[(72, 720, 20, "Document with BaseState OFF layer.")],
+            extra_content=b"q /OC /OC1 BDC\n1 0 0 rg\n100 300 200 200 re f\nEMC Q\n",
+            resources=f"/Properties << /OC1 {ocg} 0 R >> ",
+        ),
+    )
+    return doc.build()
+
+
+def benign_layers_intent_design() -> bytes:
+    """One page with a layer whose /Intent is /Design while /D uses /View (#703)."""
+    doc = Document("layers-intent-design")
+    doc.reserve_pages(1)
+    ocg = doc.pdf.add("<< /Type /OCG /Name (Design Layer) /Intent /Design >>")
+    doc.catalog_extra = (
+        f" /OCProperties << /OCGs [{ocg} 0 R]"
+        f" /D << /BaseState /ON /Intent /View /Order [{ocg} 0 R] >> >>"
+    )
+    doc.set_page(
+        0,
+        Page(
+            lines=[(72, 720, 20, "Document with Design intent layer.")],
+            extra_content=b"q /OC /OC1 BDC\n1 0 0 rg\n100 300 200 200 re f\nEMC Q\n",
+            resources=f"/Properties << /OC1 {ocg} 0 R >> ",
+        ),
+    )
+    return doc.build()
+
+
+def benign_layers_ocmd_ve() -> bytes:
+    """One page with content hidden via an OCMD /VE visibility expression (#703)."""
+    doc = Document("layers-ocmd-ve")
+    doc.reserve_pages(1)
+    ocg = doc.pdf.add("<< /Type /OCG /Name (Base Layer) >>")
+    ocmd = doc.pdf.add(f"<< /Type /OCMD /VE [/Not {ocg} 0 R] >>")
+    doc.catalog_extra = (
+        f" /OCProperties << /OCGs [{ocg} 0 R]"
+        f" /D << /BaseState /ON /ON [{ocg} 0 R] /Order [{ocg} 0 R] >> >>"
+    )
+    doc.set_page(
+        0,
+        Page(
+            lines=[(72, 720, 20, "Document with OCMD visibility expression layer.")],
+            extra_content=b"q /OC /OC1 BDC\n1 0 0 rg\n100 300 200 200 re f\nEMC Q\n",
+            resources=f"/Properties << /OC1 {ocmd} 0 R >> ",
+        ),
+    )
+    return doc.build()
+
+
+def benign_layers_empty_ocgs() -> bytes:
+    """One page whose /OCProperties /OCGs is an empty array (#703)."""
+    doc = Document("layers-empty-ocgs")
+    doc.reserve_pages(1)
+    doc.catalog_extra = " /OCProperties << /OCGs [] /D << /BaseState /ON >> >>"
+    doc.set_page(
+        0,
+        Page(lines=[(72, 720, 20, "Document with empty OCGs array.")]),
+    )
+    return doc.build()
+
+
 @dataclass
 class Sample:
     path: str
@@ -2893,6 +3006,30 @@ SAMPLES = [
            "the glyph index, as in old Ghostscript subsets (#629).",
            "Opens; the text is 'GLYPH INDEX'.", 1,
            text=[TRUETYPE_GLYPH_INDEX_TEXT]),
+    Sample("benign/layers-hidden.pdf", benign_layers_hidden,
+           "One page with visible text and a hidden layer turned off via /OCProperties /D /OFF (#703).",
+           "Opens; the hidden layer's red square is not rendered on its own, and shows after inserting into another file.",
+           1, text=["Document with a hidden layer."]),
+    Sample("benign/layers-visible.pdf", benign_layers_visible,
+           "One page with a layer visible by default containing a blue square (#703).",
+           "Opens; renders the blue square.",
+           1, text=["Document with a visible layer."]),
+    Sample("benign/layers-base-off.pdf", benign_layers_base_off,
+           "One page with a layer hidden via /OCProperties /D /BaseState /OFF (#703).",
+           "Opens; the hidden layer's red square is not rendered on its own, and shows after inserting into another file.",
+           1, text=["Document with BaseState OFF layer."]),
+    Sample("benign/layers-intent-design.pdf", benign_layers_intent_design,
+           "One page with a /Design intent layer hidden under /D /Intent /View (#703).",
+           "Opens; the Design intent layer's red square is not rendered on its own.",
+           1, text=["Document with Design intent layer."]),
+    Sample("benign/layers-ocmd-ve.pdf", benign_layers_ocmd_ve,
+           "One page with content hidden via an OCMD /VE visibility expression (#703).",
+           "Opens; /OCProperties /OCGs lists the base layer (MuPDF does not evaluate /OCMD /VE so the red square renders in MuPDF while viewers supporting /VE hide it).",
+           1, text=["Document with OCMD visibility expression layer."]),
+    Sample("benign/layers-empty-ocgs.pdf", benign_layers_empty_ocgs,
+           "One page with /OCProperties /OCGs as an empty array (#703).",
+           "Opens; reported as having no layers.",
+           1, text=["Document with empty OCGs array."]),
     # malicious
     Sample("malicious/js-document-level.pdf", malicious_js_document, "Document-level JavaScript in the names tree.",
            "No script runs; finding reported.", 1, ["javaScript"]),

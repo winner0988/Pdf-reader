@@ -1482,12 +1482,14 @@ pub enum WorkerResponse {
     Rebased {
         request: RequestId,
     },
-    /// The copy of the file of `PrepareSource` (B2-06), with any text boxes it has (B3-23, ADR 0019).
+    /// The copy of the file of `PrepareSource` (B2-06), with whether it has layers (#703) and any
+    /// text boxes it has (B3-23, ADR 0019).
     Source {
         request: RequestId,
         bytes: Vec<u8>,
         pages: u32,
         security: SecurityReport,
+        has_layers: bool,
         text_boxes: Vec<SourceTextBox>,
     },
     /// The document was written: `bytes` long, appended to the original (`incremental`, for a
@@ -2688,5 +2690,24 @@ mod tests {
             postcard::from_bytes::<WorkerResponse>(&bytes).unwrap(),
             response
         );
+    }
+
+    #[test]
+    fn worker_source_response_carries_has_layers_through_postcard() {
+        for has_layers in [false, true] {
+            let response = WorkerResponse::Source {
+                request: RequestId(11),
+                bytes: b"%PDF-1.7\n%%EOF\n".to_vec(),
+                pages: 2,
+                security: SecurityReport::default(),
+                has_layers,
+                text_boxes: Vec::new(),
+            };
+            let bytes = postcard::to_stdvec(&response).unwrap();
+            assert_eq!(
+                postcard::from_bytes::<WorkerResponse>(&bytes).unwrap(),
+                response
+            );
+        }
     }
 }

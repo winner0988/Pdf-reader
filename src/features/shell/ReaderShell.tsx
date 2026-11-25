@@ -97,6 +97,7 @@ import { createTextSource, type TextApi } from "@/features/text/source";
 import type { EditingApi } from "@/features/thumbnails/api";
 import type { PageEditing, SavePages } from "@/features/thumbnails/Thumbnails";
 import { ReplacePagesDialog } from "@/features/thumbnails/ReplacePagesDialog";
+import { SourceLayersDialog } from "@/features/thumbnails/SourceLayersDialog";
 import { SourcePasswordDialog } from "@/features/thumbnails/SourcePasswordDialog";
 import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
 import { useTheme } from "@/features/theme/useTheme";
@@ -846,6 +847,9 @@ export function ReaderShell({
     wrong: boolean;
     answer: (password: string | null) => void;
   } | null>(null);
+  const [sourceLayersConfirm, setSourceLayersConfirm] = useState<{
+    answer: (confirm: boolean) => void;
+  } | null>(null);
   const [replacePagesState, setReplacePagesState] = useState<{
     first: number;
     count: number;
@@ -885,6 +889,11 @@ export function ReaderShell({
     if (!api?.pickPagesSource || doc === undefined) return null;
     const source = await pickSource();
     if (!source) return null;
+    if (source.hasLayers) {
+      const proceed = await new Promise<boolean>((answer) => setSourceLayersConfirm({ answer }));
+      setSourceLayersConfirm(null);
+      if (!proceed) return null;
+    }
     const edit: Edit = { kind: "insertPages", at, source: source.source };
     await api.applyEdit(doc, edit);
     setNavHistory((prev) => adjustHistoryForEdit(prev, edit, pageCount, source.pages));
@@ -2322,6 +2331,11 @@ export function ReaderShell({
         onSubmit={(password) => sourcePassword?.answer(password)}
         onCancel={() => sourcePassword?.answer(null)}
       />
+      <SourceLayersDialog
+        open={sourceLayersConfirm !== null}
+        onConfirm={() => sourceLayersConfirm?.answer(true)}
+        onCancel={() => sourceLayersConfirm?.answer(false)}
+      />
       {replacePagesState && (
         <ReplacePagesDialog
           open={true}
@@ -2335,6 +2349,7 @@ export function ReaderShell({
           count={replacePagesState.count}
           sourcePages={replacePagesState.source.pages}
           docPages={pageCount}
+          hasLayers={replacePagesState.source.hasLayers}
           onReplace={(from, to) => {
             replacePagesState.answer({ from, to });
             setReplacePagesState(null);

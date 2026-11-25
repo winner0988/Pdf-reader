@@ -506,6 +506,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 scan_complete: true,
                 remote_addresses: Vec::new(),
             },
+            has_layers: true,
             text_boxes: Vec::new(),
         },
         WorkerResponse::Source {
@@ -513,6 +514,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             bytes: b"%PDF-1.7\n%%EOF\n".to_vec(),
             pages: 1,
             security: SecurityReport::default(),
+            has_layers: false,
             text_boxes: vec![SourceTextBox {
                 page: 0,
                 rect: Rect {

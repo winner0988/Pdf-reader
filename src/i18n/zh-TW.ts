@@ -210,6 +210,14 @@ export const strings = {
       cancel: "取消",
       wrong: "密碼不正確，請再試一次。",
     },
+    /** The source PDF defines layers: all of them become visible once inserted (#703). */
+    sourceLayers: {
+      title: "這份檔案有圖層",
+      description: "這份有圖層，插入後會全部顯示，原本隱藏的也是。",
+      detail: "app 還不能切換圖層；插入之後可以先看過新的頁面，不要就按「復原」（Ctrl+Z），存檔之前都可以。",
+      confirm: "插入",
+      cancel: "取消",
+    },
     replace: {
       title: "取代頁面",
       prompt: (first: number, last: number, sourcePages: number) =>
@@ -225,6 +233,8 @@ export const strings = {
       previewTitle: (total: number) => `取代之後共 ${total} 頁：`,
       previewOriginal: (newRange: string, origRange: string) => `第 ${newRange} 頁：原本的第 ${origRange} 頁`,
       previewSource: (newRange: string, srcRange: string) => `第 ${newRange} 頁：選的檔案的第 ${srcRange} 頁`,
+      layersWarning:
+        "這份有圖層，取代後會全部顯示，原本隱藏的也是。app 還不能切換圖層；取代之後可以先看過新的頁面，不要就按「復原」（Ctrl+Z），存檔之前都可以。",
       confirm: "取代",
       cancel: "取消",
     },

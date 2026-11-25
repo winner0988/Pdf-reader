@@ -10,7 +10,7 @@ import { strings } from "@/i18n";
 import type { PagesSource } from "@/ipc/generated/contract";
 
 const t = strings.pages;
-const taken: PagesSource = { source: 7, pages: 3 };
+const taken: PagesSource = { source: 7, pages: 3, hasLayers: false };
 
 function fakeEditingApi() {
   return {
@@ -84,6 +84,7 @@ describe("replace pages with another file (B6-05, #590)", () => {
     // Dialog opens
     const dialog = await screen.findByRole("dialog", { name: t.replace.title });
     expect(dialog).toBeInTheDocument();
+    expect(within(dialog).queryByText(t.replace.layersWarning)).toBeNull();
 
     // Default range is 1 to 3 (source has 3 pages)
     const fromInput = within(dialog).getByLabelText(t.replace.from);
@@ -195,5 +196,30 @@ describe("replace pages with another file (B6-05, #590)", () => {
     // Now replace dialog opens
     const dialog = await screen.findByRole("dialog", { name: t.replace.title });
     expect(dialog).toBeInTheDocument();
+  });
+
+  it("shows the layers warning inside the replace dialog when the source has layers (#703)", async () => {
+    const { api, user } = renderShell();
+    api.pickPagesSource.mockResolvedValue({ source: 7, pages: 3, hasLayers: true });
+
+    await user.click(screen.getByRole("tab", { name: strings.sidebar.thumbnailsTab }));
+    await user.click(await screen.findByRole("option", { name: strings.canvas.page(1) }));
+    fireEvent.contextMenu(screen.getByRole("option", { name: strings.canvas.page(1) }));
+    await user.click(await screen.findByRole("menuitem", { name: new RegExp(`^${t.replacePages}`) }));
+
+    const dialog = await screen.findByRole("dialog", { name: t.replace.title });
+    expect(within(dialog).getByText(t.replace.layersWarning)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: t.replace.confirm }));
+
+    await waitFor(() =>
+      expect(api.applyEdit).toHaveBeenCalledWith(5, {
+        kind: "replacePages",
+        first: 0,
+        count: 1,
+        source: 7,
+        from: 0,
+        to: 2,
+      }),
+    );
   });
 });
