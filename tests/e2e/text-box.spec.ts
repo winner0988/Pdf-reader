@@ -294,7 +294,6 @@ test("an inline text box auto-grows without clipping, wraps consistently for Eng
   test.setTimeout(120_000);
   const page = await launch(corpus("benign/mixed-text-zh-en.pdf"));
   await ready(page);
-  const copied = await recordCopies(page);
 
   const checkWrapping = async (
     where: [number, number],
@@ -334,7 +333,15 @@ test("an inline text box auto-grows without clipping, wraps consistently for Eng
     await page.keyboard.press("Escape");
     await expect(inlineInput(page)).toHaveCount(0);
 
+    // Escape leaves the box selected and focused (#402) with its move/resize handles over it;
+    // press Escape once more to deselect the box so dragging selects page text instead of resizing.
+    await expect(created).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(created).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator("[data-move-resize]")).toHaveCount(0);
+
     // Drag across the entire box and copy to read the worker's actual line breaks.
+    const copied = await recordCopies(page);
     await page.mouse.move(area.x + 2, area.y + 4);
     await page.mouse.down();
     await page.mouse.move(area.x + area.width - 2, area.y + area.height - 4, { steps: 10 });

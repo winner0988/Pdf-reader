@@ -290,7 +290,7 @@ describe("typing a new text box directly on the page (#719, B2-30)", () => {
       encryptCopy: vi.fn<SavingApi["encryptCopy"]>(() => Promise.resolve(false)),
       decryptCopy: vi.fn<SavingApi["decryptCopy"]>(() => Promise.resolve(false)),
       compressImages: vi.fn<SavingApi["compressImages"]>(() => Promise.resolve(null)),
-      pageMarksCopy: vi.fn<SavingApi["pageMarksCopy"]>(() => Promise.resolve(null)),
+      pageMarksCopy: vi.fn<SavingApi["pageMarksCopy"]>(() => Promise.resolve(false)),
       closeWindow: vi.fn<SavingApi["closeWindow"]>(() => Promise.resolve()),
     } satisfies SavingApi;
     const { editing, layer, toolButton, editor, user } = await setup(ALL_PERMISSIONS, { savingApi });
