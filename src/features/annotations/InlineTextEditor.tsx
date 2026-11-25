@@ -27,6 +27,7 @@ import {
   DEFAULT_TEXT_SIZE,
   fontNamed,
   growInlineRect,
+  inlineBoxWidthPt,
   isFontRenderable,
   settleVariant,
   sizeAllowed,
@@ -339,11 +340,18 @@ export function InlineTextEditor({
     if (!widthMirror || !heightMirror) return;
 
     const measuredWidthPx = widthMirror.scrollWidth;
+    const contentWidthPt = (measuredWidthPx + 2) / pixelsPerPoint;
+    const targetWidthPt = inlineBoxWidthPt(rect, contentWidthPt, page, fixedWidth);
+    const currentWidthPt = rect.x1 - rect.x0;
+    // Measure height at the widened width so filling/pasting long text into a narrow new box does
+    // not preserve the height of stale narrow-width line wrapping.
+    if (Math.abs(targetWidthPt - currentWidthPt) > 0.25) {
+      heightMirror.style.width = `${targetWidthPt * pixelsPerPoint}px`;
+    }
     const measuredHeightPx = heightMirror.scrollHeight;
     // In jsdom layout metrics are 0; never shrink below the current rect.
     if (!(measuredWidthPx > 0 || measuredHeightPx > 0)) return;
 
-    const contentWidthPt = (measuredWidthPx + 2) / pixelsPerPoint;
     const contentHeightPt = (measuredHeightPx + 2) / pixelsPerPoint;
     setRect((current) => {
       const next = growInlineRect(current, contentWidthPt, contentHeightPt, page, fixedWidth);
@@ -354,7 +362,7 @@ export function InlineTextEditor({
         Math.abs(next.y1 - current.y1) > 0.25;
       return changed ? next : current;
     });
-  }, [text, previewSize, lineStep, family, bold, italic, fixedWidth, pixelsPerPoint, page]);
+  }, [text, previewSize, lineStep, family, bold, italic, fixedWidth, pixelsPerPoint, page, rect]);
 
   const commit = useCallback(
     async (options?: { restoreFocus?: boolean }): Promise<boolean> => {

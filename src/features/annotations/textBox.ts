@@ -262,6 +262,21 @@ export function newInlineTextBoxRect(
   return keptOnPage(raw, page);
 }
 
+/** Computes the widened inline box width (in points) without overflowing `page`. */
+export function inlineBoxWidthPt(
+  base: Rect,
+  contentWidthPt: number,
+  page: PageSize,
+  fixedWidth: boolean,
+): number {
+  const minSide = LIMITS.minAnnotationSidePt;
+  const maxRight = Math.min(page.widthPt, Math.max(base.x1, page.widthPt - TEXT_BOX_EDGE_MARGIN_PT));
+  const maxWidth = Math.max(minSide, maxRight - base.x0);
+  return fixedWidth
+    ? Math.max(minSide, Math.min(base.x1 - base.x0, page.widthPt - base.x0))
+    : Math.min(maxWidth, Math.max(base.x1 - base.x0, contentWidthPt, minSide));
+}
+
 /**
  * Grows `base` to fit `contentWidthPt` and `contentHeightPt` without leaving `page`.
  *
@@ -277,11 +292,7 @@ export function growInlineRect(
   fixedWidth: boolean,
 ): Rect {
   const minSide = LIMITS.minAnnotationSidePt;
-  const maxRight = Math.min(page.widthPt, Math.max(base.x1, page.widthPt - TEXT_BOX_EDGE_MARGIN_PT));
-  const maxWidth = Math.max(minSide, maxRight - base.x0);
-  const width = fixedWidth
-    ? Math.max(minSide, Math.min(base.x1 - base.x0, page.widthPt - base.x0))
-    : Math.min(maxWidth, Math.max(base.x1 - base.x0, contentWidthPt, minSide));
+  const width = inlineBoxWidthPt(base, contentWidthPt, page, fixedWidth);
   const maxHeight = Math.max(minSide, page.heightPt - base.y0);
   const height = Math.min(maxHeight, Math.max(base.y1 - base.y0, contentHeightPt, minSide));
   return keptOnPage(

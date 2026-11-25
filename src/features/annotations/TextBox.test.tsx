@@ -336,6 +336,43 @@ describe("typing a new text box directly on the page (#719, B2-30)", () => {
     await user.keyboard("{Escape}");
   });
 
+  it("measures wrapped height at the widened width when filling long text into a new box", async () => {
+    const widthSpy = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.dataset.textBoxMirror === "width" && (this.textContent ?? "").includes("長段") ? 600 : 0;
+    });
+    const heightSpy = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.dataset.textBoxMirror !== "height" || !(this.textContent ?? "").includes("長段")) return 0;
+      const widthPx = parseFloat(this.style.width) || 0;
+      return widthPx < 300 ? 160 : 56;
+    });
+    try {
+      const { editing, layer, toolButton, editor, pages, user } = await setup();
+      await user.click(toolButton());
+      fireEvent.pointerDown(layer()!, pointer(100, 100));
+      fireEvent.pointerUp(layer()!, pointer(100, 100));
+      const textarea = await editor();
+
+      fireEvent.change(textarea, { target: { value: "長段測試文字" } });
+      fireEvent.pointerDown(pages);
+
+      await waitFor(() => expect(editing.applyEdit).toHaveBeenCalledTimes(1));
+      const edit = lastEdit(editing);
+      expect(edit.kind).toBe("addTextBox");
+      if (edit.kind === "addTextBox") {
+        expect(edit.rect.x1 - edit.rect.x0).toBeGreaterThan(400);
+        // Must reflect the widened height (~43.5 pt), not the stale 120 pt-width height (~121.5 pt).
+        expect(edit.rect.y1 - edit.rect.y0).toBeLessThan(60);
+      }
+    } finally {
+      widthSpy.mockRestore();
+      heightSpy.mockRestore();
+    }
+  });
+
   it("is disabled when author forbids annotations", async () => {
     const { annotationsApi, toolButton, pages, user } = await setup({ ...ALL_PERMISSIONS, annotate: false });
     expect(toolButton()).toBeDisabled();
