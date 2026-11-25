@@ -22,12 +22,24 @@
   ${EndIf}
 !macroend
 
+; Two-language strings (ADR 0029, #685). Tauri includes installerHooks before MUI_LANGUAGE (so
+; ${LANG_ENGLISH}/${LANG_TRADCHINESE} are not defined yet), and NSIS forbids LangString inside a
+; Section (so they cannot go inside NSIS_HOOK_PREINSTALL / NSIS_HOOK_POSTINSTALL). Numeric Windows
+; LCIDs (1033 = English, 1028 = TradChinese, matching tauri.conf.json order) work at top level.
+LangString PDF_READER_WEBVIEW2_MISSING 1033 "This computer is missing Microsoft Edge WebView2 Runtime, so PDF Reader cannot open after installation.$\r$\n$\r$\nWindows 11 includes WebView2. If it has been removed, please download and install WebView2 Runtime from the official Microsoft website:$\r$\nhttps://developer.microsoft.com/microsoft-edge/webview2/$\r$\n$\r$\nThis installer does not download anything on its own."
+LangString PDF_READER_WEBVIEW2_MISSING 1028 "這台電腦缺少 Microsoft Edge WebView2 Runtime，安裝完成後 PDF Reader 還無法開啟。$\r$\n$\r$\nWindows 11 已內建 WebView2。如果它被移除了，請到 Microsoft 官方網站下載並安裝「WebView2 Runtime」：$\r$\nhttps://developer.microsoft.com/microsoft-edge/webview2/$\r$\n$\r$\n本安裝程式不會自行下載任何東西。"
+
+LangString PDF_READER_CREATE_PDF_LABEL 1033 "Create PDF with PDF Reader"
+LangString PDF_READER_CREATE_PDF_LABEL 1028 "用 PDF Reader 建立 PDF"
+
+LangString PDF_READER_PROGID_DESCRIPTION 1033 "PDF Document"
+LangString PDF_READER_PROGID_DESCRIPTION 1028 "PDF 文件"
+
+LangString PDF_READER_APP_DESCRIPTION 1033 "Privacy-first, offline PDF reader"
+LangString PDF_READER_APP_DESCRIPTION 1028 "注重隱私、完全離線的 PDF 閱讀器"
+
 ; /SD IDOK: a silent install does not stop here.
 !macro NSIS_HOOK_PREINSTALL
-  ; Tauri includes installerHooks before MUI_LANGUAGE, whereas NSIS_HOOK_PREINSTALL expands inside
-  ; Section Install after MUI_LANGUAGE has defined ${LANG_ENGLISH} and ${LANG_TRADCHINESE}.
-  LangString PDF_READER_WEBVIEW2_MISSING ${LANG_ENGLISH} "This computer is missing Microsoft Edge WebView2 Runtime, so PDF Reader cannot open after installation.$\r$\n$\r$\nWindows 11 includes WebView2. If it has been removed, please download and install WebView2 Runtime from the official Microsoft website:$\r$\nhttps://developer.microsoft.com/microsoft-edge/webview2/$\r$\n$\r$\nThis installer does not download anything on its own."
-  LangString PDF_READER_WEBVIEW2_MISSING ${LANG_TRADCHINESE} "這台電腦缺少 Microsoft Edge WebView2 Runtime，安裝完成後 PDF Reader 還無法開啟。$\r$\n$\r$\nWindows 11 已內建 WebView2。如果它被移除了，請到 Microsoft 官方網站下載並安裝「WebView2 Runtime」：$\r$\nhttps://developer.microsoft.com/microsoft-edge/webview2/$\r$\n$\r$\n本安裝程式不會自行下載任何東西。"
   Push $R0
   !insertmacro PDF_READER_WEBVIEW2_VERSION
   ${If} $R0 == ""
@@ -106,13 +118,6 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; Expanded inside Section Install after MUI_LANGUAGE; registry strings stay in the install-time language.
-  LangString PDF_READER_CREATE_PDF_LABEL ${LANG_ENGLISH} "Create PDF with PDF Reader"
-  LangString PDF_READER_CREATE_PDF_LABEL ${LANG_TRADCHINESE} "用 PDF Reader 建立 PDF"
-  LangString PDF_READER_PROGID_DESCRIPTION ${LANG_ENGLISH} "PDF Document"
-  LangString PDF_READER_PROGID_DESCRIPTION ${LANG_TRADCHINESE} "PDF 文件"
-  LangString PDF_READER_APP_DESCRIPTION ${LANG_ENGLISH} "Privacy-first, offline PDF reader"
-  LangString PDF_READER_APP_DESCRIPTION ${LANG_TRADCHINESE} "注重隱私、完全離線的 PDF 閱讀器"
   !insertmacro PDF_READER_REGISTER
 !macroend
 

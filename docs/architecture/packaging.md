@@ -30,7 +30,7 @@ pnpm bundle    # 產出 target/release/bundle/nsis/PDF Reader_<版本>_x64-setup
   - 繁體中文的 Windows 看到繁體中文（`1028`）；
   - **簡體中文的 Windows 也會看到繁體中文**：NSIS（§4.10 Multiple Languages）在沒有完全相符的 LCID 時，會比對 Windows UI 語言的主語言代碼（`PRIMARYLANGID = langid & 0x3FF`）。簡體中文（`2052` = `0x0804`）的主語言代碼是 `0x04`（`LANG_CHINESE`），與清單裡的 `TradChinese`（`1028` = `0x0404`，主語言代碼 `0x04`）相符，因此選到 `TradChinese`（與 app 的語言規則一致，不會掉回第一個語言英文）；
   - 其他未列出的語言（例如日文、德文）都不相符，會用清單的第一個語言（`English`），與 ADR 0029 的 app 規則一致。
-- `windows/installer-hooks.nsh` 的文字改成英文與繁體中文的 `LangString`（定義在 `Section Install` 展開的 `NSIS_HOOK_PREINSTALL` 與 `NSIS_HOOK_POSTINSTALL` 內，位於 `installer.nsi` 的 `!insertmacro MUI_LANGUAGE` 之後）：
+- `windows/installer-hooks.nsh` 的文字改成英文與繁體中文的 `LangString`（Tauri 的 `installer.nsi` 在 `!insertmacro MUI_LANGUAGE` 之前便 `!include` `installerHooks`，而 NSIS 不允許在 `Section` 內宣告 `LangString`，因此以 Windows 數字語言代碼 `1033`〔English〕與 `1028`〔TradChinese〕定義在檔首）：
   - 缺少 WebView2 的提示（`PDF_READER_WEBVIEW2_MISSING`）；
   - 圖片右鍵選單名稱（`PDF_READER_CREATE_PDF_LABEL`：`Create PDF with PDF Reader`／`用 PDF Reader 建立 PDF`）；
   - 寫進登錄的 `.pdf` ProgID 類型名稱（`PDF_READER_PROGID_DESCRIPTION`：`PDF Document`／`PDF 文件`）與 `ApplicationDescription`（`PDF_READER_APP_DESCRIPTION`：`Privacy-first, offline PDF reader`／`注重隱私、完全離線的 PDF 閱讀器`）。

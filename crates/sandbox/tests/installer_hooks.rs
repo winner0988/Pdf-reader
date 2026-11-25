@@ -6,7 +6,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const HOOKS: &str = include_str!("../../../src-tauri/windows/installer-hooks.nsh");
 const IMAGE_EXTENSIONS: [&str; 7] = ["png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff"];
-const REQUIRED_LANG_IDS: [&str; 2] = ["${LANG_ENGLISH}", "${LANG_TRADCHINESE}"];
+// Numeric Windows LCIDs matching tauri.conf.json languages order ("English", "TradChinese"):
+// Tauri includes installerHooks before MUI_LANGUAGE, and NSIS forbids LangString inside a Section.
+const REQUIRED_LANG_IDS: [&str; 2] = ["1033", "1028"];
 const REQUIRED_LANG_STRINGS: [&str; 4] = [
     "PDF_READER_WEBVIEW2_MISSING",
     "PDF_READER_CREATE_PDF_LABEL",
@@ -222,7 +224,7 @@ fn installer_never_writes_user_choice_or_extension_default_values() {
 }
 
 #[test]
-fn every_lang_string_is_defined_in_both_languages_inside_install_hooks() {
+fn every_lang_string_is_defined_in_both_languages_at_top_level() {
     let lang_strings = collect_lang_strings(HOOKS);
     for required in REQUIRED_LANG_STRINGS {
         assert!(
@@ -231,8 +233,20 @@ fn every_lang_string_is_defined_in_both_languages_inside_install_hooks() {
         );
     }
 
-    let preinstall = macro_body(HOOKS, "NSIS_HOOK_PREINSTALL");
-    let postinstall = macro_body(HOOKS, "NSIS_HOOK_POSTINSTALL");
+    let mut in_macro = false;
+    for line in HOOKS.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("!macro ") {
+            in_macro = true;
+        } else if trimmed == "!macroend" {
+            in_macro = false;
+        } else if trimmed.starts_with("LangString ") {
+            assert!(
+                !in_macro,
+                "LangString must be at top level outside hook macros (NSIS forbids LangString inside Section): {trimmed}"
+            );
+        }
+    }
 
     for (name, entries) in &lang_strings {
         for lang_id in REQUIRED_LANG_IDS {
@@ -243,7 +257,7 @@ fn every_lang_string_is_defined_in_both_languages_inside_install_hooks() {
                 !value.trim().is_empty(),
                 "LangString {name} for {lang_id} must not be empty"
             );
-            if lang_id == "${LANG_ENGLISH}" {
+            if lang_id == "1033" {
                 assert!(
                     !has_cjk(value),
                     "LangString {name} for {lang_id} must not contain Chinese characters: {value}"
@@ -259,20 +273,7 @@ fn every_lang_string_is_defined_in_both_languages_inside_install_hooks() {
         let actual_keys: BTreeSet<&str> = entries.keys().copied().collect();
         assert_eq!(
             actual_keys, expected_keys,
-            "LangString {name} must define only English and TradChinese"
-        );
-
-        let defined_in_install_hook = preinstall
-            .lines()
-            .chain(postinstall.lines())
-            .filter(|line| line.trim_start().starts_with("LangString "))
-            .filter_map(parse_lang_string)
-            .filter(|(n, _, _)| n == name)
-            .count();
-        assert_eq!(
-            defined_in_install_hook,
-            REQUIRED_LANG_IDS.len(),
-            "LangString {name} must be defined inside NSIS_HOOK_PREINSTALL or NSIS_HOOK_POSTINSTALL (after MUI_LANGUAGE)"
+            "LangString {name} must define only English (1033) and TradChinese (1028)"
         );
     }
 }
