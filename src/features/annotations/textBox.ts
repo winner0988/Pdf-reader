@@ -167,7 +167,8 @@ export function cssFontFamily(family: string): string {
   return `"${escaped}", sans-serif`;
 }
 
-const PROBE_SAMPLE = "mmmmmmmmmmlli10W寬字體";
+// Probe string combining Latin and CJK codepoints (U+5BEC, U+5B57, U+9AD4) for font-width detection.
+const PROBE_SAMPLE = `mmmmmmmmmmlli10W${String.fromCodePoint(0x5bec, 0x5b57, 0x9ad4)}`;
 const renderableCache = new Map<string, boolean>();
 
 /**

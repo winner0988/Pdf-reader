@@ -12,7 +12,8 @@ import { SignaturesDialog } from "@/features/annotations/SignaturesDialog";
 import type { SignaturesApi } from "@/features/annotations/signaturesApi";
 import { AnnotationsListPanel } from "@/features/annotations/AnnotationsListPanel";
 import { BatchDialog } from "@/features/batch/BatchDialog";
-import { TextBoxDialog } from "@/features/annotations/TextBoxDialog";
+import { InlineTextEditor } from "@/features/annotations/InlineTextEditor";
+import { TextBoxToolbar } from "@/features/annotations/TextBoxToolbar";
 import { ExportDialog } from "@/features/export/ExportDialog";
 import { FlattenDialog } from "@/features/forms/FlattenDialog";
 import { BlockedLinkDialog, LinkConfirmDialog } from "@/features/links/LinkDialogs";
@@ -63,31 +64,93 @@ describe("dialogs", () => {
     await expectAccessible(everything());
   });
 
-  it("a new text box", async () => {
-    render(<TextBoxDialog mode="add" fonts={FONTS} onSave={() => Promise.resolve(null)} onCancel={vi.fn()} />);
-    await screen.findByRole("dialog");
-    await expectAccessible(everything());
+  it("a new inline text box editor and its floating toolbar (#719)", async () => {
+    render(
+      <div className="relative h-[800px] w-[600px]">
+        <InlineTextEditor
+          mode="add"
+          initialRect={{ x0: 100, y0: 200, x1: 240, y1: 240 }}
+          page={{ widthPt: 612, heightPt: 792 }}
+          pageIndex={0}
+          rotation={0}
+          contractRotation="none"
+          box={{ top: 0, width: 612, height: 792 }}
+          scale={1}
+          fonts={FONTS}
+          onCommit={() => Promise.resolve(null)}
+          onCancel={vi.fn()}
+        />
+      </div>,
+    );
+    await screen.findByRole("textbox", { name: strings.annotations.textBoxEditor.label });
+    await expectAccessible(everything(), {
+      skip: { region: "the inline editor is rendered inside the page canvas landmark in the app" },
+    });
   });
 
-  it("a text box whose font is gone, with a problem shown", async () => {
+  it("an inline text box whose font is gone, with overflow and a problem shown (#719)", async () => {
     render(
-      <TextBoxDialog
-        mode="edit"
-        fonts={FONTS}
-        start={{
-          text: "Hello 你好",
-          font: "Gone Font",
-          style: { size: 18, color: { r: 200, g: 30, b: 30 }, align: "center" },
-          overflow: true,
-        }}
-        onSave={() => Promise.resolve("problem")}
-        onCancel={vi.fn()}
-      />,
+      <div className="relative h-[800px] w-[600px]">
+        <InlineTextEditor
+          mode="edit"
+          initialRect={{ x0: 100, y0: 200, x1: 300, y1: 260 }}
+          page={{ widthPt: 612, heightPt: 792 }}
+          pageIndex={0}
+          rotation={0}
+          contractRotation="none"
+          box={{ top: 0, width: 612, height: 792 }}
+          scale={1}
+          fonts={FONTS}
+          start={{
+            text: "Hello 你好",
+            font: "Gone Font",
+            style: { size: 18, color: { r: 200, g: 30, b: 30 }, align: "center" },
+            overflow: true,
+            viewOnly: false,
+            lineStep: 1200,
+          }}
+          onCommit={() => Promise.resolve("problem")}
+          onCancel={vi.fn()}
+        />
+      </div>,
     );
-    await screen.findByRole("dialog");
-    await userEvent.click(screen.getByRole("button", { name: strings.annotations.textBoxDialog.save }));
+    const textarea = await screen.findByRole("textbox", { name: strings.annotations.textBoxEditor.label });
+    await userEvent.type(textarea, "{Escape}");
     await screen.findByRole("alert");
-    await expectAccessible(everything());
+    await expectAccessible(everything(), {
+      skip: { region: "the inline editor is rendered inside the page canvas landmark in the app" },
+    });
+  });
+
+  it("the selected text box floating toolbar (#719)", async () => {
+    render(
+      <div className="relative h-[400px] w-[600px]">
+        <TextBoxToolbar
+          label={strings.annotations.textBoxSaying("Hello")}
+          top={40}
+          left={40}
+          fonts={FONTS}
+          family="Arial"
+          bold={false}
+          italic={false}
+          sizeValue="14"
+          color={{ r: 0, g: 0, b: 0 }}
+          align="left"
+          onFamilyChange={vi.fn()}
+          onToggleBold={vi.fn()}
+          onToggleItalic={vi.fn()}
+          onSizeChange={vi.fn()}
+          onColorChange={vi.fn()}
+          onAlignChange={vi.fn()}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+        />
+      </div>,
+    );
+    await screen.findByRole("toolbar", { name: strings.annotations.textBoxSaying("Hello") });
+    await expectAccessible(everything(), {
+      skip: { region: "the floating toolbar is rendered inside the page canvas landmark in the app" },
+    });
   });
 
   it("flattening the form", async () => {

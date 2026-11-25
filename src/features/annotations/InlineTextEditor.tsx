@@ -132,6 +132,8 @@ export type InlineTextEditorProps = {
   onCancel: (options?: { restoreFocus?: boolean }) => void;
   /** Called if the page unmounts while editing (e.g. virtual scroll) to flush unsaved typed words. */
   onUnmountFlush?: (draft: InlineTextDraft) => void;
+  /** Optional imperative-handle registration callback (avoids passing ref objects inside session bags). */
+  onHandle?: (handle: InlineTextEditorHandle | null) => void;
   ref?: Ref<InlineTextEditorHandle>;
 };
 
@@ -200,6 +202,7 @@ export function InlineTextEditor({
   onCommit,
   onCancel,
   onUnmountFlush,
+  onHandle,
   ref,
 }: InlineTextEditorProps) {
   const [fonts, setFonts] = useState<readonly FontInfo[]>(initialFonts);
@@ -414,6 +417,12 @@ export function InlineTextEditor({
   );
 
   useImperativeHandle(ref, () => ({ commit }), [commit]);
+
+  useEffect(() => {
+    if (!onHandle) return;
+    onHandle({ commit });
+    return () => onHandle(null);
+  }, [onHandle, commit]);
 
   // Click outside editor + toolbar commits the text box.
   useEffect(() => {

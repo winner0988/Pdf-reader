@@ -995,15 +995,18 @@ export function ReaderShell({
     onProblem: showHint,
   });
   const inlineTextBoxRef = useRef<InlineTextEditorHandle | null>(null);
+  const setInlineTextBoxEditor = useCallback((handle: InlineTextEditorHandle | null) => {
+    inlineTextBoxRef.current = handle;
+  }, []);
   const inlineTextBoxSession: InlineTextBoxSession = useMemo(
     () => ({
       target: annotations.textBox,
       lastFamily: annotations.lastFamily,
-      editorRef: inlineTextBoxRef,
+      setEditor: setInlineTextBoxEditor,
       onSave: annotations.saveTextBox,
       onCancel: annotations.closeTextBox,
     }),
-    [annotations.textBox, annotations.lastFamily, annotations.saveTextBox, annotations.closeTextBox],
+    [annotations.textBox, annotations.lastFamily, setInlineTextBoxEditor, annotations.saveTextBox, annotations.closeTextBox],
   );
   // Register the active inline text box with `edits` so Ctrl+S, Ctrl+Shift+S, tab close, and
   // window close commit typed words first (#719).

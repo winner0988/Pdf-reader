@@ -8,7 +8,7 @@
 // to change what it says.
 
 import { ChevronDown, Pencil, RotateCcw, RotateCw, Trash2 } from "lucide-react";
-import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -73,7 +73,7 @@ const SELECTED_TOOLBAR_HEIGHT_PX = 136;
 export type InlineTextBoxSession = {
   target: TextBoxTarget | null;
   lastFamily: string | undefined;
-  editorRef: RefObject<InlineTextEditorHandle | null>;
+  setEditor: (handle: InlineTextEditorHandle | null) => void;
   onSave: (draft: InlineTextDraft, options?: { restoreFocus?: boolean }) => Promise<string | null>;
   onCancel: (options?: { restoreFocus?: boolean }) => void;
 };
@@ -418,7 +418,7 @@ export function PageAnnotations({
               ? `add-${inlineTarget.page}-${inlineTarget.rect.x0}-${inlineTarget.rect.y0}`
               : `edit-${inlineTarget.page}-${inlineTarget.annotation.id}`
           }
-          ref={inlineTextBox.editorRef}
+          onHandle={inlineTextBox.setEditor}
           mode={inlineTarget.kind}
           initialRect={inlineTarget.kind === "add" ? inlineTarget.rect : inlineTarget.annotation.rect}
           hideRect={inlineTarget.kind === "edit" ? inlineTarget.annotation.rect : undefined}
