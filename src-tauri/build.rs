@@ -110,13 +110,17 @@ fn main() {
         "resume_speech",
         "stop_speech",
     ]);
-    // A second icon in the exe: the dark tile the window and the notification area show while
-    // Windows is in its light mode (UX-04, src/app_icon.rs, which asks for it by this id). The
-    // id is above the app icon's (32512), so the app icon stays the exe's first: the one
-    // Explorer, the shortcuts and the installer show.
+    // Two more icons in the exe. Their ids are above the app icon's (32512), so the app icon
+    // stays the exe's first: the one Explorer, the shortcuts and the installer show.
+    // - 32513, the dark tile: the window and the notification area show it while Windows is in
+    //   its light mode (UX-04, src/app_icon.rs, which asks for it by this id).
+    // - 32514, the PDF file icon: Explorer shows it for a PDF this app opens, because the
+    //   installer's DefaultIcon names it by this id (UX-06, windows/installer-hooks.nsh).
     println!("cargo:rerun-if-changed=icons/icon-dark.ico");
+    println!("cargo:rerun-if-changed=icons/pdf-file.ico");
     let windows = tauri_build::WindowsAttributes::new()
-        .append_rc_content("32513 ICON \"icons/icon-dark.ico\"\n");
+        .append_rc_content("32513 ICON \"icons/icon-dark.ico\"\n")
+        .append_rc_content("32514 ICON \"icons/pdf-file.ico\"\n");
     tauri_build::try_build(
         tauri_build::Attributes::new()
             .app_manifest(manifest)

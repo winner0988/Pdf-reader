@@ -89,7 +89,7 @@ ADR 0011：把安裝檔交給任何人，都要附上 `LICENSE` 與第三方授�
 REL-03（[#68](https://github.com/winner0988/Pdf-reader/issues/68)），規格 §1「作業系統關聯」。
 
 - **安裝後**（`installer-hooks.nsh` 的 `NSIS_HOOK_POSTINSTALL`，64 位元登錄檔視圖）：
-  - ProgID `PdfReader.Document`：圖示與開啟指令 `"…\pdf-reader.exe" "%1"`；
+  - ProgID `PdfReader.Document`：開啟指令 `"…\pdf-reader.exe" "%1"`；圖示是 exe 裡的 PDF 檔圖示 `pdf-reader.exe,-32514`（紙形，不是 app 圖示；UX-06，[視覺風格指南](../ux/visual-style.md) 8.1）；
   - `.pdf` 的 `OpenWithProgids` 與 `Applications\pdf-reader.exe`：出現在檔案總管的「開啟檔案」；
   - `Software\PDF Reader\Capabilities` 與 `RegisteredApplications`：出現在 Windows「預設應用程式」。
 - **不搶預設**：

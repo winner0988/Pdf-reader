@@ -63,7 +63,8 @@
 !macro PDF_READER_REGISTER
   SetRegView 64
   WriteRegStr HKLM "Software\Classes\${PDF_READER_PROGID}" "" "PDF 文件"
-  WriteRegStr HKLM "Software\Classes\${PDF_READER_PROGID}\DefaultIcon" "" "$INSTDIR\${MAINBINARYNAME}.exe,0"
+  ; The PDF file icon, resource 32514 of the exe (UX-06, src-tauri/build.rs): a page, not the app icon.
+  WriteRegStr HKLM "Software\Classes\${PDF_READER_PROGID}\DefaultIcon" "" "$INSTDIR\${MAINBINARYNAME}.exe,-32514"
   WriteRegStr HKLM "Software\Classes\${PDF_READER_PROGID}\shell\open\command" "" '"$INSTDIR\${MAINBINARYNAME}.exe" "%1"'
   WriteRegStr HKLM "Software\Classes\.pdf\OpenWithProgids" "${PDF_READER_PROGID}" ""
   WriteRegStr HKLM "Software\Classes\Applications\${MAINBINARYNAME}.exe" "FriendlyAppName" "${PRODUCTNAME}"
