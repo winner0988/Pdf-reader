@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- PDF file icon: what Explorer shows for a PDF this app opens (UX-06, #730), 48 px and up.
+       Smaller sizes have their own sources, pdf-file-16.svg to pdf-file-32.svg.
+       Rebuild every icon file with `node scripts/release/app-icons.mjs` (docs/ux/visual-style.md, section 8.1).
+       One pixel at 48 px is 21.333 units; the straight edges sit on that grid. -->
+  <!-- Page -->
+  <path d="M336 32H778.667L992 245.333V944A48 48 0 0 1 944 992H336A48 48 0 0 1 288 944V80A48 48 0 0 1 336 32Z" fill="#fffdfa"/>
+  <!-- Folded corner -->
+  <path d="M778.667 32V197.333A48 48 0 0 0 826.667 245.333H992Z" fill="#e6e2dd"/>
+  <!-- Outline of the page and the folded corner: 1 px at 48 px -->
+  <path d="M336 32H778.667L992 245.333V944A48 48 0 0 1 944 992H336A48 48 0 0 1 288 944V80A48 48 0 0 1 336 32Z" fill="none" stroke="#8f8a82" stroke-width="21.333" stroke-linejoin="round"/>
+  <path d="M778.667 32V197.333A48 48 0 0 0 826.667 245.333H992" fill="none" stroke="#8f8a82" stroke-width="21.333" stroke-linejoin="round"/>
+  <!-- Shield, the app icon's, kept small: a mark of the app, not a claim about the file -->
+  <path transform="translate(620 320) scale(0.72) translate(-602 -721)" d="M602 558L762 633Q768 636 768 646C768 760 690 838 610 880Q602 884 594 880C514 838 436 760 436 646Q436 636 442 633Z" fill="#0256a9" stroke="#0256a9" stroke-width="10" stroke-linejoin="round"/>
+  <!-- Label, sticking out on the left, where Windows 11 documents carry their app's badge -->
+  <rect x="42.667" y="576" width="810.667" height="298.667" rx="42.667" fill="#0b65bf"/>
+  <!-- "PDF", drawn as paths so that no font is needed: 10 px high and 2 px stems at 48 px -->
+  <g fill="#fcfaf7" fill-rule="evenodd">
+    <path d="M192 618.667H277.333A64 64 0 0 1 277.333 746.667H234.667V832H192Z M234.667 661.333V704H277.333A21.333 21.333 0 0 0 277.333 661.333Z"/>
+    <path d="M384 618.667H448A106.667 106.667 0 0 1 448 832H384Z M426.667 661.333V789.333H448A64 64 0 0 0 448 661.333Z"/>
+    <path d="M576 618.667H704V661.333H618.667V704H682.667V746.667H618.667V832H576Z"/>
+  </g>
+</svg>

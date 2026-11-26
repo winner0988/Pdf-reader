@@ -23,3 +23,4 @@
 
 - 使用者確認開啟的外部連結，由系統瀏覽器連網，不屬於本應用程式的連網行為。
 - 作業系統帳號被入侵時，系統憑證庫中的密碼可能外洩（ADR 0017，取代 ADR 0006）。
+- **WebView2 對遭 `frame-src` 封鎖的 `<iframe>` 之預先連線（#664）**：WebView2 在 CSP 的 `frame-src 'none'` 擋下指向外部的 `<iframe>` 之前，會在瀏覽器層先對該目標發起預先連線（`is_preconnect: true`），於 net log 留下目標網址、主機與來源三筆記錄（實際不送出 `URL_REQUEST`）。本應用程式不建立指向外部網址的 `<iframe>`，且 PDF 內容由隔離在 `pdf_worker` 的 MuPDF 繪製成圖片，不會成為 WebView 中的 DOM，目前沒有已知路徑能讓 PDF 觸發此行為。已在 `E2E (Windows)` 實機環境逐一測試六項 Chromium 網路預測／預先連線參數（`--disable-preconnect`、`--dns-prefetch-disable`、`--disable-features=NavigationRequestPreconnect`、`--enable-features=PreloadingHoldback`、`--disable-features=NetworkPrediction`、`--disable-features=SpeculativePreconnect`，其中 `--disable-features` 項與既有停用清單合併），皆未能消除這三筆預先連線。因此維持原有啟動參數與 CSP，並於 [`tests/e2e/csp.spec.ts`](tests/e2e/csp.spec.ts)（`FRAME_PRECONNECT`）僅對此三筆預先連線保留明確例外；其他 10 種前端對外請求與 [`tests/e2e/network.spec.ts`](tests/e2e/network.spec.ts) 仍維持零外部位址。

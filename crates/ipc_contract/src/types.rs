@@ -324,9 +324,13 @@ pub enum LanguagePreference {
     En,
 }
 
+fn default_speech_rate() -> f64 {
+    1.0
+}
+
 /// The user's settings (B2-12), kept by the main process in the app's local data folder. The
 /// frontend reads them and sends the whole set back; any other field is rejected.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
     pub theme: ThemePreference,
@@ -345,6 +349,13 @@ pub struct Settings {
     /// computer, to find which document has some words (B3-21, ADR 0026). Off unless the user
     /// turns it on; only while the recent files list is kept too.
     pub text_index: bool,
+    /// Preferred installed offline voice id for read aloud (B6-14, #599); `None` uses Windows'
+    /// default voice. If a saved id is no longer installed, the UI falls back to the default.
+    #[serde(default)]
+    pub speech_voice_id: Option<String>,
+    /// Preferred speaking rate for read aloud (B6-14, #599): `0.5`–`6.0`, default `1.0`.
+    #[serde(default = "default_speech_rate")]
+    pub speech_rate: f64,
 }
 
 impl Default for Settings {
@@ -356,8 +367,60 @@ impl Default for Settings {
             ocr_auto: true,
             ocr_language: None,
             text_index: false,
+            speech_voice_id: None,
+            speech_rate: default_speech_rate(),
         }
     }
+}
+
+/// An offline speech voice installed on Windows (B6-14, #599).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechVoice {
+    /// Opaque identifier from Windows (`VoiceInformation.Id`), validated against the installed
+    /// list before use and never treated as a file path or registry location.
+    pub id: String,
+    pub name: String,
+    pub language: String,
+    pub is_default: bool,
+}
+
+/// Arguments of `speak_text` (B6-14, #599): plain text synthesized with an installed offline
+/// Windows voice. Any other field is rejected. `Debug` omits `text` so logs never record document
+/// content.
+#[derive(Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SpeakArgs {
+    /// Plain text to read aloud (never SSML). At most `LIMITS.maxSpeechTextBytes` UTF-8 bytes.
+    pub text: String,
+    /// Opaque voice id from `get_speech_voices`, or `None` for the system default voice.
+    pub voice_id: Option<String>,
+    /// Speaking rate (`LIMITS.minSpeechRate`..=`LIMITS.maxSpeechRate`, `1.0` = normal).
+    pub rate: f64,
+}
+
+impl std::fmt::Debug for SpeakArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SpeakArgs")
+            .field("text_bytes", &self.text.len())
+            .field("voice_id", &self.voice_id)
+            .field("rate", &self.rate)
+            .finish()
+    }
+}
+
+/// Events sent on the channel of `speak_text` (B6-14, #599).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SpeechEvent {
+    /// Word boundary reached during playback. Offsets are in UTF-16 code units of the input text.
+    #[serde(rename_all = "camelCase")]
+    Word { utf16_start: u32, utf16_len: u32 },
+    /// Playback of the utterance finished normally.
+    Finished,
+    /// Playback failed; carries only an error code, never spoken text.
+    #[serde(rename_all = "camelCase")]
+    Error { code: ErrorCode },
 }
 
 /// A language that scanned pages can be recognised in (B2-10).
@@ -2756,6 +2819,14 @@ pub enum ErrorCode {
     /// Signing: the certificate of the store chosen is no longer there, or its key cannot be
     /// reached (its smart card was taken out).
     CertificateUnavailable,
+    /// Read aloud (B6-14, #599): no offline speech voices are installed on Windows.
+    SpeechNoVoices,
+    /// Read aloud: no audio playback device is available.
+    SpeechNoAudioDevice,
+    /// Read aloud: the requested voice id is not in the list of installed voices.
+    SpeechUnknownVoice,
+    /// Read aloud: synthesis or playback failed.
+    SpeechFailed,
     Internal,
 }
 
@@ -3607,6 +3678,8 @@ mod tests {
             ocr_auto: false,
             ocr_language: Some("eng".to_owned()),
             text_index: true,
+            speech_voice_id: Some("voice-1".to_owned()),
+            speech_rate: 1.5,
         };
         let json = serde_json::to_value(&settings).unwrap();
         assert_eq!(
@@ -3617,13 +3690,15 @@ mod tests {
                 "recordRecentFiles": false,
                 "ocrAuto": false,
                 "ocrLanguage": "eng",
-                "textIndex": true
+                "textIndex": true,
+                "speechVoiceId": "voice-1",
+                "speechRate": 1.5
             })
         );
         let with = |name: &str, value: serde_json::Value| {
             let mut json = serde_json::json!({
                 "theme": "dark", "language": "system", "recordRecentFiles": false, "ocrAuto": true, "ocrLanguage": null,
-                "textIndex": false
+                "textIndex": false, "speechVoiceId": null, "speechRate": 1.0
             });
             json[name] = value;
             json
@@ -3643,6 +3718,8 @@ mod tests {
         assert_eq!(Settings::default().ocr_language, None);
         // The text index is the user's choice (ADR 0026).
         assert!(!Settings::default().text_index);
+        assert_eq!(Settings::default().speech_voice_id, None);
+        assert_eq!(Settings::default().speech_rate, 1.0);
         let mut without = with("theme", "dark".into());
         without.as_object_mut().unwrap().remove("textIndex");
         assert!(serde_json::from_value::<Settings>(without).is_err());

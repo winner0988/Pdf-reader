@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- PDF file icon at 32 px (UX-06, #730), drawn on this size's pixel grid: one unit is one pixel.
+       Rebuild every icon file with `node scripts/release/app-icons.mjs` (docs/ux/visual-style.md, section 8.1). -->
+  <!-- Page and folded corner: 1 px lines through the pixel centres -->
+  <path d="M8.5 1.5H24.5L30.5 7.5V30.5H8.5Z" fill="#fffdfa" stroke="#8f8a82"/>
+  <path d="M24.5 1.5V7.5H30.5Z" fill="#e6e2dd" stroke="#8f8a82" stroke-linejoin="round"/>
+  <!-- Shield, the app icon's -->
+  <path transform="translate(18 9.5) scale(0.02711) translate(-602 -721)" d="M602 558L762 633Q768 636 768 646C768 760 690 838 610 880Q602 884 594 880C514 838 436 760 436 646Q436 636 442 633Z" fill="#0256a9"/>
+  <!-- Label, sticking out on the left -->
+  <rect x="1" y="17" width="23" height="11" rx="1" fill="#0b65bf"/>
+  <!-- "PDF": 5 x 7 px letters, 2 px stems -->
+  <g fill="#fcfaf7" shape-rendering="crispEdges">
+    <rect x="3" y="19" width="4" height="1"/><rect x="3" y="20" width="2" height="1"/><rect x="6" y="20" width="2" height="1"/><rect x="3" y="21" width="2" height="1"/>
+    <rect x="6" y="21" width="2" height="1"/><rect x="3" y="22" width="4" height="1"/><rect x="3" y="23" width="2" height="1"/><rect x="3" y="24" width="2" height="1"/>
+    <rect x="3" y="25" width="2" height="1"/><rect x="10" y="19" width="4" height="1"/><rect x="10" y="20" width="2" height="1"/><rect x="13" y="20" width="2" height="1"/>
+    <rect x="10" y="21" width="2" height="1"/><rect x="13" y="21" width="2" height="1"/><rect x="10" y="22" width="2" height="1"/><rect x="13" y="22" width="2" height="1"/>
+    <rect x="10" y="23" width="2" height="1"/><rect x="13" y="23" width="2" height="1"/><rect x="10" y="24" width="2" height="1"/><rect x="13" y="24" width="2" height="1"/>
+    <rect x="10" y="25" width="4" height="1"/><rect x="17" y="19" width="5" height="1"/><rect x="17" y="20" width="2" height="1"/><rect x="17" y="21" width="2" height="1"/>
+    <rect x="17" y="22" width="4" height="1"/><rect x="17" y="23" width="2" height="1"/><rect x="17" y="24" width="2" height="1"/><rect x="17" y="25" width="2" height="1"/>
+  </g>
+</svg>

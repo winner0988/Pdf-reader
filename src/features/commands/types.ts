@@ -41,13 +41,14 @@ export type CommandId =
   | "settings"
   | "about"
   | "setDefault"
-  // Shortcut-only items (25):
+  // Shortcut-only items (26):
   | "open"
   | "close"
   | "nextTab"
   | "previousTab"
   | "copy"
   | "search"
+  | "readAloud"
   | "findNext"
   | "findPrevious"
   | "zoomIn"
@@ -112,6 +113,4 @@ export type CommandOptions = ToolbarProps & {
   onInsertFrom?: (at: number) => Promise<number | null> | void;
   onReplacePages?: (first: number, count: number) => Promise<number | null> | void;
   insertFromBlocked?: boolean;
-  onDecryptCopy?: () => void;
-  decryptCopyBlocked?: boolean;
 };

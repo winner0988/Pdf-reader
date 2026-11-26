@@ -72,9 +72,9 @@ powershell -ExecutionPolicy Bypass -File scripts/security/watch-connections.ps1 
 
 在腳本執行期間依序操作下方「操作清單」，做完後等腳本自己結束：看到的端點會馬上印出來，但最後一行 `Done. Endpoints seen: N` 要等 `-Seconds` 的時間到才印，按 Ctrl+C 提早結束就沒有這一行。操作清單光是停留就有 150 秒（第 1 步 90 秒，第 7、8 步各 30 秒），還要一個個開 `malicious/` 的檔案，所以給 900 秒，不夠就再加。**預期結果**：
 
-- 除了第 8 步（檢查更新），沒有任何端點；
-- 第 8 步只出現一個 `pdf-reader` 的 TCP 連線，連到 GitHub（`api.github.com` 的位址）的 443 埠；有設定 WinHTTP proxy（`netsh winhttp`）時連到 proxy；
-- 所以結果是 `Endpoints seen: 1`（沒做第 8 步則是 0）。
+- 除了第 9 步（檢查更新），沒有任何端點（包括第 5 步使用 Windows 離線語音朗讀期間也不應出現任何端點）；
+- 第 9 步只出現一個 `pdf-reader` 的 TCP 連線，連到 GitHub（`api.github.com` 的位址）的 443 埠；有設定 WinHTTP proxy（`netsh winhttp`）時連到 proxy；
+- 所以結果是 `Endpoints seen: 1`（沒做第 9 步則是 0）。
 
 限制：輪詢會漏掉比間隔更短的連線（腳本以 `netstat` 輪詢，每輪約 0.1 秒；#64 之前每輪約 1 秒，漏掉了 #121 的連線）；DNS 查詢由系統的 DNS Client 服務發出，不屬於應用程式行程，此方法看不到。因此發布前還要做方法 B。
 
@@ -83,7 +83,7 @@ powershell -ExecutionPolicy Bypass -File scripts/security/watch-connections.ps1 
 1. 從 Microsoft Sysinternals 官方網站取得 Process Monitor。
 2. Filter：`Process Name` 是 `pdf-reader.exe`、`pdf_worker.exe`、`msedgewebview2.exe` → Include；`Operation` begins with `TCP` 或 `UDP` → Include。
 3. 開始擷取後啟動應用程式，執行下方「操作清單」。
-4. **預期結果**：只有第 8 步 `pdf-reader.exe` 連到 GitHub（或 WinHTTP proxy）443 埠的 TCP 事件，沒有其他事件。若 `msedgewebview2.exe` 出現事件，確認其父行程是否為本應用程式（其他程式也會使用 WebView2）。
+4. **預期結果**：只有第 9 步 `pdf-reader.exe` 連到 GitHub（或 WinHTTP proxy）443 埠的 TCP 事件，沒有其他事件（第 5 步朗讀中英文頁面與切換語音、速度時，也不應有任何 TCP／UDP 事件）。若 `msedgewebview2.exe` 出現事件，確認其父行程是否為本應用程式（其他程式也會使用 WebView2）。
 
 ### 操作清單
 
@@ -91,13 +91,14 @@ powershell -ExecutionPolicy Bypass -File scripts/security/watch-connections.ps1 
 2. 開啟一般 PDF，捲動到最後一頁再回到第一頁。
 3. 縮放、旋轉、開啟目錄側欄。
 4. 搜尋一個存在與一個不存在的字詞。
-5. 點擊文件中的外部連結，在確認對話框中按**取消**。
-6. 依序開啟 QA-01 `malicious/` 目錄中的每個檔案。
-7. 開啟「⋯」→「設定…」，**不要**按「檢查更新」，停留 30 秒。
-8. 按一次「檢查更新」，等結果出現後再停留 30 秒（不應再有連線）。
-9. 關閉應用程式。
+5. 開啟朗讀控制列（`Ctrl+Shift+U`），播放中英文頁面，切換語音與速度，再停止並關閉控制列（確認只使用本機離線語音、沒有任何網路事件）。
+6. 點擊文件中的外部連結，在確認對話框中按**取消**。
+7. 依序開啟 QA-01 `malicious/` 目錄中的每個檔案。
+8. 開啟「⋯」→「設定…」，**不要**按「檢查更新」，停留 30 秒。
+9. 按一次「檢查更新」，等結果出現後再停留 30 秒（不應再有連線）。
+10. 關閉應用程式。
 
-> 功能尚未實作的步驟（MVP 期間）標記為「不適用」即可，但步驟 1、8 與 9 每次都要做。
+> 功能尚未實作的步驟（MVP 期間）標記為「不適用」即可，但步驟 1、5、9 與 10 每次都要做。
 
 ### 紀錄格式
 

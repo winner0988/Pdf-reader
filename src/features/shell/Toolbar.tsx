@@ -22,6 +22,7 @@ import {
   Strikethrough,
   Type,
   Underline,
+  Volume2,
 } from "lucide-react";
 import { useId, useState, type Ref } from "react";
 
@@ -55,6 +56,7 @@ export type ToolbarProps = {
   document: { pageCount: number; currentPage: number; zoom: Zoom; pageLabels?: string[] } | null;
   sidebarOpen: boolean;
   searchOpen: boolean;
+  readAloudOpen?: boolean;
   theme: ThemePreference;
   layoutMode?: PageLayoutMode;
   onLayoutModeChange?: (mode: PageLayoutMode) => void;
@@ -72,6 +74,8 @@ export type ToolbarProps = {
   onZoomChange: (zoom: Zoom) => void;
   onRotate: (direction: 1 | -1) => void;
   onSearch: () => void;
+  /** Opens or closes the Read Aloud control bar (B6-14, #599). */
+  onReadAloud?: () => void;
   onThemeChange: (theme: ThemePreference) => void;
   onShowShortcuts: () => void;
   onShowAbout: () => void;
@@ -142,8 +146,8 @@ export type ToolbarProps = {
   encryptCopyBlocked?: boolean;
   /** Writes a copy of an encrypted document without its password (docs/architecture/decrypt-copy.md). */
   onDecryptCopy?: () => void;
-  /** An unencrypted document has no decrypted copy: the menu item says so. */
-  decryptCopyBlocked?: boolean;
+  /** An unencrypted or signed document has no decrypted copy: the menu item says why. */
+  decryptCopyBlocked?: string;
   /** Forgets the password the app remembers for this file (B2-26); given only when there is one. */
   onForgetPassword?: () => void;
   /** Writes a copy whose pictures are compressed (B3-01); without it the menu item is disabled. */
@@ -430,6 +434,16 @@ export function Toolbar(props: ToolbarProps) {
             data-redact-button=""
           >
             <Eraser />
+          </IconButton>
+        )}
+        {document && props.onReadAloud && (
+          <IconButton
+            label={t.readAloud}
+            shortcut="Ctrl+Shift+U"
+            pressed={props.readAloudOpen}
+            onClick={props.onReadAloud}
+          >
+            <Volume2 />
           </IconButton>
         )}
         {document && (

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- PDF file icon at 24 px (UX-06, #730), drawn on this size's pixel grid: one unit is one pixel.
+       Rebuild every icon file with `node scripts/release/app-icons.mjs` (docs/ux/visual-style.md, section 8.1). -->
+  <!-- Page and folded corner: 1 px lines through the pixel centres -->
+  <path d="M6.5 0.5H17.5L22.5 5.5V23.5H6.5Z" fill="#fffdfa" stroke="#8f8a82"/>
+  <path d="M17.5 0.5V5.5H22.5Z" fill="#e6e2dd" stroke="#8f8a82" stroke-linejoin="round"/>
+  <!-- Shield, the app icon's -->
+  <path transform="translate(13 6.5) scale(0.02108) translate(-602 -721)" d="M602 558L762 633Q768 636 768 646C768 760 690 838 610 880Q602 884 594 880C514 838 436 760 436 646Q436 636 442 633Z" fill="#0256a9"/>
+  <!-- Label, sticking out on the left -->
+  <rect x="0" y="12" width="18" height="10" rx="1" fill="#0b65bf"/>
+  <!-- "PDF": 4 x 6 px letters, 1 px strokes -->
+  <g fill="#fcfaf7" shape-rendering="crispEdges">
+    <rect x="2" y="14" width="3" height="1"/><rect x="2" y="15" width="1" height="1"/><rect x="5" y="15" width="1" height="1"/><rect x="2" y="16" width="1" height="1"/>
+    <rect x="5" y="16" width="1" height="1"/><rect x="2" y="17" width="3" height="1"/><rect x="2" y="18" width="1" height="1"/><rect x="2" y="19" width="1" height="1"/>
+    <rect x="7" y="14" width="3" height="1"/><rect x="7" y="15" width="1" height="1"/><rect x="10" y="15" width="1" height="1"/><rect x="7" y="16" width="1" height="1"/>
+    <rect x="10" y="16" width="1" height="1"/><rect x="7" y="17" width="1" height="1"/><rect x="10" y="17" width="1" height="1"/><rect x="7" y="18" width="1" height="1"/>
+    <rect x="10" y="18" width="1" height="1"/><rect x="7" y="19" width="3" height="1"/><rect x="12" y="14" width="4" height="1"/><rect x="12" y="15" width="1" height="1"/>
+    <rect x="12" y="16" width="3" height="1"/><rect x="12" y="17" width="1" height="1"/><rect x="12" y="18" width="1" height="1"/><rect x="12" y="19" width="1" height="1"/>
+  </g>
+</svg>

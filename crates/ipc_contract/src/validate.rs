@@ -29,8 +29,9 @@ use crate::types::{
     Restrictions, Rotation, SanitizeArgs, SanitizeOptions, SanitizeReport, SanitizeResult,
     SaveAttachmentResult, SearchArgs, SearchHit, SearchableCopyArgs, SecurityReport, SensitiveArgs,
     SensitiveFile, Settings, Shape, SignArgs, SignatureImageArgs, SignatureInfo, SignatureReport,
-    SignatureStatus, SigningFileKey, SigningKey, TextBoxInfo, TextBoxStyle, TextDiffItem, TextLine,
-    UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent, WatermarkPages,
+    SignatureStatus, SigningFileKey, SigningKey, SpeakArgs, TextBoxInfo, TextBoxStyle,
+    TextDiffItem, TextLine, UndoArgs, UnlockArgs, UnlockSourceArgs, Watermark, WatermarkContent,
+    WatermarkPages,
 };
 use crate::worker::{
     ExportedAnnotation, ExportedAnnotations, ExportedTextStyle, InsertedTextBox, InspectedFont,
@@ -2944,15 +2945,75 @@ impl Validate for IpcError {
     }
 }
 
+/// Checks an optional opaque speech voice id (B6-14, #599).
+pub fn check_speech_voice_id(id: &str) -> Result<(), ValidationError> {
+    if id.is_empty() {
+        return Err(ValidationError::Invalid {
+            what: "speech voice id",
+            reason: "empty",
+        });
+    }
+    check_text("speech voice id", id, MAX_SPEECH_VOICE_ID_BYTES)?;
+    if id.contains('\u{0}') {
+        return Err(ValidationError::Invalid {
+            what: "speech voice id",
+            reason: "contains a NUL character",
+        });
+    }
+    Ok(())
+}
+
+/// Checks a speaking rate (B6-14, #599).
+pub fn check_speech_rate(rate: f64) -> Result<(), ValidationError> {
+    if !rate.is_finite() {
+        return Err(ValidationError::NotFinite {
+            what: "speech rate",
+        });
+    }
+    if !(MIN_SPEECH_RATE..=MAX_SPEECH_RATE).contains(&rate) {
+        return Err(ValidationError::OutOfRange {
+            what: "speech rate",
+        });
+    }
+    Ok(())
+}
+
+impl Validate for SpeakArgs {
+    fn validate(&self) -> Result<(), ValidationError> {
+        if self.text.trim().is_empty() {
+            return Err(ValidationError::Invalid {
+                what: "speech text",
+                reason: "empty",
+            });
+        }
+        check_text("speech text", &self.text, MAX_SPEECH_TEXT_BYTES)?;
+        if self.text.contains('\u{0}') {
+            return Err(ValidationError::Invalid {
+                what: "speech text",
+                reason: "contains a NUL character",
+            });
+        }
+        if let Some(voice_id) = &self.voice_id {
+            check_speech_voice_id(voice_id)?;
+        }
+        check_speech_rate(self.rate)
+    }
+}
+
 impl Validate for Settings {
     fn validate(&self) -> Result<(), ValidationError> {
-        match &self.ocr_language {
-            Some(code) if !is_language_name(code) => Err(ValidationError::Invalid {
+        if let Some(code) = &self.ocr_language
+            && !is_language_name(code)
+        {
+            return Err(ValidationError::Invalid {
                 what: "OCR language",
                 reason: "not the code of a language",
-            }),
-            _ => Ok(()),
+            });
         }
+        if let Some(voice_id) = &self.speech_voice_id {
+            check_speech_voice_id(voice_id)?;
+        }
+        check_speech_rate(self.speech_rate)
     }
 }
 
@@ -7546,6 +7607,64 @@ mod tests {
             truncated: false,
         };
         assert!(res_too_many.validate().is_err());
+    }
+
+    #[test]
+    fn speak_args_and_speech_settings_are_checked() {
+        let valid = SpeakArgs {
+            text: "你好 world".into(),
+            voice_id: Some("voice-1".into()),
+            rate: 1.0,
+        };
+        assert!(valid.validate().is_ok());
+
+        let secret = "TOP_SECRET_SENTINEL_599";
+        let too_long = SpeakArgs {
+            text: format!("{secret}{}", "a".repeat(MAX_SPEECH_TEXT_BYTES as usize)),
+            voice_id: None,
+            rate: 1.0,
+        };
+        let err = too_long.validate().unwrap_err();
+        assert!(!err.to_string().contains(secret));
+
+        for bad_text in ["", "   \n\t ", "hello\u{0}world"] {
+            let args = SpeakArgs {
+                text: bad_text.into(),
+                voice_id: None,
+                rate: 1.0,
+            };
+            assert!(args.validate().is_err(), "{bad_text:?}");
+        }
+        for bad_rate in [0.0, 0.49, 6.01, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let args = SpeakArgs {
+                text: "ok".into(),
+                voice_id: None,
+                rate: bad_rate,
+            };
+            assert!(args.validate().is_err(), "{bad_rate:?}");
+            let settings = Settings {
+                speech_rate: bad_rate,
+                ..Settings::default()
+            };
+            assert!(settings.validate().is_err(), "settings rate {bad_rate:?}");
+        }
+        for bad_voice in [
+            "",
+            "bad\u{0}id",
+            &"v".repeat(MAX_SPEECH_VOICE_ID_BYTES as usize + 1),
+        ] {
+            let args = SpeakArgs {
+                text: "ok".into(),
+                voice_id: Some(bad_voice.into()),
+                rate: 1.0,
+            };
+            assert!(args.validate().is_err(), "{bad_voice:?}");
+            let settings = Settings {
+                speech_voice_id: Some(bad_voice.into()),
+                ..Settings::default()
+            };
+            assert!(settings.validate().is_err(), "settings voice {bad_voice:?}");
+        }
     }
 
     #[test]

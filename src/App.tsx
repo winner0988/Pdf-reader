@@ -20,6 +20,7 @@ import type { OcrTab } from "@/features/ocr/model";
 import { useOcr } from "@/features/ocr/useOcr";
 import { tauriSearchApi, type SearchApi } from "@/features/search/useSearch";
 import { tauriOutlineApi, useOutline, type OutlineApi } from "@/features/outline/useOutline";
+import { tauriSpeechApi, type SpeechApi } from "@/features/readAloud/api";
 import { tauriRecentApi, type RecentApi } from "@/features/recent/api";
 import { tauriSavingApi, type SavingApi } from "@/features/saving/api";
 import { tauriSensitiveApi, type SensitiveApi } from "@/features/sensitive/api";
@@ -76,6 +77,7 @@ type AppProps = {
   textIndexApi?: TextIndexApi;
   windowApi?: WindowApi;
   propertiesApi?: PropertiesApi;
+  speechApi?: SpeechApi;
 };
 
 export default function App({
@@ -106,6 +108,7 @@ export default function App({
   textIndexApi = tauriTextIndexApi,
   windowApi = tauriWindowApi,
   propertiesApi = defaultPropertiesApi,
+  speechApi = tauriSpeechApi,
 }: AppProps) {
   // How recognising the text of each tab's scanned pages goes arrives with the open events (B2-10).
   const ocr = useOcr();
@@ -254,6 +257,7 @@ export default function App({
                   passwordsApi={api}
                   windowApi={windowApi}
                   propertiesApi={propertiesApi}
+                  speechApi={speechApi}
                   ocr={ocr.state.get(tab.tab)}
                   fieldEdits={fieldEdits}
                   captureProtection={state.captureProtection}
@@ -340,6 +344,7 @@ type TabPaneProps = {
   passwordsApi: PasswordsApi;
   windowApi?: WindowApi;
   propertiesApi?: PropertiesApi;
+  speechApi?: SpeechApi;
   ocr: OcrTab | undefined;
   fieldEdits: FieldEdits;
   captureProtection: CaptureProtection;

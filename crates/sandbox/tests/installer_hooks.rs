@@ -1,10 +1,12 @@
 //! Checks `src-tauri/windows/installer-hooks.nsh` against the constants and invariants the app
-//! depends on: AppContainer profile cleanup (REL-01) and Explorer image context menu verbs (B5-13).
+//! depends on: AppContainer profile cleanup (REL-01), Explorer image context menu verbs (B5-13),
+//! and the PDF file icon (UX-06).
 #![cfg(windows)]
 
 use std::collections::{BTreeMap, BTreeSet};
 
 const HOOKS: &str = include_str!("../../../src-tauri/windows/installer-hooks.nsh");
+const BUILD_SCRIPT: &str = include_str!("../../../src-tauri/build.rs");
 const IMAGE_EXTENSIONS: [&str; 7] = ["png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff"];
 // Numeric Windows LCIDs matching tauri.conf.json languages order ("English", "TradChinese"):
 // Tauri includes installerHooks before MUI_LANGUAGE, and NSIS forbids LangString inside a Section.
@@ -71,6 +73,8 @@ fn extract_lang_refs(line: &str) -> Vec<&str> {
     }
     refs
 }
+/// The resource id of the PDF file icon in the exe, which `src-tauri/build.rs` puts there.
+const PDF_FILE_ICON: &str = "32514";
 
 fn macro_body<'a>(source: &'a str, name: &str) -> &'a str {
     let exact = format!("!macro {name}");
@@ -329,5 +333,29 @@ fn message_boxes_and_registry_strings_use_lang_strings_without_hardcoded_chinese
     assert_eq!(
         used_refs, expected_used,
         "all required LangStrings must be referenced in MessageBox or WriteRegStr"
+    );
+}
+
+#[test]
+fn pdf_files_show_the_file_icon_that_build_rs_puts_in_the_exe() {
+    let register = macro_body(HOOKS, "PDF_READER_REGISTER");
+    let default_icon = format!(
+        r#"WriteRegStr HKLM "Software\Classes\${{PDF_READER_PROGID}}\DefaultIcon" "" "$INSTDIR\${{MAINBINARYNAME}}.exe,-{PDF_FILE_ICON}""#
+    );
+    assert!(
+        register.contains(&default_icon),
+        "the ProgID's DefaultIcon must be resource {PDF_FILE_ICON} of the exe, the PDF file icon"
+    );
+    let resource = format!(r#"{PDF_FILE_ICON} ICON \"icons/pdf-file.ico\""#);
+    assert!(
+        BUILD_SCRIPT.contains(&resource),
+        "build.rs must put icons/pdf-file.ico in the exe as resource {PDF_FILE_ICON}"
+    );
+    // The Default apps page of Windows Settings stands for the app, so it keeps the app icon.
+    assert!(
+        register.contains(
+            r#"WriteRegStr HKLM "${PDF_READER_CAPABILITIES}" "ApplicationIcon" "$INSTDIR\${MAINBINARYNAME}.exe,0""#
+        ),
+        "the Default apps page must keep the app icon"
     );
 }

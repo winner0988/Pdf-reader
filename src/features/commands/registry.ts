@@ -422,18 +422,14 @@ export function createCommands(opts: CommandOptions): Command[] {
       id: "decryptCopy",
       name: menu.decryptCopy,
       aliases: [...aliases.decryptCopy],
-      shortcutBadge: opts.decryptCopyBlocked ? strings.decryption.unencryptedBlocked : undefined,
+      shortcutBadge: opts.decryptCopyBlocked,
       fromMenu: true,
       menuSection: "actions",
       menuKind: "item",
       visibleInMenu: true,
       menuDisabled: !opts.onDecryptCopy,
       enabled: hasDoc && Boolean(opts.onDecryptCopy && !opts.decryptCopyBlocked),
-      disabledReason: !hasDoc
-        ? strings.commands.noDocument
-        : opts.decryptCopyBlocked
-          ? strings.decryption.unencryptedBlocked
-          : undefined,
+      disabledReason: !hasDoc ? strings.commands.noDocument : opts.decryptCopyBlocked,
       run: () => opts.onDecryptCopy?.(),
     },
     {
@@ -676,6 +672,16 @@ export function createCommands(opts: CommandOptions): Command[] {
       enabled: hasDoc && Boolean(opts.onSearch),
       disabledReason: !hasDoc ? strings.commands.noDocument : undefined,
       run: () => opts.onSearch(),
+    },
+    {
+      id: "readAloud",
+      name: strings.shortcuts.descriptions.readAloud,
+      aliases: [...aliases.readAloud],
+      shortcut: getShortcutKey("readAloud"),
+      fromMenu: false,
+      enabled: hasDoc && Boolean(opts.onReadAloud),
+      disabledReason: !hasDoc ? strings.commands.noDocument : undefined,
+      run: () => opts.onReadAloud?.(),
     },
     {
       id: "findNext",
