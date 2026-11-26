@@ -3,7 +3,7 @@
 ## 狀態
 已接受
 
-（負責人於 2026-11-27 在 Claude Code 的對話中接受：先看了 POC〔PR [#725](https://github.com/winner0988/Pdf-reader/pull/725)〕、Acrobat 的做法與這份 ADR 的草稿，每一組都選了建議的做法，也同意第 5 組要的 fork 修改〔[#593 的留言一](https://github.com/winner0988/Pdf-reader/issues/593#issuecomment-7204873524)、[留言二](https://github.com/winner0988/Pdf-reader/issues/593#issuecomment-7205364328)〕。工作卡 B6-08 POC，[#593](https://github.com/winner0988/Pdf-reader/issues/593)；負責人 2026-11-24 加上掃描頁的需求〔[#593 的留言](https://github.com/winner0988/Pdf-reader/issues/593#issuecomment-7135098561)〕。來源是 Acrobat Pro 對照清單（`docs/planning/acrobat-pro-parity.md`）E 區「編輯既有的文字」（P0，缺口排名第 7 項）與 I 區「修正辨識錯的字」（P2）；規格 §4、§6。粗體是負責人選定的做法；實作卡另開。）
+（負責人於 2026-11-27 在 Claude Code 的對話中接受：先看了 POC〔PR [#725](https://github.com/winner0988/Pdf-reader/pull/725)〕、Acrobat 的做法與這份 ADR 的草稿，每一組都選了建議的做法，也同意第 5 組要的 fork 修改〔[#593 的留言一](https://github.com/winner0988/Pdf-reader/issues/593#issuecomment-7204873524)、[留言二](https://github.com/winner0988/Pdf-reader/issues/593#issuecomment-7205364328)〕。工作卡 B6-08 POC，[#593](https://github.com/winner0988/Pdf-reader/issues/593)；負責人 2026-11-24 加上掃描頁的需求〔[#593 的留言](https://github.com/winner0988/Pdf-reader/issues/593#issuecomment-7135098561)〕。來源是 Acrobat Pro 對照清單（`docs/planning/acrobat-pro-parity.md`）E 區「編輯既有的文字」（P0，缺口排名第 7 項）與 I 區「修正辨識錯的字」（P2）；規格 §4、§6。粗體是負責人選定的做法；實作卡是 #748 到 #751，見「順序」。）
 
 ## 背景
 - **PDF 沒有段落**：頁面上的字是內容串流裡一段段定位好的字形，字型多半是只含這一頁用到的字的**子集**。改字常遇到：缺字、同一行的位置、舊字沒拿乾淨、同一區的連結與註解被誤刪、掃描頁的底色。
@@ -118,10 +118,10 @@
 - 照現有的規則：fork 只由 Claude Code 的工作階段在負責人同意後加 commit，不 force push，不向上游提；`main` 改用新的 commit 是依賴變更，要 `needs-security-review`。
 
 ### 順序
-1. fork 的包裝函式；
-2. 修正辨識的文字（負責人：排在前面）；
-3. 編輯文字，一般的頁；
-4. 編輯文字，掃描頁。
+1. fork 的包裝函式（B7-11，[#748](https://github.com/winner0988/Pdf-reader/issues/748)）；
+2. 修正辨識的文字（B7-12，[#749](https://github.com/winner0988/Pdf-reader/issues/749)；負責人：排在前面）；
+3. 編輯文字，一般的頁（B7-13，[#750](https://github.com/winner0988/Pdf-reader/issues/750)）；
+4. 編輯文字，掃描頁（B7-14，[#751](https://github.com/winner0988/Pdf-reader/issues/751)）。
 
 ### 不做
 重排段落與整段的文字方塊（之後另開卡）；整頁轉成文字；直書；尋找並取代（#593 的「不做」）；app 另外附字型或從網路取得字型（ADR 0018）；改已簽章的文件。
