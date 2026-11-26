@@ -17,12 +17,13 @@ use std::time::{Duration, Instant};
 
 use ipc_contract::frame::{self, FrameError};
 use ipc_contract::types::{
-    AttachmentId, CreateKind, DocumentId, ErrorCode, ImageQuality, Password, RequestId,
+    AttachmentId, CreateKind, DocumentId, ErrorCode, FieldId, ImageQuality, Password, RequestId,
     Restrictions, SanitizeOptions, Watermark,
 };
 use ipc_contract::validate::Validate;
 use ipc_contract::worker::{
-    CreateSource, FileHandle, NewSignature, WorkerError, WorkerRequest, WorkerResponse,
+    CreateSource, FileHandle, FormFieldEvent, NewSignature, WorkerError, WorkerRequest,
+    WorkerResponse,
 };
 use sandbox::{SandboxConfig, Sandboxed};
 use thiserror::Error;
@@ -590,6 +591,34 @@ impl WorkerHost {
         })
     }
 
+    /// Explicitly enables JavaScript execution for `doc` in its worker (B3-07, ADR 0021 POC).
+    pub fn enable_js(&mut self, doc: DocumentId) -> Result<WorkerResponse, HostError> {
+        self.request_within(Duration::from_secs(2), |request| WorkerRequest::EnableJs {
+            request,
+            doc,
+        })
+    }
+
+    /// Sends a form field event (`Keystroke`, `Format`, `Validate`, `Calculate`) to `field` on
+    /// `page` of `doc`, enforcing ADR 0021's 2-second timeout (B3-07 POC).
+    pub fn form_field_event(
+        &mut self,
+        doc: DocumentId,
+        page: u32,
+        field: FieldId,
+        event: FormFieldEvent,
+    ) -> Result<WorkerResponse, HostError> {
+        self.request_within(Duration::from_secs(2), |request| {
+            WorkerRequest::FormFieldEvent {
+                request,
+                doc,
+                page,
+                field,
+                event,
+            }
+        })
+    }
+
     /// Writes to `file`, as [`save`](Self::save) does, a copy of `doc` encrypted with AES-256
     /// (B2-15): `open_password` opens it (none: anyone can), `owner_password` lifts
     /// `restrictions`. Both go to the worker in this request only and are wiped once it is sent.
@@ -903,7 +932,9 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::AttachmentWritten { request, .. }
         | WorkerResponse::DocumentProperties { request, .. }
         | WorkerResponse::DocumentFonts { request, .. }
-        | WorkerResponse::AnnotationExport { request, .. } => Some(*request),
+        | WorkerResponse::AnnotationExport { request, .. }
+        | WorkerResponse::JsEnabled { request }
+        | WorkerResponse::FormFieldEventResult { request, .. } => Some(*request),
         WorkerResponse::Error { request, .. } => *request,
     }
 }
@@ -1010,6 +1041,10 @@ pub fn is_expected_response(request: &WorkerRequest, response: &WorkerResponse) 
         }
         WorkerRequest::GetDocumentFonts { .. } => {
             matches!(response, WorkerResponse::DocumentFonts { .. })
+        }
+        WorkerRequest::EnableJs { .. } => matches!(response, WorkerResponse::JsEnabled { .. }),
+        WorkerRequest::FormFieldEvent { .. } => {
+            matches!(response, WorkerResponse::FormFieldEventResult { .. })
         }
         WorkerRequest::Cancel { .. } | WorkerRequest::Close { .. } | WorkerRequest::Shutdown => {
             false

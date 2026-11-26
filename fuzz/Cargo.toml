@@ -111,3 +111,10 @@ path = "fuzz_targets/edit_document.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "field_events"
+path = "fuzz_targets/field_events.rs"
+test = false
+doc = false
+bench = false

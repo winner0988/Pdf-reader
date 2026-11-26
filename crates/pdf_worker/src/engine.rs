@@ -1,8 +1,8 @@
 //! Safe wrapper around MuPDF for opening PDFs and rendering pages (MVP-03).
 //!
-//! MuPDF is built without its JavaScript engine (`FZ_ENABLE_JS=0`, see
-//! docs/architecture/mupdf-binding.md), so no PDF script can run even if something asked for it.
-//! Nothing in this crate may call `PdfDocument::enable_js`.
+//! Normally MuPDF is built without its JavaScript engine (`FZ_ENABLE_JS=0`), see
+//! docs/architecture/mupdf-binding.md. On this POC branch (Issue #238, ADR 0021),
+//! `js` (`mujs`) is enabled so `PdfDocument::enable_js` can run only upon explicit request.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -79,6 +79,7 @@ mod create;
 mod crop;
 mod deskew;
 mod docx;
+mod form_scripts;
 mod forms;
 mod identifier;
 mod merge_annotations;
@@ -93,6 +94,7 @@ mod sanitize;
 mod searchable_copy;
 
 pub use create::{Created, PdfBuilder};
+pub use form_scripts::FieldEventOutcome;
 pub use identifier::write_identifier;
 pub use ocr::OcrKnown;
 pub use searchable_copy::SearchableCopy;
@@ -3141,18 +3143,19 @@ mod tests {
         }
     }
 
-    /// The JavaScript engine is compiled out: even an explicit request cannot enable it.
-    /// (Test-only call; production code must never call `enable_js`.)
+    /// JavaScript stays disabled on every opened document until explicitly requested; on this POC
+    /// branch (`mujs` compiled in), calling `enable_js()` turns `is_js_supported()` on.
     #[test]
-    fn javascript_is_compiled_out() {
+    fn javascript_is_disabled_by_default_and_can_be_enabled() {
         let pdf = build_pdf(&[
             "<< /Type /Catalog /Pages 2 0 R /OpenAction << /S /JavaScript /JS (app.alert\\(1\\)) >> >>",
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
         ]);
         let mut doc = mupdf::pdf::PdfDocument::from_bytes(&pdf).unwrap();
-        doc.enable_js().unwrap();
         assert!(!doc.is_js_supported().unwrap());
+        doc.enable_js().unwrap();
+        assert!(doc.is_js_supported().unwrap());
     }
 
     /// MuPDF 1.28 adds a Markdown reader that also guesses Markdown from a file's contents.

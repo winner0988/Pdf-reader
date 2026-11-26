@@ -1,0 +1,53 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [6 0 R 7 0 R 8 0 R] /CO [8 0 R] /NeedAppearances true /DA (/Helv 11 Tf 0 g) /DR << /Font << /Helv 5 0 R >> >> >> >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 9 0 R /Annots [6 0 R 7 0 R 8 0 R] >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Type /Annot /Subtype /Widget /Rect [72 650 200 674] /F 4 /P 4 0 R /MK << /BC [0] /BG [1] >> /FT /Tx /T (num1) /TU (Number 1) /V (10) >>
+endobj
+7 0 obj
+<< /Type /Annot /Subtype /Widget /Rect [72 600 200 624] /F 4 /P 4 0 R /MK << /BC [0] /BG [1] >> /FT /Tx /T (num2) /TU (Number 2) /V (20) >>
+endobj
+8 0 obj
+<< /Type /Annot /Subtype /Widget /Rect [72 550 200 574] /F 4 /P 4 0 R /MK << /BC [0] /BG [1] >> /FT /Tx /T (total) /TU (Total) /V (30.00) /Ff 1 /AA << /C << /S /JavaScript /JS (AFSimple_Calculate\("SUM", new Array\("num1", "num2"\)\);) >> /F << /S /JavaScript /JS (AFNumber_Format\(2, 0, 0, 0, "", false\);) >> >> >>
+endobj
+9 0 obj
+<<  /Length 178 >>
+stream
+BT /F1 16 Tf 72 740 Td (Form with calculation scripts) Tj ET
+BT /F1 10 Tf 20 658 Td (Number 1) Tj ET
+BT /F1 10 Tf 20 608 Td (Number 2) Tj ET
+BT /F1 10 Tf 20 558 Td (Total) Tj ET
+
+endstream
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000000198 00000 n 
+0000000255 00000 n 
+0000000352 00000 n 
+0000000506 00000 n 
+0000000603 00000 n 
+0000000758 00000 n 
+0000000913 00000 n 
+0000001245 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R /ID [<68C1B3B60681F5182BF16DE915FF6C2E> <68C1B3B60681F5182BF16DE915FF6C2E>] >>
+startxref
+1475
+%%EOF

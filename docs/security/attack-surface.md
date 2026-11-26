@@ -261,7 +261,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | Windows CryptoAPI（`crypt.rs`） | 簽章的 CMS 與憑證；憑證鏈只用本機的快取 | Windows | 沒有：Linux 的 fuzz 跑不到（#426 只 fuzz 讀簽章欄位） |
 | jpeg-encoder 0.7.1 | 只編碼 worker 自己渲染的像素，不解析輸入 | 純 Rust（不開 `simd`） | 不需要 |
 
-### 2.4 worker 的請求（51 個）
+### 2.4 worker 的請求（53 個）
 
 除了另外註明的，請求都送到那個分頁自己的 worker（ADR 0012）。用新的 worker 的有：驗證剛簽好的副本、批次的每個檔案、`CreatePdf`、`InspectFont`、批次的浮水印圖片。
 
@@ -274,6 +274,8 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `GetPageLinks` | 連結與它們的 URI | `engine.rs` | worker `links.rs` | `open_document` |
 | `GetPageAnnotations` | 註解 | `engine/annotations.rs` | worker `merge.rs`、`stamp_image.rs`、`text_box_worker.rs`；`annotations.spec.ts` | `read_document`（前兩頁，#426） |
 | `GetPageFields` | 表單欄位 | `engine/forms.rs`（沒有單元測試） | `forms.spec.ts` | `read_document`（前兩頁，#426） |
+| `EnableJs` | 啟用文件層級與表單 JavaScript 引擎（ADR 0021 POC） | `engine/form_scripts.rs` | worker `form_scripts_poc.rs` | `field_events` |
+| `FormFieldEvent` | 執行表單欄位事件腳本（Keystroke / Validate / Format / Calculate，ADR 0021 POC） | `engine/form_scripts.rs` | worker `form_scripts_poc.rs` | `field_events` |
 | `VerifySignatures` | 簽章欄位、簽章字典、CMS | `engine/signatures.rs`、`signatures.rs`、`crypt.rs` | worker `signatures.rs`、`signature_poc.rs`；`signatures.spec.ts` | `read_document`（簽章欄位部分，#426） |
 | `SummariseRedactions` | 遮蔽標記會蓋到的東西 | `engine/redaction.rs` | `redaction.rs` 的單元測試；`redaction.spec.ts` | `read_document`（#426） |
 | `FindPersonalData` | 頁面文字 | `engine/personal_data.rs` | worker `personal_data.rs` | `read_document`（#426） |

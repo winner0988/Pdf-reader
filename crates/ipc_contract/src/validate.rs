@@ -34,10 +34,10 @@ use crate::types::{
     WatermarkPages,
 };
 use crate::worker::{
-    ExportedAnnotation, ExportedAnnotations, ExportedTextStyle, InsertedTextBox, InspectedFont,
-    OcrOutcome, OpenedDocument, PreparedTextBoxModel, Raster, SourceTextBox, TextBoxModel,
-    WorkerAttachment, WorkerDocumentProperties, WorkerError, WorkerErrorCode, WorkerPageMarks,
-    WorkerResponse,
+    ChangedField, ExportedAnnotation, ExportedAnnotations, ExportedTextStyle, FormFieldEvent,
+    InsertedTextBox, InspectedFont, OcrOutcome, OpenedDocument, PreparedTextBoxModel, Raster,
+    SourceTextBox, TextBoxModel, WorkerAttachment, WorkerDocumentProperties, WorkerError,
+    WorkerErrorCode, WorkerPageMarks, WorkerResponse,
 };
 
 /// Maximum length of the worker version string in `Hello`.
@@ -841,6 +841,34 @@ impl Validate for WorkerResponse {
             }
             WorkerResponse::DocumentProperties { properties, .. } => properties.validate(),
             WorkerResponse::DocumentFonts { fonts, .. } => fonts.validate(),
+            WorkerResponse::JsEnabled { .. } => Ok(()),
+            WorkerResponse::FormFieldEventResult {
+                value,
+                changed_fields,
+                blocked_actions,
+                ..
+            } => {
+                if let Some(val) = value {
+                    check_text("form field event value", val, MAX_FIELD_VALUE_BYTES)?;
+                }
+                check_count(
+                    "changed fields",
+                    changed_fields.len(),
+                    MAX_CHANGED_FIELDS as u32,
+                )?;
+                for field in changed_fields {
+                    field.validate()?;
+                }
+                check_count(
+                    "blocked actions",
+                    blocked_actions.len(),
+                    MAX_BLOCKED_ACTIONS as u32,
+                )?;
+                for action in blocked_actions {
+                    check_text("blocked action", action, 64)?;
+                }
+                Ok(())
+            }
             WorkerResponse::Error { error, .. } => error.validate(),
         }
     }
@@ -2757,6 +2785,25 @@ impl Validate for FormField {
             });
         }
         Ok(())
+    }
+}
+
+impl Validate for ChangedField {
+    fn validate(&self) -> Result<(), ValidationError> {
+        check_field_value(&self.value)
+    }
+}
+
+impl Validate for FormFieldEvent {
+    fn validate(&self) -> Result<(), ValidationError> {
+        match self {
+            FormFieldEvent::Keystroke { value, change, .. } => {
+                check_field_value(value)?;
+                check_field_value(change)
+            }
+            FormFieldEvent::Validate { value } => check_field_value(value),
+            FormFieldEvent::Format | FormFieldEvent::Calculate => Ok(()),
+        }
     }
 }
 
