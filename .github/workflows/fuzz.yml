@@ -42,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [worker_messages, open_document, read_document, text_box_font, compress_images, create_pdf, exif_clean, stamp_image, language_data, ocr, edit_document]
+        target: [worker_messages, open_document, read_document, text_box_font, compress_images, create_pdf, exif_clean, stamp_image, language_data, ocr, edit_document, field_events]
     env:
       FUZZ_SECONDS: ${{ github.event_name == 'pull_request' && '120' || '1200' }}
       # MuPDF and its C libraries get coverage and AddressSanitizer like the Rust code. Only
@@ -111,7 +111,7 @@ jobs:
           cargo install cargo-fuzz --version 0.13.2 --locked
       - name: Seed corpus
         run: |
-          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/read_document fuzz/corpus/text_box_font fuzz/corpus/compress_images fuzz/corpus/create_pdf fuzz/corpus/exif_clean fuzz/corpus/stamp_image fuzz/corpus/language_data fuzz/corpus/ocr fuzz/corpus/edit_document
+          mkdir -p fuzz/corpus/worker_messages fuzz/corpus/open_document fuzz/corpus/read_document fuzz/corpus/text_box_font fuzz/corpus/compress_images fuzz/corpus/create_pdf fuzz/corpus/exif_clean fuzz/corpus/stamp_image fuzz/corpus/language_data fuzz/corpus/ocr fuzz/corpus/edit_document fuzz/corpus/field_events
           env -u CC -u CXX -u CFLAGS cargo run --locked -q -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/worker_messages
           env -u CC -u CXX -u CFLAGS cargo run --locked -q -p ipc_contract --bin fuzz_seeds -- fuzz/corpus/language_data language_data
           head -c 1048576 src-tauri/resources/tessdata/eng.traineddata > fuzz/corpus/language_data/eng_1m.traineddata
@@ -120,6 +120,7 @@ jobs:
           cp fuzz/corpus/open_document/* fuzz/corpus/read_document/
           cp fuzz/corpus/open_document/* fuzz/corpus/compress_images/
           cp fuzz/corpus/open_document/* fuzz/corpus/exif_clean/
+          cp fuzz/corpus/open_document/* fuzz/corpus/field_events/
           cp tests/corpus/images/* fuzz/corpus/stamp_image/
           # Files to make a PDF of (B3-03): the first byte is the number of the kind of file, in the
           # order of KINDS in fuzz/fuzz_targets/create_pdf.rs.

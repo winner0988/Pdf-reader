@@ -16,10 +16,10 @@ ipc_contract = { version = "1.1.0", path = "../ipc_contract" }
 # dependencies, and no `unsafe` without its `simd` feature, which stays off. MIT or Apache-2.0,
 # and IJG for the parts ported from libjpeg (see deny.toml).
 jpeg-encoder = { version = "0.7.1", default-features = false, features = ["std"] }
-mupdf = { version = "=0.8.0", default-features = false, features = ["base14-fonts", "bundled-fonts-droid", "epub", "html", "svg", "xps"] }
+mupdf = { version = "=0.8.0", default-features = false, features = ["base14-fonts", "bundled-fonts-droid", "epub", "html", "js", "svg", "xps"] }
 # The same crate `mupdf` builds on, called directly only to learn which password opened a
 # document (src/owner_password.rs, #88). No features of its own: `mupdf` chooses them.
-mupdf-sys = { version = "=0.8.0", default-features = false }
+mupdf-sys = { version = "=0.8.0", default-features = false, features = ["js"] }
 # The font a watermark's words are set in (src/engine/watermark.rs, B3-04): Droid Sans Fallback,
 # which `mupdf` already builds into the worker for Chinese (its `bundled-fonts-droid` feature);
 # named here to read its bytes. Same crate, same version: nothing new is built.
