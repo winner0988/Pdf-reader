@@ -158,9 +158,17 @@ describe("recognising the text of scanned pages (B2-10)", () => {
     expect(searchApi.search).not.toHaveBeenCalled();
 
     await user.keyboard("{Control>}f{/Control}needle{Enter}");
-    await waitFor(() => expect(searchApi.search).toHaveBeenCalledTimes(1));
+    // Slow typing between keys can fire an earlier debounce search before Enter; count the
+    // refresh relative to the completed search rather than assuming Enter was call #1.
+    await waitFor(() =>
+      expect(searchApi.search).toHaveBeenLastCalledWith(
+        expect.objectContaining({ doc: 5, query: "needle" }),
+        expect.any(Function),
+      ),
+    );
+    const searchesBeforeRefresh = searchApi.search.mock.calls.length;
     rerender(tab({}, [[0, 2]]));
-    await waitFor(() => expect(searchApi.search).toHaveBeenCalledTimes(2), { timeout: 3000 });
+    await waitFor(() => expect(searchApi.search).toHaveBeenCalledTimes(searchesBeforeRefresh + 1), { timeout: 3000 });
     expect(searchApi.search).toHaveBeenLastCalledWith(
       expect.objectContaining({ doc: 5, query: "needle" }),
       expect.any(Function),
