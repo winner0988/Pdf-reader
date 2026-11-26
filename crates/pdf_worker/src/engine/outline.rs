@@ -14,7 +14,7 @@
 //! `/Count` of every item are written from it again: after an edit the outline is what was shown,
 //! with the edit, whatever links it had. `/Count` keeps whether each item was open or closed.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use ipc_contract::limits::{MAX_OUTLINE_DEPTH, MAX_OUTLINE_ITEMS, MAX_TEXT_BYTES};
 use ipc_contract::text::clean_display_text;
@@ -23,6 +23,95 @@ use mupdf::Point;
 use mupdf::pdf::{PdfDocument as MuPdfDocument, PdfObject};
 
 use super::{EngineError, PdfDocument};
+
+/// One entry in an outline tree written in a single pass (B5-03, #440 POC), in pre-order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MergedOutlineEntry {
+    pub title: String,
+    pub depth: u16,
+    pub page: Option<u32>,
+    pub closed: bool,
+}
+
+/// One source's outline contribution to a merged document (B5-03, #440 POC).
+pub struct SourceOutlineInput<'a> {
+    pub title: &'a str,
+    pub start_page: u32,
+    pub page_count: u32,
+    pub outline: &'a super::DocumentOutline,
+}
+
+/// Builds the pre-order outline list for a merged document following ADR 0032.
+pub fn build_merged_outline(
+    sources: &[SourceOutlineInput<'_>],
+    include_source_bookmark: bool,
+    untitled: &str,
+) -> Vec<MergedOutlineEntry> {
+    let mut out = Vec::new();
+    let mut remaining = MAX_OUTLINE_ITEMS as usize;
+    let depth_offset = u16::from(include_source_bookmark);
+    let max_source_depth = MAX_OUTLINE_DEPTH.saturating_sub(depth_offset);
+
+    for (index, source) in sources.iter().enumerate() {
+        if include_source_bookmark {
+            if remaining == 0 {
+                break;
+            }
+            let title = clean_display_text(source.title, MAX_TEXT_BYTES as usize);
+            out.push(MergedOutlineEntry {
+                title: if title.is_empty() {
+                    untitled.to_owned()
+                } else {
+                    title
+                },
+                depth: 0,
+                page: Some(source.start_page),
+                closed: true,
+            });
+            remaining -= 1;
+        }
+
+        let reserved_for_later = if include_source_bookmark {
+            sources.len().saturating_sub(index + 1)
+        } else {
+            0
+        };
+        let budget = remaining.saturating_sub(reserved_for_later);
+        let fits = !source.outline.truncated
+            && source.outline.entries.len() <= budget
+            && source
+                .outline
+                .entries
+                .iter()
+                .all(|entry| entry.depth <= max_source_depth);
+        if !fits {
+            continue;
+        }
+
+        for entry in &source.outline.entries {
+            let cleaned = clean_display_text(&entry.title, MAX_TEXT_BYTES as usize);
+            let title = if cleaned.is_empty() {
+                untitled.to_owned()
+            } else {
+                cleaned
+            };
+            let page = match entry.target {
+                super::OutlineTarget::Page(p) if p < source.page_count => {
+                    Some(source.start_page + p)
+                }
+                _ => None,
+            };
+            out.push(MergedOutlineEntry {
+                title,
+                depth: entry.depth + depth_offset,
+                page,
+                closed: true,
+            });
+        }
+        remaining -= source.outline.entries.len();
+    }
+    out
+}
 
 impl PdfDocument {
     /// Adds a bookmark called `title` that goes to the top of page `page` (0-based), as the
@@ -125,17 +214,99 @@ impl PdfDocument {
     /// An explicit destination to the top left of page `index` as it is shown, with the zoom
     /// left as it is: `[page /XYZ left top null]`, in the page's own space.
     fn top_of_page(&self, index: u32) -> Result<PdfObject, EngineError> {
+        let (page, corner) = self.top_of_page_coords(index)?;
+        dest_from_coords(&self.doc, page, corner)
+    }
+
+    fn top_of_page_coords(&self, index: u32) -> Result<(PdfObject, Point), EngineError> {
         let (page, inverse) = self.page_to_pdf(index)?;
         let bounds = self.load_page(index)?.bounds()?;
         let corner = Point::new(bounds.x0, bounds.y0).transform(&inverse);
-        let mut dest = self.doc.new_array()?;
-        dest.array_push(page)?;
-        dest.array_push(PdfObject::new_name("XYZ")?)?;
-        dest.array_push(PdfObject::new_real(corner.x)?)?;
-        dest.array_push(PdfObject::new_real(corner.y)?)?;
-        dest.array_push(PdfObject::new_null())?;
-        Ok(dest)
+        Ok((page, corner))
     }
+
+    /// Replaces the document's outline with `entries` in pre-order in a single pass.
+    ///
+    /// Every item is created from scratch with `/Title`, optional explicit `/Dest`, and tree links
+    /// (`/Parent`, `/First`, `/Last`, `/Prev`, `/Next`, `/Count`), with no `/A` action.
+    pub fn write_outline(&mut self, entries: &[MergedOutlineEntry]) -> Result<(), EngineError> {
+        if entries.len() > MAX_OUTLINE_ITEMS as usize {
+            return Err(EngineError::InvalidEdit("too many bookmarks"));
+        }
+        if entries.is_empty() {
+            let mut catalog = self.doc.catalog()?;
+            catalog.dict_delete("Outlines")?;
+            return Ok(());
+        }
+        let page_count = self.page_count()?;
+        let mut prev_depth: Option<u16> = None;
+        let mut titles = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let max_depth = prev_depth.map_or(0, |d| d + 1);
+            if entry.depth > max_depth || entry.depth > MAX_OUTLINE_DEPTH {
+                return Err(EngineError::InvalidEdit("bookmarks nested too deep"));
+            }
+            prev_depth = Some(entry.depth);
+            if let Some(page) = entry.page
+                && page >= page_count
+            {
+                return Err(EngineError::PageOutOfRange(page));
+            }
+            titles.push(clean_title(&entry.title)?);
+        }
+
+        let mut dest_cache: HashMap<u32, (PdfObject, Point)> = HashMap::new();
+        for entry in entries {
+            if let Some(page) = entry.page
+                && let std::collections::hash_map::Entry::Vacant(slot) = dest_cache.entry(page)
+            {
+                slot.insert(self.top_of_page_coords(page)?);
+            }
+        }
+
+        let mut tree = Tree::new(&mut self.doc)?;
+        let mut parents: Vec<usize> = Vec::new();
+        for (entry, title) in entries.iter().zip(&titles) {
+            parents.truncate(usize::from(entry.depth));
+            let parent = parents.last().copied();
+            let mut item = self.doc.new_dict()?;
+            item.dict_put("Title", self.doc.new_string(title)?)?;
+            if let Some(page) = entry.page {
+                let (page_obj, corner) = &dest_cache[&page];
+                item.dict_put(
+                    "Dest",
+                    dest_from_coords(&self.doc, page_obj.clone(), *corner)?,
+                )?;
+            }
+            let object = self.doc.add_object(&item)?;
+            let number = object.as_indirect()?;
+            let index = tree.items.len();
+            tree.items.push(Item {
+                object,
+                number,
+                parent,
+                children: Vec::new(),
+                closed: entry.closed,
+            });
+            tree.children_mut(parent).push(index);
+            parents.push(index);
+        }
+        tree.write()
+    }
+}
+
+fn dest_from_coords(
+    doc: &MuPdfDocument,
+    page: PdfObject,
+    corner: Point,
+) -> Result<PdfObject, EngineError> {
+    let mut dest = doc.new_array()?;
+    dest.array_push(page)?;
+    dest.array_push(PdfObject::new_name("XYZ")?)?;
+    dest.array_push(PdfObject::new_real(corner.x)?)?;
+    dest.array_push(PdfObject::new_real(corner.y)?)?;
+    dest.array_push(PdfObject::new_null())?;
+    Ok(dest)
 }
 
 /// An id that is not one of the bookmarks shown.
