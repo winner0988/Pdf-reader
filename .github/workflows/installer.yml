@@ -89,13 +89,15 @@ jobs:
           if ($mode -in 'downloadBootstrapper', 'embedBootstrapper') { throw "the installer downloads WebView2 ('$mode'; REL-02)" }
           "WebView2 install mode: '$mode' (empty means skip)"
 
-      # REL-06 (#203): the wizard speaks the app's language: Traditional Chinese for a Chinese
-      # Windows and for any language that is not listed (the first one), English for an English one.
+      # REL-06 (#203, ADR 0029 #685): the wizard defaults to English first (`languages`:
+      # `["English", "TradChinese"]`). NSIS picks TradChinese for Chinese Windows (both
+      # Traditional 1028 and Simplified 2052 match primary language ID 0x04 LANG_CHINESE) and
+      # English for English and any unlisted Windows language (first entry fallback).
       - name: Installer is in the app's language
         run: |
           $languages = Select-String -Path target/release/nsis/x64/installer.nsi -Pattern '^!insertmacro MUI_LANGUAGE "(.*)"' |
             ForEach-Object { $_.Matches[0].Groups[1].Value }
-          if (($languages -join ',') -ne 'TradChinese,English') { throw "installer languages: $($languages -join ', ')" }
+          if (($languages -join ',') -ne 'English,TradChinese') { throw "installer languages: $($languages -join ', ')" }
           "installer languages: $($languages -join ', ')"
 
       # UX-05 (#559): the installer and the uninstaller have the app's icon and the wizard's
