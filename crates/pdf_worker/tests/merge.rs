@@ -7,6 +7,7 @@ mod common;
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use ipc_contract::limits::{MAX_INK_STROKES, MAX_SOURCE_BYTES, MAX_SOURCE_TEXT_BOXES};
 use ipc_contract::types::{
@@ -73,6 +74,22 @@ fn code(error: &HostError) -> ErrorCode {
     error.code()
 }
 
+/// A new, empty file to write into, with a path no other test in this process uses.
+fn new_file(name: &str) -> (common::TempFileGuard, File) {
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let id = NEXT.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        "pdf-worker-{}-merge-{id}-{name}.pdf",
+        std::process::id()
+    ));
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .expect("create");
+    (common::TempFileGuard(path), file)
+}
+
 #[test]
 fn the_pages_of_an_encrypted_file_go_into_a_document_by_a_plain_copy() {
     let mut host = host();
@@ -128,17 +145,11 @@ fn the_pages_of_an_encrypted_file_go_into_a_document_by_a_plain_copy() {
     ));
 
     // Save the document with inserted pages and check with qpdf
-    let path = std::env::temp_dir().join(format!("pdf-worker-{}-merged.pdf", std::process::id()));
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-        .expect("create");
+    let (path, file) = new_file("encrypted-merged");
     let saved = host.save(doc, &file).expect("save");
     drop(file);
     assert!(matches!(saved, WorkerResponse::Saved { .. }));
     common::check_qpdf(&path);
-    std::fs::remove_file(&path).ok();
 }
 
 #[test]
@@ -208,20 +219,13 @@ fn what_is_active_in_a_file_is_reported_and_stays_out_of_the_document() {
         WorkerResponse::Edited { pages: ref all, .. } if all.len() as u32 == 10 + pages
     ));
     // Saved, and opened again: what it says of active content is nothing.
-    let path = std::env::temp_dir().join(format!("pdf-worker-{}-merged.pdf", std::process::id()));
-    let _ = std::fs::remove_file(&path);
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-        .expect("create");
+    let (path, file) = new_file("active-merged");
     host.save(doc, &file).expect("save");
     drop(file);
     let (_, resulting) = match host.open(&path) {
         Ok((doc, WorkerResponse::Opened { document, .. })) => (doc, document),
         other => panic!("{other:?}"),
     };
-    std::fs::remove_file(&path).ok();
     assert_eq!(resulting.pages.len() as u32, 10 + pages);
     assert!(resulting.security.findings.is_empty());
 }
@@ -2349,14 +2353,7 @@ fn compare_hidden_layer_rendering(sample_name: &str) -> (usize, usize, usize, us
     let inserted_b_pixels = rendered_page(&mut host, doc_b, 1);
     let inserted_b_red = count_nearly_red(&inserted_b_pixels);
 
-    let path_b =
-        std::env::temp_dir().join(format!("pdf-worker-{}-layers-b.pdf", std::process::id()));
-    let _ = std::fs::remove_file(&path_b);
-    let file_b = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path_b)
-        .expect("create b");
+    let (path_b, file_b) = new_file("layers-b");
     host.save(doc_b, &file_b).expect("save b");
     drop(file_b);
     common::check_qpdf(&path_b);
@@ -2365,7 +2362,6 @@ fn compare_hidden_layer_rendering(sample_name: &str) -> (usize, usize, usize, us
     assert_eq!(pages_b.len(), 2);
     let reopened_b_pixels = rendered_page(&mut host_b, reopened_b, 1);
     assert_eq!(reopened_b_pixels, inserted_b_pixels);
-    std::fs::remove_file(&path_b).ok();
 
     // (c) Insert into a document with its own visible layer (benign/layers-visible.pdf).
     let (doc_c, _) = opened(&mut host, &corpus("benign/layers-visible.pdf"));
@@ -2385,14 +2381,7 @@ fn compare_hidden_layer_rendering(sample_name: &str) -> (usize, usize, usize, us
     let inserted_c_pixels = rendered_page(&mut host, doc_c, 1);
     let inserted_c_red = count_nearly_red(&inserted_c_pixels);
 
-    let path_c =
-        std::env::temp_dir().join(format!("pdf-worker-{}-layers-c.pdf", std::process::id()));
-    let _ = std::fs::remove_file(&path_c);
-    let file_c = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path_c)
-        .expect("create c");
+    let (path_c, file_c) = new_file("layers-c");
     host.save(doc_c, &file_c).expect("save c");
     drop(file_c);
     common::check_qpdf(&path_c);
@@ -2405,7 +2394,6 @@ fn compare_hidden_layer_rendering(sample_name: &str) -> (usize, usize, usize, us
     );
     let reopened_c_pixels = rendered_page(&mut host_c, reopened_c, 1);
     assert_eq!(reopened_c_pixels, inserted_c_pixels);
-    std::fs::remove_file(&path_c).ok();
 
     (
         own_red,
