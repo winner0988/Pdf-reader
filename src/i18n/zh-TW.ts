@@ -796,12 +796,14 @@ export const strings = {
     password: "密碼",
     wrongPassword: "密碼不正確。",
     notAllowed: "這份文件有作者設定的限制，要輸入權限密碼才能另存沒有密碼的副本。",
+    signed: "有數位簽章的文件不能另存沒有密碼的副本：簽章會失效。",
     failed: "無法另存沒有密碼的副本。請稍後再試。",
     start: "另存…",
     cancel: "取消",
     running: "正在另存副本…",
     done: "已另存沒有密碼的副本。",
     unencryptedBlocked: "沒有加密的文件不適用",
+    signedBlocked: "有數位簽章的文件不適用",
   },
   /** Compressing the pictures of a copy (B3-01). */
   compress: {

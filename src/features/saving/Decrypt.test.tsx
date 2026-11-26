@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { SavingApi } from "@/features/saving/api";
+import type { SignatureView } from "@/features/signatures/useSignatures";
 import { demoDocument } from "@/features/shell/demo";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
@@ -24,10 +25,18 @@ function fakeSavingApi(decryptCopy: SavingApi["decryptCopy"]) {
   } satisfies SavingApi;
 }
 
-function renderShell(api?: SavingApi, encrypted = true) {
+function renderShell(api?: SavingApi, encrypted = true, signatures?: SignatureView) {
   const state: ShellState = { kind: "open", document: { ...demoDocument, doc: 5, encrypted } };
   const user = userEvent.setup();
-  render(<ReaderShell state={state} onOpen={vi.fn()} loadingDelayMs={0} savingApi={api} />);
+  render(
+    <ReaderShell
+      state={state}
+      onOpen={vi.fn()}
+      loadingDelayMs={0}
+      savingApi={api}
+      signatures={signatures}
+    />,
+  );
   return { user };
 }
 
@@ -115,6 +124,18 @@ describe("saving a copy without its password (docs/architecture/decrypt-copy.md)
     expect(field(dialog)).toHaveValue("");
   });
 
+  it("shows signed document error on signed error and clears password", async () => {
+    const api = fakeSavingApi(() => Promise.reject({ code: "signed", message: "" }));
+    const { user } = renderShell(api);
+    const dialog = await openDialog(user);
+
+    await user.type(field(dialog), "owner-password");
+    await user.click(start(dialog));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(t.signed);
+    expect(field(dialog)).toHaveValue("");
+  });
+
   it("shows generic failure message on unexpected error", async () => {
     const api = fakeSavingApi(() => Promise.reject({ code: "internal", message: "" }));
     const { user } = renderShell(api);
@@ -146,6 +167,32 @@ describe("saving a copy without its password (docs/architecture/decrypt-copy.md)
 
     expect(item).toHaveAttribute("aria-disabled", "true");
     expect(item).toHaveTextContent(t.unencryptedBlocked);
+  });
+
+  it("is not offered for a signed encrypted document, and says why", async () => {
+    const api = fakeSavingApi(() => Promise.resolve(true));
+    const signatures: SignatureView = {
+      status: "ready",
+      report: {
+        signatures: [
+          {
+            status: "valid",
+            signerTrusted: true,
+            reason: null,
+            fieldName: "Sig1",
+            signer: "Signer",
+            claimedTime: null,
+            certification: null,
+          },
+        ],
+        truncated: false,
+      },
+    };
+    const { user } = renderShell(api, true, signatures);
+    const item = await menuItem(user);
+
+    expect(item).toHaveAttribute("aria-disabled", "true");
+    expect(item).toHaveTextContent(t.signedBlocked);
   });
 
   it("needs the main process (not demo data)", async () => {

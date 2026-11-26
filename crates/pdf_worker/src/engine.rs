@@ -1605,9 +1605,7 @@ impl PdfDocument {
             ));
         }
         if self.is_signed() {
-            return Err(EngineError::InvalidEdit(
-                "a signed document cannot be decrypted: its signatures would not hold",
-            ));
+            return Err(EngineError::Signed);
         }
         if password.is_empty()
             || password.len() > MAX_PASSWORD_BYTES as usize

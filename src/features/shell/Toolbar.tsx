@@ -146,8 +146,8 @@ export type ToolbarProps = {
   encryptCopyBlocked?: boolean;
   /** Writes a copy of an encrypted document without its password (docs/architecture/decrypt-copy.md). */
   onDecryptCopy?: () => void;
-  /** An unencrypted document has no decrypted copy: the menu item says so. */
-  decryptCopyBlocked?: boolean;
+  /** An unencrypted or signed document has no decrypted copy: the menu item says why. */
+  decryptCopyBlocked?: string;
   /** Forgets the password the app remembers for this file (B2-26); given only when there is one. */
   onForgetPassword?: () => void;
   /** Writes a copy whose pictures are compressed (B3-01); without it the menu item is disabled. */

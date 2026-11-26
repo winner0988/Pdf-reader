@@ -207,9 +207,9 @@ fn a_signed_encrypted_document_and_an_unencrypted_one_have_no_decrypted_copy() {
     let err = host
         .decrypted_copy(signed_doc, &file, password("owner"))
         .unwrap_err();
-    assert_eq!(err.code(), ErrorCode::InvalidArgument);
+    assert_eq!(err.code(), ErrorCode::Signed);
     assert!(
-        matches!(&err, HostError::Worker(worker) if worker.code == WorkerErrorCode::InvalidRequest),
+        matches!(&err, HostError::Worker(worker) if worker.code == WorkerErrorCode::Signed),
         "{err:?}"
     );
     drop(file);
