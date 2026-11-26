@@ -2000,6 +2000,7 @@ export const LIMITS = {
   minPageMarkMarginPt: 0,
   maxPageMarkMarginPt: 144,
   maxPageMarkChars: 100,
+  maxPageNumberPartChars: 32,
   maxBatesPrefixChars: 32,
   minBatesDigits: 1,
   maxBatesDigits: 12,

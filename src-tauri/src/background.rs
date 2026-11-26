@@ -121,12 +121,13 @@ fn show_icon(app: &AppHandle, (done, total): (u32, u32)) -> tauri::Result<()> {
     let Some(picture) = app_icon::tray_icon(app) else {
         return Err(tauri::Error::InvalidIcon(ErrorKind::NotFound.into()));
     };
-    let show = MenuItem::with_id(app, SHOW, strings::BATCH_TRAY_SHOW, true, None::<&str>)?;
-    let stop = MenuItem::with_id(app, STOP, strings::BATCH_TRAY_STOP, true, None::<&str>)?;
+    let ui_strings = *app.state::<&'static strings::Strings>();
+    let show = MenuItem::with_id(app, SHOW, ui_strings.batch_tray_show, true, None::<&str>)?;
+    let stop = MenuItem::with_id(app, STOP, ui_strings.batch_tray_stop, true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &stop])?;
     TrayIconBuilder::with_id(ICON)
         .icon(picture)
-        .tooltip(strings::batch_tray_tooltip(done, total))
+        .tooltip(ui_strings.batch_tray_tooltip(done, total))
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -225,7 +226,8 @@ pub fn progress(app: &AppHandle, record: &RefCell<Record>) {
         on_main.state::<Background>().lock().progress = progress;
         if let Some(icon) = on_main.tray_by_id(ICON) {
             let (done, total) = progress;
-            let _ = icon.set_tooltip(Some(strings::batch_tray_tooltip(done, total)));
+            let ui_strings = *on_main.state::<&'static strings::Strings>();
+            let _ = icon.set_tooltip(Some(ui_strings.batch_tray_tooltip(done, total)));
         }
     });
 }
@@ -237,6 +239,7 @@ pub struct Ended {
     pub folder: PathBuf,
     pub record: Record,
     pub report: BatchReport,
+    pub strings: &'static strings::Strings,
 }
 
 /// A batch ended (it is not running any more). With the window hidden, its report goes into its
@@ -262,8 +265,9 @@ fn ended_on_main(app: &AppHandle, ended: Ended) {
     drop(state);
     let _ = app.remove_tray_by_id(ICON);
     let report = written.ok().map(|path| path.display().to_string());
-    let message = strings::batch_done_message(
-        &strings::batch_summary(ended.report.done, ended.report.failed, ended.report.skipped),
+    let ui_strings = ended.strings;
+    let message = ui_strings.batch_done_message(
+        &ui_strings.batch_summary(ended.report.done, ended.report.failed, ended.report.skipped),
         report.as_deref(),
     );
     let after = app.clone();
@@ -271,7 +275,7 @@ fn ended_on_main(app: &AppHandle, ended: Ended) {
     std::thread::spawn(move || {
         rfd::MessageDialog::new()
             .set_level(rfd::MessageLevel::Info)
-            .set_title(strings::BATCH_DONE_TITLE)
+            .set_title(ui_strings.batch_done_title)
             .set_description(message)
             .set_buttons(rfd::MessageButtons::Ok)
             .show();
@@ -299,9 +303,10 @@ fn close(app: &AppHandle) {
 fn write_report(ended: &Ended) -> std::io::Result<PathBuf> {
     let text = report_text(ended);
     for number in 1..=MAX_REPORT_NUMBER {
-        let path = ended
-            .folder
-            .join(batch::numbered(strings::BATCH_REPORT_FILE_NAME, number));
+        let path = ended.folder.join(batch::numbered(
+            ended.strings.batch_report_file_name,
+            number,
+        ));
         match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(mut file) => {
                 file.write_all(text.as_bytes())?;
@@ -317,12 +322,13 @@ fn write_report(ended: &Ended) -> std::io::Result<PathBuf> {
 /// The report of a batch: what it did, where, how it went, and each file's outcome, in lines
 /// Notepad shows as lines. No password is in it: a batch's operation only gives its name.
 fn report_text(ended: &Ended) -> String {
+    let ui_strings = ended.strings;
     let mut lines = vec![
-        strings::BATCH_REPORT_TITLE.to_owned(),
+        ui_strings.batch_report_title.to_owned(),
         String::new(),
-        strings::batch_report_operation(ended.operation),
-        strings::batch_report_folder(&ended.folder.display().to_string()),
-        strings::batch_summary(ended.report.done, ended.report.failed, ended.report.skipped),
+        ui_strings.batch_report_operation(ended.operation),
+        ui_strings.batch_report_folder(&ended.folder.display().to_string()),
+        ui_strings.batch_summary(ended.report.done, ended.report.failed, ended.report.skipped),
         String::new(),
     ];
     for (name, outcome) in ended.record.files.iter().zip(&ended.record.outcomes) {
@@ -330,8 +336,8 @@ fn report_text(ended: &Ended) -> String {
         lines.push(format!(
             "  {}",
             outcome.as_ref().map_or_else(
-                || strings::BATCH_NOT_DONE.to_owned(),
-                strings::batch_outcome
+                || ui_strings.batch_not_done.to_owned(),
+                |outcome| ui_strings.batch_outcome(outcome)
             )
         ));
     }
@@ -379,7 +385,7 @@ mod tests {
 
     #[test]
     fn the_report_names_each_file_and_its_outcome_and_nothing_else() {
-        let mut record = record();
+        let mut zh_record = record();
         for (index, outcome) in [
             BatchOutcome::Done {
                 output: "a（已加密）.pdf".to_owned(),
@@ -392,91 +398,126 @@ mod tests {
         .into_iter()
         .enumerate()
         {
-            record.hear(&BatchEvent::File {
+            zh_record.hear(&BatchEvent::File {
                 index: index as u32,
                 outcome,
             });
         }
+        let zh = &strings::ZH_TW;
         let ended = Ended {
-            operation: strings::batch_operation_name(
-                &ipc_contract::types::BatchOperation::Encrypt {
-                    open_password: Some(ipc_contract::types::Password::new("s3cret-pw".to_owned())),
-                    permissions_password: None,
-                    restrictions: Default::default(),
-                },
-            ),
+            operation: zh.batch_operation_name(&ipc_contract::types::BatchOperation::Encrypt {
+                open_password: Some(ipc_contract::types::Password::new("s3cret-pw".to_owned())),
+                permissions_password: None,
+                restrictions: Default::default(),
+            }),
             folder: PathBuf::from(r"C:\out"),
-            record,
+            record: zh_record,
             report: BatchReport {
                 done: 1,
                 failed: 1,
                 skipped: 0,
             },
+            strings: zh,
         };
         let text = report_text(&ended);
         assert_eq!(
             text,
             [
-                strings::BATCH_REPORT_TITLE.to_owned(),
+                zh.batch_report_title.to_owned(),
                 String::new(),
-                strings::batch_report_operation(ended.operation),
-                strings::batch_report_folder(r"C:\out"),
-                strings::batch_summary(1, 1, 0),
+                zh.batch_report_operation(ended.operation),
+                zh.batch_report_folder(r"C:\out"),
+                zh.batch_summary(1, 1, 0),
                 String::new(),
                 "a.pdf".to_owned(),
                 "  完成：a（已加密）.pdf".to_owned(),
                 "密碼.pdf".to_owned(),
                 format!(
                     "  {}",
-                    strings::batch_outcome(&BatchOutcome::Failed {
+                    zh.batch_outcome(&BatchOutcome::Failed {
                         error: ErrorCode::Encrypted
                     })
                 ),
                 "c.pdf".to_owned(),
-                format!("  {}", strings::BATCH_NOT_DONE),
+                format!("  {}", zh.batch_not_done),
                 String::new(),
             ]
             .join("\r\n")
         );
         assert!(!text.contains("s3cret-pw"));
+
+        let en = &strings::EN;
+        let mut en_record = record();
+        en_record.files = vec!["a.pdf".to_owned()];
+        en_record.outcomes = vec![Some(BatchOutcome::Done {
+            output: "a (encrypted).pdf".to_owned(),
+            bates: None,
+        })];
+        let en_ended = Ended {
+            operation: en.batch_operation_name(&ipc_contract::types::BatchOperation::Encrypt {
+                open_password: None,
+                permissions_password: None,
+                restrictions: Default::default(),
+            }),
+            folder: PathBuf::from(r"C:\out"),
+            record: en_record,
+            report: BatchReport {
+                done: 1,
+                failed: 0,
+                skipped: 0,
+            },
+            strings: en,
+        };
+        let en_text = report_text(&en_ended);
+        assert!(en_text.contains("PDF Reader Batch Processing Report"));
+        assert!(en_text.contains("Operation: Encrypt"));
+        assert!(en_text.contains("  Done: a (encrypted).pdf"));
     }
 
     #[test]
     fn a_report_never_replaces_a_file_and_is_numbered_when_its_name_is_taken() {
+        let zh = &strings::ZH_TW;
         let folder = std::env::temp_dir().join(format!("b304-report-{}", std::process::id()));
         std::fs::remove_dir_all(&folder).ok();
         std::fs::create_dir_all(&folder).unwrap();
-        std::fs::write(
-            folder.join(strings::BATCH_REPORT_FILE_NAME),
-            b"the user's own",
-        )
-        .unwrap();
+        std::fs::write(folder.join(zh.batch_report_file_name), b"the user's own").unwrap();
         let ended = Ended {
-            operation: strings::batch_operation_name(
-                &ipc_contract::types::BatchOperation::RemoveMetadata,
-            ),
+            operation: zh
+                .batch_operation_name(&ipc_contract::types::BatchOperation::RemoveMetadata),
             folder: folder.clone(),
             record: record(),
             report: BatchReport::default(),
+            strings: zh,
         };
         let first = write_report(&ended).unwrap();
         let second = write_report(&ended).unwrap();
         assert_eq!(
             first,
-            folder.join(batch::numbered(strings::BATCH_REPORT_FILE_NAME, 2))
+            folder.join(batch::numbered(zh.batch_report_file_name, 2))
         );
         assert_eq!(
             second,
-            folder.join(batch::numbered(strings::BATCH_REPORT_FILE_NAME, 3))
+            folder.join(batch::numbered(zh.batch_report_file_name, 3))
         );
         assert_eq!(
-            std::fs::read(folder.join(strings::BATCH_REPORT_FILE_NAME)).unwrap(),
+            std::fs::read(folder.join(zh.batch_report_file_name)).unwrap(),
             b"the user's own"
         );
         assert_eq!(
             std::fs::read_to_string(&first).unwrap(),
             report_text(&ended)
         );
+        // English report uses English default filename
+        let en_ended = Ended {
+            operation: strings::EN
+                .batch_operation_name(&ipc_contract::types::BatchOperation::RemoveMetadata),
+            folder: folder.clone(),
+            record: record(),
+            report: BatchReport::default(),
+            strings: &strings::EN,
+        };
+        let en_first = write_report(&en_ended).unwrap();
+        assert_eq!(en_first, folder.join(strings::EN.batch_report_file_name));
         // A folder that is not there: an error, and no file.
         let gone = Ended {
             folder: folder.join("not here"),

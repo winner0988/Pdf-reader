@@ -74,14 +74,28 @@ use crate::sensitive::SensitiveFiles;
 use crate::settings::SettingsStore;
 use crate::text_index::TextIndex;
 
+fn pre_setup_data_dir() -> Option<PathBuf> {
+    std::env::var_os("PDF_READER_DATA_DIR")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .or_else(|| {
+            std::env::var_os("LOCALAPPDATA")
+                .map(|root| PathBuf::from(root).join("io.github.winner0988.pdfreader"))
+        })
+}
+
 pub fn run() {
     // The installer does not install WebView2 (REL-02: webviewInstallMode is "skip"). Without it
     // Tauri cannot create the window and the app would end without a word, so say what is missing.
     if tauri::webview_version().is_err() {
+        let store =
+            SettingsStore::load(pre_setup_data_dir().map(|dir| dir.join(settings::FILE_NAME)));
+        let (effective_lang, _) = language::resolve_language(store.get().language);
+        let ui_strings = strings::for_language(effective_lang);
         rfd::MessageDialog::new()
             .set_level(rfd::MessageLevel::Error)
-            .set_title(strings::WEBVIEW2_MISSING_TITLE)
-            .set_description(strings::WEBVIEW2_MISSING_MESSAGE)
+            .set_title(ui_strings.webview2_missing_title)
+            .set_description(ui_strings.webview2_missing_message)
             .set_buttons(rfd::MessageButtons::Ok)
             .show();
         return;
@@ -241,6 +255,9 @@ pub fn run() {
             );
             let (effective_lang, sys_lang) =
                 language::resolve_language(settings_store.get().language);
+            let ui_strings = strings::for_language(effective_lang);
+            app.state::<Documents>().set_strings(ui_strings);
+            app.manage(ui_strings);
             let init_script = format!(
                 r#"window.__PDF_READER_LANGUAGE__ = "{effective_lang}"; window.__PDF_READER_SYSTEM_LANGUAGE__ = "{sys_lang}";"#
             );
@@ -259,10 +276,11 @@ pub fn run() {
             // The window's icon is the one that stands out against Windows' taskbar (UX-04).
             app_icon::follow_windows_mode(app.handle());
             app.manage(settings_store);
-            app.manage(Arc::new(Ocr::new(Languages::new(
+            app.manage(Arc::new(Ocr::new(Languages::with_language(
                 bundled_languages(app.app_handle()),
                 data.as_ref()
                     .map(|dir| dir.join(ocr_languages::FOLDER_NAME)),
+                effective_lang,
             ))));
             let fonts = fonts::Fonts::new(data.as_ref().map(|dir| dir.join(fonts::FOLDER_NAME)));
             app.state::<Documents>().set_fonts(fonts.clone());

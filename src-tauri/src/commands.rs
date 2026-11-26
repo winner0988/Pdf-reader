@@ -57,7 +57,6 @@ use crate::settings::SettingsStore;
 use crate::signature_images::SignatureImages;
 use crate::signing::{self, ChosenCertificate, ListedCertificates, Signer};
 use crate::speech::SpeechService;
-use crate::strings;
 use crate::text_index::{self, IndexFacts, Source as _, TextIndex};
 use crate::xfdf;
 
@@ -1200,6 +1199,7 @@ pub async fn export_pages(
             message: "an encrypted document cannot be split".to_owned(),
         });
     }
+    let ui_strings = *app.state::<&'static crate::strings::Strings>();
     let stem = export::stem(&info.display_name);
     let ExportArgs {
         request,
@@ -1249,7 +1249,7 @@ pub async fn export_pages(
                 ImageKind::Jpeg
             };
             let Some(folder) =
-                file_dialog::pick_folder(&window, strings::EXPORT_IMAGES_DIALOG_TITLE).await?
+                file_dialog::pick_folder(&window, ui_strings.export_images_dialog_title).await?
             else {
                 return Ok(false);
             };
@@ -1265,7 +1265,7 @@ pub async fn export_pages(
         }
         ExportFormat::Pdf => {
             let destination = loop {
-                let name = strings::split_file_name(&stem, &pages);
+                let name = ui_strings.split_file_name(&stem, &pages);
                 let Some(path) = file_dialog::split_pdf_file(&window, name).await? else {
                     return Ok(false);
                 };
@@ -1282,11 +1282,11 @@ pub async fn export_pages(
         }
         ExportFormat::PdfEvery { count } => {
             let Some(folder) =
-                file_dialog::pick_folder(&window, strings::SPLIT_FOLDER_DIALOG_TITLE).await?
+                file_dialog::pick_folder(&window, ui_strings.split_folder_dialog_title).await?
             else {
                 return Ok(false);
             };
-            let files = export::split_targets(&folder, &stem, &pages, count as usize);
+            let files = export::split_targets(&folder, &stem, &pages, count as usize, ui_strings);
             let documents = app.state::<Documents>();
             if files
                 .iter()
@@ -1307,10 +1307,13 @@ pub async fn export_pages(
 
 /// Says, in a native message box, that the pages cannot replace the document's own file.
 async fn tell_same_file(window: &WebviewWindow) {
+    let ui_strings = *window
+        .app_handle()
+        .state::<&'static crate::strings::Strings>();
     rfd::AsyncMessageDialog::new()
         .set_level(rfd::MessageLevel::Info)
-        .set_title(strings::SPLIT_SAME_FILE_TITLE)
-        .set_description(strings::SPLIT_SAME_FILE_MESSAGE)
+        .set_title(ui_strings.split_same_file_title)
+        .set_description(ui_strings.split_same_file_message)
         .set_buttons(rfd::MessageButtons::Ok)
         .set_parent(window)
         .show()
@@ -1339,13 +1342,15 @@ pub async fn export_annotation_summary(
     if summary.items.is_empty() && !summary.truncated {
         return Ok(AnnotationSummaryOutcome::Empty);
     }
+    let ui_strings = *app.state::<&'static crate::strings::Strings>();
     let markdown = format == AnnotationSummaryFormat::Markdown;
     let content = export::annotation_summary_file(
         &summary,
         markdown,
         include_name.then_some(info.display_name.as_str()),
+        ui_strings,
     );
-    let name = strings::annotation_summary_file_name(&export::stem(&info.display_name), markdown);
+    let name = ui_strings.annotation_summary_file_name(&export::stem(&info.display_name), markdown);
     let destination = loop {
         let Some(path) =
             file_dialog::save_annotation_summary_file(&window, name.clone(), markdown).await?
@@ -1385,8 +1390,9 @@ pub async fn export_annotations_xfdf(
         });
     }
 
+    let ui_strings = *app.state::<&'static crate::strings::Strings>();
     let xml_content = xfdf::file(&exported, &info.display_name);
-    let default_name = strings::xfdf_file_name(&export::stem(&info.display_name));
+    let default_name = ui_strings.xfdf_file_name(&export::stem(&info.display_name));
 
     let destination = loop {
         let Some(path) = file_dialog::save_xfdf_file(&window, default_name.clone()).await? else {
@@ -1516,11 +1522,12 @@ pub async fn export_compare_text(
     })
     .await?;
 
+    let ui_strings = *app.state::<&'static crate::strings::Strings>();
     let markdown = format == CompareExportFormat::Markdown;
-    let content = export::compare_text_file(&result, markdown, &name_a, &name_b);
+    let content = export::compare_text_file(&result, markdown, &name_a, &name_b, ui_strings);
     let stem_a = export::stem(&name_a);
     let stem_b = export::stem(&name_b);
-    let file_name = strings::compare_file_name(&stem_a, &stem_b, markdown);
+    let file_name = ui_strings.compare_file_name(&stem_a, &stem_b, markdown);
 
     let destination = loop {
         let Some(path) =
@@ -1551,6 +1558,7 @@ pub async fn privacy_export(
     window: WebviewWindow,
     doc: DocumentId,
 ) -> Result<bool, IpcError> {
+    let ui_strings = *app.state::<&'static crate::strings::Strings>();
     let info = app
         .state::<Documents>()
         .document_info(doc)
@@ -1564,7 +1572,7 @@ pub async fn privacy_export(
             message: "an encrypted document has no privacy export".to_owned(),
         });
     }
-    let file_name = strings::privacy_export_file_name(&export::stem(&info.display_name));
+    let file_name = ui_strings.privacy_export_file_name(&export::stem(&info.display_name));
     let destination = loop {
         let Some(path) = file_dialog::privacy_export_file(&window, file_name.clone()).await? else {
             return Ok(false);
@@ -1574,8 +1582,8 @@ pub async fn privacy_export(
         }
         rfd::AsyncMessageDialog::new()
             .set_level(rfd::MessageLevel::Info)
-            .set_title(strings::PRIVACY_EXPORT_SAME_FILE_TITLE)
-            .set_description(strings::PRIVACY_EXPORT_SAME_FILE_MESSAGE)
+            .set_title(ui_strings.privacy_export_same_file_title)
+            .set_description(ui_strings.privacy_export_same_file_message)
             .set_buttons(rfd::MessageButtons::Ok)
             .set_parent(&window)
             .show()
@@ -1599,6 +1607,7 @@ pub async fn sanitize_copy(
         message: error.to_string(),
     })?;
     let doc = args.doc;
+    let ui_strings = *app.state::<&'static crate::strings::Strings>();
     let info = app
         .state::<Documents>()
         .document_info(doc)
@@ -1612,7 +1621,7 @@ pub async fn sanitize_copy(
             message: "an encrypted document has no sanitized copy".to_owned(),
         });
     }
-    let file_name = strings::sanitized_copy_file_name(&export::stem(&info.display_name));
+    let file_name = ui_strings.sanitized_copy_file_name(&export::stem(&info.display_name));
     let destination = loop {
         let Some(path) = file_dialog::sanitized_copy_file(&window, file_name.clone()).await? else {
             return Ok(None);
@@ -1622,8 +1631,8 @@ pub async fn sanitize_copy(
         }
         rfd::AsyncMessageDialog::new()
             .set_level(rfd::MessageLevel::Info)
-            .set_title(strings::SANITIZED_COPY_SAME_FILE_TITLE)
-            .set_description(strings::SANITIZED_COPY_SAME_FILE_MESSAGE)
+            .set_title(ui_strings.sanitized_copy_same_file_title)
+            .set_description(ui_strings.sanitized_copy_same_file_message)
             .set_buttons(rfd::MessageButtons::Ok)
             .set_parent(&window)
             .show()
@@ -1653,6 +1662,7 @@ pub async fn page_marks_copy(
     })?;
     let doc = args.doc;
     let marks = args.marks;
+    let ui_strings = *app.state::<&'static crate::strings::Strings>();
     let info = app
         .state::<Documents>()
         .document_info(doc)
@@ -1666,7 +1676,7 @@ pub async fn page_marks_copy(
             message: "an encrypted document has no page marks copy".to_owned(),
         });
     }
-    let file_name = strings::page_marks_file_name(&export::stem(&info.display_name));
+    let file_name = ui_strings.page_marks_file_name(&export::stem(&info.display_name));
     let destination = loop {
         let Some(path) = file_dialog::page_marks_file(&window, file_name.clone()).await? else {
             return Ok(false);
@@ -1676,8 +1686,8 @@ pub async fn page_marks_copy(
         }
         rfd::AsyncMessageDialog::new()
             .set_level(rfd::MessageLevel::Info)
-            .set_title(strings::PAGE_MARKS_SAME_FILE_TITLE)
-            .set_description(strings::PAGE_MARKS_SAME_FILE_MESSAGE)
+            .set_title(ui_strings.page_marks_same_file_title)
+            .set_description(ui_strings.page_marks_same_file_message)
             .set_buttons(rfd::MessageButtons::Ok)
             .set_parent(&window)
             .show()
@@ -1706,6 +1716,7 @@ pub async fn compress_images(
         message: error.to_string(),
     })?;
     let doc = args.doc;
+    let ui_strings = *app.state::<&'static crate::strings::Strings>();
     let info = app
         .state::<Documents>()
         .document_info(doc)
@@ -1719,7 +1730,7 @@ pub async fn compress_images(
             message: "an encrypted document has no compressed copy".to_owned(),
         });
     }
-    let file_name = strings::compressed_copy_file_name(&export::stem(&info.display_name));
+    let file_name = ui_strings.compressed_copy_file_name(&export::stem(&info.display_name));
     let destination = loop {
         let Some(path) = file_dialog::compressed_copy_file(&window, file_name.clone()).await?
         else {
@@ -1730,8 +1741,8 @@ pub async fn compress_images(
         }
         rfd::AsyncMessageDialog::new()
             .set_level(rfd::MessageLevel::Info)
-            .set_title(strings::COMPRESSED_COPY_SAME_FILE_TITLE)
-            .set_description(strings::COMPRESSED_COPY_SAME_FILE_MESSAGE)
+            .set_title(ui_strings.compressed_copy_same_file_title)
+            .set_description(ui_strings.compressed_copy_same_file_message)
             .set_buttons(rfd::MessageButtons::Ok)
             .set_parent(&window)
             .show()
@@ -1760,6 +1771,7 @@ pub async fn searchable_copy(
         message: error.to_string(),
     })?;
     let doc = args.doc;
+    let ui_strings = *app.state::<&'static crate::strings::Strings>();
     let info = app
         .state::<Documents>()
         .document_info(doc)
@@ -1773,7 +1785,7 @@ pub async fn searchable_copy(
             message: "an encrypted document has no searchable copy".to_owned(),
         });
     }
-    let file_name = strings::searchable_copy_file_name(&export::stem(&info.display_name));
+    let file_name = ui_strings.searchable_copy_file_name(&export::stem(&info.display_name));
     let destination = loop {
         let Some(path) = file_dialog::searchable_copy_file(&window, file_name.clone()).await?
         else {
@@ -1784,8 +1796,8 @@ pub async fn searchable_copy(
         }
         rfd::AsyncMessageDialog::new()
             .set_level(rfd::MessageLevel::Info)
-            .set_title(strings::SEARCHABLE_COPY_SAME_FILE_TITLE)
-            .set_description(strings::SEARCHABLE_COPY_SAME_FILE_MESSAGE)
+            .set_title(ui_strings.searchable_copy_same_file_title)
+            .set_description(ui_strings.searchable_copy_same_file_message)
             .set_buttons(rfd::MessageButtons::Ok)
             .set_parent(&window)
             .show()
@@ -1878,6 +1890,7 @@ pub async fn sign_document(
         reason,
         utc_offset_minutes,
     } = args;
+    let ui_strings = *app.state::<&'static crate::strings::Strings>();
     let info = app
         .state::<Documents>()
         .document_info(doc)
@@ -1942,13 +1955,13 @@ pub async fn sign_document(
         visible: place.map(|place| VisibleSignature {
             page_index: place.page_index,
             corner: place.corner,
-            lines: strings::signature_lines(&signer_name, &time, reason.as_deref()),
+            lines: ui_strings.signature_lines(&signer_name, &time, reason.as_deref()),
         }),
         signer: signer_name,
         reason,
         time,
     };
-    let file_name = strings::signed_copy_file_name(&export::stem(&info.display_name));
+    let file_name = ui_strings.signed_copy_file_name(&export::stem(&info.display_name));
     let destination = loop {
         let Some(path) = file_dialog::signed_copy_file(&window, file_name.clone()).await? else {
             return Ok(None);
@@ -1958,8 +1971,8 @@ pub async fn sign_document(
         }
         rfd::AsyncMessageDialog::new()
             .set_level(rfd::MessageLevel::Info)
-            .set_title(strings::SIGNED_COPY_SAME_FILE_TITLE)
-            .set_description(strings::SIGNED_COPY_SAME_FILE_MESSAGE)
+            .set_title(ui_strings.signed_copy_same_file_title)
+            .set_description(ui_strings.signed_copy_same_file_message)
             .set_buttons(rfd::MessageButtons::Ok)
             .set_parent(&window)
             .show()
@@ -1995,6 +2008,7 @@ pub async fn encrypt_copy(
         message: error.to_string(),
     })?;
     let doc = args.doc;
+    let ui_strings = *app.state::<&'static crate::strings::Strings>();
     let info = app
         .state::<Documents>()
         .document_info(doc)
@@ -2008,7 +2022,7 @@ pub async fn encrypt_copy(
             message: "an encrypted document has no encrypted copy".to_owned(),
         });
     }
-    let file_name = strings::encrypted_copy_file_name(&export::stem(&info.display_name));
+    let file_name = ui_strings.encrypted_copy_file_name(&export::stem(&info.display_name));
     let destination = loop {
         let Some(path) = file_dialog::encrypted_copy_file(&window, file_name.clone()).await? else {
             return Ok(false);
@@ -2018,8 +2032,8 @@ pub async fn encrypt_copy(
         }
         rfd::AsyncMessageDialog::new()
             .set_level(rfd::MessageLevel::Info)
-            .set_title(strings::ENCRYPTED_COPY_SAME_FILE_TITLE)
-            .set_description(strings::ENCRYPTED_COPY_SAME_FILE_MESSAGE)
+            .set_title(ui_strings.encrypted_copy_same_file_title)
+            .set_description(ui_strings.encrypted_copy_same_file_message)
             .set_buttons(rfd::MessageButtons::Ok)
             .set_parent(&window)
             .show()
@@ -2057,6 +2071,7 @@ pub async fn decrypt_copy(
         message: error.to_string(),
     })?;
     let doc = args.doc;
+    let ui_strings = *app.state::<&'static crate::strings::Strings>();
     let info = app
         .state::<Documents>()
         .document_info(doc)
@@ -2070,7 +2085,7 @@ pub async fn decrypt_copy(
             message: "only an encrypted document has a copy without its password".to_owned(),
         });
     }
-    let file_name = strings::decrypted_copy_file_name(&export::stem(&info.display_name));
+    let file_name = ui_strings.decrypted_copy_file_name(&export::stem(&info.display_name));
     let destination = loop {
         let Some(path) = file_dialog::decrypted_copy_file(&window, file_name.clone()).await? else {
             return Ok(false);
@@ -2080,8 +2095,8 @@ pub async fn decrypt_copy(
         }
         rfd::AsyncMessageDialog::new()
             .set_level(rfd::MessageLevel::Info)
-            .set_title(strings::DECRYPTED_COPY_SAME_FILE_TITLE)
-            .set_description(strings::DECRYPTED_COPY_SAME_FILE_MESSAGE)
+            .set_title(ui_strings.decrypted_copy_same_file_title)
+            .set_description(ui_strings.decrypted_copy_same_file_message)
             .set_buttons(rfd::MessageButtons::Ok)
             .set_parent(&window)
             .show()
@@ -2141,8 +2156,9 @@ pub async fn run_batch(
             message: format!("more than {MAX_BATCH_FILES} files"),
         });
     }
+    let ui_strings = *app.state::<&'static crate::strings::Strings>();
     let Some(folder) =
-        file_dialog::pick_folder(&window, strings::BATCH_FOLDER_DIALOG_TITLE).await?
+        file_dialog::pick_folder(&window, ui_strings.batch_folder_dialog_title).await?
     else {
         return Ok(None);
     };
@@ -2168,10 +2184,11 @@ pub async fn run_batch(
         background::batch_ended(
             &app,
             background::Ended {
-                operation: strings::batch_operation_name(&args.operation),
+                operation: ui_strings.batch_operation_name(&args.operation),
                 folder,
                 record: record.into_inner(),
                 report,
+                strings: ui_strings,
             },
         );
         Ok(report)
@@ -2206,8 +2223,9 @@ async fn create_pdf_from_sources(
     window: &WebviewWindow,
     sources: Vec<(PathBuf, CreateKind)>,
 ) -> Result<Option<CreateResult>, IpcError> {
+    let ui_strings = *app.state::<&'static crate::strings::Strings>();
     let file_name =
-        strings::created_pdf_file_name(&export::stem(&documents::display_name(&sources[0].0)));
+        ui_strings.created_pdf_file_name(&export::stem(&documents::display_name(&sources[0].0)));
     let destination = loop {
         let Some(path) = file_dialog::save_created_pdf_file(window, file_name.clone()).await?
         else {
@@ -2221,8 +2239,8 @@ async fn create_pdf_from_sources(
         }
         rfd::AsyncMessageDialog::new()
             .set_level(rfd::MessageLevel::Info)
-            .set_title(strings::CREATE_PDF_SAME_FILE_TITLE)
-            .set_description(strings::CREATE_PDF_SAME_FILE_MESSAGE)
+            .set_title(ui_strings.create_pdf_same_file_title)
+            .set_description(ui_strings.create_pdf_same_file_message)
             .set_buttons(rfd::MessageButtons::Ok)
             .set_parent(window)
             .show()
@@ -2249,15 +2267,14 @@ pub async fn create_pdf_from_explorer(
     let Some(window) = app.get_webview_window("main") else {
         return ExplorerCreateStatus::Idle;
     };
+    let ui_strings = *app.state::<&'static crate::strings::Strings>();
 
     if batch.too_many {
         on_status(ExplorerCreateStatus::Idle);
         rfd::AsyncMessageDialog::new()
             .set_level(rfd::MessageLevel::Warning)
-            .set_title(strings::EXPLORER_CREATE_TOO_MANY_TITLE)
-            .set_description(strings::explorer_create_too_many_message(
-                MAX_CREATE_SOURCES,
-            ))
+            .set_title(ui_strings.explorer_create_too_many_title)
+            .set_description(ui_strings.explorer_create_too_many_message(MAX_CREATE_SOURCES))
             .set_buttons(rfd::MessageButtons::Ok)
             .set_parent(&window)
             .show()
@@ -2270,8 +2287,8 @@ pub async fn create_pdf_from_explorer(
         if batch.skipped > 0 {
             rfd::AsyncMessageDialog::new()
                 .set_level(rfd::MessageLevel::Info)
-                .set_title(strings::EXPLORER_CREATE_ALL_SKIPPED_TITLE)
-                .set_description(strings::explorer_create_all_skipped_message(batch.skipped))
+                .set_title(ui_strings.explorer_create_all_skipped_title)
+                .set_description(ui_strings.explorer_create_all_skipped_message(batch.skipped))
                 .set_buttons(rfd::MessageButtons::Ok)
                 .set_parent(&window)
                 .show()
@@ -2287,11 +2304,10 @@ pub async fn create_pdf_from_explorer(
     if batch.skipped > 0 {
         rfd::AsyncMessageDialog::new()
             .set_level(rfd::MessageLevel::Info)
-            .set_title(strings::EXPLORER_CREATE_SKIPPED_TITLE)
-            .set_description(strings::explorer_create_skipped_message(
-                batch.skipped,
-                batch.files.len(),
-            ))
+            .set_title(ui_strings.explorer_create_skipped_title)
+            .set_description(
+                ui_strings.explorer_create_skipped_message(batch.skipped, batch.files.len()),
+            )
             .set_buttons(rfd::MessageButtons::Ok)
             .set_parent(&window)
             .show()
@@ -2446,10 +2462,13 @@ pub async fn prepare_signature_stamp(
 
 /// Asks, in a native message box, whether exported files may replace `count` existing ones.
 async fn confirm_overwrite(window: &WebviewWindow, count: usize) -> bool {
+    let ui_strings = *window
+        .app_handle()
+        .state::<&'static crate::strings::Strings>();
     let answer = rfd::AsyncMessageDialog::new()
         .set_level(rfd::MessageLevel::Warning)
-        .set_title(strings::OVERWRITE_TITLE)
-        .set_description(strings::overwrite_message(count))
+        .set_title(ui_strings.overwrite_title)
+        .set_description(ui_strings.overwrite_message(count))
         .set_buttons(rfd::MessageButtons::YesNo)
         .set_parent(window)
         .show()
@@ -2817,8 +2836,9 @@ fn report(app: &AppHandle, event: OpenEvent) {
 /// Puts the file name of the tab the window shows in the window title (REL-03, MVP-14). The name
 /// has no directory components (`DocumentInfo::display_name`).
 fn show_active_in_title(app: &AppHandle) {
+    let ui_strings = *app.state::<&'static crate::strings::Strings>();
     let documents = app.state::<Documents>();
-    let title = strings::window_title(
+    let title = ui_strings.window_title(
         documents.active_name().as_deref(),
         documents.active_unsaved(),
     );

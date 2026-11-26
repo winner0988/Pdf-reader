@@ -17,7 +17,9 @@ use ipc_contract::types::{
     WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::validate::Validate;
-use ipc_contract::worker::{NewSignature, SigningTime, VisibleSignature, WorkerEdit};
+use ipc_contract::worker::{
+    NewSignature, PageNumberParts, SigningTime, VisibleSignature, WorkerEdit, WorkerPageMarks,
+};
 use libfuzzer_sys::arbitrary::Unstructured;
 use libfuzzer_sys::fuzz_target;
 use pdf_worker::engine::{
@@ -649,7 +651,17 @@ fuzz_target!(|data: &[u8]| {
                 margin_pt: 36.0,
                 pages: PageMarkPages::All,
             };
-            let _ = document.page_marks_copy(&marks, &mut sink());
+            let worker_marks = WorkerPageMarks::from_page_marks(
+                marks,
+                PageNumberParts {
+                    page_before: "Page ",
+                    page_after: "",
+                    total_before: "Page ",
+                    total_middle: " of ",
+                    total_after: "",
+                },
+            );
+            let _ = document.page_marks_copy(&worker_marks, &mut sink());
         }
         7 => {
             let id = [0x44u8; 16];

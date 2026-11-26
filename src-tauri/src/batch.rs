@@ -79,16 +79,20 @@ impl Drop for Running<'_> {
 /// What the copy of the file `display_name` is called (before a number makes it a name no file
 /// has): what the privacy export or the encrypted copy of one document suggests, and for the
 /// pictures' metadata a name of its own.
-pub fn copy_name(display_name: &str, operation: &BatchOperation) -> String {
+pub fn copy_name(
+    display_name: &str,
+    operation: &BatchOperation,
+    strings: &strings::Strings,
+) -> String {
     let stem = export::stem(display_name);
     match operation {
-        BatchOperation::RemoveMetadata => strings::privacy_export_file_name(&stem),
-        BatchOperation::Encrypt { .. } => strings::encrypted_copy_file_name(&stem),
-        BatchOperation::RemoveExif => strings::exif_cleaned_file_name(&stem),
-        BatchOperation::Watermark { .. } => strings::watermark_file_name(&stem),
-        BatchOperation::CompressImages { .. } => strings::compressed_copy_file_name(&stem),
-        BatchOperation::Sanitize { .. } => strings::sanitized_copy_file_name(&stem),
-        BatchOperation::PageMarks { .. } => strings::page_marks_file_name(&stem),
+        BatchOperation::RemoveMetadata => strings.privacy_export_file_name(&stem),
+        BatchOperation::Encrypt { .. } => strings.encrypted_copy_file_name(&stem),
+        BatchOperation::RemoveExif => strings.exif_cleaned_file_name(&stem),
+        BatchOperation::Watermark { .. } => strings.watermark_file_name(&stem),
+        BatchOperation::CompressImages { .. } => strings.compressed_copy_file_name(&stem),
+        BatchOperation::Sanitize { .. } => strings.sanitized_copy_file_name(&stem),
+        BatchOperation::PageMarks { .. } => strings.page_marks_file_name(&stem),
     }
 }
 
@@ -119,6 +123,7 @@ pub fn run(
         .iter()
         .map(|path| documents::display_name(path))
         .collect();
+    let ui_strings = documents.strings();
     report(BatchEvent::Started {
         files: names.clone(),
     });
@@ -142,7 +147,7 @@ pub fn run(
             match documents.batch_copy(
                 path,
                 folder,
-                &copy_name(name, operation),
+                &copy_name(name, operation, ui_strings),
                 &operation_for_file,
                 picture,
             ) {
@@ -187,8 +192,9 @@ mod tests {
 
     #[test]
     fn a_copy_is_named_as_the_one_of_a_single_document_is_and_numbered_when_taken() {
+        let zh = &strings::ZH_TW;
         assert_eq!(
-            copy_name("報告.pdf", &BatchOperation::RemoveMetadata),
+            copy_name("報告.pdf", &BatchOperation::RemoveMetadata, zh),
             "報告（隱私匯出）.pdf"
         );
         let encrypt = BatchOperation::Encrypt {
@@ -196,9 +202,12 @@ mod tests {
             permissions_password: None,
             restrictions: Restrictions::default(),
         };
-        assert_eq!(copy_name("Report.PDF", &encrypt), "Report（已加密）.pdf");
         assert_eq!(
-            copy_name("相片.pdf", &BatchOperation::RemoveExif),
+            copy_name("Report.PDF", &encrypt, zh),
+            "Report（已加密）.pdf"
+        );
+        assert_eq!(
+            copy_name("相片.pdf", &BatchOperation::RemoveExif, zh),
             "相片（已清除 EXIF）.pdf"
         );
         let watermark = BatchOperation::Watermark {
@@ -215,18 +224,18 @@ mod tests {
             },
         };
         assert_eq!(
-            copy_name("機密文件.pdf", &watermark),
+            copy_name("機密文件.pdf", &watermark, zh),
             "機密文件（浮水印）.pdf"
         );
         let compress = BatchOperation::CompressImages {
             quality: ipc_contract::types::ImageQuality::Medium,
             max_side: Some(2_000),
         };
-        assert_eq!(copy_name("掃描.pdf", &compress), "掃描（已壓縮）.pdf");
+        assert_eq!(copy_name("掃描.pdf", &compress, zh), "掃描（已壓縮）.pdf");
         let sanitize = BatchOperation::Sanitize {
             options: ipc_contract::types::SanitizeOptions::default(),
         };
-        assert_eq!(copy_name("合約.pdf", &sanitize), "合約（淨化副本）.pdf");
+        assert_eq!(copy_name("合約.pdf", &sanitize, zh), "合約（淨化副本）.pdf");
         let page_marks = BatchOperation::PageMarks {
             marks: Box::new(ipc_contract::types::PageMarks {
                 page_number: None,
@@ -239,8 +248,12 @@ mod tests {
             }),
         };
         assert_eq!(
-            copy_name("公文.pdf", &page_marks),
+            copy_name("公文.pdf", &page_marks, zh),
             "公文（頁碼與 Bates）.pdf"
+        );
+        assert_eq!(
+            copy_name("report.pdf", &page_marks, &strings::EN),
+            "report (page marks and Bates).pdf"
         );
         assert_eq!(numbered("a.pdf", 1), "a.pdf");
         assert_eq!(numbered("a.pdf", 2), "a (2).pdf");

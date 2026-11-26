@@ -23,9 +23,9 @@ use ipc_contract::types::{
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, InsertedTextBox, ModelGlyph, OcrFinished, OcrOutcome,
-    OcrPageState, OpenedDocument, PasswordKey, PreparedTextBoxModel, Raster, SourceTextBox,
-    TextBoxModel, WorkerAttachment, WorkerDocumentProperties, WorkerEdit, WorkerError,
-    WorkerErrorCode, WorkerPageMarks, WorkerRequest, WorkerResponse, WorkerWatermark,
+    OcrPageState, OpenedDocument, PageNumberParts, PasswordKey, PreparedTextBoxModel, Raster,
+    SourceTextBox, TextBoxModel, WorkerAttachment, WorkerDocumentProperties, WorkerEdit,
+    WorkerError, WorkerErrorCode, WorkerPageMarks, WorkerRequest, WorkerResponse, WorkerWatermark,
 };
 
 /// The words of a text box, as a worker would prepare them (a small one).
@@ -1433,49 +1433,67 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             request,
             doc,
             file: FileHandle(0x2bc),
-            marks: WorkerPageMarks::from(PageMarks {
-                page_number: Some(PageNumberMark {
-                    format: PageNumberFormat::PageOfTotal,
-                    start: 1,
-                    position: PageMarkPosition::BottomCenter,
-                }),
-                bates: None,
-                header_footer: Some(HeaderFooterMarks {
-                    header_left: Some("CONFIDENTIAL".to_owned()),
-                    header_center: None,
-                    header_right: Some("DRAFT".to_owned()),
-                    footer_left: None,
-                    footer_center: None,
-                    footer_right: None,
-                }),
-                font_size: 10.0,
-                color: Rgb {
-                    r: 50,
-                    g: 50,
-                    b: 50,
+            marks: WorkerPageMarks::from_page_marks(
+                PageMarks {
+                    page_number: Some(PageNumberMark {
+                        format: PageNumberFormat::PageOfTotal,
+                        start: 1,
+                        position: PageMarkPosition::BottomCenter,
+                    }),
+                    bates: None,
+                    header_footer: Some(HeaderFooterMarks {
+                        header_left: Some("CONFIDENTIAL".to_owned()),
+                        header_center: None,
+                        header_right: Some("DRAFT".to_owned()),
+                        footer_left: None,
+                        footer_center: None,
+                        footer_right: None,
+                    }),
+                    font_size: 10.0,
+                    color: Rgb {
+                        r: 50,
+                        g: 50,
+                        b: 50,
+                    },
+                    margin_pt: 36.0,
+                    pages: PageMarkPages::All,
                 },
-                margin_pt: 36.0,
-                pages: PageMarkPages::All,
-            }),
+                PageNumberParts {
+                    page_before: "Page ",
+                    page_after: "",
+                    total_before: "Page ",
+                    total_middle: " of ",
+                    total_after: "",
+                },
+            ),
         },
         WorkerRequest::PageMarksCopy {
             request,
             doc,
             file: FileHandle(0x2c0),
-            marks: WorkerPageMarks::from(PageMarks {
-                page_number: None,
-                bates: Some(BatesMark {
-                    prefix: "ABC-".to_owned(),
-                    digits: 6,
-                    start: 1,
-                    position: PageMarkPosition::BottomRight,
-                }),
-                header_footer: None,
-                font_size: 12.0,
-                color: Rgb { r: 0, g: 0, b: 0 },
-                margin_pt: 24.0,
-                pages: PageMarkPages::Custom { pages: vec![0, 1] },
-            }),
+            marks: WorkerPageMarks::from_page_marks(
+                PageMarks {
+                    page_number: None,
+                    bates: Some(BatesMark {
+                        prefix: "ABC-".to_owned(),
+                        digits: 6,
+                        start: 1,
+                        position: PageMarkPosition::BottomRight,
+                    }),
+                    header_footer: None,
+                    font_size: 12.0,
+                    color: Rgb { r: 0, g: 0, b: 0 },
+                    margin_pt: 24.0,
+                    pages: PageMarkPages::Custom { pages: vec![0, 1] },
+                },
+                PageNumberParts {
+                    page_before: "Page ",
+                    page_after: "",
+                    total_before: "Page ",
+                    total_middle: " of ",
+                    total_after: "",
+                },
+            ),
         },
         WorkerRequest::ExportDocx {
             request,

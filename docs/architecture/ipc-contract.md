@@ -374,6 +374,7 @@ worker 端的 `WorkerErrorCode` 以 `From` 轉換對應到上表。
 | 搜尋結果 | 10,000 筆 | 超過時 `truncated` |
 | 每筆結果的 quad | 64 | |
 | 頁碼標籤長度（MAX_PAGE_LABEL_BYTES） | 64 bytes | 單一頁碼標籤 UTF-8 長度上限，去除控制字元與不可見字元（B5-07） |
+| 頁碼文字片語長度（MAX_PAGE_NUMBER_PART_CHARS） | 32 字元 | 主行程依介面語言解析並透過 `WorkerPageNumberFormat` 交給 worker 的頁碼前後綴分段上限（ADR 0029、#684） |
 | 頁碼標籤樹節點數（MAX_PAGE_LABEL_NODES） | 256 | `/PageLabels` number tree 走訪節點上限，超過時停止並視為無標籤（B5-07） |
 | 頁碼標籤樹深度（MAX_PAGE_LABEL_DEPTH） | 16 | `/PageLabels` number tree 走訪深度上限（B5-07） |
 | 頁碼標籤項目總數（MAX_PAGE_LABEL_ITEMS） | 200,000 | `/PageLabels` 走訪期間 `/Kids` 與 `/Nums` 項目總數上限，超過時停止並視為無標籤（B5-07） |

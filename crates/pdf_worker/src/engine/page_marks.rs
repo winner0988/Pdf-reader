@@ -12,8 +12,9 @@
 use std::collections::BTreeSet;
 use std::io::Write;
 
-use ipc_contract::types::{PageMarkPosition, PageMarks, PageMarksError, PageNumberFormat};
+use ipc_contract::types::{PageMarkPosition, PageMarksError};
 use ipc_contract::validate::Validate;
+use ipc_contract::worker::WorkerPageMarks;
 use mupdf::pdf::{PdfObject, PdfWriteOptions};
 use mupdf::{Matrix, Rect};
 
@@ -83,21 +84,11 @@ fn placement(
     matrix
 }
 
-/// The words of page number `n` of `total`.
-fn page_number_text(format: &PageNumberFormat, n: u32, total: u32) -> String {
-    match format {
-        PageNumberFormat::Number => format!("{n}"),
-        PageNumberFormat::Page => format!("第 {n} 頁"),
-        PageNumberFormat::PageOfTotal => format!("第 {n} 頁／共 {total} 頁"),
-        PageNumberFormat::Custom { prefix, suffix } => format!("{prefix}{n}{suffix}"),
-    }
-}
-
 /// Every character the marks can have: their fixed words and the ten digits.
-fn characters(marks: &PageMarks) -> String {
+fn characters(marks: &WorkerPageMarks) -> String {
     let mut all = BTreeSet::new();
     if let Some(number) = &marks.page_number {
-        all.extend(page_number_text(&number.format, 0, 0).chars());
+        all.extend(number.format.format_number(0, 0).chars());
         all.extend('0'..='9');
     }
     if let Some(bates) = &marks.bates {
@@ -130,7 +121,7 @@ impl PdfDocument {
     /// signatures of a signed one do not hold in the copy, whose pages are not those signed.
     pub fn page_marks_copy(
         &self,
-        marks: &PageMarks,
+        marks: &WorkerPageMarks,
         out: &mut impl Write,
     ) -> Result<u64, EngineError> {
         marks
@@ -200,7 +191,7 @@ impl PdfDocument {
             }
             if let Some(number) = &marks.page_number {
                 let n = number.start.saturating_add(sequence as u32);
-                let text = page_number_text(&number.format, n, last_number);
+                let text = number.format.format_number(n, last_number);
                 let (form, width, height) = line(&mut copy, &text)?;
                 let matrix = placement(
                     number.position,
@@ -245,9 +236,26 @@ mod tests {
         BatesMark, HeaderFooterMarks, PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat,
         PageNumberMark, Rgb,
     };
+    use ipc_contract::worker::PageNumberParts;
     use mupdf::TextPageFlags;
 
     use super::*;
+
+    const ZH_TW_PARTS: PageNumberParts = PageNumberParts {
+        page_before: "第 ",
+        page_after: " 頁",
+        total_before: "第 ",
+        total_middle: " 頁／共 ",
+        total_after: " 頁",
+    };
+
+    const EN_PARTS: PageNumberParts = PageNumberParts {
+        page_before: "Page ",
+        page_after: "",
+        total_before: "Page ",
+        total_middle: " of ",
+        total_after: "",
+    };
 
     fn corpus(name: &str) -> Vec<u8> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -256,10 +264,19 @@ mod tests {
         std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
     }
 
-    fn copy_of(doc: &PdfDocument, marks: &PageMarks) -> Result<PdfDocument, EngineError> {
+    fn copy_of_with_parts(
+        doc: &PdfDocument,
+        marks: &PageMarks,
+        parts: PageNumberParts,
+    ) -> Result<PdfDocument, EngineError> {
         let mut out = Vec::new();
-        doc.page_marks_copy(marks, &mut out)?;
+        let worker_marks = WorkerPageMarks::from_page_marks(marks.clone(), parts);
+        doc.page_marks_copy(&worker_marks, &mut out)?;
         PdfDocument::from_bytes(&out)
+    }
+
+    fn copy_of(doc: &PdfDocument, marks: &PageMarks) -> Result<PdfDocument, EngineError> {
+        copy_of_with_parts(doc, marks, ZH_TW_PARTS)
     }
 
     fn text_of(doc: &PdfDocument, page: u32) -> String {
@@ -308,7 +325,7 @@ mod tests {
         assert!(text_of(&copy, 0).contains("1"));
         assert!(text_of(&copy, 9).contains("10"));
 
-        // 2. Page
+        // 2. Page (zh-TW and English caller-provided parts)
         let marks = PageMarks {
             page_number: Some(PageNumberMark {
                 format: PageNumberFormat::Page,
@@ -320,9 +337,12 @@ mod tests {
         let copy = copy_of(&doc, &marks).unwrap();
         assert!(text_of(&copy, 0).contains("第 1 頁"));
         assert!(text_of(&copy, 9).contains("第 10 頁"));
+        let en_copy = copy_of_with_parts(&doc, &marks, EN_PARTS).unwrap();
+        assert!(text_of(&en_copy, 0).contains("Page 1"));
+        assert!(text_of(&en_copy, 9).contains("Page 10"));
 
         // 3. PageOfTotal with AllButFirst: 10 pages total, marked 9 pages.
-        // First marked page is page 1, start 1 -> "第 1 頁／共 9 頁".
+        // First marked page is page 1, start 1 -> "第 1 頁／共 9 頁" / "Page 1 of 9".
         let marks = PageMarks {
             pages: PageMarkPages::AllButFirst,
             page_number: Some(PageNumberMark {
@@ -336,6 +356,10 @@ mod tests {
         assert!(!text_of(&copy, 0).contains("第 1 頁"));
         assert!(text_of(&copy, 1).contains("第 1 頁／共 9 頁"));
         assert!(text_of(&copy, 9).contains("第 9 頁／共 9 頁"));
+        let en_copy = copy_of_with_parts(&doc, &marks, EN_PARTS).unwrap();
+        assert!(!text_of(&en_copy, 0).contains("Page 1 of 9"));
+        assert!(text_of(&en_copy, 1).contains("Page 1 of 9"));
+        assert!(text_of(&en_copy, 9).contains("Page 9 of 9"));
 
         // 4. Custom
         let marks = PageMarks {
@@ -420,8 +444,9 @@ mod tests {
             ..default_marks()
         };
         let mut out = Vec::new();
+        let worker_overflow = WorkerPageMarks::from_page_marks(overflow, ZH_TW_PARTS);
         assert!(matches!(
-            doc.page_marks_copy(&overflow, &mut out),
+            doc.page_marks_copy(&worker_overflow, &mut out),
             Err(EngineError::InvalidEdit(_))
         ));
         assert!(out.is_empty(), "no file should be written on overflow");
@@ -564,8 +589,9 @@ mod tests {
             ..default_marks()
         };
         let mut out = Vec::new();
+        let worker_marks = WorkerPageMarks::from_page_marks(marks, ZH_TW_PARTS);
         assert!(matches!(
-            encrypted.page_marks_copy(&marks, &mut out),
+            encrypted.page_marks_copy(&worker_marks, &mut out),
             Err(EngineError::EncryptedCopy)
         ));
     }
@@ -592,7 +618,8 @@ mod tests {
             ..default_marks()
         };
         let mut out = Vec::new();
-        doc.page_marks_copy(&marks, &mut out).unwrap();
+        let worker_marks = WorkerPageMarks::from_page_marks(marks, ZH_TW_PARTS);
+        doc.page_marks_copy(&worker_marks, &mut out).unwrap();
         // The sample embeds no font of its own.
         let fonts = out
             .windows(b"/FontFile2".len())
@@ -623,8 +650,9 @@ mod tests {
             ..default_marks()
         };
         let mut out = Vec::new();
+        let worker_marks = WorkerPageMarks::from_page_marks(marks, ZH_TW_PARTS);
         assert!(matches!(
-            doc.page_marks_copy(&marks, &mut out),
+            doc.page_marks_copy(&worker_marks, &mut out),
             Err(EngineError::InvalidEdit(_))
         ));
         assert!(out.is_empty());

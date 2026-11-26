@@ -14,11 +14,12 @@ use crate::types::{
     FieldId, FindPersonalDataQuery, FontRefusal, FormField, HeaderFooterMarks, HighlightColor,
     HighlightMark, ImageQuality, InkColor, InkWidth, LinkId, NewLinkTarget, OutlineResult,
     PageAnnotation, PageCorner, PageLink, PageMarkPages, PageMarkPosition, PageMarks,
-    PageNumberFormat, PageNumberMark, PageSize, PageText, Password, PdfDate, PersonalDataMatches,
-    Point, RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb,
-    Rotation, SanitizeOptions, SanitizeReport, SearchHit, SearchableSkippedPage, SecurityReport,
-    Shape, SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo, TextBoxModelId,
-    TextBoxStyle, TextMarkKind, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
+    PageMarksError, PageNumberFormat, PageNumberMark, PageSize, PageText, Password, PdfDate,
+    PersonalDataMatches, Point, RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId,
+    Restrictions, Rgb, Rotation, SanitizeOptions, SanitizeReport, SearchHit, SearchableSkippedPage,
+    SecurityReport, Shape, SignatureReport, SourceId, StampImageId, StampName, TextBoxInfo,
+    TextBoxModelId, TextBoxStyle, TextMarkKind, Watermark, WatermarkContent, WatermarkPages,
+    WatermarkPlace, format_bates_value, resolve_marked_pages,
 };
 
 /// An attachment of a document as reported by the worker (B3-20, ADR 0025).
@@ -385,12 +386,67 @@ pub struct WorkerPageNumberMark {
     pub position: PageMarkPosition,
 }
 
+/// Localized fixed text pieces supplied by the main process for `Page` and `PageOfTotal`
+/// formats (ADR 0029, #684), keeping all UI-language strings out of `pdf_worker`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageNumberParts {
+    pub page_before: &'static str,
+    pub page_after: &'static str,
+    pub total_before: &'static str,
+    pub total_middle: &'static str,
+    pub total_after: &'static str,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WorkerPageNumberFormat {
     Number,
-    Page,
-    PageOfTotal,
-    Custom { prefix: String, suffix: String },
+    Page {
+        before: String,
+        after: String,
+    },
+    PageOfTotal {
+        before: String,
+        middle: String,
+        after: String,
+    },
+    Custom {
+        prefix: String,
+        suffix: String,
+    },
+}
+
+impl WorkerPageNumberFormat {
+    /// Builds the worker format from a frontend [`PageNumberFormat`] and the active UI language's
+    /// localized parts.
+    pub fn from_format(format: PageNumberFormat, parts: PageNumberParts) -> Self {
+        match format {
+            PageNumberFormat::Number => Self::Number,
+            PageNumberFormat::Page => Self::Page {
+                before: parts.page_before.to_owned(),
+                after: parts.page_after.to_owned(),
+            },
+            PageNumberFormat::PageOfTotal => Self::PageOfTotal {
+                before: parts.total_before.to_owned(),
+                middle: parts.total_middle.to_owned(),
+                after: parts.total_after.to_owned(),
+            },
+            PageNumberFormat::Custom { prefix, suffix } => Self::Custom { prefix, suffix },
+        }
+    }
+
+    /// Formats page number `n` of `total` without holding any hardcoded interface language text.
+    pub fn format_number(&self, n: u32, total: u32) -> String {
+        match self {
+            Self::Number => format!("{n}"),
+            Self::Page { before, after } => format!("{before}{n}{after}"),
+            Self::PageOfTotal {
+                before,
+                middle,
+                after,
+            } => format!("{before}{n}{middle}{total}{after}"),
+            Self::Custom { prefix, suffix } => format!("{prefix}{n}{suffix}"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -401,6 +457,13 @@ pub struct WorkerBatesMark {
     pub position: PageMarkPosition,
 }
 
+impl WorkerBatesMark {
+    /// Formats number `n` with this mark's prefix and zero-padded width.
+    pub fn format_number(&self, n: u64) -> String {
+        format_bates_value(&self.prefix, self.digits, n)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WorkerPageMarkPages {
     All,
@@ -408,42 +471,11 @@ pub enum WorkerPageMarkPages {
     Custom { pages: Vec<u32> },
 }
 
-impl From<PageNumberFormat> for WorkerPageNumberFormat {
-    fn from(format: PageNumberFormat) -> Self {
-        match format {
-            PageNumberFormat::Number => Self::Number,
-            PageNumberFormat::Page => Self::Page,
-            PageNumberFormat::PageOfTotal => Self::PageOfTotal,
-            PageNumberFormat::Custom { prefix, suffix } => Self::Custom { prefix, suffix },
-        }
-    }
-}
-
-impl From<WorkerPageNumberFormat> for PageNumberFormat {
-    fn from(format: WorkerPageNumberFormat) -> Self {
-        match format {
-            WorkerPageNumberFormat::Number => Self::Number,
-            WorkerPageNumberFormat::Page => Self::Page,
-            WorkerPageNumberFormat::PageOfTotal => Self::PageOfTotal,
-            WorkerPageNumberFormat::Custom { prefix, suffix } => Self::Custom { prefix, suffix },
-        }
-    }
-}
-
-impl From<PageNumberMark> for WorkerPageNumberMark {
-    fn from(mark: PageNumberMark) -> Self {
+impl WorkerPageNumberMark {
+    /// Attaches localized `parts` when `format` is `Page` or `PageOfTotal`.
+    pub fn from_mark(mark: PageNumberMark, parts: PageNumberParts) -> Self {
         Self {
-            format: mark.format.into(),
-            start: mark.start,
-            position: mark.position,
-        }
-    }
-}
-
-impl From<WorkerPageNumberMark> for PageNumberMark {
-    fn from(mark: WorkerPageNumberMark) -> Self {
-        Self {
-            format: mark.format.into(),
+            format: WorkerPageNumberFormat::from_format(mark.format, parts),
             start: mark.start,
             position: mark.position,
         }
@@ -492,10 +524,13 @@ impl From<WorkerPageMarkPages> for PageMarkPages {
     }
 }
 
-impl From<PageMarks> for WorkerPageMarks {
-    fn from(marks: PageMarks) -> Self {
+impl WorkerPageMarks {
+    /// Converts `marks` into a worker payload with localized page number `parts`.
+    pub fn from_page_marks(marks: PageMarks, parts: PageNumberParts) -> Self {
         Self {
-            page_number: marks.page_number.map(Into::into),
+            page_number: marks
+                .page_number
+                .map(|mark| WorkerPageNumberMark::from_mark(mark, parts)),
             bates: marks.bates.map(Into::into),
             header_footer: marks.header_footer,
             font_size: marks.font_size,
@@ -504,19 +539,18 @@ impl From<PageMarks> for WorkerPageMarks {
             pages: marks.pages.into(),
         }
     }
-}
 
-impl From<WorkerPageMarks> for PageMarks {
-    fn from(marks: WorkerPageMarks) -> Self {
-        Self {
-            page_number: marks.page_number.map(Into::into),
-            bates: marks.bates.map(Into::into),
-            header_footer: marks.header_footer,
-            font_size: marks.font_size,
-            color: marks.color,
-            margin_pt: marks.margin_pt,
-            pages: marks.pages.into(),
-        }
+    /// The 0-based page indices where marks will be drawn, in order, for `total_pages`.
+    pub fn marked_pages(&self, total_pages: u32) -> Result<Vec<u32>, PageMarksError> {
+        let pages = match &self.pages {
+            WorkerPageMarkPages::All => PageMarkPages::All,
+            WorkerPageMarkPages::AllButFirst => PageMarkPages::AllButFirst,
+            WorkerPageMarkPages::Custom { pages } => PageMarkPages::Custom {
+                pages: pages.clone(),
+            },
+        };
+        let bates = self.bates.as_ref().map(|b| (b.digits, b.start));
+        resolve_marked_pages(&pages, bates, total_pages)
     }
 }
 
@@ -2254,6 +2288,13 @@ mod tests {
 
     #[test]
     fn page_marks_cross_to_the_worker_as_they_were_given() {
+        let parts = PageNumberParts {
+            page_before: "Page ",
+            page_after: "",
+            total_before: "Page ",
+            total_middle: " of ",
+            total_after: "",
+        };
         let marks = PageMarks {
             page_number: Some(PageNumberMark {
                 format: PageNumberFormat::PageOfTotal,
@@ -2293,11 +2334,12 @@ mod tests {
             }
         );
 
+        let worker_marks = WorkerPageMarks::from_page_marks(marks, parts);
         let request = WorkerRequest::PageMarksCopy {
             request: RequestId(5),
             doc: DocumentId(6),
             file: FileHandle(7),
-            marks: marks.clone().into(),
+            marks: worker_marks.clone(),
         };
         let bytes = postcard::to_allocvec(&request).unwrap();
         let back = postcard::from_bytes::<WorkerRequest>(&bytes).unwrap();
@@ -2305,7 +2347,16 @@ mod tests {
         let WorkerRequest::PageMarksCopy { marks: crossed, .. } = back else {
             panic!("{back:?}");
         };
-        assert_eq!(PageMarks::from(crossed), marks);
+        assert_eq!(crossed, worker_marks);
+        assert_eq!(
+            crossed
+                .page_number
+                .as_ref()
+                .unwrap()
+                .format
+                .format_number(2, 5),
+            "Page 2 of 5"
+        );
     }
 
     #[test]

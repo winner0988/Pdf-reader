@@ -78,6 +78,8 @@ pub struct Documents {
     credentials: OnceLock<Credentials>,
     /// Where fonts come from to prepare text boxes on inserted pages. Set once at startup.
     fonts: OnceLock<crate::fonts::Fonts>,
+    /// Active main-process/output language strings, resolved once at startup (ADR 0029).
+    strings: OnceLock<&'static crate::strings::Strings>,
 }
 
 struct Inner {
@@ -202,7 +204,20 @@ impl Documents {
             journals: OnceLock::new(),
             credentials: OnceLock::new(),
             fonts: OnceLock::new(),
+            strings: OnceLock::new(),
         }
+    }
+
+    /// Sets the active language string table resolved at startup.
+    pub fn set_strings(&self, strings: &'static crate::strings::Strings) {
+        let _ = self.strings.set(strings);
+    }
+
+    pub fn strings(&self) -> &'static crate::strings::Strings {
+        self.strings
+            .get()
+            .copied()
+            .unwrap_or(&crate::strings::ZH_TW)
     }
 
     /// Where events go that no command is waiting for (see the field).
@@ -1095,9 +1110,13 @@ impl Documents {
             saving::check_writable(destination)?;
             let mut temporary = Temporary::new(destination)?;
             let worker_doc = live_worker(document)?;
+            let worker_marks = ipc_contract::worker::WorkerPageMarks::from_page_marks(
+                marks,
+                self.strings().page_number_parts,
+            );
             let response = document
                 .host
-                .page_marks_copy(worker_doc, temporary.file(), marks)
+                .page_marks_copy(worker_doc, temporary.file(), worker_marks)
                 .map_err(|error| lost_on(document, &error))?;
             let WorkerResponse::Saved { bytes, .. } = response else {
                 return Err(unexpected_on(document, "PageMarksCopy"));
@@ -1624,9 +1643,14 @@ impl Documents {
                 })?;
                 host.sanitized_copy(doc, temporary.file(), id, *options)
             }
-            BatchOperation::PageMarks { marks } => {
-                host.page_marks_copy(doc, temporary.file(), (**marks).clone())
-            }
+            BatchOperation::PageMarks { marks } => host.page_marks_copy(
+                doc,
+                temporary.file(),
+                ipc_contract::worker::WorkerPageMarks::from_page_marks(
+                    (**marks).clone(),
+                    self.strings().page_number_parts,
+                ),
+            ),
         }
         .map_err(|error| ipc_error(&error))?;
         let (WorkerResponse::Saved { bytes, .. }
@@ -5892,7 +5916,7 @@ mod with_worker {
             visible: visible.then(|| ipc_contract::worker::VisibleSignature {
                 page_index: 0,
                 corner: ipc_contract::types::PageCorner::BottomRight,
-                lines: crate::strings::signature_lines("測試簽署人", &time, Some("測試")),
+                lines: crate::strings::ZH_TW.signature_lines("測試簽署人", &time, Some("測試")),
             }),
             time,
         }
@@ -9533,6 +9557,28 @@ mod with_worker {
                 .iter()
                 .any(|l| l.text.contains("CONFIDENTIAL"))
         );
+
+        // English UI mode formats page numbers and batch copy filename in English.
+        let en_docs = Documents::new(worker());
+        en_docs.set_strings(&crate::strings::EN);
+        let en_out = batch_folder("page-marks-en");
+        let (en_report, _) = run_batch(
+            &en_docs,
+            &[corpus_path("benign/multi-page-10.pdf")],
+            &en_out,
+            &operation,
+            false,
+        );
+        assert_eq!(
+            (en_report.done, en_report.failed, en_report.skipped),
+            (1, 0, 0)
+        );
+        let en_copy_path = en_out.join("multi-page-10 (page marks and Bates).pdf");
+        assert!(en_copy_path.exists());
+        let en_doc = open_in(&en_docs, &en_copy_path);
+        let en_p0 = en_docs.page_text(en_doc.doc, 0).unwrap();
+        assert!(en_p0.lines.iter().any(|l| l.text.contains("Page 1 of 10")));
+        std::fs::remove_dir_all(&en_out).ok();
 
         // The original files are untouched.
         for (file, bytes) in files.iter().zip(&before) {
