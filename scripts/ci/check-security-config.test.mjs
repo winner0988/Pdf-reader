@@ -16,6 +16,7 @@ import {
   checkCsp,
   checkFuzzingDoc,
   checkPermissionFiles,
+  checkPortableConfig,
   checkRepository,
   checkTauriConfig,
   checkTauriConfigFiles,
@@ -816,6 +817,7 @@ function copyRepository(t, prefix) {
   for (const file of [
     "src-tauri/tauri.conf.json",
     "src-tauri/tauri.bundle.conf.json",
+    "src-tauri/tauri.portable.conf.json",
     "src-tauri/allowed-permissions.json",
     "vite.config.ts",
     "src-tauri/src/lib.rs",
@@ -1083,8 +1085,16 @@ test("tauri.conf.json names capabilities but holds none (#671)", () => {
   ]);
 });
 
-test("tauri.conf.json and tauri.bundle.conf.json are the only Tauri configuration files (#671)", () => {
-  const usual = ["build.rs", "capabilities", "Cargo.toml", "tauri.bundle.conf.json", "tauri.conf.json", "tauri-notes.md"];
+test("tauri.conf.json, tauri.bundle.conf.json, and tauri.portable.conf.json are the only Tauri configuration files (#671, #449)", () => {
+  const usual = [
+    "build.rs",
+    "capabilities",
+    "Cargo.toml",
+    "tauri.bundle.conf.json",
+    "tauri.conf.json",
+    "tauri.portable.conf.json",
+    "tauri-notes.md",
+  ];
   assert.deepEqual(checkTauriConfigFiles(usual), []);
   for (const name of [
     "tauri.windows.conf.json",
@@ -1122,6 +1132,29 @@ test("tauri.bundle.conf.json sets only what pnpm bundle needs (#671)", () => {
     assert.ok(problems[0].startsWith(`src-tauri/tauri.bundle.conf.json: sets ${setting}. `), problems[0]);
   }
   assert.deepEqual(checkBundleConfig([]), ["src-tauri/tauri.bundle.conf.json: must be a JSON object"]);
+});
+
+test("tauri.portable.conf.json sets only what the portable POC needs (#449)", () => {
+  const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+  const portable = JSON.parse(readFileSync(join(repoRoot, "src-tauri/tauri.portable.conf.json"), "utf8"));
+  assert.deepEqual(checkPortableConfig(portable), []);
+  for (const [config, setting] of [
+    [{ ...portable, app: { security: { csp: null } } }, "app.security.csp"],
+    [{ ...portable, app: null }, "app"],
+    [{ ...portable, bundle: { ...portable.bundle, resources: null } }, "bundle.resources"],
+  ]) {
+    const problems = checkPortableConfig(config);
+    assert.equal(problems.length, 1, JSON.stringify(problems));
+    assert.ok(problems[0].startsWith(`src-tauri/tauri.portable.conf.json: sets ${setting}. `), problems[0]);
+  }
+  assert.equal(
+    checkPortableConfig({
+      ...portable,
+      bundle: { ...portable.bundle, windows: { webviewInstallMode: { type: "downloadBootstrapper" } } },
+    }).length,
+    1,
+  );
+  assert.deepEqual(checkPortableConfig([]), ["src-tauri/tauri.portable.conf.json: must be a JSON object"]);
 });
 
 test("names Windows reads as the folders and files the build uses are found (#671)", () => {

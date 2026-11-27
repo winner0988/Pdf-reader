@@ -33,7 +33,8 @@ const cargo = spawnSync(
 if (cargo.error) throw cargo.error;
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
 
-const built = join(root, "target", TARGET, "release", "pdf_worker.exe");
+const targetDir = process.env.CARGO_TARGET_DIR || join(root, "target");
+const built = join(targetDir, TARGET, "release", "pdf_worker.exe");
 const bytes = readFileSync(built);
 const redistributable = redistributableDlls(bytes);
 if (redistributable.length > 0) {

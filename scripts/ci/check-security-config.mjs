@@ -87,7 +87,7 @@ const FORBIDDEN_PLUGINS = ["http", "websocket", "upload", "updater", "shell", "o
  * feature it merges tauri.windows.conf.json5 or Tauri.windows.toml, and reads tauri.conf.json5 or
  * Tauri.toml in place of a missing tauri.conf.json. Windows matches those names in any letter case.
  */
-const TAURI_CONFIG_FILES = ["tauri.conf.json", "tauri.bundle.conf.json"];
+const TAURI_CONFIG_FILES = ["tauri.conf.json", "tauri.bundle.conf.json", "tauri.portable.conf.json"];
 
 /**
  * The settings src-tauri/tauri.bundle.conf.json may make, as key paths (#671). `pnpm bundle` runs
@@ -97,6 +97,18 @@ const TAURI_CONFIG_FILES = ["tauri.conf.json", "tauri.bundle.conf.json"];
  * built with, unseen by this script.
  */
 const BUNDLE_CONFIG_SETTINGS = [["$schema"], ["build", "beforeBuildCommand"], ["bundle", "externalBin"]];
+
+/**
+ * The settings src-tauri/tauri.portable.conf.json may make (#449 POC, do not merge as-is).
+ */
+const PORTABLE_CONFIG_SETTINGS = [
+  ["$schema"],
+  ["identifier"],
+  ["build", "beforeBuildCommand"],
+  ["bundle", "externalBin"],
+  ["bundle", "windows", "webviewInstallMode", "type"],
+  ["bundle", "windows", "webviewInstallMode", "path"],
+];
 
 /**
  * Names a Windows build reads where this script reads them, by the folder that holds them (#671).
@@ -515,20 +527,44 @@ function settingPaths(value, path = []) {
   return Object.entries(value).flatMap(([key, child]) => settingPaths(child, [...path, key]));
 }
 
-/** Returns the problems with src-tauri/tauri.bundle.conf.json: a setting not in BUNDLE_CONFIG_SETTINGS (#671). */
-export function checkBundleConfig(config, { file = "src-tauri/tauri.bundle.conf.json" } = {}) {
+function checkOverrideConfig(config, allowedSettings, file, note) {
   if (config === null || typeof config !== "object" || Array.isArray(config)) {
     return [`${file}: must be a JSON object`];
   }
-  const allowed = new Set(BUNDLE_CONFIG_SETTINGS.map((path) => JSON.stringify(path)));
+  const allowed = new Set(allowedSettings.map((path) => JSON.stringify(path)));
   return settingPaths(config)
     .filter((path) => !allowed.has(JSON.stringify(path)))
     .map(
       (path) =>
-        `${file}: sets ${path.join(".")}. pnpm bundle merges this file into tauri.conf.json, where a ` +
-        `null removes a setting, so it may set only ${BUNDLE_CONFIG_SETTINGS.map((p) => p.join(".")).join(", ")}. ` +
+        `${file}: sets ${path.join(".")}. ${note} ` +
+        `It may set only ${allowedSettings.map((p) => p.join(".")).join(", ")}. ` +
         "Put other settings in tauri.conf.json, where this check reads them (#671)",
     );
+}
+
+/** Returns the problems with src-tauri/tauri.bundle.conf.json: a setting not in BUNDLE_CONFIG_SETTINGS (#671). */
+export function checkBundleConfig(config, { file = "src-tauri/tauri.bundle.conf.json" } = {}) {
+  return checkOverrideConfig(
+    config,
+    BUNDLE_CONFIG_SETTINGS,
+    file,
+    "pnpm bundle merges this file into tauri.conf.json, where a null removes a setting.",
+  );
+}
+
+/** Returns the problems with src-tauri/tauri.portable.conf.json (#449 POC). */
+export function checkPortableConfig(config, { file = "src-tauri/tauri.portable.conf.json" } = {}) {
+  const problems = checkOverrideConfig(
+    config,
+    PORTABLE_CONFIG_SETTINGS,
+    file,
+    "The portable POC build merges this file into tauri.conf.json, where a null removes a setting.",
+  );
+  const webviewMode = config?.bundle?.windows?.webviewInstallMode?.type;
+  if (webviewMode !== undefined && webviewMode !== "fixedRuntime") {
+    problems.push(`${file}: bundle.windows.webviewInstallMode.type must be fixedRuntime, got "${webviewMode}"`);
+  }
+  return problems;
 }
 
 /**
@@ -1239,6 +1275,10 @@ export function checkRepository(root) {
   const bundleConfigFile = join(root, "src-tauri/tauri.bundle.conf.json");
   if (existsSync(bundleConfigFile)) {
     problems.push(...checkBundleConfig(JSON.parse(readFileSync(bundleConfigFile, "utf8"))));
+  }
+  const portableConfigFile = join(root, "src-tauri/tauri.portable.conf.json");
+  if (existsSync(portableConfigFile)) {
+    problems.push(...checkPortableConfig(JSON.parse(readFileSync(portableConfigFile, "utf8"))));
   }
 
   const devCsp = extractDevCsp(readFileSync(join(root, "vite.config.ts"), "utf8"));

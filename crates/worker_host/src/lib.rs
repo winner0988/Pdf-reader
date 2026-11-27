@@ -107,8 +107,9 @@ struct Connection {
 impl Drop for Connection {
     fn drop(&mut self) {
         // Dropping `process` closes the job, which kills the worker; kill explicitly first so the
-        // reader thread sees end-of-stream promptly.
+        // reader thread sees end-of-stream promptly, and wait briefly so handles release before exit.
         let _ = self.process.kill();
+        let _ = self.process.wait_timeout(Duration::from_secs(2));
     }
 }
 

@@ -219,6 +219,24 @@ pub struct Strings {
     pub no_text_layer_page: &'static str,
     pub webview2_missing_title: &'static str,
     pub webview2_missing_message: &'static str,
+    #[cfg_attr(not(feature = "portable"), allow(dead_code))]
+    pub portable_unsupported_fs_title: &'static str,
+    #[cfg_attr(not(feature = "portable"), allow(dead_code))]
+    pub portable_unsupported_fs_message: &'static str,
+    #[cfg_attr(not(feature = "portable"), allow(dead_code))]
+    pub portable_unwritable_title: &'static str,
+    #[cfg_attr(not(feature = "portable"), allow(dead_code))]
+    pub portable_unwritable_message: &'static str,
+    pub portable_webview2_missing_title: &'static str,
+    pub portable_webview2_missing_message: &'static str,
+    #[cfg_attr(not(feature = "portable"), allow(dead_code))]
+    pub portable_worker_acl_title: &'static str,
+    #[cfg_attr(not(feature = "portable"), allow(dead_code))]
+    pub portable_worker_acl_message: &'static str,
+    #[cfg_attr(not(feature = "portable"), allow(dead_code))]
+    pub portable_webview2_acl_title: &'static str,
+    #[cfg_attr(not(feature = "portable"), allow(dead_code))]
+    pub portable_webview2_acl_message: &'static str,
 }
 
 impl Strings {
@@ -823,6 +841,23 @@ pub static ZH_TW: Strings = Strings {
 Windows 11 已內建 WebView2。如果它被移除了，請到 Microsoft 官方網站下載並安裝「WebView2 Runtime」，然後再開啟 PDF Reader：\n\
 https://developer.microsoft.com/microsoft-edge/webview2/\n\n\
 PDF Reader 不會自行下載任何東西。",
+    portable_unsupported_fs_title: "無法在此位置執行可攜版 PDF Reader",
+    portable_unsupported_fs_message: "可攜版無法從網路磁碟機、唯讀光碟或不支援的檔案系統執行。\n\n\
+請將整個資料夾複製到本機磁碟或 USB 隨身碟（NTFS、ReFS、exFAT 或 FAT32），再重新開啟。\n\n\
+PDF Reader 不會自行下載任何東西。",
+    portable_unwritable_title: "可攜版無法寫入資料夾",
+    portable_unwritable_message: "可攜版需要在程式旁邊的 data 資料夾儲存設定與瀏覽資料，但目前沒有寫入權限。\n\n\
+請將整個資料夾移到可寫入的位置（例如 USB 隨身碟或使用者資料夾），或檢查資料夾是否設為唯讀。",
+    portable_webview2_missing_title: "缺少可攜版 WebView2 元件",
+    portable_webview2_missing_message: "可攜版資料夾內找不到完整的 WebView2（需有 WebView2\\msedgewebview2.exe）。\n\n\
+請確認已將固定版本 WebView2 Runtime 解壓縮至程式旁邊的 WebView2 資料夾。\n\n\
+PDF Reader 不會自行下載任何東西。",
+    portable_worker_acl_title: "無法設定可攜版處理程序權限",
+    portable_worker_acl_message: "目前無法授與可攜版 PDF 處理程序所需的 NTFS 讀取與執行權限（pdf_worker.exe）。\n\n\
+如果整個資料夾被設為鎖定權限或無法變更安全性設定，請移到你有權限變更檔案安全性設定的資料夾，或檢查檔案的安全性權限。",
+    portable_webview2_acl_title: "無法設定 WebView2 資料夾權限",
+    portable_webview2_acl_message: "在 Windows 10 上，可攜版的 WebView2 資料夾需要授與應用程式封裝讀取與執行權限，但目前無法套用權限。\n\n\
+請移到可變更安全性設定的資料夾，或允許 All Application Packages 與 All Restricted Application Packages 讀取與執行 WebView2 資料夾。",
 };
 
 pub static EN: Strings = Strings {
@@ -1044,6 +1079,23 @@ pub static EN: Strings = Strings {
 Windows 11 includes WebView2. If it was removed, please download and install \"WebView2 Runtime\" from the official Microsoft website, then restart PDF Reader:\n\
 https://developer.microsoft.com/microsoft-edge/webview2/\n\n\
 PDF Reader never downloads anything on its own.",
+    portable_unsupported_fs_title: "Cannot Start Portable PDF Reader Here",
+    portable_unsupported_fs_message: "The portable edition cannot run from a network share, read-only disc, or unsupported file system.\n\n\
+Copy the whole folder to a local drive or USB drive formatted as NTFS, ReFS, exFAT, or FAT32, then start it again.\n\n\
+PDF Reader never downloads anything on its own.",
+    portable_unwritable_title: "Cannot Write Portable Data Folder",
+    portable_unwritable_message: "The portable edition needs write access to the data folder next to the program for settings and browser data.\n\n\
+Move the whole folder to a writable location (such as a USB drive or your user folder) or check that it is not read-only.",
+    portable_webview2_missing_title: "Missing Portable WebView2 Runtime",
+    portable_webview2_missing_message: "The portable WebView2 folder is missing or incomplete (WebView2\\msedgewebview2.exe was not found next to the program).\n\n\
+Make sure the Fixed Version WebView2 Runtime is extracted into the WebView2 folder beside the executable.\n\n\
+PDF Reader never downloads anything on its own.",
+    portable_worker_acl_title: "Cannot Grant Worker Permissions",
+    portable_worker_acl_message: "Could not grant the portable PDF worker sandbox read and execute access to pdf_worker.exe on this NTFS/ReFS drive.\n\n\
+Move the folder to a location where you can change file permissions, or inspect Security permissions on pdf_worker.exe.",
+    portable_webview2_acl_title: "Cannot Grant WebView2 Folder Permissions",
+    portable_webview2_acl_message: "On Windows 10, the portable WebView2 folder must grant Read & Execute access to application package SIDs, which failed here.\n\n\
+Move the folder to a location where you can modify permissions, or allow Read & Execute for All Application Packages and All Restricted Application Packages on the WebView2 folder.",
 };
 
 #[cfg(test)]
@@ -1397,6 +1449,31 @@ mod tests {
             ("no_text_layer_page", s.no_text_layer_page),
             ("webview2_missing_title", s.webview2_missing_title),
             ("webview2_missing_message", s.webview2_missing_message),
+            (
+                "portable_unsupported_fs_title",
+                s.portable_unsupported_fs_title,
+            ),
+            (
+                "portable_unsupported_fs_message",
+                s.portable_unsupported_fs_message,
+            ),
+            ("portable_unwritable_title", s.portable_unwritable_title),
+            ("portable_unwritable_message", s.portable_unwritable_message),
+            (
+                "portable_webview2_missing_title",
+                s.portable_webview2_missing_title,
+            ),
+            (
+                "portable_webview2_missing_message",
+                s.portable_webview2_missing_message,
+            ),
+            ("portable_worker_acl_title", s.portable_worker_acl_title),
+            ("portable_worker_acl_message", s.portable_worker_acl_message),
+            ("portable_webview2_acl_title", s.portable_webview2_acl_title),
+            (
+                "portable_webview2_acl_message",
+                s.portable_webview2_acl_message,
+            ),
         ];
         for (name, val) in required_fields {
             check_en_text(name, val, false);

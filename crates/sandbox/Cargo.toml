@@ -18,6 +18,7 @@ test = false
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
+    "Wdk_System_SystemServices",
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Security_Authorization",
@@ -28,6 +29,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_JobObjects",
     "Win32_System_LibraryLoader",
     "Win32_System_Pipes",
+    "Win32_System_SystemInformation",
     "Win32_System_SystemServices",
     "Win32_System_Threading",
 ] }
