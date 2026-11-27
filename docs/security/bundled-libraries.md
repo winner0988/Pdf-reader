@@ -5,7 +5,7 @@
 `crates/pdf_worker` 透過 `mupdf-sys` 靜態編譯並連結 MuPDF 及其第三方 C/C++ 函式庫。由於 `cargo deny` 與 Dependabot 僅能追蹤 crates.io 上的 Rust 依賴，無法穿透檢測靜態內嵌的 C/C++ 原始碼，因此本文件維護這份清單，記錄各函式庫在目前所用 MuPDF 版本的來源版本、原始碼提交點、平臺納入情況與更新指引。
 
 - **查驗基準版本**：MuPDF 1.28.6（git commit [`da5f5eb890d7b3fb76903160b5f7f48ba1301492`](https://github.com/ArtifexSoftware/mupdf/commit/da5f5eb890d7b3fb76903160b5f7f48ba1301492)）
-- **mupdf-sys 來源**：[`winner0988/mupdf-rs`](https://github.com/winner0988/mupdf-rs) 的 `v0.8.0-mupdf-1.28` 分支（commit `8520f108e2adc332ad53b7a61281137650275904`，見 [mupdf-binding.md](../architecture/mupdf-binding.md)）
+- **mupdf-sys 來源**：[`winner0988/mupdf-rs`](https://github.com/winner0988/mupdf-rs) 的 `v0.8.0-mupdf-1.28` 分支（commit `9797b41f7a4f487d5202ffd1c51035ccfee345bc`，見 [mupdf-binding.md](../architecture/mupdf-binding.md)）
 - **查驗日期**：2026-11-23
 
 ---
@@ -44,11 +44,11 @@ MuPDF 1.28.6 內附的版本已經有上游的修正，#572 拿掉了建置期�
 
 ### 附註：Tesseract 建置期修補
 
-MuPDF 1.28.6 內附的 Tesseract（基準為 5.5.2，commit `ad0f76d971946512a62c933f490c8111877eddaa`）缺少對 traineddata 讀取時的計數與長度邊界檢查，以及 LSTM 閘矩陣與 recoder 的合理性檢查。專案使用 fork `winner0988/mupdf-rs`（commit `8520f108e2adc332ad53b7a61281137650275904`），其在 `mupdf-sys/build.rs` 的 `patch_mupdf_sources` 於呼叫 MSBuild 或 make 之前被呼叫，因此在 Windows 與 Linux 建置期皆會自動套用 Tesseract 上游修補：包括 #563 的五個 commit（`82727cc1`、`55287a94`、`103dc134`、`b494ac18` 與 `c94a5532`，`103dc134` 加的 `WeightMatrix::Dim1()`／`Dim2()` 是 `b494ac18` 要用的），加上 #577 套的上游 5.5.3、5.5.4 讀取語言資料的檢查（22 個 commit），以及 #580 套的上游 5.5.3、5.5.4 辨識時的修正（10 個 commit，沒套的見 #580；清單都在 fork 的 `mupdf-sys/build.rs`；共 33 個檔案 +549 −80）。只改到舊引擎（`DISABLED_LEGACY_ENGINE`）與 `FAST_FLOAT` 的不套，建置時會檢查這兩個設定（原始碼裡既找不到未修正、也找不到修正後的寫法時，或 MuPDF 開始編譯舊引擎／`FAST_FLOAT` 時，建置皆會失敗；詳見 [mupdf-binding.md](../architecture/mupdf-binding.md)）。修補仍然保留。
+MuPDF 1.28.6 內附的 Tesseract（基準為 5.5.2，commit `ad0f76d971946512a62c933f490c8111877eddaa`）缺少對 traineddata 讀取時的計數與長度邊界檢查，以及 LSTM 閘矩陣與 recoder 的合理性檢查。專案使用 fork `winner0988/mupdf-rs`（commit `9797b41f7a4f487d5202ffd1c51035ccfee345bc`），其在 `mupdf-sys/build.rs` 的 `patch_mupdf_sources` 於呼叫 MSBuild 或 make 之前被呼叫，因此在 Windows 與 Linux 建置期皆會自動套用 Tesseract 上游修補：包括 #563 的五個 commit（`82727cc1`、`55287a94`、`103dc134`、`b494ac18` 與 `c94a5532`，`103dc134` 加的 `WeightMatrix::Dim1()`／`Dim2()` 是 `b494ac18` 要用的），加上 #577 套的上游 5.5.3、5.5.4 讀取語言資料的檢查（22 個 commit），以及 #580 套的上游 5.5.3、5.5.4 辨識時的修正（10 個 commit，沒套的見 #580；清單都在 fork 的 `mupdf-sys/build.rs`；共 33 個檔案 +549 −80）。只改到舊引擎（`DISABLED_LEGACY_ENGINE`）與 `FAST_FLOAT` 的不套，建置時會檢查這兩個設定（原始碼裡既找不到未修正、也找不到修正後的寫法時，或 MuPDF 開始編譯舊引擎／`FAST_FLOAT` 時，建置皆會失敗；詳見 [mupdf-binding.md](../architecture/mupdf-binding.md)）。修補仍然保留。
 
 ### 附註：FreeType 建置期修補
 
-MuPDF 1.28.6 內附的 FreeType 是 2.14.3。fork（commit `8520f108e2adc332ad53b7a61281137650275904`）的 `mupdf-sys/build.rs` 在建置時套上上游 FreeType 2.15.0 的 12 個 commit（#626）：TrueType 位元組碼直譯器（`Ins_IUP`、`Ins_SHZ`、`Ins_WCVTF`）、CID 字型的子程式讀取、定點數運算（`FT_Matrix_Check` 與絕對值），以及 CFF 字形程式（`psaux`）的堆疊與子程式檢查；共 6 個檔案 +67 −40。清單在 fork 的 `mupdf-sys/build.rs`，沒套的與理由見 #626。原始碼裡既找不到未修正、也找不到修正後的寫法時，建置失敗。
+MuPDF 1.28.6 內附的 FreeType 是 2.14.3。fork（commit `9797b41f7a4f487d5202ffd1c51035ccfee345bc`）的 `mupdf-sys/build.rs` 在建置時套上上游 FreeType 2.15.0 的 12 個 commit（#626）：TrueType 位元組碼直譯器（`Ins_IUP`、`Ins_SHZ`、`Ins_WCVTF`）、CID 字型的子程式讀取、定點數運算（`FT_Matrix_Check` 與絕對值），以及 CFF 字形程式（`psaux`）的堆疊與子程式檢查；共 6 個檔案 +67 −40。清單在 fork 的 `mupdf-sys/build.rs`，沒套的與理由見 #626。原始碼裡既找不到未修正、也找不到修正後的寫法時，建置失敗。
 
 ---
 

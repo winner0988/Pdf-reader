@@ -34,7 +34,7 @@
 ### `mupdf-sys` 的來源
 
 - **為什麼用 fork**：crates.io 停在 0.8.0，內附的是 1.27.2。第一次建置時 cargo 要下載 MuPDF 與它所有第三方函式庫的 git 歷史（約 850 MB），之後存在 `~/.cargo/git`。
-- **分支與 commit**：來源是 <https://github.com/winner0988/mupdf-rs> 的分支 `v0.8.0-mupdf-1.28`，commit 為 `8520f108e2adc332ad53b7a61281137650275904`。它帶了：
+- **分支與 commit**：來源是 <https://github.com/winner0988/mupdf-rs> 的分支 `v0.8.0-mupdf-1.28`，commit 為 `9797b41f7a4f487d5202ffd1c51035ccfee345bc`。它帶了：
   - 子模組指到 MuPDF 1.28.6（`da5f5eb890d7b3fb76903160b5f7f48ba1301492`）；
   - `src/page.rs` 補上 `table_hunt_options`（`vertically_collapse_bordered_cells: 0`，行為與 1.27.2 相同）；
   - 根目錄 `Cargo.toml` 的字型 crate 拿掉 `path`，改從 crates.io 取；
@@ -51,14 +51,21 @@
     - `source/fitz/draw-device.c` 的 `fz_draw_end_tile`：1.28 會把在頁面上移動不到 1/16 像素的步距加倍，但格子大、步距小時，每重複一次仍要貼一次整格。進迴圈之前先估計要畫多少（像素 + 8 × 列數 + 64 × 重複次數；權重都低於最便宜的情況、也就是全透明格子量到的成本），超過 2^38 就拒絕。被拒絕的 pattern 在開發機上估計至少要畫 45 秒，本來就會撞到 30 秒的時限。反過來，沒被拒絕的仍可能畫很久，例如縮圖的小倍率與不透明的格子（#672）；
     - `source/pdf/pdf-op-run.c` 的 `pdf_show_pattern`：pattern 的資源裡有混合模式（或裝置要求不用 tile）時，MuPDF 每重複一次就把 pattern 的內容跑一次，這條路沒有任何步距的保護。重複超過 2^26 次就拒絕：內容是空的，在開發機上每次也要 1.4 µs，2^26 次至少 90 秒；
     - worker 把繪製時的 `FZ_ERROR_LIMIT` 回報成 `LimitExceeded`（`crates/pdf_worker/src/serve.rs` 的 `render_error_code`）；
-  - `mupdf-sys/msbuild.rs` 連結 `advapi32`。
+  - `mupdf-sys/msbuild.rs` 連結 `advapi32`；
+  - 內容過濾的安全包裝（#748，ADR 0036「fork」，給編輯頁面上原有的文字用），沒有改 MuPDF 的原始碼：
+    - `PdfPage::filter_text`（`src/pdf/text_filter.rs`）以 `pdf_filter_page_contents` 與 `pdf_new_sanitize_filter` 過濾頁面的內容，`pdf_sanitize_filter_options` 的 `text_filter` 逐字問 Rust 的回呼要留下還是移除。和 `pdf_redact_page` 不同，同一區的連結與註解都留著（`pdf_redact_page` 一定刪掉連結與 FreeText 註解，POC #725 的 C.6）；
+    - 回呼拿得到這個字的 Unicode、字框、文字矩陣與 CTM、換到 `TextPage` 座標的四邊形、文字繪製模式（`Tr`，MuPDF 1.28 本來就傳給 `text_filter`）與填色、描邊的不透明度，以及在不在 Form XObject 裡。`is_invisible` 照 MuPDF 自己遮蔽隱形文字的規則（`pdf_redact_invisible_text_filter`）：模式 3，或不透明度 0 的填色、描邊；模式 4～7 會裁切，一律不算看不見；
+    - 選項照 C 的 `pdf_filter_options`（`recurse`、`instance_forms`、`ascii`、`no_update`、`newlines`），預設和 MuPDF 的遮蔽一樣只開 `instance_forms`：Form XObject 為這一頁另外複製一份再過濾，其他用到同一個表單的頁不受影響。`recurse` 與 `instance_forms` 同時開時拒絕（`pdf_filter_type3` 以 `assert` 排除這個組合）；
+    - C 的膠水在 `mupdf-sys/wrapper/pdf_text_filter.c`：替每個內容串流建立一個 sanitize filter（頁面自己的最先建立，所以分得出 Form XObject）；回呼 panic 時由 Rust 端以 `catch_unwind` 接住，再由 C 端丟出 `FZ_ERROR_ABORT`，過濾在改頁面之前停下，`longjmp` 不會穿過 Rust 的呼叫框架，錯誤以 `Error::MuPdf` 回傳；
+    - 測試在 fork 的 `tests/test_text_filter.rs`；這個 repo 的 `crates/pdf_worker/tests/text_filter.rs` 確認移除一行字之後同一區的連結還在，並以 `pdf_redact_page` 做負向對照。
 - **已移除的建置期修補**：OpenJPEG（#539）與 lcms2（#562）的修正已經在 1.28.6 內附的版本裡，建置期修補已經拿掉。
 - **舊分支保留**：`v0.8.0-bundled-fixes`（`1989036c0019c1b7f23ccf075024e3997a66c1bc`）保留不動。
-- 根目錄與 `fuzz/` 的 `Cargo.toml` 以 `[patch.crates-io]` 指向同一個 `rev`（`8520f108e2adc332ad53b7a61281137650275904`），`deny.toml` 的 `allow-git` 允許此 repository。
+- 根目錄與 `fuzz/` 的 `Cargo.toml` 以 `[patch.crates-io]` 指向同一個 `rev`（`9797b41f7a4f487d5202ffd1c51035ccfee345bc`），`deny.toml` 的 `allow-git` 允許此 repository。
 - **什麼時候可以拿掉 fork**：MuPDF 內附的 Tesseract 到 5.5.4 以上時，Tesseract 的修補與上面的檢查都拿掉；MuPDF 內附的 FreeType 到 2.15.0 以上時，FreeType 的修補拿掉；crates.io 上的 `mupdf`、`mupdf-sys` 也帶了這樣的 MuPDF 時，在升級的 PR 裡刪除兩個 `Cargo.toml` 的 `[patch.crates-io]` 與 `deny.toml` 的 `allow-git`，這一節改回 crates.io。
   - fork 也以 `FZ_ENABLE_MD=0` 關掉 Markdown 讀取器（#572）：crates.io 的 `mupdf-sys` 也要能關掉它，才能拿掉 fork，否則 `markdown_reader_is_compiled_out` 會失敗。
   - 文字擷取的修補（#628、#629、#638、#678）也要上游修好才能拿掉，否則 `crates/pdf_worker/tests/text.rs` 的 `text_that_is_drawn_and_clipped_comes_out_once`、`a_text_object_that_clips_and_then_draws_keeps_its_clip`、`a_clipped_glyph_that_stands_for_two_letters_gives_both` 與 `glyph_names_give_the_characters_they_stand_for` 會失敗。
   - tiling pattern 的上限（#550）也要上游有同樣的保護才能拿掉，否則 `crates/pdf_worker/tests/render_error.rs` 的 `tiling_patterns_that_cannot_finish_report_limit_exceeded_at_once` 會逾時失敗。
+  - 內容過濾的包裝（#748）也要上游的 `mupdf` crate 有同樣的 API 才能拿掉，否則 `crates/pdf_worker/tests/text_filter.rs` 編譯不過。
 - **之後要升到更新的 1.28.x**：在分支加 commit 改 gitlink；檢查建置輸出（`<run>/output`）沒有 `Unable to patch`；Tesseract 與 FreeType 的差異和這裡寫的相同；照 #561 的規則更新 `bundled-libraries.md`，並由 Claude Code 私下對照已知問題；加上 `needs-security-review`。
 
 ## 編譯期功能

@@ -19,11 +19,11 @@ mupdf-sys = { version = "=0.8.0", default-features = false, features = ["tessera
 [workspace]
 members = ["."]
 
-# The same source of mupdf and mupdf-sys as the main workspace (see its Cargo.toml, #563, #572, #577, #580, and #626): a patch only
+# The same source of mupdf and mupdf-sys as the main workspace (see its Cargo.toml, #563, #572, #577, #580, #626, and #748): a patch only
 # counts in the workspace that declares it.
 [patch.crates-io]
-mupdf = { git = "https://github.com/winner0988/mupdf-rs", rev = "8520f108e2adc332ad53b7a61281137650275904" }
-mupdf-sys = { git = "https://github.com/winner0988/mupdf-rs", rev = "8520f108e2adc332ad53b7a61281137650275904" }
+mupdf = { git = "https://github.com/winner0988/mupdf-rs", rev = "9797b41f7a4f487d5202ffd1c51035ccfee345bc" }
+mupdf-sys = { git = "https://github.com/winner0988/mupdf-rs", rev = "9797b41f7a4f487d5202ffd1c51035ccfee345bc" }
 
 # cargo-fuzz builds with overflow checks on; the shipped release build has them off. The font
 # subsetter adds two u16 values without a check in name.rs (typst/subsetter#30): the sum wraps in

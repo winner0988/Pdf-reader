@@ -34,12 +34,15 @@ strip = true
 # mupdf and mupdf-sys are patched to our fork branch v0.8.0-mupdf-1.28, which upgrades
 # MuPDF to 1.28.6, compiles out the Markdown reader (FZ_ENABLE_MD=0, #572), and applies
 # upstream Tesseract model-loading bounds checks (#563, #577) and recognition fixes (#580),
-# and upstream FreeType 2.15.0 fixes (#626).
+# and upstream FreeType 2.15.0 fixes (#626). It also adds safe wrappers of MuPDF's content
+# filter (pdf_filter_page_contents with a sanitize filter that asks a callback about each glyph,
+# PdfPage::filter_text, #748), for editing text already on a page without deleting the links and
+# annotations over it as pdf_redact_page does.
 # OpenJPEG (#539) and Little CMS (#562) fixes are already present in MuPDF 1.28.6.
 # See docs/architecture/mupdf-binding.md. fuzz/Cargo.toml has the same patch and
 # deny.toml allows this one repository. Remove the patches when releases on crates.io
 # of mupdf and mupdf-sys bundle a MuPDF that includes Tesseract 5.5.4 and
 # FreeType 2.15.0 or later.
 [patch.crates-io]
-mupdf = { git = "https://github.com/winner0988/mupdf-rs", rev = "8520f108e2adc332ad53b7a61281137650275904" }
-mupdf-sys = { git = "https://github.com/winner0988/mupdf-rs", rev = "8520f108e2adc332ad53b7a61281137650275904" }
+mupdf = { git = "https://github.com/winner0988/mupdf-rs", rev = "9797b41f7a4f487d5202ffd1c51035ccfee345bc" }
+mupdf-sys = { git = "https://github.com/winner0988/mupdf-rs", rev = "9797b41f7a4f487d5202ffd1c51035ccfee345bc" }
