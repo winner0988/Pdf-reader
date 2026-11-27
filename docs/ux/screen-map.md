@@ -264,10 +264,10 @@
 
 ### 加密並另存新檔（B2-15）
 
-- 「⋯」→「加密並另存新檔…」（在「隱私匯出…」之後）開啟對話框。沒有開啟文件時停用；加密的文件停用，並標示 encryption.encrypted。做法見 [encrypt-copy.md](../architecture/encrypt-copy.md)。
+- 「⋯」→「加密並另存新檔…」（在「隱私匯出…」之後）開啟對話框。沒有開啟文件時停用；已加密的文件停用，並標示 encryption.encrypted；有數位簽章的文件停用，並標示 encryption.signedBlocked。做法見 [encrypt-copy.md](../architecture/encrypt-copy.md)。
 - **對話框**：encryption.description；「開啟密碼」與再輸入一次（encryption.openPasswordHint：沒有的話任何人都能開）；「限制」三個核取方塊（encryption.restrict.*）、「權限密碼」與再輸入一次（encryption.permissionsPasswordHint）；encryption.note（密碼不會被記住也無法找回、限制由閱讀器自行遵守）與 encryption.signatures（有數位簽章的文件不能加密）。
 - **提示**：欄位下方一行（`role="status"`）說明第一個問題：沒有設定任何東西、兩次輸入不同、有限制卻沒有權限密碼、權限密碼與開啟密碼相同、密碼太長（以位元組計）；有問題時「加密並另存新檔…」停用。
-- **加密並另存新檔…**：主行程顯示系統的另存對話框，建議檔名 `<原檔名>（已加密）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（ENCRYPTED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，可以再試；失敗（例如有數位簽章）時顯示 encryption.failed，沒有檔案被留下。
+- **加密並另存新檔…**：主行程顯示系統的另存對話框，建議檔名 `<原檔名>（已加密）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（ENCRYPTED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，可以再試；若簽章狀態尚未載入時送出而因有數位簽章被拒絕，顯示 encryption.signed；其他原因顯示 encryption.failed，沒有檔案被留下。
 - 關閉對話框或完成後，密碼欄位清空，不留任何密碼。完成後狀態列顯示 encryption.done 4 秒；分頁仍然是原本的文件。
 
 ### 另存沒有密碼的副本
@@ -279,9 +279,9 @@
 
 ### 壓縮圖片並另存新檔（B3-01）
 
-- 「⋯」→「壓縮圖片並另存新檔…」（在「加密並另存新檔…」之後）開啟對話框。沒有開啟文件時停用；加密的文件停用，並標示 compress.encrypted。做法見 [compress-images.md](../architecture/compress-images.md)。
+- 「⋯」→「壓縮圖片並另存新檔…」（在「加密並另存新檔…」之後）開啟對話框。沒有開啟文件時停用；已加密的文件停用，並標示 compress.encrypted；有數位簽章的文件停用，並標示 compress.signedBlocked。做法見 [compress-images.md](../architecture/compress-images.md)。
 - **對話框**：compress.description；「品質」三個選項（compress.quality.*，預設「中」）、「圖片的最大尺寸」五個選項（不縮小、長邊最多 3000、2000、1500、1000 像素，預設 2000）；compress.note（只有變小的圖片才會換掉、哪些通常不會動、重新編碼的圖片不帶相機的資料）與 compress.signatures（已加密或有數位簽章的文件不能壓縮）。選項是原生的單選按鈕，`Tab` 進入一組後用方向鍵選擇。
-- **選擇位置並壓縮…**：主行程顯示系統的另存對話框，建議檔名 `<原檔名>（已壓縮）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（COMPRESSED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，可以再試；失敗（有數位簽章、檔案不能寫入等）時顯示 compress.failed，沒有檔案被留下。壓縮中顯示 compress.running，選項與按鈕停用，不能關閉對話框。
+- **選擇位置並壓縮…**：主行程顯示系統的另存對話框，建議檔名 `<原檔名>（已壓縮）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（COMPRESSED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，可以再試；若簽章狀態尚未載入時送出而因有數位簽章被拒絕，顯示 compress.signed；其他原因（檔案不能寫入等）顯示 compress.failed，沒有檔案被留下。壓縮中顯示 compress.running，選項與按鈕停用，不能關閉對話框。
 - **結果**：成功後對話框換成結果（標題 compress.resultTitle，`role="status"`）：副本的大小、不壓縮圖片時的大小與少了多少百分比、重新編碼了幾張圖片（共幾張）；沒有圖片、或都沒有變小時照實說；時間不夠時加上 compress.result.partial。按「完成」（compress.close）關閉；對話框不會自己消失，因為數字要讀。分頁仍然是原本的文件，副本不加入最近開啟的檔案。
 
 ### 簽署文件（B3-06）
@@ -1326,7 +1326,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | batch.summary(done, failed, skipped) | 完成 <N> 個，失敗 <N> 個，略過 <N> 個。（是 0 的部分不說） |
 | batch.waiting／batch.done(output, bates)／batch.failedFile(reason)／batch.skipped | 等待中／完成：<副本檔名>（含 Bates 編號時附上號碼範圍，例如（DOC-000001～DOC-000010））／失敗：<原因>／略過（已停止） |
 | batch.reasons.encrypted | 有密碼的檔案，批次處理不詢問密碼 |
-| batch.reasons.invalidArgument | 這個檔案不能這樣處理，例如有數位簽章的文件不能加密、清除 EXIF 或壓縮圖片（簽章會失效） |
+| batch.reasons.invalidArgument | 這個檔案不能這樣處理 |
 | batch.reasons.batesOverflow | 這個檔案的 Bates 編號超出位數上限 |
 | batch.reasons.noPageToMark | 這個檔案沒有要加標記的頁，或指定的頁面超出檔案頁數 |
 | error.messages.batesOverflow | 這個檔案的 Bates 編號超出位數上限。 |
@@ -1396,6 +1396,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | encryption.signatures | 有數位簽章的文件不能加密：簽章會失效。 |
 | encryption.start／encryption.cancel | 加密並另存新檔…／取消 |
 | encryption.running／encryption.done | 正在加密…／已加密並另存新檔。 |
+| encryption.signed | 有數位簽章的文件不能加密：簽章會失效。 |
 | encryption.failed | 無法加密這份文件。有數位簽章的文件不能加密；其他原因請再試一次。 |
 | encryption.problem.nothing | 請設定開啟密碼，或至少選一項限制。 |
 | encryption.problem.openMismatch／permissionsMismatch | 兩次輸入的開啟密碼不一樣。／兩次輸入的權限密碼不一樣。 |
@@ -1403,6 +1404,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | encryption.problem.same | 權限密碼要與開啟密碼不同，否則知道開啟密碼的人也能解除限制。 |
 | encryption.problem.tooLong(max) | 密碼最多 <max> 個位元組（一個中文字是 3 個）。 |
 | encryption.encrypted | 已加密的文件不適用（選單中，取代快捷鍵的位置） |
+| encryption.signedBlocked | 有數位簽章的文件不適用（選單中，取代快捷鍵的位置） |
 | ENCRYPTED_COPY_DIALOG_TITLE（主行程） | 加密並另存新檔：選擇副本的位置 |
 | encrypted_copy_file_name（主行程） | <原檔名>（已加密）.pdf |
 | ENCRYPTED_COPY_SAME_FILE_TITLE／MESSAGE（主行程） | 請選擇其他檔案／加密會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |
@@ -1442,6 +1444,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | compress.signatures | 已加密或有數位簽章的文件不能壓縮。 |
 | compress.start／compress.cancel／compress.close | 選擇位置並壓縮…／取消／完成 |
 | compress.running | 正在壓縮圖片… |
+| compress.signed | 有數位簽章的文件不能壓縮：簽章會失效。 |
 | compress.failed | 無法壓縮這份文件。已加密或有數位簽章的文件不能壓縮；其他原因請再試一次。 |
 | compress.resultTitle | 已存成新檔 |
 | compress.result.done(before, after, saved, changed, images) | 副本大小 <after>（不壓縮圖片是 <before>，少了 <saved>%）。<images> 張圖片中的 <changed> 張重新編碼了。 |
@@ -1450,6 +1453,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | compress.result.partial | 時間不夠，其餘的圖片沒有處理。 |
 | compress.kilobytes(kb)／compress.megabytes(mb) | <kb> KB／<mb> MB（不到 1 MB 用 KB，其餘一位小數的 MB） |
 | compress.encrypted | 已加密的文件不適用（選單中，取代快捷鍵的位置） |
+| compress.signedBlocked | 有數位簽章的文件不適用（選單中，取代快捷鍵的位置） |
 | COMPRESSED_COPY_DIALOG_TITLE（主行程） | 壓縮圖片並另存新檔：選擇副本的位置 |
 | compressed_copy_file_name（主行程） | <原檔名>（已壓縮）.pdf |
 | COMPRESSED_COPY_SAME_FILE_TITLE／MESSAGE（主行程） | 請選擇其他檔案／壓縮會產生一份副本，不會改動原本的檔案。請選擇原檔以外的位置或檔名。 |

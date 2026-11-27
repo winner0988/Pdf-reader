@@ -201,8 +201,9 @@ fn an_encrypted_document_a_signed_one_and_a_limit_that_is_no_size_are_refused() 
     let refused = host
         .compressed_copy(signed, &file, ImageQuality::Medium, None)
         .expect_err("refused");
+    assert_eq!(refused.code(), ipc_contract::types::ErrorCode::Signed);
     assert!(
-        matches!(&refused, HostError::Worker(error) if error.code == WorkerErrorCode::InvalidRequest),
+        matches!(&refused, HostError::Worker(error) if error.code == WorkerErrorCode::Signed),
         "{refused:?}"
     );
 

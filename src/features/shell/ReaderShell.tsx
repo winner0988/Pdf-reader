@@ -1799,12 +1799,18 @@ export function ReaderShell({
           : permissions && !permissions.modify
             ? strings.permissions.notAllowed
             : undefined,
-    onEncryptCopy: savable && !document_?.encrypted ? () => setDialog("encrypt") : undefined,
+    onEncryptCopy: savable && !document_?.encrypted && !isSigned ? () => setDialog("encrypt") : undefined,
     onDecryptCopy:
       savable && document_?.encrypted && !isSigned ? () => setDialog("decrypt") : undefined,
     onBatch: openBatch,
     onSearchAll: textIndex?.openSearchAll,
-    encryptCopyBlocked: savable && document_?.encrypted === true,
+    encryptCopyBlocked: !savable
+      ? undefined
+      : document_?.encrypted
+        ? strings.encryption.encrypted
+        : isSigned
+          ? strings.encryption.signedBlocked
+          : undefined,
     decryptCopyBlocked:
       !savable
         ? undefined
@@ -1814,8 +1820,15 @@ export function ReaderShell({
             ? strings.decryption.signedBlocked
             : undefined,
     onForgetPassword: document_?.passwordRemembered ? forgetPassword : undefined,
-    onCompressImages: savable && !document_?.encrypted ? () => setDialog("compress") : undefined,
-    compressImagesBlocked: savable && document_?.encrypted === true,
+    onCompressImages:
+      savable && !document_?.encrypted && !isSigned ? () => setDialog("compress") : undefined,
+    compressImagesBlocked: !savable
+      ? undefined
+      : document_?.encrypted
+        ? strings.compress.encrypted
+        : isSigned
+          ? strings.compress.signedBlocked
+          : undefined,
     onSign: signingApi && doc !== undefined && !document_?.encrypted ? () => setDialog("sign") : undefined,
     signBlocked: signingApi !== undefined && doc !== undefined && document_?.encrypted === true,
     ocr: ocrView.menu,

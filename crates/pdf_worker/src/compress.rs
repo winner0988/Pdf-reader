@@ -1189,7 +1189,7 @@ mod tests {
         let mut out = Vec::new();
         assert!(matches!(
             signed.compressed_copy(ImageQuality::Medium, None, &mut out),
-            Err(Failure::InvalidEdit(_))
+            Err(Failure::Signed)
         ));
         assert!(out.is_empty(), "nothing was written");
     }

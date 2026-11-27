@@ -262,6 +262,37 @@ describe("CommandPalette", () => {
       expect(onPrint).not.toHaveBeenCalled();
       expect(onOpenChange).not.toHaveBeenCalled();
     });
+
+    it("disables encryptCopy and compressImages with signed reason and prevents execution", async () => {
+      const onEncryptCopy = vi.fn();
+      const onCompressImages = vi.fn();
+      expect(strings.encryption.signedBlocked).toBeTruthy();
+      expect(strings.compress.signedBlocked).toBeTruthy();
+      const { user, onOpenChange } = setup({
+        encryptCopyBlocked: strings.encryption.signedBlocked,
+        onEncryptCopy,
+        compressImagesBlocked: strings.compress.signedBlocked,
+        onCompressImages,
+      });
+      const input = screen.getByRole("combobox");
+
+      await user.type(input, strings.menu.encryptCopy);
+      const encryptOption = screen.getByRole("option", { name: new RegExp(strings.menu.encryptCopy) });
+      expect(encryptOption).toHaveAttribute("aria-disabled", "true");
+      expect(encryptOption).toHaveTextContent(strings.encryption.signedBlocked);
+      await user.click(encryptOption);
+      expect(onEncryptCopy).not.toHaveBeenCalled();
+      expect(onOpenChange).not.toHaveBeenCalled();
+
+      await user.clear(input);
+      await user.type(input, strings.menu.compressImages);
+      const compressOption = screen.getByRole("option", { name: new RegExp(strings.menu.compressImages) });
+      expect(compressOption).toHaveAttribute("aria-disabled", "true");
+      expect(compressOption).toHaveTextContent(strings.compress.signedBlocked);
+      await user.click(compressOption);
+      expect(onCompressImages).not.toHaveBeenCalled();
+      expect(onOpenChange).not.toHaveBeenCalled();
+    });
   });
 
   describe("insertFileAfterCurrent command", () => {

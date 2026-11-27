@@ -5681,7 +5681,7 @@ mod with_worker {
         let error = documents
             .compress_copy(info.doc, &copy, ImageQuality::Medium, None)
             .unwrap_err();
-        assert_ne!(error.code, ErrorCode::Internal, "{error:?}");
+        assert_eq!(error.code, ErrorCode::Signed, "{error:?}");
         assert!(!copy.exists());
         std::fs::remove_file(path).ok();
     }
@@ -6247,7 +6247,7 @@ mod with_worker {
                 )
                 .unwrap_err()
                 .code,
-            ErrorCode::InvalidArgument
+            ErrorCode::Signed
         );
         assert!(!copy.exists());
     }
@@ -9036,6 +9036,26 @@ mod with_worker {
         let (_, info) = unlocked(&documents, &copy);
         assert_eq!(info.pages.len(), 10);
         std::fs::remove_dir_all(&out).ok();
+
+        let signed_out = batch_folder("encrypted-signed");
+        let (signed_report, signed_events) = run_batch(
+            &documents,
+            &[corpus_path("benign/signed.pdf")],
+            &signed_out,
+            &operation,
+            false,
+        );
+        assert_eq!((signed_report.done, signed_report.failed), (0, 1));
+        assert!(
+            signed_events.contains(&ipc_contract::types::BatchEvent::File {
+                index: 0,
+                outcome: ipc_contract::types::BatchOutcome::Failed {
+                    error: ErrorCode::Signed,
+                },
+            })
+        );
+        assert!(names_in(&signed_out).is_empty());
+        std::fs::remove_dir_all(&signed_out).ok();
     }
 
     #[test]
@@ -9056,7 +9076,7 @@ mod with_worker {
         assert!(events.contains(&BatchEvent::File {
             index: 1,
             outcome: BatchOutcome::Failed {
-                error: ErrorCode::InvalidArgument
+                error: ErrorCode::Signed
             }
         }));
         assert_eq!(
@@ -9139,7 +9159,7 @@ mod with_worker {
         assert_eq!(
             outcome(1),
             BatchOutcome::Failed {
-                error: ErrorCode::InvalidArgument
+                error: ErrorCode::Signed
             }
         );
         // An encrypted file: a batch asks for no password.

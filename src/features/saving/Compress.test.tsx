@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { SavingApi } from "@/features/saving/api";
 import { describe as describeResult, sizeText } from "@/features/saving/compress";
+import type { SignatureView } from "@/features/signatures/useSignatures";
 import { demoDocument } from "@/features/shell/demo";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
@@ -37,10 +38,18 @@ function fakeSavingApi(compressImages: SavingApi["compressImages"]) {
   } satisfies SavingApi;
 }
 
-function renderShell(api?: SavingApi, encrypted = false) {
+function renderShell(api?: SavingApi, encrypted = false, signatures?: SignatureView) {
   const state: ShellState = { kind: "open", document: { ...demoDocument, doc: 5, encrypted } };
   const user = userEvent.setup();
-  render(<ReaderShell state={state} onOpen={vi.fn()} loadingDelayMs={0} savingApi={api} />);
+  render(
+    <ReaderShell
+      state={state}
+      onOpen={vi.fn()}
+      loadingDelayMs={0}
+      savingApi={api}
+      signatures={signatures}
+    />,
+  );
   return { user };
 }
 
@@ -177,5 +186,60 @@ describe("compressing the pictures of a copy (B3-01)", () => {
   it("needs the main process (not demo data)", async () => {
     const { user } = renderShell(undefined);
     expect(await menuItem(user)).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("is not offered for a signed document, and says why", async () => {
+    const api = fakeSavingApi(() => Promise.resolve(null));
+    const signatures: SignatureView = {
+      status: "ready",
+      report: {
+        signatures: [
+          {
+            status: "valid",
+            signerTrusted: true,
+            reason: null,
+            fieldName: "Sig1",
+            signer: "Signer",
+            claimedTime: null,
+            certification: null,
+          },
+        ],
+        truncated: false,
+      },
+    };
+    const { user } = renderShell(api, false, signatures);
+    const item = await menuItem(user);
+
+    expect(item).toHaveAttribute("aria-disabled", "true");
+    expect(t.signedBlocked).toBeTruthy();
+    expect(item).toHaveTextContent(t.signedBlocked);
+  });
+
+  it("still opens for a document whose signature check finished with no signatures", async () => {
+    const api = fakeSavingApi(() => Promise.resolve(null));
+    const signatures: SignatureView = {
+      status: "ready",
+      report: { signatures: [], truncated: false },
+    };
+    const { user } = renderShell(api, false, signatures);
+    const item = await menuItem(user);
+
+    expect(item).not.toHaveAttribute("aria-disabled", "true");
+    await user.click(item);
+    expect(await screen.findByRole("dialog", { name: t.title })).toBeInTheDocument();
+  });
+
+  it("shows signed document error without retry prompt when worker rejects with signed", async () => {
+    const api = fakeSavingApi(() => Promise.reject({ code: "signed", message: "" }));
+    const { user } = renderShell(api);
+    const dialog = await openDialog(user);
+
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert).not.toHaveTextContent("再試");
+    expect(alert).not.toHaveTextContent(/try again/i);
+    expect(t.signed).toBeTruthy();
+    expect(alert).toHaveTextContent(t.signed);
   });
 });

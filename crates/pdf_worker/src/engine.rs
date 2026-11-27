@@ -1558,9 +1558,7 @@ impl PdfDocument {
             return Err(EngineError::EncryptedCopy);
         }
         if self.is_signed() {
-            return Err(EngineError::InvalidEdit(
-                "a signed document cannot be encrypted: its signatures would not hold",
-            ));
+            return Err(EngineError::Signed);
         }
         // The binding copies a password into a buffer of 128 bytes and panics if it does not fit.
         for password in open_password.into_iter().chain([owner_password]) {
@@ -1691,9 +1689,7 @@ impl PdfDocument {
             return Err(EngineError::EncryptedCopy);
         }
         if self.is_signed() {
-            return Err(EngineError::InvalidEdit(
-                "a signed document cannot be compressed: its signatures would not hold",
-            ));
+            return Err(EngineError::Signed);
         }
         let plain = || {
             let mut options = PdfWriteOptions::default();
@@ -1738,9 +1734,7 @@ impl PdfDocument {
             return Err(EngineError::EncryptedCopy);
         }
         if self.is_signed() {
-            return Err(EngineError::InvalidEdit(
-                "a signed document's pictures cannot be cleaned: its signatures would not hold",
-            ));
+            return Err(EngineError::Signed);
         }
         let plain = || {
             let mut options = PdfWriteOptions::default();
@@ -2887,7 +2881,7 @@ mod tests {
         let mut out = Vec::new();
         assert!(matches!(
             signed.exif_clean_copy(&mut out),
-            Err(EngineError::InvalidEdit(_))
+            Err(EngineError::Signed)
         ));
         assert!(out.is_empty(), "nothing was written");
     }
@@ -5017,6 +5011,18 @@ endstream",
         assert!(PdfDocument::from_bytes(&after).is_ok());
         assert_eq!(before.len(), after.len());
         assert!(!has(&after, b"/Encrypt"));
+    }
+
+    #[test]
+    fn a_signed_document_has_no_encrypted_copy() {
+        let signed = PdfDocument::from_bytes(&corpus("benign/signed.pdf")).expect("open");
+        assert!(signed.is_signed());
+        let mut out = Vec::new();
+        assert!(matches!(
+            signed.encrypted_copy(Some("open"), "owner", Restrictions::default(), &mut out),
+            Err(EngineError::Signed)
+        ));
+        assert!(out.is_empty());
     }
 
     #[test]

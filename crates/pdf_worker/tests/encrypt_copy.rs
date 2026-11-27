@@ -192,9 +192,9 @@ fn a_signed_document_and_an_encrypted_one_have_no_encrypted_copy() {
             NONE,
         )
         .unwrap_err();
-    assert_eq!(error.code(), ErrorCode::InvalidArgument);
+    assert_eq!(error.code(), ErrorCode::Signed);
     assert!(
-        matches!(&error, HostError::Worker(worker) if worker.code == WorkerErrorCode::InvalidRequest),
+        matches!(&error, HostError::Worker(worker) if worker.code == WorkerErrorCode::Signed),
         "{error:?}"
     );
 

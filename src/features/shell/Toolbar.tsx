@@ -142,8 +142,8 @@ export type ToolbarProps = {
   onBatch?: () => void;
   /** Searches every document opened before (B3-21); without it (demo data, tests) the menu item is disabled. */
   onSearchAll?: () => void;
-  /** An encrypted document has no encrypted copy (B2-15): the menu item says so. */
-  encryptCopyBlocked?: boolean;
+  /** An encrypted or signed document has no encrypted copy (B2-15): the menu item says why. */
+  encryptCopyBlocked?: string;
   /** Writes a copy of an encrypted document without its password (docs/architecture/decrypt-copy.md). */
   onDecryptCopy?: () => void;
   /** An unencrypted or signed document has no decrypted copy: the menu item says why. */
@@ -152,8 +152,8 @@ export type ToolbarProps = {
   onForgetPassword?: () => void;
   /** Writes a copy whose pictures are compressed (B3-01); without it the menu item is disabled. */
   onCompressImages?: () => void;
-  /** An encrypted document has no compressed copy (B3-01): the menu item says so. */
-  compressImagesBlocked?: boolean;
+  /** An encrypted or signed document has no compressed copy (B3-01): the menu item says why. */
+  compressImagesBlocked?: string;
   /** Signs the document into a copy (B3-06); without it the menu item is disabled. */
   onSign?: () => void;
   /** An encrypted document is not signed (B3-06): the menu item says so. */
