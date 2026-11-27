@@ -14,7 +14,7 @@ use std::os::windows::ffi::OsStringExt;
 use std::path::PathBuf;
 
 use ipc_contract::types::{CreateKind, ErrorCode, IpcError};
-use tauri::WebviewWindow;
+use tauri::{Manager, WebviewWindow};
 use windows::Win32::Foundation::{ERROR_CANCELLED, HWND};
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoCreateInstance,
@@ -29,7 +29,7 @@ use windows::Win32::UI::Shell::{
 use windows::core::{HRESULT, HSTRING, Interface, PCWSTR};
 
 use crate::create_pdf;
-use crate::strings;
+use crate::strings::Strings;
 
 /// Which dialog to show.
 enum Kind {
@@ -379,11 +379,12 @@ pub async fn pick_folder(
 async fn run(window: &WebviewWindow, kind: Kind) -> Result<Option<Vec<PathBuf>>, IpcError> {
     // A window handle is only a number to another thread; the window outlives the dialog.
     let owner = window.hwnd().map_err(|_| failed())?.0 as isize;
+    let strings = *window.app_handle().state::<&'static Strings>();
     let (sender, receiver) = tokio::sync::oneshot::channel();
     std::thread::Builder::new()
         .name("file dialog".to_owned())
         .spawn(move || {
-            let _ = sender.send(show(HWND(owner as *mut _), kind));
+            let _ = sender.send(show(HWND(owner as *mut _), kind, strings));
         })
         .map_err(|_| failed())?;
     receiver.await.map_err(|_| failed())?.map_err(|_| failed())
@@ -431,10 +432,10 @@ fn options(kind: &Kind, defaults: FILEOPENDIALOGOPTIONS) -> FILEOPENDIALOGOPTION
 }
 
 /// Blocks until the user is done.
-fn show(owner: HWND, kind: Kind) -> windows::core::Result<Option<Vec<PathBuf>>> {
+fn show(owner: HWND, kind: Kind, strings: &Strings) -> windows::core::Result<Option<Vec<PathBuf>>> {
     let _com = Com::init()?;
     let dialog = new_dialog(&kind)?;
-    configure(&dialog, &kind)?;
+    configure(&dialog, &kind, strings)?;
     // SAFETY: `owner` is the app window's handle (or a stale one, which the dialog treats as no
     // owner); the dialog is a live COM object of this thread.
     match unsafe { dialog.Show(Some(owner)) } {
@@ -513,156 +514,156 @@ fn new_dialog(kind: &Kind) -> windows::core::Result<IFileDialog> {
 
 /// The filters of the dialog for the files a PDF is made of (B3-03): all of them first, then one
 /// for each family of files. The patterns come from the list of extensions the kinds are known by.
-fn source_filters() -> Vec<(&'static str, String)> {
+fn source_filters(strings: &Strings) -> Vec<(&'static str, String)> {
     let all = create_pdf::pattern(&create_pdf::KINDS);
     let of = |kinds: &[CreateKind]| create_pdf::pattern(kinds);
     vec![
-        (strings::CREATE_ALL_FILTER_NAME, all),
-        (strings::CREATE_IMAGES_FILTER_NAME, of(&[CreateKind::Image])),
-        (strings::CREATE_HTML_FILTER_NAME, of(&[CreateKind::Html])),
-        (strings::CREATE_TEXT_FILTER_NAME, of(&[CreateKind::Text])),
+        (strings.create_all_filter_name, all),
+        (strings.create_images_filter_name, of(&[CreateKind::Image])),
+        (strings.create_html_filter_name, of(&[CreateKind::Html])),
+        (strings.create_text_filter_name, of(&[CreateKind::Text])),
         (
-            strings::CREATE_BOOKS_FILTER_NAME,
+            strings.create_books_filter_name,
             of(&[CreateKind::Epub, CreateKind::Xps]),
         ),
-        (strings::CREATE_SVG_FILTER_NAME, of(&[CreateKind::Svg])),
+        (strings.create_svg_filter_name, of(&[CreateKind::Svg])),
         (
-            strings::CREATE_OFFICE_FILTER_NAME,
+            strings.create_office_filter_name,
             of(&[CreateKind::Docx, CreateKind::Xlsx, CreateKind::Pptx]),
         ),
     ]
 }
 
-fn configure(dialog: &IFileDialog, kind: &Kind) -> windows::core::Result<()> {
+fn configure(dialog: &IFileDialog, kind: &Kind, strings: &Strings) -> windows::core::Result<()> {
     let one = |name: &'static str, pattern: &str| vec![(name, pattern.to_owned())];
     let (title, filters) = match kind {
         Kind::OpenPdfs => (
-            strings::OPEN_DIALOG_TITLE,
-            one(strings::PDF_FILTER_NAME, "*.pdf"),
+            strings.open_dialog_title,
+            one(strings.pdf_filter_name, "*.pdf"),
         ),
         Kind::OpenBatchFiles => (
-            strings::BATCH_FILES_DIALOG_TITLE,
-            one(strings::PDF_FILTER_NAME, "*.pdf"),
+            strings.batch_files_dialog_title,
+            one(strings.pdf_filter_name, "*.pdf"),
         ),
         Kind::SaveText { .. } => (
-            strings::EXPORT_TEXT_DIALOG_TITLE,
-            one(strings::TEXT_FILTER_NAME, "*.txt"),
+            strings.export_text_dialog_title,
+            one(strings.text_filter_name, "*.txt"),
         ),
         Kind::SaveAnnotationSummary { markdown, .. } => {
             if *markdown {
                 (
-                    strings::EXPORT_ANNOTATIONS_DIALOG_TITLE,
-                    one(strings::MARKDOWN_FILTER_NAME, "*.md"),
+                    strings.export_annotations_dialog_title,
+                    one(strings.markdown_filter_name, "*.md"),
                 )
             } else {
                 (
-                    strings::EXPORT_ANNOTATIONS_DIALOG_TITLE,
-                    one(strings::TEXT_FILTER_NAME, "*.txt"),
+                    strings.export_annotations_dialog_title,
+                    one(strings.text_filter_name, "*.txt"),
                 )
             }
         }
         Kind::SaveXfdf { .. } => (
-            strings::EXPORT_XFDF_DIALOG_TITLE,
-            one(strings::XFDF_FILTER_NAME, "*.xfdf"),
+            strings.export_xfdf_dialog_title,
+            one(strings.xfdf_filter_name, "*.xfdf"),
         ),
         Kind::SaveCompareText { markdown, .. } => {
             if *markdown {
                 (
-                    strings::EXPORT_COMPARE_DIALOG_TITLE,
-                    one(strings::MARKDOWN_FILTER_NAME, "*.md"),
+                    strings.export_compare_dialog_title,
+                    one(strings.markdown_filter_name, "*.md"),
                 )
             } else {
                 (
-                    strings::EXPORT_COMPARE_DIALOG_TITLE,
-                    one(strings::TEXT_FILTER_NAME, "*.txt"),
+                    strings.export_compare_dialog_title,
+                    one(strings.text_filter_name, "*.txt"),
                 )
             }
         }
         Kind::SavePdf { .. } => (
-            strings::SAVE_AS_DIALOG_TITLE,
-            one(strings::PDF_FILTER_NAME, "*.pdf"),
+            strings.save_as_dialog_title,
+            one(strings.pdf_filter_name, "*.pdf"),
         ),
         Kind::SaveDocx { .. } => (
-            strings::EXPORT_DOCX_DIALOG_TITLE,
-            one(strings::DOCX_FILTER_NAME, "*.docx"),
+            strings.export_docx_dialog_title,
+            one(strings.docx_filter_name, "*.docx"),
         ),
         Kind::PrivacyExport { .. } => (
-            strings::PRIVACY_EXPORT_DIALOG_TITLE,
-            one(strings::PDF_FILTER_NAME, "*.pdf"),
+            strings.privacy_export_dialog_title,
+            one(strings.pdf_filter_name, "*.pdf"),
         ),
         Kind::SanitizedCopy { .. } => (
-            strings::SANITIZED_COPY_DIALOG_TITLE,
-            one(strings::PDF_FILTER_NAME, "*.pdf"),
+            strings.sanitized_copy_dialog_title,
+            one(strings.pdf_filter_name, "*.pdf"),
         ),
         Kind::EncryptedCopy { .. } => (
-            strings::ENCRYPTED_COPY_DIALOG_TITLE,
-            one(strings::PDF_FILTER_NAME, "*.pdf"),
+            strings.encrypted_copy_dialog_title,
+            one(strings.pdf_filter_name, "*.pdf"),
         ),
         Kind::DecryptedCopy { .. } => (
-            strings::DECRYPTED_COPY_DIALOG_TITLE,
-            one(strings::PDF_FILTER_NAME, "*.pdf"),
+            strings.decrypted_copy_dialog_title,
+            one(strings.pdf_filter_name, "*.pdf"),
         ),
         Kind::CompressedCopy { .. } => (
-            strings::COMPRESSED_COPY_DIALOG_TITLE,
-            one(strings::PDF_FILTER_NAME, "*.pdf"),
+            strings.compressed_copy_dialog_title,
+            one(strings.pdf_filter_name, "*.pdf"),
         ),
         Kind::SearchableCopy { .. } => (
-            strings::SEARCHABLE_COPY_DIALOG_TITLE,
-            one(strings::PDF_FILTER_NAME, "*.pdf"),
+            strings.searchable_copy_dialog_title,
+            one(strings.pdf_filter_name, "*.pdf"),
         ),
         Kind::PageMarks { .. } => (
-            strings::PAGE_MARKS_DIALOG_TITLE,
-            one(strings::PDF_FILTER_NAME, "*.pdf"),
+            strings.page_marks_dialog_title,
+            one(strings.pdf_filter_name, "*.pdf"),
         ),
         Kind::SplitPdf { .. } => (
-            strings::SPLIT_DIALOG_TITLE,
-            one(strings::PDF_FILTER_NAME, "*.pdf"),
+            strings.split_dialog_title,
+            one(strings.pdf_filter_name, "*.pdf"),
         ),
         Kind::SaveCreatedPdf { .. } => (
-            strings::CREATE_PDF_DIALOG_TITLE,
-            one(strings::PDF_FILTER_NAME, "*.pdf"),
+            strings.create_pdf_dialog_title,
+            one(strings.pdf_filter_name, "*.pdf"),
         ),
         Kind::SaveAttachment { extension, .. } => {
             // Its own type first, so that the name keeps its extension.
             let mut filters = Vec::new();
             if let Some(extension) = extension {
                 filters.push((
-                    strings::ATTACHMENT_TYPE_FILTER_NAME,
+                    strings.attachment_type_filter_name,
                     format!("*.{extension}"),
                 ));
             }
-            filters.push((strings::ALL_FILES_FILTER_NAME, "*.*".to_owned()));
-            (strings::SAVE_ATTACHMENT_DIALOG_TITLE, filters)
+            filters.push((strings.all_files_filter_name, "*.*".to_owned()));
+            (strings.save_attachment_dialog_title, filters)
         }
         Kind::OpenPagesSource => (
-            strings::PAGES_SOURCE_DIALOG_TITLE,
-            one(strings::PDF_FILTER_NAME, "*.pdf"),
+            strings.pages_source_dialog_title,
+            one(strings.pdf_filter_name, "*.pdf"),
         ),
         Kind::PickFolder { title } => (*title, Vec::new()),
         Kind::OpenLanguageData => (
-            strings::LANGUAGE_DIALOG_TITLE,
-            one(strings::LANGUAGE_FILTER_NAME, "*.traineddata"),
+            strings.language_dialog_title,
+            one(strings.language_filter_name, "*.traineddata"),
         ),
         Kind::OpenFont => (
-            strings::FONT_DIALOG_TITLE,
-            one(strings::FONT_FILTER_NAME, "*.ttf;*.ttc"),
+            strings.font_dialog_title,
+            one(strings.font_filter_name, "*.ttf;*.ttc"),
         ),
         Kind::OpenImage => (
-            strings::STAMP_IMAGE_DIALOG_TITLE,
-            one(strings::IMAGE_FILTER_NAME, "*.png;*.jpg;*.jpeg"),
+            strings.stamp_image_dialog_title,
+            one(strings.image_filter_name, "*.png;*.jpg;*.jpeg"),
         ),
         Kind::OpenWatermarkImage => (
-            strings::WATERMARK_IMAGE_DIALOG_TITLE,
-            one(strings::IMAGE_FILTER_NAME, "*.png;*.jpg;*.jpeg"),
+            strings.watermark_image_dialog_title,
+            one(strings.image_filter_name, "*.png;*.jpg;*.jpeg"),
         ),
-        Kind::OpenSources => (strings::CREATE_SOURCES_DIALOG_TITLE, source_filters()),
+        Kind::OpenSources => (strings.create_sources_dialog_title, source_filters(strings)),
         Kind::OpenCertificate => (
-            strings::CERTIFICATE_DIALOG_TITLE,
-            one(strings::CERTIFICATE_FILTER_NAME, "*.pfx;*.p12"),
+            strings.certificate_dialog_title,
+            one(strings.certificate_filter_name, "*.pfx;*.p12"),
         ),
         Kind::SignedCopy { .. } => (
-            strings::SIGNED_COPY_DIALOG_TITLE,
-            one(strings::PDF_FILTER_NAME, "*.pdf"),
+            strings.signed_copy_dialog_title,
+            one(strings.pdf_filter_name, "*.pdf"),
         ),
     };
     let title = HSTRING::from(title);
@@ -763,7 +764,7 @@ mod tests {
     fn options_of(kind: Kind) -> impl Fn(FILEOPENDIALOGOPTIONS) -> bool {
         let _com = Com::init().unwrap();
         let dialog = new_dialog(&kind).unwrap();
-        configure(&dialog, &kind).unwrap();
+        configure(&dialog, &kind, &crate::strings::ZH_TW).unwrap();
         // SAFETY: a live dialog of this thread.
         let set = unsafe { dialog.GetOptions() }.unwrap();
         move |option| set.0 & option.0 == option.0
@@ -896,7 +897,7 @@ mod tests {
         assert!(!source(FOS_ALLOWMULTISELECT));
 
         let folder = options_of(Kind::PickFolder {
-            title: strings::EXPORT_IMAGES_DIALOG_TITLE,
+            title: crate::strings::ZH_TW.export_images_dialog_title,
         });
         assert!(
             folder(FOS_DONTADDTORECENT) && folder(FOS_PICKFOLDERS) && folder(FOS_FORCEFILESYSTEM)
@@ -938,26 +939,28 @@ mod tests {
 
     #[test]
     fn the_dialog_for_the_files_of_a_pdf_lists_all_kinds_then_each_family() {
-        let filters = source_filters();
-        assert_eq!(filters.len(), 7);
-        // The first filter has every extension of every kind, and the others add up to it.
-        let listed =
-            |pattern: &str| -> Vec<String> { pattern.split(';').map(str::to_owned).collect() };
-        let mut together: Vec<String> = filters[1..]
-            .iter()
-            .flat_map(|(_, pattern)| listed(pattern))
-            .collect();
-        let mut all = listed(&filters[0].1);
-        together.sort();
-        all.sort();
-        assert_eq!(together, all);
-        assert!(all.contains(&"*.docx".to_owned()) && all.contains(&"*.png".to_owned()));
-        for (name, pattern) in &filters {
-            assert!(!name.is_empty() && !pattern.is_empty());
+        for strings in [&crate::strings::ZH_TW, &crate::strings::EN] {
+            let filters = source_filters(strings);
+            assert_eq!(filters.len(), 7);
+            // The first filter has every extension of every kind, and the others add up to it.
+            let listed =
+                |pattern: &str| -> Vec<String> { pattern.split(';').map(str::to_owned).collect() };
+            let mut together: Vec<String> = filters[1..]
+                .iter()
+                .flat_map(|(_, pattern)| listed(pattern))
+                .collect();
+            let mut all = listed(&filters[0].1);
+            together.sort();
+            all.sort();
+            assert_eq!(together, all);
+            assert!(all.contains(&"*.docx".to_owned()) && all.contains(&"*.png".to_owned()));
+            for (name, pattern) in &filters {
+                assert!(!name.is_empty() && !pattern.is_empty());
+            }
+            // A real dialog object takes them all (`SetFileTypes` fails otherwise).
+            let _com = Com::init().unwrap();
+            let dialog = new_dialog(&Kind::OpenSources).unwrap();
+            configure(&dialog, &Kind::OpenSources, strings).unwrap();
         }
-        // A real dialog object takes them all (`SetFileTypes` fails otherwise).
-        let _com = Com::init().unwrap();
-        let dialog = new_dialog(&Kind::OpenSources).unwrap();
-        configure(&dialog, &Kind::OpenSources).unwrap();
     }
 }

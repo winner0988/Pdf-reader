@@ -23,7 +23,6 @@ use tauri::{AppHandle, Manager};
 
 use crate::documents::Documents;
 use crate::render::Renderer;
-use crate::strings;
 
 /// Exports in progress, so `cancel` can stop them.
 #[derive(Default)]
@@ -197,11 +196,11 @@ pub fn image_targets(folder: &Path, stem: &str, pages: &[u32], kind: ImageKind) 
 
 /// The exported text: each page's lines, then a form feed, as `pdftotext` does. A page without
 /// text says so instead of being silently empty.
-pub fn text_file(pages: &[PageText]) -> String {
+pub fn text_file(pages: &[PageText], strings: &crate::strings::Strings) -> String {
     let mut text = String::new();
     for page in pages {
         if page.lines.is_empty() {
-            text.push_str(strings::NO_TEXT_LAYER_PAGE);
+            text.push_str(strings.no_text_layer_page);
             text.push_str("\r\n");
         }
         for line in &page.lines {
@@ -257,13 +256,19 @@ pub struct SplitFile {
 
 /// The files `pages` are split into when each takes `count` of them at most, in `folder`: named
 /// by the pages they take, or by their number when those do not follow one another.
-pub fn split_targets(folder: &Path, stem: &str, pages: &[u32], count: usize) -> Vec<SplitFile> {
+pub fn split_targets(
+    folder: &Path,
+    stem: &str,
+    pages: &[u32],
+    count: usize,
+    strings: &crate::strings::Strings,
+) -> Vec<SplitFile> {
     let chunks: Vec<&[u32]> = pages.chunks(count.max(1)).collect();
     chunks
         .iter()
         .enumerate()
         .map(|(part, chunk)| SplitFile {
-            path: folder.join(strings::split_part_name(stem, chunk, part, chunks.len())),
+            path: folder.join(strings.split_part_name(stem, chunk, part, chunks.len())),
             pages: chunk.to_vec(),
         })
         .collect()
@@ -371,7 +376,8 @@ pub fn write_text(
             Ok(())
         },
     )?;
-    write_whole(file, text_file(&texts).as_bytes()).map_err(not_written)
+    let strings = *app.state::<&'static crate::strings::Strings>();
+    write_whole(file, text_file(&texts, strings).as_bytes()).map_err(not_written)
 }
 
 /// A summary of annotations (B3-18) as a file: plain text with the page and kind on each line,
@@ -382,6 +388,7 @@ pub fn annotation_summary_file(
     summary: &AnnotationSummary,
     markdown: bool,
     name: Option<&str>,
+    strings: &crate::strings::Strings,
 ) -> String {
     let mut lines: Vec<String> = Vec::new();
     if let Some(name) = name {
@@ -401,17 +408,21 @@ pub fn annotation_summary_file(
             if markdown {
                 lines.push(format!(
                     "## {}",
-                    strings::annotation_summary_page(item.page_index + 1)
+                    strings.annotation_summary_page(item.page_index + 1)
                 ));
                 lines.push(String::new());
             }
         }
-        let kind = strings::annotation_kind_name(item.kind);
+        let kind = strings.annotation_kind_name(item.kind);
         let mut text = item.text.split('\n');
         let first = text.next().filter(|line| !line.is_empty());
         if markdown {
             let mut entry = match first {
-                Some(first) => format!("- **{kind}**：{}", escape_markdown(first)),
+                Some(first) => format!(
+                    "- **{kind}**{}{}",
+                    strings.annotation_summary_colon,
+                    escape_markdown(first)
+                ),
                 None => format!("- **{kind}**"),
             };
             // The lines of a note stay lines (a hard break), in the same list item; an empty
@@ -422,10 +433,13 @@ pub fn annotation_summary_file(
             }
             lines.push(entry);
         } else {
-            let page = strings::annotation_summary_page(item.page_index + 1);
+            let page = strings.annotation_summary_page(item.page_index + 1);
             lines.push(match first {
-                Some(first) => format!("{page}｜{kind}：{first}"),
-                None => format!("{page}｜{kind}"),
+                Some(first) => format!(
+                    "{page}{}{kind}{}{first}",
+                    strings.annotation_summary_pipe, strings.annotation_summary_colon
+                ),
+                None => format!("{page}{}{kind}", strings.annotation_summary_pipe),
             });
             lines.extend(text.map(|line| {
                 if line.is_empty() {
@@ -440,7 +454,7 @@ pub fn annotation_summary_file(
         if !lines.is_empty() {
             lines.push(String::new());
         }
-        lines.push(strings::ANNOTATION_SUMMARY_TRUNCATED.to_owned());
+        lines.push(strings.annotation_summary_truncated.to_owned());
     }
     let mut file = lines.join("\n");
     file.push('\n');
@@ -488,9 +502,10 @@ pub fn compare_text_file(
     markdown: bool,
     name_a: &str,
     name_b: &str,
+    strings: &crate::strings::Strings,
 ) -> String {
     let mut lines: Vec<String> = Vec::new();
-    let title = strings::compare_title(name_a, name_b);
+    let title = strings.compare_title(name_a, name_b);
 
     if markdown {
         lines.push(format!("# {}", escape_markdown(&title)));
@@ -501,45 +516,46 @@ pub fn compare_text_file(
     }
 
     if result.identical {
-        lines.push(strings::COMPARE_IDENTICAL.to_owned());
+        lines.push(strings.compare_identical.to_owned());
     } else if result.empty {
-        lines.push(strings::COMPARE_EMPTY.to_owned());
+        lines.push(strings.compare_empty.to_owned());
     } else {
         if result.empty_a && !result.empty_b {
-            lines.push(strings::compare_no_text_one_side(name_a));
+            lines.push(strings.compare_no_text_one_side(name_a));
             lines.push(String::new());
         } else if !result.empty_a && result.empty_b {
-            lines.push(strings::compare_no_text_one_side(name_b));
+            lines.push(strings.compare_no_text_one_side(name_b));
             lines.push(String::new());
         }
 
-        let del_label = strings::COMPARE_LABEL_DELETED;
-        let ins_label = strings::COMPARE_LABEL_INSERTED;
+        let del_label = strings.compare_label_deleted;
+        let ins_label = strings.compare_label_inserted;
+        let colon = strings.compare_colon;
 
         for (i, item) in result.items.iter().enumerate() {
             let page_a = item.page_a + 1;
             let page_b = item.page_b + 1;
-            let header = strings::compare_item_header(page_a, name_a, page_b, name_b);
+            let header = strings.compare_item_header(page_a, name_a, page_b, name_b);
 
             if markdown {
                 lines.push(format!("## {}. {}", i + 1, escape_markdown(&header)));
                 lines.push(String::new());
                 if !item.deleted.is_empty() {
                     let del = escape_markdown(&item.deleted);
-                    lines.push(format!("- **{del_label}**：~~{del}~~"));
+                    lines.push(format!("- **{del_label}**{colon}~~{del}~~"));
                 }
                 if !item.inserted.is_empty() {
                     let ins = escape_markdown(&item.inserted);
-                    lines.push(format!("- **{ins_label}**：{ins}"));
+                    lines.push(format!("- **{ins_label}**{colon}{ins}"));
                 }
                 lines.push(String::new());
             } else {
                 lines.push(format!("{}. {header}", i + 1));
                 if !item.deleted.is_empty() {
-                    lines.push(format!("  - {del_label}：{}", item.deleted));
+                    lines.push(format!("  - {del_label}{colon}{}", item.deleted));
                 }
                 if !item.inserted.is_empty() {
-                    lines.push(format!("  + {ins_label}：{}", item.inserted));
+                    lines.push(format!("  + {ins_label}{colon}{}", item.inserted));
                 }
                 lines.push(String::new());
             }
@@ -547,13 +563,13 @@ pub fn compare_text_file(
     }
 
     if result.truncated {
-        lines.push(strings::COMPARE_TRUNCATED.to_owned());
+        lines.push(strings.compare_truncated.to_owned());
     }
     if result.page_text_truncated {
-        lines.push(strings::COMPARE_PAGE_TEXT_TRUNCATED.to_owned());
+        lines.push(strings.compare_page_text_truncated.to_owned());
     }
     if result.recognised {
-        lines.push(strings::COMPARE_RECOGNISED_NOTE.to_owned());
+        lines.push(strings.compare_recognised_note.to_owned());
     }
 
     lines.join("\n")
@@ -596,6 +612,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::strings;
 
     #[test]
     fn file_names_come_from_the_document_name() {
@@ -666,8 +683,9 @@ mod tests {
 
     #[test]
     fn a_split_makes_files_of_so_many_pages_named_by_them() {
+        let zh = &strings::ZH_TW;
         let pages: Vec<u32> = (0..10).collect();
-        let files = split_targets(Path::new(r"C:\out"), "報告", &pages, 4);
+        let files = split_targets(Path::new(r"C:\out"), "報告", &pages, 4, zh);
         let named: Vec<(PathBuf, Vec<u32>)> = files
             .into_iter()
             .map(|file| (file.path, file.pages))
@@ -681,9 +699,9 @@ mod tests {
             ]
         );
         // One page a file; a choice that skips pages is numbered, not named by them.
-        let each = split_targets(Path::new(r"C:\out"), "報告", &[0, 1], 1);
+        let each = split_targets(Path::new(r"C:\out"), "報告", &[0, 1], 1, zh);
         assert_eq!(each[1].path, PathBuf::from(r"C:\out\報告-p2.pdf"));
-        let skipping = split_targets(Path::new(r"C:\out"), "報告", &[0, 2, 4, 6], 2);
+        let skipping = split_targets(Path::new(r"C:\out"), "報告", &[0, 2, 4, 6], 2, zh);
         assert_eq!(skipping[0].path, PathBuf::from(r"C:\out\報告-1.pdf"));
         assert_eq!(skipping[1].pages, [4, 6]);
     }
@@ -754,8 +772,9 @@ mod tests {
             ],
             truncated: false,
         };
+        let zh = &strings::ZH_TW;
         assert_eq!(
-            annotation_summary_file(&summary, false, Some("報告.pdf")),
+            annotation_summary_file(&summary, false, Some("報告.pdf"), zh),
             "報告.pdf\n\
              \n\
              第 1 頁｜附註：第一行\n\
@@ -776,7 +795,7 @@ mod tests {
              第 3 頁｜箭頭\n"
         );
         assert_eq!(
-            annotation_summary_file(&summary, true, Some("報告_v2.pdf")),
+            annotation_summary_file(&summary, true, Some("報告_v2.pdf"), zh),
             "# 報告\\_v2.pdf\n\
              \n\
              ## 第 1 頁\n\
@@ -805,17 +824,28 @@ mod tests {
             truncated: true,
         };
         assert_eq!(
-            annotation_summary_file(&cut, false, None),
+            annotation_summary_file(&cut, false, None, zh),
+            format!("第 5 頁｜手繪線條\n\n{}\n", zh.annotation_summary_truncated)
+        );
+        assert_eq!(
+            annotation_summary_file(&cut, true, None, zh),
             format!(
-                "第 5 頁｜手繪線條\n\n{}\n",
-                strings::ANNOTATION_SUMMARY_TRUNCATED
+                "## 第 5 頁\n\n- **手繪線條**\n\n{}\n",
+                zh.annotation_summary_truncated
             )
         );
         assert_eq!(
-            annotation_summary_file(&cut, true, None),
+            annotation_summary_file(&cut, false, Some("report.pdf"), &strings::EN),
             format!(
-                "## 第 5 頁\n\n- **手繪線條**\n\n{}\n",
-                strings::ANNOTATION_SUMMARY_TRUNCATED
+                "report.pdf\n\nPage 5 | Drawing\n\n{}\n",
+                strings::EN.annotation_summary_truncated
+            )
+        );
+        assert_eq!(
+            annotation_summary_file(&cut, true, Some("report.pdf"), &strings::EN),
+            format!(
+                "# report.pdf\n\n## Page 5\n\n- **Drawing**\n\n{}\n",
+                strings::EN.annotation_summary_truncated
             )
         );
     }
@@ -883,17 +913,22 @@ mod tests {
             truncated: false,
             recognised: false,
         };
-        let text = text_file(&[
-            page(vec![line("Privacy-first PDF Reader"), line("隱私優先")]),
-            page(Vec::new()),
-        ]);
+        let text = text_file(
+            &[
+                page(vec![line("Privacy-first PDF Reader"), line("隱私優先")]),
+                page(Vec::new()),
+            ],
+            &strings::ZH_TW,
+        );
         assert_eq!(
             text,
             format!(
                 "Privacy-first PDF Reader\r\n隱私優先\r\n\u{c}{}\r\n\u{c}",
-                strings::NO_TEXT_LAYER_PAGE
+                strings::ZH_TW.no_text_layer_page
             )
         );
+        let en_text = text_file(&[page(Vec::new())], &strings::EN);
+        assert_eq!(en_text, "(This page has no text layer)\r\n\u{c}");
     }
 
     #[test]
@@ -926,60 +961,68 @@ mod tests {
             truncated: false,
         };
 
-        let txt = compare_text_file(&result, false, "v1.pdf", "v2.pdf");
-        assert!(txt.contains(&strings::compare_title("v1.pdf", "v2.pdf")));
+        let zh = &strings::ZH_TW;
+        let txt = compare_text_file(&result, false, "v1.pdf", "v2.pdf", zh);
+        assert!(txt.contains(&zh.compare_title("v1.pdf", "v2.pdf")));
         assert!(txt.contains(&format!(
             "1. {}",
-            strings::compare_item_header(1, "v1.pdf", 1, "v2.pdf")
+            zh.compare_item_header(1, "v1.pdf", 1, "v2.pdf")
         )));
-        assert!(txt.contains(&format!(
-            "  - {}：Party *Beta*",
-            strings::COMPARE_LABEL_DELETED
-        )));
-        assert!(txt.contains(&format!(
-            "  + {}：Party _Gamma_",
-            strings::COMPARE_LABEL_INSERTED
-        )));
+        assert!(txt.contains(&format!("  - {}：Party *Beta*", zh.compare_label_deleted)));
+        assert!(txt.contains(&format!("  + {}：Party _Gamma_", zh.compare_label_inserted)));
         assert!(txt.contains(&format!(
             "2. {}",
-            strings::compare_item_header(2, "v1.pdf", 3, "v2.pdf")
+            zh.compare_item_header(2, "v1.pdf", 3, "v2.pdf")
         )));
-        assert!(txt.contains(strings::COMPARE_RECOGNISED_NOTE));
-        assert!(txt.contains(strings::COMPARE_PAGE_TEXT_TRUNCATED));
+        assert!(txt.contains(zh.compare_recognised_note));
+        assert!(txt.contains(zh.compare_page_text_truncated));
 
-        let md = compare_text_file(&result, true, "v1.pdf", "v2.pdf");
+        let md = compare_text_file(&result, true, "v1.pdf", "v2.pdf", zh);
         assert!(md.contains(&format!(
             "# {}",
-            escape_markdown(&strings::compare_title("v1.pdf", "v2.pdf"))
+            escape_markdown(&zh.compare_title("v1.pdf", "v2.pdf"))
         )));
         assert!(md.contains(&format!(
             "## 1. {}",
-            escape_markdown(&strings::compare_item_header(1, "v1.pdf", 1, "v2.pdf"))
+            escape_markdown(&zh.compare_item_header(1, "v1.pdf", 1, "v2.pdf"))
         )));
         assert!(md.contains(&format!(
             "- **{}**：~~Party \\*Beta\\*~~",
-            strings::COMPARE_LABEL_DELETED
+            zh.compare_label_deleted
         )));
         assert!(md.contains(&format!(
             "- **{}**：Party \\_Gamma\\_",
-            strings::COMPARE_LABEL_INSERTED
+            zh.compare_label_inserted
         )));
-        assert!(md.contains(strings::COMPARE_RECOGNISED_NOTE));
-        assert!(md.contains(strings::COMPARE_PAGE_TEXT_TRUNCATED));
+        assert!(md.contains(zh.compare_recognised_note));
+        assert!(md.contains(zh.compare_page_text_truncated));
 
         // Test one side has no text notice
         let one_side_empty = CompareTextResult {
             empty_a: true,
             empty_b: false,
             page_text_truncated: false,
-            ..result
+            ..result.clone()
         };
-        let txt_empty = compare_text_file(&one_side_empty, false, "v1.pdf", "v2.pdf");
-        assert!(txt_empty.contains(&strings::compare_no_text_one_side("v1.pdf")));
+        let txt_empty = compare_text_file(&one_side_empty, false, "v1.pdf", "v2.pdf", zh);
+        assert!(txt_empty.contains(&zh.compare_no_text_one_side("v1.pdf")));
         assert!(md.contains("# v1.pdf 與 v2.pdf（文字比較）"));
         assert!(md.contains("## 1. 第 1 頁（v1.pdf）/ 第 1 頁（v2.pdf）"));
         assert!(md.contains("- **刪除**：~~Party \\*Beta\\*~~"));
         assert!(md.contains("- **新增**：Party \\_Gamma\\_"));
-        assert!(md.contains(strings::COMPARE_RECOGNISED_NOTE));
+        assert!(md.contains(zh.compare_recognised_note));
+
+        // English comparison output uses ASCII punctuation and English phrasing
+        let en = &strings::EN;
+        let en_txt = compare_text_file(&result, false, "v1.pdf", "v2.pdf", en);
+        assert!(en_txt.contains("v1.pdf vs v2.pdf (Text Comparison)"));
+        assert!(en_txt.contains("1. Page 1 (v1.pdf) / Page 1 (v2.pdf)"));
+        assert!(en_txt.contains("  - Deleted: Party *Beta*"));
+        assert!(en_txt.contains("  + Added: Party _Gamma_"));
+        let en_md = compare_text_file(&result, true, "v1.pdf", "v2.pdf", en);
+        assert!(en_md.contains("- **Deleted**: ~~Party \\*Beta\\*~~"));
+        assert!(en_md.contains("- **Added**: Party \\_Gamma\\_"));
+        let en_one_side = compare_text_file(&one_side_empty, false, "v1.pdf", "v2.pdf", en);
+        assert!(en_one_side.contains("(\"v1.pdf\" contains no comparable text"));
     }
 }

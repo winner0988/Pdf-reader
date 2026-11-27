@@ -37,7 +37,7 @@ use crate::worker::{
     ExportedAnnotation, ExportedAnnotations, ExportedTextStyle, InsertedTextBox, InspectedFont,
     OcrOutcome, OpenedDocument, PreparedTextBoxModel, Raster, SourceTextBox, TextBoxModel,
     WorkerAttachment, WorkerDocumentProperties, WorkerError, WorkerErrorCode, WorkerPageMarks,
-    WorkerResponse,
+    WorkerPageNumberFormat, WorkerResponse,
 };
 
 /// Maximum length of the worker version string in `Hello`.
@@ -1183,170 +1183,222 @@ impl Validate for Watermark {
     }
 }
 
+fn check_page_mark_part(
+    what: &'static str,
+    text: &str,
+    max_chars: usize,
+) -> Result<(), ValidationError> {
+    if text.chars().count() > max_chars {
+        return Err(ValidationError::Invalid {
+            what,
+            reason: "too long",
+        });
+    }
+    if text
+        .chars()
+        .any(|c| c.is_control() || is_invisible_format(c))
+    {
+        return Err(ValidationError::Invalid {
+            what,
+            reason: "not plain text",
+        });
+    }
+    Ok(())
+}
+
+fn validate_page_marks_common<F>(
+    font_size: f32,
+    margin_pt: f32,
+    pages: &PageMarkPages,
+    bates: Option<&crate::types::BatesMark>,
+    header_footer: Option<&crate::types::HeaderFooterMarks>,
+    page_number: Option<(PageMarkPosition, F)>,
+) -> Result<(), ValidationError>
+where
+    F: FnOnce() -> Result<(), ValidationError>,
+{
+    check_coordinate("page marks font size", font_size)?;
+    if !(MIN_PAGE_MARK_SIZE_PT..=MAX_PAGE_MARK_SIZE_PT).contains(&font_size) {
+        return Err(ValidationError::OutOfRange {
+            what: "page marks font size",
+        });
+    }
+    check_coordinate("page marks margin", margin_pt)?;
+    if !(MIN_PAGE_MARK_MARGIN_PT..=MAX_PAGE_MARK_MARGIN_PT).contains(&margin_pt) {
+        return Err(ValidationError::OutOfRange {
+            what: "page marks margin",
+        });
+    }
+
+    match pages {
+        PageMarkPages::All | PageMarkPages::AllButFirst => {}
+        PageMarkPages::Custom { pages } => {
+            if pages.is_empty() || pages.len() > MAX_PAGE_MARK_PAGES {
+                return Err(ValidationError::Invalid {
+                    what: "page marks pages",
+                    reason: "empty or too many pages",
+                });
+            }
+            if !pages.windows(2).all(|w| w[0] < w[1]) {
+                return Err(ValidationError::Invalid {
+                    what: "page marks pages",
+                    reason: "pages not strictly ascending",
+                });
+            }
+        }
+    }
+
+    let mut positions = HashSet::new();
+    let mut has_any_mark = false;
+
+    if let Some((pos, check_format)) = page_number {
+        has_any_mark = true;
+        if !positions.insert(pos) {
+            return Err(ValidationError::Invalid {
+                what: "page marks position",
+                reason: "duplicate mark position",
+            });
+        }
+        check_format()?;
+    }
+
+    if let Some(bates) = bates {
+        has_any_mark = true;
+        if !positions.insert(bates.position) {
+            return Err(ValidationError::Invalid {
+                what: "page marks position",
+                reason: "duplicate mark position",
+            });
+        }
+        if !(MIN_BATES_DIGITS..=MAX_BATES_DIGITS).contains(&bates.digits) {
+            return Err(ValidationError::OutOfRange {
+                what: "bates digits",
+            });
+        }
+        // Spaces are kept as typed ("ABC 000001"); what is not seen is not.
+        check_page_mark_part("bates prefix", &bates.prefix, MAX_BATES_PREFIX_CHARS)?;
+        let max_val = 10u64.pow(bates.digits as u32);
+        if bates.start >= max_val {
+            return Err(ValidationError::OutOfRange {
+                what: "bates start number",
+            });
+        }
+        if let PageMarkPages::Custom { pages } = pages {
+            let count = pages.len() as u64;
+            if count > 0
+                && bates
+                    .start
+                    .checked_add(count - 1)
+                    .is_none_or(|end| end >= max_val)
+            {
+                return Err(ValidationError::OutOfRange {
+                    what: "bates number overflow",
+                });
+            }
+        }
+    }
+
+    if let Some(hf) = header_footer {
+        let slots = [
+            (&hf.header_left, PageMarkPosition::TopLeft),
+            (&hf.header_center, PageMarkPosition::TopCenter),
+            (&hf.header_right, PageMarkPosition::TopRight),
+            (&hf.footer_left, PageMarkPosition::BottomLeft),
+            (&hf.footer_center, PageMarkPosition::BottomCenter),
+            (&hf.footer_right, PageMarkPosition::BottomRight),
+        ];
+        for (slot, pos) in slots {
+            if let Some(text) = slot {
+                let chars = text.chars().count();
+                if text.trim().is_empty() || chars > MAX_PAGE_MARK_CHARS {
+                    return Err(ValidationError::Invalid {
+                        what: "header or footer text",
+                        reason: "empty or too long",
+                    });
+                }
+                if !is_clean_display_text(text) || text.contains(['\n', '\r']) {
+                    return Err(ValidationError::Invalid {
+                        what: "header or footer text",
+                        reason: "not one line of plain words",
+                    });
+                }
+                has_any_mark = true;
+                if !positions.insert(pos) {
+                    return Err(ValidationError::Invalid {
+                        what: "page marks position",
+                        reason: "duplicate mark position",
+                    });
+                }
+            }
+        }
+    }
+
+    if !has_any_mark {
+        return Err(ValidationError::Invalid {
+            what: "page marks",
+            reason: "no marks specified",
+        });
+    }
+
+    Ok(())
+}
+
 impl Validate for PageMarks {
     fn validate(&self) -> Result<(), ValidationError> {
-        check_coordinate("page marks font size", self.font_size)?;
-        if !(MIN_PAGE_MARK_SIZE_PT..=MAX_PAGE_MARK_SIZE_PT).contains(&self.font_size) {
-            return Err(ValidationError::OutOfRange {
-                what: "page marks font size",
-            });
-        }
-        check_coordinate("page marks margin", self.margin_pt)?;
-        if !(MIN_PAGE_MARK_MARGIN_PT..=MAX_PAGE_MARK_MARGIN_PT).contains(&self.margin_pt) {
-            return Err(ValidationError::OutOfRange {
-                what: "page marks margin",
-            });
-        }
-
-        match &self.pages {
-            PageMarkPages::All | PageMarkPages::AllButFirst => {}
-            PageMarkPages::Custom { pages } => {
-                if pages.is_empty() || pages.len() > MAX_PAGE_MARK_PAGES {
-                    return Err(ValidationError::Invalid {
-                        what: "page marks pages",
-                        reason: "empty or too many pages",
-                    });
+        let page_number = self.page_number.as_ref().map(|pn| {
+            (pn.position, || {
+                if let PageNumberFormat::Custom { prefix, suffix } = &pn.format {
+                    check_page_mark_part("page number custom format", prefix, MAX_PAGE_MARK_CHARS)?;
+                    check_page_mark_part("page number custom format", suffix, MAX_PAGE_MARK_CHARS)?;
                 }
-                if !pages.windows(2).all(|w| w[0] < w[1]) {
-                    return Err(ValidationError::Invalid {
-                        what: "page marks pages",
-                        reason: "pages not strictly ascending",
-                    });
-                }
-            }
-        }
-
-        let mut positions = HashSet::new();
-        let mut has_any_mark = false;
-
-        if let Some(pn) = &self.page_number {
-            has_any_mark = true;
-            if !positions.insert(pn.position) {
-                return Err(ValidationError::Invalid {
-                    what: "page marks position",
-                    reason: "duplicate mark position",
-                });
-            }
-            if let PageNumberFormat::Custom { prefix, suffix } = &pn.format {
-                let prefix_chars = prefix.chars().count();
-                let suffix_chars = suffix.chars().count();
-                if prefix_chars > MAX_PAGE_MARK_CHARS || suffix_chars > MAX_PAGE_MARK_CHARS {
-                    return Err(ValidationError::Invalid {
-                        what: "page number custom format",
-                        reason: "too long",
-                    });
-                }
-                let bad = |s: &str| s.chars().any(|c| c.is_control() || is_invisible_format(c));
-                if bad(prefix) || bad(suffix) {
-                    return Err(ValidationError::Invalid {
-                        what: "page number custom format",
-                        reason: "not plain text",
-                    });
-                }
-            }
-        }
-
-        if let Some(bates) = &self.bates {
-            has_any_mark = true;
-            if !positions.insert(bates.position) {
-                return Err(ValidationError::Invalid {
-                    what: "page marks position",
-                    reason: "duplicate mark position",
-                });
-            }
-            if !(MIN_BATES_DIGITS..=MAX_BATES_DIGITS).contains(&bates.digits) {
-                return Err(ValidationError::OutOfRange {
-                    what: "bates digits",
-                });
-            }
-            let prefix_chars = bates.prefix.chars().count();
-            if prefix_chars > MAX_BATES_PREFIX_CHARS {
-                return Err(ValidationError::Invalid {
-                    what: "bates prefix",
-                    reason: "too long",
-                });
-            }
-            // Spaces are kept as typed ("ABC 000001"); what is not seen is not.
-            if bates
-                .prefix
-                .chars()
-                .any(|c| c.is_control() || is_invisible_format(c))
-            {
-                return Err(ValidationError::Invalid {
-                    what: "bates prefix",
-                    reason: "not plain text",
-                });
-            }
-            let max_val = 10u64.pow(bates.digits as u32);
-            if bates.start >= max_val {
-                return Err(ValidationError::OutOfRange {
-                    what: "bates start number",
-                });
-            }
-            if let PageMarkPages::Custom { pages } = &self.pages {
-                let count = pages.len() as u64;
-                if count > 0
-                    && bates
-                        .start
-                        .checked_add(count - 1)
-                        .is_none_or(|end| end >= max_val)
-                {
-                    return Err(ValidationError::OutOfRange {
-                        what: "bates number overflow",
-                    });
-                }
-            }
-        }
-
-        if let Some(hf) = &self.header_footer {
-            let slots = [
-                (&hf.header_left, PageMarkPosition::TopLeft),
-                (&hf.header_center, PageMarkPosition::TopCenter),
-                (&hf.header_right, PageMarkPosition::TopRight),
-                (&hf.footer_left, PageMarkPosition::BottomLeft),
-                (&hf.footer_center, PageMarkPosition::BottomCenter),
-                (&hf.footer_right, PageMarkPosition::BottomRight),
-            ];
-            for (slot, pos) in slots {
-                if let Some(text) = slot {
-                    let chars = text.chars().count();
-                    if text.trim().is_empty() || chars > MAX_PAGE_MARK_CHARS {
-                        return Err(ValidationError::Invalid {
-                            what: "header or footer text",
-                            reason: "empty or too long",
-                        });
-                    }
-                    if !is_clean_display_text(text) || text.contains(['\n', '\r']) {
-                        return Err(ValidationError::Invalid {
-                            what: "header or footer text",
-                            reason: "not one line of plain words",
-                        });
-                    }
-                    has_any_mark = true;
-                    if !positions.insert(pos) {
-                        return Err(ValidationError::Invalid {
-                            what: "page marks position",
-                            reason: "duplicate mark position",
-                        });
-                    }
-                }
-            }
-        }
-
-        if !has_any_mark {
-            return Err(ValidationError::Invalid {
-                what: "page marks",
-                reason: "no marks specified",
-            });
-        }
-
-        Ok(())
+                Ok(())
+            })
+        });
+        validate_page_marks_common(
+            self.font_size,
+            self.margin_pt,
+            &self.pages,
+            self.bates.as_ref(),
+            self.header_footer.as_ref(),
+            page_number,
+        )
     }
 }
 
 impl Validate for WorkerPageMarks {
     fn validate(&self) -> Result<(), ValidationError> {
-        PageMarks::from(self.clone()).validate()
+        let pages: PageMarkPages = self.pages.clone().into();
+        let bates = self.bates.clone().map(crate::types::BatesMark::from);
+        let page_number = self.page_number.as_ref().map(|pn| {
+            (pn.position, || match &pn.format {
+                WorkerPageNumberFormat::Number => Ok(()),
+                WorkerPageNumberFormat::Page { before, after } => {
+                    check_page_mark_part("page number format", before, MAX_PAGE_NUMBER_PART_CHARS)?;
+                    check_page_mark_part("page number format", after, MAX_PAGE_NUMBER_PART_CHARS)
+                }
+                WorkerPageNumberFormat::PageOfTotal {
+                    before,
+                    middle,
+                    after,
+                } => {
+                    check_page_mark_part("page number format", before, MAX_PAGE_NUMBER_PART_CHARS)?;
+                    check_page_mark_part("page number format", middle, MAX_PAGE_NUMBER_PART_CHARS)?;
+                    check_page_mark_part("page number format", after, MAX_PAGE_NUMBER_PART_CHARS)
+                }
+                WorkerPageNumberFormat::Custom { prefix, suffix } => {
+                    check_page_mark_part("page number custom format", prefix, MAX_PAGE_MARK_CHARS)?;
+                    check_page_mark_part("page number custom format", suffix, MAX_PAGE_MARK_CHARS)
+                }
+            })
+        });
+        validate_page_marks_common(
+            self.font_size,
+            self.margin_pt,
+            &pages,
+            bates.as_ref(),
+            self.header_footer.as_ref(),
+            page_number,
+        )
     }
 }
 
@@ -7380,9 +7432,88 @@ mod tests {
         empty.header_footer = None;
         assert!(empty.validate().is_err());
 
-        // WorkerPageMarks validates identically
-        let worker_marks: WorkerPageMarks = base_marks.clone().into();
-        assert!(worker_marks.validate().is_ok());
+        // WorkerPageMarks validates localized Page and PageOfTotal parts as well.
+        let zh_parts = crate::worker::PageNumberParts {
+            page_before: "第 ",
+            page_after: " 頁",
+            total_before: "第 ",
+            total_middle: " 頁／共 ",
+            total_after: " 頁",
+        };
+        let en_parts = crate::worker::PageNumberParts {
+            page_before: "Page ",
+            page_after: "",
+            total_before: "Page ",
+            total_middle: " of ",
+            total_after: "",
+        };
+        for parts in [zh_parts, en_parts] {
+            for format in [
+                PageNumberFormat::Number,
+                PageNumberFormat::Page,
+                PageNumberFormat::PageOfTotal,
+                PageNumberFormat::Custom {
+                    prefix: "Page ".to_owned(),
+                    suffix: " of end".to_owned(),
+                },
+            ] {
+                let mut marks = base_marks.clone();
+                marks.page_number = Some(PageNumberMark {
+                    format,
+                    start: 1,
+                    position: PageMarkPosition::BottomCenter,
+                });
+                let worker_marks = WorkerPageMarks::from_page_marks(marks, parts);
+                assert!(worker_marks.validate().is_ok());
+            }
+        }
+
+        // Legacy PageMarks JSON without localized text fields still deserializes to Page/PageOfTotal
+        // and maps to Traditional Chinese when paired with zh-TW parts.
+        let legacy_json =
+            r#"{"format":{"kind":"pageOfTotal"},"start":1,"position":"bottomCenter"}"#;
+        let legacy_mark: PageNumberMark = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(legacy_mark.format, PageNumberFormat::PageOfTotal);
+        let legacy_worker = crate::worker::WorkerPageNumberMark::from_mark(legacy_mark, zh_parts);
+        assert_eq!(
+            legacy_worker.format.format_number(1, 10),
+            "第 1 頁／共 10 頁"
+        );
+
+        // Oversized or control/invisible parts in WorkerPageNumberFormat are rejected.
+        for bad_format in [
+            WorkerPageNumberFormat::Page {
+                before: "a".repeat(MAX_PAGE_NUMBER_PART_CHARS + 1),
+                after: String::new(),
+            },
+            WorkerPageNumberFormat::Page {
+                before: String::new(),
+                after: "bad\n".to_owned(),
+            },
+            WorkerPageNumberFormat::PageOfTotal {
+                before: "\u{202E}Page ".to_owned(),
+                middle: " of ".to_owned(),
+                after: String::new(),
+            },
+            WorkerPageNumberFormat::PageOfTotal {
+                before: "Page ".to_owned(),
+                middle: "x".repeat(MAX_PAGE_NUMBER_PART_CHARS + 1),
+                after: String::new(),
+            },
+            WorkerPageNumberFormat::PageOfTotal {
+                before: "Page ".to_owned(),
+                middle: " of ".to_owned(),
+                after: "\u{200B}".to_owned(),
+            },
+        ] {
+            let mut invalid = WorkerPageMarks::from_page_marks(base_marks.clone(), en_parts);
+            invalid.page_number = Some(crate::worker::WorkerPageNumberMark {
+                format: bad_format,
+                start: 1,
+                position: PageMarkPosition::BottomCenter,
+            });
+            assert!(invalid.validate().is_err());
+        }
 
         // PageMarksCopyArgs validates
         let args = PageMarksCopyArgs {

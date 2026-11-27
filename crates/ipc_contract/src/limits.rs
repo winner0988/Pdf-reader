@@ -173,6 +173,10 @@ pub const MAX_PAGE_MARK_MARGIN_PT: f32 = 144.0;
 /// Most characters of a header, footer, or page number custom prefix/suffix (B3-16).
 pub const MAX_PAGE_MARK_CHARS: usize = 100;
 
+/// Most characters of one fixed segment (`before`, `middle`, or `after`) in a localized
+/// page number format sent to the worker (ADR 0029, #684).
+pub const MAX_PAGE_NUMBER_PART_CHARS: usize = 32;
+
 /// Most characters of a Bates prefix (B3-16).
 pub const MAX_BATES_PREFIX_CHARS: usize = 32;
 

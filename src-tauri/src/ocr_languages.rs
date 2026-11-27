@@ -22,9 +22,11 @@ pub const FOLDER_NAME: &str = "tessdata";
 
 const EXTENSION: &str = ".traineddata";
 
-/// The languages the app chooses between when the settings leave it to it, by the language of its
-/// interface (Traditional Chinese, whose data reads English too) and then at all.
-const AUTOMATIC: [&str; 2] = ["chi_tra", "eng"];
+/// The languages the app chooses between when the settings leave it to it: English interface
+/// prefers `eng` first (`zh-TW` prefers `chi_tra`), then the other bundled language, then any
+/// installed language.
+const AUTOMATIC_ZH_TW: [&str; 2] = ["chi_tra", "eng"];
+const AUTOMATIC_EN: [&str; 2] = ["eng", "chi_tra"];
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ReadError {
@@ -40,11 +42,31 @@ pub struct Languages {
     bundled: Option<PathBuf>,
     /// Where imported data goes; none if there is no data folder: then nothing can be imported.
     imported: Option<PathBuf>,
+    /// Priority order when the user has not chosen a specific OCR language.
+    automatic: [&'static str; 2],
 }
 
 impl Languages {
+    #[cfg(test)]
     pub fn new(bundled: Option<PathBuf>, imported: Option<PathBuf>) -> Self {
-        Self { bundled, imported }
+        Self::with_language(bundled, imported, "zh-TW")
+    }
+
+    pub fn with_language(
+        bundled: Option<PathBuf>,
+        imported: Option<PathBuf>,
+        interface_language: &str,
+    ) -> Self {
+        let automatic = if interface_language == "en" {
+            AUTOMATIC_EN
+        } else {
+            AUTOMATIC_ZH_TW
+        };
+        Self {
+            bundled,
+            imported,
+            automatic,
+        }
     }
 
     /// Every installed language: those that came with the app, then the imported ones, each in
@@ -67,7 +89,8 @@ impl Languages {
                     .take(MAX_IMPORTED_LANGUAGES as usize),
             );
         }
-        let automatic = AUTOMATIC
+        let automatic = self
+            .automatic
             .iter()
             .find(|code| languages.iter().any(|l| l.code == **code))
             .map(|code| (*code).to_owned())
@@ -305,6 +328,28 @@ pub(crate) mod tests {
         assert_eq!(languages.choose(Some("deu")).as_deref(), Some("deu"));
         assert_eq!(languages.choose(Some("fra")).as_deref(), Some("chi_tra"));
         assert_eq!(languages.choose(None).as_deref(), Some("chi_tra"));
+
+        // English interface prefers eng first when available, falling back to chi_tra then any.
+        let en = Languages::with_language(Some(bundled.clone()), Some(imported.clone()), "en");
+        assert_eq!(en.list().automatic.as_deref(), Some("eng"));
+        assert_eq!(en.choose(None).as_deref(), Some("eng"));
+        assert_eq!(en.choose(Some("chi_tra")).as_deref(), Some("chi_tra"));
+        assert_eq!(en.choose(Some("deu")).as_deref(), Some("deu"));
+        assert_eq!(en.choose(Some("fra")).as_deref(), Some("eng"));
+
+        let (en_b, en_i) = (folder("auto-en-b"), folder("auto-en-i"));
+        let en_only = Languages::with_language(Some(en_b.clone()), Some(en_i.clone()), "en");
+        assert_eq!(en_only.list().automatic, None);
+        install(&en_i, "deu", &language_data(1));
+        assert_eq!(en_only.choose(None).as_deref(), Some("deu"));
+        install(&en_b, "chi_tra", &language_data(1));
+        assert_eq!(en_only.choose(None).as_deref(), Some("chi_tra"));
+        install(&en_b, "eng", &language_data(1));
+        assert_eq!(en_only.choose(None).as_deref(), Some("eng"));
+        assert_eq!(en_only.choose(Some("chi_tra")).as_deref(), Some("chi_tra"));
+        let _ = fs::remove_dir_all(en_b);
+        let _ = fs::remove_dir_all(en_i);
+
         let _ = fs::remove_dir_all(bundled);
         let _ = fs::remove_dir_all(imported);
     }

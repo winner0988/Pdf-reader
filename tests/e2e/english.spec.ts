@@ -1,13 +1,18 @@
 // English UI (ADR 0029, #683) in the real app:
 // Starts with English UI setting and verifies the English string tables,
 // language attribute, key screens, and accessibility (axe).
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import type { Page } from "@playwright/test";
 
 import { strings as enStrings } from "../../src/i18n/en";
-import { corpus, expect, test } from "./app";
+import { answerFileDialog, corpus, expect, test } from "./app";
+
+const sha256 = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
 const axeSource = readFileSync(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8");
 
@@ -87,4 +92,62 @@ test("starts with English interface, displays English UI, and passes accessibili
 
   await page.keyboard.press("Escape");
   await expect(settingsDialog).not.toBeVisible();
+});
+
+test("writes English page numbers into copies and opens saved copy with English output", async ({ launch }) => {
+  const folder = mkdtempSync(path.join(tmpdir(), "pdf-reader-e2e-english-"));
+  try {
+    const original = corpus("benign/multi-page-10.pdf");
+    const before = sha256(original);
+    const page = await launch(original, { systemLanguage: "en" });
+    await expect(page.getByRole("img", { name: enStrings.canvas.page(1) }).first()).toHaveAttribute(
+      "data-state",
+      "ready",
+    );
+
+    // Open "..." menu -> "Page Numbers and Bates Numbering…"
+    await page.getByRole("button", { name: enStrings.toolbar.more }).click();
+    await page.getByRole("menuitem", { name: enStrings.menu.pageMarks }).click();
+
+    const dialog = page.getByRole("dialog", { name: enStrings.pageMarks.title });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(enStrings.pageMarks.previewPageOfTotal(1, 10));
+
+    // Mark "Except first page" so copy receives "Page 1 of 9" .. "Page 9 of 9",
+    // distinct from the sample's own body text ("Page n of 10").
+    await dialog.getByRole("radio", { name: enStrings.pageMarks.pagesAllButFirst }).click();
+    await expect(dialog).toContainText(enStrings.pageMarks.previewPageOfTotal(1, 9));
+
+    await dialog.getByRole("button", { name: enStrings.pageMarks.start }).click();
+
+    const copy = path.join(folder, "marked-en.pdf");
+    const report = await answerFileDialog(page, { path: copy });
+    await expect(page.getByRole("contentinfo")).toContainText(enStrings.pageMarks.done);
+    expect(readdirSync(folder), report).toEqual(["marked-en.pdf"]);
+    expect(readFileSync(copy).subarray(0, 5).toString()).toBe("%PDF-");
+    expect(sha256(original)).toBe(before);
+
+    // Open the copy and verify English page numbers written by pdf_worker are searchable
+    await page.keyboard.press("Control+o");
+    await answerFileDialog(page, { path: copy });
+    await expect(page.getByRole("tab", { name: /marked-en\.pdf/ })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("img", { name: enStrings.canvas.page(1) }).last()).toHaveAttribute(
+      "data-state",
+      "ready",
+    );
+
+    await page.keyboard.press("Control+f");
+    const search = page.getByRole("search", { name: enStrings.search.label });
+    const searchInput = search.getByRole("textbox", { name: enStrings.search.placeholder });
+    const searchStatus = search.getByRole("status");
+    for (const [words, found] of [
+      ["of 9", 9],
+      ["Page 7 of 9", 1],
+    ] as const) {
+      await searchInput.fill(words);
+      await expect(searchStatus).toHaveText(enStrings.search.count(1, found));
+    }
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
 });

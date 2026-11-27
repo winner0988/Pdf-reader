@@ -13,8 +13,24 @@ use ipc_contract::types::{
     BatesMark, DocumentId, ErrorCode, HeaderFooterMarks, PageMarkPages, PageMarkPosition,
     PageMarks, PageNumberFormat, PageNumberMark, Rgb,
 };
-use ipc_contract::worker::{WorkerRequest, WorkerResponse};
+use ipc_contract::worker::{PageNumberParts, WorkerPageMarks, WorkerRequest, WorkerResponse};
 use worker_host::{HostConfig, HostError, WorkerHost};
+
+const ZH_TW_PARTS: PageNumberParts = PageNumberParts {
+    page_before: "第 ",
+    page_after: " 頁",
+    total_before: "第 ",
+    total_middle: " 頁／共 ",
+    total_after: " 頁",
+};
+
+const EN_PARTS: PageNumberParts = PageNumberParts {
+    page_before: "Page ",
+    page_after: "",
+    total_before: "Page ",
+    total_middle: " of ",
+    total_after: "",
+};
 
 fn host() -> WorkerHost {
     WorkerHost::new(
@@ -47,6 +63,7 @@ fn copy(
     host: &mut WorkerHost,
     doc: DocumentId,
     marks: PageMarks,
+    parts: PageNumberParts,
 ) -> Result<(PathBuf, Vec<u8>), HostError> {
     let path = temp_path("copy.pdf");
     let file = OpenOptions::new()
@@ -54,7 +71,7 @@ fn copy(
         .create_new(true)
         .open(&path)
         .expect("create");
-    let result = host.page_marks_copy(doc, &file, marks);
+    let result = host.page_marks_copy(doc, &file, WorkerPageMarks::from_page_marks(marks, parts));
     drop(file);
     match result {
         Ok(WorkerResponse::Saved {
@@ -125,7 +142,8 @@ fn page_numbers_and_bates_numbers_on_every_page_through_real_sandbox() {
         }),
     };
 
-    let (copy_path, bytes) = copy(&mut host, doc, marks).expect("copy with page marks");
+    let (copy_path, bytes) =
+        copy(&mut host, doc, marks.clone(), ZH_TW_PARTS).expect("copy with page marks");
     assert!(bytes.len() > 1000);
 
     // Verify copy has marks on pages 0 and 9
@@ -139,6 +157,19 @@ fn page_numbers_and_bates_numbers_on_every_page_through_real_sandbox() {
     assert!(p9.contains("第 10 頁／共 10 頁"), "p9 page num: {p9}");
     assert!(p9.contains("DEP-00109"), "p9 bates: {p9}");
     assert!(p9.contains("CONFIDENTIAL"), "p9 header: {p9}");
+
+    // Verify English page number parts passed from the caller also work through the sandbox.
+    let (en_copy_path, _) = copy(&mut host, doc, marks, EN_PARTS).expect("english copy");
+    let en_doc = opened(&mut host, &en_copy_path);
+    assert!(
+        page_text(&mut host, en_doc, 0).contains("Page 1 of 10"),
+        "english page 1"
+    );
+    assert!(
+        page_text(&mut host, en_doc, 9).contains("Page 10 of 10"),
+        "english page 10"
+    );
+    std::fs::remove_file(&en_copy_path).ok();
 
     // Original document is untouched
     let orig_p0 = page_text(&mut host, doc, 0);
@@ -174,7 +205,7 @@ fn refused_operations_do_not_kill_worker() {
         header_footer: None,
     };
 
-    let err = copy(&mut host, enc_doc, marks.clone()).unwrap_err();
+    let err = copy(&mut host, enc_doc, marks.clone(), ZH_TW_PARTS).unwrap_err();
     assert_eq!(err.code(), ErrorCode::InvalidArgument);
 
     // 2. Bates overflow is refused
@@ -189,7 +220,7 @@ fn refused_operations_do_not_kill_worker() {
         }),
         ..marks
     };
-    let err2 = copy(&mut host, plain_doc, overflow_marks).unwrap_err();
+    let err2 = copy(&mut host, plain_doc, overflow_marks, ZH_TW_PARTS).unwrap_err();
     assert_eq!(err2.code(), ErrorCode::InvalidArgument);
 
     // 3. Worker is still alive and serves subsequent requests

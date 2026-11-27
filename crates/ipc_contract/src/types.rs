@@ -1387,14 +1387,55 @@ pub struct BatesMark {
     pub position: PageMarkPosition,
 }
 
+/// Formats a Bates number from `prefix`, zero-padded `digits`, and sequential value `n`.
+pub(crate) fn format_bates_value(prefix: &str, digits: u8, n: u64) -> String {
+    format!("{prefix}{n:0>width$}", width = usize::from(digits))
+}
+
+/// Computes the 0-based page indices to mark and validates Bates capacity against that count.
+pub(crate) fn resolve_marked_pages(
+    pages: &PageMarkPages,
+    bates: Option<(u8, u64)>,
+    total_pages: u32,
+) -> Result<Vec<u32>, PageMarksError> {
+    let marked: Vec<u32> = match pages {
+        PageMarkPages::All => (0..total_pages).collect(),
+        PageMarkPages::AllButFirst => (1..total_pages).collect(),
+        PageMarkPages::Custom { pages } => {
+            let mut sorted = pages.clone();
+            sorted.sort_unstable();
+            sorted.dedup();
+            if let Some(&past) = sorted.iter().find(|&&page| page >= total_pages) {
+                return Err(PageMarksError::PageOutOfRange(past));
+            }
+            sorted
+        }
+    };
+
+    if marked.is_empty() {
+        return Err(PageMarksError::NoPageToMark);
+    }
+
+    if let Some((digits, start)) = bates {
+        let marked_count = marked.len() as u64;
+        let last = start
+            .checked_add(marked_count - 1)
+            .ok_or(PageMarksError::BatesOverflow)?;
+        let past_digits = 10_u64
+            .checked_pow(u32::from(digits))
+            .ok_or(PageMarksError::BatesOverflow)?;
+        if last >= past_digits {
+            return Err(PageMarksError::BatesOverflow);
+        }
+    }
+
+    Ok(marked)
+}
+
 impl BatesMark {
     /// Formats number `n` with this mark's prefix and zero-padded width.
     pub fn format_number(&self, n: u64) -> String {
-        format!(
-            "{}{n:0>width$}",
-            self.prefix,
-            width = usize::from(self.digits)
-        )
+        format_bates_value(&self.prefix, self.digits, n)
     }
 
     /// Formats the range of numbers from `first` to `last`.
@@ -1482,39 +1523,8 @@ impl PageMarks {
     /// range, when no pages are marked, or when the Bates numbering overflows the configured
     /// number of digits.
     pub fn marked_pages(&self, total_pages: u32) -> Result<Vec<u32>, PageMarksError> {
-        let marked: Vec<u32> = match &self.pages {
-            PageMarkPages::All => (0..total_pages).collect(),
-            PageMarkPages::AllButFirst => (1..total_pages).collect(),
-            PageMarkPages::Custom { pages } => {
-                let mut sorted = pages.clone();
-                sorted.sort_unstable();
-                sorted.dedup();
-                if let Some(&past) = sorted.iter().find(|&&page| page >= total_pages) {
-                    return Err(PageMarksError::PageOutOfRange(past));
-                }
-                sorted
-            }
-        };
-
-        if marked.is_empty() {
-            return Err(PageMarksError::NoPageToMark);
-        }
-
-        if let Some(bates) = &self.bates {
-            let marked_count = marked.len() as u64;
-            let last = bates
-                .start
-                .checked_add(marked_count - 1)
-                .ok_or(PageMarksError::BatesOverflow)?;
-            let past_digits = 10_u64
-                .checked_pow(u32::from(bates.digits))
-                .ok_or(PageMarksError::BatesOverflow)?;
-            if last >= past_digits {
-                return Err(PageMarksError::BatesOverflow);
-            }
-        }
-
-        Ok(marked)
+        let bates = self.bates.as_ref().map(|b| (b.digits, b.start));
+        resolve_marked_pages(&self.pages, bates, total_pages)
     }
 }
 

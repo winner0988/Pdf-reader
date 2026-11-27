@@ -588,7 +588,7 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     WorkerErrorCode::UnknownDocument,
                     "unknown document",
                 ),
-                Some(document) => page_marks_copy(document, request, file, &marks.into()),
+                Some(document) => page_marks_copy(document, request, file, &marks),
             }),
             WorkerRequest::PrepareSource {
                 request,
@@ -1285,7 +1285,7 @@ fn page_marks_copy(
     document: &PdfDocument,
     request: RequestId,
     file: FileHandle,
-    marks: &ipc_contract::types::PageMarks,
+    marks: &ipc_contract::worker::WorkerPageMarks,
 ) -> WorkerResponse {
     let Some(mut file) = handle::take_file(file) else {
         return error(

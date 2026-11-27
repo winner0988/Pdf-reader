@@ -242,7 +242,7 @@ pub fn bindings() -> String {
         SaveAttachmentResult,
     );
 
-    let limits: [(&str, String); 89] = [
+    let limits: [(&str, String); 90] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minCroppedSidePt", MIN_CROPPED_SIDE_PT.to_string()),
@@ -319,6 +319,10 @@ pub fn bindings() -> String {
         ("minPageMarkMarginPt", MIN_PAGE_MARK_MARGIN_PT.to_string()),
         ("maxPageMarkMarginPt", MAX_PAGE_MARK_MARGIN_PT.to_string()),
         ("maxPageMarkChars", MAX_PAGE_MARK_CHARS.to_string()),
+        (
+            "maxPageNumberPartChars",
+            MAX_PAGE_NUMBER_PART_CHARS.to_string(),
+        ),
         ("maxBatesPrefixChars", MAX_BATES_PREFIX_CHARS.to_string()),
         ("minBatesDigits", MIN_BATES_DIGITS.to_string()),
         ("maxBatesDigits", MAX_BATES_DIGITS.to_string()),

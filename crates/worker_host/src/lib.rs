@@ -678,7 +678,7 @@ impl WorkerHost {
         &mut self,
         doc: DocumentId,
         file: &File,
-        marks: ipc_contract::types::PageMarks,
+        marks: ipc_contract::worker::WorkerPageMarks,
     ) -> Result<WorkerResponse, HostError> {
         self.ensure_running()?;
         let handle = self
@@ -692,7 +692,7 @@ impl WorkerHost {
             request,
             doc,
             file: FileHandle(handle),
-            marks: marks.into(),
+            marks,
         })
     }
 

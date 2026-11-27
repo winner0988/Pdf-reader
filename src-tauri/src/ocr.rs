@@ -1230,4 +1230,55 @@ mod tests {
         assert_eq!(told, [tab(3)]);
         let _ = fs::remove_dir_all(dir);
     }
+
+    #[test]
+    fn automatic_ocr_language_follows_interface_language_when_setting_is_none() {
+        let dir = folder("ui-lang-auto");
+        for code in ["chi_tra", "eng"] {
+            std::fs::write(dir.join(format!("{code}.traineddata")), language_data(1)).unwrap();
+        }
+        let zh_langs = Languages::with_language(Some(dir.clone()), None, "zh-TW");
+        let en_langs = Languages::with_language(Some(dir.clone()), None, "en");
+        let mut settings = Settings::default();
+        assert_eq!(settings.ocr_language, None);
+
+        let mut link = Fake::new(1);
+        let mut zh_session = Session::new();
+        let zh_ctx = Context {
+            settings: &settings,
+            languages: &zh_langs,
+            may_start: true,
+            now: Instant::now(),
+        };
+        assert!(zh_session.ensure_language(&mut link, &zh_ctx));
+        assert_eq!(link.loaded, ["chi_tra"]);
+
+        let mut en_link = Fake::new(1);
+        let mut en_session = Session::new();
+        let en_ctx = Context {
+            settings: &settings,
+            languages: &en_langs,
+            may_start: true,
+            now: Instant::now(),
+        };
+        assert!(en_session.ensure_language(&mut en_link, &en_ctx));
+        assert_eq!(en_link.loaded, ["eng"]);
+
+        // Explicit setting overrides UI-language default even when UI is English.
+        settings.ocr_language = Some("chi_tra".to_owned());
+        let mut override_link = Fake::new(1);
+        let mut override_session = Session::new();
+        assert!(override_session.ensure_language(
+            &mut override_link,
+            &Context {
+                settings: &settings,
+                languages: &en_langs,
+                may_start: true,
+                now: Instant::now(),
+            }
+        ));
+        assert_eq!(override_link.loaded, ["chi_tra"]);
+
+        let _ = fs::remove_dir_all(dir);
+    }
 }
