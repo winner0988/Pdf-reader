@@ -23,6 +23,7 @@ import {
   type CompressForm,
 } from "@/features/saving/compress";
 import { strings } from "@/i18n";
+import { ipcErrorCode } from "@/ipc/errors";
 import type { CompressArgs, CompressResult, DocumentId } from "@/ipc/generated/contract";
 
 const t = strings.compress;
@@ -38,7 +39,7 @@ type CompressDialogProps = {
 export function CompressDialog({ open, onOpenChange, doc, onCompress }: CompressDialogProps) {
   const [form, setForm] = useState<CompressForm>(DEFAULT_FORM);
   const [running, setRunning] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [error, setError] = useState<"signed" | "failed" | null>(null);
   const [result, setResult] = useState<CompressResult | null>(null);
   const names = { quality: useId(), size: useId() };
 
@@ -47,7 +48,7 @@ export function CompressDialog({ open, onOpenChange, doc, onCompress }: Compress
   if (open !== wasOpen) {
     setWasOpen(open);
     setForm(DEFAULT_FORM);
-    setFailed(false);
+    setError(null);
     setResult(null);
   }
 
@@ -55,16 +56,16 @@ export function CompressDialog({ open, onOpenChange, doc, onCompress }: Compress
     event.preventDefault();
     if (running) return;
     setRunning(true);
-    setFailed(false);
+    setError(null);
     onCompress(argsOf(doc, form)).then(
       (done) => {
         setRunning(false);
         // Null: the user closed the system's dialog; this one stays for another try.
         if (done) setResult(done);
       },
-      () => {
+      (err) => {
         setRunning(false);
-        setFailed(true);
+        setError(ipcErrorCode(err) === "signed" ? "signed" : "failed");
       },
     );
   };
@@ -128,9 +129,9 @@ export function CompressDialog({ open, onOpenChange, doc, onCompress }: Compress
             <p role="status" className="min-h-5 text-sm text-muted-foreground">
               {running ? t.running : ""}
             </p>
-            {failed && (
+            {error && (
               <p role="alert" className="text-sm text-destructive">
-                {t.failed}
+                {error === "signed" ? t.signed : t.failed}
               </p>
             )}
             <DialogFooter>

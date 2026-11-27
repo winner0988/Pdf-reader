@@ -753,6 +753,7 @@ export const strings: Strings = {
     cancel: "Cancel",
     running: "Encrypting…",
     done: "Encrypted and saved as new file.",
+    signed: "Signed documents cannot be encrypted: signatures would be invalidated.",
     failed: "Could not encrypt this document. Signed documents cannot be encrypted; for other reasons please try again.",
     problem: {
       nothing: "Please set an open password, or select at least one restriction.",
@@ -763,6 +764,7 @@ export const strings: Strings = {
       tooLong: (max: number) => `Password cannot exceed ${max} bytes.`,
     },
     encrypted: "Encrypted documents not supported",
+    signedBlocked: "Signed documents not supported",
   },
   decryption: {
     title: "Save Copy Without Passwords",
@@ -798,6 +800,7 @@ export const strings: Strings = {
     cancel: "Cancel",
     close: "Done",
     running: "Compressing images…",
+    signed: "Signed documents cannot be compressed: signatures would be invalidated.",
     failed: "Could not compress this document. Encrypted or digitally signed documents cannot be compressed; for other reasons please try again.",
     resultTitle: "Saved New File",
     result: {
@@ -811,6 +814,7 @@ export const strings: Strings = {
     kilobytes: (kb: number) => `${kb} KB`,
     megabytes: (mb: string) => `${mb} MB`,
     encrypted: "Encrypted documents not supported",
+    signedBlocked: "Signed documents not supported",
   },
   signing: {
     title: "Sign Document",
@@ -947,7 +951,7 @@ export const strings: Strings = {
     skipped: "Skipped (stopped)",
     reasons: {
       encrypted: "Password-protected file; batch processing does not prompt for passwords",
-      invalidArgument: "File cannot be processed this way (e.g. signed documents cannot be encrypted, stripped of EXIF, or compressed)",
+      invalidArgument: "File cannot be processed this way",
       notPdf: "Not a PDF file",
       corrupted: "File corrupted",
       signed: "Digitally signed file; processing would invalidate signature",

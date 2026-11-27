@@ -170,4 +170,18 @@ test.describe("a compressed copy", () => {
     await expect(page.getByRole("dialog", { name: t.resultTitle })).toContainText("文件裡沒有可以壓縮的圖片");
     expect(readFileSync(copy).subarray(0, 5).toString()).toBe("%PDF-");
   });
+
+  test("a signed document is not offered a compressed copy, and says why", async ({ launch }) => {
+    const page = await launch(corpus("benign/signed.pdf"));
+    await expect(page.getByRole("img", { name: strings.canvas.page(1) }).first()).toHaveAttribute(
+      "data-state",
+      "ready",
+    );
+    await expect(page.getByRole("region", { name: strings.signatures.label })).toBeVisible();
+
+    await page.getByRole("button", { name: strings.toolbar.more }).click();
+    const item = page.getByRole("menuitem", { name: new RegExp(strings.menu.compressImages.replace("…", "")) });
+    await expect(item).toBeDisabled();
+    await expect(item).toContainText(t.signedBlocked);
+  });
 });

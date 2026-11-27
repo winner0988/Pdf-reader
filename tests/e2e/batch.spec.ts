@@ -111,7 +111,7 @@ test.describe("a batch", () => {
     await expect(dialog.getByRole("status")).toHaveText(t.summary(1, 1, 0));
     const list = dialog.getByRole("list", { name: t.filesLabel });
     await expect(list).toContainText(t.done("photo（已清除 EXIF）.pdf"));
-    await expect(list).toContainText(t.failedFile(t.reasons.invalidArgument!));
+    await expect(list).toContainText(t.failedFile(t.reasons.signed!));
     expect(readdirSync(out)).toEqual(["photo（已清除 EXIF）.pdf"]);
     const copy = readFileSync(path.join(out, "photo（已清除 EXIF）.pdf"));
     expect(copy.subarray(0, 5).toString()).toBe("%PDF-");
@@ -141,7 +141,7 @@ test.describe("a batch", () => {
     await expect(dialog.getByRole("status")).toHaveText(t.summary(1, 1, 0));
     const list = dialog.getByRole("list", { name: t.filesLabel });
     await expect(list).toContainText(t.done("scan（已壓縮）.pdf"));
-    await expect(list).toContainText(t.failedFile(t.reasons.invalidArgument!));
+    await expect(list).toContainText(t.failedFile(t.reasons.signed!));
     expect(readdirSync(out)).toEqual(["scan（已壓縮）.pdf"]);
     const copy = readFileSync(path.join(out, "scan（已壓縮）.pdf"));
     expect(copy.subarray(0, 5).toString()).toBe("%PDF-");

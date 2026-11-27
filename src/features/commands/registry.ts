@@ -404,18 +404,14 @@ export function createCommands(opts: CommandOptions): Command[] {
       id: "encryptCopy",
       name: menu.encryptCopy,
       aliases: [...aliases.encryptCopy],
-      shortcutBadge: opts.encryptCopyBlocked ? strings.encryption.encrypted : undefined,
+      shortcutBadge: opts.encryptCopyBlocked,
       fromMenu: true,
       menuSection: "actions",
       menuKind: "item",
       visibleInMenu: true,
       menuDisabled: !opts.onEncryptCopy,
       enabled: hasDoc && Boolean(opts.onEncryptCopy && !opts.encryptCopyBlocked),
-      disabledReason: !hasDoc
-        ? strings.commands.noDocument
-        : opts.encryptCopyBlocked
-          ? strings.encryption.encrypted
-          : undefined,
+      disabledReason: !hasDoc ? strings.commands.noDocument : opts.encryptCopyBlocked,
       run: () => opts.onEncryptCopy?.(),
     },
     {
@@ -474,18 +470,14 @@ export function createCommands(opts: CommandOptions): Command[] {
       id: "compressImages",
       name: menu.compressImages,
       aliases: [...aliases.compressImages],
-      shortcutBadge: opts.compressImagesBlocked ? strings.compress.encrypted : undefined,
+      shortcutBadge: opts.compressImagesBlocked,
       fromMenu: true,
       menuSection: "actions",
       menuKind: "item",
       visibleInMenu: true,
       menuDisabled: !opts.onCompressImages,
       enabled: hasDoc && Boolean(opts.onCompressImages && !opts.compressImagesBlocked),
-      disabledReason: !hasDoc
-        ? strings.commands.noDocument
-        : opts.compressImagesBlocked
-          ? strings.compress.encrypted
-          : undefined,
+      disabledReason: !hasDoc ? strings.commands.noDocument : opts.compressImagesBlocked,
       run: () => opts.onCompressImages?.(),
     },
     {

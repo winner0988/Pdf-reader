@@ -17,6 +17,7 @@ import {
 import { argsOf, describeProblem, EMPTY_FORM, problemWith, type EncryptForm } from "@/features/saving/encrypt";
 import { EncryptFields } from "@/features/saving/EncryptFields";
 import { strings } from "@/i18n";
+import { ipcErrorCode } from "@/ipc/errors";
 import type { DocumentId, EncryptArgs } from "@/ipc/generated/contract";
 
 const t = strings.encryption;
@@ -34,19 +35,19 @@ type EncryptDialogProps = {
 export function EncryptDialog({ open, onOpenChange, doc, onEncrypt, onFinished }: EncryptDialogProps) {
   const [form, setForm] = useState<EncryptForm>(EMPTY_FORM);
   const [running, setRunning] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [error, setError] = useState<"signed" | "failed" | null>(null);
 
   // Every time it opens, it starts over, and nothing typed is kept when it closes.
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
     setForm(EMPTY_FORM);
-    setFailed(false);
+    setError(null);
   }
 
   const problem = problemWith(form);
   const change = (changes: Partial<EncryptForm>) => {
-    setFailed(false);
+    setError(null);
     setForm((now) => ({ ...now, ...changes }));
   };
 
@@ -54,7 +55,7 @@ export function EncryptDialog({ open, onOpenChange, doc, onEncrypt, onFinished }
     event.preventDefault();
     if (problem !== null || running) return;
     setRunning(true);
-    setFailed(false);
+    setError(null);
     onEncrypt(argsOf(doc, form)).then(
       (written) => {
         setRunning(false);
@@ -65,9 +66,9 @@ export function EncryptDialog({ open, onOpenChange, doc, onEncrypt, onFinished }
           onFinished(t.done);
         }
       },
-      () => {
+      (err) => {
         setRunning(false);
-        setFailed(true);
+        setError(ipcErrorCode(err) === "signed" ? "signed" : "failed");
       },
     );
   };
@@ -86,9 +87,9 @@ export function EncryptDialog({ open, onOpenChange, doc, onEncrypt, onFinished }
           <p role="status" className="min-h-5 text-sm text-muted-foreground">
             {running ? t.running : problem !== null ? describeProblem(problem) : ""}
           </p>
-          {failed && (
+          {error && (
             <p role="alert" className="text-sm text-destructive">
-              {t.failed}
+              {error === "signed" ? t.signed : t.failed}
             </p>
           )}
           <DialogFooter>

@@ -140,12 +140,12 @@ describe("a batch (B3-04)", () => {
     act(() => state.onEvent({ kind: "started", files: ["photo.pdf", "signed.pdf", "odd.pdf"] }));
     act(() => {
       state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "photo（已清除 EXIF）.pdf", bates: null } });
-      state.onEvent({ kind: "file", index: 1, outcome: { kind: "failed", error: "invalidArgument" } });
+      state.onEvent({ kind: "file", index: 1, outcome: { kind: "failed", error: "signed" } });
       state.onEvent({ kind: "file", index: 2, outcome: { kind: "failed", error: "pictureNotCleaned" } });
     });
     const list = within(dialog).getByRole("list", { name: t.filesLabel });
     expect(list).toHaveTextContent(t.done("photo（已清除 EXIF）.pdf"));
-    expect(list).toHaveTextContent(t.failedFile(t.reasons.invalidArgument!));
+    expect(list).toHaveTextContent(t.failedFile(t.reasons.signed!));
     expect(list).toHaveTextContent(t.failedFile(strings.error.messages.pictureNotCleaned));
   });
 
@@ -167,11 +167,11 @@ describe("a batch (B3-04)", () => {
     act(() => state.onEvent({ kind: "started", files: ["scan.pdf", "signed.pdf"] }));
     act(() => {
       state.onEvent({ kind: "file", index: 0, outcome: { kind: "done", output: "scan（已壓縮）.pdf", bates: null } });
-      state.onEvent({ kind: "file", index: 1, outcome: { kind: "failed", error: "invalidArgument" } });
+      state.onEvent({ kind: "file", index: 1, outcome: { kind: "failed", error: "signed" } });
     });
     const list = within(dialog).getByRole("list", { name: t.filesLabel });
     expect(list).toHaveTextContent(t.done("scan（已壓縮）.pdf"));
-    expect(list).toHaveTextContent(t.failedFile(t.reasons.invalidArgument!));
+    expect(list).toHaveTextContent(t.failedFile(t.reasons.signed!));
     await act(async () => state.finish({ done: 1, failed: 1, skipped: 0 }));
     await user.click(within(dialog).getByRole("button", { name: t.close }));
 

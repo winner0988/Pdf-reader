@@ -3,7 +3,7 @@
 // asks for its password when it opens and has the restrictions it was given, and the document's own
 // file is not touched. A signed document cannot be encrypted: its signatures would not hold.
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -84,18 +84,15 @@ test.describe("encrypting a copy", () => {
     await expect(status).not.toContainText(strings.permissions.noPrint);
   });
 
-  test("a signed document cannot be encrypted, and nothing is written", async ({ launch }) => {
+  test("a signed document is not offered an encrypted copy, and says why", async ({ launch }) => {
     const page = await launch(corpus("benign/signed.pdf"));
     await expect(firstPage(page)).toHaveAttribute("data-state", "ready");
+    await expect(page.getByRole("region", { name: strings.signatures.label })).toBeVisible();
 
-    const dialog = await openDialog(page);
-    await dialog.getByLabel(t.openPassword, { exact: true }).fill(OPEN);
-    await dialog.getByLabel(`${t.openPassword}（${t.again}）`, { exact: true }).fill(OPEN);
-    await dialog.getByRole("button", { name: t.start }).click();
-    const copy = path.join(folder, "signed-copy.pdf");
-    await answerFileDialog(page, { path: copy });
-    await expect(dialog.getByRole("alert")).toContainText(t.failed);
-    expect(existsSync(copy)).toBe(false);
+    await page.getByRole("button", { name: strings.toolbar.more }).click();
+    const item = page.getByRole("menuitem", { name: new RegExp(strings.menu.encryptCopy.replace("…", "")) });
+    await expect(item).toBeDisabled();
+    await expect(item).toContainText(t.signedBlocked);
   });
 
   test("an encrypted document is not offered an encrypted copy", async ({ launch }) => {

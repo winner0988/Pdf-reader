@@ -155,8 +155,9 @@ fn an_encrypted_document_and_a_signed_one_have_no_copy_and_the_worker_goes_on() 
     let (path, file) = new_file("exif-refused");
     let signed = open(&mut host, &corpus("benign/signed.pdf"));
     let refused = host.exif_clean_copy(signed, &file).expect_err("refused");
+    assert_eq!(refused.code(), ipc_contract::types::ErrorCode::Signed);
     assert!(
-        matches!(&refused, HostError::Worker(error) if error.code == WorkerErrorCode::InvalidRequest),
+        matches!(&refused, HostError::Worker(error) if error.code == WorkerErrorCode::Signed),
         "{refused:?}"
     );
     // A document with no pictures is a copy all the same, with nothing taken out.

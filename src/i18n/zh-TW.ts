@@ -777,6 +777,7 @@ export const strings = {
     cancel: "取消",
     running: "正在加密…",
     done: "已加密並另存新檔。",
+    signed: "有數位簽章的文件不能加密：簽章會失效。",
     failed: "無法加密這份文件。有數位簽章的文件不能加密；其他原因請再試一次。",
     problem: {
       nothing: "請設定開啟密碼，或至少選一項限制。",
@@ -788,6 +789,7 @@ export const strings = {
     },
     /** In the menu, in place of the shortcut, when it does not apply. */
     encrypted: "已加密的文件不適用",
+    signedBlocked: "有數位簽章的文件不適用",
   },
   /** Decrypting a copy (docs/architecture/decrypt-copy.md). */
   decryption: {
@@ -826,6 +828,7 @@ export const strings = {
     cancel: "取消",
     close: "完成",
     running: "正在壓縮圖片…",
+    signed: "有數位簽章的文件不能壓縮：簽章會失效。",
     failed: "無法壓縮這份文件。已加密或有數位簽章的文件不能壓縮；其他原因請再試一次。",
     resultTitle: "已存成新檔",
     result: {
@@ -842,6 +845,7 @@ export const strings = {
     megabytes: (mb: string) => `${mb} MB`,
     /** In the menu, in place of the shortcut, when it does not apply. */
     encrypted: "已加密的文件不適用",
+    signedBlocked: "有數位簽章的文件不適用",
   },
   /** Signing a document (B3-06, ADR 0020). */
   signing: {
@@ -983,7 +987,7 @@ export const strings = {
     /** Why a file failed, for the codes that mean something here; any other code has its general text. */
     reasons: {
       encrypted: "有密碼的檔案，批次處理不詢問密碼",
-      invalidArgument: "這個檔案不能這樣處理，例如有數位簽章的文件不能加密、清除 EXIF 或壓縮圖片（簽章會失效）",
+      invalidArgument: "這個檔案不能這樣處理",
       notPdf: "不是 PDF 檔案",
       corrupted: "檔案已損毀",
       signed: "有數位簽章的檔案，這樣處理會讓簽章失效",
