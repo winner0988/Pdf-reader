@@ -2656,6 +2656,39 @@ impl Documents {
         })
     }
 
+    /// Editable `3 Tr` invisible OCR words of page `page_index`, or why it cannot be corrected
+    /// directly in the PDF (B7-12, Issue #749, ADR 0036).
+    pub fn recognised_words(
+        &self,
+        doc: DocumentId,
+        page_index: u32,
+    ) -> Result<ipc_contract::types::RecognisedWordsPage, IpcError> {
+        self.with_document(doc, |document| {
+            let page_count = u32::try_from(document.info.pages.len()).unwrap_or(u32::MAX);
+            check_page_index(page_index, page_count).map_err(invalid_argument)?;
+            let response = request(document, |request, doc| WorkerRequest::GetRecognisedWords {
+                request,
+                doc,
+                page_index,
+            })?;
+            let WorkerResponse::RecognisedWords {
+                page_index: answered,
+                result,
+                ..
+            } = response
+            else {
+                return Err(unexpected_on(document, "GetRecognisedWords"));
+            };
+            if answered != page_index {
+                return Err(IpcError {
+                    code: ErrorCode::ProtocolViolation,
+                    message: "recognised words do not match the requested page".to_owned(),
+                });
+            }
+            Ok(result)
+        })
+    }
+
     /// The annotations of every page of `doc` for a summary (B3-18). Reading every page may take
     /// as long as saving.
     pub fn annotation_summary(&self, doc: DocumentId) -> Result<AnnotationSummary, IpcError> {
@@ -3370,6 +3403,13 @@ fn pages_after(
             }
             return Ok(page_count);
         }
+        Edit::CorrectRecognisedText { page, .. } => {
+            if !permissions.modify {
+                return Err(not_allowed());
+            }
+            check_page_index(*page, page_count).map_err(invalid_argument)?;
+            return Ok(page_count);
+        }
         _ => {}
     }
     if let Some(pages) = annotated {
@@ -3525,7 +3565,8 @@ fn pages_after(
         | Edit::AddWatermark { .. }
         | Edit::AddLink { .. }
         | Edit::SetLinkTarget { .. }
-        | Edit::DeleteLink { .. } => Ok(page_count),
+        | Edit::DeleteLink { .. }
+        | Edit::CorrectRecognisedText { .. } => Ok(page_count),
     }
 }
 
@@ -8635,6 +8676,107 @@ mod with_worker {
             ErrorCode::InvalidArgument
         );
 
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn correct_recognised_text_round_trips_and_enforces_modify_and_signed() {
+        use ipc_contract::types::{RecognisedWordsPage, RecognisedWordsUnusable};
+
+        let sample = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/recognised-text-layer.pdf");
+        let (documents, info, path) = open_bytes("rec-text", &std::fs::read(sample).unwrap());
+        let mut doc = info.doc;
+
+        let words = match documents.recognised_words(doc, 0).unwrap() {
+            RecognisedWordsPage::Usable { words } => words,
+            other => panic!("expected usable words, got {other:?}"),
+        };
+        assert_eq!(
+            words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>(),
+            vec!["Hel1o", "W0rld"]
+        );
+
+        let info = opened_info(
+            documents
+                .apply_edit(&EditArgs {
+                    doc,
+                    edit: Edit::CorrectRecognisedText {
+                        page: 0,
+                        word: words[0].id,
+                        expected: "Hel1o".to_owned(),
+                        text: "Hello".to_owned(),
+                    },
+                })
+                .unwrap(),
+        );
+        doc = info.doc;
+        assert!(info.unsaved);
+        let page_text = documents.page_text(doc, 0).unwrap();
+        assert!(page_text.lines.iter().any(|l| l.text.contains("Hello")));
+        assert!(!page_text.lines.iter().any(|l| l.text.contains("Hel1o")));
+
+        // Undo & redo via Documents
+        stepped(&documents, &mut doc, true);
+        let undone_text = documents.page_text(doc, 0).unwrap();
+        assert!(undone_text.lines.iter().any(|l| l.text.contains("Hel1o")));
+
+        stepped(&documents, &mut doc, false);
+        let redone_text = documents.page_text(doc, 0).unwrap();
+        assert!(redone_text.lines.iter().any(|l| l.text.contains("Hello")));
+        std::fs::remove_file(path).ok();
+
+        // /P no-modify document refused at main process & listing reports NotAllowed
+        let nomod = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/corpus/benign/restricted-no-modify.pdf");
+        let (documents, info, path) = open_bytes("rec-nomod", &std::fs::read(nomod).unwrap());
+        assert_eq!(
+            documents.recognised_words(info.doc, 0).unwrap(),
+            RecognisedWordsPage::Unusable {
+                reason: RecognisedWordsUnusable::NotAllowed
+            }
+        );
+        assert_eq!(
+            documents
+                .apply_edit(&EditArgs {
+                    doc: info.doc,
+                    edit: Edit::CorrectRecognisedText {
+                        page: 0,
+                        word: 0,
+                        expected: "Hel1o".to_owned(),
+                        text: "Hello".to_owned(),
+                    },
+                })
+                .unwrap_err(),
+            not_allowed()
+        );
+        std::fs::remove_file(path).ok();
+
+        // Signed document reports Signed and refuses edit
+        let signed =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign/signed.pdf");
+        let (documents, info, path) = open_bytes("rec-signed", &std::fs::read(signed).unwrap());
+        assert_eq!(
+            documents.recognised_words(info.doc, 0).unwrap(),
+            RecognisedWordsPage::Unusable {
+                reason: RecognisedWordsUnusable::Signed
+            }
+        );
+        assert_eq!(
+            documents
+                .apply_edit(&EditArgs {
+                    doc: info.doc,
+                    edit: Edit::CorrectRecognisedText {
+                        page: 0,
+                        word: 0,
+                        expected: "Hel1o".to_owned(),
+                        text: "Hello".to_owned(),
+                    },
+                })
+                .unwrap_err()
+                .code,
+            ErrorCode::Signed
+        );
         std::fs::remove_file(path).ok();
     }
 

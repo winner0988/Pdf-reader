@@ -730,6 +730,13 @@ pub enum WorkerEdit {
     SetLinkTarget { link: LinkId, target: NewLinkTarget },
     /// As [`Edit::DeleteLink`] (B6-03).
     DeleteLink { link: LinkId },
+    /// As [`Edit::CorrectRecognisedText`] (B7-12, #749, ADR 0036).
+    CorrectRecognisedText {
+        page: u32,
+        word: u32,
+        expected: String,
+        text: String,
+    },
 }
 
 /// An edit names something its document does not have: a file whose pages it takes (B2-06), the
@@ -992,6 +999,17 @@ impl WorkerEdit {
                 target: target.clone(),
             },
             Edit::DeleteLink { link } => WorkerEdit::DeleteLink { link: *link },
+            Edit::CorrectRecognisedText {
+                page,
+                word,
+                expected,
+                text,
+            } => WorkerEdit::CorrectRecognisedText {
+                page: *page,
+                word: *word,
+                expected: expected.clone(),
+                text: text.clone(),
+            },
         })
     }
 }
@@ -1400,6 +1418,13 @@ pub enum WorkerRequest {
         request: RequestId,
         doc: DocumentId,
     },
+    /// Lists editable `3 Tr` words on `page_index`, or reports why the page is unusable
+    /// (B7-12, #749, ADR 0036).
+    GetRecognisedWords {
+        request: RequestId,
+        doc: DocumentId,
+        page_index: u32,
+    },
     Shutdown,
 }
 
@@ -1631,6 +1656,12 @@ pub enum WorkerResponse {
     DocumentFonts {
         request: RequestId,
         fonts: DocumentFonts,
+    },
+    /// Editable `3 Tr` words (or refusal reason) from `GetRecognisedWords` (B7-12, #749, ADR 0036).
+    RecognisedWords {
+        request: RequestId,
+        page_index: u32,
+        result: crate::types::RecognisedWordsPage,
     },
     Error {
         request: Option<RequestId>,

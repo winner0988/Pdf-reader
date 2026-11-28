@@ -841,7 +841,42 @@ impl Validate for WorkerResponse {
             }
             WorkerResponse::DocumentProperties { properties, .. } => properties.validate(),
             WorkerResponse::DocumentFonts { fonts, .. } => fonts.validate(),
+            WorkerResponse::RecognisedWords { result, .. } => result.validate(),
             WorkerResponse::Error { error, .. } => error.validate(),
+        }
+    }
+}
+
+impl Validate for crate::types::RecognisedWord {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.rect.validate()?;
+        self.quad.validate()?;
+        check_recognised_word_text("recognised word", &self.text)
+    }
+}
+
+impl Validate for crate::types::RecognisedWordsPage {
+    fn validate(&self) -> Result<(), ValidationError> {
+        match self {
+            crate::types::RecognisedWordsPage::Usable { words } => {
+                check_count(
+                    "recognised words",
+                    words.len(),
+                    MAX_RECOGNISED_WORDS_PER_PAGE,
+                )?;
+                let mut ids = HashSet::new();
+                for word in words {
+                    if !ids.insert(word.id) {
+                        return Err(ValidationError::Invalid {
+                            what: "recognised words",
+                            reason: "a word id appears twice",
+                        });
+                    }
+                    word.validate()?;
+                }
+                Ok(())
+            }
+            crate::types::RecognisedWordsPage::Unusable { .. } => Ok(()),
         }
     }
 }
@@ -2184,6 +2219,16 @@ impl Validate for Edit {
             }
             Edit::SetLinkTarget { link: _, target } => target.validate(),
             Edit::DeleteLink { link: _ } => Ok(()),
+            Edit::CorrectRecognisedText {
+                page,
+                word: _,
+                expected,
+                text,
+            } => {
+                check_annotated_page(*page)?;
+                check_recognised_word_text("expected recognised text", expected)?;
+                check_recognised_word_text("corrected recognised text", text)
+            }
         }
     }
 }
@@ -2445,6 +2490,19 @@ pub fn check_text_box_text(text: &str) -> Result<(), ValidationError> {
         });
     }
     Ok(())
+}
+
+/// Validates existing or corrected `3 Tr` word text (B7-12, #749): non-blank, bounded, and free of
+/// control or invisible formatting characters.
+pub fn check_recognised_word_text(what: &'static str, text: &str) -> Result<(), ValidationError> {
+    if text.trim().is_empty() {
+        return Err(ValidationError::Invalid {
+            what,
+            reason: "empty",
+        });
+    }
+    check_text(what, text, MAX_RECOGNISED_WORD_BYTES)?;
+    check_clean(what, text)
 }
 
 /// Validates texts to be prepared in a `PrepareTextBoxes` batch request (Issue #381).
@@ -8102,5 +8160,108 @@ mod tests {
                 uri
             );
         }
+    }
+
+    #[test]
+    fn correct_recognised_text_edit_and_response_validate_bounds() {
+        use crate::types::{Point, Quad, RecognisedWord, RecognisedWordsPage};
+
+        let valid_edit = Edit::CorrectRecognisedText {
+            page: 0,
+            word: 1,
+            expected: "Hel1o".to_owned(),
+            text: "Hello".to_owned(),
+        };
+        assert!(valid_edit.validate().is_ok());
+
+        for bad_text in [
+            "",
+            "   ",
+            "bad\nword",
+            "bad\u{202E}word",
+            &"a".repeat(MAX_RECOGNISED_WORD_BYTES as usize + 1),
+        ] {
+            assert!(
+                Edit::CorrectRecognisedText {
+                    page: 0,
+                    word: 0,
+                    expected: "Hel1o".to_owned(),
+                    text: bad_text.to_owned(),
+                }
+                .validate()
+                .is_err(),
+                "must reject invalid new text {bad_text:?}"
+            );
+            assert!(
+                Edit::CorrectRecognisedText {
+                    page: 0,
+                    word: 0,
+                    expected: bad_text.to_owned(),
+                    text: "Hello".to_owned(),
+                }
+                .validate()
+                .is_err(),
+                "must reject invalid expected text {bad_text:?}"
+            );
+        }
+
+        assert!(
+            Edit::CorrectRecognisedText {
+                page: MAX_PAGE_COUNT,
+                word: 0,
+                expected: "Hel1o".to_owned(),
+                text: "Hello".to_owned(),
+            }
+            .validate()
+            .is_err()
+        );
+
+        let word = |id: u32, text: &str| RecognisedWord {
+            id,
+            text: text.to_owned(),
+            rect: Rect {
+                x0: 72.0,
+                y0: 100.0,
+                x1: 120.0,
+                y1: 116.0,
+            },
+            quad: Quad {
+                ul: Point { x: 72.0, y: 100.0 },
+                ur: Point { x: 120.0, y: 100.0 },
+                ll: Point { x: 72.0, y: 116.0 },
+                lr: Point { x: 120.0, y: 116.0 },
+            },
+        };
+
+        assert!(
+            RecognisedWordsPage::Usable {
+                words: vec![word(0, "Hel1o"), word(1, "W0rld")],
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            RecognisedWordsPage::Usable {
+                words: vec![word(0, "Hel1o"), word(0, "Duplicate")],
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            RecognisedWordsPage::Usable {
+                words: vec![word(0, "bad\x00word")],
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            RecognisedWordsPage::Usable {
+                words: (0..=MAX_RECOGNISED_WORDS_PER_PAGE)
+                    .map(|i| word(i, "x"))
+                    .collect(),
+            }
+            .validate()
+            .is_err()
+        );
     }
 }

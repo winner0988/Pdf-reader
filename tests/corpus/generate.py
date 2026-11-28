@@ -2816,6 +2816,43 @@ def benign_layers_empty_ocgs() -> bytes:
     return doc.build()
 
 
+RECOGNISED_TEXT_LAYER_WORDS = [
+    "Recognised text layer test",
+    "Hel1o W0rld",
+    "VisibleKeep",
+    "ClipKeep",
+    "AlphaZeroKeep",
+]
+
+
+def benign_recognised_text_layer() -> bytes:
+    """One page with 3 Tr OCR text plus same-box 0 Tr, 7 Tr clip, alpha-0 text, link and note (#749)."""
+    doc = Document("recognised-text-layer")
+    doc.reserve_pages(1)
+    gs_alpha0 = doc.pdf.add("<< /Type /ExtGState /ca 0 /CA 0 >>")
+    link_annot = link(doc, (70, 660, 260, 695), uri_action(b"https://example.invalid/recognised"))
+    note_annot = doc.pdf.add(
+        f"<< /Type /Annot /Subtype /Text /Rect [72 662 100 692] /Contents (Keep this note) "
+        f"/Name /Note /F 4 /P {doc.page_nums[0]} 0 R >>"
+    )
+    extra_content = (
+        "q BT /F1 16 Tf 72 670 Td 3 Tr (Hel1o W0rld) Tj ET Q\n"
+        "q 0.1 0.1 0.1 rg BT /F1 12 Tf 72 670 Td 0 Tr (VisibleKeep) Tj ET Q\n"
+        "q BT /F1 14 Tf 72 670 Td 7 Tr (ClipKeep) Tj ET 0.2 0.4 0.85 rg 70 664 180 26 re f Q\n"
+        "q /GSAlpha0 gs BT /F1 14 Tf 72 670 Td 0 Tr (AlphaZeroKeep) Tj ET Q\n"
+    ).encode("latin-1")
+    doc.set_page(
+        0,
+        Page(
+            lines=[(72, 730, 16, "Recognised text layer test")],
+            extra_content=extra_content,
+            annots=[link_annot, note_annot],
+            resources=f"/ExtGState << /GSAlpha0 {gs_alpha0} 0 R >> ",
+        ),
+    )
+    return doc.build()
+
+
 @dataclass
 class Sample:
     path: str
@@ -3030,6 +3067,12 @@ SAMPLES = [
            "One page with /OCProperties /OCGs as an empty array (#703).",
            "Opens; reported as having no layers.",
            1, text=["Document with empty OCGs array."]),
+    Sample("benign/recognised-text-layer.pdf", benign_recognised_text_layer,
+           "One page with 3 Tr invisible text plus same-box 0 Tr visible text, 7 Tr clip text, alpha-0 text, "
+           "an overlapping link and a sticky note (#749).",
+           "Opens; correcting the 3 Tr word leaves visible, clipped, alpha-0 text, link and note intact "
+           "and keeps the page pixel-identical.",
+           1, text=RECOGNISED_TEXT_LAYER_WORDS),
     # malicious
     Sample("malicious/js-document-level.pdf", malicious_js_document, "Document-level JavaScript in the names tree.",
            "No script runs; finding reported.", 1, ["javaScript"]),

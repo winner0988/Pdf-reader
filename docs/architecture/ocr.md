@@ -171,6 +171,8 @@ Tesseract 與 Leptonica 隨 `mupdf-sys` 建置，版本由 fork 的 `mupdf` =0.8
 - **設定**（`OcrSection`）：自動或手動、語言、匯入與移除；匯入由主行程顯示對話框，畫面只聽結果。
 - **提示**（`useOcrView`）：辨識結束時狀態列顯示一次結果（完成、停止、沒有語言、失敗）；沒有掃描頁的文件自動辨識完不說話，使用者自己按了「辨識此文件的文字」才說「沒有需要辨識的頁面」。
 
+- **命令與實作**：詳細設計見 [ocr.md](ocr.md)（辨識與另存為可搜尋副本）與 [correct-recognised-text.md](correct-recognised-text.md)（修正已寫入的 `3 Tr` 隱形文字層，B7-12）。
+
 ### 端對端測試（`tests/e2e/ocr.spec.ts`）
 
 以真正的 app、`benign/scanned-text.pdf` 與內附的語言資料：自動辨識（狀態列、可搜尋、可選取）、設定為手動時等使用者開始、匯入語言資料（壞的與好的檔案，對話框由 UI Automation 回答）。

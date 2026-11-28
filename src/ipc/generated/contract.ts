@@ -570,7 +570,7 @@ export type LineEnds = { from: Point, to: Point, };
  * A change to an open document (ADR 0013), applied in its worker. Pages are 0-based and are
  * those of the document as it is before the edit.
  */
-export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", markKind: TextMarkKind, marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "addTextBox", page: number, rect: Rect, model: TextBoxModelId, style: TextBoxStyle, } | { "kind": "setTextBox", page: number, annotation: AnnotationId, model: TextBoxModelId | null, style: TextBoxStyle, rect?: Rect, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setPictureAngle", page: number, annotation: AnnotationId, degrees: number, } | { "kind": "addShape", page: number, shape: Shape, color: InkColor, width: InkWidth, } | { "kind": "setLineEnds", page: number, annotation: AnnotationId, from: Point, to: Point, } | { "kind": "setShapeStyle", page: number, annotation: AnnotationId, color: InkColor, width: InkWidth, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" } | { "kind": "addRedaction", page: number, rect: Rect, } | { "kind": "addRedactionGroup", page: number, rects: Array<Rect>, } | { "kind": "applyRedactions" } | { "kind": "addBookmark", parent: BookmarkId | null, index: number, title: string, page: number, } | { "kind": "renameBookmark", id: BookmarkId, title: string, } | { "kind": "deleteBookmark", id: BookmarkId, } | { "kind": "moveBookmark", id: BookmarkId, parent: BookmarkId | null, index: number, } | { "kind": "cropPages", pages: Array<number>, margins: CropMargins, } | { "kind": "addWatermark", pages: Array<number>, watermark: Watermark, image: StampImageId | null, } | { "kind": "replacePages", first: number, count: number, source: SourceId, from: number, to: number, } | { "kind": "addLink", page: number, rect: Rect, target: NewLinkTarget, } | { "kind": "setLinkTarget", link: LinkId, target: NewLinkTarget, } | { "kind": "deleteLink", link: LinkId, };
+export type Edit = { "kind": "rotatePages", pages: Array<number>, by: Rotation, } | { "kind": "deletePages", pages: Array<number>, } | { "kind": "movePages", pages: Array<number>, before: number, } | { "kind": "insertBlankPage", at: number, like: number, } | { "kind": "insertPages", at: number, source: SourceId, } | { "kind": "addHighlight", markKind: TextMarkKind, marks: Array<HighlightMark>, color: HighlightColor, } | { "kind": "addNote", page: number, at: Point, text: string, } | { "kind": "deleteAnnotation", page: number, annotation: AnnotationId, } | { "kind": "setHighlightColor", page: number, annotation: AnnotationId, color: HighlightColor, } | { "kind": "setNoteText", page: number, annotation: AnnotationId, text: string, } | { "kind": "addInk", page: number, strokes: Array<Array<Point>>, color: InkColor, width: InkWidth, } | { "kind": "addStamp", page: number, rect: Rect, stamp: StampName, } | { "kind": "addImageStamp", page: number, rect: Rect, image: StampImageId, } | { "kind": "addTextBox", page: number, rect: Rect, model: TextBoxModelId, style: TextBoxStyle, } | { "kind": "setTextBox", page: number, annotation: AnnotationId, model: TextBoxModelId | null, style: TextBoxStyle, rect?: Rect, } | { "kind": "setAnnotationRect", page: number, annotation: AnnotationId, rect: Rect, } | { "kind": "setPictureAngle", page: number, annotation: AnnotationId, degrees: number, } | { "kind": "addShape", page: number, shape: Shape, color: InkColor, width: InkWidth, } | { "kind": "setLineEnds", page: number, annotation: AnnotationId, from: Point, to: Point, } | { "kind": "setShapeStyle", page: number, annotation: AnnotationId, color: InkColor, width: InkWidth, } | { "kind": "setFieldValue", page: number, field: FieldId, value: string, } | { "kind": "flattenForm" } | { "kind": "addRedaction", page: number, rect: Rect, } | { "kind": "addRedactionGroup", page: number, rects: Array<Rect>, } | { "kind": "applyRedactions" } | { "kind": "addBookmark", parent: BookmarkId | null, index: number, title: string, page: number, } | { "kind": "renameBookmark", id: BookmarkId, title: string, } | { "kind": "deleteBookmark", id: BookmarkId, } | { "kind": "moveBookmark", id: BookmarkId, parent: BookmarkId | null, index: number, } | { "kind": "cropPages", pages: Array<number>, margins: CropMargins, } | { "kind": "addWatermark", pages: Array<number>, watermark: Watermark, image: StampImageId | null, } | { "kind": "replacePages", first: number, count: number, source: SourceId, from: number, to: number, } | { "kind": "addLink", page: number, rect: Rect, target: NewLinkTarget, } | { "kind": "setLinkTarget", link: LinkId, target: NewLinkTarget, } | { "kind": "deleteLink", link: LinkId, } | { "kind": "correctRecognisedText", page: number, word: number, expected: string, text: string, };
 
 /**
  * The kind of text markup annotation (B2-07, B4-04).
@@ -1937,6 +1937,37 @@ bytes: number,
  */
 marked: boolean, };
 
+/**
+ * One invisible (`3 Tr`) OCR word on a page that can be corrected in place (B7-12, #749, ADR 0036).
+ */
+export type RecognisedWord = { 
+/**
+ * Deterministic word identifier within the page's current `3 Tr` text layer.
+ */
+id: number, 
+/**
+ * Current extracted word text (cleaned display text).
+ */
+text: string, 
+/**
+ * Bounding rectangle in page space (points from top-left).
+ */
+rect: Rect, 
+/**
+ * Bounding quadrilateral in page space (points from top-left).
+ */
+quad: Quad, };
+
+/**
+ * Why a page's `3 Tr` text layer cannot be edited directly (B7-12, #749, ADR 0036).
+ */
+export type RecognisedWordsUnusable = "signed" | "notAllowed" | "memoryOcrOnly" | "noTextLayer" | "mixedRenderModes";
+
+/**
+ * Editable `3 Tr` words of one page, or why the page cannot be corrected (B7-12, #749, ADR 0036).
+ */
+export type RecognisedWordsPage = { "status": "usable", words: Array<RecognisedWord>, } | { "status": "unusable", reason: RecognisedWordsUnusable, };
+
 /** Limits enforced by the main process (crates/ipc_contract/src/limits.rs). */
 export const LIMITS = {
   maxPageCount: 100000,
@@ -2028,6 +2059,8 @@ export const LIMITS = {
   maxSpeechRate: 6,
   maxSpeechVoiceIdBytes: 512,
   maxSpeechVoices: 512,
+  maxRecognisedWordsPerPage: 20000,
+  maxRecognisedWordBytes: 4096,
   protocolVersion: 0,
 } as const;
 

@@ -425,6 +425,35 @@ describe("typing a new text box directly on the page (#719, B2-30)", () => {
     expect(lastEdit(editing)).toMatchObject({ kind: "addTextBox", model: 9 });
   });
 
+  it("applies the new text box once when the page is clicked twice during an in-flight probe", async () => {
+    let resolveProbe!: (value: { model: number; viewOnly: boolean; lineStep: number }) => void;
+    const probePending = new Promise<{ model: number; viewOnly: boolean; lineStep: number }>((resolve) => {
+      resolveProbe = resolve;
+    });
+    const prepare = vi.fn<NonNullable<AnnotationsApi["prepareTextBox"]>>();
+    prepare.mockReturnValueOnce(probePending);
+    prepare.mockResolvedValue({ model: 9, viewOnly: false, lineStep: 1250 });
+
+    const { editing, layer, toolButton, editor, pages, user } = await setup(ALL_PERMISSIONS, { prepare });
+    await user.click(toolButton());
+    fireEvent.pointerDown(layer()!, pointer(100, 100));
+    fireEvent.pointerUp(layer()!, pointer(100, 100));
+    const textarea = await editor();
+
+    fireEvent.change(textarea, { target: { value: "double commit" } });
+    await waitFor(() => expect(prepare).toHaveBeenCalledTimes(1), { timeout: 2000 });
+
+    // Two commits while the probe is in flight (two clicks beside the box).
+    fireEvent.pointerDown(pages);
+    fireEvent.pointerDown(pages);
+    await new Promise((resolve) => window.setTimeout(resolve, 30));
+
+    resolveProbe({ model: 1, viewOnly: false, lineStep: 1300 });
+    await waitFor(() => expect(editing.applyEdit).toHaveBeenCalled(), { timeout: 2000 });
+    await new Promise((resolve) => window.setTimeout(resolve, 300));
+    expect(editing.applyEdit).toHaveBeenCalledTimes(1);
+  });
+
   it("is disabled when author forbids annotations", async () => {
     const { annotationsApi, toolButton, pages, user } = await setup({ ...ALL_PERMISSIONS, annotate: false });
     expect(toolButton()).toBeDisabled();

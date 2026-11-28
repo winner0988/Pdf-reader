@@ -2,7 +2,12 @@
 // Source of truth for wording: docs/ux/screen-map.md, section 8.
 
 import type { ErrorCode, FindingKind } from "@/features/shell/model";
-import type { BlockedAction, NotRemembered, SearchableSkipReason } from "@/ipc/generated/contract";
+import type {
+  BlockedAction,
+  NotRemembered,
+  RecognisedWordsUnusable,
+  SearchableSkipReason,
+} from "@/ipc/generated/contract";
 
 export const strings = {
   appName: "PDF Reader",
@@ -1425,6 +1430,7 @@ export const strings = {
     searchAll: "在所有文件中搜尋…",
     createPdf: "從檔案建立 PDF…",
     searchableCopy: "另存為可搜尋的 PDF…",
+    correctRecognisedText: "修正辨識的文字",
     dontRecord: "不記錄此檔案",
     markSensitive: "標記為機敏…",
     unmarkSensitive: "取消機敏標記…",
@@ -1592,6 +1598,31 @@ export const strings = {
         failed: "文字辨識失敗",
       } satisfies Record<SearchableSkipReason, string>,
       failed: "無法另存為可搜尋的 PDF，請再試一次。",
+    },
+    /** Correcting OCR words in the invisible `3 Tr` text layer (B7-12, Issue #749, ADR 0036). */
+    correct: {
+      modeLabel: "修正辨識的文字模式",
+      modeOn: "修正辨識的文字：點一下文字或用 Tab／Enter 修改；按 Esc 結束。",
+      exitMode: "結束修正",
+      editorLabel: "修正辨識的文字",
+      notice: "只改搜尋與複製用的字，畫面不會改變",
+      wordLabel: (text: string) => `修正辨識的文字：「${text}」`,
+      save: "確定",
+      cancel: "取消",
+      signedBlocked: "有數位簽章",
+      emptyError: "請輸入要修正的文字。",
+      tooLongError: "文字太長，請縮短一點。",
+      controlCharError: "不能包含換行或無法顯示的控制字元。",
+      mismatch: "這一頁的文字已經改變，請重新選擇該字再改。",
+      failed: "無法修正辨識的文字，請再試一次。",
+      loadFailed: "無法讀取這一頁的辨識文字。",
+      unusable: {
+        signed: "這份文件有數位簽章，無法修正辨識的文字。",
+        notAllowed: "這份文件的作者禁止修改內容，無法修正辨識的文字。",
+        memoryOcrOnly: "先另存為可搜尋的 PDF，再打開副本修正",
+        noTextLayer: "這一頁沒有可修正的隱形辨識文字層。",
+        mixedRenderModes: "這一頁含有混合繪製模式的隱藏文字，無法在此直接修正。",
+      } satisfies Record<RecognisedWordsUnusable, string>,
     },
   },
   settings: {
@@ -1911,6 +1942,16 @@ export const strings = {
       createPdf: ["建立 PDF", "轉換為 PDF", "新 PDF", "create pdf"],
       ocr: ["OCR", "文字辨識", "光學字元辨識", "掃描辨識", "recognize text"],
       searchableCopy: ["可搜尋 PDF", "另存可搜尋", "OCR 另存", "文字層", "searchable pdf", "ocr save"],
+      correctRecognisedText: [
+        "修正辨識的文字",
+        "修正文字",
+        "修改辨識",
+        "OCR 修正",
+        "錯字",
+        "隱形文字層",
+        "correct recognised text",
+        "fix ocr",
+      ],
       flatten: ["扁平化表單", "壓平表單", "flatten form"],
       insertFileAfterCurrent: ["合併", "合併檔案", "插入頁面", "insert pages", "merge"],
       replaceCurrentPage: ["取代", "取代頁面", "替換", "replace pages"],
