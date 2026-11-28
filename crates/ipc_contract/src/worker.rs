@@ -65,6 +65,8 @@ pub enum ExportedAnnotationKind {
     Rectangle,
     Ellipse,
     Line,
+    Polygon,
+    PolyLine,
 }
 
 /// Line ending decoration for XFDF lines (B5-09).
@@ -104,6 +106,10 @@ pub struct ExportedAnnotation {
     pub line: Option<[f32; 4]>,
     pub line_endings: Option<[ExportedLineEnding; 2]>,
     pub text_style: Option<ExportedTextStyle>,
+    #[serde(default)]
+    pub vertices: Vec<[f32; 2]>,
+    #[serde(default)]
+    pub cloudy: bool,
 }
 
 /// The annotations exported across the document for XFDF (B5-09).
@@ -700,6 +706,18 @@ pub enum WorkerEdit {
         color: InkColor,
         width: InkWidth,
     },
+    /// As [`Edit::SetShapeVertices`] (B7-10).
+    SetShapeVertices {
+        page: u32,
+        annotation: AnnotationId,
+        vertices: Vec<Point>,
+    },
+    /// As [`Edit::SetShapeCloudy`] (B7-10).
+    SetShapeCloudy {
+        page: u32,
+        annotation: AnnotationId,
+        cloudy: bool,
+    },
     /// As [`Edit::CropPages`].
     CropPages {
         pages: Vec<u32>,
@@ -948,6 +966,24 @@ impl WorkerEdit {
                 annotation: *annotation,
                 color: *color,
                 width: *width,
+            },
+            Edit::SetShapeVertices {
+                page,
+                annotation,
+                vertices,
+            } => WorkerEdit::SetShapeVertices {
+                page: *page,
+                annotation: *annotation,
+                vertices: vertices.clone(),
+            },
+            Edit::SetShapeCloudy {
+                page,
+                annotation,
+                cloudy,
+            } => WorkerEdit::SetShapeCloudy {
+                page: *page,
+                annotation: *annotation,
+                cloudy: *cloudy,
             },
             Edit::CropPages { pages, margins } => WorkerEdit::CropPages {
                 pages: pages.clone(),
@@ -2731,6 +2767,8 @@ mod tests {
                         color: [0, 0, 0],
                         justification: 0,
                     }),
+                    vertices: Vec::new(),
+                    cloudy: false,
                 }],
                 skipped: 1,
                 truncated: false,

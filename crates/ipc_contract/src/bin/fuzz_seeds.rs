@@ -331,6 +331,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     line_ends: None,
                     shape_color: None,
                     shape_width: None,
+                    vertices: None,
+                    shape_cloudy: false,
                 },
                 PageAnnotation {
                     id: AnnotationId(13),
@@ -347,6 +349,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     line_ends: None,
                     shape_color: None,
                     shape_width: None,
+                    vertices: None,
+                    shape_cloudy: false,
                 },
                 PageAnnotation {
                     id: AnnotationId(14),
@@ -367,6 +371,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     line_ends: None,
                     shape_color: None,
                     shape_width: None,
+                    vertices: None,
+                    shape_cloudy: false,
                 },
                 PageAnnotation {
                     id: AnnotationId(15),
@@ -386,6 +392,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }),
                     shape_color: Some(InkColor::Red),
                     shape_width: Some(InkWidth::Medium),
+                    vertices: None,
+                    shape_cloudy: false,
                 },
             ],
         },
@@ -1083,6 +1091,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         x1: 200.0,
                         y1: 150.0,
                     },
+                    cloudy: false,
                 },
                 color: InkColor::Blue,
                 width: InkWidth::Thin,
@@ -1151,6 +1160,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 annotation: AnnotationId(15),
                 color: InkColor::Blue,
                 width: InkWidth::Thick,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddShape {
+                page: 0,
+                shape: Shape::Polygon {
+                    vertices: vec![
+                        Point { x: 80.0, y: 80.0 },
+                        Point { x: 180.0, y: 80.0 },
+                        Point { x: 130.0, y: 160.0 },
+                    ],
+                    cloudy: true,
+                },
+                color: InkColor::Red,
+                width: InkWidth::Medium,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::AddShape {
+                page: 0,
+                shape: Shape::PolyLine {
+                    vertices: vec![
+                        Point { x: 80.0, y: 200.0 },
+                        Point { x: 160.0, y: 200.0 },
+                        Point { x: 200.0, y: 260.0 },
+                    ],
+                },
+                color: InkColor::Green,
+                width: InkWidth::Thin,
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::SetShapeVertices {
+                page: 0,
+                annotation: AnnotationId(15),
+                vertices: vec![Point { x: 90.0, y: 90.0 }, Point { x: 190.0, y: 140.0 }],
+            },
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::SetShapeCloudy {
+                page: 0,
+                annotation: AnnotationId(15),
+                cloudy: true,
             },
         },
         WorkerRequest::Revert {

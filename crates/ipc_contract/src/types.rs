@@ -591,7 +591,8 @@ pub struct LineEnds {
     pub to: Point,
 }
 
-/// A geometric shape annotation on a page (B4-05): rectangle, ellipse, or line/arrow.
+/// A geometric shape annotation on a page (B4-05, B7-10): rectangle, ellipse, line/arrow,
+/// polygon, or polyline.
 ///
 /// Serialized with a `kind` tag in JSON (for the frontend), but externally tagged in binary
 /// formats: postcard, used between the main process and the worker, cannot decode internally
@@ -600,11 +601,15 @@ pub struct LineEnds {
 #[ts(tag = "kind", rename_all = "camelCase")]
 pub enum Shape {
     /// A rectangle (`Square` annotation) bounded by `rect` in page space.
-    Rectangle { rect: Rect },
+    Rectangle { rect: Rect, cloudy: bool },
     /// An ellipse / circle (`Circle` annotation) bounded by `rect` in page space.
     Ellipse { rect: Rect },
     /// A straight line or arrow (`Line` annotation) from `from` to `to` in page space.
     Line { from: Point, to: Point, arrow: bool },
+    /// A closed polygon (`Polygon` annotation) with `vertices` in page space (B7-10).
+    Polygon { vertices: Vec<Point>, cloudy: bool },
+    /// An open polyline (`PolyLine` annotation) with `vertices` in page space (B7-10).
+    PolyLine { vertices: Vec<Point> },
 }
 
 mod shape_serde {
@@ -615,16 +620,36 @@ mod shape_serde {
     #[derive(Serialize, Deserialize)]
     #[serde(tag = "kind", rename_all = "camelCase")]
     enum Tagged {
-        Rectangle { rect: Rect },
-        Ellipse { rect: Rect },
-        Line { from: Point, to: Point, arrow: bool },
+        Rectangle {
+            rect: Rect,
+            #[serde(default)]
+            cloudy: bool,
+        },
+        Ellipse {
+            rect: Rect,
+        },
+        Line {
+            from: Point,
+            to: Point,
+            arrow: bool,
+        },
+        Polygon {
+            vertices: Vec<Point>,
+            #[serde(default)]
+            cloudy: bool,
+        },
+        PolyLine {
+            vertices: Vec<Point>,
+        },
     }
 
     #[derive(Serialize, Deserialize)]
     enum Compact {
-        Rectangle { rect: Rect },
+        Rectangle { rect: Rect, cloudy: bool },
         Ellipse { rect: Rect },
         Line { from: Point, to: Point, arrow: bool },
+        Polygon { vertices: Vec<Point>, cloudy: bool },
+        PolyLine { vertices: Vec<Point> },
     }
 
     macro_rules! convert {
@@ -632,9 +657,11 @@ mod shape_serde {
             impl From<$from> for $to {
                 fn from(shape: $from) -> Self {
                     match shape {
-                        $from::Rectangle { rect } => $to::Rectangle { rect },
+                        $from::Rectangle { rect, cloudy } => $to::Rectangle { rect, cloudy },
                         $from::Ellipse { rect } => $to::Ellipse { rect },
                         $from::Line { from, to, arrow } => $to::Line { from, to, arrow },
+                        $from::Polygon { vertices, cloudy } => $to::Polygon { vertices, cloudy },
+                        $from::PolyLine { vertices } => $to::PolyLine { vertices },
                     }
                 }
             }
@@ -776,7 +803,8 @@ pub enum Edit {
         annotation: AnnotationId,
         degrees: f32,
     },
-    /// Draws a geometric shape (rectangle, ellipse, line, or arrow) on page `page` (B4-05).
+    /// Draws a geometric shape (rectangle, ellipse, line, arrow, polygon, or polyline) on page
+    /// `page` (B4-05, B7-10).
     #[serde(rename_all = "camelCase")]
     AddShape {
         page: u32,
@@ -799,6 +827,21 @@ pub enum Edit {
         annotation: AnnotationId,
         color: InkColor,
         width: InkWidth,
+    },
+    /// Updates the vertices of polygon or polyline `annotation` of page `page` (B7-10).
+    #[serde(rename_all = "camelCase")]
+    SetShapeVertices {
+        page: u32,
+        annotation: AnnotationId,
+        vertices: Vec<Point>,
+    },
+    /// Enables or disables the cloudy border effect (`/BE << /S /C /I 1 >>`) on rectangle or
+    /// polygon `annotation` of page `page` (B7-10).
+    #[serde(rename_all = "camelCase")]
+    SetShapeCloudy {
+        page: u32,
+        annotation: AnnotationId,
+        cloudy: bool,
     },
     /// Sets the value of form field `field` of page `page` (B2-09): the text of a text field, the
     /// chosen option of a combo box or list box, or `on_value` or `"Off"` for a check box (a
@@ -1178,6 +1221,10 @@ pub enum AnnotationKind {
     Line,
     /// A line with an arrowhead (`Line`, B4-05).
     Arrow,
+    /// A closed polygon (`Polygon`, B7-10).
+    Polygon,
+    /// An open polyline (`PolyLine`, B7-10).
+    PolyLine,
     /// Any other kind (a comment box): it can only be removed.
     Other,
 }
@@ -1202,6 +1249,12 @@ pub struct PageAnnotation {
     pub shape_color: Option<InkColor>,
     /// The border width of a shape annotation (B4-05).
     pub shape_width: Option<InkWidth>,
+    /// The vertices of a polygon or polyline annotation in page space (B7-10).
+    #[serde(default)]
+    pub vertices: Option<Vec<Point>>,
+    /// Whether a rectangle or polygon uses the cloudy border effect (`/BE << /S /C /I 1 >>`, B7-10).
+    #[serde(default)]
+    pub shape_cloudy: bool,
 }
 
 /// How a picture stamp is turned (B3-01), for the page to draw its outline: the picture is
@@ -3032,6 +3085,8 @@ pub enum AnnotationSummaryKind {
     Ellipse,
     Line,
     Arrow,
+    Polygon,
+    PolyLine,
 }
 
 /// One annotation in a summary (B3-18, B4-06).

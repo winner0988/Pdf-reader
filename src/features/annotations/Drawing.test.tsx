@@ -24,6 +24,8 @@ const drawing: PageAnnotation = {
   text: null,
   picture: null,
   lineEnds: null,
+  vertices: null,
+  shapeCloudy: false,
   shapeColor: null,
   shapeWidth: null,
 };
@@ -35,6 +37,8 @@ const stamp: PageAnnotation = {
   text: null,
   picture: null,
   lineEnds: null,
+  vertices: null,
+  shapeCloudy: false,
   shapeColor: null,
   shapeWidth: null,
 };
@@ -368,6 +372,8 @@ describe("moving and resizing a drawing or a stamp (B2-08)", () => {
       text: "n",
       picture: null,
       lineEnds: null,
+      vertices: null,
+      shapeCloudy: false,
       shapeColor: null,
       shapeWidth: null,
     };
@@ -555,6 +561,108 @@ describe("the shape tool (B4-05)", () => {
     const width = edit.shape.rect.x1 - edit.shape.rect.x0;
     const height = edit.shape.rect.y1 - edit.shape.rect.y0;
     expect(width).toBeCloseTo(height, 1);
+  });
+
+  it("draws a polygon with clicks and double-click, and cancels on Esc", async () => {
+    const { editing, layer, user } = await setup(ALL_PERMISSIONS, []);
+    await user.click(screen.getByRole("button", { name: t.shapeStyle }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "多邊形" }));
+    await user.keyboard("{Escape}");
+
+    expect(layer()).not.toBeNull();
+    // Click 3 vertices, then double-click to finish
+    for (const [x, y] of [
+      [100, 100],
+      [200, 100],
+      [150, 180],
+    ] as const) {
+      fireEvent.pointerDown(layer()!, pointer(x, y));
+      fireEvent.pointerUp(layer()!, pointer(x, y));
+      fireEvent.click(layer()!, pointer(x, y));
+    }
+    fireEvent.dblClick(layer()!, pointer(150, 180));
+
+    expect(editing.applyEdit).toHaveBeenCalledTimes(1);
+    expect(lastEdit(editing)).toMatchObject({
+      kind: "addShape",
+      page: 0,
+      shape: {
+        kind: "polygon",
+        vertices: [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 },
+          { x: 150, y: 180 },
+        ],
+      },
+    });
+
+    // Cancelling an in-progress polygon with Esc discards vertices without emitting AddShape
+    editing.applyEdit.mockClear();
+    fireEvent.pointerDown(layer()!, pointer(50, 50));
+    fireEvent.pointerUp(layer()!, pointer(50, 50));
+    fireEvent.click(layer()!, pointer(50, 50));
+    fireEvent.pointerDown(layer()!, pointer(90, 50));
+    fireEvent.pointerUp(layer()!, pointer(90, 50));
+    fireEvent.click(layer()!, pointer(90, 50));
+    await user.keyboard("{Escape}");
+    expect(editing.applyEdit).not.toHaveBeenCalled();
+  });
+
+  it("draws a polyline with Shift 45 degree constraint and finishes on Enter", async () => {
+    const { editing, layer, user } = await setup(ALL_PERMISSIONS, []);
+    await user.click(screen.getByRole("button", { name: t.shapeStyle }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "折線" }));
+    await user.keyboard("{Escape}");
+
+    expect(layer()).not.toBeNull();
+    fireEvent.pointerDown(layer()!, pointer(100, 100));
+    fireEvent.pointerUp(layer()!, pointer(100, 100));
+    fireEvent.click(layer()!, pointer(100, 100));
+
+    // Near-horizontal segment locked with Shift
+    fireEvent.pointerDown(layer()!, { ...pointer(200, 106), shiftKey: true });
+    fireEvent.pointerUp(layer()!, { ...pointer(200, 106), shiftKey: true });
+    fireEvent.click(layer()!, { ...pointer(200, 106), shiftKey: true });
+
+    await user.keyboard("{Enter}");
+
+    expect(editing.applyEdit).toHaveBeenCalledTimes(1);
+    const edit = lastEdit(editing) as unknown as {
+      kind: string;
+      shape: { kind: string; vertices: { x: number; y: number }[] };
+    };
+    expect(edit.kind).toBe("addShape");
+    expect(edit.shape.kind).toBe("polyLine");
+    expect(edit.shape.vertices).toHaveLength(2);
+    expect(edit.shape.vertices[0]).toEqual({ x: 100, y: 100 });
+    expect(edit.shape.vertices[1]!.y).toBeCloseTo(100, 1);
+  });
+
+  it("offers cloudy border toggle only for rectangle and polygon before drawing", async () => {
+    const { editing, layer, user } = await setup(ALL_PERMISSIONS, []);
+    await user.click(screen.getByRole("button", { name: t.shapeStyle }));
+    const cloudyItem = await screen.findByRole("menuitemcheckbox", { name: "雲形邊框" });
+    await user.click(cloudyItem);
+
+    // Non-cloudy kinds hide the option
+    await user.click(await screen.findByRole("menuitemradio", { name: t.shapeKinds.ellipse }));
+    expect(screen.queryByRole("menuitemcheckbox", { name: "雲形邊框" })).toBeNull();
+
+    // Switch back to rectangle: cloudy state is remembered or toggleable and sent on draw
+    await user.click(await screen.findByRole("menuitemradio", { name: t.shapeKinds.rectangle }));
+    const rectCloudy = await screen.findByRole("menuitemcheckbox", { name: "雲形邊框" });
+    if (rectCloudy.getAttribute("aria-checked") !== "true") {
+      await user.click(rectCloudy);
+    }
+    await user.keyboard("{Escape}");
+
+    fireEvent.pointerDown(layer()!, pointer(100, 100));
+    fireEvent.pointerMove(layer()!, pointer(200, 180));
+    fireEvent.pointerUp(layer()!, pointer(200, 180));
+    expect(lastEdit(editing)).toMatchObject({
+      kind: "addShape",
+      shape: { kind: "rectangle", cloudy: true },
+    });
   });
 
   describe("reusable signatures menu item (B6-02)", () => {

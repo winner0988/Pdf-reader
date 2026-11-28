@@ -968,6 +968,16 @@ pub fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), Engine
             color,
             width,
         } => document.set_shape_style(*page, *annotation, *color, *width)?,
+        WorkerEdit::SetShapeVertices {
+            page,
+            annotation,
+            vertices,
+        } => document.set_shape_vertices(*page, *annotation, vertices)?,
+        WorkerEdit::SetShapeCloudy {
+            page,
+            annotation,
+            cloudy,
+        } => document.set_shape_cloudy(*page, *annotation, *cloudy)?,
         WorkerEdit::SetAnnotationRect {
             page,
             annotation,

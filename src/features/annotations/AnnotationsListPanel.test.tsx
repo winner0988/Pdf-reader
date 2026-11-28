@@ -287,4 +287,38 @@ describe("AnnotationsListPanel", () => {
       expect(screen.getByText("Text box on page 2")).toBeInTheDocument();
     });
   });
+
+  it("lists and filters polygon and polyLine annotations under shape (B7-10)", async () => {
+    const user = userEvent.setup();
+    const items = [
+      ...sampleItems,
+      {
+        id: 109 as AnnotationId,
+        pageIndex: 4,
+        kind: "polygon",
+        rect: dummyRect,
+        text: "",
+      },
+      {
+        id: 110 as AnnotationId,
+        pageIndex: 4,
+        kind: "polyLine",
+        rect: dummyRect,
+        text: "",
+      },
+    ] as unknown as AnnotationSummaryItem[];
+    const api = makeApi({ items, truncated: false });
+    render(<AnnotationsListPanel doc={1 as DocumentId} api={api} delayMs={0} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("annotation-list-item")).toHaveLength(10);
+    });
+
+    const rendered = screen.getAllByTestId("annotation-list-item");
+    expect(rendered[8]).toHaveTextContent("多邊形");
+    expect(rendered[9]).toHaveTextContent("折線");
+
+    await user.selectOptions(screen.getByTestId("annotation-filter-select"), "shape");
+    expect(screen.getAllByTestId("annotation-list-item")).toHaveLength(4);
+  });
 });

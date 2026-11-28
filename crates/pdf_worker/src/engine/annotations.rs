@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use ipc_contract::limits::{
     MAX_ANNOTATION_QUADS, MAX_ANNOTATION_SUMMARY_ITEMS, MAX_ANNOTATION_SUMMARY_TEXT_BYTES,
     MAX_ANNOTATION_SUMMARY_TOTAL_BYTES, MAX_ANNOTATIONS_PER_PAGE, MAX_INK_POINTS,
-    MAX_NOTE_TEXT_BYTES, MAX_PAGE_SIDE_PT, MAX_PAGE_TEXT_CHARS,
+    MAX_NOTE_TEXT_BYTES, MAX_PAGE_SIDE_PT, MAX_PAGE_TEXT_CHARS, MAX_SHAPE_VERTICES,
 };
 use ipc_contract::text::{clean_display_text, clean_note_text};
 use ipc_contract::types::{
@@ -22,7 +22,8 @@ use ipc_contract::types::{
 use mupdf::Error;
 use mupdf::color::AnnotationColor;
 use mupdf::pdf::{
-    AnnotationBorderStyle, LineEndingStyle, PdfAnnotation, PdfAnnotationType, PdfPage,
+    AnnotationBorderEffect, AnnotationBorderStyle, LineEndingStyle, PdfAnnotation,
+    PdfAnnotationType, PdfPage,
 };
 
 use super::{EngineError, PdfDocument};
@@ -300,8 +301,8 @@ impl PdfDocument {
         Ok(())
     }
 
-    /// Draws `shape` (page space) with the shape tool on page `index`: one `Square`, `Circle` or
-    /// `Line` annotation, in `color` and `width`.
+    /// Draws `shape` (page space) with the shape tool on page `index`: one `Square`, `Circle`,
+    /// `Line`, `Polygon` or `PolyLine` annotation, in `color` and `width` (B4-05, B7-10).
     pub fn add_shape(
         &mut self,
         index: u32,
@@ -311,7 +312,14 @@ impl PdfDocument {
     ) -> Result<(), EngineError> {
         let mut page = self.pdf_page(index)?;
         let mut annotation = match shape {
-            Shape::Rectangle { rect } => page.add_rect_annotation(binding_rect(*rect))?,
+            Shape::Rectangle { rect, cloudy } => {
+                let mut annot = page.add_rect_annotation(binding_rect(*rect))?;
+                if *cloudy {
+                    annot.set_border_effect(AnnotationBorderEffect::Cloudy)?;
+                    annot.set_border_effect_intensity(1.0)?;
+                }
+                annot
+            }
             Shape::Ellipse { rect } => page.add_circle_annotation(binding_rect(*rect))?,
             Shape::Line { from, to, arrow } => {
                 let mut annot =
@@ -323,6 +331,20 @@ impl PdfDocument {
                     )?;
                 }
                 annot
+            }
+            Shape::Polygon { vertices, cloudy } => {
+                check_page_vertices(&page, vertices, 3)?;
+                let mut annot =
+                    page.add_polygon_annotation(vertices.iter().copied().map(binding_point))?;
+                if *cloudy {
+                    annot.set_border_effect(AnnotationBorderEffect::Cloudy)?;
+                    annot.set_border_effect_intensity(1.0)?;
+                }
+                annot
+            }
+            Shape::PolyLine { vertices } => {
+                check_page_vertices(&page, vertices, 2)?;
+                page.add_polyline_annotation(vertices.iter().copied().map(binding_point))?
             }
         };
         annotation.set_color(annotation_rgb(ink_rgb(color)))?;
@@ -352,6 +374,80 @@ impl PdfDocument {
         Ok(())
     }
 
+    /// Changes the vertices of polygon or polyline annotation `id` on page `index` (B7-10).
+    pub fn set_shape_vertices(
+        &mut self,
+        index: u32,
+        id: AnnotationId,
+        vertices: &[Point],
+    ) -> Result<(), EngineError> {
+        let page = self.pdf_page(index)?;
+        let mut annotation = find(&page, id)?;
+        let min = match annotation.r#type()? {
+            PdfAnnotationType::Polygon => 3,
+            PdfAnnotationType::PolyLine => 2,
+            _ => {
+                return Err(EngineError::InvalidEdit(
+                    "not a polygon or polyline annotation",
+                ));
+            }
+        };
+        if has_unsupported_shape_features(&annotation)? {
+            return Err(EngineError::InvalidEdit("not a supported shape annotation"));
+        }
+        check_page_vertices(&page, vertices, min)?;
+        annotation.set_vertices(vertices.iter().copied().map(binding_point))?;
+        annotation.update()?;
+        Ok(())
+    }
+
+    /// Enables or disables the cloudy border effect (`/BE << /S /C /I 1 >>`) on rectangle or
+    /// polygon annotation `id` on page `index` (B7-10).
+    pub fn set_shape_cloudy(
+        &mut self,
+        index: u32,
+        id: AnnotationId,
+        cloudy: bool,
+    ) -> Result<(), EngineError> {
+        let page = self.pdf_page(index)?;
+        let mut annotation = find(&page, id)?;
+        let kind = annotation.r#type()?;
+        if !matches!(kind, PdfAnnotationType::Square | PdfAnnotationType::Polygon)
+            || has_unsupported_shape_features(&annotation)?
+        {
+            return Err(EngineError::InvalidEdit(
+                "cloudy border is only supported on rectangles and polygons",
+            ));
+        }
+        if cloudy {
+            annotation.set_border_effect(AnnotationBorderEffect::Cloudy)?;
+            annotation.set_border_effect_intensity(1.0)?;
+            annotation.update()?;
+        } else {
+            if kind == PdfAnnotationType::Square {
+                let inner = square_inner_rect(&annotation);
+                annotation.set_border_effect(AnnotationBorderEffect::None)?;
+                let _ = annotation.object().dict_delete("BE");
+                if let Some(inner) = inner {
+                    let _ = annotation.object().dict_delete("RD");
+                    let bw = annotation.border_width().unwrap_or(2.0).max(0.0);
+                    let pad = bw / 2.0;
+                    annotation.set_rect(binding_rect(Rect {
+                        x0: inner.x0 - pad,
+                        y0: inner.y0 - pad,
+                        x1: inner.x1 + pad,
+                        y1: inner.y1 + pad,
+                    }))?;
+                }
+            } else {
+                annotation.set_border_effect(AnnotationBorderEffect::None)?;
+                let _ = annotation.object().dict_delete("BE");
+            }
+            annotation.update()?;
+        }
+        Ok(())
+    }
+
     /// Changes the color and line width of shape annotation `id` on page `index`.
     pub fn set_shape_style(
         &mut self,
@@ -365,7 +461,11 @@ impl PdfDocument {
         let kind = annotation.r#type()?;
         if !matches!(
             kind,
-            PdfAnnotationType::Square | PdfAnnotationType::Circle | PdfAnnotationType::Line
+            PdfAnnotationType::Square
+                | PdfAnnotationType::Circle
+                | PdfAnnotationType::Line
+                | PdfAnnotationType::Polygon
+                | PdfAnnotationType::PolyLine
         ) || has_unsupported_shape_features(&annotation)?
         {
             return Err(EngineError::InvalidEdit("not a supported shape annotation"));
@@ -377,9 +477,7 @@ impl PdfDocument {
     }
 
     /// Moves and resizes the drawing, stamp, text box, rectangle, ellipse or redaction mark `id` of
-    /// page `index` to `rect` (page space, as listed). A stamp keeps its shape inside the rectangle;
-    /// a drawing keeps the thickness of its line, and its points are laid out again in the rectangle;
-    /// a text box sets its words again.
+    /// page `index` to `rect` (page space, as listed), or translates polygon/polyline vertices.
     pub fn set_annotation_rect(
         &mut self,
         index: u32,
@@ -411,6 +509,32 @@ impl PdfDocument {
                     ));
                 }
                 annotation.set_rect(binding_rect(rect))?;
+                annotation.update()?;
+            }
+            kind @ (PdfAnnotationType::Polygon | PdfAnnotationType::PolyLine) => {
+                if has_unsupported_shape_features(&annotation)? {
+                    return Err(EngineError::InvalidEdit(
+                        "cannot move unsupported shape annotation",
+                    ));
+                }
+                let old_bounds = annotation.bounds()?;
+                let dx = rect.x0 - old_bounds.x0;
+                let dy = rect.y0 - old_bounds.y0;
+                let moved: Vec<Point> = annotation
+                    .vertices()?
+                    .into_iter()
+                    .map(|p| Point {
+                        x: p.x + dx,
+                        y: p.y + dy,
+                    })
+                    .collect();
+                let min = if kind == PdfAnnotationType::Polygon {
+                    3
+                } else {
+                    2
+                };
+                let moved = check_moved_vertices(&page, moved, min)?;
+                annotation.set_vertices(moved.into_iter().map(binding_point))?;
                 annotation.update()?;
             }
             // Never through MuPDF's setters: they would draw the box black again.
@@ -573,7 +697,9 @@ impl PdfDocument {
                     | AnnotationSummaryKind::Rectangle
                     | AnnotationSummaryKind::Ellipse
                     | AnnotationSummaryKind::Line
-                    | AnnotationSummaryKind::Arrow => String::new(),
+                    | AnnotationSummaryKind::Arrow
+                    | AnnotationSummaryKind::Polygon
+                    | AnnotationSummaryKind::PolyLine => String::new(),
                 };
                 if !summary.push(AnnotationSummaryItem {
                     id: AnnotationId(entry.number),
@@ -674,6 +800,155 @@ fn axis_map(
     }
 }
 
+/// Verifies shape vertices lie on `page`, have at least `min` and at most `MAX_SHAPE_VERTICES`,
+/// and no two consecutive vertices are equal.
+fn check_page_vertices(page: &PdfPage, vertices: &[Point], min: usize) -> Result<(), EngineError> {
+    if vertices.len() < min || vertices.len() > MAX_SHAPE_VERTICES as usize {
+        return Err(EngineError::InvalidEdit("invalid number of vertices"));
+    }
+    let bounds = page.bounds()?;
+    for p in vertices {
+        if !p.x.is_finite()
+            || !p.y.is_finite()
+            || p.x < bounds.x0
+            || p.x > bounds.x1
+            || p.y < bounds.y0
+            || p.y > bounds.y1
+        {
+            return Err(EngineError::InvalidEdit("vertex outside page bounds"));
+        }
+    }
+    if vertices.windows(2).any(|w| w[0] == w[1]) {
+        return Err(EngineError::InvalidEdit("adjacent vertices are identical"));
+    }
+    Ok(())
+}
+
+/// Translates vertices in `SetAnnotationRect`, snapping sub-0.001pt float rounding at page edges
+/// onto `[bounds.x0..bounds.x1]`, while rejecting genuine out-of-page coordinates.
+fn check_moved_vertices(
+    page: &PdfPage,
+    vertices: Vec<Point>,
+    min: usize,
+) -> Result<Vec<Point>, EngineError> {
+    if vertices.len() < min || vertices.len() > MAX_SHAPE_VERTICES as usize {
+        return Err(EngineError::InvalidEdit("invalid number of vertices"));
+    }
+    let bounds = page.bounds()?;
+    let eps = 1e-3;
+    let clamped: Vec<Point> = vertices
+        .into_iter()
+        .map(|p| {
+            if !p.x.is_finite()
+                || !p.y.is_finite()
+                || p.x < bounds.x0 - eps
+                || p.x > bounds.x1 + eps
+                || p.y < bounds.y0 - eps
+                || p.y > bounds.y1 + eps
+            {
+                return Err(EngineError::InvalidEdit("vertex outside page bounds"));
+            }
+            Ok(Point {
+                x: p.x.clamp(bounds.x0, bounds.x1),
+                y: p.y.clamp(bounds.y0, bounds.y1),
+            })
+        })
+        .collect::<Result<_, _>>()?;
+    if clamped.windows(2).any(|w| w[0] == w[1]) {
+        return Err(EngineError::InvalidEdit("adjacent vertices are identical"));
+    }
+    Ok(clamped)
+}
+
+/// Whether `annotation` uses the app's own cloudy border (`/BE << /S /C /I 1 >>` on `Square` or
+/// `Polygon`).
+pub(super) fn has_app_cloudy_border(annotation: &PdfAnnotation) -> bool {
+    let Ok(kind) = annotation.r#type() else {
+        return false;
+    };
+    if !matches!(kind, PdfAnnotationType::Square | PdfAnnotationType::Polygon) {
+        return false;
+    }
+    let obj = annotation.object();
+    let Ok(Some(be)) = obj.get_dict("BE") else {
+        return false;
+    };
+    if be.dict_len().unwrap_or(0) > 2 {
+        return false;
+    }
+    let is_cloudy = be
+        .get_dict("S")
+        .ok()
+        .flatten()
+        .and_then(|s| s.as_name().ok())
+        == Some(b"C".to_vec());
+    let intensity_one = be
+        .get_dict("I")
+        .ok()
+        .flatten()
+        .and_then(|i| i.as_float().ok())
+        .is_some_and(|v| (v - 1.0).abs() < 1e-4);
+    is_cloudy && intensity_one
+}
+
+/// Recovers the inner rectangle of a `Square` annotation by insetting `/Rect` bounds by `/RD`
+/// margins when `/RD` is present and valid.
+pub(super) fn square_inner_rect(annotation: &PdfAnnotation) -> Option<Rect> {
+    let bounds = annotation.bounds().ok()?;
+    let rd = annotation.object().get_dict("RD").ok()??;
+    if rd.len().ok()? != 4 {
+        return None;
+    }
+    let left = rd.get_array(0).ok()??.as_float().ok()?;
+    let bottom = rd.get_array(1).ok()??.as_float().ok()?;
+    let right = rd.get_array(2).ok()??.as_float().ok()?;
+    let top = rd.get_array(3).ok()??.as_float().ok()?;
+    if ![left, bottom, right, top]
+        .iter()
+        .all(|v| v.is_finite() && *v >= 0.0)
+    {
+        return None;
+    }
+    let inner = Rect {
+        x0: bounds.x0 + left,
+        y0: bounds.y0 + top,
+        x1: bounds.x1 - right,
+        y1: bounds.y1 - bottom,
+    };
+    (inner.x1 > inner.x0 && inner.y1 > inner.y0).then_some(inner)
+}
+
+/// Reads and checks `/Vertices` of a `Polygon` (`min = 3`) or `PolyLine` (`min = 2`) annotation.
+/// Returns `Ok(Some(pts))` when valid, `Ok(None)` when outside the app's shape model (such as
+/// too few/many vertices or duplicate consecutive points), or `Err(())` when coordinates exceed
+/// `MAX_PAGE_SIDE_PT` / are non-finite (so `entry` omits the annotation safely).
+pub(super) fn read_shape_vertices(
+    annotation: &PdfAnnotation,
+    min: usize,
+) -> Result<Option<Vec<Point>>, ()> {
+    let Ok(raw) = annotation.vertices() else {
+        return Ok(None);
+    };
+    if raw.len() < min || raw.len() > MAX_SHAPE_VERTICES as usize {
+        return Ok(None);
+    }
+    let mut pts = Vec::with_capacity(raw.len());
+    for p in raw {
+        if !p.x.is_finite()
+            || !p.y.is_finite()
+            || p.x.abs() > MAX_PAGE_SIDE_PT
+            || p.y.abs() > MAX_PAGE_SIDE_PT
+        {
+            return Err(());
+        }
+        pts.push(Point { x: p.x, y: p.y });
+    }
+    if pts.windows(2).any(|w| w[0] == w[1]) {
+        return Ok(None);
+    }
+    Ok(Some(pts))
+}
+
 /// Annotation `id` of `page`, other than a pop-up window.
 pub(super) fn find(page: &PdfPage, id: AnnotationId) -> Result<PdfAnnotation, EngineError> {
     let wanted = i32::try_from(id.0).map_err(|_| EngineError::InvalidEdit("no such annotation"))?;
@@ -687,14 +962,17 @@ pub(super) fn find(page: &PdfPage, id: AnnotationId) -> Result<PdfAnnotation, En
         .ok_or(EngineError::InvalidEdit("no such annotation on the page"))
 }
 
-/// Whether `annotation` has unsupported shape features (/Measure, /IT, /BE, /IC, dashed border,
-/// or non-standard line endings). Such shapes are treated as `Other`.
+/// Whether `annotation` has unsupported shape features (/Measure, /IT, unsupported /BE, /IC,
+/// dashed border, or non-standard line endings). Such shapes are treated as `Other`.
 pub(super) fn has_unsupported_shape_features(annotation: &PdfAnnotation) -> Result<bool, Error> {
     let obj = annotation.object();
-    for key in ["Measure", "IT", "BE", "IC"] {
+    for key in ["Measure", "IT", "IC"] {
         if obj.get_dict(key)?.is_some() {
             return Ok(true);
         }
+    }
+    if obj.get_dict("BE")?.is_some() && !has_app_cloudy_border(annotation) {
+        return Ok(true);
     }
     if annotation.interior_color().ok().flatten().is_some() {
         return Ok(true);
@@ -718,6 +996,16 @@ pub(super) fn has_unsupported_shape_features(annotation: &PdfAnnotation) -> Resu
             start != LineEndingStyle::None
                 || (end != LineEndingStyle::None && end != LineEndingStyle::OpenArrow)
         })
+    {
+        return Ok(true);
+    }
+    if annotation
+        .r#type()
+        .is_ok_and(|t| t == PdfAnnotationType::PolyLine)
+        && (obj.get_dict("LE")?.is_some()
+            || annotation.line_ending_styles().is_ok_and(|(start, end)| {
+                start != LineEndingStyle::None || end != LineEndingStyle::None
+            }))
     {
         return Ok(true);
     }
@@ -765,6 +1053,28 @@ fn entry(annotation: &PdfAnnotation, page_rotation: i32) -> Result<Option<PageAn
                     AnnotationKind::Arrow
                 } else {
                     AnnotationKind::Line
+                }
+            }
+        }
+        PdfAnnotationType::Polygon => {
+            if has_unsupported_shape_features(annotation)? {
+                AnnotationKind::Other
+            } else {
+                match read_shape_vertices(annotation, 3) {
+                    Ok(Some(_)) => AnnotationKind::Polygon,
+                    Ok(None) => AnnotationKind::Other,
+                    Err(()) => return Ok(None),
+                }
+            }
+        }
+        PdfAnnotationType::PolyLine => {
+            if has_unsupported_shape_features(annotation)? {
+                AnnotationKind::Other
+            } else {
+                match read_shape_vertices(annotation, 2) {
+                    Ok(Some(_)) => AnnotationKind::PolyLine,
+                    Ok(None) => AnnotationKind::Other,
+                    Err(()) => return Ok(None),
                 }
             }
         }
@@ -836,15 +1146,28 @@ fn entry(annotation: &PdfAnnotation, page_rotation: i32) -> Result<Option<PageAn
         AnnotationKind::Rectangle
         | AnnotationKind::Ellipse
         | AnnotationKind::Line
-        | AnnotationKind::Arrow => annotation.color()?.and_then(parse_ink_color),
+        | AnnotationKind::Arrow
+        | AnnotationKind::Polygon
+        | AnnotationKind::PolyLine => annotation.color()?.and_then(parse_ink_color),
         _ => None,
     };
     let shape_width = match kind {
         AnnotationKind::Rectangle
         | AnnotationKind::Ellipse
         | AnnotationKind::Line
-        | AnnotationKind::Arrow => annotation.border_width().ok().and_then(parse_ink_width),
+        | AnnotationKind::Arrow
+        | AnnotationKind::Polygon
+        | AnnotationKind::PolyLine => annotation.border_width().ok().and_then(parse_ink_width),
         _ => None,
+    };
+    let vertices = match kind {
+        AnnotationKind::Polygon => read_shape_vertices(annotation, 3).ok().flatten(),
+        AnnotationKind::PolyLine => read_shape_vertices(annotation, 2).ok().flatten(),
+        _ => None,
+    };
+    let shape_cloudy = match kind {
+        AnnotationKind::Rectangle | AnnotationKind::Polygon => has_app_cloudy_border(annotation),
+        _ => false,
     };
     Ok(Some(PageAnnotation {
         id: AnnotationId(number),
@@ -856,6 +1179,8 @@ fn entry(annotation: &PdfAnnotation, page_rotation: i32) -> Result<Option<PageAn
         line_ends,
         shape_color,
         shape_width,
+        vertices,
+        shape_cloudy,
     }))
 }
 
@@ -916,6 +1241,22 @@ fn summary_entry(annotation: &PdfAnnotation) -> Option<SummaryEntry> {
             } else {
                 AnnotationSummaryKind::Line
             }
+        }
+        PdfAnnotationType::Polygon => {
+            if has_unsupported_shape_features(annotation).unwrap_or(true)
+                || read_shape_vertices(annotation, 3).ok().flatten().is_none()
+            {
+                return None;
+            }
+            AnnotationSummaryKind::Polygon
+        }
+        PdfAnnotationType::PolyLine => {
+            if has_unsupported_shape_features(annotation).unwrap_or(true)
+                || read_shape_vertices(annotation, 2).ok().flatten().is_none()
+            {
+                return None;
+            }
+            AnnotationSummaryKind::PolyLine
         }
         _ => return None,
     };

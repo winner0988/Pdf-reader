@@ -125,6 +125,8 @@ fn format_annotation(out: &mut String, item: &ExportedAnnotation) {
         ExportedAnnotationKind::Rectangle => "square",
         ExportedAnnotationKind::Ellipse => "circle",
         ExportedAnnotationKind::Line => "line",
+        ExportedAnnotationKind::Polygon => "polygon",
+        ExportedAnnotationKind::PolyLine => "polyline",
     };
 
     let rect_str = format!(
@@ -227,13 +229,30 @@ fn format_annotation(out: &mut String, item: &ExportedAnnotation) {
                 attrs.push(format!("justification=\"{just}\""));
             }
         }
-        ExportedAnnotationKind::Ink
-        | ExportedAnnotationKind::Rectangle
-        | ExportedAnnotationKind::Ellipse => {}
+        ExportedAnnotationKind::Ink | ExportedAnnotationKind::Ellipse => {}
+        ExportedAnnotationKind::Rectangle | ExportedAnnotationKind::Polygon => {
+            if item.cloudy {
+                attrs.push("style=\"cloudy\"".to_string());
+                attrs.push("intensity=\"1\"".to_string());
+            }
+        }
+        ExportedAnnotationKind::PolyLine => {}
     }
 
     // Child elements
     let mut children = Vec::new();
+
+    if (item.kind == ExportedAnnotationKind::Polygon
+        || item.kind == ExportedAnnotationKind::PolyLine)
+        && !item.vertices.is_empty()
+    {
+        let pts: Vec<String> = item
+            .vertices
+            .iter()
+            .map(|p| format!("{},{}", format_coord(p[0]), format_coord(p[1])))
+            .collect();
+        children.push(format!("<vertices>{}</vertices>", pts.join(";")));
+    }
 
     if let (ExportedAnnotationKind::TextBox, Some(style)) = (item.kind, item.text_style) {
         let r_f = format_coord(f32::from(style.color[0]) / 255.0);
@@ -362,6 +381,8 @@ mod tests {
                     line: None,
                     line_endings: None,
                     text_style: None,
+                    vertices: vec![],
+                    cloudy: false,
                 },
                 ExportedAnnotation {
                     kind: ExportedAnnotationKind::Note,
@@ -382,6 +403,8 @@ mod tests {
                     line: None,
                     line_endings: None,
                     text_style: None,
+                    vertices: vec![],
+                    cloudy: false,
                 },
                 ExportedAnnotation {
                     kind: ExportedAnnotationKind::Line,
@@ -402,6 +425,52 @@ mod tests {
                     line: Some([100.0, 100.0, 200.0, 200.0]),
                     line_endings: Some([ExportedLineEnding::None, ExportedLineEnding::ClosedArrow]),
                     text_style: None,
+                    vertices: vec![],
+                    cloudy: false,
+                },
+                ExportedAnnotation {
+                    kind: ExportedAnnotationKind::Polygon,
+                    page: 1,
+                    rect: [44.0, 636.0, 156.0, 748.0],
+                    name: "pdf-reader-2-2".to_string(),
+                    in_reply_to: None,
+                    color: Some([0, 0, 255]),
+                    interior: None,
+                    opacity: None,
+                    width: Some(2.0),
+                    print: true,
+                    hidden: false,
+                    icon: None,
+                    contents: None,
+                    quads: vec![],
+                    ink: vec![],
+                    line: None,
+                    line_endings: None,
+                    text_style: None,
+                    vertices: vec![[50.0, 642.0], [150.0, 642.0], [100.0, 742.0]],
+                    cloudy: true,
+                },
+                ExportedAnnotation {
+                    kind: ExportedAnnotationKind::PolyLine,
+                    page: 1,
+                    rect: [200.0, 600.0, 320.0, 734.0],
+                    name: "pdf-reader-2-3".to_string(),
+                    in_reply_to: None,
+                    color: Some([0, 128, 0]),
+                    interior: None,
+                    opacity: None,
+                    width: Some(1.0),
+                    print: true,
+                    hidden: false,
+                    icon: None,
+                    contents: None,
+                    quads: vec![],
+                    ink: vec![],
+                    line: None,
+                    line_endings: None,
+                    text_style: None,
+                    vertices: vec![[200.0, 732.0], [320.0, 712.0]],
+                    cloudy: false,
                 },
             ],
             skipped: 1,
@@ -415,6 +484,10 @@ mod tests {
         assert!(result.contains(r##"<text page="0" rect="50,650,70,670" flags="print" name="pdf-reader-1-2" color="#0080FF" inreplyto="pdf-reader-1-1" icon="Comment">"##));
         assert!(result.contains("<contents>Reply note</contents>"));
         assert!(result.contains(r##"<line page="1" rect="100,100,200,200" flags="print" name="pdf-reader-2-1" color="#FF0000" width="2.5" start="100,100" end="200,200" head="None" tail="ClosedArrow"/>"##));
+        assert!(result.contains(r##"<polygon page="1" rect="44,636,156,748" flags="print" name="pdf-reader-2-2" color="#0000FF" width="2" style="cloudy" intensity="1">"##));
+        assert!(result.contains("<vertices>50,642;150,642;100,742</vertices>"));
+        assert!(result.contains(r##"<polyline page="1" rect="200,600,320,734" flags="print" name="pdf-reader-2-3" color="#008000">"##));
+        assert!(result.contains("<vertices>200,732;320,712</vertices>"));
         assert!(result.ends_with("</annots>\n<f href=\"sample.pdf\"/>\n</xfdf>\n"));
 
         // Privacy checks: no author, no dates, no subject, no IDs

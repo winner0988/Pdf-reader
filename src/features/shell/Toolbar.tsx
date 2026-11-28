@@ -13,6 +13,7 @@ import {
   PanelLeft,
   Highlighter,
   Pencil,
+  Pentagon,
   Plus,
   RotateCcw,
   RotateCw,
@@ -23,6 +24,7 @@ import {
   Type,
   Underline,
   Volume2,
+  Waypoints,
 } from "lucide-react";
 import { useId, useState, type Ref } from "react";
 
@@ -44,7 +46,7 @@ import { createCommands } from "@/features/commands/registry";
 import type { Command, CommandId } from "@/features/commands/types";
 import { IconButton } from "@/features/shell/IconButton";
 import { ZOOM_LEVELS, type Zoom } from "@/features/shell/model";
-import { INK_COLORS, INK_SWATCH, INK_WIDTHS, STAMPS, type ShapeToolKind } from "@/features/annotations/tools";
+import { INK_COLORS, INK_SWATCH, INK_WIDTHS, STAMPS, shapeSupportsCloudy, type ShapeToolKind } from "@/features/annotations/tools";
 import type { HighlightColor, InkColor, InkWidth, StampName } from "@/ipc/generated/contract";
 import type { ThemePreference } from "@/features/theme/useTheme";
 import type { PageLayoutMode } from "@/features/viewer/layout";
@@ -192,17 +194,19 @@ export type ToolbarProps = {
     onWidth: (width: InkWidth) => void;
   };
   /**
-   * The shape tool (B4-05): rectangle, ellipse, line, arrow.
+   * The shape tool (B4-05, B7-10): rectangle, ellipse, line, arrow, polygon, polyLine.
    */
   shape?: {
     active: boolean;
     kind: ShapeToolKind;
     color: InkColor;
     width: InkWidth;
+    cloudy: boolean;
     onToggle?: () => void;
     onKind: (kind: ShapeToolKind) => void;
     onColor: (color: InkColor) => void;
     onWidth: (width: InkWidth) => void;
+    onCloudy: (cloudy: boolean) => void;
   };
   /**
    * The stamps (B2-08): the menu has them; choosing one is to put it on a page. `active` is the
@@ -512,6 +516,8 @@ const SHAPE_ICONS: Record<ShapeToolKind, typeof Square> = {
   ellipse: Circle,
   line: Minus,
   arrow: ArrowRight,
+  polygon: Pentagon,
+  polyLine: Waypoints,
 };
 
 /** The shape tool's button, and next to it the menu of shape kinds, colors, and line widths. */
@@ -554,8 +560,27 @@ function ShapeControls({ shape }: { shape: NonNullable<ToolbarProps["shape"]> })
                 <ArrowRight className="mr-2 size-4" />
                 {labels.shapeKinds.arrow}
               </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="polygon">
+                <Pentagon className="mr-2 size-4" />
+                {labels.shapeKinds.polygon}
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="polyLine">
+                <Waypoints className="mr-2 size-4" />
+                {labels.shapeKinds.polyLine}
+              </DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
           </DropdownMenuGroup>
+          {shapeSupportsCloudy(shape.kind) && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuCheckboxItem
+                checked={shape.cloudy}
+                onCheckedChange={(checked) => shape.onCloudy(Boolean(checked))}
+              >
+                {labels.cloudy}
+              </DropdownMenuCheckboxItem>
+            </>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
             <DropdownMenuRadioGroup value={shape.color} onValueChange={(value) => shape.onColor(value as InkColor)}>

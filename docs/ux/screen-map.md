@@ -1187,6 +1187,10 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | annotations.penStyle | 畫筆的顏色與粗細 |
 | annotations.inkColors.* | 黑色、紅色、藍色、綠色 |
 | annotations.inkWidths.* | 細、中、粗 |
+| annotations.shape／shapeKinds.* | 圖形／矩形、橢圓、直線、箭頭、多邊形、折線 |
+| annotations.cloudy | 雲形邊框（矩形與多邊形） |
+| annotations.polygonOn(name) | 「<名稱>」已開啟：在頁面上點一下新增頂點（加 Shift 對齊 45°），點兩下或按 Enter 完成，按 Esc 取消。 |
+| annotations.movePolygonHint | 拖曳頂點調整位置；拖曳圖形移動；方向鍵移動 1 點，加 Shift 移動 10 點。 |
 | annotations.stamp | 新增印章 |
 | annotations.stamps.* | 已核准、未核准、草稿、最終版、機密、供評論、照現狀、絕密 |
 | annotations.kind.ink／stamp | 手繪線條／印章（頁面上輪廓與工具列的名稱） |

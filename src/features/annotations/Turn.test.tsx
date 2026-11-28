@@ -27,6 +27,8 @@ function picture(angle: number): PageAnnotation {
     text: null,
     picture: view,
     lineEnds: null,
+    vertices: null,
+    shapeCloudy: false,
     shapeColor: null,
     shapeWidth: null,
   };
@@ -40,6 +42,8 @@ const standard: PageAnnotation = {
   text: null,
   picture: null,
   lineEnds: null,
+  vertices: null,
+  shapeCloudy: false,
   shapeColor: null,
   shapeWidth: null,
 };

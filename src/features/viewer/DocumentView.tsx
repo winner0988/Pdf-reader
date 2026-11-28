@@ -720,7 +720,7 @@ export function DocumentView({
     if (tool && (onAnnotationEdit || onNewLink) && doc !== undefined) {
       slots.push(
         <PageDrawing
-          key={`drawing-${index}`}
+          key={`drawing-${index}-${tool.kind === "shape" ? tool.shapeKind : tool.kind}`}
           tool={tool}
           index={index}
           page={pages[index]!}

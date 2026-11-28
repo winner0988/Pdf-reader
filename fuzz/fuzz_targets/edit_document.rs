@@ -10,11 +10,11 @@ use std::io::sink;
 use std::sync::OnceLock;
 
 use ipc_contract::types::{
-    AnnotationId, BookmarkId, CropMargins, Edit, FieldId, HighlightColor, HighlightMark, InkColor, InkWidth,
-    LinkId, NewLinkTarget, PageCorner, PageMarkPages, PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark,
-    Point, Quad, Rect, Restrictions, Rgb, Rotation, SanitizeOptions, Shape, SourceId, StampImageId,
-    StampName, TextAlign, TextBoxModelId, TextBoxStyle, TextMarkKind, Watermark, WatermarkContent,
-    WatermarkPages, WatermarkPlace,
+    AnnotationId, BookmarkId, CropMargins, Edit, FieldId, HighlightColor, HighlightMark, InkColor,
+    InkWidth, LinkId, NewLinkTarget, PageCorner, PageMarkPages, PageMarkPosition, PageMarks,
+    PageNumberFormat, PageNumberMark, Point, Quad, Rect, Restrictions, Rgb, Rotation,
+    SanitizeOptions, Shape, SourceId, StampImageId, StampName, TextAlign, TextBoxModelId,
+    TextBoxStyle, TextMarkKind, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::validate::Validate;
 use ipc_contract::worker::{
@@ -84,6 +84,24 @@ fn sample_line_ends(u: &mut Unstructured) -> (Point, Point) {
     }
 }
 
+fn sample_shape_vertices(u: &mut Unstructured) -> Vec<Point> {
+    match u.int_in_range(0..=3).unwrap_or(0) {
+        0 => vec![
+            Point { x: 80.0, y: 80.0 },
+            Point { x: 180.0, y: 80.0 },
+            Point { x: 130.0, y: 160.0 },
+        ],
+        1 => vec![
+            Point { x: 50.0, y: 50.0 },
+            Point { x: 150.0, y: 50.0 },
+            Point { x: 150.0, y: 150.0 },
+            Point { x: 50.0, y: 150.0 },
+        ],
+        2 => vec![Point { x: 100.0, y: 100.0 }, Point { x: 200.0, y: 200.0 }],
+        _ => vec![Point { x: 72.0, y: 72.0 }, Point { x: 72.0, y: 72.0 }],
+    }
+}
+
 fn sample_ink_color(u: &mut Unstructured) -> InkColor {
     match u.int_in_range(0..=3).unwrap_or(0) {
         0 => InkColor::Black,
@@ -130,7 +148,7 @@ fuzz_target!(|data: &[u8]| {
     let mut applied_edits = Vec::new();
 
     for _ in 0..num_edits {
-        let kind = u.int_in_range(0..=34).unwrap_or(0);
+        let kind = u.int_in_range(0..=36).unwrap_or(0);
         let p = (u.int_in_range(0..=255).unwrap_or(0) as u32) % page_count;
 
         let edit = match kind {
@@ -402,9 +420,11 @@ fuzz_target!(|data: &[u8]| {
             26 => {
                 let color = sample_ink_color(&mut u);
                 let width = sample_ink_width(&mut u);
-                let shape = match u.int_in_range(0..=3).unwrap_or(0) {
+                let cloudy = u.int_in_range(0..=1).unwrap_or(0) == 1;
+                let shape = match u.int_in_range(0..=5).unwrap_or(0) {
                     0 => Shape::Rectangle {
                         rect: sample_shape_rect(&mut u),
+                        cloudy,
                     },
                     1 => Shape::Ellipse {
                         rect: sample_shape_rect(&mut u),
@@ -417,7 +437,7 @@ fuzz_target!(|data: &[u8]| {
                             arrow: false,
                         }
                     }
-                    _ => {
+                    3 => {
                         let (from, to) = sample_line_ends(&mut u);
                         Shape::Line {
                             from,
@@ -425,6 +445,13 @@ fuzz_target!(|data: &[u8]| {
                             arrow: true,
                         }
                     }
+                    4 => Shape::Polygon {
+                        vertices: sample_shape_vertices(&mut u),
+                        cloudy,
+                    },
+                    _ => Shape::PolyLine {
+                        vertices: sample_shape_vertices(&mut u),
+                    },
                 };
                 Edit::AddShape {
                     page: p,
@@ -554,6 +581,22 @@ fuzz_target!(|data: &[u8]| {
                         index: id,
                     },
                     target,
+                }
+            }
+            34 => {
+                let id = u.int_in_range(0..=10).unwrap_or(0);
+                Edit::SetShapeVertices {
+                    page: p,
+                    annotation: AnnotationId(id),
+                    vertices: sample_shape_vertices(&mut u),
+                }
+            }
+            35 => {
+                let id = u.int_in_range(0..=10).unwrap_or(0);
+                Edit::SetShapeCloudy {
+                    page: p,
+                    annotation: AnnotationId(id),
+                    cloudy: u.int_in_range(0..=1).unwrap_or(0) == 1,
                 }
             }
             _ => {

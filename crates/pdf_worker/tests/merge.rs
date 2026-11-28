@@ -1757,6 +1757,7 @@ fn merge_carries_shape_annotations() {
                     x1: 150.0,
                     y1: 120.0,
                 },
+                cloudy: false,
             },
             color: InkColor::Red,
             width: InkWidth::Thin,

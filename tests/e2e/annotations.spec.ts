@@ -231,8 +231,10 @@ test("shape annotations: rectangle and arrow can be drawn, recolored, undone/red
 
     const rectangles = page.locator("[data-page-annotations] [data-annotation=rectangle]");
     const arrows = page.locator("[data-page-annotations] [data-annotation=arrow]");
+    const polygons = page.locator("[data-page-annotations] [data-annotation=polygon]");
     await expect(rectangles).toHaveCount(0);
     await expect(arrows).toHaveCount(0);
+    await expect(polygons).toHaveCount(0);
 
     // 1. Draw a rectangle annotation
     const shapeBtn = page.locator("[data-shape-button]");
@@ -270,6 +272,21 @@ test("shape annotations: rectangle and arrow can be drawn, recolored, undone/red
 
     await expect(arrows).toHaveCount(1);
     await expect(arrows.first()).toHaveAccessibleName(t.kind.arrow);
+
+    // 2b. Switch to polygon with cloudy border and draw a 3-vertex polygon
+    await page.getByRole("button", { name: t.shapeStyle }).click();
+    await page.getByRole("menuitemradio", { name: t.shapeKinds.polygon }).click();
+    await page.getByRole("menuitemcheckbox", { name: t.cloudy }).click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+
+    await page.mouse.click(drawBox.x + 120, drawBox.y + 320);
+    await page.mouse.click(drawBox.x + 220, drawBox.y + 320);
+    await page.mouse.click(drawBox.x + 170, drawBox.y + 390);
+    await page.keyboard.press("Enter");
+
+    await expect(polygons).toHaveCount(1);
+    await expect(polygons.first()).toHaveAccessibleName(t.kind.polygon);
 
     // Turn off shape tool
     await page.keyboard.press("Escape");
@@ -341,6 +358,9 @@ test("shape annotations: rectangle and arrow can be drawn, recolored, undone/red
     const saved = readFileSync(copy).toString("latin1");
     expect(saved).toMatch(/\/Subtype\s*\/Square/);
     expect(saved).toMatch(/\/Subtype\s*\/Line/);
+    expect(saved).toMatch(/\/Subtype\s*\/Polygon/);
+    expect(saved).toMatch(/\/Vertices\s*\[/);
+    expect(saved).toMatch(/\/BE\s*<<[\s\S]*?\/S\s*\/C/);
     expect(saved).toMatch(/\/LE\s*\[\s*\/None\s*\/OpenArrow\s*\]/);
     expect(saved).toMatch(/\/C\s*\[\s*0?\.1\s+0?\.3\s+0?\.85\s*\]/);
     expect(saved).not.toMatch(/\/T\s*[(<]/);
@@ -364,8 +384,10 @@ test("shape annotations: rectangle and arrow can be drawn, recolored, undone/red
     await expect(firstPage(reopened)).toHaveAttribute("data-state", "ready");
     const reopenedRectangles = reopened.locator("[data-page-annotations] [data-annotation=rectangle]");
     const reopenedArrows = reopened.locator("[data-page-annotations] [data-annotation=arrow]");
+    const reopenedPolygons = reopened.locator("[data-page-annotations] [data-annotation=polygon]");
     await expect(reopenedRectangles).toHaveCount(1);
     await expect(reopenedArrows).toHaveCount(1);
+    await expect(reopenedPolygons).toHaveCount(1);
 
     await reopenedRectangles.first().focus();
     const reopenedRectToolbar = reopened.locator(`[role=toolbar][aria-label="${t.kind.rectangle}"]`);

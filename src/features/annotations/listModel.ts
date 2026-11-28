@@ -33,7 +33,9 @@ export function matchesFilter(kind: AnnotationSummaryKind, filter: AnnotationFil
         kind === "rectangle" ||
         kind === "ellipse" ||
         kind === "line" ||
-        kind === "arrow"
+        kind === "arrow" ||
+        kind === "polygon" ||
+        kind === "polyLine"
       );
     default:
       return false;

@@ -12,6 +12,8 @@ const highlight: PageAnnotation = {
   text: null,
   picture: null,
   lineEnds: null,
+  vertices: null,
+  shapeCloudy: false,
   shapeColor: null,
   shapeWidth: null,
 };
@@ -23,6 +25,8 @@ const note: PageAnnotation = {
   text: "Existing note",
   picture: null,
   lineEnds: null,
+  vertices: null,
+  shapeCloudy: false,
   shapeColor: null,
   shapeWidth: null,
 };
@@ -91,5 +95,7 @@ describe("annotations on a page", () => {
     expect(annotationLabel({ ...note, kind: "ellipse", text: null })).toBe(strings.annotations.kind.ellipse);
     expect(annotationLabel({ ...note, kind: "line", text: null })).toBe(strings.annotations.kind.line);
     expect(annotationLabel({ ...note, kind: "arrow", text: null })).toBe(strings.annotations.kind.arrow);
+    expect(annotationLabel({ ...note, kind: "polygon" as PageAnnotation["kind"], text: null })).toBe("多邊形");
+    expect(annotationLabel({ ...note, kind: "polyLine" as PageAnnotation["kind"], text: null })).toBe("折線");
   });
 });

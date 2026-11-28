@@ -15,9 +15,10 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 | 文字附註 | `Text`（附註圖示，20 × 20 pt），`/Contents` 是附註的文字 | MuPDF 另外加上一個彈出視窗（`Popup`） |
 | 手繪線條（B2-08） | `Ink`，`/InkList` 是每一筆的點（PDF 座標），`/C` 是顏色，`/BS` 的 `/W` 是粗細 | 四種顏色（黑、紅、藍、綠）、三種粗細（1、2.5、5 pt）；線條是圓頭圓角，只有一個點的一筆是一個圓點 |
 | 標準印章（B2-08） | `Stamp`，`/Name` 是標準名稱（`Approved`、`NotApproved`、`Draft`、`Final`、`Confidential`、`ForComment`、`AsIs`、`TopSecret`），`/C` 是顏色 | MuPDF 產生外觀：英文字、細邊框，略微傾斜，與其他閱讀器的同名印章相同；大小固定 190 : 50 的比例 |
-| 矩形（B4-05） | `Square`，`/Rect` 是外框，`/C` 是顏色，`/BS` 的 `/W` 是粗細 | 四種顏色（黑、紅、藍、綠）、三種粗細（1、2.5、5 pt） |
+| 矩形（B4-05、B7-10） | `Square`，`/Rect` 是外框，`/C` 是顏色，`/BS` 的 `/W` 是粗細；雲形邊框帶有 `/BE << /S /C /I 1 >>` | 四種顏色（黑、紅、藍、綠）、三種粗細（1、2.5、5 pt）；選取前與選取後皆可切換雲形邊框 |
 | 橢圓（B4-05） | `Circle`，`/Rect` 是外框，`/C` 是顏色，`/BS` 的 `/W` 是粗細 | 四種顏色（黑、紅、藍、綠）、三種粗細（1、2.5、5 pt） |
 | 直線與箭頭（B4-05） | `Line`，`/L` 是起點與終點 `[x1 y1 x2 y2]`，`/C` 是顏色，`/BS` 的 `/W` 是粗細；箭頭帶有 `/LE [/None /OpenArrow]` | 四種顏色（黑、紅、藍、綠）、三種粗細（1、2.5、5 pt）；箭頭只在終點帶開放式箭頭 |
+| 多邊形與折線（B7-10） | `Polygon`／`PolyLine`，`/Vertices` 是頁面頂點陣列，`/C` 是顏色，`/BS` 的 `/W` 是粗細；`Polygon` 支援 `/BE << /S /C /I 1 >>` 雲形邊框 | 四種顏色（黑、紅、藍、綠）、三種粗細（1、2.5、5 pt）；多邊形至少 3 個頂點，折線至少 2 個頂點，最多 `MAX_SHAPE_VERTICES`（1,000）個、相鄰兩點不可相同 |
 
 - 每個新註解都有外觀串流（`/AP`，MuPDF 產生），其他閱讀器也看得到。
 - **不寫入任何可識別使用者的資訊**：MuPDF 建立註解時不寫作者（`/T`）、建立與修改時間（`/CreationDate`、`/M`）或唯一名稱（`/NM`），app 也不加。worker 的測試檢查這幾個欄位都不存在。
@@ -62,14 +63,16 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 | `setHighlightColor { page, annotation, color }` | 改變文字標記（螢光筆、底線、刪除線、波浪線）的顏色 | 只能是螢光筆、底線、刪除線或波浪線 |
 | `setNoteText { page, annotation, text }` | 改變附註的文字 | 只能是附註；文字見下方 |
 | `addInk { page, strokes, color, width }` | 手繪：`strokes` 的每一筆（頁面空間的點）一起成為一個 `Ink` 註解，所以一次復原取消整張圖 | 至少一筆、每筆至少一個點；最多 `LIMITS.maxInkStrokes`（256）筆、全部最多 `LIMITS.maxInkPoints`（20,000）個點，座標都是有限值且不超過頁面大小的上限 |
-| `addShape { page, shape, color, width }` | 在頁面加上幾何圖形（矩形、橢圓、直線或箭頭，B4-05） | 矩形與橢圓 `rect` 是正的，邊長至少 2 pt；直線與箭頭端點距離至少 2 pt；座標為有限值且在頁面範圍內；顏色與粗細為合法選項 |
+| `addShape { page, shape, color, width }` | 在頁面加上幾何圖形（矩形、橢圓、直線、箭頭、多邊形或折線，B4-05、B7-10） | 矩形與橢圓 `rect` 是正的，邊長至少 2 pt；直線與箭頭端點距離至少 2 pt；多邊形 ≥ 3 點、折線 ≥ 2 點、≤ `MAX_SHAPE_VERTICES`（1,000）且相鄰兩點不可相同；雲形邊框僅限矩形與多邊形；座標為有限值且在頁面範圍內；顏色與粗細為合法選項 |
 | `setLineEnds { page, annotation, line_ends }` | 移動或調整直線／箭頭的兩個端點（B4-05） | 只能是直線或箭頭；端點距離至少 2 pt；座標為有限值且在頁面範圍內 |
-| `setShapeStyle { page, annotation, color, width }` | 改變幾何圖形的顏色或線寬（B4-05） | 只能是矩形、橢圓、直線或箭頭；顏色與粗細為合法選項 |
+| `setShapeStyle { page, annotation, color, width }` | 改變幾何圖形的顏色或線寬（B4-05） | 只能是矩形、橢圓、直線、箭頭、多邊形或折線；顏色與粗細為合法選項 |
+| `setShapeVertices { page, annotation, vertices }` | 調整多邊形或折線的頂點座標（B7-10） | 只能是 app 支援的多邊形（≥ 3 點）或折線（≥ 2 點），頂點數量、頁面邊界與相鄰不重複規則同 `addShape` |
+| `setShapeCloudy { page, annotation, cloudy }` | 開啟或關閉矩形與多邊形的雲形邊框（`/BE << /S /C /I 1 >>` 與還原 `/Rect`／`/RD`，B7-10） | 只能是矩形或多邊形；`Circle`、`Line`、`PolyLine` 拒絕 |
 | `addStamp { page, rect, stamp }` | 在 `rect` 蓋上標準印章 | `rect` 是正的，每邊至少 `LIMITS.minAnnotationSidePt`（8 pt），座標都是有限值 |
 | `addImageStamp { page, rect, image }` | 在 `rect` 蓋上使用者自己的圖片印章；`image` 是 `pick_stamp_image` 回的編號（見上一節與下一節） | 同 `addStamp`；圖片必須是這份文件目前有的（主行程找不到時拒絕） |
 | `addTextBox { page, rect, model, style }` | 在 `rect` 放一個文字方塊（FreeText 註解，B2-28，見 [text-box-engine.md](text-box-engine.md)）；`model` 是 `prepare_text_box` 回的號碼（文字與字型已經準備好），`style`：大小、顏色、對齊；粗體與斜體是同一家族的另一個字型，不是欄位 | 同 `addStamp`，大小在 4 到 288 點；文字在準備時驗證（不可全是空白，最多 `LIMITS.maxTextBoxBytes`（4,096 bytes），除了 `\n` 不能有控制字元與看不見的格式字元）。文字與字型先經 `prepare_text_box` 準備（見 [text-box-engine.md](text-box-engine.md)）；準備好的文字在這份文件的編輯歷史裡一直保管到不再被用到 |
 | `setTextBox { page, annotation, model, style }` | 改文字方塊：換大小、顏色、對齊（`style`），`model` 有的話連文字與字型一起換（`prepare_text_box` 回的號碼），沒有就用方塊原來的文字與字型，**不需要字型**；方塊留在原處 | `style` 同 `addTextBox`；`model` 必須是這份文件準備過的；只能是 app 的文字方塊 |
-| `setAnnotationRect { page, annotation, rect }` | 移動並縮放手繪、幾何圖形（矩形、橢圓）、印章或文字方塊，`rect` 是列出的範圍（見下方）的新位置 | 同上；只能是手繪、矩形、橢圓、印章或 app 的文字方塊 |
+| `setAnnotationRect { page, annotation, rect }` | 移動並縮放手繪、幾何圖形（矩形、橢圓、多邊形與折線採頂點平移）、印章或文字方塊，`rect` 是列出的範圍（見下方）的新位置 | 同上；只能是手繪、矩形、橢圓、多邊形、折線、印章或 app 的文字方塊（多邊形與折線依 `rect` 基準角差值平移所有頂點並檢查頁面邊界） |
 | `setPictureAngle { page, annotation, degrees }` | 把使用者自己的圖片印章轉到 `degrees`（從正立起算，順時針為正），以中心為軸；大小不變，範圍變成裝得下轉過的圖片的框（B3-01，見下方） | `degrees` 是有限的數字，絕對值不超過 `MAX_PICTURE_ANGLE_DEGREES`（360，一整圈；`limits.rs`，頁面不需要它：送出的角度一律在 -180 到 180 之間）；只能是使用者自己的圖片印章（`PageAnnotation.picture` 不是 `null`） |
 
 - 座標是頁面空間（PDF 點，頁面左上角為原點，y 向下），與文字選取、搜尋結果的四邊形相同；worker 交給 MuPDF 換算成 PDF 的座標。
@@ -103,7 +106,7 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 
 ## 列出頁面的註解（`get_page_annotations`）
 
-- 回傳 `PageAnnotation[]`：`id`、`kind`（`highlight`、`underline`、`strikeOut`、`squiggly`、`note`、`ink`、`stamp`、`textBox`、`rectangle`、`ellipse`、`line`、`arrow`、`redaction`〔遮蔽標記，B2-19，見 [redaction.md](redaction.md)〕、`other`）、`rect`（顯示的範圍，頁面空間；手繪含線條四周的邊）、`color`（螢光筆是 app 的四種顏色之一時）、`text`（附註的文字）、`picture`（認得的圖片印章才有：`angle`、`width`、`height`，見上方「旋轉圖片印章」；其他是 `null`）、`line_ends`（直線與箭頭的起訖端點座標）、`shape_color`（圖形顏色）、`shape_width`（圖形線寬）。
+- 回傳 `PageAnnotation[]`：`id`、`kind`（`highlight`、`underline`、`strikeOut`、`squiggly`、`note`、`ink`、`stamp`、`textBox`、`rectangle`、`ellipse`、`line`、`arrow`、`polygon`、`polyLine`、`redaction`〔遮蔽標記，B2-19，見 [redaction.md](redaction.md)〕、`other`）、`rect`（顯示的範圍，頁面空間；手繪含線條四周的邊）、`color`（螢光筆是 app 的四種顏色之一時）、`text`（附註的文字）、`picture`（認得的圖片印章才有：`angle`、`width`、`height`，見上方「旋轉圖片印章」；其他是 `null`）、`line_ends`（直線與箭頭的起訖端點座標）、`vertices`（多邊形與折線的頁面空間頂點陣列）、`shape_cloudy`（是否為雲形邊框）、`shape_color`（圖形顏色）、`shape_width`（圖形線寬）。
 - 不列出：連結（見 [links.md](links.md)）、表單欄位、彈出視窗。手繪、幾何圖形與印章（含文件原有的）可以移動與縮放，其他種類（方框等，`other`）只能選取並刪除。
 - 文件原有的註解照常由 MuPDF 渲染在頁面上。
 - worker 的輸出一律當成不可信任的資料：
@@ -141,7 +144,7 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
 - **新增附註**：在頁面上按右鍵，選「在這裡新增附註…」；位置是按右鍵的地方（`DocumentView` 的 `pageAt()`，頁面以外的地方不能放），內容在對話框輸入。
 - **選取既有的註解**：每個註解在頁面上有一個透明的輪廓按鈕（可用 `Tab` 與螢幕閱讀器操作，標籤是 `annotationLabel`），也可以在註解上點一下。
   - 輪廓讓滑鼠通過：滑鼠點擊是由 `DocumentView` 依位置找出被點的註解（`annotationAt`），所以螢光筆下面的文字仍然可以選取。按下去後移動超過 4 px 是在選取文字，不是點選。
-  - 選取的註解旁出現一個小工具列：螢光筆、底線、刪除線與波浪線有顏色與刪除，矩形、橢圓、直線與箭頭有顏色、線寬與刪除，附註有文字、編輯與刪除，其他種類只有刪除。`Delete` 刪除，`Esc` 放開。
+  - 選取的註解旁出現一個小工具列：螢光筆、底線、刪除線與波浪線有顏色與刪除，幾何圖形（矩形、橢圓、直線、箭頭、多邊形、折線）有顏色、線寬、雲形邊框（僅矩形與多邊形）與刪除，附註有文字、編輯與刪除，其他種類只有刪除。`Delete` 刪除，`Esc` 放開。
   - 編輯之後文件換了新的編號，頁面要等新文件的註解清單到了，才知道註解現在在哪裡、還在不在。在那之前，頁面仍畫著上一份的輪廓（那一層的 `data-page-annotations` 加上 `aria-busy`），焦點留在原本的輪廓上；新清單到了，同一個註解（編號是 PDF 的物件編號，編輯後不變）還是同一個按鈕，所以一次編輯之後，下一個按鍵仍然到得了它（#402）。上一份的輪廓不送編輯、不開對話框，控制點與旋轉把手也等新清單才出現。
   - 編輯讓選取的註解不見時（例如刪除或復原），自動放開。焦點原本在這一頁的輪廓或工具列上時，焦點回到頁面區域，和 `Esc` 一樣；焦點已經在別處（例如搜尋框）時不動。
 - **畫筆**（B2-08）：工具列的畫筆按鈕開啟後，頁面上多一層 `PageDrawing`（`data-page-drawing`），按住滑鼠、手指或觸控筆拖曳就畫線，放開時送出一個 `addInk`。畫筆維持開啟，可以連續畫多筆；`Esc` 或再按一次按鈕結束（開著選單時，第一次 `Esc` 只關選單）。按鈕旁的選單選顏色（黑、紅、藍、綠）與粗細（細、中、粗），只影響之後畫的線，選擇只記在這次執行中，不寫入設定。
@@ -149,12 +152,12 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
   - 這一層是頁面所有層的最上面一層（`DocumentView` 最後才放入），所以工具開著時，連結、表單欄位與文字都不會拿到按下去的事件，也不會選取文字或選取註解；真正的瀏覽器測試（E2E）用內部連結的語料確認：畫過連結是畫線，不會跳頁。
   - 按住時指標被這一層捕捉，移到頁面外也繼續畫；頁面外的點停在頁面的邊上（`keptPointOnPage`），所以手繪不會跑出頁面。
   - 畫的時候以 `<polyline>` 預覽，放開才送出；`pointercancel`（例如觸控被系統接走）放棄這一筆。
-- **幾何圖形**（B4-05）：工具列的圖形按鈕開啟後，頁面進入繪圖狀態；按住指標拖曳畫出圖形，放開時送出 `addShape`。
-  - 按住 `Shift` 拖曳時，矩形限制為正方形、橢圓限制為正圓形、直線與箭頭角度鎖定為 45° 的倍數。
-  - 小於 2 pt 的微小拖曳自動忽略，避免誤觸。
-  - 工具列旁下拉選單可切換圖形種類（矩形、橢圓、直線、箭頭）、顏色（黑、紅、藍、綠）與線寬（細、中、粗）。
-  - 選取矩形或橢圓後，有 8 個控制點可調整大小（`setAnnotationRect`）；選取直線或箭頭後，有起點、終點 2 個控制點可調整長度與方向（`setLineEnds`），或拖曳線段中點把手平移整條線。
-  - 支援鍵盤方向鍵移動（一次 1 pt，加 `Shift` 10 pt）；小工具列支援切換四種顏色與三種線寬，或按 `Delete` 刪除。
+- **幾何圖形**（B4-05、B7-10）：工具列的圖形按鈕開啟後，頁面進入繪圖狀態：
+  - **矩形、橢圓、直線、箭頭**：按住指標拖曳畫出圖形，放開時送出 `addShape`；按住 `Shift` 時矩形限制為正方形、橢圓限制為正圓形、直線與箭頭鎖定為 45° 的倍數；小於 2 pt 的微小拖曳自動忽略。
+  - **多邊形、折線**：點擊逐一加入頂點（`Shift` 將當前線段鎖定為 45° 倍數；移動指標即時顯示預覽線段），連按兩下或按 `Enter` 完成並送出 `addShape`；繪製中按 `Esc` 只放棄尚未送出的頂點並保留工具，工具閒置時按 `Esc` 才退出繪圖模式。
+  - 工具列旁下拉選單可切換圖形種類（矩形、橢圓、直線、箭頭、多邊形、折線）、顏色（黑、紅、藍、綠）與線寬（細、中、粗），並在矩形與多邊形下提供「雲形邊框」勾選。
+  - 選取矩形或橢圓後，有 8 個控制點可調整大小（`setAnnotationRect`）；選取直線或箭頭後，有起點、終點與中點控制點（`setLineEnds`）；選取多邊形或折線後，顯示頂點控制點與平移輪廓（`PolygonHandles`），可拖曳單一頂點（`setShapeVertices`）或平移整組頂點（`setAnnotationRect`）。
+  - 支援鍵盤方向鍵移動（一次 1 pt，加 `Shift` 10 pt）；小工具列支援切換四種顏色、三種線寬、矩形／多邊形的「雲形邊框」（`setShapeCloudy`），或按 `Delete` 刪除。
 - **印章**（B2-08）：工具列的印章選單有八種標準印章（已核准、未核准、草稿、最終版、機密、供評論、照現狀、絕密）。選了之後頁面上同樣出現 `PageDrawing`，在頁面上點一下，以點擊處為中心放下（寬 150 pt，`stampRectAt` 保證不超出頁面），放下後工具自動結束。按 `Enter` 放在目前這一頁的中央（給不能使用滑鼠的人；焦點在頁面或印章按鈕時才算，在輸入框、其他按鈕上仍是原本的作用）；`Esc` 取消。
 - **自訂圖片印章**（B2-08）：印章選單的最後一項「自訂圖片…」：`AnnotationsApi.pickStampImage(doc)` 呼叫 `pick_stamp_image`（見上方「主行程的部分」），系統的對話框選一個 PNG 或 JPEG，路徑不會到前端。成功時工具變成 `{ kind: "picture", picture }`（`picture` 是 `StampImageInfo`），狀態列說明；之後與標準印章相同：在頁面上點一下放下，或按 `Enter` 放在這一頁的中央，放下後工具結束，`Esc` 取消。放下的是 `addImageStamp`：圖片的形狀（寬高比）不變，**較長的一邊 150 pt**（`pictureRectAt`；太細長的圖，短的一邊至少 `LIMITS.minAnnotationSidePt`，稍微變形但抓得到）。使用者關閉對話框時什麼都不發生；圖片不能用時，狀態列說明原因：太大（`tooLarge`）、未儲存的變更用了太多不同的圖片（`limitExceeded`，請先存檔）、其他（只能用 PNG 或 JPEG）。沒有 `pickStampImage`（展示資料、測試）或作者不允許註解時，這一項停用。
 - **旋轉圖片印章**（B3-01）：使用者自己的圖片印章（`picture` 不是 `null`）被選取時，在 `MoveResize` 之外多三樣東西，都送 `setPictureAngle`：
@@ -182,7 +185,7 @@ worker 與主行程的做法在前面各節；畫面（選取文字後的「螢�
   - 列出註解，不含連結、表單欄位與彈出視窗；
   - 新的螢光筆與附註存檔後仍是標準註解，有 `/QuadPoints` 與外觀，沒有作者、時間與唯一名稱；
   - 改顏色、改文字、類型不符時拒絕；
-  - 幾何圖形（B4-05）：新增矩形（`Square`）、橢圓（`Circle`）、直線與箭頭（`Line`），存檔後包含正確的外觀串流（`/AP`）、顏色（`/C`）、線寬（`/BS /W`）與箭頭端點（`/LE [/None /OpenArrow]`）；帶有不支援特性（如 `/BE` 雲朵外觀、`/IC` 內部填色、`/Measure`、`/IT`）者降級為 `Other`；頁面合併時攜帶圖形註解（`merge_carries_shape_annotations`）；
+  - 幾何圖形（B4-05、B7-10）：新增矩形（`Square`）、橢圓（`Circle`）、直線與箭頭（`Line`）、多邊形（`Polygon`）與折線（`PolyLine`），以及矩形／多邊形的雲形邊框（`/BE << /S /C /I 1 >>`）；存檔後包含正確的外觀串流（`/AP`）、顏色（`/C`）、線寬（`/BS /W`）、頂點（`/Vertices`）與箭頭端點（`/LE [/None /OpenArrow]`）；非 app 支援特性（非 `/S /C /I 1` 之 `/BE`、其他型別的 `/BE`、`/IC` 內部填色、`/Measure`、`/IT`、折線 `/LE`）者降級為 `Other`；頁面合併時攜帶圖形與雲形邊框並依 `/RD` 保留矩形內框避免疊加膨脹（`merge.rs`、`tests/shapes.rs`）；
   - 移除附註時一併移除彈出視窗，回覆不再指向它，存檔後檔案中沒有它的文字；
   - 存檔並重新開啟後，註解的編號不變；
   - 一次標示多頁時，有一頁不符就什麼都不改變；

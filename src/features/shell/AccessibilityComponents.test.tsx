@@ -800,6 +800,8 @@ describe("what the window shows", () => {
           text: null,
           picture: null,
           lineEnds: null,
+          vertices: null,
+          shapeCloudy: false,
           shapeColor: null,
           shapeWidth: null,
         },

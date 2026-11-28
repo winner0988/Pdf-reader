@@ -3,7 +3,7 @@
 // sent when the pointer is released; a stamp is put down where the pointer is released. The layer
 // is above the page's other layers, so that nothing under it (text, links, fields) gets the press.
 
-import { useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 
 import {
   INK_SWATCH,
@@ -13,6 +13,7 @@ import {
   rectOfBox,
   shapeLine,
   shapeRect,
+  snapSegmentAngle,
   strokePoints,
   type Tool,
 } from "@/features/annotations/tools";
@@ -61,26 +62,113 @@ export function PageDrawing({
     setShown({ points, shift });
   };
 
+  /** Multi-vertex state (in CSS pixels) for polygon and polyLine drawing (B7-10). */
+  const isPolyTool =
+    tool.kind === "shape" && (tool.shapeKind === "polygon" || tool.shapeKind === "polyLine");
+  const polyRef = useRef<Point[]>([]);
+  const [poly, setPoly] = useState<{ vertices: Point[]; hover: Point | null; shift: boolean }>({
+    vertices: [],
+    hover: null,
+    shift: false,
+  });
+  const resetPoly = () => {
+    polyRef.current = [];
+    setPoly({ vertices: [], hover: null, shift: false });
+  };
+
   const inBox = (event: PointerEvent): Point => {
     const bounds = layer.current?.getBoundingClientRect();
     return { x: event.clientX - (bounds?.left ?? 0), y: event.clientY - (bounds?.top ?? 0) };
   };
   // The pointer can leave the page while it is down: what is drawn or put down stays on the page.
   const onPage = (point: Point) => keptPointOnPage(boxToPage(point, page, rotation, box), page);
+  const roundPt = (point: Point): Point => ({
+    x: Math.round(point.x * 100) / 100,
+    y: Math.round(point.y * 100) / 100,
+  });
+  const samePoint = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y) < 0.5;
+
+  const commitPoly = () => {
+    if (!isPolyTool || tool.kind !== "shape" || !onShape) {
+      resetPoly();
+      return;
+    }
+    const pageVerts: Point[] = [];
+    for (const pt of polyRef.current) {
+      const p = roundPt(onPage(pt));
+      const last = pageVerts.at(-1);
+      if (!last || last.x !== p.x || last.y !== p.y) pageVerts.push(p);
+    }
+    const min = tool.shapeKind === "polygon" ? 3 : 2;
+    resetPoly();
+    if (pageVerts.length < min) return;
+    const shape: Shape =
+      tool.shapeKind === "polygon"
+        ? { kind: "polygon", vertices: pageVerts, cloudy: tool.cloudy }
+        : { kind: "polyLine", vertices: pageVerts };
+    onShape(index, shape, tool.color, tool.width);
+  };
+
+  useEffect(() => {
+    if (!isPolyTool || poly.vertices.length === 0) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        resetPoly();
+      } else if (event.key === "Enter" && !event.repeat) {
+        const target = event.target;
+        const typing =
+          target instanceof Element && target.closest("input, textarea, select") !== null;
+        if (typing) return;
+        event.preventDefault();
+        event.stopPropagation();
+        commitPoly();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  });
 
   const down = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || pointer.current !== null) return;
     // No text is selected by this press, and no annotation chosen by its click.
     event.preventDefault();
+    if (isPolyTool) {
+      pointer.current = event.pointerId;
+      return;
+    }
     pointer.current = event.pointerId;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     follow([inBox(event)], event.shiftKey);
   };
   const move = (event: PointerEvent<HTMLDivElement>) => {
+    if (isPolyTool) {
+      if (polyRef.current.length > 0) {
+        const pt = inBox(event);
+        setPoly((prev) => ({ ...prev, hover: pt, shift: event.shiftKey }));
+      }
+      return;
+    }
     if (event.pointerId !== pointer.current) return;
     follow([...trail.current, inBox(event)], event.shiftKey);
   };
   const up = (event: PointerEvent<HTMLDivElement>) => {
+    if (isPolyTool) {
+      if (event.pointerId !== pointer.current) return;
+      pointer.current = null;
+      let pt = inBox(event);
+      const anchor = polyRef.current.at(-1);
+      if (anchor && event.shiftKey) {
+        pt = snapSegmentAngle(anchor, pt);
+      }
+      if (!anchor || !samePoint(anchor, pt)) {
+        const next = [...polyRef.current, pt];
+        polyRef.current = next;
+        setPoly({ vertices: next, hover: pt, shift: event.shiftKey });
+      }
+      return;
+    }
     if (event.pointerId !== pointer.current) return;
     pointer.current = null;
     const end = inBox(event);
@@ -106,7 +194,7 @@ export function PageDrawing({
           if (Math.max(pageRect.x1 - pageRect.x0, pageRect.y1 - pageRect.y0) >= 2) {
             const shape: Shape =
               tool.shapeKind === "rectangle"
-                ? { kind: "rectangle", rect: pageRect }
+                ? { kind: "rectangle", rect: pageRect, cloudy: tool.cloudy }
                 : { kind: "ellipse", rect: pageRect };
             onShape(index, shape, tool.color, tool.width);
           }
@@ -152,7 +240,59 @@ export function PageDrawing({
       // select text and choose annotations) is not.
       onMouseDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => {
+        if (!isPolyTool) return;
+        event.preventDefault();
+        event.stopPropagation();
+        commitPoly();
+      }}
     >
+      {isPolyTool && tool.kind === "shape" && poly.vertices.length >= 1 && (
+        <svg width={box.width} height={box.height} className="pointer-events-none absolute inset-0" aria-hidden>
+          {(() => {
+            const strokeWidth = INK_WIDTH_PT[tool.width] * pixelsPerPoint;
+            const strokeColor = INK_SWATCH[tool.color];
+            const anchor = poly.vertices.at(-1)!;
+            const snappedHover =
+              poly.hover && poly.shift ? snapSegmentAngle(anchor, poly.hover) : poly.hover;
+            const allPts = snappedHover ? [...poly.vertices, snappedHover] : poly.vertices;
+            return (
+              <g data-shape-preview="">
+                {allPts.length >= 2 && (
+                  <polyline
+                    points={allPts.map((p) => `${p.x},${p.y}`).join(" ")}
+                    fill="none"
+                    stroke={strokeColor}
+                    strokeWidth={strokeWidth}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
+                {tool.shapeKind === "polygon" && allPts.length >= 3 && (
+                  <line
+                    x1={allPts.at(-1)!.x}
+                    y1={allPts.at(-1)!.y}
+                    x2={allPts[0]!.x}
+                    y2={allPts[0]!.y}
+                    stroke={strokeColor}
+                    strokeWidth={strokeWidth}
+                    strokeDasharray="4 4"
+                  />
+                )}
+                {poly.vertices.map((p, i) => (
+                  <circle
+                    key={i}
+                    cx={p.x}
+                    cy={p.y}
+                    r={Math.max(3, strokeWidth)}
+                    fill={strokeColor}
+                  />
+                ))}
+              </g>
+            );
+          })()}
+        </svg>
+      )}
       {tool.kind === "pen" && shown.points.length > 0 && (
         <svg width={box.width} height={box.height} className="pointer-events-none absolute inset-0" aria-hidden>
           <polyline
