@@ -466,6 +466,8 @@ export function InlineTextEditor({
       }
       // Existing box cleared to empty: caller deletes the annotation in one edit.
       if (mode === "edit" && cleaned === "") {
+        committingRef.current = true;
+        setBusy(true);
         if (probeInFlightRef.current) await probeInFlightRef.current;
         return runCommit(
           { text: "", font: cur.chosen ?? null, style: { size: previewSize, color: cur.color, align: cur.align }, rect: cur.rect },
@@ -482,6 +484,9 @@ export function InlineTextEditor({
         return false;
       }
 
+      committingRef.current = true;
+      setBusy(true);
+      setProblem(null);
       // Wait for any in-flight probe to finish before commit calls `prepare_text_box`: the
       // backend retains only one uncommitted model at a time, so overlapping calls can evict it.
       if (probeInFlightRef.current) await probeInFlightRef.current;

@@ -1,16 +1,27 @@
 //! Correcting existing invisible OCR text layers (`3 Tr`, B7-12, Issue #749, ADR 0036).
 //!
-//! Inspection reads glyphs strictly via `PdfPage::filter_text` with `no_update: true,
-//! recurse: true, instance_forms: false` so neither page contents nor Form XObjects are cloned or
-//! modified during listing. Matching checks `glyph.render_mode() == Some(TextRenderMode::Invisible)`
-//! exclusively (`Tr == 3`) and never `glyph.is_invisible()` (which includes opacity-0 visible text).
-//! Replacement text uses the document's shared Type0/Identity-H `GlyphLessFont` (reusing any
-//! existing instance across pages) with `Tz` horizontal scaling and `page_to_pdf` placement.
+//! Both listing (`scan_tr3_page`) and glyph removal (`remove_tr3_glyphs`) walk the page via
+//! `PdfPage::filter_text` with the same options (`recurse: false, instance_forms: true`) and only
+//! differ in `no_update` (`true` for listing, `false` for removal). That keeps glyph indices and
+//! page-space coordinates aligned across `Do` Form XObject sites, including scaled/transformed
+//! forms and forms drawn multiple times. During listing, MuPDF's `instance_forms` allocates
+//! unreferenced Form XObject copies in memory while `no_update: true` leaves the page's contents
+//! and resources untouched; full-rewrite saves (`save_checked` with `set_garbage(true)`) drop
+//! those unreferenced copies, and signed documents are refused before scanning.
+//!
+//! Matching checks `glyph.render_mode() == Some(TextRenderMode::Invisible)` exclusively (`Tr == 3`)
+//! and never `glyph.is_invisible()` (which includes opacity-0 visible text). Glyphs or assembled
+//! words with non-finite or out-of-range coordinates (`> MAX_PAGE_SIDE_PT`) are omitted so a
+//! single off-page `3 Tr` word never trips main-process validation. Replacement text uses the
+//! document's shared Type0/Identity-H `GlyphLessFont` (reusing any existing instance across pages)
+//! with `Tz` horizontal scaling and `page_to_pdf` placement.
 
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as _;
 
-use ipc_contract::limits::{MAX_RECOGNISED_WORD_BYTES, MAX_RECOGNISED_WORDS_PER_PAGE};
+use ipc_contract::limits::{
+    MAX_PAGE_SIDE_PT, MAX_RECOGNISED_WORD_BYTES, MAX_RECOGNISED_WORDS_PER_PAGE,
+};
 use ipc_contract::text::clean_display_text;
 use ipc_contract::types::{
     Point, Quad, RecognisedWord, RecognisedWordsPage, RecognisedWordsUnusable, Rect,
@@ -34,7 +45,6 @@ struct ScannedGlyph {
     raw_mode: i32,
     is_tr3: bool,
     is_clip: bool,
-    in_form: bool,
     text: String,
     is_whitespace: bool,
     quad: Quad,
@@ -47,7 +57,48 @@ struct ScannedWord {
     rect: Rect,
     quad: Quad,
     glyph_indices: HashSet<usize>,
-    in_form: bool,
+}
+
+fn filter_options(no_update: bool) -> TextFilterOptions {
+    TextFilterOptions {
+        recurse: false,
+        instance_forms: true,
+        ascii: false,
+        no_update,
+        newlines: false,
+    }
+}
+
+fn valid_coord(value: f32) -> bool {
+    value.is_finite() && value.abs() <= MAX_PAGE_SIDE_PT
+}
+
+fn valid_quad(quad: &Quad) -> bool {
+    [
+        quad.ul.x, quad.ul.y, quad.ur.x, quad.ur.y, quad.ll.x, quad.ll.y, quad.lr.x, quad.lr.y,
+    ]
+    .into_iter()
+    .all(valid_coord)
+}
+
+fn valid_rect(rect: &Rect) -> bool {
+    [rect.x0, rect.y0, rect.x1, rect.y1]
+        .into_iter()
+        .all(valid_coord)
+}
+
+fn remove_tr3_glyphs(page: &mut PdfPage, targets: &HashSet<usize>) -> Result<(), EngineError> {
+    let mut next_idx = 0usize;
+    page.filter_text(filter_options(false), |glyph| {
+        let idx = next_idx;
+        next_idx += 1;
+        if targets.contains(&idx) && glyph.render_mode() == Some(TextRenderMode::Invisible) {
+            TextFilterAction::Remove
+        } else {
+            TextFilterAction::Keep
+        }
+    })?;
+    Ok(())
 }
 
 enum ScanOutcome {
@@ -213,15 +264,9 @@ fn scan_tr3_page(page: &mut PdfPage) -> Result<ScanOutcome, EngineError> {
     let mut glyphs = Vec::new();
     let mut next_idx = 0usize;
 
-    // Read-only pass: recurse without instancing forms and without updating page streams.
-    let opts = TextFilterOptions {
-        recurse: true,
-        instance_forms: false,
-        ascii: false,
-        no_update: true,
-        newlines: false,
-    };
-    page.filter_text(opts, |glyph| {
+    // Read-only pass: instance forms without updating page streams so coordinates and glyph
+    // indices match `remove_tr3_glyphs`.
+    page.filter_text(filter_options(true), |glyph| {
         let idx = next_idx;
         next_idx += 1;
         let raw_mode = glyph.raw_render_mode();
@@ -230,28 +275,23 @@ fn scan_tr3_page(page: &mut PdfPage) -> Result<ScanOutcome, EngineError> {
         let is_clip = matches!(raw_mode, 4..=7);
         let (text, is_whitespace) = clean_glyph_chars(glyph.unicode());
         let quad = contract_quad(glyph.quad());
-        let valid_quad = quad.ul.x.is_finite()
-            && quad.ul.y.is_finite()
-            && quad.lr.x.is_finite()
-            && quad.lr.y.is_finite();
-        if valid_quad && (is_tr3 || is_clip) {
+        let quad_valid = valid_quad(&quad);
+        if quad_valid && (is_tr3 || is_clip) {
             glyphs.push(ScannedGlyph {
                 glyph_idx: idx,
                 raw_mode,
                 is_tr3,
                 is_clip,
-                in_form: glyph.in_form_xobject(),
                 text,
                 is_whitespace,
                 quad,
             });
-        } else if !valid_quad && is_tr3 {
+        } else if !quad_valid && is_tr3 {
             glyphs.push(ScannedGlyph {
                 glyph_idx: idx,
                 raw_mode,
                 is_tr3,
                 is_clip,
-                in_form: glyph.in_form_xobject(),
                 text,
                 is_whitespace: true,
                 quad,
@@ -327,15 +367,17 @@ fn scan_tr3_page(page: &mut PdfPage) -> Result<ScanOutcome, EngineError> {
                 return None;
             }
             let (quad, rect) = tight_word_geometry(&gs);
+            // One the main process would refuse is left out, not the whole page's list.
+            if !valid_rect(&rect) || !valid_quad(&quad) {
+                return None;
+            }
             let glyph_indices = gs.iter().map(|g| g.glyph_idx).collect();
-            let in_form = gs.iter().any(|g| g.in_form);
             Some(ScannedWord {
                 id: 0,
                 text,
                 rect,
                 quad,
                 glyph_indices,
-                in_form,
             })
         })
         .collect();
@@ -772,25 +814,7 @@ impl PdfDocument {
         // Remove only the target word's Tr == 3 glyphs via MuPDF's content filter.
         {
             let mut page = self.pdf_page(index)?;
-            let mut next_idx = 0usize;
-            let opts = TextFilterOptions {
-                recurse: false,
-                instance_forms: target.in_form,
-                ascii: false,
-                no_update: false,
-                newlines: false,
-            };
-            page.filter_text(opts, |glyph| {
-                let idx = next_idx;
-                next_idx += 1;
-                if target.glyph_indices.contains(&idx)
-                    && glyph.render_mode() == Some(TextRenderMode::Invisible)
-                {
-                    TextFilterAction::Remove
-                } else {
-                    TextFilterAction::Keep
-                }
-            })?;
+            remove_tr3_glyphs(&mut page, &target.glyph_indices)?;
         }
 
         // Attach shared GlyphLessFont and append Tz-fitted 3 Tr replacement stream.
@@ -803,5 +827,40 @@ impl PdfDocument {
 
         self.invalidate_page_text_cache(index);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use mupdf::TextPageFlags;
+
+    use super::*;
+
+    #[test]
+    fn remove_tr3_glyphs_removes_only_tr3_and_preserves_visible_clip_and_alpha_zero() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/corpus/benign/recognised-text-layer.pdf");
+        let bytes = std::fs::read(&path).expect("read corpus");
+        let doc = MuPdfDocument::from_bytes(&bytes).expect("open MuPDF");
+        let mut page = PdfPage::try_from(doc.load_page(0).expect("page")).expect("pdf page");
+
+        let all_indices: HashSet<usize> = (0..100_000).collect();
+        remove_tr3_glyphs(&mut page, &all_indices).expect("remove_tr3_glyphs");
+
+        let text_page = page.to_text_page(TextPageFlags::empty()).expect("stext");
+        for removed in ["Hel1o", "W0rld"] {
+            assert!(
+                text_page.search(removed).expect("search").is_empty(),
+                "3 Tr word '{removed}' must be removed"
+            );
+        }
+        for kept in ["VisibleKeep", "ClipKeep", "AlphaZeroKeep"] {
+            assert!(
+                !text_page.search(kept).expect("search").is_empty(),
+                "non-3 Tr control '{kept}' must remain searchable"
+            );
+        }
     }
 }

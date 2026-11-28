@@ -924,3 +924,355 @@ fn undo_and_redo_restore_original_and_corrected_tr3_text() {
     assert!(!search_page(&mut host, doc, 0, "Hello").0.is_empty());
     assert!(search_page(&mut host, doc, 0, "Hel1o").0.is_empty());
 }
+
+fn helv_font() -> String {
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".into()
+}
+
+fn pdf_stream(dict_extra: &str, content: &str) -> String {
+    format!(
+        "<< {dict_extra} /Length {} >>\nstream\n{content}\nendstream",
+        content.len()
+    )
+}
+
+fn hit_box(hit: &SearchHit) -> (f32, f32, f32, f32) {
+    let q = hit.quads[0];
+    let xs = [q.ul.x, q.ur.x, q.ll.x, q.lr.x];
+    let ys = [q.ul.y, q.ur.y, q.ll.y, q.lr.y];
+    (
+        xs.iter().copied().fold(f32::INFINITY, f32::min),
+        ys.iter().copied().fold(f32::INFINITY, f32::min),
+        xs.iter().copied().fold(f32::NEG_INFINITY, f32::max),
+        ys.iter().copied().fold(f32::NEG_INFINITY, f32::max),
+    )
+}
+
+fn assert_boxes_close(actual: (f32, f32, f32, f32), expected: (f32, f32, f32, f32), label: &str) {
+    assert!(
+        (actual.0 - expected.0).abs() < 4.0
+            && (actual.1 - expected.1).abs() < 4.0
+            && (actual.3 - expected.3).abs() < 4.0,
+        "{label}: actual {actual:?} did not match expected {expected:?}"
+    );
+}
+
+#[test]
+fn form_xobject_tr3_word_with_page_tr3_word_after_do() {
+    let page_content = "q /Fm0 Do Q\nBT /F1 16 Tf 72 600 Td 3 Tr (PageWord) Tj ET\n";
+    let form_content = "BT /F1 16 Tf 72 700 Td 3 Tr (FormWord) Tj ET\n0 0 1 rg 72 650 100 20 re f\nBT /F1 12 Tf 72 620 Td 0 Tr (FormVisible) Tj ET\n";
+    let pdf = common::build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 6 0 R >> /XObject << /Fm0 5 0 R >> >> >>".into(),
+        pdf_stream("", page_content),
+        pdf_stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F1 6 0 R >> >>",
+            form_content,
+        ),
+        helv_font(),
+    ]);
+    let guard = common::temp_pdf("form-after-do", &pdf);
+    let mut host = new_host();
+    let doc = host.open(&guard).expect("open").0;
+    let before_1x = render_page(&mut host, doc, 0, 1.0);
+    let before_2x = render_page(&mut host, doc, 0, 2.0);
+
+    let listed = expect_usable_words(&mut host, doc, 0);
+    let target = listed
+        .iter()
+        .find(|w| w.text == "FormWord")
+        .expect("FormWord listed");
+    apply_worker_edit(
+        &mut host,
+        doc,
+        WorkerEdit::CorrectRecognisedText {
+            page: 0,
+            word: target.id,
+            expected: "FormWord".into(),
+            text: "FixedForm".into(),
+        },
+    )
+    .expect("edit");
+
+    assert_eq!(search_page(&mut host, doc, 0, "FixedForm").0.len(), 1);
+    assert_eq!(search_page(&mut host, doc, 0, "FormWord").0.len(), 0);
+    assert_eq!(search_page(&mut host, doc, 0, "PageWord").0.len(), 1);
+    assert_eq!(search_page(&mut host, doc, 0, "FormVisible").0.len(), 1);
+
+    let saved = save_temp(&mut host, doc, "form-after-do-saved");
+    let mut reader = new_host();
+    let reopened = reader.open(&saved).expect("reopen").0;
+    assert_eq!(before_1x, render_page(&mut reader, reopened, 0, 1.0));
+    assert_eq!(before_2x, render_page(&mut reader, reopened, 0, 2.0));
+    assert_eq!(
+        search_page(&mut reader, reopened, 0, "FixedForm").0.len(),
+        1
+    );
+    assert_eq!(search_page(&mut reader, reopened, 0, "FormWord").0.len(), 0);
+    assert_eq!(search_page(&mut reader, reopened, 0, "PageWord").0.len(), 1);
+    assert_eq!(
+        search_page(&mut reader, reopened, 0, "FormVisible").0.len(),
+        1
+    );
+}
+
+fn assert_form_position_case(page_content: &str, form_extra: &str, tag: &str) {
+    let form_content = "BT /F1 16 Tf 72 700 Td 3 Tr (ScaledOcr) Tj ET\n0 0 1 rg 72 650 100 20 re f\nBT /F1 12 Tf 72 620 Td 0 Tr (FormVisible) Tj ET\n";
+    let pdf = common::build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /XObject << /Fm0 5 0 R >> >> >>".into(),
+        pdf_stream("", page_content),
+        pdf_stream(
+            &format!("/Type /XObject /Subtype /Form /BBox [0 0 612 792] {form_extra} /Resources << /Font << /F1 6 0 R >> >>"),
+            form_content,
+        ),
+        helv_font(),
+    ]);
+    let guard = common::temp_pdf(tag, &pdf);
+    let mut host = new_host();
+    let doc = host.open(&guard).expect("open").0;
+    let before_1x = render_page(&mut host, doc, 0, 1.0);
+    let before_2x = render_page(&mut host, doc, 0, 2.0);
+    let (truth, _) = search_page(&mut host, doc, 0, "ScaledOcr");
+    assert_eq!(truth.len(), 1);
+    let truth_box = hit_box(&truth[0]);
+
+    let listed = expect_usable_words(&mut host, doc, 0);
+    let word = listed
+        .iter()
+        .find(|w| w.text == "ScaledOcr")
+        .expect("ScaledOcr listed");
+    assert_boxes_close(
+        (word.rect.x0, word.rect.y0, word.rect.x1, word.rect.y1),
+        truth_box,
+        &format!("[{tag}] listed rect"),
+    );
+
+    apply_worker_edit(
+        &mut host,
+        doc,
+        WorkerEdit::CorrectRecognisedText {
+            page: 0,
+            word: word.id,
+            expected: "ScaledOcr".into(),
+            text: "FixedScaled".into(),
+        },
+    )
+    .expect("edit");
+
+    let (fixed, _) = search_page(&mut host, doc, 0, "FixedScaled");
+    assert_eq!(search_page(&mut host, doc, 0, "ScaledOcr").0.len(), 0);
+    assert_eq!(fixed.len(), 1);
+    assert_boxes_close(hit_box(&fixed[0]), truth_box, &format!("[{tag}] fixed box"));
+    assert_eq!(search_page(&mut host, doc, 0, "FormVisible").0.len(), 1);
+
+    let saved = save_temp(&mut host, doc, &format!("{tag}-saved"));
+    let mut reader = new_host();
+    let reopened = reader.open(&saved).expect("reopen").0;
+    assert_eq!(before_1x, render_page(&mut reader, reopened, 0, 1.0));
+    assert_eq!(before_2x, render_page(&mut reader, reopened, 0, 2.0));
+    let (fixed_after, _) = search_page(&mut reader, reopened, 0, "FixedScaled");
+    assert_eq!(fixed_after.len(), 1);
+    assert_boxes_close(
+        hit_box(&fixed_after[0]),
+        truth_box,
+        &format!("[{tag}] saved fixed box"),
+    );
+    assert_eq!(
+        search_page(&mut reader, reopened, 0, "FormVisible").0.len(),
+        1
+    );
+}
+
+#[test]
+fn form_xobject_drawn_under_cm_uses_page_coordinates() {
+    assert_form_position_case("q 0.5 0 0 0.5 0 0 cm /Fm0 Do Q\n", "", "form-cm");
+}
+
+#[test]
+fn form_xobject_with_matrix_uses_page_coordinates() {
+    assert_form_position_case("q /Fm0 Do Q\n", "/Matrix [0.5 0 0 0.5 0 0]", "form-matrix");
+}
+
+#[test]
+fn form_xobject_drawn_twice_lists_two_words_and_edits_one() {
+    let page_content = "q /Fm0 Do Q\nq 1 0 0 1 0 -300 cm /Fm0 Do Q\n";
+    let form_content = "BT /F1 16 Tf 72 700 Td 3 Tr (TwiceOcr) Tj ET\n0 0 1 rg 72 650 100 20 re f\nBT /F1 12 Tf 72 620 Td 0 Tr (FormVisible) Tj ET\n";
+    let pdf = common::build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /XObject << /Fm0 5 0 R >> >> >>".into(),
+        pdf_stream("", page_content),
+        pdf_stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F1 6 0 R >> >>",
+            form_content,
+        ),
+        helv_font(),
+    ]);
+    let guard = common::temp_pdf("form-twice", &pdf);
+    let mut host = new_host();
+    let doc = host.open(&guard).expect("open").0;
+    let before_1x = render_page(&mut host, doc, 0, 1.0);
+    let before_2x = render_page(&mut host, doc, 0, 2.0);
+    assert_eq!(search_page(&mut host, doc, 0, "TwiceOcr").0.len(), 2);
+
+    let listed = expect_usable_words(&mut host, doc, 0);
+    assert_eq!(listed.len(), 2, "both drawn copies must be listed");
+    assert!(listed.iter().all(|w| w.text == "TwiceOcr"));
+
+    apply_worker_edit(
+        &mut host,
+        doc,
+        WorkerEdit::CorrectRecognisedText {
+            page: 0,
+            word: listed[0].id,
+            expected: "TwiceOcr".into(),
+            text: "FixedTwice".into(),
+        },
+    )
+    .expect("edit");
+
+    assert_eq!(search_page(&mut host, doc, 0, "FixedTwice").0.len(), 1);
+    assert_eq!(search_page(&mut host, doc, 0, "TwiceOcr").0.len(), 1);
+    assert_eq!(search_page(&mut host, doc, 0, "FormVisible").0.len(), 2);
+
+    let saved = save_temp(&mut host, doc, "form-twice-saved");
+    let mut reader = new_host();
+    let reopened = reader.open(&saved).expect("reopen").0;
+    assert_eq!(before_1x, render_page(&mut reader, reopened, 0, 1.0));
+    assert_eq!(before_2x, render_page(&mut reader, reopened, 0, 2.0));
+    assert_eq!(
+        search_page(&mut reader, reopened, 0, "FixedTwice").0.len(),
+        1
+    );
+    assert_eq!(search_page(&mut reader, reopened, 0, "TwiceOcr").0.len(), 1);
+    assert_eq!(
+        search_page(&mut reader, reopened, 0, "FormVisible").0.len(),
+        2
+    );
+}
+
+#[test]
+fn listing_recognised_words_does_not_change_type3_font() {
+    let charproc = "1000 0 0 0 1000 1000 d1\n0 0 1000 1000 re f\n";
+    let page_content =
+        "BT /T3 24 Tf 72 500 Td (a) Tj ET\nBT /F1 16 Tf 72 700 Td 3 Tr (OcrWord) Tj ET\n";
+    let pdf = common::build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /T3 6 0 R >> >> >>".into(),
+        pdf_stream("", page_content),
+        helv_font(),
+        "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /a 7 0 R >> /Encoding << /Type /Encoding /Differences [97 /a] >> /FirstChar 97 /LastChar 97 /Widths [1000] /Resources 8 0 R >>".into(),
+        pdf_stream("", charproc),
+        "<< /ProcSet [/PDF /ImageB] /ExtGState << /GSunused << /ca 0.5 >> >> >>".into(),
+    ]);
+    let guard = common::temp_pdf("type3-resources", &pdf);
+
+    let describe = |bytes: &[u8]| -> String {
+        let doc = MuPdfDocument::from_bytes(bytes).expect("open saved");
+        let page = doc.find_page(0).expect("page");
+        let res = page.get_dict("Resources").unwrap().unwrap();
+        let fonts = res.get_dict("Font").unwrap().unwrap();
+        let t3 = fonts.get_dict("T3").unwrap().unwrap();
+        match t3.get_dict("Resources").unwrap() {
+            None => "no /Resources".to_owned(),
+            Some(r) => format!(
+                "indirect={} keys={:?}",
+                r.is_indirect().unwrap(),
+                r.dict_iter()
+                    .unwrap()
+                    .filter_map(|e| e.ok())
+                    .map(|(k, _)| String::from_utf8_lossy(&k.as_name().unwrap()).into_owned())
+                    .collect::<Vec<_>>()
+            ),
+        }
+    };
+
+    let mut plain = new_host();
+    let d1 = plain.open(&guard).expect("open").0;
+    let plain_saved = save_temp(&mut plain, d1, "type3-plain");
+    let without = describe(&std::fs::read(&*plain_saved).unwrap());
+
+    let mut scanned = new_host();
+    let d2 = scanned.open(&guard).expect("open").0;
+    let listed = expect_usable_words(&mut scanned, d2, 0);
+    assert!(listed.iter().any(|w| w.text == "OcrWord"));
+    let scanned_saved = save_temp(&mut scanned, d2, "type3-scanned");
+    let with = describe(&std::fs::read(&*scanned_saved).unwrap());
+    assert_eq!(
+        with, without,
+        "listing words must not change the Type 3 font"
+    );
+}
+
+#[test]
+fn listing_shared_form_without_editing_keeps_single_form_object_after_save() {
+    let form_content = "BT /F1 16 Tf 72 700 Td 3 Tr (SharedOcr) Tj ET\n";
+    let page_content = "q /Fm0 Do Q\n";
+    let pdf = common::build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".into(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 5 0 R /Resources << /XObject << /Fm0 6 0 R >> >> >>".into(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 5 0 R /Resources << /XObject << /Fm0 6 0 R >> >> >>".into(),
+        pdf_stream("", page_content),
+        pdf_stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >>",
+            form_content,
+        ),
+        helv_font(),
+    ]);
+    let guard = common::temp_pdf("shared-form-list-only", &pdf);
+    let mut host = new_host();
+    let doc = host.open(&guard).expect("open").0;
+
+    let words_p0 = expect_usable_words(&mut host, doc, 0);
+    assert_eq!(words_p0.len(), 1);
+    assert_eq!(words_p0[0].text, "SharedOcr");
+    let words_p1 = expect_usable_words(&mut host, doc, 1);
+    assert_eq!(words_p1.len(), 1);
+
+    let saved = save_temp(&mut host, doc, "shared-form-list-only-saved");
+    let saved_bytes = std::fs::read(&*saved).expect("read saved");
+    let mupdf_doc = MuPdfDocument::from_bytes(&saved_bytes).expect("open saved");
+    let fm0_xref = |page_index: i32| {
+        let page = mupdf_doc.find_page(page_index).expect("page");
+        let res = page.get_dict("Resources").unwrap().unwrap();
+        let xobjs = res.get_dict("XObject").unwrap().unwrap();
+        xobjs
+            .get_dict("Fm0")
+            .unwrap()
+            .unwrap()
+            .as_indirect()
+            .expect("Fm0 must be indirect")
+    };
+    assert_eq!(
+        fm0_xref(0),
+        fm0_xref(1),
+        "listing without editing must leave both pages sharing the same /Fm0 object"
+    );
+}
+
+#[test]
+fn off_page_tr3_word_is_omitted_and_keeps_worker_usable() {
+    let page_content = "BT /F1 16 Tf 72 700 Td 3 Tr (NearWord) Tj ET\nBT /F1 16 Tf 2000000 700 Td 3 Tr (FarWord) Tj ET\n";
+    let pdf = common::build_pdf(&[
+        "<< /Type /Catalog /Pages 2 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".into(),
+        pdf_stream("", page_content),
+        helv_font(),
+    ]);
+    let guard = common::temp_pdf("off-page-word", &pdf);
+    let mut host = new_host();
+    let doc = host.open(&guard).expect("open").0;
+    assert_eq!(search_page(&mut host, doc, 0, "NearWord").0.len(), 1);
+
+    let listed = expect_usable_words(&mut host, doc, 0);
+    assert!(listed.iter().any(|w| w.text == "NearWord"));
+    assert!(!listed.iter().any(|w| w.text == "FarWord"));
+
+    assert_eq!(search_page(&mut host, doc, 0, "NearWord").0.len(), 1);
+}
