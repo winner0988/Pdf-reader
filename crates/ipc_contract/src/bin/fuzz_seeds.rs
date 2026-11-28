@@ -12,7 +12,7 @@ use ipc_contract::types::{
     CreateKind, DocumentFontEntry, DocumentFonts, DocumentId, DocumentPermissions, FieldId,
     FieldKind, FieldOption, FindPersonalDataQuery, FindingKind, FontRefusal, FormField,
     HeaderFooterMarks, HighlightColor, HighlightMark, ImageQuality, InkColor, InkWidth, LinkId,
-    LinkTarget, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageMarkPages,
+    LinkTarget, OutlineItem, OutlineResult, PageAnnotation, PageCorner, PageLink, PageMarkPages,
     PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark, PageSize, PageText, Password,
     PdfDate, PersonalDataCategory, PersonalDataMatch, PersonalDataMatches, PictureView, Point,
     Quad, RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb,
@@ -22,10 +22,11 @@ use ipc_contract::types::{
     WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
-    CreateSource, FileHandle, FontData, InsertedTextBox, ModelGlyph, OcrFinished, OcrOutcome,
-    OcrPageState, OpenedDocument, PageNumberParts, PasswordKey, PreparedTextBoxModel, Raster,
-    SourceTextBox, TextBoxModel, WorkerAttachment, WorkerDocumentProperties, WorkerEdit,
-    WorkerError, WorkerErrorCode, WorkerPageMarks, WorkerRequest, WorkerResponse, WorkerWatermark,
+    CreateSource, FileHandle, FontData, InsertedTextBox, ModelGlyph, NewSignature, OcrFinished,
+    OcrOutcome, OcrPageState, OpenedDocument, PageNumberParts, PasswordKey, PreparedTextBoxModel,
+    Raster, SigningTime, SourceTextBox, TextBoxModel, VisibleSignature, WorkerAttachment,
+    WorkerDocumentProperties, WorkerEdit, WorkerError, WorkerErrorCode, WorkerPageMarks,
+    WorkerRequest, WorkerResponse, WorkerWatermark,
 };
 
 /// The words of a text box, as a worker would prepare them (a small one).
@@ -718,6 +719,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 password_key: None,
             },
         },
+        WorkerResponse::SignaturePrepared {
+            request,
+            bytes: 2 * u64::from(ipc_contract::limits::SIGNATURE_RESERVE_BYTES) + 1_002,
+            contents_start: 500,
+            contents_end: 500 + 2 * u64::from(ipc_contract::limits::SIGNATURE_RESERVE_BYTES) + 2,
+        },
     ];
     let requests = [
         WorkerRequest::Open {
@@ -1192,6 +1199,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         WorkerRequest::PrepareStampImage {
             request,
             file: FileHandle(0x2b8),
+        },
+        WorkerRequest::PrepareSignature {
+            request,
+            doc,
+            file: FileHandle(0x2bc),
+            signature: NewSignature {
+                signer: "王小明 Test Signer".to_owned(),
+                reason: Some("同意本文件".to_owned()),
+                time: SigningTime {
+                    year: 2026,
+                    month: 11,
+                    day: 28,
+                    hour: 12,
+                    minute: 0,
+                    second: 0,
+                    utc_offset_minutes: 480,
+                },
+                visible: Some(VisibleSignature {
+                    page_index: 0,
+                    corner: PageCorner::BottomRight,
+                    lines: vec![
+                        "數位簽署：王小明 Test Signer".to_owned(),
+                        "日期：2026-11-28 12:00 UTC+08:00".to_owned(),
+                    ],
+                    picture: None,
+                }),
+            },
+        },
+        WorkerRequest::PrepareSignature {
+            request,
+            doc,
+            file: FileHandle(0x2bd),
+            signature: NewSignature {
+                signer: "王小明 Test Signer".to_owned(),
+                reason: None,
+                time: SigningTime {
+                    year: 2026,
+                    month: 11,
+                    day: 28,
+                    hour: 12,
+                    minute: 0,
+                    second: 0,
+                    utc_offset_minutes: 480,
+                },
+                visible: Some(VisibleSignature {
+                    page_index: 0,
+                    corner: PageCorner::TopLeft,
+                    lines: vec!["數位簽署：王小明 Test Signer".to_owned()],
+                    picture: Some(stamp_png()),
+                }),
+            },
         },
         WorkerRequest::Edit {
             request,

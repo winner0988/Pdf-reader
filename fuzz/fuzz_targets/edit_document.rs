@@ -684,6 +684,7 @@ fuzz_target!(|data: &[u8]| {
                     page_index: 0,
                     corner: PageCorner::BottomRight,
                     lines: vec!["Digitally signed".to_string()],
+                    picture: (header[1] & 1 == 1).then(|| stamp_png.to_vec()),
                 }),
             };
             let _ = prepare_signature(pdf_bytes, &signature, &mut sink());

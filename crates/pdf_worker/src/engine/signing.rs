@@ -7,14 +7,15 @@
 use std::io::Write;
 
 use ipc_contract::limits::{
-    MAX_SIGNATURE_TEXT_BYTES, MAX_SIGNING_REASON_BYTES, SIGNATURE_RESERVE_BYTES,
+    MAX_SIGNATURE_TEXT_BYTES, MAX_SIGNING_REASON_BYTES, MAX_STAMP_SIDE_PX, SIGNATURE_RESERVE_BYTES,
 };
 use ipc_contract::types::{PageCorner, Rgb};
-use ipc_contract::validate::check_signing_text;
+use ipc_contract::validate::{check_signing_text, stamp_png_size};
 use ipc_contract::worker::{NewSignature, SigningTime, VisibleSignature};
-use mupdf::Buffer;
 use mupdf::pdf::{PdfObject, PdfWriteOptions};
+use mupdf::{Buffer, Image};
 
+use super::stamp_image::png_is_whole;
 use super::text_box::pdf::utf16_hex;
 use super::text_box::{TextBoxFont, line_form};
 use super::{EngineError, PdfDocument, write_limited};
@@ -26,6 +27,13 @@ const BYTE_RANGE_PLACEHOLDER: i32 = i32::MAX;
 /// A visible signature's box, in points: its size, and how far it is from the page's edges.
 const BOX_WIDTH_PT: f32 = 216.0;
 const BOX_HEIGHT_PT: f32 = 54.0;
+/// Larger box when a saved signature picture accompanies the text (#744): side-by-side on wide
+/// boxes, or taller with the picture stacked above the text on narrow pages.
+const BOX_PIC_WIDTH_PT: f32 = 252.0;
+const BOX_PIC_HEIGHT_PT: f32 = 72.0;
+const BOX_PIC_STACKED_WIDTH_THRESHOLD_PT: f32 = 180.0;
+const BOX_PIC_STACKED_HEIGHT_PT: f32 = 108.0;
+const PIC_GAP_PT: f32 = 6.0;
 const MARGIN_PT: f32 = 36.0;
 /// How large the words in the box are, and how far from its edges.
 const TEXT_SIZE_PT: f32 = 9.0;
@@ -123,10 +131,17 @@ fn check(signature: &NewSignature) -> Result<(), EngineError> {
     {
         return Err(EngineError::InvalidEdit("the time of the signature"));
     }
-    if let Some(visible) = &signature.visible
-        && (visible.lines.is_empty() || visible.lines.len() > MAX_LINES)
-    {
-        return Err(EngineError::InvalidEdit("the lines of a visible signature"));
+    if let Some(visible) = &signature.visible {
+        if visible.lines.is_empty() || visible.lines.len() > MAX_LINES {
+            return Err(EngineError::InvalidEdit("the lines of a visible signature"));
+        }
+        if let Some(png) = &visible.picture {
+            stamp_png_size(png)
+                .map_err(|_| EngineError::InvalidPicture("not a usable signature picture"))?;
+            if !png_is_whole(png) {
+                return Err(EngineError::InvalidPicture("the PNG is cut short"));
+            }
+        }
     }
     for line in signature.visible.iter().flat_map(|visible| &visible.lines) {
         check_signing_text("signature line", line, MAX_LINE_BYTES).map_err(invalid)?;
@@ -272,8 +287,20 @@ impl PdfDocument {
         if !(page_width > 0.0 && page_height > 0.0) {
             return Err(EngineError::NoArea);
         }
-        let width = BOX_WIDTH_PT.min(page_width * 0.9);
-        let height = BOX_HEIGHT_PT.min(page_height * 0.9);
+        let (width, height) = if visible.picture.is_some() {
+            let width = BOX_PIC_WIDTH_PT.min(page_width * 0.9);
+            let target_height = if width < BOX_PIC_STACKED_WIDTH_THRESHOLD_PT {
+                BOX_PIC_STACKED_HEIGHT_PT
+            } else {
+                BOX_PIC_HEIGHT_PT
+            };
+            (width, target_height.min(page_height * 0.9))
+        } else {
+            (
+                BOX_WIDTH_PT.min(page_width * 0.9),
+                BOX_HEIGHT_PT.min(page_height * 0.9),
+            )
+        };
         let margin_x = MARGIN_PT.min((page_width - width) / 2.0);
         let margin_y = MARGIN_PT.min((page_height - height) / 2.0);
         let x0 = match visible.corner {
@@ -297,6 +324,76 @@ impl PdfDocument {
         let mut turn = mupdf::Matrix::new(1.0, 0.0, 0.0, -1.0, 0.0, 0.0);
         turn.concat(inverse);
 
+        let decoded_picture = if let Some(png) = &visible.picture {
+            stamp_png_size(png)
+                .map_err(|_| EngineError::InvalidPicture("not a usable signature picture"))?;
+            let pixmap = Image::from_bytes(png)
+                .map_err(|_| EngineError::InvalidPicture("the picture cannot be read"))?
+                .to_pixmap()
+                .map_err(|_| EngineError::InvalidPicture("the picture cannot be read"))?;
+            let (pw, ph) = (pixmap.width(), pixmap.height());
+            if pw == 0 || ph == 0 || pw > MAX_STAMP_SIDE_PX || ph > MAX_STAMP_SIDE_PX {
+                return Err(EngineError::InvalidPicture(
+                    "picture dimensions out of range",
+                ));
+            }
+            let usable = pixmap
+                .color_space()
+                .is_some_and(|space| space.is_gray() || space.is_rgb());
+            if !usable {
+                return Err(EngineError::InvalidPicture(
+                    "the picture has unusable colors",
+                ));
+            }
+            // Re-build from decoded pixels alone so no PNG metadata/EXIF chunks reach the PDF.
+            let clean_image = Image::from_pixmap(&pixmap)?;
+            let image_obj = self.doc.add_image(&clean_image)?;
+            Some((image_obj, pw as f32, ph as f32))
+        } else {
+            None
+        };
+
+        let inner_w = (width - 2.0 * PADDING_PT).max(1.0);
+        let inner_h = (height - 2.0 * PADDING_PT).max(1.0);
+        let gap = PIC_GAP_PT.min((inner_w / 6.0).min(inner_h / 6.0)).max(1.0);
+        let (img_draw, text_x, text_w, text_top, text_h) = match decoded_picture {
+            Some((image_obj, pw, ph)) if width < BOX_PIC_STACKED_WIDTH_THRESHOLD_PT => {
+                let pic_max_w = inner_w;
+                let pic_max_h = ((inner_h - gap) * 0.45).max(1.0);
+                let pic_scale = (pic_max_w / pw).min(pic_max_h / ph);
+                let draw_w = pw * pic_scale;
+                let draw_h = ph * pic_scale;
+                let img_x = PADDING_PT + (inner_w - draw_w) / 2.0;
+                let img_y = height - PADDING_PT - draw_h;
+                let text_top = img_y - gap;
+                (
+                    Some((image_obj, draw_w, draw_h, img_x, img_y)),
+                    PADDING_PT,
+                    inner_w,
+                    text_top,
+                    (text_top - PADDING_PT).max(1.0),
+                )
+            }
+            Some((image_obj, pw, ph)) => {
+                let pic_max_w = ((inner_w - gap) * 0.40).max(1.0);
+                let pic_max_h = inner_h;
+                let pic_scale = (pic_max_w / pw).min(pic_max_h / ph);
+                let draw_w = pw * pic_scale;
+                let draw_h = ph * pic_scale;
+                let img_x = PADDING_PT;
+                let img_y = PADDING_PT + (inner_h - draw_h) / 2.0;
+                let text_x = PADDING_PT + draw_w + gap;
+                (
+                    Some((image_obj, draw_w, draw_h, img_x, img_y)),
+                    text_x,
+                    (inner_w - draw_w - gap).max(1.0),
+                    height - PADDING_PT,
+                    inner_h,
+                )
+            }
+            None => (None, PADDING_PT, inner_w, height - PADDING_PT, inner_h),
+        };
+
         let font = mupdf_fonts_droid::find_by_name(FONT_NAME, false, false)
             .ok_or(EngineError::InvalidEdit("no font for the signature"))?;
         let font = TextBoxFont {
@@ -308,12 +405,12 @@ impl PdfDocument {
         for line in &visible.lines {
             let (form, line_width, line_height) =
                 line_form(&mut self.doc, &font, line, TEXT_SIZE_PT, BLACK)?;
-            let scale = ((width - 2.0 * PADDING_PT) / line_width).min(1.0);
+            let scale = (text_w / line_width).min(1.0);
             lines.push((form, scale, line_height));
         }
         // Lines that are too tall together are all made smaller.
         let tall: f32 = lines.iter().map(|(_, scale, high)| scale * high).sum();
-        let fit = ((height - 2.0 * PADDING_PT) / tall).min(1.0);
+        let fit = (text_h / tall).min(1.0);
 
         let mut content = String::from("q 0.3 G 0.75 w 0.375 0.375 ");
         content.push_str(&format!(
@@ -322,12 +419,18 @@ impl PdfDocument {
             height - 0.75
         ));
         let mut resources = String::new();
-        let mut top = height - PADDING_PT;
+        if let Some((image_obj, draw_w, draw_h, img_x, img_y)) = img_draw {
+            content.push_str(&format!(
+                "q {draw_w:.5} 0 0 {draw_h:.5} {img_x:.3} {img_y:.3} cm /I Do Q\n"
+            ));
+            resources.push_str(&format!(" /I {} 0 R", image_obj.as_indirect()?));
+        }
+        let mut top = text_top;
         for (index, (form, scale, line_height)) in lines.iter().enumerate() {
             let scale = scale * fit;
             top -= line_height * scale;
             content.push_str(&format!(
-                "q {scale:.5} 0 0 {scale:.5} {PADDING_PT:.3} {top:.3} cm /L{index} Do Q\n"
+                "q {scale:.5} 0 0 {scale:.5} {text_x:.3} {top:.3} cm /L{index} Do Q\n"
             ));
             resources.push_str(&format!(" /L{index} {} 0 R", form.as_indirect()?));
         }
@@ -431,6 +534,7 @@ mod tests {
                     "日期：2026-10-22 09:05 UTC+08:00".to_owned(),
                     "原因：同意本文件".to_owned(),
                 ],
+                picture: None,
             }),
             ..invisible()
         }
@@ -637,6 +741,7 @@ mod tests {
                         page_index: 0,
                         corner: PageCorner::TopLeft,
                         lines: Vec::new(),
+                        picture: None,
                     }),
                     ..invisible()
                 },
@@ -673,5 +778,265 @@ mod tests {
         assert_eq!(find_once(b"<00>x<00>", 1, b"<00>"), Some(5));
         assert_eq!(find_once(b"<0<00>", 0, b"<00>"), Some(2));
         assert_eq!(find_once(b"abc", 0, b"<00>"), None);
+    }
+
+    fn two_tone_png() -> Vec<u8> {
+        super::super::stamp_image::prepare_stamp_picture(&corpus("images/stamp-exif.jpg"))
+            .expect("test PNG")
+            .png
+    }
+
+    fn narrow_single_page(width_pt: f32, height_pt: f32) -> Vec<u8> {
+        let doc = PdfDocument::from_bytes(&corpus("benign/single-page.pdf")).expect("open");
+        let page = doc.pdf_page(0).expect("page");
+        let _ = page.object().dict_delete("CropBox");
+        let mbox = doc
+            .doc
+            .new_object_from_str(&format!("[0 0 {width_pt:.3} {height_pt:.3}]"))
+            .expect("mbox");
+        page.object().dict_put("MediaBox", mbox).expect("put");
+        let mut out = Vec::new();
+        doc.save(&mut out).expect("save");
+        out
+    }
+
+    #[test]
+    fn a_visible_signature_with_a_picture_draws_it_left_of_text_in_every_corner_and_turned_page() {
+        let png = two_tone_png();
+        for (name, page, corner) in [
+            ("benign/single-page.pdf", 0, PageCorner::TopLeft),
+            ("benign/single-page.pdf", 0, PageCorner::TopRight),
+            ("benign/single-page.pdf", 0, PageCorner::BottomLeft),
+            ("benign/single-page.pdf", 0, PageCorner::BottomRight),
+            ("benign/rotated-page.pdf", 1, PageCorner::TopLeft),
+            ("benign/rotated-page.pdf", 1, PageCorner::TopRight),
+            ("benign/rotated-page.pdf", 1, PageCorner::BottomLeft),
+            ("benign/rotated-page.pdf", 1, PageCorner::BottomRight),
+        ] {
+            let original = corpus(name);
+            let mut signature = visible(page, corner);
+            signature.visible.as_mut().unwrap().picture = Some(png.clone());
+            let (copy, _) = prepare(&original, &signature);
+            assert!(copy.starts_with(&original), "{name} {corner:?}");
+
+            let before = PdfDocument::from_bytes(&original)
+                .unwrap()
+                .render(page, 1.0, 0)
+                .unwrap();
+            let after = PdfDocument::from_bytes(&copy)
+                .unwrap()
+                .render(page, 1.0, 0)
+                .unwrap();
+            let width = after.width as usize;
+            let height = after.height as usize;
+
+            let mut changed = Vec::new();
+            let mut red = Vec::new();
+            let mut blue = Vec::new();
+            for (index, (old, new)) in before
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(after.rgba.as_chunks::<4>().0)
+                .enumerate()
+            {
+                if old != new {
+                    let x = index % width;
+                    let y = index / width;
+                    changed.push((x, y));
+                    let [r, g, b, _] = *new;
+                    if r > g.saturating_add(50) && r > b.saturating_add(50) {
+                        red.push((x, y));
+                    } else if b > r.saturating_add(50) && b > g.saturating_add(50) {
+                        blue.push((x, y));
+                    }
+                }
+            }
+            assert!(!red.is_empty(), "{name} {corner:?}: no red picture pixels");
+            assert!(
+                !blue.is_empty(),
+                "{name} {corner:?}: no blue picture pixels"
+            );
+
+            let box_x0 = changed.iter().map(|p| p.0).min().unwrap();
+            let box_y0 = changed.iter().map(|p| p.1).min().unwrap();
+            let box_x1 = changed.iter().map(|p| p.0).max().unwrap();
+            let box_y1 = changed.iter().map(|p| p.1).max().unwrap();
+            let right = matches!(corner, PageCorner::TopRight | PageCorner::BottomRight);
+            let bottom = matches!(corner, PageCorner::BottomLeft | PageCorner::BottomRight);
+            assert_eq!(
+                box_x0 > width / 2,
+                right,
+                "{name} {corner:?}: {box_x0}..{box_x1} of {width}"
+            );
+            assert_eq!(
+                box_y0 > height / 2,
+                bottom,
+                "{name} {corner:?}: {box_y0}..{box_y1} of {height}"
+            );
+            assert!(
+                box_x1 - box_x0 > box_y1 - box_y0,
+                "{name} {corner:?}: upright wider than tall"
+            );
+
+            // Picture is upright (red top has smaller y than blue bottom).
+            let red_max_y = red.iter().map(|p| p.1).max().unwrap();
+            let blue_min_y = blue.iter().map(|p| p.1).min().unwrap();
+            assert!(
+                red_max_y < blue_min_y,
+                "{name} {corner:?}: picture flipped red_y={red_max_y} blue_y={blue_min_y}"
+            );
+
+            // Dark text sits strictly to the right of the picture inside the box interior.
+            let pic_max_x = red.iter().chain(&blue).map(|p| p.0).max().unwrap();
+            let text_right = changed.iter().any(|&(x, y)| {
+                x > pic_max_x + 2
+                    && x < box_x1.saturating_sub(2)
+                    && y > box_y0 + 2
+                    && y < box_y1.saturating_sub(2)
+                    && {
+                        let start = (y * width + x) * 4;
+                        let px = &after.rgba[start..start + 4];
+                        px[0] < 100 && px[1] < 100 && px[2] < 100
+                    }
+            });
+            assert!(
+                text_right,
+                "{name} {corner:?}: expected text right of picture max x {pic_max_x} in {box_x0}..{box_x1}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_visible_signature_picture_keeps_no_metadata_or_path_in_the_signed_copy() {
+        let original = corpus("benign/single-page.pdf");
+        let meta_png = corpus("images/stamp-metadata.png");
+        assert!(
+            meta_png.windows(b"eXIf".len()).any(|w| w == b"eXIf"),
+            "test fixture has eXIf"
+        );
+        let mut signature = visible(0, PageCorner::BottomRight);
+        signature.visible.as_mut().unwrap().picture = Some(meta_png);
+        let (copy, _) = prepare(&original, &signature);
+        let appended = &copy[original.len()..];
+        assert!(
+            appended
+                .windows(b"/Subtype".len())
+                .any(|w| w == b"/Subtype")
+                && appended.windows(b"/Image".len()).any(|w| w == b"/Image"),
+            "expected Image XObject in signed copy"
+        );
+        for secret in [
+            &b"eXIf"[..],
+            b"tEXt",
+            b"Exif",
+            b"Canon",
+            b"Jane Q. Private-Author",
+            b"/Metadata",
+            b"Users",
+            b".png",
+        ] {
+            assert!(
+                !appended.windows(secret.len()).any(|w| w == secret),
+                "unexpected {:?} in appended signed bytes",
+                String::from_utf8_lossy(secret)
+            );
+        }
+        let before = PdfDocument::from_bytes(&original)
+            .unwrap()
+            .render(0, 1.0, 0)
+            .unwrap();
+        let after = PdfDocument::from_bytes(&copy)
+            .unwrap()
+            .render(0, 1.0, 0)
+            .unwrap();
+        assert_ne!(before.rgba, after.rgba);
+    }
+
+    #[test]
+    fn a_visible_signature_on_a_narrow_page_places_the_picture_above_the_text() {
+        let original = narrow_single_page(150.0, 500.0);
+        let mut signature = visible(0, PageCorner::BottomRight);
+        signature.visible.as_mut().unwrap().picture = Some(two_tone_png());
+        let (copy, _) = prepare(&original, &signature);
+
+        let before = PdfDocument::from_bytes(&original)
+            .unwrap()
+            .render(0, 1.0, 0)
+            .unwrap();
+        let after = PdfDocument::from_bytes(&copy)
+            .unwrap()
+            .render(0, 1.0, 0)
+            .unwrap();
+        let width = after.width as usize;
+
+        let mut changed = Vec::new();
+        let mut pic_ys = Vec::new();
+        let mut red_ys = Vec::new();
+        let mut blue_ys = Vec::new();
+        for (index, (old, new)) in before
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(after.rgba.as_chunks::<4>().0)
+            .enumerate()
+        {
+            if old != new {
+                let x = index % width;
+                let y = index / width;
+                changed.push((x, y));
+                let [r, g, b, _] = *new;
+                if r > g.saturating_add(50) && r > b.saturating_add(50) {
+                    pic_ys.push(y);
+                    red_ys.push(y);
+                } else if b > r.saturating_add(50) && b > g.saturating_add(50) {
+                    pic_ys.push(y);
+                    blue_ys.push(y);
+                }
+            }
+        }
+        assert!(!red_ys.is_empty() && !blue_ys.is_empty());
+        assert!(red_ys.iter().max().unwrap() < blue_ys.iter().min().unwrap());
+        let pic_max_y = *pic_ys.iter().max().unwrap();
+        let box_x0 = changed.iter().map(|p| p.0).min().unwrap();
+        let box_x1 = changed.iter().map(|p| p.0).max().unwrap();
+        let box_y1 = changed.iter().map(|p| p.1).max().unwrap();
+        assert!(box_x1 - box_x0 <= 136, "fits inside 0.9 * 150");
+        let text_below = changed.iter().any(|&(x, y)| {
+            x > box_x0 + 2
+                && x < box_x1.saturating_sub(2)
+                && y > pic_max_y + 2
+                && y < box_y1 - 2
+                && {
+                    let start = (y * width + x) * 4;
+                    let px = &after.rgba[start..start + 4];
+                    px[0] < 100 && px[1] < 100 && px[2] < 100
+                }
+        });
+        assert!(text_below, "expected text below picture max y {pic_max_y}");
+    }
+
+    #[test]
+    fn an_unusable_signature_picture_is_refused_and_writes_nothing() {
+        let original = corpus("benign/single-page.pdf");
+        let good = two_tone_png();
+        let mut oversized = good.clone();
+        oversized.resize(ipc_contract::limits::MAX_STAMP_PNG_BYTES + 1, 0);
+
+        let mut wide = good[..24].to_vec();
+        wide[16..20].copy_from_slice(&(ipc_contract::limits::MAX_STAMP_SIDE_PX + 1).to_be_bytes());
+        let mut zero_dim = good[..24].to_vec();
+        zero_dim[16..20].copy_from_slice(&0u32.to_be_bytes());
+        let truncated = good[..24].to_vec();
+
+        for bad in [b"not a png".to_vec(), oversized, wide, zero_dim, truncated] {
+            let mut signature = visible(0, PageCorner::BottomRight);
+            signature.visible.as_mut().unwrap().picture = Some(bad);
+            let mut out = Vec::new();
+            assert!(prepare_signature(&original, &signature, &mut out).is_err());
+            assert!(out.is_empty());
+        }
     }
 }

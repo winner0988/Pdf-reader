@@ -2482,6 +2482,7 @@ export function ReaderShell({
           doc={doc}
           page={currentPage}
           api={signingApi}
+          signaturesApi={signaturesApi}
         />
       )}
       {sensitiveApi && doc !== undefined && (

@@ -7134,6 +7134,23 @@ mod tests {
         assert!(serde_json::from_str::<SignArgs>(more).is_err());
         let corner = r#"{"doc":1,"key":{"kind":"file","file":1,"password":"p"},"place":{"pageIndex":0,"corner":"middle"},"reason":null,"utcOffsetMinutes":0}"#;
         assert!(serde_json::from_str::<SignArgs>(corner).is_err());
+
+        // Optional saved signature picture (#744): allowed in `place`, rejected when `place` is null.
+        let with_pic_json = r#"{"doc":1,"key":{"kind":"file","file":1,"password":"p"},"place":{"pageIndex":0,"corner":"bottomRight","signatureImage":3},"reason":null,"utcOffsetMinutes":0}"#;
+        let with_pic = serde_json::from_str::<SignArgs>(with_pic_json).unwrap();
+        assert!(with_pic.validate().is_ok());
+        assert_eq!(
+            with_pic.place.and_then(|place| place.signature_image),
+            Some(crate::types::SignatureImageId(3))
+        );
+        let with_null_pic_json = r#"{"doc":1,"key":{"kind":"file","file":1,"password":"p"},"place":{"pageIndex":0,"corner":"bottomRight","signatureImage":null},"reason":null,"utcOffsetMinutes":0}"#;
+        let with_null_pic = serde_json::from_str::<SignArgs>(with_null_pic_json).unwrap();
+        assert_eq!(
+            with_null_pic.place.and_then(|place| place.signature_image),
+            None
+        );
+        let invisible_with_pic_json = r#"{"doc":1,"key":{"kind":"file","file":1,"password":"p"},"place":null,"signatureImage":3,"reason":null,"utcOffsetMinutes":0}"#;
+        assert!(serde_json::from_str::<SignArgs>(invisible_with_pic_json).is_err());
     }
 
     #[test]

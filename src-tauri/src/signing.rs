@@ -28,8 +28,10 @@ use ipc_contract::limits::{
     MAX_CERTIFICATE_FILE_BYTES, MAX_SIGNATURE_TEXT_BYTES, MAX_STORE_CERTIFICATES,
 };
 use ipc_contract::text::clean_display_text;
-use ipc_contract::types::{CertificateDate, CertificateProblem, ErrorCode, IpcError};
-use ipc_contract::worker::SigningTime;
+use ipc_contract::types::{
+    CertificateDate, CertificateProblem, ErrorCode, IpcError, SignatureImageId, SignaturePlace,
+};
+use ipc_contract::worker::{NewSignature, SigningTime, VisibleSignature};
 use windows_sys::Win32::Foundation::{
     ERROR_CANCELLED, FILETIME, GetLastError, NTE_USER_CANCELLED, SCARD_E_CANCELLED,
     SCARD_E_NO_READERS_AVAILABLE, SCARD_E_NO_SMARTCARD, SCARD_E_READER_UNAVAILABLE,
@@ -947,6 +949,54 @@ pub fn fill_room(room: &mut [u8], signature: &[u8]) -> bool {
     true
 }
 
+/// Loads and decrypts a saved signature image (#587) into a zeroizing buffer for a visible
+/// signature (#744). Returns `SignatureImageUnavailable` if it was deleted or cannot be read.
+pub fn load_signature_picture(
+    signatures: &crate::signature_images::SignatureImages,
+    id: SignatureImageId,
+) -> Result<Zeroizing<Vec<u8>>, IpcError> {
+    signatures.get_png_zeroizing(id).map_err(|_| IpcError {
+        code: ErrorCode::SignatureImageUnavailable,
+        message: "the selected signature image is unavailable".to_owned(),
+    })
+}
+
+/// Builds the [`NewSignature`] sent to the worker, decrypting any chosen signature picture in memory
+/// only when `place` is `Some` and specifies `signature_image` (#744).
+pub fn build_new_signature(
+    place: Option<SignaturePlace>,
+    signer: String,
+    reason: Option<String>,
+    time: SigningTime,
+    lines: Vec<String>,
+    signatures: &crate::signature_images::SignatureImages,
+) -> Result<NewSignature, IpcError> {
+    let visible = match place {
+        Some(place) => {
+            let picture = match place.signature_image {
+                Some(id) => {
+                    let mut png = load_signature_picture(signatures, id)?;
+                    Some(std::mem::take(&mut *png))
+                }
+                None => None,
+            };
+            Some(VisibleSignature {
+                page_index: place.page_index,
+                corner: place.corner,
+                lines,
+                picture,
+            })
+        }
+        None => None,
+    };
+    Ok(NewSignature {
+        signer,
+        reason,
+        time,
+        visible,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1515,5 +1565,68 @@ mod tests {
             Signer::from_pfx(&certificate("encryption-only.pfx"), PASSWORD).err(),
             Some(SigningError::NotForSigning)
         );
+    }
+
+    #[test]
+    fn signature_picture_loading_decrypts_saved_png_and_rejects_deleted() {
+        let dir = std::env::temp_dir().join(format!("test-sign-pic-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let signatures = crate::signature_images::SignatureImages::new(Some(dir.clone()));
+
+        let sample =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/images/stamp-metadata.png");
+        let png = std::fs::read(sample).unwrap();
+        let list = signatures.add(&png).unwrap();
+        let id = list[0].id;
+
+        let loaded = load_signature_picture(&signatures, id).unwrap();
+        assert_eq!(loaded.as_slice(), png.as_slice());
+
+        let time = local_time(1_792_631_107, 480).unwrap();
+        let place = SignaturePlace {
+            page_index: 0,
+            corner: ipc_contract::types::PageCorner::BottomRight,
+            signature_image: Some(id),
+        };
+        let built = build_new_signature(
+            Some(place),
+            "Signer".to_owned(),
+            None,
+            time,
+            vec!["Signer".to_owned()],
+            &signatures,
+        )
+        .unwrap();
+        assert_eq!(
+            built.visible.as_ref().and_then(|v| v.picture.as_deref()),
+            Some(png.as_slice())
+        );
+
+        let invisible = build_new_signature(
+            None,
+            "Signer".to_owned(),
+            None,
+            time,
+            Vec::new(),
+            &signatures,
+        )
+        .unwrap();
+        assert!(invisible.visible.is_none());
+
+        signatures.remove(id).unwrap();
+        let err = load_signature_picture(&signatures, id).unwrap_err();
+        assert_eq!(err.code, ErrorCode::SignatureImageUnavailable);
+        let build_err = build_new_signature(
+            Some(place),
+            "Signer".to_owned(),
+            None,
+            time,
+            vec!["Signer".to_owned()],
+            &signatures,
+        )
+        .unwrap_err();
+        assert_eq!(build_err.code, ErrorCode::SignatureImageUnavailable);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

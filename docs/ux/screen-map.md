@@ -292,7 +292,7 @@
   - **這台電腦的憑證**（signing.sourceStore）：列出 `list_signing_certificates` 給的憑證，每張一個單選按鈕，名稱是主旨，說明是 signing.certificateDetail（簽發者與有效到哪一天）；不能用的停用，說明後面加上原因（signing.problems.*）。預設選第一張可以簽署的。讀取中顯示 signing.listing，失敗顯示 signing.listFailed（`role="alert"`），沒有可以簽署的顯示 signing.noCertificates。「重新整理」再讀一次（插入卡片之後）。最後是 signing.pinNote。不需要密碼；
   - **憑證檔**（signing.sourceFile）：「選擇憑證檔…」開啟系統的開啟對話框（只列 `.pfx`、`.p12`），選好後顯示檔名，還沒選時顯示 signing.noFile；「憑證檔的密碼」。
   - 有可以簽署的這台電腦的憑證時預設用它，否則預設用憑證檔；
-- 接著：「簽章的外觀」兩個單選按鈕：顯示在目前這一頁的角落（預設；「位置」選單選四個角之一，預設右下角），或不顯示在頁面上；「原因（選填）」，太長時顯示 signing.reasonTooLong；signing.note。沒有可以用的憑證、沒有選憑證檔或沒有密碼、原因太長時，「選擇位置並簽署…」停用。
+- 接著：「簽章的外觀」兩個單選按鈕：顯示在目前這一頁的角落（預設；「位置」選單選四個角之一，預設右下角；下方提供「簽名圖片與文字」勾選框（signing.usePicture），勾選時列出已存簽名圖片縮圖與 radio 群組並預設選第一個、未達上限時可「新增簽名圖片…」，若還沒有任何已存簽名則顯示 signing.noPictures 與「建立簽名圖片…」按鈕開啟既有建立流程並於完成後自動選取且將焦點帶回新選項目，尚未有可選圖片前「選擇位置並簽署…」停用），或不顯示在頁面上（此時停用圖片勾選與圖片選項，也不會送出圖片）；「原因（選填）」，太長時顯示 signing.reasonTooLong；signing.note。沒有可以用的憑證、沒有選憑證檔或沒有密碼、原因太長時，「選擇位置並簽署…」停用。
 - **選擇位置並簽署…**：主行程先取得憑證與私鑰。密碼不對或不是憑證、過期、還沒生效、不能用來簽署、這台電腦的憑證已不在或私鑰拿不到（卡片拔出）時，在另存對話框出現之前就顯示原因（`role="alert"`），密碼欄清空，選的檔案留著。接著顯示系統的另存對話框，建議檔名 `<原檔名>（已簽署）.pdf`，已存在時由對話框詢問是否取代；選到原本的檔案時以訊息方塊說明（SIGNED_COPY_SAME_FILE_MESSAGE）再顯示一次。關閉系統的對話框時回到這個對話框，密碼還在，可以再試。簽署中顯示 signing.running，欄位與按鈕停用，不能關閉對話框。卡片要 PIN 時，由 Windows 或卡片的程式在 app 的視窗上詢問；使用者在那裡取消時，對話框不顯示錯誤，可以再試。
 - **結果**：成功後對話框換成結果（標題 signing.resultTitle，`role="status"`）：signing.result。簽好的副本已在新分頁開啟，它的簽章提示列說明簽章的狀況（B2-14）。按「完成」（signing.done）關閉。
 - 失敗、完成或關閉對話框時，密碼欄位清空；app 不記住憑證檔或密碼。
@@ -1484,6 +1484,11 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | signing.appearanceTitle | 簽章的外觀 |
 | signing.visible(page) | 顯示在目前這一頁（第 <page> 頁）的角落 |
 | signing.cornerLabel／signing.corners.topLeft／topRight／bottomLeft／bottomRight | 位置／左上角／右上角／左下角／右下角 |
+| signing.usePicture／signing.pictureHint | 簽名圖片與文字／圖片會畫在簽章文字左側（版面較窄時畫在上方）。 |
+| signing.loadingPictures／signing.noPictures | 正在載入已存的簽名圖片…／尚未儲存任何簽名圖片。 |
+| signing.pictureChoiceLabel／signing.pictureItemLabel(i) | 簽名圖片／簽名 <i + 1> |
+| signing.createPicture／signing.addPicture | 建立簽名圖片…／新增簽名圖片… |
+| signing.createPictureTitle／createPictureDescription／createPictureCancel | 建立簽名圖片／手繪、輸入或匯入簽名圖片，儲存後會加入已存的簽名並自動選用。／取消 |
 | signing.invisible | 不顯示在頁面上 |
 | signing.reasonLabel／signing.reasonTooLong | 原因（選填）／原因太長了，請縮短。 |
 | signing.note | 簽署時間是這台電腦的時間，沒有時間戳記。簽好的副本會先由另一個程序驗證，有效才存檔，並在新分頁開啟。app 不會記住憑證檔或密碼。 |
@@ -1499,6 +1504,7 @@ WebView 預設的右鍵功能表（重新整理、另存新檔、列印網頁等
 | error.messages.signatureTooLarge | 簽章比文件預留的空間大，所以沒有建立副本。 |
 | error.messages.signatureNotValid | 簽好的副本沒有通過驗證，所以沒有存檔。 |
 | error.messages.certificateUnavailable | 找不到這張憑證或它的私鑰：卡片可能已經拔出。請插入後按「重新整理」再試一次。 |
+| error.messages.signatureImageUnavailable | 找不到所選的簽名圖片（可能已被刪除），請重新選擇或取消勾選。 |
 | CERTIFICATE_DIALOG_TITLE／CERTIFICATE_FILTER_NAME（主行程） | 選擇簽署用的憑證檔／憑證檔（PKCS #12） |
 | SIGNED_COPY_DIALOG_TITLE（主行程） | 簽署並另存新檔：選擇已簽署副本的位置 |
 | signed_copy_file_name（主行程） | <原檔名>（已簽署）.pdf |

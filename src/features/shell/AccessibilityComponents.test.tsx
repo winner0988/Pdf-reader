@@ -408,6 +408,23 @@ describe("dialogs", () => {
     await expectAccessible(everything());
     unmount();
 
+    const signaturesApi = {
+      getSignatureImages: vi.fn(() => Promise.resolve([{ id: 1, width: 120, height: 60 }])),
+      getSignatureImagePng: vi.fn(() => Promise.resolve([137, 80, 78, 71])),
+      addSignatureImage: vi.fn(() => Promise.resolve([{ id: 1, width: 120, height: 60 }])),
+      importSignatureImage: vi.fn(() => Promise.resolve(null)),
+      removeSignatureImage: vi.fn(() => Promise.resolve([])),
+      removeAllSignatureImages: vi.fn(() => Promise.resolve([])),
+      prepareSignatureStamp: vi.fn(() => Promise.resolve({ image: 1, width: 120, height: 60 })),
+    };
+    const withPicture = render(
+      <SignDialog open onOpenChange={vi.fn()} doc={5} page={1} api={api} signaturesApi={signaturesApi} />,
+    );
+    await user.click(await screen.findByRole("checkbox", { name: strings.signing.usePicture }));
+    await screen.findByRole("radio", { name: strings.signing.pictureItemLabel(0) });
+    await expectAccessible(everything());
+    withPicture.unmount();
+
     const refused = { ...api, check: vi.fn(() => Promise.resolve("unsaved" as const)) };
     render(<SignDialog open onOpenChange={vi.fn()} doc={5} page={1} api={refused} />);
     await screen.findByText(strings.signing.unsaved);

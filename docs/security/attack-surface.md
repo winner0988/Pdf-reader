@@ -176,7 +176,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `check_signing` | 文件能不能簽 | 文件代號 | — | `signing.spec.ts`；`documents.rs`（`what_cannot_be_signed_is_said_before_the_user_is_asked_anything`） |
 | `choose_signing_file` | 選一個 PKCS #12 檔（B3-06） | 檔案 ≤ `MAX_CERTIFICATE_FILE_BYTES`（1 MiB） | 開啟對話框（`*.pfx;*.p12`）；位元組留在主行程的記憶體，前端只拿到編號與檔名 | `signing.spec.ts` |
 | `list_signing_certificates` | 使用者「個人」存放區裡有私密金鑰的憑證（唯讀，ADR 0020） | ≤ `MAX_STORE_CERTIFICATES`（100） | 不開啟金鑰 | `signing.spec.ts` |
-| `sign_document` | 做一份簽章的副本 | `SignArgs`：憑證檔的密碼過 `check_password`；理由 ≤ 256 bytes、只有一行；時區在 ±14 小時內；憑證檔必須是上次選的那個，存放區的憑證必須是上次列出的 | 另存對話框，擋文件自己的檔案。PFX 由 Windows 匯入（§3）；worker 加上簽章欄位（`PrepareSignature`）；主行程寫入 CMS；新的 worker 驗證這份副本（`VerifySignatures`），再開成新分頁。智慧卡由 Windows 問 PIN | `signing.spec.ts`；`signing.rs` 11 個；`documents.rs`（`a_signed_copy_verifies_and_one_changed_byte_breaks_it` 等） |
+| `sign_document` | 做一份簽章的副本 | `SignArgs`：憑證檔的密碼過 `check_password`；理由 ≤ 256 bytes、只有一行；時區在 ±14 小時內；`place.signatureImage` 只能帶在可見簽章（結構上拒絕不可見帶圖）；憑證檔必須是上次選的那個，存放區的憑證必須是上次列出的 | 另存對話框，擋文件自己的檔案；若帶簽名圖片，主行程解密進 `Zeroizing<Vec<u8>>`、在記憶體交給 worker（不寫暫存 PNG）並於丟棄後清除，缺失回 `SignatureImageUnavailable`。PFX 由 Windows 匯入（§3）；worker 加上簽章欄位（`PrepareSignature`）；主行程寫入 CMS；新的 worker 驗證這份副本（`VerifySignatures`），再開成新分頁。智慧卡由 Windows 問 PIN | `signing.spec.ts`；`signing.rs` 12 個；`documents.rs`（`a_signed_copy_verifies_and_one_changed_byte_breaks_it`、`a_saved_signature_picture_is_decrypted_for_visible_and_refused_when_missing` 等） |
 
 ### 1.11 字型與文字方塊（6 個）
 
@@ -302,7 +302,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `WatermarkCopy` | 加上文字或圖片浮水印的副本 | `engine/watermark.rs` | worker `watermark.rs` | `edit_document` |
 | `PageMarksCopy` | 加上頁面標記的副本 | `engine/page_marks.rs` | worker `page_marks.rs` | `edit_document` |
 | `WriteIdentifier` | 以增量更新寫入或拿掉 app 的文件識別碼（ADR 0010） | `engine/identifier.rs` | worker `sensitive.rs` | `edit_document` |
-| `PrepareSignature` | 以增量更新加上簽章欄位，留空位給 CMS | `engine/signing.rs` | `documents.rs`（`a_prepared_copy_is_signed_in_its_room_and_nowhere_else`）；`signing.spec.ts` | `edit_document` |
+| `PrepareSignature` | 以增量更新加上簽章欄位，留空位給 CMS（可見簽章帶圖時驗證 PNG 並重解碼像素為 `/I` XObject） | `engine/signing.rs` | `documents.rs`（`a_prepared_copy_is_signed_in_its_room_and_nowhere_else`、`a_saved_signature_picture_is_decrypted_for_visible_and_refused_when_missing`）；`signing.spec.ts` | `edit_document` |
 | `PrepareSource` | 另一個 PDF（唯讀代號、可能的密碼）做成乾淨的副本 | `engine.rs` | worker `merge.rs` | `edit_document` |
 | `PrepareStampImage` | PNG 或 JPEG（≤ 16 MiB） | `engine/stamp_image.rs` | worker `stamp_image.rs`、`watermark.rs` | `stamp_image`（#428） |
 | `PrepareTextBox`、`PrepareTextBoxes` | 字型檔（≤ 64 MiB） | `engine/text_box.rs`、`engine/text_box/` | worker `text_box_worker.rs`、`fonts.rs` | `text_box_font` |

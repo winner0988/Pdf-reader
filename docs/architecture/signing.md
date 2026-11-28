@@ -57,7 +57,7 @@ sequenceDiagram
 1. 對話框一開啟就呼叫 `check_signing`，不能簽的文件在問使用者任何事之前就說明原因（見下方「拒絕的文件」）。
 2. 對話框同時呼叫 `list_signing_certificates`，列出這台電腦的憑證；有可以簽署的，就預設用這台電腦的憑證，否則預設用憑證檔。
 3. 選憑證檔時，`choose_signing_file`：主行程顯示開啟對話框，讀進憑證檔的位元組，回給頁面一個號碼與檔名，**沒有路徑**。
-4. `sign_document` 的參數是 `SignArgs`（見 [ipc-contract.md](ipc-contract.md)）：文件代號、`key`（憑證檔的號碼與密碼，或這台電腦的憑證的號碼）、位置（頁碼與角落，或 `null`）、原因與這台電腦的時區。主行程先取得憑證與私鑰，密碼不對或憑證不能用時，在另存對話框出現**之前**就說，什麼都沒寫。
+4. `sign_document` 的參數是 `SignArgs`（見 [ipc-contract.md](ipc-contract.md)）：文件代號、`key`（憑證檔的號碼與密碼，或這台電腦的憑證的號碼）、位置（頁碼與角落及選用的已存簽名圖片代號 `signatureImage`，或 `null`）、原因與這台電腦的時區。若有選簽名圖片，主行程會在問憑證與開啟另存對話框前先確認可解密，已刪除或讀不到時回報 `signatureImageUnavailable`（不寫任何檔案）；接著取得憑證與私鑰，密碼不對或憑證不能用時，也在另存對話框出現**之前**就說，什麼都沒寫。
 5. 主行程顯示另存對話框。不能選文件自己的檔案：以訊息方塊說明（`SIGNED_COPY_SAME_FILE_MESSAGE`）後再問一次。
 6. 文件自己的 worker 準備副本（`PrepareSignature`），主行程簽署並填入簽章，**另一個新的 worker** 驗證副本，有效才取代目的檔，副本在新分頁開啟。任何一步失敗都只留下原本的目的檔（如果有的話），暫存檔刪除。
 
@@ -73,13 +73,14 @@ sequenceDiagram
 - 加上一個簽章欄位：
   - **簽章字典**：`/Type /Sig`、`/Filter /Adobe.PPKLite`、`/SubFilter /adbe.pkcs7.detached`、`/Name`（簽署者，UTF-16）、`/M`（簽署時間，帶時區）、`/Reason`（有填才有）、`/ByteRange`，以及 `/Contents`：32 KiB 的十六進位 0（`SIGNATURE_RESERVE_BYTES`）。
   - **Widget**：`/FT /Sig`；名稱是 `SignatureN`，N 是還沒用過的最小數字；`/F 132`（列印、鎖定）。放進頁面的 `/Annots` 與 AcroForm 的 `/Fields`，`/SigFlags` 設為 3。
-  - **看得見的簽章**：頁面角落一個 216 × 54 pt 的方框，離邊 36 pt，依頁面的旋轉放在使用者看到的那個角落；字是 9 pt 的內建 Droid Sans Fallback，內容由主行程給（`strings::signature_lines`：「數位簽署：…」「日期：…（UTC+08:00）」「原因：…」）。**看不見的簽章**在第一頁，沒有面積。
+  - **看得見的簽章**：純文字時在頁面角落畫一個 216 × 54 pt 的方框（若附已存簽名圖片則擴大為 252 × 72 pt，圖片等比例置左、文字在右；若頁面可用寬度 `< 180` pt 則改為圖片在上、文字在下，高度上限 108 pt，均限制在頁面 0.9 倍以內），離邊 36 pt，依頁面的旋轉放在使用者看到的那個角落；字是 9 pt 的內建 Droid Sans Fallback，內容由主行程給（`strings::signature_lines`：「數位簽署：…」「日期：…（UTC+08:00）」「原因：…」）。帶圖時 worker 會先以 `stamp_png_size` 與 `png_is_whole` 檢查 PNG，再經 `Image::from_bytes` → `to_pixmap` → `Image::from_pixmap` 僅保留像素建立 `/I` 圖片 XObject，清除 EXIF/tEXt 等中繼資料。**看不見的簽章**在第一頁，沒有面積且不帶圖片。
 - 以**增量更新**寫出：原本的位元組在前，一個都不變。再填入 `/ByteRange` `[0 a b c]`：`/Contents` 的 `<…>` 以外的每一個位元組；回報 `/Contents` 的位置（`contents_start`、`contents_end`）。
 - 逾時 5 分鐘（`SAVE_TIMEOUT`），handle 與 `Save` 一樣只能寫入，worker 看不到路徑。
 
 ### 主行程（`src-tauri/src/signing.rs`、`documents.rs`）
 
 - 檢查 worker 回報的位置在檔案裡，而且那裡正好是 `<`、偶數個十六進位 0、`>`（`is_room`），才把前後兩段位元組交給 Windows 簽（`CryptMsgOpenToEncode`，`CMSG_DETACHED_FLAG`）。簽章放不進空間時是 `signatureTooLarge`，不寫。
+- 若可見簽章有選已存簽名圖片，由主行程在送出 `PrepareSignature` 前一刻才以 `SignatureImages::get_png_zeroizing` 解密進 `Zeroizing<Vec<u8>>`、透過既有加密外 IPC 傳給該文件 worker，不寫任何暫存 PNG、不進設定或 log；`VisibleSignature` 與 IPC 訊框都在丟棄或送出後以 zeroize 抹除明文位元組。若圖片已不存在或無法讀取，回 `signatureImageUnavailable` 並保留原狀。
 - 把簽章以大寫十六進位寫進空間（`fill_room`），其他位元組不動。
 - 簽署時**不鎖住文件**：worker 準備好副本後就放開文件，再簽署。卡片的 PIN 可能要使用者想一下，這段時間分頁照常使用。
 - **另一個新的 worker** 開啟副本，用 B2-14 的驗證檢查它：要有一個簽章是 `Valid` 才算數。`Valid` 只給涵蓋整個檔案的簽章，所以這一個一定是剛加上的。否則是 `signatureNotValid`，暫存檔刪除。
@@ -127,7 +128,7 @@ sequenceDiagram
 
 ## 錯誤碼
 
-新增 7 個 `ErrorCode`，文字見 [screen-map.md](../ux/screen-map.md)「簽署文件（B3-06）」。使用者關閉了詢問 PIN 的視窗時是既有的 `cancelled`，不顯示訊息。
+簽署流程會回報下列 8 個 `ErrorCode`，文字見 [screen-map.md](../ux/screen-map.md)「簽署文件（B3-06）」。使用者關閉了詢問 PIN 的視窗時是既有的 `cancelled`，不顯示訊息。
 
 | ErrorCode | 何時 |
 |---|---|
@@ -137,39 +138,43 @@ sequenceDiagram
 | `signatureTooLarge` | 簽章比預留的 32 KiB 大（憑證鏈很長時） |
 | `signatureNotValid` | 簽好的副本沒有通過新 worker 的驗證 |
 | `certificateUnavailable` | 這台電腦的憑證已不在存放區，或私鑰拿不到（卡片拔出、沒有讀卡機） |
+| `signatureImageUnavailable` | 所選的已存簽名圖片已被刪除或無法讀取（#744） |
 
 ## 測試
 
 - **worker**（`engine/signing.rs` 的單元測試）：
   - 版面與 `/ByteRange`：涵蓋 `/Contents` 以外的每一個位元組，原本的位元組在前、不變；
   - 看不見的簽章什麼都不畫；看得見的方框在四個角，包含旋轉的頁面；
+  - 帶簽名圖片的可見簽章（#744）：四個角與旋轉頁面上圖片保持正立在左、文字在右；窄頁自動改為圖片在上、文字在下；EXIF／`tEXt`／`/Metadata` 與路徑資訊完全不寫入簽署副本；非 PNG、過大或截斷的圖片在寫出 0 位元組前拒絕；
   - 第二個簽章叫 `Signature2`；
   - 加密、DocMDP `/P 1`、修復過的檔案被拒絕，而且沒有寫出任何東西；
   - 日期的時區寫法。
 - **主行程**（`signing.rs`、`documents.rs`）：
   - 時區換算、填入與檢查空間、只認最後選的憑證檔與最後列出的號碼；
   - 到期日的寫法；PIN 沒給（`cancelled`）、卡片拔出（`certificateUnavailable`）與其他失敗分得開；
+  - 已存簽名圖片解密傳遞與刪除後事前拒絕（`signatureImageUnavailable`），以及不寫入路徑或 EXIF 到副本；
   - 準備好的副本只在空間裡被簽，其他位元組不動；
   - 不能簽的文件在問使用者任何事之前就說。
 - **只在 CI 上做**：這些測試要讓 Windows 載入測試憑證，`PDF_READER_TEST_SIGNING=1` 才在本機做。
   - 簽兩段位元組，以 `CryptVerifyDetachedMessageSignature` 驗證；改一個位元組就不成立；
   - 使用者的金鑰資料夾沒有變化；
   - 密碼不對與不是憑證都是 `Unreadable`；過期的與只能加密的憑證被拒絕；
-  - 簽好的副本通過 worker 的驗證，改一個位元組就不成立；
+  - 簽好的副本（含純文字與帶簽名圖片）通過新 worker 的驗證，改一個位元組就不成立，且不留下任何暫存圖片檔；
   - 放進「個人」存放區的測試憑證（CNG 與舊式 CSP 的私鑰各一次）：列得出來、可以簽、簽章成立；過期的與只能加密的列出來並說明原因、被拒絕；移除後是 `Unavailable`；使用者的金鑰資料夾在全部移除後與開始前一樣。
-- **契約**（`validate.rs`）：`SignArgs` 的密碼、原因與時區；這台電腦的憑證只用號碼，帶密碼、PIN 或其他欄位都被拒絕；`SignaturePrepared` 的空間大小與位置。
+- **契約**（`validate.rs`、`worker.rs`）：`SignArgs` 的密碼、原因、時區與 `place.signatureImage`（不允許帶於 `place: null`）；這台電腦的憑證只用號碼，帶密碼、PIN 或其他欄位都被拒絕；`SignaturePrepared` 的空間大小與位置；`VisibleSignature` 帶圖往返與 `Debug` 遮罩圖片位元組。
 - **畫面**（`src/features/signing/Signing.test.tsx`）：
-  - 送出的參數、原因的長度、錯誤的說明；
+  - 送出的參數、原因的長度、錯誤的說明（含 `signatureImageUnavailable`）；
   - 選單與各種拒絕、簽署成功、換角落、看不見的簽章；
+  - 簽名圖片與文字選項：列出與預覽已存簽名、無圖片時開啟建立對話框並自動選取、選「不顯示在頁面上」時停用圖片選項與不送出圖片、鍵盤操作與焦點保留；
   - 失敗時清空密碼、關閉另存對話框後可以再試、每次開啟都重新開始；
   - 這台電腦的憑證：預設選第一張可以簽署的、不要密碼、只送號碼；不能用的憑證停用並說明原因；沒有可以簽署的憑證時改用憑證檔；重新整理；PIN 沒給時不說話，卡片拔出時說明；讀取失敗時可以再試；
-  - `AccessibilityComponents.test.tsx` 的 axe 檢查。
+  - `AccessibilityComponents.test.tsx` 的 axe 檢查（含展開簽名圖片選項的 `SignDialog`）。
 - **真的 app**（`tests/e2e/signing.spec.ts`）：
   - 有未儲存變更的文件說明原因、已加密的文件停用選單；
   - **只在 CI 上做**：以 PowerShell 把 `signer.pfx` 放進「個人」存放區，在對話框選這張憑證、不用密碼簽署，副本在新分頁開啟、簽章有效；結束時連同私鑰移除；
-  - **只在 CI 上做**（`E2E_SIGNING=1` 才在本機做）：用 `tests/corpus/certificates/signer.pfx` 簽署，副本在新分頁開啟、簽章有效但無法確認簽署者，原檔的雜湊不變、副本以原檔的位元組開頭，檔案與頁面裡都沒有密碼；密碼不對與過期的憑證各說一句，沒有寫出檔案。
+  - **只在 CI 上做**（`E2E_SIGNING=1` 才在本機做）：用 `tests/corpus/certificates/signer.pfx` 簽署（含純文字與在簽署對話框手繪建立並套用簽名圖片），副本在新分頁開啟、簽章有效但無法確認簽署者，原檔的雜湊不變、副本以原檔的位元組開頭，檔案與頁面裡都沒有密碼；密碼不對與過期的憑證各說一句，沒有寫出檔案。
 - **手動，由負責人做**：
-  - 以 Adobe Acrobat Reader 開啟簽好的副本，確認簽章有效、只是不信任簽署者（ADR 0020 POC 第 2 項）；
+  - 以 Adobe Acrobat Reader 開啟簽好的副本（含純文字與帶簽名圖片），確認簽章有效、看到圖片與文字且只是不信任簽署者（ADR 0020 POC 第 2 項）；
   - **智慧卡**：插入自然人憑證（或其他卡片），在對話框的「這台電腦的憑證」選它，PIN 由卡片的程式詢問，簽好的副本簽章有效；拔出卡片後再簽，說明找不到憑證或私鑰；在 PIN 視窗按取消，對話框不顯示錯誤。
 
 測試用的憑證在 `tests/corpus/certificates/`，見 [tests/corpus/README.md](../../tests/corpus/README.md)「測試用的簽章金鑰」。

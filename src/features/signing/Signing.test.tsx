@@ -5,13 +5,20 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import type { SignaturesApi } from "@/features/annotations/signaturesApi";
 import { demoDocument } from "@/features/shell/demo";
 import type { ShellState } from "@/features/shell/model";
 import { ReaderShell } from "@/features/shell/ReaderShell";
 import type { SigningApi } from "@/features/signing/api";
 import { argsOf, dateOf, DEFAULT_FORM, failure, reasonFits, usable } from "@/features/signing/signing";
 import { strings } from "@/i18n";
-import { LIMITS, type SignCheck, type SignResult, type StoreCertificate } from "@/ipc/generated/contract";
+import {
+  LIMITS,
+  type SignCheck,
+  type SignatureImage,
+  type SignResult,
+  type StoreCertificate,
+} from "@/ipc/generated/contract";
 
 const t = strings.signing;
 const PASSWORD = "correct horse";
@@ -42,10 +49,32 @@ function fakeApi(check: SignCheck = "ready", sign?: SigningApi["sign"], listed: 
   } satisfies SigningApi;
 }
 
-function renderShell(api?: SigningApi, encrypted = false) {
+function fakeSignaturesApi(initial: SignatureImage[] = []) {
+  let list = [...initial];
+  let nextId = (initial.reduce((max, sig) => Math.max(max, sig.id), 0) || 0) + 1;
+  return {
+    getSignatureImages: vi.fn<SignaturesApi["getSignatureImages"]>(() => Promise.resolve(list)),
+    getSignatureImagePng: vi.fn<SignaturesApi["getSignatureImagePng"]>(() => Promise.resolve([137, 80, 78, 71])),
+    addSignatureImage: vi.fn<SignaturesApi["addSignatureImage"]>(() => {
+      list = [...list, { id: nextId++, width: 120, height: 60 }];
+      return Promise.resolve(list);
+    }),
+    importSignatureImage: vi.fn<SignaturesApi["importSignatureImage"]>(() => {
+      list = [...list, { id: nextId++, width: 160, height: 80 }];
+      return Promise.resolve(list);
+    }),
+    removeSignatureImage: vi.fn<SignaturesApi["removeSignatureImage"]>(() => Promise.resolve(list)),
+    removeAllSignatureImages: vi.fn<SignaturesApi["removeAllSignatureImages"]>(() => Promise.resolve([])),
+    prepareSignatureStamp: vi.fn<SignaturesApi["prepareSignatureStamp"]>(() =>
+      Promise.resolve({ image: 1, width: 120, height: 60 }),
+    ),
+  } satisfies SignaturesApi;
+}
+
+function renderShell(api?: SigningApi, encrypted = false, signaturesApi?: SignaturesApi) {
   const state: ShellState = { kind: "open", document: { ...demoDocument, doc: 5, encrypted } };
   const user = userEvent.setup();
-  render(<ReaderShell state={state} onOpen={vi.fn()} loadingDelayMs={0} signingApi={api} />);
+  render(<ReaderShell state={state} onOpen={vi.fn()} loadingDelayMs={0} signingApi={api} signaturesApi={signaturesApi} />);
   return { user };
 }
 
@@ -84,14 +113,35 @@ describe("what is sent to sign (B3-06)", () => {
       reason: null,
       utcOffsetMinutes: -now.getTimezoneOffset(),
     });
-    expect(argsOf(5, file, { corner: null, reason: "  同意  " }, 2, now)).toMatchObject({
+    expect(
+      argsOf(5, file, { corner: null, reason: "  同意  ", withPicture: true, signatureImage: 3 }, 2, now),
+    ).toMatchObject({
       place: null,
       reason: "同意",
     });
-    expect(argsOf(5, { kind: "store", certificate: 7 }, { corner: "topLeft", reason: "   " }, 1, now)).toMatchObject({
+    expect(
+      argsOf(
+        5,
+        { kind: "store", certificate: 7 },
+        { corner: "topLeft", reason: "   ", withPicture: false, signatureImage: null },
+        1,
+        now,
+      ),
+    ).toMatchObject({
       key: { kind: "store", certificate: 7 },
       place: { pageIndex: 0, corner: "topLeft" },
       reason: null,
+    });
+    expect(
+      argsOf(
+        5,
+        file,
+        { corner: "bottomLeft", reason: "", withPicture: true, signatureImage: 4 },
+        1,
+        now,
+      ),
+    ).toMatchObject({
+      place: { pageIndex: 0, corner: "bottomLeft", signatureImage: 4 },
     });
   });
 
@@ -115,6 +165,7 @@ describe("what is sent to sign (B3-06)", () => {
     expect(failure("certificateNotForSigning")).toBe(strings.error.messages.certificateNotForSigning);
     expect(failure("signatureNotValid")).toBe(strings.error.messages.signatureNotValid);
     expect(failure("certificateUnavailable")).toBe(strings.error.messages.certificateUnavailable);
+    expect(failure("signatureImageUnavailable")).toBe(strings.error.messages.signatureImageUnavailable);
     expect(failure("notAllowed")).toBe(t.certified);
     expect(failure("workerCrashed")).toBe(t.failed);
     // The user closed the window that asked for the PIN: nothing to say.
@@ -335,5 +386,127 @@ describe("signing with a certificate of this computer (B3-06)", () => {
     expect(within(dialog).getByRole("alert")).toHaveTextContent(t.listFailed);
     await user.click(within(dialog).getByRole("button", { name: t.refresh }));
     expect(await within(dialog).findByText(t.noCertificates)).toBeInTheDocument();
+  });
+});
+
+describe("visible signature with saved picture (#744)", () => {
+  it("lists saved signature pictures with thumbnails and sends the selected id", async () => {
+    const api = fakeApi("ready", undefined, [CARD]);
+    const sigApi = fakeSignaturesApi([
+      { id: 7, width: 120, height: 60 },
+      { id: 9, width: 140, height: 60 },
+    ]);
+    const { user } = renderShell(api, false, sigApi);
+    const dialog = await openDialog(user);
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: t.start })).toBeEnabled());
+
+    const checkbox = within(dialog).getByRole("checkbox", { name: t.usePicture });
+    expect(checkbox).not.toBeChecked();
+    await user.click(checkbox);
+
+    const first = await within(dialog).findByRole("radio", { name: t.pictureItemLabel(0) });
+    const second = within(dialog).getByRole("radio", { name: t.pictureItemLabel(1) });
+    expect(first).toBeChecked();
+    await waitFor(() => expect(sigApi.getSignatureImagePng).toHaveBeenCalledWith(7));
+    expect(sigApi.getSignatureImagePng).toHaveBeenCalledWith(9);
+
+    await user.click(second);
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+
+    expect(sent(api).place).toEqual({
+      pageIndex: 0,
+      corner: "bottomRight",
+      signatureImage: 9,
+    });
+  });
+
+  it("opens the #587 creation dialog when none exist, auto-selects the created signature, and enables signing", async () => {
+    const api = fakeApi("ready", undefined, [CARD]);
+    const sigApi = fakeSignaturesApi([]);
+    const { user } = renderShell(api, false, sigApi);
+    const dialog = await openDialog(user);
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: t.start })).toBeEnabled());
+
+    const checkbox = within(dialog).getByRole("checkbox", { name: t.usePicture });
+    await user.click(checkbox);
+    expect(await within(dialog).findByText(t.noPictures)).toBeInTheDocument();
+    const start = within(dialog).getByRole("button", { name: t.start });
+    expect(start).toBeDisabled();
+
+    await user.click(within(dialog).getByRole("button", { name: t.createPicture }));
+    const createDialog = await screen.findByRole("dialog", { name: t.createPictureTitle });
+    await user.click(within(createDialog).getByRole("button", { name: strings.savedSignatures.importTab }));
+    await user.click(within(createDialog).getByRole("button", { name: strings.savedSignatures.importButton }));
+
+    await waitFor(() => expect(sigApi.importSignatureImage).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: t.createPictureTitle })).toBeNull());
+
+    const created = await within(dialog).findByRole("radio", { name: t.pictureItemLabel(0) });
+    expect(created).toBeChecked();
+    expect(created).toHaveFocus();
+    await waitFor(() => expect(start).toBeEnabled());
+
+    await user.click(start);
+    expect(sent(api).place).toEqual({
+      pageIndex: 0,
+      corner: "bottomRight",
+      signatureImage: 1,
+    });
+  });
+
+  it("disables picture controls and omits signatureImage when invisible is selected", async () => {
+    const api = fakeApi("ready", undefined, [CARD]);
+    const sigApi = fakeSignaturesApi([{ id: 7, width: 120, height: 60 }]);
+    const { user } = renderShell(api, false, sigApi);
+    const dialog = await openDialog(user);
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: t.start })).toBeEnabled());
+
+    const checkbox = within(dialog).getByRole("checkbox", { name: t.usePicture });
+    await user.click(checkbox);
+    const first = await within(dialog).findByRole("radio", { name: t.pictureItemLabel(0) });
+    expect(first).toBeEnabled();
+
+    await user.click(within(dialog).getByRole("radio", { name: t.invisible }));
+    expect(checkbox).toBeDisabled();
+    expect(first).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: t.start })).toBeEnabled();
+
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+    expect(sent(api).place).toBeNull();
+  });
+
+  it("supports keyboard toggling, selection, and error display for unavailable picture", async () => {
+    const api = fakeApi("ready", () => Promise.reject({ code: "signatureImageUnavailable", message: "" }), [CARD]);
+    const sigApi = fakeSignaturesApi([
+      { id: 3, width: 120, height: 60 },
+      { id: 4, width: 120, height: 60 },
+    ]);
+    const { user } = renderShell(api, false, sigApi);
+    const dialog = await openDialog(user);
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: t.start })).toBeEnabled());
+
+    const checkbox = within(dialog).getByRole("checkbox", { name: t.usePicture });
+    checkbox.focus();
+    await user.keyboard(" ");
+    expect(checkbox).toBeChecked();
+
+    const first = await within(dialog).findByRole("radio", { name: t.pictureItemLabel(0) });
+    const second = within(dialog).getByRole("radio", { name: t.pictureItemLabel(1) });
+    first.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(second).toBeChecked();
+
+    // Opening and cancelling the #587 creator keeps SignDialog open and restores focus.
+    const addButton = within(dialog).getByRole("button", { name: t.addPicture });
+    await user.click(addButton);
+    const createDialog = await screen.findByRole("dialog", { name: t.createPictureTitle });
+    await user.click(within(createDialog).getByRole("button", { name: t.createPictureCancel }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: t.createPictureTitle })).toBeNull());
+    expect(addButton).toHaveFocus();
+
+    await user.click(within(dialog).getByRole("button", { name: t.start }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      strings.error.messages.signatureImageUnavailable,
+    );
   });
 });

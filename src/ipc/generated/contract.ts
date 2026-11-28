@@ -1258,9 +1258,13 @@ export type PageCorner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 
 /**
  * Where a visible signature goes (B3-06): a box with the signer, the date and the reason, in a
- * corner of a page.
+ * corner of a page, with an optional saved signature picture (B7-09).
  */
-export type SignaturePlace = { pageIndex: number, corner: PageCorner, };
+export type SignaturePlace = { pageIndex: number, corner: PageCorner, 
+/**
+ * Optional saved signature image (B6-02, #744); allowed only for visible signatures.
+ */
+signatureImage?: SignatureImageId, };
 
 /**
  * The certificate file chosen for signing (B3-06, ADR 0020): its number and its name, for
@@ -1710,7 +1714,7 @@ edges: Array<number>, };
 /**
  * Error codes the frontend maps to localized messages.
  */
-export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "signed" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "credentialsUnavailable" | "pictureNotCleaned" | "batesOverflow" | "noPageToMark" | "certificateUnreadable" | "certificateExpired" | "certificateNotYetValid" | "certificateNotForSigning" | "signatureTooLarge" | "signatureNotValid" | "certificateUnavailable" | "speechNoVoices" | "speechNoAudioDevice" | "speechUnknownVoice" | "speechFailed" | "internal";
+export type ErrorCode = "unknownDocument" | "invalidArgument" | "cancelled" | "notPdf" | "corrupted" | "encrypted" | "unsupportedEncryption" | "notAllowed" | "unreadable" | "tooLarge" | "limitExceeded" | "workerCrashed" | "workerTimeout" | "protocolViolation" | "readOnly" | "diskFull" | "fileInUse" | "changedOnDisk" | "unwritable" | "signed" | "fontUnavailable" | "fontInvalid" | "fontNotTrueType" | "fontVariable" | "fontColour" | "fontNotEmbeddable" | "fontMissingGlyphs" | "textNotSupported" | "networkFailed" | "credentialsUnavailable" | "pictureNotCleaned" | "batesOverflow" | "noPageToMark" | "certificateUnreadable" | "certificateExpired" | "certificateNotYetValid" | "certificateNotForSigning" | "signatureTooLarge" | "signatureNotValid" | "certificateUnavailable" | "signatureImageUnavailable" | "speechNoVoices" | "speechNoAudioDevice" | "speechUnknownVoice" | "speechFailed" | "internal";
 
 /**
  * Rejection value of every command. `message` is for logs and must not contain paths or
