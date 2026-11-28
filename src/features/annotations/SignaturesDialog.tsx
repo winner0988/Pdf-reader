@@ -10,9 +10,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { SignaturePad } from "@/features/annotations/SignaturePad";
-import { calculateTypedFontSize, findCropBounds } from "@/features/annotations/signatureImage";
+import { SignatureCreator } from "@/features/annotations/SignatureCreator";
 import type { SignaturesApi } from "@/features/annotations/signaturesApi";
+import { useSignaturePreviews } from "@/features/annotations/useSignaturePreviews";
 import { strings } from "@/i18n";
 import {
   type DocumentId,
@@ -32,8 +32,6 @@ export type SignaturesDialogProps = {
   toPngBytes?: (canvas: HTMLCanvasElement) => Promise<number[]>;
 };
 
-const TYPED_FONT_FAMILY = '"Segoe Script", "Segoe Print", "Ink Free", cursive';
-
 export function SignaturesDialog({
   open,
   onOpenChange,
@@ -48,13 +46,11 @@ export function SignaturesDialog({
   const descId = useId();
 
   const [signatures, setSignatures] = useState<SignatureImage[] | null>(null);
-  const [previews, setPreviews] = useState<Record<SignatureImageId, string>>({});
-  const [mode, setMode] = useState<"draw" | "type" | "import">("draw");
-  const [typedName, setTypedName] = useState("");
   const [busy, setBusy] = useState(false);
   const [deletingId, setDeletingId] = useState<SignatureImageId | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const previews = useSignaturePreviews(open, signatures, api.getSignatureImagePng);
 
   // Load signatures on open
   const loadSignatures = useCallback(() => {
@@ -71,41 +67,6 @@ export function SignaturesDialog({
   useEffect(() => {
     loadSignatures();
   }, [loadSignatures]);
-
-  // Load preview blob URLs for each signature
-  useEffect(() => {
-    if (!open || !signatures) return;
-    let active = true;
-    const urlsToRevoke: string[] = [];
-
-    const loadPreviews = async () => {
-      const nextPreviews: Record<SignatureImageId, string> = {};
-      for (const sig of signatures) {
-        try {
-          const pngBytes = await api.getSignatureImagePng(sig.id);
-          if (!active) return;
-          const blob = new Blob([new Uint8Array(pngBytes)], { type: "image/png" });
-          const url = URL.createObjectURL(blob);
-          urlsToRevoke.push(url);
-          nextPreviews[sig.id] = url;
-        } catch {
-          // ignore failed single preview
-        }
-      }
-      if (active) {
-        setPreviews(nextPreviews);
-      }
-    };
-
-    void loadPreviews();
-
-    return () => {
-      active = false;
-      for (const url of urlsToRevoke) {
-        URL.revokeObjectURL(url);
-      }
-    };
-  }, [api, open, signatures]);
 
   const maxReached = (signatures?.length ?? 0) >= LIMITS.maxSignatureImages;
 
@@ -136,116 +97,6 @@ export function SignaturesDialog({
       setDeletingId(null);
     } catch {
       setErrorMsg(t.deleteFailed);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Save drawn signature
-  const handleSaveDrawn = async (png: number[]) => {
-    setBusy(true);
-    setNotice(null);
-    try {
-      const updated = await api.addSignatureImage(png);
-      setSignatures(updated);
-    } catch {
-      setErrorMsg(t.failed);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Save typed signature
-  const handleSaveTyped = async () => {
-    const trimmed = typedName.trim();
-    if (!trimmed || maxReached || busy) return;
-
-    setBusy(true);
-    setNotice(null);
-    try {
-      const offscreen = document.createElement("canvas");
-      const ctx = offscreen.getContext("2d");
-      let pngBytes: number[];
-
-      if (ctx) {
-        const baseFontSize = 72;
-        ctx.font = `${baseFontSize}px ${TYPED_FONT_FAMILY}`;
-        const measured = ctx.measureText(trimmed).width;
-        const fontSize = calculateTypedFontSize(measured, baseFontSize, 1024);
-
-        offscreen.width = Math.max(100, Math.ceil(measured) + 48);
-        offscreen.height = Math.max(50, Math.ceil(fontSize * 1.6));
-
-        ctx.font = `${fontSize}px ${TYPED_FONT_FAMILY}`;
-        ctx.textBaseline = "middle";
-        ctx.fillStyle = "black";
-        ctx.fillText(trimmed, 24, offscreen.height / 2);
-
-        let bounds: { x: number; y: number; width: number; height: number } | null = null;
-        try {
-          const imageData = ctx.getImageData(0, 0, offscreen.width, offscreen.height);
-          bounds = findCropBounds(imageData.data, offscreen.width, offscreen.height, 12);
-        } catch {
-          bounds = { x: 0, y: 0, width: offscreen.width, height: offscreen.height };
-        }
-
-        const cropCanvas = document.createElement("canvas");
-        if (bounds) {
-          cropCanvas.width = bounds.width;
-          cropCanvas.height = bounds.height;
-          const cropCtx = cropCanvas.getContext("2d");
-          if (cropCtx) {
-            cropCtx.drawImage(
-              offscreen,
-              bounds.x,
-              bounds.y,
-              bounds.width,
-              bounds.height,
-              0,
-              0,
-              bounds.width,
-              bounds.height,
-            );
-          }
-        }
-
-        if (toPngBytes) {
-          pngBytes = await toPngBytes(cropCanvas);
-        } else {
-          pngBytes = await new Promise((resolve, reject) => {
-            cropCanvas.toBlob(async (blob) => {
-              if (!blob) return reject(new Error("No PNG"));
-              resolve(Array.from(new Uint8Array(await blob.arrayBuffer())));
-            }, "image/png");
-          });
-        }
-      } else {
-        // Fallback for mocked environment without 2d canvas
-        pngBytes = [137, 80, 78, 71, 13, 10, 26, 10];
-      }
-
-      const updated = await api.addSignatureImage(pngBytes);
-      setSignatures(updated);
-      setTypedName("");
-    } catch {
-      setErrorMsg(t.failed);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Import picture
-  const handleImport = async () => {
-    if (maxReached || busy) return;
-    setBusy(true);
-    setNotice(null);
-    try {
-      const result = await api.importSignatureImage();
-      if (result) {
-        setSignatures(result);
-      }
-    } catch {
-      setErrorMsg(t.failed);
     } finally {
       setBusy(false);
     }
@@ -355,88 +206,20 @@ export function SignaturesDialog({
         )}
 
         {/* Add new signature tabs */}
-        <div className="border-t pt-3 space-y-3">
-          <div className="flex gap-2 border-b pb-2">
-            <Button
-              variant={mode === "draw" ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setMode("draw")}
-            >
-              {t.drawTab}
-            </Button>
-            <Button
-              variant={mode === "type" ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setMode("type")}
-            >
-              {t.typeTab}
-            </Button>
-            <Button
-              variant={mode === "import" ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setMode("import")}
-            >
-              {t.importTab}
-            </Button>
-          </div>
-
-          {mode === "draw" && (
-            <SignaturePad
-              onSave={handleSaveDrawn}
-              saving={busy}
-              disabled={maxReached || busy}
-              toPngBytes={toPngBytes}
-            />
-          )}
-
-          {mode === "type" && (
-            <div className="flex flex-col gap-3">
-              <input
-                type="text"
-                maxLength={64}
-                value={typedName}
-                onChange={(e) => setTypedName(e.target.value)}
-                placeholder={t.typePlaceholder}
-                disabled={maxReached || busy}
-                className="w-full rounded border px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              />
-              <div className="flex h-24 w-full items-center justify-center rounded border bg-white p-2 overflow-hidden shadow-inner">
-                {typedName ? (
-                  <span
-                    style={{ fontFamily: TYPED_FONT_FAMILY }}
-                    className="text-3xl text-black truncate"
-                  >
-                    {typedName}
-                  </span>
-                ) : (
-                  <span className="text-xs text-muted-foreground">{t.typeHint}</span>
-                )}
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  size="sm"
-                  onClick={handleSaveTyped}
-                  disabled={!typedName.trim() || maxReached || busy}
-                >
-                  {busy ? t.saving : t.saveTyped}
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {mode === "import" && (
-            <div className="flex flex-col items-center justify-center gap-3 rounded border border-dashed p-6 text-center">
-              <p className="text-xs text-muted-foreground">{t.importHint}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleImport}
-                disabled={maxReached || busy}
-              >
-                {t.importButton}
-              </Button>
-            </div>
-          )}
+        <div className="border-t pt-3">
+          <SignatureCreator
+            api={api}
+            disabled={maxReached}
+            busy={busy}
+            onBusyChange={setBusy}
+            onBeforeAction={() => {
+              setNotice(null);
+              setErrorMsg(null);
+            }}
+            onCreated={setSignatures}
+            onError={setErrorMsg}
+            toPngBytes={toPngBytes}
+          />
         </div>
       </DialogContent>
     </Dialog>

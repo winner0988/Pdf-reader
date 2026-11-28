@@ -2145,12 +2145,16 @@ pub enum PageCorner {
 }
 
 /// Where a visible signature goes (B3-06): a box with the signer, the date and the reason, in a
-/// corner of a page.
+/// corner of a page, with an optional saved signature picture (B7-09).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SignaturePlace {
     pub page_index: u32,
     pub corner: PageCorner,
+    /// Optional saved signature image (B6-02, #744); allowed only for visible signatures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub signature_image: Option<SignatureImageId>,
 }
 
 /// The certificate file chosen for signing (B3-06, ADR 0020): its number and its name, for
@@ -2829,6 +2833,9 @@ pub enum ErrorCode {
     /// Signing: the certificate of the store chosen is no longer there, or its key cannot be
     /// reached (its smart card was taken out).
     CertificateUnavailable,
+    /// Signing: the saved signature image chosen for the appearance is no longer available or
+    /// cannot be read (#744).
+    SignatureImageUnavailable,
     /// Read aloud (B6-14, #599): no offline speech voices are installed on Windows.
     SpeechNoVoices,
     /// Read aloud: no audio playback device is available.

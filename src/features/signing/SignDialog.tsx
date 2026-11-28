@@ -5,7 +5,7 @@
 // tab of its own; the dialog says so, or why it did not work. A card's PIN is asked for by Windows
 // or the card, never here.
 
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +16,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SignatureCreator } from "@/features/annotations/SignatureCreator";
+import type { SignaturesApi } from "@/features/annotations/signaturesApi";
+import { useSignaturePreviews } from "@/features/annotations/useSignaturePreviews";
 import type { SigningApi } from "@/features/signing/api";
 import {
   argsOf,
@@ -31,13 +34,15 @@ import {
 } from "@/features/signing/signing";
 import { errorCodeOf } from "@/features/viewer/renderer";
 import { strings } from "@/i18n";
-import type {
-  DocumentId,
-  SignCheck,
-  SigningFile,
-  SigningKey,
-  SignResult,
-  StoreCertificate,
+import {
+  LIMITS,
+  type DocumentId,
+  type SignCheck,
+  type SignatureImage,
+  type SigningFile,
+  type SigningKey,
+  type SignResult,
+  type StoreCertificate,
 } from "@/ipc/generated/contract";
 
 const t = strings.signing;
@@ -49,6 +54,8 @@ type SignDialogProps = {
   /** The page shown, 1-based: a visible signature goes on it. */
   page: number;
   api: SigningApi;
+  /** Saved #587 signatures API used when showing a signature picture alongside text (#744). */
+  signaturesApi?: SignaturesApi;
 };
 
 /** What the dialog knows of the document: being checked, or whether it can be signed. */
@@ -57,10 +64,24 @@ type Checked = { kind: "checking" } | { kind: "failed" } | { kind: "checked"; ch
 /** What the dialog knows of this computer's certificates. */
 type Listed = { kind: "listing" } | { kind: "failed" } | { kind: "listed"; certificates: StoreCertificate[] };
 
-export function SignDialog({ open, onOpenChange, doc, page, api }: SignDialogProps) {
+/** Saved #587 signature images available to accompany the visible signature. */
+type SignaturesState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "failed" }
+  | { kind: "loaded"; items: SignatureImage[] };
+
+export function SignDialog({ open, onOpenChange, doc, page, api, signaturesApi }: SignDialogProps) {
   const [checked, setChecked] = useState<Checked>({ kind: "checking" });
   const [listed, setListed] = useState<Listed>({ kind: "listing" });
   const [lists, setLists] = useState(0);
+  const [signatures, setSignatures] = useState<SignaturesState>(() =>
+    signaturesApi ? { kind: "loading" } : { kind: "idle" },
+  );
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creatorBusy, setCreatorBusy] = useState(false);
+  const [creatorError, setCreatorError] = useState<string | null>(null);
+  const pendingFocusRef = useRef<"radio" | "action" | null>(null);
   // `null`: not chosen by the user, so this computer's certificates if one can sign.
   const [source, setSource] = useState<Source | null>(null);
   // `null`: not chosen by the user, so the first one that can sign.
@@ -71,11 +92,14 @@ export function SignDialog({ open, onOpenChange, doc, page, api }: SignDialogPro
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SignResult | null>(null);
+  const selectedRadioRef = useRef<HTMLInputElement | null>(null);
+  const pictureActionRef = useRef<HTMLButtonElement | null>(null);
   const ids = {
     password: useId(),
     reason: useId(),
     corner: useId(),
     appearance: useId(),
+    picture: useId(),
     source: useId(),
     certificate: useId(),
     error: useId(),
@@ -96,6 +120,10 @@ export function SignDialog({ open, onOpenChange, doc, page, api }: SignDialogPro
     setResult(null);
     setChecked({ kind: "checking" });
     setListed({ kind: "listing" });
+    setCreateOpen(false);
+    setCreatorBusy(false);
+    setCreatorError(null);
+    setSignatures(signaturesApi ? { kind: "loading" } : { kind: "idle" });
   }
   useEffect(() => {
     if (!open) return;
@@ -120,6 +148,44 @@ export function SignDialog({ open, onOpenChange, doc, page, api }: SignDialogPro
       current = false;
     };
   }, [open, api, lists]);
+  // Load saved signature images when the dialog opens with signature support.
+  useEffect(() => {
+    if (!open || !signaturesApi) return;
+    let current = true;
+    signaturesApi.getSignatureImages().then(
+      (items) => current && setSignatures({ kind: "loaded", items }),
+      () => current && setSignatures({ kind: "failed" }),
+    );
+    return () => {
+      current = false;
+    };
+  }, [open, signaturesApi]);
+
+  const signatureItems = signatures.kind === "loaded" ? signatures.items : [];
+  const chosenPicture =
+    signatureItems.find((item) => item.id === form.signatureImage)?.id ?? signatureItems[0]?.id ?? null;
+  const previews = useSignaturePreviews(
+    open && form.withPicture,
+    signatureItems,
+    signaturesApi?.getSignatureImagePng,
+  );
+
+  // Restore focus inside the signing dialog when the nested #587 creator closes.
+  useEffect(() => {
+    if (!open) {
+      pendingFocusRef.current = null;
+      return;
+    }
+    if (createOpen) return;
+    const target = pendingFocusRef.current;
+    if (target === null) return;
+    pendingFocusRef.current = null;
+    if (target === "radio") {
+      selectedRadioRef.current?.focus();
+    } else {
+      pictureActionRef.current?.focus();
+    }
+  }, [open, createOpen, chosenPicture]);
 
   const check = checked.kind === "checked" ? checked.check : null;
   const refusal = check === null ? null : (REFUSALS[check] ?? null);
@@ -132,12 +198,31 @@ export function SignDialog({ open, onOpenChange, doc, page, api }: SignDialogPro
   let key: SigningKey | null = null;
   if (from === "store" && chosen !== null) key = { kind: "store", certificate: chosen.certificate };
   if (from === "file" && file !== null && password !== "") key = { kind: "file", file: file.file, password };
-  const canSign = ready && key !== null && reasonOk && !running;
+  const needsPicture = form.corner !== null && form.withPicture;
+  const canSign = ready && key !== null && reasonOk && !running && (!needsPicture || chosenPicture !== null);
 
   const close = () => {
     // The field never keeps a password once the dialog is gone.
     setPassword("");
+    setCreateOpen(false);
     onOpenChange(false);
+  };
+
+  const closeCreator = () => {
+    if (creatorBusy) return;
+    setCreateOpen(false);
+    setCreatorError(null);
+    pendingFocusRef.current = "action";
+  };
+
+  const handleCreatedPicture = (updated: SignatureImage[]) => {
+    const previousIds = new Set(signatureItems.map((item) => item.id));
+    const createdId = updated.find((item) => !previousIds.has(item.id))?.id ?? updated.at(-1)?.id ?? null;
+    setSignatures({ kind: "loaded", items: updated });
+    setForm((now) => ({ ...now, withPicture: true, signatureImage: createdId }));
+    setCreatorError(null);
+    setCreateOpen(false);
+    pendingFocusRef.current = "radio";
   };
 
   const chooseSource = (next: Source) => {
@@ -169,7 +254,7 @@ export function SignDialog({ open, onOpenChange, doc, page, api }: SignDialogPro
     if (!canSign || key === null) return;
     setRunning(true);
     setError(null);
-    api.sign(argsOf(doc, key, form, page)).then(
+    api.sign(argsOf(doc, key, { ...form, signatureImage: chosenPicture }, page)).then(
       (done) => {
         setRunning(false);
         // Null: the user closed the system's save dialog; this one stays for another try.
@@ -188,7 +273,11 @@ export function SignDialog({ open, onOpenChange, doc, page, api }: SignDialogPro
   };
 
   return (
-    <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : !running && close())}>
+    <>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => (next ? onOpenChange(true) : !running && !createOpen && close())}
+      >
       <DialogContent className="max-h-[90vh] overflow-auto sm:max-w-lg">
         {result ? (
           <div className="grid gap-4">
@@ -380,6 +469,109 @@ export function SignDialog({ open, onOpenChange, doc, page, api }: SignDialogPro
                       </select>
                     </div>
                   )}
+                  <label className="flex items-center gap-2 pl-6">
+                    <input
+                      type="checkbox"
+                      checked={form.withPicture}
+                      disabled={running || !signaturesApi || form.corner === null}
+                      onChange={(event) => setForm((now) => ({ ...now, withPicture: event.target.checked }))}
+                    />
+                    {t.usePicture}
+                  </label>
+                  {form.withPicture && signaturesApi && (
+                    <div className="grid gap-2 py-1 pl-12">
+                      <p className="text-xs text-muted-foreground">{t.pictureHint}</p>
+                      {signatures.kind === "loading" && (
+                        <p role="status" className="text-xs text-muted-foreground">
+                          {t.loadingPictures}
+                        </p>
+                      )}
+                      {signatures.kind === "failed" && (
+                        <p role="alert" className="text-xs text-destructive">
+                          {strings.savedSignatures.loadFailed}
+                        </p>
+                      )}
+                      {signatures.kind === "loaded" && signatureItems.length === 0 && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-muted-foreground">{t.noPictures}</span>
+                          <Button
+                            ref={pictureActionRef}
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={running || form.corner === null}
+                            onClick={() => {
+                              setCreatorError(null);
+                              setCreateOpen(true);
+                            }}
+                          >
+                            {t.createPicture}
+                          </Button>
+                        </div>
+                      )}
+                      {signatureItems.length > 0 && (
+                        <div className="grid gap-2">
+                          <div
+                            role="radiogroup"
+                            aria-label={t.pictureChoiceLabel}
+                            className="flex flex-wrap gap-2"
+                          >
+                            {signatureItems.map((sig, index) => {
+                              const checked = chosenPicture === sig.id;
+                              const previewUrl = previews[sig.id];
+                              return (
+                                <label
+                                  key={sig.id}
+                                  className="flex cursor-pointer items-center gap-2 rounded border bg-card px-2 py-1.5 has-disabled:cursor-not-allowed has-disabled:opacity-50 has-checked:border-primary"
+                                >
+                                  <input
+                                    ref={checked ? selectedRadioRef : undefined}
+                                    type="radio"
+                                    name={ids.picture}
+                                    disabled={running || form.corner === null}
+                                    checked={checked}
+                                    aria-label={t.pictureItemLabel(index)}
+                                    onChange={() =>
+                                      setForm((now) => ({ ...now, signatureImage: sig.id }))
+                                    }
+                                  />
+                                  {previewUrl ? (
+                                    <img
+                                      src={previewUrl}
+                                      alt=""
+                                      aria-hidden="true"
+                                      className="h-7 max-w-24 object-contain"
+                                    />
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">
+                                      {t.pictureItemLabel(index)}
+                                    </span>
+                                  )}
+                                </label>
+                              );
+                            })}
+                          </div>
+                          {signatureItems.length < LIMITS.maxSignatureImages && (
+                            <div>
+                              <Button
+                                ref={pictureActionRef}
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={running || form.corner === null}
+                                onClick={() => {
+                                  setCreatorError(null);
+                                  setCreateOpen(true);
+                                }}
+                              >
+                                {t.addPicture}
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <label className="flex items-center gap-2">
                     <input
                       type="radio"
@@ -432,5 +624,35 @@ export function SignDialog({ open, onOpenChange, doc, page, api }: SignDialogPro
         )}
       </DialogContent>
     </Dialog>
+      {signaturesApi && (
+        <Dialog open={createOpen} onOpenChange={(next) => (next ? setCreateOpen(true) : closeCreator())}>
+          <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{t.createPictureTitle}</DialogTitle>
+              <DialogDescription>{t.createPictureDescription}</DialogDescription>
+            </DialogHeader>
+            {creatorError && (
+              <p role="alert" className="text-xs text-destructive">
+                {creatorError}
+              </p>
+            )}
+            <SignatureCreator
+              api={signaturesApi}
+              disabled={signatureItems.length >= LIMITS.maxSignatureImages}
+              busy={creatorBusy}
+              onBusyChange={setCreatorBusy}
+              onBeforeAction={() => setCreatorError(null)}
+              onCreated={handleCreatedPicture}
+              onError={setCreatorError}
+            />
+            <DialogFooter>
+              <Button type="button" variant="outline" disabled={creatorBusy} onClick={closeCreator}>
+                {t.createPictureCancel}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
   );
 }

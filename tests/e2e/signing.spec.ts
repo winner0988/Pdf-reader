@@ -202,6 +202,60 @@ test.describe("signing a document", () => {
     await expect(dialog.getByRole("button", { name: t.start })).toHaveCount(0);
   });
 
+  test("signs visibly with a saved signature image (#744)", async ({ launch }) => {
+    test.skip(!MAY_IMPORT, WHY_NOT);
+    const file = path.join(folder, "contract-pic.pdf");
+    copyFileSync(corpus("benign/single-page.pdf"), file);
+    const before = sha256(file);
+    const original = readFileSync(file);
+    const page = await launch(file);
+    await expect(firstPage(page)).toHaveAttribute("data-state", "ready");
+
+    const dialog = await openDialog(page);
+    await chooseCertificate(page, "signer.pfx");
+    await dialog.getByLabel(t.passwordLabel, { exact: true }).fill(PASSWORD);
+
+    await dialog.getByRole("checkbox", { name: t.usePicture }).check();
+    await dialog.getByRole("button", { name: t.createPicture }).click();
+    const createDialog = page.getByRole("dialog", { name: t.createPictureTitle });
+    await expect(createDialog).toBeVisible();
+
+    const pad = createDialog.getByLabel(strings.savedSignatures.padAriaLabel);
+    const padBox = await pad.boundingBox();
+    if (!padBox) throw new Error("pad is not visible");
+    await page.mouse.move(padBox.x + 25, padBox.y + 25);
+    await page.mouse.down();
+    await page.mouse.move(padBox.x + 110, padBox.y + 65);
+    await page.mouse.up();
+    await createDialog.getByRole("button", { name: strings.savedSignatures.saveDrawn }).click();
+
+    await expect(createDialog).toHaveCount(0);
+    await expect(dialog.getByRole("radio", { name: t.pictureItemLabel(0) })).toBeChecked();
+
+    await dialog.getByRole("button", { name: t.start }).click();
+    const copy = path.join(folder, "contract-pic（已簽署）.pdf");
+    await answerFileDialog(page, { path: copy });
+
+    const done = page.getByRole("dialog", { name: t.resultTitle });
+    await expect(done.getByRole("status")).toContainText(t.result("contract-pic（已簽署）.pdf"));
+    await done.getByRole("button", { name: t.done }).click();
+
+    await expect(page.getByRole("tab", { name: /contract-pic（已簽署）\.pdf/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(page.getByRole("region", { name: strings.signatures.label })).toHaveAttribute(
+      "data-signatures",
+      "unconfirmed",
+    );
+
+    expect(sha256(file)).toBe(before);
+    const signed = readFileSync(copy);
+    expect(signed.subarray(0, original.length).equals(original)).toBe(true);
+    expect(signed.subarray(original.length).includes("/Image")).toBe(true);
+    expect(signed.includes(PASSWORD)).toBe(false);
+  });
+
   test("an encrypted document is not offered signing", async ({ launch }) => {
     const page = await launch(corpus("benign/encrypted-aes256.pdf"));
     const field = page.getByLabel(strings.password.label, { exact: true });

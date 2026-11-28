@@ -5917,6 +5917,7 @@ mod with_worker {
                 page_index: 0,
                 corner: ipc_contract::types::PageCorner::BottomRight,
                 lines: crate::strings::ZH_TW.signature_lines("測試簽署人", &time, Some("測試")),
+                picture: None,
             }),
             time,
         }
@@ -6011,6 +6012,176 @@ mod with_worker {
         assert!(!copy.exists());
         std::fs::remove_file(certified).ok();
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn a_saved_signature_picture_is_decrypted_for_visible_and_refused_when_missing() {
+        let dir = std::env::temp_dir().join(format!("test-doc-sign-pic-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let signatures = crate::signature_images::SignatureImages::new(Some(dir.clone()));
+
+        let png_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/images/stamp-metadata.png");
+        let png = std::fs::read(png_path).unwrap();
+        let saved = signatures.add(&png).unwrap();
+        let id = saved[0].id;
+        assert!(dir.join(format!("{}.sig", id.0)).exists());
+
+        let sample =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign/single-page.pdf");
+        let original = std::fs::read(sample).unwrap();
+        let out_path = dir.join("prepared.pdf");
+
+        let time = crate::signing::local_time(1_792_631_107, 480).unwrap();
+        let place = ipc_contract::types::SignaturePlace {
+            page_index: 0,
+            corner: ipc_contract::types::PageCorner::BottomRight,
+            signature_image: Some(id),
+        };
+        let signature = crate::signing::build_new_signature(
+            Some(place),
+            "測試簽署人".to_owned(),
+            Some("測試".to_owned()),
+            time,
+            crate::strings::ZH_TW.signature_lines("測試簽署人", &time, Some("測試")),
+            &signatures,
+        )
+        .unwrap();
+
+        let mut host = WorkerHost::new(worker(), HostConfig::default());
+        let pdf_path = dir.join("input.pdf");
+        std::fs::write(&pdf_path, &original).unwrap();
+        let (doc, _) = host.open(&pdf_path).unwrap();
+        {
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .read(true)
+                .open(&out_path)
+                .unwrap();
+            let response = host.prepare_signature(doc, &file, signature).unwrap();
+            assert!(matches!(response, WorkerResponse::SignaturePrepared { .. }));
+        }
+        host.stop();
+
+        let prepared = std::fs::read(&out_path).unwrap();
+        assert!(prepared.starts_with(&original));
+        let appended = &prepared[original.len()..];
+        assert!(
+            appended.windows(b"/Image".len()).any(|w| w == b"/Image"),
+            "prepared signature should embed an Image XObject"
+        );
+        assert!(
+            !appended.windows(b"Canon".len()).any(|w| w == b"Canon"),
+            "metadata must not leak into prepared copy"
+        );
+        assert!(
+            !appended.windows(b".sig".len()).any(|w| w == b".sig"),
+            "storage path must not leak into prepared copy"
+        );
+
+        // Removing the signature image while open causes pre-sign failure and writes nothing.
+        signatures.remove(id).unwrap();
+        let missing_out = dir.join("should-not-exist.pdf");
+        let err = crate::signing::build_new_signature(
+            Some(place),
+            "測試簽署人".to_owned(),
+            Some("測試".to_owned()),
+            time,
+            crate::strings::ZH_TW.signature_lines("測試簽署人", &time, Some("測試")),
+            &signatures,
+        )
+        .unwrap_err();
+        assert_eq!(err.code, ErrorCode::SignatureImageUnavailable);
+        assert!(!missing_out.exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_signed_copy_with_a_saved_signature_picture_verifies_and_writes_no_temp_picture() {
+        let Some(signer) = test_signer() else {
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("test-sign-pic-ci-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let sig_dir = dir.join("signatures");
+        let signatures = crate::signature_images::SignatureImages::new(Some(sig_dir.clone()));
+
+        let png_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/images/stamp-metadata.png");
+        let png = std::fs::read(png_path).unwrap();
+        let id = signatures.add(&png).unwrap()[0].id;
+
+        let sample =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/benign/single-page.pdf");
+        let original = std::fs::read(sample).unwrap();
+        let (documents, info, path) = open_bytes("sign-pic-copy", &original);
+        let copy = dir.join("signed-with-picture.pdf");
+
+        let time = crate::signing::local_time(1_792_631_107, 480).unwrap();
+        let place = ipc_contract::types::SignaturePlace {
+            page_index: 0,
+            corner: ipc_contract::types::PageCorner::BottomRight,
+            signature_image: Some(id),
+        };
+        let signature = crate::signing::build_new_signature(
+            Some(place),
+            "PDF Reader test corpus signer (NOT TRUSTED)".to_owned(),
+            Some("測試".to_owned()),
+            time,
+            crate::strings::ZH_TW.signature_lines(
+                "PDF Reader test corpus signer (NOT TRUSTED)",
+                &time,
+                Some("測試"),
+            ),
+            &signatures,
+        )
+        .unwrap();
+
+        documents
+            .sign_copy(info.doc, &copy, &signer, signature, 1_792_631_107)
+            .unwrap();
+
+        let written = std::fs::read(&copy).unwrap();
+        assert!(written.starts_with(&original));
+        check_qpdf(&copy);
+
+        let reader = Documents::new(worker());
+        let opened = open_in(&reader, &copy);
+        let report = reader.signatures(opened.doc).unwrap();
+        assert_eq!(report.signatures.len(), 1);
+        assert_eq!(report.signatures[0].status, SignatureStatus::Valid);
+        drop(reader);
+
+        let mut changed = written.clone();
+        changed[original.len() + 10] ^= 0x01;
+        std::fs::write(&copy, &changed).unwrap();
+        let reader = Documents::new(worker());
+        let opened = open_in(&reader, &copy);
+        assert_ne!(
+            reader.signatures(opened.doc).unwrap().signatures[0].status,
+            SignatureStatus::Valid
+        );
+        drop(reader);
+
+        // No temporary plaintext PNGs or stray files left in sig_dir or beside the signed copy.
+        let sig_entries: Vec<_> = std::fs::read_dir(&sig_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(sig_entries, vec![format!("{}.sig", id.0)]);
+        let dir_entries: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(dir_entries.len(), 2); // `signatures` + `signed-with-picture.pdf`
+
+        std::fs::remove_file(path).ok();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// What a Word document the worker made holds: the names of its files, and its text.

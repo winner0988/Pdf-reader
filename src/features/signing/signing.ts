@@ -10,6 +10,7 @@ import {
   type PageCorner,
   type SignArgs,
   type SignCheck,
+  type SignatureImageId,
   type SigningKey,
   type StoreCertificate,
 } from "@/ipc/generated/contract";
@@ -23,10 +24,19 @@ export type SignForm = {
   /** On the page shown, in a corner; `null`: seen on no page. */
   corner: PageCorner | null;
   reason: string;
+  /** Whether a saved signature picture accompanies the text (ignored when `corner` is `null`). */
+  withPicture: boolean;
+  /** Chosen saved signature picture, or `null` when none is selected. */
+  signatureImage: SignatureImageId | null;
 };
 
 /** What is chosen when the dialog opens: a box in the bottom right corner of the page shown. */
-export const DEFAULT_FORM: SignForm = { corner: "bottomRight", reason: "" };
+export const DEFAULT_FORM: SignForm = {
+  corner: "bottomRight",
+  reason: "",
+  withPicture: false,
+  signatureImage: null,
+};
 
 /** Where the certificate is: in this computer's store (on a smart card, too), or in a file. */
 export type Source = "store" | "file";
@@ -65,10 +75,16 @@ export function argsOf(
   now: Date = new Date(),
 ): SignArgs {
   const reason = form.reason.trim();
+  const signatureImage = form.withPicture && form.signatureImage !== null ? form.signatureImage : undefined;
   return {
     doc,
     key,
-    place: form.corner === null ? null : { pageIndex: page - 1, corner: form.corner },
+    place:
+      form.corner === null
+        ? null
+        : signatureImage === undefined
+          ? { pageIndex: page - 1, corner: form.corner }
+          : { pageIndex: page - 1, corner: form.corner, signatureImage },
     reason: reason === "" ? null : reason,
     utcOffsetMinutes: -now.getTimezoneOffset(),
   };
@@ -87,6 +103,7 @@ export function failure(code: ErrorCode): string | null {
     case "certificateNotYetValid":
     case "certificateNotForSigning":
     case "certificateUnavailable":
+    case "signatureImageUnavailable":
     case "signatureTooLarge":
     case "signatureNotValid":
       return strings.error.messages[code];

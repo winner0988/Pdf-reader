@@ -6,6 +6,7 @@
 //! change freely while the contract is v0, because main and worker ship together.
 
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use crate::PROTOCOL_VERSION;
 use crate::types::{
@@ -302,12 +303,34 @@ pub struct SigningTime {
 }
 
 /// The box that shows a signature on a page (B3-06): in a corner of page `page_index` as it is
-/// shown, with `lines` in it (the signer, the date, the reason; the main process words them).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// shown, with `lines` in it (the signer, the date, the reason; the main process words them),
+/// and optionally a saved signature picture (`picture`, PNG bytes up to `MAX_STAMP_PNG_BYTES`,
+/// #744).
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VisibleSignature {
     pub page_index: u32,
     pub corner: PageCorner,
     pub lines: Vec<String>,
+    /// Optional PNG bytes of a saved signature image (B6-02, #744). Wiped on drop.
+    pub picture: Option<Vec<u8>>,
+}
+
+impl std::fmt::Debug for VisibleSignature {
+    /// Logs only whether a picture is present and its byte count, never the PNG bytes themselves.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VisibleSignature")
+            .field("page_index", &self.page_index)
+            .field("corner", &self.corner)
+            .field("lines", &self.lines)
+            .field("picture_bytes", &self.picture.as_ref().map(Vec::len))
+            .finish()
+    }
+}
+
+impl Drop for VisibleSignature {
+    fn drop(&mut self) {
+        self.picture.zeroize();
+    }
 }
 
 /// A watermark as the worker takes it (B3-04). The frontend's form is [`Watermark`], whose
@@ -2760,5 +2783,45 @@ mod tests {
                 response
             );
         }
+    }
+
+    #[test]
+    fn visible_signature_picture_round_trips_and_debug_hides_bytes() {
+        let secret = vec![0x89, b'P', b'N', b'G', 0xca, 0xfe, 0xba, 0xbe];
+        let request = WorkerRequest::PrepareSignature {
+            request: RequestId(9),
+            doc: DocumentId(3),
+            file: FileHandle(0x123),
+            signature: NewSignature {
+                signer: "Jane Doe".to_owned(),
+                reason: Some("Approval".to_owned()),
+                time: SigningTime {
+                    year: 2026,
+                    month: 11,
+                    day: 28,
+                    hour: 12,
+                    minute: 0,
+                    second: 0,
+                    utc_offset_minutes: 480,
+                },
+                visible: Some(VisibleSignature {
+                    page_index: 0,
+                    corner: PageCorner::BottomRight,
+                    lines: vec!["Jane Doe".to_owned()],
+                    picture: Some(secret),
+                }),
+            },
+        };
+        let debug = format!("{request:?}");
+        assert!(debug.contains("picture_bytes: Some(8)"), "{debug}");
+        assert!(
+            !debug.contains("186") && !debug.contains("254") && !debug.contains("137"),
+            "{debug}"
+        );
+        let bytes = postcard::to_stdvec(&request).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<WorkerRequest>(&bytes).unwrap(),
+            request
+        );
     }
 }

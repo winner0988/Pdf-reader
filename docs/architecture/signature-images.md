@@ -51,3 +51,10 @@
 - 透過 `Edit::AddImageStamp` 套用編輯，可以復原（Undo）與重做（Redo）。
 - 崩潰復原日誌（`recovery\`）僅包含該文件已套用編輯所用到的圖片點陣資料，遵守日誌的大小與十六進位驗證規則（[crash-recovery.md](crash-recovery.md)）。
 - 存檔後簽名成為 PDF 頁面內容中無中繼資料的圖片 XObject，符合 PDF 標準，在任何標準 PDF 閱讀器均可正常檢視。
+
+## 用於數位簽章外觀（#744）
+
+除了自訂圖片印章之外，已存簽名也可在「簽署文件」對話框（[signing.md](signing.md)）中搭配「顯示在目前這一頁的角落」選為可見簽章外觀的簽名圖片（不適用於不可見簽章）：
+
+- 簽署時主行程將選中的 `.sig` 解密進 `Zeroizing<Vec<u8>>`，經 IPC（`PrepareSignature`）只在記憶體中傳給目前文件的 worker，不寫任何暫存 PNG 檔，送出與丟棄後立即清除。
+- worker 先驗證 PNG 標頭、尺寸與完整區塊，再以 MuPDF 重解碼並以像素重建圖片 XObject（`/I`）放進簽章的 `/AP /N` 外觀串流，不會將原檔中繼資料或路徑寫入已簽署的 PDF。

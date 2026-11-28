@@ -99,7 +99,7 @@ fn png_header_size(bytes: &[u8]) -> Option<(u32, u32)> {
 
 /// Whether a PNG file has its header chunk first, some pixel data, and its end chunk: the chunks
 /// are walked by their lengths, nothing is decoded.
-fn png_is_whole(bytes: &[u8]) -> bool {
+pub(super) fn png_is_whole(bytes: &[u8]) -> bool {
     let mut at = 8;
     let mut first = true;
     let mut pixels = false;

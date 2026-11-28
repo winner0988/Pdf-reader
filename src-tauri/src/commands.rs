@@ -32,7 +32,6 @@ use ipc_contract::types::{
     WatermarkContent, XfdfOutcome,
 };
 use ipc_contract::validate::{Validate, check_clipboard_text, check_page_index};
-use ipc_contract::worker::{NewSignature, VisibleSignature};
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, DragDropEvent, Manager, WebviewWindow, Window, WindowEvent};
 
@@ -1898,6 +1897,13 @@ pub async fn sign_document(
             code: ErrorCode::UnknownDocument,
             message: "no such open document".to_owned(),
         })?;
+    if let Some(id) = place.and_then(|chosen| chosen.signature_image) {
+        // Fail before prompting PIN or file dialog if the selected image is gone (#744).
+        drop(signing::load_signature_picture(
+            &app.state::<SignatureImages>(),
+            id,
+        )?);
+    }
     let signer = match key {
         SigningKey::File(SigningFileKey { file, password }) => {
             let pfx = app
@@ -1951,16 +1957,6 @@ pub async fn sign_document(
     if signer_name.trim().is_empty() {
         return Err(signing::SigningError::Unreadable.into());
     }
-    let signature = NewSignature {
-        visible: place.map(|place| VisibleSignature {
-            page_index: place.page_index,
-            corner: place.corner,
-            lines: ui_strings.signature_lines(&signer_name, &time, reason.as_deref()),
-        }),
-        signer: signer_name,
-        reason,
-        time,
-    };
     let file_name = ui_strings.signed_copy_file_name(&export::stem(&info.display_name));
     let destination = loop {
         let Some(path) = file_dialog::signed_copy_file(&window, file_name.clone()).await? else {
@@ -1978,6 +1974,19 @@ pub async fn sign_document(
             .show()
             .await;
     };
+    let lines = if place.is_some() {
+        ui_strings.signature_lines(&signer_name, &time, reason.as_deref())
+    } else {
+        Vec::new()
+    };
+    let signature = signing::build_new_signature(
+        place,
+        signer_name,
+        reason,
+        time,
+        lines,
+        &app.state::<SignatureImages>(),
+    )?;
     let name = documents::display_name(&destination);
     {
         let (app, destination) = (app.clone(), destination.clone());
