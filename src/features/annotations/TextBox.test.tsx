@@ -53,6 +53,8 @@ const box: PageAnnotation = {
   picture: null,
   text: "Hello 你好",
   lineEnds: null,
+  vertices: null,
+  shapeCloudy: false,
   shapeColor: null,
   shapeWidth: null,
 };

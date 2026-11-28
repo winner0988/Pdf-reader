@@ -39,6 +39,8 @@ export function annotationLabel(annotation: PageAnnotation): string {
     case "ellipse":
     case "line":
     case "arrow":
+    case "polygon":
+    case "polyLine":
       return t.kind[annotation.kind];
   }
 }

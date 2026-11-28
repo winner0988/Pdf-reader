@@ -5464,6 +5464,7 @@ endstream",
                 x1: 150.0,
                 y1: 160.0,
             },
+            cloudy: false,
         };
         doc.add_shape(0, &rect_shape, InkColor::Red, InkWidth::Thin)
             .expect("add rectangle");
@@ -5566,6 +5567,71 @@ endstream",
         let remaining = doc.page_annotations(0).expect("annotations");
         assert_eq!(remaining.len(), 3);
         assert!(!remaining.iter().any(|a| a.id == rect_annot.id));
+    }
+
+    #[test]
+    fn polygon_polyline_and_cloudy_shapes_have_ap_and_no_privacy_keys() {
+        let mut doc = PdfDocument::from_bytes(&two_page_pdf()).expect("open");
+        doc.add_shape(
+            0,
+            &Shape::Rectangle {
+                rect: Rect {
+                    x0: 40.0,
+                    y0: 40.0,
+                    x1: 120.0,
+                    y1: 100.0,
+                },
+                cloudy: true,
+            },
+            InkColor::Red,
+            InkWidth::Thin,
+        )
+        .expect("cloudy rect");
+        doc.add_shape(
+            0,
+            &Shape::Polygon {
+                vertices: vec![
+                    Point { x: 150.0, y: 50.0 },
+                    Point { x: 250.0, y: 50.0 },
+                    Point { x: 200.0, y: 130.0 },
+                ],
+                cloudy: true,
+            },
+            InkColor::Blue,
+            InkWidth::Medium,
+        )
+        .expect("cloudy polygon");
+        doc.add_shape(
+            0,
+            &Shape::PolyLine {
+                vertices: vec![
+                    Point { x: 60.0, y: 160.0 },
+                    Point { x: 180.0, y: 160.0 },
+                    Point { x: 220.0, y: 220.0 },
+                ],
+            },
+            InkColor::Green,
+            InkWidth::Thick,
+        )
+        .expect("polyline");
+
+        let (bytes, _) = saved(&doc);
+        let reopened = PdfDocument::from_bytes(&bytes).expect("reopen");
+        let annots = annotation_dicts(&reopened, "Square")
+            .into_iter()
+            .chain(annotation_dicts(&reopened, "Polygon"))
+            .chain(annotation_dicts(&reopened, "PolyLine"))
+            .collect::<Vec<_>>();
+        assert_eq!(annots.len(), 3);
+        for dict in annots {
+            assert!(dict.get_dict("AP").unwrap().is_some(), "missing /AP");
+            for key in ["T", "M", "CreationDate", "NM"] {
+                assert!(
+                    dict.get_dict(key).unwrap().is_none(),
+                    "unexpected /{key} in shape annotation"
+                );
+            }
+        }
     }
 
     #[test]

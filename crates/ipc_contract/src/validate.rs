@@ -34,10 +34,10 @@ use crate::types::{
     WatermarkPages,
 };
 use crate::worker::{
-    ExportedAnnotation, ExportedAnnotations, ExportedTextStyle, InsertedTextBox, InspectedFont,
-    OcrOutcome, OpenedDocument, PreparedTextBoxModel, Raster, SourceTextBox, TextBoxModel,
-    WorkerAttachment, WorkerDocumentProperties, WorkerError, WorkerErrorCode, WorkerPageMarks,
-    WorkerPageNumberFormat, WorkerResponse,
+    ExportedAnnotation, ExportedAnnotationKind, ExportedAnnotations, ExportedTextStyle,
+    InsertedTextBox, InspectedFont, OcrOutcome, OpenedDocument, PreparedTextBoxModel, Raster,
+    SourceTextBox, TextBoxModel, WorkerAttachment, WorkerDocumentProperties, WorkerError,
+    WorkerErrorCode, WorkerPageMarks, WorkerPageNumberFormat, WorkerResponse,
 };
 
 /// Maximum length of the worker version string in `Hello`.
@@ -213,10 +213,37 @@ impl Validate for Quad {
     }
 }
 
+fn check_shape_vertices(
+    what: &'static str,
+    vertices: &[Point],
+    min: usize,
+) -> Result<(), ValidationError> {
+    if vertices.len() < min {
+        return Err(ValidationError::Invalid {
+            what,
+            reason: "too few vertices",
+        });
+    }
+    check_count(what, vertices.len(), MAX_SHAPE_VERTICES)?;
+    for p in vertices {
+        p.validate()?;
+        if p.x < 0.0 || p.y < 0.0 {
+            return Err(ValidationError::OutOfRange { what });
+        }
+    }
+    if vertices.windows(2).any(|w| w[0] == w[1]) {
+        return Err(ValidationError::Invalid {
+            what,
+            reason: "adjacent vertices are identical",
+        });
+    }
+    Ok(())
+}
+
 impl Validate for Shape {
     fn validate(&self) -> Result<(), ValidationError> {
         match self {
-            Shape::Rectangle { rect } | Shape::Ellipse { rect } => {
+            Shape::Rectangle { rect, .. } | Shape::Ellipse { rect } => {
                 rect.validate()?;
                 if rect.x1 <= rect.x0 || rect.y1 <= rect.y0 {
                     return Err(ValidationError::Invalid {
@@ -237,6 +264,10 @@ impl Validate for Shape {
                 }
                 Ok(())
             }
+            Shape::Polygon { vertices, .. } => {
+                check_shape_vertices("polygon vertices", vertices, 3)
+            }
+            Shape::PolyLine { vertices } => check_shape_vertices("polyline vertices", vertices, 2),
         }
     }
 }
@@ -1715,6 +1746,8 @@ impl Validate for AnnotationSummaryItem {
             | AnnotationSummaryKind::Ellipse
             | AnnotationSummaryKind::Line
             | AnnotationSummaryKind::Arrow
+            | AnnotationSummaryKind::Polygon
+            | AnnotationSummaryKind::PolyLine
                 if self.text.is_empty() =>
             {
                 Ok(())
@@ -1724,7 +1757,9 @@ impl Validate for AnnotationSummaryItem {
             | AnnotationSummaryKind::Rectangle
             | AnnotationSummaryKind::Ellipse
             | AnnotationSummaryKind::Line
-            | AnnotationSummaryKind::Arrow => Err(ValidationError::Invalid {
+            | AnnotationSummaryKind::Arrow
+            | AnnotationSummaryKind::Polygon
+            | AnnotationSummaryKind::PolyLine => Err(ValidationError::Invalid {
                 what: "drawing, stamp or shape in a summary",
                 reason: "has text",
             }),
@@ -1859,6 +1894,37 @@ impl Validate for ExportedAnnotation {
             for coord in line {
                 check_coordinate("exported annotation line coordinate", coord)?;
             }
+        }
+        check_count(
+            "exported annotation vertices",
+            self.vertices.len(),
+            MAX_SHAPE_VERTICES,
+        )?;
+        if !self.vertices.is_empty()
+            && !matches!(
+                self.kind,
+                ExportedAnnotationKind::Polygon | ExportedAnnotationKind::PolyLine
+            )
+        {
+            return Err(ValidationError::Invalid {
+                what: "exported annotation vertices",
+                reason: "only polygons and polylines have vertices",
+            });
+        }
+        for vertex in &self.vertices {
+            check_coordinate("exported annotation vertex x", vertex[0])?;
+            check_coordinate("exported annotation vertex y", vertex[1])?;
+        }
+        if self.cloudy
+            && !matches!(
+                self.kind,
+                ExportedAnnotationKind::Rectangle | ExportedAnnotationKind::Polygon
+            )
+        {
+            return Err(ValidationError::Invalid {
+                what: "exported annotation cloudy",
+                reason: "only rectangles and polygons can be cloudy",
+            });
         }
         if let Some(ref style) = self.text_style {
             style.validate()?;
@@ -2056,6 +2122,11 @@ impl Validate for Edit {
                 Ok(())
             }
             Edit::SetShapeStyle { page, .. } => check_annotated_page(*page),
+            Edit::SetShapeVertices { page, vertices, .. } => {
+                check_annotated_page(*page)?;
+                check_shape_vertices("shape vertices", vertices, 2)
+            }
+            Edit::SetShapeCloudy { page, .. } => check_annotated_page(*page),
             Edit::AddRedactionGroup { page, rects } => {
                 check_annotated_page(*page)?;
                 if rects.is_empty() {
@@ -2855,11 +2926,46 @@ impl Validate for PageAnnotation {
                     | AnnotationKind::Ellipse
                     | AnnotationKind::Line
                     | AnnotationKind::Arrow
+                    | AnnotationKind::Polygon
+                    | AnnotationKind::PolyLine
             )
         {
             return Err(ValidationError::Invalid {
                 what: "shape style",
                 reason: "only shapes can have shape color or width",
+            });
+        }
+        if let Some(vertices) = &self.vertices {
+            let min = match self.kind {
+                AnnotationKind::Polygon => 3,
+                AnnotationKind::PolyLine => 2,
+                _ => {
+                    return Err(ValidationError::Invalid {
+                        what: "annotation vertices",
+                        reason: "only polygons and polylines can have vertices",
+                    });
+                }
+            };
+            if vertices.len() < min {
+                return Err(ValidationError::Invalid {
+                    what: "annotation vertices",
+                    reason: "too few vertices",
+                });
+            }
+            check_count("annotation vertices", vertices.len(), MAX_SHAPE_VERTICES)?;
+            for point in vertices {
+                point.validate()?;
+            }
+        }
+        if self.shape_cloudy
+            && !matches!(
+                self.kind,
+                AnnotationKind::Rectangle | AnnotationKind::Polygon
+            )
+        {
+            return Err(ValidationError::Invalid {
+                what: "shape cloudy",
+                reason: "only rectangles and polygons can be cloudy",
             });
         }
         Ok(())
@@ -3812,6 +3918,8 @@ mod tests {
             line_ends: None,
             shape_color: None,
             shape_width: None,
+            vertices: None,
+            shape_cloudy: false,
         };
         let view = |angle: f32, width: f32, height: f32| {
             Some(PictureView {
@@ -3847,6 +3955,7 @@ mod tests {
                     x1: 100.0,
                     y1: 100.0,
                 },
+                cloudy: false,
             },
             color: InkColor::Red,
             width: InkWidth::Thin,
@@ -3863,6 +3972,7 @@ mod tests {
                     x1: 10.0,
                     y1: 100.0,
                 },
+                cloudy: false,
             },
             color: InkColor::Red,
             width: InkWidth::Thin,
@@ -3979,6 +4089,140 @@ mod tests {
         assert!(json.contains(r#""shape":{"kind":"rectangle""#));
         let deserialized: Edit = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, rect_shape);
+
+        // Pre-1.2.0 crash recovery journal AddShape without `cloudy` field still deserializes cleanly.
+        let legacy_json = r#"{"kind":"addShape","page":0,"shape":{"kind":"rectangle","rect":{"x0":10.0,"y0":10.0,"x1":100.0,"y1":100.0}},"color":"red","width":"thin"}"#;
+        let legacy_edit: Edit = serde_json::from_str(legacy_json).expect("legacy AddShape JSON");
+        assert_eq!(legacy_edit, rect_shape);
+
+        // Polygon and PolyLine validation + limits
+        let valid_poly = Edit::AddShape {
+            page: 0,
+            shape: Shape::Polygon {
+                vertices: vec![
+                    Point { x: 10.0, y: 10.0 },
+                    Point { x: 100.0, y: 10.0 },
+                    Point { x: 50.0, y: 80.0 },
+                ],
+                cloudy: true,
+            },
+            color: InkColor::Blue,
+            width: InkWidth::Medium,
+        };
+        assert!(valid_poly.validate().is_ok());
+
+        let valid_polyline = Edit::AddShape {
+            page: 0,
+            shape: Shape::PolyLine {
+                vertices: vec![Point { x: 10.0, y: 20.0 }, Point { x: 80.0, y: 20.0 }],
+            },
+            color: InkColor::Black,
+            width: InkWidth::Thin,
+        };
+        assert!(valid_polyline.validate().is_ok());
+
+        // Polygon with < 3 vertices, PolyLine with < 2 vertices, or adjacent duplicates fail.
+        for bad in [
+            Shape::Polygon {
+                vertices: vec![Point { x: 10.0, y: 10.0 }, Point { x: 20.0, y: 20.0 }],
+                cloudy: false,
+            },
+            Shape::PolyLine {
+                vertices: vec![Point { x: 10.0, y: 10.0 }],
+            },
+            Shape::Polygon {
+                vertices: vec![
+                    Point { x: 10.0, y: 10.0 },
+                    Point { x: 10.0, y: 10.0 },
+                    Point { x: 50.0, y: 80.0 },
+                ],
+                cloudy: false,
+            },
+            Shape::PolyLine {
+                vertices: vec![
+                    Point {
+                        x: f32::NAN,
+                        y: 10.0,
+                    },
+                    Point { x: 20.0, y: 20.0 },
+                ],
+            },
+            Shape::PolyLine {
+                vertices: vec![Point { x: -1.0, y: 10.0 }, Point { x: 20.0, y: 20.0 }],
+            },
+            Shape::PolyLine {
+                vertices: vec![
+                    Point {
+                        x: f32::INFINITY,
+                        y: 10.0,
+                    },
+                    Point { x: 20.0, y: 20.0 },
+                ],
+            },
+            Shape::PolyLine {
+                vertices: vec![
+                    Point {
+                        x: MAX_PAGE_SIDE_PT + 1.0,
+                        y: 10.0,
+                    },
+                    Point { x: 20.0, y: 20.0 },
+                ],
+            },
+            Shape::PolyLine {
+                vertices: (0..=MAX_SHAPE_VERTICES)
+                    .map(|i| Point {
+                        x: i as f32,
+                        y: (i % 2) as f32 * 10.0,
+                    })
+                    .collect(),
+            },
+        ] {
+            let edit = Edit::AddShape {
+                page: 0,
+                shape: bad.clone(),
+                color: InkColor::Black,
+                width: InkWidth::Thin,
+            };
+            assert!(edit.validate().is_err(), "expected err for {bad:?}");
+        }
+
+        // SetShapeVertices & SetShapeCloudy
+        assert!(
+            Edit::SetShapeVertices {
+                page: 0,
+                annotation: AnnotationId(7),
+                vertices: vec![Point { x: 10.0, y: 20.0 }, Point { x: 30.0, y: 40.0 }],
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            Edit::SetShapeVertices {
+                page: 0,
+                annotation: AnnotationId(7),
+                vertices: vec![Point { x: 10.0, y: 20.0 }, Point { x: 10.0, y: 20.0 }],
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Edit::SetShapeCloudy {
+                page: 0,
+                annotation: AnnotationId(7),
+                cloudy: true,
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            Edit::SetShapeCloudy {
+                page: MAX_PAGE_COUNT,
+                annotation: AnnotationId(7),
+                cloudy: false,
+            }
+            .validate()
+            .is_err()
+        );
     }
 
     fn unlock(password: &str) -> UnlockArgs {
@@ -5885,6 +6129,8 @@ mod tests {
             line_ends: None,
             shape_color: None,
             shape_width: None,
+            vertices: None,
+            shape_cloudy: false,
         };
         let response = |annotations: Vec<PageAnnotation>| WorkerResponse::PageAnnotations {
             request: RequestId(1),
@@ -5934,6 +6180,8 @@ mod tests {
             line_ends: None,
             shape_color: None,
             shape_width: None,
+            vertices: None,
+            shape_cloudy: false,
         };
 
         // Normal lines and arrows with valid line_ends and shape style pass.
@@ -5954,6 +6202,34 @@ mod tests {
             shape.shape_color = Some(InkColor::Red);
             shape.shape_width = Some(InkWidth::Thin);
             assert!(shape.validate().is_ok(), "{kind:?}");
+        }
+
+        // Rectangle and Polygon allow shape_cloudy = true; Ellipse, Line, Arrow, PolyLine do not.
+        for kind in [AnnotationKind::Rectangle, AnnotationKind::Polygon] {
+            let mut cloudy = base_shape(kind);
+            cloudy.shape_cloudy = true;
+            if kind == AnnotationKind::Polygon {
+                cloudy.vertices = Some(vec![
+                    Point { x: 10.0, y: 10.0 },
+                    Point { x: 50.0, y: 10.0 },
+                    Point { x: 30.0, y: 50.0 },
+                ]);
+            }
+            assert!(cloudy.validate().is_ok(), "cloudy on {kind:?}");
+        }
+        for kind in [
+            AnnotationKind::Ellipse,
+            AnnotationKind::Line,
+            AnnotationKind::Arrow,
+            AnnotationKind::PolyLine,
+            AnnotationKind::Note,
+        ] {
+            let mut bad_cloudy = base_shape(kind);
+            bad_cloudy.shape_cloudy = true;
+            assert!(
+                bad_cloudy.validate().is_err(),
+                "cloudy forbidden on {kind:?}"
+            );
         }
 
         // Rectangle with line_ends must be rejected.
@@ -6948,6 +7224,8 @@ mod tests {
                 color: [0, 0, 0],
                 justification: 0,
             }),
+            vertices: Vec::new(),
+            cloudy: false,
         };
 
         let wrap = |items: Vec<ExportedAnnotation>| ExportedAnnotations {
@@ -8102,5 +8380,58 @@ mod tests {
                 uri
             );
         }
+    }
+
+    #[test]
+    fn exported_annotation_polygons_polylines_and_cloudy_validate() {
+        use crate::worker::ExportedAnnotationKind;
+
+        let base = |kind: ExportedAnnotationKind| ExportedAnnotation {
+            kind,
+            page: 0,
+            rect: [72.0, 100.0, 200.0, 200.0],
+            name: "annot-poly".to_owned(),
+            in_reply_to: None,
+            color: Some([255, 0, 0]),
+            interior: None,
+            opacity: None,
+            width: Some(2.0),
+            print: true,
+            hidden: false,
+            icon: None,
+            contents: None,
+            quads: Vec::new(),
+            ink: Vec::new(),
+            line: None,
+            line_endings: None,
+            text_style: None,
+            vertices: vec![[72.0, 100.0], [200.0, 100.0], [130.0, 200.0]],
+            cloudy: false,
+        };
+        let wrap = |item: ExportedAnnotation| ExportedAnnotations {
+            items: vec![item],
+            skipped: 0,
+            truncated: false,
+        };
+
+        let mut cloudy_poly = base(ExportedAnnotationKind::Polygon);
+        cloudy_poly.cloudy = true;
+        assert!(wrap(cloudy_poly).validate().is_ok());
+
+        let mut polyline = base(ExportedAnnotationKind::PolyLine);
+        assert!(wrap(polyline.clone()).validate().is_ok());
+
+        polyline.cloudy = true;
+        assert!(wrap(polyline).validate().is_err());
+
+        let mut rect_with_verts = base(ExportedAnnotationKind::Rectangle);
+        assert!(wrap(rect_with_verts.clone()).validate().is_err());
+        rect_with_verts.vertices.clear();
+        rect_with_verts.cloudy = true;
+        assert!(wrap(rect_with_verts).validate().is_ok());
+
+        let mut nan_vert = base(ExportedAnnotationKind::Polygon);
+        nan_vert.vertices[0][0] = f32::NAN;
+        assert!(wrap(nan_vert).validate().is_err());
     }
 }

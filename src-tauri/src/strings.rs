@@ -126,6 +126,8 @@ pub struct Strings {
     kind_ellipse: &'static str,
     kind_line: &'static str,
     kind_arrow: &'static str,
+    kind_polygon: &'static str,
+    kind_poly_line: &'static str,
 
     pub export_compare_dialog_title: &'static str,
     compare_joiner: &'static str,
@@ -369,6 +371,8 @@ impl Strings {
             AnnotationSummaryKind::Ellipse => self.kind_ellipse,
             AnnotationSummaryKind::Line => self.kind_line,
             AnnotationSummaryKind::Arrow => self.kind_arrow,
+            AnnotationSummaryKind::Polygon => self.kind_polygon,
+            AnnotationSummaryKind::PolyLine => self.kind_poly_line,
         }
     }
 
@@ -727,6 +731,8 @@ pub static ZH_TW: Strings = Strings {
     kind_ellipse: "橢圓",
     kind_line: "直線",
     kind_arrow: "箭頭",
+    kind_polygon: "多邊形",
+    kind_poly_line: "折線",
 
     export_compare_dialog_title: "匯出文字比較結果",
     compare_joiner: " 與 ",
@@ -948,6 +954,8 @@ pub static EN: Strings = Strings {
     kind_ellipse: "Ellipse",
     kind_line: "Line",
     kind_arrow: "Arrow",
+    kind_polygon: "Polygon",
+    kind_poly_line: "Polyline",
 
     export_compare_dialog_title: "Export Text Comparison",
     compare_joiner: " vs ",
@@ -1300,6 +1308,8 @@ mod tests {
             ("kind_ellipse", s.kind_ellipse),
             ("kind_line", s.kind_line),
             ("kind_arrow", s.kind_arrow),
+            ("kind_polygon", s.kind_polygon),
+            ("kind_poly_line", s.kind_poly_line),
             ("export_compare_dialog_title", s.export_compare_dialog_title),
             ("compare_joiner", s.compare_joiner),
             ("compare_file_suffix", s.compare_file_suffix),

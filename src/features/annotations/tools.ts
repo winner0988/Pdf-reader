@@ -14,11 +14,12 @@ import {
   type StampName,
 } from "@/ipc/generated/contract";
 
-export type ShapeToolKind = "rectangle" | "ellipse" | "line" | "arrow";
+export type ShapeToolKind = "rectangle" | "ellipse" | "line" | "arrow" | "polygon" | "polyLine";
 
 /**
  * What the pointer does on the pages: draws with the pen, or places a stamp (one of the standard
- * ones, or a picture of the user's own), or draws a shape (rectangle, ellipse, line, arrow).
+ * ones, or a picture of the user's own), or draws a shape (rectangle, ellipse, line, arrow,
+ * polygon, or polyline).
  */
 export type Tool =
   | { kind: "pen"; color: InkColor; width: InkWidth }
@@ -27,7 +28,7 @@ export type Tool =
   | { kind: "textBox" }
   | { kind: "redaction" }
   | { kind: "link" }
-  | { kind: "shape"; shapeKind: ShapeToolKind; color: InkColor; width: InkWidth };
+  | { kind: "shape"; shapeKind: ShapeToolKind; color: InkColor; width: InkWidth; cloudy: boolean };
 
 export const INK_COLORS: InkColor[] = ["black", "red", "blue", "green"];
 export const INK_WIDTHS: InkWidth[] = ["thin", "medium", "thick"];
@@ -291,4 +292,76 @@ export function shapeLine(start: Point, current: Point, shiftKey: boolean): { fr
     }
   }
   return { from: start, to };
+}
+
+/** Whether `kind` supports cloudy borders in our UI and MuPDF worker (Rectangle and Polygon only). */
+export function shapeSupportsCloudy(kind: ShapeToolKind | string): boolean {
+  return kind === "rectangle" || kind === "polygon";
+}
+
+/** Snaps a segment ending at `current` to the nearest multiple of 45° relative to `anchor`. */
+export function snapSegmentAngle(anchor: Point, current: Point): Point {
+  return shapeLine(anchor, current, true).to;
+}
+
+/** Computes the axis-aligned bounding box of `vertices` (returns zero rect when empty). */
+export function boundingBoxOfVertices(vertices: readonly Point[]): Rect {
+  if (vertices.length === 0) return { x0: 0, y0: 0, x1: 0, y1: 0 };
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const p of vertices) {
+    if (p.x < x0) x0 = p.x;
+    if (p.y < y0) y0 = p.y;
+    if (p.x > x1) x1 = p.x;
+    if (p.y > y1) y1 = p.y;
+  }
+  return { x0, y0, x1, y1 };
+}
+
+/**
+ * Adjusts a proposed translation `(dx, dy)` of `vertices` so that every vertex stays inside
+ * `page` bounds `[0..widthPt, 0..heightPt]`.
+ */
+export function keepVerticesOnPage(
+  vertices: readonly Point[],
+  dx: number,
+  dy: number,
+  page: PageSize,
+): { dx: number; dy: number } {
+  if (vertices.length === 0) return { dx: 0, dy: 0 };
+  const bounds = boundingBoxOfVertices(vertices);
+  const movedBounds: Rect = {
+    x0: bounds.x0 + dx,
+    y0: bounds.y0 + dy,
+    x1: bounds.x1 + dx,
+    y1: bounds.y1 + dy,
+  };
+  const kept = keptOnPage(movedBounds, page);
+  return {
+    dx: kept.x0 - bounds.x0,
+    dy: kept.y0 - bounds.y0,
+  };
+}
+
+/** Translates every vertex in `vertices` by `(dx, dy)`. */
+export function translateVertices(vertices: readonly Point[], dx: number, dy: number): Point[] {
+  return vertices.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+}
+
+/**
+ * Builds a valid `SetAnnotationRect` payload for translating a polygon or polyline by `(dx, dy)`.
+ * Worker computes translation delta from `(rect.x0 - oldBounds.x0, rect.y0 - oldBounds.y0)`; padding
+ * `x1`/`y1` ensures flat horizontal/vertical polylines satisfy `LIMITS.minAnnotationSidePt`.
+ */
+export function polygonMoveRect(oldRect: Rect, dx: number, dy: number): Rect {
+  const x0 = oldRect.x0 + dx;
+  const y0 = oldRect.y0 + dy;
+  return {
+    x0,
+    y0,
+    x1: Math.max(oldRect.x1 + dx, x0 + LIMITS.minAnnotationSidePt),
+    y1: Math.max(oldRect.y1 + dy, y0 + LIMITS.minAnnotationSidePt),
+  };
 }

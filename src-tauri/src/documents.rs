@@ -3312,6 +3312,8 @@ fn pages_after(
         | Edit::AddShape { page, .. }
         | Edit::SetLineEnds { page, .. }
         | Edit::SetShapeStyle { page, .. }
+        | Edit::SetShapeVertices { page, .. }
+        | Edit::SetShapeCloudy { page, .. }
         | Edit::AddLink { page, .. } => Some(vec![*page]),
         Edit::SetLinkTarget { link, .. } | Edit::DeleteLink { link, .. } => {
             Some(vec![link.page_index])
@@ -3512,6 +3514,8 @@ fn pages_after(
         | Edit::AddShape { .. }
         | Edit::SetLineEnds { .. }
         | Edit::SetShapeStyle { .. }
+        | Edit::SetShapeVertices { .. }
+        | Edit::SetShapeCloudy { .. }
         | Edit::SetFieldValue { .. }
         | Edit::FlattenForm
         | Edit::AddRedaction { .. }
@@ -8407,6 +8411,305 @@ mod with_worker {
     }
 
     #[test]
+    fn polygons_polylines_and_cloudy_shapes_undo_redo_and_save() {
+        let (documents, info, path) = open("shapes-undo-save", 1);
+        let mut doc = info.doc;
+        let apply = |doc: &mut DocumentId, edit: Edit| {
+            *doc = opened_info(documents.apply_edit(&EditArgs { doc: *doc, edit }).unwrap()).doc;
+        };
+
+        // Add cloudy Rectangle, cloudy Polygon, and PolyLine.
+        apply(
+            &mut doc,
+            Edit::AddShape {
+                page: 0,
+                shape: Shape::Rectangle {
+                    rect: Rect {
+                        x0: 40.0,
+                        y0: 40.0,
+                        x1: 120.0,
+                        y1: 100.0,
+                    },
+                    cloudy: true,
+                },
+                color: InkColor::Red,
+                width: InkWidth::Thin,
+            },
+        );
+        apply(
+            &mut doc,
+            Edit::AddShape {
+                page: 0,
+                shape: Shape::Polygon {
+                    vertices: vec![
+                        Point { x: 180.0, y: 60.0 },
+                        Point { x: 280.0, y: 60.0 },
+                        Point { x: 230.0, y: 150.0 },
+                    ],
+                    cloudy: false,
+                },
+                color: InkColor::Blue,
+                width: InkWidth::Medium,
+            },
+        );
+        apply(
+            &mut doc,
+            Edit::AddShape {
+                page: 0,
+                shape: Shape::PolyLine {
+                    vertices: vec![
+                        Point { x: 80.0, y: 200.0 },
+                        Point { x: 200.0, y: 200.0 },
+                        Point { x: 240.0, y: 260.0 },
+                    ],
+                },
+                color: InkColor::Green,
+                width: InkWidth::Thick,
+            },
+        );
+
+        let annots = documents.page_annotations(doc, 0).unwrap();
+        let rect_id = annots
+            .iter()
+            .find(|a| a.kind == AnnotationKind::Rectangle)
+            .unwrap()
+            .id;
+        let poly_id = annots
+            .iter()
+            .find(|a| a.kind == AnnotationKind::Polygon)
+            .unwrap()
+            .id;
+        let line_id = annots
+            .iter()
+            .find(|a| a.kind == AnnotationKind::PolyLine)
+            .unwrap()
+            .id;
+
+        // Edit vertices, toggle cloudy on polygon & off on rectangle, move polyline, restyle.
+        let edited_verts = vec![
+            Point { x: 185.0, y: 65.0 },
+            Point { x: 295.0, y: 75.0 },
+            Point { x: 230.0, y: 170.0 },
+        ];
+        apply(
+            &mut doc,
+            Edit::SetShapeVertices {
+                page: 0,
+                annotation: poly_id,
+                vertices: edited_verts.clone(),
+            },
+        );
+        apply(
+            &mut doc,
+            Edit::SetShapeCloudy {
+                page: 0,
+                annotation: poly_id,
+                cloudy: true,
+            },
+        );
+        apply(
+            &mut doc,
+            Edit::SetShapeCloudy {
+                page: 0,
+                annotation: rect_id,
+                cloudy: false,
+            },
+        );
+        let line_rect = documents
+            .page_annotations(doc, 0)
+            .unwrap()
+            .into_iter()
+            .find(|a| a.id == line_id)
+            .unwrap()
+            .rect;
+        apply(
+            &mut doc,
+            Edit::SetAnnotationRect {
+                page: 0,
+                annotation: line_id,
+                rect: Rect {
+                    x0: line_rect.x0 + 20.0,
+                    y0: line_rect.y0 + 15.0,
+                    x1: (line_rect.x1 + 20.0).max(line_rect.x0 + 30.0),
+                    y1: (line_rect.y1 + 15.0).max(line_rect.y0 + 25.0),
+                },
+            },
+        );
+
+        // Undo SetAnnotationRect + both SetShapeCloudy + SetShapeVertices, then redo.
+        for _ in 0..4 {
+            doc = opened_info(documents.undo(doc, None).unwrap()).doc;
+        }
+        let undone = documents.page_annotations(doc, 0).unwrap();
+        assert!(
+            undone
+                .iter()
+                .find(|a| a.id == rect_id)
+                .unwrap()
+                .shape_cloudy
+        );
+        assert!(
+            !undone
+                .iter()
+                .find(|a| a.id == poly_id)
+                .unwrap()
+                .shape_cloudy
+        );
+        assert!(
+            (undone
+                .iter()
+                .find(|a| a.id == poly_id)
+                .unwrap()
+                .vertices
+                .as_ref()
+                .unwrap()[2]
+                .y
+                - 150.0)
+                .abs()
+                < 0.5
+        );
+
+        for _ in 0..4 {
+            doc = opened_info(documents.redo(doc).unwrap()).doc;
+        }
+        let redone = documents.page_annotations(doc, 0).unwrap();
+        assert!(
+            !redone
+                .iter()
+                .find(|a| a.id == rect_id)
+                .unwrap()
+                .shape_cloudy
+        );
+        let poly = redone.iter().find(|a| a.id == poly_id).unwrap();
+        assert!(poly.shape_cloudy);
+        assert!((poly.vertices.as_ref().unwrap()[2].y - 170.0).abs() < 0.5);
+
+        documents.save(doc, None).unwrap();
+        let other = Documents::new(worker());
+        let reopened = open_in(&other, &path);
+        let persisted = other.page_annotations(reopened.doc, 0).unwrap();
+        assert_eq!(persisted.len(), 3);
+        assert!(
+            persisted
+                .iter()
+                .any(|a| a.kind == AnnotationKind::Polygon && a.shape_cloudy)
+        );
+        assert!(persisted.iter().any(|a| a.kind == AnnotationKind::PolyLine));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn recovery_replays_pre_1_2_add_shape_without_cloudy_field_and_new_shape_edits() {
+        // 1. Pre-1.2.0 AddShape journal without `cloudy` recovers with `shape_cloudy: false`.
+        let data = DataFolder::new("pre-1-2-shape-journal");
+        let path = write_pdf("b7-10-legacy-shape", &letter_pdf(1));
+        data.leave(
+            &path,
+            serde_json::json!([
+                {
+                    "kind": "addShape",
+                    "page": 0,
+                    "shape": {
+                        "kind": "rectangle",
+                        "rect": { "x0": 40.0, "y0": 50.0, "x1": 140.0, "y1": 120.0 }
+                    },
+                    "color": "red",
+                    "width": "thin"
+                }
+            ]),
+        );
+        let documents = data.documents();
+        let reopened = open_in(&documents, &path);
+        assert_eq!(reopened.recovery, Recovery::Available);
+        let recovered = opened_info(documents.recover(reopened.doc).unwrap());
+        let annots = documents.page_annotations(recovered.doc, 0).unwrap();
+        assert_eq!(annots.len(), 1);
+        assert_eq!(annots[0].kind, AnnotationKind::Rectangle);
+        assert!(!annots[0].shape_cloudy);
+        documents.save(recovered.doc, None).unwrap();
+        drop(documents);
+
+        // 2. Crash recovery replays new Polygon, PolyLine, SetShapeVertices, and SetShapeCloudy.
+        let data2 = DataFolder::new("new-shape-journal");
+        let path2 = write_pdf("b7-10-new-shape", &letter_pdf(1));
+        let earlier = data2.documents();
+        let mut doc = open_in(&earlier, &path2).doc;
+        edited_pages(
+            &earlier,
+            &mut doc,
+            Edit::AddShape {
+                page: 0,
+                shape: Shape::Polygon {
+                    vertices: vec![
+                        Point { x: 100.0, y: 100.0 },
+                        Point { x: 200.0, y: 100.0 },
+                        Point { x: 150.0, y: 180.0 },
+                    ],
+                    cloudy: false,
+                },
+                color: InkColor::Blue,
+                width: InkWidth::Medium,
+            },
+        );
+        let poly_id = earlier.page_annotations(doc, 0).unwrap()[0].id;
+        edited_pages(
+            &earlier,
+            &mut doc,
+            Edit::SetShapeVertices {
+                page: 0,
+                annotation: poly_id,
+                vertices: vec![
+                    Point { x: 105.0, y: 105.0 },
+                    Point { x: 215.0, y: 105.0 },
+                    Point { x: 150.0, y: 195.0 },
+                ],
+            },
+        );
+        edited_pages(
+            &earlier,
+            &mut doc,
+            Edit::SetShapeCloudy {
+                page: 0,
+                annotation: poly_id,
+                cloudy: true,
+            },
+        );
+        edited_pages(
+            &earlier,
+            &mut doc,
+            Edit::AddShape {
+                page: 0,
+                shape: Shape::PolyLine {
+                    vertices: vec![Point { x: 50.0, y: 260.0 }, Point { x: 160.0, y: 260.0 }],
+                },
+                color: InkColor::Black,
+                width: InkWidth::Thin,
+            },
+        );
+        drop(earlier);
+
+        let later = data2.documents();
+        let reopened2 = open_in(&later, &path2);
+        assert_eq!(reopened2.recovery, Recovery::Available);
+        let recovered2 = opened_info(later.recover(reopened2.doc).unwrap());
+        let recovered_annots = later.page_annotations(recovered2.doc, 0).unwrap();
+        assert_eq!(recovered_annots.len(), 2);
+        let poly = recovered_annots
+            .iter()
+            .find(|a| a.kind == AnnotationKind::Polygon)
+            .unwrap();
+        assert!(poly.shape_cloudy);
+        assert!((poly.vertices.as_ref().unwrap()[2].y - 195.0).abs() < 0.5);
+        assert!(
+            recovered_annots
+                .iter()
+                .any(|a| a.kind == AnnotationKind::PolyLine)
+        );
+        std::fs::remove_file(path).ok();
+        std::fs::remove_file(path2).ok();
+    }
+
+    #[test]
     fn an_author_who_forbids_annotations_is_obeyed() {
         // RC4, /P without the annotation bit (tests/corpus/generate.py).
         let documents = Documents::new(worker());
@@ -8449,7 +8752,10 @@ mod with_worker {
             },
             Edit::AddShape {
                 page: 0,
-                shape: Shape::Rectangle { rect },
+                shape: Shape::Rectangle {
+                    rect,
+                    cloudy: false,
+                },
                 color: InkColor::Black,
                 width: InkWidth::Thin,
             },
@@ -8464,6 +8770,20 @@ mod with_worker {
                 annotation: AnnotationId(5),
                 color: InkColor::Black,
                 width: InkWidth::Thin,
+            },
+            Edit::SetShapeVertices {
+                page: 0,
+                annotation: AnnotationId(5),
+                vertices: vec![
+                    Point { x: 72.0, y: 72.0 },
+                    Point { x: 140.0, y: 72.0 },
+                    Point { x: 100.0, y: 140.0 },
+                ],
+            },
+            Edit::SetShapeCloudy {
+                page: 0,
+                annotation: AnnotationId(5),
+                cloudy: true,
             },
             Edit::AddLink {
                 page: 0,

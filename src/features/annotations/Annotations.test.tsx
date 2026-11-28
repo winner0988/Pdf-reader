@@ -38,6 +38,8 @@ const highlight: PageAnnotation = {
   text: null,
   picture: null,
   lineEnds: null,
+  vertices: null,
+  shapeCloudy: false,
   shapeColor: null,
   shapeWidth: null,
 };
@@ -49,6 +51,8 @@ const note: PageAnnotation = {
   text: "Existing note",
   picture: null,
   lineEnds: null,
+  vertices: null,
+  shapeCloudy: false,
   shapeColor: null,
   shapeWidth: null,
 };
@@ -262,6 +266,8 @@ describe("text markups: underline, strikeout, squiggly (B4-04)", () => {
       text: null,
       picture: null,
       lineEnds: null,
+      vertices: null,
+      shapeCloudy: false,
       shapeColor: null,
       shapeWidth: null,
     };
@@ -448,6 +454,8 @@ describe("PageAnnotations", () => {
     text: "Words",
     picture: null,
     lineEnds: null,
+    vertices: null,
+    shapeCloudy: false,
     shapeColor: null,
     shapeWidth: null,
   };
@@ -562,6 +570,8 @@ describe("PageAnnotations", () => {
       lineEnds: null,
       shapeColor: "black",
       shapeWidth: "thin",
+      vertices: null,
+      shapeCloudy: false,
     };
     const { editing, user } = await setup(ALL_PERMISSIONS, [rectAnnot]);
     const outline = await screen.findByRole("button", { name: annotationLabel(rectAnnot) });
@@ -614,6 +624,8 @@ describe("PageAnnotations", () => {
       },
       shapeColor: "red",
       shapeWidth: "medium",
+      vertices: null,
+      shapeCloudy: false,
     };
     const { editing } = await setup(ALL_PERMISSIONS, [arrowAnnot]);
     const outline = await screen.findByRole("button", { name: annotationLabel(arrowAnnot) });
@@ -646,6 +658,8 @@ describe("PageAnnotations", () => {
       },
       shapeColor: "black",
       shapeWidth: "thin",
+      vertices: null,
+      shapeCloudy: false,
     };
     const { editing } = await setup(ALL_PERMISSIONS, [lineAtEdge]);
     const outline = await screen.findByRole("button", { name: annotationLabel(lineAtEdge) });
@@ -659,5 +673,114 @@ describe("PageAnnotations", () => {
     expect(edit.to.x).toBeGreaterThanOrEqual(0);
     expect(edit.from.x).toBeCloseTo(0);
     expect(edit.to.x).toBeCloseTo(50);
+  });
+
+  it("allows toggling cloudy border on selected rectangle only, not ellipse", async () => {
+    const rectAnnot: PageAnnotation = {
+      id: 23,
+      kind: "rectangle",
+      rect: { x0: 50, y0: 50, x1: 150, y1: 120 },
+      color: null,
+      text: null,
+      picture: null,
+      lineEnds: null,
+      shapeColor: "black",
+      shapeWidth: "thin",
+      vertices: null,
+      shapeCloudy: false,
+    };
+    const ellipseAnnot: PageAnnotation = {
+      id: 24,
+      kind: "ellipse",
+      rect: { x0: 200, y0: 50, x1: 300, y1: 120 },
+      color: null,
+      text: null,
+      picture: null,
+      lineEnds: null,
+      shapeColor: "blue",
+      shapeWidth: "medium",
+      vertices: null,
+      shapeCloudy: false,
+    };
+
+    const { editing, user } = await setup(ALL_PERMISSIONS, [rectAnnot, ellipseAnnot]);
+    const rectOutline = await screen.findByRole("button", { name: annotationLabel(rectAnnot) });
+    act(() => rectOutline.focus());
+    const rectToolbar = await screen.findByRole("toolbar", { name: annotationLabel(rectAnnot) });
+    const cloudyBtn = within(rectToolbar).getByRole("button", { name: "雲形邊框" });
+    await user.click(cloudyBtn);
+    expect(lastEdit(editing)).toMatchObject({
+      kind: "setShapeCloudy",
+      page: 0,
+      annotation: 23,
+      cloudy: true,
+    });
+
+    const ellipseOutline = await screen.findByRole("button", { name: annotationLabel(ellipseAnnot) });
+    act(() => ellipseOutline.focus());
+    const ellipseToolbar = await screen.findByRole("toolbar", { name: annotationLabel(ellipseAnnot) });
+    expect(within(ellipseToolbar).queryByRole("button", { name: "雲形邊框" })).toBeNull();
+  });
+
+  it("allows selecting polygon, dragging a vertex handle, moving with arrow keys, and toggling cloudy (B7-10)", async () => {
+    const polyAnnot: PageAnnotation = {
+      id: 25,
+      kind: "polygon",
+      rect: { x0: 98, y0: 98, x1: 202, y1: 182 },
+      color: null,
+      text: null,
+      picture: null,
+      lineEnds: null,
+      shapeColor: "blue",
+      shapeWidth: "medium",
+      shapeCloudy: false,
+      vertices: [
+        { x: 100, y: 100 },
+        { x: 200, y: 100 },
+        { x: 150, y: 180 },
+      ],
+    };
+
+    const { editing, user } = await setup(ALL_PERMISSIONS, [polyAnnot]);
+    const outline = await screen.findByRole("button", { name: "多邊形" });
+    expect(outline).toHaveAttribute("data-annotation", "polygon");
+    act(() => outline.focus());
+
+    const handles = document.querySelector("[data-polygon-handles='25']");
+    expect(handles).toBeInTheDocument();
+
+    // Drag first vertex from (100, 100) to (130, 120)
+    const firstHandle = handles!.querySelector<HTMLElement>("[data-vertex-index='0']")!;
+    expect(firstHandle).toBeInTheDocument();
+    const start = at(0, 100, 100);
+    const end = at(0, 130, 120);
+    fireEvent.pointerDown(firstHandle, { pointerId: 1, button: 0, ...start });
+    fireEvent.pointerMove(firstHandle, { pointerId: 1, button: 0, ...end });
+    fireEvent.pointerUp(firstHandle, { pointerId: 1, button: 0, ...end });
+
+    expect(lastEdit(editing)).toMatchObject({
+      kind: "setShapeVertices",
+      page: 0,
+      annotation: 25,
+    });
+
+    // Arrow key moves entire polygon
+    fireEvent.keyDown(outline, { key: "ArrowRight" });
+    expect(lastEdit(editing)).toMatchObject({
+      kind: "setAnnotationRect",
+      page: 0,
+      annotation: 25,
+    });
+
+    // Cloudy toggle on polygon
+    const toolbar = await screen.findByRole("toolbar", { name: "多邊形" });
+    const cloudyBtn = within(toolbar).getByRole("button", { name: "雲形邊框" });
+    await user.click(cloudyBtn);
+    expect(lastEdit(editing)).toMatchObject({
+      kind: "setShapeCloudy",
+      page: 0,
+      annotation: 25,
+      cloudy: true,
+    });
   });
 });

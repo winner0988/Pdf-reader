@@ -271,6 +271,9 @@ pub const MAX_SIGNATURE_FILE_BYTES: u64 = 2 * 1024 * 1024;
 /// points: smaller than that it cannot be seen or grabbed.
 pub const MIN_ANNOTATION_SIDE_PT: f32 = 8.0;
 
+/// Most vertices a polygon or polyline annotation may have (B7-10).
+pub const MAX_SHAPE_VERTICES: u32 = 1_000;
+
 /// How far, in degrees, a picture may be turned to either way (B3-01): a full turn.
 pub const MAX_PICTURE_ANGLE_DEGREES: f32 = 360.0;
 

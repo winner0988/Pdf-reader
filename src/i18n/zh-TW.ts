@@ -377,6 +377,8 @@ export const strings = {
       ellipse: "橢圓",
       line: "直線",
       arrow: "箭頭",
+      polygon: "多邊形",
+      polyLine: "折線",
       /** An area marked to be redacted (B2-19, ADR 0016): removed only when the marks are applied. */
       redaction: "待遮蔽的範圍",
       other: "註解",
@@ -391,9 +393,15 @@ export const strings = {
       ellipse: "橢圓",
       line: "直線",
       arrow: "箭頭",
+      polygon: "多邊形",
+      polyLine: "折線",
     },
+    cloudy: "雲形邊框",
     shapeOn: (name: string) => `「${name}」已開啟：在頁面上按住並拖曳畫出圖形（加 Shift 保持等比或 45°），按 Esc 結束。`,
+    polygonOn: (name: string) =>
+      `「${name}」已開啟：在頁面上點一下新增頂點（加 Shift 對齊 45°），點兩下或按 Enter 完成，按 Esc 取消。`,
     moveLineHint: "拖曳端點調整位置；拖曳線段移動；方向鍵移動 1 點，加 Shift 移動 10 點。",
+    movePolygonHint: "拖曳頂點調整位置；拖曳圖形移動；方向鍵移動 1 點，加 Shift 移動 10 點。",
     /** The pen and the stamps (B2-08). */
     pen: "畫筆",
     penStyle: "畫筆的顏色與粗細",

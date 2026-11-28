@@ -1182,42 +1182,85 @@ export function ReaderShell({
       rect,
     });
   };
-  // How the shape tool draws (B4-05).
-  const [shapeStyle, setShapeStyle] = useState<{ kind: ShapeToolKind; color: InkColor; width: InkWidth }>({
+  // How the shape tool draws (B4-05, B7-10).
+  const [shapeStyle, setShapeStyle] = useState<{
+    kind: ShapeToolKind;
+    color: InkColor;
+    width: InkWidth;
+    cloudy: boolean;
+  }>({
     kind: "rectangle",
     color: "black",
     width: "medium",
+    cloudy: false,
   });
+  const shapeHintFor = (kind: ShapeToolKind) =>
+    kind === "polygon" || kind === "polyLine"
+      ? strings.annotations.polygonOn(strings.annotations.shapeKinds[kind])
+      : strings.annotations.shapeOn(strings.annotations.shapeKinds[kind]);
   const toggleShape = () => {
     commitActiveTextBox();
     if (tool?.kind === "shape") {
       setTool(null);
     } else {
-      setTool({ kind: "shape", shapeKind: shapeStyle.kind, color: shapeStyle.color, width: shapeStyle.width });
-      showHint(strings.annotations.shapeOn(strings.annotations.shapeKinds[shapeStyle.kind]));
+      setTool({
+        kind: "shape",
+        shapeKind: shapeStyle.kind,
+        color: shapeStyle.color,
+        width: shapeStyle.width,
+        cloudy: shapeStyle.cloudy,
+      });
+      showHint(shapeHintFor(shapeStyle.kind));
     }
   };
   const changeShapeKind = (kind: ShapeToolKind) => {
+    commitActiveTextBox();
     const next = { ...shapeStyle, kind };
     setShapeStyle(next);
-    if (tool?.kind === "shape") {
-      setTool({ kind: "shape", shapeKind: kind, color: next.color, width: next.width });
-      showHint(strings.annotations.shapeOn(strings.annotations.shapeKinds[kind]));
-    }
+    setTool({
+      kind: "shape",
+      shapeKind: kind,
+      color: next.color,
+      width: next.width,
+      cloudy: next.cloudy,
+    });
+    showHint(shapeHintFor(kind));
   };
   const changeShapeColor = (color: InkColor) => {
+    commitActiveTextBox();
     const next = { ...shapeStyle, color };
     setShapeStyle(next);
-    if (tool?.kind === "shape") {
-      setTool({ kind: "shape", shapeKind: next.kind, color, width: next.width });
-    }
+    setTool({
+      kind: "shape",
+      shapeKind: next.kind,
+      color,
+      width: next.width,
+      cloudy: next.cloudy,
+    });
   };
   const changeShapeWidth = (width: InkWidth) => {
+    commitActiveTextBox();
     const next = { ...shapeStyle, width };
     setShapeStyle(next);
-    if (tool?.kind === "shape") {
-      setTool({ kind: "shape", shapeKind: next.kind, color: next.color, width });
-    }
+    setTool({
+      kind: "shape",
+      shapeKind: next.kind,
+      color: next.color,
+      width,
+      cloudy: next.cloudy,
+    });
+  };
+  const changeShapeCloudy = (cloudy: boolean) => {
+    commitActiveTextBox();
+    const next = { ...shapeStyle, cloudy };
+    setShapeStyle(next);
+    setTool({
+      kind: "shape",
+      shapeKind: next.kind,
+      color: next.color,
+      width: next.width,
+      cloudy,
+    });
   };
   const inkStyle = (change: Partial<{ color: InkColor; width: InkWidth }>) => {
     const next = { ...ink, ...change };
@@ -1260,7 +1303,7 @@ export function ReaderShell({
     if (!tool || !active) return;
     // Esc comes after an open menu has had it: that only closes the menu.
     const onEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.defaultPrevented) {
         event.preventDefault();
         setTool(null);
       }
@@ -1931,10 +1974,12 @@ export function ReaderShell({
                   kind: shapeStyle.kind,
                   color: shapeStyle.color,
                   width: shapeStyle.width,
+                  cloudy: shapeStyle.cloudy,
                   onToggle: annotations.enabled ? toggleShape : undefined,
                   onKind: changeShapeKind,
                   onColor: changeShapeColor,
                   onWidth: changeShapeWidth,
+                  onCloudy: changeShapeCloudy,
                 }
               : undefined
           }

@@ -11,6 +11,8 @@ const annotation = (id: number): PageAnnotation => ({
   text: `note ${id}`,
   picture: null,
   lineEnds: null,
+  vertices: null,
+  shapeCloudy: false,
   shapeColor: null,
   shapeWidth: null,
 });

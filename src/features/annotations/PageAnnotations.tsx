@@ -7,7 +7,7 @@
 // toolbar, or with the keys [ and ]; so can a text box (B2-30), which also has Enter and a button
 // to change what it says.
 
-import { ChevronDown, Pencil, RotateCcw, RotateCw, Trash2 } from "lucide-react";
+import { ChevronDown, Cloud, Pencil, RotateCcw, RotateCw, Trash2 } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import { LineHandles } from "@/features/annotations/LineHandles";
 import { annotationLabel, HIGHLIGHT_COLORS, SWATCH } from "@/features/annotations/model";
 import { MoveResize } from "@/features/annotations/MoveResize";
 import { PictureTurn } from "@/features/annotations/PictureTurn";
+import { PolygonHandles } from "@/features/annotations/PolygonHandles";
 import type { AnnotationsApi, AnnotationSource } from "@/features/annotations/source";
 import {
   DEFAULT_TEXT_SIZE,
@@ -39,7 +40,19 @@ import {
 } from "@/features/annotations/textBox";
 import { TextBoxToolbar } from "@/features/annotations/TextBoxToolbar";
 import { normalizeAngle, TURN_STEP_DEGREES } from "@/features/annotations/turn";
-import { INK_COLORS, INK_SWATCH, INK_WIDTHS, keepLineOnPage, keptOnPage, moved, rectOfBox, type Box } from "@/features/annotations/tools";
+import {
+  INK_COLORS,
+  INK_SWATCH,
+  INK_WIDTHS,
+  keepLineOnPage,
+  keepVerticesOnPage,
+  keptOnPage,
+  moved,
+  polygonMoveRect,
+  rectOfBox,
+  shapeSupportsCloudy,
+  type Box,
+} from "@/features/annotations/tools";
 import type { TextBoxTarget } from "@/features/annotations/useAnnotations";
 import type { PageSize, Rotation } from "@/features/shell/model";
 import { boxToPage, displayedSize, pageToBox, rectToBox, type PageBox } from "@/features/viewer/layout";
@@ -119,7 +132,18 @@ type PageAnnotationsProps = {
 };
 
 /** The kinds that can be moved and resized; a redaction mark is only an area until it is applied (B2-19). */
-const MOVABLE = new Set(["ink", "stamp", "textBox", "redaction", "rectangle", "ellipse", "line", "arrow"]);
+const MOVABLE = new Set([
+  "ink",
+  "stamp",
+  "textBox",
+  "redaction",
+  "rectangle",
+  "ellipse",
+  "line",
+  "arrow",
+  "polygon",
+  "polyLine",
+]);
 
 export function PageAnnotations({
   source,
@@ -221,6 +245,10 @@ export function PageAnnotations({
     change({ kind: "setLineEnds", page: index, annotation: annotation.id, from, to });
   const setShapeStyle = (annotation: PageAnnotation, color: InkColor, width: InkWidth) =>
     change({ kind: "setShapeStyle", page: index, annotation: annotation.id, color, width });
+  const setShapeVertices = (annotation: PageAnnotation, vertices: Point[]) =>
+    change({ kind: "setShapeVertices", page: index, annotation: annotation.id, vertices });
+  const setShapeCloudy = (annotation: PageAnnotation, cloudy: boolean) =>
+    change({ kind: "setShapeCloudy", page: index, annotation: annotation.id, cloudy });
   // A picture is turned to an angle (B3-01), not by a step on top of what the page last heard.
   const turnTo = (annotation: PageAnnotation, degrees: number) =>
     change({ kind: "setPictureAngle", page: index, annotation: annotation.id, degrees: normalizeAngle(degrees) });
@@ -269,6 +297,16 @@ export function PageAnnotations({
         const nextTo = boxToPage({ x: p2.x + dx * step, y: p2.y + dy * step }, page, rotation, box);
         const kept = keepLineOnPage(nextFrom, nextTo, page);
         placeLine(annotation, kept.from, kept.to);
+      } else if (annotation.kind === "polygon" || annotation.kind === "polyLine") {
+        const verts = annotation.vertices ?? [];
+        if (verts.length >= 2) {
+          const p0 = pageToBox(verts[0]!, page, rotation, box);
+          const nextP0 = boxToPage({ x: p0.x + dx * step, y: p0.y + dy * step }, page, rotation, box);
+          const clamped = keepVerticesOnPage(verts, nextP0.x - verts[0]!.x, nextP0.y - verts[0]!.y, page);
+          if (Math.hypot(clamped.dx, clamped.dy) > 1e-4) {
+            place(annotation, polygonMoveRect(annotation.rect, clamped.dx, clamped.dy));
+          }
+        }
       } else {
         place(annotation, keptOnPage(rectOfBox(moved(area, dx * step, dy * step), page, rotation, box), page));
       }
@@ -295,10 +333,12 @@ export function PageAnnotations({
         const isEditingThis = annotation.id === editingTextBoxId;
         const movable = onEdit !== undefined && MOVABLE.has(annotation.kind);
         const isLine = annotation.kind === "line" || annotation.kind === "arrow";
-        const btnWidth = isLine ? Math.max(area.width, 16) : area.width;
-        const btnHeight = isLine ? Math.max(area.height, 16) : area.height;
-        const btnLeft = isLine && area.width < 16 ? area.left - (16 - area.width) / 2 : area.left;
-        const btnTop = isLine && area.height < 16 ? area.top - (16 - area.height) / 2 : area.top;
+        const isPoly = annotation.kind === "polygon" || annotation.kind === "polyLine";
+        const isThin = isLine || isPoly;
+        const btnWidth = isThin ? Math.max(area.width, 16) : area.width;
+        const btnHeight = isThin ? Math.max(area.height, 16) : area.height;
+        const btnLeft = isThin && area.width < 16 ? area.left - (16 - area.width) / 2 : area.left;
+        const btnTop = isThin && area.height < 16 ? area.top - (16 - area.height) / 2 : area.top;
         return (
           // The chosen one's toolbar follows its outline, so that Tab goes from one to the other.
           <Fragment key={annotation.id}>
@@ -313,6 +353,8 @@ export function PageAnnotations({
                     ? t.moveTurnHint
                     : isLine
                     ? t.moveLineHint
+                    : isPoly
+                    ? t.movePolygonHint
                     : t.moveHint
                   : undefined
               }
@@ -342,7 +384,17 @@ export function PageAnnotations({
                 onPlaceLine={(from, to) => placeLine(annotation, from, to)}
               />
             )}
-            {isChosen && !isEditingThis && movable && fresh && !isLine && (
+            {isChosen && !isEditingThis && movable && fresh && isPoly && (
+              <PolygonHandles
+                annotation={annotation}
+                page={page}
+                rotation={rotation}
+                box={box}
+                onVertices={(vertices) => setShapeVertices(annotation, vertices)}
+                onMove={(rect) => place(annotation, rect)}
+              />
+            )}
+            {isChosen && !isEditingThis && movable && fresh && !isLine && !isPoly && (
               <MoveResize
                 annotation={annotation}
                 page={page}
@@ -404,6 +456,11 @@ export function PageAnnotations({
                   }
                   onShapeWidth={(width) =>
                     setShapeStyle(annotation, annotation.shapeColor ?? "black", width)
+                  }
+                  onShapeCloudy={
+                    shapeSupportsCloudy(annotation.kind)
+                      ? (cloudy) => setShapeCloudy(annotation, cloudy)
+                      : undefined
                   }
                   onEditNote={() => editNote(annotation)}
                   onEditTextBox={editTextBox ? () => editTextBox(annotation) : undefined}
@@ -679,6 +736,7 @@ type AnnotationToolbarProps = {
   onColor: (color: HighlightColor) => void;
   onShapeColor?: (color: InkColor) => void;
   onShapeWidth?: (width: InkWidth) => void;
+  onShapeCloudy?: (cloudy: boolean) => void;
   onEditNote: () => void;
   onEditTextBox?: () => void;
   /** Turns the picture by so many degrees (B3-01); given only for a picture stamp. */
@@ -695,6 +753,7 @@ function AnnotationToolbar({
   onColor,
   onShapeColor,
   onShapeWidth,
+  onShapeCloudy,
   onEditNote,
   onEditTextBox,
   onTurn,
@@ -706,12 +765,14 @@ function AnnotationToolbar({
     annotation.kind === "rectangle" ||
     annotation.kind === "ellipse" ||
     annotation.kind === "line" ||
-    annotation.kind === "arrow";
+    annotation.kind === "arrow" ||
+    annotation.kind === "polygon" ||
+    annotation.kind === "polyLine";
   return (
     <div
       role="toolbar"
       aria-label={annotationLabel(annotation)}
-      className="pointer-events-auto absolute flex max-w-[260px] items-center gap-1 rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"
+      className="pointer-events-auto absolute flex max-w-[300px] items-center gap-1 rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"
       style={{ top, left }}
       // A press here is not a press on the page: no text selection starts, nothing is chosen.
       onMouseDown={(event) => event.stopPropagation()}
@@ -779,6 +840,20 @@ function AnnotationToolbar({
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+          {onShapeCloudy && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={t.cloudy}
+              aria-pressed={annotation.shapeCloudy}
+              title={why ?? t.cloudy}
+              disabled={!allowed}
+              className="aria-pressed:bg-accent"
+              onClick={() => onShapeCloudy(!annotation.shapeCloudy)}
+            >
+              <Cloud />
+            </Button>
+          )}
         </>
       )}
       {annotation.kind === "note" && (

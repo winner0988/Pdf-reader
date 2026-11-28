@@ -24,8 +24,8 @@ use mupdf::pdf::{LineEndingStyle, PdfAnnotationType, PdfObject};
 use mupdf::{Colorspace, ImageFormat, Pixmap};
 
 use super::annotations::{
-    has_unsupported_shape_features, highlight_color, parse_ink_color, parse_ink_width,
-    parse_stamp_name,
+    has_app_cloudy_border, has_unsupported_shape_features, highlight_color, parse_ink_color,
+    parse_ink_width, parse_stamp_name, read_shape_vertices, square_inner_rect,
 };
 use super::stamp_image::{entry_of, read_setting};
 use super::text_box::is_text_box;
@@ -484,12 +484,15 @@ pub(super) fn extract_source_annotations(
                         continue;
                     }
                     let r = annot.rect().ok().unwrap_or(bounds);
-                    let rect = Rect {
+                    let outer = Rect {
                         x0: r.x0,
                         y0: r.y0,
                         x1: r.x1,
                         y1: r.y1,
                     };
+                    let rect = square_inner_rect(&annot)
+                        .filter(|inner| check_annotation_rect(inner).is_ok())
+                        .unwrap_or(outer);
                     if check_annotation_rect(&rect).is_err() {
                         continue;
                     }
@@ -501,9 +504,10 @@ pub(super) fn extract_source_annotations(
                         .ok()
                         .and_then(parse_ink_width)
                         .unwrap_or(InkWidth::Medium);
+                    let cloudy = has_app_cloudy_border(&annot);
                     extracted.push(ExtractedAnnotation::Shape {
                         page: page_idx,
-                        shape: Shape::Rectangle { rect },
+                        shape: Shape::Rectangle { rect, cloudy },
                         color,
                         width,
                     });
@@ -568,6 +572,44 @@ pub(super) fn extract_source_annotations(
                         .and_then(parse_ink_width)
                         .unwrap_or(InkWidth::Medium);
                     let shape = Shape::Line { from, to, arrow };
+                    if shape.validate().is_err() {
+                        continue;
+                    }
+                    extracted.push(ExtractedAnnotation::Shape {
+                        page: page_idx,
+                        shape,
+                        color,
+                        width,
+                    });
+                }
+                kind @ (PdfAnnotationType::Polygon | PdfAnnotationType::PolyLine) => {
+                    if has_unsupported_shape_features(&annot).unwrap_or(true) {
+                        continue;
+                    }
+                    let min = if kind == PdfAnnotationType::Polygon {
+                        3
+                    } else {
+                        2
+                    };
+                    let Some(vertices) = read_shape_vertices(&annot, min).ok().flatten() else {
+                        continue;
+                    };
+                    let Some(color) = annot.color().ok().flatten().and_then(parse_ink_color) else {
+                        continue;
+                    };
+                    let width = annot
+                        .border_width()
+                        .ok()
+                        .and_then(parse_ink_width)
+                        .unwrap_or(InkWidth::Medium);
+                    let shape = if kind == PdfAnnotationType::Polygon {
+                        Shape::Polygon {
+                            vertices,
+                            cloudy: has_app_cloudy_border(&annot),
+                        }
+                    } else {
+                        Shape::PolyLine { vertices }
+                    };
                     if shape.validate().is_err() {
                         continue;
                     }

@@ -44,9 +44,11 @@ sequenceDiagram
 | `/Ink` | `<ink>` | `page`, `rect`, `color`, `opacity`, `width`, `flags`, `name` | `<inklist><gesture>...</gesture></inklist>` |
 | `/Stamp`（標準印章） | `<stamp>` | `page`, `rect`, `flags`, `name`, `icon` | - |
 | `/FreeText` | `<freetext>` | `page`, `rect`, `color`, `flags`, `name`, `justification` | `<defaultappearance>`, `<defaultstyle>`, `<contents>` |
-| `/Square` | `<square>` | `page`, `rect`, `color`, `interior-color`, `opacity`, `width`, `flags`, `name` | - |
+| `/Square` | `<square>` | `page`, `rect`, `color`, `interior-color`, `opacity`, `width`, `flags`, `name`, `style`, `intensity` | - |
 | `/Circle` | `<circle>` | `page`, `rect`, `color`, `interior-color`, `opacity`, `width`, `flags`, `name` | - |
 | `/Line` | `<line>` | `page`, `rect`, `color`, `opacity`, `width`, `start`, `end`, `head`, `tail`, `flags`, `name` | `<contents>` |
+| `/Polygon` | `<polygon>`（ISO 19444-1 § 6.4.11） | `page`, `rect`, `color`, `interior-color`, `opacity`, `width`, `flags`, `name`, `style`, `intensity`（§ 6.6.18 雲形邊框 `style="cloudy" intensity="1"`） | `<vertices>`（§ 6.5.31） |
+| `/PolyLine` | `<polyline>`（ISO 19444-1 § 6.4.12） | `page`, `rect`, `color`, `opacity`, `width`, `flags`, `name` | `<vertices>`（§ 6.5.31） |
 
 ## 座標系統（PDF User Space）
 
@@ -55,6 +57,7 @@ sequenceDiagram
 - **數值格式化**：浮點數最高保留 4 位小數，去除結尾無效的 `0` 與小數點，不使用科學記號，避免 `-0`。
 - **`coords` 順序**：四邊形座標依 PDF 標準格式（左上、右上、左下、右下）連續輸出 8 個數值。
 - **手繪線條 `inklist`**：筆畫點對以逗號連接（`x,y`），點與點以分號分隔（`<gesture>x1,y1;x2,y2;...</gesture>`）。
+- **多邊形／折線 `vertices`**：依 ISO 19444-1 § 6.5.31 以分號分隔點對 `<vertices>x1,y1;x2,y2;...</vertices>`；矩形與多邊形帶有 `/BE << /S /C /I 1 >>` 時依 § 6.6.18 加上 `style="cloudy" intensity="1"`。
 
 ## 唯一識別名稱與階層關係
 

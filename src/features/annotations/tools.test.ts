@@ -19,6 +19,9 @@ import {
   thin,
   shapeLine,
   shapeRect,
+  snapSegmentAngle,
+  keepVerticesOnPage,
+  translateVertices,
 } from "@/features/annotations/tools";
 import type { Rotation } from "@/features/shell/model";
 import { displayedSize, rectToBox } from "@/features/viewer/layout";
@@ -222,5 +225,27 @@ describe("shape geometry", () => {
     const l3 = shapeLine({ x: 10, y: 10 }, { x: 100, y: 20 }, true);
     expect(l3.to.x).toBeGreaterThan(90);
     expect(l3.to.y).toBeCloseTo(10);
+  });
+
+  it("snaps polygon and polyline segments to 45 degree angles with Shift and translates vertices within page bounds", () => {
+    const snappedDiag = snapSegmentAngle({ x: 100, y: 100 }, { x: 180, y: 170 });
+    expect(snappedDiag.x - 100).toBeCloseTo(snappedDiag.y - 100, 1);
+
+    const snappedVert = snapSegmentAngle({ x: 100, y: 100 }, { x: 105, y: 200 });
+    expect(snappedVert.x).toBeCloseTo(100, 1);
+    expect(snappedVert.y).toBeCloseTo(200, 0);
+
+    const pts = [
+      { x: 10, y: 20 },
+      { x: 100, y: 20 },
+      { x: 60, y: 90 },
+    ];
+    expect(keepVerticesOnPage(pts, -25, 10, LETTER)).toEqual({ dx: -10, dy: 10 });
+    expect(keepVerticesOnPage(pts, 600, 750, LETTER)).toEqual({ dx: 512, dy: 702 });
+    expect(translateVertices(pts, 15, -5)).toEqual([
+      { x: 25, y: 15 },
+      { x: 115, y: 15 },
+      { x: 75, y: 85 },
+    ]);
   });
 });

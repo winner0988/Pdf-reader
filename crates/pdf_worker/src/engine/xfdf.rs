@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use ipc_contract::limits::{
     MAX_ANNOTATION_QUADS, MAX_ANNOTATION_SUMMARY_ITEMS, MAX_ANNOTATION_SUMMARY_TEXT_BYTES,
     MAX_ANNOTATION_SUMMARY_TOTAL_BYTES, MAX_ANNOTATIONS_PER_PAGE, MAX_INK_POINTS, MAX_INK_STROKES,
-    MAX_PAGE_SIDE_PT,
+    MAX_PAGE_SIDE_PT, MAX_SHAPE_VERTICES,
 };
 use ipc_contract::text::clean_note_text;
 use ipc_contract::types::{Point, TextAlign};
@@ -52,6 +52,8 @@ struct Candidate {
     quads: Vec<[f32; 8]>,
     ink: Vec<Vec<[f32; 2]>>,
     line: Option<[f32; 4]>,
+    vertices: Vec<[f32; 2]>,
+    cloudy: bool,
     start: Point,
     number: u32,
     indirect: i32,
@@ -129,6 +131,22 @@ impl PdfDocument {
                         }
                         ExportedAnnotationKind::Line
                     }
+                    PdfAnnotationType::Polygon => {
+                        if super::annotations::has_unsupported_shape_features(&annotation)
+                            .unwrap_or(true)
+                        {
+                            continue;
+                        }
+                        ExportedAnnotationKind::Polygon
+                    }
+                    PdfAnnotationType::PolyLine => {
+                        if super::annotations::has_unsupported_shape_features(&annotation)
+                            .unwrap_or(true)
+                        {
+                            continue;
+                        }
+                        ExportedAnnotationKind::PolyLine
+                    }
                     _ => continue,
                 };
 
@@ -182,6 +200,29 @@ impl PdfDocument {
                     None
                 };
 
+                let vertices = match kind {
+                    ExportedAnnotationKind::Polygon => match read_vertices(&dict, 3) {
+                        Some(v) => v,
+                        None => {
+                            skipped += 1;
+                            continue;
+                        }
+                    },
+                    ExportedAnnotationKind::PolyLine => match read_vertices(&dict, 2) {
+                        Some(v) => v,
+                        None => {
+                            skipped += 1;
+                            continue;
+                        }
+                    },
+                    _ => Vec::new(),
+                };
+
+                let cloudy = matches!(
+                    kind,
+                    ExportedAnnotationKind::Rectangle | ExportedAnnotationKind::Polygon
+                ) && super::annotations::has_app_cloudy_border(&annotation);
+
                 let indirect = match dict.as_indirect() {
                     Ok(id) => id,
                     Err(_) => {
@@ -230,6 +271,8 @@ impl PdfDocument {
                     quads,
                     ink,
                     line,
+                    vertices,
+                    cloudy,
                     start,
                     number,
                     indirect,
@@ -327,6 +370,8 @@ impl PdfDocument {
                     line: candidate.line,
                     line_endings,
                     text_style,
+                    vertices: candidate.vertices,
+                    cloudy: candidate.cloudy,
                 };
 
                 partial_items.push(PartialItem { item, irt_target });
@@ -457,6 +502,33 @@ fn read_line(dict: &PdfObject) -> Option<[f32; 4]> {
         return None;
     }
     Some([x1, y1, x2, y2])
+}
+
+/// Reads `/Vertices` directly from the annotation dictionary in PDF user space (ISO 19444-1 § 6.5.31).
+fn read_vertices(dict: &PdfObject, min: usize) -> Option<Vec<[f32; 2]>> {
+    let obj = dict.get_dict("Vertices").ok()??;
+    let len = obj.len().ok()?;
+    if len == 0 || len % 2 != 0 {
+        return None;
+    }
+    let count = len / 2;
+    if count < min || count > MAX_SHAPE_VERTICES as usize {
+        return None;
+    }
+    let mut vertices = Vec::with_capacity(count);
+    for i in 0..count {
+        let x = obj.get_array((i * 2) as i32).ok()??.as_float().ok()?;
+        let y = obj.get_array((i * 2 + 1) as i32).ok()??.as_float().ok()?;
+        if !x.is_finite()
+            || !y.is_finite()
+            || x.abs() > MAX_PAGE_SIDE_PT
+            || y.abs() > MAX_PAGE_SIDE_PT
+        {
+            return None;
+        }
+        vertices.push([x, y]);
+    }
+    Some(vertices)
 }
 
 fn parse_le(item: PdfObject) -> ExportedLineEnding {
@@ -835,6 +907,7 @@ mod tests {
                     x1: 50.0,
                     y1: 350.0,
                 },
+                cloudy: false,
             },
             InkColor::Black,
             InkWidth::Thin,
