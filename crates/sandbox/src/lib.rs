@@ -26,9 +26,10 @@ use std::ptr::{null, null_mut};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use windows_sys::Wdk::System::SystemServices::RtlGetVersion;
 use windows_sys::Win32::Foundation::{
-    DuplicateHandle, HANDLE, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, LocalFree,
-    SetHandleInformation, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    DuplicateHandle, GENERIC_ALL, GENERIC_EXECUTE, GENERIC_READ, HANDLE, HANDLE_FLAG_INHERIT,
+    INVALID_HANDLE_VALUE, LocalFree, SetHandleInformation, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::Security::Authorization::{
     ConvertStringSidToSidW, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW,
@@ -39,10 +40,12 @@ use windows_sys::Win32::Security::Isolation::{
     CreateAppContainerProfile, DeleteAppContainerProfile, DeriveAppContainerSidFromAppContainerName,
 };
 use windows_sys::Win32::Security::{
-    CreateRestrictedToken, DACL_SECURITY_INFORMATION, DISABLE_MAX_PRIVILEGE, FreeSid, GetLengthSid,
-    NO_INHERITANCE, PSID, SECURITY_CAPABILITIES, SID_AND_ATTRIBUTES, SetTokenInformation,
-    TOKEN_ADJUST_DEFAULT, TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_MANDATORY_LABEL,
-    TOKEN_QUERY, TokenIntegrityLevel,
+    ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, ACL_SIZE_INFORMATION, AclSizeInformation,
+    CONTAINER_INHERIT_ACE, CreateRestrictedToken, DACL_SECURITY_INFORMATION, DISABLE_MAX_PRIVILEGE,
+    EqualSid, FreeSid, GetAce, GetAclInformation, GetLengthSid, INHERIT_ONLY_ACE, NO_INHERITANCE,
+    OBJECT_INHERIT_ACE, PSID, SECURITY_CAPABILITIES, SID_AND_ATTRIBUTES,
+    SUB_CONTAINERS_AND_OBJECTS_INHERIT, SetTokenInformation, TOKEN_ADJUST_DEFAULT,
+    TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_MANDATORY_LABEL, TOKEN_QUERY, TokenIntegrityLevel,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_APPEND_DATA, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_WRITE_DATA, SYNCHRONIZE,
@@ -58,6 +61,7 @@ use windows_sys::Win32::System::JobObjects::{
     SetInformationJobObject, TerminateJobObject,
 };
 use windows_sys::Win32::System::Pipes::CreatePipe;
+use windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW;
 use windows_sys::Win32::System::SystemServices::SE_GROUP_INTEGRITY;
 use windows_sys::Win32::System::Threading::{
     CREATE_UNICODE_ENVIRONMENT, CreateProcessAsUserW, DETACHED_PROCESS,
@@ -92,8 +96,23 @@ const MITIGATIONS: u64 = (1 << 8) // force relocate images (mandatory ASLR)
 /// Low mandatory integrity level.
 const LOW_INTEGRITY_SID: &str = "S-1-16-4096";
 
+/// All Application Packages SID (AppContainer read/execute on system & portable files).
+const ALL_APPLICATION_PACKAGES_SID: &str = "S-1-15-2-1";
+
+/// All Restricted Application Packages SID (WebView2 renderer AppContainers on Windows 10).
+const ALL_RESTRICTED_APPLICATION_PACKAGES_SID: &str = "S-1-15-2-2";
+
+/// `ACCESS_ALLOWED_ACE_TYPE` (`winnt.h`).
+const ACCESS_ALLOWED_ACE_TYPE: u8 = 0;
+
+/// Windows 11 first build number (`RtlGetVersion` distinguishes Windows 10 `< 22000`).
+const WIN11_BUILD_NUMBER: u32 = 22000;
+
 /// AppContainer profile the worker runs in.
 pub const WORKER_APP_CONTAINER: &str = "PdfReader.Worker";
+
+/// AppContainer profile the portable POC worker runs in (#449, ADR 0034).
+pub const PORTABLE_WORKER_APP_CONTAINER: &str = "PdfReader.Portable.Worker";
 
 /// `HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)`.
 const HRESULT_ALREADY_EXISTS: i32 = 0x8007_00B7_u32 as i32;
@@ -112,6 +131,10 @@ pub struct SandboxConfig {
     /// AppContainer profile to run in, with no capabilities: no network at all and no access
     /// to the user's files. The profile is created on first use and reused afterwards.
     pub app_container: Option<String>,
+    /// Whether `spawn` grants Read & Execute access on `program` to the AppContainer SID when
+    /// needed (ignoring `ERROR_ACCESS_DENIED` on read-only installs). Portable mode verifies
+    /// and sets ACLs during startup preflight instead so ACL failures abort with a message.
+    pub grant_program_acl: bool,
 }
 
 impl Default for SandboxConfig {
@@ -119,6 +142,7 @@ impl Default for SandboxConfig {
         Self {
             memory_limit_bytes: 2 * 1024 * 1024 * 1024,
             app_container: Some(WORKER_APP_CONTAINER.to_owned()),
+            grant_program_acl: true,
         }
     }
 }
@@ -184,7 +208,9 @@ impl Sandboxed {
                     .lock()
                     .unwrap_or_else(|poison| poison.into_inner());
                 let container = AppContainerSid::obtain(name)?;
-                container.grant_read_execute(program)?;
+                if config.grant_program_acl {
+                    container.grant_read_execute(program)?;
+                }
                 Some(container)
             }
             None => None,
@@ -485,71 +511,237 @@ impl AppContainerSid {
     }
 }
 
+/// Security descriptor returned by `GetNamedSecurityInfoW`, freed via `LocalFree` on drop.
+struct SecurityDescriptorGuard {
+    descriptor: *mut c_void,
+    dacl: *mut ACL,
+}
+
+impl Drop for SecurityDescriptorGuard {
+    fn drop(&mut self) {
+        if !self.descriptor.is_null() {
+            // SAFETY: `descriptor` came from GetNamedSecurityInfoW and is no longer referenced.
+            unsafe { LocalFree(self.descriptor) };
+        }
+    }
+}
+
+/// SID returned by `ConvertStringSidToSidW`, freed via `LocalFree` on drop.
+struct ConvertedSid(PSID);
+
+impl ConvertedSid {
+    fn parse(sid: &str) -> io::Result<Self> {
+        let wide_sid = wide(OsStr::new(sid));
+        let mut raw = null_mut();
+        // SAFETY: NUL-terminated string SID; `raw` is released with LocalFree on drop.
+        check(unsafe { ConvertStringSidToSidW(wide_sid.as_ptr(), &mut raw) })?;
+        Ok(Self(raw))
+    }
+}
+
+impl Drop for ConvertedSid {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            // SAFETY: `self.0` was allocated by ConvertStringSidToSidW.
+            unsafe { LocalFree(self.0) };
+        }
+    }
+}
+
+fn read_dacl(path: &Path) -> io::Result<SecurityDescriptorGuard> {
+    let wide_path = wide(path.as_os_str());
+    let mut dacl = null_mut();
+    let mut descriptor = null_mut();
+    // SAFETY: NUL-terminated path; `descriptor` owns `dacl` and is released on drop.
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            wide_path.as_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            null_mut(),
+            null_mut(),
+            &mut dacl,
+            null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != 0 {
+        return Err(io::Error::from_raw_os_error(status as i32));
+    }
+    Ok(SecurityDescriptorGuard { descriptor, dacl })
+}
+
+fn ace_grants_rx(mask: u32) -> bool {
+    let rx = FILE_GENERIC_READ | FILE_GENERIC_EXECUTE;
+    (mask & rx) == rx
+        || (mask & GENERIC_ALL) != 0
+        || ((mask & GENERIC_READ) != 0 && (mask & GENERIC_EXECUTE) != 0)
+}
+
+fn dacl_grants_rx(dacl: *const ACL, sid: PSID, require_inheritance: bool) -> io::Result<bool> {
+    if dacl.is_null() {
+        return Ok(true);
+    }
+    // SAFETY: `ACL_SIZE_INFORMATION` is plain old data.
+    let mut info: ACL_SIZE_INFORMATION = unsafe { zeroed() };
+    // SAFETY: `dacl` came from a live `SecurityDescriptorGuard` and `info` is valid for AclSizeInformation.
+    check(unsafe {
+        GetAclInformation(
+            dacl,
+            (&raw mut info).cast(),
+            size_of::<ACL_SIZE_INFORMATION>() as u32,
+            AclSizeInformation,
+        )
+    })?;
+    let required_inherit = OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE;
+    for index in 0..info.AceCount {
+        let mut ace_ptr = null_mut();
+        // SAFETY: `index < info.AceCount` on a valid ACL.
+        check(unsafe { GetAce(dacl, index, &mut ace_ptr) })?;
+        // SAFETY: `GetAce` succeeded, pointing to an `ACE_HEADER` within `dacl`.
+        let header = unsafe { *ace_ptr.cast::<ACE_HEADER>() };
+        if header.AceType != ACCESS_ALLOWED_ACE_TYPE {
+            continue;
+        }
+        let flags = u32::from(header.AceFlags);
+        if (flags & INHERIT_ONLY_ACE) != 0 {
+            continue;
+        }
+        if require_inheritance && (flags & required_inherit) != required_inherit {
+            continue;
+        }
+        // SAFETY: `AceType == ACCESS_ALLOWED_ACE_TYPE`, so the entry layout is `ACCESS_ALLOWED_ACE`.
+        let ace = unsafe { &*ace_ptr.cast::<ACCESS_ALLOWED_ACE>() };
+        // `SidStart` is the first DWORD of the variable-length SID stored inside the ACE.
+        let ace_sid: PSID = (&raw const ace.SidStart).cast_mut().cast();
+        // SAFETY: both `ace_sid` and `sid` point to valid Windows SIDs.
+        if unsafe { EqualSid(ace_sid, sid) } != 0 && ace_grants_rx(ace.Mask) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn apply_rx_access(
+    path: &Path,
+    sids: &[PSID],
+    inheritance: u32,
+    ignore_access_denied: bool,
+) -> io::Result<()> {
+    let guard = read_dacl(path)?;
+    let require_inheritance = inheritance != NO_INHERITANCE;
+    let mut entries = Vec::new();
+    for &sid in sids {
+        if !dacl_grants_rx(guard.dacl, sid, require_inheritance)? {
+            entries.push(EXPLICIT_ACCESS_W {
+                grfAccessPermissions: FILE_GENERIC_READ | FILE_GENERIC_EXECUTE,
+                grfAccessMode: GRANT_ACCESS,
+                grfInheritance: inheritance,
+                Trustee: TRUSTEE_W {
+                    pMultipleTrustee: null_mut(),
+                    MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
+                    TrusteeForm: TRUSTEE_IS_SID,
+                    TrusteeType: TRUSTEE_IS_UNKNOWN,
+                    ptstrName: sid.cast(),
+                },
+            });
+        }
+    }
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let mut updated = null_mut();
+    // SAFETY: `guard.dacl` is alive until `guard` drops and `entries` holds valid SIDs.
+    let status = unsafe {
+        SetEntriesInAclW(
+            entries.len() as u32,
+            entries.as_ptr(),
+            guard.dacl,
+            &mut updated,
+        )
+    };
+    drop(guard);
+    if status != 0 {
+        return Err(io::Error::from_raw_os_error(status as i32));
+    }
+    let wide_path = wide(path.as_os_str());
+    // SAFETY: NUL-terminated path and a valid ACL from `SetEntriesInAclW`.
+    let status = unsafe {
+        SetNamedSecurityInfoW(
+            wide_path.as_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            null_mut(),
+            null_mut(),
+            updated,
+            null(),
+        )
+    };
+    // SAFETY: `updated` came from `SetEntriesInAclW` and is not used after this.
+    unsafe { LocalFree(updated.cast()) };
+    match status {
+        0 => Ok(()),
+        ERROR_ACCESS_DENIED if ignore_access_denied => Ok(()),
+        other => Err(io::Error::from_raw_os_error(other as i32)),
+    }
+}
+
+/// Returns true on Windows 10 (`RtlGetVersion` major == 10 and build < 22000).
+pub fn is_windows_10() -> bool {
+    // SAFETY: `OSVERSIONINFOW` is plain data and `dwOSVersionInfoSize` is set below.
+    let mut info: OSVERSIONINFOW = unsafe { zeroed() };
+    info.dwOSVersionInfoSize = size_of::<OSVERSIONINFOW>() as u32;
+    // SAFETY: `info` has `dwOSVersionInfoSize` initialized as required by `RtlGetVersion`.
+    let status = unsafe { RtlGetVersion(&raw mut info) };
+    status == 0 && info.dwMajorVersion == 10 && info.dwBuildNumber < WIN11_BUILD_NUMBER
+}
+
+/// Ensures the portable worker executable is readable and executable by `PORTABLE_WORKER_APP_CONTAINER`
+/// (creating the profile if absent) or `S-1-15-2-1`, failing if ACL modification is denied (ADR 0034).
+pub fn ensure_portable_worker_acl(worker: &Path) -> io::Result<()> {
+    let _guard = APP_CONTAINER_SETUP
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let container = AppContainerSid::obtain(PORTABLE_WORKER_APP_CONTAINER)?;
+    let all_app_packages = ConvertedSid::parse(ALL_APPLICATION_PACKAGES_SID)?;
+    let dacl_guard = read_dacl(worker)?;
+    let already_granted = dacl_grants_rx(dacl_guard.dacl, container.0, false)?
+        || dacl_grants_rx(dacl_guard.dacl, all_app_packages.0, false)?;
+    drop(dacl_guard);
+    if already_granted {
+        return Ok(());
+    }
+    apply_rx_access(worker, &[container.0], NO_INHERITANCE, false)
+}
+
+/// On Windows 10, ensures `dir` (and inherited files/subfolders inside `WebView2\`) grant
+/// `(OI)(CI)(RX)` to both `S-1-15-2-1` and `S-1-15-2-2` so WebView2 renderers can load DLLs (ADR 0034).
+/// No-op on Windows 11+.
+pub fn ensure_webview2_windows10_acls(dir: &Path) -> io::Result<()> {
+    if !is_windows_10() {
+        return Ok(());
+    }
+    grant_webview2_appcontainer_acls(dir)
+}
+
+fn grant_webview2_appcontainer_acls(dir: &Path) -> io::Result<()> {
+    let all_packages = ConvertedSid::parse(ALL_APPLICATION_PACKAGES_SID)?;
+    let restricted = ConvertedSid::parse(ALL_RESTRICTED_APPLICATION_PACKAGES_SID)?;
+    apply_rx_access(
+        dir,
+        &[all_packages.0, restricted.0],
+        SUB_CONTAINERS_AND_OBJECTS_INHERIT,
+        false,
+    )
+}
+
 impl AppContainerSid {
     /// Lets the container read and execute `program`. AppContainers cannot open files that do
     /// not grant them access, and user-owned folders (a checkout, a per-user install) do not.
     /// Only the executable itself is opened up, never its folder. If the ACL cannot be changed
     /// (e.g. under Program Files, which already grants app packages access), this is a no-op.
     fn grant_read_execute(&self, program: &Path) -> io::Result<()> {
-        let path = wide(program.as_os_str());
-        let mut dacl = null_mut();
-        let mut descriptor = null_mut();
-        // SAFETY: NUL-terminated path; on success `descriptor` owns the memory `dacl` points into
-        // and is released with LocalFree below.
-        let status = unsafe {
-            GetNamedSecurityInfoW(
-                path.as_ptr(),
-                SE_FILE_OBJECT,
-                DACL_SECURITY_INFORMATION,
-                null_mut(),
-                null_mut(),
-                &mut dacl,
-                null_mut(),
-                &mut descriptor,
-            )
-        };
-        if status != 0 {
-            return Err(io::Error::from_raw_os_error(status as i32));
-        }
-        let entry = EXPLICIT_ACCESS_W {
-            grfAccessPermissions: FILE_GENERIC_READ | FILE_GENERIC_EXECUTE,
-            grfAccessMode: GRANT_ACCESS,
-            grfInheritance: NO_INHERITANCE,
-            Trustee: TRUSTEE_W {
-                pMultipleTrustee: null_mut(),
-                MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
-                TrusteeForm: TRUSTEE_IS_SID,
-                TrusteeType: TRUSTEE_IS_UNKNOWN,
-                ptstrName: self.0.cast(),
-            },
-        };
-        let mut updated = null_mut();
-        // SAFETY: `dacl` is valid while `descriptor` is alive; GRANT_ACCESS merges with an
-        // existing entry for the same SID instead of duplicating it.
-        let status = unsafe { SetEntriesInAclW(1, &entry, dacl, &mut updated) };
-        // SAFETY: `descriptor` came from GetNamedSecurityInfoW and is not used after this.
-        unsafe { LocalFree(descriptor) };
-        if status != 0 {
-            return Err(io::Error::from_raw_os_error(status as i32));
-        }
-        // SAFETY: NUL-terminated path and a valid ACL from SetEntriesInAclW.
-        let status = unsafe {
-            SetNamedSecurityInfoW(
-                path.as_ptr(),
-                SE_FILE_OBJECT,
-                DACL_SECURITY_INFORMATION,
-                null_mut(),
-                null_mut(),
-                updated,
-                null(),
-            )
-        };
-        // SAFETY: `updated` came from SetEntriesInAclW and is not used after this.
-        unsafe { LocalFree(updated.cast()) };
-        match status {
-            0 | ERROR_ACCESS_DENIED => Ok(()),
-            other => Err(io::Error::from_raw_os_error(other as i32)),
-        }
+        apply_rx_access(program, &[self.0], NO_INHERITANCE, true)
     }
 }
 
@@ -725,5 +917,27 @@ mod tests {
                 .iter()
                 .all(|name| name == "SystemRoot" || name == "LOCALAPPDATA")
         );
+    }
+
+    #[test]
+    fn grants_inheritable_webview2_acls_on_directory() {
+        let base = std::env::temp_dir().join(format!("sandbox-acl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("sub")).unwrap();
+        let child = base.join("sub").join("dummy.dll");
+        std::fs::write(&child, b"test").unwrap();
+
+        grant_webview2_appcontainer_acls(&base).unwrap();
+
+        let pkg = ConvertedSid::parse(ALL_APPLICATION_PACKAGES_SID).unwrap();
+        let restricted = ConvertedSid::parse(ALL_RESTRICTED_APPLICATION_PACKAGES_SID).unwrap();
+        let dir_dacl = read_dacl(&base).unwrap();
+        assert!(dacl_grants_rx(dir_dacl.dacl, pkg.0, true).unwrap());
+        assert!(dacl_grants_rx(dir_dacl.dacl, restricted.0, true).unwrap());
+        let child_dacl = read_dacl(&child).unwrap();
+        assert!(dacl_grants_rx(child_dacl.dacl, pkg.0, false).unwrap());
+        assert!(dacl_grants_rx(child_dacl.dacl, restricted.0, false).unwrap());
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

@@ -65,6 +65,13 @@ fn default_speech_rate() -> f64 {
     Settings::default().speech_rate
 }
 
+fn default_settings() -> Settings {
+    Settings {
+        record_recent_files: !cfg!(feature = "portable"),
+        ..Settings::default()
+    }
+}
+
 pub struct SettingsStore {
     /// `settings.json`, or `None` when there is no data folder: then nothing is kept between runs.
     file: Option<PathBuf>,
@@ -81,7 +88,7 @@ impl SettingsStore {
             .and_then(|file| local_data::read(file, MAX_FILE_BYTES))
             .and_then(|json| serde_json::from_slice::<Stored>(&json).ok())
             .filter(|stored| stored.version == VERSION)
-            .map_or_else(Settings::default, |stored| Settings {
+            .map_or_else(default_settings, |stored| Settings {
                 theme: stored.theme,
                 language: stored.language,
                 record_recent_files: stored.record_recent_files,
@@ -152,7 +159,7 @@ mod tests {
         let dir = folder("keep");
         let file = dir.join(FILE_NAME);
         let store = SettingsStore::load(Some(file.clone()));
-        assert_eq!(store.get(), Settings::default());
+        assert_eq!(store.get(), default_settings());
 
         let dark = Settings {
             theme: ThemePreference::Dark,
@@ -237,7 +244,7 @@ mod tests {
             fs::write(&file, content).unwrap();
             assert_eq!(
                 SettingsStore::load(Some(file.clone())).get(),
-                Settings::default()
+                default_settings()
             );
         }
         let _ = fs::remove_dir_all(dir);
@@ -336,7 +343,7 @@ mod tests {
         fs::write(&file, &oversized).unwrap();
         assert_eq!(
             SettingsStore::load(Some(file.clone())).get(),
-            Settings::default()
+            default_settings()
         );
 
         let _ = fs::remove_dir_all(dir);

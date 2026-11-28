@@ -34,6 +34,7 @@ mod ocr;
 mod ocr_languages;
 mod opener;
 mod pictures;
+mod portable;
 mod recent;
 mod recovery;
 mod render;
@@ -75,6 +76,11 @@ use crate::settings::SettingsStore;
 use crate::text_index::TextIndex;
 
 fn pre_setup_data_dir() -> Option<PathBuf> {
+    #[cfg(feature = "portable")]
+    {
+        portable::data_dir()
+    }
+    #[cfg(not(feature = "portable"))]
     std::env::var_os("PDF_READER_DATA_DIR")
         .map(PathBuf::from)
         .filter(|dir| dir.is_absolute())
@@ -85,6 +91,13 @@ fn pre_setup_data_dir() -> Option<PathBuf> {
 }
 
 pub fn run() {
+    let worker =
+        worker_host::bundled_worker_path().unwrap_or_else(|_| worker_host::WORKER_FILE_NAME.into());
+    #[cfg(feature = "portable")]
+    let Some(portable_sandbox) = portable::preflight(&worker) else {
+        return;
+    };
+
     // The installer does not install WebView2 (REL-02: webviewInstallMode is "skip"). Without it
     // Tauri cannot create the window and the app would end without a word, so say what is missing.
     if tauri::webview_version().is_err() {
@@ -92,17 +105,26 @@ pub fn run() {
             SettingsStore::load(pre_setup_data_dir().map(|dir| dir.join(settings::FILE_NAME)));
         let (effective_lang, _) = language::resolve_language(store.get().language);
         let ui_strings = strings::for_language(effective_lang);
+        let (title, message) = if cfg!(feature = "portable") {
+            (
+                ui_strings.portable_webview2_missing_title,
+                ui_strings.portable_webview2_missing_message,
+            )
+        } else {
+            (
+                ui_strings.webview2_missing_title,
+                ui_strings.webview2_missing_message,
+            )
+        };
         rfd::MessageDialog::new()
             .set_level(rfd::MessageLevel::Error)
-            .set_title(ui_strings.webview2_missing_title)
-            .set_description(ui_strings.webview2_missing_message)
+            .set_title(title)
+            .set_description(message)
             .set_buttons(rfd::MessageButtons::Ok)
             .show();
         return;
     }
 
-    let worker =
-        worker_host::bundled_worker_path().unwrap_or_else(|_| worker_host::WORKER_FILE_NAME.into());
     #[cfg(debug_assertions)]
     if !worker.is_file() {
         eprintln!(
@@ -111,6 +133,11 @@ pub fn run() {
         );
     }
     let launch = cli::parse(std::env::args_os());
+
+    #[cfg(feature = "portable")]
+    let documents = Documents::new(worker).with_worker_sandbox(portable_sandbox);
+    #[cfg(not(feature = "portable"))]
+    let documents = Documents::new(worker);
 
     tauri::Builder::default()
         // First, so that a second launch ends before anything else starts: it hands its files to
@@ -124,7 +151,7 @@ pub fn run() {
             app.state::<ExplorerCreate>().enqueue(launch.create_from);
             show_window(app);
         }))
-        .manage(Documents::new(worker))
+        .manage(documents)
         .manage(OpenEvents::default())
         .manage(ExplorerCreate::new())
         .manage(capture::CaptureGuard::default())
@@ -269,11 +296,19 @@ pub fn run() {
                 .windows
                 .first()
                 .expect("tauri.conf.json must declare the main window");
-            tauri::WebviewWindowBuilder::from_config(app.handle(), window_config)?
+            let builder = tauri::WebviewWindowBuilder::from_config(app.handle(), window_config)?
                 .initialization_script(&init_script)
                 .on_navigation(move |url| navigation::check_navigation(url, cfg!(debug_assertions)))
-                .on_download(move |_webview, _event| false)
-                .build()?;
+                .on_download(move |_webview, _event| false);
+            #[cfg(feature = "portable")]
+            let builder = builder
+                .data_directory(
+                    data.as_ref()
+                        .expect("portable preflight checks data dir")
+                        .clone(),
+                )
+                .incognito(true);
+            builder.build()?;
             // The window's icon is the one that stands out against Windows' taskbar (UX-04).
             app_icon::follow_windows_mode(app.handle());
             app.manage(settings_store);
@@ -287,8 +322,12 @@ pub fn run() {
             app.state::<Documents>().set_fonts(fonts.clone());
             app.manage(fonts);
             let signatures = signature_images::SignatureImages::new(
-                data.as_ref()
-                    .map(|dir| dir.join(signature_images::FOLDER_NAME)),
+                (!cfg!(feature = "portable"))
+                    .then(|| {
+                        data.as_ref()
+                            .map(|dir| dir.join(signature_images::FOLDER_NAME))
+                    })
+                    .flatten(),
             );
             app.manage(signatures);
             app.manage(RecentFiles::new(
@@ -300,7 +339,9 @@ pub fn run() {
             // The text of the documents opened before, for searching them all (B3-21, ADR 0026).
             // Off, nothing of it stays: an index left from before it was turned off goes now.
             let text_index = Arc::new(TextIndex::new(
-                data.as_ref().map(|dir| dir.join(text_index::FOLDER_NAME)),
+                (!cfg!(feature = "portable"))
+                    .then(|| data.as_ref().map(|dir| dir.join(text_index::FOLDER_NAME)))
+                    .flatten(),
             ));
             let settings = app.state::<SettingsStore>().get();
             if !(settings.text_index && settings.record_recent_files) {
@@ -314,8 +355,10 @@ pub fn run() {
             app.state::<Documents>()
                 .set_reporter(move |event| reporter.state::<OpenEvents>().send(event));
             // The passwords the user asks to remember (B2-25, ADR 0017) are kept by Windows.
-            app.state::<Documents>()
-                .set_credentials(credentials::Credentials::app());
+            if !cfg!(feature = "portable") {
+                app.state::<Documents>()
+                    .set_credentials(credentials::Credentials::app());
+            }
             let handle = app.app_handle().clone();
             app.manage(Renderer::start(DEFAULT_CACHE_BYTES, move |args| {
                 handle.state::<Documents>().render(args)
@@ -339,8 +382,15 @@ pub fn run() {
             app.state::<ExplorerCreate>().enqueue(launch.create_from);
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running the Tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building the Tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                app_handle.state::<Documents>().stop_all();
+                #[cfg(feature = "portable")]
+                portable::cleanup();
+            }
+        });
 }
 
 /// Where the app keeps its own data, such as the recent files list (#73), the settings (B2-12)
@@ -348,6 +398,12 @@ pub fn run() {
 /// `PDF_READER_DATA_DIR` names if it is an absolute path (the E2E tests give every run its own),
 /// otherwise the app's local data folder, which does not roam with the Windows profile.
 fn data_dir(app: &AppHandle) -> Option<PathBuf> {
+    #[cfg(feature = "portable")]
+    {
+        let _ = app;
+        portable::data_dir()
+    }
+    #[cfg(not(feature = "portable"))]
     std::env::var_os("PDF_READER_DATA_DIR")
         .map(PathBuf::from)
         .filter(|dir| dir.is_absolute())

@@ -10,6 +10,9 @@ publish.workspace = true
 [lib]
 name = "pdf_reader_lib"
 
+[features]
+portable = []
+
 [build-dependencies]
 tauri-build.workspace = true
 
@@ -19,6 +22,7 @@ tauri-plugin-single-instance = "=2.5.5"
 # The notification area icon of a batch that goes on with the window closed (B3-04, ADR 0005).
 tauri = { workspace = true, features = ["tray-icon"] }
 ipc_contract = { path = "../crates/ipc_contract" }
+sandbox = { path = "../crates/sandbox" }
 worker_host = { path = "../crates/worker_host" }
 # Native message boxes: WebView2 missing, replacing exported files (the file dialogs are
 # src/file_dialog.rs).

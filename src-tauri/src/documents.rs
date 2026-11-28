@@ -9,7 +9,7 @@
 //! should the app end first (B2-13, src/recovery.rs).
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, TryLockError};
 
 use ipc_contract::attachments::{attachment_extension, clean_attachment_name};
@@ -41,6 +41,7 @@ use ipc_contract::worker::{
     OcrOutcome, OcrPageState, PasswordKey, PreparedTextBoxModel, SourceTextBox, TextBoxModel,
     UnknownFile, WorkerEdit, WorkerErrorCode, WorkerRequest, WorkerResponse,
 };
+use sandbox::SandboxConfig;
 use worker_host::{HostConfig, HostError, MAX_DOCUMENT_BYTES, WorkerHost};
 
 use crate::attachments::{is_dangerous_attachment, mark_from_internet};
@@ -62,8 +63,42 @@ const FALLBACK_NAME: &str = "PDF";
 /// The highest number a batch copy's name gets (`name (999).pdf`) before it gives up (B3-04).
 const MAX_COPY_NUMBER: u32 = 999;
 
+struct ScopedWorker<'a> {
+    host: Option<WorkerHost>,
+    active: &'a AtomicUsize,
+}
+
+impl ScopedWorker<'_> {
+    fn into_inner(mut self) -> WorkerHost {
+        self.host.take().expect("scoped worker still owns host")
+    }
+}
+
+impl std::ops::Deref for ScopedWorker<'_> {
+    type Target = WorkerHost;
+
+    fn deref(&self) -> &Self::Target {
+        self.host.as_ref().expect("scoped worker still owns host")
+    }
+}
+
+impl std::ops::DerefMut for ScopedWorker<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.host.as_mut().expect("scoped worker still owns host")
+    }
+}
+
+impl Drop for ScopedWorker<'_> {
+    fn drop(&mut self) {
+        drop(self.host.take());
+        self.active.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 pub struct Documents {
     worker: PathBuf,
+    worker_sandbox: SandboxConfig,
+    active_workers: AtomicUsize,
     /// For tab and document ids; never reused while the app runs.
     next_id: AtomicU32,
     inner: Mutex<Inner>,
@@ -195,6 +230,8 @@ impl Documents {
     pub fn new(worker: PathBuf) -> Self {
         Self {
             worker,
+            worker_sandbox: SandboxConfig::default(),
+            active_workers: AtomicUsize::new(0),
             next_id: AtomicU32::new(1),
             inner: Mutex::new(Inner {
                 tabs: Vec::new(),
@@ -205,6 +242,43 @@ impl Documents {
             credentials: OnceLock::new(),
             fonts: OnceLock::new(),
             strings: OnceLock::new(),
+        }
+    }
+
+    #[cfg(feature = "portable")]
+    pub fn with_worker_sandbox(mut self, worker_sandbox: SandboxConfig) -> Self {
+        self.worker_sandbox = worker_sandbox;
+        self
+    }
+
+    fn scoped_worker(&self) -> ScopedWorker<'_> {
+        self.active_workers.fetch_add(1, Ordering::AcqRel);
+        let config = HostConfig {
+            sandbox: self.worker_sandbox.clone(),
+            ..HostConfig::default()
+        };
+        ScopedWorker {
+            host: Some(WorkerHost::new(self.worker.clone(), config)),
+            active: &self.active_workers,
+        }
+    }
+
+    /// Stops all open tab workers and waits briefly for any in-flight transient workers to finish
+    /// so portable cleanup can delete the AppContainer profile cleanly.
+    pub fn stop_all(&self) {
+        let tabs = {
+            let mut inner = self.lock();
+            inner.active = None;
+            std::mem::take(&mut inner.tabs)
+        };
+        for tab in tabs {
+            *tab.document.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while self.active_workers.load(Ordering::Acquire) > 0
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(std::time::Duration::from_millis(20));
         }
     }
 
@@ -335,7 +409,7 @@ impl Documents {
         let result = check_file(&path).and_then(|()| {
             // Before the worker reads it: a change while it opens shows as a change later.
             let identity = FileIdentity::of(&path);
-            let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
+            let mut host = self.scoped_worker();
             let mut opened = match password {
                 Some(password) => host.open_with_password(&path, password),
                 None => host.open(&path),
@@ -386,7 +460,7 @@ impl Documents {
             info.password_recalled = recalled;
             let mut document = OpenDocument {
                 info,
-                host,
+                host: host.into_inner(),
                 path: path.clone(),
                 worker_doc,
                 protected,
@@ -1419,7 +1493,7 @@ impl Documents {
     /// The signatures of the file at `path`, as a new worker of its own verifies them (B3-06):
     /// one that never saw the document the file was made from.
     fn verify_file(&self, path: &Path) -> Result<SignatureReport, IpcError> {
-        let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
+        let mut host = self.scoped_worker();
         let (doc, _) = host.open(path).map_err(|error| ipc_error(&error))?;
         let response = host
             .request(|request| WorkerRequest::VerifySignatures { request, doc })
@@ -1553,7 +1627,7 @@ impl Documents {
         picture: Option<&[u8]>,
     ) -> Result<(String, u64), IpcError> {
         check_file(source)?;
-        let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
+        let mut host = self.scoped_worker();
         let (doc, opened) = host.open(source).map_err(|error| ipc_error(&error))?;
         let WorkerResponse::Opened { document, .. } = opened else {
             return Err(unexpected("Open"));
@@ -1708,7 +1782,7 @@ impl Documents {
             .zip(sources)
             .map(|(file, (_, kind))| (file, *kind))
             .collect();
-        let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
+        let mut host = self.scoped_worker();
         let response = host
             .create_pdf(&handed, temporary.file())
             .map_err(|error| ipc_error(&error))?;
@@ -1722,7 +1796,7 @@ impl Documents {
 
     /// Checks the bytes of a font file to be imported (B2-32, ADR 0018).
     pub fn inspect_font(&self, bytes: &[u8]) -> Result<Vec<InspectedFont>, IpcError> {
-        let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
+        let mut host = self.scoped_worker();
         let response = host
             .inspect_font(bytes)
             .map_err(|error| ipc_error(&error))?;
@@ -2501,7 +2575,7 @@ impl Documents {
     /// conversion: only pixels are kept.
     pub fn prepare_watermark_picture(&self, path: &Path) -> Result<Vec<u8>, IpcError> {
         let file = open_picture(path)?;
-        let mut host = WorkerHost::new(self.worker.clone(), HostConfig::default());
+        let mut host = self.scoped_worker();
         let response = host
             .prepare_stamp_image(&file)
             .map_err(|error| ipc_error(&error))?;
