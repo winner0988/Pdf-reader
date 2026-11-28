@@ -24,7 +24,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 邊界 | 不可信的一方 | 通道 | 主要的防線 |
 |---|---|---|---|
-| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 107 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
+| WebView → 主行程 | 前端頁面（假設可能被注入程式碼） | Tauri IPC（`ipc:`、`http://ipc.localhost`） | capability 只開放 app 自己的 108 個命令（§4）；每個命令檢查參數（§1）；前端只拿得到代號，拿不到路徑 |
 | worker → 主行程 | `pdf_worker`（假設已被惡意檔案控制） | worker 標準輸入、輸出上的 postcard frame，每個 ≤ `MAX_FRAME_BYTES`（80 MiB） | 沙盒（§2.1）；每個回應都先驗證（§2.2）；逾時 |
 | 檔案 → worker | PDF 與其他要讀的檔案 | 主行程開好的唯讀檔案代號，或主行程讀好的位元組 | 沙盒；程式庫見 §2.3 |
 | 檔案 → 主行程 | app 資料夾的檔案；使用者匯入的語言資料、字型、`.pfx` | 主行程自己讀 | 大小上限與格式檢查（§3） |
@@ -38,9 +38,9 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 3. 寫到使用者的檔案時，先寫同一個資料夾裡新建的暫存檔，寫完（存檔還要再檢查）才改名取代。批次只寫新的檔名，不取代任何檔案（§6）。
 4. 只有 `src-tauri/src/update_check.rs` 會連網，而且只在使用者按「檢查更新」時（ADR 0009，§5）。
 
-## 1. 前端能呼叫的命令（107 個）
+## 1. 前端能呼叫的命令（108 個）
 
-- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 107 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
+- **數目一致**：`generate_handler!`、`src-tauri/build.rs` 的 `AppManifest::commands`、`src-tauri/capabilities/main.json` 的 `allow-*` 都是同樣的 108 個（整理時以 diff 確認）。CI 的 `scripts/ci/check-security-config.mjs` 檢查前兩者一致，也檢查 capability 只用它允許清單裡的權限。每個權限的用途寫在那份允許清單裡，下表不再重複。
 - **自由文字**：沒有命令接受路徑或 URI。會帶自由文字的只有這些參數：密碼、剪貼簿的文字、搜尋字串、個資的關鍵字、註解與文字方塊的文字、表單欄位的值、書籤標題、浮水印與頁面標記的文字、簽章的理由、朗讀的純文字與語音代號、設定、OCR 語言代碼。
 - **參數檢查**：參數先由 serde 解碼成固定的型別，型別不對就拒絕；再由 `crates/ipc_contract/src/validate.rs` 檢查（表中寫成 `XxxArgs`）。上限都在 `crates/ipc_contract/src/limits.rs`。主行程沒有另外限制一個 IPC 訊息的大小，參數整個解碼後才檢查（§9）。
 - **對話框**：都是 Windows 的 `IFileDialog`（`src-tauri/src/file_dialog.rs`），一律加 `FOS_FORCEFILESYSTEM | FOS_DONTADDTORECENT`，只能選真的檔案，也不記入 Windows 的最近使用。另存的對話框再加 `FOS_OVERWRITEPROMPT`。
@@ -63,7 +63,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `close_tab` | 關閉分頁，結束它的 worker | 分頁代號 | 清掉文字比較的快取 | `tabs.spec.ts` |
 | `set_active_tab` | 視窗顯示哪個分頁（給視窗標題用） | 分頁代號 | — | `tabs.spec.ts` |
 
-### 1.2 閱讀（16 個）
+### 1.2 閱讀（17 個）
 
 | 命令 | 做什麼 | 主行程的檢查與上限 | 對話框、寫入、行程 | 測試 |
 |---|---|---|---|---|
@@ -82,6 +82,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `save_attachment` | 把一個附件存到使用者選的地方；app 從不開啟附件（ADR 0025） | 附件代號必須在清單裡；目的地不得是文件自己的檔案（`same_file`），而且要可寫（`check_writable`） | 另存對話框（附件的副檔名，加 `*.*`）；worker 以只能寫的代號寫到暫存檔，再改名；加上 `Zone.Identifier`（來自網際網路） | `attachments.spec.ts`；`documents.rs`（`an_attachment_is_saved_as_it_is_and_marked_as_from_the_internet`）；`attachments.rs` |
 | `get_document_properties` | 讀取文件的基本屬性與安全摘要（唯讀，不含路徑） | 文件代號 | `GetDocumentProperties` | `properties.spec.ts`；worker `properties.rs` |
 | `get_document_fonts` | 遍歷頁面與 Form XObject 列出字型清單（可取消） | 文件代號、請求代號 | `GetDocumentFonts` | `properties.spec.ts`；worker `properties.rs` |
+| `get_recognised_words` | 列出頁面已寫入的 `3 Tr` 隱形辨識詞與不可修改原因 | `check_page_index` | `GetRecognisedWords` | `correct-recognised-text.spec.ts`；`documents.rs`；worker `correct_recognised_text.rs` |
 | `set_fullscreen` | 設定視窗進出全螢幕（B4-03） | `on: bool` | — | `presentation.spec.ts` |
 
 ### 1.3 連結、外部網址與檢查更新（10 個）
@@ -261,7 +262,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | Windows CryptoAPI（`crypt.rs`） | 簽章的 CMS 與憑證；憑證鏈只用本機的快取 | Windows | 沒有：Linux 的 fuzz 跑不到（#426 只 fuzz 讀簽章欄位） |
 | jpeg-encoder 0.7.1 | 只編碼 worker 自己渲染的像素，不解析輸入 | 純 Rust（不開 `simd`） | 不需要 |
 
-### 2.4 worker 的請求（51 個）
+### 2.4 worker 的請求（52 個）
 
 除了另外註明的，請求都送到那個分頁自己的 worker（ADR 0012）。用新的 worker 的有：驗證剛簽好的副本、批次的每個檔案、`CreatePdf`、`InspectFont`、批次的浮水印圖片。
 
@@ -285,9 +286,10 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `WriteAttachment` | 解碼附件（≤ 512 MiB），寫到只能寫的代號 | `engine/attachments.rs` | worker `attachments.rs` | `read_document`（至多前 2 個，上限 1 MiB，#426） |
 | `GetDocumentProperties` | 基本中繼資料、加密方式、簽章數量與附件數量 | `engine/properties.rs` | worker `properties.rs` | `read_document` |
 | `GetDocumentFonts` | 頁面與 Form XObject 裡的字型清單 | `engine/properties.rs` | worker `properties.rs` | `read_document` |
+| `GetRecognisedWords` | 頁面的 `3 Tr` 隱形辨識文字詞清單 | `engine/recognised_text.rs` | worker `correct_recognised_text.rs` | `read_document` |
 | `GetTextBox` | 文字方塊註解 | `engine/text_box.rs` | worker `text_box_worker.rs` | `read_document`（前兩頁，#426） |
 | `ExportDocx` | 頁面的文字與圖片，寫成 .docx | `engine/docx.rs` | worker `docx.rs` | `open_document` |
-| `Edit` | 35 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs`、`watermark.rs`、`links.rs` | `edit_document`（35 種） |
+| `Edit` | 36 種編輯（§2.5） | `engine.rs` 等 | worker `saving.rs`、`merge.rs`、`outline_edit.rs`、`stamp_image.rs`、`text_box_worker.rs`、`watermark.rs`、`links.rs`、`correct_recognised_text.rs` | `edit_document`（36 種） |
 | `Revert` | 從保留的位元組重新開啟，再做一次編輯 | `engine.rs` | worker `saving.rs`、`merge.rs` | `edit_document` |
 | `Rebase` | 把剛存的檔案當成 undo 的起點；只保留位元組，不解析 | `serve.rs` | worker `saving.rs` | 不需要 |
 | `Save` | 寫出整份文件；已簽章的文件以增量更新 | `engine.rs` | worker `saving.rs`、`save_poc.rs` | `text_box_font`、`edit_document` |
@@ -314,7 +316,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `Cancel` | 主行程目前不送；worker 收到也不處理 | `serve.rs` | — | `worker_messages` |
 | `Shutdown` | 主行程目前不送（直接結束 worker）；worker 收到就結束 | `serve.rs` | `crates/ipc_contract/src/frame.rs` | `worker_messages` |
 
-### 2.5 編輯（`WorkerEdit`，35 種）
+### 2.5 編輯（`WorkerEdit`，36 種）
 
 前端送的是 `Edit`，主行程檢查後轉成 `WorkerEdit`。插入的頁面來源與文字方塊的字型子集是主行程留著的，前端不能直接給位元組。結構不正確的頁碼標籤樹在改動頁面之前由 worker 拒絕（有上限）。
 
@@ -336,6 +338,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 | `AddBookmark`、`RenameBookmark`、`DeleteBookmark`、`MoveBookmark` | 位置 ≤ `MAX_OUTLINE_ITEMS`；頁碼；標題不得空白、≤ `MAX_TEXT_BYTES`、不含控制字元（`check_clean`） |
 | `AddWatermark` | 頁面清單（`check_page_list`）；浮水印內容與選項（`Watermark::validate`）；圖片是 `PrepareStampImage` 做好的 PNG |
 | `AddLink`、`SetLinkTarget`、`DeleteLink` | 頁碼；矩形邊長 ≥ `MIN_LINK_SIDE_PT`（4.0 pt）；網址只允許 http、https、mailto 且 ≤ `MAX_TEXT_BYTES`（4096 位元組）、不含控制字元與空白字元（`NewLinkTarget::validate`） |
+| `CorrectRecognisedText` | 頁碼；詞索引；原文字與新文字不得空白、≤ `MAX_RECOGNISED_WORD_BYTES`（4096 位元組）、不含控制字元與隱藏格式字元（`check_recognised_word_text`） |
 
 測試：`documents.rs` 的編輯測試（`annotations_are_added_changed_removed_and_undone_like_any_edit`、`drawings_and_stamps_are_added_moved_removed_and_undone_like_any_annotation` 等）、`ipc_contract` 的驗證測試、worker 的整合測試與上面列的 E2E。fuzz：`edit_document`。
 
@@ -359,7 +362,7 @@ B4-11（#419）。這份清單給負責人在 1.0 之前做安全審查時對照
 
 | 項目 | 設定 | 檢查 |
 |---|---|---|
-| capability | `src-tauri/capabilities/main.json`：只給 `main` 視窗；89 個 `allow-*`；沒有 `core:*`、`dialog`、`fs`；沒有 `remote`，外部網頁拿不到 IPC | `check-security-config.mjs`（靜態）；`refused-commands.spec.ts`（#425） |
+| capability | `src-tauri/capabilities/main.json`：只給 `main` 視窗；108 個 `allow-*`；沒有 `core:*`、`dialog`、`fs`；沒有 `remote`，外部網頁拿不到 IPC | `check-security-config.mjs`（靜態）；`refused-commands.spec.ts`（#425） |
 | CSP | `default-src 'self'`、`script-src 'self'`、`style-src 'self'`、`img-src 'self' data: blob:`、`font-src 'self'`、`connect-src ipc: http://ipc.localhost`、`object-src`／`base-uri`／`form-action`／`frame-src` 都是 `'none'` | `check-security-config.mjs`（正式版與 `vite.config.ts` 的開發用 CSP）；`check-dist.mjs`（建置產物不引用外部資源）；`csp.spec.ts`（#613） |
 | 全域 API | `withGlobalTauri: false` | — |
 | 開發人員工具 | `tauri` 沒有開 `devtools` 功能，正式版沒有開發人員工具 | 人工檢查（manual-checks §3） |
