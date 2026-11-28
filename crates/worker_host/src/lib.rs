@@ -903,6 +903,7 @@ fn response_request(response: &WorkerResponse) -> Option<RequestId> {
         | WorkerResponse::AttachmentWritten { request, .. }
         | WorkerResponse::DocumentProperties { request, .. }
         | WorkerResponse::DocumentFonts { request, .. }
+        | WorkerResponse::RecognisedWords { request, .. }
         | WorkerResponse::AnnotationExport { request, .. } => Some(*request),
         WorkerResponse::Error { request, .. } => *request,
     }
@@ -1010,6 +1011,9 @@ pub fn is_expected_response(request: &WorkerRequest, response: &WorkerResponse) 
         }
         WorkerRequest::GetDocumentFonts { .. } => {
             matches!(response, WorkerResponse::DocumentFonts { .. })
+        }
+        WorkerRequest::GetRecognisedWords { .. } => {
+            matches!(response, WorkerResponse::RecognisedWords { .. })
         }
         WorkerRequest::Cancel { .. } | WorkerRequest::Close { .. } | WorkerRequest::Shutdown => {
             false

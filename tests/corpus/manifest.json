@@ -640,6 +640,23 @@
       "sha256": "23844ee4d2562c93abec008bb0f0bc69aa77629d37867ee2a4f3bedb93a5a31c"
     },
     {
+      "path": "benign/recognised-text-layer.pdf",
+      "category": "benign",
+      "purpose": "One page with 3 Tr invisible text plus same-box 0 Tr visible text, 7 Tr clip text, alpha-0 text, an overlapping link and a sticky note (#749).",
+      "expected": "Opens; correcting the 3 Tr word leaves visible, clipped, alpha-0 text, link and note intact and keeps the page pixel-identical.",
+      "pages": 1,
+      "findings": [],
+      "text": [
+        "Recognised text layer test",
+        "Hel1o W0rld",
+        "VisibleKeep",
+        "ClipKeep",
+        "AlphaZeroKeep"
+      ],
+      "bytes": 1455,
+      "sha256": "667a0384c926514e94f401b2faa463907da92082a7ee61979b54000d4ec73b51"
+    },
+    {
       "path": "malicious/js-document-level.pdf",
       "category": "malicious",
       "purpose": "Document-level JavaScript in the names tree.",

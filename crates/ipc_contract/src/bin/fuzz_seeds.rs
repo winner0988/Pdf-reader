@@ -15,11 +15,11 @@ use ipc_contract::types::{
     LinkTarget, OutlineItem, OutlineResult, PageAnnotation, PageLink, PageMarkPages,
     PageMarkPosition, PageMarks, PageNumberFormat, PageNumberMark, PageSize, PageText, Password,
     PdfDate, PersonalDataCategory, PersonalDataMatch, PersonalDataMatches, PictureView, Point,
-    Quad, RasterRegion, Rect, RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb,
-    Rotation, SanitizeOptions, SanitizeReport, SearchHit, SecurityFinding, SecurityReport, Shape,
-    SignatureInfo, SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo,
-    TextBoxStyle, TextLine, TextMarkKind, UnverifiableReason, Watermark, WatermarkContent,
-    WatermarkPages, WatermarkPlace,
+    Quad, RasterRegion, RecognisedWord, RecognisedWordsPage, RecognisedWordsUnusable, Rect,
+    RedactionCheck, RedactionSummary, RequestId, Restrictions, Rgb, Rotation, SanitizeOptions,
+    SanitizeReport, SearchHit, SecurityFinding, SecurityReport, Shape, SignatureInfo,
+    SignatureReport, SignatureStatus, StampName, TextAlign, TextBoxInfo, TextBoxStyle, TextLine,
+    TextMarkKind, UnverifiableReason, Watermark, WatermarkContent, WatermarkPages, WatermarkPlace,
 };
 use ipc_contract::worker::{
     CreateSource, FileHandle, FontData, InsertedTextBox, ModelGlyph, OcrFinished, OcrOutcome,
@@ -645,6 +645,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     embedded: false,
                 }],
                 complete: true,
+            },
+        },
+        WorkerResponse::RecognisedWords {
+            request,
+            page_index: 0,
+            result: RecognisedWordsPage::Usable {
+                words: vec![RecognisedWord {
+                    id: 0,
+                    text: "Hel1o".to_owned(),
+                    rect: Rect {
+                        x0: 72.0,
+                        y0: 100.0,
+                        x1: 120.0,
+                        y1: 118.0,
+                    },
+                    quad: Quad {
+                        ul: Point { x: 72.0, y: 100.0 },
+                        ur: Point { x: 120.0, y: 100.0 },
+                        ll: Point { x: 72.0, y: 118.0 },
+                        lr: Point { x: 120.0, y: 118.0 },
+                    },
+                }],
+            },
+        },
+        WorkerResponse::RecognisedWords {
+            request,
+            page_index: 1,
+            result: RecognisedWordsPage::Unusable {
+                reason: RecognisedWordsUnusable::NoTextLayer,
             },
         },
         WorkerResponse::Error {
@@ -1527,6 +1556,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         WorkerRequest::AnnotationSummary { request, doc },
         WorkerRequest::GetDocumentProperties { request, doc },
         WorkerRequest::GetDocumentFonts { request, doc },
+        WorkerRequest::GetRecognisedWords {
+            request,
+            doc,
+            page_index: 0,
+        },
+        WorkerRequest::Edit {
+            request,
+            doc,
+            edit: WorkerEdit::CorrectRecognisedText {
+                page: 0,
+                word: 0,
+                expected: "Hel1o".to_owned(),
+                text: "Hello".to_owned(),
+            },
+        },
         WorkerRequest::Shutdown,
     ];
 

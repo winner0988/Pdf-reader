@@ -1,0 +1,50 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> /ExtGState << /GSAlpha0 5 0 R >> >> /Contents 8 0 R /Annots [6 0 R 7 0 R] >>
+endobj
+5 0 obj
+<< /Type /ExtGState /ca 0 /CA 0 >>
+endobj
+6 0 obj
+<< /Type /Annot /Subtype /Link /Rect [70 660 260 695] /Border [0 0 0] /A << /S /URI /URI <68747470733A2F2F6578616D706C652E696E76616C69642F7265636F676E69736564> >> >>
+endobj
+7 0 obj
+<< /Type /Annot /Subtype /Text /Rect [72 662 100 692] /Contents (Keep this note) /Name /Note /F 4 /P 4 0 R >>
+endobj
+8 0 obj
+<<  /Length 328 >>
+stream
+BT /F1 16 Tf 72 730 Td (Recognised text layer test) Tj ET
+q BT /F1 16 Tf 72 670 Td 3 Tr (Hel1o W0rld) Tj ET Q
+q 0.1 0.1 0.1 rg BT /F1 12 Tf 72 670 Td 0 Tr (VisibleKeep) Tj ET Q
+q BT /F1 14 Tf 72 670 Td 7 Tr (ClipKeep) Tj ET 0.2 0.4 0.85 rg 70 664 180 26 re f Q
+q /GSAlpha0 gs BT /F1 14 Tf 72 670 Td 0 Tr (AlphaZeroKeep) Tj ET Q
+
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000399 00000 n 
+0000000449 00000 n 
+0000000630 00000 n 
+0000000755 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R /ID [<A9D07C7E9C766F9E28CA9FFD2301A07B> <A9D07C7E9C766F9E28CA9FFD2301A07B>] >>
+startxref
+1135
+%%EOF

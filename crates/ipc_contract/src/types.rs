@@ -883,6 +883,111 @@ pub enum Edit {
     SetLinkTarget { link: LinkId, target: NewLinkTarget },
     /// Removes link `link` (B6-03, Issue #588).
     DeleteLink { link: LinkId },
+    /// Replaces one invisible `3 Tr` OCR word `word` on `page` (0-based) with `text` after
+    /// verifying its current text equals `expected` (B7-12, #749, ADR 0036).
+    #[serde(rename_all = "camelCase")]
+    CorrectRecognisedText {
+        page: u32,
+        word: u32,
+        expected: String,
+        text: String,
+    },
+}
+
+/// One invisible (`3 Tr`) OCR word on a page that can be corrected in place (B7-12, #749, ADR 0036).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RecognisedWord {
+    /// Deterministic word identifier within the page's current `3 Tr` text layer.
+    pub id: u32,
+    /// Current extracted word text (cleaned display text).
+    pub text: String,
+    /// Bounding rectangle in page space (points from top-left).
+    pub rect: Rect,
+    /// Bounding quadrilateral in page space (points from top-left).
+    pub quad: Quad,
+}
+
+/// Why a page's `3 Tr` text layer cannot be edited directly (B7-12, #749, ADR 0036).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum RecognisedWordsUnusable {
+    /// Document is digitally signed.
+    Signed,
+    /// Author permissions (`/P`) forbid modifying the document.
+    NotAllowed,
+    /// Scanned page only has in-memory OCR results (`recognised: true`); save as Searchable PDF first.
+    MemoryOcrOnly,
+    /// Page has no `3 Tr` invisible text layer.
+    NoTextLayer,
+    /// Page mixes `3 Tr` inseparably with clipping text render modes (`4`–`7 Tr`) in the same segment.
+    MixedRenderModes,
+}
+
+/// Editable `3 Tr` words of one page, or why the page cannot be corrected (B7-12, #749, ADR 0036).
+#[derive(Debug, Clone, PartialEq, TS)]
+#[ts(tag = "status", rename_all = "camelCase")]
+pub enum RecognisedWordsPage {
+    Usable { words: Vec<RecognisedWord> },
+    Unusable { reason: RecognisedWordsUnusable },
+}
+
+/// Chooses the representation of [`RecognisedWordsPage`] by format: tagged for human-readable
+/// formats (JSON to the frontend), externally tagged otherwise (postcard to and from the worker).
+mod recognised_words_page_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use super::{RecognisedWord, RecognisedWordsPage, RecognisedWordsUnusable};
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(tag = "status", rename_all = "camelCase")]
+    enum Tagged {
+        Usable { words: Vec<RecognisedWord> },
+        Unusable { reason: RecognisedWordsUnusable },
+    }
+
+    #[derive(Serialize, Deserialize)]
+    enum Compact {
+        Usable { words: Vec<RecognisedWord> },
+        Unusable { reason: RecognisedWordsUnusable },
+    }
+
+    macro_rules! convert {
+        ($from:ident => $to:ident) => {
+            impl From<$from> for $to {
+                fn from(value: $from) -> Self {
+                    match value {
+                        $from::Usable { words } => $to::Usable { words },
+                        $from::Unusable { reason } => $to::Unusable { reason },
+                    }
+                }
+            }
+        };
+    }
+    convert!(RecognisedWordsPage => Tagged);
+    convert!(RecognisedWordsPage => Compact);
+    convert!(Tagged => RecognisedWordsPage);
+    convert!(Compact => RecognisedWordsPage);
+
+    impl Serialize for RecognisedWordsPage {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            if serializer.is_human_readable() {
+                Tagged::from(self.clone()).serialize(serializer)
+            } else {
+                Compact::from(self.clone()).serialize(serializer)
+            }
+        }
+    }
+
+    impl<'de> Deserialize<'de> for RecognisedWordsPage {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            if deserializer.is_human_readable() {
+                Tagged::deserialize(deserializer).map(Into::into)
+            } else {
+                Compact::deserialize(deserializer).map(Into::into)
+            }
+        }
+    }
 }
 
 /// What applying the redaction marks of a document would do besides removing what their areas

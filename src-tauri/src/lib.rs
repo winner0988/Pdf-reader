@@ -159,6 +159,7 @@ pub fn run() {
             commands::get_document_fonts,
             commands::get_page_links,
             commands::get_page_annotations,
+            commands::get_recognised_words,
             commands::get_annotation_summary,
             commands::get_page_fields,
             commands::get_signatures,

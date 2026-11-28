@@ -30,7 +30,7 @@ use super::ocr::SearchablePageSource;
 use super::{EngineError, PdfDocument, write_limited};
 
 /// The resource name used for the shared GlyphLessFont on modified pages.
-const FONT_BASE_NAME: &str = "PdfReaderOcrFont";
+pub(super) const FONT_BASE_NAME: &str = "PdfReaderOcrFont";
 
 /// Minimal TrueType font (`pdf.ttf` / `GlyphLessFont`) from Tesseract (`src/api/pdf_ttf.h`,
 /// 573 bytes). Contains a single empty glyph so all Unicode code points can be mapped invisibly
@@ -140,7 +140,7 @@ fn build_to_unicode_cmap() -> String {
 }
 
 /// Writes the single shared `GlyphLessFont` Type0 font hierarchy into `doc`.
-fn write_glyphless_font(doc: &mut MuPdfDocument) -> Result<PdfObject, EngineError> {
+pub(super) fn write_glyphless_font(doc: &mut MuPdfDocument) -> Result<PdfObject, EngineError> {
     let length_dict =
         doc.new_object_from_str(&format!("<< /Length1 {} >>", GLYPHLESS_FONT.len()))?;
     let font_file = doc.add_stream(

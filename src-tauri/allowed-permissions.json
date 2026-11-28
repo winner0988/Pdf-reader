@@ -32,6 +32,7 @@
     { "id": "allow-clear-text-index", "reason": "B3-21, ADR 0026: delete the text index, its key first" },
     { "id": "allow-get-page-links", "reason": "MVP-12: where a page's links are and where they point" },
     { "id": "allow-get-page-annotations", "reason": "B2-07: list one page's annotations (highlights, notes and the document's own) to select and edit them" },
+    { "id": "allow-get-recognised-words", "reason": "B7-12, Issue #749: list editable 3 Tr invisible OCR words of one page, or explain why the page cannot be corrected" },
     { "id": "allow-get-annotation-summary", "reason": "B4-06: fetch a summary of an open document's annotations for the sidebar, by document id; runs on blocking pool; ui prevents copying" },
     { "id": "allow-get-page-fields", "reason": "B2-09: list one page's form fields (values, options, whether they have scripts) to fill them in; nothing in them is run" },
     { "id": "allow-get-signatures", "reason": "B2-14: the signatures of an open document, verified offline by its worker (whether each holds, who signed); by document id" },

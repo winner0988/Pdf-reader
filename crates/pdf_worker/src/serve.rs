@@ -709,6 +709,25 @@ pub fn serve<R: Read, W: Write>(mut input: R, mut output: W) -> Result<(), Frame
                     Err(err) => error(request, WorkerErrorCode::Corrupted, &err.to_string()),
                 },
             }),
+            WorkerRequest::GetRecognisedWords {
+                request,
+                doc,
+                page_index,
+            } => Some(match documents.get(&doc) {
+                None => error(
+                    request,
+                    WorkerErrorCode::UnknownDocument,
+                    "unknown document",
+                ),
+                Some(document) => match document.recognised_words(page_index) {
+                    Ok(result) => WorkerResponse::RecognisedWords {
+                        request,
+                        page_index,
+                        result,
+                    },
+                    Err(engine) => engine_error(request, &engine, WorkerErrorCode::Corrupted),
+                },
+            }),
             WorkerRequest::WriteAttachment {
                 request,
                 doc,
@@ -1032,6 +1051,14 @@ pub fn apply(document: &mut PdfDocument, edit: &WorkerEdit) -> Result<(), Engine
         }
         WorkerEdit::DeleteLink { link } => {
             document.delete_link(*link)?;
+        }
+        WorkerEdit::CorrectRecognisedText {
+            page,
+            word,
+            expected,
+            text,
+        } => {
+            document.correct_recognised_text(*page, *word, expected, text)?;
         }
     }
     document.clear_text_cache();

@@ -22,6 +22,7 @@ fn main() {
         "get_document_fonts",
         "get_page_links",
         "get_page_annotations",
+        "get_recognised_words",
         "get_annotation_summary",
         "get_page_fields",
         "get_signatures",

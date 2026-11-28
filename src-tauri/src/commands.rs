@@ -895,6 +895,17 @@ pub async fn get_page_annotations(
     blocking(move || app.state::<Documents>().page_annotations(doc, page_index)).await
 }
 
+/// Editable `3 Tr` invisible OCR words of one page, or why the page cannot be corrected in place
+/// (B7-12, Issue #749, ADR 0036).
+#[tauri::command]
+pub async fn get_recognised_words(
+    app: AppHandle,
+    doc: DocumentId,
+    page_index: u32,
+) -> Result<ipc_contract::types::RecognisedWordsPage, IpcError> {
+    blocking(move || app.state::<Documents>().recognised_words(doc, page_index)).await
+}
+
 /// The summary of the annotations of open document `doc` (B4-06), listed in reading order.
 /// Unlike `export_annotation_summary`, this does not refuse when the author forbids copying:
 /// the annotations are already shown on the page; copying is prevented in the UI.

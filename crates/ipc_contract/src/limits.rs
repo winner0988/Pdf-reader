@@ -483,3 +483,9 @@ pub const MAX_SPEECH_VOICE_ID_BYTES: u32 = 512;
 
 /// Most installed offline voices reported by `get_speech_voices` (B6-14, #599).
 pub const MAX_SPEECH_VOICES: u32 = 512;
+
+/// Most editable `3 Tr` words returned for a single page (B7-12, #749, ADR 0036).
+pub const MAX_RECOGNISED_WORDS_PER_PAGE: u32 = 20_000;
+
+/// Longest recognised or corrected word text accepted or emitted per edit (B7-12, #749).
+pub const MAX_RECOGNISED_WORD_BYTES: u32 = 4_096;

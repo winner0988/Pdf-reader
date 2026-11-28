@@ -88,6 +88,7 @@ mod page_marks;
 mod page_overlay;
 mod personal_data;
 mod properties;
+mod recognised_text;
 mod redaction;
 mod sanitize;
 mod searchable_copy;

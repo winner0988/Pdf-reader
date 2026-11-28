@@ -240,9 +240,12 @@ pub fn bindings() -> String {
         AttachmentSource,
         AttachmentInfo,
         SaveAttachmentResult,
+        RecognisedWord,
+        RecognisedWordsUnusable,
+        RecognisedWordsPage,
     );
 
-    let limits: [(&str, String); 90] = [
+    let limits: [(&str, String); 92] = [
         ("maxPageCount", MAX_PAGE_COUNT.to_string()),
         ("maxPageSidePt", MAX_PAGE_SIDE_PT.to_string()),
         ("minCroppedSidePt", MIN_CROPPED_SIDE_PT.to_string()),
@@ -377,6 +380,14 @@ pub fn bindings() -> String {
             MAX_SPEECH_VOICE_ID_BYTES.to_string(),
         ),
         ("maxSpeechVoices", MAX_SPEECH_VOICES.to_string()),
+        (
+            "maxRecognisedWordsPerPage",
+            MAX_RECOGNISED_WORDS_PER_PAGE.to_string(),
+        ),
+        (
+            "maxRecognisedWordBytes",
+            MAX_RECOGNISED_WORD_BYTES.to_string(),
+        ),
         ("protocolVersion", crate::PROTOCOL_VERSION.to_string()),
     ];
     out.push_str(

@@ -130,7 +130,7 @@ fuzz_target!(|data: &[u8]| {
     let mut applied_edits = Vec::new();
 
     for _ in 0..num_edits {
-        let kind = u.int_in_range(0..=34).unwrap_or(0);
+        let kind = u.int_in_range(0..=35).unwrap_or(0);
         let p = (u.int_in_range(0..=255).unwrap_or(0) as u32) % page_count;
 
         let edit = match kind {
@@ -556,13 +556,28 @@ fuzz_target!(|data: &[u8]| {
                     target,
                 }
             }
-            _ => {
+            34 => {
                 let id = u.int_in_range(0..=10).unwrap_or(0);
                 Edit::DeleteLink {
                     link: LinkId {
                         page_index: p,
                         index: id,
                     },
+                }
+            }
+            _ => {
+                let word = u.int_in_range(0..=10).unwrap_or(0) as u32;
+                let expected = match u.int_in_range(0..=2).unwrap_or(0) {
+                    0 => "Hel1o".to_owned(),
+                    1 => "W0rld".to_owned(),
+                    _ => format!("w{}", u.int_in_range(0..=99).unwrap_or(0)),
+                };
+                let text = format!("fix{}", u.int_in_range(0..=999).unwrap_or(0));
+                Edit::CorrectRecognisedText {
+                    page: p,
+                    word,
+                    expected,
+                    text,
                 }
             }
         };

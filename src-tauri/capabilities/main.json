@@ -24,6 +24,7 @@
     "allow-get-document-fonts",
     "allow-get-page-links",
     "allow-get-page-annotations",
+    "allow-get-recognised-words",
     "allow-get-annotation-summary",
     "allow-get-page-fields",
     "allow-get-signatures",

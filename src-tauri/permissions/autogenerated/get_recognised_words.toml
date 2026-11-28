@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-recognised-words"
+description = "Enables the get_recognised_words command without any pre-configured scope."
+commands.allow = ["get_recognised_words"]
+
+[[permission]]
+identifier = "deny-get-recognised-words"
+description = "Denies the get_recognised_words command without any pre-configured scope."
+commands.deny = ["get_recognised_words"]
