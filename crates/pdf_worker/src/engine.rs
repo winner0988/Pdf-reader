@@ -96,6 +96,7 @@ mod searchable_copy;
 pub use create::{Created, PdfBuilder};
 pub use identifier::write_identifier;
 pub use ocr::OcrKnown;
+pub use outline::{MergedOutlineEntry, SourceOutlineInput, build_merged_outline};
 pub use searchable_copy::SearchableCopy;
 
 pub mod links;
@@ -332,6 +333,18 @@ pub struct PdfDocument {
 }
 
 impl PdfDocument {
+    /// Creates a new empty PDF document in memory (B5-03, #440 POC).
+    pub fn new_blank() -> Result<Self, EngineError> {
+        Ok(Self {
+            doc: MuPdfDocument::new(),
+            owner: false,
+            ocr: ocr::OcrPages::new(),
+            removed: redaction::Removed::default(),
+            text_cache: RefCell::new(crate::text_cache::TextCache::new()),
+            redaction_groups: redaction::RedactionGroups::default(),
+        })
+    }
+
     /// Opens a PDF from memory. Encrypted documents are refused (not supported in the MVP).
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, EngineError> {
         Self::open(bytes, None)
@@ -1451,6 +1464,21 @@ impl PdfDocument {
             incremental,
             redaction: Some(check),
         })
+    }
+
+    /// Writes a merged document whole without `/Info` or XMP `/Metadata` (B5-03, ADR 0032).
+    pub fn write_merged(&self, out: &mut impl Write) -> Result<u64, EngineError> {
+        let mut trailer = self.doc.trailer()?;
+        trailer.dict_delete("Info")?;
+        let mut catalog = self.doc.catalog()?;
+        catalog.dict_delete("Info")?;
+        crate::privacy::walk_objects(&self.doc, |dict| {
+            dict.dict_delete("Metadata")?;
+            Ok(())
+        })?;
+        let mut options = PdfWriteOptions::default();
+        options.set_garbage(true);
+        write_limited(&self.doc, out, options)
     }
 
     /// Whether the document is encrypted (MVP-16), with a password or only with permissions.
