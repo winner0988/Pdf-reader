@@ -24,6 +24,8 @@ mupdf-sys = { version = "=0.8.0", default-features = false }
 # which `mupdf` already builds into the worker for Chinese (its `bundled-fonts-droid` feature);
 # named here to read its bytes. Same crate, same version: nothing new is built.
 mupdf-fonts-droid = "=0.8.0"
+# Parses XFDF XML (#447 POC, not for merge): already in Cargo.lock via plist, MIT, no unsafe.
+quick-xml = { version = "=0.42.0", default-features = false }
 # Read and cut the font of a text box (src/engine/text_box.rs, ADR 0018): both are pure Rust and
 # without unsafe code, which matters, as the font is untrusted input. MIT or Apache-2.0.
 skrifa = "0.50.0"

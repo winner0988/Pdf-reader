@@ -2703,6 +2703,7 @@ dependencies = [
  "mupdf",
  "mupdf-fonts-droid",
  "mupdf-sys",
+ "quick-xml",
  "serde_json",
  "sha2 0.11.1",
  "skrifa 0.50.0",
