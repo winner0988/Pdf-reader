@@ -568,12 +568,10 @@ fn refuses_mismatch_signed_not_allowed_no_tr3_memory_ocr_and_mixed_render_modes(
             if let WorkerResponse::OcrPolled { finished: f, .. } = host
                 .request(|request| WorkerRequest::OcrPoll { request })
                 .unwrap()
-            {
-                if f.iter()
+                && f.iter()
                     .any(|item| matches!(item.outcome, OcrOutcome::Recognised { .. }))
-                {
-                    finished = true;
-                }
+            {
+                finished = true;
             }
             if !finished {
                 std::thread::sleep(Duration::from_millis(30));

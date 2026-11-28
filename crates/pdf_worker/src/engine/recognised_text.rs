@@ -103,22 +103,35 @@ fn norm(dx: f32, dy: f32) -> Option<(f32, f32, f32)> {
     }
 }
 
-fn writing_basis(quad: &Quad) -> Option<((f32, f32), (f32, f32), f32)> {
+struct WritingBasis {
+    along: (f32, f32),
+    perp: (f32, f32),
+    height: f32,
+}
+
+fn writing_basis(quad: &Quad) -> Option<WritingBasis> {
     let (ux, uy, _) = norm(quad.ur.x - quad.ul.x, quad.ur.y - quad.ul.y)
         .or_else(|| norm(quad.lr.x - quad.ll.x, quad.lr.y - quad.ll.y))?;
     let (vx, vy, h) = norm(quad.ll.x - quad.ul.x, quad.ll.y - quad.ul.y)
         .or_else(|| norm(quad.lr.x - quad.ur.x, quad.lr.y - quad.ur.y))?;
-    Some(((ux, uy), (vx, vy), h.max(1.0)))
+    Some(WritingBasis {
+        along: (ux, uy),
+        perp: (vx, vy),
+        height: h.max(1.0),
+    })
 }
 
-/// Whether `curr` immediately follows `prev` along the same writing baseline inside one contiguous
-/// token (so switching between `3 Tr` and `4..=7 Tr` across `(prev, curr)` cannot be separated).
-fn continues_same_segment(prev: &ScannedGlyph, curr: &ScannedGlyph) -> bool {
-    let Some(((ux, uy), (vx, vy), prev_h)) = writing_basis(&prev.quad) else {
-        return false;
-    };
-    if let Some(((cu, cv), _, _)) = writing_basis(&curr.quad)
-        && ux * cu + uy * cv <= 0.9
+fn aligned_with_prev(
+    prev: &ScannedGlyph,
+    curr: &ScannedGlyph,
+    basis: &WritingBasis,
+    min_ratio: f32,
+    max_ratio: f32,
+) -> bool {
+    let (ux, uy) = basis.along;
+    let (vx, vy) = basis.perp;
+    if let Some(curr_basis) = writing_basis(&curr.quad)
+        && ux * curr_basis.along.0 + uy * curr_basis.along.1 <= 0.9
     {
         return false;
     }
@@ -128,33 +141,35 @@ fn continues_same_segment(prev: &ScannedGlyph, curr: &ScannedGlyph) -> bool {
     let base_dx = curr.quad.ll.x - prev.quad.ll.x;
     let base_dy = curr.quad.ll.y - prev.quad.ll.y;
     let perp = (base_dx * vx + base_dy * vy).abs();
-    perp <= 0.45 * prev_h && (-0.25 * prev_h..=0.35 * prev_h).contains(&along)
+    perp <= 0.45 * basis.height
+        && (min_ratio * basis.height..=max_ratio * basis.height).contains(&along)
+}
+
+/// Whether `curr` immediately follows `prev` along the same writing baseline inside one contiguous
+/// token (so switching between `3 Tr` and `4..=7 Tr` across `(prev, curr)` cannot be separated).
+fn continues_same_segment(prev: &ScannedGlyph, curr: &ScannedGlyph) -> bool {
+    writing_basis(&prev.quad)
+        .is_some_and(|basis| aligned_with_prev(prev, curr, &basis, -0.25, 0.35))
 }
 
 /// Whether two consecutive `3 Tr` non-whitespace glyphs belong to the same space-delimited word.
 fn same_tr3_word(prev: &ScannedGlyph, curr: &ScannedGlyph) -> bool {
-    let Some(((ux, uy), (vx, vy), prev_h)) = writing_basis(&prev.quad) else {
-        return true;
-    };
-    if let Some(((cu, cv), _, _)) = writing_basis(&curr.quad)
-        && ux * cu + uy * cv <= 0.9
-    {
-        return false;
-    }
-    let dx = curr.quad.ll.x - prev.quad.lr.x;
-    let dy = curr.quad.ll.y - prev.quad.lr.y;
-    let along = dx * ux + dy * uy;
-    let base_dx = curr.quad.ll.x - prev.quad.ll.x;
-    let base_dy = curr.quad.ll.y - prev.quad.ll.y;
-    let perp = (base_dx * vx + base_dy * vy).abs();
-    perp <= 0.45 * prev_h && (-0.30 * prev_h..=0.22 * prev_h).contains(&along)
+    writing_basis(&prev.quad).is_none_or(|basis| aligned_with_prev(prev, curr, &basis, -0.30, 0.22))
 }
 
 fn tight_word_geometry(glyphs: &[&ScannedGlyph]) -> (Quad, Rect) {
-    let ((ux, uy), (vx, vy), _) = glyphs
+    let WritingBasis {
+        along: (ux, uy),
+        perp: (vx, vy),
+        ..
+    } = glyphs
         .iter()
         .find_map(|g| writing_basis(&g.quad))
-        .unwrap_or(((1.0, 0.0), (0.0, 1.0), 12.0));
+        .unwrap_or(WritingBasis {
+            along: (1.0, 0.0),
+            perp: (0.0, 1.0),
+            height: 12.0,
+        });
 
     let mut u_min = f32::INFINITY;
     let mut u_max = f32::NEG_INFINITY;

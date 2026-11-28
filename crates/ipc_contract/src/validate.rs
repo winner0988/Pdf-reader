@@ -8256,7 +8256,7 @@ mod tests {
         );
         assert!(
             RecognisedWordsPage::Usable {
-                words: (0..=MAX_RECOGNISED_WORDS_PER_PAGE as u32)
+                words: (0..=MAX_RECOGNISED_WORDS_PER_PAGE)
                     .map(|i| word(i, "x"))
                     .collect(),
             }
