@@ -726,7 +726,7 @@ where
             for chunk in indices.chunks(MAX_PREPARE_TEXT_BOXES) {
                 let texts: Vec<String> = chunk.iter().map(|&pi| pending[pi].text.clone()).collect();
                 let results = prepare_text_boxes(&font, &texts);
-                for (&pi, res) in chunk.iter().zip(results.into_iter()) {
+                for (&pi, res) in chunk.iter().zip(results) {
                     match res {
                         PreparedTextBoxModel::Prepared(model) => {
                             pending[pi].prepared = Some(model);
@@ -1779,16 +1779,16 @@ enum AnnotKind {
 fn extract_note_or_freetext_text(b: &AnnotBuilder) -> Result<String, (SkipReason, String)> {
     let contents_exceeds = b.contents_truncated;
     let richtext_exceeds = b.richtext_truncated;
-    if let Some(c) = b.contents.as_deref() {
-        if !c.trim().is_empty() {
-            if contents_exceeds {
-                return Err((
-                    SkipReason::ExceedsLimit,
-                    "note/freetext content exceeds text byte limit".into(),
-                ));
-            }
-            return Ok(c.to_string());
+    if let Some(c) = b.contents.as_deref()
+        && !c.trim().is_empty()
+    {
+        if contents_exceeds {
+            return Err((
+                SkipReason::ExceedsLimit,
+                "note/freetext content exceeds text byte limit".into(),
+            ));
         }
+        return Ok(c.to_string());
     }
     if let Some(rt) = b.richtext.as_deref() {
         let trimmed = rt.trim_matches('\n');
@@ -2003,7 +2003,8 @@ fn parse_and_transform_quads(
     let mut min_y = f32::INFINITY;
     let mut max_x = f32::NEG_INFINITY;
     let mut max_y = f32::NEG_INFINITY;
-    for chunk in vals.chunks_exact(8) {
+    let (quad_slices, _) = vals.as_chunks::<8>();
+    for chunk in quad_slices {
         let ul = transform_xy(&page.ctm, chunk[0], chunk[1])?;
         let ur = transform_xy(&page.ctm, chunk[2], chunk[3])?;
         let ll = transform_xy(&page.ctm, chunk[4], chunk[5])?;
@@ -2316,12 +2317,12 @@ fn parse_freetext_style(b: &AnnotBuilder) -> (Option<String>, TextBoxStyle, bool
                             after_size.push_str(tok);
                         }
                     }
-                    if !after_size.is_empty() {
-                        if let Some(first_fam) = after_size.split(',').next() {
-                            match validate_font_family(first_fam) {
-                                Some(valid) => font_family = Some(valid),
-                                None => adjusted = true,
-                            }
+                    if !after_size.is_empty()
+                        && let Some(first_fam) = after_size.split(',').next()
+                    {
+                        match validate_font_family(first_fam) {
+                            Some(valid) => font_family = Some(valid),
+                            None => adjusted = true,
                         }
                     }
                 }
@@ -2373,14 +2374,14 @@ fn parse_freetext_style(b: &AnnotBuilder) -> (Option<String>, TextBoxStyle, bool
                             font_family = Some(valid);
                         }
                     }
-                    if size.is_none() {
-                        if let Ok(sz) = tokens[i - 1].parse::<f32>() {
-                            if sz == 0.0 {
-                                size = Some(12.0);
-                                adjusted = true;
-                            } else if sz.is_finite() {
-                                size = Some(sz);
-                            }
+                    if size.is_none()
+                        && let Ok(sz) = tokens[i - 1].parse::<f32>()
+                    {
+                        if sz == 0.0 {
+                            size = Some(12.0);
+                            adjusted = true;
+                        } else if sz.is_finite() {
+                            size = Some(sz);
                         }
                     }
                 }
@@ -2389,22 +2390,23 @@ fn parse_freetext_style(b: &AnnotBuilder) -> (Option<String>, TextBoxStyle, bool
                         tokens[i - 3].parse::<f32>(),
                         tokens[i - 2].parse::<f32>(),
                         tokens[i - 1].parse::<f32>(),
-                    ) {
-                        if r.is_finite() && g.is_finite() && bl.is_finite() {
-                            color = Some(Rgb {
-                                r: (r.clamp(0.0, 1.0) * 255.0).round() as u8,
-                                g: (g.clamp(0.0, 1.0) * 255.0).round() as u8,
-                                b: (bl.clamp(0.0, 1.0) * 255.0).round() as u8,
-                            });
-                        }
+                    ) && r.is_finite()
+                        && g.is_finite()
+                        && bl.is_finite()
+                    {
+                        color = Some(Rgb {
+                            r: (r.clamp(0.0, 1.0) * 255.0).round() as u8,
+                            g: (g.clamp(0.0, 1.0) * 255.0).round() as u8,
+                            b: (bl.clamp(0.0, 1.0) * 255.0).round() as u8,
+                        });
                     }
                 }
                 "g" | "G" if i >= 1 && color.is_none() => {
-                    if let Ok(gray) = tokens[i - 1].parse::<f32>() {
-                        if gray.is_finite() {
-                            let v = (gray.clamp(0.0, 1.0) * 255.0).round() as u8;
-                            color = Some(Rgb { r: v, g: v, b: v });
-                        }
+                    if let Ok(gray) = tokens[i - 1].parse::<f32>()
+                        && gray.is_finite()
+                    {
+                        let v = (gray.clamp(0.0, 1.0) * 255.0).round() as u8;
+                        color = Some(Rgb { r: v, g: v, b: v });
                     }
                 }
                 _ => {}

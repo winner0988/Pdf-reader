@@ -208,23 +208,23 @@ fn find_font_for_family(
     local_map: &HashMap<String, (PathBuf, u32, String)>,
     family: &str,
 ) -> Option<FontData> {
-    if let Some((path, face, canonical)) = local_map.get(&family.to_ascii_lowercase()) {
-        if let Ok(bytes) = std::fs::read(path) {
-            return Some(FontData {
-                bytes,
-                face: *face,
-                name: canonical.clone(),
-            });
-        }
+    if let Some((path, face, canonical)) = local_map.get(&family.to_ascii_lowercase())
+        && let Ok(bytes) = std::fs::read(path)
+    {
+        return Some(FontData {
+            bytes,
+            face: *face,
+            name: canonical.clone(),
+        });
     }
-    if family.eq_ignore_ascii_case("Arial") || family.eq_ignore_ascii_case("Microsoft JhengHei") {
-        if let Some(droid) = mupdf_fonts_droid::find_by_name("Droid Sans Fallback", false, false) {
-            return Some(FontData {
-                bytes: droid.data.to_vec(),
-                face: 0,
-                name: "Droid Sans Fallback".to_string(),
-            });
-        }
+    if (family.eq_ignore_ascii_case("Arial") || family.eq_ignore_ascii_case("Microsoft JhengHei"))
+        && let Some(droid) = mupdf_fonts_droid::find_by_name("Droid Sans Fallback", false, false)
+    {
+        return Some(FontData {
+            bytes: droid.data.to_vec(),
+            face: 0,
+            name: "Droid Sans Fallback".to_string(),
+        });
     }
     None
 }
