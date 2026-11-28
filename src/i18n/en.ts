@@ -2,7 +2,12 @@
 // Terminology is defined in docs/ux/glossary-en.md.
 
 import type { ErrorCode, FindingKind } from "@/features/shell/model";
-import type { BlockedAction, NotRemembered, SearchableSkipReason } from "@/ipc/generated/contract";
+import type {
+  BlockedAction,
+  NotRemembered,
+  RecognisedWordsUnusable,
+  SearchableSkipReason,
+} from "@/ipc/generated/contract";
 import type { Strings } from "./zh-TW";
 
 export const strings: Strings = {
@@ -1390,6 +1395,7 @@ export const strings: Strings = {
     searchAll: "Search in All Documents…",
     createPdf: "Create PDF from File…",
     searchableCopy: "Save as Searchable PDF…",
+    correctRecognisedText: "Correct Recognized Text",
     dontRecord: "Do not record this file",
     markSensitive: "Mark as Sensitive…",
     unmarkSensitive: "Remove Sensitive Mark…",
@@ -1545,6 +1551,30 @@ export const strings: Strings = {
         failed: "Text recognition failed",
       } satisfies Record<SearchableSkipReason, string>,
       failed: "Could not save as a searchable PDF. Please try again.",
+    },
+    correct: {
+      modeLabel: "Correct recognized text mode",
+      modeOn: "Correct recognized text: click a word or use Tab / Enter to edit; press Esc to exit.",
+      exitMode: "Done",
+      editorLabel: "Correct recognized text",
+      notice: "Changes text used for search and copy only; page appearance will not change",
+      wordLabel: (text: string) => `Correct recognized text: "${text}"`,
+      save: "Apply",
+      cancel: "Cancel",
+      signedBlocked: "Digitally signed",
+      emptyError: "Enter replacement text.",
+      tooLongError: "Text is too long; please shorten it.",
+      controlCharError: "Cannot contain line breaks or invisible control characters.",
+      mismatch: "This page's text has changed; please select the word again.",
+      failed: "Could not correct recognized text. Please try again.",
+      loadFailed: "Could not load recognized words for this page.",
+      unusable: {
+        signed: "This document has digital signatures and cannot be modified.",
+        notAllowed: "The author disallowed modifying this document.",
+        memoryOcrOnly: "Save as Searchable PDF first, then open the saved copy to edit",
+        noTextLayer: "This page has no editable invisible recognized text layer.",
+        mixedRenderModes: "This page mixes hidden text rendering modes and cannot be edited directly.",
+      } satisfies Record<RecognisedWordsUnusable, string>,
     },
   },
   settings: {
@@ -1862,6 +1892,13 @@ export const strings: Strings = {
       createPdf: ["create pdf", "convert to pdf", "new pdf"],
       ocr: ["ocr", "recognize text", "optical character recognition"],
       searchableCopy: ["searchable pdf", "save as searchable pdf", "ocr save", "invisible text layer"],
+      correctRecognisedText: [
+        "correct recognized text",
+        "correct text",
+        "fix ocr",
+        "edit recognized text",
+        "invisible text layer",
+      ],
       flatten: ["flatten form", "flatten fields"],
       insertFileAfterCurrent: ["insert pages", "merge", "append file"],
       replaceCurrentPage: ["replace pages", "replace page"],

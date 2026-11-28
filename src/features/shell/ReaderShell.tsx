@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -104,7 +105,7 @@ import { SourceLayersDialog } from "@/features/thumbnails/SourceLayersDialog";
 import { SourcePasswordDialog } from "@/features/thumbnails/SourcePasswordDialog";
 import { UndoPasswordDialog } from "@/features/thumbnails/UndoPasswordDialog";
 import { useTheme } from "@/features/theme/useTheme";
-import { DocumentView, type DocumentViewHandle } from "@/features/viewer/DocumentView";
+import { DocumentView, type DocumentViewHandle, type RecognisedWordsSession } from "@/features/viewer/DocumentView";
 import type { PageLayoutMode } from "@/features/viewer/layout";
 import { PresentationMode } from "@/features/viewer/PresentationMode";
 import { tauriWindowApi, type WindowApi } from "@/features/window/api";
@@ -136,6 +137,8 @@ import type {
   PageLink,
   PagesSource,
   PersonalDataMatch,
+  RecognisedWord,
+  RecognisedWordsPage,
   Rect,
   RedactionSummary,
   SaveResult,
@@ -402,6 +405,13 @@ export function ReaderShell({
   const [printJob, setPrintJob] = useState<PrintJob | null>(null);
   /** What the pointer does on the pages (B2-08): draws with the pen, or puts a stamp down. */
   const [tool, setTool] = useState<Tool | null>(null);
+  /** Whether the user is in `3 Tr` recognised-text correction mode (B7-12, #749). */
+  const [correctRecognisedTextMode, setCorrectRecognisedTextMode] = useState(false);
+  const [editingRecognisedWord, setEditingRecognisedWord] = useState<{ page: number; wordId: number } | null>(null);
+  const [recognisedPageStatus, setRecognisedPageStatus] = useState<{
+    doc: DocumentId;
+    statuses: ReadonlyMap<number, RecognisedWordsPage | null>;
+  } | null>(null);
   /** Whether the document's file may be on the recent files list (#73); null until asked. */
   const [recorded, setRecorded] = useState<boolean | null>(null);
   /** Security redaction (B2-21, ADR 0016). */
@@ -475,6 +485,9 @@ export function ReaderShell({
     setTextSelected(false);
     setLinkEditDialogState(null);
     setTool(null);
+    setCorrectRecognisedTextMode(false);
+    setEditingRecognisedWord(null);
+    setRecognisedPageStatus(null);
     setHint(null);
     setRecorded(null);
     setRedactionSummary(null);
@@ -1051,6 +1064,14 @@ export function ReaderShell({
     if (!annotations.textBox) return;
     return edits.registerFlusher(() => inlineTextBoxRef.current?.commit({ restoreFocus: false }) ?? Promise.resolve(true));
   }, [annotations.textBox, edits]);
+  const recognisedEditorRef = useRef<InlineTextEditorHandle | null>(null);
+  const setRecognisedEditor = useCallback((handle: InlineTextEditorHandle | null) => {
+    recognisedEditorRef.current = handle;
+  }, []);
+  useEffect(() => {
+    if (!editingRecognisedWord) return;
+    return edits.registerFlusher(() => recognisedEditorRef.current?.commit({ restoreFocus: false }) ?? Promise.resolve(true));
+  }, [editingRecognisedWord, edits]);
   // Commit an active inline text box when switching away from this tab.
   const prevTabActiveRef = useRef(active);
   useEffect(() => {
@@ -1061,6 +1082,8 @@ export function ReaderShell({
   }, [active]);
   const commitActiveTextBox = () => {
     if (inlineTextBoxRef.current) void inlineTextBoxRef.current.commit({ restoreFocus: false });
+    setCorrectRecognisedTextMode(false);
+    setEditingRecognisedWord(null);
   };
   // How the pen draws (B2-08).
   const [ink, setInk] = useState<{ color: InkColor; width: InkWidth }>({ color: "black", width: "medium" });
@@ -1317,6 +1340,18 @@ export function ReaderShell({
 
   // Esc exits fullscreen when no dialogs, menus, tools, or search are open (B4-03).
   useEffect(() => {
+    if (!correctRecognisedTextMode || editingRecognisedWord !== null || !active) return;
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      setCorrectRecognisedTextMode(false);
+      setEditingRecognisedWord(null);
+    };
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [correctRecognisedTextMode, editingRecognisedWord, active]);
+
+  useEffect(() => {
     if (!fullscreen || presentation !== null || !active) return;
     const onEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
@@ -1328,6 +1363,7 @@ export function ReaderShell({
         searchOpen ||
         readAloud.open ||
         tool !== null ||
+        correctRecognisedTextMode ||
         annotations.textBox !== null
       ) {
         return;
@@ -1351,6 +1387,7 @@ export function ReaderShell({
     searchOpen,
     readAloud.open,
     tool,
+    correctRecognisedTextMode,
     annotations.textBox,
     windowApi,
   ]);
@@ -1615,6 +1652,104 @@ export function ReaderShell({
 
   const isSigned = signatureReport !== null && signatureReport.signatures.length > 0;
   const redactionAllowed = !isSigned && permissions.modify;
+  const canCorrectRecognisedText =
+    doc !== undefined &&
+    ocrApi?.getRecognisedWords !== undefined &&
+    editingApi !== undefined &&
+    !isSigned &&
+    permissions.modify;
+  const currentPageRef = useRef(currentPage);
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  });
+  const handleRecognisedPageStatus = useCallback(
+    (pageDoc: DocumentId, pageIndex: number, result: RecognisedWordsPage | null) => {
+      setRecognisedPageStatus((prev) => {
+        const next = new Map(prev?.doc === pageDoc ? prev.statuses : []);
+        next.set(pageIndex, result);
+        return { doc: pageDoc, statuses: next };
+      });
+      if (pageIndex === currentPageRef.current - 1) {
+        if (result?.status === "unusable") {
+          setHint((last) => ({
+            text: strings.ocr.correct.unusable[result.reason],
+            id: (last?.id ?? 0) + 1,
+            done: false,
+          }));
+        } else if (result === null) {
+          setHint((last) => ({
+            text: strings.ocr.correct.loadFailed,
+            id: (last?.id ?? 0) + 1,
+            done: false,
+          }));
+        }
+      }
+    },
+    [],
+  );
+  const commitRecognisedWord = useCallback(
+    async (pageIndex: number, word: RecognisedWord, text: string): Promise<string | null> => {
+      if (!editingApi || doc === undefined || isSigned || !permissions.modify) {
+        return strings.ocr.correct.failed;
+      }
+      try {
+        await edits.run(async () => {
+          const before = latest?.() ?? { doc, unsaved: document_?.unsaved === true };
+          await editingApi.applyEdit(before.doc, {
+            kind: "correctRecognisedText",
+            page: pageIndex,
+            word: word.id,
+            expected: word.text,
+            text,
+          });
+          if (latest) await until(() => latest()?.doc !== before.doc);
+        });
+        return null;
+      } catch (error) {
+        const code = errorCodeOf(error);
+        if (code === "invalidArgument") return strings.ocr.correct.mismatch;
+        if (code === "signed") return strings.ocr.correct.unusable.signed;
+        if (code === "notAllowed") return strings.ocr.correct.unusable.notAllowed;
+        if (code === "limitExceeded") return strings.pages.saveFirst;
+        return (code && strings.error.messages[code]) || strings.ocr.correct.failed;
+      }
+    },
+    [editingApi, doc, isSigned, permissions.modify, edits, latest, document_?.unsaved],
+  );
+  const toggleCorrectRecognisedText = () => {
+    if (!canCorrectRecognisedText) return;
+    if (correctRecognisedTextMode) {
+      setCorrectRecognisedTextMode(false);
+      setEditingRecognisedWord(null);
+    } else {
+      commitActiveTextBox();
+      setTool(null);
+      setCorrectRecognisedTextMode(true);
+      setEditingRecognisedWord(null);
+      showHint(strings.ocr.correct.modeOn);
+    }
+  };
+  const activeRecognisedStatus =
+    doc !== undefined && recognisedPageStatus?.doc === doc
+      ? recognisedPageStatus.statuses.get(currentPage - 1)
+      : undefined;
+  const recognisedBannerMessage =
+    activeRecognisedStatus?.status === "unusable"
+      ? strings.ocr.correct.unusable[activeRecognisedStatus.reason]
+      : activeRecognisedStatus === null
+        ? strings.ocr.correct.loadFailed
+        : strings.ocr.correct.modeOn;
+  const recognisedWordsSession: RecognisedWordsSession | undefined =
+    correctRecognisedTextMode && canCorrectRecognisedText && ocrApi?.getRecognisedWords
+      ? {
+          getWords: ocrApi.getRecognisedWords,
+          onPageStatus: handleRecognisedPageStatus,
+          onCommitWord: commitRecognisedWord,
+          editingWord: editingRecognisedWord,
+          onEditingWordChange: setEditingRecognisedWord,
+          onRegisterEditor: setRecognisedEditor,
+        }
+      : undefined;
   const redactionDisabledReason = isSigned
     ? strings.redaction.signedDocument
     : !permissions.modify
@@ -1833,6 +1968,15 @@ export function ReaderShell({
     signBlocked: signingApi !== undefined && doc !== undefined && document_?.encrypted === true,
     ocr: ocrView.menu,
     onSearchableCopy: savable && ocrApi ? () => setDialog("searchableCopy") : undefined,
+    onCorrectRecognisedText: canCorrectRecognisedText ? toggleCorrectRecognisedText : undefined,
+    correctRecognisedTextBlocked:
+      doc === undefined
+        ? undefined
+        : isSigned
+          ? strings.ocr.correct.signedBlocked
+          : !permissions.modify
+            ? strings.permissions.notAllowed
+            : undefined,
     flatten:
       document_?.hasForm && editingApi !== undefined
         ? { onClick: fillForms ? () => setFlattenOpen(true) : undefined }
@@ -2069,6 +2213,26 @@ export function ReaderShell({
               />
             )}
             <div className="relative flex min-h-0 flex-1 flex-col">
+              {document_ && correctRecognisedTextMode && canCorrectRecognisedText && (
+                <div
+                  role="region"
+                  aria-label={strings.ocr.correct.modeLabel}
+                  className="flex shrink-0 items-center justify-between gap-2 border-b bg-amber-500/10 px-3 py-1.5 text-xs text-foreground"
+                >
+                  <span>{recognisedBannerMessage}</span>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => {
+                      setCorrectRecognisedTextMode(false);
+                      setEditingRecognisedWord(null);
+                    }}
+                  >
+                    {strings.ocr.correct.exitMode}
+                  </Button>
+                </div>
+              )}
               <div
                 aria-hidden="true"
                 data-drop-indicator
@@ -2159,6 +2323,7 @@ export function ReaderShell({
                       onEditTextBox={annotations.editTextBox}
                       onNewTextBox={annotations.newTextBox}
                       inlineTextBox={inlineTextBoxSession}
+                      recognisedWords={recognisedWordsSession}
                       onAnnotationProblem={showHint}
                       onNewLink={(page, rect) => setLinkEditDialogState({ mode: "add", page, rect })}
                       onEditLink={(link) => setLinkEditDialogState({ mode: "edit", link })}

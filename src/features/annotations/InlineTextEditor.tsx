@@ -20,6 +20,7 @@ import {
   type Ref,
 } from "react";
 
+import { Button } from "@/components/ui/button";
 import { noteText } from "@/features/annotations/model";
 import {
   cssFontFamily,
@@ -65,6 +66,7 @@ const PREPARE_DEBOUNCE_MS = 400;
 
 /** Approximate toolbar height (CSS px) used to decide whether it fits above the box. */
 const TOOLBAR_HEIGHT_ESTIMATE_PX = 136;
+const PLAIN_BAR_HEIGHT_ESTIMATE_PX = 76;
 
 /** Error codes that reject the font itself (surfaced immediately during background probe). */
 const EARLY_FONT_ERRORS = new Set([
@@ -98,6 +100,18 @@ export type InlineTextEditorHandle = {
   commit(options?: { restoreFocus?: boolean }): Promise<boolean>;
 };
 
+/** Plain inline text editing mode without font/style controls (e.g. OCR text layer correction, #749). */
+export type InlinePlainTextOptions = {
+  label: string;
+  notice: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  validate?: (value: string) => string | null;
+  escapeCancels?: boolean;
+  enterCommits?: boolean;
+  autoWidth?: boolean;
+};
+
 export type InlineTextEditorProps = {
   mode: "add" | "edit";
   /** Initial page-space rectangle of the editor. */
@@ -113,9 +127,11 @@ export type InlineTextEditorProps = {
   doc?: DocumentId;
   renderer?: PageRenderer;
   /** Fonts available on this computer (initial list; refreshed when the font menu opens). */
-  fonts: readonly FontInfo[];
+  fonts?: readonly FontInfo[];
   /** Existing content when `mode === "edit"`. */
   start?: InlineTextStart;
+  /** Plain single/inline text editing mode (omits FreeText font/style toolbar). */
+  plainText?: InlinePlainTextOptions;
   /** Last font family used, for new boxes. */
   lastFamily?: string;
   /** Client coordinates of the pointer click that started editing an existing box (for caret placement). */
@@ -194,8 +210,9 @@ export function InlineTextEditor({
   scale,
   doc,
   renderer,
-  fonts: initialFonts,
+  fonts: initialFonts = [],
   start,
+  plainText,
   lastFamily,
   clickClient,
   onRefreshFonts,
@@ -223,7 +240,7 @@ export function InlineTextEditor({
   const [rect, setRect] = useState<Rect>(initialRect);
   // Existing boxes keep their width fixed and grow downward; new boxes grow right until page edge
   // or until the user drags the width handle.
-  const [fixedWidth, setFixedWidth] = useState(mode === "edit");
+  const [fixedWidth, setFixedWidth] = useState(mode === "edit" && !plainText?.autoWidth);
   const [variantNote, setVariantNote] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -386,12 +403,58 @@ export function InlineTextEditor({
     });
   }, [text, previewSize, lineStep, family, bold, italic, fixedWidth, pixelsPerPoint, page, rect]);
 
+  const cancel = useCallback(
+    (options?: { restoreFocus?: boolean }) => {
+      if (finishedRef.current || committingRef.current) return;
+      clearPendingProbe();
+      finishedRef.current = true;
+      onCancel(options);
+    },
+    [clearPendingProbe, onCancel],
+  );
+
+  const runCommit = useCallback(
+    async (draft: InlineTextDraft, options?: { restoreFocus?: boolean }): Promise<boolean> => {
+      committingRef.current = true;
+      setBusy(true);
+      setProblem(null);
+      const failed = await onCommit(draft, options);
+      committingRef.current = false;
+      if (failed !== null) {
+        setBusy(false);
+        setProblem(failed);
+        return false;
+      }
+      finishedRef.current = true;
+      return true;
+    },
+    [onCommit],
+  );
+
   const commit = useCallback(
     async (options?: { restoreFocus?: boolean }): Promise<boolean> => {
       if (finishedRef.current) return true;
       if (committingRef.current) return false;
       clearPendingProbe();
       const cur = latestRef.current;
+
+      if (plainText) {
+        const validationError = plainText.validate?.(cur.text) ?? null;
+        if (validationError !== null) {
+          setProblem(validationError);
+          return false;
+        }
+        if (cur.text === (start?.text ?? "")) {
+          finishedRef.current = true;
+          onCancel(options);
+          return true;
+        }
+        return runCommit(
+          { text: cur.text, font: null, style: { size: previewSize, color: cur.color, align: cur.align }, rect: cur.rect },
+          options,
+        );
+      }
+
       const cleaned = noteText(cur.text);
       const points = Number(cur.sizeText);
 
@@ -403,21 +466,11 @@ export function InlineTextEditor({
       }
       // Existing box cleared to empty: caller deletes the annotation in one edit.
       if (mode === "edit" && cleaned === "") {
-        committingRef.current = true;
-        setBusy(true);
         if (probeInFlightRef.current) await probeInFlightRef.current;
-        const failed = await onCommit(
+        return runCommit(
           { text: "", font: cur.chosen ?? null, style: { size: previewSize, color: cur.color, align: cur.align }, rect: cur.rect },
           options,
         );
-        committingRef.current = false;
-        if (failed !== null) {
-          setBusy(false);
-          setProblem(failed);
-          return false;
-        }
-        finishedRef.current = true;
-        return true;
       }
 
       if (textTooLong(cleaned)) {
@@ -429,26 +482,15 @@ export function InlineTextEditor({
         return false;
       }
 
-      committingRef.current = true;
-      setBusy(true);
-      setProblem(null);
       // Wait for any in-flight probe to finish before commit calls `prepare_text_box`: the
       // backend retains only one uncommitted model at a time, so overlapping calls can evict it.
       if (probeInFlightRef.current) await probeInFlightRef.current;
-      const failed = await onCommit(
+      return runCommit(
         { text: cleaned, font: cur.chosen ?? null, style: { size: points, color: cur.color, align: cur.align }, rect: cur.rect },
         options,
       );
-      committingRef.current = false;
-      if (failed !== null) {
-        setBusy(false);
-        setProblem(failed);
-        return false;
-      }
-      finishedRef.current = true;
-      return true;
     },
-    [mode, onCancel, onCommit, previewSize, clearPendingProbe],
+    [mode, plainText, start?.text, onCancel, runCommit, previewSize, clearPendingProbe],
   );
 
   useImperativeHandle(ref, () => ({ commit }), [commit]);
@@ -580,6 +622,17 @@ export function InlineTextEditor({
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
+      event.nativeEvent.stopPropagation();
+      if (plainText?.escapeCancels) {
+        cancel({ restoreFocus: true });
+      } else {
+        void commit({ restoreFocus: true });
+      }
+      return;
+    }
+    if (event.key === "Enter" && plainText?.enterCommits) {
+      event.preventDefault();
+      event.stopPropagation();
       void commit({ restoreFocus: true });
       return;
     }
@@ -596,19 +649,24 @@ export function InlineTextEditor({
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      void commit({ restoreFocus: true });
+      event.nativeEvent.stopPropagation();
+      if (plainText?.escapeCancels) {
+        cancel({ restoreFocus: true });
+      } else {
+        void commit({ restoreFocus: true });
+      }
     }
   };
 
   const area = rectToBox(rect, page, rotation, box);
   const unrotatedWidthPx = (rect.x1 - rect.x0) * pixelsPerPoint;
   const unrotatedHeightPx = (rect.y1 - rect.y0) * pixelsPerPoint;
-  const paddingPx = TEXT_BOX_PADDING_PT * pixelsPerPoint;
+  const paddingPx = (plainText ? 1 : TEXT_BOX_PADDING_PT) * pixelsPerPoint;
   const fontSizePx = previewSize * pixelsPerPoint;
   const lineHeightRatio = lineStep / 1000;
 
   const fontRenderable = chosen ? isFontRenderable(chosen) : true;
-  const cssFamily = chosen && fontRenderable ? cssFontFamily(chosen.family) : "sans-serif";
+  const cssFamily = plainText ? "sans-serif" : chosen && fontRenderable ? cssFontFamily(chosen.family) : "sans-serif";
 
   const sharedTypography: CSSProperties = {
     fontFamily: cssFamily,
@@ -639,11 +697,14 @@ export function InlineTextEditor({
   if (viewOnlyFont) statusNotes.push(strings.annotations.textBoxViewOnly(viewOnlyFont));
   if (start?.overflow) statusNotes.push(e.overflow);
 
+  const barHeightEstimate = plainText ? PLAIN_BAR_HEIGHT_ESTIMATE_PX : TOOLBAR_HEIGHT_ESTIMATE_PX;
   const toolbarTop =
-    area.top >= TOOLBAR_HEIGHT_ESTIMATE_PX + 8
-      ? area.top - TOOLBAR_HEIGHT_ESTIMATE_PX - 8
+    area.top >= barHeightEstimate + 8
+      ? area.top - barHeightEstimate - 8
       : area.top + area.height + 8;
-  const toolbarMaxWidth = Math.min(440, Math.max(240, box.width));
+  const toolbarMaxWidth = plainText
+    ? Math.min(380, Math.max(220, box.width))
+    : Math.min(440, Math.max(240, box.width));
   const toolbarLeft = Math.max(0, Math.min(area.left, Math.max(0, box.width - toolbarMaxWidth)));
   const mirrorText = text.endsWith("\n") || text === "" ? `${text}\u200b` : text;
 
@@ -689,7 +750,7 @@ export function InlineTextEditor({
           <textarea
             ref={textareaRef}
             data-inline-text-box
-            aria-label={e.label}
+            aria-label={plainText ? plainText.label : e.label}
             aria-invalid={problem !== null}
             value={text}
             disabled={busy}
@@ -699,25 +760,31 @@ export function InlineTextEditor({
               setProblem(null);
             }}
             onKeyDown={handleTextareaKeyDown}
-            className="block size-full resize-none overflow-hidden border-0 bg-transparent outline-2 outline-dashed outline-primary focus:outline-primary"
+            className={
+              plainText
+                ? "block size-full resize-none overflow-hidden rounded-[2px] border-0 bg-background/95 outline-2 outline-solid outline-primary shadow-xs focus:outline-primary"
+                : "block size-full resize-none overflow-hidden border-0 bg-transparent outline-2 outline-dashed outline-primary focus:outline-primary"
+            }
             style={{
               ...sharedTypography,
-              color: toHex(currentStyle.color),
-              whiteSpace: "pre-wrap",
+              color: plainText ? "var(--foreground)" : toHex(currentStyle.color),
+              whiteSpace: plainText ? "nowrap" : "pre-wrap",
             }}
           />
 
           {/* Right-edge resize handle so the user can fix box width while typing. */}
-          <div
-            role="presentation"
-            data-inline-resize="e"
-            title={e.resizeWidth}
-            className="absolute top-1/2 -right-1.5 h-3 w-3 -translate-y-1/2 cursor-ew-resize rounded-[2px] border border-primary bg-background"
-            onPointerDown={startWidthDrag}
-            onPointerMove={moveWidthDrag}
-            onPointerUp={endWidthDrag}
-            onPointerCancel={endWidthDrag}
-          />
+          {!plainText && (
+            <div
+              role="presentation"
+              data-inline-resize="e"
+              title={e.resizeWidth}
+              className="absolute top-1/2 -right-1.5 h-3 w-3 -translate-y-1/2 cursor-ew-resize rounded-[2px] border border-primary bg-background"
+              onPointerDown={startWidthDrag}
+              onPointerMove={moveWidthDrag}
+              onPointerUp={endWidthDrag}
+              onPointerCancel={endWidthDrag}
+            />
+          )}
 
           {/* Hidden mirrors for auto-growing width (unwrapped) and height (wrapped). */}
           <div
@@ -741,36 +808,75 @@ export function InlineTextEditor({
         </div>
       </div>
 
-      <TextBoxToolbar
-        label={e.toolbarLabel}
-        top={toolbarTop}
-        left={toolbarLeft}
-        maxWidth={toolbarMaxWidth}
-        fonts={fonts}
-        family={family}
-        missingFontName={start && !own ? start.font : undefined}
-        bold={bold}
-        italic={italic}
-        sizeValue={sizeText}
-        color={color}
-        align={align}
-        disabled={busy}
-        onRefreshFonts={refreshFonts}
-        onFamilyChange={chooseFamily}
-        onToggleBold={() => toggleVariant("bold")}
-        onToggleItalic={() => toggleVariant("italic")}
-        onSizeChange={(value) => {
-          setSizeText(value);
-          setProblem(null);
-        }}
-        onSizeCommit={() => {
-          textareaRef.current?.focus();
-        }}
-        onColorChange={setColor}
-        onAlignChange={setAlign}
-        statusNotes={statusNotes}
-        problem={problem}
-      />
+      {plainText ? (
+        <div
+          role="group"
+          aria-label={plainText.label}
+          className="pointer-events-auto absolute z-30 flex flex-col gap-1.5 rounded-md border border-border bg-popover px-2.5 py-2 text-popover-foreground shadow-md"
+          style={{ top: toolbarTop, left: toolbarLeft, maxWidth: toolbarMaxWidth }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs text-muted-foreground">{plainText.notice}</span>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                type="button"
+                size="xs"
+                disabled={busy}
+                onClick={() => void commit({ restoreFocus: true })}
+              >
+                {plainText.confirmLabel}
+              </Button>
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => cancel({ restoreFocus: true })}
+              >
+                {plainText.cancelLabel}
+              </Button>
+            </div>
+          </div>
+          {problem && (
+            <p role="alert" className="text-xs text-destructive">
+              {problem}
+            </p>
+          )}
+        </div>
+      ) : (
+        <TextBoxToolbar
+          label={e.toolbarLabel}
+          top={toolbarTop}
+          left={toolbarLeft}
+          maxWidth={toolbarMaxWidth}
+          fonts={fonts}
+          family={family}
+          missingFontName={start && !own ? start.font : undefined}
+          bold={bold}
+          italic={italic}
+          sizeValue={sizeText}
+          color={color}
+          align={align}
+          disabled={busy}
+          onRefreshFonts={refreshFonts}
+          onFamilyChange={chooseFamily}
+          onToggleBold={() => toggleVariant("bold")}
+          onToggleItalic={() => toggleVariant("italic")}
+          onSizeChange={(value) => {
+            setSizeText(value);
+            setProblem(null);
+          }}
+          onSizeCommit={() => {
+            textareaRef.current?.focus();
+          }}
+          onColorChange={setColor}
+          onAlignChange={setAlign}
+          statusNotes={statusNotes}
+          problem={problem}
+        />
+      )}
     </div>
   );
 }

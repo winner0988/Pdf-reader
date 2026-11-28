@@ -3,7 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import type { DocumentId, LanguageImport, OcrLanguages } from "@/ipc/generated/contract";
+import type { DocumentId, LanguageImport, OcrLanguages, RecognisedWordsPage } from "@/ipc/generated/contract";
 
 export type OcrApi = {
   /** The languages installed: those that came with the app, and the ones the user imported. */
@@ -18,6 +18,8 @@ export type OcrApi = {
   stop(doc: DocumentId): Promise<void>;
   /** The page the user looks at, which is recognised first. */
   focus(doc: DocumentId, pageIndex: number): Promise<void>;
+  /** Lists the invisible (`3 Tr`) OCR words of `pageIndex`, when editable (B7-12, #749). */
+  getRecognisedWords?(doc: DocumentId, pageIndex: number): Promise<RecognisedWordsPage>;
 };
 
 export const tauriOcrApi: OcrApi = {
@@ -27,4 +29,6 @@ export const tauriOcrApi: OcrApi = {
   start: (doc) => invoke<void>("start_ocr", { args: { doc } }),
   stop: (doc) => invoke<void>("stop_ocr", { args: { doc } }),
   focus: (doc, pageIndex) => invoke<void>("set_ocr_focus", { args: { doc, pageIndex } }),
+  getRecognisedWords: (doc, pageIndex) =>
+    invoke<RecognisedWordsPage>("get_recognised_words", { doc, pageIndex }),
 };

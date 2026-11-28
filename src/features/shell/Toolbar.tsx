@@ -246,6 +246,10 @@ export type ToolbarProps = {
   ocr?: { running: boolean; onStart: () => void };
   /** Saves a copy with invisible OCR text layers on scanned pages (B4-08, Issue #416). */
   onSearchableCopy?: () => void;
+  /** Corrects OCR words in the page's invisible `3 Tr` text layer without altering visuals (B7-12, #749). */
+  onCorrectRecognisedText?: () => void;
+  /** Signed document or modify-disallowed document cannot correct recognised text: explains why. */
+  correctRecognisedTextBlocked?: string;
   /** The "⋯" menu opened. */
   onMoreMenuOpen?: () => void;
   /**
@@ -791,6 +795,7 @@ function MoreMenu(props: ToolbarProps) {
         {renderItem("createPdf")}
         {props.ocr && renderItem("ocr")}
         {renderItem("searchableCopy")}
+        {renderItem("correctRecognisedText")}
         {props.flatten && renderItem("flatten")}
         {renderItem("export")}
         {renderItem("exportAnnotations")}

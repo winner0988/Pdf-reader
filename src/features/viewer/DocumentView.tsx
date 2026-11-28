@@ -41,6 +41,8 @@ import {
 } from "@/features/viewer/layout";
 import { annotationAt } from "@/features/annotations/model";
 import { PageAnnotations, type InlineTextBoxSession } from "@/features/annotations/PageAnnotations";
+import type { InlineTextEditorHandle } from "@/features/annotations/InlineTextEditor";
+import { PageRecognisedWords } from "@/features/ocr/PageRecognisedWords";
 import { PageDrawing } from "@/features/annotations/PageDrawing";
 import { linkRectAt, pictureRectAt, redactionRectAt, stampRectAt, type Tool } from "@/features/annotations/tools";
 import type { AnnotationsApi, AnnotationSource } from "@/features/annotations/source";
@@ -81,9 +83,20 @@ import type {
   PageText,
   Point,
   RasterRegion,
+  RecognisedWord,
+  RecognisedWordsPage,
   Rect,
   Rotation as ContractRotation,
 } from "@/ipc/generated/contract";
+
+export type RecognisedWordsSession = {
+  getWords: (doc: DocumentId, pageIndex: number) => Promise<RecognisedWordsPage>;
+  onPageStatus: (doc: DocumentId, pageIndex: number, result: RecognisedWordsPage | null) => void;
+  onCommitWord: (pageIndex: number, word: RecognisedWord, text: string) => Promise<string | null>;
+  editingWord: { page: number; wordId: number } | null;
+  onEditingWordChange: (target: { page: number; wordId: number } | null) => void;
+  onRegisterEditor?: (handle: InlineTextEditorHandle | null) => void;
+};
 
 export type DocumentViewHandle = {
   /** Scrolls so that the 1-based `page` is at the top. */
@@ -162,6 +175,8 @@ type DocumentViewProps = {
   onNewTextBox?: (page: number, at: Point) => void;
   /** Active inline text box editor session, when one is open. */
   inlineTextBox?: InlineTextBoxSession;
+  /** Active `3 Tr` word correction session (B7-12, #749), when open. */
+  recognisedWords?: RecognisedWordsSession;
   /** Shows a status-bar hint (e.g. a view-only font notice from the floating toolbar). */
   onAnnotationProblem?: (text: string) => void;
   /** A new link is placed or dragged on a page (Issue #588, B6-03). */
@@ -272,6 +287,7 @@ export function DocumentView({
   onEditTextBox,
   onNewTextBox,
   inlineTextBox,
+  recognisedWords,
   onAnnotationProblem,
   onNewLink,
   onEditLink,
@@ -715,6 +731,29 @@ export function DocumentView({
       ) : null;
     if (!isLinkTool && pageLinksElement) {
       slots.push(pageLinksElement);
+    }
+    if (recognisedWords && doc !== undefined) {
+      slots.push(
+        <PageRecognisedWords
+          key={`recognised-${index}`}
+          getWords={recognisedWords.getWords}
+          doc={doc}
+          index={index}
+          page={pages[index]!}
+          rotation={rotation}
+          contractRotation={contractRotation}
+          box={box}
+          scale={renderAt}
+          left={left}
+          onPageStatus={recognisedWords.onPageStatus}
+          onCommitWord={recognisedWords.onCommitWord}
+          editingWordId={recognisedWords.editingWord?.page === index ? recognisedWords.editingWord.wordId : null}
+          onEditingWordChange={(wordId) =>
+            recognisedWords.onEditingWordChange(wordId === null ? null : { page: index, wordId })
+          }
+          onRegisterEditor={recognisedWords.onRegisterEditor}
+        />,
+      );
     }
     // The last layer, so that it gets the press before links, fields or text do.
     if (tool && (onAnnotationEdit || onNewLink) && doc !== undefined) {
